@@ -41,6 +41,7 @@ import {
 } from '@namzu/sdk'
 
 import type { SkillsConfig } from '../config/schema.js'
+import type { SkillHooksHost } from './skill-hooks.js'
 import {
 	SKILL_TIERS,
 	type SkillDiscoveryOptions,
@@ -98,6 +99,8 @@ export interface TurnSkillsInput {
 	readonly contextWindowTokens: number
 	/** The plugin runtime's registry, when plugins are on. */
 	readonly pluginSkills?: SkillRegistry
+	/** Reads and attaches the hooks a skill carries; absent, the `skill` tool has no way to run them. */
+	readonly skillHooks?: Pick<SkillHooksHost, 'prepareHooks'>
 }
 
 export interface TurnSkills {
@@ -275,6 +278,7 @@ export async function createSessionSkillCatalog(
 					if (plugins?.has(name)) return plugins.load(name)
 					return undefined
 				},
+				...(input.skillHooks ? { prepareHooks: input.skillHooks.prepareHooks } : {}),
 			}
 
 			return {

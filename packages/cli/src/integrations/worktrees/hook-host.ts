@@ -8,6 +8,7 @@
 import { randomUUID } from 'node:crypto'
 import { worktreeHookHost } from '@namzu/sdk'
 import type { WorktreeHookHost } from '@namzu/sdk'
+import { hookSwitch } from '../../config/hook-layers.js'
 import type { HooksConfig, NamzuCliConfig } from '../../config/schema.js'
 import { createCliPluginRuntime } from '../plugins/runtime.js'
 
@@ -21,14 +22,25 @@ export interface WorktreeHookRuntime {
 }
 
 export async function openWorktreeHookRuntime(
-	config: { readonly plugins?: NamzuCliConfig['plugins']; readonly hooks?: HooksConfig },
+	config: {
+		readonly plugins?: NamzuCliConfig['plugins']
+		readonly hooks?: HooksConfig
+		readonly disableHooks?: boolean
+		readonly hooksManagedOnly?: boolean
+	},
 	cwd: string,
 	say: (line: string) => void,
 ): Promise<WorktreeHookRuntime> {
 	const sessionId = randomUUID()
-	const runtime = await createCliPluginRuntime(config.plugins, cwd, config.hooks, {
-		sessionId: () => sessionId,
-	})
+	// The same switch every host honours: hook entries a plugin ships stay off under it.
+	const hooksSwitch = hookSwitch(config)
+	const runtime = await createCliPluginRuntime(
+		config.plugins,
+		cwd,
+		config.hooks,
+		{ sessionId: () => sessionId },
+		{ ...(hooksSwitch !== undefined ? { hooksSwitch } : {}) },
+	)
 	if (runtime === undefined) return { close: async () => undefined }
 	const stop = runtime.hookActivity.onNotice(say)
 	const host = worktreeHookHost(runtime.manager, () => sessionId)

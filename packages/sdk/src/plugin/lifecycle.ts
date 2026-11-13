@@ -31,6 +31,7 @@ import type {
 	PluginHookResult,
 	PluginLifecycleEvent,
 	PluginMCPServerConfig,
+	PluginManifest,
 	PluginScope,
 } from '../types/plugin/index.js'
 import { assertPluginHookEvent } from '../types/plugin/index.js'
@@ -156,6 +157,11 @@ function assertPluginTool(
 	}
 }
 
+/** A manifest `hooks` path that names a file of hook entries (not a module). */
+export function isHookEntriesPath(path: string): boolean {
+	return path.toLowerCase().endsWith('.json')
+}
+
 function immutableManifest(manifest: PluginDefinition['manifest']): PluginDefinition['manifest'] {
 	const mcpServers = manifest.mcpServers?.map((server) =>
 		Object.freeze({
@@ -177,6 +183,9 @@ function immutableManifest(manifest: PluginDefinition['manifest']): PluginDefini
 		...(manifest.tools ? { tools: Object.freeze([...manifest.tools]) } : {}),
 		...(manifest.skills ? { skills: Object.freeze([...manifest.skills]) } : {}),
 		...(manifest.hooks ? { hooks: Object.freeze([...manifest.hooks]) } : {}),
+		...(manifest.hookEntries
+			? { hookEntries: Object.freeze(structuredClone(manifest.hookEntries)) }
+			: {}),
 		...(mcpServers ? { mcpServers: Object.freeze(mcpServers) } : {}),
 		...(manifest.connectors ? { connectors: Object.freeze([...manifest.connectors]) } : {}),
 		...(manifest.personas ? { personas: Object.freeze([...manifest.personas]) } : {}),
@@ -209,6 +218,20 @@ export interface PluginLifecycleManagerConfig {
 	skillRegistry?: SkillRegistry
 	log: Logger
 	hookTimeoutMs?: number
+	/**
+	 * Hooks a host reads for a plugin when it is enabled, beyond the JavaScript
+	 * modules its manifest lists (shell, http and prompt entries a plugin ships,
+	 * for one). They are attached under the plugin's id the moment it is
+	 * enabled and removed with its other hooks when it is disabled, uninstalled
+	 * or its enable is rolled back, so they live exactly as long as the plugin
+	 * is on. Not called for a plugin defined in code. A throw fails the enable.
+	 */
+	hooksFor?: (plugin: {
+		readonly id: PluginId
+		readonly manifest: PluginManifest
+		readonly rootDir: string
+		readonly scope: PluginScope
+	}) => readonly PluginHookDefinition[] | Promise<readonly PluginHookDefinition[]>
 	/**
 	 * Where each MCP server's reconnect policy is registered, so an operator
 	 * can retune it while a turn is live.
@@ -247,6 +270,19 @@ export interface PluginLifecycleManagerConfig {
 	onMCPToolDrift?: MCPToolDiscoveryOptions['onDrift']
 }
 
+/**
+ * What {@link PluginLifecycleManager.attachHooks} gives back: a way to take
+ * off exactly the hooks that call attached.
+ */
+export interface HookAttachment {
+	/** How many hooks the call attached. */
+	readonly size: number
+	/** Take every hook of this attachment off; returns how many were still attached. Safe to call again. */
+	readonly remove: () => number
+	/** Take off the hook at this position of the call's list; false when it is gone already or there is none. */
+	readonly removeAt: (index: number) => boolean
+}
+
 export class PluginLifecycleManager {
 	private pluginRegistry: PluginRegistry
 	/** Each installed plugin owns its own file source and one source per MCP server. */
@@ -265,14 +301,21 @@ export class PluginLifecycleManager {
 			priority: number
 			seq: number
 			statusMessage?: string
+			/** Read by the host from entries the plugin ships, not a module the plugin runs. */
+			shell?: true
+			/** On `file_changed`: the paths the hook's matcher names. */
+			watches?: readonly string[]
 		}>
 	> = new Map()
+	private hookSeq = 0
+	private readonly hooksChangedListeners = new Set<() => void>()
 	private pluginContributions: Map<PluginId, PluginContributionRecord> = new Map()
 	/** Reserve each id before async admission so lifecycle calls cannot overlap. */
 	private readonly lifecycleTails = new Map<PluginId, Promise<void>>()
 	/** Immutable executable admissions owned by this manager, never by the mutable registry. */
 	private pluginAdmissions: Map<PluginId, PluginAdmission> = new Map()
 	private hookTimeoutMs: number
+	private readonly hooksFor: PluginLifecycleManagerConfig['hooksFor']
 	private readonly configRegistry: ConfigRegistry | undefined
 	private readonly scopeRoots: Readonly<Record<PluginScope, string>>
 	private log: Logger
@@ -299,6 +342,7 @@ export class PluginLifecycleManager {
 		this.skillRegistry = config.skillRegistry
 		this.scopeRoots = Object.freeze({ ...config.scopeRoots })
 		this.hookTimeoutMs = config.hookTimeoutMs ?? HOOK_TIMEOUT_MS
+		this.hooksFor = config.hooksFor
 		this.configRegistry = config.configRegistry
 		this.mcpToolPolicies = config.mcpToolPolicies
 		this.onMCPToolDrift = config.onMCPToolDrift
@@ -411,24 +455,98 @@ export class PluginLifecycleManager {
 	 * registration order.
 	 */
 	registerHook(pluginId: PluginId, hook: PluginHookDefinition): void {
+		this.addHook(pluginId, hook, false)
+	}
+
+	/**
+	 * Attach hooks that can be taken off again, and nothing else.
+	 *
+	 * Hooks left the manager only by plugin id: everything one id attached went
+	 * together, and a hook attached for a while (a skill's, for as long as it is
+	 * used) had no way to leave on its own. This returns a handle that removes
+	 * exactly the hooks this call attached, whoever else registered under the
+	 * same id, and a handle for one hook of them. A hook that is removed while
+	 * an event is being answered still answers that event: the event started
+	 * with the hooks it found.
+	 *
+	 * All or nothing: when one definition is refused (an event nothing emits),
+	 * none of them is attached.
+	 */
+	attachHooks(pluginId: PluginId, hooks: readonly PluginHookDefinition[]): HookAttachment {
+		for (const hook of hooks) assertPluginHookEvent(hook.event)
+		const records = hooks.map((hook) => this.addHook(pluginId, hook, false))
+		const removeRecords = (gone: ReadonlySet<object>): number => {
+			let removed = 0
+			for (const [event, handlers] of this.hookHandlers) {
+				const kept = handlers.filter((handler) => !gone.has(handler))
+				removed += handlers.length - kept.length
+				if (kept.length === handlers.length) continue
+				if (kept.length === 0) this.hookHandlers.delete(event)
+				else this.hookHandlers.set(event, kept)
+			}
+			if (removed > 0) this.notifyHooksChanged()
+			return removed
+		}
+		return {
+			size: records.length,
+			remove: () => removeRecords(new Set(records)),
+			removeAt: (index) => {
+				const record = records[index]
+				return record === undefined ? false : removeRecords(new Set([record])) > 0
+			},
+		}
+	}
+
+	private addHook(pluginId: PluginId, hook: PluginHookDefinition, shell: boolean): object {
 		// Refused here rather than left to never fire: a hook module still
 		// naming `run_start` would otherwise attach to an event nothing emits,
 		// and the operator would learn of the rename only by its silence.
 		assertPluginHookEvent(hook.event)
 		const handlers = this.hookHandlers.get(hook.event) ?? []
-		handlers.push({
+		const record = {
 			pluginId,
 			handler: hook.handler,
 			priority: hook.priority ?? DEFAULT_HOOK_PRIORITY,
 			...(hook.statusMessage !== undefined ? { statusMessage: hook.statusMessage } : {}),
-			// Registration index, so the sort has something stable to fall
-			// back on when priorities are equal.
-			seq: handlers.length,
-		})
+			...(shell ? { shell: true as const } : {}),
+			...(hook.watches !== undefined ? { watches: hook.watches } : {}),
+			// Registration order, so the sort has something stable to fall back
+			// on when priorities are equal. A counter, not the list's length: a
+			// hook taken off again would otherwise hand its number to the next.
+			seq: this.hookSeq++,
+		}
+		handlers.push(record)
 		// Sorted on insert rather than on dispatch: a chain runs on every
 		// tool call, and the order only changes when a plugin comes or goes.
 		handlers.sort((a, b) => a.priority - b.priority || a.seq - b.seq)
 		this.hookHandlers.set(hook.event, handlers)
+		this.notifyHooksChanged()
+		return record
+	}
+
+	/**
+	 * Called after a hook was attached or taken off, however it happened (a
+	 * plugin enabled or disabled, a skill's hooks attached, a handle removed).
+	 * For a host that keeps something in step with the hooks, such as the files
+	 * `file_changed` hooks watch. Returns what ends the subscription.
+	 */
+	onHooksChanged(listener: () => void): () => void {
+		this.hooksChangedListeners.add(listener)
+		return () => {
+			this.hooksChangedListeners.delete(listener)
+		}
+	}
+
+	private notifyHooksChanged(): void {
+		for (const listener of [...this.hooksChangedListeners]) {
+			try {
+				listener()
+			} catch (error) {
+				this.log.warn('A hooks-changed listener threw', {
+					'exception.message': toErrorMessage(error),
+				})
+			}
+		}
 	}
 
 	/**
@@ -436,10 +554,29 @@ export class PluginLifecycleManager {
 	 * and its event, in the order answers are read. For a host that shows the
 	 * operator what is attached; it carries no handler.
 	 */
-	listHooks(): readonly { readonly pluginId: PluginId; readonly event: PluginHookEvent }[] {
-		const out: { pluginId: PluginId; event: PluginHookEvent }[] = []
+	listHooks(): readonly {
+		readonly pluginId: PluginId
+		readonly event: PluginHookEvent
+		/** Set when the hook was read from entries the plugin ships and not from a module it runs. */
+		readonly shell?: true
+		/** On `file_changed`: the paths the hook's matcher names. */
+		readonly watches?: readonly string[]
+	}[] {
+		const out: {
+			pluginId: PluginId
+			event: PluginHookEvent
+			shell?: true
+			watches?: readonly string[]
+		}[] = []
 		for (const [event, handlers] of this.hookHandlers) {
-			for (const handler of handlers) out.push({ pluginId: handler.pluginId, event })
+			for (const handler of handlers) {
+				out.push({
+					pluginId: handler.pluginId,
+					event,
+					...(handler.shell === true ? { shell: true as const } : {}),
+					...(handler.watches !== undefined ? { watches: handler.watches } : {}),
+				})
+			}
 		}
 		return out
 	}
@@ -739,6 +876,9 @@ export class PluginLifecycleManager {
 				for (const hook of admission.inCode.hooks) this.registerHook(pluginId, hook)
 			} else if (manifest.hooks && manifest.hooks.length > 0) {
 				for (const hookPath of manifest.hooks) {
+					// A `.json` path is a file of hook entries, read by the host through
+					// `hooksFor`; it is not a module.
+					if (isHookEntriesPath(hookPath)) continue
 					const absolutePath = await resolveWithinReal(admission.rootDir, hookPath)
 					const fileUrl = pathToFileURL(absolutePath).href
 					const mod = (await import(fileUrl)) as {
@@ -755,6 +895,18 @@ export class PluginLifecycleManager {
 						this.registerHook(pluginId, hook)
 					}
 				}
+			}
+
+			// Entries the host reads from the plugin folder: attached now, removed
+			// with the rest of this plugin's hooks.
+			if (!admission.inCode && this.hooksFor) {
+				const shipped = await this.hooksFor({
+					id: pluginId,
+					manifest,
+					rootDir: admission.rootDir,
+					scope: admission.scope,
+				})
+				for (const hook of shipped) this.addHook(pluginId, hook, true)
 			}
 
 			// Start MCP servers and adapt their tools
@@ -945,6 +1097,7 @@ export class PluginLifecycleManager {
 				this.hookHandlers.set(event, filtered)
 			}
 		}
+		this.notifyHooksChanged()
 	}
 
 	private async stopMcpContributions(
@@ -1028,6 +1181,7 @@ export class PluginLifecycleManager {
 				this.hookHandlers.set(event, filtered)
 			}
 		}
+		this.notifyHooksChanged()
 
 		this.pluginContributions.delete(pluginId)
 		this.instructions.unregister(

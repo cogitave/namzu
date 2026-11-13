@@ -324,6 +324,31 @@ export const FIXTURE_CASES: readonly FixtureCase[] = [
 		warnings: ['skill-unknown-key'],
 	},
 	{
+		// The `hooks` key is read now: a guard that cannot be loaded is named, and the skill still loads.
+		name: 'skill-hooks-unreadable-guard',
+		files: () => ({
+			'plugin.json': manifest({ skills: ['skills/reconcile'] }),
+			'skills/reconcile/SKILL.md': SKILL_OK.replace(
+				'---\nCompare',
+				'hooks:\n  PreToolUse:\n    - hooks:\n        - args: ["a"]\n---\nCompare',
+			),
+		}),
+		errors: [],
+		warnings: ['skill-hooks-problem'],
+	},
+	{
+		name: 'skill-hooks-readable',
+		files: () => ({
+			'plugin.json': manifest({ skills: ['skills/reconcile'] }),
+			'skills/reconcile/SKILL.md': SKILL_OK.replace(
+				'---\nCompare',
+				'hooks:\n  PreToolUse:\n    - matcher: Bash\n      hooks:\n        - command: ./guard.sh\n---\nCompare',
+			),
+		}),
+		errors: [],
+		warnings: [],
+	},
+	{
 		name: 'skill-long-description',
 		files: () => ({
 			'plugin.json': manifest({ skills: ['skills/reconcile'] }),
@@ -636,6 +661,31 @@ export const FIXTURE_CASES: readonly FixtureCase[] = [
 		}),
 		errors: [],
 		warnings: ['agent-unknown-key'],
+	},
+	{
+		// The `hooks` key is read now: a guard that cannot be loaded is named, and the agent is not offered.
+		name: 'agent-hooks-unreadable-guard',
+		files: () => ({
+			'plugin.json': manifest({ agents: ['agents'] }),
+			'agents/x.md': AGENT_OK.replace(
+				'---\nYou',
+				'hooks:\n  PreToolUse:\n    - hooks:\n        - args: ["a"]\n---\nYou',
+			),
+		}),
+		errors: ['agent-hooks-problem'],
+		warnings: [],
+	},
+	{
+		name: 'agent-hooks-readable',
+		files: () => ({
+			'plugin.json': manifest({ agents: ['agents'] }),
+			'agents/x.md': AGENT_OK.replace(
+				'---\nYou',
+				'hooks:\n  Stop:\n    - hooks:\n        - command: ./done.sh\n---\nYou',
+			),
+		}),
+		errors: [],
+		warnings: [],
 	},
 	{
 		name: 'agent-empty-body',

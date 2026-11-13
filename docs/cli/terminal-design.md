@@ -894,6 +894,23 @@ list marker inside a quote wait until they are decided, in both screens. Rows pr
 resize keep the width they had. The fullscreen view draws the same tail and
 prints nothing, since it redraws freely.
 
+A very long reply is a matter of cost, and the cost follows the reply, not its
+square. The program that draws the screen is built to run React's production
+build (`process.env.NODE_ENV` is fixed to `"production"` in the text of the
+bundle, `packages/cli/scripts/bundle-options.mjs`). Before that it ran the
+development build, which keeps a record of the props of every component it draws
+(and a reply's text is a prop) for the life of the process: memory grew with the
+square of the reply, about 1.7 GB for 100 KB and the end of the process, "JavaScript
+heap out of memory", for 200 KB. The environment of the shell tool is not written
+to. Measured on the default screen at 120x40 (a fake model on loopback, text
+arriving 480 characters every 60 ms): a 100 KB code reply 8.9 s of processor and
+1.7 GB, now 3.8 s and 0.44 GB; 200 KB ended the process, now 5.1 s and 0.53 GB; 1 MB of code
+19 s and 1.2 GB, 1 MB of prose 21 s and 1.5 GB (they ended the process before). In the fullscreen
+view the lines of a growing code block are kept too (a line's rows depend on the line, the width,
+the indentation, its colour runs and the theme), where every line was cut and coloured again at
+every piece: 1 MB of code 125 s and 2.7 GB before, 38 s and 2.7 GB now; 1 MB of prose 139 s before,
+32 s now (processor seconds of the whole process, startup about 1.3 s included).
+
 ## The model's plan
 
 `task_create`, `task_update` and `task_list` draw one checklist, and it lives
@@ -1133,8 +1150,19 @@ The conversation is a window onto rows like the scroll box above draws: a glyph
 gutter, wrapped text, a blank row between entries. A reply is drawn as
 Markdown, the way the normal transcript draws it (headings, lists, code blocks
 with nothing beside them, tables, inline styling), from the same parser,
-wrapper and table layout; a code line too long for the row is cut by the same
-wrapper the normal transcript uses. Other messages are plain wrapped text. A `⎿` result line (an interruption, a declined call, a tool's result) hangs in the same columns as in the normal transcript: the mark in the third cell and its words from the sixth, with a wrapped line under the words; the mark is part of the row text, so a copy of such a row includes it. Only the rows that fit are built into elements, so the
+wrapper and table layout; a code line too long for the row is cut as the normal
+transcript cuts it (`fullscreen/code-wrap.ts` holds the same rules as Ink's
+`<Text wrap="wrap">`, and a test draws many lines both ways and requires the same
+rows). The rows are made while the window renders, so nothing here may start a
+second render: Ink's `renderToString` called from there left the layout engine
+holding an update for a freed node and stopped the program with `table index is
+out of bounds` in any window narrower than a code line (every code block at 80
+columns). A streamed reply is laid out again at each piece, so the rows of the
+blocks that did not change are kept (up to 4,000,000 characters of blocks, oldest out; a count of 48 blocks was smaller than the blocks of a long reply, so each was laid out again at every piece and 200 KB of prose cost about three times the time of the same text laid out once) and the plain
+wrap of a reply's whole text is not made at all; a line of 50,000 characters
+costs the window the same as a short one, the text stays complete for copy and
+search, and a key is echoed in under 100 ms while such a reply streams. A reply of 1 MB of code is the edge of what the view is built for: it finishes, but one key echo was measured at 250 ms and the process peaked near 2.6 GB (the kept rows hold one object per run of text, so their memory follows the reply, not the 4,000,000-character bound on their keys). Other
+messages are plain wrapped text. A `⎿` result line (an interruption, a declined call, a tool's result) hangs in the same columns as in the normal transcript: the mark in the third cell and its words from the sixth, with a wrapped line under the words; the mark is part of the row text, so a copy of such a row includes it. Only the rows that fit are built into elements, so the
 cost of a frame follows the terminal's height, not the conversation's.
 Messages are laid out once per width and kept. The spinner, composer and
 footer are pinned under it and the window takes the rest of the height; the
@@ -1538,7 +1566,7 @@ The terminal app speaks in the person's terms. `--json`, `namzu exec`, scheduled
 - **Provider setup (`s`) never prints what a program printed.** The probe's output is read for a version number (`versionFromProbe` skips warnings) and the row says "Installed · version 0.46.0", "Not installed" or "Couldn’t check Codex. Details: --debug"; an install shows "Installing Codex… This can take a minute." and, if it fails, "Couldn’t install Codex. Details: --debug". The raw lines appear only with `--debug`. `setup-text.ts` holds the wording.
 - **Folders in a sentence** are written with `~` for home, and when the line is short of room `displayPath` cuts the middle and keeps the first segment and the last folder whole ("~/…/packages/cli"). Every such path, the footer's included, is spelled with the platform's separator (`homePath` and `displayPath` are the one helper: `~\Work\clients\leaf-folder` on Windows, `~/Work/clients/leaf-folder` elsewhere). The folder trust prompt fits its path to the box's real content width (the terminal minus the app's inset, the border and the padding, `boxedContentWidth`), so the path draws one row from 40 columns up, its title and two sentences break evenly with no stray word on a line of its own ("files", "exit" alone), and the two choices share a row only when both fit.
 - **The startup header and `/status` write the folder the same way**: from `~` or, when it does not fit, its last folders cut on a separator (`…/hygiene-live/run/proj`), never clipped from the left in the middle of a name. The bypass warning under the header and the bypass question printed before the screen opens wrap on words, with one constant indent on continuation rows, at the terminal's width.
-- **The folder trust prompt says what the folder pre-approves** before the choice. It reads the folder's own `namzu.config.json` and `namzu.config.local.json` without applying them and lists the allow rules (`bash(git status *)`, at most eight, the rest counted), the extra directories the folder adds to the workspace, the tool servers its shared file would start and the hooks its two files declare, in either shape (each as its event as written and what it would run, a group of the [common shape](../sdk/hooks.md#a-hooks-block-in-the-common-shape) read through to the hooks inside it, such as the command, `POST <address>` or the start of a prompt; at most eight, the rest counted, each line bounded), then one line saying they apply without asking. A folder whose config grants nothing shows nothing extra. The focus rests on the exit choice: `y` trusts, and `enter`, `n` or `esc` exits, so the answer the folder has to earn is never the default and a stray Enter can only leave. An Enter that arrives while the screen is still painting (the launch keystroke) is ignored, as `y` is. The detailed transcript hides the stale mode footer while open; clipping of long descriptions below about 90 columns is not addressed here.
+- **The folder trust prompt says what the folder pre-approves** before the choice. It reads the folder's own `namzu.config.json` and `namzu.config.local.json` without applying them and lists the allow rules (`bash(git status *)`, at most eight, the rest counted), the extra directories the folder adds to the workspace, the tool servers its shared file would start and the hooks its two files declare and the hook entries its own plugins (`.namzu/plugins/`) ship (each of those ending in the plugin's name, `(plugin review-bot)`), in either shape (each as its event as written and what it would run, a group of the [common shape](../sdk/hooks.md#a-hooks-block-in-the-common-shape) read through to the hooks inside it, such as the command, `POST <address>` or the start of a prompt; at most eight, the rest counted, each line bounded), then one line saying they apply without asking. A folder whose config grants nothing shows nothing extra. The focus rests on the exit choice: `y` trusts, and `enter`, `n` or `esc` exits, so the answer the folder has to earn is never the default and a stray Enter can only leave. An Enter that arrives while the screen is still painting (the launch keystroke) is ignored, as `y` is. The detailed transcript hides the stale mode footer while open; clipping of long descriptions below about 90 columns is not addressed here.
 - **The permission box names things once and keeps its words whole.** A write says what it does to the file (`New file · 3 lines` or `Replaces the existing file · 3 lines`; the title says `· new file` or `· may overwrite` to match) and the question does not repeat the file's name; several writes in one box name each file on its own row. The answers keep a hanging indent when one wraps, and the folder in "don't ask again for … in <folder>" is written from `~` or its last folders. An edit is drawn against the file as it is on disk when the box opens: the removed and added rows are the whole lines the replacement touches, and a line above them says when the text to replace is no longer in the file or now appears more than once. The review wraps on word boundaries (a word wider than a row is still cut so no character is ever hidden). On a workflow review, `d read the whole script` outranks `y / n answer` when the key line is short of room, because it is the only key that shows what will run.
 - **The detailed transcript (`ctrl+o`) and the workflow detail replace the composer's mode footer** rather than drawing under it, so no stale footer row sits above them; both carry their own key line.
 - **One gutter for every tool result.** A shell body, a one-line result and a web result all hang from the same `  ⎿  ` (two columns of indent, the glyph, two spaces), and a wrapped result lines up under its own text.

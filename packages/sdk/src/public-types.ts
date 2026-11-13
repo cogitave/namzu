@@ -226,7 +226,7 @@ export type {
 
 export type { ManagedRegistryConfig } from './registry/index.js'
 
-export type { PluginLifecycleManagerConfig } from './plugin/lifecycle.js'
+export type { HookAttachment, PluginLifecycleManagerConfig } from './plugin/lifecycle.js'
 export type {
 	AgentDefinitionRoot,
 	AgentFileDefinition,
@@ -257,6 +257,7 @@ export type {
 	WatchDirectory,
 } from './plugin/file-change-watch.js'
 export type { FileChangeHooksOptions } from './plugin/file-change-hooks.js'
+export type { PluginFolders } from './plugin/shell-hook-env.js'
 
 export type {
 	PlanApprovalHandler,

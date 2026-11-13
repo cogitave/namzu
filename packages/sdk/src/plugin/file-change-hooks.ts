@@ -18,12 +18,17 @@ import { FileChangeWatcher, type FileChangeWatcherOptions } from './file-change-
 import type { PluginLifecycleManager } from './lifecycle.js'
 
 export interface FileChangeHooksOptions {
-	readonly manager: Pick<PluginLifecycleManager, 'executeHooks'>
+	readonly manager: Pick<PluginLifecycleManager, 'executeHooks'> &
+		Partial<Pick<PluginLifecycleManager, 'listHooks' | 'onHooksChanged'>>
 	/** Relative paths are under this folder. */
 	readonly cwd: string
 	/** The session now; asked at each event, because a host's session can change. */
 	readonly sessionId: () => string
-	/** Paths the `file_changed` matchers name, from the host's hook configuration. */
+	/**
+	 * Paths the `file_changed` matchers name, from the host's hook configuration.
+	 * The matchers of hooks attached to the manager (a plugin's, a skill's, an
+	 * agent file's) are read from it and added, now and whenever they change.
+	 */
 	readonly matcherPaths: readonly string[]
 	/** A line a hook gave for the person. */
 	readonly onNotice?: (line: string) => void
@@ -52,6 +57,7 @@ export class FileChangeHooks {
 	private handedBack: readonly string[] = []
 	private readonly watcher: FileChangeWatcher
 	private closed = false
+	private readonly stopListening: (() => void) | undefined
 
 	constructor(private readonly options: FileChangeHooksOptions) {
 		this.watcher = new FileChangeWatcher({
@@ -60,6 +66,9 @@ export class FileChangeHooks {
 			onChange: (change) => {
 				void this.fire(change.path, change.change)
 			},
+		})
+		this.stopListening = options.manager.onHooksChanged?.(() => {
+			if (!this.closed) this.refresh()
 		})
 		this.refresh()
 	}
@@ -84,11 +93,16 @@ export class FileChangeHooks {
 
 	close(): void {
 		this.closed = true
+		this.stopListening?.()
 		this.watcher.close()
 	}
 
 	private refresh(): void {
 		const all = [...this.options.matcherPaths]
+		for (const hook of this.options.manager.listHooks?.() ?? []) {
+			if (hook.event !== 'file_changed') continue
+			for (const path of hook.watches ?? []) if (!all.includes(path)) all.push(path)
+		}
 		for (const path of this.handedBack) if (!all.includes(path)) all.push(path)
 		this.watcher.setPaths(all, this.options.cwd)
 	}

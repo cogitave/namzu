@@ -18,7 +18,7 @@
  * folder and, as a warning, by what its text says.
  */
 
-import { constants } from 'node:fs'
+import { constants, existsSync } from 'node:fs'
 import { lstat, open, readdir, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, sep } from 'node:path'
 
@@ -29,17 +29,21 @@ import {
 	SKILL_FRONTMATTER_KEYS,
 	assertEnableable,
 	assertPluginHookEvent,
+	isHookEntriesPath,
 	parseAgentMarkdown,
 	parsePluginManifestText,
 	parseSkillMarkdown,
 	resolveWithinReal,
 	skillModelDescription,
 } from '@namzu/sdk'
+import { readSkillHooks } from '../../config/skill-hooks-reader.js'
+import { readAgentHooks } from '../subagents/agent-hooks.js'
 
 import { PERMISSION_MODE_NAMES } from '../../permissions/mode-names.js'
 import { SKILL_MANIFEST_MAX_CHARS } from '../../skills/catalog.js'
 import { COMMAND_FILE_KEYS, parseCommandText } from '../../user-commands/store.js'
 import { resolvePluginFileDir } from './files.js'
+import { CONVENTIONAL_HOOKS_FILE, readPluginHookEntriesOf } from './hook-entries.js'
 
 /** The version of the JSON shape `namzu plugin validate --json` prints. */
 export const PLUGIN_VALIDATION_REPORT_VERSION = 1
@@ -510,6 +514,8 @@ async function checkManifest(root: string, c: Collector): Promise<Manifest | und
 		(parsed.tools?.length ?? 0) +
 		(parsed.skills?.length ?? 0) +
 		(parsed.hooks?.length ?? 0) +
+		Object.keys(parsed.hookEntries ?? {}).length +
+		(existsSync(join(root, CONVENTIONAL_HOOKS_FILE)) ? 1 : 0) +
 		(parsed.mcpServers?.length ?? 0) +
 		(parsed.commands?.length ?? 0) +
 		(parsed.agents?.length ?? 0) +
@@ -549,9 +555,12 @@ async function checkParts(root: string, manifest: Manifest, c: Collector): Promi
 				})
 			}
 			seen.add(rel)
+			// A `.json` path is a file of hook entries, checked below, not a module.
+			if (kind === 'hook' && isHookEntriesPath(rel)) continue
 			await checkModule(root, kind, rel, part, key, c)
 		}
 	}
+	checkHookEntries(root, manifest, c)
 
 	// Skills.
 	const skillNames = new Set<string>()
@@ -663,6 +672,24 @@ async function checkParts(root: string, manifest: Manifest, c: Collector): Promi
 			}
 			agentNames.set(full, rel2)
 			unknownKeys(text, AGENT_FILE_KEYS, part, rel2, 'agent-unknown-key', c, 'an agent file')
+			if (found.hooksSource !== undefined) {
+				const hooks = readAgentHooks(found.hooksSource, full)
+				for (const problem of hooks.problems) {
+					c.add({
+						// An entry that would have guarded something and cannot be loaded keeps the agent from being offered.
+						level: problem.severity === 'problem' ? 'error' : 'warning',
+						part,
+						file: rel2,
+						line: lineOfKey(text, 'hooks'),
+						code: 'agent-hooks-problem',
+						message: `"${full}" hooks, ${problem.event}: ${problem.message}`,
+						consequence:
+							problem.severity === 'problem'
+								? 'The agent is not offered, and starting it is refused with this line.'
+								: 'The agent runs with this part of its hooks left out.',
+					})
+				}
+			}
 		})
 	}
 }
@@ -725,6 +752,40 @@ function readProblem(
 const MARKDOWN_LOOKALIKE = /\.(md|markdown|mdown|mkd|mdx)$/i
 
 const MODULE_EXTENSIONS = ['.js', '.mjs', '.cjs']
+
+/**
+ * The hook entries a plugin ships (commands, addresses, prompts): the
+ * conventional `hooks/hooks.json`, each `.json` path of the manifest's `hooks`
+ * and the inline `hookEntries`, read by the reader a config file's `hooks` key
+ * goes through. Nothing is run. A problem is named with the file and what the
+ * loader does about it: an entry that cannot be loaded is not attached, the
+ * plugin itself still loads.
+ */
+function checkHookEntries(root: string, manifest: Manifest, c: Collector): void {
+	const read = readPluginHookEntriesOf({ rootDir: root, manifest })
+	for (const file of read.files) {
+		c.part(
+			'hook',
+			file === 'plugin.json hookEntries' ? 'hookEntries' : file,
+			file === 'plugin.json hookEntries' ? MANIFEST_FILE : file,
+		)
+	}
+	for (const problem of read.problems) {
+		const inline = problem.file === 'plugin.json hookEntries'
+		const file = inline ? MANIFEST_FILE : problem.file
+		c.add({
+			level: problem.severity === 'problem' ? 'error' : 'warning',
+			part: c.part('hook', inline ? 'hookEntries' : problem.file, file),
+			file,
+			code: problem.code,
+			message: problem.message,
+			consequence:
+				problem.severity === 'problem'
+					? 'These hook entries are not attached (the plugin itself still loads), so what they were meant to guard is not checked.'
+					: 'The hook entries load without it.',
+		})
+	}
+}
 
 async function checkModule(
 	root: string,
@@ -926,6 +987,28 @@ async function checkSkill(
 		})
 	}
 	unknownKeys(read.text, SKILL_FRONTMATTER_KEYS, part, skillFile, 'skill-unknown-key', c, 'a skill')
+	if (skill.metadata.hooksSource !== undefined) {
+		const hooks = readSkillHooks(skill.metadata.hooksSource, `skill ${full}`)
+		for (const problem of hooks.problems) {
+			c.add({
+				level: 'warning',
+				part,
+				file: skillFile,
+				line: lineOfKey(read.text, 'hooks'),
+				code: 'skill-hooks-problem',
+				message: `"${full}" hooks, ${problem.event}: ${problem.message}`,
+				consequence:
+					problem.severity === 'problem'
+						? 'The skill loads without any of its hooks and without its allowed-tools pre-approval, and says so.'
+						: 'The skill is used with this part of its hooks left out.',
+			})
+		}
+	}
+}
+
+/** The line of a top-level front matter key, for a message that names it. */
+function lineOfKey(text: string, key: string): number | undefined {
+	return frontmatterKeys(text).find((found) => found.key === key)?.line
 }
 
 function leavesFolder(root: string, value: string): boolean {

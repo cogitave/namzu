@@ -296,6 +296,17 @@ describe('NAMZU_ENV_FILE', () => {
 })
 
 describe('a file_changed hook through createShellHook', () => {
+	it('says which files its matcher names, for the host that watches them', () => {
+		expect(
+			createShellHook('file_changed', { command: 'x', matcher: '.envrc|*.json' }, { cwd: '/p' })
+				.watches,
+		).toEqual(['.envrc'])
+		expect(createShellHook('file_changed', { command: 'x' }, { cwd: '/p' }).watches).toBeUndefined()
+		expect(
+			createShellHook('turn_start', { command: 'x', matcher: '.envrc' }, { cwd: '/p' }).watches,
+		).toBeUndefined()
+	})
+
 	const context = (extra: Partial<PluginHookContext>) =>
 		({
 			event: 'file_changed',
@@ -419,6 +430,36 @@ describe('FileChangeHooks', () => {
 		hooks.absorb([{ action: 'continue', watchPaths: [] }])
 		expect(hooks.watching).toEqual(['/p/.envrc'])
 		hooks.close()
+	})
+
+	it('watches the paths of hooks attached to the manager, and stops when they are taken off', () => {
+		const s = seams()
+		const attached: Array<{ pluginId: string; event: string; watches?: readonly string[] }> = []
+		const changed = new Set<() => void>()
+		const manager = {
+			executeHooks: vi.fn(async () => []),
+			listHooks: () => attached,
+			onHooksChanged: (listener: () => void) => {
+				changed.add(listener)
+				return () => changed.delete(listener)
+			},
+		}
+		const hooks = new FileChangeHooks({
+			manager: manager as never,
+			cwd: '/p',
+			sessionId: () => SESSION,
+			matcherPaths: [],
+			watcher: s.watcher,
+		})
+		expect(hooks.watching).toEqual([])
+		attached.push({ pluginId: 'plugin', event: 'file_changed', watches: ['.envrc'] })
+		for (const listener of changed) listener()
+		expect(hooks.watching).toEqual(['/p/.envrc'])
+		attached.length = 0
+		for (const listener of changed) listener()
+		expect(hooks.watching).toEqual([])
+		hooks.close()
+		expect(changed.size).toBe(0)
 	})
 
 	it('does not start a hook again for the write that hook made to the file it watches', async () => {

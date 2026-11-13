@@ -18,6 +18,7 @@ import {
 	SHELL_HOOK_PASCAL_EVENT_NAMES,
 	type ShellHookEvent,
 	type ShellHookHandler,
+	shellHookEnvNameProblem,
 } from '@namzu/sdk'
 
 /** `problem` is a hook that cannot be loaded and would have guarded something; `note` is anything else. */
@@ -38,8 +39,13 @@ const GUARD_EVENTS: ReadonlySet<ShellHookEvent> = new Set([
 	'subagent_stop',
 ])
 
+/** Whether a hook on this event can refuse, redirect or feed back into a turn: one lost here is a guard lost. */
+export function isGuardHookEvent(event: ShellHookEvent): boolean {
+	return GUARD_EVENTS.has(event)
+}
+
 const KIND_KEYS = {
-	command: ['command', 'args', 'async'],
+	command: ['command', 'args', 'async', 'env'],
 	http: ['url', 'headers', 'allowedEnvVars'],
 	prompt: ['prompt'],
 } as const
@@ -103,6 +109,36 @@ export function isMeantAsGroup(element: unknown): boolean {
 
 function text(value: unknown): string | undefined {
 	return typeof value === 'string' && value.trim().length > 0 ? value : undefined
+}
+
+/**
+ * An `env` map in a hook of the common shape. A name that cannot be used, or a
+ * value that is not text, is left out with a note and the hook runs with the
+ * rest: the hook still starts, and what it needed is said out loud.
+ */
+function readHookEnv(
+	value: unknown,
+	at: string,
+	report: ReportHookProblem,
+): Record<string, string> | undefined {
+	if (value === undefined) return undefined
+	if (!isMapping(value)) {
+		report(
+			'note',
+			`${at}: "env" must be a mapping of variable names to text; it is left off and the hook runs without it.`,
+		)
+		return undefined
+	}
+	const out: Record<string, string> = {}
+	for (const [name, each] of Object.entries(value)) {
+		const bad = shellHookEnvNameProblem(name)
+		if (bad !== undefined) {
+			report('note', `${at}: "env" ${JSON.stringify(name)} ${bad}; it is left off.`)
+		} else if (typeof each !== 'string') {
+			report('note', `${at}: "env" ${JSON.stringify(name)} must be text; it is left off.`)
+		} else out[name] = each
+	}
+	return Object.keys(out).length > 0 ? out : undefined
 }
 
 /**
@@ -271,10 +307,12 @@ export function readHookGroup(
 				if (typeof hook.async === 'boolean') async = hook.async
 				else ignored('async', 'true or false')
 			}
+			const env = readHookEnv(hook.env, at, report)
 			out.push({
 				command,
 				...(args !== undefined ? { args } : {}),
 				...(async !== undefined ? { async } : {}),
+				...(env !== undefined ? { env } : {}),
 				...shared,
 			})
 		}

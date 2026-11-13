@@ -27,6 +27,10 @@
  * You review changes for this repository. Cite file:line for every finding …
  * ```
  *
+ * `hooks` is a block of hook entries in either shape a config file takes (see
+ * `AgentFileDefinition.hooksSource`); the kernel keeps its text and the host
+ * reads it.
+ *
  * `tools`, `disallowedTools` and `skills` are each one comma-separated line: this kernel's frontmatter reader
  * refuses block lists and flow sequences by design, so there is no other
  * form to accept.
@@ -92,6 +96,7 @@ export const AGENT_FILE_KEYS: readonly string[] = Object.freeze([
 	'skills',
 	'permissionMode',
 	'readOnly',
+	'hooks',
 ])
 
 export interface AgentFileDefinition {
@@ -121,6 +126,12 @@ export interface AgentFileDefinition {
 	 */
 	readonly permissionMode?: string
 	readonly readOnly: boolean
+	/**
+	 * The text of the file's `hooks` key, as written (the key's own line and the
+	 * lines under it), for the host to read with a YAML reader: the frontmatter
+	 * reader here cannot hold a list of mappings. The kernel only keeps it.
+	 */
+	readonly hooksSource?: string
 	readonly path: string
 	/** The host's label for the root this file came from (`user`, `project`, …). */
 	readonly source: string
@@ -224,14 +235,14 @@ export function parseAgentMarkdown(
 	}
 	let parsed: ReturnType<typeof parseFrontmatter>
 	try {
-		parsed = parseFrontmatter(raw, path)
+		parsed = parseFrontmatter(raw, path, { raw: ['hooks'] })
 	} catch (error) {
 		return {
 			path,
 			reason: `frontmatter did not parse: ${error instanceof Error ? error.message : String(error)}`,
 		}
 	}
-	const { values, body } = parsed
+	const { values, body, rawBlocks } = parsed
 
 	const name = scalar(values.name)
 	if (name === undefined) return { path, reason: 'has no `name:` in its frontmatter' }
@@ -331,6 +342,9 @@ export function parseAgentMarkdown(
 		readOnly = flag === 'true'
 	}
 
+	const hooksText = Object.hasOwn(rawBlocks, 'hooks') ? rawBlocks.hooks : undefined
+	const hooksSource = hooksText !== undefined && hooksText.trim() !== '' ? hooksText : undefined
+
 	const trimmed = body.trim()
 	if (trimmed.length === 0) {
 		return { path, reason: "has an empty body; the body is the agent's system prompt" }
@@ -354,6 +368,7 @@ export function parseAgentMarkdown(
 		...(preloaded.list ? { skills: preloaded.list } : {}),
 		...(permissionMode ? { permissionMode } : {}),
 		readOnly,
+		...(hooksSource !== undefined ? { hooksSource } : {}),
 		path,
 		source,
 	}

@@ -1,10 +1,14 @@
+import { dirname } from 'node:path'
 import { type HookConfigProblem, hookConfigProblems, readPermissionLayers } from '../config/load.js'
 import { installationRows } from '../installation.js'
+import type { PluginHookProblem } from '../integrations/plugins/hook-entries.js'
+import type { PluginHookEntryView } from '../integrations/plugins/runtime.js'
 import {
 	type ApiKeyLogoutTarget,
 	apiKeyLogoutTarget,
 } from '../integrations/providers/connections.js'
 import { DEFAULT_SPEND_DAYS, MAX_SPEND_DAYS } from '../integrations/spend/day.js'
+import type { AttachedAgentHook } from '../integrations/subagents/agent-hooks.js'
 import {
 	type DenialRow,
 	addLocalRule,
@@ -14,6 +18,7 @@ import {
 	ruleEntries,
 } from '../permissions/rule-screen.js'
 import { type PermissionEffect, isPermissionEffect } from '../permissions/rules.js'
+import type { AttachedSkillHook } from '../skills/skill-hooks.js'
 import { CLI_VERSION } from '../version.js'
 import { displayPath, homePath, plural } from './person-terms.js'
 import { statusCard } from './status-card.js'
@@ -289,7 +294,12 @@ export type SlashAction =
 	 * second way to inspect a repository that would then disagree with the one
 	 * the model uses.
 	 */
-	| { kind: 'prompt'; text: string }
+	| {
+			kind: 'prompt'
+			text: string
+			/** The command is a skill that carries hooks: attached when the person runs it. */
+			skillHooks?: { name: string; dirPath: string; hooksSource: string }
+	  }
 	/**
 	 * Sign in to a subscription without leaving namzu.
 	 *
@@ -1990,12 +2000,100 @@ function hypermodeAction(args: readonly string[], via?: 'orchestrate'): SlashAct
 export interface HooksView {
 	/** The JavaScript hooks plugins registered: the plugin's name and the event. */
 	readonly pluginHooks?: readonly { readonly plugin: string; readonly event: string }[]
+	/** The hook entries (commands, addresses, prompts) enabled plugins ship, apart from their JavaScript hooks. */
+	readonly pluginEntries?: readonly PluginHookEntryView[]
+	/** What could not be loaded from the hook entries plugins ship. */
+	readonly pluginProblems?: readonly (PluginHookProblem & { readonly plugin: string })[]
 	/** A switch that left hooks out of the list. */
 	readonly switch?: HooksSwitch
 	/** Hooks the files declared that could not be loaded, and settings not acted on; absent, what the config reader recorded. */
 	readonly problems?: readonly HookConfigProblem[]
+	/** The hooks skills have attached while they are in use, and the skills that carry hooks and attach them when used. */
+	readonly skillHooks?: {
+		readonly attached: readonly AttachedSkillHook[]
+		readonly carriers: readonly string[]
+	}
+	/** The hooks agents' runs have attached while they run, the agent files that carry hooks, and the files not offered. */
+	readonly agentHooks?: {
+		readonly attached: readonly AttachedAgentHook[]
+		readonly carriers: readonly string[]
+		readonly refused: readonly { readonly name: string; readonly line: string }[]
+	}
 	/** What hooks set for this conversation's commands (names only) and the files they watch. */
 	readonly activity?: HookActivity
+}
+
+/** The lines `/hooks` gives for the hooks agent files carry. */
+export function agentHookLines(
+	view: NonNullable<HooksView['agentHooks']>,
+	state: HooksSwitch | undefined,
+): string[] {
+	if (view.attached.length === 0 && view.carriers.length === 0 && view.refused.length === 0) {
+		return []
+	}
+	const lines: string[] = []
+	for (const refused of view.refused) lines.push(refused.line)
+	if (state !== undefined) {
+		if (view.carriers.length > 0) {
+			lines.push(
+				`agent hooks are switched off: ${view.carriers.join(', ')} ${view.carriers.length === 1 ? 'carries' : 'carry'} hooks that do not attach.`,
+			)
+		}
+		return lines
+	}
+	if (view.attached.length > 0) {
+		lines.push('agent hooks (set by an agent file, attached while its agent runs)')
+		for (const hook of view.attached) {
+			const when = hook.matcher ? ` · matches ${hook.matcher}` : ''
+			const once = hook.once ? ' · once' : ''
+			lines.push(
+				`  ${hook.event}: ${hook.runs}${when}${once} · agent ${hook.agent}, run ${hook.session.slice(0, 8)}`,
+			)
+		}
+	}
+	const running = new Set(view.attached.map((hook) => hook.agent))
+	const waiting = view.carriers.filter((name) => !running.has(name))
+	if (waiting.length > 0) {
+		lines.push(
+			`${waiting.join(', ')} ${waiting.length === 1 ? 'carries' : 'carry'} hooks that attach to each run of the agent.`,
+		)
+	}
+	return lines
+}
+
+/** The lines `/hooks` gives for the hooks skills carry. */
+export function skillHookLines(
+	view: NonNullable<HooksView['skillHooks']>,
+	state: HooksSwitch | undefined,
+): string[] {
+	if (view.attached.length === 0 && view.carriers.length === 0) return []
+	const lines: string[] = []
+	if (state !== undefined) {
+		if (view.carriers.length > 0) {
+			lines.push(
+				`skill hooks are switched off: ${view.carriers.join(', ')} ${view.carriers.length === 1 ? 'carries' : 'carry'} hooks that do not attach.`,
+			)
+		}
+		return lines
+	}
+	if (view.attached.length > 0) {
+		lines.push('skill hooks (set by a skill, attached while it is in use)')
+		for (const hook of view.attached) {
+			const when = hook.matcher ? ` · matches ${hook.matcher}` : ''
+			const once = hook.once ? ' · once' : ''
+			const where =
+				hook.scope === 'agent' ? 'while its delegated agent runs' : 'for this conversation'
+			lines.push(`  ${hook.event}: ${hook.runs}${when}${once} · skill ${hook.skill}, ${where}`)
+		}
+	}
+	const using = new Set(view.attached.map((hook) => hook.skill))
+	const waiting = view.carriers.filter((name) => !using.has(name))
+	if (waiting.length > 0) {
+		lines.push(
+			`${waiting.join(', ')} ${waiting.length === 1 ? 'carries' : 'carry'} hooks that attach when the skill is used.`,
+		)
+	}
+	return lines
 }
 
 /** The lines `/hooks` gives for the variables hooks have set and the files they watch. */
@@ -2031,11 +2129,43 @@ export function hookConfigProblemLines(problems: readonly HookConfigProblem[]): 
 	)
 }
 
+/** The lines `/hooks` and `namzu doctor` give for hook entries a plugin ships that could not be loaded or read in full. */
+export function pluginHookProblemLines(
+	problems: readonly (PluginHookProblem & { readonly plugin: string })[],
+): string[] {
+	return problems.map(
+		(problem) =>
+			`${problem.severity === 'problem' ? 'Not loaded' : 'Note'}: plugin ${problem.plugin}, ${problem.file}: ${problem.message}`,
+	)
+}
+
 /** The one line `/hooks` and `namzu doctor` give when a switch is limiting hooks. */
 export function hooksSwitchLine(state: HooksSwitch): string {
 	return state === 'managed-only'
-		? 'Only the organisation-managed file’s hooks are attached (hooksManagedOnly): hooks from your own and the project’s files are not.'
-		: 'Hooks from your config, the project and its local file are turned off (disableHooks or NAMZU_DISABLE_HOOKS); the managed file’s hooks and plugin hooks still run.'
+		? 'Only the organisation-managed file’s hooks are attached (hooksManagedOnly): hooks from your own and the project’s files are not, and neither are the hook entries plugins ship (no plugin comes from the managed file). Plugins’ JavaScript hooks still run.'
+		: 'Hooks from your config, the project and its local file are turned off (disableHooks or NAMZU_DISABLE_HOOKS), and so are the hook entries plugins ship; the managed file’s hooks and plugins’ JavaScript hooks still run.'
+}
+
+/** One line for a hook entry a plugin ships: the event, the plugin, what it runs and its options. */
+function pluginHookEntryLine(view: PluginHookEntryView): string {
+	const { entry } = view
+	const what =
+		entry.type === 'http'
+			? `POST ${entry.url}`
+			: entry.type === 'prompt'
+				? `ask: ${entry.prompt.replace(/\s+/g, ' ').slice(0, 60)}`
+				: entry.command
+	const when = entry.matcher ? ` · matches ${entry.matcher}` : ''
+	const filter = entry.if ? ` · if ${entry.if}` : ''
+	const once = entry.once ? ' · once' : ''
+	const deadline = entry.timeoutMs !== undefined ? ` · ${Math.round(entry.timeoutMs / 1000)}s` : ''
+	const background = entry.type === undefined && entry.async ? ' · in background' : ''
+	const failure = entry.onFailure === 'block' ? ' · blocks when it fails' : ''
+	const off =
+		view.off !== undefined
+			? ` · off (${view.off === 'managed-only' ? 'hooksManagedOnly' : 'disableHooks'})`
+			: ''
+	return `  ${view.event} · plugin ${view.plugin} · ${what}${when}${filter}${once}${deadline}${background}${failure}${off}`
 }
 
 /**
@@ -2060,11 +2190,22 @@ export function hookReadingProblems(entry: {
 export function renderHooks(hooks: HooksConfig | undefined, view: HooksView = {}): string {
 	const events = Object.entries(hooks ?? {}).filter(([, entries]) => (entries?.length ?? 0) > 0)
 	const pluginHooks = view.pluginHooks ?? []
+	const pluginEntries = view.pluginEntries ?? []
+	const pluginProblems = view.pluginProblems ?? []
 	const problems = view.problems ?? hookConfigProblems()
 	const lines: string[] = []
 	if (view.switch) lines.push(hooksSwitchLine(view.switch))
-	if (events.length === 0 && pluginHooks.length === 0) {
+	const skillLines = view.skillHooks ? skillHookLines(view.skillHooks, view.switch) : []
+	const agentLines = view.agentHooks ? agentHookLines(view.agentHooks, view.switch) : []
+	if (
+		events.length === 0 &&
+		pluginHooks.length === 0 &&
+		pluginEntries.length === 0 &&
+		skillLines.length === 0 &&
+		agentLines.length === 0
+	) {
 		lines.push(...hookConfigProblemLines(problems))
+		lines.push(...pluginHookProblemLines(pluginProblems))
 		lines.push(
 			'No hooks. Add a `hooks` key to namzu.config.json or ~/.namzu/config.yaml: event → list of hooks: a command, an http address or a prompt, each with matcher, timeoutMs, if, once, statusMessage and onFailure if you want them.',
 		)
@@ -2086,6 +2227,8 @@ export function renderHooks(hooks: HooksConfig | undefined, view: HooksView = {}
 						: entry.command
 			const background = entry.type === undefined && entry.async ? ' · in background' : ''
 			const failure = entry.onFailure === 'block' ? ' · blocks when it fails' : ''
+			const envNames = entry.type === undefined ? Object.keys(entry.env ?? {}) : []
+			const sets = envNames.length > 0 ? ` · sets ${envNames.join(', ')}` : ''
 			const from = entry.source ? ` · from ${entry.source}` : ''
 			// A prompt hook is sent no payload, so it receives no tool name; a tool
 			// server's tools keep their own names in either spelling.
@@ -2096,7 +2239,7 @@ export function renderHooks(hooks: HooksConfig | undefined, view: HooksView = {}
 						: ' · tool names Namzu’s own (bash)'
 					: ''
 			lines.push(
-				`  ${what}${when}${filter}${once}${deadline}${background}${failure}${names}${from}`,
+				`  ${what}${when}${filter}${once}${deadline}${background}${sets}${failure}${names}${from}`,
 			)
 			for (const problem of hookReadingProblems(entry)) lines.push(`    cannot be read: ${problem}`)
 			const watches = event === 'file_changed' ? fileChangedMatcherNote(entry.matcher) : undefined
@@ -2106,11 +2249,20 @@ export function renderHooks(hooks: HooksConfig | undefined, view: HooksView = {}
 		}
 	}
 	lines.push(...hookConfigProblemLines(problems))
-	lines.push(...hookActivityLines(view.activity))
+	if (pluginEntries.length > 0) {
+		lines.push('plugin hook entries (commands, addresses and prompts a plugin ships)')
+		for (const each of pluginEntries) lines.push(pluginHookEntryLine(each))
+	}
+	lines.push(...pluginHookProblemLines(pluginProblems))
 	if (pluginHooks.length > 0) {
 		lines.push('plugin hooks (JavaScript, set by the plugin)')
 		for (const hook of pluginHooks) lines.push(`  ${hook.event} · plugin ${hook.plugin}`)
 	}
+	// After the config files and the plugins: skills, then agent files.
+	lines.push(...skillLines)
+	lines.push(...agentLines)
+	// Last: what this branch's hooks did, the variables set and the files watched.
+	lines.push(...hookActivityLines(view.activity))
 	return lines.join('\n')
 }
 
@@ -2790,7 +2942,19 @@ export function runSlash(
 	if (user) {
 		const expanded = expandCommand(user, parsed.args.join(' '))
 		return expanded.ok
-			? { kind: 'prompt', text: expanded.prompt }
+			? {
+					kind: 'prompt',
+					text: expanded.prompt,
+					...(user.source === 'skill' && user.hooksSource !== undefined
+						? {
+								skillHooks: {
+									name: user.name,
+									dirPath: dirname(user.path),
+									hooksSource: user.hooksSource,
+								},
+							}
+						: {}),
+				}
 			: { kind: 'message', role: 'system', content: expanded.reason }
 	}
 

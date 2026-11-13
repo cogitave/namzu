@@ -45,6 +45,13 @@ export interface SessionHookActivity {
 	 * set) and take their answers.
 	 */
 	changeDirectory(change: { readonly from: string; readonly to: string }): Promise<void>
+	/**
+	 * Give the activity the lifecycle manager the hooks are attached to, when
+	 * it did not exist yet at creation (the manager is built with the hook
+	 * options, which carry the variables file this owns). Until then nothing
+	 * is watched. Called once.
+	 */
+	attach(manager: PluginLifecycleManager): void
 	describe(): HookActivity
 	/** Say a line to the person the way a hook's own `systemMessage` is said. */
 	notify(line: string): void
@@ -57,7 +64,7 @@ export interface SessionHookActivity {
 const MAX_PENDING_NOTICES = 20
 
 export function createSessionHookActivity(options: {
-	readonly manager: PluginLifecycleManager
+	readonly manager?: PluginLifecycleManager
 	readonly hooks: HooksConfig | undefined
 	readonly cwd: string
 	readonly sessionId: () => string
@@ -75,27 +82,37 @@ export function createSessionHookActivity(options: {
 	const hookEnv = new SessionHookEnv({ onProblem: notify })
 	const entries = options.hooks?.file_changed ?? []
 	const matcherPaths = entries.flatMap((entry) => fileChangedMatcherPaths(entry.matcher))
-	const files = new FileChangeHooks({
-		manager: options.manager,
-		cwd: options.cwd,
-		sessionId: options.sessionId,
-		matcherPaths,
-		onNotice: notify,
-		onProblem: notify,
-	})
+	let manager = options.manager
+	let files: FileChangeHooks | undefined
+	let closed = false
+	const attach = (given: PluginLifecycleManager): void => {
+		manager = given
+		if (closed) return
+		files = new FileChangeHooks({
+			manager: given,
+			cwd: options.cwd,
+			sessionId: options.sessionId,
+			matcherPaths,
+			onNotice: notify,
+			onProblem: notify,
+		})
+	}
+	if (manager !== undefined) attach(manager)
 	return {
 		variables: hookEnv.variables,
 		hookEnv,
-		absorbSessionStart: (results) => files.absorb(results),
+		attach,
+		absorbSessionStart: (results) => files?.absorb(results),
 		async changeDirectory(change) {
 			hookEnv.clearFolderLayers()
+			if (manager === undefined) return
 			try {
-				const results = await options.manager.executeHooks('cwd_changed', {
+				const results = await manager.executeHooks('cwd_changed', {
 					sessionId: options.sessionId() as never,
 					oldCwd: change.from,
 					newCwd: change.to,
 				})
-				files.absorb(results)
+				files?.absorb(results)
 			} catch (error) {
 				notify(
 					`A cwd_changed hook could not run: ${error instanceof Error ? error.message : String(error)}.`,
@@ -105,7 +122,7 @@ export function createSessionHookActivity(options: {
 		notify,
 		describe: () => ({
 			variables: hookEnv.describe(),
-			watching: files.watching,
+			watching: files?.watching ?? [],
 			notes: entries
 				.map((entry) => fileChangedMatcherNote(entry.matcher))
 				.filter((note): note is string => note !== undefined),
@@ -118,7 +135,8 @@ export function createSessionHookActivity(options: {
 			}
 		},
 		close() {
-			files.close()
+			closed = true
+			files?.close()
 			hookEnv.dispose()
 			listeners.clear()
 		},

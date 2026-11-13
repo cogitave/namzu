@@ -1,5 +1,58 @@
 # Changelog
 
+## 64.0.0
+
+### Major Changes
+
+- f2bbb1e: Breaking: `PluginSessionSource` and `PluginSessionEndReason` are wider unions, so an exhaustive `switch` on them stops compiling until it handles `clear`. A shell hook with no `matcher` on `session_start` or `session_end` also runs for the new occasions (see the CLI note).
+
+  Hooks can now tell a cleared conversation from the rest. `PluginSessionSource` gains `clear` (a conversation that begins empty after the old one was cleared) and `PluginSessionEndReason` gains `clear` (a conversation that ended because the person cleared it). A shell hook's `matcher` on `session_start` and `session_end` can name them, and its stdin carries them as `source` and `reason`. The existing values, names and fields are unchanged.
+
+  If your code switches exhaustively on `context.source` or `context.endReason` (a `never` check in the default branch), TypeScript will now ask you to handle `clear`; handle it as you handle `startup` for a start and `replaced` for an end if you have no other plan. This is the only thing that can fail to compile; nothing at runtime changes for a host that does not announce a clear. A host that embeds the kernel announces a clear by running `executeHooks('session_end', { endReason: 'clear', ... })` and `executeHooks('session_start', { source: 'clear', ... })` itself.
+
+- f2bbb1e: Breaking default: what an attached shell hook prints to stdout on `pre_compact` (exit 0, not JSON) used to be ignored and is now given to the summariser. To keep the old behaviour, print it to stderr.
+
+  Hooks now see every compaction and the model's last message, and a `pre_compact` hook can say what the summary keeps.
+
+  - `pre_compact` and `post_compact` fire for a pass a person asked for (`compactNow`, `compactRegion`, `compactSession`, `compactSessionRange` with the new `hooks` option, `{ manager }`) and for the idle pass, not only for the kernel's own. The context's `compaction` gains `trigger` (`manual` or `auto`; idle is `auto`), `instructions` on `pre_compact` (what the person typed, or `null`) and `summary` on `post_compact` (8000 characters at most). A shell hook's `matcher` on these events tests `trigger`; its stdin gains `trigger`, `custom_instructions` and `compact_summary`.
+  - A `pre_compact` refusal now also refuses a pass a person asked for: those functions throw the new `CompactionRefusedError` (with `reason`); an idle pass is cancelled and returns `null`. A pass the provider forced still cannot be refused.
+  - What a `pre_compact` hook prints with exit 0, its `additionalContext`, or an in-process `annotate` (now accepted on this event) or `continue` with `context` is given to the summariser after the person's instructions, framed as a hook's, 8000 characters at most. The summary model step runs for it even with `llmVerification` off. A hook that prints to stdout on `pre_compact` for its own log now has that text sent to the summariser: print to stderr instead.
+  - `turn_end` and `subagent_stop` carry `lastAssistantMessage` (`last_assistant_message` in the shell payload), 8000 characters at most, absent when the turn produced no text.
+
+  `PluginCompactionInfo.reason` gains the value `manual` (used by passes a host asks for outside a turn); a consumer that switches exhaustively on `reason` should handle it, or test `trigger` instead. Nothing is removed or renamed.
+
+### Minor Changes
+
+- 33b320e: A shell hook entry can ask for the tool names a person writes in a matcher. Nothing is removed or renamed and no default changes.
+
+  What you can now do:
+
+  - Give an entry `toolNames: 'written'` (type `ShellHookToolNames`, on every entry kind) and its hook is sent `Bash`, `Edit`, `WebFetch` as `tool_name`, as `NAMZU_TOOL_NAME` and inside `tool_calls` on `post_tool_batch`, so a script that tests `tool_name == "Bash"` works unchanged. `toolNames: 'namzu'`, or no key, keeps the name the tool is registered under (`bash`). A tool with no common name (`job`, `view_image`) and every tool-server tool keep their own names; nothing else in the payload depends on the key, and `matcher` and `if` read either spelling whichever you choose.
+  - Use the same table yourself: `SHELL_HOOK_WRITTEN_TOOL_NAMES` and `shellHookToolName(name, mode)`. `SHELL_HOOK_PASCAL_EVENT_NAMES` is the table of PascalCase event names (`PreToolUse`) a host needs to read a hooks block written in the common shape; `attachShellHooks` still takes entries of the SDK's own shape only, and the reading of the other shape is the host's.
+
+  Nothing you must do.
+
+- 33b320e: A shell hook moved from the common hook contract now sees the values it reads, and its answers are read in the shapes it writes. Nothing is removed or renamed; what is added sits beside what was there.
+
+  What you can now do:
+
+  - Pair a before and an after: `pre_tool_use`, `post_tool_use`, `post_tool_use_failure`, `permission_request` and `permission_denied` carry `tool_use_id`, the id `post_tool_batch` already carried (in process, the optional `PluginHookContext.toolCallId`). A call a tool makes through `dispatchTool` has no model-issued id and carries none.
+  - Read a file tool's file as `.tool_input.file_path`: for `read`, `write`, `edit`, `grep`, `glob`, `ls`, `view_image` and `lsp` the input has `file_path` with the same value as `path`. A `pre_tool_use` rewrite that echoes it is read: if one of the two keys changed, that is the new path; two different values make the answer unreadable.
+  - Answer `updatedToolOutput` with any JSON type: a string, an object shaped like the result (`output`, optional `success` and `error`), any other object, array, number or boolean (shown as JSON text), or `null` for no replacement. It is also read on `post_tool_use_failure`, and `updatedMCPToolOutput` is read for tool-server tools (`updatedToolOutput` wins when both are set). The documentation lists every remaining way a replacement can leave the original result shown, and what `onFailure` does for each.
+  - Write `if: "Agent"`, `Task`, `Edit|Write`, `mcp__github__*`: the tool part takes every spelling a `matcher` list takes, and the sub-agent tool `Agent` is named by `Agent` and `Task`. A shell-command `if` matches through `env`, `sudo`, `nohup`, `xargs`, `find -exec`, a full program path and git's global options, and runs the hook for a command whose name is only known at run time.
+  - `matcher` reads a glob in the middle of a name (`mcp__*__get_issue`) and a bare tool-server name (`mcp__github`), and a name without its `_` (`ViewImage`). New exports: `shellHookMatcherProblem`, `shellHookIfProblem`, `ShellHookCall`. `QueryAgentConfig.agentType` names the agent to `subagent_start` and `subagent_stop` hooks.
+  - A `matcher` on an event that has no name to match (`turn_end`, `user_prompt_submit`, `turn_start`, `turn_failure`, `post_tool_batch`) is ignored and the hook fires, as in the common contract; it used to match nothing, so a moved `Stop` or `UserPromptSubmit` group with a matcher never ran.
+  - With `onFailure: block`, a redaction on `post_tool_use` or `post_tool_use_failure` that put its answer where it is not read (`updatedToolOutput` at the top level of the answer, a log line before the JSON, the JSON on stderr) withholds the result instead of showing the original. `shellHookMatcherProblem` also reports a matcher written as `Tool(pattern)`, which is an `if`.
+  - `if` also reads through `busybox`, `watch` and `flock`.
+  - `subagent_stop` now carries `agentType` on every path a child's turn ends by.
+
+  What changes for a config that works today, and what to do:
+
+  - A `matcher` that is not a valid regular expression used to match nothing, so its hook never ran; it now matches every name, so the hook runs. Fix the pattern (`namzu doctor` and `/hooks` now say which one), or attach the hook with an `if`.
+  - A `matcher` of `Task` now also fires for the sub-agent tool `Agent`.
+  - An `updatedToolOutput` that is not a string used to make the whole answer unreadable (and, with `onFailure: continue`, show the original result); it is now the replacement.
+  - A hook that reads `tool_input` strictly, comparing the whole object, sees the added `file_path`.
+
 ## 63.1.0
 
 ### Minor Changes

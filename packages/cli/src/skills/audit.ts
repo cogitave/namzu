@@ -2,6 +2,7 @@
 
 import { dirname } from 'node:path'
 import { loadSkill } from '@namzu/sdk'
+import { readSkillHooks } from '../config/skill-hooks-reader.js'
 import { manifestEntryChars, skillManifestBudget } from './catalog.js'
 import { SKILL_TIERS, type SkillDiscoveryOptions, discoverSkillRoster } from './store.js'
 
@@ -12,6 +13,17 @@ export interface SkillAuditFinding {
 	readonly reason?: string
 	/** Characters this skill would add to the file-skill manifest. */
 	readonly manifestChars?: number
+	/**
+	 * What in the skill's `hooks` block cannot be loaded or is set aside, by name.
+	 * A `problem` costs the skill its hooks and its `allowed-tools` pre-approval
+	 * when it is used; a `note` only the part it names.
+	 */
+	readonly hookProblems?: readonly {
+		readonly severity: 'problem' | 'note'
+		readonly text: string
+	}[]
+	/** The skill carries hooks (`hooks` in its front matter) that attach when it is used. */
+	readonly carriesHooks?: boolean
 }
 
 export interface SkillAuditReport {
@@ -74,11 +86,20 @@ export async function auditFileSkills(
 			if (budget !== undefined && (overflow.length > 0 || admittedChars + chars > budget))
 				overflow.push(skill.name)
 			else admittedChars += chars
+			const hookProblems =
+				skill.hooksSource === undefined
+					? undefined
+					: readSkillHooks(skill.hooksSource, `skill ${skill.name}`).problems.map((problem) => ({
+							severity: problem.severity,
+							text: `${problem.event} ${problem.message}`,
+						}))
 			findings.push({
 				name: skill.name,
 				path: skill.path,
 				status: 'ready',
 				manifestChars: chars,
+				...(skill.hooksSource !== undefined ? { carriesHooks: true } : {}),
+				...(hookProblems && hookProblems.length > 0 ? { hookProblems } : {}),
 			})
 		} catch (error) {
 			findings.push({
