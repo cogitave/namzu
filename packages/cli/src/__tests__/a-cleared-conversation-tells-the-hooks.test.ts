@@ -109,7 +109,8 @@ async function drain(session: { send(m: Message[]): AsyncIterable<unknown> }, m:
 async function sessionWith(extra: HooksConfig = {}) {
 	const log = join(root, 'told.log')
 	const count = join(root, 'count')
-	const record = `cat >> ${JSON.stringify(log)}; echo >> ${JSON.stringify(log)}`
+	// One line in one write, so two hooks that ever ran at once could not split each other's line.
+	const record = `printf '%s\\n' "$(cat)" >> ${JSON.stringify(log)}`
 	const { createAgentSession } = await import('../tui/agent.js')
 	// The host owns the scope and moves it in place, as the terminal does.
 	const scope = {
@@ -283,7 +284,7 @@ describe('when the session object itself closes', () => {
 		}
 	})
 
-	it('waits for the end hooks of conversations left behind', async () => {
+	it('waits for the end hooks of conversations left behind, and tells the last end after them', async () => {
 		const { session, told, scope } = await sessionWith()
 		const first = scope.sessionId
 		await drain(session, [user('one')])
