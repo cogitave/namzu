@@ -188,6 +188,36 @@ const WORDS = {
 	mcp: { live: 'calling', done: 'called' },
 } as const
 
+/** The words for a version-control clause; `names` sits between the verb and the count. */
+const VCS_WORDS: Readonly<
+	Record<
+		VcsAction,
+		{
+			live: string
+			done: string
+			one: string
+			many: string
+			names?: string
+		}
+	>
+> = {
+	commit: { live: 'making', done: 'made', one: 'commit', many: 'commits' },
+	amend: { live: 'amending', done: 'amended', one: 'commit', many: 'commits' },
+	push: { live: 'pushing', done: 'pushed', one: 'time', many: 'times' },
+	'create-branch': { live: 'creating', done: 'created', one: 'branch', many: 'branches' },
+	'switch-branch': {
+		live: 'switching',
+		done: 'switched',
+		one: 'time',
+		many: 'times',
+		names: 'branches',
+	},
+	merge: { live: 'merging', done: 'merged', one: 'branch', many: 'branches' },
+	rebase: { live: 'rebasing', done: 'rebased', one: 'time', many: 'times' },
+	'pr-open': { live: 'opening', done: 'opened', one: 'pull request', many: 'pull requests' },
+	'pr-merge': { live: 'merging', done: 'merged', one: 'pull request', many: 'pull requests' },
+}
+
 /** The clauses, in the order the line prints them. Only counts above zero appear. */
 export function groupParts(state: GroupState, live: boolean): readonly GroupPart[] {
 	const parts: GroupPart[] = []
@@ -213,12 +243,27 @@ export function groupParts(state: GroupState, live: boolean): readonly GroupPart
 		})
 	}
 	if (state.commands.length > 0) {
-		const w = WORDS.run
-		parts.push({
-			verb: live ? w.live : w.done,
-			count: state.commands.length,
-			noun: state.commands.length === 1 ? w.one : w.many,
-		})
+		const { counts, absorbed } = vcsTally(state.commands)
+		for (const action of VCS_ACTIONS) {
+			const n = counts[action]
+			if (n === 0) continue
+			const w = VCS_WORDS[action]
+			parts.push({
+				verb: live ? w.live : w.done,
+				...(w.names ? { names: w.names } : {}),
+				count: n,
+				noun: n === 1 ? w.one : w.many,
+			})
+		}
+		const plain = state.commands.length - absorbed
+		if (plain > 0) {
+			const w = WORDS.run
+			parts.push({
+				verb: live ? w.live : w.done,
+				count: plain,
+				noun: plain === 1 ? w.one : w.many,
+			})
+		}
 	}
 	if (state.mcpCalls > 0) {
 		const w = WORDS.mcp
@@ -361,8 +406,20 @@ type ShellClass = 'search' | 'list' | 'read'
  * means the line is not one this fold may hide.
  */
 function shellSegments(command: string): readonly string[] | undefined {
-	const segments: string[] = []
+	return splitShell(command)?.segments
+}
+
+/** A command line cut at its unquoted operators: the pieces and what joined each to the one before. */
+interface ShellSplit {
+	readonly segments: readonly string[]
+	/** `joins[i]` is how `segments[i]` follows `segments[i - 1]`: `&&` or the first other operator between them. */
+	readonly joins: readonly string[]
+}
+
+function splitShell(command: string): ShellSplit | undefined {
+	const pieces: { text: string; op: string }[] = []
 	let current = ''
+	let op = ''
 	let quote: '"' | "'" | null = null
 	for (let i = 0; i < command.length; i++) {
 		const ch = command.charAt(i)
@@ -401,16 +458,32 @@ function shellSegments(command: string): readonly string[] | undefined {
 			return undefined
 		if (ch === '&' && next !== '&') return undefined
 		if (ch === '|' || ch === ';' || ch === '&' || ch === '\n') {
-			if ((ch === '|' || ch === '&') && next === ch) i += 1
-			segments.push(current)
+			let found: string = ch
+			if ((ch === '|' || ch === '&') && next === ch) {
+				found = ch + ch
+				i += 1
+			}
+			pieces.push({ text: current, op })
 			current = ''
+			op = found
 			continue
 		}
 		current += ch
 	}
 	if (quote !== null) return undefined
-	segments.push(current)
-	return segments.map((segment) => segment.trim()).filter((segment) => segment.length > 0)
+	pieces.push({ text: current, op })
+	const segments: string[] = []
+	const joins: string[] = []
+	let pending = ''
+	for (const piece of pieces) {
+		if (piece.op !== '' && piece.op !== '&&' && pending === '') pending = piece.op
+		const text = piece.text.trim()
+		if (text.length === 0) continue
+		segments.push(text)
+		joins.push(segments.length === 1 ? '' : pending === '' ? piece.op : pending)
+		pending = ''
+	}
+	return { segments, joins }
 }
 
 /** Options that make a search or sort command change or run something. */
@@ -528,4 +601,406 @@ export function classifyCall(call: FoldCall): FoldOp | undefined {
 			// A view that says it explores, from a tool this module does not know.
 			return call.exploration && call.label ? { kind: 'read', key: call.label } : undefined
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Version-control actions, named in the counted line
+// ---------------------------------------------------------------------------
+
+/** What a version-control command did, for the counted line. */
+export type VcsAction =
+	| 'commit'
+	| 'amend'
+	| 'push'
+	| 'create-branch'
+	| 'switch-branch'
+	| 'merge'
+	| 'rebase'
+	| 'pr-open'
+	| 'pr-merge'
+
+/** The actions in the order the line prints them. */
+export const VCS_ACTIONS: readonly VcsAction[] = [
+	'commit',
+	'amend',
+	'push',
+	'create-branch',
+	'switch-branch',
+	'merge',
+	'rebase',
+	'pr-open',
+	'pr-merge',
+]
+
+/** One word of a command segment. `quoted` is true when a quote or backslash took part in it. */
+interface Word {
+	readonly text: string
+	readonly quoted: boolean
+	/** Where in `text` the first quoted character starts, or the length when none. */
+	readonly plainUntil: number
+}
+
+function words(segment: string): readonly Word[] {
+	const out: Word[] = []
+	let text = ''
+	let quoted = false
+	let plainUntil = -1
+	let open = false
+	let quote: '"' | "'" | null = null
+	const mark = () => {
+		quoted = true
+		if (plainUntil < 0) plainUntil = text.length
+	}
+	for (let i = 0; i < segment.length; i++) {
+		const ch = segment.charAt(i)
+		if (quote !== null) {
+			if (ch === quote) quote = null
+			else if (ch === '\\' && quote === '"' && i + 1 < segment.length) {
+				text += segment.charAt(i + 1)
+				i += 1
+			} else text += ch
+			continue
+		}
+		if (ch === '"' || ch === "'") {
+			mark()
+			open = true
+			quote = ch
+			continue
+		}
+		if (ch === '\\' && i + 1 < segment.length) {
+			mark()
+			open = true
+			text += segment.charAt(i + 1)
+			i += 1
+			continue
+		}
+		if (/\s/.test(ch)) {
+			if (open) out.push({ text, quoted, plainUntil: plainUntil < 0 ? text.length : plainUntil })
+			text = ''
+			quoted = false
+			plainUntil = -1
+			open = false
+			continue
+		}
+		open = true
+		text += ch
+	}
+	if (open) out.push({ text, quoted, plainUntil: plainUntil < 0 ? text.length : plainUntil })
+	return out
+}
+
+const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/
+
+/** A word that is a plain option: `-x`, `--long`, not quoted. */
+function isFlag(word: Word): boolean {
+	return !word.quoted && word.text.length > 1 && word.text.startsWith('-')
+}
+
+/** A long option spelled whole, or as the unique-prefix shorthand git accepts. */
+function longMatches(flag: string, full: string, minLength: number): boolean {
+	const name = flag.split('=')[0] ?? flag
+	return name.startsWith('--') && name.length >= minLength && full.startsWith(name)
+}
+
+/** Options (per subcommand) that take the next word as their value, so that word is not read as an option. */
+const VALUE_OPTIONS: Readonly<Record<string, { short: string; long: readonly string[] }>> = {
+	commit: {
+		short: 'mFCct',
+		long: [
+			'--message',
+			'--file',
+			'--author',
+			'--date',
+			'--reuse-message',
+			'--reedit-message',
+			'--fixup',
+			'--squash',
+			'--cleanup',
+			'--template',
+			'--trailer',
+		],
+	},
+	push: {
+		short: 'o',
+		long: ['--push-option', '--repo', '--receive-pack', '--exec'],
+	},
+	merge: { short: 'mFsX', long: ['--message', '--file', '--strategy', '--strategy-option'] },
+	rebase: {
+		short: 'sXxC',
+		long: ['--onto', '--strategy', '--strategy-option', '--exec'],
+	},
+	switch: { short: 'cC', long: ['--conflict', '--create', '--force-create', '--orphan'] },
+	checkout: { short: 'bB', long: ['--conflict', '--orphan'] },
+	branch: { short: '', long: [] },
+	'gh-pr-create': {
+		short: 'tbBHlaromTpRF',
+		long: [
+			'--title',
+			'--body',
+			'--base',
+			'--head',
+			'--label',
+			'--assignee',
+			'--reviewer',
+			'--milestone',
+			'--project',
+			'--template',
+			'--repo',
+			'--body-file',
+			'--recover',
+		],
+	},
+	'gh-pr-merge': {
+		short: 'tbFR',
+		long: ['--subject', '--body', '--body-file', '--match-head-commit', '--author-email', '--repo'],
+	},
+}
+
+interface Parsed {
+	readonly flags: readonly string[]
+	readonly positional: readonly string[]
+	/** A word that could hide an option (`$VAR`, a glob) stood where an option could be. */
+	readonly unsure: boolean
+	/** The word after each flag that takes one, by flag. */
+	readonly values: ReadonlyMap<string, string>
+}
+
+/** Sort the words after a subcommand into options, plain words and the values options take. */
+function parseArgs(rest: readonly Word[], table: string): Parsed {
+	const spec = VALUE_OPTIONS[table] ?? { short: '', long: [] }
+	const flags: string[] = []
+	const positional: string[] = []
+	const values = new Map<string, string>()
+	let unsure = false
+	let onlyPaths = false
+	for (let i = 0; i < rest.length; i++) {
+		const word = rest[i] as Word
+		if (!onlyPaths && !word.quoted && word.text === '--') {
+			onlyPaths = true
+			continue
+		}
+		if (!onlyPaths && isFlag(word) && word.text !== '-') {
+			flags.push(word.text)
+			const long = word.text.startsWith('--')
+			const takes = long
+				? !word.text.includes('=') &&
+					spec.long.some((name) => longMatches(word.text, name, word.text.length))
+				: /^-[A-Za-z]*$/.test(word.text) &&
+					spec.short.includes(word.text.charAt(word.text.length - 1))
+			if (takes && i + 1 < rest.length) {
+				values.set(word.text, (rest[i + 1] as Word).text)
+				i += 1
+			}
+			continue
+		}
+		if (/[$*?[]/.test(word.text) || word.text.startsWith('~')) unsure = true
+		positional.push(word.text)
+	}
+	return { flags, positional, unsure, values }
+}
+
+function hasFlag(parsed: Parsed, ...names: string[]): boolean {
+	return parsed.flags.some((flag) =>
+		names.some((name) =>
+			name.startsWith('--')
+				? longMatches(flag, name, 3)
+				: flag === name || shortCluster(flag, name),
+		),
+	)
+}
+
+/** `-un` holds `-n`: a cluster of one-letter options. */
+function shortCluster(flag: string, name: string): boolean {
+	return (
+		name.length === 2 &&
+		/^-[A-Za-z]+$/.test(flag) &&
+		!flag.startsWith('--') &&
+		flag.slice(1).includes(name.charAt(1))
+	)
+}
+
+const GIT_FLAGS = new Set([
+	'--no-pager',
+	'-P',
+	'--paginate',
+	'-p',
+	'--no-optional-locks',
+	'--no-replace-objects',
+	'--bare',
+	'--literal-pathspecs',
+	'--no-literal-pathspecs',
+	'--glob-pathspecs',
+	'--noglob-pathspecs',
+	'--icase-pathspecs',
+	'--no-advice',
+])
+
+type SegmentRead = { readonly action?: VcsAction; readonly explained: boolean }
+
+/** What one segment is: the action it took, and whether it is something this line can account for. */
+function readSegment(segment: string): SegmentRead {
+	const all = words(segment)
+	let i = 0
+	while (i < all.length) {
+		const word = all[i] as Word
+		const eq = word.text.indexOf('=')
+		if (ASSIGNMENT.test(word.text) && eq <= word.plainUntil) i += 1
+		else break
+	}
+	const head = all[i]
+	if (head === undefined || head.quoted) return { explained: false }
+	if (head.text === 'cd' || NEUTRAL_COMMANDS.has(head.text)) return { explained: true }
+	if (head.text === 'git') return readGit(all.slice(i + 1))
+	if (head.text === 'gh') return readGh(all.slice(i + 1))
+	return { explained: false }
+}
+
+function readGit(rest: readonly Word[]): SegmentRead {
+	let i = 0
+	for (; i < rest.length; i++) {
+		const word = rest[i] as Word
+		if (word.quoted) return { explained: false }
+		if (word.text === '-C') {
+			i += 1
+			continue
+		}
+		if (word.text === '-c') {
+			const value = rest[i + 1]?.text.toLowerCase() ?? ''
+			if (value.startsWith('alias.')) return { explained: false }
+			i += 1
+			continue
+		}
+		if (word.text === '--git-dir' || word.text === '--work-tree' || word.text === '--namespace') {
+			i += 1
+			continue
+		}
+		if (/^--(?:git-dir|work-tree|namespace)=/.test(word.text) || GIT_FLAGS.has(word.text)) continue
+		if (word.text.startsWith('-')) return { explained: false }
+		break
+	}
+	const sub = rest[i]
+	if (sub === undefined || sub.quoted || /[$*?[~]/.test(sub.text)) return { explained: false }
+	const parsed = parseArgs(rest.slice(i + 1), sub.text)
+	const none: SegmentRead = { explained: true }
+	if (parsed.unsure || hasFlag(parsed, '--help', '-h')) return none
+	switch (sub.text) {
+		case 'commit':
+			if (hasFlag(parsed, '--dry-run')) return none
+			return { action: amendLong(parsed) ? 'amend' : 'commit', explained: true }
+		case 'push':
+			if (hasFlag(parsed, '--dry-run', '-n', '--delete', '-d', '--mirror')) return none
+			return { action: 'push', explained: true }
+		case 'merge':
+			if (hasFlag(parsed, '--abort', '--quit', '--continue')) return none
+			return { action: 'merge', explained: true }
+		case 'rebase':
+			if (
+				hasFlag(
+					parsed,
+					'--abort',
+					'--quit',
+					'--continue',
+					'--skip',
+					'--edit-todo',
+					'--show-current-patch',
+				)
+			)
+				return none
+			return { action: 'rebase', explained: true }
+		case 'switch': {
+			const make = ['-c', '-C', '--create', '--force-create'].find((f) => parsed.values.has(f))
+			if (make !== undefined) return { action: 'create-branch', explained: true }
+			if (hasFlag(parsed, '--detach', '-d', '--orphan', '--create', '--force-create')) return none
+			return parsed.positional.length === 1 ? { action: 'switch-branch', explained: true } : none
+		}
+		case 'checkout':
+			return ['-b', '-B'].some((f) => parsed.values.has(f)) && !hasFlag(parsed, '--orphan')
+				? { action: 'create-branch', explained: true }
+				: none
+		case 'branch':
+			return parsed.flags.length === 0 &&
+				parsed.positional.length >= 1 &&
+				parsed.positional.length <= 2
+				? { action: 'create-branch', explained: true }
+				: none
+		default:
+			return none
+	}
+}
+
+/** `--amend`, spelled whole or as a prefix long enough to mean nothing else. */
+function amendLong(parsed: Parsed): boolean {
+	return parsed.flags.some((flag) => longMatches(flag, '--amend', 4))
+}
+
+function readGh(rest: readonly Word[]): SegmentRead {
+	const first = rest[0]
+	const second = rest[1]
+	if (first === undefined || first.quoted || first.text !== 'pr') return { explained: false }
+	if (second === undefined || second.quoted) return { explained: true }
+	const none: SegmentRead = { explained: true }
+	if (second.text !== 'create' && second.text !== 'merge') return none
+	const parsed = parseArgs(rest.slice(2), second.text === 'create' ? 'gh-pr-create' : 'gh-pr-merge')
+	if (parsed.unsure || parsed.flags.some((flag) => flag === '--help' || flag === '-h')) return none
+	if (second.text === 'create') {
+		if (parsed.flags.some((flag) => flag === '--web' || flag === '-w' || flag === '--dry-run'))
+			return none
+		return { action: 'pr-open', explained: true }
+	}
+	if (parsed.flags.some((flag) => flag === '--auto' || flag === '--disable-auto')) return none
+	return { action: 'pr-merge', explained: true }
+}
+
+/**
+ * The version-control actions one successful command line took, and whether
+ * the line is nothing but those and harmless pieces around them (so it needs
+ * no place of its own in the "ran N commands" count).
+ *
+ * Only a command word of `git` or `gh` counts, read from the unquoted text
+ * after environment assignments and global options; text inside quotes is
+ * never a command. Only a chain joined by `&&` is read, because with `;`, `||`
+ * or a pipe a successful end does not say every piece succeeded. Anything not
+ * known stays a plain command: when in doubt, count less.
+ */
+export function vcsActions(command: string): {
+	readonly actions: readonly VcsAction[]
+	readonly absorbed: boolean
+} {
+	const split = splitShell(command)
+	if (!split || split.segments.length === 0) return { actions: [], absorbed: false }
+	if (split.joins.some((join, index) => index > 0 && join !== '&&'))
+		return { actions: [], absorbed: false }
+	const actions: VcsAction[] = []
+	let explained = true
+	for (const segment of split.segments) {
+		const read = readSegment(segment)
+		if (read.action !== undefined) actions.push(read.action)
+		if (!read.explained) explained = false
+	}
+	return { actions, absorbed: actions.length > 0 && explained }
+}
+
+/** The actions of every command in a group, counted, and how many commands those commands account for. */
+export function vcsTally(commands: readonly string[]): {
+	readonly counts: Readonly<Record<VcsAction, number>>
+	readonly absorbed: number
+} {
+	const counts: Record<VcsAction, number> = {
+		commit: 0,
+		amend: 0,
+		push: 0,
+		'create-branch': 0,
+		'switch-branch': 0,
+		merge: 0,
+		rebase: 0,
+		'pr-open': 0,
+		'pr-merge': 0,
+	}
+	let absorbed = 0
+	for (const command of commands) {
+		const read = vcsActions(command)
+		for (const action of read.actions) counts[action] += 1
+		if (read.absorbed) absorbed += 1
+	}
+	return { counts, absorbed }
 }
