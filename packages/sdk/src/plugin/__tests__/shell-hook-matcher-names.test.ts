@@ -249,7 +249,7 @@ describe('a matcher on an event that has no name', () => {
 		'turn_end',
 		'user_prompt_submit',
 		'turn_start',
-		'pre_compact',
+		'turn_failure',
 		'post_tool_batch',
 	] as const)('is ignored on %s and the hook fires', async (event) => {
 		const dir = mkdtempSync(join(tmpdir(), 'matcher-noname-'))
@@ -266,6 +266,49 @@ describe('a matcher on an event that has no name', () => {
 					sessionId: asSessionId('0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b'),
 				} as PluginHookContext)
 				expect(existsSync(marker), `${event} with matcher ${matcher}`).toBe(true)
+			}
+		} finally {
+			rmSync(dir, { recursive: true, force: true })
+		}
+	})
+
+	it('reads a matcher on a compaction event against the trigger, and fires when the pass names none', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'matcher-trigger-'))
+		try {
+			const cases = [
+				{ matcher: 'manual', trigger: 'manual', fires: true },
+				{ matcher: 'auto', trigger: 'manual', fires: false },
+				{ matcher: 'auto', trigger: 'auto', fires: true },
+				{ matcher: 'Bash', trigger: 'auto', fires: false },
+				// A pass that names no trigger has no name to match: the hook fires.
+				{ matcher: 'manual', trigger: undefined, fires: true },
+			] as const
+			for (const event of ['pre_compact', 'post_compact'] as const) {
+				for (const [at, c] of cases.entries()) {
+					const marker = join(dir, `${event}-${at}`)
+					const hook = createShellHook(
+						event,
+						{ command: `touch '${marker}'`, matcher: c.matcher },
+						{ cwd: process.cwd() },
+					) as PluginHookDefinition & { handler: (c: PluginHookContext) => Promise<unknown> }
+					await hook.handler({
+						event,
+						sessionId: asSessionId('0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b'),
+						...(c.trigger !== undefined
+							? {
+									compaction: {
+										reason: 'threshold',
+										trigger: c.trigger,
+										tokensBefore: 10,
+										contextWindowTokens: 100,
+									},
+								}
+							: {}),
+					} as PluginHookContext)
+					expect(existsSync(marker), `${event} matcher ${c.matcher} trigger ${c.trigger}`).toBe(
+						c.fires,
+					)
+				}
 			}
 		} finally {
 			rmSync(dir, { recursive: true, force: true })

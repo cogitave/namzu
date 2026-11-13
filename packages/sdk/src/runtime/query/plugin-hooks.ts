@@ -1,5 +1,31 @@
+import { boundLastAssistantMessage } from '../../plugin/hook-context.js'
 import { NamzuError } from '../../types/errors/index.js'
+import type { Message } from '../../types/message/index.js'
 import type { PluginHookEvent, PluginHookResult } from '../../types/plugin/index.js'
+import { isOperatorUserMessage } from './steering.js'
+
+/**
+ * The model's last message of the turn, as a `turn_end` or `subagent_stop`
+ * hook receives it: the text of the last assistant message after the
+ * operator's latest prompt, bounded. A message that carries only tool calls,
+ * a turn that stopped before the model wrote anything, and a turn with no
+ * assistant message yet all give `undefined`: the field is then absent, and a
+ * hook never gets an earlier turn's words or an earlier step's narration in
+ * its place.
+ */
+export function lastAssistantMessageField(messages: readonly Message[]): {
+	lastAssistantMessage?: string
+} {
+	for (let index = messages.length - 1; index >= 0; index--) {
+		const message = messages[index]
+		if (!message) continue
+		if (isOperatorUserMessage(message)) return {}
+		if (message.role !== 'assistant') continue
+		const text = boundLastAssistantMessage(message.content)
+		return text === undefined ? {} : { lastAssistantMessage: text }
+	}
+	return {}
+}
 
 /**
  * Interpret hook results from non-tool lifecycle events (run_start, run_end,
@@ -19,9 +45,13 @@ export function applyLifecycleHookResults(
 			case 'continue':
 				continue
 			case 'annotate':
-				if (event !== 'user_prompt_submit' && event !== 'subagent_start') {
+				if (
+					event !== 'user_prompt_submit' &&
+					event !== 'subagent_start' &&
+					event !== 'pre_compact'
+				) {
 					throw new Error(
-						`Plugin hook ${event} returned 'annotate', which only user_prompt_submit and subagent_start accept`,
+						`Plugin hook ${event} returned 'annotate', which only user_prompt_submit, subagent_start and pre_compact accept`,
 					)
 				}
 				if (result.text.trim().length > 0) annotations.push(result.text.trim())

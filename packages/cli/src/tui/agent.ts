@@ -1742,6 +1742,25 @@ export interface AgentSession {
 	readonly currentTaskStore?: () => TaskStore | undefined
 	/** Forget the selected store when the operator leaves its conversation. Does not delete tasks. */
 	readonly resetTaskStore?: () => void
+	/**
+	 * The host moved this running session onto another conversation: `/clear` or
+	 * `/new` (`reason: 'clear'`, `starting: 'clear'`), a resume, a fork or a
+	 * rewind (`reason: 'replaced'`; the next conversation's source is then read
+	 * from whether it has turns). Call it after the scope names the new
+	 * conversation.
+	 *
+	 * Tells the `session_end` hooks about the conversation that ended (`from`),
+	 * drops the context the old conversation's `session_start` hooks gave, and
+	 * has the next send tell the `session_start` hooks about the new one. The
+	 * returned promise settles when the end hooks have. A host that must not
+	 * wait on a slow hook does not await it: the new conversation never depends
+	 * on it, and `close` waits for it. Absent on a session with no hook runtime.
+	 */
+	readonly changeConversation?: (change: {
+		readonly from: SessionId
+		readonly reason: Extract<PluginSessionEndReason, 'clear' | 'replaced'>
+		readonly starting?: Extract<PluginSessionSource, 'clear'>
+	}) => Promise<void>
 	/** Children created in this process, available for the TUI's observational view. */
 	readonly onSubagentReport?: (
 		listener: (report: {
@@ -5152,14 +5171,38 @@ export async function createAgentSession(
 	 * resumed conversation gets it from the hooks run again and not twice.
 	 */
 	let sessionHookContext: string | undefined
-	const announceSessionStart = async (source: PluginSessionSource): Promise<void> => {
+	/** Counts conversations this session has moved through, so a late answer for an old one is dropped. */
+	let conversationGeneration = 0
+	/** The source the next conversation's `session_start` carries when the host named one (a clear). */
+	let nextSessionSource: PluginSessionSource | undefined
+	/** `session_end` runs for conversations left behind; `close` waits for them. */
+	const conversationEnds = new Set<Promise<unknown>>()
+	const announceSessionStart = async (counted: PluginSessionSource): Promise<void> => {
 		if (!sessionPlugins || sessionStarted) return
 		sessionStarted = true
+		const generation = conversationGeneration
+		const source = nextSessionSource ?? counted
+		nextSessionSource = undefined
 		const results = await sessionPlugins.manager.executeHooks('session_start', {
 			sessionId: scope.sessionId,
 			source,
 		})
+		if (generation !== conversationGeneration) return
 		sessionHookContext = sessionStartHookContext(results)
+	}
+	const changeConversation: NonNullable<AgentSession['changeConversation']> = (change) => {
+		if (!sessionPlugins) return Promise.resolve()
+		conversationGeneration += 1
+		sessionStarted = false
+		sessionHookContext = undefined
+		nextSessionSource = change.starting
+		const ended = sessionPlugins.manager
+			.executeHooks('session_end', { sessionId: change.from, endReason: change.reason })
+			.catch(() => [])
+			.then(() => undefined)
+		conversationEnds.add(ended)
+		void ended.then(() => conversationEnds.delete(ended))
+		return ended
 	}
 	let sessionEndReason: PluginSessionEndReason = 'exit'
 	let sessionClosing = false
@@ -5231,13 +5274,13 @@ export async function createAgentSession(
 				: undefined,
 			subagentRuntime?.close?.(),
 			sessionPlugins
-				? sessionPlugins.manager
-						.executeHooks('session_end', {
+				? Promise.allSettled([
+						...conversationEnds,
+						sessionPlugins.manager.executeHooks('session_end', {
 							sessionId: scope.sessionId,
 							endReason: sessionEndReason,
-						})
-						.catch(() => [])
-						.then(() => sessionPlugins.close())
+						}),
+					]).then(() => sessionPlugins.close())
 				: undefined,
 			mcp.close(),
 			computerUseHost?.dispose(),
@@ -5941,6 +5984,9 @@ export async function createAgentSession(
 							...common,
 							sessionId,
 							...(trigger === 'idle' ? { trigger } : {}),
+							// `pre_compact` and `post_compact` fire for this pass as they do for an
+							// automatic one; the kernel tells them whether a person or the host asked.
+							...(pluginRuntime ? { hooks: { manager: pluginRuntime.manager } } : {}),
 							locator: {
 								log: DiskSessionLog.at(paths, { sessionId }),
 								index: sessions.index,
@@ -5948,7 +5994,22 @@ export async function createAgentSession(
 						}),
 					)
 				}
-				return await counted(sessionId, compactNow({ ...common, messages }))
+				return await counted(
+					sessionId,
+					compactNow({
+						...common,
+						messages,
+						...(pluginRuntime
+							? {
+									hooks: {
+										manager: pluginRuntime.manager,
+										sessionId,
+										...(trigger === 'idle' ? { trigger } : {}),
+									},
+								}
+							: {}),
+					}),
+				)
 			}),
 		compactRange: ({ messages, from, until, instructions }) =>
 			operations.promise(undefined, async (signal) => {
@@ -5978,6 +6039,7 @@ export async function createAgentSession(
 						compactSessionRange({
 							...common,
 							sessionId,
+							...(pluginRuntime ? { hooks: { manager: pluginRuntime.manager } } : {}),
 							...(from?.id ? { from: from.id } : {}),
 							...(until?.id ? { until: until.id } : {}),
 							locator: {
@@ -6001,6 +6063,7 @@ export async function createAgentSession(
 					sessionId,
 					compactRegion({
 						...common,
+						...(pluginRuntime ? { hooks: { manager: pluginRuntime.manager, sessionId } } : {}),
 						messages,
 						start: at(from, 0),
 						end: at(until, messages.length),
@@ -6049,6 +6112,7 @@ export async function createAgentSession(
 		agentIds: allowedAgentIds,
 		currentTaskStore,
 		resetTaskStore,
+		...(sessionPlugins ? { changeConversation } : {}),
 		jobs: () => ownedJobs?.list() ?? [],
 		...(jobRegistry
 			? {

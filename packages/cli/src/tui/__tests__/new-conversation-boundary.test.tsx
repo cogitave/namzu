@@ -45,6 +45,8 @@ const sends: Array<{
 	signal: AbortSignal | undefined
 }> = []
 let sharedScope: SessionScope | undefined
+/** What the session was told about each conversation change, with the scope as it stood then. */
+const changes: Array<{ from: string; reason: string; starting?: string; scopeNow: string }> = []
 
 function resetGates(): void {
 	admissionReached = new Promise<void>((resolve) => {
@@ -137,6 +139,9 @@ vi.mock('../agent.js', async (importOriginal) => {
 				resumePaused: () => {
 					throw new Error('resumePaused is not part of this test')
 				},
+				changeConversation: async (change) => {
+					changes.push({ ...change, scopeNow: String(sharedScope?.sessionId) })
+				},
 				close: async () => {},
 				promptExemptTools: () => [],
 				send: async function* (messages, sendOptions): AsyncIterable<AgentEvent> {
@@ -185,6 +190,7 @@ beforeEach(() => {
 	failFreshStart = false
 	admissions = 0
 	sends.length = 0
+	changes.length = 0
 	sharedScope = undefined
 	resetGates()
 })
@@ -259,6 +265,10 @@ it('/clear isolates provider context and durable history while keeping the sourc
 	)
 	const freshSession = sharedScope?.sessionId
 	expect(freshSession).not.toBe(sourceSession)
+	// The hooks are told once, after the scope names the new conversation.
+	expect(changes).toEqual([
+		{ from: sourceSession, reason: 'clear', starting: 'clear', scopeNow: freshSession },
+	])
 
 	await submit(harness, 'SECOND_ONLY')
 	await until(() => sends.length === 2, 'the second turn never reached the provider')

@@ -70,7 +70,7 @@ import { SandboxAcquisitionStopped } from '../deferred-sandbox.js'
 import { deliverDurableInbound } from '../durable-inbound.js'
 import type { ToolCallOutcome } from '../executor.js'
 import { projectObservationContext } from '../observation-context.js'
-import { applyLifecycleHookResults } from '../plugin-hooks.js'
+import { applyLifecycleHookResults, lastAssistantMessageField } from '../plugin-hooks.js'
 import {
 	type RequestContextSnapshot,
 	diffRequestContext,
@@ -419,6 +419,7 @@ export class IterationOrchestrator {
 					sessionId: recorder.sessionId,
 					turnId: recorder.turnId,
 					...extra,
+					...lastAssistantMessageField(recorder.messages),
 					...(this.stopHookActive ? { stopHookActive: true } : {}),
 					signal: this.ctx.abortController.signal,
 				},

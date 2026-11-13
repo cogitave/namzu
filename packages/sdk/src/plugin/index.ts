@@ -9,11 +9,16 @@ export { definePlugin } from './define.js'
 export type { DefinedPlugin, DefinePluginOptions } from './define.js'
 export type { PluginDiscoveryOptions, PluginEnablementCapabilities } from './loader.js'
 export {
+	boundCompactionSummary,
 	boundHookContext,
 	boundHookReplacement,
+	boundLastAssistantMessage,
+	compactionHookInstructions,
 	frameOperatorHookContext,
+	MAX_COMPACTION_SUMMARY_HOOK_CHARS,
 	MAX_HOOK_CONTEXT_CHARS,
 	MAX_HOOK_REPLACEMENT_CHARS,
+	MAX_LAST_MESSAGE_HOOK_CHARS,
 	sessionStartHookContext,
 } from './hook-context.js'
 export { PluginLifecycleManager } from './lifecycle.js'

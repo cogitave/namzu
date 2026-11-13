@@ -1,3 +1,4 @@
+import type { ManualCompactionHooks } from '../../compaction/hooks.js'
 import {
 	type CompactNowInput,
 	type CompactionResult,
@@ -13,8 +14,14 @@ import { generateMessageId } from '../../utils/id.js'
 import { type SessionLocatorOptions, locateSessionLog, withSessionLease } from './abandon-turn.js'
 
 /** A compaction a host asks for between turns. */
-export interface CompactSessionParams extends Omit<CompactNowInput, 'messages' | 'onShed'> {
+export interface CompactSessionParams
+	extends Omit<CompactNowInput, 'messages' | 'onShed' | 'hooks'> {
 	readonly sessionId: SessionId
+	/**
+	 * Fire `pre_compact` and `post_compact` around the pass. The session and
+	 * the trigger are this call's own. See {@link CompactNowInput.hooks}.
+	 */
+	readonly hooks?: Omit<ManualCompactionHooks, 'sessionId' | 'trigger'>
 	/**
 	 * Who asked. `'manual'` (the default) is a person's request; `'idle'` is a
 	 * host compacting a conversation nobody is using before its prompt cache
@@ -37,7 +44,7 @@ export interface CompactSessionParams extends Omit<CompactNowInput, 'messages' |
 export async function compactSession(
 	params: CompactSessionParams,
 ): Promise<CompactionResult | null> {
-	const { sessionId, locator = {}, trigger = 'manual', ...input } = params
+	const { sessionId, locator = {}, trigger = 'manual', hooks, ...input } = params
 	const log = await locateSessionLog(sessionId, locator)
 	return withSessionLease(log, locator.lease, async (lease) => {
 		const active = await log.activeTurn({ lease })
@@ -47,7 +54,11 @@ export async function compactSession(
 		const history = await readFoldedHistory(log)
 		const ids = new Map<Message, MessageId>()
 		for (const entry of history) if (entry.messageId) ids.set(entry.message, entry.messageId)
-		const result = await compactNow({ ...input, messages: history.map((entry) => entry.message) })
+		const result = await compactNow({
+			...input,
+			messages: history.map((entry) => entry.message),
+			...(hooks ? { hooks: { ...hooks, sessionId, trigger } } : {}),
+		})
 		if (!result) return null
 		const head = await log.head()
 		if (!head) {
@@ -105,7 +116,7 @@ export interface CompactSessionRangeParams extends CompactSessionParams {
 export async function compactSessionRange(
 	params: CompactSessionRangeParams,
 ): Promise<CompactionResult | null> {
-	const { sessionId, locator = {}, from, until, ...input } = params
+	const { sessionId, locator = {}, from, until, hooks, ...input } = params
 	const log = await locateSessionLog(sessionId, locator)
 	return withSessionLease(log, locator.lease, async (lease) => {
 		const active = await log.activeTurn({ lease })
@@ -134,6 +145,7 @@ export async function compactSessionRange(
 			messages: history.map((entry) => entry.message),
 			start,
 			end,
+			...(hooks ? { hooks: { ...hooks, sessionId, trigger: 'manual' as const } } : {}),
 		})
 		if (!result) return null
 		const head = await log.head()
