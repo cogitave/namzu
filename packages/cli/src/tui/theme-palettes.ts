@@ -351,13 +351,13 @@ const LIGHT_DALTONIZED: SemanticColors = {
 	code: {
 		keyword: 'ansi256(91)',
 		string: 'ansi256(94)',
-		number: 'ansi256(130)',
+		number: 'ansi256(22)',
 		comment: 'ansi256(243)',
 		name: 'ansi256(25)',
 		type: 'ansi256(23)',
 		literal: 'ansi256(97)',
 		added: 'ansi256(25)',
-		removed: 'ansi256(166)',
+		removed: 'ansi256(130)',
 	},
 	live: {
 		done: 'ansi256(25)',
