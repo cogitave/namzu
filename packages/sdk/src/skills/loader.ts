@@ -38,6 +38,7 @@ export const SKILL_FRONTMATTER_KEYS: readonly string[] = Object.freeze([
 	'model',
 	'effort',
 	'background',
+	'hooks',
 ])
 
 /**
@@ -54,6 +55,9 @@ export const SKILL_FRONTMATTER_TOLERATED_KEYS: readonly string[] = [
 	'background',
 ]
 
+/** Keys handed back as the text the file wrote, for the host to read. */
+export const SKILL_FRONTMATTER_RAW_KEYS: readonly string[] = ['hooks']
+
 const READS_SKILL_KEY = (key: string): boolean => SKILL_FRONTMATTER_KEYS.includes(key)
 
 /**
@@ -66,6 +70,12 @@ export const SKILL_FRONTMATTER_OPTIONS = {
 	lists: ['allowed-tools'],
 	readsKey: READS_SKILL_KEY,
 	tolerates: (key: string): boolean => SKILL_FRONTMATTER_TOLERATED_KEYS.includes(key),
+	/**
+	 * `hooks` is a list of mappings in a mapping, which this reader cannot
+	 * hold: the host reads its text with a YAML reader (see
+	 * `SkillMetadata.hooksSource`).
+	 */
+	raw: SKILL_FRONTMATTER_RAW_KEYS,
 } as const
 
 /**
@@ -203,6 +213,10 @@ function toSkillMetadata(parsed: ParsedFrontmatter, dirPath: string): SkillMetad
 	if (background === 'true' || background === 'false') {
 		skillMetadata.background = background === 'true'
 	}
+
+	const hooksSource = Object.hasOwn(parsed.rawBlocks, 'hooks') ? parsed.rawBlocks.hooks : undefined
+	if (hooksSource !== undefined && hooksSource.trim() !== '')
+		skillMetadata.hooksSource = hooksSource
 
 	const extra = mappingAt(values, 'metadata')
 	if (extra && Object.keys(extra).length > 0) {

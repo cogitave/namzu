@@ -157,6 +157,16 @@ export interface FrontmatterOptions {
 	 * which is what it meant to everything before it was read.
 	 */
 	readonly tolerates?: (key: string) => boolean
+	/**
+	 * Keys whose value is handed back as the text the file wrote, not parsed
+	 * here: the key's own line and every line under it, up to the next
+	 * top-level key, in {@link ParsedFrontmatter.rawBlocks}. For a key whose
+	 * structure this flat reader cannot hold (a `hooks` block is a list of
+	 * mappings, a list in it) and whose reader is the caller's, which has a
+	 * real YAML parser. The key is never refused for its shape and never
+	 * appears in `values`; every other key is read exactly as before.
+	 */
+	readonly raw?: readonly string[]
 }
 
 export interface ParsedFrontmatter {
@@ -173,6 +183,13 @@ export interface ParsedFrontmatter {
 	 * ```
 	 */
 	readonly values: Readonly<Record<string, FrontmatterValue>>
+
+	/**
+	 * The text of each key named in {@link FrontmatterOptions.raw} that the
+	 * file declared, from its key line to the line before the next top-level
+	 * key. Absent keys are absent.
+	 */
+	readonly rawBlocks: Readonly<Record<string, string>>
 
 	/** Everything after the closing fence, trimmed. */
 	readonly body: string
@@ -230,9 +247,37 @@ export function parseFrontmatter(
 	// The current top-level key is one the caller does not read: its value
 	// and its indented lines are skipped rather than parsed or refused.
 	let skipping = false
+	// The caller reads these keys itself: their lines are collected as written.
+	const rawKeys = new Set(options.raw ?? [])
+	const rawBlocks = new Map<string, string[]>()
+	let rawCurrent: string[] | undefined
 
 	for (const line of frontmatterRaw.split(LINE_SPLIT)) {
+		// Blank lines and comments inside a raw block belong to it (a block
+		// scalar's blank line is part of its text); they end nothing.
+		if (rawCurrent && (!line.trim() || line.trimStart().startsWith('#'))) {
+			rawCurrent.push(line)
+			continue
+		}
 		if (!line.trim() || line.trimStart().startsWith('#')) continue
+
+		if (rawCurrent && (/^\s/.test(line) || /^-(\s|$)/.test(line))) {
+			rawCurrent.push(line)
+			continue
+		}
+
+		if (!/^\s/.test(line)) {
+			rawCurrent = undefined
+			const rawColon = line.indexOf(':')
+			const rawKey = rawColon === -1 ? '' : line.slice(0, rawColon).trim()
+			if (rawKey && rawKeys.has(rawKey)) {
+				rawCurrent = [line]
+				rawBlocks.set(rawKey, rawCurrent)
+				currentKey = rawKey
+				skipping = true
+				continue
+			}
+		}
 
 		if (/^\s/.test(line)) {
 			if (!currentKey || skipping) continue
@@ -342,7 +387,13 @@ export function parseFrontmatter(
 		values.set(key, { kind: 'mapping', entries: Object.fromEntries(entries) })
 	}
 
-	return { values: Object.fromEntries(values), body }
+	return {
+		values: Object.fromEntries(values),
+		rawBlocks: Object.fromEntries(
+			[...rawBlocks].map(([key, lines]) => [key, lines.join('\n').replace(/\s+$/, '')]),
+		),
+		body,
+	}
 }
 
 function normalizeScalar(value: string): string {

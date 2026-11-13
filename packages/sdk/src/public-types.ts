@@ -226,7 +226,7 @@ export type {
 
 export type { ManagedRegistryConfig } from './registry/index.js'
 
-export type { PluginLifecycleManagerConfig } from './plugin/lifecycle.js'
+export type { HookAttachment, PluginLifecycleManagerConfig } from './plugin/lifecycle.js'
 export type {
 	AgentDefinitionRoot,
 	AgentFileDefinition,

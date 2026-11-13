@@ -5,7 +5,7 @@ import { parseAllowedTools } from '../../authorization/skill-grant.js'
 import { forkedSkillReportNote } from '../../compaction/loaded-skills.js'
 import type { Sandbox } from '../../types/sandbox/index.js'
 import { isInvocableBy, skillInvocation } from '../../types/skills/index.js'
-import type { ToolContext } from '../../types/tool/index.js'
+import type { SkillHooksPlan, ToolContext } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 
 export { parseAllowedTools }
@@ -496,11 +496,13 @@ export function createSkillTool(options: SkillToolOptions = {}) {
 			let forkUnavailable = ''
 			if (skill.metadata.context === 'fork' && input.cursor === undefined) {
 				if (context.dispatchTool && context.toolRegistry?.has(DELEGATION_TOOL_NAME)) {
-					return runForkedSkill({
+					const forkHooks = hooksPlanFor(skill, context, true)
+					const forkResult = await runForkedSkill({
 						name: input.name,
 						skill,
 						argsLine,
 						dispatch: context.dispatchTool,
+						hooks: forkHooks,
 						header: resolveModelDirectory
 							? directoryHeader(
 									nonEmpty(
@@ -512,12 +514,21 @@ export function createSkillTool(options: SkillToolOptions = {}) {
 								)
 							: '',
 					})
+					return forkHooks?.notice
+						? { ...forkResult, output: `[${forkHooks.notice}]\n\n${forkResult.output}` }
+						: forkResult
 				}
 				forkUnavailable =
 					'[This skill is written to run as a delegated agent, but this turn cannot delegate. Follow its instructions yourself.]\n\n'
 			}
 
-			const allowed = parseAllowedTools(skill.metadata.allowedTools)
+			// A skill that carries hooks is read by the host first. When a hook
+			// that guards its work cannot be loaded, the skill's pre-approval is
+			// withheld, whatever else it says.
+			const hooksPlan = hooksPlanFor(skill, context, false)
+			const allowed = hooksPlan?.withholdGrants
+				? undefined
+				: parseAllowedTools(skill.metadata.allowedTools)
 			// Asked on every call, first page or continuation: the digest binds
 			// the answer, so a mount that changed between pages is a stale cursor
 			// rather than a second half written for a different directory.
@@ -572,7 +583,9 @@ export function createSkillTool(options: SkillToolOptions = {}) {
 					...(snapshot.skillDirectory ? { skillDirectory: snapshot.skillDirectory } : {}),
 				})
 			}
-			const notice = grantNotice(allowed, grant, context.grantSkillTools !== undefined)
+			const notice =
+				(hooksPlan?.notice ? `\n\n[${hooksPlan.notice}]` : '') +
+				grantNotice(allowed, grant, context.grantSkillTools !== undefined)
 			const page = pageSkillBody({
 				snapshot:
 					start === 0 && argsLine ? { ...snapshot, header: argsLine + snapshot.header } : snapshot,
@@ -589,6 +602,8 @@ export function createSkillTool(options: SkillToolOptions = {}) {
 				}
 			}
 			grant?.commit()
+			// Live only now that the instructions were delivered, like the grant.
+			hooksPlan?.attach()
 
 			return {
 				success: true,
@@ -603,6 +618,45 @@ export function createSkillTool(options: SkillToolOptions = {}) {
 			}
 		},
 	})
+}
+
+/**
+ * What the host says of the hooks a skill carries, or `undefined` for a skill
+ * that carries none. A registry that cannot read hooks answers with a plan
+ * that attaches nothing and withholds the pre-approval: the skill still
+ * loads, and the model is told in one line why its commands are not
+ * pre-approved.
+ */
+function hooksPlanFor(
+	skill: {
+		readonly metadata: { readonly name: string; readonly hooksSource?: string }
+		readonly dirPath?: string
+	},
+	context: ToolContext,
+	forked: boolean,
+): SkillHooksPlan | undefined {
+	const hooksSource = skill.metadata.hooksSource
+	if (hooksSource === undefined) return undefined
+	const prepare = context.skills?.prepareHooks
+	if (!prepare || !context.skills) {
+		return {
+			notice: `Skill ${skill.metadata.name} carries hooks, but this session cannot run a skill's hooks. They are not attached and its allowed-tools are not pre-approved.`,
+			withholdGrants: true,
+			attach: () => ({ remove: () => undefined }),
+		}
+	}
+	return prepare.call(
+		context.skills,
+		{
+			name: skill.metadata.name,
+			...(skill.dirPath !== undefined ? { dirPath: skill.dirPath } : {}),
+			hooksSource,
+		},
+		{
+			forked,
+			...(context.sessionId !== undefined ? { sessionId: String(context.sessionId) } : {}),
+		},
+	)
 }
 
 /** The `skill` tool with no host options: the listing carries the registry's `location`. */
@@ -690,16 +744,34 @@ async function runForkedSkill(input: {
 	readonly argsLine: string
 	readonly header: string
 	readonly dispatch: NonNullable<ToolContext['dispatchTool']>
+	/** The skill's hooks, made live for the delegated agent's run only. */
+	readonly hooks?: SkillHooksPlan
 }) {
 	const { metadata, body } = input.skill
-	const result = await input.dispatch(DELEGATION_TOOL_NAME, {
-		description: `Skill ${input.name}`,
-		prompt: `${input.header}${input.argsLine}${body ?? '(this skill has no body)'}`,
-		...(metadata.agent === undefined ? {} : { subagent_type: metadata.agent }),
-		...(metadata.model === undefined ? {} : { model: metadata.model }),
-		...(metadata.effort === undefined ? {} : { effort: metadata.effort }),
-		...(metadata.background === undefined ? {} : { run_in_background: metadata.background }),
-	})
+	const attached = input.hooks?.attach()
+	let ended = false
+	const end = (): void => {
+		if (ended) return
+		ended = true
+		attached?.remove()
+	}
+	let result: Awaited<ReturnType<typeof input.dispatch>>
+	try {
+		result = await input.dispatch(DELEGATION_TOOL_NAME, {
+			description: `Skill ${input.name}`,
+			prompt: `${input.header}${input.argsLine}${body ?? '(this skill has no body)'}`,
+			...(metadata.agent === undefined ? {} : { subagent_type: metadata.agent }),
+			...(metadata.model === undefined ? {} : { model: metadata.model }),
+			...(metadata.effort === undefined ? {} : { effort: metadata.effort }),
+			...(metadata.background === undefined ? {} : { run_in_background: metadata.background }),
+		})
+	} catch (error) {
+		end()
+		throw error
+	}
+	// A foreground agent is over when the dispatch returns. A background one is
+	// not: the host that bound the hooks to it ends them when it ends.
+	if (metadata.background !== true || !result.success) end()
 	return {
 		...result,
 		// Says what the text is, so a later pass never carries a report as the skill's steps.
