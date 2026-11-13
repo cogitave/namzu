@@ -4,11 +4,16 @@
  * found" failure carries when the command refers to a variable set nowhere.
  */
 
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import {
+	assignedWithin,
 	expandHookEnvValue,
 	hookUnsetVariableHint,
+	isShellOwnVariable,
 	movedEnvironment,
 	referencedVariables,
 	shellHookEnvNameProblem,
@@ -158,6 +163,27 @@ describe('movedEnvironment', () => {
 	})
 })
 
+describe('names a shell keeps for itself', () => {
+	const kernel = { NAMZU_PROJECT_DIR: '/proj', NAMZU_HOOK_EVENT: 'turn_start' }
+	const folders = { project: '/proj' } as const
+
+	it('are not reported as unset, nor are loop and read variables', () => {
+		const moved = movedEnvironment(
+			{
+				command:
+					'for f in a b; do echo $f; done; while read line; do echo $line; done < /dev/null; echo $RANDOM $PPID $UID $PWD $OPTIND ${BASH_SOURCE} $REALLY_MISSING',
+			},
+			{ ...kernel },
+			kernel,
+			folders,
+		)
+		expect(moved.unset).toEqual(['REALLY_MISSING'])
+		expect(isShellOwnVariable('RANDOM')).toBe(true)
+		expect(isShellOwnVariable('MY_TOOL')).toBe(false)
+		expect(assignedWithin(['select x in a; do :; done; echo $x'], 'x')).toBe(true)
+	})
+})
+
 describe('a real run', () => {
 	it('gives a command written for another tool the project folder', async () => {
 		const outcome = await printed('printf %s "$SOMETOOL_PROJECT_DIR"')
@@ -172,6 +198,30 @@ describe('a real run', () => {
 		// `printenv` is given the literal text `$SOMETOOL_PROJECT_DIR` as a second
 		// name, which is not a variable; the first is read from the environment.
 		expect(outcome.stdout.split('\n')[0]).toBe('/proj')
+	})
+
+	it('puts the project folder in the command and arguments of the exec form', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'exec-proj-'))
+		try {
+			writeFileSync(join(dir, 'rec.sh'), '#!/bin/sh\nprintf "%s" "$*"\n', { mode: 0o755 })
+			const outcome = await runShellHook(
+				{
+					command: '$EXECFORM_PROJECT_DIR/rec.sh',
+					args: ['$EXECFORM_PROJECT_DIR', '${EXECFORM_PROJECT_DIR}/x'],
+				},
+				{ ...input, projectDir: dir },
+			)
+			expect(outcome.spawnError).toBeUndefined()
+			expect(outcome.stdout).toBe(`${dir} ${dir}/x`)
+		} finally {
+			rmSync(dir, { recursive: true, force: true })
+		}
+	})
+
+	it('finds the shell when the entry env sets a PATH that does not hold it', async () => {
+		const outcome = await printed('printf ok', { env: { PATH: '/nonexistent' } })
+		expect(outcome.spawnError).toBeUndefined()
+		expect(outcome.stdout).toBe('ok')
 	})
 
 	it('passes the entry env to the command', async () => {

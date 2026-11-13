@@ -106,7 +106,8 @@
  */
 
 import { spawn } from 'node:child_process'
-import { mkdirSync } from 'node:fs'
+import { constants, accessSync, mkdirSync, statSync } from 'node:fs'
+import { delimiter } from 'node:path'
 
 import { decodedCommands, decomposeCommandLine } from '../authorization/command-line.js'
 import {
@@ -136,9 +137,9 @@ import { readHookCommand } from './shell-hook-command.js'
 import {
 	type PluginFolders,
 	hookUnsetVariableHint,
-	isPluginFolderVariable,
 	movedEnvironment,
-	substitutePluginFolders,
+	shellPathOutsideEnv,
+	substituteMovedFolders,
 } from './shell-hook-env.js'
 import { postHookJson } from './shell-hook-http.js'
 import { type ShellHookToolNames, shellHookToolName } from './shell-hook-tool-names.js'
@@ -750,6 +751,16 @@ function compactionFields(
 	}
 }
 
+function isExecutableFile(path: string): boolean {
+	try {
+		if (!statSync(path).isFile()) return false
+		accessSync(path, constants.X_OK)
+		return true
+	} catch {
+		return false
+	}
+}
+
 /** Run one hook command to completion, bounded by its deadline and capture. */
 export function runShellHook(
 	entry: ShellHookEntry,
@@ -779,42 +790,27 @@ export function runShellHook(
 			: {}),
 		...(toolPath !== undefined ? { NAMZU_TOOL_PATH: toolPath } : {}),
 	}
-	// The entry's `env`, and any `..._PROJECT_DIR` its command refers to without
-	// it being set, over the inherited environment; the kernel's own names last.
-	// A plugin's own folder is put in the command and its arguments, so the exec
-	// form (no shell) finds it too.
+	// The entry's `env`, and any `..._PROJECT_DIR`, `..._PLUGIN_ROOT` or
+	// `..._PLUGIN_DATA` its command refers to without it being set, over the
+	// inherited environment; the kernel's own names last. A shell expands the
+	// variables itself, so a folder name is never read as shell text.
 	const pluginFolders = input.plugin
-	const placed: ShellHookEntry =
-		pluginFolders === undefined
-			? entry
-			: {
-					...entry,
-					command: substitutePluginFolders(entry.command, pluginFolders),
-					...(entry.args !== undefined
-						? { args: entry.args.map((arg) => substitutePluginFolders(arg, pluginFolders)) }
-						: {}),
-				}
-	const { env, unset } = movedEnvironment(placed, { ...inherited, ...kernel }, kernel, {
+	const { env, unset } = movedEnvironment(entry, { ...inherited, ...kernel }, kernel, {
 		project: projectDir,
 		...(pluginFolders !== undefined
 			? { plugin: pluginFolders.root, pluginData: pluginFolders.dataDir }
 			: {}),
 	})
+	// The exec form has no shell to expand them, so the values are put in.
+	const placed: ShellHookEntry =
+		entry.args === undefined
+			? entry
+			: {
+					...entry,
+					command: substituteMovedFolders(entry.command, env),
+					args: entry.args.map((arg) => substituteMovedFolders(arg, env)),
+				}
 	const unsetVariables = unset.length > 0 ? { unsetVariables: unset } : {}
-	// A command that names a plugin's folder with no plugin to give it one is not
-	// run: it would start with an empty path (`/guard.sh`) and look like a hook
-	// that ran. The failure follows the entry's `onFailure`, as any other.
-	const noPlugin = unset.filter(isPluginFolderVariable)
-	if (noPlugin.length > 0) {
-		return Promise.resolve({
-			exitCode: null,
-			timedOut: false,
-			stdout: '',
-			stderr: '',
-			spawnError: `its command refers to ${noPlugin.map((name) => `$${name}`).join(', ')}, which only a hook entry a plugin ships is given; it was not run`,
-			...unsetVariables,
-		})
-	}
 	if (pluginFolders !== undefined) {
 		try {
 			// Created when first needed; never inside the plugin's own folder.
@@ -858,7 +854,20 @@ export function runShellHook(
 							// when installed, cmd.exe when not.
 							...(process.platform === 'win32'
 								? {}
-								: { shell: { path: 'sh', dialect: 'sh', source: 'sh' } as const }),
+								: {
+										shell: {
+											path:
+												shellPathOutsideEnv(
+													'sh',
+													inherited.PATH,
+													env.PATH,
+													isExecutableFile,
+													delimiter,
+												) ?? 'sh',
+											dialect: 'sh',
+											source: 'sh',
+										} as const,
+									}),
 						})
 		} catch (error) {
 			resolve({

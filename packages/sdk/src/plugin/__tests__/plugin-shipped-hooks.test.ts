@@ -136,16 +136,74 @@ describe('running an entry a plugin ships', () => {
 		expect(outcome.stdout).toBe(root)
 	})
 
-	it('does not run a command that names a plugin folder when no plugin gives one', async () => {
+	it('still runs a command that names a plugin folder when no plugin gives one, and reports the name', async () => {
 		const base = scratch()
 		const marker = join(base, 'ran')
 		const outcome = await runShellHook(
 			{ command: `touch ${marker}; "$NAMZU_PLUGIN_ROOT/guard.sh"` },
 			{ event: 'turn_start', sessionId: SESSION, cwd: base },
 		)
-		expect(outcome.exitCode).toBeNull()
-		expect(outcome.spawnError).toMatch(/NAMZU_PLUGIN_ROOT.*only a hook entry a plugin ships/)
-		expect(existsSync(marker)).toBe(false)
+		// It runs as it always did; only the failure names what was missing.
+		expect(existsSync(marker)).toBe(true)
+		expect(outcome.exitCode).toBe(127)
+		expect(outcome.unsetVariables).toEqual(['NAMZU_PLUGIN_ROOT'])
+	})
+
+	it('runs a config command that tests or echoes an unset plugin variable', async () => {
+		const base = scratch()
+		const tested = join(base, 'unset-ok')
+		const echoed = join(base, 'echoed')
+		const first = await runShellHook(
+			{ command: `if [ -z "$ACME_PLUGIN_DATA" ]; then touch ${tested}; fi` },
+			{ event: 'turn_start', sessionId: SESSION, cwd: base },
+		)
+		const second = await runShellHook(
+			{ command: `echo "$ACME_PLUGIN_ROOT" > ${echoed}` },
+			{ event: 'turn_start', sessionId: SESSION, cwd: base },
+		)
+		expect(first.exitCode).toBe(0)
+		expect(second.exitCode).toBe(0)
+		expect(existsSync(tested)).toBe(true)
+		expect(readFileSync(echoed, 'utf8')).toBe('\n')
+	})
+
+	it('exports a plugin variable by the name the command used, so a script it starts reads it', async () => {
+		const base = scratch()
+		const root = join(base, 'plugin')
+		mkdirSync(join(root, 'bin'), { recursive: true })
+		writeFileSync(
+			join(root, 'bin', 'show.sh'),
+			'#!/bin/sh\nprintf "%s|%s" "$SOME_PLUGIN_ROOT" "$SOME_PLUGIN_DATA"\n',
+			{ mode: 0o755 },
+		)
+		const dataDir = join(base, 'data')
+		const outcome = await runShellHook(
+			{ command: '$SOME_PLUGIN_ROOT/bin/show.sh # ${SOME_PLUGIN_DATA}' },
+			input(root, dataDir),
+		)
+		expect(outcome.stdout).toBe(`${root}|${dataDir}`)
+	})
+
+	it('never reads a plugin folder name as shell text', async () => {
+		const base = scratch()
+		const root = join(base, 'a$(touch INJECTED)b')
+		mkdirSync(join(root, 'bin'), { recursive: true })
+		writeFileSync(join(root, 'bin', 'ok.sh'), '#!/bin/sh\nprintf fine\n', { mode: 0o755 })
+		for (const command of [
+			'"${Q_PLUGIN_ROOT}/bin/ok.sh"',
+			'"$NAMZU_PLUGIN_ROOT/bin/ok.sh"',
+			'$Q_PLUGIN_ROOT/bin/ok.sh',
+		]) {
+			const outcome = await runShellHook(
+				{ command: command.replace('$Q_PLUGIN_ROOT/', '"$Q_PLUGIN_ROOT"/') },
+				{
+					...input(root, join(base, 'data')),
+					cwd: base,
+				},
+			)
+			expect(outcome.stdout).toBe('fine')
+		}
+		expect(existsSync(join(base, 'INJECTED'))).toBe(false)
 	})
 
 	it('runs it when the person gave the variable themselves', async () => {
@@ -198,7 +256,7 @@ describe('a manifest that ships hook entries', () => {
 		})
 	})
 
-	it('still refuses `hooks` that is not a list of text', () => {
+	it('still refuses, in the schema, `hooks` that is not a list of text', () => {
 		expect(() => PluginManifestSchema.parse({ ...base, hooks: { PreToolUse: [] } })).toThrow()
 		expect(() => PluginManifestSchema.parse({ ...base, hookEntries: ['x'] })).toThrow()
 	})

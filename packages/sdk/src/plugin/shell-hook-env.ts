@@ -75,6 +75,49 @@ export function substitutePluginFolders(text: string, folders: PluginFolders | u
 	)
 }
 
+/**
+ * For the exec form, which no shell reads: `${NAME}` and `$NAME` for a name
+ * that ends in one of {@link MOVED_FOLDER_ENDINGS} become the value the hook is
+ * started with (`env` is the environment {@link movedEnvironment} built, so a
+ * value the entry or the host already set wins). A reference with a modifier is
+ * left as written, as is a name with no value.
+ */
+export function substituteMovedFolders(
+	text: string,
+	env: Readonly<Record<string, string | undefined>>,
+): string {
+	return text.replace(
+		/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g,
+		(whole: string, braced: string | undefined, bare: string | undefined) => {
+			const name = (braced ?? bare) as string
+			if (!MOVED_FOLDER_ENDINGS.some((each) => name.endsWith(each.ending))) return whole
+			return env[name] ?? whole
+		},
+	)
+}
+
+/**
+ * The program that reads a shell hook's command, found on the host's own
+ * `PATH`. An entry may set `PATH` in its `env` to something that does not hold
+ * `sh`; the command is still read by it, so the shell is looked up before that
+ * `env` is applied. `undefined` when no change is needed or none is found.
+ */
+export function shellPathOutsideEnv(
+	name: string,
+	hostPath: string | undefined,
+	startedWith: string | undefined,
+	isExecutable: (path: string) => boolean,
+	separator: string,
+): string | undefined {
+	if (hostPath === undefined || hostPath === startedWith) return undefined
+	for (const dir of hostPath.split(separator)) {
+		if (dir === '') continue
+		const candidate = `${dir.replace(/[\\/]$/, '')}/${name}`
+		if (isExecutable(candidate)) return candidate
+	}
+	return undefined
+}
+
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 /** What is wrong with an `env` name, or `undefined` when it can be used. */
@@ -128,12 +171,66 @@ export function referencedVariables(
 	return [...seen]
 }
 
-/** Whether the command text itself gives the variable a value (`NAME=...`, `for NAME in`, `read NAME`). */
-function assignedWithin(texts: readonly string[], name: string): boolean {
+/**
+ * Whether the command text itself gives the variable a value (`NAME=...`,
+ * `for NAME in`, `select NAME in`, `read NAME`, `getopts opts NAME`).
+ */
+export function assignedWithin(texts: readonly string[], name: string): boolean {
 	const assign = new RegExp(`(?<![A-Za-z0-9_$])${name}=`)
-	const loop = new RegExp(`\\bfor\\s+${name}\\b`)
+	const loop = new RegExp(`\\b(?:for|select)\\s+${name}\\b`)
 	const read = new RegExp(`\\bread\\s+(?:-\\w+\\s+)*(?:[A-Za-z_][A-Za-z0-9_]*\\s+)*${name}\\b`)
-	return texts.some((text) => assign.test(text) || loop.test(text) || read.test(text))
+	const opts = new RegExp(`\\bgetopts\\s+\\S+\\s+${name}\\b`)
+	return texts.some(
+		(text) => assign.test(text) || loop.test(text) || read.test(text) || opts.test(text),
+	)
+}
+
+/** Variables a shell sets or keeps for itself; a command that reads one is not missing a value. */
+const SHELL_OWN_VARIABLES: ReadonlySet<string> = new Set([
+	'BASH',
+	'BASHOPTS',
+	'BASHPID',
+	'BASH_ARGC',
+	'BASH_ARGV',
+	'BASH_COMMAND',
+	'BASH_LINENO',
+	'BASH_REMATCH',
+	'BASH_SOURCE',
+	'BASH_SUBSHELL',
+	'BASH_VERSINFO',
+	'BASH_VERSION',
+	'COLUMNS',
+	'EUID',
+	'FUNCNAME',
+	'GROUPS',
+	'HOSTNAME',
+	'HOSTTYPE',
+	'IFS',
+	'LINENO',
+	'LINES',
+	'MACHTYPE',
+	'OLDPWD',
+	'OPTARG',
+	'OPTERR',
+	'OPTIND',
+	'OSTYPE',
+	'PIPESTATUS',
+	'PPID',
+	'PS1',
+	'PS2',
+	'PS4',
+	'PWD',
+	'RANDOM',
+	'REPLY',
+	'SECONDS',
+	'SHELLOPTS',
+	'SHLVL',
+	'UID',
+])
+
+/** Whether the name is one a shell keeps for itself (`RANDOM`, `PPID`, `PWD`, ...). */
+export function isShellOwnVariable(name: string): boolean {
+	return SHELL_OWN_VARIABLES.has(name)
 }
 
 /** `$NAME` and `${NAME}` in an `env` value become the value the hook already has; any other text stays as written. */
@@ -183,7 +280,7 @@ export function movedEnvironment(
 		const moved = MOVED_FOLDER_ENDINGS.find((each) => name.endsWith(each.ending))
 		const folder = moved === undefined ? undefined : folders[moved.folder]
 		if (folder !== undefined) env[name] = folder
-		else if (!assignedWithin(texts, name)) unset.push(name)
+		else if (!assignedWithin(texts, name) && !isShellOwnVariable(name)) unset.push(name)
 	}
 	return { env, unset }
 }

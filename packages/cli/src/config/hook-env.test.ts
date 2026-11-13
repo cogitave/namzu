@@ -153,8 +153,19 @@ describe('the doctor row and a variable that is set nowhere', () => {
 			{ command: '"${ZZ_UNSET_B:-/b}/x"' },
 			{ command: 'ZZ_UNSET_C=/c; "$ZZ_UNSET_C/x"' },
 			{ command: '"$NAMZU_PROJECT_DIR/x"' },
+			// Variables the command makes with `for` and `read`, and ones a shell keeps.
+			{
+				command: 'for f in a b; do echo $f; done; while read line; do echo $line; done < /dev/null',
+			},
+			{ command: 'echo $RANDOM $PPID $UID $PWD $OPTIND ${BASH_SOURCE}' },
 		]) {
 			expect(describeHooksStatus(sourced(entry) as never).status).toBe('pass')
 		}
+	})
+
+	it('names a plugin folder variable in a config file entry, which has no plugin to give one', () => {
+		const result = describeHooksStatus(sourced({ command: '"$ZZ_TOOL_PLUGIN_ROOT/x"' }) as never)
+		expect(result.status).toBe('warn')
+		expect(result.message).toContain('$ZZ_TOOL_PLUGIN_ROOT')
 	})
 })

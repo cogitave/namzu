@@ -1,7 +1,9 @@
 import {
 	type DoctorCheck,
 	type DoctorCheckResult,
+	assignedWithin,
 	isPluginFolderVariable,
+	isShellOwnVariable,
 	referencedVariables,
 } from '@namzu/sdk'
 
@@ -176,9 +178,10 @@ function unsetVariableLines(
 					process.env[name] === undefined &&
 					entry.env?.[name] === undefined &&
 					!MOVED_ENDING.test(name) &&
-					!isPluginFolderVariable(name) &&
+					!(entry.source?.startsWith('plugin ') === true && isPluginFolderVariable(name)) &&
 					!KERNEL_NAME.test(name) &&
-					!new RegExp(`(?<![A-Za-z0-9_$])${name}=`).test(texts.join(' ')),
+					!isShellOwnVariable(name) &&
+					!assignedWithin(texts, name),
 			)
 			if (missing.length === 0) continue
 			const names = missing.map((name) => `$${name}`).join(', ')

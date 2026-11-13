@@ -1606,15 +1606,15 @@ const CONFIG_READERS: ConfigReaders = {
 				}
 			}
 			if (hookOptions?.plugin !== true) {
-				// A config file's entry has no plugin to give it a folder: it is said, not run with an empty path.
+				// A config file's entry has no plugin to give it a folder: it still runs, and the person is told the name is empty there.
 				for (const entry of parsed) {
 					const named = pluginVariablesOf(entry)
 					if (named.length === 0) continue
 					record(
 						file,
 						event,
-						'problem',
-						`the command \`${(entry as { command: string }).command.slice(0, 60)}\` refers to ${named.map((name) => `$${name}`).join(', ')}, which only a hook entry a plugin ships is given: it cannot find its folder and will not run, unless the entry's "env" or your environment sets ${named.length === 1 ? 'it' : 'each'}.`,
+						'note',
+						`the command \`${(entry as { command: string }).command.slice(0, 60)}\` refers to ${named.map((name) => `$${name}`).join(', ')}, which only a hook entry a plugin ships is given: it is empty here and the command still runs, unless the entry's "env" or your environment sets ${named.length === 1 ? 'it' : 'each'}.`,
 					)
 				}
 			}

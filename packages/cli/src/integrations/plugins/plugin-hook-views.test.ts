@@ -74,25 +74,25 @@ describe('a plugin variable in a config file', () => {
 		return loadConfig({ home, cwd, env: {} })
 	}
 
-	it('is a problem in our shape, in the common shape and by the shape of the name', () => {
+	it('is a note in our shape, in the common shape and by the shape of the name', () => {
 		const hooks = load({
 			pre_tool_use: [{ command: '${NAMZU_PLUGIN_ROOT}/guard.sh' }],
 			PostToolUse: [
 				{ hooks: [{ type: 'command', command: 'run', args: ['$OTHER_PLUGIN_DATA/x'] }] },
 			],
 		}).hooks
-		// The entries are still read; a command that names a plugin folder is not run
-		// without one (see the SDK test), and the person is told here.
+		// The entries are still read and still run, as they always did, and the person is told here.
 		expect(hooks?.pre_tool_use).toHaveLength(1)
 		const messages = hookConfigProblems().map(
 			(problem) => `${problem.severity}: ${problem.message}`,
 		)
 		expect(messages).toHaveLength(2)
-		expect(messages[0]).toContain('problem')
+		expect(messages[0]).toContain('note')
 		expect(messages[0]).toContain('$NAMZU_PLUGIN_ROOT')
 		expect(messages[0]).toContain('only a hook entry a plugin ships is given')
+		expect(messages[0]).toContain('the command still runs')
 		expect(messages[1]).toContain('$OTHER_PLUGIN_DATA')
-		expect(takeConfigWarnings().join('\n')).toContain('Hook problem in')
+		expect(takeConfigWarnings().join('\n')).toContain('Hook note in')
 	})
 
 	it('is not a problem when the entry sets it itself', () => {

@@ -39,7 +39,9 @@ export {
 	shellHookVerdict,
 } from './shell-hook.js'
 export {
+	assignedWithin,
 	isPluginFolderVariable,
+	isShellOwnVariable,
 	MOVED_FOLDER_ENDINGS,
 	referencedVariables,
 	SHELL_HOOK_RESERVED_ENV,

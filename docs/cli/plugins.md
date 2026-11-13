@@ -77,8 +77,10 @@ A plugin can ship shell, http and prompt hook entries beside its JavaScript hook
 modules. Namzu reads `hooks/hooks.json` in the plugin folder when it exists (the
 conventional place, so a plugin written for the common hook contract moves as
 written), each `.json` path in the manifest's `hooks`, and the manifest key
-`hookEntries` (the same events object written inline), in either shape. A path
-that leaves the plugin folder is refused and named.
+`hookEntries` (the same events object written inline), in either shape. The
+two spellings the common hook contract uses for the manifest key are read too:
+`"hooks": "./hooks/hooks.json"` is a list of one path, and `"hooks": { <events> }`
+is `hookEntries`. A path that leaves the plugin folder is refused and named.
 
 ```json
 {
@@ -92,7 +94,9 @@ that leaves the plugin folder is refused and named.
 
 A command is started with `NAMZU_PLUGIN_ROOT`, the plugin's folder, and
 `NAMZU_PLUGIN_DATA`, a folder kept for the plugin under the Namzu home and never
-inside the plugin; both are also put in the command and its arguments. The
+inside the plugin; a shell command expands them from its environment (and so
+does a script it starts, for the names the command used), and an entry in the
+exec form has them put in its command and arguments. The
 entries run while the plugin is enabled and stop the moment it is disabled.
 `/hooks` lists them apart from the plugin's JavaScript hooks, `/plugins` shows
 how many a plugin ships, and `disableHooks`, `NAMZU_DISABLE_HOOKS` and
