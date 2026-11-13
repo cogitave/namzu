@@ -1,0 +1,152 @@
+/*
+ * The turn: how a person's message, the reply under it and the rows between them are spaced. Every number
+ * is a --turn-* token in theme.css. The text column itself (its width and axis) is the .conversation-body
+ * rule in style.css; the working row, the folded row and the open block of steps are in transcript-motion.css.
+ */
+
+/* The person's message: a bubble on the column's right edge, 80 percent of the column at most. Its hover row
+   (the clock) takes no height: it is drawn inside the gap under the bubble, so from the bubble's bottom edge to
+   the top of whatever follows is --turn-message-gap, shown or not. */
+.normal-transcript .message.user {
+	position: relative;
+	padding-bottom: var(--turn-message-gap);
+}
+.normal-transcript .message.user > .message-bubble {
+	max-width: var(--turn-message-share);
+	border-radius: var(--turn-message-radius);
+	padding: var(--turn-message-pad-y) var(--turn-message-pad-x);
+}
+.normal-transcript .message.user > .message-footer {
+	position: absolute;
+	right: 0;
+	top: calc(100% - var(--turn-message-gap) + 4px);
+}
+
+/* The reply's text starts on the column's edge. The row reserved under it (and its 2px above that) is unchanged. */
+.normal-transcript .message.assistant > .message-body {
+	padding: 0 0 2px;
+}
+
+/* A reply: paragraphs, lists and blocks are 12 apart. */
+.normal-transcript .chat-markdown :is(p, ul, ol, blockquote, pre, .table-scroll) {
+	margin-block: var(--turn-paragraph-gap);
+}
+.normal-transcript .chat-markdown > :first-child {
+	margin-top: 0;
+}
+.normal-transcript .chat-markdown > :last-child {
+	margin-bottom: 0;
+}
+/* A list: a small muted square stands for each bullet, the text starts at the same x on every item, and items
+   are 4 apart. A numbered list keeps its numbers, in the muted colour, with its text at the same x. */
+.normal-transcript .chat-markdown :is(ul, ol) {
+	--list-gutter: var(--turn-list-text-inset);
+	padding-left: var(--turn-list-text-inset);
+}
+.normal-transcript .chat-markdown ul {
+	list-style: none;
+}
+.normal-transcript .chat-markdown ul > li {
+	position: relative;
+}
+.normal-transcript .chat-markdown ul > li:not(.task-list-item)::before {
+	content: "";
+	position: absolute;
+	top: var(--turn-list-marker-top);
+	left: calc(var(--turn-list-marker-inset) - var(--turn-list-text-inset));
+	width: var(--turn-list-marker);
+	height: var(--turn-list-marker);
+	background: var(--muted-foreground);
+}
+.normal-transcript .chat-markdown ol > li::marker {
+	color: var(--muted-foreground);
+}
+.normal-transcript .chat-markdown li + li {
+	margin-top: var(--turn-list-gap);
+}
+/* A list inside an item starts where that item's text starts: its own marker is that far left of its text. */
+.normal-transcript .chat-markdown li > :is(ul, ol) {
+	margin-block: var(--turn-list-gap) 0;
+	padding-left: calc(var(--turn-list-text-inset) - var(--turn-list-marker-inset));
+}
+/* Inline code: a chip --turn-code-height high, 4 in at each side. */
+.normal-transcript .chat-markdown :not(pre) > code {
+	display: inline-block;
+	max-width: 100%;
+	min-height: var(--turn-code-height);
+	padding: 0 var(--turn-code-pad);
+	border-radius: var(--turn-code-radius);
+	font-family: var(--font-mono);
+	font-size: var(--font-size-code);
+	line-height: var(--turn-code-height);
+	vertical-align: baseline;
+}
+
+/* The fold's chevron stands after the sentence: --turn-chevron-gap after the last letter, a thin glyph
+   pointing right when the work is closed and down when it is open. */
+.normal-transcript .fold-chevron {
+	flex: none;
+	width: var(--turn-chevron-width);
+	height: var(--turn-chevron-height);
+	margin-left: var(--turn-chevron-gap);
+	transition: transform var(--transcript-frame-duration) var(--transcript-frame-ease);
+}
+.normal-transcript [data-panel-open] > .fold-chevron {
+	transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+	.normal-transcript .fold-chevron {
+		transition: none;
+	}
+}
+
+/* The working mark: four square dots in a grid of two by two, lit in turn, in the muted colour. */
+.normal-transcript .working-mark {
+	display: grid;
+	flex: none;
+	grid-template: repeat(2, var(--turn-mark-dot)) / repeat(2, var(--turn-mark-dot));
+	align-content: space-between;
+	justify-content: space-between;
+	width: var(--turn-mark-size);
+	height: var(--turn-mark-size);
+}
+.normal-transcript .working-mark > i {
+	width: var(--turn-mark-dot);
+	height: var(--turn-mark-dot);
+	background: var(--muted-foreground);
+	opacity: 0.3;
+	animation: working-mark-lit 1.2s linear infinite;
+}
+.normal-transcript .working-mark > i:nth-child(2) {
+	animation-delay: 0.3s;
+}
+.normal-transcript .working-mark > i:nth-child(4) {
+	animation-delay: 0.6s;
+}
+.normal-transcript .working-mark > i:nth-child(3) {
+	animation-delay: 0.9s;
+}
+@keyframes working-mark-lit {
+	0%,
+	24% {
+		opacity: 1;
+	}
+	25%,
+	100% {
+		opacity: 0.3;
+	}
+}
+/* A turn waiting on the person, and reduced motion: the dots hold still. */
+.normal-transcript .working-mark[data-state="waiting"] > i {
+	animation: none;
+	opacity: 0.6;
+}
+@media (prefers-reduced-motion: reduce) {
+	.normal-transcript .working-mark > i {
+		animation: none;
+		opacity: 0.6;
+	}
+}
+.normal-transcript .live-mark {
+	margin-right: var(--turn-mark-gap);
+}

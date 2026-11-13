@@ -191,6 +191,56 @@
 	--frame-column-width: 768px;
 	--frame-column-side: 32px;
 	--frame-column-side-narrow: 16px;
+	/* The turn: what the transcript is drawn on. Its text sits in a column narrower than the input box,
+	   --turn-gutter in from the pane's edges (wider than 600px; the narrow gutter below it) and never wider than
+	   --turn-column-width. Every rule that places or sizes a part of a turn reads one of these. */
+	--turn-column-width: 736px;
+	--turn-gutter: 58px;
+	--turn-gutter-narrow: 42px;
+	--turn-top: 32px;
+	--turn-message-radius: 10px;
+	--turn-message-pad-y: 12px;
+	--turn-message-pad-x: 16px;
+	--turn-message-share: 80%;
+	/* From the bottom of the person's message to the top of the first row under it. */
+	--turn-message-gap: 34px;
+	--turn-paragraph-gap: 12px;
+	--turn-list-marker: 5px;
+	--turn-list-marker-inset: 13px;
+	--turn-list-marker-top: 9px;
+	--turn-list-text-inset: 37px;
+	--turn-list-gap: 4px;
+	--turn-code-height: 17px;
+	--turn-code-radius: 4px;
+	--turn-code-pad: 4px;
+	/* The folded row: one sentence, its chevron after it. */
+	--turn-row-height: 28px;
+	--turn-fold-before: 14px;
+	--turn-fold-after: 12px;
+	--turn-chevron-gap: 7px;
+	--turn-chevron-width: 6px;
+	--turn-chevron-height: 8px;
+	/* The open block of steps. */
+	--turn-block-gap: 8px;
+	--turn-block-radius: 8px;
+	--turn-block-row: 35px;
+	--turn-block-inset: 12px;
+	--turn-block-after: 20px;
+	--turn-edge: color-mix(in srgb, var(--foreground) 6%, transparent);
+	/* The working row's mark: four square dots in two rows of two. */
+	--turn-mark-size: 14px;
+	--turn-mark-dot: 4px;
+	--turn-mark-gap: 8px;
+	/* The plan while the turn runs. */
+	--turn-plan-gap: 20px;
+	--turn-plan-pad: 16px;
+	--turn-plan-radius: 12px;
+	--turn-plan-pitch: 28px;
+	--turn-plan-mark: 16px;
+	--turn-plan-mark-gap: 8px;
+	/* Jump to latest. */
+	--turn-latest-size: 36px;
+	--turn-latest-gap: 20px;
 	--workspace-topbar-height: var(--frame-header-height);
 	--workspace-gutter: var(--frame-title-inset);
 	--workspace-gutter-start: var(--workspace-gutter);

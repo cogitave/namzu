@@ -641,6 +641,15 @@ pre {
 		--frame-column-side: var(--frame-column-side-narrow);
 	}
 }
+/* The transcript's text column keeps 58px on each side of a pane that is 600px wide or wider, 42px in a narrower one. */
+.transcript {
+	--turn-side: var(--turn-gutter);
+}
+@container conversation-lane (max-width: 599.98px) {
+	.transcript {
+		--turn-side: var(--turn-gutter-narrow);
+	}
+}
 .chat-stage[data-pal-context="true"] {
 	/* Keep the profile beside the conversation, including narrower desktop panes.
 	   Its column includes the card's 24px horizontal margins. */
@@ -660,11 +669,9 @@ pre {
 	overflow-y: auto;
 	overscroll-behavior-y: contain;
 	scrollbar-gutter: stable both-edges;
-	/* The scrollbar's lane is on both edges, so the text column is that much nearer the pane's edge and its
-	   edges are the box's. */
-	padding: 20px calc(var(--frame-column-side) - var(--app-scrollbar-width))
-		calc(var(--composer-height, 200px) + 16px)
-		calc(var(--frame-column-side) - var(--app-scrollbar-width));
+	/* The scrollbar's lane is on both edges, so the column below is centred on the pane's axis, which is the
+	   input box's. */
+	padding: var(--turn-top) 0 calc(var(--composer-height, 200px) + 16px);
 	transition: padding-right var(--dur-base) var(--ease-out);
 }
 .composer-wrap > div {
@@ -675,9 +682,22 @@ pre {
 	max-width: var(--chat-max-width);
 	margin: 0 auto;
 }
+/* The text column: messages, rows of steps, the plan, the working row and the result line. */
+.transcript .conversation-body {
+	width: min(var(--turn-column-width), 100cqw - 2 * var(--turn-side));
+	max-width: none;
+}
 .transcript-latest {
 	position: absolute;
-	bottom: min(calc(var(--composer-height, 200px) + 18px), calc(100% - 44px));
+	/* A round button, centred on the column, clear above the top of the dock. */
+	width: var(--turn-latest-size);
+	height: var(--turn-latest-size);
+	padding: 0;
+	border-radius: var(--radius-pill);
+	bottom: min(
+		calc(var(--composer-height, 200px) + var(--turn-latest-gap)),
+		calc(100% - var(--turn-latest-size) - 8px)
+	);
 	left: 50%;
 	z-index: 3;
 	translate: -50% 0;
@@ -793,11 +813,12 @@ pre {
 .working {
 	display: flex;
 	align-items: center;
-	gap: 8px;
-	padding: 12px 4px 20px;
+	gap: var(--turn-mark-gap);
+	height: var(--turn-row-height);
+	padding: 0;
 	color: var(--muted-foreground);
-	font-size: var(--text-interface);
-	line-height: var(--leading-interface);
+	font-size: var(--text-reading);
+	line-height: var(--leading-reading);
 }
 .working-label,
 .tool.active > .tool-trigger .tool-label {
@@ -818,25 +839,31 @@ pre {
 	animation: none;
 }
 .working-elapsed {
-	font-size: var(--text-caption);
-	line-height: var(--leading-caption);
+	font-size: var(--text-reading);
+	line-height: var(--leading-reading);
 	font-variant-numeric: tabular-nums;
 }
+/* A folded row sits 14 under what is above it and 12 above what follows it. A first row under the person's
+   message, or under the plan box, takes that part's own gap instead. */
 .turn-activity {
-	margin: 16px 4px 18px;
+	margin: var(--turn-fold-before) 0 var(--turn-fold-after);
+}
+.message.user + .turn-activity,
+.plan-box + .turn-activity {
+	margin-top: 0;
 }
 .activity-trigger {
 	display: flex;
 	align-items: center;
 	gap: 6px;
 	width: 100%;
-	min-height: 28px;
-	padding: 0 0 6px;
-	border-bottom: 1px solid var(--border);
+	min-height: var(--turn-row-height);
+	padding: 0;
+	border-bottom: 0;
 	color: var(--muted-foreground);
 	text-align: left;
-	font-size: var(--text-interface);
-	line-height: var(--leading-interface);
+	font-size: var(--text-reading);
+	line-height: var(--leading-reading);
 }
 .activity-trigger:hover,
 .activity-trigger[data-panel-open] {

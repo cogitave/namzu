@@ -355,7 +355,6 @@ const READS: ReadonlyArray<readonly [string, string, string, string]> = [
 	['composer.css', '.composer-home', '--home-growth', '--frame-dock-rest'],
 	['composer.css', '.composer-home', 'margin-bottom', '--home-growth'],
 	['composer.css', '.composer-home-block', 'top', '--home-growth'],
-	['style.css', '.transcript', 'padding', '--frame-column-side'],
 ]
 
 describe('the rules that place the frame', () => {
