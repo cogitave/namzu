@@ -2,6 +2,7 @@
 
 ## 2026-11-13
 
+- **Creation** [Terminal design](cli/terminal-design.md#syntax-colour) and [Themes](cli/themes.md#code-colours): a fenced block that names a language we know is drawn in syntax colour (keywords, strings, numbers, comments, names, types, literals, and the added and removed lines of a diff) by highlight.js 11.11.1, read one grammar at a time on demand, with a code group of nine colours in every theme and the `tui.syntaxHighlight` setting (default on) to turn it off. The text, the rows and the wraps are those of the block without colour; the printing of a block waits (at most 1.5 s) for its grammar; a reopened conversation and `namzu watch` colour on the first paint; the colouring is bounded by a line, a block and a reply limit. `.changeset/cli-syntax-colour.md` (`@namzu/cli` minor).
 - **Update** [Terminal design](cli/terminal-design.md#code-blocks): a fenced block is read by one grammar everywhere (the parser, the live reply, the fullscreen window and `/copy`): three or more backticks or tildes, any info string with the language as its first word, closed by a fence of the same character at least as long. A fence inside a list item or a quote is a block drawn at its own indentation, under its item.
 
 ## 2026-11-12

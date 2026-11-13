@@ -860,14 +860,21 @@ export function colourLines(
 	if (count === 0) return undefined
 	const body = count === lines.length ? lines : lines.slice(0, count)
 	if (flow.above !== '') {
+		// The part of a block that follows open lines: asked for twice when it is printed (once
+		// to find what the next part starts from, once to draw it), so it is remembered too.
+		const withAbove = `${id}\u0000${flow.above}\u0001${body.join('\n')}`
+		const seen = finished.get(withAbove)
+		if (seen) return seen
 		const above = flow.above.split('\n')
 		const source = [...above, ...body]
 		const read = readWindows(id, source, { runs: [], start: 0, atRest: true, stopped: false })
 		if (!read) return undefined
-		return {
+		const result: Coloured = {
 			lines: read.runs.slice(above.length, above.length + body.length),
 			above: continuation(source, read),
 		}
+		remember(withAbove, result)
+		return result
 	}
 	const key = `${id}\u0000${body.join('\n')}`
 	const known = finished.get(key)
