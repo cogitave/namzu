@@ -1,3 +1,5 @@
+import { closesFence, openingFence, stripFenceIndent } from './markdown-fence.js'
+
 /**
  * Lightweight, dependency-free markdown parsing for the transcript. Splits
  * text into block elements (paragraphs, headings, bullet/ordered list
@@ -58,7 +60,16 @@ export type MdBlock =
 	  }
 	| { readonly type: 'quote'; readonly blocks: readonly MdBlock[] }
 	| { readonly type: 'rule' }
-	| { readonly type: 'code'; readonly lang?: string; readonly lines: readonly string[] }
+	| {
+			readonly type: 'code'
+			readonly lang?: string
+			readonly lines: readonly string[]
+			/**
+			 * Columns the opening fence was indented: the block is drawn at them, so a
+			 * block in a list item sits under its item. Absent is none.
+			 */
+			readonly indent?: number
+	  }
 	| {
 			readonly type: 'table'
 			readonly headers: readonly string[]
@@ -72,7 +83,8 @@ export type MdBlock =
 
 export type TableAlign = 'left' | 'center' | 'right'
 
-const FENCE = /^```(\w*)\s*$/
+export { closesFence, openingFence } from './markdown-fence.js'
+
 const HEADING = /^(#{1,6})\s+(.+?)\s*#*$/
 const BULLET = /^(\s*)([-*+]|\d+[.)])\s+(.+)$/
 const BLOCKQUOTE = /^\s*>/
@@ -123,7 +135,7 @@ function continuesTable(line: string): boolean {
 	return (
 		line.includes('|') &&
 		line.trim().length > 0 &&
-		!FENCE.test(line) &&
+		openingFence(line) === null &&
 		!HEADING.test(line) &&
 		!BULLET.test(line) &&
 		!BLOCKQUOTE.test(line)
@@ -142,7 +154,7 @@ function continuesTable(line: string): boolean {
 type BlockKind = 'code' | 'table' | 'heading' | 'rule' | 'quote' | 'bullet' | 'blank' | 'text'
 
 function classify(line: string, next: string | undefined, terminated: boolean): BlockKind {
-	if (FENCE.test(line)) return 'code'
+	if (openingFence(line) !== null) return 'code'
 	// Table: a `| … |` header row immediately followed by a `|---|` separator.
 	if (TABLE_ROW.test(line) && next !== undefined && TABLE_SEP.test(next)) return 'table'
 	if (HEADING.test(line)) return 'heading'
@@ -209,8 +221,9 @@ export function scanBlockRanges(src: string, startsAs?: 'text'): BlockRange[] {
 				// Run to the closing fence, or to the end of the text — a reply
 				// still streaming in has an open fence for as long as it is inside
 				// one, and that is a code block with what has arrived so far.
+				const opener = openingFence(line)
 				let end = i + 1
-				while (end < lines.length && !FENCE.test(lines[end] ?? '')) end++
+				while (end < lines.length && !(opener && closesFence(lines[end] ?? '', opener))) end++
 				const last = Math.min(end, lines.length - 1)
 				ranges.push({
 					start: starts[i] ?? 0,
@@ -284,16 +297,21 @@ export function parseBlock(raw: string, as?: 'text'): MdBlock {
 	const first = lines[0] ?? ''
 	switch (as === 'text' ? 'text' : classify(first, lines[1], lines.length > 1)) {
 		case 'code': {
-			const lang = FENCE.exec(first)?.[1]
+			const opener = openingFence(first)
 			// The closing fence is part of the segment when the block is closed and
 			// absent while it is still arriving, so it is dropped only if present.
-			// A segment that is nothing but its opening fence reads as closed and
-			// is right either way: there is no body to drop a line from.
-			const closed = FENCE.test(lines[lines.length - 1] ?? '')
+			// A segment that is nothing but its opening fence has no body to drop a
+			// line from.
+			const closed =
+				opener !== null && lines.length > 1 && closesFence(lines[lines.length - 1] ?? '', opener)
+			const indent = opener?.indent ?? 0
 			return {
 				type: 'code',
-				...(lang ? { lang } : {}),
-				lines: closed ? lines.slice(1, -1) : lines.slice(1),
+				...(opener?.lang ? { lang: opener.lang } : {}),
+				...(indent > 0 ? { indent } : {}),
+				lines: (closed ? lines.slice(1, -1) : lines.slice(1)).map((l) =>
+					stripFenceIndent(l, indent),
+				),
 			}
 		}
 		case 'table': {
@@ -405,7 +423,7 @@ export function parseInline(text: string): InlineSpan[] {
 
 /** The line shapes the streaming view reads: the same expressions the parser classifies with. */
 export const LINE_SHAPES = {
-	fence: FENCE,
+	fence: openingFence,
 	heading: HEADING,
 	bullet: BULLET,
 	quoteMark: QUOTE_MARK,

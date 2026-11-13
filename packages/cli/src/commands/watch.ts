@@ -27,6 +27,7 @@ import {
 import { ChangeWaiter } from '../integrations/sessions/watch-wait.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
 import { readIdentity } from '../integrations/state/identity.js'
+import { setSyntaxHighlight } from '../tui/code-highlight.js'
 import { terminalDisplayText } from '../tui/terminal-display.js'
 import { CLI_VERSION } from '../version.js'
 import { DEFAULT_SEND_WAIT_SECONDS, renderSendReceipt } from './send.js'
@@ -284,6 +285,7 @@ export const watchCommand: CommandDef = {
 			ctx.formatter.error({ message: `${parsed.error}\n\n${HELP}` })
 			return EXIT_USAGE
 		}
+		setSyntaxHighlight(ctx.config.tui?.syntaxHighlight !== false)
 		const root = resolveNamzuHome()
 		const identity = readIdentity(root)
 		if (!identity) {

@@ -1,3 +1,5 @@
+import { type FenceOpener, closesFence, openingFence, stripFenceIndent } from './markdown-fence.js'
+
 /** A source-preserving target offered by `/copy`. */
 export type CopyResponseTarget =
 	| { readonly kind: 'whole'; readonly label: 'Whole response'; readonly text: string }
@@ -9,12 +11,9 @@ interface SourceLine {
 	readonly ending: string
 }
 
-interface Fence {
-	readonly marker: '`' | '~'
-	readonly length: number
-	readonly indent: number
+/** The shared opening fence (see `markdown-fence.ts`) and how many quotes it sits in. */
+interface Fence extends FenceOpener {
 	readonly quoteDepth: number
-	readonly language?: string
 }
 
 interface PositionedTarget {
@@ -47,18 +46,18 @@ export function copyTargetsForResponse(source: string): readonly CopyResponseTar
 			// A fenced block inside an explicitly marked quote ends when the quote
 			// itself ends, even when the author omitted a closing fence.
 			if (unquoted === null) break
-			if (isClosingFence(unquoted, opening)) {
+			if (closesFence(unquoted, opening)) {
 				cursor += 1
 				break
 			}
-			body.push(stripOpeningIndent(unquoted, opening.indent) + current.ending)
+			body.push(stripFenceIndent(unquoted, opening.indent) + current.ending)
 		}
 		positioned.push({
 			line,
 			priority: 1,
 			target: {
 				kind: 'code',
-				label: opening.language ? `${opening.language} code` : 'Code block',
+				label: opening.lang ? `${opening.lang} code` : 'Code block',
 				text: body.join(''),
 			},
 		})
@@ -125,34 +124,8 @@ function parseFence(body: string): Fence | null {
 		quoteDepth += 1
 		rest = quoted
 	}
-	const indent = leadingSpaces(rest, 3)
-	rest = rest.slice(indent)
-	const marker = rest[0]
-	if (marker !== '`' && marker !== '~') return null
-	let length = 0
-	while (rest[length] === marker) length += 1
-	if (length < 3) return null
-	const info = rest.slice(length).trim()
-	if (marker === '`' && info.includes('`')) return null
-	const language = info.split(/[\s,]/, 1)[0]
-	return {
-		marker,
-		length,
-		indent,
-		quoteDepth,
-		...(language ? { language } : {}),
-	}
-}
-
-function isClosingFence(body: string, opening: Fence): boolean {
-	const rest = body.slice(leadingSpaces(body, 3))
-	let length = 0
-	while (rest[length] === opening.marker) length += 1
-	return length >= opening.length && rest.slice(length).trim().length === 0
-}
-
-function stripOpeningIndent(body: string, indent: number): string {
-	return body.slice(leadingSpaces(body, indent))
+	const opener = openingFence(rest)
+	return opener ? { ...opener, quoteDepth } : null
 }
 
 function leadingSpaces(text: string, limit: number): number {
@@ -183,7 +156,7 @@ function quoteHasProse(lines: readonly SourceLine[]): boolean {
 	let fence: Fence | null = null
 	for (const line of lines) {
 		if (fence) {
-			if (isClosingFence(stripQuoteDepth(line.body, fence.quoteDepth) ?? line.body, fence)) {
+			if (closesFence(stripQuoteDepth(line.body, fence.quoteDepth) ?? line.body, fence)) {
 				fence = null
 			}
 			continue
