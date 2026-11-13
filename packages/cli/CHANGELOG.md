@@ -1,5 +1,30 @@
 # @namzu/cli
 
+## 53.2.0
+
+### Minor Changes
+
+- ede0056: `namzu hooks [--cwd <path>] [--json]` says what runs by itself in a folder: every hook from your config files, the folder's files, plugins, skills and agent files, with its event (both spellings), matcher and `if`, what it starts, where it comes from, whether it is on (`runs`, `off` with the switch that turned it off, `attaches when used`, or `not loaded` with the reason), what the readers could not load, and where each switch was set. It reads files as text and never runs or imports anything of the folder (a plugin's JavaScript module is named, not loaded), so it can be asked about a folder you have not trusted: that folder's own hooks are listed as not loaded, with what would start once it is trusted. With `--json` it prints the same facts as one JSON value for a script.
+
+  The desktop host (`namzu acp --desktop`) answers the same question as `namzu/hooks/list`, a new optional method an application can ask for; a host without it simply does not list it among its extensions. The answer is versioned (`version: 1`) and only ever grows by added fields. Nothing you use today changes: no key, event, field or default is removed or renamed, and `/hooks`, `namzu doctor` and the trust prompt say what they said. Nothing to do when upgrading.
+
+  `namzu hooks` also says when a project or local file sets `disableHooks` (a repository cannot switch off hooks, so it is ignored) and lists a skill named in `skills.disabled` as off.
+
+- a29a071: A skill that carries hooks gets them back when the conversation is continued (`--continue`, `--resume`, the picker, a fork, a branch from an earlier prompt, a model change). They are attached again before the first tool call from the skill file as it reads now, under the same guard rule, switches and trust. If the file is gone, no longer loads or its folder is no longer trusted, they are not attached and you and the model are told which skill and why. The skill's result no longer says its hooks last "until cleared or resumed". Skills run by name (`/skills`, `--skills`) are not restored. Needs `@namzu/sdk` with this change.
+
+### Patch Changes
+
+- 82f81a9: A very long reply in the fullscreen view (`tui.fullscreen`) takes far less memory and processor time while it streams, and nothing changes on the screen. Every row is still there to scroll back to, search and select, and a copy still holds the whole text. The view now lays out only what a new piece brought instead of the whole reply again, and keeps one copy of each row. There is nothing to switch on or off. In a real terminal a 1 MB reply of code took 19 s of processor time and 0.8 GB at its peak instead of 45 s and 2.6 GB; smaller replies gain less, and a key typed meanwhile still shows within about 70 ms. The default screen is untouched.
+- 82f81a9: Four small things on the terminal screen, with no setting to change and nothing to switch off.
+
+  - The `(ctrl+o to expand)` hint (in the fullscreen view `(click to expand)`) is never cut across two rows. When it does not fit after the text on a narrow window, it moves whole to a row of its own, in the column the text continues in, with the `·` before it left off (before, `expand)` stood alone on the next row, for example under the last agent of a finished batch at 80 columns). Where it fits it is drawn exactly as before. In a window too narrow for the whole hint it reads `(ctrl+o)` or `(click)`, and where not even that fits it is left off (the row still opens). This holds for every row that carries a hint and in `namzu watch` on a terminal.
+  - A reopened conversation (`namzu -c`, `/resume`) names its agents as it did live: `general-purpose (Check a)` rather than the start of the prompt, and its `Worked for` line carries the total the agents spent (`· 1.6k tokens`). Nothing new is written to the saved record: the short name was already kept beside each agent and the totals are in the conversation's own log. An agent saved before the short name was kept is still named by the start of its prompt.
+  - `/resume`, the two `/rewind` choices that replace the conversation in place (restore and summarize) and `/clear-screen` now print the last finished rows that were still held in the live region before the screen is cleared, as `/clear` and Ctrl+L do, so every row that was on screen is in the scrollback once and in order. They were lost before. (The default screen only; the fullscreen view redraws itself.)
+  - `namzu watch` puts the hint one space after the text, as the screen does (it was two). It still prints the session's record as text: the fence lines of a code block stay (the code between them is in colour on a terminal) and agents have no rows of their own there; the docs now say so.
+
+- Updated dependencies [a29a071]
+  - @namzu/sdk@64.2.0
+
 ## 53.1.0
 
 ### Minor Changes
