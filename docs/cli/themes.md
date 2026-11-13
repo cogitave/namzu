@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Themes and reduced motion
-description: The terminal UI's seven theme choices (auto, dark, light, colorblind-friendly and ANSI-only versions of each), how auto decides, the /theme picker with its live preview, the tui.theme and tui.reducedMotion config keys, and what reduced motion switches off.
+description: The terminal UI's seven theme choices (auto, dark, light, colorblind-friendly and ANSI-only versions of each), how auto decides, the /theme picker with its live preview, the tui.theme, tui.reducedMotion and tui.syntaxHighlight config keys, the code colours of each theme, and what reduced motion switches off.
 resource: packages/cli/src/tui/theme-palettes.ts
 tags: [cli, tui, theme, accessibility, config]
 status: stable
@@ -49,6 +49,25 @@ tui:
 ```
 
 Both keys are read from your own files (user config, a profile you select, the managed file). A project file's `tui.theme` and `tui.reducedMotion` are ignored: a repository must not restyle your terminal. The project file's other `tui` keys (notifications) still apply, and the layers merge key by key.
+
+## Code colours
+
+A fenced code block that names a language we know is drawn in syntax colour (see [Terminal design](terminal-design.md#syntax-colour)). Each theme carries nine colours for it, in the `code` group of `theme-palettes.ts`: `keyword`, `string`, `number`, `comment`, `name` (a function, a method, an attribute), `type`, `literal`, `added` and `removed` (the whole line of a diff block). Every other character of such a block is drawn in the block's own text colour (the one code colour on the screen of the terminal UI; the terminal's own default colour in `namzu watch`, which never reads the theme setting).
+
+| Theme | Where its code colours sit |
+|---|---|
+| `dark`, `light` | 256-colour indexes chosen to read on a near-black and on a white background (every colour is at least 4.5:1 on dark and, in `light`, at least 3.9:1 on white; a comment is quieter) and to stay off the green of the accent |
+| `dark-daltonized`, `light-daltonized` | the same hues moved off green/red pairs: an added line is blue, a removed one orange, never red against green alone; the six syntax kinds (`keyword`, `string`, `number`, `name`, `type`, `literal`) are chosen to stay at least 15 apart (CIE76 distance) under simulated protanopia and deuteranopia, which a test checks |
+| `dark-ansi`, `light-ansi` | only the terminal's own sixteen named colours; no 256-colour or truecolor sequence is written |
+
+Colour is never the only sign: a diff line begins with `+` or `-`, and the text is the same with the colour off. `tui.syntaxHighlight: false` switches syntax colour off; the block is then drawn in the accent colour, as before:
+
+```yaml
+tui:
+  syntaxHighlight: true  # false: every code block in the one code colour
+```
+
+Like `theme`, it is read from your own files only; a project file's value is ignored. `/config` lists it as **Code colour**.
 
 ## Reduced motion
 

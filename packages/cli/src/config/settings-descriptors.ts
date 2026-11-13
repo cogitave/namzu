@@ -960,6 +960,9 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		on,
 		{ defaultText: 'on' },
 	),
+	d('tui.syntaxHighlight', 'terminal', 'Code colour', 'Colour the syntax of code blocks.', on, {
+		defaultText: 'on',
+	}),
 	d('tui.spinnerTips', 'terminal', 'Tips while working', 'Show a tip next to the spinner.', on, {
 		defaultText: 'on',
 	}),

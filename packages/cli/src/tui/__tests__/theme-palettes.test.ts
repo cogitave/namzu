@@ -44,6 +44,7 @@ function strings(colors: SemanticColors): string[] {
 		...Object.values(colors.accent),
 		...Object.values(colors.status),
 		...Object.values(colors.border),
+		...Object.values(colors.code),
 		...Object.values(colors.context),
 		colors.live.done,
 		colors.live.edge,
@@ -84,6 +85,7 @@ describe('palettes', () => {
 				accent: Object.keys(colors.accent),
 				status: Object.keys(colors.status),
 				border: Object.keys(colors.border),
+				code: Object.keys(colors.code),
 				context: Object.keys(colors.context),
 				diff: Object.keys(colors.diff.truecolor),
 			})
@@ -180,6 +182,136 @@ describe('palettes', () => {
 			const [r, , b] = (colors.diff.truecolor.added.match(/\d+/g) ?? []).map(Number)
 			expect(b ?? 0).toBeGreaterThan(r ?? 255)
 			expect(colors.diff.basic.added).toBe('blue')
+		}
+	})
+})
+
+describe('the colours of code', () => {
+	const KINDS = [
+		'keyword',
+		'string',
+		'number',
+		'comment',
+		'name',
+		'type',
+		'literal',
+		'added',
+		'removed',
+	] as const
+
+	it('has a colour for every kind in every theme', () => {
+		for (const name of THEME_NAMES) {
+			expect(Object.keys(PALETTES[name].code).sort(), name).toEqual([...KINDS].sort())
+		}
+	})
+
+	it('reads on white in the light themes', () => {
+		for (const name of ['light', 'light-daltonized'] as const) {
+			for (const [kind, color] of Object.entries(PALETTES[name].code)) {
+				// A comment is meant to be quieter; the rest are text.
+				expect(contrastOnWhite(color), `${name} ${kind} ${color}`).toBeGreaterThanOrEqual(
+					kind === 'comment' ? 4 : 3.9,
+				)
+			}
+		}
+	})
+
+	it('reads on a dark background in the dark themes', () => {
+		const onDark = (color: string) => {
+			const match = /^ansi256\((\d+)\)$/.exec(color)
+			if (!match) throw new Error(color)
+			return (luminance(ansi256Rgb(Number(match[1]))) + 0.05) / (luminance([11, 15, 12]) + 0.05)
+		}
+		for (const name of ['dark', 'dark-daltonized'] as const) {
+			for (const [kind, color] of Object.entries(PALETTES[name].code)) {
+				expect(onDark(color), `${name} ${kind} ${color}`).toBeGreaterThanOrEqual(4.5)
+			}
+		}
+	})
+
+	it('tells the kinds of syntax apart within a theme', () => {
+		for (const name of THEME_NAMES) {
+			const { added, removed, ...syntax } = PALETTES[name].code
+			const values = Object.values(syntax)
+			// A theme with few colours (the 16-colour ones) may not give every kind its own, but not by much.
+			expect(new Set(values).size, name).toBeGreaterThanOrEqual(values.length - 1)
+			expect(added, name).not.toBe(removed)
+		}
+	})
+
+	it('never tells an added line from a removed one by red against green alone', () => {
+		for (const name of ['dark-daltonized', 'light-daltonized'] as const) {
+			const { added, removed } = PALETTES[name].code
+			const rgb = (c: string) => ansi256Rgb(Number(/\((\d+)\)/.exec(c)?.[1]))
+			const [ar, ag, ab] = rgb(added)
+			const [rr, , rb] = rgb(removed)
+			// Added is blue, removed is orange: the axis colour-blind readers keep.
+			expect(ab, name).toBeGreaterThan(Math.max(ar, ag))
+			expect(rr, name).toBeGreaterThan(rb)
+		}
+	})
+
+	it('keeps the kinds of syntax apart under red-green colour blindness in the colour-blind themes', () => {
+		// Machado et al. matrices on linear RGB, then CIE76 distance between every pair of kinds.
+		const matrices = {
+			protanopia: [
+				[0.152286, 1.052583, -0.204868],
+				[0.114503, 0.786281, 0.099216],
+				[-0.003882, -0.048116, 1.051998],
+			],
+			deuteranopia: [
+				[0.367322, 0.860646, -0.227968],
+				[0.280085, 0.672501, 0.047413],
+				[-0.01182, 0.04294, 0.968881],
+			],
+		}
+		const lin = (c: number) => {
+			const s = c / 255
+			return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4
+		}
+		const lab = (color: string, m: number[][]): number[] => {
+			const rgb = ansi256Rgb(Number(/\((\d+)\)/.exec(color)?.[1])).map(lin) as [
+				number,
+				number,
+				number,
+			]
+			const [r, g, b] = m.map((row) =>
+				Math.min(
+					1,
+					Math.max(0, (row[0] ?? 0) * rgb[0] + (row[1] ?? 0) * rgb[1] + (row[2] ?? 0) * rgb[2]),
+				),
+			) as [number, number, number]
+			const f = (t: number) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116)
+			const x = f((0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.9505)
+			const y = f(0.2126 * r + 0.7152 * g + 0.0722 * b)
+			const z = f((0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.089)
+			return [116 * y - 16, 500 * (x - y), 200 * (y - z)]
+		}
+		for (const name of ['dark-daltonized', 'light-daltonized'] as const) {
+			const { keyword, string, number, name: fn, type, literal } = PALETTES[name].code
+			const kinds = { keyword, string, number, name: fn, type, literal }
+			for (const [sim, m] of Object.entries(matrices)) {
+				const entries = Object.entries(kinds)
+				for (let i = 0; i < entries.length; i++) {
+					for (let j = i + 1; j < entries.length; j++) {
+						const a = lab((entries[i] as [string, string])[1], m)
+						const b = lab((entries[j] as [string, string])[1], m)
+						const distance = Math.hypot(...a.map((v, n) => v - (b[n] as number)))
+						expect(
+							distance,
+							`${name} under ${sim}: ${(entries[i] as [string, string])[0]} / ${(entries[j] as [string, string])[0]}`,
+						).toBeGreaterThanOrEqual(15)
+					}
+				}
+			}
+		}
+	})
+
+	it('uses only named colours in the 16-colour themes', () => {
+		for (const name of ['dark-ansi', 'light-ansi'] as const) {
+			for (const [kind, color] of Object.entries(PALETTES[name].code)) {
+				expect(color, `${name} ${kind}`).toMatch(/^[a-z]+(Bright)?$/)
+			}
 		}
 	})
 })

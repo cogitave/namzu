@@ -55,7 +55,15 @@ import {
 	wakeBudgetFromEnv,
 } from '@namzu/sdk'
 import { Box, Text, useApp, useInput, useStdout, useWindowSize } from 'ink'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+	useSyncExternalStore,
+} from 'react'
 import {
 	type LivePeers,
 	buildPeerTools,
@@ -715,6 +723,7 @@ import { agentViewCommandClass } from './agent-view-commands.js'
 import { type AttachmentRow, attachmentDirOf, attachmentRows } from './attachment-rows.js'
 import { AwayRecap } from './away-recap.js'
 import { browserSiteNotes, describeBrowserHandoff, runBrowserSlash } from './browser-notices.js'
+import { codeFlowHooks, grammarVersion, subscribeGrammars } from './code-highlight.js'
 import type { QueuedHintCount } from './composer-hints.js'
 import type { ProposedChange } from './diff-rows.js'
 import { EXIT_HINT_MS } from './exit-hint.js'
@@ -7256,6 +7265,7 @@ function AppBody({
 			taskFurniture + toolFurniture + pendingInputFurniture + callBlockFurniture,
 		),
 		hyperlinks,
+		code: codeFlowHooks,
 	}
 	const flowWidth = flowContext.width
 	const flowHeight = flowContext.rows
@@ -7265,8 +7275,12 @@ function AppBody({
 			width: flowWidth,
 			rows: flowHeight,
 			hyperlinks,
+			code: codeFlowHooks,
 		}
 	}, [flowFreeze, flowWidth, flowHeight, hyperlinks])
+	// The full-screen window bakes colours into its rows: lay them out again when a code
+	// grammar has been read (the normal screen's rows subscribe for themselves).
+	useSyncExternalStore(subscribeGrammars, grammarVersion)
 	// How much of the transcript is still redrawable. The rest belongs to native
 	// terminal scrollback; the live tail stays deliberately small so an activity
 	// tick never repaints the whole conversation.

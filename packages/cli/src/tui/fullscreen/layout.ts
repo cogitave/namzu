@@ -10,6 +10,7 @@
  */
 
 import { contentColorForRole, screenMessage } from '../Transcript.js'
+import { grammarVersion } from '../code-highlight.js'
 import { tailView } from '../stream-flow.js'
 import { RESULT_GUTTER_INDENT, RESULT_GUTTER_WIDTH } from '../system-rows.js'
 import { wrapChoiceText } from '../terminal-choice-text.js'
@@ -245,7 +246,8 @@ export function layoutTranscript(
 	const at = Math.min(Math.max(pendingAt ?? messages.length, 0), messages.length)
 	const ordered = pending ? [...messages.slice(0, at), pending, ...messages.slice(at)] : messages
 	const width = scrollTextWidth(columns)
-	const theme = shownTheme()
+	// Colours are baked into rows: a new theme, or a code grammar that has just arrived, lays them out again.
+	const theme = `${shownTheme()}:${grammarVersion()}`
 	const rows: FsRow[] = []
 	const blocks: { id: string; rows: number; tail: string }[] = []
 	ordered.forEach((message, i) => {
