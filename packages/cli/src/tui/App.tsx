@@ -21,6 +21,7 @@ import {
 	type Account,
 	type BackgroundJob,
 	type BackgroundJobOutput,
+	CompactionRefusedError,
 	type CostInfo,
 	DEFAULT_MAX_GOAL_ROUNDS,
 	DiskMessageFeedbackStore,
@@ -14378,7 +14379,13 @@ function AppBody({
 								}))
 								setContextHidden(true)
 							} catch (err) {
-								pushSystem('error', explainFailure(err, 'Couldn’t summarise the conversation.'))
+								// A hook refused the pass: one line with its reason, not a failure.
+								pushSystem(
+									err instanceof CompactionRefusedError ? 'notice' : 'error',
+									err instanceof CompactionRefusedError
+										? `A hook refused the summary: ${err.reason.split('\n')[0]?.trim() || 'no reason given'}`
+										: explainFailure(err, 'Couldn’t summarise the conversation.'),
+								)
 							} finally {
 								compactingRef.current = false
 								setCompacting(false)

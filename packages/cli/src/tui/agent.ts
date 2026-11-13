@@ -5941,6 +5941,9 @@ export async function createAgentSession(
 							...common,
 							sessionId,
 							...(trigger === 'idle' ? { trigger } : {}),
+							// `pre_compact` and `post_compact` fire for this pass as they do for an
+							// automatic one; the kernel tells them whether a person or the host asked.
+							...(pluginRuntime ? { hooks: { manager: pluginRuntime.manager } } : {}),
 							locator: {
 								log: DiskSessionLog.at(paths, { sessionId }),
 								index: sessions.index,
@@ -5948,7 +5951,22 @@ export async function createAgentSession(
 						}),
 					)
 				}
-				return await counted(sessionId, compactNow({ ...common, messages }))
+				return await counted(
+					sessionId,
+					compactNow({
+						...common,
+						messages,
+						...(pluginRuntime
+							? {
+									hooks: {
+										manager: pluginRuntime.manager,
+										sessionId,
+										...(trigger === 'idle' ? { trigger } : {}),
+									},
+								}
+							: {}),
+					}),
+				)
 			}),
 		compactRange: ({ messages, from, until, instructions }) =>
 			operations.promise(undefined, async (signal) => {
@@ -5978,6 +5996,7 @@ export async function createAgentSession(
 						compactSessionRange({
 							...common,
 							sessionId,
+							...(pluginRuntime ? { hooks: { manager: pluginRuntime.manager } } : {}),
 							...(from?.id ? { from: from.id } : {}),
 							...(until?.id ? { until: until.id } : {}),
 							locator: {
@@ -6001,6 +6020,7 @@ export async function createAgentSession(
 					sessionId,
 					compactRegion({
 						...common,
+						...(pluginRuntime ? { hooks: { manager: pluginRuntime.manager, sessionId } } : {}),
 						messages,
 						start: at(from, 0),
 						end: at(until, messages.length),

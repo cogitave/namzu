@@ -246,12 +246,36 @@ export interface PluginModelResponse {
 
 /** What a compaction hook is shown about the pass. */
 export interface PluginCompactionInfo {
-	/** `threshold`: the estimate crossed the line. `overflow`: the provider rejected the prompt. */
-	readonly reason: 'threshold' | 'overflow'
+	/**
+	 * `threshold`: the estimate crossed the line. `overflow`: the provider
+	 * rejected the prompt. `manual`: a host asked for the pass outside a turn
+	 * (a person's `/compact`, a summarised span, an idle pass); test `trigger`
+	 * to tell a person's request from the kernel's own.
+	 */
+	readonly reason: 'threshold' | 'overflow' | 'manual'
 	readonly tokensBefore: number
 	/** Present on `post_compact`. */
 	readonly tokensAfter?: number
 	readonly contextWindowTokens: number
+	/**
+	 * Who started the pass: `manual` for one a person asked for (`/compact`,
+	 * summarising a span), `auto` for every pass the kernel or a host started
+	 * on its own (the threshold, a provider overflow, an idle pass). The
+	 * kernel always sets it; it is optional only so a host that builds this
+	 * context by hand keeps compiling. A matcher on these two events tests it.
+	 */
+	readonly trigger?: 'manual' | 'auto'
+	/**
+	 * On `pre_compact`: what the person typed with the command, or `null` when
+	 * they typed nothing or the pass is not one a person asked for.
+	 */
+	readonly instructions?: string | null
+	/**
+	 * On `post_compact`: the summary the pass wrote, cut to
+	 * `MAX_COMPACTION_SUMMARY_HOOK_CHARS`. Absent when the pass wrote none (a
+	 * context reducer shed the history, or the pass shed nothing).
+	 */
+	readonly summary?: string
 }
 
 /** One call in a `post_tool_batch` hook's context. */
@@ -328,6 +352,13 @@ export interface PluginHookContext {
 	 * keep the model working until the turn's own limits stop it.
 	 */
 	readonly stopHookActive?: boolean
+	/**
+	 * On `turn_end` and `subagent_stop`: the text of the model's last message
+	 * of the turn, cut to `MAX_LAST_MESSAGE_HOOK_CHARS`. Absent when the turn
+	 * produced no text (it ended on a tool call, was interrupted before the
+	 * model wrote anything, or failed).
+	 */
+	readonly lastAssistantMessage?: string
 	readonly iteration?: number
 	/**
 	 * Why the turn was stopped, on `turn_interrupt`.
@@ -501,18 +532,20 @@ export type PluginHookResultFor<E extends PluginHookEvent> = E extends 'user_pro
 					? Extract<PluginHookResult, { action: 'continue' | 'error' }>
 					: E extends 'permission_request'
 						? Extract<PluginHookResult, { action: 'continue' | 'skip' }>
-						: E extends 'turn_end' | 'subagent_stop' | 'pre_compact'
-							? Extract<PluginHookResult, { action: 'continue' | 'skip' | 'error' }>
-							: E extends 'session_start'
-								? Extract<PluginHookResult, { action: 'continue' | 'annotate' }>
-								: E extends
-											| 'turn_interrupt'
-											| 'session_end'
-											| 'notification'
-											| 'turn_failure'
-											| 'permission_denied'
-									? Extract<PluginHookResult, { action: 'continue' }>
-									: Extract<PluginHookResult, { action: 'continue' | 'error' }>
+						: E extends 'pre_compact'
+							? Extract<PluginHookResult, { action: 'continue' | 'annotate' | 'skip' | 'error' }>
+							: E extends 'turn_end' | 'subagent_stop'
+								? Extract<PluginHookResult, { action: 'continue' | 'skip' | 'error' }>
+								: E extends 'session_start'
+									? Extract<PluginHookResult, { action: 'continue' | 'annotate' }>
+									: E extends
+												| 'turn_interrupt'
+												| 'session_end'
+												| 'notification'
+												| 'turn_failure'
+												| 'permission_denied'
+										? Extract<PluginHookResult, { action: 'continue' }>
+										: Extract<PluginHookResult, { action: 'continue' | 'error' }>
 
 /** The event and its handler verdict stay correlated, including in hook arrays. */
 export type PluginHookDefinition<E extends PluginHookEvent = PluginHookEvent> =

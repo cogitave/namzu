@@ -56,3 +56,49 @@ export function sessionStartHookContext(results: readonly PluginHookResult[]): s
 	}
 	return texts.length === 0 ? undefined : boundHookContext(texts.join('\n\n'))
 }
+
+/** The most characters of the model's last message a `turn_end` or `subagent_stop` hook receives. */
+export const MAX_LAST_MESSAGE_HOOK_CHARS = 8_000
+
+/** The most characters of a compaction summary a `post_compact` hook receives. */
+export const MAX_COMPACTION_SUMMARY_HOOK_CHARS = 8_000
+
+/** `text` cut to `limit` characters, with a mark when it was cut. */
+function boundText(text: string, limit: number): string {
+	return text.length > limit ? `${text.slice(0, limit)}\n[truncated]` : text
+}
+
+/** The model's last message as a stop hook receives it; `undefined` when it holds no text. */
+export function boundLastAssistantMessage(text: string | null | undefined): string | undefined {
+	if (text === undefined || text === null || text.trim().length === 0) return undefined
+	return boundText(text, MAX_LAST_MESSAGE_HOOK_CHARS)
+}
+
+/** A compaction summary as a `post_compact` hook receives it; `undefined` when empty. */
+export function boundCompactionSummary(text: string | null | undefined): string | undefined {
+	if (text === undefined || text === null || text.trim().length === 0) return undefined
+	return boundText(text, MAX_COMPACTION_SUMMARY_HOOK_CHARS)
+}
+
+/**
+ * What `pre_compact` hooks said the summary should keep, joined in answer
+ * order and bounded to {@link MAX_HOOK_CONTEXT_CHARS}; `undefined` when none
+ * said anything. A hook gives it as `annotate`, as `continue` with `context`,
+ * or as `context` beside a `skip` (a refusal the pass overrides, as for a
+ * pass the provider forced, still has its words heard).
+ */
+export function compactionHookInstructions(
+	results: readonly PluginHookResult[],
+): string | undefined {
+	const texts: string[] = []
+	for (const result of results) {
+		const text =
+			result.action === 'annotate'
+				? result.text
+				: result.action === 'continue' || result.action === 'skip'
+					? result.context
+					: undefined
+		if (text !== undefined && text.trim().length > 0) texts.push(text.trim())
+	}
+	return texts.length === 0 ? undefined : boundHookContext(texts.join('\n\n'))
+}

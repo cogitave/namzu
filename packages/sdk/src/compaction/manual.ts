@@ -15,6 +15,13 @@ import {
 	extractFromToolResult,
 	extractFromUserMessage,
 } from './extractor.js'
+import {
+	CompactionRefusedError,
+	type ManualCompactionHooks,
+	askPreCompact,
+	messageText,
+	postCompactSummary,
+} from './hooks.js'
 import { adoptableSkills, handledSkillNames } from './loaded-skills.js'
 import { WorkingStateManager } from './manager.js'
 import {
@@ -26,6 +33,7 @@ import { planCompaction } from './plan.js'
 import { recordRestorable, renderRestoredContext } from './restore.js'
 import { findRetainedIndices } from './retention.js'
 import { buildCompactionMessage, isCompactionMessage } from './summary.js'
+import { estimateMessagesTokens } from './token-estimate.js'
 import { type CompactionVerificationOptions, buildVerifiedSummary } from './verifier.js'
 
 /**
@@ -84,6 +92,14 @@ export interface CompactNowInput extends CompactionVerificationOptions {
 	 * summary is built from the extracted state as before.
 	 */
 	readonly summaryRoute?: CompactionSummaryRouter
+	/**
+	 * Fire `pre_compact` and `post_compact` around the pass, as an automatic
+	 * one does. A `pre_compact` refusal of a person's pass throws
+	 * {@link CompactionRefusedError}; of an idle pass, ends it as a no-op
+	 * (`null`). What the hooks print for the summariser joins the person's
+	 * `instructions`. Absent, no hook runs.
+	 */
+	readonly hooks?: ManualCompactionHooks
 }
 
 /** The model-written summary of `span` for a host-triggered pass, if one can be had. */
@@ -93,6 +109,7 @@ async function modelWrittenBody(
 	span: readonly Message[],
 	earlier: readonly Message[],
 	onUsage: (usage: TokenUsage) => void,
+	hookInstructions?: string,
 ): Promise<string | undefined> {
 	return summarizeWithModel({
 		manager,
@@ -104,7 +121,71 @@ async function modelWrittenBody(
 		signal: input.signal,
 		streamIdleTimeoutMs: input.streamIdleTimeoutMs,
 		instructions: input.instructions,
+		...(hookInstructions !== undefined ? { hookInstructions } : {}),
 	})
+}
+
+/**
+ * Run `pre_compact` for a pass a host asked for. Returns what the hooks said
+ * the summary should keep, or `'cancelled'` for an idle pass a hook refused.
+ */
+async function beforePass(
+	input: CompactNowInput,
+	windowTokens: number,
+): Promise<{ instructions?: string } | 'cancelled'> {
+	const hooks = input.hooks
+	if (!hooks) return {}
+	const answer = await askPreCompact(
+		hooks.manager,
+		{ sessionId: hooks.sessionId, signal: input.signal, emitEvent: hooks.emitEvent },
+		{
+			reason: 'manual',
+			trigger: hooks.trigger === 'idle' ? 'auto' : 'manual',
+			instructions: hooks.trigger === 'idle' ? null : input.instructions?.trim() || null,
+			tokensBefore: estimateMessagesTokens(input.messages),
+			contextWindowTokens: windowTokens,
+		},
+	)
+	if (answer.refusal !== undefined) {
+		if (hooks.trigger === 'idle') return 'cancelled'
+		throw new CompactionRefusedError(answer.refusal)
+	}
+	return answer.instructions !== undefined ? { instructions: answer.instructions } : {}
+}
+
+/**
+ * Run `post_compact` after the pass has been published. It decides nothing: a
+ * pass that is already made is not undone by a hook's answer, so the answers
+ * are not read, and a hook that throws does not lose the pass.
+ */
+async function afterPass(
+	input: CompactNowInput,
+	result: CompactionResult,
+	windowTokens: number,
+): Promise<void> {
+	const hooks = input.hooks
+	if (!hooks) return
+	input.signal?.throwIfAborted()
+	try {
+		await hooks.manager.executeHooks(
+			'post_compact',
+			{
+				sessionId: hooks.sessionId,
+				compaction: {
+					reason: 'manual',
+					trigger: hooks.trigger === 'idle' ? 'auto' : 'manual',
+					tokensBefore: estimateMessagesTokens(input.messages),
+					tokensAfter: estimateMessagesTokens(result.messages),
+					contextWindowTokens: windowTokens,
+					...postCompactSummary(messageText(result.summary.content)),
+				},
+				...(input.signal ? { signal: input.signal } : {}),
+			},
+			hooks.emitEvent,
+		)
+	} catch (error) {
+		if (input.signal?.aborted) throw error
+	}
 }
 
 async function publishManualCompaction(
@@ -266,6 +347,10 @@ export async function compactNow(input: CompactNowInput): Promise<CompactionResu
 	// message with one summary has shed nothing and must be reported as a no-op.
 	if (input.messages.length - projectedLength < 1) return null
 
+	const hooked = await beforePass(input, window.tokens)
+	if (hooked === 'cancelled') return null
+	const hookInstructions = hooked.instructions
+
 	const manager = new WorkingStateManager(input.config)
 	populateWorkingState(manager, plan.olderMessages, input.config)
 	let usage: TokenUsage = { ...EMPTY_TOKEN_USAGE }
@@ -273,7 +358,14 @@ export async function compactNow(input: CompactNowInput): Promise<CompactionResu
 		usage = accumulateTokenUsage(usage, reported)
 	}
 	const body =
-		(await modelWrittenBody(input, manager, plan.olderMessages, plan.systemMessages, onUsage)) ??
+		(await modelWrittenBody(
+			input,
+			manager,
+			plan.olderMessages,
+			plan.systemMessages,
+			onUsage,
+			hookInstructions,
+		)) ??
 		(await buildVerifiedSummary(
 			manager,
 			[...plan.olderMessages],
@@ -285,6 +377,7 @@ export async function compactNow(input: CompactNowInput): Promise<CompactionResu
 				signal: input.signal,
 				streamIdleTimeoutMs: input.streamIdleTimeoutMs,
 				instructions: input.instructions,
+				...(hookInstructions !== undefined ? { hookInstructions } : {}),
 			},
 		))
 
@@ -299,12 +392,14 @@ export async function compactNow(input: CompactNowInput): Promise<CompactionResu
 		plan.recentMessages,
 		input.recoveryNote,
 	)
-	return publishManualCompaction(input, {
+	const published = await publishManualCompaction(input, {
 		messages,
 		shed: input.messages.length - messages.length,
 		summary,
 		usage,
 	})
+	await afterPass(input, published, window.tokens)
+	return published
 }
 export interface CompactRegionInput extends CompactNowInput {
 	/** First index to summarise, inclusive. */
@@ -365,6 +460,14 @@ export async function compactRegion(input: CompactRegionInput): Promise<Compacti
 	// and no verifier/provider work is authorized.
 	if (end - start - retainedSelected.length - 1 < 1) return null
 
+	const windowTokens = resolveContextWindow(
+		input.contextWindowTokens ?? input.config.contextWindowTokens,
+		input.model,
+	).tokens
+	const hooked = await beforePass(input, windowTokens)
+	if (hooked === 'cancelled') return null
+	const hookInstructions = hooked.instructions
+
 	const manager = new WorkingStateManager(input.config)
 	populateWorkingState(manager, messages.slice(start, end), input.config)
 	let usage: TokenUsage = { ...EMPTY_TOKEN_USAGE }
@@ -372,7 +475,14 @@ export async function compactRegion(input: CompactRegionInput): Promise<Compacti
 		usage = accumulateTokenUsage(usage, reported)
 	}
 	const body =
-		(await modelWrittenBody(input, manager, messages.slice(start, end), [], onUsage)) ??
+		(await modelWrittenBody(
+			input,
+			manager,
+			messages.slice(start, end),
+			[],
+			onUsage,
+			hookInstructions,
+		)) ??
 		(await buildVerifiedSummary(
 			manager,
 			messages.slice(start, end),
@@ -384,6 +494,7 @@ export async function compactRegion(input: CompactRegionInput): Promise<Compacti
 				signal: input.signal,
 				streamIdleTimeoutMs: input.streamIdleTimeoutMs,
 				instructions: input.instructions,
+				...(hookInstructions !== undefined ? { hookInstructions } : {}),
 			},
 		))
 
@@ -416,10 +527,12 @@ export async function compactRegion(input: CompactRegionInput): Promise<Compacti
 		})
 	}
 
-	return publishManualCompaction(input, {
+	const published = await publishManualCompaction(input, {
 		messages: out,
 		shed: messages.length - out.length,
 		summary,
 		usage,
 	})
+	await afterPass(input, published, windowTokens)
+	return published
 }

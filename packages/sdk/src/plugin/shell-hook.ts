@@ -36,7 +36,8 @@
  * stdout. The exit codes:
  *
  * - `0` — carry on. On `user_prompt_submit`, `subagent_start` and
- *   `session_start`, plain (non-JSON) stdout becomes context for the model.
+ *   `session_start`, plain (non-JSON) stdout becomes context for the model;
+ *   on `pre_compact` it is instructions for the summariser.
  * - `2` — **block**, read per event: before a tool (`pre_tool_use`) the call is
  *   skipped and the model is told why, with the hook's stderr as the reason;
  *   on `user_prompt_submit` the turn ends; on `turn_end` and `subagent_stop`
@@ -509,6 +510,8 @@ export interface ShellHookInput {
 	readonly notification?: PluginNotificationInfo
 	/** On `turn_end` and `subagent_stop`: an earlier answer already kept this turn going. */
 	readonly stopHookActive?: boolean
+	/** On `turn_end` and `subagent_stop`: the model's last message of the turn. Sent as `last_assistant_message`. */
+	readonly lastAssistantMessage?: string
 	/** The session's transcript file, when the host has one. Sent as `transcript_path`. */
 	readonly transcriptPath?: string
 	/** How tool calls are being decided right now. Sent as `permission_mode`. */
@@ -532,7 +535,7 @@ export function shellHookPayload(input: ShellHookInput): string {
 			? { agent_id: input.sessionId, agent_type: input.agentType }
 			: {}),
 		...(input.prompt !== undefined ? { prompt: input.prompt } : {}),
-		...(input.compaction !== undefined ? { compaction: input.compaction } : {}),
+		...(input.compaction !== undefined ? compactionFields(input.event, input.compaction) : {}),
 		...(input.toolName !== undefined ? { tool_name: input.toolName } : {}),
 		...(input.toolInput !== undefined ? { tool_input: input.toolInput } : {}),
 		...(input.toolResult !== undefined
@@ -565,7 +568,29 @@ export function shellHookPayload(input: ShellHookInput): string {
 				}
 			: {}),
 		...(input.stopHookActive === true ? { stop_hook_active: true } : {}),
+		...(input.lastAssistantMessage !== undefined
+			? { last_assistant_message: input.lastAssistantMessage }
+			: {}),
 	})
+}
+
+/**
+ * A compaction hook's fields. `compaction` keeps what it always had and gains
+ * `trigger`; the person's instructions and the summary are top-level
+ * (`custom_instructions`, null when there are none, and `compact_summary`),
+ * where a script reads them without opening the object.
+ */
+function compactionFields(
+	event: ShellHookEvent,
+	compaction: PluginCompactionInfo,
+): Record<string, unknown> {
+	const { instructions, summary, ...rest } = compaction
+	return {
+		compaction: rest,
+		...(compaction.trigger !== undefined ? { trigger: compaction.trigger } : {}),
+		...(event === 'pre_compact' ? { custom_instructions: instructions ?? null } : {}),
+		...(event === 'post_compact' && summary !== undefined ? { compact_summary: summary } : {}),
+	}
 }
 
 /** Run one hook command to completion, bounded by its deadline and capture. */
@@ -998,7 +1023,10 @@ export function shellHookVerdict(
 		// model — the branch, the time, a ticket. Everywhere else stdout is
 		// the operator's to read and the model's business not at all.
 		if (
-			(event === 'user_prompt_submit' || event === 'subagent_start' || event === 'session_start') &&
+			(event === 'user_prompt_submit' ||
+				event === 'subagent_start' ||
+				event === 'session_start' ||
+				event === 'pre_compact') &&
 			text.length > 0
 		)
 			return { action: 'annotate', text }
@@ -1118,6 +1146,8 @@ export function shellHookVerdict(
 					}
 		}
 		case 'pre_compact':
+			// What the hook said is for the summariser: it rides as `context` on
+			// either answer (a refusal a forced pass overrides is still heard).
 			return reading.block !== undefined
 				? { action: 'skip', reason: reading.block, ...notes }
 				: { action: 'continue', ...notes }
@@ -1332,6 +1362,8 @@ export function createShellHook(
 			if (spent) return { action: 'continue' }
 			// A notification is matched on its type; every other event on the tool.
 			const namesATool = !(
+				event === 'pre_compact' ||
+				event === 'post_compact' ||
 				event === 'notification' ||
 				event === 'subagent_start' ||
 				event === 'subagent_stop' ||
@@ -1341,13 +1373,15 @@ export function createShellHook(
 			const subject =
 				event === 'notification'
 					? context.notification?.type
-					: event === 'subagent_start' || event === 'subagent_stop'
-						? context.agentType
-						: event === 'session_start'
-							? context.source
-							: event === 'session_end'
-								? context.endReason
-								: context.toolName
+					: event === 'pre_compact' || event === 'post_compact'
+						? context.compaction?.trigger
+						: event === 'subagent_start' || event === 'subagent_stop'
+							? context.agentType
+							: event === 'session_start'
+								? context.source
+								: event === 'session_end'
+									? context.endReason
+									: context.toolName
 			if (!shellHookMatches(entry.matcher, subject, { tool: namesATool }))
 				return { action: 'continue' }
 			if (!shellHookIfMatches(entry.if, context.toolName, context.toolInput, options.pathFilter)) {
@@ -1391,6 +1425,9 @@ export function createShellHook(
 				...(context.error !== undefined ? { error: context.error } : {}),
 				...(context.notification !== undefined ? { notification: context.notification } : {}),
 				...(context.stopHookActive === true ? { stopHookActive: true } : {}),
+				...(context.lastAssistantMessage !== undefined
+					? { lastAssistantMessage: context.lastAssistantMessage }
+					: {}),
 				...(transcriptPath !== undefined ? { transcriptPath } : {}),
 				...(permissionMode !== undefined ? { permissionMode } : {}),
 			}
