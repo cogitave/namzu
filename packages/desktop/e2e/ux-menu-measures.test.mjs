@@ -1,6 +1,6 @@
 // Every menu and dialog obeys one set of numbers, measured in the real app at 1280 by 820 and 900 by 820:
 // the permission menu, the model picker, the plus menu and a project row's menu (opened from its "…") have
-// the surface radius 12 and padding 5, one-line rows 28 high and a row with a one-line description 46, rows
+// the surface radius 12 and padding 5, one-line rows 28 high and a row with a one-line description 46 (18 more per extra line), rows
 // with their own corner of 8 and text 10 in, the menu 6 from the control that opened it and inside the
 // window; a conversation row's context menu has the same rows; the control that opened a menu carries a
 // fill while it is open; a confirm dialog is 400 wide with padding 16, a 15 title, a 14 body, 8 between
@@ -175,14 +175,14 @@ for (const [width, height] of SIZES) {
 				await theme(w, mode);
 				const label = (name) => `${name} ${mode} ${width}x${height}`;
 
-				// The permission menu: every row has a one-line description, so every row is 46 high.
+				// The permission menu: a row is 46 high with a one-line description and 18 more for each further line.
 				const permission = await open(w, "permission");
 				checkSurface(permission, label("permission"));
 				checkOffset(permission, label("permission"));
 				assert.ok(permission.rows.length >= 3, "the permission menu lists its modes");
 				for (const row of permission.rows) {
-					assert.equal(row.lines, 1, `${label("permission")}: "${row.text}" keeps its description on one line`);
-					near(row.h, 46, `${label("permission")}: "${row.text}" height`);
+					assert.ok(row.lines >= 1, `${label("permission")}: "${row.text}" has a description`);
+					near(row.h, 46 + 18 * (row.lines - 1), `${label("permission")}: "${row.text}" height for ${row.lines} description line(s)`);
 				}
 				// The title is a 25 px block and the chosen row's check is 9 from its right edge.
 				const caption = await w.page.evaluate(() => document.querySelector(".composer-permission-title").getBoundingClientRect().height);

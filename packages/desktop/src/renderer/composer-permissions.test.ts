@@ -306,15 +306,3 @@ it('does not offer Auto when the engine’s capabilities leave it out', () => {
 	const view = render({ reviewModes: ['prompt', 'accept-edits', 'bypass', 'plan'] })
 	expect(rows(view).map(entryValue)).not.toContain('classify')
 })
-
-it('keeps every permission description short enough to stay on one line of a 46 px row', () => {
-	for (const engine of ['namzu', 'codex-cli', 'claude-code'] as const) {
-		const rows = permissionRows(
-			engine,
-			['prompt', 'accept-edits', 'classify', 'bypass', 'strict', 'plan'],
-			'strict',
-		)
-		for (const row of rows)
-			expect(row.description.length, `${engine} ${row.label}`).toBeLessThanOrEqual(36)
-	}
-})

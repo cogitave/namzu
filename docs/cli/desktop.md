@@ -3538,9 +3538,9 @@ and workspace menus, selects, the composer's popovers) reads them.
   width (340 px, 390 measured across its edge when it offers an engine choice) because it holds a search, provider tabs and the facts
   of a model, and the plugins popover keeps 384 because it holds switches and prose.
 - **A row** is 28 high with one line (14/20) and 46 with a description under its title (title 14/20,
-  description 13/18 muted). A description is written to fit on one line of the widest menu, so every row of
-  the permission menu is 46 high; `composer-permissions.test.ts` keeps each one at 36
-  characters or fewer, and the fuller wording of Full access is on its confirmation dialog. The project
+  description 13/18 muted). A description keeps its full wording and wraps
+  inside the menu's width (at most 320, and never wider than the window less 16): a permission row
+  is 46 high when its description fits one line and gains 18 for each further line. The project
   chooser's three actions (Start from scratch, Use an existing folder, Don't work in a project) are rows of
   28 with nothing between them, under a separator. A row has corners of 8, and its text starts 10 in; with a 16 px icon the label starts 38 in (10, the
   icon, 12). A group's caption is 12/16 at weight 500 in a 25 px block, muted. A separator is 1 px with 4
