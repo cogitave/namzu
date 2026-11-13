@@ -12,6 +12,7 @@ import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync }
 import { dirname, join, posix, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
+import { productionDefine } from './bundle-options.mjs'
 import { external } from './externals.mjs'
 
 const pkgDir = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -95,6 +96,7 @@ const result = await build({
 	},
 	plugins: [importMetaUrl],
 	jsx: 'automatic',
+	define: productionDefine,
 	tsconfig: join(pkgDir, 'tsconfig.json'),
 	treeShaking: true,
 })

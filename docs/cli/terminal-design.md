@@ -894,6 +894,23 @@ list marker inside a quote wait until they are decided, in both screens. Rows pr
 resize keep the width they had. The fullscreen view draws the same tail and
 prints nothing, since it redraws freely.
 
+A very long reply is a matter of cost, and the cost follows the reply, not its
+square. The program that draws the screen is built to run React's production
+build (`process.env.NODE_ENV` is fixed to `"production"` in the text of the
+bundle, `packages/cli/scripts/bundle-options.mjs`). Before that it ran the
+development build, which keeps a record of the props of every component it draws
+(and a reply's text is a prop) for the life of the process: memory grew with the
+square of the reply, about 1.7 GB for 100 KB and the end of the process, "JavaScript
+heap out of memory", for 200 KB. The environment of the shell tool is not written
+to. Measured on the default screen at 120x40 (a fake model on loopback, text
+arriving 480 characters every 60 ms): a 100 KB code reply 8.9 s of processor and
+1.7 GB, now 3.8 s and 0.44 GB; 200 KB ended the process, now 5.1 s and 0.53 GB; 1 MB of code
+19 s and 1.2 GB, 1 MB of prose 21 s and 1.5 GB (they ended the process before). In the fullscreen
+view the lines of a growing code block are kept too (a line's rows depend on the line, the width,
+the indentation, its colour runs and the theme), where every line was cut and coloured again at
+every piece: 1 MB of code 125 s and 2.7 GB before, 38 s and 2.7 GB now; 1 MB of prose 139 s before,
+32 s now (processor seconds of the whole process, startup about 1.3 s included).
+
 ## The model's plan
 
 `task_create`, `task_update` and `task_list` draw one checklist, and it lives
@@ -1141,7 +1158,7 @@ second render: Ink's `renderToString` called from there left the layout engine
 holding an update for a freed node and stopped the program with `table index is
 out of bounds` in any window narrower than a code line (every code block at 80
 columns). A streamed reply is laid out again at each piece, so the rows of the
-blocks that did not change are kept (48 blocks, oldest out) and the plain
+blocks that did not change are kept (up to 4,000,000 characters of blocks, oldest out; a count of 48 blocks was smaller than the blocks of a long reply, so each was laid out again at every piece and 200 KB of prose cost about three times the time of the same text laid out once) and the plain
 wrap of a reply's whole text is not made at all; a line of 50,000 characters
 costs the window the same as a short one, the text stays complete for copy and
 search, and a key is echoed in under 100 ms while such a reply streams. Other
