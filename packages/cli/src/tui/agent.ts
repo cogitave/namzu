@@ -419,6 +419,7 @@ import { createConversationEvidenceRecall } from '../integrations/sessions/evide
 import {
 	type ConversationContext,
 	ensureSessionStarted,
+	readConversationFacts,
 	recordAccountBound,
 } from '../integrations/sessions/store.js'
 import { createTaskContextStep } from '../integrations/sessions/task-context.js'
@@ -546,6 +547,7 @@ import { terminalProviderRetry } from '../provider-retry.js'
 import { createCliReminderSource, hypermodeExitOwed } from '../reminders/index.js'
 import { createSessionSkillCatalog } from '../skills/catalog.js'
 import { createSkillDirectoryResolver } from '../skills/directory.js'
+import { isInsideFolder, restoreSkillHooks } from '../skills/restore-skill-hooks.js'
 import { SAVE_SKILL_TOOL_NAME } from '../skills/save.js'
 import { type AttachedSkillHook, createSkillHooksHost } from '../skills/skill-hooks.js'
 import { projectTurnConversation } from './conversation-history.js'
@@ -5128,6 +5130,7 @@ export async function createAgentSession(
 		projectTrusted: () => options.folderTrusted === true || isTrusted(cwd),
 		isProjectSkill: (name) =>
 			skillCatalog.fileSkills.some((skill) => skill.name === name && skill.source === 'project'),
+		isInProject: (directory) => isInsideFolder(cwd, directory),
 	})
 	// Every named toolset above, each wrapped WITHOUT collapsing them into
 	// one — filtering or deferring a merged umbrella toolset would erase
@@ -5276,6 +5279,14 @@ export async function createAgentSession(
 	let conversationGeneration = 0
 	/** The source the next conversation's `session_start` carries when the host named one (a clear). */
 	let nextSessionSource: PluginSessionSource | undefined
+	/**
+	 * The conversation whose skills' hooks have been put back (or found to have
+	 * none to put back), so a conversation is looked at once and a later turn
+	 * of it never attaches a skill's hooks a second time.
+	 */
+	let skillHooksRestoredFor: string | undefined
+	/** What the model is told about a skill whose hooks did not come back; kept for as long as the conversation is. */
+	let skillHooksNotAttached: readonly string[] = []
 	/** `session_end` runs for conversations left behind; `close` waits for them. */
 	const conversationEnds = new Set<Promise<unknown>>()
 	const announceSessionStart = async (counted: PluginSessionSource): Promise<void> => {
@@ -5295,6 +5306,8 @@ export async function createAgentSession(
 		if (!sessionPlugins) return Promise.resolve()
 		conversationGeneration += 1
 		skillHooks.endConversation()
+		skillHooksRestoredFor = undefined
+		skillHooksNotAttached = []
 		sessionStarted = false
 		sessionHookContext = undefined
 		nextSessionSource = change.starting
@@ -5305,6 +5318,39 @@ export async function createAgentSession(
 		conversationEnds.add(ended)
 		void ended.then(() => conversationEnds.delete(ended))
 		return ended
+	}
+	/**
+	 * Attach again the hooks of the skills a continued conversation used, once
+	 * per conversation, before any of its tools can run. Leaves what the model is
+	 * told about the skills that did not come back in `skillHooksNotAttached`.
+	 */
+	const putSkillHooksBack = async (
+		sessionId: SessionId,
+		hasEarlierTurns: boolean,
+	): Promise<void> => {
+		if (skillHooksRestoredFor === String(sessionId)) return
+		skillHooksRestoredFor = String(sessionId)
+		skillHooksNotAttached = []
+		if (!options.conversationSessions || !hasEarlierTurns) return
+		let readFailure: unknown
+		const known = await readConversationFacts(
+			options.conversationSessions,
+			sessionId,
+			'tolerant',
+		).catch((error: unknown) => {
+			readFailure = error
+			return null
+		})
+		if (readFailure !== undefined) {
+			// Never silent: which skills had hooks is not known, so none can come back.
+			skillHooksNotAttached = [
+				skillHooks.say(
+					`The skills this conversation used could not be checked for hooks, so none are attached again: ${describeError(readFailure)}.`,
+				),
+			]
+		} else if (known && known.skillHooks.length > 0) {
+			skillHooksNotAttached = restoreSkillHooks(skillHooks, known.skillHooks)
+		}
 	}
 	let sessionEndReason: PluginSessionEndReason = 'exit'
 	let sessionClosing = false
@@ -5609,6 +5655,9 @@ export async function createAgentSession(
 			const route = await pinnedResumeRoute(pinned, entry.sessionId, ownedSignal)
 			const resumeWebSearch = route ? routedWebSearch(route) : nativeWebSearch
 			const turnSkills = await turnSkillsFor(route?.model ?? model)
+			// A turn parked on a question and resumed here belongs to a conversation
+			// whose skills had hooks: they are back before the parked call goes on.
+			await putSkillHooksBack(entry.sessionId, true)
 			const curatedMemory = readMemory(undefined, cwd)
 			for (const notice of formatMemoryDiagnostics(curatedMemory)) cliLogger().warn(notice)
 			const storedMemory = await storedMemoryPrompt()
@@ -5649,7 +5698,12 @@ export async function createAgentSession(
 						workflowOffered: false,
 						permissionMode: permissionMode ?? options.permissionMode ?? 'auto',
 						extraSystem,
-						systemNote,
+						...(([systemNote, ...skillHooksNotAttached].filter(Boolean).join('\n') || undefined) !==
+						undefined
+							? {
+									systemNote: [systemNote, ...skillHooksNotAttached].filter(Boolean).join('\n'),
+								}
+							: {}),
 					},
 				),
 			)
@@ -6994,6 +7048,21 @@ export async function createAgentSession(
 								? 'resume'
 								: 'startup',
 						)
+						// A conversation that already had turns: the skills it used get their
+						// hooks back before the turn's first tool call can run. A conversation
+						// with no earlier turn reads nothing and writes nothing here.
+						await putSkillHooksBack(
+							turnScope.sessionId,
+							messages.filter((message) => message.role === 'user').length > 1,
+						)
+						if (skillHooksNotAttached.length > 0) {
+							const notAttached = skillHooksNotAttached.join('\n')
+							promptContributions.register({
+								id: 'namzu.hooks.skill-restore',
+								placement: 'context',
+								render: () => notAttached,
+							})
+						}
 						if (sessionHookContext !== undefined) {
 							const hookContext = frameOperatorHookContext([sessionHookContext])
 							promptContributions.register({

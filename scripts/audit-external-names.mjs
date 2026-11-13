@@ -315,6 +315,7 @@ const WIRE_VALUE_FILES = [
 	'packages/cli/src/integrations/',
 	// Provider selection fixtures exercise registry keys and cross-provider catalogues.
 	'packages/cli/src/tui/__tests__/conversation-search-reaches-session.test.ts',
+	'packages/cli/src/tui/__tests__/a-skills-hooks-come-back-when-a-conversation-continues.test.ts',
 	'packages/cli/src/tui/__tests__/model-picker-search.test.tsx',
 	'packages/cli/src/tui/__tests__/google-provider-session.test.ts',
 	'packages/cli/src/tui/__tests__/model-switch-reaches-session.test.ts',

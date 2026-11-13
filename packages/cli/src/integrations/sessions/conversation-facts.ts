@@ -25,6 +25,15 @@ import {
 
 type PausedRecord = Extract<SessionRecord, { type: 'turn_paused' }>
 
+/** A skill whose hooks the conversation attached, as its latest `skill_hooks_attached` record keeps it. */
+export interface SkillHooksFact {
+	readonly skill: string
+	readonly directory: string
+	readonly grantsWithheld: boolean
+	/** The `skill` call that loaded it, when the record names one. */
+	readonly toolCallId?: string
+}
+
 /** What the log says about one conversation, and typed queries over the few records callers search for. */
 export interface ConversationFacts {
 	readonly sessionId: SessionId
@@ -53,6 +62,8 @@ export interface ConversationFacts {
 	pendingDecisions(turnId: string): ReadonlyMap<string, string>
 	/** The account the latest `account_bound` record of a provider named. */
 	accountBinding(provider: string): string | undefined
+	/** The skills whose hooks the conversation attached, oldest first, each by its latest record. */
+	readonly skillHooks: readonly SkillHooksFact[]
 }
 
 /** A conversation read whole: the facts and every record, for callers that fold messages from them. */
@@ -80,6 +91,7 @@ export class ConversationFactsFold {
 	readonly #resumed = new Set<string>()
 	readonly #decisions = new Map<string, { turnId: string; type: string }>()
 	readonly #accounts = new Map<string, string>()
+	readonly #skillHooks = new Map<string, SkillHooksFact>()
 
 	apply(record: SessionRecord): void {
 		this.#first ??= record
@@ -134,6 +146,16 @@ export class ConversationFactsFold {
 			case 'account_bound':
 				this.#accounts.set(record.provider, record.accountId)
 				break
+			case 'skill_hooks_attached':
+				// Latest use of a skill wins, and goes last.
+				this.#skillHooks.delete(record.skill)
+				this.#skillHooks.set(record.skill, {
+					skill: record.skill,
+					directory: record.directory,
+					grantsWithheld: record.grantsWithheld,
+					...(record.toolCallId !== undefined ? { toolCallId: record.toolCallId } : {}),
+				})
+				break
 		}
 	}
 
@@ -148,6 +170,7 @@ export class ConversationFactsFold {
 		const resumed = new Set(this.#resumed)
 		const decisions = new Map(this.#decisions)
 		const accounts = new Map(this.#accounts)
+		const skillHooks = [...this.#skillHooks.values()]
 		const active = this.#active ? { ...this.#active } : undefined
 		return {
 			sessionId,
@@ -172,6 +195,7 @@ export class ConversationFactsFold {
 				return pending
 			},
 			accountBinding: (provider) => accounts.get(provider),
+			skillHooks,
 		}
 	}
 }

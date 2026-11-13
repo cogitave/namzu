@@ -250,3 +250,50 @@ describe('the turn outcome records on a log read by an older release', () => {
 		expect(error).toBeInstanceOf(SessionLogIntegrityError)
 	})
 })
+
+describe('the skill hooks record on a log read by an older release', () => {
+	const TURN = '2efe5139-799c-4a05-821e-285dbc1eb45f'
+	const INSERTS: readonly Insert[] = [
+		[
+			13,
+			{
+				type: 'skill_hooks_attached',
+				ignorable: true,
+				turnId: TURN,
+				skill: 'careful-shell',
+				directory: '/home/person/project/.namzu/skills/careful-shell',
+				grantsWithheld: false,
+				toolCallId: 'call_1',
+			},
+		],
+	]
+
+	it('is read by the current release, in the chain, and leaves the fold alone', async () => {
+		const plain = await read(VALID)
+		const newer = await read(newerLogWith(INSERTS))
+		expect(newer.summary.intact).toBe(true)
+		expect(newer.records.filter((r) => r.type === 'skill_hooks_attached')).toHaveLength(1)
+		expect(await foldSessionMessages(newer.records)).toEqual(
+			await foldSessionMessages(plain.records),
+		)
+	})
+
+	it('is skipped by a release that has never heard of it, which loses only the skill record', async () => {
+		const plain = await read(VALID)
+		const older = await read(
+			newerLogWith(INSERTS, (type) => (type === 'skill_hooks_attached' ? `future_${type}` : type)),
+		)
+		expect(older.summary.intact).toBe(true)
+		expect(older.records.map((r) => r.type).filter((type) => !type.startsWith('future_'))).toEqual(
+			plain.records.map((r) => r.type),
+		)
+		expect(await foldSessionMessages(older.records)).toEqual(await foldSessionMessages(plain.records))
+	})
+
+	it('is refused when it is not flagged ignorable, so an older release would refuse it', async () => {
+		const [, extra] = INSERTS[0] as Insert
+		const { ignorable: _flag, ...unflagged } = extra
+		const error = await read(newerLog(13, unflagged)).catch((e: unknown) => e)
+		expect(error).toBeInstanceOf(SessionLogIntegrityError)
+	})
+})
