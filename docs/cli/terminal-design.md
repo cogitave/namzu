@@ -677,6 +677,17 @@ is drawn like any failed call (below).
 
 A fenced block in a reply is drawn as its lines in the accent colour with a blank line above, and nothing beside them: no rule at the start of a line and no language word above the first. What the screen shows is what a mouse selection takes, so a command selected and pasted into a terminal is the command alone. `/copy` still offers each block exactly as it was written.
 
+A fence is read the way people and models write it, by one grammar that the parser, the live reply, the fullscreen window and `/copy` all share (`markdown-fence.ts`):
+
+- It opens at three or more backticks or three or more tildes, indented, followed by an optional info string. The language is the first word of the info string (`c++`, `objective-c`, `shell-session` and `f#` are languages); a title, a file name or attributes after it are not read. A backtick fence whose info string holds a backtick is inline code, not a fence.
+- It closes at a line of the same character, at least as long as the opener, with nothing after it, or at the end of the text. A block opened with four backticks therefore holds a three-backtick fence as its content, and a closing fence longer than the opener still closes. A closing fence may be indented up to three columns more than the opener.
+- The code loses the opener's indentation and nothing else.
+- Inside a quote the fence is read after the `>` is taken off, so `>   ```sh` is a block indented two columns inside the quote.
+
+A block written inside a list item (its fence indented under the item) is drawn at the indentation of its fence, so it stays under its item, with no blank row between the item's line and the block (a blank row follows the block, before the next item, as after any block). A list is flat on this screen, so the block is a block of its own at that indent, not a part of the item, and a block under a nested item is drawn at its own written indent. The block model reads any indentation as the container's: a fence indented four columns or more with no list above it is a fence here, where a strict reading would call it an indented code block. A long code line wraps in the width that is left after the indent, in both screens. In the fullscreen window the indent is part of the row but a copy that joins wrapped lines starts after it; on the default screen a mouse selection takes the indent as spaces, the same as the gutter.
+
+A reply that is still being written never shows a fence as text that is replaced: one or two backticks or tildes at the start of a line wait for a third, an opener line waits for its end, and a line inside an open fence waits for its end because it may be the closing fence. A long block cut into printed parts keeps its opener line (character, length, indent) so the rest of it is read as the block it was.
+
 ## Headings, quotes and rules
 
 A reply's headings differ by level with attributes every terminal has, all

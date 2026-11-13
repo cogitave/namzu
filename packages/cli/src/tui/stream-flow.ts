@@ -19,6 +19,7 @@
  * Pure, so every rule here is a test rather than a hope.
  */
 
+import { openerLine } from './markdown-fence.js'
 import { inlineDisplaySpans, wrapSpans } from './markdown-wrap.js'
 import { LINE_SHAPES, openMarkersIn, scanBlockRanges } from './markdownParser.js'
 import type { BlockRange } from './markdownParser.js'
@@ -74,6 +75,8 @@ export function flowRows(terminalRows: number, otherRows: number): number {
 export interface TailState {
 	readonly join: 'block' | 'text' | 'code'
 	readonly lang?: string
+	/** The opening fence line of the block a `code` tail continues. */
+	readonly fence?: string
 	/** The block before the tail's first block, for the blank row between them. */
 	readonly lead: MdBlockType | null
 }
@@ -84,6 +87,7 @@ export function tailStateOf(printed: readonly PrintedChunk[] | undefined): TailS
 	return {
 		join: last.open === 'none' ? 'block' : last.open,
 		...(last.lang !== undefined ? { lang: last.lang } : {}),
+		...(last.fence !== undefined ? { fence: last.fence } : {}),
 		lead: last.last,
 	}
 }
@@ -125,7 +129,7 @@ const TYPE_OF: Record<BlockRange['kind'], MdBlockType> = {
 /** The tail's blocks, in the tail's own offsets, whatever it begins in the middle of. */
 function scanTail(tail: string, state: TailState): BlockRange[] {
 	if (state.join === 'code') {
-		const prefix = '```\n'
+		const prefix = `${state.fence ?? `\`\`\`${state.lang ?? ''}`}\n`
 		return scanBlockRanges(prefix + tail).map((r) => ({
 			...r,
 			start: Math.max(0, r.start - prefix.length),
@@ -159,10 +163,12 @@ function isFinal(tail: string, r: BlockRange, next: BlockRange | undefined): boo
 	}
 }
 
-function fenceLang(tail: string, r: BlockRange): string | undefined {
+/** The language and the opener line of the fence a code range begins with. */
+function fenceOf(tail: string, r: BlockRange): { lang?: string; fence?: string } {
 	const first = tail.slice(r.start, r.end).split('\n')[0] ?? ''
-	const lang = LINE_SHAPES.fence.exec(first)?.[1]
-	return lang ? lang : undefined
+	const opener = LINE_SHAPES.fence(first)
+	if (!opener) return {}
+	return { ...(opener.lang ? { lang: opener.lang } : {}), fence: openerLine(opener) }
 }
 
 /** Wrapped rows of prose, drawn the way the transcript draws a paragraph. */
@@ -245,12 +251,14 @@ export function freezeMore(
 			const cut = r.end + 1
 			const open = 'none' as const
 			const lang = state.join === 'code' ? state.lang : undefined
+			const fence = state.join === 'code' ? state.fence : undefined
 			chunks = [
 				...chunks,
 				{
 					text: tail.slice(0, cut),
 					join: state.join,
 					...(lang !== undefined ? { lang } : {}),
+					...(fence !== undefined ? { fence } : {}),
 					last: TYPE_OF[r.kind],
 					open,
 				},
@@ -268,13 +276,15 @@ export function freezeMore(
 			const freezeLines = terminated - KEEP_LINES
 			let cut = last.start
 			for (let n = 0; n < freezeLines; n++) cut += (lines[n] ?? '').length + 1
-			const lang = state.join === 'code' ? state.lang : fenceLang(tail, last)
+			const { lang, fence } =
+				state.join === 'code' ? { lang: state.lang, fence: state.fence } : fenceOf(tail, last)
 			chunks = [
 				...chunks,
 				{
 					text: tail.slice(0, cut),
 					join: state.join,
 					...(lang !== undefined ? { lang } : {}),
+					...(fence !== undefined ? { fence } : {}),
 					last: 'code',
 					open: 'code',
 				},
@@ -290,6 +300,7 @@ export function freezeMore(
 						text: tail.slice(0, last.start + c),
 						join: state.join,
 						...(state.join === 'code' && state.lang !== undefined ? { lang: state.lang } : {}),
+						...(state.join === 'code' && state.fence !== undefined ? { fence: state.fence } : {}),
 						last: 'paragraph',
 						open: 'text',
 					},
@@ -322,6 +333,8 @@ export function chunksText(printed: readonly PrintedChunk[]): string {
 }
 
 const MARKER_LINE = /^\s*(?:[-*_+=](?:\s*[-*_+=])*|\d+[.)]?|#{1,6})\s*$/u
+/** The start of a fence still being typed: one or two of its characters. */
+const FENCE_START = /^[ \t]*(?:`{1,2}|~{1,2})$/u
 const HOLD_LIMIT = 300
 
 /** Whole words only: the word still arriving waits for its space. */
@@ -386,7 +399,7 @@ function holdSegment(
 			const mark = LINE_SHAPES.quoteMark.exec(lastLine)?.[0] ?? ''
 			const kept = holdProse(lastLine.slice(mark.length), ended)
 			// A marker with no text after the quote mark may still become a rule or a list item.
-			const content = !ended && MARKER_LINE.test(kept) ? '' : kept
+			const content = !ended && (MARKER_LINE.test(kept) || FENCE_START.test(kept)) ? '' : kept
 			lines[lines.length - 1] = `${mark}${content}`
 			return lines.join('\n')
 		}
@@ -409,7 +422,8 @@ function holdSegment(
 					/^[\s:|-]*$/u.test(tailLine)
 				)
 					lines.splice(total - 2, 2)
-				else if (MARKER_LINE.test(tailLine) || pipe(tailLine)) lines.pop()
+				else if (MARKER_LINE.test(tailLine) || FENCE_START.test(tailLine) || pipe(tailLine))
+					lines.pop()
 			} else if (pipe(tailLine) && !hasAfter) lines.pop()
 			if (lines.length === 0) return ''
 			const complete = ended || lines.length < total
@@ -450,6 +464,8 @@ function held(text: string): string {
  * - a line of only `-`, `*`, `_`, `+`, `=`, digits (with `.` or `)`) or `#`,
  *   still arriving: waits until the line ends or text follows, since it may be
  *   a rule, a list marker, a heading or an underline;
+ * - the first one or two characters of a fence (`` ` `` or `~`) at the start of a
+ *   line: wait, since a third makes the line a fence;
  * - a fence opener line: waits for its end (it may be inline code); inside an
  *   open fence the code is drawn as code a line at a time;
  * - a table: its header waits for the separator line to end; then the header
@@ -496,6 +512,7 @@ export interface ReplyPiece {
 	readonly text: string
 	readonly join: 'block' | 'text' | 'code'
 	readonly lang?: string
+	readonly fence?: string
 	readonly lead: MdBlockType | null
 	readonly first: boolean
 }
@@ -509,6 +526,7 @@ export function printedPieces(printed: readonly PrintedChunk[]): ReplyPiece[] {
 			text: chunk.last === 'code' ? chunk.text.replace(/\n$/u, '') : chunk.text,
 			join: chunk.join,
 			...(chunk.lang !== undefined ? { lang: chunk.lang } : {}),
+			...(chunk.fence !== undefined ? { fence: chunk.fence } : {}),
 			lead: before ? before.last : null,
 			first: i === 0,
 		}
@@ -532,6 +550,7 @@ export function tailPiece(message: TranscriptMessage): ReplyPiece | undefined {
 		text,
 		join: state.join,
 		...(state.lang !== undefined ? { lang: state.lang } : {}),
+		...(state.fence !== undefined ? { fence: state.fence } : {}),
 		lead: state.lead,
 		first: printed.length === 0 || !coherent,
 	}

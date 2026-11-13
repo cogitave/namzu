@@ -34,3 +34,24 @@ export const RULE_MAX = 40
 export function ruleWidth(width: number): number {
 	return Math.max(1, Math.min(RULE_MAX, width))
 }
+
+/**
+ * Blank rows above a block: one between blocks, none before the first, none
+ * between consecutive list items, and none above a code block indented under
+ * the list item it belongs to (the item and its block are one thing). `prev`
+ * is the type of the block before, or `'join'` for text that continues one.
+ */
+export function blockGap(
+	block: { readonly type: string; readonly indent?: number },
+	prev: string | null | undefined,
+): 0 | 1 {
+	if (!prev || prev === 'join') return 0
+	if (block.type === 'bullet' && prev === 'bullet') return 0
+	if (block.type === 'code' && prev === 'bullet' && (block.indent ?? 0) > 0) return 0
+	return 1
+}
+
+/** The most of a row a code block's indentation may take; the code keeps the rest. */
+export function codeIndent(block: { readonly indent?: number }, width: number): number {
+	return Math.max(0, Math.min(block.indent ?? 0, Math.floor(width / 2)))
+}

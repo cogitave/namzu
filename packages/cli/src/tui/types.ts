@@ -55,6 +55,8 @@ export interface PrintedChunk {
 	readonly join: 'block' | 'text' | 'code'
 	/** The language of the open fence a `code` chunk continues. */
 	readonly lang?: string
+	/** The opening fence line of that block (its character, length and indentation), so the rest is read as the block it was. */
+	readonly fence?: string
 	/** What the last block of this chunk is: the next chunk's first block is spaced by it. */
 	readonly last: MdBlockType | null
 	/** What the chunk leaves open for the next one. */

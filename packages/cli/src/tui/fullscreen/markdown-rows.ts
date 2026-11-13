@@ -13,7 +13,14 @@ import { Box, Text, renderToString } from 'ink'
 import { createElement } from 'react'
 import stringWidth from 'string-width'
 
-import { QUOTE_BAR, QUOTE_BAR_WIDTH, headingStyle, ruleWidth } from '../markdown-structure.js'
+import {
+	QUOTE_BAR,
+	QUOTE_BAR_WIDTH,
+	blockGap,
+	codeIndent,
+	headingStyle,
+	ruleWidth,
+} from '../markdown-structure.js'
 import { layoutTable } from '../markdown-table.js'
 import type { TableSpan } from '../markdown-table.js'
 import { type DisplaySpan, inlineDisplaySpans, wrapSpans } from '../markdown-wrap.js'
@@ -151,17 +158,23 @@ function blockRows(block: MdBlock, width: number, color: string, italic: boolean
 			return layoutTable(block, width, { hyperlinks: false }).lines.map((line) =>
 				row(line.map((span) => styled(span, color))),
 			)
-		case 'code':
+		case 'code': {
+			// At the indentation of its fence, as `Markdown.tsx` draws it; a copy that
+			// joins a wrapped line starts after the indentation.
+			const indent = codeIndent(block, width)
+			const pad = indent > 0 ? [{ text: ' '.repeat(indent) }] : []
 			return (block.lines.length > 0 ? block.lines : ['']).flatMap((line) => {
-				const pieces = codeLine(line, width)
+				const pieces = codeLine(line, width - indent)
 				const joins = wrapJoiners(line, pieces)
 				return pieces.map((piece, i) =>
 					row(
-						[{ text: piece.length > 0 ? piece : ' ', color: theme.status.ok }],
+						[...pad, { text: piece.length > 0 ? piece : ' ', color: theme.status.ok }],
 						i === 0 ? null : (joins[i] ?? null),
+						indent,
 					),
 				)
 			})
+		}
 		default: {
 			const { lines, joins } = wrappedRows(block.text, width, color, prose)
 			return lines.map((line, i) => row(line, joins[i] ?? null))
@@ -179,8 +192,7 @@ function blocksRows(
 	const rows: MarkdownRow[] = []
 	blocks.forEach((block, i) => {
 		const prev = blocks[i - 1]
-		const gap = !prev || (block.type === 'bullet' && prev.type === 'bullet') ? 0 : 1
-		if (gap) rows.push(row([]))
+		if (blockGap(block, prev?.type)) rows.push(row([]))
 		rows.push(...blockRows(block, width, color, italic))
 	})
 	return rows

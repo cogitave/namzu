@@ -310,6 +310,7 @@ export function ReplyPieceRow({
 						join={piece.join}
 						lead={piece.lead}
 						{...(piece.lang !== undefined ? { lang: piece.lang } : {})}
+						{...(piece.fence !== undefined ? { fence: piece.fence } : {})}
 					/>
 				</Box>
 			</Box>

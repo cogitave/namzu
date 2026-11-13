@@ -24,7 +24,13 @@ import { Box, Text } from 'ink'
 import { Fragment, createContext, memo, useContext, useRef } from 'react'
 
 import { type BlockCache, createBlockCache } from './markdown-block-cache.js'
-import { QUOTE_BAR_WIDTH, headingStyle, ruleWidth } from './markdown-structure.js'
+import {
+	QUOTE_BAR_WIDTH,
+	blockGap,
+	codeIndent,
+	headingStyle,
+	ruleWidth,
+} from './markdown-structure.js'
 import { type TableSource, type TableSpan, layoutTable } from './markdown-table.js'
 import {
 	type DisplayLine,
@@ -64,6 +70,8 @@ export interface MarkdownProps {
 	 */
 	readonly join?: 'block' | 'text' | 'code'
 	readonly lang?: string
+	/** The opening fence line of the block a `code` join continues; wins over `lang`. */
+	readonly fence?: string
 	/** The type of the block printed before this text, for the blank row between them. */
 	readonly lead?: MdBlock['type'] | null
 	readonly color?: string
@@ -91,13 +99,14 @@ export function Markdown({
 	hyperlinks = false,
 	join = 'block',
 	lang,
+	fence,
 	lead = null,
 }: MarkdownProps) {
 	const cache = useRef<BlockCache>(undefined)
 	cache.current ??= createBlockCache()
 	const shown = terminalDisplayText(text)
 	// The rest of an open code fence is read with the opener it lost.
-	const source = join === 'code' ? `\`\`\`${lang ?? ''}\n${shown}` : shown
+	const source = join === 'code' ? `${fence ?? `\`\`\`${lang ?? ''}`}\n${shown}` : shown
 	const blocks = cache.current.parse(source, join === 'text' ? 'text' : undefined)
 	const width = useContentWidth()
 	return (
@@ -176,7 +185,7 @@ const BlockView = memo(function BlockView({
 	useThemeEpoch()
 	// One blank line between blocks, except: nothing before the first block,
 	// and consecutive list items stay tight (no gap between bullets).
-	const gap = !prev || prev === 'join' || (block.type === 'bullet' && prev === 'bullet') ? 0 : 1
+	const gap = blockGap(block, prev)
 	switch (block.type) {
 		case 'heading': {
 			const style = headingStyle(block.level)
@@ -265,9 +274,10 @@ const BlockView = memo(function BlockView({
 			// it, a `│` at the start of every line and a stray word above the first, and
 			// what is pasted into a terminal has to be the command and nothing else. The
 			// colour and the blank line above set the block apart; `/copy` takes a block
-			// exactly as written.
+			// exactly as written. A block written inside a list item or a quote sits at
+			// the indentation of its fence, so it stays under what holds it.
 			return (
-				<Box marginTop={gap} flexDirection="column">
+				<Box marginTop={gap} flexDirection="column" paddingLeft={codeIndent(block, width)}>
 					{(block.lines.length > 0 ? block.lines : ['']).map((line, i) => (
 						// biome-ignore lint/suspicious/noArrayIndexKey: these rows have no identity of their own and hold no state, so the index is the key.
 						<Text key={`c-${i}`} color={theme.status.ok}>
