@@ -334,6 +334,7 @@ const READS: ReadonlyArray<readonly [string, string, string, string]> = [
 	],
 	['pals-page.css', '.sidebar-pals .sidebar-pal-row', 'height', '--frame-row-height'],
 	['pals-page.css', '.sidebar-pals .sidebar-pal-row', 'border-radius', '--frame-row-radius'],
+	['pals-page.css', '.sidebar-pals .sidebar-pal-row > svg', 'width', '--frame-icon-slot'],
 	['conversation-tabs.css', '.conversation-tab', 'height', '--frame-tab-height'],
 	['conversation-bar.css', '.conversation-bar-buttons', 'gap', '--frame-bar-gap'],
 	['conversation-actions-menu.css', '.conversation-header-actions', 'gap', '--frame-bar-gap'],

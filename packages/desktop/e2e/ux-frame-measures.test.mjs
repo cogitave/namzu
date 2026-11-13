@@ -232,6 +232,12 @@ for (const tabs of ["shown", "hidden"]) {
 			assert.match(settings.paneLine.shadow, /0px -1px 0px 0px inset$/, "Settings: with the 1px line inside it");
 			assert.equal(settings.workspace.y + 36, m.topbar.bottom, "Settings: the line is at the same y as a conversation's");
 			assert.ok(settings.settingsRows.length > 0, "Settings lists its sections");
+			const settingsTop = await w.page.evaluate(() => ({
+				page: document.querySelector(".settings-page").getBoundingClientRect().top,
+				heading: document.querySelector(".settings-page-header").getBoundingClientRect().top,
+			}));
+			assert.equal(settingsTop.page, settings.workspace.y + 36, "Settings: the page starts under the 36 band");
+			assert.ok(settingsTop.heading - settingsTop.page >= 20, "Settings: its first heading has room under the line");
 			for (const [index, row] of settings.settingsRows.entries()) {
 				assert.equal(row.h, 32, "Settings: a section row is 32 high");
 				assert.equal(row.x, 8, "Settings: a row starts at x 8");

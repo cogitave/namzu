@@ -1,4 +1,6 @@
 .settings-page {
+	/* The page's scrolling area starts under the 36 px header band, so its first line never sits against the band's line. */
+	margin-top: var(--frame-header-height);
 	flex: 1;
 	min-width: 0;
 	min-height: 0;

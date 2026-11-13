@@ -456,8 +456,16 @@
 /* The Pal's face sits in the same 16px icon slot as every other row's icon. */
 .sidebar-pal-row .pal-avatar-compact,
 .sidebar-pal-row .pal-character-compact {
+	flex: none;
 	width: var(--frame-icon-slot);
 	height: var(--frame-icon-slot);
+}
+/* The button base pulls an icon 2px out on each side; a row's icon must fill its slot exactly, so the label stays at x 44. */
+.sidebar-pals .sidebar-pal-row > svg {
+	flex: none;
+	width: var(--frame-icon-slot);
+	height: var(--frame-icon-slot);
+	margin: 0;
 }
 .sidebar-pal-row > span:not(.pal-avatar):not(.pal-character) {
 	min-width: 0;
