@@ -98,6 +98,12 @@ function describeHooks(config: Record<string, unknown>): HookGrant[] {
 					? spec.args.filter((arg): arg is string => typeof arg === 'string')
 					: []
 				runs = [spec.command, ...args].join(' ')
+				// What a command runs depends on the variables it is started with, so the
+				// names an entry sets are shown beside it (never the values).
+				if (spec.env !== null && typeof spec.env === 'object' && !Array.isArray(spec.env)) {
+					const names = Object.keys(spec.env)
+					if (names.length > 0) runs = `${runs} (sets ${names.join(', ')})`
+				}
 			}
 			if (runs === undefined) continue
 			const flat = runs.replace(/\s+/g, ' ').trim()

@@ -132,6 +132,7 @@ import type { Logger } from '../utils/logger.js'
 import { boundHookReplacement } from './hook-context.js'
 import type { PluginLifecycleManager } from './lifecycle.js'
 import { readHookCommand } from './shell-hook-command.js'
+import { hookUnsetVariableHint, movedEnvironment } from './shell-hook-env.js'
 import { postHookJson } from './shell-hook-http.js'
 import { type ShellHookToolNames, shellHookToolName } from './shell-hook-tool-names.js'
 
@@ -251,6 +252,15 @@ export interface ShellHookEntry extends ShellHookEntryBase {
 	 * parser. An empty list runs `command` with no arguments.
 	 */
 	readonly args?: readonly string[]
+	/**
+	 * Variables the command is started with, in addition to the ones Namzu sets
+	 * for every hook. A value may use `$NAME` or `${NAME}` of a variable the
+	 * hook already has (`${NAMZU_PROJECT_DIR}`); text it cannot fill stays as
+	 * written. A name Namzu sets itself (`NAMZU_HOOK_EVENT` and the rest) cannot
+	 * be replaced. For a script that reads a variable inside its own file, which
+	 * no rule reading the command text can see.
+	 */
+	readonly env?: Readonly<Record<string, string>>
 	/**
 	 * Start the command and carry on without waiting. Its exit code and output
 	 * decide nothing (a failure is logged), and `onFailure` is not read.
@@ -593,6 +603,8 @@ export interface ShellHookOutcome {
 	readonly stdoutTruncated?: boolean
 	/** Set when the process could not be started at all. */
 	readonly spawnError?: string
+	/** The variables the command refers to that were set nowhere; read when the command was not found. */
+	readonly unsetVariables?: readonly string[]
 }
 
 export interface ShellHookInput {
@@ -740,20 +752,26 @@ export function runShellHook(
 	// A hook outside a turn must not see a turn id, including one the host
 	// inherited from an enclosing hook's environment.
 	const { NAMZU_TURN_ID: _inheritedTurnId, ...inherited } = process.env
+	const projectDir = input.projectDir ?? input.cwd
+	const kernel = {
+		NAMZU_HOOK_EVENT: input.event,
+		NAMZU_SESSION_ID: input.sessionId,
+		NAMZU_PROJECT_DIR: projectDir,
+		...(input.turnId !== undefined ? { NAMZU_TURN_ID: input.turnId } : {}),
+		...(input.toolName !== undefined
+			? { NAMZU_TOOL_NAME: shellHookToolName(input.toolName, input.toolNames) }
+			: {}),
+		...(toolPath !== undefined ? { NAMZU_TOOL_PATH: toolPath } : {}),
+	}
+	// The entry's `env`, and any `..._PROJECT_DIR` its command refers to without
+	// it being set, over the inherited environment; the kernel's own names last.
+	const { env, unset } = movedEnvironment(entry, { ...inherited, ...kernel }, kernel, {
+		project: projectDir,
+	})
+	const unsetVariables = unset.length > 0 ? { unsetVariables: unset } : {}
 	return new Promise((resolve) => {
 		let child: ReturnType<typeof spawn>
 		try {
-			const env = {
-				...inherited,
-				NAMZU_HOOK_EVENT: input.event,
-				NAMZU_SESSION_ID: input.sessionId,
-				NAMZU_PROJECT_DIR: input.projectDir ?? input.cwd,
-				...(input.turnId !== undefined ? { NAMZU_TURN_ID: input.turnId } : {}),
-				...(input.toolName !== undefined
-					? { NAMZU_TOOL_NAME: shellHookToolName(input.toolName, input.toolNames) }
-					: {}),
-				...(toolPath !== undefined ? { NAMZU_TOOL_PATH: toolPath } : {}),
-			}
 			// Its own process group, so the deadline can kill everything the
 			// command started. `sh -c 'sleep 5'` is one process under a shell
 			// that execs its last command and two under one that forks it;
@@ -789,6 +807,7 @@ export function runShellHook(
 				stdout: '',
 				stderr: '',
 				spawnError: error instanceof Error ? error.message : String(error),
+				...unsetVariables,
 			})
 			return
 		}
@@ -846,6 +865,7 @@ export function runShellHook(
 				stderr,
 				...(stdoutTruncated ? { stdoutTruncated } : {}),
 				spawnError: error.message,
+				...unsetVariables,
 			})
 		})
 		child.on('close', (code) => {
@@ -855,6 +875,7 @@ export function runShellHook(
 				stdout,
 				stderr,
 				...(stdoutTruncated ? { stdoutTruncated } : {}),
+				...unsetVariables,
 			})
 		})
 		child.on('exit', () => {
@@ -1192,11 +1213,16 @@ export function shellHookVerdict(
 		'namzu.hook.event': event,
 		'namzu.hook.command': label,
 	}
+	// A program or file that was not found, with a variable in the command that
+	// is set nowhere: the line says which, and what to do about it.
+	const hint = hookUnsetVariableHint(outcome)
 	// A failure of the hook itself is "carry on" unless the entry asked for
 	// it to count as a refusal, which is exit 2 with the failure as the reason.
 	const failed = (reason: string, shown: string = reason): PluginHookResult => {
 		if (entry.onFailure !== 'block' || entry.type === 'prompt' || isAsyncShellHook(entry)) {
-			return { action: 'continue' }
+			return hint !== undefined
+				? { action: 'continue', notice: `${label}: ${hint}` }
+				: { action: 'continue' }
 		}
 		// The call has run and a refusal cannot undo it, but the hook may have
 		// been the one thing keeping something out of the result (a redaction),
@@ -1223,8 +1249,9 @@ export function shellHookVerdict(
 		log.warn('hook could not start', {
 			...attrs,
 			'namzu.hook.error': outcome.spawnError,
+			...(hint !== undefined ? { 'namzu.hook.hint': hint } : {}),
 		})
-		return failed(`could not start (${outcome.spawnError})`)
+		return failed(`could not start (${outcome.spawnError})${hint !== undefined ? `; ${hint}` : ''}`)
 	}
 	if (outcome.timedOut) {
 		log.warn('hook timed out', attrs)
@@ -1261,8 +1288,11 @@ export function shellHookVerdict(
 			...attrs,
 			'namzu.hook.exit': outcome.exitCode ?? -1,
 			'namzu.hook.stderr': outcome.stderr.trim().slice(0, 500),
+			...(hint !== undefined ? { 'namzu.hook.hint': hint } : {}),
 		})
-		return failed(`exited with ${outcome.exitCode ?? 'no code'}`)
+		return failed(
+			`exited with ${outcome.exitCode ?? 'no code'}${hint !== undefined ? `; ${hint}` : ''}`,
+		)
 	}
 
 	// Exit 0.

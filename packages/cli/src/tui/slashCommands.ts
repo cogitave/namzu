@@ -2067,6 +2067,8 @@ export function renderHooks(hooks: HooksConfig | undefined, view: HooksView = {}
 						: entry.command
 			const background = entry.type === undefined && entry.async ? ' · in background' : ''
 			const failure = entry.onFailure === 'block' ? ' · blocks when it fails' : ''
+			const envNames = entry.type === undefined ? Object.keys(entry.env ?? {}) : []
+			const sets = envNames.length > 0 ? ` · sets ${envNames.join(', ')}` : ''
 			const from = entry.source ? ` · from ${entry.source}` : ''
 			// A prompt hook is sent no payload, so it receives no tool name; a tool
 			// server's tools keep their own names in either spelling.
@@ -2077,7 +2079,7 @@ export function renderHooks(hooks: HooksConfig | undefined, view: HooksView = {}
 						: ' · tool names Namzu’s own (bash)'
 					: ''
 			lines.push(
-				`  ${what}${when}${filter}${once}${deadline}${background}${failure}${names}${from}`,
+				`  ${what}${when}${filter}${once}${deadline}${background}${sets}${failure}${names}${from}`,
 			)
 			for (const problem of hookReadingProblems(entry)) lines.push(`    cannot be read: ${problem}`)
 		}

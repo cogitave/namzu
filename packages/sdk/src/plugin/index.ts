@@ -39,6 +39,13 @@ export {
 	shellHookVerdict,
 } from './shell-hook.js'
 export {
+	MOVED_FOLDER_ENDINGS,
+	referencedVariables,
+	SHELL_HOOK_RESERVED_ENV,
+	shellHookEnvNameProblem,
+	shellHookEnvProblems,
+} from './shell-hook-env.js'
+export {
 	SHELL_HOOK_WRITTEN_TOOL_NAMES,
 	type ShellHookToolNames,
 	shellHookToolName,

@@ -30,6 +30,7 @@ import {
 	RENAMED_PLUGIN_HOOK_EVENTS,
 	SHELL_HOOK_EVENTS,
 	resolveAutoCompactWindowSetting,
+	shellHookEnvProblems,
 } from '@namzu/sdk'
 import { resolveDecisionShorthand } from '../integrations/decision/connection.js'
 import { parsePrefix } from '../workspaces/prefix.js'
@@ -892,7 +893,7 @@ const HOOK_COMMON_KEYS: readonly string[] = [
 ]
 
 const HOOK_KIND_KEYS = {
-	command: ['command', 'args', 'async'],
+	command: ['command', 'args', 'async', 'env'],
 	http: ['url', 'headers', 'allowedEnvVars'],
 	prompt: ['prompt'],
 } as const satisfies Record<string, readonly string[]>
@@ -1494,6 +1495,12 @@ const CONFIG_READERS: ConfigReaders = {
 				) {
 					return invalidConfigValue(context, [event, index, 'args'], 'must be a list of strings')
 				}
+				if (raw.env !== undefined) {
+					const envProblems = shellHookEnvProblems(raw.env)
+					if (envProblems.length > 0) {
+						return invalidConfigValue(context, [event, index, 'env'], envProblems.join('; '))
+					}
+				}
 				if (
 					raw.allowedEnvVars !== undefined &&
 					(!Array.isArray(raw.allowedEnvVars) ||
@@ -1566,6 +1573,7 @@ const CONFIG_READERS: ConfigReaders = {
 						command: raw.command as string,
 						...(raw.args !== undefined ? { args: raw.args as string[] } : {}),
 						...(raw.async !== undefined ? { async: raw.async as boolean } : {}),
+						...(raw.env !== undefined ? { env: raw.env as Record<string, string> } : {}),
 						...shared,
 					})
 				}

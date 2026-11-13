@@ -1,4 +1,4 @@
-import type { DoctorCheck, DoctorCheckResult } from '@namzu/sdk'
+import { type DoctorCheck, type DoctorCheckResult, referencedVariables } from '@namzu/sdk'
 
 import { resolve } from 'node:path'
 
@@ -59,6 +59,8 @@ export function describeHooksStatus(
 		}
 	}
 	for (const each of unreadable) lines.push(`Cannot be read: ${each}.`)
+	const unsetVariables = unsetVariableLines(config, bySource)
+	for (const each of unsetVariables) lines.push(each)
 	// What a file declared and this kernel could not load, or read but does not act on.
 	const untrustedLabels =
 		folder && !folder.trusted
@@ -73,8 +75,50 @@ export function describeHooksStatus(
 	const notLoaded = declared.some((problem) => problem.severity === 'problem')
 	lines.push(state === undefined ? 'No hook switch is on.' : `Switch on: ${hooksSwitchLine(state)}`)
 	lines.push('Plugin hooks are not counted here; plugins have their own switch (plugins.enabled).')
-	return { status: unreadable.length > 0 || notLoaded ? 'warn' : 'pass', message: lines.join(' ') }
+	return {
+		status: unreadable.length > 0 || notLoaded || unsetVariables.length > 0 ? 'warn' : 'pass',
+		message: lines.join(' '),
+	}
 }
+
+/** Names Namzu sets for a hook itself. */
+const KERNEL_NAME = /^NAMZU_(HOOK_EVENT|SESSION_ID|TURN_ID|TOOL_NAME|TOOL_PATH|STARTED_BY_SESSION)$/
+
+/**
+ * A hook whose command refers to a variable that is set nowhere will not find
+ * what it expects. A name ending in `_PROJECT_DIR` is filled in when the hook
+ * runs, one the entry's `env` gives is set, and one the command gives a default
+ * or assigns itself works as it is; the rest are said here.
+ */
+function unsetVariableLines(
+	config: NamzuCliConfig,
+	attached: ReadonlyMap<string, number>,
+): string[] {
+	const lines: string[] = []
+	for (const [event, entries] of Object.entries(config.hooks ?? {})) {
+		for (const entry of entries ?? []) {
+			if (entry.source !== undefined && !attached.has(entry.source)) continue
+			if (entry.type !== undefined) continue
+			const texts = [entry.command, ...(entry.args ?? [])]
+			const missing = referencedVariables(texts).filter(
+				(name) =>
+					process.env[name] === undefined &&
+					entry.env?.[name] === undefined &&
+					!MOVED_ENDING.test(name) &&
+					!KERNEL_NAME.test(name) &&
+					!new RegExp(`(?<![A-Za-z0-9_$])${name}=`).test(texts.join(' ')),
+			)
+			if (missing.length === 0) continue
+			const names = missing.map((name) => `$${name}`).join(', ')
+			lines.push(
+				`${event}: the command \`${entry.command.slice(0, 60)}\` refers to ${names}, which ${missing.length === 1 ? 'is' : 'are'} not set; give ${missing.length === 1 ? 'it' : 'each'} a value with the entry's "env" key.`,
+			)
+		}
+	}
+	return lines
+}
+
+const MOVED_ENDING = /.+_PROJECT_DIR$/
 
 export function hooksCheck(config: NamzuCliConfig): DoctorCheck {
 	return {
