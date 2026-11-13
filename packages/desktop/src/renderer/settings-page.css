@@ -1,4 +1,6 @@
 .settings-page {
+	/* The page's scrolling area starts under the 36 px header band, so its first line never sits against the band's line. */
+	margin-top: var(--frame-header-height);
 	flex: 1;
 	min-width: 0;
 	min-height: 0;
@@ -405,18 +407,18 @@
 .settings-sidebar-navigation {
 	display: flex;
 	flex-direction: column;
-	gap: 2px;
-	padding: 4px 8px;
+	gap: var(--frame-row-space);
+	padding: var(--frame-row-first) var(--frame-row-inset-end) 0 var(--frame-row-inset);
 }
 .settings-sidebar-navigation button {
 	display: flex;
 	align-items: center;
-	gap: 10px;
-	min-height: 32px;
+	gap: var(--frame-row-gap);
+	height: var(--frame-row-height);
 	width: 100%;
-	padding: 5px 8px;
+	padding: 0 var(--frame-row-padding);
 	border: 0;
-	border-radius: var(--radius-control);
+	border-radius: var(--frame-row-radius);
 	background: transparent;
 	color: var(--foreground);
 	font-size: var(--text-small);
@@ -435,8 +437,8 @@
 	box-shadow: var(--focus-ring);
 }
 .settings-sidebar-navigation svg {
-	width: 16px;
-	height: 16px;
+	width: var(--frame-icon-slot);
+	height: var(--frame-icon-slot);
 	flex: none;
 	color: var(--sidebar-muted-foreground);
 }

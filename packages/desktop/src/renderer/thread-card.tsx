@@ -134,7 +134,7 @@ export function ThreadCard({
 		'data-session-id': conversation.id,
 		'data-sidebar-key': `conversation:${conversation.id}`,
 		className:
-			'sidebar-thread-item relative list-none [content-visibility:auto] [contain-intrinsic-size:auto_28px]',
+			'sidebar-thread-item relative list-none [content-visibility:auto] [contain-intrinsic-size:auto_32px]',
 		'data-removable': actions ? true : undefined,
 		'data-action-count': actions ? (archiveButton && pinButton ? 2 : 1) : undefined,
 		'data-menu-open': menuOpen || undefined,
@@ -174,25 +174,7 @@ export function ThreadCard({
 						</span>
 					)}
 					<div className="conversation-row">
-						<span className="conversation-row-title" title={conversation.title}>
-							{shortenTitle(conversation.title, ROW_TITLE_CHARS)}
-						</span>
-						{projectLabel && (
-							<span className="conversation-row-project" title={projectLabel}>
-								{projectLabel}
-							</span>
-						)}
-						{conversation.pinned && <PinIcon className="conversation-row-pin" aria-hidden="true" />}
-						<span className="conversation-row-state">
-							{workText && work.state === 'known' && (
-								<span
-									className="thread-background-work"
-									data-background-work={work.needsAttention ? 'attention' : 'running'}
-									aria-hidden="true"
-								>
-									{work.needsAttention ? '!' : <TerminalIcon />}
-								</span>
-							)}
+						<span className="conversation-row-mark">
 							{glyph.kind === 'permission' ? (
 								<ShieldQuestionIcon
 									className="size-3.5 text-warning-foreground"
@@ -214,9 +196,28 @@ export function ThreadCard({
 								<span className="connection-dot error" role="img" aria-label={glyph.label} />
 							) : glyph.kind === 'unread' ? (
 								<span className="thread-unread-dot" role="img" aria-label={glyph.label} />
-							) : (
-								<span className="conversation-age">{time}</span>
+							) : null}
+						</span>
+						<span className="conversation-row-title" title={conversation.title}>
+							{shortenTitle(conversation.title, ROW_TITLE_CHARS)}
+						</span>
+						{projectLabel && (
+							<span className="conversation-row-project" title={projectLabel}>
+								{projectLabel}
+							</span>
+						)}
+						{conversation.pinned && <PinIcon className="conversation-row-pin" aria-hidden="true" />}
+						<span className="conversation-row-state">
+							{workText && work.state === 'known' && (
+								<span
+									className="thread-background-work"
+									data-background-work={work.needsAttention ? 'attention' : 'running'}
+									aria-hidden="true"
+								>
+									{work.needsAttention ? '!' : <TerminalIcon />}
+								</span>
 							)}
+							{glyph.kind === 'idle' ? <span className="conversation-age">{time}</span> : null}
 						</span>
 					</div>
 				</PreviewCardTrigger>

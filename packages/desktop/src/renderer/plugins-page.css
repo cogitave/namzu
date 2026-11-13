@@ -296,23 +296,24 @@ output.plugins-page-notice {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	min-height: 44px;
-	padding: 0 12px;
+	box-sizing: border-box;
+	height: var(--frame-header-height);
+	padding: 0 var(--frame-row-inset) 0 var(--frame-title-start);
 	font-size: var(--text-heading);
 	font-weight: var(--weight-strong);
 	line-height: var(--leading-heading);
 }
 .plugins-sidebar-navigation {
-	padding: 4px 8px;
+	padding: var(--frame-row-first) var(--frame-row-inset-end) 0 var(--frame-row-inset);
 }
 .plugins-sidebar-navigation button {
 	display: flex;
 	align-items: center;
-	gap: 10px;
-	min-height: 30px;
+	gap: var(--frame-row-gap);
+	height: var(--frame-row-height);
 	width: 100%;
-	padding: 5px 8px;
-	border-radius: var(--radius-control);
+	padding: 0 var(--frame-row-padding);
+	border-radius: var(--frame-row-radius);
 	border: 0;
 	background: var(--sidebar-row-active);
 	color: var(--foreground);
@@ -328,18 +329,22 @@ output.plugins-page-notice {
 	box-shadow: var(--focus-ring);
 }
 .plugins-sidebar-navigation svg {
-	width: 16px;
-	height: 16px;
+	width: var(--frame-icon-slot);
+	height: var(--frame-icon-slot);
 	flex: none;
 }
 .plugins-sidebar-installed {
-	padding: 28px 12px 20px;
+	padding: 0 var(--frame-row-inset-end) 20px var(--frame-row-inset);
 }
+/* "Installed" is a section title like the main sidebar's: the same band, the same start. */
 .plugins-sidebar-installed h2 {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	margin: 0 0 12px;
+	box-sizing: border-box;
+	height: var(--frame-title-band);
+	margin: var(--frame-title-before) 0 var(--frame-title-after);
+	padding: 0 var(--frame-row-action-inset) 0 var(--frame-row-padding);
 	font-size: var(--text-caption);
 	line-height: var(--leading-caption);
 	font-weight: var(--weight-control);
@@ -352,6 +357,7 @@ output.plugins-page-notice {
 }
 .plugins-sidebar-context {
 	margin: 0 0 12px;
+	padding-inline: var(--frame-row-padding);
 	color: var(--muted-foreground);
 	font-size: var(--text-caption);
 	line-height: var(--leading-caption);
@@ -360,7 +366,7 @@ output.plugins-page-notice {
 .plugins-sidebar-installed ul {
 	display: flex;
 	flex-direction: column;
-	gap: 12px;
+	gap: var(--frame-row-space);
 	margin: 0;
 	padding: 0;
 	list-style: none;
@@ -368,15 +374,15 @@ output.plugins-page-notice {
 .plugins-sidebar-installed li button {
 	display: flex;
 	align-items: center;
-	gap: 10px;
+	gap: var(--frame-row-gap);
 	font-size: var(--text-small);
 	line-height: var(--leading-small);
 	width: 100%;
 	min-width: 0;
-	padding: 4px;
-	margin: -4px;
+	height: var(--frame-row-height);
+	padding: 0 var(--frame-row-padding);
 	border: 0;
-	border-radius: var(--radius-chip);
+	border-radius: var(--frame-row-radius);
 	background: transparent;
 	color: var(--foreground);
 	text-align: start;
@@ -393,8 +399,8 @@ output.plugins-page-notice {
 	box-shadow: var(--focus-ring);
 }
 .plugins-sidebar-installed li svg {
-	width: 16px;
-	height: 16px;
+	width: var(--frame-icon-slot);
+	height: var(--frame-icon-slot);
 	flex: none;
 	color: var(--sidebar-muted-foreground);
 }
@@ -406,6 +412,7 @@ output.plugins-page-notice {
 }
 .plugins-sidebar-empty {
 	margin: 0 0 12px;
+	padding-inline: var(--frame-row-padding);
 	color: var(--muted-foreground);
 	font-size: var(--text-caption);
 	line-height: var(--leading-caption);

@@ -76,7 +76,9 @@ async function converse(w, text, done) {
 		]);
 		if (seen === "done") break;
 		const accept = card.getByRole("button", { name: "Accept", exact: true });
-		if ((await accept.getAttribute("aria-disabled")) === "true")
+		// The card can be answered and replaced between waiting for it and looking at its button: then the next pass finds the new one.
+		const disabled = await accept.getAttribute("aria-disabled", { timeout: 5000 }).catch(() => null);
+		if (disabled === "true")
 			await card.evaluate((el) => el.querySelectorAll("*").forEach((e) => { if (e.scrollHeight > e.clientHeight + 5) e.scrollTop = e.scrollHeight; }));
 		// A card can be answered and replaced between the look and the click; the next pass finds the new one.
 		await accept.click({ timeout: 5000 }).catch(() => {});

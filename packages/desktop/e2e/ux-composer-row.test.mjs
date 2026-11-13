@@ -1,4 +1,4 @@
-// The conversation screen's composer, in the real app: the box holds the text, the "+" and Send; the
+// The conversation screen's composer, in the real app: the box holds the text, the "+", and Send once there is something to send; the
 // settings of the conversation (project on the home screen, permission mode, model, context) sit in one
 // quiet row under the box, outside it, as wide as it; the context leaves the top bar; an approval is one
 // card directly above the box. Real Electron, real CLI host, scripted model. No paid model.
@@ -56,27 +56,27 @@ async function inWorld(options, body) {
 	}
 }
 
-test("the box holds the text, the plus and Send; the settings are one quiet row under it, and their popups open inside the window", { timeout: 280000 }, async () => {
+test("the box holds the text, the plus, and Send once there is something to send; the settings are one quiet row under it, and their popups open inside the window", { timeout: 280000 }, async () => {
 	await inWorld({ models: ["gpt-e2e-1", "gpt-e2e-0"] }, async (w) => {
 		const page = w.page;
 		const box = page.locator("[data-chat-composer-main-surface]");
 		const row = page.locator("[data-composer-row]");
 		await expect(row).toBeVisible({ timeout: T });
 
-		// The box: corners of 16px, and only the text, the plus and Send inside it.
-		assert.equal(await page.locator('[data-slot="composer-host"]').evaluate((el) => getComputedStyle(el).borderTopLeftRadius), "16px");
+		// The box: corners of 12px, and only the text and the plus inside it: Send comes with something to send.
+		assert.equal(await page.locator('[data-slot="composer-host"]').evaluate((el) => getComputedStyle(el).borderTopLeftRadius), "12px");
 		await expect(box.getByRole("textbox", { name: "Message Namzu" })).toBeVisible();
 		const inside = await box.getByRole("button").evaluateAll((els) => els.map((el) => el.getAttribute("aria-label")));
-		assert.deepEqual(inside, ["Attachments and message settings", "Send message"]);
+		assert.deepEqual(inside, ["Attachments and message settings"]);
 		await expect(box.getByRole("button", { name: /^Permissions:/ })).toHaveCount(0);
 		await expect(box.getByRole("button", { name: /^Model:/ })).toHaveCount(0);
 		await expect(box.getByText("This computer")).toHaveCount(0);
 
-		// The row: under the box, outside it, as wide as it, about 6px below.
+		// The row: under the box, outside it, as wide as it, 8px below.
 		const b = await rect(box);
 		const r = await rect(row);
 		assert.ok(Math.abs(r.left - b.left) <= 1.5 && Math.abs(r.width - b.width) <= 2, `the row is as wide as the box (${r.left}/${r.width} against ${b.left}/${b.width})`);
-		assert.ok(r.top - b.bottom >= 4 && r.top - b.bottom <= 9, `the row is about 6px under the box (${r.top - b.bottom})`);
+		assert.ok(Math.abs(r.top - b.bottom - 8) <= 1, `the row is 8px under the box (${r.top - b.bottom})`);
 
 		// On the home screen the project and the computer are the row's first words, then the mode, then the model.
 		const project = row.locator(".composer-project-control");
@@ -87,21 +87,22 @@ test("the box holds the text, the plus and Send; the settings are one quiet row 
 		assert.ok(p.right <= m.left + 1 && m.right <= d.left + 1, "project, then mode, then model, left to right");
 		assert.ok(d.right <= r.right + 0.5 && r.right - d.right < 24, "the model is at the right end of the row");
 
-		// Quiet: 13px words, 28px tall, no fill and no border at rest; the soft fill comes with the pointer.
+		// Quiet: 13px words, 24px tall (the row's height), no fill and no border at rest; the soft fill comes with the pointer.
 		for (const button of [project, permission, model]) {
 			const look = await button.evaluate((el) => {
 				const css = getComputedStyle(el);
 				return { size: css.fontSize, height: el.getBoundingClientRect().height, fill: css.backgroundColor, ring: css.borderTopColor };
 			});
 			assert.equal(look.size, "13px");
-			assert.equal(look.height, 28);
+			assert.equal(look.height, 24);
 			assert.equal(look.fill, "rgba(0, 0, 0, 0)", "no fill at rest");
 			assert.equal(look.ring, "rgba(0, 0, 0, 0)", "no border at rest");
 		}
 		// The project shares the row with the mode: the mode does not move when the pointer reaches the project.
 		const modeLeft = (await rect(permission)).left;
 		await project.hover();
-		await expect.poll(() => project.locator("[data-composer-control-chevron]").evaluate((el) => Number(getComputedStyle(el).opacity)), { timeout: T }).toBeGreaterThan(0.5);
+		// No chevron is drawn in the row, at rest or under the pointer, so nothing that only shows on hover keeps room.
+		await expect(project.locator("[data-composer-control-chevron]")).toBeHidden();
 		assert.equal((await rect(permission)).left, modeLeft, "the mode does not shift when the project is hovered");
 		await permission.hover();
 		await expect.poll(() => permission.evaluate((el) => getComputedStyle(el).backgroundColor), { timeout: T }).not.toBe("rgba(0, 0, 0, 0)");
@@ -163,7 +164,7 @@ test("after the first message the project line is gone from the row, the context
 		const [m, c, r] = [await rect(model), await rect(context), await rect(row)];
 		assert.ok(m.right <= c.left + 1 && r.right - c.right < 16, "the context is the last thing in the row, after the model");
 		assert.equal(await context.evaluate((el) => getComputedStyle(el).fontSize), "13px");
-		assert.equal((await rect(context)).height, 28);
+		assert.equal((await rect(context)).height, 24);
 		// The keyboard: mode, then model, then context, each with a focus ring.
 		await permission.focus();
 		await page.keyboard.press("Tab");
@@ -222,7 +223,7 @@ test("in a narrow window the percentage goes first, the model name is cut, and t
 			await shot(w, "row-long-960");
 			// Zoomed in until the row is very narrow: it may wrap to two lines, but the mode is still whole and reachable.
 			await w.app.evaluate(({ BrowserWindow }) => {
-				for (const win of BrowserWindow.getAllWindows()) win.webContents.setZoomFactor(1.6);
+				for (const win of BrowserWindow.getAllWindows()) win.webContents.setZoomFactor(2);
 			});
 			await expect.poll(async () => (await rect(row)).width, { timeout: T }).toBeLessThan(420);
 			// Measured in one go and re-read until the zoom has settled, so no two readings straddle a reflow.

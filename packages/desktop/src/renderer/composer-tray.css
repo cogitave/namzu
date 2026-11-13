@@ -5,7 +5,7 @@
 	z-index: 10;
 	border: 1px solid var(--chat-composer-outline);
 	border-bottom: 0;
-	border-radius: var(--radius-panel) var(--radius-panel) 0 0;
+	border-radius: var(--radius-composer) var(--radius-composer) 0 0;
 	padding: 6px 4px 2px;
 	font-size: var(--text-small);
 	line-height: var(--leading-small);

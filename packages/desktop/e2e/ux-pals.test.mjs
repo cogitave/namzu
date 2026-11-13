@@ -88,6 +88,28 @@ test(
 			await expect(page.locator(".pal-status-rest").filter({ hasText: "Ready to chat" })).toBeVisible();
 			await shot(world, "03-pal-opened-1440");
 
+			// Rule D: every sidebar label starts at x 44, the "New Pal" row too (its plus icon fills the 16 px slot).
+			const labelXs = await page.evaluate(() => {
+				const left = document.querySelector("aside.sidebar").getBoundingClientRect().left;
+				const labelX = (el) => {
+					const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+					for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+						if (!node.textContent.trim()) continue;
+						const range = document.createRange();
+						range.selectNodeContents(node);
+						return range.getBoundingClientRect().left - left;
+					}
+					return null;
+				};
+				const create = document.querySelector(".sidebar-pal-create");
+				const icon = create.querySelector("svg").getBoundingClientRect();
+				return { create: labelX(create), iconX: icon.left - left, iconW: icon.width, pal: labelX(document.querySelector(".sidebar-pal-row:not(.sidebar-pal-create)")) };
+			});
+			expect(labelXs.create, "the New Pal label starts at x 44").toBe(44);
+			expect(labelXs.pal, "a Pal row's label starts at x 44").toBe(44);
+			expect(labelXs.iconX, "the plus icon starts at x 18").toBe(18);
+			expect(labelXs.iconW, "and is 16 wide").toBe(16);
+
 			// The computer panel never shows build instructions or repository paths.
 			const card = page.getByRole("complementary", { name: "Pal context" });
 			await expect(card).toBeVisible();
@@ -188,7 +210,8 @@ test(
 			// Once the reply has finished nothing under it is cut off: no element in the transcript hides
 			// part of its own text behind an overflow clip.
 			await expect(page.getByText("I sent your Pal the request.")).toBeVisible({ timeout: 60000 });
-			await expect(page.getByRole("button", { name: "Send message" })).toBeVisible({ timeout: 60000 });
+			// The box offers Send only with something to send; a finished reply leaves no Stop behind.
+			await expect(page.getByRole("button", { name: "Stop reply" })).toHaveCount(0, { timeout: 60000 });
 			const clipped = await page.evaluate(() =>
 				[...document.querySelectorAll(".conversation-body *, .pal-message-receipts *")]
 					.filter((el) => {

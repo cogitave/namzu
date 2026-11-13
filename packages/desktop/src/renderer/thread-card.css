@@ -50,11 +50,11 @@
 .sidebar-thread-actions {
 	position: absolute;
 	/*
-	 * The 28px button ends on the row's edge, so its glyph's centre is 14px in. Every mark in the
+	 * The 24px button ends 4 inside the row's end, so its glyph's centre is 16px in. Every mark in the
 	 * state slot is centred on that same line (the rules below), so the close or archive glyph
 	 * lands exactly where the dot it replaces was.
 	 */
-	right: 0;
+	right: var(--frame-row-action-inset);
 	/* Centred by the row's own height, not by a transform, so no row height or zoom moves it. */
 	top: 0;
 	bottom: 0;
@@ -67,22 +67,13 @@
 	transition: none;
 }
 /*
- * The state slot ends 8px inside the row (its padding), so a mark w px wide has its centre
- * 8 + w/2 from the edge. The hover glyph's centre is 14px from it, so a mark gets
- * margin-right: 14 - 8 - w/2: the 8px terminal dot 2px, the 4px error dot 4px, the 14px approval
- * shield -1px. The 12px spinner and background-work glyph need none.
+ * A conversation's state mark (running, unread, error, approval) is not in this slot: it sits in
+ * the row's 16px icon slot on the left, centred there, where the row's padding puts it at x 16. What
+ * stays on the right is the age, and a terminal's badge. The state slot ends 10px inside the row, so
+ * a badge w px wide has its centre 10 + w/2 from the edge, and the hover glyph's centre is 16px from
+ * it: the 8px terminal dot gets margin-right: 16 - 10 - 4 = 2px.
  */
 .sidebar-thread-item .conversation-row-state > .terminal-badge {
-	margin-right: 2px;
-}
-.sidebar-thread-item .conversation-row-state > .connection-dot {
-	margin-right: 4px;
-}
-.sidebar-thread-item .conversation-row-state > [aria-label="Approval needed"],
-.sidebar-thread-item .conversation-row-state > [aria-label="Question waiting"] {
-	margin-right: -1px;
-}
-.sidebar-thread-item .conversation-row-state > .thread-unread-dot {
 	margin-right: 2px;
 }
 .sidebar-thread-item:hover .sidebar-thread-actions,
@@ -96,22 +87,22 @@
 	visibility: hidden;
 }
 /*
- * The buttons own the row's right edge: `--thread-actions-w` wide, one 28px button per action. On
+ * The buttons own the row's right edge: `--thread-actions-w` wide (the end inset and one 24px button per action). On
  * hover the project chip, the state slot and the pin mark step aside (they are hidden, so the
  * title keeps its place), and the whole row's content fades out before the first button. The mask
  * is on the row, not the title, so it is measured from the row's edge, where the buttons are, and
  * does not depend on how wide the chip or the state slot happens to be.
  */
 .sidebar-thread-item[data-removable] {
-	--thread-action-size: 28px;
-	--thread-actions-w: var(--thread-action-size);
+	--thread-action-size: var(--frame-row-action);
+	--thread-actions-w: calc(var(--frame-row-action-inset) + var(--thread-action-size));
 }
 .sidebar-thread-item[data-action-count="2"] {
-	--thread-actions-w: calc(2 * var(--thread-action-size));
+	--thread-actions-w: calc(var(--frame-row-action-inset) + 2 * var(--thread-action-size));
 }
 .sidebar-thread-action {
-	width: var(--thread-action-size, 28px);
-	height: var(--thread-action-size, 28px);
+	width: var(--thread-action-size, var(--frame-row-action));
+	height: var(--thread-action-size, var(--frame-row-action));
 }
 .sidebar-thread-item[data-removable]:hover .conversation-row-project,
 .sidebar-thread-item[data-removable]:has(:focus-visible) .conversation-row-project,

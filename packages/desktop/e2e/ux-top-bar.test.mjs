@@ -1,4 +1,4 @@
-// The top of a conversation window is one 40 px bar, not a strip of tabs. With the strip hidden
+// The top of a conversation window is one 36 px bar, not a strip of tabs. With the strip hidden
 // (the default) every way of moving between conversations still works; "Show conversation tabs"
 // brings the strip back exactly as it was.
 // Run: pnpm --filter @namzu/desktop build && xvfb-run -a node --test e2e/ux-top-bar.test.mjs
@@ -34,7 +34,7 @@ const bar = (w) => w.page.locator(".conversation-bar");
 const frontTitle = (w) => bar(w).locator(".conversation-bar-title");
 const rowFor = (w, text) => w.page.locator(".sidebar").getByRole("button", { name: new RegExp(text, "i") }).first();
 
-test("hidden by default: one 40 px bar, sidebar and chords still move between conversations", { timeout: 280000 }, async () => {
+test("hidden by default: one 36 px bar, sidebar and chords still move between conversations", { timeout: 280000 }, async () => {
 	const w = await createWorld({ rules, tabs: "hidden" });
 	let failed = true;
 	try {
@@ -50,7 +50,7 @@ test("hidden by default: one 40 px bar, sidebar and chords still move between co
 		await expect(bar(w)).toBeVisible();
 		await expect(frontTitle(w)).toContainText("Explain the second thing");
 		await expect(bar(w).locator(".conversation-bar-project")).toBeVisible();
-		assert.equal(await barHeight(w), 40);
+		assert.equal(await barHeight(w), 36);
 
 		// Every button is 28 px and has a name.
 		const names = ["Changes", "New terminal", "Project files", "Conversation details", "Conversation actions"];
@@ -95,7 +95,7 @@ test("hidden by default: one 40 px bar, sidebar and chords still move between co
 	}
 });
 
-test("column is 720 px at most, and the bar holds at 960 px with a long title", { timeout: 280000 }, async () => {
+test("column is 768 px at most, and the bar holds at 960 px with a long title", { timeout: 280000 }, async () => {
 	const w = await createWorld({ rules, tabs: "hidden" });
 	let failed = true;
 	try {
@@ -103,7 +103,7 @@ test("column is 720 px at most, and the bar holds at 960 px with a long title", 
 		await openProject(w);
 		await converse(w, TWO);
 		const column = () => w.page.evaluate(() => document.querySelector(".conversation-body")?.getBoundingClientRect().width);
-		assert.ok((await column()) <= 720.5, `column ${await column()}`);
+		assert.ok((await column()) <= 768.5, `column ${await column()}`);
 		for (const width of [1280, 960, 820]) {
 			await size(w, width, 700);
 			await expect(frontTitle(w)).toBeVisible();
@@ -122,7 +122,7 @@ test("column is 720 px at most, and the bar holds at 960 px with a long title", 
 					buttonsStart: buttons[0].getBoundingClientRect().left,
 				};
 			});
-			assert.equal(fit.wrapped, 40, `bar stays 40 px at ${width}`);
+			assert.equal(fit.wrapped, 36, `bar stays 36 px at ${width}`);
 			assert.equal(fit.clipped, false, `nothing clipped at ${width}`);
 			assert.equal(fit.outside, 0, `buttons reachable at ${width}`);
 			assert.ok(fit.count >= 5, `five buttons at ${width}`);
@@ -149,7 +149,7 @@ test("Show conversation tabs brings the strip back as it was, and the choice is 
 		await w.page.getByRole("button", { name: "Home", exact: true }).click();
 		await expect(w.page.locator(".conversation-tab-list")).toBeVisible({ timeout: T });
 		await expect(w.page.locator(".conversation-bar")).toHaveCount(0);
-		assert.equal(await barHeight(w), 52);
+		assert.equal(await barHeight(w), 36);
 		// It survives a restart.
 		await w.app.close();
 		await launch(w);

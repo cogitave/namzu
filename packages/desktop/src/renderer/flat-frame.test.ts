@@ -79,16 +79,17 @@ describe('the frame is two flat regions', () => {
 	it('draws the rail only where the sidebar is collapsed: no column for it while it is open', () => {
 		expect(rule(style, '.app')).toContain('grid-template-columns: 0 288px minmax(0, 1fr)')
 		expect(rule(style, '.app[data-sidebar-collapsed="true"]')).toContain(
-			'grid-template-columns: 48px 0 minmax(0, 1fr)',
+			'grid-template-columns: var(--frame-rail-width) 0 minmax(0, 1fr)',
 		)
 	})
 
 	it('ends the sidebar header and the top bar on one line', () => {
-		expect(rule(style, '.app')).toContain('--frame-header-height: 52px')
-		expect(rule(style, '.app:has(.workspace[data-conversation-bar])')).toContain(
-			'--frame-header-height: 40px',
-		)
-		expect(host).toContain('--workspace-topbar-height: 40px')
+		// One height, with or without the strip of tabs: the token is defined once (theme.css).
+		expect(theme).toContain('--frame-header-height: 36px')
+		expect(theme).toContain('--frame-rail-width: 48px')
+		expect(theme).toContain('--workspace-topbar-height: var(--frame-header-height)')
+		expect(style).not.toContain('--frame-header-height: ')
+		expect(host).not.toContain('--workspace-topbar-height: ')
 	})
 })
 

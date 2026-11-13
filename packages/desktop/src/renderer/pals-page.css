@@ -411,12 +411,15 @@
 .pal-loading {
 	animation: pals-spin 900ms linear infinite, var(--placeholder-reveal);
 }
-.sidebar-pals {
-	padding: 0 var(--sidebar-scroll-end) 14px var(--sidebar-content-inset);
+.sidebar-pals:not([data-sidebar-section]) {
+	/* Ungrouped, the rows sit one row space under "New conversation". */
+	padding-top: var(--frame-row-space);
 }
-/* The group heading only exists past three Pals; it keeps the look of the original trigger. */
+.sidebar-pals .sidebar-pal-row + .sidebar-pal-row {
+	margin-top: var(--frame-row-space);
+}
+/* The group heading only exists past three Pals: a section title with its chevron always shown. */
 .sidebar-pals .sidebar-pals-heading {
-	margin: 0 0 4px;
 	color: var(--muted-foreground);
 	font-size: var(--text-caption);
 	line-height: var(--leading-caption);
@@ -424,8 +427,6 @@
 }
 .sidebar-pals .sidebar-section-toggle {
 	width: 100%;
-	height: 28px;
-	padding: 0 8px;
 	justify-content: space-between;
 }
 .sidebar-pals .sidebar-section-chevron {
@@ -436,12 +437,13 @@
 .sidebar-pals .sidebar-pal-row {
 	display: flex;
 	justify-content: flex-start;
-	gap: 8px;
+	gap: var(--frame-row-gap);
 	width: 100%;
-	height: 34px;
-	min-height: 34px;
-	padding: 3px 8px;
-	border-radius: var(--radius-control);
+	height: var(--frame-row-height);
+	min-height: var(--frame-row-height);
+	padding: 0 var(--frame-row-padding);
+	border: 0;
+	border-radius: var(--frame-row-radius);
 	color: var(--sidebar-foreground);
 	font-size: var(--text-small);
 	line-height: var(--leading-small);
@@ -450,6 +452,20 @@
 }
 .sidebar-pals .sidebar-pal-row[aria-current="page"] {
 	background: var(--sidebar-row-active);
+}
+/* The Pal's face sits in the same 16px icon slot as every other row's icon. */
+.sidebar-pal-row .pal-avatar-compact,
+.sidebar-pal-row .pal-character-compact {
+	flex: none;
+	width: var(--frame-icon-slot);
+	height: var(--frame-icon-slot);
+}
+/* The button base pulls an icon 2px out on each side; a row's icon must fill its slot exactly, so the label stays at x 44. */
+.sidebar-pals .sidebar-pal-row > svg {
+	flex: none;
+	width: var(--frame-icon-slot);
+	height: var(--frame-icon-slot);
+	margin: 0;
 }
 .sidebar-pal-row > span:not(.pal-avatar):not(.pal-character) {
 	min-width: 0;

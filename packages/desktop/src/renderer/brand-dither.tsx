@@ -11,10 +11,15 @@ const thresholds = [
 export function BrandDither() {
 	const element = useRef<SVGSVGElement>(null)
 	const [width, setWidth] = useState(288)
+	// The band's own height, so the squares are 2 by 2 whatever the header's height is.
+	const [height, setHeight] = useState(36)
 	useLayoutEffect(() => {
 		const parent = element.current?.parentElement
 		if (!parent) return
-		const resize = () => setWidth(Math.max(1, Math.round(parent.clientWidth)))
+		const resize = () => {
+			setWidth(Math.max(1, Math.round(parent.clientWidth)))
+			setHeight(Math.max(1, Math.round(parent.clientHeight)))
+		}
 		resize()
 		const observer = new ResizeObserver(resize)
 		observer.observe(parent)
@@ -22,7 +27,7 @@ export function BrandDither() {
 	}, [])
 	const pixels = useMemo(() => {
 		const squares: string[] = []
-		for (let y = 0; y < 52; y += 2) {
+		for (let y = 0; y < height; y += 2) {
 			for (let x = 0; x < width; x += 2) {
 				const density = 0.06 + 0.72 * (1 - x / width) ** 1.4
 				if ((thresholds[(y / 2) % 4][(x / 2) % 4] + 0.5) / 16 < density)
@@ -30,14 +35,14 @@ export function BrandDither() {
 			}
 		}
 		return squares.join('')
-	}, [width])
+	}, [width, height])
 	return (
 		<svg
 			ref={element}
 			className="brand-dither"
 			data-brand-dither
 			aria-hidden="true"
-			viewBox={`0 0 ${width} 52`}
+			viewBox={`0 0 ${width} ${height}`}
 			preserveAspectRatio="none"
 			shapeRendering="crispEdges"
 		>

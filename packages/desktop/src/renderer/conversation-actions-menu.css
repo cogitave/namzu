@@ -82,7 +82,7 @@
 	display: flex;
 	align-items: center;
 	flex: none;
-	gap: 2px;
+	gap: var(--frame-bar-gap);
 	-webkit-app-region: no-drag;
 }
 .conversation-header-button {

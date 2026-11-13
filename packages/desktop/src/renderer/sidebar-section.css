@@ -67,18 +67,10 @@
 		transition: none;
 	}
 }
-/* Folded sections sit one heading apart: no section padding below a folded body, and the next
-   heading takes the Recents margin instead of its own 14px lead. */
-.sidebar-pals:has(> .sidebar-section-body[hidden]) {
-	padding-bottom: 0;
-}
+/* Folded sections sit one heading apart: there is no row above the next heading, so it takes the
+   room a title has under it instead of the room above. */
 [data-sidebar-section]:has(> .sidebar-section-body[hidden])
 	+ [data-sidebar-section]
-	.sidebar-section-title {
-	margin-top: 6px;
-}
-[data-sidebar-section]:has(> .sidebar-section-body[hidden])
-	+ [data-sidebar-section]
-	.sidebar-add-project {
-	margin-top: 0;
+	.sidebar-section-head {
+	margin-top: var(--frame-title-after);
 }

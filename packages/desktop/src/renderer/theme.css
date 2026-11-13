@@ -100,13 +100,13 @@
 	--radius: 0.625rem;
 	--radius-control: 0.5rem;
 	--control-radius: var(--radius-control);
-	--sidebar-content-inset: 0.5rem;
+	--sidebar-content-inset: var(--frame-row-inset);
 	--app-scrollbar-width: 6px;
 	--app-scrollbar-thumb: rgb(217 217 217);
 	--app-scrollbar-thumb-hover: rgb(191 191 191);
 	--sidebar-control-gap: 0.5rem;
 	--sidebar-row-content-inset: 0.625rem;
-	--chat-max-width: 48rem;
+	--chat-max-width: var(--frame-column-width);
 	/* The type scale: seven sizes with their line-heights on a 2 px grid, and three weights. Nothing
 	   in the renderer is bolder than --weight-strong. */
 	--text-caption: 12px;
@@ -130,8 +130,69 @@
 	--font-size-code: 13px;
 	--leading-code: 20px;
 	--diffs-font-size: var(--font-size-code);
-	--workspace-topbar-height: 52px;
-	--workspace-gutter: 0.75rem;
+	/* The frame: one rhythm for the header, the rows and the foot. Every rule that places or sizes
+	   one of these reads the token; none repeats the number. A row is inset from the sidebar's
+	   edge, padded, holds a 16px icon slot and a gap, so every label starts at --frame-label-start.
+	   The values are fixed positions, so a few (10, 22) are not on the 2/4/6/8/12/16/20/24/32
+	   scale used everywhere else. */
+	--frame-header-height: 36px;
+	--frame-tab-height: 28px;
+	--frame-control-size: 28px;
+	--frame-row-height: 32px;
+	--frame-row-space: 2px;
+	--frame-row-first: 8px;
+	--frame-row-inset: 8px;
+	--frame-row-inset-end: 10px;
+	--frame-row-padding: 10px;
+	--frame-icon-slot: 16px;
+	--frame-row-gap: 10px;
+	--frame-row-radius: 10px;
+	--frame-label-start: calc(
+		var(--frame-row-inset) +
+		var(--frame-row-padding) +
+		var(--frame-icon-slot) +
+		var(--frame-row-gap)
+	);
+	--frame-row-action: 24px;
+	--frame-row-action-inset: 4px;
+	--frame-title-band: 28px;
+	--frame-title-before: 22px;
+	--frame-title-after: 4px;
+	--frame-title-start: calc(var(--frame-row-inset) + var(--frame-row-padding));
+	--frame-foot-height: 45px;
+	--frame-foot-button: 28px;
+	--frame-foot-start: calc(
+		var(--frame-row-inset) +
+		var(--frame-row-padding) +
+		var(--frame-icon-slot) /
+		2 -
+		var(--frame-foot-button) /
+		2
+	);
+	--frame-rail-width: 48px;
+	--frame-rail-button: 32px;
+	--frame-bar-gap: 4px;
+	--frame-bar-inset: 8px;
+	--frame-title-inset: 24px;
+	/* The input box, the row under it and the column they share. The dock at rest is the box, the gap,
+	   the row and the space under the row. */
+	--frame-input-height: 44px;
+	--frame-input-radius: 12px;
+	--frame-below-gap: 8px;
+	--frame-below-height: 24px;
+	--frame-below-bottom: 8px;
+	--frame-below-inset: 10px;
+	--frame-dock-rest: calc(
+		var(--frame-input-height) +
+		var(--frame-below-gap) +
+		var(--frame-below-height) +
+		var(--frame-below-bottom)
+	);
+	--frame-column-width: 768px;
+	--frame-column-side: 32px;
+	--frame-column-side-narrow: 16px;
+	--workspace-topbar-height: var(--frame-header-height);
+	--workspace-gutter: var(--frame-title-inset);
 	--workspace-gutter-start: var(--workspace-gutter);
 	--workspace-gutter-end: var(--workspace-gutter);
 	--glass-opacity: 80%;
@@ -162,6 +223,7 @@
 	--radius-chip: 6px;
 	--radius-card: 12px;
 	--radius-panel: 16px;
+	--radius-composer: var(--frame-input-radius);
 	--radius-pill: 999px;
 	/* Layers: named tiers, lowest to highest. A tooltip and a toast must read over a dialog, so
 	   dialogs sit below the popover tier. Component-local stacking (-1 to 10) stays literal. */
@@ -244,7 +306,7 @@
 	--sidebar-muted-foreground: #71717b;
 	--sidebar-control-surface: #f4f4f5;
 	--sidebar-row-hover: #f5f5f5;
-	--sidebar-row-active: #eeeeee;
+	--sidebar-row-active: rgb(39 39 42 / 16%);
 	--sidebar-row-selected: #f0f0f0;
 	--sidebar-border: #e4e4e7;
 	--terminal-background: #fcfcfc;
@@ -308,7 +370,7 @@
 	--sidebar-muted-foreground: #a3a3a3;
 	--sidebar-control-surface: #1c1c1c;
 	--sidebar-row-hover: rgb(241 243 247 / 8%);
-	--sidebar-row-active: rgb(241 243 247 / 11%);
+	--sidebar-row-active: rgb(241 243 247 / 16%);
 	--sidebar-row-selected: rgb(241 243 247 / 7%);
 	--sidebar-border: var(--border);
 	--terminal-background: #0a0a0a;
@@ -346,11 +408,6 @@
 	--shadow-dialog: 0 24px 80px rgb(0 0 0 / 60%);
 }
 
-@media (min-width: 640px) {
-	:root {
-		--workspace-gutter: 1.25rem;
-	}
-}
 .dark {
 	--glass-blur: 16px;
 	--glass-saturation: 1.08;

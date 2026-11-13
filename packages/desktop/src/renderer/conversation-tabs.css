@@ -49,7 +49,7 @@
 	align-items: center;
 	width: 220px;
 	min-width: 136px;
-	height: 32px;
+	height: var(--frame-tab-height);
 	/* Tabs give way down to their minimum before the strip scrolls, so none is cut mid-letter early. */
 	flex: 0 1 auto;
 	padding-right: 4px;

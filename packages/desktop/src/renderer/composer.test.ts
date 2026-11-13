@@ -112,7 +112,7 @@ it('docks the slim Pal composer with one authored textarea and preserves the sta
 	const pal = render({ variant: 'pal', empty: true })
 	expect(pal).toContain('data-composer-variant="pal"')
 	expect(pal).toContain('placeholder="Send a message"')
-	expect(pal).toContain('bottom-0')
+	expect(pal).toContain('justify-end')
 	expect(pal.match(/<textarea\b/g)).toHaveLength(1)
 	expect(pal).toContain('An unsent Pal request</textarea>')
 	expect(pal.indexOf('aria-label="Attachments and message settings"')).toBeLessThan(
@@ -740,9 +740,9 @@ it("keeps the model in the row while an approval waits, and closes the project l
 
 it('keeps the row quiet and in its place: no fill or border at rest, the mode never shrinks, the percentage goes first', () => {
 	const css = readFileSync(new URL('./composer.css', import.meta.url), 'utf8')
-	// The box's corners are 16px, from the panel radius token.
+	// The box's corners are the frame's input radius (12px), through the composer radius token.
 	expect(css).toMatch(
-		/\.normal-composer-shell \[data-slot="composer-host"\],[\s\S]*?border-radius: var\(--radius-panel\)/,
+		/\.normal-composer-shell \[data-slot="composer-host"\],[\s\S]*?\{\s*border-radius: var\(--radius-composer\)/,
 	)
 	// The mode is never cut; the model's own name takes the ellipsis; the row wraps only when very narrow.
 	expect(css).toMatch(/\.composer-row \.composer-permission-control \{\s*flex: none;/)
@@ -753,10 +753,11 @@ it('keeps the row quiet and in its place: no fill or border at rest, the mode ne
 	expect(css).toMatch(
 		/@container composer-row \(max-width: 360px\) \{\s*\.composer-row-inner \{\s*flex-wrap: wrap;/,
 	)
-	// Every chevron keeps its room at rest, so the row never shifts under the pointer.
+	// No chevron is drawn in the row, so nothing that only shows on hover keeps room at rest.
 	expect(css).toMatch(
-		/\.composer-project-control \[data-composer-control-chevron\] \{\s*width: 12px;[\s\S]*?opacity: 0;/,
+		/\.composer-project-control \[data-composer-control-chevron\] \{\s*display: none;/,
 	)
+	expect(css).not.toMatch(/\[data-composer-control-chevron\] \{[^}]*opacity: 0;/)
 	expect(css).not.toContain('composer-context-above')
 	expect(css).not.toMatch(/#[0-9a-f]{3,8}\b/i)
 })
