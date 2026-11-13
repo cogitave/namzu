@@ -1161,7 +1161,7 @@ columns). A streamed reply is laid out again at each piece, so the rows of the
 blocks that did not change are kept (up to 4,000,000 characters of blocks, oldest out; a count of 48 blocks was smaller than the blocks of a long reply, so each was laid out again at every piece and 200 KB of prose cost about three times the time of the same text laid out once) and the plain
 wrap of a reply's whole text is not made at all; a line of 50,000 characters
 costs the window the same as a short one, the text stays complete for copy and
-search, and a key is echoed in under 100 ms while such a reply streams. Other
+search, and a key is echoed in under 100 ms while such a reply streams. A reply of 1 MB of code is the edge of what the view is built for: it finishes, but one key echo was measured at 250 ms and the process peaked near 2.6 GB (the kept rows hold one object per run of text, so their memory follows the reply, not the 4,000,000-character bound on their keys). Other
 messages are plain wrapped text. A `⎿` result line (an interruption, a declined call, a tool's result) hangs in the same columns as in the normal transcript: the mark in the third cell and its words from the sixth, with a wrapped line under the words; the mark is part of the row text, so a copy of such a row includes it. Only the rows that fit are built into elements, so the
 cost of a frame follows the terminal's height, not the conversation's.
 Messages are laid out once per width and kept. The spinner, composer and
