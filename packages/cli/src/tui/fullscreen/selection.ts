@@ -90,9 +90,12 @@ export function rowCells(
  */
 export function extractRows(rows: readonly FsRow[], cols: number, range: Range): string {
 	let out = ''
+	let started = false
 	for (let line = range.start.line; line <= range.end.line; line++) {
 		const row = rows[line]
 		if (!row) break
+		// The rule that marks where new replies begin is not text: a copy skips it.
+		if (row.mark !== undefined) continue
 		const covered = colsOnLine(range, line, cols)
 		let text = ''
 		if (covered) {
@@ -100,8 +103,9 @@ export function extractRows(rows: readonly FsRow[], cols: number, range: Range):
 			const from = row.joins !== null ? Math.max(covered[0], row.lead) : covered[0]
 			text = sliceCells(row.text, from, covered[1]).replace(/[ \t]+$/u, '')
 		}
-		if (line === range.start.line) out = text
+		if (!started) out = text
 		else out += (row.joins ?? '\n') + text
+		started = true
 	}
 	return out
 }

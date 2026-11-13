@@ -2215,6 +2215,8 @@ const CONFIG_READERS: ConfigReaders = {
 			reducedMotion?: unknown
 			showExpandedTodos?: unknown
 			fullscreen?: unknown
+			wheelRows?: unknown
+			wheelAccel?: unknown
 			recap?: unknown
 			spinnerTips?: unknown
 			syntaxHighlight?: unknown
@@ -2282,6 +2284,18 @@ const CONFIG_READERS: ConfigReaders = {
 		if (raw.fullscreen !== undefined && typeof raw.fullscreen !== 'boolean') {
 			return invalidConfigValue(context, ['fullscreen'], 'must be true or false')
 		}
+		if (raw.wheelAccel !== undefined && typeof raw.wheelAccel !== 'boolean') {
+			return invalidConfigValue(context, ['wheelAccel'], 'must be true or false')
+		}
+		if (
+			raw.wheelRows !== undefined &&
+			(typeof raw.wheelRows !== 'number' ||
+				!Number.isInteger(raw.wheelRows) ||
+				raw.wheelRows < 1 ||
+				raw.wheelRows > 20)
+		) {
+			return invalidConfigValue(context, ['wheelRows'], 'must be a whole number from 1 to 20')
+		}
 		if (raw.recap !== undefined && typeof raw.recap !== 'boolean') {
 			return invalidConfigValue(context, ['recap'], 'must be true or false')
 		}
@@ -2318,6 +2332,8 @@ const CONFIG_READERS: ConfigReaders = {
 			...(raw.reducedMotion !== undefined ? { reducedMotion: raw.reducedMotion } : {}),
 			...(raw.showExpandedTodos !== undefined ? { showExpandedTodos: raw.showExpandedTodos } : {}),
 			...(raw.fullscreen !== undefined ? { fullscreen: raw.fullscreen } : {}),
+			...(raw.wheelRows !== undefined ? { wheelRows: raw.wheelRows as number } : {}),
+			...(raw.wheelAccel !== undefined ? { wheelAccel: raw.wheelAccel } : {}),
 			...(raw.recap !== undefined ? { recap: raw.recap } : {}),
 			...(raw.spinnerTips !== undefined ? { spinnerTips: raw.spinnerTips } : {}),
 			...(raw.syntaxHighlight !== undefined ? { syntaxHighlight: raw.syntaxHighlight } : {}),
@@ -3090,7 +3106,7 @@ export function mergeCodeAnalysisConfig(
 }
 
 /**
- * `tui` from one more layer: later keys win. `theme`, `reducedMotion`, `showExpandedTodos`, `fullscreen` and `syntaxHighlight` are the
+ * `tui` from one more layer: later keys win. `theme`, `reducedMotion`, `showExpandedTodos`, `fullscreen`, `syntaxHighlight`, `wheelRows` and `wheelAccel` are the
  * operator's own taste, so a project layer's values for them are dropped.
  */
 export function mergeTuiConfig(
@@ -3104,6 +3120,8 @@ export function mergeTuiConfig(
 		showExpandedTodos: _todos,
 		fullscreen: _fullscreen,
 		syntaxHighlight: _syntax,
+		wheelRows: _wheelRows,
+		wheelAccel: _wheelAccel,
 		...rest
 	} = layer
 	return { ...below, ...(fromProject ? rest : layer) }

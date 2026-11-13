@@ -883,6 +883,10 @@ export interface AppProps {
 		readonly subscribePointer?: (listener: (report: PointerReport) => void) => () => void
 		/** Whether a selection is copied the moment the button is released; true when absent. */
 		readonly copyOnSelect?: boolean
+		/** Rows a slow wheel notch scrolls (`tui.wheelRows`); 3 when absent. */
+		readonly wheelRows?: number
+		/** Whether a fast run of notches speeds up (`tui.wheelAccel`); on when absent. */
+		readonly wheelAccel?: boolean
 	}
 	/**
 	 * Opens the workspaces screen: `←` on an empty composer. Absent where there is
@@ -17237,6 +17241,8 @@ function AppBody({
 							? { subscribePointer: fullscreen.subscribePointer, copy: copyFullscreenSelection }
 							: {})}
 						copyOnSelect={fullscreen.copyOnSelect !== false}
+						{...(fullscreen.wheelRows !== undefined ? { wheelRows: fullscreen.wheelRows } : {})}
+						{...(fullscreen.wheelAccel !== undefined ? { wheelAccel: fullscreen.wheelAccel } : {})}
 						onSearchChange={setFullscreenSearching}
 						control={fullscreenControl}
 						header={

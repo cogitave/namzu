@@ -1042,9 +1042,13 @@ While the box is open one quiet row above the composer says how to get back,
 centered, in the longest form that fits the width: `↓ Back to bottom · esc`,
 then `↓ Bottom · esc`, `↓ Bottom`, `↓`. If the reply grows or something new
 arrives while the window is scrolled up, the window does not move, and the row
-starts with `New activity · ` (`New activity · ↓ Back to bottom · esc`, then
-`New activity · ↓ Bottom · esc`, `New · ↓ Bottom`, `↓ Bottom`, `↓`). It is a
-flag, not a count, and it clears when the view closes. Rows come from
+says what is new, with the same counter and wording as the fullscreen hint
+([below](#what-the-hint-says)): `2 new replies · ↓ Back to bottom · esc`, then
+`2 new replies · ↓ Bottom · esc`, `2 new · ↓ Bottom`, `2 new ↓`, `2`. Only
+replies of the model with text count, not tool calls; a reply that was being
+written and has grown is `Reply still growing · …`; anything else below is
+`New activity · …`. The count starts when the box opens and goes when it closes.
+Rows come from
 `transcript-scroll.ts`; `TranscriptScrollView.tsx` draws them; `Composer.tsx`
 opens it. Covered by `the-transcript-scrolls-back-and-returns.test.tsx` and
 `the-transcript-scrolls-from-the-composer.test.tsx`.
@@ -1081,7 +1085,7 @@ incremental repainting, so only changed lines are written.
 
 | Input | Does |
 | --- | --- |
-| Mouse wheel | three rows up or down |
+| Mouse wheel | three rows up or down for a slow notch; a fast run speeds up and the view glides ([below](#the-wheel)) |
 | PgUp / PgDn | a page, one row less than the window |
 | Home / End | the first row, and back to the latest, while the composer is empty |
 | Typing or Enter | back to the latest |
@@ -1092,15 +1096,91 @@ incremental repainting, so only changed lines are written.
 | Alt+S | search the conversation |
 
 Reaching the end resumes following. Scrolled up, the view holds still while
-output arrives, and one row above the composer says so: `↓ Jump to latest ·
-PgDn`, shortened to `↓ Latest` and `↓` as the width falls, with `New activity
-· ` in front once something arrived below. The reader's place is a message and
+output arrives, and one row above the composer says so and counts what came
+([below](#what-the-hint-says)). Clicking that row jumps to the newest row and
+follows again. The reader's place is a message and
 a row inside it, not a row number, so a resize that re-wraps everything keeps
 them on the same text; if a compaction replaced that message the view returns
 to the latest. After a resize the screen is erased by the renderer that drew it
 and drawn whole once the size has settled, so no old frame is left under the
 new one. The terminal is asked for button reports (wheel, presses and drags);
 they are taken off the input before the composer sees them.
+
+#### The wheel
+
+A notch is not a jump. Every notch adds rows to a distance still to travel,
+also when several arrive in one chunk of input, and the view spends that
+distance over the next frames: each frame covers half of what is left, all of
+it when two rows or fewer are left, and never more than one window less a row.
+A move is a glide of a few frames that lands exactly. The first frame is at
+once (scrolling up stops following at the first notch, before the glide ends),
+and while a distance remains a frame is painted every 44 ms, on its own timer,
+so a glide does not wait on unrelated renders; each frame writes only the rows
+that changed. The period is longer than the renderer's own 34 ms limit on
+purpose: at 34 ms a frame can land inside the limit and wait for the next, so
+two frames are painted as one 68 ms jump. Keys are immediate: PgUp, PgDn, Home and End end a glide where it
+stands and move at once, opening search ends it where it stands (closing
+search returns to that place), and so does a press of the mouse (a click on a folded
+row opens the row under the pointer, not one a frame ahead of it). Output that
+arrives during a glide does not move what is on screen.
+
+| Case | What the view does |
+| --- | --- |
+| One slow notch | 3 rows (`tui.wheelRows`), two frames |
+| Several reports in one write (a terminal that sends 2 or 3 per notch) | each is a plain step (`tui.wheelRows` each) and they do not count as a faster run; set `wheelRows` to 1 to move 3 rows a notch |
+| Notches less than 120 ms apart | a run: notch number n of the run moves `rows + (window - 1 - rows) * (n / 9)^2` rows, so 3, 3, 4, 6, 9, 12, 16, 21, 26, 32 in a 33-row window, which is what a 40-row terminal shows (a window less a row from the tenth notch on) |
+| A gap of 120 to 500 ms | the run is halved |
+| A pause of 500 ms or more | back to the plain step; what is still to travel is finished |
+| A change of direction | what is left to travel the old way is dropped and the notch is a plain step the other way |
+| One notch the other way inside a run of 3 or more | held back: it moves nothing and the run goes on (some wheels bounce); a second one is a change of direction |
+| A very fast run | the distance never runs more than four windows ahead of the view, so the view stops soon after the hand does |
+
+The numbers are in one place, `WHEEL_FEEL` in `fullscreen/glide.ts`; the
+arithmetic is pure (`notch` and `frame`) and is tested with a table.
+
+Two settings, in your own config files only (a project file's are ignored):
+
+```yaml
+tui:
+  wheelAccel: true   # false: every notch is the plain step, however fast
+  wheelRows: 3       # rows per notch, 1 to 20; lower it where a terminal sends several reports per notch
+```
+
+Both are rows in `/config` (**Wheel speed-up**, **Rows per wheel notch**). With
+reduced motion (`tui.reducedMotion`, `NO_COLOR`, `FORCE_COLOR=0`, a dumb
+terminal) there is no glide: a notch moves the view in one frame, and the
+speed-up still applies unless `wheelAccel` is off. The default screen does not
+read the wheel, so none of this holds there.
+
+#### What the hint says
+
+Scrolled up, the one row above the composer counts the replies that arrived
+since you scrolled away. A reply is a message of the model with text to read:
+tool calls, status rows and empty replies are not counted, and a reply that was
+being written when you left and has since grown is not new. Centered, in the
+longest form that fits, never cut inside a word:
+
+| News | Wording, longest to shortest |
+| --- | --- |
+| none | `↓ Jump to latest · End`, `↓ Latest · End`, `↓ Latest`, `↓` |
+| 1 or more replies | `2 new replies · ↓ Jump to latest · End` (`1 new reply`), `2 new replies · ↓ Latest · End`, `2 new · ↓ Latest`, `2 new ↓`, `2` |
+| the reply only grew | `Reply still growing · ↓ Jump to latest · End` while it is being written, then the same ladder with `Growing`; once it has finished, `Reply grew · ↓ Jump to latest · End`, then with `Grew` |
+| something else below | `New activity · ↓ Jump to latest · End`, then the same ladder with `New` |
+
+The key named is End, which jumps down while the composer is empty; with a draft
+in it End moves the cursor, and the click still works. With the pointer at
+`full`, a click on the hint row jumps to the newest row and follows again; with
+the mouse at `scroll` or `off` nothing is clickable and nothing changes.
+
+While replies are unseen, one quiet rule row stands just above the first of
+them and says the count (`──── 2 new replies ────`; on a narrow row `2 new`, then `2`), so after jumping down you
+can scroll up to where you left off. It stays when you jump down, and goes when
+you send your next message (or when a compaction removes the message it stands
+above). A later time you scroll away and replies arrive puts a new rule in its
+place. The rule is a row of the transcript with no text: a search does not find
+it, a copy skips it, a click on it does nothing, and the reader's place (a
+message and a row inside it) does not move when it appears or goes. The counter
+is `new-output.ts`, shared with the default screen's scroll-back view.
 
 #### Selecting and copying
 
@@ -1201,13 +1281,14 @@ agent views draw in the live area as before. It is not the default. Code:
 `packages/cli/src/tui/fullscreen/` (`viewport.ts` the scroll arithmetic,
 `layout.ts` the rows, `markdown-rows.ts` the Markdown, `selection.ts` and
 `cells.ts` the selection, `search.ts` the search, `paint.ts` the highlights,
-`mouse-wheel.ts` the pointer, `mode.ts` the switch, `FullscreenTranscript.tsx`
-the window); the launcher wires it in `index.tsx`. Covered by `viewport.test.ts`,
+`mouse-wheel.ts` the pointer, `glide.ts` the wheel's arithmetic, `mode.ts` the switch, `FullscreenTranscript.tsx`
+the window; `new-output.ts` beside it counts what is new); the launcher wires it in `index.tsx`. Covered by `viewport.test.ts`,
 `mode.test.ts`, `mouse-wheel.test.ts`, `layout.test.ts`, `click-rows.test.ts`, `markdown-rows.test.tsx`,
 `selection.test.ts`, `search.test.ts`,
 `a-fullscreen-view-draws-only-its-window.test.tsx`,
 `a-click-opens-a-folded-row-in-place-in-the-fullscreen-view.test.tsx`,
-`a-fullscreen-window-selects-copies-and-searches.test.tsx` and
+`a-fullscreen-window-selects-copies-and-searches.test.tsx`,
+`a-fullscreen-wheel-glides-counts-and-marks.test.tsx`, `glide.test.ts`, `new-output.test.ts` and
 `a-fullscreen-app-draws-a-window-and-follows.test.tsx`.
 
 ## Commands and settings

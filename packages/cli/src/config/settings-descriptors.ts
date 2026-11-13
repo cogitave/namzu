@@ -938,6 +938,22 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		on,
 	),
 	d('tui.fullscreen', 'terminal', 'Full screen', 'Use the whole terminal window.', on),
+	d(
+		'tui.wheelAccel',
+		'terminal',
+		'Wheel speed-up',
+		'A fast run of wheel notches scrolls faster in full screen.',
+		on,
+		{ defaultText: 'on' },
+	),
+	d(
+		'tui.wheelRows',
+		'terminal',
+		'Rows per wheel notch',
+		'How far one wheel notch scrolls in full screen.',
+		num(1, 20, 'rows'),
+		{ defaultText: '3' },
+	),
 	d('tui.mouse', 'terminal', 'Mouse', 'full, scroll only, or off.', pick('full', 'scroll', 'off'), {
 		defaultText: 'full',
 	}),
