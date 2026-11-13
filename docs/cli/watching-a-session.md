@@ -70,6 +70,18 @@ session's messages and journal, so a change to how a step is drawn reaches the
 watcher too. They are printed once, as scrollback. Tool output and other expandable
 detail stays folded.
 
+It shows the session's **record**, as text, not the screen's drawing of it. A reply is
+printed as the model wrote it: the fence lines of a code block (` ```ts `) stay, with the
+code between them in syntax colour in a terminal (and in plain text in a pipe or with
+`--plain`, where the lines are what a script reads), and Markdown marks are not
+rendered. The agents a turn launched have no rows of their own: the watcher reads
+the conversation's log and the lease files and nothing else, and an agent's rows come from
+the agent's own saved log, so a watcher shows the parent's replies and the closing line (which
+carries the total the agents spent), but no `3 agents finished` block. Where a row ends in the expand hint, `(ctrl+o to expand)`
+stands one space after the text, as on the screen, though nothing in the watcher
+opens it; on a terminal a hint that would be cut across two rows of the window goes
+whole onto a row of its own.
+
 **Steps appear as they settle.** The session's log holds a message when its step
 ends, a tool's events as they happen, the boundaries of turns and the
 questions put to a person. The text a model is writing right now, and a tool's

@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises'
+
 import {
 	type ChildSessionSummary,
 	type Logger,
@@ -61,6 +63,12 @@ export interface SavedChildScope {
 export interface SavedChild extends ChildSessionSummary {
 	/** `<parent-session-dir>/subagents/<child-id>.jsonl`, derived from checked ids, never from `path`. */
 	readonly logPath: string
+	/**
+	 * `<parent-session-dir>/subagents/<child-id>.meta.json`, where the short name
+	 * the operator saw is kept beside the agent. Absent when the layout was not
+	 * asked for it.
+	 */
+	readonly metaPath?: string
 }
 
 /**
@@ -111,7 +119,11 @@ export async function readSavedChildrenPage(
 	const found: SavedChild[] = []
 	for (const child of children.slice(0, Math.max(0, limit))) {
 		try {
-			found.push({ ...child, logPath: scope.paths.subagentLog(scope.session, child.sessionId) })
+			found.push({
+				...child,
+				logPath: scope.paths.subagentLog(scope.session, child.sessionId),
+				metaPath: scope.paths.subagentMeta(scope.session, child.sessionId),
+			})
 		} catch (error) {
 			// A child id the layout refuses is not a path to read. Named so the
 			// operator can find the record that carried it.
@@ -156,7 +168,9 @@ export async function replaySavedChildren(
 		monitor.replay(
 			{
 				agentId: evidence.agentId ?? child.kind,
-				description: child.description,
+				// The short name the operator saw, when it was kept; else what the
+				// parent's log recorded, which is the start of the prompt.
+				description: (await savedShortName(child)) ?? child.description,
 				...(evidence.prompt !== undefined ? { prompt: evidence.prompt } : {}),
 				...(evidence.model ? { model: evidence.model } : {}),
 				sessionId: child.sessionId,
@@ -180,6 +194,25 @@ export async function replaySavedChildren(
 		)
 	}
 	return monitor.getSnapshot()
+}
+
+/**
+ * The short name an agent was launched with, as the child's meta document
+ * kept it (`continuation.profile.description`). Read tolerantly: a missing,
+ * unreadable or older document (one saved before the name was kept) is no name,
+ * and the caller falls back to what the parent's log recorded. Nothing is written.
+ */
+async function savedShortName(child: SavedChild): Promise<string | undefined> {
+	if (child.metaPath === undefined) return undefined
+	try {
+		const meta: unknown = JSON.parse(await readFile(child.metaPath, 'utf8'))
+		const profile = (meta as { continuation?: { profile?: Record<string, unknown> } } | null)
+			?.continuation?.profile
+		const name = profile?.description
+		return typeof name === 'string' && name.trim().length > 0 ? name.trim() : undefined
+	} catch {
+		return undefined
+	}
 }
 
 /** Discovery and replay in one call, for a host that wants the whole list. */

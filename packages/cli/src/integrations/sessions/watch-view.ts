@@ -13,6 +13,8 @@
  * screen of the person watching it.
  */
 
+import stringWidth from 'string-width'
+
 import { projectConversation } from '../../tui/App.js'
 import { glyphForRole } from '../../tui/Transcript.js'
 import { colourLines, languagesIn, whenGrammarsSettle } from '../../tui/code-highlight.js'
@@ -20,6 +22,7 @@ import { closesFence, openingFence, stripFenceIndent } from '../../tui/markdown-
 import { trailFromRecords } from '../../tui/restored-rows.js'
 import { terminalDisplayText } from '../../tui/terminal-display.js'
 import { foregroundEscape, rowTints, theme, tintEscape } from '../../tui/theme.js'
+import { EXPAND_HINT } from '../../tui/truncation.js'
 import type { TranscriptMessage } from '../../tui/types.js'
 import type { SessionFollower, WatchSnapshot, WatchState, WatchStatus } from './session-watch.js'
 
@@ -78,20 +81,56 @@ export function colourFencedLines(lines: readonly string[]): string[] {
 /** A row as plain text lines: gutter glyph, then the text hanging under it. */
 export function rowLines(
 	row: TranscriptMessage,
-	options: { readonly colour?: boolean } = {},
+	options: { readonly colour?: boolean; readonly columns?: number } = {},
 ): string[] {
 	const glyph = terminalDisplayText(row.glyph ?? glyphForRole(row.role))
 	const body = terminalDisplayText(row.content).replace(/\n+$/, '')
-	const meta = row.meta ? `  ${terminalDisplayText(row.meta)}` : ''
+	// A hint such as `(ctrl+o to expand)` follows the text after one space, as on the screen; any
+	// other note after two.
+	const metaText = row.meta ? terminalDisplayText(row.meta) : ''
+	const meta = metaText === '' ? '' : `${metaText.startsWith('(') ? ' ' : '  '}${metaText}`
 	const lines =
 		options.colour && row.role === 'assistant'
 			? colourFencedLines(body.split('\n'))
 			: body.split('\n')
 	const indent = glyph === '⎿' ? '  ' : ''
-	return lines.map((line, index) =>
+	const out = lines.map((line, index) =>
 		index === 0 ? `${indent}${glyph} ${line}${meta}` : `${indent}  ${line}`,
 	)
+	// The terminal wraps these lines where it likes, by cell. A hint that would be cut across two
+	// rows goes whole onto a row of its own instead (or, if it fits no row, is left off).
+	// (The note stands after the first line of a row, as it always has.)
+	if (options.columns !== undefined && metaText.startsWith('(') && out[0] !== undefined) {
+		const before = `${indent}${glyph} ${lines[0] ?? ''}`
+		out.splice(0, 1, ...fitHintByCell(before, ` ${metaText}`, options.columns, `${indent}  `))
+	}
+	return out
 }
+
+/**
+ * `before` and then `tail` (a space and a hint), as lines for a terminal `columns` wide that
+ * breaks a long line at the edge by cell: one line when the hint fits after the text on the last
+ * row it takes, else the hint on a line of its own under `hang`, else its short form, else none.
+ */
+function fitHintByCell(
+	before: string,
+	tail: string,
+	columns: number,
+	hang: string,
+): readonly string[] {
+	const width = Math.max(10, columns)
+	const used = stringWidth(before)
+	const onLast = used === 0 ? 0 : ((used - 1) % width) + 1
+	const hint = tail.trimStart()
+	if (onLast + stringWidth(tail) <= width) return [`${before}${tail}`]
+	if (stringWidth(`${hang}${hint}`) <= width) return [before, `${hang}${hint}`]
+	const short = SHORT_HINTS.get(hint)
+	if (short !== undefined && stringWidth(`${hang}${short}`) <= width)
+		return [before, `${hang}${short}`]
+	return [before]
+}
+
+const SHORT_HINTS: ReadonlyMap<string, string> = new Map([[EXPAND_HINT, '(ctrl+o)']])
 
 /**
  * Printed lines for rows. A blank line separates rows, except before a `⎿`
@@ -101,7 +140,11 @@ export function rowLines(
  */
 export function transcriptLines(
 	rows: readonly TranscriptMessage[],
-	options: { readonly holdOpenTail: boolean; readonly colour?: boolean },
+	options: {
+		readonly holdOpenTail: boolean
+		readonly colour?: boolean
+		readonly columns?: number
+	},
 ): string[] {
 	return layoutLines(rows, options).lines
 }
@@ -109,7 +152,11 @@ export function transcriptLines(
 /** The printed lines, and which of them belong to the person's own message. */
 function layoutLines(
 	rows: readonly TranscriptMessage[],
-	options: { readonly holdOpenTail: boolean; readonly colour?: boolean },
+	options: {
+		readonly holdOpenTail: boolean
+		readonly colour?: boolean
+		readonly columns?: number
+	},
 ): { lines: string[]; mine: boolean[] } {
 	// A call still in flight is held back with everything after it, so a later
 	// call that settled first does not print ahead of it and reorder the rows.
@@ -130,7 +177,10 @@ function layoutLines(
 			mine.push(false)
 		}
 		const own = row.role === 'user' && (row.glyph ?? glyphForRole(row.role)) === '›'
-		for (const line of rowLines(row, options.colour ? { colour: true } : {})) {
+		for (const line of rowLines(row, {
+			...(options.colour ? { colour: true } : {}),
+			...(options.columns !== undefined ? { columns: options.columns } : {}),
+		})) {
 			lines.push(line)
 			mine.push(own)
 		}
@@ -198,7 +248,7 @@ export class WatchPrinter {
 		const open = snapshot.status.state === 'running' || snapshot.status.state === 'waiting'
 		const { lines, mine } = layoutLines(rows, {
 			holdOpenTail: open,
-			...(this.#o.plain ? {} : { colour: true }),
+			...(this.#o.plain ? {} : { colour: true, columns: this.#o.columns }),
 		})
 		const tints = this.#o.plain ? null : rowTints()
 		const out: string[] = []

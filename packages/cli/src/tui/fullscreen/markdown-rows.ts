@@ -9,13 +9,7 @@
  * both and compare the screens, so the two cannot drift apart unseen.
  */
 
-import {
-	type CodeLine,
-	colourLines,
-	grammarState,
-	grammarVersion,
-	runsForPieces,
-} from '../code-highlight.js'
+import { type CodeLine, colourLines, grammarState, runsForPieces } from '../code-highlight.js'
 import {
 	QUOTE_BAR,
 	QUOTE_BAR_WIDTH,
@@ -44,7 +38,11 @@ export interface MarkdownRow {
 	readonly lead: number
 }
 
-function row(spans: readonly StyledSpan[], joins: Joiner | null = null, lead = 0): MarkdownRow {
+export function row(
+	spans: readonly StyledSpan[],
+	joins: Joiner | null = null,
+	lead = 0,
+): MarkdownRow {
 	return { spans, text: spansText(spans), joins, lead }
 }
 
@@ -94,7 +92,7 @@ function wrappedRows(
 	return { lines, joins }
 }
 
-function blockRows(
+export function blockRows(
 	block: MdBlock,
 	width: number,
 	color: string,
@@ -160,7 +158,7 @@ function blockRows(
 			// At the indentation of its fence, as `Markdown.tsx` draws it; a copy that
 			// joins a wrapped line starts after the indentation.
 			const indent = codeIndent(block, width)
-			const pad = indent > 0 ? [{ text: ' '.repeat(indent) }] : []
+			const pad = codePad(indent)
 			const lines = block.lines.length > 0 ? block.lines : ['']
 			// The same colours the normal transcript draws: syntax colour for a language we
 			// know once its grammar is read, the one code colour for every other line.
@@ -177,17 +175,56 @@ function blockRows(
 	}
 }
 
+/** The indentation a code block is drawn at, as a span. */
+export function codePad(indent: number): StyledSpan[] {
+	return indent > 0 ? [{ text: ' '.repeat(indent) }] : []
+}
+
+/** The rows of one code line, made: the line, the room, the indentation and the colour of each of its runs. */
+export function codeLineRows(
+	line: string,
+	runs: CodeLine | undefined,
+	room: number,
+	indent: number,
+	pad: StyledSpan[],
+): MarkdownRow[] {
+	const pieces = wrapCodeLine(line, room)
+	const joins = wrapJoiners(line, pieces)
+	const cut = runs ? runsForPieces(line, runs, pieces) : undefined
+	return pieces.map((piece, i) => {
+		const body = cut?.[i]
+		const spans: StyledSpan[] = body
+			? body.length === 0
+				? [{ text: ' ', color: theme.text.primary }]
+				: body.map((run) => ({
+						text: run.text,
+						color: run.kind ? theme.code[run.kind] : theme.text.primary,
+					}))
+			: [{ text: piece.length > 0 ? piece : ' ', color: theme.status.ok }]
+		return row([...pad, ...spans], i === 0 ? null : (joins[i] ?? null), indent)
+	})
+}
+
 /**
- * The rows of one code line, kept. A code block that streams is one block that grows by a line
- * or two at every piece, so the block's rows cannot be kept whole; its lines can: a line's rows
- * are the line, the width, the indentation, the colour of each of its runs and the theme, and
- * nothing else. Without this every line of the block was cut, joined and coloured again at every
- * piece after it (a reply of 1 MB of code cost the square of its length). Bounded like the blocks.
+ * The rows of a code line that still has a colour to settle, kept. A code block that streams
+ * is laid out again at every piece, and the lines the library may still colour differently
+ * (the first {@link MAX_BLOCK_CHARS} characters of the block) are made again each time: a
+ * line's rows are the line, the width, the indentation, the colour of each of its runs and
+ * the theme, and nothing else, so they are kept under those. Every other line is made once
+ * (`reply-rows.ts`) and not kept here. Bounded by the characters of the keys, oldest out.
  */
 const keptLines = new Map<string, MarkdownRow[]>()
 let keptLineChars = 0
 
-function keptLineRows(
+/** Characters the kept lines may hold: the window of one block that can still change, a few times over. */
+export const KEPT_LINE_CHARS = 1_000_000
+
+/** Lines and characters the kept lines hold now; for the tests that count what is kept. */
+export function keptLineStats(): { lines: number; chars: number } {
+	return { lines: keptLines.size, chars: keptLineChars }
+}
+
+export function keptLineRows(
 	line: string,
 	runs: CodeLine | undefined,
 	room: number,
@@ -202,93 +239,32 @@ function keptLineRows(
 		keptLines.set(key, hit)
 		return hit
 	}
-	const pieces = wrapCodeLine(line, room)
-	const joins = wrapJoiners(line, pieces)
-	const cut = runs ? runsForPieces(line, runs, pieces) : undefined
-	const made = pieces.map((piece, i) => {
-		const body = cut?.[i]
-		const spans: StyledSpan[] = body
-			? body.length === 0
-				? [{ text: ' ', color: theme.text.primary }]
-				: body.map((run) => ({
-						text: run.text,
-						color: run.kind ? theme.code[run.kind] : theme.text.primary,
-					}))
-			: [{ text: piece.length > 0 ? piece : ' ', color: theme.status.ok }]
-		return row([...pad, ...spans], i === 0 ? null : (joins[i] ?? null), indent)
-	})
+	const made = codeLineRows(line, runs, room, indent, pad)
 	keptLines.set(key, made)
 	keptLineChars += key.length
 	for (const old of keptLines.keys()) {
-		if (keptLineChars <= KEPT_BLOCK_CHARS || keptLines.size <= 1) break
+		if (keptLineChars <= KEPT_LINE_CHARS || keptLines.size <= 1) break
 		keptLines.delete(old)
 		keptLineChars -= old.length
 	}
 	return made
 }
 
-/**
- * The rows of blocks already laid out. A reply that streams is laid out again
- * at every piece, but only its last block has changed: the ones before it are
- * the same text at the same width and colour, so their rows are kept instead of
- * being wrapped and coloured again. Without this a long code block earlier in
- * a reply was cut and coloured at every piece that came after it, and the
- * window stopped answering keys while it streamed.
- *
- * Bounded by the characters the kept blocks hold, oldest out, and not by a count of
- * blocks: a reply laid out again at every piece reads its blocks in order, so a bound
- * smaller than the reply's number of blocks lets each one go before it is read again
- * and every block is laid out at every piece (a long prose reply cost the square of its
- * length). The bound is the size of the reply the screen is built for.
- * The key holds everything the rows depend on:
- * the block, the width, the colour, the code above it (a grammar carries over
- * from block to block), the theme and the grammars loaded.
- */
-export const KEPT_BLOCK_CHARS = 4_000_000
-const keptBlocks = new Map<string, MarkdownRow[]>()
-let keptChars = 0
-
-function keptBlockRows(
-	block: MdBlock,
-	width: number,
-	color: string,
-	italic: boolean,
-	spent: number,
-): MarkdownRow[] {
-	const key = `${shownTheme()}:${grammarVersion()}|${width}|${color}|${italic}|${spent}|${JSON.stringify(block)}`
-	const hit = keptBlocks.get(key)
-	if (hit) {
-		// Most recently used goes last.
-		keptBlocks.delete(key)
-		keptBlocks.set(key, hit)
-		return hit
-	}
-	const made = blockRows(block, width, color, italic, spent)
-	keptBlocks.set(key, made)
-	keptChars += key.length
-	// The block just made stays, however large; the oldest go until the rest fits.
-	for (const old of keptBlocks.keys()) {
-		if (keptChars <= KEPT_BLOCK_CHARS || keptBlocks.size <= 1) break
-		keptBlocks.delete(old)
-		keptChars -= old.length
-	}
-	return made
-}
-
 /** Blocks as rows, one blank row between them, none before the first, bullets tight. */
-function blocksRows(
+export function blocksRows(
 	blocks: readonly MdBlock[],
 	width: number,
 	color: string,
 	italic: boolean,
 	spent = 0,
+	before?: string,
 ): MarkdownRow[] {
 	const rows: MarkdownRow[] = []
 	let above = spent
 	blocks.forEach((block, i) => {
-		const prev = blocks[i - 1]
-		if (blockGap(block, prev?.type)) rows.push(row([]))
-		for (const made of keptBlockRows(block, width, color, italic, above)) rows.push(made)
+		const prev = i === 0 ? before : blocks[i - 1]?.type
+		if (blockGap(block, prev)) rows.push(row([]))
+		for (const made of blockRows(block, width, color, italic, above)) rows.push(made)
 		above += codeChars(block)
 	})
 	return rows

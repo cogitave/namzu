@@ -1,4 +1,5 @@
-import { appendFile, mkdir, rm } from 'node:fs/promises'
+import { appendFile, mkdir, rm, writeFile } from 'node:fs/promises'
+import { dirname } from 'node:path'
 
 import {
 	type MessageId,
@@ -416,5 +417,52 @@ describe('a finished delegated child, reopened from its log', () => {
 		const parent = await parentSession(fixture)
 		const index = await fixture.index()
 		expect(await listSavedChildren(scope(fixture, parent.sessionId, index))).toEqual([])
+	})
+})
+
+describe('the name a reopened agent is shown under', () => {
+	async function reopened(meta: string | null): Promise<SubagentActivity> {
+		const fixture = await home()
+		const parent = await parentSession(fixture)
+		const child = await spawnChild(fixture, parent, {
+			description: 'S:subwork check a',
+			batch: BATCH,
+		})
+		await childTurn(child.writer, child.sessionId)
+		await endChild(parent, child.sessionId, 'completed', 600)
+		if (meta !== null) {
+			const metaPath = fixture.paths.subagentMeta({ sessionId: parent.sessionId }, child.sessionId)
+			await mkdir(dirname(metaPath), { recursive: true })
+			await writeFile(metaPath, meta)
+		}
+		const index = await fixture.index()
+		const found = await listSavedChildren(scope(fixture, parent.sessionId, index))
+		const [agent] = await replaySavedChildren(found)
+		if (!agent) throw new Error('nothing was replayed')
+		return agent
+	}
+
+	it('is the short name the operator saw, when the agent kept it', async () => {
+		const agent = await reopened(
+			JSON.stringify({
+				continuation: { workspace: 'shared', profile: { description: 'Check a' } },
+			}),
+		)
+		expect(agent.description).toBe('Check a')
+	})
+
+	it('is the start of the prompt for an agent saved before the name was kept', async () => {
+		expect((await reopened(null)).description).toBe('S:subwork check a')
+		expect((await reopened(JSON.stringify({ continuation: { profile: {} } }))).description).toBe(
+			'S:subwork check a',
+		)
+	})
+
+	it('is the start of the prompt when the document cannot be read', async () => {
+		expect((await reopened('{ not json')).description).toBe('S:subwork check a')
+		expect(
+			(await reopened(JSON.stringify({ continuation: { profile: { description: 7 } } })))
+				.description,
+		).toBe('S:subwork check a')
 	})
 })

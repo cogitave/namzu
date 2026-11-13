@@ -621,8 +621,14 @@ live state belongs to the rail.
   nothing in the batch is running. An agent that failed or was stopped is never in
   the block or its count: it keeps its own row in its own colour, and the receipt
   (`4 agents: 3 finished, 1 failed` over the names) stays above the block of the others. One
-  finished agent alone keeps its `Done` row. A reopened conversation and
-  `namzu watch` build the same rows with the same code as the live run.
+  finished agent alone keeps its `Done` row. A reopened conversation builds the same rows with the same
+  code as the live run, and reads as it did live: each agent under the short name it was launched with
+  (`general-purpose (Check a)`, kept in the agent's own meta file beside its log) and the closing line with the
+  total the agents spent (`Worked for 3s · done 3:45 PM · 3 agents · 1.6k tokens`, summed from the
+  conversation's own `child_session_ended` records). An agent saved before the short name was kept, or whose meta
+  file cannot be read, is named by the start of its prompt, as before, and a turn none of whose agents recorded an
+  end carries no total; nothing is made up. `namzu watch` builds the rows of the conversation's own log only
+  (see [Watching a session](watching-a-session.md#what-it-shows)): it draws no agent rows.
 - **A waited-on agent writes the tool's own result instead.** An agent the
   parent waited on hands its result back inline, so there is no notification:
   the row is `● <type> (<description>)` over
@@ -967,7 +973,13 @@ them. This keeps final diagnostics visible without joining nonadjacent lines
 silently. Each visible line is shortened to 240 characters (never through an emoji), and Ctrl+O is
 advertised whenever text is hidden, in one wording everywhere (tool output, the shell cell, an agent's
 answer): `… +N lines (ctrl+o to expand)`, with `(~N KB)` after it once at least 1,000 characters are
-hidden, and `line` for exactly one. In the [fullscreen view](#opening-a-row-with-a-click) with the pointer at `full` the same hint reads `(click to expand)`. Ctrl+O opens the detailed transcript, which shows the retained body whole; `/raw` also
+hidden, and `line` for exactly one. A hint is never cut across two rows. Where it does not fit after the text on the
+row's last line, it moves whole to a row of its own, in the column the text continues in, and the separator before
+it (`·`) is left off; where it does not fit even there (a window under about 20 columns) its short form stands in
+(`(ctrl+o)`, `(click)`), and where not even that fits it is left off (the row still opens). A row where the hint
+fits is drawn as it always was. This holds for every row that carries one (the settled group line, a finished
+agent's row and the block above, the memory row, a folded result, the shell cell's `… +N lines`, a clipped line's
+`… line shortened`), in both screens, and in `namzu watch` on a terminal. In the [fullscreen view](#opening-a-row-with-a-click) with the pointer at `full` the same hint reads `(click to expand)`. Ctrl+O opens the detailed transcript, which shows the retained body whole; `/raw` also
 includes it. Runtime output limits still apply: a retained artifact path
 identifies output beyond those limits. Neither action re-executes the tool.
 
@@ -1157,11 +1169,7 @@ rows). The rows are made while the window renders, so nothing here may start a
 second render: Ink's `renderToString` called from there left the layout engine
 holding an update for a freed node and stopped the program with `table index is
 out of bounds` in any window narrower than a code line (every code block at 80
-columns). A streamed reply is laid out again at each piece, so the rows of the
-blocks that did not change are kept (up to 4,000,000 characters of blocks, oldest out; a count of 48 blocks was smaller than the blocks of a long reply, so each was laid out again at every piece and 200 KB of prose cost about three times the time of the same text laid out once) and the plain
-wrap of a reply's whole text is not made at all; a line of 50,000 characters
-costs the window the same as a short one, the text stays complete for copy and
-search, and a key is echoed in under 100 ms while such a reply streams. A reply of 1 MB of code is the edge of what the view is built for: it finishes, but one key echo was measured at 250 ms and the process peaked near 2.6 GB (the kept rows hold one object per run of text, so their memory follows the reply, not the 4,000,000-character bound on their keys). Other
+columns). A streamed reply is laid out again at each piece, so the reply keeps what is decided of it (`fullscreen/reply-rows.ts`): the blocks before the last one cannot change, so they are laid out once, straight into the rows of the window, and only the text from the last block on is scanned and parsed again; a code block is read a line at a time, the first 80,000 characters of it (the stretch the syntax colouring may still change) are made again as it grows, and every line past that is made once and kept only as its row. The plain wrap of a reply's whole text is not made at all; a line of 50,000 characters costs the window the same as a short one, the text stays complete for copy and search, and the rows are the ones the whole text gives (a test lays a corpus out both ways at every position). A row's text is a copy, not a slice of the reply, so no earlier copy of a growing reply is kept alive by its rows. A reply with a control character in it is laid out from its whole text, as before, and so is a single paragraph or table of hundreds of kilobytes with no block after it. Measured in a real terminal at 120x40 with a scripted model, a reply streamed for about 90 seconds, median of three runs, processor seconds and peak resident memory, before and after: 200 KB of code 7.6 s and 738 MB, then 6.0 s and 662 MB; 400 KB of code 13.5 s and 924 MB, then 9.1 s and 712 MB; 1 MB of code 45.0 s and 2,623 MB, then 19.3 s and 792 MB; 1 MB of prose 34.0 s and 797 MB, then 20.9 s and 787 MB. A key typed while the 1 MB reply streams appeared within 103 ms before and within 67 ms after (the same at 80x24). A 1 MB reply is still the edge of what the view is built for. The default screen does not use this code and measured the same before and after (1 MB of code: 19.3 s both ways). Other
 messages are plain wrapped text. A `⎿` result line (an interruption, a declined call, a tool's result) hangs in the same columns as in the normal transcript: the mark in the third cell and its words from the sixth, with a wrapped line under the words; the mark is part of the row text, so a copy of such a row includes it. Only the rows that fit are built into elements, so the
 cost of a frame follows the terminal's height, not the conversation's.
 Messages are laid out once per width and kept. The spinner, composer and
@@ -1706,10 +1714,12 @@ writer of Namzu's own (`packages/cli/src/tui/paint/`) that sits between the rend
   `/clear`, `/new`, `/resume` and a theme change ask for a new screen: the visible screen is cleared, but the rows
   on it first move up into the scrollback, and the "erase saved lines" sequence is never written. The rows
   still in the live region at that moment (the last few finished rows of the conversation, not yet printed) are
-  kept by `/clear` and Ctrl+L: they are printed first, through the path every other row takes, the terminal is
+  kept by `/clear`, `/clear-screen`, Ctrl+L, `/resume` and the two rewind choices that replace the conversation
+  in place (restore, summarize): they are printed first, through the path every other row takes, the terminal is
   given them, and only then is the screen cleared, so everything that was on the screen is in the scrollback
-  afterwards, once and in order, and the input box and what hangs on it are not copied. `/resume` and a theme
-  change still clear without that step, so the rows in the live region at that moment go with the screen. The
+  afterwards, once and in order, and the input box and what hangs on it are not copied. When the conversation drawn next contains rows that were just printed (a resume of the conversation already on screen, a rewind that keeps the later rows), those rows are in the scrollback twice, above and below the banner: nothing is lost, and a printed row cannot be taken back. A theme change needs no
+  such step: the conversation stays and is printed again in the new colours, so no row is lost; the screen it
+  replaces is in the scrollback too, in the old colours, because a printed row cannot be recoloured. The
   old painting (`NAMZU_LEGACY_PAINT=1`), the zoomed workspaces screen and the fullscreen view are as before. Rewinding to summarize part
   of the conversation rewrites rows that were printed, so it prints the conversation again under the old rows.
   Fullscreen owns its alternate screen and is not covered by this rule.

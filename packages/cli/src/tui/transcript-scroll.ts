@@ -15,6 +15,7 @@
 import { renderedDetailLines } from './Transcript.js'
 import { contentColorForRole, glyphColorForRole, glyphForRole } from './Transcript.js'
 import { attachmentLine } from './attachment-rows.js'
+import { fitHintPlain } from './hint-fit.js'
 import { type HintWords, NO_NEWS, type News, newOutputHint } from './new-output.js'
 import { commandRows, hintRows } from './read-search-group.js'
 import { truncateChoiceText, wrapChoiceText } from './terminal-choice-text.js'
@@ -86,12 +87,15 @@ export function withLiveHint(message: TranscriptMessage): TranscriptMessage {
 }
 
 /** The text a message's first rows show, before it is wrapped. */
-export function scrollBodyText(message: TranscriptMessage, hint?: string): string {
-	return message.statusRows
-		? message.statusRows.map(([label, value]) => `${label}  ${value}`).join('\n')
-		: `${message.content.length > 0 ? message.content : message.pending ? '…' : ''}${
-				message.meta ? ` · ${saying(terminalDisplayText(message.meta), hint)}` : ''
-			}`
+export function scrollBodyText(message: TranscriptMessage, hint?: string, width?: number): string {
+	if (message.statusRows) {
+		return message.statusRows.map(([label, value]) => `${label}  ${value}`).join('\n')
+	}
+	const text = `${message.content.length > 0 ? message.content : message.pending ? '…' : ''}${
+		message.meta ? ` · ${saying(terminalDisplayText(message.meta), hint)}` : ''
+	}`
+	// With the width known, a hint that would be cut across two rows moves whole.
+	return width === undefined ? text : fitHintPlain(text, width)
 }
 
 /**
@@ -133,7 +137,7 @@ export function messageScrollRows(
 		paint(message.glyphColor) ??
 		(glyph === '⎿' ? theme.text.muted : glyphColorForRole(message.role))
 	const color = paint(message.contentColor) ?? contentColorForRole(message.role)
-	const joined = scrollBodyText(message, options.hint)
+	const joined = scrollBodyText(message, options.hint, width)
 	const body = wrapChoiceText(joined, width)
 	// An attachment is one quiet row, cut to the width rather than wrapped.
 	const attachmentRows = message.statusRows
@@ -153,7 +157,10 @@ export function messageScrollRows(
 		: [
 				...attachmentRows.map((text) => ({ text, hint: false })),
 				...wordedLines.flatMap((line, i) =>
-					wrapChoiceText(line.length > 0 ? line : ' ', width + GUTTER).map((text) => ({
+					wrapChoiceText(
+						fitHintPlain(line.length > 0 ? line : ' ', width + GUTTER),
+						width + GUTTER,
+					).map((text) => ({
 						text,
 						hint: line !== plainLines[i],
 					})),

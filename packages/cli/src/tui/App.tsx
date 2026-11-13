@@ -8285,6 +8285,9 @@ function AppBody({
 			resetSubagentActivity()
 			session?.resetTaskStore?.()
 			activeTurnTokenRef.current = null
+			// The rows the live region still holds are printed before the screen is cleared, as /clear does.
+			await printLiveRowsBeforeClear()
+			settleAllRef.current = false
 			resetTranscript()
 			setMessages(restored)
 			modelHistoryRef.current = msgs
@@ -8362,6 +8365,7 @@ function AppBody({
 			resetSubagentActivity,
 			session,
 			resetTranscript,
+			printLiveRowsBeforeClear,
 			wakeGoalDriver,
 			pushSystem,
 		],
@@ -9388,6 +9392,8 @@ function AppBody({
 					? { text: persistedOutput, provenance: 'persisted' }
 					: null
 
+				await printLiveRowsBeforeClear()
+				settleAllRef.current = false
 				resetTranscript()
 				// These rows carry no outcome lines, so nothing has been told on screen.
 				outcomeToldRef.current = { id: undefined, telling: NOTHING_TOLD }
@@ -9430,6 +9436,7 @@ function AppBody({
 			hydrateSavedChildren,
 			resetSubagentActivity,
 			session,
+			printLiveRowsBeforeClear,
 			resetTranscript,
 			setRewindView,
 			wakeGoalDriver,
@@ -9489,6 +9496,8 @@ function AppBody({
 					option === 'summarize'
 						? editList.slice(0, Math.max(0, at)).map((prompt) => prompt.displayText)
 						: editList.slice(Math.max(0, at)).map((prompt) => prompt.displayText)
+				await printLiveRowsBeforeClear()
+				settleAllRef.current = false
 				resetTranscript()
 				// These rows carry no outcome lines, so nothing has been told on screen.
 				outcomeToldRef.current = { id: undefined, telling: NOTHING_TOLD }
@@ -9523,7 +9532,15 @@ function AppBody({
 				compactingRef.current = false
 			}
 		},
-		[editList, nextId, pushMessage, resetTranscript, session, setRewindView],
+		[
+			editList,
+			nextId,
+			printLiveRowsBeforeClear,
+			pushMessage,
+			resetTranscript,
+			session,
+			setRewindView,
+		],
 	)
 
 	/** Carry out a choice made in the rewind dialog. Errors stay inside the dialog. */
@@ -13579,8 +13596,11 @@ function AppBody({
 						return
 					}
 					case 'clear-screen':
-						setMessages([])
-						resetTranscript()
+						void printLiveRowsBeforeClear().then(() => {
+							settleAllRef.current = false
+							setMessages([])
+							resetTranscript()
+						})
 						return
 					case 'composer-draft':
 						composerDraftTokenRef.current += 1

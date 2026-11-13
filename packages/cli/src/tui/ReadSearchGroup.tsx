@@ -1,6 +1,7 @@
 import { Box, Text, useAnimation, useIsScreenReaderEnabled, useStdout } from 'ink'
 
 import { useContentWidth } from './Markdown.js'
+import { hintSuffix } from './hint-fit.js'
 import { motionAllowed, useReducedMotion } from './motion.js'
 import { COMMAND_ROW_INDENT, commandRows, groupSegments, visibleHint } from './read-search-group.js'
 import { RESULT_GUTTER_INDENT, RESULT_GUTTER_WIDTH } from './system-rows.js'
@@ -56,7 +57,15 @@ export function ReadSearchGroup({ message }: { readonly message: TranscriptMessa
 								{segment.text}
 							</Text>
 						))}
-						{shownHint ? <Text color={theme.text.muted}> {shownHint}</Text> : null}
+						{shownHint ? (
+							<Text color={theme.text.muted}>
+								{hintSuffix(
+									segments.map((segment) => segment.text).join(''),
+									` ${shownHint}`,
+									width,
+								)}
+							</Text>
+						) : null}
 					</Text>
 				</Box>
 			</Box>
