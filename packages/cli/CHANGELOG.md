@@ -1,5 +1,61 @@
 # @namzu/cli
 
+## 53.0.1
+
+### Patch Changes
+
+- db981d1: The fullscreen view (`tui.fullscreen`) no longer stops with "Namzu stopped because of an unexpected problem" in a window like 80x24 after a reply that holds a code block with a line wider than the window; the same turns at 120x40 had not stopped, because no line was wider than the window. A reply that holds one line of tens of thousands of characters no longer makes the window ignore keys while it streams: a key is echoed in well under a tenth of a second, and the text stays whole for copy and search. Nothing to switch off and no setting changed.
+- db981d1: A very long reply no longer ends the program. A reply of about 130 KB (a code block of 2,000 lines) on the default screen made the process grow to several gigabytes and stop with "JavaScript heap out of memory"; the cause was that the screen was drawn with React's development build, which keeps a copy of the props of everything it draws (a reply's text among them) for ever, so memory and work grew with the square of the reply. The program now runs the production build. A reply of 1 MB, of code or of prose, finishes on the default screen and in the fullscreen view (`tui.fullscreen`); in the fullscreen view a long reply of many paragraphs was also laid out again block by block at every piece and no longer is. What is drawn is unchanged, with syntax colour on or off. Nothing to switch off, no setting added and no limit introduced.
+
+## 53.0.0
+
+### Major Changes
+
+- f2bbb1e: Breaking default: a `session_end` or `session_start` hook with no `matcher` used to run only when the process opened or closed a conversation, and now also runs on `/clear`, `/new`, `/resume` and `/fork`. To keep the old behaviour, give `session_end` hooks `matcher: "exit"` and give `session_start` hooks a `matcher` naming only the sources you want (`startup`, or `startup|resume` to skip `clear`).
+
+  `/clear` and `/new` now tell your hooks. The conversation you leave gets `session_end` with the reason `clear`, and the new one gets `session_start` with the source `clear` (at its first turn, as a new conversation does). The context a `session_start` hook gave for the old conversation no longer carries into the new one: the new conversation carries what its own `session_start` hooks print, or nothing. The end hook has the same short deadline as on exit (five seconds when the entry names no `timeoutMs`) and never delays the new conversation. A `matcher` of `clear` (or `startup|resume|clear`) on `session_start`, and `clear` on `session_end`, picks these out.
+
+  `/resume`, `/fork` and branching from an earlier prompt in the terminal now also end the old conversation for the hooks (`session_end`, reason `replaced`) and start the other (`session_start`, source `resume`, or `startup` if it holds no turn), and drop the old session-start context the same way.
+
+  If you have a `session_end` hook with no `matcher` that cleans up when you leave for good (removes a lock, stops a helper), it now also runs on `/clear`, `/resume` and `/fork`: give it `matcher: "exit"` to keep the old behaviour. A `session_start` hook with no `matcher` now also runs for each of these. A Pal's conversation runs no hooks, as before.
+
+- f2bbb1e: Breaking default: what a `pre_compact` hook prints to stdout with exit 0 used to be ignored and is now sent to the summariser. To keep the old behaviour, send that output to stderr.
+
+  Hooks now run for `/compact` and the idle compaction, and see the model's last message. A `pre_compact` hook that refuses a `/compact` stops it and you see `A hook refused the summary: <reason>`. A hook can print what the summary should keep (stdout or `additionalContext` on `pre_compact`), which is sent to the summariser after the text you typed. A `matcher` on `pre_compact` and `post_compact` tests `trigger` (`manual` or `auto`), and `turn_end` and `subagent_stop` hooks receive `last_assistant_message`. If a `pre_compact` hook of yours prints to stdout only for its own log, send it to stderr: stdout is now given to the summariser.
+
+### Minor Changes
+
+- 33b320e: A `hooks` block written in the common hook contract's shape can be pasted into a config file and is read as written. Nothing is removed or renamed; the shape you have keeps working.
+
+  What you can now do:
+
+  - Write `hooks` as PascalCase event, then a list of groups, each with an optional `matcher` and a list `hooks` of `{ type, command, timeout, ... }` (`command`, `http`, `prompt`; `timeout` in seconds). It is read beside the shape you already use, in the same file and the same key, both spellings of an event may be mixed, and identical entries still run once.
+  - Rely on the tool name a moved script expects: an entry read from that shape is sent `Bash`, `Edit`, `WebFetch` as `tool_name` (and in `NAMZU_TOOL_NAME`). An entry in the existing shape keeps receiving `bash`, and may ask for the written names with `toolNames: written`. `/hooks` shows which each entry receives.
+  - See what could not be loaded: an event name with no counterpart here, a hook kind we do not have (`agent`, `mcp_tool`), an unreadable hook and every key not acted on are reported at launch, in `/hooks` and in `namzu doctor`, naming the file and the event. A hook that would have guarded something (a tool event, a prompt, a compaction, a turn's end) and cannot be loaded makes the `runtime.hooks` row warn. One unreadable hook, a bare string or number in an event's list included, never stops the others from loading, and a setting that cannot be read (a `timeout`, an `if`) is left off so the hook runs, never the reverse.
+  - The terminal's trust prompt and the Desktop app's trust dialog read the common shape too, so a hook written in it is named before the folder is trusted.
+
+  What to know: `/hooks` now adds a `tool names` note to every command and http hook on a tool event, and reports a matcher written as `Tool(pattern)` (an `if`, which fires for nothing as a matcher).
+
+- 33b320e: Hooks moved from the common hook contract behave as written. Shell hooks get a call id on every tool event (`tool_use_id`), the file of a file tool as `file_path` beside `path`, and may answer `updatedToolOutput` in any JSON shape (and `updatedMCPToolOutput` for tool-server tools); a matcher or `if` written as a pattern, a glob or a list of names fires as written, including `if: "Agent"` and a shell command run through `env`, `sudo`, `nohup` or `git -C`. A sub-agent's hooks (`subagent_start`, `subagent_stop`) now carry the agent's name (`reviewer`, `explore`) as `agent_type`; it was `namzu-cli` for every child, so a script that compared it to that word must compare to the name.
+
+  `/hooks` says under a hook whose `matcher` is not a valid regular expression, or whose `if` is not `Tool(pattern)`, that it cannot be read; `namzu doctor` warns (`runtime.hooks`) and names it. A matcher that does not compile now fires for every call instead of never (it used to match nothing, so the hook never ran): fix the pattern the row names.
+
+### Patch Changes
+
+- ecbe3f4: When you leave, the `session_end` hook of a conversation you left behind with `/clear` or `/new` now finishes before the `session_end` hook of the last conversation starts. They used to run at the same time, so two hooks that append to one file could mix their lines and a script could see the ends out of order. Leaving takes no longer than the two deadlines one after the other (five seconds each unless an entry names its own).
+- Updated dependencies [f2bbb1e]
+- Updated dependencies [f2bbb1e]
+- Updated dependencies [33b320e]
+- Updated dependencies [33b320e]
+  - @namzu/sdk@64.0.0
+  - @namzu/browser@2.0.1
+  - @namzu/computer-use@4.3.1
+  - @namzu/anthropic@7.1.1
+  - @namzu/ollama@2.3.0
+  - @namzu/openai@4.5.0
+  - @namzu/openrouter@3.1.2
+  - @namzu/sandbox@39.0.0
+
 ## 52.2.0
 
 ### Minor Changes

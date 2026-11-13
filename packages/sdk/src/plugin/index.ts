@@ -21,7 +21,7 @@ export {
 	MAX_LAST_MESSAGE_HOOK_CHARS,
 	sessionStartHookContext,
 } from './hook-context.js'
-export { PluginLifecycleManager } from './lifecycle.js'
+export { isHookEntriesPath, PluginLifecycleManager } from './lifecycle.js'
 export { PluginResolver } from './resolver.js'
 export {
 	attachShellHooks,
@@ -38,6 +38,17 @@ export {
 	shellHookMatches,
 	shellHookVerdict,
 } from './shell-hook.js'
+export {
+	assignedWithin,
+	isPluginFolderVariable,
+	isShellOwnVariable,
+	MOVED_FOLDER_ENDINGS,
+	referencedVariables,
+	SHELL_HOOK_RESERVED_ENV,
+	shellHookEnvNameProblem,
+	shellHookEnvProblems,
+	substitutePluginFolders,
+} from './shell-hook-env.js'
 export {
 	SHELL_HOOK_WRITTEN_TOOL_NAMES,
 	type ShellHookToolNames,

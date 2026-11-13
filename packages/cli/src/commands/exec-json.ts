@@ -70,11 +70,11 @@ import {
 	generateSessionId,
 	jsonLinesSink,
 } from '@namzu/sdk'
+import { hookSwitch } from '../config/hook-layers.js'
 
 /** EX_TEMPFAIL: the conversation already has an active turn; try again later. */
 const EXIT_TURN_IN_PROGRESS = 75
 
-import { hookSwitch } from '../config/hook-layers.js'
 import { pendingProjectMcpServers } from '../config/load.js'
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { EXIT_FAIL, EXIT_OK, EXIT_UNTRUSTED } from '../exit-codes.js'

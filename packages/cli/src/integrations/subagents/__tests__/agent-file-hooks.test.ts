@@ -243,3 +243,31 @@ it('answers a launch of an agent that is not offered with the file’s own line'
 		await f.close()
 	}
 })
+
+it('gives an agent file’s command the project folder for a variable written for another tool', async () => {
+	const dir = mkdtempSync(join(tmpdir(), 'namzu-agent-hooks-rec-'))
+	const out = join(dir, 'project.txt')
+	const f = await fixture(
+		[
+			agentFile(
+				'mover',
+				[
+					'hooks:',
+					'  SubagentStop:',
+					'    - hooks:',
+					'        - type: command',
+					`          command: ${JSON.stringify(`printf %s "$ACME_PROJECT_DIR" > ${quote(out)}`)}`,
+				].join('\n'),
+			),
+		],
+		[{ text: 'done' }],
+	)
+	try {
+		const result = await f.run('mover')
+		expect(result.success, result.error).toBe(true)
+		expect(readFileSync(out, 'utf8')).toBe(f.cwd)
+	} finally {
+		await f.close()
+		removeTempDir(dir)
+	}
+})

@@ -18,7 +18,7 @@
  * folder and, as a warning, by what its text says.
  */
 
-import { constants } from 'node:fs'
+import { constants, existsSync } from 'node:fs'
 import { lstat, open, readdir, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, sep } from 'node:path'
 
@@ -29,6 +29,7 @@ import {
 	SKILL_FRONTMATTER_KEYS,
 	assertEnableable,
 	assertPluginHookEvent,
+	isHookEntriesPath,
 	parseAgentMarkdown,
 	parsePluginManifestText,
 	parseSkillMarkdown,
@@ -42,6 +43,7 @@ import { PERMISSION_MODE_NAMES } from '../../permissions/mode-names.js'
 import { SKILL_MANIFEST_MAX_CHARS } from '../../skills/catalog.js'
 import { COMMAND_FILE_KEYS, parseCommandText } from '../../user-commands/store.js'
 import { resolvePluginFileDir } from './files.js'
+import { CONVENTIONAL_HOOKS_FILE, readPluginHookEntriesOf } from './hook-entries.js'
 
 /** The version of the JSON shape `namzu plugin validate --json` prints. */
 export const PLUGIN_VALIDATION_REPORT_VERSION = 1
@@ -512,6 +514,8 @@ async function checkManifest(root: string, c: Collector): Promise<Manifest | und
 		(parsed.tools?.length ?? 0) +
 		(parsed.skills?.length ?? 0) +
 		(parsed.hooks?.length ?? 0) +
+		Object.keys(parsed.hookEntries ?? {}).length +
+		(existsSync(join(root, CONVENTIONAL_HOOKS_FILE)) ? 1 : 0) +
 		(parsed.mcpServers?.length ?? 0) +
 		(parsed.commands?.length ?? 0) +
 		(parsed.agents?.length ?? 0) +
@@ -551,9 +555,12 @@ async function checkParts(root: string, manifest: Manifest, c: Collector): Promi
 				})
 			}
 			seen.add(rel)
+			// A `.json` path is a file of hook entries, checked below, not a module.
+			if (kind === 'hook' && isHookEntriesPath(rel)) continue
 			await checkModule(root, kind, rel, part, key, c)
 		}
 	}
+	checkHookEntries(root, manifest, c)
 
 	// Skills.
 	const skillNames = new Set<string>()
@@ -745,6 +752,40 @@ function readProblem(
 const MARKDOWN_LOOKALIKE = /\.(md|markdown|mdown|mkd|mdx)$/i
 
 const MODULE_EXTENSIONS = ['.js', '.mjs', '.cjs']
+
+/**
+ * The hook entries a plugin ships (commands, addresses, prompts): the
+ * conventional `hooks/hooks.json`, each `.json` path of the manifest's `hooks`
+ * and the inline `hookEntries`, read by the reader a config file's `hooks` key
+ * goes through. Nothing is run. A problem is named with the file and what the
+ * loader does about it: an entry that cannot be loaded is not attached, the
+ * plugin itself still loads.
+ */
+function checkHookEntries(root: string, manifest: Manifest, c: Collector): void {
+	const read = readPluginHookEntriesOf({ rootDir: root, manifest })
+	for (const file of read.files) {
+		c.part(
+			'hook',
+			file === 'plugin.json hookEntries' ? 'hookEntries' : file,
+			file === 'plugin.json hookEntries' ? MANIFEST_FILE : file,
+		)
+	}
+	for (const problem of read.problems) {
+		const inline = problem.file === 'plugin.json hookEntries'
+		const file = inline ? MANIFEST_FILE : problem.file
+		c.add({
+			level: problem.severity === 'problem' ? 'error' : 'warning',
+			part: c.part('hook', inline ? 'hookEntries' : problem.file, file),
+			file,
+			code: problem.code,
+			message: problem.message,
+			consequence:
+				problem.severity === 'problem'
+					? 'These hook entries are not attached (the plugin itself still loads), so what they were meant to guard is not checked.'
+					: 'The hook entries load without it.',
+		})
+	}
+}
 
 async function checkModule(
 	root: string,

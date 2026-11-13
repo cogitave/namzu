@@ -1,17 +1,27 @@
 import {
+	type PluginHookDefinition,
 	PluginLifecycleManager,
 	PluginRegistry,
 	SHELL_HOOKS_PLUGIN_ID,
+	SHELL_HOOK_EVENTS,
 	type ShellHookOptions,
 	SkillRegistry,
 	attachShellHooks,
+	createShellHook,
 	discoverAllPluginDirs,
 } from '@namzu/sdk'
 
-import type { HooksConfig, PluginConfig, PluginScope } from '../../config/schema.js'
+import type { HooksSwitch } from '../../config/hook-layers.js'
+import type { HookEntry, HooksConfig, PluginConfig, PluginScope } from '../../config/schema.js'
 import { cliLogger } from '../../logging.js'
 import { resolveNamzuHome } from '../state/home.js'
 import { listMarkdownNames, resolvePluginFileDirs } from './files.js'
+import {
+	type PluginHookProblem,
+	dataDirOverlapsPlugin,
+	pluginDataDir,
+	readPluginHookEntriesOf,
+} from './hook-entries.js'
 import { createHookPathFilter } from './hook-path-filter.js'
 import { PluginSettingsStore } from './settings.js'
 
@@ -53,6 +63,16 @@ export function hookTimeoutLine(info: {
 	return `The ${info.event} hook \`${info.hook}\` did not finish within ${seconds} second${seconds === 1 ? '' : 's'} and was ended.`
 }
 
+/** One hook entry a plugin ships, as `/hooks` lists it. */
+export interface PluginHookEntryView {
+	/** The plugin's name. */
+	readonly plugin: string
+	readonly event: string
+	readonly entry: HookEntry
+	/** Set when a switch left it off; it is listed and does not run. */
+	readonly off?: HooksSwitch
+}
+
 export interface CliPluginRuntime {
 	readonly manager: PluginLifecycleManager
 	/** What every shell hook of this session is run with; a skill's hooks use the same. */
@@ -64,6 +84,12 @@ export interface CliPluginRuntime {
 	list(): readonly CliPluginInfo[]
 	/** The JavaScript hooks plugins registered right now: the plugin's name and the event. */
 	pluginHooks(): readonly { readonly plugin: string; readonly event: string }[]
+	/** The hook entries (commands, addresses, prompts) enabled plugins ship, apart from their JavaScript hooks. */
+	pluginHookEntries(): readonly PluginHookEntryView[]
+	/** What could not be loaded from the hook entries plugins ship, with the plugin's name. */
+	pluginHookProblems(): readonly (PluginHookProblem & { readonly plugin: string })[]
+	/** The lines the launch says once about those problems; each call returns what is new. */
+	takePluginHookWarnings(): string[]
 	setEnabled(name: string, enabled: boolean): Promise<void>
 	rememberState(name: string): Promise<void>
 	close(): Promise<void>
@@ -82,6 +108,8 @@ export interface CliPluginInfo {
 	readonly tools: readonly string[]
 	readonly skills: readonly string[]
 	readonly hookModules: readonly string[]
+	/** How many shell, http or prompt hook entries the plugin ships, enabled or not. */
+	readonly hookEntries?: number
 	readonly mcpServers: readonly string[]
 	/** Slash commands from the plugin's command folders, as typed (`<plugin>__<file>`). */
 	readonly commands: readonly string[]
@@ -120,11 +148,20 @@ export async function createCliPluginRuntime(
 	/** What a hook's stdin says about the session; each is read at every hook run. */
 	hookHost?: Pick<ShellHookOptions, 'transcriptPath' | 'permissionMode' | 'judge'>,
 	/**
+	 * What the host knows beyond the hook entries themselves.
+	 *
 	 * `keepForSkills`: a skill of this session carries hooks, which attach to
 	 * the lifecycle manager when it is used, so the manager is built even when
 	 * there are no plugins and no configured hooks.
+	 *
+	 * `hooksSwitch` is the switch limiting hooks to the organisation-managed file
+	 * (`hooksManagedOnly`) or turning them off (`disableHooks`, `NAMZU_DISABLE_HOOKS`).
+	 * Hook entries a plugin ships obey it: no plugin comes from the managed file,
+	 * so under either they are read and listed but not attached. It is the same
+	 * value the host hands the code that attaches a skill's and an agent file's
+	 * hooks.
 	 */
-	extra?: { readonly keepForSkills?: boolean },
+	host?: { readonly keepForSkills?: boolean; readonly hooksSwitch?: HooksSwitch },
 ): Promise<CliPluginRuntime | undefined> {
 	const pluginsEnabled = config?.enabled === true
 	const launchDirs = config?.launchDirs ?? []
@@ -133,7 +170,7 @@ export async function createCliPluginRuntime(
 		!pluginsEnabled &&
 		hookCount === 0 &&
 		launchDirs.length === 0 &&
-		extra?.keepForSkills !== true
+		host?.keepForSkills !== true
 	) {
 		return undefined
 	}
@@ -143,14 +180,7 @@ export async function createCliPluginRuntime(
 	const settings = new PluginSettingsStore(userRoot)
 	const plugins = new PluginRegistry()
 	const skills = new SkillRegistry(log)
-	const manager = new PluginLifecycleManager({
-		pluginRegistry: plugins,
-		skillRegistry: skills,
-		scopeRoots: { project: cwd, user: userRoot },
-		log,
-		...(config?.hookTimeoutMs !== undefined ? { hookTimeoutMs: config.hookTimeoutMs } : {}),
-	})
-	const shellHookOptions: ShellHookOptions = {
+	const shellOptions: ShellHookOptions = {
 		cwd,
 		// The folder the session was started for, for a hook script to find its own files.
 		projectDir: cwd,
@@ -164,7 +194,70 @@ export async function createCliPluginRuntime(
 		},
 		...hookHost,
 	}
-	if (hooks && hookCount > 0) attachShellHooks(manager, hooks, shellHookOptions)
+	// The hook entries each enabled plugin ships, read when it is enabled and
+	// attached under the plugin's id, so disabling the plugin removes them.
+	const shipped = new Map<
+		string,
+		{
+			readonly name: string
+			readonly entries: readonly { readonly event: string; readonly entry: HookEntry }[]
+			readonly problems: readonly PluginHookProblem[]
+			readonly off?: HooksSwitch
+		}
+	>()
+	const warningLines: string[] = []
+	const hooksSwitch = host?.hooksSwitch
+	const manager = new PluginLifecycleManager({
+		pluginRegistry: plugins,
+		skillRegistry: skills,
+		scopeRoots: { project: cwd, user: userRoot },
+		log,
+		...(config?.hookTimeoutMs !== undefined ? { hookTimeoutMs: config.hookTimeoutMs } : {}),
+		hooksFor: (plugin): readonly PluginHookDefinition[] => {
+			const read = readPluginHookEntriesOf(plugin)
+			const name = plugin.manifest.name
+			const dataDir = pluginDataDir(userRoot, {
+				name,
+				scope: plugin.scope,
+				rootDir: plugin.rootDir,
+			})
+			const problems = [...read.problems]
+			let usable = true
+			if (read.count > 0 && dataDirOverlapsPlugin(dataDir, plugin.rootDir)) {
+				usable = false
+				problems.push({
+					severity: 'problem',
+					code: 'hook-entries-invalid',
+					file: name,
+					message: `its data folder ${dataDir} would overlap the plugin's own folder, so its hook entries are not attached.`,
+				})
+			}
+			const entries = SHELL_HOOK_EVENTS.flatMap((event) =>
+				(read.hooks[event] ?? []).map((entry) => ({ event: event as string, entry })),
+			)
+			shipped.set(plugin.id, {
+				name,
+				entries,
+				problems,
+				...(hooksSwitch !== undefined ? { off: hooksSwitch } : {}),
+			})
+			for (const problem of problems) {
+				warningLines.push(
+					`${problem.severity === 'problem' ? 'Hook problem' : 'Hook note'} in plugin ${name}, ${problem.file}: ${problem.message}`,
+				)
+			}
+			// A switch someone set is honoured: the entries are read and listed, and none runs.
+			if (hooksSwitch !== undefined || !usable) return []
+			const options: ShellHookOptions = {
+				...shellOptions,
+				plugin: { root: plugin.rootDir, dataDir },
+			}
+			return entries.map(({ event, entry }) =>
+				createShellHook(event as (typeof SHELL_HOOK_EVENTS)[number], entry, options),
+			)
+		},
+	})
+	if (hooks && hookCount > 0) attachShellHooks(manager, hooks, shellOptions)
 	const allowedScopes = config?.allowedScopes ?? (['project', 'user'] as const)
 	const discovered = pluginsEnabled
 		? await discoverAllPluginDirs(cwd, {
@@ -225,14 +318,38 @@ export async function createCliPluginRuntime(
 			.sort()
 	return {
 		manager,
-		hookOptions: shellHookOptions,
+		hookOptions: shellOptions,
 		skills,
 		pluginCount: installed.length,
 		sessionEndBudgetMs: sessionEndHookBudgetMs(hooks),
+		pluginHookEntries: () =>
+			plugins
+				.getAll()
+				.filter((plugin) => plugin.status === 'enabled')
+				.flatMap((plugin) => {
+					const state = shipped.get(plugin.id)
+					return (state?.entries ?? []).map(({ event, entry }) => ({
+						plugin: state?.name ?? plugin.manifest.name,
+						event,
+						entry,
+						...(state?.off !== undefined ? { off: state.off } : {}),
+					}))
+				}),
+		pluginHookProblems: () =>
+			plugins
+				.getAll()
+				.filter((plugin) => plugin.status === 'enabled')
+				.flatMap((plugin) =>
+					(shipped.get(plugin.id)?.problems ?? []).map((problem) => ({
+						...problem,
+						plugin: plugin.manifest.name,
+					})),
+				),
+		takePluginHookWarnings: () => warningLines.splice(0),
 		pluginHooks: () =>
 			manager
 				.listHooks()
-				.filter((hook) => hook.pluginId !== SHELL_HOOKS_PLUGIN_ID)
+				.filter((hook) => hook.pluginId !== SHELL_HOOKS_PLUGIN_ID && hook.shell !== true)
 				.map((hook) => ({
 					plugin: plugins.get(hook.pluginId)?.manifest.name ?? String(hook.pluginId),
 					event: hook.event,
@@ -264,7 +381,10 @@ export async function createCliPluginRuntime(
 							.map((skill) => skill.metadata.name)
 							.filter((name) => name.startsWith(prefix))
 							.sort(),
-						hookModules: [...(plugin.manifest.hooks ?? [])],
+						hookModules: (plugin.manifest.hooks ?? []).filter(
+							(path) => !path.toLowerCase().endsWith('.json'),
+						),
+						hookEntries: readPluginHookEntriesOf(plugin).count,
 						mcpServers: (plugin.manifest.mcpServers ?? []).map((server) => server.name),
 						commands: resolvePluginFileDirs(
 							plugin.manifest.name,

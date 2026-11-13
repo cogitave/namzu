@@ -15,3 +15,5 @@ What to know: a guard that cannot be loaded is not a skill that runs unguarded. 
 What to do: a skill of yours that already had a `hooks:` block written for another tool was ignored until now; it runs when the skill is used, so read it first. The Desktop app's trust dialog does not list skill hooks yet.
 
 Also: a hook event written at the top level of the front matter (`PreToolUse:` beside `name:`) is read as if it were under `hooks:`; a forked skill's hooks follow the agent that received the skill's prompt, not whichever agent started first; a skill's `session_start` entry is set aside with a note, since it can never fire; the hooks end with the conversation, so after a resume load the skill again.
+
+Also: a skill moved as written that refers to its own folder through a variable ending in `_PLUGIN_ROOT` (or `_SKILL_ROOT`) finds it: an unset one is given the skill's folder under that name. `_PLUGIN_DATA` is not given to a skill (it has no data folder) and the failure line names it; `_PROJECT_DIR` is given the project folder for a skill's and an agent file's entries as for every entry.

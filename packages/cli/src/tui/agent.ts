@@ -354,8 +354,13 @@ import {
 	CHECK_HINT as PLUGIN_CHECK_HINT,
 	readPluginFileSources,
 } from '../integrations/plugins/files.js'
+import type { PluginHookProblem } from '../integrations/plugins/hook-entries.js'
 import { hookSessionMode } from '../integrations/plugins/hook-host.js'
-import { type CliPluginRuntime, createCliPluginRuntime } from '../integrations/plugins/runtime.js'
+import {
+	type CliPluginRuntime,
+	type PluginHookEntryView,
+	createCliPluginRuntime,
+} from '../integrations/plugins/runtime.js'
 import { hasApiCredential, requiresCredentialForModel } from '../integrations/providers/access.js'
 import { canSelectModel } from '../integrations/providers/access.js'
 import {
@@ -1618,6 +1623,9 @@ export interface AgentSession {
 	}
 	/** The JavaScript hooks plugins registered now (plugin name, event); what `/hooks` lists beside `hooks`. */
 	readonly pluginHooks?: () => readonly { readonly plugin: string; readonly event: string }[]
+	/** The hook entries (commands, addresses, prompts) enabled plugins ship, and what could not be loaded from them. */
+	readonly pluginHookEntries?: () => readonly PluginHookEntryView[]
+	readonly pluginHookProblems?: () => readonly (PluginHookProblem & { readonly plugin: string })[]
 	/** Files as they were before each turn's writes; what `/restore` uses. */
 	readonly checkpoints?: FileCheckpointStore
 	/**
@@ -2717,7 +2725,11 @@ export interface AgentSessionOptions {
 	readonly allowModelSwitch?: boolean
 	/** See `NamzuCliConfig.hooks`. Attached to the plugin lifecycle manager. */
 	readonly hooks?: HooksConfig
-	/** The switch that turned hooks off (`disableHooks`, `NAMZU_DISABLE_HOOKS`, `hooksManagedOnly`); a skill's hooks obey it too. */
+	/**
+	 * The switch that turned hooks off (`disableHooks`, `NAMZU_DISABLE_HOOKS`, `hooksManagedOnly`).
+	 * The one place the hosts say so: hook entries a plugin ships, a skill's hooks and
+	 * an agent file's hooks all obey it.
+	 */
 	readonly hooksSwitch?: HooksSwitch
 	/**
 	 * The folder was accepted for this run without being remembered (`--trust`
@@ -5065,6 +5077,8 @@ export async function createAgentSession(
 							}),
 			},
 			{
+				// The same switch plugin entries obey; none of the hooks attach under it.
+				...(options.hooksSwitch ? { hooksSwitch: options.hooksSwitch } : {}),
 				// A skill that carries hooks attaches them to this manager when it is used.
 				keepForSkills:
 					options.hooksSwitch === undefined &&
@@ -5362,13 +5376,17 @@ export async function createAgentSession(
 				: undefined,
 			subagentRuntime?.close?.(),
 			sessionPlugins
-				? Promise.allSettled([
-						...conversationEnds,
-						sessionPlugins.manager.executeHooks('session_end', {
-							sessionId: scope.sessionId,
-							endReason: sessionEndReason,
-						}),
-					]).then(() => sessionPlugins.close())
+				? // The conversations left behind are told first and the last one after them, so a
+					// hook sees the ends in the order they happened and two end hooks never run at once.
+					Promise.allSettled([...conversationEnds])
+						.then(() =>
+							sessionPlugins.manager.executeHooks('session_end', {
+								sessionId: scope.sessionId,
+								endReason: sessionEndReason,
+							}),
+						)
+						.catch(() => undefined)
+						.then(() => sessionPlugins.close())
 				: undefined,
 			mcp.close(),
 			computerUseHost?.dispose(),
@@ -6239,6 +6257,12 @@ export async function createAgentSession(
 			refused: () => refusedAgents.map((refused) => ({ name: refused.name, line: refused.line })),
 		},
 		...(pluginRuntime ? { pluginHooks: () => pluginRuntime?.pluginHooks() ?? [] } : {}),
+		...(pluginRuntime
+			? {
+					pluginHookEntries: () => pluginRuntime?.pluginHookEntries() ?? [],
+					pluginHookProblems: () => pluginRuntime?.pluginHookProblems() ?? [],
+				}
+			: {}),
 		checkpoints,
 		markFilesChanged: async (changed) => {
 			const seeded = fileObservations.get(scope.sessionId)
@@ -6598,6 +6622,7 @@ export async function createAgentSession(
 			),
 			...fallbackPlan.notices,
 			...takeConfigWarnings(),
+			...(pluginRuntime?.takePluginHookWarnings() ?? []),
 			...compatibleEndpointNotices(),
 			...memoryMigrationNotices,
 			...computerUseNotices,

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PluginLifecycleManager, type SessionId } from '@namzu/sdk'
@@ -185,6 +185,43 @@ describe('an inline skill’s hooks', () => {
 		await mgr.executeHooks('user_prompt_submit', { sessionId: PARENT, prompt: 'hi' })
 		expect(readFileSync(join(dir, 'out'), 'utf8')).toBe(`${dir}|${dir}`)
 		expect(skillHookEnv('/x')).toEqual({ NAMZU_SKILL_ROOT: '/x' })
+	})
+
+	it('give a variable written for another tool the skill’s folder and the project folder, and not a data folder', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'skill-hooks-'))
+		const project = mkdtempSync(join(tmpdir(), 'skill-project-'))
+		const mgr = manager()
+		const h = createSkillHooksHost({
+			manager: () => mgr,
+			hookOptions: () => ({ cwd: project, projectDir: project }),
+			hooksSwitch: () => undefined,
+			projectTrusted: () => true,
+			isProjectSkill: () => false,
+		})
+		writeFileSync(join(dir, 'put.sh'), 'printf %s "$1|$2|[$3]" > "$4"\n')
+		h.prepareHooks(
+			{
+				name: 'moved',
+				dirPath: dir,
+				hooksSource: [
+					'hooks:',
+					'  UserPromptSubmit:',
+					'    - hooks:',
+					'        - command: sh',
+					'          args: ["${ACME_PLUGIN_ROOT}/put.sh", "$ACME_PROJECT_DIR", "$ACME_PLUGIN_ROOT", "$ACME_PLUGIN_DATA", "' +
+						join(dir, 'out') +
+						'"]',
+					'    - hooks:',
+					'        - command: \'sh "$ACME_PLUGIN_ROOT/put.sh" "$ACME_SKILL_ROOT" "$ACME_PROJECT_DIR" "$ACME_PLUGIN_DATA" ' +
+						join(dir, 'out2') +
+						"'",
+				].join('\n'),
+			},
+			{ forked: false },
+		).attach()
+		await mgr.executeHooks('user_prompt_submit', { sessionId: PARENT, prompt: 'hi' })
+		expect(readFileSync(join(dir, 'out'), 'utf8')).toBe(`${project}|${dir}|[$ACME_PLUGIN_DATA]`)
+		expect(readFileSync(join(dir, 'out2'), 'utf8')).toBe(`${dir}|${project}|[]`)
 	})
 
 	it('are made with the skill’s name as their source', () => {

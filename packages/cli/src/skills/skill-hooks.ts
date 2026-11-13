@@ -241,6 +241,7 @@ export function createSkillHooksHost(options: SkillHooksHostOptions): SkillHooks
 						const created = createShellHook(event, withoutOnce as ShellHookHandler, {
 							...base,
 							extraEnv: { ...base.extraEnv, ...skillHookEnv(root) },
+							skillRoot: root,
 							onRun: (info) => {
 								runs += 1
 								base.onRun?.(info)

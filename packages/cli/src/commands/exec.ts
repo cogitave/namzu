@@ -22,6 +22,7 @@
  */
 
 import { relative, resolve } from 'node:path'
+import { hookSwitch } from '../config/hook-layers.js'
 import { withModelLaunchEnvironment } from '../config/model-environment.js'
 
 import {
@@ -35,7 +36,6 @@ import {
 import type { Message, StopReason, StructuredOutputConfig } from '@namzu/sdk'
 import type { AgentEvent } from '../tui/agent.js'
 
-import { hookSwitch } from '../config/hook-layers.js'
 import { pendingProjectMcpServers, takeConfigWarnings } from '../config/load.js'
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { EXIT_HANDED_BACK, EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'

@@ -60,7 +60,8 @@ a skill trusts that skill's listed commands. The optional `instructions` text
 is plugin-authored context. It is labelled as untrusted material in each model
 request while this plugin is enabled, and disappears when the plugin is
 disabled. Tools and hooks declare
-JavaScript module paths; MCP servers declare their stdio command, optional
+JavaScript module paths (a path in `hooks` that ends in `.json` is a file of hook
+entries instead, see [Hook entries](#hook-entries)); MCP servers declare their stdio command, optional
 arguments and environment. A plugin MCP server may set `connectTimeoutMs`
 (a positive integer up to one hour; default 10,000 ms) for its entire startup
 handshake and discovery. Unknown fields inside a plugin MCP server declaration
@@ -69,6 +70,41 @@ accept `url`, `headers`, `inheritEnv` or `requireApproval`: configure a remote
 server in `mcpServers`, and use a source permission rule for a plugin-owned
 server. `connectors` and `personas` in plugin manifests are not supported and
 are refused rather than ignored.
+
+### Hook entries
+
+A plugin can ship shell, http and prompt hook entries beside its JavaScript hook
+modules. Namzu reads `hooks/hooks.json` in the plugin folder when it exists (the
+conventional place, so a plugin written for the common hook contract moves as
+written), each `.json` path in the manifest's `hooks`, and the manifest key
+`hookEntries` (the same events object written inline), in either shape. The
+two spellings the common hook contract uses for the manifest key are read too:
+`"hooks": "./hooks/hooks.json"` is a list of one path, and `"hooks": { <events> }`
+is `hookEntries`. A path that leaves the plugin folder is refused and named.
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "Bash", "hooks": [{ "type": "command", "command": "${NAMZU_PLUGIN_ROOT}/scripts/guard.sh" }] }
+    ]
+  }
+}
+```
+
+A command is started with `NAMZU_PLUGIN_ROOT`, the plugin's folder, and
+`NAMZU_PLUGIN_DATA`, a folder kept for the plugin under the Namzu home and never
+inside the plugin; a shell command expands them from its environment (and so
+does a script it starts, for the names the command used), and an entry in the
+exec form has them put in its command and arguments. The
+entries run while the plugin is enabled and stop the moment it is disabled.
+`/hooks` lists them apart from the plugin's JavaScript hooks, `/plugins` shows
+how many a plugin ships, and `disableHooks`, `NAMZU_DISABLE_HOOKS` and
+`hooksManagedOnly` turn them off (the plugin's JavaScript hooks are not touched).
+A project plugin is read only after the folder is trusted, and the trust prompt
+lists the entries it would run. [Hook events](../sdk/hooks.md#hook-entries-a-plugin-ships)
+describes the rules in full, and [`namzu plugin validate`](plugin-validate.md)
+checks them.
 
 ### Commands and agents
 

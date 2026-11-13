@@ -7378,6 +7378,8 @@ function AppBody({
 		hooks: () => session?.hooks,
 		hooksView: () => ({
 			...(session?.pluginHooks ? { pluginHooks: session.pluginHooks() } : {}),
+			...(session?.pluginHookEntries ? { pluginEntries: session.pluginHookEntries() } : {}),
+			...(session?.pluginHookProblems ? { pluginProblems: session.pluginHookProblems() } : {}),
 			...(session?.skillHooks
 				? {
 						skillHooks: {

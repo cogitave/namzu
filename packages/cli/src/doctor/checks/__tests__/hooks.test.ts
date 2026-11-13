@@ -79,7 +79,7 @@ describe('the hooks doctor row and skills', () => {
 	})
 
 	it('says which skills carry hooks that attach when the skill is used', () => {
-		const result = describeHooksStatus({}, undefined, [
+		const result = describeHooksStatus({}, undefined, undefined, [
 			carrier('hooks:\n  PreToolUse:\n    - command: x'),
 		])
 		expect(result.status).toBe('pass')
@@ -89,7 +89,7 @@ describe('the hooks doctor row and skills', () => {
 	})
 
 	it('warns, naming the skill and the entry, when a skill’s guard cannot be loaded', () => {
-		const result = describeHooksStatus({}, undefined, [
+		const result = describeHooksStatus({}, undefined, undefined, [
 			carrier('hooks:\n  PreToolUse:\n    - hooks:\n        - args: ["a"]'),
 		])
 		expect(result.status).toBe('warn')
@@ -100,11 +100,11 @@ describe('the hooks doctor row and skills', () => {
 	})
 
 	it('says a switch stops them, and does not read an untrusted folder’s skills', () => {
-		const off = describeHooksStatus({ disableHooks: true }, undefined, [
+		const off = describeHooksStatus({ disableHooks: true }, undefined, undefined, [
 			carrier('hooks:\n  Stop: []'),
 		])
 		expect(off.message).toContain('hooks that do not attach, because a switch is on')
-		const untrusted = describeHooksStatus({}, { cwd: '/p', trusted: false }, [
+		const untrusted = describeHooksStatus({}, { cwd: '/p', trusted: false }, undefined, [
 			carrier('hooks:\n  Stop: []', { source: 'project' }),
 		])
 		expect(untrusted.message).not.toContain('carries hooks')
@@ -124,6 +124,7 @@ describe('the hooks doctor row and agent files', () => {
 		const result = describeHooksStatus(
 			{},
 			undefined,
+			undefined,
 			[],
 			[carrier('hooks:\n  PreToolUse:\n    - command: x')],
 		)
@@ -137,6 +138,7 @@ describe('the hooks doctor row and agent files', () => {
 		const result = describeHooksStatus(
 			{},
 			undefined,
+			undefined,
 			[],
 			[carrier('hooks:\n  PreToolUse:\n    - hooks:\n        - args: ["a"]')],
 		)
@@ -149,6 +151,7 @@ describe('the hooks doctor row and agent files', () => {
 		const off = describeHooksStatus(
 			{ disableHooks: true },
 			undefined,
+			undefined,
 			[],
 			[carrier('hooks:\n  Stop: []')],
 		)
@@ -156,6 +159,7 @@ describe('the hooks doctor row and agent files', () => {
 		const untrusted = describeHooksStatus(
 			{},
 			{ cwd: '/p', trusted: false },
+			undefined,
 			[],
 			[carrier('hooks:\n  Stop: []', { source: 'project' })],
 		)

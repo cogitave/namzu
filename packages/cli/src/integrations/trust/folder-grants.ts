@@ -11,7 +11,7 @@
  */
 
 import { readFileSync, readdirSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 
 import { parseAgentMarkdown } from '@namzu/sdk'
 
@@ -103,6 +103,12 @@ function describeHooks(config: Record<string, unknown>): HookGrant[] {
 					? spec.args.filter((arg): arg is string => typeof arg === 'string')
 					: []
 				runs = [spec.command, ...args].join(' ')
+				// What a command runs depends on the variables it is started with, so the
+				// names an entry sets are shown beside it (never the values).
+				if (spec.env !== null && typeof spec.env === 'object' && !Array.isArray(spec.env)) {
+					const names = Object.keys(spec.env)
+					if (names.length > 0) runs = `${runs} (sets ${names.join(', ')})`
+				}
 			}
 			if (runs === undefined) continue
 			const flat = runs.replace(/\s+/g, ' ').trim()
@@ -124,6 +130,58 @@ function readObject(path: string): Record<string, unknown> | undefined {
 	} catch {
 		return undefined
 	}
+}
+
+/**
+ * The hook entries the folder's own plugins ship, as the trust screen shows
+ * them, each naming its plugin. Read as raw JSON like the config files: the
+ * folder is not trusted yet, so nothing here is validated or merged, and an
+ * unreadable file grants nothing (the real load reports it once trusted). A
+ * plugin's entries run once the plugin is enabled, which `plugins.enabled`
+ * (possibly set by the folder's own config) and the person's saved state decide.
+ */
+function describePluginHooks(cwd: string): HookGrant[] {
+	const root = resolve(cwd, '.namzu', 'plugins')
+	let names: string[]
+	try {
+		names = readdirSync(root).sort()
+	} catch {
+		return []
+	}
+	const out: HookGrant[] = []
+	for (const name of names) {
+		const folder = join(root, name)
+		const manifest = readObject(join(folder, 'plugin.json'))
+		if (!manifest) continue
+		const label = typeof manifest.name === 'string' ? manifest.name : name
+		const files = ['hooks/hooks.json']
+		if (Array.isArray(manifest.hooks)) {
+			for (const path of manifest.hooks) {
+				if (typeof path === 'string' && path.toLowerCase().endsWith('.json')) files.push(path)
+			}
+		}
+		const blocks: Record<string, unknown>[] = []
+		for (const file of new Set(files)) {
+			const path = resolve(folder, file)
+			const inside = relative(folder, path)
+			if (inside.startsWith('..') || isAbsolute(inside)) continue
+			const value = readObject(path)
+			if (value) blocks.push(value)
+		}
+		if (manifest.hookEntries !== null && typeof manifest.hookEntries === 'object') {
+			blocks.push(manifest.hookEntries as Record<string, unknown>)
+		}
+		for (const block of blocks) {
+			const events =
+				block.hooks !== null && typeof block.hooks === 'object' && !Array.isArray(block.hooks)
+					? (block.hooks as Record<string, unknown>)
+					: block
+			for (const grant of describeHooks({ hooks: events })) {
+				out.push({ event: grant.event, runs: `${grant.runs} (plugin ${label})` })
+			}
+		}
+	}
+	return out
 }
 
 /**
@@ -218,6 +276,8 @@ export function readFolderGrants(cwd: string): FolderGrants {
 			}
 		}
 	}
+	// Order: the config files, then plugins, then skills, then agent files.
+	hooks.push(...describePluginHooks(cwd))
 	try {
 		hooks.push(...describeSkillHooks(cwd))
 	} catch {

@@ -250,6 +250,7 @@ export type {
 	ShellHooksConfig,
 } from './plugin/shell-hook.js'
 export type { ShellHookToolNames } from './plugin/shell-hook-tool-names.js'
+export type { PluginFolders } from './plugin/shell-hook-env.js'
 
 export type {
 	PlanApprovalHandler,
