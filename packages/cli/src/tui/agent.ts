@@ -5291,13 +5291,17 @@ export async function createAgentSession(
 				: undefined,
 			subagentRuntime?.close?.(),
 			sessionPlugins
-				? Promise.allSettled([
-						...conversationEnds,
-						sessionPlugins.manager.executeHooks('session_end', {
-							sessionId: scope.sessionId,
-							endReason: sessionEndReason,
-						}),
-					]).then(() => sessionPlugins.close())
+				? // The conversations left behind are told first and the last one after them, so a
+					// hook sees the ends in the order they happened and two end hooks never run at once.
+					Promise.allSettled([...conversationEnds])
+						.then(() =>
+							sessionPlugins.manager.executeHooks('session_end', {
+								sessionId: scope.sessionId,
+								endReason: sessionEndReason,
+							}),
+						)
+						.catch(() => undefined)
+						.then(() => sessionPlugins.close())
 				: undefined,
 			mcp.close(),
 			computerUseHost?.dispose(),
