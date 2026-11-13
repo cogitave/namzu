@@ -100,7 +100,7 @@
 	--radius: 0.625rem;
 	--radius-control: 0.5rem;
 	--control-radius: var(--radius-control);
-	--sidebar-content-inset: 0.5rem;
+	--sidebar-content-inset: var(--frame-row-inset);
 	--app-scrollbar-width: 6px;
 	--app-scrollbar-thumb: rgb(217 217 217);
 	--app-scrollbar-thumb-hover: rgb(191 191 191);
@@ -130,7 +130,28 @@
 	--font-size-code: 13px;
 	--leading-code: 20px;
 	--diffs-font-size: var(--font-size-code);
-	--workspace-topbar-height: 52px;
+	/* The frame: one rhythm for the header, the rows and the foot. Every rule that places or sizes
+	   one of these reads the token; none repeats the number. A row is inset from the sidebar's
+	   edge, padded, holds a 16px icon slot and a gap, so every label starts at --frame-label-start. */
+	--frame-header-height: 44px;
+	--frame-tab-height: 32px;
+	--frame-control-size: 28px;
+	--frame-row-height: 32px;
+	--frame-row-inset: 8px;
+	--frame-row-padding: 8px;
+	--frame-icon-slot: 16px;
+	--frame-row-gap: 8px;
+	--frame-label-start: calc(
+		var(--frame-row-inset) +
+		var(--frame-row-padding) +
+		var(--frame-icon-slot) +
+		var(--frame-row-gap)
+	);
+	--frame-foot-height: 48px;
+	--frame-foot-button: 32px;
+	--frame-bar-gap: 4px;
+	--frame-bar-inset: 8px;
+	--workspace-topbar-height: var(--frame-header-height);
 	--workspace-gutter: 0.75rem;
 	--workspace-gutter-start: var(--workspace-gutter);
 	--workspace-gutter-end: var(--workspace-gutter);
@@ -244,7 +265,7 @@
 	--sidebar-muted-foreground: #71717b;
 	--sidebar-control-surface: #f4f4f5;
 	--sidebar-row-hover: #f5f5f5;
-	--sidebar-row-active: #eeeeee;
+	--sidebar-row-active: rgb(39 39 42 / 14%);
 	--sidebar-row-selected: #f0f0f0;
 	--sidebar-border: #e4e4e7;
 	--terminal-background: #fcfcfc;
@@ -308,7 +329,7 @@
 	--sidebar-muted-foreground: #a3a3a3;
 	--sidebar-control-surface: #1c1c1c;
 	--sidebar-row-hover: rgb(241 243 247 / 8%);
-	--sidebar-row-active: rgb(241 243 247 / 11%);
+	--sidebar-row-active: rgb(241 243 247 / 14%);
 	--sidebar-row-selected: rgb(241 243 247 / 7%);
 	--sidebar-border: var(--border);
 	--terminal-background: #0a0a0a;

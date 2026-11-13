@@ -60,9 +60,6 @@ pre {
 	-webkit-app-region: drag;
 }
 .app {
-	/* The sidebar's header and the conversation's top bar end on one line: 40px while the top bar is
-	   the one bar (the default), 52px when the strip of tabs is shown. */
-	--frame-header-height: 52px;
 	position: relative;
 	display: grid;
 	/* Open, the sidebar is the left region and the rail is not drawn; collapsed, the rail is. */
@@ -91,9 +88,6 @@ pre {
 	opacity: 0;
 	visibility: hidden;
 }
-.app:has(.workspace[data-conversation-bar]) {
-	--frame-header-height: 40px;
-}
 .app[data-page="plugins"] > .sidebar:not(.plugins-navigation-sidebar),
 .app[data-page="settings"] > .sidebar:not(.settings-navigation-sidebar),
 .workspace[data-page="settings"] > :not(.settings-page):not(.toast-viewport),
@@ -106,8 +100,9 @@ pre {
 }
 .plugins-sidebar-close {
 	position: absolute;
-	top: 14px;
-	right: 8px;
+	/* Centred in the header: (header - control) / 2 from the top. */
+	top: calc((var(--frame-header-height) - var(--frame-control-size)) / 2);
+	right: var(--frame-bar-inset);
 }
 .window-titlebar {
 	grid-column: 1 / -1;
@@ -246,7 +241,7 @@ pre {
 	flex-direction: column;
 	align-items: center;
 	gap: 8px;
-	padding: 14px 5px 8px;
+	padding: 6px var(--frame-row-inset) var(--frame-row-inset);
 	background: var(--sidebar);
 	/* The collapsed sidebar: the same one line divides it from the conversation. */
 	border-right: 1px solid var(--sidebar-border);
@@ -256,8 +251,8 @@ pre {
 }
 .rail-button {
 	position: relative;
-	width: 36px;
-	height: 36px;
+	width: var(--frame-foot-button);
+	height: var(--frame-foot-button);
 	border-radius: var(--radius-control);
 	color: var(--muted-foreground);
 	transition: background-color var(--dur-quick) var(--ease-out), color var(--dur-quick)
@@ -267,8 +262,8 @@ pre {
 	transform: scale(0.94);
 }
 .rail-button svg {
-	width: 18px;
-	height: 18px;
+	width: var(--frame-icon-slot);
+	height: var(--frame-icon-slot);
 }
 .rail-button[data-active] {
 	background: var(--sidebar-row-active);
@@ -283,7 +278,12 @@ pre {
 	flex: none;
 	align-items: center;
 	gap: 4px;
-	padding: 6px var(--sidebar-content-inset) 8px;
+	box-sizing: border-box;
+	height: var(--frame-foot-height);
+	/* The bottom pixel balances the hairline, so the buttons sit 8 from the line and 8 from the edge. */
+	padding: 0 var(--frame-row-inset) 1px;
+	/* A hairline above the foot; border-box keeps it inside the foot's height. */
+	border-top: 1px solid var(--sidebar-border);
 }
 .sidebar-foot .rail-update-button {
 	margin-inline-start: auto;
@@ -292,6 +292,8 @@ pre {
 	position: relative;
 	isolation: isolate;
 	background: var(--sidebar);
+	/* The same hairline as under the top bar, inside the same height, so the two share one y. */
+	box-shadow: inset 0 -1px 0 var(--sidebar-border);
 }
 .brand-dither {
 	position: absolute;
@@ -318,12 +320,13 @@ pre {
 	}
 }
 .sidebar-section-title {
-	margin: 14px 16px 6px;
+	/* Starts at x 16: the row inset plus the row padding. 16 above, 4 below. */
+	margin: 16px calc(var(--frame-row-inset) + var(--frame-row-padding)) 4px;
 	color: var(--muted-foreground);
 	font-size: var(--text-caption);
 	line-height: var(--leading-caption);
 	letter-spacing: 0.01em;
-	font-weight: var(--weight-control);
+	font-weight: var(--weight-text);
 }
 .sidebar-projects {
 	padding-bottom: 8px;
@@ -332,11 +335,12 @@ pre {
 .sidebar-new-conversation {
 	display: flex;
 	align-items: center;
-	gap: 9px;
-	width: calc(100% - 20px);
-	min-height: 34px;
-	margin: 2px 10px;
-	padding: 7px 10px;
+	gap: var(--frame-row-gap);
+	box-sizing: border-box;
+	width: calc(100% - 2 * var(--frame-row-inset));
+	height: var(--frame-row-height);
+	margin: 0 var(--frame-row-inset);
+	padding: 0 var(--frame-row-padding);
 	border-radius: var(--radius-chip);
 	text-align: left;
 	font-size: var(--text-small);
@@ -344,15 +348,16 @@ pre {
 	color: var(--sidebar-foreground);
 	cursor: pointer;
 }
+.sidebar-new-conversation {
+	/* The first row clears the header by one inset; rows below it touch. */
+	margin-top: var(--frame-row-inset);
+}
 .project-row > svg,
 .sidebar-new-conversation > svg {
-	width: 16px;
-	height: 16px;
+	width: var(--frame-icon-slot);
+	height: var(--frame-icon-slot);
 	flex: none;
 	color: var(--muted-foreground);
-}
-.sidebar-new-conversation {
-	margin-top: 4px;
 }
 .project-row > span:first-of-type {
 	min-width: 0;
@@ -380,9 +385,18 @@ pre {
 .conversation-row {
 	display: flex;
 	align-items: center;
-	gap: 8px;
-	padding: 8px 10px;
-	min-height: 34px;
+	gap: var(--frame-row-gap);
+	box-sizing: border-box;
+	padding: 0 var(--frame-row-padding);
+	height: var(--frame-row-height);
+}
+/* The icon slot of a conversation row: the state mark sits centred in it, and an idle row leaves it empty. */
+.conversation-row-mark {
+	display: grid;
+	place-items: center;
+	flex: none;
+	width: var(--frame-icon-slot);
+	height: var(--frame-icon-slot);
 }
 .conversation-row-title {
 	min-width: 0;
@@ -562,7 +576,10 @@ pre {
 }
 .topbar {
 	-webkit-app-region: drag;
-	border-bottom: 1px solid var(--border);
+	/* The controls at the right edge sit one bar inset from it, with or without the strip. */
+	padding-right: var(--frame-bar-inset);
+	/* The hairline is drawn inside the header's height, so it never changes it. */
+	box-shadow: inset 0 -1px 0 var(--border);
 }
 .breadcrumb {
 	overflow: clip;

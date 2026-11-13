@@ -63,14 +63,11 @@
 }
 
 /*
- * With the strip of tabs hidden (the default) the top of the pane is one 40px bar. The token is
- * set on the pane only; the sidebar's header takes the same height through --frame-header-height
- * (style.css) so the two end on one line. The conversation
- * column is 720px with 24px gutters. With the strip on, none of this applies.
+ * With the strip of tabs hidden (the default) the top of the pane is one bar. Its height is the
+ * frame's header height, the same with or without the strip and the same as the sidebar's header
+ * (--frame-header-height, theme.css), so the two end on one line. The conversation column is 720px
+ * with 24px gutters. With the strip on, none of this applies.
  */
-.workspace[data-conversation-bar] {
-	--workspace-topbar-height: 40px;
-}
 .workspace[data-conversation-bar] .chat-stage {
 	--chat-max-width: 45rem;
 }

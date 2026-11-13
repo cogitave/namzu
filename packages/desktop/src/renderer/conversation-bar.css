@@ -1,4 +1,4 @@
-/* The bar above a conversation: 40px, title and project on the left, read-out and buttons on the right. */
+/* The bar above a conversation: the frame's header height, title and project on the left, read-out and buttons on the right. */
 .conversation-bar {
 	display: flex;
 	align-items: center;
@@ -39,18 +39,18 @@
 	display: flex;
 	flex: none;
 	align-items: center;
-	gap: 2px;
+	gap: var(--frame-bar-gap);
 	-webkit-app-region: no-drag;
 }
 /* Every button in the bar is 28px, whatever size class its own component asks for. */
 .conversation-bar-buttons > button,
 .conversation-bar-buttons .conversation-header-actions > button,
 .conversation-bar-buttons .conversation-header-actions > [data-slot="button"] {
-	width: 28px;
-	height: 28px;
+	width: var(--frame-control-size);
+	height: var(--frame-control-size);
 }
 .conversation-bar-buttons .conversation-header-actions {
-	gap: 2px;
+	gap: var(--frame-bar-gap);
 }
 .conversation-bar-button {
 	position: relative;

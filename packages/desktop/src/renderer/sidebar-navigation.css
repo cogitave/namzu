@@ -1,14 +1,14 @@
 .sidebar-chrome .sidebar-search {
-	width: 28px;
-	height: 28px;
-	margin-right: 2px;
+	width: var(--frame-control-size);
+	height: var(--frame-control-size);
+	margin-right: var(--frame-bar-gap);
 	flex: none;
 }
 
 .sidebar-project-navigation {
 	display: flex;
 	flex-direction: column;
-	gap: 4px;
+	gap: 0;
 	padding: 0 var(--sidebar-scroll-end) 12px var(--sidebar-content-inset);
 }
 
@@ -19,7 +19,7 @@
 .sidebar-project-heading {
 	display: flex;
 	align-items: center;
-	min-height: 30px;
+	height: var(--frame-row-height);
 	border-radius: var(--radius-control);
 	transition: background-color var(--dur-quick) var(--ease-out);
 }
@@ -52,8 +52,10 @@
 	}
 }
 .sidebar-project-heading .sidebar-project-toggle {
-	width: 28px;
-	height: 30px;
+	/* The row's padding, the folder's 16px slot and the gap: the name starts at the label line. */
+	width: calc(var(--frame-row-padding) + var(--frame-icon-slot) + var(--frame-row-gap));
+	height: var(--frame-row-height);
+	padding-inline: var(--frame-row-padding) var(--frame-row-gap);
 	border-radius: var(--radius-chip);
 	background: transparent;
 	color: var(--sidebar-muted-foreground);
@@ -88,10 +90,10 @@
 	flex: 1;
 	min-width: 0;
 	width: auto;
-	min-height: 30px;
+	height: var(--frame-row-height);
 	margin: 0;
-	padding: 4px 8px 4px 2px;
-	gap: 8px;
+	padding: 0 var(--frame-row-padding) 0 0;
+	gap: var(--frame-row-gap);
 	font-size: var(--text-small);
 	line-height: var(--leading-small);
 	font-weight: var(--weight-text);
@@ -102,8 +104,8 @@
 .sidebar-project-folder {
 	display: block;
 	position: relative;
-	width: 16px;
-	height: 16px;
+	width: var(--frame-icon-slot);
+	height: var(--frame-icon-slot);
 	flex: none;
 	color: var(--sidebar-icon-color);
 }
@@ -157,7 +159,7 @@
 }
 
 .sidebar-project-list {
-	margin: 1px 0 0 24px;
+	margin: 0;
 	padding: 0;
 	list-style: none;
 }
@@ -175,9 +177,9 @@
 
 .sidebar-project-list .conversation-row,
 .sidebar-recent-list .conversation-row {
-	min-height: 28px;
-	padding: 4px 8px;
-	gap: 8px;
+	height: var(--frame-row-height);
+	padding: 0 var(--frame-row-padding);
+	gap: var(--frame-row-gap);
 }
 
 .sidebar-project-list .conversation-row-title,
@@ -226,7 +228,8 @@
 	padding: 0 var(--sidebar-scroll-end) 16px var(--sidebar-content-inset);
 }
 .sidebar-recents .sidebar-section-title {
-	margin: 6px 8px 6px;
+	/* The list's own inset already puts the title at x 16. */
+	margin: 16px var(--frame-row-padding) 4px;
 }
 /* The archive button closes the Recents heading on the right, in the Projects "+" button's place. */
 .sidebar-recents-head {
@@ -290,8 +293,8 @@
 .sidebar-archive-placeholder {
 	display: flex;
 	align-items: center;
-	height: 28px;
-	padding: 0 8px;
+	height: var(--frame-row-height);
+	padding: 0 var(--frame-row-padding);
 }
 .sidebar-archive-placeholder::before {
 	content: "";
@@ -318,8 +321,9 @@
 
 .sidebar-list-disclosure > button {
 	width: 100%;
-	min-height: 28px;
-	padding: 4px 8px;
+	height: var(--frame-row-height);
+	padding: 0 var(--frame-row-padding) 0
+		calc(var(--frame-row-padding) + var(--frame-icon-slot) + var(--frame-row-gap));
 	border-radius: var(--radius-chip);
 	color: var(--sidebar-muted-foreground);
 	font-size: var(--text-caption);
@@ -364,12 +368,6 @@
 
 /* A terminal row sits with the conversations: the same row, led by the engine's mark or a prompt. */
 .sidebar-terminal-mark {
-	display: grid;
-	place-items: center;
-	flex: none;
-	width: 14px;
-	height: 14px;
-	margin-right: 6px;
 	color: var(--sidebar-icon-color);
 }
 .sidebar-terminal-mark svg {
@@ -385,12 +383,12 @@
  * at 13px. The warning and the buttons sit under the name, in the muted style, aligned to its start.
  */
 .sidebar-project-missing {
-	--missing-name-start: 30px;
+	--missing-name-start: calc(var(--frame-label-start) - var(--frame-row-inset));
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
 	gap: 0 8px;
-	padding: 0 8px 6px 0;
+	padding: 0 var(--frame-row-padding) 4px 0;
 	border-radius: var(--radius-control);
 }
 .sidebar-project-missing-name {
@@ -399,9 +397,9 @@
 	align-items: center;
 	gap: 8px;
 	min-width: 0;
-	min-height: 30px;
-	/* The glyph is centred in the toggle's 28px column, so the name starts where an ordinary row's does. */
-	padding: 4px 8px 4px 6px;
+	height: var(--frame-row-height);
+	/* The glyph sits in the same 16px slot as an ordinary row's, so the name starts where theirs does. */
+	padding: 0 var(--frame-row-padding);
 	font-size: var(--text-small);
 	line-height: var(--leading-small);
 	color: var(--sidebar-muted-foreground);
@@ -433,7 +431,7 @@
 	padding-right: var(--sidebar-scroll-end);
 }
 .sidebar-section-heading .sidebar-section-title {
-	margin-bottom: 6px;
+	margin-bottom: 4px;
 }
 .sidebar-section-heading .sidebar-add-project {
 	flex: none;
@@ -447,9 +445,9 @@
 	font-size: var(--text-caption);
 	line-height: var(--leading-caption);
 }
-/* A note under the Recents heading starts where the row titles do: a row's own padding is 8px. */
+/* A note under the Recents heading starts where the row titles do: the row's padding, icon slot and gap. */
 .sidebar-recents-body .sidebar-empty-note {
-	padding-inline: 8px;
+	padding-inline: calc(var(--frame-label-start) - var(--frame-row-inset)) var(--frame-row-padding);
 }
 /* The project a Recents row belongs to, so the same title in two projects is two rows. */
 .conversation-row-project {
@@ -469,17 +467,17 @@
 	display: flex;
 	align-items: center;
 	justify-content: flex-start;
-	gap: 8px;
+	gap: var(--frame-row-gap);
 	width: 100%;
-	height: 28px;
-	padding: 0 12px;
+	height: var(--frame-row-height);
+	padding: 0 var(--frame-row-padding);
 	color: var(--sidebar-muted-foreground);
 	font-size: var(--text-small);
 	line-height: var(--leading-small);
 }
 .sidebar-add-project-row svg {
-	width: 14px;
-	height: 14px;
+	width: var(--frame-icon-slot);
+	height: var(--frame-icon-slot);
 }
 
 /*
@@ -488,7 +486,8 @@
  * section title, so it takes no extra space above.
  */
 .sidebar-day-heading {
-	padding: 8px 8px 2px;
+	/* Starts at x 16 like a section title: 16 above, 4 below. */
+	padding: 16px var(--frame-row-padding) 4px;
 }
 .sidebar-day-heading:first-child {
 	padding-top: 0;
@@ -496,7 +495,7 @@
 .sidebar-day-heading > h3 {
 	margin: 0;
 	font-size: var(--text-caption);
-	font-weight: var(--weight-control);
+	font-weight: var(--weight-text);
 	line-height: var(--leading-caption);
 	color: var(--sidebar-muted-foreground);
 }

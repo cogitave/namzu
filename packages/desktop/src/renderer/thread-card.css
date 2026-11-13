@@ -67,22 +67,13 @@
 	transition: none;
 }
 /*
- * The state slot ends 8px inside the row (its padding), so a mark w px wide has its centre
- * 8 + w/2 from the edge. The hover glyph's centre is 14px from it, so a mark gets
- * margin-right: 14 - 8 - w/2: the 8px terminal dot 2px, the 4px error dot 4px, the 14px approval
- * shield -1px. The 12px spinner and background-work glyph need none.
+ * A conversation's state mark (running, unread, error, approval) is not in this slot: it sits in
+ * the row's 16px icon slot on the left, centred there, where the row's padding puts it at x 16. What
+ * stays on the right is the age, and a terminal's badge. The state slot ends 8px inside the row, so
+ * a badge w px wide has its centre 8 + w/2 from the edge, and the hover glyph's centre is 14px from
+ * it: the 8px terminal dot gets margin-right: 14 - 8 - 4 = 2px.
  */
 .sidebar-thread-item .conversation-row-state > .terminal-badge {
-	margin-right: 2px;
-}
-.sidebar-thread-item .conversation-row-state > .connection-dot {
-	margin-right: 4px;
-}
-.sidebar-thread-item .conversation-row-state > [aria-label="Approval needed"],
-.sidebar-thread-item .conversation-row-state > [aria-label="Question waiting"] {
-	margin-right: -1px;
-}
-.sidebar-thread-item .conversation-row-state > .thread-unread-dot {
 	margin-right: 2px;
 }
 .sidebar-thread-item:hover .sidebar-thread-actions,

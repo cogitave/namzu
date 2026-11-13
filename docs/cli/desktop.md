@@ -908,13 +908,13 @@ The logic is pure (`SystemNotices` takes an injected notifier, clock, timer and 
 
 ## The top of a conversation window
 
-A conversation window spends 40 px on one bar, where it spent 52 px on a strip of tabs. The bar holds the conversation's title (14 px, strong, cut with an ellipsis when it does not fit), the project's name (13 px, muted), then on the right its buttons (how full the conversation is lives in the row under the composer, not here). The sidebar is the one list of conversations; a title is shown once. The operating system's menu row (File, Edit, View, Window) is unchanged and sits above the bar.
+A conversation window spends 44 px on one bar (the same height as the strip of tabs, so showing or hiding the strip moves nothing). The bar holds the conversation's title (14 px, strong, cut with an ellipsis when it does not fit), the project's name (13 px, muted), then on the right its buttons (how full the conversation is lives in the row under the composer, not here). The sidebar is the one list of conversations; a title is shown once. The operating system's menu row (File, Edit, View, Window) is unchanged and sits above the bar.
 
 **The read-out** is not in the bar: it sits at the right end of the row under the composer box (see the composer section below), from the same figures (`contextRingModel`, so the two cannot disagree) and with the same rule for when it shows: nothing is drawn until the engine has reported both a context size and a window.
 
 **The buttons** are 28 px, each with a tooltip and an accessible name: **Changes** (opens the Changes panel; with changes it widens to show the lines added and removed, "+35 −3", read from the same `changeTotals` as the result line and the pane, and its accessible name says the file count too, "Changes, 4 changed files, 35 added, 3 removed"), **New terminal** (a menu of the open terminals, the conversation and **New terminal** once one is open), **Project files**, **Conversation details** and **Conversation actions**. Changes and Project files open the panels the details popover and the panel's own tab strip already open; they are a shorter way there, not new panels. At 960 px the title gives way first, the project's name shrinks next and goes only below 300 px of bar; the buttons stay.
 
-**Conversation tabs** are hidden by default. **View > Show conversation tabs** (a checkbox), **Settings > Appearance > Show conversation tabs** and the command palette's **Show conversation tabs** / **Hide conversation tabs** switch them; the choice is `showConversationTabs` in `desktop-settings.json`, shared by the windows and by the menu's checkbox, and the window remembers the last answer for the first paint. With the switch on, the top of the window is as it was: the strip and the 52 px height. The context read-out stays in the composer's row either way. A Pal's conversation always keeps the strip, because the Pal's computer is a tab in it.
+**Conversation tabs** are hidden by default. **View > Show conversation tabs** (a checkbox), **Settings > Appearance > Show conversation tabs** and the command palette's **Show conversation tabs** / **Hide conversation tabs** switch them; the choice is `showConversationTabs` in `desktop-settings.json`, shared by the windows and by the menu's checkbox, and the window remembers the last answer for the first paint. With the switch on, the top of the window is as it was: the strip, in the same 44 px. The context read-out stays in the composer's row either way. A Pal's conversation always keeps the strip, because the Pal's computer is a tab in it.
 
 With the strip hidden, every way of moving still works:
 
@@ -1722,7 +1722,7 @@ Guest browser and file tools do not fall back to the operator's device.
 The owning pane places ordinary conversations, Pal chat and the Pal's computer
 in one tab row. All use equal 220px by 32px frames inside the shared outer header.
 That header stays in place when switching between ordinary chat, Pal chat and
-computer content. Its height follows the canonical 52px workspace-header token,
+computer content. Its height follows the canonical workspace-header token (44px since 2026-11-13; 52px in the receipts below),
 with common gutters, so changing the selected view does not move the tab row.
 New conversation follows the scrollable tab list. Computer and layout controls
 form a separate group aligned to the header's right gutter, including split and
@@ -1994,8 +1994,8 @@ below) the 48 px rail is drawn with Home at the top and Settings at the bottom; 
 focus when the rail and the foot swap keeps it. Opening or closing the sidebar moves the conversation by
 exactly the width that changes (288 px open, 48 px collapsed). In a window of 767 px or less the sidebar is an
 overlay beside the rail, and the foot is not drawn. The sidebar's header and the top bar's hairline end on
-one line: both are 40 px while the strip of tabs is hidden (the default), and 52 px with the strip.
-The wordmark keeps its size, and the menu button around it is 4 px shorter. Home
+one line: both are 44 px, with the strip of tabs and without it, and in Settings (see
+[The frame's numbers](#the-frames-numbers)). The wordmark keeps its size, and the menu button around it is 4 px shorter. Home
 owns the chat and blank composer. Spaces, Scheduled and Plugins are not on the rail:
 a destination that cannot open is not drawn (no disabled button, no "coming soon"), and
 each returns when it exists. Plugins is still reached from the composer's + menu. When
@@ -2224,8 +2224,8 @@ sidebar with the full title, the relative time, the computer it runs on, the pro
 project exposes one, the git branch. The branch comes from the cached project repository read, never a
 guess, and the line is left out when it is unknown or the head is detached. The card closes when the pointer
 leaves, on scroll, on click or drag, and while a menu is open; it does not open for keyboard focus or touch.
-The sidebar uses one folder glyph per project and plain indented conversation
-titles. Each group initially shows five conversations, keeping the active one
+The sidebar uses one folder glyph per project and plain conversation
+titles, in line with the project's name (see [The frame's numbers](#the-frames-numbers)). Each group initially shows five conversations, keeping the active one
 visible when it lies beyond that limit. Show more reveals additional loaded
 rows. Project headings omit connection dots; connection failures and recovery
 remain in the existing project status surfaces. Active and running conversations
@@ -2354,7 +2354,7 @@ The font stacks are not part of the scale; they are described under [Typefaces](
 
 | Token | Size / line | Where it is used |
 | --- | --- | --- |
-| `--text-caption` | 12 / 16 | tooltips, times, counts, badges, the sidebar's group headings (control weight), the counts on the result line |
+| `--text-caption` | 12 / 16 | tooltips, times, counts, badges, the sidebar's group headings (text weight), the counts on the result line |
 | `--text-small` | 13 / 18 | quiet rows (the fold line, the result line, the row under the message box, the waiting bar), sidebar rows, buttons, menus and popups |
 | `--text-interface` | 14 / 20 | the top bar's title (strong), a reply's table (header row in the control weight), tool rows |
 | `--text-reading` | 15 / 22 | a reply's paragraphs and lists, the person's message, the text in the message box, a reply's `h3` and below |
@@ -3476,6 +3476,36 @@ Every file call is confined to the folder of a trusted, ordinary project that th
 The same visibility rules apply to listing, searching, reading and linking. `.git`, `node_modules` and anything matched by `.gitignore` files (root to the folder) or `.git/info/exclude` is neither listed, indexed, linked nor readable by exact path, so a secrets file the project keeps out of version control cannot be fetched by naming it. A link inside the project that points at such a file is judged by where it lands. Reads open the file without following a final link and without blocking on a named pipe, and check after opening that the path still resolves to the opened file; a folder swapped for a link in the instant between the check and the open can still not be ruled out, because Node has no `openat`-style descent.
 
 The project index is a bounded walk (50,000 paths, depth 24, a 3 s budget checked inside each folder too) cached for 30 s, and it reports `truncated` when a cap was hit. "Open in" finds VS Code and Cursor in the per-user install folder, under Program Files and on `PATH`, and starts the first one found with separate arguments and no shell.
+
+## The frame's numbers
+
+The header, the sidebar's rows and its foot sit on one rhythm, so edges that should meet do, and no
+screen moves the line another screen drew. Each number is a token in `theme.css` (`--frame-*`) and every
+rule that places a frame part reads the token; `src/renderer/frame-tokens.test.ts` pins the tokens and
+the rules that read them, and `e2e/ux-frame-measures.test.mjs` measures them in the running app at 1280
+by 820.
+
+- **One header height, 44 px**, on the sidebar side and on the main side, with the strip of tabs or the
+  conversation bar, and in Settings and Plugins. The hairline under a header is an inset shadow inside the
+  44, so it never changes the height; the line under the wordmark and the line under the tabs are at the
+  same y. Tabs stay 32 high, 6 from the top and the bottom; header controls stay 28 high with 8 above and
+  below, 4 apart and 8 from the right edge.
+- **Rows are 32 px high**, inset 8 from both edges of the sidebar, with 8 px of side padding, a 16 px icon
+  slot and a gap of 8. Every label therefore starts at x 40: the New conversation row, a Pal's row, a project
+  row, a conversation row (in a project, in Recents and in the archive), a terminal row and a Settings or
+  Plugins section. Rows touch; there is no gap between them. A conversation is no longer indented under its
+  project: its icon slot is what keeps its label in line with the project's name.
+- **A conversation row's state mark** (running, unread, error, approval or question) sits centred in the
+  icon slot at the row's left, at x 16 to 32. An idle row leaves the slot empty. What stays on the right is
+  the age (shown on hover) and a terminal's badge; the hover buttons still take the right edge.
+- **Section titles** ("Projects", "Recents", the day headings) are 12/16 at text weight (400) and start at
+  x 16, with 16 above and 4 below.
+- **The foot is 48 px high** with a 1 px hairline above it (inside the 48) and 32 px buttons; the collapsed
+  rail's buttons are 32 as well, with 16 px icons.
+- **The selected row** is filled with 14 percent of the text colour (hover stays 8 percent in the dark
+  theme). In the light theme the selected fill is the same 14 percent of the text colour.
+
+Spacings in the sidebar are 2, 4, 6, 8, 12, 16, 20, 24 or 32 px; a value of 14 stays only as a corner radius.
 
 ## Sidebar, tabs and the command palette
 

@@ -84,11 +84,11 @@ describe('the frame is two flat regions', () => {
 	})
 
 	it('ends the sidebar header and the top bar on one line', () => {
-		expect(rule(style, '.app')).toContain('--frame-header-height: 52px')
-		expect(rule(style, '.app:has(.workspace[data-conversation-bar])')).toContain(
-			'--frame-header-height: 40px',
-		)
-		expect(host).toContain('--workspace-topbar-height: 40px')
+		// One height, with or without the strip of tabs: the token is defined once (theme.css).
+		expect(theme).toContain('--frame-header-height: 44px')
+		expect(theme).toContain('--workspace-topbar-height: var(--frame-header-height)')
+		expect(style).not.toContain('--frame-header-height: ')
+		expect(host).not.toContain('--workspace-topbar-height: ')
 	})
 })
 

@@ -32,6 +32,7 @@ export function ArchivedThreadRow({
 		>
 			<div className="sidebar-conversation-button relative w-full overflow-hidden rounded-md text-left text-sidebar-foreground select-none hover:bg-sidebar-row-hover">
 				<div className="conversation-row">
+					<span className="conversation-row-mark" aria-hidden="true" />
 					<span className="conversation-row-title" title={conversation.title}>
 						{shortenTitle(conversation.title, ROW_TITLE_CHARS)}
 					</span>

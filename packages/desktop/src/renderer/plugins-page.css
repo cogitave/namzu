@@ -296,22 +296,25 @@ output.plugins-page-notice {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	min-height: 44px;
-	padding: 0 12px;
+	box-sizing: border-box;
+	height: var(--frame-header-height);
+	padding: 0 var(--frame-row-inset) 0 calc(var(--frame-row-inset) + var(--frame-row-padding));
+	/* The same hairline as under the top bar, inside the same height. */
+	box-shadow: inset 0 -1px 0 var(--sidebar-border);
 	font-size: var(--text-heading);
 	font-weight: var(--weight-strong);
 	line-height: var(--leading-heading);
 }
 .plugins-sidebar-navigation {
-	padding: 4px 8px;
+	padding: 8px var(--frame-row-inset);
 }
 .plugins-sidebar-navigation button {
 	display: flex;
 	align-items: center;
-	gap: 10px;
-	min-height: 30px;
+	gap: var(--frame-row-gap);
+	height: var(--frame-row-height);
 	width: 100%;
-	padding: 5px 8px;
+	padding: 0 var(--frame-row-padding);
 	border-radius: var(--radius-control);
 	border: 0;
 	background: var(--sidebar-row-active);
@@ -328,8 +331,8 @@ output.plugins-page-notice {
 	box-shadow: var(--focus-ring);
 }
 .plugins-sidebar-navigation svg {
-	width: 16px;
-	height: 16px;
+	width: var(--frame-icon-slot);
+	height: var(--frame-icon-slot);
 	flex: none;
 }
 .plugins-sidebar-installed {

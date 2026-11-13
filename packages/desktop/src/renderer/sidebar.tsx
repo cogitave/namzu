@@ -744,7 +744,7 @@ function TerminalList({
 	return (
 		<ul
 			aria-label={`${project.name} terminals`}
-			className="sidebar-project-list sidebar-terminal-list relative flex flex-col gap-px"
+			className="sidebar-project-list sidebar-terminal-list relative flex flex-col"
 		>
 			{tabs.map((tab) => (
 				<li
@@ -767,7 +767,7 @@ function TerminalList({
 						}`}
 					>
 						<div className="conversation-row">
-							<span className="sidebar-terminal-mark" aria-hidden="true">
+							<span className="sidebar-terminal-mark conversation-row-mark" aria-hidden="true">
 								<TerminalMark tab={tab} />
 							</span>
 							<span className="conversation-row-title">{tab.title}</span>
@@ -835,7 +835,7 @@ function ThreadList({
 		<ul
 			ref={list}
 			aria-label={`${project.name} conversations`}
-			className="sidebar-project-list relative flex flex-col gap-px"
+			className="sidebar-project-list relative flex flex-col"
 		>
 			{shownRows.map((item) => (
 				<ThreadCard
@@ -895,7 +895,7 @@ function RecentList({
 	return (
 		<ul
 			ref={list}
-			className="sidebar-recent-list relative flex flex-col gap-px"
+			className="sidebar-recent-list relative flex flex-col"
 			aria-label="Recent conversations"
 		>
 			{sections.map((section) => (
@@ -1018,7 +1018,7 @@ function ArchivedRows({
 	return (
 		<ul
 			ref={list}
-			className="sidebar-recent-list relative flex flex-col gap-px"
+			className="sidebar-recent-list relative flex flex-col"
 			aria-label="Archived conversations"
 		>
 			{rows.map((item) => {

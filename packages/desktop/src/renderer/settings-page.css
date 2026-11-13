@@ -405,16 +405,16 @@
 .settings-sidebar-navigation {
 	display: flex;
 	flex-direction: column;
-	gap: 2px;
-	padding: 4px 8px;
+	gap: 0;
+	padding: 8px var(--frame-row-inset);
 }
 .settings-sidebar-navigation button {
 	display: flex;
 	align-items: center;
-	gap: 10px;
-	min-height: 32px;
+	gap: var(--frame-row-gap);
+	height: var(--frame-row-height);
 	width: 100%;
-	padding: 5px 8px;
+	padding: 0 var(--frame-row-padding);
 	border: 0;
 	border-radius: var(--radius-control);
 	background: transparent;
@@ -435,8 +435,8 @@
 	box-shadow: var(--focus-ring);
 }
 .settings-sidebar-navigation svg {
-	width: 16px;
-	height: 16px;
+	width: var(--frame-icon-slot);
+	height: var(--frame-icon-slot);
 	flex: none;
 	color: var(--sidebar-muted-foreground);
 }
