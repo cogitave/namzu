@@ -325,3 +325,72 @@ describe('scalars', () => {
 		expect(scalars(raw)).toEqual({ name: 'x' })
 	})
 })
+
+describe('raw keys', () => {
+	const HOOKS = [
+		'hooks:',
+		'  PreToolUse:',
+		'    - matcher: Bash',
+		'      hooks:',
+		'        - type: command',
+		'          command: node',
+		'          args: ["a", "b"]',
+		'',
+		'  # a comment inside the block',
+		'  Stop:',
+		'    - hooks: []',
+	]
+
+	it('hands the key’s own lines back as written, up to the next top-level key', () => {
+		const raw = ['---', 'name: a-skill', ...HOOKS, 'description: d', '---', 'Body.'].join('\n')
+		const parsed = parseFrontmatter(raw, SOURCE, { raw: ['hooks'] })
+		expect(parsed.rawBlocks.hooks).toBe(HOOKS.join('\n'))
+		expect(parsed.values.hooks).toBeUndefined()
+		// The keys around it read exactly as without it.
+		expect(scalars(raw.replace(HOOKS.join('\n'), 'hooks: skipped'))).toEqual({
+			name: 'a-skill',
+			description: 'd',
+			hooks: 'skipped',
+		})
+		expect(parsed.values.name).toEqual({ kind: 'scalar', value: 'a-skill' })
+		expect(parsed.values.description).toEqual({ kind: 'scalar', value: 'd' })
+	})
+
+	it('does not refuse the key for lists or flow forms the flat reader cannot hold', () => {
+		const raw = ['---', 'name: a-skill', 'hooks: {PreToolUse: []}', '---', ''].join('\n')
+		expect(() => parseFrontmatter(raw, SOURCE)).toThrow(/flow mapping/)
+		expect(parseFrontmatter(raw, SOURCE, { raw: ['hooks'] }).rawBlocks.hooks).toBe(
+			'hooks: {PreToolUse: []}',
+		)
+	})
+
+	it('is empty when the file has no such key, and leaves every other key as before', () => {
+		const raw = ['---', ...LINES.slice(1, 3), '---', 'x'].join('\n')
+		const without = parseFrontmatter(raw, SOURCE)
+		const withOption = parseFrontmatter(raw, SOURCE, { raw: ['hooks'] })
+		expect(withOption.rawBlocks).toEqual({})
+		expect(withOption.values).toEqual(without.values)
+		expect(without.rawBlocks).toEqual({})
+	})
+
+	it('reads a CRLF file the same', () => {
+		const raw = ['---', 'name: a-skill', ...HOOKS, '---', 'Body.'].join('\r\n')
+		expect(parseFrontmatter(raw, SOURCE, { raw: ['hooks'] }).rawBlocks.hooks).toBe(HOOKS.join('\n'))
+	})
+
+	it('does not carry a later key’s indented lines into the block', () => {
+		const raw = [
+			'---',
+			'name: a-skill',
+			'hooks:',
+			'  Stop: []',
+			'metadata:',
+			'  owner: me',
+			'---',
+			'',
+		].join('\n')
+		const parsed = parseFrontmatter(raw, SOURCE, { raw: ['hooks'] })
+		expect(parsed.rawBlocks.hooks).toBe('hooks:\n  Stop: []')
+		expect(parsed.values.metadata).toEqual({ kind: 'mapping', entries: { owner: 'me' } })
+	})
+})

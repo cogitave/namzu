@@ -433,6 +433,11 @@ import type {
 	SubagentActivity,
 	SubagentActivitySource,
 } from '../integrations/subagents/activity.js'
+import {
+	type AttachedAgentHook,
+	type RefusedAgent,
+	createAgentHooksHost,
+} from '../integrations/subagents/agent-hooks.js'
 import { discoverAgentDefinitions } from '../integrations/subagents/definitions.js'
 import { prepareDelegatedEffort } from '../integrations/subagents/model-effort.js'
 import {
@@ -454,6 +459,7 @@ import {
 	createSavedAgentHistory,
 	createSavedAgentsStep,
 } from '../integrations/subagents/saved-agents.js'
+import { isTrusted } from '../integrations/trust/store.js'
 import { listWorkflowRuns } from '../integrations/workflows/history.js'
 import { type WorkflowHost, createWorkflowHost } from '../integrations/workflows/host.js'
 import { WORKFLOW_TOOL_NAME, workflowRefusal } from '../integrations/workflows/offering.js'
@@ -541,6 +547,7 @@ import { createCliReminderSource, hypermodeExitOwed } from '../reminders/index.j
 import { createSessionSkillCatalog } from '../skills/catalog.js'
 import { createSkillDirectoryResolver } from '../skills/directory.js'
 import { SAVE_SKILL_TOOL_NAME } from '../skills/save.js'
+import { type AttachedSkillHook, createSkillHooksHost } from '../skills/skill-hooks.js'
 import { projectTurnConversation } from './conversation-history.js'
 import { type ModelSwitchOutcome, buildSwitchModelTool } from './model-switch-tool.js'
 import { type ModelSwitchRequest, resolveModelSwitch } from './model-switch.js'
@@ -1587,6 +1594,33 @@ export interface AgentSession {
 	readonly stopJob?: (id: string) => Promise<BackgroundJob>
 	/** The shell hooks this session runs, by event; what `/hooks` lists. */
 	readonly hooks?: HooksConfig
+	/**
+	 * The hooks skills of this conversation have attached, and a way to hear what
+	 * the person should be told about a skill whose hooks could not be loaded.
+	 * Absent when the session has no hook runtime.
+	 */
+	readonly skillHooks?: {
+		readonly attached: () => readonly AttachedSkillHook[]
+		/** The person ran a skill by name: attach what it carries. */
+		readonly use: (skill: {
+			readonly name: string
+			readonly dirPath: string
+			readonly hooksSource: string
+		}) => void
+		readonly subscribe: (listener: (line: string) => void) => () => void
+		/** Skills that carry hooks and attach them when used, by name. */
+		readonly carriers: () => readonly string[]
+	}
+	/**
+	 * The hooks the runs of agent files have attached, the agent files that carry
+	 * hooks and attach them to each run, and the files that are not offered.
+	 */
+	readonly agentHooks?: {
+		readonly attached: () => readonly AttachedAgentHook[]
+		readonly subscribe: (listener: (line: string) => void) => () => void
+		readonly carriers: () => readonly string[]
+		readonly refused: () => readonly { readonly name: string; readonly line: string }[]
+	}
 	/** The JavaScript hooks plugins registered now (plugin name, event); what `/hooks` lists beside `hooks`. */
 	readonly pluginHooks?: () => readonly { readonly plugin: string; readonly event: string }[]
 	/** The hook entries (commands, addresses, prompts) enabled plugins ship, and what could not be loaded from them. */
@@ -2691,8 +2725,18 @@ export interface AgentSessionOptions {
 	readonly allowModelSwitch?: boolean
 	/** See `NamzuCliConfig.hooks`. Attached to the plugin lifecycle manager. */
 	readonly hooks?: HooksConfig
-	/** The switch limiting hooks (`disableHooks`, `hooksManagedOnly`); hook entries plugins ship obey it too. */
+	/**
+	 * The switch that turned hooks off (`disableHooks`, `NAMZU_DISABLE_HOOKS`, `hooksManagedOnly`).
+	 * The one place the hosts say so: hook entries a plugin ships, a skill's hooks and
+	 * an agent file's hooks all obey it.
+	 */
 	readonly hooksSwitch?: HooksSwitch
+	/**
+	 * The folder was accepted for this run without being remembered (`--trust`
+	 * on a headless run): its own skills may attach hooks, as its config's hooks
+	 * attach. Absent, the trust the person recorded decides.
+	 */
+	readonly folderTrusted?: boolean
 	/** See `NamzuCliConfig.additionalDirectories`, absolute. `/add-dir` extends it for the session. */
 	readonly additionalDirectories?: readonly string[]
 	/**
@@ -4126,6 +4170,17 @@ export async function createAgentSession(
 	// dispatch to. A roster reported from the request rather than the result
 	// would name agents that are not there.
 	let allowedAgentIds: readonly string[] = []
+	// What the agent files carry in hooks: attached to each run of the agent (see
+	// `integrations/subagents/agent-hooks.ts`), on the session's own hook runtime.
+	const agentHooks = createAgentHooksHost({
+		manager: () => pluginRuntime?.manager,
+		hookOptions: () => pluginRuntime?.hookOptions,
+		hooksSwitch: () => options.hooksSwitch,
+		projectTrusted: () => options.folderTrusted === true || isTrusted(cwd),
+	})
+	/** The agent files that carry hooks, by name, and the ones that are not offered. */
+	let agentHookCarriers: readonly string[] = []
+	let refusedAgents: readonly RefusedAgent[] = []
 	try {
 		// Agents the project or user defined in files. A file that cannot be
 		// loaded is named with its reason rather than silently absent: "namzu
@@ -4134,7 +4189,15 @@ export async function createAgentSession(
 			cwd,
 			pluginAgentDirs: pluginFiles.agents,
 			...(options.skills ? { skills: options.skills } : {}),
+			hooks: {
+				hooksSwitch: options.hooksSwitch,
+				projectTrusted: options.folderTrusted === true || isTrusted(cwd),
+			},
 		})
+		agentHookCarriers = discovered.definitions
+			.filter((definition) => definition.hooksSource !== undefined)
+			.map((definition) => definition.name)
+		refusedAgents = discovered.refused
 		for (const missing of discovered.missingSkills) {
 			cliLogger().warn('agent definition skill missing', {
 				'namzu.agent.definition.path': missing.path,
@@ -4183,6 +4246,8 @@ export async function createAgentSession(
 			resolveTurnModel: (turnId) => delegationModels.get(turnId),
 			timeoutMs: options.limits?.timeoutMs,
 			definitions: discovered.definitions,
+			agentHooks,
+			refusedDefinitions: discovered.refused,
 			// Children log under the parent's `<session-id>/subagents/`; an
 			// ephemeral session keeps them in memory with its own log.
 			...(options.ephemeral ? {} : { paths }),
@@ -5011,7 +5076,15 @@ export async function createAgentSession(
 								timing: 'beside-turn',
 							}),
 			},
-			{ ...(options.hooksSwitch ? { hooksSwitch: options.hooksSwitch } : {}) },
+			{
+				// The same switch plugin entries obey; none of the hooks attach under it.
+				...(options.hooksSwitch ? { hooksSwitch: options.hooksSwitch } : {}),
+				// A skill that carries hooks attaches them to this manager when it is used.
+				keepForSkills:
+					options.hooksSwitch === undefined &&
+					(agentHookCarriers.length > 0 ||
+						skillCatalog.fileSkills.some((skill) => skill.hooksSource !== undefined)),
+			},
 		)
 	} catch (error) {
 		await Promise.allSettled([mcp.close(), computerUseHost?.dispose(), browserControl?.dispose()])
@@ -5046,6 +5119,16 @@ export async function createAgentSession(
 	// is replaced when the conversation is first made durable — and a hook
 	// given the provisional id could never match it to a turn.
 	const sessionPlugins = pluginRuntime
+	// What the hooks of the skills in use are attached to and removed from; see
+	// `skills/skill-hooks.ts`. They end with the conversation, below.
+	const skillHooks = createSkillHooksHost({
+		manager: () => sessionPlugins?.manager,
+		hookOptions: () => sessionPlugins?.hookOptions,
+		hooksSwitch: () => options.hooksSwitch,
+		projectTrusted: () => options.folderTrusted === true || isTrusted(cwd),
+		isProjectSkill: (name) =>
+			skillCatalog.fileSkills.some((skill) => skill.name === name && skill.source === 'project'),
+	})
 	// Every named toolset above, each wrapped WITHOUT collapsing them into
 	// one — filtering or deferring a merged umbrella toolset would erase
 	// which real source (an MCP server's trust, a plugin's) each tool came
@@ -5176,6 +5259,7 @@ export async function createAgentSession(
 			contextWindowTokens: resolveContextWindow(options.compaction?.contextWindowTokens, turnModel)
 				.tokens,
 			...(sessionPlugins ? { pluginSkills: sessionPlugins.skills } : {}),
+			skillHooks,
 		})
 	// The latest system prompt a turn assembled, kept for `/context`.
 	let lastSystemPromptText: string | undefined
@@ -5210,6 +5294,7 @@ export async function createAgentSession(
 	const changeConversation: NonNullable<AgentSession['changeConversation']> = (change) => {
 		if (!sessionPlugins) return Promise.resolve()
 		conversationGeneration += 1
+		skillHooks.endConversation()
 		sessionStarted = false
 		sessionHookContext = undefined
 		nextSessionSource = change.starting
@@ -6156,6 +6241,21 @@ export async function createAgentSession(
 				}
 			: {}),
 		...(options.hooks ? { hooks: options.hooks } : {}),
+		skillHooks: {
+			attached: () => skillHooks.attached(),
+			use: (skill: { name: string; dirPath: string; hooksSource: string }) => skillHooks.use(skill),
+			subscribe: (listener: (line: string) => void) => skillHooks.subscribe(listener),
+			carriers: () =>
+				skillCatalog.fileSkills
+					.filter((skill) => skill.hooksSource !== undefined)
+					.map((skill) => skill.name),
+		},
+		agentHooks: {
+			attached: () => agentHooks.attached(),
+			subscribe: (listener: (line: string) => void) => agentHooks.subscribe(listener),
+			carriers: () => agentHookCarriers,
+			refused: () => refusedAgents.map((refused) => ({ name: refused.name, line: refused.line })),
+		},
 		...(pluginRuntime ? { pluginHooks: () => pluginRuntime?.pluginHooks() ?? [] } : {}),
 		...(pluginRuntime
 			? {

@@ -72,6 +72,15 @@ export interface SkillMetadata {
 
 	/** Whether a `fork` skill's agent runs in the background (`background`). */
 	background?: boolean
+
+	/**
+	 * The `hooks` block of the front matter, as the file wrote it (the key's
+	 * line and the lines under it). The kernel does not read it: a host that
+	 * runs hooks parses it with its own YAML reader, because the block is a
+	 * list of mappings in a mapping, which the front matter reader holds only
+	 * as text. Absent when the file has no `hooks` key or it is empty.
+	 */
+	hooksSource?: string
 }
 
 /**

@@ -13,9 +13,14 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 
+import { parseAgentMarkdown } from '@namzu/sdk'
+
 import { hooksOfElement } from '../../config/hook-common-shape.js'
+import { readSkillHooks, withoutSessionStart } from '../../config/skill-hooks-reader.js'
+import { discoverSkills } from '../../skills/store.js'
 import { fingerprintMcpServer } from '../mcp/project-approval.js'
 import { PROJECT_MCP_FILE, parseMcpServerFile } from '../mcp/shared-file.js'
+import { readAgentHooks } from '../subagents/agent-hooks.js'
 
 const FILES = ['namzu.config.json', 'namzu.config.local.json'] as const
 
@@ -179,6 +184,72 @@ function describePluginHooks(cwd: string): HookGrant[] {
 	return out
 }
 
+/**
+ * The hooks the folder's own skills carry, each as what it would run. They
+ * attach when a skill is used and not before, and the folder's skills are read
+ * here as text only, never run; they are listed with the config's hooks because
+ * they run commands by themselves once the folder is trusted.
+ */
+function describeSkillHooks(cwd: string): HookGrant[] {
+	const out: HookGrant[] = []
+	for (const skill of discoverSkills({ cwd })) {
+		if (skill.source !== 'project' || skill.hooksSource === undefined) continue
+		const read = withoutSessionStart(readSkillHooks(skill.hooksSource, `skill ${skill.name}`))
+		const config: Record<string, unknown> = { hooks: read.hooks }
+		for (const grant of describeHooks(config)) {
+			out.push({ ...grant, event: `${grant.event} (skill ${skill.name})` })
+		}
+		if (read.guardLost) {
+			out.push({
+				event: `skill ${skill.name}`,
+				runs: 'hooks that cannot be loaded; its tools are not pre-approved',
+			})
+		}
+	}
+	return out
+}
+
+/**
+ * The hooks the folder's own agent files carry, each as what it would run.
+ * They attach to each run of the agent once the folder is trusted, never
+ * before. Read as text only, never run.
+ */
+function describeAgentHooks(cwd: string): HookGrant[] {
+	const out: HookGrant[] = []
+	const dir = join(cwd, '.namzu', 'agents')
+	let files: string[]
+	try {
+		files = readdirSync(dir, { withFileTypes: true })
+			.filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
+			.map((entry) => entry.name)
+			.sort()
+	} catch {
+		return out
+	}
+	for (const file of files) {
+		const path = join(dir, file)
+		let text: string
+		try {
+			text = readFileSync(path, 'utf8')
+		} catch {
+			continue
+		}
+		const found = parseAgentMarkdown(text, path, 'project')
+		if ('reason' in found || found.hooksSource === undefined) continue
+		const read = readAgentHooks(found.hooksSource, found.name)
+		for (const grant of describeHooks({ hooks: read.hooks })) {
+			out.push({ ...grant, event: `${grant.event} (agent ${found.name})` })
+		}
+		if (read.guardLost) {
+			out.push({
+				event: `agent ${found.name}`,
+				runs: 'hooks that cannot be loaded; the agent is not offered',
+			})
+		}
+	}
+	return out
+}
+
 /** The allow rules and added directories the folder's own config carries. */
 export function readFolderGrants(cwd: string): FolderGrants {
 	const allowRules: string[] = []
@@ -205,6 +276,18 @@ export function readFolderGrants(cwd: string): FolderGrants {
 			}
 		}
 	}
+	// Order: the config files, then plugins, then skills, then agent files.
+	hooks.push(...describePluginHooks(cwd))
+	try {
+		hooks.push(...describeSkillHooks(cwd))
+	} catch {
+		// Skills that cannot be read are reported when they are used.
+	}
+	try {
+		hooks.push(...describeAgentHooks(cwd))
+	} catch {
+		// Agent files that cannot be read are reported when the agents are listed.
+	}
 	let toolServers: ToolServerGrant[] = []
 	try {
 		const declared = parseMcpServerFile(
@@ -223,6 +306,6 @@ export function readFolderGrants(cwd: string): FolderGrants {
 		allowRules: [...new Set(allowRules)],
 		directories: [...new Set(directories)],
 		toolServers,
-		hooks: [...hooks, ...describePluginHooks(cwd)],
+		hooks,
 	}
 }

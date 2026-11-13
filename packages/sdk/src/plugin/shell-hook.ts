@@ -669,6 +669,14 @@ export interface ShellHookInput {
 	readonly transcriptPath?: string
 	/** How tool calls are being decided right now. Sent as `permission_mode`. */
 	readonly permissionMode?: string
+	/**
+	 * Variables added to a command's environment, under the ones the kernel sets
+	 * for every hook (`NAMZU_HOOK_EVENT` and the rest, which these never
+	 * replace). Not part of the JSON the hook reads.
+	 */
+	readonly extraEnv?: Readonly<Record<string, string>>
+	/** The skill's folder, when the hook came from a skill; see {@link ShellHookOptions.skillRoot}. */
+	readonly skillRoot?: string
 }
 
 /** The JSON a hook receives on stdin (or as an HTTP body). */
@@ -795,12 +803,18 @@ export function runShellHook(
 	// inherited environment; the kernel's own names last. A shell expands the
 	// variables itself, so a folder name is never read as shell text.
 	const pluginFolders = input.plugin
-	const { env, unset } = movedEnvironment(entry, { ...inherited, ...kernel }, kernel, {
-		project: projectDir,
-		...(pluginFolders !== undefined
-			? { plugin: pluginFolders.root, pluginData: pluginFolders.dataDir }
-			: {}),
-	})
+	const { env, unset } = movedEnvironment(
+		entry,
+		{ ...inherited, ...input.extraEnv, ...kernel },
+		kernel,
+		{
+			project: projectDir,
+			...(input.skillRoot !== undefined ? { skill: input.skillRoot } : {}),
+			...(pluginFolders !== undefined
+				? { plugin: pluginFolders.root, pluginData: pluginFolders.dataDir }
+				: {}),
+		},
+	)
 	// The exec form has no shell to expand them, so the values are put in.
 	const placed: ShellHookEntry =
 		entry.args === undefined
@@ -1589,12 +1603,32 @@ export interface ShellHookOptions {
 	 */
 	readonly projectDir?: string
 	/**
+	 * Variables added to the environment of every command this adapter runs,
+	 * beside the ones the kernel sets for each hook, which they never replace.
+	 * For a host that attaches a group of hooks with something in common (a
+	 * skill's folder).
+	 */
+	readonly extraEnv?: Readonly<Record<string, string>>
+	/**
+	 * Called when a hook of this adapter was selected to run (its matcher and
+	 * `if` allowed it), before it runs. For a host that decides what happens to
+	 * a hook once it has run (removing it after a first successful run).
+	 */
+	readonly onRun?: (info: { readonly event: ShellHookEvent }) => void
+	/**
 	 * Set when the entries belong to a plugin: its own folder and the folder kept
 	 * for its data, given to every command as `NAMZU_PLUGIN_ROOT` and
 	 * `NAMZU_PLUGIN_DATA` and put in the command and arguments where they name
 	 * them. The data folder is created when a command first runs.
 	 */
 	readonly plugin?: PluginFolders
+	/**
+	 * Set when the entries belong to a skill: the skill's own folder. A variable
+	 * the command refers to without it being set, whose name ends in
+	 * `_PLUGIN_ROOT` or `_SKILL_ROOT`, is given this folder under the name the
+	 * command used (a skill moved as written names its folder that way).
+	 */
+	readonly skillRoot?: string
 	/** How a path pattern in an entry's `if` is read. Absent, such a filter runs the hook. */
 	readonly pathFilter?: ShellHookPathFilter
 	/**
@@ -1769,6 +1803,7 @@ export function createShellHook(
 				return { action: 'continue' }
 			}
 			if (entry.once === true) spent = true
+			options.onRun?.({ event })
 			const transcriptPath = options.transcriptPath?.(String(context.sessionId))
 			const permissionMode = options.permissionMode?.()
 			const hookInput: ShellHookInput = {
@@ -1814,6 +1849,8 @@ export function createShellHook(
 					: {}),
 				...(transcriptPath !== undefined ? { transcriptPath } : {}),
 				...(permissionMode !== undefined ? { permissionMode } : {}),
+				...(options.extraEnv !== undefined ? { extraEnv: options.extraEnv } : {}),
+				...(options.skillRoot !== undefined ? { skillRoot: options.skillRoot } : {}),
 			}
 			const verdictCall: ShellHookCall = {
 				...(context.toolName !== undefined ? { toolName: context.toolName } : {}),

@@ -63,6 +63,7 @@ import {
 	warnLegacyMcpPermissionNames,
 } from '../permissions/rules.js'
 import { refusedByLayers } from '../schedule/policy.js'
+import { useSkillHooksByName } from '../skills/use-hooks.js'
 import {
 	type TerminationHandling,
 	type TerminationSignal,
@@ -487,6 +488,8 @@ async function execPrint(
 		...(ctx.config.smallModel ? { smallModel: ctx.config.smallModel } : {}),
 		...(ctx.config.hooks ? { hooks: ctx.config.hooks } : {}),
 		...(hookSwitch(ctx.config) ? { hooksSwitch: hookSwitch(ctx.config) } : {}),
+		// Past the folder gate above: the folder is trusted, by the store or by `--trust`.
+		folderTrusted: true,
 		...(ctx.config.compaction ? { compaction: ctx.config.compaction } : {}),
 		...(ctx.config.memory ? { memory: ctx.config.memory } : {}),
 		...(Object.keys({ ...ctx.config.limits, ...limitsFromFlags }).length > 0
@@ -568,6 +571,17 @@ async function execPrint(
 			message: `skipped ${relative(cwd, skip.path) || skip.path}: ${skip.reason}`,
 		})
 	}
+
+	// For the whole run: a skill the model loads can lose its hooks at any turn.
+	session.skillHooks?.subscribe((line) => ctx.formatter.info(line))
+	// Likewise an agent file whose hooks were set aside when its run started.
+	session.agentHooks?.subscribe((line) => ctx.formatter.info(line))
+	useSkillHooksByName(
+		session.skillHooks,
+		{ cwd, ...(ctx.config.skills ? { skills: ctx.config.skills } : {}) },
+		[...flags.skills, ...(expansion.kind === 'expanded' ? [expansion.name] : [])],
+		(line) => ctx.formatter.info(line),
+	)
 
 	const extraSystem = await loadSkillsContext(cwd, flags.skills, ctx.config.skills)
 

@@ -58,6 +58,8 @@ export interface UserCommand {
 	readonly source: UserCommandSource
 	/** What the composer shows after `/<name> ` (`argument-hint`). */
 	readonly argumentHint?: string
+	/** For a command that is a skill: the `hooks` block it carries, attached when the person runs it. */
+	readonly hooksSource?: string
 	/**
 	 * Why this command cannot be used, when it cannot.
 	 *
@@ -245,6 +247,7 @@ function skillAsCommand(skill: SkillInfo): UserCommand {
 		path: skill.path,
 		source: 'skill' as const,
 		...(skill.argumentHint ? { argumentHint: displayHint(skill.argumentHint) } : {}),
+		...(skill.hooksSource !== undefined ? { hooksSource: skill.hooksSource } : {}),
 	}
 	if (skill.problem) return { ...base, template: '', problem: skill.problem }
 	try {

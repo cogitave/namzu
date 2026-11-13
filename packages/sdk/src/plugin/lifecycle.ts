@@ -270,6 +270,19 @@ export interface PluginLifecycleManagerConfig {
 	onMCPToolDrift?: MCPToolDiscoveryOptions['onDrift']
 }
 
+/**
+ * What {@link PluginLifecycleManager.attachHooks} gives back: a way to take
+ * off exactly the hooks that call attached.
+ */
+export interface HookAttachment {
+	/** How many hooks the call attached. */
+	readonly size: number
+	/** Take every hook of this attachment off; returns how many were still attached. Safe to call again. */
+	readonly remove: () => number
+	/** Take off the hook at this position of the call's list; false when it is gone already or there is none. */
+	readonly removeAt: (index: number) => boolean
+}
+
 export class PluginLifecycleManager {
 	private pluginRegistry: PluginRegistry
 	/** Each installed plugin owns its own file source and one source per MCP server. */
@@ -292,6 +305,7 @@ export class PluginLifecycleManager {
 			shell?: true
 		}>
 	> = new Map()
+	private hookSeq = 0
 	private pluginContributions: Map<PluginId, PluginContributionRecord> = new Map()
 	/** Reserve each id before async admission so lifecycle calls cannot overlap. */
 	private readonly lifecycleTails = new Map<PluginId, Promise<void>>()
@@ -441,26 +455,67 @@ export class PluginLifecycleManager {
 		this.addHook(pluginId, hook, false)
 	}
 
-	private addHook(pluginId: PluginId, hook: PluginHookDefinition, shell: boolean): void {
+	/**
+	 * Attach hooks that can be taken off again, and nothing else.
+	 *
+	 * Hooks left the manager only by plugin id: everything one id attached went
+	 * together, and a hook attached for a while (a skill's, for as long as it is
+	 * used) had no way to leave on its own. This returns a handle that removes
+	 * exactly the hooks this call attached, whoever else registered under the
+	 * same id, and a handle for one hook of them. A hook that is removed while
+	 * an event is being answered still answers that event: the event started
+	 * with the hooks it found.
+	 *
+	 * All or nothing: when one definition is refused (an event nothing emits),
+	 * none of them is attached.
+	 */
+	attachHooks(pluginId: PluginId, hooks: readonly PluginHookDefinition[]): HookAttachment {
+		for (const hook of hooks) assertPluginHookEvent(hook.event)
+		const records = hooks.map((hook) => this.addHook(pluginId, hook, false))
+		const removeRecords = (gone: ReadonlySet<object>): number => {
+			let removed = 0
+			for (const [event, handlers] of this.hookHandlers) {
+				const kept = handlers.filter((handler) => !gone.has(handler))
+				removed += handlers.length - kept.length
+				if (kept.length === handlers.length) continue
+				if (kept.length === 0) this.hookHandlers.delete(event)
+				else this.hookHandlers.set(event, kept)
+			}
+			return removed
+		}
+		return {
+			size: records.length,
+			remove: () => removeRecords(new Set(records)),
+			removeAt: (index) => {
+				const record = records[index]
+				return record === undefined ? false : removeRecords(new Set([record])) > 0
+			},
+		}
+	}
+
+	private addHook(pluginId: PluginId, hook: PluginHookDefinition, shell: boolean): object {
 		// Refused here rather than left to never fire: a hook module still
 		// naming `run_start` would otherwise attach to an event nothing emits,
 		// and the operator would learn of the rename only by its silence.
 		assertPluginHookEvent(hook.event)
 		const handlers = this.hookHandlers.get(hook.event) ?? []
-		handlers.push({
+		const record = {
 			pluginId,
 			handler: hook.handler,
 			priority: hook.priority ?? DEFAULT_HOOK_PRIORITY,
 			...(hook.statusMessage !== undefined ? { statusMessage: hook.statusMessage } : {}),
 			...(shell ? { shell: true as const } : {}),
-			// Registration index, so the sort has something stable to fall
-			// back on when priorities are equal.
-			seq: handlers.length,
-		})
+			// Registration order, so the sort has something stable to fall back
+			// on when priorities are equal. A counter, not the list's length: a
+			// hook taken off again would otherwise hand its number to the next.
+			seq: this.hookSeq++,
+		}
+		handlers.push(record)
 		// Sorted on insert rather than on dispatch: a chain runs on every
 		// tool call, and the order only changes when a plugin comes or goes.
 		handlers.sort((a, b) => a.priority - b.priority || a.seq - b.seq)
 		this.hookHandlers.set(hook.event, handlers)
+		return record
 	}
 
 	/**

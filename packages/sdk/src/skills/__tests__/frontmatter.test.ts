@@ -206,9 +206,6 @@ describe('keys the skill loader does not read', () => {
 				'description: reviews a pull request',
 				'argument-hint: [pr-number]',
 				'user-invocable: false',
-				'hooks:',
-				'  PreToolUse:',
-				'    - matcher: Bash',
 				'notes: >-',
 				'  folded text',
 				'tags: {a: b}',
@@ -238,6 +235,110 @@ describe('keys the skill loader does not read', () => {
 		expect(SKILL_FRONTMATTER_KEYS).toContain('allowed-tools')
 		expect(SKILL_FRONTMATTER_KEYS).toContain('disable-model-invocation')
 		expect(SKILL_FRONTMATTER_KEYS).not.toContain('argument-hint')
+	})
+})
+
+describe('the hooks key', () => {
+	const HOOKS = [
+		'hooks:',
+		'  PreToolUse:',
+		'    - matcher: Bash',
+		'      hooks:',
+		'        - type: command',
+		'          command: ./guard.sh',
+	].join('\n')
+
+	it('is read as the text the file wrote, whatever lists it holds', async () => {
+		const path = skill(
+			[
+				'---',
+				'name: a-skill',
+				'description: reviews a pull request',
+				HOOKS,
+				'argument-hint: [pr-number]',
+				'---',
+				'',
+				'Body.',
+			].join('\n'),
+		)
+		const loaded = await loadSkill(path, 'full')
+		expect(loaded.skill.metadata).toEqual({
+			name: 'a-skill',
+			description: 'reviews a pull request',
+			hooksSource: HOOKS,
+		})
+		expect(loaded.skill.body).toBe('Body.')
+	})
+
+	it('a key with nothing after it is handed back as its own line, which declares nothing', async () => {
+		const path = skill(['---', 'name: a-skill', 'description: d', 'hooks:', '---', 'b'].join('\n'))
+		const loaded = await loadSkill(path, 'full')
+		expect(loaded.skill.metadata.hooksSource).toBe('hooks:')
+	})
+
+	it('is in the exported vocabulary and the raw list', async () => {
+		const { SKILL_FRONTMATTER_RAW_KEYS } = await import('../loader.js')
+		expect(SKILL_FRONTMATTER_KEYS).toContain('hooks')
+		expect(SKILL_FRONTMATTER_RAW_KEYS).toEqual(['hooks'])
+	})
+})
+
+describe('hook events written at the top level of a skill', () => {
+	const TOP = [
+		'PreToolUse:',
+		'  - matcher: Bash',
+		'    hooks:',
+		'      - type: command',
+		'        command: ./guard.sh',
+	].join('\n')
+
+	it('are read as if they had been written under hooks', async () => {
+		const path = skill(
+			['---', 'name: a-skill', 'description: d', 'allowed-tools: Bash', TOP, '---', 'Body.'].join(
+				'\n',
+			),
+		)
+		const { skill: loaded } = await loadSkill(path, 'full')
+		expect(loaded.metadata.allowedTools).toBe('Bash')
+		expect(loaded.metadata.hooksSource).toBe(
+			[
+				'hooks:',
+				'  PreToolUse:',
+				'    - matcher: Bash',
+				'      hooks:',
+				'        - type: command',
+				'          command: ./guard.sh',
+			].join('\n'),
+		)
+	})
+
+	it('join the entries of a hooks key beside them', async () => {
+		const path = skill(
+			[
+				'---',
+				'name: a-skill',
+				'description: d',
+				'hooks:',
+				'  PostToolUse:',
+				'    - hooks:',
+				'        - command: ./log.sh',
+				TOP,
+				'---',
+				'Body.',
+			].join('\n'),
+		)
+		const { skill: loaded } = await loadSkill(path, 'full')
+		expect(loaded.metadata.hooksSource).toContain('  PostToolUse:')
+		expect(loaded.metadata.hooksSource).toContain('  PreToolUse:')
+		expect(loaded.metadata.hooksSource?.startsWith('hooks:\n')).toBe(true)
+	})
+
+	it('leave a skill with no event key at the top level as it was', async () => {
+		const path = skill(
+			['---', 'name: a-skill', 'description: d', 'owner: me', '---', 'B'].join('\n'),
+		)
+		const { skill: loaded } = await loadSkill(path, 'full')
+		expect(loaded.metadata.hooksSource).toBeUndefined()
 	})
 })
 

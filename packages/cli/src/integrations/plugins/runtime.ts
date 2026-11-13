@@ -75,6 +75,8 @@ export interface PluginHookEntryView {
 
 export interface CliPluginRuntime {
 	readonly manager: PluginLifecycleManager
+	/** What every shell hook of this session is run with; a skill's hooks use the same. */
+	readonly hookOptions: ShellHookOptions
 	readonly skills: SkillRegistry
 	readonly pluginCount: number
 	/** How long closing the session may spend in `session_end` hooks; see {@link sessionEndHookBudgetMs}. */
@@ -146,17 +148,32 @@ export async function createCliPluginRuntime(
 	/** What a hook's stdin says about the session; each is read at every hook run. */
 	hookHost?: Pick<ShellHookOptions, 'transcriptPath' | 'permissionMode' | 'judge'>,
 	/**
+	 * What the host knows beyond the hook entries themselves.
+	 *
+	 * `keepForSkills`: a skill of this session carries hooks, which attach to
+	 * the lifecycle manager when it is used, so the manager is built even when
+	 * there are no plugins and no configured hooks.
+	 *
 	 * `hooksSwitch` is the switch limiting hooks to the organisation-managed file
 	 * (`hooksManagedOnly`) or turning them off (`disableHooks`, `NAMZU_DISABLE_HOOKS`).
 	 * Hook entries a plugin ships obey it: no plugin comes from the managed file,
-	 * so under either they are read and listed but not attached.
+	 * so under either they are read and listed but not attached. It is the same
+	 * value the host hands the code that attaches a skill's and an agent file's
+	 * hooks.
 	 */
-	pluginHookHost?: { readonly hooksSwitch?: HooksSwitch },
+	host?: { readonly keepForSkills?: boolean; readonly hooksSwitch?: HooksSwitch },
 ): Promise<CliPluginRuntime | undefined> {
 	const pluginsEnabled = config?.enabled === true
 	const launchDirs = config?.launchDirs ?? []
 	const hookCount = hooks ? Object.values(hooks).reduce((n, list) => n + (list?.length ?? 0), 0) : 0
-	if (!pluginsEnabled && hookCount === 0 && launchDirs.length === 0) return undefined
+	if (
+		!pluginsEnabled &&
+		hookCount === 0 &&
+		launchDirs.length === 0 &&
+		host?.keepForSkills !== true
+	) {
+		return undefined
+	}
 
 	const log = cliLogger()
 	const userRoot = resolveNamzuHome()
@@ -189,7 +206,7 @@ export async function createCliPluginRuntime(
 		}
 	>()
 	const warningLines: string[] = []
-	const hooksSwitch = pluginHookHost?.hooksSwitch
+	const hooksSwitch = host?.hooksSwitch
 	const manager = new PluginLifecycleManager({
 		pluginRegistry: plugins,
 		skillRegistry: skills,
@@ -301,6 +318,7 @@ export async function createCliPluginRuntime(
 			.sort()
 	return {
 		manager,
+		hookOptions: shellOptions,
 		skills,
 		pluginCount: installed.length,
 		sessionEndBudgetMs: sessionEndHookBudgetMs(hooks),
