@@ -314,6 +314,15 @@ export interface QueryParams {
 	 * clamped to it without an error.
 	 */
 	monitorTimeoutCapMs?: number
+	/**
+	 * Told, once and awaited, when a shell command of this turn leaves the
+	 * session's next shell command in a different folder (see
+	 * `ToolContext.workingDirectoryChanged`). A host fires `cwd_changed` here.
+	 */
+	onWorkingDirectoryChange?: (change: {
+		readonly from: string
+		readonly to: string
+	}) => Promise<void> | void
 
 	/**
 	 * What else goes in this turn's prompt.
@@ -1633,6 +1642,9 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				...(awaitedJobs ? { onMonitorStarted: (id: string) => awaitedJobs.expectMonitor(id) } : {}),
 				...(params.monitorTimeoutCapMs !== undefined
 					? { monitorTimeoutCapMs: params.monitorTimeoutCapMs }
+					: {}),
+				...(params.onWorkingDirectoryChange
+					? { onWorkingDirectoryChange: params.onWorkingDirectoryChange }
 					: {}),
 				// The `skill` tool's registry. Threaded from the turn rather than
 				// held by the tool, because a tool that reached for a module-level

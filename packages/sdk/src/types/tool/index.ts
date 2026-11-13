@@ -548,6 +548,19 @@ export interface ToolContext {
 	turnId: TurnId
 	workingDirectory: string
 	/**
+	 * Called by the shell tool, after a command has finished, when the folder the
+	 * session's next shell command starts in is a different folder from the one
+	 * this command started in (it ran `cd`, or was put back at the working
+	 * directory for leaving the allowed folders). Awaited before the result is
+	 * returned, so what a host does here is done before the next command. Never
+	 * called with the same folder twice in a row, and not at all for a command
+	 * that did not move.
+	 */
+	workingDirectoryChanged?: (change: {
+		readonly from: string
+		readonly to: string
+	}) => Promise<void> | void
+	/**
 	 * Directories besides the working directory the file tools may reach,
 	 * absolute. A host adds one for a session (`/add-dir`); a sandboxed turn
 	 * binds each. Relative paths still resolve against the working

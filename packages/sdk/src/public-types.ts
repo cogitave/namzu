@@ -250,6 +250,13 @@ export type {
 	ShellHooksConfig,
 } from './plugin/shell-hook.js'
 export type { ShellHookToolNames } from './plugin/shell-hook-tool-names.js'
+export type { HookEnvEvent, SessionHookEnvOptions } from './plugin/session-hook-env.js'
+export type {
+	FileChange,
+	FileChangeWatcherOptions,
+	WatchDirectory,
+} from './plugin/file-change-watch.js'
+export type { FileChangeHooksOptions } from './plugin/file-change-hooks.js'
 
 export type {
 	PlanApprovalHandler,

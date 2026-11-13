@@ -730,6 +730,19 @@ export {
 	shellHookMatcherProblem,
 	shellHookMatches,
 	shellHookVerdict,
+	fileChangedMatcherNote,
+	fileChangedMatcherPaths,
+	fileChangedMatches,
+	HOOK_ENV_EVENTS,
+	MAX_HOOK_ENV_FILE_BYTES,
+	MAX_HOOK_ENV_VALUE_CHARS,
+	MAX_HOOK_ENV_VARIABLES,
+	refusedHookEnvName,
+	SessionHookEnv,
+	FILE_SETTLE_MS,
+	FileChangeWatcher,
+	MAX_WATCHED_PATHS,
+	FileChangeHooks,
 } from './plugin/index.js'
 export type { DefinedPlugin, DefinePluginOptions } from './plugin/define.js'
 

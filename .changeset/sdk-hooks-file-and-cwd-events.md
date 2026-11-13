@@ -1,0 +1,5 @@
+---
+'@namzu/sdk': minor
+---
+
+Hooks gain two events and can set variables for later commands. `file_changed` fires once a watched file has been still for half a second (`filePath`, `change`: `add`, `change` or `unlink`); `cwd_changed` fires when the folder the shell tool's next command starts in changes (`oldCwd`, `newCwd`). Both are in `PluginHookEvent` and `SHELL_HOOK_EVENTS` (`FileChanged`, `CwdChanged` in the common shape); a hook answers with `hookSpecificOutput.watchPaths` (the files to watch from now on) and `systemMessage`, and cannot refuse anything. A command hook on `session_start`, `cwd_changed` or `file_changed` is started with `NAMZU_ENV_FILE`; with `ShellHookOptions.hookEnv` (a `SessionHookEnv`) its `export NAME=value` lines become the environment of later shell commands. New exports: `SessionHookEnv`, `FileChangeHooks`, `FileChangeWatcher`, `fileChangedMatches`, `fileChangedMatcherPaths`, `QueryParams.onWorkingDirectoryChange`, `ToolContext.workingDirectoryChanged`. Nothing is removed or changed by default. If you switch on a union of event names (`PluginHookEvent`, `ShellHookEvent`) with an exhaustive check, add the two new names.

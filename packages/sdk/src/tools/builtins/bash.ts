@@ -863,7 +863,7 @@ const BashToolBase = defineTool({
 		const settle = async (): Promise<string | undefined> => {
 			if (cwdFile === undefined) return undefined
 			settled = true
-			return recordDirectory(context.sessionId, cwdFile, context)
+			return recordDirectory(context.sessionId, cwdFile, context, context.workingDirectoryChanged)
 		}
 
 		try {

@@ -106,6 +106,7 @@
  */
 
 import { spawn } from 'node:child_process'
+import { basename } from 'node:path'
 
 import { decodedCommands, decomposeCommandLine } from '../authorization/command-line.js'
 import {
@@ -117,6 +118,7 @@ import { spawnHostShell } from '../tools/command-shell.js'
 import type { PluginId } from '../types/ids/index.js'
 import type {
 	PluginCompactionInfo,
+	PluginFileChange,
 	PluginHookContext,
 	PluginHookDefinition,
 	PluginHookEvent,
@@ -131,6 +133,7 @@ import { NOOP_LOGGER } from '../utils/log/create-logger.js'
 import type { Logger } from '../utils/logger.js'
 import { boundHookReplacement } from './hook-context.js'
 import type { PluginLifecycleManager } from './lifecycle.js'
+import type { SessionHookEnv } from './session-hook-env.js'
 import { readHookCommand } from './shell-hook-command.js'
 import { postHookJson } from './shell-hook-http.js'
 import { type ShellHookToolNames, shellHookToolName } from './shell-hook-tool-names.js'
@@ -159,6 +162,8 @@ export type ShellHookEvent = Extract<
 	| 'turn_failure'
 	| 'turn_start'
 	| 'turn_end'
+	| 'file_changed'
+	| 'cwd_changed'
 >
 
 export const SHELL_HOOK_EVENTS: readonly ShellHookEvent[] = [
@@ -179,6 +184,8 @@ export const SHELL_HOOK_EVENTS: readonly ShellHookEvent[] = [
 	'turn_failure',
 	'turn_start',
 	'turn_end',
+	'file_changed',
+	'cwd_changed',
 ]
 
 /** What a failed hook does to the action it guards. */
@@ -482,6 +489,56 @@ export function shellHookMatcherProblem(matcher: string | undefined): string | u
 
 const IF_SHAPE = /^([A-Za-z0-9_.:*|, -]+)(?:\(([\s\S]*)\))?$/
 
+/** A part of a `file_changed` matcher that names a path: letters, digits and the characters of a path. */
+const FILE_LIST_PART = /^[A-Za-z0-9_.:*\\/-]+$/
+
+/** The parts of a `file_changed` matcher when every part is written as a path, else `undefined`. */
+function fileMatcherParts(matcher: string | undefined): string[] | undefined {
+	if (matcher === undefined || matcher.trim() === '' || matcher.trim() === '*') return undefined
+	const parts = matcher.split(/[|,]/).map((part) => part.trim())
+	return parts.every((part) => FILE_LIST_PART.test(part)) ? parts : undefined
+}
+
+/**
+ * The files a `file_changed` matcher names: each part of a `|` list that is a
+ * path with no `*` in it (`.envrc`, `config/app.json`, `/etc/hosts`). A part
+ * with a `*`, a pattern, or no matcher names no file; the hook then runs only
+ * for the files hooks hand back with `watchPaths`. A relative path is under
+ * the working folder, which the host knows.
+ */
+export function fileChangedMatcherPaths(matcher: string | undefined): string[] {
+	return (fileMatcherParts(matcher) ?? []).filter((part) => !part.includes('*'))
+}
+
+/**
+ * Whether a `file_changed` hook with this matcher runs for `filePath`. The
+ * matcher is read as every matcher is, but against the file's base name: a
+ * part written as a path (`config/app.json`) stands for its base name
+ * (`app.json`). An unreadable pattern runs the hook.
+ */
+export function fileChangedMatches(
+	matcher: string | undefined,
+	filePath: string | undefined,
+): boolean {
+	if (filePath === undefined) return true
+	const name = basename(filePath.replace(/[\\/]+$/, ''))
+	const parts = fileMatcherParts(matcher)
+	if (parts === undefined) return shellHookMatches(matcher, name)
+	return shellHookMatches(
+		parts.map((part) => basename(part.replace(/[\\/]+$/, '')) || part).join('|'),
+		name,
+	)
+}
+
+/**
+ * What a `file_changed` entry's matcher does not do, or `undefined`: a matcher
+ * that names no file watches nothing by itself.
+ */
+export function fileChangedMatcherNote(matcher: string | undefined): string | undefined {
+	if (fileChangedMatcherPaths(matcher).length > 0) return undefined
+	return 'its matcher names no file, so it watches nothing itself and runs only for files other hooks hand back with watchPaths'
+}
+
 /**
  * Why an `if` cannot be read, or `undefined` when it can. A filter that
  * cannot be read runs the hook.
@@ -615,6 +672,18 @@ export interface ShellHookInput {
 	/** The agent the child runs, on `subagent_start` and `subagent_stop`. */
 	readonly agentType?: string
 	readonly prompt?: string
+	/** On `file_changed`: the file, absolute. Sent as `file_path`. */
+	readonly filePath?: string
+	/** On `file_changed`: what happened to it. Sent as `change`. */
+	readonly change?: PluginFileChange
+	/** On `cwd_changed`: the folder left and the folder entered. Sent as `old_cwd` and `new_cwd`. */
+	readonly oldCwd?: string
+	readonly newCwd?: string
+	/**
+	 * The file this hook may append `export NAME=value` lines to. Sent as
+	 * `NAMZU_ENV_FILE`; on every other event the variable is not set at all.
+	 */
+	readonly envFile?: string
 	readonly compaction?: PluginCompactionInfo
 	readonly toolName?: string
 	/** The spelling `toolName` (and each `toolCalls` name) is sent in; absent is `namzu`. */
@@ -662,6 +731,10 @@ export function shellHookPayload(input: ShellHookInput): string {
 			? { agent_id: input.sessionId, agent_type: input.agentType }
 			: {}),
 		...(input.prompt !== undefined ? { prompt: input.prompt } : {}),
+		...(input.filePath !== undefined ? { file_path: input.filePath } : {}),
+		...(input.change !== undefined ? { change: input.change } : {}),
+		...(input.oldCwd !== undefined ? { old_cwd: input.oldCwd } : {}),
+		...(input.newCwd !== undefined ? { new_cwd: input.newCwd } : {}),
 		...(input.compaction !== undefined ? compactionFields(input.event, input.compaction) : {}),
 		...(input.toolName !== undefined
 			? { tool_name: shellHookToolName(input.toolName, input.toolNames) }
@@ -739,7 +812,12 @@ export function runShellHook(
 	const toolPath = pathOf(input.toolInput)
 	// A hook outside a turn must not see a turn id, including one the host
 	// inherited from an enclosing hook's environment.
-	const { NAMZU_TURN_ID: _inheritedTurnId, ...inherited } = process.env
+	// Nor the variables file of an enclosing hook: only the three events that own one get it.
+	const {
+		NAMZU_TURN_ID: _inheritedTurnId,
+		NAMZU_ENV_FILE: _inheritedEnvFile,
+		...inherited
+	} = process.env
 	return new Promise((resolve) => {
 		let child: ReturnType<typeof spawn>
 		try {
@@ -749,6 +827,7 @@ export function runShellHook(
 				NAMZU_SESSION_ID: input.sessionId,
 				NAMZU_PROJECT_DIR: input.projectDir ?? input.cwd,
 				...(input.turnId !== undefined ? { NAMZU_TURN_ID: input.turnId } : {}),
+				...(input.envFile !== undefined ? { NAMZU_ENV_FILE: input.envFile } : {}),
 				...(input.toolName !== undefined
 					? { NAMZU_TOOL_NAME: shellHookToolName(input.toolName, input.toolNames) }
 					: {}),
@@ -950,6 +1029,8 @@ export const SHELL_HOOK_PASCAL_EVENT_NAMES: Readonly<Partial<Record<ShellHookEve
 	permission_denied: 'PermissionDenied',
 	turn_failure: 'StopFailure',
 	turn_end: 'Stop',
+	file_changed: 'FileChanged',
+	cwd_changed: 'CwdChanged',
 }
 
 /** What a hook's stdout JSON said, before it is mapped to a verdict for an event. */
@@ -965,6 +1046,8 @@ interface ShellHookReading {
 	replacement?: string
 	/** The hook asked for its stdout to stay out of the debug log. */
 	suppressOutput?: boolean
+	/** On `session_start`, `file_changed` and `cwd_changed`: the files to watch from now on. */
+	watchPaths?: readonly string[]
 	/** Why the JSON was set aside, when it was. */
 	invalid?: string
 }
@@ -1080,6 +1163,18 @@ function readShellHookJson(
 		}
 	}
 
+	// The same for a list of files to watch written at the top level.
+	if (
+		(event === 'session_start' || event === 'file_changed' || event === 'cwd_changed') &&
+		parsed.watchPaths !== undefined &&
+		!(isRecord(parsed.hookSpecificOutput) && parsed.hookSpecificOutput.watchPaths !== undefined)
+	) {
+		return {
+			invalid:
+				'`watchPaths` is read under `hookSpecificOutput`, not at the top level of the answer',
+		}
+	}
+
 	const reading: ShellHookReading = {}
 	if (parsed.suppressOutput === true) reading.suppressOutput = true
 	const systemMessage = optionalString('systemMessage')
@@ -1112,6 +1207,16 @@ function readShellHookJson(
 	] as const) {
 		const problem = wrongType(key, type, specific)
 		if (problem) return { invalid: `hookSpecificOutput: ${problem}` }
+	}
+	if (
+		(event === 'session_start' || event === 'file_changed' || event === 'cwd_changed') &&
+		specific.watchPaths !== undefined
+	) {
+		const list = specific.watchPaths
+		if (!Array.isArray(list) || list.some((item) => typeof item !== 'string')) {
+			return { invalid: 'hookSpecificOutput: `watchPaths` must be a list of paths (strings)' }
+		}
+		reading.watchPaths = (list as string[]).filter((item) => item.trim() !== '')
 	}
 	const additional = optionalString('additionalContext', specific)
 	if (additional && additional.trim().length > 0) reading.context = additional.trim()
@@ -1362,13 +1467,28 @@ export function shellHookVerdict(
 			// Nothing here can be refused. What the hook said for the model becomes
 			// the session's context; a stop request and a warning still count.
 			return reading.context !== undefined
-				? { action: 'annotate', text: reading.context }
+				? {
+						action: 'annotate',
+						text: reading.context,
+						...(reading.watchPaths !== undefined ? { watchPaths: reading.watchPaths } : {}),
+						...(reading.notice ? { notice: reading.notice } : {}),
+					}
 				: {
 						action: 'continue',
 						...(reading.halt ? { halt: reading.halt } : {}),
 						...(reading.notice ? { notice: reading.notice } : {}),
+						...(reading.watchPaths !== undefined ? { watchPaths: reading.watchPaths } : {}),
 					}
 		}
+		case 'file_changed':
+		case 'cwd_changed':
+			// Nothing here can be refused and nothing reaches the model: what the hook
+			// can say is a line for the person and the files to watch from now on.
+			return {
+				action: 'continue',
+				...(reading.notice ? { notice: reading.notice } : {}),
+				...(reading.watchPaths !== undefined ? { watchPaths: reading.watchPaths } : {}),
+			}
 		case 'post_tool_use':
 		case 'post_tool_use_failure': {
 			// The call has run, so a "block" cannot undo it: its reason is what the
@@ -1497,6 +1617,13 @@ export interface ShellHookOptions {
 	 * the cap). Absent, or an event not listed, the ordinary default applies.
 	 */
 	readonly defaultTimeoutMs?: { readonly [event in ShellHookEvent]?: number }
+	/**
+	 * Where the variables a hook sets for later commands are kept. With it, a
+	 * command hook on `session_start`, `cwd_changed` or `file_changed` is
+	 * started with `NAMZU_ENV_FILE`, and the file is read when the hook ends.
+	 * Without it no hook gets the variable and nothing is carried.
+	 */
+	readonly hookEnv?: SessionHookEnv
 	/**
 	 * Called when a hook of this adapter ran out its deadline and was ended.
 	 * `hook` is the command, URL or prompt text the entry names.
@@ -1659,15 +1786,33 @@ export function createShellHook(
 			// events are matched on `trigger`.
 			if (subject !== undefined && !shellHookMatches(entry.matcher, subject, { tool: namesATool }))
 				return { action: 'continue' }
+			// A changed file is matched on its base name, and a matcher written as a
+			// path stands for the file's name: `config/app.json` is `app.json`.
+			if (event === 'file_changed' && !fileChangedMatches(entry.matcher, context.filePath)) {
+				return { action: 'continue' }
+			}
 			if (!shellHookIfMatches(entry.if, context.toolName, context.toolInput, options.pathFilter)) {
 				return { action: 'continue' }
 			}
 			if (entry.once === true) spent = true
 			const transcriptPath = options.transcriptPath?.(String(context.sessionId))
 			const permissionMode = options.permissionMode?.()
+			const envEvent =
+				event === 'session_start' || event === 'cwd_changed' || event === 'file_changed'
+					? event
+					: undefined
+			const runsACommand = entry.type === undefined || entry.type === 'command'
+			const envFile =
+				envEvent !== undefined && runsACommand ? options.hookEnv?.fileFor(envEvent) : undefined
 			const hookInput: ShellHookInput = {
 				event,
-				cwd: options.cwd,
+				// A hook told the folder changed runs in the folder entered.
+				cwd: event === 'cwd_changed' && context.newCwd !== undefined ? context.newCwd : options.cwd,
+				...(envFile !== undefined ? { envFile } : {}),
+				...(context.filePath !== undefined ? { filePath: context.filePath } : {}),
+				...(context.change !== undefined ? { change: context.change } : {}),
+				...(context.oldCwd !== undefined ? { oldCwd: context.oldCwd } : {}),
+				...(context.newCwd !== undefined ? { newCwd: context.newCwd } : {}),
 				...(options.projectDir !== undefined ? { projectDir: options.projectDir } : {}),
 				sessionId: String(context.sessionId),
 				...(context.source !== undefined ? { sessionSource: context.source } : {}),
@@ -1745,6 +1890,7 @@ export function createShellHook(
 				// for it and its own failure is only written down.
 				void runShellHook(entry, hookInput)
 					.then((outcome) => {
+						if (envEvent !== undefined) options.hookEnv?.absorb(envEvent)
 						const verdict = shellHookVerdict(event, entry, outcome, log, verdictCall)
 						if (verdict.action !== 'continue') {
 							log.warn('an async hook answered, and its answer is not applied', {
@@ -1758,6 +1904,9 @@ export function createShellHook(
 				return { action: 'continue' }
 			}
 			const outcome = await runShellHook(entry, hookInput, context.signal)
+			// What the hook appended counts even when it was ended or failed after
+			// writing it: the lines are data it already gave.
+			if (envEvent !== undefined) options.hookEnv?.absorb(envEvent)
 			reportTimeout(outcome.timedOut)
 			return shellHookVerdict(event, entry, outcome, log, verdictCall)
 		},
