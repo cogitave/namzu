@@ -109,10 +109,12 @@ import { setEngineSignedOut } from './engine-sign-in.js'
 import { createFailingPoll } from './failing-poll.js'
 import { FilePanelBody } from './file-panel/file-panel.js'
 import {
-	CHANGES_PANEL_WIDTH,
+	CONVERSATION_MIN,
 	MIN_PANEL_WIDTH,
+	type PanelKind,
 	type PanelTab,
 	type PanelTabsState,
+	READING_PANEL_MIN,
 	SIDEBAR_FOLD_BELOW,
 	activatePanelTab,
 	activeFilePath,
@@ -120,10 +122,12 @@ import {
 	browsePanelTabs,
 	changesTab,
 	clampPanelWidth,
+	clearPanelWidth,
 	closePanelTab,
 	emptyPanelTabs,
 	ensurePanelTab,
 	openFileTab,
+	panelKindOf,
 	readPanelTabs,
 	readPanelWidth,
 	shownTab,
@@ -1267,9 +1271,15 @@ export function App({
 		[filesEnabled, filesProjectId, api],
 	)
 	// The panel keeps the width a person dragged it to, per pane.
-	const [panelWidth, setPanelWidth] = useState<number | undefined>(() =>
-		readPanelWidth(localStorage, group.id),
-	)
+	// A reading panel and a tool panel each keep their own.
+	const [panelWidths, setPanelWidths] = useState<Partial<Record<PanelKind, number>>>(() => ({
+		reading: readPanelWidth(localStorage, group.id, 'reading'),
+		tool: readPanelWidth(localStorage, group.id, 'tool'),
+	}))
+	const panelKind = panelKindOf(panelView)
+	const panelWidth = panelWidths[panelKind]
+	const setPanelWidth = (width: number | undefined) =>
+		setPanelWidths((all) => ({ ...all, [panelKind]: width }))
 	const [panelResizing, setPanelResizing] = useState(false)
 	const panelAside = useRef<HTMLElement>(null)
 	const [panelPx, setPanelPx] = useState(0)
@@ -6718,17 +6728,12 @@ export function App({
 				className={`workspace ${detailsOpen ? 'jobs-open' : ''}`}
 				data-panel-resizing={panelResizing || undefined}
 				data-panel-expanded={(detailsOpen && panelExpanded) || undefined}
+				data-panel-kind={panelKind}
 				style={
-					panelWidth !== undefined ||
-					panelView === 'file' ||
-					panelView === 'browse' ||
-					panelView === 'changes'
+					panelWidth !== undefined
 						? ({
-								'--panel-width':
-									panelWidth === undefined && panelView === 'changes'
-										? // The diff first, but never more than half of a narrow window.
-											`clamp(${MIN_PANEL_WIDTH}px, ${CHANGES_PANEL_WIDTH}px, 50%)`
-										: `clamp(${MIN_PANEL_WIDTH}px, ${panelWidth ?? 600}px, 70%)`,
+								// What a person dragged it to, within its floor and what leaves the conversation its minimum.
+								'--panel-width': `max(var(--panel-${panelKind}-min), min(${panelWidth}px, calc(100% - var(--panel-conversation-min))))`,
 							} as CSSProperties)
 						: undefined
 				}
@@ -6760,6 +6765,8 @@ export function App({
 							added={totals.added}
 							removed={totals.removed}
 							disabled={loading || harnessBusy || frozen}
+							changesOpen={detailsOpen && panelView === 'changes'}
+							filesOpen={detailsOpen && (panelView === 'file' || panelView === 'browse')}
 							onChanges={
 								activeTerminal
 									? undefined
@@ -7640,22 +7647,40 @@ export function App({
 					>
 						<PanelResizeHandle
 							now={panelPx || panelWidth || MIN_PANEL_WIDTH}
-							min={MIN_PANEL_WIDTH}
-							max={() => (paneRoot.current?.getBoundingClientRect().width ?? 0) * 0.7}
+							min={panelKind === 'reading' ? READING_PANEL_MIN : MIN_PANEL_WIDTH}
+							max={() =>
+								Math.max(
+									panelKind === 'reading' ? READING_PANEL_MIN : MIN_PANEL_WIDTH,
+									(paneRoot.current?.getBoundingClientRect().width ?? 0) - CONVERSATION_MIN,
+								)
+							}
 							width={() => panelAside.current?.getBoundingClientRect().width ?? MIN_PANEL_WIDTH}
 							onDragging={setPanelResizing}
 							onResize={(width) =>
 								setPanelWidth(
-									clampPanelWidth(width, paneRoot.current?.getBoundingClientRect().width ?? 0),
+									clampPanelWidth(
+										width,
+										paneRoot.current?.getBoundingClientRect().width ?? 0,
+										panelKind,
+									),
 								)
 							}
 							onCommit={(width) =>
 								writePanelWidth(
 									localStorage,
 									group.id,
-									clampPanelWidth(width, paneRoot.current?.getBoundingClientRect().width ?? 0),
+									clampPanelWidth(
+										width,
+										paneRoot.current?.getBoundingClientRect().width ?? 0,
+										panelKind,
+									),
+									panelKind,
 								)
 							}
+							onReset={() => {
+								setPanelWidth(undefined)
+								clearPanelWidth(localStorage, group.id, panelKind)
+							}}
 						/>
 						{/* Shown only when the panel covers the pane (see style.css): the way back is a word. */}
 						<div className="panel-back-row">

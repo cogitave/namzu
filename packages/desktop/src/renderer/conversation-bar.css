@@ -56,6 +56,11 @@
 	position: relative;
 	-webkit-app-region: no-drag;
 }
+/* A tool whose panel is open carries a fill of 8 percent of the text colour. */
+.conversation-bar-button[data-open] {
+	background: color-mix(in srgb, var(--foreground) var(--panel-open-fill), transparent);
+	color: var(--foreground);
+}
 /* With changes the button grows to show the lines added and removed beside its icon. */
 .conversation-bar-buttons > .conversation-bar-changes[data-has-changes] {
 	width: auto;

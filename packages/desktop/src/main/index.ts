@@ -150,12 +150,11 @@ import { viewedTabs, windowsHoldingTab } from './viewed-conversations.js'
 import { VoiceInputManager } from './voice-input.js'
 import {
 	WINDOW_CAPTION_FILL,
-	readWindowMenu,
-	readWindowMenuAnchor,
 	windowCaptionColors,
 	windowChrome,
 	windowChromeOptions,
 } from './window-chrome.js'
+import { clickWindowMenuItem, windowMenuItem, windowMenuModel } from './window-menu.js'
 import { WindowRecovery } from './window-recovery.js'
 import {
 	WorkspaceWindowRegistry,
@@ -1282,21 +1281,11 @@ function register(): void {
 		if (process.platform === 'win32' || process.platform === 'linux')
 			window.setTitleBarOverlay(colors)
 	})
-	handleWindow('popupWindowMenu', ({ window }, name: unknown, position: unknown) => {
-		const menuName = readWindowMenu(name)
+	handle('windowMenuModel', () => windowMenuModel(Menu.getApplicationMenu()))
+	handleWindow('runWindowMenuItem', ({ window }, id: unknown) => {
 		if (window.isDestroyed()) return
-		const currentWindow = window
-		const [width, height] = currentWindow.getContentSize()
-		const anchor = readWindowMenuAnchor(position, {
-			width,
-			height,
-			zoom: currentWindow.webContents.getZoomFactor(),
-		})
-		const menu = Menu.getApplicationMenu()?.getMenuItemById(menuName)?.submenu
-		if (!menu) throw new Error('This window menu is unavailable.')
-		return new Promise<void>((resolve) => {
-			menu.popup({ window: currentWindow, ...anchor, callback: resolve })
-		})
+		const item = windowMenuItem(Menu.getApplicationMenu(), id)
+		clickWindowMenuItem(item, window, window.webContents)
 	})
 	handle('projects', () => operator.projectsForWindow())
 	handle('pals', () => operator.listPals())
@@ -1763,8 +1752,8 @@ async function createWindow(
 		},
 	})
 	windows.register(windowId, window)
-	// The inline menu shares the title bar; retain native menu accelerators without
-	// adding the operating system's second menu row on Windows and Linux.
+	// The header's menu button stands in for the menu bar; keep the native accelerators without
+	// adding the operating system's menu row on Windows and Linux.
 	if (process.platform !== 'darwin') window.setMenuBarVisibility(false)
 	window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
 	const recovery = new WindowRecovery({

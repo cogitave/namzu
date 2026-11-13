@@ -1,15 +1,27 @@
 import type { BrowserWindowConstructorOptions, TitleBarOverlayOptions } from 'electron'
-import type {
-	WindowAppearance,
-	WindowChrome,
-	WindowMenu,
-	WindowMenuAnchor,
-} from '../shared/protocol.js'
+import type { WindowAppearance, WindowChrome } from '../shared/protocol.js'
 
-export const WINDOW_CHROME_HEIGHT = 32
+// The window's own buttons end the header band, so they are as high as the band (`--frame-header-height`
+// in theme.css; a test keeps the two equal).
+export const WINDOW_CHROME_HEIGHT = 36
 
-// The menu row and the caption strip are drawn in the sidebar's fill (`--chrome` is `--sidebar` in
-// theme.css); a test keeps these in step with it, so the strip and the row read as one band.
+// The macOS buttons are 12 high and sit centred in the band.
+const TRAFFIC_LIGHT_HEIGHT = 12
+export const TRAFFIC_LIGHT_POSITION = {
+	x: 12,
+	y: (WINDOW_CHROME_HEIGHT - TRAFFIC_LIGHT_HEIGHT) / 2,
+} as const
+
+/**
+ * Whether the header draws its own menu button. macOS keeps the system menu bar as the menu; the
+ * other platforms have no menu bar, so the button stands in for it.
+ */
+export function drawsMenuButton(platform: string): boolean {
+	return platform !== 'darwin'
+}
+
+// The window's own buttons are drawn in the sidebar's fill (`--chrome` is `--sidebar` in theme.css); a
+// test keeps these in step with it, so they read as one band with the header.
 export const WINDOW_CAPTION_FILL = { dark: '#121212', light: '#fbfbfb' } as const
 
 export function windowChrome(platform: string): WindowChrome {
@@ -36,34 +48,6 @@ export function windowChromeOptions(
 	return {
 		titleBarStyle: 'hidden',
 		titleBarOverlay: windowCaptionColors(appearance),
-		...(platform === 'darwin' ? { trafficLightPosition: { x: 12, y: 9 } } : {}),
+		...(platform === 'darwin' ? { trafficLightPosition: TRAFFIC_LIGHT_POSITION } : {}),
 	}
-}
-
-export function readWindowMenu(value: unknown): WindowMenu {
-	if (value !== 'edit' && value !== 'view' && value !== 'window')
-		throw new Error('Unknown window menu.')
-	return value
-}
-
-// CSS coordinates must be converted to Electron's window coordinates when the
-// renderer is zoomed. Only a bounded point is accepted, never a menu template.
-export function readWindowMenuAnchor(
-	value: unknown,
-	{ width, height, zoom }: { width: number; height: number; zoom: number },
-): WindowMenuAnchor {
-	if (!value || typeof value !== 'object') throw new Error('Invalid window menu position.')
-	const { x, y } = value as Record<string, unknown>
-	if (
-		typeof x !== 'number' ||
-		typeof y !== 'number' ||
-		!Number.isFinite(x) ||
-		!Number.isFinite(y) ||
-		x < 0 ||
-		y < 0 ||
-		x * zoom > width ||
-		y * zoom > height
-	)
-		throw new Error('Invalid window menu position.')
-	return { x: Math.round(x * zoom), y: Math.round(y * zoom) }
 }
