@@ -303,9 +303,12 @@ export class PluginLifecycleManager {
 			statusMessage?: string
 			/** Read by the host from entries the plugin ships, not a module the plugin runs. */
 			shell?: true
+			/** On `file_changed`: the paths the hook's matcher names. */
+			watches?: readonly string[]
 		}>
 	> = new Map()
 	private hookSeq = 0
+	private readonly hooksChangedListeners = new Set<() => void>()
 	private pluginContributions: Map<PluginId, PluginContributionRecord> = new Map()
 	/** Reserve each id before async admission so lifecycle calls cannot overlap. */
 	private readonly lifecycleTails = new Map<PluginId, Promise<void>>()
@@ -481,6 +484,7 @@ export class PluginLifecycleManager {
 				if (kept.length === 0) this.hookHandlers.delete(event)
 				else this.hookHandlers.set(event, kept)
 			}
+			if (removed > 0) this.notifyHooksChanged()
 			return removed
 		}
 		return {
@@ -505,6 +509,7 @@ export class PluginLifecycleManager {
 			priority: hook.priority ?? DEFAULT_HOOK_PRIORITY,
 			...(hook.statusMessage !== undefined ? { statusMessage: hook.statusMessage } : {}),
 			...(shell ? { shell: true as const } : {}),
+			...(hook.watches !== undefined ? { watches: hook.watches } : {}),
 			// Registration order, so the sort has something stable to fall back
 			// on when priorities are equal. A counter, not the list's length: a
 			// hook taken off again would otherwise hand its number to the next.
@@ -515,7 +520,33 @@ export class PluginLifecycleManager {
 		// tool call, and the order only changes when a plugin comes or goes.
 		handlers.sort((a, b) => a.priority - b.priority || a.seq - b.seq)
 		this.hookHandlers.set(hook.event, handlers)
+		this.notifyHooksChanged()
 		return record
+	}
+
+	/**
+	 * Called after a hook was attached or taken off, however it happened (a
+	 * plugin enabled or disabled, a skill's hooks attached, a handle removed).
+	 * For a host that keeps something in step with the hooks, such as the files
+	 * `file_changed` hooks watch. Returns what ends the subscription.
+	 */
+	onHooksChanged(listener: () => void): () => void {
+		this.hooksChangedListeners.add(listener)
+		return () => {
+			this.hooksChangedListeners.delete(listener)
+		}
+	}
+
+	private notifyHooksChanged(): void {
+		for (const listener of [...this.hooksChangedListeners]) {
+			try {
+				listener()
+			} catch (error) {
+				this.log.warn('A hooks-changed listener threw', {
+					'exception.message': toErrorMessage(error),
+				})
+			}
+		}
 	}
 
 	/**
@@ -528,14 +559,22 @@ export class PluginLifecycleManager {
 		readonly event: PluginHookEvent
 		/** Set when the hook was read from entries the plugin ships and not from a module it runs. */
 		readonly shell?: true
+		/** On `file_changed`: the paths the hook's matcher names. */
+		readonly watches?: readonly string[]
 	}[] {
-		const out: { pluginId: PluginId; event: PluginHookEvent; shell?: true }[] = []
+		const out: {
+			pluginId: PluginId
+			event: PluginHookEvent
+			shell?: true
+			watches?: readonly string[]
+		}[] = []
 		for (const [event, handlers] of this.hookHandlers) {
 			for (const handler of handlers) {
 				out.push({
 					pluginId: handler.pluginId,
 					event,
 					...(handler.shell === true ? { shell: true as const } : {}),
+					...(handler.watches !== undefined ? { watches: handler.watches } : {}),
 				})
 			}
 		}
@@ -1058,6 +1097,7 @@ export class PluginLifecycleManager {
 				this.hookHandlers.set(event, filtered)
 			}
 		}
+		this.notifyHooksChanged()
 	}
 
 	private async stopMcpContributions(
@@ -1141,6 +1181,7 @@ export class PluginLifecycleManager {
 				this.hookHandlers.set(event, filtered)
 			}
 		}
+		this.notifyHooksChanged()
 
 		this.pluginContributions.delete(pluginId)
 		this.instructions.unregister(

@@ -36,6 +36,32 @@ async function fire(manager: PluginLifecycleManager): Promise<void> {
 	await manager.executeHooks('pre_tool_use', { sessionId: SESSION_ID, toolName: 'bash' })
 }
 
+describe('a host that follows the hooks', () => {
+	it('is told when hooks come and go, and listHooks says which files a file_changed hook watches', () => {
+		const manager = makeManager()
+		const told = vi.fn()
+		const stop = manager.onHooksChanged(told)
+		const attachment = manager.attachHooks(SHARED, [
+			{
+				event: 'file_changed',
+				watches: ['.envrc'],
+				handler: async () => ({ action: 'continue' as const }),
+			},
+		])
+		expect(told).toHaveBeenCalledTimes(1)
+		expect(manager.listHooks()).toEqual([
+			{ pluginId: SHARED, event: 'file_changed', watches: ['.envrc'] },
+		])
+		attachment.remove()
+		expect(told).toHaveBeenCalledTimes(2)
+		attachment.remove()
+		expect(told).toHaveBeenCalledTimes(2)
+		stop()
+		manager.registerHook(SHARED, { event: 'pre_tool_use', handler: answers('x', []) })
+		expect(told).toHaveBeenCalledTimes(2)
+	})
+})
+
 describe('attachHooks', () => {
 	it('removes exactly the hooks its call attached, beside hooks of the same plugin id', async () => {
 		const manager = makeManager()

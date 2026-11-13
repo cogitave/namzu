@@ -2,11 +2,14 @@
 
 import { EXIT_OK, EXIT_USAGE } from '../exit-codes.js'
 import { displayConversationTitle } from '../integrations/sessions/display-title.js'
+import { openWorktreeHookRuntime } from '../integrations/worktrees/hook-host.js'
 import {
 	type WorktreeResume,
 	openManagedWorktrees,
 	worktreeOpenHint,
 } from '../integrations/worktrees/managed.js'
+import { projectFilesDeclaringWorktreeCreate } from '../integrations/worktrees/untrusted-hook.js'
+import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { terminalDisplayText } from '../tui/terminal-display.js'
 import type { CommandDef } from './types.js'
 
@@ -45,8 +48,41 @@ export function createWorktreeCommand(
 				ctx.formatter.error({ message: HELP })
 				return EXIT_USAGE
 			}
+			let hookRuntime: Awaited<ReturnType<typeof openWorktreeHookRuntime>> | undefined
 			try {
-				const manager = await openManagedWorktrees(process.cwd())
+				// Only a command that makes a worktree reaches a hook; listing and
+				// resuming never start the hook runtime.
+				if (verb === 'create' || verb === 'fork') {
+					// A folder's own hooks run only once a person trusted it, as for every
+					// command; before that only the user's and the managed file's do. This
+					// command's context carries no configuration, so the hooks are read here.
+					const trust = decideHeadlessTrust({ cwd: process.cwd(), trustFlag: false })
+					if (!trust.allowed) {
+						const declaring = projectFilesDeclaringWorktreeCreate(process.cwd())
+						if (declaring.length > 0) {
+							ctx.formatter.error({
+								message: terminalDisplayText(
+									`${declaring.join(' and ')} declares a worktree_create hook, and this folder is not trusted, so the hook would not run and Namzu would make a Git worktree instead of it. Nothing was created.\nRun \`namzu\` here once and accept the trust prompt, then run this command again.`,
+								),
+							})
+							return EXIT_USAGE
+						}
+					}
+					const { loadBootstrapConfigWithProvenance, loadConfigWithProvenance } = await import(
+						'../config/load.js'
+					)
+					const config = trust.allowed
+						? loadConfigWithProvenance({ cwd: trust.cwd }).config
+						: loadBootstrapConfigWithProvenance({}).config
+					hookRuntime = await openWorktreeHookRuntime(config, process.cwd(), (line) =>
+						ctx.formatter.info(terminalDisplayText(line)),
+					)
+				}
+				const manager = await openManagedWorktrees(process.cwd(), {
+					...(hookRuntime?.hooks
+						? { hooks: hookRuntime.hooks.host, onNotice: hookRuntime.hooks.onNotice }
+						: {}),
+				})
 				if (verb === 'list') {
 					const worktrees = await manager.list()
 					const text =
@@ -69,7 +105,9 @@ export function createWorktreeCommand(
 					ctx.formatter.print({
 						...created,
 						text: terminalDisplayText(
-							`Created ${created.branch} at ${created.path}.\nOpen it: ${worktreeOpenHint(created.path)}${created.sourceDirty ? '\nUncommitted files stayed in the source checkout.' : ''}`,
+							created.madeByHook
+								? `Created a worktree at ${created.path} with a worktree_create hook.\nOpen it: ${worktreeOpenHint(created.path)}\nNamzu does not manage it: it is not in \`namzu worktree list\`, and removing it is a worktree_remove hook's job or yours.`
+								: `Created ${created.branch} at ${created.path}.\nOpen it: ${worktreeOpenHint(created.path)}${created.sourceDirty ? '\nUncommitted files stayed in the source checkout.' : ''}`,
 						),
 					})
 					return EXIT_OK
@@ -101,6 +139,8 @@ export function createWorktreeCommand(
 					message: terminalDisplayText(cause instanceof Error ? cause.message : String(cause)),
 				})
 				return EXIT_USAGE
+			} finally {
+				await hookRuntime?.close().catch(() => undefined)
 			}
 		},
 	}

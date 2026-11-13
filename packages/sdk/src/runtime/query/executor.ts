@@ -448,6 +448,11 @@ export interface ToolExecutorConfig {
 	onJobCollected?: (id: string) => void
 	/** The longest a monitor may live in this turn; see `QueryParams.monitorTimeoutCapMs`. */
 	monitorTimeoutCapMs?: number
+	/** See `QueryParams.onWorkingDirectoryChange`. */
+	onWorkingDirectoryChange?: (change: {
+		readonly from: string
+		readonly to: string
+	}) => Promise<void> | void
 	/**
 	 * Where a monitor the turn owns itself is recorded, so the turn stays open
 	 * for it. Passed only when the monitor's owner is the turn: a session-owned
@@ -2533,6 +2538,9 @@ export class ToolExecutor {
 			sessionId: this.config.sessionId,
 			turnId: this.config.turnId,
 			workingDirectory: this.config.workingDirectory,
+			...(this.config.onWorkingDirectoryChange
+				? { workingDirectoryChanged: this.config.onWorkingDirectoryChange }
+				: {}),
 			...(this.additionalDirectoriesNow()?.length
 				? { additionalDirectories: this.additionalDirectoriesNow() }
 				: {}),

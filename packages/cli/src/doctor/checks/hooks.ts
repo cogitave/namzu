@@ -2,6 +2,7 @@ import {
 	type DoctorCheck,
 	type DoctorCheckResult,
 	assignedWithin,
+	fileChangedMatcherNote,
 	isPluginFolderVariable,
 	isShellOwnVariable,
 	referencedVariables,
@@ -83,6 +84,12 @@ export function describeHooksStatus(
 	for (const each of unreadable) lines.push(`Cannot be read: ${each}.`)
 	const unsetVariables = unsetVariableLines(config, bySource)
 	for (const each of unsetVariables) lines.push(each)
+	// A file_changed hook whose matcher names no file watches nothing itself.
+	for (const entry of config.hooks?.file_changed ?? []) {
+		if (entry.source !== undefined && !bySource.has(entry.source)) continue
+		const note = fileChangedMatcherNote(entry.matcher)
+		if (note !== undefined) lines.push(`A file_changed hook: ${note}.`)
+	}
 	// What a file declared and this kernel could not load, or read but does not act on.
 	const untrustedLabels =
 		folder && !folder.trusted
@@ -251,6 +258,7 @@ function unsetVariableLines(
 					process.env[name] === undefined &&
 					entry.env?.[name] === undefined &&
 					!MOVED_ENDING.test(name) &&
+					!(ENV_FILE_EVENTS.has(event) && ENV_FILE_ENDING.test(name)) &&
 					!(entry.source?.startsWith('plugin ') === true && isPluginFolderVariable(name)) &&
 					!KERNEL_NAME.test(name) &&
 					!isShellOwnVariable(name) &&
@@ -267,6 +275,13 @@ function unsetVariableLines(
 }
 
 const MOVED_ENDING = /.+_PROJECT_DIR$/
+/** A name that ends this way is given the variables file on the events that own one. */
+const ENV_FILE_ENDING = /.+_ENV_FILE$/
+const ENV_FILE_EVENTS: ReadonlySet<string> = new Set([
+	'session_start',
+	'cwd_changed',
+	'file_changed',
+])
 
 export function hooksCheck(config: NamzuCliConfig): DoctorCheck {
 	return {

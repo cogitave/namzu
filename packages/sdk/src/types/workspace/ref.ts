@@ -31,6 +31,12 @@ export interface GitWorktreeBackendMeta {
 	worktreePath: string
 	/** The commit the checkout started on; absent on refs made before it was recorded. */
 	baseCommit?: string
+	/**
+	 * Set when a `worktree_create` hook made the folder. It is the hook's: the
+	 * kernel never runs its own Git removal on it, it asks the `worktree_remove`
+	 * hooks and, with none, leaves the folder where it is.
+	 */
+	hookOwned?: true
 }
 
 /**

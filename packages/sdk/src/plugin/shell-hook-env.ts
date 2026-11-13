@@ -19,11 +19,12 @@ export const SHELL_HOOK_RESERVED_ENV: readonly string[] = [
 	'NAMZU_TURN_ID',
 	'NAMZU_TOOL_NAME',
 	'NAMZU_TOOL_PATH',
+	'NAMZU_ENV_FILE',
 	'NAMZU_STARTED_BY_SESSION',
 ]
 
 /** The folders a name's ending can stand for. */
-export type MovedFolder = 'project' | 'plugin' | 'pluginData' | 'skill'
+export type MovedFolder = 'project' | 'plugin' | 'pluginData' | 'skill' | 'envFile'
 
 /** Endings read by shape; the name looked for is the whole variable name. */
 export const MOVED_FOLDER_ENDINGS: readonly {
@@ -40,6 +41,11 @@ export const MOVED_FOLDER_ENDINGS: readonly {
 	// written names its folder `..._PLUGIN_ROOT` (see `movedFolderFor`); it has
 	// no data folder, so `_PLUGIN_DATA` is never given to one.
 	{ ending: '_SKILL_ROOT', folder: 'skill' },
+	// The file a hook may append `export NAME=value` lines to, on the events
+	// that have one (`session_start`, `cwd_changed`, `file_changed`): the same
+	// file `NAMZU_ENV_FILE` names. On any other event there is no such file and
+	// the name is left unset (and reported).
+	{ ending: '_ENV_FILE', folder: 'envFile' },
 ]
 
 /**

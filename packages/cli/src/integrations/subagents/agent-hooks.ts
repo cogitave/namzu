@@ -46,6 +46,11 @@ const EVENTS_OF_THE_MAIN_CONVERSATION: ReadonlySet<ShellHookEvent> = new Set<She
 	'session_start',
 	'session_end',
 	'turn_failure',
+	// Fired by the host for the conversation it runs, or take over how a worktree is made.
+	'file_changed',
+	'cwd_changed',
+	'worktree_create',
+	'worktree_remove',
 ])
 
 const MAX_NOTICE_CHARS = 600

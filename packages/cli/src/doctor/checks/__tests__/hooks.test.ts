@@ -65,6 +65,20 @@ describe('the hooks doctor row', () => {
 		const trusted = describeHooksStatus(config, { cwd: '/srv/app', trusted: true })
 		expect(trusted.message).toContain('3 shell hooks are attached')
 	})
+
+	it('says a file_changed hook with no file in its matcher watches nothing itself', () => {
+		const result = describeHooksStatus({
+			hooks: {
+				file_changed: [
+					{ command: 'a', source: '~/.namzu/config.yaml' },
+					{ command: 'b', matcher: '.envrc', source: '~/.namzu/config.yaml' },
+				],
+			},
+		})
+		expect(
+			(result.message ?? '').match(/A file_changed hook: its matcher names no file/g),
+		).toHaveLength(1)
+	})
 })
 
 describe('the hooks doctor row and skills', () => {

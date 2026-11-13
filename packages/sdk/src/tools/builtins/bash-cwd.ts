@@ -16,7 +16,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { statSync } from 'node:fs'
+import { realpathSync, statSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 
 import { tempFilePath } from '../../utils/temp.js'
@@ -101,7 +101,14 @@ export async function recordDirectory(
 	sessionId: string,
 	file: string,
 	context: Parameters<typeof toolRoots>[0],
+	/** Told once when the directory the next call starts in is a different folder from this call's. */
+	onChange?: (change: { readonly from: string; readonly to: string }) => Promise<void> | void,
 ): Promise<string | undefined> {
+	const previous = carried.get(sessionId)
+	const from =
+		previous !== undefined && previous.base === context.workingDirectory
+			? previous.cwd
+			: context.workingDirectory
 	let reported: string
 	try {
 		reported = (await readBoundedFile(file, 64 * 1024)).toString('utf8').trim()
@@ -122,7 +129,24 @@ export async function recordDirectory(
 			if (oldest !== undefined) carried.delete(oldest)
 		}
 	}
+	if (onChange !== undefined && !sameFolder(from, next)) {
+		try {
+			await onChange({ from, to: next })
+		} catch {
+			// A host's observer must not fail the command that already ran.
+		}
+	}
 	return outside === undefined ? undefined : cwdResetNotice(base)
+}
+
+/** Whether two paths are one folder: the shell reports its physical path, a session may hold a link. */
+function sameFolder(a: string, b: string): boolean {
+	if (a === b) return true
+	try {
+		return realpathSync(a) === realpathSync(b)
+	} catch {
+		return false
+	}
 }
 
 /** For tests: forget every session. */

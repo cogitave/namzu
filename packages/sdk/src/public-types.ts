@@ -250,6 +250,13 @@ export type {
 	ShellHooksConfig,
 } from './plugin/shell-hook.js'
 export type { ShellHookToolNames } from './plugin/shell-hook-tool-names.js'
+export type { HookEnvEvent, SessionHookEnvOptions } from './plugin/session-hook-env.js'
+export type {
+	FileChange,
+	FileChangeWatcherOptions,
+	WatchDirectory,
+} from './plugin/file-change-watch.js'
+export type { FileChangeHooksOptions } from './plugin/file-change-hooks.js'
 export type { PluginFolders } from './plugin/shell-hook-env.js'
 
 export type {
@@ -344,6 +351,17 @@ export type { ProjectManagerDeps } from './manager/project/lifecycle.js'
 export type { TopicManagerDeps } from './manager/topic/lifecycle.js'
 export type { FileLockManagerConfig } from './bus/lock.js'
 export type { GitWorktreeDriverConfig } from './session/workspace/git-worktree.js'
+export type {
+	BranchWorkspaceParams,
+	CreateWorkspaceParams,
+	WorkspaceBackendDriver,
+	WorkspaceInspection,
+} from './session/workspace/driver.js'
+export type {
+	HookedWorkspaceDriverOptions,
+	WorktreeHookContext,
+	WorktreeHookHost,
+} from './session/workspace/hooked-driver.js'
 export type { CapacityDimension } from './session/handoff/capacity.js'
 export type { HandoffLockRejectedReason } from './session/handoff/version.js'
 export type { SessionSummaryMaterializerDeps } from './session/summary/materialize.js'

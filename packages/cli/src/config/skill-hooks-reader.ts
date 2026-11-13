@@ -235,21 +235,46 @@ export function readSkillHooks(
  * is listed as attached is what can run.
  */
 export function withoutSessionStart(read: SkillHooksRead): SkillHooksRead {
-	const dropped = (read.hooks as Record<string, unknown[] | undefined>).session_start
-	if (!dropped || dropped.length === 0) return read
-	const { session_start: _gone, ...rest } = read.hooks as Record<string, unknown[]>
-	return {
-		...read,
-		hooks: rest as unknown as HooksConfig,
-		count: read.count - dropped.length,
-		problems: [
-			...read.problems,
-			{
-				event: 'session_start',
-				severity: 'note',
-				message:
-					'cannot run for a skill, which is used after the conversation has started, so it is set aside.',
-			},
-		],
+	return withoutEvents(
+		withoutEvents(
+			read,
+			['session_start'],
+			'cannot run for a skill, which is used after the conversation has started, so it is set aside.',
+		),
+		['worktree_create', 'worktree_remove'],
+		'takes over how a worktree is made or removed for the whole conversation, and a skill is attached only while it is in use, so it is set aside; put it in a config file or a plugin.',
+	)
+}
+
+/**
+ * A forked skill's hooks belong to the delegated agent's own session. The
+ * host fires `file_changed` and `cwd_changed` for the conversation it runs, so
+ * an entry on either would never fire for the agent: it is set aside with a note.
+ */
+export function withoutConversationEvents(read: SkillHooksRead): SkillHooksRead {
+	return withoutEvents(
+		read,
+		['file_changed', 'cwd_changed'],
+		'is fired for the conversation the host runs, never inside a delegated agent, so it will not run for a skill that runs as one.',
+	)
+}
+
+function withoutEvents(
+	read: SkillHooksRead,
+	events: readonly string[],
+	message: string,
+): SkillHooksRead {
+	let result = read
+	for (const event of events) {
+		const dropped = (result.hooks as Record<string, unknown[] | undefined>)[event]
+		if (!dropped || dropped.length === 0) continue
+		const { [event]: _gone, ...rest } = result.hooks as Record<string, unknown[]>
+		result = {
+			...result,
+			hooks: rest as unknown as HooksConfig,
+			count: result.count - dropped.length,
+			problems: [...result.problems, { event, severity: 'note', message }],
+		}
 	}
+	return result
 }

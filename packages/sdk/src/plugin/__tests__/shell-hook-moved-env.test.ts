@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
+import { SessionHookEnv } from '../session-hook-env.js'
 import {
 	assignedWithin,
 	expandHookEnvValue,
@@ -19,7 +20,7 @@ import {
 	shellHookEnvNameProblem,
 	shellHookEnvProblems,
 } from '../shell-hook-env.js'
-import { runShellHook, shellHookVerdict } from '../shell-hook.js'
+import { createShellHook, runShellHook, shellHookVerdict } from '../shell-hook.js'
 
 const SESSION = '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b'
 const input = { event: 'turn_start', sessionId: SESSION, cwd: process.cwd() } as const
@@ -290,6 +291,56 @@ describe('the failure line', () => {
 		expect(
 			shellHookVerdict('pre_tool_use', entry, { ...notFound, unsetVariables: undefined }),
 		).toEqual({ action: 'continue' })
+	})
+})
+
+describe('the variables file, for a name that ends in _ENV_FILE', () => {
+	const base = { PATH: '/bin' }
+
+	it('gives an unset name the file the events that own one are given', () => {
+		const moved = movedEnvironment(
+			{ command: 'echo "export A=1" >> "$ANYTOOL_ENV_FILE"' },
+			base,
+			{ NAMZU_ENV_FILE: '/tmp/vars' },
+			{ project: '/proj', envFile: '/tmp/vars' },
+		)
+		expect(moved.env.ANYTOOL_ENV_FILE).toBe('/tmp/vars')
+		expect(moved.unset).toEqual([])
+	})
+
+	it('leaves it unset, and names it, on an event with no file', () => {
+		const moved = movedEnvironment(
+			{ command: 'echo x >> "$ANYTOOL_ENV_FILE"' },
+			base,
+			{},
+			{ project: '/proj' },
+		)
+		expect(moved.env.ANYTOOL_ENV_FILE).toBeUndefined()
+		expect(moved.unset).toEqual(['ANYTOOL_ENV_FILE'])
+	})
+
+	it('cannot be replaced by an entry env', () => {
+		expect(shellHookEnvNameProblem('NAMZU_ENV_FILE')).toMatch(/cannot be replaced/)
+	})
+
+	it('runs: a session_start command written for another tool appends to the same file', async () => {
+		const directory = mkdtempSync(join(tmpdir(), 'moved-env-file-'))
+		try {
+			const hookEnv = new SessionHookEnv({ directory: () => directory, inherited: () => ({}) })
+			const hook = createShellHook(
+				'session_start',
+				{ command: 'printf "export FROM_MOVED=yes\\n" >> "$ANYTOOL_ENV_FILE"' },
+				{ cwd: directory, hookEnv },
+			)
+			await hook.handler({
+				event: 'session_start',
+				sessionId: SESSION,
+				pluginId: 'p',
+			} as never)
+			expect(hookEnv.variables).toEqual({ FROM_MOVED: 'yes' })
+		} finally {
+			rmSync(directory, { recursive: true, force: true })
+		}
 	})
 })
 
