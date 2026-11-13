@@ -2532,12 +2532,39 @@ function hookSourceLabel(source: ConfigValueSource): string {
 		: `environment variable ${source.variable}`
 }
 
+/**
+ * Where a hook problem goes instead of the config files' own list, while a
+ * caller that reads hooks from somewhere other than a config file (a skill)
+ * runs the same reader. Set only for the length of one synchronous call.
+ */
+let hookProblemSink:
+	| ((event: string, severity: 'problem' | 'note', message: string) => void)
+	| undefined
+
+/** Runs `read` with the hook reader's problems handed to `sink` and not to the config files' list. */
+export function withHookProblemSink<T>(
+	sink: (event: string, severity: 'problem' | 'note', message: string) => void,
+	read: () => T,
+): T {
+	const outer = hookProblemSink
+	hookProblemSink = sink
+	try {
+		return read()
+	} finally {
+		hookProblemSink = outer
+	}
+}
+
 function recordHookProblem(
 	file: string,
 	event: string,
 	severity: 'problem' | 'note',
 	message: string,
 ): void {
+	if (hookProblemSink) {
+		hookProblemSink(event, severity, message)
+		return
+	}
 	const key = `${file}\n${event}\n${message}`
 	if (hookConfigProblemList.has(key)) return
 	hookConfigProblemList.set(key, { file, event, severity, message })

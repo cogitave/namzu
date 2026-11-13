@@ -171,6 +171,14 @@ function renderSkillAudit(cwd: string, audit: SkillAuditReport): string {
 		const suffix = finding.manifestChars === undefined ? '' : ` · ${finding.manifestChars} chars`
 		lines.push(`  ${oneLine(finding.name)}: ${finding.status}${suffix}`)
 		if (finding.reason) lines.push(`    ${oneLine(finding.reason)}`)
+		if (finding.carriesHooks && !finding.hookProblems) {
+			lines.push('    carries hooks, which attach when the skill is used')
+		}
+		for (const problem of finding.hookProblems ?? []) {
+			lines.push(
+				`    hooks ${problem.severity === 'problem' ? 'not loaded' : 'note'}: ${oneLine(problem.text)}`,
+			)
+		}
 	}
 	lines.push(
 		`  ready: ${audit.ready}  operator-only: ${audit.operatorOnly}  disabled: ${audit.disabled}  invalid: ${audit.invalid}`,

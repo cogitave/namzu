@@ -142,6 +142,7 @@ same exit status. Messages about a wrong command line go to standard error.
 | `file-too-large` | warning, error for an agent file | A file over 4 MiB was not read; the loader refuses a larger agent file and reads the others. |
 | `skill-invalid`, `skill-duplicate` | error | The skill reader refuses `SKILL.md` (name, description, `invocation`, frontmatter), or two skills share a name. |
 | `skill-unknown-key`, `skill-description-large`, `skill-body-empty` | warning | An ignored frontmatter key, a description that uses more than a quarter of the model's skill list, no instructions. |
+| `skill-hooks-problem` | warning | An entry of the skill's `hooks` block cannot be loaded or is set aside, named with its event. On a guarding event the skill loads without any of its hooks and without its `allowed-tools` pre-approval; otherwise only that entry is left out ([Hooks in a skill](../sdk/hooks.md#hooks-in-a-skill)). |
 | `command-invalid` | error | The command file does not parse. |
 | `command-unknown-key`, `command-empty`, `command-name`, `command-duplicate`, `file-ignored` | warning | An ignored key (`allowed-tools`, for one), an empty prompt, a name with a space, a name written in two folders, a link or folder named `.md`, or a file named `.MD`, `.markdown`, `.mdown`, `.mkd` or `.mdx`, that is passed over (only names ending in lowercase `.md` are read). |
 | `agent-invalid` | error | The agent file is skipped (no name, a reserved name, no description, a bad list or mode, an empty body). |

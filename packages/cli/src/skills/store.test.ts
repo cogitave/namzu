@@ -269,10 +269,11 @@ describe('skill tiers', () => {
 describe('frontmatter the operator listing reads', () => {
 	it('tolerates keys it does not read, whatever YAML they use', () => {
 		const parsed = parseSkillMarkdown(
-			'---\nname: pr\ndescription: reviews\nargument-hint: [pr-number]\nhooks:\n  PreToolUse:\n    - matcher: Bash\nmodel: opus\n---\nBody',
+			'---\nname: pr\ndescription: reviews\nargument-hint: [pr-number]\ntags: {a: b}\nmodel: opus\n---\nBody',
 		)
-		// The hint is read (it is shown after `/pr `); the hooks block and the
-		// model key are skipped whole.
+		// The hint is read (it is shown after `/pr `); a key nothing reads is
+		// skipped whole, whatever YAML it is written in. (`hooks` is read now:
+		// see "a skill that carries hooks".)
 		expect(parsed).toEqual({
 			name: 'pr',
 			description: 'reviews',
@@ -324,5 +325,48 @@ describe('renderSkillRoster', () => {
 		expect(text).toContain(`shadows ${join(home, '.agents', 'skills', 'dup', 'SKILL.md')}`)
 		expect(text).toContain('operator only: not offered to the model')
 		expect(text).toContain('offered to the model when these tools exist: browser')
+	})
+})
+
+describe('a skill that carries hooks', () => {
+	const HOOKS = [
+		'hooks:',
+		'  PreToolUse:',
+		'    - matcher: Bash',
+		'      hooks:',
+		'        - type: command',
+		'          command: ./guard.sh',
+	].join('\n')
+
+	it('is read, by the same reader, with its hooks block as written, and nothing else changes', () => {
+		const parsed = parseSkillMarkdown(
+			['---', 'name: a', 'description: d', HOOKS, 'argument-hint: [file]', '---', 'Body.'].join(
+				'\n',
+			),
+		)
+		expect(parsed).toEqual({
+			name: 'a',
+			description: 'd',
+			argumentHint: 'file',
+			hooksSource: HOOKS,
+			body: 'Body.',
+		})
+	})
+
+	it('is listed with its hooks block for the doctor, the trust prompt and /hooks', () => {
+		writeSkill(
+			join(home, '.namzu'),
+			'guarded',
+			`---\nname: guarded\ndescription: d\n${HOOKS}\n---\nBody.`,
+		)
+		const found = discoverSkills({ home, cwd }).find((skill) => skill.name === 'guarded')
+		expect(found?.hooksSource).toBe(HOOKS)
+		expect(found?.problem).toBeUndefined()
+	})
+
+	it('says nothing about hooks for a skill without the key', () => {
+		expect(parseSkillMarkdown('---\nname: a\ndescription: d\n---\nBody.')).not.toHaveProperty(
+			'hooksSource',
+		)
 	})
 })

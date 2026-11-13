@@ -5,7 +5,9 @@ import { resolve } from 'node:path'
 import { hookSwitch, hooksBySource } from '../../config/hook-layers.js'
 import { LOCAL_CONFIG_FILE, hookConfigProblems, shortHomePath } from '../../config/load.js'
 import type { NamzuCliConfig } from '../../config/schema.js'
+import { readSkillHooks } from '../../config/skill-hooks-reader.js'
 import { isTrusted } from '../../integrations/trust/store.js'
+import { type SkillInfo, discoverSkills } from '../../skills/store.js'
 import {
 	hookConfigProblemLines,
 	hookReadingProblems,
@@ -23,6 +25,7 @@ import {
 export function describeHooksStatus(
 	config: NamzuCliConfig,
 	folder?: { readonly cwd: string; readonly trusted: boolean },
+	skills: readonly SkillInfo[] = [],
 ): DoctorCheckResult {
 	const bySource = new Map(hooksBySource(config.hooks))
 	// A project's files attach their hooks only once the folder is trusted; the
@@ -71,15 +74,53 @@ export function describeHooksStatus(
 	const declared = hookConfigProblems().filter((problem) => !untrustedLabels.has(problem.file))
 	for (const line of hookConfigProblemLines(declared)) lines.push(line)
 	const notLoaded = declared.some((problem) => problem.severity === 'problem')
+	// Skills attach their hooks when they are used: counted as carried, and
+	// read now so one that could not be loaded is named before it is used.
+	let skillWarn = false
+	const carrying = skills.filter(
+		(skill) =>
+			skill.hooksSource !== undefined &&
+			skill.problem === undefined &&
+			!(skill.source === 'project' && folder && !folder.trusted),
+	)
+	if (carrying.length > 0) {
+		lines.push(
+			state === undefined
+				? `${carrying.length} ${carrying.length === 1 ? 'skill carries' : 'skills carry'} hooks that attach when the skill is used: ${carrying.map((skill) => skill.name).join(', ')}.`
+				: `${carrying.length} ${carrying.length === 1 ? 'skill carries' : 'skills carry'} hooks that do not attach, because a switch is on.`,
+		)
+		for (const skill of carrying) {
+			const read = readSkillHooks(skill.hooksSource as string, `skill ${skill.name}`)
+			for (const problem of read.problems) {
+				if (problem.severity === 'problem') skillWarn = true
+				lines.push(
+					`${problem.severity === 'problem' ? 'Not loaded' : 'Note'}: skill ${skill.name}, ${problem.event}: ${problem.message}`,
+				)
+			}
+			if (read.guardLost) {
+				lines.push(
+					`Skill ${skill.name} loads without its hooks and without its allowed-tools pre-approval.`,
+				)
+			}
+		}
+	}
 	lines.push(state === undefined ? 'No hook switch is on.' : `Switch on: ${hooksSwitchLine(state)}`)
 	lines.push('Plugin hooks are not counted here; plugins have their own switch (plugins.enabled).')
-	return { status: unreadable.length > 0 || notLoaded ? 'warn' : 'pass', message: lines.join(' ') }
+	return {
+		status: unreadable.length > 0 || notLoaded || skillWarn ? 'warn' : 'pass',
+		message: lines.join(' '),
+	}
 }
 
 export function hooksCheck(config: NamzuCliConfig): DoctorCheck {
 	return {
 		id: 'runtime.hooks',
 		category: 'runtime',
-		run: async (ctx) => describeHooksStatus(config, { cwd: ctx.cwd, trusted: isTrusted(ctx.cwd) }),
+		run: async (ctx) =>
+			describeHooksStatus(
+				config,
+				{ cwd: ctx.cwd, trusted: isTrusted(ctx.cwd) },
+				discoverSkills({ cwd: ctx.cwd, ...(config.skills ? { config: config.skills } : {}) }),
+			),
 	}
 }

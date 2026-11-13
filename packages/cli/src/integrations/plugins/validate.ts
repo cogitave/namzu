@@ -35,6 +35,7 @@ import {
 	resolveWithinReal,
 	skillModelDescription,
 } from '@namzu/sdk'
+import { readSkillHooks } from '../../config/skill-hooks-reader.js'
 
 import { PERMISSION_MODE_NAMES } from '../../permissions/mode-names.js'
 import { SKILL_MANIFEST_MAX_CHARS } from '../../skills/catalog.js'
@@ -926,6 +927,28 @@ async function checkSkill(
 		})
 	}
 	unknownKeys(read.text, SKILL_FRONTMATTER_KEYS, part, skillFile, 'skill-unknown-key', c, 'a skill')
+	if (skill.metadata.hooksSource !== undefined) {
+		const hooks = readSkillHooks(skill.metadata.hooksSource, `skill ${full}`)
+		for (const problem of hooks.problems) {
+			c.add({
+				level: 'warning',
+				part,
+				file: skillFile,
+				line: lineOfKey(read.text, 'hooks'),
+				code: 'skill-hooks-problem',
+				message: `"${full}" hooks, ${problem.event}: ${problem.message}`,
+				consequence:
+					problem.severity === 'problem'
+						? 'The skill loads without any of its hooks and without its allowed-tools pre-approval, and says so.'
+						: 'The skill is used with this part of its hooks left out.',
+			})
+		}
+	}
+}
+
+/** The line of a top-level front matter key, for a message that names it. */
+function lineOfKey(text: string, key: string): number | undefined {
+	return frontmatterKeys(text).find((found) => found.key === key)?.line
 }
 
 function leavesFolder(root: string, value: string): boolean {

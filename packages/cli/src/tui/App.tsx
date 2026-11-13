@@ -350,6 +350,7 @@ import {
 	renderSkillRoster,
 	skillTierLabel,
 } from '../skills/store.js'
+import { hooksOf } from '../skills/use-hooks.js'
 import { type UserCommand, discoverUserCommands } from '../user-commands/store.js'
 import {
 	AGENT_RAIL_WINDOW,
@@ -5012,6 +5013,21 @@ function AppBody({
 		[pushMessage, pushSystem],
 	)
 
+	/** The person ran a skill that carries hooks: they attach for the rest of the conversation. */
+	const attachSkillHooks = useCallback(
+		(skill: { name: string; dirPath: string; hooksSource: string }): void => {
+			if (!session?.skillHooks) {
+				pushMessage(
+					'system',
+					`Skill ${skill.name} carries hooks, but this session has no hook runtime, so they are not attached.`,
+				)
+				return
+			}
+			session.skillHooks.use(skill)
+		},
+		[session, pushMessage],
+	)
+
 	const activateSkill = useCallback(
 		(name: string): void => {
 			const info = discoverSkills({
@@ -5029,12 +5045,14 @@ function AppBody({
 					{ name: info.name, body },
 				])
 				conversationLearning().skillUsed = true
+				const carried = hooksOf(info)
+				if (carried) attachSkillHooks(carried)
 				pushMessage('system', `Activated skill: ${info.name}`)
 			} catch (error) {
 				pushSystem('error', explainFailure(error, `Could not load skill "${name}".`))
 			}
 		},
-		[conversationLearning, ctx.cwd, ctx.skills, pushMessage, pushSystem],
+		[attachSkillHooks, conversationLearning, ctx.cwd, ctx.skills, pushMessage, pushSystem],
 	)
 
 	const removeStoredCredential = useCallback(
@@ -6367,6 +6385,7 @@ function AppBody({
 							...(activeCtx.web ? { web: activeCtx.web } : {}),
 							...(activeCtx.smallModel ? { smallModel: activeCtx.smallModel } : {}),
 							...(activeCtx.hooks ? { hooks: activeCtx.hooks } : {}),
+							...(activeCtx.hooksSwitch ? { hooksSwitch: activeCtx.hooksSwitch } : {}),
 							...(activeCtx.compaction ? { compaction: activeCtx.compaction } : {}),
 							...(activeCtx.memory ? { memory: activeCtx.memory } : {}),
 							...(activeCtx.workflow ? { workflow: activeCtx.workflow } : {}),
@@ -7359,6 +7378,14 @@ function AppBody({
 		hooks: () => session?.hooks,
 		hooksView: () => ({
 			...(session?.pluginHooks ? { pluginHooks: session.pluginHooks() } : {}),
+			...(session?.skillHooks
+				? {
+						skillHooks: {
+							attached: session.skillHooks.attached(),
+							carriers: session.skillHooks.carriers(),
+						},
+					}
+				: {}),
 			...(initialCtx.hooksSwitch ? { switch: initialCtx.hooksSwitch } : {}),
 		}),
 		directories: () => session?.directories?.list() ?? [],
@@ -14205,6 +14232,7 @@ function AppBody({
 						// through to the same queue-or-send below that a typed
 						// message takes.
 						outgoing = slash.text
+						if (slash.skillHooks) attachSkillHooks(slash.skillHooks)
 						break
 					case 'none':
 						return
@@ -14854,6 +14882,7 @@ function AppBody({
 			state,
 			terminal.rows,
 			userCommands,
+			attachSkillHooks,
 		],
 	)
 	// The "waiting for your input" notice (`tui.notifications` with `idle-prompt`):
@@ -15042,6 +15071,10 @@ function AppBody({
 			const row = memoryCuratedRow(lines)
 			if (row) pushSystem('notice', row)
 		})
+	}, [session, pushSystem])
+	// A skill whose hooks could not be loaded says so, once, where the person is looking.
+	useEffect(() => {
+		return session?.skillHooks?.subscribe((line) => pushSystem('notice', line))
 	}, [session, pushSystem])
 	// A permission or a question waiting on the person: the notice countdown
 	// ends when none is left, and the turn's "Worked for" leaves the wait out.

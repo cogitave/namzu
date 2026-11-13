@@ -141,3 +141,42 @@ describe('what a folder pre-approves', () => {
 		expect(hook?.runs.endsWith('…')).toBe(true)
 	})
 })
+
+describe('what a folder’s own skills run', () => {
+	const skillFile = (hooks: string) => `---\nname: pguard\ndescription: d\n${hooks}\n---\nBody.`
+
+	function folderWithSkill(hooks: string): string {
+		const root = folder({})
+		mkdirSync(join(root, '.namzu', 'skills', 'pguard'), { recursive: true })
+		writeFileSync(join(root, '.namzu', 'skills', 'pguard', 'SKILL.md'), skillFile(hooks))
+		return root
+	}
+
+	it('lists the hooks a project skill carries beside the config’s own, named by the skill', () => {
+		const root = folderWithSkill(
+			[
+				'hooks:',
+				'  PreToolUse:',
+				'    - matcher: Bash',
+				'      hooks:',
+				'        - command: node',
+				'          args: ["${NAMZU_SKILL_ROOT}/guard.mjs"]',
+			].join('\n'),
+		)
+		expect(readFolderGrants(root).hooks).toEqual([
+			{ event: 'pre_tool_use (skill pguard)', runs: 'node ${NAMZU_SKILL_ROOT}/guard.mjs' },
+		])
+	})
+
+	it('says a skill’s hooks that cannot be loaded will not run and will not pre-approve its tools', () => {
+		const root = folderWithSkill(
+			['hooks:', '  PreToolUse:', '    - hooks:', '        - args: ["a"]'].join('\n'),
+		)
+		expect(readFolderGrants(root).hooks).toEqual([
+			{
+				event: 'skill pguard',
+				runs: 'hooks that cannot be loaded; it will not run them or pre-approve its tools',
+			},
+		])
+	})
+})

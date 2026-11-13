@@ -14,6 +14,8 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { hooksOfElement } from '../../config/hook-common-shape.js'
+import { readSkillHooks } from '../../config/skill-hooks-reader.js'
+import { discoverSkills } from '../../skills/store.js'
 import { fingerprintMcpServer } from '../mcp/project-approval.js'
 import { PROJECT_MCP_FILE, parseMcpServerFile } from '../mcp/shared-file.js'
 
@@ -121,6 +123,31 @@ function readObject(path: string): Record<string, unknown> | undefined {
 	}
 }
 
+/**
+ * The hooks the folder's own skills carry, each as what it would run. They
+ * attach when a skill is used and not before, and the folder's skills are read
+ * here as text only, never run; they are listed with the config's hooks because
+ * they run commands by themselves once the folder is trusted.
+ */
+function describeSkillHooks(cwd: string): HookGrant[] {
+	const out: HookGrant[] = []
+	for (const skill of discoverSkills({ cwd })) {
+		if (skill.source !== 'project' || skill.hooksSource === undefined) continue
+		const read = readSkillHooks(skill.hooksSource, `skill ${skill.name}`)
+		const config: Record<string, unknown> = { hooks: read.hooks }
+		for (const grant of describeHooks(config)) {
+			out.push({ ...grant, event: `${grant.event} (skill ${skill.name})` })
+		}
+		if (read.guardLost) {
+			out.push({
+				event: `skill ${skill.name}`,
+				runs: 'hooks that cannot be loaded; it will not run them or pre-approve its tools',
+			})
+		}
+	}
+	return out
+}
+
 /** The allow rules and added directories the folder's own config carries. */
 export function readFolderGrants(cwd: string): FolderGrants {
 	const allowRules: string[] = []
@@ -146,6 +173,11 @@ export function readFolderGrants(cwd: string): FolderGrants {
 				if (typeof dir === 'string' && dir.length > 0) directories.push(dir)
 			}
 		}
+	}
+	try {
+		hooks.push(...describeSkillHooks(cwd))
+	} catch {
+		// Skills that cannot be read are reported when they are used.
 	}
 	let toolServers: ToolServerGrant[] = []
 	try {

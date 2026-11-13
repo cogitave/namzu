@@ -30,6 +30,7 @@ import { fileURLToPath } from 'node:url'
 
 import { FileCheckpointStore, type TurnUndoStatus, type UndoPreview } from '../checkpoints/store.js'
 import { flushCompileCacheWhenIdle } from '../compile-cache.js'
+import { hookSwitch } from '../config/hook-layers.js'
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { DESKTOP_CONTRACT } from '../desktop-contract.js'
 import { type PluginInventoryView, readPluginInventory } from '../integrations/plugins/inventory.js'
@@ -906,6 +907,7 @@ export function createCliAcpRuntime(
 					...(projectCtx.config.web ? { web: projectCtx.config.web } : {}),
 					...(projectCtx.config.smallModel ? { smallModel: projectCtx.config.smallModel } : {}),
 					...(projectCtx.config.hooks ? { hooks: projectCtx.config.hooks } : {}),
+					...(hookSwitch(projectCtx.config) ? { hooksSwitch: hookSwitch(projectCtx.config) } : {}),
 					...(projectCtx.config.compaction ? { compaction: projectCtx.config.compaction } : {}),
 					...(projectCtx.config.memory ? { memory: projectCtx.config.memory } : {}),
 					...(projectCtx.config.sandbox ? { sandbox: projectCtx.config.sandbox } : {}),

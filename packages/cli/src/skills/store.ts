@@ -26,6 +26,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
 	SKILL_FRONTMATTER_KEYS,
+	SKILL_FRONTMATTER_RAW_KEYS,
 	SKILL_FRONTMATTER_TOLERATED_KEYS,
 	parseFrontmatter,
 } from '@namzu/sdk'
@@ -96,6 +97,8 @@ export interface SkillInfo {
 	readonly userInvocable?: false
 	/** Lower-precedence `SKILL.md` files of the same name this one hides. */
 	readonly shadows?: readonly string[]
+	/** The `hooks` block as the file wrote it: the skill attaches them while it is in use. */
+	readonly hooksSource?: string
 }
 
 export interface SkillDiscoveryOptions {
@@ -188,6 +191,7 @@ interface ParsedSkill {
 	readonly requiresTools?: readonly string[]
 	readonly argumentHint?: string
 	readonly userInvocable?: false
+	readonly hooksSource?: string
 	readonly body: string
 }
 
@@ -235,11 +239,14 @@ export function parseSkillMarkdown(raw: string, source = 'SKILL.md'): ParsedSkil
 	// refused here over a field nothing reads. `allowed-tools` may be a YAML
 	// list, as the Agent Skills format writes it; the kernel's loader accepts
 	// the same.
-	const { values, body } = parseFrontmatter(raw, source, {
+	const { values, rawBlocks, body } = parseFrontmatter(raw, source, {
 		lists: ['allowed-tools', 'argument-hint'],
 		readsKey: READS_SKILL_KEY,
 		tolerates: (key) => SKILL_FRONTMATTER_TOLERATED_KEYS.includes(key),
+		raw: SKILL_FRONTMATTER_RAW_KEYS,
 	})
+	const hooksSource =
+		Object.hasOwn(rawBlocks, 'hooks') && rawBlocks.hooks.trim() !== '' ? rawBlocks.hooks : undefined
 
 	// A non-scalar `name` or `description` is dropped rather than rendered:
 	// there is no sensible string for a block of indented pairs, and the
@@ -276,6 +283,7 @@ export function parseSkillMarkdown(raw: string, source = 'SKILL.md'): ParsedSkil
 		...(requiresTools ? { requiresTools } : {}),
 		...(hint?.trim() ? { argumentHint: hint.trim() } : {}),
 		...(invocable === 'false' ? { userInvocable: false as const } : {}),
+		...(hooksSource !== undefined ? { hooksSource } : {}),
 		body,
 	}
 }
@@ -342,6 +350,7 @@ function readSkillsFrom(dir: string, tier: SkillTier): SkillInfo[] {
 			...(parsed.requiresTools ? { requiresTools: parsed.requiresTools } : {}),
 			...(parsed.argumentHint ? { argumentHint: parsed.argumentHint } : {}),
 			...(parsed.userInvocable === false ? { userInvocable: false as const } : {}),
+			...(parsed.hooksSource !== undefined ? { hooksSource: parsed.hooksSource } : {}),
 		})
 	}
 	return skills

@@ -55,6 +55,8 @@ export function hookTimeoutLine(info: {
 
 export interface CliPluginRuntime {
 	readonly manager: PluginLifecycleManager
+	/** What every shell hook of this session is run with; a skill's hooks use the same. */
+	readonly hookOptions: ShellHookOptions
 	readonly skills: SkillRegistry
 	readonly pluginCount: number
 	/** How long closing the session may spend in `session_end` hooks; see {@link sessionEndHookBudgetMs}. */
@@ -117,11 +119,24 @@ export async function createCliPluginRuntime(
 	hooks?: HooksConfig,
 	/** What a hook's stdin says about the session; each is read at every hook run. */
 	hookHost?: Pick<ShellHookOptions, 'transcriptPath' | 'permissionMode' | 'judge'>,
+	/**
+	 * `keepForSkills`: a skill of this session carries hooks, which attach to
+	 * the lifecycle manager when it is used, so the manager is built even when
+	 * there are no plugins and no configured hooks.
+	 */
+	extra?: { readonly keepForSkills?: boolean },
 ): Promise<CliPluginRuntime | undefined> {
 	const pluginsEnabled = config?.enabled === true
 	const launchDirs = config?.launchDirs ?? []
 	const hookCount = hooks ? Object.values(hooks).reduce((n, list) => n + (list?.length ?? 0), 0) : 0
-	if (!pluginsEnabled && hookCount === 0 && launchDirs.length === 0) return undefined
+	if (
+		!pluginsEnabled &&
+		hookCount === 0 &&
+		launchDirs.length === 0 &&
+		extra?.keepForSkills !== true
+	) {
+		return undefined
+	}
 
 	const log = cliLogger()
 	const userRoot = resolveNamzuHome()
@@ -135,22 +150,21 @@ export async function createCliPluginRuntime(
 		log,
 		...(config?.hookTimeoutMs !== undefined ? { hookTimeoutMs: config.hookTimeoutMs } : {}),
 	})
-	if (hooks && hookCount > 0) {
-		attachShellHooks(manager, hooks, {
-			cwd,
-			// The folder the session was started for, for a hook script to find its own files.
-			projectDir: cwd,
-			pathFilter: createHookPathFilter(cwd),
-			log,
-			defaultTimeoutMs: { session_end: SESSION_END_HOOK_TIMEOUT_MS },
-			// Only the close of a session says so out loud: it is the one place
-			// a person is left waiting with nothing on screen to explain it.
-			onTimeout: (info) => {
-				if (info.event === 'session_end') process.stderr.write(`${hookTimeoutLine(info)}\n`)
-			},
-			...hookHost,
-		})
+	const shellHookOptions: ShellHookOptions = {
+		cwd,
+		// The folder the session was started for, for a hook script to find its own files.
+		projectDir: cwd,
+		pathFilter: createHookPathFilter(cwd),
+		log,
+		defaultTimeoutMs: { session_end: SESSION_END_HOOK_TIMEOUT_MS },
+		// Only the close of a session says so out loud: it is the one place
+		// a person is left waiting with nothing on screen to explain it.
+		onTimeout: (info) => {
+			if (info.event === 'session_end') process.stderr.write(`${hookTimeoutLine(info)}\n`)
+		},
+		...hookHost,
 	}
+	if (hooks && hookCount > 0) attachShellHooks(manager, hooks, shellHookOptions)
 	const allowedScopes = config?.allowedScopes ?? (['project', 'user'] as const)
 	const discovered = pluginsEnabled
 		? await discoverAllPluginDirs(cwd, {
@@ -211,6 +225,7 @@ export async function createCliPluginRuntime(
 			.sort()
 	return {
 		manager,
+		hookOptions: shellHookOptions,
 		skills,
 		pluginCount: installed.length,
 		sessionEndBudgetMs: sessionEndHookBudgetMs(hooks),
