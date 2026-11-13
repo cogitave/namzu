@@ -937,6 +937,14 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Show every task, not a summary.',
 		on,
 	),
+	d(
+		'tui.agentCalls',
+		'terminal',
+		'Agent calls',
+		"Show a waiting agent's last calls and one block for agents that finished.",
+		on,
+		{ defaultText: 'on' },
+	),
 	d('tui.fullscreen', 'terminal', 'Full screen', 'Use the whole terminal window.', on),
 	d('tui.mouse', 'terminal', 'Mouse', 'full, scroll only, or off.', pick('full', 'scroll', 'off'), {
 		defaultText: 'full',

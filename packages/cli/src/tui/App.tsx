@@ -433,6 +433,7 @@ import {
 	childMessageNotice,
 	childMessageRow,
 	failureReason,
+	reportsAsNotification,
 	settleLine,
 	workflowAgentProgress,
 	workflowNotice,
@@ -454,7 +455,9 @@ import {
 	probeAgentSession,
 } from './agent.js'
 import {
+	CALL_BLOCK_EXTRA_ROWS,
 	backgroundWaitLine,
+	callBlockExtraRows,
 	isRunning,
 	liveGroups,
 	pendingBackgroundAgents,
@@ -529,7 +532,12 @@ import {
 import { jobExitRow, monitorEndRow } from './job-exit-row.js'
 import { isAction, isChordAction, isChordLead } from './keymap.js'
 import { choosesModel, launchPreferences } from './launch-settings.js'
-import { checklistInView, liveWindow, settledBeforeStreaming } from './live-window.js'
+import {
+	LIVE_WINDOW_SAFETY_ROWS,
+	checklistInView,
+	liveWindow,
+	settledBeforeStreaming,
+} from './live-window.js'
 import {
 	describeAllCredentialsLogout,
 	describeApiKeyLogout,
@@ -753,9 +761,10 @@ import { recapRows, recapTurns } from './recap-turns.js'
 import {
 	type RestoreOptions,
 	agentCompletionRows,
-	agentLaunchRow,
+	blockedAgents,
 	createRestoredTurnWriter,
 	numberDetailRows,
+	settledBatchRows,
 	trailFromRecords,
 	withSavedAgentRows,
 	workflowClosingRow,
@@ -1595,6 +1604,16 @@ const FULLSCREEN_RESIZE_SETTLE_MS = 60
  */
 const LIVE_FURNITURE_ROWS = 10
 
+/**
+ * Free rows the terminal must have, beyond the live furniture, before a
+ * waited-on agent's last calls are drawn under it: the window's safety rows,
+ * the calls' own extra rows and two rows of conversation. Below it the group
+ * keeps its one-line form, so the block never pushes the composer around.
+ * A 24-row terminal with nothing else live has three rows to spare; a plan of
+ * four rows or a running call on top of that does not.
+ */
+const CALL_BLOCK_MIN_FREE_ROWS = LIVE_WINDOW_SAFETY_ROWS + CALL_BLOCK_EXTRA_ROWS + 2
+
 type JobSurface = {
 	readonly ownerSession: AgentSession
 	/** A row key from `backgroundRows`: `job:<id>` or `agent:<viewId>`. */
@@ -2258,6 +2277,8 @@ function AppBody({
 	 * out of view, so one list is never drawn twice at once; `checklistPinned` is
 	 * the operator's own "open", which is drawn at once.
 	 */
+	/** `tui.agentCalls`: a waiting agent's last calls, one block for a finished batch, the calls behind a finished row. */
+	const agentCallsOn = ctx.tui?.agentCalls !== false
 	const [checklistExpanded, setChecklistExpanded] = useState(ctx.tui?.showExpandedTodos === true)
 	const [checklistPinned, setChecklistPinned] = useState(ctx.tui?.showExpandedTodos === true)
 	const checklistOpenRef = useRef(false)
@@ -2728,9 +2749,9 @@ function AppBody({
 		if (token !== savedSubagentsTokenRef.current) return
 		savedSubagentsRef.current = saved
 		// The rows of the agents a resumed conversation launched, where it launched them.
-		setMessages((rows) => withSavedAgentRows(rows, saved, nextId))
+		setMessages((rows) => withSavedAgentRows(rows, saved, nextId, agentCallsOn))
 		replaceSubagents(session?.subagents?.getSnapshot() ?? [])
-	}, [nextId, replaceSubagents, session])
+	}, [agentCallsOn, nextId, replaceSubagents, session])
 	/** Opens the cockpit on the rows already on screen; false when there are none. */
 	const openCockpitFromCurrentRows = useCallback((): boolean => {
 		const agents = subagentsRef.current
@@ -4437,11 +4458,11 @@ function AppBody({
 				}
 				reportedBatchesRef.current.add(key)
 				if (!claimReceipt(members)) continue
-				pushRow(agentLaunchRow(members))
+				for (const row of settledBatchRows(members, agentCallsOn)) pushRow(row)
 			}
 			return retryIn
 		},
-		[claimReceipt, pushRow, session],
+		[agentCallsOn, claimReceipt, pushRow, session],
 	)
 	flushLaunchReceiptsRef.current = () => {
 		writeLaunchReceipts(subagentsRef.current, activeToolsRef.current, true)
@@ -4483,6 +4504,15 @@ function AppBody({
 			// ended (the receipt loop above); each member still says how it ended now.
 			const batchStillLive =
 				batchMembers.some((member) => member.background !== true) && batchMembers.some(isRunning)
+			// A waited-on agent that finished early in a batch still running waits for
+			// the rest: the batch ends as one block, or each keeps its Done row.
+			if (
+				batchStillLive &&
+				batchMembers.length > 1 &&
+				agent.status === 'completed' &&
+				!reportsAsNotification(agent)
+			)
+				continue
 			if (
 				!agent.replayed &&
 				!agent.resumed &&
@@ -4491,19 +4521,35 @@ function AppBody({
 			) {
 				reportedBatchesRef.current.add(key)
 				if (claimReceipt(batches.get(key) ?? [agent])) {
-					pushRow(agentLaunchRow(batches.get(key) ?? [agent]))
+					for (const row of settledBatchRows(batches.get(key) ?? [agent], agentCallsOn))
+						pushRow(row)
 				}
+			}
+			// A block of waited-on agents is written once, with the batch's receipt;
+			// its members write nothing of their own.
+			if (blockedAgents(batchMembers, agentCallsOn).includes(agent)) {
+				reportedAgentsRef.current.add(agent.viewId)
+				continue
 			}
 			reportedAgentsRef.current.add(agent.viewId)
 			const previousFailure = reportedFailuresRef.current.get(agent.viewId)
 			if (agent.status === 'failed')
 				reportedFailuresRef.current.set(agent.viewId, failureReason(agent))
-			for (const done of agentCompletionRows(agent, previousFailure)) pushRow(done)
+			for (const done of agentCompletionRows(agent, previousFailure, agentCallsOn)) pushRow(done)
 		}
 		if (retryIn === undefined) return
 		const timer = setTimeout(() => setReceiptTick((tick) => tick + 1), retryIn)
 		return () => clearTimeout(timer)
-	}, [subagents, activeTools, pushRow, session, receiptTick, writeLaunchReceipts, claimReceipt])
+	}, [
+		subagents,
+		activeTools,
+		pushRow,
+		session,
+		receiptTick,
+		writeLaunchReceipts,
+		claimReceipt,
+		agentCallsOn,
+	])
 
 	/**
 	 * A workflow leaves one closing line in the conversation, written once, when
@@ -7168,12 +7214,24 @@ function AppBody({
 	const workingStepLabel = planInRegion ? undefined : workingLabel(tasks, terminal.columns ?? 80)
 	const taskFurniture = fullTaskFurniture
 	const toolFurniture = compactWork && fullToolFurniture > 0 ? 2 : fullToolFurniture
+	// A waited-on agent's last calls are drawn under it only where the live region
+	// has the rows: the block is taller than its one-line form, so it needs the
+	// calls' rows on top of the furniture and the window's safety rows.
+	const callsRoom =
+		(terminal.rows ?? 0) -
+			(LIVE_FURNITURE_ROWS + taskFurniture + toolFurniture + pendingInputFurniture) >=
+		CALL_BLOCK_MIN_FREE_ROWS
+	const backgroundGroups = liveGroups(subagents, isWorkflowRunAgent, callsRoom && agentCallsOn)
+	const callBlockFurniture = callBlockExtraRows(backgroundGroups)
 	// The reply being written keeps its unfinished part short enough that it, the plan under the
 	// working line, the running calls and a queued message still fit the window.
 	const flowContext: FlowContext = {
 		freeze: flowFreeze,
 		width: Math.max(10, terminal.columns - 4),
-		rows: flowRows(terminal.rows, taskFurniture + toolFurniture + pendingInputFurniture),
+		rows: flowRows(
+			terminal.rows,
+			taskFurniture + toolFurniture + pendingInputFurniture + callBlockFurniture,
+		),
 		hyperlinks,
 	}
 	const flowWidth = flowContext.width
@@ -7210,7 +7268,12 @@ function AppBody({
 		messages: finalized,
 		rows: terminal.rows,
 		columns: terminal.columns,
-		furnitureRows: LIVE_FURNITURE_ROWS + taskFurniture + toolFurniture + pendingInputFurniture,
+		furnitureRows:
+			LIVE_FURNITURE_ROWS +
+			taskFurniture +
+			toolFurniture +
+			pendingInputFurniture +
+			callBlockFurniture,
 		settled: settledRef.current,
 		raw: rawOutput,
 	})
@@ -16935,7 +16998,6 @@ function AppBody({
 			pushSystem('notice', largeRunNotice(flow.name, flow.largeWhy))
 		}
 	}, [largeRunKey, pushSystem])
-	const backgroundGroups = liveGroups(subagents, isWorkflowRunAgent)
 	const closingWait = closingWaitRef.current
 	const backgroundWaitText =
 		closingWait !== null && state === 'idle'

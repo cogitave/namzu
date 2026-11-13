@@ -30,6 +30,7 @@ import {
 } from '../integrations/subagents/activity.js'
 import { type RailWorkflow, formatCompactCount } from './AgentExplorer.js'
 import { formatElapsed } from './LiveActivity.js'
+import { callDetailLines } from './agent-calls.js'
 import { scriptText, terminalDisplayText } from './terminal-display.js'
 import { formatTook } from './units.js'
 
@@ -209,6 +210,69 @@ export function agentDoneRows(
 			took,
 		].join(' · ')})`,
 	}
+}
+
+/**
+ * What Ctrl+O opens under a finished agent's row: the calls it made, one line
+ * each with its outcome mark (and how many are not retained), then its answer.
+ */
+export function agentDetailLines(agent: SubagentActivity): readonly string[] {
+	const calls = callDetailLines(agent)
+	const answer = finalAnswer(agent)
+	return [
+		...(calls.length > 0 ? ['Calls', ...calls] : []),
+		...(calls.length > 0 && answer.length > 0 ? ['', 'Answer'] : []),
+		...answer,
+	]
+}
+
+export interface WaitedOnBlock {
+	/** `3 agents finished · 12 tool uses · 30.1k tokens · 8s` over a `├`/`└` line per agent. */
+	readonly content: string
+	/** Each agent's calls and answer, behind Ctrl+O. */
+	readonly detail: readonly string[]
+}
+
+/**
+ * One block for a batch of waited-on agents that all finished: how many, with
+ * the totals, then a line per agent (its name, what it was asked, its counts).
+ * An agent that failed or was stopped is not in it; it keeps its own row.
+ */
+export function waitedOnBlock(agents: readonly SubagentActivity[]): WaitedOnBlock {
+	const ordered = [...agents].sort((left, right) => left.startedAt - right.startedAt)
+	const uses = (agent: SubagentActivity): string =>
+		`${agent.toolCalls ?? 0} tool ${(agent.toolCalls ?? 0) === 1 ? 'use' : 'uses'}`
+	const took = (agent: SubagentActivity): string =>
+		formatTook(Math.max(0, (agent.completedAt ?? agent.startedAt) - agent.startedAt))
+	const calls = ordered.reduce((sum, agent) => sum + (agent.toolCalls ?? 0), 0)
+	const spent = ordered.reduce<number | undefined>(
+		(sum, agent) => (agent.tokens === undefined ? sum : (sum ?? 0) + agent.tokens),
+		undefined,
+	)
+	const first = Math.min(...ordered.map((agent) => agent.startedAt))
+	const last = Math.max(...ordered.map((agent) => agent.completedAt ?? agent.startedAt))
+	const header = [
+		`${ordered.length} agents finished`,
+		`${calls} tool ${calls === 1 ? 'use' : 'uses'}`,
+		...(spent !== undefined ? [`${formatCompactCount(spent)} tokens`] : []),
+		formatTook(Math.max(0, last - first)),
+	].join(' · ')
+	const lines = ordered.map((agent, index) => {
+		const name = `${oneLine(agent.agentId)} (${oneLine(agent.description || agent.agentId)})`
+		const parts = [
+			name,
+			uses(agent),
+			...(agent.tokens !== undefined ? [`${formatCompactCount(agent.tokens)} tokens`] : []),
+			took(agent),
+		]
+		return `${index === ordered.length - 1 ? '└' : '├'} ${parts.join(' · ')}`
+	})
+	const detail = ordered.flatMap((agent) => [
+		`${oneLine(agent.agentId)} (${oneLine(agent.description || agent.agentId)})`,
+		...agentDetailLines(agent),
+		'',
+	])
+	return { content: [header, ...lines].join('\n'), detail: detail.slice(0, -1) }
 }
 
 /** Why an agent failed, from the row the monitor wrote for it. */

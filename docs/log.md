@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-13
+
+- **Update** [Terminal design](cli/terminal-design.md#delegated-work-in-the-conversation): one agent the turn waits on shows its last three calls under its line (with the tool in plain words, a mark for the running and the failed one, and how many earlier calls are not shown), only when the window has room and never for several agents; a batch of waited-on agents that all finished ends as one block with the totals and a line per agent (a failed or stopped agent keeps its own row); Ctrl+O on a finished agent's row lists the calls it made, with how many are not retained, before its answer. The new `tui.agentCalls` key (your own config files, default on) turns all three off. `.changeset/cli-agent-calls-and-batch-block.md`.
+
 ## 2026-11-12
 
 - **Update** [Terminal design](cli/terminal-design.md#how-the-default-screen-is-painted): the scrollback rule is stated once and kept by every command on the default screen: `/compact` (and the idle compaction) no longer clears or reprints anything, it adds one row saying the messages above are summarized for the model; `/clear`, `/new` and `/resume` clear the visible screen only, the rows on it first move into the scrollback (the one exception, the rows still in the live region, is named). A reply cut off in a table ends the table at its last whole row and keeps the unfinished row as one line of plain text. The page now says that a reopened conversation has no checklist block and a different order of closing rows, that the checklist is printed once when the turn ends, and that rows printed before a narrowing resize can break mid-word. `NO_COLOR` alone now turns colour off everywhere. `.changeset/cli-flowing-transcript-joined.md`.

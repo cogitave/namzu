@@ -25,15 +25,18 @@ import { isWorkflowRunAgent } from '../integrations/workflows/view.js'
 import { settledWorkflows } from './AgentExplorer.js'
 import { messageCollapses } from './Transcript.js'
 import {
+	agentDetailLines,
 	agentDoneRows,
 	agentMessageRow,
 	agentNotice,
 	launchReceipt,
 	reportsAsNotification,
 	settleLine,
+	waitedOnBlock,
 	workflowNotice,
 } from './agent-transcript-rows.js'
 import { type AgentEvent, toAgentEvent } from './agent.js'
+import { isRunning } from './background-agents.js'
 import { type UsedMemory, memoryUsedRow, mergeUsedMemories } from './memory-used-row.js'
 import {
 	type CannotTellReason,
@@ -46,6 +49,7 @@ import {
 import { systemRowStyle } from './system-rows.js'
 import { tokenColor } from './theme.js'
 import { type ToolEndStart, type ToolRow, formatToolCall, toolEndRows } from './tool-end-rows.js'
+import { EXPAND_HINT } from './truncation.js'
 import { describeTurnStop } from './turn-interruption.js'
 import type { TranscriptMessage } from './types.js'
 import { webCallTitle } from './web-activity.js'
@@ -674,6 +678,8 @@ export function agentCompletionRows(
 	agent: SubagentActivity,
 	/** The reason this agent's last failure notice gave: the same reason again reads `failed again`. */
 	previousFailure?: string,
+	/** Whether a waited-on agent's Done row opens to its calls (`tui.agentCalls`). */
+	withCalls = true,
 ): readonly ToolRow[] {
 	// A workflow's agents are read in its detail view; the workflow closes with one line.
 	if (agent.workflow !== DEFAULT_AGENT_WORKFLOW) return []
@@ -681,6 +687,7 @@ export function agentCompletionRows(
 	// the tool's own result, not a notification.
 	if (agent.status === 'completed' && !reportsAsNotification(agent)) {
 		const done = agentDoneRows(agent)
+		const detail = withCalls ? agentDetailLines(agent) : []
 		return [
 			{
 				role: 'tool',
@@ -688,7 +695,15 @@ export function agentCompletionRows(
 				glyph: '●',
 				glyphColor: tokenColor('accent.assistant'),
 			},
-			{ role: 'tool', content: done.result, glyph: '⎿', glyphColor: tokenColor('text.muted') },
+			{
+				role: 'tool',
+				content: done.result,
+				glyph: '⎿',
+				glyphColor: tokenColor('text.muted'),
+				...(detail.length > 0
+					? { detail, meta: EXPAND_HINT, activity: 'agent-result' as const }
+					: {}),
+			},
 		]
 	}
 	// One row per completion: the line that says it ended, carrying the agent's
@@ -711,6 +726,53 @@ export function agentCompletionRows(
 			...(said ? { detail: said.detail, meta: said.hint, activity: 'agent-result' as const } : {}),
 		},
 	]
+}
+
+/**
+ * The waited-on agents of a settled batch that one block stands for: two or
+ * more that completed and handed their result back inline, once nothing in the
+ * batch is still running. Empty otherwise (a lone one keeps its Done row, and a
+ * failed or stopped one always keeps its own row).
+ */
+export function blockedAgents(
+	members: readonly SubagentActivity[],
+	/** `tui.agentCalls`: off keeps every agent's own rows. */
+	enabled = true,
+): readonly SubagentActivity[] {
+	if (!enabled || members.length < 2 || members.some(isRunning)) return []
+	if (members.some((agent) => agent.workflow !== DEFAULT_AGENT_WORKFLOW)) return []
+	const done = members.filter(
+		(agent) => agent.status === 'completed' && !reportsAsNotification(agent),
+	)
+	return done.length >= 2 ? done : []
+}
+
+/**
+ * What a batch leaves when it has settled: its receipt (left out when the
+ * block says the same thing) and the block of the waited-on agents that
+ * finished. The live run and a reopened conversation both build the rows here,
+ * so the two cannot differ.
+ */
+export function settledBatchRows(
+	members: readonly SubagentActivity[],
+	enabled = true,
+): readonly ToolRow[] {
+	const blocked = blockedAgents(members, enabled)
+	const rows: ToolRow[] = []
+	if (blocked.length !== members.length) rows.push(agentLaunchRow(members))
+	if (blocked.length > 0) {
+		const block = waitedOnBlock(blocked)
+		rows.push({
+			role: 'tool',
+			content: block.content,
+			glyph: '●',
+			glyphColor: tokenColor('accent.assistant'),
+			...(block.detail.length > 0
+				? { detail: block.detail, meta: EXPAND_HINT, activity: 'agent-result' as const }
+				: {}),
+		})
+	}
+	return rows
 }
 
 /** The launch receipt of one batch of agents. */
@@ -748,6 +810,7 @@ export function withSavedAgentRows(
 	rows: readonly TranscriptMessage[],
 	agents: readonly SubagentActivity[],
 	nextId: () => string,
+	calls = true,
 ): readonly TranscriptMessage[] {
 	if (!rows.some((row) => row.agentTurnId !== undefined)) return rows
 	let changed = false
@@ -776,12 +839,15 @@ export function withSavedAgentRows(
 		for (const members of batches.values()) {
 			const first = members[0]
 			if (!first) continue
+			const blocked = new Set(blockedAgents(members, calls))
 			if (first.workflow === DEFAULT_AGENT_WORKFLOW) {
-				out.push(agentRowFor(agentLaunchRow(members), nextId))
+				for (const row of settledBatchRows(members, calls)) out.push(agentRowFor(row, nextId))
 			}
 			for (const agent of members) {
 				if (!['completed', 'failed', 'cancelled'].includes(agent.status)) continue
-				for (const done of agentCompletionRows(agent)) out.push(agentRowFor(done, nextId))
+				if (blocked.has(agent)) continue
+				for (const done of agentCompletionRows(agent, undefined, calls))
+					out.push(agentRowFor(done, nextId))
 			}
 		}
 		for (const workflow of settledWorkflows(mine)) {

@@ -573,11 +573,70 @@ live state belongs to the rail.
   `Initializing…`, `Done`), above the composer. The batch's receipt, `3 agents
   finished`, is written when the last member ends. An all-background batch has no
   live group: its receipt is written at launch and the rail shows the agents.
+- **One agent waited on shows its last three calls.** When the group holds exactly
+  one agent (across all batches), the `⎿ <last tool>` row gives way to its last
+  three calls, one dim row each, newest at the bottom: the tool in plain words and
+  what it acts on (`Read src/a.ts`, `Run npm test`, `Search parse`), with a mark,
+  `◌` for the call that is running, `✓` for one that ended and `✗` for one that
+  failed. When there were more, one dim line above them says how many earlier
+  calls are not shown and how to open them (`… 5 earlier calls not shown (↓ to
+  manage)`). Before its first call the line stays `Initializing…`. The rows change
+  only when a call starts or ends; nothing cycles and no timer runs.
+
+  ```text
+  Running 1 agent…
+    └ Audit the project · 5 tool uses · 525 tokens
+        … 2 earlier calls not shown (↓ to manage)
+        ✓ Run sleep 2; ls
+        ✓ Read b.txt
+        ◌ Run sleep 2; exit 3
+  ```
+
+  **When it does not apply.** Several agents waiting together (in one batch or in
+  two) keep one line each with the latest activity, as above: three calls per
+  agent would make the group taller than the live region can spare. The block is
+  also left out when the window is short: it is drawn only when the terminal has at
+  least 11 rows beyond the live furniture (the 10 fixed rows, the plan, the
+  running calls and a queued message); 11 is the window's six safety rows, the
+  three rows the block adds and two rows of conversation. At 120x40 that is nearly
+  always. At 80x24 a waited-on agent already puts the running `Agent` call and the
+  agent rail in the furniture, so the group keeps its one-line form there. The
+  block's extra rows are counted in the live window, so it never pushes the message
+  box around. It holds in both screens (the default screen's live region, and
+  fullscreen's redrawn view). `tui.agentCalls: false` in your own config turns it,
+  the finished block below and the calls in the detail off.
+- **A batch of waited-on agents that all finished ends as one block**, in place of
+  the receipt and two rows per agent: how many finished with the totals, then one
+  line per agent (its name, what it was asked, its counts), the detail behind
+  Ctrl+O (a click in fullscreen):
+
+  ```text
+  ● 3 agents finished · 12 tool uses · 1.6k tokens · 2s
+    ├ general-purpose (Check a) · 4 tool uses · 525 tokens · 2s
+    ├ general-purpose (Check b) · 4 tool uses · 525 tokens · 2s
+    └ general-purpose (Check c) · 4 tool uses · 525 tokens · 2s (ctrl+o to expand)
+  ```
+
+  Members that finish early wait for the rest, so the block is written once, when
+  nothing in the batch is running. An agent that failed or was stopped is never in
+  the block or its count: it keeps its own row in its own colour, and the receipt
+  (`4 agents finished` over the names) stays above the block of the others. One
+  finished agent alone keeps its `Done` row. A reopened conversation and
+  `namzu watch` build the same rows with the same code as the live run.
 - **A waited-on agent writes the tool's own result instead.** An agent the
   parent waited on hands its result back inline, so there is no notification:
   the row is `● <type> (<description>)` over
   `⎿ Done (3 tool uses · 12.1k tokens · 8s)`. A failed or stopped one keeps the
-  closing line above.
+  closing line above. Ctrl+O opens the row (a click in fullscreen): `Calls`, one
+  line per call with its outcome mark (`✓`, `✗`; `◌` for one still running when the
+  agent was stopped), `N earlier calls are not retained.` when the agent made more
+  than its transcript keeps (120 rows), then `Answer` and the agent's answer. The
+  calls come from the agent's retained transcript, which a reopened conversation
+  rebuilds from the child's saved log, so they are there after a restart as long as
+  that log is; when it is not, the row says `This agent made N calls; the list is
+  not available any more.` instead of an empty list. A background agent's finished
+  row and the notices for agents that finish later are unchanged: their detail is
+  the answer.
 - **A message a running agent sent.** An agent can say something to the
   conversation while it works, with its own `send_message` tool (`to: "main"`);
   it is drawn as the same collapsed `› Message from @<type> (ctrl+o to expand)`

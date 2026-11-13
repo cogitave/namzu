@@ -13,7 +13,8 @@ import {
 	DEFAULT_AGENT_WORKFLOW,
 	type SubagentActivity,
 } from '../integrations/subagents/activity.js'
-import { launchLabel } from './agent-transcript-rows.js'
+import { type LiveCalls, liveCalls } from './agent-calls.js'
+import { AGENT_MANAGE_HINT, launchLabel } from './agent-transcript-rows.js'
 import { formatCompactCount } from './units.js'
 
 /** Whether an agent has not ended. */
@@ -68,8 +69,21 @@ export interface RunningGroup {
 	/** `Running 3 agents…` */
 	readonly header: string
 	/** Per agent: its line, then the status line beneath it. */
-	readonly agents: readonly { readonly line: string; readonly status: string }[]
+	readonly agents: readonly {
+		readonly line: string
+		readonly status: string
+		/** Its last calls, when it is the only agent waited on and the window has room. */
+		readonly calls?: LiveCalls
+	}[]
 }
+
+/**
+ * The most rows one agent's calls add to the live group: the line saying how
+ * many earlier calls are not shown, and the last three. They stand in for the
+ * single status row, so the block is this many rows taller than the one-line
+ * form.
+ */
+export const CALL_BLOCK_EXTRA_ROWS = 3
 
 /**
  * The live group for a batch that includes an agent the turn waits on:
@@ -78,7 +92,11 @@ export interface RunningGroup {
  * Undefined when every member runs in the background or has ended: that batch is
  * the launch receipt, not a live group.
  */
-export function runningGroup(members: readonly SubagentActivity[]): RunningGroup | undefined {
+export function runningGroup(
+	members: readonly SubagentActivity[],
+	/** Draw the agent's last calls under it (one agent waited on, room to spare). */
+	withCalls = false,
+): RunningGroup | undefined {
 	const live = members.filter((agent) => agent.replayed !== true)
 	if (live.length === 0 || live.some((agent) => agent.background === true)) return undefined
 	if (!live.some(isRunning)) return undefined
@@ -94,9 +112,11 @@ export function runningGroup(members: readonly SubagentActivity[]): RunningGroup
 				...(agent.tokens !== undefined ? [`${formatCompactCount(agent.tokens)} tokens`] : []),
 			]
 			const last = agent.latestActivity?.replace(/\s+/gu, ' ').trim()
+			const calls = withCalls && isRunning(agent) ? liveCalls(agent, AGENT_MANAGE_HINT) : undefined
 			return {
 				line: parts.join(' · '),
 				status: isRunning(agent) ? (last && last.length > 0 ? last : 'Initializing…') : 'Done',
+				...(calls ? { calls } : {}),
 			}
 		}),
 	}
@@ -106,6 +126,12 @@ export function runningGroup(members: readonly SubagentActivity[]): RunningGroup
 export function liveGroups(
 	agents: readonly SubagentActivity[],
 	isWorkflowAgent: (agent: SubagentActivity) => boolean,
+	/**
+	 * Whether the window has room for an agent's calls. They are drawn only for
+	 * ONE agent waited on: with several, each keeps its one line and its latest
+	 * activity, because three calls per agent would be taller than the region.
+	 */
+	roomForCalls = false,
 ): readonly RunningGroup[] {
 	const batches = new Map<string, SubagentActivity[]>()
 	for (const agent of agents) {
@@ -115,11 +141,30 @@ export function liveGroups(
 		members.push(agent)
 		batches.set(key, members)
 	}
-	return [...batches.values()]
+	const sorted = [...batches.values()]
 		.map((members) => [...members].sort((a, b) => a.startedAt - b.startedAt))
 		.sort((a, b) => (a[0]?.startedAt ?? 0) - (b[0]?.startedAt ?? 0))
-		.flatMap((members) => {
-			const group = runningGroup(members)
-			return group ? [group] : []
-		})
+	const plain = sorted.flatMap((members) => {
+		const group = runningGroup(members)
+		return group ? [group] : []
+	})
+	const waitedOn = plain.reduce((sum, group) => sum + group.agents.length, 0)
+	if (!roomForCalls || waitedOn !== 1) return plain
+	return sorted.flatMap((members) => {
+		const group = runningGroup(members, true)
+		return group ? [group] : []
+	})
+}
+
+/** The rows a live group adds beyond its one-line form: zero unless an agent's calls are drawn. */
+export function callBlockExtraRows(groups: readonly RunningGroup[]): number {
+	let extra = 0
+	for (const group of groups) {
+		for (const agent of group.agents) {
+			if (!agent.calls) continue
+			// The calls replace the one status row.
+			extra += agent.calls.rows.length + (agent.calls.earlier ? 1 : 0) - 1
+		}
+	}
+	return extra
 }
