@@ -114,7 +114,28 @@ export async function loadPluginManifest(
  */
 export function parsePluginManifestText(raw: string): PluginManifest {
 	const parsed: unknown = JSON.parse(raw)
-	return PluginManifestSchema.parse(parsed)
+	return PluginManifestSchema.parse(normalizeManifestHooks(parsed))
+}
+
+/**
+ * The two ways a plugin written for the common hook contract names its hook
+ * entries, read as the keys this manifest has: `"hooks": "./hooks/hooks.json"`
+ * (one file, as a text) is a list of one path, and `"hooks": { <events> }`
+ * (the events object written inline) is `hookEntries`. A manifest that already
+ * has `hookEntries` next to an inline `hooks` object is left as written, so the
+ * schema says what is wrong rather than one of the two being dropped.
+ */
+function normalizeManifestHooks(parsed: unknown): unknown {
+	if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return parsed
+	const manifest = parsed as Record<string, unknown>
+	const hooks = manifest.hooks
+	if (typeof hooks === 'string') return { ...manifest, hooks: [hooks] }
+	if (hooks !== null && typeof hooks === 'object' && !Array.isArray(hooks)) {
+		if (manifest.hookEntries !== undefined) return parsed
+		const { hooks: inline, ...rest } = manifest
+		return { ...rest, hookEntries: inline }
+	}
+	return parsed
 }
 
 async function discoverScopedPlugins(

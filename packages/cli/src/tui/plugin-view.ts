@@ -15,7 +15,11 @@ export function pluginOption(plugin: CliPluginInfo): ChoicePickerOption {
 }
 
 export function pluginSummary(plugin: CliPluginInfo): string {
-	return `${plugin.status} · ${plugin.scope} · ${plugin.tools.length} tool${plugin.tools.length === 1 ? '' : 's'} · ${plugin.skills.length} skill${plugin.skills.length === 1 ? '' : 's'}`
+	return `${plugin.status} · ${plugin.scope} · ${plugin.tools.length} tool${plugin.tools.length === 1 ? '' : 's'} · ${plugin.skills.length} skill${plugin.skills.length === 1 ? '' : 's'}${
+		(plugin.hookEntries ?? 0) > 0
+			? ` · ${plugin.hookEntries} hook entr${plugin.hookEntries === 1 ? 'y' : 'ies'}`
+			: ''
+	}`
 }
 
 export function pluginDetails(plugin: CliPluginInfo): string {
@@ -29,6 +33,7 @@ export function pluginDetails(plugin: CliPluginInfo): string {
 		`Registered tools: ${plugin.tools.join(', ') || 'none'}`,
 		`Registered skills: ${plugin.skills.join(', ') || 'none'}`,
 		`Declared hook modules: ${plugin.hookModules.join(', ') || 'none'}`,
+		`Hook entries (commands, addresses, prompts it ships): ${(plugin.hookEntries ?? 0) === 0 ? 'none' : `${plugin.hookEntries}, listed by /hooks while the plugin is enabled`}`,
 		`Declared MCP servers: ${plugin.mcpServers.join(', ') || 'none'}`,
 		`Slash commands: ${plugin.commands.map((name) => `/${name}`).join(', ') || 'none'}`,
 		`Agents: ${plugin.agents.join(', ') || 'none'}`,

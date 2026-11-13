@@ -41,6 +41,13 @@ export interface AssembledHooks {
 export function hookIdentity(event: string, entry: HookEntry): string {
 	const { source: _source, ...rest } = entry as HookEntry & { source?: string }
 	const normalised: Record<string, unknown> = { ...rest, type: rest.type ?? 'command' }
+	// The order a mapping's names were written in does not make a different entry.
+	const env = (rest as { env?: Record<string, string> }).env
+	if (env !== undefined) {
+		normalised.env = Object.fromEntries(
+			Object.entries(env).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+		)
+	}
 	const sorted = Object.fromEntries(
 		Object.entries(normalised)
 			.filter(([, value]) => value !== undefined)

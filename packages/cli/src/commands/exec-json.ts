@@ -70,6 +70,7 @@ import {
 	generateSessionId,
 	jsonLinesSink,
 } from '@namzu/sdk'
+import { hookSwitch } from '../config/hook-layers.js'
 
 /** EX_TEMPFAIL: the conversation already has an active turn; try again later. */
 const EXIT_TURN_IN_PROGRESS = 75
@@ -460,6 +461,7 @@ export async function execJson(
 		...(ctx.config.web ? { web: ctx.config.web } : {}),
 		...(ctx.config.smallModel ? { smallModel: ctx.config.smallModel } : {}),
 		...(ctx.config.hooks ? { hooks: ctx.config.hooks } : {}),
+		...(hookSwitch(ctx.config) ? { hooksSwitch: hookSwitch(ctx.config) } : {}),
 		...(ctx.config.compaction ? { compaction: ctx.config.compaction } : {}),
 		...(ctx.config.memory ? { memory: ctx.config.memory } : {}),
 		...(Object.keys({ ...ctx.config.limits, ...limitsFromFlags }).length > 0

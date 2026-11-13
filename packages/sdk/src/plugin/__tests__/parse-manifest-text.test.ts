@@ -31,4 +31,32 @@ describe('parsePluginManifestText', () => {
 		expect(() => assertEnableable(manifest, { skillsSupported: true })).toThrow(/connectors/)
 		await expect(loadPluginManifest(root, { skillsSupported: true })).rejects.toThrow(/connectors/)
 	})
+
+	describe('the forms of `hooks` a plugin written for the common hook contract uses', () => {
+		const base = { name: 'demo', version: '1.0.0', description: 'Demo' }
+		const events = { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'x' }] }] }
+
+		it('reads a text as one hooks file', () => {
+			const manifest = parsePluginManifestText(
+				JSON.stringify({ ...base, hooks: './hooks/hooks.json' }),
+			)
+			expect(manifest.hooks).toEqual(['./hooks/hooks.json'])
+		})
+
+		it('reads an inline events object as hookEntries', () => {
+			const manifest = parsePluginManifestText(JSON.stringify({ ...base, hooks: events }))
+			expect(manifest.hooks).toBeUndefined()
+			expect(manifest.hookEntries).toEqual(events)
+		})
+
+		it('does not drop one of an inline object and a hookEntries key', () => {
+			expect(() =>
+				parsePluginManifestText(JSON.stringify({ ...base, hooks: events, hookEntries: events })),
+			).toThrow()
+		})
+
+		it('still refuses other values', () => {
+			expect(() => parsePluginManifestText(JSON.stringify({ ...base, hooks: 3 }))).toThrow()
+		})
+	})
 })

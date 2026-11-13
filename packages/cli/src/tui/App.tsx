@@ -6367,6 +6367,7 @@ function AppBody({
 							...(activeCtx.web ? { web: activeCtx.web } : {}),
 							...(activeCtx.smallModel ? { smallModel: activeCtx.smallModel } : {}),
 							...(activeCtx.hooks ? { hooks: activeCtx.hooks } : {}),
+							...(activeCtx.hooksSwitch ? { hooksSwitch: activeCtx.hooksSwitch } : {}),
 							...(activeCtx.compaction ? { compaction: activeCtx.compaction } : {}),
 							...(activeCtx.memory ? { memory: activeCtx.memory } : {}),
 							...(activeCtx.workflow ? { workflow: activeCtx.workflow } : {}),
@@ -7359,6 +7360,8 @@ function AppBody({
 		hooks: () => session?.hooks,
 		hooksView: () => ({
 			...(session?.pluginHooks ? { pluginHooks: session.pluginHooks() } : {}),
+			...(session?.pluginHookEntries ? { pluginEntries: session.pluginHookEntries() } : {}),
+			...(session?.pluginHookProblems ? { pluginProblems: session.pluginHookProblems() } : {}),
 			...(initialCtx.hooksSwitch ? { switch: initialCtx.hooksSwitch } : {}),
 		}),
 		directories: () => session?.directories?.list() ?? [],

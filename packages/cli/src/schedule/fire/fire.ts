@@ -39,6 +39,7 @@ import {
 } from '@namzu/sdk'
 import { pauseWait } from '../../commands/provider-wait.js'
 import type { CommandContext } from '../../commands/types.js'
+import { hookSwitch } from '../../config/hook-layers.js'
 import { readPermissionLayers } from '../../config/load.js'
 import { resolveTrustedProjectContext } from '../../config/trusted-project-context.js'
 import { sanitizeLine, summaryOf } from '../../integrations/notifications/desktop/sanitize.js'
@@ -597,6 +598,7 @@ export async function runFire(
 		...(config.plugins ? { plugins: config.plugins } : {}),
 		...(config.skills ? { skills: config.skills } : {}),
 		...(config.hooks ? { hooks: config.hooks } : {}),
+		...(hookSwitch(config) ? { hooksSwitch: hookSwitch(config) } : {}),
 		...(policy.network && config.web ? { web: config.web } : {}),
 		...(config.smallModel ? { smallModel: config.smallModel } : {}),
 		...(config.compaction ? { compaction: config.compaction } : {}),

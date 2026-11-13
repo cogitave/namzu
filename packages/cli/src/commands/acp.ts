@@ -27,6 +27,7 @@ import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { hookSwitch } from '../config/hook-layers.js'
 
 import { FileCheckpointStore, type TurnUndoStatus, type UndoPreview } from '../checkpoints/store.js'
 import { flushCompileCacheWhenIdle } from '../compile-cache.js'
@@ -906,6 +907,7 @@ export function createCliAcpRuntime(
 					...(projectCtx.config.web ? { web: projectCtx.config.web } : {}),
 					...(projectCtx.config.smallModel ? { smallModel: projectCtx.config.smallModel } : {}),
 					...(projectCtx.config.hooks ? { hooks: projectCtx.config.hooks } : {}),
+					...(hookSwitch(projectCtx.config) ? { hooksSwitch: hookSwitch(projectCtx.config) } : {}),
 					...(projectCtx.config.compaction ? { compaction: projectCtx.config.compaction } : {}),
 					...(projectCtx.config.memory ? { memory: projectCtx.config.memory } : {}),
 					...(projectCtx.config.sandbox ? { sandbox: projectCtx.config.sandbox } : {}),
