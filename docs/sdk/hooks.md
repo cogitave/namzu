@@ -34,6 +34,8 @@ A hook is a function an extension registers on the plugin lifecycle manager, or 
 | `pre_compact`, `post_compact` | around every compaction pass once the check decided to run one: the kernel's own (threshold, provider overflow), an idle pass, and one a person asked for (`/compact`, summarising a span); see [Compaction hooks](#compaction-hooks) | `compaction`: `reason` (`threshold`, `overflow`, or `manual` for a pass a host asked for outside a turn), `trigger` (`manual` or `auto`), `tokensBefore`, `tokensAfter` after, `contextWindowTokens`; `instructions` on `pre_compact` (what the person typed, or `null`); `summary` on `post_compact` | `error` fails the turn; on `pre_compact`, `skip` cancels a pass the threshold asked for and refuses one a person asked for (a pass the provider forced, `overflow`, runs regardless); on `pre_compact`, `annotate` (or `continue` with `context`) tells the summariser what to keep |
 | `file_changed` | by the host, once a watched file has been still for about half a second (see [Files and folders](#files-and-folders-and-variables-for-later-commands)) | `filePath`, `change` (`change`, `add` or `unlink`) | nothing is refused and nothing reaches the model; a hook may hand back `watchPaths` and a `systemMessage` |
 | `cwd_changed` | by the host, when the folder the session's shell commands start in is a different folder from before | `oldCwd`, `newCwd` | the same as `file_changed` |
+| `worktree_create` | by the host, when a worktree is about to be made: a sub-agent that works in its own checkout, `namzu worktree create` and `fork`, `/worktree create` (see [Worktrees](#worktrees)) | `worktreeName` (the suggested name), `worktreeRoot` (where a relative path is placed), `worktreeBaseRef` when a start was asked for | the hook makes the worktree and answers its path; a failure, or no path, fails the creation |
+| `worktree_remove` | by the host, when a worktree is about to be removed | `worktreePath` | the hook does the removing; a failure is reported |
 | `subagent_start` | once at the start of each child turn, before the child's `user_prompt_submit` | `parentSessionId`, `parentTurnId` (the parent turn whose tool call spawned it), `agentType` (the child's agent name: `reviewer` for an agent file called `reviewer`; a host that runs agents through `QueryAgent` names them with `QueryAgentConfig.agentType`, and without it `agentType` is the agent class's `type`) | `error` fails the child turn; `annotate` adds text to the child's context for its turn, as on `user_prompt_submit`; a root session never fires it |
 | `subagent_stop` | after a child session's own `turn_end` | `parentSessionId`, `parentTurnId` (the parent turn whose tool call spawned it), `agentType`, `stopHookActive`, `lastAssistantMessage` | `error` fails the child turn's finalization; `skip` keeps the child working, as on `turn_end` |
 
@@ -382,6 +384,37 @@ A command hook on `session_start`, `cwd_changed` and `file_changed` is started w
 - **Bounds.** The first 64 KiB of a file is read; a value over 8 KiB, a name over 128 characters and a variable past the 128th are left out and reported.
 - **Refused names**, reported once and never set: `NAMZU_*` (the kernel's own settings, including `NAMZU_HOME`); the dynamic loader's `LD_*`, `DYLD_*` and `GCONV_PATH`; the shell's start-up and prompt hooks (`BASH_ENV`, `ENV`, `SHELLOPTS`, `BASHOPTS`, `PROMPT_COMMAND`, `PS4`, `IFS`, `CDPATH`, `BASH_FUNC_*`); the interpreters' injection variables (`NODE_OPTIONS`, `PYTHONSTARTUP`, `PERL5OPT`, `PERL5LIB`, `RUBYOPT`, `JAVA_TOOL_OPTIONS`, `LOCPATH`, `NLSPATH`, `HOSTALIASES`); and where the account and Namzu keep state (`HOME`, `USERPROFILE`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME`). They would change what runs without being a program a command names, or where state lives. `PATH` is allowed: it is the point.
 - **Seeing it.** `/hooks` lists the names set (never the values) with the kind of hook that set each, and the files watched.
+
+## Worktrees
+
+The kernel makes and removes worktrees with its own Git logic: for a sub-agent that works in its own checkout (`workspace: "worktree"`), and for `namzu worktree create`, `namzu worktree fork` and `/worktree`. A person whose checkouts are not Git's (another version-control tool, a prepared checkout, a plain copy) takes that over with a hook on `worktree_create`, and on `worktree_remove` for the removing. The common-shape names are `WorktreeCreate` and `WorktreeRemove`. Both are read in both shapes, like every event.
+
+### `worktree_create`
+
+A shell hook receives `name` (the suggested name: for a sub-agent, its session id), `worktree_root` (the folder the kernel would have placed the worktree under) and `base_ref` (the commit or branch the kernel would have started from, when it has one), beside the usual `cwd` (the project folder) and `session_id`. The hook makes the folder and answers its path:
+
+- the **last non-empty line** it prints, or
+- `hookSpecificOutput.worktreePath` of a JSON answer (a JSON answer without it is a failure; a `worktreePath` at the top level is reported as misplaced).
+
+The kernel uses that folder as the worktree and creates none itself. A relative path is placed under `worktree_root`. The folder must exist when the hook ends. If the output is longer than Namzu keeps (64 KiB), the last line cannot be trusted, so the creation fails; send progress to stderr and print only the path.
+
+With **no hook on the event**, the kernel creates the worktree as it always did. With hooks on it, the kernel never falls back to its own creation: if a hook fails (a non-zero exit, a time-out, a refusal with exit `2`, `decision: "block"` or `continue: false`), or prints no path, or names a folder that does not exist, the creation fails with a line that names the hook and what it printed (the start and the end of long output). A sub-agent then does not start, and the line is shown to the person (in the transcript, or on stderr for `namzu exec`) as well as given to the model as the reason; `namzu worktree create` exits with it. If several hooks answer a path, the first in order is used and the person is told.
+
+Outside a Git checkout the kernel cannot make a worktree at all. With a `worktree_create` hook present, `namzu worktree create` and a sub-agent's worktree work there: the folder stands for the repository and `base_ref` is not sent.
+
+A worktree a hook made is the hook's. `namzu worktree list` does not show it, and the kernel never runs its own Git removal on it. When a sub-agent that used it ends, the kernel decides whether to keep it as it does for any checkout (a child that changed nothing is removed, one that changed something is kept), but it cannot ask Git whether the folder changed: it compares the folder with how it looked when the hook finished (names, sizes and times of everything in it, up to 20,000 entries), and anything else, a folder too large to compare, or a folder made by another process counts as changed and is kept, with a line to the person saying where.
+
+### `worktree_remove`
+
+A shell hook receives `worktree_path`. It does the removing, and the kernel then removes nothing: this holds for **every** worktree, a kernel-made one too, so a hook that runs for a Git checkout must also tidy Git's own record (`git worktree remove` and the branch), because the kernel's removal, which does that, is not run. It runs when the kernel disposes of a worktree: a sub-agent's checkout that ended unchanged, or one whose start failed. A worktree a person keeps (a child with changes, `namzu worktree create`) is never removed by Namzu and so never reaches the hook.
+
+A hook that exits `0` has removed it, whatever it printed. A failure (a non-zero exit, a time-out, a refusal) is reported with the start and the end of what it printed, unless nothing is left at the path, in which case the removal counts as done. With **no hook** on the event: a kernel-made worktree is removed as it always was; a worktree a `worktree_create` hook made is left in place, and the person is told where it is.
+
+### What does not apply
+
+Neither event has a matcher: one is ignored (as on other events with no name to match), and so are `if`, `once` and `async`, because a hook that does the work cannot be filtered or skipped without the kernel acting in its place. The hook always runs, and `/hooks` says when one of those keys is set. A `prompt` entry cannot make or remove a worktree and fails with a line that says so; a `command` and an `http` hook are read alike (the HTTP body is the output). `onFailure` has no effect: a failure is always a failure.
+
+A project's hooks, as for every command, run only once the folder is trusted: `namzu worktree create` in a folder nobody trusted uses the hooks of the user and the managed file only.
 
 ## Request context inventory
 

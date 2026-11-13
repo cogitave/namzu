@@ -269,6 +269,7 @@ import {
 	isWorkflowRunAgent,
 	runTokens,
 } from '../integrations/workflows/view.js'
+import { openWorktreeHookRuntime } from '../integrations/worktrees/hook-host.js'
 import { openManagedWorktrees, worktreeOpenHint } from '../integrations/worktrees/managed.js'
 import {
 	DELETE_ALL,
@@ -14052,8 +14053,20 @@ function AppBody({
 							setConversationMutation('fork')
 						}
 						void (async () => {
+							// Only a verb that makes a worktree reaches a hook. With no
+							// conversation yet, the configured hooks run on a runtime of their own.
+							let hookRuntime: Awaited<ReturnType<typeof openWorktreeHookRuntime>> | undefined
 							try {
-								const manager = await openManagedWorktrees(ctx.cwd)
+								if (verb === 'create' || verb === 'fork') {
+									hookRuntime = session?.worktreeHooks
+										? { hooks: session.worktreeHooks, close: async () => undefined }
+										: await openWorktreeHookRuntime({ hooks: initialCtx.hooks }, ctx.cwd, notice)
+								}
+								const manager = await openManagedWorktrees(ctx.cwd, {
+									...(hookRuntime?.hooks
+										? { hooks: hookRuntime.hooks.host, onNotice: hookRuntime.hooks.onNotice }
+										: {}),
+								})
 								if (verb === 'list') {
 									const items = await manager.list()
 									notice(
@@ -14069,7 +14082,9 @@ function AppBody({
 								} else if (verb === 'create') {
 									const created = await manager.create(label)
 									notice(
-										`Created ${created.branch}. Open it in a new terminal: ${worktreeOpenHint(created.path)}${created.sourceDirty ? '\nUncommitted files stayed in this checkout.' : ''}`,
+										created.madeByHook
+											? `Created a worktree at ${created.path} with a worktree_create hook. Open it in a new terminal: ${worktreeOpenHint(created.path)}`
+											: `Created ${created.branch}. Open it in a new terminal: ${worktreeOpenHint(created.path)}${created.sourceDirty ? '\nUncommitted files stayed in this checkout.' : ''}`,
 									)
 								} else if (verb === 'fork') {
 									const scope = await materializeConversation()
@@ -14088,6 +14103,7 @@ function AppBody({
 							} catch (error) {
 								notice(explainFailure(error, 'Could not set up the worktree.'))
 							} finally {
+								await hookRuntime?.close().catch(() => undefined)
 								if (verb === 'fork') {
 									conversationMutationRef.current = null
 									setConversationMutation(null)

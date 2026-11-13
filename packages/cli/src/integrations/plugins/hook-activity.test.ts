@@ -155,3 +155,18 @@ describe('/hooks', () => {
 		)
 	})
 })
+
+describe('/hooks on the worktree events', () => {
+	it('says that a matcher, if and once are ignored there, and says nothing when none is set', () => {
+		const text = renderHooks(
+			{
+				worktree_create: [{ command: 'make.sh', matcher: 'x', once: true }],
+				worktree_remove: [{ command: 'rm.sh' }],
+			},
+			{},
+		)
+		expect(text).toContain('worktree_create')
+		expect(text).toContain('its matcher, once are ignored and it always runs')
+		expect(text.match(/always runs/g)).toHaveLength(1)
+	})
+})

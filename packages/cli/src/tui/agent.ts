@@ -217,8 +217,10 @@ import {
 	webGuidanceContribution,
 	windowsShellNotice,
 	withModelWindowSuffixStripped,
+	worktreeHookHost,
 	wrapUntrusted,
 } from '@namzu/sdk'
+import type { WorktreeHookHost } from '@namzu/sdk'
 import {
 	type Account,
 	CredentialWithdrawnError as AccountCredentialWithdrawnError,
@@ -1593,6 +1595,14 @@ export interface AgentSession {
 	 * delivered to the first listener.
 	 */
 	readonly hookNotices?: { readonly subscribe: (listener: (line: string) => void) => () => void }
+	/**
+	 * The hooks on `worktree_create` and `worktree_remove` of this session, for
+	 * `/worktree create`; the same ones a delegated child's worktree goes through.
+	 */
+	readonly worktreeHooks?: {
+		readonly host: () => WorktreeHookHost | undefined
+		readonly onNotice: (line: string) => void
+	}
 	/** Files as they were before each turn's writes; what `/restore` uses. */
 	readonly checkpoints?: FileCheckpointStore
 	/**
@@ -4153,6 +4163,15 @@ export async function createAgentSession(
 			cwd,
 			// Plugins are initialized later; resolve the shared manager when a child starts.
 			resolvePluginManager: () => pluginRuntime?.manager,
+			// A hook on worktree_create or worktree_remove takes over making and
+			// removing the worktree of a delegated child.
+			worktreeHooks: {
+				host: () =>
+					pluginRuntime
+						? worktreeHookHost(pluginRuntime.manager, () => String(scope.sessionId))
+						: undefined,
+				onNotice: (line) => pluginRuntime?.hookActivity.notify(line),
+			},
 			...(options.ephemeral ? { ephemeral: true } : {}),
 			// An operator is watching: agents run in the background by default and
 			// the turn ends without waiting for them.
@@ -6156,6 +6175,10 @@ export async function createAgentSession(
 					hookNotices: {
 						subscribe: (listener: (line: string) => void) =>
 							pluginRuntime.hookActivity.onNotice(listener),
+					},
+					worktreeHooks: {
+						host: () => worktreeHookHost(pluginRuntime.manager, () => String(scope.sessionId)),
+						onNotice: (line: string) => pluginRuntime.hookActivity.notify(line),
 					},
 				}
 			: {}),

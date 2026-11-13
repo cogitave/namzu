@@ -46,6 +46,8 @@ export interface SessionHookActivity {
 	 */
 	changeDirectory(change: { readonly from: string; readonly to: string }): Promise<void>
 	describe(): HookActivity
+	/** Say a line to the person the way a hook's own `systemMessage` is said. */
+	notify(line: string): void
 	/** Lines hooks gave for the person (`systemMessage`, a watch that failed, a variable not read). */
 	onNotice(listener: (line: string) => void): () => void
 	close(): void
@@ -100,6 +102,7 @@ export function createSessionHookActivity(options: {
 				)
 			}
 		},
+		notify,
 		describe: () => ({
 			variables: hookEnv.describe(),
 			watching: files.watching,

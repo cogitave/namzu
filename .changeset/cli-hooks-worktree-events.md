@@ -1,0 +1,5 @@
+---
+'@namzu/cli': minor
+---
+
+A hooks block can now name `worktree_create` (`WorktreeCreate`) and `worktree_remove` (`WorktreeRemove`). A `worktree_create` hook makes the worktree itself (another version-control tool, a prepared checkout, a plain copy) and prints its folder as the last line; Namzu uses it for a sub-agent's `workspace: "worktree"`, `namzu worktree create`, `namzu worktree fork` and `/worktree create`, including outside a Git checkout, and creates none itself. If the hook fails or prints no path, the creation fails with a line naming the hook and what it printed; it never falls back to Git. A `worktree_remove` hook does the removing. A worktree a hook made is not listed by `namzu worktree list`, is kept when a sub-agent changed it and, with no remove hook, is left in place with a line saying where. `/hooks` says that a matcher, `if` or `once` on these two events is ignored. Nothing changes for configs that use neither. The page on managed worktrees is corrected: a delegated child's checkout that ends with no changes is removed automatically; one made by `namzu worktree create` never is.

@@ -178,7 +178,7 @@ uncommitted changes and no new commits, Namzu removes the checkout and its
 branch, and the result says the worktree had no changes and was removed. A
 checkout with changes or commits stays after success or failure, and the
 result gives its path and branch; live task listings show them once the child
-is admitted. A cancelled child's checkout stays. Use `namzu worktree list` to
+is admitted. A cancelled child's checkout stays. A hook on `worktree_create` can make the checkout instead of Git, and one on `worktree_remove` can remove it ([Worktrees](../sdk/hooks.md#worktrees)); a checkout a hook made is kept when the child changed it, judged by comparing the folder with how it looked when the hook finished. Use `namzu worktree list` to
 inspect what remains. If that nested directory is absent from the committed checkout, the
 child does not start. Namzu does not merge the child's edits into the parent
 checkout.

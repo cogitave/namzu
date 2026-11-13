@@ -106,6 +106,7 @@ import {
 	toolset,
 	wrapUntrusted,
 } from '@namzu/sdk'
+import type { WorktreeHookHost } from '@namzu/sdk'
 
 import type { TurnLimitsConfig } from '../../config/schema.js'
 import {
@@ -323,6 +324,15 @@ export interface SubagentRuntimeOptions {
 	readonly resolveParent: (turnId: TurnId) => Promise<SubagentParent>
 	/** Lazy because the host initializes plugins after its delegation runtime. */
 	readonly resolvePluginManager?: () => NamzuCliAgentConfig['pluginManager']
+	/**
+	 * The `worktree_create` and `worktree_remove` hooks of the host session,
+	 * found when a worktree is made or removed, and where a line for the person
+	 * goes. Absent, the kernel's own Git logic makes and removes every worktree.
+	 */
+	readonly worktreeHooks?: {
+		readonly host: () => WorktreeHookHost | undefined
+		readonly onNotice: (line: string) => void
+	}
 	readonly cwd: string
 	/** CLI state root used for retained worktrees, including ephemeral turns. */
 	readonly worktreeStateRoot?: string
@@ -855,7 +865,11 @@ export async function createSubagentRuntime(
 	// existing parent promises without retaining released turns.
 	const readyParents = new WeakMap<Promise<ParentRuntime>, ParentRuntime>()
 	const sessions = new Map<string, SharedSession>()
-	const worktreeDriver = new DelegatedWorktreeDriver(opts.cwd, opts.worktreeStateRoot)
+	const worktreeDriver = new DelegatedWorktreeDriver(
+		opts.cwd,
+		opts.worktreeStateRoot,
+		opts.worktreeHooks,
+	)
 	// A ledger this runtime keeps for itself, when neither a shared store nor a
 	// project layout was given. Process-local: it bounds the children of one
 	// root turn, and the parent's own spend is counted wherever the parent

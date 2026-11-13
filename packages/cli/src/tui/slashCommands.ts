@@ -2101,6 +2101,8 @@ export function renderHooks(hooks: HooksConfig | undefined, view: HooksView = {}
 			for (const problem of hookReadingProblems(entry)) lines.push(`    cannot be read: ${problem}`)
 			const watches = event === 'file_changed' ? fileChangedMatcherNote(entry.matcher) : undefined
 			if (watches !== undefined) lines.push(`    note: ${watches}`)
+			const worktree = worktreeHookNote(event, entry)
+			if (worktree !== undefined) lines.push(`    note: ${worktree}`)
 		}
 	}
 	lines.push(...hookConfigProblemLines(problems))
@@ -2110,6 +2112,25 @@ export function renderHooks(hooks: HooksConfig | undefined, view: HooksView = {}
 		for (const hook of pluginHooks) lines.push(`  ${hook.event} · plugin ${hook.plugin}`)
 	}
 	return lines.join('\n')
+}
+
+/**
+ * What a `worktree_create` or `worktree_remove` entry does not read: the hook
+ * does the work itself, so a name filter, a condition or a one-shot flag would
+ * only decide whether the kernel acts in its place, and none is read.
+ */
+function worktreeHookNote(
+	event: string,
+	entry: { readonly matcher?: string; readonly if?: string; readonly once?: boolean },
+): string | undefined {
+	if (event !== 'worktree_create' && event !== 'worktree_remove') return undefined
+	const ignored = [
+		entry.matcher ? 'matcher' : undefined,
+		entry.if ? 'if' : undefined,
+		entry.once ? 'once' : undefined,
+	].filter((name): name is string => name !== undefined)
+	if (ignored.length === 0) return undefined
+	return `this hook makes or removes the worktree itself, so its ${ignored.join(', ')} ${ignored.length === 1 ? 'is' : 'are'} ignored and it always runs`
 }
 
 /** The session's background commands, as an operator would ask about them. */
