@@ -44,6 +44,10 @@ function DetailLine({ line }: { line: string }) {
 	)
 }
 
+/** One line for a list the engine could not complete; it never says the folder is fine. */
+export const INCOMPLETE =
+	' This list may be incomplete: this version of Namzu could not list every hook in the folder.'
+
 /** The words of both variants, apart from the component so they can be tested as data. */
 export function folderAccessCopy(
 	name: string,
@@ -53,6 +57,8 @@ export function folderAccessCopy(
 	/** What changed in a folder this app had already trusted. */
 	changed?: readonly string[],
 	details?: readonly { label: string; lines: string[] }[],
+	/** The engine could not list this folder's hooks, so the list may leave some out. */
+	incomplete?: boolean,
 ): FolderAccessCopy {
 	const quoted = `“${name}”`
 	if (broad)
@@ -68,7 +74,7 @@ export function folderAccessCopy(
 			description: `These settings in ${quoted} changed since you last trusted it. They can start programs on their own:`,
 			items: [...changed],
 			...(details?.length ? { details: [...details] } : {}),
-			note: 'Trust it again only if you made or expected these changes.',
+			note: `Trust it again only if you made or expected these changes.${incomplete ? INCOMPLETE : ''}`,
 			confirm: 'Trust and open',
 			cancel: 'Cancel',
 		}
@@ -78,7 +84,7 @@ export function folderAccessCopy(
 			description: `Namzu and the AI tool you chose will be able to read, edit and run files in ${quoted}. This folder also has settings that can start programs on their own, even before you send a message:`,
 			items: [...risky],
 			...(details?.length ? { details: [...details] } : {}),
-			note: 'Only continue if you trust where this folder came from. Open Details to see exactly what would run.',
+			note: `Only continue if you trust where this folder came from. Open Details to see exactly what would run.${incomplete ? INCOMPLETE : ''}`,
 			confirm: 'Trust and open',
 			cancel: 'Cancel',
 		}
@@ -103,6 +109,7 @@ export function FolderAccessDialog({
 	risky,
 	changed,
 	details,
+	incomplete,
 	onConfirm,
 	onCancel,
 	onClose,
@@ -114,12 +121,13 @@ export function FolderAccessDialog({
 	risky?: readonly string[]
 	changed?: readonly string[]
 	details?: readonly { label: string; lines: string[] }[]
+	incomplete?: boolean
 	onConfirm: () => Promise<void>
 	onCancel: () => void
 	onClose: () => void
 	returnFocus: () => HTMLElement | null
 }) {
-	const copy = folderAccessCopy(name, broad, risky, changed, details)
+	const copy = folderAccessCopy(name, broad, risky, changed, details, incomplete)
 	const [pending, setPending] = useState(false)
 	const [error, setError] = useState('')
 	const cancel = useRef<HTMLButtonElement>(null)

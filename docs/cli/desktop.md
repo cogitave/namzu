@@ -4429,6 +4429,50 @@ the same record `namzu mcp approve` writes, and reads the list again. The engine
 user's whole table once the project has any approved, so the list shows what would start. A folder nobody
 trusted shows nothing; a `.mcp.json` that cannot be read shows its error. The old "Not set" row for this setting is gone.
 
+### Hooks in Settings and the trust dialog
+
+**Settings ▸ Tools** has two rows after **Tool servers**, both read from the engine's answer to "what runs by itself
+here" ([Hook events](../sdk/hooks.md#what-runs-by-itself-here-one-answer-for-a-program)): `namzu/hooks/list` on the
+project's host, or on the app's own host when no project is open (then the list is the person's own hooks, which apply in
+every folder, and the line under the heading says so). A host that does not list the method (`hooksView` in the
+optional groups, which `src/main/rpc-client.ts` reads) gets the sentence "This version of Namzu cannot list hooks. Update
+Namzu to see what runs by itself here." and nothing else; the switch still works from the settings the engine describes.
+
+- **Run hooks** is the user-level `disableHooks` setting turned the other way round, saved through the same
+  `namzu/config/set` road as every engine setting (it is left out of the plain list of Tools settings, so it is not shown
+  twice or found twice by search; turning it on puts the default back, which removes the key). Where `disableHooks` was set
+  by the environment (`NAMZU_DISABLE_HOOKS`), the managed file or a profile, or `hooksManagedOnly` is on, the switch is
+  disabled and one line says which and where; the line reads the answer's `switches`, so it names a variable or a file
+  and never invents one. Until the answer is in, the switch is left alone. The engine reads the setting when a project connects, so a project that is already open keeps what it started with and the change reaches it when Namzu next connects to it (the row says so); `e2e/ux-hooks-view.test.mjs` shows a hook that leaves a mark stop leaving one after the switch is turned off and the app connects again.
+- **Hooks** lists every hook grouped by when it runs (for example "Before a tool runs", with the event name beside it),
+  each as what it starts, its matcher, `if`, `once`, background and deadline options, where it comes from ("This
+  folder's settings", "Your own settings", "Plugin review-bot", "Skill careful", "Agent file runner"), where to change it
+  (the file's path, the plugin's folder, the skill's or the agent file's file), and its state: Runs, Off, When used (a skill
+  or an agent file's hook, attached while it is in use) or Not loaded, with the engine's reason. When a switch holds
+  every hook back the reason is said once above the list. A problem the readers reported sits under the event it names
+  (a hook that could not be loaded is shown where it would have been) or, with no event, under the source it is about. A
+  plugin's JavaScript modules are listed apart as "Code a plugin runs", named and never loaded. A folder that is not
+  trusted yet says so in one line, with how many hooks wait for it. With nothing to list the row says one sentence: where
+  hooks are written. The list is read when the page opens and again when the window regains focus, never under another
+  project's name, and it is read-only.
+
+Nothing in these rows runs a hook. The reader in `src/shared/hooks-report.ts` copies only the fields it knows, so an
+`env` value or a header cannot reach the screen even if an engine sent one, removes control characters, and removes
+credentials and queries from a line again; an entry it cannot read is counted ("could not be read, so the list may be
+incomplete"), never dropped silently, and a state it does not know is shown as Not loaded, never as Runs.
+
+**The folder trust dialog** takes what would start by itself from the same answer. A picked folder is not a project yet,
+so main asks `namzu hooks --cwd=<folder> --json` as a short process of the same engine (`src/main/folder-hooks.ts`; no
+host is started in the folder, and the command reads files as text and runs nothing), with a 20 second limit. The dialog
+then lists, each named with its source, the hooks of the project's config files (as before), of project plugins, of project
+skills (`the skill careful (when it is used)`) and of project agent files (`the agent file runner (when it runs)`), and
+the entries in the folder that could not be loaded, since a guard that is lost is not a quiet folder; **Details** shows
+each as `pre tool use: ./bin/guard.sh · matches Bash`, and a hook a switch turns off is listed with that reason. A hook
+counts as the folder's when its source is the folder's own file, the engine holds it back until the folder is trusted, or
+it lives under the folder. When the engine cannot answer (an engine that does not know the command, no answer in time, an
+answer that cannot be read), the dialog's own reading of `namzu.config.json` is the fallback and the note under the list
+adds "This list may be incomplete: this version of Namzu could not list every hook in the folder." (`riskySettings.incomplete`).
+
 ## Optional operator wire methods
 
 These methods exist only under `--desktop`, and initialization advertises them.
@@ -4438,6 +4482,7 @@ ACP methods and are not automatically installed in embedded SDK servers.
 | Method | Arguments | Result |
 | --- | --- | --- |
 | `namzu/project/status` | none | canonical cwd and remembered trust |
+| `namzu/hooks/list` | none | what runs by itself in the host's folder ([Hook events](../sdk/hooks.md#what-runs-by-itself-here-one-answer-for-a-program)); optional group `hooksView`. The Settings view asks it of the project's host, or of the app's own host when no project is open |
 | `namzu/project/trust` | exact `cwd`, `confirmed: true` | updated trust; client must require an operator confirmation |
 | `namzu/project/untrust` | exact `cwd`, `confirmed: true` | `{cwd, removed, trusted, stillTrustedBy?}`; removes only the trust entry that names exactly this folder. `trusted` stays `true` with `stillTrustedBy` set when an ancestor entry still covers it. Used by [Removing a project](#removing-a-project); a host that does not advertise it is simply not asked |
 | `namzu/conversations/list` | none | up to 100 recent project conversations |

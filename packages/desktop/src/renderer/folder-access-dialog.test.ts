@@ -91,3 +91,23 @@ describe('splitDetailLine', () => {
 		expect(splitDetailLine('…and 3 more')).toEqual({ value: '…and 3 more' })
 	})
 })
+
+describe('folderAccessCopy when the engine could not list the hooks', () => {
+	it('says in one line that the list may be incomplete, and only then', () => {
+		const items = ['a Namzu settings file that can start programs']
+		const sure = folderAccessCopy('app', undefined, items)
+		const unsure = folderAccessCopy('app', undefined, items, undefined, undefined, true)
+		expect(sure.note).not.toContain('incomplete')
+		expect(unsure.note).toContain('This list may be incomplete')
+		expect(unsure.note?.startsWith(sure.note as string)).toBe(true)
+		const changed = folderAccessCopy(
+			'app',
+			undefined,
+			undefined,
+			['hooks changed'],
+			undefined,
+			true,
+		)
+		expect(changed.note).toContain('This list may be incomplete')
+	})
+})

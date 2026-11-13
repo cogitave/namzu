@@ -17,6 +17,7 @@ import { ConfigSettingsGroup } from './config-settings-section.js'
 import { copyPlainText } from './copy-button.js'
 import { engineSourceText, engineStatusText, plainVersion } from './engine-delivery-model.js'
 import { EngineUpdateRows, type EngineUpdateTarget } from './engine-updates-section.js'
+import { HooksRows } from './hooks-section.js'
 import {
 	DownloadIcon,
 	FoldersIcon,
@@ -56,6 +57,7 @@ import { type ConfigSettingsControls, useConfigSettings } from './use-config-set
 import type { DesktopSettingsControls } from './use-desktop-settings.js'
 import { useEngineDelivery } from './use-engine-delivery.js'
 import { useEngineUpdates } from './use-engine-updates.js'
+import { useHooksView } from './use-hooks-view.js'
 import type { LocalListeningControls } from './use-local-listening.js'
 import type { LocalSpeechControls } from './use-local-speech.js'
 import { useMcpServers } from './use-mcp-servers.js'
@@ -174,6 +176,8 @@ export function SettingsPage(props: SettingsPageProps) {
 		query,
 		[...SETTINGS_ENTRIES, ...configSearchEntries(config.view)].filter(
 			(entry) =>
+				// Shown as “Run hooks” in its own place, so the plain setting is not a second result.
+				entry.id !== 'cfg-disableHooks' &&
 				(entry.id !== 'terminal-shell' || hasShellChoice) &&
 				(entry.id !== 'terminal-restore' || shells !== null) &&
 				(entry.id !== 'auto-download' || hasAppUpdater),
@@ -291,6 +295,7 @@ function SectionBody(props: SectionProps) {
 			{props.section === 'general' && <GeneralSection {...props} />}
 			{props.section === 'models' && <ModelsContainer />}
 			{props.section === 'tools' && <McpServersContainer {...props} />}
+			{props.section === 'tools' && <HooksContainer {...props} />}
 			{props.section === 'projects' && <ProjectsSection {...props} />}
 			{props.section === 'appearance' && <AppearanceSection {...props} />}
 			{props.section === 'updates' && <UpdatesSection {...props} />}
@@ -305,7 +310,7 @@ function SectionBody(props: SectionProps) {
 				<ConfigSettingsGroup
 					section={props.section}
 					config={props.config}
-					omit={props.section === 'tools' ? ['mcpServers'] : undefined}
+					omit={props.section === 'tools' ? ['mcpServers', 'disableHooks'] : undefined}
 					heading={
 						props.section === 'general' ||
 						props.section === 'models' ||
@@ -329,6 +334,19 @@ function McpServersContainer({ engineTarget, projects }: SectionProps) {
 	return (
 		<McpServersRows
 			servers={servers}
+			projectName={projects.find((project) => project.id === projectId)?.name}
+		/>
+	)
+}
+
+function HooksContainer({ engineTarget, projects, config }: SectionProps) {
+	const bridge = typeof window === 'undefined' ? undefined : window.namzu
+	const projectId = engineTarget?.projectId
+	const hooks = useHooksView(bridge, projectId)
+	return (
+		<HooksRows
+			hooks={hooks}
+			config={config}
 			projectName={projects.find((project) => project.id === projectId)?.name}
 		/>
 	)

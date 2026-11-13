@@ -330,7 +330,7 @@
         ]
       },
       "src/config/hooks-report.ts": {
-        "mirroredBy": "packages/desktop/src/shared/hooks-report.ts (added with the Desktop view of hooks)",
+        "mirroredBy": "packages/desktop/src/shared/hooks-report.ts",
         "digests": {
           "HOOKS_REPORT_VERSION": "e2f87582ca196902",
           "HookOrigin": "e5e20d61c2dacf5c",

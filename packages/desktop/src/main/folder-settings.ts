@@ -11,7 +11,7 @@ export const CONFIG_FILE = 'namzu.config.json'
 export const CONFIG_LIMIT = 1024 * 1024
 export const ENTRY_CAP = 2000
 
-function plural(count: number, one: string, many: string): string {
+export function plural(count: number, one: string, many: string): string {
 	return `${count} ${count === 1 ? one : many}`
 }
 
@@ -43,7 +43,7 @@ export function safeLine(text: string): string {
 	return cleaned.length > LINE_LENGTH ? `${cleaned.slice(0, LINE_LENGTH - 1)}…` : cleaned
 }
 
-function capped(lines: string[], total = lines.length): string[] {
+export function capped(lines: string[], total = lines.length): string[] {
 	const shown = lines.slice(0, LINE_CAP).map(safeLine)
 	return total > shown.length ? [...shown, `…and ${total - shown.length} more`] : shown
 }
