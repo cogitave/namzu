@@ -100,7 +100,26 @@ const LONG_CODE = [
 	'after the code',
 ].join('\n')
 
+const body = (n: number, pad = ''): string[] =>
+	Array.from({ length: n }, (_, i) => `${pad}const value${i} = compute(${i}) // line ${i}`)
+
 const CORPUS: Record<string, string> = {
+	fenceInfoWords:
+		'Forms:\n\n```c++\nint main() { return 0; }\n```\n\n```objective-c\nNSLog(@"x");\n```\n\n```shell-session\n$ ls\n```\n\n```f#\nlet x = 1\n```\n\nEnd.',
+	fenceTitle: '```ts title="a.ts" {1,3}\nconst a = 1\nconst b = 2\n```\nafter',
+	fenceTilde: 'Before.\n\n~~~python\nprint("a")\n~~~\n\n~~~\nplain\n~~~~\nAfter.',
+	fenceFour: 'Show:\n\n````md\n```ts\ninner\n```\n````\n\nDone.',
+	fenceLongCloser: '```js\none\ntwo\n`````\nafter',
+	fenceNotAFence:
+		'Inline ```not a fence``` here, and ``double`` ticks, and ~~strike~~ text.\n\n~~strike at the start~~ and more.',
+	fenceInList:
+		'1. Install it:\n   ```bash\n   npm install\n   ```\n2. Run it:\n\n   ```bash\n   npm start\n   ```\n3. Done.\n\nAfter.',
+	fenceInNestedList: '- one\n  - deeper\n    ```sh\n    echo deep\n    ```\n  - next\n- two',
+	fenceInQuote: '> Quoted:\n>   ```sh\n>   echo hi\n>   ```\n> after\n\nPlain.',
+	fenceInQuoteTilde: '> ~~~ts\n> const a = 1\n> ~~~\n\nPlain.',
+	fenceLongInList: `1. Write it:\n${['   ```ts', ...body(34, '   '), '   ```'].join('\n')}\n2. Then done.`,
+	fenceLongFour: `Long:\n\n${['````md', '```ts', ...body(34), '```', '````'].join('\n')}\n\nEnd.`,
+	fenceLongTilde: `${['~~~rs', ...body(34), '~~~'].join('\n')}\nEnd.`,
 	paragraphs:
 		'First paragraph with some words in it.\n\nSecond paragraph here, a little longer than the first one.\n\nThird.',
 	finalNewline: 'One paragraph.\n\nTwo paragraph.\n',

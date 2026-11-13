@@ -2219,6 +2219,7 @@ const CONFIG_READERS: ConfigReaders = {
 			wheelAccel?: unknown
 			recap?: unknown
 			spinnerTips?: unknown
+			syntaxHighlight?: unknown
 			workspacesPrefix?: unknown
 			spacesPrefix?: unknown
 			mouse?: unknown
@@ -2229,6 +2230,8 @@ const CONFIG_READERS: ConfigReaders = {
 			return invalidConfigValue(context, ['sound'], 'must be true or false')
 		if (raw.spinnerTips !== undefined && typeof raw.spinnerTips !== 'boolean')
 			return invalidConfigValue(context, ['spinnerTips'], 'must be a boolean')
+		if (raw.syntaxHighlight !== undefined && typeof raw.syntaxHighlight !== 'boolean')
+			return invalidConfigValue(context, ['syntaxHighlight'], 'must be true or false')
 
 		let notifications: boolean | readonly TerminalNotificationEvent[] | undefined
 		if (typeof raw.notifications === 'boolean') notifications = raw.notifications
@@ -2333,6 +2336,7 @@ const CONFIG_READERS: ConfigReaders = {
 			...(raw.wheelAccel !== undefined ? { wheelAccel: raw.wheelAccel } : {}),
 			...(raw.recap !== undefined ? { recap: raw.recap } : {}),
 			...(raw.spinnerTips !== undefined ? { spinnerTips: raw.spinnerTips } : {}),
+			...(raw.syntaxHighlight !== undefined ? { syntaxHighlight: raw.syntaxHighlight } : {}),
 			...(raw.sound !== undefined ? { sound: raw.sound } : {}),
 		}
 	},
@@ -3102,7 +3106,7 @@ export function mergeCodeAnalysisConfig(
 }
 
 /**
- * `tui` from one more layer: later keys win. `theme`, `reducedMotion`, `showExpandedTodos`, `fullscreen`, `wheelRows` and `wheelAccel` are the
+ * `tui` from one more layer: later keys win. `theme`, `reducedMotion`, `showExpandedTodos`, `fullscreen`, `syntaxHighlight`, `wheelRows` and `wheelAccel` are the
  * operator's own taste, so a project layer's values for them are dropped.
  */
 export function mergeTuiConfig(
@@ -3115,6 +3119,7 @@ export function mergeTuiConfig(
 		reducedMotion: _motion,
 		showExpandedTodos: _todos,
 		fullscreen: _fullscreen,
+		syntaxHighlight: _syntax,
 		wheelRows: _wheelRows,
 		wheelAccel: _wheelAccel,
 		...rest

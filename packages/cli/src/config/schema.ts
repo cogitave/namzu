@@ -131,6 +131,14 @@ export interface TuiConfig {
 	 * plan's next task) is not a tip and shows either way.
 	 */
 	readonly spinnerTips?: boolean
+	/**
+	 * Colour the syntax of a fenced code block that names a language it knows
+	 * (keywords, strings, numbers, comments, names, and the added and removed
+	 * lines of a diff). Default `true`; only an explicit `false` draws every
+	 * code block in the one code colour. The text is the same either way. Your
+	 * own config files only.
+	 */
+	readonly syntaxHighlight?: boolean
 }
 
 /** Release channel the background updater follows. */
