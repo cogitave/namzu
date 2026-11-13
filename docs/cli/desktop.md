@@ -908,7 +908,7 @@ The logic is pure (`SystemNotices` takes an injected notifier, clock, timer and 
 
 ## The top of a conversation window
 
-A conversation window spends 36 px on one bar (the same height as the strip of tabs, so showing or hiding the strip moves nothing). The bar holds the conversation's title (14 px, strong, cut with an ellipsis when it does not fit), the project's name (13 px, muted), then on the right its buttons (how full the conversation is lives in the row under the composer, not here). The sidebar is the one list of conversations; a title is shown once. The operating system's menu row (File, Edit, View, Window) is unchanged and sits above the bar.
+A conversation window spends 36 px on one bar (the same height as the strip of tabs, so showing or hiding the strip moves nothing). The bar holds the conversation's title (14 px, strong, cut with an ellipsis when it does not fit), the project's name (13 px, muted), then on the right its buttons (how full the conversation is lives in the row under the composer, not here). The sidebar is the one list of conversations; a title is shown once. Nothing sits above the bar: the window starts with it (see [One band at the top](#one-band-at-the-top)).
 
 **The read-out** is not in the bar: it sits at the right end of the row under the composer box (see the composer section below), from the same figures (`contextRingModel`, so the two cannot disagree) and with the same rule for when it shows: nothing is drawn until the engine has reported both a context size and a window.
 
@@ -1974,12 +1974,11 @@ and then fades in over 150 ms (`--placeholder-fade`), so a load that finishes fi
 With reduced motion the wait stays and the fade becomes a single step. In the design preview,
 `/preview?slow=<ms>` holds the first project read so the placeholders can be looked at (under 500 ms
 none shows).
-The 32px integrated title bar keeps the operating system’s caption controls and
-resize frame. Back and Forward revisit the window’s admitted project and
-conversation views, with no prompt replay; the adjacent panel control toggles
-the sidebar. File provides project and conversation actions; Edit and Window open native
-menus. View offers zoom and full screen only: Namzu is an app, not a browser, so
-it carries no Reload, Force Reload or developer-tools item (the tools return in a
+The window keeps the operating system’s caption controls and resize frame; they are drawn at the
+right end of the header band (see [One band at the top](#one-band-at-the-top)). Back and Forward
+revisit the window’s admitted project and conversation views, with no prompt replay; the adjacent
+panel control toggles the sidebar. The View menu offers zoom and full screen only: Namzu is an app,
+not a browser, so it carries no Reload, Force Reload or developer-tools item (the tools return in a
 development build). Native caption colours follow the chosen appearance.
 The window is two flat regions divided by one 1px line: the sidebar and the conversation. Neither has a
 rounded corner or a shadow, and the frame uses at most two fills (the sidebar side, which includes the
@@ -1989,11 +1988,11 @@ Settings (same name, same tooltip with its shortcut) and, when there is somethin
 button with its badge and its announcement. Home is not repeated there, because it leads to the same
 screen as the New conversation row; on the Settings and Plugins pages, whose own sidebars have no such
 row, the foot also carries Home, so the way back is never lost. While the sidebar is collapsed
-(by the title bar's panel control, Ctrl/Cmd+B, a narrow window, or the Changes pane at 1280 px and
+(by the header's panel control, Ctrl/Cmd+B, a narrow window, or the Changes pane at 1280 px and
 below) the 48 px rail is drawn with Home in its header band (36 px) at the top and Settings in its foot (45 px, with the same line above it as the sidebar's foot) at the bottom; a control that had the
 focus when the rail and the foot swap keeps it. Opening or closing the sidebar moves the conversation by
 exactly the width that changes (288 px open, 48 px collapsed). In a window of 767 px or less the sidebar is an
-overlay beside the rail, and the foot is not drawn. The sidebar's header and the top bar's hairline end on
+overlay beside the rail that starts under the 36 px header band, so the band's menu, toggle, back, forward and title stay in view and reachable while it is open (the scrim leaves the band undimmed), and the foot is not drawn. The sidebar's header and the top bar's hairline end on
 one line: both are 36 px, with the strip of tabs and without it, and in Settings (see
 [The frame's numbers](#the-frames-numbers)). The wordmark keeps its size (two rows, 22 px high, inside the 36 with 7 above and below), and the menu button around it is 28 px high. Home
 owns the chat and blank composer. Spaces, Scheduled and Plugins are not on the rail:
@@ -2024,8 +2023,8 @@ current conversation only when that plugin is actually enabled there, preserving
 the draft and sending no prompt. Uninstall remains disabled with an explanation
 until a desktop uninstall API exists. The page shares its mutation and ownership guards with
 the composer menu, including the restrictions on live changes. The rail has no
-overflow menu: **Add new project** lives in the sidebar and the title bar, and the
-sidebar toggles from the title bar's panel control or Ctrl/Cmd+B. The rail has no
+overflow menu: **Add new project** lives in the sidebar and the header's menu, and the
+sidebar toggles from the header's panel control or Ctrl/Cmd+B. The rail has no
 profile control and claims no signed-in account. Settings is the last item; the update icon sits beside it (above it in the rail) and appears
 only while there is something to install: an installable update, an offered one when
 automatic download is off, or a program that is behind. The manual **Check for updates** is
@@ -2330,9 +2329,11 @@ do not create a media placeholder in ordinary history; text accompanying tools
 and actual media placeholders remain visible. This is a display filter, not a
 change to the model's recorded history. Syntax highlighting uses bundled WASM;
 the renderer policy allows that compilation without enabling JavaScript eval.
-Background work uses a separate column when the workspace has at least 880px
-available; narrower workspaces let the panel take the whole pane (the conversation is not squeezed into a
-clipped sliver; a **Back to conversation** button at its top-left, and **Hide panel**, bring it back). The project and computer chips above an empty composer are one
+Background work is a tool panel: it uses a separate column of 40 percent of the main area (320 to 560 px)
+while the conversation keeps at least 360 px, which is a main area of 680 px or more; narrower workspaces let the
+panel take the whole pane (the conversation is not squeezed into a
+clipped sliver; a **Back to conversation** button at its top-left, and **Hide panel**, bring it back). See
+[The side panels](#the-side-panels). The project and computer chips above an empty composer are one
 flat row on the composer's own edges, and the page edge under the composer is solid, so a long reply never shows
 through below it. The panel and conversation widths animate together, and the
 details control remains mounted during the transition. Closing the panel or
@@ -3021,10 +3022,11 @@ under the writes, validates its arguments and the CLI's answer, and releases the
 
 ### Changes review view
 
-The Changes pane is the diff first. It opens 520 px wide (never more than half of a narrow
-window; a width the person dragged is kept) on the file that changed most, and a narrow file
-list (168 px) sits beside the diff, on its left, so the diff has the full height. The header is one
-40 px row: the title "Changes", a two-way switch **This reply | All changes** (All changes is the default
+The Changes pane is the diff first. It opens 60 percent of the main area wide (at least 360 px; a width the
+person dragged is kept, see [The side panels](#the-side-panels)) on the file that changed most, and the list of
+changed files (240 px, rows 28 high, a 1 px line between it and the diff) sits at the diff's right, so the diff
+has the full height and the left. The header is one
+44 px row with a 1 px line under it: the title "Changes", a two-way switch **This reply | All changes** (All changes is the default
 whichever reply opened the pane; This reply is that reply, or the latest one that changed files, when the
 pane was opened from the top bar), the counts ("4 files +35 −3"), one **View** menu and a close button.
 All changes merges every completed edit per path, so a file edited twice is one
@@ -3463,7 +3465,7 @@ the separate Pal chat, without model requests or computer actions.
 
 ## Files beside a conversation
 
-The conversation's right panel is resizable (320 px up to 70% of the pane; the Changes tab opens at 520 px, at most half of the pane, until a width is dragged, width kept per pane) and holds one ordered list of tabs: Changes, Activity and one tab per open file. All of them are ordinary closable tabs drawn by the same component (an icon, a label that truncates, a close button that shows on the active tab and on hover or focus, a middle click that closes); the active tab sits in a bordered, raised box and the others are plain muted text. Activity carries a small count while background work is running, in the warning colour when something needs attention. Arrow keys, Home and End move between tabs; Delete or Ctrl+W (Cmd+W) closes the focused one. The list and the active tab persist per conversation; a conversation saved before tabs existed gains Changes and Activity in front of its files and keeps the tab it was showing.
+The conversation's right panel is resizable (see [The side panels](#the-side-panels) for its widths) and holds one ordered list of tabs: Changes, Activity and one tab per open file. All of them are ordinary closable tabs drawn by the same component (an icon, a label that truncates, a close button that shows on the active tab and on hover or focus, a middle click that closes); the active tab sits in a bordered, raised box and the others are plain muted text. Activity carries a small count while background work is running, in the warning colour when something needs attention. Arrow keys, Home and End move between tabs; Delete or Ctrl+W (Cmd+W) closes the focused one. The list and the active tab persist per conversation; a conversation saved before tabs existed gains Changes and Activity in front of its files and keeps the tab it was showing.
 
 The "+" opens a menu: Changes and Activity (each only while closed) and, after a separator, "Open file…", which opens quick open with the filter ready. The result line, the top bar's changes button and the details popover's Changes add the Changes tab at the front if it was closed and show it with the requested scope; the popover's Background work does the same for Activity. Closing the last tab leaves an empty panel with three quiet buttons (Changes, Activity, Open a file); the panel stays open until it is hidden. At the right of the strip, "Expand panel" / "Restore panel" makes the panel fill the pane and hides the conversation (Escape does not undo it, and the state is kept per conversation with the rest of the view state), and "Hide panel" closes the panel as the old close button did.  A file opens as a Markdown document (its YAML front matter as a Metadata table, "View source" for the raw text), as highlighted source, as an image, or as a plain note with "Open in" when it is binary or larger than 2 MiB (images: 4 MiB). A filter box searches the project by fuzzy match; below it a lazy folder tree shows the project. When a turn settles, the open file and the tree read the disk again.
 
@@ -3474,6 +3476,68 @@ Every file call is confined to the folder of a trusted, ordinary project that th
 The same visibility rules apply to listing, searching, reading and linking. `.git`, `node_modules` and anything matched by `.gitignore` files (root to the folder) or `.git/info/exclude` is neither listed, indexed, linked nor readable by exact path, so a secrets file the project keeps out of version control cannot be fetched by naming it. A link inside the project that points at such a file is judged by where it lands. Reads open the file without following a final link and without blocking on a named pipe, and check after opening that the path still resolves to the opened file; a folder swapped for a link in the instant between the check and the open can still not be ruled out, because Node has no `openat`-style descent.
 
 The project index is a bounded walk (50,000 paths, depth 24, a 3 s budget checked inside each folder too) cached for 30 s, and it reports `truncated` when a cap was hit. "Open in" finds VS Code and Cursor in the per-user install folder, under Program Files and on `PATH`, and starts the first one found with separate arguments and no shell.
+
+## One band at the top
+
+The window starts with the 36 px header band, on every platform: no strip sits above it. The sidebar's
+header (the wordmark on its dither band) is at the top left and the main header beside it, both from y 0
+to y 36. The numbers are `--frame-cluster-*` tokens in `theme.css`; `e2e/ux-one-band.test.mjs` measures
+them in the running app at 1280 by 820.
+
+- **The left cluster** is at the main header's left, 12 px in from the sidebar's edge (from the rail's edge
+  when the sidebar is collapsed): a **Menu** button, the sidebar toggle, **Back** and **Forward**, each
+  28 by 28, 4 apart and centred in the band. Back and Forward are at half strength while there is nowhere
+  to go. The title, or the strip of tabs, starts 12 px after the cluster.
+- **The Menu button** opens one menu with **File**, **Edit**, **View** and **Window** as rows with a chevron;
+  a row opens its commands to the side, its top on the row's top and 4 px from the menu. File holds
+  New conversation, Start from scratch and Use an existing folder. Edit, View and Window are the items of
+  the application menu in the main process, read when the menu opens (`windowMenuModel`) and run by id
+  (`runWindowMenuItem`), so a row and its accelerator run the same command and the View checkbox shows
+  the state Settings keeps; the shortcut is shown at the right of each. Alt on its own opens the menu;
+  the arrows move, Right opens a submenu, Enter runs, Escape closes the submenu and then the menu, and
+  focus returns to the button (to the field that had it before, when a command ran, so Copy and Paste
+  reach it). The accelerators work with the menu closed. The native menu bar stays hidden.
+- **macOS** keeps the system menu bar as the menu, so the cluster has no Menu button (three controls). The
+  traffic lights keep an 80 px inset at the sidebar header's left; with the sidebar collapsed the cluster
+  starts after them and Home sits in the first row under the band the lights cover.
+- **A side panel** starts at the band's bottom edge and ends at the window's right edge, so the band runs
+  the whole width of the main area over it and nothing of the panel sits under the window's own buttons.
+  The same holds where the panel covers the whole pane (a narrow window).
+- **The window's own buttons** (Windows and Linux) end the band: the caption overlay is 36 px high
+  (`WINDOW_CHROME_HEIGHT`, which a test keeps equal to `--frame-header-height`), and the page reads its
+  width from `env(titlebar-area-width)` into `--frame-controls-inset`, so no header control sits under
+  it. The band is the window's drag region except over its controls. The window's title is no longer
+  drawn as text; the operating system still has it.
+
+## The side panels
+
+Every side panel is one of two kinds, and each kind has its own share of the main area (the `.workspace`
+element, the part right of the sidebar), so a diff has room while a conversation keeps the rest. The numbers
+are `--panel-*` tokens in `theme.css`; `src/renderer/panel-tokens.test.ts` pins them and
+`e2e/ux-side-panels.test.mjs` reads them from the running app at 1280 by 820 and 1440 by 900.
+
+- **A reading panel** (Changes, an open file, the file browser) is 60 percent of the main area and never
+  under 360 px. **A tool panel** (Activity, the background work) is 40 percent, at least 320 and at most 560 px.
+  A terminal opens as a tab of the conversation strip, not as a side panel, so it has no share of its own.
+- **The conversation keeps the rest.** When that would be under 360 px, the panel lies over the conversation's
+  right side as before: it takes the whole pane, and **Back to conversation** or **Hide panel** bring the chat
+  back. For a reading panel that is any main area under 900 px; for a tool panel, under 680 px (its 320 floor
+  and the conversation's 360). The two container queries in `style.css` and `file-panel.css` spell those edges
+  out, since a query cannot read a token; the test keeps them equal to the sums.
+- **A 1 px seam** divides the panel from the conversation. A 7 px zone centred on it (`.panel-resize-handle`)
+  can be dragged: while it is hovered, focused or held, a 2 px line in the primary colour shows on it. A double
+  click puts the share back and forgets the dragged width; the arrow keys move it by 24 px (80 with Shift) when
+  it has focus, Left making the panel wider. A dragged width is kept for each kind of panel apart, per pane
+  (`namzu.workspace.panel-width:<pane>:<kind>`), within the kind's floor and what leaves the conversation 360 px;
+  an older width saved without a kind is no longer read. There is no seam to move while a panel lies over the
+  pane.
+- **A panel's header is 44 px high** with a 1 px line under it. The Changes header's title is 14/20 at weight 500,
+  20 px in from the panel's edge; the tab strip of the other panels starts its first tab at the same 20. Its
+  controls are 28 by 28, 4 apart, the last one 8 px from the right edge.
+- **The header's tools** (Changes, Project files) are 28 px high, 4 apart; a tool whose panel is open carries a fill
+  of 8 percent of the text colour and `aria-pressed`.
+- **The list of changed files** is at the right of the diff, 240 px wide. In a short list a file's name is never
+  cut before its folder is: the folder, shown only where two files share a name, shrinks first, and a name cut at last is cut at its start so its end stays readable.
 
 ## The frame's numbers
 
@@ -3493,8 +3557,9 @@ by 820. The sidebar is 288 px wide including its 1 px edge line; x positions bel
   it, where there is nothing to separate); Settings, Plugins and Pals, which have no top bar of their own,
   get the same line across the pane at the same y. It is an inset shadow inside the band, so it never
   changes the 36.
-- **The main header's title** starts 24 px from the main area's left edge; its controls end 8 px from the
-  right edge and are 4 apart.
+- **The main header's title** starts 12 px after the left cluster (so 148 px from the main area's left edge
+  with the menu button, 116 on macOS); its controls end 8 px from the right edge and are 4 apart (on
+  Windows and Linux, 8 px before the window's own buttons).
 - **Rows are 32 px high** with 2 px between neighbouring rows (tops 34 apart) and corners of 10 px. The first
   row starts 8 px under the header band. A row's box runs from x 8 to x 277: 8 from the sidebar's left
   edge and 10 from its right edge line. Inside it: 10 px of padding, a 16 px icon slot (x 18 to 34), a gap

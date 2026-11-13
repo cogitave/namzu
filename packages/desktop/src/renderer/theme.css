@@ -174,6 +174,17 @@
 	--frame-bar-gap: 4px;
 	--frame-bar-inset: 8px;
 	--frame-title-inset: 24px;
+	/* The header's left cluster: a menu button (not on macOS, which keeps the system menu bar), the
+	   sidebar toggle, back and forward, each a control wide, 12 in from the sidebar's edge and 12 before
+	   the title or the strip of tabs. On macOS the traffic lights take the first 80 of the window. */
+	--frame-cluster-inset: 12px;
+	--frame-cluster-gap: 4px;
+	--frame-cluster-after: 12px;
+	--frame-cluster-count: 4;
+	--frame-lights-inset: 80px;
+	/* Where the window's own buttons begin when the system has not said: they end the header band. */
+	--frame-caption-fallback: 142px;
+	--frame-controls-inset: 0px;
 	/* The input box, the row under it and the column they share. The dock at rest is the box, the gap,
 	   the row and the space under the row. */
 	--frame-input-height: 44px;
@@ -268,6 +279,29 @@
 	--palette-footer-height: 42px;
 	--palette-key-height: 18px;
 	--palette-key-radius: 4px;
+	/* The side panels. A reading panel (changes, a file, a preview) takes 60 percent of the main area and
+	   no less than 360; a tool panel (tasks) takes 40 percent, between 320 and 560. The conversation keeps the
+	   rest, and when that would be under 360 the panel lies over its right side. A 1px seam divides them, and
+	   a 7px zone on it takes the pointer. A panel's header is 44 high; its title starts 20 in; its controls
+	   are 28 square, 4 apart and the last 8 from the edge. */
+	--panel-reading-share: 60%;
+	--panel-reading-min: 360px;
+	--panel-tool-share: 40%;
+	--panel-tool-min: 320px;
+	--panel-tool-max: 560px;
+	--panel-conversation-min: 360px;
+	--panel-seam: 1px;
+	--panel-grab-zone: 7px;
+	--panel-grab-line: 2px;
+	--panel-header-height: 44px;
+	--panel-title-inset: 20px;
+	--panel-control-gap: 4px;
+	--panel-control-inset: 8px;
+	--panel-files-width: 240px;
+	--panel-file-row: 28px;
+	--panel-open-fill: 8%;
+	--panel-reading-width: max(var(--panel-reading-min), var(--panel-reading-share));
+	--panel-tool-width: clamp(var(--panel-tool-min), var(--panel-tool-share), var(--panel-tool-max));
 	--workspace-topbar-height: var(--frame-header-height);
 	--workspace-gutter: var(--frame-title-inset);
 	--workspace-gutter-start: var(--workspace-gutter);

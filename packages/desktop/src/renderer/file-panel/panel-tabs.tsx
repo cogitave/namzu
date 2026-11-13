@@ -324,11 +324,15 @@ export function PanelTabStrip({
 	)
 }
 
-/** A thin edge on the panel's left that resizes it; arrow keys do the same for the keyboard. */
+/**
+ * The seam between the conversation and the panel: a 7px zone that resizes it. A double click puts the
+ * share back; arrow keys do the same as a drag for the keyboard.
+ */
 export function PanelResizeHandle({
 	width,
 	onResize,
 	onCommit,
+	onReset,
 	onDragging,
 	now,
 	min,
@@ -341,6 +345,8 @@ export function PanelResizeHandle({
 	width: () => number
 	onResize: (width: number) => void
 	onCommit: (width: number) => void
+	/** A double click: the panel goes back to its share. */
+	onReset?: () => void
 	/** True while the edge is held, so the page can skip its width transition. */
 	onDragging?: (dragging: boolean) => void
 }) {
@@ -358,7 +364,8 @@ export function PanelResizeHandle({
 		drag.current = null
 		onDragging?.(false)
 		event.currentTarget.releasePointerCapture?.(event.pointerId)
-		onCommit(state.last)
+		// A click that moved nothing remembers nothing, so a double click can put the share back.
+		if (state.last !== state.startWidth) onCommit(state.last)
 	}
 	return (
 		// biome-ignore lint/a11y/useSemanticElements: an hr cannot take focus and keys as a separator can.
@@ -382,6 +389,7 @@ export function PanelResizeHandle({
 			onPointerMove={move}
 			onPointerUp={end}
 			onPointerCancel={end}
+			onDoubleClick={onReset}
 			onKeyDown={(event) => {
 				const step = event.shiftKey ? 80 : 24
 				if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return

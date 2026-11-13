@@ -61,7 +61,9 @@ describe('the frame is two flat regions', () => {
 		}
 		expect(rule(style, '.navigation-rail')).toContain('background: var(--sidebar)')
 		expect(rule(style, '.workspace')).toContain('background: var(--background)')
-		expect(rule(style, '.window-titlebar')).toContain('background: var(--chrome)')
+		expect(rule(style, '.sidebar-chrome')).toContain('background: var(--sidebar)')
+		// The left cluster is drawn over the conversation's header and fills nothing of its own.
+		expect(rule(style, '.window-titlebar')).not.toMatch(/background/)
 	})
 
 	it('keeps text on the sidebar side readable in both themes', () => {

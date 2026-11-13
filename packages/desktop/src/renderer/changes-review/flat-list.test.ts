@@ -43,14 +43,29 @@ describe('the narrow file list', () => {
 })
 
 describe('a long name in the flat list', () => {
-	it('is cut at its start so its end stays readable, as the diff header is', () => {
-		const css = readFileSync(new URL('./review.css', import.meta.url), 'utf8')
-		const rule = (selector: string) => {
-			const start = css.indexOf(`\n${selector} {`)
-			return css.slice(start, css.indexOf('}', start))
-		}
+	const css = readFileSync(new URL('./review.css', import.meta.url), 'utf8')
+	const rule = (selector: string) => {
+		const start = css.indexOf(`\n${selector} {`)
+		return css.slice(start, css.indexOf('}', start))
+	}
+	it('is never cut before its folder is', () => {
+		// The folder is what shrinks (a huge shrink factor); the name keeps its width until the folder is gone.
+		expect(rule('.changes-flat-folder')).toMatch(/flex:\s*1 10000 0/)
+		expect(rule('.changes-flat-folder')).toMatch(/text-overflow:\s*ellipsis/)
+		expect(rule('.changes-flat-name')).toMatch(/flex:\s*0 1 auto/)
+		// Cut at last, it is cut at its start, so the end of a long name stays readable.
 		expect(rule('.changes-flat-name')).toMatch(/direction:\s*rtl/)
-		expect(rule('.changes-flat-name')).toMatch(/text-overflow:\s*ellipsis/)
 		expect(rule('.changes-diff-path')).toMatch(/direction:\s*rtl/)
+	})
+	it('shows the folder beside the name only where two files share a name', () => {
+		const html = renderToStaticMarkup(
+			createElement(FlatFileList, {
+				files: [file('src/a/index.ts', 1), file('src/b/index.ts', 1), file('x/main.ts', 1)],
+				onSelect: () => {},
+			}),
+		)
+		expect(html.match(/changes-flat-folder/g)).toHaveLength(2)
+		expect(html).toContain('<span class="changes-flat-folder">src/a</span>')
+		expect(html).not.toContain('>x</span>')
 	})
 })

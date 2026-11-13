@@ -150,7 +150,8 @@ test(
 			await resize(w, 1000, 800);
 			await w.page.getByRole("button", { name: "More ways to add a tab" }).click();
 			await w.page.getByRole("menuitem", { name: "New terminal to the right" }).click();
-			await expect(pane(w)).toHaveCount(1, { timeout: T });
+			// Both halves are drawn once the split is laid out: the Namzu tab and the new terminal.
+			await expect(pane(w)).toHaveCount(2, { timeout: T });
 			const namzuTab = () =>
 				w.page.evaluate((marker) => {
 					const t = window.__namzuTerminals;

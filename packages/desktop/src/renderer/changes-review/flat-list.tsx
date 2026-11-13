@@ -47,7 +47,11 @@ export function FlatFileList({
 							title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
 							onClick={() => onSelect(file.path)}
 						>
-							<span className="changes-flat-name">{names.get(file.path)}</span>
+							<span className="changes-flat-name">{baseName(file.path)}</span>
+							{/* Two files of one name are told apart by their folder, which gives way before the name does. */}
+							{names.get(file.path) !== baseName(file.path) && (
+								<span className="changes-flat-folder">{dirName(file.path)}</span>
+							)}
 							{file.status === 'binary' || file.binary ? (
 								<span className="changes-tree-note">binary</span>
 							) : (

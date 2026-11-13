@@ -61,12 +61,41 @@ pre {
 .drag-region {
 	-webkit-app-region: drag;
 }
+/* The window's own buttons are drawn by the system over the right end of the band on Windows and Linux;
+   the page learns how wide they are and keeps its own controls out from under them. */
+:root[data-chrome-platform="win32"],
+:root[data-chrome-platform="linux"] {
+	--frame-controls-inset: max(
+		0px,
+		calc(
+			100vw -
+			env(titlebar-area-x, 0px) -
+			env(titlebar-area-width, calc(100vw - var(--frame-caption-fallback)))
+		)
+	);
+}
+:root[data-chrome-platform="darwin"] {
+	--frame-cluster-count: 3;
+}
 .app {
+	--frame-cluster-start: var(--frame-cluster-inset);
+	--frame-cluster-width: calc(
+		var(--frame-cluster-count) *
+		var(--frame-control-size) +
+		(var(--frame-cluster-count) - 1) *
+		var(--frame-cluster-gap)
+	);
+	/* Where the title, or the strip of tabs, begins in the main header. */
+	--frame-header-start: calc(
+		var(--frame-cluster-start) +
+		var(--frame-cluster-width) +
+		var(--frame-cluster-after)
+	);
 	position: relative;
 	display: grid;
 	/* Open, the sidebar is the left region and the rail is not drawn; collapsed, the rail is. */
 	grid-template-columns: 0 288px minmax(0, 1fr);
-	grid-template-rows: 32px minmax(0, 1fr);
+	grid-template-rows: minmax(0, 1fr);
 	height: 100%;
 	transition: grid-template-columns var(--dur-base) var(--ease-out);
 }
@@ -75,7 +104,7 @@ pre {
 }
 .sidebar {
 	grid-column: 2;
-	grid-row: 2;
+	grid-row: 1;
 	position: relative;
 	width: 288px;
 	display: flex;
@@ -106,47 +135,47 @@ pre {
 	top: calc((var(--frame-header-height) - var(--frame-control-size)) / 2);
 	right: var(--frame-bar-inset);
 }
+/* The header's left cluster sits over the main header's left end, one cluster inset from the sidebar's
+   edge (or the rail's), and is only as wide as its controls: the rest of the band is the header's own. */
 .window-titlebar {
-	grid-column: 1 / -1;
+	grid-column: 3;
 	grid-row: 1;
+	align-self: start;
+	justify-self: start;
 	position: relative;
 	z-index: var(--z-titlebar);
-	display: flex;
-	align-items: center;
-	height: 32px;
-	padding: 0;
-	gap: 2px;
-	background: var(--chrome);
+	height: var(--frame-header-height);
+	padding-inline-start: var(--frame-cluster-start);
 	color: var(--muted-foreground);
 	-webkit-app-region: drag;
 	user-select: none;
 }
-.window-titlebar-content {
+/* The traffic lights cover the rail's width and more: with the sidebar collapsed the cluster starts
+   after them. */
+:root[data-chrome-platform="darwin"] .app[data-sidebar-collapsed="true"] {
+	--frame-cluster-start: max(
+		var(--frame-cluster-inset),
+		calc(var(--frame-lights-inset) - var(--frame-rail-width))
+	);
+}
+.window-titlebar-cluster {
 	display: flex;
 	align-items: center;
-	width: env(titlebar-area-width, calc(100% - 142px));
-	min-width: 0;
+	gap: var(--frame-cluster-gap);
 	height: 100%;
-	padding-left: 8px;
-}
-.window-titlebar[data-platform="darwin"] .window-titlebar-content {
-	margin-left: 80px;
-	width: calc(100% - 80px);
-}
-.window-titlebar-navigation {
-	display: flex;
-	align-items: center;
-	gap: 4px;
-	margin-right: 8px;
 	-webkit-app-region: no-drag;
 }
-.window-titlebar-navigation-button {
-	width: 28px;
-	height: 28px;
+.window-titlebar-button {
+	width: var(--frame-control-size);
+	height: var(--frame-control-size);
 	padding: 6px;
 	color: var(--muted-foreground);
 }
-.window-titlebar-navigation-button[aria-expanded="true"] {
+.window-titlebar-button:disabled {
+	/* Nowhere to go: half strength. */
+	opacity: 0.5;
+}
+.window-titlebar-button[aria-expanded="true"] {
 	color: var(--foreground);
 }
 .sidebar-workspace-menu {
@@ -177,6 +206,12 @@ pre {
 	line-height: var(--leading-caption);
 	letter-spacing: 0.02em;
 }
+:root[data-chrome-platform="darwin"] .sidebar-chrome {
+	padding-inline-start: var(--frame-lights-inset);
+}
+:root[data-chrome-platform="darwin"] .sidebar-workspace-menu {
+	margin-inline-start: 0;
+}
 .sidebar-workspace-menu:hover {
 	background: var(--sidebar-row-hover);
 }
@@ -184,12 +219,6 @@ pre {
 	outline: 2px solid transparent;
 	outline-offset: -2px;
 	box-shadow: var(--focus-ring-inset);
-}
-.window-titlebar-menus {
-	display: flex;
-	align-items: center;
-	gap: 2px;
-	-webkit-app-region: no-drag;
 }
 .window-titlebar-item {
 	display: flex;
@@ -206,37 +235,28 @@ pre {
 .window-titlebar-item[data-disabled] {
 	opacity: 0.4;
 }
+.window-titlebar-separator {
+	height: 1px;
+	margin: 4px;
+	background: var(--border);
+}
+.window-titlebar-check,
+.window-titlebar-chevron {
+	flex: none;
+	width: 16px;
+	height: 16px;
+}
+.window-titlebar-item > span:not(.window-titlebar-check) {
+	flex: 1;
+}
 .window-titlebar-item kbd {
 	font-size: var(--text-caption);
 	line-height: var(--leading-caption);
 	color: var(--muted-foreground);
 }
-@media (max-width: 767px) {
-	.window-titlebar-caption {
-		display: none;
-	}
-}
-.window-titlebar button {
-	-webkit-app-region: no-drag;
-}
-.window-titlebar-menu {
-	height: 26px;
-	padding: 0 9px;
-	font-size: var(--text-caption);
-	line-height: var(--leading-caption);
-	border-radius: var(--radius-chip);
-}
-.window-titlebar-caption {
-	position: absolute;
-	left: 50%;
-	transform: translateX(-50%);
-	font-size: var(--text-caption);
-	line-height: var(--leading-caption);
-	pointer-events: none;
-}
 .navigation-rail {
 	grid-column: 1;
-	grid-row: 2;
+	grid-row: 1;
 	display: flex;
 	flex-direction: column;
 	align-items: center;
@@ -264,6 +284,11 @@ pre {
 }
 .rail-band {
 	height: var(--frame-header-height);
+	-webkit-app-region: drag;
+}
+:root[data-chrome-platform="darwin"] .rail-band > .rail-button {
+	/* The traffic lights are drawn over the band: the button moves to the first row under it. */
+	top: calc(var(--frame-header-height) - var(--frame-row-first) / 2);
 }
 .rail-foot {
 	height: var(--frame-foot-height);
@@ -315,6 +340,7 @@ pre {
 .sidebar-chrome {
 	position: relative;
 	isolation: isolate;
+	-webkit-app-region: drag;
 	/* The sidebar's header draws no line under it: the rows start 8 below the band. */
 	background: var(--sidebar);
 }
@@ -567,28 +593,33 @@ pre {
 	container-type: inline-size;
 	container-name: workspace;
 	grid-column: 3;
-	grid-row: 2;
+	grid-row: 1;
 	margin: 0;
 	background: var(--background);
 	overflow: clip;
-	--panel-width: clamp(320px, 40%, 440px);
+	--panel-width: var(--panel-tool-width);
 	position: relative;
 	display: flex;
 	flex-direction: column;
 	min-width: 0;
 	min-height: 0;
 }
-.workspace > :is(.topbar, .connection-error, .welcome, .chat-stage) {
+.workspace[data-panel-kind="reading"] {
+	--panel-width: var(--panel-reading-width);
+}
+.workspace > :is(.connection-error, .welcome, .chat-stage) {
 	width: 100%;
 	transition: width var(--dur-base) var(--ease-out);
 }
-.workspace.jobs-open > :is(.topbar, .connection-error, .welcome, .chat-stage) {
+.workspace.jobs-open > :is(.connection-error, .welcome, .chat-stage) {
 	width: calc(100% - var(--panel-width));
 }
 .topbar {
 	-webkit-app-region: drag;
-	/* The controls at the right edge sit one bar inset from it, with or without the strip. */
-	padding-right: var(--frame-bar-inset);
+	/* The title starts after the left cluster; the controls at the right edge sit one bar inset from it,
+	   and from the window's own buttons where those are drawn over the band. */
+	padding-left: var(--frame-header-start);
+	padding-right: calc(var(--frame-bar-inset) + var(--frame-controls-inset));
 	/* The hairline is drawn inside the header's height, so it never changes it. */
 	box-shadow: inset 0 -1px 0 var(--border);
 }
@@ -1036,7 +1067,9 @@ pre {
 }
 .jobs-panel {
 	position: absolute;
-	inset: 0 0 0 auto;
+	/* Under the header band, which runs the whole width of the window, so nothing of the panel sits under
+	   the window's own buttons. */
+	inset: var(--frame-header-height) 0 0 auto;
 	width: var(--panel-width);
 	display: flex;
 	flex-direction: column;
@@ -1060,14 +1093,14 @@ pre {
 	align-items: center;
 	gap: 8px;
 	justify-content: space-between;
-	height: var(--workspace-topbar-height);
+	height: var(--panel-header-height);
 	flex: none;
 	padding: 0 16px;
 	border-bottom: 1px solid var(--border);
 }
 .section-heading h2 {
-	font-size: var(--text-caption);
-	line-height: var(--leading-caption);
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
 	font-weight: var(--weight-control);
 }
 .panel-scroll {
@@ -1287,17 +1320,35 @@ pre {
 		background-position: -40% 0;
 	}
 }
-@container workspace (max-width: 879px) {
-	.workspace.jobs-open > :is(.topbar, .connection-error, .welcome, .chat-stage) {
+/* Where the conversation would keep less than --panel-conversation-min, the panel takes the pane instead of
+   a sliver of clipped transcript. A reading panel has its 60 percent (360 at least), so that is any pane under
+   900; a tool panel, under 680 (its floor of 320 and the conversation's 360). The edges are written out
+   because a container query cannot read a token; panel-tokens.test.ts keeps them equal to the sums. */
+@container workspace (max-width: 899px) {
+	.workspace[data-panel-kind="reading"].jobs-open
+		> :is(.topbar, .connection-error, .welcome, .chat-stage) {
 		width: 100%;
 	}
-	/* Beside the chat a panel this wide would leave a sliver of clipped transcript: it takes the pane instead. */
-	.jobs-panel {
+	.workspace[data-panel-kind="reading"] .jobs-panel {
 		width: 100%;
 		box-shadow: none;
 		z-index: var(--z-panel);
 	}
-	.panel-back-row {
+	.workspace[data-panel-kind="reading"] .panel-back-row {
+		display: flex;
+	}
+}
+@container workspace (max-width: 679px) {
+	.workspace[data-panel-kind="tool"].jobs-open
+		> :is(.topbar, .connection-error, .welcome, .chat-stage) {
+		width: 100%;
+	}
+	.workspace[data-panel-kind="tool"] .jobs-panel {
+		width: 100%;
+		box-shadow: none;
+		z-index: var(--z-panel);
+	}
+	.workspace[data-panel-kind="tool"] .panel-back-row {
 		display: flex;
 	}
 }
@@ -1308,7 +1359,9 @@ pre {
 	}
 	.sidebar {
 		position: absolute;
-		inset: 32px auto 0 48px;
+		/* The overlay starts under the header band, so the band's menu, toggle, back, forward and title
+		   stay in sight and in reach while it is open. */
+		inset: var(--frame-header-height) auto 0 var(--frame-rail-width);
 		width: min(288px, calc(100vw - 64px));
 		z-index: var(--z-nav);
 		visibility: hidden;
@@ -1334,7 +1387,7 @@ pre {
 	.scrim {
 		display: block;
 		position: fixed;
-		inset: 32px 0 0 48px;
+		inset: var(--frame-header-height) 0 0 var(--frame-rail-width);
 		z-index: var(--z-scrim-nav);
 		background: rgb(0 0 0 / 45%);
 	}

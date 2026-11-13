@@ -300,120 +300,130 @@ export function ChangesReview({
 						<span className="sr-only">Removed </span>−{formatLineCount(totals.removed)}
 					</span>
 				</span>
-				<Menu.Root>
-					<Menu.Trigger className="changes-view" aria-label="View options">
-						<span>View</span>
-						<ChevronDownIcon aria-hidden="true" />
-					</Menu.Trigger>
-					<Menu.Portal>
-						<Menu.Positioner className="conversation-actions-positioner" align="end" sideOffset={6}>
-							<Menu.Popup className="conversation-actions-popup" aria-label="View">
-								<Menu.RadioGroup
-									value={split ? 'split' : 'unified'}
-									onValueChange={(value) => setSplit(value === 'split')}
-								>
-									<Menu.RadioItem
-										value="unified"
-										className="conversation-actions-item"
-										closeOnClick
+				<div className="changes-controls">
+					<Menu.Root>
+						<Menu.Trigger className="changes-view" aria-label="View options">
+							<span>View</span>
+							<ChevronDownIcon aria-hidden="true" />
+						</Menu.Trigger>
+						<Menu.Portal>
+							<Menu.Positioner
+								className="conversation-actions-positioner"
+								align="end"
+								sideOffset={6}
+							>
+								<Menu.Popup className="conversation-actions-popup" aria-label="View">
+									<Menu.RadioGroup
+										value={split ? 'split' : 'unified'}
+										onValueChange={(value) => setSplit(value === 'split')}
 									>
-										<Rows3Icon aria-hidden="true" />
-										<span className="conversation-actions-label">Unified diff</span>
-										<Menu.RadioItemIndicator>
-											<CheckIcon aria-hidden="true" />
-										</Menu.RadioItemIndicator>
-									</Menu.RadioItem>
-									<Menu.RadioItem value="split" className="conversation-actions-item" closeOnClick>
-										<Columns2Icon aria-hidden="true" />
-										<span className="conversation-actions-label">Split diff</span>
-										<Menu.RadioItemIndicator>
-											<CheckIcon aria-hidden="true" />
-										</Menu.RadioItemIndicator>
-									</Menu.RadioItem>
-								</Menu.RadioGroup>
-								<Menu.CheckboxItem
-									className="conversation-actions-item"
-									checked={wrap}
-									onCheckedChange={setWrap}
-									closeOnClick
-								>
-									<TextWrapIcon aria-hidden="true" />
-									<span className="conversation-actions-label">Wrap diff lines</span>
-									<Menu.CheckboxItemIndicator>
-										<CheckIcon aria-hidden="true" />
-									</Menu.CheckboxItemIndicator>
-								</Menu.CheckboxItem>
-								<Menu.Item
-									className="conversation-actions-item"
-									disabled={tree.folders.length === 0}
-									onClick={() => setCollapsed(new Set(tree.folders))}
-								>
-									<CollapseAllIcon aria-hidden="true" />
-									<span className="conversation-actions-label">Collapse folders</span>
-								</Menu.Item>
-								<Menu.Separator className="conversation-actions-separator" />
-								{scopes.includes('uncommitted') && (
+										<Menu.RadioItem
+											value="unified"
+											className="conversation-actions-item"
+											closeOnClick
+										>
+											<Rows3Icon aria-hidden="true" />
+											<span className="conversation-actions-label">Unified diff</span>
+											<Menu.RadioItemIndicator>
+												<CheckIcon aria-hidden="true" />
+											</Menu.RadioItemIndicator>
+										</Menu.RadioItem>
+										<Menu.RadioItem
+											value="split"
+											className="conversation-actions-item"
+											closeOnClick
+										>
+											<Columns2Icon aria-hidden="true" />
+											<span className="conversation-actions-label">Split diff</span>
+											<Menu.RadioItemIndicator>
+												<CheckIcon aria-hidden="true" />
+											</Menu.RadioItemIndicator>
+										</Menu.RadioItem>
+									</Menu.RadioGroup>
 									<Menu.CheckboxItem
 										className="conversation-actions-item"
-										checked={activeScope === 'uncommitted'}
-										onCheckedChange={(on) => {
-											setScope(on ? 'uncommitted' : 'conversation')
-											onShowAll?.()
-										}}
+										checked={wrap}
+										onCheckedChange={setWrap}
 										closeOnClick
 									>
-										<span className="conversation-actions-label">Uncommitted changes (git)</span>
+										<TextWrapIcon aria-hidden="true" />
+										<span className="conversation-actions-label">Wrap diff lines</span>
 										<Menu.CheckboxItemIndicator>
 											<CheckIcon aria-hidden="true" />
 										</Menu.CheckboxItemIndicator>
 									</Menu.CheckboxItem>
-								)}
-								{activeScope === 'uncommitted' && (
 									<Menu.Item
 										className="conversation-actions-item"
-										onClick={() => setVersion(version + 1)}
+										disabled={tree.folders.length === 0}
+										onClick={() => setCollapsed(new Set(tree.folders))}
 									>
-										<RefreshIcon aria-hidden="true" />
-										<span className="conversation-actions-label">Refresh changes</span>
+										<CollapseAllIcon aria-hidden="true" />
+										<span className="conversation-actions-label">Collapse folders</span>
 									</Menu.Item>
-								)}
-								<Menu.Item
-									className="conversation-actions-item"
-									disabled={empty}
-									onClick={() =>
-										copy(files.map((item) => item.path).join('\n'), 'Changed paths copied.')
-									}
-								>
-									<CopyIcon aria-hidden="true" />
-									<span className="conversation-actions-label">Copy changed paths</span>
-								</Menu.Item>
-								{onToggleExpanded && (
-									<Menu.Item className="conversation-actions-item" onClick={onToggleExpanded}>
-										{paneExpanded ? (
-											<Minimize2Icon aria-hidden="true" />
-										) : (
-											<Maximize2Icon aria-hidden="true" />
-										)}
-										<span className="conversation-actions-label">
-											{paneExpanded ? 'Restore pane size' : 'Expand pane'}
-										</span>
+									<Menu.Separator className="conversation-actions-separator" />
+									{scopes.includes('uncommitted') && (
+										<Menu.CheckboxItem
+											className="conversation-actions-item"
+											checked={activeScope === 'uncommitted'}
+											onCheckedChange={(on) => {
+												setScope(on ? 'uncommitted' : 'conversation')
+												onShowAll?.()
+											}}
+											closeOnClick
+										>
+											<span className="conversation-actions-label">Uncommitted changes (git)</span>
+											<Menu.CheckboxItemIndicator>
+												<CheckIcon aria-hidden="true" />
+											</Menu.CheckboxItemIndicator>
+										</Menu.CheckboxItem>
+									)}
+									{activeScope === 'uncommitted' && (
+										<Menu.Item
+											className="conversation-actions-item"
+											onClick={() => setVersion(version + 1)}
+										>
+											<RefreshIcon aria-hidden="true" />
+											<span className="conversation-actions-label">Refresh changes</span>
+										</Menu.Item>
+									)}
+									<Menu.Item
+										className="conversation-actions-item"
+										disabled={empty}
+										onClick={() =>
+											copy(files.map((item) => item.path).join('\n'), 'Changed paths copied.')
+										}
+									>
+										<CopyIcon aria-hidden="true" />
+										<span className="conversation-actions-label">Copy changed paths</span>
 									</Menu.Item>
-								)}
-							</Menu.Popup>
-						</Menu.Positioner>
-					</Menu.Portal>
-				</Menu.Root>
-				{onClose && (
-					<button
-						type="button"
-						className="changes-icon-button changes-close"
-						aria-label="Close changes"
-						title="Close changes"
-						onClick={onClose}
-					>
-						<XIcon aria-hidden="true" />
-					</button>
-				)}
+									{onToggleExpanded && (
+										<Menu.Item className="conversation-actions-item" onClick={onToggleExpanded}>
+											{paneExpanded ? (
+												<Minimize2Icon aria-hidden="true" />
+											) : (
+												<Maximize2Icon aria-hidden="true" />
+											)}
+											<span className="conversation-actions-label">
+												{paneExpanded ? 'Restore pane size' : 'Expand pane'}
+											</span>
+										</Menu.Item>
+									)}
+								</Menu.Popup>
+							</Menu.Positioner>
+						</Menu.Portal>
+					</Menu.Root>
+					{onClose && (
+						<button
+							type="button"
+							className="changes-icon-button changes-close"
+							aria-label="Close changes"
+							title="Close changes"
+							onClick={onClose}
+						>
+							<XIcon aria-hidden="true" />
+						</button>
+					)}
+				</div>
 			</div>
 			{!empty && barCutNote && <p className="changes-note changes-cut-note">{barCutNote}</p>}
 			{empty ? (

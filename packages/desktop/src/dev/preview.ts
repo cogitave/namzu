@@ -953,7 +953,7 @@ const api: DesktopApi = {
 			throw new Error('Clipboard access is unavailable in this browser.')
 		await navigator.clipboard.writeText(value)
 	},
-	windowChrome: async () => ({ platform: 'other', height: 32 }),
+	windowChrome: async () => ({ platform: 'other', height: 36 }),
 	workspace: async () => clone(workspace),
 	workspaceReady: async () => clone(workspace),
 	workspaceCloseReady: async () => {},
@@ -1008,7 +1008,8 @@ const api: DesktopApi = {
 		}
 	},
 	setWindowAppearance: async () => {},
-	popupWindowMenu: async () => nativeOnly('Native window menus'),
+	windowMenuModel: async () => ({ edit: [], view: [], window: [] }),
+	runWindowMenuItem: async () => nativeOnly('Native window menus'),
 	projects: async () => {
 		// ?slow=<ms> holds the first project read, so the loading placeholders can be looked at: under
 		// 500 ms they never show, past it they fade in.
