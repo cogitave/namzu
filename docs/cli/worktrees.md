@@ -85,5 +85,8 @@ Git behind your back. A hook on `worktree_remove` does the removing.
 
 A worktree a hook made is the hook's: `namzu worktree list` does not show it, and
 Namzu runs no Git removal on it. Without a `worktree_remove` hook it is left in
-place and Namzu says where. See [Worktrees](../sdk/hooks.md#worktrees) for what
+place and Namzu says where. A folder nobody trusted does not run its own hooks, so
+`namzu worktree create` and `fork` there refuse, creating nothing, when the
+folder's config declares a `worktree_create` hook; run `namzu` in the folder once
+and accept the trust prompt first. See [Worktrees](../sdk/hooks.md#worktrees) for what
 the hooks receive and answer.

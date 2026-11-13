@@ -1,4 +1,4 @@
-import type { DoctorCheck, DoctorCheckResult } from '@namzu/sdk'
+import { type DoctorCheck, type DoctorCheckResult, fileChangedMatcherNote } from '@namzu/sdk'
 
 import { resolve } from 'node:path'
 
@@ -59,6 +59,12 @@ export function describeHooksStatus(
 		}
 	}
 	for (const each of unreadable) lines.push(`Cannot be read: ${each}.`)
+	// A file_changed hook whose matcher names no file watches nothing itself.
+	for (const entry of config.hooks?.file_changed ?? []) {
+		if (entry.source !== undefined && !bySource.has(entry.source)) continue
+		const note = fileChangedMatcherNote(entry.matcher)
+		if (note !== undefined) lines.push(`A file_changed hook: ${note}.`)
+	}
 	// What a file declared and this kernel could not load, or read but does not act on.
 	const untrustedLabels =
 		folder && !folder.trusted

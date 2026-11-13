@@ -8,6 +8,7 @@ import {
 	openManagedWorktrees,
 	worktreeOpenHint,
 } from '../integrations/worktrees/managed.js'
+import { projectFilesDeclaringWorktreeCreate } from '../integrations/worktrees/untrusted-hook.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { terminalDisplayText } from '../tui/terminal-display.js'
 import type { CommandDef } from './types.js'
@@ -56,6 +57,17 @@ export function createWorktreeCommand(
 					// command; before that only the user's and the managed file's do. This
 					// command's context carries no configuration, so the hooks are read here.
 					const trust = decideHeadlessTrust({ cwd: process.cwd(), trustFlag: false })
+					if (!trust.allowed) {
+						const declaring = projectFilesDeclaringWorktreeCreate(process.cwd())
+						if (declaring.length > 0) {
+							ctx.formatter.error({
+								message: terminalDisplayText(
+									`${declaring.join(' and ')} declares a worktree_create hook, and this folder is not trusted, so the hook would not run and Namzu would make a Git worktree instead of it. Nothing was created.\nRun \`namzu\` here once and accept the trust prompt, then run this command again.`,
+								),
+							})
+							return EXIT_USAGE
+						}
+					}
 					const { loadBootstrapConfigWithProvenance, loadConfigWithProvenance } = await import(
 						'../config/load.js'
 					)

@@ -184,6 +184,91 @@ describe('what is watched', () => {
 	})
 })
 
+describe('a hook that writes the file it watches', () => {
+	// The file's signature changes at every write, as a real file's mtime does.
+	const withVersions = () => {
+		const version = new Map<string, number>()
+		const listeners = new Map<string, (name: string | null) => void>()
+		const changes: FileChange[] = []
+		const watcher = new FileChangeWatcher({
+			onChange: (change) => changes.push(change),
+			watchDirectory: (directory, listener) => {
+				listeners.set(directory, listener)
+				return { close: () => undefined }
+			},
+			exists: () => true,
+			signature: (path) => `v${version.get(path) ?? 0}`,
+		})
+		const notify = (path: string) => {
+			;(listeners.get('/p') as (name: string) => void)(path.slice('/p/'.length))
+		}
+		const write = (path: string) => {
+			version.set(path, (version.get(path) ?? 0) + 1)
+			notify(path)
+		}
+		return { watcher, changes, write, notify }
+	}
+
+	it('does not report the writes made while its run is under way, nor the file as the run left it', () => {
+		const h = withVersions()
+		h.watcher.setPaths(['/p/a.txt'], '/')
+		h.write('/p/a.txt')
+		vi.advanceTimersByTime(FILE_SETTLE_MS)
+		expect(h.changes).toHaveLength(1)
+		h.watcher.hold('/p/a.txt')
+		h.write('/p/a.txt')
+		vi.advanceTimersByTime(FILE_SETTLE_MS * 4)
+		h.watcher.release('/p/a.txt')
+		// The platform's report of the run's own write can arrive after the run.
+		h.notify('/p/a.txt')
+		vi.advanceTimersByTime(FILE_SETTLE_MS * 2)
+		expect(h.changes).toHaveLength(1)
+	})
+
+	it('reports a change made by anyone after the run ended', () => {
+		const h = withVersions()
+		h.watcher.setPaths(['/p/a.txt'], '/')
+		h.watcher.hold('/p/a.txt')
+		h.write('/p/a.txt')
+		h.watcher.release('/p/a.txt')
+		vi.advanceTimersByTime(FILE_SETTLE_MS * 2)
+		expect(h.changes).toEqual([])
+		h.write('/p/a.txt')
+		vi.advanceTimersByTime(FILE_SETTLE_MS)
+		expect(h.changes).toEqual([{ path: '/p/a.txt', change: 'change' }])
+	})
+})
+
+describe('a file whose folder does not exist yet', () => {
+	it('is watched once the folder is made, and a file made in it at once is seen', () => {
+		const present = new Set<string>()
+		const folders = new Set<string>(['/p'])
+		const listeners = new Map<string, (name: string | null) => void>()
+		const changes: FileChange[] = []
+		const problems: string[] = []
+		const watcher = new FileChangeWatcher({
+			onChange: (change) => changes.push(change),
+			onProblem: (message) => problems.push(message),
+			exists: (path) => present.has(path),
+			watchDirectory: (directory, listener) => {
+				if (!folders.has(directory)) throw new Error(`ENOENT: ${directory}`)
+				listeners.set(directory, listener)
+				return { close: () => listeners.delete(directory) }
+			},
+		})
+		watcher.setPaths(['/p/missing/deep.txt'], '/')
+		expect(problems).toHaveLength(1)
+		expect([...listeners.keys()]).toEqual(['/p'])
+		folders.add('/p/missing')
+		present.add('/p/missing/deep.txt')
+		;(listeners.get('/p') as (name: string) => void)('missing')
+		vi.advanceTimersByTime(FILE_SETTLE_MS)
+		expect(changes).toEqual([{ path: '/p/missing/deep.txt', change: 'add' }])
+		expect([...listeners.keys()]).toEqual(['/p/missing'])
+		watcher.close()
+	})
+})
+
 describe('the platform watch', () => {
 	// Real folder, real fs.watch, real settling (kept short): the event is
 	// awaited, never raced against a timer.

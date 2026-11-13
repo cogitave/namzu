@@ -65,6 +65,12 @@ export interface FileChangeWatcherOptions {
 	readonly watchDirectory?: WatchDirectory
 	/** A seam for tests; default a `stat`. */
 	readonly exists?: (path: string) => boolean
+	/**
+	 * A seam for tests: a string that differs whenever the file's content or
+	 * identity does (default a `stat`'s inode, size and modification time;
+	 * `'absent'` when the file is not there).
+	 */
+	readonly signature?: (path: string) => string
 }
 
 const defaultWatchDirectory: WatchDirectory = (directory, listener, onError) => {
@@ -84,6 +90,15 @@ const defaultExists = (path: string): boolean => {
 	}
 }
 
+const defaultSignature = (path: string): string => {
+	try {
+		const stat = statSync(path)
+		return `${stat.ino}:${stat.size}:${stat.mtimeMs}`
+	} catch {
+		return 'absent'
+	}
+}
+
 /** The case-insensitive file systems compare names without regard to case. */
 const FOLDS_CASE = process.platform === 'win32' || process.platform === 'darwin'
 const fold = (name: string): string => (FOLDS_CASE ? name.toLowerCase() : name)
@@ -91,12 +106,18 @@ const fold = (name: string): string => (FOLDS_CASE ? name.toLowerCase() : name)
 interface Watched {
 	existed: boolean
 	timer: ReturnType<typeof setTimeout> | undefined
+	/** Runs of a hook for this file now under way; its own writes are not news. */
+	holding: number
+	/** What the file looked like when the last hook run for it ended. */
+	acknowledged: string | undefined
 }
 
 export class FileChangeWatcher {
 	private readonly files = new Map<string, Watched>()
 	private readonly folders = new Map<string, { close(): void }>()
 	private readonly failed = new Set<string>()
+	/** Folders that did not exist when asked for, each with a watch on the nearest folder that does. */
+	private readonly waiting = new Map<string, { close(): void } | undefined>()
 	private readonly reported = new Set<string>()
 	private closed = false
 
@@ -132,7 +153,14 @@ export class FileChangeWatcher {
 			this.files.delete(path)
 		}
 		for (const path of wanted) {
-			if (!this.files.has(path)) this.files.set(path, { existed: exists(path), timer: undefined })
+			if (!this.files.has(path)) {
+				this.files.set(path, {
+					existed: exists(path),
+					timer: undefined,
+					holding: 0,
+					acknowledged: undefined,
+				})
+			}
 		}
 		const folders = new Set(wanted.map((path) => dirname(path)))
 		for (const [folder, handle] of this.folders) {
@@ -140,10 +168,44 @@ export class FileChangeWatcher {
 			handle.close()
 			this.folders.delete(folder)
 		}
+		for (const [folder] of this.waiting) {
+			if (!folders.has(folder)) this.stopWaiting(folder)
+		}
 		this.failed.clear()
 		for (const folder of folders) {
-			if (!this.folders.has(folder)) this.start(folder)
+			if (!this.folders.has(folder) && !this.waiting.has(folder)) this.start(folder)
 		}
+	}
+
+	/**
+	 * A hook run for `path` begins: what it writes to that file is its own, not
+	 * a change to report. Paired with {@link release}.
+	 */
+	hold(path: string): void {
+		const state = this.files.get(path)
+		if (state === undefined) return
+		state.holding += 1
+	}
+
+	/**
+	 * The hook run for `path` ended. The file as it is now is what that run
+	 * left, so a settle that finds it unchanged is the run's own write and
+	 * reports nothing; a change by anyone after this moment is reported.
+	 */
+	release(path: string): void {
+		const state = this.files.get(path)
+		if (state === undefined) return
+		state.holding = Math.max(0, state.holding - 1)
+		if (state.holding > 0) return
+		state.acknowledged = (this.options.signature ?? this.defaultSignatureFor())(path)
+		state.existed = (this.options.exists ?? defaultExists)(path)
+	}
+
+	private defaultSignatureFor(): (path: string) => string {
+		const exists = this.options.exists
+		return exists === undefined
+			? defaultSignature
+			: (path) => (exists(path) ? `present:${path}` : 'absent')
 	}
 
 	close(): void {
@@ -154,6 +216,7 @@ export class FileChangeWatcher {
 		this.files.clear()
 		for (const handle of this.folders.values()) handle.close()
 		this.folders.clear()
+		for (const [folder] of [...this.waiting]) this.stopWaiting(folder)
 	}
 
 	private report(message: string): void {
@@ -176,9 +239,73 @@ export class FileChangeWatcher {
 			this.folders.set(folder, handle)
 		} catch (error) {
 			this.failed.add(folder)
+			const reason = error instanceof Error ? error.message : String(error)
+			const missing = /ENOENT/.test(reason)
 			this.report(
-				`Files in ${folder} cannot be watched (${error instanceof Error ? error.message : String(error)}).`,
+				`Files in ${folder} cannot be watched${missing ? ' yet' : ''} (${reason})${missing ? '; they are watched once the folder exists' : ''}.`,
 			)
+			if (missing) this.waitFor(folder)
+		}
+	}
+
+	/**
+	 * A folder that does not exist yet: watch the nearest one that does, and
+	 * try the folder again whenever something happens there. When the folder
+	 * appears its files are looked at, so a file made right after it is seen.
+	 */
+	private waitFor(folder: string): void {
+		this.stopWaiting(folder)
+		const watchDirectory = this.options.watchDirectory ?? defaultWatchDirectory
+		let handle: { close(): void } | undefined
+		let ancestor = dirname(folder)
+		while (handle === undefined && ancestor !== folder) {
+			try {
+				handle = watchDirectory(
+					ancestor,
+					() => this.retry(folder),
+					() => undefined,
+				)
+			} catch {
+				const up = dirname(ancestor)
+				if (up === ancestor) break
+				ancestor = up
+			}
+		}
+		this.waiting.set(folder, handle)
+	}
+
+	private stopWaiting(folder: string): void {
+		const handle = this.waiting.get(folder)
+		this.waiting.delete(folder)
+		try {
+			handle?.close()
+		} catch {
+			// Already closed.
+		}
+	}
+
+	private retry(folder: string): void {
+		if (this.closed || !this.waiting.has(folder)) return
+		const watchDirectory = this.options.watchDirectory ?? defaultWatchDirectory
+		let handle: { close(): void }
+		try {
+			handle = watchDirectory(
+				folder,
+				(name) => this.touched(folder, name),
+				(error) => {
+					this.drop(folder)
+					this.report(`Watching files in ${folder} stopped: ${error.message}.`)
+				},
+			)
+		} catch {
+			// Not there yet: move the watch down to the nearest folder that exists now.
+			this.waitFor(folder)
+			return
+		}
+		this.stopWaiting(folder)
+		this.folders.set(folder, handle)
+		for (const path of this.files.keys()) {
+			if (dirname(path) === folder) this.schedule(path)
 		}
 	}
 
@@ -216,9 +343,17 @@ export class FileChangeWatcher {
 		const state = this.files.get(path)
 		if (state === undefined || this.closed) return
 		state.timer = undefined
+		// A hook run for this file is under way: whatever it writes is its own.
+		// `release` looks at the file when the run ends.
+		if (state.holding > 0) return
 		const exists = (this.options.exists ?? defaultExists)(path)
 		const before = state.existed
 		state.existed = exists
+		if (state.acknowledged !== undefined) {
+			const now = (this.options.signature ?? this.defaultSignatureFor())(path)
+			if (now === state.acknowledged) return
+			state.acknowledged = undefined
+		}
 		const change: PluginFileChange | undefined =
 			before && exists
 				? 'change'

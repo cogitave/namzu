@@ -421,6 +421,37 @@ describe('FileChangeHooks', () => {
 		hooks.close()
 	})
 
+	it('does not start a hook again for the write that hook made to the file it watches', async () => {
+		vi.useFakeTimers()
+		try {
+			const f = fake()
+			const s = seams()
+			let version = 0
+			const hooks = new FileChangeHooks({
+				manager: {
+					executeHooks: vi.fn(async (event: string, context: Record<string, unknown>) => {
+						f.calls.push({ event, context })
+						// The hook appends to the file it watches, and the platform says so.
+						version += 1
+						;(s.listeners.get('/p') as (name: string) => void)('.envrc')
+						await new Promise((resolve) => setTimeout(resolve, 100))
+						return []
+					}),
+				} as never,
+				cwd: '/p',
+				sessionId: () => SESSION,
+				matcherPaths: ['.envrc'],
+				watcher: { ...s.watcher, signature: () => `v${version}` } as never,
+			})
+			;(s.listeners.get('/p') as (name: string) => void)('.envrc')
+			await vi.advanceTimersByTimeAsync(5_000)
+			expect(f.calls).toHaveLength(1)
+			hooks.close()
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
 	it('fires file_changed for a change and applies the answer', async () => {
 		vi.useFakeTimers()
 		try {

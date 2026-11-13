@@ -95,6 +95,10 @@ export class FileChangeHooks {
 
 	private async fire(path: string, change: 'change' | 'add' | 'unlink'): Promise<void> {
 		if (this.closed) return
+		// What the hook writes to this very file is not a new change: without
+		// this a hook that touches the file it watches would start itself again
+		// every half second for as long as the session lives.
+		this.watcher.hold(path)
 		try {
 			const results = await this.options.manager.executeHooks('file_changed', {
 				sessionId: this.options.sessionId() as SessionId,
@@ -106,6 +110,8 @@ export class FileChangeHooks {
 			this.options.onProblem?.(
 				`A file_changed hook could not run for ${path}: ${error instanceof Error ? error.message : String(error)}.`,
 			)
+		} finally {
+			this.watcher.release(path)
 		}
 	}
 }

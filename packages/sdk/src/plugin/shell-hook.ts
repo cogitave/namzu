@@ -1799,6 +1799,12 @@ async function runWorktreeHook(
 	return worktreeHookVerdict(event, label, outcome)
 }
 
+/**
+ * The place a hook has among the ones that set variables: entries are made in
+ * configuration order, so a later number is a later line in the file.
+ */
+let nextHookEnvSlot = 0
+
 /** One entry as a hook definition the lifecycle manager accepts. */
 export function createShellHook(
 	event: ShellHookEvent,
@@ -1806,6 +1812,7 @@ export function createShellHook(
 	options: ShellHookOptions,
 ): PluginHookDefinition {
 	const log = options.log ?? NOOP_LOGGER
+	const envSlot = nextHookEnvSlot++
 	const eventDefault = options.defaultTimeoutMs?.[event]
 	const entry: ShellHookHandler =
 		configured.timeoutMs === undefined && eventDefault !== undefined
@@ -1880,7 +1887,9 @@ export function createShellHook(
 					: undefined
 			const runsACommand = entry.type === undefined || entry.type === 'command'
 			const envFile =
-				envEvent !== undefined && runsACommand ? options.hookEnv?.fileFor(envEvent) : undefined
+				envEvent !== undefined && runsACommand
+					? options.hookEnv?.fileFor(envEvent, envSlot)
+					: undefined
 			const hookInput: ShellHookInput = {
 				event,
 				// A hook told the folder changed runs in the folder entered.
@@ -1976,7 +1985,7 @@ export function createShellHook(
 				// for it and its own failure is only written down.
 				void runShellHook(entry, hookInput)
 					.then((outcome) => {
-						if (envEvent !== undefined) options.hookEnv?.absorb(envEvent)
+						if (envEvent !== undefined) options.hookEnv?.absorb(envEvent, envSlot)
 						const verdict = shellHookVerdict(event, entry, outcome, log, verdictCall)
 						if (verdict.action !== 'continue') {
 							log.warn('an async hook answered, and its answer is not applied', {
@@ -1992,7 +2001,7 @@ export function createShellHook(
 			const outcome = await runShellHook(entry, hookInput, context.signal)
 			// What the hook appended counts even when it was ended or failed after
 			// writing it: the lines are data it already gave.
-			if (envEvent !== undefined) options.hookEnv?.absorb(envEvent)
+			if (envEvent !== undefined) options.hookEnv?.absorb(envEvent, envSlot)
 			reportTimeout(outcome.timedOut)
 			return shellHookVerdict(event, entry, outcome, log, verdictCall)
 		},

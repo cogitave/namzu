@@ -243,11 +243,12 @@ describe('the session environment', () => {
 		expect(problems.join(' ')).toMatch(/more than 128/)
 	})
 
-	it('treats __proto__ as a name like any other', () => {
-		const { env } = make()
+	it('refuses __proto__ with a notice (a process environment cannot hold it) and pollutes nothing', () => {
+		const { env, problems } = make()
 		appendFileSync(env.fileFor('session_start') as string, '__proto__=x\n')
 		env.absorb('session_start')
-		expect(Object.keys(env.variables)).toEqual(['__proto__'])
+		expect(Object.keys(env.variables)).toEqual([])
+		expect(problems.join(' ')).toMatch(/__proto__ is not a name/)
 		expect(({} as Record<string, unknown>).x).toBeUndefined()
 	})
 
@@ -259,5 +260,38 @@ describe('the session environment', () => {
 		expect(existsSync(directory)).toBe(false)
 		expect(Object.keys(env.variables)).toEqual([])
 		expect(env.fileFor('session_start')).toBeUndefined()
+	})
+
+	it('takes the value of the hook that comes later in the configuration, however long each took', () => {
+		const { env } = make()
+		const first = env.fileFor('session_start', 1) as string
+		const second = env.fileFor('session_start', 2) as string
+		// The later hook finishes first.
+		appendFileSync(second, 'SAMENAME=second\nONLY2=y\n')
+		env.absorb('session_start', 2)
+		appendFileSync(first, 'SAMENAME=first\nONLY1=x\n')
+		env.absorb('session_start', 1)
+		expect({ ...env.variables }).toEqual({ SAMENAME: 'second', ONLY1: 'x', ONLY2: 'y' })
+	})
+
+	it('reads every hook of an event when no slot is named', () => {
+		const { env } = make()
+		appendFileSync(env.fileFor('session_start', 1) as string, 'A=1\n')
+		appendFileSync(env.fileFor('session_start', 2) as string, 'B=2\n')
+		env.absorb('session_start')
+		expect({ ...env.variables }).toEqual({ A: '1', B: '2' })
+	})
+
+	it('names a variable called __proto__ and the program-selecting names as refused', () => {
+		const { env, problems } = make()
+		appendFileSync(
+			env.fileFor('session_start') as string,
+			'__proto__=pp\nPYTHONPATH=/evil\nSHELL=/bin/evil\nGIT_SSH_COMMAND=x\nGIT_DIR=.git\nOK=1\n',
+		)
+		env.absorb('session_start')
+		expect({ ...env.variables }).toEqual({ GIT_DIR: '.git', OK: '1' })
+		expect(
+			problems.filter((line) => /__proto__|PYTHONPATH|SHELL|GIT_SSH_COMMAND/.test(line)),
+		).toHaveLength(4)
 	})
 })
