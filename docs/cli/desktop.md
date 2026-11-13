@@ -925,7 +925,7 @@ With the strip hidden, every way of moving still works:
 
 **A user of the previous version** starts with the strip hidden: the tabs they had open are still in the saved layout, the one that was in front is shown, and the others stay out of sight (each is a sidebar row; no chord lands on them) until they open another conversation from the sidebar, which closes them. Their conversations are all still in the sidebar; turn the switch on to see the tabs again.
 
-**The column** is at most 720 px, centred, with 24 px gutters (the strip on keeps 768 px and the old gutters). The date between messages is a 12 px muted label.
+**The column** is at most 768 px and centred, with or without the strip; the gutter beside it is in [The input box and the home screen](#the-input-box-and-the-home-screen). The date between messages is a 12 px muted label.
 
 `e2e/ux-top-bar.test.mjs` drives the real app for the hidden bar, the 960 px fit and the switch. The other end-to-end flows are written for the strip, so the harness turns it on for them unless a world says `tabs: "hidden"`.
 
@@ -2087,13 +2087,12 @@ reveals its owning group. Folder glyphs follow the actual open/closed state with
 a short crossfade and panel transition; reduced motion disables
 those transitions. Running work, pending reviews and errors remain visible
 in a reserved area on each conversation row.
-An ordinary blank project or conversation centres its composer; the first message docks it with a
-short transition. Its inset upper strip shows the project and local computer, and only
+An ordinary blank project or conversation keeps its composer at the bottom, where an open conversation has it (see [The input box and the home screen](#the-input-box-and-the-home-screen)); the first message moves nothing. Its inset upper strip shows the project and local computer, and only
 while the conversation is empty (it fades and collapses over 150ms after the first send, and
 never appears while a saved conversation loads); the execution engine is chosen in the model
 popup instead. The project menu switches among ordinary project
 contexts or opens the native folder chooser; it never adopts a Pal's managed
-workspace. The message box remains expanded. The lower row places attachment,
+workspace. The message box is one row when it is empty and grows with the text. The lower row places attachment,
 plugin and settings access beside the permission control on the left, with the
 selected model and Send or Stop on the right. Only the selected model trigger
 reads as text, with no provider glyph: the model name in normal weight, then the
@@ -2102,8 +2101,7 @@ effort in muted text (Low, Medium, Extra High, Max). Its accessible name carries
 effort word and keeps the name. Model rows stay textual.
 Send shows a busy indicator while the prompt is being admitted. Model popups
 retain their mounted control while focus moves into the menu. The first-message
-transition moves the composer from the centre to the bottom and respects reduced
-motion; merely focusing the editor does not change its layout. Pal conversations use
+first message changes no layout; merely focusing the editor does not change its layout. Pal conversations use
 the compact, always-docked composer described above; its plus popup keeps model,
 permission, attachment and plugin controls accessible. The model control opens the
 effort panel when the model offers a choice of effort, and the model list otherwise. This holds for
@@ -3506,6 +3504,19 @@ by 820.
   theme). In the light theme the selected fill is the same 14 percent of the text colour.
 
 Spacings in the sidebar are 2, 4, 6, 8, 12, 16, 20, 24 or 32 px; a value of 14 stays only as a corner radius.
+
+## The input box and the home screen
+
+The input box, the row under it and the home screen sit on the same rhythm as the frame, so the box is where a person's hand expects it before and after the first message. `e2e/ux-composer-measures.test.mjs` measures all of it in the running app.
+
+- **The empty box is one row, 44 px high**, with corners of 14 px (`--radius-composer`): padding 8 and a gap of 8 around the plus button (28), the text and the controls at the right (28). When the text wraps past one line, contains a line break, or something sits above it (an attachment, a notice, the history counter), the text takes the full width and the controls drop to a second row under it, as before. Once the box has two rows it keeps them until it is empty again, so the controls never jump back and forth while someone types. The box grows with the text up to its present maximum. While a question waits for the person the box stays one row.
+- **Send appears only when there is something to send** (text or an attachment); an empty box shows nothing at the right except the microphone where voice input is set up. While a reply runs the control is Stop, as before, and Send joins it once there is text to queue. Send stays the one lime control on the screen and, like Stop, is 28 px. When the Desktop opens a terminal for another engine instead of sending, its button stays where it was.
+- **The row under the box** starts 8 below it. Its controls and menus are unchanged.
+- **The dock** is the box, its row and anything above them (a notice, the approval card, a voice line). It rests at the bottom of the conversation pane: 8 between a notice or the approval card and the box, 8 between the box and the row, 16 under the row. The home screen uses exactly the same place, so sending the first message does not move the box by a pixel (its rectangle is compared before and after in the test). The transcript and the toasts read the dock's real height (`--composer-height`), so a toast sits above the box on the home screen too.
+- **The home screen** puts the heading (the display size, the project's name in the display face) and, 16 under it, the starters as one block, centred both ways in the free area above the dock. The home without a project (heading, two muted lines and the lime Add new project button) is centred in the main area the same way. Starters still fill the box and send nothing; once something is typed they step out of sight but keep their room, so the heading does not move. In a short pane (stacked panes, or a short window) the starters go first, then the heading steps down from 28 to 20, then it is dropped; nothing is ever drawn over the dock. The thresholds are container queries on the free area (`composer-home`, `composer.css`).
+- **The gutter** beside the reading column is 20 px, and 16 px in a pane narrower than 560 px (a container query on the conversation pane, `style.css`). The column stays 768 px and centred in the pane, with or without the strip of tabs (it was 720 px with the conversation bar).
+
+Spacings here are 2, 4, 6, 8, 12, 16, 20, 24 or 32 px.
 
 ## Sidebar, tabs and the command palette
 

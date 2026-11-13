@@ -95,7 +95,7 @@ test("hidden by default: one 44 px bar, sidebar and chords still move between co
 	}
 });
 
-test("column is 720 px at most, and the bar holds at 960 px with a long title", { timeout: 280000 }, async () => {
+test("column is 768 px at most, and the bar holds at 960 px with a long title", { timeout: 280000 }, async () => {
 	const w = await createWorld({ rules, tabs: "hidden" });
 	let failed = true;
 	try {
@@ -103,7 +103,7 @@ test("column is 720 px at most, and the bar holds at 960 px with a long title", 
 		await openProject(w);
 		await converse(w, TWO);
 		const column = () => w.page.evaluate(() => document.querySelector(".conversation-body")?.getBoundingClientRect().width);
-		assert.ok((await column()) <= 720.5, `column ${await column()}`);
+		assert.ok((await column()) <= 768.5, `column ${await column()}`);
 		for (const width of [1280, 960, 820]) {
 			await size(w, width, 700);
 			await expect(frontTitle(w)).toBeVisible();

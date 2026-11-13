@@ -88,7 +88,7 @@ describe('the frame tokens', () => {
 		const sum = 8 + 8 + 16 + 8
 		expect(sum).toBe(40)
 		expect(tokenValue('--frame-label-start')).toMatch(
-			/^calc\(\s*var\(--frame-row-inset\) \+ var\(--frame-row-padding\) \+ var\(--frame-icon-slot\) \+ var\(--frame-row-gap\)\s*\)$/,
+			/^calc\(\s*var\(--frame-row-inset\)\s+\+\s+var\(--frame-row-padding\)\s+\+\s+var\(--frame-icon-slot\)\s+\+\s+var\(--frame-row-gap\)\s*\)$/,
 		)
 	})
 

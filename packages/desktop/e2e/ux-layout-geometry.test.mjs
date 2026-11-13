@@ -436,11 +436,14 @@ flow("a pane's body never draws over a tab strip, at one, two and three stacked 
 	await w.page.getByRole("menu", { name: "New tab" }).getByRole("menuitem", { name: "New terminal below" }).click();
 	await expect(w.page.locator(".workspace-canvas-pane")).toHaveCount(3, { timeout: T });
 	for (const height of [700, 900]) await check(3, height);
-	// The big heading is dropped, not squeezed, where the pane has no room for it.
+	// The big heading steps down, then is dropped, where the pane has no room for it.
 	await resize(w, 760, 700);
 	await settled(w);
-	await expect(w.page.locator("[data-chat-composer-overlay]")).toHaveAttribute("data-heading-fits", "false", { timeout: T });
+	const drawn = () => w.page.evaluate(() => { const h = document.querySelector("[data-composer-heading]"); return !!h && getComputedStyle(h).visibility !== "hidden"; });
+	// A short pane steps the heading down or drops it; it is never drawn over the dock.
+	const clear = () => w.page.evaluate(() => { const h = document.querySelector("[data-composer-heading]"); const d = document.querySelector("[data-composer-dock]"); if (!h || getComputedStyle(h).visibility === "hidden") return true; return h.getBoundingClientRect().bottom <= d.getBoundingClientRect().top; });
+	await expect.poll(clear, { timeout: T }).toBe(true);
 	await resize(w, 760, 1500);
 	await settled(w);
-	await expect(w.page.locator("[data-chat-composer-overlay]")).toHaveAttribute("data-heading-fits", "true", { timeout: T });
+	await expect.poll(drawn, { timeout: T }).toBe(true);
 });

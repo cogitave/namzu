@@ -61,19 +61,3 @@
 		grid-template-columns: minmax(0, 1fr);
 	}
 }
-
-/*
- * With the strip of tabs hidden (the default) the top of the pane is one bar. Its height is the
- * frame's header height, the same with or without the strip and the same as the sidebar's header
- * (--frame-header-height, theme.css), so the two end on one line. The conversation column is 720px
- * with 24px gutters. With the strip on, none of this applies.
- */
-.workspace[data-conversation-bar] .chat-stage {
-	--chat-max-width: 45rem;
-}
-@media (min-width: 640px) {
-	.workspace[data-conversation-bar] .chat-stage {
-		--workspace-gutter-start: 24px;
-		--workspace-gutter-end: 24px;
-	}
-}

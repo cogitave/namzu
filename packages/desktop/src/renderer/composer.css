@@ -1,13 +1,49 @@
 /*
- * A pane too short for the big welcome heading drops it (the composer measures this), and a pane
- * too short for the centred box scrolls it inside the pane instead of drawing over the tab strip.
+ * The home screen. The overlay covers the conversation lane; the dock (the box, its row and anything
+ * above them) sits at its bottom edge, exactly where an open conversation has it. The free area above
+ * the dock holds one block, centred both ways: the heading and, 16px under it, the starters. A short
+ * pane gives up the starters first, then the heading steps down from the display size to the title
+ * size, and only a pane with no room for either drops the heading. Nothing is ever drawn over the dock.
  */
-.composer-wrap.composer-wrap-centered {
-	align-items: safe center;
-	overflow-y: auto;
+.composer-home {
+	container: composer-home / size;
+	flex: 1 1 0;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	padding-inline: var(--workspace-gutter-start) var(--workspace-gutter-end);
 }
-.composer-wrap[data-heading-fits="false"] [data-composer-heading] {
-	visibility: hidden;
+.composer-home-block {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	width: 100%;
+	max-width: var(--chat-max-width);
+	pointer-events: auto;
+}
+.composer-home .provider-auto-note {
+	margin-top: 8px;
+}
+/* heading 36 + 16 + three 32px starters = 148, with 16 clear above and below. */
+@container composer-home (max-height: 179.98px) {
+	.composer-home .starter-actions,
+	.composer-home .provider-auto-note {
+		display: none;
+	}
+}
+/* The heading alone at the title size (28 high) with 16 clear above and below. */
+@container composer-home (max-height: 67.98px) {
+	[data-composer-heading] {
+		font-size: var(--text-title);
+		line-height: var(--leading-title);
+	}
+}
+@container composer-home (max-height: 59.98px) {
+	[data-composer-heading] {
+		visibility: hidden;
+	}
 }
 /* The one place the display face is used on the home screen: the project's name in the heading, at
    the display size. A name the face cannot draw whole keeps the interface face (data-face="interface"). */
@@ -58,13 +94,13 @@
 	transform: rotate(180deg);
 }
 
-/* The box is one quiet field: 16px corners, its own fill and ring. */
+/* The box is one quiet field: 14px corners, its own fill and ring. */
 .normal-composer-shell::before,
 .normal-composer-shell [data-slot="composer-host"],
 .normal-composer-shell [data-slot="composer-host"]::after,
 .normal-composer-shell [data-chat-composer-main-surface],
 .normal-composer-shell [data-chat-composer-main-surface]::after {
-	border-radius: var(--radius-panel);
+	border-radius: var(--radius-composer);
 }
 .normal-composer-shell [data-slot="composer-host"] {
 	background: color-mix(
@@ -79,7 +115,7 @@
    behind it; its buttons have no fill and no border until the pointer or the keyboard is on them. */
 .composer-row {
 	container: composer-row / inline-size;
-	margin-top: 6px;
+	margin-top: 8px;
 }
 .composer-row-inner {
 	display: flex;
@@ -174,7 +210,7 @@
 	white-space: pre;
 }
 /* The page edge under the composer is solid, so a long reply never shows through the gap below the card. */
-.composer-wrap:not(.items-center)::after {
+.composer-wrap::after {
 	content: "";
 	position: absolute;
 	inset: auto 0 0;
@@ -191,15 +227,49 @@
 	background: transparent;
 	overflow: visible;
 }
+/* The box. Empty, it is one row 44 high: the plus (28) at the left, the text next to it, the controls at
+   the right (the send control only when there is something to send), 8 of padding all round and 8
+   between them. When the text wraps, or something sits above it (attachments, a notice), the text takes
+   the full width and the controls drop to a second row under it. */
+.normal-composer-shell [data-slot="composer-host"] {
+	min-height: 44px;
+}
+.normal-composer-shell [data-chat-composer-main-surface] {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	grid-template-areas: "plus body actions";
+	align-items: center;
+	gap: 8px;
+	min-height: 44px;
+	padding: 8px;
+}
+.normal-composer-shell [data-chat-composer-main-surface][data-expanded="true"] {
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	grid-template-areas:
+		"body body body"
+		"plus . actions";
+}
 .normal-composer-shell [data-chat-composer-body] {
-	padding: 12px 12px 8px;
+	grid-area: body;
+	min-width: 0;
+	padding: 0;
+}
+.normal-composer-shell
+	[data-chat-composer-main-surface][data-expanded="true"]
+	[data-chat-composer-body] {
+	padding-inline: 4px;
 }
 .normal-composer-shell .composer-input textarea {
-	min-height: 32px;
+	min-height: 30px;
 }
 .normal-composer-shell [data-chat-composer-footer] {
-	gap: 6px;
-	padding: 0 10px 10px;
+	display: contents;
+}
+.normal-composer-shell .composer-footer-options {
+	grid-area: plus;
+}
+.normal-composer-shell .pal-composer-send-actions:empty {
+	display: none;
 }
 .composer-footer-options {
 	display: flex;
@@ -239,9 +309,10 @@
 	color: currentColor;
 }
 .normal-composer-shell .pal-composer-send-actions {
-	flex: 1 1 auto;
+	grid-area: actions;
+	justify-self: end;
 	min-width: 0;
-	gap: 6px;
+	gap: 8px;
 }
 .composer-selected-model {
 	min-width: 0;
@@ -632,34 +703,16 @@
 	color: var(--muted-foreground);
 }
 
-/* While a question waits for the person the box is one row: the plus, the waiting words, Stop.
+/* While a question waits for the person the box stays one row: the plus, the waiting words, Stop.
    The question is the card above it, and the row of settings stays under it. */
-.normal-composer-shell .composer-waiting {
-	display: flex;
-	align-items: center;
-	min-height: 40px;
-	padding-inline: 6px;
-}
-.normal-composer-shell .composer-waiting [data-chat-composer-footer] {
-	display: contents;
-}
-.normal-composer-shell .composer-waiting .composer-footer-options {
-	order: -1;
-}
-.normal-composer-shell .composer-waiting .pal-composer-send-actions {
-	flex: none;
-	order: 1;
-}
-.normal-composer-shell .composer-waiting [data-chat-composer-body] {
-	flex: 1 1 auto;
-	min-width: 0;
-	padding: 0 8px 0 6px;
+.normal-composer-shell .composer-waiting [data-chat-composer-body]:has(.composer-input) {
+	position: relative;
 }
 .normal-composer-shell .composer-waiting [data-chat-composer-body]:has(.composer-input)::before {
 	content: "";
 	position: absolute;
 	top: 50%;
-	left: 6px;
+	left: 4px;
 	width: 8px;
 	height: 8px;
 	border-radius: 50%;
@@ -667,17 +720,14 @@
 	translate: 0 -50%;
 }
 .normal-composer-shell .composer-waiting [data-chat-composer-body] .composer-input {
-	padding-left: 14px;
+	padding-left: 16px;
 }
 .normal-composer-shell .composer-waiting .composer-input textarea {
 	min-height: 24px;
 	margin: 0;
-	padding: 3px 0;
+	padding: 2px 0;
 	font-size: var(--text-small);
 	line-height: var(--leading-small);
-}
-.normal-composer-shell .composer-waiting [data-chat-composer-body]:has(.composer-input) {
-	position: relative;
 }
 /* Stop while waiting: an outline that says what it does when the pointer is on it. */
 .composer-stop-quiet {

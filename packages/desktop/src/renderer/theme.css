@@ -152,7 +152,7 @@
 	--frame-bar-gap: 4px;
 	--frame-bar-inset: 8px;
 	--workspace-topbar-height: var(--frame-header-height);
-	--workspace-gutter: 0.75rem;
+	--workspace-gutter: 20px;
 	--workspace-gutter-start: var(--workspace-gutter);
 	--workspace-gutter-end: var(--workspace-gutter);
 	--glass-opacity: 80%;
@@ -183,6 +183,7 @@
 	--radius-chip: 6px;
 	--radius-card: 12px;
 	--radius-panel: 16px;
+	--radius-composer: 14px;
 	--radius-pill: 999px;
 	/* Layers: named tiers, lowest to highest. A tooltip and a toast must read over a dialog, so
 	   dialogs sit below the popover tier. Component-local stacking (-1 to 10) stays literal. */
@@ -367,11 +368,6 @@
 	--shadow-dialog: 0 24px 80px rgb(0 0 0 / 60%);
 }
 
-@media (min-width: 640px) {
-	:root {
-		--workspace-gutter: 1.25rem;
-	}
-}
 .dark {
 	--glass-blur: 16px;
 	--glass-saturation: 1.08;

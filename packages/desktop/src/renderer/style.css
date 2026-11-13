@@ -425,25 +425,28 @@ pre {
 .conversations button:focus-visible .conversation-age {
 	opacity: 1;
 }
+/* The three starters: a centred group, one quiet 32px row each, 16px under the heading. A click fills the
+   box and never sends it. */
 .starter-actions {
-	position: absolute;
-	top: 100%;
-	left: 0;
-	right: 0;
 	display: flex;
 	flex-direction: column;
-	gap: 0;
-	padding: 12px 4px;
+	align-items: flex-start;
+	width: fit-content;
+	max-width: 100%;
+	margin: 16px auto 0;
+	pointer-events: auto;
 }
-/* A starter is a quiet 32px row. A click fills the box and never sends it. */
+.starter-actions[data-quiet] {
+	visibility: hidden;
+}
 .starter-actions button {
 	display: flex;
 	align-items: center;
-	gap: 10px;
+	gap: 8px;
 	width: fit-content;
 	max-width: 100%;
 	height: 32px;
-	padding: 0 10px;
+	padding: 0 8px;
 	border-radius: var(--radius-control);
 	color: var(--muted-foreground);
 	font-size: var(--text-small);
@@ -460,22 +463,6 @@ pre {
 	height: 14px;
 	flex: none;
 	opacity: 0.6;
-}
-.chat-stage[data-empty="true"] {
-	--chat-max-width: 40rem;
-}
-@media (max-height: 600px) {
-	.starter-actions {
-		flex-direction: row;
-		flex-wrap: wrap;
-		padding-top: 0;
-		gap: 0;
-	}
-	.starter-actions button {
-		font-size: var(--text-caption);
-		line-height: var(--leading-caption);
-		padding: 6px;
-	}
 }
 .sidebar-stage-backdrop {
 	mask-image: linear-gradient(to bottom, black 0%, black 55%, transparent 92%);
@@ -597,12 +584,21 @@ pre {
 	flex-direction: column;
 }
 .conversation-lane {
+	container: conversation-lane / inline-size;
 	position: relative;
 	display: flex;
 	flex: 1;
 	flex-direction: column;
 	min-width: 0;
 	min-height: 0;
+}
+/* The gutter beside the reading column is 20px; a pane narrower than 560px closes it to 16px. */
+@container conversation-lane (max-width: 559.98px) {
+	.transcript,
+	.composer-wrap {
+		--workspace-gutter-start: 16px;
+		--workspace-gutter-end: 16px;
+	}
 }
 .chat-stage[data-pal-context="true"] {
 	/* Keep the profile beside the conversation, including narrower desktop panes.

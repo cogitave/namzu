@@ -286,6 +286,8 @@ export function Composer({
 	const removeDisabled = sending || attachmentsBusy || draftDisabled || !connected
 	const attachmentsStranded = attachments.length > 0 && !attachmentsSupported
 	const hasDraft = draft.length > 0 || attachments.length > 0
+	// Something to send: text or an attachment. Only then does the box show its send control.
+	const hasContent = draft.trim().length > 0 || attachments.length > 0
 	const [pasteNotice, setPasteNotice] = useState<string>()
 	// A notice written by a paste outlives the change event that paste causes, and nothing else.
 	const keepPasteNotice = useRef(false)
@@ -441,21 +443,34 @@ export function Composer({
 		</Popover>
 	)
 	const overlay = useRef<HTMLDivElement>(null)
-	const previous = useRef<{ top: number; empty: boolean } | null>(null)
+	const dock = useRef<HTMLDivElement>(null)
+	// Whether the text has taken its own row: it wraps past one line, or something sits above it. Once
+	// it has, it keeps the row until the box is empty, so the controls never jump back and forth.
+	const [wrapped, setWrapped] = useState(false)
+	useLayoutEffect(() => {
+		const field = inputRef.current
+		if (!field) return
+		if (draft.length === 0) {
+			setWrapped(false)
+			return
+		}
+		const measure = () => {
+			// One line of text is 22 high inside 4 of padding on each side.
+			if (field.value.includes('\n') || field.clientHeight > 36) setWrapped(true)
+		}
+		measure()
+		const observer = new ResizeObserver(measure)
+		observer.observe(field)
+		return () => observer.disconnect()
+	}, [draft, inputRef])
 	useLayoutEffect(() => {
 		const node = overlay.current
 		const stage = node?.parentElement
-		if (!node || !stage) return
+		const bottom = dock.current
+		if (!node || !stage || !bottom) return
+		// The transcript and the toasts keep clear of the dock, so they read its height.
 		const update = () => {
-			// The big heading sits above the centred box. When the pane is too short to hold it
-			// without reaching the tab strip, it is dropped rather than drawn over it.
-			const heading = node.querySelector<HTMLElement>('[data-composer-heading]')
-			const box = node.querySelector<HTMLElement>('[data-chat-composer-stack]')
-			if (heading && box) {
-				const fits = box.offsetTop >= heading.offsetHeight + 32 + 8
-				if (node.dataset.headingFits !== String(fits)) node.dataset.headingFits = String(fits)
-			}
-			const height = `${centered ? 0 : node.getBoundingClientRect().height}px`
+			const height = `${bottom.getBoundingClientRect().height}px`
 			if (stage.style.getPropertyValue('--composer-height') !== height)
 				stage.style.setProperty('--composer-height', height)
 		}
@@ -469,70 +484,92 @@ export function Composer({
 				update()
 			})
 		}
-		const stack = node.querySelector<HTMLElement>('[data-chat-composer-stack]')
-		const nextTop = stack?.getBoundingClientRect().top
-		let transition: Animation | undefined
-		if (
-			stack &&
-			nextTop !== undefined &&
-			previous.current &&
-			previous.current.empty !== centered &&
-			!window.matchMedia('(prefers-reduced-motion: reduce)').matches
-		) {
-			transition = stack.animate(
-				[
-					{ transform: `translateY(${previous.current.top - nextTop}px)` },
-					{ transform: 'translateY(0px)' },
-				],
-				{ duration: 220, easing: 'cubic-bezier(0.32, 0.72, 0, 1)' },
-			)
-			transition.id = 'namzu-composer-transition'
-		}
-		if (nextTop !== undefined) previous.current = { top: nextTop, empty: centered }
 		const observer = new ResizeObserver(scheduleResize)
-		observer.observe(node)
-		if (stack) observer.observe(stack)
+		observer.observe(bottom)
 		update()
 		return () => {
 			observer.disconnect()
 			if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame)
-			transition?.cancel()
 		}
-	}, [centered])
+	}, [])
+	const startersShown = empty && !compact && !noProvider && providers.available.length > 0
+	// Once something is typed the starters step out of sight but keep their room, so the heading stays put.
+	const startersQuiet = draft.length > 0 || attachments.length > 0
+	// Text above the line (attachments, notices) makes the box two rows, as a wrapped line does.
+	const extras =
+		attachments.length > 0 ||
+		attachmentsStranded ||
+		attachmentsBusy ||
+		dragging ||
+		Boolean(pasteNotice) ||
+		walking !== null ||
+		Boolean(blockedNotice)
+	const expanded = !waiting && (wrapped || extras)
 	return (
 		<div
 			ref={overlay}
 			data-chat-composer-overlay
 			data-composer-variant={variant}
-			className={
-				centered
-					? 'composer-wrap composer-wrap-centered pointer-events-none absolute inset-0 z-20 flex items-center'
-					: 'composer-wrap pointer-events-none absolute inset-x-0 bottom-0 z-20 pt-1.5 sm:pt-2'
-			}
+			className="composer-wrap pointer-events-none absolute inset-0 z-20 flex flex-col justify-end"
 		>
-			<div className="w-full ps-(--workspace-gutter-start) pe-(--workspace-gutter-end)">
+			{centered && (
+				<div className="composer-home" data-composer-home>
+					<div className="composer-home-block">
+						<h1
+							data-composer-heading
+							className="text-center text-2xl font-normal tracking-tight text-foreground sm:text-3xl"
+						>
+							{emptyHeadingParts ? (
+								<>
+									{emptyHeadingParts.before}
+									<HomeHeadingName name={emptyHeadingParts.name} />
+									{emptyHeadingParts.after}
+								</>
+							) : (
+								emptyHeading
+							)}
+						</h1>
+						{startersShown && (
+							<div
+								className="starter-actions"
+								aria-label="Ideas to get started"
+								data-quiet={startersQuiet || undefined}
+							>
+								{[SearchIcon, FileDiffIcon, ListTodoIcon].map((Icon, index) => {
+									const label = starters[index]
+									return (
+										<button
+											type="button"
+											key={label}
+											onClick={() => {
+												onDraftChange(`${label}. `)
+												inputRef.current?.focus()
+											}}
+										>
+											<Icon aria-hidden="true" />
+											<span>{label}</span>
+										</button>
+									)
+								})}
+							</div>
+						)}
+						{automaticNote && (
+							<p className="provider-auto-note" data-slot="provider-auto-note">
+								{automaticNote}
+							</p>
+						)}
+					</div>
+				</div>
+			)}
+			<div
+				ref={dock}
+				data-composer-dock
+				className="w-full shrink-0 ps-(--workspace-gutter-start) pe-(--workspace-gutter-end)"
+			>
 				<div
 					data-chat-composer-stack
 					className="group/composer-stack pointer-events-auto relative z-10 mx-auto w-full max-w-(--chat-max-width)"
 				>
-					{empty && !compact && (
-						<div className="absolute inset-x-0 bottom-full pb-8">
-							<h1
-								data-composer-heading
-								className="text-center text-2xl font-normal tracking-tight text-foreground sm:text-3xl"
-							>
-								{emptyHeadingParts ? (
-									<>
-										{emptyHeadingParts.before}
-										<HomeHeadingName name={emptyHeadingParts.name} />
-										{emptyHeadingParts.after}
-									</>
-								) : (
-									emptyHeading
-								)}
-							</h1>
-						</div>
-					)}
 					{speechStatus}
 					{permissions[0] && (
 						<fieldset
@@ -593,13 +630,16 @@ export function Composer({
 							onEditingChange={setTrayEditing}
 						/>
 						<ComposerSurface.Host>
-							<ComposerSurface.Main className={waiting ? 'composer-waiting' : undefined}>
+							<ComposerSurface.Main
+								className={waiting ? 'composer-waiting' : undefined}
+								data-expanded={expanded}
+							>
 								{compact && plusControl}
 								<div
 									data-chat-composer-body
 									data-resting={false}
 									data-approval={permissions.length > 0}
-									className="relative px-3 pb-2 pt-3.5 sm:px-4 sm:pt-4"
+									className="relative"
 								>
 									{attachments.length > 0 && (
 										<div className="pb-3">
@@ -754,7 +794,7 @@ export function Composer({
 								</div>
 								<div
 									data-chat-composer-footer
-									className="flex min-w-0 flex-nowrap items-center justify-between gap-2 overflow-visible px-3 pb-3 sm:px-4 sm:pb-4"
+									className="flex min-w-0 flex-nowrap items-center justify-between gap-2 overflow-visible"
 								>
 									{!compact && <div className="composer-footer-options">{plusControl}</div>}
 									<div className="pal-composer-send-actions flex shrink-0 flex-nowrap items-center justify-end gap-2">
@@ -798,7 +838,7 @@ export function Composer({
 															className={
 																waiting
 																	? 'composer-stop-quiet'
-																	: 'flex size-8 cursor-pointer items-center justify-center rounded-full bg-destructive/90 text-white shadow-xs shadow-destructive/24 inset-shadow-2xs inset-shadow-white/16 transition-all duration-150 hover:bg-destructive hover:scale-105 active:inset-shadow-black/8 active:shadow-none'
+																	: 'flex size-7 cursor-pointer items-center justify-center rounded-full bg-destructive/90 text-white shadow-xs shadow-destructive/24 inset-shadow-2xs inset-shadow-white/16 transition-all duration-150 hover:bg-destructive hover:scale-105 active:inset-shadow-black/8 active:shadow-none'
 															}
 															aria-label={stopping ? 'Stopping reply' : 'Stop reply'}
 															aria-busy={stopping}
@@ -835,13 +875,13 @@ export function Composer({
 												</TooltipPopup>
 											</Tooltip>
 										)}
-										{(!running || draft.trim() || attachments.length > 0) && (
+										{(cliMode ? !running || hasContent : hasContent) && (
 											<Tooltip>
 												<TooltipTrigger
 													render={
 														<button
 															type="button"
-															className="relative isolate flex h-9 w-9 items-center justify-center overflow-hidden rounded-full shadow-xs transition-all duration-150 enabled:cursor-pointer enabled:inset-shadow-2xs enabled:inset-shadow-white/16 hover:scale-105 active:inset-shadow-black/8 active:shadow-none disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none disabled:hover:scale-100 sm:h-8 sm:w-8 bg-message-action text-message-action-foreground enabled:shadow-message-action/24 hover:bg-message-action-hover aria-disabled:opacity-64 aria-disabled:shadow-none aria-disabled:hover:scale-100"
+															className="relative isolate flex size-7 items-center justify-center overflow-hidden rounded-full shadow-xs transition-all duration-150 enabled:cursor-pointer enabled:inset-shadow-2xs enabled:inset-shadow-white/16 hover:scale-105 active:inset-shadow-black/8 active:shadow-none disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none disabled:hover:scale-100 bg-message-action text-message-action-foreground enabled:shadow-message-action/24 hover:bg-message-action-hover aria-disabled:opacity-64 aria-disabled:shadow-none aria-disabled:hover:scale-100"
 															aria-disabled={noProvider && !cliMode ? true : undefined}
 															aria-label={
 																cliMode
@@ -974,36 +1014,6 @@ export function Composer({
 							</div>
 						</div>
 					)}
-					{empty &&
-						!compact &&
-						draft.length === 0 &&
-						attachments.length === 0 &&
-						!noProvider &&
-						providers.available.length > 0 && (
-							<div className="starter-actions" aria-label="Ideas to get started">
-								{[SearchIcon, FileDiffIcon, ListTodoIcon].map((Icon, index) => {
-									const label = starters[index]
-									return (
-										<button
-											type="button"
-											key={label}
-											onClick={() => {
-												onDraftChange(`${label}. `)
-												inputRef.current?.focus()
-											}}
-										>
-											<Icon aria-hidden="true" />
-											<span>{label}</span>
-										</button>
-									)
-								})}
-							</div>
-						)}
-					{automaticNote && (
-						<p className="provider-auto-note" data-slot="provider-auto-note">
-							{automaticNote}
-						</p>
-					)}
 					{noProvider && (
 						<section className="provider-empty" aria-labelledby="provider-empty-title">
 							<h2 id="provider-empty-title">Add an API key or sign in to start</h2>
@@ -1017,7 +1027,7 @@ export function Composer({
 							)}
 						</section>
 					)}
-					<div aria-hidden className="h-3" />
+					<div aria-hidden className="h-4" />
 				</div>
 			</div>
 		</div>

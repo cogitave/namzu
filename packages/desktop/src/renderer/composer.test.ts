@@ -112,7 +112,7 @@ it('docks the slim Pal composer with one authored textarea and preserves the sta
 	const pal = render({ variant: 'pal', empty: true })
 	expect(pal).toContain('data-composer-variant="pal"')
 	expect(pal).toContain('placeholder="Send a message"')
-	expect(pal).toContain('bottom-0')
+	expect(pal).toContain('justify-end')
 	expect(pal.match(/<textarea\b/g)).toHaveLength(1)
 	expect(pal).toContain('An unsent Pal request</textarea>')
 	expect(pal.indexOf('aria-label="Attachments and message settings"')).toBeLessThan(

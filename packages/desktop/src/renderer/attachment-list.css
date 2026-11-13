@@ -162,7 +162,7 @@
 	justify-content: center;
 	gap: 8px;
 	border: 1px dashed var(--primary);
-	border-radius: var(--radius-panel);
+	border-radius: var(--radius-composer);
 	background: var(--background);
 	color: var(--foreground);
 	font-size: var(--text-small);

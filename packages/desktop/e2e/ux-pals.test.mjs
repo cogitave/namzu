@@ -188,7 +188,8 @@ test(
 			// Once the reply has finished nothing under it is cut off: no element in the transcript hides
 			// part of its own text behind an overflow clip.
 			await expect(page.getByText("I sent your Pal the request.")).toBeVisible({ timeout: 60000 });
-			await expect(page.getByRole("button", { name: "Send message" })).toBeVisible({ timeout: 60000 });
+			// The box offers Send only with something to send; a finished reply leaves no Stop behind.
+			await expect(page.getByRole("button", { name: "Stop reply" })).toHaveCount(0, { timeout: 60000 });
 			const clipped = await page.evaluate(() =>
 				[...document.querySelectorAll(".conversation-body *, .pal-message-receipts *")]
 					.filter((el) => {
