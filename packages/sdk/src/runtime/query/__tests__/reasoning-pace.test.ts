@@ -230,3 +230,29 @@ describe('a provider that refuses a forced tool choice', () => {
 		expect(provider.requests[1]?.toolChoice).toBe('required')
 	})
 })
+
+describe('a provider whose answer depends on the effort the step will carry', () => {
+	it('is asked with that effort, and a thinking step goes in words and completes', async () => {
+		const asked: Array<string | undefined> = []
+		const provider = Object.assign(
+			scripted(
+				[{ reasoning: 'x'.repeat(8_000) }, { call: 'observe' }, { text: 'done' }],
+				['none', 'low', 'high'],
+			),
+			{
+				// Thinking is on at any level but `none`, and a forced choice is refused then.
+				acceptsForcedToolChoiceFor: (_m: string, _t: unknown, effort?: string) => {
+					asked.push(effort)
+					return effort === 'none'
+				},
+			},
+		)
+		const turn = await run(provider)
+
+		expect(turn.result).toBe('done')
+		// The forced step runs at low effort, and that is the level it was asked with.
+		expect(asked).toEqual(['low'])
+		for (const request of provider.requests) expect(request.toolChoice).not.toBe('required')
+		expect(nudges(provider, FORCED_STEP_MESSAGE)).toEqual([0, 1, 0])
+	})
+})

@@ -563,10 +563,15 @@ export function withProviderFallback(
 		},
 		// A chain takes a forced choice only if every member does: the request may
 		// be served by any of them, and the one that refuses would fail the step.
-		acceptsForcedToolChoiceFor: (model: string, thinking?: ThinkingConfig) =>
+		acceptsForcedToolChoiceFor: (
+			model: string,
+			thinking?: ThinkingConfig,
+			effort?: ReasoningEffort,
+		) =>
 			members.every(
 				(member) =>
-					member.provider.acceptsForcedToolChoiceFor?.(member.model ?? model, thinking) ?? true,
+					member.provider.acceptsForcedToolChoiceFor?.(member.model ?? model, thinking, effort) ??
+					true,
 			),
 		reasoningEffortLevelsFor: (model: string, thinking?: ThinkingConfig) =>
 			commonReasoningEffortLevels(members, model, thinking),

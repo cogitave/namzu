@@ -39,7 +39,7 @@ import {
 	experimentalOpenCodeUserAgent,
 } from './experimental-identity.js'
 import type { ZenModel, ZenService } from './models.js'
-import { createCallOptions, withZenFreeTierTools } from './options.js'
+import { createCallOptions, goRejectsToolChoice, withZenFreeTierTools } from './options.js'
 import {
 	createReplayState,
 	isGoDeepSeekV4ResponsesModel,
@@ -860,6 +860,16 @@ export class ZenProvider implements LLMProvider {
 	supportsImageInputFor(model: string): boolean {
 		const modalities = this.model(model)?.inputModalities
 		return modalities === undefined || modalities.includes('image')
+	}
+
+	/**
+	 * Whether `model` takes a forced tool choice. The Go models that refuse
+	 * `required` or a named function (the DeepSeek V4 ones among them) are
+	 * refused before transport by the same rule, so the kernel asks first and
+	 * puts the instruction in words instead of failing the step.
+	 */
+	acceptsForcedToolChoiceFor(model: string): boolean {
+		return !goRejectsToolChoice(this.service, model)
 	}
 
 	/** The injected runtime catalogue as it stands now, or undefined for the bundled one alone. */
