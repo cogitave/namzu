@@ -2586,12 +2586,15 @@ function hookSourceLabel(source: ConfigValueSource): string {
  * runs the same reader. Set only for the length of one synchronous call.
  */
 let hookProblemSink:
-	| ((event: string, severity: 'problem' | 'note', message: string) => void)
+	| ((event: string, severity: 'problem' | 'note', message: string, file: string) => void)
 	| undefined
 
-/** Runs `read` with the hook reader's problems handed to `sink` and not to the config files' list. */
+/**
+ * Runs `read` with the hook reader's problems handed to `sink` and not to the config files' list.
+ * The sink is also told the file (or other source) the reader named, as a fourth argument.
+ */
 export function withHookProblemSink<T>(
-	sink: (event: string, severity: 'problem' | 'note', message: string) => void,
+	sink: (event: string, severity: 'problem' | 'note', message: string, file: string) => void,
 	read: () => T,
 ): T {
 	const outer = hookProblemSink
@@ -2610,7 +2613,7 @@ function recordHookProblem(
 	message: string,
 ): void {
 	if (hookProblemSink) {
-		hookProblemSink(event, severity, message)
+		hookProblemSink(event, severity, message, file)
 		return
 	}
 	const key = `${file}\n${event}\n${message}`
@@ -2880,13 +2883,41 @@ function describeSource(source: ConfigSource): string {
  * The `hooks` key of the merged config, rebuilt from every layer instead of
  * taken whole from the last layer that had one. See `assembleHooks`.
  */
+/** A layer that declared hooks, with where it came from, as `withHookLayerSink` hands it over. */
+export interface DeclaredHookLayer extends HookLayer {
+	readonly source: ConfigSource
+}
+
+/** What one config resolution saw of the hook layers: every layer that declared hooks, and the two switches. */
+export interface DeclaredHooks {
+	readonly layers: readonly DeclaredHookLayer[]
+	readonly switches: { readonly disableHooks: boolean; readonly managedOnly: boolean }
+}
+
+let hookLayerSink: ((declared: DeclaredHooks) => void) | undefined
+
+/**
+ * Runs `read` with every config resolution inside it handing `sink` the layers
+ * that declared hooks, before any switch left entries out. Set only for the
+ * length of one synchronous call; it changes nothing about what is resolved.
+ */
+export function withHookLayerSink<T>(sink: (declared: DeclaredHooks) => void, read: () => T): T {
+	const outer = hookLayerSink
+	hookLayerSink = sink
+	try {
+		return read()
+	} finally {
+		hookLayerSink = outer
+	}
+}
+
 function withAssembledHooks(
 	merged: { config: NamzuCliConfig; provenance: ConfigProvenance },
 	layers: readonly ConfigLayer[],
 	managedCfg: MutableConfig,
 	managedPath: string,
 ): { config: NamzuCliConfig; provenance: ConfigProvenance } {
-	const hookLayers: HookLayer[] = []
+	const hookLayers: DeclaredHookLayer[] = []
 	let lastSource: ConfigSource | undefined
 	for (const layer of layers) {
 		if (layer.config.hooks === undefined) continue
@@ -2902,12 +2933,15 @@ function withAssembledHooks(
 						: shortHomePath(path),
 			managed: source.kind === 'managed' || (path !== undefined && path === managedPath),
 			hooks: layer.config.hooks,
+			source,
 		})
 	}
-	const assembled = assembleHooks(hookLayers, {
+	const switches = {
 		disableHooks: merged.config.disableHooks === true,
 		managedOnly: managedCfg.hooksManagedOnly === true,
-	})
+	}
+	hookLayerSink?.({ layers: hookLayers, switches })
+	const assembled = assembleHooks(hookLayers, switches)
 	const { hooks: _replaced, ...rest } = merged.config
 	return {
 		config: assembled.hooks !== undefined ? { ...rest, hooks: assembled.hooks } : rest,

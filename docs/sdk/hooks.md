@@ -462,6 +462,54 @@ hooks:
 
 `/hooks` lists every hook attached, by event, each with the file it came from and its matcher, `if`, `once`, deadline, background and `onFailure` options, the names a command entry's `env` sets, and on a tool event which tool names it receives (`Namzu's own (bash)` or `as written (Bash)`) (and, under a hook whose `matcher` is not a regular expression that compiles or whose `if` is not `Tool(pattern)`, a line saying it cannot be read and what that means); then what the files declared that could not be loaded or was not acted on (`Not loaded:` for a hook that would have guarded something, `Note:` otherwise), then the hook entries enabled plugins ship, apart from their JavaScript hooks (`pre_tool_use · plugin review-bot · ${NAMZU_PLUGIN_ROOT}/guard.sh · matches Bash`, with `off (disableHooks)` when a switch left it off), and what a plugin's files declared that could not be loaded (`Not loaded: plugin review-bot, hooks/hooks.json: ...`), then the JavaScript hooks plugins registered, as the event and the plugin's name (`pre_tool_use · plugin review-bot`), then the hooks skills have attached (`pre_tool_use: node guard.mjs · matches Bash · skill careful-shell, for this conversation`) and the skills that carry hooks they attach when used, then the hooks live agent runs have attached (`pre_tool_use: node guard.mjs · matches Bash · agent careful-runner, run 01a1d3a1`), the agent files that carry hooks and the agent files that are not offered. A plugin that is disabled registers none of either. `/plugins` shows how many hook entries a plugin ships, enabled or not.
 
+### What runs by itself here: one answer for a program
+
+`/hooks`, `namzu doctor` and the trust prompt each say, in their own words, what runs by itself in a folder. A program (the Desktop app, a script) reads the facts instead, from one function: `describeFolderHooks` in the command line (`packages/cli/src/config/hooks-report.ts`). It reads through the readers a session uses (the config reader with its layers and switches, the plugin entry reader, and the skill and agent file hook readers) and returns data, not text. Two doors lead to it:
+
+- `namzu hooks [--cwd <path>] [--json]` prints it for a person, grouped by where each hook comes from, or with `--json` as one JSON value on standard output.
+- `namzu/hooks/list`, a method of the desktop host (`namzu acp --desktop`), answers it for the host's folder. It takes no parameters (a request that carries any is refused) and is the optional group `hooksView` of the [desktop contract](kernel-facts.md#the-desktop-contract). A host that is older than this change does not list `namzu/hooks/list` among the extensions it answers `initialize` with, and an application that asks the question only when the host lists it shows no hooks view for that host.
+
+**Nothing of the folder is executed or imported.** The answer is made from reading files as text: the config files, a plugin's manifest and its files of entries, a skill's `SKILL.md` front matter and an agent file's. A plugin's JavaScript module is named (`modules`) and never loaded. So the question is safe to ask about a folder nobody has trusted. For such a folder the answer says `folder.trusted: false`, lists what the folder's own files, plugins, skills and agent files would start as `not-loaded` with the reason `folder-not-trusted` (none of it is counted as running), and `counts.waitingForTrust` says how many that is. What your own files, the managed file and your user plugins run is listed as it runs.
+
+**The shape.** The answer carries `version` (1; the shape grows by adding fields, never by removing or renaming one, and a reader ignores the ones it does not know), `folder` (`path`, `trusted`), `switches`, `hooks`, `modules`, `problems`, `counts` and, when the configuration could not be read at all, `error` (what could still be read is listed).
+
+- A **hook** row has a stable `id`, its `event` as this kernel names it and `eventWritten` where the event has a second spelling (`pre_tool_use` and `PreToolUse`), its `matcher` and `condition` (the `if`), its `type` (`command`, `http` or `prompt`), what it starts as `runs` (the command with its arguments, `POST <address>` with no query or credentials, or the first line of a prompt; never an `env` value or a header), its `origin` (`kind` `config`, `plugin`, `skill` or `agent`; the `label` a person reads; the `name`; the `path`; the `scope`, which for a config file is `user`, `project`, `local`, `profile` or `managed`), its `state` and `why`, its options (`once`, `async`, `timeoutMs`, `onFailure`) and `notes` the reader made about that one entry (a matcher or `if` that cannot be read and so fires for every call; a `file_changed` matcher that names no file).
+- The `state` is `runs` (it fires on its event now), `off` (a switch or a setting leaves it out), `attaches-when-used` (a skill's or an agent file's hook, attached while it is in use) or `not-loaded` (it cannot run now). `why` is `{ code, text }`. The codes: `disableHooks` and `hooksManagedOnly` (the switch that turned it off), `plugins-disabled` (`plugins.enabled` is not on), `plugin-disabled` (the plugin is switched off), `skill-disabled` (named in `skills.disabled`), `folder-not-trusted`, `skill-unusable` and `agent-not-offered` (an agent file whose guard could not be loaded is not offered). A reader treats a code it does not know as an unexplained `off` or `not-loaded`, and shows `text`.
+- The **switches** report `disableHooks`, `hooksManagedOnly` and `plugins` as `{ on, setBy }`, where `setBy` says where the setting was made (`kind` `default`, `user-file`, `project-file`, `local-file`, `profile`, `env` or `managed`, with `path`, `variable` or `profile` as fits), and `limiting`, the one now limiting hooks (`managed-only` outranks `disabled`), absent when none is. An entry a switch holds back is still listed, as `off`, so a person sees what the switch is holding back; a plugin's JavaScript modules are not touched by either switch, and the answer says so by leaving them `runs`.
+- The **problems** are what the readers reported, with the same severities as everywhere (`problem` for a hook that would have guarded something and could not be loaded, `note` for anything else), each with its `origin`, the `event` as the source spells it or the `file` inside a plugin, and `inactive: folder-not-trusted` when the source is not read as running yet.
+
+A hook the readers could not read has no row, only a problem: nothing is invented for it, and a guard that could not be loaded is never shown as running.
+
+```json
+{
+  "version": 1,
+  "folder": { "path": "/work/app", "trusted": false },
+  "switches": {
+    "disableHooks": { "on": false },
+    "hooksManagedOnly": { "on": false },
+    "plugins": { "on": true, "setBy": { "kind": "user-file", "path": "~/.namzu/config.yaml" } }
+  },
+  "hooks": [
+    {
+      "id": "3f9c1a7b2d40",
+      "event": "pre_tool_use",
+      "eventWritten": "PreToolUse",
+      "matcher": "Bash",
+      "type": "command",
+      "runs": "./bin/guard.sh",
+      "origin": { "kind": "config", "label": "/work/app/namzu.config.json", "path": "/work/app/namzu.config.json", "scope": "project" },
+      "state": "not-loaded",
+      "why": { "code": "folder-not-trusted", "text": "This folder is not trusted. It starts once the folder is trusted." }
+    }
+  ],
+  "modules": [],
+  "problems": [],
+  "counts": { "runs": 0, "off": 0, "attachesWhenUsed": 0, "notLoaded": 1, "waitingForTrust": 1, "problems": 0 }
+}
+```
+
+The terminal's `/hooks` still shows the live session (the hooks skills and agent runs have attached right now), the doctor row still counts and warns, and the trust prompt still lists the folder's files as raw text before anything is applied; the plugin part of the doctor row reads plugins through the same function the answer does.
+
 ## Files and folders, and variables for later commands
 
 Both events are fired by the host. The command line fires them; an embedder fires them through `FileChangeHooks` and `QueryParams.onWorkingDirectoryChange`.

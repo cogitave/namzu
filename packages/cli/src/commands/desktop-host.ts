@@ -1627,6 +1627,23 @@ export function createDesktopHostExtensions(
 				live: runtime.mcpStatus?.(cwd) ?? { connected: [], failed: [] },
 			})
 		},
+		/**
+		 * What runs by itself in this folder: every hook from the config files, plugins, skills and
+		 * agent files, with its state and where it came from. Reads files only. A folder nobody
+		 * trusted is described too, as what would start once it is trusted: nothing of it is executed
+		 * or imported, and no plugin module is loaded.
+		 */
+		'namzu/hooks/list': async (params: Record<string, unknown> = {}) => {
+			if (
+				!params ||
+				typeof params !== 'object' ||
+				Array.isArray(params) ||
+				Object.keys(params).length > 0
+			)
+				throw new Error('Invalid hooks request.')
+			const { describeFolderHooks } = await import('../config/hooks-report.js')
+			return describeFolderHooks({ cwd, trusted: isTrusted(cwd) })
+		},
 		/** Approves servers `.mcp.json` declared, as they were listed, the way `namzu mcp approve` does. */
 		'namzu/mcp/approve': async (params: Record<string, unknown>) => {
 			if (

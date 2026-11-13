@@ -88,6 +88,9 @@
       "namzu/mcp/servers",
       "namzu/mcp/approve"
     ],
+    "hooksView": [
+      "namzu/hooks/list"
+    ],
     "conversationSearch": [
       "namzu/conversations/search"
     ],
@@ -324,6 +327,39 @@
         "names": [
           "OUTCOME_NOTIFICATION",
           "OutcomeNotification"
+        ]
+      },
+      "src/config/hooks-report.ts": {
+        "mirroredBy": "packages/desktop/src/shared/hooks-report.ts (added with the Desktop view of hooks)",
+        "digests": {
+          "HOOKS_REPORT_VERSION": "e2f87582ca196902",
+          "HookOrigin": "e5e20d61c2dacf5c",
+          "HookState": "620280c22bd69c67",
+          "HookWhyCode": "2cccf802ff319a38",
+          "HookWhy": "80b87688e88ed483",
+          "HookType": "e8cdb565342e313d",
+          "HookRow": "07e3c83658b87f3a",
+          "HookModuleRow": "5645f12c6dbba5bf",
+          "HookProblem": "252aa1e17ca6760e",
+          "SwitchSource": "be9ff61cac567b63",
+          "SwitchReport": "4d0d2af61833670b",
+          "HooksSwitches": "94f8c3941e4336cd",
+          "HooksReport": "2cc680c2e6497951"
+        },
+        "names": [
+          "HOOKS_REPORT_VERSION",
+          "HookOrigin",
+          "HookState",
+          "HookWhyCode",
+          "HookWhy",
+          "HookType",
+          "HookRow",
+          "HookModuleRow",
+          "HookProblem",
+          "SwitchSource",
+          "SwitchReport",
+          "HooksSwitches",
+          "HooksReport"
         ]
       }
     }
