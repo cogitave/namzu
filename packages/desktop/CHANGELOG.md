@@ -1,8 +1,8 @@
 # @namzu/desktop
 
-## 0.9.0
+## 0.8.3
 
-### Minor Changes
+### Patch Changes
 
 - ede0056: Settings now shows what runs by itself. **Settings > Tools** lists the hooks of the project you are in (or your own, when no project is open), grouped by when they run: what each one starts, where it comes from, where to change it, and whether it runs, is off, waits until a skill or agent is used, or could not be loaded, with the reason. A hook that could not be loaded is shown where it would have been, not in a log. The list is read-only and never shows a secret: an `env` value or a header is not in it, and a web address loses its query and credentials. A new switch, **Run hooks**, turns the hooks from your own and a project's files off and on (it is the `disableHooks` setting turned the other way round); when your administrator's file or the `NAMZU_DISABLE_HOOKS` variable decides, the switch is greyed out and one line says so.
 
