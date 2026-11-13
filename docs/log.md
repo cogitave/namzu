@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-14
+
+- **Update** [Desktop application](cli/desktop.md#the-side-panels): a reading panel (Changes, a file) takes 60 percent of the main area (at least 360) and a tool panel (Activity) 40 percent (320 to 560), where every panel took `clamp(320px, 40%, 440px)`; the conversation keeps the rest, and under 360 the panel lies over it. The 1 px seam has a 7 px zone that drags (2 px primary line, double click resets, arrow keys, a width kept per kind of panel). A panel's header is 44 high, its title 20 in, its controls 28 square and 4 apart; the Changes list of files moves to the diff's right, 240 wide, rows 28 high, and a name is not cut before its folder; a header tool whose panel is open carries an 8 percent fill. Guarded by `src/renderer/panel-tokens.test.ts` and `e2e/ux-side-panels.test.mjs`. `.changeset/desktop-one-band.md`.
+
 ## 2026-11-13
 
 - **Update** [Desktop application](cli/desktop.md#one-band-at-the-top): the window starts with the 36 px header band on every platform, with no 32 px strip above it. The main header's left cluster is a menu button (not on macOS, which keeps the system menu bar), the sidebar toggle, back and forward, each 28 by 28 and 4 apart, 12 in from the sidebar's edge, with the title or the strip of tabs 12 after it. The menu button opens one menu with File, Edit, View and Window as rows that open their commands to the side; Edit, View and Window come from the application menu (new `windowMenuModel` and `runWindowMenuItem` replace `popupWindowMenu`), Alt opens it and the keyboard reaches every command. The window's own buttons are 36 px high and the header keeps its controls out from under them; the window's title is no longer drawn. Guarded by `e2e/ux-one-band.test.mjs`. `.changeset/desktop-one-band.md`.

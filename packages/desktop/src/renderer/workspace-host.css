@@ -47,16 +47,6 @@
 	white-space: nowrap;
 }
 @container workspace (max-width: 640px) {
-	.workspace.jobs-open > :is(.topbar, .connection-error, .welcome, .chat-stage) {
-		width: 100%;
-	}
-	.workspace.jobs-open > .jobs-panel {
-		/* A pane this narrow cannot hold both: the panel takes it, and "Hide panel" gives the chat back. */
-		width: 100%;
-		/* Above the composer (z 20), which would otherwise cover the bottom of an open file. */
-		z-index: var(--z-panel);
-		box-shadow: none;
-	}
 	.workspace[data-page="computer"][data-computer-chat="split"] {
 		grid-template-columns: minmax(0, 1fr);
 	}

@@ -599,12 +599,15 @@ pre {
 	margin: 0;
 	background: var(--background);
 	overflow: clip;
-	--panel-width: clamp(320px, 40%, 440px);
+	--panel-width: var(--panel-tool-width);
 	position: relative;
 	display: flex;
 	flex-direction: column;
 	min-width: 0;
 	min-height: 0;
+}
+.workspace[data-panel-kind="reading"] {
+	--panel-width: var(--panel-reading-width);
 }
 .workspace > :is(.connection-error, .welcome, .chat-stage) {
 	width: 100%;
@@ -1092,14 +1095,14 @@ pre {
 	align-items: center;
 	gap: 8px;
 	justify-content: space-between;
-	height: var(--workspace-topbar-height);
+	height: var(--panel-header-height);
 	flex: none;
 	padding: 0 16px;
 	border-bottom: 1px solid var(--border);
 }
 .section-heading h2 {
-	font-size: var(--text-caption);
-	line-height: var(--leading-caption);
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
 	font-weight: var(--weight-control);
 }
 .panel-scroll {
@@ -1319,17 +1322,35 @@ pre {
 		background-position: -40% 0;
 	}
 }
-@container workspace (max-width: 879px) {
-	.workspace.jobs-open > :is(.topbar, .connection-error, .welcome, .chat-stage) {
+/* Where the conversation would keep less than --panel-conversation-min, the panel takes the pane instead of
+   a sliver of clipped transcript. A reading panel has its 60 percent (360 at least), so that is any pane under
+   900; a tool panel, under 680 (its floor of 320 and the conversation's 360). The edges are written out
+   because a container query cannot read a token; panel-tokens.test.ts keeps them equal to the sums. */
+@container workspace (max-width: 899px) {
+	.workspace[data-panel-kind="reading"].jobs-open
+		> :is(.topbar, .connection-error, .welcome, .chat-stage) {
 		width: 100%;
 	}
-	/* Beside the chat a panel this wide would leave a sliver of clipped transcript: it takes the pane instead. */
-	.jobs-panel {
+	.workspace[data-panel-kind="reading"] .jobs-panel {
 		width: 100%;
 		box-shadow: none;
 		z-index: var(--z-panel);
 	}
-	.panel-back-row {
+	.workspace[data-panel-kind="reading"] .panel-back-row {
+		display: flex;
+	}
+}
+@container workspace (max-width: 679px) {
+	.workspace[data-panel-kind="tool"].jobs-open
+		> :is(.topbar, .connection-error, .welcome, .chat-stage) {
+		width: 100%;
+	}
+	.workspace[data-panel-kind="tool"] .jobs-panel {
+		width: 100%;
+		box-shadow: none;
+		z-index: var(--z-panel);
+	}
+	.workspace[data-panel-kind="tool"] .panel-back-row {
 		display: flex;
 	}
 }

@@ -2,18 +2,21 @@ import { describe, expect, it } from 'vitest'
 import {
 	MAX_FILE_TABS,
 	MIN_PANEL_WIDTH,
+	READING_PANEL_MIN,
 	activatePanelTab,
 	activeFilePath,
 	activityTab,
 	browsePanelTabs,
 	changesTab,
 	clampPanelWidth,
+	clearPanelWidth,
 	closePanelTab,
 	emptyPanelTabs,
 	ensurePanelTab,
 	filePaths,
 	fileTab,
 	openFileTab,
+	panelKindOf,
 	parsePanelTabs,
 	readPanelTabs,
 	readPanelWidth,
@@ -162,12 +165,43 @@ describe('panel tabs', () => {
 })
 
 describe('panel width', () => {
-	it('stays between 320px and 70% of the pane', () => {
+	it('keeps a tool panel from 320 up to what leaves the conversation 360', () => {
 		expect(clampPanelWidth(100, 1000)).toBe(MIN_PANEL_WIDTH)
-		expect(clampPanelWidth(900, 1000)).toBe(700)
+		expect(clampPanelWidth(900, 1000)).toBe(640)
 		expect(clampPanelWidth(500, 1000)).toBe(500)
 		expect(clampPanelWidth(500, 400)).toBe(MIN_PANEL_WIDTH)
 		expect(clampPanelWidth(Number.NaN, 1000)).toBe(MIN_PANEL_WIDTH)
+	})
+	it('keeps a reading panel from 360 on', () => {
+		expect(clampPanelWidth(100, 1200, 'reading')).toBe(READING_PANEL_MIN)
+		expect(clampPanelWidth(1100, 1200, 'reading')).toBe(840)
+		expect(clampPanelWidth(500, 700, 'reading')).toBe(READING_PANEL_MIN)
+		expect(READING_PANEL_MIN).toBe(360)
+	})
+	it('remembers each kind apart and forgets one on a reset', () => {
+		const store = new Map<string, string>()
+		const storage = {
+			getItem: (key: string) => store.get(key) ?? null,
+			setItem: (key: string, value: string) => void store.set(key, value),
+			removeItem: (key: string) => void store.delete(key),
+		}
+		writePanelWidth(storage, 'p', 700, 'reading')
+		writePanelWidth(storage, 'p', 400, 'tool')
+		expect(readPanelWidth(storage, 'p', 'reading')).toBe(700)
+		expect(readPanelWidth(storage, 'p', 'tool')).toBe(400)
+		// A tool panel's floor is lower than a reading panel's: 340 is kept for one and not for the other.
+		writePanelWidth(storage, 'p', 340, 'reading')
+		expect(readPanelWidth(storage, 'p', 'reading')).toBeUndefined()
+		clearPanelWidth(storage, 'p', 'reading')
+		expect(readPanelWidth(storage, 'p', 'tool')).toBe(400)
+		clearPanelWidth(storage, 'p', 'tool')
+		expect(readPanelWidth(storage, 'p', 'tool')).toBeUndefined()
+	})
+	it('names the kind of each view', () => {
+		expect(panelKindOf('changes')).toBe('reading')
+		expect(panelKindOf('file')).toBe('reading')
+		expect(panelKindOf('browse')).toBe('reading')
+		expect(panelKindOf('activity')).toBe('tool')
 	})
 	it('remembers a width per pane', () => {
 		const store = new Map<string, string>()

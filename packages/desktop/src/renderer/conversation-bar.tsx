@@ -55,6 +55,9 @@ export interface ConversationBarProps {
 	removed?: number
 	onChanges?: () => void
 	onFiles?: () => void
+	/** The panel that button opens is open now: the button carries a light fill. */
+	changesOpen?: boolean
+	filesOpen?: boolean
 	terminals?: ConversationBarTerminals
 	disabled?: boolean
 	/** The details and overflow buttons, which keep their own menus. */
@@ -217,6 +220,8 @@ export function ConversationBar({
 	removed = 0,
 	onChanges,
 	onFiles,
+	changesOpen,
+	filesOpen,
 	terminals,
 	drafts,
 	onSelectDraft,
@@ -244,6 +249,8 @@ export function ConversationBar({
 						aria-label={changesButtonLabel(changes, added, removed)}
 						title={changesButtonLabel(changes, added, removed)}
 						data-has-changes={changes > 0 || undefined}
+						aria-pressed={changesOpen ? true : undefined}
+						data-open={changesOpen || undefined}
 						onClick={onChanges}
 					>
 						<FileDiffIcon aria-hidden="true" />
@@ -267,6 +274,8 @@ export function ConversationBar({
 						className="conversation-bar-button"
 						aria-label="Project files"
 						title="Project files"
+						aria-pressed={filesOpen ? true : undefined}
+						data-open={filesOpen || undefined}
 						onClick={onFiles}
 					>
 						<FileTextIcon aria-hidden="true" />

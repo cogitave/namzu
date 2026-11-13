@@ -2329,9 +2329,11 @@ do not create a media placeholder in ordinary history; text accompanying tools
 and actual media placeholders remain visible. This is a display filter, not a
 change to the model's recorded history. Syntax highlighting uses bundled WASM;
 the renderer policy allows that compilation without enabling JavaScript eval.
-Background work uses a separate column when the workspace has at least 880px
-available; narrower workspaces let the panel take the whole pane (the conversation is not squeezed into a
-clipped sliver; a **Back to conversation** button at its top-left, and **Hide panel**, bring it back). The project and computer chips above an empty composer are one
+Background work is a tool panel: it uses a separate column of 40 percent of the main area (320 to 560 px)
+while the conversation keeps at least 360 px, which is a main area of 680 px or more; narrower workspaces let the
+panel take the whole pane (the conversation is not squeezed into a
+clipped sliver; a **Back to conversation** button at its top-left, and **Hide panel**, bring it back). See
+[The side panels](#the-side-panels). The project and computer chips above an empty composer are one
 flat row on the composer's own edges, and the page edge under the composer is solid, so a long reply never shows
 through below it. The panel and conversation widths animate together, and the
 details control remains mounted during the transition. Closing the panel or
@@ -3020,10 +3022,11 @@ under the writes, validates its arguments and the CLI's answer, and releases the
 
 ### Changes review view
 
-The Changes pane is the diff first. It opens 520 px wide (never more than half of a narrow
-window; a width the person dragged is kept) on the file that changed most, and a narrow file
-list (168 px) sits beside the diff, on its left, so the diff has the full height. The header is one
-40 px row: the title "Changes", a two-way switch **This reply | All changes** (All changes is the default
+The Changes pane is the diff first. It opens 60 percent of the main area wide (at least 360 px; a width the
+person dragged is kept, see [The side panels](#the-side-panels)) on the file that changed most, and the list of
+changed files (240 px, rows 28 high, a 1 px line between it and the diff) sits at the diff's right, so the diff
+has the full height and the left. The header is one
+44 px row with a 1 px line under it: the title "Changes", a two-way switch **This reply | All changes** (All changes is the default
 whichever reply opened the pane; This reply is that reply, or the latest one that changed files, when the
 pane was opened from the top bar), the counts ("4 files +35 −3"), one **View** menu and a close button.
 All changes merges every completed edit per path, so a file edited twice is one
@@ -3462,7 +3465,7 @@ the separate Pal chat, without model requests or computer actions.
 
 ## Files beside a conversation
 
-The conversation's right panel is resizable (320 px up to 70% of the pane; the Changes tab opens at 520 px, at most half of the pane, until a width is dragged, width kept per pane) and holds one ordered list of tabs: Changes, Activity and one tab per open file. All of them are ordinary closable tabs drawn by the same component (an icon, a label that truncates, a close button that shows on the active tab and on hover or focus, a middle click that closes); the active tab sits in a bordered, raised box and the others are plain muted text. Activity carries a small count while background work is running, in the warning colour when something needs attention. Arrow keys, Home and End move between tabs; Delete or Ctrl+W (Cmd+W) closes the focused one. The list and the active tab persist per conversation; a conversation saved before tabs existed gains Changes and Activity in front of its files and keeps the tab it was showing.
+The conversation's right panel is resizable (see [The side panels](#the-side-panels) for its widths) and holds one ordered list of tabs: Changes, Activity and one tab per open file. All of them are ordinary closable tabs drawn by the same component (an icon, a label that truncates, a close button that shows on the active tab and on hover or focus, a middle click that closes); the active tab sits in a bordered, raised box and the others are plain muted text. Activity carries a small count while background work is running, in the warning colour when something needs attention. Arrow keys, Home and End move between tabs; Delete or Ctrl+W (Cmd+W) closes the focused one. The list and the active tab persist per conversation; a conversation saved before tabs existed gains Changes and Activity in front of its files and keeps the tab it was showing.
 
 The "+" opens a menu: Changes and Activity (each only while closed) and, after a separator, "Open file…", which opens quick open with the filter ready. The result line, the top bar's changes button and the details popover's Changes add the Changes tab at the front if it was closed and show it with the requested scope; the popover's Background work does the same for Activity. Closing the last tab leaves an empty panel with three quiet buttons (Changes, Activity, Open a file); the panel stays open until it is hidden. At the right of the strip, "Expand panel" / "Restore panel" makes the panel fill the pane and hides the conversation (Escape does not undo it, and the state is kept per conversation with the rest of the view state), and "Hide panel" closes the panel as the old close button did.  A file opens as a Markdown document (its YAML front matter as a Metadata table, "View source" for the raw text), as highlighted source, as an image, or as a plain note with "Open in" when it is binary or larger than 2 MiB (images: 4 MiB). A filter box searches the project by fuzzy match; below it a lazy folder tree shows the project. When a turn settles, the open file and the tree read the disk again.
 
@@ -3505,6 +3508,36 @@ them in the running app at 1280 by 820.
   width from `env(titlebar-area-width)` into `--frame-controls-inset`, so no header control sits under
   it. The band is the window's drag region except over its controls. The window's title is no longer
   drawn as text; the operating system still has it.
+
+## The side panels
+
+Every side panel is one of two kinds, and each kind has its own share of the main area (the `.workspace`
+element, the part right of the sidebar), so a diff has room while a conversation keeps the rest. The numbers
+are `--panel-*` tokens in `theme.css`; `src/renderer/panel-tokens.test.ts` pins them and
+`e2e/ux-side-panels.test.mjs` reads them from the running app at 1280 by 820 and 1440 by 900.
+
+- **A reading panel** (Changes, an open file, the file browser) is 60 percent of the main area and never
+  under 360 px. **A tool panel** (Activity, the background work) is 40 percent, at least 320 and at most 560 px.
+  A terminal opens as a tab of the conversation strip, not as a side panel, so it has no share of its own.
+- **The conversation keeps the rest.** When that would be under 360 px, the panel lies over the conversation's
+  right side as before: it takes the whole pane, and **Back to conversation** or **Hide panel** bring the chat
+  back. For a reading panel that is any main area under 900 px; for a tool panel, under 680 px (its 320 floor
+  and the conversation's 360). The two container queries in `style.css` and `file-panel.css` spell those edges
+  out, since a query cannot read a token; the test keeps them equal to the sums.
+- **A 1 px seam** divides the panel from the conversation. A 7 px zone centred on it (`.panel-resize-handle`)
+  can be dragged: while it is hovered, focused or held, a 2 px line in the primary colour shows on it. A double
+  click puts the share back and forgets the dragged width; the arrow keys move it by 24 px (80 with Shift) when
+  it has focus, Left making the panel wider. A dragged width is kept for each kind of panel apart, per pane
+  (`namzu.workspace.panel-width:<pane>:<kind>`), within the kind's floor and what leaves the conversation 360 px;
+  an older width saved without a kind is no longer read. There is no seam to move while a panel lies over the
+  pane.
+- **A panel's header is 44 px high** with a 1 px line under it. The Changes header's title is 14/20 at weight 500,
+  20 px in from the panel's edge; the tab strip of the other panels starts its first tab at the same 20. Its
+  controls are 28 by 28, 4 apart, the last one 8 px from the right edge.
+- **The header's tools** (Changes, Project files) are 28 px high, 4 apart; a tool whose panel is open carries a fill
+  of 8 percent of the text colour and `aria-pressed`.
+- **The list of changed files** is at the right of the diff, 240 px wide. In a short list a file's name is never
+  cut before its folder is: the folder, shown only where two files share a name, shrinks first, and a name cut at last is cut at its start so its end stays readable.
 
 ## The frame's numbers
 

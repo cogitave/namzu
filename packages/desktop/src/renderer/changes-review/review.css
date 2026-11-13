@@ -17,17 +17,24 @@
 	display: flex;
 	flex: none;
 	align-items: center;
-	gap: 10px;
-	height: 40px;
-	padding: 0 8px 0 14px;
-	border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+	gap: 12px;
+	height: var(--panel-header-height);
+	padding: 0 var(--panel-control-inset) 0 var(--panel-title-inset);
+	border-bottom: 1px solid var(--border);
 }
 .changes-title {
 	flex: none;
 	margin: 0;
 	font-size: var(--text-interface);
 	line-height: var(--leading-interface);
-	font-weight: var(--weight-strong);
+	font-weight: var(--weight-control);
+}
+/* The header's controls: 28 square, 4 apart, the last one 8 from the panel's edge. */
+.changes-controls {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: var(--panel-control-gap);
 }
 .changes-switch {
 	display: inline-flex;
@@ -66,7 +73,7 @@
 	flex: none;
 	align-items: center;
 	gap: 4px;
-	height: 28px;
+	height: var(--frame-control-size);
 	padding: 0 8px;
 	border-radius: var(--radius-control);
 	color: var(--muted-foreground);
@@ -113,8 +120,8 @@
 	display: inline-grid;
 	flex: none;
 	place-items: center;
-	width: 24px;
-	height: 24px;
+	width: var(--frame-control-size);
+	height: var(--frame-control-size);
 	border-radius: var(--radius-chip);
 	color: var(--muted-foreground);
 	cursor: pointer;
@@ -169,27 +176,27 @@
 	min-height: 0;
 	min-width: 0;
 }
-/* From the width the pane opens at, the files sit beside the diff, narrow, on its left. */
+/* Wide enough, the files sit at the right of the diff: 240 wide, a 1px line between, the diff taking the rest. */
 @container changes (min-width: 440px) {
 	.changes-body {
-		grid-template-columns: 168px minmax(0, 1fr);
+		grid-template-columns: minmax(0, 1fr) var(--panel-files-width);
 		grid-template-rows: minmax(0, 1fr);
 	}
 	.changes-files {
 		grid-row: 1;
-		grid-column: 1;
+		grid-column: 2;
 		display: flex;
 		max-height: none;
 		padding: 6px;
 		border-bottom: 0;
-		border-inline-end: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+		border-inline-start: 1px solid var(--border);
 	}
 	.changes-files-toggle {
 		display: none;
 	}
 	.changes-diff {
 		grid-row: 1;
-		grid-column: 2;
+		grid-column: 1;
 	}
 }
 .changes-flat {
@@ -206,7 +213,7 @@
 	align-items: center;
 	gap: 8px;
 	width: 100%;
-	height: 28px;
+	height: var(--panel-file-row);
 	padding: 0 8px;
 	border-radius: var(--radius-control);
 	color: var(--foreground);
@@ -224,14 +231,31 @@
 	text-decoration: line-through;
 }
 .changes-flat-name {
-	flex: 1;
+	/* The name gives way last: it holds its own width until the folder beside it is gone. When it is cut
+	   at last, it is cut at its start, so the end that tells two long names apart stays readable. */
+	flex: 0 1 auto;
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	/* Cut at the start so the end of a long name stays readable, as the diff header does. */
 	direction: rtl;
 	text-align: left;
+}
+.changes-flat-folder {
+	/* The folder goes first: it is the part that shrinks, to nothing before the name is cut. */
+	flex: 1 10000 0;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	text-align: left;
+}
+.changes-flat-name + .changes-tree-counts,
+.changes-flat-name + .changes-tree-note {
+	margin-inline-start: auto;
 }
 .changes-filter {
 	display: flex;
