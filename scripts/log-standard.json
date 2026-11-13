@@ -132,6 +132,12 @@
 			"reason": "the one JSON value each host query (history, skills-json, providers-json) prints for a host UI to parse, or `[]` on failure; stderr carries NDJSON log records, so no log line lands on this channel."
 		},
 		{
+			"file": "packages/cli/src/commands/hooks.ts",
+			"symbol": "process.stdout.write",
+			"count": 1,
+			"reason": "the one JSON value `namzu hooks --json` prints for a script to parse; stderr carries NDJSON log records, so no log line lands on this channel."
+		},
+		{
 			"file": "packages/cli/src/commands/peers.ts",
 			"symbol": "process.stdout.write",
 			"count": 2,

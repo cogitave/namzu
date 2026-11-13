@@ -351,6 +351,80 @@ export function describeEntryRuns(entry: HookEntry): string {
 	return [entry.command, ...(entry.args ?? [])].join(' ')
 }
 
+/** What one plugin on disk ships, read without loading any of its code. */
+export interface PluginHookSource {
+	readonly name: string
+	readonly rootDir: string
+	readonly scope: PluginScope
+	/** The plugin is on at startup (its saved state; on unless switched off). */
+	readonly enabled: boolean
+	readonly entries: HooksConfig
+	readonly count: number
+	readonly problems: readonly PluginHookProblem[]
+	/** The files and keys the entries came from. */
+	readonly files: readonly string[]
+	/** The JavaScript modules the manifest lists as hooks: named here, never imported. */
+	readonly modules: readonly string[]
+}
+
+/**
+ * Every plugin the folders a session would read hold, with the hook entries it
+ * ships. Only manifests and the files of entries are read; a plugin's
+ * JavaScript is never imported. A project plugin is read only when `trusted`,
+ * or when `includeUntrusted` asks to see what a trust would start (it is then
+ * marked by its scope, and the caller says it is not running).
+ */
+export async function readPluginHookSources(options: {
+	readonly cwd: string
+	readonly home: string
+	readonly allowedScopes: readonly PluginScope[]
+	readonly autoDiscovery: boolean
+	readonly trusted: boolean
+	readonly includeUntrusted?: boolean
+	readonly enabled: (plugin: { readonly rootDir: string; readonly name: string }) => boolean
+}): Promise<PluginHookSource[]> {
+	const scopes = options.allowedScopes.filter(
+		(scope) => scope !== 'project' || options.trusted || options.includeUntrusted === true,
+	)
+	const dirs = await discoverAllPluginDirs(options.cwd, {
+		enabled: true,
+		autoDiscovery: options.autoDiscovery,
+		allowedScopes: scopes,
+		userRoot: options.home,
+	})
+	const out: PluginHookSource[] = []
+	const found: { dir: string; scope: PluginScope }[] = [
+		...dirs.project.map((dir) => ({ dir, scope: 'project' as const })),
+		...dirs.user.map((dir) => ({ dir, scope: 'user' as const })),
+	].sort((a, b) => a.dir.localeCompare(b.dir))
+	for (const { dir, scope } of found) {
+		try {
+			const manifest = await loadPluginManifest(dir)
+			const read = readPluginHookEntriesOf({ rootDir: dir, manifest })
+			let enabled = true
+			try {
+				enabled = options.enabled({ rootDir: realpathSync(dir), name: manifest.name })
+			} catch {
+				enabled = false
+			}
+			out.push({
+				name: manifest.name,
+				rootDir: dir,
+				scope,
+				enabled,
+				entries: read.hooks,
+				count: read.count,
+				problems: read.problems,
+				files: read.files,
+				modules: (manifest.hooks ?? []).filter((path) => !isHookEntriesPath(path)),
+			})
+		} catch {
+			// A plugin whose manifest cannot be read is `namzu plugin validate`'s to say.
+		}
+	}
+	return out
+}
+
 /** What the plugins on disk ship, for the doctor row: read without starting a session. */
 export interface PluginHookSummary {
 	readonly plugins: readonly {
@@ -377,12 +451,13 @@ export async function summarizePluginHooks(options: {
 	readonly trusted: boolean
 	readonly enabled: (plugin: { readonly rootDir: string; readonly name: string }) => boolean
 }): Promise<PluginHookSummary> {
-	const scopes = options.allowedScopes.filter((scope) => scope !== 'project' || options.trusted)
-	const dirs = await discoverAllPluginDirs(options.cwd, {
-		enabled: true,
+	const read = await readPluginHookSources({
+		cwd: options.cwd,
+		home: options.home,
+		allowedScopes: options.allowedScopes,
 		autoDiscovery: options.autoDiscovery,
-		allowedScopes: scopes,
-		userRoot: options.home,
+		trusted: options.trusted,
+		enabled: options.enabled,
 	})
 	const plugins: PluginHookSummary['plugins'][number][] = []
 	let unreadProjectPlugins = 0
@@ -395,21 +470,14 @@ export async function summarizePluginHooks(options: {
 		})
 		unreadProjectPlugins = found.project.length
 	}
-	for (const dir of [...dirs.project, ...dirs.user].sort((a, b) => a.localeCompare(b))) {
-		try {
-			const manifest = await loadPluginManifest(dir)
-			const read = readPluginHookEntriesOf({ rootDir: dir, manifest })
-			let enabled = true
-			try {
-				enabled = options.enabled({ rootDir: realpathSync(dir), name: manifest.name })
-			} catch {
-				enabled = false
-			}
-			if (read.count > 0 || read.problems.length > 0) {
-				plugins.push({ name: manifest.name, count: read.count, enabled, problems: read.problems })
-			}
-		} catch {
-			// A plugin whose manifest cannot be read is `namzu plugin validate`'s to say.
+	for (const plugin of read) {
+		if (plugin.count > 0 || plugin.problems.length > 0) {
+			plugins.push({
+				name: plugin.name,
+				count: plugin.count,
+				enabled: plugin.enabled,
+				problems: plugin.problems,
+			})
 		}
 	}
 	return { plugins, unreadProjectPlugins }

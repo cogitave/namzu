@@ -13,6 +13,12 @@ if (process.argv[2] === "computer" && process.env.NAMZU_E2E_COMPUTER_SCRIPT) {
 	await runComputerStandIn(process.argv.slice(3), process.env.NAMZU_E2E_COMPUTER_SCRIPT);
 	process.exit(0);
 }
+// A flow about an engine that does not know the hooks question: `namzu hooks` is answered as an
+// unknown command would be. Only that command changes; everything else is the real CLI.
+if (process.argv[2] === "hooks" && process.env.NAMZU_E2E_NO_HOOKS_COMMAND) {
+	process.stderr.write("unknown command: hooks\n");
+	process.exit(2);
+}
 createRequire(import.meta.url)("./redirect-fetch.cjs");
 // A flow that needs a Pal computer on a machine with no container engine asks for a stand-in:
 // the optional sandbox package is answered by a small module whose guest is a recorder. Nothing

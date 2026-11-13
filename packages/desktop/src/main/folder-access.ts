@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { posix, win32 } from 'node:path'
 import { basename } from 'node:path'
 import type { BroadFolderKind, ProjectView } from '../shared/protocol.js'
+import type { FolderFindings } from './folder-hooks.js'
 import { type AutoRunFinding, inspectAutoRunSettings } from './folder-settings.js'
 
 /**
@@ -197,6 +198,11 @@ export interface FolderAccessDeps {
 	tokens?: FolderAccessTokens
 	/** What a folder carries that runs code on its own; empty for an ordinary one. */
 	findSettings?: (path: string) => Promise<AutoRunFinding[]>
+	/**
+	 * The same question answered from the engine's own reading of the folder's hooks, which also says
+	 * when it could not. Takes the place of `findSettings` when given.
+	 */
+	inspectFolder?: (path: string) => Promise<FolderFindings>
 }
 
 /** The id a folder that is not in the app yet carries; no project ever has it. */
@@ -214,6 +220,7 @@ function risky(
 	found: readonly AutoRunFinding[],
 	token: string,
 	changed: readonly string[] = [],
+	incomplete = false,
 ): NonNullable<ProjectView['riskySettings']> {
 	const labels = found.map((item) => item.label)
 	const details = found
@@ -222,6 +229,7 @@ function risky(
 	return {
 		found: [...changed, ...labels.filter((label) => !changed.includes(label))],
 		...(details.length > 0 ? { details } : {}),
+		...(incomplete ? { incomplete: true as const } : {}),
 		token,
 	}
 }
@@ -230,10 +238,11 @@ export class FolderAccess {
 	private readonly canonical: (path: string) => string
 	private readonly env: BroadFolderEnv
 	private readonly tokens: FolderAccessTokens
-	private readonly findSettings: (path: string) => Promise<AutoRunFinding[]>
+	private readonly findSettings: (path: string) => Promise<FolderFindings>
 	constructor(private readonly deps: FolderAccessDeps) {
 		this.canonical = deps.canonical ?? canonicalFolder
-		this.findSettings = deps.findSettings ?? inspectAutoRunSettings
+		const own = deps.findSettings ?? inspectAutoRunSettings
+		this.findSettings = deps.inspectFolder ?? (async (path) => ({ found: await own(path) }))
 		this.env = deps.env ?? { platform: process.platform, home: homedir(), env: process.env }
 		const windows = this.env.platform === 'win32'
 		this.tokens =
@@ -270,9 +279,17 @@ export class FolderAccess {
 		const kind = classifyBroadFolder(canonical, this.env, this.canonical)
 		if (kind)
 			return { ...pending, broadFolder: { kind, token: this.tokens.issue(windowId, canonical) } }
-		const found = await this.findSettings(canonical)
+		const { found, incomplete } = await this.findSettings(canonical)
 		if (found.length > 0)
-			return { ...pending, riskySettings: risky(found, this.tokens.issue(windowId, canonical)) }
+			return {
+				...pending,
+				riskySettings: risky(
+					found,
+					this.tokens.issue(windowId, canonical),
+					[],
+					incomplete === true,
+				),
+			}
 		const project = await this.deps.openProject(path)
 		if (project.trusted || project.status !== 'ready') return project
 		return this.decide(windowId, project)
@@ -312,16 +329,24 @@ export class FolderAccess {
 		const path = this.canonical(project.path)
 		const kind = classifyBroadFolder(path, this.env, this.canonical)
 		if (kind) return { ...project, broadFolder: { kind, token: this.tokens.issue(windowId, path) } }
-		const found = await this.findSettings(path)
+		const { found, incomplete } = await this.findSettings(path)
 		// A folder whose settings changed is never trusted on the renderer's word: it gets the
 		// detailed dialog, with what changed first, and trust takes main's token.
 		if (project.settingsChanged?.length)
 			return {
 				...project,
-				riskySettings: risky(found, this.tokens.issue(windowId, path), project.settingsChanged),
+				riskySettings: risky(
+					found,
+					this.tokens.issue(windowId, path),
+					project.settingsChanged,
+					incomplete === true,
+				),
 			}
 		if (found.length > 0)
-			return { ...project, riskySettings: risky(found, this.tokens.issue(windowId, path)) }
+			return {
+				...project,
+				riskySettings: risky(found, this.tokens.issue(windowId, path), [], incomplete === true),
+			}
 		// A picked folder is trusted by the pick itself. A known folder reaches here only
 		// after the in-app dialog, whose confirmation the renderer reported.
 		return this.deps.trust(project.id)

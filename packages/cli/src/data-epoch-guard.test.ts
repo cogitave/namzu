@@ -27,6 +27,9 @@ const RULE = [
 const CONSTANTS: Record<string, { version: number; onDisk: boolean }> = {
 	'checkpoints/manifest.ts#MANIFEST_VERSION': { version: 1, onDisk: true },
 	'computer/run.ts#COMPUTER_JSON_VERSION': { version: 1, onDisk: false },
+	// The answer to "what runs by itself in a folder" (`namzu hooks --json`, the Desktop app's
+	// `namzu/hooks/list`): printed or sent, never stored.
+	'config/hooks-report.ts#HOOKS_REPORT_VERSION': { version: 1, onDisk: false },
 	'integrations/harness/model-cache.ts#VERSION': { version: 1, onDisk: true },
 	'integrations/mcp/project-approval.ts#FILE_VERSION': { version: 1, onDisk: true },
 	// The `--json` report of `namzu plugin validate`: printed, never stored.
