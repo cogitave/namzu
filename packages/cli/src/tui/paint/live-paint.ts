@@ -185,13 +185,15 @@ export function pinnedRows(rows: readonly string[], pin: Pin | null): readonly s
 let turnJustEnded = false
 
 /**
- * The turn ended: the working line, the plan and the calls are about to leave the live region. The
- * next time the region gets shorter by rows above its bottom it keeps its height, so the input box
- * stays where it was while the turn ran (`NAMZU_BOX_AT_BOTTOM=0` leaves the box where the shorter region ends instead). Called from the render that shows the idle state, so it is
- * known before the frame that shrinks is painted.
+ * The turn ended: the working line, the plan and the calls are about to leave the live region.
+ * With `NAMZU_BOX_AT_BOTTOM=1` in the environment, the next time the region gets shorter by rows
+ * above its bottom it keeps its height, so the input box stays where it was while the turn ran.
+ * Without it (the default) the box rests where the shorter region ends, right under the last
+ * reply. Called from the render that shows the idle state, so it is known before the frame that
+ * shrinks is painted.
  */
 export function noteTurnEnded(): void {
-	turnJustEnded = process.env.NAMZU_BOX_AT_BOTTOM !== '0'
+	turnJustEnded = process.env.NAMZU_BOX_AT_BOTTOM === '1'
 }
 
 /** A turn began: nothing is waiting to be pinned. */

@@ -1590,8 +1590,11 @@ writer of Namzu's own (`packages/cli/src/tui/paint/`) that sits between the rend
   erases the scrollback is never written); the height of the frame it ends with is taken from the next frame's
   erase, and painting by what changed goes on from there. (Before this, such a block left the screen empty.) A
   compaction is not one of these on the default screen: it keeps the rows and adds one.
-- **The input box keeps its row when a turn ends.** The working line, the plan, the calls and the live end of the
-  reply leave the region when a turn ends, so it is shorter. The renderer is told the turn has ended (before the
+- **Where the input box rests when a turn ends.** The working line, the plan, the calls and the live end of the
+  reply leave the region when a turn ends, so it is shorter. By default the box rests where the shorter region
+  ends: right under the last reply, with the rows the working area had left empty under the status line until
+  the next turn starts (3 rows after a short reply at 80x24). `NAMZU_BOX_AT_BOTTOM=1` in the environment keeps
+  the box on its row instead. With it the renderer is told the turn has ended (before the
   frame that drops those rows is drawn) and for that one shrink, when the rows that went were above the box (the
   rows left are the old frame's last rows, the status line aside), the region keeps its height: the freed rows
   become blank rows just above the box and the box and the status line stay on the rows they had while the turn ran.
@@ -1603,8 +1606,8 @@ writer of Namzu's own (`packages/cli/src/tui/paint/`) that sits between the rend
   default one lets the height go. While a reply streams, its live rows leaving the region as they are printed
   never pin it (no turn has ended). The cost is the blank rows themselves: between the last row of a short reply
   and the box there are as many blank rows as the working area had (3 after a short reply at 80x24, up to 5
-  after a plan), until the next turn starts. `NAMZU_BOX_AT_BOTTOM=0` leaves the box where the shorter region ends
-  (the rows under it empty), as before; so does `NAMZU_LEGACY_PAINT=1`, which hands the writing back to Ink.
+  after a plan), until the next turn starts, which is why it is not the default. `NAMZU_LEGACY_PAINT=1`, which
+  hands the writing back to Ink, never keeps the height.
 - **Leaving gives the terminal back.** The last frame is painted, the cursor is shown and left at the start of a
   line under the last frame, also after a signal (Ctrl+C twice, `SIGTERM`, `SIGHUP`) and when the process ends
   without unmounting (an uncaught error). A process continued after a stop draws a fresh frame on a new line

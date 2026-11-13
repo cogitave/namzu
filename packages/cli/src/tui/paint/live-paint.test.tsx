@@ -203,13 +203,19 @@ describe('a frame writes only what changed', () => {
 	})
 })
 
-describe('the input box stays on the last rows when rows above it leave', () => {
+describe('with NAMZU_BOX_AT_BOTTOM=1 the input box stays on the last rows when rows above it leave', () => {
 	const working = 'working\n\n'
 	const box = '----------\ncomposer\n----------\nstatus\n'
 	const printed = (n: number) => Array.from({ length: n }, (_, i) => `line ${i + 1}\n`).join('')
 
-	beforeEach(noteTurnStarted)
-	afterEach(noteTurnStarted)
+	beforeEach(() => {
+		vi.stubEnv('NAMZU_BOX_AT_BOTTOM', '1')
+		noteTurnStarted()
+	})
+	afterEach(() => {
+		vi.unstubAllEnvs()
+		noteTurnStarted()
+	})
 
 	/** The screen's own rows, top to bottom, as the terminal holds them now. */
 	async function viewport(tty: Tty): Promise<string[]> {
@@ -369,13 +375,12 @@ describe('the input box stays on the last rows when rows above it leave', () => 
 		expect(rows.at(-5)).toBe('status')
 	})
 
-	it('NAMZU_BOX_AT_BOTTOM=0 leaves the box where the shorter region ends', async () => {
+	it('without NAMZU_BOX_AT_BOTTOM=1, the default, the box rests where the shorter region ends', async () => {
 		const { tty, clock, out } = rig(40, 12)
 		inkFrame(out, working + box, 0, printed(10))
 		clock.advance(FRAME_MS)
-		vi.stubEnv('NAMZU_BOX_AT_BOTTOM', '0')
-		noteTurnEnded()
 		vi.unstubAllEnvs()
+		noteTurnEnded()
 		inkFrame(out, box, 6)
 		clock.advance(FRAME_MS)
 		expect((await viewport(tty)).at(-4)).toBe('status')
