@@ -138,6 +138,21 @@ describe('what a session hook is told', () => {
 		expect(await runs('session_start', 'startup|resume', { source: 'startup' })).toBe(true)
 	})
 
+	it('names the clear values: a start matcher tests the source and the payload sends the reason', async () => {
+		expect(await runs('session_start', 'clear', { source: 'clear' })).toBe(true)
+		expect(await runs('session_start', 'clear', { source: 'startup' })).toBe(false)
+		expect(await runs('session_start', 'startup|clear', { source: 'clear' })).toBe(true)
+		const end = JSON.parse(
+			shellHookPayload({
+				event: 'session_end',
+				cwd: '/p',
+				sessionId: SESSION,
+				endReason: 'clear',
+			}),
+		)
+		expect(end.reason).toBe('clear')
+	})
+
 	it('tests a matcher on session_end against the reason', async () => {
 		const hook = createShellHook(
 			'session_end',

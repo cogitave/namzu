@@ -299,19 +299,22 @@ export interface PluginNotificationInfo {
 }
 
 /**
- * Why a session started, on `session_start`: `startup` for a conversation
+ * Why a conversation began, on `session_start`: `startup` for a conversation
  * with no earlier turn, `resume` for one that already had turns (a resumed
- * conversation, a `--continue`, or a session rebuilt under a running one).
+ * conversation, a `--continue`, a fork, or a session rebuilt under a running
+ * one), `clear` for the empty conversation a host opens when the person
+ * clears the old one (`/clear`, `/new`).
  */
-export type PluginSessionSource = 'startup' | 'resume'
+export type PluginSessionSource = 'startup' | 'resume' | 'clear'
 
 /**
- * Why a session closed, on `session_end`: `exit` when the host is finishing
- * with it (the process ends, the person quits), `replaced` when the host
- * builds another session in its place (a model or account switch, another
- * conversation opened).
+ * Why a conversation ended, on `session_end`: `exit` when the host is
+ * finishing with it (the process ends, the person quits), `replaced` when the
+ * host moves to another session or conversation in its place (a model or
+ * account switch, another conversation opened or forked), `clear` when the
+ * person cleared it and a new, empty conversation begins (`/clear`, `/new`).
  */
-export type PluginSessionEndReason = 'exit' | 'replaced'
+export type PluginSessionEndReason = 'exit' | 'replaced' | 'clear'
 
 export interface PluginHookContext {
 	/** The turn the hook fired in. Absent on `session_start` and `session_end`. */

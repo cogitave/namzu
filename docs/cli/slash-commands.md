@@ -28,8 +28,8 @@ clause, so no line ends mid-sentence.
 | `/setup` | Check optional Codex, Claude Code and OpenCode installations separately from credential availability. Confirm an npm installation, cancel it, recheck, or open provider connection. |
 | `/config`, `/settings` | View and edit model, reasoning effort, permission mode and turn limits; inspect configuration sources. `/config triggers on\|off` switches [composer triggers](composer-triggers.md) in your user config; `/config triggers` lists what is in force. `/config theme [name]` picks the [theme](themes.md) (the same as `/theme`). `/config motion on\|off\|list` switches [reduced motion](themes.md). `/config recap on\|off\|list` switches the [away recap](terminal-design.md#focus-and-the-away-recap) in your user config (`tui.recap`). `/config tips on\|off\|list` shows or hides the [tip under the working row](terminal-design.md#tips-and-the-next-task-under-the-working-row). |
 | `/feedback` | Rate the last answer; choose good/bad or add an optional note. |
-| `/clear` | Clear the terminal and start a fresh conversation. |
-| `/new` | Start a fresh conversation without clearing the terminal. |
+| `/clear` | Clear the terminal and start a fresh conversation. [Hooks](../sdk/hooks.md#session-start-and-end) are told: `session_end` (reason `clear`) for the conversation left, then `session_start` (source `clear`) for the new one, and the left conversation's session-start context is dropped. |
+| `/new` | Start a fresh conversation without clearing the terminal. Tells hooks the same as `/clear`. |
 | `/archive` | Archive this conversation and exit after confirmation. |
 | `/unarchive` | List this project's archived conversations, restore one and open it. Older archived conversations can be found with `namzu archive list --page <n>` and restored by id. |
 | `/exit` | Exit namzu. |

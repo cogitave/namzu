@@ -24,8 +24,8 @@
  * same facts as `NAMZU_HOOK_EVENT`, `NAMZU_SESSION_ID`, `NAMZU_TURN_ID`,
  * `NAMZU_TOOL_NAME` and, when the input names a file, `NAMZU_TOOL_PATH`;
  * `NAMZU_PROJECT_DIR` is the folder the session was started for.
- * `session_start` also sends `source` (`startup` or `resume`) and `session_end`
- * `reason` (`exit` or `replaced`).
+ * `session_start` also sends `source` (`startup`, `resume` or `clear`) and
+ * `session_end` `reason` (`exit`, `replaced` or `clear`).
  *
  * `session_start` and `session_end` run outside any turn, so they carry no
  * `turn_id` on stdin and no `NAMZU_TURN_ID` in the environment — not even
