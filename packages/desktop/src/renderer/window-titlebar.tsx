@@ -312,6 +312,16 @@ function ApplicationMenu({
 				if (next) return
 				const action = pending.current
 				pending.current = null
+				// Closing a submenu by hand and then the menu leaves focus on a row that is about to go,
+				// and so on nothing, because the popup's own hand-back only covers the path where the root
+				// had focus last. Whatever closed it, focus ends on the field Edit acts on or on the
+				// button, never on the page; a click that moved focus elsewhere is left alone.
+				const active = document.activeElement
+				if (!active || active === document.body || active.closest('.window-titlebar-popup')) {
+					const target =
+						ranCommand.current && before.current?.isConnected ? before.current : button.current
+					target?.focus()
+				}
 				ranCommand.current = false
 				action?.()
 			}}

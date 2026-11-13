@@ -436,3 +436,55 @@ test("a side panel starts under the band, so the band runs the whole width and n
 		await dispose(w, { failed });
 	}
 });
+
+test("focus returns to the button when a hover-opened submenu and then the menu are closed with Escape", { timeout: 280000 }, async () => {
+	const w = await createWorld({ rules: RULES, tabs: "hidden" });
+	let failed = true;
+	try {
+		await launch(w);
+		await openProject(w);
+		await size(w, 1280, 820);
+		const popup = w.page.getByRole("menu", { name: "Menu", exact: true });
+		const onButton = () => w.page.evaluate(() => document.activeElement?.getAttribute("aria-label") === "Menu" && document.activeElement.closest(".window-titlebar") !== null);
+		await menuButton(w).click();
+		await expect(popup).toBeVisible({ timeout: T });
+		await pointAt(w, popup.getByRole("menuitem", { name: "Edit", exact: true }));
+		const edit = w.page.getByRole("menu", { name: "Edit", exact: true });
+		await expect(edit).toBeVisible({ timeout: T });
+		await w.page.keyboard.press("Escape");
+		await expect(edit).toHaveCount(0, { timeout: T });
+		await w.page.keyboard.press("Escape");
+		await expect(popup).toHaveCount(0, { timeout: T });
+		await expect.poll(onButton, { timeout: T }).toBe(true);
+		failed = false;
+	} finally {
+		await dispose(w, { failed });
+	}
+});
+
+test("in a narrow window the sidebar overlay starts under the band, which stays in reach", { timeout: 280000 }, async () => {
+	const w = await createWorld({ rules: RULES, tabs: "hidden" });
+	let failed = true;
+	try {
+		await launch(w);
+		await openProject(w);
+		await size(w, 700, 820);
+		await w.page.getByRole("button", { name: "Toggle sidebar" }).click();
+		await expect(w.page.locator("aside.sidebar.open")).toHaveCount(1, { timeout: T });
+		await settled(w);
+		const band = await area(w, ".window-titlebar");
+		const aside = await area(w, "aside.sidebar");
+		const scrim = await area(w, ".scrim");
+		assert.equal(aside.y - band.bottom, 0, "the overlay starts at the band's bottom");
+		assert.equal(scrim.y - band.bottom, 0, "so does the scrim, which leaves the band undimmed");
+		// Every control of the cluster is the topmost thing at its centre: none is under the overlay.
+		for (const label of ["Menu", "Toggle sidebar", "Go back", "Go forward"]) {
+			const b = await box(w, label);
+			const top = await w.page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest(".window-titlebar") !== null, [b.x + b.w / 2, b.y + b.h / 2]);
+			assert.equal(top, true, `${label} is reachable with the overlay open`);
+		}
+		failed = false;
+	} finally {
+		await dispose(w, { failed });
+	}
+});

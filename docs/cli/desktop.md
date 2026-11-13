@@ -1992,7 +1992,7 @@ row, the foot also carries Home, so the way back is never lost. While the sideba
 below) the 48 px rail is drawn with Home in its header band (36 px) at the top and Settings in its foot (45 px, with the same line above it as the sidebar's foot) at the bottom; a control that had the
 focus when the rail and the foot swap keeps it. Opening or closing the sidebar moves the conversation by
 exactly the width that changes (288 px open, 48 px collapsed). In a window of 767 px or less the sidebar is an
-overlay beside the rail, and the foot is not drawn. The sidebar's header and the top bar's hairline end on
+overlay beside the rail that starts under the 36 px header band, so the band's menu, toggle, back, forward and title stay in view and reachable while it is open (the scrim leaves the band undimmed), and the foot is not drawn. The sidebar's header and the top bar's hairline end on
 one line: both are 36 px, with the strip of tabs and without it, and in Settings (see
 [The frame's numbers](#the-frames-numbers)). The wordmark keeps its size (two rows, 22 px high, inside the 36 with 7 above and below), and the menu button around it is 28 px high. Home
 owns the chat and blank composer. Spaces, Scheduled and Plugins are not on the rail:

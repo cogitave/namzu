@@ -1361,7 +1361,9 @@ pre {
 	}
 	.sidebar {
 		position: absolute;
-		inset: 0 auto 0 var(--frame-rail-width);
+		/* The overlay starts under the header band, so the band's menu, toggle, back, forward and title
+		   stay in sight and in reach while it is open. */
+		inset: var(--frame-header-height) auto 0 var(--frame-rail-width);
 		width: min(288px, calc(100vw - 64px));
 		z-index: var(--z-nav);
 		visibility: hidden;
@@ -1387,7 +1389,7 @@ pre {
 	.scrim {
 		display: block;
 		position: fixed;
-		inset: 0 0 0 var(--frame-rail-width);
+		inset: var(--frame-header-height) 0 0 var(--frame-rail-width);
 		z-index: var(--z-scrim-nav);
 		background: rgb(0 0 0 / 45%);
 	}
