@@ -58,6 +58,7 @@ Both keys are read from your own files (user config, a profile you select, the m
 - the pulse along the composer's rule when hypermode is switched on (it plays once when `/hypermode` turns the session mode on, not when the word is merely typed into a message);
 - the blinking dot of an open line of reads and searches, which stays lit;
 - the tab title's busy glyph, which stays on its first frame.
+- the wheel's glide in fullscreen mode: a notch moves the view in one frame (the speed-up stays, unless `tui.wheelAccel` is `false`).
 
 Text, colours otherwise, and every figure (elapsed time, token count) are unchanged. Default off. `NO_COLOR`, `FORCE_COLOR=0`, `TERM=dumb` and a screen reader also stop the motion, with or without the setting. `/config motion` says which it is now.
 

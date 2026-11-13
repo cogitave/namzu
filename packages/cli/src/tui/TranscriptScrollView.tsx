@@ -1,6 +1,7 @@
 import { Box, Text, useInput } from 'ink'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { baselineOf, newsSince, replyList } from './new-output.js'
 import { theme } from './theme.js'
 import {
 	type ScrollMove,
@@ -46,6 +47,8 @@ export function TranscriptScrollView({
 		() => transcriptScrollRows(messages, pending, pendingAt, columns),
 		[messages, pending, pendingAt, columns],
 	)
+	// What the transcript held when the view opened: the count says how many replies came after.
+	const baseline = useRef(baselineOf(replyList(messages, pending, pendingAt))).current
 	const [state, setState] = useState<ScrollState | null>(() => openScroll(rows, height))
 	const view = state === null ? 'latest' : syncScroll(state, rows, height)
 
@@ -79,7 +82,8 @@ export function TranscriptScrollView({
 
 	if (view === 'latest') return null
 	const shown = rows.slice(view.top, view.top + height)
-	const hint = followHint(columns, view.unseen)
+	const news = newsSince(baseline, replyList(messages, pending, pendingAt), view.unseen)
+	const hint = followHint(columns, news)
 	return (
 		<Box flexDirection="column">
 			{shown.map((row, i) => (

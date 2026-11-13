@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-13
+
+- **Update** [Terminal design](cli/terminal-design.md#the-wheel): in fullscreen mode every wheel notch adds to a distance the view glides over in a few frames (two notches in one chunk of input both count; they used to count once), a fast run of notches speeds up to about a window a notch and a pause, a change of direction or a bounce is handled, and `tui.wheelAccel` and `tui.wheelRows` switch the speed-up off and set the rows per notch. The hint for new output now counts replies (`2 new replies · ↓ Jump to latest · End`), says when the reply only grew, can be clicked, and a quiet rule in the transcript marks where the new part begins; the default screen's scroll-back view uses the same counter. Keys and mouse presses are immediate. `.changeset/cli-fullscreen-wheel-glide-and-count.md`.
+
 ## 2026-11-12
 
 - **Update** [Terminal design](cli/terminal-design.md#how-the-default-screen-is-painted): the scrollback rule is stated once and kept by every command on the default screen: `/compact` (and the idle compaction) no longer clears or reprints anything, it adds one row saying the messages above are summarized for the model; `/clear`, `/new` and `/resume` clear the visible screen only, the rows on it first move into the scrollback (the one exception, the rows still in the live region, is named). A reply cut off in a table ends the table at its last whole row and keeps the unfinished row as one line of plain text. The page now says that a reopened conversation has no checklist block and a different order of closing rows, that the checklist is printed once when the turn ends, and that rows printed before a narrowing resize can break mid-word. `NO_COLOR` alone now turns colour off everywhere. `.changeset/cli-flowing-transcript-joined.md`.

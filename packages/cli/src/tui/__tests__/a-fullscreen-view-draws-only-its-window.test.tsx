@@ -9,11 +9,12 @@
  */
 
 import { Box, Text, useInput } from 'ink'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it } from 'vitest'
 
 import { FullscreenTranscript } from '../fullscreen/FullscreenTranscript.js'
 import type { FullscreenControl } from '../fullscreen/FullscreenTranscript.js'
 import type { WheelDirection } from '../fullscreen/mouse-wheel.js'
+import { setReducedMotion } from '../motion.js'
 import type { TranscriptMessage } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 
@@ -29,7 +30,10 @@ function lines(count: number): TranscriptMessage[] {
 }
 
 let mounted: Screen | null = null
+// A notch moves the view in one frame, so these tests do not wait on a glide.
+beforeEach(() => setReducedMotion(true))
 afterEach(async () => {
+	setReducedMotion(false)
 	await mounted?.unmount()
 	mounted = null
 })
@@ -146,15 +150,18 @@ it('pages back on PgUp, holds still, and returns to the end on PgDn', async () =
 
 it('scrolls three rows a wheel notch and holds the place when output arrives', async () => {
 	const { screen, bus, control } = await mount(lines(60))
+	const start = shown(screen)
 	bus.emit('up')
 	await screen.waitForRender()
 	const before = shown(screen)
+	// Three rows is one and a half messages, which are two rows each with their gap.
+	expect(Math.max(...start) - Math.max(...before)).toBeGreaterThanOrEqual(1)
 	expect(screen.viewport().join('\n')).toContain('Jump to latest')
 	// One more message below the window.
 	screen.rerender(app(lines(61), bus, control, 12))
 	await screen.waitForRender()
 	expect(shown(screen)).toEqual(before)
-	expect(screen.viewport().join('\n')).toContain('New activity')
+	expect(screen.viewport().join('\n')).toContain('1 new reply')
 })
 
 it('goes to the top on Home and back on End while the composer is empty', async () => {

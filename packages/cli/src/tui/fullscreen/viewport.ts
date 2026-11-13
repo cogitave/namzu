@@ -14,7 +14,7 @@
  * the message the reader was looking at is still there.
  */
 
-import { choiceDisplayWidth } from '../terminal-choice-text.js'
+import { type HintWords, NO_NEWS, type News, newOutputHint } from '../new-output.js'
 
 /** Where one message's rows start in the flat row list. */
 export interface RowIndex {
@@ -228,22 +228,15 @@ export function visibleRange(
 	return { from: Math.max(0, to - Math.max(1, Math.floor(limit))), to }
 }
 
-const HINT_IDLE = ['↓ Jump to latest · PgDn', '↓ Latest · PgDn', '↓ Latest', '↓'] as const
-const HINT_UNSEEN = [
-	'New activity · ↓ Jump to latest · PgDn',
-	'New activity · ↓ Latest · PgDn',
-	'New · ↓ Latest',
-	'↓ Latest',
-	'↓',
-] as const
+/** What the jump hint calls the move and the key that makes it. */
+export const JUMP_WORDS: HintWords = { long: 'Jump to latest', short: 'Latest', key: 'End' }
 
 /**
  * The one row above the composer while scrolled up: the first label that fits,
  * so it shortens before it ever wraps. Null only when not even the arrow fits.
  */
-export function jumpHint(columns: number, unseen: boolean): string | null {
-	const ladder = unseen ? HINT_UNSEEN : HINT_IDLE
-	return ladder.find((label) => choiceDisplayWidth(label) <= columns) ?? null
+export function jumpHint(columns: number, news: News = NO_NEWS): string | null {
+	return newOutputHint(columns, news, JUMP_WORDS)
 }
 
 /**

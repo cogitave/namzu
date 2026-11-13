@@ -3,10 +3,28 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 
 import { ClickCounter } from '../../workspaces/selection.js'
 import { isAction } from '../keymap.js'
+import { motionAllowed } from '../motion.js'
+import {
+	type ReplyBaseline,
+	baselineOf,
+	hasNews,
+	newsSince,
+	promptAfter,
+	replyList,
+} from '../new-output.js'
 import { useThemeEpoch } from '../theme-store.js'
 import { theme } from '../theme.js'
 import type { TranscriptMessage } from '../types.js'
-import { createLayoutCache, layoutTranscript } from './layout.js'
+import {
+	DEFAULT_WHEEL,
+	WHEEL_FEEL,
+	WHEEL_IDLE,
+	type WheelState,
+	frame,
+	notch,
+	settle,
+} from './glide.js'
+import { type UnseenMark, createLayoutCache, layoutTranscript } from './layout.js'
 import type { PointerReport, WheelDirection } from './mouse-wheel.js'
 import { type Mark, paintRow } from './paint.js'
 import type { FsRow, StyledSpan } from './rows.js'
@@ -84,8 +102,29 @@ export interface FullscreenTranscriptProps {
 	/** Told when the search line opens or closes: the composer must not take keys while it is open. */
 	readonly onSearchChange?: (open: boolean) => void
 	readonly control: { current: FullscreenControl | null }
+	/** Rows a slow wheel notch moves (`tui.wheelRows`); 3 when absent. */
+	readonly wheelRows?: number
+	/** Whether a fast run of notches speeds up (`tui.wheelAccel`); on when absent. */
+	readonly wheelAccel?: boolean
 	/** Milliseconds a note stays; a test passes its own scheduler. */
 	readonly noteMs?: number
+	/** The clock the wheel reads and schedules its frames on; a test passes its own. */
+	readonly clock?: WheelClock
+}
+
+/** What the wheel needs of time: the hour, and a way to run something a moment later. */
+export interface WheelClock {
+	now(): number
+	/** Runs `run` after `ms`; the returned function cancels it. */
+	after(run: () => void, ms: number): () => void
+}
+
+const REAL_CLOCK: WheelClock = {
+	now: () => Date.now(),
+	after: (run, ms) => {
+		const timer = setTimeout(run, ms)
+		return () => clearTimeout(timer)
+	},
 }
 
 /** Cells of the gutter (glyph and a space) the text starts after. */
@@ -164,6 +203,9 @@ export function FullscreenTranscript({
 	onSearchChange,
 	control,
 	noteMs,
+	clock = REAL_CLOCK,
+	wheelRows = DEFAULT_WHEEL.rows,
+	wheelAccel = DEFAULT_WHEEL.accel,
 }: FullscreenTranscriptProps) {
 	const cache = useRef(createLayoutCache()).current
 	const epoch = useThemeEpoch()
@@ -172,10 +214,31 @@ export function FullscreenTranscript({
 	// Which rows are open belongs to this view: it is not saved, and a resume starts folded.
 	const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set())
 	const openRef = useRef(open)
+	const [view, setView] = useState<ViewState>(FOLLOWING)
+
+	// ---- what is new below a reader who scrolled up
+	// Taken while rendering and only while scrolled up (or a rule is still standing),
+	// so following costs nothing. `away` is what the transcript held when the reader left.
+	const away = useRef<ReplyBaseline | null>(null)
+	const markRef = useRef<UnseenMark | null>(null)
+	let replies: ReturnType<typeof replyList> | null = null
+	if (view.follow) away.current = null
+	else {
+		replies = replyList(messages, pending, pendingAt)
+		away.current ??= baselineOf(replies)
+		const count = replies.length - away.current.replies
+		const first = count > 0 ? replies[away.current.replies] : undefined
+		if (first && (markRef.current?.before !== first.id || markRef.current.count !== count))
+			markRef.current = { before: first.id, count }
+	}
+	// The rule stays after the reader is back at the end, until they send the next message.
+	if (markRef.current && promptAfter(messages, markRef.current.before)) markRef.current = null
+	const mark = markRef.current
+
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a new theme lays the rows out again.
 	const { rows, index } = useMemo(
-		() => layoutTranscript(messages, pending, pendingAt, columns, cache, { click, open }),
-		[messages, pending, pendingAt, columns, cache, epoch, click, open],
+		() => layoutTranscript(messages, pending, pendingAt, columns, cache, { click, open }, mark),
+		[messages, pending, pendingAt, columns, cache, epoch, click, open, mark],
 	)
 	// A row that left the conversation (a compaction, a new session) is not open any more.
 	useEffect(() => {
@@ -187,7 +250,6 @@ export function FullscreenTranscript({
 		openRef.current = next
 		setOpen(next)
 	}, [open, index])
-	const [view, setView] = useState<ViewState>(FOLLOWING)
 	const boxRef = useRef<DOMElement>(null)
 	// Pages and the top clamp want the room actually on screen. It is only read
 	// when the reader acts, so it needs no state of its own.
@@ -209,17 +271,89 @@ export function FullscreenTranscript({
 
 	const latest = useRef({ synced, index, rows, messages, pending, pendingAt, columns })
 	latest.current = { synced, index, rows, messages, pending, pendingAt, columns }
+	// Where the view is right now. A render sets it; a move sets it at once, so
+	// two notches that arrive before the next render both count.
+	const viewNow = useRef<ViewState>(synced)
+	viewNow.current = synced
+
+	// ---- the wheel: notches add to a distance, frames spend it
+	const wheelState = useRef<WheelState>(WHEEL_IDLE)
+	const glideTimer = useRef<(() => void) | null>(null)
+	const stopGlide = useCallback(() => {
+		glideTimer.current?.()
+		glideTimer.current = null
+		wheelState.current = settle(wheelState.current)
+	}, [])
+	useEffect(() => stopGlide, [stopGlide])
+	/** Put the view somewhere, ending any glide: a key, a click or a jump is immediate. */
+	const place = useCallback(
+		(next: ViewState) => {
+			stopGlide()
+			viewNow.current = next
+			setView(next)
+		},
+		[stopGlide],
+	)
 	const scroll = useCallback(
 		(move: ViewMove) => {
-			const { synced: state, index: now } = latest.current
-			setView(moveView(state, move, now, room()))
+			stopGlide()
+			const next = moveView(viewNow.current, move, latest.current.index, room())
+			viewNow.current = next
+			setView(next)
+		},
+		[room, stopGlide],
+	)
+	/** Move the view `rows` (down is positive); false when it did not move. */
+	const moveRows = useCallback(
+		(rows: number): boolean => {
+			const was = viewNow.current
+			const next = moveView(
+				was,
+				rows < 0 ? 'line-up' : 'line-down',
+				latest.current.index,
+				room(),
+				Math.abs(rows),
+			)
+			if (next === was) return false
+			viewNow.current = next
+			setView(next)
+			return true
 		},
 		[room],
 	)
-	useEffect(
-		() => subscribeWheel((direction) => scroll(direction === 'up' ? 'line-up' : 'line-down')),
-		[subscribeWheel, scroll],
+	const runFrame = useRef<() => void>(() => undefined)
+	runFrame.current = () => {
+		glideTimer.current = null
+		const next = frame(wheelState.current, room())
+		wheelState.current = next.state
+		// Nothing left to move, or the end reached: the rest of the distance is let go.
+		if (next.step !== 0 && (!moveRows(next.step) || viewNow.current.follow))
+			wheelState.current = settle(wheelState.current)
+		if (wheelState.current.pending !== 0)
+			glideTimer.current = clock.after(() => runFrame.current(), WHEEL_FEEL.frameMs)
+	}
+	const onWheel = useCallback(
+		(direction: WheelDirection) => {
+			wheelState.current = notch(
+				wheelState.current,
+				direction,
+				clock.now(),
+				{ rows: wheelRows, accel: wheelAccel },
+				room(),
+			)
+			if (!motionAllowed()) {
+				// No glide under reduced motion: the whole distance in one frame.
+				const all = wheelState.current.pending
+				wheelState.current = settle(wheelState.current)
+				if (all !== 0) moveRows(all)
+				return
+			}
+			// The first frame is at once, so scrolling up stops following at the first notch.
+			if (glideTimer.current === null) runFrame.current()
+		},
+		[room, moveRows, wheelRows, wheelAccel, clock],
 	)
+	useEffect(() => subscribeWheel(onWheel), [subscribeWheel, onWheel])
 
 	const textWidth = Math.max(1, columns - GUTTER)
 
@@ -300,8 +434,8 @@ export function FullscreenTranscript({
 				click,
 				open: next,
 			})
-			setView(
-				holdRow(now.synced, now.index, after.index, id, offset, {
+			place(
+				holdRow(viewNow.current, now.index, after.index, id, offset, {
 					height: room(),
 					footer: geometryRef.current.footer,
 					searching: searchRef.current !== null,
@@ -310,9 +444,12 @@ export function FullscreenTranscript({
 			openRef.current = next
 			setOpen(next)
 		},
-		[cache, click, room],
+		[cache, click, room, place],
 	)
 
+	// Whether the footer row is the jump hint now, and whether a press began on it.
+	const hintRef = useRef(false)
+	const hintPress = useRef(false)
 	const pointer = useCallback(
 		(report: PointerReport) => {
 			const node = boxRef.current
@@ -322,7 +459,17 @@ export function FullscreenTranscript({
 			}
 			const landing = landOn(geometry, report.x, report.y)
 			const current = selectionRef.current
+			// The hint's row is the bottom row of the window, and answers a click when it is the hint.
+			const onHint = hintRef.current && report.y === geometry.top + geometry.height - 1
 			if (report.kind === 'press') {
+				// A press stops a glide where it is: the row under the pointer is the one that opens.
+				stopGlide()
+				if (onHint) {
+					if (current) updateSelection(null)
+					hintPress.current = true
+					return
+				}
+				hintPress.current = false
 				if (landing.kind !== 'on') {
 					if (current) updateSelection(null)
 					return
@@ -337,6 +484,11 @@ export function FullscreenTranscript({
 					at: { x: report.x, y: report.y },
 					replaced: current?.moved === true,
 				})
+				return
+			}
+			if (report.kind === 'release' && hintPress.current) {
+				hintPress.current = false
+				if (onHint) place(FOLLOWING)
 				return
 			}
 			if (!current?.pressing) return
@@ -381,7 +533,18 @@ export function FullscreenTranscript({
 			if (copyOnSelect) copySelection(finished)
 			else showNote({ text: 'Selected. Press ctrl+c to copy it, or esc to let go.', ok: true })
 		},
-		[clicks, click, copyOnSelect, copySelection, scroll, showNote, toggleAt, updateSelection],
+		[
+			clicks,
+			click,
+			copyOnSelect,
+			copySelection,
+			scroll,
+			showNote,
+			toggleAt,
+			updateSelection,
+			stopGlide,
+			place,
+		],
 	)
 	useEffect(
 		() => (subscribePointer ? subscribePointer(pointer) : undefined),
@@ -411,20 +574,19 @@ export function FullscreenTranscript({
 	const goTo = useCallback(
 		(match: Match | undefined) => {
 			if (!match) return
-			const { synced: state, index: now } = latest.current
-			setView(revealRow(state, now, match.row, room()))
+			place(revealRow(viewNow.current, latest.current.index, match.row, room()))
 		},
-		[room],
+		[room, place],
 	)
 	const openSearch = useCallback(() => {
-		savedView.current = latest.current.synced
+		savedView.current = viewNow.current
 		updateSearch({ query: '', cursor: null })
 	}, [updateSearch])
 	const closeSearch = useCallback(() => {
 		// Back to where the reader was; a reader who was following is following.
-		setView(savedView.current.follow ? FOLLOWING : savedView.current)
+		place(savedView.current.follow ? FOLLOWING : savedView.current)
 		updateSearch(null)
-	}, [updateSearch])
+	}, [updateSearch, place])
 
 	useEffect(() => {
 		control.current = {
@@ -508,7 +670,7 @@ export function FullscreenTranscript({
 			else if (!key.pageUp && (key.return || (input.length > 0 && !key.ctrl && !key.meta))) {
 				// Typing is a reason to look at the end again, and to let go of a selection.
 				if (selectionRef.current) updateSelection(null)
-				if (!latest.current.synced.follow) setView(FOLLOWING)
+				if (!viewNow.current.follow) place(FOLLOWING)
 			}
 		},
 		{ isActive: keysActive },
@@ -516,7 +678,9 @@ export function FullscreenTranscript({
 
 	const { from, to } = visibleRange(synced, index, maxRows)
 	const unseen = hasUnseen(synced, index)
-	const hint = synced.follow ? null : jumpHint(columns, unseen)
+	const news =
+		!synced.follow && away.current && replies ? newsSince(away.current, replies, unseen) : undefined
+	const hint = synced.follow ? null : jumpHint(columns, news)
 	// The footer row is the search line, or the jump hint, or the note of a copy
 	// in the hint's place. While following there is no footer, and a note must
 	// not push the rows up under the reader's pointer: it is drawn over the last
@@ -530,8 +694,11 @@ export function FullscreenTranscript({
 				color: theme.text.primary,
 			}
 		: ((noteLine && hint ? noteLine : null) ??
-			(hint ? { text: hint, color: unseen ? theme.text.secondary : theme.text.muted } : null))
+			(hint
+				? { text: hint, color: news && hasNews(news) ? theme.text.secondary : theme.text.muted }
+				: null))
 	const overlay = !search && !hint ? noteLine : null
+	hintRef.current = hint !== null && !search && !noteLine
 	geometryRef.current = {
 		top: 1,
 		height: geometryRef.current.height,
@@ -586,6 +753,17 @@ export function FullscreenTranscript({
 									<Box width={2} flexShrink={0} />
 									<Text color={overlay.color} wrap="truncate-end">
 										{overlay.text}
+									</Text>
+								</Box>
+							)
+						}
+						if (row.mark !== undefined) {
+							return (
+								// biome-ignore lint/suspicious/noArrayIndexKey: a window of rows has no identity beyond its position.
+								<Box key={from + i} flexDirection="row">
+									<Box width={2} flexShrink={0} />
+									<Text color={theme.text.muted} dimColor wrap="truncate-end">
+										{row.mark}
 									</Text>
 								</Box>
 							)
