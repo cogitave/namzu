@@ -106,6 +106,13 @@ const MENUS = {
 			await heading.locator(".sidebar-project-more").click();
 		},
 	},
+	chooser: {
+		popup: ".composer-project-popup",
+		rows: ".composer-project-actions button",
+		trigger: "[aria-label='Choose project folder']",
+		surface: ".composer-project-popup [data-slot=popover-viewport]",
+		open: (p) => p.getByRole("button", { name: "Choose project folder" }).click(),
+	},
 	context: {
 		popup: ".conversation-actions-popup",
 		rows: ".conversation-actions-item",
@@ -118,6 +125,11 @@ async function open(w, name) {
 	const menu = MENUS[name];
 	await menu.open(w.page);
 	await w.page.locator(menu.popup).first().waitFor({ state: "visible", timeout: T });
+	// The popup enters at a slightly smaller scale and grows to full size; measure it only once it has, so
+	// a measure never reads a row mid-transition.
+	await expect
+		.poll(() => w.page.evaluate((sel) => getComputedStyle(document.querySelector(sel)).transform, menu.popup), { timeout: T })
+		.toBe("none");
 	await settled(w);
 	const { popup, rows, trigger, surface } = menu;
 	return w.page.evaluate(READ, { popup, rows, trigger, surface });
@@ -125,7 +137,7 @@ async function open(w, name) {
 
 async function close(w) {
 	await w.page.keyboard.press("Escape");
-	await expect(w.page.locator("[role=menu], .composer-permission-menu, .model-picker-popup, .pal-composer-tools")).toHaveCount(0, { timeout: T });
+	await expect(w.page.locator("[role=menu], .composer-permission-menu, .model-picker-popup, .pal-composer-tools, .composer-project-popup")).toHaveCount(0, { timeout: T });
 }
 
 const near = (actual, want, label) => assert.ok(Math.abs(actual - want) <= 0.5, `${label}: ${actual} is not ${want}`);
@@ -163,14 +175,15 @@ for (const [width, height] of SIZES) {
 				await theme(w, mode);
 				const label = (name) => `${name} ${mode} ${width}x${height}`;
 
-				// The permission menu: every row has a description. A row whose description is one line is 46
-				// high; a longer description wraps and the row grows by one line (18) for each extra line.
+				// The permission menu: every row has a one-line description, so every row is 46 high.
 				const permission = await open(w, "permission");
 				checkSurface(permission, label("permission"));
 				checkOffset(permission, label("permission"));
 				assert.ok(permission.rows.length >= 3, "the permission menu lists its modes");
-				for (const row of permission.rows) near(row.h, 46 + 18 * (row.lines - 1), `${label("permission")}: "${row.text}" height for ${row.lines} lines`);
-				assert.ok(permission.rows.some((row) => row.lines === 1 && Math.abs(row.h - 46) <= 0.5), "a row with a one-line description is 46 high");
+				for (const row of permission.rows) {
+					assert.equal(row.lines, 1, `${label("permission")}: "${row.text}" keeps its description on one line`);
+					near(row.h, 46, `${label("permission")}: "${row.text}" height`);
+				}
 				// The title is a 25 px block and the chosen row's check is 9 from its right edge.
 				const caption = await w.page.evaluate(() => document.querySelector(".composer-permission-title").getBoundingClientRect().height);
 				near(caption, 25, `${label("permission")}: the caption block`);
@@ -261,6 +274,35 @@ for (const [width, height] of SIZES) {
 				await close(w);
 			}
 			assert.deepEqual(w.faults, [], "the renderer raised no uncaught errors");
+			failed = false;
+		} finally {
+			await dispose(w, { failed });
+		}
+	});
+}
+
+for (const [width, height] of SIZES) {
+	test(`the project chooser at ${width} by ${height}: surface 12 and 5, action rows 28, 6 from its control, inside the window`, { timeout: 280000 }, async () => {
+		const w = await createWorld({ models: [{ id: "gpt-e2e-1", context_window: 128000 }, "gpt-e2e-0"], rules: [] });
+		let failed = true;
+		try {
+			await launch(w);
+			await openProject(w);
+			await size(w, width, height);
+			for (const mode of ["dark", "light"]) {
+				await theme(w, mode);
+				const label = (name) => `${name} ${mode} ${width}x${height}`;
+				// The project chooser opens upward from the row under the input box; its action rows are 28
+				// high with nothing between them, set off from the list by a separator inset 10.
+				const chooser = await open(w, "chooser");
+				checkSurface(chooser, label("chooser"));
+				checkOffset(chooser, label("chooser"));
+				assert.ok(chooser.rows.length >= 2, "the chooser lists its actions");
+				for (const row of chooser.rows) near(row.h, 28, `${label("chooser")}: "${row.text}"`);
+				for (let i = 1; i < chooser.rows.length; i++) near(chooser.rows[i].y - chooser.rows[i - 1].bottom, 0, `${label("chooser")}: no space between action rows`);
+				await close(w);
+
+			}
 			failed = false;
 		} finally {
 			await dispose(w, { failed });

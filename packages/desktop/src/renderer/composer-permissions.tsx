@@ -56,31 +56,31 @@ const rowCopy: Record<
 	Record<ComposerPermissionEngine, RowCopy | undefined>
 > = {
 	prompt: {
-		namzu: { label: 'Ask first', description: 'Asks before changing files or running commands.' },
+		namzu: { label: 'Ask first', description: 'Asks before edits and commands.' },
 		'codex-cli': {
 			label: 'Ask first',
-			description: 'Starts read-only and asks before commands or file changes.',
+			description: 'Starts read-only; asks to change.',
 		},
 		'claude-code': {
 			label: 'Ask first',
-			description: 'Asks before editing files or running commands.',
+			description: 'Asks before edits and commands.',
 		},
 	},
 	'accept-edits': {
 		namzu: {
 			label: 'Edit automatically',
-			description: 'Edits files on its own and asks before commands.',
+			description: 'Edits alone; asks before commands.',
 		},
 		'codex-cli': {
 			label: 'Edit automatically',
-			description: 'Edits files in this project on its own; asks before commands. No internet.',
+			description: 'Edits here alone; asks for commands.',
 		},
 		'claude-code': undefined,
 	},
 	classify: {
 		namzu: {
 			label: 'Auto',
-			description: 'Checks each step with a second model and stops the risky ones.',
+			description: 'A second model checks each step.',
 		},
 		'codex-cli': undefined,
 		'claude-code': undefined,
@@ -88,12 +88,11 @@ const rowCopy: Record<
 	bypass: {
 		namzu: {
 			label: 'Full access',
-			description:
-				'Works anywhere on this computer without asking. Removing home folders and your own rules still stop it.',
+			description: 'Works anywhere without asking.',
 		},
 		'codex-cli': {
 			label: 'Full access',
-			description: 'Works anywhere on this computer and online without asking.',
+			description: 'Anywhere and online, no asking.',
 		},
 		'claude-code': undefined,
 	},

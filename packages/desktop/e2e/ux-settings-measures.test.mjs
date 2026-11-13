@@ -12,6 +12,8 @@
 //   glyph at the right; rows 36 high with radius 8, a 16 px icon 12 in and the title 40 in; only the
 //   highlighted row shows its right-hand hints; a group's caption 12/16 with 8 above the first row; a footer
 //   42 high under a full-width hairline with key boxes 18 high; the same 50 percent scrim as a dialog.
+//   Models, Speech and Updates follow the same group and row rules: their rows are padded 12, a download row is
+//   68 high, buttons are 28 and centred on their row, and no row button is lime.
 // Every vertical position is measured against the element it sits next to or the window's centre, never as an
 // absolute window y. Scripted model, no paid call, no owner data.
 // Run: pnpm --filter @namzu/desktop build && xvfb-run -a node --test --test-concurrency=1 e2e/ux-settings-measures.test.mjs
@@ -177,6 +179,130 @@ test("Settings at 1280 by 820: column 768 and centred, rows 52 and 68, headings 
 		assert.ok(described > 0, "a row with one line of description was measured");
 		assert.ok(switches >= 5, "switches were measured");
 		assert.ok(headingsSeen > 0, "group headings were measured");
+		failed = false;
+	} finally {
+		await dispose(w, { failed });
+	}
+});
+
+test("Models, Speech and Updates keep the page's group and row rules: headings 15/22 and 40 apart, rows 68, controls 28 and centred, no column of lime", { timeout: 280000 }, async () => {
+	const w = await world();
+	let failed = true;
+	try {
+		await launch(w);
+		await openProject(w);
+		await size(w, 1280, 820);
+		await theme(w, "dark");
+		// Speech: two cards, each a group heading and a download row with its button on the right.
+		await openSection(w, "Speech");
+		const speech = await w.page.evaluate(() => {
+			const rect = (el) => {
+				const b = el.getBoundingClientRect();
+				return { x: b.left, y: b.top, w: b.width, h: b.height, right: b.right, bottom: b.bottom };
+			};
+			const content = rect(document.querySelector(".settings-page-content"));
+			const header = rect(document.querySelector(".settings-page-header"));
+			const cards = [...document.querySelectorAll(".settings-speech .local-speech-settings")].map((card) => {
+				const h = card.querySelector(".local-speech-heading");
+				const title = h.querySelector("h3");
+				const engine = card.querySelector(".local-speech-engine");
+				const button = card.querySelector(".local-speech-actions button");
+				const cs = getComputedStyle(title);
+				return {
+					card: rect(card),
+					heading: rect(h),
+					title: { size: cs.fontSize, line: cs.lineHeight, weight: cs.fontWeight },
+					engine: engine ? rect(engine) : null,
+					button: button ? { ...rect(button), radius: getComputedStyle(button).borderTopLeftRadius } : null,
+				};
+			});
+			return { content, header, cards };
+		});
+		assert.equal(speech.cards.length, 2, "Speech shows its two cards");
+		const [voice, input] = speech.cards;
+		near(voice.heading.y - speech.header.bottom, 16, "Speech: the first heading is 16 under the title block");
+		near(input.heading.y - voice.card.bottom, 40, "Speech: the second heading is 40 under the card before");
+		for (const card of speech.cards) {
+			assert.deepEqual([card.title.size, card.title.line, card.title.weight], ["15px", "22px", "600"], "Speech: the group heading is 15/22 at 600");
+			assert.ok(card.engine && card.button, "Speech: a download row with its button");
+			near(card.engine.h, 68, "Speech: a download row with one line of description");
+			near(card.button.h, 28, "Speech: the download button height");
+			assert.equal(card.button.radius, "8px");
+			near(card.button.right, speech.content.right, "Speech: the button ends on the column's right edge", 1);
+			near(card.button.y + card.button.h / 2, card.engine.y + card.engine.h / 2, "Speech: the button is centred on its row", 1.5);
+		}
+
+		// Models: rows with a name and a line of status, a hairline between rows, buttons centred and one look.
+		await openSection(w, "Models");
+		const models = await w.page.evaluate(() => {
+			const rect = (el) => {
+				const b = el.getBoundingClientRect();
+				return { x: b.left, y: b.top, w: b.width, h: b.height, right: b.right, bottom: b.bottom };
+			};
+			const content = rect(document.querySelector(".settings-page-content"));
+			const rows = [...document.querySelectorAll(".models-row")].map((row) => {
+				const copy = row.querySelector(".models-row-copy");
+				const name = row.querySelector(".models-row-name");
+				const status = row.querySelector(".models-row-status");
+				const buttons = [...row.querySelectorAll(".models-row-actions button")].map((b) => ({ ...rect(b), radius: getComputedStyle(b).borderTopLeftRadius, bg: getComputedStyle(b).backgroundColor }));
+				const cs = getComputedStyle(row);
+				return { row: rect(row), copy: rect(copy), name: rect(name), status: rect(status), buttons, pad: [cs.paddingTop, cs.paddingBottom], border: cs.borderTopWidth };
+			});
+			return { content, rows };
+		});
+		assert.ok(models.rows.length >= 3, "Models lists its providers");
+		const backgrounds = new Set();
+		for (const row of models.rows) {
+			assert.deepEqual(row.pad, ["12px", "12px"], "Models: a row is padded 12 above and below");
+			assert.equal(row.border, "0px", "Models: the hairline is drawn inside the row, not as a border");
+			near(row.status.y - row.name.bottom, 4, "Models: 4 between the name and its status");
+			for (const b of row.buttons) {
+				near(b.h, 28, "Models: a button in a row");
+				assert.equal(b.radius, "8px");
+				near(b.y + b.h / 2, row.row.y + row.row.h / 2, "Models: a button is centred on its row", 1.5);
+				backgrounds.add(b.bg);
+			}
+			if (row.buttons.length > 0) near(row.buttons.at(-1).right, models.content.right, "Models: the buttons end on the column's right edge", 1);
+		}
+		assert.equal(backgrounds.size, 1, `Models: every row button has one look, so no column of lime (${[...backgrounds].join(" | ")})`);
+
+		// Updates: the programs list's rows are centred on their control, and the install commands stand apart.
+		await openSection(w, "Updates");
+		const updates = await w.page.evaluate(() => {
+			const rect = (el) => {
+				const b = el.getBoundingClientRect();
+				return { x: b.left, y: b.top, w: b.width, h: b.height, right: b.right, bottom: b.bottom };
+			};
+			const content = rect(document.querySelector(".settings-page-content"));
+			const rows = [...document.querySelectorAll(".engine-updates li")].map((li) => {
+				const control = li.querySelector(".engine-update-control button");
+				const install = li.querySelector(".engine-update-install");
+				const before = install?.previousElementSibling;
+				return {
+					row: rect(li),
+					button: control ? { ...rect(control), radius: getComputedStyle(control).borderTopLeftRadius } : null,
+					install: install ? rect(install) : null,
+					before: before ? rect(before) : null,
+					title: getComputedStyle(li.querySelector("h4")).fontSize,
+				};
+			});
+			return { content, rows };
+		});
+		assert.ok(updates.rows.length >= 1, "Updates lists its programs");
+		let installs = 0;
+		for (const row of updates.rows) {
+			assert.equal(row.title, "14px", "Updates: a program's name is 14");
+			if (row.button) {
+				near(row.button.h, 28, "Updates: a button in a row");
+				near(row.button.y + row.button.h / 2, row.row.y + row.row.h / 2, "Updates: a button is centred on its row", 1.5);
+				near(row.button.right, updates.content.right, "Updates: the buttons end on the column's right edge", 1);
+			}
+			if (row.install && row.before) {
+				installs += 1;
+				assert.ok(row.install.y - row.before.bottom >= 8 - 0.5, `Updates: the commands start at least 8 under the text above (${row.install.y - row.before.bottom})`);
+			}
+		}
+		assert.ok(installs > 0, "Updates: a program that is not installed shows its commands");
 		failed = false;
 	} finally {
 		await dispose(w, { failed });

@@ -3535,12 +3535,14 @@ and workspace menus, selects, the composer's popovers) reads them.
 
 - **The surface** has corners of 12 and 5 px of padding inside its 1 px edge, so a row starts 6 px in from the
   menu's edge. It is as wide as its content, at least 128 and at most 320. The model picker keeps its own
-  width (340 px, 388 when it offers an engine choice) because it holds a search, provider tabs and the facts
+  width (340 px, 390 measured across its edge when it offers an engine choice) because it holds a search, provider tabs and the facts
   of a model, and the plugins popover keeps 384 because it holds switches and prose.
 - **A row** is 28 high with one line (14/20) and 46 with a description under its title (title 14/20,
-  description 13/18 muted); a description that wraps grows the row by 18 for each extra line, so the
-  permission menu's Full access row, whose description is the warning, is taller than 46 rather than
-  cut. A row has corners of 8, and its text starts 10 in; with a 16 px icon the label starts 38 in (10, the
+  description 13/18 muted). A description is written to fit on one line of the widest menu, so every row of
+  the permission menu is 46 high; `composer-permissions.test.ts` keeps each one at 36
+  characters or fewer, and the fuller wording of Full access is on its confirmation dialog. The project
+  chooser's three actions (Start from scratch, Use an existing folder, Don't work in a project) are rows of
+  28 with nothing between them, under a separator. A row has corners of 8, and its text starts 10 in; with a 16 px icon the label starts 38 in (10, the
   icon, 12). A group's caption is 12/16 at weight 500 in a 25 px block, muted. A separator is 1 px with 4
   above and 4 below, inset 10.
 - **The highlight** (the pointer over a row, the keyboard's highlight, a row whose submenu is open) is 8
@@ -3580,6 +3582,14 @@ measured against the element it sits next to, never as a window position.
   (`--settings-row-copy-pad`). A 1 px hairline is drawn between rows, inside the row's top edge, so it takes
   no height and the first row of a group has none. Every control ends on the column's right edge and is
   centred on its row. Buttons, selects and text fields in a row are 28 high with corners of 8.
+- **Every section follows those rules**, including the ones that bring their own markup. **Models** rows
+  (a provider's name 14/20, 4 under it its status, 13/18 muted) are padded 12 with a hairline between them,
+  and their buttons are 28 high, centred on the row and all drawn the same way: no provider row is lime, since
+  a screen has one primary action at most. **Speech** shows its two cards (Voice and Voice input) as group
+  headings (15/22, 40 apart) over rows: a download row is 68 high with its copy at the left and its 28 px
+  button at the right edge, on the row's centre. **Updates** lists the programs Namzu works with as rows with
+  their button centred, and the commands to copy stand 8 under the sentence that introduces them.
+  `e2e/ux-settings-measures.test.mjs` measures all three.
 - **The switch** is 36 by 20 with a 16 px knob 2 from its edge. On, it takes the text colour (a light track
   with a dark knob in the dark theme, the reverse in the light one); off, it is an outline with a muted knob on
   the left. A chosen radio (a dot) and a checked box (a tick) take the text colour as well. Lime is kept for the

@@ -631,28 +631,34 @@
 .composer-project-actions {
 	display: grid;
 	flex: none;
-	gap: 2px;
-	margin-top: 4px;
-	padding-top: 4px;
-	border-top: 1px solid color-mix(in srgb, var(--foreground) 8%, transparent);
+	gap: 0;
+}
+/* The separator above the actions: a hairline with 4 above and 4 below, inset like the text. */
+.composer-project-actions::before {
+	content: "";
+	height: 1px;
+	margin: var(--menu-separator-space) var(--menu-separator-inset);
+	background: var(--border);
 }
 .composer-project-actions button {
 	justify-content: flex-start;
 	width: 100%;
-	min-height: 32px;
-	gap: 8px;
-	padding-inline: 8px;
-	font-size: var(--text-small);
+	height: var(--menu-row-height);
+	min-height: var(--menu-row-height);
+	gap: var(--menu-icon-gap);
+	padding: 0 var(--menu-check-reserve) 0 var(--menu-text-inset);
+	border-radius: var(--menu-row-radius);
+	font-size: var(--text-interface);
 	font-weight: var(--weight-text);
-	line-height: var(--leading-small);
+	line-height: var(--leading-interface);
 	transition: background-color 140ms var(--motion-ease), color 140ms var(--motion-ease);
 }
 .composer-project-actions button:hover {
-	background: color-mix(in srgb, var(--foreground) 8%, var(--popover));
+	background: var(--menu-highlight);
 }
 .composer-project-actions button > svg {
-	width: 16px;
-	height: 16px;
+	width: var(--menu-icon-size);
+	height: var(--menu-icon-size);
 	margin-inline: 0;
 }
 @media (pointer: coarse) {

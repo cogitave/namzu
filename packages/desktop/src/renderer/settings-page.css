@@ -409,15 +409,103 @@
 	line-height: var(--leading-caption);
 	font-variant-numeric: normal;
 }
-.settings-speech {
-	border-top: 1px solid var(--border);
-}
+/* The two voice cards on the Speech page follow the page's group and row rules. A card is a two-column
+   grid: the heading, the help text and every row span both columns, except that a download row's copy sits
+   at the left and the button that follows it at the right, on one line. */
 .settings-speech .local-speech-settings {
-	padding: 14px 0 0;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	column-gap: 24px;
+	row-gap: 0;
+	padding: 0;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
-.settings-speech > * + * {
-	margin-top: 14px;
-	border-top: 1px solid var(--border);
+.settings-speech .local-speech-settings > * {
+	grid-column: 1 / -1;
+	min-width: 0;
+}
+.settings-speech .local-speech-heading {
+	margin: var(--settings-group-before) 0 var(--settings-group-after);
+}
+#setting-voice .local-speech-heading {
+	margin-top: 0;
+}
+.settings-speech .local-speech-heading :is(h2, h3) {
+	font-size: var(--text-reading);
+	font-weight: var(--weight-strong);
+	line-height: var(--leading-reading);
+}
+.settings-speech .local-speech-help,
+.settings-speech .local-speech-notice {
+	margin: 0 0 var(--settings-row-padding);
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+}
+.settings-speech .local-speech-toggle,
+.settings-speech .local-speech-field,
+.settings-speech .local-speech-engine,
+.settings-speech .local-speech-actions {
+	box-sizing: border-box;
+	padding: var(--settings-row-padding) 0;
+	border-top: 0;
+	box-shadow: inset 0 1px 0 var(--border);
+}
+.settings-speech
+	:is(.local-speech-help, .local-speech-heading)
+	+ :is(.local-speech-toggle, .local-speech-field, .local-speech-engine, .local-speech-actions) {
+	box-shadow: none;
+}
+.settings-speech .local-speech-toggle,
+.settings-speech .local-speech-field {
+	min-height: calc(var(--settings-control-height) + 2 * var(--settings-row-padding));
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
+}
+.settings-speech .local-speech-toggle > span:has(> small) {
+	gap: var(--settings-copy-gap);
+	padding-block: var(--settings-row-copy-pad);
+}
+.settings-speech .local-speech-toggle small {
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+}
+.settings-speech .local-speech-engine {
+	align-items: center;
+}
+.settings-speech .local-speech-engine > div {
+	gap: var(--settings-copy-gap);
+	padding-block: var(--settings-row-copy-pad);
+}
+.settings-speech .local-speech-engine strong {
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
+}
+.settings-speech .local-speech-engine > div > span {
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+}
+/* The download button stands for the state, so the "Not downloaded" badge is not repeated beside it. */
+.settings-speech .local-speech-engine > .local-speech-badge {
+	display: none;
+}
+.settings-speech .local-speech-engine:has(+ .local-speech-actions) {
+	grid-column: 1;
+	box-shadow: none;
+}
+.settings-speech .local-speech-engine + .local-speech-actions {
+	grid-column: 2;
+	align-self: center;
+	box-shadow: none;
+}
+.settings-speech .local-speech-actions {
+	gap: 8px;
+}
+.settings-speech .local-speech-actions button {
+	box-sizing: border-box;
+	height: var(--settings-control-height);
+	min-height: var(--settings-control-height);
+	border-radius: var(--settings-control-radius);
 }
 .settings-results ul {
 	display: flex;
