@@ -161,6 +161,8 @@ A changeset body is read by a stranger deciding whether to take the upgrade. Nam
 **A version PR is a snapshot.** Before merging `chore(release): version packages`, every changeset file present on `main` must appear in that PR's deleted files; otherwise the publish step sees pending changesets and opens a fresh version PR instead of publishing.
 
 **A green release run is not a publish.** Confirming a release means asking the registry: `npm view <pkg> version`.
+
+**The Desktop app's number moves in small steps.** `@namzu/desktop` is private and is released by hand (`desktop-release.yml`). Its number is what a person reads in About, so it says how finished the app is, not what changed in an interface. A changeset for it declares `patch`, whatever the change; a `minor` or a `major` for the app is the owner's decision, made in so many words. The updater never installs a lower number, so the number cannot go below the newest released installer.
 </releases>
 
 <workflow_safety>
