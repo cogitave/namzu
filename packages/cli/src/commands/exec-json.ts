@@ -549,6 +549,8 @@ export async function execJson(
 
 	// For the whole run: a skill the model loads can lose its hooks at any turn.
 	session.skillHooks?.subscribe((line) => cliLogger().warn(line))
+	// Likewise an agent file whose hooks were set aside when its run started.
+	session.agentHooks?.subscribe((line) => cliLogger().warn(line))
 	useSkillHooksByName(
 		session.skillHooks,
 		{ cwd, ...(ctx.config.skills ? { skills: ctx.config.skills } : {}) },

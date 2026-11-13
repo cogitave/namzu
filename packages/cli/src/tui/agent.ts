@@ -428,6 +428,11 @@ import type {
 	SubagentActivity,
 	SubagentActivitySource,
 } from '../integrations/subagents/activity.js'
+import {
+	type AttachedAgentHook,
+	type RefusedAgent,
+	createAgentHooksHost,
+} from '../integrations/subagents/agent-hooks.js'
 import { discoverAgentDefinitions } from '../integrations/subagents/definitions.js'
 import { prepareDelegatedEffort } from '../integrations/subagents/model-effort.js'
 import {
@@ -1600,6 +1605,16 @@ export interface AgentSession {
 		readonly subscribe: (listener: (line: string) => void) => () => void
 		/** Skills that carry hooks and attach them when used, by name. */
 		readonly carriers: () => readonly string[]
+	}
+	/**
+	 * The hooks the runs of agent files have attached, the agent files that carry
+	 * hooks and attach them to each run, and the files that are not offered.
+	 */
+	readonly agentHooks?: {
+		readonly attached: () => readonly AttachedAgentHook[]
+		readonly subscribe: (listener: (line: string) => void) => () => void
+		readonly carriers: () => readonly string[]
+		readonly refused: () => readonly { readonly name: string; readonly line: string }[]
 	}
 	/** The JavaScript hooks plugins registered now (plugin name, event); what `/hooks` lists beside `hooks`. */
 	readonly pluginHooks?: () => readonly { readonly plugin: string; readonly event: string }[]
@@ -4143,6 +4158,17 @@ export async function createAgentSession(
 	// dispatch to. A roster reported from the request rather than the result
 	// would name agents that are not there.
 	let allowedAgentIds: readonly string[] = []
+	// What the agent files carry in hooks: attached to each run of the agent (see
+	// `integrations/subagents/agent-hooks.ts`), on the session's own hook runtime.
+	const agentHooks = createAgentHooksHost({
+		manager: () => pluginRuntime?.manager,
+		hookOptions: () => pluginRuntime?.hookOptions,
+		hooksSwitch: () => options.hooksSwitch,
+		projectTrusted: () => options.folderTrusted === true || isTrusted(cwd),
+	})
+	/** The agent files that carry hooks, by name, and the ones that are not offered. */
+	let agentHookCarriers: readonly string[] = []
+	let refusedAgents: readonly RefusedAgent[] = []
 	try {
 		// Agents the project or user defined in files. A file that cannot be
 		// loaded is named with its reason rather than silently absent: "namzu
@@ -4151,7 +4177,15 @@ export async function createAgentSession(
 			cwd,
 			pluginAgentDirs: pluginFiles.agents,
 			...(options.skills ? { skills: options.skills } : {}),
+			hooks: {
+				hooksSwitch: options.hooksSwitch,
+				projectTrusted: options.folderTrusted === true || isTrusted(cwd),
+			},
 		})
+		agentHookCarriers = discovered.definitions
+			.filter((definition) => definition.hooksSource !== undefined)
+			.map((definition) => definition.name)
+		refusedAgents = discovered.refused
 		for (const missing of discovered.missingSkills) {
 			cliLogger().warn('agent definition skill missing', {
 				'namzu.agent.definition.path': missing.path,
@@ -4200,6 +4234,8 @@ export async function createAgentSession(
 			resolveTurnModel: (turnId) => delegationModels.get(turnId),
 			timeoutMs: options.limits?.timeoutMs,
 			definitions: discovered.definitions,
+			agentHooks,
+			refusedDefinitions: discovered.refused,
 			// Children log under the parent's `<session-id>/subagents/`; an
 			// ephemeral session keeps them in memory with its own log.
 			...(options.ephemeral ? {} : { paths }),
@@ -5032,7 +5068,8 @@ export async function createAgentSession(
 				// A skill that carries hooks attaches them to this manager when it is used.
 				keepForSkills:
 					options.hooksSwitch === undefined &&
-					skillCatalog.fileSkills.some((skill) => skill.hooksSource !== undefined),
+					(agentHookCarriers.length > 0 ||
+						skillCatalog.fileSkills.some((skill) => skill.hooksSource !== undefined)),
 			},
 		)
 	} catch (error) {
@@ -6194,6 +6231,12 @@ export async function createAgentSession(
 				skillCatalog.fileSkills
 					.filter((skill) => skill.hooksSource !== undefined)
 					.map((skill) => skill.name),
+		},
+		agentHooks: {
+			attached: () => agentHooks.attached(),
+			subscribe: (listener: (line: string) => void) => agentHooks.subscribe(listener),
+			carriers: () => agentHookCarriers,
+			refused: () => refusedAgents.map((refused) => ({ name: refused.name, line: refused.line })),
 		},
 		...(pluginRuntime ? { pluginHooks: () => pluginRuntime?.pluginHooks() ?? [] } : {}),
 		checkpoints,

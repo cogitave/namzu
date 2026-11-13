@@ -66,7 +66,12 @@ function tailOf(error: ConfigValueError): string {
  *
  * @param file what the reader's own messages call the source, for a person.
  */
-export function readSkillHooks(source: string, file: string): SkillHooksRead {
+export function readSkillHooks(
+	source: string,
+	file: string,
+	/** What carries the block, for the bounds' messages: a skill or an agent file. */
+	carrier: 'skill' | 'agent file' = 'skill',
+): SkillHooksRead {
 	const problems: SkillHookProblem[] = []
 	const seen = new Set<string>()
 	const report = (event: string, severity: 'problem' | 'note', message: string): void => {
@@ -86,7 +91,7 @@ export function readSkillHooks(source: string, file: string): SkillHooksRead {
 		report(
 			'hooks',
 			'problem',
-			`is ${source.length} characters long, more than the ${MAX_SKILL_HOOKS_SOURCE_CHARS} a skill may carry, so none of it is loaded.`,
+			`is ${source.length} characters long, more than the ${MAX_SKILL_HOOKS_SOURCE_CHARS} ${carrier === 'skill' ? 'a skill' : 'an agent file'} may carry, so none of it is loaded.`,
 		)
 		return lost()
 	}
@@ -199,7 +204,7 @@ export function readSkillHooks(source: string, file: string): SkillHooksRead {
 					report(
 						'hooks',
 						'problem',
-						`an entry's "${field}" is ${value.length} characters long, more than the ${MAX_SKILL_HOOK_MATCHER_CHARS} a skill may carry, so none of its hooks are loaded.`,
+						`an entry's "${field}" is ${value.length} characters long, more than the ${MAX_SKILL_HOOK_MATCHER_CHARS} ${carrier === 'skill' ? 'a skill' : 'an agent file'} may carry, so none of its hooks are loaded.`,
 					)
 					return lost()
 				}
@@ -210,7 +215,7 @@ export function readSkillHooks(source: string, file: string): SkillHooksRead {
 		report(
 			'hooks',
 			'problem',
-			`has ${count} hooks, more than the ${MAX_SKILL_HOOK_ENTRIES} a skill may carry, so none of them are loaded.`,
+			`has ${count} hooks, more than the ${MAX_SKILL_HOOK_ENTRIES} ${carrier === 'skill' ? 'a skill' : 'an agent file'} may carry, so none of them are loaded.`,
 		)
 		return lost()
 	}

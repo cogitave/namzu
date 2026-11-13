@@ -6,6 +6,8 @@ import { hookSwitch, hooksBySource } from '../../config/hook-layers.js'
 import { LOCAL_CONFIG_FILE, hookConfigProblems, shortHomePath } from '../../config/load.js'
 import type { NamzuCliConfig } from '../../config/schema.js'
 import { readSkillHooks } from '../../config/skill-hooks-reader.js'
+import { type AgentHooksCarrier, readAgentHooks } from '../../integrations/subagents/agent-hooks.js'
+import { discoverAgentDefinitions } from '../../integrations/subagents/definitions.js'
 import { isTrusted } from '../../integrations/trust/store.js'
 import { type SkillInfo, discoverSkills } from '../../skills/store.js'
 import {
@@ -26,6 +28,7 @@ export function describeHooksStatus(
 	config: NamzuCliConfig,
 	folder?: { readonly cwd: string; readonly trusted: boolean },
 	skills: readonly SkillInfo[] = [],
+	agents: readonly AgentHooksCarrier[] = [],
 ): DoctorCheckResult {
 	const bySource = new Map(hooksBySource(config.hooks))
 	// A project's files attach their hooks only once the folder is trusted; the
@@ -104,10 +107,37 @@ export function describeHooksStatus(
 			}
 		}
 	}
+	// Agent files attach theirs to each run of the agent. A file whose guard
+	// cannot be loaded is not offered at all, and is named here.
+	let agentWarn = false
+	const carryingAgents = agents.filter(
+		(agent) => !(agent.source === 'project' && folder && !folder.trusted),
+	)
+	if (carryingAgents.length > 0) {
+		lines.push(
+			state === undefined
+				? `${carryingAgents.length} agent ${carryingAgents.length === 1 ? 'file carries' : 'files carry'} hooks that attach to each run of the agent: ${carryingAgents.map((agent) => agent.name).join(', ')}.`
+				: `${carryingAgents.length} agent ${carryingAgents.length === 1 ? 'file carries' : 'files carry'} hooks that do not attach, because a switch is on.`,
+		)
+		for (const agent of carryingAgents) {
+			const read = readAgentHooks(agent.hooksSource, agent.name)
+			for (const problem of read.problems) {
+				if (problem.severity === 'problem') agentWarn = true
+				lines.push(
+					`${problem.severity === 'problem' ? 'Not loaded' : 'Note'}: agent ${agent.name}, ${problem.event}: ${problem.message}`,
+				)
+			}
+			if (read.guardLost && state === undefined) {
+				lines.push(
+					`Agent "${agent.name}" is not offered (${agent.path}); starting it is refused until the entry is fixed or taken out.`,
+				)
+			}
+		}
+	}
 	lines.push(state === undefined ? 'No hook switch is on.' : `Switch on: ${hooksSwitchLine(state)}`)
 	lines.push('Plugin hooks are not counted here; plugins have their own switch (plugins.enabled).')
 	return {
-		status: unreadable.length > 0 || notLoaded || skillWarn ? 'warn' : 'pass',
+		status: unreadable.length > 0 || notLoaded || skillWarn || agentWarn ? 'warn' : 'pass',
 		message: lines.join(' '),
 	}
 }
@@ -121,6 +151,9 @@ export function hooksCheck(config: NamzuCliConfig): DoctorCheck {
 				config,
 				{ cwd: ctx.cwd, trusted: isTrusted(ctx.cwd) },
 				discoverSkills({ cwd: ctx.cwd, ...(config.skills ? { config: config.skills } : {}) }),
+				await discoverAgentDefinitions({ cwd: ctx.cwd })
+					.then((found) => found.carriers)
+					.catch(() => []),
 			),
 	}
 }

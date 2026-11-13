@@ -6,6 +6,7 @@ import {
 	apiKeyLogoutTarget,
 } from '../integrations/providers/connections.js'
 import { DEFAULT_SPEND_DAYS, MAX_SPEND_DAYS } from '../integrations/spend/day.js'
+import type { AttachedAgentHook } from '../integrations/subagents/agent-hooks.js'
 import {
 	type DenialRow,
 	addLocalRule,
@@ -2004,6 +2005,50 @@ export interface HooksView {
 		readonly attached: readonly AttachedSkillHook[]
 		readonly carriers: readonly string[]
 	}
+	/** The hooks agents' runs have attached while they run, the agent files that carry hooks, and the files not offered. */
+	readonly agentHooks?: {
+		readonly attached: readonly AttachedAgentHook[]
+		readonly carriers: readonly string[]
+		readonly refused: readonly { readonly name: string; readonly line: string }[]
+	}
+}
+
+/** The lines `/hooks` gives for the hooks agent files carry. */
+export function agentHookLines(
+	view: NonNullable<HooksView['agentHooks']>,
+	state: HooksSwitch | undefined,
+): string[] {
+	if (view.attached.length === 0 && view.carriers.length === 0 && view.refused.length === 0) {
+		return []
+	}
+	const lines: string[] = []
+	for (const refused of view.refused) lines.push(refused.line)
+	if (state !== undefined) {
+		if (view.carriers.length > 0) {
+			lines.push(
+				`agent hooks are switched off: ${view.carriers.join(', ')} ${view.carriers.length === 1 ? 'carries' : 'carry'} hooks that do not attach.`,
+			)
+		}
+		return lines
+	}
+	if (view.attached.length > 0) {
+		lines.push('agent hooks (set by an agent file, attached while its agent runs)')
+		for (const hook of view.attached) {
+			const when = hook.matcher ? ` · matches ${hook.matcher}` : ''
+			const once = hook.once ? ' · once' : ''
+			lines.push(
+				`  ${hook.event}: ${hook.runs}${when}${once} · agent ${hook.agent}, run ${hook.session.slice(0, 8)}`,
+			)
+		}
+	}
+	const running = new Set(view.attached.map((hook) => hook.agent))
+	const waiting = view.carriers.filter((name) => !running.has(name))
+	if (waiting.length > 0) {
+		lines.push(
+			`${waiting.join(', ')} ${waiting.length === 1 ? 'carries' : 'carry'} hooks that attach to each run of the agent.`,
+		)
+	}
+	return lines
 }
 
 /** The lines `/hooks` gives for the hooks skills carry. */
@@ -2092,7 +2137,13 @@ export function renderHooks(hooks: HooksConfig | undefined, view: HooksView = {}
 	const lines: string[] = []
 	if (view.switch) lines.push(hooksSwitchLine(view.switch))
 	const skillLines = view.skillHooks ? skillHookLines(view.skillHooks, view.switch) : []
-	if (events.length === 0 && pluginHooks.length === 0 && skillLines.length === 0) {
+	const agentLines = view.agentHooks ? agentHookLines(view.agentHooks, view.switch) : []
+	if (
+		events.length === 0 &&
+		pluginHooks.length === 0 &&
+		skillLines.length === 0 &&
+		agentLines.length === 0
+	) {
 		lines.push(...hookConfigProblemLines(problems))
 		lines.push(
 			'No hooks. Add a `hooks` key to namzu.config.json or ~/.namzu/config.yaml: event → list of hooks: a command, an http address or a prompt, each with matcher, timeoutMs, if, once, statusMessage and onFailure if you want them.',
@@ -2132,6 +2183,7 @@ export function renderHooks(hooks: HooksConfig | undefined, view: HooksView = {}
 	}
 	lines.push(...hookConfigProblemLines(problems))
 	lines.push(...skillLines)
+	lines.push(...agentLines)
 	if (pluginHooks.length > 0) {
 		lines.push('plugin hooks (JavaScript, set by the plugin)')
 		for (const hook of pluginHooks) lines.push(`  ${hook.event} · plugin ${hook.plugin}`)

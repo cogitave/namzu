@@ -7386,6 +7386,15 @@ function AppBody({
 						},
 					}
 				: {}),
+			...(session?.agentHooks
+				? {
+						agentHooks: {
+							attached: session.agentHooks.attached(),
+							carriers: session.agentHooks.carriers(),
+							refused: session.agentHooks.refused(),
+						},
+					}
+				: {}),
 			...(initialCtx.hooksSwitch ? { switch: initialCtx.hooksSwitch } : {}),
 		}),
 		directories: () => session?.directories?.list() ?? [],
@@ -15075,6 +15084,10 @@ function AppBody({
 	// A skill whose hooks could not be loaded says so, once, where the person is looking.
 	useEffect(() => {
 		return session?.skillHooks?.subscribe((line) => pushSystem('notice', line))
+	}, [session, pushSystem])
+	// So does an agent whose hooks were set aside when its run started.
+	useEffect(() => {
+		return session?.agentHooks?.subscribe((line) => pushSystem('notice', line))
 	}, [session, pushSystem])
 	// A permission or a question waiting on the person: the notice countdown
 	// ends when none is left, and the turn's "Worked for" leaves the wait out.

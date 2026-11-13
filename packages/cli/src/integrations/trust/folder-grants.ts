@@ -10,14 +10,17 @@
  * two files declare.
  */
 
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { readFileSync, readdirSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+
+import { parseAgentMarkdown } from '@namzu/sdk'
 
 import { hooksOfElement } from '../../config/hook-common-shape.js'
 import { readSkillHooks } from '../../config/skill-hooks-reader.js'
 import { discoverSkills } from '../../skills/store.js'
 import { fingerprintMcpServer } from '../mcp/project-approval.js'
 import { PROJECT_MCP_FILE, parseMcpServerFile } from '../mcp/shared-file.js'
+import { readAgentHooks } from '../subagents/agent-hooks.js'
 
 const FILES = ['namzu.config.json', 'namzu.config.local.json'] as const
 
@@ -148,6 +151,47 @@ function describeSkillHooks(cwd: string): HookGrant[] {
 	return out
 }
 
+/**
+ * The hooks the folder's own agent files carry, each as what it would run.
+ * They attach to each run of the agent once the folder is trusted, never
+ * before. Read as text only, never run.
+ */
+function describeAgentHooks(cwd: string): HookGrant[] {
+	const out: HookGrant[] = []
+	const dir = join(cwd, '.namzu', 'agents')
+	let files: string[]
+	try {
+		files = readdirSync(dir, { withFileTypes: true })
+			.filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
+			.map((entry) => entry.name)
+			.sort()
+	} catch {
+		return out
+	}
+	for (const file of files) {
+		const path = join(dir, file)
+		let text: string
+		try {
+			text = readFileSync(path, 'utf8')
+		} catch {
+			continue
+		}
+		const found = parseAgentMarkdown(text, path, 'project')
+		if ('reason' in found || found.hooksSource === undefined) continue
+		const read = readAgentHooks(found.hooksSource, found.name)
+		for (const grant of describeHooks({ hooks: read.hooks })) {
+			out.push({ ...grant, event: `${grant.event} (agent ${found.name})` })
+		}
+		if (read.guardLost) {
+			out.push({
+				event: `agent ${found.name}`,
+				runs: 'hooks that cannot be loaded; the agent is not offered',
+			})
+		}
+	}
+	return out
+}
+
 /** The allow rules and added directories the folder's own config carries. */
 export function readFolderGrants(cwd: string): FolderGrants {
 	const allowRules: string[] = []
@@ -178,6 +222,11 @@ export function readFolderGrants(cwd: string): FolderGrants {
 		hooks.push(...describeSkillHooks(cwd))
 	} catch {
 		// Skills that cannot be read are reported when they are used.
+	}
+	try {
+		hooks.push(...describeAgentHooks(cwd))
+	} catch {
+		// Agent files that cannot be read are reported when the agents are listed.
 	}
 	let toolServers: ToolServerGrant[] = []
 	try {

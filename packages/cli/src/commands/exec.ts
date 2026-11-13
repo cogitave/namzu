@@ -574,6 +574,8 @@ async function execPrint(
 
 	// For the whole run: a skill the model loads can lose its hooks at any turn.
 	session.skillHooks?.subscribe((line) => ctx.formatter.info(line))
+	// Likewise an agent file whose hooks were set aside when its run started.
+	session.agentHooks?.subscribe((line) => ctx.formatter.info(line))
 	useSkillHooksByName(
 		session.skillHooks,
 		{ cwd, ...(ctx.config.skills ? { skills: ctx.config.skills } : {}) },

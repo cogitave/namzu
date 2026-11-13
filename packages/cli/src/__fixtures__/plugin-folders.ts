@@ -663,6 +663,31 @@ export const FIXTURE_CASES: readonly FixtureCase[] = [
 		warnings: ['agent-unknown-key'],
 	},
 	{
+		// The `hooks` key is read now: a guard that cannot be loaded is named, and the agent is not offered.
+		name: 'agent-hooks-unreadable-guard',
+		files: () => ({
+			'plugin.json': manifest({ agents: ['agents'] }),
+			'agents/x.md': AGENT_OK.replace(
+				'---\nYou',
+				'hooks:\n  PreToolUse:\n    - hooks:\n        - args: ["a"]\n---\nYou',
+			),
+		}),
+		errors: ['agent-hooks-problem'],
+		warnings: [],
+	},
+	{
+		name: 'agent-hooks-readable',
+		files: () => ({
+			'plugin.json': manifest({ agents: ['agents'] }),
+			'agents/x.md': AGENT_OK.replace(
+				'---\nYou',
+				'hooks:\n  Stop:\n    - hooks:\n        - command: ./done.sh\n---\nYou',
+			),
+		}),
+		errors: [],
+		warnings: [],
+	},
+	{
 		name: 'agent-empty-body',
 		files: () => ({
 			'plugin.json': manifest({ agents: ['agents'] }),

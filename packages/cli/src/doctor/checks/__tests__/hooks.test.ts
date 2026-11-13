@@ -110,3 +110,55 @@ describe('the hooks doctor row and skills', () => {
 		expect(untrusted.message).not.toContain('carries hooks')
 	})
 })
+
+describe('the hooks doctor row and agent files', () => {
+	const carrier = (hooksSource: string, extra: Record<string, unknown> = {}) => ({
+		name: 'guarded',
+		path: '/agents/guarded.md',
+		source: 'user',
+		hooksSource,
+		...extra,
+	})
+
+	it('says which agent files carry hooks that attach to each run', () => {
+		const result = describeHooksStatus(
+			{},
+			undefined,
+			[],
+			[carrier('hooks:\n  PreToolUse:\n    - command: x')],
+		)
+		expect(result.status).toBe('pass')
+		expect(result.message).toContain(
+			'1 agent file carries hooks that attach to each run of the agent: guarded.',
+		)
+	})
+
+	it('warns, naming the file and the entry, when an agent’s guard cannot be loaded and it is not offered', () => {
+		const result = describeHooksStatus(
+			{},
+			undefined,
+			[],
+			[carrier('hooks:\n  PreToolUse:\n    - hooks:\n        - args: ["a"]')],
+		)
+		expect(result.status).toBe('warn')
+		expect(result.message).toContain('Not loaded: agent guarded, PreToolUse')
+		expect(result.message).toContain('Agent "guarded" is not offered (/agents/guarded.md)')
+	})
+
+	it('says a switch stops them, and does not read an untrusted folder’s agent files', () => {
+		const off = describeHooksStatus(
+			{ disableHooks: true },
+			undefined,
+			[],
+			[carrier('hooks:\n  Stop: []')],
+		)
+		expect(off.message).toContain('hooks that do not attach, because a switch is on')
+		const untrusted = describeHooksStatus(
+			{},
+			{ cwd: '/p', trusted: false },
+			[],
+			[carrier('hooks:\n  Stop: []', { source: 'project' })],
+		)
+		expect(untrusted.message).not.toContain('carries hooks')
+	})
+})

@@ -36,6 +36,7 @@ import {
 	skillModelDescription,
 } from '@namzu/sdk'
 import { readSkillHooks } from '../../config/skill-hooks-reader.js'
+import { readAgentHooks } from '../subagents/agent-hooks.js'
 
 import { PERMISSION_MODE_NAMES } from '../../permissions/mode-names.js'
 import { SKILL_MANIFEST_MAX_CHARS } from '../../skills/catalog.js'
@@ -664,6 +665,24 @@ async function checkParts(root: string, manifest: Manifest, c: Collector): Promi
 			}
 			agentNames.set(full, rel2)
 			unknownKeys(text, AGENT_FILE_KEYS, part, rel2, 'agent-unknown-key', c, 'an agent file')
+			if (found.hooksSource !== undefined) {
+				const hooks = readAgentHooks(found.hooksSource, full)
+				for (const problem of hooks.problems) {
+					c.add({
+						// An entry that would have guarded something and cannot be loaded keeps the agent from being offered.
+						level: problem.severity === 'problem' ? 'error' : 'warning',
+						part,
+						file: rel2,
+						line: lineOfKey(text, 'hooks'),
+						code: 'agent-hooks-problem',
+						message: `"${full}" hooks, ${problem.event}: ${problem.message}`,
+						consequence:
+							problem.severity === 'problem'
+								? 'The agent is not offered, and starting it is refused with this line.'
+								: 'The agent runs with this part of its hooks left out.',
+					})
+				}
+			}
 		})
 	}
 }

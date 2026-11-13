@@ -180,3 +180,44 @@ describe('what a folder’s own skills run', () => {
 		])
 	})
 })
+
+describe('what a folder’s own agent files run', () => {
+	function folderWithAgent(hooks: string): string {
+		const root = folder({})
+		mkdirSync(join(root, '.namzu', 'agents'), { recursive: true })
+		writeFileSync(
+			join(root, '.namzu', 'agents', 'pguard.md'),
+			`---\nname: pguard\ndescription: d\n${hooks}\n---\nBody.`,
+		)
+		return root
+	}
+
+	it('lists the hooks a project agent file carries beside the config’s own, named by the agent', () => {
+		const root = folderWithAgent(
+			[
+				'hooks:',
+				'  PreToolUse:',
+				'    - matcher: Bash',
+				'      hooks:',
+				'        - command: node guard.mjs',
+				'  Stop:',
+				'    - hooks:',
+				'        - command: node done.mjs',
+			].join('\n'),
+		)
+		expect(readFolderGrants(root).hooks).toEqual([
+			{ event: 'pre_tool_use (agent pguard)', runs: 'node guard.mjs' },
+			// A Stop entry in an agent file is its end-of-agent hook.
+			{ event: 'subagent_stop (agent pguard)', runs: 'node done.mjs' },
+		])
+	})
+
+	it('says an agent file’s hooks that cannot be loaded keep the agent from being offered', () => {
+		const root = folderWithAgent(
+			['hooks:', '  PreToolUse:', '    - hooks:', '        - args: ["a"]'].join('\n'),
+		)
+		expect(readFolderGrants(root).hooks).toEqual([
+			{ event: 'agent pguard', runs: 'hooks that cannot be loaded; the agent is not offered' },
+		])
+	})
+})
