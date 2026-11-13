@@ -484,6 +484,40 @@ describe('JSON that is not a valid answer', () => {
 		expect(warn).toHaveBeenCalledWith('hook output ignored', expect.any(Object))
 	})
 
+	it('pre_compact: an unreadable answer lets the pass go on, and onFailure block refuses it', () => {
+		// A hook that could not answer has not answered no: the default carries
+		// on, as on every other event. A guard that must hold sets onFailure.
+		for (const stdout of ['{ nope', { decision: 'allow' }]) {
+			expect(shellHookVerdict('pre_compact', entry, out(stdout))).toEqual({ action: 'continue' })
+			const refused = shellHookVerdict('pre_compact', { ...entry, onFailure: 'block' }, out(stdout))
+			expect(refused.action).toBe('skip')
+		}
+		expect(
+			shellHookVerdict(
+				'pre_compact',
+				{ ...entry, onFailure: 'block' },
+				{
+					exitCode: 1,
+					timedOut: false,
+					stdout: '',
+					stderr: '',
+				},
+			).action,
+		).toBe('skip')
+		expect(
+			shellHookVerdict(
+				'pre_compact',
+				{ ...entry, onFailure: 'block' },
+				{
+					exitCode: null,
+					timedOut: true,
+					stdout: '',
+					stderr: '',
+				},
+			).action,
+		).toBe('skip')
+	})
+
 	it('prose that does not start with a brace is plain text, not JSON', () => {
 		const { log, warn } = spyLog()
 		expect(shellHookVerdict('pre_tool_use', entry, out('all good'), log)).toEqual({
@@ -509,8 +543,8 @@ describe('matcher', () => {
 		expect(shellHookMatches('^read_.+', 'read_file')).toBe(true)
 	})
 
-	it('a regular expression that does not compile matches nothing', () => {
-		expect(shellHookMatches('(unclosed', 'anything')).toBe(false)
+	it('a regular expression that does not compile fires: a guard never silently matches nothing', () => {
+		expect(shellHookMatches('(unclosed', 'anything')).toBe(true)
 	})
 
 	it('empty and * match everything; a name-less event matches only those', () => {

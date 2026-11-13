@@ -21,6 +21,7 @@ import {
 	type Account,
 	type BackgroundJob,
 	type BackgroundJobOutput,
+	CompactionRefusedError,
 	type CostInfo,
 	DEFAULT_MAX_GOAL_ROUNDS,
 	DiskMessageFeedbackStore,
@@ -8258,7 +8259,12 @@ function AppBody({
 				? { text: persistedOutput, provenance: 'persisted' }
 				: null
 			pendingGoalResumeRef.current = conv.id
+			const leftConversation = scope.sessionId
 			scope.sessionId = conv.id // new turns now attribute to the resumed session
+			// The session object stays, so its hooks are told here; a Pal's session
+			// is rebuilt just below and closes with the same reason.
+			if (!palDefinitionRef.current)
+				void session?.changeConversation?.({ from: leftConversation, reason: 'replaced' })
 			if (palDefinitionRef.current) {
 				setPhase('probing')
 				palRouteSessionRef.current = null
@@ -8442,7 +8448,15 @@ function AppBody({
 				lastAssistantMessage.current = null
 				lastCompletedOutputRef.current = null
 				if (sourceScope && targetSessionId) {
+					const leftConversation = sourceScope.sessionId
 					sourceScope.sessionId = targetSessionId
+					// Not awaited: a slow end hook must not hold the new conversation.
+					if (!palDefinitionRef.current)
+						void session?.changeConversation?.({
+							from: leftConversation,
+							reason: 'clear',
+							starting: 'clear',
+						})
 					conversationMaterializedRef.current = true
 					sourceDeliveryPollRef.current()
 					// A fresh conversation owns no turns yet, so this normally reads
@@ -8454,7 +8468,7 @@ function AppBody({
 						setPhase('probing')
 						palRouteSessionRef.current = null
 						try {
-							await session?.close('replaced')
+							await session?.close('clear')
 							if (!savedPrefsRef.current)
 								throw new Error('Select a model for this Pal conversation.')
 							await hydrateSession(savedPrefsRef.current, detected)
@@ -9131,6 +9145,7 @@ function AppBody({
 				// The fork owns the displayed history, except for host-only results
 				// delivered to the original conversation's sidecar inbox.
 				scope.sessionId = forked.id
+				void session?.changeConversation?.({ from: original as SessionId, reason: 'replaced' })
 				// The copy's own history: the original's messages name ids the copy's
 				// log never gave out, and the next send would be refused.
 				modelHistoryRef.current = forked.messages
@@ -9322,6 +9337,7 @@ function AppBody({
 				goalActivation.clear()
 				wakeGoalDriver()
 				scope.sessionId = forked.id
+				void session?.changeConversation?.({ from: source as SessionId, reason: 'replaced' })
 				conversationMaterializedRef.current = true
 				sourceDeliveryPollRef.current()
 				void hydrateSavedChildren()
@@ -14485,7 +14501,13 @@ function AppBody({
 								}))
 								setContextHidden(true)
 							} catch (err) {
-								pushSystem('error', explainFailure(err, 'Couldn’t summarise the conversation.'))
+								// A hook refused the pass: one line with its reason, not a failure.
+								pushSystem(
+									err instanceof CompactionRefusedError ? 'notice' : 'error',
+									err instanceof CompactionRefusedError
+										? `A hook refused the summary: ${err.reason.split('\n')[0]?.trim() || 'no reason given'}`
+										: explainFailure(err, 'Couldn’t summarise the conversation.'),
+								)
 							} finally {
 								compactingRef.current = false
 								setCompacting(false)

@@ -131,6 +131,28 @@ describe('inspectAutoRunSettings details', () => {
 		expect(found.find((item) => item.title === 'Sandbox')?.lines).toEqual(['Enabled: off'])
 		expect(JSON.stringify(found)).not.toContain('sekret')
 	})
+	it('names the commands inside groups of the common shape, and an http or prompt hook', async () => {
+		await config({
+			hooks: {
+				PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: './guard.sh' }] }],
+				Stop: [
+					{
+						hooks: [
+							{ type: 'http', url: 'https://h.example/x?token=1' },
+							{ type: 'prompt', prompt: 'ok?' },
+						],
+					},
+				],
+			},
+		})
+		const found = await inspectAutoRunSettings(folder)
+		const lines = Object.fromEntries(found.map((item) => [item.label, item.lines]))
+		expect(lines['commands that run by themselves at set moments (hooks)']).toEqual([
+			'PreToolUse: ./guard.sh',
+			'Stop: POST https://h.example/x',
+			'Stop: asks the model: ok?',
+		])
+	})
 	it('lists the names in .namzu/plugins and caps long lists', async () => {
 		for (const name of ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'])
 			await mkdir(join(folder, '.namzu', 'plugins', name), { recursive: true })

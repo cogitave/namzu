@@ -242,12 +242,14 @@ export type {
 	ShellHookHandler,
 	ShellHookJudge,
 	ShellHookOnFailure,
+	ShellHookCall,
 	ShellHookInput,
 	ShellHookOptions,
 	ShellHookPathFilter,
 	ShellHookOutcome,
 	ShellHooksConfig,
 } from './plugin/shell-hook.js'
+export type { ShellHookToolNames } from './plugin/shell-hook-tool-names.js'
 
 export type {
 	PlanApprovalHandler,

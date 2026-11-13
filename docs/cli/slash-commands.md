@@ -28,8 +28,8 @@ clause, so no line ends mid-sentence.
 | `/setup` | Check optional Codex, Claude Code and OpenCode installations separately from credential availability. Confirm an npm installation, cancel it, recheck, or open provider connection. |
 | `/config`, `/settings` | View and edit model, reasoning effort, permission mode and turn limits; inspect configuration sources. `/config triggers on\|off` switches [composer triggers](composer-triggers.md) in your user config; `/config triggers` lists what is in force. `/config theme [name]` picks the [theme](themes.md) (the same as `/theme`). `/config motion on\|off\|list` switches [reduced motion](themes.md). `/config recap on\|off\|list` switches the [away recap](terminal-design.md#focus-and-the-away-recap) in your user config (`tui.recap`). `/config tips on\|off\|list` shows or hides the [tip under the working row](terminal-design.md#tips-and-the-next-task-under-the-working-row). |
 | `/feedback` | Rate the last answer; choose good/bad or add an optional note. |
-| `/clear` | Clear the terminal and start a fresh conversation. |
-| `/new` | Start a fresh conversation without clearing the terminal. |
+| `/clear` | Clear the terminal and start a fresh conversation. [Hooks](../sdk/hooks.md#session-start-and-end) are told: `session_end` (reason `clear`) for the conversation left, then `session_start` (source `clear`) for the new one, and the left conversation's session-start context is dropped. |
+| `/new` | Start a fresh conversation without clearing the terminal. Tells hooks the same as `/clear`. |
 | `/archive` | Archive this conversation and exit after confirmation. |
 | `/unarchive` | List this project's archived conversations, restore one and open it. Older archived conversations can be found with `namzu archive list --page <n>` and restored by id. |
 | `/exit` | Exit namzu. |
@@ -51,7 +51,7 @@ clause, so no line ends mid-sentence.
 | `/tasks` (alias `/bashes`) | View and manage everything running in the background: the `Background` dialog lists this session's background commands (Shells), monitors (Monitors), running subagents (Local agents) and finished ones (Completed). Up/Down select, Enter opens the details or the agent's transcript, `x` stops a running one, Esc closes; `/tasks list` prints a text summary of the commands. It replaces `/jobs`, which no longer exists. See [Background jobs in the CLI](background-jobs.md). |
 | `/peers [list\|on\|off\|send <ref> <message>]` | Find and message independent live terminals in this project; control this terminal's participation. Peer text carries no operator authority. See [Messages between live terminals](peer-messaging.md). |
 | `/release-notes` | Show what changed in the version that is running: /release-notes [version]. |
-| `/hooks` | List every hook this conversation runs, and where it came from. |
+| `/hooks` | List every hook this conversation runs, where it came from and which tool names it receives, then any hook a file declared that could not be loaded ([Hooks](../sdk/hooks.md#a-hooks-block-in-the-common-shape)). |
 | `/context` | Show where the context goes: a grid that stands for the window, a legend of categories (system prompt, system tools, MCP tools and instructions, custom agents, memory files, skills, messages, free space), lists of MCP tools, agents, memory files and skills with their sizes, and advice when something is large. `/context details` adds how older messages were summarised; `/context all` is accepted and shows the same. |
 | `/review` | Choose a review target, or provide custom instructions: /review [instructions]. |
 | `/mcp` | Show connection state, tool counts, failures and the servers still connecting; `/mcp tools` lists tool names. `/mcp details` is equivalent. |

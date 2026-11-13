@@ -3,6 +3,7 @@ import {
 	resolveTriggerThreshold,
 } from '../../../../compaction/context-window.js'
 import { findDanglingMessages } from '../../../../compaction/dangling.js'
+import { askPreCompact, postCompactSummary } from '../../../../compaction/hooks.js'
 import {
 	LOADED_SKILLS_ENTRY_KEY,
 	type RenderedSkills,
@@ -781,6 +782,10 @@ async function recordShed(
 interface CompactionPass {
 	attempted: boolean
 	reason: 'threshold' | 'overflow'
+	/** What the `pre_compact` hooks said the summary should keep. */
+	hookInstructions?: string
+	/** The summary the pass installed, for `post_compact`. */
+	summary?: string
 	tokensBefore: number
 	contextWindowTokens: number
 }
@@ -807,9 +812,11 @@ export async function runCompactionCheck(
 					iteration: ctx.recorder.currentIteration,
 					compaction: {
 						reason: pass.reason,
+						trigger: 'auto',
 						tokensBefore: pass.tokensBefore,
 						tokensAfter: estimateTokens(ctx),
 						contextWindowTokens: pass.contextWindowTokens,
+						...postCompactSummary(pass.summary),
 					},
 					signal: ctx.abortController.signal,
 				},
@@ -903,24 +910,29 @@ async function runCompactionCheckInner(
 	pass.tokensBefore = estimatedTokens
 	pass.contextWindowTokens = budget
 	if (ctx.pluginManager) {
-		const results = await ctx.pluginManager.executeHooks(
-			'pre_compact',
+		const answer = await askPreCompact(
+			ctx.pluginManager,
 			{
 				sessionId: ctx.recorder.sessionId,
 				turnId: ctx.recorder.turnId,
 				iteration: ctx.recorder.currentIteration,
-				compaction: {
-					reason: pass.reason,
-					tokensBefore: estimatedTokens,
-					contextWindowTokens: budget,
-				},
 				signal: ctx.abortController.signal,
+				emitEvent: ctx.emitEvent,
 			},
-			ctx.emitEvent,
+			{
+				reason: pass.reason,
+				trigger: 'auto',
+				instructions: null,
+				tokensBefore: estimatedTokens,
+				contextWindowTokens: budget,
+			},
 		)
-		applyLifecycleHookResults('pre_compact', results)
-		const refusal = results.find((result) => result.action === 'skip')
-		if (refusal?.action === 'skip') {
+		// What the hooks said the summary should keep is heard even when a
+		// forced pass overrides a refusal. A reducer or the extracted state
+		// alone has no place for it (see `docs/sdk/hooks.md`).
+		if (answer.instructions !== undefined) pass.hookInstructions = answer.instructions
+		const refusal = answer.refusal !== undefined ? { reason: answer.refusal } : undefined
+		if (refusal) {
 			// A threshold pass is the context's own housekeeping and a hook may
 			// postpone it. A forced pass runs because the provider rejected the
 			// prompt: a context it will reject is not something a hook may insist
@@ -1130,6 +1142,7 @@ async function runCompactionCheckInner(
 				olderMessages,
 				previousSummaries: replaceableSummaries(systemMessages),
 				config,
+				...(pass.hookInstructions !== undefined ? { hookInstructions: pass.hookInstructions } : {}),
 				resolveRoute: async (signal) => {
 					const route = await ctx.compactionSummaryRoute?.(signal)
 					if (route) {
@@ -1162,7 +1175,10 @@ async function runCompactionCheckInner(
 
 	if (modelWritten !== undefined) {
 		compactedContent = modelWritten
-	} else if (config.llmVerification && manager.slotCount() < config.richStateThreshold) {
+	} else if (
+		pass.hookInstructions !== undefined ||
+		(config.llmVerification && manager.slotCount() < config.richStateThreshold)
+	) {
 		// Named once and used twice on purpose. The model the summariser is
 		// asked for is also the model its tokens are priced at, and computing
 		// the two separately is how they drift — a router that sends compaction
@@ -1188,6 +1204,8 @@ async function runCompactionCheckInner(
 				// was added, and nothing ever consulted it.
 				compactionModel,
 				ctx.abortController.signal,
+				undefined,
+				pass.hookInstructions,
 			)
 		} catch (error) {
 			// The model step only ADDS to the extracted state, so a failed one (a
@@ -1308,6 +1326,7 @@ async function runCompactionCheckInner(
 	await recordShed(ctx, [...live], newMessages, options?.force ? 'overflow' : 'threshold')
 
 	installMessages(live, newMessages)
+	pass.summary = compactedContent
 
 	const newEstimate = estimateTokens(ctx)
 

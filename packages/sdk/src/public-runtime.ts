@@ -697,8 +697,13 @@ export {
 
 export {
 	attachShellHooks,
+	boundCompactionSummary,
 	boundHookContext,
 	boundHookReplacement,
+	boundLastAssistantMessage,
+	compactionHookInstructions,
+	MAX_COMPACTION_SUMMARY_HOOK_CHARS,
+	MAX_LAST_MESSAGE_HOOK_CHARS,
 	createShellHook,
 	DEFAULT_SHELL_HOOK_TIMEOUT_MS,
 	definePlugin,
@@ -716,8 +721,13 @@ export {
 	PluginResolver,
 	runShellHook,
 	SHELL_HOOK_EVENTS,
+	SHELL_HOOK_PASCAL_EVENT_NAMES,
+	SHELL_HOOK_WRITTEN_TOOL_NAMES,
 	SHELL_HOOKS_PLUGIN_ID,
+	shellHookToolName,
 	shellHookIfMatches,
+	shellHookIfProblem,
+	shellHookMatcherProblem,
 	shellHookMatches,
 	shellHookVerdict,
 } from './plugin/index.js'
@@ -1343,6 +1353,7 @@ export { assertTaskStatus, isTerminalTaskStatus } from './types/task/index.js'
 // offer "compact this conversation", could not shrink an idle session
 // between turns, and could not collapse a span it had chosen.
 export { compactNow, compactRegion } from './compaction/manual.js'
+export { CompactionRefusedError } from './compaction/hooks.js'
 // A host persisting manual compaction has to recognise the system message on
 // resume. Export the identity predicate rather than making every host copy the
 // marker string and eventually disagree with the writer.
@@ -1380,6 +1391,7 @@ export { isWorkingMemoryMessage } from './runtime/query/iteration/phases/working
 // `any` — and the first host to try (`@namzu/cli`'s `/compact`) did exactly
 // that before this line existed.
 export type { CompactNowInput, CompactionResult } from './compaction/manual.js'
+export type { CompactionHookHost, ManualCompactionHooks } from './compaction/hooks.js'
 export type {
 	CompactionSummaryRoute,
 	CompactionSummaryRouter,

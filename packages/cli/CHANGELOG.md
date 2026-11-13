@@ -1,5 +1,74 @@
 # @namzu/cli
 
+## 53.0.0
+
+### Major Changes
+
+- f2bbb1e: Breaking default: a `session_end` or `session_start` hook with no `matcher` used to run only when the process opened or closed a conversation, and now also runs on `/clear`, `/new`, `/resume` and `/fork`. To keep the old behaviour, give `session_end` hooks `matcher: "exit"` and give `session_start` hooks a `matcher` naming only the sources you want (`startup`, or `startup|resume` to skip `clear`).
+
+  `/clear` and `/new` now tell your hooks. The conversation you leave gets `session_end` with the reason `clear`, and the new one gets `session_start` with the source `clear` (at its first turn, as a new conversation does). The context a `session_start` hook gave for the old conversation no longer carries into the new one: the new conversation carries what its own `session_start` hooks print, or nothing. The end hook has the same short deadline as on exit (five seconds when the entry names no `timeoutMs`) and never delays the new conversation. A `matcher` of `clear` (or `startup|resume|clear`) on `session_start`, and `clear` on `session_end`, picks these out.
+
+  `/resume`, `/fork` and branching from an earlier prompt in the terminal now also end the old conversation for the hooks (`session_end`, reason `replaced`) and start the other (`session_start`, source `resume`, or `startup` if it holds no turn), and drop the old session-start context the same way.
+
+  If you have a `session_end` hook with no `matcher` that cleans up when you leave for good (removes a lock, stops a helper), it now also runs on `/clear`, `/resume` and `/fork`: give it `matcher: "exit"` to keep the old behaviour. A `session_start` hook with no `matcher` now also runs for each of these. A Pal's conversation runs no hooks, as before.
+
+- f2bbb1e: Breaking default: what a `pre_compact` hook prints to stdout with exit 0 used to be ignored and is now sent to the summariser. To keep the old behaviour, send that output to stderr.
+
+  Hooks now run for `/compact` and the idle compaction, and see the model's last message. A `pre_compact` hook that refuses a `/compact` stops it and you see `A hook refused the summary: <reason>`. A hook can print what the summary should keep (stdout or `additionalContext` on `pre_compact`), which is sent to the summariser after the text you typed. A `matcher` on `pre_compact` and `post_compact` tests `trigger` (`manual` or `auto`), and `turn_end` and `subagent_stop` hooks receive `last_assistant_message`. If a `pre_compact` hook of yours prints to stdout only for its own log, send it to stderr: stdout is now given to the summariser.
+
+### Minor Changes
+
+- 33b320e: A `hooks` block written in the common hook contract's shape can be pasted into a config file and is read as written. Nothing is removed or renamed; the shape you have keeps working.
+
+  What you can now do:
+
+  - Write `hooks` as PascalCase event, then a list of groups, each with an optional `matcher` and a list `hooks` of `{ type, command, timeout, ... }` (`command`, `http`, `prompt`; `timeout` in seconds). It is read beside the shape you already use, in the same file and the same key, both spellings of an event may be mixed, and identical entries still run once.
+  - Rely on the tool name a moved script expects: an entry read from that shape is sent `Bash`, `Edit`, `WebFetch` as `tool_name` (and in `NAMZU_TOOL_NAME`). An entry in the existing shape keeps receiving `bash`, and may ask for the written names with `toolNames: written`. `/hooks` shows which each entry receives.
+  - See what could not be loaded: an event name with no counterpart here, a hook kind we do not have (`agent`, `mcp_tool`), an unreadable hook and every key not acted on are reported at launch, in `/hooks` and in `namzu doctor`, naming the file and the event. A hook that would have guarded something (a tool event, a prompt, a compaction, a turn's end) and cannot be loaded makes the `runtime.hooks` row warn. One unreadable hook, a bare string or number in an event's list included, never stops the others from loading, and a setting that cannot be read (a `timeout`, an `if`) is left off so the hook runs, never the reverse.
+  - The terminal's trust prompt and the Desktop app's trust dialog read the common shape too, so a hook written in it is named before the folder is trusted.
+
+  What to know: `/hooks` now adds a `tool names` note to every command and http hook on a tool event, and reports a matcher written as `Tool(pattern)` (an `if`, which fires for nothing as a matcher).
+
+- 33b320e: Hooks moved from the common hook contract behave as written. Shell hooks get a call id on every tool event (`tool_use_id`), the file of a file tool as `file_path` beside `path`, and may answer `updatedToolOutput` in any JSON shape (and `updatedMCPToolOutput` for tool-server tools); a matcher or `if` written as a pattern, a glob or a list of names fires as written, including `if: "Agent"` and a shell command run through `env`, `sudo`, `nohup` or `git -C`. A sub-agent's hooks (`subagent_start`, `subagent_stop`) now carry the agent's name (`reviewer`, `explore`) as `agent_type`; it was `namzu-cli` for every child, so a script that compared it to that word must compare to the name.
+
+  `/hooks` says under a hook whose `matcher` is not a valid regular expression, or whose `if` is not `Tool(pattern)`, that it cannot be read; `namzu doctor` warns (`runtime.hooks`) and names it. A matcher that does not compile now fires for every call instead of never (it used to match nothing, so the hook never ran): fix the pattern the row names.
+
+### Patch Changes
+
+- ecbe3f4: When you leave, the `session_end` hook of a conversation you left behind with `/clear` or `/new` now finishes before the `session_end` hook of the last conversation starts. They used to run at the same time, so two hooks that append to one file could mix their lines and a script could see the ends out of order. Leaving takes no longer than the two deadlines one after the other (five seconds each unless an entry names its own).
+- Updated dependencies [f2bbb1e]
+- Updated dependencies [f2bbb1e]
+- Updated dependencies [33b320e]
+- Updated dependencies [33b320e]
+  - @namzu/sdk@64.0.0
+  - @namzu/browser@2.0.1
+  - @namzu/computer-use@4.3.1
+  - @namzu/anthropic@7.1.1
+  - @namzu/ollama@2.3.0
+  - @namzu/openai@4.5.0
+  - @namzu/openrouter@3.1.2
+  - @namzu/sandbox@39.0.0
+
+## 52.2.0
+
+### Minor Changes
+
+- 2e09f1e: While the terminal waits on one delegated agent, its last three calls show under its line (what each acts on, a mark for the one running and any that failed, and how many earlier calls are not shown), so you can see what it has been doing without opening the agent view. Several agents waiting together keep one line each, and a short window keeps the one-line form. A batch of waited-on agents that all finished now ends as one block (how many, the totals, a line per agent) instead of two rows each; an agent that failed or was stopped keeps its own row, and the line above says so (`3 agents: 2 finished, 1 failed`). Ctrl+O on a finished agent's row (a click in fullscreen) lists the calls it made, with how many are not retained, before its answer. To go back to the old rows, set `tui.agentCalls: false` in your own config (`/config`, "Agent calls"); nothing else changes and no default of an existing setting moved.
+- 2e09f1e: The counted line that folds a run of successful shell commands now says what the version-control ones did: `Made 1 commit, ran 1 push, opened 1 pull request, ran 2 commands` instead of `ran 5 commands`. Commits (amended ones as such), pushes, branches created or switched to, merges, rebases and pull requests opened or merged with `gh` are counted, in that order, before the plain count (a push, a merge and a rebase read `ran 1 push`, `ran 1 merge`, `ran 1 rebase` once over, because the line cannot see whether they changed anything); reads such as `git status` or `git log`, a dry run, an alias, a command inside quotes and anything joined with `;`, `||` or a pipe stay in `ran N commands`, and so does a line that also ran a step the count cannot name (`git stash`, `git tag`, `git pull`, `git branch -D`). The commands listed under the line and the detail behind Ctrl+O are unchanged. There is no setting for this; if you want the old wording the list under the line still names every command. On the default screen, `/clear` and Ctrl+L no longer lose the last finished rows of a reply that had not been printed into the scrollback yet: they are printed first, then the screen is cleared, so everything that was visible is in the scrollback once and in order (a screen reader, no-colour, the old painting with `NAMZU_LEGACY_PAINT=1`, the zoomed workspaces screen and the fullscreen view are unchanged). Where the input box rests after a turn is unchanged (right under the last reply). Setting `NAMZU_BOX_AT_BOTTOM=1` in the environment keeps the box on its row instead: the rows the working line and the plan had stay as blank rows above the box rather than under the status line.
+- 7fc727f: In fullscreen mode (`tui.fullscreen`), the mouse wheel glides and speeds up, and the hint for new output counts. What changes on your screen:
+
+  - A wheel notch now moves the view over a few frames and lands exactly on three rows; a fast run of notches speeds up to about a window a notch, and a pause or a change of direction returns to the plain step. Notches that arrive together now all count (they were counted once before), each as a plain step: a terminal that sends three reports per notch moves nine rows a notch with the default `tui.wheelRows: 3`, so set `tui.wheelRows: 1` there to move three. PgUp, PgDn, Home, End and a mouse press are still immediate. Switch the speed-up off with `tui.wheelAccel: false`; set the rows per notch with `tui.wheelRows` (1 to 20, default 3) for a terminal that sends several reports per notch. Under reduced motion there is no glide: a notch is one frame.
+  - While scrolled up, the row above the composer says how many replies came (`2 new replies · ↓ Jump to latest · End`) instead of `New activity`; a reply that only grew says so, and `Reply grew` once it has finished. Counting replies of the model with text only. The hint names End instead of PgDn, and a click on it jumps to the newest row (mouse at `full`). A quiet rule in the transcript marks where the new replies begin until you send your next message.
+  - The default screen's scroll-back view (PgUp from the composer) shows the same count.
+
+  No setting's default changed; the two new keys are in your own config files only.
+
+- eb49878: A fenced code block in a reply is now drawn in syntax colour when its language is one we know (TypeScript, JavaScript, Python, Rust, Go, shell, JSON, YAML, TOML, HTML, Markdown, C, C++, C#, Java, Ruby, PHP, SQL, Dockerfile, PowerShell and the rest of the common set, under the usual short names such as `ts`, `py`, `sh`, `yml`). Keywords, strings, numbers, comments, the names of functions and types, `true` and `null`, and the added and removed lines of a `diff` block each take a colour of your theme; every theme has code colours, the colour-blind ones tell added from removed by blue against orange and keep the kinds of syntax apart under red-green colour blindness, and the 16-colour ones use only the terminal's named colours. The characters, rows and wraps are the same as before and a selection or `/copy` takes the code alone. A block with no language, an unknown one or `text` is drawn as it was, in the one code colour, and so is every block under `NO_COLOR`, `FORCE_COLOR=0` or a terminal that is not a colour terminal. A reopened conversation and `namzu watch` colour code too. To go back to the old look, set `tui.syntaxHighlight: false` in your own config (or the Code colour row of `/config`); nothing else changes, and the default of no documented setting changed. The highlighter (highlight.js 11.11.1) is read only when a reply holds a block in a language, so start-up is unchanged; a block waits at most a second and a half for its grammar and is drawn plain if it does not come.
+
+### Patch Changes
+
+- eb49878: A code block in a reply is recognised the way models write it. Before, a block opened with a language such as `c++`, `objective-c` or `f#`, with a title or attributes after the language, with tildes (`~~~`), with four or more backticks, or indented under a list item or inside a quote was drawn as prose, with the fence lines on screen and the code wrapped like a sentence, while `/copy` already offered it as code. Now all of these are code blocks, drawn at the indentation they were written at (under their list item), in the default screen and in fullscreen, while the reply is written and once it is finished. Nothing is drawn beside the code. A reply that used none of these forms looks the same. There is no setting for this: the old drawing was a misreading, and the text of the reply is not changed.
+
 ## 52.1.0
 
 ### Minor Changes

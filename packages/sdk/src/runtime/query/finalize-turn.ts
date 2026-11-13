@@ -8,7 +8,7 @@ import type { TurnContext } from './context.js'
 import type { EventTranslator } from './events.js'
 import { runOutputGuardrails } from './guardrails.js'
 import type { QueryParams } from './index.js'
-import { applyLifecycleHookResults } from './plugin-hooks.js'
+import { applyLifecycleHookResults, lastAssistantMessageField } from './plugin-hooks.js'
 import type { ResultAssembler } from './result.js'
 
 /**
@@ -86,7 +86,12 @@ export async function* finalizeTurn(
 	if (params.pluginManager && finalization.turnEndHooksFired?.() !== true) {
 		const hookResults = await params.pluginManager.executeHooks(
 			'turn_end',
-			{ sessionId: ctx.sessionId, turnId: ctx.turnId, signal: ctx.abortController.signal },
+			{
+				sessionId: ctx.sessionId,
+				turnId: ctx.turnId,
+				...lastAssistantMessageField(ctx.recorder.messages),
+				signal: ctx.abortController.signal,
+			},
 			eventTranslator.emitEvent,
 		)
 		applyLifecycleHookResults('turn_end', hookResults)
@@ -100,8 +105,10 @@ export async function* finalizeTurn(
 				{
 					sessionId: ctx.sessionId,
 					turnId: ctx.turnId,
+					...lastAssistantMessageField(ctx.recorder.messages),
 					parentSessionId: params.parentSessionId,
 					...(params.parentTurnId !== undefined ? { parentTurnId: params.parentTurnId } : {}),
+					agentType: params.agentType ?? params.agentName,
 					signal: ctx.abortController.signal,
 				},
 				eventTranslator.emitEvent,

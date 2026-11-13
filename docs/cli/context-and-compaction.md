@@ -19,6 +19,8 @@ step that can act on free text. Without text, `/compact` makes a model call only
 for the small model's summary (see [Who writes the summary](#who-writes-the-summary)); with
 `compaction.modelSummary: false` it makes none, as before. The text is cut to 2,000 characters.
 
+`/compact`, the idle compaction and summarising a span fire the `pre_compact` and `post_compact` hooks like an automatic pass, with `trigger` `manual` (a person asked) or `auto` (everything else, idle included); the text typed after `/compact` reaches `pre_compact` as `custom_instructions`. A `pre_compact` hook that refuses a `/compact` stops it: nothing is summarised and one line, `A hook refused the summary: <reason>`, says why. What such a hook prints is added, after your own text, to what the summary should keep (see [Hook events](../sdk/hooks.md#compaction-hooks)).
+
 In a recorded conversation, `/compact` retains removed original messages before
 installing or saving the summary. This includes user-provided details omitted
 from the summary. They remain searchable through `search_conversation` and
