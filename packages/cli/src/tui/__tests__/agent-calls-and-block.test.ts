@@ -7,6 +7,7 @@ import { callBlockExtraRows, liveGroups } from '../background-agents.js'
 import {
 	agentCompletionRows,
 	blockedAgents,
+	holdsForBatch,
 	settledBatchRows,
 	withSavedAgentRows,
 } from '../restored-rows.js'
@@ -222,7 +223,7 @@ describe('a batch of waited-on agents that all finished', () => {
 		expect(blockedAgents(mixed).map((entry) => entry.viewId)).toEqual(['a', 'b', 'c'])
 		const rows = settledBatchRows(mixed)
 		expect(rows).toHaveLength(2)
-		expect(rows[0]?.content.split('\n')[0]).toBe('4 agents finished')
+		expect(rows[0]?.content.split('\n')[0]).toBe('4 agents: 3 finished, 1 failed')
 		expect(rows[1]?.content.split('\n')[0]).toContain('3 agents finished')
 		expect(agentCompletionRows(mixed[3] as SubagentActivity)[0]?.content).toContain('failed')
 	})
@@ -233,6 +234,17 @@ describe('a batch of waited-on agents that all finished', () => {
 		expect(blockedAgents(members.map((entry) => ({ ...entry, background: true })))).toEqual([])
 		const oneLeft = [members[0] as SubagentActivity, agent({ viewId: 'x', status: 'failed' })]
 		expect(blockedAgents(oneLeft)).toEqual([])
+	})
+
+	it('holds an early finisher for the batch, and never with tui.agentCalls off', () => {
+		const early = members[0] as SubagentActivity
+		const running = agent({ viewId: 'r' })
+		const batch = [early, running]
+		expect(holdsForBatch(early, batch, true)).toBe(true)
+		expect(holdsForBatch(early, batch, true, false)).toBe(false)
+		expect(holdsForBatch(early, batch, false)).toBe(false)
+		expect(holdsForBatch(early, [early], true)).toBe(false)
+		expect(holdsForBatch({ ...early, status: 'failed' }, batch, true)).toBe(false)
 	})
 
 	it('is switched off by tui.agentCalls: a receipt and two rows per agent, no calls behind them', () => {

@@ -748,6 +748,26 @@ export function blockedAgents(
 }
 
 /**
+ * Whether a waited-on agent that has finished writes nothing yet: it is one of several in a batch
+ * that still has a member running, and the batch ends as one block (or each keeps its Done row).
+ * Never with `tui.agentCalls` off, which keeps each agent's own rows as they end.
+ */
+export function holdsForBatch(
+	agent: SubagentActivity,
+	members: readonly SubagentActivity[],
+	batchStillLive: boolean,
+	enabled = true,
+): boolean {
+	return (
+		enabled &&
+		batchStillLive &&
+		members.length > 1 &&
+		agent.status === 'completed' &&
+		!reportsAsNotification(agent)
+	)
+}
+
+/**
  * What a batch leaves when it has settled: its receipt (left out when the
  * block says the same thing) and the block of the waited-on agents that
  * finished. The live run and a reopened conversation both build the rows here,

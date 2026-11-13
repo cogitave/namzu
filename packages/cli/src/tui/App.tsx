@@ -433,7 +433,6 @@ import {
 	childMessageNotice,
 	childMessageRow,
 	failureReason,
-	reportsAsNotification,
 	settleLine,
 	workflowAgentProgress,
 	workflowNotice,
@@ -738,6 +737,7 @@ import {
 	handedBackLines,
 	outcomeNotice,
 } from './outcome-line.js'
+import { noteTurnEnded, noteTurnStarted } from './paint/live-paint.js'
 import { highestAttachmentNumber } from './paste-chips.js'
 import { PauseClock } from './pause-clock.js'
 import {
@@ -763,6 +763,7 @@ import {
 	agentCompletionRows,
 	blockedAgents,
 	createRestoredTurnWriter,
+	holdsForBatch,
 	numberDetailRows,
 	settledBatchRows,
 	trailFromRecords,
@@ -1768,6 +1769,17 @@ function AppBody({
 	const palDefaultPreferencesRef = useRef<Preferences | null>(null)
 	const [history, setHistory] = useState<readonly string[]>([])
 	const [state, setState] = useState<'idle' | 'thinking' | 'tool' | 'awaiting-permission'>('idle')
+	// The painter is told when a turn ends, before the frame that drops the working line is drawn.
+	const workedRef = useRef(false)
+	if (paintsLiveRegion) {
+		if (state !== 'idle') {
+			workedRef.current = true
+			noteTurnStarted()
+		} else if (workedRef.current) {
+			workedRef.current = false
+			noteTurnEnded()
+		}
+	}
 	/** For the scheduler integration's loop timer, which reads it outside render. */
 	const stateRef = useRef(state)
 	stateRef.current = state
@@ -4523,13 +4535,7 @@ function AppBody({
 				batchMembers.some((member) => member.background !== true) && batchMembers.some(isRunning)
 			// A waited-on agent that finished early in a batch still running waits for
 			// the rest: the batch ends as one block, or each keeps its Done row.
-			if (
-				batchStillLive &&
-				batchMembers.length > 1 &&
-				agent.status === 'completed' &&
-				!reportsAsNotification(agent)
-			)
-				continue
+			if (holdsForBatch(agent, batchMembers, batchStillLive, agentCallsOn)) continue
 			if (
 				!agent.replayed &&
 				!agent.resumed &&

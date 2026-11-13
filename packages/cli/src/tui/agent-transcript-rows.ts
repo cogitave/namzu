@@ -98,9 +98,28 @@ export function launchReceipt(unordered: readonly SubagentActivity[]): LaunchRec
 	const headline = members.every((agent) => agent.background === true)
 		? `${members.length} background agents launched${where} (${AGENT_MANAGE_HINT})`
 		: allEnded
-			? `${members.length} agents finished${where}`
+			? `${endedWords(members)}${where}`
 			: `Launched ${members.length} agents${where}`
 	return { content: [headline, ...tree].join('\n') }
+}
+
+/**
+ * How a batch that has ended reads: `3 agents finished` when every member did, else how each way
+ * of ending was counted (`3 agents: 2 finished, 1 failed`), so the line never says
+ * `finished` over a member that failed or was stopped.
+ */
+function endedWords(members: readonly SubagentActivity[]): string {
+	const count = (status: SubagentActivity['status']): number =>
+		members.filter((agent) => agent.status === status).length
+	if (count('completed') === members.length) return `${members.length} agents finished`
+	const parts = [
+		[count('completed'), 'finished'],
+		[count('failed'), 'failed'],
+		[count('cancelled'), 'stopped'],
+	]
+		.filter(([n]) => (n as number) > 0)
+		.map(([n, word]) => `${n} ${word}`)
+	return `${members.length} agents: ${parts.join(', ')}`
 }
 
 export interface AgentMessageRow {

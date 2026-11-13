@@ -417,7 +417,7 @@ them. A batch that includes an agent the turn waits on is a live group while it
 runs, `Running 3 agents…` with one block per agent (`description · 4 tool uses ·
 12.1k tokens` over `⎿ <last tool>`, or `Initializing…`; one agent alone, in a
 window with room, shows its last three calls instead), and when the last member
-ends writes its receipt, `3 agents finished`, or, when two or more waited-on
+ends writes its receipt, `3 agents finished` (`3 agents: 2 finished, 1 failed` when some did not finish), or, when two or more waited-on
 agents completed, one block with the totals and a line per agent in its place
 (a failed or stopped agent keeps its own row; `tui.agentCalls: false` restores
 the old rows); the manage hint is only for an all-background batch. The calls

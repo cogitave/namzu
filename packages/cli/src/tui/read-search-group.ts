@@ -198,12 +198,22 @@ const VCS_WORDS: Readonly<
 			one: string
 			many: string
 			names?: string
+			/** The noun once it is over, when the verb changes it (`ran 1 merge`). */
+			doneNouns?: readonly [string, string]
 		}
 	>
 > = {
 	commit: { live: 'making', done: 'made', one: 'commit', many: 'commits' },
 	amend: { live: 'amending', done: 'amended', one: 'commit', many: 'commits' },
-	push: { live: 'pushing', done: 'pushed', one: 'time', many: 'times' },
+	// The line cannot see a command's result, and a push or a merge that found nothing to do ends well
+	// too: once over these say what was run, not what changed.
+	push: {
+		live: 'pushing',
+		done: 'ran',
+		one: 'time',
+		many: 'times',
+		doneNouns: ['push', 'pushes'],
+	},
 	'create-branch': { live: 'creating', done: 'created', one: 'branch', many: 'branches' },
 	'switch-branch': {
 		live: 'switching',
@@ -212,8 +222,20 @@ const VCS_WORDS: Readonly<
 		many: 'times',
 		names: 'branches',
 	},
-	merge: { live: 'merging', done: 'merged', one: 'branch', many: 'branches' },
-	rebase: { live: 'rebasing', done: 'rebased', one: 'time', many: 'times' },
+	merge: {
+		live: 'merging',
+		done: 'ran',
+		one: 'branch',
+		many: 'branches',
+		doneNouns: ['merge', 'merges'],
+	},
+	rebase: {
+		live: 'rebasing',
+		done: 'ran',
+		one: 'time',
+		many: 'times',
+		doneNouns: ['rebase', 'rebases'],
+	},
 	'pr-open': { live: 'opening', done: 'opened', one: 'pull request', many: 'pull requests' },
 	'pr-merge': { live: 'merging', done: 'merged', one: 'pull request', many: 'pull requests' },
 }
@@ -252,7 +274,14 @@ export function groupParts(state: GroupState, live: boolean): readonly GroupPart
 				verb: live ? w.live : w.done,
 				...(w.names ? { names: w.names } : {}),
 				count: n,
-				noun: n === 1 ? w.one : w.many,
+				noun:
+					live || !w.doneNouns
+						? n === 1
+							? w.one
+							: w.many
+						: n === 1
+							? w.doneNouns[0]
+							: w.doneNouns[1],
 			})
 		}
 		const plain = state.commands.length - absorbed
@@ -881,17 +910,24 @@ function readGit(rest: readonly Word[]): SegmentRead {
 	const sub = rest[i]
 	if (sub === undefined || sub.quoted || /[$*?[~]/.test(sub.text)) return { explained: false }
 	const parsed = parseArgs(rest.slice(i + 1), sub.text)
-	const none: SegmentRead = { explained: true }
-	if (parsed.unsure || hasFlag(parsed, '--help', '-h')) return none
+	// What this line cannot account for stays a command of its own: only a step known to change
+	// nothing is "explained", and only a dry run or a request for help counts as such inside a
+	// subcommand that does change something.
+	const unknown: SegmentRead = { explained: false }
+	const harmless: SegmentRead = { explained: true }
+	if (HARMLESS_GIT.has(sub.text)) return harmless
+	if (parsed.unsure) return unknown
+	if (hasFlag(parsed, '--help', '-h')) return harmless
 	switch (sub.text) {
 		case 'commit':
-			if (hasFlag(parsed, '--dry-run')) return none
+			if (hasFlag(parsed, '--dry-run')) return harmless
 			return { action: amendLong(parsed) ? 'amend' : 'commit', explained: true }
 		case 'push':
-			if (hasFlag(parsed, '--dry-run', '-n', '--delete', '-d', '--mirror')) return none
+			if (hasFlag(parsed, '--dry-run', '-n')) return harmless
+			if (hasFlag(parsed, '--delete', '-d', '--mirror')) return unknown
 			return { action: 'push', explained: true }
 		case 'merge':
-			if (hasFlag(parsed, '--abort', '--quit', '--continue')) return none
+			if (hasFlag(parsed, '--abort', '--quit', '--continue')) return unknown
 			return { action: 'merge', explained: true }
 		case 'rebase':
 			if (
@@ -905,28 +941,70 @@ function readGit(rest: readonly Word[]): SegmentRead {
 					'--show-current-patch',
 				)
 			)
-				return none
+				return unknown
 			return { action: 'rebase', explained: true }
 		case 'switch': {
 			const make = ['-c', '-C', '--create', '--force-create'].find((f) => parsed.values.has(f))
 			if (make !== undefined) return { action: 'create-branch', explained: true }
-			if (hasFlag(parsed, '--detach', '-d', '--orphan', '--create', '--force-create')) return none
-			return parsed.positional.length === 1 ? { action: 'switch-branch', explained: true } : none
+			if (hasFlag(parsed, '--detach', '-d', '--orphan', '--create', '--force-create'))
+				return unknown
+			return parsed.positional.length === 1 ? { action: 'switch-branch', explained: true } : unknown
 		}
 		case 'checkout':
 			return ['-b', '-B'].some((f) => parsed.values.has(f)) && !hasFlag(parsed, '--orphan')
 				? { action: 'create-branch', explained: true }
-				: none
+				: unknown
 		case 'branch':
-			return parsed.flags.length === 0 &&
+			if (
+				parsed.flags.length === 0 &&
 				parsed.positional.length >= 1 &&
 				parsed.positional.length <= 2
-				? { action: 'create-branch', explained: true }
-				: none
+			)
+				return { action: 'create-branch', explained: true }
+			// Listing branches changes nothing; deleting, renaming and the rest are commands of their own.
+			return parsed.positional.length === 0 &&
+				parsed.flags.every((flag) => BRANCH_LIST_FLAGS.has(flag))
+				? harmless
+				: unknown
 		default:
-			return none
+			// stash, tag, pull, reset, restore, clean, cherry-pick, revert and every other subcommand.
+			return unknown
 	}
 }
+
+/** Subcommands that only read, or only stage what a commit then takes. */
+const HARMLESS_GIT = new Set([
+	'add',
+	'status',
+	'diff',
+	'log',
+	'show',
+	'fetch',
+	'rev-parse',
+	'rev-list',
+	'ls-files',
+	'ls-tree',
+	'describe',
+	'blame',
+	'shortlog',
+	'grep',
+	'cat-file',
+	'reflog',
+])
+
+/** `git branch` options that only list. */
+const BRANCH_LIST_FLAGS = new Set([
+	'-a',
+	'--all',
+	'-r',
+	'--remotes',
+	'-v',
+	'-vv',
+	'--verbose',
+	'--list',
+	'-l',
+	'--show-current',
+])
 
 /** `--amend`, spelled whole or as a prefix long enough to mean nothing else. */
 function amendLong(parsed: Parsed): boolean {
@@ -937,19 +1015,25 @@ function readGh(rest: readonly Word[]): SegmentRead {
 	const first = rest[0]
 	const second = rest[1]
 	if (first === undefined || first.quoted || first.text !== 'pr') return { explained: false }
-	if (second === undefined || second.quoted) return { explained: true }
-	const none: SegmentRead = { explained: true }
-	if (second.text !== 'create' && second.text !== 'merge') return none
+	if (second === undefined || second.quoted) return { explained: false }
+	const harmless: SegmentRead = { explained: true }
+	const unknown: SegmentRead = { explained: false }
+	if (GH_PR_HARMLESS.has(second.text)) return harmless
+	if (second.text !== 'create' && second.text !== 'merge') return unknown
 	const parsed = parseArgs(rest.slice(2), second.text === 'create' ? 'gh-pr-create' : 'gh-pr-merge')
-	if (parsed.unsure || parsed.flags.some((flag) => flag === '--help' || flag === '-h')) return none
+	if (parsed.unsure) return unknown
+	if (parsed.flags.some((flag) => flag === '--help' || flag === '-h')) return harmless
 	if (second.text === 'create') {
-		if (parsed.flags.some((flag) => flag === '--web' || flag === '-w' || flag === '--dry-run'))
-			return none
+		if (parsed.flags.includes('--dry-run')) return harmless
+		if (parsed.flags.some((flag) => flag === '--web' || flag === '-w')) return unknown
 		return { action: 'pr-open', explained: true }
 	}
-	if (parsed.flags.some((flag) => flag === '--auto' || flag === '--disable-auto')) return none
+	if (parsed.flags.some((flag) => flag === '--auto' || flag === '--disable-auto')) return unknown
 	return { action: 'pr-merge', explained: true }
 }
+
+/** `gh pr` subcommands that only read. */
+const GH_PR_HARMLESS = new Set(['view', 'list', 'status', 'checks', 'diff'])
 
 /**
  * The version-control actions one successful command line took, and whether

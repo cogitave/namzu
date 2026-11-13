@@ -165,6 +165,25 @@ describe('a command that is only version control leaves the plain count', () => 
 		expect(vcsActions('git add -A && git commit -m x && git push').absorbed).toBe(true)
 		expect(vcsActions('cd sub && git push').absorbed).toBe(true)
 	})
+	it('stays a plain command as well when a step the line cannot name ran with the action', () => {
+		expect(vcsActions('git stash && git switch main')).toEqual({
+			actions: ['switch-branch'],
+			absorbed: false,
+		})
+		expect(vcsActions('git tag v1 && git push --tags').absorbed).toBe(false)
+		expect(vcsActions('git pull && git push').absorbed).toBe(false)
+		expect(vcsActions('git branch -D old && git commit -m x').absorbed).toBe(false)
+		expect(vcsActions('git reset --hard HEAD~1 && git push --force').absorbed).toBe(false)
+		expect(vcsActions('gh pr close 4 && git push').absorbed).toBe(false)
+		expect(vcsActions('git merge --abort && git commit -m x').absorbed).toBe(false)
+	})
+	it('stays absorbed around steps that only read or stage', () => {
+		expect(vcsActions('git fetch && git status && git add . && git commit -m x').absorbed).toBe(
+			true,
+		)
+		expect(vcsActions('git branch -a && git switch topic').absorbed).toBe(true)
+		expect(vcsActions('git commit --dry-run && git push').absorbed).toBe(true)
+	})
 	it('stays a plain command as well when something else ran in it', () => {
 		expect(vcsActions('pnpm test && git commit -m x').absorbed).toBe(false)
 		expect(vcsActions('git status').absorbed).toBe(false)
@@ -195,10 +214,18 @@ describe('the folded line names what the commands did', () => {
 
 	it('counts by action in a fixed order and keeps every other command in the plain count', () => {
 		expect(groupText(live, false)).toBe(
-			'Made 1 commit, amended 1 commit, pushed 1 time, created 1 branch, opened 1 pull request, ran 2 commands',
+			'Made 1 commit, amended 1 commit, ran 1 push, created 1 branch, opened 1 pull request, ran 2 commands',
 		)
 	})
 
+	it('says what ran, not what changed, for a push, a merge or a rebase that may have found nothing to do', () => {
+		const state = ['git push', 'git merge topic', 'git rebase main', 'git push'].reduce<GroupState>(
+			(acc, command) => foldOp(acc, run(command)),
+			EMPTY_GROUP,
+		)
+		expect(groupText(state, false)).toBe('Ran 2 pushes, ran 1 merge, ran 1 rebase')
+		expect(groupText(state, true)).toBe('Pushing 2 times, merging 1 branch, rebasing 1 time…')
+	})
 	it('uses the running verbs while live', () => {
 		expect(groupText(live, true)).toBe(
 			'Making 1 commit, amending 1 commit, pushing 1 time, creating 1 branch, opening 1 pull request, running 2 commands…',
@@ -244,7 +271,7 @@ describe('the folded line names what the commands did', () => {
 			'gh pr merge 3',
 		].reduce<GroupState>((s, command) => foldOp(s, run(command)), EMPTY_GROUP)
 		expect(groupText(state, false)).toBe(
-			'Switched branches 2 times, merged 1 branch, rebased 1 time, merged 1 pull request',
+			'Switched branches 2 times, ran 1 merge, ran 1 rebase, merged 1 pull request',
 		)
 	})
 })
