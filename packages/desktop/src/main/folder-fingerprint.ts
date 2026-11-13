@@ -214,6 +214,9 @@ export async function folderFingerprint(folder: string): Promise<FolderFingerpri
 		await hashEntry(state, walk, hash, 0)
 		parts['.namzu'] = walk.over ? uncheckable() : `link:${hash.digest('hex')}`
 	} else for (const tree of TREES) await treeParts(join(state, tree), tree, parts)
+	// The other two folders a project's skills load from, whose hooks start once the skill is used.
+	await treeParts(join(folder, '.agents', 'skills'), 'agents-skills', parts)
+	await treeParts(join(folder, 'skills'), 'legacy-skills', parts)
 	const digest = sha(
 		Object.keys(parts)
 			.sort()
@@ -247,13 +250,15 @@ export function partLabel(key: string): string {
 	if (slash < 0) return `.namzu/${key}`
 	const head = key.slice(0, slash)
 	const kind =
-		head === 'plugins'
-			? 'plugin'
-			: head === 'skills'
-				? 'skill'
-				: head === 'agents'
-					? 'agent'
-					: 'command'
+		head === 'agents-skills' || head === 'legacy-skills'
+			? 'skill'
+			: head === 'plugins'
+				? 'plugin'
+				: head === 'skills'
+					? 'skill'
+					: head === 'agents'
+						? 'agent'
+						: 'command'
 	return `${kind} ${key.slice(slash + 1).slice(0, 80)}`
 }
 

@@ -61,6 +61,8 @@ describe('discoverAgentDefinitions', () => {
 				definitions: [],
 				skipped: [],
 				missingSkills: [],
+				refused: [],
+				carriers: [],
 			})
 		} finally {
 			removeTempDir(empty)
@@ -91,5 +93,67 @@ describe('discoverAgentDefinitions', () => {
 				reason: 'skill nowhere was not found',
 			},
 		])
+	})
+})
+
+describe('discoverAgentDefinitions and hooks', () => {
+	const guard = (type: string) =>
+		[
+			'hooks:',
+			'  PreToolUse:',
+			'    - matcher: Bash',
+			'      hooks:',
+			`        - type: ${type}`,
+			'          command: ./guard.sh',
+		].join('\n')
+	const file = (name: string, hooks: string) =>
+		`---\nname: ${name}\ndescription: Runs commands.\n${hooks}\n---\nYou run commands.`
+
+	it('keeps the hooks text of an agent file and offers it', async () => {
+		writeFileSync(join(projectAgentsDir(cwd), 'ok.md'), file('ok', guard('command')))
+		const found = await discoverAgentDefinitions({ cwd, home })
+		expect(found.definitions.map((d) => d.name)).toEqual(['ok'])
+		expect(found.definitions[0]?.hooksSource).toContain('PreToolUse')
+		expect(found.refused).toEqual([])
+		expect(found.carriers.map((c) => c.name)).toEqual(['ok'])
+	})
+
+	it('does not offer a file whose guard cannot be loaded, and names it with the entry', async () => {
+		writeFileSync(join(projectAgentsDir(cwd), 'bad.md'), file('bad', guard('nope')))
+		writeFileSync(join(projectAgentsDir(cwd), 'ok.md'), file('ok', guard('command')))
+		const found = await discoverAgentDefinitions({ cwd, home })
+		expect(found.definitions.map((d) => d.name)).toEqual(['ok'])
+		expect(found.refused.map((r) => r.name)).toEqual(['bad'])
+		expect(found.refused[0]?.line).toContain(join(projectAgentsDir(cwd), 'bad.md'))
+		expect(found.refused[0]?.line).toContain('PreToolUse group 1, hook 1')
+		// Said where skipped files are said.
+		expect(found.skipped.map((s) => s.path)).toContain(join(projectAgentsDir(cwd), 'bad.md'))
+		expect(found.carriers.map((c) => c.name).sort()).toEqual(['bad', 'ok'])
+	})
+
+	it('does not let a broken project file leave the user’s file of the same name offered', async () => {
+		writeFileSync(join(userAgentsDir(home), 'same.md'), file('same', guard('command')))
+		writeFileSync(join(projectAgentsDir(cwd), 'same.md'), file('same', guard('nope')))
+		const found = await discoverAgentDefinitions({ cwd, home })
+		expect(found.definitions).toEqual([])
+		expect(found.refused.map((r) => r.name)).toEqual(['same'])
+	})
+
+	it('does not offer a project file with a guard in a folder that is not trusted', async () => {
+		writeFileSync(join(projectAgentsDir(cwd), 'ok.md'), file('ok', guard('command')))
+		const found = await discoverAgentDefinitions({ cwd, home, hooks: { projectTrusted: false } })
+		expect(found.definitions).toEqual([])
+		expect(found.refused[0]?.line).toContain('not trusted')
+	})
+
+	it('offers it as if it had no hooks when a switch is on', async () => {
+		writeFileSync(join(projectAgentsDir(cwd), 'bad.md'), file('bad', guard('nope')))
+		const found = await discoverAgentDefinitions({
+			cwd,
+			home,
+			hooks: { projectTrusted: true, hooksSwitch: 'disabled' },
+		})
+		expect(found.definitions.map((d) => d.name)).toEqual(['bad'])
+		expect(found.refused).toEqual([])
 	})
 })

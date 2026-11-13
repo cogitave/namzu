@@ -99,6 +99,8 @@ export interface SkillRegistryRef {
 						model?: string
 						effort?: import('../provider/chat.js').ReasoningEffort
 						background?: boolean
+						/** The `hooks` block as the file wrote it; see `SkillMetadata.hooksSource`. */
+						hooksSource?: string
 					}
 					body?: string
 					/** The skill's directory, which `${CLAUDE_SKILL_DIR}` in `allowed-tools` names. */
@@ -109,6 +111,85 @@ export interface SkillRegistryRef {
 	>
 	/** Every registered name, for a "did you mean" that names real options. */
 	names(): readonly string[]
+	/**
+	 * Read the hooks a skill carries, without attaching anything.
+	 *
+	 * Called by the `skill` tool for a skill whose front matter has a `hooks`
+	 * block. Hooks are not a thing the kernel reads: the host that runs them
+	 * answers. The answer says what to tell the model, whether the skill's
+	 * `allowed-tools` may still be pre-approved, and, as `attach`, the one
+	 * call that makes the hooks live. `attach` is called only once the skill's
+	 * instructions have been delivered, like the tool grant's `commit`, and
+	 * returns a handle that removes exactly what it attached.
+	 *
+	 * Absent, a skill that carries hooks loads without them, and without its
+	 * `allowed-tools` pre-approval: a skill written to run its commands under
+	 * its own guard must not run them unguarded and pre-approved.
+	 */
+	prepareHooks?(
+		skill: {
+			readonly name: string
+			readonly dirPath?: string
+			readonly hooksSource: string
+		},
+		options: SkillHooksOptions,
+	): SkillHooksPlan
+}
+
+/** What a conversation keeps of a skill whose hooks were attached to it; see {@link ToolContext.recordSkillHooks}. */
+export interface SkillHooksRecordFact {
+	/** The skill's name. */
+	readonly skill: string
+	/** The skill's own folder. */
+	readonly directory: string
+	/** The skill's `allowed-tools` were left unapproved (a hook that guards its work could not be loaded). */
+	readonly grantsWithheld: boolean
+	/** The `skill` call that loaded it. */
+	readonly toolCallId?: string
+}
+
+/** What the `skill` tool tells a host's hook reader about the use it is making of a skill. */
+export interface SkillHooksOptions {
+	/** The skill runs in a delegated agent: its hooks belong to that agent's run only. */
+	readonly forked: boolean
+	/**
+	 * For a forked skill: the prompt the delegated agent is given, so the host
+	 * can tell that agent from any other that starts at the same time.
+	 */
+	readonly prompt?: string
+	/** The session the `skill` tool was called in. */
+	readonly sessionId?: string
+}
+
+/** What a host decided about the hooks a skill carries; see {@link SkillRegistryRef.prepareHooks}. */
+export interface SkillHooksPlan {
+	/** One line for the model, and for the person, about the hooks. Empty when there is nothing to say. */
+	readonly notice?: string
+	/**
+	 * The skill's `allowed-tools` must not be pre-approved: some hook that
+	 * guards its work could not be loaded, or hooks cannot be attached here.
+	 */
+	readonly withholdGrants: boolean
+	/**
+	 * The hooks (or the refusal) belong to the conversation and should come
+	 * back when it is continued: the `skill` tool keeps a record of the use
+	 * ({@link ToolContext.recordSkillHooks}) once the instructions were
+	 * delivered. Absent or false: nothing is kept (a forked skill, whose hooks
+	 * belong to one run; a skill whose hooks are switched off).
+	 */
+	readonly resumable?: boolean
+	/** Make the hooks live. Idempotent for a skill already attached to the conversation. */
+	attach(): SkillHooksHandle
+}
+
+/** What {@link SkillHooksPlan.attach} gives back. */
+export interface SkillHooksHandle {
+	/**
+	 * For a forked skill: bind the hooks to the delegated agent that is about
+	 * to start, and end them when it ends. Absent for an inline skill, whose
+	 * hooks last as long as the conversation.
+	 */
+	readonly remove: () => void
 }
 
 /**
@@ -548,6 +629,19 @@ export interface ToolContext {
 	turnId: TurnId
 	workingDirectory: string
 	/**
+	 * Called by the shell tool, after a command has finished, when the folder the
+	 * session's next shell command starts in is a different folder from the one
+	 * this command started in (it ran `cd`, or was put back at the working
+	 * directory for leaving the allowed folders). Awaited before the result is
+	 * returned, so what a host does here is done before the next command. Never
+	 * called with the same folder twice in a row, and not at all for a command
+	 * that did not move.
+	 */
+	workingDirectoryChanged?: (change: {
+		readonly from: string
+		readonly to: string
+	}) => Promise<void> | void
+	/**
 	 * Directories besides the working directory the file tools may reach,
 	 * absolute. A host adds one for a session (`/add-dir`); a sandboxed turn
 	 * binds each. Relative paths still resolve against the working
@@ -790,6 +884,17 @@ export interface ToolContext {
 		/** Record the grant in the turn. Idempotent. */
 		readonly commit: () => void
 	}
+
+	/**
+	 * Keep, in the conversation's own record, that a skill's hooks were attached
+	 * (or refused) for it, so a host that continues the conversation later can
+	 * attach them again. Called by the `skill` tool once the instructions were
+	 * delivered, only for a skill the host's {@link SkillHooksPlan.resumable}
+	 * names. Resolves `true` when the record was written; `false` (it does not
+	 * throw) when it could not be, and the tool then says so in its result.
+	 * Absent outside a turn that has a session log.
+	 */
+	recordSkillHooks?: (fact: SkillHooksRecordFact) => Promise<boolean>
 
 	/**
 	 * Effective model-visible character cap for this tool result.

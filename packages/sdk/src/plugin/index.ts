@@ -69,3 +69,30 @@ export type {
 	ShellHookOutcome,
 	ShellHooksConfig,
 } from './shell-hook.js'
+export {
+	fileChangedMatcherNote,
+	fileChangedMatcherPaths,
+	fileChangedMatches,
+} from './shell-hook.js'
+export {
+	HOOK_ENV_EVENTS,
+	MAX_HOOK_ENV_FILE_BYTES,
+	MAX_HOOK_ENV_VALUE_CHARS,
+	MAX_HOOK_ENV_VARIABLES,
+	refusedHookEnvName,
+	SessionHookEnv,
+} from './session-hook-env.js'
+export type { HookEnvEvent, SessionHookEnvOptions } from './session-hook-env.js'
+export { FILE_SETTLE_MS, FileChangeWatcher, MAX_WATCHED_PATHS } from './file-change-watch.js'
+export type {
+	FileChange,
+	FileChangeWatcherOptions,
+	WatchDirectory,
+} from './file-change-watch.js'
+export { FileChangeHooks } from './file-change-hooks.js'
+export type { FileChangeHooksOptions } from './file-change-hooks.js'
+export {
+	WORKTREE_HOOK_SHOWN_CHARS,
+	worktreeHookPrinted,
+	worktreeHookVerdict,
+} from './worktree-hook-answer.js'

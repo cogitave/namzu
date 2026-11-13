@@ -178,7 +178,7 @@ uncommitted changes and no new commits, Namzu removes the checkout and its
 branch, and the result says the worktree had no changes and was removed. A
 checkout with changes or commits stays after success or failure, and the
 result gives its path and branch; live task listings show them once the child
-is admitted. A cancelled child's checkout stays. Use `namzu worktree list` to
+is admitted. A cancelled child's checkout stays. A hook on `worktree_create` can make the checkout instead of Git, and one on `worktree_remove` can remove it ([Worktrees](../sdk/hooks.md#worktrees)); a checkout a hook made is kept when the child changed it, judged by comparing the folder with how it looked when the hook finished. Use `namzu worktree list` to
 inspect what remains. If that nested directory is absent from the committed checkout, the
 child does not start. Namzu does not merge the child's edits into the parent
 checkout.
@@ -229,6 +229,7 @@ comma-separated line.
 | `background` | `true` starts the agent in the background when the call does not say; `run_in_background: false` on the call still waits. |
 | `isolation` | `worktree` gives the agent its own Git checkout, like `workspace: "worktree"` on the call, and the launch is reviewed. |
 | `skills` | Skills whose instructions are added to the agent's prompt. One that is missing or disabled is left out and logged. |
+| `hooks` | Hooks for each run of this agent, in either shape a config file takes. They attach when a run starts, fire for that run's own tool calls and turns, and come off when it ends. `Stop` (`turn_end`) means "when this agent is about to finish" and fires with the last message, and can keep the agent working. A guard that cannot be loaded keeps the agent from being offered. See [Hooks in an agent file](../sdk/hooks.md#hooks-in-an-agent-file). |
 
 A file with a value it cannot use is refused with its path and the reason
 rather than loaded with the line ignored; the other agents still load.

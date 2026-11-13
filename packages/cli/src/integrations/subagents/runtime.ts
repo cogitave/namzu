@@ -106,6 +106,7 @@ import {
 	toolset,
 	wrapUntrusted,
 } from '@namzu/sdk'
+import type { WorktreeHookHost } from '@namzu/sdk'
 
 import type { TurnLimitsConfig } from '../../config/schema.js'
 import {
@@ -118,7 +119,7 @@ import { composeMemoryGuidance } from '../../memory/typed.js'
 import { changeDetectorFor } from '../outcome/change-detector.js'
 import type { SideLedger } from '../small-model/side-model.js'
 import { CLI_CHECKPOINT_RETENTION } from '../state/retention.js'
-import { NamzuCliAgent, type NamzuCliAgentConfig } from './NamzuCliAgent.js'
+import { NamzuCliAgent, type NamzuCliAgentConfig, type RunScope } from './NamzuCliAgent.js'
 import { startActivityLabeler } from './activity-label.js'
 import {
 	DEFAULT_AGENT_WORKFLOW,
@@ -129,6 +130,7 @@ import {
 	SubagentActivityMonitor,
 	type SubagentActivitySource,
 } from './activity.js'
+import type { AgentHooksHost, RefusedAgent } from './agent-hooks.js'
 import { AgentNames, agentNameProblem } from './agent-names.js'
 import { chargeLabelRequest } from './label-ledger.js'
 import { CLI_INTERACTIVE_TURN_TIMEOUT_MS } from './policy.js'
@@ -323,6 +325,15 @@ export interface SubagentRuntimeOptions {
 	readonly resolveParent: (turnId: TurnId) => Promise<SubagentParent>
 	/** Lazy because the host initializes plugins after its delegation runtime. */
 	readonly resolvePluginManager?: () => NamzuCliAgentConfig['pluginManager']
+	/**
+	 * The `worktree_create` and `worktree_remove` hooks of the host session,
+	 * found when a worktree is made or removed, and where a line for the person
+	 * goes. Absent, the kernel's own Git logic makes and removes every worktree.
+	 */
+	readonly worktreeHooks?: {
+		readonly host: () => WorktreeHookHost | undefined
+		readonly onNotice: (line: string) => void
+	}
 	readonly cwd: string
 	/** CLI state root used for retained worktrees, including ephemeral turns. */
 	readonly worktreeStateRoot?: string
@@ -456,6 +467,18 @@ export interface SubagentRuntimeOptions {
 	 * its own prompt, roster and model. See `definitions.ts`.
 	 */
 	readonly definitions?: readonly AgentFileDefinition[]
+	/**
+	 * Attaches the hooks an agent file carries for the length of one run (see
+	 * `agent-hooks.ts`). A host that offers agent files with hooks must supply
+	 * it: without it, starting such an agent is refused, because it would run
+	 * without the guard its file wrote.
+	 */
+	readonly agentHooks?: AgentHooksHost
+	/**
+	 * Agent files that are not offered (a guard that could not be loaded), by
+	 * name. A launch that names one is refused with the file's own line.
+	 */
+	readonly refusedDefinitions?: readonly RefusedAgent[]
 }
 
 /** One agent a workflow script asked for, handed to the same delegation path the `Agent` tool uses. */
@@ -746,6 +769,9 @@ export async function createSubagentRuntime(
 	// other the same way, last one in `opts.definitions` winning, same as
 	// `fileAgents`'s own `Map.set` below.
 	const fileAgents = new Map<string, AgentFileDefinition>()
+	const refusedAgents = new Map<string, RefusedAgent>(
+		(opts.refusedDefinitions ?? []).map((refused) => [refused.name, refused]),
+	)
 	for (const definition of opts.definitions ?? []) {
 		fileAgents.set(definition.name, definition)
 		registry.replace(
@@ -763,6 +789,10 @@ export async function createSubagentRuntime(
 			),
 		)
 	}
+	// The names of agent files that are not offered stay in the `Agent` tool's
+	// list of types so that asking for one is answered with the file's own line,
+	// not with a bare "not one of the types"; the description says they are refused.
+	const refusedTypeIds = [...refusedAgents.keys()].filter((name) => !fileAgents.has(name))
 	// A file agent named like a built-in replaces it, so the name is listed once.
 	const agentTypeIds = [
 		...new Set([
@@ -855,7 +885,11 @@ export async function createSubagentRuntime(
 	// existing parent promises without retaining released turns.
 	const readyParents = new WeakMap<Promise<ParentRuntime>, ParentRuntime>()
 	const sessions = new Map<string, SharedSession>()
-	const worktreeDriver = new DelegatedWorktreeDriver(opts.cwd, opts.worktreeStateRoot)
+	const worktreeDriver = new DelegatedWorktreeDriver(
+		opts.cwd,
+		opts.worktreeStateRoot,
+		opts.worktreeHooks,
+	)
 	// A ledger this runtime keeps for itself, when neither a shared store nor a
 	// project layout was given. Process-local: it bounds the children of one
 	// root turn, and the parent's own spend is counted wherever the parent
@@ -1493,6 +1527,12 @@ export async function createSubagentRuntime(
 		} = input
 		if (!requestedModel && (requestedProvider || requestedEffort))
 			throw new Error('Supply model when selecting a child provider or effort.')
+		// An agent file whose guard could not be loaded is never started.
+		const refusedFile =
+			subagent_type !== undefined && !fileAgents.has(subagent_type)
+				? refusedAgents.get(subagent_type)
+				: undefined
+		if (refusedFile) throw new Error(refusedFile.line)
 		const agentName = typeof input.name === 'string' ? input.name.trim() : ''
 		if (agentName.length > 0) {
 			const problem = agentNameProblem(agentName)
@@ -1605,7 +1645,8 @@ export async function createSubagentRuntime(
 							}),
 			}),
 			...(selection ? { model: selection.model, effort: selection.effort } : {}),
-			...(Object.keys(context.env ?? {}).length > 0 ? { env: context.env } : {}),
+			// The same object, not a copy: a variable a hook sets later reaches a child that is still working.
+			...(context.env !== undefined ? { env: context.env } : {}),
 			// The parent turn's tool-result screens, so a sub-agent judges a
 			// connected answer the way the turn that asked for the work
 			// does. Without it the child's executor installs the shipped
@@ -1874,10 +1915,14 @@ export async function createSubagentRuntime(
 				},
 				subagent_type: {
 					type: 'string',
-					enum: agentTypeIds,
+					enum: [...agentTypeIds, ...refusedTypeIds],
 					description: `"explore" for read-only lookups (find, search, explain); "plan" for a read-only step plan before a change; "general-purpose" (default) when the task changes files or runs commands; "fork" to continue this conversation in a side task.${
 						fileAgentSummary.length > 0
 							? ` This project also defines: ${fileAgentSummary}. Prefer a project-defined type when its description fits the task.`
+							: ''
+					}${
+						refusedTypeIds.length > 0
+							? ` Not available (their files cannot be loaded; starting one is refused): ${refusedTypeIds.join(', ')}.`
 							: ''
 					}`,
 				},
@@ -1980,6 +2025,11 @@ export async function createSubagentRuntime(
 		},
 	})
 	const launchWorkflowAgent = async (launch: WorkflowAgentLaunch): Promise<WorkflowAgentResult> => {
+		const refusedLaunch =
+			launch.agentType !== undefined && !fileAgents.has(launch.agentType)
+				? refusedAgents.get(launch.agentType)
+				: undefined
+		if (refusedLaunch) throw new Error(refusedLaunch.line)
 		if (launch.agentType !== undefined && !agentTypeIds.includes(launch.agentType)) {
 			throw new Error(
 				`Unknown agent type "${launch.agentType}". Available: ${agentTypeIds.join(', ')}.`,
@@ -2548,7 +2598,8 @@ export async function createSubagentRuntime(
 								...(kept.profile.effort ? { effort: kept.profile.effort as ReasoningEffort } : {}),
 							}
 						: {}),
-					...(Object.keys(context.env ?? {}).length > 0 ? { env: context.env } : {}),
+					// The same object, not a copy: a variable a hook sets later reaches a child that is still working.
+					...(context.env !== undefined ? { env: context.env } : {}),
 					...(context.toolResultGuardrails
 						? { toolResultGuardrails: context.toolResultGuardrails }
 						: {}),
@@ -3457,16 +3508,40 @@ function buildDefinition(
 	selection?: DelegatedModel,
 	/** A fork's system prompt: the caller's own, used as it is and extended by nothing. */
 	inheritedPrompt?: string,
-	/** The file this agent was defined in: its turn cap and effort. */
-	file?: Pick<AgentFileDefinition, 'effort' | 'maxTurns'>,
+	/** The file this agent was defined in: its turn cap and effort, and the hooks it carries. */
+	file?: Pick<AgentFileDefinition, 'effort' | 'maxTurns'> &
+		Partial<Pick<AgentFileDefinition, 'name' | 'path' | 'source' | 'hooksSource'>>,
 ): AgentDefinition {
-	const agent = new NamzuCliAgent({
+	const metadata: ConstructorParameters<typeof NamzuCliAgent>[0] = {
 		id,
 		name: id,
 		version: '1.0.0',
 		category: 'general',
 		description,
-	})
+	}
+	// An agent file that carries hooks has them attached to each run, keyed by
+	// the run's own session, and taken off when the run ends. With no host to do
+	// that the run is refused, not started without the guard its file wrote.
+	const carried =
+		file?.hooksSource !== undefined
+			? {
+					name: file.name ?? id,
+					path: file.path ?? id,
+					source: file.source ?? 'project',
+					hooksSource: file.hooksSource,
+				}
+			: undefined
+	const runScope: RunScope | undefined = carried
+		? (sessionId) => {
+				if (!opts.agentHooks) {
+					throw new Error(
+						`Agent "${carried.name}" is not started: ${carried.path} carries hooks and this host does not attach them, so it would run without the guard its file wrote.`,
+					)
+				}
+				return opts.agentHooks.attachRun(carried, sessionId)
+			}
+		: undefined
+	const agent = new NamzuCliAgent(metadata, undefined, runScope)
 	// A specialist persona is layered on top of the anti-fabrication base so a
 	// dynamic role can't opt out of the "don't invent results" guardrails.
 	//
@@ -3487,6 +3562,16 @@ function buildDefinition(
 		// NamzuCliAgent is Agent<NamzuCliAgentConfig,…>; the registry stores the
 		// erased Agent<BaseAgentConfig,…>. configBuilder supplies the richer config.
 		typedAgent: agent as unknown as CoreAgent<BaseAgentConfig, BaseAgentResult>,
+		// One shell per run, each with the same scope: `forTurn` would rebuild it without.
+		...(runScope
+			? {
+					createAgent: () =>
+						new NamzuCliAgent(metadata, undefined, runScope) as unknown as CoreAgent<
+							BaseAgentConfig,
+							BaseAgentResult
+						>,
+				}
+			: {}),
 		configBuilder: async (options): Promise<NamzuCliAgentConfig> => {
 			const limits = resolveTurnGuards(
 				opts,

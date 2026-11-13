@@ -15,6 +15,7 @@ import {
 	readConfigSettingsView,
 } from '../shared/config-settings-protocol.js'
 import { type HistoryWorkSnapshot, restoreHistoryWork } from '../shared/history-work.js'
+import { readHooksReport } from '../shared/hooks-report.js'
 import { OUTCOME_NOTIFICATION, readOutcomeNotice } from '../shared/outcome-protocol.js'
 import type {
 	PalPermissionChange,
@@ -40,6 +41,7 @@ import type {
 	DraftSettings,
 	EngineTimingReport,
 	HarnessView,
+	HooksView,
 	JobView,
 	McpServersView,
 	ModelCatalogueView,
@@ -2936,6 +2938,28 @@ export class Operator {
 		}
 		if (this.projects.get(projectId) !== project || project.client !== client) return null
 		return readMcpServers(result)
+	}
+	/**
+	 * What runs by itself in the project's folder, from the engine that serves it, or in the person's
+	 * own settings when no project is given (or the project is a Pal's). Read-only: the engine reads
+	 * files and runs nothing. Null where the engine does not know the question.
+	 */
+	async hooksView(projectId?: unknown): Promise<HooksView | null> {
+		let client: RuntimeClient
+		let own = true
+		const project =
+			projectId === undefined || projectId === null ? undefined : this.project(projectId)
+		if (project && !project.view.palId) {
+			client = project.client
+			own = false
+		} else client = await this.registry(false)
+		if (!client.supportsHooksView()) return null
+		const result = await client.request('namzu/hooks/list', {})
+		if (project && !project.view.palId && this.projects.get(project.view.id) !== project)
+			return null
+		const report = readHooksReport(result)
+		if (!report) throw new Error('Namzu answered the hooks question in a way this app cannot read.')
+		return { report, own }
 	}
 	/**
 	 * Approves waiting servers exactly as they were listed (name and fingerprint travel together, so

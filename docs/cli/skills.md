@@ -304,12 +304,16 @@ import graph (`packages/cli/src/tui/__tests__/skill-suggestion-is-the-tuis-alone
 
 `name`, `description`, `license`, `compatibility`, `allowed-tools`,
 `invocation`, `disable-model-invocation`, `metadata`, `when_to_use`, `context`,
-`agent`, `model`, `effort` and `background` are read by the
+`agent`, `model`, `effort`, `background` and `hooks` are read by the
 model's catalog; the terminal also reads `argument-hint` and
 `user-invocable` for the command. Any other
 key is skipped whole, whatever YAML it uses, so a skill written for another
-agent (`argument-hint: [file]`, a `hooks:` block with a list in it) loads
-here with those fields ignored. The read keys are still parsed strictly: a
+agent (`argument-hint: [file]`, `paths`) loads here with those fields ignored.
+`hooks` is a list of mappings in a mapping, which the front matter reader holds
+as text: it is never refused for its shape, and the hooks it names attach while
+the skill is in use ([Hooks in a skill](../sdk/hooks.md#hooks-in-a-skill)); a hook
+event written at the top level (`PreToolUse:` beside `name:`) is read as if it
+were under `hooks:`. The read keys are still parsed strictly: a
 list or block scalar in one of them refuses the file
 (`packages/sdk/src/skills/loader.ts` `SKILL_FRONTMATTER_KEYS`,
 `packages/sdk/src/utils/frontmatter.ts` `readsKey`).
@@ -334,9 +338,15 @@ or provider to work around host validation.
 Inline selection remains unsupported: loading a skill inline or activating it
 with `/skills <name>` does not change the turn's model or reasoning effort.
 The existing tool-dispatch capability is not a current-turn selection hook.
-`hooks` and `paths` in skill frontmatter remain ignored: they neither install
-skill-local hooks nor trigger activation by path. These are unresolved host
-integration surfaces, not supported skill behavior.
+`paths` in skill frontmatter remains ignored: it does not trigger activation by
+path. A skill's `hooks` attach when the skill is used (the model loads it, or
+you run it with `/skills <name>`, `/<name>` or `--skills`), last for the rest of
+the conversation (a skill that sets `context: fork` attaches them to its agent's
+run only), and are listed by `/hooks`. A guard on a guarding event that cannot
+be loaded costs the skill its `allowed-tools` pre-approval (the hooks that could
+be read still attach; a block with none readable attaches none), and
+you and the model are told; `namzu skills --audit` names such a problem before
+the skill is used.
 
 The model is offered a skill only when the kernel's loader accepts it: `name`
 must match the directory name (lowercase letters, digits and single hyphens)

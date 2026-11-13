@@ -6249,6 +6249,7 @@ export function App({
 										broad={folderAccess.broad?.kind}
 										risky={folderAccess.risky?.found}
 										details={folderAccess.risky?.details}
+										incomplete={folderAccess.risky?.incomplete}
 										changed={
 											'settingsChanged' in target && !folderAccess.risky && !folderAccess.broad
 												? target.settingsChanged

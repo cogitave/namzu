@@ -16,6 +16,7 @@ import type { HookEntry, HooksConfig, PluginConfig, PluginScope } from '../../co
 import { cliLogger } from '../../logging.js'
 import { resolveNamzuHome } from '../state/home.js'
 import { listMarkdownNames, resolvePluginFileDirs } from './files.js'
+import { type SessionHookActivity, createSessionHookActivity } from './hook-activity.js'
 import {
 	type PluginHookProblem,
 	dataDirOverlapsPlugin,
@@ -75,10 +76,17 @@ export interface PluginHookEntryView {
 
 export interface CliPluginRuntime {
 	readonly manager: PluginLifecycleManager
+	/** What every shell hook of this session is run with; a skill's hooks use the same. */
+	readonly hookOptions: ShellHookOptions
 	readonly skills: SkillRegistry
 	readonly pluginCount: number
 	/** How long closing the session may spend in `session_end` hooks; see {@link sessionEndHookBudgetMs}. */
 	readonly sessionEndBudgetMs: number
+	/**
+	 * What hooks do beside answering: the variables they set for later commands,
+	 * the files they watch and the lines they gave for the person.
+	 */
+	readonly hookActivity: SessionHookActivity
 	list(): readonly CliPluginInfo[]
 	/** The JavaScript hooks plugins registered right now: the plugin's name and the event. */
 	pluginHooks(): readonly { readonly plugin: string; readonly event: string }[]
@@ -144,26 +152,51 @@ export async function createCliPluginRuntime(
 	 */
 	hooks?: HooksConfig,
 	/** What a hook's stdin says about the session; each is read at every hook run. */
-	hookHost?: Pick<ShellHookOptions, 'transcriptPath' | 'permissionMode' | 'judge'>,
+	hookHost?: Pick<ShellHookOptions, 'transcriptPath' | 'permissionMode' | 'judge'> & {
+		/** The session now, for the hooks the host fires itself (`file_changed`, `cwd_changed`). */
+		readonly sessionId?: () => string
+	},
 	/**
+	 * What the host knows beyond the hook entries themselves.
+	 *
+	 * `keepForSkills`: a skill of this session carries hooks, which attach to
+	 * the lifecycle manager when it is used, so the manager is built even when
+	 * there are no plugins and no configured hooks.
+	 *
 	 * `hooksSwitch` is the switch limiting hooks to the organisation-managed file
 	 * (`hooksManagedOnly`) or turning them off (`disableHooks`, `NAMZU_DISABLE_HOOKS`).
 	 * Hook entries a plugin ships obey it: no plugin comes from the managed file,
-	 * so under either they are read and listed but not attached.
+	 * so under either they are read and listed but not attached. It is the same
+	 * value the host hands the code that attaches a skill's and an agent file's
+	 * hooks.
 	 */
-	pluginHookHost?: { readonly hooksSwitch?: HooksSwitch },
+	host?: { readonly keepForSkills?: boolean; readonly hooksSwitch?: HooksSwitch },
 ): Promise<CliPluginRuntime | undefined> {
 	const pluginsEnabled = config?.enabled === true
 	const launchDirs = config?.launchDirs ?? []
 	const hookCount = hooks ? Object.values(hooks).reduce((n, list) => n + (list?.length ?? 0), 0) : 0
-	if (!pluginsEnabled && hookCount === 0 && launchDirs.length === 0) return undefined
+	if (
+		!pluginsEnabled &&
+		hookCount === 0 &&
+		launchDirs.length === 0 &&
+		host?.keepForSkills !== true
+	) {
+		return undefined
+	}
 
 	const log = cliLogger()
 	const userRoot = resolveNamzuHome()
 	const settings = new PluginSettingsStore(userRoot)
 	const plugins = new PluginRegistry()
 	const skills = new SkillRegistry(log)
+	const { sessionId: currentSession, ...shellHost } = hookHost ?? {}
+	const hookActivity = createSessionHookActivity({
+		hooks,
+		cwd,
+		sessionId: currentSession ?? (() => ''),
+	})
 	const shellOptions: ShellHookOptions = {
+		hookEnv: hookActivity.hookEnv,
 		cwd,
 		// The folder the session was started for, for a hook script to find its own files.
 		projectDir: cwd,
@@ -175,7 +208,7 @@ export async function createCliPluginRuntime(
 		onTimeout: (info) => {
 			if (info.event === 'session_end') process.stderr.write(`${hookTimeoutLine(info)}\n`)
 		},
-		...hookHost,
+		...shellHost,
 	}
 	// The hook entries each enabled plugin ships, read when it is enabled and
 	// attached under the plugin's id, so disabling the plugin removes them.
@@ -189,7 +222,7 @@ export async function createCliPluginRuntime(
 		}
 	>()
 	const warningLines: string[] = []
-	const hooksSwitch = pluginHookHost?.hooksSwitch
+	const hooksSwitch = host?.hooksSwitch
 	const manager = new PluginLifecycleManager({
 		pluginRegistry: plugins,
 		skillRegistry: skills,
@@ -240,6 +273,8 @@ export async function createCliPluginRuntime(
 			)
 		},
 	})
+	// The watcher and the variables file need the manager; the manager's hooks need the file.
+	hookActivity.attach(manager)
 	if (hooks && hookCount > 0) attachShellHooks(manager, hooks, shellOptions)
 	const allowedScopes = config?.allowedScopes ?? (['project', 'user'] as const)
 	const discovered = pluginsEnabled
@@ -301,9 +336,11 @@ export async function createCliPluginRuntime(
 			.sort()
 	return {
 		manager,
+		hookOptions: shellOptions,
 		skills,
 		pluginCount: installed.length,
 		sessionEndBudgetMs: sessionEndHookBudgetMs(hooks),
+		hookActivity,
 		pluginHookEntries: () =>
 			plugins
 				.getAll()
@@ -417,6 +454,7 @@ export async function createCliPluginRuntime(
 			if (closePromise) return closePromise
 			closed = true
 			closePromise = (async () => {
+				hookActivity.close()
 				if (mutation) await mutation.catch(() => {})
 				const errors: unknown[] = []
 				for (const plugin of [...installed].reverse()) {

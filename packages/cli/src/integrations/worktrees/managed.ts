@@ -6,8 +6,13 @@ import type { Dirent } from 'node:fs'
 import { lstat, mkdir, readdir, realpath, rmdir } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
-import { GitWorktreeDriver, asSessionId, generateWorkspaceId } from '@namzu/sdk'
-import type { WorkspaceRef } from '@namzu/sdk'
+import {
+	GitWorktreeDriver,
+	HookedWorkspaceDriver,
+	asSessionId,
+	generateWorkspaceId,
+} from '@namzu/sdk'
+import type { WorkspaceBackendDriver, WorkspaceRef, WorktreeHookHost } from '@namzu/sdk'
 import { cliLogger } from '../../logging.js'
 import {
 	activeConversationTurn,
@@ -27,8 +32,13 @@ export interface ManagedWorktree {
 	readonly dirty: boolean
 }
 
+/** What the person is told of a worktree a `worktree_create` hook made. */
+export const HOOK_MADE_BRANCH = '(made by a worktree_create hook)'
+
 export interface CreatedWorktree extends ManagedWorktree {
 	readonly sourceDirty: boolean
+	/** A `worktree_create` hook made the folder; Namzu does not manage it and `list` does not show it. */
+	readonly madeByHook?: boolean
 }
 
 export interface WorktreeFork extends CreatedWorktree {
@@ -46,6 +56,14 @@ export interface WorktreeResume {
 export interface ManagedWorktreesOptions {
 	/** Exact Namzu state root for an embedding or integration test. */
 	readonly stateRoot?: string
+	/**
+	 * The hooks on `worktree_create` and `worktree_remove`, found when a worktree
+	 * is made or removed. Absent, or answering `undefined`, the kernel's own Git
+	 * logic does the work, as it always did.
+	 */
+	readonly hooks?: () => WorktreeHookHost | undefined
+	/** A line for the person: a folder a hook made and nothing removed, a second answer ignored. */
+	readonly onNotice?: (line: string) => void
 }
 
 /** A copyable command for the host shell; no path is interpreted by the agent. */
@@ -81,6 +99,7 @@ export async function openManagedWorktrees(
 	const directory = await realpath(resolve(cwd))
 	let sourceRoot: string
 	let repoRoot: string
+	let notGit: Error | undefined
 	try {
 		sourceRoot = await realpath((await git(directory, 'rev-parse', '--show-toplevel')).trim())
 		const listing = await git(directory, 'worktree', 'list', '--porcelain', '-z')
@@ -96,9 +115,16 @@ export async function openManagedWorktrees(
 		if (sourceCommon !== mainCommon)
 			throw new Error('The selected checkout belongs to another repository.')
 	} catch (cause) {
-		throw new Error(
+		const failure = new Error(
 			`Cannot manage worktrees here: ${cause instanceof Error ? cause.message : String(cause)}`,
 		)
+		// A person whose checkouts are not Git's puts a hook on `worktree_create`.
+		// Outside Git the folder itself stands for the repository, and the kernel's
+		// own Git logic says what is wrong if no hook takes the creation.
+		if (options.hooks === undefined) throw failure
+		notGit = failure
+		sourceRoot = directory
+		repoRoot = directory
 	}
 	const sessions = await openSessions(repoRoot, options)
 	const worktreesDir = sessions.paths.worktrees()
@@ -109,13 +135,38 @@ export async function openManagedWorktrees(
 	} catch (cause) {
 		if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
 	}
+	const kernel: WorkspaceBackendDriver =
+		notGit === undefined
+			? new GitWorktreeDriver({ repoRoot, worktreesDir, logger: cliLogger() })
+			: withoutGit(notGit)
 	return new ManagedWorktrees(
 		repoRoot,
 		sourceRoot,
 		worktreesDir,
-		new GitWorktreeDriver({ repoRoot, worktreesDir, logger: cliLogger() }),
+		new HookedWorkspaceDriver({
+			inner: kernel,
+			hooks: options.hooks ?? (() => undefined),
+			root: () => worktreesDir,
+			repoRoot: () => repoRoot,
+			...(options.onNotice ? { onNotice: options.onNotice } : {}),
+		}),
 		options,
+		notGit === undefined,
 	)
+}
+
+/** The driver of a folder that is not a Git checkout: it can only say so. */
+function withoutGit(failure: Error): WorkspaceBackendDriver {
+	const refuse = async (): Promise<never> => {
+		throw failure
+	}
+	return {
+		kind: 'git-worktree',
+		create: refuse,
+		branch: refuse,
+		dispose: refuse,
+		inspect: refuse,
+	}
 }
 
 export class ManagedWorktrees {
@@ -123,9 +174,16 @@ export class ManagedWorktrees {
 		readonly repoRoot: string,
 		readonly sourceRoot: string,
 		readonly worktreesDir: string,
-		private readonly driver: GitWorktreeDriver,
+		private readonly driver: WorkspaceBackendDriver,
 		private readonly options: ManagedWorktreesOptions,
+		/** False when this folder is not a Git checkout and only a hook can make worktrees. */
+		readonly isGit = true,
 	) {}
+
+	/** The driver that makes and removes worktrees: hooks first, the kernel's Git logic otherwise. */
+	get workspaceDriver(): WorkspaceBackendDriver {
+		return this.driver
+	}
 
 	private ref(label: string): WorkspaceRef {
 		const checked = checkedLabel(label)
@@ -184,8 +242,10 @@ export class ManagedWorktrees {
 	/** Create at the selected checkout's committed HEAD, leaving its dirty files in place. */
 	async create(label?: string): Promise<CreatedWorktree> {
 		const name = checkedLabel(label ?? `work-${randomUUID().slice(0, 8)}`)
-		const sourceDirty = (await git(this.sourceRoot, 'status', '--porcelain')).trim().length > 0
-		const head = (await git(this.sourceRoot, 'rev-parse', 'HEAD')).trim()
+		const sourceDirty = this.isGit
+			? (await git(this.sourceRoot, 'status', '--porcelain')).trim().length > 0
+			: false
+		const head = this.isGit ? (await git(this.sourceRoot, 'rev-parse', 'HEAD')).trim() : undefined
 		await mkdir(this.worktreesDir, { recursive: true, mode: 0o700 })
 		// The SDK driver correctly recovers a new checkout after a failing
 		// post-checkout hook, but the same evidence describes a pre-existing
@@ -201,18 +261,26 @@ export class ManagedWorktrees {
 			throw cause
 		}
 		try {
-			if (await this.inspect(name)) throw new Error(`Worktree ${name} already exists.`)
-			const ref = await this.driver.create({ label: name, baseRef: head })
+			if (this.isGit && (await this.inspect(name))) {
+				throw new Error(`Worktree ${name} already exists.`)
+			}
+			const ref = await this.driver.create({
+				label: name,
+				...(head !== undefined ? { baseRef: head } : {}),
+			})
 			const inspection = await this.driver.inspect(ref)
 			if (!inspection.exists) {
 				throw new Error(
-					`Git reported a worktree at ${ref.meta.worktreePath}, but it is not registered.`,
+					ref.meta.hookOwned === true
+						? `A worktree_create hook gave ${ref.meta.worktreePath}, which is not a folder that exists.`
+						: `Git reported a worktree at ${ref.meta.worktreePath}, but it is not registered.`,
 				)
 			}
 			return {
 				label: name,
 				path: ref.meta.worktreePath,
-				branch: ref.meta.branch,
+				branch: ref.meta.hookOwned === true ? HOOK_MADE_BRANCH : ref.meta.branch,
+				madeByHook: ref.meta.hookOwned === true,
 				dirty: inspection.isDirty,
 				sourceDirty,
 			}

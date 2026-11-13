@@ -1,3 +1,4 @@
+import { dirname } from 'node:path'
 import { type HookConfigProblem, hookConfigProblems, readPermissionLayers } from '../config/load.js'
 import { installationRows } from '../installation.js'
 import type { PluginHookProblem } from '../integrations/plugins/hook-entries.js'
@@ -7,6 +8,7 @@ import {
 	apiKeyLogoutTarget,
 } from '../integrations/providers/connections.js'
 import { DEFAULT_SPEND_DAYS, MAX_SPEND_DAYS } from '../integrations/spend/day.js'
+import type { AttachedAgentHook } from '../integrations/subagents/agent-hooks.js'
 import {
 	type DenialRow,
 	addLocalRule,
@@ -16,6 +18,7 @@ import {
 	ruleEntries,
 } from '../permissions/rule-screen.js'
 import { type PermissionEffect, isPermissionEffect } from '../permissions/rules.js'
+import type { AttachedSkillHook } from '../skills/skill-hooks.js'
 import { CLI_VERSION } from '../version.js'
 import { displayPath, homePath, plural } from './person-terms.js'
 import { statusCard } from './status-card.js'
@@ -56,6 +59,7 @@ import {
 	RegistryCollisionError,
 	type SerializableHostCommand,
 	type SessionTokenBudgetSummary,
+	fileChangedMatcherNote,
 	isMemoryType,
 	kernelHostCommands,
 	shellHookIfProblem,
@@ -66,6 +70,7 @@ import { type ConfigDebugSnapshot, renderConfigDebug } from '../config/debug.js'
 import type { HooksSwitch } from '../config/hook-layers.js'
 import type { HooksConfig } from '../config/schema.js'
 import type { SandboxSummary } from '../context/sandbox.js'
+import type { HookActivity } from '../integrations/plugins/hook-activity.js'
 import { PERMISSION_MODE_NAMES } from '../permissions/mode-names.js'
 import {
 	type PermissionMode,
@@ -289,7 +294,12 @@ export type SlashAction =
 	 * second way to inspect a repository that would then disagree with the one
 	 * the model uses.
 	 */
-	| { kind: 'prompt'; text: string }
+	| {
+			kind: 'prompt'
+			text: string
+			/** The command is a skill that carries hooks: attached when the person runs it. */
+			skillHooks?: { name: string; dirPath: string; hooksSource: string }
+	  }
 	/**
 	 * Sign in to a subscription without leaving namzu.
 	 *
@@ -1998,6 +2008,107 @@ export interface HooksView {
 	readonly switch?: HooksSwitch
 	/** Hooks the files declared that could not be loaded, and settings not acted on; absent, what the config reader recorded. */
 	readonly problems?: readonly HookConfigProblem[]
+	/** The hooks skills have attached while they are in use, and the skills that carry hooks and attach them when used. */
+	readonly skillHooks?: {
+		readonly attached: readonly AttachedSkillHook[]
+		readonly carriers: readonly string[]
+	}
+	/** The hooks agents' runs have attached while they run, the agent files that carry hooks, and the files not offered. */
+	readonly agentHooks?: {
+		readonly attached: readonly AttachedAgentHook[]
+		readonly carriers: readonly string[]
+		readonly refused: readonly { readonly name: string; readonly line: string }[]
+	}
+	/** What hooks set for this conversation's commands (names only) and the files they watch. */
+	readonly activity?: HookActivity
+}
+
+/** The lines `/hooks` gives for the hooks agent files carry. */
+export function agentHookLines(
+	view: NonNullable<HooksView['agentHooks']>,
+	state: HooksSwitch | undefined,
+): string[] {
+	if (view.attached.length === 0 && view.carriers.length === 0 && view.refused.length === 0) {
+		return []
+	}
+	const lines: string[] = []
+	for (const refused of view.refused) lines.push(refused.line)
+	if (state !== undefined) {
+		if (view.carriers.length > 0) {
+			lines.push(
+				`agent hooks are switched off: ${view.carriers.join(', ')} ${view.carriers.length === 1 ? 'carries' : 'carry'} hooks that do not attach.`,
+			)
+		}
+		return lines
+	}
+	if (view.attached.length > 0) {
+		lines.push('agent hooks (set by an agent file, attached while its agent runs)')
+		for (const hook of view.attached) {
+			const when = hook.matcher ? ` · matches ${hook.matcher}` : ''
+			const once = hook.once ? ' · once' : ''
+			lines.push(
+				`  ${hook.event}: ${hook.runs}${when}${once} · agent ${hook.agent}, run ${hook.session.slice(0, 8)}`,
+			)
+		}
+	}
+	const running = new Set(view.attached.map((hook) => hook.agent))
+	const waiting = view.carriers.filter((name) => !running.has(name))
+	if (waiting.length > 0) {
+		lines.push(
+			`${waiting.join(', ')} ${waiting.length === 1 ? 'carries' : 'carry'} hooks that attach to each run of the agent.`,
+		)
+	}
+	return lines
+}
+
+/** The lines `/hooks` gives for the hooks skills carry. */
+export function skillHookLines(
+	view: NonNullable<HooksView['skillHooks']>,
+	state: HooksSwitch | undefined,
+): string[] {
+	if (view.attached.length === 0 && view.carriers.length === 0) return []
+	const lines: string[] = []
+	if (state !== undefined) {
+		if (view.carriers.length > 0) {
+			lines.push(
+				`skill hooks are switched off: ${view.carriers.join(', ')} ${view.carriers.length === 1 ? 'carries' : 'carry'} hooks that do not attach.`,
+			)
+		}
+		return lines
+	}
+	if (view.attached.length > 0) {
+		lines.push('skill hooks (set by a skill, attached while it is in use)')
+		for (const hook of view.attached) {
+			const when = hook.matcher ? ` · matches ${hook.matcher}` : ''
+			const once = hook.once ? ' · once' : ''
+			const where =
+				hook.scope === 'agent' ? 'while its delegated agent runs' : 'for this conversation'
+			lines.push(`  ${hook.event}: ${hook.runs}${when}${once} · skill ${hook.skill}, ${where}`)
+		}
+	}
+	const using = new Set(view.attached.map((hook) => hook.skill))
+	const waiting = view.carriers.filter((name) => !using.has(name))
+	if (waiting.length > 0) {
+		lines.push(
+			`${waiting.join(', ')} ${waiting.length === 1 ? 'carries' : 'carry'} hooks that attach when the skill is used.`,
+		)
+	}
+	return lines
+}
+
+/** The lines `/hooks` gives for the variables hooks have set and the files they watch. */
+export function hookActivityLines(activity: HookActivity | undefined): string[] {
+	if (activity === undefined) return []
+	const lines: string[] = []
+	if (activity.variables.length > 0) {
+		lines.push('variables set by hooks for shell commands (names only)')
+		for (const { name, event } of activity.variables) lines.push(`  ${name} · set by ${event}`)
+	}
+	if (activity.watching.length > 0) {
+		lines.push('files watched for file_changed')
+		for (const path of activity.watching) lines.push(`  ${path}`)
+	}
+	return lines
 }
 
 /** The events whose hooks are sent a tool's name. */
@@ -2084,7 +2195,15 @@ export function renderHooks(hooks: HooksConfig | undefined, view: HooksView = {}
 	const problems = view.problems ?? hookConfigProblems()
 	const lines: string[] = []
 	if (view.switch) lines.push(hooksSwitchLine(view.switch))
-	if (events.length === 0 && pluginHooks.length === 0 && pluginEntries.length === 0) {
+	const skillLines = view.skillHooks ? skillHookLines(view.skillHooks, view.switch) : []
+	const agentLines = view.agentHooks ? agentHookLines(view.agentHooks, view.switch) : []
+	if (
+		events.length === 0 &&
+		pluginHooks.length === 0 &&
+		pluginEntries.length === 0 &&
+		skillLines.length === 0 &&
+		agentLines.length === 0
+	) {
 		lines.push(...hookConfigProblemLines(problems))
 		lines.push(...pluginHookProblemLines(pluginProblems))
 		lines.push(
@@ -2123,6 +2242,10 @@ export function renderHooks(hooks: HooksConfig | undefined, view: HooksView = {}
 				`  ${what}${when}${filter}${once}${deadline}${background}${sets}${failure}${names}${from}`,
 			)
 			for (const problem of hookReadingProblems(entry)) lines.push(`    cannot be read: ${problem}`)
+			const watches = event === 'file_changed' ? fileChangedMatcherNote(entry.matcher) : undefined
+			if (watches !== undefined) lines.push(`    note: ${watches}`)
+			const worktree = worktreeHookNote(event, entry)
+			if (worktree !== undefined) lines.push(`    note: ${worktree}`)
 		}
 	}
 	lines.push(...hookConfigProblemLines(problems))
@@ -2135,7 +2258,31 @@ export function renderHooks(hooks: HooksConfig | undefined, view: HooksView = {}
 		lines.push('plugin hooks (JavaScript, set by the plugin)')
 		for (const hook of pluginHooks) lines.push(`  ${hook.event} · plugin ${hook.plugin}`)
 	}
+	// After the config files and the plugins: skills, then agent files.
+	lines.push(...skillLines)
+	lines.push(...agentLines)
+	// Last: what this branch's hooks did, the variables set and the files watched.
+	lines.push(...hookActivityLines(view.activity))
 	return lines.join('\n')
+}
+
+/**
+ * What a `worktree_create` or `worktree_remove` entry does not read: the hook
+ * does the work itself, so a name filter, a condition or a one-shot flag would
+ * only decide whether the kernel acts in its place, and none is read.
+ */
+function worktreeHookNote(
+	event: string,
+	entry: { readonly matcher?: string; readonly if?: string; readonly once?: boolean },
+): string | undefined {
+	if (event !== 'worktree_create' && event !== 'worktree_remove') return undefined
+	const ignored = [
+		entry.matcher ? 'matcher' : undefined,
+		entry.if ? 'if' : undefined,
+		entry.once ? 'once' : undefined,
+	].filter((name): name is string => name !== undefined)
+	if (ignored.length === 0) return undefined
+	return `this hook makes or removes the worktree itself, so its ${ignored.join(', ')} ${ignored.length === 1 ? 'is' : 'are'} ignored and it always runs`
 }
 
 /** The session's background commands, as an operator would ask about them. */
@@ -2795,7 +2942,19 @@ export function runSlash(
 	if (user) {
 		const expanded = expandCommand(user, parsed.args.join(' '))
 		return expanded.ok
-			? { kind: 'prompt', text: expanded.prompt }
+			? {
+					kind: 'prompt',
+					text: expanded.prompt,
+					...(user.source === 'skill' && user.hooksSource !== undefined
+						? {
+								skillHooks: {
+									name: user.name,
+									dirPath: dirname(user.path),
+									hooksSource: user.hooksSource,
+								},
+							}
+						: {}),
+				}
 			: { kind: 'message', role: 'system', content: expanded.reason }
 	}
 

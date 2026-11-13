@@ -8,7 +8,12 @@ import type { InvocationState } from '../../types/invocation/index.js'
 import type { PermissionMode } from '../../types/permission/index.js'
 import type { AuditEventInput } from '../../types/session/audit.js'
 import type { SessionRecord } from '../../types/session/records.js'
-import type { RequestToolPause, SkillRegistryRef, ToolDefinition } from '../../types/tool/index.js'
+import type {
+	RequestToolPause,
+	SkillHooksRecordFact,
+	SkillRegistryRef,
+	ToolDefinition,
+} from '../../types/tool/index.js'
 import type { RepairToolCall } from '../../types/tool/repair.js'
 import type { BackoffPolicy } from '../../utils/backoff.js'
 import type { Logger } from '../../utils/logger.js'
@@ -53,6 +58,11 @@ export interface ToolingBootstrapConfig {
 	onJobCollected?: (id: string) => void
 	/** See `ToolExecutorConfig.monitorTimeoutCapMs`. */
 	monitorTimeoutCapMs?: number
+	/** See `QueryParams.onWorkingDirectoryChange`. */
+	onWorkingDirectoryChange?: (change: {
+		readonly from: string
+		readonly to: string
+	}) => Promise<void> | void
 	/** See `ToolExecutorConfig.onMonitorStarted`. */
 	onMonitorStarted?: (id: string) => void
 	/** Where the `skill` tool reads from. */
@@ -76,6 +86,8 @@ export interface ToolingBootstrapConfig {
 	authorizationGate?: AuthorizationGate
 	/** Durable refusal recorder for nested authorization decisions. */
 	recordAudit?: (input: AuditEventInput) => Promise<unknown>
+	/** Where a skill's hooks are kept in the conversation's record. */
+	recordSkillHooks?: (fact: SkillHooksRecordFact) => Promise<boolean>
 	/** Builds the durable-pause seam for one tool call; see ToolContext.requestPause. */
 	toolPause?: (toolUseId: string) => RequestToolPause
 	/** The turn's skill pre-approvals; see the executor's own field. */
@@ -121,6 +133,9 @@ export class ToolingBootstrap {
 				...(config.monitorTimeoutCapMs !== undefined
 					? { monitorTimeoutCapMs: config.monitorTimeoutCapMs }
 					: {}),
+				...(config.onWorkingDirectoryChange
+					? { onWorkingDirectoryChange: config.onWorkingDirectoryChange }
+					: {}),
 				...(config.onMonitorStarted ? { onMonitorStarted: config.onMonitorStarted } : {}),
 				...(config.skills ? { skills: config.skills } : {}),
 				...(config.web ? { web: config.web } : {}),
@@ -158,6 +173,9 @@ export class ToolingBootstrap {
 					? { authorizationGate: config.authorizationGate }
 					: {}),
 				...(config.recordAudit !== undefined ? { recordAudit: config.recordAudit } : {}),
+				...(config.recordSkillHooks !== undefined
+					? { recordSkillHooks: config.recordSkillHooks }
+					: {}),
 				...(config.toolPause !== undefined ? { toolPause: config.toolPause } : {}),
 				...(config.skillGrants !== undefined ? { skillGrants: config.skillGrants } : {}),
 			},

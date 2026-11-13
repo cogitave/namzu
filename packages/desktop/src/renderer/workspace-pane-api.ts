@@ -61,6 +61,7 @@ export function createWorkspacePaneApi(
 		conversationMarkdown,
 		projectGit,
 		mcpServers,
+		hooksView,
 		approveMcpServers,
 		searchConversations,
 		projectPr,
@@ -444,6 +445,7 @@ export function createWorkspacePaneApi(
 			: {}),
 		...(projectGit ? { projectGit: (id) => invoke(() => projectGit(id), []) } : {}),
 		...(mcpServers ? { mcpServers: (id) => invoke(() => mcpServers(id), []) } : {}),
+		...(hooksView ? { hooksView: (id) => invoke(() => hooksView(id), []) } : {}),
 		...(approveMcpServers
 			? { approveMcpServers: (id, servers) => invoke(() => approveMcpServers(id, servers), []) }
 			: {}),

@@ -71,3 +71,24 @@ it('estimates the same first-overflow order as the turn manifest', async () => {
 	expect(report.manifestChars).toBeGreaterThan(80)
 	expect(report.overflow).toEqual(['a', 'b', 'c'])
 })
+
+it('names what in a skill’s hooks cannot be loaded, and says the skill still loads', async () => {
+	const f = fixture()
+	f.write(
+		'guarded',
+		'---\nname: guarded\ndescription: d\nhooks:\n  PreToolUse:\n    - hooks:\n        - args: ["a"]\n---\nBody',
+	)
+	f.write(
+		'plain',
+		'---\nname: plain\ndescription: d\nhooks:\n  Stop:\n    - hooks:\n        - command: x\n---\nBody',
+	)
+	const report = await auditFileSkills({ cwd: f.cwd, home: f.home, systemDir: f.systemDir })
+	const guarded = report.findings.find((finding) => finding.name === 'guarded')
+	expect(guarded).toMatchObject({ status: 'ready', carriesHooks: true })
+	expect(guarded?.hookProblems?.[0]).toMatchObject({ severity: 'problem' })
+	expect(guarded?.hookProblems?.[0]?.text).toContain('has no "command"')
+	const plain = report.findings.find((finding) => finding.name === 'plain')
+	expect(plain).toMatchObject({ status: 'ready', carriesHooks: true })
+	expect(plain?.hookProblems).toBeUndefined()
+	expect(report.invalid).toBe(0)
+})

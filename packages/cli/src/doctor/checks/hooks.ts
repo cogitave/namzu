@@ -2,6 +2,7 @@ import {
 	type DoctorCheck,
 	type DoctorCheckResult,
 	assignedWithin,
+	fileChangedMatcherNote,
 	isPluginFolderVariable,
 	isShellOwnVariable,
 	referencedVariables,
@@ -12,13 +13,17 @@ import { resolve } from 'node:path'
 import { hookSwitch, hooksBySource } from '../../config/hook-layers.js'
 import { LOCAL_CONFIG_FILE, hookConfigProblems, shortHomePath } from '../../config/load.js'
 import type { NamzuCliConfig } from '../../config/schema.js'
+import { readSkillHooks, withoutSessionStart } from '../../config/skill-hooks-reader.js'
 import {
 	type PluginHookSummary,
 	summarizePluginHooks,
 } from '../../integrations/plugins/hook-entries.js'
 import { PluginSettingsStore } from '../../integrations/plugins/settings.js'
 import { resolveNamzuHome } from '../../integrations/state/home.js'
+import { type AgentHooksCarrier, readAgentHooks } from '../../integrations/subagents/agent-hooks.js'
+import { discoverAgentDefinitions } from '../../integrations/subagents/definitions.js'
 import { isTrusted } from '../../integrations/trust/store.js'
+import { type SkillInfo, discoverSkills } from '../../skills/store.js'
 import {
 	hookConfigProblemLines,
 	hookReadingProblems,
@@ -39,6 +44,8 @@ export function describeHooksStatus(
 	folder?: { readonly cwd: string; readonly trusted: boolean },
 	/** The hook entries the plugins on disk ship; absent, plugins are not described. */
 	plugins?: PluginHookSummary,
+	skills: readonly SkillInfo[] = [],
+	agents: readonly AgentHooksCarrier[] = [],
 ): DoctorCheckResult {
 	const bySource = new Map(hooksBySource(config.hooks))
 	// A project's files attach their hooks only once the folder is trusted; the
@@ -77,6 +84,12 @@ export function describeHooksStatus(
 	for (const each of unreadable) lines.push(`Cannot be read: ${each}.`)
 	const unsetVariables = unsetVariableLines(config, bySource)
 	for (const each of unsetVariables) lines.push(each)
+	// A file_changed hook whose matcher names no file watches nothing itself.
+	for (const entry of config.hooks?.file_changed ?? []) {
+		if (entry.source !== undefined && !bySource.has(entry.source)) continue
+		const note = fileChangedMatcherNote(entry.matcher)
+		if (note !== undefined) lines.push(`A file_changed hook: ${note}.`)
+	}
 	// What a file declared and this kernel could not load, or read but does not act on.
 	const untrustedLabels =
 		folder && !folder.trusted
@@ -89,15 +102,82 @@ export function describeHooksStatus(
 	const declared = hookConfigProblems().filter((problem) => !untrustedLabels.has(problem.file))
 	for (const line of hookConfigProblemLines(declared)) lines.push(line)
 	const notLoaded = declared.some((problem) => problem.severity === 'problem')
-	lines.push(state === undefined ? 'No hook switch is on.' : `Switch on: ${hooksSwitchLine(state)}`)
+	// Plugins come after the config files: what they ship, then their own switch.
 	lines.push(
 		"Plugins' JavaScript hooks are not counted here; plugins have their own switch (plugins.enabled).",
 	)
 	const shipped = describePluginEntries(plugins, state)
 	for (const each of shipped.lines) lines.push(each)
+	// Skills attach their hooks when they are used: counted as carried, and
+	// read now so one that could not be loaded is named before it is used.
+	let skillWarn = false
+	const carrying = skills.filter(
+		(skill) =>
+			skill.hooksSource !== undefined &&
+			skill.problem === undefined &&
+			!(skill.source === 'project' && folder && !folder.trusted),
+	)
+	if (carrying.length > 0) {
+		lines.push(
+			state === undefined
+				? `${carrying.length} ${carrying.length === 1 ? 'skill carries' : 'skills carry'} hooks that attach when the skill is used: ${carrying.map((skill) => skill.name).join(', ')}.`
+				: `${carrying.length} ${carrying.length === 1 ? 'skill carries' : 'skills carry'} hooks that do not attach, because a switch is on.`,
+		)
+		for (const skill of carrying) {
+			const read = withoutSessionStart(
+				readSkillHooks(skill.hooksSource as string, `skill ${skill.name}`),
+			)
+			for (const problem of read.problems) {
+				if (problem.severity === 'problem') skillWarn = true
+				lines.push(
+					`${problem.severity === 'problem' ? 'Not loaded' : 'Note'}: skill ${skill.name}, ${problem.event}: ${problem.message}`,
+				)
+			}
+			if (read.guardLost) {
+				lines.push(
+					read.count === 0
+						? `Skill ${skill.name} loads without its hooks and without its allowed-tools pre-approval.`
+						: `Skill ${skill.name} attaches the hooks that could be read and loads without its allowed-tools pre-approval.`,
+				)
+			}
+		}
+	}
+	// Agent files attach theirs to each run of the agent. A file whose guard
+	// cannot be loaded is not offered at all, and is named here.
+	let agentWarn = false
+	const carryingAgents = agents.filter(
+		(agent) => !(agent.source === 'project' && folder && !folder.trusted),
+	)
+	if (carryingAgents.length > 0) {
+		lines.push(
+			state === undefined
+				? `${carryingAgents.length} agent ${carryingAgents.length === 1 ? 'file carries' : 'files carry'} hooks that attach to each run of the agent: ${carryingAgents.map((agent) => agent.name).join(', ')}.`
+				: `${carryingAgents.length} agent ${carryingAgents.length === 1 ? 'file carries' : 'files carry'} hooks that do not attach, because a switch is on.`,
+		)
+		for (const agent of carryingAgents) {
+			const read = readAgentHooks(agent.hooksSource, agent.name)
+			for (const problem of read.problems) {
+				if (problem.severity === 'problem') agentWarn = true
+				lines.push(
+					`${problem.severity === 'problem' ? 'Not loaded' : 'Note'}: agent ${agent.name}, ${problem.event}: ${problem.message}`,
+				)
+			}
+			if (read.guardLost && state === undefined) {
+				lines.push(
+					`Agent "${agent.name}" is not offered (${agent.path}); starting it is refused until the entry is fixed or taken out.`,
+				)
+			}
+		}
+	}
+	lines.push(state === undefined ? 'No hook switch is on.' : `Switch on: ${hooksSwitchLine(state)}`)
 	return {
 		status:
-			unreadable.length > 0 || notLoaded || unsetVariables.length > 0 || shipped.warn
+			unreadable.length > 0 ||
+			notLoaded ||
+			unsetVariables.length > 0 ||
+			shipped.warn ||
+			skillWarn ||
+			agentWarn
 				? 'warn'
 				: 'pass',
 		message: lines.join(' '),
@@ -178,6 +258,7 @@ function unsetVariableLines(
 					process.env[name] === undefined &&
 					entry.env?.[name] === undefined &&
 					!MOVED_ENDING.test(name) &&
+					!(ENV_FILE_EVENTS.has(event) && ENV_FILE_ENDING.test(name)) &&
 					!(entry.source?.startsWith('plugin ') === true && isPluginFolderVariable(name)) &&
 					!KERNEL_NAME.test(name) &&
 					!isShellOwnVariable(name) &&
@@ -194,6 +275,13 @@ function unsetVariableLines(
 }
 
 const MOVED_ENDING = /.+_PROJECT_DIR$/
+/** A name that ends this way is given the variables file on the events that own one. */
+const ENV_FILE_ENDING = /.+_ENV_FILE$/
+const ENV_FILE_EVENTS: ReadonlySet<string> = new Set([
+	'session_start',
+	'cwd_changed',
+	'file_changed',
+])
 
 export function hooksCheck(config: NamzuCliConfig): DoctorCheck {
 	return {
@@ -220,7 +308,15 @@ export function hooksCheck(config: NamzuCliConfig): DoctorCheck {
 					plugins = undefined
 				}
 			}
-			return describeHooksStatus(config, { cwd: ctx.cwd, trusted }, plugins)
+			return describeHooksStatus(
+				config,
+				{ cwd: ctx.cwd, trusted },
+				plugins,
+				discoverSkills({ cwd: ctx.cwd, ...(config.skills ? { config: config.skills } : {}) }),
+				await discoverAgentDefinitions({ cwd: ctx.cwd })
+					.then((found) => found.carriers)
+					.catch(() => []),
+			)
 		},
 	}
 }

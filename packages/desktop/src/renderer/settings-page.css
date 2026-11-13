@@ -613,3 +613,101 @@ input.settings-config-input[type="number"] {
 	width: 100%;
 	min-width: 0;
 }
+.hooks-view {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	width: 100%;
+	min-width: 0;
+}
+.hooks-switch {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 6px;
+	max-width: 320px;
+}
+.hooks-locked {
+	text-align: right;
+}
+.hook-group {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+.hook-when {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	margin: 0;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	font-weight: 500;
+}
+.hook-event {
+	color: var(--muted-foreground);
+	font-family: var(--font-mono, monospace);
+	font-size: var(--text-caption);
+	font-weight: 400;
+}
+.hook-list {
+	display: flex;
+	flex-direction: column;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.hook {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 8px 0;
+	border-top: 1px solid var(--border);
+}
+.hook:first-child {
+	border-top: 0;
+}
+.hook-main {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	gap: 2px;
+}
+.hook-runs {
+	font-family: var(--font-mono, monospace);
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	overflow-wrap: anywhere;
+}
+.hook-kind {
+	color: var(--muted-foreground);
+	font-family: inherit;
+}
+.hook-facts,
+.hook-source,
+.hook-why {
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	overflow-wrap: anywhere;
+}
+.hook-why {
+	color: var(--foreground);
+}
+.hook-problem {
+	margin: 0;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	overflow-wrap: anywhere;
+}
+.hook-problem-kind {
+	font-weight: 500;
+}
+.settings-badge[data-tone="runs"] {
+	color: var(--foreground);
+}
+.settings-badge[data-tone="not-loaded"] {
+	color: var(--foreground);
+	background: color-mix(in srgb, var(--foreground) 14%, transparent);
+}

@@ -135,6 +135,7 @@ describe('the command manifest', () => {
 				'exec',
 				'github',
 				'history',
+				'hooks',
 				'learn',
 				'learning',
 				'login',

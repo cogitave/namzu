@@ -87,6 +87,11 @@ export class RuntimeClient extends EventEmitter {
 	supportsMcpServers(): boolean {
 		return this.mcpServers
 	}
+	private hooksView = false
+	/** A host that predates the hooks view does not list `namzu/hooks/list`. */
+	supportsHooksView(): boolean {
+		return this.hooksView
+	}
 	private conversationSearch = false
 	supportsConversationSearch(): boolean {
 		return this.conversationSearch
@@ -319,6 +324,7 @@ export class RuntimeClient extends EventEmitter {
 		this.projectGit = offers('projectGit')
 		this.projectPr = offers('projectPr')
 		this.mcpServers = offers('mcpServers')
+		this.hooksView = offers('hooksView')
 		this.conversationSearch = offers('conversationSearch')
 		this.projectUntrust = offers('projectUntrust')
 		this.projectChanges = offers('projectChanges')

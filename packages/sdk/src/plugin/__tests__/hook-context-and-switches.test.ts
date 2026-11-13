@@ -191,6 +191,46 @@ describe('NAMZU_PROJECT_DIR', () => {
 	}
 })
 
+describe('variables a host adds to every command of an adapter', () => {
+	const base = { event: 'turn_start', sessionId: SESSION, cwd: process.cwd() } as const
+	const contextOf = (event: string, extra: Record<string, unknown>): PluginHookContext =>
+		({ event, sessionId: SESSION, pluginId: 'p', ...extra }) as unknown as PluginHookContext
+
+	it('reach the command, and never replace the ones the kernel sets', async () => {
+		const outcome = await runShellHook(
+			{ command: 'printf %s "$NAMZU_SKILL_ROOT|$NAMZU_HOOK_EVENT"' },
+			{ ...base, extraEnv: { NAMZU_SKILL_ROOT: '/skills/a', NAMZU_HOOK_EVENT: 'forged' } },
+		)
+		expect(outcome.stdout).toBe('/skills/a|turn_start')
+	})
+
+	it('are given by an adapter’s options, and onRun says a hook was selected to run', async () => {
+		const ran: string[] = []
+		const hook = createShellHook(
+			'turn_start',
+			{ command: 'printf %s "$NAMZU_SKILL_ROOT"', matcher: undefined },
+			{
+				cwd: process.cwd(),
+				extraEnv: { NAMZU_SKILL_ROOT: '/skills/b' },
+				onRun: (info) => ran.push(info.event),
+			},
+		) as PluginHookDefinition & { handler: (c: PluginHookContext) => Promise<unknown> }
+		await hook.handler(contextOf('turn_start', {}))
+		expect(ran).toEqual(['turn_start'])
+	})
+
+	it('onRun is not called for a hook whose matcher did not select it', async () => {
+		const ran: string[] = []
+		const hook = createShellHook(
+			'session_end',
+			{ command: 'cat', matcher: 'replaced' },
+			{ cwd: process.cwd(), onRun: (info) => ran.push(info.event) },
+		) as PluginHookDefinition & { handler: (c: PluginHookContext) => Promise<unknown> }
+		await hook.handler(contextOf('session_end', { endReason: 'exit' }))
+		expect(ran).toEqual([])
+	})
+})
+
 describe('a shell hook replaces a tool result', () => {
 	const reply = (extra: Record<string, unknown>) =>
 		out({ hookSpecificOutput: { hookEventName: 'PostToolUse', ...extra } })

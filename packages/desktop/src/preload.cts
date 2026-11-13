@@ -155,6 +155,7 @@ const api: DesktopApi = {
 	conversationMarkdown: (id) => invoke('conversationMarkdown', id),
 	projectGit: (id) => invoke('projectGit', id),
 	mcpServers: (id) => invoke('mcpServers', id),
+	hooksView: (id) => invoke('hooksView', id),
 	approveMcpServers: (id, servers) => invoke('approveMcpServers', id, servers),
 	searchConversations: (query) => invoke('searchConversations', query),
 	projectPr: (id) => invoke('projectPr', id),

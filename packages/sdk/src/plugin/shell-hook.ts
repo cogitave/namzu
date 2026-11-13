@@ -107,7 +107,7 @@
 
 import { spawn } from 'node:child_process'
 import { constants, accessSync, mkdirSync, statSync } from 'node:fs'
-import { delimiter } from 'node:path'
+import { basename, delimiter } from 'node:path'
 
 import { decodedCommands, decomposeCommandLine } from '../authorization/command-line.js'
 import {
@@ -119,6 +119,7 @@ import { spawnHostShell } from '../tools/command-shell.js'
 import type { PluginId } from '../types/ids/index.js'
 import type {
 	PluginCompactionInfo,
+	PluginFileChange,
 	PluginHookContext,
 	PluginHookDefinition,
 	PluginHookEvent,
@@ -133,6 +134,7 @@ import { NOOP_LOGGER } from '../utils/log/create-logger.js'
 import type { Logger } from '../utils/logger.js'
 import { boundHookReplacement } from './hook-context.js'
 import type { PluginLifecycleManager } from './lifecycle.js'
+import type { SessionHookEnv } from './session-hook-env.js'
 import { readHookCommand } from './shell-hook-command.js'
 import {
 	type PluginFolders,
@@ -143,6 +145,7 @@ import {
 } from './shell-hook-env.js'
 import { postHookJson } from './shell-hook-http.js'
 import { type ShellHookToolNames, shellHookToolName } from './shell-hook-tool-names.js'
+import { worktreeHookVerdict } from './worktree-hook-answer.js'
 
 /**
  * The events a shell hook may attach to: the ones an operator can act on
@@ -168,6 +171,10 @@ export type ShellHookEvent = Extract<
 	| 'turn_failure'
 	| 'turn_start'
 	| 'turn_end'
+	| 'file_changed'
+	| 'cwd_changed'
+	| 'worktree_create'
+	| 'worktree_remove'
 >
 
 export const SHELL_HOOK_EVENTS: readonly ShellHookEvent[] = [
@@ -188,6 +195,10 @@ export const SHELL_HOOK_EVENTS: readonly ShellHookEvent[] = [
 	'turn_failure',
 	'turn_start',
 	'turn_end',
+	'file_changed',
+	'cwd_changed',
+	'worktree_create',
+	'worktree_remove',
 ]
 
 /** What a failed hook does to the action it guards. */
@@ -500,6 +511,56 @@ export function shellHookMatcherProblem(matcher: string | undefined): string | u
 
 const IF_SHAPE = /^([A-Za-z0-9_.:*|, -]+)(?:\(([\s\S]*)\))?$/
 
+/** A part of a `file_changed` matcher that names a path: letters, digits and the characters of a path. */
+const FILE_LIST_PART = /^[A-Za-z0-9_.:*\\/-]+$/
+
+/** The parts of a `file_changed` matcher when every part is written as a path, else `undefined`. */
+function fileMatcherParts(matcher: string | undefined): string[] | undefined {
+	if (matcher === undefined || matcher.trim() === '' || matcher.trim() === '*') return undefined
+	const parts = matcher.split(/[|,]/).map((part) => part.trim())
+	return parts.every((part) => FILE_LIST_PART.test(part)) ? parts : undefined
+}
+
+/**
+ * The files a `file_changed` matcher names: each part of a `|` list that is a
+ * path with no `*` in it (`.envrc`, `config/app.json`, `/etc/hosts`). A part
+ * with a `*`, a pattern, or no matcher names no file; the hook then runs only
+ * for the files hooks hand back with `watchPaths`. A relative path is under
+ * the working folder, which the host knows.
+ */
+export function fileChangedMatcherPaths(matcher: string | undefined): string[] {
+	return (fileMatcherParts(matcher) ?? []).filter((part) => !part.includes('*'))
+}
+
+/**
+ * Whether a `file_changed` hook with this matcher runs for `filePath`. The
+ * matcher is read as every matcher is, but against the file's base name: a
+ * part written as a path (`config/app.json`) stands for its base name
+ * (`app.json`). An unreadable pattern runs the hook.
+ */
+export function fileChangedMatches(
+	matcher: string | undefined,
+	filePath: string | undefined,
+): boolean {
+	if (filePath === undefined) return true
+	const name = basename(filePath.replace(/[\\/]+$/, ''))
+	const parts = fileMatcherParts(matcher)
+	if (parts === undefined) return shellHookMatches(matcher, name)
+	return shellHookMatches(
+		parts.map((part) => basename(part.replace(/[\\/]+$/, '')) || part).join('|'),
+		name,
+	)
+}
+
+/**
+ * What a `file_changed` entry's matcher does not do, or `undefined`: a matcher
+ * that names no file watches nothing by itself.
+ */
+export function fileChangedMatcherNote(matcher: string | undefined): string | undefined {
+	if (fileChangedMatcherPaths(matcher).length > 0) return undefined
+	return 'its matcher names no file, so it watches nothing itself and runs only for files other hooks hand back with watchPaths'
+}
+
 /**
  * Why an `if` cannot be read, or `undefined` when it can. A filter that
  * cannot be read runs the hook.
@@ -641,6 +702,26 @@ export interface ShellHookInput {
 	/** The agent the child runs, on `subagent_start` and `subagent_stop`. */
 	readonly agentType?: string
 	readonly prompt?: string
+	/** On `file_changed`: the file, absolute. Sent as `file_path`. */
+	readonly filePath?: string
+	/** On `file_changed`: what happened to it. Sent as `change`. */
+	readonly change?: PluginFileChange
+	/** On `cwd_changed`: the folder left and the folder entered. Sent as `old_cwd` and `new_cwd`. */
+	readonly oldCwd?: string
+	readonly newCwd?: string
+	/** On `worktree_create`: the suggested name. Sent as `name`. */
+	readonly worktreeName?: string
+	/** On `worktree_create`: where a relative path is placed. Sent as `worktree_root`. */
+	readonly worktreeRoot?: string
+	/** On `worktree_create`: the commit or branch asked for, when one was. Sent as `base_ref`. */
+	readonly worktreeBaseRef?: string
+	/** On `worktree_remove`: the worktree. Sent as `worktree_path`. */
+	readonly worktreePath?: string
+	/**
+	 * The file this hook may append `export NAME=value` lines to. Sent as
+	 * `NAMZU_ENV_FILE`; on every other event the variable is not set at all.
+	 */
+	readonly envFile?: string
 	readonly compaction?: PluginCompactionInfo
 	readonly toolName?: string
 	/** The spelling `toolName` (and each `toolCalls` name) is sent in; absent is `namzu`. */
@@ -669,6 +750,14 @@ export interface ShellHookInput {
 	readonly transcriptPath?: string
 	/** How tool calls are being decided right now. Sent as `permission_mode`. */
 	readonly permissionMode?: string
+	/**
+	 * Variables added to a command's environment, under the ones the kernel sets
+	 * for every hook (`NAMZU_HOOK_EVENT` and the rest, which these never
+	 * replace). Not part of the JSON the hook reads.
+	 */
+	readonly extraEnv?: Readonly<Record<string, string>>
+	/** The skill's folder, when the hook came from a skill; see {@link ShellHookOptions.skillRoot}. */
+	readonly skillRoot?: string
 }
 
 /** The JSON a hook receives on stdin (or as an HTTP body). */
@@ -688,6 +777,14 @@ export function shellHookPayload(input: ShellHookInput): string {
 			? { agent_id: input.sessionId, agent_type: input.agentType }
 			: {}),
 		...(input.prompt !== undefined ? { prompt: input.prompt } : {}),
+		...(input.filePath !== undefined ? { file_path: input.filePath } : {}),
+		...(input.change !== undefined ? { change: input.change } : {}),
+		...(input.oldCwd !== undefined ? { old_cwd: input.oldCwd } : {}),
+		...(input.newCwd !== undefined ? { new_cwd: input.newCwd } : {}),
+		...(input.worktreeName !== undefined ? { name: input.worktreeName } : {}),
+		...(input.worktreeRoot !== undefined ? { worktree_root: input.worktreeRoot } : {}),
+		...(input.worktreeBaseRef !== undefined ? { base_ref: input.worktreeBaseRef } : {}),
+		...(input.worktreePath !== undefined ? { worktree_path: input.worktreePath } : {}),
 		...(input.compaction !== undefined ? compactionFields(input.event, input.compaction) : {}),
 		...(input.toolName !== undefined
 			? { tool_name: shellHookToolName(input.toolName, input.toolNames) }
@@ -775,7 +872,12 @@ export function runShellHook(
 	const toolPath = pathOf(input.toolInput)
 	// A hook outside a turn must not see a turn id, including one the host
 	// inherited from an enclosing hook's environment.
-	const { NAMZU_TURN_ID: _inheritedTurnId, ...inherited } = process.env
+	// Nor the variables file of an enclosing hook: only the three events that own one get it.
+	const {
+		NAMZU_TURN_ID: _inheritedTurnId,
+		NAMZU_ENV_FILE: _inheritedEnvFile,
+		...inherited
+	} = process.env
 	const projectDir = input.projectDir ?? input.cwd
 	const kernel = {
 		NAMZU_HOOK_EVENT: input.event,
@@ -785,6 +887,7 @@ export function runShellHook(
 			? { NAMZU_PLUGIN_ROOT: input.plugin.root, NAMZU_PLUGIN_DATA: input.plugin.dataDir }
 			: {}),
 		...(input.turnId !== undefined ? { NAMZU_TURN_ID: input.turnId } : {}),
+		...(input.envFile !== undefined ? { NAMZU_ENV_FILE: input.envFile } : {}),
 		...(input.toolName !== undefined
 			? { NAMZU_TOOL_NAME: shellHookToolName(input.toolName, input.toolNames) }
 			: {}),
@@ -795,12 +898,19 @@ export function runShellHook(
 	// inherited environment; the kernel's own names last. A shell expands the
 	// variables itself, so a folder name is never read as shell text.
 	const pluginFolders = input.plugin
-	const { env, unset } = movedEnvironment(entry, { ...inherited, ...kernel }, kernel, {
-		project: projectDir,
-		...(pluginFolders !== undefined
-			? { plugin: pluginFolders.root, pluginData: pluginFolders.dataDir }
-			: {}),
-	})
+	const { env, unset } = movedEnvironment(
+		entry,
+		{ ...inherited, ...input.extraEnv, ...kernel },
+		kernel,
+		{
+			project: projectDir,
+			...(input.skillRoot !== undefined ? { skill: input.skillRoot } : {}),
+			...(input.envFile !== undefined ? { envFile: input.envFile } : {}),
+			...(pluginFolders !== undefined
+				? { plugin: pluginFolders.root, pluginData: pluginFolders.dataDir }
+				: {}),
+		},
+	)
 	// The exec form has no shell to expand them, so the values are put in.
 	const placed: ShellHookEntry =
 		entry.args === undefined
@@ -1040,6 +1150,10 @@ export const SHELL_HOOK_PASCAL_EVENT_NAMES: Readonly<Partial<Record<ShellHookEve
 	permission_denied: 'PermissionDenied',
 	turn_failure: 'StopFailure',
 	turn_end: 'Stop',
+	file_changed: 'FileChanged',
+	cwd_changed: 'CwdChanged',
+	worktree_create: 'WorktreeCreate',
+	worktree_remove: 'WorktreeRemove',
 }
 
 /** What a hook's stdout JSON said, before it is mapped to a verdict for an event. */
@@ -1055,6 +1169,8 @@ interface ShellHookReading {
 	replacement?: string
 	/** The hook asked for its stdout to stay out of the debug log. */
 	suppressOutput?: boolean
+	/** On `session_start`, `file_changed` and `cwd_changed`: the files to watch from now on. */
+	watchPaths?: readonly string[]
 	/** Why the JSON was set aside, when it was. */
 	invalid?: string
 }
@@ -1170,6 +1286,18 @@ function readShellHookJson(
 		}
 	}
 
+	// The same for a list of files to watch written at the top level.
+	if (
+		(event === 'session_start' || event === 'file_changed' || event === 'cwd_changed') &&
+		parsed.watchPaths !== undefined &&
+		!(isRecord(parsed.hookSpecificOutput) && parsed.hookSpecificOutput.watchPaths !== undefined)
+	) {
+		return {
+			invalid:
+				'`watchPaths` is read under `hookSpecificOutput`, not at the top level of the answer',
+		}
+	}
+
 	const reading: ShellHookReading = {}
 	if (parsed.suppressOutput === true) reading.suppressOutput = true
 	const systemMessage = optionalString('systemMessage')
@@ -1202,6 +1330,16 @@ function readShellHookJson(
 	] as const) {
 		const problem = wrongType(key, type, specific)
 		if (problem) return { invalid: `hookSpecificOutput: ${problem}` }
+	}
+	if (
+		(event === 'session_start' || event === 'file_changed' || event === 'cwd_changed') &&
+		specific.watchPaths !== undefined
+	) {
+		const list = specific.watchPaths
+		if (!Array.isArray(list) || list.some((item) => typeof item !== 'string')) {
+			return { invalid: 'hookSpecificOutput: `watchPaths` must be a list of paths (strings)' }
+		}
+		reading.watchPaths = (list as string[]).filter((item) => item.trim() !== '')
 	}
 	const additional = optionalString('additionalContext', specific)
 	if (additional && additional.trim().length > 0) reading.context = additional.trim()
@@ -1461,13 +1599,33 @@ export function shellHookVerdict(
 			// Nothing here can be refused. What the hook said for the model becomes
 			// the session's context; a stop request and a warning still count.
 			return reading.context !== undefined
-				? { action: 'annotate', text: reading.context }
+				? {
+						action: 'annotate',
+						text: reading.context,
+						...(reading.watchPaths !== undefined ? { watchPaths: reading.watchPaths } : {}),
+						...(reading.notice ? { notice: reading.notice } : {}),
+					}
 				: {
 						action: 'continue',
 						...(reading.halt ? { halt: reading.halt } : {}),
 						...(reading.notice ? { notice: reading.notice } : {}),
+						...(reading.watchPaths !== undefined ? { watchPaths: reading.watchPaths } : {}),
 					}
 		}
+		case 'worktree_create':
+		case 'worktree_remove':
+			// Read by `worktreeHookVerdict`, which the handler calls for these two
+			// events; a caller that gets here has no run to read.
+			return { action: 'continue' }
+		case 'file_changed':
+		case 'cwd_changed':
+			// Nothing here can be refused and nothing reaches the model: what the hook
+			// can say is a line for the person and the files to watch from now on.
+			return {
+				action: 'continue',
+				...(reading.notice ? { notice: reading.notice } : {}),
+				...(reading.watchPaths !== undefined ? { watchPaths: reading.watchPaths } : {}),
+			}
 		case 'post_tool_use':
 		case 'post_tool_use_failure': {
 			// The call has run, so a "block" cannot undo it: its reason is what the
@@ -1589,12 +1747,32 @@ export interface ShellHookOptions {
 	 */
 	readonly projectDir?: string
 	/**
+	 * Variables added to the environment of every command this adapter runs,
+	 * beside the ones the kernel sets for each hook, which they never replace.
+	 * For a host that attaches a group of hooks with something in common (a
+	 * skill's folder).
+	 */
+	readonly extraEnv?: Readonly<Record<string, string>>
+	/**
+	 * Called when a hook of this adapter was selected to run (its matcher and
+	 * `if` allowed it), before it runs. For a host that decides what happens to
+	 * a hook once it has run (removing it after a first successful run).
+	 */
+	readonly onRun?: (info: { readonly event: ShellHookEvent }) => void
+	/**
 	 * Set when the entries belong to a plugin: its own folder and the folder kept
 	 * for its data, given to every command as `NAMZU_PLUGIN_ROOT` and
 	 * `NAMZU_PLUGIN_DATA` and put in the command and arguments where they name
 	 * them. The data folder is created when a command first runs.
 	 */
 	readonly plugin?: PluginFolders
+	/**
+	 * Set when the entries belong to a skill: the skill's own folder. A variable
+	 * the command refers to without it being set, whose name ends in
+	 * `_PLUGIN_ROOT` or `_SKILL_ROOT`, is given this folder under the name the
+	 * command used (a skill moved as written names its folder that way).
+	 */
+	readonly skillRoot?: string
 	/** How a path pattern in an entry's `if` is read. Absent, such a filter runs the hook. */
 	readonly pathFilter?: ShellHookPathFilter
 	/**
@@ -1603,6 +1781,13 @@ export interface ShellHookOptions {
 	 * the cap). Absent, or an event not listed, the ordinary default applies.
 	 */
 	readonly defaultTimeoutMs?: { readonly [event in ShellHookEvent]?: number }
+	/**
+	 * Where the variables a hook sets for later commands are kept. With it, a
+	 * command hook on `session_start`, `cwd_changed` or `file_changed` is
+	 * started with `NAMZU_ENV_FILE`, and the file is read when the hook ends.
+	 * Without it no hook gets the variable and nothing is carried.
+	 */
+	readonly hookEnv?: SessionHookEnv
 	/**
 	 * Called when a hook of this adapter ran out its deadline and was ended.
 	 * `hook` is the command, URL or prompt text the entry names.
@@ -1710,6 +1895,56 @@ function readJudgement(reply: string): { ok: boolean; reason: string } | undefin
 	}
 }
 
+/**
+ * One run of a `worktree_create` or `worktree_remove` hook, to its answer. It
+ * is always awaited (an `async` flag cannot make a hook that does the work run
+ * out of sight), and a `prompt` hook cannot do it at all, which is said as a
+ * failure rather than skipped.
+ */
+async function runWorktreeHook(
+	event: 'worktree_create' | 'worktree_remove',
+	entry: ShellHookHandler,
+	input: ShellHookInput,
+	signal: AbortSignal | undefined,
+	reportTimeout: (timedOut: boolean) => void,
+): Promise<PluginHookResult> {
+	const label = describeShellHook(entry)
+	if (entry.type === 'prompt') {
+		return {
+			action: 'error',
+			message: `The ${event} hook \`${label}\` is a prompt, and a prompt cannot make or remove a worktree. Use a command or an http hook.`,
+		}
+	}
+	if (entry.type === 'http') {
+		const response = await postHookJson({
+			url: entry.url,
+			body: shellHookPayload(input),
+			...(entry.headers !== undefined ? { headers: entry.headers } : {}),
+			...(entry.allowedEnvVars !== undefined ? { allowedEnvVars: entry.allowedEnvVars } : {}),
+			timeoutMs: hookTimeout(entry),
+			...(signal !== undefined ? { signal } : {}),
+		})
+		reportTimeout(response.timedOut)
+		const ok = response.status !== null && response.status >= 200 && response.status < 300
+		return worktreeHookVerdict(event, label, {
+			exitCode: ok ? 0 : (response.status ?? null),
+			timedOut: response.timedOut,
+			stdout: ok ? response.body : '',
+			stderr: ok ? '' : response.body.slice(0, 500),
+			...(response.error !== undefined ? { spawnError: response.error } : {}),
+		})
+	}
+	const outcome = await runShellHook(entry, input, signal)
+	reportTimeout(outcome.timedOut)
+	return worktreeHookVerdict(event, label, outcome)
+}
+
+/**
+ * The place a hook has among the ones that set variables: entries are made in
+ * configuration order, so a later number is a later line in the file.
+ */
+let nextHookEnvSlot = 0
+
 /** One entry as a hook definition the lifecycle manager accepts. */
 export function createShellHook(
 	event: ShellHookEvent,
@@ -1717,6 +1952,7 @@ export function createShellHook(
 	options: ShellHookOptions,
 ): PluginHookDefinition {
 	const log = options.log ?? NOOP_LOGGER
+	const envSlot = nextHookEnvSlot++
 	const eventDefault = options.defaultTimeoutMs?.[event]
 	const entry: ShellHookHandler =
 		configured.timeoutMs === undefined && eventDefault !== undefined
@@ -1734,8 +1970,14 @@ export function createShellHook(
 	return {
 		event,
 		...(entry.statusMessage !== undefined ? { statusMessage: entry.statusMessage } : {}),
+		// A file named by the matcher is watched for as long as the hook is attached.
+		...(event === 'file_changed' && fileChangedMatcherPaths(entry.matcher).length > 0
+			? { watches: fileChangedMatcherPaths(entry.matcher) }
+			: {}),
 		handler: async (context: PluginHookContext) => {
-			if (spent) return { action: 'continue' }
+			if (spent && event !== 'worktree_create' && event !== 'worktree_remove') {
+				return { action: 'continue' }
+			}
 			// A notification is matched on its type; every other event on the tool.
 			const namesATool = !(
 				event === 'pre_compact' ||
@@ -1765,15 +2007,49 @@ export function createShellHook(
 			// events are matched on `trigger`.
 			if (subject !== undefined && !shellHookMatches(entry.matcher, subject, { tool: namesATool }))
 				return { action: 'continue' }
-			if (!shellHookIfMatches(entry.if, context.toolName, context.toolInput, options.pathFilter)) {
+			// A changed file is matched on its base name, and a matcher written as a
+			// path stands for the file's name: `config/app.json` is `app.json`.
+			if (event === 'file_changed' && !fileChangedMatches(entry.matcher, context.filePath)) {
 				return { action: 'continue' }
 			}
-			if (entry.once === true) spent = true
+			// A worktree hook does the work itself, so a filter or a one-shot flag on
+			// it could only make the kernel act where the person wanted the hook to:
+			// both are ignored there, and the hook always runs.
+			const doesTheWork = event === 'worktree_create' || event === 'worktree_remove'
+			if (
+				!doesTheWork &&
+				!shellHookIfMatches(entry.if, context.toolName, context.toolInput, options.pathFilter)
+			) {
+				return { action: 'continue' }
+			}
+			if (entry.once === true && !doesTheWork) spent = true
+			options.onRun?.({ event })
 			const transcriptPath = options.transcriptPath?.(String(context.sessionId))
 			const permissionMode = options.permissionMode?.()
+			const envEvent =
+				event === 'session_start' || event === 'cwd_changed' || event === 'file_changed'
+					? event
+					: undefined
+			const runsACommand = entry.type === undefined || entry.type === 'command'
+			const envFile =
+				envEvent !== undefined && runsACommand
+					? options.hookEnv?.fileFor(envEvent, envSlot)
+					: undefined
 			const hookInput: ShellHookInput = {
 				event,
-				cwd: options.cwd,
+				// A hook told the folder changed runs in the folder entered.
+				cwd: event === 'cwd_changed' && context.newCwd !== undefined ? context.newCwd : options.cwd,
+				...(envFile !== undefined ? { envFile } : {}),
+				...(context.filePath !== undefined ? { filePath: context.filePath } : {}),
+				...(context.change !== undefined ? { change: context.change } : {}),
+				...(context.oldCwd !== undefined ? { oldCwd: context.oldCwd } : {}),
+				...(context.newCwd !== undefined ? { newCwd: context.newCwd } : {}),
+				...(context.worktreeName !== undefined ? { worktreeName: context.worktreeName } : {}),
+				...(context.worktreeRoot !== undefined ? { worktreeRoot: context.worktreeRoot } : {}),
+				...(context.worktreeBaseRef !== undefined
+					? { worktreeBaseRef: context.worktreeBaseRef }
+					: {}),
+				...(context.worktreePath !== undefined ? { worktreePath: context.worktreePath } : {}),
 				...(options.projectDir !== undefined ? { projectDir: options.projectDir } : {}),
 				...(options.plugin !== undefined ? { plugin: options.plugin } : {}),
 				sessionId: String(context.sessionId),
@@ -1814,10 +2090,15 @@ export function createShellHook(
 					: {}),
 				...(transcriptPath !== undefined ? { transcriptPath } : {}),
 				...(permissionMode !== undefined ? { permissionMode } : {}),
+				...(options.extraEnv !== undefined ? { extraEnv: options.extraEnv } : {}),
+				...(options.skillRoot !== undefined ? { skillRoot: options.skillRoot } : {}),
 			}
 			const verdictCall: ShellHookCall = {
 				...(context.toolName !== undefined ? { toolName: context.toolName } : {}),
 				...(context.toolInput !== undefined ? { toolInput: context.toolInput } : {}),
+			}
+			if (event === 'worktree_create' || event === 'worktree_remove') {
+				return runWorktreeHook(event, entry, hookInput, context.signal, reportTimeout)
 			}
 			if (entry.type === 'http') {
 				const response = await postHookJson({
@@ -1852,6 +2133,7 @@ export function createShellHook(
 				// for it and its own failure is only written down.
 				void runShellHook(entry, hookInput)
 					.then((outcome) => {
+						if (envEvent !== undefined) options.hookEnv?.absorb(envEvent, envSlot)
 						const verdict = shellHookVerdict(event, entry, outcome, log, verdictCall)
 						if (verdict.action !== 'continue') {
 							log.warn('an async hook answered, and its answer is not applied', {
@@ -1865,6 +2147,9 @@ export function createShellHook(
 				return { action: 'continue' }
 			}
 			const outcome = await runShellHook(entry, hookInput, context.signal)
+			// What the hook appended counts even when it was ended or failed after
+			// writing it: the lines are data it already gave.
+			if (envEvent !== undefined) options.hookEnv?.absorb(envEvent, envSlot)
 			reportTimeout(outcome.timedOut)
 			return shellHookVerdict(event, entry, outcome, log, verdictCall)
 		},

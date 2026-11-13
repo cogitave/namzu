@@ -314,6 +314,15 @@ export interface QueryParams {
 	 * clamped to it without an error.
 	 */
 	monitorTimeoutCapMs?: number
+	/**
+	 * Told, once and awaited, when a shell command of this turn leaves the
+	 * session's next shell command in a different folder (see
+	 * `ToolContext.workingDirectoryChanged`). A host fires `cwd_changed` here.
+	 */
+	onWorkingDirectoryChange?: (change: {
+		readonly from: string
+		readonly to: string
+	}) => Promise<void> | void
 
 	/**
 	 * What else goes in this turn's prompt.
@@ -1634,6 +1643,9 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				...(params.monitorTimeoutCapMs !== undefined
 					? { monitorTimeoutCapMs: params.monitorTimeoutCapMs }
 					: {}),
+				...(params.onWorkingDirectoryChange
+					? { onWorkingDirectoryChange: params.onWorkingDirectoryChange }
+					: {}),
 				// The `skill` tool's registry. Threaded from the turn rather than
 				// held by the tool, because a tool that reached for a module-level
 				// registry would answer about whatever the last turn configured.
@@ -1679,6 +1691,22 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				...(params.repairToolCall ? { repairToolCall: params.repairToolCall } : {}),
 				...(verificationGate ? { authorizationGate: verificationGate } : {}),
 				recordAudit: (input) => ctx.recorder.recordAudit(input),
+				recordSkillHooks: async (fact) => {
+					try {
+						await ctx.recorder.appendRecord({
+							type: 'skill_hooks_attached',
+							turnId: ctx.turnId,
+							ignorable: true,
+							skill: fact.skill,
+							directory: fact.directory,
+							grantsWithheld: fact.grantsWithheld,
+							...(fact.toolCallId !== undefined ? { toolCallId: fact.toolCallId } : {}),
+						})
+						return true
+					} catch {
+						return false
+					}
+				},
 				// The durable pause, reachable from any tool rather than from the
 				// four kernel-owned points that used to own it. Built here from
 				// the machinery the turn already holds; the recorder binds a few

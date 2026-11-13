@@ -174,6 +174,15 @@ export const pluginCommand = lazyCommand(
 	async () => (await import('./plugin.js')).pluginCommand,
 )
 
+export const hooksCommand = lazyCommand(
+	{
+		name: 'hooks',
+		description: 'Say what runs by itself in a folder: hooks, where from, and whether they are on',
+		passThrough: true,
+	},
+	async () => (await import('./hooks.js')).hooksCommand,
+)
+
 export const skillsCommand = lazyCommand(
 	{
 		name: 'skills',

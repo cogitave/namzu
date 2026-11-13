@@ -39,6 +39,11 @@ const GUARD_EVENTS: ReadonlySet<ShellHookEvent> = new Set([
 	'subagent_stop',
 ])
 
+/** Whether a hook on this event can refuse, redirect or feed back into a turn: one lost here is a guard lost. */
+export function isGuardHookEvent(event: ShellHookEvent): boolean {
+	return GUARD_EVENTS.has(event)
+}
+
 const KIND_KEYS = {
 	command: ['command', 'args', 'async', 'env'],
 	http: ['url', 'headers', 'allowedEnvVars'],

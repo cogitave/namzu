@@ -81,6 +81,7 @@ import { EngineUpdates } from './engine-updates.js'
 import { externalSourceUrl } from './external-url.js'
 import { FolderAccessTokens, canonicalFolder } from './folder-access.js'
 import { FolderAccess } from './folder-access.js'
+import { createFolderHooksReader, inspectFolderWithHooks } from './folder-hooks.js'
 import { humanComputer } from './host-computer.js'
 import { electronLinkPreviewNetwork } from './link-preview-electron.js'
 import { createLinkPreviewService } from './link-preview.js'
@@ -95,7 +96,11 @@ import { installMediaPermissions } from './media-permissions.js'
 import { createNewProject } from './new-project.js'
 import { OpenIn, systemOpenInHost } from './open-in.js'
 import { Operator } from './operator.js'
-import { createComputerCli } from './pal-computer-cli.js'
+import {
+	type ComputerCliCommand,
+	type ComputerCliLease,
+	createComputerCli,
+} from './pal-computer-cli.js'
 import { ConsentStore } from './pal-computer-consent.js'
 import {
 	CONTINUE_SETUP_FLAG,
@@ -469,32 +474,33 @@ const palComputerSettings = palComputerSetupSettings(
 	process.env,
 	isEverydayLaunch(app.isPackaged, process.argv),
 )
-// The same CLI as the runtime, as its own short process: `computer status | setup | stop-idle`.
-const computerCli = createComputerCli(
-	engineDelivery
-		? async () => {
-				const lease = await engineDelivery.lease()
-				return {
-					program: process.execPath,
-					prefix: desktopCliPrefix(lease.entry),
-					env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
-					release: lease.release,
-				}
+// How to run the same CLI as the runtime as its own short process: `computer status | setup |
+// stop-idle`, and the folder trust dialog's `hooks --cwd <folder> --json`.
+const cliCommand: ComputerCliCommand | (() => Promise<ComputerCliLease>) = engineDelivery
+	? async () => {
+			const lease = await engineDelivery.lease()
+			return {
+				program: process.execPath,
+				prefix: desktopCliPrefix(lease.entry),
+				env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+				release: lease.release,
 			}
-		: cliEntry
+		}
+	: cliEntry
+		? {
+				program: process.execPath,
+				prefix: desktopCliPrefix(cliEntry),
+				env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+			}
+		: process.platform === 'win32'
 			? {
-					program: process.execPath,
-					prefix: desktopCliPrefix(cliEntry),
-					env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+					program: process.env.ComSpec ?? 'cmd.exe',
+					prefix: ['/d', '/s', '/c', 'namzu'],
+					env: process.env,
 				}
-			: process.platform === 'win32'
-				? {
-						program: process.env.ComSpec ?? 'cmd.exe',
-						prefix: ['/d', '/s', '/c', 'namzu'],
-						env: process.env,
-					}
-				: { program: 'namzu', prefix: [], env: process.env },
-)
+			: { program: 'namzu', prefix: [], env: process.env }
+const computerCli = createComputerCli(cliCommand)
+const folderHooks = createFolderHooksReader(cliCommand)
 const palComputerConsent = new ConsentStore(
 	join(app.getPath('userData'), 'pal-computer-setup.json'),
 )
@@ -1376,6 +1382,7 @@ function register(): void {
 	handle('conversationMarkdown', (id: string) => operator.conversationMarkdown(id))
 	handle('projectGit', (id: string) => operator.projectGit(id))
 	handle('mcpServers', (id: string) => operator.mcpServers(id))
+	handle('hooksView', (id?: string) => operator.hooksView(id))
 	handle('approveMcpServers', (id: string, servers: unknown) =>
 		operator.approveMcpServers(id, servers),
 	)
@@ -1465,6 +1472,9 @@ function register(): void {
 		findProject: (id) => operator.listProjects().find((item) => item.id === id),
 		listProjects: () => operator.listProjects(),
 		trust: (id) => operator.trust(id),
+		// What would start by itself comes from the engine's own reading of the folder; the
+		// dialog's parser answers only when the engine cannot.
+		inspectFolder: (path) => inspectFolderWithHooks(path, folderHooks),
 	})
 	handleWindow('openProject', async ({ id: windowId, window }) => {
 		if (!window) return null

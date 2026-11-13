@@ -269,6 +269,7 @@ import {
 	isWorkflowRunAgent,
 	runTokens,
 } from '../integrations/workflows/view.js'
+import { openWorktreeHookRuntime } from '../integrations/worktrees/hook-host.js'
 import { openManagedWorktrees, worktreeOpenHint } from '../integrations/worktrees/managed.js'
 import {
 	DELETE_ALL,
@@ -350,6 +351,7 @@ import {
 	renderSkillRoster,
 	skillTierLabel,
 } from '../skills/store.js'
+import { hooksOf } from '../skills/use-hooks.js'
 import { type UserCommand, discoverUserCommands } from '../user-commands/store.js'
 import {
 	AGENT_RAIL_WINDOW,
@@ -5012,6 +5014,21 @@ function AppBody({
 		[pushMessage, pushSystem],
 	)
 
+	/** The person ran a skill that carries hooks: they attach for the rest of the conversation. */
+	const attachSkillHooks = useCallback(
+		(skill: { name: string; dirPath: string; hooksSource: string }): void => {
+			if (!session?.skillHooks) {
+				pushMessage(
+					'system',
+					`Skill ${skill.name} carries hooks, but this session has no hook runtime, so they are not attached.`,
+				)
+				return
+			}
+			session.skillHooks.use(skill)
+		},
+		[session, pushMessage],
+	)
+
 	const activateSkill = useCallback(
 		(name: string): void => {
 			const info = discoverSkills({
@@ -5029,12 +5046,14 @@ function AppBody({
 					{ name: info.name, body },
 				])
 				conversationLearning().skillUsed = true
+				const carried = hooksOf(info)
+				if (carried) attachSkillHooks(carried)
 				pushMessage('system', `Activated skill: ${info.name}`)
 			} catch (error) {
 				pushSystem('error', explainFailure(error, `Could not load skill "${name}".`))
 			}
 		},
-		[conversationLearning, ctx.cwd, ctx.skills, pushMessage, pushSystem],
+		[attachSkillHooks, conversationLearning, ctx.cwd, ctx.skills, pushMessage, pushSystem],
 	)
 
 	const removeStoredCredential = useCallback(
@@ -7362,6 +7381,24 @@ function AppBody({
 			...(session?.pluginHooks ? { pluginHooks: session.pluginHooks() } : {}),
 			...(session?.pluginHookEntries ? { pluginEntries: session.pluginHookEntries() } : {}),
 			...(session?.pluginHookProblems ? { pluginProblems: session.pluginHookProblems() } : {}),
+			...(session?.skillHooks
+				? {
+						skillHooks: {
+							attached: session.skillHooks.attached(),
+							carriers: session.skillHooks.carriers(),
+						},
+					}
+				: {}),
+			...(session?.agentHooks
+				? {
+						agentHooks: {
+							attached: session.agentHooks.attached(),
+							carriers: session.agentHooks.carriers(),
+							refused: session.agentHooks.refused(),
+						},
+					}
+				: {}),
+			...(session?.hookActivity ? { activity: session.hookActivity() } : {}),
 			...(initialCtx.hooksSwitch ? { switch: initialCtx.hooksSwitch } : {}),
 		}),
 		directories: () => session?.directories?.list() ?? [],
@@ -14074,8 +14111,20 @@ function AppBody({
 							setConversationMutation('fork')
 						}
 						void (async () => {
+							// Only a verb that makes a worktree reaches a hook. With no
+							// conversation yet, the configured hooks run on a runtime of their own.
+							let hookRuntime: Awaited<ReturnType<typeof openWorktreeHookRuntime>> | undefined
 							try {
-								const manager = await openManagedWorktrees(ctx.cwd)
+								if (verb === 'create' || verb === 'fork') {
+									hookRuntime = session?.worktreeHooks
+										? { hooks: session.worktreeHooks, close: async () => undefined }
+										: await openWorktreeHookRuntime({ hooks: initialCtx.hooks }, ctx.cwd, notice)
+								}
+								const manager = await openManagedWorktrees(ctx.cwd, {
+									...(hookRuntime?.hooks
+										? { hooks: hookRuntime.hooks.host, onNotice: hookRuntime.hooks.onNotice }
+										: {}),
+								})
 								if (verb === 'list') {
 									const items = await manager.list()
 									notice(
@@ -14091,7 +14140,9 @@ function AppBody({
 								} else if (verb === 'create') {
 									const created = await manager.create(label)
 									notice(
-										`Created ${created.branch}. Open it in a new terminal: ${worktreeOpenHint(created.path)}${created.sourceDirty ? '\nUncommitted files stayed in this checkout.' : ''}`,
+										created.madeByHook
+											? `Created a worktree at ${created.path} with a worktree_create hook. Open it in a new terminal: ${worktreeOpenHint(created.path)}`
+											: `Created ${created.branch}. Open it in a new terminal: ${worktreeOpenHint(created.path)}${created.sourceDirty ? '\nUncommitted files stayed in this checkout.' : ''}`,
 									)
 								} else if (verb === 'fork') {
 									const scope = await materializeConversation()
@@ -14110,6 +14161,7 @@ function AppBody({
 							} catch (error) {
 								notice(explainFailure(error, 'Could not set up the worktree.'))
 							} finally {
+								await hookRuntime?.close().catch(() => undefined)
 								if (verb === 'fork') {
 									conversationMutationRef.current = null
 									setConversationMutation(null)
@@ -14228,6 +14280,7 @@ function AppBody({
 						// through to the same queue-or-send below that a typed
 						// message takes.
 						outgoing = slash.text
+						if (slash.skillHooks) attachSkillHooks(slash.skillHooks)
 						break
 					case 'none':
 						return
@@ -14877,6 +14930,7 @@ function AppBody({
 			state,
 			terminal.rows,
 			userCommands,
+			attachSkillHooks,
 		],
 	)
 	// The "waiting for your input" notice (`tui.notifications` with `idle-prompt`):
@@ -15059,12 +15113,25 @@ function AppBody({
 		},
 	})
 	idleCompactionRef.current = idleCompaction
+	// A line a hook gave for the person outside a turn (a `file_changed` or
+	// `cwd_changed` hook's `systemMessage`, a watch that failed, a variable not set).
+	useEffect(() => {
+		return session?.hookNotices?.subscribe((line) => pushSystem('notice', line))
+	}, [session, pushSystem])
 	// What the small model curated from a turn's learning, once the turn is over.
 	useEffect(() => {
 		return session?.memoryCuration?.subscribe((lines) => {
 			const row = memoryCuratedRow(lines)
 			if (row) pushSystem('notice', row)
 		})
+	}, [session, pushSystem])
+	// A skill whose hooks could not be loaded says so, once, where the person is looking.
+	useEffect(() => {
+		return session?.skillHooks?.subscribe((line) => pushSystem('notice', line))
+	}, [session, pushSystem])
+	// So does an agent whose hooks were set aside when its run started.
+	useEffect(() => {
+		return session?.agentHooks?.subscribe((line) => pushSystem('notice', line))
 	}, [session, pushSystem])
 	// A permission or a question waiting on the person: the notice countdown
 	// ends when none is left, and the turn's "Worked for" leaves the wait out.

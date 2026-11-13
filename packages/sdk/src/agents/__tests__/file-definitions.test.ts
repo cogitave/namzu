@@ -14,6 +14,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import {
+	AGENT_FILE_KEYS,
 	MAX_AGENT_FILE_CHARS,
 	discoverAgentDefinitions,
 	parseAgentMarkdown,
@@ -205,5 +206,65 @@ describe('discoverAgentDefinitions', () => {
 			definitions: [],
 			skipped: [],
 		})
+	})
+})
+
+describe('an agent file that carries hooks', () => {
+	const withHooks = [
+		'---',
+		'name: guarded',
+		'description: Runs commands under a guard.',
+		'hooks:',
+		'  PreToolUse:',
+		'    - matcher: Bash',
+		'      hooks:',
+		'        - type: command',
+		'          command: ./guard.sh',
+		'  Stop:',
+		'    - hooks:',
+		'        - type: command',
+		'          command: ./done.sh',
+		'readOnly: true',
+		'---',
+		'You run commands.',
+	].join('\n')
+
+	it('hands the text of the hooks block back, and reads every other key as before', () => {
+		const found = parseAgentMarkdown(withHooks, '/p/guarded.md', 'project')
+		if ('reason' in found) throw new Error(found.reason)
+		expect(found.hooksSource).toBe(
+			[
+				'hooks:',
+				'  PreToolUse:',
+				'    - matcher: Bash',
+				'      hooks:',
+				'        - type: command',
+				'          command: ./guard.sh',
+				'  Stop:',
+				'    - hooks:',
+				'        - type: command',
+				'          command: ./done.sh',
+			].join('\n'),
+		)
+		expect(found.readOnly).toBe(true)
+		expect(found.prompt).toBe('You run commands.')
+	})
+
+	it('keeps no hooks text for a file that has none, and the bare key for an empty one', () => {
+		const plain = parseAgentMarkdown(GOOD, '/p/reviewer.md', 'project')
+		if ('reason' in plain) throw new Error(plain.reason)
+		expect('hooksSource' in plain).toBe(false)
+		const empty = parseAgentMarkdown(
+			GOOD.replace('readOnly: true', 'hooks:\nreadOnly: true'),
+			'/p/reviewer.md',
+			'project',
+		)
+		if ('reason' in empty) throw new Error(empty.reason)
+		// The host reads a bare `hooks:` as declaring nothing.
+		expect(empty.hooksSource).toBe('hooks:')
+	})
+
+	it('names hooks among the keys an agent file reads', () => {
+		expect(AGENT_FILE_KEYS).toContain('hooks')
 	})
 })

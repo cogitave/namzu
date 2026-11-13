@@ -169,6 +169,22 @@ export const SETTINGS_ENTRIES: readonly SettingsEntry[] = [
 		],
 	},
 	{
+		id: 'runHooks',
+		section: 'tools',
+		label: 'Run hooks',
+		description:
+			'Switch off the commands your settings, plugins, skills and agent files start by themselves at set moments.',
+		keywords: ['hooks', 'disable', 'turn off', 'automatic', 'commands', 'disableHooks'],
+	},
+	{
+		id: 'hooks',
+		section: 'tools',
+		label: 'Hooks',
+		description:
+			'What runs by itself in the open project: each hook, when it runs, where it comes from and whether it is on.',
+		keywords: ['hooks', 'automatic', 'commands', 'plugin', 'skill', 'agent', 'pre_tool_use'],
+	},
+	{
 		id: 'projects',
 		section: 'projects',
 		label: 'Projects',

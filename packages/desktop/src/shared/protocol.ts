@@ -21,6 +21,7 @@ import type {
 	EngineUpdateResult,
 	EngineUpdatesState,
 } from './engine-update-protocol.js'
+import type { HooksReport } from './hooks-report.js'
 import type { OutcomeNotice } from './outcome-protocol.js'
 import type {
 	PalCommunicationView,
@@ -227,6 +228,8 @@ export interface ProjectView {
 		found: string[]
 		/** The commands, servers or names behind some of `found`, for the dialog's Details. */
 		details?: { label: string; lines: string[] }[]
+		/** The engine could not list the folder's hooks, so `found` may leave some out. */
+		incomplete?: true
 		token: string
 	}
 	/**
@@ -299,6 +302,14 @@ export interface McpServersView {
 	servers: McpServerView[]
 	/** Set when the project's settings could not be read. */
 	error?: string
+}
+/**
+ * What runs by itself, as the engine reads it. `own` is true when no folder is open and the answer
+ * is about the person's own (user-level) hooks.
+ */
+export interface HooksView {
+	report: HooksReport
+	own: boolean
 }
 /** A conversation whose replies or tool output contain the search text. */
 export interface ConversationSearchHit {
@@ -1041,6 +1052,11 @@ export interface DesktopApi {
 	projectGit?(projectId: string): Promise<ProjectGitView | null>
 	/** The project's tool servers and where each stands; null where the engine cannot say. */
 	mcpServers?(projectId: string): Promise<McpServersView | null>
+	/**
+	 * What runs by itself in the project's folder (or, with no project, in the person's own settings);
+	 * null where the engine cannot say.
+	 */
+	hooksView?(projectId?: string): Promise<HooksView | null>
 	/** Approves the project's waiting tool servers, as listed; returns the list afterwards. */
 	approveMcpServers?(
 		projectId: string,

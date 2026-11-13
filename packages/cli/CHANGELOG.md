@@ -1,5 +1,65 @@
 # @namzu/cli
 
+## 53.1.0
+
+### Minor Changes
+
+- 53e644a: A hooks block can now name `file_changed` (`FileChanged`) and `cwd_changed` (`CwdChanged`). `file_changed` watches the files its matcher names (`.envrc|package.json`) and any a hook hands back with `watchPaths`, firing once per burst of writes; nothing is watched when no hook asks. `cwd_changed` fires when a shell command leaves the next one in another folder. A hook on `session_start`, `cwd_changed` or `file_changed` is started with `NAMZU_ENV_FILE` and can append `export NAME=value` lines that become the environment of the shell commands that follow, sub-agents included (loader, shell start-up and `NAMZU_*` names are refused; `PATH` is allowed). `/hooks` lists the variable names set and the files watched; a hook's `systemMessage` is shown in the transcript or on stderr for `namzu exec`. Nothing changes for configs that use neither.
+
+  The new events work with hooks from every source. A `file_changed` hook a plugin ships or an inline skill carries is watched while it is attached; `NAMZU_DISABLE_HOOKS`, `disableHooks` and `hooksManagedOnly` stop these events' hooks from plugins, skills and agent files too. An entry on `file_changed`, `cwd_changed`, `worktree_create` or `worktree_remove` in an agent file is set aside with a note (the host fires them for the conversation, never inside a run), as are `worktree_create` and `worktree_remove` in a skill, and `file_changed` and `cwd_changed` in a forked skill. A command written for another tool that names an unset `$SOMETOOL_ENV_FILE` is given the variables file on `session_start`, `cwd_changed` and `file_changed`. `namzu worktree create` and `fork` honour the hook switches for hook entries a plugin ships.
+
+- f5be253: An agent file can carry its own hooks, for as long as one run of the agent lasts. Nothing is removed or renamed.
+
+  What you can now do:
+
+  - Put a `hooks` block, in either shape (ours or the common hook contract's), in an agent file's front matter (`~/.namzu/agents`, `.namzu/agents` or a plugin's agents). It is read by the reader the config files and skills use, so problems read the same. The hooks attach when a run of the agent starts, fire for that run's own tool calls and turns (not the delegating conversation's, a sibling's, or an agent it starts), and come off when it ends, however it ends. Two runs of one agent at once each have their own.
+  - Use `Stop` as "when this agent is about to finish": it fires where `SubagentStop` fires, with the agent's last message, once (the same command under both runs once), and can keep the agent working (`exit 2`, or a `block` decision with a reason).
+  - See them: `/hooks` lists the hooks a live run has attached, by agent name, and names agent files that carry hooks; `namzu doctor` (`runtime.hooks`), `namzu plugin validate` (`agent-hooks-problem`) and the terminal trust prompt name them. `disableHooks`, `NAMZU_DISABLE_HOOKS=1` and `hooksManagedOnly` stop them, and the agent then runs as if its file had no `hooks` key.
+
+  What to know: a guard that cannot be loaded is not an agent that runs unguarded. If an entry on an event that can refuse a call or a turn cannot be loaded (or the block is not YAML, has more than 32 entries, or has a `matcher` or `if` over 256 characters), the agent is not offered, and starting it is refused with a line that names the file and the entry. A project agent file that carries a guard is not offered while the folder is not trusted. A guard in one agent file does not follow the agent into the agents it starts. No command-line flag starts the main conversation as an agent definition, so nothing is attached for the main conversation.
+
+  What to do: an agent file of yours that already had a `hooks:` block written for another tool was ignored until now; it runs for each run of the agent, so read it first. The Desktop app's trust dialog does not list agent hooks yet.
+
+- f5be253: A skill can carry its own hooks: a skill written to check every command it runs, or to format every file it writes, keeps that check. Nothing is removed or renamed.
+
+  What you can now do:
+
+  - Put a `hooks` block, in either shape (ours or the common hook contract's), in a skill's `SKILL.md` front matter. It is read by the reader the config files use, so problems read the same. The hooks attach when the skill is used (the model loads it, or you run it with `/skills <name>`, `/<name>` or `--skills`), last for the rest of the conversation, and end with `/clear`, a resume, a fork or leaving. A skill that sets `context: fork` attaches them to its agent's run only. `once: true` removes an entry after its first run. The command gets `NAMZU_SKILL_ROOT` (the skill's folder), and `${NAMZU_SKILL_ROOT}` in `command` and `args` is replaced by it.
+  - See them: `/hooks` lists a skill's attached hooks with its name and says which skills carry hooks that attach when used; `namzu doctor` (`runtime.hooks`), `namzu skills --audit` and `namzu plugin validate` (`skill-hooks-problem`) name what in a skill's hooks cannot be loaded; the trust prompt lists the hooks the folder's skills carry.
+  - Switch them off: `disableHooks`, `NAMZU_DISABLE_HOOKS=1` and `hooksManagedOnly` stop them, and the skill then loads as if it had no `hooks` key (its `allowed-tools` pre-approval stays). No skills place is managed, so under `hooksManagedOnly` none run.
+
+  What to know: a guard that cannot be loaded is not a skill that runs unguarded. If an entry on an event that can refuse a call or a turn cannot be loaded, the skill still loads without its tools pre-approved, the entries that could be read are still attached, and the model and you are told why in one line. If the block is not YAML, has more than 32 entries, or has a `matcher` or `if` over 256 characters, none of its hooks attach. An entry on another event, or an event this kernel does not have, is dropped with a note. A skill in the project folder cannot attach hooks while the folder is not trusted.
+
+  What to do: a skill of yours that already had a `hooks:` block written for another tool was ignored until now; it runs when the skill is used, so read it first. The Desktop app's trust dialog does not list skill hooks yet.
+
+  Also: a hook event written at the top level of the front matter (`PreToolUse:` beside `name:`) is read as if it were under `hooks:`; a forked skill's hooks follow the agent that received the skill's prompt, not whichever agent started first; a skill's `session_start` entry is set aside with a note, since it can never fire; the hooks end with the conversation, so after a resume load the skill again.
+
+  Also: a skill moved as written that refers to its own folder through a variable ending in `_PLUGIN_ROOT` (or `_SKILL_ROOT`) finds it: an unset one is given the skill's folder under that name. `_PLUGIN_DATA` is not given to a skill (it has no data folder) and the failure line names it; `_PROJECT_DIR` is given the project folder for a skill's and an agent file's entries as for every entry.
+
+- efcfde6: A hooks block moved from another tool runs as written when its commands start with that tool's project-folder variable: `"$SOMETOOL_PROJECT_DIR/.hooks/check.sh"` now finds the folder, because any unset variable ending in `_PROJECT_DIR` that a hook command refers to is set to the project folder.
+
+  For a script that reads such a variable inside its own file, a hook entry takes `env`, a map of names to text (`"env": { "SOMETOOL_PROJECT_DIR": "${NAMZU_PROJECT_DIR}" }`), in both the flat shape and the common shape. `/hooks` and the folder trust prompt list the names it sets (never the values), and it is part of what makes two entries the same. A bad name or a value that is not text is refused in the flat shape and left off with a note in the common shape. When a hook cannot find its program and its command refers to a variable that is set nowhere, the failure line names the variable and the `env` key, and the `runtime.hooks` row of `namzu doctor` warns about such a command before it fails. Nothing existing changes; the doctor row can now show a warning for a hook that refers to an unset variable.
+
+- efcfde6: A plugin can ship hook entries, and a plugin written for the common hook contract moves as written. Put them in `hooks/hooks.json` in the plugin folder (read when it exists), in a `.json` path listed in the manifest's `hooks` (any other path in `hooks` is still a JavaScript module), or inline under the new manifest key `hookEntries`, as the events object itself or under a `hooks` key, in either shape. They are read by the same reader a config file's `hooks` key goes through, so problems are said the same way and one bad entry never stops the others; a path that leaves the plugin folder is refused. A command is started with `NAMZU_PLUGIN_ROOT` (the plugin's folder) and `NAMZU_PLUGIN_DATA` (a folder kept for the plugin under the Namzu home, created when first needed, never inside the plugin); a shell command expands them from its environment and an entry in the exec form has them put in its command and arguments. A variable of another tool that ends in `_PLUGIN_ROOT` or `_PLUGIN_DATA` is given the same folders under the name the command used, so a script it starts reads it by that name. The manifest's `hooks` may also be the text of one file or the events object written inline, as the common hook contract writes it. `namzu doctor` no longer warns about loop and `read` variables or names a shell keeps for itself.
+
+  The entries live while the plugin is on: enabling a plugin (`/plugins`, its saved state, `--plugin-dir`) attaches them and disabling it removes them at once. `/hooks` lists them apart from the plugin's JavaScript hooks with the plugin's name, event, command and matcher, `/plugins` shows how many a plugin ships, `namzu doctor` counts them and reports their problems, and `namzu plugin validate` checks every file and names each problem (`hook-entries-*`). `disableHooks` and `NAMZU_DISABLE_HOOKS` turn them off, and so does `hooksManagedOnly` (no plugin comes from the managed file); the plugin's JavaScript hooks are not touched by any switch. A project plugin is read only after the folder is trusted, and the terminal's trust prompt lists the entries a project's plugins would run, with the plugin's name, before the answer. The Desktop app's trust dialog does not read plugin folders yet.
+
+  A config-file hook that refers to a variable ending in `_PLUGIN_ROOT` or `_PLUGIN_DATA` still runs as it did (those names are given only to a plugin's own entries, so it sees them empty unless you set them with `env`); if it cannot find its program, the failure line and the `runtime.hooks` row of `namzu doctor` name the variable. Nothing has to be done to upgrade.
+
+- 53e644a: A hooks block can now name `worktree_create` (`WorktreeCreate`) and `worktree_remove` (`WorktreeRemove`). A `worktree_create` hook makes the worktree itself (another version-control tool, a prepared checkout, a plain copy) and prints its folder as the last line; Namzu uses it for a sub-agent's `workspace: "worktree"`, `namzu worktree create`, `namzu worktree fork` and `/worktree create`, including outside a Git checkout, and creates none itself. If the hook fails or prints no path, the creation fails with a line naming the hook and what it printed; it never falls back to Git. A `worktree_remove` hook does the removing. A worktree a hook made is not listed by `namzu worktree list`, is kept when a sub-agent changed it and, with no remove hook, is left in place with a line saying where. `/hooks` says that a matcher, `if` or `once` on these two events is ignored. Nothing changes for configs that use neither. The page on managed worktrees is corrected: a delegated child's checkout that ends with no changes is removed automatically; one made by `namzu worktree create` never is. `namzu worktree create` and `fork` in a folder nobody trusted refuse, with exit 64 and nothing created, when the folder's own config declares a `worktree_create` hook (it would not run there, and Git would make the worktree it was written to replace): trust the folder first by running `namzu` in it once. `namzu doctor` says when a `file_changed` hook names no file.
+
+  A `worktree_create` or `worktree_remove` hook shipped by a plugin takes over like one in a config file; one in a skill or an agent file is set aside with a note. A delegated child that works in a worktree a hook made still gets its agent file's hooks, and they end when it ends.
+
+### Patch Changes
+
+- Updated dependencies [53e644a]
+- Updated dependencies [f5be253]
+- Updated dependencies [f5be253]
+- Updated dependencies [efcfde6]
+- Updated dependencies [efcfde6]
+- Updated dependencies [53e644a]
+  - @namzu/sdk@64.1.0
+
 ## 53.0.1
 
 ### Patch Changes

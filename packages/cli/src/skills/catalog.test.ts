@@ -284,3 +284,55 @@ describe('the session skill catalog', () => {
 		})
 	})
 })
+
+describe('a file skill that carries hooks', () => {
+	const HOOKS = 'hooks:\n  PreToolUse:\n    - command: ./guard.sh\n'
+
+	it('is handed to the host that reads hooks, with its hooks block and its folder, by the skill tool', async () => {
+		skillAt(project(), 'guarded', 'a guarded skill', HOOKS)
+		const cat = await catalog()
+		const asked: unknown[] = []
+		const turn = await cat.forTurn({
+			toolNames: [],
+			contextWindowTokens: 200_000,
+			skillHooks: {
+				prepareHooks: (skill, options) => {
+					asked.push({ skill, options })
+					return {
+						withholdGrants: false,
+						notice: 'its hooks are on',
+						attach: () => ({ remove: () => undefined }),
+					}
+				},
+			},
+		})
+		const result = await SkillTool.execute(
+			{ name: 'guarded' } as never,
+			{ skills: turn.registry, maxToolOutputChars: 50_000 } as never,
+		)
+		expect(result.success).toBe(true)
+		expect(result.output).toContain('[its hooks are on]')
+		expect(asked).toEqual([
+			{
+				skill: {
+					name: 'guarded',
+					dirPath: join(project(), 'guarded'),
+					hooksSource: HOOKS.trimEnd(),
+				},
+				options: { forked: false },
+			},
+		])
+	})
+
+	it('loads without hooks and without a pre-approval when the session has nobody to read them', async () => {
+		skillAt(project(), 'guarded', 'a guarded skill', `allowed-tools: Bash\n${HOOKS}`)
+		const cat = await catalog()
+		const turn = await cat.forTurn({ toolNames: [], contextWindowTokens: 200_000 })
+		const result = await SkillTool.execute(
+			{ name: 'guarded' } as never,
+			{ skills: turn.registry, maxToolOutputChars: 50_000 } as never,
+		)
+		expect(result.success).toBe(true)
+		expect(result.output).toContain('cannot run a skill')
+	})
+})

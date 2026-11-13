@@ -56,6 +56,7 @@ import type {
 	PreparedToolExecution,
 	RequestToolPause,
 	ShellDialect,
+	SkillHooksRecordFact,
 	SkillRegistryRef,
 	ToolCallView,
 	ToolContext,
@@ -447,6 +448,11 @@ export interface ToolExecutorConfig {
 	onJobCollected?: (id: string) => void
 	/** The longest a monitor may live in this turn; see `QueryParams.monitorTimeoutCapMs`. */
 	monitorTimeoutCapMs?: number
+	/** See `QueryParams.onWorkingDirectoryChange`. */
+	onWorkingDirectoryChange?: (change: {
+		readonly from: string
+		readonly to: string
+	}) => Promise<void> | void
 	/**
 	 * Where a monitor the turn owns itself is recorded, so the turn stays open
 	 * for it. Passed only when the monitor's owner is the turn: a session-owned
@@ -551,6 +557,8 @@ export interface ToolExecutorConfig {
 	authorizationGate?: AuthorizationGate
 	/** Durable refusal sink paired with {@link authorizationGate}. */
 	recordAudit?: (input: AuditEventInput) => Promise<unknown>
+	/** Where a skill's hooks are kept in the conversation's record; see `ToolContext.recordSkillHooks`. */
+	recordSkillHooks?: (fact: SkillHooksRecordFact) => Promise<boolean>
 	/**
 	 * Where the `skill` tool's `allowed-tools` pre-approvals are recorded for
 	 * this turn. The review phase reads the same set. Absent: a loaded skill
@@ -2530,6 +2538,9 @@ export class ToolExecutor {
 			sessionId: this.config.sessionId,
 			turnId: this.config.turnId,
 			workingDirectory: this.config.workingDirectory,
+			...(this.config.onWorkingDirectoryChange
+				? { workingDirectoryChanged: this.config.onWorkingDirectoryChange }
+				: {}),
 			...(this.additionalDirectoriesNow()?.length
 				? { additionalDirectories: this.additionalDirectoriesNow() }
 				: {}),
@@ -2564,6 +2575,7 @@ export class ToolExecutor {
 			...(this.config.skillGrants
 				? { grantSkillTools: (grant) => this.grantSkillTools(grant) }
 				: {}),
+			...(this.config.recordSkillHooks ? { recordSkillHooks: this.config.recordSkillHooks } : {}),
 			maxToolOutputChars: this.config.maxToolOutputChars ?? DEFAULT_MAX_TOOL_OUTPUT_CHARS,
 			// The turn's screens, defaulted HERE rather than on the registry: a
 			// host builds the registry and hands it over, so a registry-side

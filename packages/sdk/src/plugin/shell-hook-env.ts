@@ -19,11 +19,12 @@ export const SHELL_HOOK_RESERVED_ENV: readonly string[] = [
 	'NAMZU_TURN_ID',
 	'NAMZU_TOOL_NAME',
 	'NAMZU_TOOL_PATH',
+	'NAMZU_ENV_FILE',
 	'NAMZU_STARTED_BY_SESSION',
 ]
 
 /** The folders a name's ending can stand for. */
-export type MovedFolder = 'project' | 'plugin' | 'pluginData'
+export type MovedFolder = 'project' | 'plugin' | 'pluginData' | 'skill' | 'envFile'
 
 /** Endings read by shape; the name looked for is the whole variable name. */
 export const MOVED_FOLDER_ENDINGS: readonly {
@@ -36,7 +37,31 @@ export const MOVED_FOLDER_ENDINGS: readonly {
 	// has no folder to stand for and is left unset (and reported).
 	{ ending: '_PLUGIN_ROOT', folder: 'plugin' },
 	{ ending: '_PLUGIN_DATA', folder: 'pluginData' },
+	// A skill's own folder, for a hook that came from a skill. A skill moved as
+	// written names its folder `..._PLUGIN_ROOT` (see `movedFolderFor`); it has
+	// no data folder, so `_PLUGIN_DATA` is never given to one.
+	{ ending: '_SKILL_ROOT', folder: 'skill' },
+	// The file a hook may append `export NAME=value` lines to, on the events
+	// that have one (`session_start`, `cwd_changed`, `file_changed`): the same
+	// file `NAMZU_ENV_FILE` names. On any other event there is no such file and
+	// the name is left unset (and reported).
+	{ ending: '_ENV_FILE', folder: 'envFile' },
 ]
+
+/**
+ * The folder a variable name stands for, or `undefined` when it has none here.
+ * A skill's folder answers `_SKILL_ROOT` and also `_PLUGIN_ROOT`, unless the
+ * entry belongs to a plugin (then `_PLUGIN_ROOT` is the plugin's folder).
+ */
+export function movedFolderFor(
+	name: string,
+	folders: Readonly<Partial<Record<MovedFolder, string>>>,
+): string | undefined {
+	const moved = MOVED_FOLDER_ENDINGS.find((each) => name.endsWith(each.ending))
+	if (moved === undefined) return undefined
+	if (moved.folder === 'plugin') return folders.plugin ?? folders.skill
+	return folders[moved.folder]
+}
 
 /** The folders a plugin-shipped entry is given. */
 export interface PluginFolders {
@@ -277,8 +302,7 @@ export function movedEnvironment(
 	const unset: string[] = []
 	for (const name of referencedVariables(texts)) {
 		if (env[name] !== undefined) continue
-		const moved = MOVED_FOLDER_ENDINGS.find((each) => name.endsWith(each.ending))
-		const folder = moved === undefined ? undefined : folders[moved.folder]
+		const folder = movedFolderFor(name, folders)
 		if (folder !== undefined) env[name] = folder
 		else if (!assignedWithin(texts, name) && !isShellOwnVariable(name)) unset.push(name)
 	}

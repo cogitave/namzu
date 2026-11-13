@@ -86,7 +86,7 @@ import {
 	openSessions,
 	resolveConversation,
 } from '../integrations/sessions/store.js'
-import { contextLogging, installCliLogging } from '../logging.js'
+import { cliLogger, contextLogging, installCliLogging } from '../logging.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { launchRefusal } from '../permissions/launch.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
@@ -95,6 +95,7 @@ import {
 	permissionLayersOf,
 	warnLegacyMcpPermissionNames,
 } from '../permissions/rules.js'
+import { useSkillHooksByName } from '../skills/use-hooks.js'
 import type { TerminationHandling } from '../termination.js'
 import type { AgentEvent } from '../tui/agent.js'
 import { hostCommandNames } from '../tui/slashCommands.js'
@@ -462,6 +463,8 @@ export async function execJson(
 		...(ctx.config.smallModel ? { smallModel: ctx.config.smallModel } : {}),
 		...(ctx.config.hooks ? { hooks: ctx.config.hooks } : {}),
 		...(hookSwitch(ctx.config) ? { hooksSwitch: hookSwitch(ctx.config) } : {}),
+		// Past the folder gate above: the folder is trusted, by the store or by `--trust`.
+		folderTrusted: true,
 		...(ctx.config.compaction ? { compaction: ctx.config.compaction } : {}),
 		...(ctx.config.memory ? { memory: ctx.config.memory } : {}),
 		...(Object.keys({ ...ctx.config.limits, ...limitsFromFlags }).length > 0
@@ -543,6 +546,17 @@ export async function execJson(
 	// What this run has to work with, once, before the turn: a host decides what
 	// to offer from it without waiting for the first tool call.
 	write(initEvent(session, modeResult.mode, cwd, conversationId))
+
+	// For the whole run: a skill the model loads can lose its hooks at any turn.
+	session.skillHooks?.subscribe((line) => cliLogger().warn(line))
+	// Likewise an agent file whose hooks were set aside when its run started.
+	session.agentHooks?.subscribe((line) => cliLogger().warn(line))
+	useSkillHooksByName(
+		session.skillHooks,
+		{ cwd, ...(ctx.config.skills ? { skills: ctx.config.skills } : {}) },
+		[...flags.skills, ...(expansion.kind === 'expanded' ? [expansion.name] : [])],
+		(line) => cliLogger().warn(line),
+	)
 
 	// --skills <a,b,c>: load the named skills' bodies and inject them as the
 	// turn's extra system context (the same channel the TUI's /skill uses).
