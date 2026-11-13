@@ -16,7 +16,7 @@ import { join, resolve } from 'node:path'
 import { parseAgentMarkdown } from '@namzu/sdk'
 
 import { hooksOfElement } from '../../config/hook-common-shape.js'
-import { readSkillHooks } from '../../config/skill-hooks-reader.js'
+import { readSkillHooks, withoutSessionStart } from '../../config/skill-hooks-reader.js'
 import { discoverSkills } from '../../skills/store.js'
 import { fingerprintMcpServer } from '../mcp/project-approval.js'
 import { PROJECT_MCP_FILE, parseMcpServerFile } from '../mcp/shared-file.js'
@@ -136,7 +136,7 @@ function describeSkillHooks(cwd: string): HookGrant[] {
 	const out: HookGrant[] = []
 	for (const skill of discoverSkills({ cwd })) {
 		if (skill.source !== 'project' || skill.hooksSource === undefined) continue
-		const read = readSkillHooks(skill.hooksSource, `skill ${skill.name}`)
+		const read = withoutSessionStart(readSkillHooks(skill.hooksSource, `skill ${skill.name}`))
 		const config: Record<string, unknown> = { hooks: read.hooks }
 		for (const grant of describeHooks(config)) {
 			out.push({ ...grant, event: `${grant.event} (skill ${skill.name})` })
@@ -144,7 +144,7 @@ function describeSkillHooks(cwd: string): HookGrant[] {
 		if (read.guardLost) {
 			out.push({
 				event: `skill ${skill.name}`,
-				runs: 'hooks that cannot be loaded; it will not run them or pre-approve its tools',
+				runs: 'hooks that cannot be loaded; its tools are not pre-approved',
 			})
 		}
 	}

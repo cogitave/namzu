@@ -311,7 +311,9 @@ key is skipped whole, whatever YAML it uses, so a skill written for another
 agent (`argument-hint: [file]`, `paths`) loads here with those fields ignored.
 `hooks` is a list of mappings in a mapping, which the front matter reader holds
 as text: it is never refused for its shape, and the hooks it names attach while
-the skill is in use ([Hooks in a skill](../sdk/hooks.md#hooks-in-a-skill)). The read keys are still parsed strictly: a
+the skill is in use ([Hooks in a skill](../sdk/hooks.md#hooks-in-a-skill)); a hook
+event written at the top level (`PreToolUse:` beside `name:`) is read as if it
+were under `hooks:`. The read keys are still parsed strictly: a
 list or block scalar in one of them refuses the file
 (`packages/sdk/src/skills/loader.ts` `SKILL_FRONTMATTER_KEYS`,
 `packages/sdk/src/utils/frontmatter.ts` `readsKey`).
@@ -341,7 +343,8 @@ path. A skill's `hooks` attach when the skill is used (the model loads it, or
 you run it with `/skills <name>`, `/<name>` or `--skills`), last for the rest of
 the conversation (a skill that sets `context: fork` attaches them to its agent's
 run only), and are listed by `/hooks`. A guard on a guarding event that cannot
-be loaded costs the skill its hooks and its `allowed-tools` pre-approval, and
+be loaded costs the skill its `allowed-tools` pre-approval (the hooks that could
+be read still attach; a block with none readable attaches none), and
 you and the model are told; `namzu skills --audit` names such a problem before
 the skill is used.
 

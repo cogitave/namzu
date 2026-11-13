@@ -227,3 +227,29 @@ export function readSkillHooks(
 		problems,
 	}
 }
+
+/**
+ * A skill is used in the middle of a conversation, and a forked one runs in a
+ * session that has already started: `session_start` has already fired and
+ * never fires again for it. An entry on it is set aside with a note, so what
+ * is listed as attached is what can run.
+ */
+export function withoutSessionStart(read: SkillHooksRead): SkillHooksRead {
+	const dropped = (read.hooks as Record<string, unknown[] | undefined>).session_start
+	if (!dropped || dropped.length === 0) return read
+	const { session_start: _gone, ...rest } = read.hooks as Record<string, unknown[]>
+	return {
+		...read,
+		hooks: rest as unknown as HooksConfig,
+		count: read.count - dropped.length,
+		problems: [
+			...read.problems,
+			{
+				event: 'session_start',
+				severity: 'note',
+				message:
+					'cannot run for a skill, which is used after the conversation has started, so it is set aside.',
+			},
+		],
+	}
+}

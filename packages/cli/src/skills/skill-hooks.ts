@@ -35,7 +35,11 @@ import {
 } from '@namzu/sdk'
 
 import type { HooksSwitch } from '../config/hook-layers.js'
-import { type SkillHookProblem, readSkillHooks } from '../config/skill-hooks-reader.js'
+import {
+	type SkillHookProblem,
+	readSkillHooks,
+	withoutSessionStart,
+} from '../config/skill-hooks-reader.js'
 
 /** What a skill's hook commands see of the skill: its own folder. One place, so a rule beside it can add to it. */
 export function skillHookEnv(skillRoot: string): Record<string, string> {
@@ -160,8 +164,11 @@ export function createSkillHooksHost(options: SkillHooksHostOptions): SkillHooks
 		if (options.isProjectSkill(name) && !options.projectTrusted()) {
 			return refuse('it is in a folder that is not trusted.')
 		}
-		const read = readSkillHooks(skill.hooksSource, `skill ${name}`)
-		if (read.guardLost) {
+		const read = withoutSessionStart(readSkillHooks(skill.hooksSource, `skill ${name}`))
+		// Nothing of the block could be told from a guard (not YAML, too large,
+		// or every entry unreadable): the skill is refused. One unreadable entry
+		// among readable ones costs only that entry, and the pre-approval.
+		if (read.guardLost && read.count === 0) {
 			return refuse(firstSentence(read.problems, 'problem'))
 		}
 		if (read.count === 0 && read.problems.length === 0) {
@@ -176,17 +183,32 @@ export function createSkillHooksHost(options: SkillHooksHostOptions): SkillHooks
 		const digest = digestOf(skill.hooksSource)
 		const events = SHELL_HOOK_EVENTS.filter((event) => (read.hooks[event]?.length ?? 0) > 0)
 		const setAside = firstSentence(read.problems, 'note')
+		const unreadable = read.guardLost ? firstSentence(read.problems, 'problem') : ''
 		if (setAside) tell(cut(`Skill ${name}: ${setAside}`))
-		const notice = cut(
-			read.count === 0
-				? `Skill ${name}: no hook of its could be loaded. ${setAside}`
-				: how.forked
-					? `Skill ${name}: its hooks (${events.join(', ')}) apply to the delegated agent's run only.${setAside ? ` Set aside: ${setAside}` : ''}`
-					: `Skill ${name}: its hooks (${events.join(', ')}) are attached for the rest of this conversation.${setAside ? ` Set aside: ${setAside}` : ''}`,
-		)
+		// What could not be read is said first and never softened: the hooks that
+		// could be read are attached, and the skill's tools are not pre-approved.
+		const partial = unreadable
+			? ` Not loaded: ${unreadable} Its allowed-tools are not pre-approved.`
+			: ''
+		if (unreadable) tell(cut(`Skill ${name}:${partial}`))
+		// The `pre_tool_use` hooks of a whole message are asked before any call of
+		// it runs, so a call written beside the skill was checked before the
+		// skill's guard existed. Said last and never cut: the model can act on it.
+		const sameMessage =
+			!how.forked && (events.includes('pre_tool_use') || events.includes('permission_request'))
+				? ' Calls written in the same message as this skill were checked before these hooks attached; make the calls they should guard in a later message.'
+				: ''
+		const notice =
+			cut(
+				read.count === 0
+					? `Skill ${name}: no hook of its could be loaded. ${setAside}`
+					: how.forked
+						? `Skill ${name}: its hooks (${events.join(', ')}) apply to the delegated agent's run only.${setAside ? ` Set aside: ${setAside}` : ''}${partial}`
+						: `Skill ${name}: its hooks (${events.join(', ')}) are attached for the rest of this conversation, until it is cleared or resumed.${setAside ? ` Set aside: ${setAside}` : ''}${partial}`,
+			) + (read.count === 0 ? '' : sameMessage)
 		return {
 			notice,
-			withholdGrants: false,
+			withholdGrants: read.guardLost,
 			attach: () => {
 				if (read.count === 0) return inert
 				if (!how.forked) {
@@ -199,7 +221,7 @@ export function createSkillHooksHost(options: SkillHooksHostOptions): SkillHooks
 						live.delete(found)
 					}
 				}
-				const scoped = how.forked ? childScope(how.sessionId) : undefined
+				const scoped = how.forked ? childScope(how.sessionId, how.prompt) : undefined
 				const rows: Live['rows'] = []
 				const defs: PluginHookDefinition[] = []
 				const own: { entry?: Live } = {}
@@ -304,19 +326,36 @@ export function createSkillHooksHost(options: SkillHooksHostOptions): SkillHooks
 
 /**
  * Which sessions a forked skill's hooks cover: the delegated agent the skill
- * starts, and the agents it starts in turn. The first agent that starts under
- * the session that used the skill is bound when it starts, and the hooks end
- * when it stops. Until it starts they cover no session at all.
+ * starts, and the agents it starts in turn.
+ *
+ * Several agents may start under the session at the same moment (the model
+ * wrote the skill and an `Agent` call in one message), so "the first agent to
+ * start" is not the skill's. The skill's own agent is the one that is given the
+ * prompt the skill delegated: every agent that starts under the session is
+ * covered while it starts, and each one that is then given another prompt is
+ * let go. Until one starts the hooks cover no session at all. When the host
+ * does not say what the prompt is, the first agent to start is bound, as
+ * before. The hooks end when the skill's agent stops.
  */
-function childScope(parent: string | undefined): {
+function childScope(
+	parent: string | undefined,
+	prompt?: string,
+): {
 	covers(context: PluginHookContext): boolean
 	definitions(end: () => void): PluginHookDefinition[]
 } {
 	const bound = new Set<string>()
+	/** Started under the calling session, not yet given a prompt. */
+	const candidates = new Set<string>()
 	let primary: string | undefined
-	return {
-		covers: (context) => bound.has(String(context.sessionId)),
-		definitions: (end) => [
+	const wanted = prompt?.trim()
+	const isTheSkillsPrompt = (given: string | undefined): boolean => {
+		const text = (given ?? '').trim()
+		if (wanted === undefined || wanted === '') return true
+		return text !== '' && (text.includes(wanted) || wanted.includes(text))
+	}
+	const definitions = (end: () => void): PluginHookDefinition[] => {
+		const out: PluginHookDefinition[] = [
 			{
 				event: 'subagent_start',
 				// First, so the agent is covered for its own start events.
@@ -326,7 +365,11 @@ function childScope(parent: string | undefined): {
 					const above =
 						context.parentSessionId !== undefined ? String(context.parentSessionId) : undefined
 					if (primary === undefined && (parent === undefined || above === parent)) {
-						primary = self
+						if (wanted === undefined) {
+							primary = self
+						} else {
+							candidates.add(self)
+						}
 						bound.add(self)
 					} else if (above !== undefined && bound.has(above)) {
 						bound.add(self)
@@ -337,14 +380,42 @@ function childScope(parent: string | undefined): {
 			{
 				event: 'subagent_stop',
 				handler: async (context: PluginHookContext): Promise<PluginHookResult> => {
+					const self = String(context.sessionId)
 					// After this event's own hooks have been started; the coverage stays
 					// for them.
-					if (primary !== undefined && String(context.sessionId) === primary) {
+					if (primary !== undefined && self === primary) {
 						queueMicrotask(end)
+					} else if (candidates.delete(self)) {
+						queueMicrotask(() => bound.delete(self))
 					}
 					return { action: 'continue' }
 				},
 			} as PluginHookDefinition,
-		],
+		]
+		if (wanted !== undefined) {
+			out.push({
+				event: 'user_prompt_submit',
+				priority: 0,
+				handler: async (context: PluginHookContext): Promise<PluginHookResult> => {
+					const self = String(context.sessionId)
+					if (!candidates.has(self)) return { action: 'continue' }
+					candidates.delete(self)
+					if (primary === undefined && isTheSkillsPrompt(context.prompt)) {
+						primary = self
+						// The others that started meanwhile are not the skill's agent.
+						for (const other of candidates) bound.delete(other)
+						candidates.clear()
+					} else {
+						bound.delete(self)
+					}
+					return { action: 'continue' }
+				},
+			} as PluginHookDefinition)
+		}
+		return out
+	}
+	return {
+		covers: (context) => bound.has(String(context.sessionId)),
+		definitions,
 	}
 }

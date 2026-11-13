@@ -2,7 +2,7 @@
 '@namzu/sdk': minor
 ---
 
-A skill can carry hooks, and a host can take hooks off again. Nothing is removed or renamed.
+A skill can carry hooks, and a host can take hooks off again. No exported name, key, field or default is removed or renamed. One behaviour changes for a skill that carries a `hooks:` block: a host that does not implement the new optional `SkillRegistryRef.prepareHooks` no longer applies that skill's `allowed-tools` pre-approval (it loads, with a line telling the model why); a skill without a `hooks:` block is read exactly as before.
 
 What you can now do:
 
@@ -11,4 +11,6 @@ What you can now do:
 - Attach hooks that can leave: `PluginLifecycleManager.attachHooks(pluginId, hooks)` returns a `HookAttachment` whose `remove` takes off exactly the hooks that call attached and `removeAt` one of them. Before, hooks left only by plugin id.
 - Give every command of a `ShellHookOptions` adapter extra variables (`extraEnv`, which never replaces the kernel's own) and hear when a hook was selected to run (`onRun`).
 
-What to do: if a skill of yours already has a `hooks:` block written for another tool, it was ignored until now. A host that runs skill hooks (the CLI does) will run it when the skill is used, so read it first. A host that does not implement `prepareHooks` is not affected, except that such a skill's `allowed-tools` pre-approval is no longer applied.
+What to do: if a skill of yours already has a `hooks:` block written for another tool, it was ignored until now. A host that runs skill hooks (the CLI does) will run it when the skill is used, so read it first. To keep the pre-approval on your own host, implement `prepareHooks` and return `withholdGrants: false`.
+
+Also added: a hook event written at the top level of the front matter (`PreToolUse:` beside `name:`) is read as if it were under `hooks:` (`skillHooksSource`, `SKILL_FRONTMATTER_HOOK_EVENT_KEYS`; `SKILL_FRONTMATTER_RAW_KEYS` is unchanged); `SkillHooksOptions.prompt` carries a forked skill's delegated prompt so a host can bind the skill's hooks to the agent that received it; and the `skill` tool is an `executionBarrier`, so in one message the calls written before it finish first and the calls after it wait for it (their `pre_tool_use` hooks were still asked before the batch started, so a skill's `pre_tool_use` guard does not see a call written in the same message).

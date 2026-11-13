@@ -25,10 +25,12 @@ import { homedir } from 'node:os'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
+	SKILL_FRONTMATTER_HOOK_EVENT_KEYS,
 	SKILL_FRONTMATTER_KEYS,
 	SKILL_FRONTMATTER_RAW_KEYS,
 	SKILL_FRONTMATTER_TOLERATED_KEYS,
 	parseFrontmatter,
+	skillHooksSource,
 } from '@namzu/sdk'
 import type { SkillsConfig } from '../config/schema.js'
 import { namzuHomePath } from '../integrations/state/home.js'
@@ -243,10 +245,9 @@ export function parseSkillMarkdown(raw: string, source = 'SKILL.md'): ParsedSkil
 		lists: ['allowed-tools', 'argument-hint'],
 		readsKey: READS_SKILL_KEY,
 		tolerates: (key) => SKILL_FRONTMATTER_TOLERATED_KEYS.includes(key),
-		raw: SKILL_FRONTMATTER_RAW_KEYS,
+		raw: [...SKILL_FRONTMATTER_RAW_KEYS, ...SKILL_FRONTMATTER_HOOK_EVENT_KEYS],
 	})
-	const hooksSource =
-		Object.hasOwn(rawBlocks, 'hooks') && rawBlocks.hooks.trim() !== '' ? rawBlocks.hooks : undefined
+	const hooksSource = skillHooksSource(rawBlocks)
 
 	// A non-scalar `name` or `description` is dropped rather than rendered:
 	// there is no sensible string for a block of indented pairs, and the

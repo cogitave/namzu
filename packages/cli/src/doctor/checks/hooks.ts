@@ -5,7 +5,7 @@ import { resolve } from 'node:path'
 import { hookSwitch, hooksBySource } from '../../config/hook-layers.js'
 import { LOCAL_CONFIG_FILE, hookConfigProblems, shortHomePath } from '../../config/load.js'
 import type { NamzuCliConfig } from '../../config/schema.js'
-import { readSkillHooks } from '../../config/skill-hooks-reader.js'
+import { readSkillHooks, withoutSessionStart } from '../../config/skill-hooks-reader.js'
 import { type AgentHooksCarrier, readAgentHooks } from '../../integrations/subagents/agent-hooks.js'
 import { discoverAgentDefinitions } from '../../integrations/subagents/definitions.js'
 import { isTrusted } from '../../integrations/trust/store.js'
@@ -93,7 +93,9 @@ export function describeHooksStatus(
 				: `${carrying.length} ${carrying.length === 1 ? 'skill carries' : 'skills carry'} hooks that do not attach, because a switch is on.`,
 		)
 		for (const skill of carrying) {
-			const read = readSkillHooks(skill.hooksSource as string, `skill ${skill.name}`)
+			const read = withoutSessionStart(
+				readSkillHooks(skill.hooksSource as string, `skill ${skill.name}`),
+			)
 			for (const problem of read.problems) {
 				if (problem.severity === 'problem') skillWarn = true
 				lines.push(
@@ -102,7 +104,9 @@ export function describeHooksStatus(
 			}
 			if (read.guardLost) {
 				lines.push(
-					`Skill ${skill.name} loads without its hooks and without its allowed-tools pre-approval.`,
+					read.count === 0
+						? `Skill ${skill.name} loads without its hooks and without its allowed-tools pre-approval.`
+						: `Skill ${skill.name} attaches the hooks that could be read and loads without its allowed-tools pre-approval.`,
 				)
 			}
 		}

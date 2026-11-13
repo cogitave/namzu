@@ -88,6 +88,7 @@ describe('an inline skill’s hooks', () => {
 		expect(answer).toMatchObject({ action: 'skip' })
 		expect(plan.withholdGrants).toBe(false)
 		expect(plan.notice).toContain('attached for the rest of this conversation')
+		expect(plan.notice).toContain('same message')
 	})
 
 	it('are listed with the skill’s name for /hooks', () => {
@@ -209,14 +210,28 @@ describe('a skill whose guard cannot be loaded', () => {
 		expect(lines).toEqual([plan.notice])
 	})
 
-	it('does not attach the entries that could be read, beside the one that could not', () => {
-		const { mgr, h } = host()
+	it('attaches the entries that could be read, beside the one that could not, and withholds the pre-approval', () => {
+		const { mgr, h, lines } = host()
 		const plan = h.prepareHooks(skill(`${BROKEN}\n    - hooks:\n        - command: "exit 0"`), {
 			forked: false,
 		})
 		plan.attach()
 		expect(plan.withholdGrants).toBe(true)
-		expect(mgr.listHooks()).toEqual([])
+		expect(mgr.listHooks()).toHaveLength(1)
+		expect(plan.notice).toContain('Not loaded:')
+		expect(plan.notice).toContain('allowed-tools are not pre-approved')
+		expect(lines.join('\n')).toContain('Not loaded:')
+	})
+
+	it('keeps a readable guard when an entry on another guarding event cannot be read', async () => {
+		const { mgr, h } = host()
+		const plan = h.prepareHooks(
+			skill(`${GUARD}\n  PostToolUse:\n    - hooks:\n        - type: nope`),
+			{ forked: false },
+		)
+		plan.attach()
+		expect(plan.withholdGrants).toBe(true)
+		expect((await preTool(mgr)).filter((r) => r.action === 'skip')).toHaveLength(1)
 	})
 
 	it('keeps the pre-approval when only a quiet event’s entry was set aside, and says what was set aside', () => {
@@ -247,6 +262,22 @@ describe('a skill whose guard cannot be loaded', () => {
 		const plan = h.prepareHooks(skill(GUARD), { forked: false })
 		expect(plan.withholdGrants).toBe(true)
 		expect(plan.notice).toContain('no hook runtime')
+	})
+})
+
+describe('a skill’s session_start entry', () => {
+	it('is set aside with a note and is not listed as attached: it cannot fire for a skill used mid-conversation', () => {
+		const { mgr, h, lines } = host()
+		const plan = h.prepareHooks(
+			skill(`${GUARD}\n  SessionStart:\n    - hooks:\n        - command: "exit 0"`),
+			{ forked: false },
+		)
+		plan.attach()
+		expect(mgr.listHooks()).toHaveLength(1)
+		expect(h.attached().map((hook) => hook.event)).toEqual(['pre_tool_use'])
+		expect(plan.withholdGrants).toBe(false)
+		expect(plan.notice).toContain('session_start')
+		expect(lines.join('\n')).toContain('session_start')
 	})
 })
 
@@ -307,6 +338,36 @@ describe('a forked skill’s hooks', () => {
 		expect((await preTool(mgr, CHILD)).filter((r) => r.action === 'skip')).toHaveLength(1)
 		// The caller's own calls, and another agent's, are not covered.
 		expect((await preTool(mgr, PARENT)).filter((r) => r.action === 'skip')).toEqual([])
+		expect((await preTool(mgr, OTHER)).filter((r) => r.action === 'skip')).toEqual([])
+	})
+
+	it('cover the agent the skill delegated to, not another that started first', async () => {
+		const { mgr, h } = host()
+		h.prepareHooks(skill(GUARD), {
+			forked: true,
+			sessionId: PARENT,
+			prompt: 'Run the skill steps.',
+		}).attach()
+		// Two agents start under the same session; the other one is not the skill's.
+		await start(mgr, OTHER)
+		await start(mgr, CHILD)
+		await mgr.executeHooks('user_prompt_submit', { sessionId: OTHER, prompt: 'Another task' })
+		await mgr.executeHooks('user_prompt_submit', {
+			sessionId: CHILD,
+			prompt: 'Run the skill steps.',
+		})
+		expect((await preTool(mgr, CHILD)).filter((r) => r.action === 'skip')).toHaveLength(1)
+		expect((await preTool(mgr, OTHER)).filter((r) => r.action === 'skip')).toEqual([])
+	})
+
+	it('cover the skill’s agent when it started first and another one started after', async () => {
+		const { mgr, h } = host()
+		h.prepareHooks(skill(GUARD), { forked: true, sessionId: PARENT, prompt: 'The steps' }).attach()
+		await start(mgr, CHILD)
+		await start(mgr, OTHER)
+		await mgr.executeHooks('user_prompt_submit', { sessionId: CHILD, prompt: 'The steps' })
+		await mgr.executeHooks('user_prompt_submit', { sessionId: OTHER, prompt: 'Something else' })
+		expect((await preTool(mgr, CHILD)).filter((r) => r.action === 'skip')).toHaveLength(1)
 		expect((await preTool(mgr, OTHER)).filter((r) => r.action === 'skip')).toEqual([])
 	})
 

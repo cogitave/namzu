@@ -175,7 +175,7 @@ describe('what a folder’s own skills run', () => {
 		expect(readFolderGrants(root).hooks).toEqual([
 			{
 				event: 'skill pguard',
-				runs: 'hooks that cannot be loaded; it will not run them or pre-approve its tools',
+				runs: 'hooks that cannot be loaded; its tools are not pre-approved',
 			},
 		])
 	})
