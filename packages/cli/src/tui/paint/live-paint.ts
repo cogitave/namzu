@@ -146,6 +146,87 @@ export function paintChange(shown: readonly string[], next: readonly string[]): 
 }
 
 /**
+ * Whether a frame that is shorter than the one on screen only lost rows above its bottom: the rows
+ * above its last one are the old frame's rows at the same distance from the end. The working line,
+ * the live end of a reply, the plan and the calls above the input box leave this way when a turn
+ * ends (the last row, the status line, is not compared: it says other things between turns); a
+ * menu closing under the box does not.
+ */
+export function lostRowsAbove(shown: readonly string[], next: readonly string[]): boolean {
+	if (next.length < 2 || next.length >= shown.length) return false
+	const check = Math.min(next.length - 1, 3)
+	for (let back = 1; back <= check; back++)
+		if (next[next.length - 1 - back] !== shown[shown.length - 1 - back]) return false
+	return true
+}
+
+/**
+ * A region that kept its height while it lost rows above its bottom: the screen holds `height`
+ * rows however many rows Ink draws, and the blank rows that make up the difference lie just above
+ * the last `suffix` rows (the input box and the status line), so the box keeps its place.
+ */
+export interface Pin {
+	readonly height: number
+	/** The rows Ink last drew, without the blank rows. */
+	readonly ink: readonly string[]
+	readonly suffix: number
+}
+
+/** `rows` with the blank rows of `pin` put above its last `suffix` rows. */
+export function pinnedRows(rows: readonly string[], pin: Pin | null): readonly string[] {
+	if (pin === null) return rows
+	const blank = pin.height - rows.length
+	if (blank <= 0) return rows
+	const at = Math.max(0, rows.length - pin.suffix)
+	return [...rows.slice(0, at), ...new Array<string>(blank).fill(''), ...rows.slice(at)]
+}
+
+/** The turn has just ended and the region has not shrunk since: its next shrink may start a pin. */
+let turnJustEnded = false
+
+/**
+ * The turn ended: the working line, the plan and the calls are about to leave the live region.
+ * With `NAMZU_BOX_AT_BOTTOM=1` in the environment, the next time the region gets shorter by rows
+ * above its bottom it keeps its height, so the input box stays where it was while the turn ran.
+ * Without it (the default) the box rests where the shorter region ends, right under the last
+ * reply. Called from the render that shows the idle state, so it is known before the frame that
+ * shrinks is painted.
+ */
+export function noteTurnEnded(): void {
+	turnJustEnded = process.env.NAMZU_BOX_AT_BOTTOM === '1'
+}
+
+/** A turn began: nothing is waiting to be pinned. */
+export function noteTurnStarted(): void {
+	turnJustEnded = false
+}
+
+/**
+ * What the pin is after a frame. A region that loses rows above its bottom right after a turn
+ * ended (`start`) starts one, at the height it had; while it lasts, frames of the same height change the rows in place and a frame
+ * that is taller or shorter with the same last rows keeps the height; any other frame (a menu
+ * opening, a taller region than the pinned height) lets it go, and so does a resize or a clear.
+ */
+export function nextPin(
+	pin: Pin | null,
+	shown: readonly string[],
+	rows: readonly string[],
+	screenRows: number,
+	start: boolean,
+): Pin | null {
+	if (screenRows <= 0) return null
+	if (pin !== null) {
+		if (rows.length === pin.ink.length) return { ...pin, ink: rows }
+		if (rows.length < pin.height && (lostRowsAbove(pin.ink, rows) || lostRowsAbove(rows, pin.ink)))
+			return { height: pin.height, ink: rows, suffix: Math.min(rows.length, pin.suffix) }
+		return null
+	}
+	if (start && shown.length < screenRows - 1 && lostRowsAbove(shown, rows))
+		return { height: shown.length, ink: rows, suffix: Math.min(rows.length, 4) }
+	return null
+}
+
+/**
  * One line written over what is there: its text, then the rest of the physical row cleared, so
  * the old line shows until this one is on it and no row is ever blank in between. A line that
  * fills its last row to the edge needs no clearing (and the cursor waits at the edge, where a
@@ -305,6 +386,8 @@ export function createLivePaint(
 	let resizing = false
 	let reflow: { rows: number } | null = null
 	let fresh = false
+	/** Set while the region keeps its height after losing rows above its bottom, so the input box stays put. */
+	let pin: Pin | null = null
 	/** Ink cleared the terminal and wrote everything again: the next frame's erase count says how tall its last frame was. */
 	let adopt = false
 	let disposed = false
@@ -330,6 +413,12 @@ export function createLivePaint(
 			return
 		}
 		const statics = job?.statics ?? ''
+		const screenRows = target.rows ?? 0
+		const settled = reflow === null && !fresh
+		pin = settled ? nextPin(pin, shown, rows, screenRows, turnJustEnded) : null
+		// The hint is for the first change of height after the turn.
+		if (settled && rows.length !== shown.length) turnJustEnded = false
+		const drawn = pinnedRows(rows, pin)
 		let data: string
 		if (reflow !== null || fresh || statics !== '') {
 			const up = reflow !== null ? reflow.rows : fresh ? 0 : shown.length
@@ -341,18 +430,18 @@ export function createLivePaint(
 				paintWhole(
 					up,
 					statics,
-					rows,
+					drawn,
 					columns,
-					target.rows ?? 0,
+					screenRows,
 					reflow === null,
 					reflow !== null
-						? (all) => linesAlreadyScrolled(oldRows, all, regionRows, target.rows ?? 0, columns)
+						? (all) => linesAlreadyScrolled(oldRows, all, regionRows, screenRows, columns)
 						: null,
 				)
-		} else data = paintChange(shown, rows)
+		} else data = paintChange(shown, drawn)
 		reflow = null
 		fresh = false
-		shown = rows
+		shown = [...drawn]
 		if (data === '') return
 		lastPaint = timers.now()
 		const hide = hideAsked && !hidden
@@ -382,6 +471,7 @@ export function createLivePaint(
 	const verbatim = (parts: readonly string[]): void => {
 		flush()
 		shown = []
+		pin = null
 		lastFrame = null
 		out(BSU + parts.join('') + ESU)
 	}
@@ -535,6 +625,7 @@ export function createLivePaint(
 			}
 			if (SCREEN_CHANGE.test(chunk)) {
 				shown = []
+				pin = null
 				reflow = null
 			}
 		}
@@ -574,6 +665,7 @@ export function createLivePaint(
 	const onContinue = (): void => {
 		if (disposed || bypass()) return
 		shown = []
+		pin = null
 		fresh = true
 		reflow = null
 		hidden = false

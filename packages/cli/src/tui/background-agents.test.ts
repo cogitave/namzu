@@ -120,6 +120,13 @@ describe('the receipt of a batch the turn waited on', () => {
 		expect(launchReceipt(running).content).toContain('Launched 2 agents')
 		const ended = running.map((entry) => ({ ...entry, status: 'completed' as const }))
 		expect(launchReceipt(ended).content.split('\n')[0]).toBe('2 agents finished')
+		const mixed = [
+			{ ...(ended[0] as SubagentActivity) },
+			{ ...(ended[1] as SubagentActivity), status: 'failed' as const },
+		]
+		expect(launchReceipt(mixed).content.split('\n')[0]).toBe('2 agents: 1 finished, 1 failed')
+		const stopped = mixed.map((entry) => ({ ...entry, status: 'cancelled' as const }))
+		expect(launchReceipt(stopped).content.split('\n')[0]).toBe('2 agents: 2 stopped')
 	})
 
 	it('keeps the manage hint for an all-background batch only', () => {

@@ -50,6 +50,7 @@ let rejectReplacement: (reason?: unknown) => void = () => {}
 let turnWait: Promise<void> | null = null
 let releaseTurn: () => void = () => {}
 let reportContextUsage = false
+let replyRows = 0
 let reportAutomaticCompaction = false
 let automaticFailureWait: Promise<void> = Promise.resolve()
 let releaseAutomaticFailure: () => void = () => {}
@@ -200,7 +201,13 @@ vi.mock('../agent.js', async (importOriginal) => {
 					} as AgentEvent
 					return
 				}
-				yield { kind: 'delta', text: `answer-${sent.length}` } as AgentEvent
+				yield {
+					kind: 'delta',
+					text:
+						replyRows > 0
+							? Array.from({ length: replyRows }, (_, i) => `- reply row ${i + 1}`).join('\n')
+							: `answer-${sent.length}`,
+				} as AgentEvent
 				if (reportContextUsage) {
 					yield {
 						kind: 'usage',
@@ -242,6 +249,7 @@ beforeEach(() => {
 	turnWait = null
 	releaseTurn = () => {}
 	reportContextUsage = false
+	replyRows = 0
 	reportAutomaticCompaction = false
 	automaticFailureWait = Promise.resolve()
 	releaseAutomaticFailure = () => {}
@@ -636,4 +644,37 @@ describe('what a command that replaces the conversation does to the terminal', (
 		expectEarlierLinesIntact(screen)
 		expect(visibleScreen(screen)).not.toContain('question one')
 	})
+
+	it.each(['/clear', '\x0c'])(
+		'%j keeps every row the live region still held: in the scrollback once, in order, and the screen below is clean',
+		async (clear) => {
+			replyRows = 8
+			const screen = await mountPainted()
+			await submitToScreen(screen, 'question one')
+			await waitForScreen(screen, () => fullScreen(screen).includes('reply row 8'))
+			const rowsOf = () => screen.scrollback().filter((row) => /reply row \d+/.test(row))
+			expect(rowsOf()).toHaveLength(8)
+
+			if (clear === '/clear') await submitToScreen(screen, clear)
+			else {
+				screen.press(clear)
+				await screen.waitForRender()
+			}
+			await waitForScreen(screen, () => !visibleScreen(screen).includes('reply row'))
+			await screen.waitForRender()
+
+			const rows = screen.scrollback()
+			for (let n = 1; n <= 8; n++) {
+				expect(count(rows, `reply row ${n}`), `reply row ${n} survives once`).toBe(1)
+			}
+			expect(rows.findIndex((row) => row.includes('reply row 1'))).toBeLessThan(
+				rows.findIndex((row) => row.includes('reply row 8')),
+			)
+			expect(count(rows, 'question one')).toBe(1)
+			// What was on the screen below the rows is not left behind as rows of its own.
+			expect(visibleScreen(screen)).not.toContain('reply row')
+			expect(screen.writes().join('')).not.toContain(`${ESC}[3J`)
+			expectEarlierLinesIntact(screen)
+		},
+	)
 })

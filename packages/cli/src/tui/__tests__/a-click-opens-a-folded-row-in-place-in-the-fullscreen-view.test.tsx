@@ -11,6 +11,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { FullscreenTranscript } from '../fullscreen/FullscreenTranscript.js'
 import type { FullscreenControl } from '../fullscreen/FullscreenTranscript.js'
 import type { PointerReport, WheelDirection } from '../fullscreen/mouse-wheel.js'
+import { setReducedMotion } from '../motion.js'
 import { EMPTY_GROUP, foldOp, groupText } from '../read-search-group.js'
 import { EXPAND_HINT } from '../truncation.js'
 import type { TranscriptMessage } from '../types.js'
@@ -24,10 +25,13 @@ const TEXT_LEFT = 4
 let mounted: Screen | null = null
 let clock = 0
 beforeEach(() => {
+	// A notch moves the view in one frame, so no glide is left running under a click.
+	setReducedMotion(true)
 	clock = 10_000
 	vi.spyOn(Date, 'now').mockImplementation(() => clock)
 })
 afterEach(async () => {
+	setReducedMotion(false)
 	vi.restoreAllMocks()
 	await mounted?.unmount()
 	mounted = null

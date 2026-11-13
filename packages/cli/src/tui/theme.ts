@@ -24,6 +24,7 @@ export const theme: SemanticColors = {
 	accent: { ...initial.accent },
 	status: { ...initial.status },
 	border: { ...initial.border },
+	code: { ...initial.code },
 	live: { ...initial.live },
 	context: { ...initial.context },
 	glow: [...initial.glow],
@@ -42,6 +43,7 @@ export function applyPalette(name: ThemeName): void {
 	target.accent = { ...palette.accent }
 	target.status = { ...palette.status }
 	target.border = { ...palette.border }
+	target.code = { ...palette.code }
 	target.live = { ...palette.live }
 	target.context = { ...palette.context }
 	target.glow = [...palette.glow]
@@ -149,4 +151,38 @@ export function tintEscape(tint: string): string {
 	if (rgb) return `\x1b[48;2;${rgb[1]};${rgb[2]};${rgb[3]}m`
 	const grey = /^ansi256\((\d+)\)$/u.exec(tint)
 	return grey ? `\x1b[48;5;${grey[1]}m` : ''
+}
+
+const NAMED_FOREGROUND: Readonly<Record<string, number>> = {
+	black: 30,
+	red: 31,
+	green: 32,
+	yellow: 33,
+	blue: 34,
+	magenta: 35,
+	cyan: 36,
+	white: 37,
+	blackBright: 90,
+	gray: 90,
+	grey: 90,
+	redBright: 91,
+	greenBright: 92,
+	yellowBright: 93,
+	blueBright: 94,
+	magentaBright: 95,
+	cyanBright: 96,
+	whiteBright: 97,
+}
+
+/**
+ * The escape that sets a theme colour (`ansi256(n)`, `rgb(r,g,b)` or a named colour) as the
+ * foreground; '' for any other. For output that is written to the terminal as it is, outside Ink.
+ */
+export function foregroundEscape(color: string): string {
+	const rgb = /^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/u.exec(color)
+	if (rgb) return `\x1b[38;2;${rgb[1]};${rgb[2]};${rgb[3]}m`
+	const index = /^ansi256\((\d+)\)$/u.exec(color)
+	if (index) return `\x1b[38;5;${index[1]}m`
+	const named = NAMED_FOREGROUND[color]
+	return named !== undefined ? `\x1b[${named}m` : ''
 }

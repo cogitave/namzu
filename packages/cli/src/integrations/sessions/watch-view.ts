@@ -15,9 +15,11 @@
 
 import { projectConversation } from '../../tui/App.js'
 import { glyphForRole } from '../../tui/Transcript.js'
+import { colourLines, languagesIn, whenGrammarsSettle } from '../../tui/code-highlight.js'
+import { closesFence, openingFence, stripFenceIndent } from '../../tui/markdown-fence.js'
 import { trailFromRecords } from '../../tui/restored-rows.js'
 import { terminalDisplayText } from '../../tui/terminal-display.js'
-import { rowTints, tintEscape } from '../../tui/theme.js'
+import { foregroundEscape, rowTints, theme, tintEscape } from '../../tui/theme.js'
 import type { TranscriptMessage } from '../../tui/types.js'
 import type { SessionFollower, WatchSnapshot, WatchState, WatchStatus } from './session-watch.js'
 
@@ -41,12 +43,50 @@ export function rowsOf(snapshot: WatchSnapshot, cwd: string): readonly Transcrip
 	})
 }
 
+/**
+ * The lines of `body` with the code in its fenced blocks in syntax colour: the same lines, each
+ * code line written as runs between colour escapes. Nothing is added or taken out, and a block
+ * whose language is not ready (or not known) is left as it is.
+ */
+export function colourFencedLines(lines: readonly string[]): string[] {
+	const out = [...lines]
+	for (let i = 0; i < lines.length; i++) {
+		const opener = openingFence(lines[i] as string)
+		if (!opener) continue
+		let end = i + 1
+		while (end < lines.length && !closesFence(lines[end] as string, opener)) end++
+		const code = lines.slice(i + 1, end).map((line) => stripFenceIndent(line, opener.indent))
+		const coloured = colourLines(opener.lang, code)
+		coloured?.lines.forEach((runs, n) => {
+			const original = lines[i + 1 + n] as string
+			const indent = original.slice(0, original.length - (code[n] as string).length)
+			out[i + 1 + n] =
+				indent +
+				runs
+					.map((run) => {
+						// Ordinary text keeps the terminal's own colour: watch never reads the theme setting.
+						const on = run.kind ? foregroundEscape(theme.code[run.kind]) : ''
+						return on === '' ? run.text : `${on}${run.text}\x1b[39m`
+					})
+					.join('')
+		})
+		i = end
+	}
+	return out
+}
+
 /** A row as plain text lines: gutter glyph, then the text hanging under it. */
-export function rowLines(row: TranscriptMessage): string[] {
+export function rowLines(
+	row: TranscriptMessage,
+	options: { readonly colour?: boolean } = {},
+): string[] {
 	const glyph = terminalDisplayText(row.glyph ?? glyphForRole(row.role))
 	const body = terminalDisplayText(row.content).replace(/\n+$/, '')
 	const meta = row.meta ? `  ${terminalDisplayText(row.meta)}` : ''
-	const lines = body.split('\n')
+	const lines =
+		options.colour && row.role === 'assistant'
+			? colourFencedLines(body.split('\n'))
+			: body.split('\n')
 	const indent = glyph === '⎿' ? '  ' : ''
 	return lines.map((line, index) =>
 		index === 0 ? `${indent}${glyph} ${line}${meta}` : `${indent}  ${line}`,
@@ -61,7 +101,7 @@ export function rowLines(row: TranscriptMessage): string[] {
  */
 export function transcriptLines(
 	rows: readonly TranscriptMessage[],
-	options: { readonly holdOpenTail: boolean },
+	options: { readonly holdOpenTail: boolean; readonly colour?: boolean },
 ): string[] {
 	return layoutLines(rows, options).lines
 }
@@ -69,7 +109,7 @@ export function transcriptLines(
 /** The printed lines, and which of them belong to the person's own message. */
 function layoutLines(
 	rows: readonly TranscriptMessage[],
-	options: { readonly holdOpenTail: boolean },
+	options: { readonly holdOpenTail: boolean; readonly colour?: boolean },
 ): { lines: string[]; mine: boolean[] } {
 	// A call still in flight is held back with everything after it, so a later
 	// call that settled first does not print ahead of it and reorder the rows.
@@ -90,7 +130,7 @@ function layoutLines(
 			mine.push(false)
 		}
 		const own = row.role === 'user' && (row.glyph ?? glyphForRole(row.role)) === '›'
-		for (const line of rowLines(row)) {
+		for (const line of rowLines(row, options.colour ? { colour: true } : {})) {
 			lines.push(line)
 			mine.push(own)
 		}
@@ -156,7 +196,10 @@ export class WatchPrinter {
 
 	update(snapshot: WatchSnapshot, rows: readonly TranscriptMessage[]): void {
 		const open = snapshot.status.state === 'running' || snapshot.status.state === 'waiting'
-		const { lines, mine } = layoutLines(rows, { holdOpenTail: open })
+		const { lines, mine } = layoutLines(rows, {
+			holdOpenTail: open,
+			...(this.#o.plain ? {} : { colour: true }),
+		})
 		const tints = this.#o.plain ? null : rowTints()
 		const out: string[] = []
 		const prefixHolds = this.#printed.every((line, index) => lines[index] === line)
@@ -279,6 +322,10 @@ export async function follow(options: FollowOptions): Promise<FollowEnd> {
 		// The projection costs a pass over the conversation; it is redone only
 		// when records arrived, while the status is read every time.
 		if (rows === undefined || snapshot.changed) rows = rowsOf(snapshot, options.cwd)
+		// What is about to be printed is written once and never redrawn: read the grammars of its
+		// code blocks first (a bounded wait, and none where nothing is coloured), so that it is
+		// coloured on its first paint.
+		await whenGrammarsSettle(languagesIn(rows.map((row) => row.content).join('\n')))
 		options.printer.update(snapshot, rows)
 		if (options.exitOnEnd && isEnded(snapshot.status.state)) {
 			return { reason: 'ended', status: snapshot.status }

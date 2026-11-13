@@ -149,10 +149,31 @@ it('shows New activity when output arrives while scrolled up, and End returns', 
 	await screen.waitForRender()
 	screen.rerender(view(lines(31), onClose))
 	await screen.waitForRender()
-	expect(hintRow(screen)).toContain('New activity · ↓ Back to bottom · esc')
+	expect(hintRow(screen)).toContain('1 new reply · ↓ Back to bottom · esc')
 	screen.press(END)
 	await screen.waitForRender()
 	expect(onClose).toHaveBeenCalledTimes(1)
+})
+
+it('counts the replies that came, not the tool calls between them, from the same helper', async () => {
+	const onClose = vi.fn()
+	const screen = await renderToScreen(view(lines(30), onClose), { cols: 60, rows: 12 })
+	mounted = screen
+	await screen.waitForRender()
+	const more: TranscriptMessage[] = [
+		...lines(30),
+		{ id: 't1', role: 'tool', content: 'ran a check' },
+		{ id: 'r1', role: 'assistant', content: 'first new' },
+		{ id: 't2', role: 'tool', content: 'ran another' },
+		{ id: 'r2', role: 'assistant', content: 'second new' },
+	]
+	screen.rerender(view(more, onClose))
+	await screen.waitForRender()
+	expect(hintRow(screen)).toContain('2 new replies · ↓ Back to bottom · esc')
+	// Narrow, it shortens by the same ladder as the fullscreen hint.
+	screen.rerender(view(more, onClose, 14))
+	await screen.waitForRender()
+	expect(hintRow(screen)).toContain('2 new ↓')
 })
 
 it('returns to the latest on Esc', async () => {

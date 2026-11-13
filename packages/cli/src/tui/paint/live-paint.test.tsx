@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events'
 import { Terminal } from '@xterm/headless'
 import { Box, Static, Text, render } from 'ink'
 import type { ReactElement } from 'react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
 	FRAME_MS,
@@ -11,6 +11,9 @@ import {
 	RESIZE_SETTLE_MS,
 	createLivePaint,
 	linesAlreadyScrolled,
+	lostRowsAbove,
+	noteTurnEnded,
+	noteTurnStarted,
 	reflowedRows,
 	startOnFreshLine,
 } from './live-paint.js'
@@ -197,6 +200,262 @@ describe('a frame writes only what changed', () => {
 		inkFrame(out, 'live two\nlive three\n', 3, 'printed\n')
 		clock.advance(FRAME_MS)
 		expect(await tty.screen()).toEqual(['printed', 'live two', 'live three'])
+	})
+})
+
+describe('with NAMZU_BOX_AT_BOTTOM=1 the input box stays on the last rows when rows above it leave', () => {
+	const working = 'working\n\n'
+	const box = '----------\ncomposer\n----------\nstatus\n'
+	const printed = (n: number) => Array.from({ length: n }, (_, i) => `line ${i + 1}\n`).join('')
+
+	beforeEach(() => {
+		vi.stubEnv('NAMZU_BOX_AT_BOTTOM', '1')
+		noteTurnStarted()
+	})
+	afterEach(() => {
+		vi.unstubAllEnvs()
+		noteTurnStarted()
+	})
+
+	/** The screen's own rows, top to bottom, as the terminal holds them now. */
+	async function viewport(tty: Tty): Promise<string[]> {
+		await tty.drain()
+		const buffer = tty.term.buffer.active
+		return Array.from(
+			{ length: tty.rows },
+			(_, i) => buffer.getLine(buffer.baseY + i)?.translateToString(true) ?? '',
+		)
+	}
+
+	it('a region that lost its top rows keeps its height: the blank rows lie above the box, the cursor stays under it', async () => {
+		const { tty, clock, out } = rig(40, 12)
+		inkFrame(out, working + box, 0, printed(10))
+		clock.advance(FRAME_MS)
+		noteTurnEnded()
+		inkFrame(out, box, 6)
+		clock.advance(FRAME_MS)
+		const rows = await viewport(tty)
+		expect(rows.slice(-7)).toEqual(['', '', '----------', 'composer', '----------', 'status', ''])
+		expect(rows.at(-8)).toBe('line 10')
+	})
+
+	it('frames of the same height change rows in place and write nothing for the blank rows', async () => {
+		const { tty, clock, out } = rig(40, 12)
+		inkFrame(out, working + box, 0, printed(10))
+		clock.advance(FRAME_MS)
+		noteTurnEnded()
+		inkFrame(out, box, 6)
+		clock.advance(FRAME_MS)
+		const before = tty.sent.length
+		inkFrame(out, box.replace('composer', 'composer x'), 4)
+		clock.advance(FRAME_MS)
+		const written = tty.sent.slice(before)
+		expect(written).toContain(' x')
+		expect(written).not.toContain(`${ESC}[J`)
+		expect(written.length).toBeLessThan(60)
+		expect((await viewport(tty)).slice(-5, -1)).toEqual([
+			'----------',
+			'composer x',
+			'----------',
+			'status',
+		])
+	})
+
+	it('a region that grows back by the rows it lost fills them: nothing moves and nothing is scrolled', async () => {
+		const { tty, clock, out } = rig(40, 12)
+		inkFrame(out, working + box, 0, printed(10))
+		clock.advance(FRAME_MS)
+		const first = await viewport(tty)
+		noteTurnEnded()
+		inkFrame(out, box, 6)
+		clock.advance(FRAME_MS)
+		inkFrame(out, working + box, 4)
+		clock.advance(FRAME_MS)
+		expect(await viewport(tty)).toEqual(first)
+	})
+
+	it('rows printed while it is pinned go above it, and the box keeps its row', async () => {
+		const { tty, clock, out } = rig(40, 12)
+		inkFrame(out, working + box, 0, printed(10))
+		clock.advance(FRAME_MS)
+		noteTurnEnded()
+		inkFrame(out, box, 6)
+		clock.advance(FRAME_MS)
+		inkFrame(out, box, 4, 'reply 1\nreply 2\n')
+		clock.advance(FRAME_MS)
+		expect((await viewport(tty)).slice(-9)).toEqual([
+			'reply 1',
+			'reply 2',
+			'',
+			'',
+			'----------',
+			'composer',
+			'----------',
+			'status',
+			'',
+		])
+		expect((await tty.screen()).filter((r) => r === '').length).toBe(2)
+	})
+
+	it('the live end of a reply that leaves with the working line does not stop the box from keeping its row', async () => {
+		const { tty, clock, out } = rig(40, 12)
+		inkFrame(out, `reply tail\n\nworking\n\n${box}`, 0, printed(10))
+		clock.advance(FRAME_MS)
+		noteTurnEnded()
+		inkFrame(out, `reply last\n\n${box}`, 8)
+		clock.advance(FRAME_MS)
+		expect((await viewport(tty)).slice(-9)).toEqual([
+			'reply last',
+			'',
+			'',
+			'',
+			'----------',
+			'composer',
+			'----------',
+			'status',
+			'',
+		])
+	})
+
+	it('rows printed in the same paint that the region loses its top rows leave the box where it was', async () => {
+		const { tty, clock, out } = rig(40, 12)
+		inkFrame(out, `reply a\n\nworking\n\n${box}`, 0, printed(10))
+		clock.advance(FRAME_MS)
+		noteTurnEnded()
+		inkFrame(out, box, 8, 'reply b\n')
+		clock.advance(FRAME_MS)
+		expect((await viewport(tty)).slice(-10)).toEqual([
+			'reply b',
+			'',
+			'',
+			'',
+			'',
+			'----------',
+			'composer',
+			'----------',
+			'status',
+			'',
+		])
+		inkFrame(out, `working\n${box}`, 4)
+		clock.advance(FRAME_MS)
+		expect((await viewport(tty)).slice(-10)).toEqual([
+			'reply b',
+			'working',
+			'',
+			'',
+			'',
+			'----------',
+			'composer',
+			'----------',
+			'status',
+			'',
+		])
+	})
+
+	it('without a turn that just ended, a region that gets shorter is drawn as it is: a streaming reply leaves no blank rows inside', async () => {
+		const { tty, clock, out } = rig(40, 12)
+		inkFrame(out, working + box, 0, printed(10))
+		clock.advance(FRAME_MS)
+		inkFrame(out, box, 6)
+		clock.advance(FRAME_MS)
+		const rows = await viewport(tty)
+		expect(rows.at(-4)).toBe('status')
+	})
+
+	it('the hint is for the first change of height only', async () => {
+		const { tty, clock, out } = rig(40, 12)
+		inkFrame(out, working + box, 0, printed(10))
+		clock.advance(FRAME_MS)
+		noteTurnEnded()
+		inkFrame(out, `${working}more\n${box}`, 6)
+		clock.advance(FRAME_MS)
+		inkFrame(out, box, 7)
+		clock.advance(FRAME_MS)
+		const rows = await viewport(tty)
+		expect(rows.at(-5)).toBe('status')
+	})
+
+	it('without NAMZU_BOX_AT_BOTTOM=1, the default, the box rests where the shorter region ends', async () => {
+		const { tty, clock, out } = rig(40, 12)
+		inkFrame(out, working + box, 0, printed(10))
+		clock.advance(FRAME_MS)
+		vi.unstubAllEnvs()
+		noteTurnEnded()
+		inkFrame(out, box, 6)
+		clock.advance(FRAME_MS)
+		expect((await viewport(tty)).at(-4)).toBe('status')
+	})
+
+	it('a shrink that is not from above the box (a menu under it closing) is left where it is', async () => {
+		const { tty, clock, out } = rig(40, 12)
+		inkFrame(out, `${box}menu a\nmenu b\n`, 0, printed(10))
+		clock.advance(FRAME_MS)
+		noteTurnEnded()
+		inkFrame(out, box, 6)
+		clock.advance(FRAME_MS)
+		expect((await viewport(tty)).at(-4)).toBe('status')
+	})
+
+	it('a frame of another height, or one that is not the box under other rows, lets the height go', async () => {
+		const { tty, clock, out } = rig(40, 12)
+		inkFrame(out, working + box, 0, printed(10))
+		clock.advance(FRAME_MS)
+		noteTurnEnded()
+		inkFrame(out, box, 6)
+		clock.advance(FRAME_MS)
+		inkFrame(out, `${box}menu a\nmenu b\n`, 4)
+		clock.advance(FRAME_MS)
+		expect((await tty.screen()).slice(-6)).toEqual([
+			'----------',
+			'composer',
+			'----------',
+			'status',
+			'menu a',
+			'menu b',
+		])
+	})
+
+	it("only a frame whose rows above the last are the old frame's rows at the same distance from the end counts", () => {
+		expect(lostRowsAbove(['a', 'b', 'c', 'd'], ['c'])).toBe(false)
+		expect(lostRowsAbove(['a', 'b', 'c', 'd'], ['c', 'd'])).toBe(true)
+		// The last row is not compared: the status line says other things between turns.
+		expect(lostRowsAbove(['a', 'b', 'c', 'd', 'e'], ['c', 'd', 'x'])).toBe(true)
+		expect(lostRowsAbove(['a', 'b', 'c', 'd'], ['b', 'x'])).toBe(false)
+		expect(lostRowsAbove(['a', 'b'], ['a', 'b'])).toBe(false)
+		expect(lostRowsAbove(['a', 'b'], ['a', 'b', 'c'])).toBe(false)
+	})
+
+	it('on a screen that is not full yet the rows it left are blank rows above the box, and the box does not move', async () => {
+		const { tty, clock, out } = rig(40, 30)
+		inkFrame(out, working + box, 0, printed(3))
+		clock.advance(FRAME_MS)
+		noteTurnEnded()
+		inkFrame(out, box, 6)
+		clock.advance(FRAME_MS)
+		expect(await tty.screen()).toEqual([
+			'line 1',
+			'line 2',
+			'line 3',
+			'',
+			'',
+			'----------',
+			'composer',
+			'----------',
+			'status',
+		])
+		inkFrame(out, `reply\n${box}`, 4)
+		clock.advance(FRAME_MS)
+		expect(await tty.screen()).toEqual([
+			'line 1',
+			'line 2',
+			'line 3',
+			'reply',
+			'',
+			'----------',
+			'composer',
+			'----------',
+			'status',
+		])
 	})
 })
 

@@ -108,6 +108,7 @@ export async function* finalizeTurn(
 					...lastAssistantMessageField(ctx.recorder.messages),
 					parentSessionId: params.parentSessionId,
 					...(params.parentTurnId !== undefined ? { parentTurnId: params.parentTurnId } : {}),
+					agentType: params.agentType ?? params.agentName,
 					signal: ctx.abortController.signal,
 				},
 				eventTranslator.emitEvent,

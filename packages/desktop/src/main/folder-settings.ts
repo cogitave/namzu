@@ -60,15 +60,31 @@ function scalar(value: unknown): string {
 	return value && typeof value === 'object' ? '(more settings, not shown)' : String(value)
 }
 
+/** The hooks inside a list element: a group of the common shape holds them in `hooks`; a flat entry is itself. */
+function hooksOf(element: unknown): unknown[] {
+	const inner =
+		element && typeof element === 'object' ? (element as { hooks?: unknown }).hooks : undefined
+	return Array.isArray(inner) ? inner : [element]
+}
+
 function hookLines(value: unknown): string[] {
 	const lines: string[] = []
 	for (const [event, list] of entries(value))
-		for (const [, hook] of entries(Array.isArray(list) ? list : [list])) {
-			const command =
-				hook && typeof hook === 'object' ? (hook as { command?: unknown }).command : hook
-			lines.push(
-				`${event.replace(/_/g, ' ')}: ${typeof command === 'string' ? command : scalar(hook)}`,
-			)
+		for (const hook of (Array.isArray(list) ? list : [list]).flatMap(hooksOf)) {
+			const spec = (hook && typeof hook === 'object' ? hook : {}) as {
+				command?: unknown
+				url?: unknown
+				prompt?: unknown
+			}
+			const what =
+				typeof spec.command === 'string'
+					? spec.command
+					: typeof spec.url === 'string'
+						? `POST ${spec.url}`
+						: typeof spec.prompt === 'string'
+							? `asks the model: ${spec.prompt}`
+							: scalar(hook)
+			lines.push(`${event.replace(/_/g, ' ')}: ${what}`)
 		}
 	return capped(lines)
 }

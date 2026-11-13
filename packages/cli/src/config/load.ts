@@ -73,6 +73,15 @@ import {
 	mergeComposerTriggers,
 } from './composer-triggers.js'
 import { configMetadataLiteral } from './debug.js'
+import {
+	hookEventForKey,
+	isHookGroup,
+	isMeantAsGroup,
+	looksLikeWrittenEvent,
+	readHookGroup,
+	unknownEventMessage,
+	unreadableElement,
+} from './hook-common-shape.js'
 import { type HookLayer, assembleHooks } from './hook-layers.js'
 import {
 	MAX_LEARNING_TOKENS,
@@ -879,6 +888,7 @@ const HOOK_COMMON_KEYS: readonly string[] = [
 	'once',
 	'statusMessage',
 	'onFailure',
+	'toolNames',
 ]
 
 const HOOK_KIND_KEYS = {
@@ -1339,8 +1349,8 @@ const CONFIG_READERS: ConfigReaders = {
 	hooks: (v, context) => {
 		if (!isConfigMapping(v))
 			return invalidConfigValue(context, [], 'must be a mapping of event → list')
-		const events = new Set<string>(SHELL_HOOK_EVENTS)
 		const out: Record<string, HookEntry[]> = {}
+		const file = hookSourceLabel(context.source)
 		for (const [event, entries] of Object.entries(v)) {
 			const renamed = Object.hasOwn(RENAMED_PLUGIN_HOOK_EVENTS, event)
 				? RENAMED_PLUGIN_HOOK_EVENTS[event]
@@ -1348,7 +1358,16 @@ const CONFIG_READERS: ConfigReaders = {
 			if (renamed !== undefined) {
 				return invalidConfigValue(context, [event], `was renamed; name it \`${renamed}\``)
 			}
-			if (!events.has(event)) {
+			// Either spelling of an event: `pre_tool_use` or `PreToolUse`. Both may be
+			// in one file; their entries join.
+			const target = hookEventForKey(event)
+			if (target === undefined) {
+				// A name written the way the common contract writes events, for an
+				// event this kernel does not have: said out loud, the other hooks load.
+				if (looksLikeWrittenEvent(event) && Array.isArray(entries)) {
+					recordHookProblem(file, event, 'problem', `${unknownEventMessage()}.`)
+					continue
+				}
 				return invalidConfigValue(
 					context,
 					[event],
@@ -1357,9 +1376,25 @@ const CONFIG_READERS: ConfigReaders = {
 			}
 			if (!Array.isArray(entries))
 				return invalidConfigValue(context, [event], 'must be a list of hooks')
+			const writtenKey = event !== target
 			const parsed: HookEntry[] = []
 			for (const [index, entry] of entries.entries()) {
+				if (isHookGroup(entry) || (writtenKey && isMeantAsGroup(entry))) {
+					parsed.push(
+						...readHookGroup(target, entry as Record<string, unknown>, index, (severity, message) =>
+							recordHookProblem(file, event, severity, message),
+						),
+					)
+					continue
+				}
 				if (!isConfigMapping(entry)) {
+					// Under a PascalCase event (the common shape) one element that is not a
+					// mapping is said out loud and the rest of the file loads.
+					if (writtenKey) {
+						const lost = unreadableElement(target, index)
+						recordHookProblem(file, event, lost.severity, lost.message)
+						continue
+					}
 					return invalidConfigValue(context, [event, index], 'must be a mapping with a `command`')
 				}
 				const raw = entry as Record<string, unknown>
@@ -1439,6 +1474,17 @@ const CONFIG_READERS: ConfigReaders = {
 						'must be "continue" or "block"',
 					)
 				}
+				if (
+					raw.toolNames !== undefined &&
+					raw.toolNames !== 'namzu' &&
+					raw.toolNames !== 'written'
+				) {
+					return invalidConfigValue(
+						context,
+						[event, index, 'toolNames'],
+						'must be "namzu" or "written"',
+					)
+				}
 				if (raw.async !== undefined && typeof raw.async !== 'boolean') {
 					return invalidConfigValue(context, [event, index, 'async'], 'must be true or false')
 				}
@@ -1497,6 +1543,9 @@ const CONFIG_READERS: ConfigReaders = {
 					...(raw.onFailure !== undefined
 						? { onFailure: raw.onFailure as 'continue' | 'block' }
 						: {}),
+					...(raw.toolNames !== undefined
+						? { toolNames: raw.toolNames as 'namzu' | 'written' }
+						: {}),
 				}
 				if (kind === 'http') {
 					parsed.push({
@@ -1521,7 +1570,7 @@ const CONFIG_READERS: ConfigReaders = {
 					})
 				}
 			}
-			out[event] = parsed
+			out[target] = [...(out[target] ?? []), ...parsed]
 		}
 		return out as HooksConfig
 	},
@@ -2214,9 +2263,13 @@ const CONFIG_READERS: ConfigReaders = {
 			theme?: unknown
 			reducedMotion?: unknown
 			showExpandedTodos?: unknown
+			agentCalls?: unknown
 			fullscreen?: unknown
+			wheelRows?: unknown
+			wheelAccel?: unknown
 			recap?: unknown
 			spinnerTips?: unknown
+			syntaxHighlight?: unknown
 			workspacesPrefix?: unknown
 			spacesPrefix?: unknown
 			mouse?: unknown
@@ -2227,6 +2280,8 @@ const CONFIG_READERS: ConfigReaders = {
 			return invalidConfigValue(context, ['sound'], 'must be true or false')
 		if (raw.spinnerTips !== undefined && typeof raw.spinnerTips !== 'boolean')
 			return invalidConfigValue(context, ['spinnerTips'], 'must be a boolean')
+		if (raw.syntaxHighlight !== undefined && typeof raw.syntaxHighlight !== 'boolean')
+			return invalidConfigValue(context, ['syntaxHighlight'], 'must be true or false')
 
 		let notifications: boolean | readonly TerminalNotificationEvent[] | undefined
 		if (typeof raw.notifications === 'boolean') notifications = raw.notifications
@@ -2276,8 +2331,23 @@ const CONFIG_READERS: ConfigReaders = {
 		if (raw.showExpandedTodos !== undefined && typeof raw.showExpandedTodos !== 'boolean') {
 			return invalidConfigValue(context, ['showExpandedTodos'], 'must be true or false')
 		}
+		if (raw.agentCalls !== undefined && typeof raw.agentCalls !== 'boolean') {
+			return invalidConfigValue(context, ['agentCalls'], 'must be true or false')
+		}
 		if (raw.fullscreen !== undefined && typeof raw.fullscreen !== 'boolean') {
 			return invalidConfigValue(context, ['fullscreen'], 'must be true or false')
+		}
+		if (raw.wheelAccel !== undefined && typeof raw.wheelAccel !== 'boolean') {
+			return invalidConfigValue(context, ['wheelAccel'], 'must be true or false')
+		}
+		if (
+			raw.wheelRows !== undefined &&
+			(typeof raw.wheelRows !== 'number' ||
+				!Number.isInteger(raw.wheelRows) ||
+				raw.wheelRows < 1 ||
+				raw.wheelRows > 20)
+		) {
+			return invalidConfigValue(context, ['wheelRows'], 'must be a whole number from 1 to 20')
 		}
 		if (raw.recap !== undefined && typeof raw.recap !== 'boolean') {
 			return invalidConfigValue(context, ['recap'], 'must be true or false')
@@ -2314,9 +2384,13 @@ const CONFIG_READERS: ConfigReaders = {
 			...(themeSetting !== undefined ? { theme: themeSetting } : {}),
 			...(raw.reducedMotion !== undefined ? { reducedMotion: raw.reducedMotion } : {}),
 			...(raw.showExpandedTodos !== undefined ? { showExpandedTodos: raw.showExpandedTodos } : {}),
+			...(raw.agentCalls !== undefined ? { agentCalls: raw.agentCalls } : {}),
 			...(raw.fullscreen !== undefined ? { fullscreen: raw.fullscreen } : {}),
+			...(raw.wheelRows !== undefined ? { wheelRows: raw.wheelRows as number } : {}),
+			...(raw.wheelAccel !== undefined ? { wheelAccel: raw.wheelAccel } : {}),
 			...(raw.recap !== undefined ? { recap: raw.recap } : {}),
 			...(raw.spinnerTips !== undefined ? { spinnerTips: raw.spinnerTips } : {}),
+			...(raw.syntaxHighlight !== undefined ? { syntaxHighlight: raw.syntaxHighlight } : {}),
 			...(raw.sound !== undefined ? { sound: raw.sound } : {}),
 		}
 	},
@@ -2437,6 +2511,54 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 }
 
 const configWarnings = new Set<string>()
+
+/** A hook in a config file that was not loaded, or was read with something left off. */
+export interface HookConfigProblem {
+	/** The file, as `/hooks` and `namzu doctor` name it. */
+	readonly file: string
+	/** The event key as the file spells it. */
+	readonly event: string
+	/** `problem`: it would have guarded something and cannot be loaded. `note`: anything else. */
+	readonly severity: 'problem' | 'note'
+	readonly message: string
+}
+
+const hookConfigProblemList = new Map<string, HookConfigProblem>()
+
+/** Where a hooks key was read from, the way `/hooks` labels a file. */
+function hookSourceLabel(source: ConfigValueSource): string {
+	return source.kind === 'file'
+		? shortHomePath(source.path)
+		: `environment variable ${source.variable}`
+}
+
+function recordHookProblem(
+	file: string,
+	event: string,
+	severity: 'problem' | 'note',
+	message: string,
+): void {
+	const key = `${file}\n${event}\n${message}`
+	if (hookConfigProblemList.has(key)) return
+	hookConfigProblemList.set(key, { file, event, severity, message })
+	configWarnings.add(
+		`${severity === 'problem' ? 'Hook problem' : 'Hook note'} in ${file}, ${event}: ${message}`,
+	)
+}
+
+/**
+ * Every hook the config files declared that could not be loaded, and every
+ * setting read but not acted on, in the files read so far. The terminal's
+ * `/hooks` and `namzu doctor` say them; the launch said them once.
+ */
+export function hookConfigProblems(): readonly HookConfigProblem[] {
+	return [...hookConfigProblemList.values()]
+}
+
+/** Forgets the problems read so far. For tests. */
+export function resetHookConfigProblems(): void {
+	hookConfigProblemList.clear()
+}
 
 /**
  * One-line notes about settings that were read but changed (a compaction
@@ -3086,7 +3208,7 @@ export function mergeCodeAnalysisConfig(
 }
 
 /**
- * `tui` from one more layer: later keys win. `theme`, `reducedMotion`, `showExpandedTodos` and `fullscreen` are the
+ * `tui` from one more layer: later keys win. `theme`, `reducedMotion`, `showExpandedTodos`, `agentCalls`, `fullscreen`, `syntaxHighlight`, `wheelRows` and `wheelAccel` are the
  * operator's own taste, so a project layer's values for them are dropped.
  */
 export function mergeTuiConfig(
@@ -3098,7 +3220,11 @@ export function mergeTuiConfig(
 		theme: _theme,
 		reducedMotion: _motion,
 		showExpandedTodos: _todos,
+		agentCalls: _agentCalls,
 		fullscreen: _fullscreen,
+		syntaxHighlight: _syntax,
+		wheelRows: _wheelRows,
+		wheelAccel: _wheelAccel,
 		...rest
 	} = layer
 	return { ...below, ...(fromProject ? rest : layer) }

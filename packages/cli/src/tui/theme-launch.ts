@@ -1,11 +1,12 @@
 /**
- * The theme and motion the terminal UI starts with, from the user config.
+ * The theme, motion and code colour the terminal UI starts with, from the user config.
  * For `auto`, the terminal is asked for its background colour once, before the
  * UI takes over the keyboard; no answer within a moment means the environment's
  * hint, then dark.
  */
 
 import type { TuiConfig } from '../config/schema.js'
+import { setSyntaxHighlight } from './code-highlight.js'
 import { setReducedMotion } from './motion.js'
 import {
 	type BackgroundQueryStreams,
@@ -22,11 +23,12 @@ export const BACKGROUND_QUERY_WAIT_MS = 250
  * ordinary start does not yield before the UI mounts.
  */
 export function applyLaunchTheme(
-	tui: Pick<TuiConfig, 'theme' | 'reducedMotion'> | undefined,
+	tui: Pick<TuiConfig, 'theme' | 'reducedMotion' | 'syntaxHighlight'> | undefined,
 	streams: BackgroundQueryStreams | undefined,
 	env: NodeJS.ProcessEnv = process.env,
 ): Promise<void> | undefined {
 	setReducedMotion(tui?.reducedMotion === true)
+	setSyntaxHighlight(tui?.syntaxHighlight !== false)
 	const setting = tui?.theme ?? 'dark'
 	if (setting !== 'auto') {
 		setThemeSetting(setting, { env })

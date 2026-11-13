@@ -543,8 +543,8 @@ describe('matcher', () => {
 		expect(shellHookMatches('^read_.+', 'read_file')).toBe(true)
 	})
 
-	it('a regular expression that does not compile matches nothing', () => {
-		expect(shellHookMatches('(unclosed', 'anything')).toBe(false)
+	it('a regular expression that does not compile fires: a guard never silently matches nothing', () => {
+		expect(shellHookMatches('(unclosed', 'anything')).toBe(true)
 	})
 
 	it('empty and * match everything; a name-less event matches only those', () => {

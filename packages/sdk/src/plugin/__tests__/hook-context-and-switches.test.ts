@@ -250,13 +250,16 @@ describe('a shell hook replaces a tool result', () => {
 		expect(over.action).not.toBe('replace')
 	})
 
-	it('sets aside an answer whose replacement is not text', () => {
-		expect(shellHookVerdict('post_tool_use', entry, reply({ updatedToolOutput: 5 }))).toEqual({
-			action: 'continue',
-		})
+	it('reads a replacement that is not text as its JSON text', () => {
+		expect(shellHookVerdict('post_tool_use', entry, reply({ updatedToolOutput: 5 }))).toMatchObject(
+			{
+				action: 'replace',
+				output: '5',
+			},
+		)
 	})
 
-	it('does not replace on a failed call: the field is read on post_tool_use only', () => {
+	it('replaces on post_tool_use_failure too, so a hook attached only there still redacts', () => {
 		expect(
 			shellHookVerdict(
 				'post_tool_use_failure',
@@ -265,7 +268,7 @@ describe('a shell hook replaces a tool result', () => {
 					hookSpecificOutput: { hookEventName: 'PostToolUseFailure', updatedToolOutput: 'z' },
 				}),
 			),
-		).toEqual({ action: 'continue' })
+		).toMatchObject({ action: 'replace', output: 'z', disclose: true })
 	})
 })
 

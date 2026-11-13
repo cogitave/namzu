@@ -78,6 +78,7 @@ export async function runPreToolHook(
 	toolName: string,
 	input: unknown,
 	signal: AbortSignal = host.config.abortSignal,
+	toolCallId?: string,
 ): Promise<PreToolHookOutcome> {
 	signal.throwIfAborted()
 	if (!host.config.pluginManager) return { kind: 'continue', input, modified: false }
@@ -88,6 +89,7 @@ export async function runPreToolHook(
 				sessionId: host.config.sessionId,
 				turnId: host.config.turnId,
 				toolName,
+				...(toolCallId !== undefined ? { toolCallId } : {}),
 				toolInput: input,
 				signal,
 			},
@@ -155,7 +157,7 @@ export async function prepareDirectCall(
 					: {}),
 			}
 		}
-		const preOutcome = await runPreToolHook(host, toolName, resolved.input)
+		const preOutcome = await runPreToolHook(host, toolName, resolved.input, undefined, toolCall.id)
 		if (preOutcome.kind === 'skip' || preOutcome.kind === 'error') {
 			return {
 				kind: 'synthetic',
@@ -297,7 +299,13 @@ export async function prepareDirectCall(
 		}
 	}
 
-	const preOutcome = await runPreToolHook(host, toolName, preparation.prepared.input)
+	const preOutcome = await runPreToolHook(
+		host,
+		toolName,
+		preparation.prepared.input,
+		undefined,
+		toolCall.id,
+	)
 	if (preOutcome.kind === 'skip' || preOutcome.kind === 'error') {
 		return {
 			kind: 'synthetic',

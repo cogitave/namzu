@@ -26,6 +26,15 @@ export interface QueryAgentConfig extends BaseAgentConfig {
 	persona?: AgentPersona
 
 	/**
+	 * The name lifecycle hooks see for this agent (`agentType` on
+	 * `subagent_start` and `subagent_stop`, `agent_type` for a shell hook).
+	 * Absent, it is the agent's `type`, which for a host-defined class is the
+	 * class's marker rather than the agent's name: a host that names its
+	 * agents passes the name here.
+	 */
+	agentType?: string
+
+	/**
 	 * Channel a host uses to hand guidance to this turn's current turn.
 	 *
 	 * Forwarded into `drainQuery` so a host using this adapter can steer the

@@ -20,6 +20,22 @@ describe('the hooks doctor row', () => {
 		expect(result.message).toContain('No hook switch is on.')
 	})
 
+	it('warns, naming the hook, when a matcher or an if cannot be read', () => {
+		const result = describeHooksStatus({
+			hooks: {
+				pre_tool_use: [
+					{ command: 'a', matcher: '(unclosed', source: '~/.namzu/config.yaml' },
+					{ command: 'b', if: '^Edit$', source: '~/.namzu/config.yaml' },
+					{ command: 'c', matcher: 'Edit|Write', source: '~/.namzu/config.yaml' },
+				],
+			},
+		})
+		expect(result.status).toBe('warn')
+		expect(result.message).toContain('Cannot be read: pre_tool_use: the matcher "(unclosed"')
+		expect(result.message).toContain('fires for every call')
+		expect(result.message).toContain('the if "^Edit$"')
+	})
+
 	it('says no hooks are attached, and which switch is on', () => {
 		const result = describeHooksStatus({ disableHooks: true })
 		expect(result.message).toContain('No shell hooks are attached.')
