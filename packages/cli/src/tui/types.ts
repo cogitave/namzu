@@ -36,6 +36,7 @@ import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import type { ResolvedLogging } from '../logging.js'
 import type { ChecklistItem } from './Checklist.js'
 import type { AttachmentRow } from './attachment-rows.js'
+import type { CodeFlow } from './code-highlight.js'
 import type { ContextView } from './context-grid.js'
 import type { DiffInfo } from './diff-view.js'
 import type { GroupState } from './read-search-group.js'
@@ -61,6 +62,12 @@ export interface PrintedChunk {
 	readonly last: MdBlockType | null
 	/** What the chunk leaves open for the next one. */
 	readonly open: 'none' | 'text' | 'code'
+	/**
+	 * What the code after this chunk starts from: the open lines of the block it leaves
+	 * open, and the reply's colour budget spent so far. The next chunk is drawn from it.
+	 * Absent where the reply is printed without syntax colour.
+	 */
+	readonly next?: CodeFlow
 }
 
 export type MdBlockType = 'paragraph' | 'heading' | 'bullet' | 'quote' | 'rule' | 'code' | 'table'

@@ -24,6 +24,7 @@ export const theme: SemanticColors = {
 	accent: { ...initial.accent },
 	status: { ...initial.status },
 	border: { ...initial.border },
+	code: { ...initial.code },
 	live: { ...initial.live },
 	context: { ...initial.context },
 	glow: [...initial.glow],
@@ -42,6 +43,7 @@ export function applyPalette(name: ThemeName): void {
 	target.accent = { ...palette.accent }
 	target.status = { ...palette.status }
 	target.border = { ...palette.border }
+	target.code = { ...palette.code }
 	target.live = { ...palette.live }
 	target.context = { ...palette.context }
 	target.glow = [...palette.glow]

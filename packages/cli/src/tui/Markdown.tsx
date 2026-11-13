@@ -9,8 +9,9 @@
  * `markdown-table.ts`: a box when it fits, stacked records when it does not.
  *
  * Stylistic choices:
- *  - code blocks: code-colored lines and nothing beside them (no syntax
- *    highlighter dependency), so a selection copies the code and only the code.
+ *  - code blocks: lines and nothing beside them, so a selection copies the code
+ *    and only the code. A block that names a language we know is drawn in syntax
+ *    colour (`code-highlight.ts`, read on demand); any other is one code colour.
  *  - inline code: a single code color, no background, so it stays legible.
  *  - headings: bold, told apart by level with attributes every terminal has:
  *    1 underlined accent, 2 accent, 3 body colour, 4-6 muted.
@@ -21,12 +22,21 @@
  */
 
 import { Box, Text } from 'ink'
-import { Fragment, createContext, memo, useContext, useRef } from 'react'
+import { Fragment, createContext, memo, useContext, useRef, useSyncExternalStore } from 'react'
 
+import {
+	type CodeFlow,
+	NO_FLOW,
+	colourLines,
+	grammarState,
+	grammarVersion,
+	subscribeGrammars,
+} from './code-highlight.js'
 import { type BlockCache, createBlockCache } from './markdown-block-cache.js'
 import {
 	QUOTE_BAR_WIDTH,
 	blockGap,
+	codeChars,
 	codeIndent,
 	headingStyle,
 	ruleWidth,
@@ -74,6 +84,12 @@ export interface MarkdownProps {
 	readonly fence?: string
 	/** The type of the block printed before this text, for the blank row between them. */
 	readonly lead?: MdBlock['type'] | null
+	/**
+	 * What this text's code starts from when it is one part of a reply drawn in parts:
+	 * the open lines of a block it continues, and what the reply has spent of its colour
+	 * budget. Absent for a text drawn whole.
+	 */
+	readonly flow?: CodeFlow
 	readonly color?: string
 	/** Emit admitted HTTP(S) labels as OSC 8 links on a known-capable terminal. */
 	readonly hyperlinks?: boolean
@@ -101,6 +117,7 @@ export function Markdown({
 	lang,
 	fence,
 	lead = null,
+	flow = NO_FLOW,
 }: MarkdownProps) {
 	const cache = useRef<BlockCache>(undefined)
 	cache.current ??= createBlockCache()
@@ -116,7 +133,64 @@ export function Markdown({
 			hyperlinks={hyperlinks}
 			width={width}
 			lead={join === 'block' ? lead : 'join'}
+			flow={flow}
 		/>
+	)
+}
+
+/**
+ * The lines of a code block. A block with a language we know is drawn in syntax colour
+ * once its grammar is read (it is read on the first ask, and this row draws again when it
+ * arrives); every other block, and every line past a colour limit, is one code colour.
+ * The characters are the line, whatever the colour.
+ */
+function CodeLines({
+	lang,
+	lines,
+	above,
+	block,
+	spent,
+}: {
+	readonly lang: string | undefined
+	readonly lines: readonly string[]
+	readonly above: string
+	readonly block: number
+	readonly spent: number
+}) {
+	useSyncExternalStore(subscribeGrammars, grammarVersion)
+	grammarState(lang)
+	const coloured = colourLines(lang, lines, { above, block, spent })
+	return (
+		<>
+			{lines.map((line, i) => {
+				const runs = coloured?.lines[i]
+				const key = `c-${i}`
+				if (!runs) {
+					return (
+						<Text key={key} color={theme.status.ok}>
+							{line.length > 0 ? line : ' '}
+						</Text>
+					)
+				}
+				return (
+					<Text key={key} color={theme.text.primary}>
+						{runs.length === 0
+							? ' '
+							: runs.map((run, j) =>
+									run.kind ? (
+										// biome-ignore lint/suspicious/noArrayIndexKey: runs of a line have no identity of their own
+										<Text key={j} color={theme.code[run.kind]}>
+											{run.text}
+										</Text>
+									) : (
+										// biome-ignore lint/suspicious/noArrayIndexKey: runs of a line have no identity of their own
+										<Fragment key={j}>{run.text}</Fragment>
+									),
+								)}
+					</Text>
+				)
+			})}
+		</>
 	)
 }
 
@@ -128,6 +202,7 @@ function BlockList({
 	width,
 	italic = false,
 	lead = null,
+	flow = NO_FLOW,
 }: {
 	readonly blocks: readonly MdBlock[]
 	readonly color: string
@@ -136,21 +211,32 @@ function BlockList({
 	readonly italic?: boolean
 	/** What stands before the first block: nothing, a block, or the text this continues. */
 	readonly lead?: MdBlock['type'] | 'join' | null
+	/** What the code in these blocks starts from; see `MarkdownProps.flow`. */
+	readonly flow?: CodeFlow
 }) {
+	// The characters of code above a block are its place in the reply's colour budget.
+	let spent = flow.spent
 	return (
 		<Box flexDirection="column">
-			{blocks.map((block, i) => (
-				<BlockView
-					// biome-ignore lint/suspicious/noArrayIndexKey: these rows have no identity of their own and hold no state, so the index is the key.
-					key={`b-${i}`}
-					block={block}
-					prev={blocks[i - 1]?.type ?? (i === 0 ? lead : null)}
-					color={color}
-					hyperlinks={hyperlinks}
-					width={width}
-					italic={italic}
-				/>
-			))}
+			{blocks.map((block, i) => {
+				const above = spent
+				spent += codeChars(block)
+				return (
+					<BlockView
+						// biome-ignore lint/suspicious/noArrayIndexKey: these rows have no identity of their own and hold no state, so the index is the key.
+						key={`b-${i}`}
+						block={block}
+						prev={blocks[i - 1]?.type ?? (i === 0 ? lead : null)}
+						color={color}
+						hyperlinks={hyperlinks}
+						width={width}
+						italic={italic}
+						codeAbove={i === 0 ? flow.above : ''}
+						codeBlock={i === 0 ? flow.block : 0}
+						codeSpent={block.type === 'code' || block.type === 'quote' ? above : 0}
+					/>
+				)
+			})}
 		</Box>
 	)
 }
@@ -171,6 +257,9 @@ const BlockView = memo(function BlockView({
 	hyperlinks,
 	width,
 	italic,
+	codeAbove,
+	codeBlock,
+	codeSpent,
 }: {
 	readonly block: MdBlock
 	readonly prev: MdBlock['type'] | 'join' | null
@@ -180,6 +269,10 @@ const BlockView = memo(function BlockView({
 	readonly width: number
 	/** Drawn in italics, as the text of a quote is. */
 	readonly italic: boolean
+	/** For a code block: the open lines above it, and its place in the reply's colour budget. */
+	readonly codeAbove: string
+	readonly codeBlock: number
+	readonly codeSpent: number
 }) {
 	// A memoised block would otherwise keep the colours it was drawn with.
 	useThemeEpoch()
@@ -237,6 +330,7 @@ const BlockView = memo(function BlockView({
 							hyperlinks={hyperlinks}
 							width={width - QUOTE_BAR_WIDTH}
 							italic
+							flow={{ above: codeAbove, block: codeBlock, spent: codeSpent }}
 						/>
 					) : (
 						<Text> </Text>
@@ -278,12 +372,13 @@ const BlockView = memo(function BlockView({
 			// the indentation of its fence, so it stays under what holds it.
 			return (
 				<Box marginTop={gap} flexDirection="column" paddingLeft={codeIndent(block, width)}>
-					{(block.lines.length > 0 ? block.lines : ['']).map((line, i) => (
-						// biome-ignore lint/suspicious/noArrayIndexKey: these rows have no identity of their own and hold no state, so the index is the key.
-						<Text key={`c-${i}`} color={theme.status.ok}>
-							{line.length > 0 ? line : ' '}
-						</Text>
-					))}
+					<CodeLines
+						lang={block.lang}
+						lines={block.lines.length > 0 ? block.lines : ['']}
+						above={codeAbove}
+						block={codeBlock}
+						spent={codeSpent}
+					/>
 				</Box>
 			)
 		default:

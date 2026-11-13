@@ -83,6 +83,26 @@ export interface SemanticColors {
 		readonly focus: string
 	}
 	/**
+	 * The colours of syntax in a fenced code block. Every other character of a block
+	 * that has a language is drawn in `text.primary`; a block without one stays in
+	 * one accent colour. `added` and `removed` colour a whole line of a diff block,
+	 * which also begins with `+` or `-`, so the colour is never the only sign.
+	 */
+	readonly code: {
+		readonly keyword: string
+		readonly string: string
+		readonly number: string
+		readonly comment: string
+		/** The name of a function, method or attribute. */
+		readonly name: string
+		/** The name of a type or class. */
+		readonly type: string
+		/** `true`, `null` and the other literal values. */
+		readonly literal: string
+		readonly added: string
+		readonly removed: string
+	}
+	/**
 	 * The working line's three letter states: already swept, the sweep's edge and
 	 * not yet reached. `rgb` is where the stall tint starts from; absent for a
 	 * palette that may only use named colours, which then never tints.
@@ -156,6 +176,17 @@ const DARK: SemanticColors = {
 		merged: 'ansi256(135)',
 	},
 	border: { default: 'ansi256(239)', focus: 'ansi256(83)' },
+	code: {
+		keyword: 'ansi256(176)',
+		string: 'ansi256(180)',
+		number: 'ansi256(215)',
+		comment: 'ansi256(244)',
+		name: 'ansi256(111)',
+		type: 'ansi256(80)',
+		literal: 'ansi256(141)',
+		added: 'ansi256(114)',
+		removed: 'ansi256(210)',
+	},
 	live: {
 		done: 'greenBright',
 		edge: 'whiteBright',
@@ -209,6 +240,17 @@ const LIGHT: SemanticColors = {
 		merged: 'ansi256(91)',
 	},
 	border: { default: 'ansi256(250)', focus: 'ansi256(28)' },
+	code: {
+		keyword: 'ansi256(127)',
+		string: 'ansi256(28)',
+		number: 'ansi256(130)',
+		comment: 'ansi256(243)',
+		name: 'ansi256(25)',
+		type: 'ansi256(23)',
+		literal: 'ansi256(91)',
+		added: 'ansi256(28)',
+		removed: 'ansi256(124)',
+	},
 	live: {
 		done: 'ansi256(28)',
 		edge: 'ansi256(16)',
@@ -253,6 +295,17 @@ const DARK_DALTONIZED: SemanticColors = {
 		merged: 'ansi256(135)',
 	},
 	border: { default: 'ansi256(239)', focus: 'ansi256(81)' },
+	code: {
+		keyword: 'ansi256(141)',
+		string: 'ansi256(222)',
+		number: 'ansi256(215)',
+		comment: 'ansi256(244)',
+		name: 'ansi256(75)',
+		type: 'ansi256(116)',
+		literal: 'ansi256(183)',
+		added: 'ansi256(75)',
+		removed: 'ansi256(209)',
+	},
 	live: {
 		done: 'ansi256(81)',
 		edge: 'whiteBright',
@@ -295,6 +348,17 @@ const LIGHT_DALTONIZED: SemanticColors = {
 	},
 	status: { ok: 'ansi256(25)', warn: 'ansi256(130)', error: 'ansi256(160)', merged: 'ansi256(91)' },
 	border: { default: 'ansi256(250)', focus: 'ansi256(25)' },
+	code: {
+		keyword: 'ansi256(91)',
+		string: 'ansi256(94)',
+		number: 'ansi256(130)',
+		comment: 'ansi256(243)',
+		name: 'ansi256(25)',
+		type: 'ansi256(23)',
+		literal: 'ansi256(97)',
+		added: 'ansi256(25)',
+		removed: 'ansi256(166)',
+	},
 	live: {
 		done: 'ansi256(25)',
 		edge: 'ansi256(16)',
@@ -341,6 +405,17 @@ const DARK_ANSI: SemanticColors = {
 	},
 	status: { ok: 'green', warn: 'yellow', error: 'redBright', merged: 'magenta' },
 	border: { default: 'blackBright', focus: 'greenBright' },
+	code: {
+		keyword: 'magentaBright',
+		string: 'yellow',
+		number: 'cyan',
+		comment: 'blackBright',
+		name: 'blueBright',
+		type: 'cyanBright',
+		literal: 'magenta',
+		added: 'greenBright',
+		removed: 'redBright',
+	},
 	live: { done: 'greenBright', edge: 'whiteBright', ahead: 'blackBright' },
 	context: {
 		systemPrompt: 'blackBright',
@@ -374,6 +449,17 @@ const LIGHT_ANSI: SemanticColors = {
 	},
 	status: { ok: 'green', warn: 'yellow', error: 'red', merged: 'magenta' },
 	border: { default: 'blackBright', focus: 'green' },
+	code: {
+		keyword: 'magenta',
+		string: 'green',
+		number: 'blue',
+		comment: 'blackBright',
+		name: 'cyan',
+		type: 'yellow',
+		literal: 'red',
+		added: 'green',
+		removed: 'red',
+	},
 	live: { done: 'green', edge: 'black', ahead: 'blackBright' },
 	context: {
 		systemPrompt: 'blackBright',

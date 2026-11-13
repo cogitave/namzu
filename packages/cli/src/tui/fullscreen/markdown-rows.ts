@@ -13,10 +13,12 @@ import { Box, Text, renderToString } from 'ink'
 import { createElement } from 'react'
 import stringWidth from 'string-width'
 
+import { colourLines, grammarState, runsForPieces } from '../code-highlight.js'
 import {
 	QUOTE_BAR,
 	QUOTE_BAR_WIDTH,
 	blockGap,
+	codeChars,
 	codeIndent,
 	headingStyle,
 	ruleWidth,
@@ -102,7 +104,13 @@ function codeLine(line: string, width: number): string[] {
 	return drawn.split('\n')
 }
 
-function blockRows(block: MdBlock, width: number, color: string, italic: boolean): MarkdownRow[] {
+function blockRows(
+	block: MdBlock,
+	width: number,
+	color: string,
+	italic: boolean,
+	spent: number,
+): MarkdownRow[] {
 	// The text of a quote is italic: the outer `<Text italic>` of the normal
 	// transcript reaches every span of a paragraph, a bullet and a heading.
 	const prose = (s: StyledSpan): StyledSpan => (italic ? { ...s, italic: true } : s)
@@ -127,7 +135,7 @@ function blockRows(block: MdBlock, width: number, color: string, italic: boolean
 		case 'quote': {
 			const inner =
 				block.blocks.length > 0
-					? blocksRows(block.blocks, width - QUOTE_BAR_WIDTH, color, true)
+					? blocksRows(block.blocks, width - QUOTE_BAR_WIDTH, color, true, spent)
 					: [row([])]
 			// The bar and its space go before every row, so a wrapped row carries it too.
 			// A copy that joins a wrapped row to the one above starts after them.
@@ -163,16 +171,28 @@ function blockRows(block: MdBlock, width: number, color: string, italic: boolean
 			// joins a wrapped line starts after the indentation.
 			const indent = codeIndent(block, width)
 			const pad = indent > 0 ? [{ text: ' '.repeat(indent) }] : []
-			return (block.lines.length > 0 ? block.lines : ['']).flatMap((line) => {
+			const lines = block.lines.length > 0 ? block.lines : ['']
+			// The same colours the normal transcript draws: syntax colour for a language we
+			// know once its grammar is read, the one code colour for every other line.
+			grammarState(block.lang)
+			const coloured = colourLines(block.lang, lines, { above: '', block: 0, spent })
+			return lines.flatMap((line, n) => {
 				const pieces = codeLine(line, width - indent)
 				const joins = wrapJoiners(line, pieces)
-				return pieces.map((piece, i) =>
-					row(
-						[...pad, { text: piece.length > 0 ? piece : ' ', color: theme.status.ok }],
-						i === 0 ? null : (joins[i] ?? null),
-						indent,
-					),
-				)
+				const runs = coloured?.lines[n]
+				const cut = runs ? runsForPieces(line, runs, pieces) : undefined
+				return pieces.map((piece, i) => {
+					const body = cut?.[i]
+					const spans: StyledSpan[] = body
+						? body.length === 0
+							? [{ text: ' ', color: theme.text.primary }]
+							: body.map((run) => ({
+									text: run.text,
+									color: run.kind ? theme.code[run.kind] : theme.text.primary,
+								}))
+						: [{ text: piece.length > 0 ? piece : ' ', color: theme.status.ok }]
+					return row([...pad, ...spans], i === 0 ? null : (joins[i] ?? null), indent)
+				})
 			})
 		}
 		default: {
@@ -188,12 +208,15 @@ function blocksRows(
 	width: number,
 	color: string,
 	italic: boolean,
+	spent = 0,
 ): MarkdownRow[] {
 	const rows: MarkdownRow[] = []
+	let above = spent
 	blocks.forEach((block, i) => {
 		const prev = blocks[i - 1]
 		if (blockGap(block, prev?.type)) rows.push(row([]))
-		rows.push(...blockRows(block, width, color, italic))
+		rows.push(...blockRows(block, width, color, italic, above))
+		above += codeChars(block)
 	})
 	return rows
 }

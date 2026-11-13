@@ -19,9 +19,11 @@
  * Pure, so every rule here is a test rather than a hope.
  */
 
+import type { CodeFlow } from './code-highlight.js'
 import { openerLine } from './markdown-fence.js'
+import { codeChars } from './markdown-structure.js'
 import { inlineDisplaySpans, wrapSpans } from './markdown-wrap.js'
-import { LINE_SHAPES, openMarkersIn, scanBlockRanges } from './markdownParser.js'
+import { LINE_SHAPES, openMarkersIn, parseMarkdown, scanBlockRanges } from './markdownParser.js'
 import type { BlockRange } from './markdownParser.js'
 import { terminalDisplayText } from './terminal-display.js'
 import type { MdBlockType, PrintedChunk, TranscriptMessage } from './types.js'
@@ -52,6 +54,19 @@ export function paceDecision(
 	return timerArmed ? { action: 'wait' } : { action: 'arm', delay: wait }
 }
 
+/**
+ * What the printing of a reply needs of the syntax colouring, handed in by the screen
+ * that has it (`code-highlight.ts`): this module reads nothing of the highlighter itself.
+ */
+export interface CodeHooks {
+	/** False while the grammar of that language is still being read: its rows are not printed yet. */
+	readonly ready: (lang: string | undefined) => boolean
+	/** What the code after `lines` starts from, given what it started from before them. */
+	readonly next: (lang: string | undefined, flow: CodeFlow, lines: readonly string[]) => CodeFlow
+	/** Lines of the reply that have just ended: start reading the grammars of the fences among them. */
+	readonly opened: (lines: string) => void
+}
+
 export interface FlowContext {
 	/** Freeze and print finished parts. Off in fullscreen and raw mode. */
 	readonly freeze: boolean
@@ -60,6 +75,8 @@ export interface FlowContext {
 	/** Terminal height, to bound the live part. */
 	readonly rows: number
 	readonly hyperlinks: boolean
+	/** The syntax colouring, when the screen draws it. */
+	readonly code?: CodeHooks
 }
 
 /**
@@ -79,6 +96,8 @@ export interface TailState {
 	readonly fence?: string
 	/** The block before the tail's first block, for the blank row between them. */
 	readonly lead: MdBlockType | null
+	/** What the code in the tail starts from; see `PrintedChunk.next`. */
+	readonly flow?: CodeFlow
 }
 
 export function tailStateOf(printed: readonly PrintedChunk[] | undefined): TailState {
@@ -89,7 +108,59 @@ export function tailStateOf(printed: readonly PrintedChunk[] | undefined): TailS
 		...(last.lang !== undefined ? { lang: last.lang } : {}),
 		...(last.fence !== undefined ? { fence: last.fence } : {}),
 		lead: last.last,
+		...(last.next !== undefined ? { flow: last.next } : {}),
 	}
+}
+
+/**
+ * `chunk` with what the code after it starts from. The chunk is read the way `Markdown`
+ * will draw it (with the opener it lost, when it continues a block) so the lines counted
+ * are the lines drawn; only the code is looked at.
+ */
+function withFlow(
+	chunk: PrintedChunk,
+	state: TailState,
+	code: CodeHooks | undefined,
+): PrintedChunk {
+	if (!code) return chunk
+	let flow: CodeFlow = state.flow ?? { above: '', spent: 0, block: 0 }
+	const opener = chunk.join === 'code' ? `${chunk.fence ?? `\`\`\`${chunk.lang ?? ''}`}\n` : ''
+	const source = chunk.last === 'code' ? chunk.text.replace(/\n$/u, '') : chunk.text
+	const blocks = parseMarkdown(opener + source)
+	blocks.forEach((block, i) => {
+		if (block.type !== 'code') {
+			flow = { above: '', spent: flow.spent + codeChars(block), block: 0 }
+			return
+		}
+		const start =
+			i === 0 && chunk.join === 'code' ? flow : { above: '', spent: flow.spent, block: 0 }
+		const done = code.next(block.lang, start, block.lines)
+		flow =
+			chunk.open === 'code' && i === blocks.length - 1
+				? done
+				: { above: '', spent: done.spent, block: 0 }
+	})
+	return { ...chunk, next: flow }
+}
+
+/** Whether every code block among the first `upto + 1` ranges of the tail can be printed: none is waiting for its grammar. */
+function codeReady(
+	tail: string,
+	ranges: readonly BlockRange[],
+	upto: number,
+	state: TailState,
+	code: CodeHooks | undefined,
+): boolean {
+	if (!code) return true
+	let ready = true
+	for (let i = 0; i <= upto; i++) {
+		const r = ranges[i] as BlockRange
+		if (r.kind !== 'code') continue
+		const lang = i === 0 && state.join === 'code' ? state.lang : fenceOf(tail, r).lang
+		// Every language is asked, so that every grammar starts to load.
+		if (!code.ready(lang)) ready = false
+	}
+	return ready
 }
 
 export function printedLength(printed: readonly PrintedChunk[] | undefined): number {
@@ -247,6 +318,9 @@ export function freezeMore(
 			if (isFinal(tail, ranges[i] as BlockRange, ranges[i + 1])) final = i
 		}
 		if (final >= 0) {
+			// A block whose grammar is still being read is not printed yet: a printed row
+			// cannot be drawn again, so it waits for the colours (or for the read to fail).
+			if (!codeReady(tail, ranges, final, state, ctx.code)) break
 			const r = ranges[final] as BlockRange
 			const cut = r.end + 1
 			const open = 'none' as const
@@ -254,14 +328,18 @@ export function freezeMore(
 			const fence = state.join === 'code' ? state.fence : undefined
 			chunks = [
 				...chunks,
-				{
-					text: tail.slice(0, cut),
-					join: state.join,
-					...(lang !== undefined ? { lang } : {}),
-					...(fence !== undefined ? { fence } : {}),
-					last: TYPE_OF[r.kind],
-					open,
-				},
+				withFlow(
+					{
+						text: tail.slice(0, cut),
+						join: state.join,
+						...(lang !== undefined ? { lang } : {}),
+						...(fence !== undefined ? { fence } : {}),
+						last: TYPE_OF[r.kind],
+						open,
+					},
+					state,
+					ctx.code,
+				),
 			]
 			continue
 		}
@@ -278,16 +356,21 @@ export function freezeMore(
 			for (let n = 0; n < freezeLines; n++) cut += (lines[n] ?? '').length + 1
 			const { lang, fence } =
 				state.join === 'code' ? { lang: state.lang, fence: state.fence } : fenceOf(tail, last)
+			if (ctx.code && !ctx.code.ready(lang)) break
 			chunks = [
 				...chunks,
-				{
-					text: tail.slice(0, cut),
-					join: state.join,
-					...(lang !== undefined ? { lang } : {}),
-					...(fence !== undefined ? { fence } : {}),
-					last: 'code',
-					open: 'code',
-				},
+				withFlow(
+					{
+						text: tail.slice(0, cut),
+						join: state.join,
+						...(lang !== undefined ? { lang } : {}),
+						...(fence !== undefined ? { fence } : {}),
+						last: 'code',
+						open: 'code',
+					},
+					state,
+					ctx.code,
+				),
 			]
 			break
 		}
@@ -296,14 +379,18 @@ export function freezeMore(
 			if (c > 0) {
 				chunks = [
 					...chunks,
-					{
-						text: tail.slice(0, last.start + c),
-						join: state.join,
-						...(state.join === 'code' && state.lang !== undefined ? { lang: state.lang } : {}),
-						...(state.join === 'code' && state.fence !== undefined ? { fence: state.fence } : {}),
-						last: 'paragraph',
-						open: 'text',
-					},
+					withFlow(
+						{
+							text: tail.slice(0, last.start + c),
+							join: state.join,
+							...(state.join === 'code' && state.lang !== undefined ? { lang: state.lang } : {}),
+							...(state.join === 'code' && state.fence !== undefined ? { fence: state.fence } : {}),
+							last: 'paragraph',
+							open: 'text',
+						},
+						state,
+						ctx.code,
+					),
 				]
 			}
 		}
@@ -319,6 +406,13 @@ export function appendReply(
 	ctx: FlowContext | undefined,
 ): TranscriptMessage {
 	const content = m.content + delta
+	// The language of a fence is known once its line has ended: start reading its grammar
+	// now, so that it has arrived by the time the block has rows to print.
+	if (ctx?.code) {
+		const from = m.content.lastIndexOf('\n') + 1
+		const to = content.lastIndexOf('\n') + 1
+		if (to > from) ctx.code.opened(content.slice(from, to))
+	}
 	if (!ctx?.freeze || !m.pending || !isPlainReply(m)) return { ...m, content }
 	const printed = m.printed ?? []
 	if (!content.startsWith(chunksText(printed))) return { ...m, content }
@@ -515,6 +609,8 @@ export interface ReplyPiece {
 	readonly fence?: string
 	readonly lead: MdBlockType | null
 	readonly first: boolean
+	/** What this part's code starts from; absent where the reply is printed without syntax colour. */
+	readonly flow?: CodeFlow
 }
 
 export function printedPieces(printed: readonly PrintedChunk[]): ReplyPiece[] {
@@ -529,6 +625,7 @@ export function printedPieces(printed: readonly PrintedChunk[]): ReplyPiece[] {
 			...(chunk.fence !== undefined ? { fence: chunk.fence } : {}),
 			lead: before ? before.last : null,
 			first: i === 0,
+			...(before?.next !== undefined ? { flow: before.next } : {}),
 		}
 	})
 }
@@ -553,6 +650,7 @@ export function tailPiece(message: TranscriptMessage): ReplyPiece | undefined {
 		...(state.fence !== undefined ? { fence: state.fence } : {}),
 		lead: state.lead,
 		first: printed.length === 0 || !coherent,
+		...(state.flow !== undefined ? { flow: state.flow } : {}),
 	}
 }
 

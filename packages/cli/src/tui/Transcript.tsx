@@ -8,7 +8,7 @@
 
 import { Box, Static, Text, useWindowSize } from 'ink'
 import type { ReactNode } from 'react'
-import { memo } from 'react'
+import { memo, useRef, useSyncExternalStore } from 'react'
 import { type DiffInfo, diffViewBody, viewRowText } from './diff-view.js'
 import { EXPAND_HINT, clipText, hiddenLinesHint } from './truncation.js'
 import { cutUserText, hiddenTextNote, hiddenTextRule } from './user-text-view.js'
@@ -19,6 +19,7 @@ import { ContentWidth, Markdown, WrappedSpans, useContentWidth } from './Markdow
 import { ReadSearchGroup } from './ReadSearchGroup.js'
 import { StatusPanel } from './StatusPanel.js'
 import { type AttachmentRow, attachmentLine } from './attachment-rows.js'
+import { grammarState, grammarVersion, languagesIn, subscribeGrammars } from './code-highlight.js'
 import { type ShellOutput, shellCollapses, shellResultRows, shellToneColor } from './shell-cell.js'
 import { type ReplyPiece, isPlainReply, printedPieces, tailPiece } from './stream-flow.js'
 import {
@@ -144,6 +145,33 @@ function printedRows(
 	}))
 }
 
+/**
+ * Whether a reply holds a code block whose grammar is still being read. A row that is
+ * printed cannot be drawn again, so such a message is not printed yet: it is drawn in the
+ * live window, where it takes its colours when they arrive, and printed after. The wait is
+ * bounded (`GRAMMAR_WAIT_MS`); a grammar that fails is plain and releases the message.
+ * Asking starts the read of every grammar the message names.
+ */
+export function waitsForGrammar(message: TranscriptMessage): boolean {
+	if (message.role !== 'assistant' || message.content === '') return false
+	let waits = false
+	for (const word of languagesIn(message.content)) {
+		if (grammarState(word) === 'loading') waits = true
+	}
+	return waits
+}
+
+/** The index of the first message from `from` up to `upto` that has to wait for its colours; `upto` when none does. */
+export function firstHeld(
+	messages: readonly TranscriptMessage[],
+	from: number,
+	upto: number,
+): number {
+	let at = from
+	while (at < upto && !waitsForGrammar(messages[at] as TranscriptMessage)) at++
+	return at
+}
+
 export function Transcript({
 	messages,
 	pending,
@@ -156,7 +184,16 @@ export function Transcript({
 	header,
 	staticIndent = 0,
 }: TranscriptProps) {
-	const inScrollback = Math.min(Math.max(settled, 0), messages.length)
+	// A message with a code block that waits for its colours is held out of the scrollback
+	// until they have arrived or the wait is over. The check is made once per message (the
+	// ones before `known` are printed, and a grammar never goes back to loading).
+	useSyncExternalStore(subscribeGrammars, grammarVersion)
+	const known = useRef<{ key: unknown; n: number }>({ key: resetKey, n: 0 })
+	if (known.current.key !== resetKey) known.current = { key: resetKey, n: 0 }
+	const asked = Math.min(Math.max(settled, 0), messages.length)
+	known.current.n = Math.min(known.current.n, asked)
+	const inScrollback = raw ? asked : firstHeld(messages, known.current.n, asked)
+	if (!raw) known.current.n = inScrollback
 	// The banner is row 0 so it prints to the very top of scrollback; messages
 	// follow it. <Static> renders each row exactly once and never re-renders it,
 	// so everything behind the live window costs nothing per frame — the whole
@@ -311,6 +348,7 @@ export function ReplyPieceRow({
 						lead={piece.lead}
 						{...(piece.lang !== undefined ? { lang: piece.lang } : {})}
 						{...(piece.fence !== undefined ? { fence: piece.fence } : {})}
+						{...(piece.flow !== undefined ? { flow: piece.flow } : {})}
 					/>
 				</Box>
 			</Box>
