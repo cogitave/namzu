@@ -59,6 +59,7 @@ import {
 	RegistryCollisionError,
 	type SerializableHostCommand,
 	type SessionTokenBudgetSummary,
+	fileChangedMatcherNote,
 	isMemoryType,
 	kernelHostCommands,
 	shellHookIfProblem,
@@ -69,6 +70,7 @@ import { type ConfigDebugSnapshot, renderConfigDebug } from '../config/debug.js'
 import type { HooksSwitch } from '../config/hook-layers.js'
 import type { HooksConfig } from '../config/schema.js'
 import type { SandboxSummary } from '../context/sandbox.js'
+import type { HookActivity } from '../integrations/plugins/hook-activity.js'
 import { PERMISSION_MODE_NAMES } from '../permissions/mode-names.js'
 import {
 	type PermissionMode,
@@ -2017,6 +2019,8 @@ export interface HooksView {
 		readonly carriers: readonly string[]
 		readonly refused: readonly { readonly name: string; readonly line: string }[]
 	}
+	/** What hooks set for this conversation's commands (names only) and the files they watch. */
+	readonly activity?: HookActivity
 }
 
 /** The lines `/hooks` gives for the hooks agent files carry. */
@@ -2088,6 +2092,21 @@ export function skillHookLines(
 		lines.push(
 			`${waiting.join(', ')} ${waiting.length === 1 ? 'carries' : 'carry'} hooks that attach when the skill is used.`,
 		)
+	}
+	return lines
+}
+
+/** The lines `/hooks` gives for the variables hooks have set and the files they watch. */
+export function hookActivityLines(activity: HookActivity | undefined): string[] {
+	if (activity === undefined) return []
+	const lines: string[] = []
+	if (activity.variables.length > 0) {
+		lines.push('variables set by hooks for shell commands (names only)')
+		for (const { name, event } of activity.variables) lines.push(`  ${name} · set by ${event}`)
+	}
+	if (activity.watching.length > 0) {
+		lines.push('files watched for file_changed')
+		for (const path of activity.watching) lines.push(`  ${path}`)
 	}
 	return lines
 }
@@ -2223,6 +2242,10 @@ export function renderHooks(hooks: HooksConfig | undefined, view: HooksView = {}
 				`  ${what}${when}${filter}${once}${deadline}${background}${sets}${failure}${names}${from}`,
 			)
 			for (const problem of hookReadingProblems(entry)) lines.push(`    cannot be read: ${problem}`)
+			const watches = event === 'file_changed' ? fileChangedMatcherNote(entry.matcher) : undefined
+			if (watches !== undefined) lines.push(`    note: ${watches}`)
+			const worktree = worktreeHookNote(event, entry)
+			if (worktree !== undefined) lines.push(`    note: ${worktree}`)
 		}
 	}
 	lines.push(...hookConfigProblemLines(problems))
@@ -2238,7 +2261,28 @@ export function renderHooks(hooks: HooksConfig | undefined, view: HooksView = {}
 	// After the config files and the plugins: skills, then agent files.
 	lines.push(...skillLines)
 	lines.push(...agentLines)
+	// Last: what this branch's hooks did, the variables set and the files watched.
+	lines.push(...hookActivityLines(view.activity))
 	return lines.join('\n')
+}
+
+/**
+ * What a `worktree_create` or `worktree_remove` entry does not read: the hook
+ * does the work itself, so a name filter, a condition or a one-shot flag would
+ * only decide whether the kernel acts in its place, and none is read.
+ */
+function worktreeHookNote(
+	event: string,
+	entry: { readonly matcher?: string; readonly if?: string; readonly once?: boolean },
+): string | undefined {
+	if (event !== 'worktree_create' && event !== 'worktree_remove') return undefined
+	const ignored = [
+		entry.matcher ? 'matcher' : undefined,
+		entry.if ? 'if' : undefined,
+		entry.once ? 'once' : undefined,
+	].filter((name): name is string => name !== undefined)
+	if (ignored.length === 0) return undefined
+	return `this hook makes or removes the worktree itself, so its ${ignored.join(', ')} ${ignored.length === 1 ? 'is' : 'are'} ignored and it always runs`
 }
 
 /** The session's background commands, as an operator would ask about them. */

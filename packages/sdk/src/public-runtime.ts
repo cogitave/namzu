@@ -743,6 +743,22 @@ export {
 	shellHookMatcherProblem,
 	shellHookMatches,
 	shellHookVerdict,
+	fileChangedMatcherNote,
+	fileChangedMatcherPaths,
+	fileChangedMatches,
+	HOOK_ENV_EVENTS,
+	MAX_HOOK_ENV_FILE_BYTES,
+	MAX_HOOK_ENV_VALUE_CHARS,
+	MAX_HOOK_ENV_VARIABLES,
+	refusedHookEnvName,
+	SessionHookEnv,
+	FILE_SETTLE_MS,
+	FileChangeWatcher,
+	MAX_WATCHED_PATHS,
+	FileChangeHooks,
+	worktreeHookVerdict,
+	worktreeHookPrinted,
+	WORKTREE_HOOK_SHOWN_CHARS,
 } from './plugin/index.js'
 export type { DefinedPlugin, DefinePluginOptions } from './plugin/define.js'
 
@@ -1203,6 +1219,9 @@ export type { VaultInstrumentationOptions } from './vault/instrumentation.js'
 
 export {
 	GitWorktreeDriver,
+	HookedWorkspaceDriver,
+	WorktreeHookError,
+	worktreeHookHost,
 	parseWorktreeList,
 	SharedSessionWorkspace,
 	WorkspaceBackendRegistry,

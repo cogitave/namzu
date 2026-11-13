@@ -53,6 +53,11 @@ export interface ToolingBootstrapConfig {
 	onJobCollected?: (id: string) => void
 	/** See `ToolExecutorConfig.monitorTimeoutCapMs`. */
 	monitorTimeoutCapMs?: number
+	/** See `QueryParams.onWorkingDirectoryChange`. */
+	onWorkingDirectoryChange?: (change: {
+		readonly from: string
+		readonly to: string
+	}) => Promise<void> | void
 	/** See `ToolExecutorConfig.onMonitorStarted`. */
 	onMonitorStarted?: (id: string) => void
 	/** Where the `skill` tool reads from. */
@@ -120,6 +125,9 @@ export class ToolingBootstrap {
 				...(config.onJobCollected ? { onJobCollected: config.onJobCollected } : {}),
 				...(config.monitorTimeoutCapMs !== undefined
 					? { monitorTimeoutCapMs: config.monitorTimeoutCapMs }
+					: {}),
+				...(config.onWorkingDirectoryChange
+					? { onWorkingDirectoryChange: config.onWorkingDirectoryChange }
 					: {}),
 				...(config.onMonitorStarted ? { onMonitorStarted: config.onMonitorStarted } : {}),
 				...(config.skills ? { skills: config.skills } : {}),

@@ -27,3 +27,10 @@ export type {
 	RegisterSharedSessionPlanInput,
 	SharedSessionWorkspaceConfig,
 } from './shared-session.js'
+
+export { HookedWorkspaceDriver, WorktreeHookError, worktreeHookHost } from './hooked-driver.js'
+export type {
+	HookedWorkspaceDriverOptions,
+	WorktreeHookContext,
+	WorktreeHookHost,
+} from './hooked-driver.js'

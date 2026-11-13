@@ -38,6 +38,7 @@ import type { HooksSwitch } from '../config/hook-layers.js'
 import {
 	type SkillHookProblem,
 	readSkillHooks,
+	withoutConversationEvents,
 	withoutSessionStart,
 } from '../config/skill-hooks-reader.js'
 
@@ -164,7 +165,8 @@ export function createSkillHooksHost(options: SkillHooksHostOptions): SkillHooks
 		if (options.isProjectSkill(name) && !options.projectTrusted()) {
 			return refuse('it is in a folder that is not trusted.')
 		}
-		const read = withoutSessionStart(readSkillHooks(skill.hooksSource, `skill ${name}`))
+		const readAll = withoutSessionStart(readSkillHooks(skill.hooksSource, `skill ${name}`))
+		const read = how.forked ? withoutConversationEvents(readAll) : readAll
 		// Nothing of the block could be told from a guard (not YAML, too large,
 		// or every entry unreadable): the skill is refused. One unreadable entry
 		// among readable ones costs only that entry, and the pre-approval.

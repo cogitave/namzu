@@ -64,6 +64,10 @@ describe('a shell hook on the prompt', () => {
 			'turn_failure',
 			'turn_start',
 			'turn_end',
+			'file_changed',
+			'cwd_changed',
+			'worktree_create',
+			'worktree_remove',
 		])
 	})
 })

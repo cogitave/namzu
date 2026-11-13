@@ -158,6 +158,30 @@ export type PluginHookEvent =
 	 * settled. Carries `notification` (`type` and `message`). Observational.
 	 */
 	| 'notification'
+	/**
+	 * A file a hook asked to watch changed on disk. Carries `filePath` and
+	 * `change`. Fired by the host once the file has been still for a moment, so a
+	 * burst of writes is one event. A hook cannot refuse anything here; it may
+	 * hand back a new list of paths to watch (`watchPaths`).
+	 */
+	| 'file_changed'
+	/**
+	 * The folder the session's shell commands run in changed. Carries `oldCwd`
+	 * and `newCwd`. Fired by the host, never when the two are the same folder.
+	 */
+	| 'cwd_changed'
+	/**
+	 * A worktree is about to be created. Carries `worktreeName` (the suggested
+	 * name) and `worktreeRoot` (where a relative answer is placed). A hook that
+	 * answers with a path (`worktreePath`) makes the worktree itself; the host
+	 * then creates none.
+	 */
+	| 'worktree_create'
+	/**
+	 * A worktree is about to be removed. Carries `worktreePath`. A hook on it
+	 * does the removing; the host then removes nothing.
+	 */
+	| 'worktree_remove'
 	| 'pre_llm_call'
 	| 'post_llm_call'
 	| 'iteration_start'
@@ -197,6 +221,10 @@ export function assertPluginHookEvent(event: PluginHookEvent): void {
 		case 'permission_denied':
 		case 'permission_request':
 		case 'notification':
+		case 'file_changed':
+		case 'cwd_changed':
+		case 'worktree_create':
+		case 'worktree_remove':
 		case 'pre_llm_call':
 		case 'post_llm_call':
 		case 'iteration_start':
@@ -288,6 +316,9 @@ export interface PluginToolBatchCall {
 	readonly isError: boolean
 }
 
+/** What happened to a watched file, on `file_changed`. */
+export type PluginFileChange = 'change' | 'add' | 'unlink'
+
 /** What a `notification` hook is shown. */
 export interface PluginNotificationInfo {
 	/**
@@ -335,6 +366,22 @@ export interface PluginHookContext {
 	readonly endReason?: PluginSessionEndReason
 	/** The operator's prompt, on `user_prompt_submit`. */
 	readonly prompt?: string
+	/** The file that changed, absolute, on `file_changed`. */
+	readonly filePath?: string
+	/** What happened to `filePath`, on `file_changed`. */
+	readonly change?: PluginFileChange
+	/** The folder commands ran in before, on `cwd_changed`. */
+	readonly oldCwd?: string
+	/** The folder commands run in now, on `cwd_changed`. */
+	readonly newCwd?: string
+	/** The suggested name of the worktree, on `worktree_create`. */
+	readonly worktreeName?: string
+	/** The folder a relative worktree path is placed under, on `worktree_create`. */
+	readonly worktreeRoot?: string
+	/** The commit or branch the worktree should start from, on `worktree_create`, when one was asked for. */
+	readonly worktreeBaseRef?: string
+	/** The worktree to remove, on `worktree_remove`. */
+	readonly worktreePath?: string
 	/** The pass, on `pre_compact` and `post_compact`. */
 	readonly compaction?: PluginCompactionInfo
 	readonly toolName?: string
@@ -451,6 +498,17 @@ export interface PluginHookNotes {
 	readonly halt?: { readonly reason: string }
 	/** A warning for the operator, reported through the logger. */
 	readonly notice?: string
+	/**
+	 * On `file_changed`, `cwd_changed` and `session_start`: the files the host
+	 * should watch from now on, replacing the list hooks gave before. Other
+	 * events ignore it.
+	 */
+	readonly watchPaths?: readonly string[]
+	/**
+	 * On `worktree_create`: the folder the hook made. The host uses it as the
+	 * worktree and creates none. Other events ignore it.
+	 */
+	readonly worktreePath?: string
 }
 
 export type PluginHookResult =
@@ -466,7 +524,12 @@ export type PluginHookResult =
 	 * on the prompt. Accepted on that event only: a tool hook that returns
 	 * it is rejected, because a tool result is not a place for context.
 	 */
-	| { action: 'annotate'; text: string }
+	| {
+			action: 'annotate'
+			text: string
+			watchPaths?: readonly string[]
+			notice?: string
+	  }
 	| ({ action: 'skip'; reason: string } & PluginHookNotes)
 	| ({
 			action: 'modify'
@@ -555,6 +618,8 @@ export type PluginHookResultFor<E extends PluginHookEvent> = E extends 'user_pro
 												| 'notification'
 												| 'turn_failure'
 												| 'permission_denied'
+												| 'file_changed'
+												| 'cwd_changed'
 										? Extract<PluginHookResult, { action: 'continue' }>
 										: Extract<PluginHookResult, { action: 'continue' | 'error' }>
 
@@ -580,6 +645,12 @@ export type PluginHookDefinition<E extends PluginHookEvent = PluginHookEvent> =
 				 * ignores it.
 				 */
 				readonly statusMessage?: string
+				/**
+				 * On a `file_changed` hook: the paths its matcher names, which the host
+				 * watches for as long as the hook is attached. Listed by
+				 * `PluginLifecycleManager.listHooks`.
+				 */
+				readonly watches?: readonly string[]
 			}
 		: never
 

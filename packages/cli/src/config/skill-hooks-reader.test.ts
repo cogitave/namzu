@@ -5,6 +5,8 @@ import {
 	MAX_SKILL_HOOK_ENTRIES,
 	MAX_SKILL_HOOK_MATCHER_CHARS,
 	readSkillHooks,
+	withoutConversationEvents,
+	withoutSessionStart,
 } from './skill-hooks-reader.js'
 
 /**
@@ -236,5 +238,39 @@ describe('bounds', () => {
 			`hooks:\n  pre_tool_use:\n    - command: ${'x'.repeat(MAX_SKILL_HOOKS_SOURCE_CHARS)}`,
 		)
 		expect(out.guardLost).toBe(true)
+	})
+})
+
+describe('events a skill cannot use', () => {
+	const text = [
+		'hooks:',
+		'  file_changed:',
+		'    - command: ./a.sh',
+		'      matcher: .envrc',
+		'  worktree_create:',
+		'    - command: ./b.sh',
+		'  pre_tool_use:',
+		'    - command: ./c.sh',
+	].join('\n')
+
+	it('sets aside a worktree hook, which takes over the whole conversation, and says so', () => {
+		const out = withoutSessionStart(read(text))
+		expect(Object.keys(out.hooks).sort()).toEqual(['file_changed', 'pre_tool_use'])
+		expect(out.count).toBe(2)
+		expect(out.guardLost).toBe(false)
+		expect(out.problems).toEqual([
+			expect.objectContaining({ event: 'worktree_create', severity: 'note' }),
+		])
+	})
+
+	it('keeps a file_changed hook for an inline skill and sets it aside for a forked one', () => {
+		const inline = withoutSessionStart(read(text))
+		expect(Object.keys(inline.hooks)).toContain('file_changed')
+		const forked = withoutConversationEvents(inline)
+		expect(Object.keys(forked.hooks)).toEqual(['pre_tool_use'])
+		expect(forked.count).toBe(1)
+		expect(forked.problems).toContainEqual(
+			expect.objectContaining({ event: 'file_changed', severity: 'note' }),
+		)
 	})
 })

@@ -256,3 +256,20 @@ describe('toolNames on an entry of our own shape', () => {
 		expect(hooks.pre_tool_use?.map((e) => e.toolNames)).toEqual(['written', 'namzu', undefined])
 	})
 })
+
+describe('the worktree events', () => {
+	it('are read in both shapes, by either spelling', () => {
+		const config = load({
+			WorktreeCreate: [{ hooks: [{ type: 'command', command: 'make.sh' }] }],
+			worktree_remove: [{ command: 'rm.sh' }],
+		})
+		expect(config.hooks.worktree_create?.map((entry) => entry.command)).toEqual(['make.sh'])
+		expect(config.hooks.worktree_remove?.map((entry) => entry.command)).toEqual(['rm.sh'])
+		expect(hookConfigProblems()).toEqual([])
+	})
+
+	it('keep a matcher as written; the hook ignores it at run time', () => {
+		const config = load({ WorktreeCreate: [{ matcher: 'anything', hooks: [{ command: 'x' }] }] })
+		expect(config.hooks.worktree_create?.[0]?.matcher).toBe('anything')
+	})
+})

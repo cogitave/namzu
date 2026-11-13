@@ -217,8 +217,10 @@ import {
 	webGuidanceContribution,
 	windowsShellNotice,
 	withModelWindowSuffixStripped,
+	worktreeHookHost,
 	wrapUntrusted,
 } from '@namzu/sdk'
+import type { WorktreeHookHost } from '@namzu/sdk'
 import {
 	type Account,
 	CredentialWithdrawnError as AccountCredentialWithdrawnError,
@@ -354,6 +356,7 @@ import {
 	CHECK_HINT as PLUGIN_CHECK_HINT,
 	readPluginFileSources,
 } from '../integrations/plugins/files.js'
+import type { HookActivity, SessionHookActivity } from '../integrations/plugins/hook-activity.js'
 import type { PluginHookProblem } from '../integrations/plugins/hook-entries.js'
 import { hookSessionMode } from '../integrations/plugins/hook-host.js'
 import {
@@ -1626,6 +1629,23 @@ export interface AgentSession {
 	/** The hook entries (commands, addresses, prompts) enabled plugins ship, and what could not be loaded from them. */
 	readonly pluginHookEntries?: () => readonly PluginHookEntryView[]
 	readonly pluginHookProblems?: () => readonly (PluginHookProblem & { readonly plugin: string })[]
+	/** The variables hooks set for this session's commands (names only), and the files they watch; what `/hooks` lists beside `hooks`. */
+	readonly hookActivity?: () => HookActivity
+	/**
+	 * Lines hooks gave for the person outside a turn: a `systemMessage` from a
+	 * `file_changed`, `cwd_changed` or `session_start` hook, a watch that failed,
+	 * a variable that was not set. Lines given before anyone listened are
+	 * delivered to the first listener.
+	 */
+	readonly hookNotices?: { readonly subscribe: (listener: (line: string) => void) => () => void }
+	/**
+	 * The hooks on `worktree_create` and `worktree_remove` of this session, for
+	 * `/worktree create`; the same ones a delegated child's worktree goes through.
+	 */
+	readonly worktreeHooks?: {
+		readonly host: () => WorktreeHookHost | undefined
+		readonly onNotice: (line: string) => void
+	}
 	/** Files as they were before each turn's writes; what `/restore` uses. */
 	readonly checkpoints?: FileCheckpointStore
 	/**
@@ -4217,6 +4237,15 @@ export async function createAgentSession(
 			cwd,
 			// Plugins are initialized later; resolve the shared manager when a child starts.
 			resolvePluginManager: () => pluginRuntime?.manager,
+			// A hook on worktree_create or worktree_remove takes over making and
+			// removing the worktree of a delegated child.
+			worktreeHooks: {
+				host: () =>
+					pluginRuntime
+						? worktreeHookHost(pluginRuntime.manager, () => String(scope.sessionId))
+						: undefined,
+				onNotice: (line) => pluginRuntime?.hookActivity.notify(line),
+			},
 			...(options.ephemeral ? { ephemeral: true } : {}),
 			// An operator is watching: agents run in the background by default and
 			// the turn ends without waiting for them.
@@ -5058,6 +5087,8 @@ export async function createAgentSession(
 			cwd,
 			options.hooks,
 			{
+				// Read at each event: a conversation cleared in place changes the id.
+				sessionId: () => String(scope.sessionId),
 				permissionMode: () => hookSessionMode(readHookMode?.(), options.permissionMode),
 				transcriptPath: (sessionId) =>
 					options.ephemeral ? undefined : paths.sessionLog({ sessionId: sessionId as SessionId }),
@@ -5290,6 +5321,8 @@ export async function createAgentSession(
 		})
 		if (generation !== conversationGeneration) return
 		sessionHookContext = sessionStartHookContext(results)
+		// Files a `session_start` hook asked to watch, and a line it gave for the person.
+		sessionPlugins.hookActivity.absorbSessionStart(results)
 	}
 	const changeConversation: NonNullable<AgentSession['changeConversation']> = (change) => {
 		if (!sessionPlugins) return Promise.resolve()
@@ -6261,6 +6294,15 @@ export async function createAgentSession(
 			? {
 					pluginHookEntries: () => pluginRuntime?.pluginHookEntries() ?? [],
 					pluginHookProblems: () => pluginRuntime?.pluginHookProblems() ?? [],
+					hookActivity: () => pluginRuntime.hookActivity.describe(),
+					hookNotices: {
+						subscribe: (listener: (line: string) => void) =>
+							pluginRuntime.hookActivity.onNotice(listener),
+					},
+					worktreeHooks: {
+						host: () => worktreeHookHost(pluginRuntime.manager, () => String(scope.sessionId)),
+						onNotice: (line: string) => pluginRuntime.hookActivity.notify(line),
+					},
 				}
 			: {}),
 		checkpoints,
@@ -7235,6 +7277,7 @@ export async function createAgentSession(
 								toolsets: runToolsets,
 								...(screensConfig !== undefined ? { toolResultGuardrails: screensConfig } : {}),
 								pluginManager: pluginRuntime?.manager,
+								hookActivity: pluginRuntime?.hookActivity,
 								skillRegistry: turnSkills.registry,
 								// The skill list is announced through the reminders, so a skill added
 								// mid-session leaves the cached prefix alone.
@@ -8281,6 +8324,8 @@ interface TurnParams {
 	/** See `ToolManagerConfig.resultGuardrails`; baked into a `ToolRegistry`'s constructor before toolsets existed. */
 	readonly toolResultGuardrails?: readonly ToolResultGuardrailSpec[]
 	readonly pluginManager: PluginLifecycleManager | undefined
+	/** What hooks set for this session's shell commands, and who hears of a change of folder. */
+	readonly hookActivity?: SessionHookActivity
 	readonly skillRegistry: SkillRegistryRef | undefined
 	readonly skills: Skill[] | undefined
 	readonly scope: SessionScope
@@ -8387,6 +8432,7 @@ async function* runTurn({
 	toolsets,
 	toolResultGuardrails,
 	pluginManager,
+	hookActivity,
 	skillRegistry,
 	skills,
 	scope,
@@ -8476,6 +8522,13 @@ async function* runTurn({
 			toolsets,
 			...(toolResultGuardrails !== undefined ? { toolResultGuardrails } : {}),
 			...(pluginManager ? { pluginManager } : {}),
+			...(hookActivity
+				? {
+						// Told once per real change of the shell's folder, before the next command.
+						onWorkingDirectoryChange: (change: { readonly from: string; readonly to: string }) =>
+							hookActivity.changeDirectory(change),
+					}
+				: {}),
 			...(skillRegistry ? { skillRegistry } : {}),
 			...(skills ? { skills } : {}),
 			// Withheld at both provider and executor boundaries on every ordinary
@@ -8512,6 +8565,9 @@ async function* runTurn({
 				...(opts?.effort !== undefined ? { effort: opts.effort } : {}),
 				...(opts?.speed === 'fast' ? { speed: opts.speed } : {}),
 				...(webSearch ? { webSearch } : {}),
+				// The variables hooks set for this session's commands: one live object,
+				// read at each command, so a hook that sets one mid-session is heard.
+				...(hookActivity ? { env: hookActivity.variables } : {}),
 				...turnConfigFields(resolveTurnGuards(limits), {
 					completionAudit: true,
 					detectChanges: changeDetectorFor(workingDirectory, {

@@ -58,10 +58,12 @@ terminal. It keeps the current screen in its current checkout; switching its
 working directory while a session is live would leave its project settings and
 tools bound to the previous directory.
 
-Namzu never removes a managed worktree automatically. A checkout may contain
-uncommitted files or commits that exist nowhere else. Inspect its state before
-using Git's ordinary, non-forced `git worktree remove <path>` yourself; that
-command does not delete the branch.
+Namzu never removes a worktree that `namzu worktree create` or `fork` made. A
+checkout may contain uncommitted files or commits that exist nowhere else.
+Inspect its state before using Git's ordinary, non-forced
+`git worktree remove <path>` yourself; that command does not delete the branch.
+The one automatic removal is a delegated child's checkout (below): it is removed
+when the child ends with no changes and no new commits, and kept otherwise.
 
 The `Agent` tool can also create one managed checkout per delegated child with
 `workspace: "worktree"`. Its generated branch and path appear in the child's
@@ -69,3 +71,22 @@ result and in `namzu worktree list`. That child starts from the selected
 checkout's committed HEAD and works in the corresponding subdirectory when
 launched below the Git root. See
 [Delegated work](delegated-work.md) for the launch and retention behavior.
+
+## Worktrees made by a hook
+
+A hook on `worktree_create` can make the worktree instead of Git: another
+version-control tool, a prepared checkout, a plain copy. It prints the folder it
+made as its last line, and Namzu uses that folder for `namzu worktree create`,
+`namzu worktree fork`, `/worktree create` and a delegated child's
+`workspace: "worktree"`, and creates none itself. Outside a Git checkout, these
+work when such a hook exists. If the hook fails or prints no path, the creation
+fails with a line naming the hook and what it printed; Namzu never falls back to
+Git behind your back. A hook on `worktree_remove` does the removing.
+
+A worktree a hook made is the hook's: `namzu worktree list` does not show it, and
+Namzu runs no Git removal on it. Without a `worktree_remove` hook it is left in
+place and Namzu says where. A folder nobody trusted does not run its own hooks, so
+`namzu worktree create` and `fork` there refuse, creating nothing, when the
+folder's config declares a `worktree_create` hook; run `namzu` in the folder once
+and accept the trust prompt first. See [Worktrees](../sdk/hooks.md#worktrees) for what
+the hooks receive and answer.

@@ -115,6 +115,34 @@ describe('reading an agent file’s hooks', () => {
 		])
 	})
 
+	it('sets aside the file, folder and worktree events: the host fires them for the session, never for a run', () => {
+		const read = readAgentHooks(
+			[
+				'hooks:',
+				'  FileChanged:',
+				'    - matcher: .envrc',
+				'      hooks:',
+				'        - command: ./x.sh',
+				'  cwd_changed:',
+				'    - command: ./y.sh',
+				'  WorktreeCreate:',
+				'    - hooks:',
+				'        - command: ./z.sh',
+				'  worktree_remove:',
+				'    - command: ./w.sh',
+			].join('\n'),
+			'guarded',
+		)
+		expect(read.count).toBe(0)
+		expect(read.guardLost).toBe(false)
+		expect(read.problems.map((problem) => problem.event).sort()).toEqual([
+			'cwd_changed',
+			'file_changed',
+			'worktree_create',
+			'worktree_remove',
+		])
+	})
+
 	it('loses the guard when a guarding entry cannot be loaded', () => {
 		const read = readAgentHooks(
 			[
