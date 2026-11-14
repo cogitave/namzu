@@ -722,6 +722,7 @@ import { IDLE_COMPACTION_NOTICE } from '../integrations/compaction/idle-compacti
 import { ApprovalNotifier } from '../integrations/notifications/approval.js'
 import { IdleNotifier } from '../integrations/notifications/idle.js'
 import { hostSlot } from '../workspaces/signal.js'
+import { UpdateNoticeRow } from './UpdateNoticeRow.js'
 import { wroteBy, wroteLineText, wroteOf } from './agent-tokens.js'
 import { agentViewCommandClass } from './agent-view-commands.js'
 import { type AttachmentRow, attachmentDirOf, attachmentRows } from './attachment-rows.js'
@@ -17291,6 +17292,8 @@ function AppBody({
 	// context meter) in the StatusBar's own order behind them.
 	const currentNotice = notices.current
 	const noticeIsImmediate = currentNotice?.priority === 'immediate'
+	// A notice that is urgent or an error holds the footer; the update line waits.
+	const noticeIsCritical = noticeIsImmediate || currentNotice?.tone === 'error'
 	const statusHint = exitHint
 		? `Press ${exitHint} again to exit`
 		: noticeIsImmediate
@@ -17824,6 +17827,13 @@ function AppBody({
 							/>
 						) : null}
 						<ComposerFrame
+							above={
+								<UpdateNoticeRow
+									notice={updateNotice}
+									columns={Math.max(2, (terminal.columns ?? 80) - 2)}
+									critical={noticeIsCritical}
+								/>
+							}
 							columns={Math.max(2, (terminal.columns ?? 80) - 2)}
 							working={state === 'thinking' || state === 'tool' || visibleActiveTools.length > 0}
 							{...(hypermode ? { mode: HYPERMODE } : {})}
@@ -18007,7 +18017,6 @@ function AppBody({
 									}
 								: null
 						}
-						ambient={updateNotice}
 						dialogOpen={boxOwnsKeys}
 						permissionMode={displayedPermissionMode}
 						canCycleMode
