@@ -98,6 +98,21 @@ describe('Esc on an open slash menu', () => {
 	})
 })
 
+describe('Tab after Esc closed a menu', () => {
+	it('brings the menu back and does not send the half-typed command', async () => {
+		const onSubmit = vi.fn()
+		const h = open({ onSubmit })
+		h.stdin.write('/mo')
+		await settle()
+		h.stdin.write(ESC)
+		await settle()
+		h.stdin.write('\t')
+		await settle()
+		expect(onSubmit).not.toHaveBeenCalled()
+		expect(h.lastFrame()).toContain('/model')
+	})
+})
+
 describe('Esc on an open @ menu', () => {
 	it('closes the menu and keeps the draft', async () => {
 		const h = open()
@@ -146,5 +161,18 @@ describe('Ctrl+R history search', () => {
 		expect(h.lastFrame()).not.toContain('write the docs')
 		expect(h.lastFrame()).toContain('docs')
 		expect(h.lastFrame()).not.toContain('history “')
+	})
+})
+
+describe('A composer that goes away during a search', () => {
+	it('tells the app the search is over', async () => {
+		const h = open({ history: ['write the docs'] })
+		h.stdin.write('docs')
+		await settle()
+		h.stdin.write(CTRL_R)
+		await settle()
+		expect(h.searching.at(-1)).toBe(true)
+		h.unmount()
+		expect(h.searching.at(-1)).toBe(false)
 	})
 })

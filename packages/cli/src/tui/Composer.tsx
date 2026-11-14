@@ -851,6 +851,8 @@ export function Composer({
 	const searching = historySearch !== null && !escapeInterrupts
 	useEffect(() => {
 		onHistorySearchChange?.(searching)
+		// A composer that goes away (dialog, transcript view) takes its search with it.
+		return () => onHistorySearchChange?.(false)
 	}, [onHistorySearchChange, searching])
 
 	useEffect(() => {
@@ -1677,6 +1679,12 @@ export function Composer({
 			}
 			if (isAction('chat:queue', input, key)) {
 				if (plainText) return
+				// Tab right after Esc closed a menu brings the menu back; it must not
+				// send the half-typed command or mention.
+				if (liveMenuClosed) {
+					setMenuClosedFor(null)
+					return
+				}
 				if (acceptSuggestion()) return
 				submit('queue')
 				return
