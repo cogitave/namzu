@@ -9,7 +9,7 @@
 	"scripts": {
 		"build": "node scripts/kernel/write-keys.mjs && tsc --build && vite build && node scripts/retain-notices.mjs",
 		"typecheck": "tsc --noEmit",
-		"lint": "biome check src/ scripts/check-pal-image.mjs scripts/woff2-cmap.mjs scripts/generate-display-coverage.mjs scripts/kernel scripts/__tests__",
+		"lint": "biome check src/ scripts/check-pal-image.mjs scripts/woff2-cmap.mjs scripts/generate-display-coverage.mjs scripts/feed-release-notes.mjs scripts/kernel scripts/__tests__",
 		"test": "vitest run && node --test scripts/__tests__/*.test.mjs",
 		"test:e2e": "xvfb-run -a node --test --test-concurrency=1 e2e/*.test.mjs",
 		"start": "electron .",

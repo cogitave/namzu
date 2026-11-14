@@ -13,7 +13,8 @@
 #   image    (Linux, read-only token)  builds the light Pal computer image with docker
 #   stage    (Linux, read-only token)  builds the workspace and stages the installer project
 #   package  (Windows, read-only token) runs electron-builder on the staged copy
-#   publish  (Linux, the only job with contents: write) checks the files, then uploads them
+#   publish  (Linux, the only job with contents: write) checks the files, then uploads them and
+#            sets the release's title and notes (packages/desktop/scripts/feed-release-notes.mjs)
 # stage-installer.mjs is a Linux/WSL script (it spawns npm and pnpm without a shell and extracts
 # with tar), so it is not run on Windows. Third-party install scripts never see a write token.
 #
@@ -270,6 +271,13 @@ jobs:
       GH_REPO: ${{ github.repository }}
       VERSION: ${{ needs.stage.outputs.version }}
     steps:
+      # Read-only checkout at this commit: the notes script and CHANGELOG.md are read from it. The
+      # write token is not kept in the checkout.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: desktop-installer
@@ -312,6 +320,29 @@ jobs:
             exit 1
           fi
 
+      # The page people open to download the app must describe the version it carries. The previous
+      # installer is read now, before this one is uploaded; the notes are built before anything is
+      # uploaded too, so a version missing from CHANGELOG.md stops the job with the feed untouched.
+      - name: Find the previous installer on the feed
+        run: |
+          previous="$(gh release view "$FEED_TAG" --json assets --jq '.assets[].name' \
+            | sed -n 's/^Namzu-Setup-\(.*\)\.exe$/\1/p' | sort -V -r | head -n 1)"
+          if ! printf '%s' "$previous" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+.][0-9A-Za-z.]+)?$'; then
+            previous=""
+          fi
+          echo "Previous installer on the feed: ${previous:-none}"
+          echo "PREVIOUS=$previous" >> "$GITHUB_ENV"
+
+      # Repository code runs here, so the write token is not in its environment.
+      - name: Write the release notes
+        env:
+          GH_TOKEN: ''
+        run: |
+          node packages/desktop/scripts/feed-release-notes.mjs \
+            --version "$VERSION" ${PREVIOUS:+--previous "$PREVIOUS"} \
+            --installer "installer/Namzu-Setup-$VERSION.exe" \
+            --out "$RUNNER_TEMP/release-notes.md"
+
       # The installer and its blockmap go first and latest.yml last, so the feed never names a file
       # that is not there yet. Older blockmaps stay on the release for differential updates.
       - name: Upload the installer, then the feed file
@@ -319,6 +350,11 @@ jobs:
         run: |
           gh release upload "$FEED_TAG" "Namzu-Setup-$VERSION.exe" "Namzu-Setup-$VERSION.exe.blockmap"
           gh release upload "$FEED_TAG" --clobber latest.yml
+
+      - name: Name the release and set its notes
+        run: |
+          gh release edit "$FEED_TAG" --title "Namzu Desktop $VERSION" \
+            --notes-file "$RUNNER_TEMP/release-notes.md"
 
       # Keep this version and the one before it (their blockmaps give the next update a small
       # download); remove older ones so the release does not grow without bound.
