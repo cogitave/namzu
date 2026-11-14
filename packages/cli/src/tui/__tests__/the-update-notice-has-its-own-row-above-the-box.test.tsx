@@ -14,7 +14,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { ComposerFrame } from '../ComposerFrame.js'
 import { StatusBar } from '../StatusBar.js'
-import { UpdateNoticeRow, fitUpdateNotice } from '../UpdateNoticeRow.js'
+import { UpdateNoticeRow, fitUpdateNotice, noticeHoldsFooter } from '../UpdateNoticeRow.js'
 import { theme } from '../theme.js'
 import { updaterEventAmbient } from '../update-notice.js'
 import { upperRuleRow } from './support/composer-rules.js'
@@ -179,4 +179,22 @@ describe.each([175, 100])('the bottom of the screen at %i columns', (cols) => {
 it('draws the installed tone from the ok colour', () => {
 	expect(installed.tone).toBe('ok')
 	expect(theme.status.ok).not.toBe(theme.text.muted)
+})
+
+describe('which notices hold the footer (the rule App passes as `critical`)', () => {
+	it.each([
+		['an urgent notice', { priority: 'immediate' }, false, true],
+		['an urgent notice while the box owns the keys', { priority: 'immediate' }, true, true],
+		['an error notice', { priority: 'medium', tone: 'error' }, false, true],
+		[
+			'an error notice the footer is not drawing (box owns the keys)',
+			{ priority: 'medium', tone: 'error' },
+			true,
+			false,
+		],
+		['an ordinary notice', { priority: 'medium', tone: 'info' }, false, false],
+		['no notice', null, false, false],
+	] as const)('%s', (_name, notice, boxOwnsKeys, held) => {
+		expect(noticeHoldsFooter(notice, boxOwnsKeys)).toBe(held)
+	})
 })

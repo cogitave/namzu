@@ -722,7 +722,7 @@ import { IDLE_COMPACTION_NOTICE } from '../integrations/compaction/idle-compacti
 import { ApprovalNotifier } from '../integrations/notifications/approval.js'
 import { IdleNotifier } from '../integrations/notifications/idle.js'
 import { hostSlot } from '../workspaces/signal.js'
-import { UpdateNoticeRow } from './UpdateNoticeRow.js'
+import { UpdateNoticeRow, noticeHoldsFooter } from './UpdateNoticeRow.js'
 import { wroteBy, wroteLineText, wroteOf } from './agent-tokens.js'
 import { agentViewCommandClass } from './agent-view-commands.js'
 import { type AttachmentRow, attachmentDirOf, attachmentRows } from './attachment-rows.js'
@@ -17293,7 +17293,7 @@ function AppBody({
 	const currentNotice = notices.current
 	const noticeIsImmediate = currentNotice?.priority === 'immediate'
 	// A notice that is urgent or an error holds the footer; the update line waits.
-	const noticeIsCritical = noticeIsImmediate || currentNotice?.tone === 'error'
+	const noticeIsCritical = noticeHoldsFooter(currentNotice, boxOwnsKeys)
 	const statusHint = exitHint
 		? `Press ${exitHint} again to exit`
 		: noticeIsImmediate

@@ -16,6 +16,21 @@ export interface UpdateNoticeLine {
 	readonly strong?: string
 }
 
+/**
+ * Whether the footer is showing a notice that outranks the update line: one
+ * that is urgent or an error, and that the footer is actually drawing (a
+ * non-urgent notice stays out of the footer while the box owns the keys).
+ */
+export function noticeHoldsFooter(
+	notice: { readonly priority?: string; readonly tone?: string } | null | undefined,
+	boxOwnsKeys: boolean,
+): boolean {
+	if (!notice) return false
+	const immediate = notice.priority === 'immediate'
+	const shown = immediate || !boxOwnsKeys
+	return shown && (immediate || notice.tone === 'error')
+}
+
 /** The widest the row may be, as a share of the row. */
 export const UPDATE_NOTICE_SHARE = 0.6
 
