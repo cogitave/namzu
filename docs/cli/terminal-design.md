@@ -1707,8 +1707,8 @@ writer of Namzu's own (`packages/cli/src/tui/paint/`) that sits between the rend
   the working line still moves every second.
 - **The scrollback is never erased; the screen opens clean and is left tidy.** At launch the terminal UI moves
   the rows on screen up into the scrollback (one newline per screen row, so the whole screen scrolls), homes the
-  cursor and erases what is left of the visible screen, so the banner is on the top row and nothing from the shell
-  or from an earlier run is in view. What the shell printed is one scroll away, once and in order, and the "erase
+  cursor and erases what is left of the visible screen, so the banner stands on the second row, under the one blank
+  margin row the screen always keeps above it, and nothing from the shell or from an earlier run is in view. What the shell printed is one scroll away, once and in order, and the "erase
   saved lines" sequence is never written, at launch or later. This is what a person sees when they run `namzu`,
   leave, and run it again in the same terminal: one banner, and the first run's transcript above it in the
   scrollback, not a dead input box and footer with the new session stacked under them. On the way out the input

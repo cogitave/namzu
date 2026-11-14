@@ -178,8 +178,10 @@ describe('opening the built command on a pseudo-terminal', () => {
 			t.start()
 			await t.until(ready)
 			let visible = t.visible()
-			// The banner is on the top row and nothing the shell printed is in view.
-			expect(banner(visible[0] ?? '') || banner(visible[1] ?? '')).toBe(true)
+			// The banner sits on the second row, under the screen's one blank margin row, and nothing the shell
+			// printed is in view.
+			expect(visible[0]).toBe('')
+			expect(banner(visible[1] ?? '')).toBe(true)
 			expect(visible.some(earlier)).toBe(false)
 			expect(visible.some((row) => row.startsWith('$ namzu'))).toBe(false)
 			// The scrollback is the person's: the shell's lines are all there, once, and it was never erased.
@@ -194,13 +196,14 @@ describe('opening the built command on a pseudo-terminal', () => {
 			expect(visible.some(composerShown)).toBe(false)
 			expect(t.raw).not.toContain(`${ESC}[3J`)
 
-			// The same terminal, a second time: one live banner on the top row, the first run above it.
+			// The same terminal, a second time: one live banner on the second row, the first run above it.
 			await t.shell('$ namzu again\r\n')
 			t.start()
 			await t.until(ready)
 			visible = t.visible()
 			expect(visible.filter(banner)).toHaveLength(1)
-			expect(banner(visible[0] ?? '') || banner(visible[1] ?? '')).toBe(true)
+			expect(visible[0]).toBe('')
+			expect(banner(visible[1] ?? '')).toBe(true)
 			expect(visible.some((row) => row.startsWith('$ namzu'))).toBe(false)
 			expect(t.all().filter(banner)).toHaveLength(2)
 			expect(t.all().filter(earlier)).toHaveLength(40)
