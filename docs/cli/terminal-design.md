@@ -1722,10 +1722,20 @@ writer of Namzu's own (`packages/cli/src/tui/paint/`) that sits between the rend
   0.13 s at the median and 0.2 s at the 90th percentile, and the last words of a reply are on screen within 0.1 s
   of arriving. The clock on
   the working line still moves every second.
-- **Nothing the terminal already holds is erased.** The terminal UI begins at the start of a line under what was on
-  screen (if a program left the cursor in the middle of a line, a reversed `%` ends that line, as shells do).
-  What was on screen and everything in the scrollback stay, and the banner is drawn under them. (Before, launch
-  cleared the screen and the scrollback.) The same rule holds for the rest of the session: text printed before
+- **The scrollback is never erased; the screen opens clean and is left tidy.** At launch the terminal UI moves
+  the rows on screen up into the scrollback (one newline per screen row, so the whole screen scrolls), homes the
+  cursor and erases what is left of the visible screen, so the banner stands on the second row, under the one blank
+  margin row the screen always keeps above it, and nothing from the shell or from an earlier run is in view. What the shell printed is one scroll away, once and in order, and the "erase
+  saved lines" sequence is never written, at launch or later. This is what a person sees when they run `namzu`,
+  leave, and run it again in the same terminal: one banner, and the first run's transcript above it in the
+  scrollback, not a dead input box and footer with the new session stacked under them. On the way out the input
+  box and its footer are taken off the screen (the frame's last two full-width rules and what hangs under them; a
+  frame with no such box, such as a dialog, is left as drawn), the transcript above stays, and the cursor is
+  left on the first erased row for the shell's prompt. A session run by the workspaces host, a hangup and the
+  fullscreen view do not do either step: the host owns that screen, a hung-up terminal has no screen to write,
+  and fullscreen is on the alternate screen, which leaves the terminal's own screen exactly as it found it.
+  Output that is not a terminal and the headless commands (`exec`, `watch`) write none of this.
+  The same rule holds for the rest of the session: text printed before
   launch and the conversation rows already printed are never erased and never printed a second time, by a resize,
   a compaction or a clear. `/compact` (and the idle compaction) prints one row under what is there and goes on.
   `/clear`, `/new`, `/resume` and a theme change ask for a new screen: the visible screen is cleared, but the rows
