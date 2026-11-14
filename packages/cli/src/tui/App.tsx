@@ -722,6 +722,7 @@ import { IDLE_COMPACTION_NOTICE } from '../integrations/compaction/idle-compacti
 import { ApprovalNotifier } from '../integrations/notifications/approval.js'
 import { IdleNotifier } from '../integrations/notifications/idle.js'
 import { hostSlot } from '../workspaces/signal.js'
+import { wroteBy, wroteLineText, wroteOf } from './agent-tokens.js'
 import { agentViewCommandClass } from './agent-view-commands.js'
 import { type AttachmentRow, attachmentDirOf, attachmentRows } from './attachment-rows.js'
 import { AwayRecap } from './away-recap.js'
@@ -13294,7 +13295,7 @@ function AppBody({
 									title: 'Workflows',
 									subtitle: workflowRunsSubtitle(runs),
 									values: runs.map((run) => run.runId),
-									options: runs.map(workflowRunOption),
+									options: runs.map((run) => workflowRunOption(run, subagentsRef.current)),
 								})
 							})
 							.catch((error) =>
@@ -18269,9 +18270,21 @@ function workflowRunsHints(canStop: boolean, canResume: boolean): { text: string
 }
 
 /** One `/workflows` row: the name, then how it stands, how many agents, when it began and how long it took. */
-export function workflowRunOption(run: WorkflowRunView): ChoicePickerOption {
+export function workflowRunOption(
+	run: WorkflowRunView,
+	agents: readonly SubagentActivity[] = [],
+): ChoicePickerOption {
 	const counts = countAgents(run)
 	const tokens = runTokens(run)
+	// What the agents wrote is known only for those still in this process; the
+	// journal keeps the cumulative figure. Say the written number only when it
+	// covers every agent that spent anything, so it is never an undercount.
+	const members = agents.filter((agent) => agent.workflowRunId === run.runId)
+	const wrote = wroteBy(members)
+	const covered =
+		wrote !== undefined &&
+		run.agents.filter((agent) => agent.tokens > 0).length <=
+			members.filter((agent) => wroteOf(agent) !== undefined).length
 	// The word a finished run wears in the transcript, and the duration straight
 	// after it, so a narrow row drops the tail rather than a number.
 	const columns = [
@@ -18281,9 +18294,13 @@ export function workflowRunOption(run: WorkflowRunView): ChoicePickerOption {
 		...(run.pass !== undefined && run.pass > 1
 			? [`pass ${run.pass}, ${run.agents.filter((agent) => agent.cached).length} saved`]
 			: []),
-		// The journal keeps each agent's cumulative usage (prompts sent again
-		// on every request included), so the list says what the number is.
-		...(tokens > 0 ? [`${formatCompactCount(tokens)} tokens in all`] : []),
+		// Otherwise the journal's cumulative usage (prompts sent again on every
+		// request included) is all there is, and the list says what it is.
+		...(covered
+			? [wroteLineText(wrote) as string]
+			: tokens > 0
+				? [`${formatCompactCount(tokens)} tokens in all`]
+				: []),
 		relativeStart(run.startedAt),
 	]
 	return { label: scriptText(run.name, { maxCells: 48 }), description: columns.join(' · ') }

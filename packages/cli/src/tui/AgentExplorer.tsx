@@ -2081,7 +2081,23 @@ export function maxAgentViewTailOffset(
 	pageRows: number,
 	terminalColumns: number,
 ): number {
-	return Math.max(0, agentTranscriptRows(agent, terminalColumns + 5).length - pageRows)
+	const room = pageRows - (agentViewUsageLine(agent, terminalColumns) !== undefined ? 1 : 0)
+	return Math.max(0, agentTranscriptRows(agent, terminalColumns + 5).length - room)
+}
+
+/**
+ * The one muted line under a viewed agent's transcript, against the composer: what it wrote, what it was
+ * sent and how much of that came from the cache. Only where the terminal has
+ * room for the wide wording and the agent has reported usage; the rail row
+ * below carries the short number everywhere else.
+ */
+export function agentViewUsageLine(
+	agent: SubagentActivity,
+	terminalColumns: number,
+): string | undefined {
+	// `terminalColumns` is the screen's width less its two-column margin.
+	if (terminalColumns + 2 < WIDE_USAGE_COLUMNS) return undefined
+	return agentUsageText(agent)
 }
 
 export interface AgentViewProps {
@@ -2109,45 +2125,57 @@ export function AgentView({
 	notice,
 }: AgentViewProps) {
 	const lines = agentTranscriptRows(agent, terminalColumns + 5)
-	const room = Math.max(1, pageRows - (notice ? 1 : 0))
+	const usage = agentViewUsageLine(agent, terminalColumns)
+	const room = Math.max(1, pageRows - (notice ? 1 : 0) - (usage !== undefined ? 1 : 0))
 	const offset = Math.min(Math.max(0, tailOffset), Math.max(0, lines.length - room))
 	const end = lines.length - offset
 	const shown = lines.slice(Math.max(0, end - room), end)
 	return (
-		<Box flexDirection="column" height={pageRows} flexShrink={0} justifyContent="flex-end">
-			{shown.length === 0 ? (
-				<Text color={theme.text.muted}>Waiting for output…</Text>
-			) : (
-				shown.map((line) => (
-					<Box key={line.id} height={1} flexShrink={0} overflow="hidden">
-						<Box width={2} flexShrink={0}>
-							<Text
-								color={
-									line.source !== 'prompt' && line.source.kind === 'tool'
-										? statusColor(line.source.status)
-										: lineColor(line)
-								}
-								bold={isOperatorLine(line)}
-							>
-								{line.continuation ? ' ' : lineGlyph(line)}
-							</Text>
+		<Box flexDirection="column" height={pageRows} flexShrink={0}>
+			<Box flexDirection="column" flexGrow={1} flexShrink={1} justifyContent="flex-end">
+				{shown.length === 0 ? (
+					<Text color={theme.text.muted}>Waiting for output…</Text>
+				) : (
+					shown.map((line) => (
+						<Box key={line.id} height={1} flexShrink={0} overflow="hidden">
+							<Box width={2} flexShrink={0}>
+								<Text
+									color={
+										line.source !== 'prompt' && line.source.kind === 'tool'
+											? statusColor(line.source.status)
+											: lineColor(line)
+									}
+									bold={isOperatorLine(line)}
+								>
+									{line.continuation ? ' ' : lineGlyph(line)}
+								</Text>
+							</Box>
+							<Box flexGrow={1} minWidth={0}>
+								<Text
+									color={lineColor(line)}
+									bold={isOperatorLine(line) || line.heading === true}
+									wrap="truncate-end"
+								>
+									{line.text}
+								</Text>
+							</Box>
 						</Box>
-						<Box flexGrow={1} minWidth={0}>
-							<Text
-								color={lineColor(line)}
-								bold={isOperatorLine(line) || line.heading === true}
-								wrap="truncate-end"
-							>
-								{line.text}
-							</Text>
-						</Box>
+					))
+				)}
+				{notice ? (
+					<Text color={theme.status.warn} wrap="truncate-end">
+						{notice}
+					</Text>
+				) : null}
+			</Box>
+			{usage !== undefined ? (
+				<Box height={1} flexShrink={0}>
+					<Box flexGrow={1} flexShrink={1} minWidth={0}>
+						<Text color={theme.text.muted} wrap="truncate-end">
+							{usage}
+						</Text>
 					</Box>
-				))
-			)}
-			{notice ? (
-				<Text color={theme.status.warn} wrap="truncate-end">
-					{notice}
-				</Text>
+				</Box>
 			) : null}
 		</Box>
 	)

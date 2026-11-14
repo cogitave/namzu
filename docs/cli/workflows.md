@@ -357,7 +357,7 @@ review the script, so a headless run may start a workflow only in `bypass` mode
 ## `/workflows`
 
 `/workflows` lists this conversation's runs, newest first, with status, agents
-settled over asked, tokens (`N tokens in all`: the journal keeps each agent's cumulative usage, prompts sent again included), how long ago it began and how long it took. Enter
+settled over asked, tokens (`N tokens written` while the run's agents are in this process, otherwise `N tokens in all`: the journal keeps each agent's cumulative usage, prompts sent again included), how long ago it began and how long it took. Enter
 opens the same detail; the footer reads `enter to view · x to stop · esc to
 close` (`x` only on a run that is still going, and it stops that run; `r` on a run that is not going asks the model to resume it, see [Resuming a run](#resuming-a-run)), under a
 subtitle such as `1 running, 2 finished`, in a rounded frame; each row reads the transcript's words (`finished`, `failed`, `stopped`) and puts the duration right after, so a narrow screen drops the tail and never half a number. Runs started in this process come from the live registry;
