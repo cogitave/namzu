@@ -459,12 +459,6 @@ export function railProgressBar(done: number, total: number, width: number): [st
 	return ['▰'.repeat(filled), '▱'.repeat(width - filled)]
 }
 
-/** One way to draw a row's right-hand block: a bar width and the text after it. */
-export interface WorkflowRowVariant {
-	readonly barWidth: number
-	readonly text: string
-}
-
 /** Widest a phase title grows in the row before it is cut with `…`. */
 const RAIL_PHASE_TITLE_WIDTH = 18
 
@@ -485,6 +479,32 @@ export function railPhaseTexts(titles: readonly string[] | undefined): readonly 
 }
 
 /**
+ * How long a workflow has run, in the compact form its row uses: `45s`,
+ * `16m08s`, `1h58m`, `2d03h`. Every form is fixed in shape, so the clocks of
+ * rows that run for different times still line up.
+ */
+export function railWorkflowElapsed(ms: number): string {
+	const total = Math.max(0, Math.floor(ms / 1000))
+	const two = (value: number): string => String(value).padStart(2, '0')
+	if (total < 60) return `${total}s`
+	if (total < 3_600) return `${Math.floor(total / 60)}m${two(total % 60)}s`
+	if (total < 86_400) return `${Math.floor(total / 3_600)}h${two(Math.floor(total / 60) % 60)}m`
+	return `${Math.floor(total / 86_400)}d${two(Math.floor(total / 3_600) % 24)}h`
+}
+
+/** The fields of a workflow row's right-hand block, in the order they read. */
+const WORKFLOW_FIELDS = ['count', 'elapsed', 'tokens', 'warning'] as const
+type WorkflowField = (typeof WORKFLOW_FIELDS)[number]
+
+/** One step of how a row narrows: a bar width, the fields kept, and which phase wording (if any) follows. */
+interface WorkflowTier {
+	readonly barWidth: number
+	readonly fields: readonly WorkflowField[]
+	/** 0 is the longer wording of the running phases, 1 the shorter; undefined names none. */
+	readonly phases?: 0 | 1
+}
+
+/**
  * The right-hand block of a workflow row, widest first. The row gives up
  * space in this order as the terminal narrows:
  *
@@ -500,41 +520,95 @@ export function railPhaseTexts(titles: readonly string[] | undefined): readonly 
  * goes too, then the clock, and the count is the last thing left. The caller
  * takes the first variant that fits.
  */
+const WORKFLOW_TIERS: readonly WorkflowTier[] = (() => {
+	const all = ['count', 'elapsed', 'tokens', 'warning'] as const
+	const [wide, ...narrower] = WORKFLOW_BAR_WIDTHS
+	const few = WORKFLOW_BAR_WIDTHS[WORKFLOW_BAR_WIDTHS.length - 1] as number
+	return [
+		{ barWidth: wide, fields: all, phases: 0 },
+		{ barWidth: wide, fields: all, phases: 1 },
+		{ barWidth: wide, fields: all },
+		...narrower.map((barWidth): WorkflowTier => ({ barWidth, fields: all })),
+		{ barWidth: few, fields: ['count', 'elapsed', 'warning'] },
+		{ barWidth: few, fields: ['count', 'elapsed'] },
+		{ barWidth: 0, fields: ['count', 'elapsed'] },
+		{ barWidth: 0, fields: ['count'] },
+	]
+})()
+
+/** What one workflow has to say, before any of it is laid out. */
+interface WorkflowFacts {
+	readonly fields: Readonly<Partial<Record<WorkflowField, string>>>
+	readonly phases: readonly string[]
+}
+
+function workflowFacts(workflow: RailWorkflow, now: number): WorkflowFacts {
+	const tokens = wroteRailText(workflow.outputTokens)
+	return {
+		fields: {
+			// The counter is the agents that finished over every agent; a failure turns
+			// the row's dot red and is counted in the detail, not beside the counter.
+			count: `${workflow.done}/${workflow.total}`,
+			elapsed: railWorkflowElapsed(Math.max(0, (workflow.endedAt ?? now) - workflow.startedAt)),
+			...(tokens !== undefined ? { tokens } : {}),
+			...(workflow.large ? { warning: LARGE_WORKFLOW_WARNING } : {}),
+		},
+		phases: railPhaseTexts(workflow.runningPhases),
+	}
+}
+
+/**
+ * The text of every row at one tier. A field is one column wide as its widest
+ * value among the rows, so the counts, the clocks and the token numbers of
+ * different rows start in the same cell; the phase words are the row's own tail.
+ */
+function tierTexts(facts: readonly WorkflowFacts[], tier: WorkflowTier): readonly string[] {
+	const widths = new Map<WorkflowField, number>()
+	for (const field of tier.fields)
+		widths.set(field, Math.max(0, ...facts.map((row) => stringWidth(row.fields[field] ?? ''))))
+	return facts.map((row) => {
+		let out = ''
+		for (const field of tier.fields) {
+			const width = widths.get(field) ?? 0
+			if (width === 0) continue
+			const cell = row.fields[field] ?? ''
+			const pad = ' '.repeat(Math.max(0, width - stringWidth(cell)))
+			out += out === '' ? `${cell}${pad}` : `${cell === '' ? '   ' : ' · '}${cell}${pad}`
+		}
+		out = out.trimEnd()
+		const phases = tier.phases === undefined ? undefined : row.phases[tier.phases]
+		return phases !== undefined ? `${out} · ${phases}` : out
+	})
+}
+
+/** One way to draw a row's right-hand block: a bar width and the text after it. */
+export interface WorkflowRowVariant {
+	readonly barWidth: number
+	readonly text: string
+}
+
+/** The variants of several rows, each tier giving every row its text; a tier that repeats an earlier one is left out. */
+function sharedVariants(
+	facts: readonly WorkflowFacts[],
+): readonly (readonly WorkflowRowVariant[])[] {
+	const seen = new Set<string>()
+	const tiers: (readonly WorkflowRowVariant[])[] = []
+	for (const tier of WORKFLOW_TIERS) {
+		// A phase wording that this row set does not have is the same tier as the next one.
+		const texts = tierTexts(facts, tier)
+		const key = `${tier.barWidth}\u0000${texts.join('\u0000')}`
+		if (seen.has(key)) continue
+		seen.add(key)
+		tiers.push(texts.map((text) => ({ barWidth: tier.barWidth, text })))
+	}
+	return tiers
+}
+
 export function workflowRowVariants(
 	workflow: RailWorkflow,
 	now: number,
 ): readonly WorkflowRowVariant[] {
-	const count = `${workflow.done}/${workflow.total}`
-	// The counter is the agents that finished over every agent; a failure turns
-	// the row's dot red and is counted in the detail, not beside the counter.
-	const elapsed = formatElapsed(Math.max(0, (workflow.endedAt ?? now) - workflow.startedAt))
-	const tokens = wroteRailText(workflow.outputTokens)
-	const warning = workflow.large ? LARGE_WORKFLOW_WARNING : undefined
-	const join = (parts: readonly (string | undefined)[]): string =>
-		parts.filter((part): part is string => part !== undefined).join(' · ')
-	const [wide, ...narrower] = WORKFLOW_BAR_WIDTHS
-	const few = WORKFLOW_BAR_WIDTHS[WORKFLOW_BAR_WIDTHS.length - 1]
-	const variants: WorkflowRowVariant[] = [
-		...railPhaseTexts(workflow.runningPhases).map((phases) => ({
-			barWidth: wide,
-			text: join([count, elapsed, tokens, warning, phases]),
-		})),
-		{ barWidth: wide, text: join([count, elapsed, tokens, warning]) },
-		...narrower.map((barWidth) => ({
-			barWidth,
-			text: join([count, elapsed, tokens, warning]),
-		})),
-		{ barWidth: few, text: join([count, elapsed, warning]) },
-		{ barWidth: few, text: join([count, elapsed]) },
-		{ barWidth: 0, text: join([count, elapsed]) },
-		{ barWidth: 0, text: count },
-	]
-	return variants.filter(
-		(variant, index) =>
-			variants.findIndex(
-				(other) => other.barWidth === variant.barWidth && other.text === variant.text,
-			) === index,
-	)
+	return sharedVariants([workflowFacts(workflow, now)]).map((tier) => tier[0] as WorkflowRowVariant)
 }
 
 /** Cells of the pointer and bullet columns in front of every rail row. */
@@ -542,37 +616,60 @@ const RAIL_PREFIX_CELLS = 4
 /** Gap between the name and the bar. */
 const WORKFLOW_ROW_GAP = 2
 
+/** How a set of workflow rows is laid out in one width. */
+export interface WorkflowRowLayout {
+	readonly variant: WorkflowRowVariant
+	readonly nameWidth: number
+}
+
 /**
- * Picks how a workflow row is laid out in `columns` cells: the first variant
- * of {@link workflowRowVariants} that leaves the whole name its width. When
- * none does, the name is cut with `…`, but never below `min(8, nameWidth)`
- * cells while a variant can give it that, so the row gives up its bar and its
- * clock before the name becomes unreadable.
+ * Picks how the workflow rows are laid out in `columns` cells. All rows take
+ * the same step, so their bars start in one column and their counts, clocks and
+ * token numbers line up under each other: the first step of
+ * {@link workflowRowVariants} that leaves the whole name its width. When none
+ * does, the name is cut with `…`, but never below `min(8, nameWidth)` cells
+ * while a step can give it that, so the rows give up their bar and their clock
+ * before the name becomes unreadable.
  */
+export function layoutWorkflowRows(
+	workflows: readonly RailWorkflow[],
+	now: number,
+	columns: number,
+	nameWidth: number,
+): readonly WorkflowRowLayout[] {
+	if (workflows.length === 0) return []
+	const tiers = sharedVariants(workflows.map((workflow) => workflowFacts(workflow, now)))
+	const room = Math.max(1, columns - RAIL_PREFIX_CELLS - 2)
+	const widthOf = (tier: readonly WorkflowRowVariant[]): number => {
+		const text = Math.max(0, ...tier.map((variant) => stringWidth(variant.text)))
+		return WORKFLOW_ROW_GAP + (tier[0]?.barWidth ?? 0) + (text > 0 ? 2 + text : 0)
+	}
+	const barOf = (tier: readonly WorkflowRowVariant[]): number => tier[0]?.barWidth ?? 0
+	const pick = (tier: readonly WorkflowRowVariant[], width: number): readonly WorkflowRowLayout[] =>
+		tier.map((variant) => ({ variant, nameWidth: width }))
+	const barred = tiers.filter((tier) => barOf(tier) > 0)
+	const whole = barred.find((tier) => room - widthOf(tier) >= nameWidth)
+	if (whole) return pick(whole, nameWidth)
+	const wanted = Math.min(8, nameWidth)
+	const cutAt = (tier: readonly WorkflowRowVariant[]) => Math.min(nameWidth, room - widthOf(tier))
+	// The shortest bar, with the name cut to what is left, while that is readable.
+	const shortest = barred[barred.length - 1]
+	if (shortest && cutAt(shortest) >= wanted) return pick(shortest, cutAt(shortest))
+	// Then the bar goes: the count and the clock, then the count alone.
+	const bare = tiers.find((tier) => barOf(tier) === 0 && cutAt(tier) >= wanted)
+	if (bare) return pick(bare, cutAt(bare))
+	const last = tiers[tiers.length - 1] as readonly WorkflowRowVariant[]
+	return pick(last, Math.max(1, cutAt(last)))
+}
+
+/** The layout of one workflow row on its own; see {@link layoutWorkflowRows}. */
 export function layoutWorkflowRow(
 	workflow: RailWorkflow,
 	now: number,
 	columns: number,
 	nameWidth: number,
-): { readonly variant: WorkflowRowVariant; readonly nameWidth: number } {
-	const variants = workflowRowVariants(workflow, now)
-	const room = Math.max(1, columns - RAIL_PREFIX_CELLS - 2)
-	const widthOf = (variant: WorkflowRowVariant): number =>
-		WORKFLOW_ROW_GAP + variant.barWidth + (variant.text ? 2 + stringWidth(variant.text) : 0)
-	const barred = variants.filter((variant) => variant.barWidth > 0)
-	const whole = barred.find((variant) => room - widthOf(variant) >= nameWidth)
-	if (whole) return { variant: whole, nameWidth }
-	const wanted = Math.min(8, nameWidth)
-	const cutAt = (variant: WorkflowRowVariant) => Math.min(nameWidth, room - widthOf(variant))
-	// The shortest bar, with the name cut to what is left, while that is readable.
-	const shortest = barred[barred.length - 1]
-	if (shortest && cutAt(shortest) >= wanted)
-		return { variant: shortest, nameWidth: cutAt(shortest) }
-	// Then the bar goes: the count and the clock, then the count alone.
-	const bare = variants.find((variant) => variant.barWidth === 0 && cutAt(variant) >= wanted)
-	if (bare) return { variant: bare, nameWidth: cutAt(bare) }
-	const last = variants[variants.length - 1] as WorkflowRowVariant
-	return { variant: last, nameWidth: Math.max(1, cutAt(last)) }
+): WorkflowRowLayout {
+	return layoutWorkflowRows([workflow], now, columns, nameWidth)[0] as WorkflowRowLayout
 }
 
 export interface AgentTaskPanelProps {
@@ -697,6 +794,10 @@ export function AgentTaskPanel({
 			)
 		}),
 	)
+	// One step for every workflow row, so the bars and the columns after them line up.
+	const workflowLayouts = compact
+		? []
+		: layoutWorkflowRows(workflows, now, terminalColumns, nameWidth)
 	const mainRight = compact
 		? [
 				...(agents.length > 0 || workflows.length === 0
@@ -816,12 +917,9 @@ export function AgentTaskPanel({
 				? null
 				: workflows.map((workflow, offset) => {
 						const selected = focused && selectedIndex === agents.length + lead + offset
-						const { variant, nameWidth: workflowNameWidth } = layoutWorkflowRow(
-							workflow,
-							now,
-							terminalColumns,
-							nameWidth,
-						)
+						const { variant, nameWidth: workflowNameWidth } = workflowLayouts[
+							offset
+						] as WorkflowRowLayout
 						const [filled, empty] = railProgressBar(workflow.done, workflow.total, variant.barWidth)
 						return (
 							<Box key={workflow.focusId}>
