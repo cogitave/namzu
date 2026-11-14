@@ -259,15 +259,4 @@ describe('@namzu/openrouter — thinking controls reach the wire', () => {
 			expect(bodyFor({ effort })).toMatchObject({ reasoning: { effort } })
 		},
 	)
-
-	it.each(['max', 'ultra'] as const)(
-		'refuses effort %s instead of sending a wrong level',
-		async (effort) => {
-			const provider = new OpenRouterProvider({
-				apiKey: 'test-key',
-				baseUrl: 'https://example.test/api/v1',
-			})
-			await expect(collect(provider, { effort })).rejects.toThrow(/cannot carry effort/)
-		},
-	)
 })

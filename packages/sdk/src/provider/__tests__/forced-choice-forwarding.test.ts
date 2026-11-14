@@ -59,7 +59,7 @@ describe('acceptsForcedToolChoiceFor survives each decorator', () => {
 		expect(asked).toEqual([{ model: 'strict', thinking: manual }, { model: 'lenient' }])
 	})
 
-	it('a provider that does not declare it is left undeclared, so it is taken to accept', () => {
+	it('a provider that does not declare it is left undeclared, so it is not forced', () => {
 		const { provider } = driver('a')
 		expect(withProviderRetry(provider).acceptsForcedToolChoiceFor).toBeUndefined()
 		expect(
@@ -80,6 +80,9 @@ describe('acceptsForcedToolChoiceFor survives each decorator', () => {
 		const chain = (members: LLMProvider[]) =>
 			withProviderFallback(members.map((provider, i) => ({ provider, model: `m${i}` })))
 		expect(chain([lenient.provider, silent.provider]).acceptsForcedToolChoiceFor?.('req')).toBe(
+			false,
+		)
+		expect(chain([lenient.provider, lenient.provider]).acceptsForcedToolChoiceFor?.('req')).toBe(
 			true,
 		)
 		expect(chain([lenient.provider, strict.provider]).acceptsForcedToolChoiceFor?.('req')).toBe(

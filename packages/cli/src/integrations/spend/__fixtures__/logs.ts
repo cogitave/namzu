@@ -173,6 +173,24 @@ export function sessionLogText(session: FixtureSession): { id: string; text: str
 				content: `${'x'.repeat(2000)} "type":"turn_started" "type":"token_usage_updated"`,
 			},
 		})
+		if (turn.servingProvider) {
+			push(turn.startAt, {
+				type: 'message',
+				turnId,
+				messageId: `answer-${index}`,
+				role: 'assistant',
+				content: {
+					role: 'assistant',
+					content: 'ok',
+					source: {
+						type: 'model',
+						providerId: turn.servingProvider,
+						model: turn.model,
+						chainIndex: 0,
+					},
+				},
+			})
+		}
 		let currentModel = turn.model
 		for (const call of turn.calls) {
 			if (call.fallbackTo) {

@@ -13,11 +13,9 @@
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import type { UpdatesConfig } from '../../config/schema.js'
 import { CLI_VERSION } from '../../version.js'
 import { currentInstall } from './current-install.js'
 import type { InstallKind } from './install-kind.js'
-import { resolveUpdatePolicy } from './policy.js'
 import { scopeOf, sharedStateHome } from './shared-state.js'
 import { processIsRunning, updatesDir } from './state.js'
 
@@ -57,18 +55,24 @@ export function registerRunning(
 	}
 }
 
-/** The process ids, other than `except`, that are running from `install`. Dead ones are removed. */
-export function otherRunning(
+/** A live process that runs from an install, and the version it started as (`undefined` when unrecorded). */
+export interface RunningEntry {
+	readonly pid: number
+	readonly version: string | undefined
+}
+
+/** The live processes, other than `except`, that run from `install`. Records of dead ones are removed. */
+export function listRunning(
 	install: Updatable,
 	options: {
 		readonly except?: number
 		readonly isAlive?: (pid: number) => boolean
 		readonly platform?: NodeJS.Platform
 	} = {},
-): number[] {
+): RunningEntry[] {
 	const dir = runningDir(install, options.platform ?? process.platform)
 	const alive = options.isAlive ?? processIsRunning
-	const found: number[] = []
+	const found: RunningEntry[] = []
 	let names: string[]
 	try {
 		names = readdirSync(dir)
@@ -81,7 +85,7 @@ export function otherRunning(
 		const pid = Number(match[1])
 		if (pid === options.except) continue
 		if (alive(pid)) {
-			found.push(pid)
+			found.push({ pid, version: readRunningVersion(join(dir, name)) })
 			continue
 		}
 		try {
@@ -93,21 +97,30 @@ export function otherRunning(
 	return found
 }
 
+/** The process ids, other than `except`, that are running from `install`. Dead ones are removed. */
+export function otherRunning(
+	install: Updatable,
+	options: {
+		readonly except?: number
+		readonly isAlive?: (pid: number) => boolean
+		readonly platform?: NodeJS.Platform
+	} = {},
+): number[] {
+	return listRunning(install, options).map((entry) => entry.pid)
+}
+
 /**
  * Register this process when it runs from an install that an update replaces in place.
- * A copy that is never updated (a checkout, the Desktop app's engine, `npx`) writes nothing,
- * and neither does a process with updates switched off: nothing is added to the package
- * manager's folder for a person who turned them off.
+ * A copy that is never updated (a checkout, the Desktop app's engine, `npx`) writes nothing.
+ * A process with updates switched off still writes its record: another window, or another
+ * user of a shared install, may install an update, and the files this process still has to
+ * load must stay until it ends. The record is a few bytes and holds nothing else.
  */
 export function registerRunningSession(
 	env: NodeJS.ProcessEnv = process.env,
-	updates?: UpdatesConfig,
 	find: typeof currentInstall = currentInstall,
 ): () => void {
 	try {
-		if (!resolveUpdatePolicy({ config: updates, env, interactive: true }).check) {
-			return () => undefined
-		}
 		const found = find(env)
 		if (!found) return () => undefined
 		const { install } = found

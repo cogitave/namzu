@@ -5,13 +5,22 @@
  */
 
 import { compareVersions } from '../updates.js'
-import { type FailureStatus, describeFailure, manualUpdateCommand, scopeOf } from './apply.js'
+import {
+	type FailureStatus,
+	activeRoot,
+	describeFailure,
+	manualUpdateCommand,
+	scopeOf,
+} from './apply.js'
 import type { InstallKind } from './install-kind.js'
+import { readInstalledVersion } from './installed-version.js'
 import { readAttempt, readCheck, readLastResult } from './state.js'
 
 export type UpdateStatus =
 	| { readonly state: 'not-applicable' }
 	| { readonly state: 'current'; readonly version: string }
+	/** A newer version is already on disk (installed while this window ran); only a restart is left. */
+	| { readonly state: 'installed'; readonly version: string; readonly running: string }
 	| {
 			readonly state: 'available'
 			readonly latest: string
@@ -38,12 +47,24 @@ export interface UpdateStatusInput {
 	readonly install: InstallKind
 	readonly home: string
 	readonly platform: NodeJS.Platform
+	/** Version the package folder on disk reports; throws when unreadable. Defaults to reading it. */
+	readonly installedVersion?: (root: string) => string
 }
 
 export function readUpdateStatus(input: UpdateStatusInput): UpdateStatus {
 	const { install, home, platform, currentVersion } = input
 	if (install.kind === 'development' || install.kind === 'ephemeral' || install.kind === 'desktop')
 		return { state: 'not-applicable' }
+	if (install.kind === 'npm-global' || install.kind === 'pnpm-global') {
+		try {
+			const onDisk = (input.installedVersion ?? readInstalledVersion)(activeRoot(install))
+			if (compareVersions(onDisk, currentVersion) > 0) {
+				return { state: 'installed', version: onDisk, running: currentVersion }
+			}
+		} catch {
+			// An unreadable folder says nothing about updates; the checks below still apply.
+		}
+	}
 	const check = readCheck(home)
 	if (!check || compareVersions(check.version, currentVersion) <= 0)
 		return { state: 'current', version: currentVersion }
