@@ -40,7 +40,7 @@ The monitor counts consecutive steps that changed nothing. A step changed someth
 
 ### When the person asked a question
 
-If the latest message from the person contains a question mark, the nudge comes after 6 steps without a change instead of 12, and its text tells the model to answer now, in the person's language and within what they asked for, and to say what is missing instead of running another command. Six steps is half of the general threshold: a question is usually settled by two or three looks, so six that settled nothing mean the model is circling. This path never forces a tool call; after `forceAfterSteps` more steps the same text is sent again. A message without a question mark keeps the general thresholds.
+If the latest message from the person contains a question mark, the nudge comes after 6 steps without a change instead of 12, and its text tells the model to answer now, in the person's language and within what they asked for, and to say what is missing instead of running another command. Six steps is half of the general threshold: a question is usually settled by two or three looks, so six that settled nothing mean the model is circling. In such a turn a shell command is counted as looking even when the policy cannot call it read-only, because a model asked a question that keeps trying commands is circling, not working; file edits and other tools still count as changes. This path never forces a tool call; after `forceAfterSteps` more steps the same text is sent again. A message without a question mark keeps the general thresholds.
 
 `reasoning.stall` takes `nudgeAfterSteps`, `nudgeAfterReasoningChars`, `forceAfterSteps` and `answerAfterSteps`, or `false` to turn the monitor off.
 

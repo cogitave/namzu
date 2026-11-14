@@ -5,6 +5,7 @@ import {
 	extractFromUserMessage,
 } from '../../../compaction/extractor.js'
 import { estimateMessageTokens } from '../../../compaction/token-estimate.js'
+import { SHELL_TOOLS } from '../../../constants/compaction/index.js'
 import {
 	AUTO_CONTINUATION_USER_MESSAGE,
 	REASONING_CUT_USER_MESSAGE,
@@ -3614,6 +3615,7 @@ export class IterationOrchestrator {
 		if (!monitor) return
 		const calls = new Map((response.message.toolCalls ?? []).map((c) => [c.id, c]))
 		let changedState = false
+		const question = asksQuestion(this.latestUserMessage?.content)
 		for (const result of results) {
 			const call = calls.get(result.toolCallId)
 			let readOnly: boolean | undefined
@@ -3623,6 +3625,10 @@ export class IterationOrchestrator {
 			} catch {
 				readOnly = undefined
 			}
+			// A shell command the policy cannot call read-only is not known to
+			// have changed anything either; in a turn that opened with a question
+			// it is a way of looking, so a run of them still counts as circling.
+			if (question && SHELL_TOOLS.has(result.toolName)) continue
 			if (callChangedState(result.toolName, readOnly, result.isError)) {
 				// The same tool with the same input and the same result as an
 				// earlier call this turn changed nothing, whatever the tool is.
@@ -3636,7 +3642,7 @@ export class IterationOrchestrator {
 		const directive = monitor.observe({
 			reasoningChars,
 			changedState,
-			question: asksQuestion(this.latestUserMessage?.content),
+			question,
 		})
 		if (directive.kind === 'nudge') {
 			this.ctx.log.info('Many steps without a change — nudging the model to act', {

@@ -94,6 +94,16 @@ async function run(provider: LLMProvider, prompt: string) {
 						}),
 					},
 					{
+						name: 'bash',
+						description: 'Run a shell command',
+						inputSchema: z.object({ n: z.number() }),
+						isReadOnly: () => false,
+						execute: async (input: { n: number }) => ({
+							success: true,
+							output: `Ran ${input.n}.`,
+						}),
+					},
+					{
 						name: 'apply',
 						description: 'Run a command that is not read-only',
 						inputSchema: z.object({}),
@@ -160,6 +170,19 @@ describe('a turn that opens with a question', () => {
 		const provider = loop('apply', 12, () => '{}')
 		await run(provider, 'Why is it slow?')
 		expect(firstRequestWith(provider, ANSWER_NOW_MESSAGE)).toBe(7)
+	})
+
+	it('counts shell commands the policy cannot call read-only as looking, each with its own result', async () => {
+		const provider = loop('bash', 12, (i) => JSON.stringify({ n: i }))
+		await run(provider, 'Why did this cost so much?')
+		expect(firstRequestWith(provider, ANSWER_NOW_MESSAGE)).toBe(6)
+	})
+
+	it('keeps counting such a command as a change when nothing was asked', async () => {
+		const provider = loop('bash', 14, (i) => JSON.stringify({ n: i }))
+		await run(provider, 'Run the build step by step.')
+		expect(firstRequestWith(provider, ANSWER_NOW_MESSAGE)).toBe(-1)
+		expect(firstRequestWith(provider, STALL_NUDGE_MESSAGE)).toBe(-1)
 	})
 
 	it('is nudged again, and never forced to call a tool, when it keeps looking', async () => {
