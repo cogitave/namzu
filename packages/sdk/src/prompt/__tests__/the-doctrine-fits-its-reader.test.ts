@@ -208,7 +208,9 @@ describe('the coding-agent doctrine', () => {
 		)
 		// The look is one step, with every independent search in the same response,
 		// so a question costs one request for the look and one for the answer.
-		expect(section).toContain('put every independent search for the fact in the same response')
+		expect(section).toContain(
+			'independent tool calls, such as every search for the fact, go in one response',
+		)
 		expect(section).toContain('say what you looked at and what is missing, then stop')
 		expect(section).toContain('look further only when the result itself names where the fact is')
 		expect(section).toContain('report what you ruled out and what would settle it')
@@ -268,5 +270,18 @@ describe('the coding-agent doctrine', () => {
 			'For a question about an earlier state, use that observation or its retained original',
 		)
 		expect(CODING_AGENT_WORKING_DOCTRINE).toContain("leave today's value out")
+	})
+
+	it('keeps the fork, explore and parallel-call behaviours the trimming once dropped', () => {
+		// A fork's report is never predicted, a fork cannot start forks, an explore
+		// agent never asks the user for permission, and independent calls share a response.
+		expect(CODING_AGENT_DELEGATION_DOCTRINE).toContain(
+			'Never guess what it will find before its report arrives',
+		)
+		expect(CODING_AGENT_DELEGATION_DOCTRINE).toContain('a fork cannot start forks')
+		expect(CODING_AGENT_DELEGATION_DOCTRINE).toContain('never asks the user for permission')
+		expect(CODING_AGENT_WORKING_DOCTRINE).toContain(
+			'independent tool calls, such as every search for the fact, go in one response',
+		)
 	})
 })

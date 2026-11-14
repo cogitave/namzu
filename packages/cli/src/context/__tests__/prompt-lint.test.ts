@@ -293,7 +293,7 @@ describe('the assembled prompts', () => {
 			CONVERSATION_EVIDENCE_GUIDANCE,
 			DEFERRED_TOOL_GUIDANCE,
 		]
-		expect(pieces.join('\n\n').length).toBeLessThan(14_450)
+		expect(pieces.join('\n\n').length).toBeLessThan(14_550)
 		for (const [name, text] of assembled()) {
 			if (name.startsWith('main')) expect(text.length, name).toBeLessThan(MAIN_CEILING)
 			if (name.startsWith('explore') || name.startsWith('planner'))
