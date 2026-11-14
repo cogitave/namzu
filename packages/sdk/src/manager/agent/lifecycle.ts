@@ -323,7 +323,7 @@ export class AgentManager {
 	private deps: AgentManagerDeps
 	private topicManager: TopicManager
 	private readonly pendingSpawns = new Map<SessionId, PendingSpawn[]>()
-	private readonly drainingParents = new Set<SessionId>()
+	private readonly drainingParents = new Map<SessionId, Promise<void>>()
 	private readonly executingTasks = new Set<TaskId>()
 	private readonly cancelingTasks = new Set<TaskId>()
 	private admissionTimer: ReturnType<typeof setTimeout> | undefined
@@ -441,14 +441,20 @@ export class AgentManager {
 		} catch (error) {
 			this.failAdmission(entry, error)
 		}
-		this.pumpAdmissions(options.parentSessionId)
+		// Report the task as it stands once admission has had its turn: started
+		// when there was room, still pending only when the pass stopped at a
+		// capacity or budget limit. Returned earlier, every task of a burst
+		// launched at the same moment would read as waiting for a slot.
+		await this.pumpAdmissions(options.parentSessionId)
 		return task
 	}
 
-	private pumpAdmissions(parentSessionId: SessionId): void {
-		if (this.disposed || this.drainingParents.has(parentSessionId)) return
-		this.drainingParents.add(parentSessionId)
-		void this.drainAdmissions(parentSessionId)
+	/** Run one admission pass; resolves when it has started what it can, never rejects. */
+	private pumpAdmissions(parentSessionId: SessionId): Promise<void> {
+		if (this.disposed) return Promise.resolve()
+		const running = this.drainingParents.get(parentSessionId)
+		if (running) return running
+		const pass = this.drainAdmissions(parentSessionId)
 			.finally(() => {
 				this.drainingParents.delete(parentSessionId)
 				// External handoffs and metadata changes have no manager event. A
@@ -467,6 +473,8 @@ export class AgentManager {
 					'exception.message': toErrorMessage(error),
 				}),
 			)
+		this.drainingParents.set(parentSessionId, pass)
+		return pass
 	}
 
 	private async drainAdmissions(parentSessionId: SessionId): Promise<void> {

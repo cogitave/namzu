@@ -28,6 +28,7 @@ interface FakeProvider extends LLMProvider {
 		system: string
 		user: string
 		maxTokens: number | undefined
+		thinking: { type: string } | undefined
 	}[]
 }
 
@@ -49,12 +50,14 @@ function fakeProvider(options: {
 			model: string
 			messages: readonly { role: string; content: unknown }[]
 			maxTokens?: number
+			thinking?: { type: string }
 		}): AsyncIterable<StreamChunk> {
 			requests.push({
 				model: params.model,
 				system: String(params.messages[0]?.content),
 				user: String(params.messages[1]?.content),
 				maxTokens: params.maxTokens,
+				thinking: params.thinking,
 			})
 			if (options.failChat) throw new Error('provider down')
 			yield {
@@ -214,7 +217,15 @@ describe('asking the side model', () => {
 
 		expect(text).toBe('Build failure')
 		expect(provider.requests).toEqual([
-			{ model: 'tiny', system: 'name it', user: 'the message', maxTokens: 60 },
+			// A small request asks for no reasoning, and carries room for it because this
+			// fake driver cannot say whether it was switched off.
+			{
+				model: 'tiny',
+				system: 'name it',
+				user: 'the message',
+				maxTokens: 60 + 2048,
+				thinking: { type: 'disabled' },
+			},
 		])
 	})
 

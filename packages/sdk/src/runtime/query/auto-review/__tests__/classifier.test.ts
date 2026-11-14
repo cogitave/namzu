@@ -7,6 +7,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { SIDE_REQUEST_REASONING_HEADROOM } from '../../../../provider/side-request-reasoning.js'
 import { testToolset } from '../../../../test-support/toolset.js'
 import { BashTool } from '../../../../tools/builtins/bash.js'
 import { EditTool } from '../../../../tools/builtins/edit.js'
@@ -115,7 +116,9 @@ describe('the two passes', () => {
 		expect(await review(classifier)).toMatchObject({ verdict: 'allow', stage: 1 })
 		expect(requests).toHaveLength(1)
 		const [first] = requests
-		expect(first?.maxTokens).toBe(64)
+		// The quick pass asks for no reasoning; room is added when the driver cannot confirm it.
+		expect(first?.thinking).toEqual({ type: 'disabled' })
+		expect(first?.maxTokens).toBe(64 + SIDE_REQUEST_REASONING_HEADROOM)
 		expect(first?.stop).toEqual(['</verdict>'])
 		expect(first?.model).toBe('reviewer-1')
 	})

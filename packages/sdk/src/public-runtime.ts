@@ -1196,6 +1196,11 @@ export { wrapProviderWithProbes } from './provider/instrumentation.js'
 export type { ProviderInstrumentationOptions } from './provider/instrumentation.js'
 export type { ResolvedProviderCapabilities } from './provider/capabilities.js'
 export { collectChatCompletion } from './provider/collect-chat-completion.js'
+export {
+	chatStreamForSideRequest,
+	sideRequestReasoning,
+	SIDE_REQUEST_REASONING_HEADROOM,
+} from './provider/side-request-reasoning.js'
 export { withModelWindowSuffixStripped } from './provider/model-window-suffix.js'
 
 // Old spellings of renamed exports, still live for one deprecation window.

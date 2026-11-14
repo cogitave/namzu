@@ -340,13 +340,20 @@ by the kernel to each `prepareStep` stage, absent from `beforeStep`. A stage may
 await one tool-free inference call; its capability is revoked when that stage
 returns. This lets context preparation use the owning turn's provider, retry and
 fallback chain, token admission and cancellation rather than an unmetered client.
-The model is the one selected by preceding stages, with the turn's effort setting.
+The model is the one selected by preceding stages. The turn's thinking and effort
+are not inherited: the call asks for no reasoning where the driver can switch it
+off for one request (`thinking: disabled`, plus effort `none` when the driver lists
+it), and where it cannot, the answer allowance is raised by 2,048 tokens so a
+thinking model does not spend all of it before the first word. A driver that
+refuses those controls before sending anything gets the request again without
+them. `chatStreamForSideRequest` and `sideRequestReasoning` are exported for hosts
+that make their own small requests beside a turn.
 
 `PreparationTextRequest` contains only `system`, `prompt`, optional `maxTokens`,
 `timeoutMs` and `signal`. No conversation, tool definitions, private reasoning or
 other request state is implicitly attached. The two input strings together may
 contain at most 12,000 UTF-16 units. The output limit defaults to 256 tokens and
-cannot exceed 1,024. A caller signal can shorten the stage/turn lifetime. These
+cannot exceed 1,024 (before the reasoning headroom above). `PreparationTextResult.finishReason` says why the provider stopped; `'length'` means the text may be empty or cut off. A caller signal can shorten the stage/turn lifetime. These
 limits do not guarantee a provider billing ceiling.
 
 `timeoutMs` is accepted and validated and no longer bounds the request. It cannot:

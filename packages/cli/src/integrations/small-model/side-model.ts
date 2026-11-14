@@ -23,6 +23,7 @@ import {
 	type SessionId,
 	type TokenUsage,
 	type TurnId,
+	chatStreamForSideRequest,
 	collectChatCompletion,
 	createSystemMessage,
 	createUserMessage,
@@ -181,7 +182,7 @@ export function createSideModel(deps: SideModelDeps): SideModel {
 				estimateTokens(request.instruction) + estimateTokens(request.body)
 			const send = async () => {
 				const response = await collectChatCompletion(
-					provider.chatStream({
+					chatStreamForSideRequest(provider, {
 						model: chosen.model,
 						messages: [createSystemMessage(request.instruction), createUserMessage(request.body)],
 						maxTokens: request.maxTokens,

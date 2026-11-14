@@ -21,6 +21,7 @@
 
 import { GENAI } from '../../../constants/telemetry/index.js'
 import { collectChatCompletion } from '../../../provider/collect-chat-completion.js'
+import { chatStreamForSideRequest } from '../../../provider/side-request-reasoning.js'
 import type { ToolManager } from '../../../toolsets/manager.js'
 import type { TokenUsage } from '../../../types/common/index.js'
 import type { LaunchedScript, ToolCallSummary } from '../../../types/hitl/index.js'
@@ -216,16 +217,23 @@ export function createAutoReviewClassifier(
 				// Raced against the abort, not only handed the signal: a provider that
 				// ignores it would otherwise hold the call open past its deadline, and
 				// a turn cancelled while it waits would wait with it.
+				const request = {
+					model: options.model,
+					messages,
+					maxTokens: stage === 1 ? 64 : 8_192,
+					temperature: options.temperature ?? 0,
+					...(stage === 1 ? { stop: [VERDICT_STOP] } : {}),
+					cacheControl: { type: 'auto' as const },
+					signal: controller.signal,
+				}
+				// The quick pass answers in 64 tokens, so it asks for no reasoning
+				// (or leaves room for it); the reasoned pass has its own large budget.
 				const collected = collectChatCompletion(
-					chatStreamWithSamplingRepair(options.provider, {
-						model: options.model,
-						messages,
-						maxTokens: stage === 1 ? 64 : 8_192,
-						temperature: options.temperature ?? 0,
-						...(stage === 1 ? { stop: [VERDICT_STOP] } : {}),
-						cacheControl: { type: 'auto' },
-						signal: controller.signal,
-					}),
+					stage === 1
+						? chatStreamForSideRequest(options.provider, request, (sent) =>
+								chatStreamWithSamplingRepair(options.provider, sent),
+							)
+						: chatStreamWithSamplingRepair(options.provider, request),
 				)
 				collected.catch(() => {})
 				const cutOff = new Promise<never>((_resolve, reject) => {
