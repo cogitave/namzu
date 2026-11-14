@@ -30,6 +30,15 @@ import {
 	updatesDir,
 	writeInProgress,
 } from './state.js'
+import {
+	asideFolder,
+	carryChunks,
+	nextFolder,
+	removeFolder,
+	stagePrefix,
+	stagedPackage,
+	swapFolders,
+} from './swap.js'
 
 /** The folder whose package.json says which version is active now (for pnpm, the link it repoints). */
 export function activeRoot(
@@ -119,6 +128,13 @@ export interface ApplyDeps {
 	 * which case nothing is changed and the result is `locked`.
 	 */
 	readonly mayProceed?: () => boolean
+	/**
+	 * Install while windows run from this folder: the new version is built in a side folder,
+	 * the live chunks are carried into it and the two folders trade places (`swap.ts`). Only for an
+	 * npm prefix that `canSwapInstall` accepted; `mayProceed` is then not asked, because other
+	 * windows may stay open.
+	 */
+	readonly swap?: boolean
 }
 
 export interface Release {
@@ -489,6 +505,9 @@ async function applyLocked(
 		return fail(code, true)
 	}
 	try {
+		if (deps.swap && deps.install.kind === 'npm-global') {
+			return await installBySwap(deps, release, onDisk, tarball, scope, logFile)
+		}
 		return await installFromTarball(deps, release, onDisk, tarball, scope, logFile)
 	} finally {
 		rmSync(tarball, { force: true })
@@ -510,6 +529,130 @@ export function fetchFromRegistry(
 			destination: file,
 		})
 	}
+}
+
+/**
+ * The in-session install for an npm prefix. The live folder is touched only by the final pair of
+ * renames: everything before them (the kept copy, the install, the start check of the new folder)
+ * happens beside it, so a failure up to there changes nothing, and one after it is undone by
+ * trading the folders back.
+ */
+async function installBySwap(
+	deps: ApplyDeps,
+	release: Release,
+	onDisk: string,
+	tarball: string,
+	scope: string,
+	logFile: string,
+): Promise<ApplyResult> {
+	const install = deps.install
+	if (install.kind !== 'npm-global') return fail('install_failed', true)
+	const shared = sharedStateHome(install)
+	const registry = deps.registry ?? PUBLIC_REGISTRY
+	const pid = deps.pid ?? process.pid
+	const at = (deps.now ?? Date.now)()
+	const smoke = deps.smokeTest ?? smokeTestInstalled
+	const stage = stagePrefix(install.prefix, pid)
+	const next = nextFolder(install.root, pid)
+	const aside = asideFolder(install.root, pid)
+	const cleanup = async (): Promise<void> => {
+		await removeFolder(stage)
+		await removeFolder(next)
+	}
+
+	let backup: string | undefined
+	try {
+		writeInProgress(shared, { pid, to: release.version, from: onDisk, at }, scope)
+		backup = await backupPackage(install.root, shared, onDisk, scope)
+		writeInProgress(shared, { pid, to: release.version, from: onDisk, backup, at }, scope)
+	} catch {
+		clearInProgress(shared, scope)
+		return fail('backup_failed', true)
+	}
+
+	const noteInstaller = (installerPid: number): void => {
+		try {
+			writeInProgress(
+				shared,
+				{ pid, to: release.version, from: onDisk, backup, installerPid, at },
+				scope,
+			)
+		} catch {
+			// The marker written before the install still stands.
+		}
+	}
+
+	// Nothing below changes the live folder until the swap, so a failure here has nothing to restore.
+	const abandon = async (code: FailureStatus): Promise<ApplyResult> => {
+		await cleanup()
+		clearInProgress(shared, scope)
+		return fail(code, true, logFile)
+	}
+
+	await cleanup()
+	let output = ''
+	let code: number
+	try {
+		code = await deps.runInstaller({
+			executable: deps.platform === 'win32' ? 'npm.cmd' : 'npm',
+			args: npmInstallArgs(stage, release.version, registry, tarball),
+			cwd: install.prefix,
+			onOutput: (text) => {
+				output = (output + text).slice(-16_384)
+			},
+			timeoutMs: deps.installTimeoutMs ?? 300_000,
+			logFile,
+			onSpawn: noteInstaller,
+		})
+	} catch {
+		code = 1
+		output = 'spawn failed'
+	}
+	if (code !== 0) return abandon(classifyInstallerFailure(output, deps.platform))
+
+	try {
+		await rename(stagedPackage(stage), next)
+	} catch {
+		return abandon('install_failed')
+	}
+	await removeFolder(stage)
+	let staged = ''
+	try {
+		staged = deps.installedVersion(next)
+	} catch {
+		staged = ''
+	}
+	if (staged !== release.version || !(await smoke(next, release.version, 'session'))) {
+		return abandon('verify_failed')
+	}
+	try {
+		await carryChunks(install.root, next)
+	} catch {
+		return abandon('install_failed')
+	}
+
+	let outcome: 'swapped' | 'rolled-back'
+	try {
+		outcome = await swapFolders({
+			live: install.root,
+			next,
+			aside,
+			check: async (live) =>
+				deps.installedVersion(live) === release.version &&
+				(await smoke(live, release.version, 'version')),
+		})
+	} catch {
+		await cleanup()
+		// A rename failed after the folders were put back: the previous version is in place.
+		clearInProgress(shared, scope)
+		return fail('install_failed', true, logFile)
+	}
+	if (outcome === 'rolled-back') return abandon('verify_failed')
+
+	clearInProgress(shared, scope)
+	await removeFolder(aside)
+	pruneOlderPrevious(shared, 2, scope)
+	return { status: 'installed', from: onDisk, to: release.version }
 }
 
 async function installFromTarball(

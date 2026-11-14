@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url'
 
 import type { CodeAnalysisProvider, CodeAnalysisResult } from '@namzu/sdk'
 
+import { CLI_VERSION } from '../../version.js'
+import { carriedHostName, versionOnDisk } from '../auto-update/replaced-install.js'
 import { ensurePrivateStateDirectory } from '../state/private-directory.js'
 
 /**
@@ -87,6 +89,11 @@ export function createLazyCodeAnalysis(home: string): CodeAnalysisProvider {
  */
 export function parsingChildScript(): string | undefined {
 	const script = fileURLToPath(new URL('../../analysis-host.js', import.meta.url))
+	// An update installed while this window ran put a newer script at that path; the swap kept
+	// this version's script beside it under its version's name, and that is the one that matches
+	// the code in this window.
+	const own = fileURLToPath(new URL(`../../${carriedHostName(CLI_VERSION)}`, import.meta.url))
+	if (versionOnDisk() !== CLI_VERSION && existsSync(own)) return own
 	return existsSync(script) ? script : undefined
 }
 
