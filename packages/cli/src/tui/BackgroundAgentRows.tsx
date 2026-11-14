@@ -60,10 +60,17 @@ export function BackgroundAgentRows(props: {
 				</Box>
 			))}
 			{waitLine !== undefined ? (
+				// The same slot as the line that closes a reply: one blank row above, the
+				// mark alone in a two-cell column, the words from the third cell on.
 				<Box marginTop={1}>
-					<Text color={theme.text.muted}>
-						{glyph} {waitLine}
-					</Text>
+					<Box width={2} flexShrink={0}>
+						<Text color={theme.text.muted} bold>
+							{glyph}
+						</Text>
+					</Box>
+					<Box flexGrow={1}>
+						<Text color={theme.text.muted}>{waitLine}</Text>
+					</Box>
 				</Box>
 			) : null}
 		</Box>

@@ -4,14 +4,13 @@
  * Left to right, items joined by a dim ` · `: the permission mode (`⏵⏵ bypass
  * permissions on`, colored by mode, with its cycle key while it fits), the
  * pull request for the branch (`PR #592`, underlined, colored by review
- * state), the background-shell pill (`2 bg`), the reasoning effort when
+ * state), the background pills (`2 shells`, `1 monitor`), the reasoning effort when
  * the operator has set one, then the hints: `esc to interrupt` while a turn
  * runs, `← 2 agents` when the empty composer's left arrow opens them, and
  * `↓ to manage` when the empty composer's down arrow reaches the shells or
  * the agents rail. Right-aligned: an interaction hint, else the notice that is
- * up (the context meter, `Esc again to clear`), else a durable goal, else a
- * standing item such as the update pointer, else the model identity, which is Namzu's own addition
- * and the first thing to go when the row is narrow. The right side owns its
+ * up (the context meter, `Esc again to clear`), else a durable goal, else the model identity,
+ * which is Namzu's own addition and the first thing to go when the row is narrow. The right side owns its
  * columns first so a long mode label cannot erase the key that exits a
  * prompt. The folder is not here; the header names it.
  */
@@ -44,15 +43,6 @@ export interface StatusBarProps {
 	 * a tone. It does not stand in for the hint line, so `esc to interrupt` stays.
 	 */
 	readonly notice?: { readonly text: string; readonly tone?: NoticeTone } | null
-	/**
-	 * A standing item for the right end, shown while no hint, notice or goal
-	 * claims it and before the model: `strong` is the part of `text` drawn bold.
-	 */
-	readonly ambient?: {
-		readonly text: string
-		readonly tone: NoticeTone
-		readonly strong?: string
-	} | null
 	/**
 	 * A dialog or picker owns the keyboard and prints its own keys. One rule
 	 * for every such screen: the footer keeps the mode and its facts, and names
@@ -173,10 +163,14 @@ function prColor(review: PrReview): string | null {
 	}
 }
 
-/** `3 bg`: background commands and monitors counted together; the dialog tells them apart. */
-export function backgroundPill(shells: number, monitors: number): string | null {
-	const total = shells + monitors
-	return total > 0 ? `${total} bg` : null
+/** `2 shells` / `1 shell`: running background commands, named for what they are. */
+export function shellPill(count: number): string | null {
+	return count > 0 ? `${count} ${count === 1 ? 'shell' : 'shells'}` : null
+}
+
+/** `2 monitors` / `1 monitor`: running monitors, a pill of their own beside the shells. */
+export function monitorPill(count: number): string | null {
+	return count > 0 ? `${count} ${count === 1 ? 'monitor' : 'monitors'}` : null
 }
 
 export function StatusBar({
@@ -205,7 +199,6 @@ export function StatusBar({
 	tasksOpen,
 	railHint,
 	notice,
-	ambient,
 }: StatusBarProps) {
 	const terminal = useWindowSize()
 	const activeMode =
@@ -234,7 +227,6 @@ export function StatusBar({
 		fast,
 		hint,
 		notice: notice?.text ?? null,
-		ambient: ambient?.text ?? null,
 		goal,
 		modeLabel: activeMode
 			? `${activeMode.icon} ${activeMode.label} on`
@@ -254,7 +246,8 @@ export function StatusBar({
 				? CYCLE_SUFFIX
 				: null,
 		interrupt: working && !hint && !dialogOpen ? INTERRUPT_HINT : null,
-		shells: backgroundPill(shellCount, monitorCount),
+		shells: shellPill(shellCount),
+		monitors: monitorPill(monitorCount),
 		agents: runningText(agentCount, workflowCount),
 		tasks: tasksOpen === undefined ? null : tasksOpen ? HIDE_TASKS_HINT : SHOW_TASKS_HINT,
 		manage:
@@ -298,6 +291,13 @@ export function StatusBar({
 		parts.push(
 			<Text key="shells" color={theme.accent.shells} inverse={shellsSelected}>
 				{layout.shells}
+			</Text>,
+		)
+	}
+	if (layout.monitors) {
+		parts.push(
+			<Text key="monitors" color={theme.accent.shells} inverse={shellsSelected}>
+				{layout.monitors}
 			</Text>,
 		)
 	}
@@ -368,18 +368,12 @@ export function StatusBar({
 								? theme.accent.system
 								: layout.right.source === 'notice'
 									? toneColor(notice?.tone)
-									: layout.right.source === 'ambient'
-										? toneColor(ambient?.tone)
-										: hintDim
-											? theme.text.muted
-											: colorForState(state)
+									: hintDim
+										? theme.text.muted
+										: colorForState(state)
 						}
 					>
-						{layout.right.source === 'ambient' ? (
-							<StrongText text={layout.right.text} strong={ambient?.strong} />
-						) : (
-							layout.right.text
-						)}
+						{layout.right.text}
 					</Text>
 				) : layout.right.model ? (
 					<Text color={theme.text.primary} bold>
@@ -409,7 +403,7 @@ function PrLabel({
 }
 
 /** A notice with no tone is dim. */
-function toneColor(tone: NoticeTone | undefined): string {
+export function toneColor(tone: NoticeTone | undefined): string {
 	return tone === 'error'
 		? theme.status.error
 		: tone === 'warn'
@@ -417,22 +411,6 @@ function toneColor(tone: NoticeTone | undefined): string {
 			: tone === 'ok'
 				? theme.status.ok
 				: theme.text.muted
-}
-
-/** `text` with its `strong` part bold (when the whole part survived the fitting). */
-function StrongText({
-	text,
-	strong,
-}: { readonly text: string; readonly strong: string | undefined }) {
-	const at = strong ? text.indexOf(strong) : -1
-	if (!strong || at < 0) return <>{text}</>
-	return (
-		<>
-			{text.slice(0, at)}
-			<Text bold>{strong}</Text>
-			{text.slice(at + strong.length)}
-		</>
-	)
 }
 
 function colorForState(state: StatusBarProps['state']): string {
@@ -452,6 +430,7 @@ export interface StatusLineLayout {
 	readonly cycleSuffix: string | null
 	readonly interrupt: string | null
 	readonly shells: string | null
+	readonly monitors: string | null
 	readonly pr: { readonly prefix: string | null; readonly label: string } | null
 	readonly effort: string | null
 	readonly fast: string | null
@@ -464,7 +443,7 @@ export interface StatusLineLayout {
 				readonly kind: 'text'
 				readonly text: string
 				/** Which input claimed the right end, so the row can colour it. */
-				readonly source: 'hint' | 'notice' | 'goal' | 'ambient'
+				readonly source: 'hint' | 'notice' | 'goal'
 		  }
 		| { readonly kind: 'model'; readonly model: string | null }
 }
@@ -493,13 +472,12 @@ export function fitStatusLine(input: {
 	readonly hint?: string | undefined
 	/** The notice that is up; ahead of the goal, behind a hint. */
 	readonly notice?: string | null | undefined
-	/** A standing item; behind the goal, ahead of the model. */
-	readonly ambient?: string | null | undefined
 	readonly goal?: string | null | undefined
 	readonly modeLabel: string
 	readonly cycleSuffix?: string | null
 	readonly interrupt?: string | null
 	readonly shells?: string | null
+	readonly monitors?: string | null
 	readonly agents?: string | null
 	readonly manage?: string | null
 	/** `ctrl+t to hide tasks` / `ctrl+t to show tasks`; the first hint to go. */
@@ -507,19 +485,17 @@ export function fitStatusLine(input: {
 	readonly pr?: { readonly prefix: string | null; readonly label: string } | null
 }): StatusLineLayout {
 	const columns = Math.max(0, input.columns)
-	const source: 'hint' | 'notice' | 'goal' | 'ambient' | null = input.hint
+	const source: 'hint' | 'notice' | 'goal' | null = input.hint
 		? 'hint'
 		: input.notice
 			? 'notice'
 			: input.goal
 				? 'goal'
-				: input.ambient
-					? 'ambient'
-					: null
+				: null
 	// `hint` can arrive as '' (no hint right now, as opposed to none ever
 	// wired up) — `??` does not treat that as absent, and an empty string
 	// would otherwise win the slot a model needs to fall through to.
-	let rightText: string | null = input.hint || input.notice || input.goal || input.ambient || null
+	let rightText: string | null = input.hint || input.notice || input.goal || null
 	// A line too wide for its room loses whole hints, never half of one.
 	if (rightText !== null) rightText = fitHintText(rightText, columns)
 
@@ -533,6 +509,7 @@ export function fitStatusLine(input: {
 	let cycleSuffix: string | null = input.cycleSuffix ?? null
 	let interrupt: string | null = input.interrupt ?? null
 	let shells: string | null = input.shells ?? null
+	let monitors: string | null = input.monitors ?? null
 	let agents: string | null = input.agents ?? null
 	let manage: string | null = input.manage ?? null
 	let tasks: string | null = input.tasks ?? null
@@ -545,6 +522,7 @@ export function fitStatusLine(input: {
 			mode ? `${mode}${cycleSuffix ?? ''}` : null,
 			pr ? `${pr.prefix ? `${pr.prefix} ` : ''}${pr.label}` : null,
 			shells,
+			monitors,
 			effort,
 			fast,
 			interrupt,
@@ -573,7 +551,10 @@ export function fitStatusLine(input: {
 	if (over()) manage = null
 	if (over()) fast = null
 	if (over()) effort = null
-	if (over()) shells = null
+	if (over()) {
+		shells = null
+		monitors = null
+	}
 	if (over()) pr = null
 	// The quiet reminder is only a reminder: cut in half it reads as "shift…cycle".
 	if (over() && (mode === QUIET_MODE_HINT || mode === QUIET_SANDBOX_HINT)) mode = null
@@ -596,6 +577,7 @@ export function fitStatusLine(input: {
 		cycleSuffix: mode ? cycleSuffix : null,
 		interrupt,
 		shells,
+		monitors,
 		pr,
 		effort,
 		fast,

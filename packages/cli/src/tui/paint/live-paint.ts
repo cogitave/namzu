@@ -77,7 +77,8 @@ export interface LivePaint {
 	/** Paints whatever is waiting, now. */
 	flush(): void
 	/** Paints what is waiting, shows the cursor, and lets go of the terminal. */
-	dispose(): void
+	/** Paints the last frame and gives the terminal back; `eraseBox` also takes the input box and its footer off the screen. */
+	dispose(options?: { readonly eraseBox?: boolean }): void
 }
 
 const realTimers: LivePaintTimers = {
@@ -306,6 +307,38 @@ function paintWhole(
 export function startOnFreshLine(columns: number): string {
 	const width = Math.max(1, columns)
 	return `${ESC}[7m%${ESC}[27m${' '.repeat(width - 1)}\r${ESC}[K`
+}
+
+/**
+ * What the default screen writes first, so it opens on a clean screen: the rows on screen move up into
+ * the scrollback (a newline per row, so the bottom row scrolls the whole screen), then the cursor goes
+ * home and what is left of the screen is erased. The scrollback is never erased (no "erase saved lines"):
+ * what the shell printed is a scroll away, and only the visible screen is empty for the banner.
+ */
+export function startOnCleanScreen(rows: number): string {
+	return `${'\n'.repeat(Math.max(1, rows))}${ESC}[H${ESC}[J`
+}
+
+/** A full-width rule row: the line above and the line under the input box. */
+const RULE_ROW = /^\s*─{8,}\s*$/
+
+/**
+ * Where the input box starts in a frame: the row of its upper rule, found as the second rule row from the
+ * end when the last rule is within a few rows of the end (the footer hangs under it). Null when the frame
+ * has no such box (a dialog, a picker, an empty frame), and nothing is then erased on the way out.
+ */
+export function inputBoxStart(rows: readonly string[]): number | null {
+	const rules: number[] = []
+	for (let i = rows.length - 1; i >= 0 && rules.length < 2; i--)
+		if (RULE_ROW.test(plainText(rows[i] as string))) rules.push(i)
+	const [lower, upper] = rules
+	if (lower === undefined || upper === undefined) return null
+	return rows.length - 1 - lower <= 3 ? upper : null
+}
+
+/** What leaves the terminal with the input box and its footer gone: up to the box's first row, then erase down. */
+export function eraseFrom(rowsBelow: number): string {
+	return `${rowsBelow > 0 ? `${ESC}[${rowsBelow}A` : ''}\r${ESC}[J`
 }
 
 /** A row's text without its colour sequences and link marks. */
@@ -694,9 +727,16 @@ export function createLivePaint(
 	return {
 		stream,
 		flush,
-		dispose() {
+		dispose(options) {
 			if (disposed) return
 			leave()
+			if (options?.eraseBox === true && !bypass()) {
+				const start = inputBoxStart(shown)
+				if (start !== null) {
+					out(eraseFrom(shown.length - start))
+					shown = shown.slice(0, start)
+				}
+			}
 			disposed = true
 			target.off(RESIZE, onTargetResize)
 			hooks?.off('exit', onExit)

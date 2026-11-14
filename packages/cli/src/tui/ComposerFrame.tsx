@@ -19,6 +19,7 @@ export function ComposerFrame({
 	columns,
 	activation = 0,
 	animate = true,
+	above,
 	children,
 }: {
 	/** Kept for the callers that say whether the input owns the keyboard; the rules look the same either way. */
@@ -34,6 +35,11 @@ export function ComposerFrame({
 	readonly columns?: number
 	/** Increment only when the operator successfully turns the session mode on. */
 	readonly activation?: number
+	/**
+	 * A row set directly on the upper rule, after the blank row the frame keeps
+	 * above itself (the update notice). Nothing when it renders nothing.
+	 */
+	readonly above?: ReactNode
 	readonly children: ReactNode
 }) {
 	const terminal = useWindowSize()
@@ -66,6 +72,7 @@ export function ComposerFrame({
 	const glowTime = igniting && motion && !hidden && time < HYPERMODE_GLOW_MS ? time : undefined
 	return (
 		<Box flexDirection="column" width={frameColumns} marginTop={hidden ? 0 : 1}>
+			{hidden ? null : above}
 			<Box display={hidden ? 'none' : 'flex'} height={1} flexShrink={0}>
 				{glowTime !== undefined ? <GlowRule columns={ruleColumns} time={glowTime} /> : <Rule />}
 				{showMode ? (

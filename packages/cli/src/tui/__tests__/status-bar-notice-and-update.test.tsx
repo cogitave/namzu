@@ -15,38 +15,32 @@ const update = updateAmbient({
 describe('the right end of the footer', () => {
 	const base = { columns: 100, provider: null, model: 'm', modeLabel: '' }
 
-	it('prefers a hint, then a notice, then the goal, then the standing item, then the model', () => {
-		const all = { ...base, hint: 'h', notice: 'n', goal: 'g', ambient: 'a' }
+	it('prefers a hint, then a notice, then the goal, then the model', () => {
+		const all = { ...base, hint: 'h', notice: 'n', goal: 'g' }
 		expect(fitStatusLine(all).right).toMatchObject({ text: 'h', source: 'hint' })
 		expect(fitStatusLine({ ...all, hint: '' }).right).toMatchObject({ text: 'n', source: 'notice' })
 		expect(fitStatusLine({ ...all, hint: '', notice: null }).right).toMatchObject({
 			source: 'goal',
-		})
-		expect(fitStatusLine({ ...all, hint: '', notice: null, goal: null }).right).toMatchObject({
-			source: 'ambient',
 		})
 		expect(fitStatusLine({ ...base }).right).toMatchObject({ kind: 'model' })
 	})
 
 	it('words the update pointer with the command to run', () => {
 		expect(update.text).toBe('Update available! Run: namzu upgrade')
-		const { lastFrame, unmount } = render(
-			<StatusBar provider="p" model="m" state="idle" ambient={update} />,
-		)
-		expect(lastFrame()).toContain('Update available! Run: namzu upgrade')
-		unmount()
 	})
 
-	it('draws an installed update with a check, in the ok colour, and an install in progress dim', () => {
+	it("keeps the model on the row; the update notice is not the status row's", () => {
+		const shown = render(<StatusBar provider="p" model="a-model" state="idle" />)
+		expect(shown.lastFrame()).toContain('a-model')
+		expect(shown.lastFrame()).not.toContain('Update available')
+		shown.unmount()
+	})
+
+	it('words an installed update with a check in the ok colour, and an install in progress dim', () => {
 		const done = updaterEventAmbient({ type: 'installed', from: '1.0.0', to: '1.1.0' })
 		expect(done.tone).toBe('ok')
-		const shown = render(<StatusBar provider="p" model="m" state="idle" ambient={done} />)
-		expect(shown.lastFrame()).toContain('✓ Updated to 1.1.0 · restart to use it')
-		shown.unmount()
-		const working = updaterEventAmbient({ type: 'installing', to: '1.1.0' })
-		const progress = render(<StatusBar provider="p" model="m" state="idle" ambient={working} />)
-		expect(progress.lastFrame()).toContain('Updating to 1.1.0…')
-		progress.unmount()
+		expect(done.text).toBe('✓ Updated to 1.1.0 · restart to use it')
+		expect(updaterEventAmbient({ type: 'installing', to: '1.1.0' }).text).toBe('Updating to 1.1.0…')
 		// Two tones that read apart: the ok colour is not the muted one.
 		expect(theme.status.ok).not.toBe(theme.text.muted)
 	})
