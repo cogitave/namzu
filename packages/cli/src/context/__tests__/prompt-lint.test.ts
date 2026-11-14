@@ -113,6 +113,9 @@ function environments(): readonly string[] {
 	]
 }
 
+/** The assembled main prompt with the largest environment block, in characters. */
+const MAIN_CEILING = 17_500
+
 const join = (parts: readonly string[]): string => parts.join('\n\n')
 
 function assembled(): ReadonlyArray<readonly [string, string]> {
@@ -224,9 +227,9 @@ describe('the assembled prompts', () => {
 		expect(NAMZU_IDENTITY).toContain(
 			'Describe an action as done only after its tool call has returned',
 		)
-		expect(NAMZU_IDENTITY).toContain(
-			'Announce an action in the same response as the tool call that performs it',
-		)
+		// Narration is said once, in the working rules, and only for long work.
+		expect(NAMZU_IDENTITY).not.toMatch(/announce/i)
+		expect(NAMZU_WORKING_DOCTRINE).toContain('no line goes beside each call')
 	})
 
 	it('gives each rule one home', () => {
@@ -247,6 +250,55 @@ describe('the assembled prompts', () => {
 		expect(all.match(/state-changing action/g) ?? []).toHaveLength(1)
 		// The prefer-dedicated-tools rule is in the working rules, not repeated in the identity.
 		expect(NAMZU_IDENTITY).not.toMatch(/prefer the dedicated/i)
+	})
+
+	it('puts the language and money rule at the top of the identity, once, and nowhere else', () => {
+		expect(NAMZU_IDENTITY.slice(0, 200)).toContain("language of the person's latest message")
+		expect(NAMZU_IDENTITY.slice(0, 200)).toContain('amounts in money')
+		for (const [name, text] of assembled()) {
+			if (!name.startsWith('main') && !name.startsWith('plan (')) continue
+			expect(text.match(/language of the person/g) ?? [], name).toHaveLength(1)
+			expect(text.indexOf('language of the person'), name).toBeLessThan(700)
+			expect(text, name).not.toContain('money and not tokens')
+		}
+	})
+
+	it('gives a delegated agent the working rules exactly once, under one blurb for its kind', () => {
+		for (const prompt of [SUBAGENT_PROMPT, EXPLORE_PROMPT, PLAN_PROMPT]) {
+			expect(prompt.match(/## How you work/g) ?? []).toHaveLength(1)
+			expect(prompt.match(/### Answering a question/g) ?? []).toHaveLength(1)
+		}
+		// A read-only searcher is not also told to change files and finish the whole task as a worker.
+		expect(EXPLORE_PROMPT).toContain('read-only sub-agent')
+		expect(EXPLORE_PROMPT).not.toContain('focused sub-agent')
+		expect(PLAN_PROMPT).not.toContain('focused sub-agent')
+		// The read-only agents keep the rule that every path and quote comes from a tool result.
+		expect(EXPLORE_PROMPT).toContain('from your tool results only')
+		expect(PLAN_PROMPT).toContain('from your tool results only')
+		// The general worker keeps its own blurb.
+		expect(SUBAGENT_PROMPT).toContain('focused sub-agent')
+	})
+
+	it('keeps the system prompts short', () => {
+		// The figures a captured first request showed: about 17,500 characters for the
+		// main system message (these pieces plus the environment block the CLI
+		// composes) and about 7,500 for an explore agent. The pieces are measured
+		// without the environment so the bound does not move with the host; the
+		// assembled agents are measured with the largest environment block.
+		const pieces = [
+			NAMZU_IDENTITY,
+			NAMZU_WORKING_DOCTRINE,
+			NAMZU_DELEGATION_DOCTRINE,
+			WORKFLOW_DOCTRINE,
+			CONVERSATION_EVIDENCE_GUIDANCE,
+			DEFERRED_TOOL_GUIDANCE,
+		]
+		expect(pieces.join('\n\n').length).toBeLessThan(14_550)
+		for (const [name, text] of assembled()) {
+			if (name.startsWith('main')) expect(text.length, name).toBeLessThan(MAIN_CEILING)
+			if (name.startsWith('explore') || name.startsWith('planner'))
+				expect(text.length, name).toBeLessThan(9_000)
+		}
 	})
 
 	it('briefs a sub-agent with an objective, limits, tools and sources, and a reply shape', () => {

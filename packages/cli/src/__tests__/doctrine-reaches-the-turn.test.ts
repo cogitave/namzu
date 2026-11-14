@@ -122,11 +122,11 @@ function commit(cwd: string, subject: string): void {
  * heading alone would survive the doctrine being reduced to its heading.
  */
 const DOCTRINE_SENTENCES = [
-	'The requested scope is the deliverable:',
-	'If tests fail, say so and show the output.',
-	'Before editing, use the relevant file content already available from a successful read or write',
+	'The requested scope is the deliverable,',
+	'Report outcomes faithfully:',
+	'Before editing, use file content you already read or wrote',
 	'Never push, force-push, reset, rebase, clean',
-	'Before your first tool call, say in one short line',
+	'For work that takes several calls, say one short line before the first call',
 ]
 
 const DELEGATION_SENTENCES = ['A task list is optional.', 'When the `Agent` tool is available']
@@ -167,11 +167,11 @@ describe('the working doctrine', () => {
 		// Every working rule but the one about narrating to the person: a
 		// sub-agent reports to its parent, and says so in its own section.
 		for (const sentence of DOCTRINE_SENTENCES.filter(
-			(s) => !s.startsWith('Before your first tool call'),
+			(s) => !s.startsWith('For work that takes several calls'),
 		)) {
 			expect(prompt).toContain(sentence)
 		}
-		expect(prompt).not.toContain('Before your first tool call')
+		expect(prompt).not.toContain('say one short line before the first call')
 		expect(prompt).toContain('### Your final report')
 	})
 

@@ -18,7 +18,7 @@ describe('a sub-agent prompt reports to its parent', () => {
 	it('asks for a complete report without filler, in one place', () => {
 		expect(SUBAGENT_PROMPT).not.toContain('Be thorough, and state every assumption')
 		expect(SUBAGENT_PROMPT).toContain('complete')
-		expect(SUBAGENT_PROMPT).toContain('leave out filler')
+		expect(SUBAGENT_PROMPT).toContain('without filler')
 		expect(SUBAGENT_PROMPT).toContain('an AI kernel')
 	})
 })

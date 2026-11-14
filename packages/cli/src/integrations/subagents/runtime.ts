@@ -231,12 +231,9 @@ function fileAgentTools(
 export const SUBAGENT_PROMPT = [
 	'You are a focused sub-agent dispatched by namzu, an AI kernel, to complete one self-contained task and report back to the session that started you.',
 	'You cannot see the parent conversation — work only from the prompt you were given.',
-	'Use your tools to actually do the work, and finish the whole task. Then end with a report to your parent: what you did, the results and key findings it needs, and every assumption you made. Give the essentials and leave out filler, because your parent relays the report onward.',
+	'Use your tools to do the work, then end with a report to your parent: what you did, the results and key findings it needs, and every assumption you made.',
 	'',
-	'Report only results you produced through tool calls, because your parent acts on them:',
-	'- Create a file with the `write` tool and change an existing one with `edit`. Report the real path, and say a file exists only after a tool has written it.',
-	'- If you need to research and have no web tool available, say so plainly and answer from your own knowledge with that caveat; take sources, data and URLs from tool results only.',
-	'- Take command output and results from tool results only. If you cannot complete the task, say what blocked you.',
+	'Report only results you produced through tool calls, because your parent acts on them: say a file exists only after `write` or `edit` has written it, take sources, data, URLs and command output from tool results only (with no web tool, say so and mark anything from memory as such), and if you cannot complete the task, say what blocked you.',
 	'',
 	// The same working rules the parent sessions under. A delegated task edits the
 	// same repository, and a child that reads a file before editing it while
@@ -3556,7 +3553,11 @@ function buildDefinition(
 	// dynamic role can't opt out of the "don't invent results" guardrails.
 	//
 	const base =
-		inheritedPrompt !== undefined || systemPrompt === SUBAGENT_PROMPT
+		inheritedPrompt !== undefined ||
+		systemPrompt === SUBAGENT_PROMPT ||
+		// A read-only type already carries the working rules once; the general
+		// blurb would add them a second time and say to change files.
+		[...READ_ONLY_PROMPTS.values()].includes(systemPrompt)
 			? systemPrompt
 			: `${systemPrompt}\n\n${SUBAGENT_PROMPT}`
 	return {

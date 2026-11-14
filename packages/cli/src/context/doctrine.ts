@@ -37,20 +37,16 @@ export {
  */
 const NO_ONE_TO_ASK: ReadonlyArray<readonly [string, string]> = [
 	[
-		'Reserve blocking questions for cases where proceeding under any assumption would be unsafe or would make the work useless if wrong.',
-		'Where proceeding under any assumption would be unsafe or would make the work useless if wrong, leave that step undone and name it in your summary.',
-	],
-	[
-		'Ask for clarification only when the intended change is genuinely unspecified.',
-		'When the intended change is genuinely unspecified, take the most conservative reading and state it.',
+		'Ask only when you cannot name the most likely reading of the request, or when proceeding under any assumption would be unsafe or would make the work useless if wrong. Ask once, with your best guess, because ending the turn stops all work.',
+		'Where you cannot name the most likely reading, or where proceeding under any assumption would be unsafe or would make the work useless if wrong, take the most conservative reading or leave that step undone, and name it in your summary.',
 	],
 	[
 		"stop and ask rather than stashing, committing or discarding somebody else's work.",
 		"leave them alone: do not stash, commit or discard somebody else's work.",
 	],
 	[
-		'make the routine judgment calls yourself and check in only when different readings would produce materially different work.',
-		'make the routine judgment calls yourself, and where different readings would produce materially different work, take the most conservative one and state it.',
+		'If the user repeats or reaffirms a request after you raised a concern, that is their decision: say so and do the full request.',
+		'If the task repeats a request after a concern was raised, that is the decision: say so and do the full request.',
 	],
 	['without asking: not', 'unless the task says so: not'],
 	[
@@ -77,8 +73,7 @@ function withoutAsking(doctrine: string): string {
  */
 const INFORMED_HEADING = '### Keeping the user informed'
 const CHILD_REPORT_SECTION = `### Your final report
-- Your parent reads your final report and not your tool calls, so put everything it needs there: what changed, what was verified, what is left, and every assumption you made.
-- Keep the report complete and free of filler, because your parent relays it onward.`
+- Your parent reads your final report and not your tool calls, so put everything it needs there: the answer or what changed, what was verified, what is left, and every assumption you made. Write it in the language of the task you were given, complete and without filler, because your parent relays it onward.`
 
 function withChildReport(doctrine: string): string {
 	const at = doctrine.indexOf(INFORMED_HEADING)
