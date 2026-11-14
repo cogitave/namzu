@@ -19,6 +19,7 @@ describe('sideRequestReasoning', () => {
 	it('asks for the lowest level and leaves room when the model cannot stop reasoning', () => {
 		const provider = { reasoningEffortLevelsFor: () => ['medium', 'low', 'high'] as const }
 		expect(sideRequestReasoning(provider, 'm', 60)).toEqual({
+			thinking: { type: 'disabled' },
 			effort: 'low',
 			maxTokens: 60 + SIDE_REQUEST_REASONING_HEADROOM,
 		})
@@ -87,5 +88,36 @@ describe('chatStreamForSideRequest', () => {
 			for await (const _ of chatStreamForSideRequest(provider, { model: 'm', messages: [] })) void _
 		}
 		await expect(run()).rejects.toThrow('socket hang up')
+	})
+})
+
+describe('an unrelated error is not a refusal of the controls', () => {
+	it('rethrows a rate limit that mentions reasoning and does not remember the model', async () => {
+		let calls = 0
+		const provider: LLMProvider = {
+			id: 'fake',
+			name: 'fake',
+			async *chatStream() {
+				calls++
+				if (calls === 1) throw new Error('429 rate limit reached for reasoning tokens per minute')
+				yield { id: '1', delta: { content: 'ok' }, finishReason: 'stop' } as StreamChunk
+			},
+		}
+		const base = { model: 'm', messages: [], maxTokens: 60 }
+		await expect(async () => {
+			for await (const _ of chatStreamForSideRequest(provider, base)) void _
+		}).rejects.toThrow(/rate limit/)
+		expect(calls).toBe(1)
+		const seen: ChatCompletionParams[] = []
+		const again: LLMProvider = {
+			...provider,
+			async *chatStream(p) {
+				seen.push(p)
+				yield { id: '1', delta: { content: 'ok' }, finishReason: 'stop' } as StreamChunk
+			},
+		}
+		for await (const _ of chatStreamForSideRequest(provider, base, (r) => again.chatStream(r)))
+			void _
+		expect(seen[0]?.thinking).toEqual({ type: 'disabled' })
 	})
 })

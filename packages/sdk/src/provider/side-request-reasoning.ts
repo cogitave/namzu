@@ -33,8 +33,8 @@ type SideReasoningFields = Pick<ChatCompletionParams, 'thinking' | 'effort' | 'm
  *
  * Each driver answers through `reasoningEffortLevelsFor(model, disabled)`:
  * - a list that holds `none`: send thinking disabled and effort `none`;
- * - a list without `none` (the model cannot stop reasoning): send the lowest
- *   level it offers and add headroom;
+ * - a list without `none` (effort is still offered beside a disabled body): send
+ *   thinking disabled and the lowest level it offers, and add headroom;
  * - no answer: send thinking disabled, which every driver either carries or
  *   leaves out, and add headroom because nothing confirms it took effect.
  */
@@ -55,7 +55,9 @@ export function sideRequestReasoning(
 	const roomy = maxTokens + SIDE_REQUEST_REASONING_HEADROOM
 	if (levels !== undefined && levels.length > 0) {
 		const lowest = LOWEST_FIRST.find((level) => levels.includes(level)) ?? levels[0]
-		return { ...(lowest ? { effort: lowest } : {}), maxTokens: roomy }
+		// The levels were asked with thinking disabled, so the driver accepts a
+		// disabled body here; send it so reasoning is off, not merely cheap.
+		return { thinking: DISABLED, ...(lowest ? { effort: lowest } : {}), maxTokens: roomy }
 	}
 	return { thinking: DISABLED, maxTokens: roomy }
 }
@@ -63,7 +65,17 @@ export function sideRequestReasoning(
 /** A refusal of the reasoning controls themselves, before any output. */
 function refusesReasoningControls(error: unknown): boolean {
 	const text = error instanceof Error ? error.message : String(error)
-	return /thinking|reasoning|effort/i.test(text)
+	// An error that merely mentions the words (a rate limit, an overload, a
+	// timeout) is not a refusal of the controls: it must neither cost an extra
+	// request nor switch the controls off for the model.
+	if (/rate.?limit|too many requests|overloaded|timed? ?out|\b(429|5\d\d)\b/i.test(text))
+		return false
+	const names = /\b(thinking|reasoning|effort)\b/i.test(text)
+	const rejects =
+		/unsupported|not supported|unsupport|invalid|unknown|unrecogni[sz]ed|unexpected|not allowed|not permitted|does not (?:accept|support|allow)|not accept|extra inputs|bad request|\b400\b|\b422\b/i.test(
+			text,
+		)
+	return names && rejects
 }
 
 /**

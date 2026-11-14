@@ -343,9 +343,9 @@ fallback chain, token admission and cancellation rather than an unmetered client
 The model is the one selected by preceding stages. The turn's thinking and effort
 are not inherited: the call asks for no reasoning where the driver can switch it
 off for one request (`thinking: disabled`, plus effort `none` when the driver lists
-it), and where it cannot, the answer allowance is raised by 2,048 tokens so a
+it), and where it cannot say, the answer allowance is raised by 2,048 tokens (the headroom is also added when the driver offers an effort level but not `none`, beside `thinking: disabled`) so a
 thinking model does not spend all of it before the first word. A driver that
-refuses those controls before sending anything gets the request again without
+refuses those controls before sending anything (an error that names thinking, reasoning or effort and says it is unsupported or invalid; a rate limit or overload that only mentions the words is not one) gets the request again without
 them. `chatStreamForSideRequest` and `sideRequestReasoning` are exported for hosts
 that make their own small requests beside a turn.
 

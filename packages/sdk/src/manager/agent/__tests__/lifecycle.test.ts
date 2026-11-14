@@ -1080,6 +1080,39 @@ function deferred() {
 }
 
 describe('bounded queued delegation admission', () => {
+	it('admits a launch that joined an admission pass which had already looked at the queue', async () => {
+		const release = deferred()
+		let started = 0
+		const child = makeAgent('worker', async () => {
+			started++
+			await release.promise
+			return successResult()
+		})
+		const h = await buildHarness(child, tenant, { capacityBehavior: 'queue' })
+		const context = buildContext(h.parentSession.id, h.projectId, h.topicId)
+		try {
+			// A pass that finished its look at the queue before this launch was ready.
+			const draining = (h.manager as unknown as { drainingParents: Map<unknown, Promise<void>> })
+				.drainingParents
+			draining.set(
+				h.parentSession.id,
+				Promise.resolve().then(() => {
+					draining.delete(h.parentSession.id)
+				}),
+			)
+			const task = await h.manager.sendMessage(
+				buildOptions('worker', h.parentSession.id, h.projectId),
+				context,
+			)
+			// Reported as it stands: running, not waiting for the 250 ms timer.
+			expect(task.state).toBe('running')
+			expect(started).toBe(1)
+		} finally {
+			release.resolve()
+			h.manager.dispose()
+		}
+	})
+
 	it('returns ten handles, runs at most eight, preserves history and leaves a parent budget share', async () => {
 		const releases = Array.from({ length: 10 }, deferred)
 		const grants: number[] = []

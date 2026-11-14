@@ -446,6 +446,11 @@ export class AgentManager {
 		// capacity or budget limit. Returned earlier, every task of a burst
 		// launched at the same moment would read as waiting for a slot.
 		await this.pumpAdmissions(options.parentSessionId)
+		// A pass that was already running may have looked at the queue before this
+		// entry was ready and ended without it. One more pass admits it now; if
+		// the first pass stopped at a limit, the second stops at the same limit.
+		if (entry.ready && task.state === 'pending' && !this.disposed)
+			await this.pumpAdmissions(options.parentSessionId)
 		return task
 	}
 
