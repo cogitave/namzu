@@ -12,6 +12,7 @@ import { acquireUpdateLock, readAttempt, readCheck, readLastResult } from './sta
 import {
 	CHECK_EVERY_MS,
 	FIRST_CHECK_AFTER_MS,
+	LOCKED_RETRY_MS,
 	RETRY_AFTER_MS,
 	SHARED_THROTTLE_MS,
 	type UpdaterDeps,
@@ -155,6 +156,29 @@ describe('when the loop looks', () => {
 		h.updater.stop()
 		await tick(CHECK_EVERY_MS * 2)
 		expect(h.fetchRelease).toHaveBeenCalledTimes(3)
+	})
+
+	it('looks again after a minute, not half an hour, when another window holds the install lock, and then says the install landed', async () => {
+		const other = acquireUpdateLock({
+			home: sharedStateHome(install()),
+			scope: scope(),
+			pid: 1,
+			isAlive: () => true,
+		})
+		expect(other).not.toBeNull()
+		const h = harness()
+		h.updater.start()
+		await tick(FIRST_CHECK_AFTER_MS)
+		expect(h.progress.map((e) => e.type)).toEqual(['installing', 'idle'])
+		expect(h.installs).toEqual([])
+		// The other window finishes: the folder on disk now holds the new version.
+		writePackage('2.0.0')
+		other?.release()
+		await tick(LOCKED_RETRY_MS)
+		expect(h.events).toEqual([{ type: 'installed', from: '1.0.0', to: '2.0.0' }])
+		expect(h.installs).toEqual([])
+		expect(h.fetchRelease).toHaveBeenCalledTimes(1)
+		h.updater.stop()
 	})
 
 	it('does not start twice', async () => {

@@ -17,8 +17,8 @@
  * the last window closes.
  */
 
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
-import { copyFile, link, mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises'
+import { existsSync, readFileSync, readdirSync, renameSync, statSync } from 'node:fs'
+import { copyFile, link, mkdir, readdir, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 import type { InstallKind } from './install-kind.js'
@@ -120,11 +120,13 @@ export async function swapFolders(input: {
 	readonly check: (live: string) => Promise<boolean>
 }): Promise<SwapOutcome> {
 	const { live, next, aside } = input
-	await rename(live, aside)
+	// Two synchronous renames, one right after the other, so the path is absent for as short a time
+	// as the operating system allows (an awaited call would let the event loop run in between).
+	renameSync(live, aside)
 	try {
-		await rename(next, live)
+		renameSync(next, live)
 	} catch (error) {
-		await rename(aside, live)
+		renameSync(aside, live)
 		throw error
 	}
 	let healthy = false
@@ -134,8 +136,8 @@ export async function swapFolders(input: {
 		healthy = false
 	}
 	if (healthy) return 'swapped'
-	await rename(live, next)
-	await rename(aside, live)
+	renameSync(live, next)
+	renameSync(aside, live)
 	return 'rolled-back'
 }
 

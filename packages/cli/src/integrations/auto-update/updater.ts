@@ -36,6 +36,8 @@ import {
 export const FIRST_CHECK_AFTER_MS = 10_000
 export const CHECK_EVERY_MS = 30 * 60_000
 export const SHARED_THROTTLE_MS = 5 * 60_000
+/** Another process held the install lock: look again soon, to say once its install has landed. */
+export const LOCKED_RETRY_MS = 60_000
 /**
  * Failures that say nothing about the version itself: a download that broke off, a
  * file another program held, a full disk. They are tried again after this long.
@@ -143,6 +145,7 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 	let started = false
 	let running = false
 	let installedThisSession = false
+	let lockedByOther = false
 	let failures = 0
 	let announced: string | undefined
 
@@ -291,6 +294,7 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 			const method = install.kind
 			switch (result.status) {
 				case 'locked':
+					lockedByOther = true
 					deps.onEvent({ type: 'idle' })
 					return
 				case 'already':
@@ -400,9 +404,10 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 	function schedule(delayMs: number): void {
 		if (stopped) return
 		timer = setTimeout(() => {
+			lockedByOther = false
 			void runCycle()
 				.catch(() => undefined)
-				.finally(() => schedule(CHECK_EVERY_MS))
+				.finally(() => schedule(lockedByOther ? LOCKED_RETRY_MS : CHECK_EVERY_MS))
 		}, delayMs)
 		timer.unref?.()
 	}
