@@ -2515,6 +2515,11 @@ function AppBody({
 	}, [])
 	const [composerDraft, setComposerDraft] = useState<ComposerDraft | null>(null)
 	const [composerHasDraft, setComposerHasDraft] = useState(false)
+	// A history search in the box owns Ctrl+C: it backs out of the search only.
+	const composerSearchingRef = useRef(false)
+	const setComposerSearching = useCallback((searching: boolean) => {
+		composerSearchingRef.current = searching
+	}, [])
 	// A turn a tool paused for a person (`ToolResult.handoff`), while its
 	// notice is the newest thing on screen: Enter continues it, Esc stops it.
 	// The ref is what the key handler reads; the state is what the footer shows.
@@ -17132,6 +17137,7 @@ function AppBody({
 				armExit('Ctrl-D')
 				return
 			}
+			if (isAction('app:interrupt', input, key) && composerSearchingRef.current) return
 			if (isAction('app:interrupt', input, key)) {
 				// A turn is running → first Ctrl+C interrupts it, not exits.
 				// Drops the ref, so a second Ctrl+C arms exit instead of re-aborting
@@ -17956,6 +17962,7 @@ function AppBody({
 									setComposerDraft((draft) => (draft?.token === token ? null : draft))
 								}
 								onDraftPresenceChange={setComposerHasDraft}
+								onHistorySearchChange={setComposerSearching}
 								onOpenAgentPanel={focusAgentRail}
 								onOpenAgents={() => void openAgentCockpit()}
 								onOpenWorkspaces={
