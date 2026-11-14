@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.2.0
+
+### Minor Changes
+
+- 0cd29d8: Through OpenRouter, the model now keeps its train of thought between the steps of a turn: the assistant message goes back with its `reasoning_details` exactly as the model produced them, for the steps after the turn's last user message (an earlier turn's reasoning is not resent), where each step used to start from its own tool calls alone. The ledger, `/cost` and a spend limit now see real money for a model your price table does not know (a model id with a revision suffix used to show `$0.00` with every token unpriced): the driver reads the charge OpenRouter reports on each response, and the SDK records it as the call's cost ahead of any price table, which stays the fallback for a call that reports nothing. New and additive: `TokenUsage.reportedCostUsd`, `ProviderCapabilities.reportsRequestCost`, and `accumulateReportedCost`; a `costLimitUsd` is now accepted for an unpriced model on a provider that declares it. The SDK's window table names the DeepSeek `v4.1-flash`, `v4.1-flash-1017`, `v4-flash-0731` and `v4-pro-0813` ids at their documented 1M tokens (they were compacted at 64k when the provider's own list was not consulted), and the OpenRouter driver finds a `:tag` variant's window from its base id. The OpenRouter driver also answers `acceptsForcedToolChoiceFor` for DeepSeek V4 and reasoner models, so a step that must call a tool is asked in words rather than forced while they think. An advisor on a model with no price row now reports the charge the provider reported instead of unpriced tokens. Nothing is removed or changes meaning.
+
 ## 3.1.2
 
 ### Patch Changes
