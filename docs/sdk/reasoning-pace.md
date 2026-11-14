@@ -56,6 +56,23 @@ A reply that holds reasoning but no text and no call is not an end. The model is
 
 The OpenRouter driver no longer throws for effort `max` or `ultra`, which the SDK's `ReasoningEffort` includes. Each asks for the deepest reasoning the model offers, so the driver reads the levels the model's entry in OpenRouter's `/models` listing names (`reasoning.supported_efforts`, read once per driver and only for these two efforts) and sends the highest of `max`, `xhigh`, `high`, `medium`, `low`, `minimal` that the list holds, never `none`; for the DeepSeek V4.1 Flash model that is `max`. If the listing cannot be read or names no levels for the model, it sends `xhigh`, the highest level the unified `reasoning.effort` documents for every model. Every other effort is sent as given.
 
+## A thinking budget and the output limit on OpenRouter
+
+A fixed thinking budget (`thinking: { type: 'enabled', budgetTokens }`) is sent
+as `reasoning.max_tokens`. A host refuses a budget that is not below the
+request's own `max_tokens`, so when both are present and `maxTokens` is above
+1024 the driver sends `max(1024, min(budget, maxTokens - 1))`. In every other
+case (`maxTokens` of 1024 or less, or not set) the budget goes as given. Effort
+requests carry no budget and are never changed.
+
+## A failure names the refusing host
+
+When OpenRouter's error body carries `error.metadata.provider_name`, the driver
+adds it and the host's code (`provider_code` on an HTTP error, `error_type` on
+an error that arrives mid-stream) to the error's detail, as `(host X, code Y)`,
+each capped at 64 characters with control characters removed.
+`metadata.raw` is never read, since it can echo the prompt.
+
 ## Related
 
 * [Completion audit](completion-audit.md): the reminder a turn gets when it ends after changing files without a check.

@@ -111,6 +111,11 @@ nothing is priced from the card as before, and a model with neither stays
 upstream key (bring-your-own-key) is billed twice, so the driver adds the
 upstream charge the response states to OpenRouter's share.
 
+The OpenRouter driver counts cache writes from
+`prompt_tokens_details.cache_write_tokens` (documented for models with explicit
+caching) when `cache_creation_input_tokens` is absent; when both are present the
+older field wins, and `promptTokens` is the same either way.
+
 The figure lives in the turn's `costInfo`; the usage totals written to the
 session log stay token counts. A cost limit (`turnConfig.costLimitUsd`) is
 accepted for a model no rate card names when the provider declares
