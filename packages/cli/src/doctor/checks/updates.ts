@@ -12,6 +12,12 @@ export function describeUpdates(input: UpdateStatusInput): DoctorCheckResult {
 			return { status: 'skipped', message: 'this copy of Namzu is not updated by Namzu itself' }
 		case 'current':
 			return { status: 'pass', message: `no newer version known (Namzu ${status.version})` }
+		case 'installed':
+			return {
+				status: 'pass',
+				message: `Namzu ${status.version} is installed; this window runs ${status.running}`,
+				remediation: 'Restart Namzu to use it',
+			}
 		case 'available':
 			return {
 				status: 'pass',

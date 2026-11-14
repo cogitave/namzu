@@ -1,5 +1,6 @@
 /**
- * Spike: can the install folder of a running process be replaced while it keeps working?
+ * Can the install folder of a running process be replaced while it keeps working? This test was the
+ * spike that decided the design of `swap.ts`, and now holds it to it.
  *
  * The CLI is a tree of hash-named chunk files that a process reads from its install folder the
  * first time it needs them. The candidate: build the new tree in a side folder on the same
@@ -14,9 +15,6 @@
 import { execFileSync, fork } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import {
-	copyFileSync,
-	existsSync,
-	linkSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -28,6 +26,8 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+
+import { carryChunks, swapFolders } from './swap.js'
 
 const posixOnly = process.platform === 'win32' ? describe.skip : describe
 
@@ -125,29 +125,15 @@ function versionOf(root: string): string {
 	}).trim()
 }
 
-/** Candidate swap: carry the live chunks the new tree lacks, check it, rename live aside and new in. */
-function swap(
+/** The swap the updater uses: carry the live chunks the new tree lacks, then trade the folders. */
+async function swap(
 	live: string,
 	next: string,
 	aside: string,
 	check: (root: string) => boolean,
-): 'swapped' | 'rolled-back' {
-	const liveChunks = join(live, 'dist', 'chunks')
-	const nextChunks = join(next, 'dist', 'chunks')
-	for (const name of readdirSync(liveChunks)) {
-		if (existsSync(join(nextChunks, name))) continue
-		try {
-			linkSync(join(liveChunks, name), join(nextChunks, name))
-		} catch {
-			copyFileSync(join(liveChunks, name), join(nextChunks, name))
-		}
-	}
-	renameSync(live, aside)
-	renameSync(next, live)
-	if (check(live)) return 'swapped'
-	renameSync(live, next)
-	renameSync(aside, live)
-	return 'rolled-back'
+): Promise<'swapped' | 'rolled-back'> {
+	await carryChunks(live, next)
+	return swapFolders({ live, next, aside, check: async (root) => check(root) })
 }
 
 posixOnly('swapping the install folder under a running process', () => {
@@ -162,7 +148,7 @@ posixOnly('swapping the install folder under a running process', () => {
 			const session = await Driven.start(live)
 			expect(await session.load('seen-AAAA.js')).toEqual({ ok: true, value: 'seen' })
 
-			expect(swap(live, next, aside, (root) => versionOf(root) === '1.1.0')).toBe('swapped')
+			expect(await swap(live, next, aside, (root) => versionOf(root) === '1.1.0')).toBe('swapped')
 
 			// Imported before: cached, still answered. Never imported before: read from the carried file.
 			expect(await session.load('seen-AAAA.js')).toEqual({ ok: true, value: 'seen' })
@@ -195,7 +181,7 @@ posixOnly('swapping the install folder under a running process', () => {
 		writeTree(live, '1.0.0', { 'late-FFFF.js': 'late-old' })
 		writeTree(next, '1.1.0', {})
 		const session = await Driven.start(live)
-		expect(swap(live, next, aside, () => false)).toBe('rolled-back')
+		expect(await swap(live, next, aside, () => false)).toBe('rolled-back')
 		expect(versionOf(live)).toBe('1.0.0')
 		expect(await session.load('late-FFFF.js')).toEqual({ ok: true, value: 'late-old' })
 		session.stop()
@@ -279,9 +265,9 @@ posixOnly('the two layouts the updater installs into, with the real npm', () => 
 			renameSync(join(side, 'lib', 'node_modules', '@namzu', 'cli'), next)
 			rmSync(side, { recursive: true, force: true })
 
-			expect(swap(live, next, `${live}.replaced`, (root) => versionOf(root) === '1.1.0')).toBe(
-				'swapped',
-			)
+			expect(
+				await swap(live, next, `${live}.replaced`, (root) => versionOf(root) === '1.1.0'),
+			).toBe('swapped')
 
 			expect(await session.load('late-BBBB.js')).toEqual({ ok: true, value: 'late-old' })
 			expect(await session.load('new-DDDD.js')).toEqual({ ok: true, value: 'new' })

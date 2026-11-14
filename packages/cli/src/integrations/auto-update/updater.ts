@@ -115,6 +115,8 @@ export interface UpdaterDeps {
 	 */
 	readonly applyMode?: 'now' | 'defer'
 	readonly onPending?: (version: string) => void
+	/** Run once at start, after the repair of an interrupted update: removes what an earlier swap left. */
+	readonly housekeeping?: () => Promise<void> | void
 	readonly now?: () => number
 	/** Milliseconds this process has been running. */
 	readonly uptimeMs?: () => number
@@ -409,7 +411,10 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 		start() {
 			if (started || stopped) return
 			started = true
-			void repair().catch(() => undefined)
+			void repair()
+				.catch(() => undefined)
+				.then(() => deps.housekeeping?.())
+				.catch(() => undefined)
 			const uptime = deps.uptimeMs?.() ?? process.uptime() * 1000
 			schedule(Math.max(0, FIRST_CHECK_AFTER_MS - uptime))
 		},
