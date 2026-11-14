@@ -1,5 +1,39 @@
 # @namzu/cli
 
+## 53.3.0
+
+### Minor Changes
+
+- 2f8e16c: The model can now read what the conversation has cost, so "what did this cost?" is answered in one step instead of a search of the disk that ended in "I cannot say". A new read-only tool, `session_cost`, takes no arguments and returns the money spent so far and in the last completed turn (with whether the provider reported it or it is an estimate from list prices), the token totals, and a line saying the calls still to come in the running turn are not yet counted (so the model gives the figure as the cost so far), and a line naming what it leaves out (side requests such as the title, sub-agents' own conversations). Tokens with no known rate read "at least $X; N tokens have no known rate", and a route with no price at all reads "unknown", never zero. It is added to every session that keeps a conversation log, including an `exec --json` run with no session key; nothing is removed or renamed, and a host that lists tool names for the model will see one more.
+- c996f0c: An update of an `npm install --global` copy (and of the installer's own `~/.namzu` folder) on macOS and Linux now installs while Namzu windows are open, instead of waiting for the last one to close. You see a dim `Updating to X…` in the footer, then `✓ Updated to X · restart to use it`; the window you are in keeps working and keeps the version it started with, and the next `namzu` you start is the new version. A window started before this release still waits as before.
+
+  How it is done: the new version is installed beside the old folder, started once, given the lazily loaded files of the old one, and then the two folders trade places; if the new folder does not start, nothing changed. Between the two renames the folder is absent for about 15 microseconds, and a window that loads a file for the first time in exactly then shows the existing "installed while this window was open" line instead of a crash.
+
+  No setting, flag or default changes: `updates.auto` and `NAMZU_AUTO_UPDATE=0` still turn installing off (the footer then only offers the command), `updates.check` and `NAMZU_UPDATE_CHECK=0` still turn the look off. This is why the bump is minor, not major. What does change is when an automatic install happens; there is no setting to restore the install-after-close timing on these installs, and Windows, pnpm global installs and a prefix on another filesystem keep it. `namzu doctor` in a window that is still on the old version now says the new version is installed and a restart is left.
+
+  A window with updates switched off now also writes its small running record under the install, so another window's update keeps the files it still needs; it still checks, downloads and installs nothing.
+
+### Patch Changes
+
+- 81af1e1: The update notice (`✓ Updated to X · restart to use it`, `Update available! Run: …`) now sits on its own row directly above the input box, at the right edge, instead of taking the place of the model name under the box; it is green with a check once an update is installed, is cut at 60 percent of the width on a narrow terminal, and is hidden while an urgent or error notice shows. The model name stays on the row under the box while an update shows. The background pill under the box names what is running: `2 shells` and `1 monitor` replace `3 bg`. Anything that matched the text `N bg` on screen now sees `N shells` or `N monitors`.
+- c933828: Run `namzu`, leave, and run it again in the same terminal: the second session now opens on a clean screen with the banner at the top (under one blank margin row), instead of stacking under the first session's banner, empty input box and footer. The rows on screen move up into the terminal's scrollback (they are not erased, and the scrollback is never cleared), and when you leave, the input box and footer are taken off the screen while the conversation stays. Fullscreen mode, a session run by the workspaces host and output that is not a terminal behave as before.
+- 2ad2e1e: Shorter requests and fewer detours. The language rule (reply in the language of the person's latest message, give money when money is asked) is now the first sentence of the system prompt and appears once; the announce-before-acting line is gone from the identity and replaced by one narration rule for long work, so a plain question is answered without a line about what comes next. The main system message is about 4,000 characters shorter, and an explore agent's about 11,000 shorter: an `explore` or `plan` agent receives the working rules once under a read-only blurb, where it used to receive them twice with a worker blurb after the read-only one.
+- ec0651f: A reply is marked by a plain round dot in the text colour instead of the green `∴`, on the first text block of a reply only: a later block after a tool call lines up under the first and has no mark, while tool rows keep their own bold coloured dot. The folded line for shell commands now reads `Ran 2 shell commands`, and the launch row of background agents and workflows says to follow the work with `↓` or `/tasks`. The fullscreen view and `namzu watch` use the same mark.
+- ec0651f: Every row of the main screen now starts in the first column instead of the second: replies, tool rows, your message, the header, the input box's prompt, the status row, the update row and the rows under it. The input box's rules run from the first column to the right margin (one cell stays empty at the right edge, as before). On the agents rail the bullet is the first cell and the row the keyboard is on shows `❯` in its place.
+- 9d723bb: The running-workflow rows under the status row now line up as one table. Every bar starts in the same column and keeps the same width as the terminal narrows, and the count, the elapsed time and the token number each start in one column, so the clocks of a row at 1h58m and one at 16m08s sit under each other. The elapsed time on those rows reads `45s`, `16m08s`, `1h58m` instead of `16m 8s`, `1h 58m 0s`. The line that waits for background work at the end of a turn draws its mark in the same column as the closing line.
+- Updated dependencies [daa889c]
+- Updated dependencies [f9ff8e8]
+- Updated dependencies [8fbb5b3]
+- Updated dependencies [2ad2e1e]
+  - @namzu/openrouter@3.2.1
+  - @namzu/sdk@65.0.0
+  - @namzu/browser@2.0.1
+  - @namzu/computer-use@4.3.1
+  - @namzu/anthropic@7.1.1
+  - @namzu/ollama@2.3.0
+  - @namzu/openai@4.5.0
+  - @namzu/sandbox@40.0.0
+
 ## 53.2.2
 
 ### Patch Changes

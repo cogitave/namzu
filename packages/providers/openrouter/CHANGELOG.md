@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.2.1
+
+### Patch Changes
+
+- daa889c: An OpenRouter failure now says which upstream host refused the request and its code (for example `host AcmeCloud, code bad_param`), on an HTTP error and on an error that arrives mid-stream, so a person can tell a host's refusal from the router's. The host's raw echo of the request is still never shown. Cache writes are now counted for models with explicit caching (`prompt_tokens_details.cache_write_tokens`, used when the older field is absent; the prompt size is unchanged). A thinking budget is no longer sent at or above the request's output limit: with an output limit above 1024 it is brought under it, and a budget under 1024 is raised to 1024; effort-mode requests are untouched.
+- f9ff8e8: Through OpenRouter, a DeepSeek V4 sub-agent no longer ends with the vendor's HTTP 400 "Thinking mode does not support this tool_choice", and choosing effort `max` or `ultra` no longer throws. The OpenRouter driver leaves a forced tool choice (`required` or a named function) off the request for the models that refuse it while they reason, and when a host answers a forced choice with a 400 that names `tool_choice` it sends the request once more without it (`auto` and `none` are untouched, and a host that accepts the choice still gets it). Effort `max` and `ultra` now send the highest level the model's OpenRouter listing names (`max` for DeepSeek V4.1 Flash), or `xhigh` when the listing cannot be read. `OpenRouterConfig` gains an optional `logger` for the driver's debug lines. In the SDK, a tool choice set by a step (`prepareStep`) is now asked of the provider with `acceptsForcedToolChoiceFor`, as the loop's own forced step already was, and is not sent when the provider says it refuses it. Nothing is removed; a request that used to fail now succeeds. One behaviour changes for any provider that answers `acceptsForcedToolChoiceFor` with `false` (the DeepSeek driver with thinking on, Anthropic models that refuse a forced choice): a `prepareStep` choice of `required` or a named function used to fail the step with the provider's refusal, and is now left off the request, with one line added in words that the reply must be a tool call. A caller that wants the hard failure back checks the choice itself before returning it from `prepareStep`.
+
 ## 3.2.0
 
 ### Minor Changes
