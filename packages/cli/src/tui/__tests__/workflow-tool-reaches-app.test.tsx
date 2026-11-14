@@ -115,7 +115,10 @@ const flows = vi.hoisted(() => {
 })
 
 const monitor = vi.hoisted(() => ({
-	getSnapshot: () => [] as readonly unknown[],
+	rows: [] as readonly unknown[],
+	getSnapshot(): readonly unknown[] {
+		return monitor.rows
+	},
 	getNarration: () => [] as readonly unknown[],
 	subscribe: () => () => {},
 	reset: () => {},
@@ -259,11 +262,17 @@ function run(
 			at: NOW - 20_000,
 		}),
 		agents: [
-			agentView(1, 'done', { phaseIndex: 1, phaseTitle: 'Scan', tokens: 1200 }),
+			agentView(1, 'done', {
+				phaseIndex: 1,
+				phaseTitle: 'Scan',
+				tokens: 1200,
+				viewId: 'agent-1',
+			}),
 			agentView(2, 'running', {
 				phaseIndex: 1,
 				phaseTitle: 'Scan',
 				tokens: 300,
+				viewId: 'agent-2',
 			}),
 			agentView(3, 'queued', { phaseIndex: 2, phaseTitle: 'Fix' }),
 		],
@@ -271,7 +280,35 @@ function run(
 	}
 }
 
+/**
+ * The monitor's rows for the two run agents that have started. Their
+ * cumulative spend (every prompt sent again) is far above what they wrote,
+ * and only what they wrote reaches the rail.
+ */
+function runChildren(): readonly unknown[] {
+	const child = (viewId: string, outputTokens: number) => ({
+		viewId,
+		agentId: 'general-purpose',
+		description: viewId,
+		prompt: 'p',
+		batchId: 'wrun00001',
+		workflowId: 'wf:wrun00001',
+		workflowGroupId: 'g',
+		phaseId: `p-${viewId}`,
+		workflow: 'audit',
+		phase: 'Scan',
+		phaseSequence: 1,
+		status: 'working',
+		startedAt: NOW - 15_000,
+		tokens: 900_000,
+		outputTokens,
+		transcript: [],
+	})
+	return [child('agent-1', 1200), child('agent-2', 300)]
+}
+
 beforeEach(() => {
+	monitor.rows = runChildren()
 	flows.reset()
 	sendOverride.current = undefined
 })
@@ -552,7 +589,7 @@ describe('the conversation', () => {
 		flows.set([ended])
 		flows.end(ended)
 		await waitUntil(screen, () =>
-			/● Workflow audit finished · 20s · 3 agents · 1\.5k tokens/.test(everything(screen)),
+			/● Workflow audit finished · 20s · 3 agents · 1\.5k tokens written/.test(everything(screen)),
 		)
 	})
 
@@ -729,7 +766,7 @@ describe('/workflows', () => {
 		screen.press('\r')
 		await waitUntil(screen, () => text(screen).includes('Workflows'))
 		expect(text(screen)).toMatch(/1\. audit\s+running · .*1\/3 agents/)
-		expect(text(screen)).toMatch(/2\. nightly\s+finished · .*1 agent · 900 tokens · 1h ago/)
+		expect(text(screen)).toMatch(/2\. nightly\s+finished · .*1 agent · 900 tokens in all · 1h ago/)
 		screen.press('\x1b[B')
 		await waitUntil(screen, () => /›2\. nightly/.test(text(screen)))
 		screen.press('\r')

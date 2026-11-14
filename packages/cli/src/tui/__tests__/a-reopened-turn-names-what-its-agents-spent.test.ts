@@ -22,10 +22,14 @@ const spawned = (child: string) =>
 	record({ type: 'child_session_spawned', turnId: TURN, childSessionId: child })
 // The record leaves the turn out once the turn has closed: the spawn names it.
 const ended = (child: string, tokens: number) =>
-	record({ type: 'child_session_ended', childSessionId: child, usage: { totalTokens: tokens } })
+	record({
+		type: 'child_session_ended',
+		childSessionId: child,
+		usage: { totalTokens: tokens * 40, completionTokens: tokens },
+	})
 
-describe('what a reopened turn says its agents spent', () => {
-	it('adds up what the agents recorded as they ended, whichever turn state they ended in', () => {
+describe('what a reopened turn says its agents wrote', () => {
+	it('adds up what the agents wrote, not the cumulative spend they recorded as they ended, whichever turn state they ended in', () => {
 		const trail = trailFromRecords([
 			record({ type: 'turn_started', turnId: TURN }),
 			spawned(CHILD_A),
@@ -50,13 +54,13 @@ describe('what a reopened turn says its agents spent', () => {
 		const live = settleLine(
 			5000,
 			[
-				{ status: 'completed', tokens: 525 },
-				{ status: 'completed', tokens: 1000 },
+				{ status: 'completed', tokens: 21_000, outputTokens: 525 },
+				{ status: 'completed', tokens: 40_000, outputTokens: 1000 },
 			] as never,
 			at,
 		)
 		expect(settleLine(5000, agents, at, 1525)).toBe(live)
-		expect(live).toContain('1.5k tokens')
+		expect(live).toContain('1.5k tokens written')
 		expect(settleLine(5000, agents, at)).not.toContain('tokens')
 	})
 })

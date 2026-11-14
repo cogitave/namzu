@@ -159,7 +159,7 @@ describe('the calls behind a finished agent', () => {
 		const rows = agentCompletionRows(done)
 		expect(rows.map((row) => row.content)).toEqual([
 			'general-purpose (a)',
-			'Done (1 tool use · 0 tokens · 8s)',
+			'Done (1 tool use · 8s)',
 		])
 		expect(rows[1]?.detail).toEqual(['Calls', '✓ Read a'])
 		expect(rows[1]?.meta).toBeDefined()
@@ -173,7 +173,8 @@ describe('a batch of waited-on agents that all finished', () => {
 			description: 'Count a',
 			status: 'completed',
 			toolCalls: 4,
-			tokens: 8_100,
+			tokens: 80_000,
+			outputTokens: 8_100,
 			startedAt: 1_000,
 			completedAt: 9_000,
 		}),
@@ -182,7 +183,8 @@ describe('a batch of waited-on agents that all finished', () => {
 			description: 'Count b',
 			status: 'completed',
 			toolCalls: 2,
-			tokens: 3_000,
+			tokens: 30_000,
+			outputTokens: 3_000,
 			startedAt: 1_100,
 			completedAt: 6_000,
 		}),
@@ -191,7 +193,8 @@ describe('a batch of waited-on agents that all finished', () => {
 			description: 'Count c',
 			status: 'completed',
 			toolCalls: 1,
-			tokens: 500,
+			tokens: 5_000,
+			outputTokens: 500,
 			startedAt: 1_200,
 			completedAt: 3_000,
 		}),
@@ -200,10 +203,10 @@ describe('a batch of waited-on agents that all finished', () => {
 	it('ends as one block: a header with the totals, then a line per agent', () => {
 		expect(waitedOnBlock(members).content).toBe(
 			[
-				'3 agents finished · 7 tool uses · 11.6k tokens · 8s',
-				'├ general-purpose (Count a) · 4 tool uses · 8.1k tokens · 8s',
-				'├ general-purpose (Count b) · 2 tool uses · 3.0k tokens · 4s',
-				'└ general-purpose (Count c) · 1 tool use · 500 tokens · 1s',
+				'3 agents finished · 7 tool uses · 11.6k tokens written · 8s',
+				'├ general-purpose (Count a) · 4 tool uses · 8.1k tokens written · 8s',
+				'├ general-purpose (Count b) · 2 tool uses · 3.0k tokens written · 4s',
+				'└ general-purpose (Count c) · 1 tool use · 500 tokens written · 1s',
 			].join('\n'),
 		)
 	})

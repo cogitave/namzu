@@ -540,7 +540,8 @@ describe('the agents a resumed conversation launched', () => {
 		startedAt: 1_000,
 		completedAt: 9_000,
 		toolCalls: 3,
-		tokens: 1200,
+		tokens: 60_000,
+		outputTokens: 1200,
 		transcript: [],
 		replayed: true,
 		...input,
@@ -575,7 +576,7 @@ describe('the agents a resumed conversation launched', () => {
 			'On it.',
 			'Launched Count words',
 			'general-purpose (Count words)',
-			'Done (3 tool uses · 1.2k tokens · 8s)',
+			'Done (3 tool uses · 1.2k tokens written · 8s)',
 			'All done.',
 		])
 		// Placed once: the marker is gone, so a second read changes nothing.

@@ -20,6 +20,7 @@
  */
 
 import { wrapUntrusted } from '@namzu/sdk'
+import { wroteBy, wroteLineParts, wroteOf } from './agent-tokens.js'
 import { SYSTEM_ROW_GLYPH, endWord } from './system-rows.js'
 import { EXPAND_HINT } from './truncation.js'
 
@@ -28,7 +29,7 @@ import {
 	DEFAULT_AGENT_WORKFLOW,
 	type SubagentActivity,
 } from '../integrations/subagents/activity.js'
-import { type RailWorkflow, formatCompactCount } from './AgentExplorer.js'
+import type { RailWorkflow } from './AgentExplorer.js'
 import { formatElapsed } from './LiveActivity.js'
 import { callDetailLines } from './agent-calls.js'
 import { scriptText, terminalDisplayText } from './terminal-display.js'
@@ -225,7 +226,7 @@ export function agentDoneRows(
 		header: `${oneLine(agent.agentId)} (${oneLine(agent.description || agent.agentId)})`,
 		result: `Done (${[
 			uses === 1 ? '1 tool use' : `${uses} tool uses`,
-			`${formatCompactCount(agent.tokens ?? 0)} tokens`,
+			...wroteLineParts(wroteOf(agent)),
 			took,
 		].join(' · ')})`,
 	}
@@ -264,26 +265,18 @@ export function waitedOnBlock(agents: readonly SubagentActivity[]): WaitedOnBloc
 	const took = (agent: SubagentActivity): string =>
 		formatTook(Math.max(0, (agent.completedAt ?? agent.startedAt) - agent.startedAt))
 	const calls = ordered.reduce((sum, agent) => sum + (agent.toolCalls ?? 0), 0)
-	const spent = ordered.reduce<number | undefined>(
-		(sum, agent) => (agent.tokens === undefined ? sum : (sum ?? 0) + agent.tokens),
-		undefined,
-	)
+	const spent = wroteBy(ordered)
 	const first = Math.min(...ordered.map((agent) => agent.startedAt))
 	const last = Math.max(...ordered.map((agent) => agent.completedAt ?? agent.startedAt))
 	const header = [
 		`${ordered.length} agents finished`,
 		`${calls} tool ${calls === 1 ? 'use' : 'uses'}`,
-		...(spent !== undefined ? [`${formatCompactCount(spent)} tokens`] : []),
+		...wroteLineParts(spent),
 		formatTook(Math.max(0, last - first)),
 	].join(' · ')
 	const lines = ordered.map((agent, index) => {
 		const name = `${oneLine(agent.agentId)} (${oneLine(agent.description || agent.agentId)})`
-		const parts = [
-			name,
-			uses(agent),
-			...(agent.tokens !== undefined ? [`${formatCompactCount(agent.tokens)} tokens`] : []),
-			took(agent),
-		]
+		const parts = [name, uses(agent), ...wroteLineParts(wroteOf(agent)), took(agent)]
 		return `${index === ordered.length - 1 ? '└' : '├'} ${parts.join(' · ')}`
 	})
 	const detail = ordered.flatMap((agent) => [
@@ -379,7 +372,7 @@ export function workflowNotice(workflow: RailWorkflow, now = Date.now()): Workfl
 		`Workflow ${scriptText(workflow.name, { maxCells: WORKFLOW_NAME_CELLS })} ${word}`,
 		elapsed,
 		...(workflow.total > 0 ? [workflowAgentTotal(workflow.total)] : []),
-		...(workflow.tokens !== undefined ? [`${formatCompactCount(workflow.tokens)} tokens`] : []),
+		...wroteLineParts(workflow.outputTokens),
 	]
 	return {
 		content: parts.join(' · '),
@@ -420,17 +413,12 @@ export function settleLine(
 	const worked = (ms: number): string =>
 		`Worked for ${formatElapsed(Math.max(0, ms))}${doneAt ? ` · done ${doneClock(doneAt)}` : ''}`
 	if (agents.length <= 0) return elapsedMs >= SETTLE_LINE_MIN_MS ? worked(elapsedMs) : undefined
-	const spent =
-		spentInAll ??
-		agents.reduce<number | undefined>(
-			(sum, agent) => (agent.tokens === undefined ? sum : (sum ?? 0) + agent.tokens),
-			undefined,
-		)
+	const spent = spentInAll ?? wroteBy(agents)
 	const failed = agents.filter((agent) => agent.status === 'failed').length
 	return [
 		worked(elapsedMs),
 		`${agents.length} agent${agents.length === 1 ? '' : 's'}`,
-		...(spent !== undefined ? [`${formatCompactCount(spent)} tokens`] : []),
+		...wroteLineParts(spent),
 		...(failed > 0 ? [`${failed} failed`] : []),
 	].join(' · ')
 }

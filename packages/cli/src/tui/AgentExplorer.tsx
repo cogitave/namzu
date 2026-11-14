@@ -21,6 +21,7 @@ import {
 	countAgents,
 	isWorkflowRunAgent,
 } from '../integrations/workflows/view.js'
+import { agentUsageText, wroteBy, wroteOf, wroteRailText } from './agent-tokens.js'
 import { fitHints } from './key-hints.js'
 import { selectionWindow } from './selection-window.js'
 import { END_WORDS, endWord } from './system-rows.js'
@@ -210,15 +211,11 @@ export function railActionFor(agent: SubagentActivity): 'stop' | 'clear' {
 }
 
 /**
- * `↑ 1.2k tokens` while the agent has done nothing but read its task, `↓ 1.2k
- * tokens` once it has acted (its first tool call). Nothing until it has
- * reported some usage. The arrow follows
- * `progress.lastActivity`.
+ * `↓ 1.2k tokens`: what the agent has written so far, the main row's arrow with
+ * the main row's meaning. Nothing until it has reported some usage.
  */
 function railTokens(agent: SubagentActivity): string | undefined {
-	if (agent.tokens === undefined || agent.tokens <= 0) return undefined
-	const arrow = agent.toolCalls !== undefined && agent.toolCalls > 0 ? '↓' : '↑'
-	return `${arrow} ${formatCompactCount(agent.tokens)} tokens`
+	return wroteRailText(wroteOf(agent))
 }
 
 /**
@@ -267,8 +264,10 @@ export interface RailWorkflow {
 	readonly endedAt?: number
 	readonly done: number
 	readonly total: number
-	/** Summed spend of the members that reported usage; undefined when none has. */
+	/** Summed spend of the members that reported usage; undefined when none has. Never shown: see `outputTokens`. */
 	readonly tokens?: number
+	/** What the members wrote together; the number the row shows. Undefined until one has reported. */
+	readonly outputTokens?: number
 	readonly failed: number
 	readonly status: RailWorkflowStatus
 	readonly agents: readonly SubagentActivity[]
@@ -326,6 +325,7 @@ export function runRailWorkflow(
 ): RailWorkflow {
 	const facts = runRailFacts(run)
 	const counts = countAgents(run)
+	const wrote = wroteBy(agents.filter((agent) => agent.workflowRunId === run.runId))
 	const largeWhy =
 		large !== undefined && run.status === 'running'
 			? largeRunReason({
@@ -358,6 +358,7 @@ export function runRailWorkflow(
 		done: facts.done,
 		total: facts.total,
 		...(facts.tokens !== undefined ? { tokens: facts.tokens } : {}),
+		...(wrote !== undefined ? { outputTokens: wrote } : {}),
 		failed: facts.failed,
 		status: run.status,
 		agents: agents.filter((agent) => agent.workflowRunId === run.runId),
@@ -404,6 +405,7 @@ function groupWorkflows(
 			? undefined
 			: Math.max(...members.map((agent) => agent.completedAt ?? agent.startedAt))
 		if (expire && endedAt !== undefined && now - endedAt >= AGENT_RAIL_FINISHED_LINGER_MS) continue
+		const wroteMembers = wroteBy(members)
 		const spent = members.reduce<number | undefined>(
 			(sum, agent) => (agent.tokens === undefined ? sum : (sum ?? 0) + agent.tokens),
 			undefined,
@@ -417,6 +419,7 @@ function groupWorkflows(
 			done: members.filter((agent) => agent.status === 'completed').length,
 			total: members.length,
 			...(spent !== undefined ? { tokens: spent } : {}),
+			...(wroteMembers !== undefined ? { outputTokens: wroteMembers } : {}),
 			failed,
 			status: running
 				? 'running'
@@ -505,8 +508,7 @@ export function workflowRowVariants(
 	// The counter is the agents that finished over every agent; a failure turns
 	// the row's dot red and is counted in the detail, not beside the counter.
 	const elapsed = formatElapsed(Math.max(0, (workflow.endedAt ?? now) - workflow.startedAt))
-	const spent = workflow.tokens === undefined ? undefined : formatCompactCount(workflow.tokens)
-	const tokens = spent && `↓ ${spent} tokens`
+	const tokens = wroteRailText(workflow.outputTokens)
 	const warning = workflow.large ? LARGE_WORKFLOW_WARNING : undefined
 	const join = (parts: readonly (string | undefined)[]): string =>
 		parts.filter((part): part is string => part !== undefined).join(' · ')
@@ -1283,6 +1285,17 @@ function agentErrorTail(agent: Pick<SubagentActivity, 'status' | 'error'>): Reac
 	return <Text color={theme.status.error}> — {oneLine(agent.error)}</Text>
 }
 
+/** Terminal width from which a detail line spells out what the agent wrote, was sent and had cached. */
+const WIDE_USAGE_COLUMNS = 110
+
+/** What the agent wrote, in words; with the full picture where there is room. */
+function usagePart(agent: SubagentActivity, wide: boolean): string[] {
+	const text = wide ? agentUsageText(agent) : undefined
+	if (text) return [text]
+	const wrote = wroteOf(agent)
+	return wrote !== undefined ? [`wrote ${formatCompactCount(wrote)}`] : []
+}
+
 /** What an agent row says after its label: model, spend, and how it ended. */
 function agentDetailMeta(agent: SubagentActivity, columns: number): string {
 	return [
@@ -1290,7 +1303,7 @@ function agentDetailMeta(agent: SubagentActivity, columns: number): string {
 		...(columns >= 70 && agent.model
 			? [truncateChoiceText(agent.model, MAX_MODEL_LABEL_WIDTH)]
 			: []),
-		...(agent.tokens !== undefined ? [`${formatCompactCount(agent.tokens)} tok`] : []),
+		...usagePart(agent, columns >= WIDE_USAGE_COLUMNS),
 		...(agent.status === 'failed' ? ['failed'] : []),
 		...(agent.status === 'cancelled'
 			? [agent.workflowRunId !== undefined ? 'skipped' : 'stopped']
@@ -1944,6 +1957,7 @@ export function AgentTranscript({
 	const meta = agentMetaParts(agent, {
 		showModel: terminalColumns >= 50,
 		showCounters: terminalColumns >= 70,
+		wide: terminalColumns >= WIDE_USAGE_COLUMNS,
 	})
 	const navigation =
 		navigationHint ??
@@ -2067,7 +2081,23 @@ export function maxAgentViewTailOffset(
 	pageRows: number,
 	terminalColumns: number,
 ): number {
-	return Math.max(0, agentTranscriptRows(agent, terminalColumns + 5).length - pageRows)
+	const room = pageRows - (agentViewUsageLine(agent, terminalColumns) !== undefined ? 1 : 0)
+	return Math.max(0, agentTranscriptRows(agent, terminalColumns + 5).length - room)
+}
+
+/**
+ * The one muted line under a viewed agent's transcript, against the composer: what it wrote, what it was
+ * sent and how much of that came from the cache. Only where the terminal has
+ * room for the wide wording and the agent has reported usage; the rail row
+ * below carries the short number everywhere else.
+ */
+export function agentViewUsageLine(
+	agent: SubagentActivity,
+	terminalColumns: number,
+): string | undefined {
+	// `terminalColumns` is the screen's width less its two-column margin.
+	if (terminalColumns + 2 < WIDE_USAGE_COLUMNS) return undefined
+	return agentUsageText(agent)
 }
 
 export interface AgentViewProps {
@@ -2095,45 +2125,57 @@ export function AgentView({
 	notice,
 }: AgentViewProps) {
 	const lines = agentTranscriptRows(agent, terminalColumns + 5)
-	const room = Math.max(1, pageRows - (notice ? 1 : 0))
+	const usage = agentViewUsageLine(agent, terminalColumns)
+	const room = Math.max(1, pageRows - (notice ? 1 : 0) - (usage !== undefined ? 1 : 0))
 	const offset = Math.min(Math.max(0, tailOffset), Math.max(0, lines.length - room))
 	const end = lines.length - offset
 	const shown = lines.slice(Math.max(0, end - room), end)
 	return (
-		<Box flexDirection="column" height={pageRows} flexShrink={0} justifyContent="flex-end">
-			{shown.length === 0 ? (
-				<Text color={theme.text.muted}>Waiting for output…</Text>
-			) : (
-				shown.map((line) => (
-					<Box key={line.id} height={1} flexShrink={0} overflow="hidden">
-						<Box width={2} flexShrink={0}>
-							<Text
-								color={
-									line.source !== 'prompt' && line.source.kind === 'tool'
-										? statusColor(line.source.status)
-										: lineColor(line)
-								}
-								bold={isOperatorLine(line)}
-							>
-								{line.continuation ? ' ' : lineGlyph(line)}
-							</Text>
+		<Box flexDirection="column" height={pageRows} flexShrink={0}>
+			<Box flexDirection="column" flexGrow={1} flexShrink={1} justifyContent="flex-end">
+				{shown.length === 0 ? (
+					<Text color={theme.text.muted}>Waiting for output…</Text>
+				) : (
+					shown.map((line) => (
+						<Box key={line.id} height={1} flexShrink={0} overflow="hidden">
+							<Box width={2} flexShrink={0}>
+								<Text
+									color={
+										line.source !== 'prompt' && line.source.kind === 'tool'
+											? statusColor(line.source.status)
+											: lineColor(line)
+									}
+									bold={isOperatorLine(line)}
+								>
+									{line.continuation ? ' ' : lineGlyph(line)}
+								</Text>
+							</Box>
+							<Box flexGrow={1} minWidth={0}>
+								<Text
+									color={lineColor(line)}
+									bold={isOperatorLine(line) || line.heading === true}
+									wrap="truncate-end"
+								>
+									{line.text}
+								</Text>
+							</Box>
 						</Box>
-						<Box flexGrow={1} minWidth={0}>
-							<Text
-								color={lineColor(line)}
-								bold={isOperatorLine(line) || line.heading === true}
-								wrap="truncate-end"
-							>
-								{line.text}
-							</Text>
-						</Box>
+					))
+				)}
+				{notice ? (
+					<Text color={theme.status.warn} wrap="truncate-end">
+						{notice}
+					</Text>
+				) : null}
+			</Box>
+			{usage !== undefined ? (
+				<Box height={1} flexShrink={0}>
+					<Box flexGrow={1} flexShrink={1} minWidth={0}>
+						<Text color={theme.text.muted} wrap="truncate-end">
+							{usage}
+						</Text>
 					</Box>
-				))
-			)}
-			{notice ? (
-				<Text color={theme.status.warn} wrap="truncate-end">
-					{notice}
-				</Text>
+				</Box>
 			) : null}
 		</Box>
 	)
@@ -2308,9 +2350,9 @@ export { formatCompactCount }
  * spend is known but the tool count is not (or vice versa), the missing half
  * renders as an em dash rather than a fabricated 0.
  */
-function agentCounterText(agent: SubagentActivity): string | undefined {
-	if (agent.tokens === undefined && agent.toolCalls === undefined) return undefined
-	const tokens = agent.tokens !== undefined ? formatCompactCount(agent.tokens) : '—'
+function agentCounterText(agent: SubagentActivity, wide = false): string | undefined {
+	if (wroteOf(agent) === undefined && agent.toolCalls === undefined) return undefined
+	const tokens = usagePart(agent, wide)[0] ?? '—'
 	if (agent.toolCalls === undefined) return tokens
 	return `${tokens} · ${agent.toolCalls} ${agent.toolCalls === 1 ? 'tool' : 'tools'}`
 }
@@ -2323,7 +2365,11 @@ function agentCounterText(agent: SubagentActivity): string | undefined {
  */
 function agentMetaParts(
 	agent: SubagentActivity,
-	options: { readonly showModel: boolean; readonly showCounters: boolean },
+	options: {
+		readonly showModel: boolean
+		readonly showCounters: boolean
+		readonly wide?: boolean
+	},
 ): readonly string[] {
 	const parts: string[] = []
 	// Unconditional, and first, because it is the only part here that changes
@@ -2334,7 +2380,7 @@ function agentMetaParts(
 	if (options.showModel && agent.model) {
 		parts.push(truncateChoiceText(agent.model, MAX_MODEL_LABEL_WIDTH))
 	}
-	const counters = options.showCounters ? agentCounterText(agent) : undefined
+	const counters = options.showCounters ? agentCounterText(agent, options.wide === true) : undefined
 	if (counters) parts.push(counters)
 	return parts
 }

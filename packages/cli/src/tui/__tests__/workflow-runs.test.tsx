@@ -117,6 +117,10 @@ function children(): SubagentActivity[] {
 		phaseSequence: 1,
 		status: 'working',
 		startedAt: NOW - 15_000,
+		// Sent again on every request, the cumulative figure is large; what the
+		// agents wrote is what the rail adds up.
+		tokens: 700_000,
+		outputTokens: viewId === 'agent-1' ? 1200 : 300,
 		transcript: [{ id: `${viewId}:a`, kind: 'assistant', text }],
 	})
 	return [child('agent-1', 'found nothing'), child('agent-2', 'still reading')]
@@ -165,7 +169,10 @@ describe('the rail', () => {
 			runId: 'wrun00001',
 			done: 1,
 			total: 3,
+			// The sum of the cumulative figures stays for the large-run check;
+			// the row shows what the agents wrote.
 			tokens: 1500,
+			outputTokens: 1500,
 			status: 'running',
 		})
 		expect(row?.agents).toHaveLength(3)

@@ -220,17 +220,18 @@ describe('what a finished agent leaves in the conversation', () => {
 			startedAt: 0,
 			completedAt: 8_000,
 			toolCalls: 3,
-			tokens: 12_100,
+			tokens: 300_000,
+			outputTokens: 12_100,
 		})
 		expect(reportsAsNotification(waited)).toBe(false)
 		expect(agentDoneRows(waited)).toEqual({
 			header: 'general-purpose (Count words in a.txt)',
-			result: 'Done (3 tool uses · 12.1k tokens · 8s)',
+			result: 'Done (3 tool uses · 12.1k tokens written · 8s)',
 		})
 		expect(
 			agentDoneRows(agent({ viewId: 'one', toolCalls: 1, completedAt: 1_000, startedAt: 0 }))
 				.result,
-		).toBe('Done (1 tool use · 0 tokens · 1s)')
+		).toBe('Done (1 tool use · 1s)')
 		for (const kind of [{ background: true }, { released: true }, { resumed: true }] as const)
 			expect(reportsAsNotification(agent({ viewId: 'n', ...kind }))).toBe(true)
 	})
@@ -297,11 +298,34 @@ describe('settle line', () => {
 
 	it('closes a phased workflow with spend and failures, never its phases', () => {
 		const phased = [
-			agent({ viewId: 'a', phase: 'Phase 1', phaseId: 'p1', tokens: 9_000, status: 'completed' }),
-			agent({ viewId: 'b', phase: 'Phase 1', phaseId: 'p1', tokens: 9_000, status: 'completed' }),
-			agent({ viewId: 'c', phase: 'Phase 2', phaseId: 'p2', tokens: 9_050, status: 'failed' }),
+			agent({
+				viewId: 'a',
+				phase: 'Phase 1',
+				phaseId: 'p1',
+				tokens: 200_000,
+				outputTokens: 9_000,
+				status: 'completed',
+			}),
+			agent({
+				viewId: 'b',
+				phase: 'Phase 1',
+				phaseId: 'p1',
+				tokens: 200_000,
+				outputTokens: 9_000,
+				status: 'completed',
+			}),
+			agent({
+				viewId: 'c',
+				phase: 'Phase 2',
+				phaseId: 'p2',
+				tokens: 200_000,
+				outputTokens: 9_050,
+				status: 'failed',
+			}),
 		]
-		expect(settleLine(12_000, phased)).toBe('Worked for 12s · 3 agents · 27.1k tokens · 1 failed')
+		expect(settleLine(12_000, phased)).toBe(
+			'Worked for 12s · 3 agents · 27.1k tokens written · 1 failed',
+		)
 		expect(settleLine(2_000, [agent({ viewId: 'x', phase: 'Only', phaseId: 'p' })])).toBe(
 			'Worked for 2s · 1 agent',
 		)

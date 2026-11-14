@@ -62,6 +62,11 @@ export function projectRunAgents(
 			...(agent.tokens > 0 || child?.tokens !== undefined
 				? { tokens: Math.max(agent.tokens, child?.tokens ?? 0) }
 				: {}),
+			// What the agent wrote, was sent and had cached comes from the live
+			// child alone: the run's own view carries only the cumulative figure.
+			...(child?.outputTokens !== undefined ? { outputTokens: child.outputTokens } : {}),
+			...(child?.sentTokens !== undefined ? { sentTokens: child.sentTokens } : {}),
+			...(child?.cachedTokens !== undefined ? { cachedTokens: child.cachedTokens } : {}),
 			...(agent.toolCalls > 0 || child?.toolCalls !== undefined
 				? { toolCalls: Math.max(agent.toolCalls, child?.toolCalls ?? 0) }
 				: {}),
