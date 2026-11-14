@@ -1201,6 +1201,7 @@ export {
 	sideRequestReasoning,
 	SIDE_REQUEST_REASONING_HEADROOM,
 } from './provider/side-request-reasoning.js'
+export type { SideReasoningFields } from './provider/side-request-reasoning.js'
 export { withModelWindowSuffixStripped } from './provider/model-window-suffix.js'
 
 // Old spellings of renamed exports, still live for one deprecation window.

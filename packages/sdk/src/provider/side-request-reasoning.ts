@@ -19,7 +19,8 @@ const DISABLED: ThinkingConfig = { type: 'disabled' }
 /** Efforts a driver may offer for "as little as possible", cheapest first. */
 const LOWEST_FIRST: readonly ReasoningEffort[] = ['none', 'minimal', 'low', 'medium']
 
-type SideReasoningFields = Pick<ChatCompletionParams, 'thinking' | 'effort' | 'maxTokens'>
+/** The request fields a side request sets: thinking, effort and the answer allowance. */
+export type SideReasoningFields = Pick<ChatCompletionParams, 'thinking' | 'effort' | 'maxTokens'>
 
 /**
  * The reasoning settings for a small request made beside a turn (a lookup, a
