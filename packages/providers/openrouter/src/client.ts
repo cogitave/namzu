@@ -210,6 +210,8 @@ interface RawUsage {
 	total_tokens: number
 	prompt_tokens_details?: {
 		cached_tokens?: number
+		/** Tokens written to an explicit cache; OpenRouter documents it for models with explicit caching. */
+		cache_write_tokens?: number
 	}
 	completion_tokens_details?: {
 		reasoning_tokens?: number
@@ -272,7 +274,8 @@ function parseUsage(raw?: RawUsage): TokenUsage {
 		completionTokens: raw.completion_tokens,
 		totalTokens: raw.total_tokens,
 		cachedTokens: raw.prompt_tokens_details?.cached_tokens ?? raw.cache_read_input_tokens ?? 0,
-		cacheWriteTokens: raw.cache_creation_input_tokens ?? 0,
+		cacheWriteTokens:
+			raw.cache_creation_input_tokens ?? raw.prompt_tokens_details?.cache_write_tokens ?? 0,
 		...(reasoningTokens !== undefined ? { reasoningTokens } : {}),
 		...(cost !== undefined ? { reportedCostUsd: cost } : {}),
 	}
@@ -538,6 +541,22 @@ function carriedEffort(
 	return EFFORT_DESCENDING.find((level) => supported.includes(level)) ?? 'xhigh'
 }
 
+/** The least thinking budget a budgeted model accepts. */
+const MIN_THINKING_BUDGET = 1024
+
+/**
+ * A thinking budget has to leave room for the answer: a budget at or above the
+ * request's output limit is refused by the host. With both numbers present and
+ * a limit above 1024, the budget is brought under the limit (and up to 1024 if
+ * it was lower); in every other case it is sent as given.
+ */
+function fitBudget(budget: number | undefined, maxTokens: number | undefined): number | undefined {
+	if (budget === undefined || maxTokens === undefined || maxTokens <= MIN_THINKING_BUDGET) {
+		return budget
+	}
+	return Math.max(MIN_THINKING_BUDGET, Math.min(budget, maxTokens - 1))
+}
+
 /**
  * Map the SDK's thinking controls onto OpenRouter's unified `reasoning` object.
  *
@@ -547,6 +566,7 @@ function carriedEffort(
 function formatReasoning(
 	thinking: ChatCompletionParams['thinking'],
 	effort: string | undefined,
+	maxTokens?: number,
 ): Record<string, unknown> | undefined {
 	if (effort !== undefined) return { effort }
 	if (!thinking || thinking.type === undefined) return undefined
@@ -554,10 +574,69 @@ function formatReasoning(
 	// 'adaptive' has no separate spelling on this wire: the model decides its
 	// own depth, which is what `enabled: true` without a budget expresses.
 	// 'enabled' fixes the depth with budgetTokens, so it carries the cap.
-	const budgetTokens = thinking.type === 'enabled' ? thinking.budgetTokens : undefined
+	const budgetTokens = fitBudget(
+		thinking.type === 'enabled' ? thinking.budgetTokens : undefined,
+		maxTokens,
+	)
 	return {
 		enabled: true,
 		...(budgetTokens !== undefined ? { max_tokens: budgetTokens } : {}),
+	}
+}
+
+/** Longest host name or code worth naming in an error. */
+const UPSTREAM_FIELD_MAX = 64
+
+function upstreamField(value: unknown): string | undefined {
+	if (typeof value !== 'string' && typeof value !== 'number') return undefined
+	const text = String(value)
+		// biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control characters is the point
+		.replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ')
+		.trim()
+	return text === '' ? undefined : text.slice(0, UPSTREAM_FIELD_MAX)
+}
+
+/**
+ * The refusing host and its code, read from an error object's `metadata`
+ * (`provider_name`, and `provider_code` on an HTTP error or `error_type` on a
+ * mid-stream one). `metadata.raw` is never read: it can echo prompt text.
+ */
+function upstreamNote(error: Record<string, unknown>, codeKey: string): string | undefined {
+	const meta = error.metadata
+	if (typeof meta !== 'object' || meta === null) return undefined
+	const m = meta as Record<string, unknown>
+	const host = upstreamField(m.provider_name)
+	const code = upstreamField(m[codeKey])
+	if (host === undefined && code === undefined) return undefined
+	return [host !== undefined ? `host ${host}` : '', code !== undefined ? `code ${code}` : '']
+		.filter(Boolean)
+		.join(', ')
+}
+
+/**
+ * A failed body with the refusing host named in its message and `metadata`
+ * dropped. Anything that is not a JSON object with an `error` object, or that
+ * names no host or code, comes back unchanged.
+ */
+function nameUpstream(body: string, parsed: unknown, codeKey: string): string {
+	if (typeof parsed !== 'object' || parsed === null) return body
+	const error = (parsed as { error?: unknown }).error
+	if (typeof error !== 'object' || error === null) return body
+	const note = upstreamNote(error as Record<string, unknown>, codeKey)
+	if (note === undefined) return body
+	const { metadata: _dropped, ...rest } = error as Record<string, unknown>
+	const message = typeof rest.message === 'string' ? rest.message : ''
+	return JSON.stringify({
+		...(parsed as object),
+		error: { ...rest, message: message ? `${message} (${note})` : note },
+	})
+}
+
+function parseJson(text: string): unknown {
+	try {
+		return JSON.parse(text)
+	} catch {
+		return undefined
 	}
 }
 
@@ -574,16 +653,11 @@ function isForcedToolChoice(tc: ToolChoice): boolean {
  * that merely mentions `tool_choice` (an echo of the request, a schema error
  * about another field) is not retried.
  */
-function refusesToolChoice(errorBody: string): boolean {
+function refusesToolChoice(errorBody: string, parsedBody: unknown): boolean {
 	let text = errorBody
-	try {
-		const parsed = JSON.parse(errorBody) as { error?: { message?: unknown } | string }
-		const e = parsed.error
-		const message = typeof e === 'string' ? e : e?.message
-		if (typeof message === 'string') text = message
-	} catch {
-		// Not JSON: the raw text is the message.
-	}
+	const e = (parsedBody as { error?: { message?: unknown } | string } | null | undefined)?.error
+	const message = typeof e === 'string' ? e : e?.message
+	if (typeof message === 'string') text = message
 	return (
 		/tool_choice/i.test(text) &&
 		/(not\s+support|unsupported|not\s+supported|not\s+allowed|cannot|can't|only\s+support|invalid)/i.test(
@@ -778,6 +852,7 @@ export class OpenRouterProvider implements LLMProvider {
 		const reasoning = formatReasoning(
 			params.thinking,
 			params.effort !== undefined ? carriedEffort(params.effort, supportedEfforts) : undefined,
+			params.maxTokens,
 		)
 		if (reasoning !== undefined) {
 			body.reasoning = reasoning
@@ -828,7 +903,11 @@ export class OpenRouterProvider implements LLMProvider {
 			let errorBody = await response.text().catch(() => '')
 			const sentForced =
 				body.tool_choice !== undefined && isForcedToolChoice(body.tool_choice as ToolChoice)
-			if (response.status === 400 && sentForced && refusesToolChoice(errorBody)) {
+			if (
+				response.status === 400 &&
+				sentForced &&
+				refusesToolChoice(errorBody, parseJson(errorBody))
+			) {
 				// This host refuses a forced choice. Ask once more without it; the
 				// model decides whether to call a tool. Anything the second attempt
 				// answers is final.
@@ -843,7 +922,7 @@ export class OpenRouterProvider implements LLMProvider {
 				throw providerHttpError({
 					providerId: 'openrouter',
 					status: response.status,
-					body: errorBody,
+					body: nameUpstream(errorBody, parseJson(errorBody), 'provider_code'),
 					retryAfter: response.headers.get('retry-after'),
 					shouldRetry: response.headers.get('x-should-retry'),
 				})
@@ -926,7 +1005,7 @@ export class OpenRouterProvider implements LLMProvider {
 						if (parsed.error !== undefined) {
 							throw providerVendorError({
 								providerId: 'openrouter',
-								error: new Error(data),
+								error: new Error(nameUpstream(data, parsed, 'error_type')),
 							})
 						}
 
