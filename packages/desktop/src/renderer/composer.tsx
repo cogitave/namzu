@@ -385,6 +385,9 @@ export function Composer({
 	// While a question waits for the person the composer is a one-line bar: the question is above it.
 	const waiting = waitingOnPerson && !compact
 	const [plusOpen, setPlusOpen] = useState(false)
+	// Send and Stop share one slot, so Stop can appear under a pointer that is already resting there. No
+	// pointer-enter reaches a button that was not there, so Stop's tooltip also opens on the first move.
+	const [stopTipOpen, setStopTipOpen] = useState(false)
 	const [trayEditing, setTrayEditing] = useState<string | null>(null)
 	const editableRows = pending.rows.filter((row) => row.editable)
 	const plusControl = (
@@ -805,8 +808,9 @@ export function Composer({
 											)}
 										{!waiting && speechControl}
 										{running && (
-											<Tooltip>
+											<Tooltip open={stopTipOpen} onOpenChange={setStopTipOpen}>
 												<TooltipTrigger
+													onPointerMove={() => setStopTipOpen(true)}
 													render={
 														<button
 															type="button"
