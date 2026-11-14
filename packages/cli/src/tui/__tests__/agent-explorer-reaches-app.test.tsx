@@ -1058,7 +1058,7 @@ describe('the agents cockpit', () => {
 			// The finished agents linger on the rail for 30 s; the launch receipt
 			// names the batch once in settled history.
 			expect(
-				painted(screen).match(/Workflow Production fan-out[\s\S]{0,40}Running in background/g),
+				painted(screen).match(/Workflow Production fan-out[\s\S]{0,40}Running in the background/g),
 			).toHaveLength(1)
 			expect(painted(screen)).not.toMatch(/Launched 4 agents/u)
 			// The turn delegated, so it closes with one line saying so.
@@ -1602,7 +1602,7 @@ describe('the agents cockpit', () => {
 			// the one thing its launch writes.
 			await waitUntil(
 				screen,
-				() => painted(screen).includes('Running in background'),
+				() => painted(screen).includes('Running in the background'),
 				'the workflow launch line was not written',
 			)
 			await screen.waitForRender()

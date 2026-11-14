@@ -255,7 +255,7 @@ describe('the detail view', () => {
 describe('the conversation', () => {
 	it('writes one group line for labelled agents instead of per-agent rows', () => {
 		const receipt = launchReceipt(mixed().filter((a) => a.workflow !== 'Delegated work'))
-		expect(receipt.content).toBe('Workflow Surum denetimi\n⎿ Running in background · ↓ to manage')
+		expect(receipt.content).toBe('Workflow Surum denetimi')
 	})
 
 	it('keeps a launch row for unlabelled agents', () => {

@@ -517,7 +517,7 @@ describe('the conversation', () => {
 		await waitUntil(screen, () => everything(screen).includes('Running in the background'))
 		const all = everything(screen)
 		expect(all).toMatch(/● Workflow\(Scan, then fix\)/)
-		expect(all).toMatch(/⎿ {2}Running in the background \(↓ to manage\)/)
+		expect(all).toMatch(/⎿ {2}Running in the background · follow it with ↓ or \/tasks/)
 		expect(all).not.toContain('wrun00001')
 		expect(all).not.toContain('started in the background as')
 	})

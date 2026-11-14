@@ -184,7 +184,7 @@ const WORDS = {
 	search: { live: 'searching for', done: 'searched for', one: 'pattern', many: 'patterns' },
 	read: { live: 'reading', done: 'read', one: 'file', many: 'files' },
 	list: { live: 'listing', done: 'listed', one: 'directory', many: 'directories' },
-	run: { live: 'running', done: 'ran', one: 'command', many: 'commands' },
+	run: { live: 'running', done: 'ran', one: 'shell command', many: 'shell commands' },
 	mcp: { live: 'calling', done: 'called' },
 } as const
 

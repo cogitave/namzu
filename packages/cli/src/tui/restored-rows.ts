@@ -29,6 +29,7 @@ import {
 	agentDoneRows,
 	agentMessageRow,
 	agentNotice,
+	launchFollowNote,
 	launchReceipt,
 	reportsAsNotification,
 	settleLine,
@@ -809,7 +810,11 @@ export function settledBatchRows(
 ): readonly ToolRow[] {
 	const blocked = blockedAgents(members, enabled)
 	const rows: ToolRow[] = []
-	if (blocked.length !== members.length) rows.push(agentLaunchRow(members))
+	if (blocked.length !== members.length) {
+		rows.push(agentLaunchRow(members))
+		const follow = launchFollowNote(members)
+		if (follow) rows.push({ role: 'tool', content: follow, glyph: '⎿' })
+	}
 	if (blocked.length > 0) {
 		const block = waitedOnBlock(blocked)
 		rows.push({

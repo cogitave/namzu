@@ -20,6 +20,7 @@
  */
 
 import { wrapUntrusted } from '@namzu/sdk'
+import { WORKFLOW_BACKGROUND_NOTE } from '../integrations/workflows/offering.js'
 import { wroteBy, wroteLineParts, wroteOf } from './agent-tokens.js'
 import { SYSTEM_ROW_GLYPH, endWord } from './system-rows.js'
 import { EXPAND_HINT } from './truncation.js'
@@ -37,17 +38,28 @@ import { formatTook } from './units.js'
 
 /**
  * The key that reaches the agents from an empty composer: `↓` focuses the
- * footer (the shells pill, then the rail rows). The same words the shell cell
- * and the workflow launch use, so one key is named for all background work.
+ * footer (the shells pill, then the rail rows). The shell cell names it the
+ * same way; an agent or workflow launch also names `/tasks`.
  */
 export const AGENT_MANAGE_HINT = '↓ to manage'
-
-/** The key that opens the rail's workflow row from the composer. */
-export const WORKFLOW_MANAGE_HINT = '↓ to manage'
 
 /** How a launch names an agent: what it was asked to do (its description). */
 export function launchLabel(agent: SubagentActivity): string {
 	return oneLine(agent.description) || oneLine(agent.agentId)
+}
+
+/**
+ * The dim line under a launch receipt for background work, saying where to
+ * follow it; undefined when the turn waits on the agents, as it does for a
+ * foreground batch.
+ */
+export function launchFollowNote(unordered: readonly SubagentActivity[]): string | undefined {
+	const first = unordered[0]
+	if (!first) return undefined
+	const labelled = unordered.some((agent) => agent.workflow !== DEFAULT_AGENT_WORKFLOW)
+	return labelled || unordered.every((agent) => agent.background === true)
+		? WORKFLOW_BACKGROUND_NOTE
+		: undefined
 }
 
 export interface LaunchReceipt {
@@ -72,7 +84,7 @@ export function launchReceipt(unordered: readonly SubagentActivity[]): LaunchRec
 	// many of them there are: one group line, no per-agent rows.
 	if (first && first.workflow !== DEFAULT_AGENT_WORKFLOW) {
 		return {
-			content: `Workflow ${oneLine(first.workflow)}\n⎿ Running in background · ${WORKFLOW_MANAGE_HINT}`,
+			content: `Workflow ${oneLine(first.workflow)}`,
 		}
 	}
 	const labels = first
@@ -87,9 +99,8 @@ export function launchReceipt(unordered: readonly SubagentActivity[]): LaunchRec
 	const allEnded = members.every(ended)
 	if (members.length === 1 && first) {
 		// `↓ to manage` only for background work: a foreground agent is waited on.
-		const hint = first.background === true ? ` (${AGENT_MANAGE_HINT})` : ''
 		return {
-			content: `Launched ${launchLabel(first)}${where}${hint}`,
+			content: `Launched ${launchLabel(first)}${where}`,
 		}
 	}
 	const tree = members.map(
@@ -97,7 +108,7 @@ export function launchReceipt(unordered: readonly SubagentActivity[]): LaunchRec
 	)
 	// Agents started in the background say so; a batch the turn waits on does not.
 	const headline = members.every((agent) => agent.background === true)
-		? `${members.length} background agents launched${where} (${AGENT_MANAGE_HINT})`
+		? `${members.length} background agents launched${where}`
 		: allEnded
 			? `${endedWords(members)}${where}`
 			: `Launched ${members.length} agents${where}`

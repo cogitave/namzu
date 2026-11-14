@@ -786,7 +786,7 @@ export function FullscreenTranscript({
 											{row.glyph}
 										</Text>
 									) : (
-										<Text color={row.glyphColor} bold>
+										<Text color={row.glyphColor} bold={row.plainMark !== true}>
 											{row.glyph}
 										</Text>
 									)}

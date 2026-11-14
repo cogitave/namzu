@@ -28,6 +28,7 @@ import {
 	childMessageRow,
 	doneClock,
 	failureReason,
+	launchFollowNote,
 	launchReceipt,
 	reportsAsNotification,
 	settleLine,
@@ -87,14 +88,13 @@ describe('launch receipt', () => {
 	})
 
 	it('gives a labelled workflow one group line instead of its agents', () => {
-		const receipt = launchReceipt([
+		const members = [
 			agent({ viewId: 'b', startedAt: 2_000, workflow: 'İki aşamalı cümle', phase: 'Aşama 1' }),
 			agent({ viewId: 'a', startedAt: 1_000, workflow: 'İki aşamalı cümle', phase: 'Aşama 1' }),
-		])
-		expect(receipt.content.split('\n')).toEqual([
-			'Workflow İki aşamalı cümle',
-			'⎿ Running in background · ↓ to manage',
-		])
+		]
+		const receipt = launchReceipt(members)
+		expect(receipt.content).toBe('Workflow İki aşamalı cümle')
+		expect(launchFollowNote(members)).toBe('Running in the background · follow it with ↓ or /tasks')
 	})
 
 	it('names one agent inline, and leaves the unlabelled defaults out', () => {
@@ -103,13 +103,24 @@ describe('launch receipt', () => {
 		).toBe('Launched Join the colours')
 	})
 
-	it('offers the manage key only when every agent of the batch runs in the background', () => {
+	it('says where to follow it only when every agent of the batch runs in the background', () => {
+		const note = 'Running in the background · follow it with ↓ or /tasks'
+		expect(
+			launchFollowNote([
+				agent({ viewId: 'a', background: true }),
+				agent({ viewId: 'b', background: true }),
+			]),
+		).toBe(note)
+		expect(
+			launchFollowNote([agent({ viewId: 'a', background: true }), agent({ viewId: 'b' })]),
+		).toBeUndefined()
+		expect(launchFollowNote([agent({ viewId: 'solo' })])).toBeUndefined()
 		expect(
 			launchReceipt([
 				agent({ viewId: 'a', description: 'One', background: true }),
 				agent({ viewId: 'b', description: 'Two', background: true }),
 			]).content.split('\n')[0],
-		).toBe('2 background agents launched (↓ to manage)')
+		).toBe('2 background agents launched')
 		expect(
 			launchReceipt([
 				agent({ viewId: 'a', description: 'One', background: true }),
@@ -118,7 +129,7 @@ describe('launch receipt', () => {
 		).toBe('Launched 2 agents')
 		expect(
 			launchReceipt([agent({ viewId: 'solo', description: 'Alone', background: true })]).content,
-		).toBe('Launched Alone (↓ to manage)')
+		).toBe('Launched Alone')
 	})
 
 	it('never carries a line break or tab a model put in a label', () => {

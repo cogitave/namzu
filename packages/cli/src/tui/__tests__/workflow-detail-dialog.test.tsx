@@ -216,9 +216,7 @@ describe('the launch tree', () => {
 			{ ...agent('b', 'List files'), workflow: 'Delegated work' },
 		])
 		expect(receipt.content).toBe(
-			['2 background agents launched (↓ to manage)', '├ Count words in a.txt', '└ List files'].join(
-				'\n',
-			),
+			['2 background agents launched', '├ Count words in a.txt', '└ List files'].join('\n'),
 		)
 	})
 })

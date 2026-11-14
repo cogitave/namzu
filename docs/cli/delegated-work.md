@@ -414,8 +414,8 @@ untrusted exists to prevent. If child narration is ever offered, it goes
 through that same wrapping and is attributed to the child by name.
 
 Each batch of agents one response launched adds one launch receipt to the main
-transcript, `● 2 background agents launched (↓ to manage)` with each agent's
-description beneath it, always below the text of the response that launched
+transcript, `● 2 background agents launched` with each agent's
+description beneath it and a dim `⎿ Running in the background · follow it with ↓ or /tasks` line under them, always below the text of the response that launched
 them. A batch that includes an agent the turn waits on is a live group while it
 runs, `Running 3 agents…` with one block per agent (`description · 4 tool uses ·
 12.1k tokens written` over `⎿ <last tool>`, or `Initializing…`; one agent alone, in a

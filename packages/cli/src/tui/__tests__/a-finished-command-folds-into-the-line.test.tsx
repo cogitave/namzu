@@ -198,16 +198,22 @@ it('folds finished commands into one line that lists them, oldest first, and kee
 		{ text: 'All green.' },
 	]
 	const screen = await send('check')
-	await waitUntil(screen, () => everything(screen).includes('Reading 1 file, running 1 command…'))
+	await waitUntil(screen, () =>
+		everything(screen).includes('Reading 1 file, running 1 shell command…'),
+	)
 	// Open: the line is in the present tense and the finished command is listed under it.
 	expect(everything(screen)).toContain('$ npm test')
 	gate('one').open()
-	await waitUntil(screen, () => everything(screen).includes('Reading 1 file, running 2 commands…'))
+	await waitUntil(screen, () =>
+		everything(screen).includes('Reading 1 file, running 2 shell commands…'),
+	)
 	gate('two').open()
 	await waitUntil(screen, () => everything(screen).includes('All green.'))
 	const text = screen.scrollback().join('\n')
-	expect(text).toContain('Read 1 file, ran 2 commands (ctrl+o to expand)')
-	expect(text.indexOf('$ npm test')).toBeGreaterThan(text.indexOf('Read 1 file, ran 2 commands'))
+	expect(text).toContain('Read 1 file, ran 2 shell commands (ctrl+o to expand)')
+	expect(text.indexOf('$ npm test')).toBeGreaterThan(
+		text.indexOf('Read 1 file, ran 2 shell commands'),
+	)
 	expect(text.indexOf('$ tsc --noEmit')).toBeGreaterThan(text.indexOf('$ npm test'))
 	expect(text).not.toContain('Bash(')
 	expect(text).not.toContain('tests ok')
@@ -236,8 +242,8 @@ it('draws one command on its own as its own row, with its output', async () => {
 	const text = screen.scrollback().join('\n')
 	expect(text).toContain('Bash(npm test)')
 	expect(text).toMatch(/⎿ +a\n +b\n +c/)
-	expect(text).not.toContain('ran 1 command')
-	expect(text).not.toContain('Ran 1 command')
+	expect(text).not.toContain('ran 1 shell command')
+	expect(text).not.toContain('Ran 1 shell command')
 })
 
 it('shows a failed command as its own row, which ends the line, and the next command starts a new one', async () => {
@@ -259,17 +265,17 @@ it('shows a failed command as its own row, which ends the line, and the next com
 	await waitUntil(screen, () => everything(screen).includes('One broke.'))
 	const text = screen.scrollback().join('\n')
 	const order = [
-		'Ran 2 commands',
+		'Ran 2 shell commands',
 		'Bash(make)',
 		'Exit code 3',
-		'Ran 2 commands',
+		'Ran 2 shell commands',
 		'One broke.',
 	].reduce<number[]>(
 		(found, needle) => [...found, text.indexOf(needle, (found.at(-1) ?? -1) + 1)],
 		[],
 	)
 	expect(order.every((at) => at >= 0)).toBe(true)
-	expect(text.match(/Ran 2 commands/g)).toHaveLength(2)
+	expect(text.match(/Ran 2 shell commands/g)).toHaveLength(2)
 	// The failed one is not listed with the others.
 	expect(text).not.toContain('$ make')
 })
@@ -289,11 +295,11 @@ it('does not fold a command that moved to the background, and the line before it
 	const screen = await send('check')
 	await waitUntil(screen, () => everything(screen).includes('Started.'))
 	const text = screen.scrollback().join('\n')
-	expect(text.indexOf('Ran 2 commands')).toBeGreaterThanOrEqual(0)
-	expect(text.indexOf('Bash(npm run watch')).toBeGreaterThan(text.indexOf('Ran 2 commands'))
+	expect(text.indexOf('Ran 2 shell commands')).toBeGreaterThanOrEqual(0)
+	expect(text.indexOf('Bash(npm run watch')).toBeGreaterThan(text.indexOf('Ran 2 shell commands'))
 	expect(text).toContain('Running in the background')
 	expect(text).not.toContain('$ npm run watch')
-	expect(text).not.toContain('Ran 3 commands')
+	expect(text).not.toContain('Ran 3 shell commands')
 })
 
 it('does not count a call to a tool that does not exist, and says so', async () => {

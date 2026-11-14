@@ -12,6 +12,7 @@
 import { contentColorForRole, screenMessage } from '../Transcript.js'
 import { grammarVersion } from '../code-highlight.js'
 import { newRepliesRule } from '../new-output.js'
+import { laterReplyBlocks } from '../reply-mark.js'
 import { tailView } from '../stream-flow.js'
 import { RESULT_GUTTER_INDENT, RESULT_GUTTER_WIDTH } from '../system-rows.js'
 import { wrapChoiceText } from '../terminal-choice-text.js'
@@ -46,6 +47,8 @@ export interface FsMessageRows {
 interface Cached {
 	readonly width: number
 	readonly hasPrev: boolean
+	/** A later text block of a reply that already showed its mark. */
+	readonly later: boolean
 	/** Colours are baked into rows, so a new theme lays them out again. */
 	readonly theme: string
 	readonly click: boolean
@@ -181,6 +184,7 @@ export function fullscreenMessageRows(
 	width: number,
 	mode: RowMode = PLAIN,
 	streams?: Map<string, StreamedReply>,
+	later = false,
 ): FsMessageRows {
 	const message = withLiveHint(asked)
 	if (mode.click) {
@@ -195,7 +199,9 @@ export function fullscreenMessageRows(
 	// the text, so a one-letter stand-in is wrapped instead of the whole reply:
 	// wrapping every character of a long reply at each piece that streams in was
 	// what kept the window from answering keys.
-	const plain = messageScrollRows(markdown ? { ...message, content: 'x' } : message, hasPrev, fit)
+	const plain = messageScrollRows(markdown ? { ...message, content: 'x' } : message, hasPrev, fit, {
+		later,
+	})
 	const gap = plain.gap ? plainRow(plain.gap) : null
 	const first = plain.rows[0]
 	const body = markdown ? 1 : wrapChoiceText(scrollBodyText(message, undefined, fit), fit).length
@@ -204,6 +210,7 @@ export function fullscreenMessageRows(
 		const wrap: RowWrap = (row, i) => ({
 			glyph: i === 0 ? first.glyph : ' ',
 			glyphColor: first.glyphColor,
+			...(first.plainMark ? { plainMark: true as const } : {}),
 			text: row.text,
 			color: first.color,
 			spans: row.spans,
@@ -294,8 +301,10 @@ export function layoutTranscript(
 	const theme = `${shownTheme()}:${grammarVersion()}`
 	const rows: FsRow[] = []
 	const blocks: { id: string; rows: number; tail: string }[] = []
+	const laterBlocks = laterReplyBlocks(ordered)
 	ordered.forEach((message, i) => {
 		const hasPrev = i > 0
+		const later = laterBlocks[i] ?? false
 		if (unseen && message.id === unseen.before && hasPrev) {
 			// One quiet row above the message's own gap. It is an entry of its own in
 			// the index, so no message's anchor or rows move because of it.
@@ -316,6 +325,7 @@ export function layoutTranscript(
 			!hit ||
 			hit.width !== width ||
 			hit.hasPrev !== hasPrev ||
+			hit.later !== later ||
 			hit.theme !== theme ||
 			hit.click !== mode.click ||
 			hit.open !== mode.open
@@ -323,10 +333,11 @@ export function layoutTranscript(
 			hit = {
 				width,
 				hasPrev,
+				later,
 				theme,
 				click: mode.click,
 				open: mode.open,
-				block: fullscreenMessageRows(message, hasPrev, width, mode, cache.streams),
+				block: fullscreenMessageRows(message, hasPrev, width, mode, cache.streams, later),
 			}
 			cache.kept.set(message, hit)
 			cache.laid += 1

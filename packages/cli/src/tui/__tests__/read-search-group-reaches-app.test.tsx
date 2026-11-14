@@ -202,14 +202,14 @@ it('counts a run of looks live, settles it on the reply text, and starts a new l
 	const text = screen.scrollback().join('\n')
 	expect(text.match(/Searched for 1 pattern, read 2 files, listed 1 directory/g)).toHaveLength(1)
 	// The command that ended well joined the line that read around it.
-	expect(text.match(/Read 1 file, ran 1 command/g)).toHaveLength(1)
+	expect(text.match(/Read 1 file, ran 1 shell command/g)).toHaveLength(1)
 	expect(text).not.toContain('Bash(npm test)')
 	expect(text).not.toContain('Explored')
 	expect(text).not.toContain('FIRST evidence')
 	const order = [
 		'Searched for 1 pattern, read 2 files, listed 1 directory',
 		'That explains it.',
-		'Read 1 file, ran 1 command',
+		'Read 1 file, ran 1 shell command',
 		'$ npm test',
 	].map((line) => text.indexOf(line))
 	expect(order.every((at) => at >= 0)).toBe(true)
