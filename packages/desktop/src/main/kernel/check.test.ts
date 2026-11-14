@@ -685,23 +685,36 @@ describe('errors on disk', () => {
 		expect(total).toBeGreaterThan(5)
 		for (let at = 1; at <= total; at += 3) {
 			const h = await harness()
-			const feed2 = makeFeed()
-			publish(h, feed2, { commandLine: '51.3.0', sequence: 1 })
-			await runCheck(deps(h, feed2))
-			await h.manager.resolve()
-			publish(h, feed2, { commandLine: '51.4.0', sequence: 2 })
-			const faulty = faultyFs(nodeFs, { at, mode: 'once' })
-			const next = await h.restart(faulty.fs)
-			const result = await runCheck({ ...deps(h, feed2), manager: next.manager })
-			expect(result.kind === 'ready' || result.kind === 'failed', `op ${at}`).toBe(true)
-			const state = next.store.snapshot()
-			expect(state.current, `current after failing op ${at}`).toBe('51.3.0')
-			const again = await h.restart()
-			expect(await runCheck({ ...deps(h, feed2), manager: again.manager })).toMatchObject({
-				kind: 'ready',
-				version: '51.4.0',
-			})
-			expect(await tmpIsEmpty(h)).toBe(true)
+			try {
+				const feed2 = makeFeed()
+				publish(h, feed2, { commandLine: '51.3.0', sequence: 1 })
+				await runCheck(deps(h, feed2))
+				await h.manager.resolve()
+				publish(h, feed2, { commandLine: '51.4.0', sequence: 2 })
+				const faulty = faultyFs(nodeFs, { at, mode: 'once' })
+				const next = await h.restart(faulty.fs)
+				const result = await runCheck({ ...deps(h, feed2), manager: next.manager })
+				expect(result.kind === 'ready' || result.kind === 'failed', `op ${at}`).toBe(true)
+				const state = next.store.snapshot()
+				expect(state.current, `current after failing op ${at}`).toBe('51.3.0')
+				const again = await h.restart()
+				expect(await runCheck({ ...deps(h, feed2), manager: again.manager })).toMatchObject({
+					kind: 'ready',
+					version: '51.4.0',
+				})
+				expect(await tmpIsEmpty(h)).toBe(true)
+			} finally {
+				// Every check above is awaited, so nothing is still writing here. Removing the
+				// folder at the end of its own iteration also keeps a failing iteration from
+				// leaving its folder for the shared afterEach to remove mid-write.
+				await h.dispose()
+			}
 		}
-	})
+		// The whole body is real filesystem I/O (unpack and install) repeated for every third
+		// operation of an update, so it takes the time that I/O takes, not vitest's default 5 s.
+		// Measured: about 1.8 s alone (1.73 to 1.81 s over five runs), 2.2 s inside the whole
+		// Desktop suite, and 4.6 s inside the suite on a loaded machine, which is next to the
+		// default limit. 60 s is over 13 times the slowest of those, so a slow runner cannot trip
+		// it and only a real hang does.
+	}, 60_000)
 })
