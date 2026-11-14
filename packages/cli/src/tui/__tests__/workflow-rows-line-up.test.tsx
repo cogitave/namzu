@@ -72,7 +72,7 @@ const THREE_ROWS: readonly RailWorkflow[] = [
 
 async function rowsAt(cols: number, workflows: readonly RailWorkflow[] = THREE_ROWS) {
 	mounted = await renderToScreen(
-		<Box flexDirection="column" paddingX={1}>
+		<Box flexDirection="column" paddingLeft={0} paddingRight={1}>
 			<AgentTaskPanel
 				agents={[]}
 				workflows={workflows}
@@ -107,14 +107,14 @@ describe('three workflow rows under the status row', () => {
 			const rows = await rowsAt(cols)
 			expect(rows).toHaveLength(3)
 			for (const row of rows) {
-				expect(row.startsWith('  ◯ ')).toBe(true)
+				expect(row.startsWith('◯ ')).toBe(true)
 				expect([...row].length).toBeLessThanOrEqual(cols - 2)
 			}
 			// Names are one column wide: the longest name sets it.
 			const longest = 'tui-open-on-a-clean-screen'.length
 			const barAt = rows.map((row) => at(row, /[▰▱]/u))
 			expect(new Set(barAt).size).toBe(1)
-			expect(barAt[0]).toBe(4 + longest + 2)
+			expect(barAt[0]).toBe(2 + longest + 2)
 			// The bars are the same width on every row.
 			const widths = rows.map((row) => (row.match(/[▰▱]/gu) ?? []).length)
 			expect(new Set(widths).size).toBe(1)
@@ -176,7 +176,7 @@ describe('three workflow rows under the status row', () => {
 describe('the wait line for background work', () => {
 	it('sits in the same slot as the closing line: a blank row, the mark in a two-cell column, words from the third cell', async () => {
 		mounted = await renderToScreen(
-			<Box flexDirection="column" paddingX={1}>
+			<Box flexDirection="column" paddingLeft={0} paddingRight={1}>
 				<Text>Done with the first part.</Text>
 				<BackgroundAgentRows
 					groups={[]}
@@ -187,11 +187,11 @@ describe('the wait line for background work', () => {
 			{ cols: 60, rows: 6 },
 		)
 		const rows = mounted.viewport().map((row) => row.trimEnd())
-		const start = rows.indexOf(' Done with the first part.')
+		const start = rows.indexOf('Done with the first part.')
 		expect(rows[start + 1]).toBe('')
-		expect(rows[start + 2]).toBe(' ✻ Waiting for 3 dynamic workflows to finish')
-		expect(mounted.cell(start + 2, 1).char).toBe('✻')
-		expect(mounted.cell(start + 2, 1).bold).toBe(true)
-		expect(mounted.cell(start + 2, 3).char).toBe('W')
+		expect(rows[start + 2]).toBe('✻ Waiting for 3 dynamic workflows to finish')
+		expect(mounted.cell(start + 2, 0).char).toBe('✻')
+		expect(mounted.cell(start + 2, 0).bold).toBe(true)
+		expect(mounted.cell(start + 2, 2).char).toBe('W')
 	})
 })

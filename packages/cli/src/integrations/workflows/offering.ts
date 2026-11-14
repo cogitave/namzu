@@ -11,8 +11,12 @@
 
 export const WORKFLOW_TOOL_NAME = 'workflow'
 
-/** The line under a workflow's launch row in the conversation. */
-export const WORKFLOW_BACKGROUND_NOTE = 'Running in the background (↓ to manage)'
+/**
+ * The line under a launch row for background work (a workflow, an agent): it is
+ * running, and where to follow it. `↓` from an empty composer reaches the
+ * rows under the status line, and `/tasks` opens the same work as a screen.
+ */
+export const WORKFLOW_BACKGROUND_NOTE = 'Running in the background · follow it with ↓ or /tasks'
 
 /** The tool's description, as the model reads it. */
 export const WORKFLOW_TOOL_DESCRIPTION = [

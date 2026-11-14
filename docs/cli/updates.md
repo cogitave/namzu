@@ -11,22 +11,75 @@ generated: { by: process:agent, at: 2026-10-27T00:00:00Z }
 # Updates
 
 The terminal looks for a newer Namzu while it is open and, where Namzu may,
-installs it for you. It never replaces the files a window is running from: when a
-newer version may be installed, the right end of the footer says so quietly, and the
-install happens when the last Namzu window from that install has closed:
+installs it for you. On an `npm install --global` copy (and the installer's own
+`~/.namzu` folder) on macOS and Linux the install happens at once, while you keep
+working: the footer shows a dim `Updating to 41.3.0…` and then a green check, and
+nothing is restarted:
+
+```text
+✓ Updated to 41.3.0 · restart to use it
+```
+
+The window you are in keeps the version it started with; the next `namzu` you start is
+the new one. Another window open from the same install shows the same line (on its
+next look, within a minute if it met the install running, otherwise within thirty).
+Where Namzu cannot swap the folder safely (Windows, pnpm, a prefix on another
+filesystem), it does not install under an open window: the footer says so quietly and
+the install happens when the last Namzu window from that install has closed:
 
 ```text
 Update 41.3.0 ready · installs when Namzu closes
 ```
 
-The running conversation is never restarted or interrupted; the next `namzu` you
-start after that is the new version. If someone else (you in another terminal, a
-package manager) puts a newer version on the disk while a window is open, that
-window says so with a green check and what to do:
+If someone else (you in another terminal, a package manager) puts a newer version on
+the disk while a window is open, that window shows the same green check.
 
-```text
-✓ Updated to 41.3.0 · restart to use it
-```
+## How an install happens under an open window
+
+Namzu is a tree of small files named after a hash of their content
+(`dist/chunks/name-HASH.js`), and a window loads some of them only when it first needs
+them. So the new version is never installed into the folder a window runs from:
+
+1. The verified download is installed by `npm` into a side prefix next to the live one
+   (`.namzu-stage-<pid>` inside the prefix, so on the same filesystem), and its package
+   folder is moved beside the live folder (`.cli-next-<pid>`).
+2. That new folder is started once (`--version` and `--start-check`). If it does not
+   answer, the live folder was never touched and the attempt is recorded as a failed
+   version, as before.
+3. Every chunk the live folder has and the new one lacks is carried into the new folder
+   (a hard link, a copy where links are not possible), and the carried names are listed
+   in `dist/.carried-chunks.json`. A chunk's name carries a hash of its content, so an old
+   and a new file never share a name unless they are the same file. What was carried
+   before is carried again, so a window left open across two updates keeps its files.
+   The parsing child for code questions is started by path (`dist/analysis-host.js`), so
+   the old script is kept beside it as `dist/analysis-host.<version>.js` (listed under
+   `hosts` in the same record) and a window that started before the swap starts its own
+   version's script, not the new one.
+4. The two folders trade places with two renames, one right after the other: the live
+   folder goes aside (`.cli-aside-<pid>`) and the new one takes its place. A window that
+   was open keeps loading its own chunks from the same path; a new start runs the new
+   version. The launcher `npm` wrote and `npm ls --global` still point at the same path
+   and read the new version.
+5. The folder in place is started once more. If it does not answer, the folders trade
+   back and the previous version is as it was. The aside folder is removed, the two
+   newest kept copies stay (`updates/previous`), and the interrupted-update repair covers
+   a crash in between.
+6. The carried files stay as long as a window of an older version is running from the
+   install (each window records its version under `updates/running/`, including a window
+   that has updates switched off); the first start
+   after the last such window ended removes them, and any `.cli-*` or `.namzu-stage-*`
+   folder of a process that is gone.
+
+`namzu doctor` run in a window that is still on the old version says `Namzu 41.3.0 is
+installed; this window runs 41.2.0` with `Restart Namzu to use it`, not that an update is
+available.
+
+Two things stay true of this. For about 15 microseconds (measured, median; at most 26)
+between the two renames the path does not exist, and a window that loads a file for the
+first time in exactly that moment gets the one plain line described below instead of a
+crash; in a loop that loads a file continuously, 7 swaps in 20 hit it, a window that
+loads one now and then essentially never. A window started before this release wrote no
+running record, so the carried files do not wait for it.
 
 ## What happens to a window that is already open
 
@@ -36,7 +89,9 @@ files away, and the window would fail the next time it needed one (opening a rar
 used screen, or closing, which used to end in a stack trace and exit code 1 after the
 line telling you how to resume). So:
 
-- **Namzu's own update waits.** A window never installs a version over itself. When it
+- **Where Namzu cannot swap the folder, its own update waits.** (This is the rest of the
+  list: on Windows, for pnpm, for a prefix on another filesystem or one whose chunks are
+  not content-hashed.) A window never installs a version over itself. When it
   finds one, it asks for the install to happen after it ends, whichever way it ends
   (closing it, `/exit`, the terminal window going away). A small background process
   (`namzu --apply-at-exit`, it prints nothing) then waits until no Namzu process runs
@@ -72,8 +127,8 @@ For each kind of install:
 
 | Install | A window that is open when a newer version arrives |
 |---|---|
-| `npm install --global`, and the installer's `~/.namzu` folder, updated by Namzu | Keeps working: the install waits for the last window. |
-| `pnpm add --global`, updated by Namzu | The same. |
+| `npm install --global`, and the installer's `~/.namzu` folder, updated by Namzu (macOS, Linux) | Keeps working: the install is swapped in at once and the window keeps its files. |
+| The same on Windows; `pnpm add --global`, updated by Namzu | Keeps working: the install waits for the last window. |
 | Any of the above, upgraded by you or another tool meanwhile | May lack files it has not loaded yet; says the plain line above and is saved. |
 | A source checkout, `npx`, the Desktop app's copy | Never replaced by Namzu. |
 
@@ -95,7 +150,7 @@ a package manager and never replaces a copy it does not own.
 
 | Install | What happens |
 |---|---|
-| `npm install --global` (including the installer's own `~/.namzu` folder) | Installed after the last window from that install closes, when Namzu may write to the folder; otherwise the footer shows the exact command to run (`sudo npm install --global --prefix … @namzu/cli@X`). |
+| `npm install --global` (including the installer's own `~/.namzu` folder) | Installed at once under open windows on macOS and Linux, and after the last window closes on Windows, when Namzu may write to the folder; otherwise the footer shows the exact command to run (`sudo npm install --global --prefix … @namzu/cli@X`). |
 | `pnpm add --global` | Installed the same way when its global folder is writable (macOS, Linux, WSL); otherwise the footer shows `pnpm add --global @namzu/cli@X`. |
 | A source checkout, `npx` / `pnpm dlx`, the copy inside the Desktop app | Never touched and never announced. The Desktop app updates its own copy. |
 | Any other layout | The footer says a newer version exists and to reinstall; nothing is changed. |
@@ -245,11 +300,15 @@ does not recognise instead of guessing.
 
 ## Known limits
 
-- Namzu's own update never replaces a window's files, but an install made by you or
-  another tool can: that window says one plain line when it needs a file that is gone
-  (see above) and is restarted to continue. The update installed after the last window
-  closes is later than one installed at once; a window left open for days postpones it
-  (the update is installed at the end of the next window that closes alone).
+- Namzu's own swap keeps a window's chunk files, but an install made by you or
+  another tool can remove them: that window says one plain line when it needs a file that
+  is gone (see above) and is restarted to continue. A window left open across a swap also
+  reads the new version's copy of a dependency under `node_modules` (not the one it
+  started with); if that dependency changed incompatibly, the same line appears. Disk
+  grows by the carried chunks (about the size of `dist/chunks`) until the last older window
+  ends. Where the install waits for the last window (Windows, pnpm), it is later than one
+  installed at once; a window left open for days postpones it (the update is installed at
+  the end of the next window that closes alone).
 - A Windows copy that is running can be locked by the system. The update then
   fails quietly, keeps the old version and is tried again after six hours.
 - Homebrew, winget, scoop and distro packages do not exist for Namzu today.

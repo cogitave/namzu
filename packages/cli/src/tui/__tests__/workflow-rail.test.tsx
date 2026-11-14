@@ -105,7 +105,7 @@ async function show(
 ) {
 	const cols = props.cols ?? 100
 	mounted = await renderToScreen(
-		<Box flexDirection="column" paddingX={1}>
+		<Box flexDirection="column" paddingLeft={0} paddingRight={1}>
 			<AgentTaskPanel
 				agents={props.agents ?? []}
 				workflows={workflows}
@@ -298,20 +298,20 @@ describe('narrowing a row', () => {
 	// is `Release audit` (13 cells) and stays whole until the last step.
 	it.each([
 		[120, 20, full, 13],
-		[71, 20, full, 13],
-		[70, 12, full, 13],
-		[63, 12, full, 13],
-		[62, 8, full, 13],
-		[59, 8, full, 13],
-		[58, 4, full, 13],
-		[55, 4, full, 13],
-		[54, 4, '3/7 · 2m14s', 13],
-		[38, 4, '3/7 · 2m14s', 13],
-		[37, 4, '3/7 · 2m14s', 12],
-		[33, 4, '3/7 · 2m14s', 8],
-		[32, 0, '3/7 · 2m14s', 11],
-		[29, 0, '3/7 · 2m14s', 8],
-		[28, 0, '3/7', 13],
+		[69, 20, full, 13],
+		[68, 12, full, 13],
+		[61, 12, full, 13],
+		[60, 8, full, 13],
+		[57, 8, full, 13],
+		[56, 4, full, 13],
+		[53, 4, full, 13],
+		[52, 4, '3/7 · 2m14s', 13],
+		[36, 4, '3/7 · 2m14s', 13],
+		[35, 4, '3/7 · 2m14s', 12],
+		[31, 4, '3/7 · 2m14s', 8],
+		[30, 0, '3/7 · 2m14s', 11],
+		[27, 0, '3/7 · 2m14s', 8],
+		[26, 0, '3/7', 13],
 		[12, 0, '3/7', 1],
 	])('at %i columns: a %i-cell bar, %j, a name of %i cells', (columns, bar, text, name) => {
 		const { variant, nameWidth } = layoutWorkflowRow(row, NOW, columns, 13)
@@ -336,13 +336,13 @@ describe('narrowing a row', () => {
 		// 100 columns: no room to spare for the phases; the bar is still whole.
 		expect(at(80).variant.text).toBe(full)
 		expect(at(80).variant.barWidth).toBe(20)
-		expect(at(59).variant.barWidth).toBe(8)
-		expect(at(59).variant.text).toContain('↓ 48.2k tokens')
-		expect(at(54).variant.text).not.toContain('tokens')
-		expect(at(54).variant.text).toContain('3/7 · 2m14s')
-		expect(at(54).nameWidth).toBe(13)
-		expect(at(35).nameWidth).toBeLessThan(13)
-		expect(at(35).variant.text).toContain('3/7 · 2m14s')
+		expect(at(57).variant.barWidth).toBe(8)
+		expect(at(57).variant.text).toContain('↓ 48.2k tokens')
+		expect(at(52).variant.text).not.toContain('tokens')
+		expect(at(52).variant.text).toContain('3/7 · 2m14s')
+		expect(at(52).nameWidth).toBe(13)
+		expect(at(33).nameWidth).toBeLessThan(13)
+		expect(at(33).variant.text).toContain('3/7 · 2m14s')
 	})
 
 	it.each([100, 80, 60, 50, 40])('draws the counter and the clock at %i columns', async (cols) => {

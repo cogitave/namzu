@@ -11,6 +11,7 @@ import { currentInstall } from './current-install.js'
 import { noteUpdatePending } from './deferred-apply.js'
 import { readInstalledVersion } from './installed-version.js'
 import { type UpdatePolicy, resolveUpdatePolicy } from './policy.js'
+import { canSwapInstall, pruneAfterSwap } from './swap.js'
 import { type Updater, type UpdaterEvent, createUpdater } from './updater.js'
 
 export interface StartAutoUpdateOptions {
@@ -34,6 +35,9 @@ export function startAutoUpdate(options: StartAutoUpdateOptions): {
 	const found = currentInstall(env)
 	if (!found) return noop
 	const { home, install } = found
+	// An npm prefix on this platform can take the new version while windows run from it (`swap.ts`);
+	// every other layout waits for the last window to close.
+	const swap = canSwapInstall(install, process.platform)
 	const updater: Updater = createUpdater({
 		currentVersion: options.currentVersion,
 		install,
@@ -55,12 +59,19 @@ export function startAutoUpdate(options: StartAutoUpdateOptions): {
 				}),
 			installedVersion: readInstalledVersion,
 			removePowerShellShim: removeOwnPowerShellShim,
+			...(swap ? { swap: true } : {}),
 		},
 		onEvent: options.onEvent,
-		// This process runs from the folder an install replaces: it never installs, the process that
-		// outlives it does once nothing runs from the install (`apply-at-exit.ts`).
-		applyMode: 'defer',
+		// Without a swap this process runs from the folder an install replaces: it never installs, the
+		// process that outlives it does once nothing runs from the install (`apply-at-exit.ts`).
+		applyMode: swap ? 'now' : 'defer',
 		onPending: () => noteUpdatePending(policy.channel),
+		...(swap
+			? {
+					housekeeping: () =>
+						pruneAfterSwap(install, { onDisk: readInstalledVersion(install.root) }),
+				}
+			: {}),
 	})
 	updater.start()
 	return { stop: () => updater.stop(), policy }

@@ -35,6 +35,11 @@ export function versionOnDisk(packageRoot: string = runningPackageRoot()): strin
 	}
 }
 
+/** Where an update swap keeps the parsing child script of `version`, beside the live one in `dist`. */
+export function carriedHostName(version: string): string {
+	return `analysis-host.${version}.js`
+}
+
 export interface ReplacedInstallInput {
 	readonly error: unknown
 	/** The version this process is running. */
