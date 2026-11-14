@@ -509,7 +509,7 @@ function currentTurnStart(messages: ChatCompletionParams['messages']): number {
 function refusesForcedChoiceWhileReasoning(model: string): boolean {
 	const afterSlash = model.replace(/^~/, '').toLowerCase()
 	const bare = afterSlash.slice(afterSlash.lastIndexOf('/') + 1).split(':')[0] ?? ''
-	return /^deepseek-(v([4-9]|\d{2,})(\.|-|$)|r\d|reasoner|flash|pro)/.test(bare)
+	return /^deepseek-(v([4-9]|\d{2,})(\.|-|$)|r\d+(-|$)|reasoner(-|$)|(flash|pro)(-|$))/.test(bare)
 }
 
 /**
@@ -601,8 +601,12 @@ export class OpenRouterProvider implements LLMProvider {
 	 * reasoning is on for them unless thinking is disabled or effort is `none`
 	 * (the same rule the DeepSeek driver applies). The kernel asks first and,
 	 * on `false`, keeps the step at low effort and asks in words. Nothing is
-	 * refused here before transport: the route this driver reaches did answer
-	 * a forced choice with reasoning on (see the driver's tests), so refusing
+	 * refused here before transport: on the live route a forced choice with
+	 * reasoning on was served (HTTP 200) by five different upstream hosts, and
+	 * when the request was pinned to the vendor's own host the router answered
+	 * its own 404 "no endpoints" (its tool-compatibility filter drops that host
+	 * for a forced choice) rather than passing the vendor's 400 through. So the
+	 * vendor's refusal never reaches this driver as a 400, and refusing here
 	 * would turn a working call into an error; only the advice changes.
 	 */
 	acceptsForcedToolChoiceFor(

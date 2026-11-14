@@ -130,3 +130,7 @@ model call's span (streamed or not), use it; the turn's root span and the
 budget log line keep the cumulative `promptTokens`, a sum of calls that
 `fullPromptTokens` is deliberately not part of; cost still reads `promptTokens`, `cachedTokens` and `cacheWriteTokens`
 separately through the rate card's `promptIncludesCacheReads`.
+
+An advisor's consultation follows the same order: the reported charge first, then
+the advisor's own pricing, then the catalogue, so an advisor on a model with no
+price row shows the real charge instead of unpriced tokens.

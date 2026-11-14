@@ -311,6 +311,10 @@ describe('acceptsForcedToolChoiceFor', () => {
 		['deepseek/deepseek-v4-flash', undefined, 'none' as const, true],
 		['deepseek/deepseek-chat', undefined, undefined, true],
 		['deepseek/deepseek-v3.2', undefined, undefined, true],
+		['deepseek/deepseek-prover-v2', undefined, undefined, true],
+		['deepseek/deepseek-reasoner-lite', undefined, undefined, false],
+		['deepseek/deepseek-flashy', undefined, undefined, true],
+		['deepseek/deepseek-v4-pro-0813', undefined, undefined, false],
 		['openai/gpt-5-mini', undefined, undefined, true],
 	])('%s %j %j', (model, thinking, effort, expected) => {
 		expect(p.acceptsForcedToolChoiceFor(model, thinking, effort)).toBe(expected)
