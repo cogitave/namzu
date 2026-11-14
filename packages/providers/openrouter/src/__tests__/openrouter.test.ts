@@ -49,6 +49,7 @@ describe('@namzu/openrouter', () => {
 				supportsDocuments: false,
 				supportsToolResultImages: false,
 				supportsToolResultDocuments: false,
+				reportsRequestCost: true,
 			})
 		})
 

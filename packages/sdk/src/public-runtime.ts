@@ -126,6 +126,7 @@ export * from './utils/id.js'
 
 export {
 	accumulateCost,
+	accumulateReportedCost,
 	accumulateUnpricedCost,
 	calculateCost,
 	describeCost,

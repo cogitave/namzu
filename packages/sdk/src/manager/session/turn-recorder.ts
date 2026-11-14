@@ -61,7 +61,9 @@ import {
 	type ModelPricing,
 	ZERO_COST,
 	accumulateCost,
+	accumulateReportedCost,
 	accumulateUnpricedCost,
+	hasReportedCost,
 } from '../../utils/cost.js'
 import { asCheckpointId, generateAuditEventId, generateMessageId } from '../../utils/id.js'
 import { childOutcomeRecorded, childSessionEnded } from '../agent/child-session.js'
@@ -544,7 +546,16 @@ export class TurnRecorder {
 	}
 
 	accumulateUsage(usage: TokenUsage, servedBy: PricingSubject): void {
-		this.#turn.tokenUsage = accumulateTokenUsage(this.#turn.tokenUsage, usage)
+		// The reported charge is money, and it is recorded in `costInfo` below; the
+		// usage totals that reach the session log stay token counts.
+		const { reportedCostUsd: _charged, ...counted } = usage
+		this.#turn.tokenUsage = accumulateTokenUsage(this.#turn.tokenUsage, counted)
+		// What the provider says it charged wins over a rate card; the card is
+		// the fallback for a call that reported nothing.
+		if (hasReportedCost(usage)) {
+			this.#turn.costInfo = accumulateReportedCost(this.#turn.costInfo, usage.reportedCostUsd)
+			return
+		}
 		const pricing = this.#resolvePricing(servedBy)
 		this.#turn.costInfo =
 			pricing === undefined

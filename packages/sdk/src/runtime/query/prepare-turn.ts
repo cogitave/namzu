@@ -189,6 +189,8 @@ function assertBudgetIsMeasurable(params: QueryParams): void {
 	// A host-supplied table prices whatever it is pointed at, so a caller who
 	// brought one has answered the question themselves.
 	if (params.pricing !== undefined) return
+	// A driver that reports each call's billed cost measures the limit itself.
+	if (params.provider.capabilities?.reportsRequestCost === true) return
 	const model = params.turnConfig.model
 	if (resolveModelPricing(params.provider.id, model) !== undefined) return
 

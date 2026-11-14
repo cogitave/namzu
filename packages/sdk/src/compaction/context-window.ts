@@ -197,8 +197,8 @@ const WINDOWS: ReadonlyArray<readonly [prefix: string, tokens: number]> = [
 	// (a fine-tune, a distill), and nothing says it keeps the parent's window.
 	// Over-estimating ends a turn on a provider rejection; under-estimating
 	// costs a summary. So an id not named here falls to the bare `deepseek`
-	// row below, the 64k the older ids (chat, reasoner, R1 distills) had. The
-	// three ids are matched whole (see `DEEPSEEK_ONE_MILLION_IDS`), never by
+	// row below, the 64k the older ids (chat, reasoner, R1 distills) had. Listed
+	// ids are matched whole (see `DEEPSEEK_ONE_MILLION_IDS`), never by
 	// substring.
 	['deepseek', 64_000],
 ]
@@ -208,6 +208,13 @@ const DEEPSEEK_ONE_MILLION_IDS: ReadonlySet<string> = new Set([
 	'deepseek-v4-flash',
 	'deepseek-v4-pro',
 	'deepseek-flash',
+	// The revisions and dated snapshots a gateway's model list names for the
+	// same generation. Each is listed whole: a new revision is a new row here
+	// (or is reported by the provider), never a prefix match.
+	'deepseek-v4.1-flash',
+	'deepseek-v4.1-flash-1017',
+	'deepseek-v4-flash-0731',
+	'deepseek-v4-pro-0813',
 ])
 
 /** The id with a gateway prefix (`deepseek/`) and a `:tag` (`:free`) removed. */

@@ -42,6 +42,21 @@ export interface TokenUsage {
 	reasoningTokens?: number
 
 	/**
+	 * What the provider says this call cost, in US dollars, when it says.
+	 *
+	 * A BILLED figure the vendor reported, as opposed to one the kernel worked
+	 * out from a rate card: it already reflects the route that served the call,
+	 * the cache discount and any tier. Where it is present the kernel records it
+	 * as the call's cost and does not price the tokens again (see
+	 * {@link accumulateReportedCost}); where it is absent the rate card is the
+	 * fallback. Summed across calls like {@link TokenUsage.webSearchRequests},
+	 * since it is money spent; a sum over calls that did not all report is a
+	 * floor. Absent means the provider did not say, not that the call was free;
+	 * a reported `0` is a real zero.
+	 */
+	reportedCostUsd?: number
+
+	/**
 	 * How long the provider keeps the prompt cache this call used, in
 	 * milliseconds, as the call itself reported or requested it.
 	 *
@@ -126,6 +141,9 @@ export function accumulateTokenUsage(current: TokenUsage, addition: TokenUsage):
 		...(current.webSearchRequests !== undefined || addition.webSearchRequests !== undefined
 			? { webSearchRequests: (current.webSearchRequests ?? 0) + (addition.webSearchRequests ?? 0) }
 			: {}),
+		...(current.reportedCostUsd !== undefined || addition.reportedCostUsd !== undefined
+			? { reportedCostUsd: (current.reportedCostUsd ?? 0) + (addition.reportedCostUsd ?? 0) }
+			: {}),
 		// `fullPromptTokens`, `cacheTtlMs`, `cacheWriteTtlTokens`, `speed`, `serviceTier`,
 		// `inferenceGeo` and `cacheMiss` are per-call facts and are deliberately
 		// not carried into a sum.
@@ -178,6 +196,10 @@ export function mergeTokenUsage(current: TokenUsage, next: TokenUsage): TokenUsa
 			: {}),
 		...(next.webSearchRequests !== undefined || current.webSearchRequests !== undefined
 			? { webSearchRequests: Math.max(current.webSearchRequests ?? 0, next.webSearchRequests ?? 0) }
+			: {}),
+		// Cumulative within one call, like the token counts.
+		...(next.reportedCostUsd !== undefined || current.reportedCostUsd !== undefined
+			? { reportedCostUsd: Math.max(current.reportedCostUsd ?? 0, next.reportedCostUsd ?? 0) }
 			: {}),
 		...(next.serviceTier !== undefined || current.serviceTier !== undefined
 			? { serviceTier: next.serviceTier ?? current.serviceTier }
