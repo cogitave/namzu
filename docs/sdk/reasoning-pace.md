@@ -35,8 +35,14 @@ The monitor counts consecutive steps that changed nothing. A step changed someth
 - After 12 such steps, or 80,000 characters of reasoning across them, the model gets one nudge as a runtime-context message of kind `progress-nudge`.
 - After the nudge, 5 more steps without a change make the next step an action step.
 - Any change resets the count.
+- A call that repeats an earlier call of the turn (same tool, same input, same output) changed nothing, whatever the tool: a command that may write but gave the same answer again does not reset the count.
+- The nudge offers an answer as the way out, never another command.
 
-`reasoning.stall` takes `nudgeAfterSteps`, `nudgeAfterReasoningChars` and `forceAfterSteps`, or `false` to turn the monitor off.
+### When the person asked a question
+
+If the latest message from the person contains a question mark, the nudge comes after 6 steps without a change instead of 12, and its text tells the model to answer now, in the person's language and within what they asked for, and to say what is missing instead of running another command. Six steps is half of the general threshold: a question is usually settled by two or three looks, so six that settled nothing mean the model is circling. This path never forces a tool call; after `forceAfterSteps` more steps the same text is sent again. A message without a question mark keeps the general thresholds.
+
+`reasoning.stall` takes `nudgeAfterSteps`, `nudgeAfterReasoningChars`, `forceAfterSteps` and `answerAfterSteps`, or `false` to turn the monitor off.
 
 ## A reply of thinking only
 

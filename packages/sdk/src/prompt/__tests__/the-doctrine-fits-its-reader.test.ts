@@ -182,4 +182,23 @@ describe('the coding-agent doctrine', () => {
 			'Answering how work is going',
 		)
 	})
+
+	it("answers a question before acting, in the person's language, without an apology or a promise", () => {
+		const section = CODING_AGENT_WORKING_DOCTRINE.slice(
+			CODING_AGENT_WORKING_DOCTRINE.indexOf('### Answering a question'),
+			CODING_AGENT_WORKING_DOCTRINE.indexOf('### Keeping the user informed'),
+		)
+		expect(section).toContain('your reply answers or assesses it first')
+		expect(section).toContain('Act only when asked to act')
+		expect(section).toContain('Never open a reply with an apology')
+		expect(section).toContain('a turn never ends on a promise of a later answer')
+		expect(section).toContain('Reply in the language the user wrote in')
+		expect(section).toContain('money and not tokens')
+		// Every agent gets it, a sub-agent included, and the line beside a tool
+		// call yields to a reply that is itself the answer.
+		expect(codingAgentDoctrineContribution({ delegation: false }).render({})).toContain(section)
+		expect(CODING_AGENT_WORKING_DOCTRINE).toContain(
+			'A reply that is itself the answer needs no such line.',
+		)
+	})
 })

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { type Span, SpanStatusCode } from '@opentelemetry/api'
 import {
 	extractFromAssistantMessage,
@@ -91,6 +92,7 @@ import {
 	REASONING_CAPPED_MESSAGE,
 	REASONING_ONLY_MESSAGE,
 	StallMonitor,
+	asksQuestion,
 	callChangedState,
 	reasoningCapChars,
 } from '../turn/stall-monitor.js'
@@ -3621,13 +3623,21 @@ export class IterationOrchestrator {
 			} catch {
 				readOnly = undefined
 			}
-			if (callChangedState(result.toolName, readOnly, result.isError)) changedState = true
+			if (callChangedState(result.toolName, readOnly, result.isError)) {
+				// The same tool with the same input and the same result as an
+				// earlier call this turn changed nothing, whatever the tool is.
+				if (!this.seenAgain(result.toolName, call, result.output)) changedState = true
+			}
 		}
 		const reasoningChars = (response.message.reasoning ?? []).reduce(
 			(n, block) => n + (block.text?.length ?? 0),
 			0,
 		)
-		const directive = monitor.observe({ reasoningChars, changedState })
+		const directive = monitor.observe({
+			reasoningChars,
+			changedState,
+			question: asksQuestion(this.latestUserMessage?.content),
+		})
 		if (directive.kind === 'nudge') {
 			this.ctx.log.info('Many steps without a change — nudging the model to act', {
 				[NAMZU.TURN_ID]: this.ctx.recorder.turnId,
@@ -3639,6 +3649,23 @@ export class IterationOrchestrator {
 			})
 			this.forceActionNextStep = true
 		}
+	}
+
+	/** Fingerprints of the calls this turn has finished, for {@link seenAgain}. */
+	private readonly finishedCalls = new Set<string>()
+
+	/**
+	 * Whether this call, with this input and this output, was already finished
+	 * earlier in the turn; records it either way. A call that gave the same
+	 * answer twice did not move anything the second time.
+	 */
+	private seenAgain(toolName: string, call: ToolCall | undefined, output: string): boolean {
+		const key = createHash('sha256')
+			.update(`${toolName}\0${call?.function.arguments ?? ''}\0${output}`)
+			.digest('hex')
+		if (this.finishedCalls.has(key)) return true
+		this.finishedCalls.add(key)
+		return false
 	}
 
 	private async requestFinalResponse(

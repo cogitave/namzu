@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+	ANSWER_NOW_MESSAGE,
 	DEFAULT_MAX_REASONING_TOKENS,
+	STALL_NUDGE_MESSAGE,
 	StallMonitor,
+	asksQuestion,
 	callChangedState,
 	reasoningCapChars,
 } from '../stall-monitor.js'
@@ -59,5 +62,40 @@ describe('the stall monitor', () => {
 		expect(monitor.observe({ reasoningChars: 0, changedState: true }).kind).toBe('none')
 		expect(monitor.observe(idle).kind).toBe('none')
 		expect(monitor.observe(idle).kind).toBe('nudge')
+	})
+})
+
+describe('the stall monitor in a turn that opened with a question', () => {
+	const looked = { reasoningChars: 0, changedState: false, question: true }
+
+	it('tells the model to answer after six steps, not twelve', () => {
+		const monitor = new StallMonitor()
+		for (let i = 0; i < 5; i++) expect(monitor.observe(looked).kind).toBe('none')
+		const directive = monitor.observe(looked)
+		expect(directive).toEqual({ kind: 'nudge', text: ANSWER_NOW_MESSAGE })
+	})
+
+	it('says it again instead of forcing a tool call', () => {
+		const monitor = new StallMonitor({ answerAfterSteps: 2, forceAfterSteps: 2 })
+		monitor.observe(looked)
+		expect(monitor.observe(looked).kind).toBe('nudge')
+		monitor.observe(looked)
+		expect(monitor.observe(looked)).toEqual({ kind: 'nudge', text: ANSWER_NOW_MESSAGE })
+	})
+
+	it('leaves a turn without a question at twelve', () => {
+		const idle = { reasoningChars: 0, changedState: false }
+		const monitor = new StallMonitor()
+		for (let i = 0; i < 11; i++) expect(monitor.observe(idle).kind).toBe('none')
+		expect(monitor.observe(idle)).toEqual({ kind: 'nudge', text: STALL_NUDGE_MESSAGE })
+	})
+})
+
+describe('what asks a question', () => {
+	it('is a question mark in any script', () => {
+		expect(asksQuestion('Bu sohbet neden pahalı oldu? Kuruş olarak söyle.')).toBe(true)
+		expect(asksQuestion('なぜですか？')).toBe(true)
+		expect(asksQuestion('Fix the failing test.')).toBe(false)
+		expect(asksQuestion(undefined)).toBe(false)
 	})
 })
