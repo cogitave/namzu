@@ -71,17 +71,16 @@ export function ConfirmRemovalDialog({
 			}}
 		>
 			<AlertDialog.Portal>
-				<AlertDialog.Backdrop className="fixed inset-0 z-(--z-scrim) bg-black/50" />
-				<AlertDialog.Viewport className="fixed inset-0 z-(--z-dialog) grid place-items-center overflow-y-auto p-4">
+				<AlertDialog.Backdrop className="dialog-scrim" />
+				<AlertDialog.Viewport className="dialog-viewport">
 					<AlertDialog.Popup
 						initialFocus={cancel}
 						finalFocus={returnFocus}
-						className="w-full max-w-md rounded-2xl border border-border bg-background p-5 text-foreground shadow-[var(--shadow-dialog)] outline-none"
+						className="dialog-popup"
+						data-dialog-size="confirm"
 					>
-						<AlertDialog.Title className="text-lg font-semibold">{title}</AlertDialog.Title>
-						<AlertDialog.Description className="mt-2 text-sm text-muted-foreground">
-							{description}
-						</AlertDialog.Description>
+						<AlertDialog.Title className="dialog-title">{title}</AlertDialog.Title>
+						<AlertDialog.Description className="dialog-body">{description}</AlertDialog.Description>
 						{details && details.length > 0 && (
 							<ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-foreground">
 								{details.map((line) => {
@@ -99,7 +98,7 @@ export function ConfirmRemovalDialog({
 								{error}
 							</p>
 						)}
-						<div className="mt-5 flex justify-end gap-2">
+						<div className="dialog-actions">
 							{sideActions.map((action, index) => (
 								<Button
 									key={action.label}

@@ -138,7 +138,20 @@ flow(
 			button.evaluate((node) => getComputedStyle(node).backgroundColor);
 		const filled = await fill(accept);
 		assert.notEqual(filled, "rgba(0, 0, 0, 0)", "Accept is filled");
-		assert.equal(await fill(reject), "rgba(0, 0, 0, 0)", "Reject is not");
+		// Reject is a quiet fill in the normal text colour: neither the lime fill nor the error colour.
+		assert.notEqual(await fill(reject), filled, "Reject is not filled like Accept");
+		assert.notEqual(
+			await reject.evaluate((node) => getComputedStyle(node).color),
+			await reject.evaluate(() => {
+				const probe = document.createElement("i");
+				probe.style.color = "var(--error-foreground)";
+				document.body.append(probe);
+				const colour = getComputedStyle(probe).color;
+				probe.remove();
+				return colour;
+			}),
+			"and its text is not the error colour",
+		);
 		// What left the card's surface is one click away on its "..." menu, and the keys are on the buttons.
 		await expect(
 			approvalCard(w).getByRole("button", { name: "More about this request" }),
@@ -181,20 +194,20 @@ flow(
 );
 
 flow(
-	"stopping while a command waits says it was not run, and Stop is an outline while it waits",
+	"stopping while a command waits says it was not run, and Stop is a quiet square while it waits",
 	{ rules: [REMOVE] },
 	async (w) => {
 		await openProject(w);
 		await send(w, "Please clean the build");
 		await expect(approvalCard(w)).toBeVisible({ timeout: T });
 		const stop = w.page.getByRole("button", { name: "Stop reply" });
-		// While a question waits, Stop is an outline that turns red on hover: the one filled control is Accept.
-		await expect(stop).toHaveClass(/composer-stop-quiet/);
-		assert.equal(
-			await stop.evaluate((node) => getComputedStyle(node).backgroundColor),
-			"rgba(0, 0, 0, 0)",
-			"Stop is not filled while waiting",
-		);
+		// Stop is never filled at rest: the one filled control is Accept. (Under the pointer it takes an 8 percent fill.)
+		await expect(stop).toHaveClass(/composer-stop/);
+		await w.page.mouse.move(5, 5);
+		// The hover fill fades out over 120 ms; wait for the real end of it rather than for a time.
+		await expect
+			.poll(() => stop.evaluate((node) => getComputedStyle(node).backgroundColor), { timeout: T })
+			.toBe("rgba(0, 0, 0, 0)");
 		await stop.click();
 		await expect(
 			w.page.getByText("Stopped. The command waiting for your answer was not run."),
@@ -536,7 +549,7 @@ flow(
 		});
 		await answerYes(w);
 		await expect(
-			approvalCard(w).getByRole("heading", { name: "Create new/deep/n.txt?" }),
+			approvalCard(w).getByRole("heading", { name: "Create n.txt?" }),
 		).toBeVisible({ timeout: T });
 		await expect(
 			approvalCard(w).getByText(w.project, { exact: false }),
@@ -547,10 +560,10 @@ flow(
 		await answerYes(w);
 		// The kernel decides which of the four commands need a person (a read-only one may run unasked), so
 		// each card that does come is answered and named, and the tour is over when its last line shows.
-		await expect(approvalCard(w).getByRole("heading", { name: "Create new/deep/n.txt?" })).toHaveCount(0, { timeout: T });
+		await expect(approvalCard(w).getByRole("heading", { name: "Create n.txt?" })).toHaveCount(0, { timeout: T });
 		const asked = [];
 		const finished = w.page.getByText("Tour finished.").first();
-		const rowText = approvalCard(w).locator(".approval-row-text").first();
+		const rowText = approvalCard(w).locator(".approval-path-text").first();
 		for (let step = 0; step < 6; step++) {
 			await expect(rowText.or(finished)).toBeVisible({ timeout: T });
 			if (await finished.isVisible()) break;
@@ -564,7 +577,7 @@ flow(
 				});
 			asked.push(command);
 			await answerYes(w);
-			await expect(approvalCard(w).locator(".approval-row-text").filter({ hasText: command })).toHaveCount(0, { timeout: T });
+			await expect(approvalCard(w).locator(".approval-path-text").filter({ hasText: command })).toHaveCount(0, { timeout: T });
 		}
 		assert.ok(asked.length >= 1 && asked.every((command) => [ANSI, RANDOM_BYTES, SEQ, FAILING].includes(command)), `asked: ${asked.join(" | ")}`);
 		assert.equal(asked.at(-1), FAILING, "the failing command is the last one asked");

@@ -61,6 +61,9 @@ afterEach(() => {
 	vi.restoreAllMocks()
 })
 
+/** The words a person reads: a row's verb sits in its own element, so tags are not part of a phrase. */
+const plain = (html: string) => html.replace(/<[^>]+>/g, '')
+
 describe('single live transcript status', () => {
 	it('shows two earlier-message lookups once in the work rail and a distinct hosted web search', () => {
 		let thread = started()
@@ -91,8 +94,8 @@ describe('single live transcript status', () => {
 			view: { kind: 'generic', label: 'Web search: H100 price · 10 sources' },
 		})
 		const live = render(thread)
-		expect(live).toContain('Checked earlier messages')
-		expect(live).toContain('Searched the web')
+		expect(plain(live)).toContain('Checked earlier messages')
+		expect(plain(live)).toContain('Searched the web')
 		expect(live).not.toContain('Actions completed')
 		thread = update(thread, { kind: 'turn_ended', stopReason: 'end_turn' }, 100000)
 		thread = applyEvent(thread, {
@@ -281,11 +284,11 @@ describe('single live transcript status', () => {
 		expect(html).toContain('aria-label="Running pwd for 47s"')
 		// The work is behind the line, not open under it.
 		expect(html).toContain('aria-expanded="false"')
-		expect(html).toContain('class="live-mark" data-state="running"')
+		expect(html).toContain('class="working-mark live-mark" data-state="running"')
 		expect(html).toContain('class="turn-activity-elapsed">· 47s</span>')
 		expect(html).toContain('transcript-status-only')
 		expect(html).not.toContain('class="working-elapsed"')
-		expect(html).toContain('Running pwd')
+		expect(plain(html)).toContain('Running pwd')
 		expect(thread).toEqual(before)
 	})
 
@@ -379,8 +382,13 @@ describe('single live transcript status', () => {
 		)
 		expect(reduced).toContain('[data-streaming] .message-text > :last-child')
 		expect(reduced.slice(0, reduced.indexOf('\n}\n') + 3)).toContain('animation: none')
-		// The live mark's pulse stops too.
-		const mark = css.slice(css.indexOf('.normal-transcript .live-mark {\n\t\tanimation: none'))
+		// The working mark's dots stop too: they hold still.
+		const rhythm = readFileSync(new URL('./transcript-rhythm.css', import.meta.url), 'utf8')
+		const mark = rhythm.slice(
+			rhythm.indexOf(
+				'@media (prefers-reduced-motion: reduce) {\n\t.normal-transcript .working-mark > i',
+			),
+		)
 		expect(mark).toContain('animation: none')
 	})
 
@@ -410,11 +418,11 @@ describe('single live transcript status', () => {
 		const html = render(thread)
 		// One amber line names what is waited on; the live region keeps the words for assistive technology.
 		expect(phaseLabels(html)).toEqual(['Waiting for your decision', 'Waiting for your decision'])
-		expect(html).toContain('class="live-mark" data-state="waiting"')
+		expect(html).toContain('class="working-mark live-mark" data-state="waiting"')
 		expect(html).toContain('data-transcript-phase="waiting"')
 		expect(html).not.toContain('stage-line')
 		expect(html).not.toContain('class="working-elapsed"')
-		expect(html).toContain('Running pwd')
+		expect(plain(html)).toContain('Running pwd')
 		expect(html.match(/<output\b[^>]*aria-live="polite"/g)).toBeNull()
 	})
 

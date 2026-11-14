@@ -1,14 +1,14 @@
 .engine-panel {
 	display: grid;
-	gap: 4px;
-	padding: 6px;
+	gap: 0;
+	padding: var(--menu-padding);
 }
 .engine-panel-heading {
 	display: flex;
 	align-items: center;
 	gap: 8px;
-	min-height: 28px;
-	padding: 0 6px;
+	min-height: var(--menu-caption-block);
+	padding: 0 var(--menu-text-inset);
 	color: var(--muted-foreground);
 	font-size: var(--text-caption);
 	line-height: var(--leading-caption);
@@ -91,27 +91,30 @@
 }
 .harness-picker-list {
 	display: grid;
-	gap: 2px;
+	gap: 0;
 }
 .harness-picker-row {
+	position: relative;
 	display: flex;
 	align-items: center;
-	gap: 8px;
+	gap: var(--menu-icon-gap);
 	min-width: 0;
-	min-height: 36px;
-	padding: 7px 8px;
-	border-radius: var(--radius-control);
+	min-height: var(--menu-row-height);
+	padding: var(--menu-row-padding-block) var(--menu-check-reserve) var(--menu-row-padding-block)
+		var(--menu-text-inset);
+	border-radius: var(--menu-row-radius);
 	color: var(--foreground);
-	font-size: var(--text-small);
-	line-height: var(--leading-small);
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
 	cursor: pointer;
 	transition: background-color 150ms var(--motion-ease);
 }
-.harness-picker-row:hover:not([data-disabled]) {
-	background: color-mix(in srgb, var(--foreground) 5%, var(--popover));
+.harness-picker-row:has(.harness-picker-name small) {
+	min-height: var(--menu-row-height-described);
 }
-.harness-picker-row[data-checked] {
-	background: color-mix(in srgb, var(--foreground) 9%, var(--popover));
+.harness-picker-row:hover:not([data-disabled]),
+.harness-picker-row:focus-visible {
+	background: var(--menu-highlight);
 }
 .harness-picker-row:focus-visible {
 	outline: 2px solid transparent;
@@ -129,20 +132,21 @@
 }
 .harness-picker-name small {
 	color: var(--muted-foreground);
-	font-size: var(--text-caption);
-	line-height: var(--leading-caption);
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .harness-picker-selection {
+	position: absolute;
+	inset-block-start: var(--menu-row-padding-block);
+	inset-inline-end: var(--menu-check-inset);
 	display: grid;
 	place-items: center;
-	flex: none;
-	width: 14px;
-	height: 14px;
-	margin-inline-start: auto;
+	width: var(--menu-check-size);
+	height: var(--leading-interface);
 }
 .harness-picker-selection svg {
-	width: 14px;
-	height: 14px;
+	width: var(--menu-icon-size);
+	height: var(--menu-icon-size);
 }
 @media (prefers-reduced-motion: reduce) {
 	.harness-picker-row,
@@ -217,7 +221,7 @@
 /* A missing engine is a row that opens its install steps, not a dead end. */
 .harness-picker-setup {
 	display: grid;
-	gap: 2px;
+	gap: 0;
 }
 .harness-picker-setup > .harness-picker-row {
 	width: 100%;
@@ -226,7 +230,7 @@
 	text-align: start;
 }
 .harness-picker-setup > .harness-picker-row:hover {
-	background: color-mix(in srgb, var(--foreground) 5%, var(--popover));
+	background: var(--menu-highlight);
 }
 .harness-picker-howto {
 	display: inline-flex;

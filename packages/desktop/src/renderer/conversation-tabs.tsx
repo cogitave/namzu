@@ -49,6 +49,7 @@ import {
 } from './workspace-canvas-geometry.js'
 import './computer-workspace-toolbar.css'
 import './conversation-tabs.css'
+import { MENU_OFFSET } from './menu-metrics.js'
 
 /** Terminal tabs that share the strip with the conversations. */
 export interface ConversationTabTerminals {
@@ -227,7 +228,11 @@ function NewTabMenuButton({ menu, busy }: { menu: ConversationTabsNewMenu; busy:
 				<ChevronDownIcon aria-hidden="true" />
 			</Menu.Trigger>
 			<Menu.Portal>
-				<Menu.Positioner className="conversation-actions-positioner" align="end" sideOffset={6}>
+				<Menu.Positioner
+					className="conversation-actions-positioner"
+					align="end"
+					sideOffset={MENU_OFFSET}
+				>
 					<Menu.Popup className="conversation-actions-popup" aria-label="New tab">
 						{groups.map((group, index) => (
 							<Fragment key={group[0]?.id}>
@@ -715,7 +720,11 @@ export function ConversationTabs({
 						<ChevronDownIcon aria-hidden="true" />
 					</Menu.Trigger>
 					<Menu.Portal>
-						<Menu.Positioner className="conversation-actions-positioner" align="end" sideOffset={6}>
+						<Menu.Positioner
+							className="conversation-actions-positioner"
+							align="end"
+							sideOffset={MENU_OFFSET}
+						>
 							<Menu.Popup className="conversation-actions-popup" aria-label="All tabs">
 								{strip.map((item) => {
 									const id = item.kind === 'terminal' ? item.tab.id : item.view.id

@@ -6,6 +6,7 @@ import type { TerminalTabView } from '../shared/terminal-tabs.js'
 import type { WorkspaceWindowBounds } from '../shared/workspace-layout.js'
 import { FittedTitle } from './fitted-title.js'
 import { AppWindowIcon, MoreHorizontalIcon, SplitRightIcon, XIcon } from './icons.js'
+import { MENU_OFFSET } from './menu-metrics.js'
 import { TAB_TITLE_CHARS, shortenTitle } from './short-title.js'
 import {
 	TerminalBadge,
@@ -166,7 +167,11 @@ export function TerminalStripTab({
 						<MoreHorizontalIcon />
 					</Menu.Trigger>
 					<Menu.Portal>
-						<Menu.Positioner className="conversation-actions-positioner" align="end" sideOffset={6}>
+						<Menu.Positioner
+							className="conversation-actions-positioner"
+							align="end"
+							sideOffset={MENU_OFFSET}
+						>
 							<Menu.Popup
 								className="conversation-actions-popup"
 								aria-label={`${tab.title} tab actions`}

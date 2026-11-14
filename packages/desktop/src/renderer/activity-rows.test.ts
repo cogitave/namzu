@@ -85,6 +85,9 @@ afterEach(() => {
 	vi.restoreAllMocks()
 })
 
+/** The words a person reads: a row's verb sits in its own element, so tags are not part of a phrase. */
+const plain = (html: string) => html.replace(/<[^>]+>/g, '')
+
 describe('run summary labels', () => {
 	const a = (kind: Parameters<typeof actionRunKind>[0][number]['kind'], subject?: string) => ({
 		kind,
@@ -402,7 +405,7 @@ describe('rendered activity', () => {
 		expect(html).toContain('Ran 6 commands')
 		expect(html).toContain('1 command failed')
 		expect(html).not.toContain('Ran 6 commands, 1 failed')
-		expect(html).toContain('Ran false · failed')
+		expect(plain(html)).toContain('Ran false · failed')
 		expect(html).toContain('aria-description="false. Received at')
 	})
 	it('gives a path row its full path as a description', () => {

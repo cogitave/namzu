@@ -61,6 +61,18 @@ function focusVisible(target: HTMLElement): boolean {
 	}
 }
 
+/** The verb of a row's words stands apart so the open block can mute it: "Read" in "Read notes.txt". */
+function VerbAndObject({ text }: { text: string }) {
+	const space = text.indexOf(' ')
+	if (space <= 0 || space === text.length - 1) return <>{text}</>
+	return (
+		<>
+			<span className="tool-verb">{text.slice(0, space)}</span>
+			{text.slice(space)}
+		</>
+	)
+}
+
 /** The duration rides the tooltip a row already has, so a sighted reader sees it too. */
 function withTook(text: string, took: string | undefined): string {
 	return took ? `${text} · ${took}` : text
@@ -155,7 +167,7 @@ export function ToolTranscriptRow({
 		lead && file ? (
 			<span className={`tool-label${split}`}>
 				<span className="tool-main">
-					{lead} {name}
+					<span className="tool-verb">{lead}</span> {name}
 				</span>
 				{tailText}
 				{changed}
@@ -168,14 +180,16 @@ export function ToolTranscriptRow({
 						text={withTook(presentation.tooltip, took)}
 						focused={focused}
 					>
-						{main ?? label}
+						<VerbAndObject text={main ?? label} />
 					</Tip>
 				</span>
 				{tailText}
 			</span>
 		) : (
 			<span className={`tool-label${split}`}>
-				<span className="tool-main">{main ?? label}</span>
+				<span className="tool-main">
+					<VerbAndObject text={main ?? label} />
+				</span>
 				{tailText}
 			</span>
 		)

@@ -1,6 +1,7 @@
 import { Menu } from '@base-ui/react/menu'
 import type { ReactElement } from 'react'
 import { FolderIcon, FolderPlusIcon } from './icons.js'
+import { MENU_OFFSET } from './menu-metrics.js'
 
 export const ADD_PROJECT_LABEL = 'Add new project'
 export const START_FROM_SCRATCH_LABEL = 'Start from scratch'
@@ -15,7 +16,7 @@ export function AddProjectItems({
 	onCreate,
 	onOpen,
 	disabled,
-	itemClassName = 'window-titlebar-item',
+	itemClassName = 'menu-item',
 }: {
 	onCreate?: () => void
 	onOpen: () => void
@@ -26,12 +27,12 @@ export function AddProjectItems({
 		<>
 			{onCreate && (
 				<Menu.Item className={itemClassName} onClick={onCreate} disabled={disabled}>
-					<FolderPlusIcon className="size-4" aria-hidden="true" />
+					<FolderPlusIcon aria-hidden="true" />
 					<span>{START_FROM_SCRATCH_LABEL}</span>
 				</Menu.Item>
 			)}
 			<Menu.Item className={itemClassName} onClick={onOpen} disabled={disabled}>
-				<FolderIcon className="size-4" aria-hidden="true" />
+				<FolderIcon aria-hidden="true" />
 				<span>{USE_EXISTING_FOLDER_LABEL}</span>
 			</Menu.Item>
 		</>
@@ -56,12 +57,12 @@ export function AddProjectMenu({
 		<Menu.Root>
 			<Menu.Trigger render={trigger} disabled={disabled} />
 			<Menu.Portal>
-				<Menu.Positioner className="z-(--z-popover) outline-none" align={align} sideOffset={4}>
-					<Menu.Popup
-						aria-label={ADD_PROJECT_LABEL}
-						data-add-project-menu
-						className="window-titlebar-popup dropdown-glass min-w-52 rounded-lg p-1 text-sm text-popover-foreground shadow-[var(--shadow-popover)] outline-none"
-					>
+				<Menu.Positioner
+					className="z-(--z-popover) outline-none"
+					align={align}
+					sideOffset={MENU_OFFSET}
+				>
+					<Menu.Popup aria-label={ADD_PROJECT_LABEL} data-add-project-menu className="menu-popup">
 						<AddProjectItems onCreate={onCreate} onOpen={onOpen} />
 					</Menu.Popup>
 				</Menu.Positioner>

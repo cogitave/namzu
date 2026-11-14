@@ -40,6 +40,7 @@ import {
 	TerminalIcon,
 } from './icons.js'
 import './conversation-actions-menu.css'
+import { MENU_OFFSET } from './menu-metrics.js'
 
 const ICONS: Record<ConversationIconId, IconComponent> = {
 	rename: PencilIcon,
@@ -107,7 +108,7 @@ function EntryItem({
 				<Menu.Portal>
 					<Menu.Positioner
 						className="conversation-actions-positioner"
-						sideOffset={4}
+						sideOffset={MENU_OFFSET}
 						alignOffset={-6}
 					>
 						<Menu.Popup className="conversation-actions-popup" aria-label={entry.label}>
@@ -274,7 +275,11 @@ export function ConversationActionsMenu({
 				}}
 			/>
 			<Menu.Portal>
-				<Menu.Positioner className="conversation-actions-positioner" align={align} sideOffset={6}>
+				<Menu.Positioner
+					className="conversation-actions-positioner"
+					align={align}
+					sideOffset={MENU_OFFSET}
+				>
 					<Menu.Popup
 						className="conversation-actions-popup"
 						aria-label={label}

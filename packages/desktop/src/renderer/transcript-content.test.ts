@@ -29,6 +29,9 @@ function render(thread: ThreadState) {
 	return renderToStaticMarkup(createElement(Transcript, { thread }))
 }
 
+/** The words a person reads: a row's verb sits in its own element, so tags are not part of a phrase. */
+const plain = (html: string) => html.replace(/<[^>]+>/g, '')
+
 describe('public transcript content', () => {
 	it('distinguishes an update, admitted reasoning, tool output and the final answer in actual order', () => {
 		let thread = update(started(), {
@@ -138,9 +141,9 @@ describe('truthful action receipts in normal and Pal views', () => {
 			renderToStaticMarkup(createElement(PalActivity, { thread })),
 		]) {
 			expect(html).toContain('data-tool-state="waiting"')
-			expect(html).toContain('Waiting to run check-review')
+			expect(plain(html)).toContain('Waiting to run check-review')
 			expect(html).toContain('data-tool-state="running"')
-			expect(html).toContain('Ran check-failed')
+			expect(plain(html)).toContain('Ran check-failed')
 			expect(html).toContain('failed')
 			expect(html).toContain('Exact error evidence')
 			expect(html).toContain('No output yet.')
@@ -183,13 +186,13 @@ describe('truthful action receipts in normal and Pal views', () => {
 			render(thread),
 			renderToStaticMarkup(createElement(PalActivity, { thread })),
 		]) {
-			expect(html).toContain('Create a progress step')
+			expect(plain(html)).toContain('Create a progress step')
 			expect(html).toContain('Completed')
 			expect(html).toContain('data-tool-state="cancelled"')
 			expect(html).toContain('Cancelled')
 			expect(html).not.toContain('tool failed')
 			expect(html).not.toContain('tool-content')
-			expect(html.match(/Open the document<\/span>/g)).toHaveLength(1)
+			expect(plain(html).match(/Open the document/g)).toHaveLength(1)
 		}
 	})
 })

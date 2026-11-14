@@ -418,6 +418,7 @@ export function PalCustomizeDialog({
 								<footer className="pal-customize-actions">
 									<Button
 										type="submit"
+										size="sm"
 										className="pal-customize-save"
 										disabled={saving || !name.trim() || named?.tone === 'duplicate'}
 										title={named?.tone === 'duplicate' ? 'That name is already taken.' : undefined}

@@ -13,6 +13,7 @@ import {
 import { Button } from './ui/button.js'
 import { Popover, PopoverPopup, PopoverTitle, PopoverTrigger } from './ui/popover.js'
 import './composer-settings.css'
+import { MENU_OFFSET } from './menu-metrics.js'
 
 export type ComposerPermissionMode =
 	| 'prompt'
@@ -286,7 +287,7 @@ export function ComposerPermissions({
 				<PopoverPopup
 					side="top"
 					align="start"
-					sideOffset={8}
+					sideOffset={MENU_OFFSET}
 					padding="none"
 					className="composer-permission-menu"
 					initialFocus={() =>
@@ -338,20 +339,21 @@ export function ComposerPermissions({
 				}}
 			>
 				<AlertDialog.Portal>
-					<AlertDialog.Backdrop className="fixed inset-0 z-(--z-scrim) bg-black/50" />
-					<AlertDialog.Viewport className="fixed inset-0 z-(--z-dialog) grid place-items-center overflow-y-auto p-4">
+					<AlertDialog.Backdrop className="dialog-scrim" />
+					<AlertDialog.Viewport className="dialog-viewport">
 						<AlertDialog.Popup
 							initialFocus={cancel}
 							finalFocus={trigger}
-							className="w-full max-w-md rounded-2xl border border-border bg-background p-5 text-foreground shadow-[var(--shadow-dialog)] outline-none"
+							className="dialog-popup"
+							data-dialog-size="confirm"
 						>
-							<AlertDialog.Title className="text-lg font-semibold">
+							<AlertDialog.Title className="dialog-title">
 								{fullAccessCopy(engine).title}
 							</AlertDialog.Title>
-							<AlertDialog.Description className="mt-2 text-sm text-muted-foreground">
+							<AlertDialog.Description className="dialog-body">
 								{fullAccessCopy(engine).body}
 							</AlertDialog.Description>
-							<div className="mt-5 flex flex-wrap justify-end gap-2">
+							<div className="dialog-actions">
 								<AlertDialog.Close
 									render={<Button ref={cancel} variant="outline" />}
 									onClick={dismiss}

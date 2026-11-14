@@ -56,7 +56,6 @@ import {
 	PaperclipIcon,
 	PlusIcon,
 	SearchIcon,
-	SquareIcon,
 	TerminalIcon,
 } from './icons.js'
 import { cn } from './lib/utils.js'
@@ -386,6 +385,9 @@ export function Composer({
 	// While a question waits for the person the composer is a one-line bar: the question is above it.
 	const waiting = waitingOnPerson && !compact
 	const [plusOpen, setPlusOpen] = useState(false)
+	// Send and Stop share one slot, so Stop can appear under a pointer that is already resting there. No
+	// pointer-enter reaches a button that was not there, so Stop's tooltip also opens on the first move.
+	const [stopTipOpen, setStopTipOpen] = useState(false)
 	const [trayEditing, setTrayEditing] = useState<string | null>(null)
 	const editableRows = pending.rows.filter((row) => row.editable)
 	const plusControl = (
@@ -444,25 +446,6 @@ export function Composer({
 	)
 	const overlay = useRef<HTMLDivElement>(null)
 	const dock = useRef<HTMLDivElement>(null)
-	// Whether the text has taken its own row: it wraps past one line, or something sits above it. Once
-	// it has, it keeps the row until the box is empty, so the controls never jump back and forth.
-	const [wrapped, setWrapped] = useState(false)
-	useLayoutEffect(() => {
-		const field = inputRef.current
-		if (!field) return
-		if (draft.length === 0) {
-			setWrapped(false)
-			return
-		}
-		const measure = () => {
-			// One line of text is 22 high inside 4 of padding on each side.
-			if (field.value.includes('\n') || field.clientHeight > 36) setWrapped(true)
-		}
-		measure()
-		const observer = new ResizeObserver(measure)
-		observer.observe(field)
-		return () => observer.disconnect()
-	}, [draft, inputRef])
 	useLayoutEffect(() => {
 		const node = overlay.current
 		const stage = node?.parentElement
@@ -508,16 +491,6 @@ export function Composer({
 	const startersShown = empty && !compact && !noProvider && providers.available.length > 0
 	// Once something is typed the starters step out of sight but keep their room, so the heading stays put.
 	const startersQuiet = draft.length > 0 || attachments.length > 0
-	// Text above the line (attachments, notices) makes the box two rows, as a wrapped line does.
-	const extras =
-		attachments.length > 0 ||
-		attachmentsStranded ||
-		attachmentsBusy ||
-		dragging ||
-		Boolean(pasteNotice) ||
-		walking !== null ||
-		Boolean(blockedNotice)
-	const expanded = !waiting && (wrapped || extras)
 	return (
 		<div
 			ref={overlay}
@@ -639,10 +612,7 @@ export function Composer({
 							onEditingChange={setTrayEditing}
 						/>
 						<ComposerSurface.Host>
-							<ComposerSurface.Main
-								className={waiting ? 'composer-waiting' : undefined}
-								data-expanded={expanded}
-							>
+							<ComposerSurface.Main className={waiting ? 'composer-waiting' : undefined}>
 								{compact && plusControl}
 								<div
 									data-chat-composer-body
@@ -838,17 +808,13 @@ export function Composer({
 											)}
 										{!waiting && speechControl}
 										{running && (
-											<Tooltip>
+											<Tooltip open={stopTipOpen} onOpenChange={setStopTipOpen}>
 												<TooltipTrigger
+													onPointerMove={() => setStopTipOpen(true)}
 													render={
 														<button
 															type="button"
-															// Waiting for a decision, Stop is an outline that turns red on hover: the one filled control is the card's Accept.
-															className={
-																waiting
-																	? 'composer-stop-quiet'
-																	: 'flex size-7 cursor-pointer items-center justify-center rounded-full bg-destructive/90 text-white shadow-xs shadow-destructive/24 inset-shadow-2xs inset-shadow-white/16 transition-all duration-150 hover:bg-destructive hover:scale-105 active:inset-shadow-black/8 active:shadow-none'
-															}
+															className="composer-stop"
 															aria-label={stopping ? 'Stopping reply' : 'Stop reply'}
 															aria-busy={stopping}
 															data-stopping={stopping ? 'true' : undefined}
@@ -863,9 +829,7 @@ export function Composer({
 															aria-hidden="true"
 														/>
 													) : (
-														<SquareIcon
-															className={waiting ? 'size-2.5 fill-current' : 'size-3 fill-current'}
-														/>
+														<span className="composer-stop-square" aria-hidden="true" />
 													)}
 												</TooltipTrigger>
 												<TooltipPopup>
@@ -890,7 +854,7 @@ export function Composer({
 													render={
 														<button
 															type="button"
-															className="relative isolate flex size-7 items-center justify-center overflow-hidden rounded-full shadow-xs transition-all duration-150 enabled:cursor-pointer enabled:inset-shadow-2xs enabled:inset-shadow-white/16 hover:scale-105 active:inset-shadow-black/8 active:shadow-none disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none disabled:hover:scale-100 bg-message-action text-message-action-foreground enabled:shadow-message-action/24 hover:bg-message-action-hover aria-disabled:opacity-64 aria-disabled:shadow-none aria-disabled:hover:scale-100"
+															className="composer-send"
 															aria-disabled={noProvider && !cliMode ? true : undefined}
 															aria-label={
 																cliMode
