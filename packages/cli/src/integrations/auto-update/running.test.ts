@@ -70,17 +70,23 @@ describe('which processes run from an install', () => {
 		expect(otherRunning(other, { isAlive: () => true })).toEqual([])
 	})
 
-	it('writes nothing into the install when updates are switched off', () => {
+	it('still records a window that has updates switched off, so a swap by another window keeps its files', () => {
 		const find = () => ({ install, home: join(dir, 'home') })
-		registerRunningSession({ NAMZU_UPDATE_CHECK: '0' }, undefined, find)()
-		registerRunningSession({}, { check: false }, find)()
+		const stop = registerRunningSession({ NAMZU_UPDATE_CHECK: '0', NAMZU_AUTO_UPDATE: '0' }, find)
+		expect(existsSync(join(folder(), `${process.pid}.json`))).toBe(true)
+		stop()
+		expect(existsSync(join(folder(), `${process.pid}.json`))).toBe(false)
+	})
+
+	it('writes nothing for a copy that is never updated', () => {
+		registerRunningSession({}, () => null)()
 		expect(existsSync(sharedStateHome(install))).toBe(false)
 	})
 
 	it('writes a record when updates are on, and clears the records of windows that were killed', () => {
 		registerRunning(install, { pid: 2_147_000_001 })
 		const find = () => ({ install, home: join(dir, 'home') })
-		const stop = registerRunningSession({}, undefined, find)
+		const stop = registerRunningSession({}, find)
 		expect(existsSync(join(folder(), `${process.pid}.json`))).toBe(true)
 		expect(existsSync(join(folder(), '2147000001.json'))).toBe(false)
 		stop()

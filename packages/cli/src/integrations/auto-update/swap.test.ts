@@ -76,7 +76,24 @@ describe('carrying chunks into the new folder', () => {
 		expect(readFileSync(join(next, 'dist', 'chunks', 'a-AAAAAAAA.js'), 'utf8')).toBe('a')
 		expect(JSON.parse(readFileSync(join(next, CARRIED_FILE), 'utf8'))).toEqual({
 			files: ['a-AAAAAAAA.js'],
+			hosts: [],
 		})
+	})
+
+	it('keeps the live parsing child script under its version, and the ones carried before', async () => {
+		writeFileSync(join(root, 'dist', 'analysis-host.js'), 'host-2')
+		writeFileSync(join(root, 'dist', 'analysis-host.1.0.0.js'), 'host-1')
+		writeFileSync(
+			join(root, CARRIED_FILE),
+			JSON.stringify({ files: [], hosts: ['analysis-host.1.0.0.js'] }),
+		)
+		const next = join(dir, 'next')
+		tree(next, '3.0.0', {})
+		writeFileSync(join(next, 'dist', 'analysis-host.js'), 'host-3')
+		await carryChunks(root, next)
+		expect(readFileSync(join(next, 'dist', 'analysis-host.2.0.0.js'), 'utf8')).toBe('host-2')
+		expect(readFileSync(join(next, 'dist', 'analysis-host.1.0.0.js'), 'utf8')).toBe('host-1')
+		expect(readFileSync(join(next, 'dist', 'analysis-host.js'), 'utf8')).toBe('host-3')
 	})
 })
 
@@ -150,6 +167,18 @@ describe('cleaning up after a swap', () => {
 		expect(existsSync(join(root, CARRIED_FILE))).toBe(false)
 		expect(existsSync(join(root, 'dist', 'chunks', 'a-AAAAAAAA.js'))).toBe(true)
 		stop()
+	})
+
+	it('removes a carried parsing child script with the chunks, never the live one', async () => {
+		writeFileSync(join(root, 'dist', 'analysis-host.js'), 'live')
+		writeFileSync(join(root, 'dist', 'analysis-host.1.0.0.js'), 'old')
+		writeFileSync(
+			join(root, CARRIED_FILE),
+			JSON.stringify({ files: [], hosts: ['analysis-host.1.0.0.js'] }),
+		)
+		await pruneAfterSwap(install(), { onDisk: '2.0.0', isAlive: () => true })
+		expect(existsSync(join(root, 'dist', 'analysis-host.1.0.0.js'))).toBe(false)
+		expect(existsSync(join(root, 'dist', 'analysis-host.js'))).toBe(true)
 	})
 
 	it('removes the folders of a swap whose process is gone, and only those', async () => {

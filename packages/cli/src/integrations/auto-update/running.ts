@@ -13,11 +13,9 @@
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import type { UpdatesConfig } from '../../config/schema.js'
 import { CLI_VERSION } from '../../version.js'
 import { currentInstall } from './current-install.js'
 import type { InstallKind } from './install-kind.js'
-import { resolveUpdatePolicy } from './policy.js'
 import { scopeOf, sharedStateHome } from './shared-state.js'
 import { processIsRunning, updatesDir } from './state.js'
 
@@ -113,19 +111,16 @@ export function otherRunning(
 
 /**
  * Register this process when it runs from an install that an update replaces in place.
- * A copy that is never updated (a checkout, the Desktop app's engine, `npx`) writes nothing,
- * and neither does a process with updates switched off: nothing is added to the package
- * manager's folder for a person who turned them off.
+ * A copy that is never updated (a checkout, the Desktop app's engine, `npx`) writes nothing.
+ * A process with updates switched off still writes its record: another window, or another
+ * user of a shared install, may install an update, and the files this process still has to
+ * load must stay until it ends. The record is a few bytes and holds nothing else.
  */
 export function registerRunningSession(
 	env: NodeJS.ProcessEnv = process.env,
-	updates?: UpdatesConfig,
 	find: typeof currentInstall = currentInstall,
 ): () => void {
 	try {
-		if (!resolveUpdatePolicy({ config: updates, env, interactive: true }).check) {
-			return () => undefined
-		}
 		const found = find(env)
 		if (!found) return () => undefined
 		const { install } = found

@@ -22,6 +22,7 @@ import { copyFile, link, mkdir, readdir, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 import type { InstallKind } from './install-kind.js'
+import { carriedHostName, versionOnDisk } from './replaced-install.js'
 import { listRunning } from './running.js'
 
 /** The record of chunks carried into a folder from the ones it replaced. */
@@ -74,12 +75,38 @@ export function stagedPackage(stage: string): string {
 	return join(stage, 'lib', 'node_modules', '@namzu', 'cli')
 }
 
-async function carriedBefore(root: string): Promise<string[]> {
+/** The parsing child script of the bundle, and the name an older copy of it is carried under. */
+const HOST_SCRIPT = 'analysis-host.js'
+const CARRIED_HOST = /^analysis-host\.[0-9A-Za-z.+-]+\.js$/
+
+interface Carried {
+	/** Names under `dist/chunks`. */
+	readonly files: string[]
+	/** Names under `dist`: the parsing child script of an older version. */
+	readonly hosts: string[]
+}
+
+function strings(value: unknown): string[] {
+	return Array.isArray(value) ? value.filter((f): f is string => typeof f === 'string') : []
+}
+
+async function carriedBefore(root: string): Promise<Carried> {
 	try {
-		const parsed = JSON.parse(readFileSync(join(root, CARRIED_FILE), 'utf8')) as { files?: unknown }
-		return Array.isArray(parsed.files) ? parsed.files.filter((f) => typeof f === 'string') : []
+		const parsed = JSON.parse(readFileSync(join(root, CARRIED_FILE), 'utf8')) as {
+			files?: unknown
+			hosts?: unknown
+		}
+		return { files: strings(parsed.files), hosts: strings(parsed.hosts) }
 	} catch {
-		return []
+		return { files: [], hosts: [] }
+	}
+}
+
+async function linkOrCopy(from: string, to: string): Promise<void> {
+	try {
+		await link(from, to)
+	} catch {
+		await copyFile(from, to)
 	}
 }
 
@@ -95,14 +122,28 @@ export async function carryChunks(live: string, next: string): Promise<string[]>
 	const carried: string[] = []
 	for (const name of await readdir(from)) {
 		if (name.startsWith('.') || existsSync(join(to, name))) continue
-		try {
-			await link(join(from, name), join(to, name))
-		} catch {
-			await copyFile(join(from, name), join(to, name))
-		}
+		await linkOrCopy(join(from, name), join(to, name))
 		carried.push(name)
 	}
-	await writeFile(join(next, CARRIED_FILE), `${JSON.stringify({ files: carried })}\n`)
+	// The parsing child is started by path (`dist/analysis-host.js`) the first time a window needs
+	// it, so a window that started before the swap would otherwise start the new version's script
+	// against its own older code. Keep the live script under its version's name, and keep the ones
+	// already carried, so that window can start its own.
+	const hosts: string[] = []
+	const liveVersion = versionOnDisk(live)
+	const liveHost = join(live, 'dist', HOST_SCRIPT)
+	if (liveVersion !== null && existsSync(liveHost)) {
+		const name = carriedHostName(liveVersion)
+		await linkOrCopy(liveHost, join(next, 'dist', name))
+		hosts.push(name)
+	}
+	for (const name of (await carriedBefore(live)).hosts) {
+		const source = join(live, 'dist', name)
+		if (hosts.includes(name) || !existsSync(source) || !CARRIED_HOST.test(name)) continue
+		await linkOrCopy(source, join(next, 'dist', name))
+		hosts.push(name)
+	}
+	await writeFile(join(next, CARRIED_FILE), `${JSON.stringify({ files: carried, hosts })}\n`)
 	return carried
 }
 
@@ -190,10 +231,13 @@ export async function pruneAfterSwap(
 			...(options.isAlive ? { isAlive: options.isAlive } : {}),
 		})
 		if (running.some((entry) => entry.version !== options.onDisk)) return
-		const files = await carriedBefore(install.root)
-		if (files.length === 0) return
+		const { files, hosts } = await carriedBefore(install.root)
+		if (files.length === 0 && hosts.length === 0) return
 		for (const name of files) {
 			await rm(join(install.root, 'dist', 'chunks', name), { force: true })
+		}
+		for (const name of hosts) {
+			if (CARRIED_HOST.test(name)) await rm(join(install.root, 'dist', name), { force: true })
 		}
 		await rm(join(install.root, CARRIED_FILE), { force: true })
 	} catch {

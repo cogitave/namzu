@@ -130,6 +130,7 @@ describe('installing by swapping the folder', () => {
 		)
 		expect(JSON.parse(readFileSync(join(root, CARRIED_FILE), 'utf8'))).toEqual({
 			files: ['old-AAAAAAAA.js'],
+			hosts: [],
 		})
 		expect(leftovers()).toEqual([])
 		expect(readInProgress(sharedStateHome(install), scopeOf(install, 'linux'))).toBeFalsy()

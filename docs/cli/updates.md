@@ -51,6 +51,10 @@ them. So the new version is never installed into the folder a window runs from:
    in `dist/.carried-chunks.json`. A chunk's name carries a hash of its content, so an old
    and a new file never share a name unless they are the same file. What was carried
    before is carried again, so a window left open across two updates keeps its files.
+   The parsing child for code questions is started by path (`dist/analysis-host.js`), so
+   the old script is kept beside it as `dist/analysis-host.<version>.js` (listed under
+   `hosts` in the same record) and a window that started before the swap starts its own
+   version's script, not the new one.
 4. The two folders trade places with two renames, one right after the other: the live
    folder goes aside (`.cli-aside-<pid>`) and the new one takes its place. A window that
    was open keeps loading its own chunks from the same path; a new start runs the new
@@ -60,8 +64,9 @@ them. So the new version is never installed into the folder a window runs from:
    back and the previous version is as it was. The aside folder is removed, the two
    newest kept copies stay (`updates/previous`), and the interrupted-update repair covers
    a crash in between.
-6. The carried chunks stay as long as a window of an older version is running from the
-   install (each window records its version under `updates/running/`); the first start
+6. The carried files stay as long as a window of an older version is running from the
+   install (each window records its version under `updates/running/`, including a window
+   that has updates switched off); the first start
    after the last such window ended removes them, and any `.cli-*` or `.namzu-stage-*`
    folder of a process that is gone.
 
@@ -73,8 +78,8 @@ Two things stay true of this. For about 15 microseconds (measured, median; at mo
 between the two renames the path does not exist, and a window that loads a file for the
 first time in exactly that moment gets the one plain line described below instead of a
 crash; in a loop that loads a file continuously, 7 swaps in 20 hit it, a window that
-loads one now and then essentially never. And a window that was started with updates
-switched off writes no running record, so the carried chunks do not wait for it.
+loads one now and then essentially never. A window started before this release wrote no
+running record, so the carried files do not wait for it.
 
 ## What happens to a window that is already open
 

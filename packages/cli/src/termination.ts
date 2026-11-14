@@ -71,7 +71,7 @@ export interface TerminationProcess {
 
 export interface HandleTerminationOptions {
 	readonly process?: TerminationProcess
-	/** The `updates` setting, so a process with updates switched off writes no update files. */
+	/** Kept for callers; a window records itself as running whatever this says (a swap by another window must keep its files). */
 	readonly updates?: UpdatesConfig
 	/** Test hook: starts the deferred installer when an update is due. */
 	readonly launchPendingUpdate?: () => unknown
@@ -111,7 +111,7 @@ export function handleTerminationSignals(
 	let unregister: (() => void) | undefined
 	void import('./integrations/auto-update/running.js')
 		.then((running) => {
-			unregister = running.registerRunningSession(process.env, options.updates)
+			unregister = running.registerRunningSession(process.env)
 		})
 		.catch(() => undefined)
 	const proc: TerminationProcess = options.process ?? (process as unknown as TerminationProcess)
