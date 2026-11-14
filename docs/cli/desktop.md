@@ -326,7 +326,13 @@ only job with `contents: write`) checks that `latest.yml` names exactly that ver
 sha512, refuses a version already on the feed, creates the rolling release `desktop-latest` once (a
 prerelease, `--latest=false`, so the repository's "Latest" stays an npm package), uploads
 `Namzu-Setup-<version>.exe` and its blockmap, and uploads `latest.yml` last so the feed never names a
-missing file. It keeps the installer and blockmap of the previous version (a differential download
+missing file. It then names the release `Namzu Desktop <version>` and writes its notes
+(`packages/desktop/scripts/feed-release-notes.mjs`, built before anything is uploaded from a
+read-only checkout of the same commit): what the app is, the setup file's name, size and SHA-256,
+the changelog sections newer than the newest installer already on the feed (read before the upload)
+up to this version, and, while `electron-builder.yml` names no publisher or certificate, a note that
+Windows warns before the first run. A version missing from `CHANGELOG.md` stops the job before the
+upload. It keeps the installer and blockmap of the previous version (a differential download
 needs the old blockmap; without it the app downloads the whole installer) and removes older ones.
 The workflow is not part of the `ci.yml`/`release.yml` gate parity.
 
