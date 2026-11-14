@@ -4553,15 +4553,42 @@ describe('Up and Down between the box and the task rows', () => {
 		await until(screen, () => text(screen).includes('half a thought!'))
 	})
 
+	// A child that exists only as saved evidence: no rail row, but the cockpit can show it.
+	const savedOnly = () => {
+		savedChildren.current = [
+			agent({
+				viewId: 'saved-1',
+				description: 'Contract critic',
+				status: 'completed',
+				startedAt: 1,
+				completedAt: 2,
+				replayed: true,
+				transcript: [],
+			}),
+		]
+	}
+
+	it('opens the cockpit with Down from an empty box when only saved agents exist', async () => {
+		savedOnly()
+		const screen = await mount()
+		screen.press('\x1b[B')
+		await until(screen, () => text(screen).includes('Contract critic'))
+	})
+
 	it('does not open the cockpit from a typed draft when there are no rows', async () => {
+		savedOnly()
 		const screen = await mount()
 		screen.press('half a thought')
 		await until(screen, () => text(screen).includes('half a thought'))
+		const readsBefore = savedChildren.reads
 		screen.press('\x1b[B')
-		await screen.waitForRender()
-		await screen.waitForRender()
-		expect(text(screen)).toContain('half a thought')
-		expect(text(screen)).not.toContain('Agents')
+		// Keys reach the box in order, so once this one shows, the Down before it
+		// has been handled: had it opened the cockpit, it would have read the
+		// saved agents and taken the key.
+		screen.press('!')
+		await until(screen, () => text(screen).includes('half a thought!'))
+		expect(savedChildren.reads).toBe(readsBefore)
+		expect(text(screen)).not.toContain('Contract critic')
 	})
 
 	it('leaves the rows with one Esc while a turn runs, and the next Esc interrupts it', async () => {

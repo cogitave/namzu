@@ -519,3 +519,31 @@ it('enters the shell pill from a typed draft and gives the draft back on Up', as
 	screen.press('!')
 	await until(screen, () => text().includes('half a thought!'))
 })
+
+it('enters the shell pill from a shell-mode or unmatched-slash draft, and keeps a suggestion menu', async () => {
+	scenario = 'exit'
+	jobs = [runningJob()]
+	outputs.set('b00000001', outputFor('build output\n'))
+	const screen = await mount(100, 28)
+	const text = () => screen.viewport().join('\n')
+	for (const draft of ['!ls', '/zzqq']) {
+		screen.press(draft)
+		await until(screen, () => text().includes(draft))
+		screen.press('\x1b[B')
+		await until(screen, () => text().includes('1 shell · enter to view tasks'))
+		expect(text()).toContain(draft)
+		screen.press('\x1b[A')
+		await until(screen, () => !text().includes('enter to view tasks'))
+		expect(text()).toContain(draft)
+		// Clear the box for the next draft.
+		screen.press('\x15')
+		await until(screen, () => !text().includes(draft))
+	}
+	// With the suggestion menu open, Down moves in the menu and the pill stays put.
+	screen.press('/he')
+	await until(screen, () => text().includes('/help'))
+	screen.press('\x1b[B')
+	screen.press('l')
+	await until(screen, () => text().includes('/hel'))
+	expect(text()).not.toContain('enter to view tasks')
+})

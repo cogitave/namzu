@@ -148,7 +148,9 @@ The keys the hints name:
 
 - **`↓`** from the composer focuses the footer when the caret is on the last line
   and no suggestion list is open. The box may be empty or hold a typed draft;
-  the draft is not touched and is waiting when the keyboard comes back. The
+  the draft is not touched and is waiting when the keyboard comes back. A shell-mode
+  draft (`!ls`) and a slash draft no suggestion matches (`/zzqq`) count as typed
+  drafts; while a suggestion list is open, `↓` still moves in the list. The
   shell pill comes first (drawn inverted, with `↓ to manage` turning into
   `enter to view tasks`); Enter opens the same `Background` dialog `/tasks`
   opens, and so does `↓` on the pill when no row follows it. `↓` again
