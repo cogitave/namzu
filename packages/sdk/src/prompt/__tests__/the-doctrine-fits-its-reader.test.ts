@@ -206,9 +206,11 @@ describe('the coding-agent doctrine', () => {
 			CODING_AGENT_WORKING_DOCTRINE.indexOf('### Answering a question'),
 			CODING_AGENT_WORKING_DOCTRINE.indexOf('### Asking and proceeding'),
 		)
-		expect(section).toContain('When two looks have not given the fact a question asks for')
+		// The look is one step, with every independent search in the same response,
+		// so a question costs one request for the look and one for the answer.
+		expect(section).toContain('put every independent search for the fact in the same response')
 		expect(section).toContain('say what you looked at and what is missing, then stop')
-		expect(section).toContain('do not widen the search a third time')
+		expect(section).toContain('look further only when the result itself names where the fact is')
 		expect(section).toContain('report what you ruled out and what would settle it')
 	})
 
@@ -249,11 +251,22 @@ describe('the coding-agent doctrine', () => {
 		expect(section).toContain(
 			'For work that takes several calls, say one short line before the first call',
 		)
-		expect(section).toContain('one more when you find something or change direction')
+		expect(section).toContain('when you find something, change direction or hit a blocker')
+		expect(section).toContain('after a long stretch without one')
 		expect(section).toContain('a question that needs at most one look gets no such line')
 		expect(section).toContain('no line goes beside each call')
 		// Said once: the old unconditional line is gone.
 		expect(CODING_AGENT_WORKING_DOCTRINE.match(/first call/g) ?? []).toHaveLength(1)
 		expect(CODING_AGENT_WORKING_DOCTRINE).not.toContain('Before your first tool call')
+	})
+
+	it('keeps the mismatch rule and the earlier-state rule for evidence', () => {
+		expect(CODING_AGENT_WORKING_DOCTRINE).toContain(
+			'If a check or an exact-match edit reports a mismatch, inspect the current state and revise the action.',
+		)
+		expect(CODING_AGENT_WORKING_DOCTRINE).toContain(
+			'For a question about an earlier state, use that observation or its retained original',
+		)
+		expect(CODING_AGENT_WORKING_DOCTRINE).toContain("leave today's value out")
 	})
 })

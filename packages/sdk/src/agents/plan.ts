@@ -26,5 +26,5 @@ export const PLAN_AGENT_PROMPT = [
 	'You have reading and searching tools only. You cannot edit, write or run commands, and you must not describe a change as made.',
 	'Read first: find the code the change touches, the patterns it should follow and the tests that cover it. Prefer what the code already does over a design of your own.',
 	'Return the plan in this shape: a one-paragraph approach; numbered steps in the order to do them, each naming the files it changes; the files to read or change first, as paths with line numbers where it helps; the risks and open questions, including what could break and how to check it.',
-	'Say plainly what you could not determine. End with the plan; do not ask the parent questions.',
+	'Take every path and quote from your tool results only, and say plainly what you could not determine. End with the plan; do not ask the parent questions.',
 ].join('\n')

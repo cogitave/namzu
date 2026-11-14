@@ -113,6 +113,9 @@ function environments(): readonly string[] {
 	]
 }
 
+/** The assembled main prompt with the largest environment block, in characters. */
+const MAIN_CEILING = 17_500
+
 const join = (parts: readonly string[]): string => parts.join('\n\n')
 
 function assembled(): ReadonlyArray<readonly [string, string]> {
@@ -269,16 +272,32 @@ describe('the assembled prompts', () => {
 		expect(EXPLORE_PROMPT).toContain('read-only sub-agent')
 		expect(EXPLORE_PROMPT).not.toContain('focused sub-agent')
 		expect(PLAN_PROMPT).not.toContain('focused sub-agent')
+		// The read-only agents keep the rule that every path and quote comes from a tool result.
+		expect(EXPLORE_PROMPT).toContain('from your tool results only')
+		expect(PLAN_PROMPT).toContain('from your tool results only')
 		// The general worker keeps its own blurb.
 		expect(SUBAGENT_PROMPT).toContain('focused sub-agent')
 	})
 
 	it('keeps the system prompts short', () => {
-		// Measured with the largest environment block; the ceilings leave room for it.
+		// The figures a captured first request showed: about 17,500 characters for the
+		// main system message (these pieces plus the environment block the CLI
+		// composes) and about 7,500 for an explore agent. The pieces are measured
+		// without the environment so the bound does not move with the host; the
+		// assembled agents are measured with the largest environment block.
+		const pieces = [
+			NAMZU_IDENTITY,
+			NAMZU_WORKING_DOCTRINE,
+			NAMZU_DELEGATION_DOCTRINE,
+			WORKFLOW_DOCTRINE,
+			CONVERSATION_EVIDENCE_GUIDANCE,
+			DEFERRED_TOOL_GUIDANCE,
+		]
+		expect(pieces.join('\n\n').length).toBeLessThan(14_450)
 		for (const [name, text] of assembled()) {
-			if (name.startsWith('main')) expect(text.length, name).toBeLessThan(17_000)
+			if (name.startsWith('main')) expect(text.length, name).toBeLessThan(MAIN_CEILING)
 			if (name.startsWith('explore') || name.startsWith('planner'))
-				expect(text.length, name).toBeLessThan(10_000)
+				expect(text.length, name).toBeLessThan(9_000)
 		}
 	})
 

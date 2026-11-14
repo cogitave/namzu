@@ -15,7 +15,10 @@ describe('keeping the person informed', () => {
 		expect(NAMZU_WORKING_DOCTRINE).toContain(
 			'For work that takes several calls, say one short line before the first call',
 		)
-		expect(NAMZU_WORKING_DOCTRINE).toContain('when you find something or change direction')
+		expect(NAMZU_WORKING_DOCTRINE).toContain(
+			'when you find something, change direction or hit a blocker',
+		)
+		expect(NAMZU_WORKING_DOCTRINE).toContain('after a long stretch without one')
 		expect(NAMZU_WORKING_DOCTRINE).toContain(
 			'a question that needs at most one look gets no such line',
 		)
