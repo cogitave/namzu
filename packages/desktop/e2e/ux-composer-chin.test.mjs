@@ -56,10 +56,10 @@ test("the composer chin is quiet, one line holds project and computer, starters 
 		assert.equal((await permission.boundingBox()).width, rest.width, "the control does not grow on hover");
 		await page.mouse.move(5, 5);
 
-		// Starters: three 32px rows; a click fills and focuses the box and sends nothing.
+		// Starters: three 40px rows; a click fills and focuses the box and sends nothing.
 		const starters = page.locator(".starter-actions button");
 		await expect(starters).toHaveCount(3);
-		for (const row of await starters.all()) assert.equal(Math.round((await row.boundingBox()).height), 32);
+		for (const row of await starters.all()) assert.equal(Math.round((await row.boundingBox()).height), 40);
 		await starters.first().click();
 		await expect(box).toHaveValue(/^Explore this project/);
 		await expect(box).toBeFocused();

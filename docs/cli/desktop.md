@@ -925,7 +925,7 @@ With the strip hidden, every way of moving still works:
 
 **A user of the previous version** starts with the strip hidden: the tabs they had open are still in the saved layout, the one that was in front is shown, and the others stay out of sight (each is a sidebar row; no chord lands on them) until they open another conversation from the sidebar, which closes them. Their conversations are all still in the sidebar; turn the switch on to see the tabs again.
 
-**The column** is at most 768 px and centred, with or without the strip; the gutter beside it is in [The input box and the home screen](#the-input-box-and-the-home-screen). The date between messages is a 12 px muted label.
+**The column** is at most 768 px and centred, with or without the strip, for the input box and what is docked above it ([The input box and the home screen](#the-input-box-and-the-home-screen)); the transcript's own text column is narrower ([The turn's numbers](#the-turns-numbers)). The date between messages is a 12 px muted label.
 
 `e2e/ux-top-bar.test.mjs` drives the real app for the hidden bar, the 960 px fit and the switch. The other end-to-end flows are written for the strip, so the harness turns it on for them unless a world says `tabs: "hidden"`.
 
@@ -2781,11 +2781,16 @@ existing Pal card. An ordinary conversation draws its plan as one row inside
 the "Worked" block of the latest turn that touched it, and no longer draws a
 "Tasks" chip after the transcript:
 
-- While the turn runs the row reads "Plan · 2/5 · *the task in progress*" and
-  sweeps like a running action. It opens to a checklist (done rows muted, a
-  spinner for the task in progress, an empty circle for a pending one, a cross
-  for a failed one) of at most six rows, then "+N more", which opens Activity.
-  It updates in place by task id, so a task update never adds a row.
+- While the turn runs the plan is one box in the flow under the person's message,
+  outside the folded work (see [The turn's numbers](#the-turns-numbers)): a row
+  per task (done: a muted disc with a check and muted text; the task in progress:
+  a spinning arc and full text; not started: a dashed ring and full text; failed:
+  a disc with a cross) of at most six rows, then "+N more", which opens Activity.
+  It updates in place by task id, so a task update never adds a row. When the
+  answer lands the box is gone and the plan is one row inside the "Worked"
+  block, as below.
+- Inside the "Worked" block the row reads "Plan · 2/5 · *the task in progress*"
+  and opens to the same checklist.
 - When every task is done it reads "Plan · 5/5 done" in muted text and starts
   folded. A turn that ends with tasks left reads "Plan · 3/5" in normal text.
   An earlier turn that touched the plan shows one muted "Updated tasks" line.
@@ -2942,7 +2947,7 @@ conversations keep their own outputs.
 
 ### The result line at the foot of a reply
 
-One 32 px line of text ends a finished turn (no border, no fill, no rule above it; it starts at the reply's own left edge and sits about 30 px under the reply's last row: the reply's own hover-only action row keeps 16 px there and its last 8 px lie over the line's empty top), in place of the old "Changed 4 files" card and the
+One 32 px line of text ends a finished turn (no border, no fill, no rule above it; its parts are 8 apart and the counts are 13 px; it starts at the reply's own left edge, the column's edge, and sits about 30 px under the reply's last row: the reply's own hover-only action row keeps 16 px there and its last 8 px lie over the line's empty top), in place of the old "Changed 4 files" card and the
 sentence that used to sit under it: a state mark, "Done in 3s" (how long the turn took; just "Done"
 under a second; "Stopped", "Paused", "Incomplete" or "Failed" when it did not end well; "Finished in 3s"
 when the record's verdict is `failing`, because the turn ended but the kernel did not call it done), the size of
@@ -3090,15 +3095,15 @@ unknown time never produce or move a separator. Pal friend chat has none.
 
 ### Live phases
 
-The transcript follows admitted runtime events. While the work runs, the turn is ONE line: a mark, the
-step it is on, the elapsed time and a chevron ("● Running pwd · 4s ›"). The work, in order, is behind the
+The transcript follows admitted runtime events. While the work runs, the turn is ONE line, 28 px high at 15/22 in one muted tone: the working mark (four 4 px square dots in a 14 by 14 grid of two by two, lit in turn, never the accent colour), the
+step it is on, the elapsed time and a chevron ("Running pwd · 4s ›"). The work, in order, is behind the
 chevron and stays closed unless an action failed or was refused (then it is open, so bad news is never behind a
 click); a choice the person made always wins. The words change only when the work enters a new stage, never on a
 timer (the same stage derived again on every streamed token changes nothing). The step is, in this order:
 
 1. A pending approval: the step it asks about in the words of its own row ("Waiting to edit session.ts",
    "Waiting to run command", "Waiting to create a.txt"), with an amber, still mark.
-2. A running action: its row's label ("Running pwd"), with a slowly pulsing mark.
+2. A running action: its row's label ("Running pwd"), with the dots lit in turn.
 3. The newest entry is a reasoning segment: its headline (a leading bold run, else the
    first sentence; Thinking while it has none yet) becomes the line, and that
    reasoning row is not drawn while it is the newest entry. As soon as anything newer
@@ -3108,7 +3113,7 @@ timer (the same stage derived again on every streamed token changes nothing). Th
 5. Otherwise "Working".
 
 The text is plain (markdown stripped) and at most 80 characters, cut at a word boundary.
-Each new stage fades in; reduced motion swaps it instantly and stops the mark's pulse. The line's
+Each new stage fades in; reduced motion swaps it instantly and the dots hold still. The line's
 accessible name is the step and the elapsed time, and the hidden live status announces each new stage once, never the
 clock, never streaming narration word by word. The line becomes "Worked for 4s" when the turn ends. Before the work block exists the quiet end-of-transcript status stands in. Tool
 work and answer streaming retain their own phase in the projection. A provider that withholds reasoning can indicate
@@ -3442,7 +3447,7 @@ record inspected states, actual source-derived fixtures and supported window siz
 
 Streaming follows the latest message only while the reader is at the bottom.
 Reading older output preserves its position as new messages arrive. A small,
-keyboard-accessible **Jump to latest messages** control returns to the end and
+keyboard-accessible **Jump to latest messages** control (a 36 px circle on the text column's axis, 20 above the top of the dock) returns to the end and
 resumes following; reduced motion uses immediate movement. Warm tab navigation
 restores the saved reading position. Ordinary conversations also retain only
 work disclosures the reader explicitly opened or closed, including an explicit
@@ -3672,14 +3677,40 @@ measured against the element it sits next to, never as a window position.
 
 The input box, the row under it and the home screen sit on the same rhythm as the frame, so the box is where a person's hand expects it before and after the first message. `e2e/ux-composer-measures.test.mjs` measures all of it in the running app.
 
-- **The empty box is one row, 44 px high** (`--frame-input-height`, read by every rule that sizes the box), with corners of 12 px (`--frame-input-radius`, through `--radius-composer`): padding 8 and a gap of 8 around the plus button (28), the text (which starts 44 from the box's left edge) and a 28 px slot 8 from the right edge. When the text wraps past one line, contains a line break, or something sits above it (an attachment, a notice, the history counter), the text takes the full width and the controls drop to a second row under it, as before. Once the box has two rows it keeps them until it is empty again, so the controls never jump back and forth while someone types. The box grows with the text up to its present maximum. While a question waits for the person the box stays one row.
-- **The slot at the right holds one thing**: the voice control when the box is empty and voice input is set up, Send when there is something to send (text or an attachment), Stop while a reply runs (Send joins it once there is text to queue), and nothing otherwise. Send stays the one lime control on the screen and, like Stop, is 28 px. When the Desktop opens a terminal for another engine instead of sending, its button stays where it was.
+- **The empty box is one row, 44 px high** (`--frame-input-height`, read by every rule that sizes the box), with corners of 12 px (`--frame-input-radius`, through `--radius-composer`): padding 8 and a gap of 8 around the plus button (28), the text (which starts 44 from the box's left edge) and a 28 px slot 8 from the right edge. The box grows upward by one line (`--box-line`, 22 px) for each line of text: two lines make it 66 high, three 88 (44 + 2 x 22), and the text is a column of its own between the plus and the slot, with 3 px of air above and below. The plus stays pinned at the box's bottom-left corner and the right slot at its bottom-right corner, 8 px from each edge, so a long draft never moves them off the last line. An attachment or a notice sits in the same column above the text. The box grows with the text up to its present maximum, beyond which the text scrolls. While a question waits for the person the box stays one row.
+- **The slot at the right holds one thing**: the voice control when the box is empty and voice input is set up, Send when there is something to send (text or an attachment), Stop while a reply runs (Send joins it once there is text to queue), and nothing otherwise. Send stays the one lime control on the screen: 28 by 28 with 8 px corners (`--box-send`, `--box-send-radius`). Stop is 28 by 28 with no fill and a 12 px square of 2 px corners in the text colour, which takes an 8 percent fill under the pointer: stopping is a normal action, so it is not red or round. When the Desktop opens a terminal for another engine instead of sending, its button stays where it was.
 - **The row under the box** is 24 high and starts 8 below the box; its bottom is 8 above the bottom edge of the window. At rest the first control's content starts 10 inside the column's left edge and the last control's content ends 10 inside its right edge; its controls and menus are otherwise unchanged. No chevron is drawn in the row.
-- **The column** (`--frame-column-width` 768 px) is as wide as `min(768px, 100% - 64px)` and centred in the main area, so the box keeps at least 32 px on each side; in a pane narrower than 560 px the side space is 16 (a container query on the conversation pane, `style.css`). The input box, its row and anything docked above the box (a notice, the approval card, a voice line) share it, and so does the transcript.
+- **The column** (`--frame-column-width` 768 px) is as wide as `min(768px, 100% - 64px)` and centred in the main area, so the box keeps at least 32 px on each side; in a pane narrower than 560 px the side space is 16 (a container query on the conversation pane, `style.css`). The input box, its row and anything docked above the box (a notice, the approval card, a voice line) share it. The transcript's text sits in a column of its own, 16 px inside this one at full width ([The turn's numbers](#the-turns-numbers)).
 - **The dock** is the box, its row and anything above them. It rests at the bottom of the conversation pane: 8 between a notice or the approval card and the box, 8 between the box and the row, 8 under the row. The home screen uses exactly the same place, so sending the first message does not move the box by a pixel (its rectangle is compared before and after in the test). The transcript and the toasts read the dock's real height (`--composer-height`), so a toast sits above the box on the home screen too.
-- **The home screen** puts the heading (the display size, the project's name in the display face) and, 16 under it, the starters as one block, centred both ways in the free area above the box *as it is while the box is one line*. When the box grows (an attachment, a wrapped or longer draft) the block stays where it is, in every painted frame, until the box would touch it; then the starters go first, then the heading steps down from 28 to 20, then it is dropped; nothing is ever drawn over the dock. The free area gives up exactly the dock's growth at its bottom and the block is moved down by it (`--composer-dock`, written in the dock's own resize delivery; `composer.css`), and the thresholds are container queries on what is left. The home without a project (heading, two muted lines and the lime Add new project button) is centred in the main area the same way. Starters still fill the box and send nothing; once something is typed they step out of sight but keep their room.
+- **The home screen** puts the heading (the display size, the project's name in the display face) and, 24 under it, the starters as one block, centred both ways in the free area above the box *as it is while the box is one line*. When the box grows (an attachment, a wrapped or longer draft) the block stays where it is, in every painted frame, until the box would touch it; then the starters go first, then the heading steps down from 28 to 20, then it is dropped; nothing is ever drawn over the dock. The free area gives up exactly the dock's growth at its bottom and the block is moved down by it (`--composer-dock`, written in the dock's own resize delivery; `composer.css`), and the thresholds are container queries on what is left. The home without a project (heading, two muted lines and the lime Add new project button) is centred in the main area the same way. Starters still fill the box and send nothing; once something is typed they step out of sight but keep their room.
 
 Spacings here are 2, 4, 6, 8, 12, 16, 20, 24 or 32 px, except the frame value 10.
+
+## The request for permission's numbers
+
+The request for permission, the input box's growth, Send and Stop, the notice above the box and the home starters are laid out on measured numbers, each a token in `theme.css` (`--ask-*`, `--box-*`, `--notice-*`, `--start-*`) that every rule reads. `src/renderer/ask-tokens.test.ts` pins the values and the rules that read them; `e2e/ux-ask-measures.test.mjs` and `e2e/ux-composer-measures.test.mjs` measure them in the running app, each relative to a neighbour. The card stays docked above the box at the box's width, and every line on it is still a fact the kernel recorded, in the same words.
+
+- **The card** has 16 px of padding (`--ask-pad`), a 1 px ring and 12 px corners. A **band** 48 high runs across its top with a faint fill (6 percent of the text colour) and 16 at the sides: the warning icon (16), the question at 14/20 weight 500 and, at the right, the counts, the "Only part of the file is shown" note, "1 of N" and the "..." menu, at 12/16.
+- **The path row** is 10 under the band: 43 high, 8 px corners, the same faint fill, mono 13/20, its text 16 in. It holds the whole path, cut in the middle if it cannot fit; a command of one line is shown there; a command too long for the row is shown whole in the framed block instead (the row stays in place, unseen, so a wider card brings it back), so a command is on the card once.
+- **The preview** is a framed block 16 under the row: a 1 px edge, 8 px corners, 6 of air above the first row and under the last, rows 20 high in mono 13/20. Line numbers end 28 in, the sign has its own column, the code starts 50 in. A changed row has a 6 px bar at its left (solid for an added row, hatched in 2 px stripes for a removed one) and a tint of 22 percent of the diff colour mixed into the page. Its maximum height and scrolling are unchanged.
+- **The footer** is 24 under the last of them. Its fact line stays at the left; the buttons are at the right, 16 apart and 16 from the card's right and bottom edges: 28 high, 8 px corners, 13 px at weight 500. Reject is a quiet fill (16 percent of the text colour) in the normal text colour. The lasting yes is a split control: its label, a 1 px divider 14 tall and a 28 px square chevron part that opens its menu. Accept is the lime button. The bound keys are chips on the buttons (18 high, a 1 px outline, 4 px corners, 12 px, 8 after the label).
+- **A notice docked above the box** (the voice line's message) is a card 48 high at least, 8 above the box, its text 44 in from the left edge and its dismiss button 28 by 28, 10 from the right edge.
+
+## The turn's numbers
+
+The transcript is laid out on measured numbers, each a `--turn-*` token in `theme.css` that every rule reads (`src/renderer/turn-tokens.test.ts` pins the values and the rules that read them; `e2e/ux-turn-measures.test.mjs` measures them in the running app, each one relative to a neighbour, never to the top of the window). The rules are in `style.css`, `transcript-rhythm.css`, `transcript-motion.css`, `plan-row.css` and `turn-result-line.css`.
+
+- **The text column** holds the messages, the rows of steps, the plan, the working row and the result line. It is `min(736px, pane - 2 x gutter)` wide, where the gutter is 58 px when the pane is 600 px or wider and 42 px below that, centred on the same axis as the input box (a container query on the conversation pane). At full width the text sits 16 px inside the box's edges; beside an open side panel both narrow by their own rule. The box and what is docked above it keep `min(768px, 100% - 64px)`. The transcript starts 32 px down (`--turn-top`).
+- **The person's message** is a bubble with 10 px corners, 12 px above and below and 16 px at the sides, at most 80 percent of the column, its right edge on the column's right edge. From its bottom edge to the top of the first row under it (the folded row, the plan box, the working row or the reply) is 34 px. Its hover row (the clock) takes no height: it is drawn inside those 34, so showing it moves nothing.
+- **The reply** is 15/22 text with paragraphs 12 px apart. A bulleted item has a 5 by 5 square in the muted colour 13 px in from the column's edge, its text starts 37 px in and items are 4 px apart (a numbered list draws its numbers, in the muted colour, starting on that same 13 px x with its text at 37 px, and a list inside an item starts under that item's text one item gap, 4 px, below its last line). Inline code is a chip 17 px high in the mono face at 13 px with 4 px corners and 4 px at each side. The row reserved under a reply for its hover actions is unchanged.
+- **The folded row** is one sentence at 15/22 in the muted colour in a row 28 px high. Its chevron stands after the text, 7 px after the last letter, a thin glyph 6 px wide and 8 px high that points right when closed and down when open. A paragraph is 14 px above a folded row and 12 px below it; the row's first place, under the person's message or the plan box, takes that part's own gap instead.
+- **The open block** starts 8 px under the row. It is one box with a 1 px edge (6 percent of the text colour) and 8 px corners; each step is a row 35 px high with a 1 px line between rows, its text 12 px in: the verb in the muted colour, what it acted on in the text colour (counts keep their own colours). The next paragraph is 20 px below the block.
+- **The working row** is 28 px high at 15/22 in one muted tone for the label, the time and the chevron (the label's moving shine stays). Its mark is 14 by 14 with four 4 px square dots in two rows of two, lit in turn, in the muted colour and never the accent; reduced motion holds them still. It sits 34 px under the person's message, or 20 px under the plan box.
+- **The plan** while the turn runs is one box in the flow under the person's message, outside the fold: a 1 px edge, 12 px corners, 16 px of padding and the page's own fill. Rows are on a 28 px pitch at 14/20 with a 16 by 16 mark and 8 px to the text. When the answer lands it folds into the work block (see [Planning tasks](#planning-tasks)).
+- **The result line** keeps its place and its 32 px height; its counts are 13 px and its parts are 8 px apart.
+- **Jump to latest** is a 36 px circle centred on the column, 20 px above the top of the dock.
+
+Spacings here are 2, 4, 6, 8, 12, 16, 20, 24 or 32 px, except the numbers above.
 
 ## Sidebar, tabs and the command palette
 
@@ -3927,7 +3958,7 @@ themes at window widths 900 to 1440 and 100, 125 and 150% zoom and fails on any 
 Every composer popup (model, effort, engine, permission, attach, project chooser, and the model
 control inside a Pal's plus popup) stays inside the window. `PopoverPopup` gives every popover an
 8px collision padding, a flip to the other side when its own side is full, a slide along the edge
-instead of past it, and a width of at most the space left and the window minus 1rem.
+instead of past it, and a width of at most the space left and the window minus 1rem. A popup that is open while the window is resized or zoomed is placed again two frames after each change, because the window can report a change before the page has laid out for it and the popup would otherwise stay at the old size's place.
 `e2e/composer-popups.test.mjs` opens each popup on the landing composer, in a conversation and in a
 Pal, at window widths 900, 1100 and 1440 and 100, 125 and 150% zoom in both themes, waits until the
 popup's content has loaded and its box has held still for 20 frames, and measures the popup and its
@@ -3995,7 +4026,7 @@ ellipsis, then the row wraps to two lines (below 360 px); a long project name is
 stays readable. The permission mode is never hidden or cut. Popups open upward from their button and stay inside the window.
 Nothing is hidden until hover: every control of the row is drawn at rest, so a keyboard user reaches them in order (the mode,
 the model, the read-out, each with a focus ring) and a touch user sees them all. No chevron is drawn in the row, so nothing that only appears under the pointer keeps room at rest. The context ring is gone from the top bar;
-the Pal composer keeps its own ring beside Send. The three starters are quiet 32 px rows; a click puts the idea in the box and
+the Pal composer keeps its own ring beside Send. The three starters are rows of 320 by 40 (`--start-*`), 12 apart, 12 px corners and a 1 px edge (8 percent of the text colour), no fill at rest and an 8 percent fill under the pointer, a 16 px icon 12 in and the label 8 after it at 14/20; the group is centred, 24 under the heading, and in a short window it goes before the heading steps down (the free area must be 236 px for it). A click puts the idea in the box and
 focuses it, and never sends.
 
 **The model popup** opens on the model list on every engine: 40 px rows, the model's name and a 12 px muted second
@@ -4018,15 +4049,15 @@ popups, narrow behaviour and the approval card's shape.
 
 **The approval card and the turn in flight.** One card (12 px corners, a 1 px ring, the panel fill, no shadow) sits
 directly above the box with about 8 px between them: no surface is drawn behind both, there is no outer "Waiting for your
-decision" box and no line of key hints. The preview of the change inside it is a band from edge to edge of the card with the
-darker code fill and no border or corners of its own. While the card waits, the box under it is the ordinary box, one row
+decision" box and no line of key hints. Inside it ([The request for permission's numbers](#the-request-for-permissions-numbers)) a band across the top holds the question, the path has a row of its own, and the preview of the change is a framed block with the darker code fill. While the card waits, the box under it is the ordinary box, one row
 tall, with the waiting text and Stop, and the row of settings stays under it, the model included (disabled while the reply is held, as during any reply). The card states what the request itself carries
 and nothing the model said about its action.
 
-- **The question** is one 14 px sentence with the target as a mono chip: "Edit `src/auth/session.ts`?",
-  "Create `a.txt`?", "Delete `old.txt`?", "Run `pnpm test`?" (a command is cut to its first line, with ` …` when more
-  follows). A file is named by its path inside the project, or `~`-shortened with a middle ellipsis outside it, with
-  the full path as the tooltip (`path-display.ts`). On the right are the counts (`+1 −1`, each with an accessible
+- **The question** is one 14/20 sentence at weight 500 in the band: the verb and the file's name ("Edit session.ts?",
+  "Create a.txt?", "Delete old.txt?", "Run this command?"). The file's path is in the row under the band, inside the
+  project by its path in it or `~`-shortened outside it (`path-display.ts`), cut in the middle only when the row is too
+  narrow (the whole text stays for a screen reader), and is also the question's tooltip; a command of one line is shown in that
+  row instead, and a command of several lines, or one the row would cut, is shown in its framed block with the whole of it and not in the row. On the right are the counts (`+1 −1`, each with an accessible
   "1 line added" label), the engine's "Only part of the file is shown" when the preview was cut, and "1 of N" when
   more requests wait.
 - **What the kernel knows comes first.** Straight after the question, each fact the request carries about the
@@ -4051,20 +4082,21 @@ and nothing the model said about its action.
   facts at the top of the card, and the asks that need a person keep every other protection (no standing yes, the
   keyboard starting on Reject for a delete or a risky command, the 400 ms click guard that keeps a click aimed at the
   previous card from answering the next).
-- **Actions.** **Accept** is the one lime button. **Reject** is a quiet red text button. **Allow for this
-  conversation** (below) is an outline button, offered exactly when it was before. Enter accepts and Esc rejects as
-  before; the keys are on the buttons' tooltips ("Accept · Enter", "Reject · Esc", and on a risky one "Reject ·
+- **Actions.** **Accept** is the one lime button. **Reject** is a quiet fill in the normal text colour (refusing is not
+  an error). **Allow for this conversation** (below) is a split control, offered exactly when it was before. Enter accepts and Esc rejects as
+  before; the keys are drawn on the buttons as small chips ("Esc" on Reject, "Ctrl+Enter" on Accept, "⌘↵" on a Mac; they are no part of a
+  button's name) and are on the buttons' tooltips ("Accept · Enter", "Reject · Esc", and on a risky one "Reject ·
   Enter or Esc" and "Accept · Ctrl+Enter. This one looks risky, so Enter rejects it.") and on `aria-keyshortcuts`.
   Esc while a menu is open closes the menu, not the card.
 - **The "..." menu** on the box (on the header when a card has no box) holds **Tell Namzu what to do instead**
   (which turns the foot into the note field, as before), **Wrap lines** and **Copy** (the change as a patch, the
   command, or the message).
 - **The composer is a 40 px bar** while a decision waits: an amber dot, "Waiting for you. Type to message Namzu.",
-  the attach **+** and the permission word, and **Stop** as an outlined square that turns red on hover. The model
+  the attach **+** and the permission word, and **Stop** as the quiet square it always is (no fill, an 8 percent fill under the pointer). The model
   word, the context ring, the microphone, the shell count and the pull request chip are not drawn until the
   card is answered (the model cannot change while a reply runs). Typing in the bar is what it always was: Enter
   sends the text to the running reply and Ctrl+Enter or Tab holds it for after it, and neither answers the card.
-- **The turn in flight is one line**: a mark (amber while the turn waits for the person, a slow pulse while it runs),
+- **The turn in flight is one line**: the working mark (four dots, still while the turn waits for the person, lit in turn while it runs),
   the step in the kernel's words ("Waiting to edit session.ts", "Waiting to run command", "Running pwd", or the
   stage, "Thinking"), the elapsed time and a chevron. The work, with every action's row, is behind the chevron; if an
   action failed or was refused the work stays open, so bad news is never behind a click (`workBlockOpen` with the
@@ -4074,7 +4106,7 @@ The `+N` badge says what it counts, and the Queue control reads **Queue message*
 change already holds exactly that text, the CLI's permission preview is still sent (with `before` equal to `after`)
 and the card says "No change to `name`." instead of "couldn't show what's in `name`".
 
-**Allow for this conversation.** On the Namzu engine the card offers an outline **Allow for this conversation**
+**Allow for this conversation.** On the Namzu engine the card offers a split control **Allow for this conversation** (its label, a 1 px divider and a 28 px chevron part whose menu repeats the answer and says what it covers)
 beside Reject and Accept. It sends `approve_all`, which the agent keeps as a latch for the rest of the
 conversation: ordinary asks stop, deletes and commands included. The agent still asks about the few
 things that always need a person (a run outside the sandbox, a path outside the project or a protected

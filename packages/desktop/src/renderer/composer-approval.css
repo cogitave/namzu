@@ -1,28 +1,38 @@
 /* The approval is one card sitting directly above the box: 12px corners, a 1px ring, the panel fill,
-   about 8px of air between them and no surface behind both. The preview inside is a band that runs
-   from edge to edge of the card, so the card's padding (--approval-pad) is what the band cancels. */
+   8px of air between them and no surface behind both. Inside, 16 of padding; a band across the top
+   (48 high, a faint fill) holds the question; the path has a row of its own 10 under the band; the preview
+   is a framed block 16 under that; the footer is 24 under the last of them and its buttons end 16 from the
+   card's right and bottom edges. Every number is an --ask-* token in theme.css. */
 .approval-surface {
 	min-width: 0;
 	margin: 0 0 8px;
 }
 .approval-card {
-	--approval-pad: 12px;
+	position: relative;
 	display: flex;
 	flex-direction: column;
-	gap: 8px;
 	min-width: 0;
-	padding: var(--approval-pad);
+	padding: var(--ask-pad);
 	border: 1px solid var(--border);
 	border-radius: var(--radius-card);
 	background: var(--card);
 	font-size: var(--text-caption);
 	line-height: var(--leading-caption);
 }
+/* What follows the band keeps 12 between its parts; the path, the block and the footer set their own. */
+.approval-card > :not(.approval-head) {
+	margin-top: 12px;
+}
 .approval-head {
 	display: flex;
 	align-items: center;
 	gap: 8px;
 	min-width: 0;
+	height: var(--ask-band);
+	margin: calc(-1 * var(--ask-pad)) calc(-1 * var(--ask-pad)) 0;
+	padding-inline: var(--ask-pad);
+	border-radius: var(--ask-band-radius) var(--ask-band-radius) 0 0;
+	background: var(--ask-fill);
 }
 .approval-head-icon {
 	flex: none;
@@ -39,21 +49,49 @@
 	overflow: hidden;
 	color: var(--foreground);
 	font-size: var(--text-interface);
-	font-weight: var(--weight-strong);
+	font-weight: var(--weight-control);
 	line-height: var(--leading-interface);
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
-/* The target of the question: a file or a command, in mono, cut to one line. */
-.approval-chip {
-	margin-inline: 0 -3px;
-	padding: 2px 6px;
-	border-radius: var(--radius-chip);
-	background: color-mix(in srgb, var(--foreground) 8%, transparent);
+/* The path of the file, or the one line of the command: mono, all of it or cut in the middle. */
+.approval-card > .approval-path {
+	display: flex;
+	align-items: center;
+	height: var(--ask-path-height);
+	margin-top: var(--ask-path-gap);
+	padding-inline: var(--ask-path-pad);
+	border-radius: var(--ask-path-radius);
+	background: var(--ask-fill);
+	color: var(--foreground);
 	font-family: var(--font-mono);
-	font-size: var(--text-caption);
-	font-weight: var(--weight-strong);
-	line-height: var(--leading-caption);
+	font-size: var(--font-size-code);
+	line-height: var(--leading-code);
+}
+/* A command too long for the row: the framed block shows all of it, so this row only keeps measuring. */
+.approval-card > .approval-path[data-hidden] {
+	position: absolute;
+	left: var(--ask-pad);
+	right: var(--ask-pad);
+	margin: 0;
+	visibility: hidden;
+	pointer-events: none;
+}
+.approval-path-text {
+	position: relative;
+	display: block;
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	white-space: nowrap;
+}
+.approval-path-probe {
+	position: absolute;
+	top: 0;
+	left: 0;
+	visibility: hidden;
+	white-space: pre;
+	pointer-events: none;
 }
 
 .approval-counts {
@@ -130,14 +168,14 @@
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
 }
-.approval-footer {
+.approval-card > .approval-footer {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
 	justify-content: flex-end;
-	gap: 8px;
-	min-height: 32px;
-	padding-top: 4px;
+	gap: 8px var(--ask-button-gap);
+	min-height: var(--ask-button);
+	margin-top: var(--ask-foot-gap);
 }
 /* What the kernel knows about where this runs; the buttons sit to its right. */
 .approval-fact {
@@ -156,7 +194,7 @@
 	flex-wrap: wrap;
 	align-items: center;
 	justify-content: flex-end;
-	gap: 8px;
+	gap: 8px var(--ask-button-gap);
 	margin-left: auto;
 }
 .approval-note-field {
@@ -182,18 +220,21 @@
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	height: 32px;
+	height: var(--ask-button);
 	padding: 0 12px;
-	border: 1px solid var(--border);
-	border-radius: var(--radius-control);
-	background: transparent;
+	border: 0;
+	border-radius: var(--ask-button-radius);
+	background: var(--ask-quiet);
 	color: var(--foreground);
 	font: inherit;
+	font-size: var(--text-small);
+	font-weight: var(--weight-control);
+	line-height: var(--leading-small);
 	cursor: pointer;
 	transition: background-color 120ms var(--motion-ease);
 }
 .approval-button:hover:not(:disabled) {
-	background: var(--accent);
+	background: color-mix(in srgb, var(--foreground) 22%, transparent);
 }
 .approval-button:disabled {
 	opacity: 0.5;
@@ -203,6 +244,21 @@
 	outline: 2px solid transparent;
 	outline-offset: 2px;
 	box-shadow: var(--focus-ring);
+}
+/* The key that answers from anywhere in the card, drawn at the end of the button it belongs to. */
+.approval-key {
+	display: inline-flex;
+	align-items: center;
+	height: var(--ask-chip-height);
+	margin-left: var(--ask-chip-gap);
+	padding: 0 4px;
+	border: 1px solid currentColor;
+	border-radius: var(--ask-chip-radius);
+	font-family: inherit;
+	font-size: var(--text-caption);
+	font-weight: var(--weight-text);
+	line-height: var(--leading-caption);
+	opacity: 0.7;
 }
 .approval-icon-button {
 	gap: 4px;
@@ -217,14 +273,9 @@
 	background: var(--accent);
 	color: var(--foreground);
 }
-/* Red and green text on the card surface, both themes at 4.5:1 or better. */
+/* Refusing is an ordinary answer, not an error: the quiet fill and the normal text colour. */
 .approval-button[data-tone="reject"] {
-	border-color: transparent;
-	color: var(--error-foreground);
-}
-/* "Allow for this conversation": an outline, never the filled answer. */
-.approval-outline {
-	border-color: var(--input);
+	color: var(--foreground);
 }
 .approval-button[aria-disabled="true"] {
 	opacity: 0.5;
@@ -235,13 +286,51 @@
 }
 /* Accept is the one filled button: the answer that lets the action go ahead. */
 .approval-button[data-tone="accept"] {
-	border-color: transparent;
 	background: var(--message-action);
 	color: var(--message-action-foreground);
-	font-weight: var(--weight-strong);
 }
 .approval-button[data-tone="accept"]:hover:not(:disabled) {
 	background: var(--message-action-hover);
+}
+/* The lasting yes: its label, a hairline, and a square part that opens what it covers. One control, 28 high. */
+.approval-split {
+	display: inline-flex;
+	align-items: center;
+	height: var(--ask-button);
+	border-radius: var(--ask-button-radius);
+	background: var(--ask-quiet);
+}
+.approval-split .approval-button {
+	background: transparent;
+}
+.approval-split .approval-button:hover:not(:disabled) {
+	background: color-mix(in srgb, var(--foreground) 8%, transparent);
+}
+.approval-split-label {
+	border-radius: var(--ask-button-radius) 0 0 var(--ask-button-radius);
+}
+.approval-split-divider {
+	flex: none;
+	width: 1px;
+	height: var(--ask-split-divider);
+	background: color-mix(in srgb, var(--foreground) 24%, transparent);
+}
+.approval-split-more {
+	width: var(--ask-button);
+	padding: 0;
+	border-radius: 0 var(--ask-button-radius) var(--ask-button-radius) 0;
+}
+.approval-split-more svg {
+	width: 16px;
+	height: 16px;
+}
+.approval-menu-scope {
+	max-width: 260px;
+	margin: 0;
+	padding: 4px 8px 6px;
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 
 .approval-cut-note {
@@ -267,14 +356,15 @@
 	margin-top: 2px;
 }
 
-/* The first rows of the change or the command; the rest is one click away. A band, not a box: it has
-   no border and no corners of its own, only the darker code fill, from one edge of the card to the other. */
-.approval-box {
+/* The first rows of the change or the command, framed: a 1px edge, 8 corners, 6 of air above the first row
+   and under the last; the rest is one click away. Rows are 20 high; a changed row has a 6px bar at its left
+   (solid for an added row, hatched in 2px stripes for a removed one) and a tint of its colour. */
+.approval-card > .approval-box {
 	position: relative;
 	overflow: hidden;
-	margin-inline: calc(-1 * var(--approval-pad));
-	border: 0;
-	border-radius: 0;
+	margin-top: var(--ask-preview-gap);
+	border: 1px solid var(--border);
+	border-radius: var(--ask-preview-radius);
 	background: var(--code-background);
 	color: var(--code-foreground);
 	font-family: var(--font-mono);
@@ -285,12 +375,6 @@
 	font-family: inherit;
 	font-size: var(--text-small);
 	line-height: var(--leading-small);
-}
-.approval-box-more {
-	position: absolute;
-	top: 2px;
-	right: 4px;
-	z-index: 2;
 }
 .approval-more-button {
 	display: grid;
@@ -345,40 +429,49 @@
 	box-shadow: var(--focus-ring-inset);
 }
 .approval-rows {
-	padding: 2px 0;
+	padding: var(--ask-preview-air) 0;
 }
 .approval-row {
+	position: relative;
 	display: flex;
-	min-height: 20px;
+	min-height: var(--ask-row);
 	white-space: pre;
 }
 .approval-rows[data-wrap] .approval-row {
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
 }
+/* The number ends 28 in from the block's left edge, the sign has the room up to 50, the code starts there. */
 .approval-row-line {
 	flex: none;
-	width: 44px;
-	padding-right: 10px;
+	width: var(--ask-line-end);
 	color: var(--muted-foreground);
 	font-variant-numeric: tabular-nums;
 	text-align: right;
 }
 .approval-row-sign {
 	flex: none;
-	width: 14px;
-	padding-left: 2px;
+	width: calc(var(--ask-code-start) - var(--ask-line-end));
 	color: var(--muted-foreground);
 	text-align: center;
 }
+/* A row with no number (a command, a message) starts its text 16 in. */
 .approval-row:not(:has(.approval-row-line)) .approval-row-sign {
-	width: 22px;
-	padding-left: 10px;
+	width: 16px;
+	padding-left: 0;
+	margin-left: 16px;
+	text-align: left;
+}
+.approval-box[data-prose] .approval-row-sign {
+	display: none;
+}
+.approval-box[data-prose] .approval-row-text {
+	padding-left: 16px;
 }
 .approval-row-text {
 	min-width: 0;
 	flex: 1;
-	padding-right: 36px;
+	padding-right: 16px;
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
@@ -386,15 +479,25 @@
 	overflow: visible;
 }
 .approval-row[data-kind="add"] {
-	background: var(
-		--diff-add-background,
-		color-mix(in srgb, var(--update-foreground) 10%, transparent)
-	);
+	background: color-mix(in srgb, var(--diff-addition) var(--ask-tint), var(--background));
 }
 .approval-row[data-kind="remove"] {
-	background: var(
-		--diff-remove-background,
-		color-mix(in srgb, var(--error-foreground) 10%, transparent)
+	background: color-mix(in srgb, var(--diff-deletion) var(--ask-tint), var(--background));
+}
+.approval-row:is([data-kind="add"], [data-kind="remove"])::before {
+	content: "";
+	position: absolute;
+	inset: 0 auto 0 0;
+	width: var(--ask-bar);
+}
+.approval-row[data-kind="add"]::before {
+	background: var(--diff-addition);
+}
+.approval-row[data-kind="remove"]::before {
+	background: repeating-linear-gradient(
+		135deg,
+		var(--diff-deletion) 0 var(--ask-stripe),
+		transparent var(--ask-stripe) calc(2 * var(--ask-stripe))
 	);
 }
 /* Muted text on a tinted row would fall under 4.5:1 in the light theme, so its numbers read in the full text colour. */

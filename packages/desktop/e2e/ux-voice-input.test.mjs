@@ -214,6 +214,21 @@ test(
 			// What was heard is shown back with the reason it was not sent; the question still waits.
 			await expect(w.page.getByText(/A question is waiting on the screen/)).toBeVisible({ timeout: T });
 			await expect(w.page.locator(".voice-notice q")).toContainText(/toplantılarımı listele/i);
+			// The notice above the box: 48 high at least, its text 44 in, its dismiss button 28 square and 10 from the right edge.
+			const notice = await w.page.evaluate(() => {
+				const box = (el) => el.getBoundingClientRect();
+				const n = document.querySelector(".voice-notice");
+				const t = n.querySelector("span");
+				const close = n.querySelector("button");
+				const range = document.createRange();
+				range.selectNodeContents(t);
+				return { n: box(n), text: range.getBoundingClientRect(), close: box(close) };
+			});
+			assert.ok(notice.n.height >= 48, `the notice is at least 48 high (${notice.n.height})`);
+			assert.equal(notice.text.left - notice.n.left, 1 + 44, "its text starts 44 in (inside the 1px edge)");
+			assert.equal(notice.close.width, 28, "the dismiss button is 28 wide");
+			assert.equal(notice.close.height, 28, "and 28 high");
+			assert.equal(notice.n.right - notice.close.right, 1 + 10, "10 from the right edge");
 			await shot(w, "8-held-while-approval-waits");
 			await expect(card).toBeVisible();
 			await expect(

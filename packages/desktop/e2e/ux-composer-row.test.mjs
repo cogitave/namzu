@@ -262,7 +262,7 @@ test("in a narrow window the percentage goes first, the model name is cut, and t
 	);
 });
 
-test("an approval is one card directly above the box: one ring, the preview a band edge to edge, the row of settings still under the box", { timeout: 280000 }, async () => {
+test("an approval is one card directly above the box: one ring, the preview a framed block 16 in from the card's edges, the row of settings still under the box", { timeout: 280000 }, async () => {
 	const WRITE = {
 		match: /write the file/i,
 		steps: [{ tool: "write", args: { path: "limits.ts", content: `${THIRTEEN}\n` } }, { text: "Wrote it." }],
@@ -286,11 +286,11 @@ test("an approval is one card directly above the box: one ring, the preview a ba
 			const css = getComputedStyle(el);
 			return { ring: css.borderTopWidth, radius: css.borderTopLeftRadius, fill: css.backgroundColor };
 		});
-		assert.equal(inner.ring, "0px", "the preview has no border");
-		assert.equal(inner.radius, "0px", "the preview has no corners");
+		assert.equal(inner.ring, "1px", "the preview has a 1px edge");
+		assert.equal(inner.radius, "8px", "and 8 corners");
 		assert.notEqual(inner.fill, look.fill, "the preview has its own, code fill");
 		const [c, b] = [await rect(surface), await rect(band)];
-		assert.ok(Math.abs(b.left - (c.left + 1)) <= 1 && Math.abs(c.right - 1 - b.right) <= 1, "the preview runs from edge to edge of the card");
+		assert.ok(Math.abs(b.left - (c.left + 1 + 16)) <= 1 && Math.abs(c.right - 1 - 16 - b.right) <= 1, "the preview is 16 in from each side of the card");
 		// No surface behind both: the card is not inside the composer's backdrop, and nothing draws a banner.
 		assert.equal(await surface.evaluate((el) => el.closest('[data-slot="composer-shell"]') === null), true);
 		await expect(page.locator('[data-slot="composer-banner"]')).toHaveCount(0);
@@ -305,8 +305,8 @@ test("an approval is one card directly above the box: one ring, the preview a ba
 		await expect(row.getByRole("button", { name: /^Permissions: Ask first/ })).toBeVisible();
 		assert.ok((await rect(row)).top >= bb.bottom, "the row is under the box");
 		// The footer, in its order, with Accept the one filled button.
-		const names = await card.locator("footer button").evaluateAll((els) => els.map((el) => el.textContent?.trim()));
-		assert.deepEqual(names, ["Reject", "Allow for this conversation", "Accept"]);
+		const names = await card.locator("footer button").evaluateAll((els) => els.map((el) => el.firstChild?.textContent?.trim() || el.getAttribute("aria-label")));
+		assert.deepEqual(names, ["Reject", "Allow for this conversation", "More ways to allow", "Accept"]);
 		await shot(w, "row-approval");
 		await expect(card.getByRole("button", { name: "Accept", exact: true })).not.toHaveAttribute("aria-disabled", "true", { timeout: T });
 		await card.getByRole("button", { name: "Reject", exact: true }).click();

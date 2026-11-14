@@ -32,6 +32,13 @@ it('makes Accept the one filled answer and keeps what the edit button does behin
 	const html = draw(bash('ls'), '/work/site')
 	expect(html).toMatch(/data-tone="accept"[^>]*>Accept</)
 	expect(html).toMatch(/data-tone="reject"[^>]*>Reject</)
+	// The keys that are bound are drawn on the buttons, and hidden from the button's name.
+	expect(html).toMatch(
+		/data-tone="reject"[^>]*>Reject<span class="approval-key" aria-hidden="true">Esc</,
+	)
+	expect(html).toMatch(
+		/data-tone="accept"[\s\S]*?<span class="approval-key" aria-hidden="true">Ctrl\+Enter</,
+	)
 	// The note field and the other choices are one click away, on the box's "..." menu.
 	expect(html).toContain('aria-label="More about this request"')
 	expect(html).not.toMatch(/>Edit</)
@@ -39,7 +46,10 @@ it('makes Accept the one filled answer and keeps what the edit button does behin
 
 it('is one card with the question, its target and where a command runs', () => {
 	const html = draw(bash('ls'), '/work/site')
-	expect(html).toContain('Run <code class="approval-chip">ls</code>?')
+	expect(html).toContain('Run this command?')
+	// A command of one line has the path-style row; it is not drawn twice.
+	expect(html).toContain('class="approval-path" data-kind="command"')
+	expect(html).not.toContain('class="approval-box"')
 	expect(html).not.toContain('Waiting for your decision')
 	expect(html.match(/class="approval-card"/g)).toHaveLength(1)
 	expect(html).toContain('Runs in /work/site.')
@@ -53,7 +63,8 @@ it('puts the kernel flag right after the question, with a warning mark', () => {
 	const html = draw(bash('rm -rf build'), '/work/site')
 	expect(html).toContain('class="approval-flag"')
 	expect(html).toContain('Looks like it deletes or overwrites files.')
-	expect(html.indexOf('approval-flag')).toBeLessThan(html.indexOf('approval-box'))
+	expect(html.indexOf('approval-flag')).toBeGreaterThan(html.indexOf('approval-head'))
+	expect(html.indexOf('approval-flag')).toBeLessThan(html.indexOf('approval-footer'))
 	expect(draw(bash('ls'), '/work/site')).not.toContain('approval-flag')
 })
 
@@ -87,7 +98,10 @@ it('draws the first rows of an edit from the change itself', () => {
 		},
 		'/work',
 	)
-	expect(html).toContain('Edit <code class="approval-chip">src/a.ts</code>?')
+	expect(html).toContain('>Edit a.ts?<')
+	// The path is out of the title, in its row.
+	expect(html).toContain('class="approval-path" data-kind="file"')
+	expect(html).toContain('src/a.ts')
 	expect(html).toContain('data-kind="remove"')
 	expect(html).toContain('data-kind="add"')
 	expect(html).toContain('LINE 12')
@@ -119,7 +133,7 @@ it('does not leave Enter on yes for a command or a file that deletes', () => {
 
 it('offers the quiet conversation-wide yes only when the engine keeps it and the call is safe', () => {
 	expect(draw(bash('ls'), undefined, undefined, true)).toMatch(
-		/class="approval-button approval-outline"[^>]*>Allow for this conversation</,
+		/class="approval-split"[\s\S]*approval-split-label"[^>]*>Allow for this conversation<\/button><span class="approval-split-divider"[\s\S]*aria-label="More ways to allow"/,
 	)
 	// It is an outline beside Reject and Accept, never the filled one.
 	expect(draw(bash('ls'), undefined, undefined, true)).not.toMatch(
@@ -270,7 +284,7 @@ it('says so when a command in a later call of the request is the risky one', () 
 	expect(html).toContain('Looks like it deletes or overwrites files.')
 })
 
-it('draws one card with no surface of its own behind it and the preview as a plain band', () => {
+it('draws one card with no surface of its own behind it and the preview as a framed block', () => {
 	const html = draw(bash('pnpm test'))
 	expect(html).toContain('class="approval-surface"')
 	expect(html).toContain('class="approval-card"')
@@ -285,10 +299,9 @@ it('draws one card with no surface of its own behind it and the preview as a pla
 	expect(card).toContain('border-radius: var(--radius-card)')
 	expect(card).toContain('background: var(--card)')
 	expect(card).not.toContain('box-shadow')
-	const band = rule('.approval-box')
-	expect(band).toContain('border: 0')
-	expect(band).toContain('border-radius: 0')
-	expect(band).toContain('margin-inline: calc(-1 * var(--approval-pad))')
-	expect(band).toContain('background: var(--code-background)')
+	const block = rule('.approval-card > .approval-box')
+	expect(block).toContain('border: 1px solid var(--border)')
+	expect(block).toContain('border-radius: var(--ask-preview-radius)')
+	expect(block).toContain('background: var(--code-background)')
 	expect(css).not.toMatch(/#[0-9a-f]{3,8}\b/i)
 })

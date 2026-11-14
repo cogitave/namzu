@@ -127,7 +127,7 @@ describe('the look of a finished turn, as the styles say it', () => {
 	})
 
 	it('the row ends at the column edge, so the hover fill stays inside it', () => {
-		expect(block(line, '.turn-result')).toContain('margin: 0 0 16px -4px')
+		expect(block(line, '.turn-result')).toContain('margin: 0 0 16px -8px')
 	})
 
 	it('the reply action row gives the line room without moving when it shows', () => {
@@ -160,13 +160,14 @@ describe('the look of a finished turn, as the styles say it', () => {
 		expect(line).toMatch(/@media \(hover: none\) \{\s*\.turn-result-more \{\s*opacity: 1/)
 	})
 
-	it('the closed fold has no rule and the open one separates work from answer', () => {
+	it('the closed fold has no rule and the open one is a block with a hairline edge', () => {
 		const motion = css('transcript-motion.css')
 		expect(block(motion, '.normal-transcript .activity-trigger')).toContain('border-bottom: 0')
-		const flat = motion.replace(/\s+/g, ' ')
-		expect(flat).toMatch(
-			/\.activity-trigger:not\(\[data-live\]\) \+ \[data-slot="collapsible-panel"\] \.activity-entries \{[^}]*border-bottom: 1px solid/,
-		)
+		const edge = block(motion, '.normal-transcript .activity-block')
+		expect(edge).toContain('border: 1px solid var(--turn-edge)')
+		expect(edge).toContain('border-radius: var(--turn-block-radius)')
+		// No rule is drawn under the open work any more: the block's own edge separates it from the answer.
+		expect(motion).not.toMatch(/\.activity-entries \{[^}]*border-bottom/)
 	})
 
 	it('inline code keeps its fill and loses its border; a file chip has a hover state', () => {
@@ -177,11 +178,14 @@ describe('the look of a finished turn, as the styles say it', () => {
 		expect(style).toContain('code:has(.message-file-link:hover)')
 	})
 
-	it("the person's message has 14 px corners and may take 85% of the column", () => {
-		const message = readFileSync(join(here, 'message.tsx'), 'utf8')
-		expect(message).toContain('group-[.is-user]:max-w-[85%] group-[.is-user]:rounded-xl')
-		expect(css('theme.css')).toContain('--radius-xl: calc(var(--radius) + 4px)')
-		expect(css('theme.css')).toContain('--radius: 0.625rem')
+	it("the person's message has 10 px corners and may take 80% of the column", () => {
+		const bubble = block(
+			css('transcript-rhythm.css'),
+			'.normal-transcript .message.user > .message-bubble',
+		)
+		expect(bubble).toContain('max-width: var(--turn-message-share)')
+		expect(bubble).toContain('border-radius: var(--turn-message-radius)')
+		expect(bubble).toContain('padding: var(--turn-message-pad-y) var(--turn-message-pad-x)')
 	})
 
 	it('the fold sentence is as wide as its words, and the time shows on a screen with no hover', () => {

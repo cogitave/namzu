@@ -46,8 +46,8 @@
 .composer-home .provider-auto-note {
 	margin-top: 8px;
 }
-/* heading 36 + 16 + three 32px starters = 148, with 16 clear above and below. */
-@container composer-home (max-height: 179.98px) {
+/* heading 36 + 24 + three 40px starters 12 apart = 204, with 16 clear above and below. */
+@container composer-home (max-height: 235.98px) {
 	.composer-home .starter-actions,
 	.composer-home .provider-auto-note {
 		display: none;
@@ -262,10 +262,11 @@
 	background: transparent;
 	overflow: visible;
 }
-/* The box. Empty, it is one row 44 high: the plus (28) at the left, the text next to it, the controls at
-   the right (the send control only when there is something to send), 8 of padding all round and 8
-   between them. When the text wraps, or something sits above it (attachments, a notice), the text takes
-   the full width and the controls drop to a second row under it. */
+/* The box. Empty, it is one row 44 high: the plus (28) at the left, the text next to it, the controls at the
+   right (the send control only when there is something to send), 8 of padding all round and 8 between them.
+   It grows upward by one line (22) for each line of text: the plus stays at the bottom-left corner and the
+   right slot at the bottom-right corner, and the text runs between them. Attachments and notices sit above
+   the text, inside the same column. 44 + 2 x 22 = 88 for three lines. */
 .normal-composer-shell [data-slot="composer-host"] {
 	min-height: var(--frame-input-height);
 }
@@ -273,35 +274,34 @@
 	display: grid;
 	grid-template-columns: auto minmax(0, 1fr) auto;
 	grid-template-areas: "plus body actions";
-	align-items: center;
+	align-items: end;
 	gap: 8px;
 	min-height: var(--frame-input-height);
 	padding: 8px;
 }
-.normal-composer-shell [data-chat-composer-main-surface][data-expanded="true"] {
-	grid-template-columns: auto minmax(0, 1fr) auto;
-	grid-template-areas:
-		"body body body"
-		"plus . actions";
-}
 .normal-composer-shell [data-chat-composer-body] {
 	grid-area: body;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
 	min-width: 0;
+	min-height: calc(var(--frame-input-height) - 16px);
 	padding: 0;
 }
-.normal-composer-shell
-	[data-chat-composer-main-surface][data-expanded="true"]
-	[data-chat-composer-body] {
-	padding-inline: 4px;
-}
+/* One line is 22 high with the rest of the 28 split above and below, so the row is as high as the controls
+   beside it. */
 .normal-composer-shell .composer-input textarea {
-	min-height: 30px;
+	--box-text-inset: calc((var(--box-send) - var(--box-line)) / 2);
+	min-height: var(--box-send);
+	margin: 0;
+	padding: var(--box-text-inset) 0;
 }
 .normal-composer-shell [data-chat-composer-footer] {
 	display: contents;
 }
 .normal-composer-shell .composer-footer-options {
 	grid-area: plus;
+	align-self: end;
 }
 .normal-composer-shell .pal-composer-send-actions:empty {
 	display: none;
@@ -344,6 +344,7 @@
 }
 .normal-composer-shell .pal-composer-send-actions {
 	grid-area: actions;
+	align-self: end;
 	justify-self: end;
 	min-width: 0;
 	gap: 8px;
@@ -756,36 +757,72 @@
 	padding-left: 16px;
 }
 .normal-composer-shell .composer-waiting .composer-input textarea {
-	min-height: 24px;
+	min-height: var(--box-send);
+	--box-text-inset: calc((var(--box-send) - var(--leading-small)) / 2);
 	margin: 0;
-	padding: 2px 0;
+	padding: var(--box-text-inset) 0;
 	font-size: var(--text-small);
 	line-height: var(--leading-small);
 }
-/* Stop while waiting: an outline that says what it does when the pointer is on it. */
-.composer-stop-quiet {
+/* Send: 28 by 28, 8 corners, the lime fill. */
+.composer-send {
 	display: grid;
-	width: 28px;
-	height: 28px;
+	flex: none;
+	width: var(--box-send);
+	height: var(--box-send);
 	place-items: center;
 	padding: 0;
-	border: 1px solid var(--input);
-	border-radius: var(--radius-control);
-	background: transparent;
-	color: var(--muted-foreground);
+	border: 0;
+	border-radius: var(--box-send-radius);
+	background: var(--message-action);
+	color: var(--message-action-foreground);
 	cursor: pointer;
-	transition: color 120ms var(--motion-ease), border-color 120ms var(--motion-ease);
+	transition: background-color 120ms var(--motion-ease);
 }
-.composer-stop-quiet:hover:not(:disabled),
-.composer-stop-quiet:focus-visible {
-	border-color: var(--error);
-	color: var(--error-foreground);
+.composer-send:hover:not(:disabled) {
+	background: var(--message-action-hover);
 }
-.composer-stop-quiet:focus-visible {
+.composer-send:disabled,
+.composer-send[aria-disabled="true"] {
+	opacity: 0.64;
+}
+.composer-send:disabled {
+	pointer-events: none;
+}
+.composer-send:focus-visible {
 	outline: 2px solid transparent;
 	box-shadow: var(--focus-ring);
 }
-.composer-stop-quiet:disabled {
+/* Stop is a normal action, not an alarm: no fill, a small square in the text colour, an 8 percent fill under
+   the pointer. */
+.composer-stop {
+	display: grid;
+	flex: none;
+	width: var(--box-send);
+	height: var(--box-send);
+	place-items: center;
+	padding: 0;
+	border: 0;
+	border-radius: var(--box-send-radius);
+	background: transparent;
+	color: var(--foreground);
+	cursor: pointer;
+	transition: background-color 120ms var(--motion-ease);
+}
+.composer-stop:hover:not(:disabled) {
+	background: var(--box-hover);
+}
+.composer-stop:focus-visible {
+	outline: 2px solid transparent;
+	box-shadow: var(--focus-ring);
+}
+.composer-stop:disabled {
 	opacity: 0.5;
 	cursor: default;
+}
+.composer-stop-square {
+	width: var(--box-stop-square);
+	height: var(--box-stop-square);
+	border-radius: var(--box-stop-radius);
+	background: currentColor;
 }

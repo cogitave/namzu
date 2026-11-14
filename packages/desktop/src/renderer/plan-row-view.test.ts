@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
-import { PlanRow } from './plan-row-view.js'
+import { PlanBox, PlanRow } from './plan-row-view.js'
 
 const tasks = Array.from({ length: 8 }, (_, index) => ({
 	taskId: `t${index}`,
@@ -41,4 +41,21 @@ it('draws nothing while a live turn has no task yet, and a quiet line once it ha
 	expect(renderToStaticMarkup(createElement(PlanRow, { tasks: [], turnLive: false }))).toContain(
 		'Updated tasks',
 	)
+})
+
+it('draws the live plan as one box: a disc for done, an arc for the current task, a dashed ring for the rest', () => {
+	const html = renderToStaticMarkup(createElement(PlanBox, { tasks, onOpenTasks: () => {} }))
+	expect(html.startsWith('<section class="plan-box" aria-label="Plan">')).toBe(true)
+	const rows = html.split('<li ').slice(1)
+	expect(rows).toHaveLength(6)
+	expect(rows[0]).toContain('data-status="completed"')
+	expect(rows[0]).toContain('plan-box-disc')
+	expect(rows[0]).toContain('plan-box-glyph')
+	expect(rows[2]).toContain('data-status="in_progress"')
+	expect(rows[2]).toContain('plan-box-arc-head')
+	expect(rows[3]).toContain('data-status="pending"')
+	expect(rows[3]).toContain('plan-box-ring')
+	expect(html).toContain('+2 more')
+	// A plan that has no task yet draws no box.
+	expect(renderToStaticMarkup(createElement(PlanBox, { tasks: [] }))).toBe('')
 })

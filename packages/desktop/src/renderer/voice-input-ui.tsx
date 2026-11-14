@@ -169,6 +169,7 @@ export function VoiceInputStatus({ voice }: { voice: VoiceInputControls }) {
 						type="button"
 						size="icon-xs"
 						variant="ghost-muted"
+						className="voice-notice-close"
 						aria-label="Dismiss"
 						onClick={voice.dismissNotice}
 					>

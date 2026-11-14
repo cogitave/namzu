@@ -20,6 +20,73 @@ function StepMark({ status }: { status: AcpTask['status'] }) {
 	return <span className="plan-pending-mark" aria-hidden="true" />
 }
 
+/** Done is a muted disc with a check, current a spinning arc, not started a dashed ring (failed a disc with a cross). */
+function BoxMark({ status }: { status: AcpTask['status'] }) {
+	return (
+		<svg className="plan-box-mark" viewBox="0 0 16 16" aria-hidden="true">
+			{status === 'completed' || status === 'failed' ? (
+				<>
+					<circle
+						className="plan-box-disc"
+						data-failed={status === 'failed' ? '' : undefined}
+						cx="8"
+						cy="8"
+						r="8"
+					/>
+					<path
+						className="plan-box-glyph"
+						d={
+							status === 'completed'
+								? 'M4.75 8.25 7 10.5 11.25 5.75'
+								: 'M5.5 5.5 10.5 10.5M10.5 5.5 5.5 10.5'
+						}
+					/>
+				</>
+			) : status === 'in_progress' ? (
+				<>
+					<circle className="plan-box-arc" cx="8" cy="8" r="7" />
+					<path className="plan-box-arc-head" d="M8 1A7 7 0 0 1 15 8" />
+				</>
+			) : (
+				<circle className="plan-box-ring" cx="8" cy="8" r="7" />
+			)}
+		</svg>
+	)
+}
+
+/**
+ * The plan while the turn runs: one box in the flow under the person's message, outside the fold. When the
+ * answer lands the plan folds into the work block as a row (PlanRow).
+ */
+export function PlanBox({
+	tasks,
+	onOpenTasks,
+}: {
+	tasks: readonly AcpTask[]
+	onOpenTasks?: () => void
+}) {
+	if (!planSummary(tasks).total) return null
+	const { shown, more } = planVisibleTasks(tasks)
+	return (
+		<section className="plan-box" aria-label="Plan">
+			<ul className="plan-box-steps">
+				{shown.map((task) => (
+					<li key={task.taskId} data-status={task.status}>
+						<BoxMark status={task.status} />
+						<span className="plan-subject">{task.subject}</span>
+						<span className="plan-state">{stateText[task.status]}</span>
+					</li>
+				))}
+			</ul>
+			{more > 0 && onOpenTasks && (
+				<button type="button" className="plan-more" onClick={onOpenTasks}>
+					+{more} more
+				</button>
+			)}
+		</section>
+	)
+}
+
 /**
  * The plan inside the work block: one row that updates in place by task id, folded to a checklist.
  * The task tools' own rows never draw; this is where they went.

@@ -10,7 +10,7 @@ import {
 	riskyCommand,
 	waitingLabel,
 } from './approval-card-model.js'
-import { headingOf } from './composer-approval.js'
+import { cutMiddle } from './composer-approval.js'
 
 const request = (calls: PermissionView['calls']): PermissionView => ({
 	id: 'r',
@@ -64,7 +64,7 @@ it('recognises commands that are hard to take back, and not ordinary ones', () =
 	expect(elevatedCommand('echo pseudo')).toBe(false)
 })
 
-it('names an edit and a nested new file by their place in the project, not by their full path', () => {
+it('asks about a file by its name and keeps its full path for the row under the question', () => {
 	const nested = buildApprovalCard(
 		request([
 			call(
@@ -74,20 +74,20 @@ it('names an edit and a nested new file by their place in the project, not by th
 			),
 		]),
 	)
-	expect(headingOf(nested, '/tmp/project')).toEqual({
-		lead: 'Create',
-		chip: 'new/deep/n.txt',
-		tail: '?',
-	})
+	expect(nested.title).toBe('Create n.txt?')
 	expect(nested.path).toBe('/tmp/project/new/deep/n.txt')
-	const outside = buildApprovalCard(
-		request([
-			call('edit', { path: '/home/arda/notes/Günlük.md', old_string: 'a', new_string: 'b' }),
-		]),
-	)
-	expect(headingOf(outside, '/tmp/project').chip).toBe('~/notes/Günlük.md')
 	const command = buildApprovalCard(request([call('bash', { command: 'pnpm test\npnpm lint' })]))
-	expect(headingOf(command)).toEqual({ lead: 'Run', chip: 'pnpm test …', tail: '?' })
+	expect(command.title).toBe('Run this command?')
+})
+
+it('cuts a long path in the middle so both ends stay', () => {
+	expect(cutMiddle('src/renderer/composer.tsx', 99)).toBe('src/renderer/composer.tsx')
+	const cut = cutMiddle('src/renderer/deep/er/composer-approval.tsx', 21)
+	expect(cut).toHaveLength(21)
+	expect(cut.startsWith('src/render')).toBe(true)
+	expect(cut.endsWith('proval.tsx')).toBe(true)
+	expect(cut).toContain('…')
+	expect(cutMiddle('abcdef', 2)).toBe('a…')
 })
 
 it('flags what the request itself says about a deletion, an overwrite and a risky command', () => {

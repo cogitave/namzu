@@ -102,7 +102,7 @@ flow(
 		await expect(card(w).getByRole("heading", { name: "Create a.txt?" })).toBeVisible({ timeout: T });
 		await standing(w).click();
 		// b.txt is an ordinary ask: the latch answers it with no card, and the hook is the next card.
-		await expect(card(w).getByRole("heading", { name: "Create .husky/pre-commit?" })).toBeVisible({
+		await expect(card(w).getByRole("heading", { name: "Create pre-commit?" })).toBeVisible({
 			timeout: T,
 		});
 		assert.equal(readFileSync(join(w.project, "b.txt"), "utf8"), "second\n");

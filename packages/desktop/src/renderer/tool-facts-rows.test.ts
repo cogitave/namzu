@@ -10,6 +10,9 @@ import { ToolTranscriptRow } from './tool-transcript-row.js'
 import { actionRunLabel } from './transcript-layout.js'
 import { turnChanges } from './turn-changes.js'
 
+/** The words a person reads: a row's verb sits in its own element, so tags are not part of a phrase. */
+const plain = (html: string) => html.replace(/<[^>]+>/g, '')
+
 /**
  * Rows built from typed facts. The tool results below carry the model's own prose in their view
  * ("STDOUT:", "replacement(s)", "Error: ...") and none of it may reach the person.
@@ -653,7 +656,7 @@ describe('the rendered row', () => {
 			'failed',
 		)
 		const html = renderToStaticMarkup(createElement(ToolTranscriptRow, { thread, id: key() }))
-		expect(html).toContain('Ran exit 3')
+		expect(plain(html)).toContain('Ran exit 3')
 		// The failure is said once, under the headline, in the cell; the separate badge is for screen readers only.
 		expect(html.match(/Exit code 3/g)).toHaveLength(1)
 		expect(html).not.toContain('failed (exit 3)')
