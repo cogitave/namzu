@@ -257,9 +257,13 @@ Esc means one thing at a time, and the thing is chosen by what the screen is doi
 | Where | One Esc | A second Esc |
 |---|---|---|
 | A reply is running | interrupts it | nothing more to stop |
+| A `/` or `@` suggestion menu is open | closes the menu; the draft stays and nothing says to clear | the next Esc is a first press on a plain draft, as in the next row |
+| A Ctrl+R history search | leaves the search with the match in the box (Ctrl+C goes back to the draft that was there before; the line says so) | as for a plain draft |
 | Idle, a draft typed | shows `Esc again to clear` for a second; the draft stays | within 800 ms clears the draft and adds it to the prompt history |
 | Idle, empty box, at least one message sent | arms, shows nothing | within 800 ms opens the [rewind dialog](file-checkpoints.md#rewind) |
 | The detailed transcript, the rewind dialog, a picker or a dialog | closes that screen, or goes back one step | closes the next one |
+
+A menu that Esc closed stays closed for that text and opens again at the next edit. A shell-style `!` input mode does not exist, so there is no Esc for it. With a permission question up, Esc declines that one call (it never approves it, and on a question of the person's own turn the turn closes with the `Interrupted` row); background agents and workflows keep running when Esc stops a reply (Ctrl+C is the key that stops them).
 
 The two 800 ms windows are separate and never count toward each other. Any other key between two presses (typing, deleting, moving the cursor) ends the window, so the next Esc is a first press again; a draft cleared by the second Esc leaves the next Esc as the first press of the rewind window; deleting the draft down to nothing does the same. A press that arrives after the window is a first press. In the detailed transcript Esc closes the screen and does nothing else, so it neither clears the draft underneath nor interrupts a reply that is still running.
 
