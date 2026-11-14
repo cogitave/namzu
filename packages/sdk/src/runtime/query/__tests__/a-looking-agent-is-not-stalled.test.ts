@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
+import { withProviderFallback } from '../../../provider/fallback.js'
 import { testToolset } from '../../../test-support/toolset.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
@@ -15,7 +16,6 @@ import type {
 	ThinkingConfig,
 } from '../../../types/provider/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
-import { withProviderFallback } from '../../../provider/fallback.js'
 import { drainQuery } from '../index.js'
 import {
 	FORCED_STEP_MESSAGE,
