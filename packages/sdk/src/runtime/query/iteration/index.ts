@@ -1234,7 +1234,11 @@ export class IterationOrchestrator {
 					// its low effort and asks in words, on this request only.
 					const forcedChoiceRefused =
 						forcedAction &&
-						this.ctx.provider.acceptsForcedToolChoiceFor?.(stepModel, turnConfig.thinking) === false
+						this.ctx.provider.acceptsForcedToolChoiceFor?.(
+							stepModel,
+							turnConfig.thinking,
+							stepEffort,
+						) === false
 					const operatorInputAtDispatch = this.latestUserMessage
 					const latestReviewUserMessage =
 						(this.ctx.reviewAnswer || this.ctx.structuredOutput?.review) && operatorInputAtDispatch

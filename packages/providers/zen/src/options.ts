@@ -10,7 +10,7 @@ import { ZEN_FREE_TIER_TOOL_NAMES } from './experimental-identity.js'
 import type { ZenModel, ZenProtocol, ZenService } from './models.js'
 import { isMuseSparkResponsesModel, toModelPrompt } from './prompt.js'
 
-function goRejectsToolChoice(service: ZenService, model: string): boolean {
+export function goRejectsToolChoice(service: ZenService, model: string): boolean {
 	if (service !== 'go') return false
 	if (model.startsWith('mimo-')) return true
 	if (model === 'deepseek-flash') return true

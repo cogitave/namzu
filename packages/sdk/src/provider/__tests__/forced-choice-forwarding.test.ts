@@ -88,3 +88,26 @@ describe('acceptsForcedToolChoiceFor survives each decorator', () => {
 		expect(strict.asked).toEqual([{ model: 'm1' }])
 	})
 })
+
+describe('the effort travels through each decorator too', () => {
+	it.each([
+		['retry', (p: LLMProvider) => withProviderRetry(p)],
+		['idle timeout', (p: LLMProvider) => withStreamIdleTimeout(p, { idleTimeoutMs: 1000 })],
+		['fallback chain', (p: LLMProvider) => withProviderFallback([{ provider: p }])],
+		['model window suffix', (p: LLMProvider) => withModelWindowSuffixStripped(p)],
+	])('%s', (_name, wrap) => {
+		const seen: Array<string | undefined> = []
+		const base = driver('x', () => true).provider
+		const provider: LLMProvider = {
+			...base,
+			acceptsForcedToolChoiceFor: (_m, _t, effort) => {
+				seen.push(effort)
+				return effort === 'none'
+			},
+		}
+		const wrapped = wrap(provider)
+		expect(wrapped.acceptsForcedToolChoiceFor?.('m', undefined, 'high')).toBe(false)
+		expect(wrapped.acceptsForcedToolChoiceFor?.('m', undefined, 'none')).toBe(true)
+		expect(seen).toEqual(['high', 'none'])
+	})
+})

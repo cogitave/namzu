@@ -177,6 +177,58 @@ function formatToolChoice(tc: ToolChoice | undefined): ChatCompletionToolChoiceO
 	return undefined
 }
 
+/**
+ * Why a forced tool choice never goes out in thinking mode.
+ *
+ * SOURCED: the vendor's chat completion reference
+ * (https://api-docs.deepseek.com/api/create-chat-completion, `tool_choice`)
+ * says `required` and named tool choices are not supported in thinking mode,
+ * that the API answers 400, and to disable thinking first. Its thinking-mode
+ * guide (https://api-docs.deepseek.com/guides/thinking_mode) lists only
+ * `none` as a `tool_choice` it names, and says nothing about the other two.
+ * `auto` and `none` are accepted in thinking mode.
+ *
+ * MEASURED, for one case only: a turn on `deepseek-flash` with thinking on by
+ * default and the kernel's `required` came back
+ * `400 invalid_request_error: Thinking mode does not support this tool_choice`.
+ * The named-function case rests on the SOURCED sentence, not on a probe. The
+ * documented exception (web tools declared make `required` act as `auto`) is
+ * not reachable here: this driver declares no vendor web tools.
+ */
+function isForcedToolChoice(tc: ToolChoice | undefined): boolean {
+	return tc === 'required' || (typeof tc === 'object' && tc !== null && tc.type === 'function')
+}
+
+/**
+ * Whether the vendor takes a forced tool choice for a request with this
+ * thinking setting and effort. Decided by {@link thinkingEnabled}, the rule the
+ * request path sends by, so what is asked and what is sent cannot disagree.
+ */
+export function deepseekAcceptsForcedToolChoice(
+	thinking: ThinkingConfig | undefined,
+	effort?: ReasoningEffort,
+): boolean {
+	return !thinkingEnabled(thinking, effort)
+}
+
+/**
+ * Refuse, before transport, a forced tool choice that thinking mode rejects.
+ * The error is the `bad_request` the vendor's 400 would have become, with its
+ * own code. `auto` is never sent in its place: a forced choice is a contract
+ * that a tool is called.
+ */
+export function assertForcedToolChoiceAccepted(params: ChatCompletionParams): void {
+	if (!isForcedToolChoice(params.toolChoice)) return
+	if (deepseekAcceptsForcedToolChoice(params.thinking, params.effort)) return
+	throw new ProviderRequestError({
+		kind: 'bad_request',
+		providerId: 'deepseek',
+		providerCode: 'forced_tool_choice_unsupported',
+		detail:
+			'A forced tool choice (toolChoice "required" or a named function) is not supported in DeepSeek thinking mode, which is on for this request (it is on unless thinking is disabled or effort is "none"). Use toolChoice "auto" and say in the prompt which tool to call, or turn thinking off for this step.',
+	})
+}
+
 /** The four the vendor accepts in thinking mode and applies none of. */
 const SAMPLING_FIELDS = ['temperature', 'topP', 'frequencyPenalty', 'presencePenalty'] as const
 
@@ -708,10 +760,23 @@ export class DeepSeekProvider implements LLMProvider {
 			: DEFAULT_EFFORT
 	}
 
+	/**
+	 * Whether a forced tool choice would be taken: only with thinking off.
+	 * Uses the request path's own rule (see {@link deepseekAcceptsForcedToolChoice}).
+	 */
+	acceptsForcedToolChoiceFor(
+		_model: string,
+		thinking?: ThinkingConfig,
+		effort?: ReasoningEffort,
+	): boolean {
+		return deepseekAcceptsForcedToolChoice(thinking, effort)
+	}
+
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
 		const model = this.resolveModel(params)
 		const providerRoute = resolveDeepSeekRoute(model, params.providerRoute)
 		assertSamplingUsable(params, this.samplingMode)
+		assertForcedToolChoiceAccepted(params)
 		const thinkingOn = thinkingEnabled(params.thinking, params.effort)
 
 		const sampling = thinkingOn
