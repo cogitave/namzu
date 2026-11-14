@@ -100,6 +100,13 @@ async function run(
 							output: `Looked at ${input.n}.`,
 						}),
 					},
+					{
+						name: 'send_message',
+						description: 'Tell the conversation that launched you something',
+						inputSchema: z.object({ n: z.number() }),
+						isReadOnly: () => false,
+						execute: async () => ({ success: true, output: 'sent' }),
+					},
 					...(options.withEdit
 						? [
 								{

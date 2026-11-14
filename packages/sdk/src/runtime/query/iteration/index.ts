@@ -96,7 +96,7 @@ import {
 	asksQuestion,
 	callChangedState,
 	callMadeProgress,
-	isTaskListTool,
+	isSetAsideTool,
 	reasoningCapChars,
 } from '../turn/stall-monitor.js'
 import { effortForModel } from './effort-clamp.js'
@@ -3673,13 +3673,13 @@ export class IterationOrchestrator {
 	/**
 	 * Whether an agent given these tools can change nothing: each one declares
 	 * itself read-only without being shown an input (the test the read-only
-	 * sub-agents' roster uses), task-list tools aside. A tool that does not say,
+	 * sub-agents' roster uses), task-list tools and `send_message` aside. A tool that does not say,
 	 * or that says so only for some inputs, counts as one that can change things.
 	 */
 	private toolsCannotChange(llmTools: readonly { function: { name: string } }[]): boolean {
 		let looked = false
 		for (const { function: fn } of llmTools) {
-			if (isTaskListTool(fn.name)) continue
+			if (isSetAsideTool(fn.name)) continue
 			try {
 				if (this.ctx.tools.get(fn.name)?.isReadOnly?.(undefined) !== true) return false
 			} catch {

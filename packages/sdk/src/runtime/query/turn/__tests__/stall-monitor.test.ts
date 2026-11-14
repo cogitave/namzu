@@ -122,6 +122,7 @@ describe('an agent that cannot change anything', () => {
 		expect(callMadeProgress('read', true, true, true)).toBe(false)
 		expect(callMadeProgress('task_update', true, false, true)).toBe(false)
 		expect(callMadeProgress('read', true, false, false)).toBe(false)
+		expect(callMadeProgress('send_message', false, false, true)).toBe(false)
 	})
 
 	it('is told to report, not to edit, and is never forced', () => {

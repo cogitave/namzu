@@ -116,14 +116,19 @@ export function callMadeProgress(
 	isError: boolean | undefined,
 	cannotChange: boolean,
 ): boolean {
+	if (cannotChange && isSetAsideTool(toolName)) return false
 	if (callChangedState(toolName, readOnly, isError)) return true
-	if (!cannotChange || isError || TASK_LIST_TOOLS.has(toolName)) return false
+	if (!cannotChange || isError) return false
 	return readOnly === true
 }
 
-/** Whether a tool is one of the task-list tools. */
-export function isTaskListTool(toolName: string): boolean {
-	return TASK_LIST_TOOLS.has(toolName)
+/**
+ * Tools that neither look nor change the work, so they are set aside when
+ * deciding whether an agent can change anything: the task list, and the
+ * message a sub-agent sends to the conversation that launched it.
+ */
+export function isSetAsideTool(toolName: string): boolean {
+	return TASK_LIST_TOOLS.has(toolName) || toolName === 'send_message'
 }
 
 /** When the monitor speaks. All counts are of consecutive steps that changed nothing. */
