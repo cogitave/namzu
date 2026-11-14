@@ -1,7 +1,0 @@
----
-'@namzu/desktop': patch
----
-
-The window now starts with its header: on Windows and Linux the strip of File, Edit, View and Window above it is gone, so your own content begins 32 px higher. The sidebar's header and the main header are one 36 px band at the top, with the window's own buttons at its right end. At the main header's left there is a menu button (not on macOS, which keeps the system menu bar), the sidebar toggle, back and forward. The menu button opens one menu with File, Edit, View and Window; each opens its commands to the side with its shortcut shown, Alt opens the menu, and the arrow keys, Enter and Escape work. Every shortcut still works with the menu closed. The window's title is no longer written in the band.
-
-The side panels have more room and one set of sizes. A diff, a file or a preview now takes 60 percent of the window beside the sidebar (the diff opened 520 px wide before, and a file 600), and the Activity panel takes 40 percent; the conversation keeps the rest, and when it would keep under 360 px the panel covers it as before. The edge between them can be dragged (double-click it to put it back, or use the arrow keys when it has focus), and Namzu remembers a width for each kind of panel. A panel's header is a little taller (44 px) with its buttons 28 px square, the list of changed files moved to the right of the diff, and a button in the top bar whose panel is open is lightly filled. A width you had dragged before this version is not carried over.
