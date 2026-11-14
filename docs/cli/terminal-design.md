@@ -146,14 +146,21 @@ the model identity. The working directory is no longer on this row.
 
 The keys the hints name:
 
-- **`↓`** from an empty composer focuses the footer. The shell pill comes
-  first (drawn inverted, with `↓ to manage` turning into `enter to view
-  tasks`); Enter opens the same
-  `Background` dialog `/tasks` opens. `↓` again moves into the agents rail (`main`,
-  then the agents, then the workflows) and `↑` from its first row moves back
-  to the pill. With no shells the first `↓` lands on the rail, and with no
-  rows either it opens the agents cockpit, as before. Esc or any other key
-  hands the keyboard back to the composer.
+- **`↓`** from the composer focuses the footer when the caret is on the last line
+  and no suggestion list is open. The box may be empty or hold a typed draft;
+  the draft is not touched and is waiting when the keyboard comes back. The
+  shell pill comes first (drawn inverted, with `↓ to manage` turning into
+  `enter to view tasks`); Enter opens the same `Background` dialog `/tasks`
+  opens, and so does `↓` on the pill when no row follows it. `↓` again
+  otherwise moves into the agents rail (`main`, then the agents, then the
+  workflows) and `↑` from its first row moves back to the pill. `↑` from the
+  first stop of all (the pill, or the first rail row) gives the keyboard back to
+  the box with the draft and caret as they were. `Ctrl+P` and `Ctrl+N` act as
+  `↑` and `↓` while the footer holds the keys. With no shells the first `↓` lands
+  on the rail, and with no rows either, an empty box opens the agents cockpit
+  as before (a typed draft does nothing). Esc or any other key hands the
+  keyboard back to the composer; with a turn running, that Esc only leaves the
+  rows and the next one interrupts the turn.
 - **`←`** from an empty composer opens the [workspaces screen](workspaces.md#opening-it-from-a-conversation)
   where there is one (a POSIX terminal with a pseudo-terminal component), and
   the agents cockpit (`/agent`) everywhere else. With anything typed, pasted or
@@ -182,7 +189,7 @@ counts this session's running agents and workflows and `←` opens them, not oth
 background sessions that wait for the person, and `←` never sends the session
 itself to the background;
 there is no resting `← for agents` hint; and `↓ to manage` is not offered
-with text typed, because `↓` is cursor movement then.
+with text typed, because `↓` is mostly cursor movement then (on the last line it still reaches the rows; the footer does not advertise it).
 
 The pull request item is read off the render path by `tui/pr-status.ts`: `git
 symbolic-ref` for the branch, then `gh pr view --json
@@ -372,15 +379,16 @@ however it ended.
 The `main` row appears only beside at least one agent row (or while an agent
 is viewed). A rail with nothing but a workflow row has no `main` row.
 
-Press ↓ in an empty composer to move into the rail (with no rows on screen it
-still opens the cockpit for saved agents). While the rail has the keys the
+Press ↓ in the composer to move into the rail (from an empty box with no rows on
+screen it still opens the cockpit for saved agents). While the rail has the keys the
 footer's mode line is **replaced** by a key line for the selected row, and the
 rows stay where they are. An agent or workflow row reads
 `enter to view · x to stop` (`x to clear` once it has finished), plus
 `ctrl+x ctrl+k to stop all agents` when more than one agent runs and the line
 is at least 90 columns wide; `main` reads `↑/↓ to select · enter to view`, and
 the row already on screen reads `↑/↓ to select`. Esc is not advertised but
-still hands the keyboard back to the composer, as does any other key. ↑/↓
+still hands the keyboard back to the composer, as does any other key, and so
+does ↑ on the first row. ↑/↓ (or Ctrl+P/Ctrl+N)
 moves between `main`, the agents and the workflows (a `❯` marks the row), Enter
 on an agent views it (see below) and on `main` goes back to the conversation,
 `x` stops a running agent (the parent turn and the other agents keep going) or,

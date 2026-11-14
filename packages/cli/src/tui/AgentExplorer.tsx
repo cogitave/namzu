@@ -976,6 +976,20 @@ interface RailKeyShape {
 }
 
 /**
+ * The step a key asks of the rail: -1 for Up and Ctrl+P, 1 for Down and
+ * Ctrl+N, undefined for any other key.
+ */
+export function railStep(input: string, key: RailKeyShape): -1 | 1 | undefined {
+	if (key.upArrow) return -1
+	if (key.downArrow) return 1
+	if (key.ctrl === true && !key.meta) {
+		if (input === 'p') return -1
+		if (input === 'n') return 1
+	}
+	return undefined
+}
+
+/**
  * The text a key press hands to the input box when it is not one the rail
  * owns, or `undefined` when the press is a control or editing key. The rail
  * owns the arrows, Enter, `x` and Esc; a `/` or any other printable

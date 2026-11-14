@@ -463,3 +463,59 @@ it('reports that a job exited while its stop request was in flight', async () =>
 	expect(screen.viewport().join('\n')).not.toContain('Stopped.')
 	expect(screen.viewport().join('\n')).not.toContain('1 shell · ↓ to manage')
 })
+
+async function until(screen: Screen, predicate: () => boolean): Promise<void> {
+	// Vitest's own timeout ends a wait that never comes true.
+	while (!predicate()) {
+		await screen.waitForRender()
+		await new Promise<void>((resolve) => setImmediate(resolve))
+	}
+}
+
+it('returns from the shell pill to the box with Up, and Ctrl+P does the same', async () => {
+	scenario = 'exit'
+	jobs = [runningJob()]
+	outputs.set('b00000001', outputFor('build output\n'))
+	const screen = await mount(100, 28)
+	const text = () => screen.viewport().join('\n')
+	for (const up of ['\x1b[A', '\x10']) {
+		screen.press('\x1b[B')
+		await until(screen, () => text().includes('1 shell · enter to view tasks'))
+		screen.press(up)
+		await until(screen, () => text().includes('1 shell · ↓ to manage'))
+		expect(text()).not.toContain('1 active shell')
+	}
+	screen.press('h')
+	await until(screen, () => /❯ h/u.test(text()))
+})
+
+it('opens the Background dialog with Down on the shell pill when nothing follows it', async () => {
+	scenario = 'exit'
+	jobs = [runningJob()]
+	outputs.set('b00000001', outputFor('build output\n'))
+	const screen = await mount(100, 28)
+	const text = () => screen.viewport().join('\n')
+	screen.press('\x1b[B')
+	await until(screen, () => text().includes('1 shell · enter to view tasks'))
+	screen.press('\x0e')
+	await until(screen, () => text().includes('1 active shell'))
+	expect(text()).toContain('npm run dev')
+})
+
+it('enters the shell pill from a typed draft and gives the draft back on Up', async () => {
+	scenario = 'exit'
+	jobs = [runningJob()]
+	outputs.set('b00000001', outputFor('build output\n'))
+	const screen = await mount(100, 28)
+	const text = () => screen.viewport().join('\n')
+	screen.press('half a thought')
+	await until(screen, () => text().includes('half a thought'))
+	screen.press('\x1b[B')
+	await until(screen, () => text().includes('1 shell · enter to view tasks'))
+	expect(text()).toContain('half a thought')
+	screen.press('\x1b[A')
+	await until(screen, () => !text().includes('enter to view tasks'))
+	expect(text()).toContain('half a thought')
+	screen.press('!')
+	await until(screen, () => text().includes('half a thought!'))
+})
