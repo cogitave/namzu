@@ -569,10 +569,27 @@ function isForcedToolChoice(tc: ToolChoice): boolean {
 /**
  * Whether a 400 body is the vendor refusing the tool choice. The router passes
  * the upstream sentence through ("Thinking mode does not support this
- * tool_choice"), so the field name is what identifies it.
+ * tool_choice"). Only the error's message is read (the whole body when it is
+ * not JSON), and it must both name the field and say it is refused, so a 400
+ * that merely mentions `tool_choice` (an echo of the request, a schema error
+ * about another field) is not retried.
  */
 function refusesToolChoice(errorBody: string): boolean {
-	return /tool_choice/i.test(errorBody)
+	let text = errorBody
+	try {
+		const parsed = JSON.parse(errorBody) as { error?: { message?: unknown } | string }
+		const e = parsed.error
+		const message = typeof e === 'string' ? e : e?.message
+		if (typeof message === 'string') text = message
+	} catch {
+		// Not JSON: the raw text is the message.
+	}
+	return (
+		/tool_choice/i.test(text) &&
+		/(not\s+support|unsupported|not\s+supported|not\s+allowed|cannot|can't|only\s+support|invalid)/i.test(
+			text,
+		)
+	)
 }
 
 function formatToolChoice(tc: ToolChoice): unknown {
@@ -1097,7 +1114,11 @@ export class OpenRouterProvider implements LLMProvider {
 				signal?.throwIfAborted()
 				const response = await fetch(`${this.baseUrl}/models`, {
 					headers: this.getHeaders(),
-					...(signal ? { signal } : {}),
+					// Bounded on its own: this read sits in front of the first max or
+					// ultra request, so a stalled listing must not stall that request.
+					signal: signal
+						? AbortSignal.any([AbortSignal.timeout(5000), signal])
+						: AbortSignal.timeout(5000),
 				})
 				if (!response.ok) return undefined
 				const data = (await response.json()) as {

@@ -161,6 +161,19 @@ describe('a host that answers the forced choice with a 400 costs one more reques
 		expect(seen.chat).toHaveLength(1)
 	})
 
+	it('does not retry a 400 that only mentions the field name', async () => {
+		const seen = fake([
+			{
+				status: 400,
+				body: JSON.stringify({
+					error: { message: 'bad request: tool_choice was {"a":1}, body too big' },
+				}),
+			},
+		])
+		await expect(collect(provider(), { model: OTHER, toolChoice: 'required' })).rejects.toThrow()
+		expect(seen.chat).toHaveLength(1)
+	})
+
 	it('does not retry when no forced choice was sent', async () => {
 		const seen = fake([{ status: 400, body: VENDOR_400 }])
 		await expect(collect(provider(), { model: OTHER, toolChoice: 'auto' })).rejects.toThrow()
@@ -234,6 +247,25 @@ describe('effort max and ultra resolve against the model listing', () => {
 		await collect(provider(), { effort: 'ultra' })
 		expect(seen.chat).toHaveLength(1)
 		expect(seen.chat[0]?.reasoning).toEqual({ effort: 'xhigh' })
+	})
+
+	it('bounds the listing read with its own timeout', async () => {
+		let listingSignal: AbortSignal | undefined | null
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (url: unknown, init?: RequestInit) => {
+				if (String(url).endsWith('/models')) {
+					listingSignal = init?.signal
+					return new Response('{}', { status: 404 })
+				}
+				return new Response(OK_STREAM, {
+					status: 200,
+					headers: { 'Content-Type': 'text/event-stream' },
+				})
+			}),
+		)
+		await collect(provider(), { effort: 'max' })
+		expect(listingSignal).toBeInstanceOf(AbortSignal)
 	})
 
 	it('reads the listing once for several requests', async () => {
