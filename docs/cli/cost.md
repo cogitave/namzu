@@ -163,6 +163,46 @@ does not name the route. `kind` is `replies`, `subagents`, `compaction` or
 `internal`. `billing` is `local` or `per-token`. Days and models are ordered
 (days by date, models by estimated cost then tokens).
 
+## What the model can read: `session_cost`
+
+The model has no `/cost` to run, so a question such as "what has this
+conversation cost?" used to send it searching the disk for a record. It now has
+a read-only tool, `session_cost`, with no arguments, defined in
+`packages/cli/src/integrations/spend/session-cost.ts` and offered in every
+session that keeps a conversation log: the log file of a saved conversation (the
+terminal, `exec`, the Desktop host), or the transient log of a run that keeps
+nothing on disk (`exec --json` without a session key).
+The tool is mounted plainly, not deferred: a deferred tool has to be found with
+`search_tools` first, which costs a step and, because loading it changes the tool
+list, a break in the prompt cache for the rest of the turn. Its schema is 407 characters on each
+request (of about 78,000 for all tools).
+
+It folds the conversation's own session log, and can read no other, with the same fold the ledger uses
+(`fold.ts`), so what the model reads and what `/cost days` shows come from one
+place, and it prices nothing itself. It answers in plain lines:
+
+- the money spent in this conversation so far, to four decimals, counting the
+  turn that is running up to its last recorded call, and the money of the last
+  completed turn;
+- where the figure comes from: the charge OpenRouter reported for each call, or
+  an estimate from list prices (said as the log names the provider on the
+  conversation's assistant messages, and left out when it names none);
+- token totals: all tokens, those read from the cache, those generated;
+- when some tokens have no known rate, `at least $X (N tokens at no known rate)`,
+  and when none has, `unknown (N tokens at no known rate)` with a plain
+  instruction not to call it free or 0;
+- one line saying the calls still to come in the running turn, including the reply
+  that quotes the figure, are not counted yet, so the model gives it as the cost
+  so far and not as the final total;
+- one line on what is not included: side requests such as the conversation title,
+  and the work of sub-agents (their own conversations), and that the provider's
+  dashboard has the account total.
+
+A conversation with no finished model call yet says that no cost is recorded,
+not that it was free. The figure is the ledger as it stands at the moment of the
+call; the calls that follow it in the same turn (including the reply that quotes
+it) are added by the next reading.
+
 ## How it stays fast
 
 It does not read every log in full each time. `spend-ledger.json`, in the

@@ -8,7 +8,7 @@ function line(columns: number, model = 'claude-haiku-4-5', running = true) {
 		model,
 		modeLabel: '⏵⏵ bypass permissions on',
 		cycleSuffix: ' (shift+tab to cycle)',
-		shells: '2 bg',
+		shells: '2 shells',
 		pr: { prefix: 'PR', label: '#592' },
 		effort: 'high',
 		interrupt: running ? 'esc to interrupt' : null,
@@ -51,7 +51,7 @@ describe('the footer on a narrow pane', () => {
 	it('orders the items: mode, PR, shells, then the hints', () => {
 		const { text, right } = line(200)
 		expect(text.slice(0, -right.length).trimEnd()).toBe(
-			'⏵⏵ bypass permissions on (shift+tab to cycle) · PR #592 · 2 bg · effort high · esc to interrupt · ← 1 agent · ↓ to manage',
+			'⏵⏵ bypass permissions on (shift+tab to cycle) · PR #592 · 2 shells · effort high · esc to interrupt · ← 1 agent · ↓ to manage',
 		)
 	})
 

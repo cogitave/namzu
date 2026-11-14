@@ -421,6 +421,7 @@ import {
 import { createConversationEvidenceRecall } from '../integrations/sessions/evidence-recall.js'
 import {
 	type ConversationContext,
+	conversationLogPath,
 	ensureSessionStarted,
 	readConversationFacts,
 	recordAccountBound,
@@ -428,6 +429,7 @@ import {
 import { createTaskContextStep } from '../integrations/sessions/task-context.js'
 import { parseSmallModel } from '../integrations/small-model/route.js'
 import { type SideModel, createSideModel } from '../integrations/small-model/side-model.js'
+import { buildSessionCostTool, fileLogBytes } from '../integrations/spend/session-cost.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
 import { readIdentity } from '../integrations/state/identity.js'
 import { ensurePrivateStateDirectory } from '../integrations/state/private-directory.js'
@@ -4109,6 +4111,37 @@ export async function createAgentSession(
 					}),
 				),
 			),
+		)
+	}
+	// `session_cost`: what this conversation has cost, read from its own log with
+	// the spend ledger's fold, so a cost question is one call rather than a search
+	// of the disk. Read-only; it can only read the conversation of the turn that
+	// calls it: the log file of a durable session, the transient log of an
+	// ephemeral one. Mounted plainly, not deferred: finding a deferred tool takes
+	// a `search_tools` step, and loading it changes the tool list, which breaks
+	// the prompt cache for the rest of the turn.
+	if (options.conversationSessions || options.ephemeral) {
+		const sessions = options.conversationSessions
+		const owned = (turnId: TurnId): SessionScope => {
+			const owner = delegationScopes.get(turnId)
+			if (
+				!owner ||
+				(sessions &&
+					(owner.projectId !== sessions.projectId || owner.tenantId !== sessions.tenantId))
+			)
+				throw new Error('The requesting turn does not own this conversation.')
+			return owner
+		}
+		toolsets.push(
+			toolset('session-cost', [
+				buildSessionCostTool((context) => {
+					const owner = owned(context.turnId)
+					if (sessions) return fileLogBytes(conversationLogPath(sessions, owner.sessionId))
+					const log = ephemeralLogs.get(ephemeralScopeKey(owner))
+					if (!log) throw new Error('No transient log exists for this conversation.')
+					return log.medium.stream(0)
+				}),
+			]),
 		)
 	}
 	const evidenceRecallSteps = new Map<

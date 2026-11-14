@@ -147,9 +147,13 @@ const nudges = (provider: { requests: ChatCompletionParams[] }, text: string) =>
 
 describe('a step that thinks past its cap', () => {
 	it('is cut short, the model is told, and the next step must call a tool at low effort', async () => {
-		const provider = scripted(
-			[{ reasoning: 'x'.repeat(8_000) }, { call: 'observe' }, { text: 'done' }],
-			['low', 'medium', 'high'],
+		// A forced choice goes only where the provider says it is safe.
+		const provider = Object.assign(
+			scripted(
+				[{ reasoning: 'x'.repeat(8_000) }, { call: 'observe' }, { text: 'done' }],
+				['low', 'medium', 'high'],
+			),
+			{ acceptsForcedToolChoiceFor: () => true },
 		)
 		const turn = await run(provider)
 
@@ -166,9 +170,12 @@ describe('a step that thinks past its cap', () => {
 	})
 
 	it('keeps the requested effort where the model does not offer low', async () => {
-		const provider = scripted(
-			[{ reasoning: 'x'.repeat(8_000) }, { call: 'observe' }, { text: 'done' }],
-			['medium', 'high'],
+		const provider = Object.assign(
+			scripted(
+				[{ reasoning: 'x'.repeat(8_000) }, { call: 'observe' }, { text: 'done' }],
+				['medium', 'high'],
+			),
+			{ acceptsForcedToolChoiceFor: () => true },
 		)
 		await run(provider)
 		expect(provider.requests[1]?.toolChoice).toBe('required')
