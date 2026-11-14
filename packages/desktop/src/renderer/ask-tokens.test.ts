@@ -184,7 +184,12 @@ const READS: [string, string, string, string][] = [
 	['composer-approval.css', '.approval-split-divider', 'height', '--ask-split-divider'],
 	['composer-approval.css', '.approval-split-more', 'width', '--ask-button'],
 	['composer.css', '.normal-composer-shell .composer-input textarea', 'min-height', '--box-send'],
-	['composer.css', '.normal-composer-shell .composer-input textarea', 'padding', '--box-text-inset'],
+	[
+		'composer.css',
+		'.normal-composer-shell .composer-input textarea',
+		'padding',
+		'--box-text-inset',
+	],
 	['composer.css', '.composer-send', 'width', '--box-send'],
 	['composer.css', '.composer-send', 'border-radius', '--box-send-radius'],
 	['composer.css', '.composer-stop', 'width', '--box-send'],
