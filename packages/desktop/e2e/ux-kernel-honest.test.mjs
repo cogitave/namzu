@@ -17,6 +17,10 @@ const here = dirname(fileURLToPath(import.meta.url));
 const versionOf = (file) => JSON.parse(readFileSync(join(here, "..", file), "utf8")).version;
 const BUNDLED_CLI = versionOf("package.json");
 const BUNDLED_ENGINE = versionOf("node_modules/@namzu/sdk/package.json");
+/** A version one major above the given one, so "newer" stays newer however far the releases move. */
+const aboveMajor = (version) => `${Number.parseInt(version, 10) + 1}.0.0`;
+const NEWER_CLI = aboveMajor(BUNDLED_CLI);
+const NEWER_ENGINE = aboveMajor(BUNDLED_ENGINE);
 
 /** A stand-in npm registry that answers `latest` for the programs and the engine, and records what it was asked. */
 async function startRegistry(versions) {
@@ -90,8 +94,8 @@ flow(
 	"a newer command line and engine in the registry are said in About and on the command line row, with nothing to press",
 	{
 		versions: {
-			"@namzu/cli": "51.0.1",
-			"@namzu/sdk": "63.1.0",
+			"@namzu/cli": NEWER_CLI,
+			"@namzu/sdk": NEWER_ENGINE,
 			"@openai/codex": "0.162.0",
 			"@anthropic-ai/claude-code": "2.1.295",
 		},
@@ -103,19 +107,19 @@ flow(
 		assert.ok(w.registry.requests.includes("/@namzu/sdk/latest"), `asked for the engine: ${w.registry.requests}`);
 
 		await openSettings(w, "About");
-		await expect(about(w).getByText(NEWER("51.0.1"))).toBeVisible({ timeout: T });
-		await expect(about(w).getByText(NEWER("63.1.0"))).toBeVisible({ timeout: T });
+		await expect(about(w).getByText(NEWER(NEWER_CLI))).toBeVisible({ timeout: T });
+		await expect(about(w).getByText(NEWER(NEWER_ENGINE))).toBeVisible({ timeout: T });
 		const cliFact = about(w).locator("div", { has: w.page.getByText("Namzu command line (bundled with this app)") }).last();
 		await expect(cliFact).toContainText(BUNDLED_CLI);
-		await expect(cliFact).toContainText(NEWER("51.0.1"));
+		await expect(cliFact).toContainText(NEWER(NEWER_CLI));
 		const engineFact = about(w).locator("div", { has: w.page.getByText("Namzu engine", { exact: true }) }).last();
 		await expect(engineFact).toContainText(BUNDLED_ENGINE);
-		await expect(engineFact).toContainText(NEWER("63.1.0"));
+		await expect(engineFact).toContainText(NEWER(NEWER_ENGINE));
 
 		await openSettings(w, "Updates");
 		await expect(row(w)).toContainText("A newer one exists", { timeout: T });
 		await expect(row(w)).toContainText(
-			`Bundled with this app: ${BUNDLED_CLI}. The newest known is 51.0.1. It arrives with an update of this app.`,
+			`Bundled with this app: ${BUNDLED_CLI}. The newest known is ${NEWER_CLI}. It arrives with an update of this app.`,
 		);
 		await expect(row(w)).not.toContainText("Up to date");
 		// Nothing in the row installs anything or names a command to run.
@@ -166,8 +170,8 @@ flow(
 	{
 		updatesOff: true,
 		versions: {
-			"@namzu/cli": "51.0.1",
-			"@namzu/sdk": "63.1.0",
+			"@namzu/cli": NEWER_CLI,
+			"@namzu/sdk": NEWER_ENGINE,
 			"@openai/codex": "0.162.0",
 			"@anthropic-ai/claude-code": "2.1.295",
 		},
