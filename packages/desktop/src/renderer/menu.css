@@ -1,0 +1,201 @@
+/* One look for every menu: the surface, the rows, the caption, the separator, the check. The sizes
+   are the --menu-* tokens in theme.css; a menu that wants another number changes the token, not its
+   own rule. The conversation actions, the plugin actions, the computer workspace menu, the project and
+   workspace menus and a menu that shares one of those classes all read this file. */
+.conversation-actions-positioner,
+.plugin-actions-positioner,
+.computer-workspace-menu-positioner {
+	z-index: var(--z-popover);
+	outline: none;
+}
+.menu-popup,
+.conversation-actions-popup,
+.plugin-actions-menu,
+.computer-workspace-menu {
+	min-width: var(--menu-min-width);
+	max-width: min(var(--menu-max-width), var(--available-width));
+	max-height: var(--available-height);
+	overflow-y: auto;
+	padding: var(--menu-padding);
+	border: 1px solid var(--border);
+	border-radius: var(--menu-radius);
+	background: var(--popover);
+	color: var(--popover-foreground);
+	box-shadow: var(--shadow-popover);
+	outline: none;
+	transform-origin: var(--transform-origin);
+	transition: opacity 150ms var(--motion-ease), transform 150ms var(--motion-ease);
+}
+.menu-popup[data-starting-style],
+.menu-popup[data-ending-style],
+.conversation-actions-popup[data-starting-style],
+.conversation-actions-popup[data-ending-style],
+.plugin-actions-menu[data-starting-style],
+.plugin-actions-menu[data-ending-style],
+.computer-workspace-menu[data-starting-style],
+.computer-workspace-menu[data-ending-style] {
+	opacity: 0;
+	transform: scale(0.96);
+}
+.menu-item,
+.conversation-actions-item,
+.plugin-actions-menu-item,
+.computer-workspace-menu-item {
+	position: relative;
+	display: flex;
+	align-items: center;
+	gap: var(--menu-icon-gap);
+	min-height: var(--menu-row-height);
+	padding: var(--menu-row-padding-block) var(--menu-text-inset);
+	border-radius: var(--menu-row-radius);
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
+	cursor: default;
+	user-select: none;
+	outline: none;
+	transition: background-color 150ms var(--motion-ease), color 150ms var(--motion-ease);
+}
+/* Hover, the keyboard's highlight and the row whose submenu is open share one fill. */
+.menu-item[data-highlighted],
+.menu-item[data-popup-open],
+.conversation-actions-item[data-highlighted],
+.conversation-actions-item[data-popup-open],
+.plugin-actions-menu-item[data-highlighted],
+.computer-workspace-menu-item[data-highlighted] {
+	background: var(--menu-highlight);
+}
+.menu-item[data-disabled],
+.conversation-actions-item[data-disabled],
+.plugin-actions-menu-item[data-disabled],
+.computer-workspace-menu-item[data-disabled] {
+	opacity: 0.45;
+}
+.menu-item > svg,
+.conversation-actions-item > svg,
+.plugin-actions-menu-item > svg,
+.computer-workspace-menu-item > svg {
+	width: var(--menu-icon-size);
+	height: var(--menu-icon-size);
+	flex: none;
+}
+.menu-item[data-destructive],
+.conversation-actions-item[data-destructive],
+.plugin-actions-menu-destructive,
+.computer-workspace-menu-destructive {
+	color: var(--error);
+}
+.menu-label,
+.conversation-actions-label {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.conversation-actions-keys {
+	flex: none;
+	margin-inline-start: 16px;
+	color: var(--muted-foreground);
+	font: inherit;
+	font-size: var(--text-caption);
+	letter-spacing: 0.01em;
+}
+.conversation-actions-chevron {
+	color: var(--muted-foreground);
+}
+/* A chosen row: the check sits on the title's line, the set distance from the row's right edge,
+   and the row keeps clear of it. */
+.menu-check,
+.conversation-actions-item[role="menuitemradio"] > span:last-child,
+.conversation-actions-item[role="menuitemcheckbox"] > span:last-child {
+	position: absolute;
+	inset-block-start: var(--menu-row-padding-block);
+	inset-inline-end: var(--menu-check-inset);
+	display: grid;
+	place-items: center;
+	width: var(--menu-check-size);
+	height: var(--leading-interface);
+	color: var(--foreground);
+}
+.menu-check > svg,
+.conversation-actions-item[role="menuitemradio"] > span:last-child > svg,
+.conversation-actions-item[role="menuitemcheckbox"] > span:last-child > svg {
+	width: var(--menu-icon-size);
+	height: var(--menu-icon-size);
+}
+.conversation-actions-item[role="menuitemradio"],
+.conversation-actions-item[role="menuitemcheckbox"] {
+	padding-inline-end: var(--menu-check-reserve);
+}
+/* A group's caption: one 25 px block. */
+.menu-caption {
+	display: flex;
+	align-items: center;
+	height: var(--menu-caption-block);
+	padding: 0 var(--menu-text-inset);
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+	font-weight: var(--weight-control);
+	line-height: var(--leading-caption);
+}
+.menu-separator,
+.conversation-actions-separator,
+.plugin-actions-menu-separator,
+.computer-workspace-menu-separator {
+	height: 1px;
+	margin: var(--menu-separator-space) var(--menu-separator-inset);
+	background: var(--border);
+}
+@media (prefers-reduced-motion: reduce) {
+	.menu-popup,
+	.conversation-actions-popup,
+	.plugin-actions-menu,
+	.computer-workspace-menu,
+	.menu-item,
+	.conversation-actions-item,
+	.plugin-actions-menu-item,
+	.computer-workspace-menu-item {
+		transition: none;
+	}
+}
+/* The plus menu's attach row, as a menu row. */
+.pal-composer-tools .pal-composer-attach {
+	justify-content: flex-start;
+	gap: var(--menu-icon-gap);
+	width: 100%;
+	height: var(--menu-row-height);
+	padding: var(--menu-row-padding-block) var(--menu-text-inset);
+	border: 0;
+	border-radius: var(--menu-row-radius);
+	font-size: var(--text-interface);
+	font-weight: var(--weight-text);
+	line-height: var(--leading-interface);
+}
+.pal-composer-tools .pal-composer-attach > svg {
+	width: var(--menu-icon-size);
+	height: var(--menu-icon-size);
+	margin: 0;
+}
+.pal-composer-tools .pal-composer-attach:hover:not(:disabled),
+.pal-composer-tools .pal-composer-attach:focus-visible {
+	background: var(--menu-highlight);
+}
+/* While a menu is open, the control that opened it carries the same fill as a highlighted row. */
+button[data-popup-open]:not(.window-titlebar-menu) {
+	background: var(--menu-highlight);
+}
+/* A group under the attach row is set off by the menu's separator: 1 px, 4 above and below, inset. */
+.pal-composer-tools .pal-composer-tool-section {
+	position: relative;
+	margin-top: calc(var(--menu-separator-space) * 2 + 1px);
+	padding: 0 var(--menu-text-inset);
+	border-top: 0;
+}
+.pal-composer-tools .pal-composer-tool-section::before {
+	content: "";
+	position: absolute;
+	inset-block-start: calc(-1px - var(--menu-separator-space));
+	inset-inline: var(--menu-separator-inset);
+	height: 1px;
+	background: var(--border);
+}

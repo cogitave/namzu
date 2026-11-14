@@ -4,9 +4,10 @@ import { Select as SelectPrimitive } from '@base-ui/react/select'
 import { useRender } from '@base-ui/react/use-render'
 import { type VariantProps, cva } from 'class-variance-authority'
 import type * as React from 'react'
-import { ChevronDownIcon, ChevronUpIcon } from '../icons.js'
+import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from '../icons.js'
 
 import { cn } from '../lib/utils.js'
+import { MENU_OFFSET } from '../menu-metrics.js'
 
 const Select = SelectPrimitive.Root
 
@@ -104,7 +105,7 @@ function SelectPopup({
 	className,
 	children,
 	side = 'bottom',
-	sideOffset = 4,
+	sideOffset = MENU_OFFSET,
 	align = 'start',
 	alignOffset = 0,
 	alignItemWithTrigger = true,
@@ -133,7 +134,7 @@ function SelectPopup({
 				sideOffset={sideOffset}
 			>
 				<SelectPrimitive.Popup
-					className="max-w-(--available-width) origin-(--transform-origin) rounded-lg text-foreground outline-none transition-[opacity,scale] duration-150 ease-(--motion-ease) data-starting-style:scale-98 data-starting-style:opacity-0 data-ending-style:scale-98 data-ending-style:opacity-0 motion-reduce:transition-none"
+					className="max-w-(--available-width) origin-(--transform-origin) rounded-(--menu-radius) text-foreground outline-none transition-[opacity,scale] duration-150 ease-(--motion-ease) data-starting-style:scale-98 data-starting-style:opacity-0 data-ending-style:scale-98 data-ending-style:opacity-0 motion-reduce:transition-none"
 					data-slot="select-popup"
 					{...props}
 				>
@@ -145,12 +146,15 @@ function SelectPopup({
 					</SelectPrimitive.ScrollUpArrow>
 					<div
 						className={cn(
-							'dropdown-glass relative h-full rounded-lg shadow-[var(--shadow-popover)]',
+							'dropdown-glass relative h-full min-w-(--menu-min-width) max-w-(--menu-max-width) rounded-(--menu-radius) shadow-[var(--shadow-popover)]',
 							matchTriggerWidth && 'min-w-(--anchor-width)',
 						)}
 					>
 						<SelectPrimitive.List
-							className={cn('max-h-(--available-height) overflow-y-auto p-1', className)}
+							className={cn(
+								'max-h-(--available-height) overflow-y-auto p-(--menu-padding)',
+								className,
+							)}
 							data-slot="select-list"
 						>
 							{children}
@@ -171,7 +175,7 @@ function SelectPopup({
 function SelectItem({
 	className,
 	children,
-	hideIndicator: _hideIndicator = false,
+	hideIndicator = false,
 	...props
 }: SelectPrimitive.Item.Props & {
 	hideIndicator?: boolean
@@ -179,7 +183,7 @@ function SelectItem({
 	return (
 		<SelectPrimitive.Item
 			className={cn(
-				"flex min-h-8 in-data-[side=none]:min-w-[calc(var(--anchor-width)+1.25rem)] cursor-pointer items-center rounded-sm px-2 py-1 text-base outline-none data-selected:bg-foreground/[0.08] data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-64 sm:min-h-7 sm:text-sm [&_svg:not([class*='size-'])]:size-4.5 sm:[&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+				'menu-item in-data-[side=none]:min-w-[calc(var(--anchor-width)+1.25rem)] pr-(--menu-check-reserve) data-selected:font-medium',
 				className,
 			)}
 			data-slot="select-item"
@@ -191,6 +195,11 @@ function SelectItem({
 			>
 				{children}
 			</SelectPrimitive.ItemText>
+			{!hideIndicator && (
+				<SelectPrimitive.ItemIndicator className="menu-check" data-slot="select-item-indicator">
+					<CheckIcon aria-hidden="true" />
+				</SelectPrimitive.ItemIndicator>
+			)}
 		</SelectPrimitive.Item>
 	)
 }
@@ -202,7 +211,7 @@ function SelectGroup(props: SelectPrimitive.Group.Props) {
 function SelectGroupLabel(props: SelectPrimitive.GroupLabel.Props) {
 	return (
 		<SelectPrimitive.GroupLabel
-			className="px-2 py-1.5 font-medium text-muted-foreground text-xs"
+			className="menu-caption"
 			data-slot="select-group-label"
 			{...props}
 		/>

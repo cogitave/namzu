@@ -14,6 +14,7 @@ import {
 import { Button } from './ui/button.js'
 import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
 import './computer-workspace-toolbar.css'
+import { MENU_OFFSET } from './menu-metrics.js'
 
 /** Each Pal pane links its tabs to its own panels; standalone callers retain their IDs. */
 export function computerWorkspaceIds(prefix?: string) {
@@ -303,7 +304,7 @@ export function ComputerWorkspaceToolbar(props: ComputerWorkspaceToolbarProps) {
 								<Menu.Positioner
 									className="computer-workspace-menu-positioner"
 									align="start"
-									sideOffset={6}
+									sideOffset={MENU_OFFSET}
 								>
 									<Menu.Popup
 										className="computer-workspace-menu"

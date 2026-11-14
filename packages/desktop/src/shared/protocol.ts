@@ -568,14 +568,22 @@ export type PermissionResponse =
 	| { outcome: 'approve_all'; feedback?: undefined }
 	| { outcome: 'reject'; feedback?: string; note?: string }
 export type WindowMenu = 'edit' | 'view' | 'window'
+/** One entry of a window menu as the main process's application menu holds it, in its order. */
+export interface WindowMenuEntry {
+	/** `<menu>/<index>`: what `runWindowMenuItem` takes. Empty for a separator. */
+	id: string
+	kind: 'item' | 'checkbox' | 'separator'
+	label: string
+	/** The shortcut in Electron's spelling, for example `CmdOrCtrl+Z`. */
+	accelerator?: string
+	enabled: boolean
+	checked?: boolean
+}
+export type WindowMenuModel = Record<WindowMenu, WindowMenuEntry[]>
 export type WindowAppearance = 'light' | 'dark'
 export interface WindowChrome {
 	platform: 'darwin' | 'win32' | 'linux' | 'other'
-	height: 32
-}
-export interface WindowMenuAnchor {
-	x: number
-	y: number
+	height: 36
 }
 export interface DesktopTurnRetry {
 	turnId: string
@@ -920,7 +928,8 @@ export interface DesktopApi {
 	openPalFolder?(id: string): Promise<void>
 	windowChrome(): Promise<WindowChrome>
 	setWindowAppearance(appearance: WindowAppearance): Promise<void>
-	popupWindowMenu(menu: WindowMenu, anchor: WindowMenuAnchor): Promise<void>
+	windowMenuModel(): Promise<WindowMenuModel>
+	runWindowMenuItem(id: string): Promise<void>
 	projects(): Promise<ProjectView[]>
 	pals(): Promise<PalView[]>
 	/** Sidebar sections the person folded away; kept by main across restarts. */

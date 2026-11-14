@@ -2,17 +2,21 @@
 .engine-updates ul {
 	display: flex;
 	flex-direction: column;
-	margin: 8px 0 0;
+	margin: 0;
 	padding: 0;
 	list-style: none;
 }
 .engine-updates li {
 	display: flex;
-	align-items: flex-start;
+	align-items: center;
 	justify-content: space-between;
 	gap: 16px;
-	padding: 12px 0;
-	border-top: 1px solid var(--border);
+	padding: var(--settings-row-padding) 0;
+	/* The hairline between rows is drawn inside the row's top edge, as on every other Settings row. */
+	box-shadow: inset 0 1px 0 var(--border);
+}
+.engine-updates li:first-child {
+	box-shadow: none;
 }
 .engine-update-copy {
 	flex: 1;
@@ -26,9 +30,9 @@
 }
 .engine-update-heading h4 {
 	margin: 0;
-	font-size: var(--text-small);
+	font-size: var(--text-interface);
 	font-weight: var(--weight-control);
-	line-height: var(--leading-small);
+	line-height: var(--leading-interface);
 }
 .engine-update-versions {
 	font-size: var(--text-small);
@@ -37,10 +41,17 @@
 	color: var(--muted-foreground);
 }
 .engine-update-copy p {
-	margin: 2px 0 0;
-	font-size: var(--text-caption);
-	line-height: var(--leading-caption);
+	margin: var(--settings-copy-gap) 0 0;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	overflow-wrap: anywhere;
+}
+/* The commands to run sit apart from the sentence above them. */
+.engine-update-install {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin-top: 8px;
 }
 .engine-update-status[data-tone="attention"] {
 	color: var(--foreground);

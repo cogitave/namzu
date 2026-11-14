@@ -4,6 +4,7 @@ import { formatLineCount } from './changes-totals.js'
 import { CheckIcon, FileDiffIcon, FileTextIcon, PencilIcon, TerminalIcon } from './icons.js'
 import { Button } from './ui/button.js'
 import './conversation-bar.css'
+import { MENU_OFFSET } from './menu-metrics.js'
 
 /** One open terminal the bar's terminal button can bring forward. */
 export interface ConversationBarTerminalEntry {
@@ -55,6 +56,9 @@ export interface ConversationBarProps {
 	removed?: number
 	onChanges?: () => void
 	onFiles?: () => void
+	/** The panel that button opens is open now: the button carries a light fill. */
+	changesOpen?: boolean
+	filesOpen?: boolean
 	terminals?: ConversationBarTerminals
 	disabled?: boolean
 	/** The details and overflow buttons, which keep their own menus. */
@@ -91,7 +95,11 @@ function DraftsControl({
 				</span>
 			</Menu.Trigger>
 			<Menu.Portal>
-				<Menu.Positioner className="conversation-actions-positioner" align="end" sideOffset={6}>
+				<Menu.Positioner
+					className="conversation-actions-positioner"
+					align="end"
+					sideOffset={MENU_OFFSET}
+				>
 					<Menu.Popup className="conversation-actions-popup" aria-label="Unsent drafts">
 						{drafts.map((draft) => (
 							<Menu.Item
@@ -153,7 +161,11 @@ function TerminalControl({
 				</span>
 			</Menu.Trigger>
 			<Menu.Portal>
-				<Menu.Positioner className="conversation-actions-positioner" align="end" sideOffset={6}>
+				<Menu.Positioner
+					className="conversation-actions-positioner"
+					align="end"
+					sideOffset={MENU_OFFSET}
+				>
 					<Menu.Popup className="conversation-actions-popup" aria-label="Terminals">
 						{conversation && (
 							<Fragment>
@@ -217,6 +229,8 @@ export function ConversationBar({
 	removed = 0,
 	onChanges,
 	onFiles,
+	changesOpen,
+	filesOpen,
 	terminals,
 	drafts,
 	onSelectDraft,
@@ -244,6 +258,8 @@ export function ConversationBar({
 						aria-label={changesButtonLabel(changes, added, removed)}
 						title={changesButtonLabel(changes, added, removed)}
 						data-has-changes={changes > 0 || undefined}
+						aria-pressed={changesOpen ? true : undefined}
+						data-open={changesOpen || undefined}
 						onClick={onChanges}
 					>
 						<FileDiffIcon aria-hidden="true" />
@@ -267,6 +283,8 @@ export function ConversationBar({
 						className="conversation-bar-button"
 						aria-label="Project files"
 						title="Project files"
+						aria-pressed={filesOpen ? true : undefined}
+						data-open={filesOpen || undefined}
 						onClick={onFiles}
 					>
 						<FileTextIcon aria-hidden="true" />

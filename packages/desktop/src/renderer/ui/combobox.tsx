@@ -5,6 +5,7 @@ import * as React from 'react'
 import { ChevronsUpDownIcon, SearchIcon, XIcon } from '../icons.js'
 
 import { cn } from '../lib/utils.js'
+import { MENU_OFFSET } from '../menu-metrics.js'
 import { Input } from './input.js'
 import { ScrollArea } from './scroll-area.js'
 
@@ -138,7 +139,7 @@ function ComboboxPopup({
 	className,
 	children,
 	side = 'bottom',
-	sideOffset = 4,
+	sideOffset = MENU_OFFSET,
 	alignOffset,
 	align = 'start',
 	anchor: anchorProp,
@@ -166,7 +167,7 @@ function ComboboxPopup({
 			>
 				<span
 					className={cn(
-						'dropdown-glass relative flex max-h-full min-w-(--anchor-width) max-w-(--available-width) origin-(--transform-origin) rounded-lg shadow-[var(--shadow-popover)] transition-[scale,opacity]',
+						'dropdown-glass relative flex max-h-full min-w-(--anchor-width) max-w-(--available-width) origin-(--transform-origin) rounded-(--menu-radius) shadow-[var(--shadow-popover)] transition-[scale,opacity]',
 						className,
 					)}
 				>
@@ -194,7 +195,7 @@ function ComboboxItem({
 	return (
 		<ComboboxPrimitive.Item
 			className={cn(
-				"flex min-h-8 in-data-[side=none]:min-w-[calc(var(--anchor-width)+1.25rem)] cursor-pointer items-center rounded-sm px-2 py-1 text-base outline-none not-data-disabled:hover:bg-accent data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-selected:bg-foreground/[0.08] data-selected:text-foreground data-highlighted:bg-accent data-highlighted:text-accent-foreground [&[data-highlighted][data-selected]]:bg-accent [&[data-highlighted][data-selected]]:text-accent-foreground data-disabled:opacity-64 sm:min-h-7 sm:text-sm [&_svg:not([class*='size-'])]:size-4.5 sm:[&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+				'menu-item in-data-[side=none]:min-w-[calc(var(--anchor-width)+1.25rem)] cursor-pointer data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-selected:font-medium',
 				className,
 			)}
 			data-slot="combobox-item"
@@ -228,7 +229,10 @@ function ComboboxList({ className, ...props }: ComboboxPrimitive.List.Props) {
 	return (
 		<ScrollArea scrollbarGutter scrollFade>
 			<ComboboxPrimitive.List
-				className={cn('not-empty:scroll-py-1 not-empty:px-1 not-empty:py-1', className)}
+				className={cn(
+					'not-empty:scroll-py-(--menu-padding) not-empty:p-(--menu-padding)',
+					className,
+				)}
 				data-slot="combobox-list"
 				{...props}
 			/>
@@ -243,7 +247,7 @@ function ComboboxList({ className, ...props }: ComboboxPrimitive.List.Props) {
 function ComboboxListVirtualized({ className, ...props }: ComboboxPrimitive.List.Props) {
 	return (
 		<ComboboxPrimitive.List
-			className={cn('size-full min-w-0 not-empty:px-1 not-empty:py-1', className)}
+			className={cn('size-full min-w-0 not-empty:p-(--menu-padding)', className)}
 			data-slot="combobox-list"
 			{...props}
 		/>

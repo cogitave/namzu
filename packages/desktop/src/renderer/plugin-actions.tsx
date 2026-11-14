@@ -3,6 +3,7 @@ import { useRef } from 'react'
 import { MessagesSquareIcon, MoreHorizontalIcon, SettingsIcon, TrashIcon } from './icons.js'
 import { Button } from './ui/button.js'
 import './plugin-actions.css'
+import { MENU_OFFSET } from './menu-metrics.js'
 
 export interface PluginActionsProps {
 	pluginName: string
@@ -57,7 +58,7 @@ export function PluginActions({
 				<MoreHorizontalIcon />
 			</Menu.Trigger>
 			<Menu.Portal>
-				<Menu.Positioner className="plugin-actions-positioner" align="end" sideOffset={4}>
+				<Menu.Positioner className="plugin-actions-positioner" align="end" sideOffset={MENU_OFFSET}>
 					<Menu.Popup
 						className="plugin-actions-menu"
 						aria-label={`${pluginName} actions`}

@@ -1,9 +1,22 @@
 /** The side panel's tabs and the panel width: view state only, kept per conversation in this window. */
 export const MAX_FILE_TABS = 12
-export const MIN_PANEL_WIDTH = 320
 
-/** The width the Changes pane opens at when the person has not dragged it: the diff first. */
-export const CHANGES_PANEL_WIDTH = 520
+/**
+ * A reading panel (changes, a file, a preview) and a tool panel (tasks) take different shares of the main
+ * area, remember their own dragged width and have their own floor. The numbers are the ones in
+ * theme.css (--panel-*); panel-tokens.test.ts keeps the two equal.
+ */
+export type PanelKind = 'reading' | 'tool'
+export const READING_PANEL_MIN = 360
+export const TOOL_PANEL_MIN = 320
+export const MIN_PANEL_WIDTH = TOOL_PANEL_MIN
+/** What the conversation keeps beside an open panel; with less, the panel lies over it instead. */
+export const CONVERSATION_MIN = 360
+const panelMin = (kind: PanelKind) => (kind === 'reading' ? READING_PANEL_MIN : TOOL_PANEL_MIN)
+/** The kind of panel a view is: the terminal's and the tasks' share is the smaller one. */
+export const panelKindOf = (
+	view: 'activity' | 'changes' | 'file' | 'browse' | 'empty',
+): PanelKind => (view === 'activity' || view === 'empty' ? 'tool' : 'reading')
 
 /**
  * Below this window width the sidebar folds to its rail while the Changes pane is open: at 520 px
@@ -205,22 +218,31 @@ export function writePanelTabs(
 	}
 }
 
-/** 320px up to 70% of the pane; a pane narrower than the floor keeps the floor. */
-export function clampPanelWidth(width: number, paneWidth: number): number {
-	if (!Number.isFinite(width)) return MIN_PANEL_WIDTH
-	const max = Math.max(MIN_PANEL_WIDTH, Math.floor(paneWidth * 0.7))
-	return Math.round(Math.min(max, Math.max(MIN_PANEL_WIDTH, width)))
+/** A kind's floor up to what leaves the conversation its minimum; a pane too narrow for both keeps the floor. */
+export function clampPanelWidth(
+	width: number,
+	paneWidth: number,
+	kind: PanelKind = 'tool',
+): number {
+	const min = panelMin(kind)
+	if (!Number.isFinite(width)) return min
+	const max = Math.max(min, Math.floor(paneWidth - CONVERSATION_MIN))
+	return Math.round(Math.min(max, Math.max(min, width)))
 }
 
-const widthKey = (pane: string) => `namzu.workspace.panel-width:${pane}`
+const widthKey = (pane: string, kind?: PanelKind) =>
+	`namzu.workspace.panel-width:${pane}${kind ? `:${kind}` : ''}`
 
 export function readPanelWidth(
 	storage: Pick<Storage, 'getItem'>,
 	pane: string,
+	kind?: PanelKind,
 ): number | undefined {
 	try {
-		const value = Number(storage.getItem(widthKey(pane)))
-		return Number.isFinite(value) && value >= MIN_PANEL_WIDTH && value <= 10_000 ? value : undefined
+		const value = Number(storage.getItem(widthKey(pane, kind)))
+		return Number.isFinite(value) && value >= panelMin(kind ?? 'tool') && value <= 10_000
+			? value
+			: undefined
 	} catch {
 		return undefined
 	}
@@ -230,10 +252,24 @@ export function writePanelWidth(
 	storage: Pick<Storage, 'setItem'>,
 	pane: string,
 	width: number,
+	kind?: PanelKind,
 ): void {
 	try {
-		storage.setItem(widthKey(pane), String(Math.round(width)))
+		storage.setItem(widthKey(pane, kind), String(Math.round(width)))
 	} catch {
 		// Not remembering a width is harmless.
+	}
+}
+
+/** A double click on the seam puts the share back: the remembered width is dropped. */
+export function clearPanelWidth(
+	storage: Pick<Storage, 'removeItem'>,
+	pane: string,
+	kind?: PanelKind,
+): void {
+	try {
+		storage.removeItem(widthKey(pane, kind))
+	} catch {
+		// Nothing was kept, or it cannot be removed; the share comes back this session all the same.
 	}
 }

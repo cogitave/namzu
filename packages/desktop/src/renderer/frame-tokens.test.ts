@@ -91,6 +91,16 @@ describe('the frame tokens', () => {
 			'--frame-bar-gap': '4px',
 			'--frame-bar-inset': '8px',
 			'--frame-title-inset': '24px',
+			// The header's left cluster: 12 in, 4 apart, 12 before the title; the traffic lights' inset on
+			// macOS; where the window's own buttons begin when the system has not said, and how wide
+			// the page keeps clear of them (0 until the platform says).
+			'--frame-cluster-inset': '12px',
+			'--frame-cluster-gap': '4px',
+			'--frame-cluster-after': '12px',
+			'--frame-cluster-count': '4',
+			'--frame-lights-inset': '80px',
+			'--frame-caption-fallback': '142px',
+			'--frame-controls-inset': '0px',
 			// The input box, the row under it and the column.
 			'--frame-input-height': '44px',
 			'--frame-input-radius': '12px',
@@ -288,6 +298,19 @@ const READS: ReadonlyArray<readonly [string, string, string, string]> = [
 	],
 	['plugins-page.css', '.plugins-sidebar-installed h2', 'height', '--frame-title-band'],
 	['style.css', '.sidebar-section-title', 'font-weight', '--weight-control'],
+	// The cluster, its controls and the title that follows it.
+	['style.css', '.window-titlebar', 'height', '--frame-header-height'],
+	['style.css', '.window-titlebar-cluster', 'gap', '--frame-cluster-gap'],
+	['style.css', '.window-titlebar-button', 'width', '--frame-control-size'],
+	['style.css', '.window-titlebar-button', 'height', '--frame-control-size'],
+	['style.css', '.topbar', 'padding-left', '--frame-header-start'],
+	['style.css', '.topbar', 'padding-right', '--frame-controls-inset'],
+	[
+		'style.css',
+		':root[data-chrome-platform="darwin"] .sidebar-chrome',
+		'padding-inline-start',
+		'--frame-lights-inset',
+	],
 	['sidebar-navigation.css', '.sidebar-day-heading > h3', 'font-weight', '--weight-control'],
 	['style.css', '.project-row, .sidebar-new-conversation', 'height', '--frame-row-height'],
 	['style.css', '.project-row, .sidebar-new-conversation', 'gap', '--frame-row-gap'],

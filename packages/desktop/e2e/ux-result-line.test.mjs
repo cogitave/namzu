@@ -1,6 +1,6 @@
 // The foot of a finished turn is one 32 px result line of text, and the Changes pane is the diff first.
-// The check segment is the kernel's outcome record and nothing else; the pane opens 520 px wide on
-// the file that changed most, with the files beside the diff, and the sidebar steps aside in a
+// The check segment is the kernel's outcome record and nothing else; the pane opens 60 percent of the main
+// area wide on the file that changed most, with the files at the diff's right, and the sidebar steps aside in a
 // narrow window and comes back.
 // Run: pnpm --filter @namzu/desktop build && xvfb-run -a node --test e2e/ux-result-line.test.mjs
 import assert from "node:assert/strict";
@@ -176,7 +176,7 @@ test("the menu holds Undo, Open file and Copy summary", { timeout: 300000 }, asy
 	}
 });
 
-test("the pane opens 520 px wide on the largest file, files beside the diff, one 40 px header", { timeout: 480000 }, async () => {
+test("the pane opens 60 percent wide on the largest file, files at the diff's right, one 44 px header", { timeout: 480000 }, async () => {
 	const w = await createWorld({ rules, files, seed, tabs: "hidden" });
 	let failed = true;
 	try {
@@ -187,10 +187,11 @@ test("the pane opens 520 px wide on the largest file, files beside the diff, one
 		await line(w).getByRole("button", { name: /Open changes$/ }).click();
 		const pane = w.page.getByRole("complementary", { name: "Changes" });
 		await expect(pane).toBeVisible({ timeout: T });
-		await expect.poll(async () => Math.round((await pane.boundingBox())?.width ?? 0), { timeout: T }).toBe(520);
+		const main = () => w.page.locator(".workspace").evaluate((el) => el.getBoundingClientRect().width);
+		await expect.poll(async () => Math.abs((await pane.boundingBox())?.width - 0.6 * (await main())) < 1.5, { timeout: T }).toBe(true);
 
 		const bar = pane.locator(".changes-bar");
-		assert.equal((await bar.boundingBox())?.height, 40);
+		assert.equal((await bar.boundingBox())?.height, 44);
 		await expect(bar.getByRole("heading", { name: "Changes" })).toBeVisible();
 		const all = bar.getByRole("button", { name: "All changes" });
 		await expect(all).toHaveAttribute("aria-pressed", "true");
@@ -200,10 +201,10 @@ test("the pane opens 520 px wide on the largest file, files beside the diff, one
 		await expect(pane.getByRole("tab")).toHaveCount(0);
 		await expect(pane.getByRole("button", { name: "Add a tab" })).toHaveCount(0);
 
-		// The file that changed most is open, and the list sits to the left of the diff.
+		// The file that changed most is open, and the list sits to the right of the diff.
 		await expect(pane.locator(".changes-flat-row[data-active]")).toContainText("big.js");
 		// The pane may still be settling when it first shows: both boxes are read together until the
-		// list sits left of the diff, and the geometry below uses that same reading.
+		// list sits right of the diff, and the geometry below uses that same reading.
 		let list;
 		let diff;
 		await expect.poll(async () => {
@@ -215,9 +216,9 @@ test("the pane opens 520 px wide on the largest file, files beside the diff, one
 				return { list: box(".changes-files"), diff: box(".changes-diff") };
 			});
 			({ list, diff } = both);
-			return Boolean(list && diff && list.x + list.width <= diff.x + 1 && Math.abs(list.width - 168) <= 6 && diff.height > 400);
+			return Boolean(list && diff && diff.x + diff.width <= list.x + 1 && list.width === 240 && diff.height > 400);
 		}, { timeout: T }).toBe(true);
-		assert.ok(Math.abs(list.width - 168) <= 6, `list is ${list.width} wide`);
+		assert.equal(list.width, 240, `list is ${list.width} wide`);
 		assert.ok(diff.height > 400, `the diff has the height: ${diff.height}`);
 
 		// Wrap, collapse and split live in one View menu; This reply narrows the list.

@@ -174,6 +174,17 @@
 	--frame-bar-gap: 4px;
 	--frame-bar-inset: 8px;
 	--frame-title-inset: 24px;
+	/* The header's left cluster: a menu button (not on macOS, which keeps the system menu bar), the
+	   sidebar toggle, back and forward, each a control wide, 12 in from the sidebar's edge and 12 before
+	   the title or the strip of tabs. On macOS the traffic lights take the first 80 of the window. */
+	--frame-cluster-inset: 12px;
+	--frame-cluster-gap: 4px;
+	--frame-cluster-after: 12px;
+	--frame-cluster-count: 4;
+	--frame-lights-inset: 80px;
+	/* Where the window's own buttons begin when the system has not said: they end the header band. */
+	--frame-caption-fallback: 142px;
+	--frame-controls-inset: 0px;
 	/* The input box, the row under it and the column they share. The dock at rest is the box, the gap,
 	   the row and the space under the row. */
 	--frame-input-height: 44px;
@@ -292,6 +303,106 @@
 	--start-icon-start: 12px;
 	--start-icon-gap: 8px;
 	--start-heading-gap: 24px;
+	/* One set of rules for every menu, list popover and select: the surface, the rows, the caption,
+	   the separator and where the menu sits from the control that opened it. A row is one line (28) or a
+	   title over a description (46); the text starts 10 in, or 38 in after a 16 px icon; a chosen row
+	   carries a check 9 from its right edge on the title's line. */
+	--menu-radius: 12px;
+	--menu-padding: 5px;
+	--menu-row-height: 28px;
+	--menu-row-height-described: 46px;
+	--menu-row-radius: 8px;
+	--menu-row-padding-block: 4px;
+	--menu-text-inset: 10px;
+	--menu-icon-size: 16px;
+	--menu-icon-gap: 12px;
+	--menu-label-start: calc(var(--menu-text-inset) + var(--menu-icon-size) + var(--menu-icon-gap));
+	--menu-check-size: 16px;
+	--menu-check-inset: 9px;
+	--menu-check-reserve: calc(var(--menu-check-inset) + var(--menu-check-size) + 8px);
+	--menu-caption-block: 25px;
+	--menu-separator-space: 4px;
+	--menu-separator-inset: 10px;
+	--menu-min-width: 128px;
+	--menu-max-width: 320px;
+	--menu-highlight: color-mix(in srgb, var(--foreground) 8%, transparent);
+	/* A dialog: one padding, one corner, one confirm width and one button height. */
+	--dialog-padding: 16px;
+	--dialog-radius: 12px;
+	--dialog-confirm-width: 400px;
+	--dialog-gap: 8px;
+	--dialog-actions-gap: 16px;
+	--dialog-button-height: 28px;
+	--dialog-button-radius: 8px;
+	--dialog-scrim: color-mix(in srgb, black 40%, transparent);
+	/* Settings: a column no wider than the input box's, headings that open a group, rows of one height,
+	   and a switch that reads in the text colour. A row is 12 above and below its content: a label and a
+	   28 px control make 52, a label over one line of description makes 68 (the copy block carries 1 px
+	   above and below its two lines, the one pixel that brings 42 to 44). */
+	--settings-column-width: var(--frame-column-width);
+	--settings-search-height: 28px;
+	--settings-search-radius: 8px;
+	--settings-group-before: 40px;
+	--settings-group-after: 16px;
+	--settings-title-after: 16px;
+	--settings-row-padding: 12px;
+	--settings-row-copy-pad: 1px;
+	--settings-copy-gap: 4px;
+	--settings-control-height: 28px;
+	--settings-control-radius: 8px;
+	--settings-switch-width: 36px;
+	--settings-switch-height: 20px;
+	--settings-switch-knob: 16px;
+	--settings-switch-inset: 2px;
+	--settings-switch-travel: calc(
+		var(--settings-switch-width) -
+		var(--settings-switch-knob) -
+		2 *
+		var(--settings-switch-inset)
+	);
+	--settings-choice-size: 16px;
+	--settings-off-edge: color-mix(in srgb, var(--foreground) 55%, transparent);
+	/* The search overlay: its size, how far below the window's centre it sits, the input row and the list. */
+	--palette-width: 672px;
+	--palette-height: 584px;
+	--palette-drop: 18px;
+	--palette-radius: 16px;
+	--palette-input-top: 18px;
+	--palette-input-height: 33px;
+	--palette-side: 24px;
+	--palette-list-inset: 10px;
+	--palette-row-height: 36px;
+	--palette-row-radius: 8px;
+	--palette-row-inset: 12px;
+	--palette-icon-size: 16px;
+	--palette-icon-gap: 12px;
+	--palette-caption-gap: 8px;
+	--palette-footer-height: 42px;
+	--palette-key-height: 18px;
+	--palette-key-radius: 4px;
+	/* The side panels. A reading panel (changes, a file, a preview) takes 60 percent of the main area and
+	   no less than 360; a tool panel (tasks) takes 40 percent, between 320 and 560. The conversation keeps the
+	   rest, and when that would be under 360 the panel lies over its right side. A 1px seam divides them, and
+	   a 7px zone on it takes the pointer. A panel's header is 44 high; its title starts 20 in; its controls
+	   are 28 square, 4 apart and the last 8 from the edge. */
+	--panel-reading-share: 60%;
+	--panel-reading-min: 360px;
+	--panel-tool-share: 40%;
+	--panel-tool-min: 320px;
+	--panel-tool-max: 560px;
+	--panel-conversation-min: 360px;
+	--panel-seam: 1px;
+	--panel-grab-zone: 7px;
+	--panel-grab-line: 2px;
+	--panel-header-height: 44px;
+	--panel-title-inset: 20px;
+	--panel-control-gap: 4px;
+	--panel-control-inset: 8px;
+	--panel-files-width: 240px;
+	--panel-file-row: 28px;
+	--panel-open-fill: 8%;
+	--panel-reading-width: max(var(--panel-reading-min), var(--panel-reading-share));
+	--panel-tool-width: clamp(var(--panel-tool-min), var(--panel-tool-share), var(--panel-tool-max));
 	--workspace-topbar-height: var(--frame-header-height);
 	--workspace-gutter: var(--frame-title-inset);
 	--workspace-gutter-start: var(--workspace-gutter);
@@ -510,6 +621,7 @@
 }
 
 .dark {
+	--dialog-scrim: color-mix(in srgb, black 50%, transparent);
 	--glass-blur: 16px;
 	--glass-saturation: 1.08;
 }

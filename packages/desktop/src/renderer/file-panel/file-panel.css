@@ -5,36 +5,47 @@
 }
 .panel-resize-handle {
 	position: absolute;
-	inset: 0 auto 0 -3px;
+	/* The zone is centred on the seam, which is the panel's own first pixel. */
+	inset: 0 auto 0 calc(var(--panel-grab-zone) / -2 + var(--panel-seam) / 2);
 	z-index: 2;
-	width: 7px;
+	width: var(--panel-grab-zone);
 	cursor: col-resize;
 	touch-action: none;
 }
 .panel-resize-handle::after {
 	content: "";
 	position: absolute;
-	inset: 0 3px;
+	inset: 0 auto 0
+		calc((var(--panel-grab-zone) - var(--panel-grab-line)) / 2 - var(--panel-seam) / 2);
+	width: var(--panel-grab-line);
 	background: transparent;
-	transition: background-color 120ms;
+	transition: background-color var(--dur-quick);
 }
 .panel-resize-handle:hover::after,
 .panel-resize-handle:focus-visible::after,
 .panel-resize-handle:active::after {
-	background: var(--ring);
+	background: var(--primary);
 }
 .panel-resize-handle:focus-visible {
 	outline: none;
 }
-@container workspace (max-width: 879px) {
-	.panel-resize-handle {
+/* Where the panel covers the pane there is no seam to move. */
+@container workspace (max-width: 899px) {
+	.workspace[data-panel-kind="reading"] .panel-resize-handle {
+		display: none;
+	}
+}
+@container workspace (max-width: 679px) {
+	.workspace[data-panel-kind="tool"] .panel-resize-handle {
 		display: none;
 	}
 }
 
+/* A panel's header: 44 high with a 1px line under it, the title 20 in, controls 28 square and 4 apart,
+   the last 8 from the edge. */
 .section-heading.panel-heading {
-	padding: 0 8px 0 10px;
-	gap: 4px;
+	padding: 0 var(--panel-control-inset) 0 var(--panel-title-inset);
+	gap: var(--panel-control-gap);
 }
 .panel-tab-strip {
 	display: flex;
@@ -55,9 +66,10 @@
 	min-width: 0;
 	overflow-x: auto;
 	scrollbar-width: none;
-	/* Room for the first tab's border and the last tab's close button inside the scroller's own box. */
-	padding-inline: 2px;
-	scroll-padding-inline: 2px;
+	/* Room for the last tab's close button inside the scroller's own box; the first tab starts on the title's
+	   20, so nothing is added before it. */
+	padding-inline: 0 2px;
+	scroll-padding-inline: 0 2px;
 }
 /* A soft edge says there are more tabs out of sight, only on the side that has them. */
 .panel-tab-scroll[data-overflow-start] {
@@ -97,8 +109,9 @@
 	border: 1px solid transparent;
 	border-radius: var(--radius-control);
 	color: var(--muted-foreground);
-	font-size: var(--text-caption);
-	line-height: var(--leading-caption);
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
+	font-weight: var(--weight-control);
 }
 .panel-tab:hover {
 	background: var(--accent);
@@ -194,8 +207,14 @@
 	display: flex;
 	flex: none;
 	align-items: center;
-	gap: 2px;
+	gap: var(--panel-control-gap);
 	margin-left: auto;
+}
+/* The buttons in a panel's header are 28 square, whichever size class their component asks for. */
+.panel-heading .panel-tab-add,
+.panel-heading .panel-strip-actions > button {
+	width: var(--frame-control-size);
+	height: var(--frame-control-size);
 }
 /* Expanded, the panel takes the pane and the conversation steps aside until it is restored. */
 .workspace.jobs-open[data-panel-expanded] > .jobs-panel {

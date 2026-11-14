@@ -455,14 +455,14 @@
 	width: 280px;
 	max-width: min(280px, var(--available-width), calc(100vw - 24px));
 	max-height: var(--available-height);
-	border-radius: var(--radius-panel);
+	border-radius: var(--menu-radius);
 }
 .composer-project-popup [data-slot="popover-viewport"] {
 	display: flex;
 	flex-direction: column;
 	min-height: 0;
 	max-height: var(--available-height);
-	padding: 6px;
+	padding: var(--menu-padding);
 	overflow-x: hidden;
 	overflow-y: auto;
 	overscroll-behavior: contain;
@@ -545,27 +545,32 @@
 	color: var(--foreground);
 }
 .composer-project-row {
+	position: relative;
 	display: grid;
-	grid-template-columns: 16px minmax(0, 1fr) 16px;
+	grid-template-columns: var(--menu-icon-size) minmax(0, 1fr);
 	align-items: center;
-	gap: 8px;
+	gap: var(--menu-icon-gap);
 	width: 100%;
-	min-height: 32px;
-	padding: 6px 8px;
+	min-height: var(--menu-row-height);
+	padding: var(--menu-row-padding-block) var(--menu-check-reserve) var(--menu-row-padding-block)
+		var(--menu-text-inset);
 	border: 0;
-	border-radius: var(--control-radius);
+	border-radius: var(--menu-row-radius);
 	background: transparent;
 	color: var(--foreground);
-	font-size: var(--text-small);
+	font-size: var(--text-interface);
 	font-weight: var(--weight-text);
-	line-height: var(--leading-small);
+	line-height: var(--leading-interface);
 	text-align: left;
 	cursor: pointer;
 	transition: background-color 140ms var(--motion-ease), color 140ms var(--motion-ease);
 }
+.composer-project-row:has(.composer-project-name small) {
+	min-height: var(--menu-row-height-described);
+}
 .composer-project-row:hover,
 .composer-project-row[data-highlighted] {
-	background: color-mix(in srgb, var(--foreground) 8%, var(--popover));
+	background: var(--menu-highlight);
 }
 .composer-project-row:disabled {
 	cursor: not-allowed;
@@ -600,17 +605,22 @@
 	white-space: nowrap;
 }
 .composer-project-name small {
-	font-size: var(--text-caption);
-	line-height: var(--leading-caption);
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	color: var(--muted-foreground);
 }
 .composer-project-selection,
 .composer-project-check {
 	display: grid;
 	place-items: center;
-	width: 16px;
-	height: 16px;
+	width: var(--menu-check-size);
+	height: var(--leading-interface);
 	color: var(--foreground);
+}
+.composer-project-row > .composer-project-selection {
+	position: absolute;
+	inset-block-start: var(--menu-row-padding-block);
+	inset-inline-end: var(--menu-check-inset);
 }
 .composer-project-empty {
 	margin: 0;
@@ -622,28 +632,34 @@
 .composer-project-actions {
 	display: grid;
 	flex: none;
-	gap: 2px;
-	margin-top: 4px;
-	padding-top: 4px;
-	border-top: 1px solid color-mix(in srgb, var(--foreground) 8%, transparent);
+	gap: 0;
+}
+/* The separator above the actions: a hairline with 4 above and 4 below, inset like the text. */
+.composer-project-actions::before {
+	content: "";
+	height: 1px;
+	margin: var(--menu-separator-space) var(--menu-separator-inset);
+	background: var(--border);
 }
 .composer-project-actions button {
 	justify-content: flex-start;
 	width: 100%;
-	min-height: 32px;
-	gap: 8px;
-	padding-inline: 8px;
-	font-size: var(--text-small);
+	height: var(--menu-row-height);
+	min-height: var(--menu-row-height);
+	gap: var(--menu-icon-gap);
+	padding: 0 var(--menu-check-reserve) 0 var(--menu-text-inset);
+	border-radius: var(--menu-row-radius);
+	font-size: var(--text-interface);
 	font-weight: var(--weight-text);
-	line-height: var(--leading-small);
+	line-height: var(--leading-interface);
 	transition: background-color 140ms var(--motion-ease), color 140ms var(--motion-ease);
 }
 .composer-project-actions button:hover {
-	background: color-mix(in srgb, var(--foreground) 8%, var(--popover));
+	background: var(--menu-highlight);
 }
 .composer-project-actions button > svg {
-	width: 16px;
-	height: 16px;
+	width: var(--menu-icon-size);
+	height: var(--menu-icon-size);
 	margin-inline: 0;
 }
 @media (pointer: coarse) {
