@@ -95,6 +95,8 @@ import {
 	StallMonitor,
 	asksQuestion,
 	callChangedState,
+	callMadeProgress,
+	isTaskListTool,
 	reasoningCapChars,
 } from '../turn/stall-monitor.js'
 import { effortForModel } from './effort-clamp.js'
@@ -951,6 +953,7 @@ export class IterationOrchestrator {
 								this.ctx.structuredOutput?.mode !== 'native' ||
 								tool.function.name !== STRUCTURED_OUTPUT_TOOL_NAME,
 						)
+					this.stepCannotChange = this.toolsCannotChange(llmTools)
 					// The same list the request was built from now also bounds what
 					// may run. Narrowing only the request left the restriction
 					// presentational — the model was shown fewer tools and could
@@ -1232,16 +1235,18 @@ export class IterationOrchestrator {
 						forcedAction && requestEffort && (offeredEfforts?.includes('low') ?? false)
 							? 'low'
 							: requestEffort
-					// A provider that refuses a forced tool choice (some models do, and
-					// so does manual extended thinking) is not sent one: the step keeps
-					// its low effort and asks in words, on this request only.
+					// A guard's action step sends a forced tool choice only where the
+					// provider says one is safe and thinking is off for the request.
+					// Every other case (a refusal, no answer, thinking on) asks in
+					// words, on this request only, and keeps the step's low effort.
 					const forcedChoiceRefused =
 						forcedAction &&
-						this.ctx.provider.acceptsForcedToolChoiceFor?.(
+						(this.ctx.provider.acceptsForcedToolChoiceFor?.(
 							stepModel,
 							turnConfig.thinking,
 							stepEffort,
-						) === false
+						) !== true ||
+							(turnConfig.thinking !== undefined && turnConfig.thinking.type !== 'disabled'))
 					const operatorInputAtDispatch = this.latestUserMessage
 					const latestReviewUserMessage =
 						(this.ctx.reviewAnswer || this.ctx.structuredOutput?.review) && operatorInputAtDispatch
@@ -3616,6 +3621,7 @@ export class IterationOrchestrator {
 		const calls = new Map((response.message.toolCalls ?? []).map((c) => [c.id, c]))
 		let changedState = false
 		const question = asksQuestion(this.latestUserMessage?.content)
+		const cannotChange = this.stepCannotChange
 		for (const result of results) {
 			const call = calls.get(result.toolCallId)
 			let readOnly: boolean | undefined
@@ -3625,7 +3631,7 @@ export class IterationOrchestrator {
 			} catch {
 				readOnly = undefined
 			}
-			if (callChangedState(result.toolName, readOnly, result.isError)) {
+			if (callMadeProgress(result.toolName, readOnly, result.isError, cannotChange)) {
 				// The same tool with the same input and the same result as an
 				// earlier call this turn changed nothing, whatever the tool is,
 				// except a file edit: applying, reverting and applying again is
@@ -3646,6 +3652,7 @@ export class IterationOrchestrator {
 			reasoningChars,
 			changedState,
 			question,
+			cannotChange,
 		})
 		if (directive.kind === 'nudge') {
 			this.ctx.log.info('Many steps without a change — nudging the model to act', {
@@ -3658,6 +3665,29 @@ export class IterationOrchestrator {
 			})
 			this.forceActionNextStep = true
 		}
+	}
+
+	/** Whether every tool offered to the step in flight only reads. */
+	private stepCannotChange = false
+
+	/**
+	 * Whether an agent given these tools can change nothing: each one declares
+	 * itself read-only without being shown an input (the test the read-only
+	 * sub-agents' roster uses), task-list tools aside. A tool that does not say,
+	 * or that says so only for some inputs, counts as one that can change things.
+	 */
+	private toolsCannotChange(llmTools: readonly { function: { name: string } }[]): boolean {
+		let looked = false
+		for (const { function: fn } of llmTools) {
+			if (isTaskListTool(fn.name)) continue
+			try {
+				if (this.ctx.tools.get(fn.name)?.isReadOnly?.(undefined) !== true) return false
+			} catch {
+				return false
+			}
+			looked = true
+		}
+		return looked
 	}
 
 	/** Fingerprints of the calls this turn has finished, for {@link seenAgain}. */

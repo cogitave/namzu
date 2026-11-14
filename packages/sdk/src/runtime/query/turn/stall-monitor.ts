@@ -23,6 +23,13 @@ export const STALL_NUDGE_MESSAGE =
 	'Several steps have passed and nothing has changed yet. Begin changing things now: make the first edit you are sure of. If you were asked a question, answer it now with what you have and say what is missing. Reading more or planning again will not move the task.'
 
 /**
+ * What an agent that cannot change anything is told when its looks stopped
+ * adding anything new: it reports, it does not edit.
+ */
+export const STALL_REPORT_MESSAGE =
+	'The last steps have not turned up anything new. Report now what you have found and what is still unknown, using what you have already seen. Do not repeat a look you have already made.'
+
+/**
  * What the model is told when it was asked a question and several steps have
  * only looked. It names the way out as the answer, never as another command.
  */
@@ -96,6 +103,29 @@ export function callChangedState(
 	return readOnly !== true
 }
 
+/**
+ * Whether a finished call moved an agent forward. For an agent that can change
+ * things this is {@link callChangedState}. An agent whose every tool only
+ * reads has nothing to change, so a successful read that is not a repeat is
+ * its progress; repeats are judged by the caller, and a task-list call or a
+ * failed call is still none.
+ */
+export function callMadeProgress(
+	toolName: string,
+	readOnly: boolean | undefined,
+	isError: boolean | undefined,
+	cannotChange: boolean,
+): boolean {
+	if (callChangedState(toolName, readOnly, isError)) return true
+	if (!cannotChange || isError || TASK_LIST_TOOLS.has(toolName)) return false
+	return readOnly === true
+}
+
+/** Whether a tool is one of the task-list tools. */
+export function isTaskListTool(toolName: string): boolean {
+	return TASK_LIST_TOOLS.has(toolName)
+}
+
 /** When the monitor speaks. All counts are of consecutive steps that changed nothing. */
 export interface StallConfig {
 	/** Steps without a change after which the model is nudged. Default 12. */
@@ -126,6 +156,8 @@ export interface StallObservation {
 	readonly changedState: boolean
 	/** The person's latest message asked a question, so the way out of a stall is an answer. */
 	readonly question?: boolean
+	/** Every tool offered to the step only reads: the way out of a stall is a report, not an edit. */
+	readonly cannotChange?: boolean
 }
 
 /** The longest message still read as a question; a longer one is a brief. */
@@ -170,6 +202,12 @@ export class StallMonitor {
 		this.idleSteps += 1
 		this.idleChars += step.reasoningChars
 		const question = step.question === true
+		const cannotChange = step.cannotChange === true
+		const stallText = question
+			? ANSWER_NOW_MESSAGE
+			: cannotChange
+				? STALL_REPORT_MESSAGE
+				: STALL_NUDGE_MESSAGE
 		if (!this.nudged) {
 			if (question && this.idleSteps >= this.answerAfterSteps) {
 				this.nudged = true
@@ -179,16 +217,17 @@ export class StallMonitor {
 			if (this.idleSteps >= this.nudgeAfterSteps || this.idleChars >= this.nudgeAfterChars) {
 				this.nudged = true
 				this.stepsSinceNudge = 0
-				return { kind: 'nudge', text: question ? ANSWER_NOW_MESSAGE : STALL_NUDGE_MESSAGE }
+				return { kind: 'nudge', text: stallText }
 			}
 			return { kind: 'none' }
 		}
 		this.stepsSinceNudge += 1
 		if (this.stepsSinceNudge >= this.forceAfterSteps) {
 			this.reset()
-			// A question is answered, not acted on: say it again instead of
-			// forcing a tool call, which would only buy another command.
-			return question ? { kind: 'nudge', text: ANSWER_NOW_MESSAGE } : { kind: 'force' }
+			// A question is answered, and an agent that cannot change anything
+			// reports: say it again instead of forcing a tool call, which would
+			// only buy another look.
+			return question || cannotChange ? { kind: 'nudge', text: stallText } : { kind: 'force' }
 		}
 		return { kind: 'none' }
 	}

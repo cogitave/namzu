@@ -4,9 +4,11 @@ import {
 	ANSWER_NOW_MESSAGE,
 	DEFAULT_MAX_REASONING_TOKENS,
 	STALL_NUDGE_MESSAGE,
+	STALL_REPORT_MESSAGE,
 	StallMonitor,
 	asksQuestion,
 	callChangedState,
+	callMadeProgress,
 	reasoningCapChars,
 } from '../stall-monitor.js'
 
@@ -111,5 +113,23 @@ describe('what asks a question', () => {
 		const brief = `Can you make the build pass? ${'Fix what fails and run the tests again. '.repeat(12)}`
 		expect(asksQuestion(brief)).toBe(false)
 		expect(asksQuestion('Can you make the build pass?')).toBe(true)
+	})
+})
+
+describe('an agent that cannot change anything', () => {
+	it('counts a successful read as progress, and nothing else', () => {
+		expect(callMadeProgress('read', true, false, true)).toBe(true)
+		expect(callMadeProgress('read', true, true, true)).toBe(false)
+		expect(callMadeProgress('task_update', true, false, true)).toBe(false)
+		expect(callMadeProgress('read', true, false, false)).toBe(false)
+	})
+
+	it('is told to report, not to edit, and is never forced', () => {
+		const idle = { reasoningChars: 0, changedState: false, cannotChange: true }
+		const monitor = new StallMonitor({ nudgeAfterSteps: 2, forceAfterSteps: 2 })
+		monitor.observe(idle)
+		expect(monitor.observe(idle)).toEqual({ kind: 'nudge', text: STALL_REPORT_MESSAGE })
+		monitor.observe(idle)
+		expect(monitor.observe(idle)).toEqual({ kind: 'nudge', text: STALL_REPORT_MESSAGE })
 	})
 })
