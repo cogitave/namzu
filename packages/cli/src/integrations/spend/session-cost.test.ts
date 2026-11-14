@@ -5,7 +5,7 @@ import type { ToolContext } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
-import { type FixtureSession, writeSession } from './__fixtures__/logs.js'
+import { type FixtureSession, sessionLogText, writeSession } from './__fixtures__/logs.js'
 import {
 	buildSessionCostTool,
 	fileLogBytes,
@@ -137,6 +137,71 @@ describe('session_cost', () => {
 		})
 		expect(result.output).toContain('at least $0.0100 (300 tokens at no known rate)')
 		expect(result.output).toContain('higher than this')
+	})
+
+	it('says the calls still to come in this turn are not counted yet', async () => {
+		const result = await runTool({
+			turns: [
+				{
+					startAt: '2026-01-01T10:00:00.000Z',
+					model: 'm',
+					calls: [call('2026-01-01T10:00:10.000Z', 0.01)],
+				},
+			],
+		})
+		expect(result.output).toMatch(/still to come in this turn/)
+		expect(result.output).toMatch(/not counted yet/)
+		expect(result.output).toMatch(/cost so far, not as the final total/)
+	})
+
+	it('reads the provider from the record, in whatever pieces the log arrives', async () => {
+		const { text } = sessionLogText({
+			turns: [
+				{
+					startAt: '2026-01-01T10:00:00.000Z',
+					model: 'm',
+					servingProvider: 'openrouter',
+					endAt: '2026-01-01T10:01:00.000Z',
+					calls: [call('2026-01-01T10:00:10.000Z', 0.01)],
+				},
+			],
+		})
+		const bytes = Buffer.from(text, 'utf8')
+		async function* pieces(size: number) {
+			for (let at = 0; at < bytes.length; at += size) yield bytes.subarray(at, at + size)
+		}
+		for (const size of [1, 7, 96, 97, bytes.length]) {
+			const reading = await readSessionCost(pieces(size))
+			expect(reading.providers, `pieces of ${size} bytes`).toEqual(['openrouter'])
+		}
+	})
+
+	it('does not read a provider out of text a record merely contains', async () => {
+		// Not an assistant message, yet the same JSON shape sits raw in the line.
+		const spoof = JSON.stringify({
+			type: 'message',
+			role: 'user',
+			content: {
+				role: 'user',
+				content: 'hello',
+				source: { type: 'model', providerId: 'openrouter', model: 'x', chainIndex: 0 },
+			},
+		})
+		const { text } = sessionLogText({
+			turns: [
+				{
+					startAt: '2026-01-01T10:00:00.000Z',
+					model: 'm',
+					servingProvider: 'anthropic',
+					endAt: '2026-01-01T10:01:00.000Z',
+					calls: [call('2026-01-01T10:00:10.000Z', 0.01)],
+				},
+			],
+		})
+		async function* all() {
+			yield Buffer.from(`${spoof}\n${text}`, 'utf8')
+		}
+		expect((await readSessionCost(all())).providers).toEqual(['anthropic'])
 	})
 
 	it('says nothing is recorded yet, without calling it free', async () => {

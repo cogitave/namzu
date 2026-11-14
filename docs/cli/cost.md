@@ -191,6 +191,9 @@ place, and it prices nothing itself. It answers in plain lines:
 - when some tokens have no known rate, `at least $X (N tokens at no known rate)`,
   and when none has, `unknown (N tokens at no known rate)` with a plain
   instruction not to call it free or 0;
+- one line saying the calls still to come in the running turn, including the reply
+  that quotes the figure, are not counted yet, so the model gives it as the cost
+  so far and not as the final total;
 - one line on what is not included: side requests such as the conversation title,
   and the work of sub-agents (their own conversations), and that the provider's
   dashboard has the account total.

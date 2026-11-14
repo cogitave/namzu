@@ -95,12 +95,23 @@ async function open(provider: MockLLMProvider, hosted: boolean) {
 	return session
 }
 
+/** Usage with the charge the provider reports, which the ledger takes as the call's cost. */
+const usage = (promptTokens: number, completionTokens: number, reportedCostUsd: number) => ({
+	promptTokens,
+	completionTokens,
+	totalTokens: promptTokens + completionTokens,
+	reportedCostUsd,
+})
+
 async function askCost(hosted: boolean): Promise<string> {
 	const provider = new MockLLMProvider({
 		turns: [
-			{ text: 'Hello.' },
-			{ toolCalls: [{ id: 'cost-1', name: 'session_cost', args: {} }] },
-			{ text: 'Done.' },
+			{ text: 'Hello.', usage: usage(1000, 100, 0.004) },
+			{
+				toolCalls: [{ id: 'cost-1', name: 'session_cost', args: {} }],
+				usage: usage(1200, 50, 0.003),
+			},
+			{ text: 'Done.', usage: usage(1300, 20, 0.002) },
 		],
 	})
 	const session = await open(provider, hosted)
@@ -115,13 +126,21 @@ async function askCost(hosted: boolean): Promise<string> {
 		.flatMap((request) => request.messages)
 		.find((message) => message.role === 'tool' && message.toolCallId === 'cost-1')
 	expect(result).toBeDefined()
+	// One request per call the script holds: the first turn, then the call that
+	// asks for the cost and the one that reads the answer. No side request.
+	expect(provider.requests).toHaveLength(3)
 	return String(result?.content)
 }
 
 it('offers session_cost and answers it from the log the turns wrote', async () => {
-	expect(await askCost(true)).toMatch(/This conversation so far|No cost is recorded/)
+	const output = await askCost(true)
+	// The first call and the call that asked, as the turn recorder stamped them.
+	expect(output).toContain('This conversation so far: $0.0070.')
+	expect(output).toContain('not counted yet')
 })
 
 it('offers session_cost in a run that keeps no log on disk, and answers it from the transient log', async () => {
-	expect(await askCost(false)).toMatch(/This conversation so far|No cost is recorded/)
+	const output = await askCost(false)
+	expect(output).toContain('This conversation so far: $0.0070.')
+	expect(output).toContain('not counted yet')
 })

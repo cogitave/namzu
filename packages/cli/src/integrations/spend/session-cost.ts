@@ -10,6 +10,7 @@
  */
 
 import { createReadStream } from 'node:fs'
+import { StringDecoder } from 'node:string_decoder'
 import { defineTool, mcpJsonSchemaToZod } from '@namzu/sdk'
 import type { CostInfo, ToolContext, ToolDefinition } from '@namzu/sdk'
 
@@ -48,8 +49,40 @@ const costInfo = (totalCost: number, unpricedTokens: number): CostInfo => ({
 
 const cumulativeCost = (c: Cumulative): CostInfo => costInfo(c.cost, c.unpriced)
 
-/** How an assistant message names the provider that answered it. */
-const PROVIDER_MARK = /"source":\{"type":"model","providerId":"([A-Za-z0-9._-]{1,64})"/g
+/** Only lines holding this word are parsed to find the provider that answered. */
+const PROVIDER_WORD = '"providerId"'
+
+/** A record line longer than this without an end is skipped rather than held. */
+const MAX_LINE_CHARS = 4 * 1024 * 1024
+
+/**
+ * The provider an assistant message names as its source, or `undefined` for any
+ * other record. The line is parsed as the record it is, so text a tool printed
+ * or a person typed that looks like this shape inside a string is never read
+ * as a provider.
+ */
+function providerOfLine(line: string): string | undefined {
+	if (!line.includes(PROVIDER_WORD)) return undefined
+	try {
+		const record = JSON.parse(line) as {
+			type?: unknown
+			content?: { role?: unknown; source?: { type?: unknown; providerId?: unknown } }
+		}
+		const source = record.content?.source
+		if (
+			record.type === 'message' &&
+			record.content?.role === 'assistant' &&
+			source?.type === 'model' &&
+			typeof source.providerId === 'string' &&
+			/^[A-Za-z0-9._-]{1,64}$/.test(source.providerId)
+		) {
+			return source.providerId
+		}
+	} catch {
+		// A line that is not a whole record names no provider.
+	}
+	return undefined
+}
 
 /** The bytes of one conversation's log, as the kernel wrote them. */
 export type SessionLogBytes = AsyncIterable<Uint8Array>
@@ -73,15 +106,32 @@ export async function readSessionCost(bytes: SessionLogBytes): Promise<SessionCo
 	// The fold keeps no provider for a turn still running, and the log names the
 	// provider on each assistant message, so the same pass collects those names.
 	const providers = new Set<string>()
-	let carry = ''
+	// Records end at a newline and may straddle chunks; the decoder keeps a
+	// character split across two chunks whole, and `partial` the line so far.
+	const decoder = new StringDecoder('utf8')
+	let partial = ''
+	let skipping = false
+	const take = (line: string): void => {
+		const provider = providerOfLine(line)
+		if (provider !== undefined) providers.add(provider)
+	}
 	for await (const piece of bytes) {
 		const chunk = Buffer.from(piece.buffer, piece.byteOffset, piece.byteLength)
 		size += chunk.length
 		folder.feed(chunk)
-		const text = carry + chunk.toString('latin1')
-		for (const match of text.matchAll(PROVIDER_MARK)) providers.add(match[1] as string)
-		carry = text.slice(-96)
+		const lines = (partial + decoder.write(chunk)).split('\n')
+		partial = lines.pop() as string
+		for (const line of lines) {
+			if (skipping) skipping = false
+			else take(line)
+		}
+		if (partial.length > MAX_LINE_CHARS) {
+			partial = ''
+			skipping = true
+		}
 	}
+	partial += decoder.end()
+	if (!skipping) take(partial)
 	const result = folder.finish()
 	const session: LedgerSession = {
 		slug: '',
@@ -171,6 +221,9 @@ export function renderSessionCost(reading: SessionCostReading): string {
 	}
 	lines.push(
 		`Tokens: ${fmt(reading.tokens)} in total, of which ${fmt(reading.cachedTokens)} read from the cache and ${fmt(reading.outputTokens)} generated.`,
+	)
+	lines.push(
+		'Calls still to come in this turn, including the reply that quotes these figures, are not counted yet: give the figure as the cost so far, not as the final total.',
 	)
 	lines.push(
 		'Not included: side requests such as the conversation title, and the work of sub-agents (their own conversations). The provider’s dashboard has the account total.',
