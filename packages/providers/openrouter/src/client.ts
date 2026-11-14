@@ -614,8 +614,11 @@ function upstreamNote(error: Record<string, unknown>, codeKey: string): string |
 }
 
 /**
- * A failed body with the refusing host named in its message and `metadata`
- * dropped. Anything that is not a JSON object with an `error` object, or that
+ * A failed body with the refusing host named in its message. `metadata` stays
+ * in the body: the classifier reads the whole text (the upstream's own
+ * sentence about a full context window lives in `metadata.raw`), and the error
+ * the SDK builds carries only the message, type, code and param, never `raw`.
+ * Anything that is not a JSON object with an `error` object, or that
  * names no host or code, comes back unchanged.
  */
 function nameUpstream(body: string, parsed: unknown, codeKey: string): string {
@@ -624,7 +627,7 @@ function nameUpstream(body: string, parsed: unknown, codeKey: string): string {
 	if (typeof error !== 'object' || error === null) return body
 	const note = upstreamNote(error as Record<string, unknown>, codeKey)
 	if (note === undefined) return body
-	const { metadata: _dropped, ...rest } = error as Record<string, unknown>
+	const rest = error as Record<string, unknown>
 	const message = typeof rest.message === 'string' ? rest.message : ''
 	return JSON.stringify({
 		...(parsed as object),

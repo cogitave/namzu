@@ -128,6 +128,49 @@ describe('an error names the refusing host', () => {
 		expect(err.message).not.toContain(RAW)
 	})
 
+	it('keeps a context overflow named only in metadata.raw classified as one (HTTP)', async () => {
+		const OVERFLOW = 'This model maximum context length is 8192 tokens'
+		fake([
+			{
+				status: 400,
+				body: JSON.stringify({
+					error: {
+						message: 'Provider returned error',
+						code: 400,
+						metadata: { provider_name: 'Acme', provider_code: 'x', raw: OVERFLOW },
+					},
+				}),
+			},
+		])
+		const err = (await failure()) as Error & { kind?: string }
+		expect(err.kind).toBe('context_overflow')
+		expect(err.message).toContain('Acme')
+		expect(err.message).not.toContain(OVERFLOW)
+		expect(JSON.stringify(err)).not.toContain(OVERFLOW)
+	})
+
+	it('keeps a context overflow named only in metadata.raw classified as one (mid-stream)', async () => {
+		const OVERFLOW = 'This model maximum context length is 8192 tokens'
+		fake([
+			{
+				status: 200,
+				body: sse([
+					{
+						id: 'g',
+						error: {
+							message: 'Provider returned error',
+							metadata: { provider_name: 'Acme', error_type: 'x', raw: OVERFLOW },
+						},
+					},
+				]),
+			},
+		])
+		const err = (await failure()) as Error & { kind?: string }
+		expect(err.kind).toBe('context_overflow')
+		expect(err.message).not.toContain(OVERFLOW)
+		expect(JSON.stringify(err)).not.toContain(OVERFLOW)
+	})
+
 	it('still sends exactly one more request after a 400 naming tool_choice', async () => {
 		const seen = fake([
 			{
