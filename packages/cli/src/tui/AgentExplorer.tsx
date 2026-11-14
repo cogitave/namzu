@@ -543,7 +543,8 @@ interface WorkflowFacts {
 }
 
 function workflowFacts(workflow: RailWorkflow, now: number): WorkflowFacts {
-	const tokens = wroteRailText(workflow.outputTokens)
+	// A million-scale figure drops its spare hundredths digit: `1.30M` reads `1.3M`.
+	const tokens = wroteRailText(workflow.outputTokens)?.replace(/(\d\.\d)0M/, '$1M')
 	return {
 		fields: {
 			// The counter is the agents that finished over every agent; a failure turns

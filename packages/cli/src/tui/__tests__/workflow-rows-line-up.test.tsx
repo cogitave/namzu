@@ -129,7 +129,7 @@ describe('three workflow rows under the status row', () => {
 
 	it('read as the screenshot reads: count, clock and tokens in their own columns', async () => {
 		const rows = await rowsAt(175)
-		expect(rows[0]).toContain('5/9 · 1h58m  · ↓ 1.30M tokens')
+		expect(rows[0]).toContain('5/9 · 1h58m  · ↓ 1.3M tokens')
 		expect(rows[1]).toContain('0/1 · 16m08s · ↓ 129.6k tokens')
 		expect(rows[2]).toContain('0/1 · 13m35s · ↓ 221.8k tokens')
 	})
