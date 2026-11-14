@@ -1,6 +1,6 @@
 /**
  * Workflow rows on the agents rail: one row per `workflow` label, drawn after
- * the agent rows as `◯ name  ▰▱ bar  3/7 · 2m 14s · ↓ 48.2k tokens`. Which
+ * the agent rows as `◯ name  ▰▱ bar  3/7 · 2m14s · ↓ 48.2k tokens`. Which
  * workflows are listed, how a row narrows, the bullet's colours, the 30 s
  * lifetime and the key line are checked here; Enter, `x` and Esc go through
  * the real terminal in the pty lab (see docs/cli/terminal-design.md).
@@ -222,7 +222,7 @@ describe('the progress bar', () => {
 describe('narrowing a row', () => {
 	const row = workflowOf(sevenAgents())
 
-	const full = '3/7 · 2m 14s · ↓ 48.2k tokens'
+	const full = '3/7 · 2m14s · ↓ 48.2k tokens'
 
 	it('never puts the cumulative figure in the row, only what the agents wrote', () => {
 		for (const variant of workflowRowVariants(row, NOW)) expect(variant.text).not.toContain('900')
@@ -237,8 +237,8 @@ describe('narrowing a row', () => {
 			{ barWidth: 12, text: full },
 			{ barWidth: 8, text: full },
 			{ barWidth: 4, text: full },
-			{ barWidth: 4, text: '3/7 · 2m 14s' },
-			{ barWidth: 0, text: '3/7 · 2m 14s' },
+			{ barWidth: 4, text: '3/7 · 2m14s' },
+			{ barWidth: 0, text: '3/7 · 2m14s' },
 			{ barWidth: 0, text: '3/7' },
 		])
 	})
@@ -251,9 +251,9 @@ describe('narrowing a row', () => {
 			{ barWidth: 12, text: marked },
 			{ barWidth: 8, text: marked },
 			{ barWidth: 4, text: marked },
-			{ barWidth: 4, text: '3/7 · 2m 14s · Large workflow' },
-			{ barWidth: 4, text: '3/7 · 2m 14s' },
-			{ barWidth: 0, text: '3/7 · 2m 14s' },
+			{ barWidth: 4, text: '3/7 · 2m14s · Large workflow' },
+			{ barWidth: 4, text: '3/7 · 2m14s' },
+			{ barWidth: 0, text: '3/7 · 2m14s' },
 			{ barWidth: 0, text: '3/7' },
 		])
 	})
@@ -298,20 +298,20 @@ describe('narrowing a row', () => {
 	// is `Release audit` (13 cells) and stays whole until the last step.
 	it.each([
 		[120, 20, full, 13],
-		[72, 20, full, 13],
-		[71, 12, full, 13],
-		[64, 12, full, 13],
-		[63, 8, full, 13],
-		[60, 8, full, 13],
-		[59, 4, full, 13],
-		[56, 4, full, 13],
-		[55, 4, '3/7 · 2m 14s', 13],
-		[39, 4, '3/7 · 2m 14s', 13],
-		[38, 4, '3/7 · 2m 14s', 12],
-		[34, 4, '3/7 · 2m 14s', 8],
-		[33, 0, '3/7 · 2m 14s', 11],
-		[30, 0, '3/7 · 2m 14s', 8],
-		[29, 0, '3/7', 13],
+		[71, 20, full, 13],
+		[70, 12, full, 13],
+		[63, 12, full, 13],
+		[62, 8, full, 13],
+		[59, 8, full, 13],
+		[58, 4, full, 13],
+		[55, 4, full, 13],
+		[54, 4, '3/7 · 2m14s', 13],
+		[38, 4, '3/7 · 2m14s', 13],
+		[37, 4, '3/7 · 2m14s', 12],
+		[33, 4, '3/7 · 2m14s', 8],
+		[32, 0, '3/7 · 2m14s', 11],
+		[29, 0, '3/7 · 2m14s', 8],
+		[28, 0, '3/7', 13],
 		[12, 0, '3/7', 1],
 	])('at %i columns: a %i-cell bar, %j, a name of %i cells', (columns, bar, text, name) => {
 		const { variant, nameWidth } = layoutWorkflowRow(row, NOW, columns, 13)
@@ -336,32 +336,32 @@ describe('narrowing a row', () => {
 		// 100 columns: no room to spare for the phases; the bar is still whole.
 		expect(at(80).variant.text).toBe(full)
 		expect(at(80).variant.barWidth).toBe(20)
-		expect(at(60).variant.barWidth).toBe(8)
-		expect(at(60).variant.text).toContain('↓ 48.2k tokens')
-		expect(at(55).variant.text).not.toContain('tokens')
-		expect(at(55).variant.text).toContain('3/7 · 2m 14s')
-		expect(at(55).nameWidth).toBe(13)
-		expect(at(36).nameWidth).toBeLessThan(13)
-		expect(at(36).variant.text).toContain('3/7 · 2m 14s')
+		expect(at(59).variant.barWidth).toBe(8)
+		expect(at(59).variant.text).toContain('↓ 48.2k tokens')
+		expect(at(54).variant.text).not.toContain('tokens')
+		expect(at(54).variant.text).toContain('3/7 · 2m14s')
+		expect(at(54).nameWidth).toBe(13)
+		expect(at(35).nameWidth).toBeLessThan(13)
+		expect(at(35).variant.text).toContain('3/7 · 2m14s')
 	})
 
 	it.each([100, 80, 60, 50, 40])('draws the counter and the clock at %i columns', async (cols) => {
 		const lines = await show([row], { cols })
 		const flow = lines.find((line) => line.includes('◯')) ?? ''
 		expect(flow).toContain('3/7')
-		expect(flow).toContain('2m 14s')
+		expect(flow).toContain('2m14s')
 		expect(flow.length).toBeLessThanOrEqual(cols)
 	})
 
 	it('leaves the failure out of the counter: a failed run reads the same as a clean one', () => {
 		const withFailure: RailWorkflow = { ...row, failed: 1 }
 		expect(workflowRowVariants(withFailure, NOW)).toEqual(workflowRowVariants(row, NOW))
-		expect(workflowRowVariants(withFailure, NOW)[0]?.text).toBe('3/7 · 2m 14s · ↓ 48.2k tokens')
+		expect(workflowRowVariants(withFailure, NOW)[0]?.text).toBe('3/7 · 2m14s · ↓ 48.2k tokens')
 	})
 
 	it.each([
-		[100, '3/7 · 2m 14s · ↓ 48.2k tokens'],
-		[60, '3/7 · 2m 14s · ↓ 48.2k tokens'],
+		[100, '3/7 · 2m14s · ↓ 48.2k tokens'],
+		[60, '3/7 · 2m14s · ↓ 48.2k tokens'],
 	])('draws a failed run with no failure text at %i columns', (columns, text) => {
 		const withFailure: RailWorkflow = { ...row, failed: 1 }
 		const { variant } = layoutWorkflowRow(withFailure, NOW, columns, 4)
