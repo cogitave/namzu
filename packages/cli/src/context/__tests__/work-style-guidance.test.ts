@@ -11,10 +11,14 @@ import { NAMZU_DELEGATION_DOCTRINE, NAMZU_WORKING_DOCTRINE } from '../doctrine.j
  */
 
 describe('keeping the person informed', () => {
-	it('asks for a line before the first tool call and short updates at key moments', () => {
-		expect(NAMZU_WORKING_DOCTRINE).toContain('Before your first tool call, say in one short line')
-		expect(NAMZU_WORKING_DOCTRINE).toContain('find something, change direction or hit a blocker')
-		expect(NAMZU_WORKING_DOCTRINE).toContain('after a long stretch without one')
+	it('asks for one line before the first call of long work and one when something is found', () => {
+		expect(NAMZU_WORKING_DOCTRINE).toContain(
+			'For work that takes several calls, say one short line before the first call',
+		)
+		expect(NAMZU_WORKING_DOCTRINE).toContain('when you find something or change direction')
+		expect(NAMZU_WORKING_DOCTRINE).toContain(
+			'a question that needs at most one look gets no such line',
+		)
 	})
 
 	it('makes a task list optional, for work of three or more distinct steps', () => {
@@ -27,7 +31,7 @@ describe('keeping the person informed', () => {
 describe('reporting delegated work', () => {
 	it('tells the model to pass finished results on in its next message', () => {
 		expect(NAMZU_DELEGATION_DOCTRINE).toContain(
-			'When delegated agents finish, tell the user what each one found in your next message.',
+			'When delegated agents finish, tell the user what each one found in your next message',
 		)
 	})
 })

@@ -38,7 +38,7 @@ describe('the coding-agent doctrine', () => {
 		expect(CODING_AGENT_DELEGATION_DOCTRINE).toContain('A task list is optional.')
 		expect(CODING_AGENT_DELEGATION_DOCTRINE).not.toMatch(/`task_[a-z_]+`/)
 		// A model once deleted its own deliverable on being told to clean up.
-		expect(CODING_AGENT_WORKING_DOCTRINE).toContain('say where any throwaway file you made is')
+		expect(CODING_AGENT_WORKING_DOCTRINE).toContain('where any throwaway file you made is')
 		expect(CODING_AGENT_WORKING_DOCTRINE).not.toMatch(
 			/\b(?:remove|delete|clean up) (?:any |the )?(?:throwaway|scratch|temporary)/i,
 		)
@@ -172,7 +172,8 @@ describe('the coding-agent doctrine', () => {
 			expect(section).toContain(verdict)
 		expect(section).toContain('how long ago it last moved')
 		expect(section).toContain('finished (with its result), running (and where it is), queued')
-		expect(section).toContain('write in the language the person used')
+		// The language rule lives once, at the top of the identity, not in this section.
+		expect(section).not.toMatch(/language/)
 		expect(section).toContain('say it is still running')
 		expect(section).toContain('offer to run it again')
 		// Stated as what to do, with its reason, in plain words.
@@ -183,22 +184,76 @@ describe('the coding-agent doctrine', () => {
 		)
 	})
 
-	it("answers a question before acting, in the person's language, without an apology or a promise", () => {
+	it('answers a question before acting, without an apology or a promise', () => {
 		const section = CODING_AGENT_WORKING_DOCTRINE.slice(
 			CODING_AGENT_WORKING_DOCTRINE.indexOf('### Answering a question'),
+			CODING_AGENT_WORKING_DOCTRINE.indexOf('### Asking and proceeding'),
+		)
+		expect(section).toContain('gets an answer or an assessment first')
+		expect(section).toContain('Act only when asked to act')
+		expect(section).toContain('not with an apology')
+		expect(section).toContain('a turn never ends on a promise of a later answer')
+		// The answering section comes first in the working rules, not mid-prompt.
+		expect(CODING_AGENT_WORKING_DOCTRINE.indexOf('### Answering a question')).toBeLessThan(
+			CODING_AGENT_WORKING_DOCTRINE.indexOf('### Reporting'),
+		)
+		// Every agent gets it, a sub-agent included.
+		expect(codingAgentDoctrineContribution({ delegation: false }).render({})).toContain(section)
+	})
+
+	it('says what is missing and stops when a look finds nothing, rather than widening the search', () => {
+		const section = CODING_AGENT_WORKING_DOCTRINE.slice(
+			CODING_AGENT_WORKING_DOCTRINE.indexOf('### Answering a question'),
+			CODING_AGENT_WORKING_DOCTRINE.indexOf('### Asking and proceeding'),
+		)
+		expect(section).toContain('When two looks have not given the fact a question asks for')
+		expect(section).toContain('say what you looked at and what is missing, then stop')
+		expect(section).toContain('do not widen the search a third time')
+		expect(section).toContain('report what you ruled out and what would settle it')
+	})
+
+	it('asks only when the most likely reading cannot be named, asks once, and does not repeat a failed call', () => {
+		const section = CODING_AGENT_WORKING_DOCTRINE.slice(
+			CODING_AGENT_WORKING_DOCTRINE.indexOf('### Asking and proceeding'),
+			CODING_AGENT_WORKING_DOCTRINE.indexOf('### Reporting'),
+		)
+		expect(section).toContain('Ask only when you cannot name the most likely reading')
+		expect(section).toContain('Ask once, with your best guess')
+		expect(section).toContain('change the request or report it; do not issue the same call again')
+	})
+
+	it('keeps the coding specifics under one heading that applies only to a change, and the closing report conditional', () => {
+		const at = CODING_AGENT_WORKING_DOCTRINE.indexOf('### When the task is to change code')
+		const end = CODING_AGENT_WORKING_DOCTRINE.indexOf('### Working with git')
+		const code = CODING_AGENT_WORKING_DOCTRINE.slice(at, end)
+		expect(code).toContain('applies only when you were asked to change something')
+		for (const rule of [
+			'Begin editing once you know the first change',
+			'Finish the whole task',
+			'reproduce it first',
+			"Run the project's tests",
+		]) {
+			expect(code).toContain(rule)
+			// Outside that heading these rules do not ride on a plain question.
+			expect(CODING_AGENT_WORKING_DOCTRINE.replace(code, '')).not.toContain(rule)
+		}
+		expect(CODING_AGENT_WORKING_DOCTRINE).toContain(
+			'When you changed something, close with what changed, what was verified and what is left. For a question the reply is the answer.',
+		)
+	})
+
+	it('narrates only work of several calls: one line first, one on a finding, none per call', () => {
+		const section = CODING_AGENT_WORKING_DOCTRINE.slice(
 			CODING_AGENT_WORKING_DOCTRINE.indexOf('### Keeping the user informed'),
 		)
-		expect(section).toContain('your reply answers or assesses it first')
-		expect(section).toContain('Act only when asked to act')
-		expect(section).toContain('Never open a reply with an apology')
-		expect(section).toContain('a turn never ends on a promise of a later answer')
-		expect(section).toContain('Reply in the language the user wrote in')
-		expect(section).toContain('money and not tokens')
-		// Every agent gets it, a sub-agent included, and the line beside a tool
-		// call yields to a reply that is itself the answer.
-		expect(codingAgentDoctrineContribution({ delegation: false }).render({})).toContain(section)
-		expect(CODING_AGENT_WORKING_DOCTRINE).toContain(
-			'A reply that is itself the answer needs no such line.',
+		expect(section).toContain(
+			'For work that takes several calls, say one short line before the first call',
 		)
+		expect(section).toContain('one more when you find something or change direction')
+		expect(section).toContain('a question that needs at most one look gets no such line')
+		expect(section).toContain('no line goes beside each call')
+		// Said once: the old unconditional line is gone.
+		expect(CODING_AGENT_WORKING_DOCTRINE.match(/first call/g) ?? []).toHaveLength(1)
+		expect(CODING_AGENT_WORKING_DOCTRINE).not.toContain('Before your first tool call')
 	})
 })

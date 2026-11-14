@@ -44,6 +44,10 @@ If the latest message from the person is a short question (at most 400 character
 
 `reasoning.stall` takes `nudgeAfterSteps`, `nudgeAfterReasoningChars`, `forceAfterSteps` and `answerAfterSteps`, or `false` to turn the monitor off.
 
+### The wording the rule rests on
+
+The always-sent doctrine says it once and in one place. The identity's first sentence is the language rule: reply in the language of the person's latest message, and give amounts in money when money is asked, not in tokens; no later copy exists in the main prompt or in a delegated agent's. The working rules open with `Answering a question` (answer first; when two looks have not given the fact, say what was looked at and what is missing and stop, without widening the search a third time; when an investigation finds no cause, report what was ruled out and what would settle it) and `Asking and proceeding` (ask only when the most likely reading cannot be named, ask once with a best guess; after a refused or empty result change the request or report, never issue the same call again). The coding specifics (begin editing, finish the whole task, reproduce a defect, run tests and lint) sit under `When the task is to change code`, and the closing report of what changed is asked for only when something changed. Narration is one rule: for work of several calls, one line before the first call and one on a finding or a change of direction, none for a question that needs at most one look, none per call. A delegated agent gets the working rules once, under one blurb for its kind (a read-only searcher for `explore` and `plan`, a worker for the general agent). On the OpenRouter DeepSeek capture the main system message went from 21,894 to about 17,650 characters and an explore agent's from 18,590 to about 7,350.
+
 ## A reply of thinking only
 
 A reply that holds reasoning but no text and no call is not an end. The model is asked once more, plainly, before the closing request a limit makes. If even that produces nothing, the turn ends with a plain error that says the model stopped after thinking and that saying "continue" picks the work up. It never ends silently.
