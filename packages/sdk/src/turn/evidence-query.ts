@@ -344,7 +344,14 @@ export function createEvidenceQueryResolver() {
 				maxTokens: 512,
 				signal: context.signal,
 			})
-			.then(({ text }) => validateEvidenceQueryResolution(text, current, history))
+			.then(({ text, finishReason }) =>
+				// A planner that came back empty, or ran out of tokens before it
+				// finished, said nothing about the question. That is not a failed
+				// plan to report to the model: the lookup adds nothing this turn.
+				!text.trim() || finishReason === 'length'
+					? null
+					: validateEvidenceQueryResolution(text, current, history),
+			)
 		cached = { turnId: context.turnId, query, operator: identity, plan }
 		return plan
 	}

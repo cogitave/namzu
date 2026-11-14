@@ -1,5 +1,15 @@
 # @namzu/cli
 
+## 53.2.1
+
+### Patch Changes
+
+- ee44c7a: The token number beside an agent in the rail, and the sum beside a workflow, now says what the agent wrote (its output tokens, as `↓ 6.2k tokens`, the same arrow and meaning as the main turn's row) instead of every prompt it sent again on each request plus what it wrote, which grew with the square of its steps and read as over a million after a few quick steps. Nothing shows until the agent has reported its first usage. The agent's detail screen (including the one a rail row opens) and the agent list in a workflow's detail spell out the full picture from 110 columns (`wrote 6.2k · sent 1.17M (912.4k cached)`), transcript lines say `N tokens written`, and `/workflows` says `N tokens written` while the run's agents are in this process and `N tokens in all` for a run reloaded from its journal, which keeps only the cumulative figure. The `agent_task_list` tool output keeps `tokens` as it was (cumulative) and gains `outputTokens`; nothing is removed or changes meaning, so a caller that reads `tokens` is unaffected, and one that wants what the agent wrote reads `outputTokens`.
+- Updated dependencies [a235649]
+  - @namzu/deepseek@2.4.0
+  - @namzu/sdk@64.3.0
+  - @namzu/zen@5.2.0
+
 ## 53.2.0
 
 ### Minor Changes

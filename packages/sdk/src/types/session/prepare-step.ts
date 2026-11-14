@@ -33,6 +33,13 @@ export interface PreparationTextResult {
 	readonly text: string
 	readonly usage: TokenUsage
 	readonly servedBy: StepProvenance
+	/**
+	 * Why the provider stopped. `'length'` means the answer allowance ran out,
+	 * which on a reasoning model can leave `text` empty or cut off mid-way; a
+	 * caller that needs complete text treats it as no answer. Absent when the
+	 * provider reported none.
+	 */
+	readonly finishReason?: 'stop' | 'tool_calls' | 'length' | 'content_filter'
 }
 
 /**

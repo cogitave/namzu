@@ -113,8 +113,9 @@ it('meters auxiliary inference, follows preceding model selection, and leaves hi
 	expect(provider.requests).toHaveLength(2)
 	expect(provider.requests[0]).toMatchObject({
 		model: 'selected-model',
-		effort: 'low',
-		maxTokens: 128,
+		thinking: { type: 'disabled' },
+		// No driver answer on levels: the allowance carries room for reasoning.
+		maxTokens: 128 + 2048,
 	})
 	expect(provider.requests[0]!.tools).toBeUndefined()
 	expect(provider.requests[0]!.messages.map((m) => m.content)).toEqual([input.system, input.prompt])

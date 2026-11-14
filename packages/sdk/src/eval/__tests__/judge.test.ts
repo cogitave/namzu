@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { ProviderRequestError } from '../../provider/errors.js'
+import { SIDE_REQUEST_REASONING_HEADROOM } from '../../provider/side-request-reasoning.js'
 import type { ChatCompletionParams, StreamChunk } from '../../types/provider/index.js'
 import type { LLMProvider } from '../../types/provider/interface.js'
 import { runExperiment } from '../experiment.js'
@@ -122,6 +123,16 @@ describe('grading', () => {
 		// Sampling noise is indistinguishable from a regression, so the
 		// judge does not sample.
 		expect(provider.seen[0]?.temperature).toBe(0)
+	})
+
+	it('asks for no reasoning and leaves room, so a thinking model still answers', async () => {
+		const provider = fakeProvider('{"grade": 4, "reason": "ok"}') as LLMProvider & {
+			seen: ChatCompletionParams[]
+		}
+		await judgeScorer({ provider, model: 'm', rubric: RUBRIC }).score(TURN, CASE)
+		expect(provider.seen).toHaveLength(1)
+		expect(provider.seen[0]?.thinking).toEqual({ type: 'disabled' })
+		expect(provider.seen[0]?.maxTokens).toBe(512 + SIDE_REQUEST_REASONING_HEADROOM)
 	})
 })
 

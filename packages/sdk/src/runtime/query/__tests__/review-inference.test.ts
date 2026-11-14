@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
+import { SIDE_REQUEST_REASONING_HEADROOM } from '../../../provider/side-request-reasoning.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import { ProviderError } from '../../../types/provider/errors.js'
@@ -101,7 +102,11 @@ it.each(['prose', 'tool', 'native'] as const)(
 		for (const i of [1, 3]) {
 			const request = params.provider.requests[i]
 			expect(request?.messages.map((m) => m.content)).toEqual([input.system, input.prompt])
-			expect(request).toMatchObject({ model: 'selected-model', effort: 'low', maxTokens: 256 })
+			expect(request).toMatchObject({
+				model: 'selected-model',
+				thinking: { type: 'disabled' },
+				maxTokens: 256 + SIDE_REQUEST_REASONING_HEADROOM,
+			})
 			expect(request?.tools).toBeUndefined()
 			expect(request?.responseFormat).toBeUndefined()
 		}
