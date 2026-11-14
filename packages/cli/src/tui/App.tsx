@@ -7286,7 +7286,7 @@ function AppBody({
 	// working line, the running calls and a queued message still fit the window.
 	const flowContext: FlowContext = {
 		freeze: flowFreeze,
-		width: Math.max(10, terminal.columns - 4),
+		width: Math.max(10, terminal.columns - SCREEN_MARGIN - 2),
 		rows: flowRows(
 			terminal.rows,
 			taskFurniture + toolFurniture + pendingInputFurniture + callBlockFurniture,
@@ -16368,7 +16368,7 @@ function AppBody({
 					const max = maxBackgroundJobTailOffset(
 						output,
 						terminal.rows,
-						Math.max(1, terminal.columns - 2),
+						Math.max(1, terminal.columns - SCREEN_MARGIN),
 					)
 					const page = backgroundJobOutputPageSize(terminal.rows)
 					const offset = Math.min(shellView.tailOffset, max)
@@ -16777,7 +16777,11 @@ function AppBody({
 					}
 					if (key.pageUp || key.pageDown || key.home || key.end) {
 						const rows = agentViewPageRows(terminal.rows, viewRailRowsRef.current)
-						const max = maxAgentViewTailOffset(selected, rows, Math.max(1, terminal.columns - 2))
+						const max = maxAgentViewTailOffset(
+							selected,
+							rows,
+							Math.max(1, terminal.columns - SCREEN_MARGIN),
+						)
 						const offset = Math.min(agentView.tailOffset, max)
 						const next = key.home
 							? max
@@ -16898,7 +16902,7 @@ function AppBody({
 				if (key.home || key.end || key.pageUp || key.pageDown) {
 					const pageSize = choicePickerWindowSize({
 						rows: terminal.rows,
-						columns: Math.max(1, (terminal.columns ?? 80) - 2),
+						columns: Math.max(1, (terminal.columns ?? 80) - SCREEN_MARGIN),
 						searchable,
 						notice: Boolean(picker.notice),
 						selectedDescription: options.some((option) =>
@@ -17247,7 +17251,7 @@ function AppBody({
 		choicePicker?.kind === 'reasoning-effort'
 			? effortSliderLayout(
 					choicePicker.options.map((option) => option.label),
-					Math.max(1, (terminal.columns ?? 80) - 2),
+					Math.max(1, (terminal.columns ?? 80) - SCREEN_MARGIN),
 				)
 			: undefined
 	// A screen with its own box (a picker, a prompt, the agents or shells view)
@@ -17420,7 +17424,12 @@ function AppBody({
 			display={externalEditorRequest || fullscreenBlank ? 'none' : 'flex'}
 			fill={fullscreenOn}
 		>
-			<Box flexDirection="column" paddingX={1} flexGrow={fullscreenOn ? 1 : 0}>
+			<Box
+				flexDirection="column"
+				paddingLeft={0}
+				paddingRight={SCREEN_MARGIN}
+				flexGrow={fullscreenOn ? 1 : 0}
+			>
 				{/* Keep the Static owner mounted through startup pickers. Removing its
 				    ancestor frees Yoga memory that Ink still references during its final flush. */}
 				{fullscreen ? (
@@ -17428,7 +17437,7 @@ function AppBody({
 						messages={finalized}
 						pending={messages.find((m) => m.pending) ?? null}
 						pendingAt={pendingAt}
-						columns={Math.max(4, terminal.columns - 2)}
+						columns={Math.max(4, terminal.columns - SCREEN_MARGIN)}
 						maxRows={Math.max(3, terminal.rows - 1)}
 						hidden={lifecycleOwnsViewport}
 						keysActive={
@@ -17474,8 +17483,9 @@ function AppBody({
 							raw={rawOutput}
 							hyperlinks={hyperlinks}
 							showLive={!lifecycleOwnsViewport}
-							// The one column of padding the enclosing box gives every row.
-							staticIndent={1}
+							// Rows start in the first column; the enclosing box keeps a margin on the right.
+							staticIndent={0}
+							staticIndentRight={SCREEN_MARGIN}
 							header={
 								transcriptOwned ? (
 									<BrandHeader
@@ -17579,7 +17589,7 @@ function AppBody({
 							<PendingInputPanel
 								pendingSteers={pendingInputItems}
 								queued={queuedInputItems}
-								columns={Math.max(2, (terminal.columns ?? 80) - 2)}
+								columns={Math.max(2, (terminal.columns ?? 80) - SCREEN_MARGIN)}
 								rows={terminal.rows}
 								working={abortRef.current !== null}
 								selectedQueued={queueSelection}
@@ -17699,7 +17709,7 @@ function AppBody({
 								key={saveSkillPrompt.request.markdown}
 								request={saveSkillPrompt.request}
 								cwd={ctx.cwd}
-								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
+								columns={Math.max(1, (terminal.columns ?? 80) - SCREEN_MARGIN)}
 								rows={terminal.rows}
 								onAnswer={saveSkillPrompt.resolve}
 							/>
@@ -17711,7 +17721,7 @@ function AppBody({
 							<PlanApprovalOverlay
 								key={planPrompt.request.plan}
 								request={planPrompt.request}
-								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
+								columns={Math.max(1, (terminal.columns ?? 80) - SCREEN_MARGIN)}
 								rows={terminal.rows}
 								onAnswer={planPrompt.resolve}
 								onInterrupt={interruptTurn}
@@ -17724,7 +17734,7 @@ function AppBody({
 							<QuestionDialog
 								key={questionDialog.token}
 								question={questionDialog.question}
-								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
+								columns={Math.max(1, (terminal.columns ?? 80) - SCREEN_MARGIN)}
 								onAnswer={finishQuestionDialog}
 							/>
 						) : null}
@@ -17732,14 +17742,14 @@ function AppBody({
 							<ScheduleReviewOverlay
 								key={scheduleReviewPrompt.token}
 								request={scheduleReviewPrompt.request}
-								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
+								columns={Math.max(1, (terminal.columns ?? 80) - SCREEN_MARGIN)}
 								rows={Math.max(1, (terminal.rows ?? 24) - 2)}
 								onAnswer={scheduleReviewPrompt.resolve}
 							/>
 						) : null}
 						{textPrompt ? (
 							<TextPrompt
-								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
+								columns={Math.max(1, (terminal.columns ?? 80) - SCREEN_MARGIN)}
 								key={textPrompt.token}
 								title={textPrompt.title}
 								placeholder={textPrompt.placeholder}
@@ -17762,7 +17772,7 @@ function AppBody({
 								options={choicePicker.options}
 								selected={selectedChoice}
 								layout={effortSlider}
-								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
+								columns={Math.max(1, (terminal.columns ?? 80) - SCREEN_MARGIN)}
 							/>
 						) : permission === null &&
 							scheduleReviewPrompt === null &&
@@ -17770,7 +17780,7 @@ function AppBody({
 							choicePicker ? (
 							<ChoicePicker
 								busy={'busy' in choicePicker && choicePicker.busy === true}
-								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
+								columns={Math.max(1, (terminal.columns ?? 80) - SCREEN_MARGIN)}
 								title={choicePicker.title}
 								notice={choicePicker.notice}
 								{...(choicePicker.kind === 'workflow-runs'
@@ -17810,7 +17820,7 @@ function AppBody({
 								pending={messages.find((m) => m.pending) ?? null}
 								pendingAt={pendingAt}
 								height={Math.max(3, terminal.rows - SCROLL_VIEW_RESERVED_ROWS)}
-								columns={Math.max(4, terminal.columns - 2)}
+								columns={Math.max(4, terminal.columns - SCREEN_MARGIN)}
 								onClose={() => setScrollOpen(false)}
 							/>
 						) : null}
@@ -17822,7 +17832,7 @@ function AppBody({
 								agent={viewingAgent}
 								tailOffset={agentSurface.tailOffset}
 								pageRows={viewPageRows}
-								terminalColumns={Math.max(1, terminal.columns - 2)}
+								terminalColumns={Math.max(1, terminal.columns - SCREEN_MARGIN)}
 								notice={viewNotice}
 							/>
 						) : null}
@@ -17830,11 +17840,11 @@ function AppBody({
 							above={
 								<UpdateNoticeRow
 									notice={updateNotice}
-									columns={Math.max(2, (terminal.columns ?? 80) - 2)}
+									columns={Math.max(2, (terminal.columns ?? 80) - SCREEN_MARGIN)}
 									critical={noticeIsCritical}
 								/>
 							}
-							columns={Math.max(2, (terminal.columns ?? 80) - 2)}
+							columns={Math.max(2, (terminal.columns ?? 80) - SCREEN_MARGIN)}
 							working={state === 'thinking' || state === 'tool' || visibleActiveTools.length > 0}
 							{...(hypermode ? { mode: HYPERMODE } : {})}
 							activation={hypermodeActivation}
@@ -18142,7 +18152,7 @@ function AppBody({
 						tailOffset={jobSurface.tailOffset}
 						readJob={(id) => session?.readJob?.(id)}
 						rows={terminal.rows}
-						columns={Math.max(1, terminal.columns - 2)}
+						columns={Math.max(1, terminal.columns - SCREEN_MARGIN)}
 						now={jobClock}
 						busyJobId={jobSurface.busyJobId}
 						notice={jobSurface.notice}
@@ -18189,6 +18199,9 @@ function describeJobExit(job: {
 			: `exited ${job.exitCode ?? '?'}${job.signal ? ` (${job.signal})` : ''}`
 	return `background job ${job.jobId} (${job.command}) ${outcome}`
 }
+
+/** Columns kept empty at the right edge of the screen. Rows start in column 0. */
+const SCREEN_MARGIN = 1
 
 function TranscriptFrame({ children }: { readonly children: React.ReactNode }) {
 	// Borderless, edge-to-edge — the message glyph gutter provides structure.

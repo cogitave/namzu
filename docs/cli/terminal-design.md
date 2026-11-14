@@ -325,15 +325,15 @@ title and no box:
 
 ```text
 
-  ● main
-  ◯ general-purpose  Reading the README                      2m10s · ↓ 12.3k tokens
-  ◯ explore          Find where the footer is drawn  8s · ↓ 1.4k tokens · 2 queued
-  ◯ general-purpose  Check the changelog                          waiting
+● main
+◯ general-purpose  Reading the README                      2m10s · ↓ 12.3k tokens
+◯ explore          Find where the footer is drawn  8s · ↓ 1.4k tokens · 2 queued
+◯ general-purpose  Check the changelog                          waiting
 ```
 
-The first cell of a row is the pointer slot (`❯` on the selected row) and the
-bullet sits two cells in, directly under the first glyph of the footer line
-above it; rows stop two cells short of the right edge. `●` marks the transcript
+The bullet is the first cell of a row, directly under the first glyph of the
+footer line above it (`❯` takes its place on the selected row); rows stop two
+cells short of the right edge. `●` marks the transcript
 on screen and `◯` every other row; `main` is `●` until an agent is viewed. No
 accent colour is used: the pointer and the bullets take the row's own colour,
 and only a finished row's bullet is coloured — green when it succeeded, red
@@ -1913,10 +1913,14 @@ before it with a paragraph break, which split the word it landed in (`subag` /
 `ents`) in the message the model received. A bracketed paste over 80
 characters, and any unbracketed chunk that contains a newline, is still a chip.
 
-A row keeps its column and its wrap when it settles into scrollback. Settled
-rows used to lose the one column of padding live rows have, so a finished
-screen mixed rows starting at column 0 and column 1, and a long settled row
-wrapped two columns wider than it had while live. Nothing written after a reply that is
+A row keeps its column and its wrap when it settles into scrollback. Every row
+of the screen starts in the first column (the reply and tool marks, the
+person's message, the brand header, the notice rows, the input box's prompt
+row, the footer and the rows under it); the one column Namzu keeps empty is at
+the right edge, and the input box's rules run from the first column to it.
+Settled rows used to lose the padding live rows have, so a finished screen
+mixed rows starting at different columns, and a long settled row wrapped wider
+than it had while live. Nothing written after a reply that is
 still streaming settles before that reply does: a row written meanwhile (an
 agent's launch receipt, say) used to settle first, and when the reply then
 finished it landed below rows already printed, so one row was printed twice and

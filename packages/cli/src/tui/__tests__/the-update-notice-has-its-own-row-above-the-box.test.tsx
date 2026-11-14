@@ -47,14 +47,14 @@ function bottom(options: {
 	monitors?: number
 }) {
 	return (
-		<Box flexDirection="column" paddingX={1}>
+		<Box flexDirection="column" paddingLeft={0} paddingRight={1}>
 			<ComposerFrame
-				columns={options.cols - 2}
+				columns={options.cols - 1}
 				{...(options.mode ? { mode: options.mode } : {})}
 				above={
 					<UpdateNoticeRow
 						notice={options.notice}
-						columns={options.cols - 2}
+						columns={options.cols - 1}
 						critical={options.critical === true}
 					/>
 				}

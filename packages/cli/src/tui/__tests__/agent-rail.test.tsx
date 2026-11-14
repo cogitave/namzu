@@ -81,7 +81,7 @@ async function show(
 	const cols = props.cols ?? 100
 	mounted = await renderToScreen(
 		// The app's own one cell of side padding, which the rail reaches into.
-		<Box flexDirection="column" paddingX={1}>
+		<Box flexDirection="column" paddingLeft={0} paddingRight={1}>
 			<AgentTaskPanel
 				agents={agents}
 				terminalRows={40}
@@ -255,11 +255,9 @@ describe('rail rows', () => {
 				status: 'queued',
 			}),
 		])
-		expect(rows[0]).toMatch(/^ {2}● main$/u)
-		expect(rows[1]).toMatch(
-			/^ {2}◯ general-purpose {2,}Mine the UI reference\s+12s · ↓ 3\.2k tokens$/u,
-		)
-		expect(rows[2]).toMatch(/^ {2}◯ explore {2,}Find the footer\s+waiting$/u)
+		expect(rows[0]).toMatch(/^● main$/u)
+		expect(rows[1]).toMatch(/^◯ general-purpose {2,}Mine the UI reference\s+12s · ↓ 3\.2k tokens$/u)
+		expect(rows[2]).toMatch(/^◯ explore {2,}Find the footer\s+waiting$/u)
 		expect(rows).toHaveLength(3)
 		expect(rows.join('\n')).not.toContain('Delegated work')
 	})
@@ -278,10 +276,10 @@ describe('rail rows', () => {
 			}),
 			agent({ viewId: 'c', description: 'Saved one' }),
 		])
-		expect(rows[1]).toMatch(/^ {2}◯ count-words {2,}Count words in a\.txt\s+12s$/u)
-		expect(rows[2]).toMatch(/^ {2}◯ list-files {2,}List files in project directory\s+12s$/u)
+		expect(rows[1]).toMatch(/^◯ count-words {2,}Count words in a\.txt\s+12s$/u)
+		expect(rows[2]).toMatch(/^◯ list-files {2,}List files in project directory\s+12s$/u)
 		// No name: the type is the fallback.
-		expect(rows[3]).toMatch(/^ {2}◯ general-purpose {2,}Saved one\s+12s$/u)
+		expect(rows[3]).toMatch(/^◯ general-purpose {2,}Saved one\s+12s$/u)
 	})
 
 	it('shows what the agent is doing while it runs, and what it was asked once it ended', async () => {
@@ -294,7 +292,7 @@ describe('rail rows', () => {
 			}),
 		])
 		// The description stays; what it is doing now sits beside the clock.
-		expect(live[1]).toMatch(/^ {2}◯ count-words {2,}Count words\s+Read\(a\.txt\) · 12s$/u)
+		expect(live[1]).toMatch(/^◯ count-words {2,}Count words\s+Read\(a\.txt\) · 12s$/u)
 		await mounted?.unmount()
 		const done = await show([
 			agent({
@@ -306,24 +304,24 @@ describe('rail rows', () => {
 				completedAt: NOW - 1_000,
 			}),
 		])
-		expect(done[1]).toMatch(/^ {2}◯ count-words {2,}Count words\s+11s$/u)
+		expect(done[1]).toMatch(/^◯ count-words {2,}Count words\s+11s$/u)
 	})
 
-	it('puts a blank row above the rail, the bullet two cells in, and ends rows two cells short of the edge', async () => {
+	it('puts a blank row above the rail, the bullet in the first cell, and ends rows two cells short of the edge', async () => {
 		await show([agent({ viewId: 'a', agentId: 'count-words', description: 'Count words' })], {
 			cols: 100,
 		})
 		expect(lastScreen[0]?.trim()).toBe('')
-		expect(lastScreen[1]).toMatch(/^ {2}● main/u)
+		expect(lastScreen[1]).toMatch(/^● main/u)
 		const row = lastScreen[2] ?? ''
-		expect(row.indexOf('◯')).toBe(2)
+		expect(row.indexOf('◯')).toBe(0)
 		// The status block ends at column 98 of 100: its last character is at index 97.
 		expect(row.trimEnd().length).toBe(98)
 	})
 
 	it('shares one name column between agent rows and a workflow row', async () => {
 		mounted = await renderToScreen(
-			<Box flexDirection="column" paddingX={1}>
+			<Box flexDirection="column" paddingLeft={0} paddingRight={1}>
 				<AgentTaskPanel
 					agents={[
 						agent({
@@ -354,8 +352,8 @@ describe('rail rows', () => {
 		)
 		const rows = mounted.viewport().filter((row) => row.trim().length > 0)
 		// Name column is as wide as the longest name (22), the description starts two cells later.
-		expect(rows[1]?.indexOf('Count words')).toBe(4 + 22 + 2)
-		expect(rows[2]?.indexOf('▱')).toBe(4 + 22 + 2)
+		expect(rows[1]?.indexOf('Count words')).toBe(2 + 22 + 2)
+		expect(rows[2]?.indexOf('▱')).toBe(2 + 22 + 2)
 	})
 
 	it('draws no accent colour: the pointer and bullets use the row colour', async () => {
@@ -406,12 +404,12 @@ describe('rail rows', () => {
 			agent({ viewId: 'b', agentId: 'explorer', description: 'Second' }),
 		]
 		const selected = await show(agents, { selectedIndex: 2 })
-		expect(selected[0]).toMatch(/^ {2}● main\s*$/u)
-		expect(selected[2]).toMatch(/^❯ ◯ explorer {2,}Second/u)
+		expect(selected[0]).toMatch(/^● main\s*$/u)
+		expect(selected[2]).toMatch(/^❯ explorer {2,}Second/u)
 		await mounted?.unmount()
 		const viewing = await show(agents, { viewingId: 'a' })
-		expect(viewing[0]).toMatch(/^ {2}◯ main/u)
-		expect(viewing[1]).toMatch(/^ {2}● general-purpose {2,}First/u)
+		expect(viewing[0]).toMatch(/^◯ main/u)
+		expect(viewing[1]).toMatch(/^● general-purpose {2,}First/u)
 	})
 
 	it('gives every row the same label rule: the type column, whatever the neighbours are', async () => {
@@ -419,18 +417,18 @@ describe('rail rows', () => {
 			agent({ viewId: 'a', description: 'First' }),
 			agent({ viewId: 'b', description: 'Second' }),
 		])
-		expect(same[1]).toMatch(/^ {2}◯ general-purpose {2,}First\s+12s$/u)
-		expect(same[2]).toMatch(/^ {2}◯ general-purpose {2,}Second\s+12s$/u)
+		expect(same[1]).toMatch(/^◯ general-purpose {2,}First\s+12s$/u)
+		expect(same[2]).toMatch(/^◯ general-purpose {2,}Second\s+12s$/u)
 		await mounted?.unmount()
 		const alone = await show([agent({ viewId: 'a', description: 'First', status: 'failed' })])
-		expect(alone[1]).toMatch(/^ {2}◯ general-purpose {2,}First/u)
+		expect(alone[1]).toMatch(/^◯ general-purpose {2,}First/u)
 		await mounted?.unmount()
 		const mixed = await show([
 			agent({ viewId: 'a', description: 'First' }),
 			agent({ viewId: 'b', agentId: 'explorer', description: 'Second' }),
 		])
-		expect(mixed[1]).toMatch(/^ {2}◯ general-purpose {2,}First/u)
-		expect(mixed[2]).toMatch(/^ {2}◯ explorer {2,}Second/u)
+		expect(mixed[1]).toMatch(/^◯ general-purpose {2,}First/u)
+		expect(mixed[2]).toMatch(/^◯ explorer {2,}Second/u)
 	})
 
 	it('cuts a long live label instead of crowding the description out', () => {
@@ -473,7 +471,7 @@ describe('rail rows', () => {
 			compact: true,
 		})
 		expect(rows).toHaveLength(1)
-		expect(rows[0]).toMatch(/^ {2}● main\s+2 agents$/u)
+		expect(rows[0]).toMatch(/^● main\s+2 agents$/u)
 	})
 })
 
@@ -486,14 +484,14 @@ describe('window and overflow', () => {
 		expect(AGENT_RAIL_WINDOW).toBe(5)
 		const rows = await show(many)
 		expect(rows.filter((row) => /Worker/u.test(row))).toHaveLength(5)
-		expect(rows.at(-1)).toMatch(/^ {2}↓ 3 more$/u)
+		expect(rows.at(-1)).toMatch(/^↓ 3 more$/u)
 		expect(rows.join('\n')).toContain('Worker 0')
 		expect(rows.join('\n')).not.toContain('Worker 5')
 	})
 
 	it('scrolls with the selection and counts what is above on the main row', async () => {
 		const rows = await show(many, { selectedIndex: 8 })
-		expect(rows[0]).toMatch(/^ {2}● main\s+↑ 3 more$/u)
+		expect(rows[0]).toMatch(/^● main\s+↑ 3 more$/u)
 		expect(rows.join('\n')).toContain('Worker 7')
 		expect(rows.join('\n')).not.toContain('Worker 0')
 		expect(rows.join('\n')).not.toMatch(/↓ \d+ more/u)
@@ -512,7 +510,7 @@ describe('window and overflow', () => {
 		await mounted?.unmount()
 		await show(six, { selectedIndex: 1 })
 		// At the top the "↓ 1 more" row stands where the spare row was.
-		expect(lastScreen.some((row) => /^ {2}↓ 1 more$/u.test(row))).toBe(true)
+		expect(lastScreen.some((row) => /^↓ 1 more$/u.test(row))).toBe(true)
 		const heightAtTop = lastScreen.filter((row) => row.trim().length > 0).length
 		expect(heightAtTop).toBe(heightAtEnd + 1)
 		// Five agents or fewer: no spare row at all.
@@ -551,7 +549,7 @@ describe('the key line', () => {
 describe('the waiting line', () => {
 	it('stands apart from the line above it with one blank row', async () => {
 		mounted = await renderToScreen(
-			<Box flexDirection="column" paddingX={1}>
+			<Box flexDirection="column" paddingLeft={0} paddingRight={1}>
 				<Text>Started the lookup.</Text>
 				<BackgroundAgentRows
 					groups={[]}

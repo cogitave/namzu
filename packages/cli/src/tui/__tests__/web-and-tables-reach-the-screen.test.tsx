@@ -217,8 +217,8 @@ it.each([160, 120, 80, 40])(
 
 /** The rows of the answer's table: from its top rule to its bottom one. */
 function tableRows(lines: readonly string[]): string[] {
-	const top = lines.findIndex((line) => /^ {3}┌/u.test(line))
-	const bottom = lines.findIndex((line) => /^ {3}└/u.test(line))
+	const top = lines.findIndex((line) => /^ {2}┌/u.test(line))
+	const bottom = lines.findIndex((line) => /^ {2}└/u.test(line))
 	return top < 0 ? [] : lines.slice(top, bottom + 1)
 }
 

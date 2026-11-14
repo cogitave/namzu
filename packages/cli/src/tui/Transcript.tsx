@@ -103,6 +103,8 @@ export interface TranscriptProps {
 	 * which puts them in the column, and at the width, they had live.
 	 */
 	readonly staticIndent?: number
+	/** Columns of padding right of this transcript, when it is not the same as on the left. */
+	readonly staticIndentRight?: number
 }
 
 const COLLAPSE_LINES = 6
@@ -189,6 +191,7 @@ export function Transcript({
 	showLive = true,
 	header,
 	staticIndent = 0,
+	staticIndentRight = staticIndent,
 }: TranscriptProps) {
 	// A message with a code block that waits for its colours is held out of the scrollback
 	// until they have arrived or the wait is over. The check is made once per message (the
@@ -247,7 +250,7 @@ export function Transcript({
 	// caller's padding on both sides, which settled rows draw themselves.
 	const { columns } = useWindowSize()
 	return (
-		<ContentWidth.Provider value={Math.max(10, columns - 2 * staticIndent - 2)}>
+		<ContentWidth.Provider value={Math.max(10, columns - staticIndent - staticIndentRight - 2)}>
 			<Box flexDirection="column">
 				<Static key={resetKey} items={rows}>
 					{(row) => (
@@ -258,7 +261,7 @@ export function Transcript({
 							flexDirection="column"
 							width={columns}
 							paddingLeft={staticIndent}
-							paddingRight={staticIndent}
+							paddingRight={staticIndentRight}
 						>
 							{row.kind === 'header' ? (
 								<Box>{header}</Box>

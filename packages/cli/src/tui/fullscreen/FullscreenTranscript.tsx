@@ -129,8 +129,8 @@ const REAL_CLOCK: WheelClock = {
 
 /** Cells of the gutter (glyph and a space) the text starts after. */
 const GUTTER = 2
-/** Terminal columns left of the window's own columns: the screen's padding. */
-const SCREEN_PADDING = 1
+/** Terminal columns left of the window's own columns: rows start in the first column. */
+const SCREEN_PADDING = 0
 const DOUBLE_CLICK_MS = 400
 const NOTE_OK_MS = 2000
 const NOTE_FAIL_MS = 4000
