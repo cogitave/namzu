@@ -88,6 +88,7 @@ import {
 	WorkspaceBackendRegistry,
 	asTaskId,
 	asTurnId,
+	chatStreamForSideRequest,
 	collectChatCompletion,
 	createSystemMessage,
 	createUserMessage,
@@ -1446,15 +1447,21 @@ export async function createSubagentRuntime(
 				estimatedPromptTokens: Math.ceil((instruction.length + body.length) / 4),
 				signal,
 				request: async () => {
+					// Sixty tokens: a thinking model would spend all of them on
+					// reasoning, so the request asks for none (or leaves room), and an
+					// answer that still ran out of tokens is no label.
 					const response = await collectChatCompletion(
-						provider.chatStream({
+						chatStreamForSideRequest(provider, {
 							model,
 							messages: [createSystemMessage(instruction), createUserMessage(body)],
 							maxTokens: 60,
 							signal,
 						}),
 					)
-					return { value: response.message.content ?? '', usage: response.usage }
+					return {
+						value: response.finishReason === 'length' ? '' : (response.message.content ?? ''),
+						usage: response.usage,
+					}
 				},
 			})
 			return text === undefined ? undefined : { text }
@@ -3340,7 +3347,9 @@ async function runBlockingAgentTask(
 			// returns. Parent release still owns cancellation and the tree budget.
 			completion.catch(() => {})
 			input.completionInbox.expect(handle.taskId)
-			return { kind: 'yielded', handle }
+			// The handle from creation is a copy made before admission; the
+			// report says what the task is doing now, not what it was.
+			return { kind: 'yielded', handle: gateway.getTask(handle.taskId) ?? handle }
 		}
 		const inbound = input
 			.waitForInbound?.(wakeController.signal)

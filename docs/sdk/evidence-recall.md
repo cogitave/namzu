@@ -230,7 +230,7 @@ retrieval behavior remains.
 See the [focused-query experiment](../../research/conversation-evidence/query-focus-results.md)
 for the common-field failure, archived-history controls and live sample limits.
 
-A `none` plan skips optional recall without a note. Malformed or ungrounded
+A `none` plan skips optional recall without a note, and so does a planner reply that is empty or ended with finish reason `length` (a thinking model that spent its allowance before writing): the lookup adds nothing that turn and no note says evidence is unavailable. Malformed or ungrounded
 plans remain failed-stage diagnostics. With enough context room, retrieval still
 runs once using the unchanged current-query tokens and the same byte, candidate
 and deadline limits. No terms or references from the rejected plan are used.
@@ -245,7 +245,7 @@ One plan promise is cached for the same turn and operator-message identity, also
 keyed by question text. New turns or steering input invalidate it. A failed plan
 is not retried on every iteration. Evidence bytes are retrieved and
 revalidated on the first call of each turn (see below for the later calls). This cache is local to the hook, not durable memory.
-The planning call permits at most 512 output tokens and ten seconds, sharing the
+The planning call permits at most 512 output tokens (plus the reasoning headroom a driver that cannot switch reasoning off needs) and ten seconds, sharing the
 turn's provider chain, token ledger and cancellation. Those tokens count toward
 the turn; the subsequent retrieval deadline is separate. These are bounded
 preparation costs, not free retrieval or a hard provider billing ceiling.
