@@ -1,5 +1,12 @@
 # @namzu/cli
 
+## 53.3.1
+
+### Patch Changes
+
+- 41581bb: Esc on an open `/` or `@` suggestion menu now closes the menu and leaves what you typed alone; it no longer shows "Esc again to clear" or wipes the draft on the next press. In a Ctrl+R history search, Esc now leaves the search with the match you found in the box, and Ctrl+C goes back to the draft that was there before. Tab right after Esc closed a menu brings the menu back instead of sending the half-typed command.
+- 3aa3862: The arrow keys now move both ways between the input box and the rows under the status row. Up from the first stop (the shell pill, or the first agent or workflow row) puts the keyboard back in the input box with your draft and caret as they were, so Esc is no longer the only way out. Ctrl+P and Ctrl+N work as Up and Down while the rows have the keyboard. Down on the shell pill, when no row follows it, opens the Background list, like Enter. Down also reaches the rows from a typed draft (caret on its last line, no suggestions open) and leaves the draft untouched. While a reply is running, the first Esc on a row only leaves the rows; the next Esc interrupts.
+
 ## 53.3.0
 
 ### Minor Changes
