@@ -320,10 +320,10 @@ describe('acceptsForcedToolChoiceFor', () => {
 		expect(p.acceptsForcedToolChoiceFor(model, thinking, effort)).toBe(expected)
 	})
 
-	it('does not refuse a forced choice before transport (the route answered it)', async () => {
+	it('does not put a forced choice on the wire where the model refuses it', async () => {
 		const { bodies } = await run([frame({ content: 'x' }, 'stop')], { toolChoice: 'required' })
 		expect(bodies).toHaveLength(1)
-		expect(bodies[0]?.tool_choice).toBe('required')
+		expect(bodies[0]).not.toHaveProperty('tool_choice')
 	})
 })
 

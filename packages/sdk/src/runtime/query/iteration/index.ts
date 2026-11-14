@@ -1239,14 +1239,27 @@ export class IterationOrchestrator {
 					// provider says one is safe and thinking is off for the request.
 					// Every other case (a refusal, no answer, thinking on) asks in
 					// words, on this request only, and keeps the step's low effort.
+					//
+					// A choice the step itself set (`step.toolChoice`) is a forced choice
+					// whoever set it: `required` or a named function is dropped, and asked
+					// in words, when the provider says it would refuse it.
+					const stepChoiceForced =
+						step.toolChoice !== undefined &&
+						step.toolChoice !== 'auto' &&
+						step.toolChoice !== 'none'
+					const thinkingOn =
+						turnConfig.thinking !== undefined && turnConfig.thinking.type !== 'disabled'
+					const forcedChoiceAnswer =
+						forcedAction || stepChoiceForced
+							? this.ctx.provider.acceptsForcedToolChoiceFor?.(
+									stepModel,
+									turnConfig.thinking,
+									stepEffort,
+								)
+							: undefined
 					const forcedChoiceRefused =
-						forcedAction &&
-						(this.ctx.provider.acceptsForcedToolChoiceFor?.(
-							stepModel,
-							turnConfig.thinking,
-							stepEffort,
-						) !== true ||
-							(turnConfig.thinking !== undefined && turnConfig.thinking.type !== 'disabled'))
+						(forcedAction && (forcedChoiceAnswer !== true || thinkingOn)) ||
+						(!forcedAction && stepChoiceForced && forcedChoiceAnswer === false)
 					const operatorInputAtDispatch = this.latestUserMessage
 					const latestReviewUserMessage =
 						(this.ctx.reviewAnswer || this.ctx.structuredOutput?.review) && operatorInputAtDispatch
@@ -1290,7 +1303,9 @@ export class IterationOrchestrator {
 									: llmTools.length > 0
 										? forcedAction && !forcedChoiceRefused
 											? (step.toolChoice ?? 'required')
-											: step.toolChoice
+											: stepChoiceForced && forcedChoiceRefused
+												? undefined
+												: step.toolChoice
 										: undefined,
 							temperature: step.temperature ?? turnConfig.temperature,
 							maxTokens:

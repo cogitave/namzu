@@ -39,7 +39,7 @@ describe('the footer row', () => {
 			shellCount: 1,
 		})
 		// A running background task takes the cycle key off the row.
-		expect(text).toContain('⏵⏵ bypass permissions on · PR #592 · 1 bg')
+		expect(text).toContain('⏵⏵ bypass permissions on · PR #592 · 1 shell')
 		expect(text).not.toContain('/tasks')
 		expect(text.trimEnd()).toMatch(/gpt-5\.6-terra$/)
 		const noTask = await row({ permissionMode: 'bypass', canCycleMode: true, pr: PR('approved') })
@@ -49,9 +49,10 @@ describe('the footer row', () => {
 	// The cycle key leaves the row only while a background task is counted, and the
 	// count leaves agents and workflows out when the agents panel is on — they are
 	// rows of their own. Shells are counted.
-	it('counts monitors and shells together in one pill', async () => {
-		expect(await row({ shellCount: 2, monitorCount: 1 })).toContain('3 bg')
-		expect(await row({ monitorCount: 3 })).toContain('3 bg')
+	it('names shells and monitors in pills of their own', async () => {
+		expect(await row({ shellCount: 2, monitorCount: 1 })).toContain('2 shells · 1 monitor')
+		expect(await row({ monitorCount: 3 })).toContain('3 monitors')
+		expect(await row({ monitorCount: 3 })).not.toContain('shell')
 	})
 
 	it('keeps the cycle key beside running agents and drops it only for a running shell', async () => {
@@ -67,7 +68,7 @@ describe('the footer row', () => {
 			140,
 		)
 		expect(withShell).not.toContain('shift+tab to cycle')
-		expect(withShell).toContain('1 bg')
+		expect(withShell).toContain('1 shell')
 	})
 
 	it('puts esc to interrupt, the agents hint and the manage hint last, in that order', async () => {
@@ -84,7 +85,7 @@ describe('the footer row', () => {
 			140,
 		)
 		expect(text).toContain(
-			'⏵⏵ bypass permissions on · PR #592 · 3 bg · esc to interrupt · ← 1 agent · ↓ to manage',
+			'⏵⏵ bypass permissions on · PR #592 · 3 shells · esc to interrupt · ← 1 agent · ↓ to manage',
 		)
 		expect(text.trimEnd()).toMatch(/gpt-5\.6-terra$/)
 	})
@@ -101,9 +102,9 @@ describe('the footer row', () => {
 
 	it('offers ↓ to manage only when told ↓ reaches something, and swaps it for enter while the pill is selected', async () => {
 		expect(await row({ shellCount: 2 })).not.toContain('↓')
-		expect(await row({ shellCount: 2, canManage: true })).toContain('2 bg · ↓ to manage')
+		expect(await row({ shellCount: 2, canManage: true })).toContain('2 shells · ↓ to manage')
 		const selected = await row({ shellCount: 2, canManage: true, shellsSelected: true })
-		expect(selected).toContain('2 bg · enter to view tasks')
+		expect(selected).toContain('2 shells · enter to view tasks')
 		expect(selected).not.toContain('↓ to manage')
 	})
 
@@ -138,13 +139,13 @@ describe('the footer row', () => {
 		expect(quiet).not.toContain('⏵⏵')
 		const busy = await row({ permissionMode: 'prompt', canCycleMode: true, shellCount: 2 })
 		expect(busy).not.toContain('shift+tab')
-		expect(busy).toContain('2 bg')
+		expect(busy).toContain('2 shells')
 	})
 
 	it('counts the background pill and leaves it out at zero', async () => {
-		expect(await row({ shellCount: 1 })).toContain('1 bg')
-		expect(await row({ shellCount: 3 })).toContain('3 bg')
-		expect(await row({ shellCount: 0 })).not.toContain(' bg')
+		expect(await row({ shellCount: 1 })).toContain('1 shell')
+		expect(await row({ shellCount: 3 })).toContain('3 shells')
+		expect(await row({ shellCount: 0 })).not.toContain('shell')
 	})
 
 	it('adds "esc to interrupt" after the mode while a turn runs', async () => {
@@ -213,11 +214,11 @@ describe('the footer row', () => {
 		expect(shortManage).not.toContain('↓ to manage')
 		expect(shortManage).not.toContain('← 1 agent')
 		const noInterrupt = await row(props, 69)
-		expect(noInterrupt).toContain('2 bg')
+		expect(noInterrupt).toContain('2 shells')
 		expect(noInterrupt).toContain('↓ agents')
 		expect(noInterrupt).not.toContain('esc to interrupt')
 		const pointerGone = await row(props, 50)
-		expect(pointerGone).toContain('2 bg')
+		expect(pointerGone).toContain('2 shells')
 		expect(pointerGone).not.toContain('↓ agents')
 		const narrow = await row(props, 45)
 		expect(narrow).toContain('⏵⏵ bypass permissions on')

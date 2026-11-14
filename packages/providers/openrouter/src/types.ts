@@ -14,6 +14,8 @@ export interface OpenRouterConfig {
 	siteUrl?: string
 	siteName?: string
 	timeout?: number
+	/** Receives the driver's debug lines. Absent, they are discarded. */
+	logger?: import('@namzu/sdk').Logger
 }
 
 export interface OpenRouterProviderConfig extends OpenRouterConfig {
