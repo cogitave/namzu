@@ -2,7 +2,7 @@
 	position: fixed;
 	inset: 0;
 	z-index: var(--z-overlay-scrim);
-	background: rgb(0 0 0 / 18%);
+	background: var(--dialog-scrim);
 	opacity: 1;
 	transition: opacity 150ms var(--motion-ease);
 }
@@ -16,19 +16,22 @@
 	z-index: var(--z-overlay);
 	display: grid;
 	place-items: center;
-	padding: 16px;
+	padding: 0;
 }
 .command-palette-popup {
 	position: relative;
 	display: flex;
 	flex-direction: column;
-	width: min(520px, calc(100vw - 32px));
-	height: min(490px, calc(100dvh - 32px));
+	width: min(var(--palette-width), 100vw - 32px);
+	height: min(var(--palette-height), 70dvh);
+	/* The viewport centres the margin box, so a top margin of twice the drop puts the surface's centre
+	   that far below the window's centre. */
+	margin-top: calc(2 * var(--palette-drop));
 	min-width: 0;
 	min-height: 0;
 	overflow: hidden;
 	border: 1px solid var(--border);
-	border-radius: var(--radius-panel);
+	border-radius: var(--palette-radius);
 	background: var(--surface-raised);
 	color: var(--foreground);
 	box-shadow: var(--shadow-dialog);
@@ -54,13 +57,41 @@
 	white-space: nowrap;
 }
 .command-palette-search {
+	display: flex;
 	flex: none;
-	padding: 8px 14px 5px;
+	align-items: center;
+	gap: 12px;
+	padding: var(--palette-input-top) var(--palette-side) 0;
+}
+.command-palette-close {
+	display: grid;
+	flex: none;
+	place-items: center;
+	width: var(--palette-icon-size);
+	height: var(--palette-icon-size);
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--muted-foreground);
+	cursor: pointer;
+}
+.command-palette-close:hover {
+	color: var(--foreground);
+}
+.command-palette-close:focus-visible {
+	outline: 2px solid transparent;
+	border-radius: var(--radius-code);
+	box-shadow: var(--focus-ring);
+}
+.command-palette-close svg {
+	width: var(--palette-icon-size);
+	height: var(--palette-icon-size);
 }
 .command-palette-input {
 	display: block;
-	width: 100%;
-	height: 33px;
+	flex: 1;
+	min-width: 0;
+	height: var(--palette-input-height);
 	margin: 0;
 	padding: 0;
 	border: 0;
@@ -82,16 +113,21 @@
 	overscroll-behavior: contain;
 	scrollbar-width: thin;
 	scrollbar-color: var(--app-scrollbar-thumb) transparent;
-	padding: 0 4px 10px;
+	padding: 8px var(--palette-list-inset);
 	outline: none;
 }
 .command-palette-group {
 	display: grid;
-	gap: 1px;
-	margin: 0 0 6px;
+	gap: 0;
+	margin: 0;
 }
+.command-palette-group + .command-palette-group {
+	margin-top: var(--palette-caption-gap);
+}
+/* The caption stands 8 above the first row of its group. */
 .command-palette-group-label {
-	padding: 5px 8px 3px;
+	padding: 0 var(--palette-row-inset);
+	margin-bottom: var(--palette-caption-gap);
 	color: var(--muted-foreground);
 	font-size: var(--text-caption);
 	line-height: var(--leading-caption);
@@ -100,11 +136,11 @@
 .command-palette-item {
 	display: flex;
 	align-items: center;
-	gap: 8px;
+	gap: var(--palette-icon-gap);
 	min-width: 0;
-	min-height: 31px;
-	padding: 5px 8px;
-	border-radius: var(--radius-card);
+	height: var(--palette-row-height);
+	padding: 0 var(--palette-row-inset);
+	border-radius: var(--palette-row-radius);
 	outline: none;
 	cursor: pointer;
 	transition: background-color 100ms ease, color 100ms ease, transform 100ms var(--motion-ease);
@@ -125,13 +161,13 @@
 	display: grid;
 	flex: none;
 	place-items: center;
-	width: 16px;
-	height: 18px;
+	width: var(--palette-icon-size);
+	height: var(--palette-icon-size);
 	color: var(--sidebar-muted-foreground);
 }
 .command-palette-icon svg {
-	width: 15px;
-	height: 15px;
+	width: var(--palette-icon-size);
+	height: var(--palette-icon-size);
 }
 .command-palette-label {
 	flex: 1;
@@ -172,12 +208,27 @@
 	align-items: center;
 	gap: 2px;
 }
-.command-palette-shortcut kbd {
-	min-width: 18px;
-	padding: 0 6px;
+.command-palette-meta,
+.command-palette-shortcut {
+	display: none;
+}
+/* Only the highlighted row shows its right-hand hints. */
+.command-palette-item[data-highlighted] .command-palette-meta {
+	display: block;
+}
+.command-palette-item[data-highlighted] .command-palette-shortcut {
+	display: flex;
+}
+.command-palette-shortcut kbd,
+.command-palette-footer kbd {
+	box-sizing: border-box;
+	min-width: var(--palette-key-height);
+	height: var(--palette-key-height);
+	padding: 0 4px;
+	text-align: center;
 	white-space: nowrap;
-	border-radius: var(--radius-chip);
-	background: color-mix(in srgb, var(--foreground) 8%, transparent);
+	border: 1px solid var(--border);
+	border-radius: var(--palette-key-radius);
 	color: var(--muted-foreground);
 	font: inherit;
 	font-variant-ligatures: none;
@@ -197,6 +248,24 @@
 }
 .command-palette-list[data-empty] {
 	display: none;
+}
+.command-palette-footer {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 16px;
+	box-sizing: border-box;
+	height: var(--palette-footer-height);
+	padding: 0 var(--palette-side);
+	border-top: 1px solid var(--border);
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+}
+.command-palette-footer span {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
 }
 .command-palette-status {
 	display: flex;

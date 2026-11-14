@@ -8,7 +8,7 @@
 .plan-steps {
 	list-style: none;
 	margin: 0;
-	padding: 2px 0 4px 22px;
+	padding: 4px var(--turn-block-inset);
 	display: grid;
 	gap: 2px;
 }
@@ -72,7 +72,7 @@
 	white-space: nowrap;
 }
 .plan-more {
-	margin: 0 0 4px 22px;
+	margin: 0 0 4px var(--turn-block-inset);
 	padding: 2px 0;
 	border: 0;
 	background: none;
@@ -87,6 +87,88 @@
 }
 @media (prefers-reduced-motion: reduce) {
 	.plan-spinner {
+		animation: none;
+	}
+}
+/*
+ * The plan while the turn runs: one box under the person's message, outside the fold. A hairline edge, the page's own
+ * fill, rows on a fixed pitch. When the answer lands the plan folds into the work block (the rules above).
+ */
+.plan-box {
+	margin: 0 0 var(--turn-plan-gap);
+	padding: var(--turn-plan-pad);
+	border: 1px solid var(--turn-edge);
+	border-radius: var(--turn-plan-radius);
+	background: var(--background);
+}
+.plan-box-steps {
+	display: block;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.plan-box-steps > li {
+	position: relative;
+	display: flex;
+	align-items: center;
+	gap: var(--turn-plan-mark-gap);
+	height: var(--turn-plan-pitch);
+	min-width: 0;
+	color: var(--foreground);
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
+}
+.plan-box-steps > li[data-status="completed"] {
+	color: var(--muted-foreground);
+}
+.plan-box-mark {
+	flex: none;
+	width: var(--turn-plan-mark);
+	height: var(--turn-plan-mark);
+}
+.plan-box-steps .plan-subject {
+	flex: 1;
+}
+.plan-box-disc {
+	fill: var(--muted-foreground);
+}
+.plan-box-disc[data-failed] {
+	fill: var(--error-foreground);
+}
+.plan-box-glyph {
+	fill: none;
+	stroke: var(--background);
+	stroke-width: 1.5;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+.plan-box-ring {
+	fill: none;
+	stroke: var(--icon-muted);
+	stroke-width: 1.5;
+	stroke-dasharray: 2.5 2.5;
+}
+.plan-box-arc {
+	fill: none;
+	stroke: var(--border);
+	stroke-width: 2;
+}
+.plan-box-arc-head {
+	fill: none;
+	stroke: var(--foreground);
+	stroke-width: 2;
+	stroke-linecap: round;
+	transform-origin: 8px 8px;
+	animation: plan-spin 1s linear infinite;
+}
+.plan-box .plan-more {
+	display: block;
+	height: var(--turn-plan-pitch);
+	margin: 0;
+	padding: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+	.plan-box-arc-head {
 		animation: none;
 	}
 }

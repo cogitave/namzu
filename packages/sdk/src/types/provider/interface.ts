@@ -185,12 +185,19 @@ export interface LLMProvider {
 	 *
 	 * The kernel asks before it requires a tool call on a step it wants to act,
 	 * and when the answer is `false` it keeps the step at low effort and asks the
-	 * model in words instead of sending a choice the driver would refuse. Optional:
+	 * model in words instead of sending a choice the driver would refuse. `effort`
+	 * is the level the request will carry, for a driver where the level also
+	 * decides whether thinking is on (a provider that does not need it ignores
+	 * it). Optional:
 	 * a provider that does not declare it is treated as taking the choice, so
 	 * every existing driver behaves as before. A wrapper that rebuilds a provider
 	 * forwards it.
 	 */
-	acceptsForcedToolChoiceFor?(model: string, thinking?: import('./chat.js').ThinkingConfig): boolean
+	acceptsForcedToolChoiceFor?(
+		model: string,
+		thinking?: import('./chat.js').ThinkingConfig,
+		effort?: import('./chat.js').ReasoningEffort,
+	): boolean
 
 	/**
 	 * The effort a model uses when a request omits an explicit level.

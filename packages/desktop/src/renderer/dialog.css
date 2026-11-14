@@ -1,0 +1,59 @@
+/* One look for every dialog: the scrim over the whole window, the surface, the title, the body and the
+   row of buttons. The sizes are the --dialog-* tokens in theme.css. A confirm dialog is one width
+   (--dialog-confirm-width); a wider dialog keeps its own width and takes the rest. */
+.dialog-scrim {
+	position: fixed;
+	inset: 0;
+	z-index: var(--z-scrim);
+	background: var(--dialog-scrim);
+}
+.dialog-viewport {
+	position: fixed;
+	inset: 0;
+	z-index: var(--z-dialog);
+	display: grid;
+	place-items: center;
+	padding: var(--dialog-padding);
+	overflow-y: auto;
+}
+.dialog-popup {
+	box-sizing: border-box;
+	width: 100%;
+	padding: var(--dialog-padding);
+	border: 1px solid var(--border);
+	border-radius: var(--dialog-radius);
+	background: var(--background);
+	color: var(--foreground);
+	box-shadow: var(--shadow-dialog);
+	outline: none;
+}
+.dialog-popup[data-dialog-size="confirm"] {
+	width: min(var(--dialog-confirm-width), 100%);
+}
+.dialog-title {
+	margin: 0;
+	font-size: var(--text-reading);
+	font-weight: var(--weight-strong);
+	line-height: var(--leading-reading);
+}
+.dialog-body {
+	margin: var(--dialog-gap) 0 0;
+	color: var(--muted-foreground);
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
+}
+.dialog-actions,
+.update-dialog-actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: var(--dialog-gap);
+	margin-top: var(--dialog-actions-gap);
+}
+.dialog-actions > button,
+.update-dialog-actions > button {
+	height: var(--dialog-button-height);
+	min-height: var(--dialog-button-height);
+	padding-block: 0;
+	border-radius: var(--dialog-button-radius);
+}

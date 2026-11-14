@@ -440,7 +440,8 @@ export function withProviderRetry(
 					acceptsForcedToolChoiceFor: (
 						model: string,
 						thinking?: Parameters<NonNullable<LLMProvider['acceptsForcedToolChoiceFor']>>[1],
-					) => provider.acceptsForcedToolChoiceFor?.(model, thinking) ?? true,
+						effort?: Parameters<NonNullable<LLMProvider['acceptsForcedToolChoiceFor']>>[2],
+					) => provider.acceptsForcedToolChoiceFor?.(model, thinking, effort) ?? true,
 				}
 			: {}),
 		...(provider.reasoningEffortLevelsFor

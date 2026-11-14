@@ -16,7 +16,7 @@ import { providerWaitAnnouncement, providerWaitText } from './friendly-errors.js
 import { ChevronRightIcon } from './icons.js'
 import { Message, MessageContent, MessageFooter, timeDescription, timeRoleOf } from './message.js'
 import { PalMessageReceipts } from './pal-message-receipts.js'
-import { PlanRow, PlanTouched } from './plan-row-view.js'
+import { PlanBox, PlanRow, PlanTouched } from './plan-row-view.js'
 import { isTaskEntry, latestPlanTurn } from './plan-row.js'
 import { ProviderNameContext } from './provider-name-context.js'
 import { renderedEqual } from './rendered-equal.js'
@@ -61,6 +61,7 @@ import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsi
 import type { UndoCardView } from './undo-model.js'
 import { type WorkDisclosureChoices, workDisclosureKey } from './workspace-presentation.js'
 import './transcript-motion.css'
+import './transcript-rhythm.css'
 
 /** A reply is settled once it stops streaming; only then are its file references looked up. */
 function replySettled(
@@ -147,6 +148,7 @@ function Entry({
 			{/* A message of attachments alone has no bubble. */}
 			{(message.text.trim() || message.role !== 'user') && (
 				<MessageContent
+					className={message.role === 'user' ? 'message-bubble' : 'message-body'}
 					text={message.text}
 					markdown={message.role === 'assistant'}
 					settled={settled && message.role === 'assistant'}
@@ -197,6 +199,40 @@ function separatorTimes(
 		if (flags[index] && item.at !== undefined) result.set(item.key, item.at)
 	})
 	return result
+}
+
+/** The fold's chevron: a thin glyph 6 wide and 8 high that points right when closed and down when open. */
+function FoldChevron() {
+	return (
+		<svg
+			className="fold-chevron"
+			viewBox="0 0 6 8"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="1.25"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			aria-hidden="true"
+		>
+			<path d="M1.25 1 4.75 4 1.25 7" />
+		</svg>
+	)
+}
+
+/** Four square dots in two rows of two, lit in turn; still while the turn waits on the person. */
+function WorkMark({ state, className }: { state?: string; className?: string }) {
+	return (
+		<span
+			className={className ? `working-mark ${className}` : 'working-mark'}
+			data-state={state}
+			aria-hidden="true"
+		>
+			<i />
+			<i />
+			<i />
+			<i />
+		</span>
+	)
 }
 
 function PhaseLabel({ label, animate }: { label: string; animate: boolean }) {
@@ -413,9 +449,12 @@ function TurnActivity({
 	// The task tools' rows fold into one plan row, drawn where the first of them was.
 	const planAt = entries.findIndex((entry) => isTaskEntry(thread, entry))
 	const planKey = workDisclosureKey(turn, 'plan')
+	// While the turn runs, its plan stands in the flow under the person's message, outside the fold;
+	// when the answer lands it folds into the work block.
 	// Only the block that owns the clock names the stage, and only until the answer starts.
 	const liveLine = live && ownsTurnSummary && !answered
 	const status = liveLine ? liveStatus(thread) : undefined
+	const planOutside = liveLine && planAt >= 0 && planTurn === turn && thread.tasks.length > 0
 	const stage = status?.stage
 	const streamingMessage = status ? narrationBeingWritten(thread) : undefined
 	// Open while the reply is written, folded once it ends; a choice the person made always wins.
@@ -460,6 +499,7 @@ function TurnActivity({
 		thread.turns[turn]?.startedAt === undefined
 	return (
 		<>
+			{planOutside && <PlanBox tasks={thread.tasks} onOpenTasks={onOpenTasks} />}
 			<Collapsible
 				className="turn-activity"
 				// Fold when the answer arrives, not after it: folding later shrinks the page under a reader at the end.
@@ -499,10 +539,9 @@ function TurnActivity({
 				>
 					<span className="activity-text">
 						{liveLine && (
-							<span
+							<WorkMark
 								className="live-mark"
-								data-state={step?.state ?? (stage?.source === 'waiting' ? 'waiting' : 'running')}
-								aria-hidden="true"
+								state={step?.state ?? (stage?.source === 'waiting' ? 'waiting' : 'running')}
 							/>
 						)}
 						<PhaseLabel label={label} animate={animate} />
@@ -518,26 +557,15 @@ function TurnActivity({
 						)}
 						<AttentionFlags flags={flags} />
 					</span>
-					<ChevronRightIcon className="disclosure-chevron" aria-hidden="true" />
+					<FoldChevron />
 				</CollapsibleTrigger>
 				<CollapsiblePanel keepMounted>
 					<div className="activity-entries">
-						{planAt < 0 ? (
-							<ActivityEntries
-								foldSentence={fold?.sentence ? fold.text : undefined}
-								entries={entries}
-								thread={thread}
-								turn={turn}
-								turnLive={live}
-								workDisclosures={workDisclosures}
-								onWorkDisclosureChange={onWorkDisclosureChange}
-								hiddenReasoningId={status?.hiddenReasoningId}
-								streamingMessage={streamingMessage}
-							/>
-						) : (
-							<>
+						<div className="activity-block">
+							{planAt < 0 || planOutside ? (
 								<ActivityEntries
-									entries={entries.slice(0, planAt)}
+									foldSentence={fold?.sentence ? fold.text : undefined}
+									entries={entries}
 									thread={thread}
 									turn={turn}
 									turnLive={live}
@@ -546,33 +574,46 @@ function TurnActivity({
 									hiddenReasoningId={status?.hiddenReasoningId}
 									streamingMessage={streamingMessage}
 								/>
-								{planTurn === turn ? (
-									<PlanRow
-										tasks={thread.tasks}
+							) : (
+								<>
+									<ActivityEntries
+										entries={entries.slice(0, planAt)}
+										thread={thread}
+										turn={turn}
 										turnLive={live}
-										open={planKey ? workDisclosures?.[planKey] : undefined}
-										onOpenChange={
-											planKey && onWorkDisclosureChange
-												? (open) => onWorkDisclosureChange(planKey, open)
-												: undefined
-										}
-										onOpenTasks={onOpenTasks}
+										workDisclosures={workDisclosures}
+										onWorkDisclosureChange={onWorkDisclosureChange}
+										hiddenReasoningId={status?.hiddenReasoningId}
+										streamingMessage={streamingMessage}
 									/>
-								) : (
-									<PlanTouched />
-								)}
-								<ActivityEntries
-									entries={entries.slice(planAt)}
-									thread={thread}
-									turn={turn}
-									turnLive={live}
-									workDisclosures={workDisclosures}
-									onWorkDisclosureChange={onWorkDisclosureChange}
-									hiddenReasoningId={status?.hiddenReasoningId}
-									streamingMessage={streamingMessage}
-								/>
-							</>
-						)}
+									{planTurn === turn ? (
+										<PlanRow
+											tasks={thread.tasks}
+											turnLive={live}
+											open={planKey ? workDisclosures?.[planKey] : undefined}
+											onOpenChange={
+												planKey && onWorkDisclosureChange
+													? (open) => onWorkDisclosureChange(planKey, open)
+													: undefined
+											}
+											onOpenTasks={onOpenTasks}
+										/>
+									) : (
+										<PlanTouched />
+									)}
+									<ActivityEntries
+										entries={entries.slice(planAt)}
+										thread={thread}
+										turn={turn}
+										turnLive={live}
+										workDisclosures={workDisclosures}
+										onWorkDisclosureChange={onWorkDisclosureChange}
+										hiddenReasoningId={status?.hiddenReasoningId}
+										streamingMessage={streamingMessage}
+									/>
+								</>
+							)}
+						</div>
 					</div>
 				</CollapsiblePanel>
 			</Collapsible>
@@ -580,7 +621,7 @@ function TurnActivity({
 				// What the person typed when they declined, so it is drawn as their own message.
 				<Message key={note.id} from="user" className="message user redirect-note">
 					<span className="redirect-note-lead">You asked Namzu to do this instead:</span>
-					<MessageContent text={note.text} />
+					<MessageContent className="message-bubble" text={note.text} />
 				</Message>
 			))}
 		</>
@@ -626,6 +667,7 @@ function LiveStatus({
 	if (wait)
 		return (
 			<output className="working working-wait" aria-live="polite" data-transcript-phase="working">
+				<WorkMark />
 				{/* The count below changes every second; what is announced does not. */}
 				<span className="transcript-visually-hidden">
 					{providerWaitAnnouncement(wait, provider)}
@@ -645,6 +687,7 @@ function LiveStatus({
 			inert={!label}
 			data-transcript-phase={phase === 'idle' ? undefined : phase}
 		>
+			{!visuallyHidden && <WorkMark state={phase === 'waiting' ? 'waiting' : 'running'} />}
 			<span className="working-label transcript-phase-label" aria-hidden="true">
 				<span className="transcript-phase-text">{label ?? retained.current}</span>
 			</span>

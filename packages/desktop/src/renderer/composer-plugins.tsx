@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ComposerControl, ComposerControlChevron } from './composer-control.js'
 import { LoaderCircleIcon, PuzzleIcon } from './icons.js'
+import { MENU_OFFSET } from './menu-metrics.js'
 import { plainErrorText } from './plain-error.js'
 import { PluginActions } from './plugin-actions.js'
 import { Button } from './ui/button.js'
@@ -295,7 +296,7 @@ function PluginMenu({
 			<PopoverPopup
 				side="top"
 				align="start"
-				sideOffset={4}
+				sideOffset={MENU_OFFSET}
 				aria-label="Plugins"
 				width="lg"
 				padding="compact"

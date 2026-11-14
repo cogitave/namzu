@@ -9,19 +9,22 @@
 }
 .settings-page-content {
 	width: 100%;
-	max-width: 960px; /* the Plugins page column, so the two pages line up */
+	/* No wider than the input box's column and centred in the main area, with the same side space. */
+	width: min(var(--settings-column-width), 100% - 2 * var(--frame-column-side));
 	margin: 0 auto;
-	padding: 28px 24px 56px;
+	padding: 24px 0 32px;
 	box-sizing: border-box;
 	animation: plugins-arrive 180ms var(--motion-ease) both;
 }
 .settings-page-header {
 	min-height: 58px;
 	display: flex;
-	align-items: center;
+	/* The title and the search field share a top, so a subtitle that wraps grows the block downward and
+	   moves neither of them. */
+	align-items: flex-start;
 	justify-content: space-between;
 	gap: 24px;
-	margin-bottom: 24px;
+	margin-bottom: var(--settings-title-after);
 }
 .settings-page-header h1 {
 	margin: 0;
@@ -41,11 +44,11 @@
 	align-items: center;
 	width: 260px;
 	min-width: 0;
-	height: 32px;
+	height: var(--settings-search-height);
 	gap: 8px;
-	padding: 0 6px 0 10px;
+	padding: 0 6px 0 8px;
 	border: 1px solid var(--border);
-	border-radius: var(--radius-pill);
+	border-radius: var(--settings-search-radius);
 	background: var(--background);
 	color: var(--muted-foreground);
 	transition: border-color 150ms var(--motion-ease), box-shadow 150ms var(--motion-ease);
@@ -78,17 +81,19 @@
 .settings-page-search input::-webkit-search-cancel-button {
 	appearance: none;
 }
-.settings-section-title {
-	margin: 0 0 8px;
+/* A group heading: 15/22 at weight 600, 40 above and 16 under. The first one has the title block's own
+   space above it, so it adds none. */
+.settings-section-title,
+.settings-subtitle {
+	margin: var(--settings-group-before) 0 var(--settings-group-after);
 	font-size: var(--text-reading);
 	font-weight: var(--weight-strong);
 	line-height: var(--leading-reading);
 }
-.settings-subtitle {
-	margin: 20px 0 4px;
-	font-size: var(--text-small);
-	font-weight: var(--weight-strong);
-	line-height: var(--leading-small);
+.settings-section > .settings-section-title:first-child,
+.settings-section > :first-child > .settings-subtitle:first-child,
+.settings-results > .settings-section-title:first-child {
+	margin-top: 0;
 }
 .settings-help,
 .settings-empty {
@@ -109,9 +114,14 @@
 	align-items: center;
 	justify-content: space-between;
 	gap: 24px;
-	padding: 14px 0;
-	border-top: 1px solid var(--border);
+	padding: var(--settings-row-padding) 0;
+	/* The hairline between rows is drawn inside the row's top edge, so it takes no height. */
+	box-shadow: inset 0 1px 0 var(--border);
 	scroll-margin: 24px;
+}
+.settings-row:first-child,
+:is(h2, h3, p) + .settings-row {
+	box-shadow: none;
 }
 .settings-row[data-stacked] {
 	flex-direction: column;
@@ -121,22 +131,38 @@
 .settings-row-copy {
 	min-width: 0;
 }
+.settings-row-copy:has(p) {
+	padding-block: var(--settings-row-copy-pad);
+}
 .settings-row-copy h3 {
 	margin: 0;
-	font-size: var(--text-small);
+	font-size: var(--text-interface);
 	font-weight: var(--weight-control);
-	line-height: var(--leading-small);
+	line-height: var(--leading-interface);
 }
 .settings-row-copy p {
-	margin: 2px 0 0;
+	margin: var(--settings-copy-gap) 0 0;
 	color: var(--muted-foreground);
-	font-size: var(--text-caption);
-	line-height: var(--leading-caption);
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .settings-row-control {
 	flex: none;
 	display: flex;
 	align-items: center;
+	min-height: var(--settings-control-height);
+}
+/* Buttons and selects in a row are one height with one corner. */
+.settings-row-control button,
+.settings-actions button,
+.settings-project button,
+.settings-folders button,
+.settings-update-status button,
+.settings-config-input:not(textarea) {
+	box-sizing: border-box;
+	height: var(--settings-control-height);
+	min-height: var(--settings-control-height);
+	border-radius: var(--settings-control-radius);
 }
 .settings-value {
 	font-size: var(--text-small);
@@ -144,34 +170,39 @@
 	font-variant-numeric: tabular-nums;
 	color: var(--foreground);
 }
+/* On is the text colour (a light track and a dark knob in the dark theme, the reverse in the light
+   one); off is an outline with a muted knob on the left. The knob's side tells them apart without colour. */
 .settings-switch {
 	appearance: none;
 	position: relative;
-	width: 34px;
-	height: 20px;
+	box-sizing: border-box;
+	width: var(--settings-switch-width);
+	height: var(--settings-switch-height);
 	margin: 0;
 	border-radius: var(--radius-pill);
-	background: color-mix(in srgb, var(--foreground) 22%, transparent);
+	background: transparent;
+	box-shadow: inset 0 0 0 1px var(--settings-off-edge);
 	cursor: pointer;
-	transition: background-color 150ms var(--motion-ease);
+	transition: background-color 150ms var(--motion-ease), box-shadow 150ms var(--motion-ease);
 }
 .settings-switch::after {
 	content: "";
 	position: absolute;
-	top: 2px;
-	left: 2px;
-	width: 16px;
-	height: 16px;
+	top: var(--settings-switch-inset);
+	left: var(--settings-switch-inset);
+	width: var(--settings-switch-knob);
+	height: var(--settings-switch-knob);
 	border-radius: 50%;
-	background: var(--background);
-	box-shadow: var(--shadow-1);
-	transition: transform 150ms var(--motion-ease);
+	background: var(--settings-off-edge);
+	transition: transform 150ms var(--motion-ease), background-color 150ms var(--motion-ease);
 }
 .settings-switch:checked {
-	background: var(--primary);
+	background: var(--foreground);
+	box-shadow: none;
 }
 .settings-switch:checked::after {
-	transform: translateX(14px);
+	background: var(--background);
+	transform: translateX(var(--settings-switch-travel));
 }
 .settings-switch:focus-visible,
 .settings-choice input:focus-visible,
@@ -218,8 +249,39 @@
 }
 .settings-choice input {
 	flex: none;
-	margin: 3px 0 0;
-	accent-color: var(--primary);
+	appearance: none;
+	position: relative;
+	box-sizing: border-box;
+	width: var(--settings-choice-size);
+	height: var(--settings-choice-size);
+	margin: 1px 0 0;
+	border-radius: 50%;
+	background: transparent;
+	box-shadow: inset 0 0 0 1px var(--settings-off-edge);
+	cursor: pointer;
+}
+.settings-choice input[type="checkbox"] {
+	border-radius: var(--radius-code);
+}
+/* Chosen is the text colour with the ground showing through its middle: a dot in a radio, a tick in a box. */
+.settings-choice input:checked {
+	background: var(--foreground);
+	box-shadow: none;
+}
+.settings-choice input[type="radio"]:checked::after {
+	content: "";
+	position: absolute;
+	inset: 5px;
+	border-radius: 50%;
+	background: var(--background);
+}
+.settings-choice input[type="checkbox"]:checked::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background: var(--background);
+	mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4.5 8.5l2.5 2.5 4.5-5' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+		center / 100% 100% no-repeat;
 }
 .settings-choice-label {
 	display: block;
@@ -347,15 +409,103 @@
 	line-height: var(--leading-caption);
 	font-variant-numeric: normal;
 }
-.settings-speech {
-	border-top: 1px solid var(--border);
-}
+/* The two voice cards on the Speech page follow the page's group and row rules. A card is a two-column
+   grid: the heading, the help text and every row span both columns, except that a download row's copy sits
+   at the left and the button that follows it at the right, on one line. */
 .settings-speech .local-speech-settings {
-	padding: 14px 0 0;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	column-gap: 24px;
+	row-gap: 0;
+	padding: 0;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
-.settings-speech > * + * {
-	margin-top: 14px;
-	border-top: 1px solid var(--border);
+.settings-speech .local-speech-settings > * {
+	grid-column: 1 / -1;
+	min-width: 0;
+}
+.settings-speech .local-speech-heading {
+	margin: var(--settings-group-before) 0 var(--settings-group-after);
+}
+#setting-voice .local-speech-heading {
+	margin-top: 0;
+}
+.settings-speech .local-speech-heading :is(h2, h3) {
+	font-size: var(--text-reading);
+	font-weight: var(--weight-strong);
+	line-height: var(--leading-reading);
+}
+.settings-speech .local-speech-help,
+.settings-speech .local-speech-notice {
+	margin: 0 0 var(--settings-row-padding);
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+}
+.settings-speech .local-speech-toggle,
+.settings-speech .local-speech-field,
+.settings-speech .local-speech-engine,
+.settings-speech .local-speech-actions {
+	box-sizing: border-box;
+	padding: var(--settings-row-padding) 0;
+	border-top: 0;
+	box-shadow: inset 0 1px 0 var(--border);
+}
+.settings-speech
+	:is(.local-speech-help, .local-speech-heading)
+	+ :is(.local-speech-toggle, .local-speech-field, .local-speech-engine, .local-speech-actions) {
+	box-shadow: none;
+}
+.settings-speech .local-speech-toggle,
+.settings-speech .local-speech-field {
+	min-height: calc(var(--settings-control-height) + 2 * var(--settings-row-padding));
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
+}
+.settings-speech .local-speech-toggle > span:has(> small) {
+	gap: var(--settings-copy-gap);
+	padding-block: var(--settings-row-copy-pad);
+}
+.settings-speech .local-speech-toggle small {
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+}
+.settings-speech .local-speech-engine {
+	align-items: center;
+}
+.settings-speech .local-speech-engine > div {
+	gap: var(--settings-copy-gap);
+	padding-block: var(--settings-row-copy-pad);
+}
+.settings-speech .local-speech-engine strong {
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
+}
+.settings-speech .local-speech-engine > div > span {
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+}
+/* The download button stands for the state, so the "Not downloaded" badge is not repeated beside it. */
+.settings-speech .local-speech-engine > .local-speech-badge {
+	display: none;
+}
+.settings-speech .local-speech-engine:has(+ .local-speech-actions) {
+	grid-column: 1;
+	box-shadow: none;
+}
+.settings-speech .local-speech-engine + .local-speech-actions {
+	grid-column: 2;
+	align-self: center;
+	box-shadow: none;
+}
+.settings-speech .local-speech-actions {
+	gap: 8px;
+}
+.settings-speech .local-speech-actions button {
+	box-sizing: border-box;
+	height: var(--settings-control-height);
+	min-height: var(--settings-control-height);
+	border-radius: var(--settings-control-radius);
 }
 .settings-results ul {
 	display: flex;
@@ -444,7 +594,7 @@
 }
 @container workspace (max-width: 640px) {
 	.settings-page-content {
-		padding: 24px 16px 48px;
+		width: calc(100% - 2 * var(--frame-column-side-narrow));
 	}
 	.settings-page-header {
 		flex-direction: column;
@@ -495,9 +645,9 @@
 }
 .settings-config-input {
 	min-width: 0;
-	padding: 5px 8px;
+	padding: 0 8px;
 	border: 1px solid var(--border);
-	border-radius: var(--radius-md);
+	border-radius: var(--settings-control-radius);
 	background: var(--background);
 	color: var(--foreground);
 	font: inherit;
@@ -511,6 +661,7 @@ input.settings-config-input[type="number"] {
 	width: min(320px, 100%);
 }
 .settings-config-area {
+	padding: 6px 8px;
 	width: 100%;
 	font-family: var(--font-mono, ui-monospace, monospace);
 	font-size: var(--text-caption);

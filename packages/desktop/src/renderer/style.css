@@ -1,4 +1,6 @@
 @import "./theme.css";
+@import "./menu.css";
+@import "./dialog.css";
 
 html,
 body,
@@ -203,10 +205,6 @@ pre {
 	font-weight: var(--weight-strong);
 	line-height: var(--leading-caption);
 	letter-spacing: 0.02em;
-}
-.workspace-menu-popup .window-titlebar-item {
-	justify-content: flex-start;
-	gap: 10px;
 }
 :root[data-chrome-platform="darwin"] .sidebar-chrome {
 	padding-inline-start: var(--frame-lights-inset);
@@ -477,15 +475,16 @@ pre {
 .conversations button:focus-visible .conversation-age {
 	opacity: 1;
 }
-/* The three starters: a centred group, one quiet 32px row each, 16px under the heading. A click fills the
-   box and never sends it. */
+/* The three starters: a centred group of 320 by 40 rows, 12 apart, 24 under the heading. Each has a hairline
+   edge, no fill at rest and a faint one under the pointer, its icon 12 in and its label 8 after the icon. A
+   click fills the box and never sends it. */
 .starter-actions {
 	display: flex;
 	flex-direction: column;
-	align-items: flex-start;
-	width: fit-content;
-	max-width: 100%;
-	margin: 16px auto 0;
+	align-items: center;
+	gap: var(--start-gap);
+	width: 100%;
+	margin: var(--start-heading-gap) auto 0;
 	pointer-events: auto;
 }
 .starter-actions[data-quiet] {
@@ -494,27 +493,35 @@ pre {
 .starter-actions button {
 	display: flex;
 	align-items: center;
-	gap: 8px;
-	width: fit-content;
+	gap: var(--start-icon-gap);
+	width: var(--start-width);
 	max-width: 100%;
-	height: 32px;
-	padding: 0 8px;
-	border-radius: var(--radius-control);
-	color: var(--muted-foreground);
-	font-size: var(--text-small);
-	line-height: var(--leading-small);
+	height: var(--start-height);
+	padding: 0 12px 0 var(--start-icon-start);
+	border: 1px solid var(--start-edge);
+	border-radius: var(--start-radius);
+	background: transparent;
+	color: var(--foreground);
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
 	text-align: left;
 	cursor: pointer;
+	transition: background-color 120ms var(--motion-ease);
+}
+.starter-actions button > span {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 .starter-actions button:hover {
-	color: var(--foreground);
-	background: var(--accent);
+	background: var(--box-hover);
 }
 .starter-actions svg {
-	width: 14px;
-	height: 14px;
+	width: var(--start-icon);
+	height: var(--start-icon);
 	flex: none;
-	opacity: 0.6;
+	color: var(--muted-foreground);
 }
 .sidebar-stage-backdrop {
 	mask-image: linear-gradient(to bottom, black 0%, black 55%, transparent 92%);
@@ -672,6 +679,15 @@ pre {
 		--frame-column-side: var(--frame-column-side-narrow);
 	}
 }
+/* The transcript's text column keeps 58px on each side of a pane that is 600px wide or wider, 42px in a narrower one. */
+.transcript {
+	--turn-side: var(--turn-gutter);
+}
+@container conversation-lane (max-width: 599.98px) {
+	.transcript {
+		--turn-side: var(--turn-gutter-narrow);
+	}
+}
 .chat-stage[data-pal-context="true"] {
 	/* Keep the profile beside the conversation, including narrower desktop panes.
 	   Its column includes the card's 24px horizontal margins. */
@@ -691,11 +707,9 @@ pre {
 	overflow-y: auto;
 	overscroll-behavior-y: contain;
 	scrollbar-gutter: stable both-edges;
-	/* The scrollbar's lane is on both edges, so the text column is that much nearer the pane's edge and its
-	   edges are the box's. */
-	padding: 20px calc(var(--frame-column-side) - var(--app-scrollbar-width))
-		calc(var(--composer-height, 200px) + 16px)
-		calc(var(--frame-column-side) - var(--app-scrollbar-width));
+	/* The scrollbar's lane is on both edges, so the column below is centred on the pane's axis, which is the
+	   input box's. */
+	padding: var(--turn-top) 0 calc(var(--composer-height, 200px) + 16px);
 	transition: padding-right var(--dur-base) var(--ease-out);
 }
 .composer-wrap > div {
@@ -706,9 +720,22 @@ pre {
 	max-width: var(--chat-max-width);
 	margin: 0 auto;
 }
+/* The text column: messages, rows of steps, the plan, the working row and the result line. */
+.transcript .conversation-body {
+	width: min(var(--turn-column-width), 100cqw - 2 * var(--turn-side));
+	max-width: none;
+}
 .transcript-latest {
 	position: absolute;
-	bottom: min(calc(var(--composer-height, 200px) + 18px), calc(100% - 44px));
+	/* A round button, centred on the column, clear above the top of the dock. */
+	width: var(--turn-latest-size);
+	height: var(--turn-latest-size);
+	padding: 0;
+	border-radius: var(--radius-pill);
+	bottom: min(
+		calc(var(--composer-height, 200px) + var(--turn-latest-gap)),
+		calc(100% - var(--turn-latest-size) - 8px)
+	);
 	left: 50%;
 	z-index: 3;
 	translate: -50% 0;
@@ -824,11 +851,12 @@ pre {
 .working {
 	display: flex;
 	align-items: center;
-	gap: 8px;
-	padding: 12px 4px 20px;
+	gap: var(--turn-mark-gap);
+	height: var(--turn-row-height);
+	padding: 0;
 	color: var(--muted-foreground);
-	font-size: var(--text-interface);
-	line-height: var(--leading-interface);
+	font-size: var(--text-reading);
+	line-height: var(--leading-reading);
 }
 .working-label,
 .tool.active > .tool-trigger .tool-label {
@@ -849,25 +877,31 @@ pre {
 	animation: none;
 }
 .working-elapsed {
-	font-size: var(--text-caption);
-	line-height: var(--leading-caption);
+	font-size: var(--text-reading);
+	line-height: var(--leading-reading);
 	font-variant-numeric: tabular-nums;
 }
+/* A folded row sits 14 under what is above it and 12 above what follows it. A first row under the person's
+   message, or under the plan box, takes that part's own gap instead. */
 .turn-activity {
-	margin: 16px 4px 18px;
+	margin: var(--turn-fold-before) 0 var(--turn-fold-after);
+}
+.message.user + .turn-activity,
+.plan-box + .turn-activity {
+	margin-top: 0;
 }
 .activity-trigger {
 	display: flex;
 	align-items: center;
 	gap: 6px;
 	width: 100%;
-	min-height: 28px;
-	padding: 0 0 6px;
-	border-bottom: 1px solid var(--border);
+	min-height: var(--turn-row-height);
+	padding: 0;
+	border-bottom: 0;
 	color: var(--muted-foreground);
 	text-align: left;
-	font-size: var(--text-interface);
-	line-height: var(--leading-interface);
+	font-size: var(--text-reading);
+	line-height: var(--leading-reading);
 }
 .activity-trigger:hover,
 .activity-trigger[data-panel-open] {
@@ -1034,12 +1068,6 @@ pre {
 	font-size: var(--text-caption);
 	line-height: var(--leading-caption);
 	max-height: 240px;
-}
-.approval-actions {
-	display: flex;
-	justify-content: flex-end;
-	gap: 8px;
-	margin-top: 12px;
 }
 .inline-error,
 .jobs-error {

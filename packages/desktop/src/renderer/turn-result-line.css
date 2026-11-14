@@ -1,14 +1,14 @@
 /*
  * The foot of a finished turn: one 32 px line of text, no box. A state mark, how it ended, the size
- * of the change, the check. Its text starts where the reply's text does (4 px in from the column);
- * the row reaches 4 px past that on the left so the hover fill has room, and ends at the column's
+ * of the change, the check. Its text starts where the reply's text does (on the column's edge);
+ * the row reaches 8 px past that on the left so the hover fill has room, and ends at the column's
  * right edge. Only hover or keyboard focus draws anything round it.
  */
 .turn-result {
 	display: flex;
 	align-items: center;
 	min-height: 32px;
-	margin: 0 0 16px -4px;
+	margin: 0 0 16px -8px;
 	padding-inline: 8px 4px;
 	color: var(--foreground);
 	font-size: var(--text-small);
@@ -47,7 +47,7 @@
 	display: flex;
 	flex: 1;
 	align-items: center;
-	gap: 12px;
+	gap: 8px;
 	min-width: 0;
 	height: 32px;
 	margin: 0;
@@ -98,9 +98,9 @@ button.turn-result-main:focus-visible,
 }
 .turn-result-counts {
 	display: inline-flex;
-	gap: 6px;
-	font-size: var(--text-caption);
-	line-height: var(--leading-caption);
+	gap: 8px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	font-variant-numeric: tabular-nums;
 }
 .turn-result-added {

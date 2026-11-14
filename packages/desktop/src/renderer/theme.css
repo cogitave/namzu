@@ -202,6 +202,184 @@
 	--frame-column-width: 768px;
 	--frame-column-side: 32px;
 	--frame-column-side-narrow: 16px;
+	/* The turn: what the transcript is drawn on. Its text sits in a column narrower than the input box,
+	   --turn-gutter in from the pane's edges (wider than 600px; the narrow gutter below it) and never wider than
+	   --turn-column-width. Every rule that places or sizes a part of a turn reads one of these. */
+	--turn-column-width: 736px;
+	--turn-gutter: 58px;
+	--turn-gutter-narrow: 42px;
+	--turn-top: 32px;
+	--turn-message-radius: 10px;
+	--turn-message-pad-y: 12px;
+	--turn-message-pad-x: 16px;
+	--turn-message-share: 80%;
+	/* From the bottom of the person's message to the top of the first row under it. */
+	--turn-message-gap: 34px;
+	--turn-paragraph-gap: 12px;
+	--turn-list-marker: 5px;
+	--turn-list-marker-inset: 13px;
+	--turn-list-marker-top: 9px;
+	--turn-list-text-inset: 37px;
+	--turn-list-gap: 4px;
+	--turn-code-height: 17px;
+	--turn-code-radius: 4px;
+	--turn-code-pad: 4px;
+	/* The folded row: one sentence, its chevron after it. */
+	--turn-row-height: 28px;
+	--turn-fold-before: 14px;
+	--turn-fold-after: 12px;
+	--turn-chevron-gap: 7px;
+	--turn-chevron-width: 6px;
+	--turn-chevron-height: 8px;
+	/* The open block of steps. */
+	--turn-block-gap: 8px;
+	--turn-block-radius: 8px;
+	--turn-block-row: 35px;
+	--turn-block-inset: 12px;
+	--turn-block-after: 20px;
+	--turn-edge: color-mix(in srgb, var(--foreground) 6%, transparent);
+	/* The working row's mark: four square dots in two rows of two. */
+	--turn-mark-size: 14px;
+	--turn-mark-dot: 4px;
+	--turn-mark-gap: 8px;
+	/* The plan while the turn runs. */
+	--turn-plan-gap: 20px;
+	--turn-plan-pad: 16px;
+	--turn-plan-radius: 12px;
+	--turn-plan-pitch: 28px;
+	--turn-plan-mark: 16px;
+	--turn-plan-mark-gap: 8px;
+	/* Jump to latest. */
+	--turn-latest-size: 36px;
+	--turn-latest-gap: 20px;
+	/* The request for permission: a card of padding --ask-pad with a band across its top, the path in a row of
+	   its own, the preview as a framed block and a footer whose buttons are 28 high. */
+	--ask-pad: 16px;
+	--ask-band: 48px;
+	/* The band sits inside the card's 1px ring, so its top corners are one pixel tighter than the card's. */
+	--ask-band-radius: calc(var(--radius-card) - 1px);
+	--ask-fill: color-mix(in srgb, var(--foreground) 6%, transparent);
+	--ask-path-gap: 10px;
+	--ask-path-height: 43px;
+	--ask-path-radius: 8px;
+	--ask-path-pad: 16px;
+	--ask-preview-gap: 16px;
+	--ask-preview-radius: 8px;
+	--ask-preview-air: 6px;
+	--ask-row: 20px;
+	--ask-line-end: 28px;
+	--ask-code-start: 50px;
+	--ask-bar: 6px;
+	--ask-stripe: 2px;
+	--ask-tint: 22%;
+	--ask-foot-gap: 24px;
+	--ask-button: 28px;
+	--ask-button-radius: 8px;
+	--ask-button-gap: 16px;
+	--ask-quiet: color-mix(in srgb, var(--foreground) 16%, transparent);
+	--ask-split-divider: 14px;
+	--ask-chip-height: 18px;
+	--ask-chip-radius: 4px;
+	--ask-chip-gap: 8px;
+	/* The input box grows by one line per line of text; its controls stay on the last line. */
+	--box-line: 22px;
+	--box-send: 28px;
+	--box-send-radius: 8px;
+	--box-stop-square: 12px;
+	--box-stop-radius: 2px;
+	--box-hover: color-mix(in srgb, var(--foreground) 8%, transparent);
+	/* A notice docked above the box. */
+	--notice-height: 48px;
+	--notice-text-start: 44px;
+	--notice-close: 28px;
+	--notice-close-edge: 10px;
+	/* The three starters on the home screen. */
+	--start-width: 320px;
+	--start-height: 40px;
+	--start-gap: 12px;
+	--start-radius: 12px;
+	--start-edge: color-mix(in srgb, var(--foreground) 8%, transparent);
+	--start-icon: 16px;
+	--start-icon-start: 12px;
+	--start-icon-gap: 8px;
+	--start-heading-gap: 24px;
+	/* One set of rules for every menu, list popover and select: the surface, the rows, the caption,
+	   the separator and where the menu sits from the control that opened it. A row is one line (28) or a
+	   title over a description (46); the text starts 10 in, or 38 in after a 16 px icon; a chosen row
+	   carries a check 9 from its right edge on the title's line. */
+	--menu-radius: 12px;
+	--menu-padding: 5px;
+	--menu-row-height: 28px;
+	--menu-row-height-described: 46px;
+	--menu-row-radius: 8px;
+	--menu-row-padding-block: 4px;
+	--menu-text-inset: 10px;
+	--menu-icon-size: 16px;
+	--menu-icon-gap: 12px;
+	--menu-label-start: calc(var(--menu-text-inset) + var(--menu-icon-size) + var(--menu-icon-gap));
+	--menu-check-size: 16px;
+	--menu-check-inset: 9px;
+	--menu-check-reserve: calc(var(--menu-check-inset) + var(--menu-check-size) + 8px);
+	--menu-caption-block: 25px;
+	--menu-separator-space: 4px;
+	--menu-separator-inset: 10px;
+	--menu-min-width: 128px;
+	--menu-max-width: 320px;
+	--menu-highlight: color-mix(in srgb, var(--foreground) 8%, transparent);
+	/* A dialog: one padding, one corner, one confirm width and one button height. */
+	--dialog-padding: 16px;
+	--dialog-radius: 12px;
+	--dialog-confirm-width: 400px;
+	--dialog-gap: 8px;
+	--dialog-actions-gap: 16px;
+	--dialog-button-height: 28px;
+	--dialog-button-radius: 8px;
+	--dialog-scrim: color-mix(in srgb, black 40%, transparent);
+	/* Settings: a column no wider than the input box's, headings that open a group, rows of one height,
+	   and a switch that reads in the text colour. A row is 12 above and below its content: a label and a
+	   28 px control make 52, a label over one line of description makes 68 (the copy block carries 1 px
+	   above and below its two lines, the one pixel that brings 42 to 44). */
+	--settings-column-width: var(--frame-column-width);
+	--settings-search-height: 28px;
+	--settings-search-radius: 8px;
+	--settings-group-before: 40px;
+	--settings-group-after: 16px;
+	--settings-title-after: 16px;
+	--settings-row-padding: 12px;
+	--settings-row-copy-pad: 1px;
+	--settings-copy-gap: 4px;
+	--settings-control-height: 28px;
+	--settings-control-radius: 8px;
+	--settings-switch-width: 36px;
+	--settings-switch-height: 20px;
+	--settings-switch-knob: 16px;
+	--settings-switch-inset: 2px;
+	--settings-switch-travel: calc(
+		var(--settings-switch-width) -
+		var(--settings-switch-knob) -
+		2 *
+		var(--settings-switch-inset)
+	);
+	--settings-choice-size: 16px;
+	--settings-off-edge: color-mix(in srgb, var(--foreground) 55%, transparent);
+	/* The search overlay: its size, how far below the window's centre it sits, the input row and the list. */
+	--palette-width: 672px;
+	--palette-height: 584px;
+	--palette-drop: 18px;
+	--palette-radius: 16px;
+	--palette-input-top: 18px;
+	--palette-input-height: 33px;
+	--palette-side: 24px;
+	--palette-list-inset: 10px;
+	--palette-row-height: 36px;
+	--palette-row-radius: 8px;
+	--palette-row-inset: 12px;
+	--palette-icon-size: 16px;
+	--palette-icon-gap: 12px;
+	--palette-caption-gap: 8px;
+	--palette-footer-height: 42px;
+	--palette-key-height: 18px;
+	--palette-key-radius: 4px;
 	/* The side panels. A reading panel (changes, a file, a preview) takes 60 percent of the main area and
 	   no less than 360; a tool panel (tasks) takes 40 percent, between 320 and 560. The conversation keeps the
 	   rest, and when that would be under 360 the panel lies over its right side. A 1px seam divides them, and
@@ -443,6 +621,7 @@
 }
 
 .dark {
+	--dialog-scrim: color-mix(in srgb, black 50%, transparent);
 	--glass-blur: 16px;
 	--glass-saturation: 1.08;
 }

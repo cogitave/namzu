@@ -35,6 +35,7 @@ import { formatLineCount } from './changes-totals.js'
 import { copyPlainText } from './copy-button.js'
 import { DIFF_VIEW_UNSAFE_CSS } from './diff-theme.js'
 import {
+	ChevronDownIcon,
 	CopyIcon,
 	MoreHorizontalIcon,
 	PencilIcon,
@@ -66,7 +67,80 @@ function useDocumentDark(): boolean {
 /** Longer than this a row no longer fits the box on one line. */
 const CLIPPED_ROW = 80
 
+/** Longer than any path: the row cuts the middle itself, to the width it has. */
+const PATH_ROW_MAX = 4096
+
+/** The key that answers yes from anywhere in the card, as the platform writes it. */
+const acceptKey = () =>
+	typeof navigator !== 'undefined' && /Mac/.test(navigator.platform) ? '⌘↵' : 'Ctrl+Enter'
+
 const lineWord = (count: number) => (count === 1 ? 'line' : 'lines')
+
+/** `text` cut in the middle to `keep` characters, the cut marked by an ellipsis. */
+export function cutMiddle(text: string, keep: number): string {
+	if (keep >= text.length) return text
+	const room = Math.max(1, keep - 1)
+	const head = Math.ceil(room / 2)
+	const tail = Math.floor(room / 2)
+	return `${text.slice(0, head)}…${tail > 0 ? text.slice(-tail) : ''}`
+}
+
+/**
+ * The path or command in its row: all of it when it fits, else cut in the middle so both ends are
+ * still there. A hidden copy of the row measures each try, so the text the person reads is never
+ * touched outside React. `onCut` says whether anything is hidden.
+ */
+function CutRow({
+	text,
+	title,
+	onCut,
+}: {
+	text: string
+	title?: string | undefined
+	onCut?: ((cut: boolean) => void) | undefined
+}) {
+	const row = useRef<HTMLSpanElement>(null)
+	const probe = useRef<HTMLSpanElement>(null)
+	const [shown, setShown] = useState(text)
+	useLayoutEffect(() => {
+		const visible = row.current
+		const hidden = probe.current
+		if (!visible || !hidden) return
+		const fit = () => {
+			const room = visible.clientWidth
+			const fits = (candidate: string) => {
+				hidden.textContent = candidate
+				return hidden.getBoundingClientRect().width <= room
+			}
+			let next = text
+			if (!fits(text)) {
+				let low = 1
+				let high = text.length
+				while (low < high) {
+					const mid = Math.ceil((low + high) / 2)
+					if (fits(cutMiddle(text, mid))) low = mid
+					else high = mid - 1
+				}
+				next = cutMiddle(text, low)
+			}
+			// An unused copy would still count toward the row's scroll width.
+			hidden.textContent = ''
+			setShown(next)
+			onCut?.(next !== text)
+		}
+		fit()
+		const observer = new ResizeObserver(fit)
+		observer.observe(visible)
+		return () => observer.disconnect()
+	}, [text, onCut])
+	return (
+		<span className="approval-path-text" ref={row} title={title ?? text}>
+			<span aria-hidden={shown !== text || undefined}>{shown}</span>
+			{shown !== text && <span className="sr-only">{text}</span>}
+			<span className="approval-path-probe" ref={probe} aria-hidden="true" />
+		</span>
+	)
+}
 
 /** The whole change, drawn by the diff view. Only mounted once the person asks for all of it. */
 function FullDiff({
@@ -367,8 +441,18 @@ export function ComposerApproval({
 		copyPlainText(text).catch(() => undefined)
 	}
 	const hasBox = preview !== undefined
+	// The path of a file, or a command of one line, has a row of its own under the band. A command that
+	// does not fit the row is shown whole in its framed block instead, so it is on the card once: the row
+	// stays mounted, unseen, to learn when the card is wide enough for it again.
+	const [rowCut, setRowCut] = useState(false)
+	const commandRow = model.command !== undefined && !/\r?\n/.test(model.command.trim())
+	const pathText = commandRow
+		? model.command?.trim()
+		: model.fileName && model.path
+			? displayPath(model.path, folder, PATH_ROW_MAX)
+			: undefined
+	const showBlock = hasBox && (!commandRow || rowCut || expanded)
 
-	const heading = headingOf(model, folder)
 	const moreMenu = (
 		<Menu.Root
 			onOpenChange={(open) => {
@@ -448,14 +532,7 @@ export function ComposerApproval({
 				<header className="approval-head">
 					<ShieldAlertIcon aria-hidden="true" className="approval-head-icon" />
 					<h3 className="approval-title" title={model.path}>
-						{heading.lead}
-						{heading.chip !== undefined && (
-							<>
-								{' '}
-								<code className="approval-chip">{heading.chip}</code>
-							</>
-						)}
-						{heading.tail}
+						{model.title}
 					</h3>
 					<span className="approval-spacer" />
 					{hasDiff && (model.added || model.removed) ? (
@@ -486,8 +563,21 @@ export function ComposerApproval({
 						</span>
 					) : null}
 					{count > 1 && <span className="approval-count">1 of {count}</span>}
-					{!hasBox && <span className="approval-head-more">{moreMenu}</span>}
+					<span className="approval-head-more">{moreMenu}</span>
 				</header>
+				{pathText !== undefined && (
+					<div
+						className="approval-path"
+						data-kind={commandRow ? 'command' : 'file'}
+						data-hidden={(commandRow && rowCut) || undefined}
+					>
+						<CutRow
+							text={pathText}
+							title={commandRow ? model.command : model.path}
+							onCut={setRowCut}
+						/>
+					</div>
+				)}
 				{flags.map((flag) => (
 					<p key={flag} className="approval-flag">
 						<TriangleAlertIcon aria-hidden="true" />
@@ -497,13 +587,12 @@ export function ComposerApproval({
 				{(model.previewMissing || model.unchanged) && (
 					<p className="approval-note">{previewNote(model)}</p>
 				)}
-				{preview && (
+				{preview && showBlock && (
 					<div
 						className="approval-box"
 						data-prose={model.message !== undefined || undefined}
 						data-open={expanded || undefined}
 					>
-						<span className="approval-box-more">{moreMenu}</span>
 						{expanded && diff && hasDiff ? (
 							<FullDiff
 								diff={diff}
@@ -654,12 +743,15 @@ export function ComposerApproval({
 									onClick={reject}
 								>
 									{screenMoment ? 'Not now' : 'Reject'}
+									<span className="approval-key" aria-hidden="true">
+										Esc
+									</span>
 								</button>
 								{canAllowConversation && (
-									<>
+									<div className="approval-split" data-tone="lasting">
 										<button
 											type="button"
-											className="approval-button approval-outline"
+											className="approval-button approval-split-label"
 											aria-disabled={guarding || undefined}
 											aria-describedby={scopeId}
 											title={CONVERSATION_ALLOWANCE_SCOPE}
@@ -667,10 +759,42 @@ export function ComposerApproval({
 										>
 											Allow for this conversation
 										</button>
+										<span className="approval-split-divider" aria-hidden="true" />
+										<Menu.Root>
+											<Menu.Trigger
+												className="approval-button approval-split-more"
+												aria-label="More ways to allow"
+												title="More ways to allow"
+											>
+												<ChevronDownIcon aria-hidden="true" />
+											</Menu.Trigger>
+											<Menu.Portal>
+												<Menu.Positioner
+													className="conversation-actions-positioner"
+													sideOffset={4}
+													align="end"
+												>
+													<Menu.Popup
+														className="conversation-actions-popup approval-menu"
+														aria-label="More ways to allow"
+													>
+														<Menu.Item
+															className="conversation-actions-item"
+															onClick={acceptForConversation}
+														>
+															<span className="conversation-actions-label">
+																Allow for this conversation
+															</span>
+														</Menu.Item>
+														<p className="approval-menu-scope">{CONVERSATION_ALLOWANCE_SCOPE}</p>
+													</Menu.Popup>
+												</Menu.Positioner>
+											</Menu.Portal>
+										</Menu.Root>
 										<span id={scopeId} className="sr-only">
 											{CONVERSATION_ALLOWANCE_SCOPE}
 										</span>
-									</>
+									</div>
 								)}
 								<button
 									ref={acceptButton}
@@ -684,6 +808,9 @@ export function ComposerApproval({
 									onClick={accept}
 								>
 									{screenMoment ? 'Allow this app' : 'Accept'}
+									<span className="approval-key" aria-hidden="true">
+										{acceptKey()}
+									</span>
 								</button>
 							</div>
 						</>
@@ -692,18 +819,4 @@ export function ComposerApproval({
 			</div>
 		</section>
 	)
-}
-
-/** The question in three pieces: the verb, the target as a chip, and the mark that ends it. */
-export function headingOf(
-	model: ApprovalCardModel,
-	folder?: string,
-): { lead: string; chip?: string; tail: string } {
-	if (model.kind === 'command' && model.command !== undefined)
-		return { lead: 'Run', chip: commandChip(model.command), tail: '?' }
-	if (model.fileName && model.path && model.title.endsWith(`${model.fileName}?`)) {
-		const lead = model.title.slice(0, model.title.length - model.fileName.length - 1).trim()
-		return { lead, chip: displayPath(model.path, folder, 40), tail: '?' }
-	}
-	return { lead: model.title, tail: '' }
 }

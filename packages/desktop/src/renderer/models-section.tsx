@@ -151,7 +151,7 @@ function ProviderRow({
 						<Button
 							ref={opener}
 							size="sm"
-							variant={connected && !rejected ? 'outline' : 'default'}
+							variant="outline"
 							disabled={anyBusy}
 							aria-label={
 								row.hasSavedKey

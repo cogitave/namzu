@@ -89,16 +89,42 @@
 	border-radius: var(--radius-pill);
 	background: var(--error);
 }
+/* A notice above the box: 48 high at the least, a card of the box's width, its text 44 in from the left edge
+   and its dismiss button 28 square, 10 in from the right edge. */
 .voice-notice {
+	position: relative;
 	display: flex;
-	align-items: flex-start;
+	align-items: center;
 	justify-content: space-between;
 	gap: 8px;
+	min-height: var(--notice-height);
 	margin: 0;
-	padding: 0 12px;
+	padding: 4px var(--notice-close-edge) 4px var(--notice-text-start);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-card);
+	background: var(--card);
+}
+.voice-notice::before {
+	content: "";
+	position: absolute;
+	top: 50%;
+	left: 20px;
+	width: 8px;
+	height: 8px;
+	border-radius: var(--radius-pill);
+	background: var(--muted-foreground);
+	translate: 0 -50%;
 }
 .voice-notice[data-kind="error"] {
 	color: var(--error-foreground);
+}
+.voice-notice[data-kind="error"]::before {
+	background: var(--error-foreground);
+}
+.voice-notice > .voice-notice-close {
+	flex: none;
+	width: var(--notice-close);
+	height: var(--notice-close);
 }
 .voice-notice q {
 	display: block;

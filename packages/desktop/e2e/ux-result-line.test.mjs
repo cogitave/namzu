@@ -453,16 +453,16 @@ test("a finished turn has no edge but the person's message: the line, the fold a
 		await w.page.keyboard.press("Enter");
 		await expect(w.page.getByRole("menuitem", { name: "Copy summary" })).toBeVisible({ timeout: T });
 		await w.page.keyboard.press("Escape");
-		// The closed fold has no rule under it; the open one has one below the work.
+		// The closed fold has no rule under it; the open one is a block with a hairline edge round the work.
 		const trigger = w.page.locator(".activity-trigger").first();
 		assert.equal((await trigger.evaluate((el) => getComputedStyle(el).borderBottomWidth)), "0px");
 		await trigger.click();
-		const rule = await w.page.locator(".activity-entries").first().evaluate((el) => getComputedStyle(el).borderBottomWidth);
+		const rule = await w.page.locator(".activity-block").first().evaluate((el) => getComputedStyle(el).borderBottomWidth);
 		assert.equal(rule, "1px");
-		// The person's own message: 14 px corners, up to 85% of the column.
+		// The person's own message: 10 px corners, up to 80% of the column.
 		const bubble = w.page.locator(".message.user > div").first();
-		assert.equal(await bubble.evaluate((el) => getComputedStyle(el).borderTopLeftRadius), "14px");
-		assert.equal(await bubble.evaluate((el) => getComputedStyle(el).maxWidth.endsWith("%") ? getComputedStyle(el).maxWidth : "px"), "85%");
+		assert.equal(await bubble.evaluate((el) => getComputedStyle(el).borderTopLeftRadius), "10px");
+		assert.equal(await bubble.evaluate((el) => getComputedStyle(el).maxWidth.endsWith("%") ? getComputedStyle(el).maxWidth : "px"), "80%");
 		failed = false;
 	} finally {
 		await dispose(w, { failed });

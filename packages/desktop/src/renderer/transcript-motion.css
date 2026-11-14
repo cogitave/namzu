@@ -133,10 +133,11 @@
 	opacity: 1;
 }
 .normal-transcript .activity-trigger {
-	min-height: 32px;
-	line-height: 20px;
-	gap: 4px;
-	padding-block: 4px;
+	min-height: var(--turn-row-height);
+	font-size: var(--text-reading);
+	line-height: var(--leading-reading);
+	gap: 0;
+	padding-block: 0;
 	border-bottom: 0;
 	color: var(--muted-foreground);
 }
@@ -164,89 +165,63 @@
 		opacity: 1;
 	}
 }
-/* A closed fold has no rule; an open one separates the work from the answer under it. */
-.normal-transcript
-	.activity-trigger:not([data-live])
-	+ [data-slot="collapsible-panel"]
-	.activity-entries {
-	padding-bottom: 12px;
-	border-bottom: 1px solid color-mix(in srgb, var(--foreground) 9%, transparent);
-}
 .normal-transcript .activity-trigger:hover,
 .normal-transcript .activity-trigger[data-panel-open] {
 	color: var(--muted-foreground);
 }
-.normal-transcript .activity-trigger > .disclosure-chevron {
-	margin-left: 2px;
-	transition-duration: var(--transcript-frame-duration);
-}
-/* While the work is going the header is the turn's one line: a mark, the step, the time and a chevron to the work. */
-.normal-transcript .activity-trigger[data-live] {
-	font-size: var(--text-small);
-	line-height: var(--leading-small);
-}
+/* While the work is going the header is the turn's one line: a mark, the step, the time and a chevron to the work.
+   It reads in one muted tone, like the working row. */
 .normal-transcript .activity-trigger[data-live] .turn-activity-elapsed {
-	font-size: var(--text-small);
-	line-height: var(--leading-small);
-}
-.normal-transcript .live-mark {
-	flex: none;
-	align-self: center;
-	width: 8px;
-	height: 8px;
-	margin-right: 4px;
-	border-radius: 50%;
-	background: var(--muted-foreground);
-	animation: live-mark-pulse 1.6s ease-in-out infinite;
-}
-.normal-transcript .live-mark[data-state="waiting"] {
-	background: var(--warning-foreground);
-	animation: none;
-}
-@keyframes live-mark-pulse {
-	50% {
-		opacity: 0.35;
-	}
-}
-@media (prefers-reduced-motion: reduce) {
-	.normal-transcript .live-mark {
-		animation: none;
-	}
+	color: var(--muted-foreground);
 }
 .normal-transcript .activity-text {
 	display: inline-flex;
-	align-items: baseline;
+	align-items: center;
 	gap: 0.3em;
 	min-width: 0;
 }
 .normal-transcript .activity-entries {
 	margin-left: 0;
-	padding: 12px 0 0;
+	padding: var(--turn-block-gap) 0;
 	border-left: 0;
 }
-/* Finished rows read a step lighter than the running one and than the run's summary line. */
+/* The open block of steps: one box with a hairline edge. A row is --turn-block-row high, rows are divided by a
+   hairline, and the text starts --turn-block-inset in. The verb is muted and what it acted on is the text colour. */
+.normal-transcript .activity-block {
+	overflow: hidden;
+	border: 1px solid var(--turn-edge);
+	border-radius: var(--turn-block-radius);
+}
+.normal-transcript .activity-block .tool-trigger {
+	min-height: var(--turn-block-row);
+	padding: 0 var(--turn-block-inset);
+	gap: 8px;
+}
+.normal-transcript .activity-block .tool-icon {
+	display: none;
+}
 .normal-transcript
-	.activity-entries
-	.tool:not(.active):not(.failed)
-	> .tool-trigger:not(.tool-run-trigger)
-	.tool-label {
-	color: color-mix(in srgb, var(--foreground) 70%, var(--muted-foreground));
+	.activity-block
+	:is(.tool-list, .tool-group, .reasoning, .message.commentary)
+	+ :is(.tool-list, .tool-group, .reasoning, .message.commentary),
+.normal-transcript .activity-block .tool-group .tool-group-entries {
+	border-top: 1px solid var(--turn-edge);
 }
-.normal-transcript .activity-entries .message.commentary {
-	padding-bottom: 0;
-	margin-bottom: 14px;
-	/* The message box sits 4px inside its column; pull the text flush with the header and rows. */
-	margin-left: -4px;
+.normal-transcript .activity-block .tool-verb {
+	color: var(--muted-foreground);
 }
-.normal-transcript .activity-entries .message.commentary .message-text {
+.normal-transcript .activity-block .tool:not(.failed, .declined, .active) .tool-main {
 	color: var(--foreground);
 }
-.normal-transcript .activity-entries .reasoning {
-	padding-bottom: 8px;
+.normal-transcript .activity-block > :is(.reasoning, .message.commentary) {
+	margin: 0;
+	padding: 8px var(--turn-block-inset);
+}
+.normal-transcript .activity-block .message.commentary .message-text {
 	color: var(--foreground);
 }
-.normal-transcript .activity-entries .tool-trigger {
-	min-height: 24px;
+.normal-transcript .activity-block .reasoning {
+	color: var(--foreground);
 }
 .normal-transcript .tool-list {
 	padding-bottom: 0;
@@ -258,8 +233,8 @@
 	min-width: 0;
 }
 .normal-transcript .turn-activity-elapsed {
-	font-size: var(--text-interface);
-	line-height: var(--leading-interface);
+	font-size: var(--text-reading);
+	line-height: var(--leading-reading);
 	font-variant-numeric: tabular-nums;
 	color: var(--muted-foreground);
 }
@@ -301,18 +276,6 @@
 	color: var(--muted-foreground);
 	animation: none;
 }
-.normal-transcript .working::before {
-	content: "";
-	width: 5px;
-	height: 5px;
-	flex: none;
-	border-radius: 50%;
-	background: currentColor;
-	animation: transcript-status-breathe 1.8s ease-in-out infinite;
-}
-.normal-transcript .working.waiting::before {
-	animation: none;
-}
 .normal-transcript [data-slot="collapsible-panel"] {
 	transition-duration: var(--transcript-frame-duration);
 	transition-timing-function: var(--transcript-frame-ease);
@@ -329,15 +292,7 @@
 .normal-transcript .turn-activity > [data-slot="collapsible-panel"][data-ending-style] {
 	opacity: 0;
 }
-@keyframes transcript-status-breathe {
-	50% {
-		opacity: 0.5;
-	}
-}
 @media (prefers-reduced-motion: reduce) {
-	.normal-transcript .working::before {
-		animation: none;
-	}
 	.normal-transcript [data-slot="collapsible-panel"],
 	.normal-transcript .disclosure-chevron,
 	.normal-transcript .message-time {
@@ -364,10 +319,6 @@
 	contain-intrinsic-block-size: auto 400px;
 	/* Painting is contained too: let a focus ring at the turn's edge show. */
 	overflow-clip-margin: 8px;
-}
-/* The reply clock lines up with the answer text, which sits 4px inside its box. */
-.normal-transcript .message.assistant:not(.commentary) > .message-footer {
-	padding-left: 4px;
 }
 
 /* Narration being written: its trailing line carries the same soft sweep, so the newest words fade in. */
