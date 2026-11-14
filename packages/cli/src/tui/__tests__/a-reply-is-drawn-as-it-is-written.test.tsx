@@ -240,5 +240,6 @@ it('separates a completion follow-up from the earlier status answer without drop
 	expect(final).toContain('CLI review is running.')
 	expect(final).toContain('CLI review completed.')
 	expect(final).not.toContain('running.CLI')
-	expect(final.match(/∴/g)).toHaveLength(2)
+	// Two text blocks of one reply: the first carries the mark, the second sits in its column.
+	expect(final.match(/●/g)).toHaveLength(1)
 })

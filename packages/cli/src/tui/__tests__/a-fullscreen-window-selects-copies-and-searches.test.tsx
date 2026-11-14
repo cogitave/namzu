@@ -22,7 +22,7 @@ import { type Screen, renderToScreen } from './support/screen.js'
 const COLS = 40
 const ROWS = 12
 /** The screen's left padding and the glyph gutter: text starts at screen column 4. */
-const TEXT_LEFT = 4
+const TEXT_LEFT = 3
 
 let mounted: Screen | null = null
 let clock = 0
@@ -75,7 +75,7 @@ async function mount(
 		return { text: `Copied ${text.length} characters.`, ok: true }
 	}
 	const tree = (list: readonly TranscriptMessage[]) => (
-		<Box flexDirection="column" height={ROWS - 1} paddingX={1}>
+		<Box flexDirection="column" height={ROWS - 1} paddingLeft={0} paddingRight={1}>
 			<FullscreenTranscript
 				messages={list}
 				pending={null}

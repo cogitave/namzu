@@ -63,9 +63,9 @@ function view(messages: readonly TranscriptMessage[], onClose: () => void, colum
 it('lays messages out with a gutter and a blank row between entries', () => {
 	const rows = transcriptScrollRows(lines(2), null, undefined, 40)
 	expect(rows.map((row) => [row.glyph, row.text])).toEqual([
-		['∴', 'line 0'],
+		['●', 'line 0'],
 		[' ', ''],
-		['∴', 'line 1'],
+		[' ', 'line 1'],
 	])
 })
 

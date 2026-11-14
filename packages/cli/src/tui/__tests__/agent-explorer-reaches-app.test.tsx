@@ -1058,7 +1058,7 @@ describe('the agents cockpit', () => {
 			// The finished agents linger on the rail for 30 s; the launch receipt
 			// names the batch once in settled history.
 			expect(
-				painted(screen).match(/Workflow Production fan-out[\s\S]{0,40}Running in background/g),
+				painted(screen).match(/Workflow Production fan-out[\s\S]{0,40}Running in the background/g),
 			).toHaveLength(1)
 			expect(painted(screen)).not.toMatch(/Launched 4 agents/u)
 			// The turn delegated, so it closes with one line saying so.
@@ -1140,11 +1140,11 @@ describe('the agents cockpit', () => {
 		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
-			() => /^ *❯ ◯ (?:\S+ +)?Down-select child/mu.test(screen.viewport().join('\n')),
+			() => /^ *❯ (?:\S+ +)?Down-select child/mu.test(screen.viewport().join('\n')),
 			'down did not focus the first agent',
 		)
 		// The same press must not also step to the second row.
-		expect(screen.viewport().join('\n')).not.toMatch(/^ *❯ ◯ (?:\S+ +)?Second child/mu)
+		expect(screen.viewport().join('\n')).not.toMatch(/^ *❯ (?:\S+ +)?Second child/mu)
 		// The key line takes the mode line's place; two agents run, so the stop-all chord is offered.
 		expect(screen.viewport().join('\n')).toContain(
 			'enter to view · x to stop · ctrl+x ctrl+k to stop all agents',
@@ -1153,14 +1153,14 @@ describe('the agents cockpit', () => {
 		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
-			() => /^ *❯ ◯ (?:\S+ +)?Second child/mu.test(screen.viewport().join('\n')),
+			() => /^ *❯ (?:\S+ +)?Second child/mu.test(screen.viewport().join('\n')),
 			'down did not move to the second agent',
 		)
 		screen.press('\x1b[A')
 		screen.press('\x1b[A')
 		await waitUntil(
 			screen,
-			() => /^ *❯ ● main/mu.test(screen.viewport().join('\n')),
+			() => /^ *❯ main/mu.test(screen.viewport().join('\n')),
 			'up did not reach the main row',
 		)
 		screen.press('\x1b')
@@ -1228,7 +1228,7 @@ describe('the agents cockpit', () => {
 		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
-			() => /^ *❯ ◯ (?:\S+ +)?Second child/mu.test(screen.viewport().join('\n')),
+			() => /^ *❯ (?:\S+ +)?Second child/mu.test(screen.viewport().join('\n')),
 			'second row not selected',
 		)
 		screen.press('x')
@@ -1441,7 +1441,7 @@ describe('the agents cockpit', () => {
 		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
-			() => /^ *❯ ◯ (?:\S+ +)?Second child/mu.test(screen.viewport().join('\n')),
+			() => /^ *❯ (?:\S+ +)?Second child/mu.test(screen.viewport().join('\n')),
 			'second row not selected',
 		)
 		screen.press('\r')
@@ -1454,7 +1454,7 @@ describe('the agents cockpit', () => {
 		screen.press('\x1b')
 		await waitUntil(
 			screen,
-			() => /^ *❯ ◯ (?:\S+ +)?Second child/mu.test(screen.viewport().join('\n')),
+			() => /^ *❯ (?:\S+ +)?Second child/mu.test(screen.viewport().join('\n')),
 			'escape did not return to the rail row',
 		)
 	})
@@ -1477,7 +1477,7 @@ describe('the agents cockpit', () => {
 			}
 			await waitUntil(
 				screen,
-				() => /^ *❯ ◯ Release audit/mu.test(screen.viewport().join('\n')),
+				() => /^ *❯ Release audit/mu.test(screen.viewport().join('\n')),
 				'the workflow row did not take the pointer',
 			)
 		}
@@ -1532,7 +1532,7 @@ describe('the agents cockpit', () => {
 			screen.press('\x1b')
 			await waitUntil(
 				screen,
-				() => /^ *❯ ◯ Release audit/mu.test(screen.viewport().join('\n')),
+				() => /^ *❯ Release audit/mu.test(screen.viewport().join('\n')),
 				'escape did not return to the workflow row',
 			)
 		})
@@ -1602,7 +1602,7 @@ describe('the agents cockpit', () => {
 			// the one thing its launch writes.
 			await waitUntil(
 				screen,
-				() => painted(screen).includes('Running in background'),
+				() => painted(screen).includes('Running in the background'),
 				'the workflow launch line was not written',
 			)
 			await screen.waitForRender()
@@ -2316,12 +2316,12 @@ describe('the agents cockpit', () => {
 		expect(screen.writes().join('')).not.toContain('\t')
 		const expectChildFrame = (columns: number) => {
 			const viewport = screen.viewport()
-			const top = viewport.findIndex((line) => line.startsWith(' ┌'))
-			const bottom = viewport.findIndex((line) => line.startsWith(' └'))
+			const top = viewport.findIndex((line) => line.startsWith('┌'))
+			const bottom = viewport.findIndex((line) => line.startsWith('└'))
 			expect(top).toBeGreaterThanOrEqual(0)
 			expect(bottom).toBeGreaterThan(top)
 			for (const line of viewport.slice(top + 1, bottom)) {
-				expect(line).toMatch(/^ │.*│$/u)
+				expect(line).toMatch(/^│.*│$/u)
 				expect(stringWidth(line)).toBe(columns - 1)
 			}
 		}
@@ -3461,9 +3461,12 @@ describe('render order below the message frame', () => {
 
 /** Rows of the agents rail on screen, `main` excluded. */
 function railRows(screen: Screen): string[] {
-	return screen
-		.viewport()
-		.filter((row) => /^(❯| ) [●◯] (?!main)\S/u.test(row) && !/[▰▱]/u.test(row))
+	// Rows start in the first column now, like the composer's prompt and a notice's dot,
+	// so the rail is the rows under its `main` row.
+	const rows = screen.viewport()
+	const main = rows.findIndex((row) => /^[●◯❯] main\b/u.test(row))
+	if (main < 0) return []
+	return rows.slice(main + 1).filter((row) => /^[●◯❯] \S/u.test(row) && !/[▰▱]/u.test(row))
 }
 
 describe('parent narration', () => {
@@ -3492,10 +3495,7 @@ describe('parent narration', () => {
 		expect(top, 'rail header not on screen').toBeGreaterThan(below)
 		// The `main` row, then every agent row and the `↓ N more` line, if any.
 		let bottom = top
-		while (
-			bottom + 1 < rows.length &&
-			/^( *[❯ ] )?[●◯] \S|^ +↓ \d+ more$/u.test(rows[bottom + 1] ?? '')
-		)
+		while (bottom + 1 < rows.length && /^[●◯❯] \S|^↓ \d+ more$/u.test(rows[bottom + 1] ?? ''))
 			bottom += 1
 		return rows.slice(top, bottom + 1)
 	}
@@ -3846,7 +3846,7 @@ describe('viewing an agent', () => {
 		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
-			() => /^ *❯ ◯ a-very-long-agent-name/mu.test(screen.viewport().join('\n')),
+			() => /^ *❯ a-very-long-agent-name/mu.test(screen.viewport().join('\n')),
 			'second row not selected',
 		)
 		screen.press('\r')
@@ -4064,7 +4064,7 @@ describe('viewing an agent', () => {
 		screen.press('\x1b[A')
 		await waitUntil(
 			screen,
-			() => /^ *❯ ◯ main/mu.test(screen.viewport().join('\n')),
+			() => /^ *❯ main/mu.test(screen.viewport().join('\n')),
 			'main row not selected',
 		)
 		screen.press('\r')

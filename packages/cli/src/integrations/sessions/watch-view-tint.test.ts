@@ -37,7 +37,7 @@ describe('namzu watch draws the person’s message on the quiet tint', () => {
 		expect(text).toContain('\x1b[48;2;30;40;34m\x1b[2m›\x1b[22m check the release\x1b[49m')
 		expect(text).toContain('\x1b[48;2;30;40;34m  second line\x1b[49m')
 		// The reply and the blank line between carry none.
-		expect(text).toContain('\n∴ It looks fine.') // no background before it
+		expect(text).toContain('\n● It looks fine.') // no background before it
 		expect(text.includes(' \x1b[49m')).toBe(false)
 	})
 

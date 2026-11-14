@@ -18,6 +18,7 @@ import { attachmentLine } from './attachment-rows.js'
 import { fitHintPlain } from './hint-fit.js'
 import { type HintWords, NO_NEWS, type News, newOutputHint } from './new-output.js'
 import { commandRows, hintRows } from './read-search-group.js'
+import { laterReplyBlocks } from './reply-mark.js'
 import { truncateChoiceText, wrapChoiceText } from './terminal-choice-text.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { paint, rowTints, theme } from './theme.js'
@@ -36,6 +37,8 @@ export interface ScrollRow {
 	readonly command?: true
 	/** The row the expand hint stands in, built as the hint and not read from text. */
 	readonly hint?: true
+	/** The glyph is the reply's plain round mark: drawn in its colour, not bold. */
+	readonly plainMark?: true
 }
 
 /** Columns the glyph gutter takes, as in the live transcript. */
@@ -62,8 +65,9 @@ export function transcriptScrollRows(
 	const ordered = pending ? [...messages.slice(0, at), pending, ...messages.slice(at)] : messages
 	const width = scrollTextWidth(columns)
 	const rows: ScrollRow[] = []
+	const later = laterReplyBlocks(ordered)
 	ordered.forEach((message, index) => {
-		const block = messageScrollRows(message, index > 0, width)
+		const block = messageScrollRows(message, index > 0, width, { later: later[index] ?? false })
 		if (rows.length > 0 && block.gap) rows.push(block.gap)
 		rows.push(...block.rows)
 	})
@@ -110,6 +114,8 @@ function saying(meta: string, hint: string | undefined): string {
 export interface ScrollRowsOptions {
 	/** The wording of the expand hint, when it is not the default. */
 	readonly hint?: string
+	/** A later text block of a reply that already showed its mark: the mark column stays blank. */
+	readonly later?: boolean
 }
 
 /** One message's rows, and the blank row that goes above them when something precedes. */
@@ -132,7 +138,9 @@ export function messageScrollRows(
 	options: ScrollRowsOptions = {},
 ): MessageScrollRows {
 	const message = withLiveHint(asked)
-	const glyph = message.glyph ?? glyphForRole(message.role)
+	const replyMark = message.role === 'assistant' && message.glyph === undefined
+	const glyph =
+		replyMark && options.later === true ? ' ' : (message.glyph ?? glyphForRole(message.role))
 	const glyphColor =
 		paint(message.glyphColor) ??
 		(glyph === '⎿' ? theme.text.muted : glyphColorForRole(message.role))
@@ -175,6 +183,7 @@ export function messageScrollRows(
 			glyphColor,
 			text,
 			color,
+			...(replyMark && i === 0 ? { plainMark: true as const } : {}),
 			...(tint !== undefined ? { tint } : {}),
 		})
 	})

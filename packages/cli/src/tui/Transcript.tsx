@@ -21,6 +21,7 @@ import { ReadSearchGroup } from './ReadSearchGroup.js'
 import { StatusPanel } from './StatusPanel.js'
 import { type AttachmentRow, attachmentLine } from './attachment-rows.js'
 import { grammarState, grammarVersion, languagesIn, subscribeGrammars } from './code-highlight.js'
+import { laterReplyBlocks } from './reply-mark.js'
 import { type ShellOutput, shellCollapses, shellResultRows, shellToneColor } from './shell-cell.js'
 import { type ReplyPiece, isPlainReply, printedPieces, tailPiece } from './stream-flow.js'
 import {
@@ -102,6 +103,8 @@ export interface TranscriptProps {
 	 * which puts them in the column, and at the width, they had live.
 	 */
 	readonly staticIndent?: number
+	/** Columns of padding right of this transcript, when it is not the same as on the left. */
+	readonly staticIndentRight?: number
 }
 
 const COLLAPSE_LINES = 6
@@ -113,6 +116,7 @@ type StaticRow =
 			readonly kind: 'message'
 			readonly message: TranscriptMessage
 			readonly prev: TranscriptMessage | undefined
+			readonly later: boolean
 	  }
 	| {
 			/** A part of a reply that was printed while it streamed. */
@@ -121,6 +125,7 @@ type StaticRow =
 			readonly message: TranscriptMessage
 			readonly piece: ReplyPiece
 			readonly prev: TranscriptMessage | undefined
+			readonly later: boolean
 	  }
 
 /**
@@ -132,9 +137,10 @@ function printedRows(
 	message: TranscriptMessage,
 	prev: TranscriptMessage | undefined,
 	raw: boolean,
+	later: boolean,
 ): StaticRow[] {
 	if (raw || !message.printed?.length || !isPlainReply(message))
-		return [{ kind: 'message', message, prev }]
+		return [{ kind: 'message', message, prev, later }]
 	const pieces = printedPieces(message.printed)
 	const rest = tailPiece({ ...message, pending: false })
 	return [...pieces, ...(rest ? [rest] : [])].map((piece, i) => ({
@@ -143,6 +149,7 @@ function printedRows(
 		message,
 		piece,
 		prev,
+		later,
 	}))
 }
 
@@ -184,6 +191,7 @@ export function Transcript({
 	showLive = true,
 	header,
 	staticIndent = 0,
+	staticIndentRight = staticIndent,
 }: TranscriptProps) {
 	// A message with a code block that waits for its colours is held out of the scrollback
 	// until they have arrived or the wait is over. The check is made once per message (the
@@ -200,22 +208,27 @@ export function Transcript({
 	// so everything behind the live window costs nothing per frame — the whole
 	// transcript was once re-rendered on every spinner tick, which exhausted
 	// memory on long sessions.
-	const rows: StaticRow[] = [
-		...(header ? [{ kind: 'header' as const }] : []),
-		...messages
-			.slice(0, inScrollback)
-			.flatMap((message, i) => printedRows(message, messages[i - 1], raw)),
-	]
-	// The live window is memoised per row so streamed output does not reparse
-	// Markdown in unchanged history. The row that changed is the one that renders.
+	// Which rows are later text blocks of a reply that already showed its mark.
+	// The rows still to be drawn are counted in their place (the streaming reply
+	// stands where `pendingAt` puts it), so the answer for a row never depends on
+	// whether it is printed or live.
 	const live = messages.slice(inScrollback)
-	// The streaming reply is drawn where it stands in the conversation (see
-	// `pendingAt`), not after every finalized row. It is never behind the
-	// floor, because the caller holds the floor below it.
 	const at = Math.min(Math.max((pendingAt ?? messages.length) - inScrollback, 0), live.length)
 	const drawn: readonly TranscriptMessage[] = pending
 		? [...live.slice(0, at), pending, ...live.slice(at)]
 		: live
+	const later = laterReplyBlocks([...messages.slice(0, inScrollback), ...drawn])
+	const rows: StaticRow[] = [
+		...(header ? [{ kind: 'header' as const }] : []),
+		...messages
+			.slice(0, inScrollback)
+			.flatMap((message, i) => printedRows(message, messages[i - 1], raw, later[i] ?? false)),
+	]
+	// The live window is memoised per row so streamed output does not reparse
+	// Markdown in unchanged history. The row that changed is the one that renders.
+	// The streaming reply (`drawn`, above) is drawn where it stands in the
+	// conversation (see `pendingAt`), not after every finalized row. It is never
+	// behind the floor, because the caller holds the floor below it.
 	// A reply being written has printed its finished parts already: they are the
 	// last rows of the log, and only what is left of it is drawn below.
 	const flowing = !raw && drawn[0]?.printed?.length && isPlainReply(drawn[0]) ? drawn[0] : undefined
@@ -229,6 +242,7 @@ export function Transcript({
 				message: flowing,
 				piece,
 				prev: before,
+				later: later[inScrollback] ?? false,
 			})),
 		)
 	}
@@ -236,7 +250,7 @@ export function Transcript({
 	// caller's padding on both sides, which settled rows draw themselves.
 	const { columns } = useWindowSize()
 	return (
-		<ContentWidth.Provider value={Math.max(10, columns - 2 * staticIndent - 2)}>
+		<ContentWidth.Provider value={Math.max(10, columns - staticIndent - staticIndentRight - 2)}>
 			<Box flexDirection="column">
 				<Static key={resetKey} items={rows}>
 					{(row) => (
@@ -247,7 +261,7 @@ export function Transcript({
 							flexDirection="column"
 							width={columns}
 							paddingLeft={staticIndent}
-							paddingRight={staticIndent}
+							paddingRight={staticIndentRight}
 						>
 							{row.kind === 'header' ? (
 								<Box>{header}</Box>
@@ -257,11 +271,17 @@ export function Transcript({
 									prev={row.prev}
 									piece={row.piece}
 									hyperlinks={hyperlinks}
+									later={row.later}
 								/>
 							) : raw ? (
 								<RawMessageRow message={row.message} prev={row.prev} />
 							) : (
-								<MessageRow message={row.message} prev={row.prev} hyperlinks={hyperlinks} />
+								<MessageRow
+									message={row.message}
+									prev={row.prev}
+									hyperlinks={hyperlinks}
+									later={row.later}
+								/>
 							)}
 						</Box>
 					)}
@@ -283,13 +303,20 @@ export function Transcript({
 										prev={i > 0 ? drawn[i - 1] : messages[inScrollback - 1]}
 										piece={piece}
 										hyperlinks={hyperlinks}
+										later={later[inScrollback + i] ?? false}
 									/>
 								)
 							}
 							return raw ? (
 								<RawMessageRow key={message.id} message={message} prev={prev} />
 							) : (
-								<LiveRow key={message.id} message={message} prev={prev} hyperlinks={hyperlinks} />
+								<LiveRow
+									key={message.id}
+									message={message}
+									prev={prev}
+									hyperlinks={hyperlinks}
+									later={later[inScrollback + i] ?? false}
+								/>
 							)
 						})
 					: null}
@@ -324,11 +351,14 @@ export function ReplyPieceRow({
 	prev,
 	piece,
 	hyperlinks,
+	later = false,
 }: {
 	readonly message: TranscriptMessage
 	readonly prev: TranscriptMessage | undefined
 	readonly piece: ReplyPiece
 	readonly hyperlinks: boolean
+	/** A later text block of a reply that already showed its mark: the mark column stays blank. */
+	readonly later?: boolean
 }) {
 	useThemeEpoch()
 	const glyph = glyphForRole(message.role)
@@ -336,9 +366,7 @@ export function ReplyPieceRow({
 		<Box flexDirection="column" marginTop={piece.first && prev ? 1 : 0}>
 			<Box flexDirection="row">
 				<Box width={2} flexShrink={0}>
-					<Text color={glyphColorForRole(message.role)} bold>
-						{piece.first ? glyph : ' '}
-					</Text>
+					<Text color={glyphColorForRole(message.role)}>{piece.first && !later ? glyph : ' '}</Text>
 				</Box>
 				<Box flexGrow={1}>
 					<Markdown
@@ -434,12 +462,15 @@ export function MessageRow({
 	prev,
 	hyperlinks,
 	screen = false,
+	later = false,
 }: {
 	readonly message: TranscriptMessage
 	readonly prev: TranscriptMessage | undefined
 	readonly hyperlinks: boolean
 	/** Drawn on the detailed transcript screen: the model's thinking shows above the row. */
 	readonly screen?: boolean
+	/** A later text block of a reply that already showed its mark: the mark column stays blank. */
+	readonly later?: boolean
 }) {
 	// The row is memoised on its props; the epoch makes a new theme repaint it.
 	useThemeEpoch()
@@ -468,7 +499,10 @@ export function MessageRow({
 	const width = useContentWidth()
 	// A long message is echoed by its two ends, with a note of what lies between.
 	const userCut = message.role === 'user' ? cutUserText(content) : content
-	const glyph = message.glyph ?? glyphForRole(message.role)
+	// The reply's own mark is a plain round dot, not bold; a later text block of the
+	// same reply leaves the mark column blank so its text starts in the same column.
+	const replyMark = message.role === 'assistant' && message.glyph === undefined
+	const glyph = replyMark && later ? ' ' : (message.glyph ?? glyphForRole(message.role))
 	const textColor = paint(message.contentColor) ?? contentColorForRole(message.role)
 	// The person's own message sits on a quiet tint, so it is easy to find again
 	// when scrolling back; where the terminal draws no tint it looks as it always did.
@@ -510,7 +544,7 @@ export function MessageRow({
 			<Box flexDirection="row" paddingLeft={glyph === '⎿' ? RESULT_GUTTER_INDENT : 0}>
 				<Box width={glyph === '⎿' ? RESULT_GUTTER_WIDTH : 2} flexShrink={0} {...tinted}>
 					{tint === undefined ? (
-						<Text color={glyphColor} bold>
+						<Text color={glyphColor} bold={!replyMark}>
 							{glyph}
 						</Text>
 					) : (
@@ -997,7 +1031,7 @@ export function glyphForRole(role: TranscriptMessage['role']): string {
 		case 'user':
 			return '›'
 		case 'assistant':
-			return '∴'
+			return '●'
 		case 'system':
 			return '·'
 		case 'tool':
@@ -1010,7 +1044,8 @@ export function glyphColorForRole(role: TranscriptMessage['role']): string {
 		case 'user':
 			return theme.accent.user
 		case 'assistant':
-			return theme.accent.assistant
+			// The reply's mark is the text colour, so it never looks like a tool's state-coloured dot.
+			return theme.text.primary
 		case 'system':
 			return theme.text.muted
 		case 'tool':

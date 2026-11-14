@@ -215,7 +215,7 @@ describe('a resumed conversation draws its tool calls like the live run', () => 
 		const rows = projectConversation(messages, ids())
 		expect(rows.map((row) => row.content)).toEqual([
 			'build',
-			'Ran 2 commands',
+			'Ran 2 shell commands',
 			'Bash(make)',
 			// A command on its own is its own row, as before.
 			'Bash(node a)',
@@ -253,7 +253,7 @@ describe('a resumed conversation draws its tool calls like the live run', () => 
 		const rows = projectConversation(messages, ids())
 		expect(rows.map((row) => row.content)).toEqual([
 			'look',
-			'Read 1 file, ran 1 command',
+			'Read 1 file, ran 1 shell command',
 			'Ls(.)',
 			'The model asked for a tool that does not exist (ls). It will try another way.',
 			'Done.',
