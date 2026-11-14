@@ -183,6 +183,8 @@ export interface ComposerProps {
 	 * transcript on every keypress.
 	 */
 	readonly onDraftPresenceChange?: (hasDraft: boolean) => void
+	/** True while a history search owns Ctrl+C (it cancels the search, not the turn). */
+	readonly onHistorySearchChange?: (searching: boolean) => void
 	/**
 	 * Empty-composer ↓ opens the currently active delegated-work panel.
 	 *
@@ -686,6 +688,7 @@ export function Composer({
 	draftToRestore = null,
 	onDraftRestored,
 	onDraftPresenceChange,
+	onHistorySearchChange,
 	onOpenAgentPanel,
 	onOpenAgents,
 	onOpenWorkspaces,
@@ -722,6 +725,14 @@ export function Composer({
 	const killBufferRef = useRef('')
 	const [selected, setSelected] = useState<number>(0)
 	const selectedRef = useRef(0)
+	// Esc on an open suggestion menu closes it and keeps the draft. The menu stays
+	// closed for exactly this text; the next edit opens it again.
+	const [menuClosedFor, setMenuClosedForState] = useState<string | null>(null)
+	const menuClosedForRef = useRef<string | null>(null)
+	const setMenuClosedFor = useCallback((next: string | null) => {
+		menuClosedForRef.current = next
+		setMenuClosedForState(next)
+	}, [])
 	// A large paste stands in the text as a chip such as `[Pasted text #1 +40 lines]`;
 	// what it stands for is held here and put back when the message is sent.
 	const pasteStoreRef = useRef<Map<number, string>>(new Map())
@@ -831,6 +842,17 @@ export function Composer({
 		if (kept.length !== attachmentsRef.current.length) replaceAttachments(kept)
 	}, [idFor, replaceAttachments, value])
 
+	// Any edit opens the menu again, even back to the same text.
+	useEffect(() => {
+		if (menuClosedForRef.current !== null && menuClosedForRef.current !== value)
+			setMenuClosedFor(null)
+	}, [setMenuClosedFor, value])
+
+	const searching = historySearch !== null && !escapeInterrupts
+	useEffect(() => {
+		onHistorySearchChange?.(searching)
+	}, [onHistorySearchChange, searching])
+
 	useEffect(() => {
 		const hasDraft = value.trim().length > 0 || attachments.length > 0
 		if (hasDraft === draftPresenceRef.current) return
@@ -841,12 +863,15 @@ export function Composer({
 	// Keep the complete match set. The six-row limit belongs to the rendered
 	// window, not to navigation: slicing here made every later command
 	// unreachable no matter how many times the operator pressed Down.
-	const commandSuggestions = plainText ? [] : matchSlashCommands(value, userCommands, builtins)
+	const menuClosed = menuClosedFor === value
+	const commandSuggestions =
+		plainText || menuClosed ? [] : matchSlashCommands(value, userCommands, builtins)
 	const argumentHint = plainText ? undefined : argumentHintFor(value, userCommands)
 	const activeMention = activeFileMention(value, cursor)
-	const fileSuggestions = activeMention
-		? matchMentionSuggestions(activeMention.query, mentionCandidates, mentionExtras)
-		: []
+	const fileSuggestions =
+		activeMention && !menuClosed
+			? matchMentionSuggestions(activeMention.query, mentionCandidates, mentionExtras)
+			: []
 	const suggestionKind =
 		commandSuggestions.length > 0 ? 'command' : fileSuggestions.length > 0 ? 'file' : null
 	const suggestionCount =
@@ -1394,10 +1419,14 @@ export function Composer({
 					return
 				}
 			}
-			const liveCommandSuggestions = plainText
-				? []
-				: matchSlashCommands(valueRef.current, userCommands, builtins)
-			const liveMention = activeFileMention(valueRef.current, cursorRef.current)
+			const liveMenuClosed = menuClosedForRef.current === valueRef.current
+			const liveCommandSuggestions =
+				plainText || liveMenuClosed
+					? []
+					: matchSlashCommands(valueRef.current, userCommands, builtins)
+			const liveMention = liveMenuClosed
+				? null
+				: activeFileMention(valueRef.current, cursorRef.current)
 			const liveFileSuggestions = liveMention
 				? matchMentionSuggestions(liveMention.query, mentionCandidates, mentionExtras)
 				: []
@@ -1652,20 +1681,27 @@ export function Composer({
 				submit('queue')
 				return
 			}
+			if (historySearchRef.current && !escapeInterrupts && isAction('app:interrupt', input, key)) {
+				// Ctrl+C backs out of the search to the draft that was there before.
+				const before = historySearchRef.current.draft
+				setHistorySearch(null)
+				setBuffer(before.value, before.cursor, 'typed', before.spans)
+				return
+			}
 			if (isAction('chat:cancel', input, key)) {
 				// A running turn owns Esc. App aborts it on this same keypress,
 				// and clearing the draft too would punish the operator for
 				// following the hint the status bar is showing them.
 				if (escapeInterrupts) return
-				const activeSearch = historySearchRef.current
-				if (activeSearch) {
-					setBuffer(
-						activeSearch.draft.value,
-						activeSearch.draft.cursor,
-						'typed',
-						activeSearch.draft.spans,
-					)
+				// Esc leaves the search with the match it found in the box.
+				if (historySearchRef.current) {
 					setHistorySearch(null)
+					return
+				}
+				// An open suggestion menu takes the Esc: it closes, the draft stays,
+				// and the clear window is not armed.
+				if (hasLiveSuggestions) {
+					setMenuClosedFor(valueRef.current)
 					return
 				}
 				const empty = valueRef.current.length === 0 && attachmentsRef.current.length === 0
@@ -2098,7 +2134,7 @@ export function Composer({
 						{historySearch.position < 0
 							? `draft · ${historySearch.matches.length} match${historySearch.matches.length === 1 ? '' : 'es'}`
 							: `${historySearch.position + 1}/${historySearch.matches.length}`}{' '}
-						· Ctrl+R older · Ctrl+S newer · Esc restore
+						· Ctrl+R older · Ctrl+S newer · Esc keep · Ctrl+C restore
 					</Text>
 				</Box>
 			) : null}

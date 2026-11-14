@@ -453,7 +453,7 @@ describe('the composer on a production-shaped terminal', () => {
 		}
 	})
 
-	it('restores the exact draft cursor when Esc leaves history search', async () => {
+	it('restores the exact draft cursor when Ctrl+C leaves history search', async () => {
 		const submit = vi.fn()
 		const screen = await renderToScreen(<Composer history={['fix older']} onSubmit={submit} />, {
 			cols: 100,
@@ -466,7 +466,7 @@ describe('the composer on a production-shaped terminal', () => {
 			await screen.waitForRender()
 			expect(screen.viewport().join('\n')).toContain('fix older▏')
 
-			screen.press('\x1b')
+			screen.press('\x03')
 			await waitUntil(screen, () => !screen.viewport().join('\n').includes('Ctrl+R older'))
 			screen.press('X')
 			screen.press('\r')
@@ -497,7 +497,7 @@ describe('the composer on a production-shaped terminal', () => {
 			await screen.waitForRender()
 			expect(screen.viewport().join('\n')).toContain('history “older prompt” · 1/1')
 
-			screen.press('\x1b')
+			screen.press('\x03')
 			await waitUntil(screen, () => !screen.viewport().join('\n').includes('Ctrl+R older'))
 			screen.press('\r')
 			await screen.waitForRender()
