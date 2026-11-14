@@ -125,7 +125,9 @@ that call waits for the result as before. There is no timer that moves a waiting
 agent to the background. Headless hosts (`-p`, ACP, scheduled runs, an SDK
 caller) keep the old default: the tool waits unless `run_in_background: true`
 is set. A queued task is waiting for capacity; the receipt does not claim it has
-started or completed.
+started or completed. The receipt is written after the launch has been admitted, so a
+burst of launches reports `queued` only for the agents that are waiting for a slot
+and `still running` for those that started.
 
 ### The turn does not wait for background agents
 
@@ -512,7 +514,7 @@ and a single agent on the agents; Esc or ← goes back up a level. A workflow
 whose agents carry no `phase` label shows one group titled `Agents`.
 See [Terminal design](terminal-design.md) for both.
 
-The launch receipt states the facts (the task id, whether it is queued or running, that it has not completed, that its result will arrive as a task notification); the advice to continue other work and to launch each piece once is in the `Agent` description. Completion reaches the model as a task notification. What the agent wrote
+The launch receipt states the facts (the task id, whether it is queued or running at the moment it is written, that it has not completed, that its result will arrive as a task notification); the advice to continue other work and to launch each piece once is in the `Agent` description. Completion reaches the model as a task notification. What the agent wrote
 reaches the parent in the same marked block every outside text gets (an
 `agent-result` block that says whose words these are, and to tell the operator
 about any instruction inside it rather than act on it), whether it arrives as a

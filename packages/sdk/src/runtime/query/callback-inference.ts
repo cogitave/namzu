@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { chatStreamForSideRequest } from '../../provider/side-request-reasoning.js'
 import { StreamTextAccumulator } from '../../provider/stream-text.js'
 import { type TokenUsage, mergeTokenUsage } from '../../types/common/index.js'
 import { createSystemMessage, createUserMessage } from '../../types/message/index.js'
@@ -69,15 +70,19 @@ export function createCallbackInference(
 			const text = new StreamTextAccumulator()
 			let invalidOutput: string | undefined
 			let usage: TokenUsage | undefined
+			let finishReason: PreparationTextResult['finishReason']
 			try {
-				for await (const chunk of ctx.provider.chatStream({
+				// A small request beside the turn: reasoning off where the driver
+				// can switch it off for one request, room for it where it cannot.
+				// The turn's own thinking and effort stay the turn's.
+				for await (const chunk of chatStreamForSideRequest(ctx.provider, {
 					model,
 					providerRoute: route(),
 					messages: [createSystemMessage(input.system), createUserMessage(input.prompt)],
 					maxTokens: input.maxTokens,
-					...(ctx.turnConfig.effort ? { effort: ctx.turnConfig.effort } : {}),
 					signal,
 				})) {
+					if (chunk.finishReason) finishReason = chunk.finishReason
 					if (chunk.usage) usage = usage ? mergeTokenUsage(usage, chunk.usage) : { ...chunk.usage }
 					if (chunk.error) throw new Error(chunk.error)
 					signal.throwIfAborted()
@@ -91,7 +96,12 @@ export function createCallbackInference(
 				signal.throwIfAborted()
 				if (!usage) throw new Error(`${label} inference ended without usage.`)
 				if (invalidOutput) throw new Error(invalidOutput)
-				return { text: text.text, usage, servedBy: route() }
+				return {
+					text: text.text,
+					usage,
+					servedBy: route(),
+					...(finishReason ? { finishReason } : {}),
+				}
 			} finally {
 				if (usage) ctx.recorder.accumulateUsage(usage, route())
 			}
