@@ -15,6 +15,7 @@ import type {
 	ThinkingConfig,
 } from '../../../types/provider/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import { withProviderFallback } from '../../../provider/fallback.js'
 import { drainQuery } from '../index.js'
 import {
 	FORCED_STEP_MESSAGE,
@@ -262,6 +263,31 @@ describe('the action step a guard asks for', () => {
 		await run(provider, { withEdit: true, maxTokens: 50, thinking: thinkingOn })
 		expect(forced(provider)).toBe(0)
 		expect(carried(provider, FORCED_STEP_MESSAGE)).toBe(1)
+	})
+
+	/** A chain of two scripted members behind the real fallback wrapper. */
+	function chained(second: ((m: string, t?: ThinkingConfig) => boolean) | undefined) {
+		const head = withAnswer(() => true)
+		const tail = capped()
+		if (second) tail.acceptsForcedToolChoiceFor = second
+		const chain = withProviderFallback([
+			{ provider: head, model: 'm' },
+			{ provider: tail as unknown as LLMProvider, model: 'm' },
+		])
+		return { chain, head }
+	}
+
+	it('is asked in words when a chain member cannot say', async () => {
+		const { chain, head } = chained(undefined)
+		await run(chain, { withEdit: true, maxTokens: 50, thinking: thinkingOff })
+		expect(forced(head)).toBe(0)
+		expect(carried(head, FORCED_STEP_MESSAGE)).toBe(1)
+	})
+
+	it('is forced when every chain member says yes and thinking is off', async () => {
+		const { chain, head } = chained(() => true)
+		await run(chain, { withEdit: true, maxTokens: 50, thinking: thinkingOff })
+		expect(forced(head)).toBe(1)
 	})
 
 	it('is forced when the provider says yes and thinking is off', async () => {
