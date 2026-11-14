@@ -259,6 +259,7 @@ export class LogFolder {
 	readonly #openSink: RowSink
 	readonly #facts: SessionFacts = {}
 	#turn: OpenTurn | undefined
+	#lastSettled: Cumulative | undefined
 	/** Bytes of a line that has not ended yet, and where it starts. */
 	#tail: Buffer = Buffer.alloc(0)
 	#tailOffset: number
@@ -270,6 +271,11 @@ export class LogFolder {
 		this.#settledSink = new RowSink(models)
 		this.#openSink = new RowSink(models)
 		this.#tailOffset = baseOffset
+	}
+
+	/** What the most recent turn that settled came to, as its settlement states it. */
+	get lastSettled(): Cumulative | undefined {
+		return this.#lastSettled
 	}
 
 	feed(chunk: Buffer): void {
@@ -292,6 +298,7 @@ export class LogFolder {
 		let end: Cumulative | undefined
 		if (settlement !== undefined) {
 			end = cumulativeOf(settlement.usage, settlement.cost)
+			this.#lastSettled = end
 			const tail = minus(end, current.previous)
 			if (!isZero(tail)) {
 				current.deltas.push({

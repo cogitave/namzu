@@ -1,7 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { render } from 'ink-testing-library'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { scopeOf } from '../../integrations/auto-update/apply.js'
@@ -9,7 +8,6 @@ import type { InstallKind } from '../../integrations/auto-update/install-kind.js
 import { readInstalledVersion } from '../../integrations/auto-update/installed-version.js'
 import { readAttempt } from '../../integrations/auto-update/state.js'
 import { type UpdaterEvent, createUpdater } from '../../integrations/auto-update/updater.js'
-import { StatusBar } from '../StatusBar.js'
 import { updaterEventAmbient } from '../update-notice.js'
 
 let dir: string
@@ -84,11 +82,7 @@ describe('a version that fails its start check, from the updater to the footer',
 		expect(readInstalledVersion(root)).toBe('1.0.0')
 		const ambient = first.footer()
 		expect(ambient).not.toBeNull()
-		const shown = render(
-			<StatusBar provider="p" model="m" state="idle" ambient={ambient ?? undefined} />,
-		)
-		expect(shown.lastFrame()).toContain('Namzu 2.0.0 could not start here; staying on 1.0.0')
-		shown.unmount()
+		expect(ambient?.text).toBe('Namzu 2.0.0 could not start here; staying on 1.0.0')
 		expect(readAttempt(home, scopeOf(first.install, 'linux'))).toMatchObject({ shown: true })
 
 		const second = launch()

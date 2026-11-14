@@ -15,6 +15,7 @@ import {
 	buildConversationReadTool,
 	buildConversationSearchTool,
 } from '../sessions/conversation-search.js'
+import { buildSessionCostTool } from '../spend/session-cost.js'
 import { subagentParentFixture } from '../subagents/__fixtures__/parent.js'
 import { createSubagentRuntime } from '../subagents/runtime.js'
 import { createWebSearchTool } from '../web/search.js'
@@ -61,6 +62,7 @@ async function roster(): Promise<ToolDefinition[]> {
 			buildSwitchModelTool(() => Promise.reject(new Error('not used'))),
 			buildConversationSearchTool(refuse),
 			buildConversationReadTool(refuse),
+			buildSessionCostTool(refuse),
 		]
 	} finally {
 		await runtime.close()

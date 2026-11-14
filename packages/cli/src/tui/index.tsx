@@ -29,7 +29,12 @@ import {
 import { fileQueuedHintCount } from './hint-counts.js'
 import { installTuiLogSink } from './log-pane.js'
 import { watchOutputSize } from './output-size-watch.js'
-import { type LivePaint, createLivePaint, startOnFreshLine } from './paint/live-paint.js'
+import {
+	type LivePaint,
+	createLivePaint,
+	startOnCleanScreen,
+	startOnFreshLine,
+} from './paint/live-paint.js'
 import { installPasteMarkerGuard } from './paste-marker-guard.js'
 import { liveRenderOption } from './render-mode.js'
 import { terminalFocus } from './terminal-focus.js'
@@ -64,9 +69,11 @@ export async function launchTui(
 	const tipHistory = fileTipHistory()
 	tipHistory.recordLaunch()
 	let exitSummary: TuiExitSummary | null = null
-	// The default screen starts where the shell left the cursor: what the person had on screen
-	// and in the scrollback stays, and the banner and the first frame begin under it. Nothing
-	// here clears either (`paint/live-paint.ts` paints only what changed from then on).
+	// The default screen opens clean: the rows on screen move up into the scrollback and the banner
+	// starts on the top row, so an earlier run or the shell's output is not stacked under it. The
+	// scrollback is kept (never erased); a session run by the workspaces host starts where the host
+	// left the cursor, since the host owns that screen. After this nothing clears either
+	// (`paint/live-paint.ts` paints only what changed from then on).
 	// A killed earlier run may have left the pointer captured; clear that before the first frame.
 	writeLaunchMouseReset(process.stdout, hostedByHost(process.env, process.ppid))
 	// Fullscreen draws on the alternate screen, so the terminal's own screen and
@@ -77,8 +84,13 @@ export async function launchTui(
 		interactive: process.stdout.isTTY === true && process.stdin.isTTY === true,
 		hosted: hostedByHost(process.env, process.ppid),
 	})
-	if (process.stdout.isTTY && !fullscreen)
-		process.stdout.write(startOnFreshLine(process.stdout.columns ?? 80))
+	if (process.stdout.isTTY && !fullscreen) {
+		process.stdout.write(
+			hostedByHost(process.env, process.ppid)
+				? startOnFreshLine(process.stdout.columns ?? 80)
+				: startOnCleanScreen(process.stdout.rows ?? 24),
+		)
+	}
 	// SIGTERM, SIGHUP and SIGINT give the conversation back and leave cleanly
 	// (`termination.ts`): the turn's lease is released first, so the next
 	// process can /resume or /abandon at once, then the App leaves as `/exit`
@@ -303,7 +315,9 @@ export async function launchTui(
 		if (workspaces.current !== null) await (await workspaces.current).shutdown()
 		termination.dispose()
 		// The last frame is painted and the cursor shown before anything else is written.
-		paint?.dispose()
+		// The input box and the footer are taken off the screen (the transcript stays), so the next
+		// command or session does not stack under a box that no longer works. A hangup has no screen.
+		paint?.dispose({ eraseBox: terminatedBy !== 'SIGHUP' && !hosted })
 		stopSizeWatch?.()
 		stopFocusReporting()
 		stopWheel?.()

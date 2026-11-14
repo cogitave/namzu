@@ -51,7 +51,7 @@ One line sits directly below the composer's lower rule, with no blank row betwee
 them. Its items are joined by a dim ` · `, left to right:
 
 ```text
-⏵⏵ bypass permissions on · PR #607 · 3 bg · esc to interrupt · ← 1 agent · ↓ to manage   model
+⏵⏵ bypass permissions on · PR #607 · 2 shells · 1 monitor · esc to interrupt · ← 1 agent · ↓ to manage   model
 ```
 
 - **The mode**, as `<mark> <words> on` in the mode's color, then a dim
@@ -70,17 +70,19 @@ them. Its items are joined by a dim ` · `, left to right:
   outside a git repository. A missing `gh` shows a dim `install gh for PR
   status`; a signed-out `gh` shows `gh auth login for PR status`; any other
   failure, and a branch with no pull request, show nothing.
-- **Background shells**, a cyan pill `N bg` (commands and monitors together). It replaces the
-  separate `N shells running` line that used to sit under the footer, and it
-  hides with the composer surface (a permission or child view owning the
-  screen).
+- **Background shells and monitors**, cyan pills that name their kind: `2 shells`
+  (`1 shell`) for running commands and `1 monitor` (`3 monitors`) for monitors,
+  each shown only while it is above zero, joined by the same dim ` · `. They
+  replace the separate `N shells running` line that used to sit under the
+  footer, and they hide with the composer surface (a permission or child view
+  owning the screen). Both leave the row together when it is too narrow.
 - **The reasoning effort**, when the operator has set one, as `effort <level>`
   (Namzu's own item).
 - **`esc to interrupt`**, dim, while a turn runs (omitted when the right side
   already carries a hint that names Esc; no footer is drawn while a dialog or
   picker owns the keyboard). The Working row does not repeat it; it lives here only.
 - **The notice slot.** The right end of the row shows one passing notice at a
-  time, behind a hint and ahead of the goal, a standing item and the model. Notices
+  time, behind a hint and ahead of the goal and the model. Notices
   queue by priority (`immediate`, `high`, `medium`, `low`; equal priorities go
   in arrival order) and each stays 8 s unless it names its own time. An
   `immediate` notice shows at once and the notice it covers returns after it
@@ -108,16 +110,22 @@ them. Its items are joined by a dim ` · `, left to right:
     strategy turns it off today). It is hidden from the moment a compaction
     finishes until the next turn starts, and it is not in the left items, so
     `esc to interrupt` and the rest stay while it shows.
-- **The update line.** The [background updater](updates.md) leaves at most one
-  standing line at the right end, yielding to a hint, a notice and the goal and
-  sitting ahead of the model. While an automatic install runs it is dim,
-  `Updating to 41.3.0…`; once it is installed it is green with a check,
+- **The update line** is not on this row. The [background updater](updates.md)
+  leaves at most one standing line, and it has a row of its own directly above the
+  composer's upper rule, right-aligned so its last character is in the last
+  column (the blank row the box keeps above itself stays above it). The row
+  exists only while there is something to say, so the box moves one row when it
+  appears and back when it goes. It takes at most 60 percent of the width, with
+  the end cut, and steps aside while an urgent or error notice holds the
+  footer, and while a dialog owns the box. While an automatic install runs it is
+  dim, `Updating to 41.3.0…`; once it is installed it is green with a check,
   `✓ Updated to 41.3.0 · restart to use it`. When Namzu may not or could not do it
   itself it is yellow with the exact command bold: `Update available! Run: namzu
   upgrade`, or `Couldn't update Namzu on its own. Run: <command>` after a failed
   attempt (once per version; later starts say `Update available!` with the same
   command). Nothing is shown while it only checks, and a source checkout,
-  `npx` and the Desktop copy show nothing at all.
+  `npx` and the Desktop copy show nothing at all. Because the line no longer
+  uses the footer's right end, the model name stays there while an update shows.
 - **The exit reminder.** The first Ctrl+C with nothing to interrupt, or Ctrl+D
   on an empty composer, puts a dim `Press Ctrl-C again to exit` (or `Ctrl-D`)
   in the right-hand slot for 800 ms; the same key again inside that window
@@ -419,6 +427,7 @@ after the agent rows (the rail lists only the unlabelled subagents above it):
   ○ general-purpose  Gorev a                                                1m05s
   ○ general-purpose  Gorev d                                       0.3s · ↓ 15 tokens
   ◯ Release audit    ▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱  3/7 · 2m14s · ↓ 48.2k tokens
+  ◯ Check the docs   ▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱  0/1 · 16m08s · ↓ 129.6k tokens
 ```
 
 A workflow here is the agents the model gave one explicit `workflow` label
@@ -430,9 +439,16 @@ outcome: green when every agent completed, red when one failed or the
 workflow was stopped — and already red while it runs once a member has failed.
 The elapsed time ticks each second and freezes when the last agent settles; the
 row leaves 30 seconds after that. Workflow rows are not windowed and share the
-agents' name column. As the line narrows it gives up, in order, the
-`n/m` counter, the elapsed time, the word `tokens`, then the bar shrinks from
-20 to 12 to 8 cells; the name is squeezed last, never below eight cells.
+agents' name column. The rows read as one table: every bar starts in the same
+cell and has the same width, and the count, the elapsed time and the token
+number each start in one column, each as wide as the widest value among the
+rows, so the clocks of a row at `1h58m` and one at `16m08s` stay under each
+other. The clock has one fixed shape per range (`45s`, `16m08s`, `1h58m`,
+`1d02h`). As the line narrows the rows give up, together and in order, the
+phase names, then the bar shrinks from 20 to 12 to 8 to 4 cells, then the
+token number, the `Large workflow` mark, the bar, the elapsed time and last the
+counter; the name is squeezed after the tokens, never below eight cells. No row
+wraps or runs past the width.
 
 ↓ walks `main` (when drawn), the agents, then the workflows. On a workflow row
 the key line is `enter to view · x to stop` (`x to clear` once it has
@@ -651,8 +667,9 @@ live state belongs to the rail.
   the running turn is in.
 - **A waiting line** when a turn ends over background agents that are still
   running: `✻ Waiting for 2 background agents to finish` (`and 1 dynamic
-  workflow` when one is running), dim, above the composer, which is free. The
-  closing line below is written when the last one ends, with the wait counted.
+  workflow` when one is running), dim, above the composer, which is free. It
+  stands where the closing line stands: one blank row above, the `✻` alone in a
+  two-cell column, the words from the third cell. The closing line below is written when the last one ends, with the wait counted.
 - **A closing line** when a turn that launched agents settles: how long the
   turn took and how many agents it launched (phases are never counted here),
   what they spent when any reported it, and how many failed
@@ -1705,10 +1722,20 @@ writer of Namzu's own (`packages/cli/src/tui/paint/`) that sits between the rend
   0.13 s at the median and 0.2 s at the 90th percentile, and the last words of a reply are on screen within 0.1 s
   of arriving. The clock on
   the working line still moves every second.
-- **Nothing the terminal already holds is erased.** The terminal UI begins at the start of a line under what was on
-  screen (if a program left the cursor in the middle of a line, a reversed `%` ends that line, as shells do).
-  What was on screen and everything in the scrollback stay, and the banner is drawn under them. (Before, launch
-  cleared the screen and the scrollback.) The same rule holds for the rest of the session: text printed before
+- **The scrollback is never erased; the screen opens clean and is left tidy.** At launch the terminal UI moves
+  the rows on screen up into the scrollback (one newline per screen row, so the whole screen scrolls), homes the
+  cursor and erases what is left of the visible screen, so the banner stands on the second row, under the one blank
+  margin row the screen always keeps above it, and nothing from the shell or from an earlier run is in view. What the shell printed is one scroll away, once and in order, and the "erase
+  saved lines" sequence is never written, at launch or later. This is what a person sees when they run `namzu`,
+  leave, and run it again in the same terminal: one banner, and the first run's transcript above it in the
+  scrollback, not a dead input box and footer with the new session stacked under them. On the way out the input
+  box and its footer are taken off the screen (the frame's last two full-width rules and what hangs under them; a
+  frame with no such box, such as a dialog, is left as drawn), the transcript above stays, and the cursor is
+  left on the first erased row for the shell's prompt. A session run by the workspaces host, a hangup and the
+  fullscreen view do not do either step: the host owns that screen, a hung-up terminal has no screen to write,
+  and fullscreen is on the alternate screen, which leaves the terminal's own screen exactly as it found it.
+  Output that is not a terminal and the headless commands (`exec`, `watch`) write none of this.
+  The same rule holds for the rest of the session: text printed before
   launch and the conversation rows already printed are never erased and never printed a second time, by a resize,
   a compaction or a clear. `/compact` (and the idle compaction) prints one row under what is there and goes on.
   `/clear`, `/new`, `/resume` and a theme change ask for a new screen: the visible screen is cleared, but the rows

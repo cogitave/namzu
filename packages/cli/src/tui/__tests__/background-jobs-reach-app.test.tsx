@@ -283,7 +283,7 @@ it('shows a lasting shell count, opens /tasks details, and stops only once acros
 	await submit(screen, 'launch server')
 	await turnSettled
 	await screen.waitForRender()
-	expect(screen.viewport().join('\n')).toContain('1 bg · ↓ to manage')
+	expect(screen.viewport().join('\n')).toContain('1 shell · ↓ to manage')
 	expect(screen.viewport().join('\n')).toContain('Type a message')
 
 	await submit(screen, '/tasks')
@@ -314,7 +314,7 @@ it('shows a lasting shell count, opens /tasks details, and stops only once acros
 	expect(screen.viewport().join('\n')).toContain('stopped')
 	screen.press('q')
 	await screen.waitForRender()
-	expect(screen.viewport().join('\n')).not.toContain('1 bg · ↓ to manage')
+	expect(screen.viewport().join('\n')).not.toContain('1 shell · ↓ to manage')
 })
 
 it('reaches the shells from the footer with down and opens them with enter', async () => {
@@ -322,11 +322,11 @@ it('reaches the shells from the footer with down and opens them with enter', asy
 	jobs = [runningJob()]
 	outputs.set('b00000001', outputFor('build output\n'))
 	const screen = await mount(100, 28)
-	expect(screen.viewport().join('\n')).toContain('1 bg · ↓ to manage')
+	expect(screen.viewport().join('\n')).toContain('1 shell · ↓ to manage')
 
 	screen.press('\x1b[B')
 	await screen.waitForRender()
-	expect(screen.viewport().join('\n')).toContain('1 bg · enter to view tasks')
+	expect(screen.viewport().join('\n')).toContain('1 shell · enter to view tasks')
 	expect(screen.viewport().join('\n')).not.toContain('↓ to manage')
 
 	screen.press('\x1b')
@@ -336,7 +336,7 @@ it('reaches the shells from the footer with down and opens them with enter', asy
 		await screen.waitForRender()
 		await new Promise<void>((resolve) => setImmediate(resolve))
 	}
-	expect(screen.viewport().join('\n')).toContain('1 bg · ↓ to manage')
+	expect(screen.viewport().join('\n')).toContain('1 shell · ↓ to manage')
 
 	screen.press('\x1b[B')
 	await screen.waitForRender()
@@ -351,12 +351,12 @@ it('clears the shell count and shows one exit row when the kernel delivered the 
 	jobs = [runningJob()]
 	outputs.set('b00000001', outputFor('build output\n'))
 	const screen = await mount(100, 28)
-	expect(screen.viewport().join('\n')).toContain('1 bg · ↓ to manage')
+	expect(screen.viewport().join('\n')).toContain('1 shell · ↓ to manage')
 
 	await submit(screen, 'finish the job')
 	await turnSettled
 	await screen.waitForRender()
-	expect(screen.viewport().join('\n')).not.toContain('1 bg · ↓ to manage')
+	expect(screen.viewport().join('\n')).not.toContain('1 shell · ↓ to manage')
 	expect(
 		screen
 			.scrollback()
@@ -376,7 +376,7 @@ it('keeps a live CLI session shell visible after /new changes the conversation',
 	await submit(screen, '/new')
 	await screen.waitForRender()
 	expect(sessionCreations).toBe(1)
-	expect(screen.viewport().join('\n')).toContain('1 bg · ↓ to manage')
+	expect(screen.viewport().join('\n')).toContain('1 shell · ↓ to manage')
 	await submit(screen, '/tasks')
 	expect(screen.viewport().join('\n')).toContain('npm run dev')
 	screen.press('\r')
@@ -461,5 +461,5 @@ it('reports that a job exited while its stop request was in flight', async () =>
 	await screen.waitForRender()
 	expect(screen.viewport().join('\n')).toContain('Already finished (exit code 0)')
 	expect(screen.viewport().join('\n')).not.toContain('Stopped.')
-	expect(screen.viewport().join('\n')).not.toContain('1 bg · ↓ to manage')
+	expect(screen.viewport().join('\n')).not.toContain('1 shell · ↓ to manage')
 })

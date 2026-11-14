@@ -12,6 +12,7 @@ import { createUserMessage } from '../../../types/message/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import type { ToolDefinition } from '../../../types/tool/index.js'
 import { drainQuery } from '../index.js'
+import { FORCED_STEP_MESSAGE } from '../turn/stall-monitor.js'
 
 /**
  * Forcing a tool is the one step-shaping knob that can hang an agent.
@@ -178,5 +179,78 @@ describe('a forced choice cannot outlive the step that asked for it', () => {
 		// The knob cannot hang a turn on its own: the iteration cap is still
 		// the backstop, and it settles rather than spinning.
 		expect(['completed', 'failed']).toContain(run.status)
+	})
+})
+
+describe('a step choice is asked of the provider like the loop own forced choice', () => {
+	const named = { type: 'function' as const, function: { name: 'echo' } }
+
+	it.each([
+		['required', 'required' as const],
+		['a named function', named],
+	])('does not send %s to a provider that refuses a forced choice', async (_label, choice) => {
+		const provider = Object.assign(new MockLLMProvider({ turns: [{ text: 'done' }] }), {
+			acceptsForcedToolChoiceFor: () => false,
+		})
+		const tools: ToolDefinition[] = []
+		registerEcho(tools)
+
+		await drainQuery({
+			...(await baseParams(provider, tools)),
+			prepareStep: () => ({ toolChoice: choice }),
+		})
+
+		expect(provider.requests).toHaveLength(1)
+		expect(provider.requests.at(0)?.toolChoice).toBeUndefined()
+	})
+
+	it('asks in words instead when the step choice is refused', async () => {
+		const provider = Object.assign(new MockLLMProvider({ turns: [{ text: 'done' }] }), {
+			acceptsForcedToolChoiceFor: () => false,
+		})
+		const tools: ToolDefinition[] = []
+		registerEcho(tools)
+
+		await drainQuery({
+			...(await baseParams(provider, tools)),
+			prepareStep: () => ({ toolChoice: 'required' as const }),
+		})
+
+		expect(provider.requests.at(0)?.messages.some((m) => m.content === FORCED_STEP_MESSAGE)).toBe(
+			true,
+		)
+	})
+
+	it.each(['auto', 'none'] as const)('still sends %s to that provider', async (choice) => {
+		const provider = Object.assign(new MockLLMProvider({ turns: [{ text: 'done' }] }), {
+			acceptsForcedToolChoiceFor: () => false,
+		})
+		const tools: ToolDefinition[] = []
+		registerEcho(tools)
+
+		await drainQuery({
+			...(await baseParams(provider, tools)),
+			prepareStep: () => ({ toolChoice: choice }),
+		})
+
+		expect(provider.requests.at(0)?.toolChoice).toBe(choice)
+		expect(provider.requests.at(0)?.messages.some((m) => m.content === FORCED_STEP_MESSAGE)).toBe(
+			false,
+		)
+	})
+
+	it('sends a forced choice to a provider that accepts it', async () => {
+		const provider = Object.assign(new MockLLMProvider({ turns: [{ text: 'done' }] }), {
+			acceptsForcedToolChoiceFor: () => true,
+		})
+		const tools: ToolDefinition[] = []
+		registerEcho(tools)
+
+		await drainQuery({
+			...(await baseParams(provider, tools)),
+			prepareStep: () => ({ toolChoice: 'required' as const }),
+		})
+
+		expect(provider.requests.at(0)?.toolChoice).toBe('required')
 	})
 })

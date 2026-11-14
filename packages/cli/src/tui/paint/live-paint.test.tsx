@@ -10,11 +10,13 @@ import {
 	RESIZE_HOLD_MS,
 	RESIZE_SETTLE_MS,
 	createLivePaint,
+	inputBoxStart,
 	linesAlreadyScrolled,
 	lostRowsAbove,
 	noteTurnEnded,
 	noteTurnStarted,
 	reflowedRows,
+	startOnCleanScreen,
 	startOnFreshLine,
 } from './live-paint.js'
 
@@ -649,6 +651,100 @@ describe('starting on a fresh line', () => {
 		expect((await half.screen())[0]?.startsWith('left mid-line%')).toBe(true)
 		expect(startOnFreshLine(20)).not.toContain(`${ESC}[2J`)
 		expect(startOnFreshLine(20)).not.toContain(`${ESC}[3J`)
+	})
+})
+
+/** The rows of the visible screen only, trailing blanks trimmed. */
+function visible(tty: Tty): string[] {
+	const buffer = tty.term.buffer.active
+	const rows: string[] = []
+	for (let i = 0; i < tty.rows; i++)
+		rows.push(buffer.getLine(buffer.baseY + i)?.translateToString(true) ?? '')
+	while (rows.at(-1) === '') rows.pop()
+	return rows
+}
+
+describe('starting on a clean screen', () => {
+	it('moves what was on screen into the scrollback, leaves the screen empty, and never erases the scrollback', async () => {
+		for (const seed of [3, 6, 20]) {
+			const tty = new Tty(20, 6)
+			for (let i = 1; i <= seed; i++) tty.write(`shell ${i}\r\n`)
+			tty.write('$ namzu\r\n')
+			tty.write(startOnCleanScreen(6))
+			await tty.drain()
+			expect(visible(tty)).toEqual([])
+			expect(tty.term.buffer.active.cursorX).toBe(0)
+			expect(tty.term.buffer.active.cursorY).toBe(0)
+			tty.write('banner\r\n')
+			await tty.drain()
+			expect(visible(tty)).toEqual(['banner'])
+			const all = await tty.screen()
+			expect(all.filter((r) => r.startsWith('shell ')).length).toBe(seed)
+			expect(all).toContain('$ namzu')
+		}
+		expect(startOnCleanScreen(6)).not.toContain(`${ESC}[3J`)
+		expect(startOnCleanScreen(6)).not.toContain(`${ESC}[2J`)
+	})
+
+	it('also cleans a screen whose cursor was left in the middle of a line', async () => {
+		const tty = new Tty(20, 6)
+		tty.write('left mid-line')
+		tty.write(startOnCleanScreen(6))
+		await tty.drain()
+		expect(visible(tty)).toEqual([])
+		expect((await tty.screen())[0]).toBe('left mid-line')
+	})
+})
+
+describe('leaving takes the input box off the screen', () => {
+	const rule = '─'.repeat(19)
+	const frame = (...transcript: string[]) =>
+		`${[...transcript, rule, '❯ ', rule, ' footer'].join('\n')}\n`
+
+	it('finds the box by its two rules close to the end of the frame', () => {
+		expect(inputBoxStart(['a', rule, '❯ ', rule, ' footer'])).toBe(1)
+		expect(inputBoxStart(['a', rule, '❯ x', 'y', rule, ' footer', ' hint'])).toBe(1)
+		expect(inputBoxStart(['a', rule, ' footer'])).toBeNull()
+		expect(inputBoxStart(['no box'])).toBeNull()
+		expect(inputBoxStart([rule, '❯ ', rule, 'a', 'b', 'c', 'd'])).toBeNull()
+	})
+
+	it('erases the box and the footer, keeps the transcript above, and leaves the cursor on the first erased row', async () => {
+		const { tty, clock, paint, out } = rig(20, 12)
+		tty.write('$ namzu\r\n')
+		inkFrame(out, frame('first row', 'second row'), 0)
+		clock.advance(FRAME_MS)
+		await tty.drain()
+		expect(visible(tty)).toEqual([
+			'$ namzu',
+			'first row',
+			'second row',
+			rule,
+			'❯ ',
+			rule,
+			' footer',
+		])
+		paint.dispose({ eraseBox: true })
+		await tty.drain()
+		expect(visible(tty)).toEqual(['$ namzu', 'first row', 'second row'])
+		expect(tty.term.buffer.active.cursorY).toBe(3)
+		expect(tty.term.buffer.active.cursorX).toBe(0)
+	})
+
+	it('leaves the frame as it was without the option, and when the frame has no box', async () => {
+		const a = rig(20, 12)
+		inkFrame(a.out, frame('row'), 0)
+		a.clock.advance(FRAME_MS)
+		a.paint.dispose()
+		await a.tty.drain()
+		expect(visible(a.tty)).toEqual(['row', rule, '❯ ', rule, ' footer'])
+
+		const b = rig(20, 12)
+		inkFrame(b.out, 'a dialog\nwith two rows\n', 0)
+		b.clock.advance(FRAME_MS)
+		b.paint.dispose({ eraseBox: true })
+		await b.tty.drain()
+		expect(visible(b.tty)).toEqual(['a dialog', 'with two rows'])
 	})
 })
 
