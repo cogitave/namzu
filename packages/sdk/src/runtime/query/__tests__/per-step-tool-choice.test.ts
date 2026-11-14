@@ -180,3 +180,56 @@ describe('a forced choice cannot outlive the step that asked for it', () => {
 		expect(['completed', 'failed']).toContain(run.status)
 	})
 })
+
+describe('a step choice is asked of the provider like the loop own forced choice', () => {
+	const named = { type: 'function' as const, function: { name: 'echo' } }
+
+	it.each([
+		['required', 'required' as const],
+		['a named function', named],
+	])('does not send %s to a provider that refuses a forced choice', async (_label, choice) => {
+		const provider = Object.assign(new MockLLMProvider({ turns: [{ text: 'done' }] }), {
+			acceptsForcedToolChoiceFor: () => false,
+		})
+		const tools: ToolDefinition[] = []
+		registerEcho(tools)
+
+		await drainQuery({
+			...(await baseParams(provider, tools)),
+			prepareStep: () => ({ toolChoice: choice }),
+		})
+
+		expect(provider.requests).toHaveLength(1)
+		expect(provider.requests.at(0)?.toolChoice).toBeUndefined()
+	})
+
+	it.each(['auto', 'none'] as const)('still sends %s to that provider', async (choice) => {
+		const provider = Object.assign(new MockLLMProvider({ turns: [{ text: 'done' }] }), {
+			acceptsForcedToolChoiceFor: () => false,
+		})
+		const tools: ToolDefinition[] = []
+		registerEcho(tools)
+
+		await drainQuery({
+			...(await baseParams(provider, tools)),
+			prepareStep: () => ({ toolChoice: choice }),
+		})
+
+		expect(provider.requests.at(0)?.toolChoice).toBe(choice)
+	})
+
+	it('sends a forced choice to a provider that accepts it', async () => {
+		const provider = Object.assign(new MockLLMProvider({ turns: [{ text: 'done' }] }), {
+			acceptsForcedToolChoiceFor: () => true,
+		})
+		const tools: ToolDefinition[] = []
+		registerEcho(tools)
+
+		await drainQuery({
+			...(await baseParams(provider, tools)),
+			prepareStep: () => ({ toolChoice: 'required' as const }),
+		})
+
+		expect(provider.requests.at(0)?.toolChoice).toBe('required')
+	})
+})

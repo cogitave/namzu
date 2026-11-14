@@ -19,6 +19,8 @@ import {
 	providerVendorError,
 } from '@namzu/sdk'
 import { attributionHeaders } from '@namzu/sdk'
+import type { Logger } from '@namzu/sdk'
+import { NOOP_LOGGER } from '@namzu/sdk'
 import type { OpenRouterConfig } from './types.js'
 
 /**
@@ -512,15 +514,29 @@ function refusesForcedChoiceWhileReasoning(model: string): boolean {
 	return /^deepseek-(v([4-9]|\d{2,})(\.|-|$)|r\d+(-|$)|reasoner(-|$)|(flash|pro)(-|$))/.test(bare)
 }
 
+/** Highest first. What a request for `max` or `ultra` falls down through. */
+const EFFORT_DESCENDING = ['max', 'xhigh', 'high', 'medium', 'low', 'minimal'] as const
+
 /**
- * The effort levels this wire can carry.
+ * The level that stands in for an SDK effort the wire may not carry.
  *
- * OpenRouter's unified `reasoning.effort` publishes exactly these. The SDK's
- * `max` and `ultra` are OpenAI-model-specific names with no equivalent here,
- * and a driver must not send one and hope: an effort that arrives as a
- * different depth is indistinguishable from one that was honoured.
+ * `max` and `ultra` are legal SDK values, so refusing them stopped a run for a
+ * setting nobody did wrong. Each asks for the deepest reasoning the model
+ * offers, so each resolves to the highest level in the model's own list
+ * (`supported_efforts` in the `/models` listing), never `none`. When the
+ * listing could not be read or does not carry a list for the model, the
+ * highest level the unified `reasoning.effort` documents for every model, `xhigh`, is sent: a level the
+ * vendor accepts, one step short of what was asked for rather than a failure.
+ * Every other level is sent as given.
  */
-const OPENROUTER_REASONING_EFFORT = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'] as const
+function carriedEffort(
+	effort: NonNullable<ChatCompletionParams['effort']>,
+	supported: readonly string[] | undefined,
+): string {
+	if (effort !== 'max' && effort !== 'ultra') return effort
+	if (!supported) return 'xhigh'
+	return EFFORT_DESCENDING.find((level) => supported.includes(level)) ?? 'xhigh'
+}
 
 /**
  * Map the SDK's thinking controls onto OpenRouter's unified `reasoning` object.
@@ -530,17 +546,9 @@ const OPENROUTER_REASONING_EFFORT = ['none', 'minimal', 'low', 'medium', 'high',
  */
 function formatReasoning(
 	thinking: ChatCompletionParams['thinking'],
-	effort: ChatCompletionParams['effort'],
+	effort: string | undefined,
 ): Record<string, unknown> | undefined {
-	if (effort !== undefined) {
-		const carried = (OPENROUTER_REASONING_EFFORT as readonly string[]).includes(effort)
-		if (!carried) {
-			throw new Error(
-				`OpenRouterProvider cannot carry effort "${effort}". Its reasoning.effort accepts ${OPENROUTER_REASONING_EFFORT.join(', ')}. Sending a different level would return a perfectly ordinary completion that no caller could tell apart from the one that was asked for.`,
-			)
-		}
-		return { effort }
-	}
+	if (effort !== undefined) return { effort }
 	if (!thinking || thinking.type === undefined) return undefined
 	if (thinking.type === 'disabled') return { enabled: false }
 	// 'adaptive' has no separate spelling on this wire: the model decides its
@@ -551,6 +559,20 @@ function formatReasoning(
 		enabled: true,
 		...(budgetTokens !== undefined ? { max_tokens: budgetTokens } : {}),
 	}
+}
+
+/** A choice that makes the model call a tool: `required` or a named function. */
+function isForcedToolChoice(tc: ToolChoice): boolean {
+	return tc !== 'auto' && tc !== 'none'
+}
+
+/**
+ * Whether a 400 body is the vendor refusing the tool choice. The router passes
+ * the upstream sentence through ("Thinking mode does not support this
+ * tool_choice"), so the field name is what identifies it.
+ */
+function refusesToolChoice(errorBody: string): boolean {
+	return /tool_choice/i.test(errorBody)
 }
 
 function formatToolChoice(tc: ToolChoice): unknown {
@@ -585,6 +607,7 @@ export class OpenRouterProvider implements LLMProvider {
 
 	private config: OpenRouterConfig
 	private baseUrl: string
+	private logger: Logger
 
 	constructor(config: OpenRouterConfig) {
 		if (!config.apiKey) {
@@ -592,6 +615,7 @@ export class OpenRouterProvider implements LLMProvider {
 		}
 		this.config = config
 		this.baseUrl = config.baseUrl ?? OPENROUTER_BASE_URL
+		this.logger = config.logger ?? NOOP_LOGGER
 	}
 
 	/**
@@ -600,14 +624,19 @@ export class OpenRouterProvider implements LLMProvider {
 	 * the DeepSeek models whose own API refuses it while they reason, and
 	 * reasoning is on for them unless thinking is disabled or effort is `none`
 	 * (the same rule the DeepSeek driver applies). The kernel asks first and,
-	 * on `false`, keeps the step at low effort and asks in words. Nothing is
-	 * refused here before transport: on the live route a forced choice with
-	 * reasoning on was served (HTTP 200) by five different upstream hosts, and
-	 * when the request was pinned to the vendor's own host the router answered
-	 * its own 404 "no endpoints" (its tool-compatibility filter drops that host
-	 * for a forced choice) rather than passing the vendor's 400 through. So the
-	 * vendor's refusal never reaches this driver as a 400, and refusing here
-	 * would turn a working call into an error; only the advice changes.
+	 * on `false`, keeps the step at low effort and asks in words.
+	 *
+	 * The vendor's refusal is not what every route returns. On the live route a
+	 * forced choice with reasoning on was served (HTTP 200) by five different
+	 * upstream hosts, and when the request was pinned to the vendor's own host
+	 * the router answered its own 404 "no endpoints" (its tool-compatibility
+	 * filter drops that host for a forced choice). Yet a real session got the
+	 * vendor's own 400 "Thinking mode does not support this tool_choice" from
+	 * some host. So this driver acts on both facts: where this answer is
+	 * `false` the forced choice is not put on the wire, and a request that did
+	 * carry one and drew a 400 naming `tool_choice` is sent once more without
+	 * it. A host that accepts the choice keeps getting it; only a host that
+	 * rejects it costs a second request.
 	 */
 	acceptsForcedToolChoiceFor(
 		model: string,
@@ -681,7 +710,11 @@ export class OpenRouterProvider implements LLMProvider {
 		})
 	}
 
-	private buildRequestBody(params: ChatCompletionParams, stream: boolean): Record<string, unknown> {
+	private buildRequestBody(
+		params: ChatCompletionParams,
+		stream: boolean,
+		supportedEfforts?: readonly string[],
+	): Record<string, unknown> {
 		const body: Record<string, unknown> = {
 			model: params.model,
 			messages: this.formatMessages(params.messages, routeOf(params)),
@@ -692,7 +725,19 @@ export class OpenRouterProvider implements LLMProvider {
 			body.tools = params.tools
 		}
 		if (params.toolChoice !== undefined) {
-			body.tool_choice = formatToolChoice(params.toolChoice)
+			if (
+				isForcedToolChoice(params.toolChoice) &&
+				!this.acceptsForcedToolChoiceFor(params.model, params.thinking, params.effort)
+			) {
+				// The model's vendor refuses a forced choice while it reasons. Not
+				// sending it costs the caller nothing it could have had: the step
+				// goes out with the choice left to the model.
+				this.logger.debug('openrouter: forced tool_choice not sent, the model refuses it here', {
+					'namzu.model': params.model,
+				})
+			} else {
+				body.tool_choice = formatToolChoice(params.toolChoice)
+			}
 		}
 		if (params.parallelToolCalls !== undefined) {
 			body.parallel_tool_calls = params.parallelToolCalls
@@ -711,9 +756,12 @@ export class OpenRouterProvider implements LLMProvider {
 			applyCacheBreakpoints(params.messages, body.messages as { content?: unknown }[])
 		}
 
-		// Refused, not dropped, when this wire cannot carry the level asked
-		// for — see `formatReasoning`.
-		const reasoning = formatReasoning(params.thinking, params.effort)
+		// `max` and `ultra` resolve against the model's own list — see
+		// `carriedEffort`.
+		const reasoning = formatReasoning(
+			params.thinking,
+			params.effort !== undefined ? carriedEffort(params.effort, supportedEfforts) : undefined,
+		)
 		if (reasoning !== undefined) {
 			body.reasoning = reasoning
 		}
@@ -726,7 +774,11 @@ export class OpenRouterProvider implements LLMProvider {
 	}
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
-		const body = this.buildRequestBody(params, true)
+		const supportedEfforts =
+			params.effort === 'max' || params.effort === 'ultra'
+				? await this.resolveSupportedEfforts(params.model, params.signal)
+				: undefined
+		const body = this.buildRequestBody(params, true, supportedEfforts)
 
 		const timeout = AbortSignal.timeout(this.config.timeout ?? 120_000)
 		// Compose the caller abort with the request timeout so a Stop cancels the
@@ -734,18 +786,21 @@ export class OpenRouterProvider implements LLMProvider {
 		// prior `AbortSignal.timeout(...)` expression (byte-identical).
 		const signal = params.signal ? AbortSignal.any([timeout, params.signal]) : timeout
 
-		let response: Response
-		try {
-			response = await fetch(`${this.baseUrl}/chat/completions`, {
-				method: 'POST',
-				headers: this.getHeaders(),
-				body: JSON.stringify(body),
-				signal,
-			})
-		} catch (err) {
-			if (isCallerAbortError(err, params.signal)) throw params.signal?.reason ?? err
-			throw providerVendorError({ providerId: 'openrouter', error: err })
+		const send = async (payload: Record<string, unknown>): Promise<Response> => {
+			try {
+				return await fetch(`${this.baseUrl}/chat/completions`, {
+					method: 'POST',
+					headers: this.getHeaders(),
+					body: JSON.stringify(payload),
+					signal,
+				})
+			} catch (err) {
+				if (isCallerAbortError(err, params.signal)) throw params.signal?.reason ?? err
+				throw providerVendorError({ providerId: 'openrouter', error: err })
+			}
 		}
+
+		let response = await send(body)
 
 		if (!response.ok) {
 			// The body is read to CLASSIFY (a 400 saying "prompt is too long" is a
@@ -753,14 +808,29 @@ export class OpenRouterProvider implements LLMProvider {
 			// used to be interpolated straight into the message, which is how a
 			// credential the upstream echoed back reached every log that recorded
 			// the failure — proven with a planted fake token.
-			const errorBody = await response.text().catch(() => '')
-			throw providerHttpError({
-				providerId: 'openrouter',
-				status: response.status,
-				body: errorBody,
-				retryAfter: response.headers.get('retry-after'),
-				shouldRetry: response.headers.get('x-should-retry'),
-			})
+			let errorBody = await response.text().catch(() => '')
+			const sentForced =
+				body.tool_choice !== undefined && isForcedToolChoice(body.tool_choice as ToolChoice)
+			if (response.status === 400 && sentForced && refusesToolChoice(errorBody)) {
+				// This host refuses a forced choice. Ask once more without it; the
+				// model decides whether to call a tool. Anything the second attempt
+				// answers is final.
+				this.logger.debug('openrouter: a 400 named tool_choice, sending once more without it', {
+					'namzu.model': params.model,
+				})
+				const { tool_choice: _dropped, ...withoutChoice } = body
+				response = await send(withoutChoice)
+				if (!response.ok) errorBody = await response.text().catch(() => '')
+			}
+			if (!response.ok) {
+				throw providerHttpError({
+					providerId: 'openrouter',
+					status: response.status,
+					body: errorBody,
+					retryAfter: response.headers.get('retry-after'),
+					shouldRetry: response.headers.get('x-should-retry'),
+				})
+			}
 		}
 
 		if (!response.body) {
@@ -1010,6 +1080,50 @@ export class OpenRouterProvider implements LLMProvider {
 		const reported = windows.get(model) ?? (tag > 0 ? windows.get(model.slice(0, tag)) : undefined)
 		return typeof reported === 'number' && reported > 0 ? reported : undefined
 	}
+
+	/**
+	 * The reasoning levels the listing names for `model` (`reasoning.supported_efforts`),
+	 * or `undefined` when the listing cannot be read or names none. Read only
+	 * for a `max` or `ultra` request, and kept for this driver once fulfilled; a
+	 * failure is not kept. A caller abort still propagates.
+	 */
+	private async resolveSupportedEfforts(
+		model: string,
+		signal?: AbortSignal,
+	): Promise<readonly string[] | undefined> {
+		let table = this.supportedEfforts
+		if (!table) {
+			try {
+				signal?.throwIfAborted()
+				const response = await fetch(`${this.baseUrl}/models`, {
+					headers: this.getHeaders(),
+					...(signal ? { signal } : {}),
+				})
+				if (!response.ok) return undefined
+				const data = (await response.json()) as {
+					data?: Array<{ id: string; reasoning?: { supported_efforts?: unknown } }>
+				}
+				table = new Map()
+				for (const m of data.data ?? []) {
+					const levels = m.reasoning?.supported_efforts
+					if (Array.isArray(levels)) {
+						table.set(
+							m.id,
+							levels.filter((l): l is string => typeof l === 'string'),
+						)
+					}
+				}
+				this.supportedEfforts = table
+			} catch (err) {
+				if (signal?.aborted) throw signal.reason ?? err
+				return undefined
+			}
+		}
+		const tag = model.indexOf(':')
+		return table.get(model) ?? (tag > 0 ? table.get(model.slice(0, tag)) : undefined)
+	}
+
+	private supportedEfforts?: Map<string, string[]>
 
 	/** First fulfilled listing; see the note on `resolveContextWindow`. */
 	private contextWindows?: Map<string, number>

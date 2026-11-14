@@ -1235,8 +1235,16 @@ export class IterationOrchestrator {
 					// A provider that refuses a forced tool choice (some models do, and
 					// so does manual extended thinking) is not sent one: the step keeps
 					// its low effort and asks in words, on this request only.
+					//
+					// A choice the step itself set (`step.toolChoice`) is asked the same
+					// question: `required` or a named function is a forced choice whoever
+					// set it, and the provider's answer does not depend on who.
+					const stepChoiceForced =
+						step.toolChoice !== undefined &&
+						step.toolChoice !== 'auto' &&
+						step.toolChoice !== 'none'
 					const forcedChoiceRefused =
-						forcedAction &&
+						(forcedAction || stepChoiceForced) &&
 						this.ctx.provider.acceptsForcedToolChoiceFor?.(
 							stepModel,
 							turnConfig.thinking,
@@ -1285,7 +1293,9 @@ export class IterationOrchestrator {
 									: llmTools.length > 0
 										? forcedAction && !forcedChoiceRefused
 											? (step.toolChoice ?? 'required')
-											: step.toolChoice
+											: stepChoiceForced && forcedChoiceRefused
+												? undefined
+												: step.toolChoice
 										: undefined,
 							temperature: step.temperature ?? turnConfig.temperature,
 							maxTokens:
