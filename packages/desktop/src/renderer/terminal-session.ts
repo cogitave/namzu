@@ -259,6 +259,15 @@ export class TerminalSession {
 		return lines.join('\n').replace(/\n+$/u, '')
 	}
 
+	/** The text of the screen alone, the rows a person sees without scrolling back, for tests and diagnostics. */
+	screenText(): string {
+		const buffer = this.term.buffer.active
+		const lines: string[] = []
+		for (let row = buffer.baseY; row < buffer.baseY + this.term.rows; row++)
+			lines.push(buffer.getLine(row)?.translateToString(true) ?? '')
+		return lines.join('\n').replace(/\n+$/u, '')
+	}
+
 	async copySelection(): Promise<void> {
 		const text = this.term.getSelection()
 		if (text) await this.api.copyText?.(text).catch(() => undefined)

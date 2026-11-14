@@ -377,6 +377,7 @@ import {
 	railHint,
 	railNextEviction,
 	railShowsMain,
+	railStep,
 	railTypedText,
 	railWorkflowActionFor,
 	railWorkflows,
@@ -2903,6 +2904,8 @@ function AppBody({
 			setRailFocus(first)
 			return
 		}
+		// A typed draft only ever goes into rows; the cockpit is for an empty box.
+		if (composerHasDraftRef.current) return
 		void openAgentCockpit()
 	}, [openAgentCockpit, setRailFocus])
 	/** The Background dialog `/tasks` opens; the footer's pill reaches the same one. */
@@ -16488,8 +16491,21 @@ function AppBody({
 					// Background agents only; workflows are stopped one at a time with `x`.
 					requestStopAllAgents()
 					return
-				} else if (key.upArrow || key.downArrow) {
-					const index = at + (key.downArrow ? 1 : -1)
+				} else if (railStep(input, key) !== undefined) {
+					const step = railStep(input, key)
+					if (step === -1 && at === 0) {
+						// Up from the first stop hands the keyboard back to the box; the
+						// draft and caret are untouched because the composer never lost them.
+						setRailFocus(null)
+						return
+					}
+					if (step === 1 && at === ids.length - 1 && railTarget === SHELLS_FOCUS) {
+						// Nothing follows the shell pill: Down opens what Enter would.
+						setRailFocus(null)
+						openBackgroundTasks()
+						return
+					}
+					const index = at + (step ?? 0)
 					setRailFocus(ids[Math.max(0, Math.min(ids.length - 1, index))] ?? ids[0] ?? null)
 					return
 				} else if (key.return) {
