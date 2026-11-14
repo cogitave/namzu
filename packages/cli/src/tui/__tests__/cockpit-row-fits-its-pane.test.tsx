@@ -47,7 +47,7 @@ describe('a wide cockpit agent row', () => {
 		'leaves the padding cell before the border blank at %i columns',
 		async (cols) => {
 			mounted = await renderToScreen(
-				<Box flexDirection="column" paddingX={1}>
+				<Box flexDirection="column" paddingLeft={0} paddingRight={1}>
 					<AgentCockpit
 						agents={[
 							child('first', 'Choose first colour'),

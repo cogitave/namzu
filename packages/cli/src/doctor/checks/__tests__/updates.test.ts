@@ -35,6 +35,14 @@ describe('what doctor says about updates', () => {
 		expect(describeUpdates(input(install(true))).status).toBe('pass')
 	})
 
+	it('says a version installed while this window ran is waiting for a restart, not available', () => {
+		learn('2.0.0')
+		const result = describeUpdates({ ...input(install(true)), installedVersion: () => '2.0.0' })
+		expect(result.status).toBe('pass')
+		expect(result.message).toBe('Namzu 2.0.0 is installed; this window runs 1.0.0')
+		expect(result.remediation).toBe('Restart Namzu to use it')
+	})
+
 	it('shows the full command and the reason when the install folder is not writable', () => {
 		learn('2.0.0')
 		const result = describeUpdates(input(install(false)))

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { SubagentActivity } from '../integrations/subagents/activity.js'
-import { launchReceipt } from './agent-transcript-rows.js'
+import { launchFollowNote, launchReceipt } from './agent-transcript-rows.js'
 import {
 	backgroundWaitLine,
 	liveGroups,
@@ -135,12 +135,11 @@ describe('the receipt of a batch the turn waited on', () => {
 			agent({ viewId: 'a', background: true }),
 			agent({ viewId: 'b', background: true }),
 		]
-		expect(launchReceipt(batch).content.split('\n')[0]).toBe(
-			'2 background agents launched (↓ to manage)',
-		)
+		expect(launchReceipt(batch).content.split('\n')[0]).toBe('2 background agents launched')
+		expect(launchFollowNote(batch)).toContain('↓')
 		expect(
-			launchReceipt([agent({ viewId: 'a', background: true }), agent({ viewId: 'b' })]).content,
-		).not.toContain('↓ to manage')
+			launchFollowNote([agent({ viewId: 'a', background: true }), agent({ viewId: 'b' })]),
+		).toBeUndefined()
 	})
 })
 

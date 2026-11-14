@@ -214,7 +214,7 @@ describe('the folded line names what the commands did', () => {
 
 	it('counts by action in a fixed order and keeps every other command in the plain count', () => {
 		expect(groupText(live, false)).toBe(
-			'Made 1 commit, amended 1 commit, ran 1 push, created 1 branch, opened 1 pull request, ran 2 commands',
+			'Made 1 commit, amended 1 commit, ran 1 push, created 1 branch, opened 1 pull request, ran 2 shell commands',
 		)
 	})
 
@@ -228,7 +228,7 @@ describe('the folded line names what the commands did', () => {
 	})
 	it('uses the running verbs while live', () => {
 		expect(groupText(live, true)).toBe(
-			'Making 1 commit, amending 1 commit, pushing 1 time, creating 1 branch, opening 1 pull request, running 2 commands…',
+			'Making 1 commit, amending 1 commit, pushing 1 time, creating 1 branch, opening 1 pull request, running 2 shell commands…',
 		)
 	})
 

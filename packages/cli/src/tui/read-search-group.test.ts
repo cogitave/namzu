@@ -307,9 +307,11 @@ describe('shell commands that ended well', () => {
 			run('npm test', false),
 			run('tsc', false),
 		])
-		expect(groupText(state, false)).toBe('Read 1 file, listed 1 directory, ran 2 commands')
-		expect(groupText(state, true)).toBe('Reading 1 file, listing 1 directory, running 2 commands…')
-		expect(groupText(fold([run('npm test', false)]), false)).toBe('Ran 1 command')
+		expect(groupText(state, false)).toBe('Read 1 file, listed 1 directory, ran 2 shell commands')
+		expect(groupText(state, true)).toBe(
+			'Reading 1 file, listing 1 directory, running 2 shell commands…',
+		)
+		expect(groupText(fold([run('npm test', false)]), false)).toBe('Ran 1 shell command')
 	})
 
 	it("are the group's own row while they are the whole group, and a counted line once anything else joins", () => {
@@ -358,7 +360,7 @@ describe('shell commands that ended well', () => {
 		expect(merged.commands).toEqual(['npm test', 'tsc'])
 		expect(merged.cell).toBeUndefined()
 		const withRead = mergeGroups(fold([{ kind: 'read', key: 'a' }]), fold([run('tsc')]))
-		expect(groupText(withRead, false)).toBe('Read 1 file, ran 1 command')
+		expect(groupText(withRead, false)).toBe('Read 1 file, ran 1 shell command')
 		expect(withRead.cell).toBeUndefined()
 	})
 })

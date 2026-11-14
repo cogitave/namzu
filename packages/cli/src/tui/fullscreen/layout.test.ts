@@ -76,7 +76,7 @@ describe('laying the transcript out for the viewport', () => {
 		const texts = layoutTranscript([grouped], null, undefined, 60, createLayoutCache()).rows.map(
 			(row) => row.text,
 		)
-		expect(texts[0]).toContain('Ran 2 commands')
+		expect(texts[0]).toContain('Ran 2 shell commands')
 		expect(texts.slice(1)).toEqual(['⎿  $ node --version', '   $ git --version'])
 		const one = foldOp(EMPTY_GROUP, run('node --version'))
 		const alone = layoutTranscript(
@@ -86,7 +86,7 @@ describe('laying the transcript out for the viewport', () => {
 			60,
 			createLayoutCache(),
 		)
-		expect(alone.rows.map((row) => row.text)).toEqual(['Ran 1 command'])
+		expect(alone.rows.map((row) => row.text)).toEqual(['Ran 1 shell command'])
 	})
 })
 

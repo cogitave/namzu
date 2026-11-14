@@ -116,10 +116,9 @@ export interface AgentNarrationBandProps {
 export function AgentNarrationBand({ lines }: AgentNarrationBandProps) {
 	if (lines.length === 0) return null
 	return (
-		// paddingLeft 3 lands the text where the rail's `main` label starts —
-		// past its pointer and bullet cells, the rail being drawn one cell out
-		// into the app's own margin — so the two columns line up.
-		<Box flexDirection="column" paddingLeft={3} paddingRight={4}>
+		// paddingLeft 2 lands the text where the rail's `main` label starts,
+		// past its bullet cell, so the two columns line up.
+		<Box flexDirection="column" paddingLeft={2} paddingRight={4}>
 			{lines.map((line) => (
 				<Box key={line.id}>
 					<Text color={theme.text.muted} wrap="truncate-end">
@@ -612,8 +611,8 @@ export function workflowRowVariants(
 	return sharedVariants([workflowFacts(workflow, now)]).map((tier) => tier[0] as WorkflowRowVariant)
 }
 
-/** Cells of the pointer and bullet columns in front of every rail row. */
-const RAIL_PREFIX_CELLS = 4
+/** Cells of the bullet column in front of every rail row. */
+const RAIL_PREFIX_CELLS = 2
 /** Gap between the name and the bar. */
 const WORKFLOW_ROW_GAP = 2
 
@@ -721,9 +720,6 @@ function railStatusBlock(agent: SubagentActivity, now: number, narrow: boolean):
 	return label ? `${label} · ${status}` : status
 }
 
-/** Cells the `↓ N more` row and the pointer share with a row's first slot. */
-const RAIL_POINTER_CELLS = 2
-
 /**
  * The agents rail: a blank row, then a `main` row, one row per running or
  * recently failed sub-agent, and one per workflow, drawn under the footer
@@ -736,12 +732,11 @@ const RAIL_POINTER_CELLS = 2
  *   ◯ release-audit      ▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱  1/4 · 35s · ↓ 12.5k tokens
  * ```
  *
- * The first cell of a row is the pointer slot and the bullet sits two cells in,
- * directly under the first glyph of the mode line above (the rail reaches one
- * cell into the app's margin to put it there), and rows stop two cells short
- * of the right edge. `●` marks the transcript on screen, `◯` the others. No
- * accent colour: the pointer and bullets take the row's own colour, and only a
- * finished row's bullet turns green or red. Not a modal: the composer stays
+ * The bullet is the first cell of a row, directly under the first glyph of the
+ * mode line above, and rows stop two cells short of the right edge. `●` marks
+ * the transcript on screen, `◯` the others, and `❯` takes the bullet's place on
+ * the row the keyboard is on. No accent colour: the bullets take the row's own
+ * colour, and only a finished row's bullet turns green or red. Not a modal: the composer stays
  * mounted above and keeps taking input until the operator presses ↓ on an
  * empty composer to move into the rail. The key line for the focused row is
  * not drawn here; it takes the place of the mode line (see {@link railHint}).
@@ -813,24 +808,19 @@ export function AgentTaskPanel({
 			: ''
 
 	return (
-		// marginLeft/Right -1 reach into the app's one cell of side padding, so the
-		// pointer slot is the row's first cell and the bullet lands under the mode
-		// line's first glyph; paddingRight 2 keeps rows off the right edge.
-		<Box flexDirection="column" marginTop={1} marginLeft={-1} marginRight={-1} paddingRight={2}>
+		// marginRight -1 reaches into the app's cell of right margin; the rows start
+		// in the first column, under the mode line's first glyph, and paddingRight 2
+		// keeps them off the right edge.
+		<Box flexDirection="column" marginTop={1} marginRight={-1} paddingRight={2}>
 			{hasMain ? (
 				<Box>
-					<Box width={RAIL_POINTER_CELLS} flexShrink={0}>
-						<Text bold color={theme.text.primary}>
-							{focused && selectedIndex === 0 ? '❯' : ' '}
-						</Text>
-					</Box>
 					<Box width={2} flexShrink={0}>
 						<Text
-							bold={mainViewed}
+							bold={mainViewed || (focused && selectedIndex === 0)}
 							color={theme.text.primary}
 							dimColor={!mainViewed && !(focused && selectedIndex === 0)}
 						>
-							{mainViewed ? '●' : '◯'}
+							{focused && selectedIndex === 0 ? '❯' : mainViewed ? '●' : '◯'}
 						</Text>
 					</Box>
 					<Box flexGrow={1} flexShrink={1} minWidth={0}>
@@ -860,18 +850,13 @@ export function AgentTaskPanel({
 						const bright = viewed || selected
 						return (
 							<Box key={agent.viewId}>
-								<Box width={RAIL_POINTER_CELLS} flexShrink={0}>
-									<Text bold color={theme.text.primary}>
-										{selected ? '❯' : ' '}
-									</Text>
-								</Box>
 								<Box width={2} flexShrink={0}>
 									<Text
-										bold={viewed}
+										bold={viewed || selected}
 										color={railBulletColor(agent.status) ?? theme.text.primary}
 										dimColor={!bright && railBulletColor(agent.status) === undefined}
 									>
-										{viewed ? '●' : '◯'}
+										{selected ? '❯' : viewed ? '●' : '◯'}
 									</Text>
 								</Box>
 								<Box width={nameWidth} flexShrink={0}>
@@ -906,7 +891,7 @@ export function AgentTaskPanel({
 						)
 					})}
 			{!compact && below > 0 ? (
-				<Box paddingLeft={2}>
+				<Box>
 					<Text color={theme.text.muted}>↓ {below} more</Text>
 				</Box>
 			) : null}
@@ -924,17 +909,13 @@ export function AgentTaskPanel({
 						const [filled, empty] = railProgressBar(workflow.done, workflow.total, variant.barWidth)
 						return (
 							<Box key={workflow.focusId}>
-								<Box width={RAIL_POINTER_CELLS} flexShrink={0}>
-									<Text bold color={theme.text.primary}>
-										{selected ? '❯' : ' '}
-									</Text>
-								</Box>
 								<Box width={2} flexShrink={0}>
 									<Text
+										bold={selected}
 										color={railWorkflowBulletColor(workflow) ?? theme.text.primary}
 										dimColor={!selected && railWorkflowBulletColor(workflow) === undefined}
 									>
-										◯
+										{selected ? '❯' : '◯'}
 									</Text>
 								</Box>
 								<Box width={workflowNameWidth} flexShrink={0}>
@@ -1604,7 +1585,7 @@ export function WorkflowDetail({
 
 	if (!sideBySide) {
 		return (
-			<Box flexDirection="column" marginTop={1} marginLeft={-1} marginRight={-1} width={columns}>
+			<Box flexDirection="column" marginTop={1} marginRight={-1} width={columns}>
 				{header}
 				<Box paddingX={1}>
 					<Text color={theme.text.primary} bold wrap="truncate-end">
@@ -1716,7 +1697,7 @@ export function WorkflowDetail({
 	const rightTitle = ` ${truncateChoiceText(`${agentsTitle}${failedTail}`, Math.max(1, rightInner - 4))} `
 	const rows = Array.from({ length: pageSize }, (_, row) => row)
 	return (
-		<Box flexDirection="column" marginTop={1} marginLeft={-1} marginRight={-1} width={columns}>
+		<Box flexDirection="column" marginTop={1} marginRight={-1} width={columns}>
 			{header}
 			<Box paddingX={1}>
 				<Text wrap="truncate-end">

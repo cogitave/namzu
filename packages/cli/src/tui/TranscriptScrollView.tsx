@@ -95,7 +95,7 @@ export function TranscriptScrollView({
 				// biome-ignore lint/suspicious/noArrayIndexKey: a window of rows has no identity beyond its position.
 				<Box key={`${view.top + i}`} flexDirection="row">
 					<Box width={2} flexShrink={0}>
-						<Text color={row.glyphColor} bold>
+						<Text color={row.glyphColor} bold={row.plainMark !== true}>
 							{row.glyph}
 						</Text>
 					</Box>

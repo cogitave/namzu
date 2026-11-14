@@ -215,12 +215,11 @@ export function StatusBar({
 		!canManage &&
 		!shellsSelected
 	const layout = fitStatusLine({
-		// App gives the footer one cell of horizontal padding on each side. Ink's
-		// stdout width is the whole terminal, so reserve those cells here rather
-		// than letting its final two characters be clipped after fitting succeeds.
-		// ...and the line itself starts a cell in (see the return below), so the
-		// rail's bullet sits under its first glyph.
-		columns: Math.max(0, terminal.columns - 3),
+		// The line starts in the first column and App keeps one cell empty at the
+		// right edge. Ink's stdout width is the whole terminal, so reserve that cell
+		// here rather than letting its final character be clipped after fitting
+		// succeeds.
+		columns: Math.max(0, terminal.columns - 1),
 		model,
 		provider,
 		effort: effort ?? null,
@@ -343,11 +342,9 @@ export function StatusBar({
 			</Text>,
 		)
 	}
-	// The line is indented one cell past the app's own padding: the agents rail
-	// below puts its bullet in that column.
 	if (railHint) {
 		return (
-			<Box paddingLeft={1}>
+			<Box>
 				<Text color={theme.text.muted} wrap="truncate-end">
 					{railHint}
 				</Text>
@@ -355,7 +352,7 @@ export function StatusBar({
 		)
 	}
 	return (
-		<Box paddingLeft={1}>
+		<Box>
 			<Text wrap="truncate-end">
 				{parts.flatMap((part, index) =>
 					index === 0 ? [part] : [<Text key={`sep-${part.key}`}>{sep}</Text>, part],

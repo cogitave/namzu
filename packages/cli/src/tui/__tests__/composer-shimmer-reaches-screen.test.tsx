@@ -326,11 +326,11 @@ it('keeps the working border still through prompts and resizing and preserves th
 		const narrow = await border.read()
 		expect(narrow?.length).toBeGreaterThan(20)
 		expect(
-			narrow?.every(({ x }) => x < 38),
+			narrow?.every(({ x }) => x < 39),
 			screen.viewport().join('\n'),
 		).toBe(true)
 		const bottom = Math.max(...(narrow?.map(({ y }) => y) ?? []))
-		expect(narrow?.every(({ x, y }) => x === 0 || x === 37 || y === 0 || y === bottom)).toBe(true)
+		expect(narrow?.every(({ x, y }) => x === 0 || x === 38 || y === 0 || y === bottom)).toBe(true)
 		expect(screen.viewport().join('\n')).toContain('layouts')
 		await expectStaticBorder(screen, border)
 

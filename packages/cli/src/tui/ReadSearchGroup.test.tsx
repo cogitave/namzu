@@ -74,7 +74,7 @@ it('lists the commands it ran under the line, one per row, and no hint when it i
 		<ReadSearchGroup message={{ ...row(ran(3), false), meta: '(ctrl+o to expand)' }} />,
 	)
 	const lines = (harness.lastFrame() ?? '').split('\n').map((line) => line.trimEnd())
-	expect(lines[0]).toContain('Ran 3 commands (ctrl+o to expand)')
+	expect(lines[0]).toContain('Ran 3 shell commands (ctrl+o to expand)')
 	expect(lines.slice(1)).toEqual(['  ⎿  $ step 1', '     $ step 2', '     $ step 3'])
 	harness.unmount()
 })
@@ -82,7 +82,7 @@ it('lists the commands it ran under the line, one per row, and no hint when it i
 it('says how many earlier commands are not listed, above the last five', () => {
 	const harness = render(<ReadSearchGroup message={{ ...row(ran(8), true) }} />)
 	const lines = (harness.lastFrame() ?? '').split('\n').map((line) => line.trimEnd())
-	expect(lines[0]).toContain('Running 8 commands…')
+	expect(lines[0]).toContain('Running 8 shell commands…')
 	expect(lines.slice(1)).toEqual([
 		'  ⎿  3 earlier commands not listed',
 		'     $ step 4',
