@@ -5,7 +5,7 @@ import {
 	extractFromUserMessage,
 } from '../../../compaction/extractor.js'
 import { estimateMessageTokens } from '../../../compaction/token-estimate.js'
-import { SHELL_TOOLS } from '../../../constants/compaction/index.js'
+import { EDIT_TOOLS } from '../../../constants/compaction/index.js'
 import {
 	AUTO_CONTINUATION_USER_MESSAGE,
 	REASONING_CUT_USER_MESSAGE,
@@ -3625,14 +3625,17 @@ export class IterationOrchestrator {
 			} catch {
 				readOnly = undefined
 			}
-			// A shell command the policy cannot call read-only is not known to
-			// have changed anything either; in a turn that opened with a question
-			// it is a way of looking, so a run of them still counts as circling.
-			if (question && SHELL_TOOLS.has(result.toolName)) continue
 			if (callChangedState(result.toolName, readOnly, result.isError)) {
 				// The same tool with the same input and the same result as an
-				// earlier call this turn changed nothing, whatever the tool is.
-				if (!this.seenAgain(result.toolName, call, result.output)) changedState = true
+				// earlier call this turn changed nothing, whatever the tool is,
+				// except a file edit: applying, reverting and applying again is
+				// deliberate work whose reply is the same each time.
+				if (
+					EDIT_TOOLS.has(result.toolName) ||
+					!this.seenAgain(result.toolName, call, result.output)
+				) {
+					changedState = true
+				}
 			}
 		}
 		const reasoningChars = (response.message.reasoning ?? []).reduce(

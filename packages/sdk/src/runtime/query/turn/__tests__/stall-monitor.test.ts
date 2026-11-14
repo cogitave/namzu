@@ -98,4 +98,18 @@ describe('what asks a question', () => {
 		expect(asksQuestion('Fix the failing test.')).toBe(false)
 		expect(asksQuestion(undefined)).toBe(false)
 	})
+
+	it('is not a question mark inside a web address', () => {
+		expect(
+			asksQuestion(
+				'Implement the client for https://api.example.com/v1/items?limit=10 and test it.',
+			),
+		).toBe(false)
+	})
+
+	it('is not a long brief that happens to ask something', () => {
+		const brief = `Can you make the build pass? ${'Fix what fails and run the tests again. '.repeat(12)}`
+		expect(asksQuestion(brief)).toBe(false)
+		expect(asksQuestion('Can you make the build pass?')).toBe(true)
+	})
 })

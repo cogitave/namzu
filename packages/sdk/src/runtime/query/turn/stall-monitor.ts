@@ -128,13 +128,21 @@ export interface StallObservation {
 	readonly question?: boolean
 }
 
+/** The longest message still read as a question; a longer one is a brief. */
+const QUESTION_MAX_CHARS = 400
+
 /**
- * Whether a person's message asks something. A question mark is the one sign
- * that holds in every language the model is asked in; a question without one
- * is simply held to the general threshold.
+ * Whether a person's message is mainly a question: short, and holding a
+ * question mark that ends a sentence. A mark inside a web address or a
+ * query string does not end one, and a long message is a task description
+ * that happens to ask something. A question without a mark is held to the
+ * general threshold.
  */
 export function asksQuestion(text: string | undefined): boolean {
-	return text !== undefined && /[?\uFF1F\u061F]/.test(text)
+	if (text === undefined) return false
+	const trimmed = text.trim()
+	if (trimmed.length === 0 || trimmed.length > QUESTION_MAX_CHARS) return false
+	return /[?\uFF1F\u061F](?=$|[\s"'\u201D\u2019)\]])/.test(trimmed)
 }
 
 export class StallMonitor {

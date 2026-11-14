@@ -104,6 +104,13 @@ async function run(provider: LLMProvider, prompt: string) {
 						}),
 					},
 					{
+						name: 'write',
+						description: 'Write a file',
+						inputSchema: z.object({ n: z.number() }),
+						isReadOnly: () => false,
+						execute: async () => ({ success: true, output: 'ok' }),
+					},
+					{
 						name: 'apply',
 						description: 'Run a command that is not read-only',
 						inputSchema: z.object({}),
@@ -172,17 +179,28 @@ describe('a turn that opens with a question', () => {
 		expect(firstRequestWith(provider, ANSWER_NOW_MESSAGE)).toBe(7)
 	})
 
-	it('counts shell commands the policy cannot call read-only as looking, each with its own result', async () => {
+	it('does not count a shell command the policy cannot call read-only as looking', async () => {
 		const provider = loop('bash', 12, (i) => JSON.stringify({ n: i }))
 		await run(provider, 'Why did this cost so much?')
-		expect(firstRequestWith(provider, ANSWER_NOW_MESSAGE)).toBe(6)
-	})
-
-	it('keeps counting such a command as a change when nothing was asked', async () => {
-		const provider = loop('bash', 14, (i) => JSON.stringify({ n: i }))
-		await run(provider, 'Run the build step by step.')
 		expect(firstRequestWith(provider, ANSWER_NOW_MESSAGE)).toBe(-1)
 		expect(firstRequestWith(provider, STALL_NUDGE_MESSAGE)).toBe(-1)
+	})
+
+	it('does not count a repeated file edit with the same reply as no change', async () => {
+		const provider = loop('write', 12, () => JSON.stringify({ n: 1 }))
+		await run(provider, 'Why is it slow?')
+		expect(firstRequestWith(provider, ANSWER_NOW_MESSAGE)).toBe(-1)
+	})
+
+	it('leaves a task that holds a question mark alone', async () => {
+		for (const prompt of [
+			'Can you make the build pass? Run the tests, fix what fails, and re-run until green.',
+			'Implement the client for https://api.example.com/v1/items?limit=10 and test it, step by step.',
+		]) {
+			const provider = loop('bash', 12, (i) => JSON.stringify({ n: i }))
+			await run(provider, prompt)
+			expect(firstRequestWith(provider, ANSWER_NOW_MESSAGE)).toBe(-1)
+		}
 	})
 
 	it('is nudged again, and never forced to call a tool, when it keeps looking', async () => {
