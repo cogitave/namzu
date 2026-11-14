@@ -31,7 +31,7 @@ function extractStreamUsage(usage: TokenUsage | undefined): ProviderCallUsage | 
 		inputTokens: u.inputTokens ?? u.promptTokens,
 		outputTokens: u.outputTokens ?? u.completionTokens,
 		totalTokens: u.totalTokens,
-		costUsd: u.costUsd,
+		costUsd: u.costUsd ?? u.reportedCostUsd,
 	}
 }
 

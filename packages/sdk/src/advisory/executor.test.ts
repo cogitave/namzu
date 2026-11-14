@@ -116,6 +116,22 @@ describe('AdvisoryExecutor — consult happy path', () => {
 		expect(typeof out.durationMs).toBe('number')
 	})
 
+	it('records the charge the provider reported for an advisor with no price row', async () => {
+		const provider = mockProvider({
+			usage: {
+				promptTokens: 100,
+				completionTokens: 50,
+				totalTokens: 150,
+				cachedTokens: 0,
+				cacheWriteTokens: 0,
+				reportedCostUsd: 0.0123,
+			},
+		})
+		const out = await new AdvisoryExecutor().consult(advisor({ provider }), req, ctx())
+		expect(out.cost.totalCost).toBeCloseTo(0.0123, 10)
+		expect(out.cost.unpricedTokens).toBe(0)
+	})
+
 	it('parseResult is currently a passthrough — advice = content verbatim', async () => {
 		const provider = mockProvider({
 			message: { role: 'assistant', content: 'Raw text with **markdown**' },

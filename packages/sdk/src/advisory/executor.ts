@@ -10,7 +10,12 @@ import type { AdvisoryRequest, AdvisoryResult } from '../types/advisory/result.j
 import type { CostInfo, TokenUsage } from '../types/common/index.js'
 import { type Message, createSystemMessage, createUserMessage } from '../types/message/index.js'
 import type { LLMToolSchema } from '../types/tool/index.js'
-import { accumulateUnpricedCost, calculateCost } from '../utils/cost.js'
+import {
+	accumulateReportedCost,
+	accumulateUnpricedCost,
+	calculateCost,
+	hasReportedCost,
+} from '../utils/cost.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
 import { renderAdvisoryHistory } from './history.js'
 import { ADVISORY_RESPONSE_CONTRACT, parseAdvisoryResponse } from './parse.js'
@@ -212,7 +217,8 @@ export class AdvisoryExecutor {
 	}
 
 	/**
-	 * Cost for one call, from the advisor's own pricing, then the catalogue.
+	 * Cost for one call: the provider's reported charge, else the advisor's own
+	 * pricing, else the catalogue.
 	 *
 	 * When neither has a rate this reports the tokens as UNPRICED rather than
 	 * as a cost of zero. The previous version returned a zero rate card and a
@@ -224,6 +230,11 @@ export class AdvisoryExecutor {
 	 * because the number happens to be unenforced.
 	 */
 	private computeCost(advisor: AdvisorDefinition, usage: TokenUsage): CostInfo {
+		// A charge the provider reported is what the account paid, so it wins over
+		// any rate card (the same order the session recorder uses).
+		if (hasReportedCost(usage)) {
+			return accumulateReportedCost(ZERO_COST, usage.reportedCostUsd)
+		}
 		const pricing = advisor.pricing ?? resolveModelPricing(advisor.provider.id, advisor.model)
 		if (!pricing) {
 			return accumulateUnpricedCost(ZERO_COST, usage)

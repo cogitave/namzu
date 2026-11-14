@@ -165,6 +165,12 @@ export interface ProviderCapabilities {
 	supportsToolResultDocuments?: boolean
 	maxOutputTokens?: number
 	/**
+	 * Whether every call's usage carries the cost the provider billed
+	 * (`TokenUsage.reportedCostUsd`). A cost limit is then measurable for a
+	 * model no rate card names. Absent means the driver reports no cost.
+	 */
+	reportsRequestCost?: boolean
+	/**
 	 * Prompt-cache lifetimes the driver can be asked for through
 	 * `cacheControl.ttl`. Absent means the driver offers none (it has no cache,
 	 * or the lifetime is the provider's own and cannot be chosen or read).

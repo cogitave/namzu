@@ -94,6 +94,23 @@ the thinking share of the completion tokens OpenRouter already bills as output. 
 sends each fragment twice (a flat `reasoning` string and the indexed `reasoning_details`);
 the driver emits it once.
 
+Between the steps of one turn the model's reasoning goes back to it. OpenRouter's guide says
+to send the assistant message with its `reasoning_details` unmodified, so the driver keeps the
+entries as the wire sent them in the message's replay state (a `namzu-openrouter-reasoning`
+envelope that names its route) and sends them on the assistant messages after the turn's last
+user message. A route that sends only the flat string gets `reasoning` back instead. An earlier
+turn's reasoning is not resent, and state that names another route or no longer matches the
+stored reasoning is ignored.
+
+## Cost and window
+
+Every response states what the request was charged (`usage.cost`). The driver reports it as
+`usage.reportedCostUsd`, and the kernel records it as the call's cost, ahead of any price table,
+so a model with no price row still shows real money (and a cost limit works for it). A model's
+context window comes from OpenRouter's model list (`context_length`) before the SDK's name table.
+For the DeepSeek V4 and reasoner ids, `acceptsForcedToolChoiceFor` answers `false` while thinking
+is on, so the kernel asks for a tool call in words instead of forcing one.
+
 ## Documentation
 
 - [Namzu docs](https://github.com/cogitave/namzu/tree/main/docs)

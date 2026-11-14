@@ -53,3 +53,26 @@ describe('the hand table for DeepSeek ids', () => {
 		expect(lookupContextWindow('deepseek-r1-distill-llama-70b')).toBe(64_000)
 	})
 })
+
+describe('the ids a gateway lists for the current generation', () => {
+	it.each([
+		'deepseek-v4.1-flash',
+		'deepseek-v4.1-flash-1017',
+		'deepseek/deepseek-v4.1-flash-1017',
+		'deepseek/deepseek-v4.1-flash-1017:batch',
+		'deepseek-v4-flash-0731',
+		'deepseek/deepseek-v4-pro-0813',
+	])('puts %s on the documented 1M window', (id) => {
+		expect(lookupContextWindow(id)).toBe(1_000_000)
+		expect(resolveContextWindow(undefined, id).tokens).toBe(1_000_000)
+	})
+
+	it('lets the provider-reported window win over the table', () => {
+		expect(resolveContextWindow(undefined, 'deepseek/deepseek-v4.1-flash-1017', 1_048_576)).toEqual(
+			{
+				tokens: 1_048_576,
+				source: 'provider',
+			},
+		)
+	})
+})

@@ -96,6 +96,27 @@ For cost estimation, nothing on this path is used. `resolveModelPricing` reads
 the versioned rate card in `packages/sdk/src/pricing/`, not a driver's listing,
 so a turn's cost is unaffected by what a menu displays.
 
+## A cost the provider reports
+
+`TokenUsage.reportedCostUsd` is what a provider says one call was charged, in
+US dollars. The OpenRouter driver reads it from `usage.cost` on every response (the vendor returns it unasked; the older
+`usage: { include: true }` request flag is documented as a no-op, so it is not
+sent) and declares `ProviderCapabilities.reportsRequestCost`. When a call carries it, the turn's `costInfo.totalCost` grows by that
+figure and the call's tokens are not priced again. It wins over a rate card
+because it is the bill: it includes the route that served the call, the cache
+discount and any tier, none of which a list price knows. A call that reports
+nothing is priced from the card as before, and a model with neither stays
+`unpricedTokens`. A reported `0` is a real zero (a free model); a missing,
+`null` or negative `cost` is "not reported". A request made on the caller's own
+upstream key (bring-your-own-key) is billed twice, so the driver adds the
+upstream charge the response states to OpenRouter's share.
+
+The figure lives in the turn's `costInfo`; the usage totals written to the
+session log stay token counts. A cost limit (`turnConfig.costLimitUsd`) is
+accepted for a model no rate card names when the provider declares
+`reportsRequestCost`, and is enforced against the reported total; a call that
+then reports nothing is unpriced and stops the turn as `cost_unmeasurable`.
+
 ## Whole prompt size
 
 `TokenUsage.promptTokens` is what the driver counts as input, and drivers
@@ -109,3 +130,7 @@ model call's span (streamed or not), use it; the turn's root span and the
 budget log line keep the cumulative `promptTokens`, a sum of calls that
 `fullPromptTokens` is deliberately not part of; cost still reads `promptTokens`, `cachedTokens` and `cacheWriteTokens`
 separately through the rate card's `promptIncludesCacheReads`.
+
+An advisor's consultation follows the same order: the reported charge first, then
+the advisor's own pricing, then the catalogue, so an advisor on a model with no
+price row shows the real charge instead of unpriced tokens.

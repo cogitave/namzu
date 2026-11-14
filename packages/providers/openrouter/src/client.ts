@@ -3,7 +3,11 @@ import type {
 	LLMProvider,
 	ModelInfo,
 	ProviderCapabilities,
+	ProviderRoute,
+	ReasoningBlock,
+	ReasoningEffort,
 	StreamChunk,
+	ThinkingConfig,
 	TokenUsage,
 	ToolChoice,
 } from '@namzu/sdk'
@@ -172,6 +176,10 @@ function applyCacheBreakpoints(
 	}
 }
 
+function routeOf(params: ChatCompletionParams): ProviderRoute {
+	return params.providerRoute ?? { providerId: 'openrouter', model: params.model, chainIndex: 0 }
+}
+
 const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1'
 
 /**
@@ -207,6 +215,32 @@ interface RawUsage {
 	cache_discount?: number
 	cache_read_input_tokens?: number
 	cache_creation_input_tokens?: number
+	/** USD charged to the account for this request. Present on every response. */
+	cost?: number | null
+	/** Bring-your-own-key: the upstream bills the caller directly, `cost` is only OpenRouter's part. */
+	is_byok?: boolean
+	cost_details?: { upstream_inference_cost?: number | null }
+}
+
+/**
+ * What the request cost, as OpenRouter reports it, or `undefined`.
+ *
+ * `usage.cost` is "the total charged to your account", on every response
+ * without being asked (the documented `usage: { include: true }` is now a
+ * no-op, so this driver does not send it). A request on the caller's own
+ * upstream key (BYOK) is billed twice over: the upstream bills the caller
+ * directly and `cost` is only OpenRouter's share, so the upstream figure the
+ * response also carries is added, or the report would understate what the
+ * person spent. A missing, null or non-numeric `cost` is "not reported", never
+ * zero; a reported `0` (a free model) is a real zero.
+ */
+function reportedCost(raw: RawUsage): number | undefined {
+	const charged = raw.cost
+	if (typeof charged !== 'number' || !Number.isFinite(charged) || charged < 0) return undefined
+	const upstream = raw.cost_details?.upstream_inference_cost
+	return raw.is_byok === true && typeof upstream === 'number' && Number.isFinite(upstream)
+		? charged + Math.max(0, upstream)
+		: charged
 }
 
 /**
@@ -230,6 +264,7 @@ function parseUsage(raw?: RawUsage): TokenUsage {
 		}
 	}
 	const reasoningTokens = raw.completion_tokens_details?.reasoning_tokens
+	const cost = reportedCost(raw)
 	return {
 		promptTokens: raw.prompt_tokens,
 		completionTokens: raw.completion_tokens,
@@ -237,6 +272,7 @@ function parseUsage(raw?: RawUsage): TokenUsage {
 		cachedTokens: raw.prompt_tokens_details?.cached_tokens ?? raw.cache_read_input_tokens ?? 0,
 		cacheWriteTokens: raw.cache_creation_input_tokens ?? 0,
 		...(reasoningTokens !== undefined ? { reasoningTokens } : {}),
+		...(cost !== undefined ? { reportedCostUsd: cost } : {}),
 	}
 }
 
@@ -294,6 +330,186 @@ function parseReasoning(
 	return typeof flat === 'string' && flat.length > 0
 		? [{ index: 0, type: 'thinking', text: flat }]
 		: []
+}
+
+/**
+ * Adapter-private state for one completed reasoning response.
+ *
+ * OpenRouter's guide for reasoning across tool calls says to send the
+ * assistant message back with its `reasoning_details` unmodified: the whole
+ * sequence of blocks, in the order the model produced it. The kernel's own
+ * reasoning blocks keep the text, signature and encrypted payload but not the
+ * rest of each entry (its `format`, `id`, summary form), so the entries as the
+ * wire sent them are kept here, in the message's source, and the route is
+ * repeated inside so the state is used only by the member that produced it.
+ *
+ * `reasoning` is the flat string of a route that sent no `reasoning_details`.
+ */
+interface OpenRouterReplayState {
+	readonly kind: 'namzu-openrouter-reasoning'
+	readonly version: 1
+	readonly route: ProviderRoute
+	readonly details?: readonly Record<string, unknown>[]
+	readonly reasoning?: string
+}
+
+function sameRoute(left: ProviderRoute, right: ProviderRoute): boolean {
+	return (
+		left.providerId === right.providerId &&
+		left.model === right.model &&
+		left.chainIndex === right.chainIndex
+	)
+}
+
+function isReplayState(value: unknown): value is OpenRouterReplayState {
+	if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+	const state = value as Record<string, unknown>
+	const route = state.route as Record<string, unknown> | null | undefined
+	if (
+		state.kind !== 'namzu-openrouter-reasoning' ||
+		state.version !== 1 ||
+		typeof route !== 'object' ||
+		route === null ||
+		typeof route.providerId !== 'string' ||
+		typeof route.model !== 'string' ||
+		!Number.isSafeInteger(route.chainIndex)
+	) {
+		return false
+	}
+	const hasDetails =
+		Array.isArray(state.details) &&
+		state.details.length > 0 &&
+		state.details.every((d) => typeof d === 'object' && d !== null && !Array.isArray(d))
+	const hasFlat = typeof state.reasoning === 'string' && state.reasoning.length > 0
+	return hasDetails !== hasFlat
+}
+
+/**
+ * Fold the `reasoning_details` fragments of a stream into the entries the
+ * complete response held: fragments of one `index` are one entry, its text
+ * (or summary, or encrypted data) concatenated in arrival order, every other
+ * field kept as first sent and a signature kept when one arrives.
+ */
+class ReasoningDetailsAccumulator {
+	private readonly entries = new Map<number, Record<string, unknown>>()
+	private flat = ''
+
+	addFlat(text: string | null | undefined): void {
+		if (typeof text === 'string') this.flat += text
+	}
+
+	add(fragments: readonly RawReasoningDetail[] | undefined): void {
+		for (const [position, fragment] of (fragments ?? []).entries()) {
+			if (typeof fragment !== 'object' || fragment === null) continue
+			const raw = fragment as Record<string, unknown>
+			const index = typeof raw.index === 'number' ? raw.index : position
+			const entry = this.entries.get(index)
+			if (!entry) {
+				this.entries.set(index, { ...raw })
+				continue
+			}
+			for (const [key, value] of Object.entries(raw)) {
+				if (key === 'text' || key === 'summary' || key === 'data') {
+					if (typeof value === 'string') {
+						entry[key] = (typeof entry[key] === 'string' ? entry[key] : '') + value
+					}
+				} else if (key === 'signature') {
+					if (typeof value === 'string' && value.length > 0) entry[key] = value
+				} else if (entry[key] === undefined) {
+					entry[key] = value
+				}
+			}
+		}
+	}
+
+	get hasAny(): boolean {
+		return this.entries.size > 0 || this.flat.length > 0
+	}
+
+	state(route: ProviderRoute): OpenRouterReplayState | undefined {
+		if (this.entries.size > 0) {
+			const details = [...this.entries.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v)
+			return { kind: 'namzu-openrouter-reasoning', version: 1, route, details }
+		}
+		return this.flat.length > 0
+			? { kind: 'namzu-openrouter-reasoning', version: 1, route, reasoning: this.flat }
+			: undefined
+	}
+}
+
+/** The text and the opaque payloads the kernel's own blocks would hold for a state. */
+function durableFingerprint(state: OpenRouterReplayState): string {
+	if (state.details === undefined) return JSON.stringify([state.reasoning, ''])
+	let text = ''
+	let encrypted = ''
+	for (const d of state.details) {
+		if (d.type === 'reasoning.encrypted') {
+			if (typeof d.data === 'string') encrypted += d.data
+		} else if (typeof d.text === 'string') {
+			text += d.text
+		}
+	}
+	return JSON.stringify([text, encrypted])
+}
+
+function blocksFingerprint(blocks: readonly ReasoningBlock[] | undefined): string {
+	let text = ''
+	let encrypted = ''
+	for (const b of blocks ?? []) {
+		if (b.type === 'redacted_thinking') encrypted += b.encrypted ?? ''
+		else text += b.text ?? ''
+	}
+	return JSON.stringify([text, encrypted])
+}
+
+/**
+ * The reasoning to send back with an assistant message, or nothing.
+ *
+ * Only from a validated envelope of the same route whose content still matches
+ * the stored reasoning (request repair or compaction that rewrote the blocks
+ * leaves the envelope behind, and a mismatch means history-neutral). Names
+ * alone never prove it.
+ */
+function replayFor(
+	message: Extract<ChatCompletionParams['messages'][number], { role: 'assistant' }>,
+	target: ProviderRoute,
+): { reasoning_details: readonly Record<string, unknown>[] } | { reasoning: string } | undefined {
+	const source = message.source
+	if (!source || source.type !== 'model' || !sameRoute(source, target)) return undefined
+	const state = source.replayState
+	if (!isReplayState(state) || !sameRoute(state.route, target)) return undefined
+	if (durableFingerprint(state) !== blocksFingerprint(message.reasoning)) return undefined
+	return state.details !== undefined
+		? { reasoning_details: state.details }
+		: { reasoning: state.reasoning as string }
+}
+
+/**
+ * Index of the first message of the current turn: the last user message that
+ * is not host-generated context. Reasoning is sent back for the assistant
+ * messages from there on, which is what the guide asks for between a tool
+ * call and the model's next step; an earlier turn is history and is not
+ * resent. Answers 0 when the conversation holds no such user message.
+ */
+function currentTurnStart(messages: ChatCompletionParams['messages']): number {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const msg = messages[i]
+		if (msg?.role === 'user' && msg.source?.type !== 'runtime-context') return i
+	}
+	return 0
+}
+
+/**
+ * Whether a model is one whose vendor refuses a forced tool choice while it
+ * reasons: the DeepSeek V4 generation and its reasoner line. Its own API
+ * answers 400 "Thinking mode does not support this tool_choice". Matched on
+ * the id's bare name (a `deepseek/` prefix, an OpenRouter `~` alias marker and a
+ * `:tag` removed), never by substring, so a derivative is not swept in.
+ */
+function refusesForcedChoiceWhileReasoning(model: string): boolean {
+	const afterSlash = model.replace(/^~/, '').toLowerCase()
+	const bare = afterSlash.slice(afterSlash.lastIndexOf('/') + 1).split(':')[0] ?? ''
+	return /^deepseek-(v([4-9]|\d{2,})(\.|-|$)|r\d+(-|$)|reasoner(-|$)|(flash|pro)(-|$))/.test(bare)
 }
 
 /**
@@ -358,6 +574,8 @@ export const OPENROUTER_CAPABILITIES: ProviderCapabilities = {
 	supportsDocuments: false,
 	supportsToolResultImages: false,
 	supportsToolResultDocuments: false,
+	// OpenRouter states the charge on every response (`usage.cost`).
+	reportsRequestCost: true,
 }
 
 export class OpenRouterProvider implements LLMProvider {
@@ -374,6 +592,30 @@ export class OpenRouterProvider implements LLMProvider {
 		}
 		this.config = config
 		this.baseUrl = config.baseUrl ?? OPENROUTER_BASE_URL
+	}
+
+	/**
+	 * Whether a forced tool choice (`required` or a named function) is taken
+	 * under the thinking configuration the request will carry. `false` only for
+	 * the DeepSeek models whose own API refuses it while they reason, and
+	 * reasoning is on for them unless thinking is disabled or effort is `none`
+	 * (the same rule the DeepSeek driver applies). The kernel asks first and,
+	 * on `false`, keeps the step at low effort and asks in words. Nothing is
+	 * refused here before transport: on the live route a forced choice with
+	 * reasoning on was served (HTTP 200) by five different upstream hosts, and
+	 * when the request was pinned to the vendor's own host the router answered
+	 * its own 404 "no endpoints" (its tool-compatibility filter drops that host
+	 * for a forced choice) rather than passing the vendor's 400 through. So the
+	 * vendor's refusal never reaches this driver as a 400, and refusing here
+	 * would turn a working call into an error; only the advice changes.
+	 */
+	acceptsForcedToolChoiceFor(
+		model: string,
+		thinking?: ThinkingConfig,
+		effort?: ReasoningEffort,
+	): boolean {
+		if (!refusesForcedChoiceWhileReasoning(model)) return true
+		return thinking?.type === 'disabled' || effort === 'none'
 	}
 
 	private getHeaders(): Record<string, string> {
@@ -394,16 +636,23 @@ export class OpenRouterProvider implements LLMProvider {
 		return headers
 	}
 
-	private formatMessages(messages: ChatCompletionParams['messages']): unknown[] {
+	private formatMessages(
+		messages: ChatCompletionParams['messages'],
+		route: ProviderRoute,
+	): unknown[] {
+		const turnStart = currentTurnStart(messages)
 		// An assistant entry with neither text nor a tool call (the model produced
 		// only reasoning, or was cut off) is rejected upstream with "content or
 		// tool_calls must be set". Leave it out; no filler is invented. An entry
 		// with tool calls is never dropped, so every tool result still follows the
 		// call it answers, and the stored history is untouched.
-		const sendable = messages.filter(
-			(msg) => msg.role !== 'assistant' || Boolean(msg.content) || (msg.toolCalls?.length ?? 0) > 0,
-		)
-		return sendable.map((msg) => {
+		const sendable = messages
+			.map((msg, index) => ({ msg, index }))
+			.filter(
+				({ msg }) =>
+					msg.role !== 'assistant' || Boolean(msg.content) || (msg.toolCalls?.length ?? 0) > 0,
+			)
+		return sendable.map(({ msg, index }) => {
 			if (msg.role === 'tool') {
 				return {
 					role: 'tool',
@@ -411,6 +660,11 @@ export class OpenRouterProvider implements LLMProvider {
 					tool_call_id: (msg as { toolCallId?: string }).toolCallId,
 				}
 			}
+			// The model's own reasoning for the steps of THIS turn goes back with the
+			// message that produced it, so it can continue from where it left off
+			// after a tool result. An earlier turn's reasoning is not resent.
+			const replay =
+				msg.role === 'assistant' && index >= turnStart ? replayFor(msg, route) : undefined
 			if (msg.role === 'assistant' && 'toolCalls' in msg && msg.toolCalls?.length) {
 				return {
 					role: 'assistant',
@@ -420,16 +674,17 @@ export class OpenRouterProvider implements LLMProvider {
 						type: tc.type,
 						function: tc.function,
 					})),
+					...replay,
 				}
 			}
-			return { role: msg.role, content: msg.content }
+			return { role: msg.role, content: msg.content, ...replay }
 		})
 	}
 
 	private buildRequestBody(params: ChatCompletionParams, stream: boolean): Record<string, unknown> {
 		const body: Record<string, unknown> = {
 			model: params.model,
-			messages: this.formatMessages(params.messages),
+			messages: this.formatMessages(params.messages, routeOf(params)),
 			stream,
 		}
 
@@ -523,6 +778,10 @@ export class OpenRouterProvider implements LLMProvider {
 		// Reasoning blocks this stream has opened and not yet closed, in the
 		// order the wire reported them.
 		const openReasoning = new Set<number>()
+		// The reasoning entries as the wire sent them, kept for replay.
+		const replay = new ReasoningDetailsAccumulator()
+		const route = routeOf(params)
+		let replayStateEmitted = false
 		// A choice reported why it stopped. A stream that ends without one, with or
 		// without `[DONE]`, was cut by the connection.
 		let finished = false
@@ -589,6 +848,11 @@ export class OpenRouterProvider implements LLMProvider {
 						if (choice.finish_reason) finished = true
 
 						const fragments = parseReasoning(choice.delta.reasoning_details, choice.delta.reasoning)
+						if (choice.delta.reasoning_details && choice.delta.reasoning_details.length > 0) {
+							replay.add(choice.delta.reasoning_details)
+						} else {
+							replay.addFlat(choice.delta.reasoning)
+						}
 						const content = choice.delta.content
 						const toolCalls = choice.delta.tool_calls?.map((tc) => ({
 							index: tc.index,
@@ -620,8 +884,14 @@ export class OpenRouterProvider implements LLMProvider {
 							choice.finish_reason !== undefined ||
 							parsed.usage !== undefined
 						) {
+							const replayState =
+								!replayStateEmitted && choice.finish_reason && replay.hasAny
+									? replay.state(route)
+									: undefined
+							if (replayState !== undefined) replayStateEmitted = true
 							yield {
 								id: parsed.id,
+								...(replayState !== undefined ? { replayState } : {}),
 								delta: {
 									...(firstFragment ? { reasoning: firstFragment } : {}),
 									content,
@@ -734,7 +1004,10 @@ export class OpenRouterProvider implements LLMProvider {
 			this.contextWindows ??= windows
 			windows = this.contextWindows
 		}
-		const reported = windows.get(model)
+		// A variant tag (`:batch`, `:nitro`) names the same model at the same
+		// window; when the listing has only the untagged id, that is the answer.
+		const tag = model.indexOf(':')
+		const reported = windows.get(model) ?? (tag > 0 ? windows.get(model.slice(0, tag)) : undefined)
 		return typeof reported === 'number' && reported > 0 ? reported : undefined
 	}
 

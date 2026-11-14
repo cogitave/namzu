@@ -241,6 +241,30 @@ export function accumulateUnpricedCost(current: CostInfo, additionalUsage: Token
 	}
 }
 
+/**
+ * Record a call whose cost the provider reported.
+ *
+ * The vendor's figure is what the account was charged, so it wins over a rate
+ * card: a card is an estimate of one model at one list price, while the report
+ * already includes the route that served the call, the cache discount and any
+ * tier. The rate fields go, as for unpriced tokens: no single card describes
+ * a total that holds a reported figure.
+ */
+export function accumulateReportedCost(current: CostInfo, reportedCostUsd: number): CostInfo {
+	return {
+		totalCost: current.totalCost + reportedCostUsd,
+		cacheDiscount: current.cacheDiscount,
+		unpricedTokens: current.unpricedTokens,
+	}
+}
+
+/** Whether a usage frame carries a usable vendor-reported cost. */
+export function hasReportedCost(
+	usage: TokenUsage,
+): usage is TokenUsage & { reportedCostUsd: number } {
+	return Number.isFinite(usage.reportedCostUsd) && (usage.reportedCostUsd as number) >= 0
+}
+
 export function formatCost(usd: number): string {
 	if (usd === 0) return '$0.00'
 	if (usd < 0.01) return `$${usd.toFixed(4)}`
