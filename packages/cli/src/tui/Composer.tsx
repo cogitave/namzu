@@ -1864,7 +1864,10 @@ export function Composer({
 				}
 				verticalColumnRef.current = null
 				if (historyIndexRef.current < 0) {
-					if (valueRef.current.length === 0 && attachmentsRef.current.length === 0) {
+					// Reached only with the caret on the last line, no suggestion list
+					// and history on the live draft. A typed draft goes into the rows
+					// untouched and is waiting when Up brings the keyboard back.
+					if (attachmentsRef.current.length === 0) {
 						onOpenAgentPanel?.()
 					}
 					return

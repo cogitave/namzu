@@ -4468,3 +4468,159 @@ describe('background agents outlive the turn', () => {
 		expect(seen).toEqual([])
 	})
 })
+
+describe('Up and Down between the box and the task rows', () => {
+	/** Waits for the screen to satisfy a condition; Vitest's own timeout ends a wait that never does. */
+	async function until(screen: Screen, predicate: () => boolean): Promise<void> {
+		while (!predicate()) {
+			await screen.waitForRender()
+			await new Promise<void>((resolve) => setImmediate(resolve))
+		}
+	}
+	const text = (screen: Screen) => screen.viewport().join('\n')
+	const railLive = (screen: Screen) => text(screen).includes('enter to view')
+
+	async function mount(): Promise<Screen> {
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		mounted = screen
+		await until(screen, () => painted(screen).includes('model'))
+		return screen
+	}
+
+	const twoRows = () =>
+		activity.set([
+			agent({ viewId: 'row-a', description: 'First child' }),
+			agent({ viewId: 'row-b', description: 'Second child' }),
+		])
+
+	it('returns to the box with Up from the first stop, and a typed key lands in the box', async () => {
+		twoRows()
+		const screen = await mount()
+		screen.press('\x1b[B')
+		await until(screen, () => /^ *❯ (?:\S+ +)?First child/mu.test(text(screen)))
+		screen.press('\x1b[A')
+		await until(screen, () => /^ *❯ main/mu.test(text(screen)))
+		screen.press('\x1b[A')
+		await until(screen, () => !railLive(screen))
+		expect(text(screen)).toContain('Type a message')
+		screen.press('h')
+		await until(screen, () => /❯ h/u.test(text(screen)))
+		expect(railLive(screen)).toBe(false)
+	})
+
+	it('steps through the rows with Ctrl+N and Ctrl+P as it does with Down and Up', async () => {
+		twoRows()
+		const screen = await mount()
+		screen.press('\x1b[B')
+		await until(screen, () => /^ *❯ (?:\S+ +)?First child/mu.test(text(screen)))
+		screen.press('\x0e')
+		await until(screen, () => /^ *❯ (?:\S+ +)?Second child/mu.test(text(screen)))
+		screen.press('\x10')
+		await until(screen, () => /^ *❯ (?:\S+ +)?First child/mu.test(text(screen)))
+		screen.press('\x10')
+		await until(screen, () => /^ *❯ main/mu.test(text(screen)))
+		screen.press('\x10')
+		await until(screen, () => !railLive(screen))
+	})
+
+	it('leaves a lone workflow row with Up', async () => {
+		activity.set([
+			agent({ viewId: 'wf-a', description: 'Step wf-a', workflow: 'Release audit' }),
+			agent({ viewId: 'wf-b', description: 'Step wf-b', workflow: 'Release audit' }),
+		])
+		const screen = await mount()
+		screen.press('\x1b[B')
+		await until(screen, () => /^ *❯ Release audit/mu.test(text(screen)))
+		screen.press('\x1b[A')
+		await until(screen, () => !railLive(screen))
+		expect(text(screen)).toContain('Type a message')
+	})
+
+	it('enters the rows from a typed draft and gives it back untouched on Up', async () => {
+		twoRows()
+		const screen = await mount()
+		screen.press('half a thought')
+		await until(screen, () => text(screen).includes('half a thought'))
+		screen.press('\x1b[B')
+		await until(screen, () => /^ *❯ (?:\S+ +)?First child/mu.test(text(screen)))
+		expect(text(screen)).toContain('half a thought')
+		screen.press('\x1b[A')
+		screen.press('\x1b[A')
+		await until(screen, () => !railLive(screen))
+		expect(text(screen)).toContain('half a thought')
+		// The caret is back where it was: the next character extends the draft.
+		screen.press('!')
+		await until(screen, () => text(screen).includes('half a thought!'))
+	})
+
+	// A child that exists only as saved evidence: no rail row, but the cockpit can show it.
+	const savedOnly = () => {
+		savedChildren.current = [
+			agent({
+				viewId: 'saved-1',
+				description: 'Contract critic',
+				status: 'completed',
+				startedAt: 1,
+				completedAt: 2,
+				replayed: true,
+				transcript: [],
+			}),
+		]
+	}
+
+	it('opens the cockpit with Down from an empty box when only saved agents exist', async () => {
+		savedOnly()
+		const screen = await mount()
+		screen.press('\x1b[B')
+		await until(screen, () => text(screen).includes('Contract critic'))
+	})
+
+	it('does not open the cockpit from a typed draft when there are no rows', async () => {
+		savedOnly()
+		const screen = await mount()
+		screen.press('half a thought')
+		await until(screen, () => text(screen).includes('half a thought'))
+		const readsBefore = savedChildren.reads
+		screen.press('\x1b[B')
+		// Keys reach the box in order, so once this one shows, the Down before it
+		// has been handled: had it opened the cockpit, it would have read the
+		// saved agents and taken the key.
+		screen.press('!')
+		await until(screen, () => text(screen).includes('half a thought!'))
+		expect(savedChildren.reads).toBe(readsBefore)
+		expect(text(screen)).not.toContain('Contract critic')
+	})
+
+	it('leaves the rows with one Esc while a turn runs, and the next Esc interrupts it', async () => {
+		sendOverride.current = async function* () {
+			yield { kind: 'delta', text: 'working on it\n\n' }
+			await parentGate
+			yield { kind: 'done', stopReason: 'end_turn' }
+		}
+		twoRows()
+		const screen = await mount()
+		await submit(screen, 'do the thing')
+		await until(screen, () => text(screen).includes('esc to interrupt'))
+		screen.press('\x1b[B')
+		await until(screen, () => railLive(screen))
+		screen.press('\x1b')
+		await until(screen, () => !railLive(screen))
+		// The turn is still running: the first Esc only handed the box back.
+		expect(text(screen)).toContain('esc to interrupt')
+		expect(text(screen)).not.toContain('Interrupted')
+		screen.press('\x1b')
+		await until(screen, () => !text(screen).includes('esc to interrupt'))
+		expect(painted(screen)).toContain('Interrupted')
+	})
+
+	it('hands the keyboard back when the last row goes away', async () => {
+		twoRows()
+		const screen = await mount()
+		screen.press('\x1b[B')
+		await until(screen, () => railLive(screen))
+		activity.set([])
+		await until(screen, () => !railLive(screen))
+		screen.press('h')
+		await until(screen, () => /❯ h/u.test(text(screen)))
+	})
+})
