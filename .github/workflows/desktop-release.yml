@@ -323,13 +323,23 @@ jobs:
       # The page people open to download the app must describe the version it carries. The previous
       # installer is read now, before this one is uploaded; the notes are built before anything is
       # uploaded too, so a version missing from CHANGELOG.md stops the job with the feed untouched.
-      - name: Write the release notes
+      - name: Find the previous installer on the feed
         run: |
           previous="$(gh release view "$FEED_TAG" --json assets --jq '.assets[].name' \
             | sed -n 's/^Namzu-Setup-\(.*\)\.exe$/\1/p' | sort -V -r | head -n 1)"
+          if ! printf '%s' "$previous" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+.][0-9A-Za-z.]+)?$'; then
+            previous=""
+          fi
           echo "Previous installer on the feed: ${previous:-none}"
+          echo "PREVIOUS=$previous" >> "$GITHUB_ENV"
+
+      # Repository code runs here, so the write token is not in its environment.
+      - name: Write the release notes
+        env:
+          GH_TOKEN: ''
+        run: |
           node packages/desktop/scripts/feed-release-notes.mjs \
-            --version "$VERSION" ${previous:+--previous "$previous"} \
+            --version "$VERSION" ${PREVIOUS:+--previous "$PREVIOUS"} \
             --installer "installer/Namzu-Setup-$VERSION.exe" \
             --out "$RUNNER_TEMP/release-notes.md"
 
