@@ -419,6 +419,7 @@ after the agent rows (the rail lists only the unlabelled subagents above it):
   ○ general-purpose  Gorev a                                                1m05s
   ○ general-purpose  Gorev d                                       0.3s · ↓ 15 tokens
   ◯ Release audit    ▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱  3/7 · 2m14s · ↓ 48.2k tokens
+  ◯ Check the docs   ▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱  0/1 · 16m08s · ↓ 129.6k tokens
 ```
 
 A workflow here is the agents the model gave one explicit `workflow` label
@@ -430,9 +431,16 @@ outcome: green when every agent completed, red when one failed or the
 workflow was stopped — and already red while it runs once a member has failed.
 The elapsed time ticks each second and freezes when the last agent settles; the
 row leaves 30 seconds after that. Workflow rows are not windowed and share the
-agents' name column. As the line narrows it gives up, in order, the
-`n/m` counter, the elapsed time, the word `tokens`, then the bar shrinks from
-20 to 12 to 8 cells; the name is squeezed last, never below eight cells.
+agents' name column. The rows read as one table: every bar starts in the same
+cell and has the same width, and the count, the elapsed time and the token
+number each start in one column, each as wide as the widest value among the
+rows, so the clocks of a row at `1h58m` and one at `16m08s` stay under each
+other. The clock has one fixed shape per range (`45s`, `16m08s`, `1h58m`,
+`1d02h`). As the line narrows the rows give up, together and in order, the
+phase names, then the bar shrinks from 20 to 12 to 8 to 4 cells, then the
+token number, the `Large workflow` mark, the bar, the elapsed time and last the
+counter; the name is squeezed after the tokens, never below eight cells. No row
+wraps or runs past the width.
 
 ↓ walks `main` (when drawn), the agents, then the workflows. On a workflow row
 the key line is `enter to view · x to stop` (`x to clear` once it has
@@ -651,8 +659,9 @@ live state belongs to the rail.
   the running turn is in.
 - **A waiting line** when a turn ends over background agents that are still
   running: `✻ Waiting for 2 background agents to finish` (`and 1 dynamic
-  workflow` when one is running), dim, above the composer, which is free. The
-  closing line below is written when the last one ends, with the wait counted.
+  workflow` when one is running), dim, above the composer, which is free. It
+  stands where the closing line stands: one blank row above, the `✻` alone in a
+  two-cell column, the words from the third cell. The closing line below is written when the last one ends, with the wait counted.
 - **A closing line** when a turn that launched agents settles: how long the
   turn took and how many agents it launched (phases are never counted here),
   what they spent when any reported it, and how many failed
