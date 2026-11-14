@@ -183,15 +183,17 @@ export interface LLMProvider {
 	 * Whether `model` takes a forced tool choice (`toolChoice: 'required'` or a
 	 * named function) under the thinking configuration the request will carry.
 	 *
-	 * The kernel asks before it requires a tool call on a step it wants to act,
-	 * and when the answer is `false` it keeps the step at low effort and asks the
-	 * model in words instead of sending a choice the driver would refuse. `effort`
+	 * The kernel asks before a guard requires a tool call on a step it wants to
+	 * act, and sends a forced choice only when the answer is `true` and the
+	 * request does not turn thinking on. Otherwise it keeps the step at low effort
+	 * and asks the model in words. `effort`
 	 * is the level the request will carry, for a driver where the level also
 	 * decides whether thinking is on (a provider that does not need it ignores
 	 * it). Optional:
-	 * a provider that does not declare it is treated as taking the choice, so
-	 * every existing driver behaves as before. A wrapper that rebuilds a provider
-	 * forwards it.
+	 * a provider that does not declare it is not sent a guard's forced choice (the
+	 * words are used). A host's own `toolChoice` is sent as given. A wrapper that
+	 * rebuilds a provider forwards it; a chain answers `true` only when every
+	 * member does.
 	 */
 	acceptsForcedToolChoiceFor?(
 		model: string,

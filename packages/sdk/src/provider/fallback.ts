@@ -561,8 +561,9 @@ export function withProviderFallback(
 			const serving = members[cursor] ?? first
 			return serving.provider.supportsImageInputFor?.(serving.model ?? model) ?? true
 		},
-		// A chain takes a forced choice only if every member does: the request may
-		// be served by any of them, and the one that refuses would fail the step.
+		// A chain takes a forced choice only if every member says it does: the
+		// request may be served by any of them, and one that refuses (or cannot
+		// say) must not be sent a choice it may turn down.
 		acceptsForcedToolChoiceFor: (
 			model: string,
 			thinking?: ThinkingConfig,
@@ -571,7 +572,7 @@ export function withProviderFallback(
 			members.every(
 				(member) =>
 					member.provider.acceptsForcedToolChoiceFor?.(member.model ?? model, thinking, effort) ??
-					true,
+					false,
 			),
 		reasoningEffortLevelsFor: (model: string, thinking?: ThinkingConfig) =>
 			commonReasoningEffortLevels(members, model, thinking),
