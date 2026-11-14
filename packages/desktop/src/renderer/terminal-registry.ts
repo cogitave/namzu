@@ -28,6 +28,7 @@ declare global {
 		/** Present only when `localStorage['namzu.terminal.debug']` is `1`: reads a terminal's screen for tests. */
 		__namzuTerminals?: {
 			text(tabId: string): string | undefined
+			screen(tabId: string): string | undefined
 			size(tabId: string): { cols: number; rows: number } | undefined
 			ids(): string[]
 		}
@@ -73,6 +74,7 @@ export function terminalSessions(api: TerminalSessionApi): TerminalSessions {
 		if (localStorage.getItem('namzu.terminal.debug') === '1') {
 			window.__namzuTerminals = {
 				text: (tabId) => created.peek(tabId)?.text(),
+				screen: (tabId) => created.peek(tabId)?.screenText(),
 				size: (tabId) => {
 					const term = created.peek(tabId)?.term
 					return term ? { cols: term.cols, rows: term.rows } : undefined

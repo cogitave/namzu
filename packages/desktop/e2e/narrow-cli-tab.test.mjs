@@ -4,7 +4,7 @@
 // keeps the model name. Run: pnpm --filter @namzu/desktop build && xvfb-run -a node --test --test-concurrency=1 e2e/narrow-cli-tab.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
 	createWorld,
@@ -34,10 +34,15 @@ async function terminal(w) {
 		const id = document
 			.querySelector("section.terminal-pane")
 			?.getAttribute("data-terminal-tab");
-		if (!id || !window.__namzuTerminals) return { cols: 0, lines: [] };
+		if (!id || !window.__namzuTerminals) return { cols: 0, lines: [], screen: [] };
 		const size = window.__namzuTerminals.size(id);
 		const text = window.__namzuTerminals.text(id) ?? "";
-		return { cols: size?.cols ?? 0, lines: text.split("\n").map((line) => line.trimEnd()) };
+		const screen = window.__namzuTerminals.screen(id) ?? "";
+		return {
+			cols: size?.cols ?? 0,
+			lines: text.split("\n").map((line) => line.trimEnd()),
+			screen: screen.split("\n").map((line) => line.trimEnd()),
+		};
 	});
 }
 
@@ -58,15 +63,21 @@ const isRule = (line) => /^\s*─+\s*$/.test(line);
  * right edge. Was that drawn for this width: both rules reach across the pane, and the footer's
  * model sits at its right end?
  */
-function drawnFor({ cols, lines }) {
+function drawnFor({ cols, lines, screen }) {
 	if (cols === 0) return false;
 	const rules = lines.filter(isRule);
 	const footer = lines.findLast((line) => line.includes("shift+tab"));
-	// The transcript is on screen once, whole: neither a stale copy of it nor half of it.
+	// The transcript is on screen once, whole: neither a stale copy of it nor half of it. The screen is
+	// what a person sees without scrolling back. When the pane narrows, the emulator wraps the rows of a
+	// short region and moves the top ones into the scrollback above it, where no cursor movement
+	// reaches; what it keeps there is the emulator's reflow, not a second copy drawn on the screen.
+	// So the reply must be somewhere once, and on the screen not more than once.
 	const once = (needle) => lines.filter((line) => line.includes(needle)).length === 1;
+	const onScreen = (needle) => screen.filter((line) => line.includes(needle)).length;
 	return (
 		once("› hello from") &&
-		once("SCRIPTED-ANTHROPIC-OK") &&
+		lines.some((line) => line.includes("SCRIPTED-ANTHROPIC-OK")) &&
+		onScreen("SCRIPTED-ANTHROPIC-OK") <= 1 &&
 		rules.length >= 2 &&
 		rules.slice(-2).every((rule) => [...rule.trimEnd()].length >= cols - 4) &&
 		footer !== undefined &&
@@ -75,8 +86,12 @@ function drawnFor({ cols, lines }) {
 	);
 }
 
-async function shot(w, name) {
+async function shot(w, name, text) {
 	mkdirSync(SHOTS, { recursive: true });
+	if (process.env.NARROW_TEXT_DIR) {
+		mkdirSync(process.env.NARROW_TEXT_DIR, { recursive: true });
+		writeFileSync(join(process.env.NARROW_TEXT_DIR, `${name}.txt`), `${text.join("\n")}\n`);
+	}
 	await w.page.screenshot({ path: join(SHOTS, `${name}.png`) });
 }
 
@@ -144,7 +159,7 @@ test(
 				const joined = lines.join(" ").replace(/\s+/g, " ");
 				assert.ok(joined.includes("hello from the first message"), `${cols} columns: the reply reads whole`);
 				seen.push(cols);
-				await shot(w, `cli-tab-${cols}-columns`);
+				await shot(w, `cli-tab-${cols}-columns`, snapshot.screen);
 			}
 			// A split narrows the pane further than the window can: the Namzu tab keeps the left half.
 			await resize(w, 1000, 800);
@@ -159,31 +174,45 @@ test(
 						const text = t.text(id) ?? "";
 						if (text.includes(marker)) {
 							const size = t.size(id);
-							return { cols: size?.cols ?? 0, lines: text.split("\n").map((line) => line.trimEnd()) };
+							const screen = t.screen(id) ?? "";
+							return {
+								cols: size?.cols ?? 0,
+								lines: text.split("\n").map((line) => line.trimEnd()),
+								screen: screen.split("\n").map((line) => line.trimEnd()),
+							};
 						}
 					}
-					return { cols: 0, lines: [] };
+					return { cols: 0, lines: [], screen: [] };
 				}, "SCRIPTED-ANTHROPIC-OK");
 			const narrowest = Math.min(...seen);
 			let split;
-			await expect
-				.poll(
-					async () => {
-						const now = await namzuTab();
-						if (!(now.cols > 0 && now.cols < narrowest && drawnFor(now))) return false;
-						split = now;
-						return true;
-					},
-					{ timeout: T },
-				)
-				.toBe(true);
+			let last;
+			try {
+				await expect
+					.poll(
+						async () => {
+							const now = await namzuTab();
+							last = now;
+							if (!(now.cols > 0 && now.cols < narrowest && drawnFor(now))) return false;
+							split = now;
+							return true;
+						},
+						{ timeout: T },
+					)
+					.toBe(true);
+			} catch (error) {
+				throw new Error(
+					`the split pane was never drawn: ${last?.cols} columns (whole-window minimum ${narrowest})\n${last?.lines.join("\n")}`,
+					{ cause: error },
+				);
+			}
 			{
 				const { cols, lines } = split;
 				const longest = Math.max(...lines.map((line) => [...line].length));
 				assert.ok(longest <= cols, `split, ${cols} columns: a line is ${longest} wide`);
 				assert.ok(cols < Math.min(...seen), `the split pane is narrower than any whole-window width: ${cols}`);
 				seen.push(cols);
-				await shot(w, `cli-tab-split-${cols}-columns`);
+				await shot(w, `cli-tab-split-${cols}-columns`, split.screen);
 			}
 			assert.ok(Math.min(...seen) < Math.max(...seen) - 20, `the terminal really narrowed: ${seen}`);
 			assert.deepEqual(w.faults, [], "the renderer raised no uncaught errors");
