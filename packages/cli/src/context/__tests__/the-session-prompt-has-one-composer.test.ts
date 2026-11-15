@@ -126,7 +126,7 @@ describe('the session system prompt', () => {
 			'a code displayed in another tab',
 			'Passwords and one-time codes are never typed',
 			'cannot be done or confirmed',
-			'carry on with every step that does not depend on it',
+			'carry on with every other step the page lets you do',
 			'report which step was left and why',
 			'say so in your report instead of looking for it',
 			'report what the page showed',
