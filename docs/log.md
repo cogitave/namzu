@@ -1,5 +1,10 @@
 # Documentation update log
 
+## 2026-11-15
+
+- **Update** [Desktop](cli/desktop.md): in a window of 767 px or less the sidebar overlay starts at the rail's right edge instead of one rail's width further in. `.changeset/desktop-sidebar-overlay-edge.md`.
+- **Update** [Desktop sidebar numbers](cli/desktop.md#the-frames-numbers): the Recents list is compact: a day heading is a 22 px band, 8 px under the group above and 2 px above its first row, and a conversation row in Recents and in a project's list is 28 px high with 1 px between rows (new tokens in `theme.css`, measured by `e2e/ux-recents-spacing.test.mjs`). `.changeset/desktop-sidebar-recents-compact.md`.
+
 ## 2026-11-14
 
 - **Update** [Spend by day and model](cli/cost.md#what-the-model-can-read-session_cost): the `session_cost` result and description say the money is in US dollars and what to do when the person asks in another currency (look up a current rate, convert, say the rate and its source; with no rate give dollars and say so; never guess or refuse). `.changeset/cli-cost-in-the-asked-currency.md`.
