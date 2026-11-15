@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-15
+
+- **Update** [Reasoning pace](sdk/reasoning-pace.md#a-listing-that-does-not-answer-and-402-403-and-404): the OpenRouter `/models` listing is read within 5 seconds (a listing that does not answer counts as absent and the documented fallbacks apply), and HTTP 402, a 403 that names moderation and a 404 "No endpoints found" are the new provider error kinds `credits`, `moderation` and `no_endpoints` (never retried), with their own words in the terminal. `.changeset/sdk-credits-moderation-no-endpoints.md`, `.changeset/openrouter-models-listing-bound.md`.
+
 ## 2026-11-14
 
 - **Update** [Terminal design](cli/terminal-design.md#esc): with a `/` or `@` suggestion menu open, Esc closes the menu and keeps the draft (no clear notice, and the clear window is not armed); in a Ctrl+R history search Esc leaves with the found text in the box and Ctrl+C goes back to the earlier draft. `.changeset/cli-esc-closes-menus-search-accepts.md`.
