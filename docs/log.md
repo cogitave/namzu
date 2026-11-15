@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-15
+
+- **Update** [Desktop](cli/desktop.md): in a window of 767 px or less the sidebar overlay starts at the rail's right edge instead of one rail's width further in. `.changeset/desktop-sidebar-overlay-edge.md`.
+
 ## 2026-11-14
 
 - **Update** [Terminal design](cli/terminal-design.md#esc): with a `/` or `@` suggestion menu open, Esc closes the menu and keeps the draft (no clear notice, and the clear window is not armed); in a Ctrl+R history search Esc leaves with the found text in the box and Ctrl+C goes back to the earlier draft. `.changeset/cli-esc-closes-menus-search-accepts.md`.
