@@ -3571,7 +3571,7 @@ by 820. The sidebar is 288 px wide including its 1 px edge line; x positions bel
 - **The main header's title** starts 12 px after the left cluster (so 148 px from the main area's left edge
   with the menu button, 116 on macOS); its controls end 8 px from the right edge and are 4 apart (on
   Windows and Linux, 8 px before the window's own buttons).
-- **Rows are 32 px high** with 2 px between neighbouring rows (tops 34 apart) and corners of 10 px. The first
+- **Rows are 32 px high** (a conversation row in a project's list or in Recents is 28, see below) with 2 px between neighbouring rows (tops 34 apart) and corners of 10 px. The first
   row starts 8 px under the header band. A row's box runs from x 8 to x 277: 8 from the sidebar's left
   edge and 10 from its right edge line. Inside it: 10 px of padding, a 16 px icon slot (x 18 to 34), a gap
   of 10. Every label therefore starts at x 44: the New conversation row, a Pal's row, a project row, a
@@ -3588,6 +3588,14 @@ by 820. The sidebar is 288 px wide including its 1 px edge line; x positions bel
   slot; the band has 22 px between it and the row above and 4 px between it and the first row under it. A
   title's own button (the plus beside Projects, the archive button beside Recents) is 24 by 24, centred in
   the band, 4 px from the end of the row box.
+- **The Recents list is one compact list.** A day heading is a 22 px band (not 28), 8 px under the last row of
+  the group above and 2 px above its first row; the first one is 4 px under the Recents title. A conversation
+  row, in Recents and in a project's own list alike, is 28 px high with 1 px between rows (a project's first
+  row is 1 px under the project row). Before this the heading was 28 high with 22 above and 4 below and rows
+  were 32 high 2 apart, which read as airy. The numbers are the tokens `--frame-thread-height`,
+  `--frame-thread-space`, `--frame-day-band`, `--frame-day-before` and `--frame-day-after` in `theme.css`; 28
+  keeps the row easy to hit, and the project name beside a Recents title stays at most 38 percent of the row.
+  `e2e/ux-recents-spacing.test.mjs` measures it with five day groups in both themes at 1280 and 900 wide.
 - **The foot is 45 px high**: a 1 px line, 8, a 28 px button, 8. The first button is placed so that its icon's
   centre is on the icons' column (x 26). The collapsed rail keeps its 48 px width; its header band is 36
   and its foot 45 with the same line, so the lines meet across the window, and a button in a band is 28.

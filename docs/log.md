@@ -3,6 +3,7 @@
 ## 2026-11-15
 
 - **Update** [Desktop](cli/desktop.md): in a window of 767 px or less the sidebar overlay starts at the rail's right edge instead of one rail's width further in. `.changeset/desktop-sidebar-overlay-edge.md`.
+- **Update** [Desktop sidebar numbers](cli/desktop.md#the-frames-numbers): the Recents list is compact: a day heading is a 22 px band, 8 px under the group above and 2 px above its first row, and a conversation row in Recents and in a project's list is 28 px high with 1 px between rows (new tokens in `theme.css`, measured by `e2e/ux-recents-spacing.test.mjs`). `.changeset/desktop-sidebar-recents-compact.md`.
 
 ## 2026-11-14
 
