@@ -71,6 +71,7 @@ import { palConversationBinding } from '../pals/conversations.js'
 import { closeCliPalRuntime, getCliPalRuntime } from '../pals/environment.js'
 import { type CliPalInboxStarter, createPalInboxStarter } from '../pals/inbox-start.js'
 import { palAtWorkspace } from '../pals/store.js'
+import { compileBrowserSites, withBrowserSiteRules } from '../permissions/browser-sites.js'
 import { canonicalProjectPath } from '../permissions/canonical-project.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { launchRefusal } from '../permissions/launch.js'
@@ -876,6 +877,14 @@ export function createCliAcpRuntime(
 					palBinding && palRuntime
 						? palSessionEnvironment(palRuntime, palBinding.definition, sessionId)
 						: undefined
+				// The browser tools, for the desktop only and never beside a Pal's own
+				// computer: the same host, profile and site rules the terminal uses,
+				// started on the first browser call and closed with the session.
+				const browserConfig = projectCtx.config.browser
+				const browserSites =
+					runtimeOptions.computerUse === true && !palEnvironment && browserConfig?.enabled !== false
+						? compileBrowserSites(browserConfig?.sites)
+						: undefined
 				candidate = await deps.createSession(prefs, probe.detected, {
 					...(palEnvironment ? { palEnvironment } : {}),
 					// The host PC, for the desktop only. A Pal conversation has its own
@@ -897,7 +906,26 @@ export function createCliAcpRuntime(
 							}
 						: {}),
 					...(target.origin ? { origin: target.origin } : {}),
-					rules: permissions.rules,
+					rules: browserSites
+						? withBrowserSiteRules(permissions.rules, browserSites.rules)
+						: permissions.rules,
+					...(browserSites
+						? {
+								browser: {
+									...(browserConfig?.defaultProfile
+										? { profile: browserConfig.defaultProfile }
+										: {}),
+									...(browserConfig?.engine ? { engine: browserConfig.engine } : {}),
+									...(browserConfig?.headless ? { headless: browserConfig.headless } : {}),
+									sites: browserSites.sites,
+									...(browserConfig?.keepOpen ? { keepOpen: true } : {}),
+									...(browserConfig?.signInDetection
+										? { signInDetection: browserConfig.signInDetection }
+										: {}),
+									...(conversationState ? { home: conversationState.root } : {}),
+								},
+							}
+						: {}),
 					...(projectCtx.config.permissionSettings
 						? { permissionSettings: projectCtx.config.permissionSettings }
 						: {}),

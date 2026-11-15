@@ -3255,6 +3255,7 @@ const BROWSER_KEYS = new Set([
 	'headless',
 	'sites',
 	'keepOpen',
+	'signInDetection',
 ])
 /** `@namzu/browser`'s profile names, restated so reading config does not load Playwright. */
 const BROWSER_PROFILE_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
@@ -3266,7 +3267,7 @@ function readBrowserConfig(v: unknown, context: ConfigReaderContext): BrowserCon
 			return invalidConfigValue(
 				context,
 				[key],
-				'is not a browser setting (enabled, defaultProfile, engine, headless, sites, keepOpen)',
+				'is not a browser setting (enabled, defaultProfile, engine, headless, sites, keepOpen, signInDetection)',
 			)
 		}
 	}
@@ -3291,6 +3292,11 @@ function readBrowserConfig(v: unknown, context: ConfigReaderContext): BrowserCon
 		return invalidConfigValue(context, ['engine'], 'must be auto, windows or local')
 	if (raw.headless !== undefined && !['auto', 'always', 'never'].includes(raw.headless as string))
 		return invalidConfigValue(context, ['headless'], 'must be auto, always or never')
+	if (
+		raw.signInDetection !== undefined &&
+		!['address', 'page'].includes(raw.signInDetection as string)
+	)
+		return invalidConfigValue(context, ['signInDetection'], 'must be address or page')
 	let sites: Record<string, BrowserSiteLevel> | undefined
 	if (raw.sites !== undefined) {
 		if (!isConfigMapping(raw.sites))
@@ -3314,6 +3320,9 @@ function readBrowserConfig(v: unknown, context: ConfigReaderContext): BrowserCon
 		...(raw.headless !== undefined ? { headless: raw.headless as BrowserConfig['headless'] } : {}),
 		...(sites !== undefined ? { sites } : {}),
 		...(raw.keepOpen !== undefined ? { keepOpen: raw.keepOpen as boolean } : {}),
+		...(raw.signInDetection !== undefined
+			? { signInDetection: raw.signInDetection as BrowserConfig['signInDetection'] }
+			: {}),
 	}
 }
 
@@ -3446,12 +3455,16 @@ function isProjectSource(source: ConfigSource): boolean {
  * - `defaultProfile` is refused in a project file. A profile carries the
  *   operator's sign-ins, and a repository must not pick which ones its
  *   agent runs under.
+ * - `signInDetection` set in a project file is ignored: it decides when a
+ *   page stops the turn for the person, and a repository must not loosen that.
  */
 export function mergeBrowserConfig(
 	below: BrowserConfig | undefined,
-	layer: BrowserConfig,
+	rawLayer: BrowserConfig,
 	source: ConfigSource,
 ): BrowserConfig {
+	const { signInDetection: _ignoredFromProject, ...withoutDetection } = rawLayer
+	const layer: BrowserConfig = isProjectSource(source) ? withoutDetection : rawLayer
 	if (layer.defaultProfile !== undefined && isProjectSource(source)) {
 		throw new ConfigValueError(
 			{ kind: 'file', path: 'path' in source ? source.path : 'namzu.config.json' },

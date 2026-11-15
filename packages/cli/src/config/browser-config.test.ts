@@ -49,6 +49,7 @@ describe('browser config', () => {
 		[{ headless: true }, 'browser.headless'],
 		[{ enabled: 'yes' }, 'browser.enabled'],
 		[{ profile: 'x' }, 'browser.profile'],
+		[{ signInDetection: 'content' }, 'browser.signInDetection'],
 	])('refuses %j instead of dropping it', (browser, path) => {
 		let error: unknown
 		try {
@@ -58,6 +59,21 @@ describe('browser config', () => {
 		}
 		expect(error).toBeInstanceOf(ConfigValueError)
 		expect((error as ConfigValueError).settingPath.startsWith(path)).toBe(true)
+	})
+
+	it('reads signInDetection from the user file and ignores it in a project file', () => {
+		expect(loadConfig(setup({ browser: { signInDetection: 'page' } })).browser).toEqual({
+			signInDetection: 'page',
+		})
+		expect(
+			loadConfig(setup({ browser: { keepOpen: true } })).browser?.signInDetection,
+		).toBeUndefined()
+		const fromProject = loadConfig(setup(undefined, { browser: { signInDetection: 'page' } }))
+		expect(fromProject.browser?.signInDetection).toBeUndefined()
+		const overUser = loadConfig(
+			setup({ browser: { signInDetection: 'address' } }, { browser: { signInDetection: 'page' } }),
+		)
+		expect(overUser.browser?.signInDetection).toBe('address')
 	})
 
 	it('is not read from the environment', () => {

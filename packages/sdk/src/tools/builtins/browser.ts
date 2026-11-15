@@ -27,6 +27,7 @@ import { defineTool } from '../defineTool.js'
 import { resolveWithinAnyReal, toolRoots } from '../paths.js'
 import { revealHiddenCharacters } from '../schedules/prompt-scan.js'
 import { neutralizeEnvelopeDelimiter, wrapUntrusted } from '../untrusted-envelope.js'
+import { BrowserStallGuard, type StalledCall } from './browser-stall.js'
 import { canonicalizeBrowserOrigin, canonicalizeBrowserUrl } from './browser-url.js'
 
 export const BROWSER_TOOL_NAME = 'browser' as const
@@ -254,6 +255,32 @@ const ACT_ACTIONS: readonly BrowserActActionName[] = [
 	'upload',
 	'dialog',
 ]
+
+/**
+ * Whether a `browser` call returns the whole page as the repeat guard compares
+ * it: a moved page (its result is the page's default snapshot) or a `snapshot`
+ * of the full view with no region, cursor or search. A region, a later part,
+ * a found subset, the interactive or reading view and a delta are not the page.
+ */
+function returnsWholePage(input: BrowserToolInput): boolean {
+	switch (input.action) {
+		case 'navigate':
+		case 'back':
+		case 'forward':
+		case 'reload':
+			return true
+		case 'snapshot':
+			return (
+				!input.ref &&
+				!input.cursor &&
+				(input.view === undefined || input.view === 'full') &&
+				!input.query &&
+				!input.role
+			)
+		default:
+			return false
+	}
+}
 
 /**
  * Whether a `browser` call only observes. Navigation, history moves, reload
@@ -1023,6 +1050,24 @@ export function createBrowserTools(
 	const caps = host.capabilities
 	const observeActions = OBSERVE_ACTIONS.filter((a) => actionAvailable(caps, a))
 	const actActions = ACT_ACTIONS.filter((a) => actionAvailable(caps, a))
+	// One per tool set, so it spans the observe and act tools of a session and
+	// forgets everything when a new turn starts.
+	const stall = new BrowserStallGuard()
+	/** Run `run` under the guard: a repeat that changes nothing is noted, then refused. */
+	const guarded = async (
+		turnId: string,
+		describe: StalledCall,
+		run: (seen: (result: BrowserResult) => BrowserResult) => Promise<ToolResult>,
+	): Promise<ToolResult> => {
+		const refused = stall.check(turnId, describe)
+		if (refused) return refused
+		const before = stall.begin()
+		const result = await run((raw) => {
+			stall.seen(raw, describe.wholePage)
+			return raw
+		})
+		return stall.finish(turnId, describe, before, result)
+	}
 
 	const browser = defineTool({
 		name: BROWSER_TOOL_NAME,
@@ -1049,13 +1094,34 @@ export function createBrowserTools(
 		async execute(input, context) {
 			const refused = unavailable(host, BROWSER_TOOL_NAME, input.action)
 			if (refused) return refused
-			return call(
-				BROWSER_TOOL_NAME,
-				() =>
-					host.observe(input as BrowserObserveAction, {
-						...(context.abortSignal ? { signal: context.abortSignal } : {}),
-					}),
-				host,
+			return guarded(
+				context.turnId,
+				{
+					tool: BROWSER_TOOL_NAME,
+					input,
+					counts: !(
+						input.action === 'snapshot' ||
+						input.action === 'screenshot' ||
+						input.action === 'wait_for' ||
+						input.action === 'value' ||
+						// Scrolling moves a position the host does not report, so a
+						// run of identical scrolls looks unchanged while it reads on.
+						input.action === 'scroll' ||
+						(input.action === 'tabs' && input.op === 'list')
+					),
+					wholePage: returnsWholePage(input),
+				},
+				(seen) =>
+					call(
+						BROWSER_TOOL_NAME,
+						async () =>
+							seen(
+								await host.observe(input as BrowserObserveAction, {
+									...(context.abortSignal ? { signal: context.abortSignal } : {}),
+								}),
+							),
+						host,
+					),
 			)
 		},
 	})
@@ -1088,13 +1154,25 @@ export function createBrowserTools(
 				input.action === 'upload'
 					? { ...input, path: await resolveWithinAnyReal(toolRoots(context), input.path) }
 					: input
-			return call(
-				BROWSER_ACT_TOOL_NAME,
-				() =>
-					host.act(action as BrowserActAction, {
-						...(context.abortSignal ? { signal: context.abortSignal } : {}),
-					}),
-				host,
+			return guarded(
+				context.turnId,
+				{
+					tool: BROWSER_ACT_TOOL_NAME,
+					input,
+					counts: true,
+					wholePage: input.snapshot === true,
+				},
+				(seen) =>
+					call(
+						BROWSER_ACT_TOOL_NAME,
+						async () =>
+							seen(
+								await host.act(action as BrowserActAction, {
+									...(context.abortSignal ? { signal: context.abortSignal } : {}),
+								}),
+							),
+						host,
+					),
 			)
 		},
 	})

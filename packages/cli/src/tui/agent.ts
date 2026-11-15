@@ -287,6 +287,7 @@ import {
 	sandboxResolvedSeverity,
 } from '../context/sandbox.js'
 import {
+	BROWSER_WEB_TASK_GUIDANCE,
 	DEFERRED_TOOL_GUIDANCE,
 	SHELL_ESCAPE_GUIDANCE,
 	composeSessionSystemPrompt,
@@ -5257,6 +5258,12 @@ export async function createAgentSession(
 		manager.get('computer_use')
 			? NAMZU_BROWSER_DESKTOP_ROUTING
 			: undefined
+	// How to go about a web task, said only where the browser tools are
+	// mounted and can run.
+	const browserWebTask =
+		browserControl && browserUnavailable === undefined && manager.get('browser')
+			? BROWSER_WEB_TASK_GUIDANCE
+			: undefined
 	// A live toolset (a plugin's) can change between session boot and any
 	// later ask — `/tools`, `/permissions`, a review decision. `manager`
 	// itself is built once and never rebuilt for the session's lifetime, so
@@ -5744,6 +5751,7 @@ export async function createAgentSession(
 				sessionPromptInput(
 					{
 						browserDesktopRouting,
+						browserWebTask,
 						palBlock: palPromptBlock(),
 						environment: environmentPrompt,
 						withheldTools: options.withheldTools,
@@ -7092,6 +7100,7 @@ export async function createAgentSession(
 							sessionPromptInput(
 								{
 									browserDesktopRouting,
+									browserWebTask,
 									palBlock: palPromptBlock(),
 									environment: environmentPrompt,
 									withheldTools: options.withheldTools,

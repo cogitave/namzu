@@ -63,11 +63,13 @@ export {
 	isCaptchaFrame,
 	isCredentialField,
 	isSignInAddress,
+	signInNotice,
 } from './classifier.js'
 export type {
 	BrowserFieldFacts,
 	BrowserHumanClassifierOptions,
 	BrowserPageSignals,
+	BrowserSignInDetection,
 } from './classifier.js'
 export {
 	BROWSER_PROFILE_NAME,

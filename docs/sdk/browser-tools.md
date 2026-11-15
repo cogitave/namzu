@@ -121,6 +121,10 @@ The origin is re-canonicalised, and a value that is not an origin is shown as `u
 
 A screenshot comes back as a text block (the header) and an image block. The Namzu Playwright host masks password and one-time-code fields, in every frame and in element screenshots (an ordinary input stays readable, since a search box the model cannot read cannot be checked); closed shadow roots and text rendered elsewhere may remain visible. Another host must provide its own protection. `tabs list` lists each tab's header, with `*` on the active one. A `message` the host returns is shown outside the envelope, so it must be the host's own words, never page text.
 
+## Repeated calls that change nothing
+
+`createBrowserTools` returns tools that share one stall guard, which forgets everything when a new turn starts. Calls that can change what the page shows (`browser_act`, and `browser` `navigate`, `back`, `forward`, `reload` and `tabs` other than `list`) are keyed by tool and every argument. A call is a repeat when the previous identical call changed nothing and nothing changed since: the address and tab, the tab set, and the last whole-page snapshot (a `snapshot` of the full view without `ref`, `cursor`, `query` or `role`, the page a `navigate`, `back`, `forward` or `reload` returned, or `snapshot: true` on an act; a `delta`, `interactive` or `reading` view is not the page) are as the host reported them. The third repeat's result starts with a note, the fifth is refused with `data.code: 'browser_repeated_no_change'` and the last host message or page address, and the host is not called. Twelve counted calls in a row with no change to address, tab set or whole-page snapshot add a second note. Looking and moving the view (`snapshot`, `screenshot`, `wait_for`, `value`, `scroll`, `tabs list`) is never counted, because a scroll's progress is a position the host does not report or refused. The guard reads no clock.
+
 ## The host contract
 
 ```ts sketch

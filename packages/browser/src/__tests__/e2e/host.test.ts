@@ -1211,3 +1211,53 @@ describe.skipIf(!HEADED)('PlaywrightBrowserHost headed', { timeout: 60_000 }, ()
 		}
 	})
 })
+
+describe.skipIf(!E2E)('sign-in detection by page', { timeout: 30_000 }, () => {
+	let server: FixtureServer
+	let home: string
+	let host: PlaywrightBrowserHost
+
+	beforeAll(async () => {
+		server = await startFixtureServer()
+		home = mkdtempSync(join(tmpdir(), 'namzu-browser-e2e-page-'))
+		host = new PlaywrightBrowserHost({
+			home,
+			plan: plan(true),
+			profile: 'e2e-page',
+			sessionId: 'e2e-page',
+			sites: { [server.allowed]: 'act', '*': 'ask' },
+			signInDetection: 'page',
+		})
+	})
+
+	afterAll(async () => {
+		await host?.dispose()
+		await server?.close()
+		rmSync(home, { recursive: true, force: true })
+	})
+
+	it('reads a sign-in path that shows no password field, with no notice', async () => {
+		const result = await host.observe({ action: 'navigate', url: `${server.allowed}/signin/info` })
+		expect(result.page?.title).toBe('About signing in')
+		expect(result.message ?? '').not.toContain('password')
+	})
+
+	it('lets a page with a password field load, says once that no password is typed, and still refuses to type one', async () => {
+		const first = await host.observe({ action: 'navigate', url: `${server.allowed}/login.html` })
+		expect(first.page?.title).toBe('Your account')
+		expect(first.message).toContain('You cannot type one')
+		expect(first.message).toContain(`namzu browser login e2e-page ${server.allowed}/login.html`)
+		const again = await host.observe({ action: 'snapshot' })
+		expect(again.message ?? '').not.toContain('You cannot type one')
+		const text = again.snapshot?.text ?? ''
+		const typed = await refusal(
+			host.act({
+				action: 'type',
+				ref: refOf(text, /textbox "Password"/),
+				text: 'hunter2',
+				origin: server.allowed,
+			}),
+		)
+		expect(String(typed.message)).toContain('password or one-time-code control')
+	})
+})
