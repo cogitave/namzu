@@ -75,7 +75,6 @@ import {
 	BrowserProfileStore,
 	DEFAULT_BROWSER_PROFILE,
 } from './profiles.js'
-import { type SettleOutcome, type SettleProbe, waitUntilQuiet } from './settle.js'
 import {
 	type Aim,
 	CANDIDATES_MAX,
@@ -91,6 +90,7 @@ import {
 	namedKey,
 	noEffectReason,
 } from './reach.js'
+import { type SettleOutcome, type SettleProbe, waitUntilQuiet } from './settle.js'
 import {
 	PLAYWRIGHT_CORE_VERSION,
 	SnapshotPager,
