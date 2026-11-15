@@ -694,6 +694,59 @@ export const OPENROUTER_CAPABILITIES: ProviderCapabilities = {
 	reportsRequestCost: true,
 }
 
+/**
+ * How long a read of the `/models` listing may take. The listing is several
+ * hundred entries and normally answers well inside a second; 5 s is long
+ * enough for a slow link and short enough that the first `max` request, which
+ * waits on this read, does not feel stuck. It is a bound on waiting, not a
+ * retry: past it the listing counts as absent and each reader's documented
+ * fallback applies.
+ */
+export const MODEL_LISTING_TIMEOUT_MS = 5000
+
+/**
+ * Run `read` with a signal that fires at the listing bound or when the
+ * caller's signal does. The bound is an ordinary timer, cleared when the read
+ * settles, so a test can advance it with a fake clock.
+ */
+async function withListingBound<T>(
+	signal: AbortSignal | undefined,
+	read: (bounded: AbortSignal) => Promise<T>,
+): Promise<T> {
+	const bound = new AbortController()
+	let timer: ReturnType<typeof setTimeout> | undefined
+	// Rejects at the bound even when the transport ignores its signal.
+	const expired = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => {
+			const reason = new DOMException('the models listing did not answer in time', 'TimeoutError')
+			bound.abort(reason)
+			reject(reason)
+		}, MODEL_LISTING_TIMEOUT_MS)
+	})
+	let onAbort: (() => void) | undefined
+	// The caller's abort also ends the wait, whether or not the transport honours it.
+	const cancelled = new Promise<never>((_, reject) => {
+		if (!signal) return
+		onAbort = () => reject(signal.reason ?? new DOMException('aborted', 'AbortError'))
+		signal.addEventListener('abort', onAbort, { once: true })
+	})
+	try {
+		return await Promise.race([
+			read(signal ? AbortSignal.any([bound.signal, signal]) : bound.signal),
+			expired,
+			cancelled,
+		])
+	} finally {
+		if (onAbort) signal?.removeEventListener('abort', onAbort)
+		clearTimeout(timer)
+	}
+}
+
+/** Did the listing read run past its bound (as opposed to failing some other way)? */
+function isListingTimeout(err: unknown): boolean {
+	return err instanceof Error && err.name === 'TimeoutError'
+}
+
 export class OpenRouterProvider implements LLMProvider {
 	readonly id = 'openrouter'
 	readonly name = 'OpenRouter'
@@ -1156,7 +1209,16 @@ export class OpenRouterProvider implements LLMProvider {
 		if (signal?.aborted) return undefined
 		let windows = this.contextWindows
 		if (!windows) {
-			const models = await this.listModels(signal)
+			let models: ModelInfo[]
+			try {
+				models = await this.listModels(signal)
+			} catch (err) {
+				// A listing that outlasts its bound is "no listing": the
+				// caller's static table answers. A caller abort stays an abort.
+				if (signal?.aborted) return undefined
+				if (isListingTimeout(err)) return undefined
+				throw err
+			}
 			if (signal?.aborted) return undefined
 			windows = new Map<string, number>(
 				models
@@ -1194,18 +1256,19 @@ export class OpenRouterProvider implements LLMProvider {
 		if (!table) {
 			try {
 				signal?.throwIfAborted()
-				const response = await fetch(`${this.baseUrl}/models`, {
-					headers: this.getHeaders(),
-					// Bounded on its own: this read sits in front of the first max or
-					// ultra request, so a stalled listing must not stall that request.
-					signal: signal
-						? AbortSignal.any([AbortSignal.timeout(5000), signal])
-						: AbortSignal.timeout(5000),
+				// Bounded on its own: this read sits in front of the first max or
+				// ultra request, so a stalled listing must not stall that request.
+				const data = await withListingBound(signal, async (bounded) => {
+					const response = await fetch(`${this.baseUrl}/models`, {
+						headers: this.getHeaders(),
+						signal: bounded,
+					})
+					if (!response.ok) return undefined
+					return (await response.json()) as {
+						data?: Array<{ id: string; reasoning?: { supported_efforts?: unknown } }>
+					}
 				})
-				if (!response.ok) return undefined
-				const data = (await response.json()) as {
-					data?: Array<{ id: string; reasoning?: { supported_efforts?: unknown } }>
-				}
+				if (!data) return undefined
 				table = new Map()
 				for (const m of data.data ?? []) {
 					const levels = m.reasoning?.supported_efforts
@@ -1233,24 +1296,26 @@ export class OpenRouterProvider implements LLMProvider {
 
 	async listModels(signal?: AbortSignal): Promise<ModelInfo[]> {
 		signal?.throwIfAborted()
-		const response = await fetch(`${this.baseUrl}/models`, {
-			headers: this.getHeaders(),
-			...(signal ? { signal } : {}),
+		const data = await withListingBound(signal, async (bounded) => {
+			const response = await fetch(`${this.baseUrl}/models`, {
+				headers: this.getHeaders(),
+				signal: bounded,
+			})
+
+			if (!response.ok) {
+				throw new Error(`Failed to list models: ${response.status}`)
+			}
+
+			return (await response.json()) as {
+				data: Array<{
+					id: string
+					name: string
+					context_length: number
+					top_provider?: { max_completion_tokens?: number }
+					pricing?: { prompt: string; completion: string }
+				}>
+			}
 		})
-
-		if (!response.ok) {
-			throw new Error(`Failed to list models: ${response.status}`)
-		}
-
-		const data = (await response.json()) as {
-			data: Array<{
-				id: string
-				name: string
-				context_length: number
-				top_provider?: { max_completion_tokens?: number }
-				pricing?: { prompt: string; completion: string }
-			}>
-		}
 		signal?.throwIfAborted()
 
 		return data.data.map((m) => {
@@ -1271,11 +1336,13 @@ export class OpenRouterProvider implements LLMProvider {
 
 	async healthCheck(): Promise<boolean> {
 		try {
-			const response = await fetch(`${this.baseUrl}/models`, {
-				headers: this.getHeaders(),
-				signal: AbortSignal.timeout(5000),
+			return await withListingBound(undefined, async (bounded) => {
+				const response = await fetch(`${this.baseUrl}/models`, {
+					headers: this.getHeaders(),
+					signal: bounded,
+				})
+				return response.ok
 			})
-			return response.ok
 		} catch {
 			return false
 		}

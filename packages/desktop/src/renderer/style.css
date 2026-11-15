@@ -1388,6 +1388,10 @@ pre {
 		grid-template-columns: var(--frame-rail-width) 0 minmax(0, 1fr);
 	}
 	.sidebar {
+		/* Placed over the whole grid, not in the wide layout's second column: an absolute box takes its
+		   grid area as its containing block, and that column starts one rail's width in, which pushed
+		   the overlay a rail's width too far from the window's edge. */
+		grid-column: 1 / -1;
 		position: absolute;
 		/* The overlay starts under the header band, so the band's menu, toggle, back, forward and title
 		   stay in sight and in reach while it is open. */

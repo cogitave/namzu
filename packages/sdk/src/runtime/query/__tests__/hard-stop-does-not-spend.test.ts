@@ -101,13 +101,16 @@ it.each(['warning', 'empty'] as const)(
 				mode === 'warning'
 					? { ...toolTurn, usage: { promptTokens: 475, completionTokens: 475, totalTokens: 950 } }
 					: { text: '', usage },
+				// An empty reply is asked for once more before the closing request.
+				...(mode === 'empty' ? [{ text: '', usage }] : []),
 				{ text: 'A partial observation is available; the task is unresolved.', usage },
 			],
 			{ tokenBudget: 1_000 },
 		)
-		expect(provider.requests).toHaveLength(2)
-		expect(provider.requests[1]?.toolChoice).toBe('none')
-		const closing = provider.requests[1]?.messages.filter(
+		const closingAt = mode === 'empty' ? 2 : 1
+		expect(provider.requests).toHaveLength(closingAt + 1)
+		expect(provider.requests[closingAt]?.toolChoice).toBe('none')
+		const closing = provider.requests[closingAt]?.messages.filter(
 			(message) =>
 				message.role === 'user' &&
 				message.source?.type === 'runtime-context' &&
@@ -144,12 +147,14 @@ it.each(['warning', 'empty'] as const)(
 				mode === 'warning'
 					? { ...toolTurn, usage: { promptTokens: 475, completionTokens: 475, totalTokens: 950 } }
 					: { text: '', usage },
+				// An empty reply is asked for once more before the closing request.
+				...(mode === 'empty' ? [{ text: '', usage }] : []),
 				{ text: 'A partial observation is available; the task is unresolved.', usage },
 			],
 			{ tokenBudget: 1_000 },
 			{ workingMemoryProvider: () => 'HOST LEDGER', promptContributions: contributions },
 		)
-		const messages = provider.requests[1]?.messages ?? []
+		const messages = provider.requests[mode === 'empty' ? 2 : 1]?.messages ?? []
 		const last = messages[messages.length - 1]
 		if (last?.role !== 'user') throw new Error('the closing request does not end on a user turn')
 		expect(last.source).toEqual({ type: 'runtime-context', kind: 'limit-finalization' })

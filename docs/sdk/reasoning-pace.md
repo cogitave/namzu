@@ -58,6 +58,10 @@ The always-sent doctrine says it once and in one place. The identity's first sen
 
 A reply that holds reasoning but no text and no call is not an end. The model is asked once more, plainly, before the closing request a limit makes. If even that produces nothing, the turn ends with a plain error that says the model stopped after thinking and that saying "continue" picks the work up. It never ends silently.
 
+## A reply with nothing in it
+
+A main-step reply with no text, no reasoning and no call, whose finish reason is `stop`, is asked for once more with the same request (the empty entry is kept in the history but never sent, so the request is unchanged). The first retry of a turn is logged as one warning line with `namzu.retry.attempt` and `namzu.retry.reason: empty_reply`, and it takes an iteration like any step. The empty attempt's tokens and cost stay in the turn's usage and in the steps ledger. A reply cut at the output allowance (`length`) is not asked again, since the same allowance would be spent, and a reply of reasoning only keeps the path above. If the second reply is empty too, the turn goes on to the closing request as before, and if that is empty as well the turn ends with a plain error saying the model sent an empty reply twice and that "continue" picks the work up. The allowance is one per run of empty replies: any reply with content or a tool call re-arms it.
+
 ## Effort `max` and `ultra` on OpenRouter
 
 The OpenRouter driver no longer throws for effort `max` or `ultra`, which the SDK's `ReasoningEffort` includes. Each asks for the deepest reasoning the model offers, so the driver reads the levels the model's entry in OpenRouter's `/models` listing names (`reasoning.supported_efforts`, read once per driver and only for these two efforts) and sends the highest of `max`, `xhigh`, `high`, `medium`, `low`, `minimal` that the list holds, never `none`; for the DeepSeek V4.1 Flash model that is `max`. If the listing cannot be read or names no levels for the model, it sends `xhigh`, the highest level the unified `reasoning.effort` documents for every model. Every other effort is sent as given.
@@ -78,6 +82,20 @@ adds it and the host's code (`provider_code` on an HTTP error, `error_type` on
 an error that arrives mid-stream) to the error's detail, as `(host X, code Y)`,
 each capped at 64 characters with control characters removed.
 `metadata.raw` is never read, since it can echo the prompt.
+
+## A listing that does not answer, and 402, 403 and 404
+
+Every read of OpenRouter's `/models` listing (the model picker, the context-window lookup, the effort read and the health check) is bounded at 5 seconds (`MODEL_LISTING_TIMEOUT_MS`), also when the transport ignores its signal. Past the bound the listing counts as absent: a window lookup answers `undefined` so the static table applies, and the effort read answers "no levels" so a `max` or `ultra` request goes out with `xhigh`. The picker's own listing fails with a `TimeoutError`. A caller's abort still wins over the bound.
+
+Three HTTP answers have their own `ProviderErrorKind` instead of a generic bad request, and none is retried:
+
+| Status | Kind | Taken when | Error code | Words for a person |
+|---|---|---|---|---|
+| 402 | `credits` | always | `usage_limit` | the account has no credit left; add credit or pick another model |
+| 403 | `moderation` | the body names moderation or a flagged input | `content_filter` | the model declined the message |
+| 403 | `auth` | any other 403 | `auth` | the key was not accepted |
+| 404 | `no_endpoints` | the body says "No endpoints found" or "No endpoint available" | `not_found` | no host can serve that model right now; pick another |
+| 404 | `bad_request` | any other 404 | `invalid_request` | unchanged |
 
 ## Related
 
