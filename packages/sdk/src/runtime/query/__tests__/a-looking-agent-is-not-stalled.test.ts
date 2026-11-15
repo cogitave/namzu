@@ -19,6 +19,8 @@ import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 import {
 	FORCED_STEP_MESSAGE,
+	REASONING_CAPPED_MESSAGE,
+	REASONING_CAPPED_REPORT_MESSAGE,
 	STALL_NUDGE_MESSAGE,
 	STALL_REPORT_MESSAGE,
 } from '../turn/stall-monitor.js'
@@ -242,6 +244,23 @@ describe('the action step a guard asks for', () => {
 
 	const thinkingOn: ThinkingConfig = { type: 'adaptive' }
 	const thinkingOff: ThinkingConfig = { type: 'disabled' }
+
+	it('is told to report, and not forced, when an agent that cannot change anything is cut', async () => {
+		// Even when the provider would accept a forced choice.
+		const provider = withAnswer(() => true)
+		await run(provider, { maxTokens: 50, thinking: thinkingOff })
+		expect(carried(provider, REASONING_CAPPED_REPORT_MESSAGE)).toBeGreaterThan(0)
+		expect(carried(provider, REASONING_CAPPED_MESSAGE)).toBe(0)
+		expect(forced(provider)).toBe(0)
+		expect(carried(provider, FORCED_STEP_MESSAGE)).toBe(0)
+	})
+
+	it('still says to make the first change for an agent that can change things', async () => {
+		const provider = withAnswer(() => true)
+		await run(provider, { withEdit: true, maxTokens: 50, thinking: thinkingOff })
+		expect(carried(provider, REASONING_CAPPED_MESSAGE)).toBeGreaterThan(0)
+		expect(carried(provider, REASONING_CAPPED_REPORT_MESSAGE)).toBe(0)
+	})
 
 	it('is asked in words when the provider cannot say', async () => {
 		const provider = withAnswer(undefined)

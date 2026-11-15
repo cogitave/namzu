@@ -149,20 +149,43 @@ export interface BrowserFormField {
 	readonly value: string
 }
 
+/**
+ * What a `click` or `hover` aims at: a ref from the latest snapshot, or, when
+ * the snapshot has no ref for it, the element's role and accessible name, or
+ * its visible text. Exactly one of the three forms is set. A host refuses a
+ * role/name or text that matches no element or several, and lists the
+ * candidates ({@link BrowserTargetUnclear}).
+ */
+export interface BrowserTarget {
+	readonly ref?: string
+	/** With `name`: an ARIA role such as `button` or `menuitem`. */
+	readonly role?: string
+	/** With `role`: the accessible name, matched as text. */
+	readonly name?: string
+	/** The element's visible text, matched as text. */
+	readonly text?: string
+}
+
 /** The change a `browser_act` call makes. */
 export type BrowserActOperation =
-	| { readonly action: 'click'; readonly ref: string; readonly doubleClick?: boolean }
+	| ({ readonly action: 'click'; readonly doubleClick?: boolean } & BrowserTarget)
 	| {
 			readonly action: 'type'
 			readonly ref: string
 			readonly text: string
 			/** Press Enter after typing. */
 			readonly submit?: boolean
+			/** Send real key events, one key at a time, instead of setting the value. */
+			readonly keys?: boolean
+			/** Empty the field first. This is also what happens when neither `clear` nor `append` is set. */
+			readonly clear?: boolean
+			/** Keep what the field holds and add the text after it. */
+			readonly append?: boolean
 	  }
 	| { readonly action: 'fill_form'; readonly fields: readonly BrowserFormField[] }
 	| { readonly action: 'select'; readonly ref: string; readonly values: readonly string[] }
 	| { readonly action: 'press'; readonly key: string; readonly ref?: string }
-	| { readonly action: 'hover'; readonly ref: string }
+	| ({ readonly action: 'hover' } & BrowserTarget)
 	| { readonly action: 'upload'; readonly ref: string; readonly path: string }
 	| { readonly action: 'dialog'; readonly accept: boolean; readonly promptText?: string }
 
@@ -176,6 +199,11 @@ export type BrowserActOperation =
  * when they differ.** That comparison is what binds an approval of "click
  * Place order on shop.example.com" to shop.example.com: a redirect between
  * the snapshot and the click must not carry the click to another site.
+ *
+ * A host MAY go ahead when the live origin differs but the site rules treat
+ * the live origin exactly as they treat the named one (both at the level
+ * that needs no review), as long as it says so in the result's `message`.
+ * Where the rules would differ it MUST refuse.
  */
 export type BrowserActAction = BrowserActOperation & {
 	readonly origin: string
@@ -355,6 +383,38 @@ export interface BrowserOutcomeUnknown {
 	readonly message: string
 }
 
+/**
+ * An action failed before it did anything: the element was not reachable
+ * (covered, hidden, disabled, not stable) and the page was not touched. The
+ * model may take a fresh snapshot and try once more.
+ */
+export interface BrowserNoEffect {
+	readonly code: 'browser_no_effect'
+	readonly action: BrowserActionName
+	readonly outcome: 'unchanged'
+	readonly retrySafety: 'once-after-snapshot'
+	readonly message: string
+}
+
+/** One element a role/name or text target could have meant. */
+export interface BrowserTargetCandidate {
+	readonly role: string
+	readonly name: string
+}
+
+/**
+ * A role/name or text target matched no element, or more than one. Nothing
+ * was done; `candidates` lists what matched (at most a handful).
+ */
+export interface BrowserTargetUnclear {
+	readonly code: 'browser_target_unclear'
+	readonly matches: number
+	readonly candidates: readonly BrowserTargetCandidate[]
+	/** What the model asked for, in the host's words, e.g. `button "Save"`. */
+	readonly wanted: string
+	readonly message: string
+}
+
 /** The site policy does not allow this origin at the level the call needs. */
 export interface BrowserSiteDenied {
 	readonly code: 'browser_site_denied'
@@ -367,6 +427,8 @@ export type BrowserHostError =
 	| BrowserStaleRef
 	| BrowserHumanRequired
 	| BrowserOutcomeUnknown
+	| BrowserNoEffect
+	| BrowserTargetUnclear
 	| BrowserSiteDenied
 
 // ---------------------------------------------------------------------------

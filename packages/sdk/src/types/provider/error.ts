@@ -6,6 +6,12 @@ export type ProviderErrorKind =
 	| 'context_overflow'
 	| 'bad_request'
 	| 'server'
+	/** HTTP 402: the account has no credit left. Resending cannot help until it is topped up. */
+	| 'credits'
+	/** HTTP 403 whose body says the input was flagged by moderation, as opposed to a refused key (`auth`). */
+	| 'moderation'
+	/** HTTP 404 whose body says no host can serve the request (for example "No endpoints found"). */
+	| 'no_endpoints'
 
 /**
  * Serializable provider-failure metadata carried by failed turns and events.

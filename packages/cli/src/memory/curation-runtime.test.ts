@@ -27,6 +27,24 @@ import { MemoryLifecycle } from './lifecycle.js'
 import { screenMemoryPromotion } from './screen.js'
 import { MemoryUsage } from './usage.js'
 
+// The drain reads and writes real files, which on a loaded machine can take
+// longer than any fixed wait. `eventually` yields to the real event loop until
+// the check holds, without a deadline of its own and without moving the fake
+// clock, so a slow disk only makes the test slower and a real hang still fails
+// on vitest's own test timeout. `setImmediate` is taken before any test fakes it.
+const realSetImmediate = globalThis.setImmediate
+async function eventually(check: () => unknown): Promise<void> {
+	for (;;) {
+		try {
+			await check()
+			return
+		} catch {
+			await vi.advanceTimersByTimeAsync(0)
+			await new Promise<void>((resolve) => realSetImmediate(() => resolve()))
+		}
+	}
+}
+
 const roots: string[] = []
 afterEach(() => {
 	vi.useRealTimers()
@@ -121,7 +139,7 @@ describe('curation runtime', () => {
 		await vi.advanceTimersByTimeAsync(CURATION_IDLE_MS - 1)
 		expect(changes).toEqual([])
 		await vi.advanceTimersByTimeAsync(1)
-		await vi.waitFor(() => expect(changes).toEqual([['Remembered: Package manager']]))
+		await eventually(() => expect(changes).toEqual([['Remembered: Package manager']]))
 		expect((await store.list({})).entries.map((entry) => entry.title)).toEqual(['Package manager'])
 		expect(await inbox.pending()).toEqual([])
 	})
@@ -150,9 +168,9 @@ describe('curation runtime', () => {
 		await vi.advanceTimersByTimeAsync(CURATION_IDLE_MS - 1)
 		expect(asked).toEqual([])
 		await vi.advanceTimersByTimeAsync(1)
-		await vi.waitFor(() => expect(asked).toHaveLength(1))
+		await eventually(() => expect(asked).toHaveLength(1))
 		// The model is asked before the inbox is cleared, so the clearing is awaited too.
-		await vi.waitFor(async () => expect(await inbox.pending()).toEqual([]))
+		await eventually(async () => expect(await inbox.pending()).toEqual([]))
 	})
 
 	it('what an earlier process left drains after the first turn settles, never during it', async () => {
@@ -163,7 +181,7 @@ describe('curation runtime', () => {
 		expect(asked).toEqual([])
 		runtime.turnSettled()
 		await vi.advanceTimersByTimeAsync(CURATION_IDLE_MS)
-		await vi.waitFor(() => expect(asked).toHaveLength(1))
+		await eventually(() => expect(asked).toHaveLength(1))
 	})
 
 	it('a drain asked for by name while a turn runs is skipped, and the closing drain is not', async () => {
@@ -203,7 +221,7 @@ describe('curation runtime', () => {
 		await inbox.append(candidate('Always use pnpm'))
 		runtime.appended()
 		await vi.advanceTimersByTimeAsync(CURATION_IDLE_MS)
-		await vi.waitFor(() => expect(asked).toHaveLength(1))
+		await eventually(() => expect(asked).toHaveLength(1))
 		expect(runtime.draining).toBe(true)
 		// The turn starts while the model call is out: it returns at once (the
 		// first request has nothing to wait for) and the call stays in flight.
@@ -213,15 +231,15 @@ describe('curation runtime', () => {
 		await inbox.append(candidate('Prefer small commits'))
 		runtime.appended()
 		releases[0]?.(undefined)
-		await vi.waitFor(() => expect(runtime.draining).toBe(false))
+		await eventually(() => expect(runtime.draining).toBe(false))
 		await vi.advanceTimersByTimeAsync(CURATION_IDLE_MS * 4)
 		expect(asked).toHaveLength(1)
 		// The turn settles: only then does the second drain run.
 		runtime.turnSettled()
 		await vi.advanceTimersByTimeAsync(CURATION_IDLE_MS)
-		await vi.waitFor(() => expect(asked).toHaveLength(2))
+		await eventually(() => expect(asked).toHaveLength(2))
 		releases[1]?.(undefined)
-		await vi.waitFor(() => expect(runtime.draining).toBe(false))
+		await eventually(() => expect(runtime.draining).toBe(false))
 	})
 
 	it('drains after a turn that ended with no completion event once the lifecycle settles it', async () => {
@@ -260,7 +278,7 @@ describe('curation runtime', () => {
 		// The host's exit path settles it.
 		lifecycle.turnEnded()
 		await vi.advanceTimersByTimeAsync(CURATION_IDLE_MS)
-		await vi.waitFor(() => expect(asked).toEqual(['Always use pnpm']))
+		await eventually(() => expect(asked).toEqual(['Always use pnpm']))
 	})
 
 	it('looks again after the next pause when the person is typing, then drains', async () => {
@@ -288,7 +306,7 @@ describe('curation runtime', () => {
 		expect(asked).toEqual([])
 		busy = false
 		await vi.advanceTimersByTimeAsync(CURATION_IDLE_MS)
-		await vi.waitFor(() => expect(asked).toEqual(['Always use pnpm']))
+		await eventually(() => expect(asked).toEqual(['Always use pnpm']))
 	})
 
 	it('does not fire the idle drain while the person is busy', async () => {
@@ -321,7 +339,7 @@ describe('curation runtime', () => {
 		runtime.turnStarted()
 		runtime.turnSettled()
 		await vi.advanceTimersByTimeAsync(CURATION_IDLE_MS)
-		await vi.waitFor(async () => expect((await store.list({})).entries).toHaveLength(1))
+		await eventually(async () => expect((await store.list({})).entries).toHaveLength(1))
 		expect(await inbox.pending()).toEqual([])
 	})
 
@@ -329,8 +347,9 @@ describe('curation runtime', () => {
 		const { inbox, runtime, written } = setup({ side: false, turn: false })
 		await inbox.append(candidate('Always use pnpm'))
 		runtime.start()
-		await vi.waitFor(() => expect(written).toHaveLength(1))
-		expect(await inbox.pending()).toEqual([])
+		await eventually(() => expect(written).toHaveLength(1))
+		// The claims are written before the inbox is emptied: wait for the drain's end.
+		await eventually(async () => expect(await inbox.pending()).toEqual([]))
 	})
 
 	it('drains for the last time when the session closes, so a one-shot run leaves nothing', async () => {

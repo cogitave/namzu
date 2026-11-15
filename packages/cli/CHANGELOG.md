@@ -1,5 +1,19 @@
 # @namzu/cli
 
+## 53.3.2
+
+### Patch Changes
+
+- 4b0367f: Asking what a conversation cost in another currency (for example in kuruş) now gets the figure converted with a current exchange rate the model looks up, with the rate and its source named, or the dollar figure labelled as dollars when no rate can be found, instead of a refusal or a guessed conversion.
+- f71fe3c: `ProviderErrorKind` gains three members: `credits` (HTTP 402, no credit left), `moderation` (HTTP 403 whose body names moderation or a flagged input) and `no_endpoints` (HTTP 404 whose body says no host can serve the request). Before, a 402 and that 404 were reported as `bad_request` and a moderation 403 as `auth`. None is retried. If you switch exhaustively over `ProviderErrorKind`, add the three cases; a 403 without a moderation body is still `auth`, and any other 404 is still `bad_request`. In the terminal an account with no credit now reads "has no credit left" instead of "could not process this message".
+- cdde480: The `explore` and `plan` sub-agents' descriptions and prompts now say to return as soon as the question is answered (or the plan can be written), with paths and line numbers, and to name what was not read instead of reading on. When a step of an agent that cannot change anything hits the per-step reasoning cap, it is now told to report what it has instead of to "make the first change", and its next step is no longer forced. Agents that can change files are unchanged. This does not promise fewer requests: in three runs each of four explore agents on a broad mapping task the request count did not change measurably.
+- Updated dependencies [f71fe3c]
+- Updated dependencies [f71fe3c]
+- Updated dependencies [19169c4]
+- Updated dependencies [cdde480]
+  - @namzu/openrouter@3.2.2
+  - @namzu/sdk@65.1.0
+
 ## 53.3.1
 
 ### Patch Changes

@@ -83,6 +83,13 @@ describe('the frame tokens', () => {
 			'--frame-title-band': '28px',
 			'--frame-title-before': '22px',
 			'--frame-title-after': '4px',
+			// A conversation row in the Recents and Projects lists: 28 high, 1 apart; a day heading inside
+			// Recents: a band 22 high, 8 under the group above and 2 above its first row.
+			'--frame-thread-height': '28px',
+			'--frame-thread-space': '1px',
+			'--frame-day-band': '22px',
+			'--frame-day-before': '8px',
+			'--frame-day-after': '2px',
 			// The foot and the rail.
 			'--frame-foot-height': '45px',
 			'--frame-foot-button': '28px',
@@ -227,7 +234,7 @@ const READS: ReadonlyArray<readonly [string, string, string, string]> = [
 		'sidebar-navigation.css',
 		'.sidebar-project-list .conversation-row, .sidebar-recent-list .conversation-row',
 		'height',
-		'--frame-row-height',
+		'--frame-thread-height',
 	],
 	[
 		'sidebar-navigation.css',
@@ -247,8 +254,11 @@ const READS: ReadonlyArray<readonly [string, string, string, string]> = [
 		'sidebar-navigation.css',
 		'.sidebar-project-list, .sidebar-recent-list',
 		'gap',
-		'--frame-row-space',
+		'--frame-thread-space',
 	],
+	['sidebar-navigation.css', '.sidebar-day-heading', 'height', '--frame-day-band'],
+	['sidebar-navigation.css', '.sidebar-day-heading', 'margin-block', '--frame-day-before'],
+	['sidebar-navigation.css', '.sidebar-day-heading', 'margin-block', '--frame-day-after'],
 	['settings-page.css', '.settings-sidebar-navigation', 'gap', '--frame-row-space'],
 	['plugins-page.css', '.plugins-sidebar-installed ul', 'gap', '--frame-row-space'],
 	// The row's end control: 24 by 24, 4 from the end of the row.
