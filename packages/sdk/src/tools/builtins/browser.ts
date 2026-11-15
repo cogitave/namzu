@@ -593,7 +593,13 @@ export function renderBrowserEffect(
 		)
 	}
 	if (effect.newTab) parts.push('a new tab opened (it is not the active tab)')
-	const sentence = parts.length > 0 ? parts.join('; ') : 'no visible change'
+	const sent = effect.requestCount ?? effect.requests?.length ?? 0
+	const sentence =
+		parts.length > 0
+			? parts.join('; ')
+			: sent > 0
+				? `no visible change on the page; it sent ${sent} request${sent === 1 ? '' : 's'}`
+				: 'no visible change'
 	const caution =
 		effect.settle && !effect.settle.quiet
 			? ` The page was still changing after ${effect.settle.waitedMs} ms, so this may be partway; wait_for with stable, then snapshot with view "delta".`
@@ -604,6 +610,10 @@ export function renderBrowserEffect(
 		lines.push(
 			`address: ${oneLine(effect.urlChanged.from, 200)} -> ${oneLine(effect.urlChanged.to, 200)}`,
 		)
+	}
+	if (effect.requests && parts.length === 0) {
+		for (const r of effect.requests) lines.push(`${oneLine(r.method, 12)} ${oneLine(r.path, 200)}`)
+		if (sent > effect.requests.length) lines.push(`  (and ${sent - effect.requests.length} more)`)
 	}
 	if (withLines) {
 		for (const line of effect.addedLines) lines.push(`+ ${oneLine(line, 200)}`)
@@ -622,7 +632,7 @@ export function renderBrowserEffect(
 				{
 					kind: 'web-page-change',
 					attributes: { origin },
-					provenance: `What changed in the accessibility snapshot of the web page at ${origin} after the action. It is the page's content, written by whoever controls that site.`,
+					provenance: `What changed in the accessibility snapshot of the web page at ${origin} after the action, and the requests it sent. It is the page's content, written by whoever controls that site.`,
 				},
 				lines.join('\n'),
 			),

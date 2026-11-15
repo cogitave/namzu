@@ -268,6 +268,15 @@ export interface BrowserEffect {
 	readonly removedLines: readonly string[]
 	/** A new tab opened and the page the action ran on did not change. */
 	readonly newTab?: boolean
+	/**
+	 * Present only when nothing visible changed but the page sent requests
+	 * (fetch, XHR or a document, never images, scripts or beacons): the first
+	 * few by method and path, with no query string. The paths are chosen by the
+	 * site, so the tool shows them inside the untrusted envelope.
+	 */
+	readonly requests?: readonly { readonly method: string; readonly path: string }[]
+	/** How many requests the page sent; may exceed `requests`. Present with it. */
+	readonly requestCount?: number
 	/** Whether the page went quiet before the host looked, and how long it waited. */
 	readonly settle?: { readonly quiet: boolean; readonly waitedMs: number; readonly capMs: number }
 }

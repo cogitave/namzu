@@ -94,6 +94,7 @@ import {
 } from './reach.js'
 import { type SettleOutcome, type SettleProbe, waitUntilQuiet } from './settle.js'
 import {
+	EFFECT_REQUESTS_SHOWN,
 	PLAYWRIGHT_CORE_VERSION,
 	SnapshotPager,
 	buildEffect,
@@ -158,6 +159,8 @@ interface Tab {
 	readonly responsesByLoader: Map<string, DocumentResponse>
 	/** Requests that can still change the page: documents, scripts, styles, fetch and XHR. */
 	readonly inflight: Set<Request>
+	/** Requests the page started since an action began; undefined outside an action. */
+	sent?: { count: number; list: { method: string; url: string }[] }
 	/** When a request of that kind last started or ended. */
 	lastNetworkAt: number
 	/** The whole-page tree the model was last shown for this tab, for `delta` and effects. */
@@ -207,6 +210,8 @@ const PRE_ACT_CAP_MS = 500
 const STABLE_DEFAULT_WAIT_MS = 5_000
 /** Request kinds that can change what the page shows. */
 const PAGE_REQUEST_KINDS = new Set(['document', 'script', 'stylesheet', 'fetch', 'xhr'])
+/** Request kinds an effect counts: a script's call or a navigation, never a beacon or a resource. */
+const SENT_REQUEST_KINDS = new Set(['document', 'fetch', 'xhr'])
 /** Lines of a `delta` snapshot that are listed in full. */
 const DELTA_LINES_SHOWN = 80
 /** Lines of an effect the model is shown. */
@@ -621,6 +626,12 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		})
 		const kind = (request: Request): boolean => PAGE_REQUEST_KINDS.has(request.resourceType())
 		page.on('request', (request) => {
+			if (tab.sent && SENT_REQUEST_KINDS.has(request.resourceType())) {
+				tab.sent.count += 1
+				if (tab.sent.list.length < EFFECT_REQUESTS_SHOWN) {
+					tab.sent.list.push({ method: request.method(), url: request.url() })
+				}
+			}
 			if (!kind(request)) return
 			tab.inflight.add(request)
 			tab.lastNetworkAt = Date.now()
@@ -1605,6 +1616,7 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		tabsBefore: number,
 		tab: Tab,
 		settled: SettleOutcome,
+		sent?: Tab['sent'],
 	): Promise<BrowserEffect | undefined> {
 		if (before === undefined || this.pendingDialog?.tab === tab || tab.page.isClosed())
 			return undefined
@@ -1623,6 +1635,7 @@ export class PlaywrightBrowserHost implements BrowserHost {
 				tabsBefore,
 				tabsNow: this.tabs.size,
 				settle: { quiet: settled.quiet, waitedMs: settled.waitedMs, capMs: settled.capMs },
+				...(sent ? { sent: sent.list, sentCount: sent.count } : {}),
 			},
 			EFFECT_LINES_SHOWN,
 		)
@@ -1667,19 +1680,23 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		const tabsBefore = this.tabs.size
 		const treeBefore = await this.effectBaseline(tab)
 		let settled: SettleOutcome
+		const sent: NonNullable<Tab['sent']> = { count: 0, list: [] }
+		tab.sent = sent
 		try {
 			await this.perform(tab, action)
 			settled = await this.settle(tab)
+			tab.sent = undefined
 			this.checkLanding(tab)
 			while (this.blanking.size > 0) await Promise.all([...this.blanking])
 		} catch (error) {
+			tab.sent = undefined
 			await this.finishDocumentResponseChange(tab, checkpoint).catch(() => undefined)
 			throw error
 		}
 		await this.finishDocumentResponseChange(tab, checkpoint)
 		await this.checkHuman(tab)
 		const after = this.tabs.get(tab.id) ?? tab
-		const effect = await this.effectSince(treeBefore, urlBefore, tabsBefore, after, settled)
+		const effect = await this.effectSince(treeBefore, urlBefore, tabsBefore, after, settled, sent)
 		if (action.snapshot) {
 			return this.result({
 				snapshot: await this.takeSnapshot(after),

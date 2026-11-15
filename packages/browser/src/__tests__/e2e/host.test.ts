@@ -1087,6 +1087,46 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 			expect(none.effect?.urlChanged).toBeUndefined()
 		})
 
+		it('names the request a click sent when nothing on the page changed, and never its query string', async () => {
+			const text = await open()
+			const sent = await host.act({
+				action: 'click',
+				ref: refOf(text, /button "Post only"/),
+				origin: origin(),
+			})
+			expect(sent.effect).toMatchObject({
+				added: 0,
+				removed: 0,
+				requests: [{ method: 'POST', path: '/api/record' }],
+				requestCount: 1,
+			})
+			expect(JSON.stringify(sent.effect)).not.toMatch(/hunter2|frag/)
+			// The server did see the query; the model must not.
+			expect(server.requests.some((r) => r.includes('/api/record?token=hunter2'))).toBe(true)
+		})
+
+		it('does not count a beacon or an image as a request the page sent', async () => {
+			const text = await open()
+			const result = await host.act({
+				action: 'click',
+				ref: refOf(text, /button "Beacon only"/),
+				origin: origin(),
+			})
+			expect(result.effect).toMatchObject({ added: 0, removed: 0 })
+			expect(result.effect?.requests).toBeUndefined()
+			expect(result.effect?.requestCount).toBeUndefined()
+		})
+
+		it('says nothing of requests after a click that sent none', async () => {
+			const text = await open()
+			const none = await host.act({
+				action: 'click',
+				ref: refOf(text, /button "Do nothing"/),
+				origin: origin(),
+			})
+			expect(none.effect?.requests).toBeUndefined()
+		})
+
 		it('reports an address change, and waits for content that arrives after the click', async () => {
 			let text = await open()
 			const moved = await host.act({

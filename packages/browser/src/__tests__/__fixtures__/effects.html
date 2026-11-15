@@ -9,6 +9,8 @@
 <label>Note <input id="note" style="background:#f00;width:200px;height:30px;border:0"></label>
 <button id="reveal" onclick="document.getElementById('out').textContent='Revealed text'">Reveal</button>
 <button id="nothing">Do nothing</button>
+<button id="post-only" onclick="fetch('/api/record?token=hunter2#frag',{method:'POST'})">Post only</button>
+<button id="beacon-only" onclick="navigator.sendBeacon('/api/beacon?x=1');new Image().src='/pixel.png?y=2'">Beacon only</button>
 <button id="later" onclick="setTimeout(function(){document.getElementById('out').textContent='Arrived late'},700)">Load later</button>
 <button id="forever" onclick="setInterval(function(){var d=document.getElementById('tick');d.textContent=String(Date.now())},40)">Never settle</button>
 <button id="go" onclick="history.pushState(null,'','/effects-two');document.getElementById('out').textContent='Moved on'">Move on</button>
