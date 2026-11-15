@@ -192,7 +192,7 @@ place, and it prices nothing itself. It answers in plain lines:
   and when none has, `unknown (N tokens at no known rate)` with a plain
   instruction not to call it free or 0;
 - one line saying the money is in US dollars: for another currency the model
-  looks up a current exchange rate with the web tools, converts, and says the
+  looks up a current exchange rate with the web tools, converts (dollars times the rate, and times 100 more for the hundredth unit such as kuruş), and says the
   rate and its source, or, with no rate to be had, gives the dollar figure
   named as dollars; it never guesses a rate and never refuses (the CLI knows no
   rate offline);
