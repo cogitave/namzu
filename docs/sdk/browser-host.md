@@ -173,6 +173,16 @@ A bare 401 or 407 does not prove that a password prompt exists. If the page has 
 
 Refs are Playwright's. They stay the same across snapshots for an element that stays, and after a navigation they may carry a frame prefix (`f2e17`). An action resolves a ref with Playwright's `aria-ref=` selector, and only a ref the latest snapshot showed is accepted; anything else is `browser_stale_ref`.
 
+A control's line carries what it holds: a text field its text (a textbox with nothing in it ends `[empty]`), a slider its position, and a native select its chosen option(s) as the value with the options listed beneath it, the chosen ones marked `[selected]`:
+
+```text
+- combobox "Plan" [ref=e7]: Gold
+  - option "Free"
+  - option "Gold" [selected]
+```
+
+The browser reports a select's options with empty boxes, which the filter below would read as invisible, so an option under a combobox or listbox is never dropped for its size. A select with more than 40 options lists the chosen ones and the first others up to 40, and says how many were left.
+
 Left out of the text:
 
 - `aria-hidden` subtrees (`display: none` and `visibility: hidden` are already outside the accessibility tree);
@@ -180,11 +190,17 @@ Left out of the text:
 
 The value of a password or one-time-code field the host can identify is shown as `[value hidden: password or one-time code]`: the accessibility tree carries an input's value as its text, and an autofilled profile would otherwise hand the model the password. Closed shadow roots and page-drawn text are outside this DOM-based redaction.
 
-Screenshots mask `input` and `textarea` elements that Playwright can locate in the page and child frames, including screenshots of one element. This includes ordinary DOM and open shadow roots, but not controls inside a closed shadow root or credential text drawn elsewhere. A screenshot is therefore not a complete secret-redaction boundary; the model may still see page pixels outside those locatable controls.
+Screenshots mask the `input` and `textarea` elements that Playwright can locate in the page and child frames, including screenshots of one element, and that the credential classifier names a password or one-time-code field (a field that cannot be asked is masked too, up to 200 inputs per screenshot); other inputs stay readable. This includes ordinary DOM and open shadow roots, but not controls inside a closed shadow root or credential text drawn elsewhere. A screenshot is therefore not a complete secret-redaction boundary; the model may still see page pixels outside those locatable controls.
 
 The page-reading scripts run in the page's own JavaScript world, so a hostile page can defeat the invisibility filter. It is hygiene; the boundary is the gate, the origin check, the credential refusal and the untrusted envelope the SDK wraps around every snapshot.
 
 A snapshot longer than a page (`snapshotMaxChars`, at most 20 000) is cut at a line boundary and returns `nextCursor`; `snapshot` with that cursor returns the next page. A cursor from an older snapshot is refused. At most 400 000 characters are kept, with a note at the end. `snapshot` with `ref` returns that element's subtree, cut from a whole-page snapshot so the other refs stay valid.
+
+## Waiting for the page, and what an action did
+
+Nothing waits a fixed time. After an action, a navigation and a `wait_for` with `stable`, the host waits until the page is quiet: no change to the document (a mutation clock started on every new document) and no document, script, stylesheet, `fetch` or XHR request in flight for 250 ms, counted from the start of the wait so an event the browser has not announced yet (a popup, a download, a dialog) has that long to arrive. The wait is capped, at 2 s after an action and 5 s after a navigation (`wait_for` with `stable` takes `timeMs`, default 5 s); a page that animates or polls forever hits the cap, and the result says the page was still changing. The wait is `waitUntilQuiet` in `src/settle.ts`, written over an injected clock and probe so its tests move a fake clock and never wait. A `navigate` also waits for the `load` event (up to the cap) first, and says so when the page has nothing to read yet.
+
+Around each `browser_act` the host reads the tree before and after (the same capture a snapshot uses, so credential values stay hidden) and `diffLines` compares them as a multiset of trimmed lines. The tree before is also the ref table the action resolves in, which is why a ref stays valid across it: refs of an element that stays do not change. When a dialog holds the page, or a read fails, the effect is left out and the action's own result stands. A `delta` snapshot compares against the whole-page tree last shown to the model for that tab.
 
 ## Tabs, dialogs, downloads
 
@@ -210,4 +226,4 @@ An action that fails after it started (a click that timed out after the pointer 
 
 ## Tests
 
-`pnpm --filter @namzu/browser test` runs the unit tests: the classifier over the fixture pages' signals, the policy, detection over injected environments (WSL networking mode, interop socket, mount root, Edge), profiles and leases, snapshot rendering and paging, the pin, the bridge's command-line encoding and line framing (an 8 MB line in odd-sized chunks), the bridge's process protocol against a stand-in, and the relay's refusals. `NAMZU_BROWSER_E2E=1` adds the end-to-end suite, headless, against a local fixture server with two origins (`127.0.0.1` allowed, `localhost` not); it needs the Chromium build in the Playwright cache and downloads nothing. `NAMZU_BROWSER_E2E_HEADED=1` with a display adds a headed run. `NAMZU_BROWSER_WSL_E2E=1` (`pnpm --filter @namzu/browser test:e2e:wsl`) runs the Windows engine on a real WSL machine: the bridge relaying 5 MB and nine-frame messages through PowerShell, headless Chrome through the fixture server (reached through WSL's localhost forwarding), downloads refused, two holders sharing one browser, the bridge killed with and without `keepOpen`, and Edge when installed; `NAMZU_BROWSER_WSL_E2E_HEADED=1` adds a visible window. Its profiles are `namzu-test-e2e-*` and are deleted afterwards.
+`pnpm --filter @namzu/browser test` runs the unit tests: the classifier over the fixture pages' signals, the quiet-page wait over a fake clock, the policy, detection over injected environments (WSL networking mode, interop socket, mount root, Edge), profiles and leases, snapshot rendering and paging, the pin, the bridge's command-line encoding and line framing (an 8 MB line in odd-sized chunks), the bridge's process protocol against a stand-in, and the relay's refusals. `NAMZU_BROWSER_E2E=1` adds the end-to-end suite, headless, against a local fixture server with two origins (`127.0.0.1` allowed, `localhost` not); it needs the Chromium build in the Playwright cache and downloads nothing. `NAMZU_BROWSER_E2E_HEADED=1` with a display adds a headed run. `NAMZU_BROWSER_WSL_E2E=1` (`pnpm --filter @namzu/browser test:e2e:wsl`) runs the Windows engine on a real WSL machine: the bridge relaying 5 MB and nine-frame messages through PowerShell, headless Chrome through the fixture server (reached through WSL's localhost forwarding), downloads refused, two holders sharing one browser, the bridge killed with and without `keepOpen`, and Edge when installed; `NAMZU_BROWSER_WSL_E2E_HEADED=1` adds a visible window. Its profiles are `namzu-test-e2e-*` and are deleted afterwards.

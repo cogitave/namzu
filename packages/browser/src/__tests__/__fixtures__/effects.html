@@ -1,0 +1,19 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Effects</title>
+<style>.menu{position:relative;display:inline-block}.menu .dd{display:none;position:absolute;background:#eee;padding:6px}.menu:hover .dd{display:block}</style>
+</head>
+<body>
+<h1>Effects</h1>
+<label>Plan <select id="plan"><option value="">-- choose --</option><option>Free</option><option>Gold</option></select></label>
+<label>Note <input id="note" style="background:#f00;width:200px;height:30px;border:0"></label>
+<button id="reveal" onclick="document.getElementById('out').textContent='Revealed text'">Reveal</button>
+<button id="nothing">Do nothing</button>
+<button id="later" onclick="setTimeout(function(){document.getElementById('out').textContent='Arrived late'},700)">Load later</button>
+<button id="forever" onclick="setInterval(function(){var d=document.getElementById('tick');d.textContent=String(Date.now())},40)">Never settle</button>
+<button id="go" onclick="history.pushState(null,'','/effects-two');document.getElementById('out').textContent='Moved on'">Move on</button>
+<p id="out"></p><p id="tick"></p>
+<div class="menu"><b>Tools</b><div class="dd"><a href="#" id="archive">Archive</a></div></div>
+<article><h2>Story</h2><p>First paragraph of the story.</p><p>Second paragraph of the story.</p></article>
+</body>
+</html>

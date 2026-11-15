@@ -1041,6 +1041,119 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 		}
 	})
 
+	describe('what the model sees of the page and of its own actions', () => {
+		const open = async () => {
+			await host.observe({ action: 'navigate', url: `${origin()}/effects.html` })
+			return (await snap()).text
+		}
+
+		it("shows a native select's options and chosen value, and the new value after selecting", async () => {
+			const text = await open()
+			expect(text).toMatch(/combobox "Plan" \[ref=\w+\]: -- choose --/)
+			expect(text).toContain('option "Gold"')
+			const ref = refOf(text, /combobox "Plan"/)
+			const result = await host.act({ action: 'select', ref, values: ['Gold'], origin: origin() })
+			expect(result.effect?.addedLines.join('\n')).toMatch(/combobox "Plan".*: Gold/)
+			expect(result.effect?.removedLines.join('\n')).toMatch(/combobox "Plan".*: -- choose --/)
+			const value = await host.observe({ action: 'value', ref })
+			expect(value.value).toMatchObject({ role: 'combobox', value: 'Gold' })
+			expect(value.value?.options).toEqual(['-- choose --', 'Free', 'Gold'])
+		})
+
+		it('says what a click added, and says nothing changed when nothing did', async () => {
+			const text = await open()
+			const reveal = await host.act({
+				action: 'click',
+				ref: refOf(text, /button "Reveal"/),
+				origin: origin(),
+			})
+			expect(reveal.effect?.added).toBeGreaterThan(0)
+			expect(reveal.effect?.addedLines.join('\n')).toContain('Revealed text')
+			const none = await host.act({
+				action: 'click',
+				ref: refOf(text, /button "Do nothing"/),
+				origin: origin(),
+			})
+			expect(none.effect).toMatchObject({ added: 0, removed: 0 })
+			expect(none.effect?.urlChanged).toBeUndefined()
+		})
+
+		it('reports an address change, and waits for content that arrives after the click', async () => {
+			let text = await open()
+			const moved = await host.act({
+				action: 'click',
+				ref: refOf(text, /button "Move on"/),
+				origin: origin(),
+			})
+			expect(moved.effect?.urlChanged?.to).toBe(`${origin()}/effects-two`)
+			text = await open()
+			const later = await host.act({
+				action: 'click',
+				ref: refOf(text, /button "Load later"/),
+				origin: origin(),
+			})
+			// 700 ms after the click: the quiet-page wait ran past it only if it saw the page change.
+			expect(later.effect?.addedLines.join('\n') ?? '').toContain('Arrived late')
+		})
+
+		it('gives up on a page that never settles at the cap and reports it', async () => {
+			const text = await open()
+			const result = await host.act({
+				action: 'click',
+				ref: refOf(text, /button "Never settle"/),
+				origin: origin(),
+			})
+			expect(result.effect?.settle).toMatchObject({ quiet: false, capMs: 2000 })
+			const waited = await host.observe({ action: 'wait_for', stable: true, timeMs: 600 })
+			expect(waited.message).toContain('still changing')
+		})
+
+		it('gives the delta, the interactive list, the reading view and a find', async () => {
+			const text = await open()
+			await host.act({ action: 'click', ref: refOf(text, /button "Reveal"/), origin: origin() })
+			const delta = await host.observe({ action: 'snapshot', view: 'delta' })
+			expect(delta.snapshot?.text).toMatch(/^\+ /m)
+			expect(delta.snapshot?.text).not.toContain('Story')
+			const again = await host.observe({ action: 'snapshot', view: 'delta' })
+			expect(again.snapshot?.text).toBe('(no change since the last snapshot)')
+			const interactive = await host.observe({ action: 'snapshot', view: 'interactive' })
+			expect(interactive.snapshot?.text).toMatch(/^- button "Reveal" \[ref=\w+\]$/m)
+			expect(interactive.snapshot?.text).not.toContain('Story')
+			const reading = await host.observe({ action: 'snapshot', view: 'reading' })
+			expect(reading.snapshot?.text).toContain('# Story')
+			expect(reading.snapshot?.text).toContain('Second paragraph of the story.')
+			expect(reading.snapshot?.text).not.toContain('[ref=')
+			const found = await host.observe({ action: 'snapshot', query: 'reveal', role: 'button' })
+			expect(found.snapshot?.text).toMatch(/^- button "Reveal" \[ref=\w+\]/m)
+			expect(found.message).toContain('1 element matches')
+		})
+
+		it('keeps a ref valid across the snapshots the host takes around an action', async () => {
+			const text = await open()
+			const ref = refOf(text, /button "Reveal"/)
+			await host.act({ action: 'click', ref: refOf(text, /button "Do nothing"/), origin: origin() })
+			const second = await host.act({ action: 'click', ref, origin: origin() })
+			expect(second.effect?.addedLines.join('\n')).toContain('Revealed text')
+		})
+
+		it('leaves an ordinary input readable in a screenshot (only credential fields are masked)', async () => {
+			const text = await open()
+			const shot = await host.observe({ action: 'screenshot', ref: refOf(text, /textbox "Note"/) })
+			const image = shot.screenshot
+			if (!image) throw new Error('no screenshot')
+			const decoder = await chromium.launch({ headless: true })
+			try {
+				const page = await decoder.newPage()
+				const [pixel] = await pngPixels(page, shot, [
+					[Math.floor(image.width / 2), Math.floor(image.height / 2)],
+				])
+				expect(pixel).toEqual([255, 0, 0, 255])
+			} finally {
+				await decoder.close()
+			}
+		})
+	})
+
 	it('refuses a second browser on a profile in use', async () => {
 		const second = new PlaywrightBrowserHost({
 			home,

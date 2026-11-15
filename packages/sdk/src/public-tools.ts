@@ -204,6 +204,7 @@ export {
 } from './tools/builtins/browser-url.js'
 export {
 	BROWSER_FILL_FORM_MAX_FIELDS,
+	BROWSER_FIND_MAX_MATCHES,
 	BROWSER_SNAPSHOT_MAX_CHARS,
 	BROWSER_WAIT_MAX_MS,
 } from './types/browser/index.js'

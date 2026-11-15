@@ -3,6 +3,7 @@ import type {
 	BrowserActAction,
 	BrowserCallOptions,
 	BrowserCapabilities,
+	BrowserEffect,
 	BrowserHost,
 	BrowserObserveAction,
 	BrowserPageInfo,
@@ -10,10 +11,25 @@ import type {
 	BrowserResult,
 	BrowserSessionInfo,
 	BrowserSnapshot,
+	BrowserSnapshotView,
 	BrowserTabInfo,
+	BrowserValue,
 } from '@namzu/sdk'
-import { canonicalizeBrowserOrigin, canonicalizeBrowserUrl, resolveNamzuHome } from '@namzu/sdk'
-import type { BrowserContext, CDPSession, Dialog, Locator, Page, Route } from 'playwright-core'
+import {
+	BROWSER_FIND_MAX_MATCHES,
+	canonicalizeBrowserOrigin,
+	canonicalizeBrowserUrl,
+	resolveNamzuHome,
+} from '@namzu/sdk'
+import type {
+	BrowserContext,
+	CDPSession,
+	Dialog,
+	Locator,
+	Page,
+	Request,
+	Route,
+} from 'playwright-core'
 import {
 	type BrowserHumanClassifierOptions,
 	classifyHumanRequired,
@@ -38,7 +54,15 @@ import {
 	BrowserUnavailableError,
 	ProfileBusyError,
 } from './errors.js'
-import { type ElementFieldFacts, countCredentialFields, fieldFacts } from './page-scripts.js'
+import {
+	type ElementFieldFacts,
+	countCredentialFields,
+	fieldFacts,
+	hasVisibleContent,
+	installMutationClock,
+	msSinceLastChange,
+	valueFacts,
+} from './page-scripts.js'
 import { BrowserSitePolicy, type BrowserSiteRules, DEFAULT_BROWSER_SITE_RULES } from './policy.js'
 import {
 	type BrowserLease,
@@ -47,12 +71,18 @@ import {
 	BrowserProfileStore,
 	DEFAULT_BROWSER_PROFILE,
 } from './profiles.js'
+import { type SettleOutcome, type SettleProbe, waitUntilQuiet } from './settle.js'
 import {
 	PLAYWRIGHT_CORE_VERSION,
 	SnapshotPager,
 	captureAriaTree,
+	diffLines,
+	findInTree,
 	locateRef,
 	renderAriaTree,
+	renderInteractive,
+	renderReading,
+	subtreeOf,
 } from './snapshot.js'
 import { WindowsBridgeError } from './windows-bridge.js'
 import { type WindowsBrowserConnection, connectWindowsBrowser } from './windows-engine.js'
@@ -102,6 +132,12 @@ interface Tab {
 	mainDocumentResponses: number
 	cdp?: CDPSession
 	readonly responsesByLoader: Map<string, DocumentResponse>
+	/** Requests that can still change the page: documents, scripts, styles, fetch and XHR. */
+	readonly inflight: Set<Request>
+	/** When a request of that kind last started or ended. */
+	lastNetworkAt: number
+	/** The whole-page tree the model was last shown for this tab, for `delta` and effects. */
+	lastSeen?: string
 	/** HTTP status of the main document's last response. */
 	status?: number
 	wwwAuthenticate?: string
@@ -128,12 +164,33 @@ const DEFAULT_ACTION_TIMEOUT_MS = 10_000
 /** How long a history move waits for the document after it committed. */
 const HISTORY_LOAD_WAIT_MS = 5_000
 const SNAPSHOT_PAGE_MAX = 20_000
-/** How long the host lets events (popups, downloads, dialogs) arrive after an action. */
-const EVENT_SETTLE_MS = 150
+/**
+ * A page is quiet after this long with no change to the document and no
+ * request in flight. It also bounds how long an event the browser has not
+ * announced yet (a popup, a download, a dialog) has to arrive.
+ */
+const QUIET_MS = 250
+/** The most an action waits for quiet. A page that never settles is reported, not waited on. */
+const ACT_SETTLE_CAP_MS = 2_000
+/** The same for a navigation, which loads more. */
+const NAVIGATE_SETTLE_CAP_MS = 5_000
+/** The wait before an action, for events left over from the last one. */
+const PRE_ACT_QUIET_MS = 100
+const PRE_ACT_CAP_MS = 500
+/** `wait_for` with `stable` and no time: how long it waits. */
+const STABLE_DEFAULT_WAIT_MS = 5_000
+/** Request kinds that can change what the page shows. */
+const PAGE_REQUEST_KINDS = new Set(['document', 'script', 'stylesheet', 'fetch', 'xhr'])
+/** Lines of a `delta` snapshot that are listed in full. */
+const DELTA_LINES_SHOWN = 80
+/** Lines of an effect the model is shown. */
+const EFFECT_LINES_SHOWN = 10
 /** Smallest frame that can hold a CAPTCHA a person is meant to solve. */
 const CAPTCHA_FRAME_MIN_PX = 30
 const REMEMBERED_DOCUMENTS_MAX = 64
 const SCREENSHOT_INPUT_MASK_COLOR = '#666666'
+/** Most inputs one screenshot checks for a credential. */
+const MASK_CANDIDATES_MAX = 200
 
 function firstLine(error: unknown): string {
 	const text = error instanceof Error ? error.message : String(error)
@@ -287,6 +344,8 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		context.setDefaultNavigationTimeout(
 			this.options.navigationTimeoutMs ?? DEFAULT_NAVIGATION_TIMEOUT_MS,
 		)
+		// Every new document keeps a clock of its last change, for the quiet-page wait.
+		await context.addInitScript(installMutationClock).catch(() => undefined)
 		context.on('page', (page) => this.adopt(page))
 		context.on('close', () => this.forget(context))
 		context.browser()?.on('disconnected', () => this.forget(context))
@@ -297,7 +356,10 @@ export class PlaywrightBrowserHost implements BrowserHost {
 			() => true,
 			(route) => this.screen(route),
 		)
-		for (const page of context.pages()) this.adopt(page, false)
+		for (const page of context.pages()) {
+			this.adopt(page, false)
+			void page.evaluate(installMutationClock).catch(() => undefined)
+		}
 		return context
 	}
 
@@ -492,6 +554,8 @@ export class PlaywrightBrowserHost implements BrowserHost {
 			mainFrameCommits: 0,
 			mainDocumentResponses: 0,
 			responsesByLoader: new Map(),
+			inflight: new Set(),
+			lastNetworkAt: Date.now(),
 		}
 		this.tabs.set(tab.id, tab)
 		this.tabOf.set(page, tab)
@@ -520,6 +584,17 @@ export class PlaywrightBrowserHost implements BrowserHost {
 				// A response without a frame (a service worker's) says nothing about the page.
 			}
 		})
+		const kind = (request: Request): boolean => PAGE_REQUEST_KINDS.has(request.resourceType())
+		page.on('request', (request) => {
+			if (!kind(request)) return
+			tab.inflight.add(request)
+			tab.lastNetworkAt = Date.now()
+		})
+		const ended = (request: Request): void => {
+			if (tab.inflight.delete(request)) tab.lastNetworkAt = Date.now()
+		}
+		page.on('requestfinished', ended)
+		page.on('requestfailed', ended)
 		page.on('dialog', (dialog) => this.onDialog(tab, dialog))
 		page.on('download', (download) => {
 			const name = download.suggestedFilename()
@@ -597,9 +672,42 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		this.blanking.add(blank)
 	}
 
-	private async settle(): Promise<void> {
-		await new Promise((resolve) => setTimeout(resolve, EVENT_SETTLE_MS))
+	/**
+	 * Wait until the tab's page is quiet (nothing changed in it and no request
+	 * in flight for `quietMs`), or `capMs` has passed. Events the browser
+	 * announces late (a popup, a download, a dialog) arrive inside the window.
+	 * Then let any tab that was cleared to `about:blank` finish clearing.
+	 */
+	private async settle(
+		tab: Tab,
+		options: { readonly quietMs: number; readonly capMs: number } = {
+			quietMs: QUIET_MS,
+			capMs: ACT_SETTLE_CAP_MS,
+		},
+	): Promise<SettleOutcome> {
+		const outcome = await waitUntilQuiet(
+			{ now: () => Date.now(), sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)) },
+			this.quietProbe(tab),
+			options,
+		)
 		while (this.blanking.size > 0) await Promise.all([...this.blanking])
+		return outcome
+	}
+
+	private quietProbe(tab: Tab): SettleProbe {
+		return {
+			stillForMs: async () => {
+				// A dialog pauses the page; nothing more will happen until it is answered.
+				if (this.pendingDialog?.tab === tab || tab.page.isClosed()) return Number.MAX_SAFE_INTEGER
+				if (tab.inflight.size > 0) return 0
+				const sinceNetwork = Date.now() - tab.lastNetworkAt
+				const sincePage = await Promise.race([
+					tab.page.evaluate(msSinceLastChange).catch(() => 0),
+					new Promise<number>((resolve) => setTimeout(() => resolve(0), 1000)),
+				])
+				return Math.min(sinceNetwork, sincePage)
+			},
+		}
 	}
 
 	private async activeTab(): Promise<Tab> {
@@ -862,7 +970,7 @@ export class PlaywrightBrowserHost implements BrowserHost {
 			case 'reload':
 				return this.history(action.action)
 			case 'snapshot':
-				return this.snapshot(action.ref, action.cursor)
+				return this.snapshot(action)
 			case 'screenshot':
 				return this.screenshot(action.ref, action.fullPage)
 			case 'scroll':
@@ -871,6 +979,8 @@ export class PlaywrightBrowserHost implements BrowserHost {
 				return this.waitFor(action)
 			case 'tabs':
 				return this.tabsCall(action)
+			case 'value':
+				return this.readValue(action.ref)
 		}
 	}
 
@@ -890,7 +1000,7 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		} catch (error) {
 			await this.finishDocumentResponseChange(tab, checkpoint).catch(() => undefined)
 			if (/ERR_UNEXPECTED_PROXY_AUTH/.test(firstLine(error))) {
-				await this.settle()
+				await this.settle(tab)
 				throw new Error(
 					'The browser refused an HTTP 407 proxy response before the page loaded. Proxy access is unavailable or its response is invalid; no usable password prompt was identified. Tell the user the proxy refused this request.',
 				)
@@ -904,10 +1014,28 @@ export class PlaywrightBrowserHost implements BrowserHost {
 	}
 
 	private async afterNavigation(tab: Tab): Promise<BrowserResult> {
-		await this.settle()
+		// The document first (a page that has not finished loading has not
+		// finished building itself), then the same quiet the actions wait for.
+		await tab.page
+			.waitForLoadState('load', { timeout: NAVIGATE_SETTLE_CAP_MS })
+			.catch(() => undefined)
+		const settled = await this.settle(tab, { quietMs: QUIET_MS, capMs: NAVIGATE_SETTLE_CAP_MS })
 		this.checkLanding(tab)
-		await this.settle()
+		while (this.blanking.size > 0) await Promise.all([...this.blanking])
 		await this.checkHuman(tab)
+		if (!settled.quiet) {
+			this.notes.push(
+				`The page was still changing after ${settled.waitedMs} ms, so what it shows may be unfinished. Call browser with wait_for and stable, or take a snapshot.`,
+			)
+		}
+		const populated =
+			originOf(tab.page.url()) === 'null' ||
+			(await tab.page.evaluate(hasVisibleContent).catch(() => true))
+		if (!populated) {
+			this.notes.push(
+				`The page has nothing to read yet (waited ${settled.waitedMs} ms). Call browser with wait_for and stable, or reload.`,
+			)
+		}
 		return this.result({ page: await this.pageInfo(tab) })
 	}
 
@@ -956,7 +1084,27 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		this.notes.push('The open dialog was dismissed.')
 	}
 
-	private async takeSnapshot(tab: Tab, ref?: string): Promise<BrowserSnapshot> {
+	/** Read the page's tree and remember its refs. */
+	private async readTree(tab: Tab) {
+		const { nodes, hidden, redact } = await captureAriaTree(
+			tab.page,
+			this.options.actionTimeoutMs ?? DEFAULT_ACTION_TIMEOUT_MS,
+		)
+		const whole = renderAriaTree(nodes, hidden, undefined, redact)
+		if (!whole) throw new Error('The page could not be read.')
+		this.refs = whole.refs
+		return { nodes, hidden, redact, whole }
+	}
+
+	private async takeSnapshot(
+		tab: Tab,
+		request: {
+			readonly ref?: string
+			readonly view?: BrowserSnapshotView
+			readonly query?: string
+			readonly role?: string
+		} = {},
+	): Promise<BrowserSnapshot> {
 		const pending = this.pendingDialog
 		if (pending && pending.tab === tab) {
 			const dialog = pending.dialog
@@ -968,18 +1116,72 @@ export class PlaywrightBrowserHost implements BrowserHost {
 			lines.push('  - (the page is paused until the dialog is answered)')
 			return { page: await this.pageInfo(tab), text: lines.join('\n') }
 		}
-		const { nodes, hidden, redact } = await captureAriaTree(
-			tab.page,
-			this.options.actionTimeoutMs ?? DEFAULT_ACTION_TIMEOUT_MS,
-		)
-		const whole = renderAriaTree(nodes, hidden, undefined, redact)
-		if (!whole) throw new Error('The page could not be read.')
-		this.refs = whole.refs
-		let text = whole.text
-		if (ref !== undefined) {
-			const region = renderAriaTree(nodes, hidden, ref, redact)
-			if (!region || !whole.refs.has(ref)) throw new BrowserStaleRefError(ref)
-			text = region.text
+		const { ref, view = 'full', query, role } = request
+		const { nodes, hidden, redact, whole } = await this.readTree(tab)
+		if (ref !== undefined && !whole.refs.has(ref)) throw new BrowserStaleRefError(ref)
+		// A region is cut from the whole-page tree: a snapshot of one element would replace the ref table.
+		const scope = ref === undefined ? nodes : (subtreeOf(nodes, ref) ?? [])
+		let text: string
+		if (query !== undefined || role !== undefined) {
+			const found = findInTree(
+				scope,
+				hidden,
+				redact,
+				{ ...(query !== undefined ? { query } : {}), ...(role !== undefined ? { role } : {}) },
+				BROWSER_FIND_MAX_MATCHES,
+			)
+			text = found.lines.join('\n')
+			const what = [
+				query !== undefined ? `text ${quoteShort(query, 60)}` : '',
+				role !== undefined ? `role ${quoteShort(role, 30)}` : '',
+			]
+				.filter(Boolean)
+				.join(' and ')
+			this.notes.unshift(
+				found.total === 0
+					? `Nothing on the page matches ${what}.`
+					: found.total > found.lines.length
+						? `${found.total} elements match ${what}; the first ${found.lines.length} are listed. Narrow the search.`
+						: `${found.total} element${found.total === 1 ? '' : 's'} match${found.total === 1 ? 'es' : ''} ${what}.`,
+			)
+		} else if (view === 'interactive') {
+			text = renderInteractive(scope, hidden, redact)
+			tab.lastSeen = whole.text
+		} else if (view === 'reading') {
+			text = renderReading(scope, hidden, redact)
+			tab.lastSeen = whole.text
+		} else if (view === 'delta') {
+			const before = tab.lastSeen
+			if (before === undefined) {
+				this.notes.unshift(
+					'There is no earlier snapshot of this tab to compare with; this is the whole page.',
+				)
+				text =
+					ref === undefined ? whole.text : (renderAriaTree(nodes, hidden, ref, redact)?.text ?? '')
+			} else {
+				const diff = diffLines(before, whole.text, DELTA_LINES_SHOWN)
+				text =
+					diff.added === 0 && diff.removed === 0
+						? '(no change since the last snapshot)'
+						: [
+								...diff.addedLines.map((l) => `+ ${l}`),
+								...(diff.added > diff.addedLines.length
+									? [`  (${diff.added - diff.addedLines.length} more lines added)`]
+									: []),
+								...diff.removedLines.map((l) => `- ${l}`),
+								...(diff.removed > diff.removedLines.length
+									? [`  (${diff.removed - diff.removedLines.length} more lines removed)`]
+									: []),
+							].join('\n')
+				this.notes.unshift(
+					`Changes since the last snapshot: ${diff.added} lines added, ${diff.removed} removed. Take a full snapshot to see the whole page again.`,
+				)
+			}
+			tab.lastSeen = whole.text
+		} else {
+			text =
+				ref === undefined ? whole.text : (renderAriaTree(nodes, hidden, ref, redact)?.text ?? '')
+			if (ref === undefined) tab.lastSeen = whole.text
 		}
 		if (text.trim() === '') text = '(nothing readable on this page)'
 		const first = this.pager.start(text)
@@ -990,10 +1192,12 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		}
 	}
 
-	private async snapshot(ref?: string, cursor?: string): Promise<BrowserResult> {
+	private async snapshot(
+		request: Extract<BrowserObserveAction, { action: 'snapshot' }>,
+	): Promise<BrowserResult> {
 		const tab = await this.activeTab()
-		if (cursor !== undefined) {
-			const next = this.pager.resume(cursor)
+		if (request.cursor !== undefined) {
+			const next = this.pager.resume(request.cursor)
 			if (!next) {
 				throw new Error(
 					'That cursor belongs to an older snapshot. Take a new snapshot and page through it.',
@@ -1007,8 +1211,15 @@ export class PlaywrightBrowserHost implements BrowserHost {
 				},
 			})
 		}
-		await this.settle()
-		return this.result({ snapshot: await this.takeSnapshot(tab, ref) })
+		await this.settle(tab, { quietMs: PRE_ACT_QUIET_MS, capMs: PRE_ACT_CAP_MS })
+		return this.result({
+			snapshot: await this.takeSnapshot(tab, {
+				...(request.ref !== undefined ? { ref: request.ref } : {}),
+				...(request.view !== undefined ? { view: request.view } : {}),
+				...(request.query !== undefined ? { query: request.query } : {}),
+				...(request.role !== undefined ? { role: request.role } : {}),
+			}),
+		})
 	}
 
 	private async resolveRef(tab: Tab, ref: string): Promise<Locator> {
@@ -1031,10 +1242,12 @@ export class PlaywrightBrowserHost implements BrowserHost {
 				'A dialog is open; dismiss it with browser_act dialog before taking a screenshot.',
 			)
 		}
-		// Screenshots are image blocks sent to the model. Mask DOM-addressable
-		// inputs regardless of their names, including child frames and refs.
-		// Closed shadow roots and page-drawn text remain outside this mask.
-		const mask = tab.page.frames().map((frame) => frame.locator('input, textarea'))
+		// Screenshots are image blocks sent to the model. Mask the fields that
+		// take a password or a one-time code, in every frame; the other inputs
+		// stay visible, because a search box or an address field the model
+		// cannot read cannot be checked. Closed shadow roots and page-drawn
+		// text remain outside this mask.
+		const mask = await this.credentialMask(tab)
 		const data =
 			ref !== undefined
 				? await (await this.resolveRef(tab, ref)).screenshot({
@@ -1059,6 +1272,64 @@ export class PlaywrightBrowserHost implements BrowserHost {
 				height: size.height,
 			},
 		})
+	}
+
+	/** Locators of the credential fields (password, one-time code) of every frame of the tab. */
+	private async credentialMask(tab: Tab): Promise<Locator[]> {
+		const out: Locator[] = []
+		for (const frame of tab.page.frames()) {
+			const inputs = frame.locator('input, textarea')
+			let count = 0
+			try {
+				count = Math.min(await inputs.count(), MASK_CANDIDATES_MAX)
+			} catch {
+				// A frame that went away while we looked has nothing to mask.
+				continue
+			}
+			const verdicts = await Promise.all(
+				Array.from({ length: count }, async (_, index) => {
+					try {
+						return isCredentialField(
+							await inputs.nth(index).evaluate(fieldFacts, undefined, { timeout: 2000 }),
+						)
+					} catch {
+						// A field that cannot be asked about is hidden to be safe.
+						return true
+					}
+				}),
+			)
+			verdicts.forEach((hide, index) => {
+				if (hide) out.push(inputs.nth(index))
+			})
+		}
+		return out
+	}
+
+	/** One element's current value and state, read from the page itself. */
+	private async readValue(ref: string): Promise<BrowserResult> {
+		const tab = await this.activeTab()
+		if (this.pendingDialog?.tab === tab) {
+			throw new Error(
+				'A dialog is open; dismiss it with browser_act dialog before reading a value.',
+			)
+		}
+		const locator = await this.resolveRef(tab, ref)
+		const facts = await locator.evaluate(fieldFacts)
+		const described = this.refs.get(ref)
+		const page = await this.pageInfo(tab)
+		const hidden = isCredentialField(facts)
+		const read = hidden ? undefined : await locator.evaluate(valueFacts)
+		const value: BrowserValue = {
+			page,
+			ref,
+			...(described?.role !== undefined ? { role: described.role } : {}),
+			...(described?.name !== undefined ? { name: described.name } : {}),
+			...(read?.value !== undefined ? { value: read.value } : {}),
+			state: read?.state ?? [],
+			...(read?.options !== undefined ? { options: read.options } : {}),
+			...(hidden ? { hidden: true } : {}),
+		}
+		return this.result({ value })
 	}
 
 	private async scroll(
@@ -1121,9 +1392,18 @@ export class PlaywrightBrowserHost implements BrowserHost {
 						: `${quoteShort(text)} was still there after ${timeout} ms.`,
 				)
 			}
-		} else {
+		} else if (action.stable !== true) {
 			await tab.page.waitForTimeout(timeout)
 			this.notes.unshift(`Waited ${timeout} ms.`)
+		}
+		if (action.stable === true) {
+			const cap = action.timeMs !== undefined ? timeout : STABLE_DEFAULT_WAIT_MS
+			const settled = await this.settle(tab, { quietMs: QUIET_MS, capMs: cap })
+			this.notes.push(
+				settled.quiet
+					? `The page is quiet (nothing changed for ${QUIET_MS} ms; waited ${settled.waitedMs} ms).`
+					: `The page was still changing after ${settled.waitedMs} ms.`,
+			)
 		}
 		return this.result({ page: await this.pageInfo(tab) })
 	}
@@ -1252,9 +1532,53 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		}
 	}
 
+	/**
+	 * The page's tree as the model could have read it just before an action,
+	 * or `undefined` when it cannot be read now (a dialog holds the page, or
+	 * the read failed). An effect is a bonus; it never fails the action.
+	 */
+	private async effectBaseline(tab: Tab): Promise<string | undefined> {
+		if (this.pendingDialog?.tab === tab) return undefined
+		try {
+			return (await this.readTree(tab)).whole.text
+		} catch {
+			return undefined
+		}
+	}
+
+	/** What the action did, from the tree before and the tree now. */
+	private async effectSince(
+		before: string | undefined,
+		urlBefore: string,
+		tabsBefore: number,
+		tab: Tab,
+		settled: SettleOutcome,
+	): Promise<BrowserEffect | undefined> {
+		if (before === undefined || this.pendingDialog?.tab === tab || tab.page.isClosed())
+			return undefined
+		let after: string
+		try {
+			after = (await this.readTree(tab)).whole.text
+		} catch {
+			return undefined
+		}
+		const diff = diffLines(before, after, EFFECT_LINES_SHOWN)
+		const urlNow = tab.page.url()
+		const changed = diff.added > 0 || diff.removed > 0 || urlNow !== urlBefore
+		return {
+			...(urlNow !== urlBefore ? { urlChanged: { from: urlBefore, to: urlNow } } : {}),
+			added: diff.added,
+			removed: diff.removed,
+			addedLines: diff.addedLines,
+			removedLines: diff.removedLines,
+			...(!changed && this.tabs.size > tabsBefore ? { newTab: true } : {}),
+			settle: { quiet: settled.quiet, waitedMs: settled.waitedMs, capMs: settled.capMs },
+		}
+	}
+
 	private async runAct(action: BrowserActAction): Promise<BrowserResult> {
 		const tab = await this.activeTab()
-		await this.settle()
+		await this.settle(tab, { quietMs: PRE_ACT_QUIET_MS, capMs: PRE_ACT_CAP_MS })
 		const expected = canonicalizeBrowserOrigin(action.origin)
 		const live = originOf(tab.page.url())
 		if (!expected.ok || expected.origin !== live) {
@@ -1274,11 +1598,15 @@ export class PlaywrightBrowserHost implements BrowserHost {
 			throw new Error('A dialog is open on this tab; dismiss it with browser_act dialog first.')
 		}
 		const checkpoint = await this.beginDocumentResponseChange(tab)
+		const urlBefore = tab.page.url()
+		const tabsBefore = this.tabs.size
+		const treeBefore = await this.effectBaseline(tab)
+		let settled: SettleOutcome
 		try {
 			await this.perform(tab, action)
-			await this.settle()
+			settled = await this.settle(tab)
 			this.checkLanding(tab)
-			await this.settle()
+			while (this.blanking.size > 0) await Promise.all([...this.blanking])
 		} catch (error) {
 			await this.finishDocumentResponseChange(tab, checkpoint).catch(() => undefined)
 			throw error
@@ -1286,8 +1614,14 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		await this.finishDocumentResponseChange(tab, checkpoint)
 		await this.checkHuman(tab)
 		const after = this.tabs.get(tab.id) ?? tab
-		if (action.snapshot) return this.result({ snapshot: await this.takeSnapshot(after) })
-		return this.result({ page: await this.pageInfo(after) })
+		const effect = await this.effectSince(treeBefore, urlBefore, tabsBefore, after, settled)
+		if (action.snapshot) {
+			return this.result({
+				snapshot: await this.takeSnapshot(after),
+				...(effect ? { effect } : {}),
+			})
+		}
+		return this.result({ page: await this.pageInfo(after), ...(effect ? { effect } : {}) })
 	}
 
 	private async answerDialog(
@@ -1315,9 +1649,9 @@ export class PlaywrightBrowserHost implements BrowserHost {
 			throw new BrowserOutcomeUnknownError('dialog', error)
 		}
 		this.notes.unshift('The dialog was dismissed.')
-		await this.settle()
+		await this.settle(tab)
 		this.checkLanding(tab)
-		await this.settle()
+		while (this.blanking.size > 0) await Promise.all([...this.blanking])
 		await this.finishDocumentResponseChange(tab, checkpoint)
 		await this.checkHuman(tab)
 		if (action.snapshot) return this.result({ snapshot: await this.takeSnapshot(tab) })

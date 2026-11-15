@@ -57,10 +57,11 @@ const tools = toolset('browser', createBrowserTools(host))
 | --- | --- | --- | --- |
 | `browser` | `navigate` | `url` | no |
 | | `back`, `forward`, `reload` | | no |
-| | `snapshot` | `ref?`, `cursor?` | yes |
+| | `snapshot` | `ref?`, `cursor?`, `view?` (`full`, `interactive`, `reading`, `delta`), `query?`, `role?` | yes |
+| | `value` | `ref` | yes |
 | | `screenshot` | `ref?`, `fullPage?` | yes |
 | | `scroll` | `direction`, `ref?`, `amount?` | yes |
-| | `wait_for` | `text?`, `textGone?`, `timeMs?` (at most 30000; one of the three) | yes |
+| | `wait_for` | `text?`, `textGone?`, `timeMs?` (at most 30000), `stable?` (one of the four) | yes |
 | | `tabs` | `op`: `list`, `select`, `close` (with `tab`), `new` (with `url?`) | `new` is not |
 | `browser_act` | `click` | `ref`, `doubleClick?` | no |
 | | `type` | `ref`, `text`, `submit?` | no |
@@ -104,7 +105,11 @@ Page: https://shop.example.com — "Your cart" (tab t1)
 
 The origin is re-canonicalised, and a value that is not an origin is shown as `unknown`. The title is page-controlled, so it is quoted, flattened to one line, cut at 120 characters, has hidden characters shown as `<U+XXXX>` and has the envelope's delimiter defanged. Below the header, the snapshot text is wrapped with `wrapUntrusted` (`kind="web-page"`, `origin` attribute). A closing tag inside the page is defanged, and the frame marks provenance but does not refuse anything. At most `BROWSER_SNAPSHOT_MAX_CHARS` (20000) characters come back per call. `capabilities.snapshotMaxChars` can lower it. A host that pages returns `nextCursor`, and the tool tells the model to pass it back. A host that does not page is cut, and the tool says so. `formatBrowserPageHeader(page)` is exported for a host that shows the same line elsewhere.
 
-A screenshot comes back as a text block (the header) and an image block. The Namzu Playwright host masks input and textarea controls that Playwright can locate, including child frames and element screenshots; closed shadow roots and text rendered elsewhere may remain visible. Another host must provide its own protection. `tabs list` lists each tab's header, with `*` on the active one. A `message` the host returns is shown outside the envelope, so it must be the host's own words, never page text.
+**Reading less.** A full tree of a big page is the costliest thing a call returns, so `snapshot` has narrower shapes. `view: "delta"` returns only the lines added (`+`) and removed (`-`) since the last snapshot of that tab (a control whose value changed is one line out and one in), or the whole page with a note when there is no earlier one. `view: "interactive"` lists only what a call can act on, one line each, with the address of a link and the nearest named ancestor. `view: "reading"` is the page's text with headings as `#` lines and no refs. `query` and `role` find elements by name or text (case-insensitive) and by ARIA role, at most `BROWSER_FIND_MAX_MATCHES` (20), each with its ref and context, and a note counts the matches: this reaches content a long page or a closed menu keeps out of the tree's way. `value` reads one control's current value and state without a snapshot (a field's text, the chosen option and every option of a select, `checked`, `disabled`, and the like); a password or one-time-code field says its value is hidden.
+
+**What an action did.** Every `browser_act` result starts with `Effect:`, computed by the host from the page's tree before and after the action. The host's sentence (outside the envelope) is `the page address changed`, `N lines appeared and M went`, `a new tab opened (it is not the active tab)` or `no visible change`; a page that was still changing when the wait ended says so. The page's own lines that appeared or went (the first ten, and the first five that went), and the old and new address, come inside a `kind="web-page-change"` envelope, because they are page text. With `snapshot: true` only the sentence is kept, since the whole page follows. `BrowserResult.effect` carries the same as data (`BrowserEffect`); a host that cannot compute it leaves it out and the line is absent. `value` results are framed as `kind="web-page-value"`.
+
+A screenshot comes back as a text block (the header) and an image block. The Namzu Playwright host masks password and one-time-code fields, in every frame and in element screenshots (an ordinary input stays readable, since a search box the model cannot read cannot be checked); closed shadow roots and text rendered elsewhere may remain visible. Another host must provide its own protection. `tabs list` lists each tab's header, with `*` on the active one. A `message` the host returns is shown outside the envelope, so it must be the host's own words, never page text.
 
 ## The host contract
 

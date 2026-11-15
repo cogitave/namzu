@@ -15,6 +15,7 @@ export type BrowserObserveActionName =
 	| 'scroll'
 	| 'wait_for'
 	| 'tabs'
+	| 'value'
 
 /** Every action the `browser_act` tool (change the page) can ask for. */
 export type BrowserActActionName =
@@ -32,6 +33,9 @@ export type BrowserActionName = BrowserObserveActionName | BrowserActActionName
 export type BrowserScrollDirection = 'up' | 'down' | 'left' | 'right'
 
 export type BrowserTabsOp = 'list' | 'select' | 'close' | 'new'
+
+/** The shapes a `snapshot` can take; see {@link BrowserObserveAction}. */
+export type BrowserSnapshotView = 'full' | 'interactive' | 'reading' | 'delta'
 
 // ---------------------------------------------------------------------------
 // Capabilities — frozen at host construction; the model reads them through
@@ -73,6 +77,9 @@ export const BROWSER_SNAPSHOT_MAX_CHARS = 20_000
 /** Longest `wait_for` the tool accepts, in milliseconds. */
 export const BROWSER_WAIT_MAX_MS = 30_000
 
+/** Most elements one find (`snapshot` with `query` or `role`) returns. */
+export const BROWSER_FIND_MAX_MATCHES = 20
+
 /** Most fields one `fill_form` call may set. */
 export const BROWSER_FILL_FORM_MAX_FIELDS = 20
 
@@ -90,7 +97,22 @@ export type BrowserObserveAction =
 	| { readonly action: 'back' }
 	| { readonly action: 'forward' }
 	| { readonly action: 'reload' }
-	| { readonly action: 'snapshot'; readonly ref?: string; readonly cursor?: string }
+	| {
+			readonly action: 'snapshot'
+			readonly ref?: string
+			readonly cursor?: string
+			/**
+			 * What to return. `full` (default): the page as a tree. `interactive`: only
+			 * the elements a call can act on, one per line. `reading`: the page's text
+			 * without markup. `delta`: only the lines added and removed since the last
+			 * snapshot this tab returned.
+			 */
+			readonly view?: BrowserSnapshotView
+			/** Find: elements whose name or text contains this (case-insensitive). Up to {@link BROWSER_FIND_MAX_MATCHES}. */
+			readonly query?: string
+			/** Find: only elements of this ARIA role; with `query`, the role and the name both must match. */
+			readonly role?: string
+	  }
 	| { readonly action: 'screenshot'; readonly ref?: string; readonly fullPage?: boolean }
 	| {
 			readonly action: 'scroll'
@@ -104,6 +126,13 @@ export type BrowserObserveAction =
 			readonly text?: string
 			readonly textGone?: string
 			readonly timeMs?: number
+			/** Wait until the page is quiet: no DOM change and no request in flight for a short window. */
+			readonly stable?: boolean
+	  }
+	| {
+			/** Read one element's current value and state, without a snapshot. */
+			readonly action: 'value'
+			readonly ref: string
 	  }
 	| {
 			readonly action: 'tabs'
@@ -194,6 +223,44 @@ export interface BrowserScreenshot {
 }
 
 /**
+ * What an action did to the page, worked out by the host from the page before
+ * and after it: the one thing a model needs to tell a click that worked from
+ * one that did nothing. The counts and `settle` are the host's words; the
+ * lines and addresses are page text, so the tool shows them inside the
+ * untrusted envelope.
+ */
+export interface BrowserEffect {
+	/** The page's address before and after, when it changed. Page-controlled. */
+	readonly urlChanged?: { readonly from: string; readonly to: string }
+	/** How many lines of the page's tree appeared and disappeared. */
+	readonly added: number
+	readonly removed: number
+	/** The first few lines that appeared, and the first few that went. Page text. */
+	readonly addedLines: readonly string[]
+	readonly removedLines: readonly string[]
+	/** A new tab opened and the page the action ran on did not change. */
+	readonly newTab?: boolean
+	/** Whether the page went quiet before the host looked, and how long it waited. */
+	readonly settle?: { readonly quiet: boolean; readonly waitedMs: number; readonly capMs: number }
+}
+
+/** One element's current value and state, from `value`. Page-controlled. */
+export interface BrowserValue {
+	readonly page: BrowserPageInfo
+	readonly ref: string
+	readonly role?: string
+	readonly name?: string
+	/** What the control holds: the text of a field, the chosen option(s) of a select, the position of a slider. Absent when it holds none. */
+	readonly value?: string
+	/** `checked`, `selected`, `disabled`, `expanded`, `pressed`, `readonly`, `required`, `invalid`, as set. */
+	readonly state: readonly string[]
+	/** For a select: every option's label, the chosen ones listed in `value`. */
+	readonly options?: readonly string[]
+	/** The field is a password or one-time code; its value is not shown. */
+	readonly hidden?: boolean
+}
+
+/**
  * What an action produced. Every field is optional because actions differ;
  * the tool renders whichever are present.
  */
@@ -209,6 +276,10 @@ export interface BrowserResult {
 	readonly snapshot?: BrowserSnapshot
 	readonly screenshot?: BrowserScreenshot
 	readonly tabs?: readonly BrowserTabInfo[]
+	/** `browser_act`: what the action did to the page. */
+	readonly effect?: BrowserEffect
+	/** `value`: the element's value and state. */
+	readonly value?: BrowserValue
 }
 
 /** What a snapshot said about one ref, for labelling a call before it runs. */

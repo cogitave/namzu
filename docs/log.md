@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-15
+
+- **Update** [Browser tools](sdk/browser-tools.md#what-the-model-reads) and [The browser host](sdk/browser-host.md#waiting-for-the-page-and-what-an-action-did): the model sees the page and the effect of each action. A native select shows its chosen option and its options, every control line carries its value, each `browser_act` result starts with an `Effect:` line (address change, lines that appeared or went, or `no visible change`) computed from the tree before and after, a quiet-page wait (capped, cap reported) replaces the fixed 150 ms and `navigate` waits the same way, `wait_for` gains `stable`, `snapshot` gains `view` (`interactive`, `reading`, `delta`), `query` and `role`, a new `value` action reads one control, and screenshots mask only credential fields. The web benchmark (`scripts/bench-web/`, with a scored fixture site in `packages/browser/test/fixtures/bench-site/`) is on-demand only. `.changeset/browser-see-the-page-and-its-effect.md`, `.changeset/sdk-see-the-page-and-its-effect.md`, `.changeset/cli-see-the-page-and-its-effect.md`.
+
 ## 2026-11-14
 
 - **Update** [Terminal design](cli/terminal-design.md#esc): with a `/` or `@` suggestion menu open, Esc closes the menu and keeps the draft (no clear notice, and the clear window is not armed); in a Ctrl+R history search Esc leaves with the found text in the box and Ctrl+C goes back to the earlier draft. `.changeset/cli-esc-closes-menus-search-accepts.md`.
