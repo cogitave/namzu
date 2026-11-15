@@ -1,0 +1,1 @@
+Use the browser. On Wikipedia (English), search for the article "Lighthouse of Alexandria", open it, and report from its infobox the height of the lighthouse and the year it was completed (or the construction dates the infobox gives). Final answer: those values, and the URL of the article you read them from.
