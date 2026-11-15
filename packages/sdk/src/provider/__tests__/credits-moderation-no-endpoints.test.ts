@@ -18,7 +18,10 @@ describe('402, 403 and 404 kinds', () => {
 			classifyProviderHttpStatus(403, '{"error":{"message":"This API key has been flagged"}}'),
 		).toBe('auth')
 		expect(
-			classifyProviderHttpStatus(403, '{"error":{"message":"Your account was flagged for review"}}'),
+			classifyProviderHttpStatus(
+				403,
+				'{"error":{"message":"Your account was flagged for review"}}',
+			),
 		).toBe('auth')
 		expect(
 			classifyProviderHttpStatus(

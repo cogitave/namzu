@@ -329,7 +329,12 @@ export function bodySaysContextOverflow(body: string | undefined | null): boolea
  * says the input itself was flagged.
  */
 export function bodySaysModeration(body: string | undefined | null): boolean {
-	return !!body && /moderation|flagged_input|(?:input|prompt|messages?|content) (?:was |were |is |has been )?flagged|content (?:policy|filter)/i.test(body)
+	return (
+		!!body &&
+		/moderation|flagged_input|(?:input|prompt|messages?|content) (?:was |were |is |has been )?flagged|content (?:policy|filter)/i.test(
+			body,
+		)
+	)
 }
 
 /** Does a 404 body say no host can serve the request, rather than that a path is unknown? */
