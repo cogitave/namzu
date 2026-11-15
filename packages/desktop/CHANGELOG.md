@@ -1,5 +1,14 @@
 # @namzu/desktop
 
+## 0.8.6
+
+### Patch Changes
+
+- 45f5535: On a screen scaled to 125 or 150 percent, the main screen no longer jumps up and down several times a second: the heading, the suggestions and the message box stay where they are, and no scrollbar flashes in and out beside the conversation.
+- 0c3f02f: Clicking a project's name in the sidebar after starting a new conversation in that project now opens its conversation with a message box you can type in. Before, the box stayed greyed out and nothing you typed went anywhere until you opened another conversation.
+- 19d3fcc: The sidebar no longer jumps by 4 px a moment after it first paints: a conversation row that had not been laid out yet was held at its old 32 px placeholder height, not the 28 px a row now has, so everything under it (the Recents heading and its list) slid up when the row was measured. The placeholder now follows the row height token.
+- 97f44f9: In the sidebar, a project's conversations now sit inside a thin line that runs down from the project's folder, and their titles start a step to the right of the project's name. Before, they lined up with the name and looked like separate projects. Recents is unchanged.
+
 ## 0.8.5
 
 ### Patch Changes

@@ -1,5 +1,27 @@
 # @namzu/cli
 
+## 53.4.0
+
+### Minor Changes
+
+- e53a520: Web tasks now start from a short paragraph in the system prompt (go to the named address or the site's own search, one action then read the result, change approach after two no-effect tries, never fetch with the shell what the browser reads, finish by confirming on the page), and the `browser-automation` skill is a shorter reference for awkward cases. The browser tools refuse a call repeated five times with nothing changing on the page (a note at three, and a second note after twelve page-changing calls with no new address, content or tab). This applies to every `createBrowserTools` consumer, not only the CLI: a repeated call can now come back with a note or a refusal (`data.code: 'browser_repeated_no_change'`) where it used to run. Scrolling, `snapshot`, `screenshot`, `wait_for` and `tabs list` are never counted. There is no switch; a host that wants every call to reach the browser should not rely on a repeat running five times with nothing changing.
+
+  New, off by default: `browser.signInDetection: page` (CLI config) and `signInDetection: 'page'` (`@namzu/browser` host option, with the new `signInNotice` and `BrowserSignInDetection` exports). The default `address` keeps today's behaviour, where any `/login`-style path stops the turn. With `page`, only the known sign-in hosts, your `signInAddresses`, a challenge or a bare 401 page with a password field stop it; a public page at such a path loads, and the model is told once that it cannot type a password or code, which stays refused. A project config file cannot set the key. Set it in your own config to try it.
+
+  `namzu acp --desktop` (the Namzu Desktop application) now mounts `browser` and `browser_act` in each conversation with the terminal's profile, site rules and lifecycle; a bare ACP client, `exec`, `drain` and Pal conversations are unchanged. An installed Desktop gets this with its next engine update from the signed engine feed; no Desktop release is needed.
+
+- df038f5: Web tasks in the terminal read better: after each click or typed value the model is told what changed on the page (or that nothing did), a dropdown's chosen value is visible to it, and it can read less of a big page with `snapshot` views and find. The new read-only `value` action is allowed under the same site rule as the other looking calls (`snapshot`, `screenshot`, `scroll`, `wait_for`). One thing is looser: browser screenshots now hide only password and one-time-code fields, so other input text on a page is visible to the model in an image. Opening a page also returns what is on it, so the model needs one request fewer per page visit; the browser-automation skill says so.
+
+### Patch Changes
+
+- Updated dependencies [e53a520]
+- Updated dependencies [b799458]
+- Updated dependencies [df038f5]
+- Updated dependencies [b799458]
+- Updated dependencies [df038f5]
+  - @namzu/sdk@65.2.0
+  - @namzu/browser@2.1.0
+
 ## 53.3.2
 
 ### Patch Changes
