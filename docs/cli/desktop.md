@@ -2228,7 +2228,13 @@ project exposes one, the git branch. The branch comes from the cached project re
 guess, and the line is left out when it is unknown or the head is detached. The card closes when the pointer
 leaves, on scroll, on click or drag, and while a menu is open; it does not open for keyboard focus or touch.
 The sidebar uses one folder glyph per project and plain conversation
-titles, in line with the project's name (see [The frame's numbers](#the-frames-numbers)). Each group initially shows five conversations, keeping the active one
+titles. A project's conversations (and its terminals) are its children: a 1 px guide line runs down from the
+centre of the project's folder, the rows sit inside it, and their titles (and "Show more") start 16 px right of the
+project's name, so they read as belonging to it. The line, the 2 px gap and the rows' 6 px leading edge are tokens in
+`theme.css` (`--sidebar-nest-line`, `--sidebar-nest-inset`, `--sidebar-nest-row-padding`); row height, spacing, the
+hover and selected fill and the state marks are as in [The frame's numbers](#the-frames-numbers). Recents stays a
+flat list grouped by day, at the full width. A conversation started while a project is the open one is listed under
+that project (`e2e/sidebar-nesting.test.mjs`). Each group initially shows five conversations, keeping the active one
 visible when it lies beyond that limit. Show more reveals additional loaded
 rows. Project headings omit connection dots; connection failures and recovery
 remain in the existing project status surfaces. Active and running conversations
