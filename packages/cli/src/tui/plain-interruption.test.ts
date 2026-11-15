@@ -633,3 +633,24 @@ describe('a spent allowance', () => {
 		).toBe(false)
 	})
 })
+
+describe('credits, moderation and no endpoints', () => {
+	const withKind = (kind: string) =>
+		failed({ providerError: { kind, providerId: 'openrouter' } as never })
+
+	it('names an account with no credit, not a bad message', () => {
+		expect(classifyInterruption(withKind('credits'))).toBe('credits')
+		const text = describePlainInterruption(withKind('credits'))
+		expect(text).toContain('no credit left')
+		expect(text).not.toContain('could not process')
+	})
+
+	it('names a model no host serves', () => {
+		expect(classifyInterruption(withKind('no_endpoints'))).toBe('no_endpoints')
+		expect(describePlainInterruption(withKind('no_endpoints'))).toContain('no host')
+	})
+
+	it('reads moderation as a declined message', () => {
+		expect(classifyInterruption(withKind('moderation'))).toBe('content')
+	})
+})

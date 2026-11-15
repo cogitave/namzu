@@ -14,6 +14,13 @@ import type { ReasoningEffort } from '../../../types/provider/index.js'
 export const REASONING_CAPPED_MESSAGE =
 	'Your thinking for that step reached its limit before you acted, so it was cut short. Act now on what you already know: make the first change, or, if you were asked a question, answer with what you have and say what is missing. Refine as you go; do not plan the whole task again.'
 
+/**
+ * What an agent that cannot change anything is told when a step spent its
+ * whole reasoning allowance before acting: it reports, it does not look again.
+ */
+export const REASONING_CAPPED_REPORT_MESSAGE =
+	'Your thinking for that step reached its limit before you acted, so it was cut short. Report now what you have found and what is still unknown, using what you have already seen. Look further only to close a gap you can name.'
+
 /** What the model is told when a reply held thinking but no answer and no action. */
 export const REASONING_ONLY_MESSAGE =
 	'Your last reply held thinking only: no answer and no action. Continue now: give your answer, or make the call that moves the task forward.'

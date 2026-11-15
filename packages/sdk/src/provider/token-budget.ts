@@ -21,7 +21,15 @@ export class TokenBudgetAdmissionError extends ProviderError {
 
 function rejectedBeforeGeneration(error: unknown): boolean {
 	if (isProviderRequestError(error)) {
-		return ['auth', 'throttle', 'context_overflow', 'bad_request'].includes(error.kind)
+		return [
+			'auth',
+			'throttle',
+			'context_overflow',
+			'bad_request',
+			'credits',
+			'moderation',
+			'no_endpoints',
+		].includes(error.kind)
 	}
 	const classified = classifyProviderError(error)
 	const explicitRejection =

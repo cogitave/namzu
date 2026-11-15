@@ -42,6 +42,8 @@ The monitor counts consecutive steps that changed nothing. A step changed someth
 
 When every tool offered to a step declares itself read-only without being shown an input (the test the read-only sub-agents' roster uses; the task-list tools and the `send_message` a sub-agent sends to its launcher are set aside, since neither looks nor changes the work), the agent cannot change anything and looking is its job. For it, a successful read-only call that is not a repeat counts as progress, so an explore agent making twenty distinct reads is never nudged or forced. Repeats, failed calls and replies of thinking only still count as no progress. When they pile up, its nudge reads "report what you have found and what is still unknown" instead of "make the first edit", and after `forceAfterSteps` more it is sent again rather than forcing a tool call. An agent that has any tool which can change things, or that does not say, keeps the rule above.
 
+Looking is not endless, though, and nothing here bounds it. A looking budget was tried and removed: a reminder after 8 steps of looking, sent once to an agent that cannot change anything, did not shorten four explore agents on broad mapping tasks. Over three runs each on the same model and task, the build with the reminder (and the sharper prompt below) used 39, 44 and 49 sub-agent requests against 52, 47 and 34 on the build without it (mean 44.0 against 44.3), and cost more (USD 0.058, 0.084, 0.131 against 0.064, 0.079, 0.061 in total). The agents that were reminded reported at the length they would have reported anyway, so a message alone does not move this model; what sets the count is the brief, which names five or six deliverables and no point to stop at. When a step of a read-only agent hits the per-step reasoning cap it is told to report what it has, not to "make the first change", and its next step is not forced, since a forced step could only be another look. The `explore` and `plan` agents' descriptions and prompts say to return as soon as the question is answered (or the plan can be written) and to name what was not read instead of reading on; that wording is not shown to lower the count.
+
 ### When the person asked a question
 
 If the latest message from the person is a short question (at most 400 characters, with a question mark that ends a sentence; a mark inside a web address does not count, and a longer brief that happens to ask something is a task), the nudge comes after 6 steps without a change instead of 12, and its text tells the model to answer now, in the person's language and within what they asked for, and to say what is missing instead of running another command. Six steps is half of the general threshold: a question is usually settled by two or three looks, so six that settled nothing mean the model is circling. Only steps that merely looked count toward it: a shell command counts as looking only when the shell policy calls it read-only, and a repeated file edit counts as a change even when its reply is the same, so a task put as a question ("Can you make the build pass?") that edits files or runs unclassified commands is not told to stop. This path never forces a tool call; after `forceAfterSteps` more steps the same text is sent again. A message that is not a short question keeps the general thresholds. A question written without a mark is not detected.
@@ -55,6 +57,10 @@ The always-sent doctrine says it once and in one place. The identity's first sen
 ## A reply of thinking only
 
 A reply that holds reasoning but no text and no call is not an end. The model is asked once more, plainly, before the closing request a limit makes. If even that produces nothing, the turn ends with a plain error that says the model stopped after thinking and that saying "continue" picks the work up. It never ends silently.
+
+## A reply with nothing in it
+
+A main-step reply with no text, no reasoning and no call, whose finish reason is `stop`, is asked for once more with the same request (the empty entry is kept in the history but never sent, so the request is unchanged). The first retry of a turn is logged as one warning line with `namzu.retry.attempt` and `namzu.retry.reason: empty_reply`, and it takes an iteration like any step. The empty attempt's tokens and cost stay in the turn's usage and in the steps ledger. A reply cut at the output allowance (`length`) is not asked again, since the same allowance would be spent, and a reply of reasoning only keeps the path above. If the second reply is empty too, the turn goes on to the closing request as before, and if that is empty as well the turn ends with a plain error saying the model sent an empty reply twice and that "continue" picks the work up. The allowance is one per run of empty replies: any reply with content or a tool call re-arms it.
 
 ## Effort `max` and `ultra` on OpenRouter
 
@@ -76,6 +82,20 @@ adds it and the host's code (`provider_code` on an HTTP error, `error_type` on
 an error that arrives mid-stream) to the error's detail, as `(host X, code Y)`,
 each capped at 64 characters with control characters removed.
 `metadata.raw` is never read, since it can echo the prompt.
+
+## A listing that does not answer, and 402, 403 and 404
+
+Every read of OpenRouter's `/models` listing (the model picker, the context-window lookup, the effort read and the health check) is bounded at 5 seconds (`MODEL_LISTING_TIMEOUT_MS`), also when the transport ignores its signal. Past the bound the listing counts as absent: a window lookup answers `undefined` so the static table applies, and the effort read answers "no levels" so a `max` or `ultra` request goes out with `xhigh`. The picker's own listing fails with a `TimeoutError`. A caller's abort still wins over the bound.
+
+Three HTTP answers have their own `ProviderErrorKind` instead of a generic bad request, and none is retried:
+
+| Status | Kind | Taken when | Error code | Words for a person |
+|---|---|---|---|---|
+| 402 | `credits` | always | `usage_limit` | the account has no credit left; add credit or pick another model |
+| 403 | `moderation` | the body names moderation or a flagged input | `content_filter` | the model declined the message |
+| 403 | `auth` | any other 403 | `auth` | the key was not accepted |
+| 404 | `no_endpoints` | the body says "No endpoints found" or "No endpoint available" | `not_found` | no host can serve that model right now; pick another |
+| 404 | `bad_request` | any other 404 | `invalid_request` | unchanged |
 
 ## Related
 
