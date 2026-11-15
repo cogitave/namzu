@@ -2,7 +2,7 @@
 
 ## 2026-11-15
 
-- **Update** [The browser](cli/browser.md#sign-in-detection): how the model approaches a web task. A short web-task paragraph in the system prompt where the browser tools can run and a shorter `browser-automation` skill; the browser tools refuse a call that was repeated five times with nothing changing and note the third ([Browser tools](sdk/browser-tools.md#repeated-calls-that-change-nothing)); the new `browser.signInDetection` key (`address` stays the default; `page` stops only for known sign-in hosts, challenges and a bare 401 with a password field, and tells the model once that it cannot type a password on other pages, [Browser host](sdk/browser-host.md)); and the Desktop application's ACP conversations now get `browser` and `browser_act` with the terminal's lifecycle. `.changeset/browser-approach-stalls-and-desktop.md`.
+- **Update** [The browser](cli/browser.md#sign-in-detection): how the model approaches a web task. A short web-task paragraph in the system prompt where the browser tools can run and a shorter `browser-automation` skill; the browser tools refuse a call that was repeated five times with nothing changing and note the third ([Browser tools](sdk/browser-tools.md#repeated-calls-that-change-nothing)); the new `browser.signInDetection` key (`address` stays the default; `page` stops only for known sign-in hosts, challenges and a bare 401 with a password field, and tells the model once that it cannot type a password on other pages, [Browser host](sdk/browser-host.md)); and the Desktop application's ACP conversations now get `browser` and `browser_act` with the terminal's lifecycle. `.changeset/browser-approach-stalls-and-desktop.md`. Scrolling is never counted by the stall guard.
 
 ## 2026-11-14
 

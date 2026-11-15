@@ -121,6 +121,17 @@ describe('browser stall guard', () => {
 		expect(state.observes).toBe(7)
 	})
 
+	it('does not count scrolling: a long page can be scrolled the same way many times', async () => {
+		const { host, state } = scriptedHost()
+		const [browser] = createBrowserTools(host)
+		for (let i = 0; i < 8; i += 1) {
+			const result = await browser.execute({ action: 'scroll', direction: 'down' } as never, ctx())
+			expect(result.success).toBe(true)
+			expect(result.output).not.toContain('Note')
+		}
+		expect(state.observes).toBe(8)
+	})
+
 	it('asks the model to say what blocks it after twelve calls with no new address, tree or tab', async () => {
 		const { host } = scriptedHost()
 		const [, act] = createBrowserTools(host)

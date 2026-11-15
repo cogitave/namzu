@@ -817,6 +817,9 @@ export function createBrowserTools(
 						input.action === 'snapshot' ||
 						input.action === 'screenshot' ||
 						input.action === 'wait_for' ||
+						// Scrolling moves a position the host does not report, so a
+						// run of identical scrolls looks unchanged while it reads on.
+						input.action === 'scroll' ||
 						(input.action === 'tabs' && input.op === 'list')
 					),
 					wholePage: input.action === 'snapshot' && !input.ref && !input.cursor,
