@@ -56,6 +56,10 @@ The always-sent doctrine says it once and in one place. The identity's first sen
 
 A reply that holds reasoning but no text and no call is not an end. The model is asked once more, plainly, before the closing request a limit makes. If even that produces nothing, the turn ends with a plain error that says the model stopped after thinking and that saying "continue" picks the work up. It never ends silently.
 
+## A reply with nothing in it
+
+A main-step reply with no text, no reasoning and no call, whose finish reason is `stop`, is asked for once more with the same request (the empty entry is kept in the history but never sent, so the request is unchanged). The first retry of a turn is logged as one warning line with `namzu.retry.attempt` and `namzu.retry.reason: empty_reply`, and it takes an iteration like any step. The empty attempt's tokens and cost stay in the turn's usage and in the steps ledger. A reply cut at the output allowance (`length`) is not asked again, since the same allowance would be spent, and a reply of reasoning only keeps the path above. If the second reply is empty too, the turn goes on to the closing request as before, and if that is empty as well the turn ends with a plain error saying the model sent an empty reply twice and that "continue" picks the work up. The allowance is one per run of empty replies: any reply with content or a tool call re-arms it.
+
 ## Effort `max` and `ultra` on OpenRouter
 
 The OpenRouter driver no longer throws for effort `max` or `ultra`, which the SDK's `ReasoningEffort` includes. Each asks for the deepest reasoning the model offers, so the driver reads the levels the model's entry in OpenRouter's `/models` listing names (`reasoning.supported_efforts`, read once per driver and only for these two efforts) and sends the highest of `max`, `xhigh`, `high`, `medium`, `low`, `minimal` that the list holds, never `none`; for the DeepSeek V4.1 Flash model that is `max`. If the listing cannot be read or names no levels for the model, it sends `xhigh`, the highest level the unified `reasoning.effort` documents for every model. Every other effort is sent as given.
