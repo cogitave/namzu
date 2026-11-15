@@ -13,6 +13,7 @@ import {
 import { composeEnvironmentPrompt } from '../environment.js'
 import { AGENT_LAUNCH_TOOL } from '../identity.js'
 import {
+	BROWSER_WEB_TASK_GUIDANCE,
 	DEFERRED_TOOL_GUIDANCE,
 	SHELL_ESCAPE_GUIDANCE,
 	type SessionPromptFacts,
@@ -104,6 +105,31 @@ describe('the session system prompt', () => {
 		expect(less).not.toContain(gone)
 		expect(less.length).toBeLessThan(full.length)
 		expect(full.replace(gone, '').replace(/\n{3,}/g, '\n\n')).toBe(less)
+	})
+
+	it('says how to go about a web task only when the browser tools were mounted, and the same on a resumed turn', () => {
+		const withTask = fromFacts({ browserWebTask: BROWSER_WEB_TASK_GUIDANCE })
+		expect(withTask).toContain(BROWSER_WEB_TASK_GUIDANCE)
+		expect(fromFacts({ browserWebTask: undefined })).not.toContain('Working on a website')
+		expect(withTask.replace(`${BROWSER_WEB_TASK_GUIDANCE}\n\n`, '')).toBe(fromFacts())
+		expect(
+			fromFacts({ browserWebTask: BROWSER_WEB_TASK_GUIDANCE }, { workflowOffered: false }),
+		).toBe(withTask)
+	})
+
+	it('tells the web-task paragraph what a small model needs: search, one action then read, change approach, no shell fetch, page values, no credentials, confirm', () => {
+		for (const part of [
+			"site's own search",
+			'one action',
+			'changed nothing twice',
+			'Do not fetch them with the shell',
+			'a code displayed in another tab',
+			'Passwords and one-time codes are never typed',
+			'carry on with the rest',
+			'report what the page showed',
+		]) {
+			expect(BROWSER_WEB_TASK_GUIDANCE).toContain(part)
+		}
 	})
 
 	it('treats deferred tool loading as deferred even when no tool is marked', () => {

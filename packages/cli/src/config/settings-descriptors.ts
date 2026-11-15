@@ -805,6 +805,14 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		{ defaultText: 'off' },
 	),
 	d(
+		'browser.signInDetection',
+		'tools',
+		'Sign-in pages',
+		'address stops on any /login-style address; page stops only for known sign-in sites and lets other pages load.',
+		pick('address', 'page'),
+		{ defaultText: 'address' },
+	),
+	d(
 		'codeAnalysis.enabled',
 		'terminal',
 		'Code analysis',

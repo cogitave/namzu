@@ -51,12 +51,28 @@ import { AGENT_LAUNCH_TOOL, NAMZU_IDENTITY } from './identity.js'
 export const SHELL_ESCAPE_GUIDANCE =
 	'When the person has to run a command themselves, give it as one exact line they can paste and tell them they can run it here by typing `!` before it. A `!` line runs in this session, in the working directory, with their own authority, and its output comes back to you. It cannot answer a prompt: for a command that asks for a password or an interactive sign-in, tell them to run it in another terminal instead. Do not suggest it for a command you can run with your own tools.'
 
+/**
+ * How to go about a task on a website. Said only where the browser tools are
+ * mounted and can run, so a session without them never reads it.
+ */
+export const BROWSER_WEB_TASK_GUIDANCE = [
+	'Working on a website with the browser tools:',
+	"- Go straight to the address the task names, or use the site's own search box, before clicking through menus.",
+	'- Take a snapshot, do one action, and read what came back before the next one. Confirm each step on the page, not by the action having run.',
+	'- If an action changed nothing twice, do not repeat it: pick another element, scroll, wait for the text, or find another way in.',
+	'- Read pages with the browser. Do not fetch them with the shell (curl, wget) or hand them to a delegate.',
+	'- A value the page itself shows for this task (a code displayed in another tab, a sample entry) may be typed where that same page asks for it. Passwords and one-time codes are never typed by you: the browser refuses those fields even for a demo value the page displays. Say which step needs one and why you left it, then carry on with the rest of the task.',
+	'- Finish by checking the result on the page and report what the page showed.',
+].join('\n')
+
 export const DEFERRED_TOOL_GUIDANCE =
 	'The deferred_tools catalogue is a discovery snapshot, not live availability status. The current runtime tool schemas are authoritative: call a tool directly when its schema is visible, even if the catalogue lists it as deferred. Only when a needed deferred tool schema is absent, call search_tools with its exact name to load it. Loading a tool does not change its permissions.'
 
 export interface SessionPromptInput {
 	/** Pre-rendered optional blocks, in the order they are read. */
 	readonly browserDesktopRouting?: string | null | undefined
+	/** {@link BROWSER_WEB_TASK_GUIDANCE}, when the browser tools are mounted and can run. */
+	readonly browserWebTask?: string | null | undefined
 	readonly palBlock?: string | undefined
 	readonly environment?: string | undefined
 	/** True when the Agent tool is sent to this turn. */
@@ -86,6 +102,7 @@ export interface SessionPromptInput {
 /** What a session knows when it builds a turn's prompt, whichever path builds it. */
 export interface SessionPromptFacts {
 	readonly browserDesktopRouting?: string | null | undefined
+	readonly browserWebTask?: string | null | undefined
 	readonly palBlock?: string | undefined
 	readonly environment?: string | undefined
 	readonly withheldTools?: readonly string[] | undefined
@@ -129,6 +146,7 @@ export function sessionPromptInput(
 ): SessionPromptInput {
 	return {
 		browserDesktopRouting: facts.browserDesktopRouting,
+		browserWebTask: facts.browserWebTask,
 		palBlock: facts.palBlock,
 		environment: facts.environment,
 		delegationAvailable: !facts.withheldTools?.includes(AGENT_LAUNCH_TOOL),
@@ -153,6 +171,7 @@ export function composeSessionSystemPrompt(input: SessionPromptInput): string | 
 		NAMZU_IDENTITY,
 		NAMZU_WORKING_DOCTRINE,
 		input.browserDesktopRouting,
+		input.browserWebTask,
 		// Advice on delegating, for a turn that has the Agent tool: a run whose
 		// job withholds it would only be told how to use a tool it was not sent.
 		!input.delegationAvailable ? undefined : NAMZU_DELEGATION_DOCTRINE,

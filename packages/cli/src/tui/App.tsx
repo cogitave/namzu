@@ -6315,6 +6315,9 @@ function AppBody({
 						...(browserConfig.headless ? { headless: browserConfig.headless } : {}),
 						...(browserConfig.sites ? { sites: browserConfig.sites } : {}),
 						...(browserConfig.keepOpen ? { keepOpen: true } : {}),
+						...(browserConfig.signInDetection
+							? { signInDetection: browserConfig.signInDetection }
+							: {}),
 						...(sessionsRef.current ? { home: sessionsRef.current.root } : {}),
 					}
 				: undefined

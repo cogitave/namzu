@@ -49,6 +49,8 @@ export interface BrowserSessionOptions {
 	/** Canonical site rules, `*` included; the host checks landings against them. */
 	readonly sites?: BrowserSitesConfig
 	readonly keepOpen?: boolean
+	/** What makes a page a sign-in page; `address` when absent. */
+	readonly signInDetection?: 'address' | 'page'
 	/** `NAMZU_HOME`. */
 	readonly home?: string
 	/** `unattended` for a scheduled run: nobody at the window. Default `interactive`. */
@@ -112,6 +114,7 @@ export function createBrowserControl(
 			...(options.engine ? { engine: options.engine } : {}),
 			...(options.headless ? { headless: options.headless } : {}),
 			...(options.keepOpen ? { keepOpen: true } : {}),
+			...(options.signInDetection ? { signInDetection: options.signInDetection } : {}),
 			...(options.home ? { home: options.home } : {}),
 		})
 	let current = build(options.profile ?? 'default')

@@ -362,6 +362,14 @@ export interface BrowserConfig {
 	readonly sites?: BrowserSitesConfig
 	/** Leave the browser running when the session ends. Default `false`. */
 	readonly keepOpen?: boolean
+	/**
+	 * What makes a page a sign-in page. `address` (default) stops the turn on
+	 * any address that looks like one (`/login`, `/signin`, `/sso`, …). `page`
+	 * stops it only for the known sign-in hosts, a challenge or an HTTP
+	 * authentication prompt; any other page that shows a password or code
+	 * field loads, and the model is told once that it cannot type one.
+	 */
+	readonly signInDetection?: 'address' | 'page'
 }
 
 /** See `NamzuCliConfig.codeAnalysis`. */

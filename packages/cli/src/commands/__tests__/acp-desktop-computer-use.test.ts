@@ -29,6 +29,7 @@ afterEach(() => {
 
 async function optionsSeen(
 	runtimeOptions?: Parameters<typeof createCliAcpRuntime>[2],
+	config: Record<string, unknown> = {},
 ): Promise<Record<string, unknown>> {
 	let seen: Record<string, unknown> = {}
 	const deps = {
@@ -58,7 +59,7 @@ async function optionsSeen(
 		},
 	} as unknown as AcpRuntimeDependencies
 	const runtime = createCliAcpRuntime(
-		{ config: {}, formatter: { name: 'text', print() {}, info() {}, error() {} } },
+		{ config, formatter: { name: 'text', print() {}, info() {}, error() {} } },
 		deps,
 		runtimeOptions,
 	)
@@ -82,4 +83,39 @@ it('mounts the host computer for the desktop', async () => {
 it('leaves a bare ACP client without it', async () => {
 	expect('enableComputerUse' in (await optionsSeen())).toBe(false)
 	expect('enableComputerUse' in (await optionsSeen({ computerUse: false }))).toBe(false)
+})
+
+it('mounts the browser tools for the desktop with the config the terminal reads', async () => {
+	const seen = await optionsSeen(
+		{ computerUse: true },
+		{
+			browser: {
+				defaultProfile: 'work',
+				headless: 'always',
+				sites: { 'https://example.com': 'act' },
+				signInDetection: 'page',
+			},
+		},
+	)
+	expect(seen.browser).toMatchObject({
+		profile: 'work',
+		headless: 'always',
+		signInDetection: 'page',
+		sites: { 'https://example.com': 'act', '*': 'ask' },
+	})
+	// The site rules ride in front of the permission table.
+	expect((seen.rules as unknown[]).length).toBeGreaterThan(0)
+})
+
+it('mounts the browser tools for the desktop with no browser config at all, asking about every site', async () => {
+	const seen = await optionsSeen({ computerUse: true })
+	expect(seen.browser).toMatchObject({ sites: { '*': 'ask' } })
+})
+
+it('leaves a bare ACP client and a switched-off browser without them', async () => {
+	expect('browser' in (await optionsSeen())).toBe(false)
+	expect('browser' in (await optionsSeen({ computerUse: false }))).toBe(false)
+	expect(
+		'browser' in (await optionsSeen({ computerUse: true }, { browser: { enabled: false } })),
+	).toBe(false)
 })
