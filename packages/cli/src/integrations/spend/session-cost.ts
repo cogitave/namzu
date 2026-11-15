@@ -190,6 +190,15 @@ function sourceOf(reading: SessionCostReading): string | undefined {
 	return 'Source: an estimate from list prices (the provider reports no charge).'
 }
 
+/**
+ * Every money figure here is in US dollars. A person who asks in another
+ * currency gets one converted with a rate the model looks up now (never a
+ * remembered one), said with its source; with no rate to be had the dollar
+ * figure stands, named as dollars. Nothing here knows a rate offline.
+ */
+export const CURRENCY_LINE =
+	'All money above is in US dollars. If the person asked for another currency, look up a current exchange rate with the web tools in one step, convert, and say the rate and where it came from. If no rate can be found, give the dollar figure and say it is in dollars. Never guess a rate, never refuse.'
+
 /** The text the model reads. Plain lines, money first, never a bare 0 for an unknown price. */
 export function renderSessionCost(reading: SessionCostReading): string {
 	if (!reading.hasCalls) {
@@ -222,6 +231,7 @@ export function renderSessionCost(reading: SessionCostReading): string {
 	lines.push(
 		`Tokens: ${fmt(reading.tokens)} in total, of which ${fmt(reading.cachedTokens)} read from the cache and ${fmt(reading.outputTokens)} generated.`,
 	)
+	lines.push(CURRENCY_LINE)
 	lines.push(
 		'Calls still to come in this turn, including the reply that quotes these figures, are not counted yet: give the figure as the cost so far, not as the final total.',
 	)
@@ -241,7 +251,7 @@ export function buildSessionCostTool(
 	return defineTool({
 		name: SESSION_COST_TOOL,
 		description:
-			'Answers questions about what this conversation has cost: money spent so far and in the last completed turn, with where the figure comes from, plus token totals. Use it for any question about cost, price, spend or usage of this conversation. Takes no arguments.',
+			'Answers questions about what this conversation has cost: money spent so far and in the last completed turn, with where the figure comes from, plus token totals. Money is in US dollars; for another currency convert with a current rate looked up on the web, and say the rate. Use it for any question about cost, price, spend or usage of this conversation. Takes no arguments.',
 		inputSchema: mcpJsonSchemaToZod({
 			type: 'object',
 			properties: {},
