@@ -1,0 +1,5 @@
+---
+"@namzu/browser": minor
+---
+
+The browser lands on the thing you meant. A hover or click on a large container (a section holding a menu title) now goes to its first control or its own text instead of its empty middle, so a hover menu opens. `click` and `hover` also take a visible `text`, or a `role` with a `name`, and refuse with the candidates listed when none or several elements match. `press` works without a ref for Escape, Enter, Tab, Shift+Tab, PageDown, PageUp, Home, End and Space, and is refused while a password or code field has the focus; other keys still need a ref. `type` can send real key presses (`keys`), keep the existing text (`append`) or clear first (`clear`). A click that stopped before touching the page now says nothing changed and that one retry is safe, instead of "do not replay". A page that moved to another origin the site rules treat the same way is acted on, and the result says so. If you called `press` without a ref expecting the old refusal, any key outside the named set is still refused.
