@@ -154,11 +154,11 @@ The exported `BrowserPageSignals` type carries optional `status`, `wwwAuthentica
 
 The call throws `BrowserHumanRequiredError` (`code: 'browser_human_required'`) with the reason, the origin, the profile and `loginCommand` (`namzu browser login <profile> <origin><path>`, query dropped). The SDK tool turns it into a failed result carrying `data.handoff = { kind: 'human-required', reason, detail: { origin, profile, loginCommand } }`. The page is left as it is, so a person at a headed window can finish the sign-in there.
 
-Password and one-time-code inputs on an ordinary content page do not alone trigger a page-wide handoff. This lets the host read and navigate component galleries and settings pages that display credential controls. The host refuses actions targeting those controls, button clicks in forms that contain them, Enter keys and `type` submission in those forms, and all untargeted keys. Unrelated page controls remain usable. These structural checks do not prevent arbitrary page JavaScript from submitting stored values after an allowed click. A page-created dialog can be dismissed by the agent but cannot be accepted. Refusals on an ordinary content page are ordinary tool errors, not a sign-in handoff. A site with an unusual sign-in address can be added through `signInAddresses`.
+Password and one-time-code inputs on an ordinary content page do not alone trigger a page-wide handoff. This lets the host read and navigate component galleries and settings pages that display credential controls. The host refuses actions targeting those controls, button clicks in forms that contain them, Enter keys and `type` submission in those forms, and keys sent without a ref while the focus is on a credential field. Unrelated page controls remain usable. These structural checks do not prevent arbitrary page JavaScript from submitting stored values after an allowed click. A page-created dialog can be dismissed by the agent but cannot be accepted. Refusals on an ordinary content page are ordinary tool errors, not a sign-in handoff. A site with an unusual sign-in address can be added through `signInAddresses`.
 
 A bare 401 or 407 does not prove that a password prompt exists. If the page has an independent sign-in, second-factor, CAPTCHA or bot-check signal, that handoff still wins. On a bare 401, a visible password or one-time-code field is such a signal. Otherwise the host fails the call with the HTTP status and says that access was denied or the response is incomplete; it does not hand the user to a password prompt or return the denial page as a successful navigation. Chromium may reject a 407 before it loads the page (`ERR_UNEXPECTED_PROXY_AUTH`); the host reports that as an HTTP 407 proxy access failure as well. The SDK tool carries those host errors as failed tool results, without `data.handoff`.
 
-**Credential fields.** `click`, `hover`, `type`, `fill_form`, `press` and `upload` refuse a target that is `type=password`, has `autocomplete` `current-password`, `new-password` or `one-time-code`, or is named like a one-time code (`otp`, `totp`, `2fa`, `verification code`, …), before anything is typed, whatever the gate allowed. A `fill_form` that includes one fills nothing. An untargeted `press` is always refused because a key could reach an input inside a closed shadow root that Playwright cannot locate; a targeted `press` can still use an unrelated control.
+**Credential fields.** `click`, `hover`, `type`, `fill_form`, `press` and `upload` refuse a target that is `type=password`, has `autocomplete` `current-password`, `new-password` or `one-time-code`, or is named like a one-time code (`otp`, `totp`, `2fa`, `verification code`, …), before anything is typed, whatever the gate allowed. A `fill_form` that includes one fills nothing. A `press` without a ref takes only Escape, Enter, Tab, Shift+Tab, PageDown, PageUp, Home, End or Space and first reads the focus in every frame (through open shadow roots and same-origin frames): any such key is refused while the focus is on a credential field, Enter is refused while it is on a field of a form that holds one, and Enter and Space are refused when the focus sits on an element that is not a control, frame or tab stop, which is what a host with a closed shadow root looks like from outside. Any other key needs a ref, and a ref is checked as before.
 
 ## Snapshots
 
@@ -185,6 +185,20 @@ Screenshots mask `input` and `textarea` elements that Playwright can locate in t
 The page-reading scripts run in the page's own JavaScript world, so a hostile page can defeat the invisibility filter. It is hygiene; the boundary is the gate, the origin check, the credential refusal and the untrusted envelope the SDK wraps around every snapshot.
 
 A snapshot longer than a page (`snapshotMaxChars`, at most 20 000) is cut at a line boundary and returns `nextCursor`; `snapshot` with that cursor returns the next page. A cursor from an older snapshot is refused. At most 400 000 characters are kept, with a note at the end. `snapshot` with `ref` returns that element's subtree, cut from a whole-page snapshot so the other refs stay valid.
+
+## Reaching elements
+
+`click` and `hover` aim by what the element is (see [Reaching the element](browser-tools.md#reaching-the-element)). A trial action (`trial: true`) runs first; if it fails, nothing was done and the error is `browser_no_effect` with the cause in a clause (another element covers it, not visible, disabled, still moving, left the page, not ready in time). A failure of the real action is `browser_no_effect` only when it is a timeout whose call log never reached Playwright's "performing … action" line; any other failure is `browser_outcome_unknown`.
+
+What the engine does for the cases that are hard to reach, recorded by `src/__tests__/e2e/reach.test.ts` (`pnpm --filter @namzu/browser test:e2e:reach`):
+
+| Case | What happens |
+| --- | --- |
+| Cross-origin iframe | The snapshot includes the frame's content with `f<N>e<M>` refs, and click and type by ref work inside it. Lookup by role, name or text covers the main frame only, so it finds nothing in the frame. |
+| Button in an open shadow root | It has a ref, and role/name lookup finds it. A closed root is not in the tree at all. |
+| Control drawn on a canvas | Nothing appears in the snapshot: no ref, no name, no text. Namzu has no coordinate click, so it cannot be addressed; the model should say so. |
+| Link that opens a tab | The new tab is adopted (`t2`) and announced in the result, the old tab stays active, and `tabs select` moves to it. Refs are cleared by the switch. |
+| Covered control | Click and hover fail the trial and report `browser_no_effect`. |
 
 ## Tabs, dialogs, downloads
 

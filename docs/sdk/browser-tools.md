@@ -62,14 +62,24 @@ const tools = toolset('browser', createBrowserTools(host))
 | | `scroll` | `direction`, `ref?`, `amount?` | yes |
 | | `wait_for` | `text?`, `textGone?`, `timeMs?` (at most 30000; one of the three) | yes |
 | | `tabs` | `op`: `list`, `select`, `close` (with `tab`), `new` (with `url?`) | `new` is not |
-| `browser_act` | `click` | `ref`, `doubleClick?` | no |
-| | `type` | `ref`, `text`, `submit?` | no |
+| `browser_act` | `click` | a target (`ref`, or `text`, or `role` with `name`), `doubleClick?` | no |
+| | `type` | `ref`, `text`, `submit?`, `keys?`, `clear?`, `append?` | no |
 | | `fill_form` | `fields: [{ ref, value }]`, 1 to 20 | no |
 | | `select` | `ref`, `values` | no |
 | | `press` | `key`, `ref?` | no |
-| | `hover` | `ref` | no, and not destructive |
+| | `hover` | a target, as for `click` | no, and not destructive |
 | | `upload` | `ref`, `path` | no |
 | | `dialog` | `accept`, `promptText?` | no |
+
+### Reaching the element
+
+`click` and `hover` take exactly one target form. `ref` is an element of the latest snapshot. `text` is the element's visible text, and `role` with `name` is an ARIA role and its accessible name, for what the snapshot gave no ref (a menu that opens on hover, a control the tree leaves out). A `text` or `role`/`name` target is looked up in the page's main frame among visible elements, as Playwright's own text and role locators do (a substring, case-insensitive; when several match, the exact matches decide). Zero or several matches refuse with `browser_target_unclear`: nothing was done, and the result lists up to eight candidates as role and name. Elements inside another frame are reached by their `f<N>e<M>` refs, not by role or text.
+
+Where a click or hover lands depends on the element. A control (a link, button, field, an element with a control role, a tab stop, an `onclick` or `cursor: pointer`) is hit in its middle, as before. A container is not: the aim goes to its first visible control, else to the box of its own first text, because the middle of a wide section is often empty. A hover menu that opens on `:hover` of a section is opened this way from the section's ref.
+
+`press` without `ref` sends one of Escape, Enter, Tab, Shift+Tab, PageDown, PageUp, Home, End or Space (any case) to the focused element. Before sending, the host reads the focus in every frame, through open shadow roots, and refuses when the focus is on a password or one-time-code field or on a field of a form that holds one (for Enter). A focus on a component whose inside cannot be read (a closed shadow root) refuses Enter and Space only. Any other key needs a `ref`.
+
+`type` sets the value by default (replacing what the field holds). `keys: true` sends real key presses, one every 20 ms, for inputs that react to key events (suggestion lists, key handlers). `append: true` keeps the text and adds after it, `clear: true` empties first (the default; with empty `text` it only clears), and the two do not combine.
 
 Every `browser_act` call carries a required `origin` and an optional `snapshot: true` that returns the page after the action. Not offered: running JavaScript, downloads, cookies and storage, network interception, coordinate clicks, drag and drop, the console.
 
@@ -121,7 +131,7 @@ interface BrowserHost {
 }
 ```
 
-- `act` compares `action.origin` with the live origin of the page it is about to act on, immediately before acting, and throws a `browser_origin_mismatch` shape without acting when they differ. That is what binds an approval of "click Place order on shop.example.com" to that site after a redirect.
+- `act` compares `action.origin` with the live origin of the page it is about to act on, immediately before acting, and throws a `browser_origin_mismatch` shape without acting when they differ, unless the site rules put both origins at the level that needs no review (`act`): then it acts on the live page and reports `The page is now at X, not Y` in the result's `message`. That is what binds an approval of "click Place order on shop.example.com" to that site after a redirect.
 - `capabilities.unavailableReason` keeps both tools mounted, says why in their descriptions and refuses every call with it. `screenshot: false`, `upload: false` and `supportedActions` remove actions from the model schema and refuse them before the host is called.
 - `upload` paths are resolved by the tool against the turn's roots, following links, as the file tools resolve them (`pathArgument: 'path'`, so a path outside the roots becomes a review where the host enables that). The host receives the resolved absolute path.
 
@@ -133,6 +143,8 @@ The host refuses by throwing a value with one of these shapes. The tool recognis
 | `browser_stale_ref` | `ref` | The ref is from an older snapshot; take a new one. |
 | `browser_human_required` | `reason` (`sign-in`, `two-factor`, `captcha`, `bot-block`, `http-auth`, `credential-field`), `origin`, `profile?`, `loginCommand?` | Stop and tell the user; never sign in, solve it or type a password or code. The result's `data.handoff` is `{ kind: 'human-required', reason, detail: { origin, profile?, loginCommand? } }`, and its [`handoff`](tool-handoff.md) (`reason` in words, `detail` with `tool: 'browser'`, `cause` and the same fields) pauses the turn before the next model call. |
 | `browser_outcome_unknown` | `action`, `outcome: 'unknown'`, `retrySafety: 'unsafe'` | The host's message; do not replay. |
+| `browser_no_effect` | `action`, `outcome: 'unchanged'`, `retrySafety: 'once-after-snapshot'` | The action stopped before it touched the page (covered, hidden, disabled, still moving, or a timeout whose log never reached the input step). Nothing changed; one retry after a fresh snapshot is safe. |
+| `browser_target_unclear` | `wanted`, `matches`, `candidates: [{ role, name }]` | A text or role/name target matched none or several; nothing was done; name one candidate more exactly or use a ref. |
 | `browser_site_denied` | `origin` | Not allowed by the site rules; do not retry. |
 
 Each shape also carries a non-empty `message`.

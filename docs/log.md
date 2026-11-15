@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-15
+
+- **Update** [Browser tools](sdk/browser-tools.md#reaching-the-element), [The browser host](sdk/browser-host.md#reaching-elements): `click` and `hover` aim at a container's first control or own text instead of its empty middle and also take `text` or `role` with `name` (refusing none or several matches with the candidates listed); `press` works without a ref for a short named key set after a focus check that refuses credential fields; `type` gains `keys`, `clear` and `append`; a failure before the page was touched is `browser_no_effect` (one retry after a fresh snapshot is safe), distinct from `browser_outcome_unknown`; a stale origin is accepted and reported when the site rules treat both origins at `act`; the engine's behaviour for a cross-origin frame, an open shadow root, a canvas control and a popup tab is recorded with tests. `.changeset/browser-reach-the-element.md`, `.changeset/sdk-browser-reach-the-element.md`.
+
 ## 2026-11-14
 
 - **Update** [Terminal design](cli/terminal-design.md#esc): with a `/` or `@` suggestion menu open, Esc closes the menu and keeps the draft (no clear notice, and the clear window is not armed); in a Ctrl+R history search Esc leaves with the found text in the box and Ctrl+C goes back to the earlier draft. `.changeset/cli-esc-closes-menus-search-accepts.md`.
