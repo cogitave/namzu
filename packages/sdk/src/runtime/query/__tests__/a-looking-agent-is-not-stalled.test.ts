@@ -19,6 +19,9 @@ import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 import {
 	FORCED_STEP_MESSAGE,
+	LOOK_BUDGET_MESSAGE,
+	REASONING_CAPPED_MESSAGE,
+	REASONING_CAPPED_REPORT_MESSAGE,
 	STALL_NUDGE_MESSAGE,
 	STALL_REPORT_MESSAGE,
 } from '../turn/stall-monitor.js'
@@ -153,12 +156,21 @@ const forced = (provider: { requests: ChatCompletionParams[] }) =>
 	provider.requests.filter((r) => r.toolChoice === 'required').length
 
 describe('an agent whose tools only read', () => {
-	it('is not nudged or forced for 20 distinct reads', async () => {
+	it('is not nudged to stall or forced for 20 distinct reads, and is reminded once to report', async () => {
 		const provider = scriptedLooks(20, (i) => JSON.stringify({ n: i }))
 		const turn = await run(provider)
 
 		expect(turn.result).toBe('the report')
 		expect(provider.requests).toHaveLength(21)
+		// The reminder is a message on the request after the 8th step, kept in
+		// context for the rest of the turn, and never sent a second time.
+		const first = provider.requests.findIndex((r) =>
+			r.messages.some((m) => m.content === LOOK_BUDGET_MESSAGE),
+		)
+		expect(first).toBe(8)
+		expect(
+			provider.requests[20]?.messages.filter((m) => m.content === LOOK_BUDGET_MESSAGE),
+		).toHaveLength(1)
 		expect(carried(provider, STALL_REPORT_MESSAGE)).toBe(0)
 		expect(carried(provider, STALL_NUDGE_MESSAGE)).toBe(0)
 		expect(forced(provider)).toBe(0)
@@ -175,6 +187,12 @@ describe('an agent whose tools only read', () => {
 })
 
 describe('an agent that has an edit tool and only reads', () => {
+	it('is not given the looking budget', async () => {
+		const provider = scriptedLooks(10, (i) => JSON.stringify({ n: i }))
+		await run(provider, { withEdit: true })
+		expect(carried(provider, LOOK_BUDGET_MESSAGE)).toBe(0)
+	})
+
 	it('still gets the edit nudge at step 12', async () => {
 		const provider = scriptedLooks(14, (i) => JSON.stringify({ n: i }))
 		await run(provider, { withEdit: true })
@@ -242,6 +260,23 @@ describe('the action step a guard asks for', () => {
 
 	const thinkingOn: ThinkingConfig = { type: 'adaptive' }
 	const thinkingOff: ThinkingConfig = { type: 'disabled' }
+
+	it('is told to report, and not forced, when an agent that cannot change anything is cut', async () => {
+		// Even when the provider would accept a forced choice.
+		const provider = withAnswer(() => true)
+		await run(provider, { maxTokens: 50, thinking: thinkingOff })
+		expect(carried(provider, REASONING_CAPPED_REPORT_MESSAGE)).toBeGreaterThan(0)
+		expect(carried(provider, REASONING_CAPPED_MESSAGE)).toBe(0)
+		expect(forced(provider)).toBe(0)
+		expect(carried(provider, FORCED_STEP_MESSAGE)).toBe(0)
+	})
+
+	it('still says to make the first change for an agent that can change things', async () => {
+		const provider = withAnswer(() => true)
+		await run(provider, { withEdit: true, maxTokens: 50, thinking: thinkingOff })
+		expect(carried(provider, REASONING_CAPPED_MESSAGE)).toBeGreaterThan(0)
+		expect(carried(provider, REASONING_CAPPED_REPORT_MESSAGE)).toBe(0)
+	})
 
 	it('is asked in words when the provider cannot say', async () => {
 		const provider = withAnswer(undefined)

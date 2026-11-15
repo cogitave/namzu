@@ -91,6 +91,7 @@ import { type OutcomeCall, OutcomeLedger, type PendingOutcomeCall } from '../tur
 import {
 	FORCED_STEP_MESSAGE,
 	REASONING_CAPPED_MESSAGE,
+	REASONING_CAPPED_REPORT_MESSAGE,
 	REASONING_ONLY_MESSAGE,
 	StallMonitor,
 	asksQuestion,
@@ -1658,10 +1659,17 @@ export class IterationOrchestrator {
 								[NAMZU.TURN_ID]: recorder.turnId,
 								[NAMZU.ITERATION]: iterationNum,
 							})
+							// An agent that cannot change anything is asked to report, and its
+							// next step is not forced: a forced step could only be another look.
 							recorder.pushMessage(
-								createRuntimeContextMessage(REASONING_CAPPED_MESSAGE, 'progress-nudge'),
+								createRuntimeContextMessage(
+									this.stepCannotChange
+										? REASONING_CAPPED_REPORT_MESSAGE
+										: REASONING_CAPPED_MESSAGE,
+									'progress-nudge',
+								),
 							)
-							this.forceActionNextStep = true
+							if (!this.stepCannotChange) this.forceActionNextStep = true
 							this.observeStall(response, [])
 							await this.ctx.emitEvent({
 								type: 'iteration_completed',
