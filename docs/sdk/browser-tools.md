@@ -55,8 +55,8 @@ const tools = toolset('browser', createBrowserTools(host))
 
 | Tool | Action | Arguments | Read-only |
 | --- | --- | --- | --- |
-| `browser` | `navigate` | `url` | no |
-| | `back`, `forward`, `reload` | | no |
+| `browser` | `navigate` | `url`; returns the page's snapshot | no |
+| | `back`, `forward`, `reload` | return the page's snapshot | no |
 | | `snapshot` | `ref?`, `cursor?`, `view?` (`full`, `interactive`, `reading`, `delta`), `query?`, `role?` | yes |
 | | `value` | `ref` | yes |
 | | `screenshot` | `ref?`, `fullPage?` | yes |

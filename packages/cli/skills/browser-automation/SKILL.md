@@ -15,8 +15,9 @@ Two tools. `browser` looks and moves: `navigate`, `back`, `forward`,
 
 ## The loop
 
-1. **Snapshot first.** After `navigate`, and before any action, call
-   `browser` with `action: "snapshot"`. It returns the page as an
+1. **Snapshot first.** `navigate` (and `back`, `forward`, `reload`) already
+   returns the page as a snapshot; call `browser` with `action: "snapshot"`
+   when you need a fresh one, or a smaller view. It returns the page as an
    accessibility tree, each element marked `[ref=eN]`, under a header line:
 
    `Page: https://example.com — "Example page" (tab t1)`

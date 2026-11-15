@@ -1,4 +1,4 @@
-import type { BrowserRefDescription } from '@namzu/sdk'
+import type { BrowserEffect, BrowserRefDescription } from '@namzu/sdk'
 import type { Locator, Page } from 'playwright-core'
 import { isCredentialField } from './classifier.js'
 import { type InvisibleBoxes, type Rect, fieldFacts, invisibleBoxes } from './page-scripts.js'
@@ -555,6 +555,37 @@ export function diffLines(before: string, after: string, shown = 8): LineDiff {
 		removed: removed.length,
 		addedLines: added.slice(0, shown).map(cut),
 		removedLines: removed.slice(0, Math.max(1, Math.floor(shown / 2))).map(cut),
+	}
+}
+
+/** What the host knew of an action's surroundings, before and after it. */
+export interface EffectFacts {
+	readonly beforeTree: string
+	readonly afterTree: string
+	readonly urlBefore: string
+	readonly urlNow: string
+	readonly tabsBefore: number
+	readonly tabsNow: number
+	readonly settle: { readonly quiet: boolean; readonly waitedMs: number; readonly capMs: number }
+}
+
+/**
+ * The effect of one action, computed from the tree before and after it. The
+ * host reads the two trees; everything the model is told about the result
+ * comes from here, so a test can feed two trees and check the line.
+ */
+export function buildEffect(facts: EffectFacts, shown = 10): BrowserEffect {
+	const diff = diffLines(facts.beforeTree, facts.afterTree, shown)
+	const urlChanged = facts.urlNow !== facts.urlBefore
+	const changed = diff.added > 0 || diff.removed > 0 || urlChanged
+	return {
+		...(urlChanged ? { urlChanged: { from: facts.urlBefore, to: facts.urlNow } } : {}),
+		added: diff.added,
+		removed: diff.removed,
+		addedLines: diff.addedLines,
+		removedLines: diff.removedLines,
+		...(!changed && facts.tabsNow > facts.tabsBefore ? { newTab: true } : {}),
+		settle: facts.settle,
 	}
 }
 

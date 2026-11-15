@@ -5,6 +5,7 @@ import {
 	SELECT_OPTIONS_SHOWN,
 	SNAPSHOT_TOTAL_MAX_CHARS,
 	SnapshotPager,
+	buildEffect,
 	diffLines,
 	findInTree,
 	renderAriaTree,
@@ -399,5 +400,54 @@ describe('diffLines', () => {
 		expect(d.added).toBe(20)
 		expect(d.addedLines).toHaveLength(5)
 		expect(diffLines('', `- ${'x'.repeat(500)}`).addedLines[0]?.length).toBeLessThanOrEqual(160)
+	})
+})
+
+describe('buildEffect, as the host uses it around an action', () => {
+	const settle = { quiet: true, waitedMs: 220, capMs: 2000 }
+	const facts = (beforeTree: string, afterTree: string, more: object = {}) => ({
+		beforeTree,
+		afterTree,
+		urlBefore: 'http://site.test/a',
+		urlNow: 'http://site.test/a',
+		tabsBefore: 1,
+		tabsNow: 1,
+		settle,
+		...more,
+	})
+
+	it('says a select changed: the old value line goes, the new one comes', () => {
+		const before = renderAriaTree([select('none')])?.text ?? ''
+		const after = renderAriaTree([select('Gold')])?.text ?? ''
+		const effect = buildEffect(facts(before, after))
+		expect(effect.addedLines).toContain('combobox "Plan" [ref=e7]: Gold')
+		expect(effect.removedLines).toContain('combobox "Plan" [ref=e7]:')
+		expect(effect.urlChanged).toBeUndefined()
+	})
+
+	it('says no change when the trees are equal, and keeps the settle report', () => {
+		const text = renderAriaTree([select('Gold')])?.text ?? ''
+		const effect = buildEffect(facts(text, text))
+		expect(effect).toMatchObject({ added: 0, removed: 0, settle })
+		expect(effect.newTab).toBeUndefined()
+	})
+
+	it('reports an address change even when the tree did not change', () => {
+		const text = renderAriaTree([select('Gold')])?.text ?? ''
+		const effect = buildEffect(facts(text, text, { urlNow: 'http://site.test/b' }))
+		expect(effect.urlChanged).toEqual({ from: 'http://site.test/a', to: 'http://site.test/b' })
+	})
+
+	it('reports a new tab only when the page itself did not change', () => {
+		const text = renderAriaTree([select('Gold')])?.text ?? ''
+		expect(buildEffect(facts(text, text, { tabsNow: 2 })).newTab).toBe(true)
+		const other = renderAriaTree([select('Free')])?.text ?? ''
+		expect(buildEffect(facts(text, other, { tabsNow: 2 })).newTab).toBeUndefined()
+	})
+
+	it('carries a settle that hit its cap', () => {
+		const text = renderAriaTree([select('Gold')])?.text ?? ''
+		const capped = { quiet: false, waitedMs: 2000, capMs: 2000 }
+		expect(buildEffect(facts(text, text, { settle: capped })).settle).toEqual(capped)
 	})
 })

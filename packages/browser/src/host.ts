@@ -75,6 +75,7 @@ import { type SettleOutcome, type SettleProbe, waitUntilQuiet } from './settle.j
 import {
 	PLAYWRIGHT_CORE_VERSION,
 	SnapshotPager,
+	buildEffect,
 	captureAriaTree,
 	diffLines,
 	findInTree,
@@ -1036,6 +1037,16 @@ export class PlaywrightBrowserHost implements BrowserHost {
 				`The page has nothing to read yet (waited ${settled.waitedMs} ms). Call browser with wait_for and stable, or reload.`,
 			)
 		}
+		// The model's next step after opening a page is to read it, so the
+		// reading comes with the open: one request fewer on every page visit.
+		if (populated && originOf(tab.page.url()) !== 'null') {
+			try {
+				const snapshot = await this.takeSnapshot(tab)
+				return this.result({ page: snapshot.page, snapshot })
+			} catch {
+				// An unreadable page still opened; say where we are and let the model ask again.
+			}
+		}
 		return this.result({ page: await this.pageInfo(tab) })
 	}
 
@@ -1562,18 +1573,18 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		} catch {
 			return undefined
 		}
-		const diff = diffLines(before, after, EFFECT_LINES_SHOWN)
-		const urlNow = tab.page.url()
-		const changed = diff.added > 0 || diff.removed > 0 || urlNow !== urlBefore
-		return {
-			...(urlNow !== urlBefore ? { urlChanged: { from: urlBefore, to: urlNow } } : {}),
-			added: diff.added,
-			removed: diff.removed,
-			addedLines: diff.addedLines,
-			removedLines: diff.removedLines,
-			...(!changed && this.tabs.size > tabsBefore ? { newTab: true } : {}),
-			settle: { quiet: settled.quiet, waitedMs: settled.waitedMs, capMs: settled.capMs },
-		}
+		return buildEffect(
+			{
+				beforeTree: before,
+				afterTree: after,
+				urlBefore,
+				urlNow: tab.page.url(),
+				tabsBefore,
+				tabsNow: this.tabs.size,
+				settle: { quiet: settled.quiet, waitedMs: settled.waitedMs, capMs: settled.capMs },
+			},
+			EFFECT_LINES_SHOWN,
+		)
 	}
 
 	private async runAct(action: BrowserActAction): Promise<BrowserResult> {

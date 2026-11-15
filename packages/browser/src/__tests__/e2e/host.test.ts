@@ -1060,6 +1060,14 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 			expect(value.value?.options).toEqual(['-- choose --', 'Free', 'Gold'])
 		})
 
+		it('returns the page snapshot from navigate, with refs that can be acted on at once', async () => {
+			const opened = await host.observe({ action: 'navigate', url: `${origin()}/effects.html` })
+			expect(opened.snapshot?.text).toMatch(/button "Reveal" \[ref=\w+\]/)
+			const ref = refOf(opened.snapshot?.text ?? '', /button "Reveal"/)
+			const result = await host.act({ action: 'click', ref, origin: origin() })
+			expect(result.effect?.addedLines.join('\n')).toContain('Revealed text')
+		})
+
 		it('says what a click added, and says nothing changed when nothing did', async () => {
 			const text = await open()
 			const reveal = await host.act({
