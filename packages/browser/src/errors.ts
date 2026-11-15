@@ -2,10 +2,13 @@ import type {
 	BrowserActionName,
 	BrowserHumanRequired,
 	BrowserHumanRequiredReason,
+	BrowserNoEffect,
 	BrowserOriginMismatch,
 	BrowserOutcomeUnknown,
 	BrowserSiteDenied,
 	BrowserStaleRef,
+	BrowserTargetCandidate,
+	BrowserTargetUnclear,
 } from '@namzu/sdk'
 
 /**
@@ -111,6 +114,35 @@ export class BrowserOutcomeUnknownError extends Error implements BrowserOutcomeU
 		super(
 			`browser_act "${action}" started and did not finish cleanly (${firstLine(cause)}). The page may already have changed; take a snapshot before deciding what to do, and do not repeat the action blindly.`,
 		)
+	}
+}
+
+/** The action failed before it touched the page: nothing changed, one retry after a fresh snapshot is safe. */
+export class BrowserNoEffectError extends Error implements BrowserNoEffect {
+	override readonly name = 'BrowserNoEffectError'
+	readonly code = 'browser_no_effect' as const
+	readonly outcome = 'unchanged' as const
+	readonly retrySafety = 'once-after-snapshot' as const
+
+	constructor(
+		readonly action: BrowserActionName,
+		reason: string,
+	) {
+		super(`browser_act "${action}" did not happen: ${reason}.`)
+	}
+}
+
+/** A role/name or text target matched no element or several. Nothing was done. */
+export class BrowserTargetUnclearError extends Error implements BrowserTargetUnclear {
+	override readonly name = 'BrowserTargetUnclearError'
+	readonly code = 'browser_target_unclear' as const
+
+	constructor(
+		readonly wanted: string,
+		readonly matches: number,
+		readonly candidates: readonly BrowserTargetCandidate[],
+	) {
+		super(matches === 0 ? `No element matches ${wanted}.` : `${matches} elements match ${wanted}.`)
 	}
 }
 

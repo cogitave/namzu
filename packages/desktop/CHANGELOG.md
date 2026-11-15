@@ -1,5 +1,12 @@
 # @namzu/desktop
 
+## 0.8.5
+
+### Patch Changes
+
+- 833a4e7: In a narrow window the sidebar now opens right beside the icon rail instead of a rail's width further in, so it no longer covers part of the conversation and its top-left no longer looks cut off.
+- 89707b2: The sidebar's Recents list is tighter. A day heading is smaller and sits close to its conversations, with less room between one day's group and the next, and the conversation rows in Recents and under a project are a little shorter and closer together, so more of the list fits without scrolling. The project name beside a Recents title is kept.
+
 ## 0.8.4
 
 ### Patch Changes
