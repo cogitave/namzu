@@ -216,15 +216,14 @@ describe('headless surfaces never ask for the browser', () => {
 	// exec, exec --json and drain build their own
 	// session options. None of them may name the browser: a signed-in
 	// browser with nobody at the window is exactly what they must not get.
-	it.each([
-		'../../commands/exec.ts',
-		'../../commands/exec-json.ts',
-		'../../commands/drain.ts',
-	])('%s passes no browser option', (file) => {
-		const text = readFileSync(new URL(file, import.meta.url), 'utf8')
-		expect(text).not.toMatch(/\bbrowser\s*:/)
-		expect(text).not.toMatch(/createBrowserControl|createBrowserTools/)
-	})
+	it.each(['../../commands/exec.ts', '../../commands/exec-json.ts', '../../commands/drain.ts'])(
+		'%s passes no browser option',
+		(file) => {
+			const text = readFileSync(new URL(file, import.meta.url), 'utf8')
+			expect(text).not.toMatch(/\bbrowser\s*:/)
+			expect(text).not.toMatch(/createBrowserControl|createBrowserTools/)
+		},
+	)
 
 	it('acp asks for it only for the desktop application, never for a bare client', () => {
 		const text = readFileSync(new URL('../../commands/acp.ts', import.meta.url), 'utf8')
