@@ -321,9 +321,15 @@ export function bodySaysContextOverflow(body: string | undefined | null): boolea
 	return OVERFLOW_BODY_PATTERNS.some((re) => re.test(body))
 }
 
-/** Does a 403 body say the input was flagged by moderation rather than the key refused? */
+/**
+ * Does a 403 body say the input was flagged by moderation rather than the key
+ * refused? A bare "flagged" does not count: a refusal about a key or an account
+ * can use that word too, and the person would then be told the model declined
+ * their message. The moderation answer names moderation, the flagged input, or
+ * says the input itself was flagged.
+ */
 export function bodySaysModeration(body: string | undefined | null): boolean {
-	return !!body && /moderation|flagged|content (?:policy|filter)/i.test(body)
+	return !!body && /moderation|flagged_input|(?:input|prompt|messages?|content) (?:was |were |is |has been )?flagged|content (?:policy|filter)/i.test(body)
 }
 
 /** Does a 404 body say no host can serve the request, rather than that a path is unknown? */

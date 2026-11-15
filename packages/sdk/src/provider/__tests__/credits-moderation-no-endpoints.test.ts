@@ -13,6 +13,19 @@ describe('402, 403 and 404 kinds', () => {
 		expect(classifyProviderHttpStatus(403, MODERATION)).toBe('moderation')
 		expect(classifyProviderHttpStatus(403, '{"error":{"message":"forbidden"}}')).toBe('auth')
 		expect(classifyProviderHttpStatus(403)).toBe('auth')
+		// A refusal about the key or account is auth even when it says "flagged".
+		expect(
+			classifyProviderHttpStatus(403, '{"error":{"message":"This API key has been flagged"}}'),
+		).toBe('auth')
+		expect(
+			classifyProviderHttpStatus(403, '{"error":{"message":"Your account was flagged for review"}}'),
+		).toBe('auth')
+		expect(
+			classifyProviderHttpStatus(
+				403,
+				'{"error":{"message":"Your input was flagged","metadata":{"flagged_input":"x"}}}',
+			),
+		).toBe('moderation')
 		expect(classifyProviderHttpStatus(401, MODERATION)).toBe('auth')
 		expect(classifyProviderHttpStatus(404, NO_ENDPOINTS)).toBe('no_endpoints')
 		expect(classifyProviderHttpStatus(404, '{"error":{"message":"nope"}}')).toBe('bad_request')

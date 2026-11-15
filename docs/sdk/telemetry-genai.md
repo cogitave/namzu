@@ -61,7 +61,7 @@ added attributes is the number a backend that bills by attribute will see.
 | | `gen_ai.usage.cache_read.input_tokens` | int | tokens served from the provider's cache; only when the driver reported more than 0 | Recommended | added |
 | | `gen_ai.usage.cache_creation.input_tokens` | int | tokens written to the cache; only when more than 0 | Recommended | added |
 | | `gen_ai.usage.reasoning.output_tokens` | int | reasoning tokens, a subset of the output; only when the driver reported more than 0 | Recommended | added |
-| | `error.type` | string | on a failed call: the provider failure kind (`throttle`, `network`, `auth`, `context_overflow`, `bad_request`, `server`), else the error's class name, else `_OTHER` | Conditionally required | added |
+| | `error.type` | string | on a failed call: the provider failure kind (`throttle`, `network`, `auth`, `credits`, `moderation`, `no_endpoints`, `context_overflow`, `bad_request`, `server`), else the error's class name, else `_OTHER` | Conditionally required | added |
 | `namzu.tool.execute <tool>` | `gen_ai.operation.name` | string | `execute_tool` | Required | added |
 | | `gen_ai.tool.name` | string | the tool's name | Required | existing |
 | | `gen_ai.tool.call.id` | string | the model's call id, when there is one | Recommended | existing |
