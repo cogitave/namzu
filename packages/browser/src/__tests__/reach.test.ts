@@ -62,6 +62,16 @@ describe('telling a failed action by cause', () => {
 		expect(failedBeforeActing(NAVIGATING)).toBe(false)
 	})
 
+	it('a timeout while typing may have left some of the text in the field', () => {
+		const TYPING = Object.assign(
+			new Error(`elementHandle.type: Timeout 2000ms exceeded.
+Call log:
+  - elementHandle.type("a long sentence")`),
+			{ name: 'TimeoutError' },
+		)
+		expect(failedBeforeActing(TYPING)).toBe(false)
+	})
+
 	it('an error that is not a timeout is not claimed to be harmless', () => {
 		expect(failedBeforeActing(new Error('Target closed'))).toBe(false)
 		expect(failedBeforeActing('boom')).toBe(false)

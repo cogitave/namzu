@@ -225,6 +225,15 @@ describe.skipIf(!E2E)('reaching the right element', { timeout: 60_000 }, () => {
 			expect(await text()).toMatch(/textbox "Query" \[ref=\w+\]: start-1-2$/m)
 		})
 
+		it('a long typed text that times out is outcome unknown, never safe to retry', async () => {
+			await open('/keys')
+			const ref = refOf(await text(), /textbox "Query"/)
+			// 2 s limit at 20 ms a key: 400 characters cannot finish.
+			const error = await failure(act({ action: 'type', ref, text: 'x'.repeat(400), keys: true }))
+			expect(error).toMatchObject({ code: 'browser_outcome_unknown' })
+			expect(error).not.toMatchObject({ code: 'browser_no_effect' })
+		})
+
 		it('clear with empty text empties the field', async () => {
 			await open('/keys')
 			const ref = refOf(await text(), /textbox "Query"/)

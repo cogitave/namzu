@@ -205,5 +205,7 @@ export function failedBeforeActing(error: unknown): boolean {
 	if (!(error instanceof Error)) return false
 	const text = error.message
 	if (error.name !== 'TimeoutError' && !/Timeout \d+ms exceeded/.test(text)) return false
-	return !/performing \w+ action|action done|scheduled navigations/i.test(text)
+	return !/performing \w+ action|action done|scheduled navigations|\.(?:type|pressSequentially|fill)\(/i.test(
+		text,
+	)
 }

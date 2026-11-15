@@ -188,7 +188,7 @@ A snapshot longer than a page (`snapshotMaxChars`, at most 20 000) is cut at a l
 
 ## Reaching elements
 
-`click` and `hover` aim by what the element is (see [Reaching the element](browser-tools.md#reaching-the-element)). A trial action (`trial: true`) runs first; if it fails, nothing was done and the error is `browser_no_effect` with the cause in a clause (another element covers it, not visible, disabled, still moving, left the page, not ready in time). A failure of the real action is `browser_no_effect` only when it is a timeout whose call log never reached Playwright's "performing … action" line; any other failure is `browser_outcome_unknown`.
+`click` and `hover` aim by what the element is (see [Reaching the element](browser-tools.md#reaching-the-element)). A trial action (`trial: true`) runs first; if it fails, nothing was done and the error is `browser_no_effect` with the cause in a clause (another element covers it, not visible, disabled, still moving, left the page, not ready in time). A failure of the real action is `browser_no_effect` only when it is a timeout whose call log never reached Playwright's "performing … action" line; any other failure is `browser_outcome_unknown`. Typing with `keys` is always unknown once it has started, even when the timeout's log shows no input line, because part of the text may already be in the field (a retry with `append` would repeat it).
 
 What the engine does for the cases that are hard to reach, recorded by `src/__tests__/e2e/reach.test.ts` (`pnpm --filter @namzu/browser test:e2e:reach`):
 

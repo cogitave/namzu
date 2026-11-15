@@ -1403,9 +1403,11 @@ export class PlaywrightBrowserHost implements BrowserHost {
 				await this.guardField(locator)
 				if (action.submit) await this.guardCredentialForm(locator, 'type-submit')
 				await this.noEffectOnFailure('type', () => locator.click({ trial: true }))
-				await this.unknownOnFailure('type', async () => {
+				await this.unknownOnFailure('type', async (begun) => {
 					if (action.keys) {
 						await locator.focus()
+						// Clearing and typing change the field; from here a failure is not harmless.
+						begun()
 						if (action.append) await locator.press('Control+End')
 						else await locator.fill('')
 						await locator.pressSequentially(action.text, { delay: KEY_DELAY_MS })
@@ -1600,9 +1602,12 @@ export class PlaywrightBrowserHost implements BrowserHost {
 	 */
 	private async unknownOnFailure(
 		action: BrowserActAction['action'],
-		run: () => Promise<unknown>,
+		run: (begun: () => void) => Promise<unknown>,
 	): Promise<void> {
-		const running = run()
+		let touched = false
+		const running = run(() => {
+			touched = true
+		})
 		let timer: ReturnType<typeof setInterval> | undefined
 		const dialogOpened = new Promise<'dialog'>((resolve) => {
 			timer = setInterval(() => {
@@ -1614,7 +1619,7 @@ export class PlaywrightBrowserHost implements BrowserHost {
 			if (outcome === 'dialog') running.catch(() => undefined)
 		} catch (error) {
 			// A timeout whose log never reached the input step left the page alone.
-			throw failedBeforeActing(error)
+			throw !touched && failedBeforeActing(error)
 				? new BrowserNoEffectError(action, noEffectReason(error))
 				: new BrowserOutcomeUnknownError(action, error)
 		} finally {
