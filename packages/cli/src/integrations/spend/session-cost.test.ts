@@ -56,12 +56,12 @@ describe('session_cost', () => {
 				},
 			],
 		})
-		expect(result.output).toContain('All money above is in US dollars.')
-		expect(result.output).toMatch(/another currency, look up a current exchange rate/)
-		expect(result.output).toMatch(/dollars times the rate gives the main unit/)
-		expect(result.output).toMatch(/Say the rate and where it came from/)
-		expect(result.output).toMatch(/give the dollar figure and say it is in dollars/)
-		expect(result.output).toMatch(/Never guess a rate, never refuse/)
+		expect(result.output).toContain('Money above is in US dollars.')
+		expect(result.output).toMatch(/another currency was asked for, look up a current rate/)
+		expect(result.output).toMatch(/say the rate and its source/)
+		expect(result.output).toMatch(/multiply by a further 100/)
+		expect(result.output).toMatch(/give the dollars and say they are dollars/)
+		expect(result.output).toMatch(/Never guess a rate/)
 		const tool = buildSessionCostTool(() => {
 			throw new Error('unused')
 		})

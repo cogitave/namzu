@@ -197,7 +197,7 @@ function sourceOf(reading: SessionCostReading): string | undefined {
  * figure stands, named as dollars. Nothing here knows a rate offline.
  */
 export const CURRENCY_LINE =
-	'All money above is in US dollars. If the person asked for another currency, look up a current exchange rate with the web tools in one step, then convert: dollars times the rate gives the main unit, and times the rate and 100 gives its hundredth (cents to kuruş). Say the rate and where it came from. If no rate can be found, give the dollar figure and say it is in dollars. Never guess a rate, never refuse.'
+	'Money above is in US dollars. If another currency was asked for, look up a current rate with the web tools, multiply, and say the rate and its source; for a smaller unit (such as kuruş) multiply by a further 100. With no rate to be had, give the dollars and say they are dollars. Never guess a rate.'
 
 /** The text the model reads. Plain lines, money first, never a bare 0 for an unknown price. */
 export function renderSessionCost(reading: SessionCostReading): string {
