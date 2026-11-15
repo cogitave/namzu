@@ -369,6 +369,15 @@ function contextOf(parents: readonly AriaNode[]): string | undefined {
 	return undefined
 }
 
+/** The nearest ancestor that can be acted on or read by ref, as `role "name" [ref=eN]`. */
+function refContextOf(parents: readonly AriaNode[]): string | undefined {
+	for (let i = parents.length - 1; i >= 0; i--) {
+		const p = parents[i]
+		if (p?.ref) return `${p.role}${p.name ? ` ${quote(p.name)}` : ''} [ref=${p.ref}]`
+	}
+	return undefined
+}
+
 /**
  * Only the elements a call can act on, one line each, in page order, with the
  * heading or landmark they sit under. Cheap to read and to re-read; refs are
@@ -407,7 +416,8 @@ export interface FindResult {
  * Elements whose name, own text or direct text contains `query`
  * (case-insensitive), and/or that have the given role. Each match is its tree
  * line with its ref and the nearest named ancestor, so a model can reach
- * something a long page or a hover menu keeps out of sight.
+ * something a long page keeps out of sight. A match with no ref of its own (a
+ * table cell, a label) is listed with its text and the nearest ref above it.
  */
 export function findInTree(
 	nodes: readonly (string | AriaNode)[],
@@ -422,18 +432,26 @@ export function findInTree(
 	const out: string[] = []
 	let total = 0
 	for (const { node, parents } of seen) {
-		if (!node.ref) continue
 		if (role && node.role.toLowerCase() !== role) continue
+		const own = strings.get(node) ?? []
 		if (needle) {
-			const own = [node.name ?? '', node.text ?? '', ...(strings.get(node) ?? [])]
-				.join(' ')
-				.toLowerCase()
-			if (!own.includes(needle)) continue
+			const haystack = [node.name ?? '', node.text ?? '', ...own].join(' ').toLowerCase()
+			if (!haystack.includes(needle)) continue
+		} else if (!node.ref) {
+			// Without a text to look for, only elements a call can name.
+			continue
 		}
 		total += 1
 		if (out.length >= max) continue
-		const context = contextOf(parents)
-		out.push(`${lineOf(node, redact)}${context ? ` (in ${context})` : ''}`)
+		let line = lineOf(node, redact)
+		if (!node.name && own.length > 0 && heldValue(node, redact) === undefined) {
+			const text = own.join(' ')
+			line += `: ${text.length > 160 ? `${text.slice(0, 159)}…` : text}`
+		}
+		// A match that has no ref of its own (a table cell, a label) points at the
+		// nearest element above it that has one.
+		const context = node.ref ? contextOf(parents) : (refContextOf(parents) ?? contextOf(parents))
+		out.push(`${line}${context ? ` (in ${context})` : ''}`)
 	}
 	return { lines: out, total }
 }

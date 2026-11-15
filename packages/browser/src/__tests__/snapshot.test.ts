@@ -313,7 +313,35 @@ describe('find', () => {
 			{ query: 'products' },
 			20,
 		)
-		expect(found.lines).toEqual(['- generic [ref=e9]'])
+		expect(found.lines).toEqual(['- generic [ref=e9]: Products'])
+	})
+
+	it('lists a match that has no ref, with its text and the nearest ref above it', () => {
+		const table: AriaNode[] = [
+			{
+				role: 'table',
+				ref: 'e1',
+				name: 'Facts',
+				box: box(0, 0, 400, 100),
+				children: [
+					{
+						role: 'row',
+						box: box(0, 0, 400, 20),
+						children: [
+							{ role: 'rowheader', box: box(0, 0, 100, 20), children: ['Opened'] },
+							{ role: 'cell', box: box(100, 0, 300, 20), children: ['31 March 1889'] },
+						],
+					},
+				],
+			},
+		]
+		const none = { scrollX: 0, scrollY: 0, boxes: [] }
+		expect(findInTree(table, none, new Set(), { query: 'opened' }, 20).lines).toEqual([
+			'- rowheader: Opened (in table "Facts" [ref=e1])',
+		])
+		expect(findInTree(table, none, new Set(), { query: '1889', role: 'cell' }, 20).lines).toEqual([
+			'- cell: 31 March 1889 (in table "Facts" [ref=e1])',
+		])
 	})
 
 	it('requires the role and the text together, and caps the list but reports the total', () => {
