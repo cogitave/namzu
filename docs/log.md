@@ -2,6 +2,7 @@
 
 ## 2026-11-15
 
+- **Update** [Desktop sidebar numbers](cli/desktop.md#the-frames-numbers): a conversation row not yet laid out is held at the row height token (28 px), not a fixed 32 px, so the Recents heading is at its final position on the first painted frame (it moved 4 px a frame later after the compact Recents change). `.changeset/desktop-recents-heading-settles.md`.
 - **Update** [Desktop](cli/desktop.md): a project's conversations and terminals sit inside a thin guide line under the project's folder, with their titles 16 px right of the project's name, so they read as its children; Recents stays flat. `.changeset/desktop-sidebar-conversations-under-project.md`.
 - **Update** [Desktop](cli/desktop.md): the page no longer flickers up and down at a display scale of 125 or 150 percent (the panes' canvas drew and removed a scrollbar on every frame); the canvas is measured from a frame no scrollbar can change, and `e2e/ux-home-layout-stable.test.mjs` fails on any position that oscillates. `.changeset/desktop-canvas-no-flicker.md`.
 - **Update** [Desktop](cli/desktop.md#opening-a-folder): clicking a project's name in the sidebar after a new conversation in that project brings the project's empty conversation to the front (as a tab, or activated), so the message box is enabled instead of staying off. `.changeset/desktop-project-name-keeps-typing.md`.
