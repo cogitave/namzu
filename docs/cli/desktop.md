@@ -773,6 +773,8 @@ reconnects it through the same path as the banner's Reconnect. Pal and chat
 workspaces keep their previous failure handling. The main process still trusts
 nothing early. [Proof](../../research/project-connecting-20261008/README.md).
 
+**Going back to a project by its name.** Clicking a project's name in the sidebar shows the empty conversation kept for it. That conversation may be a tab behind another one, or no tab at all once a newer conversation replaced it (a hidden strip closes the empty one). The pane brings it to the front first (`bringDraftToFront`: it joins the pane as a tab, or is activated if it is already one) and closes the tabs it replaces as a sidebar row would. The message box is off while the tab in front is a different conversation from the one shown, so without this step a project opened by its name after a new conversation in it could not be typed in. Proof: `e2e/ux-first-run-project-typing.test.mjs` (a first run, each way a project is added, with the tab strip hidden and shown).
+
 Folder access is asked inside the app, never in a native message box. A folder
 chosen in the app's own folder picker is trusted by the main process right after
 the pick with no second prompt: the pick is the consent, and main captures it,
@@ -2228,7 +2230,13 @@ project exposes one, the git branch. The branch comes from the cached project re
 guess, and the line is left out when it is unknown or the head is detached. The card closes when the pointer
 leaves, on scroll, on click or drag, and while a menu is open; it does not open for keyboard focus or touch.
 The sidebar uses one folder glyph per project and plain conversation
-titles, in line with the project's name (see [The frame's numbers](#the-frames-numbers)). Each group initially shows five conversations, keeping the active one
+titles. A project's conversations (and its terminals) are its children: a 1 px guide line runs down from the
+centre of the project's folder, the rows sit inside it, and their titles (and "Show more") start 16 px right of the
+project's name, so they read as belonging to it. The line, the 2 px gap and the rows' 6 px leading edge are tokens in
+`theme.css` (`--sidebar-nest-line`, `--sidebar-nest-inset`, `--sidebar-nest-row-padding`); row height, spacing, the
+hover and selected fill and the state marks are as in [The frame's numbers](#the-frames-numbers). Recents stays a
+flat list grouped by day, at the full width. A conversation started while a project is the open one is listed under
+that project (`e2e/sidebar-nesting.test.mjs`). Each group initially shows five conversations, keeping the active one
 visible when it lies beyond that limit. Show more reveals additional loaded
 rows. Project headings omit connection dots; connection failures and recovery
 remain in the existing project status surfaces. Active and running conversations
@@ -2503,7 +2511,7 @@ four- or eight-pane product limit. Existing splits remain readable after a
 window shrinks: side-by-side panes whose two minimums no longer fit the width are stacked, one above the other, the
 same way at every width (`fitWorkspaceDirections`; the saved direction and ratio are untouched, so widening the window puts them
 side by side again), because stacking keeps both panes in view with the same dividers and tabs while a one-pane switch would hide a
-running terminal; the page never scrolls sideways. Stacked panes still scroll vertically when their minimum heights exceed the window. A pane at its minimum height never draws its body over its tab strip: the empty conversation's large heading ("What should we work on in …?") is not drawn when the pane has no room above the message box for it (the composer measures this and sets `data-heading-fits`), and the box with its suggestions scrolls inside the pane (`e2e/ux-layout-geometry.test.mjs`, one, two and three stacked panes at 700 and 900 px). Drag a divider to resize its branches, or focus it and use the
+running terminal; the page never scrolls sideways. Stacked panes still scroll vertically when their minimum heights exceed the window. The canvas is two boxes: a frame that is measured (its real, fractional size, so a display scale of 125 or 150 percent is exact) and a scroller inside it that scrolls only when the panes need more than the frame has, decided from the layout's own numbers. A scrollbar takes room from the scroller, never from the frame, so it cannot change the size the panes are laid out from; measuring the scrolling box itself once made the page flicker at 125 and 150 percent (a pane a fraction of a pixel too big drew a scrollbar, the smaller box shrank the panes, the scrollbar left, and the box grew back, every frame). `e2e/ux-home-layout-stable.test.mjs` samples the heading, the starters, the box and the canvas's scrollbars on every frame while the window is resized a pixel at a time across the thresholds at 100, 125, 150 and 200 percent, with the home screen, a long draft, an attachment and a split, and fails on any value that goes back and forth or keeps changing with no input. A pane at its minimum height never draws its body over its tab strip: the empty conversation's large heading ("What should we work on in …?") is not drawn when the pane has no room above the message box for it (the composer measures this and sets `data-heading-fits`), and the box with its suggestions scrolls inside the pane (`e2e/ux-layout-geometry.test.mjs`, one, two and three stacked panes at 700 and 900 px). Drag a divider to resize its branches, or focus it and use the
 appropriate arrow keys; Shift makes a larger step, and Home/End reach the
 readable bounds. Keyboard and pointer changes preserve both branches' minimums.
 Group controllers keep stable identities when the tree gains or loses a split.

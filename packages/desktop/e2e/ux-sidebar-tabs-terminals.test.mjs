@@ -483,7 +483,7 @@ flow(
 					page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
 					body: document.body.scrollWidth - document.body.clientWidth,
 					canvas: (() => {
-						const c = document.querySelector(".workspace-canvas");
+						const c = document.querySelector(".workspace-canvas-scroll");
 						return c ? c.scrollWidth - c.clientWidth : 0;
 					})(),
 				})),

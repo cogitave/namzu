@@ -2729,6 +2729,33 @@ export function App({
 		}
 	}
 
+	// A draft kept for a project may be a tab behind another one, or no tab at all once another
+	// conversation took its place (a hidden strip closes the empty one). Showing it while the tab in
+	// front is another conversation leaves the message box off, so it comes to the front first.
+	const bringDraftToFront = useCallback(
+		async (draftId: string) => {
+			const { group: pane, frozen: held } = context.current
+			if (held) return
+			if (pane.tabs.includes(draftId)) {
+				if (pane.activeTabId !== draftId)
+					await onAction({ kind: 'activate', groupId: pane.id, tabId: draftId })
+				return
+			}
+			const view = catalogueRows.current.conversations.find((row) => row.id === draftId)
+			if (!view) return
+			await onAction({ kind: 'open', tabId: draftId, groupId: pane.id })
+			if (showTabsRef.current) return
+			const stale = tabsReplacedOnOpen(
+				view,
+				context.current.group.tabs,
+				catalogueRows.current.conversations,
+			)
+			const closable = await closableStaleTabs(stale, api)
+			for (const tabId of closable)
+				void onAction({ kind: 'close', groupId: pane.id, tabId }).catch(() => undefined)
+		},
+		[api, onAction],
+	)
 	const createProjectDraft = useCallback(
 		async (item: ProjectView) => {
 			if (!item.trusted || item.status !== 'ready') return ''
@@ -2746,6 +2773,7 @@ export function App({
 			})
 			if (reused) {
 				projectDrafts.current.set(item.id, reused)
+				await bringDraftToFront(reused)
 				return reused
 			}
 			const view = await api.newConversation(item.id)
@@ -2754,7 +2782,7 @@ export function App({
 			setThreads((all) => ({ ...all, [view.id]: emptyThread() }))
 			return view.id
 		},
-		[api],
+		[api, bringDraftToFront],
 	)
 	// The composer is usable while a project's conversation is still being made, and what a person
 	// types in that gap lives under the pane's own key. The landing hands it on once the new

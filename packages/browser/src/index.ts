@@ -40,10 +40,12 @@ export type {
 } from './detect.js'
 export {
 	BrowserHumanRequiredError,
+	BrowserNoEffectError,
 	BrowserOriginMismatchError,
 	BrowserOutcomeUnknownError,
 	BrowserSiteDeniedError,
 	BrowserStaleRefError,
+	BrowserTargetUnclearError,
 	BrowserUnavailableError,
 	ProfileBusyError,
 } from './errors.js'

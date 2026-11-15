@@ -420,11 +420,12 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 		const code = page.frameLocator('iframe').locator('input')
 		await code.focus()
 		const before = await code.inputValue()
+		// A key outside the short named set needs a ref; a named one is refused
+		// because the focus is on the credential field inside the frame.
 		const untargeted = await refusal(host.act({ action: 'press', key: 'X', origin: origin() }))
-		expectOrdinaryRefusal(
-			untargeted,
-			'An untargeted key could reach a password or one-time-code control',
-		)
+		expectOrdinaryRefusal(untargeted, 'Without a ref, press takes only')
+		const named = await refusal(host.act({ action: 'press', key: 'Space', origin: origin() }))
+		expectOrdinaryRefusal(named, 'password or one-time-code control')
 		expect(await code.inputValue()).toBe(before)
 	})
 

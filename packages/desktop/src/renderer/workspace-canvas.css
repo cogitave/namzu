@@ -4,9 +4,19 @@
 	min-height: 0;
 	width: 100%;
 	height: 100%;
-	overflow: auto;
-	overscroll-behavior: contain;
+	overflow: hidden;
 	background: var(--sidebar);
+}
+/* Fills the frame and is the only box that scrolls, and only when the panes need more than the frame
+   has (data-scrolls). The frame is what is measured, so a scrollbar here changes no size. */
+.workspace-canvas-scroll {
+	position: absolute;
+	inset: 0;
+	overflow: hidden;
+	overscroll-behavior: contain;
+}
+.workspace-canvas-scroll[data-scrolls] {
+	overflow: auto;
 }
 .workspace-canvas-content {
 	position: relative;
