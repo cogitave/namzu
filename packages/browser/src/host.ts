@@ -11,9 +11,18 @@ import type {
 	BrowserSessionInfo,
 	BrowserSnapshot,
 	BrowserTabInfo,
+	BrowserTarget,
 } from '@namzu/sdk'
 import { canonicalizeBrowserOrigin, canonicalizeBrowserUrl, resolveNamzuHome } from '@namzu/sdk'
-import type { BrowserContext, CDPSession, Dialog, Locator, Page, Route } from 'playwright-core'
+import type {
+	BrowserContext,
+	CDPSession,
+	Dialog,
+	ElementHandle,
+	Locator,
+	Page,
+	Route,
+} from 'playwright-core'
 import {
 	type BrowserHumanClassifierOptions,
 	classifyHumanRequired,
@@ -31,10 +40,12 @@ import {
 } from './detect.js'
 import {
 	BrowserHumanRequiredError,
+	BrowserNoEffectError,
 	BrowserOriginMismatchError,
 	BrowserOutcomeUnknownError,
 	BrowserSiteDeniedError,
 	BrowserStaleRefError,
+	BrowserTargetUnclearError,
 	BrowserUnavailableError,
 	ProfileBusyError,
 } from './errors.js'
@@ -47,6 +58,21 @@ import {
 	BrowserProfileStore,
 	DEFAULT_BROWSER_PROFILE,
 } from './profiles.js'
+import {
+	type Aim,
+	CANDIDATES_MAX,
+	KEY_DELAY_MS,
+	NAMED_KEYS,
+	type NamedKey,
+	aimInside,
+	deepFocus,
+	describeCandidate,
+	failedBeforeActing,
+	focusIsOpaque,
+	keyCanCommit,
+	namedKey,
+	noEffectReason,
+} from './reach.js'
 import {
 	PLAYWRIGHT_CORE_VERSION,
 	SnapshotPager,
@@ -133,6 +159,15 @@ const EVENT_SETTLE_MS = 150
 /** Smallest frame that can hold a CAPTCHA a person is meant to solve. */
 const CAPTCHA_FRAME_MIN_PX = 30
 const REMEMBERED_DOCUMENTS_MAX = 64
+
+/** Something the credential guards can ask about: a located element or a handle to one. */
+type Probe = Locator | ElementHandle
+
+function evaluateOn<R>(target: Probe, fn: (element: Element) => R): Promise<R> {
+	return 'asElement' in target
+		? (target as ElementHandle).evaluate(fn)
+		: (target as Locator).evaluate(fn)
+}
 const SCREENSHOT_INPUT_MASK_COLOR = '#666666'
 
 function firstLine(error: unknown): string {
@@ -1184,8 +1219,8 @@ export class PlaywrightBrowserHost implements BrowserHost {
 	// Acting
 	// -------------------------------------------------------------------------
 
-	private async guardField(locator: Locator): Promise<ElementFieldFacts> {
-		const facts = await locator.evaluate(fieldFacts)
+	private async guardField(locator: Probe): Promise<ElementFieldFacts> {
+		const facts = await evaluateOn(locator, fieldFacts)
 		if (isCredentialField(facts)) {
 			throw new Error(
 				'This action targets a password or one-time-code control. Ask the operator to use the browser window.',
@@ -1196,11 +1231,11 @@ export class PlaywrightBrowserHost implements BrowserHost {
 
 	/** Refuse direct form submission while a form holds a password or code input. */
 	private async guardCredentialForm(
-		locator: Locator,
+		locator: Probe,
 		action: 'click' | 'press' | 'type-submit',
 		key?: string,
 	): Promise<void> {
-		const context = await locator.evaluate((element) => {
+		const context = await evaluateOn(locator, (element) => {
 			const label = element.closest('label') as HTMLLabelElement | null
 			const labelledField = label?.control
 				? {
@@ -1258,9 +1293,22 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		const expected = canonicalizeBrowserOrigin(action.origin)
 		const live = originOf(tab.page.url())
 		if (!expected.ok || expected.origin !== live) {
-			throw new BrowserOriginMismatchError(
-				expected.ok ? expected.origin : action.origin,
-				live === 'null' ? 'about:blank' : live,
+			// The page moved since the snapshot. Going on is fine only when the
+			// site rules treat the new origin exactly as the named one: both at
+			// `act`, where no review stood between the model and the page.
+			const sameRules =
+				expected.ok &&
+				live !== 'null' &&
+				this.policy.levelOf(expected.origin) === 'act' &&
+				this.policy.levelOf(live) === 'act'
+			if (!sameRules) {
+				throw new BrowserOriginMismatchError(
+					expected.ok ? expected.origin : action.origin,
+					live === 'null' ? 'about:blank' : live,
+				)
+			}
+			this.notes.unshift(
+				`The page is now at ${live}, not ${expected.origin}; the site rules treat both alike, so the action went ahead there.`,
 			)
 		}
 		if (!this.policy.canAct(live)) {
@@ -1332,29 +1380,43 @@ export class PlaywrightBrowserHost implements BrowserHost {
 	private async perform(tab: Tab, action: BrowserActAction): Promise<void> {
 		switch (action.action) {
 			case 'click': {
-				const locator = await this.resolveRef(tab, action.ref)
-				await this.guardField(locator)
-				await this.guardCredentialForm(locator, 'click')
-				await locator.click({ trial: true })
+				const target = await this.reach(tab, action)
+				await this.guardField(target.locator)
+				await this.guardCredentialForm(target.locator, 'click')
+				const at = target.position ? { position: target.position } : {}
+				await this.noEffectOnFailure('click', () => target.locator.click({ trial: true, ...at }))
 				await this.unknownOnFailure('click', () =>
-					action.doubleClick ? locator.dblclick() : locator.click(),
+					action.doubleClick ? target.locator.dblclick(at) : target.locator.click(at),
 				)
 				return
 			}
 			case 'hover': {
-				const locator = await this.resolveRef(tab, action.ref)
-				await this.guardField(locator)
-				await locator.hover({ trial: true })
-				await this.unknownOnFailure('hover', () => locator.hover())
+				const target = await this.reach(tab, action)
+				await this.guardField(target.locator)
+				const at = target.position ? { position: target.position } : {}
+				await this.noEffectOnFailure('hover', () => target.locator.hover({ trial: true, ...at }))
+				await this.unknownOnFailure('hover', () => target.locator.hover(at))
 				return
 			}
 			case 'type': {
 				const locator = await this.resolveRef(tab, action.ref)
 				await this.guardField(locator)
 				if (action.submit) await this.guardCredentialForm(locator, 'type-submit')
-				await locator.click({ trial: true })
+				await this.noEffectOnFailure('type', () => locator.click({ trial: true }))
 				await this.unknownOnFailure('type', async () => {
-					await locator.fill(action.text)
+					if (action.keys) {
+						await locator.focus()
+						if (action.append) await locator.press('Control+End')
+						else await locator.fill('')
+						await locator.pressSequentially(action.text, { delay: KEY_DELAY_MS })
+					} else if (action.append) {
+						const held = await locator
+							.inputValue()
+							.catch(() => locator.evaluate((el) => el.textContent ?? ''))
+						await locator.fill(held + action.text)
+					} else {
+						await locator.fill(action.text)
+					}
 					if (action.submit) await locator.press('Enter')
 				})
 				return
@@ -1401,9 +1463,15 @@ export class PlaywrightBrowserHost implements BrowserHost {
 					await this.unknownOnFailure('press', () => locator.press(action.key))
 					return
 				}
-				throw new Error(
-					'An untargeted key could reach a password or one-time-code control, including one inside a closed shadow root. Use a specific control instead.',
-				)
+				const key = namedKey(action.key)
+				if (!key) {
+					throw new Error(
+						`Without a ref, press takes only ${NAMED_KEYS.join(', ')}. Any other key goes to a specific control: give its ref.`,
+					)
+				}
+				await this.guardFocus(tab, key)
+				await this.unknownOnFailure('press', () => tab.page.keyboard.press(key))
+				return
 			}
 			case 'upload': {
 				const locator = await this.resolveRef(tab, action.ref)
@@ -1430,6 +1498,102 @@ export class PlaywrightBrowserHost implements BrowserHost {
 	}
 
 	/**
+	 * The element a click or hover means, and where on it to aim. A ref names
+	 * it directly; a role with a name, or visible text, is looked up and
+	 * refused unless exactly one element matches. A container (a section, a
+	 * list item holding a menu title) is not clicked in its middle, which is
+	 * often empty: the aim goes to its first control or to its own text.
+	 */
+	private async reach(
+		tab: Tab,
+		target: BrowserTarget,
+	): Promise<{ locator: Locator; position?: { x: number; y: number } }> {
+		const found =
+			target.ref !== undefined
+				? await this.resolveRef(tab, target.ref)
+				: await this.findTarget(tab, target)
+		let aim: Aim = { kind: 'centre' }
+		try {
+			aim = await found.evaluate(aimInside)
+		} catch {
+			// Aim at the middle, as before.
+		}
+		if (aim.kind === 'descendant') return { locator: found.locator(`xpath=${aim.path}`) }
+		if (aim.kind === 'text') return { locator: found, position: { x: aim.x, y: aim.y } }
+		return { locator: found }
+	}
+
+	/** Find the one element a role/name or text target means, or refuse with the candidates. */
+	private async findTarget(tab: Tab, target: BrowserTarget): Promise<Locator> {
+		const page = tab.page
+		const role = target.role
+		const wanted =
+			role !== undefined ? `${role} "${target.name ?? ''}"` : `text "${target.text ?? ''}"`
+		const build = (exact: boolean): Locator =>
+			role !== undefined
+				? page.getByRole(role as Parameters<Page['getByRole']>[0], {
+						name: target.name ?? '',
+						exact,
+					})
+				: page.getByText(target.text ?? '', { exact }).filter({ visible: true })
+		let locator = build(false)
+		let count = await locator.count()
+		if (count > 1) {
+			// A short name also fits longer ones ("Save" in "Save draft"): the exact matches decide.
+			const exact = build(true)
+			const exactCount = await exact.count()
+			if (exactCount > 0) {
+				locator = exact
+				count = exactCount
+			}
+		}
+		if (count === 1) return locator
+		const pool =
+			count > 0 ? locator : role !== undefined ? page.getByRole(role as never) : undefined
+		const candidates = []
+		if (pool) {
+			const total = Math.min(await pool.count(), CANDIDATES_MAX)
+			for (let i = 0; i < total; i++) {
+				candidates.push(await pool.nth(i).evaluate(describeCandidate))
+			}
+		}
+		throw new BrowserTargetUnclearError(wanted, count, candidates)
+	}
+
+	/**
+	 * Refuse a key sent to the page when the focus is on a credential, or
+	 * when it cannot be told. Every frame is asked, because the key goes to
+	 * whichever one holds the focus and a stale focus in another frame is
+	 * still a reason to be careful.
+	 */
+	private async guardFocus(tab: Tab, key: NamedKey): Promise<void> {
+		for (const frame of tab.page.frames()) {
+			const handle = await frame.evaluateHandle(deepFocus).catch(() => undefined)
+			const element = handle?.asElement() ?? null
+			if (!element) continue
+			if (keyCanCommit(key) && (await element.evaluate(focusIsOpaque))) {
+				throw new Error(
+					`The focus is on a component whose inside cannot be read, so ${key} could reach a password or code field. Use browser_act with the ref of a specific control.`,
+				)
+			}
+			await this.guardField(element)
+			await this.guardCredentialForm(element, 'press', key)
+		}
+	}
+
+	/** A check Playwright runs without acting (`trial`) failed: nothing on the page changed. */
+	private async noEffectOnFailure(
+		action: BrowserActAction['action'],
+		run: () => Promise<unknown>,
+	): Promise<void> {
+		try {
+			await run()
+		} catch (error) {
+			throw new BrowserNoEffectError(action, noEffectReason(error))
+		}
+	}
+
+	/**
 	 * Run the change. A failure once it has started is `outcome unknown`. A
 	 * dialog the action opens ends the wait: the page is paused until the
 	 * dialog is answered, and so is anything Playwright was still waiting for.
@@ -1449,7 +1613,10 @@ export class PlaywrightBrowserHost implements BrowserHost {
 			const outcome = await Promise.race([running, dialogOpened])
 			if (outcome === 'dialog') running.catch(() => undefined)
 		} catch (error) {
-			throw new BrowserOutcomeUnknownError(action, error)
+			// A timeout whose log never reached the input step left the page alone.
+			throw failedBeforeActing(error)
+				? new BrowserNoEffectError(action, noEffectReason(error))
+				: new BrowserOutcomeUnknownError(action, error)
 		} finally {
 			clearInterval(timer)
 		}

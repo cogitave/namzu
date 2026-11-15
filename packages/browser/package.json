@@ -53,6 +53,7 @@
     "format": "biome format --write src/",
     "test": "vitest run --passWithNoTests",
     "test:e2e": "NAMZU_BROWSER_E2E=1 vitest run src/__tests__/e2e/host.test.ts",
+    "test:e2e:reach": "NAMZU_BROWSER_E2E=1 vitest run src/__tests__/e2e/reach.test.ts",
     "test:e2e:wsl": "NAMZU_BROWSER_WSL_E2E=1 vitest run src/__tests__/e2e/windows.test.ts",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "pnpm lint && pnpm typecheck && pnpm build"
