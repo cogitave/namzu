@@ -214,3 +214,68 @@ test(
 		}
 	},
 );
+
+const expanded = (w) => toggle(w).getAttribute("aria-expanded");
+
+test(
+	"sidebar edge: in the narrow overlay Esc, a click outside and a double toggle close it, Settings leaves it closed, widening keeps it docked",
+	{ timeout: 280000 },
+	async () => {
+		const w = await createWorld({ rules: [], tabs: "hidden" });
+		let failed = true;
+		try {
+			await launch(w);
+			await openProject(w);
+			await size(w, 600);
+			await settled(w);
+			const open = async (label) => {
+				await toggle(w).click();
+				await settled(w);
+				const s = await read(w);
+				check(`${label}: opened`, s, true);
+				assert.equal(await expanded(w), "true", `${label}: toggle says open`);
+			};
+			const closed = async (label) => {
+				await settled(w);
+				const s = await read(w);
+				check(`${label}: closed`, s, false);
+				assert.equal(
+					await expanded(w),
+					"false",
+					`${label}: toggle says closed`,
+				);
+			};
+			await open("esc");
+			await w.page.keyboard.press("Escape");
+			await closed("esc");
+
+			await open("outside");
+			await w.page.mouse.click(540, 400);
+			await closed("outside");
+
+			await toggle(w).dblclick();
+			await closed("double toggle");
+
+			// Open the overlay, then widen: it stays docked at the edge.
+			await open("before widen");
+			await size(w, 1280);
+			await settled(w);
+			const s = await read(w);
+			check("widened from an open overlay", s, true);
+			await size(w, 600);
+			await settled(w);
+			if ((await read(w)).sidebar?.shown) await toggle(w).click();
+
+			await open("settings");
+			await w.page
+				.getByRole("button", { name: /settings/i })
+				.first()
+				.click();
+			await closed("settings");
+			await shot(w, "600-settings");
+			failed = false;
+		} finally {
+			await dispose(w, { failed });
+		}
+	},
+);
