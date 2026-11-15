@@ -52,9 +52,11 @@ function freePort() {
 }
 
 async function get(url) {
+	// A fresh connection and a time limit per try: a kept-alive connection that the site never answers must not stall a run.
 	for (let i = 0; i < 20; i++) {
 		try {
-			return await (await fetch(url)).json()
+			const res = await fetch(url, { headers: { connection: 'close' }, signal: AbortSignal.timeout(3000) })
+			return await res.json()
 		} catch {
 			await new Promise((r) => setTimeout(r, 250))
 		}
@@ -217,7 +219,13 @@ async function run(opts) {
 }
 
 function report(opts) {
-	const rows = fs.readFileSync(opts.results, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l))
+	// A label run twice counts once: the later row stands.
+	const byLabel = new Map()
+	for (const l of fs.readFileSync(opts.results, 'utf8').split('\n').filter(Boolean)) {
+		const r = JSON.parse(l)
+		byLabel.set(r.label, r)
+	}
+	const rows = [...byLabel.values()]
 	const groups = new Map()
 	for (const r of rows) {
 		const k = `${r.task}\t${r.model}`
