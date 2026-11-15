@@ -77,6 +77,20 @@ an error that arrives mid-stream) to the error's detail, as `(host X, code Y)`,
 each capped at 64 characters with control characters removed.
 `metadata.raw` is never read, since it can echo the prompt.
 
+## A listing that does not answer, and 402, 403 and 404
+
+Every read of OpenRouter's `/models` listing (the model picker, the context-window lookup, the effort read and the health check) is bounded at 5 seconds (`MODEL_LISTING_TIMEOUT_MS`), also when the transport ignores its signal. Past the bound the listing counts as absent: a window lookup answers `undefined` so the static table applies, and the effort read answers "no levels" so a `max` or `ultra` request goes out with `xhigh`. The picker's own listing fails with a `TimeoutError`. A caller's abort still wins over the bound.
+
+Three HTTP answers have their own `ProviderErrorKind` instead of a generic bad request, and none is retried:
+
+| Status | Kind | Taken when | Error code | Words for a person |
+|---|---|---|---|---|
+| 402 | `credits` | always | `usage_limit` | the account has no credit left; add credit or pick another model |
+| 403 | `moderation` | the body names moderation or a flagged input | `content_filter` | the model declined the message |
+| 403 | `auth` | any other 403 | `auth` | the key was not accepted |
+| 404 | `no_endpoints` | the body says "No endpoints found" or "No endpoint available" | `not_found` | no host can serve that model right now; pick another |
+| 404 | `bad_request` | any other 404 | `invalid_request` | unchanged |
+
 ## Related
 
 * [Completion audit](completion-audit.md): the reminder a turn gets when it ends after changing files without a check.

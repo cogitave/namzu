@@ -50,6 +50,9 @@ const PROVIDER_ERROR_KINDS: readonly ProviderErrorKind[] = [
 	'context_overflow',
 	'bad_request',
 	'server',
+	'credits',
+	'moderation',
+	'no_endpoints',
 ]
 
 /**
@@ -265,6 +268,9 @@ const KIND_SENTENCE: Record<ProviderErrorKind, string> = {
 	context_overflow: 'the request exceeded the model context window',
 	bad_request: 'the provider rejected the request as invalid',
 	server: 'the provider failed to complete the request',
+	credits: 'the account has no credit left',
+	moderation: 'the input was flagged by moderation',
+	no_endpoints: 'no host is available to serve the request',
 }
 
 function buildProviderErrorMessage(init: ProviderRequestErrorInit): string {
@@ -316,6 +322,27 @@ export function bodySaysContextOverflow(body: string | undefined | null): boolea
 }
 
 /**
+ * Does a 403 body say the input was flagged by moderation rather than the key
+ * refused? A bare "flagged" does not count: a refusal about a key or an account
+ * can use that word too, and the person would then be told the model declined
+ * their message. The moderation answer names moderation, the flagged input, or
+ * says the input itself was flagged.
+ */
+export function bodySaysModeration(body: string | undefined | null): boolean {
+	return (
+		!!body &&
+		/moderation|flagged_input|(?:input|prompt|messages?|content) (?:was |were |is |has been )?flagged|content (?:policy|filter)/i.test(
+			body,
+		)
+	)
+}
+
+/** Does a 404 body say no host can serve the request, rather than that a path is unknown? */
+export function bodySaysNoEndpoints(body: string | undefined | null): boolean {
+	return !!body && /no endpoints? (?:found|available)/i.test(body)
+}
+
+/**
  * `Retry-After` in milliseconds. The header is either delta-seconds or an
  * HTTP-date; both are specified, and vendors use both.
  *
@@ -360,7 +387,11 @@ export function classifyProviderHttpStatus(
 	status: number,
 	body?: string | null,
 ): ProviderErrorKind {
-	if (status === 401 || status === 403) return 'auth'
+	if (status === 402) return 'credits'
+	// A 403 is a refused key unless the body says the input was flagged.
+	if (status === 403) return bodySaysModeration(body) ? 'moderation' : 'auth'
+	if (status === 404 && bodySaysNoEndpoints(body)) return 'no_endpoints'
+	if (status === 401) return 'auth'
 	if (status === 429) return 'throttle'
 	if (status === 408 || status === 425) return 'network'
 	if (status >= 500) return 'server'

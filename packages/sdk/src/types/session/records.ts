@@ -210,7 +210,17 @@ const platformError = z
 /** The provider's own classification; its fields are owned by `types/provider/error.ts`. */
 const providerError = z
 	.object({
-		kind: z.enum(['throttle', 'network', 'auth', 'context_overflow', 'bad_request', 'server']),
+		kind: z.enum([
+			'throttle',
+			'network',
+			'auth',
+			'context_overflow',
+			'bad_request',
+			'server',
+			'credits',
+			'moderation',
+			'no_endpoints',
+		]),
 		providerId: text,
 	})
 	.passthrough()

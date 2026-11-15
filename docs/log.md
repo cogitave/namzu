@@ -2,6 +2,7 @@
 
 ## 2026-11-15
 
+- **Update** [Reasoning pace](sdk/reasoning-pace.md#a-listing-that-does-not-answer-and-402-403-and-404): the OpenRouter `/models` listing is read within 5 seconds (a listing that does not answer counts as absent and the documented fallbacks apply), and HTTP 402, a 403 that names moderation and a 404 "No endpoints found" are the new provider error kinds `credits`, `moderation` and `no_endpoints` (never retried), with their own words in the terminal; a 403 counts as moderation only when its body names moderation or says the input was flagged (a bare "flagged" about a key stays `auth`), and the telemetry `error.type` list names the new kinds. `.changeset/sdk-credits-moderation-no-endpoints.md`, `.changeset/openrouter-models-listing-bound.md`.
 - **Update** [Desktop](cli/desktop.md): in a window of 767 px or less the sidebar overlay starts at the rail's right edge instead of one rail's width further in. `.changeset/desktop-sidebar-overlay-edge.md`.
 - **Update** [Desktop sidebar numbers](cli/desktop.md#the-frames-numbers): the Recents list is compact: a day heading is a 22 px band, 8 px under the group above and 2 px above its first row, and a conversation row in Recents and in a project's list is 28 px high with 1 px between rows (new tokens in `theme.css`, measured by `e2e/ux-recents-spacing.test.mjs`). `.changeset/desktop-sidebar-recents-compact.md`.
 
