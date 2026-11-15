@@ -91,6 +91,7 @@ import { type OutcomeCall, OutcomeLedger, type PendingOutcomeCall } from '../tur
 import {
 	FORCED_STEP_MESSAGE,
 	REASONING_CAPPED_MESSAGE,
+	REASONING_CAPPED_REPORT_MESSAGE,
 	REASONING_ONLY_MESSAGE,
 	StallMonitor,
 	asksQuestion,
@@ -358,6 +359,8 @@ export class IterationOrchestrator {
 	private cappedStreak = 0
 	/** A reply that held only reasoning was already answered with one more request. */
 	private reasoningOnlyRetried = false
+	/** A reply with nothing in it at all was already asked for again with the same request. */
+	private emptyReplyRetried = false
 	/**
 	 * The model a refused request moved to. Once set it replaces the model the
 	 * step asked for, for the rest of the turn: the request that was refused
@@ -1658,10 +1661,17 @@ export class IterationOrchestrator {
 								[NAMZU.TURN_ID]: recorder.turnId,
 								[NAMZU.ITERATION]: iterationNum,
 							})
+							// An agent that cannot change anything is asked to report, and its
+							// next step is not forced: a forced step could only be another look.
 							recorder.pushMessage(
-								createRuntimeContextMessage(REASONING_CAPPED_MESSAGE, 'progress-nudge'),
+								createRuntimeContextMessage(
+									this.stepCannotChange
+										? REASONING_CAPPED_REPORT_MESSAGE
+										: REASONING_CAPPED_MESSAGE,
+									'progress-nudge',
+								),
 							)
-							this.forceActionNextStep = true
+							if (!this.stepCannotChange) this.forceActionNextStep = true
 							this.observeStall(response, [])
 							await this.ctx.emitEvent({
 								type: 'iteration_completed',
@@ -1958,7 +1968,10 @@ export class IterationOrchestrator {
 							? guardResult.stopReason
 							: undefined
 						const reasoningOnly = !hasContent && (response.message.reasoning?.length ?? 0) > 0
-						if (hasContent) this.reasoningOnlyRetried = false
+						if (hasContent) {
+							this.reasoningOnlyRetried = false
+							this.emptyReplyRetried = false
+						}
 						// A reply of reasoning alone is not an end: ask once more, plainly,
 						// before the closing request below.
 						if (reasoningOnly && !forceFinalize && !this.reasoningOnlyRetried) {
@@ -1970,6 +1983,34 @@ export class IterationOrchestrator {
 							recorder.pushMessage(
 								createRuntimeContextMessage(REASONING_ONLY_MESSAGE, 'progress-nudge'),
 							)
+							await this.ctx.emitEvent({
+								type: 'iteration_completed',
+								turnId: recorder.turnId,
+								iteration: iterationNum,
+								hasToolCalls: false,
+							})
+							yield* this.ctx.drainPending()
+							continue
+						}
+						// A reply with no text, no reasoning and no call, that the provider
+						// calls a normal stop, is asked for once more with the same request.
+						// The empty entry stays in the history but never reaches the wire
+						// (see withoutVoidAssistantTurns), so the request is unchanged. A
+						// reply cut at the output allowance is not this case: asking again
+						// spends the same allowance. Reasoning alone has its own path above.
+						const emptyReply =
+							!hasContent &&
+							!reasoningOnly &&
+							(response.message.toolCalls?.length ?? 0) === 0 &&
+							response.finishReason === 'stop'
+						if (emptyReply && !forceFinalize && !this.emptyReplyRetried) {
+							this.emptyReplyRetried = true
+							this.ctx.log.warn('Reply was empty — asking again with the same request', {
+								[NAMZU.TURN_ID]: recorder.turnId,
+								[NAMZU.ITERATION]: iterationNum,
+								'namzu.retry.attempt': 1,
+								'namzu.retry.reason': 'empty_reply',
+							})
 							await this.ctx.emitEvent({
 								type: 'iteration_completed',
 								turnId: recorder.turnId,
@@ -1992,7 +2033,7 @@ export class IterationOrchestrator {
 							// Never end silently: if even the closing request produced nothing,
 							// say so in plain words and how to go on.
 							if (
-								reasoningOnly &&
+								(reasoningOnly || (emptyReply && this.emptyReplyRetried)) &&
 								closingStopReason === undefined &&
 								!(
 									(
@@ -2003,7 +2044,9 @@ export class IterationOrchestrator {
 								).length
 							) {
 								recorder.setLastError(
-									'The model stopped after thinking without giving an answer or taking an action, even when asked again. Say "continue" and it will pick the work up from here.',
+									reasoningOnly
+										? 'The model stopped after thinking without giving an answer or taking an action, even when asked again. Say "continue" and it will pick the work up from here.'
+										: 'The model sent an empty reply twice, without an answer or an action. Say "continue" and it will pick the work up from here.',
 								)
 							}
 						}
@@ -2110,6 +2153,7 @@ export class IterationOrchestrator {
 						costBefore,
 					})
 					this.reasoningOnlyRetried = false
+					this.emptyReplyRetried = false
 					this.observeStall(response, reviewOutcome.results)
 					this.observeAudit(response, reviewOutcome.results)
 					await this.outcomeObserve(iterationNum, response, reviewOutcome.results)

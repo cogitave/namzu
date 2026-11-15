@@ -572,6 +572,11 @@ const KIND_TO_CODE: Readonly<Record<string, { code: ProviderErrorCode; retryable
 	auth: { code: 'auth', retryable: false },
 	context_overflow: { code: 'context_length_exceeded', retryable: false },
 	bad_request: { code: 'invalid_request', retryable: false },
+	// Spent credit is a spent allowance: the same non-retryable code a host
+	// already answers by offering another account.
+	credits: { code: 'usage_limit', retryable: false },
+	moderation: { code: 'content_filter', retryable: false },
+	no_endpoints: { code: 'not_found', retryable: false },
 }
 
 function classifyFromProviderRequestError(
