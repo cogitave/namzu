@@ -1,7 +1,7 @@
 // The frame obeys one rhythm, measured in the real app at 1280 by 820: both header bands are 36 high and
 // end on one y (with the strip of tabs and with the conversation bar, in Settings and on the collapsed
-// rail), a tab is 28 high and 4 from the top, every sidebar row is 32 high with 2 between rows and its
-// box from x 8 to x 277, every label starts at x 44 (navigation, project, conversation and Settings
+// rail), a tab is 28 high and 4 from the top, every sidebar row is 32 high with 2 between rows (a
+// conversation row in the lists is 28 high with 1 between rows) and its box from x 8 to x 277, every label starts at x 44 (navigation, project, conversation and Settings
 // section rows), the state mark's slot is 16 wide at x 18, a section title's text starts at x 18 in a
 // 28 band with 22 above and 4 below, the end controls of a row are 24 by 24 and 4 from its end, the foot
 // is 45 high with 28 buttons, and the selected row is 16 percent of the text colour in both themes. The
@@ -169,11 +169,12 @@ for (const tabs of ["shown", "hidden"]) {
 			if (tabs === "hidden") assert.equal(m.titleX - m.workspace.x, afterCluster, `${tag}: the title starts 12 after the left cluster`);
 			else assert.equal(m.tab.x - m.workspace.x, afterCluster, `${tag}: the first tab starts 12 after the left cluster`);
 
-			// D. Rows: 32 high, 2 apart, the box from x 8 to x 277, every label at x 44, the slot at x 18.
+			// D. Rows: 32 high (a conversation row 28), 2 apart (conversations 1), the box from x 8 to x 277, every label at x 44, the slot at x 18.
 			const rowRight = m.sidebar.right - 1 - 10;
 			assert.equal(rowRight, 277, `${tag}: the sidebar is 288 wide with its 1px line`);
 			for (const [name, r] of [["New conversation", m.newConversation], ["a project", m.project], ["a conversation", m.conversation]]) {
-				assert.equal(r.h, 32, `${tag}: ${name} row is 32 high`);
+				const high = name === "a conversation" ? 28 : 32;
+				assert.equal(r.h, high, `${tag}: ${name} row is ${high} high`);
 				assert.equal(r.x, 8, `${tag}: ${name} row starts at x 8`);
 				assert.equal(r.right, 277, `${tag}: ${name} row ends at x 277`);
 				assert.equal(r.label, 44, `${tag}: ${name} label starts at x 44`);
@@ -181,7 +182,7 @@ for (const tabs of ["shown", "hidden"]) {
 			}
 			assert.equal(m.newConversation.y - m.chrome.bottom, 8, `${tag}: the first row starts 8 under the header band`);
 			assert.equal(m.pal.y - m.newConversation.y, 34, `${tag}: two neighbouring rows' tops are 34 apart (navigation)`);
-			assert.equal(m.conversation.y - m.project.y, 34, `${tag}: two neighbouring rows' tops are 34 apart (project and conversation)`);
+			assert.equal(m.conversation.y - m.project.y, 33, `${tag}: a conversation's top is 33 under its project's top (32 high and 1 apart)`);
 			assert.equal(m.pal.label, 44, `${tag}: a Pal row's label starts at x 44`);
 			assert.equal(m.mark.x, 18, `${tag}: the state mark's slot starts at x 18`);
 			assert.equal(m.mark.w, 16, `${tag}: and is 16 wide`);
