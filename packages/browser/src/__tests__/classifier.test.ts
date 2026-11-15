@@ -5,6 +5,7 @@ import {
 	isCaptchaFrame,
 	isCredentialField,
 	isSignInAddress,
+	signInNotice,
 } from '../classifier.js'
 import { FIXTURE_EXPECTATIONS } from './fixture-signals.js'
 
@@ -249,5 +250,77 @@ describe('isCredentialField', () => {
 		expect(isCredentialField({ ...field, name: 'postcode' })).toBe(false)
 		expect(isCredentialField({ ...field, name: 'hotpot' })).toBe(false)
 		expect(isCredentialField({ ...field, tag: 'button', type: '', name: 'otp' })).toBe(false)
+	})
+})
+
+describe('signInDetection: page', () => {
+	const page = { signInDetection: 'page' } as const
+	const demo = {
+		...quiet,
+		url: 'https://demo.example.test/login',
+		title: 'Login Page',
+		status: 200,
+	}
+
+	it("keeps today's answer by default: a /login path alone is a sign-in", () => {
+		expect(classifyHumanRequired(demo)).toBe('sign-in')
+		expect(classifyHumanRequired({ ...demo, passwordFields: 1 })).toBe('sign-in')
+		expect(isSignInAddress(demo.url)).toBe(true)
+	})
+
+	it('does not stop on a /login path, with or without a password field', () => {
+		expect(classifyHumanRequired(demo, page)).toBeUndefined()
+		expect(classifyHumanRequired({ ...demo, passwordFields: 1 }, page)).toBeUndefined()
+		expect(
+			classifyHumanRequired(
+				{ ...demo, url: 'https://demo.example.test/2fa', oneTimeCodeFields: 1 },
+				page,
+			),
+		).toBeUndefined()
+		expect(isSignInAddress(demo.url, page)).toBe(false)
+	})
+
+	it("still stops on the listed hosts, the operator's own addresses and a bare 401 with a password field", () => {
+		expect(
+			classifyHumanRequired({ ...demo, url: 'https://accounts.google.com/v3/signin' }, page),
+		).toBe('sign-in')
+		expect(
+			classifyHumanRequired(
+				{ ...demo, url: 'https://sso.corp.test/start' },
+				{ ...page, signInAddresses: ['sso.corp.test'] },
+			),
+		).toBe('sign-in')
+		expect(
+			classifyHumanRequired({ ...demo, url: 'https://github.com/sessions/two-factor' }, page),
+		).toBe('two-factor')
+		expect(classifyHumanRequired({ ...demo, status: 401, passwordFields: 1 }, page)).toBe('sign-in')
+	})
+
+	it('still stops on a CAPTCHA and an HTTP challenge', () => {
+		expect(classifyHumanRequired({ ...demo, status: 401, wwwAuthenticate: 'Basic' }, page)).toBe(
+			'http-auth',
+		)
+		expect(
+			classifyHumanRequired({ ...demo, frameUrls: ['https://newassets.hcaptcha.com/x'] }, page),
+		).toBe('captcha')
+	})
+
+	it('gives a notice, naming the command, only for a page that shows a credential field', () => {
+		const text = signInNotice(
+			{ ...demo, passwordFields: 1 },
+			page,
+			'namzu browser login work https://demo.example.test/login',
+		)
+		expect(text).toContain('You cannot type one')
+		expect(text).toContain('Do the steps that do not need the sign-in')
+		expect(text).toContain('namzu browser login work')
+		expect(signInNotice({ ...demo, oneTimeCodeFields: 1 }, page)).toContain('code')
+		expect(signInNotice(demo, page)).toBeUndefined()
+		// Today's mode stops the turn instead, so it has nothing to add.
+		expect(signInNotice({ ...demo, passwordFields: 1 })).toBeUndefined()
+		// A page that already stopped the turn is not noted twice.
+		expect(
+			signInNotice({ ...demo, url: 'https://accounts.google.com/x', passwordFields: 1 }, page),
+		).toBeUndefined()
 	})
 })

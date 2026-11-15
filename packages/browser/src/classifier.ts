@@ -29,7 +29,18 @@ export interface BrowserHumanClassifierOptions {
 	 * prefix (`example.com/account/login`). Added to {@link SIGN_IN_ADDRESSES}.
 	 */
 	readonly signInAddresses?: readonly string[]
+	/**
+	 * What makes a page a sign-in page. `address` (the default) takes a path
+	 * such as `/login` as proof, wherever it appears. `page` takes the hosts
+	 * in {@link SIGN_IN_ADDRESSES} and `signInAddresses` as proof, and a path
+	 * only as a hint: the page itself must show a password or code field, and
+	 * even then it is reported by {@link signInNotice}, not as a stop.
+	 */
+	readonly signInDetection?: BrowserSignInDetection
 }
+
+/** See {@link BrowserHumanClassifierOptions.signInDetection}. */
+export type BrowserSignInDetection = 'address' | 'page'
 
 /**
  * Hosts and host/path prefixes that are a sign-in wherever they appear. The
@@ -126,23 +137,30 @@ export function isBotBlockTitle(title: string): boolean {
 	return BOT_BLOCK_TITLES.some((pattern) => pattern.test(flat))
 }
 
-/** Is `rawUrl` a sign-in address, by host list or by path? */
+function isListedSignInAddress(url: URL, options: BrowserHumanClassifierOptions): boolean {
+	const entries = [...SIGN_IN_ADDRESSES, ...(options.signInAddresses ?? [])]
+	return entries.some((entry) => addressMatches(url, entry))
+}
+
+/**
+ * Is `rawUrl` a sign-in address, by host list or by path? In `page` detection
+ * only the listed hosts count; a path alone is a hint the page must confirm.
+ */
 export function isSignInAddress(
 	rawUrl: string,
 	options: BrowserHumanClassifierOptions = {},
 ): boolean {
 	const url = parse(rawUrl)
 	if (!url || (url.protocol !== 'https:' && url.protocol !== 'http:')) return false
-	const entries = [...SIGN_IN_ADDRESSES, ...(options.signInAddresses ?? [])]
-	if (entries.some((entry) => addressMatches(url, entry))) return true
-	return SIGN_IN_PATH.test(url.pathname)
+	if (isListedSignInAddress(url, options)) return true
+	return options.signInDetection === 'page' ? false : SIGN_IN_PATH.test(url.pathname)
 }
 
-function isTwoFactorAddress(rawUrl: string): boolean {
+function isTwoFactorAddress(rawUrl: string, options: BrowserHumanClassifierOptions): boolean {
 	const url = parse(rawUrl)
 	if (!url) return false
 	if (TWO_FACTOR_ADDRESSES.some((entry) => addressMatches(url, entry))) return true
-	return TWO_FACTOR_PATH.test(url.pathname)
+	return options.signInDetection === 'page' ? false : TWO_FACTOR_PATH.test(url.pathname)
 }
 
 /**
@@ -170,12 +188,31 @@ export function classifyHumanRequired(
 	if (isBotBlockTitle(signals.title)) return 'bot-block'
 	const signInAddress = isSignInAddress(signals.url, options)
 	if (
-		isTwoFactorAddress(signals.url) ||
+		isTwoFactorAddress(signals.url, options) ||
 		((signals.status === 401 || signInAddress) && signals.oneTimeCodeFields > 0)
 	)
 		return 'two-factor'
 	if (signInAddress || (signals.status === 401 && signals.passwordFields > 0)) return 'sign-in'
 	return undefined
+}
+
+/**
+ * With `signInDetection: 'page'`, a page that shows a password or code field
+ * but did not stop the turn: what to tell the model instead. `undefined` when
+ * the page shows no such field, or when the turn was already stopped for it.
+ * The words say that a credential is never typed by the model, why, and that
+ * the steps that do not need the sign-in carry on.
+ */
+export function signInNotice(
+	signals: BrowserPageSignals,
+	options: BrowserHumanClassifierOptions = {},
+	loginCommand?: string,
+): string | undefined {
+	if (options.signInDetection !== 'page') return undefined
+	if (signals.passwordFields === 0 && signals.oneTimeCodeFields === 0) return undefined
+	if (classifyHumanRequired(signals, options) !== undefined) return undefined
+	const how = loginCommand ? ` The user can sign in with: ${loginCommand}` : ''
+	return `This page asks for a password or a code. You cannot type one: credentials and codes the user must supply are only ever entered by the user, in the browser window, because a model that holds one can be steered into leaking it. Do the steps that do not need the sign-in, then tell the user what was left undone and why.${how}`
 }
 
 /** What the host read about one field before typing into it. */

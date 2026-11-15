@@ -16,8 +16,10 @@ import { canonicalizeBrowserOrigin, canonicalizeBrowserUrl, resolveNamzuHome } f
 import type { BrowserContext, CDPSession, Dialog, Locator, Page, Route } from 'playwright-core'
 import {
 	type BrowserHumanClassifierOptions,
+	type BrowserPageSignals,
 	classifyHumanRequired,
 	isCredentialField,
+	signInNotice,
 } from './classifier.js'
 import {
 	type BrowserEnginePlan,
@@ -88,6 +90,8 @@ export interface PlaywrightBrowserHostOptions {
 	readonly executablePath?: string
 	/** More sign-in addresses for the classifier. */
 	readonly signInAddresses?: BrowserHumanClassifierOptions['signInAddresses']
+	/** What makes a page a sign-in page: `address` (default) or `page`. See {@link BrowserHumanClassifierOptions.signInDetection}. */
+	readonly signInDetection?: BrowserHumanClassifierOptions['signInDetection']
 	/** The command that opens a visible window for signing in. Default `namzu browser login <profile> <url>`. */
 	readonly loginCommand?: (profile: string, url: string) => string
 	/** Windows engine: how long starting and connecting to the browser may take. Default 60 000. */
@@ -106,6 +110,8 @@ interface Tab {
 	status?: number
 	wwwAuthenticate?: string
 	proxyAuthenticate?: string
+	/** The address the sign-in notice was last given for, so it is said once. */
+	signInNoticeFor?: string
 }
 
 type DocumentResponse = Pick<Tab, 'status' | 'wwwAuthenticate' | 'proxyAuthenticate'>
@@ -694,21 +700,28 @@ export class PlaywrightBrowserHost implements BrowserHost {
 				// A frame that went away while we looked is not a challenge.
 			}
 		}
-		const reason = classifyHumanRequired(
-			{
-				url,
-				title: await this.title(tab),
-				...(tab.status !== undefined ? { status: tab.status } : {}),
-				...(tab.wwwAuthenticate !== undefined ? { wwwAuthenticate: tab.wwwAuthenticate } : {}),
-				...(tab.proxyAuthenticate !== undefined
-					? { proxyAuthenticate: tab.proxyAuthenticate }
-					: {}),
-				...counts,
-				frameUrls,
-			},
-			this.options.signInAddresses ? { signInAddresses: this.options.signInAddresses } : {},
-		)
+		const signals: BrowserPageSignals = {
+			url,
+			title: await this.title(tab),
+			...(tab.status !== undefined ? { status: tab.status } : {}),
+			...(tab.wwwAuthenticate !== undefined ? { wwwAuthenticate: tab.wwwAuthenticate } : {}),
+			...(tab.proxyAuthenticate !== undefined ? { proxyAuthenticate: tab.proxyAuthenticate } : {}),
+			...counts,
+			frameUrls,
+		}
+		const classifier: BrowserHumanClassifierOptions = {
+			...(this.options.signInAddresses ? { signInAddresses: this.options.signInAddresses } : {}),
+			...(this.options.signInDetection ? { signInDetection: this.options.signInDetection } : {}),
+		}
+		const reason = classifyHumanRequired(signals, classifier)
 		if (reason) throw this.humanRequired(reason, tab)
+		// A page with a password field that did not stop the turn: say so once
+		// per address, so the model reports it instead of trying to type.
+		const notice = signInNotice(signals, classifier, this.loginCommandFor(url))
+		if (notice && tab.signInNoticeFor !== withoutQuery(url)) {
+			tab.signInNoticeFor = withoutQuery(url)
+			this.notes.push(notice)
+		}
 		if (tab.status === 401) {
 			throw new Error(
 				'The site returned HTTP 401 without a WWW-Authenticate challenge. Access was denied or the response is incomplete; no HTTP password prompt was identified. Tell the user the site refused this request.',

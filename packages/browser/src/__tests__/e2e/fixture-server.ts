@@ -64,6 +64,13 @@ export async function startFixtureServer(): Promise<FixtureServer> {
 			res.end('<!doctype html><title>Account</title><input type="password" aria-label="Password">')
 			return
 		}
+		if (path === '/signin/info') {
+			res.writeHead(200, { 'content-type': 'text/html' })
+			res.end(
+				'<!doctype html><title>About signing in</title><h1>How to sign in</h1><p>Plain text.</p>',
+			)
+			return
+		}
 		if (path === '/form-result') {
 			const rows = [...url.searchParams].map(([k, v]) => `<li>${k}=${escapeHtml(v)}</li>`).join('')
 			res.writeHead(200, { 'content-type': 'text/html' })
