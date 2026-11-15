@@ -57,10 +57,18 @@ export function WorkspaceCanvas({
 	onError,
 	busy = false,
 }: WorkspaceCanvasProps) {
+	// The frame is measured; the scroller inside it is what scrolls. A scrollbar takes room from the
+	// scroller and never from the frame, so drawing one cannot change the size the panes are laid out
+	// from. Measuring the scrolling box itself looped: a pane a fraction of a pixel too big drew a
+	// scrollbar, the smaller client box shrank the panes, the scrollbar left, the box grew back.
+	const frame = useRef<HTMLDivElement>(null)
 	const viewport = useRef<HTMLDivElement>(null)
 	const [size, setSize] = useState({ width: 0, height: 0 })
 	const [ratios, setRatios] = useState<Record<string, number>>({})
-	const [drop, setDrop] = useState<{ groupId: string; position: WorkspaceDropPosition }>()
+	const [drop, setDrop] = useState<{
+		groupId: string
+		position: WorkspaceDropPosition
+	}>()
 	const moving = useRef(false)
 	const ratioWrites = useRef<Record<string, number>>({})
 	const resize = useRef<
@@ -72,10 +80,17 @@ export function WorkspaceCanvas({
 	const geometry = workspaceGeometry(root, size, ratios)
 
 	useEffect(() => {
-		const node = viewport.current
+		const node = frame.current
 		if (!node) return
 		const measure = () => {
-			const next = { width: node.clientWidth, height: node.clientHeight }
+			// The real, fractional size: a display scale of 125 or 150 percent makes the box a fraction
+			// of a pixel wider than its rounded client size, and panes cut to the rounded size
+			// would leave a sliver or overflow by one.
+			const box = node.getBoundingClientRect()
+			const next = {
+				width: Math.round(box.width * 100) / 100,
+				height: Math.round(box.height * 100) / 100,
+			}
 			setSize((previous) =>
 				previous.width === next.width && previous.height === next.height ? previous : next,
 			)
@@ -183,9 +198,12 @@ export function WorkspaceCanvas({
 			})
 	}
 
+	// The scroller scrolls only when the panes need more room than the frame has: decided from the
+	// layout's own numbers, so the scrollbar is never a reason for a different layout.
+	const scrolls = geometry.width > size.width + 0.5 || geometry.height > size.height + 0.5
 	return (
 		<div
-			ref={viewport}
+			ref={frame}
 			className="workspace-canvas"
 			data-workspace-window={windowLayout.id}
 			onDragLeave={(event) => {
@@ -199,121 +217,138 @@ export function WorkspaceCanvas({
 					setDrop(undefined)
 			}}
 		>
-			<div
-				className="workspace-canvas-content"
-				style={{ width: geometry.width, height: geometry.height }}
-			>
-				{geometry.groups.map(({ group, rect }, index) => (
-					<section
-						key={group.id}
-						id={`workspace-group-${encodeURIComponent(windowLayout.id)}-${encodeURIComponent(group.id)}`}
-						className="workspace-canvas-pane"
-						aria-label={`Conversation group ${index + 1}`}
-						data-workspace-group={group.id}
-						data-focused={
-							windowLayout.focusedGroupId === group.id ||
-							(!windowLayout.root && group.id === emptyGroupId)
-						}
-						style={boxStyle(rect)}
-						onFocusCapture={() => onPaneFocus(group.id)}
-						onPointerDownCapture={(event) => {
-							if (
-								event.button === 1 &&
-								event.target instanceof Element &&
-								event.target.closest('.conversation-tab-label, .computer-workspace-tab-label')
+			<div ref={viewport} className="workspace-canvas-scroll" data-scrolls={scrolls || undefined}>
+				<div
+					className="workspace-canvas-content"
+					style={{ width: geometry.width, height: geometry.height }}
+				>
+					{geometry.groups.map(({ group, rect }, index) => (
+						<section
+							key={group.id}
+							id={`workspace-group-${encodeURIComponent(windowLayout.id)}-${encodeURIComponent(group.id)}`}
+							className="workspace-canvas-pane"
+							aria-label={`Conversation group ${index + 1}`}
+							data-workspace-group={group.id}
+							data-focused={
+								windowLayout.focusedGroupId === group.id ||
+								(!windowLayout.root && group.id === emptyGroupId)
+							}
+							style={boxStyle(rect)}
+							onFocusCapture={() => onPaneFocus(group.id)}
+							onPointerDownCapture={(event) => {
+								if (
+									event.button === 1 &&
+									event.target instanceof Element &&
+									event.target.closest('.conversation-tab-label, .computer-workspace-tab-label')
+								)
+									return
+								onPaneFocus(group.id)
+							}}
+							onDragOver={(event) => dragOver(event, group.id, rect)}
+							onDrop={(event) => receiveTab(event, group, rect)}
+						>
+							{renderPane(group)}
+						</section>
+					))}
+					{geometry.dividers.map((divider) => (
+						<div
+							key={divider.split.id}
+							className="workspace-canvas-divider"
+							role="separator"
+							tabIndex={busy ? -1 : 0}
+							aria-label={
+								divider.split.direction === 'horizontal'
+									? 'Resize side by side panes'
+									: 'Resize stacked panes'
+							}
+							aria-orientation={
+								divider.split.direction === 'horizontal' ? 'vertical' : 'horizontal'
+							}
+							aria-valuemin={Math.round(divider.minimumRatio * 100)}
+							aria-valuemax={Math.round(divider.maximumRatio * 100)}
+							aria-valuenow={Math.round(divider.ratio * 100)}
+							data-direction={divider.split.direction}
+							style={boxStyle(divider.rect)}
+							onPointerDown={(event) => {
+								if (busy || event.button !== 0) return
+								event.preventDefault()
+								event.currentTarget.focus({ preventScroll: true })
+								event.currentTarget.setPointerCapture(event.pointerId)
+								ratioWrites.current[divider.split.id] =
+									(ratioWrites.current[divider.split.id] ?? 0) + 1
+								resize.current = {
+									divider,
+									pointerId: event.pointerId,
+									ratio: divider.ratio,
+								}
+							}}
+							onPointerMove={(event) => {
+								const active = resize.current
+								if (!active || active.pointerId !== event.pointerId) return
+								const pointer = point(event.clientX, event.clientY)
+								active.ratio = workspacePointerRatio(active.divider, pointer.x, pointer.y)
+								setRatios((current) => ({
+									...current,
+									[active.divider.split.id]: active.ratio,
+								}))
+							}}
+							onPointerUp={(event) => {
+								const active = resize.current
+								if (!active || active.pointerId !== event.pointerId) return
+								resize.current = undefined
+								event.currentTarget.releasePointerCapture(event.pointerId)
+								commitResize(active.divider, active.ratio)
+							}}
+							onLostPointerCapture={() => {
+								if (!resize.current) return
+								clearRatio(resize.current.divider.split.id)
+								resize.current = undefined
+							}}
+							onKeyDown={(event) => {
+								if (
+									busy ||
+									event.defaultPrevented ||
+									event.altKey ||
+									event.ctrlKey ||
+									event.metaKey
+								)
+									return
+								const horizontal = divider.split.direction === 'horizontal'
+								const decrease = horizontal ? 'ArrowLeft' : 'ArrowUp'
+								const increase = horizontal ? 'ArrowRight' : 'ArrowDown'
+								let ratio = divider.ratio
+								if (event.key === decrease) ratio -= event.shiftKey ? 0.1 : 0.02
+								else if (event.key === increase) ratio += event.shiftKey ? 0.1 : 0.02
+								else if (event.key === 'Home') ratio = divider.minimumRatio
+								else if (event.key === 'End') ratio = divider.maximumRatio
+								else return
+								event.preventDefault()
+								event.stopPropagation()
+								commitResize(
+									divider,
+									Math.max(divider.minimumRatio, Math.min(divider.maximumRatio, ratio)),
+								)
+							}}
+						/>
+					))}
+					{drop &&
+						(() => {
+							const target = geometry.groups.find(({ group }) => group.id === drop.groupId)
+							if (!target) return null
+							return (
+								<div
+									className="workspace-canvas-drop-preview"
+									data-position={drop.position}
+									style={boxStyle(workspaceDropRect(target.rect, drop.position))}
+									aria-hidden="true"
+								>
+									<span>
+										{drop.position === 'center' ? 'Move tab here' : `Split ${drop.position}`}
+									</span>
+								</div>
 							)
-								return
-							onPaneFocus(group.id)
-						}}
-						onDragOver={(event) => dragOver(event, group.id, rect)}
-						onDrop={(event) => receiveTab(event, group, rect)}
-					>
-						{renderPane(group)}
-					</section>
-				))}
-				{geometry.dividers.map((divider) => (
-					<div
-						key={divider.split.id}
-						className="workspace-canvas-divider"
-						role="separator"
-						tabIndex={busy ? -1 : 0}
-						aria-label={
-							divider.split.direction === 'horizontal'
-								? 'Resize side by side panes'
-								: 'Resize stacked panes'
-						}
-						aria-orientation={divider.split.direction === 'horizontal' ? 'vertical' : 'horizontal'}
-						aria-valuemin={Math.round(divider.minimumRatio * 100)}
-						aria-valuemax={Math.round(divider.maximumRatio * 100)}
-						aria-valuenow={Math.round(divider.ratio * 100)}
-						data-direction={divider.split.direction}
-						style={boxStyle(divider.rect)}
-						onPointerDown={(event) => {
-							if (busy || event.button !== 0) return
-							event.preventDefault()
-							event.currentTarget.focus({ preventScroll: true })
-							event.currentTarget.setPointerCapture(event.pointerId)
-							ratioWrites.current[divider.split.id] =
-								(ratioWrites.current[divider.split.id] ?? 0) + 1
-							resize.current = { divider, pointerId: event.pointerId, ratio: divider.ratio }
-						}}
-						onPointerMove={(event) => {
-							const active = resize.current
-							if (!active || active.pointerId !== event.pointerId) return
-							const pointer = point(event.clientX, event.clientY)
-							active.ratio = workspacePointerRatio(active.divider, pointer.x, pointer.y)
-							setRatios((current) => ({ ...current, [active.divider.split.id]: active.ratio }))
-						}}
-						onPointerUp={(event) => {
-							const active = resize.current
-							if (!active || active.pointerId !== event.pointerId) return
-							resize.current = undefined
-							event.currentTarget.releasePointerCapture(event.pointerId)
-							commitResize(active.divider, active.ratio)
-						}}
-						onLostPointerCapture={() => {
-							if (!resize.current) return
-							clearRatio(resize.current.divider.split.id)
-							resize.current = undefined
-						}}
-						onKeyDown={(event) => {
-							if (busy || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey)
-								return
-							const horizontal = divider.split.direction === 'horizontal'
-							const decrease = horizontal ? 'ArrowLeft' : 'ArrowUp'
-							const increase = horizontal ? 'ArrowRight' : 'ArrowDown'
-							let ratio = divider.ratio
-							if (event.key === decrease) ratio -= event.shiftKey ? 0.1 : 0.02
-							else if (event.key === increase) ratio += event.shiftKey ? 0.1 : 0.02
-							else if (event.key === 'Home') ratio = divider.minimumRatio
-							else if (event.key === 'End') ratio = divider.maximumRatio
-							else return
-							event.preventDefault()
-							event.stopPropagation()
-							commitResize(
-								divider,
-								Math.max(divider.minimumRatio, Math.min(divider.maximumRatio, ratio)),
-							)
-						}}
-					/>
-				))}
-				{drop &&
-					(() => {
-						const target = geometry.groups.find(({ group }) => group.id === drop.groupId)
-						if (!target) return null
-						return (
-							<div
-								className="workspace-canvas-drop-preview"
-								data-position={drop.position}
-								style={boxStyle(workspaceDropRect(target.rect, drop.position))}
-								aria-hidden="true"
-							>
-								<span>
-									{drop.position === 'center' ? 'Move tab here' : `Split ${drop.position}`}
-								</span>
-							</div>
-						)
-					})()}
+						})()}
+				</div>
 			</div>
 		</div>
 	)

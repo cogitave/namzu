@@ -178,6 +178,28 @@
 .sidebar-project-list {
 	padding-top: var(--frame-thread-space);
 }
+/*
+ * A project's conversations (and terminals) are its children: a thin guide line runs down from the
+ * centre of the project's folder, and the rows sit inside it, so their titles start a step right of
+ * the project's name. Recents is a flat list and keeps the full width.
+ */
+.sidebar-project-list {
+	margin-left: calc(var(--frame-row-padding) + var(--frame-icon-slot) / 2);
+	padding-left: var(--sidebar-nest-inset);
+	border-left: 1px solid var(--sidebar-nest-line);
+}
+/* Inside the guide line a row's leading edge is tighter, so the title (and "Show more") start one
+   step right of the project's name rather than two. */
+.sidebar-project-list .conversation-row {
+	padding-left: var(--sidebar-nest-row-padding);
+}
+.sidebar-project-list .sidebar-list-disclosure > button {
+	padding-left: calc(
+		var(--sidebar-nest-row-padding) +
+		var(--frame-icon-slot) +
+		var(--frame-row-gap)
+	);
+}
 
 .sidebar-project-list .sidebar-conversation-button,
 .sidebar-recent-list .sidebar-conversation-button {
