@@ -2,9 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
 	ANSWER_NOW_MESSAGE,
-	DEFAULT_LOOK_BUDGET_STEPS,
 	DEFAULT_MAX_REASONING_TOKENS,
-	LOOK_BUDGET_MESSAGE,
 	STALL_NUDGE_MESSAGE,
 	STALL_REPORT_MESSAGE,
 	StallMonitor,
@@ -134,39 +132,5 @@ describe('an agent that cannot change anything', () => {
 		expect(monitor.observe(idle)).toEqual({ kind: 'nudge', text: STALL_REPORT_MESSAGE })
 		monitor.observe(idle)
 		expect(monitor.observe(idle)).toEqual({ kind: 'nudge', text: STALL_REPORT_MESSAGE })
-	})
-})
-
-describe('the looking budget of an agent that cannot change anything', () => {
-	const looked = { reasoningChars: 0, changedState: true, cannotChange: true }
-
-	it('reminds it once, after the default number of steps, and never forces', () => {
-		const monitor = new StallMonitor()
-		const kinds: string[] = []
-		for (let i = 0; i < DEFAULT_LOOK_BUDGET_STEPS * 3; i++) kinds.push(monitor.observe(looked).kind)
-		expect(kinds.filter((k) => k === 'nudge')).toHaveLength(1)
-		expect(kinds.indexOf('nudge')).toBe(DEFAULT_LOOK_BUDGET_STEPS - 1)
-		expect(kinds).not.toContain('force')
-		const again = new StallMonitor({ lookBudgetSteps: 2 })
-		again.observe(looked)
-		expect(again.observe(looked)).toEqual({ kind: 'nudge', text: LOOK_BUDGET_MESSAGE })
-	})
-
-	it('does not apply to an agent that can change things, and can be turned off', () => {
-		const changer = new StallMonitor({ lookBudgetSteps: 2 })
-		for (let i = 0; i < 6; i++) {
-			expect(changer.observe({ reasoningChars: 0, changedState: true }).kind).toBe('none')
-		}
-		const off = new StallMonitor({ lookBudgetSteps: 0 })
-		for (let i = 0; i < 20; i++) expect(off.observe(looked).kind).toBe('none')
-	})
-
-	it('yields to a stall nudge on the same step', () => {
-		const monitor = new StallMonitor({ lookBudgetSteps: 2, nudgeAfterSteps: 2 })
-		const idle = { reasoningChars: 0, changedState: false, cannotChange: true }
-		monitor.observe(idle)
-		const second = monitor.observe(idle)
-		expect(second.kind).toBe('nudge')
-		expect(second.kind === 'nudge' && second.text).toBe(STALL_REPORT_MESSAGE)
 	})
 })

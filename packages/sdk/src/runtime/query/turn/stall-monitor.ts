@@ -37,17 +37,6 @@ export const STALL_REPORT_MESSAGE =
 	'The last steps have not turned up anything new. Report now what you have found and what is still unknown, using what you have already seen. Do not repeat a look you have already made.'
 
 /**
- * What an agent that cannot change anything is told once, when it has spent
- * its looking budget without reporting. It is a reminder of what the job is:
- * it never forces anything, and the agent may look on for a gap it can name.
- */
-export const LOOK_BUDGET_MESSAGE =
-	'You have spent a good number of steps looking. If what you have already seen answers what you were asked, report it now: paths with line numbers, and what you did not find or did not read. Look further only to close a gap you can name, and name it in your report.'
-
-/** Steps an agent that cannot change anything looks before it is reminded to report. */
-export const DEFAULT_LOOK_BUDGET_STEPS = 8
-
-/**
  * What the model is told when it was asked a question and several steps have
  * only looked. It names the way out as the answer, never as another command.
  */
@@ -165,16 +154,6 @@ export interface StallConfig {
 	 * gathering. It is a nudge only; a question never forces a tool call.
 	 */
 	readonly answerAfterSteps?: number
-	/**
-	 * Steps an agent that can change nothing may spend looking before it is
-	 * reminded, once, to report. Default 8: in a measured run of four explore
-	 * agents on broad mapping tasks, the one that reported on its own did so
-	 * after 8 steps, and the three that went on to 16 to 20 spent the extra
-	 * steps re-reading ranges of files they had opened and adding paths that
-	 * did not change the report. The reminder is a nudge only, never a forced
-	 * call, and it is sent once per turn. `0` turns it off.
-	 */
-	readonly lookBudgetSteps?: number
 }
 
 /** What the monitor wants done after a step. */
@@ -215,9 +194,6 @@ export class StallMonitor {
 	private readonly nudgeAfterChars: number
 	private readonly forceAfterSteps: number
 	private readonly answerAfterSteps: number
-	private readonly lookBudgetSteps: number
-	private lookSteps = 0
-	private lookBudgetSpent = false
 	private idleSteps = 0
 	private idleChars = 0
 	private nudged = false
@@ -228,29 +204,9 @@ export class StallMonitor {
 		this.nudgeAfterChars = config?.nudgeAfterReasoningChars ?? 80_000
 		this.forceAfterSteps = config?.forceAfterSteps ?? 5
 		this.answerAfterSteps = config?.answerAfterSteps ?? 6
-		this.lookBudgetSteps = config?.lookBudgetSteps ?? DEFAULT_LOOK_BUDGET_STEPS
 	}
 
 	observe(step: StallObservation): StallDirective {
-		const budget = this.observeLookBudget(step)
-		const directive = this.observeStall(step)
-		// A stall nudge already says to report; the budget reminder only speaks
-		// when nothing else does on this step.
-		return directive.kind === 'none' ? budget : directive
-	}
-
-	/** Counts the steps of an agent that cannot change anything; reminds it once. */
-	private observeLookBudget(step: StallObservation): StallDirective {
-		if (step.cannotChange !== true || this.lookBudgetSteps <= 0 || this.lookBudgetSpent) {
-			return { kind: 'none' }
-		}
-		this.lookSteps += 1
-		if (this.lookSteps < this.lookBudgetSteps) return { kind: 'none' }
-		this.lookBudgetSpent = true
-		return { kind: 'nudge', text: LOOK_BUDGET_MESSAGE }
-	}
-
-	private observeStall(step: StallObservation): StallDirective {
 		if (step.changedState) {
 			this.reset()
 			return { kind: 'none' }
