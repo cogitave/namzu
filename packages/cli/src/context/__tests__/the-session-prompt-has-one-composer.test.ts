@@ -125,7 +125,8 @@ describe('the session system prompt', () => {
 			'Do not fetch them with the shell',
 			'a code displayed in another tab',
 			'Passwords and one-time codes are never typed',
-			'carry on with the rest',
+			'carry on with every other step the page lets you do',
+			'say so in your report instead of looking for it',
 			'report what the page showed',
 		]) {
 			expect(BROWSER_WEB_TASK_GUIDANCE).toContain(part)

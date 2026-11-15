@@ -1201,7 +1201,7 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		const facts = await locator.evaluate(fieldFacts)
 		if (isCredentialField(facts)) {
 			throw new Error(
-				'This action targets a password or one-time-code control. Ask the operator to use the browser window.',
+				'This action targets a password or one-time-code control. Ask the operator to use the browser window. Do the other steps of the task that do not need it, then tell the user which step was left and why.',
 			)
 		}
 		return facts
@@ -1260,7 +1260,7 @@ export class PlaywrightBrowserHost implements BrowserHost {
 			action === 'type-submit'
 		) {
 			throw new Error(
-				'This action could submit a form containing a password or one-time-code control. Ask the operator to use the browser window.',
+				'This action could submit a form containing a password or one-time-code control. Ask the operator to use the browser window. Do the other steps of the task that do not need it, then tell the user which step was left and why.',
 			)
 		}
 	}
