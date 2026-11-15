@@ -197,11 +197,18 @@ function score(task) {
 	return { task, steps, done, total: Object.keys(defs).length, extra, events: st.log.length }
 }
 
+process.on('uncaughtException', (error) => console.error('bench site:', error))
 http
 	.createServer(async (req, res) => {
 		let b = ''
 		for await (const c of req) b += c
-		const url = new URL(req.url, 'http://x')
+		let url
+		try {
+			url = new URL(req.url, 'http://x')
+		} catch {
+			// A model probing the site with curl can send an address that is not one; answer, never crash.
+			return send(res, 400, 'bad request')
+		}
 		const u = url.pathname
 		if (u === '/')
 			return send(

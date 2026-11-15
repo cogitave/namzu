@@ -162,7 +162,10 @@ async function runOne({ opts, task, modelKey, n }) {
 		const total = Object.keys(steps).length
 		const row = {
 			label, task, model: modelKey, run: n, steps, done, total: total || null,
-			complete: score ? done === total && answerOk : answerOk, answerOk,
+			// A site task whose score could not be read (the site died) is never complete.
+			scoreLost: def.site && !score,
+			complete: def.site ? Boolean(score) && done === total && answerOk : answerOk,
+			answerOk,
 			wrongCode: score?.extra?.wrongCode ?? 0,
 			...m, wallClockS: (Date.now() - started) / 1000,
 		}
