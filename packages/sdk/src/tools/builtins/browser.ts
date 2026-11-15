@@ -117,15 +117,28 @@ const observeSchema = z
 			ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'only tabs new takes url' })
 	})
 
+/** The words a person would use to find a control: a role, an accessible name, visible text. */
+const roleSchema = z
+	.string()
+	.regex(/^[A-Za-z][A-Za-z-]{0,31}$/, 'a role is an ARIA role like button, link or menuitem')
+const nameSchema = z.string().min(1).max(500)
+
+const targetFields = {
+	ref: refSchema.optional(),
+	role: roleSchema.optional(),
+	name: nameSchema.optional(),
+	text: nameSchema.optional(),
+}
+
 const actCommon = {
 	origin: originSchema,
 	snapshot: z.boolean().optional(),
 }
 
-const actSchema = z.discriminatedUnion('action', [
+const actUnion = z.discriminatedUnion('action', [
 	z.object({
 		action: z.literal('click'),
-		ref: refSchema,
+		...targetFields,
 		doubleClick: z.boolean().optional(),
 		...actCommon,
 	}),
@@ -134,6 +147,9 @@ const actSchema = z.discriminatedUnion('action', [
 		ref: refSchema,
 		text: z.string().max(10_000),
 		submit: z.boolean().optional(),
+		keys: z.boolean().optional(),
+		clear: z.boolean().optional(),
+		append: z.boolean().optional(),
 		...actCommon,
 	}),
 	z.object({
@@ -156,7 +172,7 @@ const actSchema = z.discriminatedUnion('action', [
 		ref: refSchema.optional(),
 		...actCommon,
 	}),
-	z.object({ action: z.literal('hover'), ref: refSchema, ...actCommon }),
+	z.object({ action: z.literal('hover'), ...targetFields, ...actCommon }),
 	z.object({
 		action: z.literal('upload'),
 		ref: refSchema,
@@ -170,6 +186,33 @@ const actSchema = z.discriminatedUnion('action', [
 		...actCommon,
 	}),
 ])
+
+const actSchema = actUnion.superRefine((v, ctx) => {
+	if (v.action === 'click' || v.action === 'hover') {
+		const forms = [v.ref !== undefined, v.text !== undefined, v.role !== undefined].filter(Boolean)
+		if (forms.length !== 1) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				message: `${v.action} needs exactly one of ref, text, or role with name`,
+			})
+		}
+		if (v.name !== undefined && v.role === undefined) {
+			ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'name goes with role' })
+		}
+		if (v.role !== undefined && v.name === undefined) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				message: 'role needs the accessible name to go with it',
+			})
+		}
+		if (v.ref !== undefined && (v.name !== undefined || v.role !== undefined)) {
+			ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'use ref alone' })
+		}
+	}
+	if (v.action === 'type' && v.clear === true && v.append === true) {
+		ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'clear and append exclude each other' })
+	}
+})
 
 /** The `browser` tool's input after canonicalisation. */
 export type BrowserToolInput = z.infer<typeof observeSchema>
@@ -286,7 +329,7 @@ function actModelSchema(actions: readonly BrowserActActionName[]) {
 				type: 'string',
 				enum: [...actions],
 				description:
-					'click needs ref; type needs ref and text; fill_form needs fields; select needs ref and values; press needs key; hover needs ref; upload needs ref and path; dialog needs accept.',
+					'click and hover need a ref, or text, or role with name; type needs ref and text; fill_form needs fields; select needs ref and values; press needs key; upload needs ref and path; dialog needs accept.',
 			},
 			origin: {
 				type: 'string',
@@ -294,8 +337,34 @@ function actModelSchema(actions: readonly BrowserActActionName[]) {
 					'Required: the origin from the latest snapshot header ("Page: <origin> — …"), e.g. https://example.com. The call is refused if the page is no longer there.',
 			},
 			ref: { type: 'string', description: 'Element ref from the latest snapshot, like e12.' },
-			text: { type: 'string', description: 'type: the text to enter into the element.' },
+			text: {
+				type: 'string',
+				description:
+					'type: the text to enter into the element. click and hover: the visible text of the element, when the snapshot has no ref for it.',
+			},
+			role: {
+				type: 'string',
+				description:
+					'click and hover: an ARIA role such as button, link or menuitem; goes with name, instead of a ref.',
+			},
+			name: {
+				type: 'string',
+				description: 'click and hover: the accessible name that goes with role.',
+			},
 			submit: { type: 'boolean', description: 'type: press Enter afterwards.' },
+			keys: {
+				type: 'boolean',
+				description:
+					'type: send real key presses one at a time, for inputs that ignore a set value (suggestion lists, key handlers).',
+			},
+			clear: {
+				type: 'boolean',
+				description: 'type: empty the field first (the default); with empty text it only clears.',
+			},
+			append: {
+				type: 'boolean',
+				description: 'type: keep what the field holds and add the text after it.',
+			},
 			doubleClick: {
 				type: 'boolean',
 				description: 'click: double-click instead of a single click.',
@@ -319,7 +388,11 @@ function actModelSchema(actions: readonly BrowserActActionName[]) {
 				items: { type: 'string' },
 				description: 'select: the option values to choose in the element.',
 			},
-			key: { type: 'string', description: 'press: a key or chord, e.g. Enter or Control+A.' },
+			key: {
+				type: 'string',
+				description:
+					'press: a key or chord, e.g. Enter or Control+A. Without ref only Escape, Enter, Tab, Shift+Tab, PageDown, PageUp, Home, End and Space are accepted, and only when the focused control is not a password or code field.',
+			},
 			path: { type: 'string', description: 'upload: local file path.' },
 			accept: { type: 'boolean', description: 'dialog: accept (true) or dismiss (false).' },
 			promptText: {
@@ -521,12 +594,25 @@ export function browserHostErrorOf(value: unknown): BrowserHostError | undefined
 			return nonEmpty(v.action) && v.outcome === 'unknown' && v.retrySafety === 'unsafe'
 				? (value as BrowserHostError)
 				: undefined
+		case 'browser_no_effect':
+			return nonEmpty(v.action) &&
+				v.outcome === 'unchanged' &&
+				v.retrySafety === 'once-after-snapshot'
+				? (value as BrowserHostError)
+				: undefined
+		case 'browser_target_unclear':
+			return typeof v.matches === 'number' && Array.isArray(v.candidates) && nonEmpty(v.wanted)
+				? (value as BrowserHostError)
+				: undefined
 		case 'browser_site_denied':
 			return typeof v.origin === 'string' ? (value as BrowserHostError) : undefined
 		default:
 			return undefined
 	}
 }
+
+/** Candidates a refusal names; the rest are counted. */
+const MAX_CANDIDATES_SHOWN = 8
 
 const HUMAN_REASON_WORDS: Record<BrowserHumanRequired['reason'], string> = {
 	'sign-in': 'a sign-in page',
@@ -584,6 +670,31 @@ function hostErrorToResult(tool: string, error: BrowserHostError): ToolResult {
 				outcome: error.outcome,
 				retrySafety: error.retrySafety,
 			})
+		case 'browser_no_effect':
+			return refusal(
+				`${tool}: ${oneLine(error.message, 500)} Nothing on the page changed, so one retry after a fresh snapshot is safe; if it fails the same way, change approach instead of repeating.`,
+				{
+					code: error.code,
+					action: error.action,
+					outcome: error.outcome,
+					retrySafety: error.retrySafety,
+				},
+			)
+		case 'browser_target_unclear': {
+			const shown = error.candidates.slice(0, MAX_CANDIDATES_SHOWN)
+			const list = shown.map((c) => `${oneLine(c.role, 32) || 'element'} ${quoted(c.name)}`)
+			const more = error.matches > shown.length ? ` (${error.matches} in all)` : ''
+			const lead =
+				error.matches === 0
+					? `no element matches ${oneLine(error.wanted, 200)}`
+					: `${error.matches} elements match ${oneLine(error.wanted, 200)}`
+			return refusal(
+				`${tool}: refused — ${lead}. Nothing was done.${
+					shown.length > 0 ? ` Candidates${more}: ${list.join('; ')}.` : ''
+				} Name one of them more exactly, or take a snapshot and use its ref.`,
+				{ code: error.code, matches: error.matches, candidates: shown },
+			)
+		}
 		case 'browser_site_denied':
 			return refusal(
 				`${tool}: ${error.origin || 'this site'} is not allowed by the operator's site rules. Do not retry; tell the user.`,
@@ -609,6 +720,21 @@ async function call(
 // ---------------------------------------------------------------------------
 // Labels
 // ---------------------------------------------------------------------------
+
+/** The label of a click or hover target: a ref's element, or the words the model used. */
+function targetLabel(
+	host: BrowserHost,
+	target: {
+		ref?: string | undefined
+		role?: string | undefined
+		name?: string | undefined
+		text?: string | undefined
+	},
+): string {
+	if (target.ref !== undefined) return elementLabel(host, target.ref)
+	if (target.role !== undefined) return `${oneLine(target.role, 32)} ${quoted(target.name ?? '')}`
+	return `text ${quoted(target.text ?? '')}`
+}
 
 function elementLabel(host: BrowserHost, ref: string): string {
 	let described: ReturnType<NonNullable<BrowserHost['describeRef']>>
@@ -678,9 +804,9 @@ function observeLabel(host: BrowserHost, input: BrowserToolInput): string {
 function actVerb(host: BrowserHost, input: BrowserActToolInput): string {
 	switch (input.action) {
 		case 'click':
-			return `${input.doubleClick ? 'Double-click' : 'Click'} ${elementLabel(host, input.ref)}`
+			return `${input.doubleClick ? 'Double-click' : 'Click'} ${targetLabel(host, input)}`
 		case 'type':
-			return `Type ${quoted(input.text)} into ${elementLabel(host, input.ref)}${input.submit ? ' and submit' : ''}`
+			return `${input.append ? 'Append' : 'Type'} ${quoted(input.text)} into ${elementLabel(host, input.ref)}${input.keys ? ' key by key' : ''}${input.submit ? ' and submit' : ''}`
 		case 'fill_form':
 			return `Fill ${input.fields.length} field${input.fields.length === 1 ? '' : 's'}: ${input.fields
 				.slice(0, 3)
@@ -691,7 +817,7 @@ function actVerb(host: BrowserHost, input: BrowserActToolInput): string {
 		case 'press':
 			return `Press ${oneLine(input.key, 32)}${input.ref ? ` in ${elementLabel(host, input.ref)}` : ''}`
 		case 'hover':
-			return `Hover ${elementLabel(host, input.ref)}`
+			return `Hover ${targetLabel(host, input)}`
 		case 'upload':
 			return `Upload ${oneLine(input.path, 200)} to ${elementLabel(host, input.ref)}`
 		case 'dialog':
@@ -728,7 +854,8 @@ function observeDescription(caps: BrowserCapabilities): string {
 
 function actDescription(caps: BrowserCapabilities): string {
 	return [
-		'Changes the page in the web browser: click, type, fill_form, select, press, hover, upload, dialog. Act by ref from the latest snapshot of the browser tool.',
+		"Changes the page in the web browser: click, type, fill_form, select, press, hover, upload, dialog. Act by ref from the latest snapshot of the browser tool. When an element has no ref (a menu that opens on hover, a control the snapshot leaves out), click and hover also take its visible text, or its role with its accessible name; they refuse and list the candidates when none or several match. A click or hover on a large container lands on the container's own text or its first control, not its middle.",
+		'press takes a key; without ref it sends Escape, Enter, Tab, Shift+Tab, PageDown, PageUp, Home, End or Space to the focused element, and refuses when that is a password or code field. type can send real key presses (keys), keep the existing text (append) or clear first (clear).',
 		'Every call must carry origin, copied from the snapshot header ("Page: <origin> — …"); if the page is no longer on that origin nothing is done. A stale ref is refused the same way: take a new snapshot.',
 		'Set snapshot: true to get the page back after the action. Leave passwords and one-time codes to the person, because a model that holds a credential can be steered into leaking it; if the page needs a person, stop and tell the user.',
 		'Example, filling two fields: {"action":"fill_form","origin":"https://example.com","fields":[{"ref":"e12","value":"<text>"},{"ref":"e14","value":"<text>"}]}.',
@@ -806,7 +933,7 @@ export function createBrowserTools(
 		inputSchema: actSchema,
 		modelInputSchema: actModelSchema(actActions.length > 0 ? actActions : ACT_ACTIONS),
 		validationErrorHint:
-			'Every call needs origin (copied from the snapshot header). click, type, select, hover and upload need ref; type needs text; fill_form needs fields [{ref, value}]; select needs values; press needs key; dialog needs accept.',
+			'Every call needs origin (copied from the snapshot header). click and hover need a ref, or text, or role with name; type, select and upload need ref; type needs text; fill_form needs fields [{ref, value}]; select needs values; press needs key; dialog needs accept.',
 		category: 'network',
 		permissions: ['network_access'],
 		readOnly: false,
