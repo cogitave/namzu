@@ -194,7 +194,11 @@
 	padding-left: var(--sidebar-nest-row-padding);
 }
 .sidebar-project-list .sidebar-list-disclosure > button {
-	padding-left: calc(var(--sidebar-nest-row-padding) + var(--frame-icon-slot) + var(--frame-row-gap));
+	padding-left: calc(
+		var(--sidebar-nest-row-padding) +
+		var(--frame-icon-slot) +
+		var(--frame-row-gap)
+	);
 }
 
 .sidebar-project-list .sidebar-conversation-button,
