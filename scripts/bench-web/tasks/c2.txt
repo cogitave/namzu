@@ -1,0 +1,1 @@
+Use the browser. Start at https://en.wikipedia.org/wiki/Main_Page and use the search box ON THE PAGE (type into it; do not build a search URL) to search for "Eiffel Tower". Open the article from the results and report from its infobox the "Opened" date and the "Height" figure. Final answer: those two values and the article URL.

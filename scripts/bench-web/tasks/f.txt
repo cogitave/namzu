@@ -1,0 +1,1 @@
+Use the browser. On the local test page http://127.0.0.1:18765/f type the word hello into the Note box of the feedback form (it is inside an embedded frame) and send it. Final answer: the confirmation the page showed.

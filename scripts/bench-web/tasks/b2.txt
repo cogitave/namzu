@@ -1,0 +1,1 @@
+Use the browser. Open https://the-internet.herokuapp.com/checkboxes and make sure checkbox 1 is checked and checkbox 2 is unchecked (they may start in either state), then open https://the-internet.herokuapp.com/dropdown and select "Option 2". Final answer: the final state of both checkboxes and the dropdown's selected option, each confirmed from the page after your action.

@@ -1,0 +1,1 @@
+Use the browser. On the local test page http://127.0.0.1:18765/t open the help link (it opens a new tab), click Mark read in that tab, then come back to the first tab and click Finish. Final answer: what each page said after your clicks.

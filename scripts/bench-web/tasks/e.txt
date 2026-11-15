@@ -1,0 +1,1 @@
+Use the browser. On the local test page http://127.0.0.1:18765/e open the settings dialog with the Open settings button, then close it using the Escape key (not the Close button). Final answer: whether the dialog closed.

@@ -1,0 +1,1 @@
+Use the browser. On the local test page http://127.0.0.1:18765/sh click the Shadow go button. Final answer: what the page says after you clicked.

@@ -9,14 +9,15 @@ metadata:
 # Driving the browser
 
 Two tools. `browser` looks and moves: `navigate`, `back`, `forward`,
-`reload`, `snapshot`, `screenshot`, `scroll`, `wait_for`, `tabs`.
+`reload`, `snapshot`, `screenshot`, `scroll`, `wait_for`, `value`, `tabs`.
 `browser_act` changes the page: `click`, `type`, `fill_form`, `select`,
 `press`, `hover`, `upload`, `dialog`.
 
 ## The loop
 
-1. **Snapshot first.** After `navigate`, and before any action, call
-   `browser` with `action: "snapshot"`. It returns the page as an
+1. **Snapshot first.** `navigate` (and `back`, `forward`, `reload`) already
+   returns the page as a snapshot; call `browser` with `action: "snapshot"`
+   when you need a fresh one, or a smaller view. It returns the page as an
    accessibility tree, each element marked `[ref=eN]`, under a header line:
 
    `Page: https://example.com — "Example page" (tab t1)`
@@ -43,8 +44,13 @@ Two tools. `browser` looks and moves: `navigate`, `back`, `forward`,
   follows", call `snapshot` again with the `cursor` it gives (a cursor is
   never a URL; leave it out to read from the top). Paginate lists
   the same way the site does (a "Next" link), and stop once you have enough.
-- Use `wait_for` with `text` or `textGone` rather than waiting blindly; it
-  waits at most 30 seconds.
+- Use `wait_for` with `text`, `textGone` or `stable` (wait until the page
+  stops changing) rather than waiting blindly; it waits at most 30 seconds.
+- Every `browser_act` result starts with `Effect:`. Read it before the next
+  call: "no visible change" means nothing happened, so choose a different
+  element or look at the page instead of repeating the call. Read less of a big
+  page with `snapshot` `view` `delta`, `interactive` or `reading`, find an
+  element with `query` and `role`, and read one control with `value`.
 - Use `screenshot` only when layout or an image matters; the snapshot is
   cheaper and has the refs.
 
