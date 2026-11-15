@@ -773,6 +773,8 @@ reconnects it through the same path as the banner's Reconnect. Pal and chat
 workspaces keep their previous failure handling. The main process still trusts
 nothing early. [Proof](../../research/project-connecting-20261008/README.md).
 
+**Going back to a project by its name.** Clicking a project's name in the sidebar shows the empty conversation kept for it. That conversation may be a tab behind another one, or no tab at all once a newer conversation replaced it (a hidden strip closes the empty one). The pane brings it to the front first (`bringDraftToFront`: it joins the pane as a tab, or is activated if it is already one) and closes the tabs it replaces as a sidebar row would. The message box is off while the tab in front is a different conversation from the one shown, so without this step a project opened by its name after a new conversation in it could not be typed in. Proof: `e2e/ux-first-run-project-typing.test.mjs` (a first run, each way a project is added, with the tab strip hidden and shown).
+
 Folder access is asked inside the app, never in a native message box. A folder
 chosen in the app's own folder picker is trusted by the main process right after
 the pick with no second prompt: the pick is the consent, and main captures it,
