@@ -44,6 +44,30 @@ describe('session_cost', () => {
 		expect(tool.description).toMatch(/what this conversation has cost/)
 	})
 
+	it('says the money is in dollars and what to do for another currency', async () => {
+		const result = await runTool({
+			turns: [
+				{
+					startAt: '2026-01-01T10:00:00.000Z',
+					model: 'deepseek/deepseek-v4.1-flash-1017',
+					servingProvider: 'openrouter',
+					endAt: '2026-01-01T10:01:00.000Z',
+					calls: [call('2026-01-01T10:00:10.000Z', 0.004)],
+				},
+			],
+		})
+		expect(result.output).toContain('Money above is in US dollars.')
+		expect(result.output).toMatch(/another currency was asked for, look up a current rate/)
+		expect(result.output).toMatch(/say the rate and its source/)
+		expect(result.output).toMatch(/multiply by a further 100/)
+		expect(result.output).toMatch(/give the dollars and say they are dollars/)
+		expect(result.output).toMatch(/Never guess a rate/)
+		const tool = buildSessionCostTool(() => {
+			throw new Error('unused')
+		})
+		expect(tool.description).toMatch(/US dollars/)
+	})
+
 	it('adds every turn, names the last completed one and says the charge was reported', async () => {
 		const result = await runTool({
 			turns: [
