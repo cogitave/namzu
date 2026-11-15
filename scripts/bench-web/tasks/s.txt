@@ -1,0 +1,1 @@
+Use the browser. On the local test page http://127.0.0.1:18765/s choose the colour Teal in the Colour dropdown. Final answer: the colour the dropdown shows as selected, confirmed from the page after your action.

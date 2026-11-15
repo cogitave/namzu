@@ -186,7 +186,7 @@ async function assertContained(w, label) {
 		.poll(
 			() =>
 				w.page.evaluate(() => {
-					const canvas = document.querySelector(".workspace-canvas");
+					const canvas = document.querySelector(".workspace-canvas-scroll");
 					return {
 						canvasOver: canvas ? canvas.scrollWidth - canvas.clientWidth : 0,
 						pageOver: document.documentElement.scrollWidth - window.innerWidth,

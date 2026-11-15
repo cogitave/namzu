@@ -1,0 +1,8 @@
+Use the browser to work through this on the local test site at http://127.0.0.1:18765/?signed=1 (already signed in as demo, so there is no sign-in step) and report back.
+1. In the Account section choose the Gold plan in the dropdown, tick "Email updates" and "Accept terms" (leave SMS unticked).
+2. In the Plans table read the monthly price of the Gold plan.
+3. Hover the Products menu and click "Reports".
+4. Search for "tide" and click the result named "Tide tables".
+5. Scroll to the bottom, click "Confirm order", then click "Yes" in the dialog.
+6. Open the "Get verification code" link (it opens a new tab), read the code, then type it into the form inside the embedded Verify frame and submit it.
+Final answer: the Gold monthly price and the token shown after verification.

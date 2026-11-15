@@ -169,7 +169,11 @@ it('keeps the forced closing summary identity equal to its durable answer', asyn
 })
 
 it('publishes the collected closing answer to streaming consumers after an empty completion', async () => {
-	const { events, turn } = await run([{ text: '' }, { text: 'Visible closing answer' }])
+	const { events, turn } = await run([
+		{ text: '' },
+		{ text: '' },
+		{ text: 'Visible closing answer' },
+	])
 	const closing = events.find(
 		(event) => event.type === 'message_completed' && event.stopReason === 'forced_finalize',
 	)

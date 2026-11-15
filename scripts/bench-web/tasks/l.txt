@@ -1,0 +1,1 @@
+Use the browser. On the local test page http://127.0.0.1:18765/l click the Download summary button (the page builds itself a moment after it loads). Final answer: what the page says after you clicked.

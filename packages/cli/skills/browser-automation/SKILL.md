@@ -10,23 +10,30 @@ metadata:
 
 The basic loop is in the system prompt: snapshot, one action, read the result.
 Tools: `browser` (`navigate`, `back`, `forward`, `reload`, `snapshot`,
-`screenshot`, `scroll`, `wait_for`, `tabs`) and `browser_act` (`click`, `type`,
-`fill_form`, `select`, `press`, `hover`, `upload`, `dialog`).
+`screenshot`, `scroll`, `wait_for`, `value`, `tabs`) and `browser_act`
+(`click`, `type`, `fill_form`, `select`, `press`, `hover`, `upload`, `dialog`).
 
 ## Refs and origin
 
-- A ref belongs to the snapshot it came from. After the page changes, take a
-  new snapshot.
+- `navigate` (and `back`, `forward`, `reload`) already returns the page as a
+  snapshot. A ref belongs to the snapshot it came from. After the page
+  changes, take a new snapshot.
 - Every `browser_act` call carries `origin`, copied from the header line
   (`Page: https://example.com — "Title" (tab t1)`), never typed from memory or
   taken from a link. A moved page or an old ref is refused and nothing happens.
 
 ## Reading
 
+- Every `browser_act` result starts with `Effect:`. "No visible change" means
+  nothing happened: choose a different element or look at the page instead of
+  repeating the call.
 - A long page ends with "More of this page follows": call `snapshot` with the
   `cursor` it gives. A cursor is never a URL.
-- `snapshot` with a `ref` reads one region.
-- `wait_for` with `text` or `textGone` beats waiting blindly (30 s at most).
+- Read less of a big page: `snapshot` with a `ref` reads one region, `view`
+  `delta`, `interactive` or `reading` reads part of it, `query` and `role` find
+  an element, and `value` reads one control.
+- `wait_for` with `text`, `textGone` or `stable` (until the page stops
+  changing) beats waiting blindly (30 s at most).
 - `screenshot` only when layout or an image matters.
 
 ## When a page needs a person

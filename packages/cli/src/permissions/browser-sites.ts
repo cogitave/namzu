@@ -28,7 +28,7 @@
  * Order is the gate's first match: every `deny` first, then the other sites
  * from most to least specific (the same order `@namzu/browser`'s host policy
  * uses, so the gate and the host agree on which key decides), then `*`.
- * Looking at the page (`snapshot`, `screenshot`, `scroll`, `wait_for`, and
+ * Looking at the page (`snapshot`, `screenshot`, `scroll`, `wait_for`, `value`, and
  * `tabs list|select|close`) is allowed: the browser tools are network tools,
  * which are reviewed even when read-only unless a rule allows them, and the
  * page being looked at is one the host already let stay loaded.
@@ -167,7 +167,7 @@ const LOOKING: readonly AuthorizationRule[] = [
 		type: 'argument_pattern',
 		toolNames: [BROWSER_TOOL_NAME],
 		argument: 'action',
-		pattern: '^(?:snapshot|screenshot|scroll|wait_for)$',
+		pattern: '^(?:snapshot|screenshot|scroll|wait_for|value)$',
 		decision: 'allow',
 	},
 	{

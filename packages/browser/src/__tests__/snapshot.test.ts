@@ -2,9 +2,15 @@ import { describe, expect, it } from 'vitest'
 import {
 	type AriaNode,
 	REDACTED,
+	SELECT_OPTIONS_SHOWN,
 	SNAPSHOT_TOTAL_MAX_CHARS,
 	SnapshotPager,
+	buildEffect,
+	diffLines,
+	findInTree,
 	renderAriaTree,
+	renderInteractive,
+	renderReading,
 } from '../snapshot.js'
 
 const box = (x: number, y: number, width = 100, height = 20) => ({ x, y, width, height })
@@ -61,7 +67,7 @@ describe('renderAriaTree', () => {
 				'    - /url: /pricing',
 				'  - paragraph [ref=e4]: Revenue grew.',
 				'  - button "Floated" [ref=e10]',
-				'  - textbox "Email" [ref=e11]:',
+				'  - textbox "Email" [ref=e11] [empty]:',
 				'    - /placeholder: "you@example.com"',
 				'  - checkbox "Gift" [checked] [ref=e12]',
 				'  - iframe [ref=e13]:',
@@ -169,5 +175,279 @@ describe('SnapshotPager', () => {
 			last = page.text
 		}
 		expect(last).toContain('cut at')
+	})
+})
+
+// A native select as the browser reports it: the options carry no ref and an empty box.
+const emptyBox = { x: 0, y: 0, width: 0, height: 0 }
+const option = (name: string, selected = false): AriaNode => ({
+	role: 'option',
+	name,
+	box: emptyBox,
+	...(selected ? { selected: true } : {}),
+})
+const select = (chosen: string): AriaNode => ({
+	role: 'combobox',
+	name: 'Plan',
+	ref: 'e7',
+	box: box(78, 88, 86, 19),
+	children: ['Free', 'Silver', 'Gold'].map((n) => option(n, n === chosen)),
+})
+
+describe('a native select', () => {
+	it('shows its chosen option as the value and lists its zero-box options', () => {
+		const out = renderAriaTree([select('Gold')])
+		expect(out?.text).toBe(
+			[
+				'- combobox "Plan" [ref=e7]: Gold',
+				'  - option "Free"',
+				'  - option "Silver"',
+				'  - option "Gold" [selected]',
+			].join('\n'),
+		)
+	})
+
+	it('shows no value when nothing is chosen, and still lists the options', () => {
+		const out = renderAriaTree([select('none')])
+		expect(out?.text.split('\n')[0]).toBe('- combobox "Plan" [ref=e7]:')
+		expect(out?.text).toContain('  - option "Gold"')
+	})
+
+	it('joins several chosen options of a multiple select', () => {
+		const multi: AriaNode = {
+			...select('x'),
+			children: [option('A', true), option('B'), option('C', true)],
+		}
+		expect(renderAriaTree([multi])?.text.split('\n')[0]).toBe('- combobox "Plan" [ref=e7]: A, C')
+	})
+
+	it('still drops a zero-box option that is not under a combobox or listbox', () => {
+		const out = renderAriaTree([
+			{ role: 'group', ref: 'e1', box: box(0, 0), children: [option('Ghost')] },
+		])
+		expect(out?.text).not.toContain('Ghost')
+	})
+
+	it('lists a long select partly, always keeping the chosen option, and says how many are left', () => {
+		const names = Array.from({ length: 120 }, (_, i) => `Country ${i}`)
+		const long: AriaNode = {
+			...select('x'),
+			children: names.map((n) => option(n, n === 'Country 110')),
+		}
+		const out = renderAriaTree([long])?.text ?? ''
+		expect(out.split('\n')[0]).toBe('- combobox "Plan" [ref=e7]: Country 110')
+		expect(out).toContain('option "Country 110" [selected]')
+		expect(out.match(/- option /g)?.length).toBe(SELECT_OPTIONS_SHOWN)
+		expect(out).toContain(`(${120 - SELECT_OPTIONS_SHOWN} more options not listed`)
+	})
+})
+
+describe('control values', () => {
+	it('says an empty text field is empty and shows what a filled one holds', () => {
+		const out = renderAriaTree([
+			{ role: 'textbox', name: 'Name', ref: 'e1', box: box(0, 0) },
+			{ role: 'textbox', name: 'City', ref: 'e2', box: box(0, 30), text: 'Lisbon' },
+			{ role: 'slider', name: 'Volume', ref: 'e3', box: box(0, 60), text: '3' },
+		])
+		expect(out?.text).toBe(
+			'- textbox "Name" [ref=e1] [empty]\n- textbox "City" [ref=e2]: Lisbon\n- slider "Volume" [ref=e3]: 3',
+		)
+	})
+})
+
+const page: AriaNode[] = [
+	{
+		role: 'main',
+		ref: 'e1',
+		box: box(0, 0, 1000, 800),
+		children: [
+			{ role: 'heading', name: 'Plans', level: 1, ref: 'e2', box: box(0, 0) },
+			'Pick one.',
+			{
+				role: 'navigation',
+				name: 'Main',
+				ref: 'e3',
+				box: box(0, 20),
+				children: [
+					{ role: 'link', name: 'Pricing', ref: 'e4', box: box(0, 20), url: '/pricing' },
+					{ role: 'link', name: 'Reports', ref: 'e5', box: box(0, 40), url: '/reports' },
+				],
+			},
+			select('Gold'),
+			{ role: 'button', name: 'Buy Gold', ref: 'e8', box: box(0, 100) },
+			{ role: 'generic', ref: 'e9', box: box(0, 130), children: ['Products'] },
+		],
+	},
+]
+
+describe('interactive view', () => {
+	it('lists only what can be acted on, with the group it sits in', () => {
+		expect(renderInteractive(page)).toBe(
+			[
+				'- link "Pricing" [ref=e4] -> /pricing (in navigation "Main")',
+				'- link "Reports" [ref=e5] -> /reports (in navigation "Main")',
+				'- combobox "Plan" [ref=e7]: Gold',
+				'- button "Buy Gold" [ref=e8]',
+			].join('\n'),
+		)
+	})
+})
+
+describe('find', () => {
+	it('matches name or text case-insensitively and gives each match its ref and context', () => {
+		const found = findInTree(
+			page,
+			{ scrollX: 0, scrollY: 0, boxes: [] },
+			new Set(),
+			{ query: 'report' },
+			20,
+		)
+		expect(found.total).toBe(1)
+		expect(found.lines).toEqual(['- link "Reports" [ref=e5] (in navigation "Main")'])
+	})
+
+	it('finds an element by the text it directly holds', () => {
+		const found = findInTree(
+			page,
+			{ scrollX: 0, scrollY: 0, boxes: [] },
+			new Set(),
+			{ query: 'products' },
+			20,
+		)
+		expect(found.lines).toEqual(['- generic [ref=e9]: Products'])
+	})
+
+	it('lists a match that has no ref, with its text and the nearest ref above it', () => {
+		const table: AriaNode[] = [
+			{
+				role: 'table',
+				ref: 'e1',
+				name: 'Facts',
+				box: box(0, 0, 400, 100),
+				children: [
+					{
+						role: 'row',
+						box: box(0, 0, 400, 20),
+						children: [
+							{ role: 'rowheader', box: box(0, 0, 100, 20), children: ['Opened'] },
+							{ role: 'cell', box: box(100, 0, 300, 20), children: ['31 March 1889'] },
+						],
+					},
+				],
+			},
+		]
+		const none = { scrollX: 0, scrollY: 0, boxes: [] }
+		expect(findInTree(table, none, new Set(), { query: 'opened' }, 20).lines).toEqual([
+			'- rowheader: Opened (in table "Facts" [ref=e1])',
+		])
+		expect(findInTree(table, none, new Set(), { query: '1889', role: 'cell' }, 20).lines).toEqual([
+			'- cell: 31 March 1889 (in table "Facts" [ref=e1])',
+		])
+	})
+
+	it('requires the role and the text together, and caps the list but reports the total', () => {
+		const hiddenNone = { scrollX: 0, scrollY: 0, boxes: [] }
+		expect(findInTree(page, hiddenNone, new Set(), { role: 'link', query: 'pric' }, 20).total).toBe(
+			1,
+		)
+		const many: AriaNode[] = Array.from({ length: 30 }, (_, i) => ({
+			role: 'button',
+			name: `Item ${i}`,
+			ref: `e${i + 1}`,
+			box: box(0, i),
+		}))
+		const found = findInTree(many, hiddenNone, new Set(), { role: 'button' }, 20)
+		expect(found.lines).toHaveLength(20)
+		expect(found.total).toBe(30)
+	})
+})
+
+describe('reading view', () => {
+	it('gives the text without markup, headings as # lines', () => {
+		expect(renderReading(page)).toBe(
+			['# Plans', 'Pick one.', 'Pricing', 'Reports', 'Gold', 'Buy Gold', 'Products'].join('\n'),
+		)
+	})
+})
+
+describe('diffLines', () => {
+	it('counts lines that appeared and went, in page order, ignoring indentation', () => {
+		const before = ['- main [ref=e1]:', '  - button "A" [ref=e2]', '  - text: old'].join('\n')
+		const after = [
+			'- main [ref=e1]:',
+			'  - button "A" [ref=e2]',
+			'  - text: new',
+			'  - link "L" [ref=e3]',
+		].join('\n')
+		expect(diffLines(before, after)).toEqual({
+			added: 2,
+			removed: 1,
+			addedLines: ['text: new', 'link "L" [ref=e3]'],
+			removedLines: ['text: old'],
+		})
+	})
+
+	it('reports no change for equal trees, and a changed value as one line out and one in', () => {
+		expect(diffLines('- a\n- b', '- a\n- b').added).toBe(0)
+		const d = diffLines('- combobox "Plan" [ref=e7]:', '- combobox "Plan" [ref=e7]: Gold')
+		expect([d.added, d.removed]).toEqual([1, 1])
+		expect(d.addedLines).toEqual(['combobox "Plan" [ref=e7]: Gold'])
+	})
+
+	it('shows only the first lines and cuts long ones', () => {
+		const after = Array.from({ length: 20 }, (_, i) => `- line ${i}`).join('\n')
+		const d = diffLines('', after, 5)
+		expect(d.added).toBe(20)
+		expect(d.addedLines).toHaveLength(5)
+		expect(diffLines('', `- ${'x'.repeat(500)}`).addedLines[0]?.length).toBeLessThanOrEqual(160)
+	})
+})
+
+describe('buildEffect, as the host uses it around an action', () => {
+	const settle = { quiet: true, waitedMs: 220, capMs: 2000 }
+	const facts = (beforeTree: string, afterTree: string, more: object = {}) => ({
+		beforeTree,
+		afterTree,
+		urlBefore: 'http://site.test/a',
+		urlNow: 'http://site.test/a',
+		tabsBefore: 1,
+		tabsNow: 1,
+		settle,
+		...more,
+	})
+
+	it('says a select changed: the old value line goes, the new one comes', () => {
+		const before = renderAriaTree([select('none')])?.text ?? ''
+		const after = renderAriaTree([select('Gold')])?.text ?? ''
+		const effect = buildEffect(facts(before, after))
+		expect(effect.addedLines).toContain('combobox "Plan" [ref=e7]: Gold')
+		expect(effect.removedLines).toContain('combobox "Plan" [ref=e7]:')
+		expect(effect.urlChanged).toBeUndefined()
+	})
+
+	it('says no change when the trees are equal, and keeps the settle report', () => {
+		const text = renderAriaTree([select('Gold')])?.text ?? ''
+		const effect = buildEffect(facts(text, text))
+		expect(effect).toMatchObject({ added: 0, removed: 0, settle })
+		expect(effect.newTab).toBeUndefined()
+	})
+
+	it('reports an address change even when the tree did not change', () => {
+		const text = renderAriaTree([select('Gold')])?.text ?? ''
+		const effect = buildEffect(facts(text, text, { urlNow: 'http://site.test/b' }))
+		expect(effect.urlChanged).toEqual({ from: 'http://site.test/a', to: 'http://site.test/b' })
+	})
+
+	it('reports a new tab only when the page itself did not change', () => {
+		const text = renderAriaTree([select('Gold')])?.text ?? ''
+		expect(buildEffect(facts(text, text, { tabsNow: 2 })).newTab).toBe(true)
+		const other = renderAriaTree([select('Free')])?.text ?? ''
+		expect(buildEffect(facts(text, other, { tabsNow: 2 })).newTab).toBeUndefined()
+	})
+
+	it('carries a settle that hit its cap', () => {
+		const text = renderAriaTree([select('Gold')])?.text ?? ''
+		const capped = { quiet: false, waitedMs: 2000, capMs: 2000 }
+		expect(buildEffect(facts(text, text, { settle: capped })).settle).toEqual(capped)
 	})
 })

@@ -33,6 +33,8 @@ export type InterruptionKind =
 	| 'permission'
 	| 'rate_limit'
 	| 'usage_limit'
+	| 'credits'
+	| 'no_endpoints'
 	| 'server'
 	| 'network'
 	| 'model_not_found'
@@ -45,6 +47,17 @@ export type InterruptionKind =
 /** Which of the plain-language cases an interruption is, from facts the event carries. */
 export function classifyInterruption(event: Interruption): InterruptionKind {
 	const id = event.explanation?.id ?? ''
+	// The three kinds OpenRouter-style routers add are read first: their codes
+	// map onto older ones (spent allowance, unknown model, content filter) whose
+	// words would name the wrong remedy.
+	switch (event.providerError?.kind) {
+		case 'credits':
+			return 'credits'
+		case 'no_endpoints':
+			return 'no_endpoints'
+		case 'moderation':
+			return 'content'
+	}
 	if (isSpentAllowance(event)) return 'usage_limit'
 	if (event.failure?.code === 'stale_cached_history') return 'stale_history'
 	if (id === 'provider.permission') return 'permission'
@@ -216,6 +229,16 @@ function copyFor(
 			return {
 				what: `${name} has used up this account's allowance.`,
 				next: 'Switch to another account with /auth, or pick another model with /model.',
+			}
+		case 'credits':
+			return {
+				what: `${name} says this account has no credit left.`,
+				next: 'Add credit on the provider site, then send again, or pick another model with /model.',
+			}
+		case 'no_endpoints':
+			return {
+				what: `${name} has no host that can serve ${modelId ?? 'that model'} right now.`,
+				next: 'Pick another model with /model, or try again later.',
 			}
 		case 'server':
 			return {

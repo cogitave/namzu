@@ -15,6 +15,7 @@ export type BrowserObserveActionName =
 	| 'scroll'
 	| 'wait_for'
 	| 'tabs'
+	| 'value'
 
 /** Every action the `browser_act` tool (change the page) can ask for. */
 export type BrowserActActionName =
@@ -32,6 +33,9 @@ export type BrowserActionName = BrowserObserveActionName | BrowserActActionName
 export type BrowserScrollDirection = 'up' | 'down' | 'left' | 'right'
 
 export type BrowserTabsOp = 'list' | 'select' | 'close' | 'new'
+
+/** The shapes a `snapshot` can take; see {@link BrowserObserveAction}. */
+export type BrowserSnapshotView = 'full' | 'interactive' | 'reading' | 'delta'
 
 // ---------------------------------------------------------------------------
 // Capabilities — frozen at host construction; the model reads them through
@@ -73,6 +77,9 @@ export const BROWSER_SNAPSHOT_MAX_CHARS = 20_000
 /** Longest `wait_for` the tool accepts, in milliseconds. */
 export const BROWSER_WAIT_MAX_MS = 30_000
 
+/** Most elements one find (`snapshot` with `query` or `role`) returns. */
+export const BROWSER_FIND_MAX_MATCHES = 20
+
 /** Most fields one `fill_form` call may set. */
 export const BROWSER_FILL_FORM_MAX_FIELDS = 20
 
@@ -90,7 +97,22 @@ export type BrowserObserveAction =
 	| { readonly action: 'back' }
 	| { readonly action: 'forward' }
 	| { readonly action: 'reload' }
-	| { readonly action: 'snapshot'; readonly ref?: string; readonly cursor?: string }
+	| {
+			readonly action: 'snapshot'
+			readonly ref?: string
+			readonly cursor?: string
+			/**
+			 * What to return. `full` (default): the page as a tree. `interactive`: only
+			 * the elements a call can act on, one per line. `reading`: the page's text
+			 * without markup. `delta`: only the lines added and removed since the last
+			 * snapshot this tab returned.
+			 */
+			readonly view?: BrowserSnapshotView
+			/** Find: elements whose name or text contains this (case-insensitive). Up to {@link BROWSER_FIND_MAX_MATCHES}. */
+			readonly query?: string
+			/** Find: only elements of this ARIA role; with `query`, the role and the name both must match. */
+			readonly role?: string
+	  }
 	| { readonly action: 'screenshot'; readonly ref?: string; readonly fullPage?: boolean }
 	| {
 			readonly action: 'scroll'
@@ -104,6 +126,13 @@ export type BrowserObserveAction =
 			readonly text?: string
 			readonly textGone?: string
 			readonly timeMs?: number
+			/** Wait until the page is quiet: no DOM change and no request in flight for a short window. */
+			readonly stable?: boolean
+	  }
+	| {
+			/** Read one element's current value and state, without a snapshot. */
+			readonly action: 'value'
+			readonly ref: string
 	  }
 	| {
 			readonly action: 'tabs'
@@ -120,20 +149,43 @@ export interface BrowserFormField {
 	readonly value: string
 }
 
+/**
+ * What a `click` or `hover` aims at: a ref from the latest snapshot, or, when
+ * the snapshot has no ref for it, the element's role and accessible name, or
+ * its visible text. Exactly one of the three forms is set. A host refuses a
+ * role/name or text that matches no element or several, and lists the
+ * candidates ({@link BrowserTargetUnclear}).
+ */
+export interface BrowserTarget {
+	readonly ref?: string
+	/** With `name`: an ARIA role such as `button` or `menuitem`. */
+	readonly role?: string
+	/** With `role`: the accessible name, matched as text. */
+	readonly name?: string
+	/** The element's visible text, matched as text. */
+	readonly text?: string
+}
+
 /** The change a `browser_act` call makes. */
 export type BrowserActOperation =
-	| { readonly action: 'click'; readonly ref: string; readonly doubleClick?: boolean }
+	| ({ readonly action: 'click'; readonly doubleClick?: boolean } & BrowserTarget)
 	| {
 			readonly action: 'type'
 			readonly ref: string
 			readonly text: string
 			/** Press Enter after typing. */
 			readonly submit?: boolean
+			/** Send real key events, one key at a time, instead of setting the value. */
+			readonly keys?: boolean
+			/** Empty the field first. This is also what happens when neither `clear` nor `append` is set. */
+			readonly clear?: boolean
+			/** Keep what the field holds and add the text after it. */
+			readonly append?: boolean
 	  }
 	| { readonly action: 'fill_form'; readonly fields: readonly BrowserFormField[] }
 	| { readonly action: 'select'; readonly ref: string; readonly values: readonly string[] }
 	| { readonly action: 'press'; readonly key: string; readonly ref?: string }
-	| { readonly action: 'hover'; readonly ref: string }
+	| ({ readonly action: 'hover' } & BrowserTarget)
 	| { readonly action: 'upload'; readonly ref: string; readonly path: string }
 	| { readonly action: 'dialog'; readonly accept: boolean; readonly promptText?: string }
 
@@ -147,6 +199,11 @@ export type BrowserActOperation =
  * when they differ.** That comparison is what binds an approval of "click
  * Place order on shop.example.com" to shop.example.com: a redirect between
  * the snapshot and the click must not carry the click to another site.
+ *
+ * A host MAY go ahead when the live origin differs but the site rules treat
+ * the live origin exactly as they treat the named one (both at the level
+ * that needs no review), as long as it says so in the result's `message`.
+ * Where the rules would differ it MUST refuse.
  */
 export type BrowserActAction = BrowserActOperation & {
 	readonly origin: string
@@ -194,6 +251,44 @@ export interface BrowserScreenshot {
 }
 
 /**
+ * What an action did to the page, worked out by the host from the page before
+ * and after it: the one thing a model needs to tell a click that worked from
+ * one that did nothing. The counts and `settle` are the host's words; the
+ * lines and addresses are page text, so the tool shows them inside the
+ * untrusted envelope.
+ */
+export interface BrowserEffect {
+	/** The page's address before and after, when it changed. Page-controlled. */
+	readonly urlChanged?: { readonly from: string; readonly to: string }
+	/** How many lines of the page's tree appeared and disappeared. */
+	readonly added: number
+	readonly removed: number
+	/** The first few lines that appeared, and the first few that went. Page text. */
+	readonly addedLines: readonly string[]
+	readonly removedLines: readonly string[]
+	/** A new tab opened and the page the action ran on did not change. */
+	readonly newTab?: boolean
+	/** Whether the page went quiet before the host looked, and how long it waited. */
+	readonly settle?: { readonly quiet: boolean; readonly waitedMs: number; readonly capMs: number }
+}
+
+/** One element's current value and state, from `value`. Page-controlled. */
+export interface BrowserValue {
+	readonly page: BrowserPageInfo
+	readonly ref: string
+	readonly role?: string
+	readonly name?: string
+	/** What the control holds: the text of a field, the chosen option(s) of a select, the position of a slider. Absent when it holds none. */
+	readonly value?: string
+	/** `checked`, `selected`, `disabled`, `expanded`, `pressed`, `readonly`, `required`, `invalid`, as set. */
+	readonly state: readonly string[]
+	/** For a select: every option's label, the chosen ones listed in `value`. */
+	readonly options?: readonly string[]
+	/** The field is a password or one-time code; its value is not shown. */
+	readonly hidden?: boolean
+}
+
+/**
  * What an action produced. Every field is optional because actions differ;
  * the tool renders whichever are present.
  */
@@ -209,6 +304,10 @@ export interface BrowserResult {
 	readonly snapshot?: BrowserSnapshot
 	readonly screenshot?: BrowserScreenshot
 	readonly tabs?: readonly BrowserTabInfo[]
+	/** `browser_act`: what the action did to the page. */
+	readonly effect?: BrowserEffect
+	/** `value`: the element's value and state. */
+	readonly value?: BrowserValue
 }
 
 /** What a snapshot said about one ref, for labelling a call before it runs. */
@@ -284,6 +383,38 @@ export interface BrowserOutcomeUnknown {
 	readonly message: string
 }
 
+/**
+ * An action failed before it did anything: the element was not reachable
+ * (covered, hidden, disabled, not stable) and the page was not touched. The
+ * model may take a fresh snapshot and try once more.
+ */
+export interface BrowserNoEffect {
+	readonly code: 'browser_no_effect'
+	readonly action: BrowserActionName
+	readonly outcome: 'unchanged'
+	readonly retrySafety: 'once-after-snapshot'
+	readonly message: string
+}
+
+/** One element a role/name or text target could have meant. */
+export interface BrowserTargetCandidate {
+	readonly role: string
+	readonly name: string
+}
+
+/**
+ * A role/name or text target matched no element, or more than one. Nothing
+ * was done; `candidates` lists what matched (at most a handful).
+ */
+export interface BrowserTargetUnclear {
+	readonly code: 'browser_target_unclear'
+	readonly matches: number
+	readonly candidates: readonly BrowserTargetCandidate[]
+	/** What the model asked for, in the host's words, e.g. `button "Save"`. */
+	readonly wanted: string
+	readonly message: string
+}
+
 /** The site policy does not allow this origin at the level the call needs. */
 export interface BrowserSiteDenied {
 	readonly code: 'browser_site_denied'
@@ -296,6 +427,8 @@ export type BrowserHostError =
 	| BrowserStaleRef
 	| BrowserHumanRequired
 	| BrowserOutcomeUnknown
+	| BrowserNoEffect
+	| BrowserTargetUnclear
 	| BrowserSiteDenied
 
 // ---------------------------------------------------------------------------

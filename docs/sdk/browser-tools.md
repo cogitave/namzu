@@ -55,21 +55,32 @@ const tools = toolset('browser', createBrowserTools(host))
 
 | Tool | Action | Arguments | Read-only |
 | --- | --- | --- | --- |
-| `browser` | `navigate` | `url` | no |
-| | `back`, `forward`, `reload` | | no |
-| | `snapshot` | `ref?`, `cursor?` | yes |
+| `browser` | `navigate` | `url`; returns the page's snapshot | no |
+| | `back`, `forward`, `reload` | return the page's snapshot | no |
+| | `snapshot` | `ref?`, `cursor?`, `view?` (`full`, `interactive`, `reading`, `delta`), `query?`, `role?` | yes |
+| | `value` | `ref` | yes |
 | | `screenshot` | `ref?`, `fullPage?` | yes |
 | | `scroll` | `direction`, `ref?`, `amount?` | yes |
-| | `wait_for` | `text?`, `textGone?`, `timeMs?` (at most 30000; one of the three) | yes |
+| | `wait_for` | `text?`, `textGone?`, `timeMs?` (at most 30000), `stable?` (one of the four) | yes |
 | | `tabs` | `op`: `list`, `select`, `close` (with `tab`), `new` (with `url?`) | `new` is not |
-| `browser_act` | `click` | `ref`, `doubleClick?` | no |
-| | `type` | `ref`, `text`, `submit?` | no |
+| `browser_act` | `click` | a target (`ref`, or `text`, or `role` with `name`), `doubleClick?` | no |
+| | `type` | `ref`, `text`, `submit?`, `keys?`, `clear?`, `append?` | no |
 | | `fill_form` | `fields: [{ ref, value }]`, 1 to 20 | no |
 | | `select` | `ref`, `values` | no |
 | | `press` | `key`, `ref?` | no |
-| | `hover` | `ref` | no, and not destructive |
+| | `hover` | a target, as for `click` | no, and not destructive |
 | | `upload` | `ref`, `path` | no |
 | | `dialog` | `accept`, `promptText?` | no |
+
+### Reaching the element
+
+`click` and `hover` take exactly one target form. `ref` is an element of the latest snapshot. `text` is the element's visible text, and `role` with `name` is an ARIA role and its accessible name, for what the snapshot gave no ref (a menu that opens on hover, a control the tree leaves out). A `text` or `role`/`name` target is looked up in the page's main frame among visible elements, as Playwright's own text and role locators do (a substring, case-insensitive; when several match, the exact matches decide). Zero or several matches refuse with `browser_target_unclear`: nothing was done, and the result lists up to eight candidates as role and name. Elements inside another frame are reached by their `f<N>e<M>` refs, not by role or text.
+
+Where a click or hover lands depends on the element. A control (a link, button, field, an element with a control role, a tab stop, an `onclick` or `cursor: pointer`) is hit in its middle, as before. A container is not: the aim goes to its first visible control, else to the box of its own first text, because the middle of a wide section is often empty. A hover menu that opens on `:hover` of a section is opened this way from the section's ref.
+
+`press` without `ref` sends one of Escape, Enter, Tab, Shift+Tab, PageDown, PageUp, Home, End or Space (any case) to the focused element. Before sending, the host reads the focus in every frame, through open shadow roots, and refuses when the focus is on a password or one-time-code field or on a field of a form that holds one (for Enter). A focus on a component whose inside cannot be read (a closed shadow root) refuses Enter and Space only. Any other key needs a `ref`.
+
+`type` sets the value by default (replacing what the field holds). `keys: true` sends real key presses, one every 20 ms, for inputs that react to key events (suggestion lists, key handlers). `append: true` keeps the text and adds after it, `clear: true` empties first (the default; with empty `text` it only clears), and the two do not combine.
 
 Every `browser_act` call carries a required `origin` and an optional `snapshot: true` that returns the page after the action. Not offered: running JavaScript, downloads, cookies and storage, network interception, coordinate clicks, drag and drop, the console.
 
@@ -104,11 +115,15 @@ Page: https://shop.example.com — "Your cart" (tab t1)
 
 The origin is re-canonicalised, and a value that is not an origin is shown as `unknown`. The title is page-controlled, so it is quoted, flattened to one line, cut at 120 characters, has hidden characters shown as `<U+XXXX>` and has the envelope's delimiter defanged. Below the header, the snapshot text is wrapped with `wrapUntrusted` (`kind="web-page"`, `origin` attribute). A closing tag inside the page is defanged, and the frame marks provenance but does not refuse anything. At most `BROWSER_SNAPSHOT_MAX_CHARS` (20000) characters come back per call. `capabilities.snapshotMaxChars` can lower it. A host that pages returns `nextCursor`, and the tool tells the model to pass it back. A host that does not page is cut, and the tool says so. `formatBrowserPageHeader(page)` is exported for a host that shows the same line elsewhere.
 
-A screenshot comes back as a text block (the header) and an image block. The Namzu Playwright host masks input and textarea controls that Playwright can locate, including child frames and element screenshots; closed shadow roots and text rendered elsewhere may remain visible. Another host must provide its own protection. `tabs list` lists each tab's header, with `*` on the active one. A `message` the host returns is shown outside the envelope, so it must be the host's own words, never page text.
+**Reading less.** A full tree of a big page is the costliest thing a call returns, so `snapshot` has narrower shapes. `view: "delta"` returns only the lines added (`+`) and removed (`-`) since the last snapshot of that tab (a control whose value changed is one line out and one in), or the whole page with a note when there is no earlier one. `view: "interactive"` lists only what a call can act on, one line each, with the address of a link and the nearest named ancestor. `view: "reading"` is the page's text with headings as `#` lines and no refs. `query` and `role` find elements by name or text (case-insensitive) and by ARIA role, at most `BROWSER_FIND_MAX_MATCHES` (20), each with its ref and context (a match with no ref of its own, such as a table cell, is listed with its text and the nearest ref above it), and a note counts the matches: this reaches content a long page or a closed menu keeps out of the tree's way. `value` reads one control's current value and state without a snapshot (a field's text, the chosen option and every option of a select, `checked`, `disabled`, and the like); a password or one-time-code field says its value is hidden.
+
+**What an action did.** Every `browser_act` result starts with `Effect:`, computed by the host from the page's tree before and after the action. The host's sentence (outside the envelope) is `the page address changed`, `N lines appeared and M went`, `a new tab opened (it is not the active tab)` or `no visible change`; a page that was still changing when the wait ended says so. The page's own lines that appeared or went (the first ten, and the first five that went), and the old and new address, come inside a `kind="web-page-change"` envelope, because they are page text. With `snapshot: true` only the sentence is kept, since the whole page follows. `BrowserResult.effect` carries the same as data (`BrowserEffect`); a host that cannot compute it leaves it out and the line is absent. `value` results are framed as `kind="web-page-value"`.
+
+A screenshot comes back as a text block (the header) and an image block. The Namzu Playwright host masks password and one-time-code fields, in every frame and in element screenshots (an ordinary input stays readable, since a search box the model cannot read cannot be checked); closed shadow roots and text rendered elsewhere may remain visible. Another host must provide its own protection. `tabs list` lists each tab's header, with `*` on the active one. A `message` the host returns is shown outside the envelope, so it must be the host's own words, never page text.
 
 ## Repeated calls that change nothing
 
-`createBrowserTools` returns tools that share one stall guard, which forgets everything when a new turn starts. Calls that can change what the page shows (`browser_act`, and `browser` `navigate`, `back`, `forward`, `reload` and `tabs` other than `list`) are keyed by tool and every argument. A call is a repeat when the previous identical call changed nothing and nothing changed since: the address and tab, the tab set, and the last whole-page snapshot (a `snapshot` without `ref` or `cursor`, or `snapshot: true` on an act) are as the host reported them. The third repeat's result starts with a note, the fifth is refused with `data.code: 'browser_repeated_no_change'` and the last host message or page address, and the host is not called. Twelve counted calls in a row with no change to address, tab set or whole-page snapshot add a second note. Looking and moving the view (`snapshot`, `screenshot`, `wait_for`, `scroll`, `tabs list`) is never counted, because a scroll's progress is a position the host does not report or refused. The guard reads no clock.
+`createBrowserTools` returns tools that share one stall guard, which forgets everything when a new turn starts. Calls that can change what the page shows (`browser_act`, and `browser` `navigate`, `back`, `forward`, `reload` and `tabs` other than `list`) are keyed by tool and every argument. A call is a repeat when the previous identical call changed nothing and nothing changed since: the address and tab, the tab set, and the last whole-page snapshot (a `snapshot` of the full view without `ref`, `cursor`, `query` or `role`, the page a `navigate`, `back`, `forward` or `reload` returned, or `snapshot: true` on an act; a `delta`, `interactive` or `reading` view is not the page) are as the host reported them. The third repeat's result starts with a note, the fifth is refused with `data.code: 'browser_repeated_no_change'` and the last host message or page address, and the host is not called. Twelve counted calls in a row with no change to address, tab set or whole-page snapshot add a second note. Looking and moving the view (`snapshot`, `screenshot`, `wait_for`, `value`, `scroll`, `tabs list`) is never counted, because a scroll's progress is a position the host does not report or refused. The guard reads no clock.
 
 ## The host contract
 
@@ -125,7 +140,7 @@ interface BrowserHost {
 }
 ```
 
-- `act` compares `action.origin` with the live origin of the page it is about to act on, immediately before acting, and throws a `browser_origin_mismatch` shape without acting when they differ. That is what binds an approval of "click Place order on shop.example.com" to that site after a redirect.
+- `act` compares `action.origin` with the live origin of the page it is about to act on, immediately before acting, and throws a `browser_origin_mismatch` shape without acting when they differ, unless the site rules put both origins at the level that needs no review (`act`): then it acts on the live page and reports `The page is now at X, not Y` in the result's `message`. That is what binds an approval of "click Place order on shop.example.com" to that site after a redirect.
 - `capabilities.unavailableReason` keeps both tools mounted, says why in their descriptions and refuses every call with it. `screenshot: false`, `upload: false` and `supportedActions` remove actions from the model schema and refuse them before the host is called.
 - `upload` paths are resolved by the tool against the turn's roots, following links, as the file tools resolve them (`pathArgument: 'path'`, so a path outside the roots becomes a review where the host enables that). The host receives the resolved absolute path.
 
@@ -137,6 +152,8 @@ The host refuses by throwing a value with one of these shapes. The tool recognis
 | `browser_stale_ref` | `ref` | The ref is from an older snapshot; take a new one. |
 | `browser_human_required` | `reason` (`sign-in`, `two-factor`, `captcha`, `bot-block`, `http-auth`, `credential-field`), `origin`, `profile?`, `loginCommand?` | Stop and tell the user; never sign in, solve it or type a password or code. The result's `data.handoff` is `{ kind: 'human-required', reason, detail: { origin, profile?, loginCommand? } }`, and its [`handoff`](tool-handoff.md) (`reason` in words, `detail` with `tool: 'browser'`, `cause` and the same fields) pauses the turn before the next model call. |
 | `browser_outcome_unknown` | `action`, `outcome: 'unknown'`, `retrySafety: 'unsafe'` | The host's message; do not replay. |
+| `browser_no_effect` | `action`, `outcome: 'unchanged'`, `retrySafety: 'once-after-snapshot'` | The action stopped before it touched the page (covered, hidden, disabled, still moving, or a timeout whose log never reached the input step). Nothing changed; one retry after a fresh snapshot is safe. |
+| `browser_target_unclear` | `wanted`, `matches`, `candidates: [{ role, name }]` | A text or role/name target matched none or several; nothing was done; name one candidate more exactly or use a ref. |
 | `browser_site_denied` | `origin` | Not allowed by the site rules; do not retry. |
 
 Each shape also carries a non-empty `message`.

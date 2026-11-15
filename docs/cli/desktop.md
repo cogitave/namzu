@@ -773,6 +773,8 @@ reconnects it through the same path as the banner's Reconnect. Pal and chat
 workspaces keep their previous failure handling. The main process still trusts
 nothing early. [Proof](../../research/project-connecting-20261008/README.md).
 
+**Going back to a project by its name.** Clicking a project's name in the sidebar shows the empty conversation kept for it. That conversation may be a tab behind another one, or no tab at all once a newer conversation replaced it (a hidden strip closes the empty one). The pane brings it to the front first (`bringDraftToFront`: it joins the pane as a tab, or is activated if it is already one) and closes the tabs it replaces as a sidebar row would. The message box is off while the tab in front is a different conversation from the one shown, so without this step a project opened by its name after a new conversation in it could not be typed in. Proof: `e2e/ux-first-run-project-typing.test.mjs` (a first run, each way a project is added, with the tab strip hidden and shown).
+
 Folder access is asked inside the app, never in a native message box. A folder
 chosen in the app's own folder picker is trusted by the main process right after
 the pick with no second prompt: the pick is the consent, and main captures it,
@@ -1998,7 +2000,7 @@ row, the foot also carries Home, so the way back is never lost. While the sideba
 below) the 48 px rail is drawn with Home in its header band (36 px) at the top and Settings in its foot (45 px, with the same line above it as the sidebar's foot) at the bottom; a control that had the
 focus when the rail and the foot swap keeps it. Opening or closing the sidebar moves the conversation by
 exactly the width that changes (288 px open, 48 px collapsed). In a window of 767 px or less the sidebar is an
-overlay beside the rail that starts under the 36 px header band, so the band's menu, toggle, back, forward and title stay in view and reachable while it is open (the scrim leaves the band undimmed), and the foot is not drawn. The sidebar's header and the top bar's hairline end on
+overlay beside the rail (its left edge is the rail's right edge, 48 px from the window's, and it is placed over the whole grid so it never starts a rail's width further in) that starts under the 36 px header band, so the band's menu, toggle, back, forward and title stay in view and reachable while it is open (the scrim leaves the band undimmed), and the foot is not drawn. The sidebar's header and the top bar's hairline end on
 one line: both are 36 px, with the strip of tabs and without it, and in Settings (see
 [The frame's numbers](#the-frames-numbers)). The wordmark keeps its size (two rows, 22 px high, inside the 36 with 7 above and below), and the menu button around it is 28 px high. Home
 owns the chat and blank composer. Spaces, Scheduled and Plugins are not on the rail:
@@ -2228,7 +2230,13 @@ project exposes one, the git branch. The branch comes from the cached project re
 guess, and the line is left out when it is unknown or the head is detached. The card closes when the pointer
 leaves, on scroll, on click or drag, and while a menu is open; it does not open for keyboard focus or touch.
 The sidebar uses one folder glyph per project and plain conversation
-titles, in line with the project's name (see [The frame's numbers](#the-frames-numbers)). Each group initially shows five conversations, keeping the active one
+titles. A project's conversations (and its terminals) are its children: a 1 px guide line runs down from the
+centre of the project's folder, the rows sit inside it, and their titles (and "Show more") start 16 px right of the
+project's name, so they read as belonging to it. The line, the 2 px gap and the rows' 6 px leading edge are tokens in
+`theme.css` (`--sidebar-nest-line`, `--sidebar-nest-inset`, `--sidebar-nest-row-padding`); row height, spacing, the
+hover and selected fill and the state marks are as in [The frame's numbers](#the-frames-numbers). Recents stays a
+flat list grouped by day, at the full width. A conversation started while a project is the open one is listed under
+that project (`e2e/sidebar-nesting.test.mjs`). Each group initially shows five conversations, keeping the active one
 visible when it lies beyond that limit. Show more reveals additional loaded
 rows. Project headings omit connection dots; connection failures and recovery
 remain in the existing project status surfaces. Active and running conversations
@@ -2503,7 +2511,7 @@ four- or eight-pane product limit. Existing splits remain readable after a
 window shrinks: side-by-side panes whose two minimums no longer fit the width are stacked, one above the other, the
 same way at every width (`fitWorkspaceDirections`; the saved direction and ratio are untouched, so widening the window puts them
 side by side again), because stacking keeps both panes in view with the same dividers and tabs while a one-pane switch would hide a
-running terminal; the page never scrolls sideways. Stacked panes still scroll vertically when their minimum heights exceed the window. A pane at its minimum height never draws its body over its tab strip: the empty conversation's large heading ("What should we work on in …?") is not drawn when the pane has no room above the message box for it (the composer measures this and sets `data-heading-fits`), and the box with its suggestions scrolls inside the pane (`e2e/ux-layout-geometry.test.mjs`, one, two and three stacked panes at 700 and 900 px). Drag a divider to resize its branches, or focus it and use the
+running terminal; the page never scrolls sideways. Stacked panes still scroll vertically when their minimum heights exceed the window. The canvas is two boxes: a frame that is measured (its real, fractional size, so a display scale of 125 or 150 percent is exact) and a scroller inside it that scrolls only when the panes need more than the frame has, decided from the layout's own numbers. A scrollbar takes room from the scroller, never from the frame, so it cannot change the size the panes are laid out from; measuring the scrolling box itself once made the page flicker at 125 and 150 percent (a pane a fraction of a pixel too big drew a scrollbar, the smaller box shrank the panes, the scrollbar left, and the box grew back, every frame). `e2e/ux-home-layout-stable.test.mjs` samples the heading, the starters, the box and the canvas's scrollbars on every frame while the window is resized a pixel at a time across the thresholds at 100, 125, 150 and 200 percent, with the home screen, a long draft, an attachment and a split, and fails on any value that goes back and forth or keeps changing with no input. A pane at its minimum height never draws its body over its tab strip: the empty conversation's large heading ("What should we work on in …?") is not drawn when the pane has no room above the message box for it (the composer measures this and sets `data-heading-fits`), and the box with its suggestions scrolls inside the pane (`e2e/ux-layout-geometry.test.mjs`, one, two and three stacked panes at 700 and 900 px). Drag a divider to resize its branches, or focus it and use the
 appropriate arrow keys; Shift makes a larger step, and Home/End reach the
 readable bounds. Keyboard and pointer changes preserve both branches' minimums.
 Group controllers keep stable identities when the tree gains or loses a split.
@@ -3571,7 +3579,7 @@ by 820. The sidebar is 288 px wide including its 1 px edge line; x positions bel
 - **The main header's title** starts 12 px after the left cluster (so 148 px from the main area's left edge
   with the menu button, 116 on macOS); its controls end 8 px from the right edge and are 4 apart (on
   Windows and Linux, 8 px before the window's own buttons).
-- **Rows are 32 px high** with 2 px between neighbouring rows (tops 34 apart) and corners of 10 px. The first
+- **Rows are 32 px high** (a conversation row in a project's list or in Recents is 28, see below) with 2 px between neighbouring rows (tops 34 apart) and corners of 10 px. The first
   row starts 8 px under the header band. A row's box runs from x 8 to x 277: 8 from the sidebar's left
   edge and 10 from its right edge line. Inside it: 10 px of padding, a 16 px icon slot (x 18 to 34), a gap
   of 10. Every label therefore starts at x 44: the New conversation row, a Pal's row, a project row, a
@@ -3588,6 +3596,14 @@ by 820. The sidebar is 288 px wide including its 1 px edge line; x positions bel
   slot; the band has 22 px between it and the row above and 4 px between it and the first row under it. A
   title's own button (the plus beside Projects, the archive button beside Recents) is 24 by 24, centred in
   the band, 4 px from the end of the row box.
+- **The Recents list is one compact list.** A day heading is a 22 px band (not 28), 8 px under the last row of
+  the group above and 2 px above its first row; the first one is 4 px under the Recents title. A conversation
+  row, in Recents and in a project's own list alike, is 28 px high with 1 px between rows (a project's first
+  row is 1 px under the project row). Before this the heading was 28 high with 22 above and 4 below and rows
+  were 32 high 2 apart, which read as airy. The numbers are the tokens `--frame-thread-height`,
+  `--frame-thread-space`, `--frame-day-band`, `--frame-day-before` and `--frame-day-after` in `theme.css`; 28
+  keeps the row easy to hit, and the project name beside a Recents title stays at most 38 percent of the row.
+  `e2e/ux-recents-spacing.test.mjs` measures it with five day groups in both themes at 1280 and 900 wide.
 - **The foot is 45 px high**: a 1 px line, 8, a 28 px button, 8. The first button is placed so that its icon's
   centre is on the icons' column (x 26). The collapsed rail keeps its 48 px width; its header band is 36
   and its foot 45 with the same line, so the lines meet across the window, and a button in a band is 28.

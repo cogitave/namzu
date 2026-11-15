@@ -132,6 +132,48 @@ describe('browser stall guard', () => {
 		expect(state.observes).toBe(8)
 	})
 
+	it('does not count reading one control: the same value read many times is never refused', async () => {
+		const { host, state } = scriptedHost()
+		const [browser] = createBrowserTools(host)
+		for (let i = 0; i < 7; i += 1) {
+			const result = await browser.execute({ action: 'value', ref: 'e4' } as never, ctx())
+			expect(result.success).toBe(true)
+			expect(result.output).not.toContain('Note')
+		}
+		expect(state.observes).toBe(7)
+	})
+
+	it('takes only a full view as the page: a delta, reading view, region or search does not look like a change', async () => {
+		const { host, state } = scriptedHost()
+		const [browser, act] = createBrowserTools(host)
+		await browser.execute({ action: 'snapshot' } as never, ctx())
+		for (let i = 0; i < 2; i += 1) await act.execute(click() as never, ctx())
+		// Partial views return other text; none of them is the page's tree.
+		for (const partial of [
+			{ action: 'snapshot', view: 'delta' },
+			{ action: 'snapshot', view: 'reading' },
+			{ action: 'snapshot', ref: 'e2' },
+			{ action: 'snapshot', query: 'Add to cart' },
+		]) {
+			state.tree = `partial-${partial.view ?? partial.ref ?? partial.query}`
+			await browser.execute(partial as never, ctx())
+		}
+		state.tree = 'tree-1'
+		const third = await act.execute(click() as never, ctx())
+		expect(third.output).toContain('this same call has now run 3 times')
+	})
+
+	it('takes the page a navigation returns as the page: the same address with a new tree is a change', async () => {
+		const { host, state } = scriptedHost()
+		const [browser, act] = createBrowserTools(host)
+		await browser.execute({ action: 'snapshot' } as never, ctx())
+		for (let i = 0; i < 2; i += 1) await act.execute(click() as never, ctx())
+		state.tree = 'tree-after-reload'
+		await browser.execute({ action: 'reload' } as never, ctx())
+		const next = await act.execute(click() as never, ctx())
+		expect(next.output).not.toContain('Note')
+	})
+
 	it('asks the model to say what blocks it after twelve calls with no new address, tree or tab', async () => {
 		const { host } = scriptedHost()
 		const [, act] = createBrowserTools(host)
