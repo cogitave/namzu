@@ -1,5 +1,16 @@
 # Changelog
 
+## 65.1.0
+
+### Minor Changes
+
+- f71fe3c: `ProviderErrorKind` gains three members: `credits` (HTTP 402, no credit left), `moderation` (HTTP 403 whose body names moderation or a flagged input) and `no_endpoints` (HTTP 404 whose body says no host can serve the request). Before, a 402 and that 404 were reported as `bad_request` and a moderation 403 as `auth`. None is retried. If you switch exhaustively over `ProviderErrorKind`, add the three cases; a 403 without a moderation body is still `auth`, and any other 404 is still `bad_request`. In the terminal an account with no credit now reads "has no credit left" instead of "could not process this message".
+
+### Patch Changes
+
+- 19169c4: A reply from the model with nothing in it (no text, no thinking, no tool call, finish reason `stop`) is now asked for once more with the same request instead of ending the turn with nothing shown. A reply cut at the output limit is not asked again. If the second reply is empty too, the turn ends with a message saying so, and the tokens and cost of both attempts count in the turn.
+- cdde480: The `explore` and `plan` sub-agents' descriptions and prompts now say to return as soon as the question is answered (or the plan can be written), with paths and line numbers, and to name what was not read instead of reading on. When a step of an agent that cannot change anything hits the per-step reasoning cap, it is now told to report what it has instead of to "make the first change", and its next step is no longer forced. Agents that can change files are unchanged. This does not promise fewer requests: in three runs each of four explore agents on a broad mapping task the request count did not change measurably.
+
 ## 65.0.0
 
 ### Major Changes
