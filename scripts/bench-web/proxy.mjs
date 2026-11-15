@@ -1,4 +1,4 @@
-// Recording proxy for the benchmark: 127.0.0.1 -> an OpenAI-compatible upstream (OpenRouter by default).
+// Recording proxy for the benchmark: 127.0.0.1 -> an upstream chat-completions endpoint (OpenRouter by default).
 //
 // It is the only process that reads the API key. The key comes from a file named by
 // BENCH_KEY_FILE (or --key-file) and is read once at start; it is never printed,
