@@ -335,15 +335,50 @@ describe('createComputerUseTool', { timeout: 30_000 }, () => {
 			expect(actions()).toHaveLength(1)
 		})
 
-		it('refuses clicks and keys before any screenshot', async () => {
-			const { host, calls } = makeHost()
+		it('takes the screenshot itself when an input comes before any, and says so', async () => {
+			const { host, actions } = makeHost()
+			const tool = createComputerUseTool(host, { ...FAST, screenshotAfterActions: false })
+			const click = await run(tool, { type: 'mouse_click', at: { x: 10, y: 20 }, button: 'left' })
+			expect(click.success).toBe(true)
+			expect(click.output).toContain('No screenshot had been taken yet')
+			expect(click.output).toContain('took one first (s1')
+			// The screenshot was taken, then the click went to the place read on it.
+			expect(actions().map((action) => action.type)).toEqual(['screenshot', 'mouse_click'])
+			// The next input has a screenshot and says nothing of it.
+			const typed = await run(tool, { type: 'type_text', text: 'Bahadır Arda' })
+			expect(typed.success).toBe(true)
+			expect(typed.output).not.toContain('No screenshot had been taken yet')
+			expect(actions().map((action) => action.type)).toEqual([
+				'screenshot',
+				'mouse_click',
+				'type_text',
+			])
+		})
+
+		it('takes it for a keyboard input too, and for a batch once', async () => {
+			const { host, actions } = makeHost()
+			const tool = createComputerUseTool(host, { ...FAST, screenshotAfterActions: false })
+			const result = await run(tool, {
+				type: 'batch',
+				actions: [
+					{ type: 'type_text', text: 'a' },
+					{ type: 'mouse_click', at: { x: 1, y: 1 }, button: 'left' },
+				],
+			})
+			expect(result.success).toBe(true)
+			expect(result.output).toContain('took one first (s1')
+			expect(actions().map((action) => action.type)).toEqual([
+				'screenshot',
+				'type_text',
+				'mouse_click',
+			])
+		})
+
+		it('still refuses when the host has no display screenshot to take', async () => {
+			const { host, calls } = makeHost({ capabilities: { screenshot: false } })
 			const tool = createComputerUseTool(host, FAST)
 			const click = await run(tool, { type: 'mouse_click', at: { x: 1, y: 1 }, button: 'left' })
 			expect(click.success).toBe(false)
-			expect(click.error).toContain('take a screenshot first')
-			const typed = await run(tool, { type: 'type_text', text: 'Bahadır Arda' })
-			expect(typed.success).toBe(false)
-			expect(typed.error).toContain('which window has focus')
 			expect(calls).toHaveLength(0)
 		})
 
@@ -390,10 +425,8 @@ describe('createComputerUseTool', { timeout: 30_000 }, () => {
 		it('reports the cursor in screenshot pixels', async () => {
 			const { host } = makeHost({ width: 3440, height: 1440 })
 			const tool = createComputerUseTool(host, FAST)
-			expect((await run(tool, { type: 'cursor_position' })).error).toContain(
-				'take a screenshot first',
-			)
-			await run(tool, { type: 'screenshot' })
+			const first = await run(tool, { type: 'cursor_position' })
+			expect(first.output).toContain('took one first (s1')
 			const result = await run(tool, { type: 'cursor_position' })
 			expect(result.success).toBe(true)
 			expect(result.output).toBe('Read cursor position: at (784, 328) in s1')
@@ -1513,6 +1546,17 @@ describe('createComputerUseTool', { timeout: 30_000 }, () => {
 			expect(tool.description).toContain('Available actions: none.')
 			expect((await run(tool, { type: 'screenshot' })).success).toBe(false)
 			expect(calls).toEqual([])
+		})
+
+		it('tells the model to do on the screen what it was asked to do on the screen, and to say how it worked', () => {
+			const { host } = makeHost()
+			const tool = createComputerUseTool(host, FAST)
+			expect(tool.description).toContain('do it here, on the screen, so they watch it happen')
+			expect(tool.description).toContain('start the program from the shell if it is not open')
+			expect(tool.description).toContain('only when the result is all they asked for')
+			expect(tool.description).toContain(
+				'never say you typed or clicked in an application when you wrote a file or ran a command instead',
+			)
 		})
 
 		it('surfaces host capabilities in the description', () => {

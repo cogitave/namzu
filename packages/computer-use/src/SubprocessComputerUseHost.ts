@@ -55,6 +55,9 @@ const UNSAFE_TO_REPLAY_AFTER_START = new Set<ComputerUseAction['type']>([
 	'key',
 ])
 
+/** How long an unused host keeps its adapter's process (see `idleReleaseMs`). */
+const DEFAULT_IDLE_RELEASE_MS = 60_000
+
 export interface SubprocessComputerUseHostOptions {
 	readonly env?: NodeJS.ProcessEnv
 	readonly platform?: NodeJS.Platform
@@ -90,6 +93,13 @@ export interface SubprocessComputerUseHostOptions {
 	 * for this machine (for tests).
 	 */
 	readonly a11y?: boolean | AccessibilityBackend
+	/**
+	 * How long the host may sit unused before it lets go of what its adapter keeps running (on Windows
+	 * the cua-driver process and the cursor overlay it draws). The next call starts it again. Without
+	 * this, every conversation of an app keeps its own driver until the conversation closes. Default 60
+	 * seconds; 0 keeps it for the life of the host.
+	 */
+	readonly idleReleaseMs?: number
 }
 
 export interface SubprocessComputerUseHostForegroundOptions {
@@ -132,6 +142,8 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 	private ladder: ForegroundLadder | undefined
 	private presence: Presence | undefined
 	private a11y: AccessibilityBackend | undefined
+	private idleTimer: NodeJS.Timeout | undefined
+	private busy = 0
 
 	constructor(private readonly options: SubprocessComputerUseHostOptions = {}) {
 		const displayServer = detectDisplayServer(options.env, options.platform)
@@ -226,6 +238,7 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 		}
 		this.adapter = adapter
 		this._capabilities = adapter.capabilities
+		this.armIdleRelease()
 	}
 
 	async getDisplayGeometry(): Promise<DisplayGeometry> {
@@ -441,6 +454,8 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 
 	/** Stops whatever the adapter keeps running (the Windows cua-driver process). */
 	async dispose(): Promise<void> {
+		if (this.idleTimer) clearTimeout(this.idleTimer)
+		this.idleTimer = undefined
 		const adapter = this.adapter
 		this.adapter = null
 		await adapter?.dispose?.()
@@ -473,15 +488,38 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 		run: () => Promise<T>,
 		onAbort?: (sent: boolean) => T,
 	): Promise<T> {
-		return inCallScope(signal, async (scope) => {
-			try {
-				return await run()
-			} catch (error) {
-				if (!(error instanceof CallAbortedError)) throw error
-				if (!onAbort) throw error
-				return onAbort(scope.sent || error.sent)
+		this.busy += 1
+		try {
+			return await inCallScope(signal, async (scope) => {
+				try {
+					return await run()
+				} catch (error) {
+					if (!(error instanceof CallAbortedError)) throw error
+					if (!onAbort) throw error
+					return onAbort(scope.sent || error.sent)
+				}
+			})
+		} finally {
+			this.busy -= 1
+			this.armIdleRelease()
+		}
+	}
+
+	/** Start counting an idle stretch again; when it runs out with no call in flight the adapter lets go of its process. */
+	private armIdleRelease(): void {
+		const wait = this.options.idleReleaseMs ?? DEFAULT_IDLE_RELEASE_MS
+		if (this.idleTimer) clearTimeout(this.idleTimer)
+		this.idleTimer = undefined
+		if (wait <= 0 || !this.adapter?.release) return
+		this.idleTimer = setTimeout(() => {
+			this.idleTimer = undefined
+			if (this.busy > 0) {
+				this.armIdleRelease()
+				return
 			}
-		})
+			void this.adapter?.release?.().catch(() => undefined)
+		}, wait)
+		this.idleTimer.unref?.()
 	}
 
 	/** True when the computer is known to be locked; false when it is not or cannot be told. */
@@ -505,6 +543,8 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 
 	private requireAdapter(): Adapter {
 		if (this.ladder?.stopped) throw new ComputerUseStoppedError()
+		// A call is starting: the idle stretch starts over.
+		this.armIdleRelease()
 		if (!this.adapter) {
 			throw new Error(
 				'SubprocessComputerUseHost: adapter not initialised — call `await host.initialize()` first',

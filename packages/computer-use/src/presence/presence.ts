@@ -29,6 +29,11 @@ export interface Presence {
 	warm(): void
 	/** Removes both at once: the task ended or the session stopped. */
 	hide(): void
+	/**
+	 * Ends the helper process while nobody is using it; the next `warm()` or `mark()` starts it again.
+	 * Optional: a presence that holds no process has nothing to end.
+	 */
+	release?(): void
 	dispose(): Promise<void>
 }
 
@@ -103,6 +108,8 @@ export class WindowsPresence implements Presence {
 	private dead = false
 	private restarts = 0
 	private disposed = false
+	/** Helpers let go of on purpose: their exit is not a crash. */
+	private readonly released = new WeakSet<PresenceProcess>()
 
 	constructor(private readonly options: WindowsPresenceOptions) {}
 
@@ -129,6 +136,15 @@ export class WindowsPresence implements Presence {
 	hide(): void {
 		// Only a started helper has anything to hide.
 		if (this.proc && this.available) this.proc.write(JSON.stringify({ cmd: 'hide' }))
+	}
+
+	release(): void {
+		const proc = this.proc
+		if (!proc) return
+		this.released.add(proc)
+		this.proc = undefined
+		this.starting = undefined
+		proc.kill()
 	}
 
 	async dispose(): Promise<void> {
@@ -164,6 +180,10 @@ export class WindowsPresence implements Presence {
 			timer.unref()
 			proc.onExit(() => {
 				clearTimeout(timer)
+				if (this.released.has(proc)) {
+					resolve(false)
+					return
+				}
 				// A helper that was running and ended (it crashed, or its host closed it) is
 				// started again by the next action, a few times; one that never came up stays off.
 				if (greeted && this.proc === proc && !this.disposed && this.restarts < MAX_RESTARTS) {

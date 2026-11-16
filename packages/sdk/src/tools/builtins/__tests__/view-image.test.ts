@@ -486,6 +486,8 @@ describe('view_image artifact inspection', () => {
 		)
 		expect(clicked.success).toBe(false)
 		expect(clicked.error).toContain('screenshot')
-		expect(execute).not.toHaveBeenCalled()
+		// The tool may try to take the display screenshot the click needs, and gets none from this host;
+		// nothing but that screenshot ever reaches it, and the click is never sent.
+		expect(execute.mock.calls.every(([action]) => action.type === 'screenshot')).toBe(true)
 	})
 })

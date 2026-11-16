@@ -466,3 +466,25 @@ PrintWindow or Windows Graphics Capture; the driver's screen-region fallback
 can still see an occluding window, and browser permission bubbles rendered
 outside the native window may be absent. The host reports capture coverage
 when the driver does.
+
+### A driver that has lost the screenshot of a window
+
+The driver keeps one latest read per window, and a read of the window's controls (the adapter makes
+one before and after a click to judge it) replaces a screenshot with a read that has none. A pixel
+input is then refused with `No screenshot frame for window …` and nothing is sent. The adapter reads
+the window again with a screenshot and sends the input once more when that screenshot has the size
+of the one the model is looking at; when it has not, the step is `not_delivered` and safe to repeat,
+and the model is told to capture the window again.
+
+## Letting go of the driver while a conversation is idle
+
+Each host starts its own cua-driver process, and the process draws the agent cursor overlay, so an
+application with many conversations held one driver per conversation until each closed.
+`idleReleaseMs` (default 60 000; `0` keeps the driver for the life of the host) lets a host release
+its adapter's process after that long with no call in flight. The next call starts it again, the
+way a crashed driver restarts: screenshots and refs taken from the old process are stale and say so.
+The same release ends the two resident PowerShell helpers beside the driver (the overlay border,
+`Presence.release()`, and the accessibility host, `AccessibilityBackend.release()`), which restart on
+the next window list. At most the conversations used within the last minute hold a driver and its
+helpers. `Adapter.release()` is the optional hook; `dispose()` still ends everything with the
+conversation.
