@@ -129,6 +129,41 @@ describe('the line a turn ends with', () => {
 		expect(line).toContain('…')
 	})
 
+	it('cuts a long command after a whole word, never inside a quoted string', () => {
+		const command = `node bin/sales.js; node -e "import('./src/parse.js').then(m => console.log(m.total()))"`
+		const line = outcomeLine(
+			outcome({
+				verdict: 'inconclusive',
+				checks: [{ command, step: 2, result: 'masked' }],
+			}),
+		)
+		expect(line).toBe(
+			'Changed 4 files · ran node bin/sales.js; node -e …, but the command line hides whether it passed',
+		)
+		expect(line).not.toContain('import(')
+	})
+
+	it('leaves a leading cd to the working folder out of the command', () => {
+		const line = outcomeLine(
+			outcome({
+				checks: [{ command: 'cd /work/app && npm test', step: 2, result: 'passed', fresh: true }],
+			}),
+			'/work/app',
+		)
+		expect(line).toContain('npm test passed')
+		expect(line).not.toContain('cd /work/app')
+		expect(
+			outcomeLine(
+				outcome({
+					checks: [
+						{ command: 'cd /work/other && npm test', step: 2, result: 'passed', fresh: true },
+					],
+				}),
+				'/work/app',
+			),
+		).toContain('cd /work/other && npm test passed')
+	})
+
 	it('says so when it cannot be told whether files changed', () => {
 		expect(outcomeLine(outcome({ verdict: 'unknown', changes: none, checks: [] }))).toBe(
 			'A command ran that may have changed files · cannot tell',

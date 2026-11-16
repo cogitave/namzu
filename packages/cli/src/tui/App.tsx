@@ -4414,9 +4414,12 @@ function AppBody({
 	 * the turn earned it (`judgeSkillSuggestion`) and the anti-nag ledger lets
 	 * it through. Costs nothing and saves nothing; `/skills save` does that.
 	 */
+	// At most one proposal in a whole run of the program: a second one, in another conversation, is
+	// the same line twice.
+	const skillSuggestedThisSessionRef = useRef(false)
 	const offerSkillSuggestion = useCallback(
 		(st: StreamState) => {
-			if (!st.learning) return
+			if (!st.learning || skillSuggestedThisSessionRef.current) return
 			const conversation = conversationLearning()
 			const config = ctxRef.current.skills
 			const verdict = judgeSkillSuggestion(st.learning, {
@@ -4435,6 +4438,7 @@ function AppBody({
 				const admission = admitSuggestion(readSuggestionLedger(home))
 				if (admission.show === 'nothing') return
 				conversation.proposed = true
+				skillSuggestedThisSessionRef.current = true
 				writeSuggestionLedger(home, admission.next)
 				pushMessage(
 					'system',
@@ -9691,6 +9695,7 @@ function AppBody({
 				})
 			}
 			const summary = buildPermissionSummary(review.text, {
+				cwd: ctxRef.current.cwd,
 				describeUiRef: (ref) => reviewSessionRef.current?.describeComputerUseRef?.(ref),
 				fileExists: (path) => existsSync(resolve(ctxRef.current.cwd, path)),
 				readText: (path) => readReviewedFile(resolve(ctxRef.current.cwd, path)),
@@ -10727,6 +10732,7 @@ function AppBody({
 						event.outcome,
 						outcomeToldRef.current.telling,
 						cannotTellReasonRef.current,
+						ctxRef.current.cwd,
 					)
 					outcomeToldRef.current.telling = said.telling
 					if (said.line) pushSystem('notice', said.line)

@@ -77,8 +77,21 @@ describe('judgeSkillSuggestion', () => {
 			undefined,
 			'too-few-steps',
 		],
-		['one tool only', [BASH, BASH, BASH, BASH, BASH, BASH], {}, undefined, 'one-tool'],
-		['only reads', [READ, GREP, READ, GREP, READ, GREP], {}, undefined, 'read-only'],
+		['one tool only', [BASH, BASH, BASH, BASH, BASH, BASH], {}, undefined, 'few-tools'],
+		[
+			'two tools only: read some files, change one',
+			[READ, READ, READ, READ, READ, WRITE],
+			{},
+			undefined,
+			'few-tools',
+		],
+		[
+			'only reads',
+			[READ, GREP, READ, ['glob', true, true], READ, GREP],
+			{},
+			undefined,
+			'read-only',
+		],
 		['a failure in the last three', [...SIX, ['bash', false]], {}, undefined, 'failing-tail'],
 		[
 			'a failure earlier is fine',
@@ -153,7 +166,7 @@ describe('judgeSkillSuggestion', () => {
 			toolName: 'write',
 			summary: '',
 		})
-		for (const [i, name] of ['read', 'grep', 'read', 'grep', 'read', 'grep'].entries()) {
+		for (const [i, name] of ['read', 'grep', 'glob', 'grep', 'read', 'grep'].entries()) {
 			observeTurnEvent(activity, {
 				kind: 'tool-end',
 				toolUseId: `hosted-${i}`,
