@@ -27,9 +27,10 @@ the prompt prefix stays byte-stable. It says:
 - The shared temp folder is for when the person asks.
 - A file the person asked for goes where they said, or where the project keeps
   such files.
-- Edits can be rewound (an interactive session records each file before a tool
-  changes it; see [File checkpoints](file-checkpoints.md)), so a backup copy is
-  not left beside a file.
+- A backup copy goes in the scratch folder, not beside the file. (An
+  interactive session also records each file before a tool changes it; see
+  [File checkpoints](file-checkpoints.md). Exec and ephemeral sessions have no
+  such rewind, which is why the rule does not lean on it.)
 - The person is given the full path of any file or folder the model names to
   them.
 - Never create or delete a top-level entry in the home folder or the

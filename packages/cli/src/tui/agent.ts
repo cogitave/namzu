@@ -1,3 +1,4 @@
+import { childScratchpadFact } from '../context/subagent-scratchpad-fact.js'
 import { debugRequested } from '../debug-requested.js'
 import { isDefaultAccountId } from '../integrations/accounts/binding.js'
 import { resolveIdleCompactionMinTokens } from '../integrations/compaction/idle-compaction.js'
@@ -4389,8 +4390,12 @@ export async function createAgentSession(
 				composeEnvironmentPrompt({
 					...(await readEnvironmentFacts(childCwd)),
 					// A sub-agent writes into the parent's scratch folder; an ephemeral
-					// session's children are not given one.
-					...(options.ephemeral ? {} : scratchpadFact(paths, scope.sessionId)),
+					// session's children are not given one, and a sandbox does not
+					// have the host folder.
+					...childScratchpadFact(() => scratchpadFact(paths, scope.sessionId), {
+						ephemeral: options.ephemeral,
+						sandboxed: Boolean(sandbox.provider && sandbox.environment),
+					}),
 					boundary: { ...boundaryFor(lastSendInteractive), delegated: true },
 					...(wsl ? { wsl } : {}),
 				}),

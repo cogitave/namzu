@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
 import { NAMZU_WORKING_DOCTRINE } from '../doctrine.js'
-import { composeFilePlacementGuidance } from '../file-placement.js'
 
 /**
  * A session that left logs, scripts and staging folders in a person's home
