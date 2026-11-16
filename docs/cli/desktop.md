@@ -4853,7 +4853,7 @@ Desktop admits `verdict`, `line` (one line of at most 500 characters, control ch
 
 ### Title notices
 
-Under `--desktop` the host names each new conversation with the small model (`src/commands/desktop-title-feed.ts`, the same request and rules as the terminal's `ai-title.ts`). Beside the conversation's first turn it asks once for a title of two to five words in the language of the first message, saves it as a derived title (a name the person chose is never replaced) and sends one `namzu/session/title` notification, `{ sessionId, title }`, at most 60 characters. Desktop replaces the first words of the message in the sidebar and the header with it only while the title is still those words; a rename the person made in the meantime stays. If the request fails nothing is sent and the first words stay.
+Under `--desktop` the host names each new conversation with the small model (`src/commands/desktop-title-feed.ts`, the same request and rules as the terminal's `ai-title.ts`). Beside the conversation's first turn it asks once for a title of two to five words in the language of the person's first message (the request says so in words, whatever language the rest of the prompt is in), saves it as a derived title (a name the person chose is never replaced) and sends one `namzu/session/title` notification, `{ sessionId, title }`, at most 60 characters. Desktop replaces the first words of the message in the sidebar and the header with it only while the title is still those words; a rename the person made in the meantime stays. If the request fails nothing is sent and the first words stay.
 
 ### Working-tree changes
 
