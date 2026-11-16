@@ -327,7 +327,7 @@ test("a failing check stays on the row through a partial undo, and the undo is s
 	}
 });
 
-test("an unknown record with counted edits shows the counts alone, and the caveat is reachable", { timeout: 480000 }, async () => {
+test("an unknown record with counted edits shows the counts alone, with no word about not being able to tell", { timeout: 480000 }, async () => {
 	const w = await createWorld({ rules: more, files, seed, tabs: "hidden" });
 	let failed = true;
 	try {
@@ -347,11 +347,12 @@ test("an unknown record with counted edits shows the counts alone, and the cavea
 		await converse(w, "Run an unknown command", /Unknown run finished/);
 		await expect(line(w).locator(".turn-result-files")).toHaveText("1 file");
 		await expect(line(w).locator(".turn-result-check")).toHaveCount(0);
-		const tip = await line(w).locator(".turn-result-size").getAttribute("title");
-		const said = await line(w).getByRole("button", { name: /Open changes$/ }).getAttribute("aria-label");
-		assert.match(tip ?? "", /^These are the edits made with the edit tools\. A command ran that may have changed files/, said ?? "");
+		// The record's sentence about not being able to tell is drawn nowhere: not as a hover, not in the name.
+		const tip = (await line(w).locator(".turn-result-size").getAttribute("title")) ?? "";
+		assert.equal(tip, "");
 		const name = (await line(w).getByRole("button", { name: /Open changes$/ }).getAttribute("aria-label")) ?? "";
-		assert.ok(name.includes("A command ran that may have changed files"), name);
+		assert.ok(!name.includes("may have changed files") && !name.includes("cannot tell"), name);
+		await expect(w.page.locator(".turn-outcome-line")).toHaveCount(0);
 		await line(w).locator(".turn-result-size").hover();
 		await snap(w, "unknown-with-counts");
 		failed = false;

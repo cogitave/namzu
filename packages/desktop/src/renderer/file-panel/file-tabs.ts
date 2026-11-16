@@ -86,11 +86,6 @@ function withTab(tabs: PanelTab[], tab: PanelTab): PanelTab[] {
 	return [...tabs, tab]
 }
 
-/** Makes sure the tab exists without choosing it; the same state back when it already does. */
-export function addPanelTab(state: PanelTabsState, tab: PanelTab): PanelTabsState {
-	return hasTab(state, tab) ? state : { ...state, tabs: withTab(state.tabs, tab) }
-}
-
 /** Makes sure the tab exists and shows it. */
 export function ensurePanelTab(state: PanelTabsState, tab: PanelTab): PanelTabsState {
 	if (tab.kind === 'file') return openFileTab(state, tab.path)

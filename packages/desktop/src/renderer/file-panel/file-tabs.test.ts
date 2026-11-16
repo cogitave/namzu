@@ -6,7 +6,6 @@ import {
 	activatePanelTab,
 	activeFilePath,
 	activityTab,
-	addPanelTab,
 	browsePanelTabs,
 	changesTab,
 	clampPanelWidth,
@@ -225,12 +224,6 @@ describe('the Outputs tab', () => {
 		expect(shown.tabs.map((tab) => tab.kind)).toEqual(['changes', 'outputs', 'activity'])
 		expect(shown.active).toEqual(outputsTab)
 		expect(panelKindOf('outputs')).toBe('reading')
-	})
-	it('can be added without being chosen, and adding it twice changes nothing', () => {
-		const added = addPanelTab(emptyPanelTabs, outputsTab)
-		expect(added.active).toEqual(emptyPanelTabs.active)
-		expect(added.tabs.map((tab) => tab.kind)).toEqual(['changes', 'outputs', 'activity'])
-		expect(addPanelTab(added, outputsTab)).toBe(added)
 	})
 	it('is remembered with the other tabs', () => {
 		const state = ensurePanelTab(emptyPanelTabs, outputsTab)

@@ -119,7 +119,6 @@ import {
 	activatePanelTab,
 	activeFilePath,
 	activityTab,
-	addPanelTab,
 	browsePanelTabs,
 	changesTab,
 	clampPanelWidth,
@@ -1223,7 +1222,6 @@ export function App({
 		outputsSeen.current.set(sessionId, seen)
 		const news = thread.running ? outputToOpen(outputs, seen) : undefined
 		for (const file of outputs) seen.set(file.path, file.version)
-		if (outputs.length > 0) updatePanelTabs((state) => addPanelTab(state, outputsTab))
 		// A page or a document a turn just wrote opens by itself, in the pane, with the page drawn.
 		if (news) {
 			setOutputPick({ sessionId, path: news.path })

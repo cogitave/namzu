@@ -298,7 +298,7 @@ export function ConversationBar({
 						onClick={onOutputs}
 					>
 						<ImageIcon aria-hidden="true" />
-						<span className="conversation-bar-lines" aria-hidden="true">
+						<span className="conversation-bar-outputs-count" aria-hidden="true">
 							{outputs}
 						</span>
 					</Button>
