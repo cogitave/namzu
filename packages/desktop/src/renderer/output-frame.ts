@@ -15,16 +15,14 @@ export const OUTPUT_FRAME_POLICY =
 
 const META = `<meta http-equiv="Content-Security-Policy" content="${OUTPUT_FRAME_POLICY}">`
 
-/** The page with the policy placed first in its head, so nothing in the file can run before it. */
+/**
+ * The page with the policy as its first element, before anything the file holds, so no markup in the
+ * file (a comment that spells a head tag, an image before the head) can come ahead of it. The parser
+ * puts a leading meta into the head it opens for the page. A doctype at the very start stays first so
+ * the page keeps its standards mode.
+ */
 export function outputFrameDocument(html: string): string {
-	const head = /<head(?:\s[^>]*)?>/i.exec(html)
-	if (head)
-		return `${html.slice(0, head.index + head[0].length)}${META}${html.slice(head.index + head[0].length)}`
-	const root = /<html(?:\s[^>]*)?>/i.exec(html)
-	if (root)
-		return `${html.slice(0, root.index + root[0].length)}<head>${META}</head>${html.slice(root.index + root[0].length)}`
 	const doctype = /^\s*<!doctype[^>]*>/i.exec(html)
-	if (doctype)
-		return `${html.slice(0, doctype[0].length)}<head>${META}</head>${html.slice(doctype[0].length)}`
-	return `<head>${META}</head>${html}`
+	if (doctype) return `${doctype[0]}${META}${html.slice(doctype[0].length)}`
+	return `${META}${html}`
 }

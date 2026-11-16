@@ -18,18 +18,23 @@ describe('the frame a written page is shown in', () => {
 		expect(out.indexOf('Content-Security-Policy')).toBeLessThan(out.indexOf('<title>'))
 		expect(out.startsWith('<!DOCTYPE html>')).toBe(true)
 	})
-	it('adds a head to a page that has none, and wraps a bare fragment', () => {
+	it('puts the policy before anything else the file holds', () => {
 		expect(outputFrameDocument('<html><body>hi</body></html>')).toMatch(
-			/^<html><head><meta[^>]+><\/head><body>hi/,
+			/^<meta[^>]+><html><body>hi/,
 		)
 		expect(outputFrameDocument('<!doctype html><body>hi</body>')).toMatch(
-			/^<!doctype html><head><meta[^>]+><\/head><body>hi/,
+			/^<!doctype html><meta[^>]+><body>hi/,
 		)
-		expect(outputFrameDocument('<p>hi</p>')).toMatch(/^<head><meta[^>]+><\/head><p>hi<\/p>$/)
-	})
-	it('is not fooled by a head tag spelled in capitals or with attributes', () => {
+		expect(outputFrameDocument('<p>hi</p>')).toMatch(/^<meta[^>]+><p>hi<\/p>$/)
 		expect(outputFrameDocument('<HEAD lang="x"><TITLE>t</TITLE></HEAD>')).toMatch(
-			/^<HEAD lang="x"><meta/,
+			/^<meta[^>]+><HEAD/,
 		)
+	})
+	it('is not fooled by a head tag inside a comment or by markup before the head', () => {
+		const out = outputFrameDocument(
+			'<!-- <head> --><img src="data:,x"><head><title>t</title></head>',
+		)
+		expect(out.startsWith('<meta http-equiv="Content-Security-Policy"')).toBe(true)
+		expect(out.indexOf('Content-Security-Policy')).toBeLessThan(out.indexOf('<!--'))
 	})
 })
