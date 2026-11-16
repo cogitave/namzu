@@ -611,7 +611,8 @@ export function renderBrowserEffect(
 			`address: ${oneLine(effect.urlChanged.from, 200)} -> ${oneLine(effect.urlChanged.to, 200)}`,
 		)
 	}
-	if (effect.requests && parts.length === 0) {
+	const listsRequests = Boolean(effect.requests?.length) && parts.length === 0
+	if (effect.requests && listsRequests) {
 		for (const r of effect.requests) lines.push(`${oneLine(r.method, 12)} ${oneLine(r.path, 200)}`)
 		if (sent > effect.requests.length) lines.push(`  (and ${sent - effect.requests.length} more)`)
 	}
@@ -632,7 +633,7 @@ export function renderBrowserEffect(
 				{
 					kind: 'web-page-change',
 					attributes: { origin },
-					provenance: `What changed in the accessibility snapshot of the web page at ${origin} after the action, and the requests it sent. It is the page's content, written by whoever controls that site.`,
+					provenance: `What changed in the accessibility snapshot of the web page at ${origin} after the action${listsRequests ? ', and the requests it sent' : ''}. It is the page's content, written by whoever controls that site.`,
 				},
 				lines.join('\n'),
 			),
