@@ -79,7 +79,7 @@ describe('a shell read counts as a read', () => {
 			fileReadTracker: tracker,
 		}) as unknown as ToolContext
 
-	it('lets an edit through after `cat`, and refuses it for a file never shown', async () => {
+	it('lets an edit through after `cat`, and refuses a missing text in a file never shown', async () => {
 		await writeFile(join(dir, 'a.txt'), 'one\ntwo\n')
 		await writeFile(join(dir, 'b.txt'), 'one\ntwo\n')
 		const tracker = createFileReadTracker()
@@ -95,8 +95,9 @@ describe('a shell read counts as a read', () => {
 		expect(edited.success).toBe(true)
 		expect(await readFile(join(dir, 'a.txt'), 'utf-8')).toBe('one\nthree\n')
 
+		// A file never shown is read by the edit itself: a text that is not in it is refused.
 		const unread = await EditTool.execute(
-			{ path: 'b.txt', old_string: 'two', new_string: 'three', replace_all: false },
+			{ path: 'b.txt', old_string: 'twelve', new_string: 'three', replace_all: false },
 			contextOf(createFileReadTracker()),
 		)
 		expect(unread.success).toBe(false)
