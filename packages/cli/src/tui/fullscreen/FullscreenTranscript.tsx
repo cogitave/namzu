@@ -118,8 +118,23 @@ export interface FullscreenTranscriptProps {
 	 * last row; present, the owner shows it in the status area and the rows stay as they are.
 	 */
 	readonly onNote?: (report: CopyReport) => void
-	/** Told when the search line opens or closes: the composer must not take keys while it is open. */
-	readonly onSearchChange?: (open: boolean) => void
+	/**
+	 * Told when the search line opens or closes: the composer must not take keys while it is open.
+	 * `typing` is false once the query was confirmed and the keys step through the matches.
+	 */
+	readonly onSearchChange?: (open: boolean, typing?: boolean) => void
+	/**
+	 * The detailed transcript (ctrl+o): every body whole and open, a click folds one, the model's
+	 * reasoning and each reply's stamp are drawn, `/` searches and `n` and `N` step through the
+	 * matches, and typing never jumps to the end.
+	 */
+	readonly detailed?: boolean
+	/** Screen row (1 is the top) the window starts at, when something is drawn above it. */
+	readonly top?: number
+	/** Ignores the wheel and the pointer: another view is on screen and has them. */
+	readonly inert?: boolean
+	/** Takes no room while another view is on screen, keeping its place for when it comes back. */
+	readonly yielded?: boolean
 	readonly control: { current: FullscreenControl | null }
 	/** Rows a slow wheel notch moves (`tui.wheelRows`); 3 when absent. */
 	readonly wheelRows?: number
@@ -160,6 +175,8 @@ const CURRENT: Mark['style'] = { inverse: true, bold: true }
 
 interface SearchOpen {
 	readonly query: string
+	/** The query was confirmed: `n` and `N` step through the matches and `/` types again. */
+	readonly browsing?: boolean
 	readonly cursor: { readonly row: number; readonly from: number } | null
 }
 
@@ -229,6 +246,10 @@ export function FullscreenTranscript({
 	hyperlinks = false,
 	onNote,
 	onSearchChange,
+	detailed = false,
+	top = 1,
+	inert = false,
+	yielded = false,
 	control,
 	noteMs,
 	clock = REAL_CLOCK,
@@ -265,8 +286,17 @@ export function FullscreenTranscript({
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a new theme lays the rows out again.
 	const { rows, index } = useMemo(
-		() => layoutTranscript(messages, pending, pendingAt, columns, cache, { click, open }, mark),
-		[messages, pending, pendingAt, columns, cache, epoch, click, open, mark],
+		() =>
+			layoutTranscript(
+				messages,
+				pending,
+				pendingAt,
+				columns,
+				cache,
+				{ click, open, detailed },
+				mark,
+			),
+		[messages, pending, pendingAt, columns, cache, epoch, click, open, detailed, mark],
 	)
 	// A row that left the conversation (a compaction, a new session) is not open any more.
 	useEffect(() => {
@@ -363,6 +393,7 @@ export function FullscreenTranscript({
 	const hoverClear = useRef<() => void>(() => undefined)
 	const onWheel = useCallback(
 		(direction: WheelDirection) => {
+			if (inert) return
 			// The rows move under a pointer that does not: what it rested on is not known until it moves.
 			hoverClear.current()
 			wheelState.current = notch(
@@ -382,7 +413,7 @@ export function FullscreenTranscript({
 			// The first frame is at once, so scrolling up stops following at the first notch.
 			if (glideTimer.current === null) runFrame.current()
 		},
-		[room, moveRows, wheelRows, wheelAccel, clock],
+		[room, moveRows, wheelRows, wheelAccel, clock, inert],
 	)
 	useEffect(() => subscribeWheel(onWheel), [subscribeWheel, onWheel])
 
@@ -442,7 +473,7 @@ export function FullscreenTranscript({
 	const clicks = useRef(new ClickCounter(() => Date.now(), DOUBLE_CLICK_MS)).current
 	// Where the window is on the screen, read when the pointer reports.
 	const geometryRef = useRef<Geometry>({
-		top: 1,
+		top,
 		height: maxRows,
 		from: 0,
 		to: 0,
@@ -465,6 +496,7 @@ export function FullscreenTranscript({
 			const after = layoutTranscript(now.messages, now.pending, now.pendingAt, now.columns, cache, {
 				click,
 				open: next,
+				detailed,
 			})
 			place(
 				holdRow(viewNow.current, now.index, after.index, id, offset, {
@@ -476,7 +508,7 @@ export function FullscreenTranscript({
 			openRef.current = next
 			setOpen(next)
 		},
-		[cache, click, room, place],
+		[cache, click, detailed, room, place],
 	)
 
 	// Whether the footer row is the jump hint now, and whether a press began on it.
@@ -500,6 +532,7 @@ export function FullscreenTranscript({
 	} | null>(null)
 	const pointer = useCallback(
 		(report: PointerReport) => {
+			if (inert) return
 			const node = boxRef.current
 			const geometry = {
 				...geometryRef.current,
@@ -644,6 +677,7 @@ export function FullscreenTranscript({
 			stopGlide,
 			place,
 			links,
+			inert,
 		],
 	)
 	useEffect(
@@ -664,10 +698,15 @@ export function FullscreenTranscript({
 		: -1
 	const updateSearch = useCallback(
 		(next: SearchOpen | null) => {
-			const was = searchRef.current !== null
+			const before = searchRef.current
 			searchRef.current = next
 			setSearch(next)
-			if (was !== (next !== null)) onSearchChange?.(next !== null)
+			const typing = next !== null && next.browsing !== true
+			if (
+				(before !== null) !== (next !== null) ||
+				(before !== null && (before.browsing !== true) !== typing)
+			)
+				onSearchChange?.(next !== null, typing)
 		},
 		[onSearchChange],
 	)
@@ -737,6 +776,23 @@ export function FullscreenTranscript({
 					scroll('page-down')
 					return
 				}
+				// Confirmed: the keys step through the matches, `/` types the query again, and Esc (taken
+				// through the control) closes. Everything else is the owner's.
+				if (open.browsing) {
+					if (input === '/') updateSearch({ ...open, browsing: false })
+					else if (input === 'n' || input === 'N') {
+						const found = findMatches(latest.current.rows, open.query)
+						const was = found.findIndex(
+							(m) => m.row === open.cursor?.row && m.from === open.cursor?.from,
+						)
+						const to = found[stepMatch(found.length, was, input === 'n' ? 1 : -1)]
+						if (to) {
+							updateSearch({ ...open, cursor: { row: to.row, from: to.from } })
+							goTo(to)
+						}
+					}
+					return
+				}
 				const edit = editSearch(open.query, input, key)
 				const { rows: now, synced: state, index: at } = latest.current
 				// Escape is taken through the control, so the owner can tell a key that
@@ -749,6 +805,19 @@ export function FullscreenTranscript({
 						cursor: first ? { row: first.row, from: first.from } : null,
 					})
 					goTo(first)
+				} else if (detailed && edit.kind === 'next' && open.query.length > 0) {
+					// Enter confirms the query: from here `n` and `N` step, the way a pager does.
+					const found = findMatches(now, open.query)
+					const current = found.findIndex(
+						(m) => m.row === open.cursor?.row && m.from === open.cursor?.from,
+					)
+					const to = found[current >= 0 ? current : startMatch(found, bottomRow(state, at))]
+					updateSearch({
+						...open,
+						browsing: true,
+						cursor: to ? { row: to.row, from: to.from } : open.cursor,
+					})
+					goTo(to)
 				} else if (edit.kind === 'next' || edit.kind === 'previous') {
 					const found = findMatches(now, open.query)
 					const was = found.findIndex(
@@ -762,14 +831,18 @@ export function FullscreenTranscript({
 				}
 				return
 			}
-			if (isAction('app:searchTranscript', input, key)) {
+			if (isAction('app:searchTranscript', input, key) || (detailed && input === '/')) {
 				openSearch()
 				return
 			}
 			if (key.pageDown) scroll('page-down')
 			else if (homeEndActive && key.home) scroll('top')
 			else if (homeEndActive && key.end) scroll('bottom')
-			else if (!key.pageUp && (key.return || (input.length > 0 && !key.ctrl && !key.meta))) {
+			else if (
+				!detailed &&
+				!key.pageUp &&
+				(key.return || (input.length > 0 && !key.ctrl && !key.meta))
+			) {
 				// Typing is a reason to look at the end again, and to let go of a selection.
 				if (selectionRef.current) updateSelection(null)
 				if (!viewNow.current.follow) place(FOLLOWING)
@@ -794,7 +867,13 @@ export function FullscreenTranscript({
 		: null
 	const footer: { text: string; color: string } | null = search
 		? {
-				text: searchLine(search.query, currentIndex, matches.length, columns),
+				text: searchLine(
+					search.query,
+					currentIndex,
+					matches.length,
+					columns,
+					search.browsing === true,
+				),
 				color: theme.text.primary,
 			}
 		: ((noteLine && hint ? noteLine : null) ??
@@ -804,7 +883,7 @@ export function FullscreenTranscript({
 	const overlay = !search && !hint ? noteLine : null
 	hintRef.current = hint !== null && !search && !noteLine
 	geometryRef.current = {
-		top: 1,
+		top,
 		height: geometryRef.current.height,
 		from,
 		to,
@@ -862,13 +941,14 @@ export function FullscreenTranscript({
 		<Box
 			ref={boxRef}
 			flexDirection="column"
-			flexGrow={1}
+			flexGrow={yielded ? 0 : 1}
 			flexShrink={1}
 			flexBasis={0}
+			{...(yielded ? { height: 0 } : {})}
 			overflowY="hidden"
 			justifyContent="flex-end"
 		>
-			{hidden ? null : (
+			{hidden || yielded ? null : (
 				<Box flexDirection="column" flexShrink={0}>
 					{from === 0 && header ? <Box>{header}</Box> : null}
 					{rows.slice(from, to).map((row, i) => {

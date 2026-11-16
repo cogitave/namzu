@@ -82,6 +82,8 @@ import {
 import { ProviderSetup } from './ProviderSetup.js'
 import { TranscriptScreen } from './TranscriptScreen.js'
 import { backgroundRows, isRowRunning } from './background-view.js'
+import { DetailedScreen } from './fullscreen/DetailedScreen.js'
+import { transcriptPlainText } from './transcript-screen.js'
 
 import {
 	pinTrustedProjectPath,
@@ -3884,6 +3886,9 @@ function AppBody({
 	 * draw it above that row; no other view shows it.
 	 */
 	const thinkingForNextRowRef = useRef('')
+	// Who is answering, read when a reply begins: the detailed transcript names it on each reply.
+	const replyModelRef = useRef<string | null>(null)
+	replyModelRef.current = session?.modelSummary ?? null
 	const pushMessage = useCallback(
 		(
 			role: TranscriptMessage['role'],
@@ -3948,6 +3953,12 @@ function AppBody({
 								glyphColor: rowGlyphColor,
 								meta,
 								activity,
+								...(role === 'assistant'
+									? {
+											at: Date.now(),
+											...(replyModelRef.current ? { model: replyModelRef.current } : {}),
+										}
+									: {}),
 								...(thinkingText !== undefined ? { thinking: thinkingText } : {}),
 								...(shell ? { shell } : {}),
 								...(diff ? { diff } : {}),
@@ -17519,6 +17530,8 @@ function AppBody({
 							columns={Math.max(4, terminal.columns - SCREEN_MARGIN)}
 							maxRows={Math.max(3, terminal.rows - 1)}
 							hidden={lifecycleOwnsViewport}
+							inert={transcriptScreen}
+							yielded={transcriptScreen}
 							keysActive={
 								phase === 'ready' &&
 								permission === null &&
@@ -18211,7 +18224,46 @@ function AppBody({
 							escapeTo={agentSurface.fromRail ? 'back' : 'agents'}
 						/>
 					) : null}
-					{transcriptScreen ? (
+					{transcriptScreen && fullscreen ? (
+						<DetailedScreen
+							messages={finalized}
+							pending={messages.find((m) => m.pending) ?? null}
+							pendingAt={pendingAt}
+							columns={Math.max(4, terminal.columns - SCREEN_MARGIN)}
+							maxRows={Math.max(3, terminal.rows - 2)}
+							dialogWaiting={
+								permission !== null ||
+								saveSkillPrompt !== null ||
+								planPrompt !== null ||
+								questionDialog !== null ||
+								scheduleReviewPrompt !== null
+							}
+							subscribeWheel={fullscreen.subscribeWheel}
+							{...(fullscreen.subscribePointer
+								? { subscribePointer: fullscreen.subscribePointer, copy: copyFullscreenSelection }
+								: {})}
+							copyOnSelect={fullscreen.copyOnSelect !== false}
+							links={fullscreenLinks}
+							hyperlinks={hyperlinks}
+							onNote={showPointerNote}
+							{...(fullscreen.wheelRows !== undefined ? { wheelRows: fullscreen.wheelRows } : {})}
+							{...(fullscreen.wheelAccel !== undefined
+								? { wheelAccel: fullscreen.wheelAccel }
+								: {})}
+							onOpenInEditor={(all) => {
+								// The whole conversation, as the screen shows it, in the editor; what is saved there is not read back.
+								void requestExternalEditor(transcriptPlainText(all), 'v').then(
+									() => undefined,
+									(error) =>
+										showPointerNote({
+											text: explainFailure(error, 'Could not open the editor.'),
+											ok: false,
+										}),
+								)
+							}}
+							onClose={() => setTranscriptScreen(false)}
+						/>
+					) : transcriptScreen ? (
 						<TranscriptScreen
 							messages={finalized}
 							pending={messages.find((m) => m.pending) ?? null}
