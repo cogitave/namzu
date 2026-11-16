@@ -2,6 +2,8 @@
 
 ## 2026-11-16
 
+- **Update** [Turn limits](cli/turn-limits.md#done-gate), [Completion audit](sdk/completion-audit.md#settings), [Launch flags](cli/launch-flags.md), [The bash tool](sdk/bash-tool.md#a-printed-file-counts-as-read): `limits.doneGate` now defaults to off in every CLI session (set it to `true` to keep the old behaviour), and a file printed by `cat`, `nl`, `head`, `tail` or `sed -n`, even after a leading `cd ... &&` or beside an `ls`, counts as read for `edit`, whole or as a window. `.changeset/cli-done-gate-off-by-default.md`, `.changeset/sdk-shell-print-counts-as-read.md`.
+
 - **Update** [Browser tools](sdk/browser-tools.md#what-the-model-reads), [The browser host](sdk/browser-host.md#waiting-for-the-page-and-what-an-action-did), [The browser](cli/browser.md#how-the-model-is-told-to-work): an action that changed nothing visible now says what the page sent (`no visible change on the page; it sent 1 request.`, with `POST /path` inside the untrusted envelope; only fetch, XHR and document requests, no query string), carried as the optional `BrowserEffect.requests` and `requestCount`; and the web-task paragraph tells the model, when a step cannot be done or confirmed, to carry on with every other step the page allows and report the step left. `.changeset/browser-effect-names-requests.md`.
 
 ## 2026-11-15
