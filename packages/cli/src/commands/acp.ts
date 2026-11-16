@@ -708,6 +708,7 @@ export function createCliAcpRuntime(
 					const titles = await titlesOf(record.conversations, target.sessionId)
 					return titles.named !== undefined || titles.generated !== undefined
 				},
+				idle: (id) => records.get(id)?.route === undefined,
 				save: async (id, title) => {
 					const record = records.get(id)
 					if (!record?.conversations) return
@@ -1217,6 +1218,8 @@ export function createCliAcpRuntime(
 					await settleTurnOfGoneHost(record.conversations, sessionId).catch(() => false)
 				const undoNote = undoNotes.get(sessionId)?.join('\n\n')
 				undoNotes.delete(sessionId)
+				// A conversation's name being saved holds its log for a moment; the turn goes after it.
+				await titleFeed?.saved(sessionId)
 				for await (const event of record.session.send(messages, {
 					...settings,
 					// The words the person sent: a target such as +500k is read from these only.

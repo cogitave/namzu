@@ -39,6 +39,8 @@ export interface TitleFeedOptions {
 	readonly hasTitle: (sessionId: string) => Promise<boolean>
 	/** Saves the title in the conversation's record; rejects while a turn holds the log. */
 	readonly save: (sessionId: string, title: string) => Promise<unknown>
+	/** Whether no turn of the conversation is running or about to start; the log is only written then. */
+	readonly idle: (sessionId: string) => boolean
 	/** Longest a request may take. */
 	readonly timeoutMs?: number
 }
@@ -50,21 +52,31 @@ export interface TitleFeed {
 	observe(sessionId: string, event: SessionEvent): void
 	/** Tries to save names that were told but not yet kept; call when a turn ends. */
 	flush(sessionId: string): Promise<void>
+	/** Settles once a save under way for the conversation is over; a turn waits for it before it claims the log. */
+	saved(sessionId: string): Promise<void>
 }
 
 export function createTitleFeed(options: TitleFeedOptions): TitleFeed {
 	const waiting = new Map<string, string>()
 	const attempted = new Set<string>()
 	const unsaved = new Map<string, string>()
+	const saving = new Map<string, Promise<void>>()
 	const flush = async (sessionId: string): Promise<void> => {
 		const title = unsaved.get(sessionId)
-		if (title === undefined) return
-		try {
-			await options.save(sessionId, title)
-			if (unsaved.get(sessionId) === title) unsaved.delete(sessionId)
-		} catch {
-			/* A turn holds the log; the next turn's end tries again. */
-		}
+		// A save claims the conversation's log for a moment; a turn that starts in that moment would be
+		// refused it, so a save only begins while no turn is running, and a turn waits for one under way.
+		if (title === undefined || saving.has(sessionId) || !options.idle(sessionId)) return
+		const run = (async () => {
+			try {
+				await options.save(sessionId, title)
+				if (unsaved.get(sessionId) === title) unsaved.delete(sessionId)
+			} catch {
+				/* A turn holds the log; the next turn's end tries again. */
+			}
+		})()
+		saving.set(sessionId, run)
+		await run
+		saving.delete(sessionId)
 	}
 	return {
 		expect(sessionId, message) {
@@ -104,5 +116,8 @@ export function createTitleFeed(options: TitleFeedOptions): TitleFeed {
 			})()
 		},
 		flush,
+		saved: async (sessionId) => {
+			await saving.get(sessionId)
+		},
 	}
 }

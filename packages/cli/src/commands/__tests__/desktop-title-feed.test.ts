@@ -26,6 +26,7 @@ describe('the title feed', () => {
 			sideModel: () => model,
 			hasTitle: async () => false,
 			save,
+			idle: () => true,
 		})
 		feed.expect('s1', 'Kahve dükkanım için tek sayfalık bir web sayfası yap')
 		feed.observe('s1', other)
@@ -53,6 +54,7 @@ describe('the title feed', () => {
 			sideModel: () => side(undefined),
 			hasTitle: async () => false,
 			save: async () => undefined,
+			idle: () => true,
 		})
 		feed.expect('s1', 'A message long enough to name')
 		feed.observe('s1', started)
@@ -72,6 +74,7 @@ describe('the title feed', () => {
 			sideModel: () => named,
 			hasTitle: async () => true,
 			save: async () => undefined,
+			idle: () => true,
 		})
 		a.expect('s1', 'A message long enough to name')
 		a.observe('s1', started)
@@ -82,6 +85,7 @@ describe('the title feed', () => {
 			sideModel: () => undefined,
 			hasTitle: async () => false,
 			save: async () => undefined,
+			idle: () => true,
 		})
 		b.expect('s2', 'A message long enough to name')
 		b.observe('s2', started)
@@ -100,6 +104,7 @@ describe('the title feed', () => {
 			sideModel: () => side('{"title": "Coffee page"}'),
 			hasTitle: async () => false,
 			save,
+			idle: () => true,
 		})
 		feed.expect('s1', 'A message long enough to name')
 		feed.observe('s1', started)
@@ -109,6 +114,46 @@ describe('the title feed', () => {
 		expect(save).toHaveBeenCalledTimes(2)
 		await feed.flush('s1')
 		expect(save).toHaveBeenCalledTimes(2)
+	})
+
+	it('writes the log only while no turn runs, and a turn waits for a write under way', async () => {
+		let running = true
+		let release: (() => void) | undefined
+		const save = vi.fn(
+			() =>
+				new Promise<void>((resolve) => {
+					release = resolve
+				}),
+		)
+		const feed = createTitleFeed({
+			notify: vi.fn(),
+			sideModel: () => side('{"title": "Coffee page"}'),
+			hasTitle: async () => false,
+			save,
+			idle: () => !running,
+		})
+		feed.expect('s1', 'A message long enough to name')
+		feed.observe('s1', started)
+		await settle()
+		// The turn is still running when the title arrives: nothing is written.
+		expect(save).not.toHaveBeenCalled()
+		running = false
+		const flushed = feed.flush('s1')
+		await settle()
+		expect(save).toHaveBeenCalledTimes(1)
+		// A second flush while one is under way writes nothing more, and the next turn waits.
+		await feed.flush('s1')
+		expect(save).toHaveBeenCalledTimes(1)
+		let turnMayStart = false
+		const waiting = feed.saved('s1').then(() => {
+			turnMayStart = true
+		})
+		await settle()
+		expect(turnMayStart).toBe(false)
+		release?.()
+		await flushed
+		await waiting
+		expect(turnMayStart).toBe(true)
 	})
 
 	it('cuts a long title to sixty characters', () => {
