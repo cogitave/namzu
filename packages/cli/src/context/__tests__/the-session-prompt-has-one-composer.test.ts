@@ -3,8 +3,6 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 import { CONVERSATION_EVIDENCE_GUIDANCE } from '../../integrations/sessions/conversation-search.js'
-import { WORKFLOW_DOCTRINE } from '../../integrations/workflows/doctrine.js'
-import { workflowSizeAdvice } from '../../integrations/workflows/size.js'
 import {
 	NAMZU_DELEGATION_DOCTRINE,
 	NAMZU_PLAN_FILE_DOCTRINE,
@@ -28,7 +26,6 @@ const state: SessionPromptInput = {
 	palBlock: 'PALS',
 	environment: 'ENVIRONMENT',
 	delegationAvailable: true,
-	workflowOffered: false,
 	conversationEvidence: 'EVIDENCE',
 	toolsDeferred: true,
 	permissionMode: 'auto',
@@ -51,7 +48,6 @@ describe('the session system prompt', () => {
 		skillsOverflowNote: 'OVERFLOW',
 	}
 	const newTurn: SessionPromptTurn = {
-		workflowOffered: false,
 		permissionMode: 'auto',
 		extraSystem: 'SKILLS',
 		systemNote: 'NOTE',
@@ -60,30 +56,15 @@ describe('the session system prompt', () => {
 		composeSessionSystemPrompt(sessionPromptInput({ ...facts, ...f }, { ...newTurn, ...t })) ?? ''
 
 	it('is the same text for a new turn and a resumed turn that hold the same facts', () => {
-		// The resumed turn differs from a new one only in the workflow tool it is
-		// not offered; give the new turn the same toolset and the bytes match.
 		const resumed = fromFacts()
-		expect(fromFacts({}, { workflowOffered: false })).toBe(resumed)
+		expect(fromFacts({}, {})).toBe(resumed)
 		expect(resumed).toContain('SKILLS')
 		expect(resumed).toContain('NOTE')
 	})
 
-	it('says the workflow size guideline right after the workflow doctrine, only when it is offered', () => {
-		const advice = workflowSizeAdvice('medium', false)
-		const offered = fromFacts({ workflowSizeAdvice: advice }, { workflowOffered: true })
-		expect(offered).toContain(`${WORKFLOW_DOCTRINE}\n\n${advice}`)
-		const notOffered = fromFacts({ workflowSizeAdvice: advice }, { workflowOffered: false })
-		expect(notOffered).not.toContain(advice)
-		expect(fromFacts({ workflowSizeAdvice: '' }, { workflowOffered: true })).toBe(
-			fromFacts({}, { workflowOffered: true }),
-		)
-	})
-
-	it('differs from a new turn that is offered the workflow tool by exactly that rule', () => {
-		const resumed = fromFacts()
-		const offered = fromFacts({}, { workflowOffered: true })
-		expect(offered).toContain(WORKFLOW_DOCTRINE)
-		expect(offered.replace(`${WORKFLOW_DOCTRINE}\n\n`, '')).toBe(resumed)
+	it('carries no workflow section: the workflow tool says its own rules in its description', () => {
+		expect(fromFacts()).not.toContain('`workflow` tool')
+		expect(fromFacts()).not.toContain('agent_task_list')
 	})
 
 	// A section that names a tool a deferring session does not send ends with
@@ -123,9 +104,7 @@ describe('the session system prompt', () => {
 		expect(withoutLoadNotes(withTask).replace(`${BROWSER_WEB_TASK_GUIDANCE}\n\n`, '')).toBe(
 			withoutLoadNotes(fromFacts()),
 		)
-		expect(
-			fromFacts({ browserWebTask: BROWSER_WEB_TASK_GUIDANCE }, { workflowOffered: false }),
-		).toBe(withTask)
+		expect(fromFacts({ browserWebTask: BROWSER_WEB_TASK_GUIDANCE })).toBe(withTask)
 	})
 
 	it('tells the web-task paragraph what a small model needs: search, one action then read, change approach, no shell fetch, page values, no credentials, confirm', () => {
@@ -234,9 +213,7 @@ describe('the session system prompt', () => {
 		expect(compose({ permissionMode: 'plan' })).toContain(NAMZU_PLAN_MODE_DOCTRINE)
 	})
 
-	it('offers the workflow rule only with the workflow tool, and delegation only with the Agent tool', () => {
-		expect(compose()).not.toContain(WORKFLOW_DOCTRINE)
-		expect(compose({ workflowOffered: true })).toContain(WORKFLOW_DOCTRINE)
+	it('offers delegation only with the Agent tool', () => {
 		expect(compose()).toContain(NAMZU_DELEGATION_DOCTRINE)
 		expect(compose({ delegationAvailable: false })).not.toContain(NAMZU_DELEGATION_DOCTRINE)
 	})
@@ -256,7 +233,6 @@ describe('the session system prompt', () => {
 			'NAMZU_DELEGATION_DOCTRINE',
 			'NAMZU_PLAN_MODE_DOCTRINE',
 			'NAMZU_PLAN_FILE_DOCTRINE',
-			'WORKFLOW_DOCTRINE',
 		]) {
 			expect(source, name).not.toContain(name)
 		}
@@ -267,7 +243,6 @@ describe('the session system prompt', () => {
 describe('the shell-escape guidance', () => {
 	const base = {
 		delegationAvailable: false,
-		workflowOffered: false,
 		toolsDeferred: false,
 	}
 

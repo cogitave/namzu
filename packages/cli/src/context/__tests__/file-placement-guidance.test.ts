@@ -4,55 +4,37 @@ import { composeFilePlacementGuidance } from '../file-placement.js'
 import { composeSessionSystemPrompt, sessionPromptInput } from '../system-prompt.js'
 
 describe('the "Where files go" guidance', () => {
-	it('renders only the current platform', () => {
-		const linux = composeFilePlacementGuidance('linux')
-		const mac = composeFilePlacementGuidance('darwin')
-		const win = composeFilePlacementGuidance('win32')
-		expect(linux).toContain('~/.local/share')
-		expect(linux).not.toContain('~/Library')
-		expect(linux).not.toContain('%APPDATA%')
-		expect(mac).toContain('~/Library/Application Support')
-		expect(mac).toContain('/Library/LaunchDaemons')
-		expect(mac).not.toContain('~/.config')
-		expect(win).toContain('%LOCALAPPDATA%')
-		expect(win).not.toContain('~/Library')
-		expect(composeFilePlacementGuidance('freebsd')).toBe(linux)
+	it('is two lines, the same on every platform', () => {
+		const text = composeFilePlacementGuidance()
+		expect(text.split('\n')).toHaveLength(2)
+		expect(text.length).toBeLessThan(500)
 	})
 
-	it.each(['linux', 'darwin', 'win32'] as const)('states the rules on %s', (platform) => {
-		const text = composeFilePlacementGuidance(platform)
+	it('says where temporary work goes, to report the path of a folder, and to ask before touching the home or root top level', () => {
+		const text = composeFilePlacementGuidance()
 		for (const phrase of [
-			'Temporary work',
-			'named volumes',
-			'projects folder',
-			'home folder or the filesystem root without asking',
+			'temporary work',
+			'scratchpad',
 			'full path of every folder',
-			'`rm -rf` only on a path this session created',
-			'receipt',
-			'Identity:',
-			'Configuration:',
-			'Data:',
-			'Logs:',
-			'Supervisor:',
-			'Secrets:',
-			'State:',
-			'Monitoring:',
-			'Host:',
-			'name each item that deviates',
+			'home folder or the filesystem root without asking',
 		]) {
 			expect(text, phrase).toContain(phrase)
 		}
 	})
 
+	it('no longer carries the service checklist, which most turns never need', () => {
+		const text = composeFilePlacementGuidance()
+		for (const gone of ['Identity:', 'Supervisor:', 'Monitoring:', 'receipt', '~/.local/share'])
+			expect(text, gone).not.toContain(gone)
+	})
+
 	it('is in the session prompt once and identical on every turn', () => {
 		const facts = {
 			anyToolDeferred: false,
-			filePlacementGuidance: composeFilePlacementGuidance('linux'),
+			filePlacementGuidance: composeFilePlacementGuidance(),
 		}
 		const turn = (permissionMode: string) =>
-			composeSessionSystemPrompt(
-				sessionPromptInput(facts, { workflowOffered: false, permissionMode }),
-			) ?? ''
+			composeSessionSystemPrompt(sessionPromptInput(facts, { permissionMode })) ?? ''
 		const first = turn('auto')
 		expect(first.split('# Where files go')).toHaveLength(2)
 		expect(turn('auto')).toBe(first)

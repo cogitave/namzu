@@ -101,14 +101,14 @@ afterEach(() => {
 })
 
 describe('a session that withholds the web tools', () => {
-	it('offers them, with their guidance, when nothing withholds them', async () => {
+	it('offers them, with their guidance in the tool descriptions and none in the system prompt', async () => {
 		const { tools, prompt } = await firstRequest({})
 		expect(tools).toContain('web_fetch')
 		expect(tools).toContain('web_search')
-		expect(prompt).toContain('## Using the web')
+		expect(prompt).not.toContain('## Using the web')
 	})
 
-	it('sends neither the tools nor the guidance written for them', async () => {
+	it('sends neither the tools nor any guidance written for them', async () => {
 		const { tools, prompt } = await firstRequest({ withheldTools: ['web_fetch', 'web_search'] })
 		expect(tools).not.toContain('web_fetch')
 		expect(tools).not.toContain('web_search')

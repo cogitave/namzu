@@ -125,24 +125,7 @@ export function composeMemoryGuidance(options: { readonly taskList: boolean }): 
 		: 'progress and the current plan belong in the conversation'
 	return [
 		'## Memory',
-		'',
-		'Memories are files that later sessions in this project read, so each one should hold something a later session cannot rebuild from the code, the history or the docs.',
-		'',
-		'Save what you expect to matter again, as the work goes:',
-		'- what the person prefers or corrects, including an approach they confirmed or rejected, with their reason;',
-		'- a decision and why it was made, or a constraint behind the work;',
-		'- a lesson from a failure, when it is likely to come up again or was not obvious: what went wrong, the cause, and what to do instead (a one-off slip such as a typo, a wrong flag or a missing install is not worth a memory);',
-		'- a pointer to where something lives outside the repository, such as a tracker, a dashboard or a shared document.',
-		'',
-		`Leave out what the repository or its docs already record, and what matters only to this conversation: ${progress}. Leave out secrets such as keys and credentials, since memories are plain files.`,
-		'',
-		'Keep the store tidy so it stays useful:',
-		'- Write one fact per memory, with a short name and a short one-line description, because the index shows only that line.',
-		'- Search before saving. When a memory on the topic exists, update it instead of adding a duplicate.',
-		'- When you find a memory is wrong, correct or remove it, so a later session is not misled.',
-		'- When the person asks you to remember something, save it. If the repository already records it, save only what was surprising or non-obvious about it. When they ask you to forget something, find it and remove it.',
-		'',
-		'A recalled memory is a note from the past. Before acting on one that names a file, function, flag or command, check it against the current code, and trust what you observe now over the note. A recalled line gives `updatedAt` (when the memory last changed, as a timestamp in milliseconds) and `sourceTurn` (the turn that saved it, when known).',
+		`Memories are files that later sessions in this project read. Save what you expect to matter again and a later session cannot rebuild from the code, history or docs: what the person prefers or corrects and why, a decision and why, a lesson from a failure likely to recur, a pointer to something kept outside the repository. Leave out secrets, what the docs already record (even when asked to remember it, save only what was surprising about it), and what matters only to this conversation (${progress}). One fact per memory; search first and update, not duplicate; fix or remove a wrong one. A recalled memory is a past note (\`updatedAt\` is when it last changed, \`sourceTurn\` the turn that saved it): check what it names against the current code, and trust what you observe now.`,
 	].join('\n')
 }
 
