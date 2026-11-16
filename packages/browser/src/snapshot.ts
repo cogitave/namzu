@@ -567,6 +567,26 @@ export interface EffectFacts {
 	readonly tabsBefore: number
 	readonly tabsNow: number
 	readonly settle: { readonly quiet: boolean; readonly waitedMs: number; readonly capMs: number }
+	/** Requests the page started after the action: fetch, XHR and documents only. */
+	readonly sent?: readonly { readonly method: string; readonly url: string }[]
+	/** How many such requests there were; may exceed `sent`, which the host caps. */
+	readonly sentCount?: number
+}
+
+/** Most requests named in an effect; the rest are counted. */
+export const EFFECT_REQUESTS_SHOWN = 3
+/** Longest request path kept, in characters. */
+const REQUEST_PATH_MAX = 120
+
+/** The path of an address, with no query string and no fragment. */
+export function requestPath(url: string): string {
+	let path: string
+	try {
+		path = new URL(url).pathname
+	} catch {
+		path = url.split(/[?#]/)[0] ?? ''
+	}
+	return path.length > REQUEST_PATH_MAX ? `${path.slice(0, REQUEST_PATH_MAX - 1)}…` : path
 }
 
 /**
@@ -578,8 +598,20 @@ export function buildEffect(facts: EffectFacts, shown = 10): BrowserEffect {
 	const diff = diffLines(facts.beforeTree, facts.afterTree, shown)
 	const urlChanged = facts.urlNow !== facts.urlBefore
 	const changed = diff.added > 0 || diff.removed > 0 || urlChanged
+	const newTab = !changed && facts.tabsNow > facts.tabsBefore
+	const sentCount = facts.sentCount ?? facts.sent?.length ?? 0
+	// A request is named only when it is all there is to say: with a visible
+	// change the page's own lines already tell the model it worked.
+	const requests =
+		!changed && !newTab && sentCount > 0
+			? (facts.sent ?? []).slice(0, EFFECT_REQUESTS_SHOWN).map((r) => ({
+					method: r.method,
+					path: requestPath(r.url),
+				}))
+			: undefined
 	return {
 		...(urlChanged ? { urlChanged: { from: facts.urlBefore, to: facts.urlNow } } : {}),
+		...(requests ? { requests, requestCount: sentCount } : {}),
 		added: diff.added,
 		removed: diff.removed,
 		addedLines: diff.addedLines,

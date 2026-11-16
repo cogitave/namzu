@@ -432,6 +432,36 @@ describe('buildEffect, as the host uses it around an action', () => {
 		expect(effect.newTab).toBeUndefined()
 	})
 
+	it('names what the page sent when nothing changed, by method and path only', () => {
+		const text = renderAriaTree([select('Gold')])?.text ?? ''
+		const effect = buildEffect(
+			facts(text, text, {
+				sent: [
+					{ method: 'POST', url: 'http://site.test/api/record?token=s3cret#x' },
+					{ method: 'GET', url: 'http://site.test/b' },
+					{ method: 'GET', url: 'http://site.test/c' },
+				],
+				sentCount: 5,
+			}),
+		)
+		expect(effect.requests).toEqual([
+			{ method: 'POST', path: '/api/record' },
+			{ method: 'GET', path: '/b' },
+			{ method: 'GET', path: '/c' },
+		])
+		expect(effect.requestCount).toBe(5)
+		expect(JSON.stringify(effect)).not.toContain('s3cret')
+	})
+
+	it('leaves the requests out when the page changed, or nothing was sent', () => {
+		const before = renderAriaTree([select('none')])?.text ?? ''
+		const after = renderAriaTree([select('Gold')])?.text ?? ''
+		const sent = [{ method: 'POST', url: 'http://site.test/x' }]
+		expect(buildEffect(facts(before, after, { sent, sentCount: 1 })).requests).toBeUndefined()
+		expect(buildEffect(facts(before, before, { sent: [], sentCount: 0 })).requests).toBeUndefined()
+		expect(buildEffect(facts(before, before)).requests).toBeUndefined()
+	})
+
 	it('reports an address change even when the tree did not change', () => {
 		const text = renderAriaTree([select('Gold')])?.text ?? ''
 		const effect = buildEffect(facts(text, text, { urlNow: 'http://site.test/b' }))

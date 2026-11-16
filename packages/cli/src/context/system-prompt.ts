@@ -61,7 +61,8 @@ export const BROWSER_WEB_TASK_GUIDANCE = [
 	'- A navigation already returns the page; take a snapshot only when you need a fresh look. Do one action and read what came back (its Effect line) before the next one. Confirm each step on the page, not by the action having run.',
 	'- If an action changed nothing twice, do not repeat it: pick another element, scroll, wait for the text, or find another way in.',
 	'- Read pages with the browser only. Do not fetch them with the shell (curl, wget) or hand them to a delegate. If the page does not show what you need to confirm, say so in your report instead of looking for it with the shell, other tools or a delegate.',
-	'- A value the page itself shows for this task (a code displayed in another tab, a sample entry) may be typed where that same page asks for it. Passwords and one-time codes are never typed by you: the browser refuses those fields even for a demo value the page displays. Do not stop at that step or wait for the person: carry on with every other step the page lets you do (a step listed after the sign-in is still yours to try unless the page blocks it), then report which step was left and why.',
+	'- A value the page itself shows for this task (a code displayed in another tab, a sample entry) may be typed where that same page asks for it. Passwords and one-time codes are never typed by you: the browser refuses those fields even for a demo value the page displays. Do not wait for the person.',
+	'- When a step cannot be done or confirmed (a sign-in, or an action that still shows no change after one other way), carry on with every other step the page lets you do (a step listed after it is still yours to try unless the page blocks it) instead of stopping or retrying, then report which step was left and why.',
 	'- Finish by checking the result on the page and report what the page showed.',
 ].join('\n')
 
