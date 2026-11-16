@@ -2,7 +2,7 @@
 
 ## 2026-11-16
 
-- **Update** [Browser tools](sdk/browser-tools.md#what-the-model-reads), [The browser host](sdk/browser-host.md#waiting-for-the-page-and-what-an-action-did), [The browser](cli/browser.md#how-the-model-is-told-to-work): an action that changed nothing visible now says what the page sent (`no visible change on the page; it sent 1 request.`, with `POST /path` inside the untrusted envelope; only fetch, XHR and document requests, no query string), carried as the optional `BrowserEffect.requests` and `requestCount`; and the web-task paragraph tells the model to carry on with the steps that do not depend on one it cannot confirm and report the step left. `.changeset/browser-effect-names-requests.md`.
+- **Update** [Browser tools](sdk/browser-tools.md#what-the-model-reads), [The browser host](sdk/browser-host.md#waiting-for-the-page-and-what-an-action-did), [The browser](cli/browser.md#how-the-model-is-told-to-work): an action that changed nothing visible now says what the page sent (`no visible change on the page; it sent 1 request.`, with `POST /path` inside the untrusted envelope; only fetch, XHR and document requests, no query string), carried as the optional `BrowserEffect.requests` and `requestCount`; and the web-task paragraph tells the model, when a step cannot be done or confirmed, to carry on with every other step the page allows and report the step left. `.changeset/browser-effect-names-requests.md`.
 
 ## 2026-11-15
 
