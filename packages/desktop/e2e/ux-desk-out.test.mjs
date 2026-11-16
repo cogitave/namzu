@@ -29,11 +29,13 @@ h1{margin:0;font-size:42px}main{padding:32px}li{margin:6px 0}</style></head>
 <main><h2>Menu</h2><ul><li>Espresso 85</li><li>Filter 70</li><li>Flat white 95</li></ul>
 <h2>Visit</h2><p>Moda Cad. 12, Kadikoy. Open every day, 08:00 to 20:00.</p></main></body></html>
 `;
+/** What the model says when the kernel reminds it, once, that the files it wrote were not checked. */
+const AUDIT_REPLY = "I did not run a check: it is plain markup and text, with nothing to run.";
 const MENU = "# Menu\n\nSmall roasts, slow mornings.\n\n- Espresso 85\n- Filter 70\n- Flat white 95\n";
 
 function flow(name, options, body) {
 	test(name, { timeout: 300000 }, async () => {
-		const world = await createWorld({ answerHistory: true, tabs: "hidden", ...options });
+		const world = await createWorld({ answerHistory: true, answerAudit: AUDIT_REPLY, tabs: "hidden", ...options });
 		let failed = true;
 		try {
 			await launch(world);
@@ -118,6 +120,11 @@ flow(
 		await ask(w, "make a one-page web page for my coffee shop and show me how it looks");
 		await acceptUntil(w, /I wrote ada-kahve\/index\.html/);
 		await expect(w.page.getByText(/I wrote ada-kahve\/index\.html/).first()).toBeVisible({ timeout: T });
+		await expect(w.page.getByText(AUDIT_REPLY)).toBeVisible({ timeout: T });
+		// The scripted reply is on the screen once. The second text in the turn is the model's answer to the
+		// kernel's once-only reminder, a request of its own, and it says something different.
+		assert.equal(await w.page.getByText(/I wrote ada-kahve\/index\.html/).count(), 1, "the reply is drawn once");
+		assert.equal(w.model.auditRequests.length, 1, "the reminder made exactly one more request");
 		if (after) await expect(w.page.locator('iframe[data-output-preview="html"]')).toBeVisible({ timeout: T });
 		else await new Promise((resolve) => setTimeout(resolve, 1500));
 		await shot(w, "page");
@@ -158,7 +165,8 @@ flow(
 			const first = w.model.requests.find((request) => !JSON.stringify(request.messages).includes("Resolve a conversation-history"));
 			const system = JSON.stringify(first.messages);
 			assert.match(system, /Desktop shows the \.html, \.md and image files you write in its preview pane/);
-			assert.match(system, /never start a server or open a file: address/);
+			assert.match(system, /Start a server only when the project has its own dev or start script/);
+			assert.doesNotMatch(system, /file: address/);
 			assert.equal((system.match(/preview pane/g) ?? []).length, 1, "said once");
 
 			// The conversation is named by the model: the sidebar row and the header say it.
@@ -182,6 +190,44 @@ flow(
 			await size(w, 1280, 820);
 		});
 		if (!after) await shot(w, "page-narrow");
+	},
+);
+
+const TURKISH_TITLE = "Kahve dükkanı sayfası";
+const TURKISH_PROMPT = "Kahve dükkanım için tek sayfalık bir web sayfası yap ve bana nasıl göründüğünü göster";
+flow(
+	"a first message in Turkish asks for a title in its language, and the scripted Turkish title is shown",
+	{
+		title: TURKISH_TITLE,
+		answerAudit: "Bir kontrol çalıştırmadım: bu düz bir sayfa, çalıştırılacak bir şey yok.",
+		rules: [
+			{
+				match: /Kahve dükkan/i,
+				steps: [
+					{ tool: "write", args: { path: "kahve/index.html", content: PAGE } },
+					{ text: "Sayfayı kahve/index.html olarak yazdım." },
+				],
+			},
+		],
+	},
+	async (w) => {
+		await openProject(w);
+		await ask(w, TURKISH_PROMPT);
+		await acceptUntil(w, /Sayfayı kahve\/index\.html olarak yazdım\./);
+		await expect(w.page.locator("[data-conversation-title]")).toHaveText(
+			after ? TURKISH_TITLE : /Kahve/,
+			{ timeout: T },
+		);
+		await shot(w, "title-turkish");
+		await only(async () => {
+			const requests = w.model.sideRequests.filter((entry) => entry.kind === "title");
+			assert.equal(requests.length, 1, "one title request");
+			const text = JSON.stringify(requests[0].request.messages);
+			// The request carries the person's own words, and asks for the title in their language.
+			assert.ok(text.includes(TURKISH_PROMPT), "the request holds the Turkish first message");
+			assert.match(text, /language of the person's first message/);
+			await expect(w.page.getByText(TURKISH_TITLE, { exact: true }).first()).toBeVisible({ timeout: T });
+		});
 	},
 );
 

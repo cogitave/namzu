@@ -86,6 +86,7 @@ export async function createWorld(opts = {}) {
 		strictHistory: opts.strictHistory,
 		title: opts.title,
 		answerHistory: opts.answerHistory,
+		answerAudit: opts.answerAudit,
 	});
 	// A second scripted provider, on the Messages wire, for a flow that switches between two services.
 	const messages = opts.messagesRules
