@@ -3,6 +3,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 
 import { ClickCounter } from '../../workspaces/selection.js'
 import { isAction } from '../keymap.js'
+import { type FoundLink, linkHref } from '../links.js'
 import { motionAllowed } from '../motion.js'
 import {
 	type ReplyBaseline,
@@ -12,9 +13,11 @@ import {
 	promptAfter,
 	replyList,
 } from '../new-output.js'
+import { terminalLinkTo } from '../terminal-hyperlinks.js'
 import { useThemeEpoch } from '../theme-store.js'
 import { theme } from '../theme.js'
 import type { TranscriptMessage } from '../types.js'
+import { cellsOf } from './cells.js'
 import {
 	DEFAULT_WHEEL,
 	WHEEL_FEEL,
@@ -27,6 +30,7 @@ import {
 import { type UnseenMark, createLayoutCache, layoutTranscript } from './layout.js'
 import type { PointerReport, WheelDirection } from './mouse-wheel.js'
 import { type Mark, paintRow } from './paint.js'
+import { type FindLinks, type RowLink, linkAt, linksOnLine } from './row-links.js'
 import type { FsRow, StyledSpan } from './rows.js'
 import { type Match, editSearch, findMatches, searchLine, startMatch, stepMatch } from './search.js'
 import {
@@ -99,6 +103,21 @@ export interface FullscreenTranscriptProps {
 	readonly copy?: (text: string) => Promise<CopyReport | null>
 	/** Whether a selection is copied the moment the button is released. */
 	readonly copyOnSelect?: boolean
+	/**
+	 * Links in the text. `find` reads a line of text for them; `activate` is what a click does:
+	 * `hint` for a plain click, `open` for a ctrl-click or alt-click. Absent, nothing is a link.
+	 */
+	readonly links?: {
+		readonly find: FindLinks
+		readonly activate: (link: FoundLink, how: 'open' | 'hint') => CopyReport
+	}
+	/** The terminal takes OSC 8 links: link text is sent as one, so the terminal's own click works too. */
+	readonly hyperlinks?: boolean
+	/**
+	 * Where a short passing note goes (a copy, a link). Absent, the view draws it over its own
+	 * last row; present, the owner shows it in the status area and the rows stay as they are.
+	 */
+	readonly onNote?: (report: CopyReport) => void
 	/** Told when the search line opens or closes: the composer must not take keys while it is open. */
 	readonly onSearchChange?: (open: boolean) => void
 	readonly control: { current: FullscreenControl | null }
@@ -144,6 +163,11 @@ interface SearchOpen {
 	readonly cursor: { readonly row: number; readonly from: number } | null
 }
 
+/** What the pointer rests on that answers a click: a link (with every row it covers) or a row that opens. */
+type Hover =
+	| { readonly key: string; readonly link: RowLink }
+	| { readonly key: string; readonly row: number }
+
 interface Dragging {
 	readonly selection: Selection
 	readonly moved: boolean
@@ -156,6 +180,7 @@ interface Dragging {
 }
 
 function spanElement(span: StyledSpan, key: number) {
+	const linked = span.href !== undefined ? terminalLinkTo(span.text, span.href) : null
 	return (
 		<Text
 			key={key}
@@ -166,7 +191,7 @@ function spanElement(span: StyledSpan, key: number) {
 			inverse={span.inverse}
 			{...(span.background !== undefined ? { backgroundColor: span.background } : {})}
 		>
-			{span.text}
+			{linked ?? span.text}
 		</Text>
 	)
 }
@@ -200,6 +225,9 @@ export function FullscreenTranscript({
 	subscribePointer,
 	copy,
 	copyOnSelect = true,
+	links,
+	hyperlinks = false,
+	onNote,
 	onSearchChange,
 	control,
 	noteMs,
@@ -332,8 +360,11 @@ export function FullscreenTranscript({
 		if (wheelState.current.pending !== 0)
 			glideTimer.current = clock.after(() => runFrame.current(), WHEEL_FEEL.frameMs)
 	}
+	const hoverClear = useRef<() => void>(() => undefined)
 	const onWheel = useCallback(
 		(direction: WheelDirection) => {
+			// The rows move under a pointer that does not: what it rested on is not known until it moves.
+			hoverClear.current()
 			wheelState.current = notch(
 				wheelState.current,
 				direction,
@@ -366,7 +397,7 @@ export function FullscreenTranscript({
 	}, [])
 	const [note, setNote] = useState<CopyReport | null>(null)
 	const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-	const showNote = useCallback(
+	const showOwnNote = useCallback(
 		(report: CopyReport) => {
 			setNote(report)
 			if (noteTimer.current) clearTimeout(noteTimer.current)
@@ -380,6 +411,7 @@ export function FullscreenTranscript({
 		},
 		[noteMs],
 	)
+	const showNote = onNote ?? showOwnNote
 	useEffect(
 		() => () => {
 			if (noteTimer.current) clearTimeout(noteTimer.current)
@@ -450,6 +482,22 @@ export function FullscreenTranscript({
 	// Whether the footer row is the jump hint now, and whether a press began on it.
 	const hintRef = useRef(false)
 	const hintPress = useRef(false)
+	// What is under the pointer. The state changes only when the target does, so a sweep of the
+	// pointer over text costs a redraw per link or row it enters, none while it moves inside one.
+	const [hover, setHover] = useState<Hover | null>(null)
+	const hoverRef = useRef<Hover | null>(null)
+	const updateHover = useCallback((next: Hover | null) => {
+		if ((hoverRef.current?.key ?? '') === (next?.key ?? '')) return
+		hoverRef.current = next
+		setHover(next)
+	}, [])
+	hoverClear.current = () => updateHover(null)
+	// A ctrl-click or alt-click that went down on a link: opened when the button comes up on the same cell.
+	const linkPress = useRef<{
+		readonly link: FoundLink
+		readonly x: number
+		readonly y: number
+	} | null>(null)
 	const pointer = useCallback(
 		(report: PointerReport) => {
 			const node = boxRef.current
@@ -458,6 +506,20 @@ export function FullscreenTranscript({
 				height: node ? measureElement(node).height || geometryRef.current.height : 0,
 			}
 			const landing = landOn(geometry, report.x, report.y)
+			if (report.kind === 'move') {
+				let next: Hover | null = null
+				if (landing.kind === 'on') {
+					const { rows: now } = latest.current
+					const found = links
+						? linkAt(now, landing.point.line, landing.point.col, links.find)
+						: null
+					if (found) next = { key: `l:${found.id}`, link: found }
+					else if (now[landing.point.line]?.opens === true)
+						next = { key: `r:${landing.point.line}`, row: landing.point.line }
+				}
+				updateHover(next)
+				return
+			}
 			const current = selectionRef.current
 			// The hint's row is the bottom row of the window, and answers a click when it is the hint.
 			const onHint = hintRef.current && report.y === geometry.top + geometry.height - 1
@@ -474,6 +536,21 @@ export function FullscreenTranscript({
 					if (current) updateSelection(null)
 					return
 				}
+				// ctrl-click or alt-click on a link opens it; the link is not selected.
+				linkPress.current = null
+				if (links && (report.ctrl === true || report.alt === true)) {
+					const found = linkAt(
+						latest.current.rows,
+						landing.point.line,
+						landing.point.col,
+						links.find,
+					)
+					if (found) {
+						if (current) updateSelection(null)
+						linkPress.current = { link: found.link, x: report.x, y: report.y }
+						return
+					}
+				}
 				const count = clicks.press(report.x, report.y)
 				const mode = count === 1 ? 'char' : count === 2 ? 'word' : 'line'
 				updateSelection({
@@ -489,6 +566,13 @@ export function FullscreenTranscript({
 			if (report.kind === 'release' && hintPress.current) {
 				hintPress.current = false
 				if (onHint) place(FOLLOWING)
+				return
+			}
+			if (report.kind === 'release' && linkPress.current) {
+				const pressed = linkPress.current
+				linkPress.current = null
+				if (links && report.x === pressed.x && report.y === pressed.y)
+					showNote(links.activate(pressed.link, 'open'))
 				return
 			}
 			if (!current?.pressing) return
@@ -517,6 +601,20 @@ export function FullscreenTranscript({
 				// the row, unless it only let go of a selection.
 				updateSelection(null)
 				const row = landing.kind === 'on' ? latest.current.rows[landing.point.line] : undefined
+				// A plain click on a link says how to open it; it opens nothing, and opens no row.
+				const found =
+					links &&
+					landing.kind === 'on' &&
+					!current.moved &&
+					!current.replaced &&
+					report.x === current.at.x &&
+					report.y === current.at.y
+						? linkAt(latest.current.rows, landing.point.line, landing.point.col, links.find)
+						: null
+				if (found && links) {
+					showNote(links.activate(found.link, 'hint'))
+					return
+				}
 				if (
 					click &&
 					!current.moved &&
@@ -542,8 +640,10 @@ export function FullscreenTranscript({
 			showNote,
 			toggleAt,
 			updateSelection,
+			updateHover,
 			stopGlide,
 			place,
+			links,
 		],
 	)
 	useEffect(
@@ -719,6 +819,28 @@ export function FullscreenTranscript({
 			: null
 	const marksFor = (row: FsRow, at: number): readonly Mark[] => {
 		const marks: Mark[] = []
+		// What the pointer can click, under it: a link is underlined, a row that opens is lit.
+		// Where the terminal takes links, every link is sent as one as well.
+		if (links && row.mark === undefined && (hyperlinks || hover !== null)) {
+			for (const found of linksOnLine(rows, at, links.find)) {
+				const lit = hover !== null && 'link' in hover && hover.link.id === found.id
+				if (!lit && !hyperlinks) continue
+				const style: Mark['style'] = {
+					...(lit ? { underline: true } : {}),
+					...(hyperlinks ? { href: linkHref(found.link) } : {}),
+				}
+				for (const piece of found.pieces)
+					if (piece.row === at) marks.push({ from: piece.from, to: piece.to, style })
+			}
+		}
+		if (hover !== null && 'row' in hover && hover.row === at) {
+			const last = cellsOf(row.text).at(-1)
+			marks.push({
+				from: 0,
+				to: last ? last.at + last.width : 0,
+				style: { bold: true, underline: true },
+			})
+		}
 		if (search) {
 			matches.forEach((match, i) => {
 				if (match.row !== at) return

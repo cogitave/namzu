@@ -544,6 +544,7 @@ import {
 import { jobExitRow, monitorEndRow } from './job-exit-row.js'
 import { isAction, isChordAction, isChordLead } from './keymap.js'
 import { choosesModel, launchPreferences } from './launch-settings.js'
+import { activateLink, createLinkFinder, realFileWorld, realLinkHost } from './links.js'
 import {
 	LIVE_WINDOW_SAFETY_ROWS,
 	checklistInView,
@@ -3547,6 +3548,30 @@ function AppBody({
 	const contextTokens = usage?.context?.tokens
 	const contextWindow = usage?.context?.windowTokens
 	const addNotice = notices.add
+	// A passing line from the pointer (a copy, a link): the status area shows it for a moment, and
+	// the rows of the conversation do not move for it.
+	const pointerNoteSeq = useRef(0)
+	const showPointerNote = useCallback(
+		(report: { readonly text: string; readonly ok: boolean }) => {
+			pointerNoteSeq.current += 1
+			addNotice({
+				key: `pointer-note-${pointerNoteSeq.current}`,
+				text: report.text,
+				...(report.ok ? {} : { tone: 'warn' as const }),
+				priority: 'immediate',
+				timeoutMs: report.ok ? 2_500 : 5_000,
+			})
+		},
+		[addNotice],
+	)
+	const fullscreenLinks = useMemo(() => {
+		const host = realLinkHost(ctx.cwd, process.env)
+		return {
+			find: createLinkFinder(realFileWorld(ctx.cwd)),
+			activate: (link: Parameters<typeof activateLink>[0], how: 'open' | 'hint') =>
+				activateLink(link, how, host),
+		}
+	}, [ctx.cwd])
 	const removeNotice = notices.remove
 	useEffect(() => {
 		const meter =
