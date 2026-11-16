@@ -220,6 +220,8 @@ export interface BackgroundJobRegistryRef {
 	start(params: { command: string; workingDirectory: string }): {
 		id: string
 		status: string
+		/** The file the job's output is also written to, when the host keeps one. */
+		outputFile?: string
 	}
 	/**
 	 * Start a command whose stdout lines reach the model as events while it
@@ -256,6 +258,8 @@ export interface BackgroundJobRegistryRef {
 		error?: string
 		/** When it last wrote output (epoch ms); absent until it has. */
 		lastOutputAt?: number
+		/** The file the job's output is also written to, when the host keeps one. */
+		outputFile?: string
 	}
 	/**
 	 * Take over a process the caller already started and is waiting on, so a
@@ -268,7 +272,7 @@ export interface BackgroundJobRegistryRef {
 		child: ChildProcess
 		workingDirectory?: string
 		initialOutput?: readonly { readonly stream: 'stdout' | 'stderr'; readonly text: string }[]
-	}): { id: string; status: string }
+	}): { id: string; status: string; outputFile?: string }
 	/**
 	 * Offer a foreground command this call is waiting on for hand-over to the
 	 * background, until the returned function is called. `background` is asked
