@@ -230,7 +230,8 @@ describe.skipIf(!existsSync(BIN) || process.platform === 'win32')(
 			expect(messagesWire?.requests.length).toBe(firstWireRequests)
 			const sent = chatWire?.requests.at(-1) as Record<string, any>
 			expect(sent.model).toBe('gpt-6-luna')
-			expect(lastText(sent)).toBe('hello there')
+			// The person's first message carries the line saying when it was sent.
+			expect(lastText(sent)).toMatch(/^\[Sent at \d\d:\d\d, UTC[+-]\d\d:\d\d[^\]]*\]\nhello there$/)
 		}, 60_000)
 	},
 )
