@@ -19,6 +19,7 @@ import {
 	newPasteNonce,
 	typedTextOf,
 	usablePastedSpans,
+	userMessageForRequest,
 } from '../pasted-frames.js'
 
 /**
@@ -182,5 +183,70 @@ describe('the model request', () => {
 		expect(provider.requests[0]?.messages.find((m) => m.role === 'user')?.content).toBe(
 			'just typed',
 		)
+	})
+})
+
+describe('the line saying when a message was sent', () => {
+	const note = '[Sent at 22:41, UTC+03:00 Europe/Istanbul]'
+
+	it('goes in front of the message the model reads, and not into what is stored', () => {
+		const message = pasted('see ', 'the log', '')
+		message.timeNote = note
+		expect(userMessageForRequest(message)).toBe(`${note}\n${framePastedContent(message)}`)
+		const plain: UserMessage = { ...createUserMessage('hello'), timeNote: note }
+		expect(userMessageForRequest(plain)).toBe(`${note}\nhello`)
+		expect(plain.content).toBe('hello')
+	})
+
+	it('is on every request as the same bytes, and after a resume', async () => {
+		const run = async (messages: Message[]) => {
+			const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-time-note-'))
+			dirs.push(workingDirectory)
+			const provider = new MockLLMProvider({
+				turns: [
+					{ toolCalls: [{ id: 'c1', name: 'probe', args: {} }], finishReason: 'tool_calls' },
+					{ text: 'done' },
+				],
+			})
+			const result = await drainQuery({
+				provider,
+				toolsets: [
+					testToolset(
+						defineTool({
+							name: 'probe',
+							description: 'answers',
+							inputSchema: z.object({}),
+							category: 'analysis',
+							permissions: [],
+							readOnly: true,
+							destructive: false,
+							concurrencySafe: true,
+							execute: async () => ({ success: true, output: 'ok' }),
+						}),
+					),
+				],
+				turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 10 },
+				agentId: 'a',
+				agentName: 'A',
+				messages,
+				workingDirectory,
+				sessionId: '4867992e-5fe0-44ac-8ad3-84768354abe1' as SessionId,
+				topicId: '62a3b800-6711-4be4-9574-b8821f466408' as TopicId,
+				projectId: 'f4feb4a0-1fe7-447e-a5bb-29988d224bb0' as ProjectId,
+				tenantId: '945ca78a-e487-433d-a206-e2b9c64485c9' as TenantId,
+			})
+			return { provider, result }
+		}
+		const first = await run([{ ...createUserMessage('count the files'), timeNote: note }])
+		const sent = (r: typeof first, at: number) =>
+			r.provider.requests[at]?.messages.find((m) => m.role === 'user')?.content
+		expect(sent(first, 0)).toBe(`${note}\ncount the files`)
+		expect(sent(first, 1)).toBe(sent(first, 0))
+		const { id: _id, ...stored } = JSON.parse(
+			JSON.stringify(first.result.messages.find((m) => m.role === 'user')),
+		) as Message & { id?: string }
+		const resumed = await run([stored as Message])
+		expect(sent(resumed, 0)).toBe(sent(first, 0))
+		expect((stored as UserMessage).content).toBe('count the files')
 	})
 })

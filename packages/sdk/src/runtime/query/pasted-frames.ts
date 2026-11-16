@@ -80,14 +80,25 @@ export function framePastedContent(message: UserMessage): string {
 }
 
 /**
- * The request's messages with pasted text framed. Messages without a paste
- * come back as the same objects, and the array itself when none has one.
+ * What the model reads of a user message: its pasted ranges framed, behind the
+ * line saying when it was sent. Both are built from what is stored with the
+ * message, so the same history gives the same bytes on every request.
+ */
+export function userMessageForRequest(message: UserMessage): string {
+	const framed = framePastedContent(message)
+	return message.timeNote ? `${message.timeNote}\n${framed}` : framed
+}
+
+/**
+ * The request's messages with pasted text framed and the time line in place.
+ * Messages with neither come back as the same objects, and the array itself
+ * when none has one.
  */
 export function framePastedMessages(messages: Message[]): Message[] {
-	if (!messages.some((m) => m.role === 'user' && m.pasted !== undefined)) return messages
-	return messages.map((m) =>
-		m.role === 'user' && m.pasted !== undefined ? { ...m, content: framePastedContent(m) } : m,
-	)
+	const noted = (m: Message): m is UserMessage =>
+		m.role === 'user' && (m.pasted !== undefined || m.timeNote !== undefined)
+	if (!messages.some(noted)) return messages
+	return messages.map((m) => (noted(m) ? { ...m, content: userMessageForRequest(m) } : m))
 }
 
 /**

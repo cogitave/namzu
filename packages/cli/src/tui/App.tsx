@@ -103,6 +103,7 @@ import type { PlanApprovalAnswer, PlanApprovalFn, PlanApprovalRequest } from '..
 import { resolveComposerTriggers } from '../config/composer-triggers.js'
 import type { DecisionConfig } from '../config/schema.js'
 import { setUserConfigValue } from '../config/user-config.js'
+import { messageTimeNote, previousSentAt } from '../context/message-time.js'
 import {
 	bindAccount,
 	findAccountByName,
@@ -11042,12 +11043,22 @@ function AppBody({
 			// The pasted stretches stay at the same offsets: what follows `text` in
 			// `sendText` is only appended. They ride on the stored message, so every
 			// request, and a resume, frames them the same way.
-			const userMessage: Message =
+			const pastedMessage: Message =
 				prompt.kind === 'human' &&
 				prompt.pasted?.length &&
 				plainUserMessage.content.startsWith(text)
 					? { ...plainUserMessage, pasted: prompt.pasted }
 					: plainUserMessage
+			// When the person sent it, and how long after their last message: written once,
+			// with the message. Only their own words carry it, never a peer, a notice or a goal round.
+			const timeNote =
+				prompt.kind === 'human'
+					? messageTimeNote({
+							now: plainUserMessage.timestamp ?? Date.now(),
+							previous: previousSentAt(historyBeforeTurn),
+						})
+					: undefined
+			const userMessage: Message = timeNote ? { ...pastedMessage, timeNote } : pastedMessage
 			const priorForSdk: Message[] = [
 				...historyBeforeTurn,
 				userMessage,

@@ -40,3 +40,13 @@ progressNudge:
 - `afterSeconds` and `afterCalls` set the stretch.
 - Files merge key by key; the last file to set a field wins. The environment cannot set it. A bad value is refused with the key's path, not dropped.
 - Desktop shows the three fields in Settings, under Agent.
+
+## When a message was sent
+
+A person's message carries one line saying when it was sent, in local time with the zone: `[Sent at 22:41, UTC+03:00 Europe/Istanbul]`. The date is not in it; the environment note says it.
+
+From the second message on, the line is added only when the gap from the person's previous message is 5 minutes or more, and then it states the gap in plain words rather than leaving a model to subtract two clock readings: `[Sent 2 h 15 min after the previous message, at 00:56, UTC+03:00 Europe/Istanbul]`. A quicker follow-up carries no line.
+
+The line is written once, with the message, and stored beside it (`UserMessage.timeNote`, [Pasted text](../sdk/pasted-text.md) describes the other stored field). The model request puts it in front of the message; the message itself is what the person typed, so the transcript, a resumed conversation, an export and the Desktop bubble show no line, and a resume sends the same bytes. After a compaction that removed the person's earlier messages, the next message reads as a first one and says its time and zone again.
+
+The terminal and Desktop messages carry it. Sub-agents' prompts, goal rounds, peer messages and host notices do not, and neither does `namzu exec`: it sends one prompt in a script, where the model has no earlier message to be far from.

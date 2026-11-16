@@ -33,6 +33,7 @@ import { hookSwitch } from '../config/hook-layers.js'
 import { FileCheckpointStore, type TurnUndoStatus, type UndoPreview } from '../checkpoints/store.js'
 import { flushCompileCacheWhenIdle } from '../compile-cache.js'
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
+import { messageTimeNote, previousSentAt } from '../context/message-time.js'
 import { DESKTOP_CONTRACT } from '../desktop-contract.js'
 import { type PluginInventoryView, readPluginInventory } from '../integrations/plugins/inventory.js'
 import { canSelectModel } from '../integrations/providers/access.js'
@@ -1157,12 +1158,18 @@ export function createCliAcpRuntime(
 				const typed = createUserMessage(prompt, attachments)
 				// The host checked the ranges against `prompt`; each gets its own nonce, kept
 				// with the message so every request and a resume frame it the same way.
-				const userMessage: Message = pasted?.length
+				const pastedMessage: Message = pasted?.length
 					? {
 							...typed,
 							pasted: pasted.map((range) => ({ ...range, nonce: newPasteNonce(prompt) })),
 						}
 					: typed
+				// When the person sent it, and how long after their last message.
+				const timeNote = messageTimeNote({
+					now: typed.timestamp ?? Date.now(),
+					previous: previousSentAt(history as Message[]),
+				})
+				const userMessage: Message = timeNote ? { ...pastedMessage, timeNote } : pastedMessage
 				const messages = [...(history as Message[]), userMessage]
 				const settings = validateComposerSendSettings(
 					options,

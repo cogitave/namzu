@@ -327,6 +327,14 @@ export interface UserMessage extends BaseMessage {
 	 * person saw; only the model request sets these ranges apart.
 	 */
 	pasted?: readonly PastedSpan[]
+	/**
+	 * One line the host wrote saying when the person sent this message (and, from
+	 * the second message on, how long after the one before it). The model request
+	 * puts it in front of `content`; `content` itself stays what the person typed,
+	 * so every view of the conversation shows the message as it was. Written once,
+	 * with the message, so a resume sends the same bytes.
+	 */
+	timeNote?: string
 	/** Optional image or document attachments. */
 	attachments?: readonly MessageAttachment[]
 	/** Host provenance for user-role input that was not authored by the operator. */
