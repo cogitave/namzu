@@ -1175,13 +1175,22 @@ opens it. Covered by `the-transcript-scrolls-back-and-returns.test.tsx` and
 
 ### Fullscreen mode
 
-An opt-in alternative to the terminal's scrollback. Set `tui.fullscreen: true`
-in your own config (a project file cannot turn it on) or start with
-`NAMZU_FULLSCREEN=1`; `NAMZU_FULLSCREEN=0` turns it off whatever the config
-says. Absent, nothing changes: the transcript goes to the terminal's
-scrollback exactly as before. It is also off when output or input is not a
+The default screen for a person at a terminal. To keep the terminal's own
+scrollback instead, set `tui.fullscreen: false` in your own config (a project
+file cannot change it) or start with `NAMZU_FULLSCREEN=0`; `NAMZU_FULLSCREEN=1`
+turns it on whatever the config says. Before cli 54 the default was the
+scrollback and fullscreen was opt-in. It is off when output or input is not a
 terminal and inside a `namzu workspaces` host, which owns the alternate screen
-there.
+there. The `←` key that opens the workspaces screen from a session works on the
+scrollback screen only; with fullscreen it opens the agents cockpit, as it did
+for everyone who had fullscreen on.
+
+The screen is laid out in three parts: the header on the first rows, the
+conversation filling the room between, and the composer and footer pinned to
+the bottom. A conversation shorter than that room starts under the header and
+grows downward; once it fills the room the newest row sits at the bottom and
+the top is clipped, as before. A resume that draws no header keeps the rows at
+the bottom.
 
 On, the app takes the alternate screen when it starts and hands the main
 screen back, untouched, when it ends. The launch no longer clears the screen
@@ -1379,15 +1388,56 @@ message and per open state, so opening a row lays out that one message however
 long the conversation is (`layout.ts` counts the messages it laid out; the test
 pins one for 40 messages and for 160).
 
-Links are not opened by the app. A link in a reply is drawn as plain text with
-its address (a Markdown link as `the guide (https://…)`), and the fullscreen
-rows carry no terminal hyperlink sequence (checked in the program's output). With the pointer
-at `full` the terminal passes the click to the app, and Namzu does nothing with
-it on text; the note after a copy already says to hold Shift to use the
-terminal's own selection. What a given terminal does with a modifier click on
-an address, with or without mouse reporting, was not tried here and is the
-terminal's own: select the address and copy it if the terminal does not follow
-it.
+#### Links
+
+With the pointer at `full`, a web address (`https://…`) and a path to a file
+that exists inside the project (`src/parse.js`, `src/parse.js:12`,
+`src/parse.js:12:3`) in a reply or a tool's output are links. An address that
+the wrap cut across rows is one link and underlines on each row.
+
+- **`ctrl`-click** (or `alt`-click, which is what some terminals report for
+  command-click) opens it. An address goes to the machine's browser opener
+  (`open-url.md`) and a file to the person's editor. The editor is `$VISUAL`, then `$EDITOR`, then
+  whichever of `code`, `cursor` or `zed` is on the path, with the line flag the editor takes
+  (`--goto file:line` for `code` and `cursor`, `file:line` for `zed` and `subl`). An editor that
+  draws in the terminal (`vim`, `nano`, `emacs`, …) is passed over, since it cannot draw beside a
+  screen this program holds; nothing is run through a shell.
+- A **plain click** on a link opens nothing and says how to, in the footer's right end for a moment:
+  `Ctrl+click opens this link in your browser.`
+- When no browser can be started the footer shows the address
+  (`Couldn't open your browser. Open https://… yourself.`); when no editor can be started it shows
+  the path and line to copy.
+- The link under the pointer is underlined (see [Hover](#hover)).
+- Where the terminal takes hyperlinks (`terminalSupportsHyperlinks`: not under `tmux`, `screen` or
+  SSH) the link text is also sent as an OSC 8 hyperlink, so the terminal's own click works too.
+
+A path counts only when it names a regular file inside the working folder, so a version number or a
+word with a dot is never taken for one; the answer is kept for three seconds per line. The note after
+a copy already says to hold Shift to use the terminal's own selection.
+
+#### Hover
+
+With the pointer at `full` the terminal is also asked for motion with no button down (mode 1003).
+What a click would answer lights while the pointer rests on it: a link is underlined, a row that
+opens (a folded tool row) is bold and underlined, a permission answer gets a `›` mark and the
+accent colour, and the mode, effort and model items of the footer are underlined. The screen is
+redrawn only when the pointer enters a different target: a sweep inside one link, row or item, or
+over plain text, writes nothing, and a run of motion reports that arrive together counts as the one
+place the pointer ended up. The wheel clears the light until the pointer moves again.
+
+#### Clicking in the prompts and the footer
+
+- **A permission prompt's answers are clickable.** A click on a row answers as the digit on it does
+  (including `Yes, and don't ask again for …` where the prompt offers it): an approval waits out the
+  same settle window as a key, a refusal never waits, and a click while a refusal's reason is being
+  typed does nothing. A press on one row and a release on another answers nothing.
+- **The footer's items are clickable.** The mode item (`accept edits on`, `shift+tab to cycle`)
+  cycles the permission mode as `shift+tab` does. The effort item and the model name open the
+  choosers `/effort` and `/model` open. With a message half typed the chooser would take the
+  composer from it, so the click says `Send or clear what you typed first, then click again.`
+- **A passing note is a footer notice.** What a copy or a link answers appears in the right end of
+  the footer for a moment (2.5 seconds, 5 for a failure) and no row of the conversation moves or is
+  drawn over for it.
 
 #### Searching
 
@@ -2003,6 +2053,17 @@ parts that can still be completed. Shared coding guidance uses proportional
 verification and defers concurrency guarantees to runtime metadata.
 
 
+### The permission prompt's wording
+
+The box names a file relative to the working folder (`Edit file src/summary.js`, and the same in the
+diff's first line); a file outside the folder keeps its full path, or `~/…` under the home folder, never
+`../..`. A shell command that begins with `cd <the working folder> &&` (or `;`) is shown without it, in
+the box, in the call's waiting row and in the collapsed tool rows, since every command already runs
+there; a `cd` anywhere else is kept, since it changes what follows. The exact input behind `d` is not
+changed. While a call waits for its answer its own row (`● Bash(npm test)` over `⎿ Waiting…`) is the
+one waiting row, and the box is the question under it; only when there is no call row to show does a
+`✻ Waiting for your approval · the question below` line say that the turn waits.
+
 ### The detailed transcript (Ctrl+O)
 
 Ctrl+O replaces the composer, status row and activity line with the conversation drawn in full, and
@@ -2028,9 +2089,12 @@ their own rows and carry no such hint.
 - The model's thinking is kept on the row that followed it and drawn only here, dim italic under the
   mark `∵` (the assistant mark stays `∴`). It is not saved with the conversation, so a resumed or
   forked conversation shows none.
-- Only the last 30 rows show. When older ones exist the first row reads `ctrl+e to show N previous
-  messages` (N bold); Ctrl+E shows all of them and the row reads `ctrl+e to hide N previous
-  messages`.
+- A conversation of up to 200 rows shows whole from the start; a longer one shows the last 30 under
+  a first row that reads `ctrl+e to show N previous messages` (N bold), and Ctrl+E shows all of them
+  (`ctrl+e to hide N previous messages`). On the [fullscreen screen](#the-detailed-transcript-on-the-fullscreen-screen)
+  the whole conversation is always there to scroll.
+- Under each reply, one dim row says when and by which model it was written (`10:42 · model`, with the
+  date before it when it was not today).
 - The newest row is at the bottom and the screen keeps following the reply that is streaming. `↑`/`↓`,
   `j`/`k`, `PgUp`/`PgDn`, space, `b`, `Ctrl+U`/`Ctrl+D`, `Ctrl+F`/`Ctrl+B`, `g`/`G` and Home/End move
   through what is taller than the terminal.
@@ -2038,8 +2102,32 @@ their own rows and carry no such hint.
   show all` (`to collapse` after Ctrl+E), `verbose` at the right edge. A permission request, plan,
   question or review that arrives behind the screen is not drawn over it: the footer starts with
   `dialog waiting · ` in the warning colour, and the request appears when the screen closes.
-- It does not build search, previous/next prompt, the print-to-scrollback or open-in-editor keys, or a
-  help panel.
+- The scrollback screen does not build search, previous/next prompt, the print-to-scrollback or
+  open-in-editor keys, or a help panel; the fullscreen screen has search and the editor key.
+
+#### The detailed transcript on the fullscreen screen
+
+With fullscreen on, Ctrl+O draws the conversation in the same scrolling window the main view uses
+(`fullscreen/DetailedScreen.tsx`), under a header that lists the keys:
+`Detailed transcript · esc back · ↑↓ scroll · / search (n N) · v editor · click a row to fold · drag to copy`.
+
+- The wheel scrolls it; a drag selects and copies as in the main view (double and triple click select
+  a word and a line); links open as on the main screen.
+- Every body is open and whole. A click on the line of a tool row folds it to its hint
+  (`(click to expand)`) and a click on it again opens it; which rows are folded is kept by this view
+  only.
+- It always holds the whole conversation, so Ctrl+E has nothing to add here. The model's reasoning
+  stands above the row it led to (`✻`), and a reply carries its `time · model` row under it.
+- `/` opens the search line; typing finds matches as it goes, and `Enter` confirms the query. From
+  then `n` goes to the next match and `N` to the previous one, `/` types the query again and `Esc`
+  closes the search (a second `Esc` leaves the screen). While the query is being typed every letter is
+  the query, `q` and `v` included.
+- `v` opens the whole conversation as plain text (who said what, with each reply's time and model) in
+  `$VISUAL` or `$EDITOR`, which runs on the main screen until it exits; what is saved there is not
+  read back. It waits for the turn to be idle, and says so when it cannot.
+- `j`/`k`, `↑`/`↓`, `PgUp`/`PgDn`, space, `b`, `g`/`G`, Home and End scroll; typing does not jump to the
+  end, as it does on the main screen. `Esc`, `q`, `Ctrl+O` and `Ctrl+C` leave. A request that arrives
+  behind the screen shows `dialog waiting · ` at the start of the header.
 
 The PageUp scroll view from the composer is a separate feature and is unchanged. The per-row
 expansion and the tool-output viewer no longer exist. This changes only presentation, not model
