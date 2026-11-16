@@ -320,13 +320,15 @@ describe('explicit tool loading reaches the real session and query', () => {
 				// revealed (plan.md v3 §2), and that history persists across sends
 				// of the same session — so once turn 0 reveals `task_create`, turn
 				// 1's own first request already carries it active, unlike turn 0's.
+				// `task_update` loads with it, in the same search.
 				expect(names(first)).toEqual(
 					(turn === 0
 						? [...core, 'search_tools']
-						: [...core, 'search_tools', 'task_create']
+						: [...core, 'search_tools', 'task_create', 'task_update']
 					).sort(),
 				)
 				expect(names(second)).toContain('task_create')
+				expect(names(second)).toContain('task_update')
 				if (third) {
 					expect(names(third)).toContain('task_create')
 					expect(JSON.stringify(third.messages)).toContain('Task created:')
