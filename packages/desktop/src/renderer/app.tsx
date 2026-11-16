@@ -7843,6 +7843,7 @@ export function App({
 									selected={pickedOutput}
 									onSelect={pickOutput}
 									onNotice={announce}
+									workFolder={project?.path}
 									dark={
 										appearance === 'dark' ||
 										(appearance === 'system' &&

@@ -50,6 +50,23 @@ function folderOf(path: string): string {
 	return parts.slice(-2).join('/')
 }
 
+/**
+ * The path the preview's address line shows: relative to the work folder when the file sits
+ * inside it, the whole path otherwise. Slashes of either kind and a drive letter's case are
+ * compared as written, so a Windows folder works like any other.
+ */
+export function outputAddress(path: string, workFolder?: string): string {
+	if (!workFolder) return path
+	const norm = (value: string) => value.replace(/\\/g, '/').replace(/\/+$/, '')
+	const root = norm(workFolder)
+	const target = norm(path)
+	const windows = /^[a-z]:/i.test(root)
+	const same = (a: string, b: string) => (windows ? a.toLowerCase() === b.toLowerCase() : a === b)
+	if (root === '' || target.length <= root.length + 1) return path
+	if (!same(target.slice(0, root.length), root) || target[root.length] !== '/') return path
+	return target.slice(root.length + 1)
+}
+
 /** Every output of the conversation, the most recently written first. */
 export function outputFiles(
 	thread: Pick<ThreadState, 'timeline' | 'tools' | 'turns' | 'undo'>,

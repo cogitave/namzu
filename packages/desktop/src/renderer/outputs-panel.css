@@ -110,3 +110,27 @@
 	border-radius: var(--radius-md, 8px);
 	background: #fff;
 }
+
+/* The address line: the file's path, read-only and selectable, as a browser shows one. */
+.outputs-address {
+	display: flex;
+	min-width: 0;
+}
+.outputs-address-input {
+	flex: 1 1 auto;
+	min-width: 0;
+	padding: 4px 8px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-md, 8px);
+	background: var(--muted, transparent);
+	color: var(--muted-foreground);
+	font: inherit;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	text-overflow: ellipsis;
+}
+.outputs-address-input:focus {
+	outline: none;
+	border-color: var(--ring, var(--border));
+	color: var(--foreground);
+}

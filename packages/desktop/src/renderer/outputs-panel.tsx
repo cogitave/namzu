@@ -6,7 +6,7 @@ import { SourceView } from './file-panel/file-view.js'
 import { AppWindowIcon, ArrowLeftIcon, FolderOpenIcon } from './icons.js'
 import { MarkdownContent } from './message.js'
 import { OUTPUT_FRAME_SANDBOX, outputFrameDocument } from './output-frame.js'
-import type { OutputFile } from './outputs-model.js'
+import { type OutputFile, outputAddress } from './outputs-model.js'
 import { plainErrorText } from './plain-error.js'
 import { Button } from './ui/button.js'
 import './file-panel/file-panel.css'
@@ -157,6 +157,7 @@ export function OutputsPanel({
 	onSelect,
 	dark,
 	onNotice,
+	workFolder,
 }: {
 	api: Pick<DesktopApi, 'readSessionOutput' | 'openSessionOutput'>
 	sessionId: string
@@ -165,6 +166,8 @@ export function OutputsPanel({
 	onSelect: (path: string | undefined) => void
 	dark: boolean
 	onNotice: (text: string) => void
+	/** The conversation's work folder: a file inside it shows its path from there. */
+	workFolder?: string
 }) {
 	const file = selected ? outputs.find((item) => item.path === selected) : undefined
 	const load = useSessionOutput(api, sessionId, file?.path ?? '', file?.version ?? 0)
@@ -230,6 +233,18 @@ export function OutputsPanel({
 						<CopyButton text={load.content.text} label="Copy file contents" />
 					)}
 				</div>
+			</div>
+			<div className="outputs-address" data-output-address>
+				<input
+					className="outputs-address-input"
+					type="text"
+					readOnly
+					spellCheck={false}
+					aria-label="File path"
+					value={outputAddress(file.path, workFolder)}
+					title={file.path}
+					onFocus={(event) => event.currentTarget.select()}
+				/>
 			</div>
 			<div className="outputs-preview-body">
 				{load.status === 'loading' ? (

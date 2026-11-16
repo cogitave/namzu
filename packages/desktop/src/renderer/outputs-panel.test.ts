@@ -116,4 +116,22 @@ describe('the list', () => {
 		expect(doc).not.toContain('Open in browser')
 		expect(doc).toContain('Show in folder')
 	})
+	it('shows the path in a read-only address line, relative to the work folder', () => {
+		const view = file('index.html', 'html')
+		const out = renderToStaticMarkup(
+			createElement(OutputsPanel, {
+				api,
+				sessionId: 's',
+				outputs: [view],
+				selected: view.path,
+				onSelect: noop,
+				dark: false,
+				onNotice: noop,
+				workFolder: view.path.slice(0, view.path.lastIndexOf('/')),
+			}),
+		)
+		expect(out).toContain('data-output-address')
+		expect(out).toMatch(/<input[^>]*readOnly=""|<input[^>]*readonly=""/)
+		expect(out).toContain('value="index.html"')
+	})
 })

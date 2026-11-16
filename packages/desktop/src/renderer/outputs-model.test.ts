@@ -1,7 +1,7 @@
 import type { AcpSessionUpdate } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 import { type ThreadState, applyEvent, emptyThread } from '../shared/projection.js'
-import { outputFiles, outputToOpen, previewKind } from './outputs-model.js'
+import { outputAddress, outputFiles, outputToOpen, previewKind } from './outputs-model.js'
 
 function turn(thread: ThreadState, prompt: string): ThreadState {
 	return applyEvent(applyEvent(thread, { kind: 'prompt', sessionId: 's', prompt, at: 1000 }), {
@@ -118,5 +118,21 @@ describe('what opens by itself', () => {
 			),
 		).toBeUndefined()
 		expect(outputToOpen(outputs, new Map([['b.html', 1]]))?.path).toBe('b.html')
+	})
+})
+
+describe('the address line', () => {
+	it('shows a file inside the work folder from the folder', () => {
+		expect(outputAddress('/home/a/cafe/site/index.html', '/home/a/cafe')).toBe('site/index.html')
+		expect(outputAddress('/home/a/cafe/index.html', '/home/a/cafe/')).toBe('index.html')
+		expect(outputAddress('C:\\Users\\a\\cafe\\index.html', 'c:/users/a/cafe')).toBe('index.html')
+	})
+	it('shows any other path in full', () => {
+		expect(outputAddress('/home/a/cafe2/index.html', '/home/a/cafe')).toBe(
+			'/home/a/cafe2/index.html',
+		)
+		expect(outputAddress('/tmp/x.html', '/home/a/cafe')).toBe('/tmp/x.html')
+		expect(outputAddress('/home/a/cafe', '/home/a/cafe')).toBe('/home/a/cafe')
+		expect(outputAddress('/tmp/x.html')).toBe('/tmp/x.html')
 	})
 })
