@@ -22,6 +22,7 @@ import { ACCEPT_EDITS_TOOLS, type PermissionMode } from '../permissions/mode.js'
 import { type SessionAllow, allowsForBatch, describeAllows } from '../permissions/session-allow.js'
 import type { PermissionToolCall } from './agent.js'
 import { connectorToolLabel } from './connector-label.js'
+import { displayPath } from './display-path.js'
 import { boxedHintWidth, fitHints } from './key-hints.js'
 import {
 	type PermissionReviewSummary,
@@ -98,6 +99,8 @@ export interface PermissionOverlayProps {
 	 * where the pointer is not reported, and the rows are then not clickable.
 	 */
 	readonly onChoose?: (index: number) => void
+	/** The working folder: the title names a file relative to it. */
+	readonly cwd?: string
 }
 
 /**
@@ -239,10 +242,11 @@ function browserQuestion(call: PermissionToolCall): string | undefined {
 }
 
 /** What the box is called, from the batch's shape. */
-export function permissionTitle(toolCalls: readonly PermissionToolCall[]): string {
+export function permissionTitle(toolCalls: readonly PermissionToolCall[], cwd?: string): string {
 	const first = toolCalls[0]
 	if (toolCalls.length === 1 && first) {
-		const path = pathOf(first.input)
+		const asked = pathOf(first.input)
+		const path = asked !== undefined && cwd !== undefined ? displayPath(asked, cwd) : asked
 		const browser = browserTitle(first)
 		if (browser) return browser
 		switch (first.name) {
@@ -524,6 +528,7 @@ export function PermissionOverlay({
 	withheld = [],
 	endsTurn = false,
 	onChoose,
+	cwd,
 }: PermissionOverlayProps) {
 	const single = toolCalls.length === 1
 	const compact = !detailsOpen && summary.compactText !== undefined
@@ -570,7 +575,7 @@ export function PermissionOverlay({
 			: 'Exact prepared input'
 		: sharing
 			? 'Share your screen'
-			: terminalDisplayText(permissionTitle(toolCalls))
+			: terminalDisplayText(permissionTitle(toolCalls, cwd))
 	const destructiveText = destructive
 		? toolCalls.every((call) => call.name === 'write')
 			? summary.text.includes('New file')
