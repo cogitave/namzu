@@ -2,6 +2,7 @@
 
 ## 2026-11-16
 
+- **Update** [Desktop: one band at the top](cli/desktop.md#one-band-at-the-top): the window is dragged from one empty layer that comes first in the document, and no other element declares a drag region, so the menu button, the sidebar toggle and Back take the click on Windows and macOS (a later drag element had made them part of the caption). `.changeset/desktop-titlebar-controls-take-clicks.md`.
 - **Update** [Browser tools](sdk/browser-tools.md#what-the-model-reads), [The browser host](sdk/browser-host.md#waiting-for-the-page-and-what-an-action-did), [The browser](cli/browser.md#how-the-model-is-told-to-work): an action that changed nothing visible now says what the page sent (`no visible change on the page; it sent 1 request.`, with `POST /path` inside the untrusted envelope; only fetch, XHR and document requests, no query string), carried as the optional `BrowserEffect.requests` and `requestCount`; and the web-task paragraph tells the model, when a step cannot be done or confirmed, to carry on with every other step the page allows and report the step left. `.changeset/browser-effect-names-requests.md`.
 
 ## 2026-11-15
