@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { ConfigValueError, loadConfig } from './load.js'
+import { SETTING_DESCRIPTORS } from './settings-descriptors.js'
 
 function setup(user?: unknown, project?: unknown, managed?: unknown) {
 	const home = mkdtempSync(join(tmpdir(), 'namzu-browser-home-'))
@@ -15,6 +16,20 @@ function setup(user?: unknown, project?: unknown, managed?: unknown) {
 	if (managed !== undefined) writeFileSync(managedPath, JSON.stringify(managed))
 	return { home, cwd, env: {}, managedPath }
 }
+
+describe('browser.signInDetection default', () => {
+	it('is page in the settings list, with address still offered', () => {
+		const descriptor = SETTING_DESCRIPTORS.find((entry) => entry.path === 'browser.signInDetection')
+		expect(descriptor?.defaultText).toBe('page')
+		expect(JSON.stringify(descriptor?.control)).toContain('address')
+	})
+
+	it('leaves the loaded value unset, so the browser host applies its own default of page', () => {
+		expect(
+			loadConfig(setup({ browser: { enabled: true } })).browser?.signInDetection,
+		).toBeUndefined()
+	})
+})
 
 describe('browser config', () => {
 	it('reads every key and canonicalises site keys', () => {

@@ -11,7 +11,7 @@
  *
  * What is sent: the model's few words of intent, and the controls the model could act on
  * (their roles, names and refs, cut). They are the application's own text, so this point is
- * off until it is named in `decision.points`. Nothing else leaves the machine: no screenshot,
+ * on by default once a decision model is configured (`decision.points.pick: off` turns it off). Nothing else leaves the machine: no screenshot,
  * no values typed, no window contents beyond those control names.
  */
 
