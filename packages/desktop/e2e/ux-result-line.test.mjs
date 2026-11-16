@@ -127,7 +127,9 @@ test("the foot says what changed and what the record says about checking, and no
 		// The fold says what the work was, in the words a group of steps uses, and the time after it.
 		await expect(w.page.locator(".activity-trigger").first()).toContainText(/^Read 2 files, created 2 files, and 2 more\s*· \d+s/);
 		await expect(w.page.locator(".turn-changes, .turn-outcome-line")).toHaveCount(0);
-		await expect(w.page.getByRole("button", { name: "View changes" })).toHaveCount(0);
+		// "View changes" is one action on the result line itself, not a card of its own.
+		await expect(w.page.getByRole("button", { name: "View changes" })).toHaveCount(1);
+		await expect(line(w).getByRole("button", { name: "View changes" })).toHaveCount(1);
 		// The top bar says the same size, from the same source.
 		await expect(w.page.locator(".conversation-bar-changes")).toContainText(/\+\d+/);
 		const bar = await w.page.locator(".conversation-bar-lines").innerText();
@@ -448,7 +450,11 @@ test("a finished turn has no edge but the person's message: the line, the fold a
 		await w.page.mouse.move(2, 2);
 		// Keyboard focus draws both too, and so does the open menu.
 		await main.focus();
+		// Tab reaches the line's own actions (View changes, Undo) before the "...".
 		await w.page.keyboard.press("Tab");
+		await expect(line(w).getByRole("button", { name: "View changes" })).toBeFocused();
+		for (let step = 0; step < 3 && !(await more.evaluate((el) => el === document.activeElement)); step++)
+			await w.page.keyboard.press("Tab");
 		await expect(more).toBeFocused();
 		await expect.poll(async () => (await look(more)).opacity, { timeout: T }).toBe("1");
 		await w.page.keyboard.press("Enter");
