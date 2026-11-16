@@ -85,7 +85,7 @@ describe('liveStatus', () => {
 			},
 		})
 		expect(liveStatus(thread)).toEqual({
-			stage: { text: 'Waiting for your decision', source: 'waiting' },
+			stage: { text: 'Waiting for you', source: 'waiting' },
 		})
 	})
 
