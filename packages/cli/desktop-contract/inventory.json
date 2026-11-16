@@ -177,6 +177,10 @@
         "from": "cli OUTCOME_NOTIFICATION"
       },
       {
+        "name": "namzu/session/title",
+        "from": "cli TITLE_NOTIFICATION"
+      },
+      {
         "name": "namzu/terminal/data",
         "from": "cli TERMINAL_NOTIFICATIONS.data"
       },
@@ -327,6 +331,17 @@
         "names": [
           "OUTCOME_NOTIFICATION",
           "OutcomeNotification"
+        ]
+      },
+      "src/commands/desktop-title-feed.ts": {
+        "mirroredBy": "packages/desktop/src/shared/title-protocol.ts",
+        "digests": {
+          "TITLE_NOTIFICATION": "cb319df0bace3246",
+          "TitleNotification": "455de91f98e7651e"
+        },
+        "names": [
+          "TITLE_NOTIFICATION",
+          "TitleNotification"
         ]
       },
       "src/config/hooks-report.ts": {

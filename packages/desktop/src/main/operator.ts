@@ -82,6 +82,7 @@ import {
 	isSidebarSection,
 } from '../shared/sidebar-sections.js'
 import { readTaskUpdate, readTasks } from '../shared/task-protocol.js'
+import { TITLE_NOTIFICATION, readTitleNotice } from '../shared/title-protocol.js'
 import { readUndoPreview, readUndoResult, readUndoStatus } from '../shared/undo-protocol.js'
 import type { UpdateBlocker } from '../shared/update-protocol.js'
 import { USAGE_NOTIFICATION, readUsageNotice } from '../shared/usage-protocol.js'
@@ -182,6 +183,8 @@ interface Project {
 }
 interface Conversation {
 	view: ConversationView
+	/** The words of the first message the title was made from; a title still equal to it is replaceable. */
+	promptTitle?: string
 	/** Stable UI ownership is separate from a replaceable, never-started runtime session. */
 	runtimeSessionId: string
 	hasPrompted: boolean
@@ -5431,11 +5434,13 @@ export class Operator {
 			(!session.view.palId ||
 				session.projection.messages.some((message) => message.role === 'user'))
 		session.running = true
-		if (session.view.title === 'New conversation')
+		if (session.view.title === 'New conversation') {
 			session.view.title = (prompt.trim() || files.map((file) => file.view.name).join(', ')).slice(
 				0,
 				80,
 			)
+			session.promptTitle = session.view.title
+		}
 		this.emit({
 			kind: 'prompt',
 			sessionId: session.view.id,
@@ -5934,6 +5939,23 @@ export class Operator {
 				(!session.view.harness || session.view.harness === 'namzu')
 			)
 				this.emit({ ...notice, kind: 'usage', sessionId: session.view.id })
+		} else if (frame.method === TITLE_NOTIFICATION) {
+			// The name the model gave a conversation. It replaces the words of the first message only
+			// while the title is still those words: a name the person typed is never overwritten.
+			const notice = readTitleNotice(frame.params)
+			const session = notice ? this.runtimeSession(project, notice.sessionId) : undefined
+			if (
+				notice &&
+				session &&
+				!session.view.palId &&
+				(!session.view.harness || session.view.harness === 'namzu') &&
+				session.promptTitle !== undefined &&
+				session.view.title === session.promptTitle
+			) {
+				session.view.title = notice.title
+				session.promptTitle = undefined
+				this.commitConversationView(session, project)
+			}
 		} else if (frame.method === OUTCOME_NOTIFICATION) {
 			// What a finished turn changed and what checked it. A notice that does not read, or names a
 			// conversation this connection does not own, is dropped.

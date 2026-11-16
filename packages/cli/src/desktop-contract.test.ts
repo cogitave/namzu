@@ -28,6 +28,7 @@ import {
 	parseAcpArgs,
 } from './commands/acp.js'
 import { OUTCOME_NOTIFICATION } from './commands/desktop-outcome-feed.js'
+import { TITLE_NOTIFICATION } from './commands/desktop-title-feed.js'
 import { USAGE_NOTIFICATION } from './commands/desktop-usage-feed.js'
 import { readPalComputerBundle } from './computer/bundle.js'
 import { COMPUTER_HELP } from './computer/run.js'
@@ -269,6 +270,7 @@ describe('every recorded name still exists in what the host offers', () => {
 			'sdk ACP_CLIENT_NOTIFICATIONS.TASK_UPDATE': ACP_CLIENT_NOTIFICATIONS.TASK_UPDATE,
 			'cli USAGE_NOTIFICATION': USAGE_NOTIFICATION,
 			'cli OUTCOME_NOTIFICATION': OUTCOME_NOTIFICATION,
+			'cli TITLE_NOTIFICATION': TITLE_NOTIFICATION,
 			'cli TERMINAL_NOTIFICATIONS.data': TERMINAL_NOTIFICATIONS.data,
 			'cli TERMINAL_NOTIFICATIONS.exit': TERMINAL_NOTIFICATIONS.exit,
 			'sdk ACP_CLIENT_REQUESTS.REQUEST_PERMISSION': ACP_CLIENT_REQUESTS.REQUEST_PERMISSION,
