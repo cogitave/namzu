@@ -401,6 +401,7 @@ import { EffortSlider, effortSliderLayout } from './EffortSlider.js'
 import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
 import { PendingInputPanel, pendingInputPanelRows } from './PendingInputPanel.js'
 import {
+	type PermissionAnswer,
 	type PermissionChoice,
 	PermissionOverlay,
 	permissionAnswers,
@@ -610,6 +611,8 @@ import {
 	pluginOption,
 	pluginStartupState,
 } from './plugin-view.js'
+import { PointerRegionsContext } from './pointer/context.js'
+import type { PointerRegions } from './pointer/regions.js'
 import { selectPrimaryProvider } from './provider-selection.js'
 import { needsQuestionDialog } from './question-dialog.js'
 import {
@@ -897,6 +900,8 @@ export interface AppProps {
 		readonly subscribeWheel: (listener: (direction: WheelDirection) => void) => () => void
 		/** Left-button reports, present when the terminal was asked for drags (selecting text). */
 		readonly subscribePointer?: (listener: (report: PointerReport) => void) => () => void
+		/** What answers a click or hover outside the transcript window; present with `subscribePointer`. */
+		readonly regions?: PointerRegions
 		/** Whether a selection is copied the moment the button is released; true when absent. */
 		readonly copyOnSelect?: boolean
 		/** Rows a slow wheel notch scrolls (`tui.wheelRows`); 3 when absent. */
@@ -15972,6 +15977,43 @@ function AppBody({
 		exitWithSummary()
 	}, [session, exitWithSummary])
 
+	/**
+	 * What choosing an answer does, by key or by click. The extra answers are session settings
+	 * applied the way their own commands apply them, then this question is approved like any yes.
+	 * The change is then announced, so every question still open is re-checked against it.
+	 */
+	const applyPermissionAnswer = (answer: PermissionAnswer, noDecision: PermissionDecision) => {
+		if (answer.kind === 'reject') {
+			resolvePermission(noDecision)
+			return
+		}
+		if (answer.kind === 'approve-edits') applyPermissionMode('accept-edits', false)
+		else if (answer.kind === 'approve-rule' && answer.allows) {
+			const notice = session?.allowForSession?.(answer.allows)
+			if (notice) pushMessage('system', notice)
+		}
+		resolvePermission({ kind: 'approve' })
+		if (answer.kind === 'approve-rule') rulesChanged(answer.allows)
+	}
+	/**
+	 * A click on an answer row is the digit on it: an approval waits out the same settle window, and a
+	 * refusal never waits. Not while the person is typing why they refuse.
+	 */
+	const clickPermissionAnswer = (index: number) => {
+		if (!permissionResolveRef.current || permissionReasonRef.current !== null || !permission) return
+		const answer = permissionAnswers(permission.toolCalls, permissionAnswerOptions(permission))[
+			index
+		]
+		if (!answer) return
+		if (
+			answer.kind !== 'reject' &&
+			!approvalIsDeliberate(permissionOpenedAtRef.current, Date.now())
+		)
+			return
+		setPermissionChoice(index as PermissionChoice)
+		applyPermissionAnswer(answer, plainNo(endsTurnOnNo(permission)))
+	}
+
 	useInput(
 		(input, key) => {
 			lastKeyAtRef.current = Date.now()
@@ -16270,21 +16312,7 @@ function AppBody({
 								? answers[chosen]
 								: undefined
 				if (!answer) return
-				if (answer.kind === 'reject') {
-					resolvePermission(noDecision)
-					return
-				}
-				// The extra answers are session settings applied the way their own
-				// commands apply them, then this question is approved like any yes.
-				// The change is then announced, so every question still open is
-				// re-checked against it.
-				if (answer.kind === 'approve-edits') applyPermissionMode('accept-edits', false)
-				else if (answer.kind === 'approve-rule' && answer.allows) {
-					const notice = session?.allowForSession?.(answer.allows)
-					if (notice) pushMessage('system', notice)
-				}
-				resolvePermission({ kind: 'approve' })
-				if (answer.kind === 'approve-rule') rulesChanged(answer.allows)
+				applyPermissionAnswer(answer, noDecision)
 				return
 			}
 			// The Background dialog lists this AgentSession's commands and monitors and
@@ -17442,75 +17470,53 @@ function AppBody({
 				)
 			: undefined
 	return (
-		// One row short of the terminal, always: see ViewportBound.tsx for the
-		// renderer path a taller frame takes and the scrollback row it costs.
-		<ViewportBound
-			rows={terminal.rows}
-			display={externalEditorRequest || fullscreenBlank ? 'none' : 'flex'}
-			fill={fullscreenOn}
-		>
-			<Box
-				flexDirection="column"
-				paddingLeft={0}
-				paddingRight={SCREEN_MARGIN}
-				flexGrow={fullscreenOn ? 1 : 0}
+		<PointerRegionsContext.Provider value={fullscreen?.regions ?? null}>
+			{/* One row short of the terminal, always: see ViewportBound.tsx for the
+		    renderer path a taller frame takes and the scrollback row it costs. */}
+			<ViewportBound
+				rows={terminal.rows}
+				display={externalEditorRequest || fullscreenBlank ? 'none' : 'flex'}
+				fill={fullscreenOn}
 			>
-				{/* Keep the Static owner mounted through startup pickers. Removing its
+				<Box
+					flexDirection="column"
+					paddingLeft={0}
+					paddingRight={SCREEN_MARGIN}
+					flexGrow={fullscreenOn ? 1 : 0}
+				>
+					{/* Keep the Static owner mounted through startup pickers. Removing its
 				    ancestor frees Yoga memory that Ink still references during its final flush. */}
-				{fullscreen ? (
-					<FullscreenTranscript
-						messages={finalized}
-						pending={messages.find((m) => m.pending) ?? null}
-						pendingAt={pendingAt}
-						columns={Math.max(4, terminal.columns - SCREEN_MARGIN)}
-						maxRows={Math.max(3, terminal.rows - 1)}
-						hidden={lifecycleOwnsViewport}
-						keysActive={
-							phase === 'ready' &&
-							permission === null &&
-							scheduleReviewPrompt === null &&
-							choicePicker === null &&
-							copyPicker === null &&
-							textPrompt === null &&
-							questionDialog === null &&
-							externalEditorRequest === null &&
-							!lifecycleOwnsViewport
-						}
-						homeEndActive={!composerHasDraft}
-						subscribeWheel={fullscreen.subscribeWheel}
-						{...(fullscreen.subscribePointer
-							? { subscribePointer: fullscreen.subscribePointer, copy: copyFullscreenSelection }
-							: {})}
-						copyOnSelect={fullscreen.copyOnSelect !== false}
-						{...(fullscreen.wheelRows !== undefined ? { wheelRows: fullscreen.wheelRows } : {})}
-						{...(fullscreen.wheelAccel !== undefined ? { wheelAccel: fullscreen.wheelAccel } : {})}
-						onSearchChange={setFullscreenSearching}
-						control={fullscreenControl}
-						header={
-							transcriptOwned ? (
-								<BrandHeader
-									version={ctx.version}
-									permissionMode={displayedPermissionMode}
-									cwd={ctx.cwd}
-								/>
-							) : undefined
-						}
-					/>
-				) : (
-					<TranscriptFrame>
-						<Transcript
+					{fullscreen ? (
+						<FullscreenTranscript
 							messages={finalized}
 							pending={messages.find((m) => m.pending) ?? null}
 							pendingAt={pendingAt}
-							state={state}
-							settled={transcriptOwned ? renderedSettled : 0}
-							resetKey={resetKey}
-							raw={rawOutput}
-							hyperlinks={hyperlinks}
-							showLive={!lifecycleOwnsViewport}
-							// Rows start in the first column; the enclosing box keeps a margin on the right.
-							staticIndent={0}
-							staticIndentRight={SCREEN_MARGIN}
+							columns={Math.max(4, terminal.columns - SCREEN_MARGIN)}
+							maxRows={Math.max(3, terminal.rows - 1)}
+							hidden={lifecycleOwnsViewport}
+							keysActive={
+								phase === 'ready' &&
+								permission === null &&
+								scheduleReviewPrompt === null &&
+								choicePicker === null &&
+								copyPicker === null &&
+								textPrompt === null &&
+								questionDialog === null &&
+								externalEditorRequest === null &&
+								!lifecycleOwnsViewport
+							}
+							homeEndActive={!composerHasDraft}
+							subscribeWheel={fullscreen.subscribeWheel}
+							{...(fullscreen.subscribePointer
+								? { subscribePointer: fullscreen.subscribePointer, copy: copyFullscreenSelection }
+								: {})}
+							copyOnSelect={fullscreen.copyOnSelect !== false}
+							{...(fullscreen.wheelRows !== undefined ? { wheelRows: fullscreen.wheelRows } : {})}
+							{...(fullscreen.wheelAccel !== undefined
+								? { wheelAccel: fullscreen.wheelAccel }
+								: {})}
+							onSearchChange={setFullscreenSearching}
+							control={fullscreenControl}
 							header={
 								transcriptOwned ? (
 									<BrandHeader
@@ -17521,415 +17527,402 @@ function AppBody({
 								) : undefined
 							}
 						/>
-					</TranscriptFrame>
-				)}
-				{providerSetup ? (
-					<ProviderSetup
-						cwd={ctx.cwd}
-						onClose={() => setProviderSetup(false)}
-						onConnect={() => {
-							setProviderSetup(false)
-							setPickerInitialView('providers')
-							setPickerDetected(null)
-							setPickerSelectionKind('provider-and-model')
-							setPhase('picker')
-							void discoverProviders({ skipProbes: true })
-								.then(setPickerDetected)
-								.catch((error) =>
-									setPickerNotice(explainFailure(error, 'Could not look for providers.')),
-								)
-						}}
-					/>
-				) : phase === 'trust' ? (
-					<TrustPrompt cwd={ctx.cwd} grants={trustGrants} />
-				) : phase === 'unhealthy' ? (
-					// The sentence above already says what to do when it is a complete
-					// one; saying "resolve the error above" under it is the same advice
-					// twice.
-					startupExplained ? null : (
-						<Box flexDirection="column" marginTop={1}>
-							<Text color={theme.status.error} bold>
-								Startup stopped
-							</Text>
-							<Text color={theme.text.secondary}>Resolve the error above, then restart Namzu.</Text>
-						</Box>
-					)
-				) : phase === 'resume' || phase === 'unarchive' ? (
-					<ResumePicker
-						conversations={resumeList}
-						selected={selectedResume}
-						mode={phase === 'unarchive' ? 'restore' : 'resume'}
-						query={resumeQuery}
-						scope={resumeScope}
-						renaming={resumeRenaming}
-						{...(resumeNotice !== undefined ? { notice: resumeNotice } : {})}
-					/>
-				) : phase === 'edit' ? (
-					rewind ? (
-						<RewindPicker
-							rows={rewind.rows}
-							state={rewind.state}
-							options={optionsFor(rewind.state, {
-								rows: rewind.rows,
-								canSummarize: Boolean(session?.compactRange),
-							})}
-							checkpointing={Boolean(session?.checkpoints)}
-							now={rewind.openedAt}
-							working={rewind.state.busy?.startsWith('summarize') ? 'Summarizing…' : 'Restoring…'}
+					) : (
+						<TranscriptFrame>
+							<Transcript
+								messages={finalized}
+								pending={messages.find((m) => m.pending) ?? null}
+								pendingAt={pendingAt}
+								state={state}
+								settled={transcriptOwned ? renderedSettled : 0}
+								resetKey={resetKey}
+								raw={rawOutput}
+								hyperlinks={hyperlinks}
+								showLive={!lifecycleOwnsViewport}
+								// Rows start in the first column; the enclosing box keeps a margin on the right.
+								staticIndent={0}
+								staticIndentRight={SCREEN_MARGIN}
+								header={
+									transcriptOwned ? (
+										<BrandHeader
+											version={ctx.version}
+											permissionMode={displayedPermissionMode}
+											cwd={ctx.cwd}
+										/>
+									) : undefined
+								}
+							/>
+						</TranscriptFrame>
+					)}
+					{providerSetup ? (
+						<ProviderSetup
+							cwd={ctx.cwd}
+							onClose={() => setProviderSetup(false)}
+							onConnect={() => {
+								setProviderSetup(false)
+								setPickerInitialView('providers')
+								setPickerDetected(null)
+								setPickerSelectionKind('provider-and-model')
+								setPhase('picker')
+								void discoverProviders({ skipProbes: true })
+									.then(setPickerDetected)
+									.catch((error) =>
+										setPickerNotice(explainFailure(error, 'Could not look for providers.')),
+									)
+							}}
 						/>
-					) : null
-				) : phase === 'picker' ? (
-					<Picker
-						detected={pickerDetected ?? detected}
-						currentProvider={currentProvider}
-						selectionKind={pickerSelectionKind}
-						currentModel={session?.modelSummary ?? null}
-						{...(ctx.routing && session?.hasProvider && !palDefinitionRef.current
-							? { auto: { active: autoActive }, onAuto: handlePickerAuto }
-							: {})}
-						initialView={pickerInitialView}
-						onSubmit={handlePickerSubmit}
-						onCancel={handlePickerCancel}
-						onSetup={() => setProviderSetup(true)}
-						onCredential={handleTypedCredential}
-						onLogin={startLoginFromPicker}
-						onLoginComplete={finishLoginFromPicker}
-						keyEntryFor={keyEntryFor}
-						notice={pickerNotice}
-						// The same condition `handlePickerCancel` branches on, read
-						// where it is decided rather than guessed on the screen: with no
-						// session behind the picker, esc exits namzu and the footer says
-						// so instead of offering a cancel nobody will see.
-						cancelExits={!session?.hasProvider}
-					/>
-				) : (
-					<>
-						{/* Keep the inline viewport minimal: finalized history flows into native
+					) : phase === 'trust' ? (
+						<TrustPrompt cwd={ctx.cwd} grants={trustGrants} />
+					) : phase === 'unhealthy' ? (
+						// The sentence above already says what to do when it is a complete
+						// one; saying "resolve the error above" under it is the same advice
+						// twice.
+						startupExplained ? null : (
+							<Box flexDirection="column" marginTop={1}>
+								<Text color={theme.status.error} bold>
+									Startup stopped
+								</Text>
+								<Text color={theme.text.secondary}>
+									Resolve the error above, then restart Namzu.
+								</Text>
+							</Box>
+						)
+					) : phase === 'resume' || phase === 'unarchive' ? (
+						<ResumePicker
+							conversations={resumeList}
+							selected={selectedResume}
+							mode={phase === 'unarchive' ? 'restore' : 'resume'}
+							query={resumeQuery}
+							scope={resumeScope}
+							renaming={resumeRenaming}
+							{...(resumeNotice !== undefined ? { notice: resumeNotice } : {})}
+						/>
+					) : phase === 'edit' ? (
+						rewind ? (
+							<RewindPicker
+								rows={rewind.rows}
+								state={rewind.state}
+								options={optionsFor(rewind.state, {
+									rows: rewind.rows,
+									canSummarize: Boolean(session?.compactRange),
+								})}
+								checkpointing={Boolean(session?.checkpoints)}
+								now={rewind.openedAt}
+								working={rewind.state.busy?.startsWith('summarize') ? 'Summarizing…' : 'Restoring…'}
+							/>
+						) : null
+					) : phase === 'picker' ? (
+						<Picker
+							detected={pickerDetected ?? detected}
+							currentProvider={currentProvider}
+							selectionKind={pickerSelectionKind}
+							currentModel={session?.modelSummary ?? null}
+							{...(ctx.routing && session?.hasProvider && !palDefinitionRef.current
+								? { auto: { active: autoActive }, onAuto: handlePickerAuto }
+								: {})}
+							initialView={pickerInitialView}
+							onSubmit={handlePickerSubmit}
+							onCancel={handlePickerCancel}
+							onSetup={() => setProviderSetup(true)}
+							onCredential={handleTypedCredential}
+							onLogin={startLoginFromPicker}
+							onLoginComplete={finishLoginFromPicker}
+							keyEntryFor={keyEntryFor}
+							notice={pickerNotice}
+							// The same condition `handlePickerCancel` branches on, read
+							// where it is decided rather than guessed on the screen: with no
+							// session behind the picker, esc exits namzu and the footer says
+							// so instead of offering a cancel nobody will see.
+							cancelExits={!session?.hasProvider}
+						/>
+					) : (
+						<>
+							{/* Keep the inline viewport minimal: finalized history flows into native
 						    scrollback, while activity and input follow the visible tail directly.
 						    A viewport-height blank box here creates dead space and makes resize
 						    depend on an estimate of rows Ink has already rendered. */}
-						{/* Messages typed while a reply runs sit directly above the working row,
+							{/* Messages typed while a reply runs sit directly above the working row,
 						    as in other terminal agents: pending rows, the send-now hint, then `Working`. */}
-						{pendingInputVisible ? (
-							<PendingInputPanel
-								pendingSteers={pendingInputItems}
-								queued={queuedInputItems}
-								columns={Math.max(2, (terminal.columns ?? 80) - SCREEN_MARGIN)}
-								rows={terminal.rows}
-								working={abortRef.current !== null}
-								selectedQueued={queueSelection}
-								held={queuePause}
-							/>
-						) : null}
-						{agentSurface === null &&
-						!transcriptScreen &&
-						!scrollOpen &&
-						jobSurface === null &&
-						scheduleReviewPrompt === null ? (
-							<LiveActivity
-								compact={compactWork}
-								{...(compacting || summarising
-									? { activityLabel: COMPACTING_LABEL }
-									: workingStepLabel
-										? { activityLabel: workingStepLabel }
-										: {})}
-								activeTools={visibleActiveTools}
-								working={state === 'thinking' || state === 'tool'}
-								compacting={compacting}
-								animate={
-									stdout.isTTY === true &&
-									permission === null &&
-									textPrompt === null &&
-									saveSkillPrompt === null &&
-									planPrompt === null &&
-									questionDialog === null &&
-									scheduleReviewPrompt === null
-								}
-								thinking={thinking}
-								{...(spinnerTip ? { tip: spinnerTip } : {})}
-								{...(nextPlanned && !planInRegion ? { nextTask: nextTaskLine(nextPlanned) } : {})}
-								{...(planInRegion ? { plan: liveTasks, planOpen: checklistOpen } : {})}
-								{...(permission !== null ? { waitingFor: 'approval' as const } : {})}
-								waitNotice={providerWaitNotice}
-								tokens={turnTokens}
-								waitingForYou={
-									choicePicker !== null ||
-									permission !== null ||
-									textPrompt !== null ||
-									saveSkillPrompt !== null ||
-									planPrompt !== null ||
-									questionDialog !== null ||
-									scheduleReviewPrompt !== null
-								}
-							/>
-						) : null}
-						{agentSurface === null &&
-						!transcriptScreen &&
-						!scrollOpen &&
-						jobSurface === null &&
-						permission === null &&
-						scheduleReviewPrompt === null ? (
-							<BackgroundAgentRows
-								groups={backgroundGroups}
-								waitLine={backgroundWaitText}
-								glyph={CLOSING_GLYPH}
-							/>
-						) : null}
-						{/* The step the plan is on, while its checklist is out of view.
+							{pendingInputVisible ? (
+								<PendingInputPanel
+									pendingSteers={pendingInputItems}
+									queued={queuedInputItems}
+									columns={Math.max(2, (terminal.columns ?? 80) - SCREEN_MARGIN)}
+									rows={terminal.rows}
+									working={abortRef.current !== null}
+									selectedQueued={queueSelection}
+									held={queuePause}
+								/>
+							) : null}
+							{agentSurface === null &&
+							!transcriptScreen &&
+							!scrollOpen &&
+							jobSurface === null &&
+							scheduleReviewPrompt === null ? (
+								<LiveActivity
+									compact={compactWork}
+									{...(compacting || summarising
+										? { activityLabel: COMPACTING_LABEL }
+										: workingStepLabel
+											? { activityLabel: workingStepLabel }
+											: {})}
+									activeTools={visibleActiveTools}
+									working={state === 'thinking' || state === 'tool'}
+									compacting={compacting}
+									animate={
+										stdout.isTTY === true &&
+										permission === null &&
+										textPrompt === null &&
+										saveSkillPrompt === null &&
+										planPrompt === null &&
+										questionDialog === null &&
+										scheduleReviewPrompt === null
+									}
+									thinking={thinking}
+									{...(spinnerTip ? { tip: spinnerTip } : {})}
+									{...(nextPlanned && !planInRegion ? { nextTask: nextTaskLine(nextPlanned) } : {})}
+									{...(planInRegion ? { plan: liveTasks, planOpen: checklistOpen } : {})}
+									{...(permission !== null ? { waitingFor: 'approval' as const } : {})}
+									waitNotice={providerWaitNotice}
+									tokens={turnTokens}
+									waitingForYou={
+										choicePicker !== null ||
+										permission !== null ||
+										textPrompt !== null ||
+										saveSkillPrompt !== null ||
+										planPrompt !== null ||
+										questionDialog !== null ||
+										scheduleReviewPrompt !== null
+									}
+								/>
+							) : null}
+							{agentSurface === null &&
+							!transcriptScreen &&
+							!scrollOpen &&
+							jobSurface === null &&
+							permission === null &&
+							scheduleReviewPrompt === null ? (
+								<BackgroundAgentRows
+									groups={backgroundGroups}
+									waitLine={backgroundWaitText}
+									glyph={CLOSING_GLYPH}
+								/>
+							) : null}
+							{/* The step the plan is on, while its checklist is out of view.
 						    A sibling of the activity rows, not a mode: the composer
 						    below stays mounted and usable while it is up. */}
-						{agentSurface === null &&
-						!transcriptScreen &&
-						!scrollOpen &&
-						jobSurface === null &&
-						permission === null &&
-						scheduleReviewPrompt === null ? (
-							<TaskList tasks={planInRegion ? [] : liveTasks} expanded={checklistOpen} />
-						) : null}
-						{/* Siblings, not a ternary. The overlay used to REPLACE the
+							{agentSurface === null &&
+							!transcriptScreen &&
+							!scrollOpen &&
+							jobSurface === null &&
+							permission === null &&
+							scheduleReviewPrompt === null ? (
+								<TaskList tasks={planInRegion ? [] : liveTasks} expanded={checklistOpen} />
+							) : null}
+							{/* Siblings, not a ternary. The overlay used to REPLACE the
 						    composer, which unmounted it and destroyed whatever the
 						    operator was part-way through typing — text, paste chips
 						    and pasted images alike — on an event they did not
 						    trigger. The composer now stays mounted and draws
 						    nothing while the prompt is up, so its state survives a
 						    decision it had nothing to do with. */}
-						{permission && !transcriptScreen ? (
-							<PermissionOverlay
-								toolCalls={permission.toolCalls}
-								review={permission.review}
-								summary={permission.summary}
-								detailsOpen={permissionDetailsOpen}
-								reviewOffset={permissionReviewOffset}
-								choice={permissionChoice}
-								{...(permissionCount ? { count: permissionCount } : {})}
-								{...(permissionSourceLabel ? { from: permissionSourceLabel } : {})}
-								{...(permissionReason !== null ? { reason: permissionReason } : {})}
-								endsTurn={endsTurnOnNo(permission)}
-								columns={terminal.columns}
-								rows={terminal.rows}
-								batchOnly={permission.batchOnly === true}
-								mode={permissionMode}
-								{...(session?.allowForSession && session.commandArguments
-									? {
-											commandArguments: session.commandArguments,
-											rememberWhere: displayPath(ctx.cwd, 28),
-										}
-									: {})}
-								siteNotes={permission.siteNotes}
-								withheld={permission.withheld}
-								{...(permission.screenConsent === true
-									? {
-											screenConsent: {
-												provider: session?.providerSummary ?? null,
-											},
-										}
-									: {})}
-							/>
-						) : null}
-						{saveSkillPrompt &&
-						permission === null &&
-						scheduleReviewPrompt === null &&
-						!transcriptScreen ? (
-							<SaveSkillOverlay
-								key={saveSkillPrompt.request.markdown}
-								request={saveSkillPrompt.request}
-								cwd={ctx.cwd}
-								columns={Math.max(1, (terminal.columns ?? 80) - SCREEN_MARGIN)}
-								rows={terminal.rows}
-								onAnswer={saveSkillPrompt.resolve}
-							/>
-						) : null}
-						{planPrompt &&
-						permission === null &&
-						scheduleReviewPrompt === null &&
-						!transcriptScreen ? (
-							<PlanApprovalOverlay
-								key={planPrompt.request.plan}
-								request={planPrompt.request}
-								columns={Math.max(1, (terminal.columns ?? 80) - SCREEN_MARGIN)}
-								rows={terminal.rows}
-								onAnswer={planPrompt.resolve}
-								onInterrupt={interruptTurn}
-							/>
-						) : null}
-						{questionDialog &&
-						permission === null &&
-						scheduleReviewPrompt === null &&
-						!transcriptScreen ? (
-							<QuestionDialog
-								key={questionDialog.token}
-								question={questionDialog.question}
-								columns={Math.max(1, (terminal.columns ?? 80) - SCREEN_MARGIN)}
-								onAnswer={finishQuestionDialog}
-							/>
-						) : null}
-						{scheduleReviewPrompt && permission === null && !transcriptScreen ? (
-							<ScheduleReviewOverlay
-								key={scheduleReviewPrompt.token}
-								request={scheduleReviewPrompt.request}
-								columns={Math.max(1, (terminal.columns ?? 80) - SCREEN_MARGIN)}
-								rows={Math.max(1, (terminal.rows ?? 24) - 2)}
-								onAnswer={scheduleReviewPrompt.resolve}
-							/>
-						) : null}
-						{textPrompt ? (
-							<TextPrompt
-								columns={Math.max(1, (terminal.columns ?? 80) - SCREEN_MARGIN)}
-								key={textPrompt.token}
-								title={textPrompt.title}
-								placeholder={textPrompt.placeholder}
-								initialValue={textPrompt.initialValue}
-								emptyNotice={textPrompt.emptyNotice}
-								mask={textPrompt.mask === true}
-								allowEmpty={textPrompt.allowEmpty === true}
-								hidden={permission !== null || scheduleReviewPrompt !== null || childSurfaceOpen}
-								onSubmit={submitTextPrompt}
-								onCancel={cancelTextPrompt}
-							/>
-						) : permission === null &&
-							scheduleReviewPrompt === null &&
-							!childSurfaceOpen &&
-							choicePicker?.kind === 'reasoning-effort' &&
-							effortSlider ? (
-							<EffortSlider
-								title={choicePicker.title}
-								notice={choicePicker.notice}
-								options={choicePicker.options}
-								selected={selectedChoice}
-								layout={effortSlider}
-								columns={Math.max(1, (terminal.columns ?? 80) - SCREEN_MARGIN)}
-							/>
-						) : permission === null &&
-							scheduleReviewPrompt === null &&
-							!childSurfaceOpen &&
-							choicePicker ? (
-							<ChoicePicker
-								busy={'busy' in choicePicker && choicePicker.busy === true}
-								columns={Math.max(1, (terminal.columns ?? 80) - SCREEN_MARGIN)}
-								title={choicePicker.title}
-								notice={choicePicker.notice}
-								{...(choicePicker.kind === 'workflow-runs'
-									? {
-											subtitle: choicePicker.subtitle,
-											hints: workflowRunsHints(workflowPickerCanStop, workflowPickerCanResume),
-										}
-									: {})}
-								{...(choicePicker.kind === 'account' ? { hints: ACCOUNT_PICKER_HINTS } : {})}
-								options={filterChoiceOptions(choicePicker.options, choiceQuery)}
-								query={choicePickerSearchable(choicePicker) ? choiceQuery : undefined}
-								selected={selectedChoice}
-								windowSize={
-									choicePicker.kind === 'command' || choicePicker.kind === 'theme'
-										? choicePicker.windowSize
-										: undefined
-								}
-								{...(choicePicker.kind === 'theme' && terminal.rows >= 26
-									? {
-											extra: <ThemeSample width={Math.max(10, (terminal.columns ?? 80) - 6)} />,
-										}
-									: {})}
-							/>
-						) : permission === null &&
-							scheduleReviewPrompt === null &&
-							!childSurfaceOpen &&
-							copyPicker ? (
-							<CopyPicker
-								targets={copyPicker.targets}
-								selected={selectedCopy}
-								{...(copyPicker.mode ? { mode: copyPicker.mode } : {})}
-							/>
-						) : null}
-						{scrollOpen && permission === null && scheduleReviewPrompt === null ? (
-							<TranscriptScrollView
-								messages={finalized}
-								pending={messages.find((m) => m.pending) ?? null}
-								pendingAt={pendingAt}
-								height={Math.max(3, terminal.rows - SCROLL_VIEW_RESERVED_ROWS)}
-								columns={Math.max(4, terminal.columns - SCREEN_MARGIN)}
-								onClose={() => setScrollOpen(false)}
-							/>
-						) : null}
-						{viewingAgent &&
-						agentSurface?.kind === 'transcript' &&
-						permission === null &&
-						choicePicker === null ? (
-							<AgentView
-								agent={viewingAgent}
-								tailOffset={agentSurface.tailOffset}
-								pageRows={viewPageRows}
-								terminalColumns={Math.max(1, terminal.columns - SCREEN_MARGIN)}
-								notice={viewNotice}
-							/>
-						) : null}
-						<ComposerFrame
-							above={
-								<UpdateNoticeRow
-									notice={updateNotice}
-									columns={Math.max(2, (terminal.columns ?? 80) - SCREEN_MARGIN)}
-									critical={noticeIsCritical}
-								/>
-							}
-							columns={Math.max(2, (terminal.columns ?? 80) - SCREEN_MARGIN)}
-							working={state === 'thinking' || state === 'tool' || visibleActiveTools.length > 0}
-							{...(hypermode ? { mode: HYPERMODE } : {})}
-							activation={hypermodeActivation}
-							animate={externalEditorRequest === null}
-							focus={
-								phase === 'ready' &&
-								state !== 'awaiting-permission' &&
-								!compacting &&
-								externalEditorRequest === null &&
-								conversationMutation === null &&
-								textPrompt === null &&
-								choicePicker === null &&
-								copyPicker === null &&
-								saveSkillPrompt === null &&
-								planPrompt === null &&
-								questionDialog === null &&
-								scheduleReviewPrompt === null &&
-								!scrollOpen &&
-								!childSurfaceOpen
-							}
-							hidden={
-								permission !== null ||
-								saveSkillPrompt !== null ||
-								planPrompt !== null ||
-								questionDialog !== null ||
-								scheduleReviewPrompt !== null ||
-								textPrompt !== null ||
-								choicePicker !== null ||
-								copyPicker !== null ||
-								childSurfaceOpen
-							}
-						>
-							<Composer
-								attachmentFloor={attachmentFloor}
-								{...(viewingAgent
-									? {
-											placeholder: `Message @${[...viewingAgent.agentId].slice(0, 20).join('')}…`,
-										}
-									: examplePrompts &&
-											history.length === 0 &&
-											!messages.some((message) => message.role === 'user')
+							{permission && !transcriptScreen ? (
+								<PermissionOverlay
+									toolCalls={permission.toolCalls}
+									review={permission.review}
+									summary={permission.summary}
+									detailsOpen={permissionDetailsOpen}
+									reviewOffset={permissionReviewOffset}
+									choice={permissionChoice}
+									{...(permissionCount ? { count: permissionCount } : {})}
+									{...(permissionSourceLabel ? { from: permissionSourceLabel } : {})}
+									{...(permissionReason !== null ? { reason: permissionReason } : {})}
+									endsTurn={endsTurnOnNo(permission)}
+									{...(fullscreen?.regions ? { onChoose: clickPermissionAnswer } : {})}
+									columns={terminal.columns}
+									rows={terminal.rows}
+									batchOnly={permission.batchOnly === true}
+									mode={permissionMode}
+									{...(session?.allowForSession && session.commandArguments
 										? {
-												placeholder: examplePlaceholder(exampleFile, exampleSeedRef.current),
+												commandArguments: session.commandArguments,
+												rememberWhere: displayPath(ctx.cwd, 28),
 											}
 										: {})}
-								mayReadImage={imageReadPolicy}
-								reasoningEffortLevels={session?.reasoningEffortLevels}
-								onCycleMode={cyclePermissionMode}
-								disabled={
-									transcriptScreen ||
-									fullscreenSearching ||
-									scrollOpen ||
-									jobSurface !== null ||
-									phase !== 'ready' ||
-									state === 'awaiting-permission' ||
-									compacting ||
-									conversationMutation !== null ||
-									externalEditorRequest !== null ||
-									railFocus !== null ||
-									childSurfaceOpen
+									siteNotes={permission.siteNotes}
+									withheld={permission.withheld}
+									{...(permission.screenConsent === true
+										? {
+												screenConsent: {
+													provider: session?.providerSummary ?? null,
+												},
+											}
+										: {})}
+								/>
+							) : null}
+							{saveSkillPrompt &&
+							permission === null &&
+							scheduleReviewPrompt === null &&
+							!transcriptScreen ? (
+								<SaveSkillOverlay
+									key={saveSkillPrompt.request.markdown}
+									request={saveSkillPrompt.request}
+									cwd={ctx.cwd}
+									columns={Math.max(1, (terminal.columns ?? 80) - SCREEN_MARGIN)}
+									rows={terminal.rows}
+									onAnswer={saveSkillPrompt.resolve}
+								/>
+							) : null}
+							{planPrompt &&
+							permission === null &&
+							scheduleReviewPrompt === null &&
+							!transcriptScreen ? (
+								<PlanApprovalOverlay
+									key={planPrompt.request.plan}
+									request={planPrompt.request}
+									columns={Math.max(1, (terminal.columns ?? 80) - SCREEN_MARGIN)}
+									rows={terminal.rows}
+									onAnswer={planPrompt.resolve}
+									onInterrupt={interruptTurn}
+								/>
+							) : null}
+							{questionDialog &&
+							permission === null &&
+							scheduleReviewPrompt === null &&
+							!transcriptScreen ? (
+								<QuestionDialog
+									key={questionDialog.token}
+									question={questionDialog.question}
+									columns={Math.max(1, (terminal.columns ?? 80) - SCREEN_MARGIN)}
+									onAnswer={finishQuestionDialog}
+								/>
+							) : null}
+							{scheduleReviewPrompt && permission === null && !transcriptScreen ? (
+								<ScheduleReviewOverlay
+									key={scheduleReviewPrompt.token}
+									request={scheduleReviewPrompt.request}
+									columns={Math.max(1, (terminal.columns ?? 80) - SCREEN_MARGIN)}
+									rows={Math.max(1, (terminal.rows ?? 24) - 2)}
+									onAnswer={scheduleReviewPrompt.resolve}
+								/>
+							) : null}
+							{textPrompt ? (
+								<TextPrompt
+									columns={Math.max(1, (terminal.columns ?? 80) - SCREEN_MARGIN)}
+									key={textPrompt.token}
+									title={textPrompt.title}
+									placeholder={textPrompt.placeholder}
+									initialValue={textPrompt.initialValue}
+									emptyNotice={textPrompt.emptyNotice}
+									mask={textPrompt.mask === true}
+									allowEmpty={textPrompt.allowEmpty === true}
+									hidden={permission !== null || scheduleReviewPrompt !== null || childSurfaceOpen}
+									onSubmit={submitTextPrompt}
+									onCancel={cancelTextPrompt}
+								/>
+							) : permission === null &&
+								scheduleReviewPrompt === null &&
+								!childSurfaceOpen &&
+								choicePicker?.kind === 'reasoning-effort' &&
+								effortSlider ? (
+								<EffortSlider
+									title={choicePicker.title}
+									notice={choicePicker.notice}
+									options={choicePicker.options}
+									selected={selectedChoice}
+									layout={effortSlider}
+									columns={Math.max(1, (terminal.columns ?? 80) - SCREEN_MARGIN)}
+								/>
+							) : permission === null &&
+								scheduleReviewPrompt === null &&
+								!childSurfaceOpen &&
+								choicePicker ? (
+								<ChoicePicker
+									busy={'busy' in choicePicker && choicePicker.busy === true}
+									columns={Math.max(1, (terminal.columns ?? 80) - SCREEN_MARGIN)}
+									title={choicePicker.title}
+									notice={choicePicker.notice}
+									{...(choicePicker.kind === 'workflow-runs'
+										? {
+												subtitle: choicePicker.subtitle,
+												hints: workflowRunsHints(workflowPickerCanStop, workflowPickerCanResume),
+											}
+										: {})}
+									{...(choicePicker.kind === 'account' ? { hints: ACCOUNT_PICKER_HINTS } : {})}
+									options={filterChoiceOptions(choicePicker.options, choiceQuery)}
+									query={choicePickerSearchable(choicePicker) ? choiceQuery : undefined}
+									selected={selectedChoice}
+									windowSize={
+										choicePicker.kind === 'command' || choicePicker.kind === 'theme'
+											? choicePicker.windowSize
+											: undefined
+									}
+									{...(choicePicker.kind === 'theme' && terminal.rows >= 26
+										? {
+												extra: <ThemeSample width={Math.max(10, (terminal.columns ?? 80) - 6)} />,
+											}
+										: {})}
+								/>
+							) : permission === null &&
+								scheduleReviewPrompt === null &&
+								!childSurfaceOpen &&
+								copyPicker ? (
+								<CopyPicker
+									targets={copyPicker.targets}
+									selected={selectedCopy}
+									{...(copyPicker.mode ? { mode: copyPicker.mode } : {})}
+								/>
+							) : null}
+							{scrollOpen && permission === null && scheduleReviewPrompt === null ? (
+								<TranscriptScrollView
+									messages={finalized}
+									pending={messages.find((m) => m.pending) ?? null}
+									pendingAt={pendingAt}
+									height={Math.max(3, terminal.rows - SCROLL_VIEW_RESERVED_ROWS)}
+									columns={Math.max(4, terminal.columns - SCREEN_MARGIN)}
+									onClose={() => setScrollOpen(false)}
+								/>
+							) : null}
+							{viewingAgent &&
+							agentSurface?.kind === 'transcript' &&
+							permission === null &&
+							choicePicker === null ? (
+								<AgentView
+									agent={viewingAgent}
+									tailOffset={agentSurface.tailOffset}
+									pageRows={viewPageRows}
+									terminalColumns={Math.max(1, terminal.columns - SCREEN_MARGIN)}
+									notice={viewNotice}
+								/>
+							) : null}
+							<ComposerFrame
+								above={
+									<UpdateNoticeRow
+										notice={updateNotice}
+										columns={Math.max(2, (terminal.columns ?? 80) - SCREEN_MARGIN)}
+										critical={noticeIsCritical}
+									/>
+								}
+								columns={Math.max(2, (terminal.columns ?? 80) - SCREEN_MARGIN)}
+								working={state === 'thinking' || state === 'tool' || visibleActiveTools.length > 0}
+								{...(hypermode ? { mode: HYPERMODE } : {})}
+								activation={hypermodeActivation}
+								animate={externalEditorRequest === null}
+								focus={
+									phase === 'ready' &&
+									state !== 'awaiting-permission' &&
+									!compacting &&
+									externalEditorRequest === null &&
+									conversationMutation === null &&
+									textPrompt === null &&
+									choicePicker === null &&
+									copyPicker === null &&
+									saveSkillPrompt === null &&
+									planPrompt === null &&
+									questionDialog === null &&
+									scheduleReviewPrompt === null &&
+									!scrollOpen &&
+									!childSurfaceOpen
 								}
 								hidden={
 									permission !== null ||
@@ -17942,250 +17935,292 @@ function AppBody({
 									copyPicker !== null ||
 									childSurfaceOpen
 								}
-								// A turn is running, so Esc is the interrupt and not
-								// the composer's clear.
-								escapeInterrupts={
-									(!compacting &&
-										(state === 'thinking' ||
-											state === 'tool' ||
-											pendingModelSwitchRef.current !== null)) ||
-									(handoffPark !== null && state === 'idle')
-								}
-								onSubmit={handleSubmit}
-								onNotice={(text) => pushMessage('system', text)}
-								onFooterNotice={notices.add}
-								onFooterNoticeRemove={notices.remove}
-								onClearedDraft={(text) => setHistory((prev) => [...prev, text])}
-								onStepReasoningEffort={stepReasoningEffort}
-								onExternalEdit={requestExternalEditor}
-								onToggleThinking={toggleThinking}
-								onEditPrevious={openPromptEditor}
-								draftToRestore={composerDraft}
-								onDraftRestored={(token) =>
-									setComposerDraft((draft) => (draft?.token === token ? null : draft))
-								}
-								onDraftPresenceChange={setComposerHasDraft}
-								onHistorySearchChange={setComposerSearching}
-								onOpenAgentPanel={focusAgentRail}
-								onOpenAgents={() => void openAgentCockpit()}
-								onOpenWorkspaces={
-									onOpenWorkspaces
-										? () =>
-												void onOpenWorkspaces().then((opened) => {
-													if (!opened) void openAgentCockpit()
-												})
-										: undefined
-								}
-								onScrollTranscript={() =>
-									fullscreenControl.current
-										? fullscreenControl.current.scroll('page-up')
-										: setScrollOpen(true)
-								}
-								onRecallQueued={recallQueuedPrompt}
-								queuedHintCount={queuedHintCount}
-								queuedEdit={{
-									available: queued.some(isRecallableHumanPrompt),
-									selected: queueSelection !== null,
-									onMove: moveQueueSelection,
-									onLoad: loadSelectedQueued,
-									onLeave: () => setQueueSelection(null),
-								}}
-								onSendNow={sendPendingNow}
-								onBackgroundCommand={backgroundRunningCommand}
-								onStopAllAgents={requestStopAllAgents}
-								railFocused={railFocus !== null}
-								userCommands={userCommands}
-								builtins={hostCommands.map((command) => ({
-									...command,
-									description: command.unavailable?.(slashCtx) ?? command.description,
-								}))}
-								mentionCandidates={mentionCandidates}
-								mentionExtras={mentionSources.extras}
-								history={history}
-								{...(composerTriggers ? { triggers: composerTriggers } : {})}
-								turnActive={!compacting && (state === 'thinking' || state === 'tool')}
-							/>
-						</ComposerFrame>
-					</>
-				)}
-				{/* Directly below the message frame's bottom border (or, when that
+							>
+								<Composer
+									attachmentFloor={attachmentFloor}
+									{...(viewingAgent
+										? {
+												placeholder: `Message @${[...viewingAgent.agentId].slice(0, 20).join('')}…`,
+											}
+										: examplePrompts &&
+												history.length === 0 &&
+												!messages.some((message) => message.role === 'user')
+											? {
+													placeholder: examplePlaceholder(exampleFile, exampleSeedRef.current),
+												}
+											: {})}
+									mayReadImage={imageReadPolicy}
+									reasoningEffortLevels={session?.reasoningEffortLevels}
+									onCycleMode={cyclePermissionMode}
+									disabled={
+										transcriptScreen ||
+										fullscreenSearching ||
+										scrollOpen ||
+										jobSurface !== null ||
+										phase !== 'ready' ||
+										state === 'awaiting-permission' ||
+										compacting ||
+										conversationMutation !== null ||
+										externalEditorRequest !== null ||
+										railFocus !== null ||
+										childSurfaceOpen
+									}
+									hidden={
+										permission !== null ||
+										saveSkillPrompt !== null ||
+										planPrompt !== null ||
+										questionDialog !== null ||
+										scheduleReviewPrompt !== null ||
+										textPrompt !== null ||
+										choicePicker !== null ||
+										copyPicker !== null ||
+										childSurfaceOpen
+									}
+									// A turn is running, so Esc is the interrupt and not
+									// the composer's clear.
+									escapeInterrupts={
+										(!compacting &&
+											(state === 'thinking' ||
+												state === 'tool' ||
+												pendingModelSwitchRef.current !== null)) ||
+										(handoffPark !== null && state === 'idle')
+									}
+									onSubmit={handleSubmit}
+									onNotice={(text) => pushMessage('system', text)}
+									onFooterNotice={notices.add}
+									onFooterNoticeRemove={notices.remove}
+									onClearedDraft={(text) => setHistory((prev) => [...prev, text])}
+									onStepReasoningEffort={stepReasoningEffort}
+									onExternalEdit={requestExternalEditor}
+									onToggleThinking={toggleThinking}
+									onEditPrevious={openPromptEditor}
+									draftToRestore={composerDraft}
+									onDraftRestored={(token) =>
+										setComposerDraft((draft) => (draft?.token === token ? null : draft))
+									}
+									onDraftPresenceChange={setComposerHasDraft}
+									onHistorySearchChange={setComposerSearching}
+									onOpenAgentPanel={focusAgentRail}
+									onOpenAgents={() => void openAgentCockpit()}
+									onOpenWorkspaces={
+										onOpenWorkspaces
+											? () =>
+													void onOpenWorkspaces().then((opened) => {
+														if (!opened) void openAgentCockpit()
+													})
+											: undefined
+									}
+									onScrollTranscript={() =>
+										fullscreenControl.current
+											? fullscreenControl.current.scroll('page-up')
+											: setScrollOpen(true)
+									}
+									onRecallQueued={recallQueuedPrompt}
+									queuedHintCount={queuedHintCount}
+									queuedEdit={{
+										available: queued.some(isRecallableHumanPrompt),
+										selected: queueSelection !== null,
+										onMove: moveQueueSelection,
+										onLoad: loadSelectedQueued,
+										onLeave: () => setQueueSelection(null),
+									}}
+									onSendNow={sendPendingNow}
+									onBackgroundCommand={backgroundRunningCommand}
+									onStopAllAgents={requestStopAllAgents}
+									railFocused={railFocus !== null}
+									userCommands={userCommands}
+									builtins={hostCommands.map((command) => ({
+										...command,
+										description: command.unavailable?.(slashCtx) ?? command.description,
+									}))}
+									mentionCandidates={mentionCandidates}
+									mentionExtras={mentionSources.extras}
+									history={history}
+									{...(composerTriggers ? { triggers: composerTriggers } : {})}
+									turnActive={!compacting && (state === 'thinking' || state === 'tool')}
+								/>
+							</ComposerFrame>
+						</>
+					)}
+					{/* Directly below the message frame's bottom border (or, when that
 				    frame is hidden by a full-screen surface below, directly below
 				    where it would be) — see docs/cli/terminal-design.md#the-composer-footer.
 				    Every panel that can follow (the agent rail, the cockpit, a child
 				    transcript, the detailed transcript) renders after this line, not
 				    before it. */}
-				{/* The trust screen already names the folder and its own keys; a footer
+					{/* The trust screen already names the folder and its own keys; a footer
 				    under it would print the same path and advertise a cycle key that
 				    does nothing before the folder is trusted. */}
-				{phase === 'trust' ||
-				transcriptScreen ||
-				!showComposerSurface ||
-				statusLineText === undefined ? null : (
-					<StatusLineRows text={statusLineText} padding={ctx.statusLine?.padding ?? 0} />
-				)}
-				{/* The detailed transcript carries its own key line; the mode footer above
+					{phase === 'trust' ||
+					transcriptScreen ||
+					!showComposerSurface ||
+					statusLineText === undefined ? null : (
+						<StatusLineRows text={statusLineText} padding={ctx.statusLine?.padding ?? 0} />
+					)}
+					{/* The detailed transcript carries its own key line; the mode footer above
 				    its box was a stale row from the composer it replaced. */}
-				{/* The workflow detail (the cockpit) carries its own key line as well. */}
-				{phase === 'trust' ||
-				transcriptScreen ||
-				agentSurface?.kind === 'cockpit' ||
-				(dialogShowing && !exitHint && !noticeIsImmediate) ? null : (
-					<StatusBar
-						provider={session?.providerSummary ?? null}
-						model={withAccountLabel(
-							autoActive && ctx.routing && !palDefinitionRef.current
-								? autoModelLabel(session?.autoRoute)
-								: (session?.modelSummary ?? null),
-							session?.providerSummary ?? null,
-							session?.account?.label,
-						)}
-						effort={reasoningEffort}
-						fast={fastMode}
-						goal={statusGoal}
-						state={state}
-						hint={statusHint}
-						hintDim={exitHint !== null}
-						notice={
-							currentNotice && (noticeIsImmediate || !boxOwnsKeys)
-								? {
-										text: currentNotice.text,
-										...(currentNotice.tone ? { tone: currentNotice.tone } : {}),
-									}
-								: null
-						}
-						dialogOpen={boxOwnsKeys}
-						permissionMode={displayedPermissionMode}
-						canCycleMode
-						sandboxShell={sandboxShell}
-						composerMounted={showComposerSurface}
-						restingHint={ctx.statusLine === undefined}
-						shellCount={showComposerSurface && !childSurfaceOpen ? runningShellCount : 0}
-						monitorCount={showComposerSurface && !childSurfaceOpen ? runningMonitorCount : 0}
-						pr={prStatus}
-						hyperlinks={hyperlinks}
-						// With a workspaces screen to open, `←` no longer opens the agents; `↓` still does.
-						agentCount={footerKeysLive && !onOpenWorkspaces ? runningAgentCount : 0}
-						workflowCount={footerKeysLive && !onOpenWorkspaces ? runningWorkflowCount : 0}
-						canManage={
-							footerKeysLive && railFocus === null && (runningShellCount > 0 || railHasRows)
-						}
-						shellsSelected={railFocus === SHELLS_FOCUS}
-						{...(tasks.length > 0 && showComposerSurface && !childSurfaceOpen
-							? { tasksOpen: checklistOpen }
-							: {})}
-						{...(railHintText !== undefined ? { railHint: railHintText } : {})}
-					/>
-				)}
-				{/* The parent's commentary, between the footer line and the rail:
+					{/* The workflow detail (the cockpit) carries its own key line as well. */}
+					{phase === 'trust' ||
+					transcriptScreen ||
+					agentSurface?.kind === 'cockpit' ||
+					(dialogShowing && !exitHint && !noticeIsImmediate) ? null : (
+						<StatusBar
+							provider={session?.providerSummary ?? null}
+							model={withAccountLabel(
+								autoActive && ctx.routing && !palDefinitionRef.current
+									? autoModelLabel(session?.autoRoute)
+									: (session?.modelSummary ?? null),
+								session?.providerSummary ?? null,
+								session?.account?.label,
+							)}
+							effort={reasoningEffort}
+							fast={fastMode}
+							goal={statusGoal}
+							state={state}
+							hint={statusHint}
+							hintDim={exitHint !== null}
+							notice={
+								currentNotice && (noticeIsImmediate || !boxOwnsKeys)
+									? {
+											text: currentNotice.text,
+											...(currentNotice.tone ? { tone: currentNotice.tone } : {}),
+										}
+									: null
+							}
+							dialogOpen={boxOwnsKeys}
+							permissionMode={displayedPermissionMode}
+							canCycleMode
+							sandboxShell={sandboxShell}
+							composerMounted={showComposerSurface}
+							restingHint={ctx.statusLine === undefined}
+							shellCount={showComposerSurface && !childSurfaceOpen ? runningShellCount : 0}
+							monitorCount={showComposerSurface && !childSurfaceOpen ? runningMonitorCount : 0}
+							pr={prStatus}
+							hyperlinks={hyperlinks}
+							// With a workspaces screen to open, `←` no longer opens the agents; `↓` still does.
+							agentCount={footerKeysLive && !onOpenWorkspaces ? runningAgentCount : 0}
+							workflowCount={footerKeysLive && !onOpenWorkspaces ? runningWorkflowCount : 0}
+							canManage={
+								footerKeysLive && railFocus === null && (runningShellCount > 0 || railHasRows)
+							}
+							shellsSelected={railFocus === SHELLS_FOCUS}
+							{...(tasks.length > 0 && showComposerSurface && !childSurfaceOpen
+								? { tasksOpen: checklistOpen }
+								: {})}
+							{...(railHintText !== undefined ? { railHint: railHintText } : {})}
+						/>
+					)}
+					{/* The parent's commentary, between the footer line and the rail:
 				    below the footer like every other panel, and above the rail's
 				    border so it reads as the turn talking rather than as chrome the
 				    panel drew. Not conditioned on the rail having rows — between two
 				    phases there are none, and that is exactly when a line saying what
 				    comes next is worth the row. It draws nothing when there is no
 				    commentary. */}
-				{showComposerSurface &&
-				permission === null &&
-				agentSurface === null &&
-				!transcriptScreen &&
-				!scrollOpen &&
-				jobSurface === null &&
-				scheduleReviewPrompt === null ? (
-					<AgentNarrationBand lines={narration} />
-				) : null}
-				{showComposerSurface &&
-				(agentSurface === null || viewingAgent !== undefined) &&
-				!transcriptScreen &&
-				!scrollOpen &&
-				jobSurface === null &&
-				scheduleReviewPrompt === null &&
-				(liveSubagents.length > 0 || liveWorkflows.length > 0 || viewingAgent !== undefined) ? (
-					// The active agents remain in memory while the schedule review
-					// owns the available rows; the panel returns after the decision.
-					<AgentTaskPanel
-						agents={liveSubagents}
-						workflows={liveWorkflows}
-						terminalRows={terminal.rows}
-						terminalColumns={terminal.columns}
-						compact={permission !== null}
-						viewingId={viewingAgent?.viewId ?? null}
-						{...(railFocus !== null && railFocus !== SHELLS_FOCUS
-							? {
-									selectedIndex:
-										railFocus === 'main'
-											? 0
-											: railFocus.startsWith('workflow:')
-												? liveSubagents.length +
-													(railShowsMain(liveSubagents.length, viewingAgent?.viewId) ? 1 : 0) +
-													Math.max(
-														0,
-														liveWorkflows.findIndex((flow) => flow.focusId === railFocus),
-													)
-												: liveSubagents.findIndex((agent) => agent.viewId === railFocus) +
-													(railShowsMain(liveSubagents.length, viewingAgent?.viewId) ? 1 : 0),
-								}
-							: {})}
-					/>
-				) : showComposerSurface &&
+					{showComposerSurface &&
 					permission === null &&
+					agentSurface === null &&
+					!transcriptScreen &&
+					!scrollOpen &&
+					jobSurface === null &&
+					scheduleReviewPrompt === null ? (
+						<AgentNarrationBand lines={narration} />
+					) : null}
+					{showComposerSurface &&
+					(agentSurface === null || viewingAgent !== undefined) &&
+					!transcriptScreen &&
+					!scrollOpen &&
+					jobSurface === null &&
 					scheduleReviewPrompt === null &&
-					agentSurface?.kind === 'cockpit' ? (
-					<AgentCockpit
-						agents={subagents}
-						runs={workflowRuns}
-						selectedPhaseId={agentSurface.selectedPhaseId}
-						selectedId={agentSurface.selectedId}
-						focus={agentSurface.focus}
-						terminalRows={terminal.rows}
-						terminalColumns={terminal.columns}
-					/>
-				) : showComposerSurface &&
-					permission === null &&
-					scheduleReviewPrompt === null &&
-					agentSurface?.kind === 'transcript' &&
-					selectedSubagent &&
-					viewingAgent === undefined ? (
-					<AgentTranscript
-						agent={selectedSubagent}
-						tailOffset={agentSurface.tailOffset}
-						terminalRows={terminal.rows}
-						terminalColumns={terminal.columns}
-						escapeTo={agentSurface.fromRail ? 'back' : 'agents'}
-					/>
-				) : null}
-				{transcriptScreen ? (
-					<TranscriptScreen
-						messages={finalized}
-						pending={messages.find((m) => m.pending) ?? null}
-						pendingAt={pendingAt}
-						rows={terminal.rows}
-						columns={terminal.columns}
-						hyperlinks={hyperlinks}
-						dialogWaiting={
-							permission !== null ||
-							saveSkillPrompt !== null ||
-							planPrompt !== null ||
-							questionDialog !== null ||
-							scheduleReviewPrompt !== null
-						}
-						onClose={() => setTranscriptScreen(false)}
-					/>
-				) : null}
-				{jobSurface && permission === null && scheduleReviewPrompt === null ? (
-					<BackgroundJobsPanel
-						entries={backgroundRows(backgroundJobs, subagents)}
-						selectedKey={jobSurface.selectedKey}
-						detailKey={jobSurface.detailKey}
-						tailOffset={jobSurface.tailOffset}
-						readJob={(id) => session?.readJob?.(id)}
-						rows={terminal.rows}
-						columns={Math.max(1, terminal.columns - SCREEN_MARGIN)}
-						now={jobClock}
-						busyJobId={jobSurface.busyJobId}
-						notice={jobSurface.notice}
-					/>
-				) : null}
-			</Box>
-		</ViewportBound>
+					(liveSubagents.length > 0 || liveWorkflows.length > 0 || viewingAgent !== undefined) ? (
+						// The active agents remain in memory while the schedule review
+						// owns the available rows; the panel returns after the decision.
+						<AgentTaskPanel
+							agents={liveSubagents}
+							workflows={liveWorkflows}
+							terminalRows={terminal.rows}
+							terminalColumns={terminal.columns}
+							compact={permission !== null}
+							viewingId={viewingAgent?.viewId ?? null}
+							{...(railFocus !== null && railFocus !== SHELLS_FOCUS
+								? {
+										selectedIndex:
+											railFocus === 'main'
+												? 0
+												: railFocus.startsWith('workflow:')
+													? liveSubagents.length +
+														(railShowsMain(liveSubagents.length, viewingAgent?.viewId) ? 1 : 0) +
+														Math.max(
+															0,
+															liveWorkflows.findIndex((flow) => flow.focusId === railFocus),
+														)
+													: liveSubagents.findIndex((agent) => agent.viewId === railFocus) +
+														(railShowsMain(liveSubagents.length, viewingAgent?.viewId) ? 1 : 0),
+									}
+								: {})}
+						/>
+					) : showComposerSurface &&
+						permission === null &&
+						scheduleReviewPrompt === null &&
+						agentSurface?.kind === 'cockpit' ? (
+						<AgentCockpit
+							agents={subagents}
+							runs={workflowRuns}
+							selectedPhaseId={agentSurface.selectedPhaseId}
+							selectedId={agentSurface.selectedId}
+							focus={agentSurface.focus}
+							terminalRows={terminal.rows}
+							terminalColumns={terminal.columns}
+						/>
+					) : showComposerSurface &&
+						permission === null &&
+						scheduleReviewPrompt === null &&
+						agentSurface?.kind === 'transcript' &&
+						selectedSubagent &&
+						viewingAgent === undefined ? (
+						<AgentTranscript
+							agent={selectedSubagent}
+							tailOffset={agentSurface.tailOffset}
+							terminalRows={terminal.rows}
+							terminalColumns={terminal.columns}
+							escapeTo={agentSurface.fromRail ? 'back' : 'agents'}
+						/>
+					) : null}
+					{transcriptScreen ? (
+						<TranscriptScreen
+							messages={finalized}
+							pending={messages.find((m) => m.pending) ?? null}
+							pendingAt={pendingAt}
+							rows={terminal.rows}
+							columns={terminal.columns}
+							hyperlinks={hyperlinks}
+							dialogWaiting={
+								permission !== null ||
+								saveSkillPrompt !== null ||
+								planPrompt !== null ||
+								questionDialog !== null ||
+								scheduleReviewPrompt !== null
+							}
+							onClose={() => setTranscriptScreen(false)}
+						/>
+					) : null}
+					{jobSurface && permission === null && scheduleReviewPrompt === null ? (
+						<BackgroundJobsPanel
+							entries={backgroundRows(backgroundJobs, subagents)}
+							selectedKey={jobSurface.selectedKey}
+							detailKey={jobSurface.detailKey}
+							tailOffset={jobSurface.tailOffset}
+							readJob={(id) => session?.readJob?.(id)}
+							rows={terminal.rows}
+							columns={Math.max(1, terminal.columns - SCREEN_MARGIN)}
+							now={jobClock}
+							busyJobId={jobSurface.busyJobId}
+							notice={jobSurface.notice}
+						/>
+					) : null}
+				</Box>
+			</ViewportBound>
+		</PointerRegionsContext.Provider>
 	)
 }
 

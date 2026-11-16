@@ -14,7 +14,8 @@
 
 import { basename } from 'node:path'
 
-import { Box, Text } from 'ink'
+import { Box, type DOMElement, Text } from 'ink'
+import { useRef } from 'react'
 import stringWidth from 'string-width'
 
 import { ACCEPT_EDITS_TOOLS, type PermissionMode } from '../permissions/mode.js'
@@ -29,6 +30,7 @@ import {
 	reviewPageRows,
 	withheldNotice,
 } from './permission-review.js'
+import { usePointerRegion } from './pointer/context.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 
@@ -91,6 +93,58 @@ export interface PermissionOverlayProps {
 	readonly withheld?: readonly WithheldCall[]
 	/** A plain No ends the turn (the person's own conversation, asked one call at a time). */
 	readonly endsTurn?: boolean
+	/**
+	 * A click on an answer row: the index of the row, answered as the digit on it would be. Absent
+	 * where the pointer is not reported, and the rows are then not clickable.
+	 */
+	readonly onChoose?: (index: number) => void
+}
+
+/**
+ * One answer row. Where the pointer is reported a click on it chooses it, and while the pointer
+ * is over it the row is lit like the one the cursor is on, without moving the cursor.
+ */
+function AnswerRow({
+	marker,
+	label,
+	selected,
+	onChoose,
+}: {
+	readonly marker: string
+	readonly label: string
+	readonly selected: boolean
+	readonly onChoose?: () => void
+}) {
+	const ref = useRef<DOMElement>(null)
+	const hovered = usePointerRegion(ref, {
+		...(onChoose ? { onClick: () => onChoose() } : {}),
+		enabled: onChoose !== undefined,
+	})
+	const lit = selected || hovered
+	// The pointer is shown by a mark of its own as well as the colour, so a terminal without colour
+	// still shows which row a click would choose.
+	const shown = hovered && !selected ? `› ${marker.slice(2)}` : marker
+	// The marker and the label sit in two columns, so a label that wraps
+	// keeps its indent under its own first word.
+	return (
+		<Box ref={ref} flexDirection="row">
+			<Box flexShrink={0} width={marker.length}>
+				<Text color={lit ? theme.accent.user : theme.text.secondary} bold={hovered && !selected}>
+					{shown}
+				</Text>
+			</Box>
+			<Box flexGrow={1} flexShrink={1} minWidth={0}>
+				<Text
+					color={lit ? theme.accent.user : theme.text.secondary}
+					bold={hovered && !selected}
+					underline={hovered && !selected}
+					wrap="wrap"
+				>
+					{label}
+				</Text>
+			</Box>
+		</Box>
+	)
 }
 
 /** What the box says when the question is whether to share the screen. */
@@ -469,6 +523,7 @@ export function PermissionOverlay({
 	screenConsent,
 	withheld = [],
 	endsTurn = false,
+	onChoose,
 }: PermissionOverlayProps) {
 	const single = toolCalls.length === 1
 	const compact = !detailsOpen && summary.compactText !== undefined
@@ -625,19 +680,14 @@ export function PermissionOverlay({
 					{choices.map((label, index) => {
 						const selected = index === choice
 						const marker = `${selected ? '❯ ' : '  '}${index + 1}. `
-						// The marker and the label sit in two columns, so a label that wraps
-						// keeps its indent under its own first word.
 						return (
-							<Box key={label} flexDirection="row">
-								<Box flexShrink={0} width={marker.length}>
-									<Text color={selected ? theme.accent.user : theme.text.secondary}>{marker}</Text>
-								</Box>
-								<Box flexGrow={1} flexShrink={1} minWidth={0}>
-									<Text color={selected ? theme.accent.user : theme.text.secondary} wrap="wrap">
-										{label}
-									</Text>
-								</Box>
-							</Box>
+							<AnswerRow
+								key={label}
+								marker={marker}
+								label={label}
+								selected={selected}
+								{...(onChoose ? { onChoose: () => onChoose(index) } : {})}
+							/>
 						)
 					})}
 				</Box>
@@ -674,6 +724,7 @@ export function PermissionOverlay({
 										rank: scriptView ? 4 : 5,
 									},
 									{ text: 'esc cancel', rank: 5 },
+									...(onChoose ? [{ text: 'click an answer', short: 'click', rank: 2 }] : []),
 									...(offersEdits ? [{ text: 'shift+tab accept edits', rank: 3 }] : []),
 									{
 										text: 'ctrl+c stop',

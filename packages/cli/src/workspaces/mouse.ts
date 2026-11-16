@@ -34,9 +34,12 @@ export function resolveMouseMode(
 	return setting ?? 'full'
 }
 
-/** The sequence that switches the pointer reporting of `mode` on; nothing for `off`. */
-export function mouseOn(mode: MouseMode): string {
-	if (mode === 'full') return `${CSI}?1000h${CSI}?1002h${CSI}?1006h`
+/**
+ * The sequence that switches the pointer reporting of `mode` on; nothing for `off`. With `hover`,
+ * `full` also asks for motion with no button down (1003), which is what hover needs.
+ */
+export function mouseOn(mode: MouseMode, hover = false): string {
+	if (mode === 'full') return `${CSI}?1000h${CSI}?1002h${hover ? `${CSI}?1003h` : ''}${CSI}?1006h`
 	if (mode === 'scroll') return `${CSI}?1000h${CSI}?1006h`
 	return ''
 }
