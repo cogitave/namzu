@@ -118,3 +118,24 @@ it('keeps the engine counts of a preview and drops ones that are not whole numbe
 	expect(bad).not.toHaveProperty('added')
 	expect(bad).not.toHaveProperty('removed')
 })
+
+it('keeps every application a computer batch names, and drops a list of one', () => {
+	const calls = readPermissionCalls([
+		{
+			id: 'a',
+			name: 'computer_use',
+			input: {},
+			isDestructive: false,
+			computer: { app: 'Notepad', apps: ['Notepad', 'Edge', 7] },
+		},
+		{
+			id: 'b',
+			name: 'computer_use',
+			input: {},
+			isDestructive: false,
+			computer: { app: 'Notepad', apps: ['Notepad'] },
+		},
+	])
+	expect(calls[0]?.computer).toEqual({ app: 'Notepad', apps: ['Notepad', 'Edge'] })
+	expect(calls[1]?.computer).toEqual({ app: 'Notepad' })
+})

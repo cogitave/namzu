@@ -1423,6 +1423,11 @@ export interface ComputerUseTool extends ToolDefinition<ActionInput> {
 	 */
 	appOf(input: unknown): Promise<string | undefined>
 	/**
+	 * Every application a call works on, in the order it reaches them: a batch
+	 * can act in more than one. Empty when it cannot be told.
+	 */
+	appsOf(input: unknown): Promise<string[]>
+	/**
 	 * Why a call should be put to a person even where its application was
 	 * allowed: it closes, deletes, sends or submits. Undefined for an
 	 * ordinary action. A reading of the call's own words, not of the screen.
@@ -2815,13 +2820,16 @@ export function createComputerUseTool(
 	 * window a window screenshot is bound to, and on a display screenshot the window under the
 	 * click or the one in front, as the newest list this tool read has them.
 	 */
-	const appKnown = (input: unknown): string | undefined => {
+	const appsKnown = (input: unknown): string[] => {
+		const found: string[] = []
+		const add = (app: string | undefined): void => {
+			if (app && !found.includes(app)) found.push(app)
+		}
 		const items = batchActions(input) ?? [input]
 		for (const item of items) {
 			if (!isRecord(item)) continue
 			if (typeof item.window_id === 'string') {
-				const app = knownWindows.find((window) => window.id === item.window_id)?.app
-				if (app) return app
+				add(knownWindows.find((window) => window.id === item.window_id)?.app)
 				continue
 			}
 			const shotId =
@@ -2831,7 +2839,10 @@ export function createComputerUseTool(
 						? input.screenshot_id
 						: undefined
 			const frame = shotId ? frames.get(shotId) : frames.latest()
-			if (frame?.window) return frame.window.window.app
+			if (frame?.window) {
+				add(frame.window.window.app)
+				continue
+			}
 			const listed = knownWindows.filter((window) => !window.minimized)
 			const at = isRecord(item.at) ? item.at : undefined
 			if (frame && at && typeof at.x === 'number' && typeof at.y === 'number') {
@@ -2846,19 +2857,23 @@ export function createComputerUseTool(
 						y < window.bounds.y + window.bounds.height,
 				)
 				const best = hit.find((window) => window.focused) ?? hit[0]
-				if (best) return best.app
+				if (best) {
+					add(best.app)
+					continue
+				}
 			}
-			const front = listed.find((window) => window.focused)
-			if (front) return front.app
+			add(listed.find((window) => window.focused)?.app)
 		}
-		return undefined
+		return found
 	}
+	/** The first application a call works on; see {@link appsKnown} for every one. */
+	const appKnown = (input: unknown): string | undefined => appsKnown(input)[0]
 
 	/**
 	 * The application a call works on, before it runs. It reads the windows afresh when the host can
 	 * list them, so a review screen names the application as it is now.
 	 */
-	const appOf = async (input: unknown): Promise<string | undefined> => {
+	const appsOf = async (input: unknown): Promise<string[]> => {
 		if (typeof host.listWindows === 'function') {
 			try {
 				rememberWindows(await host.listWindows(callSignal))
@@ -2866,8 +2881,9 @@ export function createComputerUseTool(
 				/* The application is a nicety; a host that cannot list windows says nothing. */
 			}
 		}
-		return appKnown(input)
+		return appsKnown(input)
 	}
+	const appOf = async (input: unknown): Promise<string | undefined> => (await appsOf(input))[0]
 
 	/** Why one call must be answered for even in an allowed application; see {@link ComputerUseTool.consequence}. */
 	const consequence = (input: unknown): string | undefined => {
@@ -3041,5 +3057,5 @@ export function createComputerUseTool(
 			return result
 		},
 	})
-	return Object.assign(tool, { describeUiRef, appOf, consequence })
+	return Object.assign(tool, { describeUiRef, appOf, appsOf, consequence })
 }

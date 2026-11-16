@@ -189,7 +189,7 @@ function palMessageTitle(call: Call, palNames?: ReadonlyMap<string, string>): st
 /** What saying yes to an application lets happen, and for how long. */
 export function appAccessNote(apps: readonly string[]): string {
 	const them = apps.join(' and ')
-	return `Allow lets Namzu click, type and press keys in ${them} for the rest of this conversation without asking again. It still asks before it closes, deletes, sends or submits something. You can take it back from the conversation details. Allow once covers this step only.`
+	return `Allow lets Namzu click, type and press keys in ${them} for the rest of this conversation without asking again. It still asks before it closes, deletes, sends or submits something. Access is to the whole application, every window in it. You can take it back from the conversation details. Allow once covers this step only.`
 }
 
 export function buildApprovalCard(

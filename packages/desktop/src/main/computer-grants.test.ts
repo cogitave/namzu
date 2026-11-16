@@ -38,6 +38,15 @@ describe('computer grants', () => {
 		expect(held.decide([act('Notepad'), act('Edge')])).toEqual({ kind: 'ask-app', apps: ['Edge'] })
 	})
 
+	it('does not let a grant for one application cover a batch that also acts in another', () => {
+		const held = grants()
+		held.grant(['Notepad'])
+		const batch = act('Notepad', { computer: { app: 'Notepad', apps: ['Notepad', 'Edge'] } })
+		expect(held.decide([batch])).toEqual({ kind: 'ask-app', apps: ['Edge'] })
+		held.grant(['Edge'])
+		expect(held.decide([batch])).toEqual({ kind: 'allow' })
+	})
+
 	it('keeps the ordinary card for what the agent asks about every time', () => {
 		const held = grants()
 		held.grant(['Notepad'])

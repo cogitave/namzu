@@ -282,30 +282,44 @@ const ASKS_A_QUESTION = {
 	steps: [{ text: "Which file should I open?" }],
 };
 
+const USES_SCREEN_THEN_ASKS = {
+	match: /use the screen and ask/i,
+	steps: [
+		{ tool: "computer_use", args: { type: "screenshot" } },
+		{ text: "Which window should I use?" },
+	],
+};
+
+/** Counts what the main process does to bring a window forward, with another application focused. */
+async function watchRaise(w) {
+	await w.app.evaluate(({ BrowserWindow }) => {
+		globalThis.__raised = [];
+		const moveTop = BrowserWindow.prototype.moveTop;
+		BrowserWindow.prototype.moveTop = function () {
+			globalThis.__raised.push("moveTop");
+			return moveTop.call(this);
+		};
+		const flash = BrowserWindow.prototype.flashFrame;
+		BrowserWindow.prototype.flashFrame = function (value) {
+			globalThis.__raised.push(`flash:${value}`);
+			return flash.call(this, value);
+		};
+		// Another application has the focus.
+		for (const win of BrowserWindow.getAllWindows()) win.blur();
+	});
+	await expect
+		.poll(() => w.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some((win) => win.isFocused())))
+		.toBe(false);
+}
+
 flow(
-	"a window covered by another application is brought forward once when the turn ends on a question",
-	{ rules: [ASKS_A_QUESTION] },
+	"a window covered by an application the agent drove is brought forward once when the turn ends on a question",
+	{ rules: [USES_SCREEN_THEN_ASKS] },
 	async (w) => {
-		await w.app.evaluate(({ BrowserWindow }) => {
-			globalThis.__raised = [];
-			const moveTop = BrowserWindow.prototype.moveTop;
-			BrowserWindow.prototype.moveTop = function () {
-				globalThis.__raised.push("moveTop");
-				return moveTop.call(this);
-			};
-			const flash = BrowserWindow.prototype.flashFrame;
-			BrowserWindow.prototype.flashFrame = function (value) {
-				globalThis.__raised.push(`flash:${value}`);
-				return flash.call(this, value);
-			};
-			// Another application has the focus.
-			for (const win of BrowserWindow.getAllWindows()) win.blur();
-		});
-		await expect
-			.poll(() => w.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some((win) => win.isFocused())))
-			.toBe(false);
-		await send(w, "Please ask me which file");
-		await expect(w.page.getByText("Which file should I open?").first()).toBeVisible({ timeout: T });
+		await watchRaise(w);
+		await send(w, "Please use the screen and ask");
+		await screenCard(w).getByRole("button", { name: "Accept", exact: true }).click({ timeout: T });
+		await expect(w.page.getByText("Which window should I use?").first()).toBeVisible({ timeout: T });
 		await expect
 			.poll(() => w.app.evaluate(() => globalThis.__raised.filter((entry) => entry === "moveTop").length), {
 				timeout: T,
@@ -313,5 +327,19 @@ flow(
 			.toBe(1);
 		const raised = await w.app.evaluate(() => globalThis.__raised);
 		assert.ok(raised.includes("flash:true"), `its taskbar entry flashed: ${raised}`);
+	},
+);
+
+flow(
+	"a question in a turn that never touched the computer leaves the window where it is",
+	{ rules: [ASKS_A_QUESTION, { match: /thanks/i, steps: [{ text: "You are welcome." }] }] },
+	async (w) => {
+		await watchRaise(w);
+		await send(w, "Please ask me which file");
+		await expect(w.page.getByText("Which file should I open?").first()).toBeVisible({ timeout: T });
+		// A second turn finishing means the first one's end was handled; nothing was raised by it.
+		await send(w, "thanks");
+		await expect(w.page.getByText("You are welcome.").first()).toBeVisible({ timeout: T });
+		assert.deepEqual(await w.app.evaluate(() => globalThis.__raised), [], "no window was raised or flashed");
 	},
 );

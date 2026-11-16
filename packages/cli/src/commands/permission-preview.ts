@@ -101,7 +101,7 @@ export async function withPreviews(
 		/** What a host can add about a call it knows more of (the application a computer action works on). */
 		readonly computer?: (
 			call: CallLike,
-		) => Promise<{ app?: string; consequence?: string } | undefined>
+		) => Promise<{ app?: string; apps?: string[]; consequence?: string } | undefined>
 	} = {},
 ) {
 	return Promise.all(

@@ -124,6 +124,21 @@ describe('the application a computer call works on', () => {
 		expect(await tool.appOf({ type: 'focus_window', window_id: '9' })).toBeUndefined()
 	})
 
+	it('lists every application a batch reaches, not only the first', async () => {
+		const tool = createComputerUseTool(makeHost(), { settleMs: 0 })
+		await run(tool, { type: 'screenshot' })
+		const batch = {
+			type: 'batch',
+			actions: [
+				{ type: 'mouse_click', at: { x: 100, y: 100 } },
+				{ type: 'mouse_click', at: { x: 1000, y: 100 } },
+				{ type: 'mouse_click', at: { x: 110, y: 110 } },
+			],
+		}
+		expect(await tool.appsOf(batch)).toEqual(['Notepad', 'Edge'])
+		expect(await tool.appOf(batch)).toBe('Notepad')
+	})
+
 	it('is not guessed when the host cannot list windows', async () => {
 		const host = makeHost()
 		const { listWindows: _gone, ...bare } = host

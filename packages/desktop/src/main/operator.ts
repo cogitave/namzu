@@ -848,6 +848,8 @@ export class Operator {
 	}
 	/** What each conversation has allowed the agent to drive, by conversation. */
 	private readonly computerGrants = new Map<string, ComputerGrants>()
+	/** Conversations whose running turn has driven the computer: only these may raise Namzu over other applications. */
+	private readonly computerTurns = new Set<string>()
 	/** The requests that ask whether to allow applications, by request id. */
 	private readonly appRequests = new Map<string, { sessionId: string; apps: string[] }>()
 	private grantsFor(sessionId: string): ComputerGrants {
@@ -902,8 +904,16 @@ export class Operator {
 			// A reply that ends on a question waits for the person; if Namzu is covered by the
 			// application it was driving, the window comes forward once.
 			const reply = outcome === 'finished' ? lastReplyText(session.projection.messages) : undefined
-			if (reply && !session.view.palId && /[?？]\s*$/.test(reply.trim()))
+			// Only a turn that drove the computer can have been covered by what it drove; any other
+			// question is left to the notice above.
+			if (
+				reply &&
+				!session.view.palId &&
+				this.computerTurns.has(session.view.id) &&
+				/[?？]\s*$/.test(reply.trim())
+			)
 				this.options.needsMainWindow?.('question', session.view.id)
+			this.computerTurns.delete(session.view.id)
 		} catch (error) {
 			this.diagnostics?.record('ipc_failed', { operation: 'notice', error })
 		}
@@ -1787,7 +1797,10 @@ export class Operator {
 					wasWaiting !== session.projection.permissions.length
 				)
 					this.attentionChanged()
-				if (!wasRunning && session.projection.running) this.options.notices?.turnStarted(id)
+				if (!wasRunning && session.projection.running) {
+					this.computerTurns.delete(id)
+					this.options.notices?.turnStarted(id)
+				}
 				if (wasRunning && !session.projection.running) this.noticeTurnEnded(session)
 				if (
 					wasRunning &&
@@ -6016,6 +6029,7 @@ export class Operator {
 					sessionId: session.view.id,
 					frame: { ...seen, sessionId: session.view.id },
 				})
+				this.computerTurns.add(session.view.id)
 				if (seen.app && this.grantsFor(session.view.id).markUsed(seen.app))
 					this.announceComputerApps(session.view.id)
 			}
@@ -6076,9 +6090,10 @@ export class Operator {
 			const decision = this.grantsFor(session.view.id).decide(calls)
 			if (decision.kind === 'allow') {
 				for (const call of calls) {
-					const app = call.computer?.app
-					if (app && this.grantsFor(session.view.id).markUsed(app))
-						this.announceComputerApps(session.view.id)
+					for (const app of call.computer?.apps ?? [call.computer?.app]) {
+						if (app && this.grantsFor(session.view.id).markUsed(app))
+							this.announceComputerApps(session.view.id)
+					}
 				}
 				project.client.answer(frame.id, { outcome: 'approve' })
 				return
@@ -6095,8 +6110,17 @@ export class Operator {
 			if (decision.kind === 'ask-app')
 				this.appRequests.set(id, { sessionId: session.view.id, apps: decision.apps })
 			this.emit({ kind: 'permission', request })
-			// Anything the pill cannot answer needs the main window; the person may have it covered.
-			if (!calls.every((call) => call.name === 'computer_use' || call.name === 'screen_moment'))
+			const driving = calls.some(
+				(call) => call.name === 'computer_use' || call.name === 'screen_moment',
+			)
+			if (driving) this.computerTurns.add(session.view.id)
+			// Anything the pill cannot answer, asked while the agent is driving the computer, needs
+			// the main window; the application it drives may cover it. An ordinary approval in a
+			// turn that never touched the computer leaves the window where it is.
+			if (
+				this.computerTurns.has(session.view.id) &&
+				!calls.every((call) => call.name === 'computer_use' || call.name === 'screen_moment')
+			)
 				this.options.needsMainWindow?.('approval', session.view.id)
 		} else if (
 			frame.id !== undefined &&

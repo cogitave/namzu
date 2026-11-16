@@ -563,7 +563,7 @@ export interface PermissionView {
 		 * why it should be asked about even where that application was allowed (it closes, deletes,
 		 * sends or submits).
 		 */
-		computer?: { app?: string; consequence?: string }
+		computer?: { app?: string; apps?: string[]; consequence?: string }
 	}[]
 	/**
 	 * Set by this application on a request that asks whether Namzu may use these applications in

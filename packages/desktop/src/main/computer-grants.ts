@@ -44,9 +44,11 @@ export class ComputerGrants {
 	}
 
 	/** The application an action works on, or the screen as a whole when the host could not tell. */
-	private appOf(call: Call): string {
+	private appsOf(call: Call): string[] {
+		const listed = (call.computer?.apps ?? []).map((app) => app.trim()).filter(Boolean)
+		if (listed.length > 0) return listed
 		const app = call.computer?.app?.trim()
-		return app ? app : WHOLE_SCREEN
+		return [app ? app : WHOLE_SCREEN]
 	}
 
 	decide(calls: readonly Call[]): ComputerDecision {
@@ -63,11 +65,13 @@ export class ComputerGrants {
 			// The agent said to ask every time (the first look at the screen), or the action itself
 			// closes, deletes, sends or submits: the person answers for that one.
 			if (call.alwaysAsk === true || call.computer?.consequence) return { kind: 'ask' }
-			const app = this.appOf(call)
-			// Namzu's own window is not an application it may be allowed into: a click there could
-			// answer its own question.
-			if (this.own(app)) return { kind: 'ask' }
-			if (!this.granted.has(appKey(app))) missing.set(appKey(app), appLabel(app))
+			// A batch can act in several applications; each needs its own yes.
+			for (const app of this.appsOf(call)) {
+				// Namzu's own window is not an application it may be allowed into: a click there
+				// could answer its own question.
+				if (this.own(app)) return { kind: 'ask' }
+				if (!this.granted.has(appKey(app))) missing.set(appKey(app), appLabel(app))
+			}
 		}
 		return missing.size > 0 ? { kind: 'ask-app', apps: [...missing.values()] } : { kind: 'allow' }
 	}

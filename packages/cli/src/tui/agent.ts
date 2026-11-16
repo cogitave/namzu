@@ -1986,7 +1986,7 @@ export interface AgentSession {
 	readonly describeComputerUseCall?: (
 		name: string,
 		input: unknown,
-	) => Promise<{ app?: string; consequence?: string } | undefined>
+	) => Promise<{ app?: string; apps?: string[]; consequence?: string } | undefined>
 	send(messages: readonly Message[], opts?: SendOptions): AsyncIterable<AgentEvent>
 	/**
 	 * Continue a turn some OTHER process started, from its session log.
@@ -6867,10 +6867,15 @@ export async function createAgentSession(
 		describeComputerUseRef: (ref) => computerUseTool?.describeUiRef(ref),
 		describeComputerUseCall: async (name, input) => {
 			if (name !== COMPUTER_USE_TOOL_NAME || !computerUseTool) return undefined
-			const app = await computerUseTool.appOf(input)
+			const apps = await computerUseTool.appsOf(input)
+			const app = apps[0]
 			const consequence = computerUseTool.consequence(input)
 			return app || consequence
-				? { ...(app ? { app } : {}), ...(consequence ? { consequence } : {}) }
+				? {
+						...(app ? { app } : {}),
+						...(apps.length > 1 ? { apps } : {}),
+						...(consequence ? { consequence } : {}),
+					}
 				: undefined
 		},
 		send: (messages, opts) =>
