@@ -2535,23 +2535,18 @@ export function createComputerUseTool(
 		// the screenshot in step 5 should not arrive after steps 1–4 changed
 		// the desktop.
 		const planned: PlannedStep[] = []
-		// An input that reads its place off a screenshot, when none was ever taken: the tool takes the
-		// display screenshot itself and says so, instead of sending the model back to take one.
-		let framePrelude: string | undefined
-		if (
+		// An input that reads its place off a screenshot, when none was ever taken: it is not sent. The
+		// tool takes the display screenshot and returns it, so the model chooses its target on a frame it
+		// has seen. Actions before that input still run; it and everything after it do not.
+		const blockedAt =
 			frameId === undefined &&
 			!frames.latest() &&
 			available.has('screenshot') &&
-			hostActionAvailable(caps, 'screenshot') &&
-			items.some((item) => NEEDS_FRAME.has(item.type))
-		) {
-			try {
-				const taken = await capture()
-				framePrelude = `No screenshot had been taken yet, so the tool took one first (${taken.frame.id}, ${taken.frame.imageWidth}x${taken.frame.imageHeight}) and read the action on it. Look at the screenshot that follows before you rely on where it acted.`
-			} catch {
-				// The plan below fails with the reason, as it always did.
-			}
-		}
+			hostActionAvailable(caps, 'screenshot')
+				? items.findIndex((item) => NEEDS_FRAME.has(item.type))
+				: -1
+		const unsent: readonly BatchItem[] = blockedAt >= 0 ? items.slice(blockedAt) : []
+		const toPlan: readonly BatchItem[] = blockedAt >= 0 ? items.slice(0, blockedAt) : items
 		const actionFrame = frameId ? frames.get(frameId) : frames.latest()
 		const explicitDisplayFrame =
 			frameId !== undefined && actionFrame !== undefined && !actionFrame.window
@@ -2576,7 +2571,7 @@ export function createComputerUseTool(
 		let postWindowId =
 			actionFrame?.window?.window.id ??
 			(!hostActionAvailable(caps, 'screenshot') ? uiSnapshotWindowId : undefined)
-		for (const [index, item] of items.entries()) {
+		for (const [index, item] of toPlan.entries()) {
 			try {
 				planned.push(plan(item, frameId))
 			} catch (error) {
@@ -2664,6 +2659,33 @@ export function createComputerUseTool(
 		}
 		for (const step of planned.slice(records.length))
 			records.push({ label: step.label, status: 'not run' })
+		for (const item of unsent) records.push({ label: label(item), status: 'not run' })
+		const total = planned.length + unsent.length
+
+		// The frame the unsent input needed, taken after the actions that did run.
+		let framePrelude: string | undefined
+		let frameShot: Capture | undefined
+		if (unsent.length > 0 && !failure && !signal?.aborted) {
+			try {
+				if (changed) await settleAfterActions(host, undefined, settings.settleMs, signal)
+				frameShot = await capture()
+				const before = single
+					? ''
+					: planned.length === 0
+						? ' Nothing in the batch ran.'
+						: ` Actions 1-${planned.length} ran; action ${planned.length + 1}${unsent.length > 1 ? ' and the ones after it' : ''} did not.`
+				framePrelude = `No screenshot had been taken yet, so nothing was clicked or typed: the ${single ? 'action' : 'input'} was not sent.${before} The display screenshot follows (${frameShot.frame.id}, ${frameShot.frame.imageWidth}x${frameShot.frame.imageHeight}); choose the target on it and send the action again.`
+			} catch (error) {
+				const why = signal?.aborted ? 'cancelled' : errorText(error)
+				const reason = `no screenshot has been taken yet, so nothing was clicked or typed, and the display screenshot could not be taken: ${why}`
+				failure = { index: planned.length, error: reason }
+				records[planned.length] = {
+					label: records[planned.length]?.label ?? '',
+					status: 'failed',
+					error: reason,
+				}
+			}
+		}
 
 		// The screen after the batch: after anything that may have changed it,
 		// and after a wait, whose whole point is to look again.
@@ -2672,8 +2694,9 @@ export function createComputerUseTool(
 			available.has('screenshot') &&
 			(hostActionAvailable(caps, 'screenshot') || postWindowId !== undefined) &&
 			(changed || planned.some((step) => step.item.type === 'wait')) &&
+			unsent.length === 0 &&
 			!signal?.aborted
-		let shot: Capture | undefined
+		let shot: Capture | undefined = frameShot
 		let shotError: string | undefined
 		if (looks) {
 			try {
@@ -2701,9 +2724,11 @@ export function createComputerUseTool(
 				? []
 				: failure
 					? [
-							`Batch stopped at action ${failure.index + 1} of ${planned.length}; ${planned.length - failure.index - 1} not run.`,
+							`Batch stopped at action ${failure.index + 1} of ${total}; ${total - failure.index - 1} not run.`,
 						]
-					: [`Batch: all ${planned.length} actions done.`]),
+					: unsent.length > 0
+						? []
+						: [`Batch: all ${total} actions done.`]),
 		]
 		const stepLines = records.map(summary)
 		const shotLines = shot
@@ -2766,7 +2791,7 @@ export function createComputerUseTool(
 				? failure.unknown.message
 				: single
 					? `computer_use failed: ${failure.error}`
-					: `Batch stopped at action ${failure.index + 1} of ${planned.length} (${planned[failure.index]?.label}): ${failure.error}`
+					: `Batch stopped at action ${failure.index + 1} of ${total} (${planned[failure.index]?.label}): ${failure.error}`
 		return result
 	}
 

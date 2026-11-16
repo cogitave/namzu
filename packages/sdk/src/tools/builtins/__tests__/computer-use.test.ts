@@ -335,19 +335,26 @@ describe('createComputerUseTool', { timeout: 30_000 }, () => {
 			expect(actions()).toHaveLength(1)
 		})
 
-		it('takes the screenshot itself when an input comes before any, and says so', async () => {
+		it('returns the screenshot instead of acting when an input comes before any, and says so', async () => {
 			const { host, actions } = makeHost()
 			const tool = createComputerUseTool(host, { ...FAST, screenshotAfterActions: false })
 			const click = await run(tool, { type: 'mouse_click', at: { x: 10, y: 20 }, button: 'left' })
 			expect(click.success).toBe(true)
-			expect(click.output).toContain('No screenshot had been taken yet')
-			expect(click.output).toContain('took one first (s1')
-			// The screenshot was taken, then the click went to the place read on it.
-			expect(actions().map((action) => action.type)).toEqual(['screenshot', 'mouse_click'])
-			// The next input has a screenshot and says nothing of it.
+			expect(click.output).toContain(
+				'No screenshot had been taken yet, so nothing was clicked or typed',
+			)
+			expect(click.output).toContain('choose the target on it and send the action again')
+			expect(click.output).toContain('(s1,')
+			expect(
+				Array.isArray(click.content) && click.content.some((block) => block.type === 'image'),
+			).toBe(true)
+			// Only the screenshot reached the host; the click was never sent.
+			expect(actions().map((action) => action.type)).toEqual(['screenshot'])
+			// Sent again, it acts on the frame the model has now seen, and says nothing of the old state.
+			const again = await run(tool, { type: 'mouse_click', at: { x: 10, y: 20 }, button: 'left' })
+			expect(again.output).not.toContain('No screenshot had been taken yet')
 			const typed = await run(tool, { type: 'type_text', text: 'Bahadır Arda' })
 			expect(typed.success).toBe(true)
-			expect(typed.output).not.toContain('No screenshot had been taken yet')
 			expect(actions().map((action) => action.type)).toEqual([
 				'screenshot',
 				'mouse_click',
@@ -355,23 +362,33 @@ describe('createComputerUseTool', { timeout: 30_000 }, () => {
 			])
 		})
 
-		it('takes it for a keyboard input too, and for a batch once', async () => {
+		it('holds back a keyboard input too, and a batch at its first input, saying what ran', async () => {
 			const { host, actions } = makeHost()
 			const tool = createComputerUseTool(host, { ...FAST, screenshotAfterActions: false })
-			const result = await run(tool, {
+			const typed = await run(tool, { type: 'type_text', text: 'a' })
+			expect(typed.output).toContain('nothing was clicked or typed')
+			expect(actions().map((action) => action.type)).toEqual(['screenshot'])
+
+			const fresh = makeHost()
+			const batchTool = createComputerUseTool(fresh.host, {
+				...FAST,
+				screenshotAfterActions: false,
+			})
+			const result = await run(batchTool, {
 				type: 'batch',
 				actions: [
-					{ type: 'type_text', text: 'a' },
+					{ type: 'wait', ms: 1 },
 					{ type: 'mouse_click', at: { x: 1, y: 1 }, button: 'left' },
+					{ type: 'type_text', text: 'a' },
 				],
 			})
 			expect(result.success).toBe(true)
-			expect(result.output).toContain('took one first (s1')
-			expect(actions().map((action) => action.type)).toEqual([
-				'screenshot',
-				'type_text',
-				'mouse_click',
-			])
+			expect(result.output).toContain('Actions 1-1 ran; action 2 and the ones after it did not.')
+			expect(result.output).toMatch(/1\. .*wait/i)
+			expect(result.output).toMatch(/2\. .*: not run/)
+			expect(result.output).toMatch(/3\. .*: not run/)
+			// The wait is the tool's own; the host saw the screenshot and no input.
+			expect(fresh.actions().map((action) => action.type)).toEqual(['screenshot'])
 		})
 
 		it('still refuses when the host has no display screenshot to take', async () => {
@@ -426,7 +443,7 @@ describe('createComputerUseTool', { timeout: 30_000 }, () => {
 			const { host } = makeHost({ width: 3440, height: 1440 })
 			const tool = createComputerUseTool(host, FAST)
 			const first = await run(tool, { type: 'cursor_position' })
-			expect(first.output).toContain('took one first (s1')
+			expect(first.output).toContain('No screenshot had been taken yet')
 			const result = await run(tool, { type: 'cursor_position' })
 			expect(result.success).toBe(true)
 			expect(result.output).toBe('Read cursor position: at (784, 328) in s1')

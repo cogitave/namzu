@@ -65,14 +65,16 @@ model saw. A coordinate past the image's far edge is refused, not clamped:
 it was read off some other image, and acting on it would click somewhere the
 model never looked. Before the first screenshot, an action that takes
 coordinates, `cursor_position`, `type_text` or `key` (which go to whichever
-window has focus after a display capture) makes the tool take the display
-screenshot itself, once, and read the action on it; the result opens with a line
-saying so (`No screenshot had been taken yet, so the tool took one first (s1, …)`),
-and the screenshot that follows the action is the one to check. The old refusal
+window has focus after a display capture) is not sent. The tool takes the display
+screenshot and returns it as the result of that call, with a line that says
+plainly that no screenshot had been taken yet, so nothing was clicked or typed,
+and that the model should choose the target on the screenshot that follows and
+send the action again. The model gets the frame without a separate screenshot
+call, and never clicks on coordinates it chose without seeing the screen. In a
+batch, the actions before the first such input run, the screenshot is taken after
+them, and the result says which actions ran and which did not. The old refusal
 ("take a screenshot first") remains only where the host has no display screenshot
-to take. This is a decision, not an oversight: the model gets no extra round trip, but a click
-read on a screenshot it has not yet seen can land blind, which is why the result says to check the
-screenshot that follows. `cursor_position` reports in screenshot pixels.
+to take. `cursor_position` reports in screenshot pixels.
 
 The latest screenshot's size is also pinned into the turn's working memory
 (`computer_use.screenshot`), so it survives compaction when older images are
