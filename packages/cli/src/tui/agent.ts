@@ -550,7 +550,12 @@ import { buildEnterPlanModeTool } from '../plan/enter-plan-mode-tool.js'
 import { buildExitPlanModeTool } from '../plan/exit-plan-mode-tool.js'
 import { isPlanFileWrite } from '../plan/plan-file.js'
 import { terminalProviderRetry } from '../provider-retry.js'
-import { createCliReminderSource, hypermodeExitOwed } from '../reminders/index.js'
+import {
+	type ProgressNudgeSettings,
+	QuietStretch,
+	createCliReminderSource,
+	hypermodeExitOwed,
+} from '../reminders/index.js'
 import { createSessionSkillCatalog } from '../skills/catalog.js'
 import { createSkillDirectoryResolver } from '../skills/directory.js'
 import { isInsideFolder, restoreSkillHooks } from '../skills/restore-skill-hooks.js'
@@ -2733,6 +2738,12 @@ export interface AgentSessionOptions {
 	 */
 	readonly askUser?: boolean
 	/**
+	 * Ask the model for one sentence after a long quiet stretch (see
+	 * `QuietStretch`). Set only on a surface where a person watches live; absent
+	 * for a sub-agent, a scheduled run, a Pal and any non-interactive run.
+	 */
+	readonly progressNudge?: ProgressNudgeSettings
+	/**
 	 * Give plan mode its plan file and `exit_plan_mode`: the model may write
 	 * `<session>/plans/plan.md` while the mode is `plan`, and presents the plan
 	 * through the tool, which asks `SendOptions.onPlanExit`. Only where somebody
@@ -2910,6 +2921,10 @@ export async function createAgentSession(
 	// "Don't ask again" answers given at a prompt this session, consulted as
 	// one rule behind the operator's table (see permissions/session-allow.ts).
 	const commandArguments = builtinCommandArguments()
+	// The clock for the quiet-stretch nudge: one per session, read by every send.
+	const quietStretch = options.progressNudge
+		? new QuietStretch({ ...options.progressNudge, now: options.progressNudge.now ?? Date.now })
+		: undefined
 	// Before any provider is built: how long the cache is asked to live.
 	setPromptCacheTtl(options.compaction?.promptCacheTtl)
 	// `cwd` is settled further down; the store reads it when an answer arrives.
@@ -6850,6 +6865,8 @@ export async function createAgentSession(
 					const selectTaskStore = beginTaskStoreReadout()
 					const turnLimits = resolveTurnGuards(options.limits, opts?.limits)
 					const turnOpts: SendOptions = { ...opts, signal }
+					// The time between turns is nobody's work; the clock starts here.
+					quietStretch?.turnStarted()
 					// Per-send membership: neither another send nor delegated sessions
 					// inherit an addition made below (an extra toolset). No
 					// fork — an extra toolset for this send only, alongside the
@@ -7216,6 +7233,7 @@ export async function createAgentSession(
 							)
 						const reminderSource = createCliReminderSource({
 							mode: () => modeControl.current(),
+							...(quietStretch ? { quietStretch } : {}),
 							...{
 								environment: () => ({
 									...environmentFacts,
@@ -7484,6 +7502,8 @@ export async function createAgentSession(
 									) {
 										textOnlyModels.add(event.providerId, event.model)
 									}
+									// A review or a question waiting on the person is not work.
+									quietStretch?.observe(event)
 									options.onSessionEvent?.(event)
 								},
 								...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),

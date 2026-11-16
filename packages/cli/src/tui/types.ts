@@ -20,6 +20,7 @@ import type {
 	MemoryCliConfig,
 	NamzuCliConfig,
 	PluginConfig,
+	ProgressNudgeConfig,
 	RoutingConfig,
 	SandboxConfig,
 	SkillsConfig,
@@ -263,6 +264,8 @@ export interface TuiContext {
 	readonly browser?: BrowserConfig
 	/** See `NamzuCliConfig.codeAnalysis`. */
 	readonly codeAnalysis?: CodeAnalysisConfig
+	/** See `NamzuCliConfig.progressNudge`. */
+	readonly progressNudge?: ProgressNudgeConfig
 	/** See `NamzuCliConfig.hooks`. */
 	readonly hooks?: HooksConfig
 	/** Set when a switch left hooks out of `hooks`; `/hooks` says so. See `hookSwitch`. */

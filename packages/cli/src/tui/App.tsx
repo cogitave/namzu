@@ -314,6 +314,7 @@ import {
 } from '../permissions/mode.js'
 import { sandboxRunsShellUnasked } from '../permissions/sandbox-shell.js'
 import { type SessionAllow, allowsFor, sameAllow } from '../permissions/session-allow.js'
+import { resolveProgressNudge } from '../reminders/progress-nudge.js'
 import { type RoundGateFacts, admissionBlocked } from '../rounds/gates.js'
 import { admitGoalRound } from '../rounds/goal-admission.js'
 import { RoundQueue } from '../rounds/queue.js'
@@ -6373,6 +6374,12 @@ function AppBody({
 								},
 							},
 							enableComputerUse: true,
+							// The terminal is watched live: the quiet-stretch nudge, unless the
+							// config turned it off.
+							...(() => {
+								const nudge = resolveProgressNudge(activeCtx.progressNudge, { watched: true })
+								return nudge ? { progressNudge: nudge } : {}
+							})(),
 							// The browser tools, when the config did not switch them off. The
 							// profile is the one `/browser profile` chose, else the config's.
 							...(browserOptions ? { browser: browserOptions } : {}),

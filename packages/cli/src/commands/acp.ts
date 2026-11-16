@@ -83,6 +83,7 @@ import {
 	warnLegacyMcpPermissionNames,
 } from '../permissions/rules.js'
 import type { PermissionSettings } from '../permissions/settings.js'
+import { resolveProgressNudge } from '../reminders/progress-nudge.js'
 import { type TerminalHost, createTerminalHost } from '../terminal/host.js'
 import {
 	type AgentSession,
@@ -941,6 +942,15 @@ export function createCliAcpRuntime(
 					...(projectCtx.config.memory ? { memory: projectCtx.config.memory } : {}),
 					...(projectCtx.config.sandbox ? { sandbox: projectCtx.config.sandbox } : {}),
 					...(projectCtx.config.decision ? { decision: projectCtx.config.decision } : {}),
+					// The desktop application is watched live; a Pal and any other client are not.
+					...(() => {
+						const nudge = palEnvironment
+							? undefined
+							: resolveProgressNudge(projectCtx.config.progressNudge, {
+									watched: runtimeOptions.computerUse === true,
+								})
+						return nudge ? { progressNudge: nudge } : {}
+					})(),
 					// Routed turns only where Auto is what runs: never for a Pal, and not after the
 					// person hand-picked a model for this conversation.
 					...(projectCtx.config.routing &&
