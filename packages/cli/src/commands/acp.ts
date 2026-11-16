@@ -920,6 +920,8 @@ export function createCliAcpRuntime(
 					...(runtimeOptions.computerUse === true && !palEnvironment
 						? { enableComputerUse: true }
 						: {}),
+					// The desktop shows what a turn writes in a preview pane; the model is told so.
+					...(runtimeOptions.announce && !palEnvironment ? { desktop: true } : {}),
 					cwd,
 					sessionId: target.sessionId,
 					...(conversationState

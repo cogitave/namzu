@@ -16,6 +16,7 @@ import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { PermissionMode } from '../../permissions/mode.js'
 
 import {
+	DESKTOP_PREVIEW_FACT,
 	type EnvironmentFacts,
 	composeEnvironmentPrompt,
 	environmentFactLines,
@@ -228,5 +229,24 @@ describe('the session scratch folder', () => {
 		expect(stable({ today: '2026-11-04', branch: 'main', isRepository: true })).not.toContain(
 			'scratch folder',
 		)
+	})
+})
+
+describe('the desktop host', () => {
+	const base: EnvironmentFacts = { today: '2026-11-16', branch: null, isRepository: false }
+
+	it('tells the model, in one line, how the desktop shows results', () => {
+		for (const stable of [true, false]) {
+			const text = composeEnvironmentPrompt({ ...base, host: 'desktop' }, { stable })
+			const lines = text.split('\n').filter((line) => line.includes('preview pane'))
+			expect(lines).toHaveLength(1)
+			expect(lines[0]).toBe(DESKTOP_PREVIEW_FACT)
+			expect(lines[0]).toMatch(/never start a server/)
+		}
+	})
+
+	it('says nothing about a preview anywhere else', () => {
+		expect(composeEnvironmentPrompt(base)).not.toContain('preview pane')
+		expect(composeEnvironmentPrompt(base, { stable: true })).not.toContain('preview pane')
 	})
 })
