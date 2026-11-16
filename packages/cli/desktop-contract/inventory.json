@@ -16,7 +16,8 @@
       "agentInfo.name",
       "extensions",
       "promptAttachments",
-      "promptOptions"
+      "promptOptions",
+      "promptPasted"
     ],
     "agentName": "namzu"
   },
