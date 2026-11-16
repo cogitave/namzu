@@ -398,7 +398,7 @@ export function StatusBar({
 	}
 	// Where the items stand, from the same strings the row is built of: the left items are joined
 	// by ` · `, then the gap, then the right end.
-	const leftTexts: Array<[string, string | null]> = [
+	const leftTexts: [string, string | null][] = [
 		['mode', layout.mode ? `${layout.mode}${layout.cycleSuffix ?? ''}` : null],
 		[
 			'pr',

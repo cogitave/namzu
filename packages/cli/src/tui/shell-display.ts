@@ -31,7 +31,8 @@ export function withoutCdToCwd(command: string, cwd: string | undefined): string
 	const target = unquote(match[1] as string)
 	// `~` and variables are the shell's to expand: only a path that can be read as written is compared.
 	if (target.startsWith('~') || target.includes('$') || target.includes('`')) return command
-	return resolve(cwd, target) === resolve(cwd) ? rest : command
+	const folder = resolve(cwd)
+	return resolve(folder, target) === folder ? rest : command
 }
 
 /** Where each top-level word of a command starts and ends: quotes and escapes keep a word whole. */

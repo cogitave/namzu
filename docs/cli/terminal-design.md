@@ -1453,9 +1453,10 @@ field and returns the window to where it was, or to the latest if you were
 following.
 
 While it is on, the `←` workspaces screen is not offered, the terminal's own
-scrollback is not available inside the app, and the detailed transcript and
-agent views draw in the live area as before. It is not the default. Code:
+scrollback is not available inside the app, and the agent views draw in the live area
+as before. It is the default (`NAMZU_FULLSCREEN=0` turns it off). Code:
 `packages/cli/src/tui/fullscreen/` (`viewport.ts` the scroll arithmetic,
+`DetailedScreen.tsx` the detailed transcript, `row-links.ts` the links in rows,
 `layout.ts` the rows, `markdown-rows.ts` the Markdown, `selection.ts` and
 `cells.ts` the selection, `search.ts` the search, `paint.ts` the highlights,
 `mouse-wheel.ts` the pointer, `glide.ts` the wheel's arithmetic, `mode.ts` the switch, `FullscreenTranscript.tsx`
@@ -1466,7 +1467,14 @@ the window; `new-output.ts` beside it counts what is new); the launcher wires it
 `a-click-opens-a-folded-row-in-place-in-the-fullscreen-view.test.tsx`,
 `a-fullscreen-window-selects-copies-and-searches.test.tsx`,
 `a-fullscreen-wheel-glides-counts-and-marks.test.tsx`, `glide.test.ts`, `new-output.test.ts` and
-`a-fullscreen-app-draws-a-window-and-follows.test.tsx`.
+`a-fullscreen-app-draws-a-window-and-follows.test.tsx`; the links in `tui/links.ts`, the click regions in
+`tui/pointer/` (covered by `links.test.ts`, `a-ctrl-click-opens-a-link-in-the-fullscreen-view.test.tsx`,
+`a-click-on-a-permission-answer-chooses-it.test.tsx`, `a-click-on-a-footer-item-does-what-its-key-does.test.tsx`,
+`hover-lights-what-a-click-answers-in-the-fullscreen-view.test.tsx`,
+`a-detailed-transcript-works-with-the-pointer-on-the-fullscreen-screen.test.tsx`,
+`a-short-conversation-sits-under-the-header-at-the-top-of-the-fullscreen-view.test.tsx`,
+`a-copy-notice-is-a-passing-toast-and-leaves-the-rows-alone.test.tsx` and
+`a-fullscreen-app-answers-the-pointer.test.tsx`).
 
 ## Commands and settings
 
