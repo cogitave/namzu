@@ -8037,6 +8037,7 @@ function AppBody({
 		screenConsent: pending.screenConsent === true,
 		withheld: pending.withheld.length > 0,
 		endsTurn: endsTurnOnNo(pending),
+		cwd: ctx.cwd,
 		mode: permissionModeRef.current,
 		...(session?.allowForSession && session.commandArguments
 			? {
@@ -17569,6 +17570,9 @@ function AppBody({
 								? { subscribePointer: fullscreen.subscribePointer, copy: copyFullscreenSelection }
 								: {})}
 							copyOnSelect={fullscreen.copyOnSelect !== false}
+							links={fullscreenLinks}
+							hyperlinks={hyperlinks}
+							onNote={showPointerNote}
 							{...(fullscreen.wheelRows !== undefined ? { wheelRows: fullscreen.wheelRows } : {})}
 							{...(fullscreen.wheelAccel !== undefined
 								? { wheelAccel: fullscreen.wheelAccel }
@@ -17796,6 +17800,7 @@ function AppBody({
 									{...(permissionSourceLabel ? { from: permissionSourceLabel } : {})}
 									{...(permissionReason !== null ? { reason: permissionReason } : {})}
 									endsTurn={endsTurnOnNo(permission)}
+									cwd={ctx.cwd}
 									{...(fullscreen?.regions ? { onChoose: clickPermissionAnswer } : {})}
 									columns={terminal.columns}
 									rows={terminal.rows}

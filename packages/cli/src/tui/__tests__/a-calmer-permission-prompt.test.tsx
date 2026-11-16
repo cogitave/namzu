@@ -9,6 +9,7 @@ import { expect, it } from 'vitest'
 
 import { LiveActivity } from '../LiveActivity.js'
 import { PermissionOverlay, permissionTitle } from '../PermissionOverlay.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import { type PermissionToolCall, toAgentEvent } from '../agent.js'
 import { buildPermissionReview, buildPermissionSummary } from '../permission-review.js'
 import { queuedToolRow } from '../queued-calls.js'
@@ -158,5 +159,53 @@ it('still says it is waiting when there is no call row to say it', () => {
 		expect(view.lastFrame() ?? '').toContain('Waiting for your approval')
 	} finally {
 		view.unmount()
+	}
+})
+
+it('leaves the cd out of the row of a shell call the tool describes only by its label', () => {
+	const started = (command: string) => {
+		const event = toAgentEvent(
+			{
+				type: 'tool_executing',
+				toolUseId: 'x',
+				toolName: 'bash',
+				input: { command },
+			} as unknown as Parameters<typeof toAgentEvent>[0],
+			genericPresenter,
+			undefined,
+			CWD,
+		)
+		return event?.kind === 'tool-start' ? event : undefined
+	}
+	expect(started('cd /work/app && npm test')?.summary).toBe('npm test')
+	expect(started('cd /work/app && npm test')?.command).toBe('npm test')
+	expect(started('cd /work/other && npm test')?.summary).toContain('cd /work/other && npm test')
+})
+
+it('words the remembered answer without the cd to the working folder', async () => {
+	const call = shell('cd /work/app && npm test')
+	const { review, summary } = summaryOf([call])
+	const screen = await renderToScreen(
+		<PermissionOverlay
+			toolCalls={[call]}
+			review={review}
+			summary={summary}
+			detailsOpen={false}
+			columns={110}
+			rows={24}
+			mode="prompt"
+			commandArguments={new Map([['bash', 'command']])}
+			rememberWhere="~/app"
+			cwd={CWD}
+		/>,
+		{ cols: 110, rows: 24 },
+	)
+	try {
+		await screen.waitForRender()
+		const text = screen.viewport().join('\n')
+		expect(text).toContain("2. Yes, and don't ask again for npm test * commands in ~/app")
+		expect(text).not.toContain('cd /work/app')
+	} finally {
+		await screen.unmount()
 	}
 })

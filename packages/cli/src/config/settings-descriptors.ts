@@ -957,7 +957,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'tui.fullscreen',
 		'terminal',
 		'Full screen',
-		'Use the whole terminal window, with the mouse. Off keeps the terminal\'s own scrollback.',
+		"Use the whole terminal window, with the mouse. Off keeps the terminal's own scrollback.",
 		on,
 		{ defaultText: 'on' },
 	),

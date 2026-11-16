@@ -375,6 +375,8 @@ export interface PermissionAnswerOptions {
 	readonly withheld?: boolean
 	/** A plain No ends the turn, and the answer says so. */
 	readonly endsTurn?: boolean
+	/** The working folder: a leading `cd` to it is left out of what a remembered answer says. */
+	readonly cwd?: string
 }
 
 /**
@@ -439,7 +441,7 @@ function extraAnswer(
 	const allows = allowsForBatch(toolCalls, options.commandArguments)
 	if (!allows) return undefined
 	return {
-		label: `Yes, and don't ask again for ${describeAllows(allows)} ${options.rememberWhere ? `in ${options.rememberWhere}` : 'this session'}`,
+		label: `Yes, and don't ask again for ${describeAllows(allows, options.cwd)} ${options.rememberWhere ? `in ${options.rememberWhere}` : 'this session'}`,
 		kind: 'approve-rule',
 		allows,
 	}
@@ -541,6 +543,7 @@ export function PermissionOverlay({
 		...(mode ? { mode } : {}),
 		...(commandArguments ? { commandArguments } : {}),
 		...(rememberWhere ? { rememberWhere } : {}),
+		...(cwd ? { cwd } : {}),
 	}
 	const answers = permissionAnswers(toolCalls, answerOptions)
 	const answerCount = answers.length
