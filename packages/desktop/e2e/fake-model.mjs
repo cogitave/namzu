@@ -9,6 +9,8 @@ import { failureHeaders } from "./fake-failure.mjs";
 
 export async function startFakeModel(rules = [], options = {}) {
 	const requests = [];
+	/** The small side requests the host made: `{ kind: "history" | "title", request }`. */
+	const sideRequests = [];
 	const holds = new Map();
 	/** Set `api.listing = { status, contentType, body }` to make the model list (and key checks) answer so. */
 	const state = { listing: undefined };
@@ -44,6 +46,23 @@ export async function startFakeModel(rules = [], options = {}) {
 				return;
 			}
 			const parsed = body ? JSON.parse(body) : {};
+			// The host asks for two small side answers of its own: it resolves a history search query at the
+			// start of a turn that has history, and it names a conversation after its first message. Each
+			// has its own answer, never the answer of a rule written for the person's prompt.
+			const side = sideKind(parsed.messages ?? []);
+			// The history lookup is answered apart only for a flow that asks (`answerHistory`): older flows
+			// count and index the requests they saw, and keep seeing it as before.
+			if (side && (side === "title" || options.answerHistory)) {
+				sideRequests.push({ kind: side, request: parsed });
+				const answer = sideAnswer(side, options);
+				if (answer.status) {
+					res.writeHead(answer.status, { "content-type": "application/json" });
+					res.end(JSON.stringify({ error: { message: answer.message, type: "invalid_request_error" } }));
+					return;
+				}
+				respond(res, parsed, { text: answer.text });
+				return;
+			}
 			requests.push(parsed);
 			const refusal = options.strictHistory ? refuse(parsed.messages ?? []) : undefined;
 			if (refusal) {
@@ -75,6 +94,7 @@ export async function startFakeModel(rules = [], options = {}) {
 	return {
 		url: `http://127.0.0.1:${port}`,
 		requests,
+		sideRequests,
 		/** Change how the model list answers; `undefined` restores the normal list. */
 		answerListing(listing) {
 			state.listing = listing;
@@ -115,6 +135,22 @@ function refuse(messages) {
 			return `Invalid parameter: messages with role 'tool' must be a response to a preceeding message with 'tool_calls'. (${m.tool_call_id})`;
 	}
 	return undefined;
+}
+
+/** Which side request this is, by the instruction it carries; `undefined` for the person's own turn. */
+function sideKind(messages) {
+	const all = messages.map((m) => textOf(m.content)).join("\n");
+	if (all.includes("Resolve a conversation-history search query")) return "history";
+	if (all.includes("You name a conversation so a person can pick it out")) return "title";
+	return undefined;
+}
+
+function sideAnswer(kind, options) {
+	if (kind === "history")
+		return { text: '{"mode":"direct","time":"unspecified","termIds":[],"basis":[]}' };
+	// A flow that does not script a title gets a refusal, so the first words of the prompt stay the title.
+	if (options.title === undefined) return { status: 400, message: "No title is scripted." };
+	return { text: JSON.stringify({ title: options.title }) };
 }
 
 const textOf = (c) =>
