@@ -436,6 +436,7 @@ export function WorkspaceHost() {
 			))
 	const content = (
 		<div className="app workspace-host" data-sidebar-collapsed={sideCollapsed} data-page={page}>
+			<div className="window-drag-layer" aria-hidden="true" />
 			<div ref={setShell} className="workspace-shell" inert={activeFrozen} />
 			<div className="workspace-stage">
 				{error && (

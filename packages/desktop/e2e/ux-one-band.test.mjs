@@ -132,10 +132,10 @@ test("one band: both headers start at the top and are 36 high, with the left clu
 			// The band is the drag region except over its controls.
 			const regions = await w.page.evaluate(() => {
 				const region = (s) => getComputedStyle(document.querySelector(s)).getPropertyValue("-webkit-app-region");
-				return { main: region(".topbar"), side: region(".sidebar-chrome"), button: region('.window-titlebar [aria-label="Menu"]'), cluster: region(".window-titlebar-cluster") };
+				return { main: region(".window-drag-layer"), side: region(".window-drag-layer"), button: region('.window-titlebar [aria-label="Menu"]'), cluster: region(".window-titlebar-cluster") };
 			});
-			assert.equal(regions.main, "drag", `${screen}: the main header drags the window`);
-			assert.equal(regions.side, "drag", `${screen}: the sidebar's header drags the window`);
+			assert.equal(regions.main, "drag", `${screen}: the window's drag layer spans the main header`);
+			assert.equal(regions.side, "drag", `${screen}: the window's drag layer spans the sidebar's header`);
 			assert.equal(regions.button, "no-drag", `${screen}: a control does not`);
 		}
 
