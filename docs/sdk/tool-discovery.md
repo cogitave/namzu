@@ -48,6 +48,20 @@ deferred tools exist; a runtime override cannot defer or suspend it. Either
 invalid setup fails before the model request, instead of leaving discovery
 without an executable search tool.
 
+A tool can declare `loadsWith: readonly string[]` (on `ToolDefinition` and
+`defineTool`), the names of tools that are needed right after it. When
+`search_tools` loads such a tool it loads those companions in the same call,
+marks each `(loaded with <tool>)` in its result, lists them as
+`data.companions` and reveals them like any other match. A companion is
+loaded only if it is deferred and inside `ToolContext.allowedTools`; one that
+is already loaded is simply left out, and a companion's own `loadsWith` is not
+followed. Companions do not count against the five-tool limit. The shipped
+pairs are `browser` with `browser_act` (looking at a page and acting on it,
+both ways) and `task_create` with `task_update` (a task is made to be moved
+through its statuses). The deferred catalogue line of a tool with companions
+ends `(loads with <names>)`. Memory tools, `task_list` and `computer_use` are
+not grouped: each is used alone as often as with another.
+
 When no permitted deferred tool matches, the receipt says so — plainly, with
 no active-tool echo. `ToolsView` (what a tool body reaches through
 `ToolContext.toolRegistry`) has no active-tool search, only `has`,

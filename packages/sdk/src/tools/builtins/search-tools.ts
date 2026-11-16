@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { toolDiscoveryHint } from '../../registry/tool/execute.js'
+import type { ToolDefinition } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 
 const inputSchema = z.object({
@@ -55,8 +56,37 @@ export const SearchToolsTool = defineTool({
 		const activated = ranked.slice(0, ACTIVATION_TOP_K)
 		const nearMisses = ranked.slice(ACTIVATION_TOP_K, ACTIVATION_TOP_K + NEAR_MISS_LIMIT)
 
-		const descriptions = activated.map((t) => `- ${t.name}: ${t.description}`).join('\n')
-		const sections = [`Activated ${activated.length} tool(s):\n${descriptions}`]
+		// A tool may declare companions that are needed right after it. They
+		// load in this same call, from the deferred roster and inside the same
+		// allow-list, so the model does not pay a second search for them.
+		// Names already activated or already loaded are skipped; one level only.
+		const activatedNames = new Set(activated.map((t) => t.name))
+		const companions: ToolDefinition[] = []
+		for (const tool of activated) {
+			for (const name of tool.loadsWith ?? []) {
+				if (activatedNames.has(name)) continue
+				const companion = context.toolRegistry
+					.searchDeferred(name)
+					.find((candidate) => candidate.name === name && (!allowed || allowed.has(name)))
+				if (!companion) continue
+				activatedNames.add(name)
+				companions.push(companion)
+			}
+		}
+		const loaded = [...activated, ...companions]
+		const companionOf = new Map<string, string>()
+		for (const tool of activated) {
+			for (const name of tool.loadsWith ?? []) companionOf.set(name, tool.name)
+		}
+
+		const descriptions = loaded
+			.map((t) => {
+				const owner = companionOf.get(t.name)
+				const note = companions.includes(t) && owner ? ` (loaded with ${owner})` : ''
+				return `- ${t.name}${note}: ${t.description}`
+			})
+			.join('\n')
+		const sections = [`Activated ${loaded.length} tool(s):\n${descriptions}`]
 
 		if (nearMisses.length > 0) {
 			const hints = nearMisses
@@ -77,11 +107,12 @@ export const SearchToolsTool = defineTool({
 			// tool message REVEALS (`ToolResult.reveals`, persisted as
 			// `ToolMessage.revealedTools`), not from a mutation made here. See
 			// `toolsets/manager.ts`'s `availability()`.
-			reveals: activated.map((t) => t.name),
+			reveals: loaded.map((t) => t.name),
 			data: {
-				activated: activated.map((t) => t.name),
-				count: activated.length,
+				activated: loaded.map((t) => t.name),
+				count: loaded.length,
 				nearMisses: nearMisses.map((t) => t.name),
+				...(companions.length > 0 ? { companions: companions.map((t) => t.name) } : {}),
 			},
 		}
 	},

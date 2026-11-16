@@ -572,7 +572,10 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 					// request-only, provenance-labelled context below.
 					const hint =
 						this.sourceOf(t.name)?.kind === 'mcp_server' ? '' : toolDiscoveryHint(t.description)
-					return hint.length > 0 ? `- ${t.name}: ${hint}` : `- ${t.name}`
+					const base = hint.length > 0 ? `- ${t.name}: ${hint}` : `- ${t.name}`
+					return t.loadsWith && t.loadsWith.length > 0
+						? `${base} (loads with ${t.loadsWith.join(', ')})`
+						: base
 				})
 				.join('\n')
 			const deferredIntro =

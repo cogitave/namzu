@@ -1296,6 +1296,18 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	 */
 	pathArgument?: string
 	/**
+	 * Names of tools that are needed right after this one in ordinary use, so
+	 * `search_tools` loads them in the same call when it loads this one.
+	 *
+	 * Declared for a pair that is only useful together (a tool that looks and
+	 * a tool that acts on what it saw), so a deferred session pays one search
+	 * and one extra model request, not two. A name that is not deferred, not
+	 * permitted this turn or not served at all is skipped; a companion's own
+	 * `loadsWith` is not followed. Keep it to a tool the next step would
+	 * otherwise have to search for: a loaded schema rides every later request.
+	 */
+	loadsWith?: readonly string[]
+	/**
 	 * A refusal that needs no person's answer: the call cannot run as it stands,
 	 * and the tool can already tell.
 	 *

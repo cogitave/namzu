@@ -8,9 +8,10 @@ import type { ToolContext } from '../../../types/tool/index.js'
 import { defineTool } from '../../defineTool.js'
 import { SearchToolsTool } from '../search-tools.js'
 
-function tool(name: string, description = 'Fixture capability.') {
+function tool(name: string, description = 'Fixture capability.', loadsWith?: readonly string[]) {
 	return defineTool({
 		name,
+		...(loadsWith ? { loadsWith } : {}),
 		description,
 		inputSchema: z.object({ accountId: z.string() }),
 		category: 'analysis',
@@ -105,5 +106,67 @@ describe('search_tools receipts', () => {
 		})
 		expect(result.output).toContain('Also matched but NOT loaded')
 		expect(manager.availability(names[5] as string)).toBe('deferred')
+	})
+
+	describe('companions', () => {
+		const pair = () =>
+			managerWith(
+				tool('page_look', 'Look at the page.', ['page_act']),
+				tool('page_act', 'Act on the page.', ['page_look']),
+				tool('solo_tool', 'Works alone.'),
+			)
+
+		it('loads the companion with the tool and names it', async () => {
+			const { manager } = pair()
+			const result = await SearchToolsTool.execute({ query: 'page_look' }, context(manager))
+			expect(result.reveals).toEqual(['page_look', 'page_act'])
+			expect(result.output).toContain('page_act (loaded with page_look)')
+			expect(result.data).toMatchObject({ companions: ['page_act'], count: 2 })
+		})
+
+		it('loads the pair from either side', async () => {
+			const { manager } = pair()
+			const result = await SearchToolsTool.execute({ query: 'page_act' }, context(manager))
+			expect(result.reveals).toEqual(['page_act', 'page_look'])
+		})
+
+		it('loads a tool with no companion alone', async () => {
+			const { manager } = pair()
+			const result = await SearchToolsTool.execute({ query: 'solo_tool' }, context(manager))
+			expect(result.reveals).toEqual(['solo_tool'])
+			expect(result.data).not.toHaveProperty('companions')
+		})
+
+		it('is harmless when the companion is already loaded', async () => {
+			const { manager, messages } = pair()
+			const first = await SearchToolsTool.execute({ query: 'page_act' }, context(manager))
+			messages.push(
+				createToolMessage(
+					first.output,
+					'search-1',
+					false,
+					first.reveals?.map((name) => manager.revealReceipt(name)),
+				),
+			)
+			expect(manager.availability('page_look')).toBe('active')
+			const again = await SearchToolsTool.execute({ query: 'page_look' }, context(manager))
+			expect(again.output).toContain('No deferred tools matching')
+		})
+
+		it('does not load a companion outside the allow-list', async () => {
+			const { manager } = pair()
+			const result = await SearchToolsTool.execute(
+				{ query: 'page_look' },
+				context(manager, ['page_look']),
+			)
+			expect(result.reveals).toEqual(['page_look'])
+		})
+
+		it('says in the catalogue that a tool loads with its companion', () => {
+			const { manager } = pair()
+			expect(manager.toPromptSection()).toContain(
+				'- page_look: Look at the page. (loads with page_act)',
+			)
+		})
 	})
 })
