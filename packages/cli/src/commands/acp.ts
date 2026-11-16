@@ -2,6 +2,7 @@ import {
 	ACPServer,
 	type AcpAgentGateway,
 	type AcpHostKernelFacts,
+	type ComputerUseObservation,
 	DiskSessionLog,
 	type ExternalRefTarget,
 	HostCommandRegistry,
@@ -98,6 +99,7 @@ import {
 	settleTurnOfGoneHost,
 } from './acp-provider-retry.js'
 import { questionsOverPermission } from './acp-screen-question.js'
+import { COMPUTER_FRAME_NOTIFICATION } from './desktop-computer-feed.js'
 import { createDesktopHostExtensions } from './desktop-host.js'
 import { desktopModelCatalogue } from './desktop-model-catalogue.js'
 import { announceOutcome } from './desktop-outcome-feed.js'
@@ -247,6 +249,7 @@ type AcpLiveSession = Pick<
 > & {
 	readonly resumePaused?: AgentSession['resumePaused']
 	readonly abandonTurn?: AgentSession['abandonTurn']
+	readonly describeComputerUseCall?: AgentSession['describeComputerUseCall']
 }
 
 export interface AcpRuntimeDependencies {
@@ -635,6 +638,11 @@ export interface CliAcpRuntimeOptions {
 	 * here, which the shared bridge leaves out. It must not throw or wait.
 	 */
 	readonly observeEvent?: (sessionId: string, event: SessionEvent) => void
+	/**
+	 * Sees what the model saw after a `computer_use` call, made small, with its wire
+	 * session id. The desktop host shows it beside the call. It must not throw or wait.
+	 */
+	readonly observeComputer?: (sessionId: string, observation: ComputerUseObservation) => void
 }
 
 export function createCliAcpRuntime(
@@ -890,7 +898,15 @@ export function createCliAcpRuntime(
 					// The host PC, for the desktop only. A Pal conversation has its own
 					// computer behind the same tool name, so it never gets both.
 					...(runtimeOptions.computerUse === true && !palEnvironment
-						? { enableComputerUse: true }
+						? {
+								enableComputerUse: true,
+								...(runtimeOptions.observeComputer
+									? {
+											onComputerObservation: (seen: ComputerUseObservation) =>
+												runtimeOptions.observeComputer?.(sessionId, seen),
+										}
+									: {}),
+							}
 						: {}),
 					cwd,
 					sessionId: target.sessionId,
@@ -1127,6 +1143,9 @@ export function createCliAcpRuntime(
 						sessionId,
 						toolCalls: await withPreviews(request.toolCalls, [record.cwd], {
 							askEveryCall: request.screenConsent === true,
+							computer: (call) =>
+								record.session.describeComputerUseCall?.(call.name, call.input) ??
+								Promise.resolve(undefined),
 						}),
 					})
 					switch (outcome.kind) {
@@ -1312,6 +1331,9 @@ export function createCliAcpRuntime(
 							sessionId,
 							toolCalls: await withPreviews(request.toolCalls, [record.cwd], {
 								askEveryCall: request.screenConsent === true,
+								computer: (call) =>
+									record.session.describeComputerUseCall?.(call.name, call.input) ??
+									Promise.resolve(undefined),
 							}),
 						})
 						if (outcome.kind === 'approve_all') return { kind: 'approve-all' }
@@ -2073,6 +2095,12 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 	const runtime = withCliHarnesses(
 		createCliAcpRuntime(ctx, DEFAULT_RUNTIME_DEPS, {
 			computerUse: desktop,
+			...(desktop
+				? {
+						observeComputer: (id: string, seen: ComputerUseObservation) =>
+							announce(COMPUTER_FRAME_NOTIFICATION, { sessionId: id, ...seen }),
+					}
+				: {}),
 			...(usageFeed
 				? {
 						observeEvent: (id, event) => {

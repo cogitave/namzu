@@ -436,6 +436,16 @@ a batch as `3 desktop actions: Click left at (812, 403) · Type "…" · Press E
 A successful action's result row is hidden — the call row already says it —
 while screenshots, zooms, window lists and failures stay visible.
 
+## What a host shows a person
+
+A host that draws computer work for a person (the Desktop application) reads three things from the tool, none of which change what the model is given:
+
+- `ComputerUseToolOptions.onObservation` is told after each call that returned a screenshot: the picture made small (720 pixels on its longest edge), the screenshot id, the call's words, the application, and where a click landed as fractions of the picture. A throw in it is ignored.
+- `ComputerUseTool.appOf(input)` is the application a call works on, before it runs: the window a `window_id` or a window screenshot names, the window under a click on a display screenshot (needs `listWindows`), or the window in front for keys and text. Undefined when the host cannot say.
+- `ComputerUseTool.consequence(input)` is why a call should be put to a person even where its application was allowed: a key that closes or deletes (Alt+F4, Ctrl+Q, Ctrl+W, Delete and the like) or a control whose name or intent says delete, discard, don't save, send, submit, close or pay (English and Turkish). It reads the call's words, not the screen.
+
+The first call that works in an application also carries `data.firstUseOf` and presents as "Using <application>", so a conversation lists the applications it used. The permission request of the ACP bridge carries `computer: { app, consequence }` on such a call (`AcpRequestPermissionParams`).
+
 ## Providers that cannot show the model a screenshot
 
 The screenshot reaches the model only as an image in a tool result. A driver

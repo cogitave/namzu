@@ -387,6 +387,16 @@ export function createWorkspacePaneApi(
 			: {}),
 		respondPermission: (owner, request, response) =>
 			invoke(() => base.respondPermission(owner, request, response), [owner]),
+		...(base.revokeComputerApp
+			? {
+					revokeComputerApp: (owner: string, app: string) =>
+						invoke(
+							() =>
+								base.revokeComputerApp?.(owner, app) ?? Promise.reject(new Error('Unavailable.')),
+							[owner],
+						),
+				}
+			: {}),
 		stopJob: (owner, jobId) => invoke(() => base.stopJob(owner, jobId), [owner]),
 		createPal: (input) => invoke(() => base.createPal(input), [], { global: true }),
 		updatePal: (id, revision, changes) =>

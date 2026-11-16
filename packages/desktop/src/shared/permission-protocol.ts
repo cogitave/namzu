@@ -9,6 +9,19 @@ const MAX_CALLS = 64
 const record = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value)
 
+const text = (value: unknown, max: number): string | undefined =>
+	typeof value === 'string' && value.trim() && value.length <= max ? value.trim() : undefined
+
+/** What the agent said about a computer call, bounded; anything else is an ordinary call. */
+function readComputerCall(value: unknown): { app?: string; consequence?: string } | undefined {
+	if (!record(value)) return undefined
+	const app = text(value.app, 120)
+	const consequence = text(value.consequence, 300)
+	return app || consequence
+		? { ...(app ? { app } : {}), ...(consequence ? { consequence } : {}) }
+		: undefined
+}
+
 const lineCount = (value: unknown): number | undefined =>
 	typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined
 
@@ -56,6 +69,8 @@ export function readPermissionCalls(value: unknown): PermissionView['calls'] {
 			// Only the agent's literal word counts; anything else is an ordinary call.
 			...(raw.alwaysAsk === true ? { alwaysAsk: true as const } : {}),
 		}
+		const computer = readComputerCall(raw.computer)
+		if (computer) call.computer = computer
 		const preview = raw.preview
 		if (
 			record(preview) &&

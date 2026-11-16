@@ -84,6 +84,7 @@ import {
 	type CompactionResult,
 	type CompactionSummaryRouter,
 	type CompletionInbox,
+	type ComputerUseObservation,
 	type CostInfo,
 	DiskSessionCheckpointStore,
 	DiskSessionLog,
@@ -1977,6 +1978,15 @@ export interface AgentSession {
 	 * the session has no computer use or does not hold the ref.
 	 */
 	readonly describeComputerUseRef?: (ref: string) => string | undefined
+	/**
+	 * What a `computer_use` call is about, for the review screen: the application it
+	 * works on and why it should be asked about even where that application was
+	 * allowed. Undefined for any other call or when the session has no computer use.
+	 */
+	readonly describeComputerUseCall?: (
+		name: string,
+		input: unknown,
+	) => Promise<{ app?: string; consequence?: string } | undefined>
 	send(messages: readonly Message[], opts?: SendOptions): AsyncIterable<AgentEvent>
 	/**
 	 * Continue a turn some OTHER process started, from its session log.
@@ -2809,6 +2819,12 @@ export interface AgentSessionOptions {
 	 * this capability merely because the package is installed.
 	 */
 	readonly enableComputerUse?: boolean
+	/**
+	 * Told what the model saw after a `computer_use` call that returned a screenshot,
+	 * made small. The desktop shows it beside the call; it never changes what the
+	 * model is given.
+	 */
+	readonly onComputerObservation?: (observation: ComputerUseObservation) => void
 	/**
 	 * See `NamzuCliConfig.decision`. When set, the optional, advisory
 	 * fail-open `decide` tool is mounted. Absent mounts nothing.
@@ -3778,7 +3794,12 @@ export async function createAgentSession(
 		try {
 			await candidate.initialize()
 			const advisor = createPickAdvisor(decisionPoints)
-			computerUseTool = createComputerUseTool(candidate, advisor ? { advisor } : {})
+			computerUseTool = createComputerUseTool(candidate, {
+				...(advisor ? { advisor } : {}),
+				...(options.onComputerObservation
+					? { onObservation: (seen) => options.onComputerObservation?.(seen) }
+					: {}),
+			})
 			// A host that loaded but reports no control at all (no screenshot,
 			// mouse, keyboard, clipboard or window access) would answer every
 			// call with its limitation. Read live, so the tool appears once the
@@ -6844,6 +6865,14 @@ export async function createAgentSession(
 		promptExemptTools: () =>
 			promptExemptToolNames(liveManager()).filter((name) => !goalToolNames.has(name)),
 		describeComputerUseRef: (ref) => computerUseTool?.describeUiRef(ref),
+		describeComputerUseCall: async (name, input) => {
+			if (name !== COMPUTER_USE_TOOL_NAME || !computerUseTool) return undefined
+			const app = await computerUseTool.appOf(input)
+			const consequence = computerUseTool.consequence(input)
+			return app || consequence
+				? { ...(app ? { app } : {}), ...(consequence ? { consequence } : {}) }
+				: undefined
+		},
 		send: (messages, opts) =>
 			operations.stream(opts?.signal, (signal) =>
 				(async function* () {
