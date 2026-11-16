@@ -309,6 +309,23 @@ export function FullscreenTranscript({
 		setOpen(next)
 	}, [open, index])
 	const boxRef = useRef<DOMElement>(null)
+	// How tall the box and the header really are, read after each frame. With a header, a
+	// conversation that is shorter than the box is drawn from its top, so the header opens the screen
+	// and the prompt stays at the bottom; once it fills the box the rows sit at the bottom and the
+	// top is clipped. Without a header the rows sit at the bottom, as they always did.
+	const headerBox = useRef<DOMElement>(null)
+	const boxHeight = useRef(maxRows)
+	const headerHeight = useRef(0)
+	const [, measured] = useState(0)
+	useEffect(() => {
+		const height = boxRef.current ? measureElement(boxRef.current).height : 0
+		const header = headerBox.current ? measureElement(headerBox.current).height : 0
+		if ((height > 0 && height !== boxHeight.current) || header !== headerHeight.current) {
+			if (height > 0) boxHeight.current = height
+			headerHeight.current = header
+			measured((n) => n + 1)
+		}
+	})
 	// Pages and the top clamp want the room actually on screen. It is only read
 	// when the reader acts, so it needs no state of its own.
 	const roomRef = useRef(maxRows)
@@ -498,12 +515,16 @@ export function FullscreenTranscript({
 				open: next,
 				detailed,
 			})
+			// A conversation that sits at the top of the window has nothing to hold in place: it
+			// keeps following, and grows downward.
 			place(
-				holdRow(viewNow.current, now.index, after.index, id, offset, {
-					height: room(),
-					footer: geometryRef.current.footer,
-					searching: searchRef.current !== null,
-				}),
+				viewNow.current.follow && geometryRef.current.packed !== undefined
+					? FOLLOWING
+					: holdRow(viewNow.current, now.index, after.index, id, offset, {
+							height: room(),
+							footer: geometryRef.current.footer,
+							searching: searchRef.current !== null,
+						}),
 			)
 			openRef.current = next
 			setOpen(next)
@@ -852,6 +873,11 @@ export function FullscreenTranscript({
 	)
 
 	const { from, to } = visibleRange(synced, index, maxRows)
+	const packedRows =
+		header && !hidden && !yielded && synced.follow && from === 0 && !search
+			? headerHeight.current + index.total
+			: Number.POSITIVE_INFINITY
+	const topAligned = packedRows <= boxHeight.current
 	const unseen = hasUnseen(synced, index)
 	const news =
 		!synced.follow && away.current && replies
@@ -890,6 +916,7 @@ export function FullscreenTranscript({
 		footer: footer ? 1 : 0,
 		left: 1 + SCREEN_PADDING + GUTTER,
 		cols: textWidth,
+		...(topAligned ? { packed: headerHeight.current } : {}),
 	}
 
 	const range =
@@ -946,11 +973,11 @@ export function FullscreenTranscript({
 			flexBasis={0}
 			{...(yielded ? { height: 0 } : {})}
 			overflowY="hidden"
-			justifyContent="flex-end"
+			justifyContent={topAligned ? 'flex-start' : 'flex-end'}
 		>
 			{hidden || yielded ? null : (
 				<Box flexDirection="column" flexShrink={0}>
-					{from === 0 && header ? <Box>{header}</Box> : null}
+					{from === 0 && header ? <Box ref={headerBox}>{header}</Box> : null}
 					{rows.slice(from, to).map((row, i) => {
 						if (overlay && from + i === to - 1) {
 							return (

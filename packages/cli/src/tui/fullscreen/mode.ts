@@ -1,7 +1,8 @@
 /**
  * Whether the terminal UI draws fullscreen: on the alternate screen, with its
- * own scrolling. Opt-in. `NAMZU_FULLSCREEN` wins over `tui.fullscreen`, and the
- * mode is only ever taken for a person at a real terminal.
+ * own scrolling and the pointer. On unless turned off: `NAMZU_FULLSCREEN=0` or
+ * `tui.fullscreen: false`. The environment wins over the setting, and the mode
+ * is only ever taken for a person at a real terminal.
  */
 
 const OFF = new Set(['', '0', 'false', 'no', 'off'])
@@ -30,5 +31,5 @@ export interface FullscreenWorld {
 
 export function resolveFullscreen(world: FullscreenWorld): boolean {
 	if (!world.interactive || world.hosted) return false
-	return fullscreenFromEnv(world.env) ?? world.setting ?? false
+	return fullscreenFromEnv(world.env) ?? world.setting ?? true
 }
