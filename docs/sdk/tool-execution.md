@@ -307,8 +307,8 @@ between them, and a change to the final newline only is `+1 -1` (a final newline
 `ToolDiffHunk`s (`oldStart`, `oldLines`, `newStart`, `newLines`, and `lines`, each a space, `+` or `-` followed
 by the line without its newline) with the context; a created file is one hunk of added lines. At most 400 rows
 are carried and each is cut at 500 characters; `hunksTruncated` says rows were left out, and the counts still
-cover all of the change. The model-facing receipts use the same counts: `Updated a (+2 -2)` for `write`,
-`Edited a: 4 replacement(s) (+4 -4)` for `edit`.
+cover all of the change. The model-facing receipts use the same counts: `Updated a (+2 -2) · 120 bytes` for `write`,
+`Edited a: 4 replacement(s) (+4 -4)` for `edit`, each followed by one sentence saying the file on disk is now exactly this.
 
 A saved conversation keeps `facts` in the `tool_completed` record. `admitToolFacts(value)` reads one back into the
 closed shape (any other field is dropped, and the text of a command's streams is not kept), which is what the

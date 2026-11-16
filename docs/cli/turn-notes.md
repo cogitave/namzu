@@ -50,3 +50,7 @@ From the second message on, the line is added only when the gap from the person'
 The line is written once, with the message, and stored beside it (`UserMessage.timeNote`, [Pasted text](../sdk/pasted-text.md) describes the other stored field). The model request puts it in front of the message; the message itself is what the person typed, so the transcript, a resumed conversation, an export and the Desktop bubble show no line, and a resume sends the same bytes. After a compaction that removed the person's earlier messages, the next message reads as a first one and says its time and zone again.
 
 The terminal and Desktop messages carry it. Sub-agents' prompts, goal rounds, peer messages and host notices do not, and neither does `namzu exec`: it sends one prompt in a script, where the model has no earlier message to be far from.
+
+## Tool results that name the next move
+
+Some results say what to do next because a wrong next move was common in the benchmark runs: a read-back after a write, a re-read of a file a refusal had just handed over, a guessed second path after "no such file", a write over a file nobody read, a search re-asked with an inline flag. The wording and the counts are in [File tools](../sdk/file-tool-limits.md#edit-and-write). They are clauses on results, not on tool descriptions, so they cost nothing until the moment they apply.

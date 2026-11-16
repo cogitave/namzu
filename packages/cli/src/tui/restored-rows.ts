@@ -298,7 +298,7 @@ function resultText(message: Message | undefined): string {
 const EDIT_RECEIPT = /^Edited .+?: (\d+) replacements?\(?s?\)? \(\+(\d+) -(\d+)\)/u
 
 const WRITE_RECEIPT =
-	/^(Created|Updated|Unchanged|Wrote) .+?(?: \(\+(\d+) -(\d+)\))?(?: · final newline changed)? · \d+ bytes$/u
+	/^(Created|Updated|Unchanged|Wrote) .+?(?: \(\+(\d+) -(\d+)\))?(?: · final newline changed)? · \d+ bytes(?:\. .*)?$/u
 
 /**
  * What a call did, as far as a saved receipt says. The journal keeps the
