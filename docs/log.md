@@ -2,6 +2,7 @@
 
 ## 2026-11-16
 
+- **Update** [Accounts in the terminal](cli/accounts.md#starting-on-an-account), [exec --json](cli/exec-json.md): `namzu exec --model` and `--provider` keep the account saved for that provider instead of dropping it (so a configured account no longer falls back to an environment key), and `exec` takes `--account <label>`; the same keeps for `exec --json` and a model chosen from an ACP client. `.changeset/cli-exec-model-keeps-account.md`.
 - **Update** [Browser tools](sdk/browser-tools.md#what-the-model-reads), [The browser host](sdk/browser-host.md#waiting-for-the-page-and-what-an-action-did), [The browser](cli/browser.md#how-the-model-is-told-to-work): an action that changed nothing visible now says what the page sent (`no visible change on the page; it sent 1 request.`, with `POST /path` inside the untrusted envelope; only fetch, XHR and document requests, no query string), carried as the optional `BrowserEffect.requests` and `requestCount`; and the web-task paragraph tells the model, when a step cannot be done or confirmed, to carry on with every other step the page allows and report the step left. `.changeset/browser-effect-names-requests.md`.
 
 ## 2026-11-15
