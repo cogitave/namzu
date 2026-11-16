@@ -324,8 +324,24 @@ flow(
 		await expect(line.locator(".turn-result-files")).toHaveText("2 files");
 		await expect(line.locator(".turn-result-added")).toContainText("+5");
 		await expect(line.locator(".turn-result-removed")).toContainText("0");
+		await only(async () => {
+			// The line names its two actions; they are drawn while the pointer is over it.
+			await line.hover();
+			await expect(line.getByRole("button", { name: "View changes" })).toBeVisible({ timeout: T });
+			await expect(line.getByRole("button", { name: "Undo", exact: true })).toBeVisible({ timeout: T });
+		});
 		await shot(w, "edit-turn");
 		await only(async () => {
+			// View changes opens the Changes panel on this turn; Undo opens the existing confirmation.
+			await line.getByRole("button", { name: "View changes" }).click();
+			await expect(w.page.getByRole("complementary", { name: "Changes" })).toBeVisible({ timeout: T });
+			await line.hover();
+			await line.getByRole("button", { name: "Undo", exact: true }).click();
+			const dialog = w.page.getByRole("dialog");
+			await expect(dialog.getByRole("button", { name: /^Undo 2 files/ })).toBeVisible({ timeout: T });
+			await shot(w, "edit-turn-undo");
+			await w.page.keyboard.press("Escape");
+			await expect(dialog).toBeHidden({ timeout: T });
 			// Both files are outputs, and the same two files the line counts.
 			await w.page.getByRole("button", { name: /^Outputs, 2 files$/ }).click();
 			await expect(w.page.locator("[data-output-row]")).toHaveCount(2);
