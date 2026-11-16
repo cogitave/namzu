@@ -66,6 +66,7 @@ function build(
 		commands?: HostCommandRegistry
 		supportsPromptAttachments?: boolean
 		supportsPromptOptions?: boolean
+		supportsPromptPasted?: boolean
 		promptPermissionModes?: readonly ('bypass' | 'classify')[]
 	} = {},
 ) {
@@ -76,6 +77,7 @@ function build(
 	const server = new ACPServer({
 		supportsPromptAttachments: over.supportsPromptAttachments,
 		supportsPromptOptions: over.supportsPromptOptions,
+		supportsPromptPasted: over.supportsPromptPasted,
 		promptPermissionModes: over.promptPermissionModes,
 		transport: wire.transport,
 		gateway,
@@ -2015,5 +2017,93 @@ describe('per-message prompt settings', () => {
 			})
 			await declared.server.stop()
 		}
+	})
+})
+
+describe('pasted ranges of a prompt', () => {
+	const sessionId = '7532c215-cbb2-46ec-9aaf-02bc9c60d6af'
+
+	async function ask(
+		over: Parameters<typeof build>[0],
+		params: Record<string, unknown>,
+	): Promise<{
+		received: unknown[]
+		reply: { result?: unknown; error?: { code: number } } | undefined
+		init: unknown
+	}> {
+		const received: unknown[] = []
+		const fixture = build({
+			...over,
+			gateway: {
+				prompt: async (request) => {
+					received.push(request.pasted)
+					return { stopReason: 'end_turn' }
+				},
+			},
+		})
+		await handshake(fixture)
+		fixture.deliver({
+			jsonrpc: '2.0',
+			id: 3,
+			method: 'session/prompt',
+			params: { sessionId, ...params },
+		})
+		await settle()
+		const reply = fixture.sent.find((frame) => frame.id === 3)
+		const init = fixture.sent.find((frame) => frame.id === 1)?.result
+		await fixture.server.stop()
+		return { received, reply, init }
+	}
+
+	it('announces the capability and hands checked ranges to the gateway', async () => {
+		const { received, init } = await ask(
+			{ supportsPromptPasted: true },
+			{ prompt: 'read this: HELLO WORLD', pasted: [{ start: 11, end: 22 }] },
+		)
+		expect(init).toMatchObject({ promptPasted: true })
+		expect(received).toEqual([[{ start: 11, end: 22 }]])
+	})
+
+	it('says nothing about it when the host does not frame pastes, and refuses ranges', async () => {
+		const { reply, init, received } = await ask(
+			{},
+			{ prompt: 'abc', pasted: [{ start: 0, end: 3 }] },
+		)
+		expect(init).not.toHaveProperty('promptPasted')
+		expect(reply?.error?.code).toBe(ACP_ERROR_CODES.INVALID_REQUEST)
+		expect(received).toEqual([])
+	})
+
+	it.each([
+		['past the end', [{ start: 0, end: 99 }]],
+		['empty', [{ start: 2, end: 2 }]],
+		[
+			'out of order',
+			[
+				{ start: 5, end: 8 },
+				{ start: 0, end: 3 },
+			],
+		],
+		[
+			'overlapping',
+			[
+				{ start: 0, end: 4 },
+				{ start: 3, end: 6 },
+			],
+		],
+		['not whole numbers', [{ start: 0.5, end: 2 }]],
+		['not a list', { start: 0, end: 2 }],
+	])('refuses ranges that are %s', async (_name, pasted) => {
+		const { reply, received } = await ask(
+			{ supportsPromptPasted: true },
+			{ prompt: 'abcdefgh', pasted },
+		)
+		expect(reply?.error?.code).toBe(ACP_ERROR_CODES.INVALID_PARAMS)
+		expect(received).toEqual([])
+	})
+
+	it('passes a plain prompt through with no ranges', async () => {
+		const { received } = await ask({ supportsPromptPasted: true }, { prompt: 'plain' })
+		expect(received).toEqual([undefined])
 	})
 })

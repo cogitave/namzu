@@ -1,3 +1,5 @@
+import { blankRanges } from './paste-chips.js'
+
 /**
  * The text a person typed to start a turn, or undefined when something else
  * did. A turn can begin with a user-role message the host wrote itself: the
@@ -10,7 +12,9 @@ export function typedInputOf(prompt: {
 	readonly text: string
 	readonly skillFlow?: true
 	readonly recallText?: string
+	readonly pasted?: readonly { readonly start: number; readonly end: number }[]
 }): string | undefined {
 	if (prompt.kind !== 'human' || prompt.skillFlow === true) return undefined
-	return prompt.recallText ?? prompt.text
+	// A paste is material, not the person's words: a `+500k` inside one sets nothing.
+	return blankRanges(prompt.recallText ?? prompt.text, prompt.pasted)
 }

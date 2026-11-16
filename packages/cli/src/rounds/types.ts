@@ -8,7 +8,7 @@
  * clock.
  */
 
-import type { GoalRoundAuthority, Message, MessageAttachment } from '@namzu/sdk'
+import type { GoalRoundAuthority, Message, MessageAttachment, PastedSpan } from '@namzu/sdk'
 
 import type { PeerMail } from '../integrations/peers/runtime.js'
 
@@ -33,6 +33,12 @@ export type QueuedPrompt<Trigger extends string = string> =
 			readonly recallable?: true
 			/** The typed command when a slash action expanded it into `text` for the model. */
 			readonly recallText?: string
+			/**
+			 * Which stretches of `text` the person pasted, each with the nonce that
+			 * frames it in the model request. Set only when `text` is exactly what
+			 * the composer held.
+			 */
+			readonly pasted?: readonly PastedSpan[]
 			/**
 			 * A slash command typed while a reply was running that waits for it to end.
 			 * `text` is the command as typed; at the front of the queue it runs as a

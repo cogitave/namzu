@@ -1,5 +1,7 @@
 import type { CompactionConfig } from '../config/runtime.js'
 import { EDIT_TOOLS, READ_TOOLS, SEARCH_TOOLS, SHELL_TOOLS } from '../constants/compaction/index.js'
+import { PASTED_MARKER, typedTextOf } from '../runtime/query/pasted-frames.js'
+import type { UserMessage } from '../types/message/index.js'
 import { type WorkingStateManager, truncateStateText } from './manager.js'
 
 function tryParseJson(raw: string): Record<string, unknown> | null {
@@ -185,11 +187,17 @@ function describeShape(value: unknown): string {
 	return typeof value
 }
 
+/**
+ * The operator's message as the task or a requirement. A message may be given
+ * whole: text the person pasted is material, not something they said, so it
+ * is left out of what is filed as theirs and a marker stands in its place.
+ */
 export function extractFromUserMessage(
 	manager: WorkingStateManager,
-	content: string,
+	message: string | UserMessage,
 	isFirst: boolean,
 ): void {
+	const content = typeof message === 'string' ? message : typedTextOf(message, PASTED_MARKER)
 	if (!content.trim()) return
 
 	if (isFirst) {

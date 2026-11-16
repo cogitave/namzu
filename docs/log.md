@@ -2,6 +2,7 @@
 
 ## 2026-11-16
 
+- **Update** [Pasted text](sdk/pasted-text.md): text a person pastes (a terminal paste chip, a long Desktop paste) reaches the model inside its own nonce-tagged frame with one line of guidance, stored beside the message as `UserMessage.pasted` so a resume sends the same bytes and nobody sees the frame; the memory curator, compaction state, auto-mode transcript, token target, title and `@path` mentions no longer read a paste as the person's words; ACP gains `pasted` and `promptPasted` ([Agent Client Protocol](sdk/agent-client-protocol.md)).
 - **Update** [Browser tools](sdk/browser-tools.md#what-the-model-reads), [The browser host](sdk/browser-host.md#waiting-for-the-page-and-what-an-action-did), [The browser](cli/browser.md#how-the-model-is-told-to-work): an action that changed nothing visible now says what the page sent (`no visible change on the page; it sent 1 request.`, with `POST /path` inside the untrusted envelope; only fetch, XHR and document requests, no query string), carried as the optional `BrowserEffect.requests` and `requestCount`; and the web-task paragraph tells the model, when a step cannot be done or confirmed, to carry on with every other step the page allows and report the step left. `.changeset/browser-effect-names-requests.md`.
 
 ## 2026-11-15

@@ -305,9 +305,28 @@ export interface SystemMessage extends BaseMessage {
 	source?: { readonly type: 'compaction-summary' }
 }
 
+/**
+ * A range of a user message's `content` that the person pasted. The nonce is
+ * drawn once, when the message is made, and stays with it: the request frames
+ * the range the same way every time the message is sent.
+ */
+export interface PastedSpan {
+	/** Offset of the first character, in UTF-16 units. */
+	readonly start: number
+	/** Offset after the last character. */
+	readonly end: number
+	/** Lowercase hex, unique to this range. */
+	readonly nonce: string
+}
+
 export interface UserMessage extends BaseMessage {
 	role: 'user'
 	content: string
+	/**
+	 * Ranges of `content` that were pasted. The content itself is what the
+	 * person saw; only the model request sets these ranges apart.
+	 */
+	pasted?: readonly PastedSpan[]
 	/** Optional image or document attachments. */
 	attachments?: readonly MessageAttachment[]
 	/** Host provenance for user-role input that was not authored by the operator. */

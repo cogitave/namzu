@@ -2547,7 +2547,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 					let isFirstUserMessage = true
 					for (const message of initialMessages) {
 						if (!isOperatorUserMessage(message) || !message.content.trim()) continue
-						extractFromUserMessage(workingStateManager, message.content, isFirstUserMessage)
+						extractFromUserMessage(workingStateManager, message, isFirstUserMessage)
 						isFirstUserMessage = false
 					}
 				}

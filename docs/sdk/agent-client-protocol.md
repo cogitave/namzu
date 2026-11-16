@@ -220,6 +220,8 @@ saved global preferences or change a currently running turn.
 
 Of the review modes, `bypass` and `classify` are accepted in prompt options only when the host lists them in `AcpServerOptions.promptPermissionModes`, advertised at initialization as `promptPermissionModes`. Without that, a prompt that asks for either fails with `INVALID_PARAMS` (`This agent does not accept the "bypass" permission mode in prompt settings.`) before a turn starts. The CLI declares both and then applies `permissions.disableBypassMode`, the root guard and the auto-mode model check to the turn.
 
+`AcpSessionPromptParams.pasted` optionally lists the stretches of `prompt` the person pasted, as `{ start, end }` in UTF-16 units. The host opts in with `supportsPromptPasted: true`, advertised as `promptPasted: true`. A list that is not in order, overlaps, is empty, reaches past the prompt or holds more than 64 entries fails with `INVALID_PARAMS`, and a host that did not opt in refuses the field. The gateway sets those stretches apart in the model request ([Pasted text](pasted-text.md)); a prompt that arrives as plain text, with no ranges, stays as it is. The CLI opts in.
+
 ## What the host says about its engine
 
 `initialize` answers with an optional `kernel` object: `engine` (the SDK's version) and `dataEpoch` always,

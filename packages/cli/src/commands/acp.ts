@@ -20,6 +20,7 @@ import {
 	generateSessionId,
 	genericLabel,
 	isEntityId,
+	newPasteNonce,
 	openSessionIndex,
 } from '@namzu/sdk'
 
@@ -1052,6 +1053,7 @@ export function createCliAcpRuntime(
 			prompt,
 			attachments,
 			options,
+			pasted,
 			cwd,
 			onEvent,
 			signal,
@@ -1142,7 +1144,16 @@ export function createCliAcpRuntime(
 							}
 					}
 				}
-				const messages = [...(history as Message[]), createUserMessage(prompt, attachments)]
+				const typed = createUserMessage(prompt, attachments)
+				// The host checked the ranges against `prompt`; each gets its own nonce, kept
+				// with the message so every request and a resume frame it the same way.
+				const userMessage: Message = pasted?.length
+					? {
+							...typed,
+							pasted: pasted.map((range) => ({ ...range, nonce: newPasteNonce(prompt) })),
+						}
+					: typed
+				const messages = [...(history as Message[]), userMessage]
 				const settings = validateComposerSendSettings(
 					options,
 					record.session,
@@ -2102,6 +2113,7 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 	const server: ACPServer = new ACPServer({
 		supportsPromptAttachments: true,
 		supportsPromptOptions: true,
+		supportsPromptPasted: true,
 		// `assertModeAllowed` below applies the settings that shut either door.
 		promptPermissionModes: ['bypass', 'classify'],
 		supportsTaskNotifications: desktop,
