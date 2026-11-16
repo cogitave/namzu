@@ -292,7 +292,7 @@ describe('the assembled prompts', () => {
 		// A lean main prompt is part of how many requests a task costs. The pieces a
 		// default interactive session sends before the environment block (identity,
 		// working rules, delegation, where files go, memory, deferred-tool
-		// guidance) stay under about 9,000 characters; the environment block is measured
+		// guidance) stay under about 9,500 characters; the environment block is measured
 		// separately so the bound does not move with the host.
 		const pieces = [
 			NAMZU_IDENTITY,
@@ -302,7 +302,7 @@ describe('the assembled prompts', () => {
 			composeMemoryGuidance({ taskList: true }),
 			DEFERRED_TOOL_GUIDANCE,
 		]
-		expect(pieces.join('\n\n').length).toBeLessThan(9_300)
+		expect(pieces.join('\n\n').length).toBeLessThan(9_600)
 		expect(composeMemoryGuidance({ taskList: true }).length).toBeGreaterThan(600)
 		expect(composeMemoryGuidance({ taskList: true }).length).toBeLessThan(950)
 		for (const [name, text] of assembled()) {
@@ -338,6 +338,21 @@ describe('the assembled prompts', () => {
 			/stop and ask|Reserve blocking questions|Ask for clarification|check in only when/,
 		)
 		expect(SUBAGENT_PROMPT).not.toContain('tell the user the command')
+	})
+
+	it('tells the parent to confirm risky actions first and a sub-agent to leave them alone', () => {
+		// Hard to reverse or outward-facing actions are confirmed before they run;
+		// a sub-agent has no one to confirm with, so it does not take them unless
+		// the task asks for exactly that.
+		expect(NAMZU_WORKING_DOCTRINE).toContain(
+			'Confirm first before an action that is hard to reverse',
+		)
+		expect(NAMZU_WORKING_DOCTRINE).toContain('Never type a credential the user did not give you')
+		expect(NAMZU_CHILD_WORKING_DOCTRINE).not.toContain('Confirm first')
+		expect(NAMZU_CHILD_WORKING_DOCTRINE).toContain(
+			'Do not take an action that is hard to reverse or visible outside this machine',
+		)
+		expect(NAMZU_CHILD_WORKING_DOCTRINE).toContain('Never type a credential')
 	})
 })
 
