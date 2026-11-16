@@ -70,6 +70,8 @@ export function createWorkspacePaneApi(
 		listProjectDirectory,
 		projectFileIndex,
 		readProjectFile,
+		readSessionOutput,
+		openSessionOutput,
 		resolveProjectLinks,
 		openProjectPath,
 		projectEditors,
@@ -466,6 +468,17 @@ export function createWorkspacePaneApi(
 		...(readProjectFile
 			? {
 					readProjectFile: (id, path) => invoke(() => readProjectFile(id, path), []),
+				}
+			: {}),
+		...(readSessionOutput
+			? {
+					readSessionOutput: (owner, path) => invoke(() => readSessionOutput(owner, path), [owner]),
+				}
+			: {}),
+		...(openSessionOutput
+			? {
+					openSessionOutput: (owner, path, target) =>
+						invoke(() => openSessionOutput(owner, path, target), [owner]),
 				}
 			: {}),
 		...(resolveProjectLinks

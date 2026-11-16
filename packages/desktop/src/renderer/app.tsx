@@ -119,6 +119,7 @@ import {
 	activatePanelTab,
 	activeFilePath,
 	activityTab,
+	addPanelTab,
 	browsePanelTabs,
 	changesTab,
 	clampPanelWidth,
@@ -127,6 +128,7 @@ import {
 	emptyPanelTabs,
 	ensurePanelTab,
 	openFileTab,
+	outputsTab,
 	panelKindOf,
 	readPanelTabs,
 	readPanelWidth,
@@ -189,6 +191,8 @@ import {
 import { normalConversationProject } from './normal-conversation.js'
 import { noticeClickAction } from './notice-target.js'
 import { dismissNotice, notify } from './notify.js'
+import { outputFiles, outputToOpen } from './outputs-model.js'
+import { OutputsPanel } from './outputs-panel.js'
 import { PalChatTranscript } from './pal-chat-transcript.js'
 import { PalCommunicationDialog, type PalSettingsTab } from './pal-communication-dialog.js'
 import {
@@ -1184,9 +1188,12 @@ export function App({
 		[sessionId],
 	)
 	// A conversation that cannot show files never lists file tabs, though it keeps them stored.
+	// What a conversation wrote can be shown for any conversation that has a folder of its own to read from.
+	const outputsEnabled = Boolean(api.readSessionOutput && !palConversation && sessionId)
 	const panelAllows = useCallback(
-		(tab: PanelTab) => filesEnabled || tab.kind !== 'file',
-		[filesEnabled],
+		(tab: PanelTab) =>
+			tab.kind === 'outputs' ? outputsEnabled : filesEnabled || tab.kind !== 'file',
+		[filesEnabled, outputsEnabled],
 	)
 	const listedTabs = useMemo(
 		() => panelTabs.tabs.filter(panelAllows),
@@ -1196,6 +1203,34 @@ export function App({
 	const panelView: PanelView =
 		filesEnabled && panelTabs.browsing ? 'browse' : (shownPanelTab?.kind ?? 'empty')
 	const changesPaneOpen = detailsOpen && panelView === 'changes'
+	// What the conversation wrote, from the receipts the Changes panel reads.
+	const outputs = useMemo(
+		() => (outputsEnabled ? outputFiles(thread) : []),
+		[outputsEnabled, thread],
+	)
+	const [outputPick, setOutputPick] = useState<{ sessionId: string; path?: string }>()
+	const pickedOutput = outputPick?.sessionId === sessionId ? outputPick.path : undefined
+	const pickOutput = useCallback(
+		(path: string | undefined) => setOutputPick({ sessionId, path }),
+		[sessionId],
+	)
+	// The versions of each output already known, so only a write made after this is news.
+	const outputsSeen = useRef(new Map<string, Map<string, number>>())
+	// biome-ignore lint/correctness/useExhaustiveDependencies: only a change to the outputs or a turn starting or ending decides.
+	useEffect(() => {
+		if (!sessionId || historyPending) return
+		const seen = outputsSeen.current.get(sessionId) ?? new Map<string, number>()
+		outputsSeen.current.set(sessionId, seen)
+		const news = thread.running ? outputToOpen(outputs, seen) : undefined
+		for (const file of outputs) seen.set(file.path, file.version)
+		if (outputs.length > 0) updatePanelTabs((state) => addPanelTab(state, outputsTab))
+		// A page or a document a turn just wrote opens by itself, in the pane, with the page drawn.
+		if (news) {
+			setOutputPick({ sessionId, path: news.path })
+			updatePanelTabs((state) => ensurePanelTab(state, outputsTab))
+			setJobsOpen(true)
+		}
+	}, [sessionId, outputs, thread.running, historyPending])
 	const sideCollapsedNow = useRef(sideCollapsed)
 	sideCollapsedNow.current = sideCollapsed
 	// biome-ignore lint/correctness/useExhaustiveDependencies: only the pane opening or closing decides.
@@ -1220,9 +1255,12 @@ export function App({
 		panelView === 'file' ? activeFilePath({ ...panelTabs, active: shownPanelTab }) : undefined
 	/** Makes sure Changes or Activity is a tab, and shows it. */
 	const showPanelTab = useCallback(
-		(tab: 'activity' | 'changes') =>
+		(tab: 'activity' | 'changes' | 'outputs') =>
 			updatePanelTabs((state) =>
-				ensurePanelTab(state, tab === 'changes' ? changesTab : activityTab),
+				ensurePanelTab(
+					state,
+					tab === 'changes' ? changesTab : tab === 'outputs' ? outputsTab : activityTab,
+				),
 			),
 		[updatePanelTabs],
 	)
@@ -6793,6 +6831,16 @@ export function App({
 							added={totals.added}
 							removed={totals.removed}
 							disabled={loading || harnessBusy || frozen}
+							outputs={outputs.length}
+							outputsOpen={detailsOpen && panelView === 'outputs'}
+							onOutputs={
+								outputsEnabled && !activeTerminal
+									? () => {
+											showPanelTab('outputs')
+											setJobsOpen(true)
+										}
+									: undefined
+							}
 							changesOpen={detailsOpen && panelView === 'changes'}
 							filesOpen={detailsOpen && (panelView === 'file' || panelView === 'browse')}
 							onChanges={
@@ -7668,9 +7716,11 @@ export function App({
 								? 'Activity'
 								: panelView === 'changes'
 									? 'Changes'
-									: panelView === 'empty'
-										? 'Side panel'
-										: 'Project files'
+									: panelView === 'outputs'
+										? 'Outputs'
+										: panelView === 'empty'
+											? 'Side panel'
+											: 'Project files'
 						}
 					>
 						<PanelResizeHandle
@@ -7726,6 +7776,7 @@ export function App({
 									active={shownPanelTab}
 									browsing={panelView === 'browse'}
 									canBrowse={filesEnabled}
+									canOutputs={outputsEnabled}
 									running={detailsWork.state === 'known' ? detailsWork.running : 0}
 									attention={needsAttention}
 									expanded={panelExpanded}
@@ -7736,7 +7787,13 @@ export function App({
 									onClose={(tab) => updatePanelTabs((state) => closePanelTab(state, tab))}
 									onOpenTab={(tab) => {
 										if (tab.kind === 'changes') setChangesFilter(undefined)
-										showPanelTab(tab.kind === 'changes' ? 'changes' : 'activity')
+										showPanelTab(
+											tab.kind === 'changes'
+												? 'changes'
+												: tab.kind === 'outputs'
+													? 'outputs'
+													: 'activity',
+										)
 									}}
 									onBrowse={() => updatePanelTabs(browsePanelTabs)}
 									onToggleExpanded={() => setPanelExpanded((value) => !value)}
@@ -7753,9 +7810,11 @@ export function App({
 									? 'Activity'
 									: panelView === 'changes'
 										? 'Changes'
-										: panelView === 'empty'
-											? 'Side panel'
-											: 'Project files'
+										: panelView === 'outputs'
+											? 'Outputs'
+											: panelView === 'empty'
+												? 'Side panel'
+												: 'Project files'
 							}
 							style={{ display: 'contents' }}
 						>
@@ -7777,6 +7836,20 @@ export function App({
 									onOpenPath={openProjectFile}
 									onNotice={announce}
 									refreshToken={filesRefresh}
+								/>
+							) : panelView === 'outputs' ? (
+								<OutputsPanel
+									api={api}
+									sessionId={sessionId}
+									outputs={outputs}
+									selected={pickedOutput}
+									onSelect={pickOutput}
+									onNotice={announce}
+									dark={
+										appearance === 'dark' ||
+										(appearance === 'system' &&
+											window.matchMedia('(prefers-color-scheme: dark)').matches)
+									}
 								/>
 							) : panelView === 'empty' ? (
 								<div className="panel-empty">

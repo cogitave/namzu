@@ -1,7 +1,14 @@
 import { Menu } from '@base-ui/react/menu'
 import { Fragment, type ReactNode } from 'react'
 import { formatLineCount } from './changes-totals.js'
-import { CheckIcon, FileDiffIcon, FileTextIcon, PencilIcon, TerminalIcon } from './icons.js'
+import {
+	CheckIcon,
+	FileDiffIcon,
+	FileTextIcon,
+	ImageIcon,
+	PencilIcon,
+	TerminalIcon,
+} from './icons.js'
 import { Button } from './ui/button.js'
 import './conversation-bar.css'
 import { MENU_OFFSET } from './menu-metrics.js'
@@ -56,6 +63,10 @@ export interface ConversationBarProps {
 	removed?: number
 	onChanges?: () => void
 	onFiles?: () => void
+	/** The files the conversation wrote; the button opens the Outputs tab. */
+	outputs?: number
+	onOutputs?: () => void
+	outputsOpen?: boolean
 	/** The panel that button opens is open now: the button carries a light fill. */
 	changesOpen?: boolean
 	filesOpen?: boolean
@@ -229,6 +240,9 @@ export function ConversationBar({
 	removed = 0,
 	onChanges,
 	onFiles,
+	outputs = 0,
+	onOutputs,
+	outputsOpen,
 	changesOpen,
 	filesOpen,
 	terminals,
@@ -269,6 +283,24 @@ export function ConversationBar({
 								<span className="conversation-bar-removed">−{formatLineCount(removed)}</span>
 							</span>
 						)}
+					</Button>
+				)}
+				{onOutputs && outputs > 0 && (
+					<Button
+						type="button"
+						variant="ghost-muted"
+						size="icon-sm"
+						className="conversation-bar-button conversation-bar-outputs"
+						aria-label={`Outputs, ${outputs} ${outputs === 1 ? 'file' : 'files'}`}
+						title="Outputs"
+						aria-pressed={outputsOpen ? true : undefined}
+						data-open={outputsOpen || undefined}
+						onClick={onOutputs}
+					>
+						<ImageIcon aria-hidden="true" />
+						<span className="conversation-bar-lines" aria-hidden="true">
+							{outputs}
+						</span>
 					</Button>
 				)}
 				{drafts && drafts.length > 0 && onSelectDraft && (

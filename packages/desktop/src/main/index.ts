@@ -1384,6 +1384,10 @@ function register(): void {
 	)
 	handle('projectFileIndex', (id: string) => operator.projectFileIndex(id))
 	handle('readProjectFile', (id: string, path: string) => operator.readProjectFile(id, path))
+	handle('readSessionOutput', (id: string, path: string) => operator.readSessionOutput(id, path))
+	handle('openSessionOutput', (id: string, path: string, target: 'browser' | 'file-manager') =>
+		operator.openSessionOutput(id, path, target),
+	)
 	handle('resolveProjectLinks', (id: string, refs: string[]) =>
 		operator.resolveProjectLinks(id, refs),
 	)
