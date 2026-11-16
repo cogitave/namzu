@@ -857,7 +857,10 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 				// not read off a stored map. See `availability` above.
 				const availability = this.availability(toolName)
 				if (availability !== 'active') {
-					const msg = `Tool "${toolName}" is ${availability} and cannot be executed`
+					const msg =
+						availability === 'deferred'
+							? `Tool "${toolName}" is not loaded yet. Call search_tools with its exact name, then call it again.`
+							: `Tool "${toolName}" is ${availability} and cannot be executed`
 					this.log.warn(msg)
 					span.setAttributes({
 						[NAMZU.TOOL_SUCCESS]: false,

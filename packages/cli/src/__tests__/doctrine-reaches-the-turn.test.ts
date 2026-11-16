@@ -97,7 +97,11 @@ function detectedAnthropic(): DetectedProvider[] {
 
 async function openSessionIn(cwd: string) {
 	const { createAgentSession } = await import('../tui/agent.js')
-	return createAgentSession(prefs, detectedAnthropic(), { cwd, web: { search: 'off' } })
+	return createAgentSession(prefs, detectedAnthropic(), {
+		toolLoading: 'eager',
+		cwd,
+		web: { search: 'off' },
+	})
 }
 
 async function drive(cwd: string): Promise<Record<string, unknown>> {

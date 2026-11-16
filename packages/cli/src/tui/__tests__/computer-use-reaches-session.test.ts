@@ -255,6 +255,7 @@ async function createSession(
 		provider === 'openai' ? imagelessPrefs : prefs,
 		provider === 'openai' ? imagelessDetected : detected,
 		{
+			toolLoading: 'eager',
 			cwd: workDir,
 			enableComputerUse,
 			...(withBrowser ? { browser: { profile: 'work', sites: { '*': 'ask' as const } } } : {}),
@@ -344,6 +345,7 @@ describe('computer use session reachability', () => {
 				'read_memory',
 				'save_memory',
 				'computer_use',
+				'monitor',
 				'Agent',
 				'update_memory',
 				'wait_for_task',
@@ -439,6 +441,7 @@ describe('computer use session reachability', () => {
 				{ ...prefs, providers: [{ id: 'anthropic', model: 'text-only-model' }] } as Preferences,
 				detected,
 				{
+					toolLoading: 'eager',
 					cwd: workDir,
 					enableComputerUse: true,
 					routing: { default: { provider: 'anthropic', model: 'text-only-model' } },
@@ -471,7 +474,10 @@ describe('computer use session reachability', () => {
 			const pinned = await createAgentSession(
 				{ ...prefs, providers: [{ id: 'anthropic', model: 'text-only-model' }] } as Preferences,
 				detected,
-				{ cwd: workDir },
+				{
+					toolLoading: 'eager',
+					cwd: workDir,
+				},
 			)
 			open.push(pinned)
 			expect(pinned.imageAttachmentsSupported).toBe(false)
@@ -501,7 +507,11 @@ describe('computer use session reachability', () => {
 		const { createAgentSession } = await import('../agent.js')
 		const stateRoot = join(workDir, 'state')
 		mkdirSync(stateRoot, { recursive: true })
-		const session = await createAgentSession(prefs, detected, { cwd: workDir, stateRoot })
+		const session = await createAgentSession(prefs, detected, {
+			toolLoading: 'eager',
+			cwd: workDir,
+			stateRoot,
+		})
 		open.push(session)
 		for await (const _ of session.send([{ role: 'user', content: 'a' } as never])) {
 			// drain into the mocked kernel boundary
@@ -528,6 +538,7 @@ describe('decision tool reachability', () => {
 	it('mounts `decide` when a decision provider is configured, and omits it otherwise', async () => {
 		const { createAgentSession } = await import('../agent.js')
 		const withDecision = await createAgentSession(prefs, detected, {
+			toolLoading: 'eager',
 			cwd: workDir,
 			decision: {
 				provider: 'azure',

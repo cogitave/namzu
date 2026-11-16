@@ -37,6 +37,8 @@ const detected: DetectedProvider[] = [
 		alternatives: [],
 	},
 ]
+// What a session sends before anything is loaded: the file and shell tools,
+// the skill tool, the delegation tool and discovery.
 const core = [
 	'bash',
 	'edit',
@@ -46,10 +48,18 @@ const core = [
 	'wait_for_job',
 	'read',
 	'write',
-	'web_search',
-	'web_fetch',
 	// Eager so the built-in skills are one call away.
 	'skill',
+	'Agent',
+]
+// Deferred by default: named in the catalogue, loaded through search_tools.
+const deferredByDefault = [
+	'web_search',
+	'web_fetch',
+	'save_memory',
+	'task_create',
+	'task_list',
+	'monitor',
 ]
 const save = {
 	title: 'Fixture fact',
@@ -142,11 +152,7 @@ afterEach(() => {
 })
 
 describe('explicit tool loading reaches the real session and query', () => {
-	it('retains existing eager schemas when no loading is chosen and nothing is deferred', async () => {
-		// The monitor tool is offered deferred wherever background work is on,
-		// which would put `search_tools` in every request; this case is about
-		// the roster when nothing is deferred.
-		vi.stubEnv('NAMZU_DISABLE_BACKGROUND_TASKS', '1')
+	it('defers every schema outside the resident set when no loading is chosen', async () => {
 		mockProvider(() => response())
 		const session = await open({})
 		try {
@@ -154,17 +160,61 @@ describe('explicit tool loading reaches the real session and query', () => {
 				// Drain the real query through the fake provider transport.
 			}
 			expect(requests).toHaveLength(1)
+			const sent = names(requests[0])
+			expect(sent).toEqual([...core, 'search_tools'].sort())
+			for (const name of deferredByDefault) expect(sent).not.toContain(name)
+			const prompt = JSON.stringify(requests[0].messages)
+			expect(prompt).toContain('<deferred_tools>')
+			for (const name of deferredByDefault) expect(prompt).toContain(name)
+		} finally {
+			await session.close()
+		}
+	})
+
+	it('keeps every schema when loading is eager and background work is off', async () => {
+		vi.stubEnv('NAMZU_DISABLE_BACKGROUND_TASKS', '1')
+		mockProvider(() => response())
+		const session = await open({ toolLoading: 'eager' })
+		try {
+			for await (const _ of session.send([createUserMessage('Inspect the fixture')])) {
+				// Drain the real query through the fake provider transport.
+			}
+			expect(requests).toHaveLength(1)
 			expect(names(requests[0])).toEqual(
-				expect.arrayContaining([...core, 'Agent', 'save_memory', 'task_create', 'task_list']),
+				expect.arrayContaining([
+					...core,
+					'web_search',
+					'web_fetch',
+					'save_memory',
+					'task_create',
+					'task_list',
+				]),
 			)
 			expect(names(requests[0])).not.toContain('search_tools')
-			// Unchanged by `narrate_work`, which mounts only where an operator
-			// is watching (`askUser`) and so is absent from this headless
-			// session — see the pair of cases below.
-			// The owner's Pals (`list_pals`, `send_pal_message`) are mounted but not
-			// sent while the owner has none, as here (see operator-tools.test.ts).
 			expect(names(requests[0])).toHaveLength(25)
 			expect(JSON.stringify(requests[0].messages)).not.toContain('Before using a tool listed under')
+		} finally {
+			await session.close()
+		}
+	})
+
+	it('answers a call to a tool that is not loaded with a short note naming search_tools', async () => {
+		mockProvider((_request, index) =>
+			index === 0
+				? response({ name: 'task_create', input: { subject: 'Check fixture evidence' } })
+				: response(),
+		)
+		const session = await open({})
+		try {
+			const events: AgentEvent[] = []
+			for await (const event of session.send([createUserMessage('Track the check')]))
+				events.push(event)
+			expect(events.at(-1), JSON.stringify(events)).toMatchObject({ kind: 'done' })
+			// The refusal is one tool result; the model is asked again, not stopped.
+			expect(requests).toHaveLength(2)
+			const result = JSON.stringify(requests[1].messages.at(-1))
+			expect(result).toContain('search_tools')
+			expect(result).not.toContain('Task created:')
 		} finally {
 			await session.close()
 		}
@@ -179,7 +229,7 @@ describe('explicit tool loading reaches the real session and query', () => {
 			}
 			expect(requests).toHaveLength(1)
 			expect(names(requests[0])).toEqual(
-				expect.arrayContaining([...core, 'Agent', 'save_memory', 'task_create', 'task_list']),
+				expect.arrayContaining([...core, 'save_memory', 'task_create', 'task_list']),
 			)
 			expect(names(requests[0])).toContain('monitor')
 			expect(names(requests[0])).not.toContain('search_tools')
@@ -212,7 +262,8 @@ describe('explicit tool loading reaches the real session and query', () => {
 			for await (const _ of watched.send([createUserMessage('Inspect the fixture')])) {
 				// Drain the real query through the fake provider transport.
 			}
-			expect(names(requests[0])).toContain('narrate_work')
+			expect(names(requests[0])).toContain('ask_user_question')
+			expect(names(requests[0])).not.toContain('narrate_work')
 		} finally {
 			await watched.close()
 		}
@@ -229,18 +280,7 @@ describe('explicit tool loading reaches the real session and query', () => {
 				// No network capability is configured for this send.
 			}
 			expect(requests).toHaveLength(1)
-			expect(names(requests[0])).toEqual([
-				'bash',
-				'edit',
-				'glob',
-				'grep',
-				'job',
-				'read',
-				'search_tools',
-				'skill',
-				'wait_for_job',
-				'write',
-			])
+			expect(names(requests[0])).toEqual([...core, 'search_tools'].sort())
 		} finally {
 			await session.close()
 		}
@@ -305,7 +345,7 @@ describe('explicit tool loading reaches the real session and query', () => {
 					'<deferred_tools>',
 					'Agent',
 					'save_memory',
-					'Only when a needed deferred tool schema is absent',
+					'A tool listed under deferred_tools has no schema until it is loaded',
 				])
 					expect(prompt).toContain(retained)
 				expect(

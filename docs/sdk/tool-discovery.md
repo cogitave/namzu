@@ -145,3 +145,24 @@ Generated planning tools require `query()`'s `taskStore`; caller toolsets alone
 do not enable `task_create`, `task_update` and `task_list`. See
 [task tracking](task-tracking.md) for planning state, delegated invocation
 handles and host composition.
+
+## The CLI defers by default
+
+`@namzu/cli` builds every agent session (terminal, `exec`, ACP and the
+Desktop host, Pal sessions) with `toolLoading: 'deferred'` unless the caller
+passes `'eager'`. Only a resident set sends its schema on every request:
+`read`, `glob`, `grep`, `write`, `edit`, `bash`, `job` and `wait_for_job` (the
+bash description sends the model to both), `skill`, `search_tools`, the
+delegation tool `Agent` and `ask_user_question`. Everything else, including
+web search and fetch, conversation search and read, the memory, task and
+session-cost tools, the workflow and coordinator tools, `browser`,
+`browser_act`, `computer_use`, `code_analysis`, `monitor` and every MCP tool,
+is listed in the system prompt under `<deferred_tools>` with its name and a
+one-line purpose, and its schema arrives through `search_tools`.
+
+A call to a deferred tool before it is loaded is refused with one short
+result, `Tool "<name>" is not loaded yet. Call search_tools with its exact
+name, then call it again.`; the turn goes on. The memory, conversation-evidence
+and web-task sections of the prompt say the same where they name a tool that
+may be deferred. `toolLoading: 'eager'` brings back the old roster, every
+schema on every request.

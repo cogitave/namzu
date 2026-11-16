@@ -72,6 +72,7 @@ async function conversation(
 	const provider = new MockLLMProvider({ turns })
 	vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
 	const session = await createAgentSession(preferences, detected, {
+		toolLoading: 'eager',
 		cwd,
 		stateRoot: home,
 		conversationSessions: catalogue,

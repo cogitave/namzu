@@ -88,6 +88,7 @@ it('does not offer conversation search without host-owned conversation storage',
 	const provider = new MockLLMProvider({ turns: [{ text: 'No historical search configured.' }] })
 	vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
 	const session = await createAgentSession(preferences, detected, {
+		toolLoading: 'eager',
 		cwd,
 		sandbox: { enabled: false },
 		ephemeral: true,
@@ -112,6 +113,7 @@ it('offers conversation search over the session log the host owns', async () => 
 	const provider = new MockLLMProvider({ turns: [{ text: 'Searched.' }] })
 	vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
 	const session = await createAgentSession(preferences, detected, {
+		toolLoading: 'eager',
 		cwd,
 		stateRoot: sessions.root,
 		conversationSessions: sessions,
@@ -154,6 +156,7 @@ it('finds and reads an earlier answer in the session log a real turn wrote', asy
 	})
 	vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
 	const session = await createAgentSession(preferences, detected, {
+		toolLoading: 'eager',
 		cwd,
 		stateRoot: sessions.root,
 		conversationSessions: sessions,
@@ -223,6 +226,7 @@ describe('the pointer at the end of a compaction summary the host asks for', () 
 			provider: new MockLLMProvider({ turns: [] }),
 		} as never)
 		const mounted = await createAgentSession(preferences, detected, {
+			toolLoading: 'eager',
 			cwd,
 			stateRoot: sessions.root,
 			conversationSessions: sessions,
@@ -238,6 +242,7 @@ describe('the pointer at the end of a compaction summary the host asks for', () 
 		})
 		opened.push(mounted)
 		const bare = await createAgentSession(preferences, detected, {
+			toolLoading: 'eager',
 			cwd,
 			sandbox: { enabled: false },
 			ephemeral: true,

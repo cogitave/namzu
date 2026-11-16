@@ -86,6 +86,11 @@ describe('the session system prompt', () => {
 		expect(offered.replace(`${WORKFLOW_DOCTRINE}\n\n`, '')).toBe(resumed)
 	})
 
+	// A section that names a tool a deferring session does not send ends with
+	// one line saying how to load it; that line goes with the deferral.
+	const withoutLoadNotes = (text: string) =>
+		text.replace(/\n[^\n]*are deferred: load [^\n]*before the first call\./g, '')
+
 	it.each([
 		[
 			'the Agent tool is withheld',
@@ -104,14 +109,20 @@ describe('the session system prompt', () => {
 		expect(full).toContain(gone)
 		expect(less).not.toContain(gone)
 		expect(less.length).toBeLessThan(full.length)
-		expect(full.replace(gone, '').replace(/\n{3,}/g, '\n\n')).toBe(less)
+		expect(
+			withoutLoadNotes(full)
+				.replace(gone, '')
+				.replace(/\n{3,}/g, '\n\n'),
+		).toBe(withoutLoadNotes(less))
 	})
 
 	it('says how to go about a web task only when the browser tools were mounted, and the same on a resumed turn', () => {
 		const withTask = fromFacts({ browserWebTask: BROWSER_WEB_TASK_GUIDANCE })
 		expect(withTask).toContain(BROWSER_WEB_TASK_GUIDANCE)
 		expect(fromFacts({ browserWebTask: undefined })).not.toContain('Working on a website')
-		expect(withTask.replace(`${BROWSER_WEB_TASK_GUIDANCE}\n\n`, '')).toBe(fromFacts())
+		expect(withoutLoadNotes(withTask).replace(`${BROWSER_WEB_TASK_GUIDANCE}\n\n`, '')).toBe(
+			withoutLoadNotes(fromFacts()),
+		)
 		expect(
 			fromFacts({ browserWebTask: BROWSER_WEB_TASK_GUIDANCE }, { workflowOffered: false }),
 		).toBe(withTask)
@@ -133,6 +144,20 @@ describe('the session system prompt', () => {
 		]) {
 			expect(BROWSER_WEB_TASK_GUIDANCE).toContain(part)
 		}
+	})
+
+	it('tells a deferring session to load the tools a section names, and an eager one nothing', () => {
+		const sections = { browserWebTask: BROWSER_WEB_TASK_GUIDANCE, memoryGuidance: 'MEMORY' }
+		const deferring = fromFacts(sections)
+		expect(deferring).toContain(
+			'The browser tools (browser, browser_act) are deferred: load them with search_tools',
+		)
+		expect(deferring).toContain(
+			'The memory tools (save_memory, update_memory, search_memory, read_memory) are deferred',
+		)
+		expect(deferring).toContain('search_conversation and read_conversation are deferred')
+		const eager = fromFacts({ ...sections, anyToolDeferred: false, toolLoading: 'eager' })
+		expect(eager).not.toContain('search_tools')
 	})
 
 	it('treats deferred tool loading as deferred even when no tool is marked', () => {
