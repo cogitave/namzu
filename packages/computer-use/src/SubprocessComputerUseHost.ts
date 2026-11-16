@@ -144,6 +144,8 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 	private a11y: AccessibilityBackend | undefined
 	private idleTimer: NodeJS.Timeout | undefined
 	private busy = 0
+	/** Counts every call start, so a release can tell that one began while it was winding down. */
+	private useEpoch = 0
 
 	constructor(private readonly options: SubprocessComputerUseHostOptions = {}) {
 		const displayServer = detectDisplayServer(options.env, options.platform)
@@ -517,7 +519,10 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 				this.armIdleRelease()
 				return
 			}
-			void this.adapter?.release?.().catch(() => undefined)
+			const epoch = this.useEpoch
+			void this.adapter
+				?.release?.(() => this.busy === 0 && this.useEpoch === epoch)
+				.catch(() => undefined)
 		}, wait)
 		this.idleTimer.unref?.()
 	}
@@ -544,6 +549,7 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 	private requireAdapter(): Adapter {
 		if (this.ladder?.stopped) throw new ComputerUseStoppedError()
 		// A call is starting: the idle stretch starts over.
+		this.useEpoch += 1
 		this.armIdleRelease()
 		if (!this.adapter) {
 			throw new Error(

@@ -482,7 +482,12 @@ Each host starts its own cua-driver process, and the process draws the agent cur
 application with many conversations held one driver per conversation until each closed.
 `idleReleaseMs` (default 60 000; `0` keeps the driver for the life of the host) lets a host release
 its adapter's process after that long with no call in flight. The next call starts it again, the
-way a crashed driver restarts: screenshots and refs taken from the old process are stale and say so.
+way a crashed driver restarts. Refs taken from the old process are stale and say so; a window
+screenshot is not: the first input on it reads the window again for the new process (the same size
+is required, otherwise the model is told to capture the window again) and carries the screenshot
+over, so a pause for thinking or for approval never costs a refusal. A release also does nothing when
+a call began while the process was winding down: that call started its own process, and its
+screenshot and helpers are left alone.
 The same release ends the two resident PowerShell helpers beside the driver (the overlay border,
 `Presence.release()`, and the accessibility host, `AccessibilityBackend.release()`), which restart on
 the next window list. At most the conversations used within the last minute hold a driver and its

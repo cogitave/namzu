@@ -70,7 +70,9 @@ screenshot itself, once, and read the action on it; the result opens with a line
 saying so (`No screenshot had been taken yet, so the tool took one first (s1, …)`),
 and the screenshot that follows the action is the one to check. The old refusal
 ("take a screenshot first") remains only where the host has no display screenshot
-to take. `cursor_position` reports in screenshot pixels.
+to take. This is a decision, not an oversight: the model gets no extra round trip, but a click
+read on a screenshot it has not yet seen can land blind, which is why the result says to check the
+screenshot that follows. `cursor_position` reports in screenshot pixels.
 
 The latest screenshot's size is also pinned into the turn's working memory
 (`computer_use.screenshot`), so it survives compaction when older images are
@@ -315,7 +317,9 @@ twice): an unrelated change is never reported as the effect. `expand` and `colla
 expanded state for a control: they are `done, verified` only when the window shows
 what opened (a new window of the program, or controls that were not there) and shows
 it again a moment later; a menu that opened and closed again, or a click after which
-nothing showed, is `sent, not confirmed` with what was seen. A window that never
+nothing showed, is `sent, not confirmed` with what was seen. The check is of the window's controls,
+not of the clicked control's own state, so a control that appears for another reason in those
+moments can read as opened; the screenshot after the step is the check. A window that never
 changed at all is `sent, no effect seen`, and is the only unconfirmed result that
 is safe to send again. For a classic edit control the host reads the control's own text.
 

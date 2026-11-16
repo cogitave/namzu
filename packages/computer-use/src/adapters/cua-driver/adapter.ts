@@ -433,6 +433,8 @@ export class CuaDriverAdapter implements Adapter {
 	private driverCursorOff: boolean | undefined
 	/** cua-driver's screenshot resize registry is per PID, so only this capture may drive input. */
 	private windowFrame: WindowCaptureFrame | undefined
+	/** The process count at the last idle release, for a screenshot taken from that process. */
+	private releasedStarts: number | undefined
 	/** Capture and scoped input must not race over cua-driver's per-PID resize ratio. */
 	private windowOperation: Promise<void> = Promise.resolve()
 	/** Refs the model holds, by the adapter's ref. A handle is usable only in its window's latest read; otherwise the ref is found again. */
@@ -908,6 +910,7 @@ export class CuaDriverAdapter implements Adapter {
 		action: WindowInputAction,
 		route: InputRoute,
 	): Promise<WindowInputResult | undefined> {
+		await this.carryFrameOver(captureId)
 		const frame = this.windowFrame
 		const watched =
 			action.type === 'type_text' || action.type === 'key' || action.type === 'mouse_click'
@@ -1124,6 +1127,7 @@ export class CuaDriverAdapter implements Adapter {
 		route: InputRoute = { foreground: false, onScreen: false },
 		listing?: WindowListing,
 	): Promise<WindowInputResult | undefined> {
+		await this.carryFrameOver(captureId)
 		const frame = this.windowFrame
 		if (!frame || frame.id !== captureId)
 			throw new Error(
@@ -2237,14 +2241,39 @@ export class CuaDriverAdapter implements Adapter {
 	 * call starts it again; every screenshot and ref taken from the old process is then stale, which
 	 * the process counter already says.
 	 */
-	async release(): Promise<void> {
-		await this.client.release()
-		this.windowFrame = undefined
+	async release(stillIdle: () => boolean = () => true): Promise<void> {
+		const before = this.client.starts
+		const ended = await this.client.release()
+		// Nothing below runs unless the process really ended and no call began while it wound down;
+		// a call that did started its own process, and its frame and helpers are not ours to clear.
+		if (!ended || this.client.starts !== before || !stillIdle()) return
+		// The refs read from the old process are dead. The window screenshot is kept: the model may
+		// still be looking at it, and the first input on it reads the window again for the new process.
 		this.windowReads.clear()
+		this.releasedStarts = before
 		// The helpers started beside it (the overlay, the accessibility host) are processes too; the
 		// next window list starts them again.
 		this.presence?.release?.()
 		this.a11y?.release?.()
+	}
+
+	/**
+	 * After an idle release the screenshot the model took is still the one it acts on. Read the window
+	 * again for the new process (the same size is required) and carry the screenshot over to it.
+	 */
+	private async carryFrameOver(captureId: string): Promise<void> {
+		const frame = this.windowFrame
+		if (
+			!frame ||
+			frame.id !== captureId ||
+			this.releasedStarts !== frame.processStarts ||
+			frame.generation !== this.sessionGeneration
+		)
+			return
+		if (!(await this.restoreDriverFrame(frame))) return
+		if (this.windowFrame !== frame) return
+		this.windowFrame = { ...frame, processStarts: this.client.starts }
+		this.releasedStarts = undefined
 	}
 
 	/** Tells the overlay where the agent is about to act in a window; never waits and never fails the action. */

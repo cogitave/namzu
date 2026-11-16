@@ -374,6 +374,56 @@ describe('a host that keeps no process for a conversation that is not using it',
 		await adapter.dispose()
 	})
 
+	it('a click after an idle release still lands on the screenshot the model took', async () => {
+		const { adapter, starts, clicks } = rig()
+		const shot = await adapter.captureWindow('0x2b040a')
+		await adapter.release()
+		const result = await adapter.executeWindow(shot.captureId, CLICK)
+		expect(starts()).toBe(2)
+		expect(result?.detail ?? '').not.toMatch(/stale|driver restarted/)
+		expect(result?.delivery).not.toBe('not_delivered')
+		// The input is judged by a read of the controls, which the driver counts as replacing its
+		// screenshot; that one refusal is the retry path above, not the stale-screenshot refusal.
+		expect(clicks().length).toBeGreaterThanOrEqual(1)
+		await adapter.dispose()
+	})
+
+	it('does not clear anything or end the helpers when a call began while it was winding down', async () => {
+		const released: string[] = []
+		const spawner = fakeSpawner({
+			tool: (call) => (call.name === 'list_windows' ? toolResult({ windows: [] }) : toolResult({})),
+		})
+		const adapter = new CuaDriverAdapter({
+			executable: '/cache/cua-driver.exe',
+			env: {},
+			spawnProcess: spawner.spawnProcess,
+			requestTimeoutMs: 1_000,
+			startTimeoutMs: 1_000,
+			settle: async () => undefined,
+			presence: {
+				mark: () => undefined,
+				warm: () => undefined,
+				hide: () => undefined,
+				release: () => void released.push('overlay'),
+				dispose: async () => undefined,
+			},
+		})
+		await adapter.listWindows()
+		// The host says a call began (its own epoch moved) while the process was ending.
+		let idle = true
+		const pending = adapter.release(() => idle)
+		idle = false
+		await pending
+		expect(released).toEqual([])
+		// And the same when a call started its own process during the wind-down.
+		await adapter.listWindows()
+		const second = adapter.release()
+		await adapter.listWindows()
+		await second
+		expect(released).toEqual([])
+		await adapter.dispose()
+	})
+
 	it('lets go of the overlay helper and the accessibility host with the driver, not only the driver', async () => {
 		const released: string[] = []
 		const presence = {
