@@ -241,7 +241,8 @@ describe('the desktop host', () => {
 			const lines = text.split('\n').filter((line) => line.includes('preview pane'))
 			expect(lines).toHaveLength(1)
 			expect(lines[0]).toBe(DESKTOP_PREVIEW_FACT)
-			expect(lines[0]).toMatch(/never start a server/)
+			expect(lines[0]).toMatch(/Start a server only when the project has its own dev or start script/)
+			expect(lines[0]).not.toMatch(/file: address/)
 		}
 	})
 

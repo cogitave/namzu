@@ -3509,7 +3509,7 @@ The side panel has an **Outputs** tab, after Changes, that lists the files the c
 - **The host decides what may be read.** The renderer sends the conversation's id and a path; main reads it only if the file is inside the conversation's own work folder or is one that its turns wrote (its receipts name it), after symbolic links are resolved, never inside `.git`, with the project reader's limits (`session-output.ts`, `readSessionOutput`, `openSessionOutput`). Any other path is refused with a sentence that names no path, and the renderer never receives a `file:` path.
 - **Width.** Outputs is a reading panel (60 percent of the main area, 360 px at least); with less than that to give it lies over the conversation with **Back to conversation** and **Hide panel**, as the other panels do.
 
-The model is told so in one line of its environment facts, in a Desktop conversation only (not a Pal's): "Desktop shows the .html, .md and image files you write in its preview pane: to show a page or document, write the file and name it; never start a server or open a file: address to show it" (`DESKTOP_PREVIEW_FACT` in `packages/cli/src/context/environment.ts`).
+The model is told so in one line of its environment facts, in a Desktop conversation only (not a Pal's): "Desktop shows the .html, .md and image files you write in its preview pane: to show a page or document, write the file and name it. Start a server only when the project has its own dev or start script and the person asked to run the app" (`DESKTOP_PREVIEW_FACT` in `packages/cli/src/context/environment.ts`).
 
 ## One band at the top
 
