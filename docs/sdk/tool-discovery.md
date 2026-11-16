@@ -167,9 +167,10 @@ Desktop host, Pal sessions) with `toolLoading: 'deferred'` unless the caller
 passes `'eager'`. Only a resident set sends its schema on every request:
 `read`, `glob`, `grep`, `write`, `edit`, `bash`, `job` and `wait_for_job` (the
 bash description sends the model to both), `skill`, `search_tools`, the
-delegation tool `Agent` and `ask_user_question`. Everything else, including
-web search and fetch, conversation search and read, the memory, task and
-session-cost tools, the workflow and coordinator tools, `browser`,
+delegation tool `Agent`, `ask_user_question` and `session_cost` (a cost
+question is short, and a search first would double it). Everything else,
+including web search and fetch, conversation search and read, the memory and
+task tools, the workflow and coordinator tools, `browser`,
 `browser_act`, `computer_use`, `code_analysis`, `monitor` and every MCP tool,
 is listed in the system prompt under `<deferred_tools>` with its name and a
 one-line purpose, and its schema arrives through `search_tools`.

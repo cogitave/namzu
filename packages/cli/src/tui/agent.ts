@@ -2415,6 +2415,9 @@ const EAGER_TOOLS_WHEN_DEFERRED = [
 	// The delegation tool.
 	AGENT_LAUNCH_TOOL,
 	'ask_user_question',
+	// A question about what the conversation cost is common and short; a search
+	// first would double its requests for a schema of a few hundred characters.
+	'session_cost',
 	// The skills manifest tells the model to load a skill through this tool;
 	// deferring it would make every skill a two-step search first.
 	'skill',
