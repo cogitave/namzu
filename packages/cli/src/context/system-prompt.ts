@@ -68,7 +68,6 @@ export const BROWSER_WEB_TASK_GUIDANCE = [
 
 export const DEFERRED_TOOL_GUIDANCE =
 	'A tool listed under deferred_tools has no schema until it is loaded: call search_tools with its exact name first, then call the tool. A tool whose schema you can already see needs no search. Loading does not change its permissions.'
-;('The deferred_tools catalogue is a discovery snapshot, not live availability status. The current runtime tool schemas are authoritative: call a tool directly when its schema is visible, even if the catalogue lists it as deferred. Only when a needed deferred tool schema is absent, call search_tools with its exact name to load it. Loading a tool does not change its permissions.')
 
 // Said under a section that names tools a deferring session lists but does not send.
 const BROWSER_DEFERRED_NOTE =
