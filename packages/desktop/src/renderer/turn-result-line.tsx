@@ -64,7 +64,7 @@ export function TurnResultLine({
 				{model.duration ? ` in ${model.duration}` : ''}
 			</span>
 			{model.files > 0 && (
-				<span className="turn-result-size" title={model.caveat} aria-hidden="true">
+				<span className="turn-result-size" aria-hidden="true">
 					<span className="turn-result-files">
 						{model.files} {model.files === 1 ? 'file' : 'files'}
 					</span>
