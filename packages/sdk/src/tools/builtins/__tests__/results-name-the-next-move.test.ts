@@ -99,7 +99,7 @@ describe('a path that does not exist', () => {
 
 	it('adds nothing to a failure that is not a missing path', async () => {
 		const dir = scratch()
-		const result = await GrepTool.execute({ pattern: '(' }, context(dir))
+		const result = await GrepTool.execute({ pattern: '(' } as never, context(dir))
 		expect(result.error ?? '').not.toContain('Find the file with `glob`')
 	})
 })
@@ -121,7 +121,7 @@ describe('a search with an inline regex flag', () => {
 	it('names the parameter that does what the flag was for', async () => {
 		const dir = scratch()
 		writeFileSync(join(dir, 'a.txt'), 'Upload\n')
-		const refused = await GrepTool.execute({ pattern: '(?i)upload' }, context(dir))
+		const refused = await GrepTool.execute({ pattern: '(?i)upload' } as never, context(dir))
 		expect(refused.success).toBe(false)
 		expect(refused.error).toContain('Invalid regex pattern')
 		expect(refused.error).toContain('set `case_sensitive: false`')
