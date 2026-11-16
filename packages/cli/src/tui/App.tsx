@@ -17443,6 +17443,20 @@ function AppBody({
 	// picker/prompt. The agent rail is a feature of that view: computing this
 	// once here lets its render site sit after the footer, below, while still
 	// never appearing during trust/resume/edit/picker/setup phases.
+	// What a click on the footer does: the same as the key or command it stands for. A chooser takes
+	// the screen from the composer, so it is not opened over a message the person is part-way through.
+	const openFooterChooser = (line: string) => {
+		if (composerHasDraft) {
+			showPointerNote({ text: 'Send or clear what you typed first, then click again.', ok: false })
+			return
+		}
+		handleSubmit(line, undefined, 'submit', { source: 'keybinding' })
+	}
+	const footerClicks = {
+		mode: () => cyclePermissionMode(),
+		effort: () => openFooterChooser('/effort'),
+		model: () => openFooterChooser('/model'),
+	}
 	const showComposerSurface =
 		!providerSetup &&
 		phase !== 'trust' &&
@@ -18126,6 +18140,7 @@ function AppBody({
 									: null
 							}
 							dialogOpen={boxOwnsKeys}
+							{...(fullscreen?.regions ? { onClickItem: footerClicks } : {})}
 							permissionMode={displayedPermissionMode}
 							canCycleMode
 							sandboxShell={sandboxShell}

@@ -15,11 +15,15 @@
  * prompt. The folder is not here; the header names it.
  */
 
-import { Box, Text, useWindowSize } from 'ink'
+import { Box, type DOMElement, Text, useWindowSize } from 'ink'
+import { useContext, useEffect, useRef, useState } from 'react'
+import stringWidth from 'string-width'
 
 import type { PermissionMode } from '../permissions/mode.js'
 import { fitHintText } from './key-hints.js'
 import type { NoticeTone } from './notifications.js'
+import { PointerRegionsContext } from './pointer/context.js'
+import { elementRect } from './pointer/regions.js'
 import type { PrFooterState, PrReview } from './pr-status.js'
 import { terminalWebHyperlink } from './terminal-hyperlinks.js'
 import { theme } from './theme.js'
@@ -100,7 +104,19 @@ export interface StatusBarProps {
 	 * answers to are the only thing on it, as the rail's rows stay put below.
 	 */
 	readonly railHint?: string
+	/**
+	 * Where the pointer is reported, the items a click answers. Each is absent when it does
+	 * nothing: `mode` cycles the permission mode, `effort` and `model` open the choosers of
+	 * `/effort` and `/model`.
+	 */
+	readonly onClickItem?: {
+		readonly mode?: () => void
+		readonly effort?: () => void
+		readonly model?: () => void
+	}
 }
+
+type ClickItem = 'mode' | 'effort' | 'model'
 
 /**
  * The mode marks. `⏵⏵` is outside the emoji set; the pause mark a plan mode
@@ -199,8 +215,36 @@ export function StatusBar({
 	tasksOpen,
 	railHint,
 	notice,
+	onClickItem,
 }: StatusBarProps) {
 	const terminal = useWindowSize()
+	const regions = useContext(PointerRegionsContext)
+	const rowRef = useRef<DOMElement>(null)
+	// Where each clickable item stands on the row, in cells, as laid out this frame.
+	const spansRef = useRef<Partial<Record<ClickItem, { from: number; width: number }>>>({})
+	const clicksRef = useRef(onClickItem)
+	clicksRef.current = onClickItem
+	const [hovered, setHovered] = useState<ClickItem | null>(null)
+	useEffect(() => {
+		if (!regions) return undefined
+		const offs = (['mode', 'effort', 'model'] as const).map((item) =>
+			regions.register({
+				rect: () => {
+					const span = spansRef.current[item]
+					const row = elementRect(rowRef.current)
+					return span && row && clicksRef.current?.[item]
+						? { x: row.x + span.from, y: row.y, width: span.width, height: 1 }
+						: null
+				},
+				onClick: () => clicksRef.current?.[item]?.(),
+				onHover: (on) => setHovered((now) => (on ? item : now === item ? null : now)),
+			}),
+		)
+		return () => {
+			for (const off of offs) off()
+			setHovered(null)
+		}
+	}, [regions])
 	const activeMode =
 		permissionMode !== undefined && permissionMode !== 'prompt' ? modeGlyph(permissionMode) : null
 	const working = state !== 'idle'
@@ -264,9 +308,10 @@ export function StatusBar({
 	})
 	const sep = <Text color={theme.text.muted}> · </Text>
 	const parts: React.ReactElement[] = []
+	const lit = (item: ClickItem): boolean => hovered === item && onClickItem?.[item] !== undefined
 	if (layout.mode) {
 		parts.push(
-			<Text key="mode">
+			<Text key="mode" underline={lit('mode')}>
 				<Text color={activeMode ? activeMode.color : theme.text.muted}>{layout.mode}</Text>
 				{layout.cycleSuffix ? <Text color={theme.text.muted}>{layout.cycleSuffix}</Text> : null}
 			</Text>,
@@ -302,7 +347,7 @@ export function StatusBar({
 	}
 	if (layout.effort) {
 		parts.push(
-			<Text key="effort" color={theme.text.secondary}>
+			<Text key="effort" color={theme.text.secondary} underline={lit('effort')}>
 				{layout.effort}
 			</Text>,
 		)
@@ -351,8 +396,40 @@ export function StatusBar({
 			</Box>
 		)
 	}
+	// Where the items stand, from the same strings the row is built of: the left items are joined
+	// by ` · `, then the gap, then the right end.
+	const leftTexts: Array<[string, string | null]> = [
+		['mode', layout.mode ? `${layout.mode}${layout.cycleSuffix ?? ''}` : null],
+		[
+			'pr',
+			layout.pr ? `${layout.pr.prefix ? `${layout.pr.prefix} ` : ''}${layout.pr.label}` : null,
+		],
+		['shells', layout.shells],
+		['monitors', layout.monitors],
+		['effort', layout.effort],
+		['fast', layout.fast],
+		['interrupt', layout.interrupt],
+		['agents', layout.agents],
+		['manage', layout.manage],
+		['tasks', layout.tasks],
+	]
+	const spans: Partial<Record<ClickItem, { from: number; width: number }>> = {}
+	let cursor = 0
+	for (const [id, text] of leftTexts) {
+		if (!text) continue
+		if (id === 'mode' || id === 'effort') spans[id] = { from: cursor, width: stringWidth(text) }
+		cursor += stringWidth(text) + 3
+	}
+	if (layout.right.kind === 'model' && layout.right.model) {
+		const leftWidth = Math.max(0, cursor - 3)
+		spans.model = {
+			from: leftWidth + stringWidth(layout.gap),
+			width: stringWidth(layout.right.model),
+		}
+	}
+	spansRef.current = spans
 	return (
-		<Box>
+		<Box ref={rowRef}>
 			<Text wrap="truncate-end">
 				{parts.flatMap((part, index) =>
 					index === 0 ? [part] : [<Text key={`sep-${part.key}`}>{sep}</Text>, part],
@@ -373,7 +450,7 @@ export function StatusBar({
 						{layout.right.text}
 					</Text>
 				) : layout.right.model ? (
-					<Text color={theme.text.primary} bold>
+					<Text color={theme.text.primary} bold underline={lit('model')}>
 						{layout.right.model}
 					</Text>
 				) : null}
