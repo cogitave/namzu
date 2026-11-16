@@ -38,6 +38,6 @@ Nothing changes. The stored `content` is the text as the person saw it, so the t
 
 ## Where the ranges come from
 
-The terminal composer: a paste that becomes a chip. The Desktop application: a paste of more than 800 characters or more than two line breaks; its message box tracks the stretch as the person edits around it and sends it with the message (`DesktopSendOptions.pasted`), and the engine takes it as `AcpSessionPromptParams.pasted` ([Agent Client Protocol](agent-client-protocol.md)). A prompt that arrives as plain text, from `namzu exec` or another client, has no boundary and is sent as written. The `UserPromptSubmit` hook payload is the plain text, as before.
+The terminal composer: a paste that becomes a chip. The Desktop application: a paste of more than 800 characters or more than two line breaks; its message box tracks the stretch as the person edits around it and sends it with the message (`DesktopSendOptions.pasted`), and the engine takes it as `AcpSessionPromptParams.pasted` ([Agent Client Protocol](agent-client-protocol.md)). A prompt that arrives as plain text, from `namzu exec` or another client, has no boundary and is sent as written. The summary a compaction asks a model to write reads a pasted range inside the same frame, so directions in it are not summarised as the person's request. The `UserPromptSubmit` hook payload is the plain text, as before.
 
 Not covered: a message sent while a turn is running arrives as the operator's note and is not framed; a draft recalled into the composer is plain text again.
