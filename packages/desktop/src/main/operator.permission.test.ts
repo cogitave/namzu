@@ -35,7 +35,7 @@ function harness(env?: NodeJS.ProcessEnv) {
 		if (event.kind !== 'permission') throw new Error('Missing review')
 		return event.request
 	}
-	return { owner, permission, wait }
+	return { owner, permission, wait, events }
 }
 
 it('passes a valid preview to the window and answers a reject with the written note', async () => {
@@ -142,4 +142,130 @@ it('refuses a note on allow for this conversation without consuming the request'
 		} as never),
 	).toThrow('Invalid approval')
 	owner.respondPermission(session.id, review.id, { outcome: 'approve_all' })
+})
+
+const computerCall = (extra: Record<string, unknown> = {}) => ({
+	computer: { app: 'Notepad' },
+	...extra,
+})
+
+it('asks once about an application, keeps the yes for the conversation, and answers its later actions itself', async () => {
+	const { owner, permission, wait, events } = harness({
+		FIXTURE_COMPUTER_CALLS: JSON.stringify([computerCall()]),
+	})
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const asked = permission()
+	owner.send(session.id, 'Open Notepad')
+	const review = await asked
+	// A question about the application, not about one click.
+	expect(review.appRequest).toEqual({ apps: ['Notepad'] })
+	const ended = wait(
+		(event) => event.kind === 'state' && event.sessionId === session.id && !event.running,
+	)
+	owner.respondPermission(session.id, review.id, { outcome: 'approve_all' })
+	await ended
+	// The engine got one plain yes: its own "approve all" is never set by this question.
+	expect(
+		(await owner.openConversation(project.id, session.id)).thread?.messages.at(-1),
+	).toMatchObject({ text: 'Approved answer' })
+	expect(owner.computerApps(session.id)).toEqual({ granted: ['Notepad'], used: ['Notepad'] })
+
+	// The next action in the same application raises no card at all.
+	let cards = 0
+	events.on('update', (event: DesktopEvent) => {
+		if (event.kind === 'permission') cards++
+	})
+	const second = wait(
+		(event) => event.kind === 'state' && event.sessionId === session.id && !event.running,
+	)
+	owner.send(session.id, 'Type hello')
+	await second
+	expect(
+		(await owner.openConversation(project.id, session.id)).thread?.messages.at(-1),
+	).toMatchObject({ text: 'Approved answer' })
+	expect(cards).toBe(0)
+})
+
+it('lists an application the person took back, and asks about it again', async () => {
+	const { owner, permission, wait } = harness({
+		FIXTURE_COMPUTER_CALLS: JSON.stringify([computerCall()]),
+	})
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const first = permission()
+	owner.send(session.id, 'Open Notepad')
+	const review = await first
+	owner.respondPermission(session.id, review.id, { outcome: 'approve_all' })
+	await wait((event) => event.kind === 'state' && !event.running)
+	expect(owner.revokeComputerApp(session.id, 'notepad').granted).toEqual([])
+	const again = permission()
+	owner.send(session.id, 'Type hello')
+	expect((await again).appRequest).toEqual({ apps: ['Notepad'] })
+	owner.respondPermission(session.id, (await again).id, { outcome: 'reject' })
+})
+
+it('answers Allow once for this action only and keeps nothing', async () => {
+	const { owner, permission, wait } = harness({
+		FIXTURE_COMPUTER_CALLS: JSON.stringify([computerCall()]),
+	})
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const asked = permission()
+	owner.send(session.id, 'Open Notepad')
+	const review = await asked
+	owner.respondPermission(session.id, review.id, { outcome: 'approve' })
+	await wait((event) => event.kind === 'state' && !event.running)
+	expect(owner.computerApps(session.id).granted).toEqual([])
+})
+
+it('tells the agent why an application was refused, and never grants it', async () => {
+	const { owner, permission, wait } = harness({
+		FIXTURE_COMPUTER_CALLS: JSON.stringify([computerCall()]),
+	})
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const asked = permission()
+	owner.send(session.id, 'Open Notepad')
+	const review = await asked
+	const ended = wait((event) => event.kind === 'state' && !event.running)
+	owner.respondPermission(session.id, review.id, { outcome: 'reject' })
+	await ended
+	expect(
+		(await owner.openConversation(project.id, session.id)).thread?.messages.at(-1)?.text,
+	).toContain('did not allow Namzu to use Notepad')
+	expect(owner.computerApps(session.id).granted).toEqual([])
+})
+
+it('keeps the ordinary card for an action that closes or deletes, even in an allowed application', async () => {
+	const { owner, permission, wait } = harness({
+		FIXTURE_COMPUTER_CALLS: JSON.stringify([
+			computerCall({ computer: { app: 'Notepad', consequence: 'presses ALT+F4' } }),
+		]),
+	})
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const first = permission()
+	owner.send(session.id, 'Close it')
+	const review = await first
+	// Not an application question: it is about this action.
+	expect(review.appRequest).toBeUndefined()
+	expect(review.calls[0]?.computer?.consequence).toBe('presses ALT+F4')
+	owner.respondPermission(session.id, review.id, { outcome: 'approve' })
+	await wait((event) => event.kind === 'state' && !event.running)
+})
+
+it('never lets the agent into Namzu’s own window', async () => {
+	const { owner, permission } = harness({
+		FIXTURE_COMPUTER_CALLS: JSON.stringify([computerCall({ computer: { app: 'Namzu' } })]),
+	})
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const asked = permission()
+	owner.send(session.id, 'Click Accept')
+	const review = await asked
+	expect(review.appRequest).toBeUndefined()
+	owner.respondPermission(session.id, review.id, { outcome: 'reject' })
+	// Nothing about Namzu itself was granted or listed as an application the agent may drive.
+	expect(owner.computerApps(session.id).granted).toEqual([])
 })

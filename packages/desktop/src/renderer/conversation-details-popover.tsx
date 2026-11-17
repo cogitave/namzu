@@ -1,5 +1,6 @@
 import { Menu } from '@base-ui/react/menu'
 import { type Ref, useEffect, useRef, useState } from 'react'
+import type { ComputerAppsView } from '../shared/computer-protocol.js'
 import type { ProjectGitView, ProjectView } from '../shared/protocol.js'
 import { CUT_NOTE, type ChangeTotals, formatLineCount } from './changes-totals.js'
 import type { ConversationSource } from './conversation-actions.js'
@@ -68,6 +69,10 @@ export interface ConversationDetailsProps {
 	onAttach: () => void
 	/** Switches the sidebar to its archived conversations; absent when the host cannot list them. */
 	onOpenArchived?: () => void
+	/** The applications this conversation has allowed and used; absent until the agent has worked in one. */
+	apps?: ComputerAppsView | undefined
+	/** Takes an application back; absent when the host cannot. */
+	onRevokeApp?: (app: string) => void
 }
 
 /** The single home of a conversation's project, changes, repository, background work and sources. */
@@ -85,6 +90,8 @@ export function ConversationDetailsPopover({
 	onOpenWork,
 	onAttach,
 	onOpenArchived,
+	apps,
+	onRevokeApp,
 }: ConversationDetailsProps) {
 	const [showAll, setShowAll] = useState(false)
 	const [copied, setCopied] = useState<'' | 'done' | 'failed'>('')
@@ -234,6 +241,57 @@ export function ConversationDetailsPopover({
 							{workSummary(work)}
 						</span>
 					</button>
+					{apps && (apps.granted.length > 0 || apps.used.length > 0) && (
+						<section
+							className="conversation-details-sources conversation-details-apps"
+							aria-label="Applications"
+						>
+							<div className="conversation-details-sources-heading">
+								<h3>Applications</h3>
+							</div>
+							<ul>
+								{apps.used.map((app) => {
+									const allowed = apps.granted.includes(app)
+									return (
+										<li key={app} data-testid="computer-app-row">
+											<span>{app}</span>
+											<span className="conversation-details-value">
+												{allowed ? 'Allowed' : 'Used'}
+											</span>
+											{allowed && onRevokeApp && (
+												<button
+													type="button"
+													className="conversation-details-more"
+													aria-label={`Take back access to ${app}`}
+													onClick={() => onRevokeApp(app)}
+												>
+													Take back
+												</button>
+											)}
+										</li>
+									)
+								})}
+								{apps.granted
+									.filter((app) => !apps.used.includes(app))
+									.map((app) => (
+										<li key={app} data-testid="computer-app-row">
+											<span>{app}</span>
+											<span className="conversation-details-value">Allowed</span>
+											{onRevokeApp && (
+												<button
+													type="button"
+													className="conversation-details-more"
+													aria-label={`Take back access to ${app}`}
+													onClick={() => onRevokeApp(app)}
+												>
+													Take back
+												</button>
+											)}
+										</li>
+									))}
+							</ul>
+						</section>
+					)}
 					<section className="conversation-details-sources" aria-label="Sources">
 						<div className="conversation-details-sources-heading">
 							<h3>Sources</h3>

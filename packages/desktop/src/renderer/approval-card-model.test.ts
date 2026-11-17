@@ -3,6 +3,7 @@ import type { PermissionView } from '../shared/protocol.js'
 import {
 	CONVERSATION_ALLOWANCE_SCOPE,
 	FEEDBACK_NOTE_MAX,
+	appAccessNote,
 	approvalDetails,
 	approvalWarning,
 	baseName,
@@ -436,4 +437,25 @@ it('builds the screen question from the engine call and never offers a standing 
 	expect(offersConversationAllowance(screen)).toBe(false)
 	expect(rejectsFirst(model, screen)).toBe(true)
 	expect(screenMomentNote('Editor')).toContain('for the rest of this conversation')
+})
+
+it('turns a request that asks about applications into one question, not one about a click', () => {
+	const asked: PermissionView = {
+		...request([
+			call('computer_use', { type: 'mouse_click', at: { x: 1, y: 1 } }, { isDestructive: true }),
+		]),
+		appRequest: { apps: ['Notepad', 'Edge'] },
+	}
+	const model = buildApprovalCard(asked)
+	expect(model.title).toBe('Allow Namzu to use Notepad and Edge in this conversation?')
+	expect(model.appAccess).toEqual({ apps: ['Notepad', 'Edge'] })
+	// A stray Enter says no, and the note names what a yes covers and what it does not.
+	expect(rejectsFirst(model, asked)).toBe(true)
+	expect(appAccessNote(['Notepad'])).toContain(
+		'still asks before it closes, deletes, sends or submits',
+	)
+	// A plain computer action keeps its ordinary card.
+	expect(
+		buildApprovalCard(request([call('computer_use', { type: 'key', keys: 'A' })])).appAccess,
+	).toBeUndefined()
 })
