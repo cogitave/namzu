@@ -3516,6 +3516,8 @@ The project index is a bounded walk (50,000 paths, depth 24, a 3 s budget checke
 
 ## Outputs beside a conversation
 
+The Outputs tab described here was replaced by the pane grid (see [The pane grid](#the-pane-grid)): a page a turn writes opens in the Browser pane and other files in the Files pane. What follows about reading and previewing a file still holds for those panes.
+
 The side panel has an **Outputs** tab, after Changes, that lists the files the conversation's turns wrote and shows the one chosen (`outputs-model.ts`, `outputs-panel.tsx`). The list is the Changes panel's own edit receipts (`turnChanges`), one row per file, newest turn first, each with its folder and a word for its kind; a file whose turn was undone is no longer listed. The top bar has an Outputs button with the count, and the tab joins the strip when it is opened (by the button, by "+" or by itself) so a conversation that wrote nothing keeps its two tabs.
 
 - **A page or a document opens by itself.** When a running turn creates or edits an `.html` or `.md` file, the panel opens on Outputs with that file; a file whose version the window already knew (a conversation opened from history) never opens on its own, and code, text and images wait to be chosen. The file is read again when it is written again, and when its turn ends.
@@ -3529,7 +3531,7 @@ The model is told so in one line of its environment facts, in a Desktop conversa
 
 ## The session panel, the plan card and Commit changes
 
-**The session panel** is a 272 px column at the right edge of a conversation, under the header band, opened by the panel button in the conversation's header buttons (`session-panel.tsx`; the choice is remembered in this window and starts closed, so the conversation keeps its full width until it is asked for). It reads one summary (`sessionSummary` in `session-summary-model.ts`) that the details popover reads too, so the two cannot say different things (`session-summary-model.test.ts` renders both from one input). Its sections:
+**The session panel** is the Session pane of [the pane grid](#the-pane-grid) (a 320 px column or a 280 px card), opened by the Session button in the top bar (`session-panel.tsx`; the choice is remembered in this window and starts closed, so the conversation keeps its full width until it is asked for). It reads one summary (`sessionSummary` in `session-summary-model.ts`) that the details popover reads too, so the two cannot say different things (`session-summary-model.test.ts` renders both from one input). Its sections:
 
 - **Environment**: "This computer", the folder (a click copies its path) and the branch with the last commit as its tooltip; in a folder that is not trusted the branch row says so instead of being missing.
 - **Context**: a thin bar and the share ("7%", "about 7%" when estimated); "Not measured yet" with an empty bar before the engine has said, never zero.
@@ -3587,35 +3589,50 @@ them in the running app at 1280 by 820.
   it. The band is the window's drag region except over its controls. The window's title is no longer
   drawn as text; the operating system still has it.
 
-## The side panels
+## The pane grid
 
-Every side panel is one of two kinds, and each kind has its own share of the main area (the `.workspace`
-element, the part right of the sidebar), so a diff has room while a conversation keeps the rest. The numbers
-are `--panel-*` tokens in `theme.css`; `src/renderer/panel-tokens.test.ts` pins them and
-`e2e/ux-side-panels.test.mjs` reads them from the running app at 1280 by 820 and 1440 by 900.
+The panes beside a conversation are a grid, not one tabbed panel. The model is `src/renderer/pane-grid.ts`
+(pure arithmetic, tested in `pane-grid.test.ts`); `pane-grid-view.tsx` draws what `fit(layout, width, height)`
+returns, and `pane-grid-state.ts` keeps the layout. What a person built (the stored layout) is kept apart from
+what is drawn, so a window that shrinks folds panes together for a while and one that grows unfolds them again,
+and no resize rewrites the layout.
 
-- **A reading panel** (Changes, Outputs, an open file, the file browser) is 60 percent of the main area and never
-  under 360 px. **A tool panel** (Activity, the background work) is 40 percent, at least 320 and at most 560 px.
-  A terminal opens as a tab of the conversation strip, not as a side panel, so it has no share of its own.
-- **The conversation keeps the rest.** When that would be under 360 px, the panel lies over the conversation's
-  right side as before: it takes the whole pane, and **Back to conversation** or **Hide panel** bring the chat
-  back. For a reading panel that is any main area under 900 px; for a tool panel, under 680 px (its 320 floor
-  and the conversation's 360). The two container queries in `style.css` and `file-panel.css` spell those edges
-  out, since a query cannot read a token; the test keeps them equal to the sums.
-- **A 1 px seam** divides the panel from the conversation. A 7 px zone centred on it (`.panel-resize-handle`)
-  can be dragged: while it is hovered, focused or held, a 2 px line in the primary colour shows on it. A double
-  click puts the share back and forgets the dragged width; the arrow keys move it by 24 px (80 with Shift) when
-  it has focus, Left making the panel wider. A dragged width is kept for each kind of panel apart, per pane
-  (`namzu.workspace.panel-width:<pane>:<kind>`), within the kind's floor and what leaves the conversation 360 px;
-  an older width saved without a kind is no longer read. There is no seam to move while a panel lies over the
-  pane.
-- **A panel's header is 44 px high** with a 1 px line under it. The Changes header's title is 14/20 at weight 500,
-  20 px in from the panel's edge; the tab strip of the other panels starts its first tab at the same 20. Its
-  controls are 28 by 28, 4 apart, the last one 8 px from the right edge.
-- **The header's tools** (Changes, Project files) are 28 px high, 4 apart; a tool whose panel is open carries a fill
-  of 8 percent of the text colour and `aria-pressed`.
-- **The list of changed files** is at the right of the diff, 240 px wide. In a short list a file's name is never
-  cut before its folder is: the folder, shown only where two files share a name, shrinks first, and a name cut at last is cut at its start so its end stays readable.
+- **The kinds** are Terminal, Changes, Browser and Files, plus the Session pane. There is no Outputs pane and no
+  Activity pane: a page a turn writes opens in the Browser, any other file in Files, and the Session pane lists the
+  work that is running.
+- **Placement.** At most two columns, each holding at most two panes. The second pane goes below the first (the
+  opening order reads top to bottom, and only when the height gives each at least 160 px), the third opens the
+  second column, the fourth goes below it. Closing the fourth gives the second column back its full height;
+  closing the third drops the column and the first widens again.
+- **Widths.** The workspace (`W`) is the area right of the sidebar. One column takes a third of `W`, and a width a
+  person dragged is kept; with two columns the conversation takes half and the columns split the rest equally. A
+  column is never under 280 px, a stacked pane never under 160 px, and the conversation is never under 360 px and
+  never unmounted. Two columns need `W` of 920 or more, one column 640 or more.
+- **Folding and the overlay.** Under 920 px every pane stacks in the one column, in the opening order. Under 640 px
+  no column fits, so one pane at a time lies over the conversation under a **Back to conversation** row; the
+  conversation stays mounted with its scroll and its composer. This is the only state where the conversation is
+  covered.
+- **Dividers** are a 1 px line with a 7 px zone: conversation to first column, column to column, pane to pane. They
+  drag, double click puts the equal share back, and the arrow keys move them 16 px.
+- **Maximise** makes one pane fill the workspace (the conversation is hidden, not removed); the pane's header then
+  carries Restore, and Esc steps back. The top bar stays, and the pane's own button stays pressed.
+- **The Session pane** docks as a 320 px column at the right edge when the conversation would keep 360 px beside it,
+  otherwise it is a 280 px card over the conversation, 8 px from the first column. The choice is kept even while
+  there is no room, and the pane docks by itself when room appears. Esc inside the card and the button close it.
+- **The top bar** reads Session, a divider, Terminal, Changes, Browser, Files, "...". Each button toggles its pane;
+  open is a filled rounded square behind the icon, `aria-pressed` is always a boolean, the tooltip says
+  "Show terminal (Ctrl+')" or "Hide terminal (Ctrl+')". Terminal is Ctrl+' (Cmd on a Mac), Browser Ctrl+Shift+B and
+  Files Ctrl+Shift+F; Changes and the Session pane have no key. Plain Ctrl+B is still the sidebar's, and the three
+  chords leave a terminal for the window instead of reaching its program. The line totals that used to sit in the
+  bar are in the Session pane's Changes row and in the Changes pane.
+- **Each pane** has a 44 px header (a title or tabs, then "...", maximise, close). "..." moves the pane left, right,
+  up or down and closes the other panes. Terminal shows the group's terminals as tabs; Browser shows the address
+  and the page a turn wrote in a frame with no permissions; Files is a tree of the work folder with U (not in git yet)
+  and M (modified) marks, a filter, and a file opens in a preview tab inside the pane (Markdown as a document, code
+  with line numbers, an image).
+- **Remembered** per conversation group in `namzu.panes.1.<group>`: the panes, their columns, dragged sizes, the
+  maximised pane and the Session flag. Bad or foreign data reads as no layout.
+- **The sidebar** no longer folds when a pane opens; it folds only by its own breakpoint.
 
 ## The frame's numbers
 
