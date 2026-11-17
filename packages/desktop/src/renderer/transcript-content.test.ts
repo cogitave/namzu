@@ -136,10 +136,12 @@ describe('truthful action receipts in normal and Pal views', () => {
 				calls: [{ id: 'review', name: 'exec', input: {}, isDestructive: false }],
 			},
 		})
-		for (const html of [
-			render(thread),
-			renderToStaticMarkup(createElement(PalActivity, { thread })),
-		]) {
+		// The live work view also keeps its last actions in view under the folded line, so the normal
+		// view says the cancelled one twice: folded in the work block and in view under it.
+		for (const [html, times] of [
+			[render(thread), 2],
+			[renderToStaticMarkup(createElement(PalActivity, { thread })), 1],
+		] as const) {
 			expect(html).toContain('data-tool-state="waiting"')
 			expect(plain(html)).toContain('Waiting to run check-review')
 			expect(html).toContain('data-tool-state="running"')
@@ -182,17 +184,19 @@ describe('truthful action receipts in normal and Pal views', () => {
 			status: 'failed',
 			view: { kind: 'generic', label: 'Open the document', outcome: 'cancelled' },
 		})
-		for (const html of [
-			render(thread),
-			renderToStaticMarkup(createElement(PalActivity, { thread })),
-		]) {
+		// The live work view also keeps its last actions in view under the folded line, so the normal
+		// view says the cancelled one twice: folded in the work block and in view under it.
+		for (const [html, times] of [
+			[render(thread), 2],
+			[renderToStaticMarkup(createElement(PalActivity, { thread })), 1],
+		] as const) {
 			expect(plain(html)).toContain('Create a progress step')
 			expect(html).toContain('Completed')
 			expect(html).toContain('data-tool-state="cancelled"')
 			expect(html).toContain('Cancelled')
 			expect(html).not.toContain('tool failed')
 			expect(html).not.toContain('tool-content')
-			expect(plain(html).match(/Open the document/g)).toHaveLength(1)
+			expect(plain(html).match(/Open the document/g)).toHaveLength(times)
 		}
 	})
 })

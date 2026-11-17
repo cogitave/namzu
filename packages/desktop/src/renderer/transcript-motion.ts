@@ -1,6 +1,5 @@
 import { type RefObject, useLayoutEffect, useRef } from 'react'
 import { type ThreadState, type TimelineEntry, threadPhase } from '../shared/projection.js'
-import { waitingLabel } from './approval-card-model.js'
 import { COMPACTING_TEXT, compactedText } from './context-ring.js'
 import { isTaskEntry, latestPlanTurn } from './plan-row.js'
 import { toolTranscriptPresentation } from './tool-transcript-presentation.js'
@@ -33,10 +32,13 @@ function compactionText(compaction: NonNullable<ThreadState['compaction']>): str
 	return compaction.state === 'running' ? COMPACTING_TEXT : compactedText(compaction)
 }
 
+/** What the status says while an approval is open: the turn is stopped on the person, not working. */
+export const WAITING_FOR_YOU = 'Waiting for you'
+
 export function livePhaseLabel(thread: ThreadState): string | undefined {
 	const phase = threadPhase(thread)
 	if (phase === 'idle') return undefined
-	if (phase === 'waiting') return 'Waiting for your decision'
+	if (phase === 'waiting') return WAITING_FOR_YOU
 	if (thread.compaction) return compactionText(thread.compaction)
 	if (phase === 'thinking') return 'Thinking'
 	// Before anything of this turn has been drawn there is no action to name, so say what is happening.
@@ -121,8 +123,7 @@ function drawnEntries(thread: ThreadState): TimelineEntry[] {
 export function liveStatus(thread: ThreadState): LiveStatus {
 	const phase = threadPhase(thread)
 	if (phase === 'idle') return {}
-	if (phase === 'waiting')
-		return { stage: { text: 'Waiting for your decision', source: 'waiting' } }
+	if (phase === 'waiting') return { stage: { text: WAITING_FOR_YOU, source: 'waiting' } }
 	// Summarising can take many seconds with nothing else to show; the note that follows holds still.
 	if (thread.compaction)
 		return {
@@ -177,8 +178,7 @@ export function liveStep(
 	entries: TimelineEntry[],
 ): { label: string; state: 'waiting' | 'running' } | undefined {
 	// A request waiting for the person is the step the turn is on, whether or not its row exists yet.
-	if (threadPhase(thread) === 'waiting')
-		return { label: waitingLabel(thread.permissions[0]), state: 'waiting' }
+	if (threadPhase(thread) === 'waiting') return { label: WAITING_FOR_YOU, state: 'waiting' }
 	for (let index = entries.length - 1; index >= 0; index--) {
 		const entry = entries[index]
 		if (entry?.kind !== 'tool') continue
@@ -571,4 +571,71 @@ export function useTranscriptPhaseMotion(
 		},
 		[],
 	)
+}
+
+/**
+ * How long the turn has been working, in milliseconds, leaving out the time it spent waiting for
+ * the person: the clock stops when an approval opens and goes on when the last one is answered.
+ */
+export function turnActiveMs(thread: ThreadState, turn: number, now: number): number | undefined {
+	const timing = thread.turns[turn]
+	if (timing?.startedAt === undefined) return undefined
+	const until = timing.waitingSince ?? now
+	return Math.max(0, until - timing.startedAt - (timing.waitedMs ?? 0))
+}
+
+/**
+ * How long the current step has been going, in milliseconds: the running action, else the thinking
+ * in progress, else the quiet since the last thing the turn showed. Undefined while the turn waits
+ * for the person, when no step is running and no time is known.
+ */
+export function liveStepMs(thread: ThreadState, now: number): number | undefined {
+	if (!thread.running || thread.stopReason !== undefined) return undefined
+	if (threadPhase(thread) === 'waiting') return undefined
+	const timing = thread.turns[thread.turn]
+	let began: number | undefined
+	const entries = drawnEntries(thread)
+	for (let index = entries.length - 1; index >= 0 && began === undefined; index--) {
+		const entry = entries[index]
+		if (entry?.kind !== 'tool') continue
+		const state = toolTranscriptPresentation(thread, entry.id)?.state
+		if (state === 'running') began = thread.tools[entry.id]?.startedTime?.at
+	}
+	if (began === undefined && thread.activeReasoningId)
+		began = thread.reasoning[thread.activeReasoningId]?.startedTime?.at
+	if (began === undefined) {
+		// A gap: counted from the newest thing the turn finished, or from the turn's start.
+		for (let index = entries.length - 1; index >= 0 && began === undefined; index--) {
+			const entry = entries[index]
+			if (!entry) continue
+			const time =
+				entry.kind === 'tool'
+					? (thread.tools[entry.id]?.endedTime ?? thread.tools[entry.id]?.startedTime)
+					: entry.kind === 'reasoning'
+						? (thread.reasoning[entry.id]?.endedTime ?? thread.reasoning[entry.id]?.startedTime)
+						: thread.messages[entry.index]?.time
+			began = time?.at
+		}
+	}
+	began ??= timing?.startedAt
+	if (began === undefined) return undefined
+	// A step that was open while the person decided counts from the decision.
+	return Math.max(0, now - Math.max(began, timing?.resumedAt ?? 0))
+}
+
+/** The last actions of a live turn kept in view under the status line, and how many came before them. */
+export const LIVE_STEPS_SHOWN = 2
+
+export function liveRecentSteps(
+	thread: ThreadState,
+	entries: TimelineEntry[],
+): { shown: TimelineEntry[]; more: number } {
+	const steps = entries.filter(
+		(entry) =>
+			entry.kind === 'tool' && Boolean(thread.tools[entry.id]) && !isTaskEntry(thread, entry),
+	)
+	return {
+		shown: steps.slice(-LIVE_STEPS_SHOWN),
+		more: Math.max(0, steps.length - LIVE_STEPS_SHOWN),
+	}
 }

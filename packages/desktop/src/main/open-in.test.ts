@@ -141,3 +141,20 @@ describe('opening', () => {
 		)
 	})
 })
+
+describe('opening a written page in the browser', () => {
+	it('hands a web page to the default program and nothing else', async () => {
+		const { value, calls } = host({ platform: 'linux' })
+		const open = new OpenIn(value)
+		await open.open('/work/cafe/index.html', 'file', 'browser')
+		expect(calls.openPath).toHaveBeenCalledWith('/work/cafe/index.html')
+		for (const path of ['/work/run.sh', '/work/a.exe', '/work/page.html.txt'])
+			await expect(open.open(path, 'file', 'browser')).rejects.toThrow(/web page/)
+		await expect(open.open('/work/dir.html', 'directory', 'browser')).rejects.toThrow(/web page/)
+		expect(calls.openPath).toHaveBeenCalledTimes(1)
+	})
+	it('says so when the browser could not open it', async () => {
+		const { value } = host({ platform: 'linux', openPath: async () => 'no program' })
+		await expect(new OpenIn(value).open('/a.html', 'file', 'browser')).rejects.toThrow(/browser/)
+	})
+})

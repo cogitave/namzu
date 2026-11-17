@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, realpathSync } from 'node:fs'
 import { lstat, mkdir, readdir, realpath, stat } from 'node:fs/promises'
-import { basename, resolve } from 'node:path'
+import { basename, isAbsolute, resolve } from 'node:path'
 import type {
 	AcpRequestPermissionParams,
 	AcpSessionPromptResult,
@@ -83,6 +83,7 @@ import {
 	isSidebarSection,
 } from '../shared/sidebar-sections.js'
 import { readTaskUpdate, readTasks } from '../shared/task-protocol.js'
+import { TITLE_NOTIFICATION, readTitleNotice } from '../shared/title-protocol.js'
 import { readUndoPreview, readUndoResult, readUndoStatus } from '../shared/undo-protocol.js'
 import type { UpdateBlocker } from '../shared/update-protocol.js'
 import { USAGE_NOTIFICATION, readUsageNotice } from '../shared/usage-protocol.js'
@@ -114,6 +115,7 @@ import { ProjectFiles, confineProjectPath, resolveProjectLinks } from './project
 import { type ProjectNameStore, projectNameProblem } from './project-names.js'
 import { parseUntrust, projectBusyReason, withoutProject } from './project-removal.js'
 import { RuntimeClient, type RuntimeCommand } from './rpc-client.js'
+import { type OutputAccess, readOutput, resolveOutput } from './session-output.js'
 import {
 	ConversationHostChangedError,
 	SupersededConversationSettingsError,
@@ -184,6 +186,8 @@ interface Project {
 }
 interface Conversation {
 	view: ConversationView
+	/** The words of the first message the title was made from; a title still equal to it is replaceable. */
+	promptTitle?: string
 	/** Stable UI ownership is separate from a replaceable, never-started runtime session. */
 	runtimeSessionId: string
 	hasPrompted: boolean
@@ -3183,6 +3187,44 @@ export class Operator {
 	async readProjectFile(projectId: string, path: string): Promise<ProjectFileContent> {
 		return this.projectFiles.read((await this.projectRoots(projectId))[0] as string, path)
 	}
+	/**
+	 * What the preview pane may read for a conversation: its own work folder and the files its turns
+	 * wrote. Both come from the host's own record, never from the renderer's word.
+	 */
+	private outputAccess(sessionId: unknown): OutputAccess {
+		if (typeof sessionId !== 'string' || !sessionId.trim() || sessionId.length > 400)
+			throw new Error('Invalid conversation.')
+		const session = this.session(sessionId)
+		if (session.view.palId) throw new Error('A Pal conversation has no preview.')
+		const project = this.project(session.view.projectId)
+		const written: string[] = []
+		for (const tool of Object.values(session.projection.tools)) {
+			if (tool.status !== 'completed') continue
+			const path =
+				tool.facts?.kind === 'write' || tool.facts?.kind === 'edit'
+					? tool.facts.path
+					: tool.view.kind === 'diff'
+						? tool.view.path
+						: undefined
+			if (path && isAbsolute(path)) written.push(path)
+			else if (path) written.push(resolve(project.view.path, path))
+		}
+		return { root: project.view.path, written }
+	}
+	async readSessionOutput(sessionId: string, path: string): Promise<ProjectFileContent> {
+		return readOutput(this.outputAccess(sessionId), path, this.projectFiles)
+	}
+	async openSessionOutput(
+		sessionId: string,
+		path: string,
+		target: 'browser' | 'file-manager',
+	): Promise<void> {
+		if (!this.openIn) throw new Error('Opening files is not available here.')
+		if (target !== 'browser' && target !== 'file-manager')
+			throw new Error('That way of opening is not supported.')
+		const found = await resolveOutput(this.outputAccess(sessionId), path)
+		await this.openIn.open(found.absolute, 'file', target)
+	}
 	async resolveProjectLinks(projectId: string, refs: string[]): Promise<ProjectLinkResolution[]> {
 		return resolveProjectLinks(await this.projectRoots(projectId), refs)
 	}
@@ -5491,11 +5533,13 @@ export class Operator {
 			(!session.view.palId ||
 				session.projection.messages.some((message) => message.role === 'user'))
 		session.running = true
-		if (session.view.title === 'New conversation')
+		if (session.view.title === 'New conversation') {
 			session.view.title = (prompt.trim() || files.map((file) => file.view.name).join(', ')).slice(
 				0,
 				80,
 			)
+			session.promptTitle = session.view.title
+		}
 		this.emit({
 			kind: 'prompt',
 			sessionId: session.view.id,
@@ -6032,6 +6076,23 @@ export class Operator {
 				this.computerTurns.add(session.view.id)
 				if (seen.app && this.grantsFor(session.view.id).markUsed(seen.app))
 					this.announceComputerApps(session.view.id)
+			}
+		} else if (frame.method === TITLE_NOTIFICATION) {
+			// The name the model gave a conversation. It replaces the words of the first message only
+			// while the title is still those words: a name the person typed is never overwritten.
+			const notice = readTitleNotice(frame.params)
+			const session = notice ? this.runtimeSession(project, notice.sessionId) : undefined
+			if (
+				notice &&
+				session &&
+				!session.view.palId &&
+				(!session.view.harness || session.view.harness === 'namzu') &&
+				session.promptTitle !== undefined &&
+				session.view.title === session.promptTitle
+			) {
+				session.view.title = notice.title
+				session.promptTitle = undefined
+				this.commitConversationView(session, project)
 			}
 		} else if (frame.method === OUTCOME_NOTIFICATION) {
 			// What a finished turn changed and what checked it. A notice that does not read, or names a

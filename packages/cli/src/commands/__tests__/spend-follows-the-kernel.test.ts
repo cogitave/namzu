@@ -50,6 +50,12 @@ const USAGE: Record<string, readonly [number, number]> = {
 }
 /** The history-resolving request every turn with history makes first. */
 const RESOLVER: readonly [number, number] = [11, 2]
+/**
+ * The conversation's title request. The host makes it beside the first turn, so it may settle
+ * before the turn ends (and be counted in it) or after (and be counted on the budget store); which
+ * one depends on timing. The service reports nothing for it, so the sums below hold either way.
+ */
+const TITLE: readonly [number, number] = [0, 0]
 /** Any request the kernel makes for itself, with no marker in sight. */
 const OTHER: readonly [number, number] = [7, 3]
 
@@ -78,9 +84,12 @@ async function usageService(): Promise<{
 			const marks = [...JSON.stringify(request.messages ?? []).matchAll(/MARK(T\d)/g)]
 			const tag = marks.at(-1)?.[1]
 			const resolving = JSON.stringify(request.system ?? '').includes('conversation-history')
-			const [input, output] = resolving
-				? RESOLVER
-				: ((tag === undefined ? undefined : USAGE[tag]) ?? OTHER)
+			const titling = JSON.stringify(request.system ?? '').includes('You name a conversation')
+			const [input, output] = titling
+				? TITLE
+				: resolving
+					? RESOLVER
+					: ((tag === undefined ? undefined : USAGE[tag]) ?? OTHER)
 			reported.push({ input, output })
 			res.writeHead(200, { 'content-type': 'text/event-stream' })
 			const send = (type: string, data: object) =>

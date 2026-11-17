@@ -64,7 +64,7 @@ export function TurnResultLine({
 				{model.duration ? ` in ${model.duration}` : ''}
 			</span>
 			{model.files > 0 && (
-				<span className="turn-result-size" title={model.caveat} aria-hidden="true">
+				<span className="turn-result-size" aria-hidden="true">
 					<span className="turn-result-files">
 						{model.files} {model.files === 1 ? 'file' : 'files'}
 					</span>
@@ -99,6 +99,8 @@ export function TurnResultLine({
 			{opens && <ChevronRightIcon className="turn-result-chevron" aria-hidden="true" />}
 		</>
 	)
+	// The same function the menu's Undo runs: it opens the confirmation that lists each file.
+	const canUndo = Boolean(onUndo) && (undo?.kind === 'enabled' || undo?.kind === 'partial')
 	const present = menuFiles(changes, undo)
 	const listed = present.slice(0, MENU_FILES)
 	const only = present.length === 1 ? present[0] : undefined
@@ -126,6 +128,31 @@ export function TurnResultLine({
 					<span className="sr-only">{model.label}</span>
 					{body}
 				</p>
+			)}
+			{(opens || canUndo) && (
+				<span className="turn-result-actions">
+					{opens && (
+						<button
+							type="button"
+							className="turn-result-action"
+							data-turn-action="view-changes"
+							onClick={() => onOpen(changes.receiptIds, largestFile(changes.files)?.path)}
+						>
+							View changes
+						</button>
+					)}
+					{canUndo && (
+						<button
+							type="button"
+							className="turn-result-action"
+							data-turn-action="undo"
+							title="Put the files this reply edited back"
+							onClick={onUndo}
+						>
+							Undo
+						</button>
+					)}
+				</span>
 			)}
 			<Menu.Root>
 				<Menu.Trigger

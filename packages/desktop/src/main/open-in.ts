@@ -14,7 +14,7 @@ export interface Editor {
 	label: string
 	executable: string
 }
-export type OpenTarget = 'editor' | 'file-manager' | 'terminal'
+export type OpenTarget = 'editor' | 'file-manager' | 'terminal' | 'browser'
 
 export interface OpenInHost {
 	platform: NodeJS.Platform
@@ -104,6 +104,14 @@ export class OpenIn {
 			}
 			const failure = await this.host.openPath(absolute)
 			if (failure) throw new Error('The file manager could not open this folder.')
+			return
+		}
+		if (target === 'browser') {
+			// The default program for a web page is the person's browser; nothing else is opened this way.
+			if (kind !== 'file' || !/\.html?$/i.test(absolute))
+				throw new Error('Only a web page opens in the browser.')
+			const failure = await this.host.openPath(absolute)
+			if (failure) throw new Error('The browser could not open this page.')
 			return
 		}
 		if (target === 'terminal') {

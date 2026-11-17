@@ -224,6 +224,8 @@ export interface EnvironmentFacts {
 	readonly boundary?: ExecutionBoundary
 	/** Present when this is WSL. */
 	readonly wsl?: WslFacts
+	/** The application the session runs in, when it is the desktop one: it shows files in a preview. */
+	readonly host?: 'desktop'
 	/**
 	 * `branch` when on one, `null` when the working directory is not a
 	 * repository, `'detached'` when it is one with no branch checked out.
@@ -343,6 +345,10 @@ export function environmentFactLines(
 	return lines
 }
 
+/** What the desktop application does with a file a turn writes: one line, the same every turn. */
+export const DESKTOP_PREVIEW_FACT =
+	'Desktop shows the .html, .md and image files you write in its preview pane: to show a page or document, write the file and name it. Start a server only when the project has its own dev or start script and the person asked to run the app.'
+
 const FACTS_FRAMING =
 	'These are facts about right now. Prefer them over any date or branch you would otherwise assume.'
 
@@ -378,6 +384,7 @@ export function composeEnvironmentPrompt(
 	}
 	if (facts.boundary) lines.push(...boundaryLines(facts.boundary, stable))
 	if (facts.wsl) lines.push(...wslLines(facts.wsl, facts.boundary))
+	if (facts.host === 'desktop') lines.push(DESKTOP_PREVIEW_FACT)
 	return `## Environment\n\n${lines.join('\n')}`
 }
 

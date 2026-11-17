@@ -15,7 +15,7 @@ export const CONVERSATION_MIN = 360
 const panelMin = (kind: PanelKind) => (kind === 'reading' ? READING_PANEL_MIN : TOOL_PANEL_MIN)
 /** The kind of panel a view is: the terminal's and the tasks' share is the smaller one. */
 export const panelKindOf = (
-	view: 'activity' | 'changes' | 'file' | 'browse' | 'empty',
+	view: 'activity' | 'changes' | 'outputs' | 'file' | 'browse' | 'empty',
 ): PanelKind => (view === 'activity' || view === 'empty' ? 'tool' : 'reading')
 
 /**
@@ -27,8 +27,12 @@ export const SIDEBAR_FOLD_BELOW = 1281
 const MAX_PATH = 1024
 const MAX_STORED = 8192
 
-/** Changes and Activity are ordinary tabs beside the open files. */
-export type PanelTab = { kind: 'changes' } | { kind: 'activity' } | { kind: 'file'; path: string }
+/** Changes, Outputs and Activity are ordinary tabs beside the open files. */
+export type PanelTab =
+	| { kind: 'changes' }
+	| { kind: 'outputs' }
+	| { kind: 'activity' }
+	| { kind: 'file'; path: string }
 
 export interface PanelTabsState {
 	/** In display order. */
@@ -43,6 +47,7 @@ export interface PanelTabsState {
 
 export const changesTab: PanelTab = { kind: 'changes' }
 export const activityTab: PanelTab = { kind: 'activity' }
+export const outputsTab: PanelTab = { kind: 'outputs' }
 export const fileTab = (path: string): PanelTab => ({ kind: 'file', path })
 
 /** What a conversation starts with: both fixed tabs, Activity showing as it always did. */
@@ -66,10 +71,14 @@ export const filePaths = (state: PanelTabsState): string[] =>
 export const activeFilePath = (state: PanelTabsState): string | undefined =>
 	state.active?.kind === 'file' ? state.active.path : undefined
 
-/** Adds a missing tab without choosing it: Changes first, Activity after Changes, files last. */
+/** Adds a missing tab without choosing it: Changes first, Outputs after it, Activity next, files last. */
 function withTab(tabs: PanelTab[], tab: PanelTab): PanelTab[] {
 	if (tabs.some((item) => sameTab(item, tab))) return tabs
 	if (tab.kind === 'changes') return [tab, ...tabs]
+	if (tab.kind === 'outputs') {
+		const at = tabs.findIndex((item) => item.kind === 'changes')
+		return [...tabs.slice(0, at + 1), tab, ...tabs.slice(at + 1)]
+	}
 	if (tab.kind === 'activity') {
 		const at = tabs.findIndex((item) => item.kind === 'changes')
 		return [...tabs.slice(0, at + 1), tab, ...tabs.slice(at + 1)]
@@ -138,7 +147,7 @@ export function serializePanelTabs(state: PanelTabsState): string {
 function parseTab(item: unknown): PanelTab | undefined {
 	if (!item || typeof item !== 'object') return undefined
 	const { kind, path } = item as { kind?: unknown; path?: unknown }
-	if (kind === 'changes' || kind === 'activity') return { kind }
+	if (kind === 'changes' || kind === 'activity' || kind === 'outputs') return { kind }
 	if (kind === 'file' && typeof path === 'string' && path.length > 0 && path.length <= MAX_PATH)
 		return fileTab(path)
 	return undefined

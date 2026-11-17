@@ -62,6 +62,8 @@ import {
 	openSessionScope,
 	openSessions,
 	readConversationFacts,
+	recordGeneratedTitle,
+	titlesOf,
 } from '../integrations/sessions/store.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
 import { cliProjectRoot } from '../integrations/state/project.js'
@@ -103,6 +105,7 @@ import { COMPUTER_FRAME_NOTIFICATION } from './desktop-computer-feed.js'
 import { createDesktopHostExtensions } from './desktop-host.js'
 import { desktopModelCatalogue } from './desktop-model-catalogue.js'
 import { announceOutcome } from './desktop-outcome-feed.js'
+import { createTitleFeed } from './desktop-title-feed.js'
 import { type UsageFeed, createUsageFeed } from './desktop-usage-feed.js'
 import { withPreviews } from './permission-preview.js'
 import type { CommandContext, CommandDef } from './types.js'
@@ -246,6 +249,7 @@ type AcpLiveSession = Pick<
 	| 'checkpoints'
 	| 'markFilesChanged'
 	| 'autoMode'
+	| 'sideModel'
 > & {
 	readonly resumePaused?: AgentSession['resumePaused']
 	readonly abandonTurn?: AgentSession['abandonTurn']
@@ -643,6 +647,10 @@ export interface CliAcpRuntimeOptions {
 	 * session id. The desktop host shows it beside the call. It must not throw or wait.
 	 */
 	readonly observeComputer?: (sessionId: string, observation: ComputerUseObservation) => void
+	 * Says a `namzu/` notification to the desktop. When set, the host names each new conversation
+	 * with the small model, beside its first turn, and tells the desktop the name.
+	 */
+	readonly announce?: (method: string, params: Record<string, unknown>) => void
 }
 
 export function createCliAcpRuntime(
@@ -696,6 +704,26 @@ export function createCliAcpRuntime(
 	// Cold undo stores of one conversation run one at a time: two stores over one
 	// directory would each sweep and write from a stale picture of the other.
 	const undoTails = new Map<string, Promise<void>>()
+	const titleFeed = runtimeOptions.announce
+		? createTitleFeed({
+				notify: runtimeOptions.announce,
+				sideModel: (id) => records.get(id)?.session.sideModel,
+				hasTitle: async (id) => {
+					const record = records.get(id)
+					if (!record?.conversations || record.ownedPal) return true
+					const target = await deps.resolveSession(id)
+					const titles = await titlesOf(record.conversations, target.sessionId)
+					return titles.named !== undefined || titles.generated !== undefined
+				},
+				idle: (id) => records.get(id)?.route === undefined,
+				save: async (id, title) => {
+					const record = records.get(id)
+					if (!record?.conversations) return
+					const target = await deps.resolveSession(id)
+					await recordGeneratedTitle(record.conversations, target.sessionId, title)
+				},
+			})
+		: undefined
 	const catalogueController = new AbortController()
 	const catalogueRequests = new Map<string, ReturnType<typeof describeProviderModels>>()
 	let probePromise: ReturnType<typeof probeAgentSession> | undefined
@@ -908,6 +936,8 @@ export function createCliAcpRuntime(
 									: {}),
 							}
 						: {}),
+					// The desktop shows what a turn writes in a preview pane; the model is told so.
+					...(runtimeOptions.announce && !palEnvironment ? { desktop: true } : {}),
 					cwd,
 					sessionId: target.sessionId,
 					...(conversationState
@@ -1105,6 +1135,8 @@ export function createCliAcpRuntime(
 			// `onEvent`, is what the `finally` below compares against, since
 			// `record.route` never holds `onEvent` itself anymore.
 			let liveInbox: LivePromptInbox | undefined
+			// A conversation's first message is named once, beside its first turn.
+			if (history.length === 0 && prompt.trim().length > 0) titleFeed?.expect(sessionId, prompt)
 			const routedEvent = (event: SessionEvent): void => {
 				if (
 					event.type === 'turn_completed' ||
@@ -1121,6 +1153,7 @@ export function createCliAcpRuntime(
 				}
 				try {
 					runtimeOptions.observeEvent?.(sessionId, event)
+					titleFeed?.observe(sessionId, event)
 				} catch {
 					/* An observer is a view of the turn, never part of it. */
 				}
@@ -1203,6 +1236,8 @@ export function createCliAcpRuntime(
 					await settleTurnOfGoneHost(record.conversations, sessionId).catch(() => false)
 				const undoNote = undoNotes.get(sessionId)?.join('\n\n')
 				undoNotes.delete(sessionId)
+				// A conversation's name being saved holds its log for a moment; the turn goes after it.
+				await titleFeed?.saved(sessionId)
 				for await (const event of record.session.send(messages, {
 					...settings,
 					// The words the person sent: a target such as +500k is read from these only.
@@ -1258,6 +1293,7 @@ export function createCliAcpRuntime(
 			} finally {
 				liveInbox?.close()
 				if (record.route === routedEvent) record.route = undefined
+				void titleFeed?.flush(sessionId)
 			}
 		},
 		retry: async ({ sessionId, turnId, checkpointId, options, cwd, signal, onEvent, ask }) => {
@@ -2101,6 +2137,7 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 							announce(COMPUTER_FRAME_NOTIFICATION, { sessionId: id, ...seen }),
 					}
 				: {}),
+			...(desktop ? { announce } : {}),
 			...(usageFeed
 				? {
 						observeEvent: (id, event) => {

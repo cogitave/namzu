@@ -127,7 +127,9 @@ test("the foot says what changed and what the record says about checking, and no
 		// The fold says what the work was, in the words a group of steps uses, and the time after it.
 		await expect(w.page.locator(".activity-trigger").first()).toContainText(/^Read 2 files, created 2 files, and 2 more\s*· \d+s/);
 		await expect(w.page.locator(".turn-changes, .turn-outcome-line")).toHaveCount(0);
-		await expect(w.page.getByRole("button", { name: "View changes" })).toHaveCount(0);
+		// "View changes" is one action on the result line itself, not a card of its own.
+		await expect(w.page.getByRole("button", { name: "View changes" })).toHaveCount(1);
+		await expect(line(w).getByRole("button", { name: "View changes" })).toHaveCount(1);
 		// The top bar says the same size, from the same source.
 		await expect(w.page.locator(".conversation-bar-changes")).toContainText(/\+\d+/);
 		const bar = await w.page.locator(".conversation-bar-lines").innerText();
@@ -327,7 +329,7 @@ test("a failing check stays on the row through a partial undo, and the undo is s
 	}
 });
 
-test("an unknown record with counted edits shows the counts alone, and the caveat is reachable", { timeout: 480000 }, async () => {
+test("an unknown record with counted edits shows the counts alone, with no word about not being able to tell", { timeout: 480000 }, async () => {
 	const w = await createWorld({ rules: more, files, seed, tabs: "hidden" });
 	let failed = true;
 	try {
@@ -347,11 +349,12 @@ test("an unknown record with counted edits shows the counts alone, and the cavea
 		await converse(w, "Run an unknown command", /Unknown run finished/);
 		await expect(line(w).locator(".turn-result-files")).toHaveText("1 file");
 		await expect(line(w).locator(".turn-result-check")).toHaveCount(0);
-		const tip = await line(w).locator(".turn-result-size").getAttribute("title");
-		const said = await line(w).getByRole("button", { name: /Open changes$/ }).getAttribute("aria-label");
-		assert.match(tip ?? "", /^These are the edits made with the edit tools\. A command ran that may have changed files/, said ?? "");
+		// The record's sentence about not being able to tell is drawn nowhere: not as a hover, not in the name.
+		const tip = (await line(w).locator(".turn-result-size").getAttribute("title")) ?? "";
+		assert.equal(tip, "");
 		const name = (await line(w).getByRole("button", { name: /Open changes$/ }).getAttribute("aria-label")) ?? "";
-		assert.ok(name.includes("A command ran that may have changed files"), name);
+		assert.ok(!name.includes("may have changed files") && !name.includes("cannot tell"), name);
+		await expect(w.page.locator(".turn-outcome-line")).toHaveCount(0);
 		await line(w).locator(".turn-result-size").hover();
 		await snap(w, "unknown-with-counts");
 		failed = false;
@@ -447,7 +450,11 @@ test("a finished turn has no edge but the person's message: the line, the fold a
 		await w.page.mouse.move(2, 2);
 		// Keyboard focus draws both too, and so does the open menu.
 		await main.focus();
+		// Tab reaches the line's own actions (View changes, Undo) before the "...".
 		await w.page.keyboard.press("Tab");
+		await expect(line(w).getByRole("button", { name: "View changes" })).toBeFocused();
+		for (let step = 0; step < 3 && !(await more.evaluate((el) => el === document.activeElement)); step++)
+			await w.page.keyboard.press("Tab");
 		await expect(more).toBeFocused();
 		await expect.poll(async () => (await look(more)).opacity, { timeout: T }).toBe("1");
 		await w.page.keyboard.press("Enter");

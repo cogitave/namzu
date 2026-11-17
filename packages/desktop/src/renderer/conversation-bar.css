@@ -67,6 +67,18 @@
 	gap: 6px;
 	padding-inline: 8px;
 }
+/* Outputs shows how many files the conversation wrote beside its icon. */
+.conversation-bar-buttons > .conversation-bar-outputs {
+	width: auto;
+	gap: 6px;
+	padding-inline: 8px;
+}
+.conversation-bar-outputs-count {
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	font-weight: var(--weight-control);
+	font-variant-numeric: tabular-nums;
+}
 .conversation-bar-lines {
 	display: inline-flex;
 	gap: 5px;

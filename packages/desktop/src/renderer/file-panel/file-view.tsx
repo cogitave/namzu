@@ -168,7 +168,7 @@ function useHighlighterReady(path: string): boolean {
 	return ready
 }
 
-function SourceView({
+export function SourceView({
 	path,
 	text,
 	dark,
