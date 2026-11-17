@@ -140,6 +140,23 @@ export function defaultPermissionModes(
 }
 
 /**
+ * The modes the composer offers for this conversation. Namzu's own engine says which of
+ * Auto and Full access its settings leave open (`advertised`); the others stay as they are.
+ * No list (an older engine) keeps the whole default list.
+ */
+export function offeredPermissionModes(
+	engine: ComposerPermissionEngine,
+	advertised: readonly ('bypass' | 'classify')[] | undefined,
+): readonly ComposerPermissionMode[] {
+	if (engine === 'claude-code') return ['prompt', 'plan']
+	const modes = defaultPermissionModes(engine)
+	if (engine !== 'namzu' || advertised === undefined) return modes
+	return modes.filter(
+		(mode) => (mode !== 'classify' && mode !== 'bypass') || advertised.includes(mode),
+	)
+}
+
+/**
  * Rows for one engine. Support comes from `supportedModes` (the engine's capabilities);
  * a saved mode the engine no longer supports stays visible but cannot be picked again.
  */

@@ -218,7 +218,7 @@ session's actual provider menu, including its configured fallbacks, and applies
 the captured review mode to that message's turn. These options do not rewrite
 saved global preferences or change a currently running turn.
 
-Of the review modes, `bypass` and `classify` are accepted in prompt options only when the host lists them in `AcpServerOptions.promptPermissionModes`, advertised at initialization as `promptPermissionModes`. Without that, a prompt that asks for either fails with `INVALID_PARAMS` (`This agent does not accept the "bypass" permission mode in prompt settings.`) before a turn starts. The CLI declares both and then applies `permissions.disableBypassMode`, the root guard and the auto-mode model check to the turn.
+Of the review modes, `bypass` and `classify` are accepted in prompt options only when the host lists them in `AcpServerOptions.promptPermissionModes`, advertised at initialization as `promptPermissionModes`. Without that, a prompt that asks for either fails with `INVALID_PARAMS` (`This agent does not accept the "bypass" permission mode in prompt settings.`) before a turn starts. The empty list is advertised as `[]` (the host closes both), which a client tells apart from an older host that sends no list. The CLI declares only the modes its configuration leaves open (`permissions.disableAutoMode` drops `classify`, `permissions.disableBypassMode` or the root guard drops `bypass`) and then applies `permissions.disableBypassMode`, the root guard and the auto-mode model check to the turn.
 
 ## What the host says about its engine
 

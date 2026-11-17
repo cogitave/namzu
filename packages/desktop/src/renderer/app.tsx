@@ -58,6 +58,7 @@ import { CommitDialog } from './commit-dialog.js'
 import { changedPaths, commitButtonState } from './commit-model.js'
 import type { AddMenuToolServers } from './composer-add-menu.js'
 import { historyEntries } from './composer-history.js'
+import { offeredPermissionModes } from './composer-permissions.js'
 import {
 	type ComposerPlugin,
 	type ComposerPluginInventory,
@@ -7861,7 +7862,7 @@ export function App({
 								onHarnessChange={(engine) => void act(() => selectHarness(engine))}
 								onRecheckEngines={() => act(retryConversationSetup)}
 								attachmentsSupported={!externalHarness}
-								reviewModes={permissionEngine === 'claude-code' ? ['prompt', 'plan'] : undefined}
+								reviewModes={offeredPermissionModes(permissionEngine, project.permissionModes)}
 								permissionScope={draftOwner}
 								onLeaveProject={() => void act(leaveProject)}
 								projects={projects.filter((item) => !item.palId)}

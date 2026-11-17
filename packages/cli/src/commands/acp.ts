@@ -32,7 +32,15 @@ import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { hookSwitch } from '../config/hook-layers.js'
+import {
+	advertisedPromptModes,
+	sessionOptionsFromConfig,
+	turnOptionsFromConfig,
+} from '../config/session-options.js'
+import {
+	IdleCompactor,
+	type IdleCompactorDeps,
+} from '../integrations/compaction/idle-compaction.js'
 
 import { FileCheckpointStore, type TurnUndoStatus, type UndoPreview } from '../checkpoints/store.js'
 import { flushCompileCacheWhenIdle } from '../compile-cache.js'
@@ -259,6 +267,7 @@ type AcpLiveSession = Pick<
 	| 'markFilesChanged'
 	| 'autoMode'
 	| 'sideModel'
+	| 'clearStaleResultsAfterIdle'
 > & {
 	readonly resumePaused?: AgentSession['resumePaused']
 	readonly abandonTurn?: AgentSession['abandonTurn']
@@ -289,6 +298,30 @@ export interface AcpRuntimeDependencies {
 	readonly readRetryStatus?: typeof readProviderRetryStatus
 }
 
+/**
+ * The prompt-cache clock of one conversation, used only to shed old tool
+ * results after a long break (`compaction.clearStaleResultsAfterIdle`). The
+ * idle compaction timer is the terminal's; nothing here ever arms it.
+ */
+function staleResultsDeps(sessionId: string): IdleCompactorDeps {
+	return {
+		now: Date.now,
+		setTimer: () => undefined,
+		clearTimer: () => undefined,
+		isEnabled: () => false,
+		conversationKey: () => sessionId,
+		minTokens: () => Number.POSITIVE_INFINITY,
+		contextTokens: () => undefined,
+		isNearLimit: () => false,
+		lastInteractionAt: () => 0,
+		isTurnRunning: () => false,
+		isDialogOpen: () => false,
+		hasPendingWake: () => false,
+		hasBackgroundWork: () => false,
+		compact: async () => false,
+	}
+}
+
 interface AcpRuntimeRecord {
 	readonly conversations?: Awaited<ReturnType<typeof openSessions>>
 	readonly cwd: string
@@ -298,6 +331,10 @@ interface AcpRuntimeRecord {
 	readonly palId?: string
 	readonly readyComputer?: () => PalEnvironmentLease | undefined
 	readonly provider: string
+	/** What the configuration decides about every turn of this conversation (hypermode, refusal fallback). */
+	readonly turnOptions: ReturnType<typeof turnOptionsFromConfig>
+	/** Tracks the prompt cache across turns, to shed old tool results once it has lapsed. */
+	readonly staleResults: IdleCompactor
 	/** `permissions.disableBypassMode` and friends, which the host cannot be talked out of. */
 	readonly permissionSettings?: PermissionSettings
 	/** The model this connection runs on now; a retry repeats the paused turn on it, not on the failed one. */
@@ -991,30 +1028,14 @@ export function createCliAcpRuntime(
 								},
 							}
 						: {}),
-					...(projectCtx.config.permissionSettings
-						? { permissionSettings: projectCtx.config.permissionSettings }
-						: {}),
-					...(projectCtx.config.mcpServers ? { mcpServers: projectCtx.config.mcpServers } : {}),
-					...(projectCtx.config.plugins ? { plugins: projectCtx.config.plugins } : {}),
-					...(projectCtx.config.skills ? { skills: projectCtx.config.skills } : {}),
-					...(projectCtx.config.web ? { web: projectCtx.config.web } : {}),
-					...(projectCtx.config.smallModel ? { smallModel: projectCtx.config.smallModel } : {}),
-					...(projectCtx.config.hooks ? { hooks: projectCtx.config.hooks } : {}),
-					...(hookSwitch(projectCtx.config) ? { hooksSwitch: hookSwitch(projectCtx.config) } : {}),
-					...(projectCtx.config.compaction ? { compaction: projectCtx.config.compaction } : {}),
-					...(projectCtx.config.memory ? { memory: projectCtx.config.memory } : {}),
-					...(projectCtx.config.sandbox ? { sandbox: projectCtx.config.sandbox } : {}),
-					...(projectCtx.config.decision ? { decision: projectCtx.config.decision } : {}),
+					// Every key the configuration sets for a session, through the one function
+					// `exec` reads them with: this host cannot miss one the terminal honours.
+					...sessionOptionsFromConfig(projectCtx.config, { cwd }),
 					// Routed turns only where Auto is what runs: never for a Pal, and not after the
 					// person hand-picked a model for this conversation.
 					...(projectCtx.config.routing &&
 					autoIsActive(sessionId, projectCtx.config, palBinding != null)
 						? { routing: projectCtx.config.routing }
-						: {}),
-					// `!== undefined`, not truthiness: an empty list is the
-					// operator turning the default screen OFF.
-					...(projectCtx.config.toolResultScreens !== undefined
-						? { toolResultScreens: projectCtx.config.toolResultScreens }
 						: {}),
 					onSessionEvent: (event: SessionEvent) => routeOwner.current?.route?.(event),
 				})
@@ -1066,6 +1087,8 @@ export function createCliAcpRuntime(
 					...(projectCtx.config.permissionSettings
 						? { permissionSettings: projectCtx.config.permissionSettings }
 						: {}),
+					turnOptions: turnOptionsFromConfig(projectCtx.config),
+					staleResults: new IdleCompactor(staleResultsDeps(sessionId)),
 					model:
 						primary.model ??
 						probe.detected.find(({ entry }) => entry.id === primary.id)?.entry.defaultModel ??
@@ -1257,8 +1280,16 @@ export function createCliAcpRuntime(
 				undoNotes.delete(sessionId)
 				// A conversation's name being saved holds its log for a moment; the turn goes after it.
 				await titleFeed?.saved(sessionId)
+				// A conversation picked up after its prompt cache lapsed is re-read at full
+				// price anyway: old tool results can go now. Read before this turn's calls.
+				const staleResults = record.session.clearStaleResultsAfterIdle
+					? record.staleResults.staleResultsRequest()
+					: undefined
 				for await (const event of record.session.send(messages, {
 					...settings,
+					// The configuration's per-turn choices: hypermode, refusal fallback.
+					...record.turnOptions,
+					...(staleResults ? { clearStaleToolResults: staleResults } : {}),
 					// The words the person sent: a target such as +500k is read from these only.
 					typedInput: prompt,
 					currentPermissionMode: () => turnMode,
@@ -1290,6 +1321,7 @@ export function createCliAcpRuntime(
 						settledHistory = [...messages]
 					},
 				})) {
+					if (event.kind === 'usage') record.staleResults.recordCall(event.cache)
 					if (event.kind === 'done' || event.kind === 'error' || event.kind === 'paused')
 						liveInbox?.close()
 					if (event.kind === 'done') stopReason = event.stopReason
@@ -2210,11 +2242,19 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 	const palInboxStart = desktop
 		? createPalInboxStarter(() => resolveTrustedProjectContext(ctx, process.cwd()))
 		: undefined
+	const hostConfig = (() => {
+		try {
+			return resolveTrustedProjectContext(ctx, process.cwd()).config
+		} catch {
+			return ctx.config
+		}
+	})()
 	const server: ACPServer = new ACPServer({
 		supportsPromptAttachments: true,
 		supportsPromptOptions: true,
-		// `assertModeAllowed` below applies the settings that shut either door.
-		promptPermissionModes: ['bypass', 'classify'],
+		// Only the modes the configuration leaves open, so a client does not offer one
+		// the engine then refuses. `assertModeAllowed` below still holds the line.
+		promptPermissionModes: advertisedPromptModes(hostConfig),
 		supportsTaskNotifications: desktop,
 		transport,
 		gateway: runtime.gateway,

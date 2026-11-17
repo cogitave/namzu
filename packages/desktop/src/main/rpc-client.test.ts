@@ -82,6 +82,17 @@ it('reports malformed protocol output and rejects a pending prompt', async () =>
 	await expect(runtime.request('test/malformed')).rejects.toThrow()
 	await expect(runtime.request('test/echo')).rejects.toThrow('not connected')
 })
+it('keeps the review modes the engine advertises, and tells "none" from "no list"', async () => {
+	const older = client()
+	await older.start()
+	expect(older.promptPermissionModes()).toBeUndefined()
+	const only = client({ ...process.env, FIXTURE_PERMISSION_MODES: '["bypass"]' })
+	await only.start()
+	expect(only.promptPermissionModes()).toEqual(['bypass'])
+	const closed = client({ ...process.env, FIXTURE_PERMISSION_MODES: '[]' })
+	await closed.start()
+	expect(closed.promptPermissionModes()).toEqual([])
+})
 it('fails initialization before exposing an incompatible runtime', async () => {
 	await expect(client({ ...process.env, FIXTURE_INCOMPATIBLE: '1' }).start()).rejects.toThrow(
 		'Update Namzu',

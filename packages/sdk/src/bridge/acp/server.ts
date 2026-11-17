@@ -150,7 +150,9 @@ export interface AcpServerOptions {
 	 * applies when a prompt asks for one in its options. Omitted, a prompt that
 	 * asks for either is refused with an error that says so, before any turn
 	 * starts, rather than reaching a gateway that cannot honour it. Advertised
-	 * as `promptPermissionModes` at initialization.
+	 * as `promptPermissionModes` at initialization. An empty list is advertised
+	 * as empty (the host closes both), which a client tells apart from an older
+	 * host that sends no list at all.
 	 */
 	readonly promptPermissionModes?: readonly ('bypass' | 'classify')[]
 	/** Emit planning notifications only to clients declaring namzu/tasks. */
@@ -493,7 +495,7 @@ export class ACPServer {
 			},
 			...(this.options.supportsPromptAttachments ? { promptAttachments: true } : {}),
 			...(this.options.supportsPromptOptions ? { promptOptions: true } : {}),
-			...(this.options.supportsPromptOptions && this.options.promptPermissionModes?.length
+			...(this.options.supportsPromptOptions && this.options.promptPermissionModes !== undefined
 				? { promptPermissionModes: [...this.options.promptPermissionModes] }
 				: {}),
 			agentInfo: this.options.agentInfo,

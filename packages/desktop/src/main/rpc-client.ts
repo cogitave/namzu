@@ -132,6 +132,15 @@ export class RuntimeClient extends EventEmitter {
 	supportsPromptOptions(): boolean {
 		return this.promptOptions
 	}
+	private permissionModes: readonly ('bypass' | 'classify')[] | undefined
+	/**
+	 * The newer review modes this engine applies per prompt, as it advertised them.
+	 * `undefined` is an engine that sends no list (an older one): the app keeps its
+	 * own list; an empty list means the engine's settings close both.
+	 */
+	promptPermissionModes(): readonly ('bypass' | 'classify')[] | undefined {
+		return this.permissionModes
+	}
 	supportsPromptAttachments(): boolean {
 		return this.promptAttachments
 	}
@@ -323,6 +332,9 @@ export class RuntimeClient extends EventEmitter {
 		)) as AcpInitializeResult
 		this.promptAttachments = result.promptAttachments === true
 		this.promptOptions = result.promptOptions === true
+		this.permissionModes = Array.isArray(result.promptPermissionModes)
+			? result.promptPermissionModes.filter((mode) => mode === 'bypass' || mode === 'classify')
+			: undefined
 		const offers = (group: OptionalExtensionGroup): boolean =>
 			OPTIONAL_EXTENSION_GROUPS[group].every((method) => result.extensions?.includes(method))
 		this.tasks = offers('tasks')

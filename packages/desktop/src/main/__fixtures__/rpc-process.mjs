@@ -45,7 +45,7 @@ lines.on('line', (line) => {
 		send({ method: 'session/update', params: { sessionId: prompt.sessionId, update: { kind: 'agent_message_chunk', text: frame.result.outcome === 'approve' ? 'Approved answer' : frame.result.outcome === 'approve_all' ? 'Approved for the conversation' : frame.result.feedback ? `Declined: ${frame.result.feedback}` : 'Declined answer' } } })
 		send({ method: 'session/update', params: { sessionId: prompt.sessionId, update: { kind: 'turn_ended', stopReason: 'end_turn' } } })
 		reply(prompt.id, { stopReason: 'end_turn' })
-	} else if (method === 'initialize') reply(id, { agentInfo: { name: 'namzu' }, promptAttachments: process.env.FIXTURE_NO_ATTACHMENTS ? undefined : true, promptOptions: process.env.FIXTURE_NO_OPTIONS ? undefined : true, extensions: process.env.FIXTURE_INCOMPATIBLE ? [] : methods })
+	} else if (method === 'initialize') reply(id, { agentInfo: { name: 'namzu' }, promptAttachments: process.env.FIXTURE_NO_ATTACHMENTS ? undefined : true, promptOptions: process.env.FIXTURE_NO_OPTIONS ? undefined : true, promptPermissionModes: process.env.FIXTURE_PERMISSION_MODES === undefined ? undefined : JSON.parse(process.env.FIXTURE_PERMISSION_MODES), extensions: process.env.FIXTURE_INCOMPATIBLE ? [] : methods })
 	else if (method === 'namzu/harnesses/list' || method === 'namzu/harnesses/select') {
 		if (method.endsWith('/select')) {
 			if (process.env.FIXTURE_ENFORCE_PROVIDER_BINDING && !sessions.has(params.sessionId)) {

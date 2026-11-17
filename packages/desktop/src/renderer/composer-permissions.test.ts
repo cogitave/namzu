@@ -4,6 +4,7 @@ import {
 	type ComposerPermissionMode,
 	ComposerPermissions,
 	numberedRow,
+	offeredPermissionModes,
 	permissionMenuTitle,
 	permissionRows,
 } from './composer-permissions.js'
@@ -317,4 +318,29 @@ it('names the row a plain number key points at', () => {
 	expect(numberedRow({ ...plain, key: '0' }, rows)).toBeUndefined()
 	expect(numberedRow({ ...plain, key: 'a' }, rows)).toBeUndefined()
 	expect(numberedRow({ ...plain, key: '1', ctrlKey: true }, rows)).toBeUndefined()
+})
+
+it('offers only the modes the engine advertises, and keeps the whole list for an engine that sent none', () => {
+	expect(offeredPermissionModes('namzu', undefined)).toEqual([
+		'prompt',
+		'accept-edits',
+		'classify',
+		'bypass',
+		'strict',
+		'plan',
+	])
+	expect(offeredPermissionModes('namzu', ['bypass'])).toEqual([
+		'prompt',
+		'accept-edits',
+		'bypass',
+		'strict',
+		'plan',
+	])
+	expect(offeredPermissionModes('namzu', ['classify'])).not.toContain('bypass')
+	const none = offeredPermissionModes('namzu', [])
+	expect(none).not.toContain('classify')
+	expect(none).not.toContain('bypass')
+	// Another engine's list is its own: the advertised Namzu modes never touch it.
+	expect(offeredPermissionModes('codex-cli', [])).toContain('bypass')
+	expect(offeredPermissionModes('claude-code', [])).toEqual(['prompt', 'plan'])
 })

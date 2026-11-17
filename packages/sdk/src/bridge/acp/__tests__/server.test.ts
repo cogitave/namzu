@@ -1954,6 +1954,15 @@ describe('per-message prompt settings', () => {
 		expect(calls).toBe(2)
 	})
 
+	it('advertises an empty promptPermissionModes list, so a client can tell "none" from an older host', async () => {
+		const closed = build({ supportsPromptOptions: true, promptPermissionModes: [] })
+		await handshake(closed)
+		expect(closed.sent.find((frame) => frame.id === 1)?.result).toMatchObject({
+			promptPermissionModes: [],
+		})
+		await closed.server.stop()
+	})
+
 	it('accepts bypass and classify per prompt only when the host says it applies them', async () => {
 		for (const mode of ['bypass', 'classify'] as const) {
 			const received: unknown[] = []

@@ -2,6 +2,7 @@
 
 ## 2026-11-18
 
+- **Update** [Turn limits](cli/turn-limits.md#one-reader-for-every-host): a Desktop conversation reads the same engine settings as `namzu exec` (limits, workflow caps, hand-back, hypermode, refusal fallback, shedding old results after a long break, extra folders), `exec --json` reads the workflow caps, and the Desktop composer offers Auto and Full access only when the settings leave them open; [Agent Client Protocol](sdk/agent-client-protocol.md) advertises an empty `promptPermissionModes` as `[]`. `.changeset/cli-desktop-host-reads-saved-settings.md`.
 - **Update** [Desktop](cli/desktop.md#the-pane-grid): a tab in a narrow Terminal, Files or Browser pane ends its name with an ellipsis instead of being cut at the strip's edge, and the strip shows a soft edge on a side with tabs out of sight. `.changeset/desktop-composer-menus.md`.
 
 ## 2026-11-17

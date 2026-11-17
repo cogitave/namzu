@@ -22,8 +22,8 @@
  */
 
 import { relative, resolve } from 'node:path'
-import { hookSwitch } from '../config/hook-layers.js'
 import { withModelLaunchEnvironment } from '../config/model-environment.js'
+import { sessionOptionsFromConfig, turnOptionsFromConfig } from '../config/session-options.js'
 
 import {
 	BOOT_EVENT_NAMES,
@@ -466,7 +466,6 @@ async function execPrint(
 					conversationSessions: sessions,
 				}
 			: { sessionId, ephemeral: true }),
-		learningObservations: ctx.config.learningObservations !== false,
 		monitorTimeoutCapMs: EXEC_MONITOR_CAP_MS,
 		rules: permissions.rules,
 		...(refusedTools.length > 0 ? { withheldTools: refusedTools } : {}),
@@ -477,33 +476,19 @@ async function execPrint(
 		// gates is byte-identical to the one that shipped before them.
 		...(gate ?? {}),
 		permissionMode: modeResult.mode,
-		...(ctx.config.permissionSettings ? { permissionSettings: ctx.config.permissionSettings } : {}),
 		// Run from the user's own terminal, so a page can be opened on their
 		// desktop. Never `exec --json`, `drain` or a scheduled run.
 		openUrl: true,
-		...(mcpServers.servers ? { mcpServers: mcpServers.servers } : {}),
-		...(ctx.config.plugins ? { plugins: ctx.config.plugins } : {}),
-		...(ctx.config.skills ? { skills: ctx.config.skills } : {}),
-		...(ctx.config.web ? { web: ctx.config.web } : {}),
-		...(ctx.config.smallModel ? { smallModel: ctx.config.smallModel } : {}),
-		...(ctx.config.hooks ? { hooks: ctx.config.hooks } : {}),
-		...(hookSwitch(ctx.config) ? { hooksSwitch: hookSwitch(ctx.config) } : {}),
-		// Past the folder gate above: the folder is trusted, by the store or by `--trust`.
+		// Every key the configuration sets for a session, through the one function
+		// the ACP host reads them with. The folder gate above is past, so the
+		// folder is trusted, by the store or by `--trust`.
+		...sessionOptionsFromConfig(ctx.config, {
+			cwd,
+			limitsFromFlags,
+			handBackFlag: flags.handBack,
+			mcpServers: mcpServers.servers,
+		}),
 		folderTrusted: true,
-		...(ctx.config.compaction ? { compaction: ctx.config.compaction } : {}),
-		...(ctx.config.memory ? { memory: ctx.config.memory } : {}),
-		...(Object.keys({ ...ctx.config.limits, ...limitsFromFlags }).length > 0
-			? { limits: { ...ctx.config.limits, ...limitsFromFlags } }
-			: {}),
-		...(ctx.config.workflow ? { workflow: ctx.config.workflow } : {}),
-		...(flags.handBack || ctx.config.handBack?.enabled === true ? { handBack: true } : {}),
-		...(ctx.config.sandbox ? { sandbox: ctx.config.sandbox } : {}),
-		...(ctx.config.decision ? { decision: ctx.config.decision } : {}),
-		// `!== undefined`, not truthiness: an empty list is the operator
-		// turning the default screen OFF, and a falsy check would drop it.
-		...(ctx.config.toolResultScreens !== undefined
-			? { toolResultScreens: ctx.config.toolResultScreens }
-			: {}),
 	})
 	if (!session.hasProvider) {
 		await session.close()
@@ -756,9 +741,8 @@ async function execPrint(
 		// model is not offered the tool. Nobody is here to review a script, so
 		// only a session set to run without asking may start one.
 		workflowReview: { currentPermissionMode: () => modeResult.mode },
-		// The `hypermode` config key reaches a headless turn too.
-		...(ctx.config.hypermode === true ? { hypermode: true } : {}),
-		...(ctx.config.refusalFallback ? { refusalFallback: ctx.config.refusalFallback } : {}),
+		// The `hypermode` and `refusalFallback` config keys reach a headless turn too.
+		...turnOptionsFromConfig(ctx.config),
 		onConversationMessages: (messages: readonly Message[]) => {
 			history = messages
 		},

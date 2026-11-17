@@ -2263,6 +2263,9 @@ export class Operator {
 				view.name = status.pal.name
 				this.palRecords.set(status.pal.id, status.pal)
 			}
+			// The review modes the engine lets this project use: the composer offers no others.
+			const permissionModes = client.promptPermissionModes?.()
+			if (permissionModes) view.permissionModes = [...permissionModes]
 			view.status = 'ready'
 		} catch (error) {
 			view.status = 'error'

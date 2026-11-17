@@ -209,6 +209,12 @@ export interface ProjectView {
 	status: 'connecting' | 'ready' | 'error'
 	error?: string
 	palId?: string
+	/**
+	 * Auto (`classify`) and Full access (`bypass`), whichever of them this project's engine
+	 * lets a conversation use (its settings can close either). Absent: an older engine that
+	 * did not say, so the composer keeps offering both. An empty list: it closes both.
+	 */
+	permissionModes?: ('bypass' | 'classify')[]
 	/** App-created ordinary chat context, not a user project or Pal workspace. */
 	isChat?: boolean
 	/**
