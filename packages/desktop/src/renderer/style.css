@@ -769,6 +769,11 @@ pre {
 }
 .composer-input textarea::placeholder {
 	color: var(--placeholder);
+	/* The hint is one line at any width: it is cut with an ellipsis rather than wrapped, because a
+	   wrapped hint makes the empty box two lines high. */
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 .composer-input textarea:focus {
 	outline: none;

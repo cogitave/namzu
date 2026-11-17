@@ -1,12 +1,14 @@
 .message-footer {
 	--message-actions-delay: 100ms;
+	/* One row height at every width: the clock and the buttons are centred in it together. */
+	--message-footer-row: 24px;
 	display: flex;
 	align-items: center;
 	gap: 6px;
 	width: fit-content;
 	max-width: 100%;
 	min-width: 0;
-	min-height: 24px;
+	min-height: var(--message-footer-row);
 	opacity: 0;
 	pointer-events: none;
 	/* Leaving is quick and immediate, so a pointer sweeping down the transcript leaves nothing behind. */
@@ -43,20 +45,23 @@
 	opacity: 1;
 	transition: none;
 }
+.message-footer .message-time {
+	display: inline-flex;
+	align-items: center;
+	height: var(--message-footer-row);
+}
 .message-footer .message-time > time {
 	display: block;
+	line-height: 16px;
+	/* The digits sit high in their line box. This is the measured step (2 px) that puts their ink 1.5 px
+	   under the buttons' centre line, where the eye reads a clock beside a row of icons as level. */
+	transform: translateY(2px);
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 .pal-chat-message > .message-footer {
 	padding-inline: 14px;
-}
-/* Reserve the same compact button height used below the UI's sm breakpoint. */
-@media (width < 40rem) {
-	.message-footer {
-		min-height: 28px;
-	}
 }
 @media (hover: none) {
 	.message-footer {

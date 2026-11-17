@@ -25,6 +25,7 @@ import {
 	DRAFT_LIMIT,
 	UNSUPPORTED_ATTACHMENTS_HINT,
 	composerPlaceholder,
+	composerPlaceholderTitle,
 	decidePaste,
 	pasteOverflow,
 	pasteOverflowNotice,
@@ -676,6 +677,15 @@ export function Composer({
 										value={draft}
 										maxLength={DRAFT_LIMIT}
 										disabled={draftDisabled}
+										title={composerPlaceholderTitle({
+											cliMode,
+											editableQueued: editableRows.length > 0,
+											waitingOnPerson: waiting,
+											hasDraft,
+											running,
+											liveInputSupported,
+											mac,
+										})}
 										placeholder={composerPlaceholder({
 											compact,
 											cliMode,

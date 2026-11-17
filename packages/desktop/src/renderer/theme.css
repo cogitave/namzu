@@ -243,7 +243,7 @@
 	/* The open block of steps. */
 	--turn-block-gap: 8px;
 	--turn-block-radius: 8px;
-	--turn-block-row: 35px;
+	--turn-block-row: 36px;
 	--turn-block-inset: 12px;
 	--turn-block-after: 20px;
 	--turn-edge: color-mix(in srgb, var(--foreground) 6%, transparent);

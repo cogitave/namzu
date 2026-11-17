@@ -137,7 +137,9 @@
 	font-size: var(--text-reading);
 	line-height: var(--leading-reading);
 	gap: 0;
+	/* The header's words start 5 px in from the box edge below it, as the rows' words start 13 in. */
 	padding-block: 0;
+	padding-inline-start: 4px;
 	border-bottom: 0;
 	color: var(--muted-foreground);
 }
@@ -199,6 +201,10 @@
 }
 .normal-transcript .activity-block .tool-icon {
 	display: none;
+}
+/* With no icon, what a command printed starts under its words: the row's own inset, not a further icon's width in. */
+.normal-transcript .activity-block .tool {
+	--tool-indent: var(--turn-block-inset);
 }
 .normal-transcript
 	.activity-block

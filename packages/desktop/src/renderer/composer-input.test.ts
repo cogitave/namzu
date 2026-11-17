@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
 	DRAFT_LIMIT,
 	composerPlaceholder,
+	composerPlaceholderTitle,
 	decidePaste,
 	pasteOverflow,
 	pasteOverflowNotice,
@@ -96,11 +97,17 @@ describe('the empty box hint', () => {
 
 	it('teaches the send and queue keys while a reply runs and takes a message', () => {
 		expect(composerPlaceholder({ ...base, running: true, liveInputSupported: true })).toBe(
-			'Enter sends now · Ctrl+Enter or Tab sends after this reply',
+			'Ctrl+Enter to queue',
 		)
 		expect(
 			composerPlaceholder({ ...base, running: true, liveInputSupported: true, mac: true }),
-		).toContain('Cmd+Enter')
+		).toBe('Cmd+Enter to queue')
+		expect(composerPlaceholderTitle({ ...base, running: true, liveInputSupported: true })).toBe(
+			'Enter sends now · Ctrl+Enter or Tab sends after this reply',
+		)
+		expect(composerPlaceholderTitle({ ...base, running: false, liveInputSupported: true })).toBe(
+			undefined,
+		)
 	})
 
 	it('does not promise a queue chord on an engine that cannot take a message mid-reply', () => {
