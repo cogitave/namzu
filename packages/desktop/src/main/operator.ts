@@ -17,6 +17,12 @@ import {
 } from '../shared/config-settings-protocol.js'
 import { type HistoryWorkSnapshot, restoreHistoryWork } from '../shared/history-work.js'
 import { readHooksReport } from '../shared/hooks-report.js'
+import {
+	LIMITS_NOTIFICATION,
+	LIMITS_REFRESH_METHOD,
+	type LimitsNotification,
+	readLimitsNotice,
+} from '../shared/limits-protocol.js'
 import { OUTCOME_NOTIFICATION, readOutcomeNotice } from '../shared/outcome-protocol.js'
 import type {
 	PalPermissionChange,
@@ -1781,6 +1787,7 @@ export class Operator {
 			event.kind !== 'show-conversation' &&
 			event.kind !== 'model-catalogue-updated' &&
 			event.kind !== 'providers-changed' &&
+			event.kind !== 'limits' &&
 			event.kind !== 'unread'
 		) {
 			const id = event.kind === 'permission' ? event.request.sessionId : event.sessionId
@@ -2957,6 +2964,23 @@ export class Operator {
 			throw new Error('Namzu returned an invalid conversation export.')
 		this.assertConversationAvailable(sessionId)
 		return { markdown: result.markdown, truncated: result.truncated }
+	}
+	/**
+	 * What each provider in use says about its account. The host makes any request itself and at most
+	 * once a minute per vendor; the answer is read strictly, kept nowhere and logged never.
+	 */
+	async refreshLimits(projectId: string): Promise<LimitsNotification | null> {
+		const project = this.project(projectId)
+		if (!project.view.trusted || project.view.palId || !project.client.supportsLimits()) return null
+		const client = project.client
+		let result: unknown
+		try {
+			result = await client.request(LIMITS_REFRESH_METHOD, {})
+		} catch {
+			return null
+		}
+		if (this.projects.get(projectId) !== project || project.client !== client) return null
+		return readLimitsNotice(result) ?? null
 	}
 	async projectGit(projectId: string): Promise<ProjectGitView | null> {
 		const project = this.project(projectId)
@@ -6077,6 +6101,10 @@ export class Operator {
 				if (seen.app && this.grantsFor(session.view.id).markUsed(seen.app))
 					this.announceComputerApps(session.view.id)
 			}
+		} else if (frame.method === LIMITS_NOTIFICATION) {
+			// What the providers say about the account. A notice that does not read is dropped.
+			const limits = readLimitsNotice(frame.params)
+			if (limits) this.emit({ kind: 'limits', limits })
 		} else if (frame.method === TITLE_NOTIFICATION) {
 			// The name the model gave a conversation. It replaces the words of the first message only
 			// while the title is still those words: a name the person typed is never overwritten.

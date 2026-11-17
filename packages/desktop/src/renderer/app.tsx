@@ -14,6 +14,7 @@ import {
 	freshBackgroundWorkStatus,
 } from '../shared/background-work-protocol.js'
 import { resolveComposerSendOptions } from '../shared/composer-send-options.js'
+import type { LimitsNotification } from '../shared/limits-protocol.js'
 import { duplicatePalNameMessage, isDuplicatePalName } from '../shared/pal-name.js'
 import { type ThreadState, applyEvent, emptyThread, restoreMessages } from '../shared/projection.js'
 import type {
@@ -283,6 +284,8 @@ import { Button } from './ui/button.js'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from './ui/empty.js'
 import { UndoDialog } from './undo-dialog.js'
 import { undoNotice } from './undo-model.js'
+import { createLimitsRefresher, readBudgets, writeBudgets } from './usage-limits-model.js'
+import type { UsageLimitsControl } from './usage-limits-popover.js'
 import { useArchivedConversations } from './use-archived-conversations.js'
 import { useAttachments } from './use-attachments.js'
 import { useClock } from './use-clock.js'
@@ -932,6 +935,8 @@ export function App({
 	// The drawer opens from the details popover, so closing it returns focus to the popover's icon.
 	const detailsTrigger = useRef<HTMLButtonElement>(null)
 	const [detailsPopoverOpen, setDetailsPopoverOpen] = useState(false)
+	const [limitsView, setLimitsView] = useState<LimitsNotification>()
+	const [budgets, setBudgets] = useState(() => readBudgets(localStorage))
 	const [sessionPanelOpen, setSessionPanelOpenState] = useState(() =>
 		readSessionPanelOpen(localStorage),
 	)
@@ -1543,6 +1548,44 @@ export function App({
 				work: detailsWork,
 			})
 		: undefined
+	// The vendor is asked when the usage popover opens, and at most once a minute.
+	const limitsRefresher = useMemo(
+		() =>
+			api.refreshLimits && projectId
+				? createLimitsRefresher({
+						request: () => api.refreshLimits?.(projectId) ?? Promise.resolve(null),
+						now: Date.now,
+					})
+				: undefined,
+		[api, projectId],
+	)
+	const usageLimits = useMemo<UsageLimitsControl | undefined>(
+		() =>
+			palConversation
+				? undefined
+				: {
+						view: limitsView,
+						currentProvider: activeProviders.selected?.id,
+						budgets,
+						onBudget: (provider, usd) =>
+							setBudgets((all) => {
+								const next = { ...all }
+								if (usd === undefined) delete next[provider]
+								else next[provider] = usd
+								writeBudgets(localStorage, next)
+								return next
+							}),
+						onOpen: () =>
+							void limitsRefresher?.refresh()?.then(
+								(view) => {
+									if (view) setLimitsView(view)
+								},
+								() => {},
+							),
+						now: Date.now,
+					},
+		[palConversation, limitsView, activeProviders.selected?.id, budgets, limitsRefresher],
+	)
 	const turnRunning = thread.running
 	const undoKept = useUndoKept(api.undoPreview, sessionId, thread.undo)
 	// A settled turn may have written files; the open file and the tree read the disk again.
@@ -2311,6 +2354,11 @@ export function App({
 			}
 			// The unread store listens for its own event; nothing here belongs to a conversation.
 			if (event.kind === 'unread') return
+			// What the providers say about the account: held in memory for the popover and the ring.
+			if (event.kind === 'limits') {
+				setLimitsView(event.limits)
+				return
+			}
 			if (event.kind === 'providers-changed') {
 				// A key was saved or removed. Forget what each pane remembered about providers
 				// and read them again; the send button follows the new answer.
@@ -7716,6 +7764,7 @@ export function App({
 								liveInputSupported={thread.liveInputSupported && !palConversation}
 								sending={sending[draftOwner] ?? false}
 								usage={palConversation ? undefined : thread.usage}
+								limits={usageLimits}
 								shells={
 									// The open Activity panel's own list is the freshest count; otherwise the observer's.
 									detailsWork.state === 'known' && detailsWork.running > 0

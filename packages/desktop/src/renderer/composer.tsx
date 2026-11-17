@@ -70,6 +70,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
 import './composer.css'
 import type { ThreadUsage } from '../shared/projection.js'
 import { ContextReadout, ContextRing } from './context-ring-view.js'
+import { UsageIndicator, type UsageLimitsControl, indicatorState } from './usage-limits-popover.js'
 
 /**
  * The picker's modes are the ones this window offers. The kernel's old `auto`,
@@ -124,6 +125,7 @@ export function Composer({
 	trayActions,
 	shells,
 	usage,
+	limits,
 	pullRequest,
 	onSend,
 	onQueue,
@@ -221,6 +223,8 @@ export function Composer({
 	shells?: { count: number; onOpen: () => void }
 	/** How full the conversation is, as the engine last said; the ring is drawn only when it is complete. */
 	usage?: ThreadUsage
+	/** What the account behind the provider says about its limits; the indicator opens a popover with it. */
+	limits?: UsageLimitsControl
 	/** The branch's pull request; absent when there is none to show. */
 	pullRequest?: { pr: ProjectPrView; onOpen: () => void }
 	onSend: () => void
@@ -384,6 +388,7 @@ export function Composer({
 	const waitingOnPerson = permissions.length > 0
 	// While a question waits for the person the composer is a one-line bar: the question is above it.
 	const waiting = waitingOnPerson && !compact
+	const limitsCritical = limits ? indicatorState(usage, limits)?.limits?.critical : undefined
 	const [plusOpen, setPlusOpen] = useState(false)
 	// Send and Stop share one slot, so Stop can appear under a pointer that is already resting there. No
 	// pointer-enter reaches a button that was not there, so Stop's tooltip also opens on the first move.
@@ -777,7 +782,13 @@ export function Composer({
 								>
 									{!compact && <div className="composer-footer-options">{plusControl}</div>}
 									<div className="pal-composer-send-actions flex shrink-0 flex-nowrap items-center justify-end gap-2">
-										{compact && !waiting && <ContextRing usage={usage} />}
+										{compact &&
+											!waiting &&
+											(limits ? (
+												<UsageIndicator usage={usage} control={limits} variant="ring" />
+											) : (
+												<ContextRing usage={usage} />
+											))}
 										{running &&
 											liveInputSupported &&
 											onQueue &&
@@ -982,10 +993,19 @@ export function Composer({
 								</div>
 								<div className="composer-row-end">
 									<div className="composer-selected-model">{modelControl}</div>
-									<ContextReadout usage={usage} />
+									{limits ? (
+										<UsageIndicator usage={usage} control={limits} variant="readout" />
+									) : (
+										<ContextReadout usage={usage} />
+									)}
 								</div>
 							</div>
 						</div>
+					)}
+					{limitsCritical && (
+						<p className="composer-limit-note" data-usage-critical="">
+							{limitsCritical}
+						</p>
 					)}
 					{noProvider && (
 						<section className="provider-empty" aria-labelledby="provider-empty-title">

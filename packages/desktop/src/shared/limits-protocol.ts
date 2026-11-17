@@ -57,7 +57,10 @@ function amount(value: unknown): number | undefined {
 function text(value: unknown, max: number): string | undefined {
 	if (typeof value !== 'string') return undefined
 	// biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what this removes
-	const clean = value.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/\s+/g, ' ').trim()
+	const clean = value
+		.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ')
+		.replace(/\s+/g, ' ')
+		.trim()
 	return clean === '' ? undefined : clean.slice(0, max)
 }
 
@@ -94,7 +97,10 @@ function readProvider(value: unknown): LimitsProviderNotice | undefined {
 		const used = amount(value.credit.used)
 		const limit = amount(value.credit.limit)
 		const remaining = amount(value.credit.remaining)
-		if (currency !== undefined && (used !== undefined || limit !== undefined || remaining !== undefined))
+		if (
+			currency !== undefined &&
+			(used !== undefined || limit !== undefined || remaining !== undefined)
+		)
 			credit = {
 				currency,
 				...(used === undefined ? {} : { used }),

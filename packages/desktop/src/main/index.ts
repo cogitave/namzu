@@ -1416,6 +1416,7 @@ function register(): void {
 	handle('forkConversation', (id: string) => operator.forkConversation(id))
 	handle('conversationMarkdown', (id: string) => operator.conversationMarkdown(id))
 	handle('projectGit', (id: string) => operator.projectGit(id))
+	handle('refreshLimits', (id: string) => operator.refreshLimits(id))
 	handle('mcpServers', (id: string) => operator.mcpServers(id))
 	handle('hooksView', (id?: string) => operator.hooksView(id))
 	handle('approveMcpServers', (id: string, servers: unknown) =>

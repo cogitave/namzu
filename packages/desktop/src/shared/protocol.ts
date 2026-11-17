@@ -23,6 +23,7 @@ import type {
 	EngineUpdatesState,
 } from './engine-update-protocol.js'
 import type { HooksReport } from './hooks-report.js'
+import type { LimitsNotification } from './limits-protocol.js'
 import type { OutcomeNotice } from './outcome-protocol.js'
 import type {
 	PalCommunicationView,
@@ -694,6 +695,8 @@ export type DesktopEvent = (
 	| { kind: 'task'; sessionId: string; task: AcpTask; deleted?: true }
 	/** How full the conversation is and whether it is being compacted; see `UsageNotice`. */
 	| ({ kind: 'usage' } & UsageNotice)
+	/** What each provider in use says about its account; see `LimitsNotification`. Account data, kept in memory. */
+	| { kind: 'limits'; limits: LimitsNotification }
 	/** What a finished turn changed and what checked it; see `OutcomeNotice`. */
 	| ({ kind: 'outcome' } & OutcomeNotice)
 	/** What the model saw after a computer action, small, with where a click landed. */
@@ -1087,6 +1090,11 @@ export interface DesktopApi {
 	conversationMarkdown?(sessionId: string): Promise<{ markdown: string; truncated: boolean }>
 	/** Branch and last commit subject, or null when not a repository, untrusted or unavailable. */
 	projectGit?(projectId: string): Promise<ProjectGitView | null>
+	/**
+	 * What each provider in use says about its account, read again. The host asks a vendor at most once
+	 * a minute; null where the engine cannot say. Account data: never stored or logged.
+	 */
+	refreshLimits?(projectId: string): Promise<LimitsNotification | null>
 	/** The project's tool servers and where each stands; null where the engine cannot say. */
 	mcpServers?(projectId: string): Promise<McpServersView | null>
 	/**

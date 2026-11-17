@@ -155,6 +155,7 @@ const api: DesktopApi = {
 	forkConversation: (id) => invoke('forkConversation', id),
 	conversationMarkdown: (id) => invoke('conversationMarkdown', id),
 	projectGit: (id) => invoke('projectGit', id),
+	refreshLimits: (id) => invoke('refreshLimits', id),
 	mcpServers: (id) => invoke('mcpServers', id),
 	hooksView: (id) => invoke('hooksView', id),
 	approveMcpServers: (id, servers) => invoke('approveMcpServers', id, servers),
