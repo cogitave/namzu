@@ -3,6 +3,7 @@ import { beforeEach, expect, it, vi } from 'vitest'
 import {
 	type ComposerPermissionMode,
 	ComposerPermissions,
+	numberedRow,
 	permissionMenuTitle,
 	permissionRows,
 } from './composer-permissions.js'
@@ -305,4 +306,15 @@ it('names the chip Auto when that is the mode', () => {
 it('does not offer Auto when the engine’s capabilities leave it out', () => {
 	const view = render({ reviewModes: ['prompt', 'accept-edits', 'bypass', 'plan'] })
 	expect(rows(view).map(entryValue)).not.toContain('classify')
+})
+
+it('names the row a plain number key points at', () => {
+	const plain = { ctrlKey: false, metaKey: false, altKey: false, shiftKey: false }
+	const rows = ['a', 'b', 'c']
+	expect(numberedRow({ ...plain, key: '1' }, rows)).toBe('a')
+	expect(numberedRow({ ...plain, key: '3' }, rows)).toBe('c')
+	expect(numberedRow({ ...plain, key: '4' }, rows)).toBeUndefined()
+	expect(numberedRow({ ...plain, key: '0' }, rows)).toBeUndefined()
+	expect(numberedRow({ ...plain, key: 'a' }, rows)).toBeUndefined()
+	expect(numberedRow({ ...plain, key: '1', ctrlKey: true }, rows)).toBeUndefined()
 })

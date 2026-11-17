@@ -49,6 +49,8 @@ import {
 	activeMention,
 	applyMention,
 	filterSlash,
+	mentionPieces,
+	mentionText,
 	mirrorParts,
 	moveHighlight,
 	pickSlash,
@@ -485,7 +487,12 @@ export function Composer({
 	useEffect(() => {
 		if (dismissed !== null && dismissed !== slashKey && dismissed !== mentionKey) setDismissed(null)
 	}, [dismissed, slashKey, mentionKey])
-	const mirror = commandsEnabled ? mirrorParts(rows, draft, slashOpen) : null
+	// Files picked from the "@" list stay coloured in the box, as a picked "/name" does.
+	const [pickedMentions, setPickedMentions] = useState<readonly string[]>([])
+	const livePicked = pickedMentions.filter((token) => draft.includes(token))
+	const mirror =
+		(commandsEnabled ? mirrorParts(rows, draft, slashOpen) : null) ??
+		(livePicked.length > 0 ? { command: '', rest: draft } : null)
 	// A window that changes size moves where a list belongs.
 	useEffect(() => {
 		if (!menuOpen) return
@@ -512,7 +519,7 @@ export function Composer({
 		layer.style.width = `${box.clientWidth}px`
 		layer.style.height = `${box.clientHeight}px`
 		layer.scrollTop = box.scrollTop
-	}, [mirror?.command, mirror?.rest, mirror?.ghost, draft, inputRef])
+	}, [mirror?.command, mirror?.rest, mirror?.ghost, draft, inputRef, livePicked.length])
 	// Where the "/" list sits: flush on the box's top edge, its left 16 before the text.
 	const placeSlash = () => {
 		const box = inputRef.current
@@ -558,6 +565,8 @@ export function Composer({
 	const pickFile = (path: string) => {
 		if (!mention) return
 		const next = applyMention(draft, caret, mention, path)
+		const token = mentionText(path).trimEnd()
+		setPickedMentions((list) => (list.includes(token) ? list : [...list, token]))
 		caretAfterRecall.current = next.caret
 		setWalk(null)
 		onDraftChange(next.value)
@@ -1165,8 +1174,18 @@ export function Composer({
 										>
 											{mirror && (
 												<>
-													<span className="composer-mirror-command">{mirror.command}</span>
-													{mirror.rest}
+													{mirror.command && (
+														<span className="composer-mirror-command">{mirror.command}</span>
+													)}
+													{mentionPieces(mirror.rest, livePicked).map((piece, at) =>
+														piece.mention ? (
+															<span key={`${at}:${piece.text}`} className="composer-mirror-command">
+																{piece.text}
+															</span>
+														) : (
+															piece.text
+														),
+													)}
 													{mirror.ghost && (
 														<span className="composer-mirror-ghost">{mirror.ghost}</span>
 													)}

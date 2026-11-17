@@ -6,6 +6,7 @@ import {
 	argumentGhost,
 	filterSlash,
 	findSlash,
+	mentionPieces,
 	mentionText,
 	menuKeyStep,
 	mirrorParts,
@@ -169,5 +170,28 @@ describe('@ mentions', () => {
 			value: '@index.html ',
 			caret: 12,
 		})
+	})
+})
+
+describe('picked @ files in the mirror', () => {
+	it('marks only a picked token that stands whole', () => {
+		expect(mentionPieces('look at @src/app.ts now', ['@src/app.ts'])).toEqual([
+			{ text: 'look at ', mention: false },
+			{ text: '@src/app.ts', mention: true },
+			{ text: ' now', mention: false },
+		])
+		expect(mentionPieces('@a.ts', ['@a.ts'])).toEqual([{ text: '@a.ts', mention: true }])
+		expect(mentionPieces('see @a.tsx', ['@a.ts'])).toEqual([{ text: 'see @a.tsx', mention: false }])
+		expect(mentionPieces('x@a.ts', ['@a.ts'])).toEqual([{ text: 'x@a.ts', mention: false }])
+		expect(mentionPieces('nothing', [])).toEqual([{ text: 'nothing', mention: false }])
+		expect(mentionPieces('', ['@a.ts'])).toEqual([])
+	})
+
+	it('knows a name with spaces', () => {
+		expect(mentionPieces('open @"my file.ts" please', ['@"my file.ts"'])).toEqual([
+			{ text: 'open ', mention: false },
+			{ text: '@"my file.ts"', mention: true },
+			{ text: ' please', mention: false },
+		])
 	})
 })

@@ -29,7 +29,9 @@ import {
 	resetSide,
 	setMaximised,
 } from './pane-grid.js'
+import { PaneMenuItemsContext } from './pane-menu-context.js'
 import { Button } from './ui/button.js'
+import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
 import './pane-grid.css'
 
 /** The one word each pane goes by: its title, its button's name and its tooltip. */
@@ -45,6 +47,8 @@ export interface PaneContent {
 	title: ReactNode
 	/** Controls that sit before the pane's "…" menu. */
 	actions?: ReactNode
+	/** The pane draws its own "…" menu and adds the pane's rows to it, so the tile draws none. */
+	ownMenu?: boolean
 	body: ReactNode
 }
 
@@ -119,7 +123,7 @@ function PaneDivider({
 	)
 }
 
-function TileMenu({
+function TileMenuItems({
 	kind,
 	layout,
 	update,
@@ -131,14 +135,59 @@ function TileMenu({
 	const can = (direction: 'left' | 'right' | 'up' | 'down') =>
 		movePane(layout, kind, direction) !== layout
 	return (
-		<Menu.Root>
-			<Menu.Trigger
-				render={<Button size="icon-xs" variant="ghost-muted" className="pane-control" />}
-				aria-label={`${PANE_LABEL[kind]} options`}
-				title="More"
+		<>
+			{(['left', 'right', 'up', 'down'] as const).map((direction) => (
+				<Menu.Item
+					key={direction}
+					className="conversation-actions-item"
+					disabled={!can(direction)}
+					onClick={() => update((value) => movePane(value, kind, direction))}
+				>
+					<span className="conversation-actions-label">Move {direction}</span>
+				</Menu.Item>
+			))}
+			<Menu.Separator className="conversation-actions-separator" />
+			<Menu.Item
+				className="conversation-actions-item"
+				disabled={openKinds(layout).length < 2}
+				onClick={() =>
+					update((value) =>
+						openKinds(value)
+							.filter((other) => other !== kind)
+							.reduce((next, other) => closePane(next, other), value),
+					)
+				}
 			>
-				<MoreHorizontalIcon aria-hidden="true" />
-			</Menu.Trigger>
+				<span className="conversation-actions-label">Close other panes</span>
+			</Menu.Item>
+		</>
+	)
+}
+
+function TileMenu({
+	kind,
+	layout,
+	update,
+}: {
+	kind: GridKind
+	layout: Layout
+	update: Update
+}) {
+	return (
+		<Menu.Root>
+			<Tooltip>
+				<TooltipTrigger
+					render={
+						<Menu.Trigger
+							render={<Button size="icon-xs" variant="ghost-muted" className="pane-control" />}
+							aria-label={`${PANE_LABEL[kind]} options`}
+						/>
+					}
+				>
+					<MoreHorizontalIcon aria-hidden="true" />
+				</TooltipTrigger>
+				<TooltipPopup side="bottom">More</TooltipPopup>
+			</Tooltip>
 			<Menu.Portal>
 				<Menu.Positioner
 					className="conversation-actions-positioner"
@@ -149,30 +198,7 @@ function TileMenu({
 						className="conversation-actions-popup"
 						aria-label={`${PANE_LABEL[kind]} options`}
 					>
-						{(['left', 'right', 'up', 'down'] as const).map((direction) => (
-							<Menu.Item
-								key={direction}
-								className="conversation-actions-item"
-								disabled={!can(direction)}
-								onClick={() => update((value) => movePane(value, kind, direction))}
-							>
-								<span className="conversation-actions-label">Move {direction}</span>
-							</Menu.Item>
-						))}
-						<Menu.Separator className="conversation-actions-separator" />
-						<Menu.Item
-							className="conversation-actions-item"
-							disabled={openKinds(layout).length < 2}
-							onClick={() =>
-								update((value) =>
-									openKinds(value)
-										.filter((other) => other !== kind)
-										.reduce((next, other) => closePane(next, other), value),
-								)
-							}
-						>
-							<span className="conversation-actions-label">Close other panes</span>
-						</Menu.Item>
+						<TileMenuItems kind={kind} layout={layout} update={update} />
 					</Menu.Popup>
 				</Menu.Positioner>
 			</Menu.Portal>
@@ -211,39 +237,57 @@ function PaneTile({
 			<div className="section-heading panel-heading pane-header">
 				<div className="pane-title">{content.title}</div>
 				<div className="pane-actions">
-					{content.actions}
-					<TileMenu kind={kind} layout={layout} update={update} />
-					<Button
-						type="button"
-						size="icon-xs"
-						variant="ghost-muted"
-						className="pane-control"
-						aria-label={maximised ? `Restore ${label}` : `Maximise ${label}`}
-						title={maximised ? 'Restore' : 'Maximise'}
-						data-pane-maximise
-						onClick={() => update((value) => setMaximised(value, maximised ? undefined : kind))}
+					<PaneMenuItemsContext.Provider
+						value={<TileMenuItems kind={kind} layout={layout} update={update} />}
 					>
-						{maximised ? (
-							<Minimize2Icon aria-hidden="true" />
-						) : (
-							<Maximize2Icon aria-hidden="true" />
-						)}
-					</Button>
-					<Button
-						type="button"
-						size="icon-xs"
-						variant="ghost-muted"
-						className="pane-control"
-						aria-label={`Close ${label}`}
-						title="Close"
-						data-pane-close
-						onClick={() => {
-							update((value) => closePane(value, kind))
-							onClosed(kind)
-						}}
-					>
-						<XIcon aria-hidden="true" />
-					</Button>
+						{content.actions}
+					</PaneMenuItemsContext.Provider>
+					{!content.ownMenu && <TileMenu kind={kind} layout={layout} update={update} />}
+					<Tooltip>
+						<TooltipTrigger
+							render={
+								<Button
+									type="button"
+									size="icon-xs"
+									variant="ghost-muted"
+									className="pane-control"
+									aria-label={maximised ? `Restore ${label}` : `Maximise ${label}`}
+									data-pane-maximise
+									onClick={() =>
+										update((value) => setMaximised(value, maximised ? undefined : kind))
+									}
+								/>
+							}
+						>
+							{maximised ? (
+								<Minimize2Icon aria-hidden="true" />
+							) : (
+								<Maximize2Icon aria-hidden="true" />
+							)}
+						</TooltipTrigger>
+						<TooltipPopup side="bottom">{maximised ? 'Restore' : 'Maximise'}</TooltipPopup>
+					</Tooltip>
+					<Tooltip>
+						<TooltipTrigger
+							render={
+								<Button
+									type="button"
+									size="icon-xs"
+									variant="ghost-muted"
+									className="pane-control"
+									aria-label={`Close ${label}`}
+									data-pane-close
+									onClick={() => {
+										update((value) => closePane(value, kind))
+										onClosed(kind)
+									}}
+								/>
+							}
+						>
+							<XIcon aria-hidden="true" />
+						</TooltipTrigger>
+						<TooltipPopup side="bottom">Close</TooltipPopup>
+					</Tooltip>
 				</div>
 			</div>
 			<div className="pane-body">{content.body}</div>

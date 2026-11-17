@@ -935,7 +935,7 @@ A conversation window spends 36 px on one bar (the same height as the strip of t
 
 **The read-out** is not in the bar: it sits at the right end of the row under the composer box (see the composer section below), from the same figures (`contextRingModel`, so the two cannot disagree) and with the same rule for when it shows: nothing is drawn until the engine has reported both a context size and a window.
 
-**The buttons** are the pane grid's: Session, a thin divider, Terminal, Changes, Browser, Files and "…" (View options), then the window buttons ([the top bar](#the-pane-grid)). The Changes button's accessible name says the file count ("Changes, 4 changed files, 35 added, 3 removed"), read from the same `changeTotals` as the result line and the pane. At 960 px the title gives way first, the project's name shrinks next and goes only below 300 px of bar; the buttons stay. The title is text until it is clicked: then it is a field (Enter saves, Esc puts the old name back, leaving the field saves, an empty name asks for the automatic title), and a "∨" button right after it, "More options for <title>", opens the conversation's menu (Open in, Rename, Fork, Copy, Pin, Mark as unread, Move to right pane, Move to new window, Archive: the sidebar's items in the sidebar's order).
+**The buttons** are the pane grid's: Session, a thin divider, Terminal, Changes, Browser, Files and "…" (View options), then the window buttons ([the top bar](#the-pane-grid)). The Changes button's accessible name says the file count ("Changes, 4 changed files, 35 added, 3 removed"), read from the same `changeTotals` as the result line and the pane. The title takes the room its text needs, with the "∨" right after it and the project's name after that; when the bar is too narrow the project's name shrinks first (and goes below 300 px of bar), then the title is cut with an ellipsis, and the buttons stay. The title is text until it is clicked: then it is a field (Enter saves, Esc puts the old name back, leaving the field saves, an empty name asks for the automatic title), and a "∨" button right after it, "More options for <title>", opens the conversation's menu (Open in, Rename, Fork, Copy, Pin, Mark as unread, Move to right pane, Move to new window, Archive: the sidebar's items in the sidebar's order).
 
 **Conversation tabs** are hidden by default. **View > Show conversation tabs** (a checkbox), **Settings > Appearance > Show conversation tabs** and the command palette's **Show conversation tabs** / **Hide conversation tabs** switch them; the choice is `showConversationTabs` in `desktop-settings.json`, shared by the windows and by the menu's checkbox, and the window remembers the last answer for the first paint. With the switch on, the top of the window is as it was: the strip, in the same 36 px. The context read-out stays in the composer's row either way. A Pal's conversation always keeps the strip, because the Pal's computer is a tab in it.
 
@@ -3047,8 +3047,10 @@ under the writes, validates its arguments and the CLI's answer, and releases the
 The Changes pane is every changed file in one scroll, measured against a base the person picks. It has no
 scope switch and no totals bar (the counts are on the top bar's Changes button, on the reply's result line and in the
 Session pane). Its controls are in the pane's own 44 px header row, where a title would be: the **base chip**
-("main → working tree ∨"), then **Go to file**, **Show files** (when the pane is wide enough), a "…" menu, and
-the pane's own menu, maximise and close. A narrow pane shortens the chip (the working-tree side first); the icons
+("main → working tree ∨"), then **Go to file**, **Show files** (when the pane body is 400 px or wider), one "…" menu,
+maximise and close. The pane has no second "…": the pane's own rows (Move left, Right, Up, Down and Close other
+panes) are the last rows of this menu, under a rule (`pane-menu-context.tsx` hands them to the menu; the tile
+draws its own "…" only for a pane that does not). A narrow pane shortens the chip (the working-tree side first); the icons
 never shrink.
 
 **The base.** The chip's menu has **All changes** (hint "vs main": the working tree against the point where this
@@ -3086,7 +3088,7 @@ with "This diff is too large to expand at once. Select a file to expand it." whe
 rich-diff gate), **Side by side** (off; disabled with "Needs a wider pane" under 560 px of diff width, and the
 pane then reads unified without changing the saved choice), **Word wrap** (on), **Highlight changed words** (on),
 **Hide whitespace changes** (off; only where git reads the files: the counts then ignore whitespace and a file with
-nothing else shows "Whitespace only" in place of its diff) and **Refresh**. The switches are kept in this window's local
+nothing else shows "Whitespace only" in place of its diff), **Refresh**, and the pane's own rows after a rule. The switches are kept in this window's local
 storage (`namzu.changes.display`); without storage they hold for the session.
 
 **The stack.** Each file is a section: a sticky 32 px row (chevron, file icon, path cut from the left, a note, `+N −M`,
@@ -3661,6 +3663,9 @@ and no resize rewrites the layout.
   right after it, "More options for <title>", holds the conversation's actions (Open in, Rename, Fork, Copy, Pin,
   Mark as unread, Move to right pane, Move to new window, Archive). A terminal's title is not editable and has no
   such menu.
+- **Tabs in a pane's header** (Terminal, Files, Browser) keep the room their names need, up to the tab's own cap; in a
+  narrow pane the strip scrolls instead of squeezing a name to a few letters, and the shown tab is scrolled into
+  view when it changes, when a tab is added and when the pane is resized (`PaneTabs` in `pane-bodies.tsx`).
 - **A terminal** started from the Terminal pane or button opens in the conversation's project folder, and in the
   home folder for a conversation that has no project (its own folder would be Namzu's chats folder, which is nobody's
   work; `terminalFolder` in `src/main/terminal-env.ts`). The pane lists only the terminals of this conversation's
@@ -3775,14 +3780,26 @@ the box's own key handler moves the highlight.
   approval, Failed, Not started); a row opens Settings > Tools, because an approval is decided where it is
   explained. Plugins lists each plugin with a switch that changes it through the same call the conversation uses,
   and is held while work runs or a question waits. One Esc closes the side menu, another the menu, and the keyboard
-  goes back to the box. Add folder is not offered: no call gives a running conversation another folder. A Pal's
+  goes back to the box. A click on Tool servers or Plugins opens its side menu and keeps it open (the hover that
+  comes first does not toggle it shut, and a pointer drifting off the row does not close what was asked for);
+  hovering still opens it. Add folder is not offered: no call gives a running conversation another folder. A Pal's
   box keeps its older popover.
 - **"@" lists files.** It opens at the start of the box or after white space (an address such as a@b is not one)
   and runs to the caret; `@"name with spaces"` is allowed. The list is the project's files, read the first time
   "@" is typed and kept for the project; an empty query shows the first eight, a query ranks by letters and draws
   the matched letters of the name strong, with the folder after it in grey. It is 420 px wide, its left at the "@"
   and its bottom on the top of the line that holds it. Enter or Tab writes `@path ` (a path with a space is
-  quoted) and the caret goes after it. If the list cannot be read, nothing opens.
+  quoted) and the caret goes after it; a file picked this way is drawn in the accent colour in the box, by the same
+  layer that draws a chosen "/name" (only a picked token that stands whole is painted, an "@name" typed by hand is
+  not). If the list cannot be read, nothing opens.
+- **A resting pointer does not move the highlight.** A row takes the highlight only from a pointer that moved
+  (`movementX` or `movementY` is not zero); the move the browser sends when a list appears or scrolls under a
+  pointer at rest has no distance and is ignored, so Down starts from the first row.
+- **Number keys in the model and mode popups.** Each row of the model popup (Auto first, then the models as drawn) and
+  of the permission popup shows its number, 1 to 9, in muted small type at the row's right edge, after the check.
+  A plain number key picks that row, as a click does; never with Ctrl, Alt, Shift or Meta, never while an input
+  (the model search) has the keys. The pure helper is `numberedRow` in `composer-permissions.tsx`; the model popup
+  reads `data-number` from the row it drew.
 
 The pure parts (the filter and its order, the argument hint, the "@" grammar and list) are
 `src/renderer/composer-menu-model.ts` and `composer-mention-list.ts`; the rows are `slash-actions.ts`.

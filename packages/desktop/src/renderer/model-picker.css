@@ -346,8 +346,8 @@
 	gap: 8px;
 	width: 100%;
 	min-height: var(--menu-row-height);
-	padding: var(--menu-row-padding-block) var(--menu-check-reserve) var(--menu-row-padding-block)
-		var(--menu-text-inset);
+	padding: var(--menu-row-padding-block) calc(var(--menu-check-reserve) + 18px)
+		var(--menu-row-padding-block) var(--menu-text-inset);
 	border: 0;
 	border-radius: var(--menu-row-radius);
 	background: transparent;
@@ -385,10 +385,22 @@
 	/* A touch toward the text colour so it stays 4.5:1 on a checked or hovered row, in both themes. */
 	color: color-mix(in srgb, var(--muted-foreground) 82%, var(--foreground));
 }
-.model-picker-selection {
+.model-picker-number {
 	position: absolute;
 	inset-block-start: var(--menu-row-padding-block);
 	inset-inline-end: var(--menu-check-inset);
+	display: grid;
+	place-items: center;
+	min-width: 12px;
+	height: var(--leading-interface);
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+	font-variant-numeric: tabular-nums;
+}
+.model-picker-selection {
+	position: absolute;
+	inset-block-start: var(--menu-row-padding-block);
+	inset-inline-end: calc(var(--menu-check-inset) + 18px);
 	display: grid;
 	place-items: center;
 	width: var(--menu-check-size);

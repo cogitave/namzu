@@ -2,6 +2,12 @@
 .pane-tabs {
 	min-width: 0;
 }
+/* A tab keeps the room its name needs, up to the tab's own cap; in a narrow pane the strip scrolls
+   rather than squeezing a name down to a few letters. */
+.pane-tabs .panel-tab-scroll > .panel-tab {
+	flex: none;
+	min-width: 0;
+}
 .browser-pane {
 	display: flex;
 	flex: 1;

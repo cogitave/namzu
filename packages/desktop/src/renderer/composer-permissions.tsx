@@ -205,6 +205,16 @@ function moveHighlight(event: KeyboardEvent<HTMLElement>) {
 	items[next]?.focus()
 }
 
+/** The row a plain number key names: 1 to 9, counted down the list as the rows show them. */
+export function numberedRow<T>(
+	event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>,
+	rows: readonly T[],
+): T | undefined {
+	if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return undefined
+	if (!/^[1-9]$/.test(event.key)) return undefined
+	return rows[Number(event.key) - 1]
+}
+
 /** Permission chip and its menu. Shared by the footer and the Pal's "+" popover. */
 export function ComposerPermissions({
 	reviewModes,
@@ -311,9 +321,17 @@ export function ComposerPermissions({
 							ref={menu}
 							role="menu"
 							aria-label={permissionMenuTitle(engine)}
-							onKeyDown={moveHighlight}
+							onKeyDown={(event) => {
+								moveHighlight(event)
+								// A number picks the row that shows it, as a click would.
+								const row = numberedRow(event, rows)
+								if (!row) return
+								event.preventDefault()
+								event.stopPropagation()
+								choose(row)
+							}}
 						>
-							{rows.map((row) => {
+							{rows.map((row, index) => {
 								const Icon = row.icon
 								return (
 									<button
@@ -334,6 +352,11 @@ export function ComposerPermissions({
 										<span className="composer-permission-check" aria-hidden="true">
 											{row.value === permissionMode && <CheckIcon />}
 										</span>
+										{index < 9 && (
+											<span className="composer-permission-number" aria-hidden="true">
+												{index + 1}
+											</span>
+										)}
 									</button>
 								)
 							})}

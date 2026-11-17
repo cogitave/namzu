@@ -132,6 +132,40 @@ export function mirrorParts<T extends SlashEntry>(
 	return { command, rest: value.slice(command.length), ...(ghost ? { ghost } : {}) }
 }
 
+export interface MirrorPiece {
+	text: string
+	/** A file the person picked from the "@" list. */
+	mention: boolean
+}
+
+/**
+ * The text split so each picked "@file" is its own piece. Only a token that was picked, standing
+ * whole (at the start or after white space, and followed by white space or the end), is marked:
+ * an "@name" typed by hand is left as it is.
+ */
+export function mentionPieces(text: string, picked: readonly string[]): MirrorPiece[] {
+	const pieces: MirrorPiece[] = []
+	let plain = 0
+	let at = 0
+	while (at < text.length) {
+		const hit = picked
+			.filter((token) => token.length > 0 && text.startsWith(token, at))
+			.sort((a, b) => b.length - a.length)[0]
+		const startsToken = at === 0 || /\s/.test(text[at - 1] ?? '')
+		const endsToken =
+			hit !== undefined &&
+			(at + hit.length === text.length || /\s/.test(text[at + hit.length] ?? ''))
+		if (hit && startsToken && endsToken) {
+			if (at > plain) pieces.push({ text: text.slice(plain, at), mention: false })
+			pieces.push({ text: hit, mention: true })
+			at += hit.length
+			plain = at
+		} else at += 1
+	}
+	if (plain < text.length) pieces.push({ text: text.slice(plain), mention: false })
+	return pieces
+}
+
 /** A key the open menu owns, or null when the box keeps it. PageUp and PageDown move by a page of rows. */
 export function menuKeyStep(
 	key: string,

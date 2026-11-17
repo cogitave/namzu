@@ -862,6 +862,8 @@ function ModelBrowser({
 		const frame = requestAnimationFrame(place)
 		return () => cancelAnimationFrame(frame)
 	}, [settled])
+	// Rows are numbered 1 to 9 in the order they are drawn: Auto first, then each model.
+	let rowNumber = 0
 	const lineUp = (
 		<div className="model-lineup">
 			<header className="model-picker-heading">
@@ -939,6 +941,7 @@ function ModelBrowser({
 				>
 					{auto && foldedIncludes(`${AUTO_LABEL} ${AUTO_NOTE}`, query.trim()) && (
 						<Radio.Root
+							data-number={++rowNumber <= 9 ? rowNumber : undefined}
 							value={AUTO_KEY}
 							nativeButton
 							render={<button type="button" />}
@@ -964,6 +967,11 @@ function ModelBrowser({
 									<CheckIcon aria-hidden="true" />
 								</Radio.Indicator>
 							</span>
+							{rowNumber <= 9 && (
+								<span className="model-picker-number" aria-hidden="true">
+									{rowNumber}
+								</span>
+							)}
 						</Radio.Root>
 					)}
 					{groups.map(({ provider, top, rest, sections }) => {
@@ -987,6 +995,7 @@ function ModelBrowser({
 									? model.note
 									: undefined
 							const second = facts ?? note
+							const number = ++rowNumber
 							return (
 								<Fragment key={modelKey(model.provider.id, model.id)}>
 									{heading && (
@@ -995,6 +1004,7 @@ function ModelBrowser({
 										</div>
 									)}
 									<Radio.Root
+										data-number={number <= 9 ? number : undefined}
 										value={modelKey(model.provider.id, model.id)}
 										nativeButton
 										render={<button type="button" />}
@@ -1040,6 +1050,11 @@ function ModelBrowser({
 												<CheckIcon aria-hidden="true" />
 											</Radio.Indicator>
 										</span>
+										{number <= 9 && (
+											<span className="model-picker-number" aria-hidden="true">
+												{number}
+											</span>
+										)}
 									</Radio.Root>
 								</Fragment>
 							)
@@ -1164,6 +1179,22 @@ function ModelBrowser({
 		</div>
 	)
 	const searchShortcut = (event: KeyboardEvent) => {
+		// A number picks the row that shows it; never while a field has the keys.
+		if (
+			/^[1-9]$/.test(event.key) &&
+			!(event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) &&
+			!event.nativeEvent.isComposing &&
+			!(event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement)
+		) {
+			const row = results.current?.querySelector<HTMLElement>(
+				`[role="radio"][data-number="${event.key}"]`,
+			)
+			if (row) {
+				event.preventDefault()
+				row.click()
+				return
+			}
+		}
 		if (showTools && event.key === '/' && !(event.target instanceof HTMLInputElement)) {
 			event.preventDefault()
 			setSearching(true)

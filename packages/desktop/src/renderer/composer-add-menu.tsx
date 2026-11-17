@@ -1,5 +1,5 @@
 import { Menu } from '@base-ui/react/menu'
-import { type ReactNode, type RefObject, useState } from 'react'
+import { type ReactNode, type RefObject, useRef, useState } from 'react'
 import type { McpServerState, McpServersView } from '../shared/protocol.js'
 import {
 	type ComposerPlugin,
@@ -248,8 +248,22 @@ function SubmenuRow({
 	label: string
 	children: ReactNode
 }) {
+	// A click opens the side menu and keeps it open: the hover that came first must not toggle it
+	// shut, and a pointer drifting off the row afterwards must not close what was asked for.
+	const [open, setOpen] = useState(false)
+	const pressed = useRef(false)
 	return (
-		<Menu.SubmenuRoot>
+		<Menu.SubmenuRoot
+			open={open}
+			onOpenChange={(next, details) => {
+				if (details.reason === 'trigger-press') {
+					pressed.current = true
+					if (!next && open) return
+				} else if (!next && pressed.current && details.reason === 'trigger-hover') return
+				if (!next) pressed.current = false
+				setOpen(next)
+			}}
+		>
 			<Menu.SubmenuTrigger className="menu-item">
 				{icon}
 				<span className="menu-label">{label}</span>

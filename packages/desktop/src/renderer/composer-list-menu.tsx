@@ -99,7 +99,11 @@ export function ComposerListMenu<T>({
 						aria-selected={index === highlight}
 						tabIndex={-1}
 						className="composer-list-row"
-						onMouseMove={() => {
+						// Only a pointer that moved counts: a list that appears or scrolls under a resting
+						// pointer makes the browser send a move with no distance, and that must not take the
+						// highlight from the keys.
+						onMouseMove={(event) => {
+							if (event.movementX === 0 && event.movementY === 0) return
 							if (index !== highlight) onHighlight(index)
 						}}
 						onClick={() => onPick(item)}

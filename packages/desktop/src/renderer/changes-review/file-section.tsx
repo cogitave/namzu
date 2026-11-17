@@ -11,6 +11,7 @@ import {
 	FolderOpenIcon,
 	MoreHorizontalIcon,
 } from '../icons.js'
+import { Tooltip, TooltipPopup, TooltipTrigger } from '../ui/tooltip.js'
 import { type DiffBody, FileBody, patchOf } from './diff-pane.js'
 import type { ReviewFile } from './model.js'
 import { ToolButton } from './tool-button.js'
@@ -57,13 +58,16 @@ function FileMenu({
 	}
 	return (
 		<Menu.Root>
-			<Menu.Trigger
-				className="changes-icon-button"
-				aria-label={`More actions for ${name}`}
-				title="More actions"
-			>
-				<MoreHorizontalIcon aria-hidden="true" />
-			</Menu.Trigger>
+			<Tooltip>
+				<TooltipTrigger
+					render={
+						<Menu.Trigger className="changes-icon-button" aria-label={`More actions for ${name}`} />
+					}
+				>
+					<MoreHorizontalIcon aria-hidden="true" />
+				</TooltipTrigger>
+				<TooltipPopup side="bottom">More actions</TooltipPopup>
+			</Tooltip>
 			<Menu.Portal>
 				<Menu.Positioner className="conversation-actions-positioner" align="end" sideOffset={6}>
 					<Menu.Popup className="conversation-actions-popup" aria-label="File actions">

@@ -6278,6 +6278,7 @@ export function App({
 			return {
 				title: <ChangesHeaderSlot part="title" />,
 				actions: <ChangesHeaderSlot part="actions" />,
+				ownMenu: true,
 				body: (
 					<ChangesPanel
 						key={sessionId}

@@ -35,11 +35,35 @@ export function PaneTabs({
 	onNew?: () => void
 	newLabel?: string
 }) {
+	const scroller = useRef<HTMLDivElement>(null)
+	const shown = useRef(active)
+	shown.current = active
+	// The shown tab is always in view, however narrow the pane: when it changes, when a tab is
+	// added, and when the pane is resized under it.
+	const reveal = useCallback(() => {
+		if (shown.current === undefined) return
+		scroller.current
+			?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+			?.closest<HTMLElement>('.panel-tab')
+			?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+	}, [])
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the active tab and the tab count are triggers, not values read.
+	useEffect(() => {
+		const frame = requestAnimationFrame(reveal)
+		return () => cancelAnimationFrame(frame)
+	}, [active, tabs.length, reveal])
+	useEffect(() => {
+		const node = scroller.current
+		if (!node || typeof ResizeObserver === 'undefined') return
+		const observer = new ResizeObserver(reveal)
+		observer.observe(node)
+		return () => observer.disconnect()
+	}, [reveal])
 	return (
 		<div className="panel-tab-strip pane-tabs">
 			{/* biome-ignore lint/a11y/useSemanticElements: a tab list has no native element. */}
 			<div className="panel-tab-list" role="tablist" aria-label={label}>
-				<div className="panel-tab-scroll">
+				<div ref={scroller} className="panel-tab-scroll">
 					{tabs.map((tab) => {
 						const selected = tab.id === active
 						return (

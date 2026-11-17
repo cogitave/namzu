@@ -1,5 +1,7 @@
 import { Menu } from '@base-ui/react/menu'
 import { CheckIcon, ChevronRightIcon, MoreHorizontalIcon } from '../icons.js'
+import { usePaneMenuItems } from '../pane-menu-context.js'
+import { Tooltip, TooltipPopup, TooltipTrigger } from '../ui/tooltip.js'
 import { MenuLabel } from './menu-parts.js'
 import type { ChangesDisplay, ListPosition } from './settings.js'
 
@@ -36,6 +38,7 @@ export function ViewMenu({
 	onExpandAll: () => void
 	onRefresh: () => void
 }) {
+	const paneItems = usePaneMenuItems()
 	const checkbox = (
 		label: string,
 		key: keyof ChangesDisplay,
@@ -55,13 +58,16 @@ export function ViewMenu({
 	)
 	return (
 		<Menu.Root>
-			<Menu.Trigger
-				className="changes-icon-button pane-control"
-				aria-label="More options"
-				title="More options"
-			>
-				<MoreHorizontalIcon aria-hidden="true" />
-			</Menu.Trigger>
+			<Tooltip>
+				<TooltipTrigger
+					render={
+						<Menu.Trigger className="changes-icon-button pane-control" aria-label="More options" />
+					}
+				>
+					<MoreHorizontalIcon aria-hidden="true" />
+				</TooltipTrigger>
+				<TooltipPopup side="bottom">More options</TooltipPopup>
+			</Tooltip>
 			<Menu.Portal>
 				<Menu.Positioner className="conversation-actions-positioner" align="end" sideOffset={6}>
 					<Menu.Popup
@@ -147,6 +153,8 @@ export function ViewMenu({
 						<Menu.Item className="conversation-actions-item" onClick={onRefresh}>
 							<MenuLabel>Refresh</MenuLabel>
 						</Menu.Item>
+						<Menu.Separator className="conversation-actions-separator" />
+						{paneItems}
 					</Menu.Popup>
 				</Menu.Positioner>
 			</Menu.Portal>

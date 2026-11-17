@@ -56,7 +56,7 @@
 	min-width: 0;
 }
 .composer-permission-label {
-	padding-inline-end: var(--menu-check-reserve);
+	padding-inline-end: calc(var(--menu-check-reserve) + 18px);
 	font-size: var(--text-interface);
 	font-weight: var(--weight-control);
 	line-height: var(--leading-interface);
@@ -77,12 +77,24 @@
 .composer-permission-check {
 	position: absolute;
 	inset-block-start: var(--menu-row-padding-block);
-	inset-inline-end: var(--menu-check-inset);
+	inset-inline-end: calc(var(--menu-check-inset) + 18px);
 	display: grid;
 	place-items: center;
 	width: var(--menu-check-size);
 	height: var(--leading-interface);
 	color: var(--foreground);
+}
+.composer-permission-number {
+	position: absolute;
+	inset-block-start: var(--menu-row-padding-block);
+	inset-inline-end: var(--menu-check-inset);
+	display: grid;
+	place-items: center;
+	min-width: 12px;
+	height: var(--leading-interface);
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+	font-variant-numeric: tabular-nums;
 }
 .composer-permission-check > svg {
 	width: var(--menu-icon-size);

@@ -9,9 +9,12 @@
 	container: conversation-bar / inline-size;
 }
 .conversation-bar-title {
-	flex: 0 4 auto;
+	/* The title takes the room its text needs; only a bar too narrow for it makes it give way. */
+	flex: 0 1 auto;
 	min-width: 0;
-	margin: 0;
+	/* 6px of padding on each side is the room the hover shape needs; the margin gives it back. */
+	margin: 0 -6px;
+	padding: 0 6px;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -21,13 +24,14 @@
 	color: var(--foreground);
 }
 .conversation-bar-title-text {
+	position: relative;
+	isolation: isolate;
 	display: block;
-	max-width: none;
-	margin: 0 -6px;
-	padding: 0 6px;
+	max-width: 100%;
+	margin: 0;
+	padding: 0;
 	overflow: hidden;
 	border: 0;
-	border-radius: var(--control-radius);
 	background: transparent;
 	color: inherit;
 	font: inherit;
@@ -37,11 +41,22 @@
 	cursor: text;
 	-webkit-app-region: no-drag;
 }
-.conversation-bar-title-text:hover {
+/* The hover and focus shape reach 6px past the text on each side without adding to its width. */
+.conversation-bar-title-text::before {
+	content: "";
+	position: absolute;
+	inset: 0 -6px;
+	z-index: -1;
+	border-radius: var(--control-radius);
+	pointer-events: none;
+}
+.conversation-bar-title-text:hover::before {
 	background: var(--accent);
 }
 .conversation-bar-title-text:focus-visible {
 	outline: none;
+}
+.conversation-bar-title-text:focus-visible::before {
 	box-shadow: var(--focus-ring);
 }
 .conversation-bar-title[data-editing] {
@@ -67,7 +82,8 @@
 	-webkit-app-region: no-drag;
 }
 .conversation-bar-project {
-	flex: 0 1 auto;
+	/* The folder name gives way before the title does. */
+	flex: 0 100 auto;
 	min-width: 56px;
 	max-width: 180px;
 	overflow: hidden;
