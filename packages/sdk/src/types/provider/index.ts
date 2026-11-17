@@ -34,3 +34,4 @@ export type {
 	LLMProviderConstructor,
 } from './config.js'
 export type { ProviderErrorCode, ProviderErrorInit } from './errors.js'
+export type { ProviderLimitCredit, ProviderLimitWindow, ProviderLimits } from './limits.js'

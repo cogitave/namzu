@@ -3,6 +3,7 @@ import type {
 	LLMProvider,
 	ModelInfo,
 	ProviderCapabilities,
+	ProviderLimits,
 	ProviderRoute,
 	ReasoningBlock,
 	ReasoningEffort,
@@ -21,6 +22,7 @@ import {
 import { attributionHeaders } from '@namzu/sdk'
 import type { Logger } from '@namzu/sdk'
 import { NOOP_LOGGER } from '@namzu/sdk'
+import { parseKeyLimits } from './limits.js'
 import type { OpenRouterConfig } from './types.js'
 
 /**
@@ -1166,6 +1168,23 @@ export class OpenRouterProvider implements LLMProvider {
 	 * requires the credential and returns its metadata, so a 401 here means the
 	 * key is genuinely refused.
 	 */
+	/**
+	 * The key's limit and use, from one GET of `/key`. Any failure or unexpected body is "not
+	 * reported", never a zero.
+	 */
+	async readLimits(signal?: AbortSignal): Promise<ProviderLimits | undefined> {
+		try {
+			const response = await fetch(`${this.baseUrl}/key`, {
+				headers: this.getHeaders(),
+				...(signal ? { signal } : {}),
+			})
+			if (!response.ok) return undefined
+			return parseKeyLimits(await response.json(), Date.now())
+		} catch {
+			return undefined
+		}
+	}
+
 	async probeCredential(signal?: AbortSignal): Promise<void> {
 		signal?.throwIfAborted()
 		const response = await fetch(`${this.baseUrl}/key`, {
