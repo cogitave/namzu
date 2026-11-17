@@ -2956,8 +2956,7 @@ read it. When the engine carried only the first 400 lines of an edit (`hunksTrun
 number stays the true one and "First 400 lines shown" is said beside it; an approval preview
 the engine cut says "Only part of the file is shown" beside its count, and a preview that
 carries the engine's own `added` and `removed` shows those, so the figure on the approval is the
-one on the card after the edit. With several files, the bar over the Changes panel names a cut
-file only when it is not the one open, since the open file says it beside its own diff. A reply with no counted
+one on the card after the edit. With several files, a cut file says so beside its own diff in the Changes pane. A reply with no counted
 change and no failing check has no result line. The
 line appears when the turn settles, groups by the turn each receipt belongs to, and
 works the same for history restored from the journal. Pal
@@ -2983,7 +2982,7 @@ else: never from the model's words and never from a guess. It is the record's ow
 | `unknown` | no file counted: nothing about changes, and the old quiet foot, which is the record's own sentence. Files counted from the edit tools: only the counts, no check segment, so the counts read as the whole change. The caveat stays reachable and is never dropped: the counts' tooltip, the row's accessible name and **Copy summary** say "These are the edits made with the edit tools." followed by the record's own sentence ("A command ran that may have changed files · cannot tell here …") |
 | `unchanged` | nothing about changes; a turn with no changed files keeps the old quiet foot |
 
-The chevron sits directly after the text. The row draws nothing round it at rest: on hover and on keyboard focus the whole row takes a soft fill with 8 px corners, and the "..." at its end is drawn only while the pointer is over the row, focus is inside it or its menu is open (always drawn where there is no hover, `@media (hover: none)`). **View changes** and **Undo** are also named at the end of the row, drawn together with the "..." (on hover, in focus, always where there is no hover). View changes does what the row does. Undo shows only while the reply can still be undone and runs the menu's own Undo, so it opens the same confirmation (`TurnResultLine`, `turn-result-line.tsx`). The whole row is one button that opens the changes pane, filtered to that reply's receipts and on the file of that
+The chevron sits directly after the text. The row draws nothing round it at rest: on hover and on keyboard focus the whole row takes a soft fill with 8 px corners, and the "..." at its end is drawn only while the pointer is over the row, focus is inside it or its menu is open (always drawn where there is no hover, `@media (hover: none)`). **View changes** and **Undo** are also named at the end of the row, drawn together with the "..." (on hover, in focus, always where there is no hover). View changes does what the row does. Undo shows only while the reply can still be undone and runs the menu's own Undo, so it opens the same confirmation (`TurnResultLine`, `turn-result-line.tsx`). The whole row is one button that opens the changes pane (it never narrows the pane to the reply) and scrolls to the file of that
 reply that changed most; its accessible name reads the same facts ("Done in 3s, 4 files changed, 35
 added, 3 removed, Checked: pnpm test passed. Open changes"). A "..." at its end holds what the old card
 offered: **Undo** (see [Undoing a reply](#undoing-a-reply)), **Open file** (one item per changed file,
@@ -3045,46 +3044,84 @@ under the writes, validates its arguments and the CLI's answer, and releases the
 
 ### Changes review view
 
-The Changes pane is the diff first. It opens 60 percent of the main area wide (at least 360 px; a width the
-person dragged is kept, see [The side panels](#the-side-panels)) on the file that changed most, and the list of
-changed files (240 px, rows 28 high, a 1 px line between it and the diff) sits at the diff's right, so the diff
-has the full height and the left. The header is one
-44 px row with a 1 px line under it: the title "Changes", a two-way switch **This reply | All changes** (All changes is the default
-whichever reply opened the pane; This reply is that reply, or the latest one that changed files, when the
-pane was opened from the top bar), the counts ("4 files +35 −3"), one **View** menu and a close button.
-All changes merges every completed edit per path, so a file edited twice is one
-row whose numbers are the sum of its edits; an edit receipt carries only the
-changed fragment, a `write` receipt the hunks it changed, and a file edited more than once
-shows one block per edit, "Edit 1 of 2" with that edit's own counts, never one edit's removed
-lines beside another's added ones. The **View** menu holds Unified or Split diff, Wrap diff lines, Collapse
-folders, **Uncommitted changes (git)** (in a trusted ordinary project
-that is a git repository: the working tree against HEAD, whole
-files, read through [`projectChanges` and `projectDiff`](#working-tree-changes) when
-the scope opens, on Refresh changes and when a turn settles), Copy changed paths and Expand pane / Restore
-pane size. The tab strip is not drawn above the Changes pane: Activity is reached from the conversation
-details popover (Background work), files from the bar's Project files button, and both bring the strip back.
-Empty scopes say so: "No changes in the last reply.",
-"This conversation hasn’t changed files yet.", "No uncommitted changes." and "This
-project is not a git repository."
+The Changes pane is every changed file in one scroll, measured against a base the person picks. It has no
+scope switch and no totals bar (the counts are on the top bar's Changes button, on the reply's result line and in the
+Session pane). Its controls are in the pane's own 44 px header row, where a title would be: the **base chip**
+("main → working tree ∨"), then **Go to file**, **Show files** (when the pane is wide enough), a "…" menu, and
+the pane's own menu, maximise and close. A narrow pane shortens the chip (the working-tree side first); the icons
+never shrink.
 
-Up to 12 files are listed flat, by name (the folder is added only where two share a name), each with
+**The base.** The chip's menu has **All changes** (hint "vs main": the working tree against the point where this
+branch left the usual branch), **Uncommitted changes** (against HEAD) and **Compare against** (a list of branches, the
+usual and current ones first, and the newest 50 commits; a commit shows that commit's own change and the chip then
+reads its subject). A new conversation starts on All changes; the choice is kept for as long as the pane
+shows that conversation. The usual branch is `origin/HEAD`, else the first of `main`, `master`, `trunk`, `develop`
+that exists; with none, All changes is not offered and the pane reads Uncommitted changes. Uncommitted changes read the
+host's [`projectChanges` and `projectDiff`](#working-tree-changes). Every other base is read by Desktop's own
+read-only git calls in the main process (`main/project-compare.ts`, one bridge call `projectCompare` with the
+requests `branches`, `commits`, `changes` and `diff`): only for a trusted, ordinary project, in the folder the operator
+holds, with no shell and no repository hook, a timeout and an output cap; a branch or commit from the renderer is
+checked before it reaches git (a name of letters, digits, `.`, `_`, `/` and `-`, never starting with `-` or
+holding `..`; a hash of 7 to 40 hex characters), and a path is confined to the project folder and refused if it
+reaches `.git`. There is no engine or SDK change. A folder that is not a repository (or a conversation without a
+project) shows the conversation's own edits under the chip "Conversation edits", and the menu has that one row.
+Where the app has no `projectCompare` (the browser preview), the pane keeps to the host's Uncommitted changes.
+
+**Search is Go to file** (Ctrl+P, Cmd+P on a Mac, while the pane has focus), not a filter: a popover with
+"Search changed files", the changed files with the matching letters marked and their counts, at most 100 rows
+("n more files. Keep typing to narrow."), "No matching files"; Enter takes the first row, the arrows move, and a
+pick scrolls the stack to that file and opens it.
+
+**The file list** is off until it is turned on (the list button, or Ctrl+Shift+Y), and it exists only while the pane
+is at least 400 px wide (240 px for the list and 160 for the diffs); below that the button and the two menu rows are
+gone, not greyed. It is 160 to 640 px wide, 240 by default, resizable by its edge (also with the arrow keys), and sits
+on the right or the left (**File list position**: Automatic, which is the side away from the conversation, Left or
+Right). Selecting a row scrolls the stack to that file.
+
+**The "…" menu** (the checks keep it open): **Show files** (Ctrl+Shift+Y), **File list position**, **Group files by folder**
+(off by default: the tree view), **Separate test, build, and generated files** (off: files are listed source first,
+then "Test files", "Build files", "Generated files"; the rules are `changes-review/file-kind.ts`, and a path
+that matches several takes generated, then build, then test), **Collapse all files**, **Expand all files** (disabled
+with "This diff is too large to expand at once. Select a file to expand it." when more than 200 files or a loaded file trips the
+rich-diff gate), **Side by side** (off; disabled with "Needs a wider pane" under 560 px of diff width, and the
+pane then reads unified without changing the saved choice), **Word wrap** (on), **Highlight changed words** (on),
+**Hide whitespace changes** (off; only where git reads the files: the counts then ignore whitespace and a file with
+nothing else shows "Whitespace only" in place of its diff) and **Refresh**. The switches are kept in this window's local
+storage (`namzu.changes.display`); without storage they hold for the session.
+
+**The stack.** Each file is a section: a sticky 32 px row (chevron, file icon, path cut from the left, a note, `+N −M`,
+the viewed mark, Open file, "…") over its diff. Notes: "New file", "Deleted file", "Binary file", "Renamed from
+<path>", "Whitespace only". With 12 files or fewer every section is open; with more, the first three are. A section reads
+its text when it is open and within 400 px of the scroll, at most three reads at a time, and says "Reading the file…" until then.
+The **viewed mark** (a circle that becomes a check) is a review aid kept on this machine by conversation and base; it
+changes nothing in git. A viewed file whose counts or text change shows "Changed since you viewed it". The file's "…" menu
+holds Open in editor, Show in file manager, Copy path, Copy relative path, Copy file name and Copy diff. An edit of one
+file more than once in the conversation's own edits keeps its "Edit 1 of 2" blocks. A gated file shows its note and
+"Show full diff anyway".
+
+**States:** "Loading changes", "Couldn’t load the changes" with the plain reason and **Try again**, "No uncommitted changes" and
+"No changes to show". A list cut at 2,000 files says "Only the first changed files are shown."
+
+**A reply's change row** (the result line, a row of its card, a path in the transcript) opens the pane if it is
+closed and scrolls to that file, opening its section; it does not change the base and there is no reply filter. If the
+file is only in All changes while the pane is on Uncommitted changes (the reply was probably committed), the pane
+widens to All changes once to find it. Undo stays on the reply. The
+files are `changes-review/{review,base,base-menu,view-menu,go-to-file,go-to-file-popover,file-section,file-kind,viewed,settings,header-store}`;
+the chip and buttons are published to the pane's header through `header-store.tsx`.
+
+Up to 12 files are listed flat in the file list, by name (the folder is added only where two share a name), each with
 `+N −M` ("binary" for a binary one, a struck-through name for a deleted one, and "old → new" in the tooltip of a
-renamed one). More files, or a filter, show the tree: it compresses chains of single-child folders
-(`.work/sessions`), lists folders first, marks Markdown files and has a fuzzy "Filter files…" box. Arrow
-keys, Home and End move, Right and Left open and close folders, and Enter
-or a click shows the file. `[` and `]`, or Alt+Up and Alt+Down, step to the previous
-and next file. Where the pane is under 440 px wide the list sits above the diff and folds away behind a
-"Files" button.
+renamed one). With **Group files by folder** the list is a tree: it compresses chains of single-child folders
+(`.work/sessions`), lists folders first and marks Markdown files. Arrow keys, Home and End move, Right and Left open
+and close folders, and Enter or a click scrolls to the file. `[` and `]`, or Alt+Up and Alt+Down, step to the
+previous and next file.
 
 With the pane open in a window narrower than 1281 px the sidebar folds to its rail, and comes back when the pane
 closes (the fold is not saved, so another window and the next launch see the person's own state). If the person opens
 or closes the sidebar while the pane is open that choice stays when the pane closes, and a sidebar they had already
 folded is left folded. Wider windows keep the sidebar as it is.
 
-The diff header shows the path truncated from the left (the full path
-in a tooltip), its `+N −M`, Open file (a file tab), Open in editor and a menu with
-Copy path and Copy diff. A binary or oversized file shows a plain message instead of
-a diff.
+A binary or oversized file shows a plain message instead of a diff.
 
 A diff past 180,000 characters (both sides together) or 1,200 changed lines (added plus removed)
 is not drawn in the rich view, which would freeze the pane on a very large file. The pane
