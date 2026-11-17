@@ -2,7 +2,7 @@ import { Menu } from '@base-ui/react/menu'
 import { type Ref, useEffect, useRef, useState } from 'react'
 import type { ComputerAppsView } from '../shared/computer-protocol.js'
 import type { ProjectGitView, ProjectView } from '../shared/protocol.js'
-import { CUT_NOTE, type ChangeTotals, formatLineCount } from './changes-totals.js'
+import { CUT_NOTE, type ChangeTotals } from './changes-totals.js'
 import type { ConversationSource } from './conversation-actions.js'
 import { copyPlainText } from './copy-button.js'
 import {
@@ -18,15 +18,19 @@ import {
 	PlusIcon,
 	TerminalIcon,
 } from './icons.js'
+import {
+	type SessionSummary,
+	type SessionWork,
+	finishedText,
+	sessionSummary,
+} from './session-summary-model.js'
 import { Button } from './ui/button.js'
 import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
 import './conversation-details-popover.css'
 import { MENU_OFFSET } from './menu-metrics.js'
 
-export type DetailsWork =
-	| { state: 'checking' }
-	| { state: 'unavailable' }
-	| { state: 'known'; running: number; needsAttention: boolean }
+/** The background work the popover and the session panel both report. */
+export type DetailsWork = SessionWork
 
 /** The icon button's label carries the count so the dot is not the only signal. */
 export function detailsTriggerLabel(work: DetailsWork): string {
@@ -38,18 +42,81 @@ export function detailsTriggerLabel(work: DetailsWork): string {
 	return parts.length ? `Conversation details, ${parts.join(', ')}` : 'Conversation details'
 }
 
-function workSummary(work: DetailsWork): string {
-	if (work.state === 'checking') return 'Checking…'
-	if (work.state === 'unavailable') return 'Unavailable'
-	if (work.needsAttention) return 'Needs attention'
-	return work.running > 0 ? `${work.running} running` : 'None'
-}
-
 function SourceIcon({ kind }: { kind: 'image' | 'text' }) {
 	return kind === 'image' ? <ImageIcon aria-hidden="true" /> : <FileTextIcon aria-hidden="true" />
 }
 
 const COLLAPSED_SOURCES = 3
+
+/** The rows the popover and the session panel both say, drawn from the one summary. */
+export function DetailsRows({
+	summary,
+	git,
+	work,
+	onOpenChanges,
+	onOpenWork,
+}: {
+	summary: SessionSummary
+	git: ProjectGitView | null
+	work: DetailsWork
+	onOpenChanges: () => void
+	onOpenWork: () => void
+}) {
+	const { changes, background, environment } = summary
+	const finishedLine = finishedText(background.finished)
+	return (
+		<>
+			<button type="button" className="conversation-details-row" onClick={onOpenChanges}>
+				<FileDiffIcon aria-hidden="true" />
+				<span className="conversation-details-label">Changes</span>
+				{changes.hasChanges ? (
+					<span className="conversation-details-totals" title={changes.note}>
+						<span className="conversation-details-added">
+							<span aria-hidden="true">+</span>
+							<span className="sr-only">Added </span>
+							{changes.added}
+						</span>
+						<span className="conversation-details-removed">
+							<span aria-hidden="true">−</span>
+							<span className="sr-only">Removed </span>
+							{changes.removed}
+						</span>
+						{changes.cut && <span className="conversation-details-value">{CUT_NOTE}</span>}
+					</span>
+				) : (
+					<span className="conversation-details-value">{changes.empty}</span>
+				)}
+			</button>
+			{git && (
+				<div
+					className="conversation-details-row conversation-details-static"
+					title={environment.branch?.title}
+				>
+					{git.branch === null ? (
+						<GitCommitIcon aria-hidden="true" />
+					) : (
+						<GitBranchIcon aria-hidden="true" />
+					)}
+					<span className="conversation-details-label">
+						<span className="conversation-details-branch">{environment.branch?.text}</span>
+						{git.subject && <span className="conversation-details-subject">{git.subject}</span>}
+					</span>
+				</div>
+			)}
+			<button type="button" className="conversation-details-row" onClick={onOpenWork}>
+				<TerminalIcon aria-hidden="true" />
+				<span className="conversation-details-label">Background work</span>
+				<span
+					className="conversation-details-value"
+					data-attention={work.state === 'known' && work.needsAttention ? '' : undefined}
+				>
+					{background.text}
+					{finishedLine && work.state === 'known' && ` · ${finishedLine}`}
+				</span>
+			</button>
+		</>
+	)
+}
 
 export interface ConversationDetailsProps {
 	open: boolean
@@ -112,7 +179,15 @@ export function ConversationDetailsPopover({
 					: undefined
 			: undefined
 	const visible = showAll ? sources : sources.slice(0, COLLAPSED_SOURCES)
-	const hasChanges = totals.added + totals.removed > 0
+	const summary = sessionSummary({
+		...(project
+			? { project: { name: project.name, path: project.path, trusted: project.trusted } }
+			: {}),
+		git,
+		servers: { state: 'hidden' },
+		totals,
+		work,
+	})
 	const copyPath = async () => {
 		if (!project) return
 		try {
@@ -194,53 +269,13 @@ export function ConversationDetailsPopover({
 								? 'Could not copy the path.'
 								: ''}
 					</output>
-					<button type="button" className="conversation-details-row" onClick={onOpenChanges}>
-						<FileDiffIcon aria-hidden="true" />
-						<span className="conversation-details-label">Changes</span>
-						{hasChanges ? (
-							<span className="conversation-details-totals">
-								<span className="conversation-details-added">
-									<span aria-hidden="true">+</span>
-									<span className="sr-only">Added </span>
-									{formatLineCount(totals.added)}
-								</span>
-								<span className="conversation-details-removed">
-									<span aria-hidden="true">−</span>
-									<span className="sr-only">Removed </span>
-									{formatLineCount(totals.removed)}
-								</span>
-								{totals.cut && <span className="conversation-details-value">{CUT_NOTE}</span>}
-							</span>
-						) : (
-							<span className="conversation-details-value">No file changes yet</span>
-						)}
-					</button>
-					{git && (
-						<div
-							className="conversation-details-row conversation-details-static"
-							title={[git.branch ?? 'Detached', git.subject].filter(Boolean).join(' · ')}
-						>
-							{git.branch === null ? (
-								<GitCommitIcon aria-hidden="true" />
-							) : (
-								<GitBranchIcon aria-hidden="true" />
-							)}
-							<span className="conversation-details-label">
-								<span className="conversation-details-branch">{git.branch ?? 'Detached'}</span>
-								{git.subject && <span className="conversation-details-subject">{git.subject}</span>}
-							</span>
-						</div>
-					)}
-					<button type="button" className="conversation-details-row" onClick={onOpenWork}>
-						<TerminalIcon aria-hidden="true" />
-						<span className="conversation-details-label">Background work</span>
-						<span
-							className="conversation-details-value"
-							data-attention={work.state === 'known' && work.needsAttention ? '' : undefined}
-						>
-							{workSummary(work)}
-						</span>
-					</button>
+					<DetailsRows
+						summary={summary}
+						git={git}
+						work={work}
+						onOpenChanges={onOpenChanges}
+						onOpenWork={onOpenWork}
+					/>
 					{apps && (apps.granted.length > 0 || apps.used.length > 0) && (
 						<section
 							className="conversation-details-sources conversation-details-apps"

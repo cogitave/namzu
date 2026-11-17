@@ -156,6 +156,7 @@ import {
 	FolderIcon,
 	MoreHorizontalIcon,
 	PanelLeftIcon,
+	PanelRightIcon,
 	PlusIcon,
 	SearchIcon,
 	SettingsIcon,
@@ -244,6 +245,9 @@ import { ProviderNameContext } from './provider-name-context.js'
 import { RenameConversationDialog } from './rename-conversation-dialog.js'
 import { RestoreSkeleton } from './restore-skeleton.js'
 import { retryableReply } from './retry-reply.js'
+import { readSessionPanelOpen, writeSessionPanelOpen } from './session-panel-state.js'
+import { SessionPanel } from './session-panel.js'
+import { type SessionServers, sessionSummary } from './session-summary-model.js'
 import { projectRemovalCopy, removalNotice, settingsRoute } from './settings-model.js'
 import { SettingsPage, SettingsSidebar } from './settings-page.js'
 import type { ArchiveView } from './sidebar-archive.js'
@@ -281,12 +285,14 @@ import { UndoDialog } from './undo-dialog.js'
 import { undoNotice } from './undo-model.js'
 import { useArchivedConversations } from './use-archived-conversations.js'
 import { useAttachments } from './use-attachments.js'
+import { useClock } from './use-clock.js'
 import { useConversationSearch } from './use-conversation-search.js'
 import { useDesktopInfo, useDesktopSettings, useUpdateInfo } from './use-desktop-settings.js'
 import { useDraftSettings } from './use-draft-settings.js'
 import { useEngineUpdates } from './use-engine-updates.js'
 import { useLocalListening } from './use-local-listening.js'
 import { useLocalSpeech } from './use-local-speech.js'
+import { useMcpServers } from './use-mcp-servers.js'
 import { usePalComputerSetup } from './use-pal-computer-setup.js'
 import { usePalOperatorMessages } from './use-pal-operator-messages.js'
 import { usePalStarts } from './use-pal-starts.js'
@@ -926,6 +932,13 @@ export function App({
 	// The drawer opens from the details popover, so closing it returns focus to the popover's icon.
 	const detailsTrigger = useRef<HTMLButtonElement>(null)
 	const [detailsPopoverOpen, setDetailsPopoverOpen] = useState(false)
+	const [sessionPanelOpen, setSessionPanelOpenState] = useState(() =>
+		readSessionPanelOpen(localStorage),
+	)
+	const setSessionPanelOpen = useCallback((open: boolean) => {
+		setSessionPanelOpenState(open)
+		writeSessionPanelOpen(localStorage, open)
+	}, [])
 	const [renamingConversation, setRenamingConversation] = useState<ConversationView>()
 	const [undoingTurn, setUndoingTurn] = useState<{ sessionId: string; turnId: string }>()
 	// The sidebar's Recents section shows its archived conversations for this window only.
@@ -1491,6 +1504,7 @@ export function App({
 			? {
 					state: 'known',
 					running: visibleJobs.filter((job) => job.status === 'running').length,
+					finished: visibleJobs.filter((job) => job.status !== 'running').length,
 					needsAttention,
 				}
 			: sessionWork.state === 'known'
@@ -1502,6 +1516,33 @@ export function App({
 		project && !palConversation && !project.isChat && project.trusted && project.status === 'ready'
 			? project.id
 			: undefined
+	// The session panel reads the project's tool servers only while it is open.
+	const sessionPanelActive = sessionPanelOpen && !palConversation && Boolean(sessionId)
+	const mcp = useMcpServers(api, sessionPanelActive ? gitProjectId : undefined)
+	const sessionServers: SessionServers =
+		!project || project.isChat || externalHarness || !api.mcpServers
+			? { state: 'hidden' }
+			: !project.trusted
+				? { state: 'untrusted' }
+				: mcp.view
+					? { state: 'known', view: mcp.view }
+					: mcp.error
+						? { state: 'hidden' }
+						: { state: 'checking' }
+	const jobsRunning = visibleJobs.some((job) => job.status === 'running')
+	const clock = useClock(sessionPanelActive && jobsRunning)
+	const sessionPanelSummary = sessionPanelActive
+		? sessionSummary({
+				...(project && !project.isChat
+					? { project: { name: project.name, path: project.path, trusted: project.trusted } }
+					: {}),
+				git: git && git.projectId === gitProjectId ? git.value : null,
+				usage: thread.usage,
+				servers: sessionServers,
+				totals,
+				work: detailsWork,
+			})
+		: undefined
 	const turnRunning = thread.running
 	const undoKept = useUndoKept(api.undoPreview, sessionId, thread.undo)
 	// A settled turn may have written files; the open file and the tree read the disk again.
@@ -1514,7 +1555,7 @@ export function App({
 	// Read when the popover opens, and again if a turn ends while it is open. The host caches briefly.
 	useEffect(() => {
 		void turnRunning
-		if (!detailsPopoverOpen || !gitProjectId || !api.projectGit) return
+		if (!(detailsPopoverOpen || sessionPanelOpen) || !gitProjectId || !api.projectGit) return
 		let current = true
 		void api.projectGit(gitProjectId).then(
 			(value) => {
@@ -1527,7 +1568,7 @@ export function App({
 		return () => {
 			current = false
 		}
-	}, [detailsPopoverOpen, gitProjectId, turnRunning, api])
+	}, [detailsPopoverOpen, sessionPanelOpen, gitProjectId, turnRunning, api])
 	const normalTabs = group.tabs.map(
 		(id): ConversationView =>
 			conversations.find((item) => item.id === id) ??
@@ -2439,7 +2480,7 @@ export function App({
 			palConversation ||
 			historyPending ||
 			restoringTabs ||
-			!((detailsOpen && panelView === 'activity') || detailsPopoverOpen)
+			!((detailsOpen && panelView === 'activity') || detailsPopoverOpen || sessionPanelOpen)
 		) {
 			setJobs([])
 			setJobsSessionId('')
@@ -2505,6 +2546,7 @@ export function App({
 		detailsOpen,
 		panelView,
 		detailsPopoverOpen,
+		sessionPanelOpen,
 	])
 	const palTasksVisible = Boolean(
 		pal &&
@@ -6027,6 +6069,19 @@ export function App({
 					}
 					onAction={(id, trigger) => runConversationAction(id, conversation, trigger)}
 				/>
+				<Button
+					type="button"
+					variant="ghost-muted"
+					size="icon-sm"
+					className="conversation-header-button"
+					aria-label={sessionPanelOpen ? 'Hide the session panel' : 'Show the session panel'}
+					aria-pressed={sessionPanelOpen}
+					title={sessionPanelOpen ? 'Hide the session panel' : 'Show the session panel'}
+					data-testid="session-panel-toggle"
+					onClick={() => setSessionPanelOpen(!sessionPanelOpen)}
+				>
+					<PanelRightIcon className="size-4" aria-hidden="true" />
+				</Button>
 				<ConversationDetailsPopover
 					open={detailsPopoverOpen}
 					onOpenChange={setDetailsPopoverOpen}
@@ -6796,7 +6851,7 @@ export function App({
 				inert={frozen}
 				data-pane-id={group.id}
 				data-moving={frozen}
-				className={`workspace ${detailsOpen ? 'jobs-open' : ''}`}
+				className={`workspace ${detailsOpen ? 'jobs-open' : ''}${sessionPanelActive && headerActionsVisible ? ' session-open' : ''}`}
 				data-panel-resizing={panelResizing || undefined}
 				data-panel-expanded={(detailsOpen && panelExpanded) || undefined}
 				data-panel-kind={panelKind}
@@ -7708,6 +7763,43 @@ export function App({
 							)}
 						</div>
 					</div>
+				)}
+				{sessionPanelActive && headerActionsVisible && sessionPanelSummary && (
+					<aside className="session-panel-aside" aria-label="Session">
+						<SessionPanel
+							summary={sessionPanelSummary}
+							chatOnly={!project || Boolean(project.isChat)}
+							jobs={visibleJobs}
+							jobsKnown={jobsSessionId === sessionId && !jobsLoading && !jobsError}
+							now={clock}
+							onClose={() => setSessionPanelOpen(false)}
+							onCopyPath={
+								project
+									? () => void act(() => copyToClipboard(project.path, 'Path copied.'))
+									: undefined
+							}
+							onOpenChanges={() => {
+								setChangesFilter(undefined)
+								showPanelTab('changes')
+								setJobsOpen(true)
+							}}
+							onOpenWork={() => {
+								showPanelTab('activity')
+								setJobsOpen(true)
+							}}
+							onStopJob={(job) => {
+								const owner = sessionId
+								const generation = navigation.current
+								const refresh = refreshJobs.current
+								return act(() =>
+									runJobAction(owner, generation, async () => {
+										await api.stopJob(owner, job.id)
+										await refresh?.()
+									}),
+								)
+							}}
+						/>
+					</aside>
 				)}
 				{!palConversation && (
 					<aside
