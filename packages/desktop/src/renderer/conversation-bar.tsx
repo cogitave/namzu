@@ -1,37 +1,18 @@
 import { Menu } from '@base-ui/react/menu'
-import { Fragment, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { formatLineCount } from './changes-totals.js'
 import {
-	CheckIcon,
 	FileDiffIcon,
 	FileTextIcon,
-	ImageIcon,
+	GlobeIcon,
+	PanelRightIcon,
 	PencilIcon,
 	TerminalIcon,
 } from './icons.js'
+import type { PaneKind } from './pane-grid.js'
 import { Button } from './ui/button.js'
 import './conversation-bar.css'
 import { MENU_OFFSET } from './menu-metrics.js'
-
-/** One open terminal the bar's terminal button can bring forward. */
-export interface ConversationBarTerminalEntry {
-	id: string
-	title: string
-	active: boolean
-}
-
-export interface ConversationBarTerminals {
-	/** Every open terminal of the pane, in strip order. */
-	open: readonly ConversationBarTerminalEntry[]
-	/** The conversation the terminals sit beside; named in the menu so it can be brought back. */
-	conversation?: { title: string; active: boolean; onSelect: () => void }
-	/** Why a new terminal cannot be opened here, or undefined when it can. */
-	reason?: string
-	onNew?: () => void
-	onSelect: (id: string) => void
-}
-
-export const NEW_TERMINAL_TITLE = 'New terminal (Ctrl+Shift+`)'
 
 /** The name of the changes button: it says the count, so a number is never the only signal. */
 export function changesButtonLabel(count: number, added = 0, removed = 0): string {
@@ -56,23 +37,8 @@ export interface ConversationBarProps {
 	onSelectDraft?: (id: string) => void
 	title: string
 	project?: string
-	/** The completed edits in the conversation; the same number "N changed files" says elsewhere. */
-	changes: number
-	/** Lines added and removed across those files: the same numbers the result line and the pane show. */
-	added?: number
-	removed?: number
-	onChanges?: () => void
-	onFiles?: () => void
-	/** The files the conversation wrote; the button opens the Outputs tab. */
-	outputs?: number
-	onOutputs?: () => void
-	outputsOpen?: boolean
-	/** The panel that button opens is open now: the button carries a light fill. */
-	changesOpen?: boolean
-	filesOpen?: boolean
-	terminals?: ConversationBarTerminals
 	disabled?: boolean
-	/** The details and overflow buttons, which keep their own menus. */
+	/** The pane buttons and the conversation's own menu, drawn at the right edge. */
 	children?: ReactNode
 }
 
@@ -131,103 +97,6 @@ function DraftsControl({
 	)
 }
 
-function TerminalControl({
-	terminals,
-	disabled,
-}: { terminals: ConversationBarTerminals; disabled?: boolean }) {
-	const { open, conversation } = terminals
-	const blocked = disabled || !!terminals.reason || !terminals.onNew
-	if (open.length === 0)
-		return (
-			<Button
-				type="button"
-				variant="ghost-muted"
-				size="icon-sm"
-				className="conversation-bar-button"
-				aria-label="New terminal"
-				title={terminals.reason ?? NEW_TERMINAL_TITLE}
-				disabled={blocked}
-				onClick={terminals.onNew}
-			>
-				<TerminalIcon aria-hidden="true" />
-			</Button>
-		)
-	return (
-		<Menu.Root>
-			<Menu.Trigger
-				render={
-					<Button
-						variant="ghost-muted"
-						size="icon-sm"
-						className="conversation-bar-button"
-						aria-label={`Terminals, ${open.length} open`}
-						title={`Terminals (${open.length})`}
-						disabled={disabled}
-					/>
-				}
-			>
-				<TerminalIcon aria-hidden="true" />
-				<span className="conversation-bar-count" aria-hidden="true">
-					{open.length}
-				</span>
-			</Menu.Trigger>
-			<Menu.Portal>
-				<Menu.Positioner
-					className="conversation-actions-positioner"
-					align="end"
-					sideOffset={MENU_OFFSET}
-				>
-					<Menu.Popup className="conversation-actions-popup" aria-label="Terminals">
-						{conversation && (
-							<Fragment>
-								<Menu.Item
-									className="conversation-actions-item"
-									aria-current={conversation.active ? 'true' : undefined}
-									onClick={conversation.onSelect}
-								>
-									<span className="conversation-actions-icon-slot" aria-hidden="true">
-										{conversation.active && <CheckIcon />}
-									</span>
-									<span className="conversation-actions-label" title={conversation.title}>
-										{conversation.title}
-									</span>
-								</Menu.Item>
-								<Menu.Separator className="conversation-actions-separator" />
-							</Fragment>
-						)}
-						{open.map((entry) => (
-							<Menu.Item
-								key={entry.id}
-								className="conversation-actions-item"
-								data-terminal-entry={entry.id}
-								aria-current={entry.active ? 'true' : undefined}
-								onClick={() => terminals.onSelect(entry.id)}
-							>
-								<span className="conversation-actions-icon-slot" aria-hidden="true">
-									{entry.active && <CheckIcon />}
-								</span>
-								<span className="conversation-actions-label" title={entry.title}>
-									{entry.title}
-								</span>
-							</Menu.Item>
-						))}
-						<Menu.Separator className="conversation-actions-separator" />
-						<Menu.Item
-							className="conversation-actions-item"
-							disabled={blocked}
-							title={terminals.reason}
-							onClick={terminals.onNew}
-						>
-							<TerminalIcon aria-hidden="true" />
-							<span className="conversation-actions-label">New terminal</span>
-						</Menu.Item>
-					</Menu.Popup>
-				</Menu.Positioner>
-			</Menu.Portal>
-		</Menu.Root>
-	)
-}
-
 /**
  * The one 40 px bar above a conversation: its title and project, and the buttons
  * for the panels beside it. It stands where the strip of tabs stood.
@@ -235,17 +104,6 @@ function TerminalControl({
 export function ConversationBar({
 	title,
 	project,
-	changes,
-	added = 0,
-	removed = 0,
-	onChanges,
-	onFiles,
-	outputs = 0,
-	onOutputs,
-	outputsOpen,
-	changesOpen,
-	filesOpen,
-	terminals,
 	drafts,
 	onSelectDraft,
 	disabled,
@@ -263,67 +121,110 @@ export function ConversationBar({
 			)}
 			<div className="conversation-bar-spacer" aria-hidden="true" />
 			<div className="conversation-bar-buttons">
-				{onChanges && (
-					<Button
-						type="button"
-						variant="ghost-muted"
-						size="icon-sm"
-						className="conversation-bar-button conversation-bar-changes"
-						aria-label={changesButtonLabel(changes, added, removed)}
-						title={changesButtonLabel(changes, added, removed)}
-						data-has-changes={changes > 0 || undefined}
-						aria-pressed={changesOpen ? true : undefined}
-						data-open={changesOpen || undefined}
-						onClick={onChanges}
-					>
-						<FileDiffIcon aria-hidden="true" />
-						{changes > 0 && (
-							<span className="conversation-bar-lines" aria-hidden="true">
-								<span className="conversation-bar-added">+{formatLineCount(added)}</span>
-								<span className="conversation-bar-removed">−{formatLineCount(removed)}</span>
-							</span>
-						)}
-					</Button>
-				)}
-				{onOutputs && outputs > 0 && (
-					<Button
-						type="button"
-						variant="ghost-muted"
-						size="icon-sm"
-						className="conversation-bar-button conversation-bar-outputs"
-						aria-label={`Outputs, ${outputs} ${outputs === 1 ? 'file' : 'files'}`}
-						title="Outputs"
-						aria-pressed={outputsOpen ? true : undefined}
-						data-open={outputsOpen || undefined}
-						onClick={onOutputs}
-					>
-						<ImageIcon aria-hidden="true" />
-						<span className="conversation-bar-outputs-count" aria-hidden="true">
-							{outputs}
-						</span>
-					</Button>
-				)}
 				{drafts && drafts.length > 0 && onSelectDraft && (
 					<DraftsControl drafts={drafts} onSelect={onSelectDraft} disabled={disabled} />
 				)}
-				{terminals && <TerminalControl terminals={terminals} disabled={disabled} />}
-				{onFiles && (
-					<Button
-						type="button"
-						variant="ghost-muted"
-						size="icon-sm"
-						className="conversation-bar-button"
-						aria-label="Project files"
-						title="Project files"
-						aria-pressed={filesOpen ? true : undefined}
-						data-open={filesOpen || undefined}
-						onClick={onFiles}
-					>
-						<FileTextIcon aria-hidden="true" />
-					</Button>
-				)}
 				{children}
 			</div>
+		</div>
+	)
+}
+
+/** The keys that toggle a pane, as the tooltip says them; the window listens for the same chords. */
+export function paneShortcut(kind: PaneKind, mac: boolean): string | undefined {
+	const primary = mac ? 'Cmd' : 'Ctrl'
+	if (kind === 'terminal') return `${primary}+'`
+	if (kind === 'browser') return `${primary}+Shift+B`
+	if (kind === 'files') return `${primary}+Shift+F`
+	return undefined
+}
+
+const PANE_WORD: Record<PaneKind, string> = {
+	session: 'session panel',
+	terminal: 'terminal',
+	changes: 'changes',
+	browser: 'browser',
+	files: 'files',
+}
+
+/** "Show terminal (Ctrl+')" while it is closed, "Hide terminal (Ctrl+')" while it is open. */
+export function paneTooltip(kind: PaneKind, open: boolean, mac: boolean): string {
+	const keys = paneShortcut(kind, mac)
+	return `${open ? 'Hide' : 'Show'} ${PANE_WORD[kind]}${keys ? ` (${keys})` : ''}`
+}
+
+export interface PaneButtonsProps {
+	open: Record<PaneKind, boolean>
+	onToggle: (kind: PaneKind) => void
+	/** A pane that cannot open here, with the reason: its button is disabled and says why. */
+	unavailable?: Partial<Record<PaneKind, string>>
+	/** Changes shows how many files changed in its name, so a number is never the only signal. */
+	changes: { files: number; added: number; removed: number }
+	mac: boolean
+	disabled?: boolean
+	/** The conversation's own "…" menu, last in the row. */
+	more?: ReactNode
+}
+
+const ICONS = {
+	session: PanelRightIcon,
+	terminal: TerminalIcon,
+	changes: FileDiffIcon,
+	browser: GlobeIcon,
+	files: FileTextIcon,
+} as const
+
+/**
+ * Session | Terminal, Changes, Browser, Files, "…". Each one toggles its pane: pressed is a filled
+ * rounded square behind the icon and means the pane is open; pressing again closes it.
+ */
+export function PaneButtons({
+	open,
+	onToggle,
+	unavailable,
+	changes,
+	mac,
+	disabled,
+	more,
+}: PaneButtonsProps) {
+	const button = (kind: PaneKind) => {
+		const Icon = ICONS[kind]
+		const reason = unavailable?.[kind]
+		const name =
+			kind === 'changes'
+				? changesButtonLabel(changes.files, changes.added, changes.removed)
+				: kind === 'session'
+					? 'Session'
+					: kind[0]?.toUpperCase() + kind.slice(1)
+		return (
+			<Button
+				key={kind}
+				type="button"
+				variant="ghost-muted"
+				size="icon-sm"
+				className="pane-button"
+				aria-label={name}
+				aria-pressed={open[kind]}
+				title={reason ?? paneTooltip(kind, open[kind], mac)}
+				disabled={disabled || Boolean(reason)}
+				data-pane-button={kind}
+				data-open={open[kind] || undefined}
+				data-testid={kind === 'session' ? 'session-panel-toggle' : undefined}
+				onClick={() => onToggle(kind)}
+			>
+				<Icon aria-hidden="true" />
+			</Button>
+		)
+	}
+	return (
+		<div className="pane-buttons" role="toolbar" aria-label="Panes">
+			{button('session')}
+			<span className="pane-buttons-divider" aria-hidden="true" />
+			{button('terminal')}
+			{button('changes')}
+			{button('browser')}
+			{button('files')}
+			{more}
 		</div>
 	)
 }

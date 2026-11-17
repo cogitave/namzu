@@ -13,6 +13,7 @@ import {
 	GitBranch,
 	GitCommitHorizontal,
 	GitFork,
+	Globe,
 	Hand,
 	Hash,
 	House,
@@ -276,3 +277,4 @@ export const AppWindowIcon = createOutlineIcon(AppWindow)
 export const SideChatIcon = createOutlineIcon(MessageSquarePlus)
 export const SplitRightIcon = createOutlineIcon(SquareSplitHorizontal)
 export const SplitDownIcon = createOutlineIcon(SquareSplitVertical)
+export const GlobeIcon = createOutlineIcon(Globe)

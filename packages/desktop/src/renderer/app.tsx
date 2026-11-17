@@ -1,13 +1,5 @@
 import { ArrowDown, MessageSquare, Minus } from 'lucide-react'
-import {
-	type CSSProperties,
-	useCallback,
-	useEffect,
-	useLayoutEffect,
-	useMemo,
-	useRef,
-	useState,
-} from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal, flushSync } from 'react-dom'
 import {
 	type BackgroundWorkStatus,
@@ -88,7 +80,7 @@ import {
 	conversationSources,
 	lastReplyText,
 } from './conversation-actions.js'
-import { ConversationBar } from './conversation-bar.js'
+import { ConversationBar, PaneButtons } from './conversation-bar.js'
 import { ConversationDetailsPopover, type DetailsWork } from './conversation-details-popover.js'
 import { compareConversationRecency } from './conversation-order.js'
 import {
@@ -103,43 +95,28 @@ import {
 	type ConversationTabActions,
 	ConversationTabs,
 } from './conversation-tabs.js'
-import { ConversationTasks } from './conversation-tasks.js'
 import { useConversationUnread } from './conversation-unread-store.js'
 import { copyPlainText } from './copy-button.js'
 import { holdsDiscardableDraft } from './discard-draft.js'
 import { signInHelpFor } from './engine-setup.js'
 import { setEngineSignedOut } from './engine-sign-in.js'
 import { createFailingPoll } from './failing-poll.js'
+import { FolderTreeIcon } from './file-panel/file-icons.js'
 import { FilePanelBody } from './file-panel/file-panel.js'
 import {
-	CONVERSATION_MIN,
-	MIN_PANEL_WIDTH,
-	type PanelKind,
-	type PanelTab,
 	type PanelTabsState,
-	READING_PANEL_MIN,
-	SIDEBAR_FOLD_BELOW,
 	activatePanelTab,
 	activeFilePath,
-	activityTab,
-	browsePanelTabs,
-	changesTab,
-	clampPanelWidth,
-	clearPanelWidth,
 	closePanelTab,
 	emptyPanelTabs,
-	ensurePanelTab,
+	filePaths,
+	fileTab,
 	openFileTab,
-	outputsTab,
-	panelKindOf,
 	readPanelTabs,
-	readPanelWidth,
-	shownTab,
 	writePanelTabs,
-	writePanelWidth,
 } from './file-panel/file-tabs.js'
+import { type FileMark, FileTree } from './file-panel/file-tree.js'
 import { useEditors } from './file-panel/open-in.js'
-import { PanelResizeHandle, PanelTabStrip, type PanelView } from './file-panel/panel-tabs.js'
 import { ProjectFilesContext } from './file-panel/project-files.js'
 import { createLinkCache } from './file-panel/project-refs.js'
 import { FolderAccessDialog } from './folder-access-dialog.js'
@@ -154,12 +131,11 @@ import {
 import { type EngineSurface, type EngineSurfaceControl, engineLabel } from './harness-picker.js'
 import {
 	ArchiveIcon,
-	ArrowLeftIcon,
 	ArrowUpIcon,
 	FolderIcon,
+	GlobeIcon,
 	MoreHorizontalIcon,
 	PanelLeftIcon,
-	PanelRightIcon,
 	PlusIcon,
 	SearchIcon,
 	SettingsIcon,
@@ -170,7 +146,6 @@ import {
 	TerminalIcon,
 	XIcon,
 } from './icons.js'
-import { JobRow } from './job-row.js'
 import { LocalSpeechReadAloud } from './local-speech-settings.js'
 import { MessageActions } from './message-actions.js'
 import {
@@ -195,7 +170,6 @@ import { normalConversationProject } from './normal-conversation.js'
 import { noticeClickAction } from './notice-target.js'
 import { dismissNotice, notify } from './notify.js'
 import { outputFiles, outputToOpen } from './outputs-model.js'
-import { OutputsPanel } from './outputs-panel.js'
 import { PalChatTranscript } from './pal-chat-transcript.js'
 import { PalCommunicationDialog, type PalSettingsTab } from './pal-communication-dialog.js'
 import {
@@ -227,6 +201,20 @@ import { palMarker, palStartCard, palWaitingLine } from './pal-start-model.js'
 import { closableStaleTabs, stalePalTabs } from './pal-tab-siblings.js'
 import { unreadAfterOpen, unreadAfterSends } from './pal-unread.js'
 import { PalCustomizeDialog, type PalOpening, PalSidebarSection, PalsPage } from './pals-page.js'
+import { BrowserBody, PaneTabs, fileTabItem } from './pane-bodies.js'
+import { readLayout, writeLayout } from './pane-grid-state.js'
+import { type PaneContent, PaneGrid } from './pane-grid-view.js'
+import {
+	type GridKind,
+	type PaneKind,
+	type Layout as PaneLayout,
+	closePane,
+	hasPane,
+	placePane,
+	setMaximised,
+	setSessionWanted,
+} from './pane-grid.js'
+import { paneChord } from './pane-keys.js'
 import { pendingMessages } from './pending-messages.js'
 import { plainError, plainErrorText } from './plain-error.js'
 import { PluginsPage, PluginsSidebar } from './plugins-page.js'
@@ -274,7 +262,7 @@ import {
 import { type StopRequests, clearStop, isStopping, requestStop } from './stop-request.js'
 import { createSubmitGuard } from './submit-guard.js'
 import { type TabChord, movedTabIndex, selectedTabIndex, tabChord } from './tab-keys.js'
-import { TerminalPane } from './terminal-pane.js'
+import { TerminalMark, TerminalPane } from './terminal-pane.js'
 import { openTerminalFind, terminalApi, terminalSessions } from './terminal-registry.js'
 import { engineTerminalRequest, shellTerminalRequest } from './terminal-request.js'
 import type { ThreadRowActions } from './thread-card.js'
@@ -841,12 +829,7 @@ export function App({
 				?.focus({ preventScroll: true })
 	}, [sideOpen, mobile])
 	const setSideCollapsed = onSideCollapsedChange
-	// The sidebar folds to its rail while the Changes pane is open in a narrow window, and comes
-	// back when the pane closes; a choice the person makes meanwhile is theirs and is kept.
-	const foldedByPane = useRef(false)
-	const quietFold = useRef(false)
 	const toggleSidebar = useCallback(() => {
-		foldedByPane.current = false
 		if (window.matchMedia('(max-width: 767px)').matches) setSideOpen((value) => !value)
 		else
 			setSideCollapsed((value) => {
@@ -858,11 +841,6 @@ export function App({
 	useEffect(() => {
 		if (previousCollapsed.current === sideCollapsed) return
 		previousCollapsed.current = sideCollapsed
-		// A fold the pane made is not the person reaching for the sidebar: the focus stays where it is.
-		if (quietFold.current) {
-			quietFold.current = false
-			return
-		}
 		if (window.matchMedia('(max-width: 767px)').matches) return
 		const control = document.querySelector<HTMLButtonElement>('button[aria-label="Toggle sidebar"]')
 		control?.focus({ preventScroll: true })
@@ -878,7 +856,13 @@ export function App({
 			)
 				return
 			if (commandOpen) return
-			if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'b' && !event.altKey) {
+			// Ctrl+Shift+B is the Browser pane's.
+			if (
+				(event.ctrlKey || event.metaKey) &&
+				event.key.toLowerCase() === 'b' &&
+				!event.altKey &&
+				!event.shiftKey
+			) {
 				event.preventDefault()
 				toggleSidebar()
 			}
@@ -914,9 +898,32 @@ export function App({
 		if ((previous === 'plugins' || previous === 'settings') && railSection === null)
 			input.current?.focus({ preventScroll: true })
 	}, [railSection])
+	// The panes beside the conversation are showing. What they hold is the layout below; this flag is
+	// what a conversation switch or a new conversation clears, so a pane is never carried across.
 	const [jobsOpen, setJobsOpen] = useState(false)
-	// Expanded, the panel takes the whole pane and the conversation is hidden; kept per pane.
-	const [panelExpanded, setPanelExpanded] = useState(false)
+	// Which panes are open, where, and how big, remembered per conversation group.
+	const [paneLayout, setPaneLayout] = useState<PaneLayout>(() =>
+		readLayout(localStorage, group.id, readSessionPanelOpen(localStorage)),
+	)
+	const paneLayoutGroup = useRef(group.id)
+	if (paneLayoutGroup.current !== group.id) {
+		paneLayoutGroup.current = group.id
+		setPaneLayout(readLayout(localStorage, group.id, readSessionPanelOpen(localStorage)))
+	}
+	const updatePaneLayout = useCallback(
+		(change: (layout: PaneLayout) => PaneLayout) =>
+			setPaneLayout((value) => {
+				const next = change(value)
+				if (next !== value) writeLayout(localStorage, paneLayoutGroup.current, next)
+				return next
+			}),
+		[],
+	)
+	// The pane the narrow overlay shows, and the page the Browser pane shows: not remembered.
+	const [overlayPane, setOverlayPane] = useState<GridKind>()
+	const [browserPage, setBrowserPage] = useState<{ sessionId: string; path: string }>()
+	const [browserReload, setBrowserReload] = useState(0)
+	const [terminalShown, setTerminalShown] = useState('')
 	// One reply's receipts while the drawer shows just that reply; undefined shows everything.
 	const [changesFilterState, setChangesFilterState] = useState<{
 		sessionId: string
@@ -942,13 +949,15 @@ export function App({
 	const [commitFor, setCommitFor] = useState<{ sessionId: string; paths: string[] }>()
 	const commitTrigger = useRef<HTMLElement | null>(null)
 	const [budgets, setBudgets] = useState(() => readBudgets(localStorage))
-	const [sessionPanelOpen, setSessionPanelOpenState] = useState(() =>
-		readSessionPanelOpen(localStorage),
+	const sessionPanelOpen = paneLayout.sessionWanted
+	const setSessionPanelOpen = useCallback(
+		(open: boolean) => {
+			updatePaneLayout((value) => setSessionWanted(value, open))
+			// The last choice is what a conversation group with no layout of its own starts from.
+			writeSessionPanelOpen(localStorage, open)
+		},
+		[updatePaneLayout],
 	)
-	const setSessionPanelOpen = useCallback((open: boolean) => {
-		setSessionPanelOpenState(open)
-		writeSessionPanelOpen(localStorage, open)
-	}, [])
 	const [renamingConversation, setRenamingConversation] = useState<ConversationView>()
 	const [undoingTurn, setUndoingTurn] = useState<{ sessionId: string; turnId: string }>()
 	// The sidebar's Recents section shows its archived conversations for this window only.
@@ -970,6 +979,14 @@ export function App({
 	const closeDetails = useCallback(() => {
 		setJobsOpen(false)
 		detailsTrigger.current?.focus({ preventScroll: true })
+	}, [])
+	// A pane's close hands the keyboard back to the button that opened it.
+	const focusPaneButton = useCallback((kind: PaneKind) => {
+		requestAnimationFrame(() =>
+			document
+				.querySelector<HTMLButtonElement>(`[data-pane-button="${kind}"]`)
+				?.focus({ preventScroll: true }),
+		)
 	}, [])
 	const [jobs, setJobs] = useState<JobView[]>([])
 	const [backgroundWork, setBackgroundWork] = useState<Record<string, BackgroundWorkStatus>>({})
@@ -1210,34 +1227,19 @@ export function App({
 		[sessionId],
 	)
 	// A conversation that cannot show files never lists file tabs, though it keeps them stored.
-	// What a conversation wrote can be shown for any conversation that has a folder of its own to read from.
-	const outputsEnabled = Boolean(api.readSessionOutput && !palConversation && sessionId)
-	const panelAllows = useCallback(
-		(tab: PanelTab) =>
-			tab.kind === 'outputs' ? outputsEnabled : filesEnabled || tab.kind !== 'file',
-		[filesEnabled, outputsEnabled],
-	)
-	const listedTabs = useMemo(
-		() => panelTabs.tabs.filter(panelAllows),
-		[panelTabs.tabs, panelAllows],
-	)
-	const shownPanelTab = shownTab(panelTabs, panelAllows)
-	const panelView: PanelView =
-		filesEnabled && panelTabs.browsing ? 'browse' : (shownPanelTab?.kind ?? 'empty')
-	const changesPaneOpen = detailsOpen && panelView === 'changes'
+	const filesTabs = filesEnabled ? filePaths(panelTabs) : []
+	const activePath = filesEnabled ? activeFilePath(panelTabs) : undefined
 	// What the conversation wrote, from the receipts the Changes panel reads.
+	const outputsEnabled = Boolean(api.readSessionOutput && !palConversation && sessionId)
 	const outputs = useMemo(
 		() => (outputsEnabled ? outputFiles(thread) : []),
 		[outputsEnabled, thread],
 	)
-	const [outputPick, setOutputPick] = useState<{ sessionId: string; path?: string }>()
-	const pickedOutput = outputPick?.sessionId === sessionId ? outputPick.path : undefined
-	const pickOutput = useCallback(
-		(path: string | undefined) => setOutputPick({ sessionId, path }),
-		[sessionId],
-	)
 	// The versions of each output already known, so only a write made after this is news.
 	const outputsSeen = useRef(new Map<string, Map<string, number>>())
+	// Opens a pane for the kind of file a turn wrote: a page in the Browser, a document in Files.
+	const openPaneRef = useRef<(kind: GridKind) => void>(() => undefined)
+	const openChangedFileRef = useRef<(path: string) => void>(() => undefined)
 	// biome-ignore lint/correctness/useExhaustiveDependencies: only a change to the outputs or a turn starting or ending decides.
 	useEffect(() => {
 		if (!sessionId || historyPending) return
@@ -1245,57 +1247,33 @@ export function App({
 		outputsSeen.current.set(sessionId, seen)
 		const news = thread.running ? outputToOpen(outputs, seen) : undefined
 		for (const file of outputs) seen.set(file.path, file.version)
-		// A page or a document a turn just wrote opens by itself, in the pane, with the page drawn.
-		if (news) {
-			setOutputPick({ sessionId, path: news.path })
-			updatePanelTabs((state) => ensurePanelTab(state, outputsTab))
-			setJobsOpen(true)
-		}
+		if (!news) return
+		if (news.kind === 'html') {
+			setBrowserPage({ sessionId, path: news.path })
+			openPaneRef.current('browser')
+		} else openChangedFileRef.current(news.path)
 	}, [sessionId, outputs, thread.running, historyPending])
-	const sideCollapsedNow = useRef(sideCollapsed)
-	sideCollapsedNow.current = sideCollapsed
-	// biome-ignore lint/correctness/useExhaustiveDependencies: only the pane opening or closing decides.
-	useEffect(() => {
-		if (changesPaneOpen) {
-			if (
-				window.innerWidth < SIDEBAR_FOLD_BELOW &&
-				!window.matchMedia('(max-width: 767px)').matches &&
-				!sideCollapsedNow.current
-			) {
-				foldedByPane.current = true
-				quietFold.current = true
-				setSideCollapsed(true)
-			}
-		} else if (foldedByPane.current) {
-			foldedByPane.current = false
-			quietFold.current = true
-			setSideCollapsed(false)
-		}
-	}, [changesPaneOpen])
-	const activePath =
-		panelView === 'file' ? activeFilePath({ ...panelTabs, active: shownPanelTab }) : undefined
-	/** Makes sure Changes or Activity is a tab, and shows it. */
-	const showPanelTab = useCallback(
-		(tab: 'activity' | 'changes' | 'outputs') =>
-			updatePanelTabs((state) =>
-				ensurePanelTab(
-					state,
-					tab === 'changes' ? changesTab : tab === 'outputs' ? outputsTab : activityTab,
-				),
-			),
-		[updatePanelTabs],
+	/** Opens a pane (the panes are showing from here on) where the layout puts it. */
+	const openPane = useCallback(
+		(kind: GridKind) => {
+			setJobsOpen(true)
+			const height = paneRoot.current?.clientHeight ?? window.innerHeight
+			updatePaneLayout((value) => placePane(value, kind, height))
+		},
+		[updatePaneLayout],
 	)
-	const openBackgroundWork = useCallback(() => {
-		showPanelTab('activity')
-		setJobsOpen(true)
-	}, [showPanelTab])
+	openPaneRef.current = openPane
+	/** Opens one file in the Files pane, as a tab. */
 	const openProjectFile = useCallback(
 		(path: string, line?: number) => {
 			updatePanelTabs((state) => openFileTab(state, path, line))
-			setJobsOpen(true)
+			openPane('files')
 		},
-		[updatePanelTabs],
+		[updatePanelTabs, openPane],
 	)
+	// Opens the Session pane: its list holds what the work in this conversation is doing.
+	const openSessionPane = useCallback(() => setSessionPanelOpen(true), [setSessionPanelOpen])
+	const openBackgroundWork = openSessionPane
 	const editors = useEditors(api, filesEnabled)
 	const linkCache = useMemo(
 		() =>
@@ -1329,26 +1307,6 @@ export function App({
 				: undefined,
 		[filesEnabled, filesProjectId, api],
 	)
-	// The panel keeps the width a person dragged it to, per pane.
-	// A reading panel and a tool panel each keep their own.
-	const [panelWidths, setPanelWidths] = useState<Partial<Record<PanelKind, number>>>(() => ({
-		reading: readPanelWidth(localStorage, group.id, 'reading'),
-		tool: readPanelWidth(localStorage, group.id, 'tool'),
-	}))
-	const panelKind = panelKindOf(panelView)
-	const panelWidth = panelWidths[panelKind]
-	const setPanelWidth = (width: number | undefined) =>
-		setPanelWidths((all) => ({ ...all, [panelKind]: width }))
-	const [panelResizing, setPanelResizing] = useState(false)
-	const panelAside = useRef<HTMLElement>(null)
-	const [panelPx, setPanelPx] = useState(0)
-	useEffect(() => {
-		const node = panelAside.current
-		if (!node || typeof ResizeObserver === 'undefined') return
-		const watch = new ResizeObserver(([entry]) => entry && setPanelPx(entry.contentRect.width))
-		watch.observe(node)
-		return () => watch.disconnect()
-	}, [])
 	useLayoutEffect(() => {
 		const pending = pendingPresentationScroll.current
 		if (
@@ -1610,6 +1568,30 @@ export function App({
 	const undoKept = useUndoKept(api.undoPreview, sessionId, thread.undo)
 	// A settled turn may have written files; the open file and the tree read the disk again.
 	const [filesRefresh, setFilesRefresh] = useState(0)
+	// What a change in the working tree shows beside the file in the Files pane: U for a file git has not
+	// seen yet, M for one it has. Read when that pane is open, and again after each turn settles.
+	const [fileMarks, setFileMarks] = useState<{ projectId: string; marks: Map<string, FileMark> }>()
+	const filesPaneOpen = detailsOpen && hasPane(paneLayout, 'files')
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a settled turn (filesRefresh) reads the tree again.
+	useEffect(() => {
+		if (!filesPaneOpen || !workingTree) return
+		let current = true
+		void workingTree
+			.changes()
+			.then((view) => {
+				if (!current || !view) return
+				const marks = new Map<string, FileMark>()
+				for (const file of view.files) {
+					if (file.status === 'deleted') continue
+					marks.set(file.path, file.status === 'untracked' || file.status === 'added' ? 'U' : 'M')
+				}
+				setFileMarks({ projectId: workingTree.projectId, marks })
+			})
+			.catch(() => current && setFileMarks(undefined))
+		return () => {
+			current = false
+		}
+	}, [filesPaneOpen, workingTree, filesRefresh])
 	const wasRunning = useRef(false)
 	useEffect(() => {
 		if (wasRunning.current && !turnRunning) setFilesRefresh((value) => value + 1)
@@ -1818,6 +1800,34 @@ export function App({
 	}
 	const openShellRef = useRef(openShellTerminal)
 	openShellRef.current = openShellTerminal
+	// A terminal for the Terminal pane. Opening one makes it the front tab of the group, which would
+	// cover the conversation with a page: the conversation is put back in front, the pane shows it.
+	const openTerminalInPane = async () => {
+		if (context.current.frozen || !project || !terminalReady || !window.namzu.openTerminal) return
+		const before = frontTabNow()
+		const opened = await window.namzu.openTerminal(shellTerminalRequest(project.id, group.id))
+		setTerminalShown(opened.terminal.id)
+		if (before && before !== opened.terminal.id)
+			await onAction({ kind: 'activate', groupId: group.id, tabId: before })
+	}
+	/** A pane button: opens its pane, or closes it when it is open. */
+	const togglePaneKind = (kind: PaneKind) => {
+		if (kind === 'session') {
+			setSessionPanelOpen(!paneLayout.sessionWanted)
+			return
+		}
+		if (detailsOpen && hasPane(paneLayout, kind)) {
+			updatePaneLayout((value) => closePane(value, kind))
+			focusPaneButton(kind)
+			return
+		}
+		openPane(kind)
+		if (kind === 'terminal' && stripTerminals.length === 0 && terminalReady)
+			void act(() => openTerminalInPane())
+	}
+	const togglePaneRef = useRef(togglePaneKind)
+	togglePaneRef.current = togglePaneKind
+	const headerActionsVisibleRef = useRef(false)
 	const openEngineTerminal = async () => {
 		if (context.current.frozen || !project || !terminalReady || !window.namzu.openTerminal) return
 		const engine = surfaceEngine
@@ -2548,7 +2558,7 @@ export function App({
 			palConversation ||
 			historyPending ||
 			restoringTabs ||
-			!((detailsOpen && panelView === 'activity') || detailsPopoverOpen || sessionPanelOpen)
+			!(detailsPopoverOpen || sessionPanelOpen)
 		) {
 			setJobs([])
 			setJobsSessionId('')
@@ -2611,8 +2621,6 @@ export function App({
 		api,
 		historyPending,
 		restoringTabs,
-		detailsOpen,
-		panelView,
 		detailsPopoverOpen,
 		sessionPanelOpen,
 	])
@@ -2628,7 +2636,7 @@ export function App({
 			!api?.refreshTasks ||
 			historyPending ||
 			restoringTabs ||
-			(!palTasksVisible && (!detailsOpen || panelView !== 'activity'))
+			(!palTasksVisible && !sessionPanelOpen)
 		)
 			return
 		let current = true
@@ -2638,16 +2646,7 @@ export function App({
 		return () => {
 			current = false
 		}
-	}, [
-		sessionId,
-		detailsOpen,
-		panelView,
-		palTasksVisible,
-		api,
-		historyPending,
-		restoringTabs,
-		showError,
-	])
+	}, [sessionId, sessionPanelOpen, palTasksVisible, api, historyPending, restoringTabs, showError])
 	useEffect(() => {
 		if (
 			!pal &&
@@ -3239,7 +3238,6 @@ export function App({
 						setPalProfileOpen(presentation.palProfileOpen)
 						setComputerProfileOpen(presentation.computerProfileOpen)
 						setJobsOpen(presentation.jobsOpen)
-						setPanelExpanded(presentation.panelExpanded ?? false)
 						follow.current = presentation.follow
 						pendingPresentationScroll.current = {
 							generation,
@@ -3249,7 +3247,6 @@ export function App({
 						}
 					} else {
 						setJobsOpen(false)
-						setPanelExpanded(false)
 						follow.current = true
 						pendingPresentationScroll.current = null
 					}
@@ -4660,8 +4657,7 @@ export function App({
 			palProfileOpen,
 			computerProfileOpen,
 			jobsOpen: detailsOpen,
-			panelTab: shownPanelTab?.kind === 'changes' ? 'changes' : 'jobs',
-			panelExpanded,
+			panelTab: hasPane(paneLayout, 'changes') ? 'changes' : 'jobs',
 			follow: position?.follow ?? kept?.follow ?? follow.current,
 			scrollTop:
 				position?.scrollTop ?? (measured ? (node?.scrollTop ?? 0) : (kept?.scrollTop ?? 0)),
@@ -4675,8 +4671,7 @@ export function App({
 		palProfileOpen,
 		computerProfileOpen,
 		detailsOpen,
-		shownPanelTab?.kind,
-		panelExpanded,
+		paneLayout,
 		palConversation,
 	])
 	writePresentation.current = savePresentation
@@ -5153,7 +5148,6 @@ export function App({
 		revealSidebar('[data-archive-list]')
 	}
 	const revealSidebar = (selector: string) => {
-		foldedByPane.current = false
 		setSideOpen(window.matchMedia('(max-width: 767px)').matches)
 		setSideCollapsed(false)
 		localStorage.setItem('namzu.sidebar-collapsed', 'false')
@@ -5619,6 +5613,12 @@ export function App({
 			}
 			// Modal dismissal must never become a cancellation of the underlying turn.
 			if (commandOpen || creatingPal || editingPal) return
+			const pane = paneChord(event, macPlatform)
+			if (pane && headerActionsVisibleRef.current) {
+				event.preventDefault()
+				togglePaneRef.current(pane)
+				return
+			}
 			if (
 				(event.metaKey || event.ctrlKey) &&
 				event.shiftKey &&
@@ -5649,12 +5649,11 @@ export function App({
 					showPalChat()
 					return
 				}
-				// An expanded panel is left with its own buttons, not by a key aimed at something else.
-				if (detailsOpen && panelExpanded) return
-				if (sideOpen || detailsOpen) {
-					setSideOpen(false)
-					if (detailsOpen) closeDetails()
-				} else if (thread.running && !loading && !restoringTabs && !pageOpen)
+				// The panes stay open: they hold a terminal, a page, a diff. A maximised one steps back first.
+				if (sideOpen) setSideOpen(false)
+				else if (detailsOpen && paneLayout.maximised)
+					updatePaneLayout((value) => setMaximised(value, undefined))
+				else if (thread.running && !loading && !restoringTabs && !pageOpen)
 					void act(() => api.cancel(sessionId))
 				return
 			}
@@ -5695,7 +5694,8 @@ export function App({
 	}, [
 		sideOpen,
 		detailsOpen,
-		panelExpanded,
+		paneLayout.maximised,
+		updatePaneLayout,
 		sessionId,
 		thread.running,
 		restoringTabs,
@@ -5708,7 +5708,6 @@ export function App({
 		editingPal,
 		openCommands,
 		loading,
-		closeDetails,
 		pageOpen,
 		computerPage,
 		showPalChat,
@@ -6115,41 +6114,218 @@ export function App({
 		})
 	const headerActionsVisible =
 		!palConversation && Boolean(sessionId && conversation && !activeTerminal)
+	headerActionsVisibleRef.current = headerActionsVisible
+	// A pane is open while the panes are showing and the layout holds it; the Session pane is its own flag.
+	const paneOpen: Record<PaneKind, boolean> = {
+		session: paneLayout.sessionWanted,
+		terminal: detailsOpen && hasPane(paneLayout, 'terminal'),
+		changes: detailsOpen && hasPane(paneLayout, 'changes'),
+		browser: detailsOpen && hasPane(paneLayout, 'browser'),
+		files: detailsOpen && hasPane(paneLayout, 'files'),
+	}
+	// What the grid draws: with the panes hidden (a conversation switch clears them) nothing of the layout shows.
+	const shownPaneLayout = useMemo<PaneLayout>(
+		() => (detailsOpen ? paneLayout : { ...paneLayout, columns: [], maximised: undefined }),
+		[detailsOpen, paneLayout],
+	)
+	const darkTheme =
+		appearance === 'dark' ||
+		(appearance === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+	const browserFile =
+		outputs.find(
+			(file) => file.path === browserPage?.path && browserPage?.sessionId === sessionId,
+		) ?? outputs.find((file) => file.kind === 'html')
+	const shownTerminal = stripTerminals.find((tab) => tab.id === terminalShown) ?? stripTerminals[0]
+	const closeTerminalTab = (id: string) =>
+		void onAction({ kind: 'close', groupId: group.id, tabId: id }).catch((failure) =>
+			showError(failure, 'close the terminal'),
+		)
+	/** What each pane puts in its tile: the header's left side, its own controls, and the body. */
+	const renderPane = (kind: GridKind): PaneContent => {
+		if (kind === 'terminal')
+			return {
+				title: (
+					<PaneTabs
+						label="Terminals"
+						tabs={stripTerminals.map((tab) => ({
+							id: tab.id,
+							label: tab.title,
+							icon: <TerminalMark tab={tab} />,
+						}))}
+						active={shownTerminal?.id}
+						onSelect={setTerminalShown}
+						onClose={closeTerminalTab}
+						onNew={terminalReady ? () => void act(() => openTerminalInPane()) : undefined}
+						newLabel="New terminal"
+					/>
+				),
+				body:
+					shownTerminal && terminalSessionsHere ? (
+						<TerminalPane
+							key={shownTerminal.id}
+							tab={shownTerminal}
+							session={terminalSessionsHere.get(shownTerminal.id)}
+							focused={false}
+							onClose={() => closeTerminalTab(shownTerminal.id)}
+							onRestart={
+								shownTerminal.kind === 'shell' && terminalReady
+									? () =>
+											void (async () => {
+												await openTerminalInPane()
+												await onAction({
+													kind: 'close',
+													groupId: group.id,
+													tabId: shownTerminal.id,
+												})
+											})().catch((failure) => showError(failure, 'restart the terminal'))
+									: undefined
+							}
+						/>
+					) : (
+						<div className="pane-empty">
+							<p>
+								{terminalReady
+									? 'No terminal is open.'
+									: (terminalUnavailableReason({ bridge: Boolean(terminalBridge), project }) ??
+										'Terminals are not available here.')}
+							</p>
+							{terminalReady && (
+								<Button
+									type="button"
+									size="xs"
+									variant="ghost-muted"
+									onClick={() => void act(() => openTerminalInPane())}
+								>
+									New terminal
+								</Button>
+							)}
+						</div>
+					),
+			}
+		if (kind === 'changes')
+			return {
+				title: <span>Changes</span>,
+				body: (
+					<ChangesPanel
+						tools={thread.tools}
+						timeline={thread.timeline}
+						receiptIds={changesFilter}
+						focus={changesFocus}
+						onShowAll={() => setChangesFilter(undefined)}
+						source={workingTree}
+						refreshToken={filesRefresh}
+						onOpenFile={projectFiles ? openChangedFile : undefined}
+						onOpenInEditor={
+							projectFiles && api.openProjectPath ? openChangedFileInEditor : undefined
+						}
+						onOpenWorkingFile={projectFiles ? openWorkingTreeFile : undefined}
+						onOpenWorkingInEditor={
+							projectFiles && api.openProjectPath ? openWorkingTreeFileInEditor : undefined
+						}
+						onCopy={(text, done) =>
+							void copyToClipboard(text, done).catch(() =>
+								notify('Copy is unavailable.', { tone: 'error' }),
+							)
+						}
+						dark={darkTheme}
+					/>
+				),
+			}
+		if (kind === 'browser')
+			return {
+				title: (
+					<PaneTabs
+						label="Browser"
+						tabs={[
+							{
+								id: 'page',
+								label: browserFile?.name ?? 'Browser',
+								icon: <GlobeIcon aria-hidden="true" />,
+								fixed: true,
+							},
+						]}
+						active="page"
+						onSelect={() => undefined}
+					/>
+				),
+				body: (
+					<BrowserBody
+						key={`${browserFile?.path ?? ''}:${browserReload}`}
+						api={api}
+						sessionId={sessionId}
+						file={browserFile}
+						workFolder={project?.path}
+						dark={darkTheme}
+						onReload={() => setBrowserReload((value) => value + 1)}
+					/>
+				),
+			}
+		const homeId = 'files:home'
+		return {
+			title: (
+				<PaneTabs
+					label="Files"
+					tabs={[
+						{
+							id: homeId,
+							label: 'Files',
+							fixed: true,
+							icon: <FolderTreeIcon className="size-4" />,
+						},
+						...filesTabs.map(fileTabItem),
+					]}
+					active={activePath ? `file:${activePath}` : homeId}
+					onSelect={(id) =>
+						updatePanelTabs((state) =>
+							id === homeId
+								? { ...state, active: undefined, browsing: false, line: undefined }
+								: activatePanelTab(state, fileTab(id.slice('file:'.length))),
+						)
+					}
+					onClose={(id) =>
+						updatePanelTabs((state) => closePanelTab(state, fileTab(id.slice('file:'.length))))
+					}
+				/>
+			),
+			body:
+				project && filesEnabled ? (
+					activePath ? (
+						<FilePanelBody
+							api={api}
+							projectId={project.id}
+							projectName={project.name}
+							activePath={activePath}
+							line={panelTabs.line}
+							editors={editors}
+							dark={darkTheme}
+							wide={false}
+							browsing={false}
+							onOpenPath={openProjectFile}
+							onNotice={announce}
+							refreshToken={filesRefresh}
+						/>
+					) : (
+						<div className="file-panel" data-wide data-files-home>
+							<FileTree
+								api={api}
+								projectId={project.id}
+								home
+								onOpen={(path) => openProjectFile(path)}
+								refreshToken={filesRefresh}
+								marks={fileMarks?.projectId === project.id ? fileMarks.marks : undefined}
+							/>
+						</div>
+					)
+				) : (
+					<div className="pane-empty">
+						<p>Files are shown for a project folder.</p>
+					</div>
+				),
+		}
+	}
 	const headerActions =
 		headerActionsVisible && conversation ? (
 			<div className="conversation-header-actions">
-				<ConversationActionsMenu
-					input={conversationActionInput(conversation)}
-					mac={macPlatform}
-					busy={loading || harnessBusy || frozen}
-					label="Conversation actions"
-					trigger={
-						<Button
-							type="button"
-							variant="ghost-muted"
-							size="icon-sm"
-							className="conversation-header-button"
-							aria-label="Conversation actions"
-							title="Conversation actions"
-						>
-							<MoreHorizontalIcon className="size-4" aria-hidden="true" />
-						</Button>
-					}
-					onAction={(id, trigger) => runConversationAction(id, conversation, trigger)}
-				/>
-				<Button
-					type="button"
-					variant="ghost-muted"
-					size="icon-sm"
-					className="conversation-header-button"
-					aria-label={sessionPanelOpen ? 'Hide the session panel' : 'Show the session panel'}
-					aria-pressed={sessionPanelOpen}
-					title={sessionPanelOpen ? 'Hide the session panel' : 'Show the session panel'}
-					data-testid="session-panel-toggle"
-					onClick={() => setSessionPanelOpen(!sessionPanelOpen)}
-				>
-					<PanelRightIcon className="size-4" aria-hidden="true" />
-				</Button>
 				<ConversationDetailsPopover
 					open={detailsPopoverOpen}
 					onOpenChange={setDetailsPopoverOpen}
@@ -6169,13 +6345,11 @@ export function App({
 					onOpenChanges={() => {
 						setDetailsPopoverOpen(false)
 						setChangesFilter(undefined)
-						showPanelTab('changes')
-						setJobsOpen(true)
+						openPane('changes')
 					}}
 					onOpenWork={() => {
 						setDetailsPopoverOpen(false)
-						showPanelTab('activity')
-						setJobsOpen(true)
+						openSessionPane()
 					}}
 					onOpenArchived={
 						project && !project.isChat && api.archivedConversations
@@ -6193,6 +6367,44 @@ export function App({
 						setDetailsPopoverOpen(false)
 						void act(attached.pick)
 					}}
+				/>
+				<PaneButtons
+					open={paneOpen}
+					onToggle={togglePaneKind}
+					unavailable={{
+						...(filesEnabled ? {} : { files: 'Files are shown for a project folder.' }),
+						...(terminalReady || stripTerminals.length > 0
+							? {}
+							: {
+									terminal:
+										terminalUnavailableReason({ bridge: Boolean(terminalBridge), project }) ??
+										'Terminals are not available here.',
+								}),
+					}}
+					changes={{ files: totals.files, added: totals.added, removed: totals.removed }}
+					mac={macPlatform}
+					disabled={loading || harnessBusy || frozen}
+					more={
+						<ConversationActionsMenu
+							input={conversationActionInput(conversation)}
+							mac={macPlatform}
+							busy={loading || harnessBusy || frozen}
+							label="Conversation actions"
+							trigger={
+								<Button
+									type="button"
+									variant="ghost-muted"
+									size="icon-sm"
+									className="conversation-header-button"
+									aria-label="Conversation actions"
+									title="Conversation actions"
+								>
+									<MoreHorizontalIcon className="size-4" aria-hidden="true" />
+								</Button>
+							}
+							onAction={(id, trigger) => runConversationAction(id, conversation, trigger)}
+						/>
+					}
 				/>
 			</div>
 		) : null
@@ -6566,8 +6778,7 @@ export function App({
 												label: 'Show',
 												onClick: () => {
 													setChangesFilter(undefined)
-													showPanelTab('changes')
-													setJobsOpen(true)
+													openPane('changes')
 												},
 											},
 										})
@@ -6919,18 +7130,7 @@ export function App({
 				inert={frozen}
 				data-pane-id={group.id}
 				data-moving={frozen}
-				className={`workspace ${detailsOpen ? 'jobs-open' : ''}${sessionPanelActive && headerActionsVisible ? ' session-open' : ''}`}
-				data-panel-resizing={panelResizing || undefined}
-				data-panel-expanded={(detailsOpen && panelExpanded) || undefined}
-				data-panel-kind={panelKind}
-				style={
-					panelWidth !== undefined
-						? ({
-								// What a person dragged it to, within its floor and what leaves the conversation its minimum.
-								'--panel-width': `max(var(--panel-${panelKind}-min), min(${panelWidth}px, calc(100% - var(--panel-conversation-min))))`,
-							} as CSSProperties)
-						: undefined
-				}
+				className="workspace"
 				data-conversation-bar={!stripVisible || undefined}
 				data-pal-workspace={palWorkspace}
 				data-computer-chat={computerPage ? chatMotion.renderedLayout : undefined}
@@ -6955,59 +7155,9 @@ export function App({
 						<ConversationBar
 							title={barTitle}
 							project={project?.isChat ? undefined : project?.name}
-							changes={totals.files}
-							added={totals.added}
-							removed={totals.removed}
 							disabled={loading || harnessBusy || frozen}
-							outputs={outputs.length}
-							outputsOpen={detailsOpen && panelView === 'outputs'}
-							onOutputs={
-								outputsEnabled && !activeTerminal
-									? () => {
-											showPanelTab('outputs')
-											setJobsOpen(true)
-										}
-									: undefined
-							}
-							changesOpen={detailsOpen && panelView === 'changes'}
-							filesOpen={detailsOpen && (panelView === 'file' || panelView === 'browse')}
-							onChanges={
-								activeTerminal
-									? undefined
-									: () => {
-											setChangesFilter(undefined)
-											showPanelTab('changes')
-											setJobsOpen(true)
-										}
-							}
-							onFiles={
-								filesEnabled && !activeTerminal
-									? () => {
-											updatePanelTabs(browsePanelTabs)
-											setJobsOpen(true)
-										}
-									: undefined
-							}
 							drafts={keptDrafts}
 							onSelectDraft={showTab}
-							terminals={{
-								open: stripTerminals.map((tab) => ({
-									id: tab.id,
-									title: tab.title,
-									active: tab.id === activeTerminal?.id,
-								})),
-								conversation:
-									conversation && stripTerminals.length > 0
-										? {
-												title: conversation.title,
-												active: !activeTerminal,
-												onSelect: () => showTab(conversation.id),
-											}
-										: undefined,
-								reason: terminalUnavailableReason({ bridge: Boolean(terminalBridge), project }),
-								onNew: terminalReady ? () => void act(() => openShellTerminal()) : undefined,
-								onSelect: showTab,
-							}}
 						>
 							{headerActions}
 						</ConversationBar>
@@ -7507,8 +7657,7 @@ export function App({
 															}
 															onOpenTurnChanges={(receiptIds, path) => {
 																setChangesFilter(receiptIds, path)
-																showPanelTab('changes')
-																setJobsOpen(true)
+																openPane('changes')
 															}}
 															onOpenChangedFile={projectFiles ? openChangedFile : undefined}
 															onOpenPalInbox={openPalInbox}
@@ -7518,8 +7667,7 @@ export function App({
 																)
 															}
 															onOpenTasks={() => {
-																showPanelTab('activity')
-																setJobsOpen(true)
+																openSessionPane()
 															}}
 															onUndoTurn={
 																api.undoPreview && api.undoTurn
@@ -7833,67 +7981,6 @@ export function App({
 						</div>
 					</div>
 				)}
-				{sessionPanelActive && headerActionsVisible && sessionPanelSummary && (
-					<aside className="session-panel-aside" aria-label="Session">
-						<SessionPanel
-							summary={sessionPanelSummary}
-							chatOnly={!project || Boolean(project.isChat)}
-							jobs={visibleJobs}
-							jobsKnown={jobsSessionId === sessionId && !jobsLoading && !jobsError}
-							now={clock}
-							onClose={() => setSessionPanelOpen(false)}
-							onCopyPath={
-								project
-									? () => void act(() => copyToClipboard(project.path, 'Path copied.'))
-									: undefined
-							}
-							onOpenChanges={() => {
-								setChangesFilter(undefined)
-								showPanelTab('changes')
-								setJobsOpen(true)
-							}}
-							onOpenWork={() => {
-								showPanelTab('activity')
-								setJobsOpen(true)
-							}}
-							commit={
-								api.commitPreview && api.commit && !externalHarness ? (
-									<Button
-										type="button"
-										variant="ghost-muted"
-										size="xs"
-										className="session-commit"
-										data-testid="session-commit"
-										disabled={!commitState.enabled}
-										title={commitState.reason}
-										aria-label={
-											commitState.reason
-												? `Commit changes. ${commitState.reason}.`
-												: 'Commit changes'
-										}
-										onClick={(event) => {
-											commitTrigger.current = event.currentTarget
-											setCommitFor({ sessionId, paths: commitPaths })
-										}}
-									>
-										Commit changes
-									</Button>
-								) : undefined
-							}
-							onStopJob={(job) => {
-								const owner = sessionId
-								const generation = navigation.current
-								const refresh = refreshJobs.current
-								return act(() =>
-									runJobAction(owner, generation, async () => {
-										await api.stopJob(owner, job.id)
-										await refresh?.()
-									}),
-								)
-							}}
-						/>
-					</aside>
-				)}
 				{commitFor && commitFor.sessionId === sessionId && api.commitPreview && api.commit && (
 					<CommitDialog
 						load={() =>
@@ -7910,274 +7997,77 @@ export function App({
 						returnFocus={() => commitTrigger.current}
 					/>
 				)}
-				{!palConversation && (
-					<aside
-						ref={panelAside}
-						className="jobs-panel"
-						data-open={jobsOpen}
-						inert={!jobsOpen}
-						aria-hidden={!jobsOpen}
-						aria-label={
-							panelView === 'activity'
-								? 'Activity'
-								: panelView === 'changes'
-									? 'Changes'
-									: panelView === 'outputs'
-										? 'Outputs'
-										: panelView === 'empty'
-											? 'Side panel'
-											: 'Project files'
-						}
-					>
-						<PanelResizeHandle
-							now={panelPx || panelWidth || MIN_PANEL_WIDTH}
-							min={panelKind === 'reading' ? READING_PANEL_MIN : MIN_PANEL_WIDTH}
-							max={() =>
-								Math.max(
-									panelKind === 'reading' ? READING_PANEL_MIN : MIN_PANEL_WIDTH,
-									(paneRoot.current?.getBoundingClientRect().width ?? 0) - CONVERSATION_MIN,
-								)
-							}
-							width={() => panelAside.current?.getBoundingClientRect().width ?? MIN_PANEL_WIDTH}
-							onDragging={setPanelResizing}
-							onResize={(width) =>
-								setPanelWidth(
-									clampPanelWidth(
-										width,
-										paneRoot.current?.getBoundingClientRect().width ?? 0,
-										panelKind,
-									),
-								)
-							}
-							onCommit={(width) =>
-								writePanelWidth(
-									localStorage,
-									group.id,
-									clampPanelWidth(
-										width,
-										paneRoot.current?.getBoundingClientRect().width ?? 0,
-										panelKind,
-									),
-									panelKind,
-								)
-							}
-							onReset={() => {
-								setPanelWidth(undefined)
-								clearPanelWidth(localStorage, group.id, panelKind)
-							}}
-						/>
-						{/* Shown only when the panel covers the pane (see style.css): the way back is a word. */}
-						<div className="panel-back-row">
-							<Button type="button" size="sm" variant="ghost-muted" onClick={closeDetails}>
-								<ArrowLeftIcon aria-hidden="true" />
-								Back to conversation
-							</Button>
-						</div>
-						{/* Changes draws its own one-row header: title, scope, counts, View and close. */}
-						{panelView !== 'changes' && (
-							<div className="section-heading panel-heading">
-								<PanelTabStrip
-									panelId="side-panel-body"
-									tabs={listedTabs}
-									active={shownPanelTab}
-									browsing={panelView === 'browse'}
-									canBrowse={filesEnabled}
-									canOutputs={outputsEnabled}
-									running={detailsWork.state === 'known' ? detailsWork.running : 0}
-									attention={needsAttention}
-									expanded={panelExpanded}
-									onActivate={(tab) => {
-										if (tab.kind === 'changes') setChangesFilter(undefined)
-										updatePanelTabs((state) => activatePanelTab(state, tab))
-									}}
-									onClose={(tab) => updatePanelTabs((state) => closePanelTab(state, tab))}
-									onOpenTab={(tab) => {
-										if (tab.kind === 'changes') setChangesFilter(undefined)
-										showPanelTab(
-											tab.kind === 'changes'
-												? 'changes'
-												: tab.kind === 'outputs'
-													? 'outputs'
-													: 'activity',
-										)
-									}}
-									onBrowse={() => updatePanelTabs(browsePanelTabs)}
-									onToggleExpanded={() => setPanelExpanded((value) => !value)}
-									onHide={closeDetails}
-								/>
-							</div>
-						)}
-						{/* The body is a tab panel; contents keeps the aside's own layout. */}
-						<div
-							id="side-panel-body"
-							role="tabpanel"
-							aria-label={
-								panelView === 'activity'
-									? 'Activity'
-									: panelView === 'changes'
-										? 'Changes'
-										: panelView === 'outputs'
-											? 'Outputs'
-											: panelView === 'empty'
-												? 'Side panel'
-												: 'Project files'
-							}
-							style={{ display: 'contents' }}
-						>
-							{(panelView === 'file' || panelView === 'browse') && project ? (
-								<FilePanelBody
-									api={api}
-									projectId={project.id}
-									projectName={project.name}
-									activePath={activePath}
-									line={panelTabs.line}
-									editors={editors}
-									dark={
-										appearance === 'dark' ||
-										(appearance === 'system' &&
-											window.matchMedia('(prefers-color-scheme: dark)').matches)
+				{headerActionsVisible && (
+					<PaneGrid
+						layout={shownPaneLayout}
+						update={updatePaneLayout}
+						host={paneRoot}
+						render={renderPane}
+						shown={overlayPane}
+						onShow={setOverlayPane}
+						onHide={closeDetails}
+						onClosed={focusPaneButton}
+						onCloseSession={() => setSessionPanelOpen(false)}
+						session={
+							sessionPanelActive && sessionPanelSummary ? (
+								<SessionPanel
+									summary={sessionPanelSummary}
+									chatOnly={!project || Boolean(project.isChat)}
+									jobs={visibleJobs}
+									jobsKnown={jobsSessionId === sessionId && !jobsLoading && !jobsError}
+									now={clock}
+									onClose={() => setSessionPanelOpen(false)}
+									onCopyPath={
+										project
+											? () => void act(() => copyToClipboard(project.path, 'Path copied.'))
+											: undefined
 									}
-									wide={panelPx >= 560}
-									browsing={panelView === 'browse'}
-									onOpenPath={openProjectFile}
-									onNotice={announce}
-									refreshToken={filesRefresh}
-								/>
-							) : panelView === 'outputs' ? (
-								<OutputsPanel
-									api={api}
-									sessionId={sessionId}
-									outputs={outputs}
-									selected={pickedOutput}
-									onSelect={pickOutput}
-									onNotice={announce}
-									workFolder={project?.path}
-									dark={
-										appearance === 'dark' ||
-										(appearance === 'system' &&
-											window.matchMedia('(prefers-color-scheme: dark)').matches)
-									}
-								/>
-							) : panelView === 'empty' ? (
-								<div className="panel-empty">
-									<p>Nothing is open in this panel.</p>
-									<div className="panel-empty-actions">
-										<Button
-											type="button"
-											size="xs"
-											variant="ghost-muted"
-											onClick={() => {
-												setChangesFilter(undefined)
-												showPanelTab('changes')
-											}}
-										>
-											Changes
-										</Button>
-										<Button
-											type="button"
-											size="xs"
-											variant="ghost-muted"
-											onClick={() => showPanelTab('activity')}
-										>
-											Activity
-										</Button>
-										{filesEnabled && (
+									onOpenChanges={() => {
+										setChangesFilter(undefined)
+										openPane('changes')
+									}}
+									onOpenWork={() => {
+										openSessionPane()
+									}}
+									commit={
+										api.commitPreview && api.commit && !externalHarness ? (
 											<Button
 												type="button"
-												size="xs"
 												variant="ghost-muted"
-												onClick={() => updatePanelTabs(browsePanelTabs)}
+												size="xs"
+												className="session-commit"
+												data-testid="session-commit"
+												disabled={!commitState.enabled}
+												title={commitState.reason}
+												aria-label={
+													commitState.reason
+														? `Commit changes. ${commitState.reason}.`
+														: 'Commit changes'
+												}
+												onClick={(event) => {
+													commitTrigger.current = event.currentTarget
+													setCommitFor({ sessionId, paths: commitPaths })
+												}}
 											>
-												Open a file
+												Commit changes
 											</Button>
-										)}
-									</div>
-								</div>
-							) : panelView === 'changes' ? (
-								<ChangesPanel
-									tools={thread.tools}
-									timeline={thread.timeline}
-									receiptIds={changesFilter}
-									focus={changesFocus}
-									onShowAll={() => setChangesFilter(undefined)}
-									onClose={closeDetails}
-									expanded={panelExpanded}
-									onToggleExpanded={() => setPanelExpanded((value) => !value)}
-									source={workingTree}
-									refreshToken={filesRefresh}
-									onOpenFile={projectFiles ? openChangedFile : undefined}
-									onOpenInEditor={
-										projectFiles && api.openProjectPath ? openChangedFileInEditor : undefined
+										) : undefined
 									}
-									onOpenWorkingFile={projectFiles ? openWorkingTreeFile : undefined}
-									onOpenWorkingInEditor={
-										projectFiles && api.openProjectPath ? openWorkingTreeFileInEditor : undefined
-									}
-									onCopy={(text, done) =>
-										void copyToClipboard(text, done).catch(() =>
-											notify('Copy is unavailable.', { tone: 'error' }),
+									onStopJob={(job) => {
+										const owner = sessionId
+										const generation = navigation.current
+										const refresh = refreshJobs.current
+										return act(() =>
+											runJobAction(owner, generation, async () => {
+												await api.stopJob(owner, job.id)
+												await refresh?.()
+											}),
 										)
-									}
-									dark={
-										appearance === 'dark' ||
-										(appearance === 'system' &&
-											window.matchMedia('(prefers-color-scheme: dark)').matches)
-									}
+									}}
 								/>
-							) : (
-								<div className="panel-scroll">
-									<ConversationTasks thread={thread} />
-									<section className="background-processes" aria-label="Background processes">
-										<div className="background-processes-heading">
-											<h3>Background processes</h3>
-											{!jobsError && !jobsLoading && jobsSessionId === sessionId && (
-												<kbd
-													aria-label={`${visibleJobs.filter((job) => job.status === 'running').length} running`}
-												>
-													{visibleJobs.filter((job) => job.status === 'running').length}
-												</kbd>
-											)}
-										</div>
-										{jobsError ? (
-											<p role="alert" className="jobs-error">
-												{jobsError}
-											</p>
-										) : jobsLoading || jobsSessionId !== sessionId ? (
-											<p className="quiet">Loading background work…</p>
-										) : visibleJobs.length === 0 ? (
-											<p className="quiet">No background processes in this conversation.</p>
-										) : (
-											[...visibleJobs]
-												.sort(
-													(a, b) => Number(b.status === 'running') - Number(a.status === 'running'),
-												)
-												.map((job) => {
-													const owner = sessionId
-													const generation = navigation.current
-													const refresh = refreshJobs.current
-													return (
-														<JobRow
-															key={`${owner}:${generation}:${job.id}:${job.startedAt}`}
-															job={job}
-															disabled={frozen}
-															onRead={() =>
-																runJobAction(owner, generation, () => api.readJob(owner, job.id))
-															}
-															onStop={() =>
-																runJobAction(owner, generation, async () => {
-																	await api.stopJob(owner, job.id)
-																	await refresh?.()
-																})
-															}
-														/>
-													)
-												})
-										)}
-									</section>
-								</div>
-							)}
-						</div>
-					</aside>
+							) : undefined
+						}
+					/>
 				)}
 			</main>
 		</PaneToasts>

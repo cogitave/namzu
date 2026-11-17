@@ -1,0 +1,164 @@
+/*
+ * The panes beside a conversation. The grid covers the workspace under the header band and takes no
+ * pointer events itself; each tile, seam and the Session pane takes its own. Their boxes come from
+ * pane-grid.ts, in pixels, so the CSS here only draws them.
+ */
+.pane-grid {
+	position: absolute;
+	inset: var(--frame-header-height) 0 0 0;
+	pointer-events: none;
+	z-index: var(--z-panel-raised);
+}
+.pane-tile,
+.pane-session,
+.pane-divider,
+.pane-overlay-bar {
+	pointer-events: auto;
+}
+.pane-tile {
+	position: absolute;
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
+	background: var(--background);
+	border-left: 1px solid var(--border);
+}
+.pane-tile[data-second] {
+	border-top: 1px solid var(--border);
+}
+.pane-header {
+	flex: none;
+	min-width: 0;
+}
+.pane-title {
+	display: flex;
+	flex: 1;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
+	font-weight: var(--weight-control);
+}
+.pane-actions {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: var(--panel-control-gap);
+}
+.pane-actions > .pane-control,
+.pane-header .pane-control {
+	width: var(--frame-control-size);
+	height: var(--frame-control-size);
+}
+.pane-body {
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
+}
+/* The seam is a 7px zone centred on the line; the line shows on hover, focus and while held. */
+.pane-divider {
+	position: absolute;
+	z-index: 2;
+	touch-action: none;
+}
+.pane-divider[data-orientation="vertical"] {
+	width: var(--panel-grab-zone);
+	margin-left: calc(var(--panel-grab-zone) / -2);
+	cursor: col-resize;
+}
+.pane-divider[data-orientation="horizontal"] {
+	height: var(--panel-grab-zone);
+	margin-top: calc(var(--panel-grab-zone) / -2);
+	cursor: row-resize;
+}
+.pane-divider::after {
+	content: "";
+	position: absolute;
+	background: transparent;
+	transition: background-color var(--dur-quick);
+}
+.pane-divider[data-orientation="vertical"]::after {
+	inset: 0 auto 0 calc((var(--panel-grab-zone) - var(--panel-grab-line)) / 2);
+	width: var(--panel-grab-line);
+}
+.pane-divider[data-orientation="horizontal"]::after {
+	inset: calc((var(--panel-grab-zone) - var(--panel-grab-line)) / 2) 0 auto 0;
+	height: var(--panel-grab-line);
+}
+.pane-divider:hover::after,
+.pane-divider:focus-visible::after,
+.pane-divider:active::after {
+	background: var(--primary);
+}
+.pane-divider:focus-visible {
+	outline: none;
+}
+:root[data-pane-dragging] {
+	user-select: none;
+}
+:root[data-pane-dragging="vertical"] {
+	cursor: col-resize;
+}
+:root[data-pane-dragging="horizontal"] {
+	cursor: row-resize;
+}
+/* Too narrow for a column: one pane at a time lies over the conversation, which stays mounted. */
+.pane-overlay-bar {
+	position: absolute;
+	inset: 0 0 auto 0;
+	z-index: 1;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	height: 40px;
+	padding: 0 8px;
+	background: var(--background);
+	border-bottom: 1px solid var(--border);
+}
+.pane-overlay-tabs {
+	display: flex;
+	gap: 4px;
+	margin-inline-start: auto;
+}
+.pane-overlay-tabs [aria-pressed="true"] {
+	background: color-mix(in srgb, var(--foreground) var(--panel-open-fill), transparent);
+	color: var(--foreground);
+}
+/* The Session pane: docked, a column at the right edge; or a card over the conversation with no room to dock. */
+.pane-session {
+	position: absolute;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	background: var(--background);
+}
+.pane-session[data-mode="dock"] {
+	border-left: 1px solid var(--border);
+}
+.pane-session[data-mode="card"] {
+	bottom: 88px;
+	z-index: 3;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg, 12px);
+	box-shadow: var(--shadow-2, 0 8px 24px rgb(0 0 0 / 0.18));
+	overflow: hidden;
+}
+/* The conversation gives up the width the panes and a docked Session pane take, and is hidden, not removed,
+   while a pane fills the workspace. */
+.workspace[data-pane-mode] > :is(.connection-error, .welcome, .chat-stage) {
+	width: calc(100% - var(--pane-reserved, 0px));
+	transition: width var(--dur-base) var(--ease-out);
+}
+.workspace[data-pane-mode="overlay"] > :is(.connection-error, .welcome, .chat-stage),
+.workspace[data-pane-mode="maximised"] > :is(.connection-error, .welcome, .chat-stage) {
+	visibility: hidden;
+}
+:root[data-pane-dragging] .workspace > * {
+	transition: none !important;
+}

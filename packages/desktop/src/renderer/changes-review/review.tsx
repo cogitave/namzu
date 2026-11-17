@@ -269,7 +269,8 @@ export function ChangesReview({
 	return (
 		<div className="changes-review" onKeyDown={onKeyDown} data-scope={activeScope}>
 			<div className="changes-bar">
-				<h2 className="changes-title">Changes</h2>
+				{/* In a pane the pane's own header names it. */}
+				{onClose && <h2 className="changes-title">Changes</h2>}
 				{/* biome-ignore lint/a11y/useSemanticElements: a fieldset would bring its own box and legend. */}
 				<div className="changes-switch" role="group" aria-label="Which changes to show">
 					{(['reply', 'conversation'] as const)

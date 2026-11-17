@@ -1,45 +1,7 @@
 /*
- * The session panel: a fixed column at the right edge of the workspace, under the header band. It takes its
- * width from the conversation (the stage gives way) and, when a side panel is open as well, sits to its right.
- * Below the container width named here there is no room for it; the details popover carries the same rows.
+ * The session panel's own look. Where it sits (a docked column or a card over the conversation) is the pane
+ * grid's: see pane-grid.css.
  */
-.workspace {
-	--session-width: 272px;
-}
-.session-panel-aside {
-	position: absolute;
-	inset: var(--frame-header-height) 0 0 auto;
-	width: var(--session-width);
-	display: flex;
-	flex-direction: column;
-	border-left: 1px solid var(--border);
-	background: var(--background);
-	z-index: var(--z-panel-raised);
-	min-height: 0;
-}
-.workspace.session-open > :is(.connection-error, .welcome, .chat-stage) {
-	width: calc(100% - var(--session-width));
-}
-.workspace.session-open.jobs-open > :is(.connection-error, .welcome, .chat-stage) {
-	width: calc(100% - var(--panel-width) - var(--session-width));
-}
-.workspace.session-open .jobs-panel {
-	inset-inline-end: var(--session-width);
-}
-@container workspace (max-width: 899px) {
-	.session-panel-aside {
-		display: none;
-	}
-	.workspace.session-open > :is(.connection-error, .welcome, .chat-stage) {
-		width: 100%;
-	}
-	.workspace.session-open.jobs-open > :is(.connection-error, .welcome, .chat-stage) {
-		width: calc(100% - var(--panel-width));
-	}
-	.workspace.session-open .jobs-panel {
-		inset-inline-end: 0;
-	}
-}
 .session-panel {
 	display: flex;
 	flex-direction: column;

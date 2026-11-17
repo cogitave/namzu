@@ -606,22 +606,15 @@ pre {
 	margin: 0;
 	background: var(--background);
 	overflow: clip;
-	--panel-width: var(--panel-tool-width);
 	position: relative;
 	display: flex;
 	flex-direction: column;
 	min-width: 0;
 	min-height: 0;
 }
-.workspace[data-panel-kind="reading"] {
-	--panel-width: var(--panel-reading-width);
-}
 .workspace > :is(.connection-error, .welcome, .chat-stage) {
 	width: 100%;
 	transition: width var(--dur-base) var(--ease-out);
-}
-.workspace.jobs-open > :is(.connection-error, .welcome, .chat-stage) {
-	width: calc(100% - var(--panel-width));
 }
 .topbar {
 	-webkit-app-region: drag;
@@ -1095,29 +1088,6 @@ pre {
 	flex: none;
 	padding: 12px 20px 4px;
 }
-.jobs-panel {
-	position: absolute;
-	/* Under the header band, which runs the whole width of the window, so nothing of the panel sits under
-	   the window's own buttons. */
-	inset: var(--frame-header-height) 0 0 auto;
-	width: var(--panel-width);
-	display: flex;
-	flex-direction: column;
-	border-left: 1px solid var(--border);
-	background: var(--background);
-	z-index: var(--z-panel-raised);
-	transform: translateX(100%);
-	visibility: hidden;
-	transition: transform var(--dur-base) var(--ease-out), visibility var(--dur-base);
-}
-.panel-back-row {
-	display: none;
-	padding: 6px 8px 0;
-}
-.jobs-panel[data-open="true"] {
-	visibility: visible;
-	transform: translateX(0);
-}
 .section-heading {
 	display: flex;
 	align-items: center;
@@ -1348,38 +1318,6 @@ pre {
 	}
 	to {
 		background-position: -40% 0;
-	}
-}
-/* Where the conversation would keep less than --panel-conversation-min, the panel takes the pane instead of
-   a sliver of clipped transcript. A reading panel has its 60 percent (360 at least), so that is any pane under
-   900; a tool panel, under 680 (its floor of 320 and the conversation's 360). The edges are written out
-   because a container query cannot read a token; panel-tokens.test.ts keeps them equal to the sums. */
-@container workspace (max-width: 899px) {
-	.workspace[data-panel-kind="reading"].jobs-open
-		> :is(.topbar, .connection-error, .welcome, .chat-stage) {
-		width: 100%;
-	}
-	.workspace[data-panel-kind="reading"] .jobs-panel {
-		width: 100%;
-		box-shadow: none;
-		z-index: var(--z-panel);
-	}
-	.workspace[data-panel-kind="reading"] .panel-back-row {
-		display: flex;
-	}
-}
-@container workspace (max-width: 679px) {
-	.workspace[data-panel-kind="tool"].jobs-open
-		> :is(.topbar, .connection-error, .welcome, .chat-stage) {
-		width: 100%;
-	}
-	.workspace[data-panel-kind="tool"] .jobs-panel {
-		width: 100%;
-		box-shadow: none;
-		z-index: var(--z-panel);
-	}
-	.workspace[data-panel-kind="tool"] .panel-back-row {
-		display: flex;
 	}
 }
 @media (max-width: 767px) {

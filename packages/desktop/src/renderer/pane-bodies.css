@@ -1,0 +1,62 @@
+/* A pane's tab strip sits in its header: the 28 high tabs line up with the 28 square controls. */
+.pane-tabs {
+	min-width: 0;
+}
+.browser-pane {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-height: 0;
+	min-width: 0;
+}
+.browser-bar {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 4px;
+	padding: 6px 8px;
+	border-bottom: 1px solid var(--border);
+}
+.browser-address {
+	flex: 1;
+	min-width: 0;
+	height: 28px;
+	padding: 0 10px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-control);
+	background: transparent;
+	color: var(--foreground);
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+}
+.browser-address:focus-visible {
+	outline: none;
+	border-color: var(--ring);
+}
+.browser-page {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-height: 0;
+	overflow: hidden;
+}
+.browser-page .output-frame {
+	flex: 1;
+	width: 100%;
+	border: 0;
+}
+.browser-empty {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	padding: 16px;
+	color: var(--muted-foreground);
+	font-size: var(--text-small);
+	text-align: center;
+}
+.browser-empty p {
+	margin: 0;
+}

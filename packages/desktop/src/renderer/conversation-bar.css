@@ -56,46 +56,33 @@
 	position: relative;
 	-webkit-app-region: no-drag;
 }
-/* A tool whose panel is open carries a fill of 8 percent of the text colour. */
-.conversation-bar-button[data-open] {
+/* The pane buttons: 24 square, 30 apart, and a thin divider after Session (4 more). Open is a filled
+   rounded square behind the icon. */
+.pane-buttons {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	flex: none;
+	-webkit-app-region: no-drag;
+}
+.pane-buttons > button,
+.pane-buttons > .conversation-header-button,
+.pane-buttons > [data-slot="button"] {
+	width: 24px;
+	height: 24px;
+	border-radius: 6px;
+	padding: 0;
+	-webkit-app-region: no-drag;
+}
+.pane-button[data-open] {
 	background: color-mix(in srgb, var(--foreground) var(--panel-open-fill), transparent);
 	color: var(--foreground);
 }
-/* With changes the button grows to show the lines added and removed beside its icon. */
-.conversation-bar-buttons > .conversation-bar-changes[data-has-changes] {
-	width: auto;
-	gap: 6px;
-	padding-inline: 8px;
-}
-/* Outputs shows how many files the conversation wrote beside its icon. */
-.conversation-bar-buttons > .conversation-bar-outputs {
-	width: auto;
-	gap: 6px;
-	padding-inline: 8px;
-}
-.conversation-bar-outputs-count {
-	font-size: var(--text-caption);
-	line-height: var(--leading-caption);
-	font-weight: var(--weight-control);
-	font-variant-numeric: tabular-nums;
-}
-.conversation-bar-lines {
-	display: inline-flex;
-	gap: 5px;
-	font-size: var(--text-caption);
-	line-height: var(--leading-caption);
-	font-weight: var(--weight-control);
-	font-variant-numeric: tabular-nums;
-}
-.conversation-bar-added {
-	color: var(--bar-added, #15803d);
-}
-.conversation-bar-removed {
-	color: var(--bar-removed, var(--error-foreground));
-}
-.dark .conversation-bar {
-	--bar-added: #4ade80;
-	--bar-removed: #ff8a8a;
+.pane-buttons-divider {
+	width: 1px;
+	height: 16px;
+	margin-inline: -1px;
+	background: var(--border);
 }
 /* A small figure on the corner of a button: how many changes, how many terminals. */
 .conversation-bar-count {
