@@ -31,6 +31,8 @@ import type {
 	BrowserSessionInfo,
 } from '@namzu/sdk'
 
+import { closeBrowserLocalPages } from '@namzu/sdk'
+
 import type { BrowserSitesConfig } from '../permissions/browser-sites.js'
 
 /** `@namzu/browser` profile names, restated so this file needs no runtime import to check one. */
@@ -207,6 +209,8 @@ export function createBrowserControl(
 		async dispose() {
 			if (disposed) return
 			disposed = true
+			// The local-page server of this session's tools goes with the browser.
+			await closeBrowserLocalPages(host)
 			await current.dispose()
 		},
 	}

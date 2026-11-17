@@ -2,6 +2,7 @@
 
 ## 2026-11-16
 
+- **Update** [Browser tools](sdk/browser-tools.md#pages-the-agent-wrote): the browser tool opens a page the agent wrote by its path (relative, absolute, Windows form or `file:` URL) when it is inside the work folder, an added folder or Namzu's scratch folder; the browser is handed an address on a read-only, token-scoped server on 127.0.0.1 that lives with the browser session, and a path outside the folders, a link out, `.git`, a secret file or a missing file is refused with the reason. New `closeBrowserLocalPages`. `.changeset/sdk-browser-opens-local-pages.md`, `.changeset/cli-browser-opens-local-pages.md`.
 - **Update** [Browser tools](sdk/browser-tools.md#what-the-model-reads), [The browser host](sdk/browser-host.md#waiting-for-the-page-and-what-an-action-did), [The browser](cli/browser.md#how-the-model-is-told-to-work): an action that changed nothing visible now says what the page sent (`no visible change on the page; it sent 1 request.`, with `POST /path` inside the untrusted envelope; only fetch, XHR and document requests, no query string), carried as the optional `BrowserEffect.requests` and `requestCount`; and the web-task paragraph tells the model, when a step cannot be done or confirmed, to carry on with every other step the page allows and report the step left. `.changeset/browser-effect-names-requests.md`.
 
 ## 2026-11-15

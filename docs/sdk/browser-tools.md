@@ -95,7 +95,7 @@ The provider-facing schemas are flat objects, one per tool, with `action` as an 
 `canonicalizeBrowserUrl(raw)` returns `{ ok, url, origin }` or `{ ok: false, reason }`:
 
 - The form is the WHATWG serialisation: lowercase scheme and host, punycode for an internationalised host, no default port, percent-encoded host bytes decoded, every IPv4 spelling read as dotted-quad. Trailing dots on the host are removed.
-- Only `http:`, `https:` and `about:blank` are accepted. `file:`, `chrome:`, `devtools:`, `view-source:`, `javascript:`, `data:`, `blob:` and the rest are refused.
+- Only `http:`, `https:` and `about:blank` are accepted by this function, and the host applies it to every address it loads. `file:`, `chrome:`, `devtools:`, `view-source:`, `javascript:`, `data:`, `blob:` and the rest are refused.
 - An address with a user name or password is refused. `https://github.com@evil.example/` reads as GitHub to a person.
 - Cloud metadata endpoints are refused in every spelling the parser folds into them: `169.254.169.254` (also as `2852039166`, `0xA9FEA9FE`, octal, the short forms and full-width digits), `100.100.100.200`, `fd00:ec2::254`, the IPv6 embeddings of those IPv4 addresses (mapped, compatible, SIIT, NAT64 and 6to4), `metadata.google.internal`, `metadata` and `metadata.goog`.
 
@@ -104,6 +104,19 @@ The metadata check is a floor, not the site policy. A private or loopback addres
 `canonicalizeBrowserOrigin(raw)` gives the `scheme://host[:port]` form `browser_act` takes, accepting a trailing `/` and refusing a path, query or fragment. `canonicalizeBrowserSitePattern(raw)` canonicalises a site key an operator or a job writes: `https://github.com`, `https://*.example.com` (one or more labels), `http://localhost:*` (any port). It refuses a bare `*`, a wildcard anywhere else in the host, a wildcard before an IP address, a path and a metadata host. IPv6 hosts cannot be written as site keys. `isCloudMetadataHost(host)` is the floor on its own, for a host checking a landing page.
 
 The tool declares `urlArgument: 'url'` (a new `ToolDefinition` field). An `argument_pattern` rule on a declared URL argument tests the value whole. Without it, the rule reads every argument as a possible command line, and `&`, `;` or `|` in a query string cut the value into segments that an `allow` must all match. See [The review policy](review-policy.md#rules-that-ask).
+
+## Pages the agent wrote
+
+A page the agent wrote opens by its path, so it can look at its own work. `navigate` and `tabs new` take a plain relative or absolute path, a Windows path (`C:\site\index.html`, `C:/site/index.html`) or a `file:` URL (`file:///home/a/site/index.html`, `file:///C:/site/index.html`, `file://localhost/...`). An address with another scheme is a web address, as before.
+
+The browser is never given a `file:` address, because a `file:` page is its own origin: the site rules and the origin check mean nothing for it, and nothing stops it reaching other local files. The tool serves the page instead:
+
+- The path is resolved to a real file inside the session's work folder, a folder added to the session, or Namzu's scratch folder. Links are followed first, so a link that leaves those folders is outside, and `..` is gone before the comparison.
+- One read-only server per folder, owned by the tool set, listens on `127.0.0.1` on a random port and answers only under a random token (`http://127.0.0.1:<port>/<token>/site/index.html`). It answers `GET` and `HEAD` for its own `Host` only, resolves every request to a real path inside the folder, and never lists a directory (a folder with an `index.html` serves that page). The page has a real `http:` origin, so relative CSS, images and scripts load, and screenshots, reading and clicking work as on any page. A path that starts with `/` in the page's own HTML is outside the token and is not served.
+- Refused, with the reason and what is allowed: a path outside those folders, a link that leaves them, a `.git` folder, a secret file (`.env*` apart from `.env.example`, `.ssh`, `.aws`, `.gnupg`, `.namzu`, `*.pem`, `*.key`, `id_rsa`, `.npmrc`, `credentials.json` and similar), anything the session's read rules deny (`ToolContext.readDenied`, checked for every file the page asks for, not only the first), a file that is missing, a folder with no `index.html`, a network share, and a Windows path on another platform. The same checks run again for each request the server receives, so a link inside the folder that points at a secret file is refused too.
+- The server does not keep the process alive. `closeBrowserLocalPages(host)` stops it, the interactive session does that when its browser closes, and a later local page starts a new one with a new token.
+
+The input schema leaves a local path as written, so the gate sees what the model wrote and a rule for web addresses does not match it. The host sees only the `http:` address, and its site rules (`http://127.0.0.1:*`) apply to it like any other. The review that applies to `navigate` still applies.
 
 ## What the model reads
 

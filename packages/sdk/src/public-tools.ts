@@ -191,6 +191,7 @@ export {
 	BROWSER_ACT_TOOL_NAME,
 	BROWSER_TOOL_NAME,
 	browserHostErrorOf,
+	closeBrowserLocalPages,
 	createBrowserTools,
 	formatBrowserPageHeader,
 	isBrowserCallReadOnly,
