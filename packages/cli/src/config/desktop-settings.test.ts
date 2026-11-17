@@ -73,7 +73,7 @@ describe('Desktop settings descriptors', () => {
 	it('lists the outside-the-folder setting as a choice between ask and refuse', () => {
 		const entry = SETTING_DESCRIPTORS.find((e) => e.path === 'permissions.outsideRoot')
 		expect(entry?.control).toMatchObject({ kind: 'select' })
-		expect(entry?.defaultText).toBe('ask')
+		expect(entry?.default).toBe('ask')
 		expect(entry?.confirm).toBeTruthy()
 		expect(entry?.confirmValue).toBe('ask')
 	})

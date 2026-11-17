@@ -21,9 +21,36 @@ export type SettingSection =
 	| 'telemetry'
 	| 'terminal'
 
+/**
+ * When a saved change reaches what the person is doing.
+ *
+ * - `now`: the next thing that reads it, with no wait.
+ * - `next-turn`: the next message sent in an open conversation.
+ * - `next-conversation`: a conversation started after the change; an open one keeps what it began with.
+ * - `next-start`: the next time the terminal app or the engine starts.
+ * - `next-launch`: the next time the Desktop app is opened.
+ */
+export type AppliesWhen = 'now' | 'next-turn' | 'next-conversation' | 'next-start' | 'next-launch'
+
+/** The sentence a screen shows for each apply time. */
+export const APPLIES_WHEN_TEXT: Readonly<Record<AppliesWhen, string>> = {
+	now: 'Applies at once.',
+	'next-turn': 'Applies from your next message.',
+	'next-conversation': 'Applies to new conversations. Open ones keep their current value.',
+	'next-start': 'Applies the next time Namzu starts.',
+	'next-launch': 'Applies the next time the app opens.',
+}
+
+/** A value a setting holds when nothing is saved. A list is the list of ticked option values. */
+export type SettingDefault = boolean | number | string | readonly string[]
+
 export interface SettingOption {
+	/** The value written to the file. Never changes once shipped. */
 	readonly value: string
+	/** What a person reads. */
 	readonly label: string
+	/** One line saying what choosing it does. */
+	readonly help?: string
 }
 
 export type SettingControl =
@@ -49,8 +76,27 @@ export interface SettingDescriptor {
 	readonly description: string
 	readonly section: SettingSection
 	readonly control: SettingControl
-	/** What applies when the key is absent, in words. */
+	/**
+	 * What the setting holds when its key is absent, as a typed value: a switch's on or off, a
+	 * number, the chosen option, or the ticked options of a list. Screens draw the default from this,
+	 * never from prose. Absent when the default cannot be written as one value (see `defaultText`).
+	 */
+	readonly default?: SettingDefault
+	/** Said beside a typed default when it needs a caveat, for example that it differs in CI. */
+	readonly defaultNote?: string
+	/**
+	 * Cases where the default is not `default`. The first rule whose key is set (`non-empty`) or
+	 * equals `is` decides.
+	 */
+	readonly defaultWhen?: readonly {
+		readonly path: string
+		readonly is: 'non-empty' | string
+		readonly value: SettingDefault
+	}[]
+	/** The default in words, for the rare setting with no typed default. */
 	readonly defaultText?: string
+	/** When a saved change reaches the work. */
+	readonly appliesWhen: AppliesWhen
 	/** A sentence shown in the confirmation dialog. Present means the change is confirmed first. */
 	readonly confirm?: string
 	/**
@@ -80,16 +126,62 @@ const num = (min?: number, max?: number, unit?: string): SettingControl => ({
 	...(max !== undefined ? { max } : {}),
 	...(unit ? { unit } : {}),
 })
-const pick = (...values: string[]): SettingControl => ({
+/** A choice list: each entry is `[saved value, label, one line of help]`. */
+const pick = (...entries: (readonly [string, string, string])[]): SettingControl => ({
 	kind: 'select',
-	options: values.map((value) => ({ value, label: value })),
+	options: entries.map(([value, label, help]) => ({ value, label, help })),
 })
-const checks = (...values: string[]): SettingControl => ({
+const checks = (...entries: (readonly [string, string])[]): SettingControl => ({
 	kind: 'checks',
-	options: values.map((value) => ({ value, label: value })),
+	options: entries.map(([value, label]) => ({ value, label })),
 })
 const json = (example: string): SettingControl => ({ kind: 'json', example })
 const fileOnly: SettingControl = { kind: 'file-only' }
+
+/**
+ * When a key's saved value is read. Found from the code that reads it: the terminal app, the
+ * schedule daemon, the update check and telemetry read once at launch; the engine reads the rest
+ * when a conversation is created. Keys whose reader was not traced to a session default to
+ * `next-start`, the later and therefore safe claim.
+ */
+export function appliesWhenFor(path: string): AppliesWhen {
+	const startOnly = [
+		'tui.',
+		'updates.',
+		'telemetry.',
+		'schedule.',
+		'plugins.',
+		'composerTriggers.',
+		'learningGenerator.',
+	]
+	if (startOnly.some((prefix) => path.startsWith(prefix))) return 'next-start'
+	const next = new Set([
+		'format',
+		'quiet',
+		'hypermode',
+		'profiles',
+		'model',
+		'routing',
+		'smallModel',
+		'refusalFallback',
+		'modelCatalogueRefresh',
+		'decision',
+		'permissions.autoMode',
+		'limits.waitForProviderMs',
+		'compaction.promptCacheTtl',
+		'compaction.clearStaleResultsAfterIdle',
+		'memory.retireAfterDays',
+		'learningObservations',
+		'codeAnalysis.enabled',
+		'browser.enabled',
+		'statusLine',
+		'mcpServers',
+		'goal.confirmedBy',
+		'skills.suggest',
+		'skills.suggestMinToolCalls',
+	])
+	return next.has(path) ? 'next-start' : 'next-conversation'
+}
 
 function d(
 	path: string,
@@ -97,12 +189,21 @@ function d(
 	label: string,
 	description: string,
 	control: SettingControl,
-	more: Pick<
+	more: Omit<
 		SettingDescriptor,
-		'defaultText' | 'confirm' | 'confirmWhen' | 'confirmValue' | 'keywords'
-	> = {},
+		'path' | 'section' | 'label' | 'description' | 'control' | 'appliesWhen'
+	> & { appliesWhen?: AppliesWhen } = {},
 ): SettingDescriptor {
-	return { path, section, label, description, control, ...more }
+	const { appliesWhen, ...rest } = more
+	return {
+		path,
+		section,
+		label,
+		description,
+		control,
+		appliesWhen: appliesWhen ?? appliesWhenFor(path),
+		...rest,
+	}
 }
 
 export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
@@ -112,12 +213,23 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'terminal',
 		'Output format',
 		'How the command line prints its results.',
-		pick('text', 'json', 'yaml'),
-		{ defaultText: 'text' },
+		pick(
+			['text', 'Plain text', 'Readable lines for a person.'],
+			['json', 'JSON', 'One structured document, for a script to read.'],
+			['yaml', 'YAML', 'Structured text a person can still read.'],
+		),
+		{ default: 'text' },
 	),
-	d('quiet', 'terminal', 'Quiet output', 'Print only what was asked for.', on, {
-		defaultText: 'off',
-	}),
+	d(
+		'quiet',
+		'terminal',
+		'Quiet output',
+		'Print only what was asked for. For the terminal app.',
+		on,
+		{
+			default: false,
+		},
+	),
 	d(
 		'hypermode',
 		'general',
@@ -125,7 +237,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Let Namzu run longer, larger jobs without stopping to check in.',
 		on,
 		{
-			defaultText: 'off',
+			default: false,
 			confirm: 'Namzu will run longer jobs without stopping to check in with you.',
 			confirmWhen: 'on',
 		},
@@ -144,7 +256,11 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'models',
 		'Choose the model automatically',
 		'Pick a model for each task. Needs routing below.',
-		pick('auto'),
+		pick([
+			'auto',
+			'Automatic',
+			'A routing model picks the model for each task. Needs routing below.',
+		]),
 		{
 			confirm:
 				'Namzu will send the start of each task to a model that chooses which model answers.',
@@ -176,9 +292,12 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'models',
 		'When a model refuses',
 		'Try another model when the first one declines to answer.',
-		pick('auto', 'off'),
+		pick(
+			['auto', 'Try another model', 'If a model declines, the request goes to a different one.'],
+			['off', 'Show the refusal', 'The refusal is shown and nothing else is tried.'],
+		),
 		{
-			defaultText: 'auto',
+			default: 'auto',
 			confirm: 'The request will be sent to a different model after a refusal.',
 		},
 	),
@@ -188,7 +307,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Refresh the model list',
 		'Look for new models and prices when Namzu starts.',
 		on,
-		{ defaultText: 'on' },
+		{ default: true },
 	),
 	d(
 		'decision',
@@ -214,9 +333,32 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'projects',
 		'Default permission mode',
 		'How Namzu asks before it acts, until you choose otherwise for a conversation.',
-		pick('prompt', 'accept-edits', 'plan', 'bypass', 'auto', 'strict'),
+		pick(
+			[
+				'prompt',
+				'Ask before risky actions',
+				'Reads run freely; edits, commands and other changes ask first.',
+			],
+			[
+				'accept-edits',
+				'Allow file edits',
+				'Edits and writes run without asking; everything else still asks.',
+			],
+			['plan', 'Plan only', 'Namzu may look and plan, and is refused any change.'],
+			[
+				'bypass',
+				'Never ask',
+				'Every action runs without asking. Use it only where nothing can be harmed.',
+			],
+			['auto', 'A model decides', 'A reviewing model approves or refuses each action for you.'],
+			[
+				'strict',
+				'Only what a rule allows',
+				'An action runs only when a permission rule allows it; the rest is refused.',
+			],
+		),
 		{
-			defaultText: 'prompt',
+			default: 'prompt',
 			confirm: 'Some modes let Namzu act without asking. Only choose one you are comfortable with.',
 		},
 	),
@@ -227,6 +369,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Remove the mode that skips every question.',
 		on,
 		{
+			default: false,
 			confirm: 'Bypass mode, which skips every question, will be available again.',
 			confirmWhen: 'off',
 		},
@@ -238,6 +381,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Remove the mode that lets a model approve actions.',
 		on,
 		{
+			default: false,
 			confirm: 'Auto mode, where a model approves actions, will be available again.',
 			confirmWhen: 'off',
 		},
@@ -247,9 +391,16 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'projects',
 		'Paths outside the working folder',
 		'Ask before reading or changing a file outside the working folder and the extra folders, or refuse without asking.',
-		pick('ask', 'refuse'),
+		pick(
+			[
+				'ask',
+				'Ask me',
+				'A file outside the working folder is shown to you before Namzu reads or changes it.',
+			],
+			['refuse', 'Refuse', 'Namzu is refused a file outside the working folder and does not ask.'],
+		),
 		{
-			defaultText: 'ask',
+			default: 'ask',
 			confirm: 'Namzu will be able to ask about files outside the working folder again.',
 			confirmValue: 'ask',
 			keywords: ['outside', 'folder', 'directory', 'boundary', 'refuse'],
@@ -289,9 +440,15 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'sandbox.enabled',
 		'projects',
 		'Run in a sandbox',
-		'Keep what Namzu runs inside an isolated space.',
+		'Keep what Namzu runs inside an isolated space. Namzu turns it on by itself when isolation is required or the workspace is a throwaway copy.',
 		on,
 		{
+			default: false,
+			defaultWhen: [
+				{ path: 'sandbox.requireIsolation', is: 'non-empty', value: true },
+				{ path: 'sandbox.workspace', is: 'ephemeral', value: true },
+			],
+			defaultNote: 'On when isolation is required or the workspace is a throwaway copy.',
 			confirm: 'Without a sandbox, commands run directly on this computer.',
 			confirmWhen: 'off',
 		},
@@ -303,7 +460,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Let Namzu ask to run one command outside it.',
 		on,
 		{
-			defaultText: 'on',
+			default: true,
 			confirm: 'Namzu will be able to ask to run commands outside the sandbox.',
 			confirmWhen: 'on',
 		},
@@ -312,10 +469,10 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'sandbox.allowUnattendedEscape',
 		'projects',
 		'Allow leaving it without asking',
-		'Let work nobody is watching run outside the sandbox.',
+		'Let work nobody is watching, such as a scheduled or headless run, leave the sandbox without a prompt. Work you are watching is not affected.',
 		on,
 		{
-			defaultText: 'off',
+			default: false,
 			confirm: 'Unattended work could run commands outside the sandbox with nobody to stop it.',
 			confirmWhen: 'on',
 		},
@@ -324,24 +481,32 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'sandbox.requireIsolation',
 		'projects',
 		'Required isolation',
-		'Namzu refuses to start when the sandbox cannot isolate all of these.',
-		checks('filesystem', 'network', 'process'),
+		'If the sandbox cannot isolate every one of these, the run stops instead of going on without it.',
+		checks(['filesystem', 'Files'], ['network', 'Network'], ['process', 'Processes']),
+		{ default: [] },
 	),
 	d(
 		'sandbox.workspace',
 		'projects',
 		'Sandbox workspace',
 		'Work in the project folder, or in a throwaway copy.',
-		pick('working-directory', 'ephemeral'),
-		{ defaultText: 'working-directory' },
+		pick(
+			['working-directory', 'The project folder', 'Commands work on your real files.'],
+			[
+				'ephemeral',
+				'A throwaway copy',
+				'Commands work in an empty temporary folder that is deleted afterwards.',
+			],
+		),
+		{ default: 'working-directory' },
 	),
 	d(
 		'sandbox.teardownTimeoutMs',
 		'projects',
 		'Sandbox cleanup time limit',
-		'How long to wait while a sandbox shuts down. 0 waits as long as it takes.',
+		'How long to wait for a sandbox to be cleaned up after a turn. When the time runs out, cleanup is told to stop and the turn ends without waiting for it. 0 waits as long as it takes.',
 		num(0, undefined, 'ms'),
-		{ defaultText: '30000' },
+		{ default: 30000 },
 	),
 
 	// Updates
@@ -352,6 +517,8 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Namzu updates itself in the background.',
 		on,
 		{
+			default: true,
+			defaultNote: 'Off in automated runs such as CI.',
 			confirm: 'Namzu will install new versions of its command line on its own.',
 			confirmWhen: 'on',
 		},
@@ -361,8 +528,11 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'updates',
 		'Update channel',
 		'latest gets new versions first, stable waits longer.',
-		pick('latest', 'stable'),
-		{ defaultText: 'latest' },
+		pick(
+			['latest', 'Newest', 'New versions arrive as soon as they are released.'],
+			['stable', 'Stable', 'New versions arrive later, after they have had more use.'],
+		),
+		{ default: 'latest' },
 	),
 	d(
 		'updates.check',
@@ -370,6 +540,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Check for command line updates',
 		'Look for a new version when Namzu starts.',
 		on,
+		{ default: true },
 	),
 
 	// Agent
@@ -379,7 +550,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Longest answer',
 		'The most a model may write in one answer.',
 		num(1, undefined, 'tokens'),
-		{ defaultText: '8192' },
+		{ default: 8192 },
 	),
 	d(
 		'limits.maxReasoningTokens',
@@ -396,7 +567,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Namzu checks its own work once before it ends a turn.',
 		on,
 		{
-			defaultText: 'on',
+			default: true,
 			confirm: 'Namzu will end a turn without checking its own work first.',
 			confirmWhen: 'off',
 		},
@@ -407,7 +578,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Hook refusals before a turn ends',
 		'How many times in a row a hook may refuse to let a turn end before Namzu ends it anyway. 0 means no limit.',
 		num(0),
-		{ defaultText: '8 (0 for no limit)' },
+		{ default: 8, defaultNote: '0 means no limit.' },
 	),
 	d('limits.maxIterations', 'agent', 'Most steps per task', '0 means no limit.', num(0), {
 		defaultText: 'no limit',
@@ -452,7 +623,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Wait for a busy provider',
 		'How long a one-shot run waits when a provider is busy.',
 		num(0, undefined, 'ms'),
-		{ defaultText: '0' },
+		{ default: 0 },
 	),
 	d(
 		'workflow.maxConcurrency',
@@ -468,23 +639,35 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Most helpers per workflow',
 		'A cap on how many helper agents one workflow may start.',
 		num(1, 1000),
-		{ defaultText: '1000' },
+		{ default: 1000 },
 	),
 	d(
 		'workflow.sizeGuideline',
 		'agent',
 		'Workflow size',
 		'How large a workflow Namzu aims for.',
-		pick('unrestricted', 'small', 'medium', 'large'),
-		{ defaultText: 'medium' },
+		pick(
+			['unrestricted', 'No advice', 'Namzu is not told how large a workflow to aim for.'],
+			['small', 'Small', 'Namzu is advised to keep a workflow under 5 helpers.'],
+			['medium', 'Medium', 'Namzu is advised to keep a workflow under 10 helpers.'],
+			['large', 'Large', 'Namzu is advised to keep a workflow under 50 helpers.'],
+		),
+		{ default: 'medium' },
 	),
 	d(
 		'goal.confirmedBy',
 		'agent',
 		'What ends a goal',
 		'model: the model saying it is done ends a goal. record: Namzu reads the record of the work first, and a goal ends as confirmed, stated and not checked, or not confirmed.',
-		pick('model', 'record'),
-		{ defaultText: 'model (intended to become record in a later major release)' },
+		pick(
+			['model', 'When the model says so', 'A goal ends when the model says it is done.'],
+			[
+				'record',
+				'After the record is checked',
+				'Namzu reads the record of the work first; the goal ends as confirmed, stated and not checked, or not confirmed.',
+			],
+		),
+		{ default: 'model', defaultNote: 'Intended to become record in a later major release.' },
 	),
 	d(
 		'handBack.enabled',
@@ -492,7 +675,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Let the model hand a task back',
 		'The model may stop and hand the task back to a person when it cannot be done as specified, instead of forcing a result. Adds one tool and a short paragraph to the prompt.',
 		on,
-		{ defaultText: 'off' },
+		{ default: false },
 	),
 	d(
 		'toolResultScreens',
@@ -509,8 +692,19 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'agent',
 		'How long chats are shortened',
 		'The method used to fit a long conversation in the model window.',
-		pick('structured', 'salience'),
-		{ defaultText: 'salience' },
+		pick(
+			[
+				'structured',
+				'Keep the newest',
+				'Keeps the most recent messages and shortens once the window is nearly full.',
+			],
+			[
+				'salience',
+				'Keep what matters',
+				'Scores every message and keeps the conversation near half the window.',
+			],
+		),
+		{ default: 'salience' },
 	),
 	d(
 		'compaction.softTargetHeadroom',
@@ -518,7 +712,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Room left after shortening',
 		'How much further below half the window one round of shortening goes, as a fraction of the window. A larger value shortens less often; 0 shortens only to half the window. Advanced.',
 		num(0, 1, 'of the window'),
-		{ defaultText: '0.05' },
+		{ default: 0.05 },
 	),
 	d(
 		'compaction.autoCompactWindowTokens',
@@ -540,7 +734,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Summarise with a model',
 		'Use a model to write the summary when shortening.',
 		on,
-		{ defaultText: 'on' },
+		{ default: true },
 	),
 	d(
 		'compaction.recallEvidence',
@@ -548,7 +742,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Recall dropped details',
 		'Bring back details that shortening removed when they matter.',
 		on,
-		{ defaultText: 'on' },
+		{ default: true },
 	),
 	d(
 		'compaction.resolveEvidenceQueries',
@@ -556,15 +750,15 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Ask a model what to recall',
 		'A paid call that finds the details worth recalling.',
 		on,
-		{ defaultText: 'on' },
+		{ default: true },
 	),
 	d(
 		'compaction.retainedToolPreviewChars',
 		'agent',
 		'Kept tool output',
-		'Characters of each tool result kept after shortening. 0 keeps up to 40000.',
+		'How much of a tool result that was too large is kept in the conversation, in characters. It applies to new results only; older ones are not changed. 0 keeps up to 40000.',
 		num(0, undefined, 'characters'),
-		{ defaultText: '4000' },
+		{ default: 4000 },
 	),
 	d(
 		'compaction.deduplicateObservations',
@@ -572,7 +766,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Drop repeated results',
 		'Keep one copy of the same tool result.',
 		on,
-		{ defaultText: 'on' },
+		{ default: true },
 	),
 	d(
 		'compaction.consolidate',
@@ -580,6 +774,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Merge notes when shortening',
 		'Merge related notes into one.',
 		on,
+		{ default: false },
 	),
 	d(
 		'compaction.idleCompaction',
@@ -587,7 +782,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Shorten while idle',
 		'Shorten a large conversation while you are away.',
 		on,
-		{ defaultText: 'off' },
+		{ default: false },
 	),
 	d(
 		'compaction.clearStaleResultsAfterIdle',
@@ -595,7 +790,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Shed old results after a long break',
 		'When you return after the provider cache has expired, replace old, large tool results with a short note before the first request. They stay readable through the note.',
 		on,
-		{ defaultText: 'on' },
+		{ default: true },
 	),
 	d(
 		'compaction.idleCompactionMinTokens',
@@ -603,35 +798,45 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Idle shortening starts at',
 		'The smallest conversation worth shortening while idle. At least 100000.',
 		num(100000, undefined, 'tokens'),
-		{ defaultText: '200000' },
+		{ default: 200000 },
 	),
 	d(
 		'compaction.promptCacheTtl',
 		'agent',
 		'Cache lifetime',
 		'1h keeps a conversation cheap to resume but costs more to write.',
-		pick('5m', '1h'),
-		{ defaultText: '5m' },
+		pick(
+			['5m', '5 minutes', 'The provider keeps a conversation warm for 5 minutes. No extra cost.'],
+			[
+				'1h',
+				'1 hour',
+				'Warm for an hour, so coming back is cheaper, but writing the cache costs more.',
+			],
+		),
+		{ default: '5m' },
 	),
 	d('memory.recall', 'agent', 'Recall memory', 'Bring saved memory into a conversation.', on, {
-		defaultText: 'on',
+		default: true,
 	}),
 	d(
 		'memory.identifierGrounding',
 		'agent',
-		'Check names against memory',
-		'Verify file and function names before using them.',
+		'Check ids against memory',
+		'When memory is recalled, match ids that contain digits, such as ticket or commit numbers, against what was recorded. File and function names are not checked against your files.',
 		on,
-		{ defaultText: 'off' },
+		{ default: false },
 	),
 	d(
 		'memory.select',
 		'agent',
 		'Choose memory with a model',
 		'A model picks which memories to bring in.',
-		pick('on', 'off'),
+		pick(
+			['on', 'On', 'A model picks which memories to bring in.'],
+			['off', 'Off', 'Memories are chosen without a model.'],
+		),
 		{
-			defaultText: 'on',
+			default: 'on',
 			confirm: 'Memory titles are sent to a model to choose from.',
 		},
 	),
@@ -640,9 +845,12 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'agent',
 		'Tidy memory with a model',
 		'A model merges and retires memories.',
-		pick('on', 'off'),
+		pick(
+			['on', 'On', 'A model merges and retires memories.'],
+			['off', 'Off', 'Memories are left as they are.'],
+		),
 		{
-			defaultText: 'on',
+			default: 'on',
 			confirm: 'Memory content is sent to a model to tidy it.',
 		},
 	),
@@ -650,9 +858,9 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'memory.retireAfterDays',
 		'agent',
 		'Retire unused memory after',
-		'Days before an unused memory retires. 0 keeps it forever.',
+		'Days before a memory recorded during a turn retires if it goes unused. Other memories stay. 0 keeps them forever.',
 		num(0, undefined, 'days'),
-		{ defaultText: '21' },
+		{ default: 21 },
 	),
 	d(
 		'learningObservations',
@@ -660,7 +868,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Learn from your work',
 		'Note what you do so Namzu can suggest habits and skills.',
 		on,
-		{ defaultText: 'on' },
+		{ default: true },
 	),
 	d(
 		'learningGenerator.enabled',
@@ -668,6 +876,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Write suggestions from what it learned',
 		'Let a model turn observations into suggestions.',
 		on,
+		{ default: true },
 	),
 	d(
 		'learningGenerator.cycleTokens',
@@ -675,7 +884,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Tokens per learning cycle',
 		'The most one learning pass may use.',
 		num(1000, undefined, 'tokens'),
-		{ defaultText: '120000' },
+		{ default: 120000 },
 	),
 	d(
 		'learningGenerator.dailyTokens',
@@ -683,10 +892,10 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Tokens per day for learning',
 		'The most learning may use in a day.',
 		num(1000, undefined, 'tokens'),
-		{ defaultText: '300000' },
+		{ default: 300000 },
 	),
 	d('skills.builtin', 'agent', 'Built-in skills', 'Offer the skills that ship with Namzu.', on, {
-		defaultText: 'on',
+		default: true,
 	}),
 	d(
 		'skills.disabled',
@@ -699,17 +908,17 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'skills.suggest',
 		'agent',
 		'Suggest saving a skill',
-		'After a long task, offer to keep it as a skill.',
+		'After a long task, offer to keep it as a skill. For the terminal app; this window does not offer it.',
 		on,
-		{ defaultText: 'on' },
+		{ default: true },
 	),
 	d(
 		'skills.suggestMinToolCalls',
 		'agent',
 		'Suggest after this many steps',
-		'How long a task must be before a skill is suggested.',
+		'How many successful steps a task needs before a skill is suggested. For the terminal app; this window does not offer it.',
 		num(1),
-		{ defaultText: '6' },
+		{ default: 6 },
 	),
 	d(
 		'schedule.maxConcurrentRuns',
@@ -717,7 +926,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Scheduled runs at once',
 		'How many scheduled tasks may run side by side.',
 		num(1),
-		{ defaultText: '2' },
+		{ default: 2 },
 	),
 	d(
 		'schedule.notifications',
@@ -725,7 +934,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Notify when a scheduled run ends',
 		'Tell you when a scheduled task finishes.',
 		on,
-		{ defaultText: 'on' },
+		{ default: true },
 	),
 
 	// Tools
@@ -734,9 +943,17 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'tools',
 		'Web search',
 		'off, cached results only, or live.',
-		pick('off', 'cached', 'live'),
+		pick(
+			['off', 'Off', 'Namzu cannot search the web.'],
+			[
+				'cached',
+				'Saved results only',
+				'Searches are answered from saved results, not the live web.',
+			],
+			['live', 'Live', 'Searches go out to the web.'],
+		),
 		{
-			defaultText: 'live',
+			default: 'live',
 			confirm: 'Namzu will search the web and send queries out.',
 		},
 	),
@@ -745,19 +962,27 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'tools',
 		'Web search service',
 		'Which service answers web searches.',
-		pick('auto', 'exa', 'native'),
+		pick(
+			['auto', 'Automatic', 'Namzu picks the service that fits the model.'],
+			['exa', 'Exa', 'Searches go through Exa, with Namzu reviewing what is searched.'],
+			[
+				'native',
+				'The model provider',
+				'The provider searches for the model, with no local review of what is searched.',
+			],
+		),
 		{
-			defaultText: 'auto',
+			default: 'auto',
 			confirm: 'The native option has no local review of what is searched.',
 		},
 	),
 	d('web.fetch', 'tools', 'Fetch web pages', 'Let Namzu read the web pages it is pointed to.', on, {
-		defaultText: 'on',
+		default: true,
 		confirm: 'Namzu will download pages from the internet.',
 		confirmWhen: 'on',
 	}),
 	d('browser.enabled', 'terminal', 'Browser', 'Let the terminal app use a browser.', on, {
-		defaultText: 'on',
+		default: true,
 	}),
 	d(
 		'browser.defaultProfile',
@@ -766,7 +991,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'The browser profile Namzu uses. Sign-ins live in it.',
 		{ kind: 'text', placeholder: 'default' },
 		{
-			defaultText: 'default',
+			default: 'default',
 			confirm: 'That profile holds the sign-ins Namzu would use.',
 		},
 	),
@@ -775,16 +1000,24 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'tools',
 		'Browser engine',
 		'Which browser Namzu drives.',
-		pick('auto', 'windows', 'local'),
-		{ defaultText: 'auto' },
+		pick(
+			['auto', 'Automatic', 'Follows this computer.'],
+			['windows', 'Windows browser', 'From WSL, drive the browser on Windows.'],
+			['local', 'A browser Namzu starts', 'Namzu launches its own browser.'],
+		),
+		{ default: 'auto' },
 	),
 	d(
 		'browser.headless',
 		'tools',
 		'Show the browser window',
 		'auto decides, always hides it, never shows it.',
-		pick('auto', 'always', 'never'),
-		{ defaultText: 'auto' },
+		pick(
+			['auto', 'Let Namzu decide', 'Hidden unless a page needs you to see it.'],
+			['never', 'Always show it', 'The browser window stays visible.'],
+			['always', 'Always hide it', 'The browser runs without a window.'],
+		),
+		{ default: 'auto' },
 	),
 	d(
 		'browser.sites',
@@ -802,15 +1035,26 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Keep the browser open',
 		'Leave the browser running between tasks.',
 		on,
-		{ defaultText: 'off' },
+		{ default: false },
 	),
 	d(
 		'browser.signInDetection',
 		'tools',
 		'Sign-in pages',
 		'address stops on any /login-style address; page stops only for known sign-in sites and lets other pages load.',
-		pick('address', 'page'),
-		{ defaultText: 'address' },
+		pick(
+			[
+				'address',
+				'By web address',
+				'Stops on any address that looks like a sign-in, such as /login.',
+			],
+			[
+				'page',
+				'By page',
+				'Stops only on known sign-in sites; other pages load and Namzu is told it cannot type a password.',
+			],
+		),
+		{ default: 'address' },
 	),
 	d(
 		'codeAnalysis.enabled',
@@ -818,7 +1062,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Code analysis',
 		'Understand code structure in the terminal app.',
 		on,
-		{ defaultText: 'on' },
+		{ default: true },
 	),
 	d(
 		'mcpServers',
@@ -840,10 +1084,10 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Turn off hooks',
 		'Do not run hooks from your config, project and local files. Hooks from an organisation-managed file and the JavaScript hooks of plugins still run.',
 		on,
-		{ defaultText: 'off', keywords: ['hooks'] },
+		{ default: false, keywords: ['hooks'] },
 	),
 	d('plugins.enabled', 'tools', 'Plugins', 'Allow plugins to run code.', on, {
-		defaultText: 'off',
+		default: false,
 		confirm: 'Plugins run code on this computer.',
 		confirmWhen: 'on',
 	}),
@@ -853,21 +1097,24 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Find plugins automatically',
 		'Look for plugins in the usual folders.',
 		on,
+		{ default: true },
 	),
 	d(
 		'plugins.hookTimeoutMs',
 		'tools',
 		'Plugin hook time limit',
-		'How long a plugin hook may run.',
+		'How long a plugin hook may run before it is cut off.',
 		num(1, undefined, 'ms'),
+		{ default: 600000 },
 	),
 	d(
 		'plugins.allowedScopes',
 		'tools',
 		'Where plugins may come from',
 		'project, user, or both.',
-		checks('project', 'user'),
+		checks(['project', 'This project'], ['user', 'Your own folder']),
 		{
+			default: ['project', 'user'],
 			confirm: 'Plugins from a project run code that came with that project.',
 		},
 	),
@@ -934,33 +1181,54 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'terminal',
 		'Terminal theme',
 		'Colours in the terminal app.',
-		pick('auto', 'dark', 'light', 'dark-daltonized', 'light-daltonized', 'dark-ansi', 'light-ansi'),
-		{ defaultText: 'dark' },
+		pick(
+			['auto', 'Match the terminal', 'Dark or light, whichever the terminal uses.'],
+			['dark', 'Dark', 'Colours for a dark background.'],
+			['light', 'Light', 'Colours for a light background.'],
+			[
+				'dark-daltonized',
+				'Dark, colour-blind friendly',
+				'Dark colours chosen to stay apart for colour blindness.',
+			],
+			[
+				'light-daltonized',
+				'Light, colour-blind friendly',
+				'Light colours chosen to stay apart for colour blindness.',
+			],
+			['dark-ansi', 'Dark, basic colours', 'Only the 16 colours every terminal has.'],
+			['light-ansi', 'Light, basic colours', 'Only the 16 colours every terminal has.'],
+		),
+		{ default: 'dark' },
 	),
-	d('tui.reducedMotion', 'terminal', 'Reduce motion', 'Less movement in the terminal app.', on),
+	d('tui.reducedMotion', 'terminal', 'Reduce motion', 'Less movement in the terminal app.', on, {
+		default: false,
+	}),
 	d(
 		'tui.showExpandedTodos',
 		'terminal',
 		'Expand task lists',
-		'Show every task, not a summary.',
+		'Open the task list expanded. Even then it shows four tasks and a count of the rest.',
 		on,
+		{ default: false },
 	),
 	d(
 		'tui.agentCalls',
 		'terminal',
 		'Agent calls',
-		"Show a waiting agent's last calls and one block for agents that finished.",
+		"Show a waiting agent's last calls and one block for agents that finished. Off drops that call detail; the agent rows still show.",
 		on,
-		{ defaultText: 'on' },
+		{ default: true },
 	),
-	d('tui.fullscreen', 'terminal', 'Full screen', 'Use the whole terminal window.', on),
+	d('tui.fullscreen', 'terminal', 'Full screen', 'Use the whole terminal window.', on, {
+		default: false,
+	}),
 	d(
 		'tui.wheelAccel',
 		'terminal',
 		'Wheel speed-up',
 		'A fast run of wheel notches scrolls faster in full screen.',
 		on,
-		{ defaultText: 'on' },
+		{ default: true },
 	),
 	d(
 		'tui.wheelRows',
@@ -968,49 +1236,76 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Rows per wheel notch',
 		'How far one wheel notch scrolls in full screen.',
 		num(1, 20, 'rows'),
-		{ defaultText: '3' },
+		{ default: 3 },
 	),
-	d('tui.mouse', 'terminal', 'Mouse', 'full, scroll only, or off.', pick('full', 'scroll', 'off'), {
-		defaultText: 'full',
-	}),
+	d(
+		'tui.mouse',
+		'terminal',
+		'Mouse',
+		'full, scroll only, or off.',
+		pick(
+			['full', 'Clicks and scrolling', 'The mouse clicks, selects and scrolls.'],
+			['scroll', 'Scrolling only', 'The mouse scrolls and nothing else.'],
+			['off', 'Off', 'The terminal handles the mouse itself.'],
+		),
+		{
+			default: 'full',
+		},
+	),
 	d('tui.copyOnSelect', 'terminal', 'Copy on select', 'Copy text when you select it.', on, {
-		defaultText: 'on',
+		default: true,
 	}),
 	d(
 		'tui.recap',
 		'terminal',
 		'Recap on return',
-		'A short recap when you come back to a conversation.',
+		'Write a short recap of a conversation while you are away, so it is there when you come back.',
 		on,
-		{ defaultText: 'on' },
+		{ default: true },
 	),
 	d('tui.syntaxHighlight', 'terminal', 'Code colour', 'Colour the syntax of code blocks.', on, {
-		defaultText: 'on',
+		default: true,
 	}),
 	d('tui.spinnerTips', 'terminal', 'Tips while working', 'Show a tip next to the spinner.', on, {
-		defaultText: 'on',
+		default: true,
 	}),
 	d('tui.notifications', 'terminal', 'Notifications', 'Which events notify you.', json('true'), {
-		defaultText: 'off',
+		default: false,
 	}),
 	d(
 		'tui.notificationMethod',
 		'terminal',
 		'Notification method',
 		'How the terminal tells you.',
-		pick('osc9', 'bel', 'kitty', 'ghostty'),
-		{ defaultText: 'osc9' },
+		pick(
+			[
+				'osc9',
+				'Desktop notification',
+				'A system notice through the terminal. Most terminals support it.',
+			],
+			['bel', 'Bell', 'The terminal bell.'],
+			['kitty', 'Kitty', 'A notice in the Kitty terminal.'],
+			['ghostty', 'Ghostty', 'A notice in the Ghostty terminal.'],
+		),
+		{ default: 'osc9' },
 	),
-	d('tui.sound', 'terminal', 'Sound', 'Play a sound with notifications.', on, {
-		defaultText: 'on',
-	}),
+	d(
+		'tui.sound',
+		'terminal',
+		'Sound in the terminal app',
+		'Play a sound with notifications from the terminal app. The Desktop app has its own switch under General.',
+		on,
+		{
+			default: true,
+		},
+	),
 	d(
 		'tui.workspacesPrefix',
 		'terminal',
 		'Workspaces key',
 		'The key that starts a workspace shortcut, like ctrl+b.',
 		{ kind: 'text', placeholder: 'ctrl+b' },
-		{ defaultText: 'ctrl+b' },
+		{ default: 'ctrl+b' },
 	),
 	d(
 		'composerTriggers.enabled',
@@ -1018,22 +1313,23 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Composer triggers',
 		'Words in the message box that start things.',
 		on,
-		{ defaultText: 'on' },
+		{ default: true },
 	),
 	d(
 		'composerTriggers.suggest',
 		'terminal',
 		'Suggest triggers',
-		'Offer a trigger when one fits.',
+		'Offer a trigger when one fits. Triggers you have armed still show.',
 		on,
-		{ defaultText: 'on' },
+		{ default: true },
 	),
 	d(
 		'composerTriggers.languages',
 		'terminal',
 		'Trigger languages',
 		'Languages the triggers listen for.',
-		checks('en', 'tr'),
+		checks(['en', 'English'], ['tr', 'Turkish']),
+		{ default: ['en', 'tr'] },
 	),
 	d(
 		'composerTriggers.builtin',

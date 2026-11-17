@@ -29,6 +29,11 @@ export interface SettingState {
 	readonly set: boolean
 	/** The value, as JSON text for a list or table. Never present for a `file-only` setting. */
 	readonly value?: unknown
+	/**
+	 * The file the value in force came from. Not filled yet: the read-side layer lane sets it, and
+	 * Desktop already reads the field.
+	 */
+	readonly layer?: 'user' | 'project' | 'local' | 'profile' | 'managed'
 }
 
 export interface SettingsSnapshot {
@@ -62,6 +67,30 @@ function lookup(doc: Record<string, unknown>, path: readonly string[]): unknown 
 	return at
 }
 
+/**
+ * A Desktop older than the typed default reads only `defaultText`. Fill it from the typed value so
+ * that an app built before `default` existed still shows a default, in the words of the option.
+ */
+export function withDefaultText(entry: SettingDescriptor): SettingDescriptor {
+	if (entry.defaultText !== undefined || entry.default === undefined) return entry
+	const control = entry.control
+	const value = entry.default
+	let text: string
+	if (typeof value === 'boolean') text = value ? 'on' : 'off'
+	else if (Array.isArray(value)) {
+		const options = control.kind === 'checks' ? control.options : []
+		text =
+			value.length === 0
+				? 'none'
+				: value
+						.map((item) => options.find((option) => option.value === item)?.label ?? item)
+						.join(', ')
+	} else if (control.kind === 'select')
+		text = control.options.find((option) => option.value === value)?.label ?? String(value)
+	else text = String(value)
+	return { ...entry, defaultText: entry.defaultNote ? `${text}. ${entry.defaultNote}` : text }
+}
+
 export function readSettings(opts: UserConfigWriteOptions = {}): SettingsSnapshot {
 	const doc = readUserDocument(opts)
 	const settings = SETTING_DESCRIPTORS.map((entry): SettingState => {
@@ -70,7 +99,11 @@ export function readSettings(opts: UserConfigWriteOptions = {}): SettingsSnapsho
 		if (entry.control.kind === 'file-only') return { path: entry.path, set: true }
 		return { path: entry.path, set: true, value }
 	})
-	return { file: userConfigPath(opts), settings, descriptors: SETTING_DESCRIPTORS }
+	return {
+		file: userConfigPath(opts),
+		settings,
+		descriptors: SETTING_DESCRIPTORS.map(withDefaultText),
+	}
 }
 
 function coerce(entry: SettingDescriptor, raw: unknown): unknown {

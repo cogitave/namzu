@@ -41,6 +41,6 @@ describe('tui.syntaxHighlight', () => {
 	it('is listed with the other terminal settings, on by default', () => {
 		const descriptor = SETTING_DESCRIPTORS.find((d) => d.path === 'tui.syntaxHighlight')
 		expect(descriptor?.section).toBe('terminal')
-		expect(descriptor?.defaultText).toBe('on')
+		expect(descriptor?.default).toBe(true)
 	})
 })
