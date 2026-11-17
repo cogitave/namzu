@@ -277,6 +277,8 @@ export function conversationShortcut(
 		if (event.altKey === chord.alt && event.shiftKey === chord.shift)
 			return id as ConversationActionId
 	}
+	// Ctrl+; (Cmd+; on a Mac) opens a side chat as well.
+	if (event.code === 'Semicolon' && !event.altKey && !event.shiftKey) return 'side-chat'
 	return null
 }
 

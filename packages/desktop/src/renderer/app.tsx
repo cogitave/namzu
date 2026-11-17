@@ -80,8 +80,7 @@ import {
 	conversationSources,
 	lastReplyText,
 } from './conversation-actions.js'
-import { ConversationBar, PaneButtons } from './conversation-bar.js'
-import { ConversationDetailsPopover, type DetailsWork } from './conversation-details-popover.js'
+import { ConversationBar, PaneButtons, ViewOptionsMenu } from './conversation-bar.js'
 import { compareConversationRecency } from './conversation-order.js'
 import {
 	blankConversationTabs,
@@ -132,8 +131,8 @@ import { type EngineSurface, type EngineSurfaceControl, engineLabel } from './ha
 import {
 	ArchiveIcon,
 	ArrowUpIcon,
+	ChevronDownIcon,
 	FolderIcon,
-	MoreHorizontalIcon,
 	PanelLeftIcon,
 	PlusIcon,
 	SearchIcon,
@@ -238,7 +237,7 @@ import { RestoreSkeleton } from './restore-skeleton.js'
 import { retryableReply } from './retry-reply.js'
 import { readSessionPanelOpen, writeSessionPanelOpen } from './session-panel-state.js'
 import { SessionPanel } from './session-panel.js'
-import { type SessionServers, sessionSummary } from './session-summary-model.js'
+import { type SessionServers, type SessionWork, sessionSummary } from './session-summary-model.js'
 import { projectRemovalCopy, removalNotice, settingsRoute } from './settings-model.js'
 import { SettingsPage, SettingsSidebar } from './settings-page.js'
 import type { ArchiveView } from './sidebar-archive.js'
@@ -940,8 +939,6 @@ export function App({
 		[sessionId],
 	)
 	// The drawer opens from the details popover, so closing it returns focus to the popover's icon.
-	const detailsTrigger = useRef<HTMLButtonElement>(null)
-	const [detailsPopoverOpen, setDetailsPopoverOpen] = useState(false)
 	const [limitsView, setLimitsView] = useState<LimitsNotification>()
 	// The conversation and files the dialog was opened for: what it shows does not move under the person.
 	const [commitFor, setCommitFor] = useState<{ sessionId: string; paths: string[] }>()
@@ -976,7 +973,6 @@ export function App({
 	const [git, setGit] = useState<{ projectId: string; value: ProjectGitView | null }>()
 	const closeDetails = useCallback(() => {
 		setJobsOpen(false)
-		detailsTrigger.current?.focus({ preventScroll: true })
 	}, [])
 	// A pane's close hands the keyboard back to the button that opened it.
 	const focusPaneButton = useCallback((kind: PaneKind) => {
@@ -1433,7 +1429,6 @@ export function App({
 	const changes = Object.values(thread.tools).filter(
 		(tool) => tool.status === 'completed' && tool.view.kind === 'diff',
 	).length
-	const detailsActive = detailsPopoverOpen && !palConversation
 	// Line totals compare whole files, so they are read only while someone is looking.
 	// Also read for the top bar's changes button, so it follows the count of finished edits (a
 	// finished edit is never revised) and not every streamed update.
@@ -1448,8 +1443,8 @@ export function App({
 		return changeTotals(receipts)
 	}, [sessionId, changes])
 	const sources = useMemo(
-		() => (detailsActive ? conversationSources(thread.messages) : []),
-		[detailsActive, thread.messages],
+		() => (sessionPanelOpen && !palConversation ? conversationSources(thread.messages) : []),
+		[sessionPanelOpen, palConversation, thread.messages],
 	)
 	const providerReady = providerOwner === providerKey
 	const activeProviders: ProviderView = providerReady
@@ -1468,7 +1463,7 @@ export function App({
 		enabled: Boolean(project?.trusted) && project?.status === 'ready',
 		running: thread.running,
 	})
-	const detailsWork: DetailsWork = externalHarness
+	const detailsWork: SessionWork = externalHarness
 		? { state: 'unavailable' }
 		: jobsSessionId === sessionId && !jobsLoading && !jobsError
 			? {
@@ -1602,7 +1597,7 @@ export function App({
 	// Read when the popover opens, and again if a turn ends while it is open. The host caches briefly.
 	useEffect(() => {
 		void turnRunning
-		if (!(detailsPopoverOpen || sessionPanelOpen) || !gitProjectId || !api.projectGit) return
+		if (!sessionPanelOpen || !gitProjectId || !api.projectGit) return
 		let current = true
 		void api.projectGit(gitProjectId).then(
 			(value) => {
@@ -1615,7 +1610,7 @@ export function App({
 		return () => {
 			current = false
 		}
-	}, [detailsPopoverOpen, sessionPanelOpen, gitProjectId, turnRunning, api])
+	}, [sessionPanelOpen, gitProjectId, turnRunning, api])
 	const normalTabs = group.tabs.map(
 		(id): ConversationView =>
 			conversations.find((item) => item.id === id) ??
@@ -1824,7 +1819,12 @@ export function App({
 			return
 		}
 		openPane(kind)
-		if (kind === 'terminal' && stripTerminals.length === 0 && terminalReady)
+		// Without a live terminal of this project the pane starts a fresh one; an ended one stays for its Restart.
+		if (
+			kind === 'terminal' &&
+			terminalReady &&
+			!stripTerminals.some((tab) => tab.projectId === project?.id && tab.status === 'running')
+		)
 			void act(() => openTerminalInPane())
 	}
 	const togglePaneRef = useRef(togglePaneKind)
@@ -2560,7 +2560,7 @@ export function App({
 			palConversation ||
 			historyPending ||
 			restoringTabs ||
-			!(detailsPopoverOpen || sessionPanelOpen)
+			!sessionPanelOpen
 		) {
 			setJobs([])
 			setJobsSessionId('')
@@ -2617,15 +2617,7 @@ export function App({
 			window.removeEventListener('focus', back)
 			poll.stop()
 		}
-	}, [
-		sessionId,
-		palConversation,
-		api,
-		historyPending,
-		restoringTabs,
-		detailsPopoverOpen,
-		sessionPanelOpen,
-	])
+	}, [sessionId, palConversation, api, historyPending, restoringTabs, sessionPanelOpen])
 	const palTasksVisible = Boolean(
 		pal &&
 			(palScreen?.palId === pal.id && palScreen.activeTab === 'computer'
@@ -6133,7 +6125,10 @@ export function App({
 	const darkTheme =
 		appearance === 'dark' ||
 		(appearance === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
-	const shownTerminal = stripTerminals.find((tab) => tab.id === terminalShown) ?? stripTerminals[0]
+	// The Terminal pane lists this project's terminals only: one restored from an earlier run belongs to
+	// the folder it was opened in, and is not shown beside another conversation.
+	const paneTerminals = stripTerminals.filter((tab) => tab.projectId === project?.id)
+	const shownTerminal = paneTerminals.find((tab) => tab.id === terminalShown) ?? paneTerminals[0]
 	const closeTerminalTab = (id: string) =>
 		void onAction({ kind: 'close', groupId: group.id, tabId: id }).catch((failure) =>
 			showError(failure, 'close the terminal'),
@@ -6145,7 +6140,7 @@ export function App({
 				title: (
 					<PaneTabs
 						label="Terminals"
-						tabs={stripTerminals.map((tab) => ({
+						tabs={paneTerminals.map((tab) => ({
 							id: tab.id,
 							label: tab.title,
 							icon: <TerminalMark tab={tab} />,
@@ -6300,48 +6295,6 @@ export function App({
 	const headerActions =
 		headerActionsVisible && conversation ? (
 			<div className="conversation-header-actions">
-				<ConversationDetailsPopover
-					open={detailsPopoverOpen}
-					onOpenChange={setDetailsPopoverOpen}
-					triggerRef={detailsTrigger}
-					project={project && !project.isChat ? project : undefined}
-					totals={totals}
-					git={git && git.projectId === gitProjectId ? git.value : null}
-					work={detailsWork}
-					sources={sources}
-					attachReason={
-						externalHarness
-							? 'This engine does not take attachments.'
-							: loading || restoringTabs || frozen
-								? 'Wait for the conversation to finish loading.'
-								: undefined
-					}
-					onOpenChanges={() => {
-						setDetailsPopoverOpen(false)
-						setChangesFilter(undefined)
-						openPane('changes')
-					}}
-					onOpenWork={() => {
-						setDetailsPopoverOpen(false)
-						openSessionPane()
-					}}
-					onOpenArchived={
-						project && !project.isChat && api.archivedConversations
-							? showArchivedConversations
-							: undefined
-					}
-					apps={thread.computerApps}
-					onRevokeApp={
-						api.revokeComputerApp && sessionId
-							? (app) =>
-									void act(() => api.revokeComputerApp?.(sessionId, app) ?? Promise.resolve())
-							: undefined
-					}
-					onAttach={() => {
-						setDetailsPopoverOpen(false)
-						void act(attached.pick)
-					}}
-				/>
 				<PaneButtons
 					open={paneOpen}
 					onToggle={togglePaneKind}
@@ -6359,30 +6312,21 @@ export function App({
 					mac={macPlatform}
 					disabled={loading || harnessBusy || frozen}
 					more={
-						<ConversationActionsMenu
-							input={conversationActionInput(conversation)}
+						<ViewOptionsMenu
 							mac={macPlatform}
-							busy={loading || harnessBusy || frozen}
-							label="Conversation actions"
-							trailing={
-								sessionId && api.keepAwake && !palConversation ? (
-									<KeepAwakeItem api={api} sessionId={sessionId} />
-								) : undefined
+							onSideChat={
+								api.forkConversation && !palConversation
+									? () => runConversationAction('side-chat', conversation, null)
+									: undefined
 							}
-							trigger={
-								<Button
-									type="button"
-									variant="ghost-muted"
-									size="icon-sm"
-									className="conversation-header-button"
-									aria-label="Conversation actions"
-									title="Conversation actions"
-								>
-									<MoreHorizontalIcon className="size-4" aria-hidden="true" />
-								</Button>
+							sideChatReason={
+								loading || harnessBusy || frozen ? 'Wait for the reply to finish.' : undefined
 							}
-							onAction={(id, trigger) => runConversationAction(id, conversation, trigger)}
-						/>
+						>
+							{sessionId && api.keepAwake && !palConversation ? (
+								<KeepAwakeItem api={api} sessionId={sessionId} />
+							) : null}
+						</ViewOptionsMenu>
 					}
 				/>
 			</div>
@@ -7137,6 +7081,42 @@ export function App({
 							disabled={loading || harnessBusy || frozen}
 							drafts={keptDrafts}
 							onSelectDraft={showTab}
+							onRename={
+								conversation && !activeTerminal && api.renameConversation
+									? async (name) => {
+											try {
+												upsertConversation(
+													(await api.renameConversation?.(conversation.id, name)) ?? conversation,
+												)
+											} catch (failure) {
+												showError(failure, 'rename the conversation')
+											}
+										}
+									: undefined
+							}
+							actions={
+								conversation && !activeTerminal ? (
+									<ConversationActionsMenu
+										input={conversationActionInput(conversation)}
+										mac={macPlatform}
+										busy={loading || harnessBusy || frozen}
+										label={`More options for ${barTitle}`}
+										align="start"
+										trigger={
+											<Button
+												type="button"
+												variant="ghost-muted"
+												size="icon-xs"
+												className="conversation-bar-chevron"
+												aria-label={`More options for ${barTitle}`}
+											>
+												<ChevronDownIcon className="size-4" aria-hidden="true" />
+											</Button>
+										}
+										onAction={(id, trigger) => runConversationAction(id, conversation, trigger)}
+									/>
+								) : undefined
+							}
 						>
 							{headerActions}
 						</ConversationBar>
@@ -8008,6 +7988,30 @@ export function App({
 									onOpenWork={() => {
 										openSessionPane()
 									}}
+									detached={git?.projectId === gitProjectId && git?.value?.branch === null}
+									sources={sources}
+									attachReason={
+										externalHarness
+											? 'This engine does not take attachments.'
+											: loading || restoringTabs || frozen
+												? 'Wait for the conversation to finish loading.'
+												: undefined
+									}
+									onAttach={() => void act(attached.pick)}
+									onOpenArchived={
+										project && !project.isChat && api.archivedConversations
+											? showArchivedConversations
+											: undefined
+									}
+									apps={thread.computerApps}
+									onRevokeApp={
+										api.revokeComputerApp && sessionId
+											? (app) =>
+													void act(
+														() => api.revokeComputerApp?.(sessionId, app) ?? Promise.resolve(),
+													)
+											: undefined
+									}
 									commit={
 										api.commitPreview && api.commit && !externalHarness ? (
 											<Button

@@ -37,7 +37,7 @@ export interface SessionSummary {
 	environment: {
 		host: string
 		folder?: { name: string; path: string }
-		branch?: { text: string; title: string }
+		branch?: { text: string; title: string /** The last commit's first line. */; subject?: string }
 		/** Said where the branch cannot be read, so the row is never silently missing. */
 		branchNote?: string
 	}
@@ -121,6 +121,7 @@ export function sessionSummary(input: SessionSummaryInput): SessionSummary {
 			environment.branch = {
 				text: name,
 				title: [name, git.subject].filter(Boolean).join(' · '),
+				...(git.subject ? { subject: git.subject } : {}),
 			}
 		} else if (!input.project.trusted) {
 			environment.branchNote = 'Trust this folder to see its branch'

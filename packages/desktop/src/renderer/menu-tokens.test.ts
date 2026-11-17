@@ -128,12 +128,6 @@ describe('menu tokens', () => {
 				'--menu-check-inset',
 			],
 			'composer-effort-panel.css': ['--menu-padding'],
-			'conversation-details-popover.css': [
-				'--menu-radius',
-				'--menu-padding',
-				'--menu-row-height',
-				'--menu-highlight',
-			],
 			'composer.css': ['--menu-radius', '--menu-padding', '--menu-highlight', '--menu-check-inset'],
 		}
 		for (const [file, tokens] of Object.entries(reads))
