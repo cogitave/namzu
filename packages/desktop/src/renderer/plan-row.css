@@ -118,7 +118,7 @@
 }
 .plan-box-count {
 	flex: none;
-	font-weight: normal;
+	font-weight: var(--weight-text);
 	color: var(--muted-foreground);
 	font-variant-numeric: tabular-nums;
 }
