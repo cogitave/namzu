@@ -2,6 +2,7 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import type { BrowserPaneRequest, BrowserPaneState } from '../shared/browser-pane.js'
 import type { DesktopApi } from '../shared/protocol.js'
 import { FileTypeIcon } from './file-panel/file-icons.js'
+import { syncOverflow } from './file-panel/panel-tabs.js'
 import { ArrowLeftIcon, ArrowRightIcon, GlobeIcon, PlusIcon, RefreshIcon, XIcon } from './icons.js'
 import { Button } from './ui/button.js'
 import './file-panel/file-panel.css'
@@ -41,11 +42,14 @@ export function PaneTabs({
 	// The shown tab is always in view, however narrow the pane: when it changes, when a tab is
 	// added, and when the pane is resized under it.
 	const reveal = useCallback(() => {
-		if (shown.current === undefined) return
-		scroller.current
-			?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
-			?.closest<HTMLElement>('.panel-tab')
-			?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+		const node = scroller.current
+		if (!node) return
+		if (shown.current !== undefined)
+			node
+				.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+				?.closest<HTMLElement>('.panel-tab')
+				?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+		syncOverflow(node)
 	}, [])
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the active tab and the tab count are triggers, not values read.
 	useEffect(() => {
@@ -55,9 +59,15 @@ export function PaneTabs({
 	useEffect(() => {
 		const node = scroller.current
 		if (!node || typeof ResizeObserver === 'undefined') return
+		// The soft edge shows only on a side with tabs out of sight; scrolling moves that.
+		const sync = () => syncOverflow(node)
+		node.addEventListener('scroll', sync, { passive: true })
 		const observer = new ResizeObserver(reveal)
 		observer.observe(node)
-		return () => observer.disconnect()
+		return () => {
+			node.removeEventListener('scroll', sync)
+			observer.disconnect()
+		}
 	}, [reveal])
 	return (
 		<div className="panel-tab-strip pane-tabs">

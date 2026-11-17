@@ -64,7 +64,7 @@ export function overflowEdges(box: {
 }
 
 /** Writes the edges onto the element, touching the DOM only when one changed. */
-function syncOverflow(element: HTMLElement) {
+export function syncOverflow(element: HTMLElement) {
 	const { start, end } = overflowEdges(element)
 	if ((element.dataset.overflowStart !== undefined) !== start) {
 		if (start) element.dataset.overflowStart = ''

@@ -3,10 +3,12 @@
 	min-width: 0;
 }
 /* A tab keeps the room its name needs, up to the tab's own cap; in a narrow pane the strip scrolls
-   rather than squeezing a name down to a few letters. */
+   rather than squeezing a name down to a few letters. A tab is never wider than the strip itself:
+   one that would be ends its name with an ellipsis instead of being cut off at the strip's edge. */
 .pane-tabs .panel-tab-scroll > .panel-tab {
 	flex: none;
 	min-width: 0;
+	max-width: min(220px, 100%);
 }
 .browser-pane {
 	display: flex;

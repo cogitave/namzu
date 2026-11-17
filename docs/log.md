@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-18
+
+- **Update** [Desktop](cli/desktop.md#the-pane-grid): a tab in a narrow Terminal, Files or Browser pane ends its name with an ellipsis instead of being cut at the strip's edge, and the strip shows a soft edge on a side with tabs out of sight. `.changeset/desktop-composer-menus.md`.
+
 ## 2026-11-17
 
 - **Update** [Desktop](cli/desktop.md#the-pane-grid): closing the Terminal pane only hides it and the Terminal button shows the running shell again instead of starting another (only the pane's "+" starts one); the Changes "…" menu stays inside the window and, in a pane under 400 px, says that the file list needs a wider pane. `.changeset/desktop-composer-menus.md`.
