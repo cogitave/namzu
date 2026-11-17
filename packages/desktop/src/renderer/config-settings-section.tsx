@@ -5,11 +5,14 @@ import type {
 } from '../shared/config-settings-protocol.js'
 import type { SettingsSection } from '../shared/settings-protocol.js'
 import {
+	appliesLine,
 	configSettingId,
 	configSettingsFor,
 	confirmationCopy,
+	defaultLabel,
 	defaultNote,
 	defaultToggle,
+	effectiveDefault,
 	jsonText,
 	numberFromText,
 	stateFor,
@@ -76,7 +79,15 @@ function ConfigRow({
 }) {
 	const state = stateFor(view, descriptor.path)
 	const error = config.errors[descriptor.path]
-	const note = [descriptor.description, state?.set ? '' : defaultNote(descriptor)]
+	const control = descriptor.control
+	const chosen = state?.set ? state.value : effectiveDefault(descriptor, view)
+	const optionHelp =
+		control.kind === 'select' ? control.options.find((o) => o.value === chosen)?.help : undefined
+	const meta = [
+		optionHelp,
+		state?.set ? '' : defaultNote(descriptor, view),
+		appliesLine(descriptor),
+	]
 		.filter(Boolean)
 		.join(' ')
 	const reset =
@@ -95,7 +106,8 @@ function ConfigRow({
 		<Row
 			id={configSettingId(descriptor.path)}
 			label={descriptor.label}
-			description={note}
+			description={descriptor.description}
+			meta={meta}
 			stacked={stacked}
 		>
 			<div className="settings-config-control">
@@ -103,6 +115,7 @@ function ConfigRow({
 					descriptor={descriptor}
 					value={state?.value}
 					set={state?.set ?? false}
+					view={view}
 					config={config}
 				/>
 				{reset}
@@ -120,11 +133,13 @@ function Control({
 	descriptor,
 	value,
 	set,
+	view,
 	config,
 }: {
 	descriptor: ConfigSettingDescriptor
 	value: unknown
 	set: boolean
+	view: ConfigSettingsView
 	config: ConfigSettingsControls
 }) {
 	const control = descriptor.control
@@ -133,7 +148,7 @@ function Control({
 			return (
 				<Switch
 					label={descriptor.label}
-					checked={set ? value === true : defaultToggle(descriptor)}
+					checked={set ? value === true : defaultToggle(descriptor, view)}
 					onChange={(next) => void config.change(descriptor.path, next)}
 				/>
 			)
@@ -150,7 +165,11 @@ function Control({
 						)
 					}
 				>
-					<option value="">Default</option>
+					<option value="">
+						{defaultLabel(descriptor, view)
+							? `Default (${defaultLabel(descriptor, view)})`
+							: 'Default'}
+					</option>
 					{control.options.map((option) => (
 						<option key={option.value} value={option.value}>
 							{option.label}
@@ -160,7 +179,12 @@ function Control({
 			)
 		case 'checks':
 			return (
-				<Checks descriptor={descriptor} options={control.options} value={value} config={config} />
+				<Checks
+					descriptor={descriptor}
+					options={control.options}
+					value={set ? value : effectiveDefault(descriptor, view)}
+					config={config}
+				/>
 			)
 		case 'number':
 			return <NumberInput descriptor={descriptor} control={control} value={value} config={config} />
@@ -253,7 +277,11 @@ function NumberInput({
 				className="settings-config-input"
 				aria-label={descriptor.label}
 				value={text}
-				placeholder={descriptor.defaultText ?? ''}
+				placeholder={
+					typeof descriptor.default === 'number'
+						? String(descriptor.default)
+						: (descriptor.defaultText ?? '')
+				}
 				min={control.min}
 				max={control.max}
 				onChange={(event) => setDraft(event.target.value)}

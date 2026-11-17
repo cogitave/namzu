@@ -2,7 +2,12 @@
  * Desktop preferences the main process acts on. Renderer-only cosmetic ones (theme, sidebar
  * width) stay in the renderer's own storage; nothing here is a secret or a path.
  */
-import { SHELL_CHOICES, type ShellChoice } from './terminal-tabs.js'
+import {
+	DESKTOP_KEYED_ENTRIES,
+	FINISHED_NOTICE_AFTER_SECONDS,
+	catalogueAccepts,
+} from './settings-catalogue.js'
+import type { ShellChoice } from './terminal-tabs.js'
 
 export type StartupBehavior = 'continue' | 'home'
 
@@ -49,35 +54,20 @@ export interface DesktopSettings {
 	showConversationTabs: boolean
 }
 
-export const DEFAULT_DESKTOP_SETTINGS: Readonly<DesktopSettings> = {
-	startup: 'continue',
-	retrustOnConfigChange: true,
-	autoDownloadUpdates: true,
-	keepEngineUpToDate: true,
-	terminalShell: 'auto',
-	restoreTerminals: true,
-	voiceInputAccepted: false,
-	hardwareAcceleration: true,
-	attentionSignals: true,
-	notifyNeedsYou: true,
-	notifyFailed: true,
-	notifyFinished: true,
-	notifySound: false,
-	showConversationTabs: false,
-}
+/** The values with nothing saved, read from the catalogue so there is one place to change them. */
+export const DEFAULT_DESKTOP_SETTINGS: Readonly<DesktopSettings> = Object.fromEntries(
+	DESKTOP_KEYED_ENTRIES.map((entry) => [entry.key, entry.default]),
+) as unknown as DesktopSettings
 
 /** A turn you just watched end does not need a notification: only one that ran this long or longer does. */
-export const FINISHED_NOTICE_AFTER_MS = 30_000
-/** The same, in whole seconds, for the words in Settings. */
-export const FINISHED_NOTICE_AFTER_SECONDS = FINISHED_NOTICE_AFTER_MS / 1000
+export const FINISHED_NOTICE_AFTER_MS = FINISHED_NOTICE_AFTER_SECONDS * 1000
+export { FINISHED_NOTICE_AFTER_SECONDS }
 
-const KEYS = Object.keys(DEFAULT_DESKTOP_SETTINGS) as (keyof DesktopSettings)[]
+const KEYS = DESKTOP_KEYED_ENTRIES.map((entry) => entry.key)
 
 function valid(key: keyof DesktopSettings, value: unknown): boolean {
-	if (key === 'startup') return value === 'continue' || value === 'home'
-	if (key === 'terminalShell')
-		return typeof value === 'string' && (SHELL_CHOICES as readonly string[]).includes(value)
-	return typeof value === 'boolean'
+	const entry = DESKTOP_KEYED_ENTRIES.find((item) => item.key === key)
+	return entry !== undefined && catalogueAccepts(entry, value)
 }
 
 /** A change request from the renderer: known keys only, every value checked. */

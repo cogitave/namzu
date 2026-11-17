@@ -1,8 +1,13 @@
 import { Activity, Bot, KeyRound, SquareTerminal, Volume2, Wrench } from 'lucide-react'
-import { useEffect, useId, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { newerKernelText } from '../shared/engine-update-protocol.js'
 import type { ProjectView } from '../shared/protocol.js'
-import { FINISHED_NOTICE_AFTER_SECONDS } from '../shared/settings-protocol.js'
+import {
+	type CatalogueEntry,
+	type CatalogueOption,
+	appliesText,
+	catalogueEntry,
+} from '../shared/settings-catalogue.js'
 import {
 	type DataFolderKind,
 	type DesktopInfo,
@@ -357,21 +362,52 @@ function ModelsContainer() {
 	return <ModelsSection connections={useProviderConnections(bridge, true)} />
 }
 
-const STARTUP_CHOICES: { value: StartupBehavior; label: string; hint: string }[] = [
-	{
-		value: 'continue',
-		label: 'Continue where I left off',
-		hint: 'Your windows, tabs and drafts come back.',
-	},
-	{ value: 'home', label: 'Start on the home screen', hint: 'Your tabs are kept but not opened.' },
-]
+const STARTUP_CHOICES = (
+	catalogueEntry('startup').control as { options: readonly CatalogueOption[] }
+).options.map((option) => ({
+	value: option.value as StartupBehavior,
+	label: option.label,
+	hint: option.help ?? '',
+}))
+
+/** The line under a row's description: its default and when a change applies, from the catalogue. */
+function catalogueMeta(entry: CatalogueEntry): string {
+	const fallback = entry.default
+	let defaultLine = ''
+	if (typeof fallback === 'boolean') defaultLine = `Default: ${fallback ? 'On' : 'Off'}.`
+	else if (typeof fallback === 'string' && entry.control.kind === 'select') {
+		const label = entry.control.options.find((option) => option.value === fallback)?.label
+		if (label) defaultLine = `Default: ${label}.`
+	}
+	return [defaultLine, appliesText(entry)].filter(Boolean).join(' ')
+}
+
+/** A row whose label, help, default and apply time all come from the settings catalogue. */
+function CatalogueRow({
+	id,
+	stacked,
+	children,
+}: { id: string; stacked?: boolean; children?: ReactNode }) {
+	const entry = catalogueEntry(id)
+	return (
+		<Row
+			id={id}
+			label={entry.label}
+			description={entry.description}
+			meta={catalogueMeta(entry)}
+			stacked={stacked}
+		>
+			{children}
+		</Row>
+	)
+}
 
 function GeneralSection({ settings, shells }: SectionProps) {
 	const group = useId()
 	const value = settings.settings?.startup
 	return (
 		<>
-			<Row id="startup" label="When Namzu starts" stacked>
+			<CatalogueRow id="startup" stacked>
 				<fieldset className="settings-choices" disabled={!settings.settings}>
 					<legend className="sr-only">When Namzu starts</legend>
 					{STARTUP_CHOICES.map((choice) => (
@@ -390,67 +426,47 @@ function GeneralSection({ settings, shells }: SectionProps) {
 						</label>
 					))}
 				</fieldset>
-			</Row>
-			<Row
-				id="attention-signals"
-				label="Show when a conversation needs you"
-				description="While Namzu is in the background and a conversation is waiting for an answer, show a count on its icon and flash the taskbar or dock once. It clears when you come back."
-			>
+			</CatalogueRow>
+			<CatalogueRow id="attention-signals">
 				<Switch
 					label="Show when a conversation needs you"
 					checked={settings.settings?.attentionSignals ?? true}
 					disabled={!settings.settings}
 					onChange={(value) => void settings.change({ attentionSignals: value })}
 				/>
-			</Row>
-			<Row
-				id="notify-needs-you"
-				label="Notify me when a conversation needs my answer"
-				description="A system notification when an approval or a question is waiting and Namzu is in the background. It shows the project's name and nothing from the conversation."
-			>
+			</CatalogueRow>
+			<CatalogueRow id="notify-needs-you">
 				<Switch
 					label="Notify me when a conversation needs my answer"
 					checked={settings.settings?.notifyNeedsYou ?? true}
 					disabled={!settings.settings}
 					onChange={(value) => void settings.change({ notifyNeedsYou: value })}
 				/>
-			</Row>
-			<Row
-				id="notify-failed"
-				label="Notify me when a conversation stops with an error"
-				description="A system notification when a reply stops with an error and Namzu is in the background."
-			>
+			</CatalogueRow>
+			<CatalogueRow id="notify-failed">
 				<Switch
 					label="Notify me when a conversation stops with an error"
 					checked={settings.settings?.notifyFailed ?? true}
 					disabled={!settings.settings}
 					onChange={(value) => void settings.change({ notifyFailed: value })}
 				/>
-			</Row>
-			<Row
-				id="notify-finished"
-				label="Notify me when a long reply finishes"
-				description={`A system notification when a reply that took ${FINISHED_NOTICE_AFTER_SECONDS} seconds or more is done and Namzu is in the background. A reply you watched end needs none.`}
-			>
+			</CatalogueRow>
+			<CatalogueRow id="notify-finished">
 				<Switch
 					label="Notify me when a long reply finishes"
 					checked={settings.settings?.notifyFinished ?? true}
 					disabled={!settings.settings}
 					onChange={(value) => void settings.change({ notifyFinished: value })}
 				/>
-			</Row>
-			<Row
-				id="notify-sound"
-				label="Play a sound with notifications"
-				description="Off by default. Your system's do-not-disturb setting still applies."
-			>
+			</CatalogueRow>
+			<CatalogueRow id="notify-sound">
 				<Switch
 					label="Play a sound with notifications"
 					checked={settings.settings?.notifySound ?? false}
 					disabled={!settings.settings}
 					onChange={(value) => void settings.change({ notifySound: value })}
 				/>
-			</Row>
+			</CatalogueRow>
 			<TerminalSettings settings={settings} shells={shells} />
 		</>
 	)
@@ -471,12 +487,7 @@ export function TerminalSettings({
 	return (
 		<>
 			{choices.length > 1 && (
-				<Row
-					id="terminal-shell"
-					label="Default terminal shell"
-					description="Automatic uses PowerShell 7 when it is installed and otherwise Command Prompt, which is set to UTF-8. Windows PowerShell can drop some typed Turkish capitals."
-					stacked
-				>
+				<CatalogueRow id="terminal-shell" stacked>
 					<fieldset className="settings-choices" disabled={!settings.settings}>
 						<legend className="sr-only">Default terminal shell</legend>
 						{choices.map((choice) => (
@@ -503,32 +514,24 @@ export function TerminalSettings({
 							</label>
 						))}
 					</fieldset>
-				</Row>
+				</CatalogueRow>
 			)}
-			<Row
-				id="terminal-restore"
-				label="Bring terminal tabs back"
-				description="After a restart, terminal tabs return as ended terminals with their last screen. Their programs do not keep running while Namzu is closed."
-			>
+			<CatalogueRow id="terminal-restore">
 				<Switch
 					label="Bring terminal tabs back"
 					checked={settings.settings?.restoreTerminals ?? true}
 					disabled={!settings.settings}
 					onChange={(value) => void settings.change({ restoreTerminals: value })}
 				/>
-			</Row>
-			<Row
-				id="hardware-acceleration"
-				label="Use the graphics card"
-				description="Turn this off if Namzu’s windows flicker, go blank or stop working soon after they open. Takes effect the next time Namzu starts."
-			>
+			</CatalogueRow>
+			<CatalogueRow id="hardware-acceleration">
 				<Switch
 					label="Use the graphics card"
 					checked={settings.settings?.hardwareAcceleration ?? true}
 					disabled={!settings.settings}
 					onChange={(value) => void settings.change({ hardwareAcceleration: value })}
 				/>
-			</Row>
+			</CatalogueRow>
 		</>
 	)
 }
@@ -551,11 +554,7 @@ function ProjectsSection({
 					}
 				/>
 			)}
-			<Row
-				id="retrust"
-				label="Ask again when a project’s automatic settings change"
-				description="Before a trusted project loads hooks, servers or plugins that changed since you trusted it, Namzu asks again."
-			>
+			<CatalogueRow id="retrust">
 				<div ref={switchRow}>
 					<Switch
 						label="Ask again when a project’s automatic settings change"
@@ -564,12 +563,13 @@ function ProjectsSection({
 						onChange={(value) => void settings.change({ retrustOnConfigChange: value })}
 					/>
 				</div>
-			</Row>
+			</CatalogueRow>
 			<div id="setting-projects" className="settings-projects">
 				<h3 className="settings-subtitle">Your projects</h3>
 				<p className="settings-help">
 					Removing a project only takes it out of Namzu. Your files and existing conversations stay
-					where they are.
+					where they are. Locate points a moved project at its new folder, and asks you to trust
+					that folder.
 				</p>
 				{projects.length === 0 ? (
 					<p className="settings-empty">No projects yet. Open a folder to add one.</p>
@@ -628,12 +628,7 @@ function AppearanceSection({ appearance, onAppearanceChange, settings }: Setting
 	const [interfaceFont, setInterfaceFont] = useInterfaceFont()
 	return (
 		<>
-			<Row
-				id="theme"
-				label="Theme"
-				description="System follows your device’s light or dark setting."
-				stacked
-			>
+			<CatalogueRow id="theme" stacked>
 				<fieldset className="settings-choices settings-choices-inline">
 					<legend className="sr-only">Theme</legend>
 					{APPEARANCE_CHOICES.map(({ value, label, Icon }) => (
@@ -650,13 +645,8 @@ function AppearanceSection({ appearance, onAppearanceChange, settings }: Setting
 						</label>
 					))}
 				</fieldset>
-			</Row>
-			<Row
-				id="interface-font"
-				label="Interface font"
-				description="The typeface for text and code in Namzu. The terminal keeps its own font. A change applies at once."
-				stacked
-			>
+			</CatalogueRow>
+			<CatalogueRow id="interface-font" stacked>
 				<fieldset className="settings-choices">
 					<legend className="sr-only">Interface font</legend>
 					{INTERFACE_FONT_CHOICES.map((choice) => (
@@ -675,19 +665,15 @@ function AppearanceSection({ appearance, onAppearanceChange, settings }: Setting
 						</label>
 					))}
 				</fieldset>
-			</Row>
-			<Row
-				id="conversation-tabs"
-				label="Show conversation tabs"
-				description="A strip of tabs above the conversation, one for each open conversation. Off, the sidebar lists your conversations and the bar above shows the one you are in. Also in the View menu."
-			>
+			</CatalogueRow>
+			<CatalogueRow id="conversation-tabs">
 				<Switch
 					label="Show conversation tabs"
 					checked={settings.settings?.showConversationTabs ?? false}
 					disabled={!settings.settings}
 					onChange={(value) => void settings.change({ showConversationTabs: value })}
 				/>
-			</Row>
+			</CatalogueRow>
 		</>
 	)
 }
@@ -740,18 +726,14 @@ function UpdatesSection({ update, settings, now, engineTarget, hasAppUpdater }: 
 			<EngineUpdateRows target={engineTarget} />
 			<EngineDeliveryRows settings={settings} now={now} />
 			{hasAppUpdater && (
-				<Row
-					id="auto-download"
-					label="Download updates automatically"
-					description="When off, a new version is only offered with a badge, and nothing is downloaded until you ask."
-				>
+				<CatalogueRow id="auto-download">
 					<Switch
 						label="Download updates automatically"
 						checked={settings.settings?.autoDownloadUpdates ?? true}
 						disabled={!settings.settings}
 						onChange={(value) => void settings.change({ autoDownloadUpdates: value })}
 					/>
-				</Row>
+				</CatalogueRow>
 			)}
 		</>
 	)
@@ -802,18 +784,14 @@ function EngineDeliveryRows({ settings, now }: { settings: DesktopSettingsContro
 					</p>
 				)}
 			</div>
-			<Row
-				id="keep-engine"
-				label="Keep the engine up to date"
-				description="Namzu fetches a newer engine in the background and starts it the next time a project opens. Off, only the engine this app was installed with runs."
-			>
+			<CatalogueRow id="keep-engine">
 				<Switch
 					label="Keep the engine up to date"
 					checked={enabled}
 					disabled={!settings.settings}
 					onChange={(value) => void settings.change({ keepEngineUpToDate: value })}
 				/>
-			</Row>
+			</CatalogueRow>
 		</>
 	)
 }

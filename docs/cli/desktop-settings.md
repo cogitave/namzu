@@ -16,6 +16,8 @@ preferences. Desktop does not know the keys. The engine describes them and Deskt
 
 ## One list
 
+Each descriptor also carries a typed default, plain-worded choices and an apply time: see [The setting description](setting-description.md).
+
 `packages/cli/src/config/settings-descriptors.ts` holds one descriptor per setting: its path, label,
 one-line description, section, control (switch, choice, checkboxes, number, text, JSON, or file only),
 default in words, and, for a risky one, the sentence the confirmation shows. The engine answers

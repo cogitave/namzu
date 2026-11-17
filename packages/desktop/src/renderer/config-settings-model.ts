@@ -1,4 +1,5 @@
 import type {
+	ConfigSettingDefault,
 	ConfigSettingDescriptor,
 	ConfigSettingState,
 	ConfigSettingsView,
@@ -22,13 +23,83 @@ export function stateFor(view: ConfigSettingsView, path: string): ConfigSettingS
 	return view.settings.find((s) => s.path === path)
 }
 
-/** What a switch shows while nothing is saved: the engine's default, written in words. */
-export function defaultToggle(descriptor: ConfigSettingDescriptor): boolean {
+/**
+ * What the setting holds with nothing saved: the typed default, or the rule that applies when one
+ * of the other settings it depends on is set. An engine older than the typed default sends only
+ * words, and then there is no value to give.
+ */
+export function effectiveDefault(
+	descriptor: ConfigSettingDescriptor,
+	view?: ConfigSettingsView,
+): ConfigSettingDefault | undefined {
+	for (const rule of descriptor.defaultWhen ?? []) {
+		const state = view ? stateFor(view, rule.path) : undefined
+		if (!state?.set) continue
+		const value = state.value
+		const hit =
+			rule.is === 'non-empty'
+				? Array.isArray(value)
+					? value.length > 0
+					: value !== undefined && value !== null && value !== '' && value !== false
+				: value === rule.is
+		if (hit) return rule.value
+	}
+	return descriptor.default
+}
+
+/** What a switch shows while nothing is saved. */
+export function defaultToggle(
+	descriptor: ConfigSettingDescriptor,
+	view?: ConfigSettingsView,
+): boolean {
+	const value = effectiveDefault(descriptor, view)
+	if (typeof value === 'boolean') return value
+	// An engine older than the typed default: the words are all there is.
 	return descriptor.defaultText?.trim().toLowerCase().startsWith('on') ?? false
 }
 
-export function defaultNote(descriptor: ConfigSettingDescriptor): string {
-	return descriptor.defaultText ? `Default: ${descriptor.defaultText}.` : ''
+/** The default as a person reads it: On, Off, a number with its unit, an option's label. */
+export function defaultLabel(
+	descriptor: ConfigSettingDescriptor,
+	view?: ConfigSettingsView,
+): string | undefined {
+	const value = effectiveDefault(descriptor, view)
+	const control = descriptor.control
+	if (value === undefined) return descriptor.defaultText
+	if (typeof value === 'boolean') return value ? 'On' : 'Off'
+	if (Array.isArray(value)) {
+		if (value.length === 0) return 'none'
+		const options = control.kind === 'checks' ? control.options : []
+		return value.map((item) => options.find((o) => o.value === item)?.label ?? item).join(', ')
+	}
+	if (typeof value === 'number')
+		return control.kind === 'number' && control.unit ? `${value} ${control.unit}` : String(value)
+	if (control.kind === 'select')
+		return control.options.find((o) => o.value === value)?.label ?? value
+	return value
+}
+
+export function defaultNote(
+	descriptor: ConfigSettingDescriptor,
+	view?: ConfigSettingsView,
+): string {
+	const label = defaultLabel(descriptor, view)
+	if (!label) return ''
+	const note = descriptor.default !== undefined ? descriptor.defaultNote : undefined
+	return `Default: ${label.replace(/\.$/, '')}.${note ? ` ${note}` : ''}`
+}
+
+const APPLIES_TEXT: Record<NonNullable<ConfigSettingDescriptor['appliesWhen']>, string> = {
+	now: 'Applies at once.',
+	'next-turn': 'Applies from your next message.',
+	'next-conversation': 'Applies to new conversations. Open ones keep their current value.',
+	'next-start': 'Applies the next time Namzu starts.',
+	'next-launch': 'Applies the next time the app opens.',
+}
+
+/** The sentence about when a change reaches the work; empty from an engine that does not say. */
+export function appliesLine(descriptor: ConfigSettingDescriptor): string {
+	return descriptor.appliesWhen ? APPLIES_TEXT[descriptor.appliesWhen] : ''
 }
 
 /** A list or table, as the text the editor starts from. */

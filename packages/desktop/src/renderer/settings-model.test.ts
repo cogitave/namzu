@@ -61,6 +61,16 @@ describe('search', () => {
 		expect(searchSettings('ŞEKİL', entries).map((e) => e.id)).toEqual(['a'])
 	})
 
+	it('finds rows by the reference words as well as Namzu\u2019s own', () => {
+		expect(searchSettings('chat font')[0]?.id).toBe('interface-font')
+		expect(searchSettings('ui font')[0]?.id).toBe('interface-font')
+		expect(searchSettings('text size').map((e) => e.id)).toContain('interface-font')
+		expect(searchSettings('startup').map((e) => e.id)).toContain('startup')
+		expect(searchSettings('tray').map((e) => e.id)).toContain('attention-signals')
+		expect(searchSettings('graphics card').map((e) => e.id)).toContain('hardware-acceleration')
+		expect(searchSettings('keep the engine').map((e) => e.id)).toContain('keep-engine')
+	})
+
 	it('has a unique id for every entry and a real section for each', () => {
 		const ids = SETTINGS_ENTRIES.map((e) => e.id)
 		expect(new Set(ids).size).toBe(ids.length)

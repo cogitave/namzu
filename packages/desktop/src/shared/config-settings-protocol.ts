@@ -27,10 +27,35 @@ const SECTIONS: readonly string[] = [
 	'terminal',
 ]
 
+export type ConfigSettingAppliesWhen =
+	| 'now'
+	| 'next-turn'
+	| 'next-conversation'
+	| 'next-start'
+	| 'next-launch'
+
+const APPLIES_WHEN: readonly string[] = [
+	'now',
+	'next-turn',
+	'next-conversation',
+	'next-start',
+	'next-launch',
+]
+
+/** A value a setting holds when nothing is saved. A list is the list of ticked option values. */
+export type ConfigSettingDefault = boolean | number | string | string[]
+
 export interface ConfigSettingOption {
 	value: string
 	label: string
+	/** One line saying what choosing it does. */
+	help?: string
 }
+
+/** Which file a saved value came from. The engine fills it; absent means it was not said. */
+export type ConfigSettingLayer = 'user' | 'project' | 'local' | 'profile' | 'managed'
+
+const LAYERS: readonly string[] = ['user', 'project', 'local', 'profile', 'managed']
 
 export type ConfigSettingControl =
 	| { kind: 'toggle' }
@@ -47,7 +72,16 @@ export interface ConfigSettingDescriptor {
 	description: string
 	section: ConfigSettingSection
 	control: ConfigSettingControl
+	/** What the setting holds with nothing saved. Draw the default from this, never from prose. */
+	default?: ConfigSettingDefault
+	/** A caveat said beside the default, for example that CI differs. */
+	defaultNote?: string
+	/** Cases where the default is not `default`: the first rule whose key matches decides. */
+	defaultWhen?: { path: string; is: 'non-empty' | string; value: ConfigSettingDefault }[]
+	/** The default in words. Used only when there is no typed `default`. */
 	defaultText?: string
+	/** When a saved change reaches the work. Absent from an engine older than the field. */
+	appliesWhen?: ConfigSettingAppliesWhen
 	confirm?: string
 	/** Which new value asks: `on`/`off` for a toggle, `zero` for a cap. Absent: every change asks. */
 	confirmWhen?: 'on' | 'off' | 'zero'
@@ -61,6 +95,8 @@ export interface ConfigSettingState {
 	set: boolean
 	/** Never present for a `file-only` setting. */
 	value?: unknown
+	/** The file the value came from, when the engine says. */
+	layer?: ConfigSettingLayer
 }
 
 export interface ConfigSettingsView {
@@ -79,6 +115,14 @@ export type ConfigSettingResult =
 	| { status: 'saved'; view: ConfigSettingsView }
 	| { status: 'confirm'; view: ConfigSettingsView; token: string; message: string }
 
+function defaultValue(value: unknown): ConfigSettingDefault | undefined {
+	if (typeof value === 'boolean' || typeof value === 'number' || typeof value === 'string')
+		return value
+	if (Array.isArray(value) && value.every((item) => typeof item === 'string'))
+		return value as string[]
+	return undefined
+}
+
 const record = (value: unknown): Record<string, unknown> | undefined =>
 	value && typeof value === 'object' && !Array.isArray(value)
 		? (value as Record<string, unknown>)
@@ -91,7 +135,11 @@ function options(value: unknown): ConfigSettingOption[] | undefined {
 		const entry = record(item)
 		if (!entry || typeof entry.value !== 'string' || typeof entry.label !== 'string')
 			return undefined
-		out.push({ value: entry.value, label: entry.label })
+		out.push({
+			value: entry.value,
+			label: entry.label,
+			...(typeof entry.help === 'string' ? { help: entry.help } : {}),
+		})
 	}
 	return out
 }
@@ -127,6 +175,23 @@ function control(value: unknown): ConfigSettingControl | undefined {
 	}
 }
 
+function readDefaultWhen(value: unknown[]): NonNullable<ConfigSettingDescriptor['defaultWhen']> {
+	const out: NonNullable<ConfigSettingDescriptor['defaultWhen']> = []
+	for (const item of value) {
+		const rule = record(item)
+		const outcome = rule ? defaultValue(rule.value) : undefined
+		if (
+			!rule ||
+			typeof rule.path !== 'string' ||
+			typeof rule.is !== 'string' ||
+			outcome === undefined
+		)
+			continue
+		out.push({ path: rule.path, is: rule.is, value: outcome })
+	}
+	return out
+}
+
 /**
  * Reads the engine's answer. An entry Desktop cannot draw is dropped rather than failing the page,
  * so an engine newer than the app still shows everything the app understands.
@@ -155,7 +220,15 @@ export function readConfigSettingsView(value: unknown): ConfigSettingsView {
 			description: d.description,
 			section: d.section as ConfigSettingSection,
 			control: ctl,
+			...(defaultValue(d.default) !== undefined
+				? { default: defaultValue(d.default) as ConfigSettingDefault }
+				: {}),
+			...(typeof d.defaultNote === 'string' ? { defaultNote: d.defaultNote } : {}),
+			...(Array.isArray(d.defaultWhen) ? { defaultWhen: readDefaultWhen(d.defaultWhen) } : {}),
 			...(typeof d.defaultText === 'string' ? { defaultText: d.defaultText } : {}),
+			...(typeof d.appliesWhen === 'string' && APPLIES_WHEN.includes(d.appliesWhen)
+				? { appliesWhen: d.appliesWhen as ConfigSettingAppliesWhen }
+				: {}),
 			...(typeof d.confirm === 'string' ? { confirm: d.confirm } : {}),
 			...(d.confirmWhen === 'on' || d.confirmWhen === 'off' || d.confirmWhen === 'zero'
 				? { confirmWhen: d.confirmWhen }
@@ -174,6 +247,9 @@ export function readConfigSettingsView(value: unknown): ConfigSettingsView {
 			path: s.path,
 			set: s.set,
 			...(s.set && 'value' in s ? { value: s.value } : {}),
+			...(typeof s.layer === 'string' && LAYERS.includes(s.layer)
+				? { layer: s.layer as ConfigSettingLayer }
+				: {}),
 		})
 	}
 	return { file: typeof root.file === 'string' ? root.file : '', descriptors, settings }

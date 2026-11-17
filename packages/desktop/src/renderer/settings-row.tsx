@@ -5,12 +5,15 @@ export function Row({
 	id,
 	label,
 	description,
+	meta,
 	children,
 	stacked,
 }: {
 	id: string
 	label: string
 	description?: string
+	/** A second line under the description: the default, and when a change applies. */
+	meta?: string
 	children?: ReactNode
 	stacked?: boolean
 }) {
@@ -20,6 +23,7 @@ export function Row({
 			<div className="settings-row-copy">
 				<h3 id={labelId}>{label}</h3>
 				{description && <p>{description}</p>}
+				{meta && <p data-settings-meta>{meta}</p>}
 			</div>
 			{children && <div className="settings-row-control">{children}</div>}
 		</div>

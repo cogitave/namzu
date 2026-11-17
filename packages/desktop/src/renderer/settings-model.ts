@@ -1,7 +1,7 @@
 import type { EngineDeliveryView } from '../shared/engine-delivery-protocol.js'
 import type { KernelNewer } from '../shared/engine-update-protocol.js'
 import type { ProjectView } from '../shared/protocol.js'
-import { FINISHED_NOTICE_AFTER_SECONDS } from '../shared/settings-protocol.js'
+import { SETTINGS_CATALOGUE } from '../shared/settings-catalogue.js'
 import {
 	type DataFolderKind,
 	type SettingsSection,
@@ -72,197 +72,19 @@ export interface SettingsEntry {
 	keywords?: readonly string[]
 }
 
-export const SETTINGS_ENTRIES: readonly SettingsEntry[] = [
-	{
-		id: 'startup',
-		section: 'general',
-		label: 'When Namzu starts',
-		description: 'Continue where you left off, or start on the home screen.',
-		keywords: ['startup', 'launch', 'open', 'restore', 'tabs', 'home', 'restart'],
-	},
-	{
-		id: 'terminal-shell',
-		section: 'general',
-		label: 'Default terminal shell',
-		description:
-			'The shell a new terminal tab opens: PowerShell, Command Prompt or WSL on Windows.',
-		keywords: ['terminal', 'shell', 'powershell', 'cmd', 'command prompt', 'wsl', 'console'],
-	},
-	{
-		id: 'terminal-restore',
-		section: 'general',
-		label: 'Bring terminal tabs back',
-		description:
-			'After a restart, terminal tabs return as ended terminals showing their last screen.',
-		keywords: ['terminal', 'restore', 'restart', 'tabs'],
-	},
-	{
-		id: 'attention-signals',
-		section: 'general',
-		label: 'Show when a conversation needs you',
-		description:
-			'A count on the app icon and one taskbar or dock flash while a conversation waits for you.',
-		keywords: ['badge', 'flash', 'taskbar', 'dock', 'attention', 'approval', 'notify', 'icon'],
-	},
-	{
-		id: 'notify-needs-you',
-		section: 'general',
-		label: 'Notify me when a conversation needs my answer',
-		description:
-			'A system notification when an approval or a question is waiting and Namzu is in the background.',
-		keywords: ['notification', 'notify', 'banner', 'alert', 'approval', 'question', 'background'],
-	},
-	{
-		id: 'notify-failed',
-		section: 'general',
-		label: 'Notify me when a conversation stops with an error',
-		description:
-			'A system notification when a reply stops with an error and Namzu is in the background.',
-		keywords: ['notification', 'notify', 'banner', 'alert', 'error', 'failed', 'background'],
-	},
-	{
-		id: 'notify-finished',
-		section: 'general',
-		label: 'Notify me when a long reply finishes',
-		description: `A system notification when a reply that took ${FINISHED_NOTICE_AFTER_SECONDS} seconds or more is done and Namzu is in the background.`,
-		keywords: [
-			'notification',
-			'notify',
-			'banner',
-			'alert',
-			'finished',
-			'done',
-			'complete',
-			'background',
-		],
-	},
-	{
-		id: 'notify-sound',
-		section: 'general',
-		label: 'Play a sound with notifications',
-		description:
-			'Off by default. The system decides the sound, and its do-not-disturb setting still applies.',
-		keywords: ['notification', 'sound', 'chime', 'audio', 'silent'],
-	},
-	{
-		id: 'models',
-		section: 'models',
-		label: 'Models and API keys',
-		description:
-			'Connect a provider: paste an API key, or use a Claude or ChatGPT sign-in Namzu finds. Check or remove a key.',
-		keywords: [
-			'provider',
-			'api key',
-			'key',
-			'anthropic',
-			'claude',
-			'openai',
-			'chatgpt',
-			'codex',
-			'gemini',
-			'google',
-			'sign in',
-			'connect',
-			'login',
-			'zen',
-			'free',
-		],
-	},
-	{
-		id: 'runHooks',
-		section: 'tools',
-		label: 'Run hooks',
-		description:
-			'Switch off the commands your settings, plugins, skills and agent files start by themselves at set moments.',
-		keywords: ['hooks', 'disable', 'turn off', 'automatic', 'commands', 'disableHooks'],
-	},
-	{
-		id: 'hooks',
-		section: 'tools',
-		label: 'Hooks',
-		description:
-			'What runs by itself in the open project: each hook, when it runs, where it comes from and whether it is on.',
-		keywords: ['hooks', 'automatic', 'commands', 'plugin', 'skill', 'agent', 'pre_tool_use'],
-	},
-	{
-		id: 'projects',
-		section: 'projects',
-		label: 'Projects',
-		description: 'The folders Namzu knows. Remove one from Namzu without deleting any files.',
-		keywords: ['remove', 'folder', 'trusted', 'forget'],
-	},
-	{
-		id: 'retrust',
-		section: 'projects',
-		label: 'Ask again when a project’s automatic settings change',
-		description:
-			'Ask before a trusted project loads automatic settings that changed since you trusted it.',
-		keywords: ['trust', 'hooks', 'mcp', 'config', 'security'],
-	},
-	{
-		id: 'theme',
-		section: 'appearance',
-		label: 'Theme',
-		description: 'Light, dark, or follow your system.',
-		keywords: ['dark', 'light', 'system', 'color', 'colour', 'mode'],
-	},
-	{
-		id: 'interface-font',
-		section: 'appearance',
-		label: 'Interface font',
-		description: 'Namzu’s own typeface or the one your device uses, for text and code.',
-		keywords: ['font', 'typeface', 'type', 'geist', 'system', 'text', 'mono', 'code'],
-	},
-	{
-		id: 'conversation-tabs',
-		section: 'appearance',
-		label: 'Show conversation tabs',
-		description: 'A strip of tabs above the conversation. Off, the sidebar is the one list.',
-		keywords: ['tabs', 'strip', 'bar', 'conversations', 'window', 'layout'],
-	},
-	{
-		id: 'version',
-		section: 'updates',
-		label: 'Check for updates',
-		description: 'The version you have, when Namzu last checked, and a button to check now.',
-		keywords: ['version', 'upgrade', 'download', 'restart', 'latest'],
-	},
-	{
-		id: 'auto-download',
-		section: 'updates',
-		label: 'Download updates automatically',
-		description: 'When off, a new version is only offered and you choose when to download it.',
-		keywords: ['update', 'background', 'badge'],
-	},
-	{
-		id: 'voice',
-		section: 'speech',
-		label: 'Voice',
-		description: 'Turkish speech that runs on this device: download, remove and options.',
-		keywords: ['speech', 'tts', 'read aloud', 'install', 'remove', 'turkish', 'language'],
-	},
-	{
-		id: 'voice-input',
-		section: 'speech',
-		label: 'Voice input',
-		description: 'Talk to Namzu in Turkish: download, remove and microphone permission.',
-		keywords: ['microphone', 'mic', 'speech to text', 'dictation', 'talk', 'listen', 'turkish'],
-	},
-	{
-		id: 'about',
-		section: 'about',
-		label: 'About Namzu',
-		description: 'Versions of the app and its command line.',
-		keywords: ['version', 'cli', 'sdk', 'build'],
-	},
-	{
-		id: 'folders',
-		section: 'about',
-		label: 'Data folders',
-		description: 'Where Namzu keeps its files, and a way to open them.',
-		keywords: ['explorer', 'finder', 'logs', 'diagnostics', 'storage', 'open'],
-	},
-]
+/**
+ * The Desktop-owned rows, from the catalogue (`shared/settings-catalogue.ts`). The engine's rows are
+ * added by `configSearchEntries`, so this file keeps no list of its own.
+ */
+export const SETTINGS_ENTRIES: readonly SettingsEntry[] = SETTINGS_CATALOGUE.filter(
+	(entry) => !entry.hidden,
+).map((entry) => ({
+	id: entry.id,
+	section: entry.section,
+	label: entry.label,
+	description: entry.description,
+	...(entry.keywords ? { keywords: entry.keywords } : {}),
+}))
 
 function words(value: string): string[] {
 	return foldSearchText(value)

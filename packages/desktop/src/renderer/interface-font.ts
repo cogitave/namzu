@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { type CatalogueOption, catalogueEntry } from '../shared/settings-catalogue.js'
 
 /**
  * The interface font: Namzu's own typeface (the default) or the one the device draws with. It is a
@@ -11,14 +12,13 @@ export type InterfaceFont = 'app' | 'system'
 export const INTERFACE_FONT_KEY = 'namzu.interface-font'
 export const INTERFACE_FONT_ATTRIBUTE = 'data-interface-font'
 
-export const INTERFACE_FONT_CHOICES: { value: InterfaceFont; label: string; hint: string }[] = [
-	{ value: 'app', label: 'Namzu’s own', hint: 'Geist, with Geist Mono for code.' },
-	{
-		value: 'system',
-		label: 'Your device’s',
-		hint: 'The fonts your system uses for text and code.',
-	},
-]
+export const INTERFACE_FONT_CHOICES: { value: InterfaceFont; label: string; hint: string }[] = (
+	catalogueEntry('interface-font').control as { options: readonly CatalogueOption[] }
+).options.map((option) => ({
+	value: option.value as InterfaceFont,
+	label: option.label,
+	hint: option.help ?? '',
+}))
 
 /** A stored value as a choice; anything else is the default. */
 export function parseInterfaceFont(value: unknown): InterfaceFont {
