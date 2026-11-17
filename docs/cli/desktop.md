@@ -3081,7 +3081,9 @@ gone, not greyed. It is 160 to 640 px wide, 240 by default, resizable by its edg
 on the right or the left (**File list position**: Automatic, which is the side away from the conversation, Left or
 Right). Selecting a row scrolls the stack to that file.
 
-**The "…" menu** (the checks keep it open): **Show files** (Ctrl+Shift+Y), **File list position**, **Group files by folder**
+**The "…" menu** (the checks keep it open; it opens below or above the button, whichever has room, keeps 8 px from the
+window edge and scrolls inside itself when neither fits; in a pane under 400 px the file list rows are left out and a
+muted first line says the list needs a pane that wide): **Show files** (Ctrl+Shift+Y), **File list position**, **Group files by folder**
 (off by default: the tree view), **Separate test, build, and generated files** (off: files are listed source first,
 then "Test files", "Build files", "Generated files"; the rules are `changes-review/file-kind.ts`, and a path
 that matches several takes generated, then build, then test), **Collapse all files**, **Expand all files** (disabled
@@ -3672,6 +3674,9 @@ and no resize rewrites the layout.
   work; `terminalFolder` in `src/main/terminal-env.ts`). The pane lists only the terminals of this conversation's
   project, so a terminal restored from an earlier run shows beside its own project and no other; opening the pane
   with no running terminal for the project starts a fresh one, and an ended one stays for its Close and Restart.
+  Closing the pane only hides it: its shells keep running, and pressing the button again shows the one that was in
+  front (`chooseTerminalForPane` in `terminal-pane-choice.ts`). Only the pane's "+" starts another shell; a second
+  press before the first shell is listed does not start one either.
   In a narrow pane the ended note's words wrap above its two buttons.
 - **Long lines** wrap by default in the Changes pane's diff ("Word wrap" is checked in its View menu, and can be
   turned off) and in the Files pane's code preview, with each line number beside the first row of its line; a file

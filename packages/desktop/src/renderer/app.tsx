@@ -266,6 +266,7 @@ import {
 import { type StopRequests, clearStop, isStopping, requestStop } from './stop-request.js'
 import { createSubmitGuard } from './submit-guard.js'
 import { type TabChord, movedTabIndex, selectedTabIndex, tabChord } from './tab-keys.js'
+import { chooseTerminalForPane } from './terminal-pane-choice.js'
 import { TerminalMark, TerminalPane } from './terminal-pane.js'
 import { openTerminalFind, terminalApi, terminalSessions } from './terminal-registry.js'
 import { engineTerminalRequest, shellTerminalRequest } from './terminal-request.js'
@@ -1812,6 +1813,7 @@ export function App({
 		if (before && before !== opened.terminal.id)
 			await onAction({ kind: 'activate', groupId: group.id, tabId: before })
 	}
+	const terminalStarting = useRef(false)
 	/** A pane button: opens its pane, or closes it when it is open. */
 	const togglePaneKind = (kind: PaneKind) => {
 		if (kind === 'session') {
@@ -1824,13 +1826,19 @@ export function App({
 			return
 		}
 		openPane(kind)
-		// Without a live terminal of this project the pane starts a fresh one; an ended one stays for its Restart.
-		if (
-			kind === 'terminal' &&
-			terminalReady &&
-			!stripTerminals.some((tab) => tab.projectId === project?.id && tab.status === 'running')
-		)
-			void act(() => openTerminalInPane())
+		// The pane only hides: a live terminal of this project is shown again, and a fresh one starts
+		// only when there is none (an ended one stays for its Restart).
+		if (kind === 'terminal' && terminalReady) {
+			const choice = chooseTerminalForPane(stripTerminals, project?.id, terminalShown)
+			if ('reuse' in choice) setTerminalShown(choice.reuse)
+			else if (!terminalStarting.current) {
+				// A press before the first shell is listed must not start a second one.
+				terminalStarting.current = true
+				void act(() => openTerminalInPane()).finally(() => {
+					terminalStarting.current = false
+				})
+			}
+		}
 	}
 	const togglePaneRef = useRef(togglePaneKind)
 	togglePaneRef.current = togglePaneKind

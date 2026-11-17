@@ -3,7 +3,7 @@ import { CheckIcon, ChevronRightIcon, MoreHorizontalIcon } from '../icons.js'
 import { usePaneMenuItems } from '../pane-menu-context.js'
 import { Tooltip, TooltipPopup, TooltipTrigger } from '../ui/tooltip.js'
 import { MenuLabel } from './menu-parts.js'
-import type { ChangesDisplay, ListPosition } from './settings.js'
+import { type ChangesDisplay, LIST_FIT_WIDTH, type ListPosition } from './settings.js'
 
 const POSITIONS: { id: ListPosition; label: string }[] = [
 	{ id: 'auto', label: 'Automatic' },
@@ -69,13 +69,23 @@ export function ViewMenu({
 				<TooltipPopup side="bottom">More options</TooltipPopup>
 			</Tooltip>
 			<Menu.Portal>
-				<Menu.Positioner className="conversation-actions-positioner" align="end" sideOffset={6}>
+				<Menu.Positioner
+					className="conversation-actions-positioner"
+					align="end"
+					sideOffset={6}
+					collisionPadding={8}
+				>
 					<Menu.Popup
 						className="conversation-actions-popup changes-more-popup"
 						aria-label="Changes options"
 					>
 						{hasFiles && (
 							<>
+								{!listFits && (
+									<p className="changes-menu-note">
+										The file list needs a pane at least {LIST_FIT_WIDTH} px wide.
+									</p>
+								)}
 								{listFits && checkbox('Show files', 'showFiles', { hint: shortcut })}
 								{listFits && (
 									<Menu.SubmenuRoot>
