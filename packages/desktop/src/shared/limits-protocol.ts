@@ -54,13 +54,12 @@ function amount(value: unknown): number | undefined {
 		: undefined
 }
 
+// biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what this removes
+const CONTROL = /[\u0000-\u001f\u007f-\u009f]/g
+
 function text(value: unknown, max: number): string | undefined {
 	if (typeof value !== 'string') return undefined
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what this removes
-	const clean = value
-		.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ')
-		.replace(/\s+/g, ' ')
-		.trim()
+	const clean = value.replace(CONTROL, ' ').replace(/\s+/g, ' ').trim()
 	return clean === '' ? undefined : clean.slice(0, max)
 }
 

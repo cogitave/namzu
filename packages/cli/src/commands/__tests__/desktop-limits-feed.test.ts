@@ -12,7 +12,12 @@ const SECRET_PLAN = 'Team-Plan-Value-123'
 
 function clock(start = 1_000_000) {
 	let now = start
-	return { now: () => now, advance: (ms: number) => void (now += ms) }
+	return {
+		now: () => now,
+		advance: (ms: number) => {
+			now += ms
+		},
+	}
 }
 
 function source(
