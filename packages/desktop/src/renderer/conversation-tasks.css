@@ -35,3 +35,12 @@
 .conversation-tasks li p {
 	margin: 6px 0 0;
 }
+
+.conversation-tasks li > div > .plan-box-mark {
+	flex: none;
+	align-self: center;
+}
+.conversation-tasks li > div > .task-subject {
+	flex: 1;
+	min-width: 0;
+}

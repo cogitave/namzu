@@ -17,7 +17,7 @@ import { ChevronRightIcon } from './icons.js'
 import { Message, MessageContent, MessageFooter, timeDescription, timeRoleOf } from './message.js'
 import { PalMessageReceipts } from './pal-message-receipts.js'
 import { PlanBox, PlanRow, PlanTouched } from './plan-row-view.js'
-import { isTaskEntry, latestPlanTurn } from './plan-row.js'
+import { isTaskEntry, latestPlanTurn, planSummary } from './plan-row.js'
 import { ProviderNameContext } from './provider-name-context.js'
 import { renderedEqual } from './rendered-equal.js'
 import { toolTranscriptPresentation } from './tool-transcript-presentation.js'
@@ -457,7 +457,14 @@ function TurnActivity({
 	// Only the block that owns the clock names the stage, and only until the answer starts.
 	const liveLine = live && ownsTurnSummary && !answered
 	const status = liveLine ? liveStatus(thread) : undefined
-	const planOutside = liveLine && planAt >= 0 && planTurn === turn && thread.tasks.length > 0
+	// It stays in the flow until every step is done, so a plan with steps left is not folded away by the reply.
+	const planOutside =
+		live &&
+		ownsTurnSummary &&
+		planAt >= 0 &&
+		planTurn === turn &&
+		thread.tasks.length > 0 &&
+		(!answered || !planSummary(thread.tasks).finished)
 	const stage = status?.stage
 	const streamingMessage = status ? narrationBeingWritten(thread) : undefined
 	// Open while the reply is written, folded once it ends; a choice the person made always wins.

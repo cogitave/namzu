@@ -101,6 +101,27 @@
 	border-radius: var(--turn-plan-radius);
 	background: var(--background);
 }
+.plan-box-title {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 12px;
+	margin: 0 0 4px;
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
+	font-weight: var(--weight-control);
+	color: var(--foreground);
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.plan-box-count {
+	flex: none;
+	font-weight: normal;
+	color: var(--muted-foreground);
+	font-variant-numeric: tabular-nums;
+}
 .plan-box-steps {
 	display: block;
 	margin: 0;

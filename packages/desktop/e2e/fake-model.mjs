@@ -5,7 +5,7 @@
 import { createServer } from "node:http";
 import { failureHeaders } from "./fake-failure.mjs";
 
-/** @typedef {{ text: string } | { tool: string, args: object }} Step */
+/** @typedef {{ text: string } | { tool: string, args: object | ((messages: object[]) => object) }} Step */
 
 export async function startFakeModel(rules = [], options = {}) {
 	const requests = [];
@@ -192,8 +192,12 @@ function pick(rules, messages) {
 			.slice(i + 1)
 			.filter((m) => m.role === "tool").length;
 		for (const rule of rules) {
-			if (rule.match.test(prompt))
-				return rule.steps[Math.min(toolResults, rule.steps.length - 1)];
+			if (rule.match.test(prompt)) {
+				const step = rule.steps[Math.min(toolResults, rule.steps.length - 1)];
+				// A step's arguments may be a function of the conversation so far, for a call that needs
+				// something an earlier answer made (the id a task tool returned).
+				return typeof step.args === "function" ? { ...step, args: step.args(messages) } : step;
+			}
 		}
 	}
 	return { text: "Scripted default reply." };

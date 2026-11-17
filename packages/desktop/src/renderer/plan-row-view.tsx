@@ -21,7 +21,7 @@ function StepMark({ status }: { status: AcpTask['status'] }) {
 }
 
 /** Done is a muted disc with a check, current a spinning arc, not started a dashed ring (failed a disc with a cross). */
-function BoxMark({ status }: { status: AcpTask['status'] }) {
+export function BoxMark({ status }: { status: AcpTask['status'] }) {
 	return (
 		<svg className="plan-box-mark" viewBox="0 0 16 16" aria-hidden="true">
 			{status === 'completed' || status === 'failed' ? (
@@ -67,8 +67,15 @@ export function PlanBox({
 }) {
 	if (!planSummary(tasks).total) return null
 	const { shown, more } = planVisibleTasks(tasks)
+	const summary = planSummary(tasks)
 	return (
 		<section className="plan-box" aria-label="Plan">
+			<h3 className="plan-box-title">
+				{summary.current ? summary.current.subject : 'Plan'}
+				<span className="plan-box-count">
+					{summary.done} of {summary.total}
+				</span>
+			</h3>
 			<ul className="plan-box-steps">
 				{shown.map((task) => (
 					<li key={task.taskId} data-status={task.status}>
@@ -116,7 +123,8 @@ export function PlanRow({
 		<Collapsible
 			className={`tool tool-group plan-row${live ? ' active' : ''}`}
 			data-tone={label.tone}
-			open={open ?? chosen ?? false}
+			// A plan with steps left reads open; the person's own choice always wins.
+			open={open ?? chosen ?? !summary.finished}
 			onOpenChange={(next) => {
 				if (onOpenChange) onOpenChange(next)
 				else setChosen(next)
