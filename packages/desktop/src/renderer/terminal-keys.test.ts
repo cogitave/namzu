@@ -36,8 +36,9 @@ describe('terminalKeyAction', () => {
 			'paste',
 		)
 		expect(terminalKeyAction(press('f', { ctrlKey: true }), linux(false))).toBe('find')
+		// Ctrl+Shift+F is the Files pane's chord, so it leaves the terminal for the window.
 		expect(terminalKeyAction(press('F', { ctrlKey: true, shiftKey: true }), linux(false))).toBe(
-			'send',
+			'app',
 		)
 	})
 
