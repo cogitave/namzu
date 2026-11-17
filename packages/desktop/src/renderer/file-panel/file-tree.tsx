@@ -92,6 +92,18 @@ function FilterResults({
 }
 
 /** Asks the tree to open the folders above `path` (and `path` itself for a folder). */
+/** What a working-tree change shows beside a file: U for a file git has not seen yet, M for one it has. */
+export type FileMark = 'U' | 'M'
+
+const MARK_WORDS: Record<FileMark, string> = { U: 'Untracked', M: 'Modified' }
+
+/** The folders above any marked file, so a closed folder says it holds a change. */
+export function markedFolders(marks: ReadonlyMap<string, FileMark>): Set<string> {
+	const folders = new Set<string>()
+	for (const path of marks.keys()) for (const folder of ancestorsOf(path)) folders.add(folder)
+	return folders
+}
+
 export interface TreeReveal {
 	path: string
 	folder: boolean
@@ -106,6 +118,7 @@ function Tree({
 	reveal,
 	onOpen,
 	refreshToken,
+	marks,
 }: {
 	api: DesktopApi
 	projectId: string
@@ -113,7 +126,9 @@ function Tree({
 	reveal?: TreeReveal
 	onOpen: (path: string) => void
 	refreshToken?: number
+	marks?: ReadonlyMap<string, FileMark>
 }) {
+	const folders = useMemo(() => (marks ? markedFolders(marks) : undefined), [marks])
 	const entries = useRef(new Map<string, ProjectFileEntry>())
 	const scroller = useRef<HTMLDivElement>(null)
 	const virtualizer = useRef<{ scrollToIndex(index: number): void } | null>(null)
@@ -244,6 +259,28 @@ function Tree({
 								<FileBadge path={data.path} />
 							)}
 							<span className="file-tree-name">{data.name}</span>
+							{!folder && marks?.get(data.path) && (
+								<span
+									className="file-tree-mark"
+									data-mark={marks.get(data.path)}
+									role="img"
+									aria-label={MARK_WORDS[marks.get(data.path) as FileMark]}
+									title={MARK_WORDS[marks.get(data.path) as FileMark]}
+								>
+									{marks.get(data.path)}
+								</span>
+							)}
+							{folder && folders?.has(data.path) && (
+								<span
+									className="file-tree-mark"
+									data-mark="dot"
+									role="img"
+									aria-label="Holds changes"
+									title="Holds changes"
+								>
+									•
+								</span>
+							)}
 						</button>
 					)
 				})}
@@ -261,8 +298,14 @@ export function FileTree({
 	reveal,
 	onOpen,
 	refreshToken,
+	marks,
+	home,
 }: {
 	refreshToken?: number
+	/** Working-tree changes by project path. */
+	marks?: ReadonlyMap<string, FileMark>
+	/** The tree is the whole pane, not a column beside a document. */
+	home?: boolean
 	api: DesktopApi
 	projectId: string
 	activePath?: string
@@ -318,7 +361,7 @@ export function FileTree({
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a new query starts at the best match.
 	useEffect(() => setSelected(0), [query])
 	return (
-		<div className="file-tree-column">
+		<div className="file-tree-column" data-home={home || undefined}>
 			<label className="file-tree-filter">
 				<SearchIcon aria-hidden="true" />
 				<input
@@ -376,6 +419,7 @@ export function FileTree({
 					reveal={reveal}
 					onOpen={onOpen}
 					refreshToken={refreshToken}
+					marks={marks}
 				/>
 			</div>
 		</div>
