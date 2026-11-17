@@ -935,7 +935,7 @@ A conversation window spends 36 px on one bar (the same height as the strip of t
 
 **The read-out** is not in the bar: it sits at the right end of the row under the composer box (see the composer section below), from the same figures (`contextRingModel`, so the two cannot disagree) and with the same rule for when it shows: nothing is drawn until the engine has reported both a context size and a window.
 
-**The buttons** are 28 px, each with a tooltip and an accessible name: **Changes** (opens the Changes panel; with changes it widens to show the lines added and removed, "+35 −3", read from the same `changeTotals` as the result line and the pane, and its accessible name says the file count too, "Changes, 4 changed files, 35 added, 3 removed"), **New terminal** (a menu of the open terminals, the conversation and **New terminal** once one is open), **Project files**, **Conversation details** and **Conversation actions**. Changes and Project files open the panels the details popover and the panel's own tab strip already open; they are a shorter way there, not new panels. At 960 px the title gives way first, the project's name shrinks next and goes only below 300 px of bar; the buttons stay.
+**The buttons** are the pane grid's: Session, a thin divider, Terminal, Changes, Browser, Files and "…" (View options), then the window buttons ([the top bar](#the-pane-grid)). The Changes button's accessible name says the file count ("Changes, 4 changed files, 35 added, 3 removed"), read from the same `changeTotals` as the result line and the pane. At 960 px the title gives way first, the project's name shrinks next and goes only below 300 px of bar; the buttons stay. The title is text until it is clicked: then it is a field (Enter saves, Esc puts the old name back, leaving the field saves, an empty name asks for the automatic title), and a "∨" button right after it, "More options for <title>", opens the conversation's menu (Open in, Rename, Fork, Copy, Pin, Mark as unread, Move to right pane, Move to new window, Archive: the sidebar's items in the sidebar's order).
 
 **Conversation tabs** are hidden by default. **View > Show conversation tabs** (a checkbox), **Settings > Appearance > Show conversation tabs** and the command palette's **Show conversation tabs** / **Hide conversation tabs** switch them; the choice is `showConversationTabs` in `desktop-settings.json`, shared by the windows and by the menu's checkbox, and the window remembers the last answer for the first paint. With the switch on, the top of the window is as it was: the strip, in the same 36 px. The context read-out stays in the composer's row either way. A Pal's conversation always keeps the strip, because the Pal's computer is a tab in it.
 
@@ -2176,8 +2176,8 @@ waits until it is sent or removed. The "delivered" strip for live input disappea
 once the turn settles (pending and unconfirmed receipts stay), and queued messages
 left behind by a stopped or failed turn are labelled "paused" because they only start
 after the next message finishes.
-The right side of an ordinary conversation's header holds two icon buttons:
-Conversation actions ("…") and Conversation details. Returning to a blank project
+The right side of an ordinary conversation's header holds the pane buttons and "…" (View options); the
+conversation's actions are under the "∨" after the title. Returning to a blank project
 also closes the conversation detail pane. Pal conversations keep their own header.
 The actions menu offers Rename… (Ctrl+Alt+R), Pin or Unpin (Ctrl+Alt+P), New side
 chat (Ctrl+Alt+S), Fork, Copy, Move to right pane, Move to new window and Archive…
@@ -2218,18 +2218,7 @@ composer (the lane's `--composer-height`), so the side panel stays clear; `notif
 to the pane focused last. Pin and Unpin offer Undo, Archive offers Undo when the host
 can restore the conversation, and an undone reply offers Show, which opens the Changes
 tab.
-Conversation details is a 320px popover. It shows the project name with a "…"
-menu holding Copy path (absent for a conversation without a project), Changes with
-`+added −removed` line totals for this conversation's completed file edits (a path
-counts once, from its first before to its last after; "No file changes yet" when
-empty; click opens the Changes pane), the repository row (branch and last commit
-subject, read when the popover opens, hidden when the project is not a repository),
-Background work with "N running", "Needs attention" or "None" (click opens the
-Activity pane), and Sources, the files and images sent in the conversation, newest
-first, three shown with View all and a "+" that opens the attach flow. The icon
-carries a dot while background work runs and a warning-coloured dot when it needs
-attention, with the count in its accessible name. Pending or failed shell reads
-remain unconfirmed rather than showing a stale count from another conversation.
+The conversation-details popover is gone; its rows live in the Session pane (see [the session panel](#the-session-panel-the-plan-card-and-commit-changes)).
 Opening a detail pane returns the transcript to the available width. Unsupported
 artifact and child-session inventories are absent. No floating card sits beside the
 conversation at any width.
@@ -2363,10 +2352,10 @@ while the conversation keeps at least 360 px, which is a main area of 680 px or 
 panel take the whole pane (the conversation is not squeezed into a
 clipped sliver; a **Back to conversation** button at its top-left, and **Hide panel**, bring it back). See
 [The side panels](#the-side-panels). The project and computer chips above an empty composer are one
-flat row on the composer's own edges, and the page edge under the composer is solid, so a long reply never shows
+flat row on the composer's own edges, and everything under and around the box (the row and the gap below it) is the page's own colour, with a soft 24 px fade above the box, at every width, so a long reply never shows
 through below it. The panel and conversation widths animate together, and the
 details control remains mounted during the transition. Closing the panel or
-pressing Escape returns focus to the Conversation details button; automatic
+pressing Escape returns focus to the pane's button; automatic
 navigation does not move focus back to an old panel. Reduced motion disables
 these transitions. The composer and navigation remain inside the available width.
 
@@ -3531,15 +3520,17 @@ The model is told so in one line of its environment facts, in a Desktop conversa
 
 ## The session panel, the plan card and Commit changes
 
-**The session panel** is the Session pane of [the pane grid](#the-pane-grid) (a 320 px column or a 280 px card), opened by the Session button in the top bar (`session-panel.tsx`; the choice is remembered in this window and starts closed, so the conversation keeps its full width until it is asked for). It reads one summary (`sessionSummary` in `session-summary-model.ts`) that the details popover reads too, so the two cannot say different things (`session-summary-model.test.ts` renders both from one input). Its sections:
+**The session panel** is the Session pane of [the pane grid](#the-pane-grid) (a 320 px column or a 280 px card), opened by the Session button in the top bar (`session-panel.tsx`; the choice is remembered in this window and starts closed, so the conversation keeps its full width until it is asked for). It reads one summary (`sessionSummary` in `session-summary-model.ts`). The conversation-details popover is gone: everything it showed is in this pane. Its sections, in this order:
 
-- **Environment**: "This computer", the folder (a click copies its path) and the branch with the last commit as its tooltip; in a folder that is not trusted the branch row says so instead of being missing.
+- **Environment**: "This computer", the folder (a click copies its path; its "…" menu holds Copy path and Archived conversations, and is absent for a conversation without a folder) and the branch with the first line of its last commit under it (a commit mark and "Detached" for a detached head); in a folder that is not trusted the branch row says so instead of being missing.
 - **Context**: a thin bar and the share ("7%", "about 7%" when estimated); "Not measured yet" with an empty bar before the engine has said, never zero.
 - **Tool servers**: the project's tool servers with the count of connected ones ("2 connected", "None", "Checking…"), a warning line for ones that wait for approval or failed, and the list on a click. The section keeps Namzu's own word for them.
+- **Applications**: the applications computer use has been allowed or has used in this conversation, each with Take back; drawn only once there is one.
+- **Sources**: the files and images sent in this conversation, newest first, three shown with "View all", and a "+" that opens the attach flow (it says why when it cannot); "Nothing attached yet" when empty.
 - **Changes**: "+312 −0", counted from this conversation's edits (the tooltip says so), and **Commit changes** (below).
 - **Background tasks**: one row per running job with its own running time (the live step's words, ticking once a second only while the panel is open and a job runs), a stop square, and "N finished" that opens the finished ones with their end (Done, Failed, Stopped). "None" when there are none; "Not known" when the host cannot say, with no count.
 
-It is not drawn for a Pal, a conversation without a folder shows only Context and Background tasks, and below 900 px of workspace it gives way to the details popover, which carries the same rows (and now the finished count). When the Activity or Changes panel is open as well it sits to its right.
+It is not drawn for a Pal, a conversation without a folder shows only Context and Background tasks, and below the width where it no longer docks it is a card over the conversation. When the Activity or Changes panel is open as well it sits to its right.
 
 **The plan card** is the box under the person's message while the agent works (`PlanBox`). In an ordinary project conversation (not only a Pal's) it lists every step with its mark (a check, a spinning arc, a dashed ring, a cross), is titled by the step in hand with "N of M", and stays in the flow until every step is done, also while the reply is written. When the turn ends with a step left the plan row in the work block is open; once all are done it folds to "Plan · N/N done". The Activity panel's list uses the same marks. A conversation with no plan has no card.
 
@@ -3619,12 +3610,29 @@ and no resize rewrites the layout.
 - **The Session pane** docks as a 320 px column at the right edge when the conversation would keep 360 px beside it,
   otherwise it is a 280 px card over the conversation, 8 px from the first column. The choice is kept even while
   there is no room, and the pane docks by itself when room appears. Esc inside the card and the button close it.
-- **The top bar** reads Session, a divider, Terminal, Changes, Browser, Files, "...". Each button toggles its pane;
-  open is a filled rounded square behind the icon, `aria-pressed` is always a boolean, the tooltip says
-  "Show terminal (Ctrl+')" or "Hide terminal (Ctrl+')". Terminal is Ctrl+' (Cmd on a Mac), Browser Ctrl+Shift+B and
-  Files Ctrl+Shift+F; Changes and the Session pane have no key. Plain Ctrl+B is still the sidebar's, and the three
-  chords leave a terminal for the window instead of reaching its program. The line totals that used to sit in the
-  bar are in the Session pane's Changes row and in the Changes pane.
+- **The top bar** reads, at the right, Session, a thin divider, Terminal, Changes, Browser, Files, "…" and then the
+  window buttons. Each pane button toggles its pane; open is a filled rounded square behind the icon,
+  `aria-pressed` is always a boolean. The tooltip ("Show terminal (Ctrl+')", "Hide terminal (Ctrl+')") is drawn to
+  the left of the button, in the bar, so it never lies over a pane's header; a press hides it and it does not come
+  back until the pointer has left the button and returned. Terminal is Ctrl+' (Cmd on a Mac), Browser Ctrl+Shift+B
+  and Files Ctrl+Shift+F; Changes and the Session pane have no key. Plain Ctrl+B is still the sidebar's, and the
+  three chords leave a terminal for the window instead of reaching its program. The line totals that used to sit in
+  the bar are in the Session pane's Changes row and in the Changes pane.
+- **"…" (View options)** opens a small card: *Side chat* (Ctrl+;, Cmd+; on a Mac, as well as the existing
+  Ctrl+Alt+S) and, after a rule, *Keep computer awake* with "Only for this session" under it.
+- **The title** is text; a click turns it into a field. Enter saves, Esc cancels, leaving the field saves. The "∨"
+  right after it, "More options for <title>", holds the conversation's actions (Open in, Rename, Fork, Copy, Pin,
+  Mark as unread, Move to right pane, Move to new window, Archive). A terminal's title is not editable and has no
+  such menu.
+- **A terminal** started from the Terminal pane or button opens in the conversation's project folder, and in the
+  home folder for a conversation that has no project (its own folder would be Namzu's chats folder, which is nobody's
+  work; `terminalFolder` in `src/main/terminal-env.ts`). The pane lists only the terminals of this conversation's
+  project, so a terminal restored from an earlier run shows beside its own project and no other; opening the pane
+  with no running terminal for the project starts a fresh one, and an ended one stays for its Close and Restart.
+  In a narrow pane the ended note's words wrap above its two buttons.
+- **Long lines** wrap by default in the Changes pane's diff ("Word wrap" is checked in its View menu, and can be
+  turned off) and in the Files pane's code preview, with each line number beside the first row of its line; a file
+  long enough to be drawn as a virtual list keeps one row per line.
 - **Each pane** has a 44 px header (a title or tabs, then "...", maximise, close). "..." moves the pane left, right,
   up or down and closes the other panes. Terminal shows the group's terminals as tabs; Browser is a real browser
   page (see [The Browser pane](#the-browser-pane)); Files is a tree of the work folder with U (not in git yet)
@@ -3664,7 +3672,9 @@ app as a page in another browser.
   the renderer's word. A path that leaves it, an address of any other kind (`javascript:`, `data:`, `ftp:`) and
   a conversation with no work folder (a Pal's) are refused with a plain sentence under the address bar.
 - A native view sits above the app's own page, so a menu or dialog that reaches the page's rectangle, and a
-  divider being dragged, make the page step aside until they are gone.
+  divider being dragged, make the page step aside until they are gone. The host takes a picture of the page first
+  (`freeze`, answered through the pane's state as `still`) and the pane shows it in the page's place, so the area
+  never goes blank under a menu; placing the page again takes the picture away.
 
 Known limits: a page that holds the keyboard does not pass the app's chords (Ctrl+Shift+B and the rest) back
 until focus returns to the app, and a symbolic link inside the work folder that points outside it is followed
@@ -3672,12 +3682,13 @@ for subresources (a navigation is checked against the real path).
 
 ## The top-bar menu, the composer and the reply rows
 
-- **"..." in the conversation's top bar** is the conversation's own menu. *New side chat* (Ctrl+Alt+S) is the
-  side conversation: a copy of this conversation that opens in a pane to the right. *Keep computer awake*, with
-  "Only for this session" under it, is a switch: while on, the host holds a power-save blocker that keeps the
-  display and the computer from sleeping. It is released when the switch goes off, when the window that turned it
-  on closes, and when the conversation is removed. It is per conversation and is not remembered across a
-  restart.
+- **"…" in the conversation's top bar** is the View options card (see [the pane grid](#the-pane-grid)). *Side chat*
+  (Ctrl+;, and Ctrl+Alt+S in the conversation's menu) is the side conversation: a copy of this conversation that
+  opens in a pane to the right. *Keep computer awake*, with "Only for this session" under it, is a switch: while on,
+  the host holds a power-save blocker that keeps the display and the computer from sleeping. It is released when the
+  switch goes off, when the window that turned it on closes, and when the conversation is removed. It is per
+  conversation and is not remembered across a restart. The rest of the conversation's actions are under the "∨"
+  after the title.
 - **The message box** shows a hint that is one short line and never wraps, so the empty box is one line high
   (44 px) at any width. While a reply runs it reads "Ctrl+Enter to queue" (Cmd on a Mac) and the full sentence
   ("Enter sends now · Ctrl+Enter or Tab sends after this reply") is its tooltip. After a message is sent the
