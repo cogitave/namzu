@@ -278,9 +278,13 @@ export async function resolveLocalPage(
 	const segments = segmentsBelow(root, file)
 	const secret = secretPathReason(segments)
 	// The lexical spelling too: a link named `site.html` that points at `.env`.
-	const lexicalSecret = secretPathReason(
-		segmentsBelow(resolve(context.workingDirectory), lexical).filter((s) => s !== '..'),
-	)
+	// Taken below the root the spelling sits in, so a root that itself lives
+	// under a folder such as .namzu does not refuse every page in it.
+	const lexicalRoot = localPageRoots(context)
+		.map((candidate) => resolve(candidate))
+		.find((candidate) => isInside(candidate, lexical))
+	const lexicalSecret =
+		lexicalRoot === undefined ? undefined : secretPathReason(segmentsBelow(lexicalRoot, lexical))
 	const reason = secret ?? lexicalSecret
 	if (reason !== undefined) {
 		throw new LocalPageRefusal(`${lexical} is not opened: ${reason}.`)

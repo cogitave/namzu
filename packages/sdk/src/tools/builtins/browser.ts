@@ -1070,6 +1070,18 @@ export async function closeBrowserLocalPages(host: BrowserHost): Promise<void> {
 	await LOCAL_PAGES.get(host)?.close()
 }
 
+/** Options of {@link createBrowserTools}. */
+export interface BrowserToolsOptions {
+	/**
+	 * Whether a path or `file:` address names a page in this session's folders
+	 * and is opened through the tool's local door. Default `true`. Turn it off
+	 * where the browser does not share this machine's loopback or folders (a
+	 * browser of an isolated computer): such an address is then refused as any
+	 * non-web address is.
+	 */
+	readonly localPages?: boolean
+}
+
 /**
  * The browser tools over a {@link BrowserHost}: `browser` (observe and
  * navigate) and `browser_act` (change the page).
@@ -1089,10 +1101,14 @@ export async function closeBrowserLocalPages(host: BrowserHost): Promise<void> {
  */
 export function createBrowserTools(
 	host: BrowserHost,
+	options: BrowserToolsOptions = {},
 ): [ToolDefinition<BrowserToolInput>, ToolDefinition<BrowserActToolInput>] {
 	const caps = host.capabilities
-	const localPages = new LocalPageServers()
-	LOCAL_PAGES.set(host, localPages)
+	const localPagesOpen = options.localPages !== false
+	// A second tool set over the same host shares the first one's servers, so
+	// closing the host's local pages closes them all.
+	const localPages = LOCAL_PAGES.get(host) ?? new LocalPageServers()
+	if (localPagesOpen) LOCAL_PAGES.set(host, localPages)
 	/**
 	 * A path the model named becomes the `http:` address it is served on; any
 	 * other address passes through. A refusal is a result, not a throw.
@@ -1107,6 +1123,16 @@ export function createBrowserTools(
 				: undefined
 		const reading = url === undefined ? undefined : readLocalPageReference(url)
 		if (url === undefined || !reading) return { input }
+		if (!localPagesOpen) {
+			// This browser is not on this machine: a path means nothing to it.
+			const verdict = canonicalizeBrowserUrl(url)
+			return {
+				refused: refusal(
+					`${BROWSER_TOOL_NAME}: ${verdict.ok ? 'only http(s) addresses can be opened here' : verdict.reason}`,
+					{ code: 'browser_local_page_refused' },
+				),
+			}
+		}
 		try {
 			if (!reading.ok) throw new LocalPageRefusal(reading.reason)
 			const target = await resolveLocalPage(reading, context)

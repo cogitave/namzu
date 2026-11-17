@@ -154,6 +154,17 @@ async function refusedWith(path: string, context: ToolContext = ctx()): Promise<
 }
 
 describe('resolveLocalPage', () => {
+	it('does not refuse an allowed folder that itself sits under a .namzu folder', async () => {
+		const extra = join(base, '.namzu', 'extra')
+		await mkdir(extra, { recursive: true })
+		await writeFile(join(extra, 'p.html'), '<p>x</p>')
+		const target = await resolveLocalPage(
+			{ path: '../.namzu/extra/p.html' },
+			ctx({ additionalDirectories: [extra] }),
+		)
+		expect(target.segments).toEqual(['p.html'])
+	})
+
 	it('resolves a relative and an absolute path to the same file', async () => {
 		const relative = await resolveLocalPage({ path: 'site/index.html' }, ctx())
 		const absolute = await resolveLocalPage({ path: join(work, 'site', 'index.html') }, ctx())
@@ -375,8 +386,8 @@ function recordingHost(): Recording {
 	return host
 }
 
-function manager(host: BrowserHost) {
-	const [browser, act] = createBrowserTools(host)
+function manager(host: BrowserHost, options?: { localPages?: boolean }) {
+	const [browser, act] = createBrowserTools(host, options)
 	return new ToolManager({
 		toolsets: [testToolset(browser as ToolDefinition, act as ToolDefinition)],
 		messages: () => [],
@@ -464,5 +475,27 @@ describe('the browser tool and a local page', () => {
 		)
 		expect(web.success).toBe(true)
 		expect(urlOf(host)).toBe('https://example.com/a')
+	})
+
+	it('hands a path to the host untouched, to be refused as a non-web address, when local pages are off', async () => {
+		const host = recordingHost()
+		const result = await manager(host, { localPages: false }).execute(
+			'browser',
+			{ action: 'navigate', url: 'site/index.html' },
+			ctx(),
+		)
+		expect(result.success).toBe(false)
+		expect(host.observed).toEqual([])
+	})
+
+	it('shares one set of servers between tool sets over the same host', async () => {
+		const host = recordingHost()
+		createBrowserTools(host)
+		const registry = manager(host)
+		await registry.execute('browser', { action: 'navigate', url: 'top.html' }, ctx())
+		const first = urlOf(host)
+		createBrowserTools(host)
+		await closeBrowserLocalPages(host)
+		await expect(fetch(first)).rejects.toThrow()
 	})
 })

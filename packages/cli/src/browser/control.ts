@@ -177,6 +177,7 @@ export function createBrowserControl(
 			if (disposed) throw new Error('The browser of this session is closed.')
 			const previous = current
 			current = build(name)
+			await closeBrowserLocalPages(host)
 			await previous.dispose()
 			return control.status()
 		},
@@ -184,6 +185,7 @@ export function createBrowserControl(
 			if (disposed) return
 			const previous = current
 			current = build(previous.profile)
+			await closeBrowserLocalPages(host)
 			await previous.dispose()
 		},
 		async runAs(run) {
