@@ -3688,6 +3688,57 @@ for subresources (a navigation is checked against the real path).
   edge, the rows' words 13 px, the box is 8 px under the header, and a row is 36 px high with a hairline, so
   rows are 37 px apart.
 
+## The composer's menus
+
+Three menus open from the message box. None of them takes the keyboard from it: the caret stays in the box and
+the box's own key handler moves the highlight.
+
+- **"/" lists commands.** It opens when the box's first character is "/" and no space lies between it and the
+  caret (a "/" anywhere else is text), is read from the changed text and the caret, never from the key, so the
+  Turkish layout (Shift+7) works, and is off in a Pal's box and in CLI mode. The list sits flush on the box's top
+  edge, 240 px wide, up to 384 px high (it scrolls inside), its left 16 px before the text. A row is 28 px and
+  shows a name without the slash; what the highlighted row does is a black tooltip beside the list, level with the
+  row, 2 px away, up to 208 px wide (it flips to the left when the window has no room). The empty box says "Type /
+  for commands" in an open conversation (the new-conversation screen keeps "Ask Namzu anything"), and a ghost "Type
+  to filter" follows a lone "/".
+  - **Filtering** ranks an exact name, then a name that starts with the text, then one that contains it, then a
+    row whose alias or tooltip does; inside a tier the list's own order stays. Case and accents are folded. When
+    nothing matches the list closes and the text stays; Enter then sends it as an ordinary message, so
+    "/usr/bin/foo is missing" is sent. A line that starts with a command that takes no text but carries some
+    ("/new feature ideas") is also a message.
+  - **Keys.** Up and Down move (no wrap), PageUp and PageDown move seven rows, Enter and Tab choose, Esc closes
+    and leaves the "/" in the box (the list stays closed until the text it was asked about changes), Backspace
+    over the "/" closes it. Ctrl, Alt, Shift and an input method that is composing keep their keys.
+  - **Choosing** a row that takes text (`effort`, `plan`, `rename`) leaves "/name " in the box with a grey hint
+    after it ("[what to plan]"); the next Enter runs it with what was typed. A row without text runs at once and
+    empties the box. No row starts a reply. The leading "/name" is drawn in the accent colour by a layer behind the
+    box that has the box's own type and padding.
+  - **Rows** are things this window already does: btw (a side chat), fork, mcp, model, effort, plan, permissions,
+    rename, export, diff, terminal, browser, files, tasks, config, theme, hooks, resume, login, copy, new, archive
+    and release-notes. A row that cannot run in this conversation is not listed (never greyed): effort needs a
+    model with levels, resume another conversation, the pane rows an open conversation, mcp and hooks the Namzu
+    engine. On the new-conversation screen only the rows that need no conversation show, with a muted line that
+    more appear once it starts. Commands that need the engine (goal, skills, compact, memory, rewind) are not
+    here: no call carries them yet.
+- **"+" opens a menu** flush on the box's top edge, left edge level with the button, 240 px wide. Rows: *Add files
+  or photos* (Ctrl+U, Cmd+U on a Mac, from anywhere in the box), *Slash commands* (puts "/" in an empty box and
+  opens the list), *Tool servers* and *Plugins*, each opening a menu to its right, 2 px away and level with the
+  row's bottom. Tool servers lists *Manage tool servers* and each server with a state word (Connected, Needs
+  approval, Failed, Not started); a row opens Settings > Tools, because an approval is decided where it is
+  explained. Plugins lists each plugin with a switch that changes it through the same call the conversation uses,
+  and is held while work runs or a question waits. One Esc closes the side menu, another the menu, and the keyboard
+  goes back to the box. Add folder is not offered: no call gives a running conversation another folder. A Pal's
+  box keeps its older popover.
+- **"@" lists files.** It opens at the start of the box or after white space (an address such as a@b is not one)
+  and runs to the caret; `@"name with spaces"` is allowed. The list is the project's files, read the first time
+  "@" is typed and kept for the project; an empty query shows the first eight, a query ranks by letters and draws
+  the matched letters of the name strong, with the folder after it in grey. It is 420 px wide, its left at the "@"
+  and its bottom on the top of the line that holds it. Enter or Tab writes `@path ` (a path with a space is
+  quoted) and the caret goes after it. If the list cannot be read, nothing opens.
+
+The pure parts (the filter and its order, the argument hint, the "@" grammar and list) are
+`src/renderer/composer-menu-model.ts` and `composer-mention-list.ts`; the rows are `slash-actions.ts`.
+
 ## The frame's numbers
 
 The header, the sidebar's rows and its foot sit on one rhythm, so edges that should meet do, and no
