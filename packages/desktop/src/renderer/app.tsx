@@ -54,6 +54,7 @@ import { applyClosedTabEvent } from './closed-tab.js'
 import { CommandPalette, type CommandPaletteItem } from './command-palette.js'
 import { CommitDialog } from './commit-dialog.js'
 import { changedPaths, commitButtonState } from './commit-model.js'
+import type { AddMenuToolServers } from './composer-add-menu.js'
 import { historyEntries } from './composer-history.js'
 import {
 	type ComposerPlugin,
@@ -73,6 +74,7 @@ import { computerWorkspaceIds } from './computer-workspace-toolbar.js'
 import { ConfirmRemovalDialog } from './confirm-removal-dialog.js'
 import { ConversationActionsMenu } from './conversation-actions-menu.js'
 import {
+	type ConversationActionEntry,
 	type ConversationActionId,
 	type ConversationActionInput,
 	conversationActionGroups,
@@ -252,6 +254,7 @@ import {
 } from './sidebar-catalogue.js'
 import { useSidebarSections } from './sidebar-section.js'
 import { type ConversationCollection, Sidebar } from './sidebar.js'
+import type { SlashHandlers } from './slash-actions.js'
 import {
 	launchSeed,
 	rememberSidebar,
@@ -6117,6 +6120,76 @@ export function App({
 	const headerActionsVisible =
 		!palConversation && Boolean(sessionId && conversation && !activeTerminal)
 	headerActionsVisibleRef.current = headerActionsVisible
+	// What the message box's "/" list can run in this conversation. A command that cannot run here has
+	// no handler, so it is not listed; none of them starts a reply.
+	const slashHandlers: SlashHandlers = {}
+	if (!palConversation && !frozen) {
+		const offered = new Set<ConversationActionId>()
+		if (conversation) {
+			const walk = (entries: readonly ConversationActionEntry[]) => {
+				for (const entry of entries) {
+					if (!entry.reason) offered.add(entry.id)
+					if (entry.children) walk(entry.children)
+				}
+			}
+			for (const group of conversationActionGroups(conversationActionInput(conversation)))
+				walk(group)
+		}
+		const runAction = (id: ConversationActionId) => () => {
+			if (conversation) runConversationAction(id, conversation, null)
+		}
+		if (offered.has('side-chat')) slashHandlers.btw = runAction('side-chat')
+		if (offered.has('fork')) slashHandlers.fork = runAction('fork')
+		if (offered.has('rename'))
+			slashHandlers.rename = (argument) => {
+				const title = argument.trim()
+				if (title && conversation && api.renameConversation) {
+					const target = conversation.id
+					void act(async () => {
+						const next = await api.renameConversation?.(target, title)
+						if (next) upsertConversation(next)
+					})
+				} else runAction('rename')()
+			}
+		if (offered.has('copy-markdown')) slashHandlers.export = runAction('copy-markdown')
+		if (offered.has('copy-reply')) slashHandlers.copy = runAction('copy-reply')
+		if (offered.has('archive')) slashHandlers.archive = runAction('archive')
+		if (headerActionsVisible) {
+			if (project?.trusted && project.status === 'ready' && !project.isChat)
+				slashHandlers.diff = () => togglePaneKind('changes')
+			if (terminalReady || stripTerminals.length > 0)
+				slashHandlers.terminal = () => togglePaneKind('terminal')
+			slashHandlers.browser = () => togglePaneKind('browser')
+			if (filesEnabled) slashHandlers.files = () => togglePaneKind('files')
+			slashHandlers.tasks = () => openSessionPane()
+		}
+		if (project?.trusted && !project.isChat && !externalHarness && api.mcpServers)
+			slashHandlers.mcp = () => openSettings('tools', 'mcpServers')
+		if (!externalHarness) slashHandlers.hooks = () => openSettings('tools', 'hooks')
+		slashHandlers.config = () => openSettings()
+		slashHandlers.theme = () => openSettings('appearance')
+		slashHandlers.login = () => openSettings('models', 'models')
+		slashHandlers['release-notes'] = () => openSettings('updates')
+		if (conversations.length > 1) slashHandlers.resume = () => setCommandOpen(true)
+		slashHandlers.new = () => {
+			if (!loading) void act(newConversation)
+		}
+	}
+	// The plus menu lists a project's tool servers; they are read the first time that menu opens.
+	const [toolServersWanted, setToolServersWanted] = useState(false)
+	const composerServers = useMcpServers(
+		api,
+		toolServersWanted && !sessionPanelActive ? gitProjectId : undefined,
+	)
+	const plusServers: AddMenuToolServers | undefined =
+		palConversation || !gitProjectId || externalHarness || !api.mcpServers
+			? undefined
+			: {
+					view: (sessionPanelActive ? mcp.view : composerServers.view) ?? undefined,
+					onOpen: () => setToolServersWanted(true),
+					onManage: () => openSettings('tools', 'mcpServers'),
+				}
+
 	// A pane is open while the panes are showing and the layout holds it; the Session pane is its own flag.
 	const paneOpen: Record<PaneKind, boolean> = {
 		session: paneLayout.sessionWanted,
@@ -7742,6 +7815,14 @@ export function App({
 								</Button>
 							)}
 							<Composer
+								slashHandlers={slashHandlers}
+								loadProjectFiles={
+									filesEnabled && api.projectFileIndex
+										? (id) =>
+												api.projectFileIndex?.(id) ?? Promise.reject(new Error('no file list'))
+										: undefined
+								}
+								toolServers={plusServers}
 								variant={pal ? 'pal' : 'default'}
 								surface={surfaceControl}
 								pluginsSupported={!pal}

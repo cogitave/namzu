@@ -1,0 +1,205 @@
+/* The lists above the message box: "/" commands and "@" files. They share the menu tokens, so a row
+   is 28 high, the surface is the menu's, and the text starts 10 in. The list never takes focus. */
+.composer-list-frame {
+	position: fixed;
+	z-index: var(--z-popover);
+	pointer-events: none;
+}
+.composer-list-menu {
+	pointer-events: auto;
+	display: flex;
+	flex-direction: column;
+	box-sizing: border-box;
+	overflow-y: auto;
+	padding: var(--menu-padding);
+	border: 1px solid var(--border);
+	border-radius: var(--menu-radius);
+	background: var(--popover);
+	color: var(--popover-foreground);
+	box-shadow: var(--shadow-popover);
+	animation: composer-list-in 120ms var(--motion-ease);
+}
+@keyframes composer-list-in {
+	from {
+		opacity: 0;
+		transform: translateY(2px);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.composer-list-menu {
+		animation: none;
+	}
+}
+.composer-list-row {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 8px;
+	min-height: var(--menu-row-height);
+	padding: var(--menu-row-padding-block) var(--menu-text-inset);
+	border-radius: var(--menu-row-radius);
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
+	cursor: default;
+	user-select: none;
+}
+.composer-list-row[aria-selected="true"] {
+	background: var(--menu-highlight);
+}
+.composer-list-name,
+.composer-list-file {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.composer-list-name {
+	flex: 1;
+}
+.composer-list-tag {
+	flex: none;
+	margin-inline-start: auto;
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+}
+.composer-list-icon {
+	flex: none;
+	width: var(--menu-icon-size);
+	height: var(--menu-icon-size);
+}
+.composer-list-file {
+	flex: none;
+	max-width: 70%;
+}
+.composer-list-file > [data-match] {
+	font-weight: var(--weight-strong);
+}
+.composer-list-folder {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	direction: rtl;
+	text-align: left;
+}
+.composer-list-note {
+	margin: 0;
+	padding: 6px var(--menu-text-inset);
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+}
+/* What the highlighted command does: black, white words, level with its row. */
+.composer-list-tip {
+	position: absolute;
+	left: calc(100% + 2px);
+	box-sizing: border-box;
+	width: max-content;
+	max-width: 13rem;
+	padding: 6px 8px;
+	border-radius: 6px;
+	background: #000;
+	color: #fff;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	text-wrap: balance;
+	pointer-events: none;
+}
+.composer-list-tip[data-flip] {
+	right: calc(100% + 2px);
+	left: auto;
+}
+
+/* The layer behind the box that paints a leading command word and the grey hint after it. The box's
+   own letters go transparent while it is on; the caret keeps its colour. */
+.composer-input-stack {
+	position: relative;
+	min-width: 0;
+}
+.composer-input-stack textarea[data-mirror] {
+	color: transparent;
+	caret-color: var(--foreground);
+}
+.composer-input-stack textarea[data-mirror]::selection {
+	background: color-mix(in srgb, var(--primary) 28%, transparent);
+	color: transparent;
+}
+.composer-mirror {
+	position: absolute;
+	top: 0;
+	left: 0;
+	margin: 0;
+	overflow: hidden;
+	pointer-events: none;
+	color: var(--foreground);
+}
+.composer-mirror-command {
+	color: var(--primary);
+}
+.composer-mirror-ghost {
+	color: var(--muted-foreground);
+}
+
+/* The plus menu: a row's shortcut or state word, and a switch. */
+.composer-add-popup {
+	width: 240px;
+	min-width: 240px;
+}
+.composer-add-sub {
+	min-width: 224px;
+	max-width: var(--menu-max-width);
+}
+.composer-add-hint {
+	flex: none;
+	margin-inline-start: auto;
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+}
+.composer-add-chevron {
+	flex: none;
+	margin-inline-start: auto;
+	color: var(--muted-foreground);
+}
+.composer-add-note {
+	margin: 0;
+	padding: 6px var(--menu-text-inset);
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+}
+.composer-switch {
+	position: relative;
+	flex: none;
+	margin-inline-start: auto;
+	width: 30px;
+	height: 16px;
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--foreground) 22%, transparent);
+	transition: background-color 150ms var(--motion-ease);
+}
+.composer-switch::after {
+	content: "";
+	position: absolute;
+	top: 2px;
+	left: 2px;
+	width: 12px;
+	height: 12px;
+	border-radius: 50%;
+	background: #fff;
+	transition: transform 150ms var(--motion-ease);
+}
+.composer-switch[data-on] {
+	background: var(--primary);
+}
+.composer-switch[data-on]::after {
+	transform: translateX(14px);
+}
+@media (prefers-reduced-motion: reduce) {
+	.composer-switch,
+	.composer-switch::after {
+		transition: none;
+	}
+}

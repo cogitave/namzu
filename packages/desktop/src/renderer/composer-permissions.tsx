@@ -213,11 +213,14 @@ export function ComposerPermissions({
 	onChange,
 	engine = 'namzu',
 	permissionScope,
+	openRequest = 0,
 }: {
 	reviewModes?: readonly ComposerPermissionMode[]
 	permissionMode: ComposerPermissionMode
 	disabled: boolean
 	onChange: (mode: ComposerPermissionMode) => void
+	/** A counter: each rise opens the list, so "/permissions" can ask for it from outside. */
+	openRequest?: number
 	engine?: ComposerPermissionEngine
 	permissionScope?: string
 }) {
@@ -225,6 +228,12 @@ export function ComposerPermissions({
 	const cancel = useRef<HTMLButtonElement>(null)
 	const menu = useRef<HTMLDivElement>(null)
 	const [open, setOpen] = useState(false)
+	const seenRequest = useRef(openRequest)
+	useEffect(() => {
+		if (seenRequest.current === openRequest) return
+		seenRequest.current = openRequest
+		if (!disabled) setOpen(true)
+	}, [openRequest, disabled])
 	const [confirmation, setConfirmation] = useState<PermissionConfirmation | null>(null)
 	const pendingConfirmation = useRef<PermissionConfirmation | null>(null)
 	const supportedModes = reviewModes ?? defaultPermissionModes(engine)

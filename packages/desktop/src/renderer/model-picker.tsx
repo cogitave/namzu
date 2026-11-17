@@ -117,7 +117,10 @@ export function ModelPicker({
 	startingEngine,
 	startFailed,
 	unconnected = false,
+	openRequest = 0,
 }: {
+	/** A counter: each rise opens the list, so "/model" can ask for it from outside. */
+	openRequest?: number
 	providers: ProviderView
 	choice: ModelChoice
 	disabled: boolean
@@ -154,6 +157,15 @@ export function ModelPicker({
 	unconnected?: boolean
 }) {
 	const [open, setOpen] = useState(false)
+	const seenRequest = useRef(openRequest)
+	useEffect(() => {
+		if (seenRequest.current === openRequest) return
+		seenRequest.current = openRequest
+		if (!disabled) {
+			setView('models')
+			setOpen(true)
+		}
+	}, [openRequest, disabled])
 	const [view, setView] = useState<View>('models')
 	// Set when the person steps back from More, so focus lands on the "More" row they came from.
 	const returnToMore = useRef(false)

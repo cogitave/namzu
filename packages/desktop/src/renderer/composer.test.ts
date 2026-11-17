@@ -178,7 +178,7 @@ it('admits Pal chat and model attachments without granting unavailable guest too
 	expect(button(html, 'Permissions')).toMatch(/\bdisabled=/)
 	expect(html).not.toContain('aria-label="Plugins"')
 	const standard = render({ connected: true })
-	expect(button(standard, 'Plugins')).not.toMatch(/\bdisabled=/)
+	expect(button(standard, 'Add')).not.toMatch(/\bdisabled=/)
 	const online = render({
 		variant: 'pal',
 		connected: true,
@@ -296,7 +296,7 @@ it('holds only the text, Plus and Send in the box, and the settings in one row u
 	})
 	const editor = html.indexOf('<textarea')
 	const footer = html.indexOf('data-chat-composer-footer')
-	const plus = html.indexOf('aria-label="Attachments and message settings"', footer)
+	const plus = html.indexOf('aria-label="Add"', footer)
 	const submit = html.indexOf('aria-label="Send message"', footer)
 	const row = html.indexOf('data-composer-row')
 	const project = html.indexOf('This computer', row)
@@ -376,7 +376,6 @@ it('shows the wordmark once and only offers installed conversation engines', () 
 		attachmentsSupported: false,
 		reviewModes: ['prompt', 'plan'],
 	})
-	expect(button(supplied, 'Attach files')).toMatch(/\bdisabled=/)
 	expect(supplied).not.toContain('composer-harness-mark')
 })
 
@@ -412,9 +411,8 @@ it('retains functional normal attachment, plugin, effort, queue and approval con
 			},
 		],
 	})
-	expect(button(html, 'Attach files')).not.toMatch(/\bdisabled=/)
+	expect(button(html, 'Add')).not.toMatch(/\bdisabled=/)
 	expect(button(html, 'Permissions')).not.toMatch(/\bdisabled=/)
-	expect(button(html, 'Plugins')).not.toMatch(/\bdisabled=/)
 	// The row keeps the model at its right while the card waits; it cannot change while a reply runs, so it is disabled.
 	expect(html).toContain('aria-label="Model: space-bunny-free')
 	expect(html).toContain('composer-waiting')
@@ -426,7 +424,7 @@ it('retains functional normal attachment, plugin, effort, queue and approval con
 	expect(button(html, 'Stop reply')).not.toMatch(/\bdisabled=/)
 	expect(button(html, 'Queue message')).not.toMatch(/\bdisabled=/)
 	const offline = render()
-	for (const label of ['Attach files', 'Permissions', 'Plugins', 'Send message'])
+	for (const label of ['Permissions', 'Send message'])
 		expect(button(offline, label)).toMatch(/\bdisabled=/)
 	const idle = render({
 		connected: true,
@@ -692,8 +690,9 @@ it('shows how many shells run and the branch pull request, quietly, beside the m
 
 it('teaches the send and hold keys in the empty box while a reply runs', () => {
 	const live = render({ running: true, liveInputSupported: true, draft: '', onQueue: () => {} })
+	expect(live).toMatch(/placeholder="(?:Ctrl|Cmd)\+Enter to queue"/)
 	expect(live).toMatch(
-		/placeholder="Enter sends now · (?:Ctrl|Cmd)\+Enter or Tab sends after this reply"/,
+		/title="Enter sends now · (?:Ctrl|Cmd)\+Enter or Tab sends after this reply"/,
 	)
 	const plain = render({ running: true, draft: '' })
 	expect(plain).toContain('placeholder="Enter sends after this reply"')
@@ -760,4 +759,21 @@ it('keeps the row quiet and in its place: no fill or border at rest, the mode ne
 	expect(css).not.toMatch(/\[data-composer-control-chevron\] \{[^}]*opacity: 0;/)
 	expect(css).not.toContain('composer-context-above')
 	expect(css).not.toMatch(/#[0-9a-f]{3,8}\b/i)
+})
+
+it('opens the plus menu from one button named Add, and keeps the older popover only in the Pal box', () => {
+	const standard = render({ connected: true })
+	expect(button(standard, 'Add')).not.toMatch(/\bdisabled=/)
+	expect(standard).not.toContain('aria-label="Attachments and message settings"')
+	expect(render({ variant: 'pal', connected: true })).toContain(
+		'aria-label="Attachments and message settings"',
+	)
+})
+
+it('names the slash list in the empty box of an open conversation, not on the home screen', () => {
+	expect(render({ connected: true, empty: false })).toContain('placeholder="Type / for commands"')
+	expect(render({ connected: true, empty: true })).toContain('placeholder="Ask Namzu anything"')
+	expect(render({ variant: 'pal', connected: true, empty: false })).toContain(
+		'placeholder="Send a message"',
+	)
 })
