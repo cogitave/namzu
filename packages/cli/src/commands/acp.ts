@@ -19,6 +19,7 @@ import {
 	asTurnId,
 	createUserMessage,
 	generateSessionId,
+	generateTurnId,
 	genericLabel,
 	isEntityId,
 	openSessionIndex,
@@ -104,6 +105,11 @@ import {
 	settleTurnOfGoneHost,
 } from './acp-provider-retry.js'
 import { questionsOverPermission } from './acp-screen-question.js'
+import {
+	COMMIT_MESSAGE_INSTRUCTION,
+	type CommitMessageRequest,
+	commitMessageBody,
+} from './desktop-commit.js'
 import { COMPUTER_FRAME_NOTIFICATION } from './desktop-computer-feed.js'
 import { createDesktopHostExtensions } from './desktop-host.js'
 import { desktopModelCatalogue } from './desktop-model-catalogue.js'
@@ -399,6 +405,15 @@ export interface CliTurnUndo {
 
 export interface CliAcpRuntime {
 	readonly gateway: AcpAgentGateway
+	/**
+	 * The small model's commit message for a conversation's changed files, or undefined when it has
+	 * none or cannot answer. Counted like any side request; never asked without a person's click.
+	 */
+	suggestCommitMessage?(
+		sessionId: string,
+		request: CommitMessageRequest,
+		signal: AbortSignal,
+	): Promise<string | undefined>
 	/** Per-reply file undo; absent on a runtime that keeps no file history. */
 	readonly turnUndo?: CliTurnUndo
 	/** Live operator text for this connection's current ordinary Namzu prompt only. */
@@ -1564,6 +1579,19 @@ export function createCliAcpRuntime(
 		gateway,
 		presenter,
 		turnUndo,
+		suggestCommitMessage: async (sessionId, request, signal) => {
+			const side = records.get(sessionId)?.session.sideModel
+			if (!side) return undefined
+			return side.ask({
+				sessionId: sessionId as SessionId,
+				turnId: generateTurnId(),
+				instruction: COMMIT_MESSAGE_INSTRUCTION,
+				body: commitMessageBody(request),
+				maxTokens: 300,
+				signal,
+				timing: 'beside-turn',
+			})
+		},
 		liveInputStatus: async (sessionId, scopeId, scope) => {
 			if (closed) throw new Error('The connection is closed.')
 			const inbox = liveInputs.get(sessionId)

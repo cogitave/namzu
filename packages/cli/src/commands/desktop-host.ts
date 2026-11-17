@@ -63,10 +63,17 @@ import { createPal, deletePal, getPal, listPals, palAtWorkspace, updatePal } fro
 import { canonicalProjectPath } from '../permissions/canonical-project.js'
 import type { CliHarnessRuntime } from './acp-harness.js'
 import type { CliAcpRuntime } from './acp.js'
+/** Scoped operator methods; ACP owns prompts, cancellation and review. */
+import {
+	COMMIT_METHOD,
+	COMMIT_PREVIEW_METHOD,
+	CommitRefused,
+	type ProjectCommit,
+	createProjectCommit,
+} from './desktop-commit.js'
 import { createProjectChanges } from './desktop-host-changes.js'
 import { type ProjectGitState, capMarkdown, createProjectGit } from './desktop-host-header.js'
 import { projectPr } from './desktop-host-pr.js'
-/** Scoped operator methods; ACP owns prompts, cancellation and review. */
 import { LIMITS_REFRESH_METHOD, type LimitsFeed } from './desktop-limits-feed.js'
 import { type SavedTurnOutcome, savedTurnOutcome } from './desktop-outcome-feed.js'
 
@@ -886,6 +893,13 @@ export function createDesktopHostExtensions(
 	projectChanges: ReturnType<typeof createProjectChanges> = createProjectChanges(),
 	palInboxStart?: CliPalInboxStarter,
 	limits?: Pick<LimitsFeed, 'refresh'>,
+	commit: ProjectCommit = createProjectCommit({
+		isTrusted,
+		suggest: (request, signal, sessionId) =>
+			sessionId
+				? (runtime.suggestCommitMessage?.(sessionId, request, signal) ?? Promise.resolve(undefined))
+				: Promise.resolve(undefined),
+	}),
 ) {
 	const cwd = canonicalProjectPath(directory)
 	const pal = () => palAtWorkspace(cwd)
@@ -1616,6 +1630,39 @@ export function createDesktopHostExtensions(
 					},
 				}
 			: {}),
+		/** What one conversation's changes would commit, and a suggested message; reads, writes nothing. */
+		[COMMIT_PREVIEW_METHOD]: async (params: Record<string, unknown> = {}) => {
+			const sessionId = params?.sessionId
+			if (
+				!params ||
+				typeof params !== 'object' ||
+				Array.isArray(params) ||
+				!Array.isArray(params.paths) ||
+				typeof sessionId !== 'string' ||
+				params.paths.length > 5000
+			)
+				throw new Error('Invalid commit preview request.')
+			return commit.preview(cwd, params.paths, sessionId)
+		},
+		/** Commits the confirmed files of one conversation, never pushing. */
+		[COMMIT_METHOD]: async (params: Record<string, unknown> = {}) => {
+			if (!params || typeof params !== 'object' || Array.isArray(params))
+				throw new Error('Invalid commit request.')
+			try {
+				return {
+					ok: true,
+					...(await commit.commit(cwd, {
+						paths: Array.isArray(params.paths) ? params.paths : [],
+						message: params.message,
+						fingerprints: params.fingerprints,
+					})),
+				}
+			} catch (failure) {
+				// A refusal (an untrusted folder, a failing hook, no identity) is an answer with its words.
+				if (failure instanceof CommitRefused) return { ok: false, reason: failure.message }
+				throw failure
+			}
+		},
 		'namzu/project/git': async (params: Record<string, unknown> = {}) => {
 			if (
 				!params ||

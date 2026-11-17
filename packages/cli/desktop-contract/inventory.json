@@ -140,6 +140,10 @@
     ],
     "limits": [
       "namzu/limits/refresh"
+    ],
+    "projectCommit": [
+      "namzu/project/commit-preview",
+      "namzu/project/commit"
     ]
   },
   "otherMethods": {
