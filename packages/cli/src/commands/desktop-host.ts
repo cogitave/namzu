@@ -1,4 +1,3 @@
-/** Scoped operator methods; ACP owns prompts, cancellation and review. */
 import { lstat } from 'node:fs/promises'
 import {
 	type AcpSessionPromptParams,
@@ -67,6 +66,8 @@ import type { CliAcpRuntime } from './acp.js'
 import { createProjectChanges } from './desktop-host-changes.js'
 import { type ProjectGitState, capMarkdown, createProjectGit } from './desktop-host-header.js'
 import { projectPr } from './desktop-host-pr.js'
+/** Scoped operator methods; ACP owns prompts, cancellation and review. */
+import { LIMITS_REFRESH_METHOD, type LimitsFeed } from './desktop-limits-feed.js'
 import { type SavedTurnOutcome, savedTurnOutcome } from './desktop-outcome-feed.js'
 
 const SEARCH_QUERY_MIN = 2
@@ -884,6 +885,7 @@ export function createDesktopHostExtensions(
 	projectGit: (cwd: string) => Promise<ProjectGitState | null> = createProjectGit(),
 	projectChanges: ReturnType<typeof createProjectChanges> = createProjectChanges(),
 	palInboxStart?: CliPalInboxStarter,
+	limits?: Pick<LimitsFeed, 'refresh'>,
 ) {
 	const cwd = canonicalProjectPath(directory)
 	const pal = () => palAtWorkspace(cwd)
@@ -1599,6 +1601,21 @@ export function createDesktopHostExtensions(
 				return capMarkdown((await conversationMarkdown(state, id)).markdown)
 			})
 		},
+		/** What each provider in use says about its account, read again (a request at most once a minute). */
+		...(limits
+			? {
+					[LIMITS_REFRESH_METHOD]: async (params: Record<string, unknown> = {}) => {
+						if (
+							!params ||
+							typeof params !== 'object' ||
+							Array.isArray(params) ||
+							Object.keys(params).length > 0
+						)
+							throw new Error('Invalid usage limits request.')
+						return limits.refresh()
+					},
+				}
+			: {}),
 		'namzu/project/git': async (params: Record<string, unknown> = {}) => {
 			if (
 				!params ||

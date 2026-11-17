@@ -137,6 +137,9 @@
       "namzu/pals/computer/take_over",
       "namzu/pals/computer/return_control",
       "namzu/pals/computer/input"
+    ],
+    "limits": [
+      "namzu/limits/refresh"
     ]
   },
   "otherMethods": {
@@ -191,6 +194,10 @@
       {
         "name": "namzu/terminal/exit",
         "from": "cli TERMINAL_NOTIFICATIONS.exit"
+      },
+      {
+        "name": "namzu/limits",
+        "from": "cli LIMITS_NOTIFICATION"
       }
     ],
     "requestsFromHost": [
@@ -390,6 +397,23 @@
           "SwitchReport",
           "HooksSwitches",
           "HooksReport"
+        ]
+      },
+      "src/commands/desktop-limits-feed.ts": {
+        "mirroredBy": "packages/desktop/src/shared/limits-protocol.ts",
+        "digests": {
+          "LIMITS_NOTIFICATION": "92443c4fcbd87d8d",
+          "LIMITS_REFRESH_METHOD": "e307fd5f7617ba91",
+          "LimitsNotification": "842e963143614812",
+          "LimitsProviderNotice": "eafa584cf3e3a13f",
+          "LimitsWindowNotice": "7a44c7ebb0af914d"
+        },
+        "names": [
+          "LIMITS_NOTIFICATION",
+          "LIMITS_REFRESH_METHOD",
+          "LimitsNotification",
+          "LimitsProviderNotice",
+          "LimitsWindowNotice"
         ]
       }
     }

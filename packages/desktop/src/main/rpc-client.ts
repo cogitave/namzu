@@ -78,6 +78,11 @@ export class RuntimeClient extends EventEmitter {
 	supportsProjectPr(): boolean {
 		return this.projectPr
 	}
+	private limits = false
+	/** A host that predates the usage limits feed does not list `namzu/limits/refresh`. */
+	supportsLimits(): boolean {
+		return this.limits
+	}
 	private projectGit = false
 	supportsProjectGit(): boolean {
 		return this.projectGit
@@ -322,6 +327,7 @@ export class RuntimeClient extends EventEmitter {
 		this.terminals = offers('terminals')
 		this.providerSetup = offers('providerSetup')
 		this.projectGit = offers('projectGit')
+		this.limits = offers('limits')
 		this.projectPr = offers('projectPr')
 		this.mcpServers = offers('mcpServers')
 		this.hooksView = offers('hooksView')

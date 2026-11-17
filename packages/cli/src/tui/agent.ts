@@ -1,6 +1,7 @@
 import { debugRequested } from '../debug-requested.js'
 import { isDefaultAccountId } from '../integrations/accounts/binding.js'
 import { resolveIdleCompactionMinTokens } from '../integrations/compaction/idle-compaction.js'
+import { type LimitsKind, rememberLimitsSource } from '../integrations/limits/sources.js'
 import { changeDetectorFor } from '../integrations/outcome/change-detector.js'
 import { createCurrentCredentialReader } from '../integrations/providers/current-credential.js'
 import { TextOnlyModels } from '../integrations/providers/image-input.js'
@@ -7766,9 +7767,25 @@ export function constructProvider(
 	model: string,
 	context: { readonly sessionId?: string } = {},
 ): LLMProvider {
-	return withModelWindowSuffixStripped(
+	const provider = withModelWindowSuffixStripped(
 		constructBareProvider(id, det, stripModelWindowSuffix(model), context),
 	)
+	const kind = limitsKindOf(id, det)
+	if (kind) rememberLimitsSource({ id, label: PROVIDER_REGISTRY[id]?.label ?? id, kind }, provider)
+	return provider
+}
+
+/** How the credential behind a provider was obtained, or undefined where nothing about limits can be said. */
+function limitsKindOf(id: ProviderId, det: DetectedProvider | null): LimitsKind | undefined {
+	if (id === 'ollama' || id === 'lmstudio') return 'local'
+	if (id === 'codex') return 'sign-in'
+	if (id === 'anthropic') {
+		const endpoint = resolveAnthropicEndpoint().endpoint
+		if (endpoint && !endpoint.vendor) return undefined
+		const token = det?.apiKey ?? ''
+		return token.length > 0 && isAnthropicOAuthToken(token) ? 'sign-in' : 'key'
+	}
+	return 'key'
 }
 
 function constructBareProvider(

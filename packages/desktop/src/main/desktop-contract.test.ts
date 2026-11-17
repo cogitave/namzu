@@ -6,6 +6,7 @@ import { COMPUTER_FRAME_NOTIFICATION } from '../shared/computer-protocol.js'
 import { OUTCOME_NOTIFICATION } from '../shared/outcome-protocol.js'
 import { TERMINAL_NOTIFICATIONS } from '../shared/terminal-protocol.js'
 import { buildEngineLaunch, namzuPermissionArgument } from '../shared/terminal-tabs.js'
+import { LIMITS_NOTIFICATION } from '../shared/limits-protocol.js'
 import { TITLE_NOTIFICATION } from '../shared/title-protocol.js'
 import { USAGE_NOTIFICATION } from '../shared/usage-protocol.js'
 import { OPTIONAL_EXTENSION_GROUPS } from './extension-groups.js'
@@ -152,6 +153,7 @@ describe('the app against the desktop contract inventory', () => {
 			OUTCOME_NOTIFICATION,
 			COMPUTER_FRAME_NOTIFICATION,
 			TITLE_NOTIFICATION,
+			LIMITS_NOTIFICATION,
 			TERMINAL_NOTIFICATIONS.data,
 			TERMINAL_NOTIFICATIONS.exit,
 		])

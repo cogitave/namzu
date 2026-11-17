@@ -23,6 +23,9 @@ import {
 	isEntityId,
 	openSessionIndex,
 } from '@namzu/sdk'
+import { limitsSources } from '../integrations/limits/sources.js'
+import { type LimitsFeed, createLimitsFeed } from './desktop-limits-feed.js'
+import { localSpendEstimate } from './desktop-limits-spend.js'
 
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
@@ -2095,6 +2098,7 @@ export function desktopServerExtensions(
 	server: Pick<ACPServer, 'getSessionCwd' | 'retrySession'>,
 	palInboxStart?: CliPalInboxStarter,
 	terminals?: Pick<TerminalHost, 'extensions'>,
+	limits?: Pick<LimitsFeed, 'refresh'>,
 ): Readonly<Record<string, (params: Record<string, unknown>) => unknown>> {
 	return {
 		...createDesktopHostExtensions(
@@ -2105,6 +2109,7 @@ export function desktopServerExtensions(
 			undefined,
 			undefined,
 			palInboxStart,
+			limits,
 		),
 		...terminals?.extensions,
 	}
@@ -2129,6 +2134,16 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 				},
 			})
 		: undefined
+	// Desktop only: what each provider in use says about its account. Read from responses already
+	// made, or asked at most once a minute; held in memory and never logged.
+	const limitsFeed: LimitsFeed | undefined = desktop
+		? createLimitsFeed({
+				sources: limitsSources,
+				spend: localSpendEstimate,
+				notify: announce,
+				now: () => Date.now(),
+			})
+		: undefined
 	const runtime = withCliHarnesses(
 		createCliAcpRuntime(ctx, DEFAULT_RUNTIME_DEPS, {
 			computerUse: desktop,
@@ -2143,6 +2158,8 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 				? {
 						observeEvent: (id, event) => {
 							usageFeed.observe(id, event)
+							if (event.type === 'turn_completed' || event.type === 'turn_failed')
+								void limitsFeed?.noteTurnEnd()
 							announceOutcome(id, event, announce)
 						},
 					}
@@ -2190,6 +2207,7 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 						},
 						palInboxStart,
 						terminals,
+						limitsFeed,
 					),
 				}
 			: {}),
