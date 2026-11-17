@@ -36,6 +36,16 @@
 	font-size: var(--text-caption);
 	line-height: var(--leading-caption);
 }
+/* In a narrow pane the words wrap above the buttons instead of running under them. */
+.terminal-pane-note[data-terminal-ended-note] {
+	flex-wrap: wrap;
+	row-gap: 0.25rem;
+}
+.terminal-pane-note[data-terminal-ended-note] > span {
+	flex: 1 1 100%;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
 .terminal-pane-note[data-tone="warning"] {
 	color: var(--warning-foreground);
 }

@@ -142,3 +142,11 @@ export function findProgram(
 	}
 	return undefined
 }
+
+/**
+ * The folder a terminal starts in: the project's own folder. A conversation that has no project
+ * lives in Namzu's chats folder, which is nobody's work, so its terminal starts in the home folder.
+ */
+export function terminalFolder(project: { isChat?: boolean; path: string }, home: string): string {
+	return project.isChat ? home : project.path
+}

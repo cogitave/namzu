@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, realpathSync } from 'node:fs'
 import { lstat, mkdir, readdir, realpath, stat } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { basename, isAbsolute, resolve } from 'node:path'
 import type {
 	AcpRequestPermissionParams,
@@ -136,6 +137,7 @@ import {
 	SupersededConversationSettingsError,
 	readCurrent,
 } from './superseded-settings.js'
+import { terminalFolder } from './terminal-env.js'
 import type { FolderTrustGuard } from './trusted-folders.js'
 import { readUnreadFile, writeUnreadFile } from './unread-file.js'
 
@@ -2303,7 +2305,11 @@ export class Operator {
 		// The shell, and the `namzu` typed into it, would read folder settings that changed since the last look.
 		await this.assertSettingsUnchanged(project)
 		return {
-			project: { id: project.view.id, name: project.view.name, path: project.view.path },
+			project: {
+				id: project.view.id,
+				name: project.view.name,
+				path: terminalFolder(project.view, homedir()),
+			},
 			connection: project.client,
 		}
 	}
