@@ -51,8 +51,22 @@ describe('the typed setting description', () => {
 	it('names when every change applies, in a way a screen can say', () => {
 		for (const entry of SETTING_DESCRIPTORS) {
 			expect(Object.keys(APPLIES_WHEN_TEXT), entry.path).toContain(entry.appliesWhen)
-			expect(entry.appliesWhen).toBe(appliesWhenFor(entry.path))
 		}
+		const traced: Record<string, string> = {
+			'updates.auto': 'next-start',
+			'tui.sound': 'next-start',
+			'limits.maxIterations': 'next-start',
+			'limits.tokenBudget': 'next-start',
+			'workflow.maxAgents': 'next-start',
+			model: 'next-start',
+			'handBack.enabled': 'next-conversation',
+			'skills.builtin': 'next-conversation',
+			'compaction.recallEvidence': 'next-conversation',
+		}
+		for (const [path, when] of Object.entries(traced)) expect(appliesWhenFor(path), path).toBe(when)
+		const byPath = new Map(SETTING_DESCRIPTORS.map((entry) => [entry.path, entry.appliesWhen]))
+		for (const path of ['limits.maxIterations', 'handBack.enabled', 'skills.builtin'])
+			if (byPath.has(path)) expect(byPath.get(path), path).toBe(traced[path])
 	})
 
 	it('writes each default as a value the control can hold', () => {

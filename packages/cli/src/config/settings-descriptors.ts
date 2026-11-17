@@ -140,9 +140,9 @@ const fileOnly: SettingControl = { kind: 'file-only' }
 
 /**
  * When a key's saved value is read. Found from the code that reads it: the terminal app, the
- * schedule daemon, the update check and telemetry read once at launch; the engine reads the rest
- * when a conversation is created. Keys whose reader was not traced to a session default to
- * `next-start`, the later and therefore safe claim.
+ * schedule daemon, the update check and telemetry read once at launch; a few engine keys are read
+ * when a conversation is created. Every key not traced to a session reader, including limits.*,
+ * defaults to `next-start`, the later and therefore safe claim.
  */
 export function appliesWhenFor(path: string): AppliesWhen {
 	const startOnly = [
@@ -155,32 +155,14 @@ export function appliesWhenFor(path: string): AppliesWhen {
 		'learningGenerator.',
 	]
 	if (startOnly.some((prefix) => path.startsWith(prefix))) return 'next-start'
-	const next = new Set([
-		'format',
-		'quiet',
-		'hypermode',
-		'profiles',
-		'model',
-		'routing',
-		'smallModel',
-		'refusalFallback',
-		'modelCatalogueRefresh',
-		'decision',
-		'permissions.autoMode',
-		'limits.waitForProviderMs',
-		'compaction.promptCacheTtl',
-		'compaction.clearStaleResultsAfterIdle',
-		'memory.retireAfterDays',
-		'learningObservations',
-		'codeAnalysis.enabled',
-		'browser.enabled',
-		'statusLine',
-		'mcpServers',
-		'goal.confirmedBy',
-		'skills.suggest',
-		'skills.suggestMinToolCalls',
+	// Only keys whose reader was traced to session creation (measured, not assumed).
+	const nextConversation = new Set([
+		'handBack.enabled',
+		'skills.builtin',
+		'compaction.softTargetHeadroom',
+		'compaction.recallEvidence',
 	])
-	return next.has(path) ? 'next-start' : 'next-conversation'
+	return nextConversation.has(path) ? 'next-conversation' : 'next-start'
 }
 
 function d(

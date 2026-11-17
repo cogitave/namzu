@@ -41,13 +41,14 @@ default. A newer Desktop ignores it when `default` is present.
 
 The apply time is found from the code that reads the key, not guessed.
 
-- **Next start**: the terminal app's own keys (`tui.*`, `composerTriggers.*`, `statusLine`), updates,
-  telemetry, the schedule daemon, plugins, learning, and the keys whose reader was not traced to a
-  conversation. A key that is not traced is given `next-start`, the later claim, so a screen never
-  promises more than the code does.
-- **Next conversation**: what the engine reads when it creates a conversation: limits, compaction,
-  memory, skills, workflow, permissions, sandbox, web, browser and hooks. An open conversation keeps
-  the value it began with.
+- **Next start**: the default. The terminal app's own keys (`tui.*`, `composerTriggers.*`,
+  `statusLine`), updates, telemetry, the schedule daemon, plugins, learning, `limits.*`, `workflow.*`
+  and every key whose reader was not traced to conversation creation. The loaded config is kept for
+  the life of the process and Desktop has no reload path, so a screen never promises more than the
+  code does.
+- **Next conversation**: only keys traced to the code that creates a conversation: `handBack.enabled`,
+  `skills.builtin`, `compaction.softTargetHeadroom` and `compaction.recallEvidence`. An open
+  conversation keeps the value it began with.
 - **Now / next launch**: Desktop's own switches take effect at once; the graphics card, the start-up
   screen and the terminal restore are read when the app opens.
 
