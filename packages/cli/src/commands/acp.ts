@@ -647,6 +647,7 @@ export interface CliAcpRuntimeOptions {
 	 * session id. The desktop host shows it beside the call. It must not throw or wait.
 	 */
 	readonly observeComputer?: (sessionId: string, observation: ComputerUseObservation) => void
+	/**
 	 * Says a `namzu/` notification to the desktop. When set, the host names each new conversation
 	 * with the small model, beside its first turn, and tells the desktop the name.
 	 */
