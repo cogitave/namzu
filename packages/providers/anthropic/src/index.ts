@@ -57,3 +57,4 @@ export type { FastModeVerdict } from './fast-mode.js'
 // in advance, from the same resolution.
 export { acceptsForcedToolChoice } from './tool-choice.js'
 export { parseUnifiedLimits } from './limits.js'
+export type { HeaderReader } from './limits.js'

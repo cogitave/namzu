@@ -159,7 +159,7 @@ describe('the rows', () => {
 		const view: LimitsNotification = {
 			providers: [
 				{
-					provider: 'openai',
+					provider: 'keyed',
 					label: 'OpenAI',
 					kind: 'key',
 					spend: { usd: 3.1, days: 30, partial: false },
@@ -172,7 +172,7 @@ describe('the rows', () => {
 			text: 'Spent about $3.10 in the last 30 days (list prices)',
 		})
 		expect(plain.sections[0]?.rows[0]).not.toHaveProperty('fraction')
-		const budgeted = usageLimitsModel({ view, now: NOW, budgets: { openai: 4 } })
+		const budgeted = usageLimitsModel({ view, now: NOW, budgets: { keyed: 4 } })
 		expect(budgeted.sections[0]?.rows[0]).toMatchObject({
 			text: 'Spent about $3.10 of $4.00 budget in the last 30 days (list prices)',
 			tone: 'high',
@@ -260,8 +260,8 @@ describe('budgets', () => {
 			setItem: (k: string, v: string) => void data.set(k, v),
 		}
 		expect(readBudgets(store)).toEqual({})
-		writeBudgets(store, { openai: 5 })
-		expect(readBudgets(store)).toEqual({ openai: 5 })
+		writeBudgets(store, { keyed: 5 })
+		expect(readBudgets(store)).toEqual({ keyed: 5 })
 		data.set('namzu.limit-budgets', JSON.stringify({ a: -1, b: 'x', c: 2, d: null }))
 		expect(readBudgets(store)).toEqual({ c: 2 })
 		data.set('namzu.limit-budgets', 'not json')

@@ -10,6 +10,8 @@ import {
 
 const SECRET_PLAN = 'Team-Plan-Value-123'
 
+const PASSIVE = new Set(['windowed'])
+
 function clock(start = 1_000_000) {
 	let now = start
 	return {
@@ -65,17 +67,22 @@ describe('noticeFromLimits', () => {
 describe('the limits feed', () => {
 	it('reads a window from a provider that needs no request, as often as asked', async () => {
 		const time = clock()
-		const anthropic = source('anthropic', 'sign-in', async () => ({
+		const windowed = source('windowed', 'sign-in', async () => ({
 			windows: [{ label: '5-hour limit', usedFraction: 0.27 }],
 			asOf: time.now(),
 		}))
-		const feed = createLimitsFeed({ sources: () => [anthropic], notify: vi.fn(), now: time.now })
+		const feed = createLimitsFeed({
+			passive: PASSIVE,
+			sources: () => [windowed],
+			notify: vi.fn(),
+			now: time.now,
+		})
 		await feed.refresh()
 		time.advance(1000)
 		const view = await feed.refresh()
-		expect(anthropic.reads).toBe(2)
+		expect(windowed.reads).toBe(2)
 		expect(view.providers[0]).toMatchObject({
-			provider: 'anthropic',
+			provider: 'windowed',
 			kind: 'sign-in',
 			windows: [{ label: '5-hour limit', usedFraction: 0.27 }],
 		})
@@ -127,12 +134,12 @@ describe('the limits feed', () => {
 
 	it('estimates spend for a key the vendor reports nothing about, and only then', async () => {
 		const spend = vi.fn(async (provider: string) => ({
-			usd: provider === 'openai' ? 3.1 : 9,
+			usd: provider === 'keyed' ? 3.1 : 9,
 			days: 30,
 			partial: false,
 		}))
 		const sources = [
-			source('openai', 'key', async () => undefined),
+			source('keyed', 'key', async () => undefined),
 			source('openrouter', 'key', async () => ({ credit: { currency: 'USD', used: 1 }, asOf: 1 })),
 			source('codex', 'sign-in', async () => undefined),
 			source('ollama', 'local', async () => undefined),
@@ -145,7 +152,7 @@ describe('the limits feed', () => {
 		})
 		const view = await feed.refresh()
 		const by = Object.fromEntries(view.providers.map((row) => [row.provider, row]))
-		expect(by.openai?.spend).toEqual({ usd: 3.1, days: 30, partial: false })
+		expect(by.keyed?.spend).toEqual({ usd: 3.1, days: 30, partial: false })
 		expect(by.openrouter).not.toHaveProperty('spend')
 		expect(by.codex).not.toHaveProperty('spend')
 		expect(by.ollama).not.toHaveProperty('spend')
@@ -154,7 +161,7 @@ describe('the limits feed', () => {
 
 	it('leaves a zero spend out instead of drawing it', async () => {
 		const feed = createLimitsFeed({
-			sources: () => [source('openai', 'key', async () => undefined)],
+			sources: () => [source('keyed', 'key', async () => undefined)],
 			spend: async () => ({ usd: 0, days: 30, partial: false }),
 			notify: vi.fn(),
 			now: clock().now,
@@ -166,7 +173,7 @@ describe('the limits feed', () => {
 		const time = clock()
 		let used = 0.1
 		const notify = vi.fn()
-		const anthropic = source('anthropic', 'sign-in', async () => ({
+		const windowed = source('windowed', 'sign-in', async () => ({
 			windows: [{ label: '5-hour limit', usedFraction: used }],
 			asOf: 1,
 		}))
@@ -174,7 +181,12 @@ describe('the limits feed', () => {
 			credit: { currency: 'USD', used: 1 },
 			asOf: 1,
 		}))
-		const feed = createLimitsFeed({ sources: () => [anthropic, router], notify, now: time.now })
+		const feed = createLimitsFeed({
+			passive: PASSIVE,
+			sources: () => [windowed, router],
+			notify,
+			now: time.now,
+		})
 		await feed.noteTurnEnd()
 		expect(notify).toHaveBeenCalledTimes(1)
 		expect(notify.mock.calls[0]?.[0]).toBe(LIMITS_NOTIFICATION)
@@ -188,12 +200,13 @@ describe('the limits feed', () => {
 	})
 
 	it('does not stop a turn when the stream is closed', async () => {
-		const anthropic = source('anthropic', 'sign-in', async () => ({
+		const windowed = source('windowed', 'sign-in', async () => ({
 			windows: [{ label: 'w', usedFraction: 0.2 }],
 			asOf: 1,
 		}))
 		const feed = createLimitsFeed({
-			sources: () => [anthropic],
+			passive: PASSIVE,
+			sources: () => [windowed],
 			notify: () => {
 				throw new Error('closed')
 			},
@@ -207,7 +220,7 @@ describe('the limits feed', () => {
 			vi.spyOn(console, name).mockImplementation(() => {}),
 		)
 		const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
-		const anthropic = source('anthropic', 'sign-in', async () => ({
+		const windowed = source('windowed', 'sign-in', async () => ({
 			windows: [{ label: '5-hour limit', usedFraction: 0.42 }],
 			plan: SECRET_PLAN,
 			asOf: 1,
@@ -216,7 +229,8 @@ describe('the limits feed', () => {
 			throw new Error(`failed with ${SECRET_PLAN}`)
 		})
 		const feed = createLimitsFeed({
-			sources: () => [anthropic, bad],
+			passive: PASSIVE,
+			sources: () => [windowed, bad],
 			notify: vi.fn(),
 			now: clock().now,
 		})

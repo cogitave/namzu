@@ -16,7 +16,7 @@ export const LIMITS_REFRESH_METHOD = 'namzu/limits/refresh'
 export const LIMITS_MIN_REFRESH_MS = 60_000
 
 /** Providers whose limits ride on responses already made: reading them costs no request. */
-const PASSIVE = new Set(['anthropic'])
+export const PASSIVE_PROVIDERS: ReadonlySet<string> = new Set(['anthropic'])
 
 export interface LimitsWindowNotice {
 	readonly label: string
@@ -64,6 +64,8 @@ export interface LimitsFeedOptions {
 	/** Milliseconds on a clock; injected so tests never wait. */
 	readonly now: () => number
 	readonly minRefreshMs?: number
+	/** Provider ids whose limits cost no request to read; defaults to {@link PASSIVE_PROVIDERS}. */
+	readonly passive?: ReadonlySet<string>
 }
 
 export interface LimitsFeed {
@@ -112,6 +114,7 @@ export function noticeFromLimits(limits: ProviderLimits): Partial<LimitsProvider
 
 export function createLimitsFeed(options: LimitsFeedOptions): LimitsFeed {
 	const minimum = options.minRefreshMs ?? LIMITS_MIN_REFRESH_MS
+	const PASSIVE = options.passive ?? PASSIVE_PROVIDERS
 	/** The last reading per provider id, and when a request for it was last made. */
 	const readings = new Map<string, { notice: Partial<LimitsProviderNotice>; askedAt: number }>()
 	let lastSent = ''
