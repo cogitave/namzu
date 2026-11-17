@@ -8,6 +8,7 @@ import type {
 	ReviewMode,
 } from '@namzu/sdk'
 import type { BackgroundWorkStatus, BackgroundWorkStatusEvent } from './background-work-protocol.js'
+import type { CommitOutcomeView, CommitPreviewView, CommitRequestView } from './commit-protocol.js'
 import type { ComputerAppsView, ComputerFrameView } from './computer-protocol.js'
 import type {
 	ConfigSettingChange,
@@ -1095,6 +1096,13 @@ export interface DesktopApi {
 	 * a minute; null where the engine cannot say. Account data: never stored or logged.
 	 */
 	refreshLimits?(projectId: string): Promise<LimitsNotification | null>
+	/**
+	 * Which of the conversation's changed files would be committed, with a suggested message; null
+	 * where the engine cannot say. Reads only. `paths` are the files the conversation changed.
+	 */
+	commitPreview?(sessionId: string, paths: string[]): Promise<CommitPreviewView | null>
+	/** Commits the confirmed files of one conversation. Never pushes; a refusal carries git's own words. */
+	commit?(sessionId: string, request: CommitRequestView): Promise<CommitOutcomeView>
 	/** The project's tool servers and where each stands; null where the engine cannot say. */
 	mcpServers?(projectId: string): Promise<McpServersView | null>
 	/**

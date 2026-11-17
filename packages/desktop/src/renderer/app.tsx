@@ -60,6 +60,8 @@ import { type ChangeTotals, changeTotals, receiptOf } from './changes-totals.js'
 import { ChatErrorBanner } from './chat-error-banner.js'
 import { applyClosedTabEvent } from './closed-tab.js'
 import { CommandPalette, type CommandPaletteItem } from './command-palette.js'
+import { CommitDialog } from './commit-dialog.js'
+import { changedPaths, commitButtonState } from './commit-model.js'
 import { historyEntries } from './composer-history.js'
 import {
 	type ComposerPlugin,
@@ -936,6 +938,9 @@ export function App({
 	const detailsTrigger = useRef<HTMLButtonElement>(null)
 	const [detailsPopoverOpen, setDetailsPopoverOpen] = useState(false)
 	const [limitsView, setLimitsView] = useState<LimitsNotification>()
+	// The conversation and files the dialog was opened for: what it shows does not move under the person.
+	const [commitFor, setCommitFor] = useState<{ sessionId: string; paths: string[] }>()
+	const commitTrigger = useRef<HTMLElement | null>(null)
 	const [budgets, setBudgets] = useState(() => readBudgets(localStorage))
 	const [sessionPanelOpen, setSessionPanelOpenState] = useState(() =>
 		readSessionPanelOpen(localStorage),
@@ -1586,6 +1591,21 @@ export function App({
 					},
 		[palConversation, limitsView, activeProviders.selected?.id, budgets, limitsRefresher],
 	)
+	const commitPaths = useMemo(() => {
+		if (!sessionPanelActive) return []
+		const receipts = []
+		for (const tool of Object.values(thread.tools)) {
+			const receipt = tool.status === 'completed' ? receiptOf(tool) : undefined
+			if (receipt) receipts.push(receipt)
+		}
+		return changedPaths(receipts)
+	}, [sessionPanelActive, thread.tools])
+	const commitState = commitButtonState({
+		hasChanges: commitPaths.length > 0,
+		trusted: Boolean(project?.trusted),
+		repository: Boolean(git && git.projectId === gitProjectId && git.value),
+		running: thread.running,
+	})
 	const turnRunning = thread.running
 	const undoKept = useUndoKept(api.undoPreview, sessionId, thread.undo)
 	// A settled turn may have written files; the open file and the tree read the disk again.
@@ -7836,6 +7856,30 @@ export function App({
 								showPanelTab('activity')
 								setJobsOpen(true)
 							}}
+							commit={
+								api.commitPreview && api.commit && !externalHarness ? (
+									<Button
+										type="button"
+										variant="ghost-muted"
+										size="xs"
+										className="session-commit"
+										data-testid="session-commit"
+										disabled={!commitState.enabled}
+										title={commitState.reason}
+										aria-label={
+											commitState.reason
+												? `Commit changes. ${commitState.reason}.`
+												: 'Commit changes'
+										}
+										onClick={(event) => {
+											commitTrigger.current = event.currentTarget
+											setCommitFor({ sessionId, paths: commitPaths })
+										}}
+									>
+										Commit changes
+									</Button>
+								) : undefined
+							}
 							onStopJob={(job) => {
 								const owner = sessionId
 								const generation = navigation.current
@@ -7849,6 +7893,22 @@ export function App({
 							}}
 						/>
 					</aside>
+				)}
+				{commitFor && commitFor.sessionId === sessionId && api.commitPreview && api.commit && (
+					<CommitDialog
+						load={() =>
+							api.commitPreview?.(commitFor.sessionId, commitFor.paths) ?? Promise.resolve(null)
+						}
+						run={(request) => {
+							const owner = commitFor.sessionId
+							return (
+								api.commit?.(owner, request) ??
+								Promise.reject(new Error('This engine cannot commit from here.'))
+							)
+						}}
+						onClose={() => setCommitFor(undefined)}
+						returnFocus={() => commitTrigger.current}
+					/>
 				)}
 				{!palConversation && (
 					<aside

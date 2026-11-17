@@ -9,6 +9,15 @@ import type {
 } from '@namzu/sdk'
 import { needsYouIds } from '../shared/attention-state.js'
 import type { BackgroundWorkStatus } from '../shared/background-work-protocol.js'
+import {
+	COMMIT_METHOD,
+	COMMIT_PREVIEW_METHOD,
+	type CommitOutcomeView,
+	type CommitPreviewView,
+	type CommitRequestView,
+	readCommitOutcome,
+	readCommitPreview,
+} from '../shared/commit-protocol.js'
 import { resolveComposerSendOptions } from '../shared/composer-send-options.js'
 import { COMPUTER_FRAME_NOTIFICATION, readComputerFrame } from '../shared/computer-protocol.js'
 import {
@@ -2981,6 +2990,53 @@ export class Operator {
 		}
 		if (this.projects.get(projectId) !== project || project.client !== client) return null
 		return readLimitsNotice(result) ?? null
+	}
+	/** What this conversation's changes would commit. Reads only; the host asks the small model once. */
+	async commitPreview(sessionId: string, paths: string[]): Promise<CommitPreviewView | null> {
+		const session = this.namzuConversation(sessionId, 'be committed')
+		const project = this.project(session.view.projectId)
+		if (!project.view.trusted || project.view.palId || !project.client.supportsProjectCommit())
+			return null
+		if (!Array.isArray(paths) || paths.length > 5000) throw new Error('Invalid commit request.')
+		const client = project.client
+		const result = await client.request(COMMIT_PREVIEW_METHOD, {
+			sessionId: session.runtimeSessionId,
+			paths: paths.filter((path) => typeof path === 'string'),
+		})
+		this.assertConversationAvailable(sessionId)
+		if (project.client !== client) return null
+		return readCommitPreview(result) ?? null
+	}
+	/** Commits the files the person confirmed. The host never pushes and never skips a hook. */
+	async commit(sessionId: string, request: CommitRequestView): Promise<CommitOutcomeView> {
+		const session = this.namzuConversation(sessionId, 'be committed')
+		const project = this.project(session.view.projectId)
+		if (!project.view.trusted || project.view.palId)
+			throw new Error('Trust this folder to commit in it.')
+		if (!project.client.supportsProjectCommit())
+			throw new Error('Update Namzu to a version that can commit from here.')
+		if (
+			!request ||
+			typeof request.message !== 'string' ||
+			!Array.isArray(request.paths) ||
+			request.paths.length > 200 ||
+			request.paths.some((path) => typeof path !== 'string') ||
+			typeof request.fingerprints !== 'object' ||
+			request.fingerprints === null
+		)
+			throw new Error('Invalid commit request.')
+		const result = await project.client.request(
+			COMMIT_METHOD,
+			{
+				paths: request.paths,
+				message: request.message,
+				fingerprints: request.fingerprints,
+			},
+			120_000,
+		)
+		const read = readCommitOutcome(result)
+		if (!read) throw new Error('Namzu returned an unreadable answer to the commit.')
+		return read
 	}
 	async projectGit(projectId: string): Promise<ProjectGitView | null> {
 		const project = this.project(projectId)

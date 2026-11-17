@@ -9,7 +9,7 @@ import { failureHeaders } from "./fake-failure.mjs";
 
 export async function startFakeModel(rules = [], options = {}) {
 	const requests = [];
-	/** The small side requests the host made: `{ kind: "history" | "title", request }`. */
+	/** The small side requests the host made: `{ kind: "history" | "title" | "commit", request }`. */
 	const sideRequests = [];
 	/** The kernel's once-only check before a turn that changed files ends: the requests that carried it. */
 	const auditRequests = [];
@@ -54,7 +54,7 @@ export async function startFakeModel(rules = [], options = {}) {
 			const side = sideKind(parsed.messages ?? []);
 			// The history lookup is answered apart only for a flow that asks (`answerHistory`): older flows
 			// count and index the requests they saw, and keep seeing it as before.
-			if (side && (side === "title" || options.answerHistory)) {
+			if (side && (side === "title" || side === "commit" || options.answerHistory)) {
 				sideRequests.push({ kind: side, request: parsed });
 				const answer = sideAnswer(side, options);
 				if (answer.status) {
@@ -160,10 +160,14 @@ function sideKind(messages) {
 	const all = messages.map((m) => textOf(m.content)).join("\n");
 	if (all.includes("Resolve a conversation-history search query")) return "history";
 	if (all.includes("You name a conversation so a person can pick it out")) return "title";
+	if (all.includes("You write a Git commit message")) return "commit";
 	return undefined;
 }
 
 function sideAnswer(kind, options) {
+	// A flow that does not script a commit message gets a refusal, so the plain message is the one shown.
+	if (kind === "commit")
+		return options.commitMessage === undefined ? { status: 400, message: "No commit message is scripted." } : { text: options.commitMessage };
 	if (kind === "history")
 		return { text: '{"mode":"direct","time":"unspecified","termIds":[],"basis":[]}' };
 	// A flow that does not script a title gets a refusal, so the first words of the prompt stay the title.

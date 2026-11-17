@@ -78,6 +78,11 @@ export class RuntimeClient extends EventEmitter {
 	supportsProjectPr(): boolean {
 		return this.projectPr
 	}
+	private projectCommit = false
+	/** A host that predates commit from the desktop does not list its two methods. */
+	supportsProjectCommit(): boolean {
+		return this.projectCommit
+	}
 	private limits = false
 	/** A host that predates the usage limits feed does not list `namzu/limits/refresh`. */
 	supportsLimits(): boolean {
@@ -328,6 +333,7 @@ export class RuntimeClient extends EventEmitter {
 		this.providerSetup = offers('providerSetup')
 		this.projectGit = offers('projectGit')
 		this.limits = offers('limits')
+		this.projectCommit = offers('projectCommit')
 		this.projectPr = offers('projectPr')
 		this.mcpServers = offers('mcpServers')
 		this.hooksView = offers('hooksView')

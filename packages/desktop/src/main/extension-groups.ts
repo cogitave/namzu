@@ -26,6 +26,7 @@ export const OPTIONAL_EXTENSION_GROUPS = {
 	],
 	projectGit: ['namzu/project/git'],
 	limits: ['namzu/limits/refresh'],
+	projectCommit: ['namzu/project/commit-preview', 'namzu/project/commit'],
 	projectPr: ['namzu/project/pr'],
 	mcpServers: ['namzu/mcp/servers', 'namzu/mcp/approve'],
 	hooksView: ['namzu/hooks/list'],

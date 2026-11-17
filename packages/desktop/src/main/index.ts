@@ -20,6 +20,7 @@ import {
 	session,
 	shell,
 } from 'electron'
+import type { CommitRequestView } from '../shared/commit-protocol.js'
 import { UNAVAILABLE_ENGINE_VIEW } from '../shared/engine-delivery-protocol.js'
 import { readEngineUpdateRequest } from '../shared/engine-update-protocol.js'
 import type {
@@ -1417,6 +1418,8 @@ function register(): void {
 	handle('conversationMarkdown', (id: string) => operator.conversationMarkdown(id))
 	handle('projectGit', (id: string) => operator.projectGit(id))
 	handle('refreshLimits', (id: string) => operator.refreshLimits(id))
+	handle('commitPreview', (id: string, paths: string[]) => operator.commitPreview(id, paths))
+	handle('commit', (id: string, request: CommitRequestView) => operator.commit(id, request))
 	handle('mcpServers', (id: string) => operator.mcpServers(id))
 	handle('hooksView', (id?: string) => operator.hooksView(id))
 	handle('approveMcpServers', (id: string, servers: unknown) =>
