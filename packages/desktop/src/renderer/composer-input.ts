@@ -108,6 +108,8 @@ export function composerPlaceholder(input: {
 	/** Enter reaches the running reply instead of waiting behind it. */
 	liveInputSupported: boolean
 	mac: boolean
+	/** The "/" list is offered here, so the empty box says how to reach it. */
+	slashMenu?: boolean
 }): string {
 	if (input.cliMode) return `Optional first message for ${input.cliLabel} in a terminal`
 	if (input.editableQueued && !input.hasDraft) return 'Press ↑ to edit queued messages'
@@ -116,6 +118,7 @@ export function composerPlaceholder(input: {
 		return input.liveInputSupported
 			? `${queueModifierName(input.mac)}+Enter to queue`
 			: 'Enter sends after this reply'
+	if (input.slashMenu) return 'Type / for commands'
 	return input.compact ? 'Send a message' : 'Ask Namzu anything'
 }
 

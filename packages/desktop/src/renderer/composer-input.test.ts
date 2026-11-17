@@ -87,6 +87,13 @@ describe('the empty box hint', () => {
 		mac: false,
 	}
 
+	it('names the slash list in an open conversation, and only when nothing else is to be said', () => {
+		expect(composerPlaceholder({ ...base, slashMenu: true })).toBe('Type / for commands')
+		expect(composerPlaceholder({ ...base, slashMenu: true, running: true })).toBe(
+			'Enter sends after this reply',
+		)
+	})
+
 	it('keeps the plain prompts while nothing runs', () => {
 		expect(composerPlaceholder(base)).toBe('Ask Namzu anything')
 		expect(composerPlaceholder({ ...base, compact: true })).toBe('Send a message')
