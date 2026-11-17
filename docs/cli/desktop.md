@@ -3527,7 +3527,7 @@ The side panel has an **Outputs** tab, after Changes, that lists the files the c
 - **The host decides what may be read.** The renderer sends the conversation's id and a path; main reads it only if the file is inside the conversation's own work folder or is one that its turns wrote (its receipts name it), after symbolic links are resolved, never inside `.git`, with the project reader's limits (`session-output.ts`, `readSessionOutput`, `openSessionOutput`). Any other path is refused with a sentence that names no path, and the renderer never receives a `file:` path.
 - **Width.** Outputs is a reading panel (60 percent of the main area, 360 px at least); with less than that to give it lies over the conversation with **Back to conversation** and **Hide panel**, as the other panels do.
 
-The model is told so in one line of its environment facts, in a Desktop conversation only (not a Pal's): "Desktop shows the .html, .md and image files you write in its preview pane: to show a page or document, write the file and name it. Start a server only when the project has its own dev or start script and the person asked to run the app" (`DESKTOP_PREVIEW_FACT` in `packages/cli/src/context/environment.ts`).
+The model is told so in one line of its environment facts, in a Desktop conversation only (not a Pal's): "Desktop shows the .html page you write in its Browser pane, and the .md and image files you write in its Files pane: to show a page or document, write the file and name it. Start a server only when the project has its own dev or start script and the person asked to run the app" (`DESKTOP_PREVIEW_FACT` in `packages/cli/src/context/environment.ts`).
 
 ## The session panel, the plan card and Commit changes
 
@@ -3626,13 +3626,67 @@ and no resize rewrites the layout.
   chords leave a terminal for the window instead of reaching its program. The line totals that used to sit in the
   bar are in the Session pane's Changes row and in the Changes pane.
 - **Each pane** has a 44 px header (a title or tabs, then "...", maximise, close). "..." moves the pane left, right,
-  up or down and closes the other panes. Terminal shows the group's terminals as tabs; Browser shows the address
-  and the page a turn wrote in a frame with no permissions; Files is a tree of the work folder with U (not in git yet)
+  up or down and closes the other panes. Terminal shows the group's terminals as tabs; Browser is a real browser
+  page (see [The Browser pane](#the-browser-pane)); Files is a tree of the work folder with U (not in git yet)
   and M (modified) marks, a filter, and a file opens in a preview tab inside the pane (Markdown as a document, code
   with line numbers, an image).
 - **Remembered** per conversation group in `namzu.panes.1.<group>`: the panes, their columns, dragged sizes, the
   maximised pane and the Session flag. Bad or foreign data reads as no layout.
 - **The sidebar** no longer folds when a pane opens; it folds only by its own breakpoint.
+
+## The Browser pane
+
+The Browser pane shows a page for real: its own scripts, styles and images run, and a person can type an
+`http` or `https` address as in any browser. Its header is a tab strip (the page title, a close on each tab,
+and **+**); under it are Back, Forward, Reload and an address bar that can be edited. For a file the bar shows
+the whole local path (`C:/Users/me/work/site/index.html`, or `/home/me/work/site/index.html`), and for a web
+page its address; Enter opens what was typed, Esc puts back what was there. A bare host such as `example.com`
+gets `https://`. A page a turn writes (an `.html` file) opens here by itself while the turn runs, in the tab
+that has no page yet or in a new tab, and writing it again reloads its tab.
+
+**How it is kept apart from the app.** A page is untrusted web content, so it gets the same distance from the
+app as a page in another browser.
+
+- Each page is a `WebContentsView` the host (`src/main/browser-pane.ts`) lays into the pane's rectangle, never a
+  `<webview>`: the main window still refuses those. The renderer only reports where the rectangle is
+  (`BrowserPaneRequest`, read and checked in `src/shared/browser-pane.ts` because the renderer is not trusted).
+- The view has no preload, no Node, context isolation and the sandbox on. A page can see neither `require`
+  nor `process`.
+- Its session is a partition of its own, named for the conversation and never persisted (no `persist:` prefix):
+  none of the app's cookies or storage is in it, and it is gone when the app closes.
+- Every permission a page can ask for (camera, microphone, notifications, location, a device) is denied, and a
+  download is refused.
+- `window.open` and links that ask for a new window open a tab in this pane, never a window.
+- A `file:` address is allowed only inside the conversation's work folder (`src/main/browser-address.ts`, tested
+  in `browser-address.test.ts`). The rule holds for an address typed, a link, a redirect, and a script, style or
+  image the page asks for. Dots in a path are resolved first and a drive's case is ignored on Windows, so
+  `work/../secret.html` is refused. The work folder comes from the host's record of the conversation, never from
+  the renderer's word. A path that leaves it, an address of any other kind (`javascript:`, `data:`, `ftp:`) and
+  a conversation with no work folder (a Pal's) are refused with a plain sentence under the address bar.
+- A native view sits above the app's own page, so a menu or dialog that reaches the page's rectangle, and a
+  divider being dragged, make the page step aside until they are gone.
+
+Known limits: a page that holds the keyboard does not pass the app's chords (Ctrl+Shift+B and the rest) back
+until focus returns to the app, and a symbolic link inside the work folder that points outside it is followed
+for subresources (a navigation is checked against the real path).
+
+## The top-bar menu, the composer and the reply rows
+
+- **"..." in the conversation's top bar** is the conversation's own menu. *New side chat* (Ctrl+Alt+S) is the
+  side conversation: a copy of this conversation that opens in a pane to the right. *Keep computer awake*, with
+  "Only for this session" under it, is a switch: while on, the host holds a power-save blocker that keeps the
+  display and the computer from sleeping. It is released when the switch goes off, when the window that turned it
+  on closes, and when the conversation is removed. It is per conversation and is not remembered across a
+  restart.
+- **The message box** shows a hint that is one short line and never wraps, so the empty box is one line high
+  (44 px) at any width. While a reply runs it reads "Ctrl+Enter to queue" (Cmd on a Mac) and the full sentence
+  ("Enter sends now · Ctrl+Enter or Tab sends after this reply") is its tooltip. After a message is sent the
+  box goes back to one line.
+- **Reply rows.** The time and the reply's buttons share one 24 px row; the time's digits sit 1.5 px below the
+  buttons' centre line and the buttons are 24 px apart. What a command printed starts under its words (the row's
+  own 12 px inset, not a further icon's width in). In an opened group the header's words start 5 px from the box
+  edge, the rows' words 13 px, the box is 8 px under the header, and a row is 36 px high with a hairline, so
+  rows are 37 px apart.
 
 ## The frame's numbers
 

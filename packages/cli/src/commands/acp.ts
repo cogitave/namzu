@@ -955,7 +955,7 @@ export function createCliAcpRuntime(
 									: {}),
 							}
 						: {}),
-					// The desktop shows what a turn writes in a preview pane; the model is told so.
+					// The desktop shows what a turn writes in its Browser and Files panes; the model is told so.
 					...(runtimeOptions.announce && !palEnvironment ? { desktop: true } : {}),
 					cwd,
 					sessionId: target.sessionId,

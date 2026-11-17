@@ -2654,7 +2654,7 @@ export interface AgentSessionOptions {
 	 * `--session`), whose history arrives with each call.
 	 */
 	readonly ephemeral?: boolean
-	/** The session runs inside the desktop application, which shows written files in a preview pane. */
+	/** The session runs inside the desktop application, which shows written files in its Browser and Files panes. */
 	readonly desktop?: boolean
 	/**
 	 * Keep this conversation's failures and unrecovered stops as learning
