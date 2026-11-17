@@ -658,7 +658,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'goal.confirmedBy',
 		'agent',
 		'What ends a goal',
-		'model: the model saying it is done ends a goal. record: Namzu reads the record of the work first, and a goal ends as confirmed, stated and not checked, or not confirmed.',
+		'What has to be true before a goal is treated as finished.',
 		pick(
 			['model', 'When the model says so', 'A goal ends when the model says it is done.'],
 			[
