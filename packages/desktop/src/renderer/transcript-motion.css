@@ -219,11 +219,15 @@
 .normal-transcript .activity-block .tool:not(.failed, .declined, .active) .tool-main {
 	color: var(--foreground);
 }
-.normal-transcript .activity-block > :is(.reasoning, .message.commentary) {
+/* Prose between steps, whether or not it is tagged as a progress update, sits at the same inset as the rows. */
+.normal-transcript .activity-block > :is(.reasoning, .message) {
 	margin: 0;
 	padding: 8px var(--turn-block-inset);
 }
-.normal-transcript .activity-block .message.commentary .message-text {
+.normal-transcript .activity-block > * + * {
+	border-top: 1px solid var(--turn-edge);
+}
+.normal-transcript .activity-block .message .message-text {
 	color: var(--foreground);
 }
 .normal-transcript .activity-block .reasoning {

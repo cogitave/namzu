@@ -43,3 +43,7 @@
 	color: var(--foreground);
 	text-decoration: underline;
 }
+/* Inside the open box a command's output and its ending words start where the command text starts, and keep the box's right inset. */
+.activity-block .shell-cell {
+	margin: 0 var(--turn-block-inset) 8px var(--turn-block-inset);
+}
