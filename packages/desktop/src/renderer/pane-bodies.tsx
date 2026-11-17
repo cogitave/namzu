@@ -1,9 +1,8 @@
-import type { ReactNode } from 'react'
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
+import type { BrowserPaneRequest, BrowserPaneState } from '../shared/browser-pane.js'
 import type { DesktopApi } from '../shared/protocol.js'
 import { FileTypeIcon } from './file-panel/file-icons.js'
-import { ArrowLeftIcon, GlobeIcon, PlusIcon, RefreshIcon, XIcon } from './icons.js'
-import { type OutputFile, outputAddress } from './outputs-model.js'
-import { OutputPreview, useSessionOutput } from './outputs-panel.js'
+import { ArrowLeftIcon, ArrowRightIcon, GlobeIcon, PlusIcon, RefreshIcon, XIcon } from './icons.js'
 import { Button } from './ui/button.js'
 import './file-panel/file-panel.css'
 import './pane-bodies.css'
@@ -106,27 +105,132 @@ export const fileTabItem = (path: string): PaneTabItem => ({
 	icon: <FileTypeIcon path={path} />,
 })
 
+export interface BrowserPane {
+	state: BrowserPaneState | undefined
+	act: (request: BrowserPaneRequest) => void
+}
+
+/** The conversation's browser pages, as the host keeps them, and a way to ask for a change. */
+export function useBrowserPane(
+	api: Pick<DesktopApi, 'browserPane' | 'onBrowserEvent'>,
+	sessionId: string,
+): BrowserPane | undefined {
+	const [state, setState] = useState<BrowserPaneState>()
+	const ask = api.browserPane
+	const listen = api.onBrowserEvent
+	useEffect(() => {
+		setState(undefined)
+		if (!ask || !sessionId) return
+		let current = true
+		const stop = listen?.((next) => current && next.sessionId === sessionId && setState(next))
+		void ask(sessionId, { kind: 'state' })
+			.then((next) => current && setState(next))
+			.catch(() => undefined)
+		return () => {
+			current = false
+			stop?.()
+		}
+	}, [ask, listen, sessionId])
+	const act = useCallback(
+		(request: BrowserPaneRequest) => {
+			if (!ask || !sessionId) return
+			void ask(sessionId, request)
+				.then((next) => request.kind !== 'place' && setState(next))
+				.catch(() => undefined)
+		},
+		[ask, sessionId],
+	)
+	return ask && sessionId
+		? { state: state?.sessionId === sessionId ? state : undefined, act }
+		: undefined
+}
+
+/** The tabs in the Browser pane's header: the page titles and a plus. */
+export function BrowserTabs({ browser }: { browser: BrowserPane | undefined }) {
+	const tabs = browser?.state?.tabs ?? []
+	return (
+		<PaneTabs
+			label="Browser"
+			tabs={
+				tabs.length
+					? tabs.map((tab) => ({
+							id: tab.id,
+							label: tab.title,
+							title: tab.address || tab.title,
+							icon: <GlobeIcon aria-hidden="true" />,
+						}))
+					: [{ id: 'blank', label: 'Browser', icon: <GlobeIcon aria-hidden="true" />, fixed: true }]
+			}
+			active={browser?.state?.active ?? 'blank'}
+			onSelect={(id) => id !== 'blank' && browser?.act({ kind: 'select', tabId: id })}
+			onClose={(id) => browser?.act({ kind: 'close', tabId: id })}
+			onNew={browser ? () => browser.act({ kind: 'new' }) : undefined}
+			newLabel="New tab"
+		/>
+	)
+}
+
 /**
- * The Browser pane's body in this version: the address of the page the conversation wrote, and the
- * page itself drawn in a frame with no permissions. Typing an address, going back and the page's
- * own session come with the real browser.
+ * Something in the window that is drawn above the page's rectangle. A page is a native view laid
+ * over the app's own page, so a menu or a dialog that reaches it would sit behind it; the page
+ * steps aside while one does, and while a divider is being dragged.
  */
-export function BrowserBody({
-	api,
-	sessionId,
-	file,
-	workFolder,
-	dark,
-	onReload,
-}: {
-	api: Pick<DesktopApi, 'readSessionOutput'>
-	sessionId: string
-	file?: OutputFile
-	workFolder?: string
-	dark: boolean
-	onReload: () => void
-}) {
-	const load = useSessionOutput(api, sessionId, file?.path ?? '', file?.version ?? 0)
+const OVERLAYS =
+	'[role="menu"],[role="dialog"],[role="alertdialog"],[role="listbox"],[role="tooltip"],[role="alert"]'
+function covered(page: DOMRect): boolean {
+	if (document.documentElement.dataset.paneDragging) return true
+	for (const node of document.querySelectorAll(OVERLAYS)) {
+		const box = node.getBoundingClientRect()
+		if (box.width * box.height < 100) continue
+		if (
+			box.left < page.right &&
+			box.right > page.left &&
+			box.top < page.bottom &&
+			box.bottom > page.top
+		)
+			return true
+	}
+	return false
+}
+
+/**
+ * The Browser pane's body: the bar (back, forward, reload and an address that can be edited) and
+ * the rectangle the host lays the page into. The page is not drawn here: it is a view of its own
+ * in the window, kept apart from the app (see main/browser-pane.ts).
+ */
+export function BrowserBody({ browser }: { browser: BrowserPane | undefined }) {
+	const state = browser?.state
+	const tab = state?.tabs.find((candidate) => candidate.id === state.active)
+	const page = useRef<HTMLDivElement>(null)
+	const input = useRef<HTMLInputElement>(null)
+	const [draft, setDraft] = useState<string>()
+	const act = browser?.act
+	// Place the page where this rectangle is, and keep doing it: a pane moves without being resized.
+	const hasPage = Boolean(tab)
+	useEffect(() => {
+		const node = page.current
+		if (!act || !node || !hasPage) return
+		let frame = 0
+		let sent = ''
+		const tick = () => {
+			const box = node.getBoundingClientRect()
+			const next = covered(box)
+				? null
+				: { x: box.left, y: box.top, width: box.width, height: box.height }
+			const key = next ? `${next.x},${next.y},${next.width},${next.height}` : 'none'
+			if (key !== sent) {
+				sent = key
+				act({ kind: 'place', bounds: next })
+			}
+			frame = requestAnimationFrame(tick)
+		}
+		tick()
+		return () => {
+			cancelAnimationFrame(frame)
+			act({ kind: 'place', bounds: null })
+		}
+	}, [act, hasPage])
+	const shown = draft ?? tab?.address ?? ''
 	return (
 		<div className="browser-pane" data-browser-pane>
 			<div className="browser-bar">
@@ -136,7 +240,8 @@ export function BrowserBody({
 					variant="ghost-muted"
 					aria-label="Back"
 					title="Back"
-					disabled
+					disabled={!tab?.canGoBack}
+					onClick={() => act?.({ kind: 'back' })}
 				>
 					<ArrowLeftIcon aria-hidden="true" />
 				</Button>
@@ -144,39 +249,61 @@ export function BrowserBody({
 					type="button"
 					size="icon-xs"
 					variant="ghost-muted"
+					aria-label="Forward"
+					title="Forward"
+					disabled={!tab?.canGoForward}
+					onClick={() => act?.({ kind: 'forward' })}
+				>
+					<ArrowRightIcon aria-hidden="true" />
+				</Button>
+				<Button
+					type="button"
+					size="icon-xs"
+					variant="ghost-muted"
 					aria-label="Reload"
 					title="Reload"
-					disabled={!file}
-					onClick={onReload}
+					disabled={!tab}
+					onClick={() => act?.({ kind: 'reload' })}
 				>
 					<RefreshIcon aria-hidden="true" />
 				</Button>
 				<input
+					ref={input}
 					className="browser-address"
 					type="text"
-					readOnly
 					spellCheck={false}
 					aria-label="Address"
-					placeholder="No page yet"
-					value={file ? outputAddress(file.path, workFolder) : ''}
-					title={file?.path}
+					placeholder="Type a web address"
+					value={shown}
+					title={tab?.address}
+					disabled={!act}
+					onChange={(event) => setDraft(event.target.value)}
 					onFocus={(event) => event.currentTarget.select()}
+					onBlur={() => setDraft(undefined)}
+					onKeyDown={(event) => {
+						if (event.key === 'Escape') {
+							setDraft(undefined)
+							event.currentTarget.blur()
+						} else if (event.key === 'Enter' && draft !== undefined) {
+							event.preventDefault()
+							if (draft.trim()) act?.({ kind: 'go', address: draft })
+							setDraft(undefined)
+							event.currentTarget.blur()
+						}
+					}}
 				/>
 			</div>
-			<div className="browser-page">
-				{!file ? (
+			{state?.notice && <output className="browser-notice">{state.notice}</output>}
+			<div className="browser-page" ref={page} data-loading={tab?.loading || undefined}>
+				{!tab && (
 					<div className="browser-empty">
 						<GlobeIcon className="size-5" aria-hidden="true" />
-						<p>A page the conversation writes opens here.</p>
+						<p>
+							{browser
+								? 'A page the conversation writes opens here. Type an address above to open any other.'
+								: 'The browser is not available here.'}
+						</p>
 					</div>
-				) : load.status === 'loading' ? (
-					<p className="file-view-note">Opening {file.name}…</p>
-				) : load.status === 'error' ? (
-					<p className="file-view-note" role="alert">
-						{load.message}
-					</p>
-				) : (
-					<OutputPreview file={file} content={load.content} dark={dark} />
 				)}
 			</div>
 		</div>

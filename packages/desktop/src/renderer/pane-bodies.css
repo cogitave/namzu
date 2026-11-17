@@ -40,10 +40,14 @@
 	min-height: 0;
 	overflow: hidden;
 }
-.browser-page .output-frame {
-	flex: 1;
-	width: 100%;
-	border: 0;
+.browser-notice {
+	display: block;
+	flex: none;
+	margin: 0;
+	padding: 4px 12px;
+	border-bottom: 1px solid var(--border);
+	color: var(--muted-foreground);
+	font-size: var(--text-small);
 }
 .browser-empty {
 	display: flex;

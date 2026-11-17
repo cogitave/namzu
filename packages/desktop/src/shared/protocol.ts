@@ -8,6 +8,7 @@ import type {
 	ReviewMode,
 } from '@namzu/sdk'
 import type { BackgroundWorkStatus, BackgroundWorkStatusEvent } from './background-work-protocol.js'
+import type { BrowserPaneRequest, BrowserPaneState } from './browser-pane.js'
 import type { CommitOutcomeView, CommitPreviewView, CommitRequestView } from './commit-protocol.js'
 import type { ComputerAppsView, ComputerFrameView } from './computer-protocol.js'
 import type {
@@ -871,6 +872,15 @@ export interface DesktopApi {
 	 * The host decides what may be read; any other path is refused in plain words.
 	 */
 	readSessionOutput?(sessionId: string, path: string): Promise<ProjectFileContent>
+	/**
+	 * The Browser pane's pages for a conversation. The host owns the pages; this asks it to open,
+	 * navigate, go back, place the active page in a rectangle of the window, and so on, and
+	 * answers with the pages as they now are.
+	 */
+	browserPane?(sessionId: string, request: BrowserPaneRequest): Promise<BrowserPaneState>
+	onBrowserEvent?(listener: (state: BrowserPaneState) => void): () => void
+	/** Holds the computer awake for one conversation while on; with no `on`, only reads. */
+	keepAwake?(sessionId: string, on?: boolean): Promise<boolean>
 	/** Opens such a file in the default browser (a web page only) or shows it in its folder. */
 	openSessionOutput?(
 		sessionId: string,

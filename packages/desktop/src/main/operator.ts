@@ -3291,6 +3291,15 @@ export class Operator {
 		}
 		return { root: project.view.path, written }
 	}
+	/** The folder a conversation's Browser pane may open local files from; none for a Pal. */
+	browserWorkFolder(sessionId: unknown): string | undefined {
+		try {
+			const session = this.session(sessionId)
+			return session.view.palId ? undefined : this.project(session.view.projectId).view.path
+		} catch {
+			return undefined
+		}
+	}
 	async readSessionOutput(sessionId: string, path: string): Promise<ProjectFileContent> {
 		return readOutput(this.outputAccess(sessionId), path, this.projectFiles)
 	}

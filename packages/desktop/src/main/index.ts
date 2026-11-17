@@ -9,6 +9,7 @@ import {
 	BrowserWindow,
 	Menu,
 	Notification,
+	WebContentsView,
 	app,
 	clipboard,
 	dialog,
@@ -16,10 +17,12 @@ import {
 	nativeImage,
 	nativeTheme,
 	powerMonitor,
+	powerSaveBlocker,
 	screen,
 	session,
 	shell,
 } from 'electron'
+import { type BrowserPaneRequest, readBrowserRequest } from '../shared/browser-pane.js'
 import type { CommitRequestView } from '../shared/commit-protocol.js'
 import { UNAVAILABLE_ENGINE_VIEW } from '../shared/engine-delivery-protocol.js'
 import { readEngineUpdateRequest } from '../shared/engine-update-protocol.js'
@@ -58,6 +61,7 @@ import {
 import { OVERLAY_SIZE, overlayBitmap } from './attention-overlay.js'
 import { AttentionSignals } from './attention-signals.js'
 import { BringBack } from './bring-back.js'
+import { BrowserPaneHost } from './browser-pane.js'
 import { bundledCliEntry } from './bundled-runtime.js'
 import { ClipboardTextWriter } from './clipboard-text.js'
 import { ConfigSettings } from './config-settings.js'
@@ -225,6 +229,21 @@ const streamProxy = new PalStreamProxy(() =>
 	diagnostics.record('computer_stream_failed', { severity: 'error' }),
 )
 const windows = new WorkspaceWindowRegistry<BrowserWindow>()
+/** Each window's Browser pane pages; see browser-pane.ts for how a page is kept apart from the app. */
+const browserPanes = new Map<string, BrowserPaneHost>()
+/**
+ * "Keep computer awake" for one conversation: a power-save blocker held while it is on. It is
+ * released when the person turns it off, when the window that asked closes, and when the
+ * conversation is removed, so it never outlives the session it was asked for.
+ */
+const awakeHolds = new Map<string, { blocker: number; windowId: string }>()
+function releaseAwake(match: (sessionId: string, hold: { windowId: string }) => boolean): void {
+	for (const [sessionId, hold] of [...awakeHolds]) {
+		if (!match(sessionId, hold)) continue
+		if (powerSaveBlocker.isStarted(hold.blocker)) powerSaveBlocker.stop(hold.blocker)
+		awakeHolds.delete(sessionId)
+	}
+}
 const workspaceFile = join(app.getPath('userData'), 'workspace-layout.json')
 /** Saved files this start could not read and set aside; told to the person once, in the window. */
 const damagedNotices = new DamagedFilesNotices()
@@ -941,6 +960,7 @@ function register(): void {
 		['draftSettings', 0],
 		['attachments', 0],
 		['jobs', 0],
+		['browserPane', 0],
 		['readJob', 0],
 		['harnesses', 1],
 		['providers', 1],
@@ -1382,7 +1402,10 @@ function register(): void {
 		operator.updatePal(id, revision, changes),
 	)
 	handle('deletePal', (id: string, revision: number) => operator.deletePal(id, revision))
-	handle('removeConversation', (id: string) => operator.removeConversation(id))
+	handle('removeConversation', (id: string) => {
+		releaseAwake((sessionId) => sessionId === id)
+		return operator.removeConversation(id)
+	})
 	// A removal can be taken back for a few minutes. The proof is main's own, bound to this
 	// window and the exact folder, and it goes through the same pick checks as a new folder.
 	const readdTokens = new FolderAccessTokens()
@@ -1435,6 +1458,23 @@ function register(): void {
 	handle('projectFileIndex', (id: string) => operator.projectFileIndex(id))
 	handle('readProjectFile', (id: string, path: string) => operator.readProjectFile(id, path))
 	handle('readSessionOutput', (id: string, path: string) => operator.readSessionOutput(id, path))
+	handleWindow('browserPane', ({ id }, sessionId: string, request: BrowserPaneRequest) => {
+		const host = browserPanes.get(id)
+		if (!host) throw new Error('The browser is not available here.')
+		return host.handle(sessionId, readBrowserRequest(request))
+	})
+	handleWindow('keepAwake', ({ id }, sessionId: string, on?: boolean) => {
+		if (typeof sessionId !== 'string' || !sessionId || sessionId.length > 400)
+			throw new Error('Invalid conversation.')
+		if (on === undefined) return awakeHolds.has(sessionId)
+		if (on && !awakeHolds.has(sessionId))
+			awakeHolds.set(sessionId, {
+				blocker: powerSaveBlocker.start('prevent-display-sleep'),
+				windowId: id,
+			})
+		else if (!on) releaseAwake((held) => held === sessionId)
+		return awakeHolds.has(sessionId)
+	})
 	handle('openSessionOutput', (id: string, path: string, target: 'browser' | 'file-manager') =>
 		operator.openSessionOutput(id, path, target),
 	)
@@ -1807,6 +1847,30 @@ async function createWindow(
 		},
 	})
 	windows.register(windowId, window)
+	browserPanes.set(
+		windowId,
+		new BrowserPaneHost({
+			window,
+			createView: (partition) =>
+				new WebContentsView({
+					webPreferences: {
+						partition,
+						nodeIntegration: false,
+						contextIsolation: true,
+						sandbox: true,
+						webSecurity: true,
+						allowRunningInsecureContent: false,
+						safeDialogs: true,
+					},
+				}),
+			sessionOf: (partition) => session.fromPartition(partition),
+			workFolder: (sessionId) => operator.browserWorkFolder(sessionId),
+			caseless: process.platform === 'win32',
+			send: (state) => {
+				if (!window.isDestroyed()) window.webContents.send('namzu:browser-event', state)
+			},
+		}),
+	)
 	// The header's menu button stands in for the menu bar; keep the native accelerators without
 	// adding the operating system's menu row on Windows and Linux.
 	if (process.platform !== 'darwin') window.setMenuBarVisibility(false)
@@ -1896,6 +1960,7 @@ async function createWindow(
 			voiceInput.stopWindow(windowId)
 			// The old document's views are gone; the new one attaches afresh and may take the keyboard.
 			terminals.releaseWindow(windowId)
+			browserPanes.get(windowId)?.hide()
 		}
 	})
 	window.once('ready-to-show', () => {
@@ -1970,6 +2035,9 @@ async function createWindow(
 		localSpeechRouting.cancelWindow(windowId)
 		voiceInput.stopWindow(windowId)
 		terminals.releaseWindow(windowId)
+		browserPanes.get(windowId)?.dispose()
+		browserPanes.delete(windowId)
+		releaseAwake((_sessionId, hold) => hold.windowId === windowId)
 		windows.remove(windowId)
 		const timer = closeTimers.get(windowId)
 		if (timer) clearTimeout(timer)

@@ -133,7 +133,6 @@ import {
 	ArchiveIcon,
 	ArrowUpIcon,
 	FolderIcon,
-	GlobeIcon,
 	MoreHorizontalIcon,
 	PanelLeftIcon,
 	PlusIcon,
@@ -146,6 +145,7 @@ import {
 	TerminalIcon,
 	XIcon,
 } from './icons.js'
+import { KeepAwakeItem } from './keep-awake.js'
 import { LocalSpeechReadAloud } from './local-speech-settings.js'
 import { MessageActions } from './message-actions.js'
 import {
@@ -201,7 +201,7 @@ import { palMarker, palStartCard, palWaitingLine } from './pal-start-model.js'
 import { closableStaleTabs, stalePalTabs } from './pal-tab-siblings.js'
 import { unreadAfterOpen, unreadAfterSends } from './pal-unread.js'
 import { PalCustomizeDialog, type PalOpening, PalSidebarSection, PalsPage } from './pals-page.js'
-import { BrowserBody, PaneTabs, fileTabItem } from './pane-bodies.js'
+import { BrowserBody, BrowserTabs, PaneTabs, fileTabItem, useBrowserPane } from './pane-bodies.js'
 import { readLayout, writeLayout } from './pane-grid-state.js'
 import { type PaneContent, PaneGrid } from './pane-grid-view.js'
 import {
@@ -921,8 +921,6 @@ export function App({
 	)
 	// The pane the narrow overlay shows, and the page the Browser pane shows: not remembered.
 	const [overlayPane, setOverlayPane] = useState<GridKind>()
-	const [browserPage, setBrowserPage] = useState<{ sessionId: string; path: string }>()
-	const [browserReload, setBrowserReload] = useState(0)
 	const [terminalShown, setTerminalShown] = useState('')
 	// One reply's receipts while the drawer shows just that reply; undefined shows everything.
 	const [changesFilterState, setChangesFilterState] = useState<{
@@ -1235,6 +1233,10 @@ export function App({
 		() => (outputsEnabled ? outputFiles(thread) : []),
 		[outputsEnabled, thread],
 	)
+	// The conversation's browser pages; a page a turn writes is opened in them by the effect below.
+	const browserPane = useBrowserPane(api, sessionId)
+	const browserActRef = useRef(browserPane?.act)
+	browserActRef.current = browserPane?.act
 	// The versions of each output already known, so only a write made after this is news.
 	const outputsSeen = useRef(new Map<string, Map<string, number>>())
 	// Opens a pane for the kind of file a turn wrote: a page in the Browser, a document in Files.
@@ -1249,7 +1251,7 @@ export function App({
 		for (const file of outputs) seen.set(file.path, file.version)
 		if (!news) return
 		if (news.kind === 'html') {
-			setBrowserPage({ sessionId, path: news.path })
+			browserActRef.current?.({ kind: 'open', path: news.path })
 			openPaneRef.current('browser')
 		} else openChangedFileRef.current(news.path)
 	}, [sessionId, outputs, thread.running, historyPending])
@@ -6131,10 +6133,6 @@ export function App({
 	const darkTheme =
 		appearance === 'dark' ||
 		(appearance === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
-	const browserFile =
-		outputs.find(
-			(file) => file.path === browserPage?.path && browserPage?.sessionId === sessionId,
-		) ?? outputs.find((file) => file.kind === 'html')
 	const shownTerminal = stripTerminals.find((tab) => tab.id === terminalShown) ?? stripTerminals[0]
 	const closeTerminalTab = (id: string) =>
 		void onAction({ kind: 'close', groupId: group.id, tabId: id }).catch((failure) =>
@@ -6233,32 +6231,8 @@ export function App({
 			}
 		if (kind === 'browser')
 			return {
-				title: (
-					<PaneTabs
-						label="Browser"
-						tabs={[
-							{
-								id: 'page',
-								label: browserFile?.name ?? 'Browser',
-								icon: <GlobeIcon aria-hidden="true" />,
-								fixed: true,
-							},
-						]}
-						active="page"
-						onSelect={() => undefined}
-					/>
-				),
-				body: (
-					<BrowserBody
-						key={`${browserFile?.path ?? ''}:${browserReload}`}
-						api={api}
-						sessionId={sessionId}
-						file={browserFile}
-						workFolder={project?.path}
-						dark={darkTheme}
-						onReload={() => setBrowserReload((value) => value + 1)}
-					/>
-				),
+				title: <BrowserTabs browser={browserPane} />,
+				body: <BrowserBody browser={browserPane} />,
 			}
 		const homeId = 'files:home'
 		return {
@@ -6390,6 +6364,11 @@ export function App({
 							mac={macPlatform}
 							busy={loading || harnessBusy || frozen}
 							label="Conversation actions"
+							trailing={
+								sessionId && api.keepAwake && !palConversation ? (
+									<KeepAwakeItem api={api} sessionId={sessionId} />
+								) : undefined
+							}
 							trigger={
 								<Button
 									type="button"

@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { BrowserPaneState } from './shared/browser-pane.js'
 import type { EngineDeliveryView } from './shared/engine-delivery-protocol.js'
 import type { EngineUpdateNotice, EngineUpdatesState } from './shared/engine-update-protocol.js'
 import type { LocalListeningEvent } from './shared/local-listening-protocol.js'
@@ -169,6 +170,13 @@ const api: DesktopApi = {
 	projectFileIndex: (id) => invoke('projectFileIndex', id),
 	readProjectFile: (id, path) => invoke('readProjectFile', id, path),
 	readSessionOutput: (id, path) => invoke('readSessionOutput', id, path),
+	browserPane: (id, request) => invoke('browserPane', id, request),
+	keepAwake: (id, on) => invoke('keepAwake', id, on),
+	onBrowserEvent: (listener) => {
+		const handler = (_event: unknown, data: BrowserPaneState) => listener(data)
+		ipcRenderer.on('namzu:browser-event', handler)
+		return () => ipcRenderer.removeListener('namzu:browser-event', handler)
+	},
 	openSessionOutput: (id, path, target) => invoke('openSessionOutput', id, path, target),
 	resolveProjectLinks: (id, refs) => invoke('resolveProjectLinks', id, refs),
 	openProjectPath: (id, path, target, line) => invoke('openProjectPath', id, path, target, line),

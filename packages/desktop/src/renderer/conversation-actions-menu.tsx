@@ -237,6 +237,7 @@ export function ConversationActionsMenu({
 	align = 'end',
 	leading,
 	afterMove,
+	trailing,
 	acceptedRef,
 	onAction,
 }: {
@@ -252,6 +253,8 @@ export function ConversationActionsMenu({
 	leading?: ReactNode
 	/** Extra items that continue the move group, such as a tab's "Split down". */
 	afterMove?: ReactNode
+	/** Items after the shared ones, set off by a rule. */
+	trailing?: ReactNode
 	/** Set by the caller's own items so focus is not pulled back to the trigger after them. */
 	acceptedRef?: MutableRefObject<boolean>
 	onAction: (id: ConversationActionId, trigger: HTMLElement | null) => void
@@ -301,6 +304,12 @@ export function ConversationActionsMenu({
 								onAction(id, opener.current)
 							}}
 						/>
+						{trailing && (
+							<>
+								<Menu.Separator className="conversation-actions-separator" />
+								{trailing}
+							</>
+						)}
 					</Menu.Popup>
 				</Menu.Positioner>
 			</Menu.Portal>
