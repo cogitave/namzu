@@ -167,48 +167,19 @@ describe('per-reply edit summary', () => {
 		)
 	})
 
-	it('opens on all changes, with this reply one click away, whichever reply it came from', () => {
-		const render = (receiptIds?: string[]) =>
-			renderToStaticMarkup(
-				createElement(ChangesPanel, {
-					tools: thread.tools,
-					timeline: thread.timeline,
-					dark: false,
-					receiptIds,
-					onShowAll: () => {},
-					onClose: () => {},
-				}),
-			)
-		const fromReply = render(['2:c', '2:d'])
-		const all = render(undefined)
-		for (const html of [fromReply, all]) {
-			expect(html).toMatch(/aria-pressed="true"[^>]*>All changes</)
-			expect(html).toMatch(/aria-pressed="false"[^>]*>This reply</)
-			// The whole conversation's total, not the reply's.
-			expect(html).toContain('+6')
-		}
-	})
-
-	it('has one header row: title, scope, counts, View, close, and nothing else', () => {
+	it('stacks every changed file and has no switch between this reply and all changes', () => {
 		const html = renderToStaticMarkup(
 			createElement(ChangesPanel, {
 				tools: thread.tools,
 				timeline: thread.timeline,
 				dark: false,
-				onClose: () => {},
 			}),
 		)
-		const bar = html.slice(
-			html.indexOf('class="changes-bar"'),
-			html.indexOf('class="changes-body"'),
-		)
-		expect(bar).toContain('>Changes</h2>')
-		expect(bar).toContain('aria-label="View options"')
-		expect(bar).toContain('aria-label="Close changes"')
-		expect(bar).not.toContain('Activity')
-		expect(bar).not.toContain('Add a tab')
-		expect(bar).not.toContain('Word wrap')
-		// The files sit beside the diff, not above it.
-		expect(html).toContain('class="changes-flat"')
+		expect(html).not.toContain('This reply')
+		expect(html).not.toContain('aria-pressed')
+		expect(html).not.toContain('changes-switch')
+		expect(html).not.toContain('changes-totals')
+		expect(html).toContain('class="changes-stack"')
+		expect(html.match(/data-file-section/g)?.length).toBeGreaterThan(1)
 	})
 })

@@ -788,6 +788,8 @@ export interface ProjectChangeFile {
 	oldPath?: string
 	/** Set on a renamed file whose content is not text. */
 	binary?: true
+	/** With whitespace hidden, a file whose only changes were whitespace. */
+	whitespaceOnly?: true
 }
 
 /** The working-tree changes of a project; `truncated` when a cap was hit. */
@@ -803,6 +805,34 @@ export interface ProjectDiffView {
 	binary: boolean
 	truncated: boolean
 }
+
+/** What a Changes pane compares the working tree with, or looks at. */
+export type ProjectCompareBase =
+	| { kind: 'head' }
+	| { kind: 'branch'; ref: string }
+	| { kind: 'commit'; sha: string }
+
+export type ProjectCompareRequest =
+	| { op: 'branches' }
+	| { op: 'commits' }
+	| { op: 'changes'; base: ProjectCompareBase; hideWhitespace?: boolean }
+	| { op: 'diff'; base: ProjectCompareBase; path: string }
+
+export type ProjectCompareReply =
+	| {
+			op: 'branches'
+			current: string | null
+			defaultBranch: string | null
+			branches: { name: string; remote: boolean }[]
+	  }
+	| {
+			op: 'commits'
+			commits: { sha: string; short: string; subject: string }[]
+			/** All commits behind HEAD, for "n older commits not shown". */
+			total: number
+	  }
+	| ({ op: 'changes' } & ProjectChangesView)
+	| ({ op: 'diff' } & ProjectDiffView)
 
 /** One entry of a project directory listing. */
 export interface ProjectFileEntry {
@@ -891,6 +921,11 @@ export interface DesktopApi {
 	projectChanges?(projectId: string): Promise<ProjectChangesView | null>
 	/** Before and after text of one changed file. */
 	projectDiff?(projectId: string, path: string): Promise<ProjectDiffView>
+	/** Branches, commits and changes against a branch's fork point or a commit; null without a repository. */
+	projectCompare?(
+		projectId: string,
+		request: ProjectCompareRequest,
+	): Promise<ProjectCompareReply | null>
 	/** Which reply references name real project files, and at which line. */
 	resolveProjectLinks?(projectId: string, refs: string[]): Promise<ProjectLinkResolution[]>
 	/** Open a project path in an editor, the file manager or a terminal. */

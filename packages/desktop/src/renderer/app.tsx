@@ -23,6 +23,7 @@ import type {
 	PalCreateInput,
 	PalScreenView,
 	PalView,
+	ProjectCompareRequest,
 	ProjectGitView,
 	ProjectView,
 	ProviderView,
@@ -48,6 +49,7 @@ import {
 } from './archive-notice.js'
 import { applyCachedAttachmentPreviewEviction } from './attachment-preview-events.js'
 import { ChangesPanel } from './changes-panel.js'
+import { ChangesHeaderSlot } from './changes-review/header-store.js'
 import { type ChangeTotals, changeTotals, receiptOf } from './changes-totals.js'
 import { ChatErrorBanner } from './chat-error-banner.js'
 import { applyClosedTabEvent } from './closed-tab.js'
@@ -921,21 +923,17 @@ export function App({
 	// The pane the narrow overlay shows, and the page the Browser pane shows: not remembered.
 	const [overlayPane, setOverlayPane] = useState<GridKind>()
 	const [terminalShown, setTerminalShown] = useState('')
-	// One reply's receipts while the drawer shows just that reply; undefined shows everything.
-	const [changesFilterState, setChangesFilterState] = useState<{
+	// The file a clicked reply row names; a fresh object each click, so the same row can be chosen again.
+	// Tied to its conversation, so a switch never shows another conversation's file for a frame.
+	const [changesFocusState, setChangesFocusState] = useState<{
 		sessionId: string
-		ids: string[]
-		focus?: { path: string }
+		focus: { path: string }
 	}>()
-	// Tied to its conversation, so a switch never shows another conversation's receipt ids for a frame.
-	const changesFilter =
-		changesFilterState?.sessionId === sessionId ? changesFilterState.ids : undefined
-	// The file a clicked card row names; a fresh object each click, so the same row can be chosen again.
 	const changesFocus =
-		changesFilterState?.sessionId === sessionId ? changesFilterState.focus : undefined
-	const setChangesFilter = useCallback(
-		(ids: string[] | undefined, path?: string) =>
-			setChangesFilterState(ids && { sessionId, ids, focus: path ? { path } : undefined }),
+		changesFocusState?.sessionId === sessionId ? changesFocusState.focus : undefined
+	const focusChangesFile = useCallback(
+		(path: string | undefined) =>
+			setChangesFocusState(path ? { sessionId, focus: { path } } : undefined),
 		[sessionId],
 	)
 	// The drawer opens from the details popover, so closing it returns focus to the popover's icon.
@@ -1301,6 +1299,10 @@ export function App({
 						changes: () => api.projectChanges?.(filesProjectId) ?? Promise.resolve(null),
 						diff: (path: string) =>
 							api.projectDiff?.(filesProjectId, path) ?? Promise.reject(new Error('Unavailable.')),
+						compare: api.projectCompare
+							? (request: ProjectCompareRequest) =>
+									api.projectCompare?.(filesProjectId, request) ?? Promise.resolve(null)
+							: undefined,
 					}
 				: undefined,
 		[filesEnabled, filesProjectId, api],
@@ -3924,6 +3926,10 @@ export function App({
 		if (!filesProjectId || !api.openProjectPath) return
 		void act(() => api.openProjectPath?.(filesProjectId, path, 'editor') ?? Promise.resolve())
 	}
+	const showWorkingTreeFileInFolder = (path: string) => {
+		if (!filesProjectId || !api.openProjectPath) return
+		void act(() => api.openProjectPath?.(filesProjectId, path, 'file-manager') ?? Promise.resolve())
+	}
 	const openChangedFileInEditor = (path: string) => {
 		if (!projectFiles || !api.openProjectPath) return
 		void projectFiles.resolve([path]).then((found) => {
@@ -6197,14 +6203,16 @@ export function App({
 			}
 		if (kind === 'changes')
 			return {
-				title: <span>Changes</span>,
+				title: <ChangesHeaderSlot part="title" />,
+				actions: <ChangesHeaderSlot part="actions" />,
 				body: (
 					<ChangesPanel
+						key={sessionId}
 						tools={thread.tools}
 						timeline={thread.timeline}
-						receiptIds={changesFilter}
 						focus={changesFocus}
-						onShowAll={() => setChangesFilter(undefined)}
+						scopeKey={sessionId}
+						projectRoot={project?.path}
 						source={workingTree}
 						refreshToken={filesRefresh}
 						onOpenFile={projectFiles ? openChangedFile : undefined}
@@ -6214,6 +6222,9 @@ export function App({
 						onOpenWorkingFile={projectFiles ? openWorkingTreeFile : undefined}
 						onOpenWorkingInEditor={
 							projectFiles && api.openProjectPath ? openWorkingTreeFileInEditor : undefined
+						}
+						onShowInFolder={
+							filesProjectId && api.openProjectPath ? showWorkingTreeFileInFolder : undefined
 						}
 						onCopy={(text, done) =>
 							void copyToClipboard(text, done).catch(() =>
@@ -6700,7 +6711,6 @@ export function App({
 											action: {
 												label: 'Show',
 												onClick: () => {
-													setChangesFilter(undefined)
 													openPane('changes')
 												},
 											},
@@ -7614,8 +7624,8 @@ export function App({
 															onWorkDisclosureChange={(key, open) =>
 																onWorkDisclosureChange(sessionId, key, open)
 															}
-															onOpenTurnChanges={(receiptIds, path) => {
-																setChangesFilter(receiptIds, path)
+															onOpenTurnChanges={(path) => {
+																focusChangesFile(path)
 																openPane('changes')
 															}}
 															onOpenChangedFile={projectFiles ? openChangedFile : undefined}
@@ -7982,7 +7992,6 @@ export function App({
 											: undefined
 									}
 									onOpenChanges={() => {
-										setChangesFilter(undefined)
 										openPane('changes')
 									}}
 									onOpenWork={() => {

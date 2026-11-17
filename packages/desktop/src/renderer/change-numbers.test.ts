@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { ThreadState } from '../shared/projection.js'
 import type { PermissionView } from '../shared/protocol.js'
 import { buildApprovalCard } from './approval-card-model.js'
-import { cutNoteFor, mergeReceipts, scopeFiles, totalsOf } from './changes-review/model.js'
+import { conversationFiles, cutNoteFor, mergeReceipts, totalsOf } from './changes-review/model.js'
 import { CARRIED_DIFF_LINES, CUT_NOTE, changeTotals } from './changes-totals.js'
 import { toolTranscriptPresentation } from './tool-transcript-presentation.js'
 import { turnChanges } from './turn-changes.js'
@@ -71,7 +71,7 @@ describe('one change number', () => {
 		const card = turnChanges(t).get(1)
 		expect(card).toMatchObject({ added: 2, removed: 2 })
 		expect(card?.files[0]).toMatchObject({ added: 2, removed: 2 })
-		const [file] = scopeFiles('conversation', t)
+		const [file] = conversationFiles(t)
 		expect(file).toMatchObject({ path: 'cart.js', added: 2, removed: 2 })
 		expect(totalsOf([file as NonNullable<typeof file>])).toMatchObject({ added: 2, removed: 2 })
 	})
@@ -81,7 +81,7 @@ describe('one change number', () => {
 			e1: edit('cart.js', 'total = a\n', 'total = b\n', 1, 1),
 			e2: edit('cart.js', 'tax = c\n', 'tax = d\n', 1, 1),
 		})
-		const [file] = scopeFiles('reply', { ...t, receiptIds: ['e1', 'e2'] })
+		const [file] = conversationFiles(t)
 		expect(file?.edits).toEqual([
 			{ before: 'total = a\n', after: 'total = b\n', added: 1, removed: 1 },
 			{ before: 'tax = c\n', after: 'tax = d\n', added: 1, removed: 1 },
@@ -98,7 +98,7 @@ describe('one change number', () => {
 		}
 		const t = thread(tools)
 		const card = turnChanges(t).get(1)
-		const panel = totalsOf(scopeFiles('reply', { ...t, receiptIds: Object.keys(tools) }))
+		const panel = totalsOf(conversationFiles(t))
 		expect(card).toMatchObject({ added: 6, removed: 3 })
 		expect(panel).toMatchObject({ added: 6, removed: 3 })
 		// The approval for the one write that makes b.ts reads what the card reads for it.
@@ -129,7 +129,7 @@ describe('one change number', () => {
 		const t = thread({ w: edit('big.ts', '', 'a\nb\n', 477, 0, { cut: true }) })
 		const card = turnChanges(t).get(1)
 		expect(card).toMatchObject({ added: 477, removed: 0, cut: true })
-		const [file] = scopeFiles('conversation', t)
+		const [file] = conversationFiles(t)
 		expect(file).toMatchObject({ added: 477, cut: true })
 		expect(totalsOf([file as NonNullable<typeof file>])).toMatchObject({ added: 477, cut: true })
 		expect(CUT_NOTE).toBe('First 400 lines shown')
@@ -161,7 +161,7 @@ describe('one change number', () => {
 			e2: edit('cart.js', 'total = b\n', 'total = a\n', 1, 1),
 		})
 		expect(turnChanges(t).get(1)).toBeUndefined()
-		expect(scopeFiles('conversation', t)).toEqual([])
+		expect(conversationFiles(t)).toEqual([])
 		expect(
 			changeTotals([{ path: 'x', before: 'a', after: 'b', added: 1, removed: 1 }]),
 		).toMatchObject({
@@ -174,7 +174,7 @@ describe('one change number', () => {
 			e1: edit('cart.js', 'x\n', 'y\n', 1, 1),
 			e2: edit('cart.js', 'z\n', 'x\n', 1, 1),
 		})
-		expect(scopeFiles('conversation', t)[0]).toMatchObject({ added: 2, removed: 2 })
+		expect(conversationFiles(t)[0]).toMatchObject({ added: 2, removed: 2 })
 	})
 
 	it('a batch edit with no diff still counts from the engine and is listed without sides', () => {
@@ -188,7 +188,7 @@ describe('one change number', () => {
 		} as unknown as Tool
 		const t = thread({ b: batch })
 		expect(turnChanges(t).get(1)).toMatchObject({ added: 5, removed: 2 })
-		const [file] = scopeFiles('conversation', t)
+		const [file] = conversationFiles(t)
 		expect(file).toMatchObject({ path: 'multi.ts', added: 5, removed: 2, noDiff: true })
 		expect(file?.edits).toBeUndefined()
 	})
@@ -275,8 +275,8 @@ describe('one change number', () => {
 		const card = turnChanges(t).get(1)
 		expect(card?.files).toHaveLength(1)
 		expect(card).toMatchObject({ added: 3, removed: 1 })
-		const [file] = scopeFiles('conversation', t)
-		expect(scopeFiles('conversation', t)).toHaveLength(1)
+		const [file] = conversationFiles(t)
+		expect(conversationFiles(t)).toHaveLength(1)
 		expect(file).toMatchObject({ path: 'src/cart.js', added: 3, removed: 1, partial: true })
 	})
 })

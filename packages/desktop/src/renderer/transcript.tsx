@@ -768,7 +768,7 @@ interface TurnGroupProps {
 	undoKept?: Record<string, number>
 	/** Absent when the caller offers nothing to do; the same function for the life of the transcript. */
 	onWorkDisclosureChange?: (key: string, open: boolean) => void
-	onOpenTurnChanges?: (receiptIds: string[], path?: string) => void
+	onOpenTurnChanges?: (path?: string) => void
 	onOpenChangedFile?: (path: string) => void
 	/** Leads from a "sent to a Pal" line to that Pal's messages; the same function for the life of the transcript. */
 	onOpenPalInbox?: (palName: string) => void
@@ -813,7 +813,7 @@ function TurnFoot({
 	thread: ThreadState
 	turn: number
 	changes?: TurnChanges
-	onOpen?: (receiptIds: string[], path?: string) => void
+	onOpen?: (path?: string) => void
 	onOpenFile?: (path: string) => void
 	onCopy?: (text: string) => void
 	undo?: UndoCardView
@@ -1031,7 +1031,7 @@ export function Transcript({
 	workDisclosures?: WorkDisclosureChoices
 	onWorkDisclosureChange?: (key: string, open: boolean) => void
 	/** Receipt ids of the edits one reply made; without it no per-reply edit card shows. */
-	onOpenTurnChanges?: (receiptIds: string[], path?: string) => void
+	onOpenTurnChanges?: (path?: string) => void
 	/** Shows an edited file in the side panel; absent when the project's files are not available. */
 	onOpenChangedFile?: (path: string) => void
 	/** Opens a Pal's messages by its name, from the line that says a message was sent to it. */
@@ -1086,8 +1086,7 @@ export function Transcript({
 		() => ({
 			onWorkDisclosureChange: (key: string, open: boolean) =>
 				handlers.current.onWorkDisclosureChange?.(key, open),
-			onOpenTurnChanges: (ids: string[], path?: string) =>
-				handlers.current.onOpenTurnChanges?.(ids, path),
+			onOpenTurnChanges: (path?: string) => handlers.current.onOpenTurnChanges?.(path),
 			onOpenChangedFile: (path: string) => handlers.current.onOpenChangedFile?.(path),
 			onOpenPalInbox: (palName: string) => handlers.current.onOpenPalInbox?.(palName),
 			onUndoTurn: (turnId: string) => handlers.current.onUndoTurn?.(turnId),

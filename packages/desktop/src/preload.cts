@@ -166,6 +166,7 @@ const api: DesktopApi = {
 	projectPr: (id) => invoke('projectPr', id),
 	projectChanges: (id) => invoke('projectChanges', id),
 	projectDiff: (id, path) => invoke('projectDiff', id, path),
+	projectCompare: (id, request) => invoke('projectCompare', id, request),
 	listProjectDirectory: (id, dir) => invoke('listProjectDirectory', id, dir),
 	projectFileIndex: (id) => invoke('projectFileIndex', id),
 	readProjectFile: (id, path) => invoke('readProjectFile', id, path),

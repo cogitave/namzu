@@ -67,6 +67,7 @@ export function createWorkspacePaneApi(
 		projectPr,
 		projectChanges,
 		projectDiff,
+		projectCompare,
 		listProjectDirectory,
 		projectFileIndex,
 		readProjectFile,
@@ -467,6 +468,9 @@ export function createWorkspacePaneApi(
 		...(projectPr ? { projectPr: (id) => invoke(() => projectPr(id), []) } : {}),
 		...(projectChanges ? { projectChanges: (id) => invoke(() => projectChanges(id), []) } : {}),
 		...(projectDiff ? { projectDiff: (id, path) => invoke(() => projectDiff(id, path), []) } : {}),
+		...(projectCompare
+			? { projectCompare: (id, request) => invoke(() => projectCompare(id, request), []) }
+			: {}),
 		...(listProjectDirectory
 			? {
 					listProjectDirectory: (id, dir) => invoke(() => listProjectDirectory(id, dir), []),

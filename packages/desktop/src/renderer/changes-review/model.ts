@@ -11,11 +11,9 @@ import {
 } from '../changes-totals.js'
 import { prepareIndex, searchFiles } from '../file-panel/file-search.js'
 import { baseNameOf } from '../file-panel/project-refs.js'
-import { turnChanges } from '../turn-changes.js'
 
 type Tool = Extract<AcpSessionUpdate, { kind: 'tool_call' }>
 
-export type ReviewScope = 'reply' | 'conversation' | 'uncommitted'
 export type ReviewStatus = ProjectChangeFile['status']
 
 /** One changed file as the review shows it, whichever scope it came from. */
@@ -27,6 +25,8 @@ export interface ReviewFile {
 	removed: number
 	/** A renamed file whose content is not text. */
 	binary?: true
+	/** With whitespace hidden, every change in this file was whitespace. */
+	whitespaceOnly?: true
 	/** Receipts carry their text; a working-tree file is read when it is selected. */
 	content?: { before: string; after: string }
 	/** The diff carries only part of the file's lines; the counts are still the whole. */
@@ -146,30 +146,12 @@ export function mergeReceipts(receipts: readonly Receipt[]): ReviewFile[] {
 	return files
 }
 
-/** The receipts of the latest reply that changed files; empty when none did. */
-export function latestReplyReceiptIds(thread: Pick<ThreadState, 'timeline' | 'tools'>): string[] {
-	let latest: { turn: number; receiptIds: string[] } | undefined
-	for (const changes of turnChanges(thread).values())
-		if (!latest || changes.turn > latest.turn) latest = changes
-	return latest?.receiptIds ?? []
-}
-
-export function scopeFiles(
-	scope: Exclude<ReviewScope, 'uncommitted'>,
-	input: {
-		tools: Record<string, Tool>
-		timeline?: ThreadState['timeline']
-		/** The reply the person opened; absent means the latest one. */
-		receiptIds?: readonly string[]
-	},
-): ReviewFile[] {
-	if (scope === 'conversation') return mergeReceipts(receiptsOf(input.tools, input.timeline))
-	const ids =
-		input.receiptIds ??
-		(input.timeline
-			? latestReplyReceiptIds({ timeline: input.timeline, tools: input.tools })
-			: undefined)
-	return ids ? mergeReceipts(receiptsOf(input.tools, input.timeline, ids)) : []
+/** The files the conversation's own edits changed, one entry per path. */
+export function conversationFiles(input: {
+	tools: Record<string, Tool>
+	timeline?: ThreadState['timeline']
+}): ReviewFile[] {
+	return mergeReceipts(receiptsOf(input.tools, input.timeline))
 }
 
 /** Beside the bar: which cut files the open one does not already explain. Absent when none. */
@@ -324,13 +306,6 @@ export function unifiedDiff(path: string, before: string, after: string, oldPath
 		}
 	}
 	return `${out.join('\n')}\n`
-}
-
-/** What an empty scope says. */
-export function emptyMessageFor(scope: ReviewScope, repository: boolean): string {
-	if (scope === 'reply') return 'No changes in the last reply.'
-	if (scope === 'conversation') return 'This conversation hasn’t changed files yet.'
-	return repository ? 'No uncommitted changes.' : 'This project is not a git repository.'
 }
 
 /** Which way a key steps between files: `]` or Alt+Down forward, `[` or Alt+Up back; 0 for anything else. */

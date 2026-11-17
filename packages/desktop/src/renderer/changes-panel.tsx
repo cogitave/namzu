@@ -5,65 +5,57 @@ import { ChangesReview, type WorkingTreeSource } from './changes-review/review.j
 type Tool = Extract<AcpSessionUpdate, { kind: 'tool_call' }>
 
 /**
- * The Changes tab: the exact before and after of completed edits, and, where the project is a
- * git repository, the working tree against HEAD. The review view lives in ./changes-review.
+ * The Changes pane: the files a conversation changed, stacked, against a base the person picks.
+ * The review itself lives in ./changes-review; its controls sit in the pane's header.
  */
 export function ChangesPanel({
 	tools,
 	timeline,
 	dark,
-	receiptIds,
 	focus,
-	onShowAll,
 	source,
 	refreshToken,
+	scopeKey,
+	projectRoot,
 	onOpenFile,
 	onOpenInEditor,
 	onOpenWorkingFile,
 	onOpenWorkingInEditor,
+	onShowInFolder,
 	onCopy,
-	onClose,
-	expanded,
-	onToggleExpanded,
 }: {
 	tools: Record<string, Tool>
-	/** Gives "Last reply" its meaning; without it only a chosen reply can be shown. */
 	timeline?: ThreadState['timeline']
 	dark: boolean
-	/** Show this reply's receipts; `onShowAll` leaves it. */
-	receiptIds?: readonly string[]
-	/** The file to select first, when the person came from one file of that reply. */
+	/** The file to scroll to, when the person came from one file of a reply. */
 	focus?: { path: string }
-	onShowAll?: () => void
 	source?: WorkingTreeSource
 	refreshToken?: number
+	scopeKey?: string
+	projectRoot?: string
 	onOpenFile?: (path: string) => void
 	onOpenInEditor?: (path: string) => void
 	onOpenWorkingFile?: (path: string) => void
 	onOpenWorkingInEditor?: (path: string) => void
+	onShowInFolder?: (path: string) => void
 	onCopy?: (text: string, done: string) => void
-	onClose?: () => void
-	expanded?: boolean
-	onToggleExpanded?: () => void
 }) {
 	return (
 		<ChangesReview
 			tools={tools}
 			timeline={timeline}
 			dark={dark}
-			receiptIds={receiptIds}
 			focus={focus}
-			onShowAll={onShowAll}
 			source={source}
 			refreshToken={refreshToken}
+			scopeKey={scopeKey}
+			projectRoot={projectRoot}
 			onOpenFile={onOpenFile}
 			onOpenInEditor={onOpenInEditor}
 			onOpenWorkingFile={onOpenWorkingFile}
 			onOpenWorkingInEditor={onOpenWorkingInEditor}
+			onShowInFolder={onShowInFolder}
 			onCopy={onCopy}
-			onClose={onClose}
-			expanded={expanded}
-			onToggleExpanded={onToggleExpanded}
 		/>
 	)
 }
