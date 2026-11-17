@@ -214,13 +214,14 @@ export function BrowserBody({ browser }: { browser: BrowserPane | undefined }) {
 		let sent = ''
 		const tick = () => {
 			const box = node.getBoundingClientRect()
+			// Under a menu or dialog the page cannot stay above it: a picture of it stands in until it closes.
 			const next = covered(box)
 				? null
 				: { x: box.left, y: box.top, width: box.width, height: box.height }
-			const key = next ? `${next.x},${next.y},${next.width},${next.height}` : 'none'
+			const key = next ? `${next.x},${next.y},${next.width},${next.height}` : 'covered'
 			if (key !== sent) {
 				sent = key
-				act({ kind: 'place', bounds: next })
+				act(next ? { kind: 'place', bounds: next } : { kind: 'freeze' })
 			}
 			frame = requestAnimationFrame(tick)
 		}
@@ -295,6 +296,9 @@ export function BrowserBody({ browser }: { browser: BrowserPane | undefined }) {
 			</div>
 			{state?.notice && <output className="browser-notice">{state.notice}</output>}
 			<div className="browser-page" ref={page} data-loading={tab?.loading || undefined}>
+				{state?.still && (
+					<img className="browser-still" src={state.still} alt="" draggable={false} />
+				)}
 				{!tab && (
 					<div className="browser-empty">
 						<GlobeIcon className="size-5" aria-hidden="true" />
