@@ -162,11 +162,11 @@ test("every control in the title band takes the click and empty space still drag
 		await card.getByRole("button", { name: "Accept", exact: true }).click();
 		await expect(w.page.getByText("Wrote out.txt.").first()).toBeVisible({ timeout: T });
 		await everyState(w, "conversation");
-		// The side panel open.
+		// The Changes pane open beside the conversation.
 		await w.page.getByRole("button", { name: /Open changes$/ }).last().click();
-		await expect(w.page.getByRole("complementary", { name: "Changes" })).toBeVisible({ timeout: T });
+		await expect(w.page.getByRole("region", { name: "Changes", exact: true })).toBeVisible({ timeout: T });
 		await settled(w);
-		await everyState(w, "conversation with the panel open");
+		await everyState(w, "conversation with the Changes pane open");
 		// Settings, which has no top bar of its own.
 		await w.page.getByRole("button", { name: "Settings", exact: true }).first().click();
 		await expect(w.page.getByRole("region", { name: "Settings", exact: true })).toBeVisible({ timeout: T });
