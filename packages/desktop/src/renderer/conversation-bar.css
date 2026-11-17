@@ -20,6 +20,52 @@
 	line-height: var(--leading-interface);
 	color: var(--foreground);
 }
+.conversation-bar-title-text {
+	display: block;
+	max-width: none;
+	margin: 0 -6px;
+	padding: 0 6px;
+	overflow: hidden;
+	border: 0;
+	border-radius: var(--control-radius);
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	cursor: text;
+	-webkit-app-region: no-drag;
+}
+.conversation-bar-title-text:hover {
+	background: var(--accent);
+}
+.conversation-bar-title-text:focus-visible {
+	outline: none;
+	box-shadow: var(--focus-ring);
+}
+.conversation-bar-title[data-editing] {
+	flex: 0 1 280px;
+	overflow: visible;
+}
+.conversation-bar-rename {
+	width: 100%;
+	min-width: 120px;
+	height: 24px;
+	padding: 0 6px;
+	border: 1px solid var(--ring, var(--primary));
+	border-radius: var(--control-radius);
+	background: var(--background);
+	color: var(--foreground);
+	font: inherit;
+	outline: none;
+	-webkit-app-region: no-drag;
+}
+.conversation-bar-title ~ .conversation-actions-trigger,
+.conversation-bar-chevron {
+	flex: none;
+	-webkit-app-region: no-drag;
+}
 .conversation-bar-project {
 	flex: 0 1 auto;
 	min-width: 56px;

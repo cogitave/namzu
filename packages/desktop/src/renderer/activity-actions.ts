@@ -11,7 +11,7 @@ export interface ActivityActions {
 	changes?: TurnChanges
 	/** The folder the conversation works in, to turn a relative path into the full one. */
 	projectRoot?: string
-	onOpenTurnChanges?: (receiptIds: string[], path?: string) => void
+	onOpenTurnChanges?: (path?: string) => void
 	onOpenChangedFile?: (path: string) => void
 }
 
@@ -53,7 +53,6 @@ export function openTarget(actions: ActivityActions | null, path: string): OpenT
 
 /** Runs the open that `openTarget` chose. */
 export function openAction(actions: ActivityActions, path: string): void {
-	if (openTarget(actions, path) === 'changes' && actions.changes)
-		actions.onOpenTurnChanges?.(actions.changes.receiptIds, path)
+	if (openTarget(actions, path) === 'changes' && actions.changes) actions.onOpenTurnChanges?.(path)
 	else actions.onOpenChangedFile?.(path)
 }

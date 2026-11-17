@@ -1,8 +1,11 @@
 import {
 	AppWindow,
 	Archive,
+	ArrowUpRight,
 	Blocks,
 	ChevronsDownUp,
+	CircleCheck,
+	Circle as CircleStroke,
 	Clock,
 	Copy,
 	Download,
@@ -21,6 +24,7 @@ import {
 	Image,
 	ListChecks,
 	ListFilter,
+	ListTree,
 	type LucideIcon,
 	Maximize2,
 	Menu as MenuLines,
@@ -284,3 +288,7 @@ export const SideChatIcon = createOutlineIcon(MessageSquarePlus)
 export const SplitRightIcon = createOutlineIcon(SquareSplitHorizontal)
 export const SplitDownIcon = createOutlineIcon(SquareSplitVertical)
 export const GlobeIcon = createOutlineIcon(Globe)
+export const ArrowUpRightIcon = createOutlineIcon(ArrowUpRight)
+export const CircleCheckIcon = createOutlineIcon(CircleCheck)
+export const CircleOutlineIcon = createOutlineIcon(CircleStroke)
+export const ListTreeIcon = createOutlineIcon(ListTree)

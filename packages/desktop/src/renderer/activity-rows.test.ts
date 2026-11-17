@@ -311,7 +311,7 @@ describe('full path and open target', () => {
 		expect(openTarget({ changes }, 'src/app.css')).toBeUndefined()
 		expect(openTarget(null, 'src/app.css')).toBeUndefined()
 		openAction(actions, 'src/app.css')
-		expect(onOpenTurnChanges).toHaveBeenCalledWith(['r1', 'r2'], 'src/app.css')
+		expect(onOpenTurnChanges).toHaveBeenCalledWith('src/app.css')
 		openAction(actions, 'src/other.css')
 		expect(onOpenChangedFile).toHaveBeenCalledWith('src/other.css')
 	})

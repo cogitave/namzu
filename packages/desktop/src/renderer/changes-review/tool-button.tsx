@@ -7,6 +7,7 @@ export function ToolButton({
 	label,
 	tooltip = label,
 	pressed,
+	className,
 	disabled,
 	onClick,
 	children,
@@ -14,6 +15,7 @@ export function ToolButton({
 	label: string
 	tooltip?: ReactNode
 	pressed?: boolean
+	className?: string
 	disabled?: boolean
 	onClick?: () => void
 	children: ReactNode
@@ -27,6 +29,7 @@ export function ToolButton({
 						size="icon-xs"
 						aria-label={label}
 						aria-pressed={pressed}
+						className={className}
 						disabled={disabled}
 						onClick={onClick}
 					/>

@@ -2,7 +2,6 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
 import type { JobView, McpServersView } from '../shared/protocol.js'
-import { DetailsRows } from './conversation-details-popover.js'
 import { SessionPanel } from './session-panel.js'
 import {
 	type SessionSummaryInput,
@@ -94,7 +93,7 @@ const jobs: JobView[] = [
 	{ id: 'b', command: 'npm test', status: 'exited', exitCode: 0, startedAt: 0 },
 ]
 
-it('draws the same row text in the popover and the panel, because both read one model', () => {
+it('draws the model rows in the panel', () => {
 	const summary = sessionSummary(base)
 	const panel = renderToStaticMarkup(
 		createElement(SessionPanel, {
@@ -107,22 +106,12 @@ it('draws the same row text in the popover and the panel, because both read one 
 			onOpenWork: () => {},
 		}),
 	)
-	const popover = renderToStaticMarkup(
-		createElement(DetailsRows, {
-			summary,
-			git: base.git,
-			work: base.work,
-			onOpenChanges: () => {},
-			onOpenWork: () => {},
-		}),
-	)
-	for (const html of [panel, popover]) {
+	for (const html of [panel]) {
 		expect(html).toContain('312')
 		expect(html).toContain('main')
 	}
 	expect(panel).toContain('1m 5s')
 	expect(panel).toContain('1 finished')
-	expect(popover).toContain('1 running · 2 finished')
 	expect(panel).toContain('Tool servers')
 	expect(panel).toContain('1 connected')
 	expect(panel).toContain('7%')

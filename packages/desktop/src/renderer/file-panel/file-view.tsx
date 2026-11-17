@@ -183,10 +183,12 @@ export function SourceView({
 			theme: { light: 'pierre-light', dark: 'pierre-dark' } as const,
 			themeType: dark ? ('dark' as const) : ('light' as const),
 			preferredHighlighter: 'shiki-wasm' as const,
-			overflow: 'scroll' as const,
+			// Long lines wrap in a narrow pane, their line numbers kept beside the first row of each. A file
+			// long enough to be drawn in a virtual list keeps its lines on one row each, as it measures them so.
+			overflow: lines > CODE_VIEW_LINES ? ('scroll' as const) : ('wrap' as const),
 			unsafeCSS: DIFF_VIEW_UNSAFE_CSS,
 		}),
-		[dark],
+		[dark, lines],
 	)
 	const fileOptions = useMemo(() => ({ ...options, disableFileHeader: true }), [options])
 	const viewOptions = useMemo(() => ({ ...options, stickyHeaders: false }), [options])

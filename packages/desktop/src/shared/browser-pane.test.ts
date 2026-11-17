@@ -8,6 +8,7 @@ describe('readBrowserRequest', () => {
 			address: 'https://a.b',
 		})
 		expect(readBrowserRequest({ kind: 'back' })).toEqual({ kind: 'back' })
+		expect(readBrowserRequest({ kind: 'freeze', extra: 1 })).toEqual({ kind: 'freeze' })
 		expect(readBrowserRequest({ kind: 'place', bounds: null })).toEqual({
 			kind: 'place',
 			bounds: null,

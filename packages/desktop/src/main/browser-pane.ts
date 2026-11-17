@@ -36,6 +36,8 @@ interface Browser {
 	tabs: Tab[]
 	active?: string
 	notice?: string
+	/** The picture standing in for the page while something lies over it. */
+	still?: string
 }
 
 export interface BrowserPaneDeps {
@@ -60,6 +62,8 @@ export class BrowserPaneHost {
 	/** Where the renderer last asked for the page, so a tab that changes is put there at once. */
 	private placed: { sessionId: string; bounds: BrowserBounds } | undefined
 	private disposed = false
+	/** Counts every placing and every freezing, so a picture that arrives late can tell it is stale. */
+	private stillToken = 0
 
 	constructor(private readonly deps: BrowserPaneDeps) {}
 
@@ -112,6 +116,7 @@ export class BrowserPaneHost {
 			}),
 			...(browser.active ? { active: browser.active } : {}),
 			...(browser.notice ? { notice: browser.notice } : {}),
+			...(browser.still ? { still: browser.still } : {}),
 		}
 	}
 
@@ -200,7 +205,35 @@ export class BrowserPaneHost {
 		if (!this.deps.window.isDestroyed()) this.deps.window.contentView.removeChildView(tab.view)
 	}
 
+	/**
+	 * A menu or dialog lies over the pane. The page is a view above the app's own page, so it would
+	 * hide that menu: a picture of it is taken and sent to stand in, and the page steps aside until it
+	 * is placed again.
+	 */
+	private async freeze(sessionId: string): Promise<void> {
+		const tab = this.activeTab(sessionId)
+		if (!tab || this.attached?.tab !== tab) return
+		const token = ++this.stillToken
+		let still: string | undefined
+		try {
+			const image = await tab.view.webContents.capturePage()
+			if (!image.isEmpty()) still = `data:image/jpeg;base64,${image.toJPEG(80).toString('base64')}`
+		} catch {
+			// No picture: the area stays blank while the menu is open.
+		}
+		// A placing that arrived while the picture was taken says the page is wanted again.
+		if (this.disposed || token !== this.stillToken) return
+		const browser = this.browser(sessionId)
+		if (still) browser.still = still
+		this.placed = undefined
+		this.detach()
+		this.emit(sessionId)
+	}
+
 	private place(sessionId: string, bounds: BrowserBounds | null): void {
+		this.stillToken++
+		const stale = this.browser(sessionId).still !== undefined
+		if (stale) this.browser(sessionId).still = undefined
 		this.placed = bounds ? { sessionId, bounds } : undefined
 		const tab = this.activeTab(sessionId)
 		if (!bounds || !tab || bounds.width < 2 || bounds.height < 2) {
@@ -218,6 +251,8 @@ export class BrowserPaneHost {
 			width: Math.round(bounds.width),
 			height: Math.round(bounds.height),
 		})
+		// The page is back where it was: the picture that stood in for it goes.
+		if (stale) this.emit(sessionId)
 	}
 
 	private closeTab(sessionId: string, tabId: string): void {
@@ -292,9 +327,16 @@ export class BrowserPaneHost {
 			case 'place':
 				this.place(sessionId, request.bounds)
 				break
+			case 'freeze':
+				void this.freeze(sessionId)
+				break
 		}
 		// A change of tab changes which page is on screen: put the new one where the old one was.
-		if (request.kind !== 'place' && this.placed?.sessionId === sessionId)
+		if (
+			request.kind !== 'place' &&
+			request.kind !== 'freeze' &&
+			this.placed?.sessionId === sessionId
+		)
 			this.place(sessionId, this.placed.bounds)
 		return this.view(sessionId)
 	}

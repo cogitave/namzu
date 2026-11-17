@@ -1,16 +1,19 @@
 import { Menu } from '@base-ui/react/menu'
-import type { ReactNode } from 'react'
+import { type ReactNode, cloneElement, useEffect, useRef, useState } from 'react'
 import { formatLineCount } from './changes-totals.js'
 import {
 	FileDiffIcon,
 	FileTextIcon,
 	GlobeIcon,
+	MoreHorizontalIcon,
 	PanelRightIcon,
 	PencilIcon,
+	SideChatIcon,
 	TerminalIcon,
 } from './icons.js'
 import type { PaneKind } from './pane-grid.js'
 import { Button } from './ui/button.js'
+import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
 import './conversation-bar.css'
 import { MENU_OFFSET } from './menu-metrics.js'
 
@@ -38,8 +41,90 @@ export interface ConversationBarProps {
 	title: string
 	project?: string
 	disabled?: boolean
-	/** The pane buttons and the conversation's own menu, drawn at the right edge. */
+	/** Saves a new name; an empty one asks for the automatic title. Absent: the title is not editable. */
+	onRename?: (title: string) => Promise<void> | void
+	/** The "∨" menu right after the title: the conversation's actions. */
+	actions?: ReactNode
+	/** The pane buttons, drawn at the right edge. */
 	children?: ReactNode
+}
+
+/**
+ * The title as text; a click turns it into a field. Enter saves, Escape puts the old name back and
+ * leaving the field saves, so a name is never lost to a stray click.
+ */
+function EditableTitle({
+	title,
+	onRename,
+	disabled,
+}: {
+	title: string
+	onRename?: ((title: string) => Promise<void> | void) | undefined
+	disabled?: boolean | undefined
+}) {
+	const [editing, setEditing] = useState(false)
+	const [value, setValue] = useState(title)
+	const field = useRef<HTMLInputElement>(null)
+	// One edit ends once: Enter saves and the blur that follows the field's removal must not save again.
+	const ended = useRef(false)
+	useEffect(() => {
+		if (!editing) return
+		field.current?.focus()
+		field.current?.select()
+	}, [editing])
+	if (!onRename || disabled)
+		return (
+			<h2 className="conversation-bar-title" title={title} data-conversation-title>
+				{title}
+			</h2>
+		)
+	const finish = (save: boolean) => {
+		if (ended.current) return
+		ended.current = true
+		setEditing(false)
+		const next = value.trim()
+		if (save && next !== title.trim()) void onRename(next)
+	}
+	if (editing)
+		return (
+			<h2 className="conversation-bar-title" data-editing data-conversation-title>
+				<input
+					ref={field}
+					className="conversation-bar-rename"
+					aria-label="Conversation name"
+					maxLength={200}
+					value={value}
+					onChange={(event) => setValue(event.target.value)}
+					onBlur={() => finish(true)}
+					onKeyDown={(event) => {
+						if (event.key === 'Enter') {
+							event.preventDefault()
+							finish(true)
+						} else if (event.key === 'Escape') {
+							event.preventDefault()
+							event.stopPropagation()
+							finish(false)
+						}
+					}}
+				/>
+			</h2>
+		)
+	return (
+		<h2 className="conversation-bar-title" data-conversation-title>
+			<button
+				type="button"
+				className="conversation-bar-title-text"
+				title={title}
+				onClick={() => {
+					ended.current = false
+					setValue(title)
+					setEditing(true)
+				}}
+			>
+				{title}
+			</button>
+		</h2>
+	)
 }
 
 function DraftsControl({
@@ -107,13 +192,14 @@ export function ConversationBar({
 	drafts,
 	onSelectDraft,
 	disabled,
+	onRename,
+	actions,
 	children,
 }: ConversationBarProps) {
 	return (
 		<div className="conversation-bar">
-			<h2 className="conversation-bar-title" title={title} data-conversation-title>
-				{title}
-			</h2>
+			<EditableTitle title={title} onRename={onRename} disabled={disabled} />
+			{actions}
 			{project && (
 				<span className="conversation-bar-project" title={project} data-project-label>
 					{project}
@@ -166,6 +252,45 @@ export interface PaneButtonsProps {
 	more?: ReactNode
 }
 
+/**
+ * A top-bar button's tooltip. It sits to the left of the button, in the bar, so it never lies over a
+ * pane's header; a press hides it, and it stays hidden until the pointer has left and come back.
+ * A button that cannot be pressed keeps a plain title, which is also how its reason is said.
+ */
+function PaneButtonTip({
+	tip,
+	plain,
+	children,
+}: { tip: string; plain: boolean; children: React.ReactElement<Record<string, unknown>> }) {
+	const [open, setOpen] = useState(false)
+	const pressed = useRef(false)
+	if (plain) return cloneElement(children, { title: tip })
+	return (
+		<Tooltip
+			open={open}
+			onOpenChange={(next) => {
+				if (next && pressed.current) return
+				setOpen(next)
+			}}
+		>
+			<TooltipTrigger
+				render={cloneElement(children, {
+					onPointerDown: () => {
+						pressed.current = true
+						setOpen(false)
+					},
+					onPointerLeave: () => {
+						pressed.current = false
+					},
+				})}
+			/>
+			<TooltipPopup side="left" align="center" sideOffset={8}>
+				{tip}
+			</TooltipPopup>
+		</Tooltip>
+	)
+}
+
 const ICONS = {
 	session: PanelRightIcon,
 	terminal: TerminalIcon,
@@ -197,23 +322,27 @@ export function PaneButtons({
 					? 'Session'
 					: kind[0]?.toUpperCase() + kind.slice(1)
 		return (
-			<Button
+			<PaneButtonTip
 				key={kind}
-				type="button"
-				variant="ghost-muted"
-				size="icon-sm"
-				className="pane-button"
-				aria-label={name}
-				aria-pressed={open[kind]}
-				title={reason ?? paneTooltip(kind, open[kind], mac)}
-				disabled={disabled || Boolean(reason)}
-				data-pane-button={kind}
-				data-open={open[kind] || undefined}
-				data-testid={kind === 'session' ? 'session-panel-toggle' : undefined}
-				onClick={() => onToggle(kind)}
+				tip={reason ?? paneTooltip(kind, open[kind], mac)}
+				plain={Boolean(reason) || Boolean(disabled)}
 			>
-				<Icon aria-hidden="true" />
-			</Button>
+				<Button
+					type="button"
+					variant="ghost-muted"
+					size="icon-sm"
+					className="pane-button"
+					aria-label={name}
+					aria-pressed={open[kind]}
+					disabled={disabled || Boolean(reason)}
+					data-pane-button={kind}
+					data-open={open[kind] || undefined}
+					data-testid={kind === 'session' ? 'session-panel-toggle' : undefined}
+					onClick={() => onToggle(kind)}
+				>
+					<Icon aria-hidden="true" />
+				</Button>
+			</PaneButtonTip>
 		)
 	}
 	return (
@@ -226,5 +355,64 @@ export function PaneButtons({
 			{button('files')}
 			{more}
 		</div>
+	)
+}
+
+export interface ViewOptionsProps {
+	/** Opens a side chat; absent or disabled where the conversation cannot be forked. */
+	onSideChat?: (() => void) | undefined
+	sideChatReason?: string | undefined
+	mac: boolean
+	/** Items after Side chat, set off by a rule: "Keep computer awake". */
+	children?: ReactNode
+}
+
+/** "…" at the end of the pane buttons: a small card with Side chat and the switches for this session. */
+export function ViewOptionsMenu({ onSideChat, sideChatReason, mac, children }: ViewOptionsProps) {
+	return (
+		<Menu.Root>
+			<PaneButtonTip tip="View options" plain={false}>
+				<Menu.Trigger
+					render={
+						<Button
+							type="button"
+							variant="ghost-muted"
+							size="icon-sm"
+							className="pane-button"
+							aria-label="View options"
+						/>
+					}
+				>
+					<MoreHorizontalIcon aria-hidden="true" />
+				</Menu.Trigger>
+			</PaneButtonTip>
+			<Menu.Portal>
+				<Menu.Positioner
+					className="conversation-actions-positioner"
+					align="end"
+					sideOffset={MENU_OFFSET}
+				>
+					<Menu.Popup className="conversation-actions-popup" aria-label="View options">
+						{onSideChat && (
+							<Menu.Item
+								className="conversation-actions-item"
+								disabled={Boolean(sideChatReason)}
+								title={sideChatReason}
+								aria-keyshortcuts={mac ? 'Meta+;' : 'Control+;'}
+								onClick={onSideChat}
+							>
+								<SideChatIcon aria-hidden="true" />
+								<span className="conversation-actions-label">Side chat</span>
+								<kbd className="conversation-actions-keys">{mac ? '⌘;' : 'Ctrl+;'}</kbd>
+							</Menu.Item>
+						)}
+						{onSideChat && children && (
+							<Menu.Separator className="conversation-actions-separator" />
+						)}
+						{children}
+					</Menu.Popup>
+				</Menu.Positioner>
+			</Menu.Portal>
+		</Menu.Root>
 	)
 }

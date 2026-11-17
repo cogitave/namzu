@@ -210,3 +210,65 @@
 .session-job-stop {
 	flex: none;
 }
+/* The folder row, with its "…" at the end. */
+.session-folder {
+	display: flex;
+	align-items: center;
+	min-width: 0;
+}
+.session-folder > .session-row-button {
+	flex: 1 1 auto;
+	width: auto;
+}
+.session-folder-more {
+	flex: none;
+	margin-inline-end: 2px;
+}
+.session-branch {
+	align-items: flex-start;
+	padding-block: 4px;
+}
+.session-branch svg {
+	margin-top: 2px;
+}
+.session-branch-text {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+.session-subject {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	color: var(--muted-foreground);
+}
+.session-section-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding-inline-end: 4px;
+}
+.session-link {
+	margin-inline-start: 8px;
+	padding: 0 4px;
+	border: 0;
+	border-radius: var(--control-radius);
+	background: transparent;
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	cursor: pointer;
+}
+.session-link:hover {
+	color: var(--foreground);
+	background: var(--accent);
+}
+.session-link:focus-visible {
+	outline: none;
+	box-shadow: var(--focus-ring);
+}
+.session-more {
+	margin-block: 2px;
+}

@@ -17,6 +17,11 @@ export interface BrowserPaneState {
 	active?: string
 	/** Plain words when the last address was refused; cleared by the next one that works. */
 	notice?: string
+	/**
+	 * A picture of the active page, kept while a menu or dialog lies over the pane: the page itself is
+	 * a view above the app's own page and would hide the menu, so it steps aside and this stands in.
+	 */
+	still?: string
 }
 
 export interface BrowserBounds {
@@ -40,6 +45,8 @@ export type BrowserPaneRequest =
 	| { kind: 'state' }
 	/** Where the active page is laid in the window, in CSS pixels; null takes it off the screen. */
 	| { kind: 'place'; bounds: BrowserBounds | null }
+	/** Something lies over the pane: take a picture of the page, then take the page off the screen. */
+	| { kind: 'freeze' }
 
 const text = (value: unknown, max: number): string => {
 	if (typeof value !== 'string' || value.length > max) throw new Error('Invalid browser request.')
@@ -66,6 +73,7 @@ export function readBrowserRequest(value: unknown): BrowserPaneRequest {
 		case 'forward':
 		case 'reload':
 		case 'state':
+		case 'freeze':
 			return { kind: request.kind }
 		case 'place': {
 			if (request.bounds === null) return { kind: 'place', bounds: null }

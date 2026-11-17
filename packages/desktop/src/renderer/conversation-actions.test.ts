@@ -172,6 +172,19 @@ function key(
 }
 
 describe('shortcuts', () => {
+	it('opens a side chat on Ctrl+; as well, and on no other modifier mix', () => {
+		expect(conversationShortcut(key('Semicolon', { altKey: false }), false)).toBe('side-chat')
+		expect(
+			conversationShortcut(
+				key('Semicolon', { altKey: false, ctrlKey: false, metaKey: true }),
+				true,
+			),
+		).toBe('side-chat')
+		expect(conversationShortcut(key('Semicolon', { altKey: true }), false)).toBeNull()
+		expect(
+			conversationShortcut(key('Semicolon', { altKey: false, shiftKey: true }), false),
+		).toBeNull()
+	})
 	it('maps the four chords by physical key', () => {
 		expect(conversationShortcut(key('KeyR'), false)).toBe('rename')
 		expect(conversationShortcut(key('KeyP'), false)).toBe('pin')

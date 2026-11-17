@@ -1,17 +1,27 @@
+import { Menu } from '@base-ui/react/menu'
 import { type ReactNode, useState } from 'react'
+import type { ComputerAppsView } from '../shared/computer-protocol.js'
 import type { JobView } from '../shared/protocol.js'
+import type { ConversationSource } from './conversation-actions.js'
 import {
+	ArchiveIcon,
 	ChevronRightIcon,
 	FileDiffIcon,
+	FileTextIcon,
 	FolderIcon,
 	GitBranchIcon,
+	GitCommitIcon,
+	ImageIcon,
 	MonitorIcon,
+	MoreHorizontalIcon,
+	PlusIcon,
 	ServerIcon,
 	SquareIcon,
 	TerminalIcon,
 	XIcon,
 } from './icons.js'
 import { jobLabel, jobStatusOf } from './job-row.js'
+import { MENU_OFFSET } from './menu-metrics.js'
 import { type SessionSummary, finishedText, jobElapsed } from './session-summary-model.js'
 import { Button } from './ui/button.js'
 import './session-panel.css'
@@ -32,6 +42,84 @@ export interface SessionPanelProps {
 	onStopJob?: (job: JobView) => Promise<unknown>
 	/** The commit action, drawn beside the totals. */
 	commit?: ReactNode
+	/** Files attached to the conversation so far; the section is drawn only when this is given. */
+	sources?: readonly ConversationSource[]
+	/** Why the "+" beside Sources is unavailable, or undefined when it works. */
+	attachReason?: string
+	onAttach?: () => void
+	/** Switches the sidebar to the archived conversations; absent when the host cannot list them. */
+	onOpenArchived?: () => void
+	/** The applications this conversation has allowed and used; absent until the agent has worked in one. */
+	apps?: ComputerAppsView | undefined
+	/** Takes an application back; absent when the host cannot. */
+	onRevokeApp?: (app: string) => void
+	/** A detached head has no branch name; the row then shows a commit mark. */
+	detached?: boolean
+}
+
+const COLLAPSED_SOURCES = 3
+
+/** The folder row's "…": copy the path, or look at the archived conversations. */
+function FolderActions({
+	onCopyPath,
+	onOpenArchived,
+}: { onCopyPath?: (() => void) | undefined; onOpenArchived?: (() => void) | undefined }) {
+	if (!onCopyPath && !onOpenArchived) return null
+	return (
+		<Menu.Root>
+			<Menu.Trigger
+				render={<Button variant="ghost-muted" size="icon-xs" className="session-folder-more" />}
+				aria-label="Folder actions"
+			>
+				<MoreHorizontalIcon aria-hidden="true" />
+			</Menu.Trigger>
+			<Menu.Portal>
+				<Menu.Positioner
+					className="conversation-actions-positioner"
+					align="end"
+					sideOffset={MENU_OFFSET}
+				>
+					<Menu.Popup className="conversation-actions-popup" aria-label="Folder actions">
+						{onCopyPath && (
+							<Menu.Item className="conversation-actions-item" onClick={onCopyPath}>
+								<FolderIcon aria-hidden="true" />
+								<span className="conversation-actions-label">Copy path</span>
+							</Menu.Item>
+						)}
+						{onOpenArchived && (
+							<Menu.Item className="conversation-actions-item" onClick={onOpenArchived}>
+								<ArchiveIcon aria-hidden="true" />
+								<span className="conversation-actions-label">Archived conversations</span>
+							</Menu.Item>
+						)}
+					</Menu.Popup>
+				</Menu.Positioner>
+			</Menu.Portal>
+		</Menu.Root>
+	)
+}
+
+function AppRow({
+	app,
+	allowed,
+	onRevoke,
+}: { app: string; allowed: boolean; onRevoke?: ((app: string) => void) | undefined }) {
+	return (
+		<li data-testid="computer-app-row">
+			<span className="session-label">{app}</span>
+			<span className="session-value">{allowed ? 'Allowed' : 'Used'}</span>
+			{allowed && onRevoke && (
+				<button
+					type="button"
+					className="session-link"
+					aria-label={`Take back access to ${app}`}
+					onClick={() => onRevoke(app)}
+				>
+					Take back
+				</button>
+			)}
+		</li>
+	)
 }
 
 function Section({
@@ -84,8 +172,16 @@ export function SessionPanel({
 	onOpenWork,
 	onStopJob,
 	commit,
+	detached,
+	sources,
+	attachReason,
+	onAttach,
+	onOpenArchived,
+	apps,
+	onRevokeApp,
 }: SessionPanelProps) {
 	const [serversOpen, setServersOpen] = useState(false)
+	const [showAllSources, setShowAllSources] = useState(false)
 	const [finishedOpen, setFinishedOpen] = useState(false)
 	const { environment, context, toolServers, changes, background } = summary
 	const running = jobs.filter((job) => job.status === 'running')
@@ -113,21 +209,33 @@ export function SessionPanel({
 							<span className="session-label">{environment.host}</span>
 						</div>
 						{environment.folder && (
-							<button
-								type="button"
-								className="session-row session-row-button"
-								title={`${environment.folder.path}\nCopy the path`}
-								onClick={onCopyPath}
-							>
-								<FolderIcon aria-hidden="true" />
-								<span className="session-label">{environment.folder.name}</span>
-								<span className="session-value session-path">{environment.folder.path}</span>
-							</button>
+							<div className="session-folder">
+								<button
+									type="button"
+									className="session-row session-row-button"
+									title={`${environment.folder.path}\nCopy the path`}
+									onClick={onCopyPath}
+								>
+									<FolderIcon aria-hidden="true" />
+									<span className="session-label">{environment.folder.name}</span>
+									<span className="session-value session-path">{environment.folder.path}</span>
+								</button>
+								<FolderActions onCopyPath={onCopyPath} onOpenArchived={onOpenArchived} />
+							</div>
 						)}
 						{environment.branch && (
-							<div className="session-row" title={environment.branch.title}>
-								<GitBranchIcon aria-hidden="true" />
-								<span className="session-label">{environment.branch.text}</span>
+							<div className="session-row session-branch" title={environment.branch.title}>
+								{detached ? (
+									<GitCommitIcon aria-hidden="true" />
+								) : (
+									<GitBranchIcon aria-hidden="true" />
+								)}
+								<span className="session-branch-text">
+									<span className="session-label">{environment.branch.text}</span>
+									{environment.branch.subject && (
+										<span className="session-subject">{environment.branch.subject}</span>
+									)}
+								</span>
 							</div>
 						)}
 						{environment.branchNote && <p className="session-note">{environment.branchNote}</p>}
@@ -179,6 +287,73 @@ export function SessionPanel({
 									</li>
 								))}
 							</ul>
+						)}
+					</Section>
+				)}
+				{apps && (apps.granted.length > 0 || apps.used.length > 0) && (
+					<Section title="Applications">
+						<ul className="session-list">
+							{apps.used.map((app) => (
+								<AppRow
+									key={app}
+									app={app}
+									allowed={apps.granted.includes(app)}
+									onRevoke={onRevokeApp}
+								/>
+							))}
+							{apps.granted
+								.filter((app) => !apps.used.includes(app))
+								.map((app) => (
+									<AppRow key={app} app={app} allowed onRevoke={onRevokeApp} />
+								))}
+						</ul>
+					</Section>
+				)}
+				{sources && (
+					<Section
+						title="Sources"
+						aside={
+							onAttach && (
+								<Button
+									variant="ghost-muted"
+									size="icon-xs"
+									aria-label="Add files to the next message"
+									title={attachReason ?? 'Add files to the next message'}
+									disabled={!!attachReason}
+									onClick={onAttach}
+								>
+									<PlusIcon aria-hidden="true" />
+								</Button>
+							)
+						}
+					>
+						{sources.length === 0 ? (
+							<p className="session-note">Nothing attached yet</p>
+						) : (
+							<ul className="session-list">
+								{(showAllSources ? sources : sources.slice(0, COLLAPSED_SOURCES)).map(
+									({ key, attachment }) => (
+										<li key={key} title={attachment.name}>
+											{attachment.kind === 'image' ? (
+												<ImageIcon aria-hidden="true" />
+											) : (
+												<FileTextIcon aria-hidden="true" />
+											)}
+											<span className="session-label">{attachment.name}</span>
+										</li>
+									),
+								)}
+							</ul>
+						)}
+						{sources.length > COLLAPSED_SOURCES && (
+							<button
+								type="button"
+								className="session-link session-more"
+								aria-expanded={showAllSources}
+								onClick={() => setShowAllSources((value) => !value)}
+							>
+								{showAllSources ? 'Show fewer' : `View all (${sources.length})`}
+							</button>
 						)}
 					</Section>
 				)}

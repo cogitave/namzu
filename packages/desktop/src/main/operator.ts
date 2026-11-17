@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, realpathSync } from 'node:fs'
 import { lstat, mkdir, readdir, realpath, stat } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { basename, isAbsolute, resolve } from 'node:path'
 import type {
 	AcpRequestPermissionParams,
@@ -75,6 +76,7 @@ import type {
 	PluginInventoryView,
 	ProjectChangeFile,
 	ProjectChangesView,
+	ProjectCompareReply,
 	ProjectDiffView,
 	ProjectFileContent,
 	ProjectFileEntry,
@@ -125,6 +127,7 @@ import type { OpenIn, OpenTarget } from './open-in.js'
 import { PalCommunicationManager } from './pal-communication.js'
 import { palFolderToReveal } from './pal-folder.js'
 import type { PalStreamProxy } from './pal-stream-proxy.js'
+import { createProjectCompare } from './project-compare.js'
 import { projectDraftOwner } from './project-draft-owner.js'
 import { ProjectFiles, confineProjectPath, resolveProjectLinks } from './project-files.js'
 import { type ProjectNameStore, projectNameProblem } from './project-names.js'
@@ -136,6 +139,7 @@ import {
 	SupersededConversationSettingsError,
 	readCurrent,
 } from './superseded-settings.js'
+import { terminalFolder } from './terminal-env.js'
 import type { FolderTrustGuard } from './trusted-folders.js'
 import { readUnreadFile, writeUnreadFile } from './unread-file.js'
 
@@ -2303,7 +2307,11 @@ export class Operator {
 		// The shell, and the `namzu` typed into it, would read folder settings that changed since the last look.
 		await this.assertSettingsUnchanged(project)
 		return {
-			project: { id: project.view.id, name: project.view.name, path: project.view.path },
+			project: {
+				id: project.view.id,
+				name: project.view.name,
+				path: terminalFolder(project.view, homedir()),
+			},
 			connection: project.client,
 		}
 	}
@@ -3207,6 +3215,16 @@ export class Operator {
 		if (!view) throw new Error('Namzu returned invalid changes.')
 		return view
 	}
+	/**
+	 * Branches, commits and changes against a base other than HEAD, read by Desktop's own git calls.
+	 * The folder is the operator's record of a trusted project, never the renderer's word.
+	 */
+	async projectCompare(projectId: string, request: unknown): Promise<ProjectCompareReply | null> {
+		const project = this.project(projectId)
+		if (!project.view.trusted || project.view.isChat || project.view.palId) return null
+		return this.compareProject(project.view.path, request)
+	}
+	private compareProject = createProjectCompare()
 	async projectDiff(projectId: string, path: string): Promise<ProjectDiffView> {
 		if (typeof path !== 'string' || path.length === 0 || path.length > 1_024)
 			throw new Error('That path is not inside this project.')

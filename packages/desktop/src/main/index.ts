@@ -1452,6 +1452,7 @@ function register(): void {
 	handle('projectPr', (id: string) => operator.projectPr(id))
 	handle('projectChanges', (id: string) => operator.projectChanges(id))
 	handle('projectDiff', (id: string, path: string) => operator.projectDiff(id, path))
+	handle('projectCompare', (id: string, request: unknown) => operator.projectCompare(id, request))
 	handle('listProjectDirectory', (id: string, dir: string) =>
 		operator.listProjectDirectory(id, dir),
 	)

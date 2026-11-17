@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { engineHost, findProgram, shellEnvironment } from './terminal-env.js'
+import { engineHost, findProgram, shellEnvironment, terminalFolder } from './terminal-env.js'
 
 const files = (...paths: string[]) => {
 	const set = new Set(paths)
@@ -100,5 +100,12 @@ describe('findProgram', () => {
 		}
 		expect(findProgram('npm', deps)).toEqual({ path: '/usr/bin/npm', shim: false })
 		expect(findProgram('yarn', deps)).toBeUndefined()
+	})
+})
+
+describe('terminalFolder', () => {
+	it('starts in the project folder, and in the home folder for a conversation without a project', () => {
+		expect(terminalFolder({ path: '/work/api' }, '/home/a')).toBe('/work/api')
+		expect(terminalFolder({ isChat: true, path: '/data/chats' }, '/home/a')).toBe('/home/a')
 	})
 })
