@@ -207,7 +207,7 @@ describe('per-reply edit summary', () => {
 		expect(bar).toContain('aria-label="Close changes"')
 		expect(bar).not.toContain('Activity')
 		expect(bar).not.toContain('Add a tab')
-		expect(bar).not.toContain('Wrap diff lines')
+		expect(bar).not.toContain('Word wrap')
 		// The files sit beside the diff, not above it.
 		expect(html).toContain('class="changes-flat"')
 	})

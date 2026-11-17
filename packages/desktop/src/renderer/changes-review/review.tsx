@@ -115,7 +115,7 @@ export function ChangesReview({
 		if (focus) setSelected(focus.path)
 	}
 	const [split, setSplit] = useState(false)
-	const [wrap, setWrap] = useState(false)
+	const [wrap, setWrap] = useState(true)
 	const [query, setQuery] = useState('')
 	const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
 	const [filesOpen, setFilesOpen] = useState(false)
@@ -348,7 +348,7 @@ export function ChangesReview({
 										closeOnClick
 									>
 										<TextWrapIcon aria-hidden="true" />
-										<span className="conversation-actions-label">Wrap diff lines</span>
+										<span className="conversation-actions-label">Word wrap</span>
 										<Menu.CheckboxItemIndicator>
 											<CheckIcon aria-hidden="true" />
 										</Menu.CheckboxItemIndicator>
