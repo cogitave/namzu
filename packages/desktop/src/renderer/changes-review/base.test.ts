@@ -3,9 +3,11 @@ import {
 	type BaseContext,
 	baseRows,
 	chipLabel,
+	compareHint,
 	effectiveBase,
 	matchBranches,
 	matchCommits,
+	normaliseChoice,
 	sourceOf,
 } from './base.js'
 
@@ -43,13 +45,21 @@ describe('the base in effect', () => {
 })
 
 describe('the chip', () => {
-	it('names base and working tree, or the commit subject', () => {
+	it('names base and working tree, or the short hash of a commit', () => {
 		expect(chipLabel({ kind: 'all' }, repo)).toMatchObject({ from: 'main', to: 'working tree' })
 		expect(chipLabel({ kind: 'branch', ref: 'origin/dev' }, repo).from).toBe('origin/dev')
-		expect(chipLabel({ kind: 'commit', sha: 'abc1234', subject: 'Fix the thing' }, repo).text).toBe(
-			'Fix the thing',
-		)
-		expect(chipLabel({ kind: 'commit', sha: 'abc1234' }, repo).text).toBe('(no message)')
+		expect(
+			chipLabel({ kind: 'commit', sha: 'abc1234def', subject: 'Fix the thing' }, repo).text,
+		).toBe('abc1234 → working tree')
+		expect(chipLabel({ kind: 'commit', sha: 'abc1234' }, repo).from).toBe('abc1234')
+		expect(compareHint({ kind: 'branch', ref: 'dev' }, repo)).toBe('dev')
+		expect(compareHint({ kind: 'commit', sha: 'abc1234def' }, repo)).toBe('abc1234')
+		expect(compareHint({ kind: 'all' }, repo)).toBeNull()
+		expect(normaliseChoice({ kind: 'branch', ref: 'main' }, repo)).toEqual({ kind: 'all' })
+		expect(normaliseChoice({ kind: 'branch', ref: 'dev' }, repo)).toEqual({
+			kind: 'branch',
+			ref: 'dev',
+		})
 	})
 })
 

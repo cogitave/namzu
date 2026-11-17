@@ -3055,8 +3055,9 @@ never shrink.
 
 **The base.** The chip's menu has **All changes** (hint "vs main": the working tree against the point where this
 branch left the usual branch), **Uncommitted changes** (against HEAD) and **Compare against** (a list of branches, the
-usual and current ones first, and the newest 50 commits; a commit shows that commit's own change and the chip then
-reads its subject). A new conversation starts on All changes; the choice is kept for as long as the pane
+usual and current ones first, and the newest 50 commits; a commit shows that commit's own change). After a pick the chip reads the base ("master → working tree", or the
+commit's short hash), "Compare against" names the picked branch or short hash at its right with a check, and
+picking the usual branch is the same as All changes, which stays the checked row. A new conversation starts on All changes; the choice is kept for as long as the pane
 shows that conversation. The usual branch is `origin/HEAD`, else the first of `main`, `master`, `trunk`, `develop`
 that exists; with none, All changes is not offered and the pane reads Uncommitted changes. Uncommitted changes read the
 host's [`projectChanges` and `projectDiff`](#working-tree-changes). Every other base is read by Desktop's own
@@ -3069,7 +3070,7 @@ reaches `.git`. There is no engine or SDK change. A folder that is not a reposit
 project) shows the conversation's own edits under the chip "Conversation edits", and the menu has that one row.
 Where the app has no `projectCompare` (the browser preview), the pane keeps to the host's Uncommitted changes.
 
-**Search is Go to file** (Ctrl+P, Cmd+P on a Mac, while the pane has focus), not a filter: a popover with
+**Search is Go to file** (Ctrl+P, Cmd+P on a Mac, from anywhere in the pane, the diff included, and from the conversation while the pane is open, unless the message box has text selected; a terminal keeps its own Ctrl+P), not a filter: a popover with
 "Search changed files", the changed files with the matching letters marked and their counts, at most 100 rows
 ("n more files. Keep typing to narrow."), "No matching files"; Enter takes the first row, the arrows move, and a
 pick scrolls the stack to that file and opens it.
@@ -3646,8 +3647,8 @@ and no resize rewrites the layout.
   drag, double click puts the equal share back, and the arrow keys move them 16 px.
 - **Maximise** makes one pane fill the workspace (the conversation is hidden, not removed); the pane's header then
   carries Restore, and Esc steps back. The top bar stays, and the pane's own button stays pressed.
-- **The Session pane** docks as a 320 px column at the right edge when the conversation would keep 360 px beside it,
-  otherwise it is a 280 px card over the conversation, 8 px from the first column. The choice is kept even while
+- **The Session pane** docks as a 320 px column at the right edge when the conversation would keep 560 px beside it,
+  otherwise (with three or four panes at most widths) it is a 280 px card over the conversation, 8 px from the first column. The choice is kept even while
   there is no room, and the pane docks by itself when room appears. Esc inside the card and the button close it.
 - **The top bar** reads, at the right, Session, a thin divider, Terminal, Changes, Browser, Files, "…" and then the
   window buttons. Each pane button toggles its pane; open is a filled rounded square behind the icon,

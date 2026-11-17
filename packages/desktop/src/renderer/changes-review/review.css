@@ -483,6 +483,7 @@
 	grid-template-columns: var(--changes-list-width) 0 minmax(0, 1fr);
 }
 .changes-stack {
+	container: changes-stack / inline-size;
 	position: relative;
 	min-width: 0;
 	min-height: 0;
@@ -582,17 +583,25 @@
 	height: 14px;
 	color: var(--muted-foreground);
 }
-.changes-file-path {
-	flex: 0 1 auto;
+.changes-file-dir {
+	flex: 0 100 auto;
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 	direction: rtl;
 	text-align: left;
+	color: var(--muted-foreground);
+}
+.changes-file-name {
+	flex: 0 0.001 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 .changes-file-note {
-	flex: 0 100 auto;
+	flex: 0 0.001 auto;
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -648,6 +657,12 @@
 }
 /* A narrow pane: the open arrow and the note give way before the file's name does. */
 @container changes (max-width: 400px) {
+	.changes-file-note {
+		display: none;
+	}
+}
+/* With the file list open the stack can be narrow inside a wide pane: the note goes before the name is cut. */
+@container changes-stack (max-width: 360px) {
 	.changes-file-note {
 		display: none;
 	}

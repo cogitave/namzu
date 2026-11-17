@@ -7,8 +7,10 @@ import {
 	type ChangesBase,
 	baseRows,
 	chipLabel,
+	compareHint,
 	matchBranches,
 	matchCommits,
+	normaliseChoice,
 } from './base.js'
 import { MenuLabel } from './menu-parts.js'
 
@@ -45,6 +47,7 @@ export function BaseMenu({
 	const commitHits = commits.state === 'ready' ? matchCommits(commits.value.commits, query) : []
 	const olderCommits =
 		commits.state === 'ready' ? Math.max(0, commits.value.total - commits.value.commits.length) : 0
+	const picked = compareHint(base, context)
 	const baseRef = base.kind === 'branch' ? base.ref : ''
 	const commitSha = base.kind === 'commit' ? base.sha : ''
 	return (
@@ -97,9 +100,8 @@ export function BaseMenu({
 								<Menu.Separator className="conversation-actions-separator" />
 								<Menu.SubmenuRoot onOpenChange={(open) => open && onOpenCompare()}>
 									<Menu.SubmenuTrigger className="conversation-actions-item">
-										<MenuLabel hint={base.kind === 'branch' ? base.ref : undefined}>
-											Compare against
-										</MenuLabel>
+										<MenuLabel hint={picked ?? undefined}>Compare against</MenuLabel>
+										{picked && <CheckIcon className="changes-compare-check" aria-hidden="true" />}
 										<ChevronRightIcon className="conversation-actions-chevron" aria-hidden="true" />
 									</Menu.SubmenuTrigger>
 									<Menu.Portal>
@@ -139,8 +141,13 @@ export function BaseMenu({
 														<p className="changes-menu-note">No branches match</p>
 													) : (
 														<Menu.RadioGroup
-															value={baseRef}
-															onValueChange={(ref) => onChoose({ kind: 'branch', ref })}
+															value={
+																baseRef ||
+																(base.kind === 'all' ? (context.defaultBranch ?? '') : '')
+															}
+															onValueChange={(ref) =>
+																onChoose(normaliseChoice({ kind: 'branch', ref }, context))
+															}
 														>
 															{hits.map((branch) => (
 																<Menu.RadioItem

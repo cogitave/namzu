@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { parseLayout, serializeLayout } from './pane-grid-state.js'
 import {
 	CHAT_MIN,
+	CHAT_WITH_SESSION,
 	COL_MIN,
 	type GridKind,
 	type Layout,
@@ -230,7 +231,7 @@ describe('folding and the overlay', () => {
 describe('the session pane', () => {
 	const wanted = (layout: Layout) => setSessionWanted(layout, true)
 
-	it('docks at 320 when the conversation keeps 360', () => {
+	it('docks at 320 when the conversation keeps 560', () => {
 		const none = fit(wanted(emptyLayout()), 1120, H)
 		expect(none.session).toEqual({ mode: 'dock', width: SESSION_DOCK })
 		expect(none.conversation).toBe(800)
@@ -239,13 +240,26 @@ describe('the session pane', () => {
 		expect(one.conversation).toBe(1512 - 504 - SESSION_DOCK)
 	})
 
-	it('floats as a 280 card when docking would leave the conversation under 360', () => {
+	it('floats as a 280 card when docking would leave the conversation under 560', () => {
 		const four = fit(wanted(open(ORDER)), 1120, H)
 		expect(four.session).toEqual({ mode: 'card', width: SESSION_CARD })
 		expect(four.conversation).toBe(560)
-		const wide = fit(wanted(open(ORDER)), 1512, H)
+		const wide = fit(wanted(open(ORDER)), 1900, H)
 		expect(wide.session.mode).toBe('dock')
-		expect(wide.conversation).toBe(756 - SESSION_DOCK)
+		expect(wide.conversation).toBe(950 - SESSION_DOCK)
+	})
+
+	it('never squeezes the conversation under 560 beside the docked Session', () => {
+		for (const kinds of [['terminal'], ['terminal', 'changes', 'browser'], ORDER] as GridKind[][]) {
+			for (let w = 700; w <= 2400; w += 20) {
+				const f = fit(wanted(open(kinds)), w, H)
+				if (f.session.mode === 'dock')
+					expect(f.conversation).toBeGreaterThanOrEqual(CHAT_WITH_SESSION)
+				else if (f.mode === 'grid') expect(f.conversation).toBeGreaterThanOrEqual(CHAT_MIN)
+			}
+		}
+		// Three panes at 1392 (a 1680 window less the sidebar): Session is the card.
+		expect(fit(wanted(open(['terminal', 'changes', 'browser'])), 1392, H).session.mode).toBe('card')
 	})
 
 	it('keeps the flag while it does not fit and docks again when there is room', () => {

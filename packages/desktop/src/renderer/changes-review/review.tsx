@@ -459,6 +459,28 @@ export function ChangesReview({
 		if (next) jumpTo(next)
 	}
 
+	// Go to file opens from anywhere in this pane (a click on the diff's text leaves focus on the page
+	// itself, so the pane's own handler never hears the chord) and from the conversation beside it,
+	// unless the message box has a selection. A terminal keeps its own Ctrl+P.
+	useEffect(() => {
+		const onChord = (event: KeyboardEvent) => {
+			if (event.defaultPrevented || event.shiftKey || event.altKey) return
+			if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'p') return
+			const target = event.target as HTMLElement | null
+			if (!target || target.closest('.changes-review')) return // the pane's handler has it
+			if (target.closest('.xterm, [role="menu"], [role="dialog"]')) return
+			const inPage = target === document.body || target === document.documentElement
+			if (!inPage && !target.closest('.chat-stage')) return
+			if (target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement) {
+				if (target.selectionStart !== target.selectionEnd) return
+			}
+			event.preventDefault()
+			setGoOpen(true)
+		}
+		document.addEventListener('keydown', onChord)
+		return () => document.removeEventListener('keydown', onChord)
+	}, [])
+
 	// The header the pane draws: the base chip, then search, the file list and the "..." menu.
 	const hasFiles = ordered.length > 0
 	useLayoutEffect(() => {
@@ -575,7 +597,7 @@ export function ChangesReview({
 			ref={root}
 			className="changes-review"
 			data-list={listShown ? side : undefined}
-			style={{ '--changes-list-width': `${display.listWidth}px` } as React.CSSProperties}
+			style={{ '--changes-list-width': `min(${display.listWidth}px, 38%)` } as React.CSSProperties}
 			onKeyDown={onKeyDown}
 		>
 			{empty ? (

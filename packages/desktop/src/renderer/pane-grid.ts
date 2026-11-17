@@ -22,6 +22,8 @@ export type PaneKind = GridKind | 'session'
 export const COL_MIN = 280
 /** The conversation never gets less than this beside the panes. */
 export const CHAT_MIN = 360
+/** Session docks as a column only while the conversation keeps at least this much beside it; otherwise it floats as a card. */
+export const CHAT_WITH_SESSION = 560
 /** The shortest a pane stacked in a column goes. */
 export const ROW_MIN = 160
 /** The Session pane docked as a column, and as a floating card. */
@@ -304,7 +306,7 @@ function sideWidth(layout: Layout, width: number, drawn: number): number {
 
 function sessionDraw(wanted: boolean, width: number, conversation: number): SessionDraw {
 	if (!wanted) return { mode: 'off' }
-	if (conversation - SESSION_DOCK >= CHAT_MIN) return { mode: 'dock', width: SESSION_DOCK }
+	if (conversation - SESSION_DOCK >= CHAT_WITH_SESSION) return { mode: 'dock', width: SESSION_DOCK }
 	return { mode: 'card', width: Math.min(SESSION_CARD, Math.max(0, width - 2 * CARD_GAP)) }
 }
 
@@ -409,7 +411,7 @@ export function fit(layout: Layout, width: number, height: number, shown?: GridK
 /** What the conversation keeps: the workspace less the columns, less the docked Session pane if it docks. */
 function dockedConversation(width: number, side: number, sessionWanted: boolean): number {
 	const room = width - side
-	return sessionWanted && room - SESSION_DOCK >= CHAT_MIN ? room - SESSION_DOCK : room
+	return sessionWanted && room - SESSION_DOCK >= CHAT_WITH_SESSION ? room - SESSION_DOCK : room
 }
 
 /* Dragging. Every function takes the layout, the workspace size and a pixel value, and returns the

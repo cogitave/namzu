@@ -59,8 +59,8 @@ export function chipLabel(base: ChangesBase, context: BaseContext): ChipLabel {
 	const used = effectiveBase(base, context)
 	if (used === 'conversation') return { text: 'Conversation edits' }
 	if (used.kind === 'commit') {
-		const text = used.subject?.trim() || '(no message)'
-		return { text }
+		const from = used.sha.slice(0, 7)
+		return { from, to: 'working tree', text: `${from} → working tree` }
 	}
 	const from =
 		used.kind === 'branch'
@@ -136,4 +136,20 @@ export function matchCommits<T extends { sha: string; short: string; subject: st
 			commit.short.toLowerCase().startsWith(text) ||
 			(text.length >= 7 && commit.sha.toLowerCase().startsWith(text)),
 	)
+}
+
+/** A picked branch that is the usual one is the same as "All changes". */
+export function normaliseChoice(base: ChangesBase, context: BaseContext): ChangesBase {
+	return base.kind === 'branch' && context.defaultBranch && base.ref === context.defaultBranch
+		? { kind: 'all' }
+		: base
+}
+
+/** The ref or short hash a "Compare against" pick names, or null when a plain row is active. */
+export function compareHint(base: ChangesBase, context: BaseContext): string | null {
+	const used = effectiveBase(base, context)
+	if (used === 'conversation') return null
+	if (used.kind === 'branch') return used.ref
+	if (used.kind === 'commit') return used.sha.slice(0, 7)
+	return null
 }

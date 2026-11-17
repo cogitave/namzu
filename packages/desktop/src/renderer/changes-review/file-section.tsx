@@ -195,6 +195,7 @@ export function FileSection({
 	}, [])
 	const note = fileNote(file)
 	const name = file.path.split('/').pop() || file.path
+	const folder = file.path.slice(0, file.path.length - name.length)
 	const counted = file.status !== 'binary' && !file.binary && (file.added > 0 || file.removed > 0)
 	return (
 		<section
@@ -220,9 +221,12 @@ export function FileSection({
 					/>
 					<FileTypeIcon path={file.path} className="changes-file-icon" />
 					{/* The tail of a path names the file, so the head is what gets cut. */}
-					<span className="changes-file-path">
-						<bdi>{file.path}</bdi>
-					</span>
+					{folder && (
+						<span className="changes-file-dir">
+							<bdi>{folder}</bdi>
+						</span>
+					)}
+					<span className="changes-file-name">{name}</span>
 					{note && (
 						<span className="changes-file-note" data-tone={note.tone}>
 							{note.text}
