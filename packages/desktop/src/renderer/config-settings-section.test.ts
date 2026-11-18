@@ -978,3 +978,36 @@ describe("the app's own rows under an engine heading", () => {
 		SLOW_IMPORT_MS,
 	)
 })
+
+describe('the generic heading over the engine rows', () => {
+	it(
+		'is not drawn when the engine names a group for its rows, so no empty heading sits above them',
+		async () => {
+			const { SETTING_DESCRIPTORS } = (await import(/* @vite-ignore */ CLI_DESCRIPTORS)) as {
+				SETTING_DESCRIPTORS: readonly { path: string }[]
+			}
+			const { withDefaultText } = (await import(/* @vite-ignore */ CLI_SETTINGS)) as {
+				withDefaultText: (entry: unknown) => unknown
+			}
+			const real = readConfigSettingsView(
+				JSON.parse(
+					JSON.stringify({
+						file: '/x/config.yaml',
+						settings: [],
+						descriptors: SETTING_DESCRIPTORS.map(withDefaultText),
+					}),
+				),
+			)
+			const out = renderToStaticMarkup(
+				createElement(ConfigSettingsGroup, {
+					section: 'models',
+					config: controls({ view: real }),
+					heading: 'Namzu settings',
+				}),
+			)
+			expect(out).not.toContain('Namzu settings')
+			expect(out).toContain('>Choosing models</h2>')
+		},
+		SLOW_IMPORT_MS,
+	)
+})

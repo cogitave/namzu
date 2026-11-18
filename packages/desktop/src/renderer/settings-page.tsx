@@ -1155,7 +1155,8 @@ function ProjectsSection({
 				</div>
 			</CatalogueRow>
 			<div id="setting-projects" className="settings-projects">
-				<h3 className="settings-subtitle">{labelOf('projects')}</h3>
+				{/* The sub-heading above already says "Your projects"; the panel keeps its name for assistive technology. */}
+				<h3 className="settings-subtitle sr-only">{labelOf('projects')}</h3>
 				<p className="settings-help">{catalogueEntry('projects').description}</p>
 				{projects.length === 0 ? (
 					<p className="settings-empty">No projects yet. Open a folder to add one.</p>

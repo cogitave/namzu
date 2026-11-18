@@ -1308,3 +1308,9 @@ input.settings-config-number {
 .settings-shortcut-box[data-recording] {
 	border-color: var(--ring, currentColor);
 }
+
+/* The note under the page header (when changes apply) is its own block: the first group heading
+   after it carries no top space of its own, so the note keeps one. */
+.settings-section-note {
+	margin-bottom: 24px;
+}

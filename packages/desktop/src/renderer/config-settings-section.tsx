@@ -106,7 +106,9 @@ export function ConfigSettingsGroup({
 	return (
 		<>
 			{own}
-			{heading && <h2 className="settings-section-title">{heading}</h2>}
+			{heading && !rows.some((row) => row.group) && (
+				<h2 className="settings-section-title">{heading}</h2>
+			)}
 			{config.confirmation && (
 				<SettingsConfirmDialog
 					onConfirm={config.confirm}
