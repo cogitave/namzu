@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -327,5 +327,47 @@ describe('every typed row is described in words by get', () => {
 		expect(SETTING_DESCRIPTORS.filter((d) => d.control.kind === 'json').length).toBeLessThan(
 			SETTING_DESCRIPTORS.length,
 		)
+	})
+})
+
+describe('review fixes for the list rows', () => {
+	it('changes only the triggers named by words and keeps the others', () => {
+		set('composerTriggers.builtin', '{"hypermode":"suggest","schedule":"off"}')
+		set('composerTriggers.builtin', 'schedule=arm')
+		const block = (saved().composerTriggers as Record<string, unknown>)?.builtin
+		expect(block).toEqual({ hypermode: 'suggest', schedule: 'arm' })
+		// JSON replaces the whole map.
+		set('composerTriggers.builtin', '{"schedule":"off"}')
+		expect((saved().composerTriggers as Record<string, unknown>)?.builtin).toEqual({
+			schedule: 'off',
+		})
+	})
+	it('names what a widening list adds, and a trailing separator is the same folder', () => {
+		set('additionalDirectories', '/data/a')
+		const plan = planSettingChange('additionalDirectories', '/data/a/,/data/b', opts())
+		expect(plan.ok && plan.confirm).toMatch(/Added: \/data\/b\.$/)
+		const same = planSettingChange('additionalDirectories', '/data/a/', opts())
+		expect(same.ok && same.confirm).toBeUndefined()
+	})
+	it('asks for a destination before the save-to-file choices, without naming another field', () => {
+		const clear = planSettingChange('telemetry.sessionExport.eventTypes', undefined, opts())
+		expect(clear.ok).toBe(true)
+		const all = refusal('telemetry.sessionExport.eventTypes', 'all')
+		expect(all).toBe('accepted')
+		expect(refusal('telemetry.sessionExport.redactors', 'on')).toMatch(/Choose where to save/)
+		expect(refusal('telemetry.sessionExport.eventTypes', 'turn_completed')).toMatch(
+			/Choose where to save/,
+		)
+	})
+	it('shows and clears the key from before the rename with the new one', () => {
+		const file = userConfigPath(opts())
+		set('tui.workspacesPrefix', 'ctrl+g')
+		writeFileSync(file, 'tui:\n  spacesPrefix: ctrl+x\n')
+		const row = readSettingRow('tui.workspacesPrefix', opts())
+		expect(row.set).toBe(true)
+		expect(row.valueText).toMatch(/ctrl\+x/i)
+		set('tui.workspacesPrefix', 'ctrl+g')
+		expect((saved().tui as Record<string, unknown>).spacesPrefix).toBeUndefined()
+		expect((saved().tui as Record<string, unknown>).workspacesPrefix).toBe('ctrl+g')
 	})
 })

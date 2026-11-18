@@ -188,6 +188,37 @@ export interface UserMcpServerForm {
 	readonly url?: string
 }
 
+/**
+ * A server as the list shows it: the program (never its arguments, which may carry a key) and only
+ * the origin of an address (its path or query may carry a token). The full entry is read by name
+ * when one is edited.
+ */
+export interface UserMcpServerListEntry {
+	readonly name: string
+	readonly kind: 'command' | 'address' | 'other'
+	readonly command?: string
+	readonly argCount?: number
+	readonly origin?: string
+}
+
+export function listEntryForUserMcpServer(form: UserMcpServerForm): UserMcpServerListEntry {
+	if (form.kind === 'command')
+		return {
+			name: form.name,
+			kind: 'command',
+			...(form.command ? { command: form.command } : {}),
+			...(form.args && form.args.length > 0 ? { argCount: form.args.length } : {}),
+		}
+	if (form.kind === 'address') {
+		let origin: string | undefined
+		try {
+			origin = form.url ? new URL(form.url).origin : undefined
+		} catch {}
+		return { name: form.name, kind: 'address', ...(origin ? { origin } : {}) }
+	}
+	return { name: form.name, kind: 'other' }
+}
+
 export function readUserMcpServerForms(
 	opts: UserConfigWriteOptions = {},
 ): readonly UserMcpServerForm[] {

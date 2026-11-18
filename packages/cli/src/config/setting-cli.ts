@@ -17,10 +17,12 @@ import {
 import {
 	defaultWords,
 	effectiveDefault,
+	levelsHeld,
 	needsConfirmation,
 	numberFromText,
 	rangeText,
 	valueWords,
+	widenedConfirmation,
 } from './setting-values.js'
 import {
 	APPLIES_WHEN_TEXT,
@@ -321,7 +323,7 @@ export function renderSetting(row: SettingRow, file: string): string {
 	} else if (control.kind === 'levels') {
 		const [entry, level] = [control.entries[0]?.value, control.levels[0]?.value]
 		lines.push(
-			`Takes:    ${entry}=${level}, comma separated, or JSON such as {"${entry}":"${level}"}`,
+			`Takes:    ${entry}=${level}, comma separated (entries not named keep their level), or JSON such as {"${entry}":"${level}"}`,
 		)
 		lines.push('Entries:')
 		lines.push(...optionLines(control.entries))
@@ -335,7 +337,9 @@ export function renderSetting(row: SettingRow, file: string): string {
 		lines.push('Screens:')
 		lines.push(...optionLines(control.options))
 	} else if (control.kind === 'list')
-		lines.push(`Takes:    ${control.itemLabel}s, comma separated, none, or a JSON list`)
+		lines.push(
+			`Takes:    ${control.itemLabel}s, comma separated, none, or a JSON list (a name that holds a comma must be written as JSON)`,
+		)
 	else if (control.kind === 'json') lines.push(`Takes:    JSON, such as ${control.example}`)
 	else if (control.kind === 'text') lines.push('Takes:    text')
 	else lines.push('Takes:    nothing here; edit this one in the config file')
@@ -457,7 +461,14 @@ export function parseSettingText(
 			const asJson = jsonOrNothing(text)
 			if (asJson) return asJson
 			if (OFF_WORDS.has(text.trim().toLowerCase())) return { value: {} }
-			const chosen: Record<string, string> = {}
+			// Entries not named here keep what they hold now; JSON and `off` replace the whole map.
+			let saved: unknown
+			try {
+				saved = readSettings(opts).settings.find((s) => s.path === entry.path)?.value
+			} catch {
+				saved = undefined
+			}
+			const chosen: Record<string, string> = { ...levelsHeld(saved, entry.default) }
 			for (const item of words(text)) {
 				const at = item.indexOf('=')
 				if (at < 0)
@@ -558,7 +569,9 @@ export function planSettingChange(
 			: state?.set === true && sameValue(state.value, comparable)
 	const asks =
 		!unchanged && needsConfirmation(entry, value, state?.set ? state.value : entry.default)
-			? describeChange(key).confirm
+			? entry.confirmWhen === 'widens' && entry.confirm
+				? widenedConfirmation(entry.confirm, state?.set ? state.value : entry.default, value)
+				: describeChange(key).confirm
 			: undefined
 	return {
 		ok: true,

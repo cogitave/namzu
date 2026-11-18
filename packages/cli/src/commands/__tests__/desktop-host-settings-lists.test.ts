@@ -80,7 +80,10 @@ it('adds, checks, edits and removes a tool server in the user file, keeping vari
 			args: ['-y', 'notes-mcp'],
 		})) as Answer
 		expect(added.file).toBe(userFile())
-		expect(added.servers).toEqual([
+		expect(added.servers).toEqual([{ name: 'notes', kind: 'command', command: 'npx', argCount: 2 }])
+		// The list carries no arguments; the entry is read whole by name.
+		const whole = (await host['namzu/mcp/user-servers']({ name: 'notes' })) as Answer
+		expect(whole.servers).toEqual([
 			{ name: 'notes', kind: 'command', command: 'npx', args: ['-y', 'notes-mcp'] },
 		])
 		// A hand-written variable stays through an edit and never comes back in an answer.
@@ -132,6 +135,9 @@ it('refuses what the engine refuses, with its words, and odd requests', async ()
 		).rejects.toThrow('list of words')
 		await expect(host['namzu/mcp/remove-user-server']({ name: 'a', all: true })).rejects.toThrow(
 			'names only the server',
+		)
+		await expect(host['namzu/mcp/user-servers']({ name: 5 })).rejects.toThrow(
+			'Invalid tool servers request.',
 		)
 		await expect(host['namzu/mcp/user-servers']({ x: 1 })).rejects.toThrow(
 			'Invalid tool servers request.',

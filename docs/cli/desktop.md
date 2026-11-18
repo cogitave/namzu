@@ -4980,12 +4980,12 @@ edited in the file" with the config file's path: an entry's `env`, `inheritEnv`,
 never read into the window and are kept exactly as written on an edit (the edit sets only `command` and `args`, or only `url`,
 in one write that keeps the file's comments and order; switching between a command and an address drops only the other
 kind's command, arguments or address). Adding a command, or editing one so the command or its arguments change, asks
-first ("This server starts &lt;command&gt; when a conversation starts."): main answers the save with a one-time
+first ("This server starts &lt;command line&gt; when a conversation starts.", the whole line: a command line over 1000 characters is refused rather than cut): main answers the save with a one-time
 token bound to the window and the exact change and saves only when that change returns with it, after the engine has
 checked the change without writing it (`dryRun`). An address, or an edit that leaves the command as it is, asks nothing.
 Remove asks one inline question and drops the whole entry, variables included. An entry that is neither a command nor an
 address can be removed here and edited in the file. The host methods are the optional group `userMcpServers`:
-`namzu/mcp/user-servers` (the user file's servers as the form edits them, never variables or headers),
+`namzu/mcp/user-servers` (the user file's servers, never variables or headers; the list carries the program, how many arguments it has, and only the origin of an address, because an argument or an address path can hold a key; `{ name }` returns that one entry whole, read when its Edit form opens),
 `namzu/mcp/save-user-server` (`mode` add or edit, `name`, then `command` and `args` or `url`, and `dryRun`) and
 `namzu/mcp/remove-user-server`; each refuses a Pal. A host without them shows the list with no buttons.
 

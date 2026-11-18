@@ -71,8 +71,11 @@ namzu config set skills.disabled '["a-skill-called-none"]'
   called `none` is written as JSON), or JSON. An empty list for a setting whose default is none (`additionalDirectories`,
   `skills.disabled`) removes the key. A switch with events
   (`tui.notifications`) also takes `on` and `off`; a switch saved as a list (`redactors`) takes `on` and `off`.
-- A **map** (`composerTriggers.builtin`) is `entry=level` words, comma separated, or JSON. An entry set to its
-  default is left out of the file and the key goes when none is left, as in Desktop.
+- A **map** (`composerTriggers.builtin`) is `entry=level` words, comma separated, or JSON. Words change only the
+  entries they name; the others keep the level they hold now (JSON, or `off`, replaces the whole map). An entry set to
+  its default is left out of the file and the key goes when none is left, as in Desktop.
+- A name that holds a comma (a folder such as `/data/a,b`) is split by the comma list; write it as a JSON list. When a
+  list would add a folder (`additionalDirectories`), the question names what is added, so a wrong split shows.
 - `mcpServers` stays a file-only setting here; `namzu mcp add|remove` changes the user file's servers.
 - A value that means the same as no key (every event, the default screen alone) removes the key.
 - A key the loader refuses is refused in the loader's words: `tui.workspacesPrefix ctrl+c` says it must be
@@ -103,6 +106,6 @@ The retry hint a refused risky change prints quotes the value so it can be paste
 Desktop's number box and this command read numbers with two copies of one parser
 (`desktop/src/renderer/config-settings-model.ts` and `cli/src/config/setting-values.ts`), and the list and
 map controls choose the value to save with two copies of one set of functions
-(`desktop/src/shared/config-settings-values.ts` and the same file), because neither
+(`desktop/src/shared/config-settings-values.ts` and `cli/src/config/setting-values.ts`), because neither
 package can import the other. `config-settings-terminal-parity.test.ts` in Desktop feeds one table of
-inputs to both and fails when they differ.
+inputs to both (the number parsers and the list and map functions) and fails when they differ.

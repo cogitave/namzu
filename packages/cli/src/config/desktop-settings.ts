@@ -120,10 +120,16 @@ function withTypedDefaultText(entry: SettingDescriptor): SettingDescriptor {
 	return { ...entry, defaultText: entry.defaultNote ? `${text}. ${entry.defaultNote}` : text }
 }
 
+const WORKSPACES_PREFIX = 'tui.workspacesPrefix'
+const LEGACY_SPACES_PREFIX = 'tui.spacesPrefix'
+
 export function readSettings(opts: UserConfigWriteOptions = {}): SettingsSnapshot {
 	const doc = readUserDocument(opts)
 	const settings = SETTING_DESCRIPTORS.map((entry): SettingState => {
-		const value = lookup(doc, entry.path.split('.'))
+		let value = lookup(doc, entry.path.split('.'))
+		// The key from before the rename is read by the loader while the new one is absent.
+		if (value === undefined && entry.path === WORKSPACES_PREFIX)
+			value = lookup(doc, LEGACY_SPACES_PREFIX.split('.'))
 		if (value === undefined) return { path: entry.path, set: false }
 		if (entry.control.kind === 'file-only') return { path: entry.path, set: true }
 		return { path: entry.path, set: true, value }
@@ -345,6 +351,16 @@ function expandLearningSwitch(doc: Record<string, unknown>, path: readonly strin
 		doc.learningGenerator = { enabled: doc.learningGenerator }
 }
 
+/** Whether the file already holds a value at this place under its top-level key. */
+function holdsKey(block: unknown, rest: readonly string[]): boolean {
+	let at: unknown = block
+	for (const segment of rest) {
+		if (!at || typeof at !== 'object' || Array.isArray(at) || !(segment in at)) return false
+		at = (at as Record<string, unknown>)[segment]
+	}
+	return true
+}
+
 /** Validate against the loader as it would read the file after the change. */
 function checkWhole(
 	doc: Record<string, unknown>,
@@ -355,6 +371,7 @@ function checkWhole(
 	const [root, ...rest] = path as [string, ...string[]]
 	let block: unknown
 	if (rest.length === 0) block = value
+	else if (value === undefined && !holdsKey(doc[root], rest)) return
 	else {
 		const current = doc[root]
 		const base =
@@ -376,6 +393,17 @@ function checkWhole(
 	try {
 		readConfigKey(root, block, file)
 	} catch (error) {
+		// The save-to-file choices only mean something beside a destination; the loader's own
+		// sentence about the missing one would name a field the person did not touch.
+		if (
+			error instanceof ConfigValueError &&
+			path.join('.').startsWith('telemetry.sessionExport.') &&
+			path.join('.') !== SESSION_EXPORT_DESTINATION &&
+			!holdsKey(doc[root], ['sessionExport', 'destination'])
+		)
+			throw new Error(
+				'Choose where to save conversations first (the destination), then change this.',
+			)
 		if (error instanceof ConfigValueError) throw new Error(error.message)
 		throw error
 	}
@@ -447,4 +475,7 @@ export function writeSetting(change: SettingChange, opts: UserConfigWriteOptions
 	}
 	if (value === undefined) deleteUserConfigValue(path, opts)
 	else setUserConfigValue(path, value, opts)
+	// The old name would otherwise stay behind and be read again once the new key goes.
+	if (path.join('.') === WORKSPACES_PREFIX)
+		deleteUserConfigValue(LEGACY_SPACES_PREFIX.split('.'), opts)
 }

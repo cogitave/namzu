@@ -17,6 +17,7 @@ import { userConfigPath } from '../config/user-config.js'
 import { approveListedMcpServers, listMcpServers } from '../integrations/mcp/server-listing.js'
 import {
 	checkUserMcpServerSave,
+	listEntryForUserMcpServer,
 	readUserMcpServerForms,
 	removeUserMcpServer,
 	saveUserMcpServer,
@@ -121,8 +122,17 @@ export function searchHitExcerpt(
 }
 
 /** The user file's tool servers as the Settings form reads them: the file and the entries, no secrets. */
-function userServersAnswer() {
-	return { file: userConfigPath(), servers: readUserMcpServerForms() }
+function userServersAnswer(name?: string) {
+	const forms = readUserMcpServerForms()
+	return {
+		file: userConfigPath(),
+		// The list carries no arguments and no address path (either may hold a key); the one entry
+		// being edited is read whole, by name.
+		servers:
+			name === undefined
+				? forms.map(listEntryForUserMcpServer)
+				: forms.filter((f) => f.name === name),
+	}
 }
 
 function text(params: Record<string, unknown>, key: string, max = 400): string {
@@ -1721,11 +1731,13 @@ export function createDesktopHostExtensions(
 				!params ||
 				typeof params !== 'object' ||
 				Array.isArray(params) ||
-				Object.keys(params).length > 0
+				Object.keys(params).some((key) => key !== 'name') ||
+				(params.name !== undefined &&
+					(typeof params.name !== 'string' || params.name.length === 0 || params.name.length > 64))
 			)
 				throw new Error('Invalid tool servers request.')
 			if (pal()) throw new Error('Pals do not read the host settings.')
-			return userServersAnswer()
+			return userServersAnswer(params.name as string | undefined)
 		},
 		/** Adds a server to the user's file, or changes the command or address of one in it. */
 		'namzu/mcp/save-user-server': async (params: Record<string, unknown>) => {

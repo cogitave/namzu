@@ -1355,7 +1355,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'telemetry.sessionExport.eventTypes',
 		'telemetry',
 		'What to save',
-		'Only these kinds of events are saved. With nothing saved here, every kind is.',
+		'Only these kinds of events are written to the file. Without this setting every kind is written; an empty choice writes none.',
 		{
 			kind: 'checks',
 			options: SESSION_EXPORT_EVENT_TYPES.map((value) => ({
