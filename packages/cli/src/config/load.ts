@@ -3346,18 +3346,64 @@ export function mergeTuiConfig(
 	layer: TuiConfig,
 	fromProject: boolean,
 ): TuiConfig {
-	const {
-		theme: _theme,
-		reducedMotion: _motion,
-		showExpandedTodos: _todos,
-		agentCalls: _agentCalls,
-		fullscreen: _fullscreen,
-		syntaxHighlight: _syntax,
-		wheelRows: _wheelRows,
-		wheelAccel: _wheelAccel,
-		...rest
-	} = layer
-	return { ...below, ...(fromProject ? rest : layer) }
+	if (!fromProject) return { ...below, ...layer }
+	const rest = Object.fromEntries(
+		Object.entries(layer).filter(([key]) => !PROJECT_DROPPED_TUI_KEYS.includes(key)),
+	) as TuiConfig
+	return { ...below, ...rest }
+}
+
+/** The `tui` keys a project layer may not set (the operator's taste). Read by `mergeTuiConfig` and by Desktop's layer report. */
+export const PROJECT_DROPPED_TUI_KEYS: readonly string[] = [
+	'theme',
+	'reducedMotion',
+	'showExpandedTodos',
+	'agentCalls',
+	'fullscreen',
+	'syntaxHighlight',
+	'wheelRows',
+	'wheelAccel',
+]
+
+/**
+ * Whether a value a project (or local) file holds for `path` is one the loader keeps. The merges
+ * above drop or ignore some keys for a project source (taste, updates, hooks off, and anything
+ * that would loosen the sandbox or other tighten-only blocks); a value they drop is not in force.
+ * Keys with no special rule hold. Where the answer depends on what a lower layer says (a lower
+ * token budget, a trigger arming), the value is treated as not held.
+ */
+export function projectLayerHolds(path: string, value: unknown): boolean {
+	const [head, tail] = path.split('.')
+	switch (head) {
+		case 'tui':
+			return tail === undefined || !PROJECT_DROPPED_TUI_KEYS.includes(tail)
+		case 'updates':
+			return tail === 'auto' || tail === 'check' ? value === false : false
+		case 'disableHooks':
+			return value === false
+		case 'codeAnalysis':
+			return tail === 'enabled' ? value === false : true
+		case 'learningGenerator':
+			return tail === 'enabled' ? value === false : false
+		case 'composerTriggers':
+			return (tail === 'enabled' || tail === 'suggest') && value === false
+		case 'sandbox':
+			switch (tail) {
+				case 'enabled':
+					return value === true
+				case 'allowEscape':
+				case 'allowUnattendedEscape':
+					return value === false
+				case 'requireIsolation':
+					return Array.isArray(value) && value.length > 0
+				case 'workspace':
+					return value === 'ephemeral'
+				default:
+					return false
+			}
+		default:
+			return true
+	}
 }
 
 /**

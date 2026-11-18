@@ -167,9 +167,7 @@ export function LocalSpeechSettingsContent({
 							<SelectPopup>
 								{LOCAL_SPEECH_IDLE_UNLOAD_SECONDS.map((seconds) => (
 									<SelectItem key={seconds} value={String(seconds)}>
-										{seconds === IDLE_UNLOAD_DEFAULT
-											? `Default · ${IDLE_UNLOAD_LABELS[seconds]}`
-											: IDLE_UNLOAD_LABELS[seconds]}
+										{IDLE_UNLOAD_LABELS[seconds]}
 									</SelectItem>
 								))}
 							</SelectPopup>

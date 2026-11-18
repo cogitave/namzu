@@ -17,7 +17,7 @@ import { resolveAutoCompactWindowSetting } from '@namzu/sdk'
 
 import { readSwitch } from '../integrations/auto-update/policy.js'
 import { fullscreenFromEnv } from '../tui/fullscreen/mode.js'
-import { LOCAL_CONFIG_FILE, MANAGED_CONFIG_PATH } from './load.js'
+import { LOCAL_CONFIG_FILE, MANAGED_CONFIG_PATH, projectLayerHolds } from './load.js'
 import { positiveTokenCount } from './model-environment.js'
 
 export type EffectiveLayer = 'project' | 'local' | 'managed' | 'env'
@@ -149,10 +149,22 @@ export function layerReader(opts: LayerOptions): (path: string) => LayerAnswer |
 	const managed = readJson(opts.managedPath ?? MANAGED_CONFIG_PATH)
 	return (path) => {
 		const segments = path.split('.')
-		const fromManaged = lookup(managed, segments)
-		if (fromManaged !== undefined) return { layer: 'managed', effective: fromManaged }
 		const binding = ENVIRONMENT_BINDINGS[path]
 		const raw = binding ? opts.env[binding.variable] : undefined
+		// The terminal app reads NAMZU_FULLSCREEN before any config value, whichever file it came from.
+		const envFirst = path === 'tui.fullscreen' && binding && raw !== undefined
+		const fromManaged = envFirst ? undefined : lookup(managed, segments)
+		if (fromManaged !== undefined) return { layer: 'managed', effective: fromManaged }
+		// With the update check switched off nothing in updates.auto can take effect.
+		const checkOff =
+			path === 'updates.auto' && readSwitch(opts.env.NAMZU_UPDATE_CHECK ?? '') === false
+		if (checkOff) {
+			return {
+				layer: 'env',
+				effective: false,
+				env: { variable: 'NAMZU_UPDATE_CHECK', value: (opts.env.NAMZU_UPDATE_CHECK ?? '').trim() },
+			}
+		}
 		if (binding && raw !== undefined) {
 			const effective = binding.read(raw, binding.variable)
 			return {
@@ -161,10 +173,11 @@ export function layerReader(opts: LayerOptions): (path: string) => LayerAnswer |
 				env: { variable: binding.variable, value: raw.trim() },
 			}
 		}
-		const held = (doc: Record<string, unknown>, dropped: readonly string[]) =>
-			dropped.some((key) => path === key || path.startsWith(`${key}.`))
-				? undefined
-				: lookup(doc, segments)
+		const held = (doc: Record<string, unknown>, dropped: readonly string[]) => {
+			if (dropped.some((key) => path === key || path.startsWith(`${key}.`))) return undefined
+			const value = lookup(doc, segments)
+			return value !== undefined && projectLayerHolds(path, value) ? value : undefined
+		}
 		const fromLocal = held(local, LOCAL_DROPPED)
 		if (fromLocal !== undefined) return { layer: 'local', effective: fromLocal }
 		const fromProject = held(project, PROJECT_DROPPED)

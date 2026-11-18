@@ -49,14 +49,19 @@ a layer other than the user file decides:
 
 Settings whose layers combine (`permissions`, `permissionChecks`, `routing`, `permissions.autoMode`) and
 file-only settings carry no layer. A project file's `model`, `routing`, `smallModel`, `decision` and
-memory curation keys are dropped by the loader and are not reported either. The project files are read
+memory curation keys are dropped by the loader and are not reported either, nor is any value the loader
+ignores for a project source: the terminal's own look (`tui.*` taste keys), `updates.channel`, `updates.auto`
+or `updates.check` set to true, `disableHooks` set to true, and a sandbox, code analysis, learning or
+composer-trigger value that would loosen what is below it (`projectLayerHolds` in `config/load.ts`, shared with
+the merges). `NAMZU_FULLSCREEN` is read before any file, the managed one included, and `updates.auto` reports
+`NAMZU_UPDATE_CHECK` while that switch is off, since the update policy then installs nothing. The project files are read
 from the host's working folder; whether that folder is trusted is not checked here, so a row can say
 "Set by this project" for a folder whose file the loader would not yet read.
 
 The row shows the value in force in its control, turned off, and one sentence: "Set by an environment
 variable (NAMZU_MAX_OUTPUT_TOKENS)", "Set by this project" or "Set by your administrator", followed by "so
 it cannot be changed here", or, when the user file also holds a value, "Your own saved value does not
-apply while it is set" (**Use default** stays, to remove that value). Saving a user value under a layer
+apply while it is set" (the button, then labelled **Remove my saved value**, stays, to remove that value). Saving a user value under a layer
 that wins is not offered, since it would change nothing. A Desktop older than the fields ignores them and
 shows the saved value; an engine older than the fields sends none, and the row looks as it did. The
 terminal's `namzu config get <key>` prints `In force:` and the same sentence, and `--json` carries

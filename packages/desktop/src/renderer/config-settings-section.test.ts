@@ -176,8 +176,10 @@ describe('a row another layer decides', () => {
 		expect(out).not.toContain('value="7"')
 		expect(out).toContain('Set by an environment variable (NAMZU_MAX_ITERATIONS).')
 		expect(out).toContain('<fieldset disabled=""')
-		// The saved value stays removable.
-		expect(out).toContain('Use the default for Most steps per task')
+		// The saved value stays removable, and the button says it removes it.
+		expect(out).toContain('Remove your saved value for Most steps per task')
+		expect(out).toContain('Remove my saved value')
+		expect(out).not.toContain('Use the default for Most steps per task')
 	})
 
 	it('says it is the project or the administrator, with no saved value to go back to', () => {

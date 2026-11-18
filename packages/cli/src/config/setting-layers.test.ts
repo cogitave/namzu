@@ -139,4 +139,80 @@ describe('readSettings says which layer decides a value', () => {
 			effective: 9,
 		})
 	})
+
+	it('does not report a project value the loader drops or ignores', () => {
+		writeFileSync(
+			join(project, 'namzu.config.json'),
+			JSON.stringify({
+				tui: { fullscreen: true, theme: 'light', mouse: false },
+				updates: { channel: 'stable', auto: true, check: true },
+				disableHooks: true,
+				sandbox: { enabled: false, allowEscape: true, teardownTimeoutMs: 5 },
+				codeAnalysis: { enabled: true },
+				learningGenerator: { cycleTokens: 1 },
+				composerTriggers: { enabled: true },
+			}),
+		)
+		for (const path of [
+			'tui.fullscreen',
+			'tui.theme',
+			'updates.channel',
+			'updates.auto',
+			'updates.check',
+			'disableHooks',
+			'sandbox.enabled',
+			'sandbox.allowEscape',
+			'sandbox.teardownTimeoutMs',
+			'codeAnalysis.enabled',
+			'learningGenerator.cycleTokens',
+			'composerTriggers.enabled',
+		]) {
+			expect(state(path)?.layer, path).toBeUndefined()
+		}
+		// What it may do still shows.
+		expect(state('tui.mouse')).toMatchObject({ layer: 'project', effective: false })
+	})
+
+	it('reports a project value that only lowers', () => {
+		writeFileSync(
+			join(project, 'namzu.config.json'),
+			JSON.stringify({
+				updates: { auto: false, check: false },
+				disableHooks: false,
+				sandbox: { enabled: true, allowEscape: false, workspace: 'ephemeral' },
+				codeAnalysis: { enabled: false },
+				composerTriggers: { suggest: false },
+			}),
+		)
+		for (const path of [
+			'updates.auto',
+			'updates.check',
+			'sandbox.enabled',
+			'sandbox.allowEscape',
+			'sandbox.workspace',
+			'codeAnalysis.enabled',
+			'composerTriggers.suggest',
+		]) {
+			expect(state(path)?.layer, path).toBe('project')
+		}
+	})
+
+	it('lets NAMZU_FULLSCREEN beat the managed file, as the terminal app does', () => {
+		writeFileSync(managed, JSON.stringify({ tui: { fullscreen: true } }))
+		expect(state('tui.fullscreen')).toMatchObject({ layer: 'managed' })
+		expect(state('tui.fullscreen', { NAMZU_FULLSCREEN: '0' })).toMatchObject({
+			layer: 'env',
+			effective: false,
+		})
+	})
+
+	it('says the update check variable decides updates.auto while it is off', () => {
+		writeFileSync(userConfigPath({ home, env: {} }), 'updates:\n  auto: true\n')
+		expect(state('updates.auto', { NAMZU_UPDATE_CHECK: '0' })).toMatchObject({
+			layer: 'env',
+			effective: false,
+			env: { variable: 'NAMZU_UPDATE_CHECK', value: '0' },
+		})
+		expect(state('updates.auto', { NAMZU_UPDATE_CHECK: '1' })?.layer).toBeUndefined()
+	})
 })

@@ -212,6 +212,7 @@ function ConfigRow({
 	]
 		.filter(Boolean)
 		.join(' ')
+	const lockedByLayer = Boolean(state?.layer && state.layer !== 'user')
 	const reset =
 		state?.set && descriptor.control.kind !== 'file-only' ? (
 			<Button
@@ -224,12 +225,18 @@ function ConfigRow({
 					config.discard(descriptor.path)
 					void config.change(descriptor.path)
 				}}
-				aria-label={`Use the default for ${descriptor.label}`}
+				aria-label={
+					lockedByLayer
+						? `Remove your saved value for ${descriptor.label}`
+						: `Use the default for ${descriptor.label}`
+				}
 				title={
-					defaultLabel(descriptor, view) ? `Default · ${defaultLabel(descriptor, view)}` : undefined
+					!lockedByLayer && defaultLabel(descriptor, view)
+						? `Default · ${defaultLabel(descriptor, view)}`
+						: undefined
 				}
 			>
-				Use default
+				{lockedByLayer ? 'Remove my saved value' : 'Use default'}
 			</Button>
 		) : null
 	const stacked = STACKED_KINDS.includes(descriptor.control.kind)
