@@ -132,6 +132,16 @@ export const WaitForJobTool = defineTool({
 			}
 		}
 		const jobs = context.backgroundJobs
+		// Where the whole output is kept, said in every result so the model has no
+		// reason to redirect it into a file of its own.
+		const savedTo = (): string => {
+			try {
+				const file = jobs.get(input.id)?.outputFile
+				return file === undefined ? '' : `; the whole output is in ${file}`
+			} catch {
+				return ''
+			}
+		}
 
 		const badId = invalidBackgroundJobIdInput(input.id)
 		if (badId) return { success: false, output: '', error: badId }
@@ -202,7 +212,7 @@ export const WaitForJobTool = defineTool({
 									: `Output marker was not observed before the ${outcome.cause} timeout (${outcome.elapsedMs} ms); this wait did not stop the job.`
 				return {
 					success: outcome.kind !== 'aborted',
-					output: `${reason}\n\n${notices.length > 0 ? `${notices.join('\n')}\n` : ''}${outcome.output || '(no new output)'}\n\n[job ${input.id} is ${status}; next_offset ${outcome.nextOffset}]`,
+					output: `${reason}\n\n${notices.length > 0 ? `${notices.join('\n')}\n` : ''}${outcome.output || '(no new output)'}\n\n[job ${input.id} is ${status}; next_offset ${outcome.nextOffset}${savedTo()}]`,
 					data: {
 						jobId: input.id,
 						outcome: outcome.kind,
@@ -288,7 +298,7 @@ export const WaitForJobTool = defineTool({
 				// The wait observed a bound, not a failed command. A tool error
 				// would also be promoted as a durable failure by the turn's memory.
 				success: true,
-				output: `${describeJobWaitTimeout(input.id, outcome)}\n\n${observed}\n\n[next_offset ${outcome.nextOffset}]`,
+				output: `${describeJobWaitTimeout(input.id, outcome)}\n\n${observed}\n\n[next_offset ${outcome.nextOffset}${savedTo()}]`,
 				data: {
 					jobId: input.id,
 					timedOut: outcome.cause,
@@ -308,7 +318,7 @@ export const WaitForJobTool = defineTool({
 
 		return {
 			success: true,
-			output: `${observed}\n\n[job ${input.id} is ${status}; next_offset ${outcome.nextOffset}]`,
+			output: `${observed}\n\n[job ${input.id} is ${status}; next_offset ${outcome.nextOffset}${savedTo()}]`,
 			data: {
 				jobId: input.id,
 				status: outcome.status,

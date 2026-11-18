@@ -36,6 +36,7 @@ import {
 	startOnFreshLine,
 } from './paint/live-paint.js'
 import { installPasteMarkerGuard } from './paste-marker-guard.js'
+import { createPointerRegions } from './pointer/regions.js'
 import { liveRenderOption } from './render-mode.js'
 import { terminalFocus } from './terminal-focus.js'
 import { applyLaunchTheme } from './theme-launch.js'
@@ -207,10 +208,14 @@ export async function launchTui(
 	const pointerListeners = new Set<(report: PointerReport) => void>()
 	const mouseMode = resolveMouseMode(process.env, ctx.tui?.mouse)
 	const selectable = fullscreen && mouseMode === 'full'
+	// What answers a click or a hover (permission answers, footer items): asked before the
+	// transcript window, which gets only the reports no region took.
+	const regions = createPointerRegions()
 	const fullscreenHost = fullscreen
 		? {
 				...(selectable
 					? {
+							regions,
 							subscribePointer: (listener: (report: PointerReport) => void) => {
 								pointerListeners.add(listener)
 								return () => {
@@ -290,9 +295,12 @@ export async function launchTui(
 					},
 					selectable
 						? (report) => {
+								if (regions.handle(report)) return
 								for (const listener of pointerListeners) listener(report)
 							}
 						: undefined,
+					// Hover asks the terminal for motion with no button down.
+					{ hover: true },
 				)
 			: undefined
 	const panicReset = fullscreen ? () => process.stdout.write(FULLSCREEN_PANIC_RESET) : undefined

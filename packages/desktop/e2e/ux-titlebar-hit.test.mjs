@@ -50,6 +50,7 @@ async function theme(w, mode) {
 
 /** Runs in the page: the replay. Returns the controls whose sampled points are not no-drag, and the band's empty drag points. */
 function replay() {
+	const strip = document.querySelector(".topbar")?.getBoundingClientRect();
 	const CONTROLS = "button, a[href], input, select, textarea, summary, [role=button], [role=tab], [role=menuitem], [tabindex]:not([tabindex='-1'])";
 	const band = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--frame-header-height")) || 36;
 	// 1. Every element with a computed app region, in document order, with its box.
@@ -103,25 +104,36 @@ function replay() {
 		if (!hit || hit.closest(CONTROLS)) continue;
 		if (at(x, y) === "drag") empty += 1;
 	}
-	return { bad, checked, empty, regions: regions.length };
+	// The tab strip's own empty space (the stretch of the main header between and after its tabs).
+	let stripEmpty = 0;
+	if (strip) {
+		for (let x = Math.max(strip.left, 0) + 2; x < Math.min(strip.right, window.innerWidth); x += 6) {
+			const y = band / 2;
+			const hit = document.elementFromPoint(x, y);
+			if (!hit || hit.closest(CONTROLS) || !hit.closest(".topbar")) continue;
+			if (at(x, y) === "drag") stripEmpty += 1;
+		}
+	}
+	return { bad, checked, empty, stripEmpty, regions: regions.length };
 }
 
-async function check(w, state) {
+async function check(w, state, strip = false) {
 	const result = await w.page.evaluate(replay);
 	assert.ok(result.checked >= 4, `${state}: the replay looked at the controls (${result.checked} points)`);
 	assert.deepEqual(result.bad, [], `${state}: every control in the band takes the click`);
 	assert.ok(result.empty > 0, `${state}: empty title space still drags the window`);
+	if (strip) assert.ok(result.stripEmpty > 0, `${state}: empty space in the tab strip still drags the window`);
 }
-async function everyPlatform(w, state) {
+async function everyPlatform(w, state, strip = false) {
 	for (const platform of ["win32", "darwin", "linux"]) {
 		await w.page.evaluate((p) => {
 			document.documentElement.dataset.chromePlatform = p;
 		}, platform);
 		await settled(w);
-		await check(w, `${state}, ${platform}`);
+		await check(w, `${state}, ${platform}`, strip);
 	}
 }
-async function everyState(w, screen) {
+async function everyState(w, screen, strip = false) {
 	for (const mode of ["dark", "light"]) {
 		await theme(w, mode);
 		for (const [width, height] of [
@@ -137,7 +149,7 @@ async function everyState(w, screen) {
 					await expect(app).toHaveAttribute("data-sidebar-collapsed", collapsed ? "true" : "false");
 				}
 				await settled(w);
-				await everyPlatform(w, `${screen}, ${mode}, ${width}px, sidebar ${collapsed ? "collapsed" : "open"}`);
+				await everyPlatform(w, `${screen}, ${mode}, ${width}px, sidebar ${collapsed ? "collapsed" : "open"}`, strip && width > 700);
 			}
 		}
 	}
@@ -178,6 +190,38 @@ test("every control in the title band takes the click and empty space still drag
 		await expect.poll(() => w.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some((win) => win.isFullScreen())), { timeout: T }).toBe(true);
 		await settled(w);
 		await everyPlatform(w, "fullscreen");
+		failed = false;
+	} finally {
+		await dispose(w, { failed });
+	}
+});
+
+// The same replay with the strip of conversation tabs on (the harness leaves it on unless a world says
+// `tabs: "hidden"`), on the home screen, in a conversation, and in a split, where each pane has its own header.
+test("the conversation tab strip and split panes take the click and empty strip space still drags", { timeout: 540000 }, async () => {
+	const w = await createWorld({ rules: [write] });
+	let failed = true;
+	try {
+		await launch(w);
+		await openProject(w);
+		await size(w, 1280, 820);
+		await expect(w.page.locator("[data-composer-home]")).toBeVisible({ timeout: T });
+		await expect(w.page.locator(".conversation-tab").first()).toBeVisible({ timeout: T });
+		await everyState(w, "tabs on, home", true);
+		await send(w, "Please write the file");
+		const card = w.page.getByRole("region", { name: "Tool approval" });
+		await expect(card).toBeVisible({ timeout: T });
+		await card.getByRole("button", { name: "Accept", exact: true }).click();
+		await expect(w.page.getByText("Wrote out.txt.").first()).toBeVisible({ timeout: T });
+		await everyState(w, "tabs on, conversation", true);
+		// A split: a terminal pane beside the conversation.
+		await w.page.getByRole("button", { name: "New conversation tab" }).click({ button: "right" });
+		const menu = w.page.getByRole("menu", { name: "New tab" });
+		await expect(menu).toBeVisible({ timeout: T });
+		await menu.getByRole("menuitem", { name: "New terminal to the right" }).click();
+		await expect(w.page.locator(".workspace-canvas-pane")).toHaveCount(2, { timeout: T });
+		await settled(w);
+		await everyState(w, "tabs on, split", true);
 		failed = false;
 	} finally {
 		await dispose(w, { failed });

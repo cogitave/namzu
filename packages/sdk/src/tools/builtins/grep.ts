@@ -382,7 +382,7 @@ export const GrepTool = defineTool({
 			return {
 				success: false,
 				output: '',
-				error: `Invalid regex pattern: ${err instanceof Error ? err.message : String(err)}`,
+				error: `Invalid regex pattern: ${err instanceof Error ? err.message : String(err)}. Patterns are JavaScript regular expressions with no inline flags such as (?i); for a case-insensitive search set \`case_sensitive: false\`.`,
 			}
 		}
 

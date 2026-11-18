@@ -37,6 +37,78 @@ export function expandChips(value: string, pastes: ReadonlyMap<number, string>):
 	return value.replace(PASTE_CHIP, (chip, id: string) => pastes.get(Number(id)) ?? chip)
 }
 
+/** A stretch of an outgoing message that was pasted: `[start, end)` in the expanded text. */
+export interface PasteRange {
+	readonly start: number
+	readonly end: number
+}
+
+/**
+ * `expandChips`, and where each put-back paste landed in the result. A chip
+ * edited by hand stays as typed and is not a range.
+ */
+export function expandChipsWithRanges(
+	value: string,
+	pastes: ReadonlyMap<number, string>,
+): { readonly text: string; readonly ranges: readonly PasteRange[] } {
+	let text = ''
+	let at = 0
+	const ranges: PasteRange[] = []
+	for (const match of value.matchAll(PASTE_CHIP)) {
+		const pasted = pastes.get(Number(match[1]))
+		if (pasted === undefined) continue
+		text += value.slice(at, match.index)
+		if (pasted.length > 0) ranges.push({ start: text.length, end: text.length + pasted.length })
+		text += pasted
+		at = match.index + match[0].length
+	}
+	return { text: text + value.slice(at), ranges }
+}
+
+/** `ranges` moved by `-shift` and cut to `[0, length)`; ranges left empty are dropped. */
+export function shiftRanges(
+	ranges: readonly PasteRange[],
+	shift: number,
+	length: number,
+): readonly PasteRange[] {
+	const out: PasteRange[] = []
+	for (const range of ranges) {
+		const start = Math.max(0, range.start - shift)
+		const end = Math.min(length, range.end - shift)
+		if (end > start) out.push({ start, end })
+	}
+	return out
+}
+
+/** `text` with every range blanked to spaces of the same length, so offsets keep their meaning. */
+export function blankRanges(text: string, ranges: readonly PasteRange[] | undefined): string {
+	if (!ranges || ranges.length === 0) return text
+	let out = ''
+	let at = 0
+	for (const range of ranges) {
+		out += text.slice(at, range.start) + ' '.repeat(Math.max(0, range.end - range.start))
+		at = range.end
+	}
+	return out + text.slice(at)
+}
+
+/**
+ * Run a mention expander over `text` with its pasted stretches blanked, so an
+ * `@path` inside a paste is never read as a request for that file. The expander
+ * only appends to the text, so what it adds is put after the real text.
+ */
+export function expandMentionsAround<T extends { readonly sendText: string }>(
+	text: string,
+	pasted: readonly PasteRange[] | undefined,
+	expand: (text: string) => T,
+): T {
+	if (!pasted || pasted.length === 0) return expand(text)
+	const blanked = blankRanges(text, pasted)
+	const expanded = expand(blanked)
+	if (!expanded.sendText.startsWith(blanked)) return expanded
+	return { ...expanded, sendText: text + expanded.sendText.slice(blanked.length) }
+}
+
 /**
  * What stands behind markers in a draft: the exact text of each attached
  * image or document marker, and the number of each held paste. Text that looks

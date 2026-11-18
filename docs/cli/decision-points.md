@@ -72,11 +72,12 @@ key) and never to a config file or the log. A variable the config names (`apiKey
 over the saved key. `/status` shows one line, `Decision`: `Not connected`, `Off (NAMZU_NO_DECISION)`, or
 `Connected` with the points that are on.
 
-**The points start as** `notify: on`, `skill: on`, `memory: shadow`, `pick: shadow`. A point is `on` at the
+**The points start as** `notify: on`, `skill: on`, `memory: shadow`, `pick: on`. A point is `on` at the
 start only where its worst case is small: a missed chime (`notify` never mutes a stop, a failure or an
-approval) or a withdrawn skill proposal (`skill` can only withdraw a proposal the rule already made). `memory`
-can keep a memory out of the store and `pick` can press a control through `ui_do`, so they only record, in
-[the log](#the-log), until you have read it and set them to `on`. Edit `points` in the config to change any of
+approval), a withdrawn skill proposal (`skill` can only withdraw a proposal the rule already made) or a
+control chosen by name (`pick` acts only when the decision model is sure, and otherwise acts on nothing). `memory`
+can keep a memory out of the store, so it only records, in
+[the log](#the-log), until you have read it and set it to `on`. Edit `points` in the config to change any of
 them; `off` stops the question.
 
 `decision: true` is the shorthand: it means "use the decision model I connected", with those points. If
@@ -92,7 +93,7 @@ name; a choice among controls, not a yes/no). The names they were released under
 names, and a point named both ways is refused.
 
 Everything here is a choice you make. With no `decision` block there is no model and
-nothing is asked; with one, a point you do not name is `off`; and `NAMZU_NO_DECISION=1`
+nothing is asked; with one, a point you do not name is `off`, except `pick`, which is `on` (name `pick: off` to turn it off); and `NAMZU_NO_DECISION=1`
 in the environment turns every use of the decision model off at once (these points, `model:
 auto` routing and the `decide` tool), whatever the config says.
 
@@ -100,7 +101,7 @@ auto` routing and the `decide` tool), whatever the config says.
 
 | Mode | What happens |
 |---|---|
-| `off` | Nothing is asked. This is every point's mode until you name it, because a question carries text of the conversation to the decision service. |
+| `off` | Nothing is asked. This is the mode of every point but `pick` until you name it, because a question carries text of the conversation to the decision service. |
 | `shadow` | The model is asked and its answer is written to the log beside what the rule decided. Nothing else changes. This is how a point earns trust. |
 | `on` | A confident answer (`P(true)` of 0.7 or more, or 0.3 or less) decides; anything else is the rule. |
 
@@ -154,7 +155,7 @@ differ in what they do:
   model passes one, the decision model is asked, beside the action and without delaying it, which of the
   window's controls the intent names, and the log records the probability it gave the control the model
   chose and whether its top choice was the same one. Nothing the model does changes.
-- `on`: as `shadow`, and the tool also offers `ui_do { target, action, value, window_id }`, which names a
+- `on` (the default once a decision model is configured and the point is not named): as `shadow`, and the tool also offers `ui_do { target, action, value, window_id }`, which names a
   control in words ("the Save button"). The decision model chooses it from the controls of the latest
   `ui_snapshot` that offer the action, and the tool acts only when the best control has a probability of
   0.85 or more and leads the next one by 0.4 or more. Otherwise it acts on nothing and lists the closest
@@ -165,7 +166,7 @@ A permission prompt for `ui_do` cannot name the control, since the tool has not 
 "Press the control for "the Save button"", the same level of detail a coordinate click gives.
 
 What is sent: the intent (cut at 200 characters) and the controls to choose among, each as its ref, kind and
-name (cut at 120). They are the application's own text, which is why the point is off until you name it. No
+name (cut at 120). They are the application's own text, which is why you can turn the point off with `pick: off`; it is on by default only because it sends nothing from the conversation. No
 screenshot, no typed value and no other window content leaves the machine. The log's line for a choice also
 holds `options` (how many controls were put to the model) and `agreed` (shadow only).
 

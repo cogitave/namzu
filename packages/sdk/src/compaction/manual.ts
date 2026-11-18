@@ -273,7 +273,7 @@ function populateWorkingState(
 				// text in the user role. They are neither the task nor a
 				// requirement the operator stated.
 				if (!isOperatorUserMessage(message)) break
-				extractFromUserMessage(manager, message.content, firstUser)
+				extractFromUserMessage(manager, message, firstUser)
 				firstUser = false
 				break
 			case 'assistant':

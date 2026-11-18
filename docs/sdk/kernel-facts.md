@@ -35,7 +35,7 @@ The SDK does not know which application hosts it. `ACPServer` takes an optional 
 (`AcpHostKernelFacts`: `commandLine`, `desktopContract`), and answers with only the fields it is given. A host
 that gives nothing answers `{ "engine": ..., "dataEpoch": ... }`. The types `AcpKernelFacts` and
 `AcpHostKernelFacts` are exported. A reader that does not know the object ignores it: the desktop application
-reads `agentInfo.name`, `extensions`, `promptAttachments` and `promptOptions` by name and nothing else, and
+reads `agentInfo.name`, `extensions`, `promptAttachments`, `promptOptions` and `promptPasted` by name and nothing else, and
 nothing else in this repository validates the answer strictly.
 
 ## The data epoch

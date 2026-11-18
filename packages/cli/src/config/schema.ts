@@ -109,9 +109,10 @@ export interface TuiConfig {
 	readonly agentCalls?: boolean
 	/**
 	 * Draw the terminal UI on the alternate screen with its own scrolling (mouse
-	 * wheel, PgUp and PgDn, Home and End) instead of the terminal's scrollback.
-	 * Absent or `false` means the scrollback. `NAMZU_FULLSCREEN=1` or `=0` in the
-	 * environment overrides it. Your own config files only.
+	 * wheel, PgUp and PgDn, Home and End, and the mouse) instead of the terminal's
+	 * scrollback. Absent or `true` means fullscreen; `false` keeps the scrollback.
+	 * `NAMZU_FULLSCREEN=1` or `=0` in the environment overrides it. Your own
+	 * config files only.
 	 */
 	readonly fullscreen?: boolean
 	/**
@@ -189,9 +190,8 @@ export interface TurnLimitsConfig {
 	 */
 	readonly maxReasoningTokens?: number
 	/**
-	 * `false` turns off the one reminder a turn gets when it tries to end after
-	 * changing files without running a test, lint or typecheck. On by default.
-	 * `--no-done-gate` turns it off for one launch.
+	 * `true` asks a turn that tries to end after changing files without running a
+	 * test, lint or typecheck to check first, once. Off by default.
 	 */
 	readonly doneGate?: boolean
 	/**
@@ -363,13 +363,28 @@ export interface BrowserConfig {
 	/** Leave the browser running when the session ends. Default `false`. */
 	readonly keepOpen?: boolean
 	/**
-	 * What makes a page a sign-in page. `address` (default) stops the turn on
-	 * any address that looks like one (`/login`, `/signin`, `/sso`, …). `page`
-	 * stops it only for the known sign-in hosts, a challenge or an HTTP
-	 * authentication prompt; any other page that shows a password or code
-	 * field loads, and the model is told once that it cannot type one.
+	 * What makes a page a sign-in page. `page` (default) stops the turn only
+	 * for the known sign-in hosts, a challenge or an HTTP authentication
+	 * prompt; any other page that shows a password or code field loads, and
+	 * the model is told once that it cannot type one. `address` stops the turn
+	 * on any address that looks like a sign-in (`/login`, `/signin`, `/sso`, …).
 	 */
 	readonly signInDetection?: 'address' | 'page'
+}
+
+/** See `NamzuCliConfig.progressNudge`. */
+export interface ProgressNudgeConfig {
+	/**
+	 * `auto` (default) nudges on the terminal and in Desktop, where a person
+	 * watches the work live, and nowhere else. `on` also nudges `namzu exec`
+	 * (text output; never `--json`, scheduled runs, Pals or sub-agents).
+	 * `off` never nudges.
+	 */
+	readonly mode?: 'auto' | 'on' | 'off'
+	/** Seconds of work, since the person last saw text from the assistant, before the nudge. Default 90. */
+	readonly afterSeconds?: number
+	/** Tool calls in that stretch before the nudge. Default 6. */
+	readonly afterCalls?: number
 }
 
 /** See `NamzuCliConfig.codeAnalysis`. */
@@ -584,6 +599,16 @@ export interface NamzuCliConfig {
 	 * from the environment. `exec`, `drain` and `acp` never mount it.
 	 */
 	readonly codeAnalysis?: CodeAnalysisConfig
+	/**
+	 * The one-sentence nudge after a long quiet stretch: when a run has worked
+	 * for `afterSeconds` and made `afterCalls` tool calls since the person last
+	 * saw text from the assistant, the model is asked, once, to say in one
+	 * sentence what it is doing and what it has found, in the same response as
+	 * its next tool call. Time spent waiting on the person does not count.
+	 * Merged key by key across files: the last file to set a field wins. Not
+	 * settable from the environment.
+	 */
+	readonly progressNudge?: ProgressNudgeConfig
 	/**
 	 * A System-1 decision model. When set, the host and Pal agents get an
 	 * optional, advisory `decide` tool (yes/no, choice or score). A failing
@@ -907,9 +932,11 @@ export const LEGACY_DECISION_POINT_NAMES: Readonly<Record<string, DecisionPointI
 export type DecisionPointMode = 'off' | 'shadow' | 'on'
 
 /**
- * The decision points and their modes. Every point is `off` unless it is named
- * here, because a point's question carries text of the conversation to the
- * decision service.
+ * The decision points and their modes. A point not named here is `off`, because
+ * its question carries text of the conversation to the decision service, except
+ * `pick`: it is `on` once a decision model is configured, because it sends only
+ * the names of a window's controls and acts only when the model is sure. Name
+ * `pick: off` to turn it off.
  */
 export type DecisionPointsConfig = Readonly<Partial<Record<DecisionPointId, DecisionPointMode>>>
 

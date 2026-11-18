@@ -31,6 +31,8 @@ import type {
 	BrowserSessionInfo,
 } from '@namzu/sdk'
 
+import { closeBrowserLocalPages } from '@namzu/sdk'
+
 import type { BrowserSitesConfig } from '../permissions/browser-sites.js'
 
 /** `@namzu/browser` profile names, restated so this file needs no runtime import to check one. */
@@ -175,6 +177,7 @@ export function createBrowserControl(
 			if (disposed) throw new Error('The browser of this session is closed.')
 			const previous = current
 			current = build(name)
+			await closeBrowserLocalPages(host)
 			await previous.dispose()
 			return control.status()
 		},
@@ -182,6 +185,7 @@ export function createBrowserControl(
 			if (disposed) return
 			const previous = current
 			current = build(previous.profile)
+			await closeBrowserLocalPages(host)
 			await previous.dispose()
 		},
 		async runAs(run) {
@@ -207,6 +211,8 @@ export function createBrowserControl(
 		async dispose() {
 			if (disposed) return
 			disposed = true
+			// The local-page server of this session's tools goes with the browser.
+			await closeBrowserLocalPages(host)
 			await current.dispose()
 		},
 	}

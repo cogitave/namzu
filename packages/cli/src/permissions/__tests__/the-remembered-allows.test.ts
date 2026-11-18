@@ -87,6 +87,27 @@ describe('what a call can have remembered', () => {
 			]),
 		).toBe('a.dev and b.dev')
 	})
+
+	it('leaves the cd to the working folder out of the words, but still remembers it', () => {
+		const line = allowsForBatch([bash('cd /work/app && npm test')], commands)
+		expect(line).toEqual([
+			{ kind: 'command', tool: 'bash', command: 'cd /work/app' },
+			{ kind: 'prefix', tool: 'bash', prefix: 'npm test' },
+		])
+		expect(describeAllows(line ?? [], '/work/app')).toBe('npm test * commands')
+		// without the folder, or for a cd that goes elsewhere, it is said
+		expect(describeAllows(line ?? [])).toBe('cd /work/app commands and npm test * commands')
+		expect(
+			describeAllows(
+				allowsForBatch([bash('cd /work/other && npm test')], commands) ?? [],
+				'/work/app',
+			),
+		).toBe('cd /work/other commands and npm test * commands')
+		// nothing else to say: the cd stays rather than leaving the answer with no words
+		expect(
+			describeAllows([{ kind: 'command', tool: 'bash', command: 'cd /work/app' }], '/work/app'),
+		).toBe('cd /work/app commands')
+	})
 })
 
 describe('the rule the kernel consults', () => {

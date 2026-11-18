@@ -90,6 +90,7 @@ import {
 import { cn } from './lib/utils.js'
 import { effortLabel } from './model-choice.js'
 import { type ModelChoice, ModelPicker } from './model-picker.js'
+import { isMaterialPaste } from './paste-ranges.js'
 import type { PendingMessages } from './pending-messages.js'
 import { usePresence } from './presence.js'
 import { DEFAULT_HOME_HEADING } from './project-home.js'
@@ -132,6 +133,7 @@ export function Composer({
 	variant = 'default',
 	draft,
 	onDraftChange,
+	onMaterialPaste,
 	providers,
 	connected,
 	toolsAvailable = connected,
@@ -223,6 +225,8 @@ export function Composer({
 	variant?: 'default' | 'pal'
 	draft: string
 	onDraftChange: (draft: string) => void
+	/** Text the person pasted that is long enough to be material, and where it went. */
+	onMaterialPaste?: (paste: { start: number; text: string }) => void
 	providers: ProviderView
 	connected: boolean
 	/** Chat admission does not imply that guest tools are available. */
@@ -1059,6 +1063,8 @@ export function Composer({
 												})
 												if (decision.action === 'default') {
 													const target = event.currentTarget
+													if (isMaterialPaste(text))
+														onMaterialPaste?.({ start: target.selectionStart, text })
 													const left = pasteOverflow({
 														current: target.value,
 														selectionStart: target.selectionStart,

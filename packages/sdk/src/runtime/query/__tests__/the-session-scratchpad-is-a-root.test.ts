@@ -109,7 +109,7 @@ async function run(input: {
 
 describe('the session scratchpad', () => {
 	it.each(['prompt', 'accept-edits', 'plan'] as const)(
-		'takes a write in %s without asking, and makes the folder only then',
+		'takes a write in %s without asking',
 		async (mode) => {
 			const out = await run({ mode, target: ({ own }) => own })
 			expect(out.prompt).not.toHaveBeenCalled()

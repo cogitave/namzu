@@ -199,7 +199,8 @@ describe('per-action schemas', () => {
 		[{ action: 'tabs', op: 'select' }, /tabs select needs tab/],
 		[{ action: 'tabs', op: 'close' }, /tabs close needs tab/],
 		[{ action: 'tabs', op: 'list', url: 'https://example.com' }, /only tabs new takes url/],
-		[{ action: 'tabs', op: 'new', url: 'file:///etc/passwd' }, /scheme "file:"/],
+		[{ action: 'tabs', op: 'new', url: 'file://server/share/x.html' }, /another machine/],
+		[{ action: 'navigate', url: '\\\\server\\share\\x.html' }, /network share/],
 		[{ action: 'snapshot', ref: 'e1; drop' }, /ref/],
 		[{ action: 'evaluate', script: '1' }, /action/],
 	])('browser refuses %j', (raw, message) => {
@@ -1172,5 +1173,13 @@ describe('reaching the element', () => {
 		expect(act.description).toContain(
 			'Escape, Enter, Tab, Shift+Tab, PageDown, PageUp, Home, End or Space',
 		)
+	})
+})
+
+describe('loading', () => {
+	it('declares each browser tool as the other one companion, so one search loads both', () => {
+		const [browser, act] = createBrowserTools(fakeHost())
+		expect(browser.loadsWith).toEqual(['browser_act'])
+		expect(act.loadsWith).toEqual(['browser'])
 	})
 })

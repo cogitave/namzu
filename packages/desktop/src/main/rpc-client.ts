@@ -50,6 +50,7 @@ export class RuntimeClient extends EventEmitter {
 	}
 	private promptAttachments = false
 	private promptOptions = false
+	private promptPasted = false
 	private turnRetry = false
 	private turnUndo = false
 	private abandonPaused = false
@@ -155,6 +156,10 @@ export class RuntimeClient extends EventEmitter {
 	 */
 	promptPermissionModes(): readonly ('bypass' | 'classify')[] | undefined {
 		return this.permissionModes
+	}
+	/** The engine sets pasted stretches of a prompt apart from the person's own words. */
+	supportsPromptPasted(): boolean {
+		return this.promptPasted
 	}
 	supportsPromptAttachments(): boolean {
 		return this.promptAttachments
@@ -350,6 +355,7 @@ export class RuntimeClient extends EventEmitter {
 		this.permissionModes = Array.isArray(result.promptPermissionModes)
 			? result.promptPermissionModes.filter((mode) => mode === 'bypass' || mode === 'classify')
 			: undefined
+		this.promptPasted = result.promptPasted === true
 		const offers = (group: OptionalExtensionGroup): boolean =>
 			OPTIONAL_EXTENSION_GROUPS[group].every((method) => result.extensions?.includes(method))
 		this.tasks = offers('tasks')

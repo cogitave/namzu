@@ -14,6 +14,7 @@ export type ReminderKind =
 	| 'plan-reentry'
 	| 'plan-exit'
 	| 'task-nudge'
+	| 'quiet-stretch'
 	| 'hypermode-on'
 	| 'hypermode-exit'
 	| 'environment'
@@ -34,6 +35,7 @@ const KINDS: ReadonlySet<string> = new Set<ReminderKind>([
 	'plan-reentry',
 	'plan-exit',
 	'task-nudge',
+	'quiet-stretch',
 	'hypermode-on',
 	'hypermode-exit',
 	'environment',

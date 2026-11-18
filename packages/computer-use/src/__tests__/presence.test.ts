@@ -57,6 +57,43 @@ const flush = async (): Promise<void> => {
 	for (let i = 0; i < 5; i++) await Promise.resolve()
 }
 
+describe('WindowsPresence: letting go of the helper', () => {
+	it('ends the helper on release, and a later mark starts a new one that works', async () => {
+		const helpers: FakeHelper[] = []
+		const presence = new WindowsPresence({
+			powershell: 'powershell.exe',
+			spawnHelper: () => {
+				const helper = new FakeHelper()
+				helpers.push(helper)
+				return helper
+			},
+		})
+		presence.mark({ hwnd: 0x10, kind: 'click' })
+		await flush()
+		helpers[0]?.says('{"ok":true,"excluded":true,"error":""}')
+		await flush()
+		presence.release()
+		expect(helpers[0]?.killed).toBe(true)
+		// Its exit is not a crash: the overlay stays available.
+		helpers[0]?.exits()
+		await flush()
+		expect(presence.available).toBe(true)
+		presence.mark({ hwnd: 0x10, kind: 'click' })
+		await flush()
+		expect(helpers).toHaveLength(2)
+		helpers[1]?.says('{"ok":true,"excluded":true,"error":""}')
+		await flush()
+		expect(JSON.parse(helpers[1]?.written.at(-1) as string)).toMatchObject({ cmd: 'act' })
+		// A release with nothing running is a no-op.
+		const idle = new WindowsPresence({
+			powershell: 'powershell.exe',
+			spawnHelper: () => new FakeHelper(),
+		})
+		idle.release()
+		expect(idle.available).toBe(true)
+	})
+})
+
 describe('WindowsPresence', () => {
 	it('starts the helper on the first mark, sends the script first, then the action once the helper says it is ready', async () => {
 		const { presence, helper } = overlay()

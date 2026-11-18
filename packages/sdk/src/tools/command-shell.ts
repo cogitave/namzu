@@ -219,7 +219,7 @@ export function isWindowsBash(shell: CommandShell = hostCommandShell()): boolean
 
 /** What a model needs to know when the `bash` tool is Git Bash on Windows, appended to the tool's description. */
 export const WINDOWS_BASH_GUIDANCE =
-	'This tool runs Git Bash (POSIX sh), not cmd.exe or PowerShell. Use Unix shell syntax: `/dev/null` not `NUL`, forward slashes, `$VAR` not `%VAR%` or `$env:VAR`. To run PowerShell, call `powershell -NoProfile -Command "…"`.'
+	"This tool runs Git Bash (POSIX sh), not cmd.exe or PowerShell. Use Unix shell syntax: `/dev/null` not `NUL`, forward slashes, `$VAR` not `%VAR%` or `$env:VAR`. PowerShell is a program you start, and bash reads the line first: in double quotes bash replaces every `$name` before PowerShell sees it, so never put a script in double quotes. A short script goes in single quotes, `powershell -NoProfile -Command '$x = 1; $x + 1'` (a single quote inside it is written `'\\''`); a longer one, or one with quotes, goes through a quoted heredoc, `powershell -NoProfile -Command - <<'PS'` then the script as written, then `PS`. To open a program or a file, `powershell -NoProfile -Command 'Start-Process program.exe'`; bash reads a lone `/c` as a path, so `cmd.exe /c start …` does not run (`cmd.exe //c start …` does). Do not run a script with non-ASCII text by `-File`: Windows PowerShell 5 reads a .ps1 without a BOM as ANSI. To write a text file use `[System.IO.File]::WriteAllText($path, $text)`, which is UTF-8 without a BOM; `Set-Content -Encoding utf8`, `Out-File` and `[System.Text.Encoding]::UTF8` add a BOM in Windows PowerShell 5 (PowerShell 7, `pwsh`, does not)."
 
 /**
  * Rewrite a redirect to Windows' `NUL` device (`>nul`, `2>NUL`, `&>nul`) to

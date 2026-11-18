@@ -102,7 +102,7 @@ import { hostCommandNames } from '../tui/slashCommands.js'
 import { expandHeadlessCommand } from '../user-commands/store.js'
 import {
 	type ExecFlags,
-	applyProviderFlags,
+	applyLaunchFlags,
 	buildGate,
 	launchMcpServers,
 	loadSkillsContext,
@@ -391,7 +391,9 @@ export async function execJson(
 	}
 	// --provider/--model override the persona's configured provider+model for
 	// this turn, so the Namzu tab's picks win over ~/.namzu/preferences.json.
-	prefs = applyProviderFlags(prefs, flags)
+	const launched = applyLaunchFlags(prefs, flags)
+	if ('error' in launched) return fail(launched.error)
+	prefs = launched
 	// The appended instructions, the tool lists and the fallback chain, as the
 	// printing mode reads them.
 	const run = resolveRunFlags(flags, prefs)

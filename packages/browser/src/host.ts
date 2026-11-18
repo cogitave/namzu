@@ -35,6 +35,7 @@ import type {
 import {
 	type BrowserHumanClassifierOptions,
 	type BrowserPageSignals,
+	asksForCredential,
 	classifyHumanRequired,
 	isCredentialField,
 	signInNotice,
@@ -141,7 +142,7 @@ export interface PlaywrightBrowserHostOptions {
 	readonly executablePath?: string
 	/** More sign-in addresses for the classifier. */
 	readonly signInAddresses?: BrowserHumanClassifierOptions['signInAddresses']
-	/** What makes a page a sign-in page: `address` (default) or `page`. See {@link BrowserHumanClassifierOptions.signInDetection}. */
+	/** What makes a page a sign-in page: `page` (default) or `address`. See {@link BrowserHumanClassifierOptions.signInDetection}. */
 	readonly signInDetection?: BrowserHumanClassifierOptions['signInDetection']
 	/** The command that opens a visible window for signing in. Default `namzu browser login <profile> <url>`. */
 	readonly loginCommand?: (profile: string, url: string) => string
@@ -289,7 +290,7 @@ function quoteShort(value: string, max = 80): string {
  *   stops the call with `browser_human_required`;
  * - nothing is ever typed into a password or one-time-code field;
  * - downloads are cancelled and reported; a leave-page prompt is answered so
- *   navigation proceeds; other dialogs wait for `browser_act dialog`.
+ *   navigation proceeds; other dialogs wait for `browser_act dialog`, which accepts or dismisses them.
  */
 export class PlaywrightBrowserHost implements BrowserHost {
 	readonly id: string
@@ -671,7 +672,7 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		}
 		this.pendingDialog = { tab, dialog }
 		this.notes.push(
-			`A ${dialog.type()} dialog is open on tab ${tab.id}. Take a snapshot to read it, then dismiss it with browser_act dialog or ask the operator to use the browser window.`,
+			`A ${dialog.type()} dialog is open on tab ${tab.id}. Take a snapshot to read it, then answer it with browser_act dialog: accept it${dialog.type() === 'prompt' ? ' (with promptText for the answer)' : ''} or dismiss it. The page waits for the answer.`,
 		)
 	}
 
@@ -1302,7 +1303,7 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		const tab = await this.activeTab()
 		if (this.pendingDialog?.tab === tab) {
 			throw new Error(
-				'A dialog is open; dismiss it with browser_act dialog before taking a screenshot.',
+				'A dialog is open; answer it with browser_act dialog before taking a screenshot.',
 			)
 		}
 		// Screenshots are image blocks sent to the model. Mask the fields that
@@ -1372,9 +1373,7 @@ export class PlaywrightBrowserHost implements BrowserHost {
 	private async readValue(ref: string): Promise<BrowserResult> {
 		const tab = await this.activeTab()
 		if (this.pendingDialog?.tab === tab) {
-			throw new Error(
-				'A dialog is open; dismiss it with browser_act dialog before reading a value.',
-			)
+			throw new Error('A dialog is open; answer it with browser_act dialog before reading a value.')
 		}
 		const locator = await this.resolveRef(tab, ref)
 		const facts = await locator.evaluate(fieldFacts)
@@ -1673,7 +1672,9 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		}
 		if (action.action === 'dialog') return this.answerDialog(tab, action)
 		if (this.pendingDialog?.tab === tab) {
-			throw new Error('A dialog is open on this tab; dismiss it with browser_act dialog first.')
+			throw new Error(
+				'A dialog is open on this tab; answer it with browser_act dialog first (accept or dismiss).',
+			)
 		}
 		const checkpoint = await this.beginDocumentResponseChange(tab)
 		const urlBefore = tab.page.url()
@@ -1712,9 +1713,21 @@ export class PlaywrightBrowserHost implements BrowserHost {
 	): Promise<BrowserResult> {
 		const pending = this.pendingDialog
 		if (!pending || pending.tab !== tab) throw new Error('No dialog is open on this tab.')
-		if (action.accept) {
+		const dialogType = pending.dialog.type()
+		if (action.accept && action.promptText !== undefined && dialogType !== 'prompt') {
 			throw new Error(
-				'The agent cannot accept a page-created dialog. Dismiss it, or ask the operator to use the browser window.',
+				`promptText only answers a prompt dialog; this one is a ${dialogType} dialog. Nothing was typed and the dialog is still open: accept it without promptText, or dismiss it.`,
+			)
+		}
+		if (
+			action.accept &&
+			dialogType === 'prompt' &&
+			action.promptText !== undefined &&
+			action.promptText !== '' &&
+			asksForCredential(pending.dialog.message())
+		) {
+			throw new Error(
+				'This prompt asks for a password, passcode or one-time code. Nothing was typed and the dialog is still open: credentials are only entered by the user, in the browser window. Dismiss it, or accept it without promptText.',
 			)
 		}
 		this.pendingDialog = undefined
@@ -1725,12 +1738,17 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		}
 		this.clearDocumentResponse(tab)
 		try {
-			await pending.dialog.dismiss()
+			if (action.accept) await pending.dialog.accept(action.promptText)
+			else await pending.dialog.dismiss()
 		} catch (error) {
 			this.setDocumentResponse(tab, checkpoint.previous)
 			throw new BrowserOutcomeUnknownError('dialog', error)
 		}
-		this.notes.unshift('The dialog was dismissed.')
+		this.notes.unshift(
+			action.accept
+				? `The dialog was accepted${dialogType === 'prompt' ? (action.promptText ? ' with the text given' : ' with an empty answer') : ''}.`
+				: 'The dialog was dismissed.',
+		)
 		await this.settle(tab)
 		this.checkLanding(tab)
 		while (this.blanking.size > 0) await Promise.all([...this.blanking])

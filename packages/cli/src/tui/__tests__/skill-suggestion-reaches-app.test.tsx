@@ -172,7 +172,7 @@ async function mount() {
 	return { harness, type, shown, now }
 }
 
-it('proposes a multi-step task once per conversation, and /skills save off persists', async () => {
+it('proposes a multi-step task once per session, and /skills save off persists', async () => {
 	const { type, shown, now } = await mount()
 
 	await type('find every TODO and write TODO.md')
@@ -195,12 +195,29 @@ it('proposes a multi-step task once per conversation, and /skills save off persi
 	const config = join(home, 'config.yaml')
 	expect(readFileSync(config, 'utf8')).toMatch(/skills:\s*\n\s+suggest: false/)
 
-	// A fresh conversation would propose again, but the switch is off.
+	// A fresh conversation does not propose again in the same session, and the switch is off too.
 	await type('/clear')
 	await tick(200)
 	await type('one more multi-step task')
 	await until(() => shown().includes('ANSWER3'), 'third turn never finished')
 	await tick(100)
+	expect(now()).not.toContain(PROPOSAL)
+	expect(readSuggestionLedger(home).unanswered).toBe(1)
+})
+
+it('does not propose again in a second conversation of the same session', async () => {
+	const { type, shown, now } = await mount()
+
+	await type('find every TODO and write TODO.md')
+	await until(() => shown().includes(PROPOSAL), 'no proposal after a multi-step turn')
+	expect(readSuggestionLedger(home).unanswered).toBe(1)
+
+	await type('/clear')
+	await tick(200)
+	await type('one more multi-step task')
+	await until(() => shown().includes('ANSWER2'), 'second turn never finished')
+	await tick(100)
+	// the new conversation is clear of the first one's line, and no second line took its place
 	expect(now()).not.toContain(PROPOSAL)
 	expect(readSuggestionLedger(home).unanswered).toBe(1)
 })

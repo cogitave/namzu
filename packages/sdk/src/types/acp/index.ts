@@ -63,6 +63,8 @@ export interface AcpInitializeResult {
 	readonly promptAttachments?: boolean
 	/** True only when this host applies captured effort and review settings per prompt. */
 	readonly promptOptions?: boolean
+	/** True only when this host sets `pasted` ranges of a prompt apart from the person's own words. */
+	readonly promptPasted?: boolean
 	/**
 	 * The review modes beyond the original five (`prompt`, `plan`,
 	 * `accept-edits`, `auto`, `strict`) that this host applies per prompt:
@@ -201,6 +203,19 @@ export interface AcpSessionPromptParams {
 	/** Inline user-owned bytes; store references are not admitted across this boundary. */
 	readonly attachments?: readonly (ImageAttachment | DocumentAttachment)[]
 	readonly options?: AcpPromptOptions
+	/**
+	 * Which stretches of `prompt` the person pasted: `[start, end)` in UTF-16
+	 * units, in order, not overlapping. The host sets them apart from the
+	 * person's own words in the model request. Sent only to a host that
+	 * advertises `promptPasted`; a prompt that is plain text omits it.
+	 */
+	readonly pasted?: readonly AcpPastedRange[]
+}
+
+/** One pasted stretch of a prompt. */
+export interface AcpPastedRange {
+	readonly start: number
+	readonly end: number
 }
 
 /** Why a prompt stopped, in the peer's vocabulary. */

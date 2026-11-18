@@ -89,6 +89,8 @@ export interface AcpAgentGateway {
 		readonly prompt: string
 		readonly attachments?: AcpSessionPromptParams['attachments']
 		readonly options?: AcpSessionPromptParams['options']
+		/** Pasted stretches of `prompt`, already checked: in range, in order, apart. */
+		readonly pasted?: AcpSessionPromptParams['pasted']
 		readonly cwd: string
 		readonly onEvent: (event: SessionEvent) => void
 		readonly signal: AbortSignal
@@ -145,6 +147,8 @@ export interface AcpServerOptions {
 	readonly supportsPromptAttachments?: boolean
 	/** The host applies optional effort and permission settings to the exact turn. */
 	readonly supportsPromptOptions?: boolean
+	/** The gateway frames `pasted` ranges of a prompt itself; announced as `promptPasted`. */
+	readonly supportsPromptPasted?: boolean
 	/**
 	 * Which of the newer review modes, `bypass` and `classify`, the gateway
 	 * applies when a prompt asks for one in its options. Omitted, a prompt that
@@ -495,6 +499,7 @@ export class ACPServer {
 			},
 			...(this.options.supportsPromptAttachments ? { promptAttachments: true } : {}),
 			...(this.options.supportsPromptOptions ? { promptOptions: true } : {}),
+			...(this.options.supportsPromptPasted ? { promptPasted: true } : {}),
 			...(this.options.supportsPromptOptions && this.options.promptPermissionModes !== undefined
 				? { promptPermissionModes: [...this.options.promptPermissionModes] }
 				: {}),
@@ -678,6 +683,7 @@ export class ACPServer {
 			throw new AcpError(ACP_ERROR_CODES.INVALID_PARAMS, 'Invalid prompt text.')
 		const attachments = this.readPromptAttachments(params.attachments)
 		const options = this.readPromptOptions(params.options)
+		const pasted = this.readPromptPasted(params.pasted, params.prompt)
 		if (attachments.length && this.options.supportsPromptAttachments !== true)
 			throw new AcpError(
 				ACP_ERROR_CODES.INVALID_REQUEST,
@@ -705,6 +711,7 @@ export class ACPServer {
 				prompt: params.prompt,
 				...(attachments.length ? { attachments } : {}),
 				...(options ? { options } : {}),
+				...(pasted ? { pasted } : {}),
 				cwd: session.cwd,
 				signal: controller.signal,
 				onEvent: (event) => {
@@ -867,6 +874,34 @@ export class ACPServer {
 				await this.request(ACP_CLIENT_REQUESTS.FS_WRITE, { path, content })
 			},
 		}
+	}
+
+	private readPromptPasted(value: unknown, prompt: string): AcpSessionPromptParams['pasted'] {
+		if (value === undefined) return undefined
+		if (this.options.supportsPromptPasted !== true)
+			throw new AcpError(
+				ACP_ERROR_CODES.INVALID_REQUEST,
+				'This agent does not accept pasted ranges.',
+			)
+		if (!Array.isArray(value) || value.length > 64)
+			throw new AcpError(ACP_ERROR_CODES.INVALID_PARAMS, 'Invalid pasted ranges.')
+		let floor = 0
+		const ranges = value.map((item) => {
+			const range = item as { start?: unknown; end?: unknown } | null
+			if (
+				!range ||
+				typeof range !== 'object' ||
+				!Number.isInteger(range.start) ||
+				!Number.isInteger(range.end) ||
+				(range.start as number) < floor ||
+				(range.end as number) <= (range.start as number) ||
+				(range.end as number) > prompt.length
+			)
+				throw new AcpError(ACP_ERROR_CODES.INVALID_PARAMS, 'Invalid pasted ranges.')
+			floor = range.end as number
+			return { start: range.start as number, end: range.end as number }
+		})
+		return ranges.length ? ranges : undefined
 	}
 
 	private readPromptOptions(value: unknown): AcpSessionPromptParams['options'] {

@@ -1870,7 +1870,7 @@ export async function createSubagentRuntime(
 			opts.backgroundByDefault === true
 				? 'For a request to run multiple independent tasks in parallel, issue all Agent calls together in one response. A blocking Agent call (run_in_background: false) followed by another call runs them sequentially.'
 				: 'For a request to run multiple independent tasks in parallel, issue all Agent calls together in one response, or set run_in_background: true on each launch before waiting. A single blocking Agent call followed by another call runs them sequentially.',
-			'Do small work or work with a known target yourself. Pick `subagent_type: "explore"` to locate a small answer — where is X defined, which files reference Y — it has reading and searching tools only and never asks for permission.',
+			'Do small work or work with a known target yourself. Pick `subagent_type: "explore"` to locate a small answer — where is X defined, which files reference Y — it has reading and searching tools only and never asks the user for permission; it is not for reviewing or auditing whole files.',
 			'Pick `subagent_type: "plan"` when you need a design before changing code — it reads the code the same way and returns a step plan with the files to change and the risks, and cannot edit anything.',
 			'Use the default "general-purpose" when the task must change files or run commands.',
 			'Pick `subagent_type: "fork"` for a side task whose intermediate output you will not need again, such as an open-ended survey or a long search. A fork starts from this conversation, runs on your model with your instructions and the sub-agent tools, and returns one report like any other child, so its `prompt` is only the directive: what to do and where its scope ends. Do not re-explain the background, do not pass model, provider, effort or role, and never write or guess what a fork will find before its report arrives. A fork cannot start forks of its own.',
@@ -1878,7 +1878,7 @@ export async function createSubagentRuntime(
 			'Define a specialist inline with `role` — a system prompt describing who the sub-agent is and how to behave (e.g.',
 			'"You are a security auditor; flag vulnerabilities and rate severity"); with `subagent_type: "explore"` or `"plan"` the role keeps the read-only roster.',
 			'Omit `role` for the plain sub-agent.',
-			'The sub-agent runs in its own context with its own tools and cannot see this conversation — put everything it needs in `prompt`.',
+			'The sub-agent runs in its own context with its own tools and cannot see this conversation — put everything it needs in `prompt`. Agents that write in parallel need a separate worktree each (`workspace: "worktree"`, in a git checkout) or files that do not overlap, or the later write replaces the earlier. Read any record line shown beside a report before relying on it.',
 			"Call this multiple times in one response to run specialists in parallel. Tasks beyond the project's live-agent capacity wait in a queue and start as slots become available. Queued tasks have not started execution and start by themselves, so launch each once.",
 			'When coordinating several specialists, give them the same `workflow` label and an explicit `phase` plus `phase_order` so the operator can follow the work in the agent cockpit. For work with several phases or many agents, use the `workflow` tool instead when it is in your tool list, and keep these labels for a small fan-out.',
 			'These fields are display annotations only; they do not create dependencies, barriers, or serial execution.',

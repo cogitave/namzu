@@ -22,6 +22,7 @@ import {
 	generateTurnId,
 	genericLabel,
 	isEntityId,
+	newPasteNonce,
 	openSessionIndex,
 } from '@namzu/sdk'
 import { limitsSources } from '../integrations/limits/sources.js'
@@ -48,7 +49,9 @@ import {
 	refreshTrustedProjectContext,
 	resolveTrustedProjectContext,
 } from '../config/trusted-project-context.js'
+import { messageTimeNote, previousSentAt } from '../context/message-time.js'
 import { DESKTOP_CONTRACT } from '../desktop-contract.js'
+import { accountForProvider } from '../integrations/accounts/binding.js'
 import { type PluginInventoryView, readPluginInventory } from '../integrations/plugins/inventory.js'
 import { canSelectModel } from '../integrations/providers/access.js'
 import {
@@ -100,6 +103,7 @@ import {
 	warnLegacyMcpPermissionNames,
 } from '../permissions/rules.js'
 import type { PermissionSettings } from '../permissions/settings.js'
+import { resolveProgressNudge } from '../reminders/progress-nudge.js'
 import { type TerminalHost, createTerminalHost } from '../terminal/host.js'
 import {
 	type AgentSession,
@@ -141,6 +145,15 @@ function readPackageVersion(): string {
 	} catch {
 		return '0.0.0'
 	}
+}
+
+/** The account the saved chain pins for a provider, as a member field: a model pick keeps it. */
+function accountPin(
+	preferences: Preferences | null | undefined,
+	provider: string,
+): { readonly account: string } | Record<string, never> {
+	const account = preferences ? accountForProvider(preferences, provider) : undefined
+	return account !== undefined ? { account } : {}
 }
 
 function defaultPrefs(detected: readonly DetectedProvider[]): Preferences | null {
@@ -1040,6 +1053,15 @@ export function createCliAcpRuntime(
 					// Every key the configuration sets for a session, through the one function
 					// `exec` reads them with: this host cannot miss one the terminal honours.
 					...sessionOptionsFromConfig(projectCtx.config, { cwd }),
+					// The desktop application is watched live; a Pal and any other client are not.
+					...(() => {
+						const nudge = palEnvironment
+							? undefined
+							: resolveProgressNudge(projectCtx.config.progressNudge, {
+									watched: runtimeOptions.computerUse === true,
+								})
+						return nudge ? { progressNudge: nudge } : {}
+					})(),
 					// Routed turns only where Auto is what runs: never for a Pal, and not after the
 					// person hand-picked a model for this conversation.
 					...(projectCtx.config.routing &&
@@ -1149,6 +1171,7 @@ export function createCliAcpRuntime(
 			prompt,
 			attachments,
 			options,
+			pasted,
 			cwd,
 			onEvent,
 			signal,
@@ -1245,7 +1268,22 @@ export function createCliAcpRuntime(
 							}
 					}
 				}
-				const messages = [...(history as Message[]), createUserMessage(prompt, attachments)]
+				const typed = createUserMessage(prompt, attachments)
+				// The host checked the ranges against `prompt`; each gets its own nonce, kept
+				// with the message so every request and a resume frame it the same way.
+				const pastedMessage: Message = pasted?.length
+					? {
+							...typed,
+							pasted: pasted.map((range) => ({ ...range, nonce: newPasteNonce(prompt) })),
+						}
+					: typed
+				// When the person sent it, and how long after their last message.
+				const timeNote = messageTimeNote({
+					now: typed.timestamp ?? Date.now(),
+					previous: previousSentAt(history as Message[]),
+				})
+				const userMessage: Message = timeNote ? { ...pastedMessage, timeNote } : pastedMessage
+				const messages = [...(history as Message[]), userMessage]
 				const settings = validateComposerSendSettings(
 					options,
 					record.session,
@@ -1799,7 +1837,11 @@ export function createCliAcpRuntime(
 				{
 					...(preferences ?? { version: 3, subagents: { active: [] } }),
 					providers: [
-						{ id: detected.entry.id, model },
+						{
+							id: detected.entry.id,
+							model,
+							...accountPin(preferences, detected.entry.id),
+						},
 						...(preferences?.providers.slice(1).filter((item) => item.id !== provider) ?? []),
 					],
 				},
@@ -2051,7 +2093,11 @@ export function createCliAcpRuntime(
 				selections.set(sessionId, {
 					...(preferences ?? { version: 3, subagents: { active: [] } }),
 					providers: [
-						{ id: detected.entry.id, ...(model ? { model } : {}) },
+						{
+							id: detected.entry.id,
+							...(model ? { model } : {}),
+							...accountPin(preferences, detected.entry.id),
+						},
 						...(preferences?.providers.slice(1).filter((item) => item.id !== detected.entry.id) ??
 							[]),
 					],
@@ -2261,6 +2307,7 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 	const server: ACPServer = new ACPServer({
 		supportsPromptAttachments: true,
 		supportsPromptOptions: true,
+		supportsPromptPasted: true,
 		// Only the modes the configuration leaves open, so a client does not offer one
 		// the engine then refuses. `assertModeAllowed` below still holds the line.
 		// The list follows the folder this host was started in: Desktop starts one host per

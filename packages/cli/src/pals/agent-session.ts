@@ -70,6 +70,7 @@ import {
 	constructProvider,
 	makeHoldingResumeHandler,
 	makeResumeHandler,
+	resolveToolLoading,
 	reviewExemptionFor,
 	toAgentEvent,
 } from '../tui/agent.js'
@@ -302,10 +303,11 @@ export async function createPalAgentSession(
 	let selectedTaskStore: DiskTaskStore | undefined
 	let taskPresentationTurn: SessionEvent['turnId'] | undefined
 	let taskPresentationTools: readonly ToolDefinition[] = []
+	const toolLoadingDeferred = resolveToolLoading(options.toolLoading) === 'deferred'
 	const taskToolOverrides = {
-		task_create: options.toolLoading === 'deferred' ? 'deferred' : 'active',
-		task_update: options.toolLoading === 'deferred' ? 'deferred' : 'active',
-		task_list: options.toolLoading === 'deferred' ? 'deferred' : 'active',
+		task_create: toolLoadingDeferred ? 'deferred' : 'active',
+		task_update: toolLoadingDeferred ? 'deferred' : 'active',
+		task_list: toolLoadingDeferred ? 'deferred' : 'active',
 	} as const
 	const presenter = createToolPresenter({
 		get: (name) => {
@@ -413,6 +415,9 @@ export async function createPalAgentSession(
 									throw new Error('This Pal computer does not support browser operations.')
 								return browser
 							}),
+							// The Pal's browser belongs to its own computer: it neither shares
+							// this machine's loopback nor its folders.
+							{ localPages: false },
 						)
 					: []),
 			]

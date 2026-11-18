@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Where files go
-description: The standing guidance that tells a session where to put what it creates, the checklist for anything that keeps running, and the quiet line shown when a session starts in the home folder or the filesystem root.
+description: The standing guidance that sends everything that is not part of the request to the session's scratch folder, tells a session to ask before touching the home folder or root top level, and the quiet line shown when a session starts there.
 resource: packages/cli/src/context/file-placement.ts
 tags: [cli, system-prompt, files, startup]
 status: stable
@@ -11,35 +11,65 @@ generated: { by: human:bahadirarda, at: 2026-11-10T00:00:00Z }
 # Where files go
 
 A session that is asked to set something up has to decide where its files
-live. Without a rule it picks a folder of its own and may leave it in the home
-folder, unmentioned. Every session now carries a short section, **Where files
-go**, in the cached part of its system prompt, next to the working doctrine.
+live, and a session that is asked to run a build or merge some data leaves
+logs, helper scripts, saved output and staging folders behind. Without a rule
+it picks a folder of its own, often the working directory or the home folder,
+unmentioned. Every session now carries a short section, **Where files go**,
+in the cached part of its system prompt, next to the working doctrine.
 
-The section is built once at start from the platform alone, so it renders only
-that platform's lines and never changes mid-session; the prompt prefix stays
-byte-stable. It says:
+The section is two paragraphs, the same on every platform and every turn, so
+the prompt prefix stays byte-stable. It says:
 
-- Temporary work goes in the session scratchpad or the OS temp folder.
-- App data, config, caches and logs follow the platform: `~/.config`,
-  `~/.local/share`, `~/.local/state`, `~/.cache` on Linux;
-  `~/Library/Application Support`, `Caches`, `Logs` on macOS; `%APPDATA%` and
-  `%LOCALAPPDATA%` on Windows. A system-wide service uses `/opt/<app>`,
-  `/etc/<app>`, `/var/lib/<app>`, `/var/log/<app>` under systemd, a
-  LaunchDaemon on macOS, or a Windows service.
-- A container stack keeps its compose and config files in a dedicated, named
-  project folder the person agrees to, and its data in named volumes.
-- A repository the person will work on goes in their projects folder; ask when
-  it is not known.
+- What is not part of the request goes in the session's scratch folder (its
+  path is one of the environment facts), never in the working directory or the
+  home folder: logs, saved output, helper and reproduction scripts,
+  intermediate data, backup copies and staging folders.
+- The shared temp folder is for when the person asks.
+- A file the person asked for goes where they said, or where the project keeps
+  such files.
+- A backup copy goes in the scratch folder, not beside the file. (An
+  interactive session also records each file before a tool changes it; see
+  [File checkpoints](file-checkpoints.md). Exec and ephemeral sessions have no
+  such rewind, which is why the rule does not lean on it.)
+- The person is given the full path of any file or folder the model names to
+  them.
 - Never create or delete a top-level entry in the home folder or the
-  filesystem root without asking, even when tools run without approval.
-- Say the full path of every folder created; `rm -rf` only a path this session
-  created and checked.
-- Anything long-running (a service, daemon, container stack or agent) is
-  checked against one line each for identity, configuration, data, logs,
-  supervisor, secrets, state, monitoring and host, and any deviation (no
-  root, a personal machine) is named with its reason.
-- A finished setup ends with a receipt: what was installed, where, how it
-  starts, how to remove it.
+  filesystem root without asking.
+
+The working rules say the same about a reproduction script: it stays in the
+scratch folder unless it becomes a test in the project.
+
+## The scratch folder is always there
+
+Every session that runs commands on this machine has a scratch folder from
+the moment its first turn starts, whatever the kind of session: the terminal,
+`exec` (including `--json` and `--no-session-persistence`), the ACP host that
+Desktop uses, a Pal and a scheduled run. It is
+`<temp base>/namzu-<user>/<project>/<session>/scratchpad`, made with mode 0700
+and refused when a link or another user's folder is in the way (see
+[Session storage](session-storage.md#where-scratch-files-go)). A sub-agent
+uses its parent's folder. Its path is in the environment facts of every one of
+those sessions, and `write` and `edit` into it are not asked about.
+
+A session that keeps nothing else on disk (`exec --no-session-persistence`,
+`exec --json` without a store) still gets the folder, under the same temporary
+root and with the same layout. It is a temporary folder: the operating system
+clears it with the rest of its temporary files, and Namzu does not remove it
+when the process ends, so a file there can still be read after the run. A
+session that runs its commands in a sandbox does not have it (the folder is
+not mounted there) and its prompt does not name one.
+
+Background command output is kept there too: each job's whole output is
+written to `<scratch>/jobs/<job id>.log` and the path is given to the model
+when the job starts and in every `job` and `wait_for_job` result (see
+[Background jobs](background-jobs.md#where-a-jobs-output-is-kept)).
+
+It used to carry per-platform folder lists, a container and repository
+paragraph and a nine-line checklist for anything that keeps running (service
+account, configuration, data, logs, supervisor, secrets, retention,
+monitoring, host) with a receipt at the end. Most turns never install a
+service, so that advice is no longer sent; a model asked to set one up works
+from its own knowledge of the platform.
 
 The guidance is backed by a check in code, below. The schedule tool also
 refuses the home folder as a task directory.

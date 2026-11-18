@@ -3,6 +3,7 @@ import { frameOperatorHookContext } from '../plugin/hook-context.js'
 import { collectChatCompletion } from '../provider/collect-chat-completion.js'
 import { resolveStreamIdleTimeoutMs, withStreamIdleTimeout } from '../provider/idle-timeout.js'
 import { chatStreamWithSamplingRepair } from '../runtime/query/iteration/side-call.js'
+import { framePastedContent } from '../runtime/query/pasted-frames.js'
 import { isOperatorUserMessage } from '../runtime/query/steering.js'
 import {
 	generateRenderNonce,
@@ -140,7 +141,13 @@ export function renderTranscript(
 		let entry: string
 		if (message.role === 'user') {
 			const label = isOperatorUserMessage(message) ? 'person' : 'runtime note'
-			entry = `[${label}]: ${blockText(message, options.toolResultChars)}`
+			// A paste goes to the summary model inside its frame, as it goes to the
+			// main model, so directions inside it are not summarised as the ask.
+			const body =
+				typeof message.content === 'string' && message.pasted !== undefined
+					? quoteLabelLikeLines(framePastedContent(message))
+					: blockText(message, options.toolResultChars)
+			entry = `[${label}]: ${body}`
 			for (const attachment of message.attachments ?? []) {
 				entry += `\n${quoteLabelLikeLines([...attachmentExcerpt(attachment)].join(''))}`
 			}

@@ -28,10 +28,31 @@ describe('the pointer filter', () => {
 	})
 
 	it('swallows the other buttons without reporting them', () => {
-		const out = createMouseFilter().feed(
-			'\u001b[<2;3;4M\u001b[<1;3;4M\u001b[<35;3;4M\u001b[<2;3;4m',
-		)
+		const out = createMouseFilter().feed('\u001b[<2;3;4M\u001b[<1;3;4M\u001b[<2;3;4m')
 		expect(out).toEqual({ text: '', wheel: [], pointer: [] })
+	})
+
+	it('reports motion with no button as a move, with the modifier keys that were held', () => {
+		const out = createMouseFilter().feed(
+			'\u001b[<35;7;8M\u001b[<16;3;4M\u001b[<8;3;4M\u001b[<4;3;4m',
+		)
+		expect(out.pointer).toEqual([
+			{ kind: 'move', x: 7, y: 8 },
+			{ kind: 'press', x: 3, y: 4, ctrl: true },
+			{ kind: 'press', x: 3, y: 4, alt: true },
+			{ kind: 'release', x: 3, y: 4, shift: true },
+		])
+	})
+
+	it('keeps only the last of a run of moves: a sweep is one place', () => {
+		const out = createMouseFilter().feed(
+			'\u001b[<35;1;1M\u001b[<35;2;1M\u001b[<0;2;1M\u001b[<35;3;1M\u001b[<35;4;1M',
+		)
+		expect(out.pointer).toEqual([
+			{ kind: 'move', x: 2, y: 1 },
+			{ kind: 'press', x: 2, y: 1 },
+			{ kind: 'move', x: 4, y: 1 },
+		])
 	})
 
 	it('leaves everything else byte for byte, a lone Escape included', () => {
@@ -68,6 +89,30 @@ describe('installing the pointer', () => {
 		expect(written.join('')).toContain('\u001b[?1000l')
 		stop()
 		expect(written.filter((w) => w.includes('?1000l'))).toHaveLength(1)
+	})
+
+	it('asks for motion with no button only when hover is wanted', () => {
+		const a = streams(true)
+		const stopA = installMouseWheel(
+			a.stdin,
+			a.stdout,
+			() => undefined,
+			() => undefined,
+		)
+		expect(a.written.join('')).not.toContain('?1003h')
+		stopA()
+		const b = streams(true)
+		const stopB = installMouseWheel(
+			b.stdin,
+			b.stdout,
+			() => undefined,
+			() => undefined,
+			{
+				hover: true,
+			},
+		)
+		expect(b.written.join('')).toContain('?1003h')
+		stopB()
 	})
 
 	it('asks for drags and hands the left button over when a pointer listener is given', () => {

@@ -33,6 +33,12 @@ describe('the Agent tool description', () => {
 			const text = runtime.agentTool.description.toLowerCase()
 			expect(text).toContain('do small work or work with a known target yourself')
 			expect(text).toContain('to locate a small answer')
+			// The mechanics the prompt no longer carries live here: explore, forks, parallel writers.
+			expect(text).toContain('never asks the user for permission')
+			expect(text).toContain('not for reviewing or auditing whole files')
+			expect(text).toContain('a fork cannot start forks')
+			expect(text).toContain('never write or guess what a fork will find')
+			expect(text).toContain('separate worktree each')
 			// The rules the doctrine owns are not stated a second time here.
 			expect(text).not.toContain('never a conclusion')
 			expect(text).not.toContain('treat the report as a claim')

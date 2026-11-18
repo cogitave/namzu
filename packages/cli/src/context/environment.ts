@@ -43,7 +43,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { type as osType, release } from 'node:os'
 import { resolve } from 'node:path'
 import { promisify } from 'node:util'
-import { type CommandShell, hostCommandShell } from '@namzu/sdk'
+import { type CommandShell, hostCommandShell, isWindowsBash } from '@namzu/sdk'
 
 import type { PermissionMode } from '../permissions/mode.js'
 
@@ -376,6 +376,11 @@ export function composeEnvironmentPrompt(
 		lines.push(
 			`Host execution shell: ${shell.path ? `\`${shell.path}\`` : 'the platform command shell'} (${shell.dialect} dialect).`,
 		)
+		if (isWindowsBash(shell) && !facts.boundary?.sandbox) {
+			lines.push(
+				'This is Git Bash on Windows. Start PowerShell as a program and keep bash from reading its script: single quotes, or a quoted heredoc into `powershell -NoProfile -Command -`, never double quotes, where bash expands `$name` first. The bash tool description has the details. Write text files as UTF-8 without a BOM (`[System.IO.File]::WriteAllText($path, $text)`).',
+			)
+		}
 		if (facts.boundary?.sandbox) {
 			lines.push(
 				'Inside the sandbox, commands use bash if the guest has it, otherwise /bin/sh; the host shell above applies only to host execution.',

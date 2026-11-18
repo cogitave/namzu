@@ -110,6 +110,7 @@ const agentWithHandoffTool = () => ({
 	...agent(),
 	createAgentSession: ((prefs, detected, options) =>
 		createAgentSession(prefs, detected, {
+			toolLoading: 'eager',
 			...options,
 			extraTools: [
 				defineTool({
