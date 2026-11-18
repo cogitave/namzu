@@ -355,7 +355,7 @@ describe('agent settings', () => {
 			expect(await set?.refuseBeforeReview?.(same, toolContext)).toEqual({
 				error: 'Notification sound is already None, so nothing was changed.',
 			})
-			expect(set?.presentCall?.(same)).toBeUndefined()
+			expect(set?.presentCall?.(same)).toEqual({ kind: 'generic', label: 'Change a setting' })
 		})
 
 		it('stops offering itself once the switch is turned off after the tools were built', async () => {
@@ -397,7 +397,14 @@ describe('agent settings', () => {
 				kind: 'generic',
 				label: 'Change Archive inactive conversations: Never to After 30 days',
 			})
-			expect(set?.presentCall?.({ setting: 'hooks', value: true })).toBeUndefined()
+			expect(set?.presentCall?.({ setting: 'hooks', value: true })).toEqual({
+				kind: 'generic',
+				label: 'Change a setting',
+			})
+			expect(createAgentSettingsTools(ctx())[0]?.presentCall?.({})).toEqual({
+				kind: 'generic',
+				label: 'Read settings',
+			})
 		})
 	})
 })

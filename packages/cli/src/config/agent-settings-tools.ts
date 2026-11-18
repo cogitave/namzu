@@ -57,6 +57,9 @@ export function createAgentSettingsTools(ctx: AgentSettingsContext): ToolDefinit
 		readOnly: true,
 		destructive: false,
 		concurrencySafe: true,
+		presentCall() {
+			return { kind: 'generic', label: 'Read settings' }
+		},
 		async execute() {
 			if (switchedOff(ctx)) return { success: false, output: '', error: SWITCHED_OFF }
 			try {
@@ -110,7 +113,8 @@ export function createAgentSettingsTools(ctx: AgentSettingsContext): ToolDefinit
 		},
 		presentCall(input) {
 			const said = describeAgentChange(ctx, input)
-			if (!said) return undefined
+			// Refused or unchanged calls still read as plain words, never as the raw input.
+			if (!said) return { kind: 'generic', label: 'Change a setting' }
 			return { kind: 'generic', label: `Change ${said.setting}: ${said.from} to ${said.to}` }
 		},
 		async execute(input) {
