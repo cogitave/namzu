@@ -157,6 +157,11 @@
 .context-panel-row[data-kind="deferred"][data-group-start] {
 	margin-top: 30px;
 }
+/* After the reserve rows the deferred ones follow with a short gap, as in the reference. */
+.context-panel-row:is([data-kind="reserve"], [data-kind="free"])
+	+ .context-panel-row[data-kind="deferred"][data-group-start] {
+	margin-top: 6px;
+}
 .context-panel-row-open {
 	cursor: pointer;
 }

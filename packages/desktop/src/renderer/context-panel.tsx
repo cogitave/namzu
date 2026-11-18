@@ -186,6 +186,14 @@ export function ContextPanelView({ model }: { model: PanelModel }) {
 					{model.used.map((row) => (
 						<Row key={row.id} row={row} />
 					))}
+					{model.reserve.map((row, index) => (
+						<Row
+							key={row.id}
+							row={row}
+							groupStart={index === 0}
+							groupHint={index === 0 ? model.groupHints.reserve : undefined}
+						/>
+					))}
 					{model.deferred.map((row, index) => (
 						<div
 							className="context-panel-row"
@@ -205,14 +213,6 @@ export function ContextPanelView({ model }: { model: PanelModel }) {
 								<span aria-hidden="true">-</span>
 							</span>
 						</div>
-					))}
-					{model.reserve.map((row, index) => (
-						<Row
-							key={row.id}
-							row={row}
-							groupStart={index === 0}
-							groupHint={index === 0 ? model.groupHints.reserve : undefined}
-						/>
 					))}
 					{model.servers ? <Servers servers={model.servers} /> : null}
 				</>

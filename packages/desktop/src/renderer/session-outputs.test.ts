@@ -3,6 +3,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
 import { outputCardKind } from '../shared/output-files.js'
+import { ContextInline } from './context-panel.js'
 import { DocumentPage } from './document-page.js'
 import type { OutputFile } from './outputs-model.js'
 import { SessionPanel } from './session-panel.js'
@@ -102,4 +103,32 @@ it('switches a Markdown file between rendered and source in its header', () => {
 	expect(panelSource).toContain('file-view-toggle')
 	expect(panelSource).toContain('Rendered')
 	expect(panelSource).toContain('Source')
+})
+
+it('draws the reserve rows before the deferred ones, as the reference does', () => {
+	const out = renderToStaticMarkup(
+		createElement(ContextInline, {
+			usage: undefined,
+			read: {
+				loading: false,
+				report: {
+					detail: 'summary',
+					measuredBy: 'provider',
+					windowTokens: 1_000_000,
+					totalTokens: 50_000,
+					percentage: 5,
+					autoCompact: { enabled: true, bufferTokens: 33_000, thresholdTokens: 967_000 },
+					categories: [
+						{ id: 'messages', name: 'Messages', tokens: 50_000, kind: 'used' },
+						{ id: 'deferred-tools', name: 'Tools', tokens: 25_300, kind: 'deferred' },
+						{ id: 'buffer', name: 'Buffer', tokens: 33_000, kind: 'buffer' },
+						{ id: 'free', name: 'Free space', tokens: 889_300, kind: 'free' },
+					],
+					approximate: false,
+				},
+			},
+		}),
+	)
+	expect(out.indexOf('Free space')).toBeGreaterThan(0)
+	expect(out.indexOf('Free space')).toBeLessThan(out.indexOf('(deferred)'))
 })
