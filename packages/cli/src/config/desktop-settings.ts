@@ -10,11 +10,19 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { parse as yamlParse } from 'yaml'
 
+import { canonicalBrowserSiteKey, isBrowserSiteLevel } from '../permissions/browser-sites.js'
+import { permissionCheckProblem } from '../permissions/checks.js'
+import { foldRuleLists } from '../permissions/rule-strings.js'
+import { compilePermissions } from '../permissions/rules.js'
 import { parsePrefix } from '../workspaces/prefix.js'
 import { BROWSER_PROFILE_NAME, ConfigValueError, readConfigKey } from './load.js'
 import {
+	PERMISSION_MODE_KEYS,
 	levelsValue,
 	listControlWords,
+	permissionRuleName,
+	permissionRuleRows,
+	permissionRulesTable,
 	sameSet,
 	screenNames,
 	screenTools,
@@ -145,6 +153,11 @@ export function readSettings(opts: UserConfigWriteOptions = {}): SettingsSnapsho
 		// The key from before the rename is read by the loader while the new one is absent.
 		if (value === undefined && entry.path === WORKSPACES_PREFIX)
 			value = lookup(doc, LEGACY_SPACES_PREFIX.split('.'))
+		// The rule editor's value is the rules alone, the mode keys beside them being other rows.
+		if (entry.control.kind === 'permission-rules') {
+			const rules = ruleTableOf(value)
+			value = Object.keys(rules).length === 0 ? undefined : rules
+		}
 		const env = environmentFor(entry.path, opts.env ?? process.env)
 		if (value === undefined) return { path: entry.path, set: false, ...(env ? { env } : {}) }
 		if (entry.control.kind === 'file-only') return { path: entry.path, set: true }
@@ -155,6 +168,20 @@ export function readSettings(opts: UserConfigWriteOptions = {}): SettingsSnapsho
 		settings,
 		descriptors: SETTING_DESCRIPTORS.map(withDefaultText),
 	}
+}
+
+/**
+ * The rules of a saved `permissions` table as the per-tool table the engine compiles: the mode keys
+ * left out, and the `allow`, `ask` and `deny` lists of `Tool(specifier)` strings folded in, as the
+ * loader folds them. A list the loader would refuse is left out here, so reading never throws.
+ */
+export function ruleTableOf(raw: unknown): Record<string, unknown> {
+	if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {}
+	const folded = foldRuleLists(raw as Record<string, unknown>)
+	const out: Record<string, unknown> = {}
+	for (const [key, value] of Object.entries(folded.table))
+		if (!PERMISSION_MODE_KEYS.includes(key)) out[key] = value
+	return out
 }
 
 function wordsList(raw: unknown, what: string): string[] {
@@ -301,6 +328,54 @@ function coerce(entry: SettingDescriptor, raw: unknown): unknown {
 			// A table with nothing in it is the same as no table: the built-in rules.
 			return Object.keys(table).length === 0 ? undefined : table
 		}
+		case 'permission-rules': {
+			const table = plainTable(jsonValue(raw), 'permissions must be a mapping of tool names.')
+			for (const key of Object.keys(table))
+				if (PERMISSION_MODE_KEYS.includes(key))
+					throw new Error(
+						`${key} is a permission setting with a row of its own; this one holds only the tool rules.`,
+					)
+			const folded = foldRuleLists(table)
+			if (folded.problem)
+				throw new Error(`${folded.problem.path.join('.')}: ${folded.problem.message}`)
+			// The engine's own compiler names a rule it cannot read, as it does at start-up.
+			const problem = compilePermissions(folded.table as never).diagnostics[0]
+			if (problem)
+				throw new Error(
+					`${permissionRuleName({ tool: problem.tool, pattern: problem.pattern ?? '' })}: ${problem.message}`,
+				)
+			const rows = permissionRuleRows(folded.table)
+			const saved = permissionRulesTable(rows)
+			if ('error' in saved) throw new Error(saved.error)
+			return saved.value
+		}
+		case 'permission-checks': {
+			const list = jsonValue(raw)
+			if (!Array.isArray(list)) throw new Error('permissionChecks must be a list.')
+			const checks = list.map((check, index) => {
+				const problem = permissionCheckProblem(check, index)
+				if (problem) throw new Error(`${problem.tool}: ${problem.message}`)
+				return { tool: check.tool.trim(), input: check.input, expect: check.expect }
+			})
+			// A list with no check in it is the same as no list.
+			return checks.length === 0 ? undefined : checks
+		}
+		case 'sites': {
+			const table = plainTable(jsonValue(raw), 'browser.sites must be a mapping of site to level.')
+			const sites: Record<string, string> = {}
+			for (const [site, level] of Object.entries(table)) {
+				// The loader's own words, with the site named.
+				if (!isBrowserSiteLevel(level)) throw new Error(`${site}: must be deny, read, ask or act`)
+				const verdict = canonicalBrowserSiteKey(site)
+				if (!verdict.ok) throw new Error(`${site}: ${verdict.reason}`)
+				if (verdict.key in sites) throw new Error(`${verdict.key} is listed twice.`)
+				sites[verdict.key] = level
+			}
+			// The line for every other site is written last, as the loader reads it last.
+			const { '*': other, ...named } = sites
+			const ordered = other === undefined ? named : { ...named, '*': other }
+			return Object.keys(ordered).length === 0 ? undefined : ordered
+		}
 		case 'json': {
 			if (typeof raw !== 'string') throw new Error('Enter JSON.')
 			if (raw.length > 100_000) throw new Error('That is too long.')
@@ -312,6 +387,17 @@ function coerce(entry: SettingDescriptor, raw: unknown): unknown {
 		}
 		case 'file-only':
 			throw new Error('Edit this one in the config file; Desktop does not show or change it.')
+	}
+}
+
+/** A value sent as JSON text (an older screen does) is read as the value it holds. */
+function jsonValue(raw: unknown): unknown {
+	if (typeof raw !== 'string') return raw
+	if (raw.length > 100_000) throw new Error('That is too long.')
+	try {
+		return JSON.parse(raw) as unknown
+	} catch (error) {
+		throw new Error(`That is not valid JSON: ${(error as Error).message}`)
 	}
 }
 
@@ -491,6 +577,22 @@ function prepare(
 	let path = entry.path.split('.')
 	const file = userConfigPath(opts)
 	const doc = readUserDocument(opts)
+	if (entry.control.kind === 'permission-rules') {
+		// Only the rules change. The mode keys beside them are other settings and stay as written.
+		const rules =
+			change.value === undefined || change.value === null
+				? {}
+				: (coerce(entry, change.value) as Record<string, unknown>)
+		const kept: Record<string, unknown> = {}
+		const held = doc.permissions
+		if (typeof held === 'object' && held !== null && !Array.isArray(held))
+			for (const key of PERMISSION_MODE_KEYS)
+				if (key in held) kept[key] = (held as Record<string, unknown>)[key]
+		const merged = { ...kept, ...rules }
+		const whole = Object.keys(merged).length === 0 ? undefined : merged
+		checkWhole(doc, path, whole, file)
+		return { path, value: whole }
+	}
 	if (change.value === undefined || change.value === null) {
 		if (entry.control.kind === 'file-only') throw new Error('Edit this one in the config file.')
 		if (entry.path === SESSION_EXPORT_DESTINATION) path = ['telemetry', 'sessionExport']

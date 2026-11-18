@@ -130,7 +130,7 @@ export function needsConfirmation(
 	current?: unknown,
 ): boolean {
 	if (!entry.confirm) return false
-	if (entry.confirmWhen === 'loosens') return autoModeAsks(current, value)
+	if (entry.confirmWhen === 'loosens') return loosenAsks(entry.control, current, value)
 	if (value === undefined) return clearReachesRiskyDefault(entry)
 	if (entry.confirmWhen === 'widens') return widensList(current, value)
 	if (entry.confirmWhen === 'drops-default')
@@ -379,6 +379,12 @@ export function listControlWords(control: SettingControl, value: unknown): strin
 		case 'routing':
 		case 'auto-mode':
 			return modelsControlWords(control, value)
+		case 'permission-rules':
+			return permissionRulesWords(value)
+		case 'permission-checks':
+			return permissionChecksWords(value)
+		case 'sites':
+			return sitesWords(control, value)
 		default:
 			return undefined
 	}
@@ -698,4 +704,405 @@ function modelsControlWords(
 /** What a row says when an environment variable replaces what is saved. */
 export function environmentNote(env: { variable: string; value: string }): string {
 	return `${env.variable} is set to ${env.value}, and Namzu uses that instead of what is saved here.`
+}
+
+// ---------------------------------------------------------------------------
+// Permissions and browser sites: rows, the tables they save, and what lets more run
+// ---------------------------------------------------------------------------
+
+/** The keys of `permissions` that are settings with rows of their own, never a tool's rule. */
+export const PERMISSION_MODE_KEYS: readonly string[] = [
+	'defaultMode',
+	'disableBypassMode',
+	'disableAutoMode',
+	'outsideRoot',
+	'autoMode',
+]
+
+const EFFECT_WORDS = ['allow', 'ask', 'deny'] as const
+const isEffect = (value: unknown): value is (typeof EFFECT_WORDS)[number] =>
+	typeof value === 'string' && (EFFECT_WORDS as readonly string[]).includes(value)
+
+/** One rule: a tool, a pattern of its input (empty for every call) and what happens. */
+export interface PermissionRuleRow {
+	readonly tool: string
+	readonly pattern: string
+	readonly effect: string
+}
+
+/** The rule rows of a rule table, in the order written. An entry that is not a rule is left out. */
+export function permissionRuleRows(table: unknown): PermissionRuleRow[] {
+	const held = plain(table)
+	if (!held) return []
+	const rows: PermissionRuleRow[] = []
+	for (const [tool, entry] of Object.entries(held)) {
+		if (PERMISSION_MODE_KEYS.includes(tool)) continue
+		if (isEffect(entry)) rows.push({ tool, pattern: '', effect: entry })
+		else {
+			const patterns = plain(entry)
+			if (!patterns) continue
+			for (const [pattern, effect] of Object.entries(patterns))
+				if (isEffect(effect)) rows.push({ tool, pattern, effect })
+		}
+	}
+	return rows
+}
+
+/** A rule as a sentence names it. */
+export function permissionRuleName(row: { tool: string; pattern: string }): string {
+	return row.pattern === '' ? `${row.tool} (every call)` : `${row.tool} "${row.pattern}"`
+}
+
+/**
+ * The rule table the rows save: a tool with one row and no pattern is `tool: effect`, a tool with
+ * patterns is `tool: { pattern: effect }`. A row with no pattern beside rows with one is written
+ * as the pattern `*`, which means the same. The table is refused, in plain words, when a tool is
+ * missing or is one of the mode keys, when `sources` has no source, or when a rule is listed twice.
+ */
+export function permissionRulesTable(
+	rows: readonly PermissionRuleRow[],
+): { value: Record<string, unknown> } | { error: string } {
+	const byTool = new Map<string, PermissionRuleRow[]>()
+	for (const row of rows) {
+		const tool = row.tool.trim()
+		if (tool === '') return { error: 'Enter a tool for each rule, such as bash.' }
+		if (/\s/.test(tool))
+			return { error: `"${tool}" is not a tool name: a tool is one word, such as bash.` }
+		if (PERMISSION_MODE_KEYS.includes(tool))
+			return { error: `${tool} is a permission setting with a row of its own, not a tool.` }
+		if (!isEffect(row.effect)) return { error: `Choose allow, ask or deny for ${tool}.` }
+		const pattern = row.pattern.trim()
+		if (tool === 'sources' && pattern === '')
+			return { error: 'A sources rule needs a source, such as an id or a pattern of ids.' }
+		byTool.set(tool, [...(byTool.get(tool) ?? []), { tool, pattern, effect: row.effect }])
+	}
+	const value: Record<string, unknown> = {}
+	for (const [tool, list] of byTool) {
+		if (list.length === 1 && list[0]?.pattern === '') {
+			value[tool] = list[0].effect
+			continue
+		}
+		const patterns: Record<string, string> = {}
+		for (const row of list) {
+			const pattern = row.pattern === '' ? '*' : row.pattern
+			if (pattern in patterns)
+				return { error: `${permissionRuleName({ tool, pattern: row.pattern })} is listed twice.` }
+			patterns[pattern] = row.effect
+		}
+		value[tool] = patterns
+	}
+	return { value }
+}
+
+/** How much a rule lets run without a person: deny, then ask, then allow. */
+const PERMISSIVE = { deny: 0, ask: 1, allow: 2 } as const
+
+export interface RuleLoosened {
+	readonly kind: 'added' | 'changed' | 'removed'
+	readonly tool: string
+	readonly pattern: string
+	/** What the rule says after the change; for a removal, what it said. */
+	readonly effect: string
+	/** What a changed rule said before. */
+	readonly was?: string
+}
+
+/**
+ * What a change to the rules lets run that did not before: a rule that allows added, a rule
+ * changed to a more permissive answer, a deny or ask rule removed. Anything that only restricts
+ * is not listed.
+ */
+export function permissionRulesLoosened(current: unknown, value: unknown): RuleLoosened[] {
+	const key = (row: PermissionRuleRow): string => `${row.tool}\u0000${row.pattern}`
+	const before = new Map(permissionRuleRows(current).map((row) => [key(row), row]))
+	const after = new Map(permissionRuleRows(value).map((row) => [key(row), row]))
+	const out: RuleLoosened[] = []
+	for (const [id, row] of after) {
+		const had = before.get(id)
+		if (had === undefined) {
+			if (row.effect === 'allow')
+				out.push({ kind: 'added', tool: row.tool, pattern: row.pattern, effect: row.effect })
+		} else if (
+			PERMISSIVE[row.effect as keyof typeof PERMISSIVE] >
+			PERMISSIVE[had.effect as keyof typeof PERMISSIVE]
+		)
+			out.push({
+				kind: 'changed',
+				tool: row.tool,
+				pattern: row.pattern,
+				effect: row.effect,
+				was: had.effect,
+			})
+	}
+	for (const [id, row] of before)
+		if (!after.has(id) && row.effect !== 'allow')
+			out.push({ kind: 'removed', tool: row.tool, pattern: row.pattern, effect: row.effect })
+	return out
+}
+
+/** The sentence asked first, naming each rule that lets more run. */
+export function permissionRulesConfirmation(
+	sentence: string,
+	current: unknown,
+	value: unknown,
+): string {
+	const parts = permissionRulesLoosened(current, value).map((change) => {
+		const name = permissionRuleName(change)
+		if (change.kind === 'added') return `${name} is allowed without asking.`
+		if (change.kind === 'changed') return `${name} goes from ${change.was} to ${change.effect}.`
+		return `The ${change.effect} rule for ${name} is removed.`
+	})
+	return parts.length === 0 ? sentence : `${sentence} ${parts.join(' ')}`
+}
+
+function permissionRulesWords(value: unknown): string | undefined {
+	if (!plain(value)) return undefined
+	const rows = permissionRuleRows(value)
+	return rows.length === 0
+		? 'no rules'
+		: rows.map((row) => `${permissionRuleName(row)} ${row.effect}`).join('; ')
+}
+
+/** One self-check as saved: kept as written so a bad one can be seen and fixed. */
+export interface PermissionCheckRow {
+	readonly tool: string
+	readonly input: unknown
+	readonly expect: string
+}
+
+/** The checks of a saved list, in order. An entry that is not a table of fields is left out. */
+export function permissionCheckRows(saved: unknown): PermissionCheckRow[] {
+	if (!Array.isArray(saved)) return []
+	return saved.flatMap((entry) => {
+		const check = plain(entry)
+		if (!check) return []
+		return [
+			{
+				tool: typeof check.tool === 'string' ? check.tool : '',
+				input: check.input,
+				expect: typeof check.expect === 'string' ? check.expect : '',
+			},
+		]
+	})
+}
+
+/** The input of a check as one line of text: the command for a shell tool, JSON otherwise. */
+export function checkInputText(
+	row: { tool: string; input: unknown },
+	commandTools: readonly string[],
+	commandField: string,
+): string {
+	const input = plain(row.input)
+	if (
+		commandTools.includes(row.tool) &&
+		input &&
+		Object.keys(input).length === 1 &&
+		typeof input[commandField] === 'string'
+	)
+		return input[commandField] as string
+	return JSON.stringify(row.input ?? {})
+}
+
+/** Whether a check's input is shown as a command box. */
+export function checkInputIsCommand(
+	row: { tool: string; input: unknown },
+	commandTools: readonly string[],
+	commandField: string,
+): boolean {
+	const input = plain(row.input)
+	return (
+		commandTools.includes(row.tool) &&
+		input !== undefined &&
+		Object.keys(input).length === 1 &&
+		typeof input[commandField] === 'string'
+	)
+}
+
+/**
+ * The input a check saves from what was typed: the command for a shell tool, an object written
+ * as JSON for any other. The engine checks the rest (a tool, an answer) in its own words.
+ */
+export function checkInputFromText(
+	tool: string,
+	text: string,
+	commandTools: readonly string[],
+	commandField: string,
+): { value: Record<string, unknown> } | { error: string } {
+	if (commandTools.includes(tool.trim())) {
+		if (text.trim() === '') return { error: 'Enter the command the check runs.' }
+		return { value: { [commandField]: text } }
+	}
+	let parsed: unknown
+	try {
+		parsed = JSON.parse(text)
+	} catch (error) {
+		return { error: `That is not valid JSON: ${(error as Error).message}` }
+	}
+	const input = plain(parsed)
+	return input ? { value: input } : { error: 'The input is an object, such as {"path":"a.txt"}.' }
+}
+
+function checkName(row: PermissionCheckRow): string {
+	const input = JSON.stringify(row.input ?? {})
+	return `${row.tool} ${input.length > 60 ? `${input.slice(0, 57)}...` : input} must be ${row.expect}`
+}
+
+/** The checks that are gone from the new list, or changed (a changed check is a removed one). */
+export function permissionChecksRemoved(current: unknown, value: unknown): PermissionCheckRow[] {
+	const kept = new Set(permissionCheckRows(value).map((row) => JSON.stringify(row)))
+	return permissionCheckRows(current).filter((row) => !kept.has(JSON.stringify(row)))
+}
+
+export function permissionChecksConfirmation(
+	sentence: string,
+	current: unknown,
+	value: unknown,
+): string {
+	const gone = permissionChecksRemoved(current, value)
+	return gone.length === 0
+		? sentence
+		: `${sentence} Removed or changed: ${gone.map(checkName).join('; ')}.`
+}
+
+function permissionChecksWords(value: unknown): string | undefined {
+	if (!Array.isArray(value)) return undefined
+	const rows = permissionCheckRows(value)
+	return rows.length === 0 ? 'no checks' : rows.map(checkName).join('; ')
+}
+
+/** The sites of a saved map without the line for every other site, and that line's level. */
+export function siteRows(saved: unknown): {
+	sites: { site: string; level: string }[]
+	other: string
+} {
+	const held = plain(saved) ?? {}
+	const sites: { site: string; level: string }[] = []
+	for (const [site, level] of Object.entries(held))
+		if (site.trim() !== '*' && typeof level === 'string') sites.push({ site, level })
+	const other = typeof held['*'] === 'string' ? held['*'] : ''
+	return { sites, other }
+}
+
+/**
+ * The map the lines save, `*` last and only when it is not left at the engine's default (`other`
+ * empty). A line with no site, or a site on two lines, is refused in plain words.
+ */
+export function sitesValue(
+	sites: readonly { site: string; level: string }[],
+	other: string,
+): { value: Record<string, string> } | { error: string } {
+	const value: Record<string, string> = {}
+	for (const row of sites) {
+		const site = row.site.trim()
+		if (site === '') return { error: 'Enter a site for each line, such as https://example.com.' }
+		if (site === '*') return { error: 'The last line is every other site; do not add * here.' }
+		if (site in value) return { error: `${site} is listed twice.` }
+		value[site] = row.level
+	}
+	if (other !== '') value['*'] = other
+	return { value }
+}
+
+/** What a site reads as: its own line, else the line for every other site, else the default. */
+function siteLevel(table: Record<string, string>, site: string, fallback: string): string {
+	return table[site] ?? (site === '*' ? undefined : table['*']) ?? fallback
+}
+
+export interface SiteLoosened {
+	/** The site, or `*` for every other site. */
+	readonly site: string
+	readonly now: string
+	readonly was: string
+}
+
+const levelTable = (value: unknown): Record<string, string> => {
+	const out: Record<string, string> = {}
+	for (const [site, level] of Object.entries(plain(value) ?? {}))
+		if (typeof level === 'string') out[site.trim()] = level
+	return out
+}
+
+/**
+ * The sites that become `act`, and the sites that stop being `deny`, counting a site with no line
+ * as the line for every other site. Setting a site to deny, read or ask never asks on its own.
+ */
+export function sitesLoosened(
+	current: unknown,
+	value: unknown,
+	defaultLevel = 'ask',
+): SiteLoosened[] {
+	const before = levelTable(current)
+	const after = levelTable(value)
+	const out: SiteLoosened[] = []
+	for (const site of new Set([...Object.keys(before), ...Object.keys(after)])) {
+		const was = siteLevel(before, site, defaultLevel)
+		const now = siteLevel(after, site, defaultLevel)
+		if ((now === 'act' && was !== 'act') || (was === 'deny' && now !== 'deny'))
+			out.push({ site, was, now })
+	}
+	return out
+}
+
+export function sitesConfirmation(
+	sentence: string,
+	current: unknown,
+	value: unknown,
+	defaultLevel = 'ask',
+): string {
+	const parts = sitesLoosened(current, value, defaultLevel).map((change) => {
+		const name = change.site === '*' ? 'every other site' : change.site
+		return change.now === 'act'
+			? `Namzu may click and type on ${name}.`
+			: `${name} is no longer denied; it is now ${change.now}.`
+	})
+	return parts.length === 0 ? sentence : `${sentence} ${parts.join(' ')}`
+}
+
+function sitesWords(
+	control: { levels: readonly SettingOption[]; defaultLevel: string },
+	value: unknown,
+): string | undefined {
+	if (!plain(value)) return undefined
+	const { sites, other } = siteRows(value)
+	const parts = sites.map((row) => `${row.site} ${labelOf(control.levels, row.level)}`)
+	parts.push(
+		`every other site ${labelOf(control.levels, other === '' ? control.defaultLevel : other)}`,
+	)
+	return parts.join('; ')
+}
+
+/** Whether a change to a `loosens` setting asks first, by the kind of control it has. */
+export function loosenAsks(control: SettingControl, current: unknown, value: unknown): boolean {
+	switch (control.kind) {
+		case 'permission-rules':
+			return permissionRulesLoosened(current, value).length > 0
+		case 'permission-checks':
+			return permissionChecksRemoved(current, value).length > 0
+		case 'sites':
+			return sitesLoosened(current, value, control.defaultLevel).length > 0
+		default:
+			return autoModeAsks(current, value)
+	}
+}
+
+/** The sentence asked first for a `loosens` setting. */
+export function loosenConfirmation(
+	entry: SettingDescriptor,
+	current: unknown,
+	value: unknown,
+): string {
+	const sentence = entry.confirm ?? ''
+	const control = entry.control
+	switch (control.kind) {
+		case 'permission-rules':
+			return permissionRulesConfirmation(sentence, current, value)
+		case 'permission-checks':
+			return permissionChecksConfirmation(sentence, current, value)
+		case 'sites':
+			return sitesConfirmation(sentence, current, value, control.defaultLevel)
+		case 'auto-mode':
+			return autoModeConfirmation(sentence, current, value, control.lists)
+		default:
+			return sentence
+	}
 }

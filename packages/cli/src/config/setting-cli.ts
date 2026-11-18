@@ -15,11 +15,11 @@ import {
 	writeSetting,
 } from './desktop-settings.js'
 import {
-	autoModeConfirmation,
 	defaultWords,
 	effectiveDefault,
 	environmentNote,
 	levelsHeld,
+	loosenConfirmation,
 	needsConfirmation,
 	numberFromText,
 	rangeText,
@@ -525,7 +525,10 @@ export function parseSettingText(
 		case 'model':
 			return { value: text.trim() }
 		case 'routing':
-		case 'auto-mode': {
+		case 'auto-mode':
+		case 'permission-rules':
+		case 'permission-checks':
+		case 'sites': {
 			const asJson = jsonOrNothing(text)
 			if (asJson) return asJson
 			return { error: `Give JSON, such as ${control.example}` }
@@ -602,13 +605,8 @@ export function planSettingChange(
 		!unchanged && needsConfirmation(entry, value, state?.set ? state.value : entry.default)
 			? entry.confirmWhen === 'widens' && entry.confirm
 				? widenedConfirmation(entry.confirm, state?.set ? state.value : entry.default, value)
-				: entry.confirmWhen === 'loosens' && entry.confirm && entry.control.kind === 'auto-mode'
-					? autoModeConfirmation(
-							entry.confirm,
-							state?.set ? state.value : entry.default,
-							value,
-							entry.control.lists,
-						)
+				: entry.confirmWhen === 'loosens' && entry.confirm
+					? loosenConfirmation(entry, state?.set ? state.value : entry.default, value)
 					: describeChange(key).confirm
 			: undefined
 	return {

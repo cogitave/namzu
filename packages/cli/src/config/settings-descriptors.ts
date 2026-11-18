@@ -178,6 +178,39 @@ export type SettingControl =
 			readonly lists: readonly SettingOption[]
 			readonly example: string
 	  }
+	/**
+	 * The tool rules inside `permissions`: each a tool, an optional pattern of its input and an
+	 * answer from `effects`. Only the rules are read and written; the mode keys that share the
+	 * table (`defaultMode`, `disableBypassMode`, `disableAutoMode`, `outsideRoot`, `autoMode`) stay
+	 * as they are. The saved value is the rule table (`{ tool: effect | { pattern: effect } }`).
+	 */
+	| {
+			readonly kind: 'permission-rules'
+			readonly effects: readonly SettingOption[]
+			readonly example: string
+	  }
+	/**
+	 * Cases that must come out as an answer, saved as a list of `{ tool, input, expect }`. A tool
+	 * in `commandTools` takes its input as the one field `commandField`, so a screen offers a
+	 * command box for it; any other tool's input is an object written as JSON.
+	 */
+	| {
+			readonly kind: 'permission-checks'
+			readonly effects: readonly SettingOption[]
+			readonly commandTools: readonly string[]
+			readonly commandField: string
+			readonly example: string
+	  }
+	/**
+	 * `browser.sites`: a site as the engine matches it and a level from `levels`, and the line `*`
+	 * for every other site, which reads as `defaultLevel` when it is not written. Saved as the map.
+	 */
+	| {
+			readonly kind: 'sites'
+			readonly levels: readonly SettingOption[]
+			readonly defaultLevel: string
+			readonly example: string
+	  }
 	/** A list or table, edited as JSON and checked by the same reader the engine loads with. */
 	| { readonly kind: 'json'; readonly example: string }
 	/** Holds secrets or runs commands: Desktop shows whether it is set, never its value. */
@@ -221,7 +254,8 @@ export interface SettingDescriptor {
 	 * leaves out an entry the default holds, and `widens` to a list of things Namzu may reach, where
 	 * only a new list with an entry the list in force lacks asks (removing one never does), and
 	 * `loosens` to the auto mode reviewer, which asks when its model changes or a list lets more
-	 * run without a person (see `autoModeLoosens`). Absent means every change asks. Clearing a setting asks
+	 * run without a person (see `autoModeLoosened`), and to the permission rules, the self-checks and
+	 * the browser sites, which ask when a change lets more run without a person (see `loosenedBy`). Absent means every change asks. Clearing a setting asks
 	 * unless a select names its risky values and its default is none of them.
 	 */
 	readonly confirmWhen?: 'on' | 'off' | 'zero' | 'drops-default' | 'widens' | 'loosens'
@@ -327,7 +361,12 @@ function keyLabel(key: string): string {
 		.join('+')
 }
 
-const json = (example: string): SettingControl => ({ kind: 'json', example })
+const PERMISSION_EFFECTS: readonly SettingOption[] = [
+	{ value: 'allow', label: 'Allow', help: 'Runs without asking.' },
+	{ value: 'ask', label: 'Ask', help: 'Asks you each time.' },
+	{ value: 'deny', label: 'Deny', help: 'Never runs.' },
+]
+
 const fileOnly: SettingControl = { kind: 'file-only' }
 
 /**
@@ -612,9 +651,16 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'projects',
 		'Permission rules',
 		'Allow, ask or deny a tool, or a pattern of its input.',
-		json('{ "bash": "ask", "read": "allow" }'),
 		{
+			kind: 'permission-rules',
+			effects: PERMISSION_EFFECTS,
+			example: '{"bash":{"git status *":"allow","*":"ask"},"read":"allow"}',
+		},
+		{
+			defaultText: 'no rules: every tool asks, or not, as the permission mode says',
 			confirm: 'Rules can let tools run without asking you.',
+			confirmWhen: 'loosens',
+			keywords: ['allow', 'deny', 'ask', 'tool', 'pattern'],
 		},
 	),
 	d(
@@ -622,9 +668,17 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'projects',
 		'Permission self-checks',
 		'Cases that must come out as allow, ask or deny, checked when Namzu starts.',
-		json('[ { "tool": "bash", "input": "rm -rf /", "expect": "deny" } ]'),
 		{
+			kind: 'permission-checks',
+			effects: PERMISSION_EFFECTS,
+			commandTools: ['bash'],
+			commandField: 'command',
+			example: '[{"tool":"bash","input":{"command":"rm -rf /"},"expect":"deny"}]',
+		},
+		{
+			defaultText: 'no checks',
 			confirm: 'Removing a check means a rule that lets the wrong thing through goes unnoticed.',
+			confirmWhen: 'loosens',
 		},
 	),
 	d(
@@ -1293,9 +1347,21 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'tools',
 		'Browser sites',
 		'Per site: deny, read, ask or act. * is every other site.',
-		json('{ "example.com": "read", "*": "ask" }'),
 		{
+			kind: 'sites',
+			levels: [
+				{ value: 'deny', label: 'Deny', help: 'Namzu does not open the site.' },
+				{ value: 'read', label: 'Read', help: 'Namzu may look at the site, not click or type.' },
+				{ value: 'ask', label: 'Ask', help: 'Namzu asks before it opens or changes the site.' },
+				{ value: 'act', label: 'Act', help: 'Namzu may open the site and click and type on it.' },
+			],
+			defaultLevel: 'ask',
+			example: '{"https://example.com":"read","*":"ask"}',
+		},
+		{
+			defaultText: 'every site asks',
 			confirm: 'Allowing act lets Namzu click and type on that site.',
+			confirmWhen: 'loosens',
 		},
 	),
 	d(
