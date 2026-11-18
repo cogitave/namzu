@@ -25,7 +25,7 @@ namzu config unset <key> [--yes]        (also: reset)
 
 - `list` prints every setting on one line: key, plain label, the value in the user file (or `default`),
   the default in words and when a change applies. Settings are listed by section, and inside a section
-  a heading names each group (`Terminal app`, `Command line`) over its rows; `--json` carries the same
+  a heading names each group (`Choosing models`, `Limits`, `Terminal app: look`, `Command line` and the like) over its rows; `--json` carries the same
   as `group` and `groupLabel` on a row that has one (the Command line heading appears in two sections: under `terminal` over `format`, `quiet` and
   `profiles`, and under `updates` over the three `updates.*` settings). `--json` gives the same as data (`default` and `control`
   are the typed default and range Desktop reads). A setting that holds secrets or runs commands is never

@@ -27,7 +27,6 @@ import {
 	widenedConfirmation,
 } from './setting-values.js'
 import {
-	APPLIES_WHEN_TEXT,
 	type AppliesWhen,
 	SETTING_DESCRIPTORS,
 	SETTING_GROUP_LABELS,
@@ -35,6 +34,7 @@ import {
 	type SettingGroup,
 	type SettingOption,
 	type SettingSection,
+	appliesTextFor,
 } from './settings-descriptors.js'
 import { type UserConfigWriteOptions, userConfigPath } from './user-config.js'
 
@@ -195,7 +195,7 @@ function toRow(
 		defaultText: defaultWords(entry, saved),
 		control: entry.control,
 		appliesWhen: entry.appliesWhen,
-		appliesText: APPLIES_WHEN_TEXT[entry.appliesWhen],
+		appliesText: appliesTextFor(entry),
 		...(entry.confirm ? { confirm: entry.confirm, asksWhen: asksWhenWords(entry) } : {}),
 		fileOnly,
 		...(state?.env ? { env: state.env } : {}),

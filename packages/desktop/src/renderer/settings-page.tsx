@@ -64,6 +64,7 @@ import {
 	DATA_FOLDER_NOTES,
 	SETTINGS_ENTRIES,
 	SETTINGS_SEARCH_SUBTITLE,
+	SETTINGS_SECTION_APPLY_NOTE,
 	SETTINGS_SECTION_SUBTITLES,
 	SETTINGS_SECTION_TITLES,
 	type SettingsEntry,
@@ -372,6 +373,11 @@ function SettingsContent(
 						<p>{searching ? SETTINGS_SEARCH_SUBTITLE : SETTINGS_SECTION_SUBTITLES[section]}</p>
 					</div>
 				</header>
+				{!searching && SETTINGS_SECTION_APPLY_NOTE[section] && (
+					<p className="settings-note settings-section-note">
+						{SETTINGS_SECTION_APPLY_NOTE[section]}
+					</p>
+				)}
 				{props.settings.error && (
 					<p role="alert" className="settings-error">
 						{props.settings.error}

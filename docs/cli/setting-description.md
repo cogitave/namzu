@@ -55,6 +55,7 @@ The apply time is found from the code that reads the key, not guessed.
   `additionalDirectories`, `mcpServers`, `hooks` and `disableHooks` reach the next conversation. An
   open conversation keeps the value it began with. A file that no longer loads leaves the last good
   read in place for new conversations; Settings reads the same files and shows the error.
+- **Wording**: the sentences are `APPLIES_WHEN_TEXT`, with one variant: a row only the terminal app reads (`tui.*`, `composerTriggers.*`, `statusLine`) says "the terminal app starts" (`appliesTextFor`). Desktop draws the next-start sentence as the tooltip of an *After restart* badge and says the next-conversation one once, under the section title.
 - **Now / next launch**: Desktop's own switches take effect at once; the graphics card, the start-up
   screen and the terminal restore are read when the app opens.
 

@@ -385,7 +385,7 @@ describe('what namzu config get says about the model rows', () => {
 	it('shows a saved table in words after a terminal write', () => {
 		const plan = planSettingChange('routing', '{"default":{"provider":"a","model":"b"}}', opts())
 		if (!plan.ok) throw new Error(plan.error)
-		expect(plan.apply()).toContain('Automatic routing is now default a/b.')
+		expect(plan.apply()).toContain('Models for automatic choice is now default a/b.')
 		expect(saved().routing).toEqual({ default: { provider: 'a', model: 'b' } })
 	})
 })

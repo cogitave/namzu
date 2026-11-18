@@ -43,6 +43,21 @@ export const SETTINGS_SECTION_SUBTITLES: Record<SettingsSection, string> = {
 	about: 'Versions, your system, and where Namzu keeps its files.',
 }
 
+/**
+ * One line under the title of the sections whose rows mostly apply to new conversations, so no row
+ * has to repeat it. A row that waits for a restart carries its own badge.
+ */
+export const SETTINGS_SECTION_APPLY_NOTE: Partial<Record<SettingsSection, string>> = {
+	models:
+		'Most changes here apply to new conversations. Open ones keep what they have. A row that waits for a restart says so.',
+	agent:
+		'Most changes here apply to new conversations. Open ones keep what they have. A row that waits for a restart says so.',
+	tools:
+		'Most changes here apply to new conversations. Open ones keep what they have. A row that waits for a restart says so.',
+	projects:
+		'Most changes here apply to new conversations. Open ones keep what they have. A row that waits for a restart says so.',
+}
+
 /** Sections whose rows all come from the engine's own description, so none is listed here. */
 export const ENGINE_ONLY_SECTIONS: readonly SettingsSection[] = ['agent', 'tools', 'telemetry']
 

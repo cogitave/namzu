@@ -132,17 +132,58 @@ export function defaultNote(
 	return `Default: ${label.replace(/\.$/, '')}.${note ? ` ${note}` : ''}`
 }
 
+/**
+ * The default a row says in words under it, for the controls that cannot show it themselves. A
+ * switch shows none, a choice marks its default inside the list, and a number or a text box shows
+ * it as the placeholder. Empty for those, and for a row with nothing to say.
+ */
+export function defaultHelper(
+	descriptor: ConfigSettingDescriptor,
+	view?: ConfigSettingsView,
+): string {
+	const own: readonly string[] = [
+		'toggle',
+		'toggle-list',
+		'toggle-checks',
+		'select',
+		'key',
+		'number',
+		'text',
+	]
+	if (own.includes(descriptor.control.kind)) return ''
+	const label = defaultLabel(descriptor, view)
+	return label ? `Default · ${label.replace(/\.$/, '')}` : ''
+}
+
+/** What a row that waits for a restart shows beside its name, or nothing for one that does not. */
+export function restartBadge(
+	descriptor: ConfigSettingDescriptor,
+): { text: string; sentence: string } | undefined {
+	if (descriptor.appliesWhen !== 'next-start' && descriptor.appliesWhen !== 'next-launch')
+		return undefined
+	return { text: 'After restart', sentence: appliesLine(descriptor) }
+}
+
 const APPLIES_TEXT: Record<NonNullable<ConfigSettingDescriptor['appliesWhen']>, string> = {
 	now: 'Applies at once.',
 	'next-turn': 'Applies from your next message.',
-	'next-conversation': 'Applies to new conversations. Open ones keep their current value.',
+	'next-conversation': 'Applies to new conversations. Open ones keep what they have.',
 	'next-start': 'Applies the next time Namzu starts.',
 	'next-launch': 'Applies the next time the app opens.',
 }
 
 /** The sentence about when a change reaches the work; empty from an engine that does not say. */
 export function appliesLine(descriptor: ConfigSettingDescriptor): string {
-	return descriptor.appliesWhen ? APPLIES_TEXT[descriptor.appliesWhen] : ''
+	if (!descriptor.appliesWhen) return ''
+	// The terminal app's own rows say which program restarts, as the engine does in its list.
+	if (
+		descriptor.appliesWhen === 'next-start' &&
+		(descriptor.path.startsWith('tui.') ||
+			descriptor.path.startsWith('composerTriggers.') ||
+			descriptor.path === 'statusLine')
+	)
+		return 'Applies the next time the terminal app starts.'
+	return APPLIES_TEXT[descriptor.appliesWhen]
 }
 
 /** A list or table, as the text the editor starts from. */

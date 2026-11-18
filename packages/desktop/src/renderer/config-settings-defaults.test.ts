@@ -137,23 +137,28 @@ describe('a row says its default, its choice help and when a change applies', ()
 		const out = page(viewOf([select]))
 		expect(out).toContain('value="y"')
 		expect(out).toContain('>Plain Y<')
-		expect(out).toContain('Default (Plain X)')
+		expect(out).toContain('Default · Plain X')
 	})
 
-	it('adds the help of the chosen option, the default and the apply sentence', () => {
+	it('adds the help of the chosen option, and no default or apply line the page says elsewhere', () => {
 		const out = page(viewOf([select]))
 		expect(out).toContain('Does the X thing.')
-		expect(out).toContain('Default: Plain X.')
-		expect(out).toContain('Applies to new conversations. Open ones keep their current value.')
+		// The default is marked inside the list, and a row that applies to new conversations carries
+		// no sentence: the section note says it once.
+		expect(out).not.toContain('Default: Plain X.')
+		expect(out).not.toContain('Applies to new conversations')
+		expect(out).not.toContain('settings-row-badge')
 		const chosen = page(viewOf([select], [{ path: 'a.b', set: true, value: 'y' }]))
 		expect(chosen).toContain('Does the Y thing.')
-		expect(chosen).not.toContain('Default: Plain X.')
 	})
 
 	it('draws an unset default-on switch as on', () => {
 		const out = page(viewOf([toggle({ default: true, appliesWhen: 'next-start' })]))
 		expect(out).toContain('aria-checked="true"')
-		expect(out).toContain('Applies the next time Namzu starts.')
+		// A row that waits for a restart says so in a badge; the whole sentence is its name and tooltip.
+		expect(out).toContain('>After restart</span>')
+		expect(out).toContain('title="Applies the next time Namzu starts."')
+		expect(out).toContain('aria-label="Applies the next time Namzu starts."')
 	})
 
 	it('says nothing about timing for an engine that does not say', () => {

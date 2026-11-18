@@ -21,13 +21,12 @@ import {
 	WordList,
 } from './config-settings-lists.js'
 import {
-	appliesLine,
 	configRowRuns,
 	configSettingId,
 	configSettingsFor,
 	confirmationCopy,
+	defaultHelper,
 	defaultLabel,
-	defaultNote,
 	defaultToggle,
 	displayNumber,
 	effectiveDefault,
@@ -36,6 +35,7 @@ import {
 	numberPlaceholder,
 	rangeText,
 	requirementNote,
+	restartBadge,
 	stateFor,
 } from './config-settings-model.js'
 import { SettingsConfirmDialog } from './settings-confirm-dialog.js'
@@ -142,11 +142,10 @@ function ConfigRow({
 	const meta = [
 		optionHelp,
 		control.kind === 'number' ? rangeText(control) : '',
-		state?.set ? '' : defaultNote(descriptor, view),
+		state?.set ? '' : defaultHelper(descriptor, view),
 		requirementNote(descriptor, view),
 		state?.env ? environmentNote(state.env) : '',
 		control.kind === 'file-only' && view.file ? `Config file: ${view.file}.` : '',
-		appliesLine(descriptor),
 	]
 		.filter(Boolean)
 		.join(' ')
@@ -163,6 +162,9 @@ function ConfigRow({
 					void config.change(descriptor.path)
 				}}
 				aria-label={`Use the default for ${descriptor.label}`}
+				title={
+					defaultLabel(descriptor, view) ? `Default · ${defaultLabel(descriptor, view)}` : undefined
+				}
 			>
 				Use default
 			</Button>
@@ -174,6 +176,7 @@ function ConfigRow({
 			label={descriptor.label}
 			description={descriptor.description}
 			meta={meta}
+			badge={restartBadge(descriptor)}
 			stacked={stacked}
 		>
 			<div className="settings-config-control">
@@ -234,7 +237,7 @@ function Control({
 				>
 					<option value="">
 						{defaultLabel(descriptor, view)
-							? `Default (${defaultLabel(descriptor, view)})`
+							? `Default · ${defaultLabel(descriptor, view)}`
 							: 'Default'}
 					</option>
 					{control.options.map((option) => (

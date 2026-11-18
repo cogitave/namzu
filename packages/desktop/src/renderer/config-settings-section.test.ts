@@ -107,7 +107,8 @@ describe('engine settings in the page', () => {
 		expect(out).toContain('<select')
 		expect(out).toContain('<textarea')
 		expect(out).toContain('Check once.')
-		expect(out).toContain('Default: on.')
+		// A switch shows no default line; the page does not repeat it under every row.
+		expect(out).not.toContain('Default: on.')
 		expect(out).not.toContain('Mouse')
 	})
 
@@ -393,14 +394,14 @@ describe('the real engine list, section by section', () => {
 			check('updates.auto', 'updates', 'command-line')
 			check('updates.check', 'updates', 'command-line')
 			check('updates.channel', 'updates', 'command-line')
-			check('browser.enabled', 'tools')
-			check('codeAnalysis.enabled', 'tools')
+			check('browser.enabled', 'tools', 'browser')
+			check('codeAnalysis.enabled', 'tools', 'code-plugins')
 			check('format', 'terminal', 'command-line')
 			check('quiet', 'terminal', 'command-line')
-			check('tui.theme', 'terminal', 'terminal-app')
-			check('composerTriggers.enabled', 'terminal', 'terminal-app')
-			check('statusLine', 'terminal', 'terminal-app')
-			check('hypermode', 'agent')
+			check('tui.theme', 'terminal', 'terminal-look')
+			check('composerTriggers.enabled', 'terminal', 'terminal-message-box')
+			check('statusLine', 'terminal', 'terminal-message-box')
+			check('hypermode', 'agent', 'while-working')
 			// The browser switch leads the browser rows.
 			const tools = draw(view, 'tools')
 			expect(tools.indexOf('id="setting-cfg-browser-enabled"')).toBeLessThan(
@@ -418,7 +419,13 @@ describe('the real engine list, section by section', () => {
 				[...draw(view, section).matchAll(/<h2 class="settings-section-title">([^<]+)<\/h2>/g)].map(
 					(match) => match[1],
 				)
-			expect(headings('terminal')).toEqual(['Terminal app', 'Command line'])
+			expect(headings('terminal')).toEqual([
+				'Terminal app: look',
+				'Terminal app: mouse and scrolling',
+				'Terminal app: notifications',
+				'Terminal app: message box',
+				'Command line',
+			])
 			expect(headings('updates')).toEqual(['Command line'])
 			// Updates draws the engine's three rows only, so the general “Namzu settings” has no place.
 			expect(draw(view, 'updates')).not.toContain('Namzu settings')
@@ -474,7 +481,7 @@ describe('the typed list and map rows, drawn from the real engine list', () => {
 		async () => {
 			const html = row(await drawReal('terminal'), 'tui.workspacesPrefix')
 			expect(html).toContain('<select')
-			expect(html).toContain('Default (Ctrl+B)')
+			expect(html).toContain('Default · Ctrl+B')
 			expect(html).toContain('value="ctrl+space"')
 			for (const refused of ['ctrl+c', 'ctrl+d', 'ctrl+z', 'ctrl+i', 'ctrl+m'])
 				expect(html).not.toContain(`value="${refused}"`)
@@ -515,7 +522,7 @@ describe('the typed list and map rows, drawn from the real engine list', () => {
 			const boxes = events.match(/type="checkbox"/g)?.length ?? 0
 			expect(boxes).toBeGreaterThan(40)
 			expect(events.match(/checked=""/g)?.length).toBe(boxes)
-			expect(events).toContain('Default: All events.')
+			expect(events).toContain('Default · All events')
 			expect(events).not.toContain('<textarea')
 			const secrets = row(page, 'telemetry.sessionExport.redactors')
 			expect(secrets).toContain('role="switch"')
@@ -586,7 +593,7 @@ describe('the extra folders and the turned-off skills, drawn from the real engin
 		async () => {
 			const withPicker = row(await drawReal('projects', { tools }), 'additionalDirectories')
 			expect(withPicker).toContain('No extra folders.')
-			expect(withPicker).toContain('Default: None.')
+			expect(withPicker).toContain('Default · None')
 			const typed = row(await drawReal('projects', { tools: {} }), 'additionalDirectories')
 			expect(typed).toContain('aria-label="Add folder"')
 			expect(typed).not.toContain('>Add folder<')
@@ -657,7 +664,7 @@ describe('the model rows, drawn from the real engine list', () => {
 		'draws the small model as a text box that offers models, with no JSON box',
 		async () => {
 			const html = row(await drawModels(), 'smallModel')
-			expect(html).toContain('aria-label="Small model"')
+			expect(html).toContain('aria-label="Model for quick tasks"')
 			expect(html).toContain('list="')
 			expect(html).toContain('<datalist')
 			expect(html).toContain('placeholder="provider/model"')
@@ -717,7 +724,7 @@ describe('the model rows, drawn from the real engine list', () => {
 			expect(html).toContain('value="openai/gpt-x"')
 			expect(html).toContain('value="2.5"')
 			expect(html).toContain('<option value="score" selected="">One rating</option>')
-			expect(html).toContain('Use the default for Automatic routing')
+			expect(html).toContain('Use the default for Models for automatic choice')
 		},
 		SLOW_IMPORT_MS,
 	)
@@ -906,7 +913,7 @@ describe('the permission and browser rows, drawn from the real engine list', () 
 			expect(saved).not.toContain('<textarea')
 			const bare = row(await drawSection('tools'), 'browser.sites')
 			expect(bare).toContain('Every other site')
-			expect(bare).toContain('Default (Ask)')
+			expect(bare).toContain('Default · Ask')
 			expect(bare).toContain('aria-label="Add a site"')
 		},
 		SLOW_IMPORT_MS,

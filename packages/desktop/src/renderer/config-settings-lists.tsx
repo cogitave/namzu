@@ -177,7 +177,7 @@ export function KeyPicker({
 				)
 			}
 		>
-			<option value="">{defaultText ? `Default (${defaultText})` : 'Default'}</option>
+			<option value="">{defaultText ? `Default · ${defaultText}` : 'Default'}</option>
 			{set && !known && saved !== '' && (
 				<option value={OFFERED_NOT} disabled>
 					{`${saved} (saved, not offered here)`}
@@ -841,7 +841,7 @@ function FormLine({
 }
 
 const STRATEGIES: readonly ConfigSettingOption[] = [
-	{ value: '', label: 'Default (two yes or no questions)' },
+	{ value: '', label: 'Default · two yes or no questions' },
 	{ value: 'yesno', label: 'Two yes or no questions' },
 	{ value: 'score', label: 'One rating' },
 ]
@@ -1384,7 +1384,7 @@ export function SitesEditor({
 							value={other}
 							onChange={(event) => void save(sites, event.target.value)}
 						>
-							<option value="">Default ({labelOf(control.defaultLevel)})</option>
+							<option value="">{`Default · ${labelOf(control.defaultLevel)}`}</option>
 							{control.levels.map((option) => (
 								<option key={option.value} value={option.value}>
 									{option.label}

@@ -134,7 +134,7 @@ describe('changing a setting', () => {
 		if (!plan.ok) return
 		expect(plan.confirm).toBeUndefined()
 		expect(plan.apply()).toBe(
-			'Most steps per turn is now 20. Applies to new conversations. Open ones keep their current value.',
+			'Most steps per reply is now 20. Applies to new conversations. Open ones keep what they have.',
 		)
 		expect(readFileSync(userConfigPath(opts()), 'utf8')).toContain('maxIterations: 20')
 		expect(readSettingRow('limits.maxIterations', opts())).toMatchObject({ set: true, value: 20 })
@@ -209,10 +209,11 @@ describe('the list names the group a row sits under', () => {
 		const { rows } = listSettings(opts(), 'terminal')
 		const text = renderSettingList(rows, 'f').split('\n')
 		const heading = (words: string) => text.findIndex((line) => line.trim() === words)
-		expect(heading('Terminal app')).toBeGreaterThan(text.indexOf('[terminal]'))
-		expect(heading('Command line')).toBeGreaterThan(heading('Terminal app'))
+		expect(heading('Terminal app: look')).toBeGreaterThan(text.indexOf('[terminal]'))
+		expect(heading('Terminal app: message box')).toBeGreaterThan(heading('Terminal app: look'))
+		expect(heading('Command line')).toBeGreaterThan(heading('Terminal app: message box'))
 		expect(text.findIndex((line) => line.includes('tui.theme'))).toBeGreaterThan(
-			heading('Terminal app'),
+			heading('Terminal app: look'),
 		)
 		expect(text.findIndex((line) => line.includes('format'))).toBeGreaterThan(
 			heading('Command line'),
@@ -224,8 +225,11 @@ describe('the list names the group a row sits under', () => {
 		})
 		const updates = renderSettingList(listSettings(opts(), 'updates').rows, 'f')
 		expect(updates).toContain('[updates]\n  Command line\n')
-		// A row with no group has no group key and no heading.
+		// Every engine row sits under a heading the Settings page shows.
 		const hyper = listSettings(opts(), 'agent').rows.find((row) => row.key === 'hypermode')
-		expect(rowData(hyper as (typeof rows)[number])).not.toHaveProperty('group')
+		expect(rowData(hyper as (typeof rows)[number])).toMatchObject({
+			group: 'while-working',
+			groupLabel: 'While Namzu works',
+		})
 	})
 })

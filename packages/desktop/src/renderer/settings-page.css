@@ -105,6 +105,17 @@
 	font-size: var(--text-small);
 	line-height: var(--leading-small);
 }
+.settings-row-badge {
+	margin-inline-start: 8px;
+	padding: 1px 6px;
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	color: var(--muted-foreground);
+	font-size: var(--text-small);
+	font-weight: normal;
+	white-space: nowrap;
+	vertical-align: baseline;
+}
 .settings-row-control {
 	flex: none;
 	display: flex;

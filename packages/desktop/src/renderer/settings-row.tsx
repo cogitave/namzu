@@ -11,6 +11,7 @@ export function Row({
 	stacked,
 	below,
 	child,
+	badge,
 }: {
 	id: string
 	label: string
@@ -23,6 +24,11 @@ export function Row({
 	below?: ReactNode
 	/** A setting that only means something under the one above it: drawn indented. */
 	child?: boolean
+	/**
+	 * A short mark beside the name, for a row that waits for a restart. The short text is what is
+	 * drawn; the full sentence is its tooltip and its accessible name, so it is never ambiguous.
+	 */
+	badge?: { text: string; sentence: string }
 }) {
 	const labelId = `setting-${id}-label`
 	return (
@@ -34,7 +40,19 @@ export function Row({
 			data-child={child || undefined}
 		>
 			<div className="settings-row-copy">
-				<h3 id={labelId}>{label}</h3>
+				<h3 id={labelId}>
+					{label}
+					{badge && (
+						<span
+							className="settings-row-badge"
+							title={badge.sentence}
+							role="img"
+							aria-label={badge.sentence}
+						>
+							{badge.text}
+						</span>
+					)}
+				</h3>
 				{description && <p>{description}</p>}
 				{meta && <p data-settings-meta>{meta}</p>}
 			</div>

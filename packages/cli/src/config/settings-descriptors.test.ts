@@ -14,6 +14,7 @@ import {
 	SETTING_GROUP_ORDER,
 	SETTING_SUBKEY_EXCLUSIONS,
 	type SettingDescriptor,
+	appliesTextFor,
 	appliesWhenFor,
 } from './settings-descriptors.js'
 
@@ -248,6 +249,27 @@ describe('the typed setting description', () => {
 	})
 })
 
+describe('the words of the apply sentence', () => {
+	it('names the terminal app for a row only it reads, and says plainly what open conversations keep', () => {
+		expect(appliesTextFor({ path: 'tui.mouse', appliesWhen: 'next-start' })).toBe(
+			'Applies the next time the terminal app starts.',
+		)
+		expect(appliesTextFor({ path: 'updates.auto', appliesWhen: 'next-start' })).toBe(
+			'Applies the next time Namzu starts.',
+		)
+		expect(appliesTextFor({ path: 'limits.maxIterations', appliesWhen: 'next-conversation' })).toBe(
+			'Applies to new conversations. Open ones keep what they have.',
+		)
+	})
+
+	it('keeps the old name of a renamed row as a search word', () => {
+		const find = (path: string) => SETTING_DESCRIPTORS.find((entry) => entry.path === path)
+		expect(find('smallModel')?.keywords).toContain('Small model')
+		expect(find('routing')?.keywords).toContain('Automatic routing')
+		expect(find('tui.sound')?.keywords).toContain('Sound')
+	})
+})
+
 describe('where each setting sits', () => {
 	const sectionOf = (path: string) => SETTING_DESCRIPTORS.find((entry) => entry.path === path)
 	const inSection = (section: string) =>
@@ -261,8 +283,10 @@ describe('where each setting sits', () => {
 			'updates.check',
 		])
 		for (const row of rows) expect(row.group, row.path).toBe('command-line')
-		// The heading says it, so no label repeats it.
-		for (const row of rows) expect(row.label, row.path).not.toMatch(/command line/i)
+		// Search shows a label without its heading, so the two rows that install and check say they are
+		// about the command line; the Desktop app has rows with nearly the same words.
+		for (const path of ['updates.auto', 'updates.check'])
+			expect(sectionOf(path)?.label, path).toMatch(/command line/i)
 	})
 
 	it('puts the browser and code analysis switches in Tools, the browser switch before its rows', () => {
@@ -286,7 +310,8 @@ describe('where each setting sits', () => {
 		const terminal = SETTING_DESCRIPTORS.filter((entry) => entry.section === 'terminal')
 		for (const row of terminal) {
 			const app = /^(tui\.|composerTriggers\.|statusLine$)/.test(row.path)
-			expect(row.group, row.path).toBe(app ? 'terminal-app' : 'command-line')
+			if (!app) expect(row.group, row.path).toBe('command-line')
+			else expect(row.group, row.path).toMatch(/^terminal-/)
 		}
 		expect(terminal.filter((row) => row.group === 'command-line').map((row) => row.path)).toEqual([
 			'format',
@@ -323,8 +348,9 @@ describe('where each setting sits', () => {
 	it('has words for every group and sends them with a described row', () => {
 		for (const group of SETTING_GROUP_ORDER) expect(SETTING_GROUP_LABELS[group]).toBeTruthy()
 		const sent = withDefaultText(sectionOf('statusLine') as SettingDescriptor)
-		expect(sent.group).toBe('terminal-app')
-		expect(sent.groupLabel).toBe('Terminal app')
-		expect(withDefaultText(sectionOf('hypermode') as SettingDescriptor).groupLabel).toBeUndefined()
+		expect(sent.group).toBe('terminal-message-box')
+		expect(sent.groupLabel).toBe('Terminal app: message box')
+		// Every engine row sits under a heading, so a screen never has to invent one.
+		for (const entry of SETTING_DESCRIPTORS) expect(entry.group, entry.path).toBeDefined()
 	})
 })
