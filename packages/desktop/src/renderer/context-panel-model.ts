@@ -52,8 +52,9 @@ const NAME: Record<string, string> = {
 	memory: 'Project notes',
 	agents: 'Custom agents',
 	'mcp-instructions': 'Tool server notes',
-	'deferred-tools': 'Built-in tools',
-	'deferred-mcp-tools': 'Tool server tools',
+	// Under "Loaded only when needed", so they do not read like the rows above that are in use.
+	'deferred-tools': 'More built-in tools',
+	'deferred-mcp-tools': 'More tool server tools',
 }
 
 /** What each row is, for hover text. The engine's own name follows, for a person who looks for it. */

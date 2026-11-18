@@ -193,7 +193,12 @@ export interface OutputGroupView {
 
 /** The cards that show now, and how many wait behind "Show N more". */
 export function outputGroupView(cards: readonly OutputCard[], expanded: boolean): OutputGroupView {
-	const shown = expanded ? cards : cards.slice(0, CARDS_SHOWN)
+	// A card that failed is never folded away: failures come first, the rest keep their order.
+	const ordered = [
+		...cards.filter((card) => card.state === 'failed'),
+		...cards.filter((card) => card.state !== 'failed'),
+	]
+	const shown = expanded ? ordered : ordered.slice(0, CARDS_SHOWN)
 	const large = cards.length === 1
 	const isPicture = (card: OutputCard) => card.kind === 'image' && card.state === 'done'
 	const pictures = !large && shown.filter(isPicture).length >= 2 ? shown.filter(isPicture) : []

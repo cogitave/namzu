@@ -67,8 +67,8 @@ describe('the panel for a measured conversation', () => {
 
 	it('shows the tools that load only when needed with a dash, not a share', () => {
 		expect(model.deferred.map((row) => [row.name, row.size, row.share])).toEqual([
-			['Tool server tools', '61.5k', '-'],
-			['Built-in tools', '25.3k', '-'],
+			['More tool server tools', '61.5k', '-'],
+			['More built-in tools', '25.3k', '-'],
 		])
 		expect(model.deferredNote).toContain('Namzu loads them if it needs them')
 	})

@@ -204,3 +204,20 @@ describe('the group', () => {
 		)
 	})
 })
+
+describe('folding the cards', () => {
+	it('never folds a failed card away: failures come first', () => {
+		const done = (name: string) =>
+			({ name, path: name, kind: 'document', state: 'done' }) as unknown as OutputCard
+		const failed = {
+			name: 'report.md',
+			path: 'report.md',
+			kind: 'document',
+			state: 'failed',
+		} as unknown as OutputCard
+		const cards = [done('a.md'), done('b.md'), done('c.md'), done('d.md'), done('e.md'), failed]
+		const view = outputGroupView(cards, false)
+		expect(view.rows[0]?.name).toBe('report.md')
+		expect(view.hidden).toBe(2)
+	})
+})
