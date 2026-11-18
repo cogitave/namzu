@@ -2,6 +2,7 @@
 
 ## 2026-11-18
 
+- **Update** [Session storage](cli/session-storage.md): the conversation list names the conversations it just archived for being idle only when the app asks for them (`idleArchivedRows: true`), so an older app never draws an empty row for one.
 - **Creation** [Status marks in the sidebar](cli/desktop.md#status-marks-in-the-sidebar): the config key `statusMarks` (default on) switches the sidebar's per-conversation marks off; they are worked out from app state and cost no model call. The transcript has one view in Desktop, so no default-view setting was added.
 - **Creation** [Managed Git worktrees](cli/worktrees.md#settings-for-worktrees): `worktrees.branchPrefix` (a new worktree's branch is `<prefix>/<name>`, default `namzu`), `worktrees.location` (the folder new worktrees are made in, with a folder picker in Desktop Settings) and `worktrees.sparseFolders` (a new worktree holds only those folders, through `git sparse-checkout`), read from the user and managed files only. The SDK's `GitWorktreeDriver` takes a `branchPrefix` and still owns a worktree made under another prefix.
 - **Creation** [Archiving idle conversations](cli/session-storage.md#archiving-idle-conversations): `archiveInactive` (`never`, `1d`, `7d`, `30d`); the desktop host archives idle conversations when it lists them, never one with an open turn or background work, and never touches a worktree. `.changeset/cli-worktree-and-archive-settings.md`, `.changeset/sdk-worktree-branch-prefix.md`, `.changeset/desktop-text-folder-picker.md`.

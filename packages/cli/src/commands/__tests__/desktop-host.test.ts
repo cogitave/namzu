@@ -618,6 +618,25 @@ it('reads fresh journal history without opening the installation index, while li
 	}
 })
 
+it('archives an idle conversation for an app that does not ask for names, without an empty row', async () => {
+	writeFileSync(join(root, 'state', 'config.yaml'), 'archiveInactive: 7d\n')
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	const { state, sessionId } = await seeded()
+	try {
+		vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 8 * 24 * 60 * 60 * 1000)
+		// An older app reads every row as a conversation to draw, so it gets none for the swept one.
+		expect(await host['namzu/conversations/list']()).toEqual([])
+		expect(
+			(await host['namzu/conversations/archived']()).map((row: { id: string }) => row.id),
+		).toContain(sessionId)
+	} finally {
+		closeSessions(state)
+		await owner.close()
+	}
+})
+
 it('archives an idle conversation when it lists, and names it so the app drops its row', async () => {
 	writeFileSync(join(root, 'state', 'config.yaml'), 'archiveInactive: 7d\n')
 	const owner = runtime()
@@ -632,9 +651,9 @@ it('archives an idle conversation when it lists, and names it so the app drops i
 		expect(await host['namzu/conversations/list']()).toContainEqual(
 			expect.objectContaining({ id: sessionId, title: expect.any(String) }),
 		)
-		// Eight days on: archived, and listed only as a name with the mark.
+		// Eight days on: archived, and listed only as a name with the mark for an app that asks.
 		clock.mockReturnValue(now + 8 * 24 * 60 * 60 * 1000)
-		const rows = await host['namzu/conversations/list']()
+		const rows = await host['namzu/conversations/list']({ idleArchivedRows: true })
 		expect(rows).toEqual([{ id: sessionId, idleArchived: true }])
 		expect(
 			(await host['namzu/conversations/archived']()).map((row: { id: string }) => row.id),

@@ -164,8 +164,9 @@ never deletes a conversation and it never touches a worktree, so a worktree with
 disk. The terminal app has no sweep of its own: the setting is applied where the conversation list is drawn by
 the desktop app.
 
-The listing names each conversation it archived (an extra row `{ id, idleArchived: true }`), and the desktop
-app drops its row for it the way it drops one a person archived, including a row the window still held open;
+When the app asks for it (`idleArchivedRows: true` in the request), the listing names each conversation it
+archived (an extra row `{ id, idleArchived: true }`); an app that does not ask gets no such rows. The desktop
+app asks, and drops its row for it the way it drops one a person archived, including a row the window still held open;
 the conversation is then in the archive list and can be restored.
 
 ## Archived conversations

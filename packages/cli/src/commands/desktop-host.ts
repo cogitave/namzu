@@ -1375,7 +1375,7 @@ export function createDesktopHostExtensions(
 			const result = untrustDir(cwd)
 			return { cwd, ...result, trusted: isTrusted(cwd) }
 		},
-		'namzu/conversations/list': () =>
+		'namzu/conversations/list': (params: Record<string, unknown> = {}) =>
 			withState(async (state) => {
 				const currentPal = pal()
 				if (currentPal) return listPalConversations(cwd, currentPal.id)
@@ -1392,7 +1392,9 @@ export function createDesktopHostExtensions(
 				const kept = archived.length === 0 ? pool : pool.filter((row) => !archived.includes(row.id))
 				const rows = await conversationRows(state, kept.slice(0, 100))
 				// The app may still hold a row it drew earlier for a conversation just archived: naming it
-				// lets the app drop that row the way it drops one the person archived.
+				// lets the app drop that row the way it drops one the person archived. Only an app that asks
+				// for these names gets them; an older one would draw each as an empty row.
+				if (params?.idleArchivedRows !== true || archived.length === 0) return rows
 				return [...rows, ...archived.map((id) => ({ id, idleArchived: true as const }))]
 			}),
 		/**

@@ -2587,7 +2587,7 @@ export class Operator {
 		const assertCurrent = this.metadataRead(project)
 		const rows = (await project.client.request(
 			project.view.palId ? 'namzu/pals/conversations/list' : 'namzu/conversations/list',
-			project.view.palId ? { palId: project.view.palId } : {},
+			project.view.palId ? { palId: project.view.palId } : { idleArchivedRows: true },
 		)) as {
 			id: string
 			title: string
