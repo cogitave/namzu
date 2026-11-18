@@ -19,13 +19,36 @@ preferences. Desktop does not know the keys. The engine describes them and Deskt
 Each descriptor also carries a typed default, plain-worded choices and an apply time: see [The setting description](setting-description.md).
 
 `packages/cli/src/config/settings-descriptors.ts` holds one descriptor per setting: its path, label,
-one-line description, section, control (switch, choice, checkboxes, number, text, JSON, or file only),
+one-line description, section, control (switch, choice, checkboxes, number, text, one of the list and map controls below, JSON, or file only),
 default in words, and, for a risky one, the sentence the confirmation shows. The engine answers
 `namzu/config/get` with the list and the saved values, and `namzu/config/set` with a change.
 
 `desktop-settings.test.ts` fails when a top-level key the loader reads (`CONFIG_KEYS`, exported from
 `config/load.ts`) has neither a descriptor nor an entry in `SETTING_EXCLUSIONS` with a reason. A new key
 therefore cannot reach the loader without a decision about Desktop.
+
+## List and map controls
+
+A list or a small map is a typed control, not a box of JSON. Each kind has one way to be read from
+Desktop and from `namzu config set`, and one value it writes:
+
+| Kind | Row | What it writes |
+| --- | --- | --- |
+| `toggle-checks` | `tui.notifications`: a switch and three event checks | `false` for off; `true` when exactly *Turn finished* and *Approval needed* are ticked (what `true` means in the loader); otherwise the list of ticked events (`turn-settled`, `approval-required`, `idle-prompt`). Unticking the last event writes `false`. *Waiting for you* (`idle-prompt`) is a notice after a minute of quiet that Namzu is still waiting for your message. |
+| `key` | `tui.workspacesPrefix`: a pick | The key as the loader spells it, `ctrl+<letter>` or `ctrl+space`. The list (`PREFIX_KEYS`, from `workspaces/prefix.ts`) leaves out `ctrl+c`, `ctrl+d`, `ctrl+z` and the keys that are Tab, Enter, Backspace or Escape (and the other letters the prefix reader refuses). Default Ctrl+B. |
+| `levels` | `composerTriggers.builtin`: one Arm, Suggest or Off choice for each of `hypermode`, `workflow`, `save-skill`, `schedule`, `max-effort` | A map of the triggers that differ from their default (arm, arm, arm, suggest, off). Setting a trigger to its default removes its entry; the key goes when the map is empty. |
+| `screens` | `toolResultScreens`: a check for each screen the reader knows (`correspondence`, `injection`) and a list of tools the correspondence screen lets through | The list the reader takes: a screen as its name, or `{ name: correspondence, passthroughTools: [...] }` when tools are listed. Only the default (`correspondence`, no tools) removes the key; unticking every screen writes `[]` (screening off). Asks first when the new list drops the default screen. |
+| `checks` with `allLabel` | `telemetry.sessionExport.eventTypes`: a check for every event type the export can carry | The ticked event types. All ticked removes the key, because a missing key means every event, new ones too. None ticked writes `[]` and the row says "Nothing will be saved." The choices are `SESSION_EXPORT_EVENT_TYPES` (`integrations/telemetry/session-export.ts`), the kernel's own list. |
+| `toggle-list` | `telemetry.sessionExport.redactors`: one switch, *Hide secrets* | On writes `["secrets"]` (the default), off writes `[]` and asks first. `secrets` is the only redactor the engine installs by name. |
+| `list` | no row yet: words typed one per entry, each with Remove | A list of strings. A `picker` (`folder`) names a way to choose an entry other than typing it; a screen that does not know it keeps the typed entry. |
+
+The default of a row is its typed `default`: a map for `levels`, the list of ticked values for a list. A
+value that means the same as no key (every trigger at its default, every event ticked, the default
+screen alone) is written as no key, so the file keeps following the default. Every write still goes
+through the loader's own reader for the whole block, so a list Desktop sends is refused in the loader's
+words if the loader would refuse it. `confirmWhen: 'drops-default'` asks only when a list leaves out
+something the default holds; on a `toggle-list`, `confirmWhen: 'off'` asks when the switch goes to its
+`off` list.
 
 ## Sections
 

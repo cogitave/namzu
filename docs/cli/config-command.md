@@ -34,13 +34,42 @@ namzu config unset <key> [--yes]        (also: reset)
   when it applies, and the file. An unknown key says so and names the closest keys.
 - `set` reads the text by what the setting is: `on`/`off`/`true`/`false`; a number (a time takes `5m`,
   `90s`, `1h 30m`, a bare number is minutes; a size takes `200k` or `1m`); a choice by its value or its
-  plain label, in any case; a comma list; text as typed; JSON for a table. The value then goes through the
+  plain label, in any case; a comma list; text as typed; JSON for a table (see
+  [Lists and maps](#lists-and-maps)). The value then goes through the
   same checks as Desktop's write, so a value Desktop refuses is refused with the same sentence: more
   helpers at once than 16, `model: auto` without `routing.default`, a bad browser profile name, text where
   a number goes.
 - `unset` is Desktop's Use default: it removes the key from the user file.
 
 Only the user file is written, never a project file.
+
+## Lists and maps
+
+A setting that holds a list or a small map takes the same words as its Desktop control. `namzu config get`
+prints what it takes.
+
+```
+namzu config set tui.notifications on                       # turn-settled and approval-required
+namzu config set tui.notifications turn-settled,idle-prompt # only those events
+namzu config set tui.notifications off                      # false
+namzu config set tui.workspacesPrefix ctrl+g
+namzu config set composerTriggers.builtin hypermode=suggest,max-effort=arm
+namzu config set composerTriggers.builtin '{"schedule":"off"}'
+namzu config set toolResultScreens injection,correspondence
+namzu config set toolResultScreens '[{"name":"correspondence","passthroughTools":["web_search"]}]'
+namzu config set toolResultScreens none                     # screening off
+namzu config set telemetry.sessionExport.eventTypes turn_completed,message_added
+namzu config set telemetry.sessionExport.eventTypes all     # removes the key
+namzu config set telemetry.sessionExport.redactors off      # asks first
+```
+
+- A **list** is a comma list of values or labels, `none` for an empty one, or JSON. A switch with events
+  (`tui.notifications`) also takes `on` and `off`; a switch saved as a list (`redactors`) takes `on` and `off`.
+- A **map** (`composerTriggers.builtin`) is `entry=level` words, comma separated, or JSON. An entry set to its
+  default is left out of the file and the key goes when none is left, as in Desktop.
+- A value that means the same as no key (every event, the default screen alone) removes the key.
+- A key the loader refuses is refused in the loader's words: `tui.workspacesPrefix ctrl+c` says it must be
+  ctrl+ and a letter, or ctrl+space, not ctrl+c, ctrl+d, ctrl+z or the keys of Tab, Enter, Backspace and Escape.
 
 ## Settings that ask first
 
@@ -65,6 +94,8 @@ The retry hint a refused risky change prints quotes the value so it can be paste
 ## Keeping the terminal and Desktop alike
 
 Desktop's number box and this command read numbers with two copies of one parser
-(`desktop/src/renderer/config-settings-model.ts` and `cli/src/config/setting-values.ts`), because neither
+(`desktop/src/renderer/config-settings-model.ts` and `cli/src/config/setting-values.ts`), and the list and
+map controls choose the value to save with two copies of one set of functions
+(`desktop/src/shared/config-settings-values.ts` and the same file), because neither
 package can import the other. `config-settings-terminal-parity.test.ts` in Desktop feeds one table of
 inputs to both and fails when they differ.
