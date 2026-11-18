@@ -613,6 +613,42 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 
 	// Agent
 	{
+		id: 'standingInstructions',
+		owner: 'view',
+		section: 'agent',
+		label: 'Instructions',
+		description:
+			'Namzu keeps these in mind in every conversation, here and in the terminal app. Clear the box to remove them.',
+		control: panel,
+		appliesWhen: 'next-turn',
+		keywords: [
+			'standing instructions',
+			'custom instructions',
+			'global instructions',
+			'keep explanations brief',
+			'AGENTS.md',
+			'preferences',
+			'always',
+		],
+	},
+	{
+		id: 'savedMemory',
+		owner: 'view',
+		section: 'agent',
+		label: 'Your memory',
+		description: 'See, edit or delete what Namzu has saved for the open project.',
+		control: panel,
+		appliesWhen: 'now',
+		keywords: [
+			'manage memory',
+			'saved memory',
+			'memories',
+			'forget',
+			'delete memory',
+			'edit memory',
+		],
+	},
+	{
 		id: 'keep-awake-working',
 		key: 'keepAwakeWhileWorking',
 		owner: 'desktop',

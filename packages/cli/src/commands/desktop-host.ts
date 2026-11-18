@@ -87,6 +87,7 @@ import {
 import { readContextRequest } from './desktop-context.js'
 import { createProjectChanges } from './desktop-host-changes.js'
 import { type ProjectGitState, capMarkdown, createProjectGit } from './desktop-host-header.js'
+import { createMemoryHost } from './desktop-host-memory.js'
 import { projectPr } from './desktop-host-pr.js'
 import { LIMITS_REFRESH_METHOD, type LimitsFeed } from './desktop-limits-feed.js'
 import { type SavedTurnOutcome, savedTurnOutcome } from './desktop-outcome-feed.js'
@@ -1103,6 +1104,7 @@ export function createDesktopHostExtensions(
 		}
 	}
 	return {
+		...createMemoryHost(cwd, pal),
 		...(liveInputStatus && liveInput && publishedSessionCwd
 			? {
 					'namzu/conversations/input/status': async (params: Record<string, unknown>) => {

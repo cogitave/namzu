@@ -1597,6 +1597,18 @@ function register(): void {
 	handle('existingFolders', (paths: unknown) => existingFolders(paths))
 	handle('installedSkills', (projectId?: string) => operator.installedSkills(projectId))
 	handle('engineBrowser', () => operator.engineBrowser())
+	handle('standingInstructions', () => operator.standingInstructions())
+	handle('saveStandingInstructions', (text: unknown) => operator.saveStandingInstructions(text))
+	handle('savedMemories', (projectId: unknown) => operator.savedMemories(projectId))
+	handle('readSavedMemory', (projectId: unknown, id: unknown) =>
+		operator.readSavedMemory(projectId, id),
+	)
+	handle('updateSavedMemory', (projectId: unknown, change: unknown) =>
+		operator.updateSavedMemory(projectId, (change ?? {}) as Record<string, unknown>),
+	)
+	handle('deleteSavedMemory', (projectId: unknown, change: unknown) =>
+		operator.deleteSavedMemory(projectId, (change ?? {}) as Record<string, unknown>),
+	)
 	handle('userMcpServers', () => userMcpServers.read())
 	handle('userMcpServer', (name: unknown) => userMcpServers.readOne(name))
 	handleWindow('saveUserMcpServer', ({ id }, change: unknown, token: unknown) =>

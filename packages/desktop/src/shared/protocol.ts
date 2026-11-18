@@ -35,6 +35,12 @@ import type {
 } from './engine-update-protocol.js'
 import type { HooksReport } from './hooks-report.js'
 import type { LimitsNotification } from './limits-protocol.js'
+import type {
+	SavedMemoriesView,
+	SavedMemoryDetail,
+	SavedMemoryOutcome,
+	StandingInstructionsView,
+} from './memory-protocol.js'
 import type { OutcomeNotice } from './outcome-protocol.js'
 import type {
 	PalCommunicationView,
@@ -1047,6 +1053,23 @@ export interface DesktopApi {
 	installedSkills?(projectId?: string): Promise<InstalledSkillsView | null>
 	/** Which browser the engine would drive on this computer, read without launching it; null where the engine cannot say. */
 	engineBrowser?(): Promise<EngineBrowserView | null>
+	/** The person's own instructions every conversation starts from; null where the engine cannot say. */
+	standingInstructions?(): Promise<StandingInstructionsView | null>
+	/** Saves them; empty text removes them. */
+	saveStandingInstructions?(text: string): Promise<StandingInstructionsView>
+	/** The memories saved for a project; null where the engine cannot show them. */
+	savedMemories?(projectId: string): Promise<SavedMemoriesView | null>
+	readSavedMemory?(projectId: string, id: string): Promise<SavedMemoryDetail>
+	/** Changes one memory, naming the version that was shown; 'changed' means it moved on since. */
+	updateSavedMemory?(
+		projectId: string,
+		change: { id: string; revision: string; text: string; title?: string },
+	): Promise<SavedMemoryOutcome>
+	/** Deletes one memory for good, naming the version that was shown. */
+	deleteSavedMemory?(
+		projectId: string,
+		change: { id: string; revision: string },
+	): Promise<SavedMemoryOutcome>
 	/** The tool servers in the person's own config file, as the Settings form edits them. */
 	userMcpServers?(): Promise<UserMcpServersView>
 	/** One tool server whole, for its edit form; the list carries no arguments or address path. */

@@ -104,6 +104,16 @@
     "hooksView": [
       "namzu/hooks/list"
     ],
+    "standingInstructions": [
+      "namzu/instructions/get",
+      "namzu/instructions/set"
+    ],
+    "savedMemory": [
+      "namzu/memory/list",
+      "namzu/memory/read",
+      "namzu/memory/update",
+      "namzu/memory/delete"
+    ],
     "contextPanel": [
       "namzu/session/context"
     ],

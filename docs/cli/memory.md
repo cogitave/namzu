@@ -279,6 +279,11 @@ and are never listed or deleted here; `/memory show` still prints them with
 their paths. A note that begins with the word `delete` is saved with
 `/memory add delete ...`.
 
+Desktop shows the same list: Settings, Agent, Memory, **Your memory**, Manage (see
+[Rows over files, not keys](desktop-settings.md#rows-over-files-not-keys)). It adds editing a
+memory's title and text, refused with a sentence when the memory changed since it was opened, and a delete that
+asks first.
+
 ### Memory that names files
 
 A memory such as "the cache lives in `src/cache.ts`" goes stale silently when the

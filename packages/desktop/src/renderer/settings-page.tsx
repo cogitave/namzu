@@ -72,6 +72,7 @@ import {
 import { LocalListeningSettingsContent } from './local-listening-settings.js'
 import { LocalSpeechSettingsContent } from './local-speech-settings.js'
 import { McpServersRows } from './mcp-servers-section.js'
+import { MemoryRows } from './memory-section.js'
 import { ModelsSection } from './models-section.js'
 import { middleEllipsis, tildePath } from './path-display.js'
 import { SettingsConfirmDialog } from './settings-confirm-dialog.js'
@@ -107,6 +108,7 @@ import { useHooksView } from './use-hooks-view.js'
 import type { LocalListeningControls } from './use-local-listening.js'
 import type { LocalSpeechControls } from './use-local-speech.js'
 import { useMcpServers } from './use-mcp-servers.js'
+import { useSavedMemories, useStandingInstructions } from './use-memory-controls.js'
 import { useOsState } from './use-os-state.js'
 import { useProviderConnections } from './use-provider-connections.js'
 import { useStorageUsage, useTrustedFolders } from './use-storage-views.js'
@@ -588,7 +590,8 @@ function SectionBody(props: SectionProps) {
 			{props.section === 'updates' && <UpdatesSection {...props} />}
 			{props.section === 'desktop' && <DesktopSection {...props} />}
 			{props.section === 'terminal' && <TerminalSettings {...props} />}
-			{ENGINE_ROW_SECTIONS.includes(props.section) && (
+			{props.section === 'agent' && <AgentRows {...props} />}
+			{props.section !== 'agent' && ENGINE_ROW_SECTIONS.includes(props.section) && (
 				<ConfigSettingsGroup
 					section={props.section}
 					config={props.config}
@@ -600,11 +603,6 @@ function SectionBody(props: SectionProps) {
 									title: 'Built-in browser',
 									rows: <BuiltInBrowserRows {...props} />,
 								}
-							: undefined
-					}
-					lead={
-						props.section === 'agent'
-							? { heading: 'While Namzu works', rows: <AgentSleepRows {...props} /> }
 							: undefined
 					}
 					fallbackHeading={
@@ -703,6 +701,42 @@ function HooksContainer({ engineTarget, projects, config }: SectionProps) {
 			hooks={hooks}
 			config={config}
 			projectName={projects.find((project) => project.id === projectId)?.name}
+		/>
+	)
+}
+
+/** Agent: the engine's rows, with the app's own sleep rows and the memory rows drawn under their headings. */
+function AgentRows(props: SectionProps) {
+	const { engineTarget, projects, config } = props
+	const bridge = typeof window === 'undefined' ? undefined : window.namzu
+	const projectId = engineTarget?.projectId
+	const [open, setOpen] = useState(false)
+	const instructions = useStandingInstructions(bridge)
+	const memory = useSavedMemories(bridge, projectId, open)
+	// The Memory heading is drawn only when there is a row to put under it.
+	const memoryRows = instructions.supported || memory.supported
+	return (
+		<ConfigSettingsGroup
+			section="agent"
+			config={config}
+			lead={[
+				{ heading: 'While Namzu works', rows: <AgentSleepRows {...props} /> },
+				...(memoryRows
+					? [
+							{
+								heading: 'Memory',
+								rows: (
+									<MemoryRows
+										instructions={instructions}
+										memory={{ ...memory, open, setOpen }}
+										hasProject={projectId !== undefined}
+										projectName={projects.find((project) => project.id === projectId)?.name}
+									/>
+								),
+							},
+						]
+					: []),
+			]}
 		/>
 	)
 }

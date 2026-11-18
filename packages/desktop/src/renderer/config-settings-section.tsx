@@ -44,6 +44,11 @@ import { Row, Switch } from './settings-row.js'
 import { Button } from './ui/button.js'
 import type { ConfigSettingsControls } from './use-config-settings.js'
 
+interface LeadRows {
+	heading: string
+	rows: ReactNode
+}
+
 /** Every engine setting that belongs to `section`, drawn from the engine's own description. */
 export function ConfigSettingsGroup({
 	section,
@@ -69,7 +74,7 @@ export function ConfigSettingsGroup({
 	 * Rows the app draws itself that belong under one of the engine's own headings: they are drawn
 	 * first under it, so the heading is said once. Without such a heading they get their own.
 	 */
-	lead?: { heading: string; rows: ReactNode }
+	lead?: LeadRows | readonly LeadRows[]
 	/**
 	 * Rows the app draws itself that belong with one of the engine's headings but under a heading of
 	 * their own: drawn right after the engine's rows of `heading`, or first when it names none.
@@ -80,7 +85,8 @@ export function ConfigSettingsGroup({
 		(descriptor) => !omit?.includes(descriptor.path),
 	)
 	const runs = config.view && rows.length > 0 ? configRowRuns(rows) : []
-	const joins = lead !== undefined && runs.some((run) => run.heading === lead.heading)
+	const leads: readonly LeadRows[] = lead === undefined ? [] : 'heading' in lead ? [lead] : lead
+	const unjoined = leads.filter((item) => !runs.some((run) => run.heading === item.heading))
 	// The app's own rows are drawn at once when there is no engine heading of that name to join.
 	const afterFits = after !== undefined && runs.some((run) => run.heading === after.heading)
 	const afterRows = after ? (
@@ -90,14 +96,14 @@ export function ConfigSettingsGroup({
 		</>
 	) : null
 	const own =
-		(lead && !joins) || (after && !afterFits) ? (
+		unjoined.length > 0 || (after && !afterFits) ? (
 			<>
-				{lead && !joins && (
-					<>
-						<h2 className="settings-section-title">{lead.heading}</h2>
-						{lead.rows}
-					</>
-				)}
+				{unjoined.map((item) => (
+					<Fragment key={item.heading}>
+						<h2 className="settings-section-title">{item.heading}</h2>
+						{item.rows}
+					</Fragment>
+				))}
 				{after && !afterFits && afterRows}
 			</>
 		) : null
@@ -140,7 +146,10 @@ export function ConfigSettingsGroup({
 				return (
 					<Fragment key={title ?? ''}>
 						{title && <h2 className="settings-section-title">{title}</h2>}
-						{lead && joins && run.heading === lead.heading && lead.rows}
+						{leads.map(
+							(item) =>
+								run.heading === item.heading && <Fragment key={item.heading}>{item.rows}</Fragment>,
+						)}
 						{run.rows.map((descriptor) => (
 							<ConfigRow
 								key={descriptor.path}

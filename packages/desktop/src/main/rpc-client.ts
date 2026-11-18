@@ -118,6 +118,14 @@ export class RuntimeClient extends EventEmitter {
 	supportsHooksView(): boolean {
 		return this.hooksView
 	}
+	private standingInstructions = false
+	supportsStandingInstructions(): boolean {
+		return this.standingInstructions
+	}
+	private savedMemory = false
+	supportsSavedMemory(): boolean {
+		return this.savedMemory
+	}
 	private contextPanel = false
 	/** A host that predates the context panel does not list `namzu/session/context`. */
 	supportsContextPanel(): boolean {
@@ -378,6 +386,8 @@ export class RuntimeClient extends EventEmitter {
 		this.skillsList = offers('skillsList')
 		this.browserStatus = offers('browserStatus')
 		this.hooksView = offers('hooksView')
+		this.standingInstructions = offers('standingInstructions')
+		this.savedMemory = offers('savedMemory')
 		this.contextPanel = offers('contextPanel')
 		this.conversationSearch = offers('conversationSearch')
 		this.projectUntrust = offers('projectUntrust')

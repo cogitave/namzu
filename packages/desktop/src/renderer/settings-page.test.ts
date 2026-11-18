@@ -379,8 +379,9 @@ describe('the settings page', () => {
 		const sections = new Map<string, string>()
 		for (const entry of drawn) {
 			if (!sections.has(entry.section)) sections.set(entry.section, page(entry.section))
-			// Three panels draw their rows from a live connection, which a static render has none of.
-			if (['models', 'runHooks', 'hooks'].includes(entry.id)) continue
+			// Some panels draw their rows from a live connection, which a static render has none of.
+			if (['models', 'runHooks', 'hooks', 'standingInstructions', 'savedMemory'].includes(entry.id))
+				continue
 			expect(sections.get(entry.section), `${entry.id} in ${entry.section}`).toContain(
 				`id="setting-${entry.id}"`,
 			)

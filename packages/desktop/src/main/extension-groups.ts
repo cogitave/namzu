@@ -38,6 +38,13 @@ export const OPTIONAL_EXTENSION_GROUPS = {
 	skillsList: ['namzu/skills/list'],
 	browserStatus: ['namzu/browser/status'],
 	hooksView: ['namzu/hooks/list'],
+	standingInstructions: ['namzu/instructions/get', 'namzu/instructions/set'],
+	savedMemory: [
+		'namzu/memory/list',
+		'namzu/memory/read',
+		'namzu/memory/update',
+		'namzu/memory/delete',
+	],
 	contextPanel: [CONTEXT_REQUEST],
 	conversationSearch: ['namzu/conversations/search'],
 	projectUntrust: ['namzu/project/untrust'],

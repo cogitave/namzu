@@ -49,6 +49,16 @@ import {
 	type LimitsNotification,
 	readLimitsNotice,
 } from '../shared/limits-protocol.js'
+import {
+	type SavedMemoriesView,
+	type SavedMemoryDetail,
+	type SavedMemoryOutcome,
+	type StandingInstructionsView,
+	readSavedMemories,
+	readSavedMemoryDetail,
+	readSavedMemoryOutcome,
+	readStandingInstructions,
+} from '../shared/memory-protocol.js'
 import { OUTCOME_NOTIFICATION, readOutcomeNotice } from '../shared/outcome-protocol.js'
 import { mayOpenWithSystem } from '../shared/output-files.js'
 import type {
@@ -1173,6 +1183,65 @@ export class Operator {
 		if (project && !project.view.palId && this.projects.get(project.view.id) !== project)
 			return null
 		return readInstalledSkills(result)
+	}
+	private async instructionsHost(): Promise<RuntimeClient> {
+		const client = await this.registry(false)
+		if (!client.supportsStandingInstructions())
+			throw new Error('Update Namzu to a version that can change standing instructions here.')
+		return client
+	}
+	/** The person's own instructions every conversation starts from; null where the engine cannot say. */
+	async standingInstructions(): Promise<StandingInstructionsView | null> {
+		const client = await this.registry(false)
+		if (!client.supportsStandingInstructions()) return null
+		return readStandingInstructions(await client.request('namzu/instructions/get', {}))
+	}
+	async saveStandingInstructions(text: unknown): Promise<StandingInstructionsView> {
+		if (typeof text !== 'string' || text.length > 100_000) throw new Error('Invalid text.')
+		const client = await this.instructionsHost()
+		return readStandingInstructions(await client.request('namzu/instructions/set', { text }))
+	}
+	/** The engine that serves one project's folder, when it can show saved memory. */
+	private memoryHost(projectId: unknown): RuntimeClient | undefined {
+		const project = this.project(projectId)
+		if (project.view.palId || !project.client.supportsSavedMemory()) return undefined
+		return project.client
+	}
+	/** The memories saved for a project; null where the engine cannot show them. */
+	async savedMemories(projectId: unknown): Promise<SavedMemoriesView | null> {
+		const client = this.memoryHost(projectId)
+		if (!client) return null
+		return readSavedMemories(await client.request('namzu/memory/list', {}))
+	}
+	async readSavedMemory(projectId: unknown, id: unknown): Promise<SavedMemoryDetail> {
+		const client = this.memoryHost(projectId)
+		if (!client || typeof id !== 'string') throw new Error('This memory cannot be read here.')
+		return readSavedMemoryDetail(await client.request('namzu/memory/read', { id }))
+	}
+	async updateSavedMemory(
+		projectId: unknown,
+		change: { id?: unknown; revision?: unknown; text?: unknown; title?: unknown },
+	): Promise<SavedMemoryOutcome> {
+		const client = this.memoryHost(projectId)
+		if (!client) throw new Error('This memory cannot be changed here.')
+		return readSavedMemoryOutcome(
+			await client.request('namzu/memory/update', {
+				id: change.id,
+				revision: change.revision,
+				text: change.text,
+				...(change.title === undefined ? {} : { title: change.title }),
+			}),
+		)
+	}
+	async deleteSavedMemory(
+		projectId: unknown,
+		change: { id?: unknown; revision?: unknown },
+	): Promise<SavedMemoryOutcome> {
+		const client = this.memoryHost(projectId)
+		if (!client) throw new Error('This memory cannot be deleted here.')
+		return readSavedMemoryOutcome(
+			await client.request('namzu/memory/delete', { id: change.id, revision: change.revision }),
+		)
 	}
 	/** Which browser the engine would drive on this computer; null where the engine does not know the question. */
 	async engineBrowser(): Promise<EngineBrowserView | null> {
