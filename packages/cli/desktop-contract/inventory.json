@@ -89,6 +89,14 @@
       "namzu/mcp/servers",
       "namzu/mcp/approve"
     ],
+    "userMcpServers": [
+      "namzu/mcp/user-servers",
+      "namzu/mcp/save-user-server",
+      "namzu/mcp/remove-user-server"
+    ],
+    "skillsList": [
+      "namzu/skills/list"
+    ],
     "hooksView": [
       "namzu/hooks/list"
     ],

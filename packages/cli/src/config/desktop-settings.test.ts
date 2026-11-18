@@ -127,7 +127,7 @@ describe('writing a Desktop setting', () => {
 
 	it('shows the loader sentence for a block it rejects', () => {
 		expect(() => writeSetting({ path: 'routing', value: '"nonsense"' }, opts())).toThrow(/routing/)
-		expect(() => writeSetting({ path: 'skills.disabled', value: '{bad' }, opts())).toThrow(
+		expect(() => writeSetting({ path: 'permissionChecks', value: '{bad' }, opts())).toThrow(
 			/not valid JSON/,
 		)
 	})

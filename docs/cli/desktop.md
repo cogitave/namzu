@@ -969,7 +969,7 @@ fieldsets, the section list is a `nav`, and the dialog works at the 560px minimu
 Screenshots of every section in both themes, narrow, the search, and both removal
 surfaces are in [`research/settings-20261008/`](../../research/settings-20261008/) (taken when Settings was a page).
 
-Rows that hold a list or a small map are typed controls rather than JSON boxes (notification events, the workspaces key, each composer trigger, tool-result screens, the events and the secret-hiding of a saved conversation file; see [Desktop settings for config keys](desktop-settings.md#list-and-map-controls)). Sections `agent`, `tools` and `telemetry`, the engine rows under the app's own in `terminal` and `updates`, and a **Namzu settings** group in General, Models and Projects hold the keys of the user config file, drawn from the engine's own list; see [Desktop settings for config keys](desktop-settings.md).
+Rows that hold a list or a small map are typed controls rather than JSON boxes (notification events, the workspaces key, each composer trigger, tool-result screens, the events and the secret-hiding of a saved conversation file, the extra folders with the system folder picker, and the turned-off skills as a switch for each installed skill; see [Desktop settings for config keys](desktop-settings.md#list-and-map-controls)). Sections `agent`, `tools` and `telemetry`, the engine rows under the app's own in `terminal` and `updates`, and a **Namzu settings** group in General, Models and Projects hold the keys of the user config file, drawn from the engine's own list; see [Desktop settings for config keys](desktop-settings.md).
 
 **The section map.** A row sits where its effect is. The nav has four groups: Models; General, Appearance, Speech; Agent, Tools, Projects, Terminal; Desktop app, Telemetry, Updates, About. Where the app and the engine both have rows in a section, the app's come first, then the engine's under a heading the engine names (`group` and `groupLabel` on the descriptor):
 
@@ -4964,12 +4964,30 @@ project's name is in the line under the heading). Each row shows the server's na
 state: Connected, Waiting for your approval, Failed (with the engine's reason) or Not connected right now (no open conversation in the project holds it: none
 has started, or the ones that did are closed). The list is read again when the window regains focus, and a list
 read for one project is never shown under another project's name. A failure is remembered with the server's settings
-as they were; once those settings change it is no longer shown. The list is read-only. When servers from `.mcp.json` wait, a box above the list
+as they were; once those settings change it is no longer shown. The servers in the person's own settings (the user config file) can be changed here, the project's cannot. When servers from `.mcp.json` wait, a box above the list
 says they have not started and that approving lets them run the listed programs, with one button, **Approve this
 server** or **Approve these N servers**. It sends the names and fingerprints it was shown to `namzu/mcp/approve`,
 the same record `namzu mcp approve` writes, and reads the list again. The engine takes a project's servers instead of the
 user's whole table once the project has any approved, so the list shows what would start. A folder nobody
 trusted shows nothing; a `.mcp.json` that cannot be read shows its error. The old "Not set" row for this setting is gone.
+
+**Add, change and remove.** A server that the user file holds shows **Edit** and **Remove** on its line, and **Add server**
+sits under the list (with no project open the row lists the user file's own servers and the same buttons). The form asks
+for a name (letters, digits, `_` and `-`, starting with a letter, up to 64: the rule `namzu mcp add` applies), then either a
+program to run (a command and its arguments, one per line) or a web address (http or https, no user name or password in it,
+and a query only on https or this computer). The name is fixed while editing. The row says "Variables and headers are
+edited in the file" with the config file's path: an entry's `env`, `inheritEnv`, `headers`, `cwd` and every other field are
+never read into the window and are kept exactly as written on an edit (the edit sets only `command` and `args`, or only `url`,
+in one write that keeps the file's comments and order; switching between a command and an address drops only the other
+kind's command, arguments or address). Adding a command, or editing one so the command or its arguments change, asks
+first ("This server starts &lt;command&gt; when a conversation starts."): main answers the save with a one-time
+token bound to the window and the exact change and saves only when that change returns with it, after the engine has
+checked the change without writing it (`dryRun`). An address, or an edit that leaves the command as it is, asks nothing.
+Remove asks one inline question and drops the whole entry, variables included. An entry that is neither a command nor an
+address can be removed here and edited in the file. The host methods are the optional group `userMcpServers`:
+`namzu/mcp/user-servers` (the user file's servers as the form edits them, never variables or headers),
+`namzu/mcp/save-user-server` (`mode` add or edit, `name`, then `command` and `args` or `url`, and `dryRun`) and
+`namzu/mcp/remove-user-server`; each refuses a Pal. A host without them shows the list with no buttons.
 
 ### Hooks in Settings and the trust dialog
 

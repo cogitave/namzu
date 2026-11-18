@@ -40,15 +40,21 @@ Desktop and from `namzu config set`, and one value it writes:
 | `screens` | `toolResultScreens`: a check for each screen the reader knows (`correspondence`, `injection`) and a list of tools the correspondence screen lets through | The list the reader takes: a screen as its name, or `{ name: correspondence, passthroughTools: [...] }` when tools are listed. Only the default (`correspondence`, no tools) removes the key; unticking every screen writes `[]` (screening off). Asks first when the new list drops the default screen. |
 | `checks` with `allLabel` | `telemetry.sessionExport.eventTypes`: a check for every event type the export can carry | The ticked event types. All ticked removes the key, because a missing key means every event, new ones too. None ticked writes `[]` and the row says "Nothing will be saved." The choices are `SESSION_EXPORT_EVENT_TYPES` (`integrations/telemetry/session-export.ts`), the kernel's own list. |
 | `toggle-list` | `telemetry.sessionExport.redactors`: one switch, *Hide secrets* | On writes `["secrets"]` (the default), off writes `[]` and asks first. `secrets` is the only redactor the engine installs by name. |
-| `list` | no row yet: words typed one per entry, each with Remove | A list of strings. A `picker` (`folder`) names a way to choose an entry other than typing it; a screen that does not know it keeps the typed entry. |
+| `list` with `picker: folder` | `additionalDirectories` (Projects, *Extra folders*): one folder per line with Remove, and **Add folder**, which opens the system folder picker | The list of paths, as picked or typed. An empty list removes the key (none is the default). A folder that is not there is flagged on its line (`existingFolders` in the main process answers which of the listed absolute paths are folders; a relative path cannot be told from there and is not flagged). Asks only when a folder is added, never when one is removed. |
+| `list` with `source: skills` | `skills.disabled` (Agent, *Turned-off skills*): every installed skill with a switch | The names of the skills switched off. Off adds the name, on takes it out, an empty list removes the key. The skills come from the engine's own discovery (`namzu/skills/list`): built-in, `~/.agents/skills`, `~/.namzu/skills` and, for a trusted project, the project's tiers; one entry per name, with its tier in words. A name in the file that no installed skill has stays listed with a note and Remove. A host without the method keeps a typed list. |
+
+`mcpServers` (Tools, *Tool servers*) is not a control of its own: the page draws a row for it, see
+[Tool servers in Settings](desktop.md#tool-servers-in-settings). A `list` without a `picker` or `source` is words
+typed one per entry, each with Remove, saved as a list of strings.
 
 The default of a row is its typed `default`: a map for `levels`, the list of ticked values for a list. A
 value that means the same as no key (every trigger at its default, every event ticked, the default
 screen alone) is written as no key, so the file keeps following the default. Every write still goes
 through the loader's own reader for the whole block, so a list Desktop sends is refused in the loader's
 words if the loader would refuse it. `confirmWhen: 'drops-default'` asks only when a list leaves out
-something the default holds; on a `toggle-list`, `confirmWhen: 'off'` asks when the switch goes to its
-`off` list.
+something the default holds; `confirmWhen: 'widens'` asks only when a list holds an entry the list in
+force lacks (adding a folder asks, removing one does not); on a `toggle-list`, `confirmWhen: 'off'` asks
+when the switch goes to its `off` list.
 
 ## Sections
 
@@ -91,8 +97,10 @@ Search finds every one, and a hit lands in the section that draws the row.
 ## What is never shown
 
 `mcpServers`, `hooks`, `decision`, `statusLine`, `profiles` and `telemetry.otlp.headers` hold commands or
-secrets. Their control is file only: Desktop says **Set in your config file** or **Not set** and never reads
-the value out or writes it. Provider keys keep their own masked flow under Models.
+secrets. Their control is file only: `namzu config` and the generic Desktop row say **Set in your config file**
+or **Not set** and never read the value out or write it. The one exception is the Tool servers row, which adds,
+changes and removes a server's command or address through its own methods and never reads or shows a server's
+variables or headers. Provider keys keep their own masked flow under Models.
 
 ## Not exposed
 

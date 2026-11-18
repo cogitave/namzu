@@ -200,6 +200,7 @@ function asksWhenWords(entry: SettingDescriptor): string {
 	if (entry.confirmValues !== undefined) return `when set to ${entry.confirmValues.join(' or ')}`
 	if (entry.confirmValue !== undefined) return `when set to ${entry.confirmValue}`
 	if (entry.confirmWhen === 'zero') return 'when set to 0'
+	if (entry.confirmWhen === 'widens') return 'when an entry is added'
 	if (entry.confirmWhen === 'on' || entry.confirmWhen === 'off')
 		return `when turned ${entry.confirmWhen}`
 	return 'on any change'
@@ -334,7 +335,7 @@ export function renderSetting(row: SettingRow, file: string): string {
 		lines.push('Screens:')
 		lines.push(...optionLines(control.options))
 	} else if (control.kind === 'list')
-		lines.push(`Takes:    a JSON list or comma separated ${control.itemLabel}s`)
+		lines.push(`Takes:    ${control.itemLabel}s, comma separated, none, or a JSON list`)
 	else if (control.kind === 'json') lines.push(`Takes:    JSON, such as ${control.example}`)
 	else if (control.kind === 'text') lines.push('Takes:    text')
 	else lines.push('Takes:    nothing here; edit this one in the config file')
@@ -480,6 +481,9 @@ export function parseSettingText(
 		case 'list': {
 			const asJson = jsonOrNothing(text)
 			if (asJson) return asJson
+			// `none` is an empty list; an entry that is itself called none is written as JSON.
+			const trimmed = text.trim().toLowerCase()
+			if (trimmed === '' || trimmed === 'none') return { value: [] }
 			return { value: words(text) }
 		}
 		case 'text':
@@ -553,7 +557,9 @@ export function planSettingChange(
 			? state?.set !== true
 			: state?.set === true && sameValue(state.value, comparable)
 	const asks =
-		!unchanged && needsConfirmation(entry, value) ? describeChange(key).confirm : undefined
+		!unchanged && needsConfirmation(entry, value, state?.set ? state.value : entry.default)
+			? describeChange(key).confirm
+			: undefined
 	return {
 		ok: true,
 		entry,

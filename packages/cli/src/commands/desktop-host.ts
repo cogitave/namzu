@@ -13,7 +13,14 @@ import {
 	isEntityId,
 } from '@namzu/sdk'
 import { checkSetting, readSettings, writeSetting } from '../config/desktop-settings.js'
+import { userConfigPath } from '../config/user-config.js'
 import { approveListedMcpServers, listMcpServers } from '../integrations/mcp/server-listing.js'
+import {
+	checkUserMcpServerSave,
+	readUserMcpServerForms,
+	removeUserMcpServer,
+	saveUserMcpServer,
+} from '../integrations/mcp/user-config.js'
 import {
 	type CliSessionScope,
 	archiveConversation,
@@ -111,6 +118,11 @@ export function searchHitExcerpt(
 			? `Found in what “${hit.toolName}” returned`
 			: 'Found in what a tool returned'
 	return searchExcerpt(hit.excerpt, query)
+}
+
+/** The user file's tool servers as the Settings form reads them: the file and the entries, no secrets. */
+function userServersAnswer() {
+	return { file: userConfigPath(), servers: readUserMcpServerForms() }
 }
 
 function text(params: Record<string, unknown>, key: string, max = 400): string {
@@ -1690,6 +1702,73 @@ export function createDesktopHostExtensions(
 				cwd,
 				live: runtime.mcpStatus?.(cwd) ?? { connected: [], failed: [] },
 			})
+		},
+		/** The skills this folder's engine finds, names and tiers only; reads files, runs nothing. */
+		'namzu/skills/list': async (params: Record<string, unknown> = {}) => {
+			if (
+				!params ||
+				typeof params !== 'object' ||
+				Array.isArray(params) ||
+				Object.keys(params).length > 0
+			)
+				throw new Error('Invalid skills request.')
+			const { listInstalledSkills } = await import('../skills/installed-list.js')
+			return { skills: listInstalledSkills({ cwd, includeProject: isTrusted(cwd) && !pal() }) }
+		},
+		/** The tool servers in the user's own config file, as the Settings form edits them. */
+		'namzu/mcp/user-servers': async (params: Record<string, unknown> = {}) => {
+			if (
+				!params ||
+				typeof params !== 'object' ||
+				Array.isArray(params) ||
+				Object.keys(params).length > 0
+			)
+				throw new Error('Invalid tool servers request.')
+			if (pal()) throw new Error('Pals do not read the host settings.')
+			return userServersAnswer()
+		},
+		/** Adds a server to the user's file, or changes the command or address of one in it. */
+		'namzu/mcp/save-user-server': async (params: Record<string, unknown>) => {
+			if (pal()) throw new Error('Pals do not change the host settings.')
+			if (
+				!params ||
+				typeof params !== 'object' ||
+				Object.keys(params).some(
+					(key) => !['mode', 'name', 'command', 'args', 'url', 'dryRun'].includes(key),
+				)
+			)
+				throw new Error('Saving a tool server names only the server and what it runs or reaches.')
+			if (params.mode !== 'add' && params.mode !== 'edit')
+				throw new Error('Choose to add or to edit a tool server.')
+			const args = params.args
+			if (
+				args !== undefined &&
+				(!Array.isArray(args) || args.length > 200 || args.some((arg) => typeof arg !== 'string'))
+			)
+				throw new Error('The arguments are a list of words.')
+			if (params.dryRun !== undefined && typeof params.dryRun !== 'boolean')
+				throw new Error('dryRun is true or false.')
+			const input = {
+				...(typeof params.command === 'string' ? { command: params.command } : {}),
+				...(args ? { args: args as string[] } : {}),
+				...(typeof params.url === 'string' ? { url: params.url } : {}),
+			}
+			const name = text(params, 'name', 64)
+			// A dry run says whether the change would be taken, and writes nothing.
+			if (params.dryRun === true) checkUserMcpServerSave(params.mode, name, input)
+			else saveUserMcpServer(params.mode, name, input)
+			return userServersAnswer()
+		},
+		'namzu/mcp/remove-user-server': async (params: Record<string, unknown>) => {
+			if (pal()) throw new Error('Pals do not change the host settings.')
+			if (
+				!params ||
+				typeof params !== 'object' ||
+				Object.keys(params).some((key) => key !== 'name')
+			)
+				throw new Error('Removing a tool server names only the server.')
+			removeUserMcpServer(text(params, 'name', 64))
+			return userServersAnswer()
 		},
 		/**
 		 * What runs by itself in this folder: every hook from the config files, plugins, skills and

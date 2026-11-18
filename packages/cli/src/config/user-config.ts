@@ -74,6 +74,31 @@ export function setUserConfigValue(
 	return file
 }
 
+/**
+ * Change the user config as one document: `change` edits it in place (set and delete paths, as a
+ * YAML document keeps comments and order) and the result is written once, so an edit that touches
+ * several keys is never left half done. A file that does not parse is refused, not rewritten.
+ */
+export function editUserConfigDocument(
+	change: (doc: Document) => void,
+	opts: UserConfigWriteOptions = {},
+): string {
+	const file = userConfigPath(opts)
+	const text = existsSync(file) ? readFileSync(file, 'utf8') : ''
+	const doc = text.trim().length > 0 ? parseDocument(text) : new Document({})
+	if (doc.errors.length > 0) {
+		throw new Error(
+			`${file} is not valid YAML (${doc.errors[0]?.message ?? 'parse error'}); fix it first`,
+		)
+	}
+	if (doc.contents !== null && !isMap(doc.contents)) {
+		throw new Error(`${file} is not a mapping of settings; fix it first`)
+	}
+	change(doc)
+	writePrivateUserConfig(file, doc)
+	return file
+}
+
 /** Remove one user-owned setting while preserving the rest of the YAML document. */
 export function deleteUserConfigValue(
 	path: readonly string[],

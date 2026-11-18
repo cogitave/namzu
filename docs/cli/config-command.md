@@ -61,12 +61,19 @@ namzu config set toolResultScreens none                     # screening off
 namzu config set telemetry.sessionExport.eventTypes turn_completed,message_added
 namzu config set telemetry.sessionExport.eventTypes all     # removes the key
 namzu config set telemetry.sessionExport.redactors off      # asks first
+namzu config set additionalDirectories /data/a,/data/b      # asks when a folder is added
+namzu config set additionalDirectories none                 # removes the key
+namzu config set skills.disabled review-changes,browser-automation
+namzu config set skills.disabled '["a-skill-called-none"]'
 ```
 
-- A **list** is a comma list of values or labels, `none` for an empty one, or JSON. A switch with events
+- A **list** is a comma list of values or labels, `none` for an empty one (a folder or a skill that is itself
+  called `none` is written as JSON), or JSON. An empty list for a setting whose default is none (`additionalDirectories`,
+  `skills.disabled`) removes the key. A switch with events
   (`tui.notifications`) also takes `on` and `off`; a switch saved as a list (`redactors`) takes `on` and `off`.
 - A **map** (`composerTriggers.builtin`) is `entry=level` words, comma separated, or JSON. An entry set to its
   default is left out of the file and the key goes when none is left, as in Desktop.
+- `mcpServers` stays a file-only setting here; `namzu mcp add|remove` changes the user file's servers.
 - A value that means the same as no key (every event, the default screen alone) removes the key.
 - A key the loader refuses is refused in the loader's words: `tui.workspacesPrefix ctrl+c` says it must be
   ctrl+ and a letter, or ctrl+space, not ctrl+c, ctrl+d, ctrl+z or the keys of Tab, Enter, Backspace and Escape.

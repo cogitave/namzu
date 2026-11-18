@@ -140,13 +140,16 @@ export type SettingControl =
 	  }
 	/**
 	 * A list of words typed one per entry, saved as a list of strings. `picker` names a way to choose
-	 * an entry other than typing it; a screen that does not know it keeps the typed entry.
+	 * an entry other than typing it; a screen that does not know it keeps the typed entry. `source`
+	 * names the engine's own list the entries are offered from (the installed skills, each with a
+	 * switch); a screen or a terminal that does not know it keeps the typed entries.
 	 */
 	| {
 			readonly kind: 'list'
 			readonly itemLabel: string
 			readonly placeholder?: string
 			readonly picker?: 'folder'
+			readonly source?: 'skills'
 	  }
 	| {
 			readonly kind: 'number'
@@ -194,11 +197,12 @@ export interface SettingDescriptor {
 	readonly confirm?: string
 	/**
 	 * Which new value asks. `on` and `off` apply to a toggle (for a `toggle-list`, `off` is its `off`
-	 * list), `zero` to a number where 0 removes a cap, and `drops-default` to a list of choices that
-	 * leaves out an entry the default holds. Absent means every change asks. Clearing a setting asks
+	 * list), `zero` to a number where 0 removes a cap, `drops-default` to a list of choices that
+	 * leaves out an entry the default holds, and `widens` to a list of things Namzu may reach, where
+	 * only a new list with an entry the list in force lacks asks (removing one never does). Absent means every change asks. Clearing a setting asks
 	 * unless a select names its risky values and its default is none of them.
 	 */
-	readonly confirmWhen?: 'on' | 'off' | 'zero' | 'drops-default'
+	readonly confirmWhen?: 'on' | 'off' | 'zero' | 'drops-default' | 'widens'
 	/**
 	 * For a select, the one new value that asks; choosing any other value applies at once. Clearing
 	 * asks only when the setting's default is that value. Absent means every change to a select asks.
@@ -572,10 +576,12 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'additionalDirectories',
 		'projects',
 		'Extra folders',
-		'Folders besides the project that Namzu may read and change.',
-		json('[ "/path/to/folder" ]'),
+		'Folders besides the project that Namzu may read and change. Desktop marks a folder that does not exist.',
+		{ kind: 'list', itemLabel: 'folder', placeholder: '/path/to/folder', picker: 'folder' },
 		{
-			confirm: 'Namzu will be able to reach these folders in every project.',
+			default: [],
+			confirm: 'Namzu will be able to reach this folder in every project.',
+			confirmWhen: 'widens',
 		},
 	),
 	d(
@@ -1091,8 +1097,9 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'skills.disabled',
 		'agent',
 		'Turned-off skills',
-		'Skills Namzu will not use, by name.',
-		json('[ "skill-name" ]'),
+		'Skills Namzu will not use, by name. Desktop lists the installed skills with a switch each; a name here that no installed skill has stays listed, with Remove.',
+		{ kind: 'list', itemLabel: 'skill name', placeholder: 'skill-name', source: 'skills' },
+		{ default: [] },
 	),
 	d(
 		'skills.suggest',
@@ -1275,7 +1282,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'mcpServers',
 		'tools',
 		'Connected servers',
-		'Tool servers Namzu starts or reaches. They hold commands and secrets, so edit them in the config file or the terminal.',
+		'Tool servers Namzu starts or reaches. Desktop adds, edits and removes the ones in your config file; variables and headers hold secrets, so they are edited in the file. In the terminal use namzu mcp.',
 		fileOnly,
 	),
 	d(

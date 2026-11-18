@@ -123,9 +123,15 @@ export function numberFromText(
  * unless the descriptor names the risky values and the default is none of them. Otherwise the
  * descriptor says which new value asks. A value is `undefined` for a clear.
  */
-export function needsConfirmation(entry: SettingDescriptor, value: unknown): boolean {
+export function needsConfirmation(
+	entry: SettingDescriptor,
+	value: unknown,
+	/** What is in force now (the saved value, or the default): only `widens` compares with it. */
+	current?: unknown,
+): boolean {
 	if (!entry.confirm) return false
 	if (value === undefined) return clearReachesRiskyDefault(entry)
+	if (entry.confirmWhen === 'widens') return widensList(current, value)
 	if (entry.confirmWhen === 'drops-default')
 		return typeof entry.default === 'object' && droppedFromDefault(entry.default, value)
 	if (entry.control.kind === 'toggle-list' && entry.confirmWhen !== undefined)
@@ -138,8 +144,15 @@ export function needsConfirmation(entry: SettingDescriptor, value: unknown): boo
 	return value === (entry.confirmWhen === 'on')
 }
 
+/** Whether a new list holds an entry the list now in force lacks. */
+export function widensList(current: unknown, value: unknown): boolean {
+	if (!Array.isArray(value)) return true
+	const held = new Set(Array.isArray(current) ? (current as unknown[]) : [])
+	return value.some((item) => !held.has(item))
+}
+
 function clearReachesRiskyDefault(entry: SettingDescriptor): boolean {
-	if (entry.confirmWhen === 'drops-default') return false
+	if (entry.confirmWhen === 'drops-default' || entry.confirmWhen === 'widens') return false
 	if (entry.control.kind === 'toggle-list' && entry.confirmWhen !== undefined)
 		return sameSet(
 			entry.default,

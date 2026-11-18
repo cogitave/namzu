@@ -1,0 +1,5 @@
+---
+'@namzu/cli': minor
+---
+
+`namzu config set` now takes `additionalDirectories` and `skills.disabled` as words (`/data/a,/data/b`, `review-changes,browser-automation`), `none` for an empty list, or JSON, and an empty list removes the key because none is the default. Adding a folder to `additionalDirectories` still asks first; removing one no longer does. `namzu config get` and `--json` describe these two keys with the control kind `list` (with `picker: "folder"` or `source: "skills"`) instead of `json`, and the descriptor field `confirmWhen` can now be `widens`; a script that read `control.kind === "json"` for these keys, or switched over `confirmWhen`, must handle them. The desktop host gains `namzu/skills/list` (installed skills by name and tier) and `namzu/mcp/user-servers`, `namzu/mcp/save-user-server` and `namzu/mcp/remove-user-server` (add, change and remove a tool server in the user config file, keeping variables, headers and every other field of an entry untouched); an older host simply lacks them and Desktop falls back to typed rows. Nothing already written to a config file changes meaning.

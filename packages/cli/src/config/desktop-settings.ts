@@ -233,7 +233,11 @@ function coerce(entry: SettingDescriptor, raw: unknown): unknown {
 			const list = wordsList(raw, 'Enter a list of words.')
 			if (list.some((item) => item.trim() === '' || item.length > 2000))
 				throw new Error(`Enter a ${control.itemLabel} of 1 to 2000 characters.`)
-			return list.map((item) => item.trim())
+			const words = list.map((item) => item.trim())
+			// An empty list is the default for a setting whose default is none: the key goes.
+			if (words.length === 0 && Array.isArray(entry.default) && entry.default.length === 0)
+				return undefined
+			return words
 		}
 		case 'number':
 			if (typeof raw !== 'number' || !Number.isFinite(raw)) throw new Error('Enter a number.')
