@@ -870,7 +870,7 @@ describe('the rows the system applies', () => {
 			createElement(DesktopSection, { settings: controls(), os: windows }),
 		)
 		expect(ok).toContain('id="setting-quick-entry-shortcut"')
-		expect(ok).toContain('Ctrl+Alt+Space')
+		expect(ok).toContain('Ctrl+Alt+N')
 		expect(ok).toContain('id="setting-dictation-shortcut"')
 		expect(ok).toContain('Ctrl+Shift+D')
 		expect(ok).toContain('id="setting-voice-shortcut"')

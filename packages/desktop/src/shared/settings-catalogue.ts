@@ -462,8 +462,10 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		label: 'Quick Entry keyboard shortcut',
 		description:
 			'Quickly open Namzu from anywhere. Type a line and press Enter to start a new conversation with it; Escape closes the box.',
-		control: { kind: 'shortcut', placeholder: 'Ctrl+Alt+Space' },
-		default: 'Ctrl+Alt+Space',
+		// Ctrl+Alt+N, not Ctrl+Alt+Space: another desktop assistant often holds that one on Windows,
+		// and the box would then start unregistered.
+		control: { kind: 'shortcut', placeholder: 'Ctrl+Alt+N' },
+		default: 'Ctrl+Alt+N',
 		appliesWhen: 'now',
 		keywords: [
 			'Quick Entry shortcut',

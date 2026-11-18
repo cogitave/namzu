@@ -73,7 +73,7 @@ it('reads a stored file entry by entry and ignores what it does not know', () =>
 		keepAwakeWhileWorking: false,
 		keepAwakeOnBattery: false,
 		pauseOnMetered: true,
-		quickEntryShortcut: 'Ctrl+Alt+Space',
+		quickEntryShortcut: 'Ctrl+Alt+N',
 		dictationShortcut: 'ctrl-d',
 		voiceShortcut: '',
 		lastSettingsSection: 'general',
@@ -112,7 +112,7 @@ it('documents the defaults the spec names', () => {
 		keepAwakeWhileWorking: false,
 		keepAwakeOnBattery: false,
 		pauseOnMetered: true,
-		quickEntryShortcut: 'Ctrl+Alt+Space',
+		quickEntryShortcut: 'Ctrl+Alt+N',
 		dictationShortcut: 'ctrl-d',
 		voiceShortcut: '',
 		lastSettingsSection: 'general',
@@ -191,7 +191,7 @@ it('the system rows default as documented and load as the default from a file sa
 		keepAwakeWhileWorking: false,
 		keepAwakeOnBattery: false,
 		pauseOnMetered: true,
-		quickEntryShortcut: 'Ctrl+Alt+Space',
+		quickEntryShortcut: 'Ctrl+Alt+N',
 		dictationShortcut: 'ctrl-d',
 		voiceShortcut: '',
 	})
@@ -209,11 +209,11 @@ it('the system rows default as documented and load as the default from a file sa
 
 it('shortcut settings migrate from absent and refuse text that is not a shortcut', () => {
 	const older = storedDesktopSettings({ startup: 'home' })
-	expect(older.quickEntryShortcut).toBe('Ctrl+Alt+Space')
+	expect(older.quickEntryShortcut).toBe('Ctrl+Alt+N')
 	expect(older.dictationShortcut).toBe('ctrl-d')
 	expect(older.voiceShortcut).toBe('')
 	expect(storedDesktopSettings({ quickEntryShortcut: 'Shift+A' }).quickEntryShortcut).toBe(
-		'Ctrl+Alt+Space',
+		'Ctrl+Alt+N',
 	)
 	expect(storedDesktopSettings({ quickEntryShortcut: '' }).quickEntryShortcut).toBe('')
 	expect(storedDesktopSettings({ dictationShortcut: 'ctrl-q' }).dictationShortcut).toBe('ctrl-d')
