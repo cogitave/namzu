@@ -125,7 +125,7 @@ describe('changing a setting', () => {
 		if (!plan.ok) return
 		expect(plan.confirm).toBeUndefined()
 		expect(plan.apply()).toBe(
-			'limits.maxIterations is now 20. Applies to new conversations. Open ones keep their current value.',
+			'Most steps per turn is now 20. Applies to new conversations. Open ones keep their current value.',
 		)
 		expect(readFileSync(userConfigPath(opts()), 'utf8')).toContain('maxIterations: 20')
 		expect(readSettingRow('limits.maxIterations', opts())).toMatchObject({ set: true, value: 20 })

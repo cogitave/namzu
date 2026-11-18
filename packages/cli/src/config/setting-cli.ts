@@ -274,7 +274,8 @@ export function renderSetting(row: SettingRow, file: string): string {
 	lines.push(
 		`Value:    ${row.set ? row.valueText : `default (${row.defaultText})`}${row.set ? ' (set in the user file)' : ''}`,
 	)
-	lines.push(`Default:  ${row.defaultText}`)
+	// When a change applies follows the default, as on the Desktop row.
+	lines.push(`Default:  ${row.defaultText.replace(/\.$/, '')}. ${row.appliesText}`)
 	const control = row.control
 	if (control.kind === 'number') {
 		const range = rangeText(control)
@@ -293,7 +294,6 @@ export function renderSetting(row: SettingRow, file: string): string {
 	} else if (control.kind === 'json') lines.push(`Takes:    JSON, such as ${control.example}`)
 	else if (control.kind === 'text') lines.push('Takes:    text')
 	else lines.push('Takes:    nothing here; edit this one in the config file')
-	lines.push(`Applies:  ${row.appliesText}`)
 	if (row.confirm) lines.push(`Asks:     ${row.asksWhen}: ${row.confirm}`)
 	lines.push(`File:     ${file}`)
 	return lines.join('\n')
@@ -432,8 +432,8 @@ export function planSettingChange(
 			const row = readSettingRow(key, opts)
 			const head =
 				text === undefined
-					? `${key} is back to its default: ${row.defaultText}.`
-					: `${key} is now ${row.valueText}.`
+					? `${row.label} is back to its default: ${row.defaultText.replace(/\.$/, '')}.`
+					: `${row.label} is now ${row.valueText}.`
 			return `${head} ${row.appliesText}`
 		},
 	}
