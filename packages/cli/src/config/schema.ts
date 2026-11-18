@@ -372,6 +372,21 @@ export interface BrowserConfig {
 	readonly signInDetection?: 'address' | 'page'
 }
 
+/** See `NamzuCliConfig.progressNudge`. */
+export interface ProgressNudgeConfig {
+	/**
+	 * `auto` (default) nudges on the terminal and in Desktop, where a person
+	 * watches the work live, and nowhere else. `on` also nudges `namzu exec`
+	 * (text output; never `--json`, scheduled runs, Pals or sub-agents).
+	 * `off` never nudges.
+	 */
+	readonly mode?: 'auto' | 'on' | 'off'
+	/** Seconds of work, since the person last saw text from the assistant, before the nudge. Default 90. */
+	readonly afterSeconds?: number
+	/** Tool calls in that stretch before the nudge. Default 6. */
+	readonly afterCalls?: number
+}
+
 /** See `NamzuCliConfig.codeAnalysis`. */
 export interface CodeAnalysisConfig {
 	/** Mount the `code_analysis` tool in the interactive terminal. Default `true`. */
@@ -584,6 +599,16 @@ export interface NamzuCliConfig {
 	 * from the environment. `exec`, `drain` and `acp` never mount it.
 	 */
 	readonly codeAnalysis?: CodeAnalysisConfig
+	/**
+	 * The one-sentence nudge after a long quiet stretch: when a run has worked
+	 * for `afterSeconds` and made `afterCalls` tool calls since the person last
+	 * saw text from the assistant, the model is asked, once, to say in one
+	 * sentence what it is doing and what it has found, in the same response as
+	 * its next tool call. Time spent waiting on the person does not count.
+	 * Merged key by key across files: the last file to set a field wins. Not
+	 * settable from the environment.
+	 */
+	readonly progressNudge?: ProgressNudgeConfig
 	/**
 	 * A System-1 decision model. When set, the host and Pal agents get an
 	 * optional, advisory `decide` tool (yes/no, choice or score). A failing

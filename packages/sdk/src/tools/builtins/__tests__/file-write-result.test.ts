@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { CURRENT_ON_DISK } from '../content-fingerprint.js'
 import { fileWriteResult } from '../file-write-result.js'
 
 describe('file write receipts', () => {
@@ -38,7 +39,7 @@ describe('file write receipts', () => {
 	})
 	it('does not claim creation or a diff when prior state is unknown', () => {
 		const result = fileWriteResult('a', null, 'one\n', true)
-		expect(result.output).toBe('Wrote a · 4 bytes')
+		expect(result.output).toBe(`Wrote a · 4 bytes. ${CURRENT_ON_DISK}`)
 		expect(result.data).toMatchObject({
 			sandboxed: true,
 			fileChange: { operation: 'write' },

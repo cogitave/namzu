@@ -225,7 +225,7 @@ function enforceReadBeforeOverwrite(
 	return {
 		success: false,
 		output: '',
-		error: `${key} already exists. Use the \`read\` tool on it first in this conversation, then call \`write\` again — or prefer \`edit\` for a targeted change.`,
+		error: `${key} already exists. Use the \`read\` tool on it first in this conversation, then call \`write\` again — or prefer \`edit\` for a targeted change. Calling \`write\` again without reading it fails the same way.`,
 		facts: { kind: 'failure', reason: 'not_read', subject: key },
 	}
 }

@@ -220,6 +220,7 @@ import { palMarker, palStartCard, palWaitingLine } from './pal-start-model.js'
 import { closableStaleTabs, stalePalTabs } from './pal-tab-siblings.js'
 import { unreadAfterOpen, unreadAfterSends } from './pal-unread.js'
 import { PalCustomizeDialog, type PalOpening, PalSidebarSection, PalsPage } from './pals-page.js'
+import { type PasteRange, addPaste, confirmedRanges, trackEdit } from './paste-ranges.js'
 import { pendingMessages } from './pending-messages.js'
 import { plainError, plainErrorText } from './plain-error.js'
 import { PluginsPage, PluginsSidebar } from './plugins-page.js'
@@ -5086,8 +5087,22 @@ export function App({
 				: undefined,
 		[focused, engineUpdates?.registerOpenUpdates],
 	)
+	// Where a paste into the box landed, until the change it causes arrives.
+	const pendingPaste = useRef<{ owner: string; start: number; text: string } | undefined>(undefined)
+	const pasteRanges = useRef(new Map<string, readonly PasteRange[]>())
 	const changeDraft = (target: string, value: string) => {
 		if (editingQueue.current.has(target)) return
+		// What was pasted stays known while the person edits around it.
+		const pending = pendingPaste.current
+		pendingPaste.current = undefined
+		let tracked = trackEdit(
+			pasteRanges.current.get(target) ?? [],
+			draftsRef.current[target] ?? '',
+			value,
+		)
+		if (pending?.owner === target) tracked = addPaste(tracked, value, pending.start, pending.text)
+		if (tracked.length) pasteRanges.current.set(target, tracked)
+		else pasteRanges.current.delete(target)
 		draftEditRevisions.current.set(target, (draftEditRevisions.current.get(target) ?? 0) + 1)
 		draftsRef.current[target] = value
 		setDrafts((all) => ({ ...all, [target]: value }))
@@ -5205,10 +5220,12 @@ export function App({
 		const owner = draftOwner
 		const prompt = draft
 		const attachmentIds = attached.get(owner).map((file) => file.id)
+		const pastedRanges = confirmedRanges(pasteRanges.current.get(owner), prompt)
 		const options = {
 			...settings,
 			effort: effortToSend(capabilities, settings.effort),
 			attachmentIds,
+			...(pastedRanges.length ? { pasted: pastedRanges } : {}),
 		}
 		const originalSettings = savedSettings.get(owner)
 		const route = { ...choice }
@@ -5290,6 +5307,7 @@ export function App({
 				if (result === 'queued') draftAdmissions.current.delete(target)
 			} else await api.send(target, prompt, options)
 			submitted = true
+			pasteRanges.current.delete(owner)
 			attached.consume(target, attachmentIds)
 			// A fast failure may settle before this admission reply arrives. Read main's
 			// draft after consumption as well as on settlement, so retry files stay visible.
@@ -7495,6 +7513,9 @@ export function App({
 								empty={!pal && !historyPending && thread.messages.length === 0}
 								draft={draft}
 								onDraftChange={(value) => changeDraft(draftOwner, value)}
+								onMaterialPaste={(paste) => {
+									pendingPaste.current = { owner: draftOwner, ...paste }
+								}}
 								providers={activeProviders}
 								modelSelectionReady={
 									project.status === 'ready' &&

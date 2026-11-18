@@ -8,6 +8,7 @@ import { resolveWithinAnyReal, toolRoots } from '../paths.js'
 import { atomicWriteFile } from './atomic-write-file.js'
 import { clip, describeChange } from './classifier-input.js'
 import {
+	CURRENT_ON_DISK,
 	fingerprintContent,
 	staleFileError,
 	unreadEditShownError,
@@ -653,7 +654,7 @@ export const EditTool = defineTool({
 				const changed = editFacts(parsed.data.path, result.replacements, content, result.content)
 				return {
 					success: true as const,
-					output: `Edited ${parsed.data.path}: ${result.replacements} replacement(s) (+${changed.diff.added} -${changed.diff.removed}) [sandboxed]${admitted.unreadNote ? ` ${admitted.unreadNote}` : ''}`,
+					output: `Edited ${parsed.data.path}: ${result.replacements} replacement(s) (+${changed.diff.added} -${changed.diff.removed}) [sandboxed]${admitted.unreadNote ? ` ${admitted.unreadNote}` : ''}. ${CURRENT_ON_DISK}`,
 					data: {
 						path: parsed.data.path,
 						replacements: result.replacements,
@@ -684,7 +685,7 @@ export const EditTool = defineTool({
 			const changed = editFacts(hostPath, result.replacements, content, result.content)
 			return {
 				success: true as const,
-				output: `Edited ${hostPath}: ${result.replacements} replacement(s) (+${changed.diff.added} -${changed.diff.removed})${admitted.unreadNote ? ` ${admitted.unreadNote}` : ''}`,
+				output: `Edited ${hostPath}: ${result.replacements} replacement(s) (+${changed.diff.added} -${changed.diff.removed})${admitted.unreadNote ? ` ${admitted.unreadNote}` : ''}. ${CURRENT_ON_DISK}`,
 				data: { path: hostPath, replacements: result.replacements },
 				facts: changed.facts,
 			}

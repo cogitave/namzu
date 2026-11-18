@@ -48,6 +48,7 @@ import {
 	generateTurnId,
 	isCompactionMessage,
 	kernelHostCommands,
+	newPasteNonce,
 	parseAccountId,
 	resolveBoundAccount,
 	resolveTriggerThreshold,
@@ -104,6 +105,7 @@ import type { PlanApprovalAnswer, PlanApprovalFn, PlanApprovalRequest } from '..
 import { resolveComposerTriggers } from '../config/composer-triggers.js'
 import type { DecisionConfig } from '../config/schema.js'
 import { setUserConfigValue } from '../config/user-config.js'
+import { messageTimeNote, previousSentAt } from '../context/message-time.js'
 import {
 	bindAccount,
 	findAccountByName,
@@ -315,6 +317,7 @@ import {
 } from '../permissions/mode.js'
 import { sandboxRunsShellUnasked } from '../permissions/sandbox-shell.js'
 import { type SessionAllow, allowsFor, sameAllow } from '../permissions/session-allow.js'
+import { resolveProgressNudge } from '../reminders/progress-nudge.js'
 import { type RoundGateFacts, admissionBlocked } from '../rounds/gates.js'
 import { admitGoalRound } from '../rounds/goal-admission.js'
 import { RoundQueue } from '../rounds/queue.js'
@@ -759,7 +762,7 @@ import {
 	outcomeNotice,
 } from './outcome-line.js'
 import { noteTurnEnded, noteTurnStarted } from './paint/live-paint.js'
-import { highestAttachmentNumber } from './paste-chips.js'
+import { blankRanges, expandMentionsAround, highestAttachmentNumber } from './paste-chips.js'
 import { PauseClock } from './pause-clock.js'
 import {
 	type WithheldCall,
@@ -6417,6 +6420,12 @@ function AppBody({
 								},
 							},
 							enableComputerUse: true,
+							// The terminal is watched live: the quiet-stretch nudge, unless the
+							// config turned it off.
+							...(() => {
+								const nudge = resolveProgressNudge(activeCtx.progressNudge, { watched: true })
+								return nudge ? { progressNudge: nudge } : {}
+							})(),
 							// The browser tools, when the config did not switch them off. The
 							// profile is the one `/browser profile` chose, else the config's.
 							...(browserOptions ? { browser: browserOptions } : {}),
@@ -11025,7 +11034,9 @@ function AppBody({
 				prompt.kind === 'human' && prompt.mcpContext !== undefined
 					? { sendText: text, attached: [], inlined: prompt.mcpContext }
 					: prompt.kind === 'human'
-						? expandFileMentions(text, ctx.cwd, undefined, named.known)
+						? expandMentionsAround(text, prompt.pasted, (clean) =>
+								expandFileMentions(clean, ctx.cwd, undefined, named.known),
+							)
 						: { sendText: text, attached: [] as readonly string[] }
 			// Resources a tool server publishes are read here, where waiting is
 			// allowed; a message sent into a running turn leaves them as written.
@@ -11033,7 +11044,7 @@ function AppBody({
 			const expanded = session?.mcpResources
 				? await attachMentionedResources(
 						filesExpanded,
-						text,
+						blankRanges(text, prompt.kind === 'human' ? prompt.pasted : undefined),
 						(server, uri) =>
 							session.mcpResources?.read(server, uri, appLifetime.signal, (request) =>
 								conversationGenRef.current === mcpGeneration
@@ -11056,7 +11067,7 @@ function AppBody({
 							kind: 'host-observation',
 						})
 					: undefined
-			const userMessage = createUserMessage(
+			const plainUserMessage = createUserMessage(
 				fileMessage ? text : sendText,
 				attachments,
 				goalRound
@@ -11077,6 +11088,25 @@ function AppBody({
 							? { type: 'runtime-context', kind: noticeKind }
 							: undefined,
 			)
+			// The pasted stretches stay at the same offsets: what follows `text` in
+			// `sendText` is only appended. They ride on the stored message, so every
+			// request, and a resume, frames them the same way.
+			const pastedMessage: Message =
+				prompt.kind === 'human' &&
+				prompt.pasted?.length &&
+				plainUserMessage.content.startsWith(text)
+					? { ...plainUserMessage, pasted: prompt.pasted }
+					: plainUserMessage
+			// When the person sent it, and how long after their last message: written once,
+			// with the message. Only their own words carry it, never a peer, a notice or a goal round.
+			const timeNote =
+				prompt.kind === 'human'
+					? messageTimeNote({
+							now: plainUserMessage.timestamp ?? Date.now(),
+							previous: previousSentAt(historyBeforeTurn),
+						})
+					: undefined
+			const userMessage: Message = timeNote ? { ...pastedMessage, timeNote } : pastedMessage
 			const priorForSdk: Message[] = [
 				...historyBeforeTurn,
 				userMessage,
@@ -11526,7 +11556,15 @@ function AppBody({
 					await closeStoppedReply()
 					if (prompt.kind === 'human' && destination) {
 						recapTurnRef.current = { sessionId: destination, turnId }
-						startGeneratedTitle(session.sideModel, destination, turnId, promptText)
+						// The name comes from what the person typed; a paste only names the
+						// conversation when it is all there is.
+						const ownWords = blankRanges(promptText, prompt.pasted)
+						startGeneratedTitle(
+							session.sideModel,
+							destination,
+							turnId,
+							ownWords.trim() ? ownWords : promptText,
+						)
 					}
 					const typedInput = typedInputOf(prompt)
 					const sendOnce = (prior: readonly Message[]) =>
@@ -14897,6 +14935,13 @@ function AppBody({
 			//
 			// Keep the attachment array beside its text. Reconstructing a prompt from
 			// the transcript later cannot recover bytes whose composer chip is gone.
+			// The pasted stretches are the composer's, and only while the text going
+			// to the model is exactly what it held: a command that rewrote it has
+			// moved every offset.
+			const pastedSpans =
+				meta.source === 'composer' && !skillFlow && outgoing === value && meta.pasted?.length
+					? meta.pasted.map((range) => ({ ...range, nonce: newPasteNonce(value) }))
+					: undefined
 			const wasHeldByInterrupt = roundQueueRef.current.pause()?.source === 'operator-interrupt'
 			if (mode === 'submit') advanceQueueContinuation()
 			const prompt: HumanQueuedPrompt = {
@@ -14909,6 +14954,7 @@ function AppBody({
 				...(attachments && attachments.length > 0 ? { attachments: [...attachments] } : {}),
 				...(skillFlow ? { skillFlow: true as const } : {}),
 				...(armedTriggers.length > 0 && !skillFlow ? { triggers: armedTriggers } : {}),
+				...(pastedSpans ? { pasted: pastedSpans } : {}),
 			}
 			// `/skills save` and `/skills new` are turns of their own: steered into
 			// a running turn, they would lose the flag that keeps the skill-making
@@ -14920,11 +14966,8 @@ function AppBody({
 			if (mode === 'submit' && !skillFlow) {
 				const inbox = activeTurnInboxRef.current
 				if (inbox) {
-					const expanded = expandFileMentions(
-						outgoing,
-						ctx.cwd,
-						undefined,
-						mentionSourcesRef.current.known,
+					const expanded = expandMentionsAround(outgoing, pastedSpans, (text) =>
+						expandFileMentions(text, ctx.cwd, undefined, mentionSourcesRef.current.known),
 					)
 					if (
 						inbox.accept({

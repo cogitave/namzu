@@ -167,6 +167,29 @@ describe('a resumed conversation draws its tool calls like the live run', () => 
 		expect(folded?.detail?.slice(0, 3)).toEqual(['Read a.ts', '     1\tconst a = 1', ''])
 	})
 
+	it('still reads a receipt that ends with the note that the file is current', () => {
+		const note = ' The file on disk is now exactly this; no need to read it back.'
+		const messages = [
+			createUserMessage('tidy up'),
+			createAssistantMessage(null, [
+				call('e', 'edit', { path: 'a.ts', old_string: 'x\ny', new_string: 'x\nz\nw' }),
+				call('w', 'write', { path: 'n.txt', content: 'hi\nthere\n' }),
+			]),
+			createToolMessage(`Edited /p/a.ts: 1 replacement(s) (+2 -1).${note}`, 'e'),
+			createToolMessage(`Created n.txt (+2 -0) · 9 bytes.${note}`, 'w'),
+			createAssistantMessage('Done.'),
+		]
+		const rows = projectConversation(messages, ids())
+		expect(rows.map((row) => [row.glyph ?? row.role, row.content])).toEqual([
+			['user', 'tidy up'],
+			['●', 'Update(a.ts)'],
+			['⎿', 'Added 2 lines, removed 1 line'],
+			['●', 'Write(n.txt)'],
+			['⎿', 'Wrote 2 lines to n.txt'],
+			['assistant', 'Done.'],
+		])
+	})
+
 	it('folds looks across assistant messages into one line, and text between them splits it', () => {
 		const messages = [
 			createUserMessage('look'),

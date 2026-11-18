@@ -49,7 +49,7 @@ export class StructuredCompactionManager implements ConversationManager {
 		for (const message of messages) {
 			if (message.role === 'user') {
 				if (!isOperatorUserMessage(message)) continue
-				extractFromUserMessage(stateManager, message.content, isFirstUserMessage)
+				extractFromUserMessage(stateManager, message, isFirstUserMessage)
 				isFirstUserMessage = false
 			} else if (message.role === 'assistant' && message.content) {
 				extractFromAssistantMessage(stateManager, message.content, this.config)
@@ -129,7 +129,7 @@ export class StructuredCompactionManager implements ConversationManager {
 		for (const message of messages) {
 			if (message.role === 'user') {
 				if (!isOperatorUserMessage(message)) continue
-				extractFromUserMessage(stateManager, message.content, isFirstUserMessage)
+				extractFromUserMessage(stateManager, message, isFirstUserMessage)
 				isFirstUserMessage = false
 			} else if (message.role === 'assistant' && message.content) {
 				extractFromAssistantMessage(stateManager, message.content, this.config)

@@ -942,6 +942,9 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					...(resolvedCtx.config.codeAnalysis
 						? { codeAnalysis: resolvedCtx.config.codeAnalysis }
 						: {}),
+					...(resolvedCtx.config.progressNudge
+						? { progressNudge: resolvedCtx.config.progressNudge }
+						: {}),
 					// A configured `routing` block makes Auto an available choice;
 					// `model: auto` makes it the default, and only when nothing pins a
 					// model for this launch: an explicit `--model` always wins.

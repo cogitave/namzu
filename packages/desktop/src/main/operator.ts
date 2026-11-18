@@ -131,6 +131,31 @@ interface PendingMessage {
 	/** Authored edits and explicit clears fence first-prompt recovery. */
 	draftRevision: number
 	options?: Omit<DesktopSendOptions, 'attachmentIds'>
+	/** Pasted stretches of `prompt`, checked; sent only to an engine that sets them apart. */
+	pasted?: { start: number; end: number }[]
+}
+
+/** The ranges of `prompt` a renderer says were pasted, or none when they do not fit it. */
+function readPastedRanges(value: unknown, prompt: string): { start: number; end: number }[] {
+	if (!Array.isArray(value) || value.length > 64) return []
+	const ranges: { start: number; end: number }[] = []
+	let floor = 0
+	for (const item of value) {
+		const range = item as { start?: unknown; end?: unknown } | null
+		if (
+			!range ||
+			typeof range !== 'object' ||
+			!Number.isInteger(range.start) ||
+			!Number.isInteger(range.end) ||
+			(range.start as number) < floor ||
+			(range.end as number) <= (range.start as number) ||
+			(range.end as number) > prompt.length
+		)
+			return []
+		floor = range.end as number
+		ranges.push({ start: range.start as number, end: range.end as number })
+	}
+	return ranges
 }
 interface LiveInputReceipt {
 	id: string
@@ -4720,11 +4745,13 @@ export class Operator {
 			throw new Error('Update Namzu to a version that can apply message settings.')
 		if (typeof prompt !== 'string' || (!prompt.trim() && !files.length) || prompt.length > 50_000)
 			throw new Error('Enter a message under 50,000 characters.')
+		const pasted = readPastedRanges(options?.pasted, prompt)
 		const captured: PendingMessage = {
 			id: randomUUID(),
 			prompt,
 			files,
 			draftRevision: session.draftRevision ?? 0,
+			...(pasted.length ? { pasted } : {}),
 			...(options || session.view.palId
 				? {
 						options: resolveComposerSendOptions(options, session.view.palId),
@@ -5485,7 +5512,7 @@ export class Operator {
 		void running.then(clear, clear)
 	}
 	private async run(session: Conversation, item: PendingMessage): Promise<void> {
-		const { prompt, files, options } = item
+		const { prompt, files, options, pasted } = item
 		const hadPrompted =
 			session.hasPrompted &&
 			(!session.view.palId ||
@@ -5543,6 +5570,8 @@ export class Operator {
 					prompt: content,
 					...(images.length ? { attachments: images } : {}),
 					...(options && session.client.supportsPromptOptions() ? { options } : {}),
+					// `prompt` leads `content`, so its offsets still hold.
+					...(pasted?.length && session.client.supportsPromptPasted() ? { pasted } : {}),
 				},
 				0,
 			)) as AcpSessionPromptResult

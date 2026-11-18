@@ -129,6 +129,11 @@ export interface AttachmentInput {
 }
 export interface DesktopSendOptions {
 	attachmentIds?: string[]
+	/**
+	 * Which stretches of the message were pasted, `[start, end)` in the text. The engine sets
+	 * them apart from what the person typed; what the person sees does not change.
+	 */
+	pasted?: { start: number; end: number }[]
 	effort?: ReasoningEffort
 	permissionMode?: ReviewMode
 }

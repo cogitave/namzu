@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { ToolDiffHunk, ToolResult } from '../../types/tool/index.js'
+import { CURRENT_ON_DISK } from './content-fingerprint.js'
 import { lineDiff } from './line-diff.js'
 
 /** One side of a change, context included: the rows that exist before (`-`) or after (`+`). */
@@ -44,7 +45,7 @@ export function fileWriteResult(
 	const summary = `${label} ${path}${before === null ? '' : ` (+${diff.added} -${diff.removed})`}${newlineChanged ? ' · final newline changed' : ''}`
 	return {
 		success: true,
-		output: `${summary} · ${bytes} bytes`,
+		output: `${summary} · ${bytes} bytes. ${CURRENT_ON_DISK}`,
 		facts: {
 			kind: 'write',
 			path,

@@ -21,6 +21,7 @@ import {
 	generateSessionId,
 	genericLabel,
 	isEntityId,
+	newPasteNonce,
 	openSessionIndex,
 } from '@namzu/sdk'
 
@@ -33,6 +34,7 @@ import { hookSwitch } from '../config/hook-layers.js'
 import { FileCheckpointStore, type TurnUndoStatus, type UndoPreview } from '../checkpoints/store.js'
 import { flushCompileCacheWhenIdle } from '../compile-cache.js'
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
+import { messageTimeNote, previousSentAt } from '../context/message-time.js'
 import { DESKTOP_CONTRACT } from '../desktop-contract.js'
 import { accountForProvider } from '../integrations/accounts/binding.js'
 import { type PluginInventoryView, readPluginInventory } from '../integrations/plugins/inventory.js'
@@ -84,6 +86,7 @@ import {
 	warnLegacyMcpPermissionNames,
 } from '../permissions/rules.js'
 import type { PermissionSettings } from '../permissions/settings.js'
+import { resolveProgressNudge } from '../reminders/progress-nudge.js'
 import { type TerminalHost, createTerminalHost } from '../terminal/host.js'
 import {
 	type AgentSession,
@@ -966,6 +969,15 @@ export function createCliAcpRuntime(
 					...(projectCtx.config.memory ? { memory: projectCtx.config.memory } : {}),
 					...(projectCtx.config.sandbox ? { sandbox: projectCtx.config.sandbox } : {}),
 					...(projectCtx.config.decision ? { decision: projectCtx.config.decision } : {}),
+					// The desktop application is watched live; a Pal and any other client are not.
+					...(() => {
+						const nudge = palEnvironment
+							? undefined
+							: resolveProgressNudge(projectCtx.config.progressNudge, {
+									watched: runtimeOptions.computerUse === true,
+								})
+						return nudge ? { progressNudge: nudge } : {}
+					})(),
 					// Routed turns only where Auto is what runs: never for a Pal, and not after the
 					// person hand-picked a model for this conversation.
 					...(projectCtx.config.routing &&
@@ -1078,6 +1090,7 @@ export function createCliAcpRuntime(
 			prompt,
 			attachments,
 			options,
+			pasted,
 			cwd,
 			onEvent,
 			signal,
@@ -1171,7 +1184,22 @@ export function createCliAcpRuntime(
 							}
 					}
 				}
-				const messages = [...(history as Message[]), createUserMessage(prompt, attachments)]
+				const typed = createUserMessage(prompt, attachments)
+				// The host checked the ranges against `prompt`; each gets its own nonce, kept
+				// with the message so every request and a resume frame it the same way.
+				const pastedMessage: Message = pasted?.length
+					? {
+							...typed,
+							pasted: pasted.map((range) => ({ ...range, nonce: newPasteNonce(prompt) })),
+						}
+					: typed
+				// When the person sent it, and how long after their last message.
+				const timeNote = messageTimeNote({
+					now: typed.timestamp ?? Date.now(),
+					previous: previousSentAt(history as Message[]),
+				})
+				const userMessage: Message = timeNote ? { ...pastedMessage, timeNote } : pastedMessage
+				const messages = [...(history as Message[]), userMessage]
 				const settings = validateComposerSendSettings(
 					options,
 					record.session,
@@ -2148,6 +2176,7 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 	const server: ACPServer = new ACPServer({
 		supportsPromptAttachments: true,
 		supportsPromptOptions: true,
+		supportsPromptPasted: true,
 		// `assertModeAllowed` below applies the settings that shut either door.
 		promptPermissionModes: ['bypass', 'classify'],
 		supportsTaskNotifications: desktop,

@@ -62,6 +62,7 @@ import {
 	permissionLayersOf,
 	warnLegacyMcpPermissionNames,
 } from '../permissions/rules.js'
+import { resolveProgressNudge } from '../reminders/progress-nudge.js'
 import { refusedByLayers } from '../schedule/policy.js'
 import { useSkillHooksByName } from '../skills/use-hooks.js'
 import {
@@ -503,6 +504,11 @@ async function execPrint(
 		...(ctx.config.workflow ? { workflow: ctx.config.workflow } : {}),
 		...(flags.handBack || ctx.config.handBack?.enabled === true ? { handBack: true } : {}),
 		...(ctx.config.sandbox ? { sandbox: ctx.config.sandbox } : {}),
+		// Nobody is known to watch an exec run: the nudge only with `progressNudge.mode: on`.
+		...(() => {
+			const nudge = resolveProgressNudge(ctx.config.progressNudge, { watched: false })
+			return nudge ? { progressNudge: nudge } : {}
+		})(),
 		...(ctx.config.decision ? { decision: ctx.config.decision } : {}),
 		// `!== undefined`, not truthiness: an empty list is the operator
 		// turning the default screen OFF, and a falsy check would drop it.
