@@ -969,7 +969,7 @@ fieldsets, the section list is a `nav`, and the dialog works at the 560px minimu
 Screenshots of every section in both themes, narrow, the search, and both removal
 surfaces are in [`research/settings-20261008/`](../../research/settings-20261008/) (taken when Settings was a page).
 
-Rows that hold a list or a small map are typed controls rather than JSON boxes (notification events, the workspaces key, each composer trigger, tool-result screens, the events and the secret-hiding of a saved conversation file, the extra folders with the system folder picker, the turned-off skills as a switch for each installed skill, the small model with the models Desktop knows, Automatic routing as a form, the auto mode reviewer as a model box and four lists, the permission rules and self-checks as lines you add and remove, and the browser sites as a site list with a line for every other site; see [Desktop settings for config keys](desktop-settings.md#list-and-map-controls)). Sections `agent`, `tools` and `telemetry`, the engine rows under the app's own in `terminal` and `updates`, and a **Namzu settings** group in General, Models and Projects hold the keys of the user config file, drawn from the engine's own list; see [Desktop settings for config keys](desktop-settings.md).
+Rows that hold a list or a small map are typed controls rather than JSON boxes (notification events, the workspaces key, each composer trigger, tool-result screens, the events and the secret-hiding of a saved conversation file, the extra folders with the system folder picker, the turned-off skills as a switch for each installed skill, the small model with the models Desktop knows, Automatic routing as a form, the auto mode reviewer as a model box and four lists, the permission rules and self-checks as lines you add and remove (a rule's add line is the next row of the table: its boxes where a rule's name sits, its answer and **Add** in the columns of the answer and **Remove**), and the browser sites as a site list with a line for every other site; see [Desktop settings for config keys](desktop-settings.md#list-and-map-controls)). Sections `agent`, `tools` and `telemetry`, the engine rows under the app's own in `terminal` and `updates`, and a **Namzu settings** group in General, Models and Projects hold the keys of the user config file, drawn from the engine's own list; see [Desktop settings for config keys](desktop-settings.md).
 
 **The section map.** A row sits where its effect is. The nav has four groups: Models; General, Appearance, Speech; Agent, Tools, Projects, Terminal; Desktop app, Telemetry, Updates, About. Where the app and the engine both have rows in a section, the app's come first, then the engine's under a heading the engine names (`group` and `groupLabel` on the descriptor):
 
@@ -1002,7 +1002,8 @@ What it holds, and where each value lives (one source of truth per value):
   [Trust again when automatic settings change](#trust-again-when-automatic-settings-change).
 - **Appearance** — the theme (a three-part control: System, Light, Dark), the interface font (Namzu's
   own, the default, your device's, or a font installed on this computer; see [Typefaces](#typefaces)),
-  *Show conversation tabs*, and the reading rows below. The theme and the interface font stay in the
+  the response font, the reading rows, the code rows, then *Show conversation tabs*, *Close popups by
+  themselves* and *Skip drawing what is off screen*, in that order. The theme and the interface font stay in the
   renderer's own storage (`namzu.appearance`, `namzu.interface-font`) because only the renderer paints
   them; the rest are `desktop-settings.json` keys, among them the code colours, font and size that
   diffs, file views and the terminal draw with. See [Appearance rows](#appearance-rows).
@@ -2465,7 +2466,7 @@ No attribute is the value Namzu has always had. The rules are in `renderer/appea
 | Motion | `motion`: `system` | `reduce` sets `data-motion="reduce"`: `animation`, `transition` and smooth scrolling are off everywhere, and the script-timed motion (`renderer/motion-setting.ts`, used by the sidebar, transcript, computer chat, Pal and effort-shader code) is skipped. `system` follows the device's flag. `full` ignores the flag in script and in the one global `prefers-reduced-motion` rule in `style.css`; every component stylesheet's own `@media (prefers-reduced-motion: reduce)` rule is gated on `:root:not([data-motion="full"])` too, and the diff view's shadow root asks its host with `:host-context`. Two things still follow the device under `full`: the `no-preference` blocks that switch an animation on, and the separate working-pill window. |
 | Close popups by themselves | `autoDismissPopups`: on | Off, `notify` gives each notice a timeout of 0, so it stays until closed; a newer notice still replaces it, and only errors and explicit holds queue behind the one on screen. A notice whose time is part of its meaning (an undo or countdown window, `bound: true`) keeps it. |
 | Skip drawing what is off screen | `virtualizeConversations`: on | This is not virtualization: every message stays in the page. It switches `content-visibility: auto` on far turns and conversation rows (the browser skips painting them). Off sets `data-virtualize="off"` and paints all of them. The plan said to leave the row out where the transcript does not virtualize; it is kept because the switch changes real paint cost, and that deviation is for the owner to confirm. |
-| Light code colours, Dark code colours | `lightCodeTheme`, `darkCodeTheme`: `default` | A select each, with a sample of code under the row drawn in that set (the light sample keeps its light background in a dark window). Diffs, file views and the approval card's diff take the set of the window's current appearance. See the table below. |
+| Light code colours, Dark code colours | `lightCodeTheme`, `darkCodeTheme`: `default` | A select each, with a sample of code under the row drawn in that set (the light sample keeps its light background in a dark window). Diffs, file views, the approval card's diff and the code blocks of a reply take the set of the window's current appearance. The sample has no blank last row. See the table below. |
 | Code font | `codeFont`: empty (Namzu's own) | A text box (saved on Enter or when it loses the focus; a name with anything but letters, digits, spaces and `. _ ( ) + & -` is refused with a line under the box; Escape puts the saved name back and leaves Settings open, and a second Escape closes it). Sets `--font-mono` and `--font-terminal` on the root to `"<name>", var(--font-mono-app)`, so code blocks, diffs, file views, tool output and the terminal use it. |
 | Code font size | `codeFontSize`: 13 | A list from 11 to 18 px. Sets `--font-size-code` on the root, which `--diffs-font-size` and every code block already read, and the terminal's text size. |
 
@@ -2473,19 +2474,30 @@ No attribute is the value Namzu has always had. The rules are in `renderer/appea
 contrast and Warm. Each is a pair of bundled highlighter themes, one for light and one for dark, kept
 in `shared/code-themes.ts`, so nothing is downloaded.
 
-**Gap against the plan:** a code block in a conversation is drawn plain, not highlighted, so the
-colour rows change diffs and file views, not those blocks (the code font and size do reach them). The highlighter themes are not CSS, so `renderer/code-prefs.ts` holds
+A fenced code block in a reply is drawn in the same colours (`renderer/chat-code.tsx`, rules in
+`renderer/code-highlight.ts`). It uses the shared highlighter the preview card uses, with the set for the
+window's current appearance (the root's `dark` class, watched, so a switch recolours without a reload). It is
+coloured only once settled: every block before the tail of a streaming reply, and every block once the reply is
+done; the tail shows plain text until then, so a growing reply is not highlighted on each update. The language
+is the fence's own name (the highlighter resolves `ts`, `sh`, `py` and the rest itself, each loaded once on
+demand). A block with no or an unknown language, one over 20,000 characters or 500 lines, and a highlighter that
+cannot load stay plain. The coloured spans spell exactly the original text, so selecting, copying by hand and
+the copy button are unchanged, and the header is unchanged. A coloured block sits on `--code-background`, as diffs
+and file views do, so the Default set looks the same everywhere; a plain block keeps its muted surface. Inline code
+is not coloured. The highlighter themes are not CSS, so `renderer/code-prefs.ts` holds
 them: it starts from the mirror (`namzu.appearance-prefs`) and `useAppearancePrefs` updates it after
 it sets the root's tokens. The font and size are in the same mirror and `public/theme-boot.js` sets the
 two tokens before the first paint. **Open terminals:** `terminal-registry.ts` subscribes to
 `code-prefs.ts` and, on every change, reads `--font-terminal` and `--font-size-code` again and calls
 `TerminalSession.setFont`, which sets the emulator's `fontFamily` and `fontSize` and fits the terminal
 to its pane again, so no restart is needed. A new terminal reads the same tokens when it is created.
-**Terminal > Code font and colours** (**Open Appearance**) opens Appearance at the first code row.
+**Terminal > Code font and colours** (**Open Appearance**, drawn as the same quiet button as **Find installed fonts**) opens Appearance at the first code row.
 
 The interface font's list of installed fonts comes from the window's own font-listing call
 (`queryLocalFonts`, in `renderer/installed-fonts.ts`): the names only, nothing is downloaded, and it
-runs when the person presses **Find installed fonts** because the engine needs a click. Where the call
+runs when the person presses **Find installed fonts** because the engine needs a click. The list is one
+store for the window, so loading it in either font row fills both rows' lists, hides both buttons and shows
+a failure in both. Where the call
 is missing or refused, the two built-in choices remain. A chosen font is stored as `family:<name>` for
 the interface and for replies (`family:<name>`, so a font called `System` is never read as the built-in choice); a name holding anything but letters, digits, spaces and
 `. _ ( ) + & -` is refused so it cannot end a quoted CSS string.

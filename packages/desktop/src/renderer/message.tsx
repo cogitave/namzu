@@ -13,6 +13,8 @@ import Markdown, { type Components } from 'react-markdown'
 import remarkFrontmatter from 'remark-frontmatter'
 import remarkGfm from 'remark-gfm'
 import type { ChatMessage } from '../shared/protocol.js'
+import { useHighlightedCode } from './chat-code.js'
+import { blockIsSettled, hasFence } from './code-highlight.js'
 import { CopyButton } from './copy-button.js'
 import {
 	ProjectFileLink,
@@ -119,6 +121,8 @@ function MessageLink({ children, href }: { children?: ReactNode; href?: string }
 }
 
 const CodeBlockContext = createContext(false)
+/** Whether the code blocks of this part of a reply are settled, so they may be coloured. */
+const SettledBlockContext = createContext(false)
 
 function MarkdownPre({
 	node,
@@ -126,8 +130,11 @@ function MarkdownPre({
 	...props
 }: ComponentPropsWithoutRef<'pre'> & { node?: unknown }) {
 	const code = markdownCodeCopy(node)
+	const settled = useContext(SettledBlockContext)
+	// Coloured spans spell the same text as the plain code, so copying and selecting are unchanged.
+	const coloured = useHighlightedCode(code?.text, code?.language ?? '', settled && !!code)
 	return (
-		<div className="chat-markdown-codeblock">
+		<div className="chat-markdown-codeblock" data-highlighted={coloured ? 'true' : undefined}>
 			{code && (
 				<div className="chat-markdown-codeblock-header">
 					<span className="chat-markdown-codeblock-language">{code.language || 'Code'}</span>
@@ -135,7 +142,9 @@ function MarkdownPre({
 				</div>
 			)}
 			<CodeBlockContext.Provider value={true}>
-				<pre {...props}>{children}</pre>
+				<pre {...props}>
+					{coloured ? <code className={`language-${code?.language}`}>{coloured}</code> : children}
+				</pre>
 			</CodeBlockContext.Provider>
 		</div>
 	)
@@ -285,7 +294,7 @@ export const MarkdownContent = memo(function MarkdownContent({
 	return (
 		<LinkPreviewContext.Provider value={handle}>
 			<ResolvedRefsContext.Provider value={refs}>
-				<MarkdownBody text={shown} document={document} />
+				<MarkdownBody text={shown} document={document} settled={settled} />
 			</ResolvedRefsContext.Provider>
 			<LinkPreviews handle={handle} />
 		</LinkPreviewContext.Provider>
@@ -349,7 +358,8 @@ type RemarkPlugins = NonNullable<ComponentProps<typeof Markdown>['remarkPlugins'
 const MarkdownBlock = memo(function MarkdownBlock({
 	text,
 	document,
-}: { text: string; document?: DocumentOptions }) {
+	settled,
+}: { text: string; document?: DocumentOptions; settled: boolean }) {
 	const plugins = useMemo(
 		(): RemarkPlugins => [
 			remarkGfm,
@@ -363,9 +373,11 @@ const MarkdownBlock = memo(function MarkdownBlock({
 		[document],
 	)
 	return (
-		<Markdown remarkPlugins={plugins} skipHtml components={components}>
-			{text}
-		</Markdown>
+		<SettledBlockContext.Provider value={settled}>
+			<Markdown remarkPlugins={plugins} skipHtml components={components}>
+				{text}
+			</Markdown>
+		</SettledBlockContext.Provider>
 	)
 })
 
@@ -378,7 +390,8 @@ export const MarkdownBody = memo(function MarkdownBody({
 	text,
 	document,
 	split = true,
-}: { text: string; document?: DocumentOptions; split?: boolean }) {
+	settled = false,
+}: { text: string; document?: DocumentOptions; split?: boolean; settled?: boolean }) {
 	const blocks = useMemo(
 		() => (document || !split ? [text] : markdownBlockSources(text)),
 		[text, document, split],
@@ -391,8 +404,17 @@ export const MarkdownBody = memo(function MarkdownBody({
 			)}
 		>
 			{blocks.map((block, index) => (
-				// biome-ignore lint/suspicious/noArrayIndexKey: A block's identity is its position; only the tail grows.
-				<MarkdownBlock key={index} text={block} document={document} />
+				<MarkdownBlock
+					// biome-ignore lint/suspicious/noArrayIndexKey: A block's identity is its position; only the tail grows.
+					key={index}
+					text={block}
+					document={document}
+					// Only the tail of a streaming reply can still change; a finished reply, a document and every
+					// block before the tail are settled, so their code is coloured once.
+					// A block without a fence has nothing to colour, so its prop never changes and its parsed
+					// tree is kept when it stops being the tail.
+					settled={hasFence(block) && blockIsSettled(index, blocks.length, settled, !!document)}
+				/>
 			))}
 		</div>
 	)
