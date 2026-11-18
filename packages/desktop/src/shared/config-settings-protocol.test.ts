@@ -176,3 +176,47 @@ describe('reading the model rows', () => {
 		])
 	})
 })
+
+describe('reading the permission and browser rows', () => {
+	const row = (control: unknown) =>
+		readConfigSettingsView({
+			descriptors: [{ ...descriptor, path: 'p', section: 'projects', control }],
+			settings: [],
+		}).descriptors[0]
+	const effects = [{ value: 'allow', label: 'Allow' }]
+
+	it('reads the rules, checks and sites controls', () => {
+		expect(row({ kind: 'permission-rules', effects, example: '{}' })?.control).toEqual({
+			kind: 'permission-rules',
+			effects,
+			example: '{}',
+		})
+		expect(
+			row({
+				kind: 'permission-checks',
+				effects,
+				commandTools: ['bash'],
+				commandField: 'command',
+				example: '[]',
+			})?.control,
+		).toMatchObject({ kind: 'permission-checks', commandTools: ['bash'], commandField: 'command' })
+		expect(
+			row({ kind: 'sites', levels: effects, defaultLevel: 'ask', example: '{}' })?.control,
+		).toEqual({ kind: 'sites', levels: effects, defaultLevel: 'ask', example: '{}' })
+	})
+
+	it('drops a row that lacks what Desktop needs to draw it', () => {
+		expect(row({ kind: 'permission-rules', example: '{}' })).toBeUndefined()
+		expect(
+			row({
+				kind: 'permission-checks',
+				effects,
+				commandTools: [1],
+				commandField: 'c',
+				example: '',
+			}),
+		).toBeUndefined()
+		expect(row({ kind: 'permission-checks', effects, example: '[]' })).toBeUndefined()
+		expect(row({ kind: 'sites', levels: effects, example: '{}' })).toBeUndefined()
+	})
+})

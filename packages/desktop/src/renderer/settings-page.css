@@ -878,6 +878,18 @@ input.settings-config-number {
 .settings-config-model {
 	width: min(320px, 100%);
 }
+/* A line of rules: a short box for each part, then its answer. */
+.settings-config-short {
+	width: min(200px, 100%);
+}
+.settings-config-answer {
+	flex: none;
+	width: 120px;
+}
+.settings-config-items .settings-config-field {
+	flex: none;
+	flex-wrap: nowrap;
+}
 /* A form's Save and Discard sit at the start under its lines, like a JSON box's. */
 .settings-config-actions {
 	display: flex;

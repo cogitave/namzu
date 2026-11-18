@@ -68,6 +68,9 @@ namzu config set skills.disabled '["a-skill-called-none"]'
 namzu config set smallModel anthropic/claude-haiku-4-5
 namzu config set routing '{"default":{"provider":"anthropic","model":"claude-sonnet-4-5"},"strategy":"score"}'
 namzu config set permissions.autoMode '{"model":"smallModel","hardDeny":["$defaults","Deleting a production database"]}'
+namzu config set permissions '{"bash":{"git status *":"allow","*":"ask"},"read":"allow"}'   # asks: allow rules
+namzu config set permissionChecks '[{"tool":"bash","input":{"command":"rm -rf /"},"expect":"deny"}]'
+namzu config set browser.sites '{"https://example.com":"read","*":"ask"}'
 ```
 
 - A **list** is a comma list of values or labels, `none` for an empty one (a folder or a skill that is itself
@@ -87,6 +90,17 @@ namzu config set permissions.autoMode '{"model":"smallModel","hardDeny":["$defau
   (`provider:model` is not read). `permissions.autoMode` asks first when its model changes, when an entry is added to
   `allow` or `environment`, or when an entry is removed from `softDeny` or `hardDeny`, and names it; a change that only
   restricts applies at once. `namzu config get smallModel` says so when `NAMZU_SMALL_MODEL` is set for the command.
+- **Permissions and browser sites.** `permissions`, `permissionChecks` and `browser.sites` take JSON, the table or list
+  the loader reads, and refuse what the loader refuses (a rule answer other than `allow`, `ask` or `deny`; a check whose
+  `input` is not an object, such as `permissionChecks[0]: expected an "input" object for bash; got string`; a site with no
+  scheme, such as `example.com`). `permissions` here is only the tool rules: `defaultMode`, `disableBypassMode`,
+  `disableAutoMode`, `outsideRoot` and `autoMode` have keys of their own, a table that names one is refused, they stay as
+  written when the rules change, and `namzu config unset permissions` removes the rules and nothing else. The
+  `allow`, `ask` and `deny` lists of `Tool(specifier)` strings are accepted and saved as the per-tool table. These
+  ask first only when a change lets more run without a person, and name it: a rule that allows (or a rule made more
+  permissive, or a deny or ask rule removed) in `permissions`; a check removed or changed in `permissionChecks`; a site
+  that becomes `act` or stops being `deny` in `browser.sites`. A change that only restricts applies at once.
+  `namzu config get permissions` prints the rules as `tool "pattern" answer`.
 - `mcpServers` stays a file-only setting here; `namzu mcp add|remove` changes the user file's servers.
 - A value that means the same as no key (every event, the default screen alone) removes the key.
 - A key the loader refuses is refused in the loader's words: `tui.workspacesPrefix ctrl+c` says it must be

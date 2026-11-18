@@ -82,6 +82,15 @@ export type ConfigSettingControl =
 	| { kind: 'model'; placeholder?: string }
 	| { kind: 'routing'; example: string }
 	| { kind: 'auto-mode'; lists: ConfigSettingOption[]; example: string }
+	| { kind: 'permission-rules'; effects: ConfigSettingOption[]; example: string }
+	| {
+			kind: 'permission-checks'
+			effects: ConfigSettingOption[]
+			commandTools: string[]
+			commandField: string
+			example: string
+	  }
+	| { kind: 'sites'; levels: ConfigSettingOption[]; defaultLevel: string; example: string }
 	| { kind: 'json'; example: string }
 	| { kind: 'file-only' }
 
@@ -282,6 +291,35 @@ function control(value: unknown): ConfigSettingControl | undefined {
 			const lists = options(c.lists)
 			return lists && typeof c.example === 'string'
 				? { kind: 'auto-mode', lists, example: c.example }
+				: undefined
+		}
+		case 'permission-rules': {
+			const effects = options(c.effects)
+			return effects && typeof c.example === 'string'
+				? { kind: 'permission-rules', effects, example: c.example }
+				: undefined
+		}
+		case 'permission-checks': {
+			const effects = options(c.effects)
+			const tools = Array.isArray(c.commandTools) ? c.commandTools : undefined
+			return effects &&
+				tools &&
+				tools.every((tool) => typeof tool === 'string') &&
+				typeof c.commandField === 'string' &&
+				typeof c.example === 'string'
+				? {
+						kind: 'permission-checks',
+						effects,
+						commandTools: tools as string[],
+						commandField: c.commandField,
+						example: c.example,
+					}
+				: undefined
+		}
+		case 'sites': {
+			const levels = options(c.levels)
+			return levels && typeof c.defaultLevel === 'string' && typeof c.example === 'string'
+				? { kind: 'sites', levels, defaultLevel: c.defaultLevel, example: c.example }
 				: undefined
 		}
 		case 'json':

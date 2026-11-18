@@ -282,3 +282,175 @@ describe('Desktop and the terminal read the routing table and the reviewer alike
 		expect(cli.environmentNote(env)).toBe(values.environmentNote(env))
 	})
 })
+
+describe('Desktop and the terminal read the permission and browser rows alike', () => {
+	const rulesControl = { kind: 'permission-rules', effects: [], example: '{}' }
+	const checksControl = {
+		kind: 'permission-checks',
+		effects: [],
+		commandTools: ['bash'],
+		commandField: 'command',
+		example: '[]',
+	}
+	const sitesControl = {
+		kind: 'sites',
+		levels: [
+			{ value: 'deny', label: 'Deny' },
+			{ value: 'read', label: 'Read' },
+			{ value: 'ask', label: 'Ask' },
+			{ value: 'act', label: 'Act' },
+		],
+		defaultLevel: 'ask',
+		example: '{}',
+	}
+	const rules = [
+		undefined,
+		{},
+		'text',
+		{ read: 'allow' },
+		{ bash: { 'git status *': 'allow', 'rm *': 'deny', '*': 'ask' }, edit: 'ask' },
+		{ bash: 'deny', defaultMode: 'auto', autoMode: { model: 'x' } },
+		{ sources: { 'plugin:*': 'deny' }, read: 'maybe' },
+	]
+	const checks = [
+		undefined,
+		[],
+		'text',
+		[{ tool: 'bash', input: { command: 'rm -rf /' }, expect: 'deny' }],
+		[
+			{ tool: 'bash', input: { command: 'ls' }, expect: 'allow' },
+			{ tool: 'read', input: { path: 'a' }, expect: 'ask' },
+			{ tool: 'x', input: 'rm', expect: 'deny' },
+		],
+	]
+	const sites = [
+		undefined,
+		{},
+		'text',
+		{ 'https://a.dev': 'read' },
+		{ 'https://a.dev': 'deny', '*': 'ask' },
+		{ 'https://a.dev': 'act', 'https://b.dev': 'read', '*': 'deny' },
+		{ '*': 'act' },
+	]
+
+	it('answer every input the same way', async () => {
+		const cli = (await import(/* @vite-ignore */ CLI)) as typeof values
+		for (const table of rules) {
+			expect(cli.permissionRuleRows(table), JSON.stringify(table)).toEqual(
+				values.permissionRuleRows(table),
+			)
+			expect(cli.listControlWords(rulesControl as never, table)).toBe(
+				values.listControlWords(rulesControl as never, table),
+			)
+			for (const next of rules) {
+				expect(cli.permissionRulesLoosened(table, next)).toEqual(
+					values.permissionRulesLoosened(table, next),
+				)
+				expect(cli.permissionRulesConfirmation('S.', table, next)).toBe(
+					values.permissionRulesConfirmation('S.', table, next),
+				)
+				expect(cli.loosenAsks(rulesControl as never, table, next)).toBe(
+					values.loosenAsks(rulesControl as never, table, next),
+				)
+			}
+		}
+		for (const rows of [
+			[],
+			[{ tool: 'read', pattern: '', effect: 'allow' }],
+			[
+				{ tool: 'bash', pattern: 'ls', effect: 'allow' },
+				{ tool: 'bash', pattern: '', effect: 'ask' },
+			],
+			[{ tool: ' ', pattern: '', effect: 'ask' }],
+			[{ tool: 'a b', pattern: '', effect: 'ask' }],
+			[{ tool: 'autoMode', pattern: '', effect: 'ask' }],
+			[{ tool: 'sources', pattern: '', effect: 'deny' }],
+			[{ tool: 'bash', pattern: 'ls', effect: 'maybe' }],
+			[
+				{ tool: 'bash', pattern: 'ls', effect: 'allow' },
+				{ tool: 'bash', pattern: 'ls', effect: 'deny' },
+			],
+		])
+			expect(cli.permissionRulesTable(rows), JSON.stringify(rows)).toEqual(
+				values.permissionRulesTable(rows),
+			)
+		expect(cli.permissionRuleName({ tool: 'bash', pattern: 'ls' })).toBe(
+			values.permissionRuleName({ tool: 'bash', pattern: 'ls' }),
+		)
+		expect(cli.PERMISSION_MODE_KEYS).toEqual(values.PERMISSION_MODE_KEYS)
+
+		for (const list of checks) {
+			expect(cli.permissionCheckRows(list)).toEqual(values.permissionCheckRows(list))
+			expect(cli.listControlWords(checksControl as never, list)).toBe(
+				values.listControlWords(checksControl as never, list),
+			)
+			for (const next of checks) {
+				expect(cli.permissionChecksRemoved(list, next)).toEqual(
+					values.permissionChecksRemoved(list, next),
+				)
+				expect(cli.permissionChecksConfirmation('S.', list, next)).toBe(
+					values.permissionChecksConfirmation('S.', list, next),
+				)
+				expect(cli.loosenAsks(checksControl as never, list, next)).toBe(
+					values.loosenAsks(checksControl as never, list, next),
+				)
+			}
+		}
+		for (const [tool, text] of [
+			['bash', 'git status'],
+			['bash', ' '],
+			['read', '{"path":"a"}'],
+			['read', '"a"'],
+			['read', '{oops'],
+			['read', '[1]'],
+		] as const)
+			expect(cli.checkInputFromText(tool, text, ['bash'], 'command'), `${tool} ${text}`).toEqual(
+				values.checkInputFromText(tool, text, ['bash'], 'command'),
+			)
+		for (const row of [
+			{ tool: 'bash', input: { command: 'ls' } },
+			{ tool: 'bash', input: { command: 'ls', extra: 1 } },
+			{ tool: 'bash', input: 'ls' },
+			{ tool: 'read', input: { path: 'a' } },
+		]) {
+			expect(cli.checkInputText(row, ['bash'], 'command')).toBe(
+				values.checkInputText(row, ['bash'], 'command'),
+			)
+			expect(cli.checkInputIsCommand(row, ['bash'], 'command')).toBe(
+				values.checkInputIsCommand(row, ['bash'], 'command'),
+			)
+		}
+
+		for (const table of sites) {
+			expect(cli.siteRows(table), JSON.stringify(table)).toEqual(values.siteRows(table))
+			expect(cli.listControlWords(sitesControl as never, table)).toBe(
+				values.listControlWords(sitesControl as never, table),
+			)
+			for (const next of sites) {
+				expect(cli.sitesLoosened(table, next)).toEqual(values.sitesLoosened(table, next))
+				expect(cli.sitesConfirmation('S.', table, next)).toBe(
+					values.sitesConfirmation('S.', table, next),
+				)
+				expect(cli.loosenAsks(sitesControl as never, table, next)).toBe(
+					values.loosenAsks(sitesControl as never, table, next),
+				)
+			}
+		}
+		for (const [lines, other] of [
+			[[], ''],
+			[[{ site: 'https://a.dev', level: 'read' }], 'deny'],
+			[[{ site: ' ', level: 'read' }], ''],
+			[[{ site: '*', level: 'read' }], ''],
+			[
+				[
+					{ site: 'https://a.dev', level: 'read' },
+					{ site: 'https://a.dev', level: 'deny' },
+				],
+				'',
+			],
+		] as const)
+			expect(cli.sitesValue(lines as never, other), JSON.stringify(lines)).toEqual(
+				values.sitesValue(lines as never, other),
+			)
+	})
+})

@@ -13,8 +13,11 @@ import {
 	ListSwitch,
 	ManyChecks,
 	ModelSetting,
+	PermissionChecksEditor,
+	PermissionRulesEditor,
 	RoutingEditor,
 	ScreensEditor,
+	SitesEditor,
 	WordList,
 } from './config-settings-lists.js'
 import {
@@ -116,6 +119,9 @@ const STACKED_KINDS: readonly string[] = [
 	'list',
 	'routing',
 	'auto-mode',
+	'permission-rules',
+	'permission-checks',
+	'sites',
 ]
 
 function ConfigRow({
@@ -327,6 +333,26 @@ function Control({
 			return (
 				<AutoModeEditor descriptor={descriptor} control={control} value={value} config={config} />
 			)
+		case 'permission-rules':
+			return (
+				<PermissionRulesEditor
+					descriptor={descriptor}
+					control={control}
+					value={value}
+					config={config}
+				/>
+			)
+		case 'permission-checks':
+			return (
+				<PermissionChecksEditor
+					descriptor={descriptor}
+					control={control}
+					value={value}
+					config={config}
+				/>
+			)
+		case 'sites':
+			return <SitesEditor descriptor={descriptor} control={control} value={value} config={config} />
 		case 'json':
 			return (
 				<JsonEditor

@@ -489,3 +489,139 @@ describe('the auto mode reviewer asks only when it loosens or changes model', ()
 		expect(result.status).toBe('confirm')
 	})
 })
+
+describe('permission rules, self-checks and browser sites ask only when more would run', () => {
+	const entries: ConfigSettingsView['descriptors'] = [
+		{
+			path: 'permissions',
+			label: 'Permission rules',
+			description: 'x',
+			section: 'projects',
+			control: { kind: 'permission-rules', effects: [], example: '{}' },
+			confirm: 'Rules can let tools run without asking you.',
+			confirmWhen: 'loosens',
+		},
+		{
+			path: 'permissionChecks',
+			label: 'Permission self-checks',
+			description: 'x',
+			section: 'projects',
+			control: {
+				kind: 'permission-checks',
+				effects: [],
+				commandTools: ['bash'],
+				commandField: 'command',
+				example: '[]',
+			},
+			confirm: 'Removing a check means a rule that lets the wrong thing through goes unnoticed.',
+			confirmWhen: 'loosens',
+		},
+		{
+			path: 'browser.sites',
+			label: 'Browser sites',
+			description: 'x',
+			section: 'tools',
+			control: { kind: 'sites', levels: [], defaultLevel: 'ask', example: '{}' },
+			confirm: 'Allowing act lets Namzu click and type on that site.',
+			confirmWhen: 'loosens',
+		},
+	]
+	const run = async (path: string, held: unknown, value: unknown) => {
+		const view = (): ConfigSettingsView => ({
+			file: '/x/config.yaml',
+			descriptors: entries,
+			settings: held === undefined ? [] : [{ path, set: true, value: held }],
+		})
+		const write = vi.fn(async () => view())
+		const settings = new ConfigSettings({
+			read: async () => view(),
+			write,
+			validate: async () => {},
+		})
+		const result = await settings.change('w1', { path, value })
+		return { result, write }
+	}
+	const message = (r: { result: { status: string; message?: string } }) =>
+		r.result.status === 'confirm' ? r.result.message : undefined
+
+	it('asks for an allow rule with the rule named, and not for a deny or an ask rule', async () => {
+		const allow = await run('permissions', { read: 'allow' }, { read: 'allow', bash: 'allow' })
+		expect(message(allow)).toBe(
+			'Rules can let tools run without asking you. bash (every call) is allowed without asking.',
+		)
+		expect(allow.write).not.toHaveBeenCalled()
+		expect(
+			(await run('permissions', { read: 'allow' }, { read: 'allow', bash: 'deny' })).result.status,
+		).toBe('saved')
+		expect((await run('permissions', undefined, { bash: { 'ls *': 'ask' } })).result.status).toBe(
+			'saved',
+		)
+	})
+
+	it('asks when a deny or ask rule goes or turns more permissive, and for Use default over them', async () => {
+		const held = { bash: { 'rm *': 'deny' }, edit: 'ask' }
+		expect(message(await run('permissions', held, { edit: 'ask' }))).toContain(
+			'The deny rule for bash "rm *" is removed.',
+		)
+		expect(
+			message(await run('permissions', held, { bash: { 'rm *': 'deny' }, edit: 'allow' })),
+		).toContain('edit (every call) goes from ask to allow.')
+		const settings = new ConfigSettings({
+			read: async () => ({
+				file: '/x',
+				descriptors: entries,
+				settings: [{ path: 'permissions', set: true, value: held }],
+			}),
+			write: async () => ({ file: '/x', descriptors: entries, settings: [] }),
+			validate: async () => {},
+		})
+		expect((await settings.change('w1', { path: 'permissions' })).status).toBe('confirm')
+	})
+
+	it('Use default over allow rules alone restricts, so it saves at once', async () => {
+		const settings = new ConfigSettings({
+			read: async () => ({
+				file: '/x',
+				descriptors: entries,
+				settings: [{ path: 'permissions', set: true, value: { read: 'allow' } }],
+			}),
+			write: async () => ({ file: '/x', descriptors: entries, settings: [] }),
+			validate: async () => {},
+		})
+		expect((await settings.change('w1', { path: 'permissions' })).status).toBe('saved')
+	})
+
+	it('asks when a self-check is removed or changed and not when one is added', async () => {
+		const check = { tool: 'bash', input: { command: 'rm -rf /' }, expect: 'deny' }
+		const removed = await run('permissionChecks', [check], [])
+		expect(message(removed)).toBe(
+			'Removing a check means a rule that lets the wrong thing through goes unnoticed. Removed or changed: bash {"command":"rm -rf /"} must be deny.',
+		)
+		expect(
+			(await run('permissionChecks', [check], [{ ...check, expect: 'ask' }])).result.status,
+		).toBe('confirm')
+		expect(
+			(await run('permissionChecks', [check], [check, { ...check, tool: 'edit' }])).result.status,
+		).toBe('saved')
+	})
+
+	it('asks when a site becomes act or stops being denied, never for deny or read', async () => {
+		expect(
+			message(await run('browser.sites', { 'https://a.dev': 'read' }, { 'https://a.dev': 'act' })),
+		).toBe(
+			'Allowing act lets Namzu click and type on that site. Namzu may click and type on https://a.dev.',
+		)
+		expect(message(await run('browser.sites', { '*': 'deny' }, { '*': 'ask' }))).toContain(
+			'every other site is no longer denied; it is now ask.',
+		)
+		expect(message(await run('browser.sites', { 'https://a.dev': 'deny' }, {}))).toContain(
+			'https://a.dev is no longer denied',
+		)
+		for (const next of [
+			{ 'https://a.dev': 'deny' },
+			{ 'https://a.dev': 'read' },
+			{ 'https://a.dev': 'ask' },
+		])
+			expect((await run('browser.sites', undefined, next)).result.status).toBe('saved')
+	})
+})

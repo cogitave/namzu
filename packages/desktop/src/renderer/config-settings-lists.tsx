@@ -20,16 +20,25 @@ import {
 	autoModeList,
 	autoModeModel,
 	autoModeSet,
+	checkInputFromText,
+	checkInputIsCommand,
+	checkInputText,
 	eventSwitchTicked,
 	eventSwitchValue,
 	levelsHeld,
 	levelsValue,
+	permissionCheckRows,
+	permissionRuleName,
+	permissionRuleRows,
+	permissionRulesTable,
 	routingForm,
 	routingValue,
 	sameSet,
 	screenNames,
 	screenTools,
 	screensValue,
+	siteRows,
+	sitesValue,
 } from '../shared/config-settings-values.js'
 import { Switch } from './settings-row.js'
 import { Button } from './ui/button.js'
@@ -1000,6 +1009,394 @@ export function AutoModeEditor({
 					</div>
 				)
 			})}
+		</div>
+	)
+}
+
+/** A line of a list of rules: what it names at the left, its answer and Remove at the right. */
+function RuleLine({
+	name,
+	label,
+	options,
+	answer,
+	onAnswer,
+	onRemove,
+}: {
+	name: string
+	label: string
+	options: readonly ConfigSettingOption[]
+	answer: string
+	onAnswer: (next: string) => void
+	onRemove: () => void
+}) {
+	return (
+		<li>
+			<span className="settings-config-item">{name}</span>
+			<span className="settings-config-field">
+				<select
+					className="settings-config-input settings-config-answer"
+					aria-label={`Answer for ${label}`}
+					value={answer}
+					onChange={(event) => onAnswer(event.target.value)}
+				>
+					{options.map((option) => (
+						<option key={option.value} value={option.value}>
+							{option.label}
+						</option>
+					))}
+				</select>
+				<Button variant="ghost-muted" size="xs" aria-label={`Remove ${label}`} onClick={onRemove}>
+					Remove
+				</Button>
+			</span>
+		</li>
+	)
+}
+
+function LocalError({ text }: { text: string }) {
+	return text ? (
+		<p role="alert" className="settings-error settings-config-error">
+			{text}
+		</p>
+	) : null
+}
+
+/**
+ * The tool rules inside `permissions`, one line each with its answer, and a line to add one. Each
+ * change is saved at once and writes only the rules; the mode keys beside them are other rows.
+ */
+export function PermissionRulesEditor({
+	descriptor,
+	control,
+	value,
+	config,
+}: {
+	descriptor: ConfigSettingDescriptor
+	control: Of<'permission-rules'>
+	value: unknown
+	config: ConfigSettingsControls
+}) {
+	const rows = permissionRuleRows(value)
+	const [tool, setTool] = useState('')
+	const [pattern, setPattern] = useState('')
+	const [effect, setEffect] = useState('ask')
+	const [local, setLocal] = useState('')
+	const save = async (next: typeof rows): Promise<boolean> => {
+		const built = permissionRulesTable(next)
+		if ('error' in built) {
+			setLocal(built.error)
+			return false
+		}
+		setLocal('')
+		return config.change(
+			descriptor.path,
+			Object.keys(built.value).length === 0 ? undefined : built.value,
+		)
+	}
+	const add = async () => {
+		if (await save([...rows, { tool, pattern, effect }])) {
+			setTool('')
+			setPattern('')
+		}
+	}
+	return (
+		<div className="settings-config-list">
+			{rows.length > 0 && (
+				<ul className="settings-config-items" aria-label={descriptor.label}>
+					{rows.map((row) => (
+						<RuleLine
+							key={`${row.tool}\u0000${row.pattern}`}
+							name={permissionRuleName(row)}
+							label={permissionRuleName(row)}
+							options={control.effects}
+							answer={row.effect}
+							onAnswer={(next) =>
+								void save(rows.map((other) => (other === row ? { ...row, effect: next } : other)))
+							}
+							onRemove={() => void save(rows.filter((other) => other !== row))}
+						/>
+					))}
+				</ul>
+			)}
+			<span className="settings-config-field">
+				<input
+					type="text"
+					className="settings-config-input settings-config-short"
+					aria-label="Add a rule: tool"
+					value={tool}
+					placeholder="Tool, such as bash"
+					spellCheck={false}
+					onChange={(event) => setTool(event.target.value)}
+				/>
+				<input
+					type="text"
+					className="settings-config-input settings-config-short"
+					aria-label="Add a rule: pattern"
+					value={pattern}
+					placeholder="Pattern, or empty for every call"
+					spellCheck={false}
+					onChange={(event) => setPattern(event.target.value)}
+					onKeyDown={(event) => {
+						if (event.key === 'Enter') {
+							event.preventDefault()
+							void add()
+						}
+					}}
+				/>
+				<select
+					className="settings-config-input settings-config-answer"
+					aria-label="Add a rule: answer"
+					value={effect}
+					onChange={(event) => setEffect(event.target.value)}
+				>
+					{control.effects.map((option) => (
+						<option key={option.value} value={option.value}>
+							{option.label}
+						</option>
+					))}
+				</select>
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={tool.trim() === ''}
+					onClick={() => void add()}
+				>
+					Add
+				</Button>
+			</span>
+			<LocalError text={local} />
+		</div>
+	)
+}
+
+/**
+ * The self-checks, one line each (tool, input as the engine reads it, the answer it must get), and
+ * a line to add one. A shell tool's input is a command box; any other tool's is a small JSON
+ * object, checked when the line is added. The engine refuses a bad entry in its own words.
+ */
+export function PermissionChecksEditor({
+	descriptor,
+	control,
+	value,
+	config,
+}: {
+	descriptor: ConfigSettingDescriptor
+	control: Of<'permission-checks'>
+	value: unknown
+	config: ConfigSettingsControls
+}) {
+	const rows = permissionCheckRows(value)
+	const [tool, setTool] = useState('')
+	const [input, setInput] = useState('')
+	const [expect, setExpect] = useState('deny')
+	const [local, setLocal] = useState('')
+	const isCommand = control.commandTools.includes(tool.trim())
+	const save = (next: typeof rows) =>
+		config.change(descriptor.path, next.length === 0 ? undefined : next)
+	const add = async () => {
+		const built = checkInputFromText(tool, input, control.commandTools, control.commandField)
+		if ('error' in built) return setLocal(built.error)
+		setLocal('')
+		if (await save([...rows, { tool: tool.trim(), input: built.value, expect }])) {
+			setTool('')
+			setInput('')
+		}
+	}
+	const name = (row: (typeof rows)[number]) =>
+		`${row.tool} ${checkInputText(row, control.commandTools, control.commandField)}`
+	return (
+		<div className="settings-config-list">
+			{rows.length > 0 && (
+				<ul className="settings-config-items" aria-label={descriptor.label}>
+					{rows.map((row, index) => (
+						<RuleLine
+							// A check has no id of its own; its place in the list is its key.
+							key={`${index}:${name(row)}`}
+							name={
+								checkInputIsCommand(row, control.commandTools, control.commandField)
+									? `${row.tool}: ${checkInputText(row, control.commandTools, control.commandField)}`
+									: name(row)
+							}
+							label={name(row)}
+							options={control.effects}
+							answer={row.expect}
+							onAnswer={(next) =>
+								void save(rows.map((other) => (other === row ? { ...row, expect: next } : other)))
+							}
+							onRemove={() => void save(rows.filter((other) => other !== row))}
+						/>
+					))}
+				</ul>
+			)}
+			<span className="settings-config-field">
+				<input
+					type="text"
+					className="settings-config-input settings-config-short"
+					aria-label="Add a check: tool"
+					value={tool}
+					placeholder="Tool, such as bash"
+					spellCheck={false}
+					onChange={(event) => setTool(event.target.value)}
+				/>
+				<input
+					type="text"
+					className="settings-config-input settings-config-short"
+					aria-label={isCommand ? 'Add a check: command' : 'Add a check: input'}
+					value={input}
+					placeholder={
+						isCommand ? 'Command, such as git status' : 'Input as JSON, such as {"path":"a.txt"}'
+					}
+					spellCheck={false}
+					onChange={(event) => setInput(event.target.value)}
+					onKeyDown={(event) => {
+						if (event.key === 'Enter') {
+							event.preventDefault()
+							void add()
+						}
+					}}
+				/>
+				<select
+					className="settings-config-input settings-config-answer"
+					aria-label="Add a check: expected answer"
+					value={expect}
+					onChange={(event) => setExpect(event.target.value)}
+				>
+					{control.effects.map((option) => (
+						<option key={option.value} value={option.value}>
+							{option.label}
+						</option>
+					))}
+				</select>
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={tool.trim() === ''}
+					onClick={() => void add()}
+				>
+					Add
+				</Button>
+			</span>
+			<LocalError text={local} />
+		</div>
+	)
+}
+
+/**
+ * The browser's sites, one line each, and the fixed line for every other site with the engine's
+ * default shown. Each change is saved at once; the engine writes the sites as it reads them.
+ */
+export function SitesEditor({
+	descriptor,
+	control,
+	value,
+	config,
+}: {
+	descriptor: ConfigSettingDescriptor
+	control: Of<'sites'>
+	value: unknown
+	config: ConfigSettingsControls
+}) {
+	const { sites, other } = siteRows(value)
+	const [site, setSite] = useState('')
+	const [level, setLevel] = useState('ask')
+	const [local, setLocal] = useState('')
+	const labelOf = (id: string) => control.levels.find((l) => l.value === id)?.label ?? id
+	const save = async (next: typeof sites, nextOther: string): Promise<boolean> => {
+		const built = sitesValue(next, nextOther)
+		if ('error' in built) {
+			setLocal(built.error)
+			return false
+		}
+		setLocal('')
+		return config.change(
+			descriptor.path,
+			Object.keys(built.value).length === 0 ? undefined : built.value,
+		)
+	}
+	const add = async () => {
+		if (await save([...sites, { site, level }], other)) setSite('')
+	}
+	return (
+		<div className="settings-config-list">
+			<ul className="settings-config-items" aria-label={descriptor.label}>
+				{sites.map((row) => (
+					<RuleLine
+						key={row.site}
+						name={row.site}
+						label={row.site}
+						options={control.levels}
+						answer={row.level}
+						onAnswer={(next) =>
+							void save(
+								sites.map((one) => (one === row ? { ...row, level: next } : one)),
+								other,
+							)
+						}
+						onRemove={() =>
+							void save(
+								sites.filter((one) => one !== row),
+								other,
+							)
+						}
+					/>
+				))}
+				<li>
+					<span className="settings-config-item">Every other site</span>
+					<span className="settings-config-field">
+						<select
+							className="settings-config-input settings-config-answer"
+							aria-label="Level for every other site"
+							value={other}
+							onChange={(event) => void save(sites, event.target.value)}
+						>
+							<option value="">Default ({labelOf(control.defaultLevel)})</option>
+							{control.levels.map((option) => (
+								<option key={option.value} value={option.value}>
+									{option.label}
+								</option>
+							))}
+						</select>
+					</span>
+				</li>
+			</ul>
+			<span className="settings-config-field">
+				<input
+					type="text"
+					className="settings-config-input settings-config-short"
+					aria-label="Add a site"
+					value={site}
+					placeholder="https://example.com or https://*.example.com"
+					spellCheck={false}
+					onChange={(event) => setSite(event.target.value)}
+					onKeyDown={(event) => {
+						if (event.key === 'Enter') {
+							event.preventDefault()
+							void add()
+						}
+					}}
+				/>
+				<select
+					className="settings-config-input settings-config-answer"
+					aria-label="Add a site: level"
+					value={level}
+					onChange={(event) => setLevel(event.target.value)}
+				>
+					{control.levels.map((option) => (
+						<option key={option.value} value={option.value}>
+							{option.label}
+						</option>
+					))}
+				</select>
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={site.trim() === ''}
+					onClick={() => void add()}
+				>
+					Add
+				</Button>
+			</span>
+			<LocalError text={local} />
 		</div>
 	)
 }

@@ -802,3 +802,113 @@ describe('the models a model field offers', () => {
 		expect(models).toHaveBeenCalledTimes(3)
 	})
 })
+
+describe('the permission and browser rows, drawn from the real engine list', () => {
+	const drawSection = async (
+		section: 'projects' | 'tools',
+		settings: ConfigSettingsView['settings'] = [],
+	) => {
+		const { SETTING_DESCRIPTORS } = (await import(/* @vite-ignore */ CLI_DESCRIPTORS)) as {
+			SETTING_DESCRIPTORS: readonly { path: string }[]
+		}
+		const { withDefaultText } = (await import(/* @vite-ignore */ CLI_SETTINGS)) as {
+			withDefaultText: (entry: unknown) => unknown
+		}
+		const real = readConfigSettingsView(
+			JSON.parse(
+				JSON.stringify({
+					file: '/x/config.yaml',
+					settings,
+					descriptors: SETTING_DESCRIPTORS.map(withDefaultText),
+				}),
+			),
+		)
+		return renderToStaticMarkup(
+			createElement(ConfigSettingsGroup, { section, config: controls({ view: real }) }),
+		)
+	}
+	const row = (page: string, path: string) => {
+		const start = page.indexOf(`id="setting-${configSettingId(path)}"`)
+		expect(start, path).toBeGreaterThan(-1)
+		const next = page.indexOf('<div id="setting-', start + 10)
+		return page.slice(start, next === -1 ? undefined : next)
+	}
+
+	it(
+		'draws the rules as lines with an answer each and a line to add one, never a JSON box',
+		async () => {
+			const rules = {
+				bash: { 'git status *': 'allow', 'rm *': 'deny' },
+				read: 'allow',
+			}
+			const html = row(
+				await drawSection('projects', [{ path: 'permissions', set: true, value: rules }]),
+				'permissions',
+			)
+			expect(html).toContain('bash &quot;git status *&quot;')
+			expect(html).toContain('read (every call)')
+			expect(html).toContain('aria-label="Answer for bash &quot;rm *&quot;"')
+			expect(html).toContain('<option value="deny" selected="">Deny</option>')
+			expect(html).toContain('aria-label="Remove read (every call)"')
+			expect(html).toContain('aria-label="Add a rule: tool"')
+			expect(html).toContain('aria-label="Add a rule: pattern"')
+			expect(html).toContain('Use the default for Permission rules')
+			expect(html).not.toContain('<textarea')
+			// The mode keys have rows of their own and are not drawn as rules.
+			expect(html).not.toContain('defaultMode')
+		},
+		SLOW_IMPORT_MS,
+	)
+
+	it(
+		'draws no rule lines when none are saved, with the add line only',
+		async () => {
+			const html = row(await drawSection('projects'), 'permissions')
+			expect(html).not.toContain('aria-label="Permission rules"')
+			expect(html).toContain('aria-label="Add a rule: answer"')
+			expect(html).not.toContain('Use the default for')
+		},
+		SLOW_IMPORT_MS,
+	)
+
+	it(
+		'draws the self-checks as tool, input and expected answer, a command for a shell tool and JSON for any other',
+		async () => {
+			const checks = [
+				{ tool: 'bash', input: { command: 'rm -rf /' }, expect: 'deny' },
+				{ tool: 'read', input: { path: 'a.txt' }, expect: 'allow' },
+			]
+			const html = row(
+				await drawSection('projects', [{ path: 'permissionChecks', set: true, value: checks }]),
+				'permissionChecks',
+			)
+			expect(html).toContain('bash: rm -rf /')
+			expect(html).toContain('read {&quot;path&quot;:&quot;a.txt&quot;}')
+			expect(html).toContain('aria-label="Add a check: tool"')
+			expect(html).toContain('aria-label="Add a check: input"')
+			expect(html).toContain('Input as JSON')
+			expect(html).not.toContain('<textarea')
+		},
+		SLOW_IMPORT_MS,
+	)
+
+	it(
+		'draws the sites as lines and a fixed line for every other site that shows the default',
+		async () => {
+			const sites = { 'https://example.com': 'read', '*': 'deny' }
+			const saved = row(
+				await drawSection('tools', [{ path: 'browser.sites', set: true, value: sites }]),
+				'browser.sites',
+			)
+			expect(saved).toContain('https://example.com')
+			expect(saved).toContain('aria-label="Level for every other site"')
+			expect(saved).toContain('<option value="deny" selected="">Deny</option>')
+			expect(saved).not.toContain('<textarea')
+			const bare = row(await drawSection('tools'), 'browser.sites')
+			expect(bare).toContain('Every other site')
+			expect(bare).toContain('Default (Ask)')
+			expect(bare).toContain('aria-label="Add a site"')
+		},
+		SLOW_IMPORT_MS,
+	)
+})

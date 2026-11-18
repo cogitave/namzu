@@ -5,9 +5,9 @@ import {
 	readConfigSettingChange,
 } from '../shared/config-settings-protocol.js'
 import {
-	autoModeAsks,
-	autoModeConfirmation,
 	droppedFromDefault,
+	loosenAsks,
+	loosenConfirmation,
 	sameSet,
 	widenedConfirmation,
 	widensList,
@@ -40,7 +40,7 @@ function needsConfirmation(
 	current: unknown,
 ): boolean {
 	if (!entry.confirm) return false
-	if (entry.confirmWhen === 'loosens') return autoModeAsks(current, value)
+	if (entry.confirmWhen === 'loosens') return loosenAsks(entry.control, current, value)
 	if (value === undefined) return clearReachesRiskyDefault(entry)
 	if (entry.confirmWhen === 'widens') return widensList(current, value)
 	if (entry.confirmWhen === 'drops-default')
@@ -93,8 +93,8 @@ function confirmationSentence(
 ): string {
 	const sentence = entry.confirm as string
 	if (entry.confirmWhen === 'widens') return widenedConfirmation(sentence, current, value)
-	if (entry.confirmWhen === 'loosens' && entry.control.kind === 'auto-mode')
-		return autoModeConfirmation(sentence, current, value, entry.control.lists)
+	if (entry.confirmWhen === 'loosens')
+		return loosenConfirmation(sentence, entry.control, current, value)
 	return sentence
 }
 
