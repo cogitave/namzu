@@ -355,3 +355,15 @@ export function confirmationCopy(message: string) {
 		cancel: 'Cancel',
 	}
 }
+
+/**
+ * What leaving a text box does. A box with no typing changes nothing; one typed back to the saved
+ * value is a discard (so a refusal shown for the earlier text goes), anything else is a save.
+ */
+export function textCommitAction(
+	draft: string | undefined,
+	saved: string,
+): 'nothing' | 'discard' | 'save' {
+	if (draft === undefined) return 'nothing'
+	return draft === saved ? 'discard' : 'save'
+}

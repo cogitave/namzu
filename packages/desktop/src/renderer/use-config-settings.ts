@@ -181,6 +181,8 @@ export function useConfigSettings(
 	}, [api, active, reload])
 	const reset = useCallback((path: string) => {
 		setResets((current) => ({ ...current, [path]: (current[path] ?? 0) + 1 }))
+		// A dropped draft takes its refusal with it.
+		setErrors((current) => (current[path] ? { ...current, [path]: '' } : current))
 	}, [])
 	const change = useCallback(
 		async (path: string, value?: unknown) => {

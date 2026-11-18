@@ -37,6 +37,7 @@ import {
 	requirementNote,
 	restartBadge,
 	stateFor,
+	textCommitAction,
 } from './config-settings-model.js'
 import { SettingsConfirmDialog } from './settings-confirm-dialog.js'
 import { Row, Switch } from './settings-row.js'
@@ -552,8 +553,14 @@ function TextInput({
 	const [pickError, setPickError] = useState('')
 	const pick = folderPicker ? config.tools?.pickFolder : undefined
 	const commit = async () => {
-		if (draft === undefined || draft === saved) return setDraft(undefined)
-		const ok = await config.change(descriptor.path, draft.trim() === '' ? undefined : draft)
+		const action = textCommitAction(draft, saved)
+		if (action === 'nothing') return
+		if (action === 'discard') {
+			// Typed back to what is saved: the refusal shown for the earlier text no longer applies.
+			setDraft(undefined)
+			return config.discard(descriptor.path)
+		}
+		const ok = await config.change(descriptor.path, draft?.trim() === '' ? undefined : draft)
 		if (ok) setDraft(undefined)
 	}
 	const box = (
