@@ -10,6 +10,12 @@
  * never writes one.
  */
 
+import { SESSION_EXPORT_EVENT_TYPES } from '../integrations/telemetry/session-export-events.js'
+import { PREFIX_KEYS } from '../workspaces/prefix.js'
+import { COMPOSER_TRIGGER_DEFAULTS, COMPOSER_TRIGGER_IDS } from './composer-triggers.js'
+import type { ComposerTriggerId } from './schema.js'
+import { TOOL_RESULT_SCREEN_NAMES, type ToolResultScreenName } from './tool-result-screens.js'
+
 export type SettingSection =
 	| 'general'
 	| 'models'
@@ -60,8 +66,16 @@ export const APPLIES_WHEN_TEXT: Readonly<Record<AppliesWhen, string>> = {
 	'next-launch': 'Applies the next time the app opens.',
 }
 
-/** A value a setting holds when nothing is saved. A list is the list of ticked option values. */
-export type SettingDefault = boolean | number | string | readonly string[]
+/**
+ * A value a setting holds when nothing is saved. A list is the list of ticked option values; a map
+ * (a `levels` control) is the level each entry holds.
+ */
+export type SettingDefault =
+	| boolean
+	| number
+	| string
+	| readonly string[]
+	| Readonly<Record<string, string>>
 
 export interface SettingOption {
 	/** The value written to the file. Never changes once shipped. */
@@ -75,7 +89,65 @@ export interface SettingOption {
 export type SettingControl =
 	| { readonly kind: 'toggle' }
 	| { readonly kind: 'select'; readonly options: readonly SettingOption[] }
-	| { readonly kind: 'checks'; readonly options: readonly SettingOption[] }
+	| {
+			readonly kind: 'checks'
+			readonly options: readonly SettingOption[]
+			/** Said for a list that holds every option (a missing key meaning all, for example). */
+			readonly allLabel?: string
+			/** Said beside a list with nothing ticked, when that is a choice with a consequence. */
+			readonly emptyNote?: string
+	  }
+	/**
+	 * A switch with event checks beside it, saved as `true` (the events in `whenOn`), `false`, or the
+	 * list of ticked events. Unticking the last event writes `false`.
+	 */
+	| {
+			readonly kind: 'toggle-checks'
+			readonly options: readonly SettingOption[]
+			readonly whenOn: readonly string[]
+	  }
+	/** A switch saved as one of two fixed lists: `on` when it is on, `off` when it is off. */
+	| {
+			readonly kind: 'toggle-list'
+			readonly on: readonly string[]
+			readonly off: readonly string[]
+	  }
+	/** One key of a closed list, chosen from a picker; the key is written as its `value`. */
+	| { readonly kind: 'key'; readonly options: readonly SettingOption[] }
+	/**
+	 * A map from a fixed set of entries to one level each. An entry set to its default is left out of
+	 * the file, and the key goes when the map is empty. The map of defaults is the descriptor's
+	 * `default`.
+	 */
+	| {
+			readonly kind: 'levels'
+			readonly entries: readonly SettingOption[]
+			readonly levels: readonly SettingOption[]
+	  }
+	/**
+	 * The screens a tool result passes, each a name or `{ name, <field> }`. `passthrough` names the
+	 * screen that takes a list of tools to let through, and the field that holds it.
+	 */
+	| {
+			readonly kind: 'screens'
+			readonly options: readonly SettingOption[]
+			readonly passthrough: {
+				readonly screen: string
+				readonly field: string
+				readonly label: string
+				readonly placeholder?: string
+			}
+	  }
+	/**
+	 * A list of words typed one per entry, saved as a list of strings. `picker` names a way to choose
+	 * an entry other than typing it; a screen that does not know it keeps the typed entry.
+	 */
+	| {
+			readonly kind: 'list'
+			readonly itemLabel: string
+			readonly placeholder?: string
+			readonly picker?: 'folder'
+	  }
 	| {
 			readonly kind: 'number'
 			readonly min?: number
@@ -121,11 +193,12 @@ export interface SettingDescriptor {
 	/** A sentence shown in the confirmation dialog. Present means the change is confirmed first. */
 	readonly confirm?: string
 	/**
-	 * Which new value asks. `on` and `off` apply to a toggle, `zero` to a number where 0 removes a
-	 * cap. Absent means every change asks. Clearing a setting asks unless a select names its risky
-	 * values and its default is none of them.
+	 * Which new value asks. `on` and `off` apply to a toggle (for a `toggle-list`, `off` is its `off`
+	 * list), `zero` to a number where 0 removes a cap, and `drops-default` to a list of choices that
+	 * leaves out an entry the default holds. Absent means every change asks. Clearing a setting asks
+	 * unless a select names its risky values and its default is none of them.
 	 */
-	readonly confirmWhen?: 'on' | 'off' | 'zero'
+	readonly confirmWhen?: 'on' | 'off' | 'zero' | 'drops-default'
 	/**
 	 * For a select, the one new value that asks; choosing any other value applies at once. Clearing
 	 * asks only when the setting's default is that value. Absent means every change to a select asks.
@@ -170,6 +243,64 @@ const checks = (...entries: (readonly [string, string])[]): SettingControl => ({
 	kind: 'checks',
 	options: entries.map(([value, label]) => ({ value, label })),
 })
+const eventChecks = (
+	whenOn: readonly string[],
+	...entries: (readonly [string, string, string])[]
+): SettingControl => ({
+	kind: 'toggle-checks',
+	whenOn,
+	options: entries.map(([value, label, help]) => ({ value, label, help })),
+})
+const TRIGGER_WORDS: Readonly<Record<ComposerTriggerId, { label: string; help: string }>> = {
+	hypermode: {
+		label: 'Hypermode',
+		help: 'The word hypermode lets the model use workflows for one reply.',
+	},
+	workflow: {
+		label: 'Workflow',
+		help: 'The word workflow opts one reply into the workflow tool.',
+	},
+	'save-skill': {
+		label: 'Save as skill',
+		help: 'Phrases like "save this as a skill" run /skills save after the reply.',
+	},
+	schedule: {
+		label: 'Schedule',
+		help: 'Phrases like "run it every day" propose a scheduled job.',
+	},
+	'max-effort': {
+		label: 'Maximum effort',
+		help: 'The word ultrathink sets the highest effort for one reply.',
+	},
+}
+
+const SCREEN_WORDS: Readonly<Record<ToolResultScreenName, { label: string; help: string }>> = {
+	correspondence: {
+		label: 'Repeats the request',
+		help: 'Refuses a result framed as untrusted that only repeats the request it answers.',
+	},
+	injection: {
+		label: 'Hidden instructions',
+		help: 'Refuses a result that tries to give the model orders.',
+	},
+}
+
+/** `text_delta` as a person reads it: `Text delta`. */
+function eventLabel(type: string): string {
+	const words = type.replace(/_/g, ' ')
+	return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
+/** `ctrl+b` as `Ctrl+B`, `ctrl+space` as `Ctrl+Space`. */
+function keyLabel(key: string): string {
+	return key
+		.split('+')
+		.map((part) =>
+			part.length === 1 ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1),
+		)
+		.join('+')
+}
+
 const json = (example: string): SettingControl => ({ kind: 'json', example })
 const fileOnly: SettingControl = { kind: 'file-only' }
 
@@ -717,10 +848,22 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'toolResultScreens',
 		'agent',
 		'Screens on tool results',
-		'Checks applied to what a tool returns before a model reads it.',
-		json('[ "correspondence", "injection" ]'),
+		'Checks applied to what a tool returns before a model reads it. Unticking every screen turns screening off.',
 		{
+			kind: 'screens',
+			options: TOOL_RESULT_SCREEN_NAMES.map((value) => ({ value, ...SCREEN_WORDS[value] })),
+			passthrough: {
+				screen: 'correspondence',
+				field: 'passthroughTools',
+				label: 'Tools that may repeat the request',
+				placeholder: 'tool name',
+			},
+		},
+		{
+			default: ['correspondence'],
+			defaultNote: 'Only a result framed as untrusted is checked.',
 			confirm: 'Removing a screen lets tool output reach the model unchecked.',
+			confirmWhen: 'drops-default',
 		},
 	),
 	d(
@@ -1205,17 +1348,28 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'telemetry.sessionExport.eventTypes',
 		'telemetry',
 		'What to save',
-		'Only these kinds of events. Empty means all.',
-		json('[ "message" ]'),
+		'Only these kinds of events are saved. With nothing saved here, every kind is.',
+		{
+			kind: 'checks',
+			options: SESSION_EXPORT_EVENT_TYPES.map((value) => ({
+				value,
+				label: eventLabel(value),
+			})),
+			allLabel: 'All events',
+			emptyNote: 'Nothing will be saved.',
+		},
+		{ default: SESSION_EXPORT_EVENT_TYPES },
 	),
 	d(
 		'telemetry.sessionExport.redactors',
 		'telemetry',
 		'Hide secrets when saving',
-		'"secrets" removes keys and tokens. An empty list saves everything as is.',
-		json('[ "secrets" ]'),
+		'Removes keys and tokens from the saved conversations. Off saves everything as it is.',
+		{ kind: 'toggle-list', on: ['secrets'], off: [] },
 		{
+			default: ['secrets'],
 			confirm: 'With nothing hidden, secrets in a conversation are saved as they are.',
+			confirmWhen: 'off',
 		},
 	),
 	d(
@@ -1336,9 +1490,23 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		d('tui.spinnerTips', 'terminal', 'Tips while working', 'Show a tip next to the spinner.', on, {
 			default: true,
 		}),
-		d('tui.notifications', 'terminal', 'Notifications', 'Which events notify you.', json('true'), {
-			default: false,
-		}),
+		d(
+			'tui.notifications',
+			'terminal',
+			'Notifications',
+			'Tell you through the terminal when Namzu needs you. Choose the events; with none chosen this is off.',
+			eventChecks(
+				['turn-settled', 'approval-required'],
+				['turn-settled', 'Turn finished', 'When a reply is done or stops.'],
+				['approval-required', 'Approval needed', 'When Namzu waits for your yes or no.'],
+				[
+					'idle-prompt',
+					'Waiting for you',
+					'After a minute of quiet, a notice that Namzu is still waiting for your message.',
+				],
+			),
+			{ default: false },
+		),
 		d(
 			'tui.notificationMethod',
 			'terminal',
@@ -1370,8 +1538,11 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 			'tui.workspacesPrefix',
 			'terminal',
 			'Workspaces key',
-			'The key that starts a workspace shortcut, like ctrl+b.',
-			{ kind: 'text', placeholder: 'ctrl+b' },
+			'The key that starts a workspace shortcut. Ctrl+C, Ctrl+D, Ctrl+Z and the keys that are Tab, Enter, Backspace or Escape are not offered.',
+			{
+				kind: 'key',
+				options: PREFIX_KEYS.map((value) => ({ value, label: keyLabel(value) })),
+			},
 			{ default: 'ctrl+b' },
 		),
 		d(
@@ -1402,8 +1573,17 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 			'composerTriggers.builtin',
 			'terminal',
 			'Each trigger',
-			'Per trigger: arm, suggest or off.',
-			json('{ "hypermode": "suggest" }'),
+			'Per trigger: Arm acts on what you type, Suggest only offers it (Alt+W arms), Off ignores it.',
+			{
+				kind: 'levels',
+				entries: COMPOSER_TRIGGER_IDS.map((value) => ({ value, ...TRIGGER_WORDS[value] })),
+				levels: [
+					{ value: 'arm', label: 'Arm' },
+					{ value: 'suggest', label: 'Suggest' },
+					{ value: 'off', label: 'Off' },
+				],
+			},
+			{ default: { ...COMPOSER_TRIGGER_DEFAULTS } },
 		),
 		d(
 			'statusLine',

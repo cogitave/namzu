@@ -18,6 +18,15 @@ export const DEFAULT_PREFIX: Prefix = { name: 'ctrl+b', byte: '\x02' }
 /** Letters whose control byte is something else the child needs. */
 const RESERVED = new Set(['c', 'd', 'z', 'h', 'i', 'j', 'm', 'q', 's', '['])
 
+/** Every key `parsePrefix` accepts, as the setting writes it: the letters that are free, then space. */
+export const PREFIX_KEYS: readonly string[] = [
+	...'abcdefghijklmnopqrstuvwxyz'
+		.split('')
+		.filter((letter) => !RESERVED.has(letter))
+		.map((letter) => `ctrl+${letter}`),
+	'ctrl+space',
+]
+
 export function parsePrefix(value: string): Prefix | undefined {
 	const text = value.trim().toLowerCase().replaceAll(' ', '')
 	if (text === 'ctrl+space') return { name: 'ctrl+space', byte: '\x00' }

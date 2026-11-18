@@ -10,7 +10,16 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { parse as yamlParse } from 'yaml'
 
+import { parsePrefix } from '../workspaces/prefix.js'
 import { BROWSER_PROFILE_NAME, ConfigValueError, readConfigKey } from './load.js'
+import {
+	levelsValue,
+	listControlWords,
+	sameSet,
+	screenNames,
+	screenTools,
+	screensValue,
+} from './setting-values.js'
 import {
 	SETTING_DESCRIPTORS,
 	SETTING_GROUP_LABELS,
@@ -94,7 +103,9 @@ function withTypedDefaultText(entry: SettingDescriptor): SettingDescriptor {
 	const control = entry.control
 	const value = entry.default
 	let text: string
-	if (typeof value === 'boolean') text = value ? 'on' : 'off'
+	const listed = listControlWords(control, value)
+	if (listed !== undefined) text = listed
+	else if (typeof value === 'boolean') text = value ? 'on' : 'off'
 	else if (Array.isArray(value)) {
 		const options = control.kind === 'checks' ? control.options : []
 		text =
@@ -124,6 +135,21 @@ export function readSettings(opts: UserConfigWriteOptions = {}): SettingsSnapsho
 	}
 }
 
+function wordsList(raw: unknown, what: string): string[] {
+	if (!Array.isArray(raw) || raw.some((v) => typeof v !== 'string')) throw new Error(what)
+	return raw as string[]
+}
+
+function choosable(values: readonly string[], allowed: readonly string[]): void {
+	if (values.some((v) => !allowed.includes(v)))
+		throw new Error(`Choose from: ${allowed.join(', ')}.`)
+}
+
+/**
+ * A value read as its control reads it. `undefined` comes back for a value that means the same as
+ * the key being absent (every event ticked, every trigger at its default), so the key is removed
+ * rather than written with a list that would stop following the default.
+ */
 function coerce(entry: SettingDescriptor, raw: unknown): unknown {
 	const control = entry.control
 	switch (control.kind) {
@@ -135,12 +161,79 @@ function coerce(entry: SettingDescriptor, raw: unknown): unknown {
 				throw new Error(`Choose one of: ${control.options.map((o) => o.value).join(', ')}.`)
 			return raw
 		case 'checks': {
-			if (!Array.isArray(raw) || raw.some((v) => typeof v !== 'string'))
-				throw new Error('Choose from the list.')
+			const list = wordsList(raw, 'Choose from the list.')
 			const allowed = control.options.map((o) => o.value)
-			if (raw.some((v) => !allowed.includes(v as string)))
-				throw new Error(`Choose from: ${allowed.join(', ')}.`)
-			return raw
+			choosable(list, allowed)
+			// With every choice ticked, nothing is saved: a missing key means all, new kinds too.
+			if (control.allLabel && sameSet(list, allowed)) return undefined
+			return list
+		}
+		case 'toggle-checks': {
+			if (typeof raw === 'boolean') return raw
+			const list = wordsList(raw, 'Choose on, off or events from the list.')
+			choosable(
+				list,
+				control.options.map((o) => o.value),
+			)
+			return list
+		}
+		case 'toggle-list': {
+			const list = wordsList(raw, 'Choose on or off.')
+			if (sameSet(list, control.on)) return [...control.on]
+			if (sameSet(list, control.off)) return [...control.off]
+			throw new Error('Choose on or off.')
+		}
+		case 'key': {
+			if (typeof raw !== 'string') throw new Error('Choose a key.')
+			// The loader's own reader names the keys it refuses; this only spells the key as it writes it.
+			return parsePrefix(raw)?.name ?? raw.trim()
+		}
+		case 'levels': {
+			if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
+				throw new Error('Choose a level for each entry.')
+			const ids = control.entries.map((e) => e.value)
+			const levels = control.levels.map((l) => l.value)
+			for (const [id, level] of Object.entries(raw)) {
+				if (!ids.includes(id)) throw new Error(`Choose from: ${ids.join(', ')}.`)
+				if (typeof level !== 'string' || !levels.includes(level))
+					throw new Error(`Choose a level for ${id}: ${levels.join(', ')}.`)
+			}
+			return levelsValue(raw as Record<string, string>, entry.default)
+		}
+		case 'screens': {
+			if (!Array.isArray(raw)) throw new Error('Choose from the list.')
+			const allowed = control.options.map((o) => o.value)
+			const names = screenNames(raw)
+			if (names.length !== raw.length) throw new Error('Choose from the list.')
+			choosable(names, allowed)
+			const { screen, field } = control.passthrough
+			for (const entry of raw) {
+				if (typeof entry === 'string') continue
+				const { name, ...options } = entry as Record<string, unknown>
+				for (const key of Object.keys(options))
+					if (!(name === screen && key === field))
+						throw new Error(`${key} is not an option of the "${String(name)}" screen.`)
+				const tools = options[field]
+				if (
+					tools !== undefined &&
+					(!Array.isArray(tools) || tools.some((t) => typeof t !== 'string'))
+				)
+					throw new Error(`${field} must be a list of tool names.`)
+			}
+			const tools = screenTools(raw, screen, field)
+			if (tools.some((tool) => tool.trim() === '')) throw new Error('Enter a tool name.')
+			// An exemption on a screen that is not ticked has nothing to attach to.
+			if (tools.length > 0 && !names.includes(screen))
+				throw new Error(`${field} belongs to the ${screen} screen, which is not chosen.`)
+			return screensValue(names, tools, control, entry.default) === undefined
+				? undefined
+				: normaliseScreens(raw, screen, field)
+		}
+		case 'list': {
+			const list = wordsList(raw, 'Enter a list of words.')
+			if (list.some((item) => item.trim() === '' || item.length > 2000))
+				throw new Error(`Enter a ${control.itemLabel} of 1 to 2000 characters.`)
+			return list.map((item) => item.trim())
 		}
 		case 'number':
 			if (typeof raw !== 'number' || !Number.isFinite(raw)) throw new Error('Enter a number.')
@@ -168,6 +261,17 @@ function coerce(entry: SettingDescriptor, raw: unknown): unknown {
 		case 'file-only':
 			throw new Error('Edit this one in the config file; Desktop does not show or change it.')
 	}
+}
+
+/** The list as written, with a screen's tools trimmed and deduplicated and blank ones dropped. */
+function normaliseScreens(raw: unknown[], screen: string, field: string): unknown[] {
+	return raw.map((entry) => {
+		if (typeof entry === 'string') return entry
+		const name = (entry as { name: string }).name
+		if (name !== screen) return name
+		const tools = [...new Set(screenTools([entry], screen, field).map((t) => t.trim()))]
+		return tools.length > 0 ? { name, [field]: tools } : name
+	})
 }
 
 /**
@@ -316,6 +420,12 @@ function prepare(
 		return { path, value: undefined }
 	}
 	const value = coerce(entry, change.value)
+	if (value === undefined) {
+		// A value that means the same as no key: remove the key, as a clear does.
+		checkAcrossKeys(doc, path, undefined)
+		checkWhole(doc, path, undefined, file)
+		return { path, value: undefined }
+	}
 	VALUE_CHECKS[entry.path]?.(value)
 	expandLearningSwitch(doc, path)
 	checkAcrossKeys(doc, path, value)

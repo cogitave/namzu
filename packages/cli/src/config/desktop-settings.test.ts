@@ -237,7 +237,7 @@ describe('settings that depend on other settings', () => {
 
 	it('clears the save-to-file destination by removing the whole block', () => {
 		writeSetting({ path: 'telemetry.sessionExport.destination', value: '/tmp/out.jsonl' }, opts())
-		writeSetting({ path: 'telemetry.sessionExport.eventTypes', value: '["message"]' }, opts())
+		writeSetting({ path: 'telemetry.sessionExport.eventTypes', value: ['turn_completed'] }, opts())
 		writeSetting({ path: 'telemetry.sessionExport.destination' }, opts())
 		expect(file()).not.toContain('sessionExport')
 		expect(file()).not.toContain('destination')

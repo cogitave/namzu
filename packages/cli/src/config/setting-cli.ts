@@ -29,6 +29,7 @@ import {
 	SETTING_GROUP_LABELS,
 	type SettingDescriptor,
 	type SettingGroup,
+	type SettingOption,
 	type SettingSection,
 } from './settings-descriptors.js'
 import { type UserConfigWriteOptions, userConfigPath } from './user-config.js'
@@ -304,19 +305,81 @@ export function renderSetting(row: SettingRow, file: string): string {
 		else if (control.unit === 'tokens') lines.push('Takes:    a number, such as 200000, 200k or 1m')
 	} else if (control.kind === 'toggle') lines.push('Takes:    on or off')
 	else if (control.kind === 'select' || control.kind === 'checks') {
-		lines.push(control.kind === 'checks' ? 'Choices:  (give a comma list, or none)' : 'Choices:')
-		const width = Math.max(...control.options.map((o) => o.value.length))
-		for (const option of control.options)
-			lines.push(
-				`  ${option.value.padEnd(width)}  ${option.label}${option.help ? ` - ${option.help}` : ''}`,
-			)
-	} else if (control.kind === 'json') lines.push(`Takes:    JSON, such as ${control.example}`)
+		lines.push(
+			control.kind === 'checks'
+				? `Choices:  (give a comma list, none${control.allLabel ? ' or all' : ''})`
+				: 'Choices:',
+		)
+		lines.push(...optionLines(control.options))
+	} else if (control.kind === 'toggle-checks') {
+		lines.push('Takes:    on, off, or a comma list of events (on means the first two below)')
+		lines.push(...optionLines(control.options))
+	} else if (control.kind === 'toggle-list') lines.push('Takes:    on or off')
+	else if (control.kind === 'key') {
+		lines.push(`Takes:    one of ${control.options.map((o) => o.value).join(', ')}`)
+	} else if (control.kind === 'levels') {
+		const [entry, level] = [control.entries[0]?.value, control.levels[0]?.value]
+		lines.push(
+			`Takes:    ${entry}=${level}, comma separated, or JSON such as {"${entry}":"${level}"}`,
+		)
+		lines.push('Entries:')
+		lines.push(...optionLines(control.entries))
+		lines.push(`Levels:   ${control.levels.map((l) => l.value).join(', ')}`)
+		lines.push('          An entry set to its default is left out of the file.')
+	} else if (control.kind === 'screens') {
+		lines.push('Takes:    a comma list of screens, none, or JSON for tools that pass through')
+		lines.push(
+			`          such as [{"name":"${control.passthrough.screen}","${control.passthrough.field}":["tool-name"]}]`,
+		)
+		lines.push('Screens:')
+		lines.push(...optionLines(control.options))
+	} else if (control.kind === 'list')
+		lines.push(`Takes:    a JSON list or comma separated ${control.itemLabel}s`)
+	else if (control.kind === 'json') lines.push(`Takes:    JSON, such as ${control.example}`)
 	else if (control.kind === 'text') lines.push('Takes:    text')
 	else lines.push('Takes:    nothing here; edit this one in the config file')
 	if (row.confirm) lines.push(`Asks:     ${row.asksWhen}: ${row.confirm}`)
 	lines.push(`File:     ${file}`)
 	return lines.join('\n')
 }
+
+function optionLines(options: readonly SettingOption[]): string[] {
+	const width = Math.max(...options.map((o) => o.value.length))
+	return options.map(
+		(option) =>
+			`  ${option.value.padEnd(width)}  ${option.label}${option.help ? ` - ${option.help}` : ''}`,
+	)
+}
+
+/** A choice typed as its saved value or its label, either case; anything else is handed on as typed. */
+function matchOption(options: readonly SettingOption[], text: string): string {
+	const wanted = text.trim().toLowerCase()
+	return (
+		options.find((o) => o.value.toLowerCase() === wanted || o.label.toLowerCase() === wanted)
+			?.value ?? text.trim()
+	)
+}
+
+function words(text: string): string[] {
+	return text
+		.split(',')
+		.map((item) => item.trim())
+		.filter((item) => item !== '')
+}
+
+/** JSON when the text starts like JSON, so a malformed one is refused as JSON and not as a word. */
+function jsonOrNothing(text: string): { value: unknown } | { error: string } | undefined {
+	const trimmed = text.trim()
+	if (!trimmed.startsWith('[') && !trimmed.startsWith('{')) return undefined
+	try {
+		return { value: JSON.parse(trimmed) as unknown }
+	} catch (error) {
+		return { error: `That is not valid JSON: ${(error as Error).message}` }
+	}
+}
+
+const OFF_WORDS = new Set(['off', 'false', 'no', 'none', '0', ''])
+const ON_WORDS = new Set(['on', 'true', 'yes', '1'])
 
 const TOGGLE_WORDS: Readonly<Record<string, boolean>> = {
 	on: true,
@@ -355,11 +418,12 @@ export function parseSettingText(
 		}
 		case 'checks': {
 			const trimmed = text.trim()
+			const asJson = jsonOrNothing(trimmed)
+			if (asJson) return asJson
 			if (trimmed === '' || trimmed.toLowerCase() === 'none') return { value: [] }
-			const items = trimmed
-				.split(',')
-				.map((item) => item.trim())
-				.filter((item) => item !== '')
+			if (control.allLabel && trimmed.toLowerCase() === 'all')
+				return { value: control.options.map((o) => o.value) }
+			const items = words(trimmed)
 			return {
 				value: items.map((item) => {
 					const wanted = item.toLowerCase()
@@ -369,6 +433,54 @@ export function parseSettingText(
 					return hit ? hit.value : item
 				}),
 			}
+		}
+		case 'toggle-checks': {
+			const asJson = jsonOrNothing(text)
+			if (asJson) return asJson
+			const word = text.trim().toLowerCase()
+			if (ON_WORDS.has(word)) return { value: true }
+			if (OFF_WORDS.has(word)) return { value: false }
+			return { value: words(text).map((item) => matchOption(control.options, item)) }
+		}
+		case 'toggle-list': {
+			const asJson = jsonOrNothing(text)
+			if (asJson) return asJson
+			const word = text.trim().toLowerCase()
+			if (ON_WORDS.has(word)) return { value: [...control.on] }
+			if (OFF_WORDS.has(word)) return { value: [...control.off] }
+			return { value: words(text) }
+		}
+		case 'key':
+			return { value: matchOption(control.options, text.trim().replace(/\s+/g, '')) }
+		case 'levels': {
+			const asJson = jsonOrNothing(text)
+			if (asJson) return asJson
+			if (OFF_WORDS.has(text.trim().toLowerCase())) return { value: {} }
+			const chosen: Record<string, string> = {}
+			for (const item of words(text)) {
+				const at = item.indexOf('=')
+				if (at < 0)
+					return {
+						error: `Write each as entry=level, such as ${control.entries[0]?.value}=${control.levels[0]?.value}.`,
+					}
+				chosen[matchOption(control.entries, item.slice(0, at))] = matchOption(
+					control.levels,
+					item.slice(at + 1),
+				)
+			}
+			return { value: chosen }
+		}
+		case 'screens': {
+			const asJson = jsonOrNothing(text)
+			if (asJson) return asJson
+			const trimmed = text.trim().toLowerCase()
+			if (trimmed === '' || trimmed === 'none') return { value: [] }
+			return { value: words(text).map((item) => matchOption(control.options, item)) }
+		}
+		case 'list': {
+			const asJson = jsonOrNothing(text)
+			if (asJson) return asJson
+			return { value: words(text) }
 		}
 		case 'text':
 			return { value: text }
@@ -450,7 +562,7 @@ export function planSettingChange(
 			writeSetting({ path: key, ...(value !== undefined ? { value } : {}) }, opts)
 			const row = readSettingRow(key, opts)
 			const head =
-				text === undefined
+				text === undefined || !row.set
 					? `${row.label} is back to its default: ${row.defaultText.replace(/\.$/, '')}.`
 					: `${row.label} is now ${row.valueText}.`
 			return `${head} ${row.appliesText}`
