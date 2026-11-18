@@ -2254,6 +2254,8 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 		supportsPromptOptions: true,
 		// Only the modes the configuration leaves open, so a client does not offer one
 		// the engine then refuses. `assertModeAllowed` below still holds the line.
+		// The list follows the folder this host was started in: Desktop starts one host per
+		// project, in the project's folder, so that is the project's own configuration.
 		promptPermissionModes: advertisedPromptModes(hostConfig),
 		supportsTaskNotifications: desktop,
 		transport,
