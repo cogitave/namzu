@@ -38,6 +38,10 @@ it('starts on the documented defaults without writing anything', () => {
 		transcriptWidth: 'narrow',
 		motion: 'system',
 		autoDismissPopups: true,
+		lightCodeTheme: 'default',
+		darkCodeTheme: 'default',
+		codeFont: '',
+		codeFontSize: 13,
 		virtualizeConversations: true,
 		lastSettingsSection: 'general',
 	})
@@ -71,6 +75,10 @@ it('validates a change, saves it atomically, and survives a restart', () => {
 		transcriptWidth: 'narrow',
 		motion: 'system',
 		autoDismissPopups: true,
+		lightCodeTheme: 'default',
+		darkCodeTheme: 'default',
+		codeFont: '',
+		codeFontSize: 13,
 		virtualizeConversations: true,
 		lastSettingsSection: 'general',
 	})
@@ -96,6 +104,10 @@ it('validates a change, saves it atomically, and survives a restart', () => {
 		transcriptWidth: 'narrow',
 		motion: 'system',
 		autoDismissPopups: true,
+		lightCodeTheme: 'default',
+		darkCodeTheme: 'default',
+		codeFont: '',
+		codeFontSize: 13,
 		virtualizeConversations: true,
 		lastSettingsSection: 'general',
 	})

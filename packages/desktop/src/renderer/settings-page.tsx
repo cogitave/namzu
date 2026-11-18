@@ -1,6 +1,7 @@
 import { Dialog } from '@base-ui/react/dialog'
 import { Activity, Bot, KeyRound, Monitor, SquareTerminal, Volume2, Wrench } from 'lucide-react'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
+import { CODE_FONT_SIZE_DEFAULT, type CodeThemeKey } from '../shared/code-themes.js'
 import { newerKernelText } from '../shared/engine-update-protocol.js'
 import type { ProjectView } from '../shared/protocol.js'
 import {
@@ -9,6 +10,7 @@ import {
 	RESPONSE_FONT_MATCH,
 	appliesText,
 	catalogueEntry,
+	isSafeFontName,
 } from '../shared/settings-catalogue.js'
 import type {
 	DataFolderKind,
@@ -21,6 +23,7 @@ import type {
 	TranscriptWidth,
 } from '../shared/settings-protocol.js'
 import type { UpdateInfo, UpdateState } from '../shared/update-protocol.js'
+import { CodePreview } from './code-preview.js'
 import { OWN_ROW_CONFIG_PATHS, configSearchEntries } from './config-settings-model.js'
 import { ConfigSettingsGroup } from './config-settings-section.js'
 import { copyPlainText } from './copy-button.js'
@@ -69,7 +72,7 @@ import {
 	updateStatusView,
 	visibleNavGroups,
 } from './settings-model.js'
-import { Row, SegmentedControl, Switch } from './settings-row.js'
+import { Row, SegmentedControl, SelectControl, Switch } from './settings-row.js'
 import type { Appearance } from './sidebar.js'
 import { Button } from './ui/button.js'
 import { useClock } from './use-clock.js'
@@ -594,6 +597,8 @@ function catalogueMeta(entry: CatalogueEntry): string {
 	const fallback = entry.default
 	let defaultLine = ''
 	if (typeof fallback === 'boolean') defaultLine = `Default: ${fallback ? 'On' : 'Off'}.`
+	else if (typeof fallback === 'number' && entry.control.kind === 'number')
+		defaultLine = `Default: ${fallback} ${entry.control.unit}.`
 	else if (typeof fallback === 'string' && entry.control.kind === 'text') {
 		const label = entry.control.placeholder
 		if (label) defaultLine = `Default: ${label}.`
@@ -608,8 +613,9 @@ function catalogueMeta(entry: CatalogueEntry): string {
 function CatalogueRow({
 	id,
 	stacked,
+	below,
 	children,
-}: { id: string; stacked?: boolean; children?: ReactNode }) {
+}: { id: string; stacked?: boolean; below?: ReactNode; children?: ReactNode }) {
 	const entry = catalogueEntry(id)
 	return (
 		<Row
@@ -618,6 +624,7 @@ function CatalogueRow({
 			description={entry.description}
 			meta={catalogueMeta(entry)}
 			stacked={stacked}
+			below={below}
 		>
 			{children}
 		</Row>
@@ -702,7 +709,12 @@ function GeneralSection({ settings }: SectionProps) {
 export function TerminalSettings({
 	settings,
 	shells,
-}: { settings: DesktopSettingsControls; shells: ShellChoice[] | null | undefined }) {
+	onSection,
+}: {
+	settings: DesktopSettingsControls
+	shells: ShellChoice[] | null | undefined
+	onSection?: SettingsPageProps['onSection']
+}) {
 	const group = useId()
 	if (shells === null) return null
 	const current = settings.settings?.terminalShell
@@ -748,7 +760,63 @@ export function TerminalSettings({
 					onChange={(value) => void settings.change({ restoreTerminals: value })}
 				/>
 			</CatalogueRow>
+			{onSection && (
+				<CatalogueRow id="terminal-code-link">
+					<button
+						type="button"
+						className="settings-link"
+						onClick={() => onSection('appearance', 'code-theme-light')}
+					>
+						Open Appearance
+					</button>
+				</CatalogueRow>
+			)}
 		</>
+	)
+}
+
+/**
+ * A font name typed into a box. The value is saved when the box loses the focus or Enter is
+ * pressed, and only if it is empty or a name a font-family can carry; otherwise the box says why.
+ */
+export function CodeFontInput({
+	value,
+	disabled,
+	onCommit,
+}: { value: string; disabled?: boolean; onCommit: (value: string) => void }) {
+	const [draft, setDraft] = useState(value)
+	useEffect(() => setDraft(value), [value])
+	const text = draft.trim()
+	const invalid = text !== '' && !isSafeFontName(text)
+	const commit = () => {
+		if (invalid) return
+		if (text !== value) onCommit(text)
+		setDraft(text)
+	}
+	return (
+		<div className="settings-code-font">
+			<input
+				type="text"
+				className="settings-config-input"
+				aria-label="Code font"
+				aria-invalid={invalid || undefined}
+				placeholder="Namzu’s own"
+				maxLength={80}
+				spellCheck={false}
+				value={draft}
+				disabled={disabled}
+				onChange={(event) => setDraft(event.target.value)}
+				onBlur={commit}
+				onKeyDown={(event) => {
+					if (event.key === 'Enter') commit()
+				}}
+			/>
+			{invalid && (
+				<span data-invalid role="alert">
+					Use letters, numbers, spaces and . _ ( ) + & - only.
+				</span>
+			)}
+		</div>
 	)
 }
 
@@ -859,6 +927,14 @@ function catalogueChoices<T extends string>(id: string): { value: T; label: stri
 	)
 }
 
+const CODE_THEME_CHOICES = (
+	catalogueEntry('code-theme-light').control as { options: readonly CatalogueOption[] }
+).options
+const CODE_SIZE_CHOICES = (() => {
+	const control = catalogueEntry('code-font-size').control as { min: number; max: number }
+	return Array.from({ length: control.max - control.min + 1 }, (_, index) => control.min + index)
+})()
+
 const TEXT_SIZE_CHOICES = catalogueChoices<TranscriptTextSize>('transcript-text-size')
 const WIDTH_CHOICES = catalogueChoices<TranscriptWidth>('transcript-width')
 const MOTION_CHOICES = catalogueChoices<MotionChoice>('motion')
@@ -942,6 +1018,61 @@ function AppearanceSection({ appearance, onAppearanceChange, settings }: Setting
 					disabled={!ready}
 					onChange={(value) => void settings.change({ motion: value })}
 				/>
+			</CatalogueRow>
+			<CatalogueRow
+				id="code-theme-light"
+				below={<CodePreview mode="light" value={saved?.lightCodeTheme ?? 'default'} />}
+			>
+				<SelectControl
+					label="Light code colours"
+					value={saved?.lightCodeTheme ?? 'default'}
+					disabled={!ready}
+					onChange={(value) => void settings.change({ lightCodeTheme: value as CodeThemeKey })}
+				>
+					{CODE_THEME_CHOICES.map((option) => (
+						<option key={option.value} value={option.value}>
+							{option.label}
+						</option>
+					))}
+				</SelectControl>
+			</CatalogueRow>
+			<CatalogueRow
+				id="code-theme-dark"
+				below={<CodePreview mode="dark" value={saved?.darkCodeTheme ?? 'default'} />}
+			>
+				<SelectControl
+					label="Dark code colours"
+					value={saved?.darkCodeTheme ?? 'default'}
+					disabled={!ready}
+					onChange={(value) => void settings.change({ darkCodeTheme: value as CodeThemeKey })}
+				>
+					{CODE_THEME_CHOICES.map((option) => (
+						<option key={option.value} value={option.value}>
+							{option.label}
+						</option>
+					))}
+				</SelectControl>
+			</CatalogueRow>
+			<CatalogueRow id="code-font">
+				<CodeFontInput
+					value={saved?.codeFont ?? ''}
+					disabled={!ready}
+					onCommit={(value) => void settings.change({ codeFont: value })}
+				/>
+			</CatalogueRow>
+			<CatalogueRow id="code-font-size">
+				<SelectControl
+					label="Code font size"
+					value={String(saved?.codeFontSize ?? CODE_FONT_SIZE_DEFAULT)}
+					disabled={!ready}
+					onChange={(value) => void settings.change({ codeFontSize: Number(value) })}
+				>
+					{CODE_SIZE_CHOICES.map((size) => (
+						<option key={size} value={size}>
+							{size} px
+						</option>
+					))}
+				</SelectControl>
 			</CatalogueRow>
 			<CatalogueRow id="auto-dismiss-popups">
 				<Switch

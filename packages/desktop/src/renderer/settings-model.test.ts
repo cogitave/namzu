@@ -54,7 +54,13 @@ describe('search', () => {
 	it('is empty for a blank query and ignores case and punctuation', () => {
 		expect(searchSettings('')).toEqual([])
 		expect(searchSettings('   ')).toEqual([])
-		expect(searchSettings('  THEME!! ').map((e) => e.id)).toEqual(['theme'])
+		// The label match comes first; the code colour rows and the terminal's link carry "theme" as a keyword.
+		expect(searchSettings('  THEME!! ').map((e) => e.id)).toEqual([
+			'theme',
+			'terminal-code-link',
+			'code-theme-light',
+			'code-theme-dark',
+		])
 	})
 
 	it('finds a Turkish word typed with a capital İ or a dotless ı, and a lone İ is not a word', () => {

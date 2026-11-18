@@ -129,6 +129,7 @@ export function entryIsDrawn(id: string, facts: DrawnFacts): boolean {
 		case 'terminal-shell':
 			return (facts.shells?.length ?? 0) > 1
 		case 'terminal-restore':
+		case 'terminal-code-link':
 			return facts.shells !== null
 		case 'auto-download':
 			return facts.hasAppUpdater

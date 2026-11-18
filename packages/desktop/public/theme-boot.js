@@ -53,4 +53,14 @@ try {
 		html.setAttribute('data-response-font', 'on')
 		html.style.setProperty('--font-response', stack)
 	}
+	// Code: the font (for code and the terminal) and its size. The colour sets are read by the diff
+	// and file views from the same mirror when they mount.
+	if (safeFont(prefs.codeFont)) {
+		var mono = '"' + prefs.codeFont.trim() + '", var(--font-mono-app)'
+		html.style.setProperty('--font-mono', mono)
+		html.style.setProperty('--font-terminal', mono)
+	}
+	var codeSize = prefs.codeFontSize
+	if (typeof codeSize === 'number' && codeSize % 1 === 0 && codeSize >= 11 && codeSize <= 18 && codeSize !== 13)
+		html.style.setProperty('--font-size-code', codeSize + 'px')
 } catch (error) {}

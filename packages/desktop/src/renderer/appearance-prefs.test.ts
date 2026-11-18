@@ -13,6 +13,7 @@ import {
 	writePrefsMirror,
 } from './appearance-prefs.js'
 import { MOTION_EVENT, reducedMotion } from './motion-setting.js'
+import { terminalFontFamily, terminalFontSize } from './terminal-theme.js'
 
 function root() {
 	const attributes = new Map<string, string>()
@@ -148,6 +149,65 @@ describe('the first paint (public/theme-boot.js)', () => {
 		expect(boot({ 'namzu.interface-font': 'system' }).attributes.get('data-interface-font')).toBe(
 			'system',
 		)
+	})
+})
+
+describe('the code font and size', () => {
+	const changed: AppearancePrefs = { ...defaults, codeFont: 'Fira Code', codeFontSize: 16 }
+
+	it('sets the mono and terminal fonts and the code size on the root, and removes them at the defaults', () => {
+		const element = root()
+		applyAppearancePrefs(element, changed)
+		const stack = '"Fira Code", var(--font-mono-app)'
+		expect(element.properties.get('--font-mono')).toBe(stack)
+		expect(element.properties.get('--font-terminal')).toBe(stack)
+		expect(element.properties.get('--font-size-code')).toBe('16px')
+		applyAppearancePrefs(element, defaults)
+		expect(element.properties.size).toBe(0)
+	})
+
+	it('draws nothing for an unsafe font name', () => {
+		const element = root()
+		applyAppearancePrefs(element, { ...defaults, codeFont: 'a";}x{y' })
+		expect(element.properties.size).toBe(0)
+	})
+
+	it('is drawn by the first paint exactly as applyAppearancePrefs draws it', () => {
+		const expected = root()
+		applyAppearancePrefs(expected, changed)
+		const first = boot({ [APPEARANCE_PREFS_KEY]: JSON.stringify(mirrorOf(changed)) })
+		expect(first.properties).toEqual(expected.properties)
+	})
+
+	it('first paint refuses a hostile name and a size outside the list', () => {
+		const first = boot({
+			[APPEARANCE_PREFS_KEY]: JSON.stringify({ codeFont: 'a";}x', codeFontSize: 99 }),
+		})
+		expect(first.properties.size).toBe(0)
+		expect(
+			boot({ [APPEARANCE_PREFS_KEY]: JSON.stringify({ codeFontSize: 13 }) }).properties.size,
+		).toBe(0)
+	})
+
+	it('keeps the code choices in the mirror for the first paint', () => {
+		expect(mirrorOf(changed)).toMatchObject({
+			codeFont: 'Fira Code',
+			codeFontSize: 16,
+			lightCodeTheme: 'default',
+			darkCodeTheme: 'default',
+		})
+	})
+
+	it('reads the terminal size from the code size token, 13 with none', () => {
+		const read = (value: string) => () => value
+		expect(terminalFontSize(read('16px'))).toBe(16)
+		expect(terminalFontSize(read(''))).toBe(13)
+		expect(terminalFontSize(read('junk'))).toBe(13)
+	})
+
+	it('has the terminal read the code font token before its own default', () => {
+		const stack = '"Fira Code", var(--font-mono-app)'
+		expect(terminalFontFamily((name) => (name === '--font-terminal' ? stack : ''))).toBe(stack)
 	})
 })
 

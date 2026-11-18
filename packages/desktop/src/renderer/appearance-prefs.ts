@@ -1,3 +1,4 @@
+import { CODE_FONT_SIZE_DEFAULT } from '../shared/code-themes.js'
 import { RESPONSE_FONT_MATCH, isSafeFontName } from '../shared/settings-catalogue.js'
 import type { DesktopSettings } from '../shared/settings-protocol.js'
 
@@ -19,6 +20,10 @@ export type AppearancePrefs = Pick<
 	| 'motion'
 	| 'virtualizeConversations'
 	| 'autoDismissPopups'
+	| 'lightCodeTheme'
+	| 'darkCodeTheme'
+	| 'codeFont'
+	| 'codeFontSize'
 >
 
 /** Where these choices land on the root element. theme.css and public/theme-boot.js use the same names. */
@@ -31,6 +36,10 @@ export const PREF_ATTRIBUTES = {
 } as const
 
 export const RESPONSE_FONT_PROPERTY = '--font-response'
+
+/** The tokens the code font and size set inline on the root; theme.css holds today's values. */
+export const CODE_FONT_PROPERTIES = ['--font-mono', '--font-terminal'] as const
+export const CODE_SIZE_PROPERTY = '--font-size-code'
 
 /** The slice of an element these choices need, so a test can pass a plain object. */
 export interface PrefsRoot {
@@ -83,11 +92,28 @@ export function applyAppearancePrefs(root: PrefsRoot, prefs: AppearancePrefs): v
 	toggleAttribute(root, PREF_ATTRIBUTES.responseFont, stack === undefined ? undefined : 'on')
 	if (stack === undefined) root.style?.removeProperty(RESPONSE_FONT_PROPERTY)
 	else root.style?.setProperty(RESPONSE_FONT_PROPERTY, stack)
+	// The code font takes the place of the mono face for code and the terminal; the interface font
+	// and the interface's own `--font-mono` rule are left as they are when it is empty.
+	const code = codeFontStack(prefs.codeFont)
+	for (const property of CODE_FONT_PROPERTIES)
+		if (code === undefined) root.style?.removeProperty(property)
+		else root.style?.setProperty(property, code)
+	if (prefs.codeFontSize === CODE_FONT_SIZE_DEFAULT) root.style?.removeProperty(CODE_SIZE_PROPERTY)
+	else root.style?.setProperty(CODE_SIZE_PROPERTY, `${prefs.codeFontSize}px`)
+}
+
+/** The code font as a stack, Namzu's own mono behind it; undefined for empty or an unsafe name. */
+export function codeFontStack(value: string): string | undefined {
+	return isSafeFontName(value) ? familyStack(value, 'var(--font-mono-app)') : undefined
 }
 
 /** What the window keeps for the first paint. Only the choices the first paint draws. */
 export function mirrorOf(prefs: AppearancePrefs): Omit<AppearancePrefs, 'autoDismissPopups'> {
 	return {
+		lightCodeTheme: prefs.lightCodeTheme,
+		darkCodeTheme: prefs.darkCodeTheme,
+		codeFont: prefs.codeFont,
+		codeFontSize: prefs.codeFontSize,
 		responseFont: prefs.responseFont,
 		transcriptTextSize: prefs.transcriptTextSize,
 		transcriptWidth: prefs.transcriptWidth,

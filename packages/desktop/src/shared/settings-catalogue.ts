@@ -12,6 +12,12 @@
  *
  * Add an entry here and it is validated, drawn, searchable and defaulted with no second edit.
  */
+import {
+	CODE_FONT_SIZE_DEFAULT,
+	CODE_FONT_SIZE_MAX,
+	CODE_FONT_SIZE_MIN,
+	CODE_THEMES,
+} from './code-themes.js'
 import type { DesktopSettings } from './settings-protocol.js'
 import { SETTINGS_SECTIONS, type SettingsSection } from './settings-sections.js'
 import { SHELL_CHOICES, SHELL_CHOICE_LABELS } from './terminal-tabs.js'
@@ -60,6 +66,8 @@ export type CatalogueControl =
 	| { kind: 'select'; options: readonly CatalogueOption[] }
 	/** A short piece of text such as a font name. Letters, digits, spaces and `. _ ( ) + & -` only. */
 	| { kind: 'text'; maxLength: number; placeholder?: string }
+	/** A whole number from `min` to `max`, drawn as a list of the sizes. */
+	| { kind: 'number'; min: number; max: number; unit: string }
 	/** A page of its own or a list: there is no single value to validate. */
 	| { kind: 'panel' }
 
@@ -82,7 +90,7 @@ export interface CatalogueEntry {
 	description: string
 	control: CatalogueControl
 	/** The value with nothing saved: a switch's on or off, or the chosen option. */
-	default?: boolean | string
+	default?: boolean | string | number
 	appliesWhen: CatalogueAppliesWhen
 	/** Replaces the sentence for `appliesWhen` when the plain one would say too much. */
 	appliesNote?: string
@@ -236,6 +244,18 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		appliesWhen: 'next-launch',
 		keywords: ['terminal', 'restore', 'restart', 'tabs'],
 	},
+	{
+		id: 'terminal-code-link',
+		owner: 'view',
+		section: 'terminal',
+		label: 'Code font and colours',
+		description:
+			'The terminal draws in the code font and size. They are set under Appearance, with the colours of code.',
+		control: panel,
+		appliesWhen: 'now',
+		keywords: ['terminal', 'font', 'font size', 'colours', 'colors', 'code', 'appearance', 'theme'],
+	},
+
 	{
 		id: 'hardware-acceleration',
 		key: 'hardwareAcceleration',
@@ -555,6 +575,74 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 	},
 
 	{
+		id: 'code-theme-light',
+		key: 'lightCodeTheme',
+		owner: 'desktop',
+		section: 'appearance',
+		label: 'Light code colours',
+		description:
+			'The colours of code in diffs and file views while Namzu is light. The card below shows a sample.',
+		control: {
+			kind: 'select',
+			options: CODE_THEMES.map(({ value, label, help }) => ({ value, label, help })),
+		},
+		default: 'default',
+		appliesWhen: 'now',
+		keywords: ['code', 'syntax', 'highlight', 'colour', 'color', 'theme', 'diff', 'light'],
+	},
+	{
+		id: 'code-theme-dark',
+		key: 'darkCodeTheme',
+		owner: 'desktop',
+		section: 'appearance',
+		label: 'Dark code colours',
+		description:
+			'The colours of code in diffs and file views while Namzu is dark. The card below shows a sample.',
+		control: {
+			kind: 'select',
+			options: CODE_THEMES.map(({ value, label, help }) => ({ value, label, help })),
+		},
+		default: 'default',
+		appliesWhen: 'now',
+		keywords: ['code', 'syntax', 'highlight', 'colour', 'color', 'theme', 'diff', 'dark'],
+	},
+	{
+		id: 'code-font',
+		key: 'codeFont',
+		owner: 'desktop',
+		section: 'appearance',
+		label: 'Code font',
+		description:
+			'A monospace font, such as one installed on this computer. Used by code blocks, diffs, file views and the terminal in Namzu. Empty keeps Namzu’s own.',
+		control: { kind: 'text', maxLength: 80, placeholder: 'Namzu’s own' },
+		default: '',
+		appliesWhen: 'now',
+		keywords: [
+			'font',
+			'monospace',
+			'mono',
+			'typeface',
+			'terminal',
+			'diff',
+			'code',
+			'fira',
+			'ligature',
+		],
+	},
+	{
+		id: 'code-font-size',
+		key: 'codeFontSize',
+		owner: 'desktop',
+		section: 'appearance',
+		label: 'Code font size',
+		description: 'The size of text in code blocks, diffs, file views and the terminal.',
+		control: { kind: 'number', min: CODE_FONT_SIZE_MIN, max: CODE_FONT_SIZE_MAX, unit: 'px' },
+		default: CODE_FONT_SIZE_DEFAULT,
+		appliesWhen: 'now',
+		keywords: ['font size', 'text size', 'code', 'terminal', 'bigger', 'smaller', 'zoom'],
+	},
+
+	{
 		id: 'last-settings-section',
 		key: 'lastSettingsSection',
 		owner: 'desktop',
@@ -690,6 +778,13 @@ export function catalogueAccepts(entry: CatalogueEntry, value: unknown): boolean
 	if (entry.control.kind === 'toggle') return typeof value === 'boolean'
 	if (entry.control.kind === 'select')
 		return entry.control.options.some((option) => option.value === value)
+	if (entry.control.kind === 'number')
+		return (
+			typeof value === 'number' &&
+			Number.isInteger(value) &&
+			value >= entry.control.min &&
+			value <= entry.control.max
+		)
 	if (entry.control.kind === 'text') {
 		if (typeof value !== 'string' || value.length > entry.control.maxLength) return false
 		return value === '' || isSafeFontName(value)

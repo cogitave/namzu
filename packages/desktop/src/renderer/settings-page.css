@@ -1202,3 +1202,57 @@ input.settings-config-number {
 	opacity: 0.5;
 	cursor: default;
 }
+
+/* A preview stacked under its row, one full-width line below the copy and the control. */
+.settings-row[data-below] {
+	flex-wrap: wrap;
+}
+.settings-row-below {
+	flex: 1 1 100%;
+	min-width: 0;
+}
+/* Sample code in a colour set. The set's own background and text colours come from the
+   highlighter's inline styles; the font and size follow the code settings. */
+.settings-code-preview {
+	overflow-x: auto;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-md);
+}
+.settings-code-preview pre {
+	margin: 0;
+	padding: 12px 14px;
+	font-family: var(--font-mono);
+	font-size: var(--font-size-code);
+	line-height: 1.5;
+	tab-size: 2;
+}
+.settings-code-preview[data-mode="light"] pre:not(.shiki) {
+	background: #fff;
+	color: #24292f;
+}
+.settings-code-preview[data-mode="dark"] pre:not(.shiki) {
+	background: #0d1117;
+	color: #e6edf3;
+}
+.settings-code-font {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 4px;
+}
+.settings-code-font input {
+	width: 220px;
+}
+.settings-code-font [data-invalid] {
+	color: var(--destructive, #c10007);
+	font-size: var(--text-caption);
+}
+.settings-link {
+	padding: 0;
+	border: 0;
+	background: none;
+	color: var(--primary);
+	font: inherit;
+	text-decoration: underline;
+	cursor: pointer;
+}

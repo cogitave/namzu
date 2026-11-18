@@ -39,6 +39,22 @@ const ROWS: {
 		other: false,
 		bad: 1,
 	},
+	{
+		key: 'lightCodeTheme',
+		id: 'code-theme-light',
+		fallback: 'default',
+		other: 'contrast',
+		bad: 'pierre-light',
+	},
+	{
+		key: 'darkCodeTheme',
+		id: 'code-theme-dark',
+		fallback: 'default',
+		other: 'warm',
+		bad: 'github-dark',
+	},
+	{ key: 'codeFont', id: 'code-font', fallback: '', other: 'Fira Code', bad: 'a"b;c' },
+	{ key: 'codeFontSize', id: 'code-font-size', fallback: 13, other: 16, bad: 19 },
 ]
 
 describe('the Appearance settings', () => {
@@ -103,5 +119,17 @@ describe('the Appearance settings', () => {
 	it('has Narrow as today’s width and Medium as today’s text size', () => {
 		expect(DEFAULT_DESKTOP_SETTINGS.transcriptWidth).toBe('narrow')
 		expect(DEFAULT_DESKTOP_SETTINGS.transcriptTextSize).toBe('medium')
+	})
+
+	it('takes a code size only as a whole number from 11 to 18', () => {
+		const entry = catalogueEntry('code-font-size')
+		for (const size of [11, 13, 18]) expect(catalogueAccepts(entry, size), String(size)).toBe(true)
+		for (const size of [10, 19, 13.5, '13', Number.NaN])
+			expect(catalogueAccepts(entry, size), String(size)).toBe(false)
+	})
+
+	it('takes an empty code font, which is Namzu’s own', () => {
+		expect(catalogueAccepts(catalogueEntry('code-font'), '')).toBe(true)
+		expect(catalogueAccepts(catalogueEntry('code-font'), 'Fira Code')).toBe(true)
 	})
 })

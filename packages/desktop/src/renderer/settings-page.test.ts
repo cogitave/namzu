@@ -678,3 +678,47 @@ describe('the engine the app keeps current', () => {
 		expect(aboutDetailsText(info, {})).not.toContain('Engine source')
 	})
 })
+
+describe('the code rows', () => {
+	it('Appearance draws the two code colour rows with a sample each, the font and the size', () => {
+		const markup = page('appearance')
+		for (const label of ['Light code colours', 'Dark code colours', 'Code font', 'Code font size'])
+			expect(markup, label).toContain(label)
+		expect(markup).toContain('data-mode="light"')
+		expect(markup).toContain('data-mode="dark"')
+		expect(markup).toContain('High contrast')
+		expect(markup).toContain('placeholder="Namzu’s own"')
+		expect(markup).toContain('Default: 13 px.')
+		expect(markup).toContain('<option value="18">18 px</option>')
+	})
+
+	it('the Terminal section links to the code rows in Appearance, and only where it can open them', () => {
+		const settings = {
+			settings: { ...DEFAULT_DESKTOP_SETTINGS },
+			error: '',
+			change: async () => {},
+			confirmation: undefined,
+			confirm: async () => {},
+			dismiss: () => {},
+		}
+		const shells = [{ value: 'auto', label: 'Automatic' }]
+		const withLink = renderToStaticMarkup(
+			createElement(TerminalSettings, { settings, shells, onSection: () => {} }),
+		)
+		expect(withLink).toContain('Code font and colours')
+		expect(withLink).toContain('Open Appearance')
+		expect(
+			renderToStaticMarkup(createElement(TerminalSettings, { settings, shells })),
+		).not.toContain('Open Appearance')
+		expect(
+			entryIsDrawn('terminal-code-link', {
+				shells: null,
+				hasAppUpdater: false,
+				canFetchEngines: false,
+			}),
+		).toBe(false)
+		expect(
+			entryIsDrawn('terminal-code-link', { shells, hasAppUpdater: false, canFetchEngines: false }),
+		).toBe(true)
+	})
+})

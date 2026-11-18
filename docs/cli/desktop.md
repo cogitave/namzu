@@ -1004,7 +1004,8 @@ What it holds, and where each value lives (one source of truth per value):
   own, the default, your device's, or a font installed on this computer; see [Typefaces](#typefaces)),
   *Show conversation tabs*, and the reading rows below. The theme and the interface font stay in the
   renderer's own storage (`namzu.appearance`, `namzu.interface-font`) because only the renderer paints
-  them; the rest are `desktop-settings.json` keys. See [Appearance rows](#appearance-rows).
+  them; the rest are `desktop-settings.json` keys, among them the code colours, font and size that
+  diffs, file views and the terminal draw with. See [Appearance rows](#appearance-rows).
 - Every section opens with the same header, a title and one subtitle line, so the search box and
   the content start at the same height on every page (search results get the subtitle "Matches from
   every section.").
@@ -2462,6 +2463,30 @@ No attribute is the value Namzu has always had. The rules are in `renderer/appea
 | Motion | `motion`: `system` | `reduce` sets `data-motion="reduce"`: `animation`, `transition` and smooth scrolling are off everywhere, and the script-timed motion (`renderer/motion-setting.ts`, used by the sidebar, transcript, computer chat, Pal and effort-shader code) is skipped. `system` follows the device's flag. `full` ignores the flag in script and in the one global `prefers-reduced-motion` rule in `style.css`; the few per-component reduced-motion rules still follow the device. |
 | Close popups by themselves | `autoDismissPopups`: on | Off, `notify` gives each notice with no time of its own a timeout of 0, so it stays until closed (each waits its turn behind the one on screen). A notice that names its own time keeps it. |
 | Skip drawing what is off screen | `virtualizeConversations`: on | The transcript does not remove far messages (every message stays in the page) but it does leave far turns undrawn with `content-visibility: auto`, as does the conversation list. Off sets `data-virtualize="off"` and draws all of them. |
+| Light code colours, Dark code colours | `lightCodeTheme`, `darkCodeTheme`: `default` | A select each, with a sample of code under the row drawn in that set (the light sample keeps its light background in a dark window). Diffs, file views and the approval card's diff take the set of the window's current appearance. See the table below. |
+| Code font | `codeFont`: empty (Namzu's own) | A text box (saved on Enter or when it loses the focus; a name with anything but letters, digits, spaces and `. _ ( ) + & -` is refused with a line under the box). Sets `--font-mono` and `--font-terminal` on the root to `"<name>", var(--font-mono-app)`, so code blocks, diffs, file views, tool output and the terminal use it. |
+| Code font size | `codeFontSize`: 13 | A list from 11 to 18 px. Sets `--font-size-code` on the root, which `--diffs-font-size` and every code block already read, and the terminal's text size. |
+
+**Code colours.** The labels are ours; the ids are themes the diff highlighter already ships
+(`shared/code-themes.ts`), so nothing is downloaded. `default` is what Namzu has always drawn.
+
+| Label | Light | Dark |
+| --- | --- | --- |
+| Default | `pierre-light` | `pierre-dark` |
+| Soft | `pierre-light-soft` | `pierre-dark-soft` |
+| Vivid | `pierre-light-vibrant` | `pierre-dark-vibrant` |
+| High contrast | `github-light-high-contrast` | `github-dark-high-contrast` |
+| Warm | `gruvbox-light-medium` | `gruvbox-dark-medium` |
+
+A code block in a conversation is drawn plain, not highlighted, so the colour rows change diffs and
+file views, not those blocks. The highlighter themes are not CSS, so `renderer/code-prefs.ts` holds
+them: it starts from the mirror (`namzu.appearance-prefs`) and `useAppearancePrefs` updates it after
+it sets the root's tokens. The font and size are in the same mirror and `public/theme-boot.js` sets the
+two tokens before the first paint. **Open terminals:** `terminal-registry.ts` subscribes to
+`code-prefs.ts` and, on every change, reads `--font-terminal` and `--font-size-code` again and calls
+`TerminalSession.setFont`, which sets the emulator's `fontFamily` and `fontSize` and fits the terminal
+to its pane again, so no restart is needed. A new terminal reads the same tokens when it is created.
+**Terminal > Code font and colours** (**Open Appearance**) opens Appearance at the first code row.
 
 The interface font's list of installed fonts comes from the window's own font-listing call
 (`queryLocalFonts`, in `renderer/installed-fonts.ts`): the names only, nothing is downloaded, and it

@@ -62,6 +62,10 @@ it('reads a stored file entry by entry and ignores what it does not know', () =>
 		transcriptWidth: 'narrow',
 		motion: 'system',
 		autoDismissPopups: true,
+		lightCodeTheme: 'default',
+		darkCodeTheme: 'default',
+		codeFont: '',
+		codeFontSize: 13,
 		virtualizeConversations: true,
 		lastSettingsSection: 'general',
 	})
@@ -88,6 +92,10 @@ it('documents the defaults the spec names', () => {
 		transcriptWidth: 'narrow',
 		motion: 'system',
 		autoDismissPopups: true,
+		lightCodeTheme: 'default',
+		darkCodeTheme: 'default',
+		codeFont: '',
+		codeFontSize: 13,
 		virtualizeConversations: true,
 		lastSettingsSection: 'general',
 	})

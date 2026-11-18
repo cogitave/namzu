@@ -1,3 +1,4 @@
+import type { CodeThemeKey } from './code-themes.js'
 /**
  * Desktop preferences the main process acts on. Renderer-only cosmetic ones (theme, sidebar
  * width) stay in the renderer's own storage; nothing here is a secret or a path.
@@ -71,6 +72,14 @@ export interface DesktopSettings {
 	autoDismissPopups: boolean
 	/** Conversations and the conversation list leave what is off screen undrawn. */
 	virtualizeConversations: boolean
+	/** The colour set of code while the window is light (a `CODE_THEMES` value). */
+	lightCodeTheme: CodeThemeKey
+	/** The colour set of code while the window is dark. */
+	darkCodeTheme: CodeThemeKey
+	/** The font of code, diffs, file views and the Desktop terminal; empty is Namzu's own. */
+	codeFont: string
+	/** The size in px of code and terminal text; 13 is what Namzu has always drawn. */
+	codeFontSize: number
 	/** The section the Settings dialog was last on; it opens there again, also after a restart. */
 	lastSettingsSection: SettingsSection
 }

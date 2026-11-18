@@ -1,6 +1,7 @@
 import { MultiFileDiff } from '@pierre/diffs/react'
 import { useMemo, useState } from 'react'
 import { CUT_NOTE, formatLineCount } from '../changes-totals.js'
+import { useCodePrefs } from '../code-prefs.js'
 import { DIFF_VIEW_UNSAFE_CSS } from '../diff-theme.js'
 import { gateNotice, richDiffVerdict } from './diff-gate.js'
 import { type ReviewFile, unifiedDiff } from './model.js'
@@ -47,9 +48,10 @@ export function FileBody({
 	/** A working-tree file shows every line; a receipt shows its hunks. */
 	fullContext: boolean
 }) {
+	const themes = useCodePrefs()
 	const options = useMemo(
 		() => ({
-			theme: { light: 'pierre-light', dark: 'pierre-dark' } as const,
+			theme: { light: themes.light, dark: themes.dark },
 			themeType: dark ? ('dark' as const) : ('light' as const),
 			preferredHighlighter: 'shiki-wasm' as const,
 			diffStyle: split ? ('split' as const) : ('unified' as const),
@@ -61,7 +63,7 @@ export function FileBody({
 			expandUnchanged: fullContext,
 			unsafeCSS: DIFF_VIEW_UNSAFE_CSS,
 		}),
-		[dark, split, wrap, highlight, fullContext],
+		[dark, split, wrap, highlight, fullContext, themes],
 	)
 	// Which file the person asked to see in full; a different file is gated again.
 	const [forcedPath, setForcedPath] = useState<string | null>(null)

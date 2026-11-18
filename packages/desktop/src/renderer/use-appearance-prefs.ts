@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import type { DesktopSettings } from '../shared/settings-protocol.js'
 import { applyAppearancePrefs, writePrefsMirror } from './appearance-prefs.js'
+import { setCodePrefs } from './code-prefs.js'
 import { announceMotionChange } from './motion-setting.js'
 import { setNoticeAutoDismiss } from './notify.js'
 
@@ -16,6 +17,10 @@ export function useAppearancePrefs(settings: DesktopSettings | undefined): void 
 	const virtualize = settings?.virtualizeConversations
 	const response = settings?.responseFont
 	const dismiss = settings?.autoDismissPopups
+	const lightCode = settings?.lightCodeTheme
+	const darkCode = settings?.darkCodeTheme
+	const codeFont = settings?.codeFont
+	const codeSize = settings?.codeFontSize
 	useEffect(() => {
 		if (
 			size === undefined ||
@@ -23,7 +28,11 @@ export function useAppearancePrefs(settings: DesktopSettings | undefined): void 
 			motion === undefined ||
 			virtualize === undefined ||
 			response === undefined ||
-			dismiss === undefined
+			dismiss === undefined ||
+			lightCode === undefined ||
+			darkCode === undefined ||
+			codeFont === undefined ||
+			codeSize === undefined
 		)
 			return
 		const prefs = {
@@ -33,10 +42,16 @@ export function useAppearancePrefs(settings: DesktopSettings | undefined): void 
 			virtualizeConversations: virtualize,
 			responseFont: response,
 			autoDismissPopups: dismiss,
+			lightCodeTheme: lightCode,
+			darkCodeTheme: darkCode,
+			codeFont,
+			codeFontSize: codeSize,
 		}
 		applyAppearancePrefs(document.documentElement, prefs)
 		writePrefsMirror(localStorage, prefs)
 		setNoticeAutoDismiss(dismiss)
 		announceMotionChange(window)
-	}, [size, width, motion, virtualize, response, dismiss])
+		// After the root's tokens: open terminals and code views read them on this signal.
+		setCodePrefs({ lightCodeTheme: lightCode, darkCodeTheme: darkCode })
+	}, [size, width, motion, virtualize, response, dismiss, lightCode, darkCode, codeFont, codeSize])
 }
