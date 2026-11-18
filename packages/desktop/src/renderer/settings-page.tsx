@@ -17,7 +17,7 @@ import {
 	type StartupBehavior,
 } from '../shared/settings-protocol.js'
 import type { UpdateInfo, UpdateState } from '../shared/update-protocol.js'
-import { configSearchEntries } from './config-settings-model.js'
+import { OWN_ROW_CONFIG_PATHS, configSearchEntries } from './config-settings-model.js'
 import { ConfigSettingsGroup } from './config-settings-section.js'
 import { copyPlainText } from './copy-button.js'
 import { engineSourceText, engineStatusText, plainVersion } from './engine-delivery-model.js'
@@ -175,6 +175,7 @@ export function SettingsPage(props: SettingsPageProps) {
 	const searchId = useId()
 	const shells = useTerminalShells()
 	const config = useConfigSettings(typeof window === 'undefined' ? undefined : window.namzu, true)
+	const delivery = useEngineDelivery()
 	// A row that does nothing here is neither shown nor found by search.
 	const hasShellChoice = (shells?.length ?? 0) > 1
 	const hasAppUpdater = props.update !== undefined && props.update.state.status !== 'disabled'
@@ -186,7 +187,9 @@ export function SettingsPage(props: SettingsPageProps) {
 				entry.id !== 'cfg-disableHooks' &&
 				(entry.id !== 'terminal-shell' || hasShellChoice) &&
 				(entry.id !== 'terminal-restore' || shells !== null) &&
-				(entry.id !== 'auto-download' || hasAppUpdater),
+				(entry.id !== 'auto-download' || hasAppUpdater) &&
+				// Drawn only in a build that can fetch engines.
+				((entry.id !== 'engine-delivery' && entry.id !== 'keep-engine') || delivery !== undefined),
 		),
 	)
 	const searching = query.trim().length > 0
@@ -194,13 +197,31 @@ export function SettingsPage(props: SettingsPageProps) {
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a new target or section is the trigger.
 	useEffect(() => {
 		if (!focusId || searching) return
-		const row = document.getElementById(`setting-${focusId}`)
-		if (!row) return
-		row.scrollIntoView?.({ block: 'center' })
-		row.querySelector<HTMLElement>('input, button, summary, [tabindex]')?.focus({
-			preventScroll: true,
+		const land = (): boolean => {
+			const row = document.getElementById(`setting-${focusId}`)
+			if (!row) return false
+			row.scrollIntoView?.({ block: 'center' })
+			const control = row.querySelector<HTMLElement>(
+				'input:not(:disabled), select:not(:disabled), textarea:not(:disabled), button:not(:disabled), summary, [tabindex]',
+			)
+			if (control) control.focus({ preventScroll: true })
+			else {
+				// A row with nothing to press (a list) takes the focus itself.
+				row.tabIndex = -1
+				row.focus({ preventScroll: true })
+			}
+			return true
+		}
+		if (land()) return
+		// Some rows are drawn once their facts arrive (About, the engine's list): land when it is there.
+		const content = page.current
+		if (!content || typeof MutationObserver === 'undefined') return
+		const watch = new MutationObserver(() => {
+			if (land()) watch.disconnect()
 		})
-	}, [focusId, section, searching])
+		watch.observe(content, { childList: true, subtree: true })
+		return () => watch.disconnect()
+	}, [focusId, section, searching, config.view !== undefined])
 	return (
 		<section
 			ref={page}
@@ -316,7 +337,7 @@ function SectionBody(props: SectionProps) {
 				<ConfigSettingsGroup
 					section={props.section}
 					config={props.config}
-					omit={props.section === 'tools' ? ['mcpServers', 'disableHooks'] : undefined}
+					omit={props.section === 'tools' ? OWN_ROW_CONFIG_PATHS : undefined}
 					heading={
 						props.section === 'general' ||
 						props.section === 'models' ||

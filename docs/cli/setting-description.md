@@ -43,14 +43,18 @@ default. A newer Desktop ignores it when `default` is present.
 
 The apply time is found from the code that reads the key, not guessed.
 
-- **Next start**: the default. The terminal app's own keys (`tui.*`, `composerTriggers.*`,
-  `statusLine`), updates, telemetry, the schedule daemon, plugins, learning, `limits.*`, `workflow.*`
-  and every key whose reader was not traced to conversation creation. The loaded config is kept for
-  the life of the process and Desktop has no reload path, so a screen never promises more than the
-  code does.
-- **Next conversation**: only keys traced to the code that creates a conversation: `handBack.enabled`,
-  `skills.builtin`, `compaction.softTargetHeadroom` and `compaction.recallEvidence`. An open
-  conversation keeps the value it began with.
+- **Next start**: keys read once when the process or host starts: the terminal app's own keys
+  (`tui.*`, `composerTriggers.*`, `statusLine`), updates, telemetry, the schedule daemon, plugins,
+  learning, `model` and `routing` (the model choice), the permission modes a host offers
+  (`permissions.autoMode`, `disableAutoMode`, `disableBypassMode`), and any key not traced to a reader.
+- **Next conversation**: the host re-reads the user and project files each time it builds a
+  conversation (`ensureSession` in `commands/acp.ts`, through `refreshTrustedProjectContext`), so
+  `limits.*`, `workflow.*`, `handBack.*`, `sandbox.*`, `compaction.*`, `memory.*`, `skills.*`, `web.*`,
+  `browser.*`, `permissions.*` (except the three above), `codeAnalysis.*`, `hypermode`,
+  `refusalFallback`, `smallModel`, `decision`, `learningObservations`, `toolResultScreens`,
+  `additionalDirectories`, `mcpServers`, `hooks` and `disableHooks` reach the next conversation. An
+  open conversation keeps the value it began with. A file that no longer loads leaves the last good
+  read in place for new conversations; Settings reads the same files and shows the error.
 - **Now / next launch**: Desktop's own switches take effect at once; the graphics card, the start-up
   screen and the terminal restore are read when the app opens.
 

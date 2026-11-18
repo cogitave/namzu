@@ -386,6 +386,6 @@ export function disableHooksValue(runHooks: boolean): true | undefined {
  */
 export function savedHooksNote(runHooks: boolean): string {
 	return runHooks
-		? 'Saved. A project that is already open keeps running without hooks until Namzu connects to it again.'
-		: 'Saved, but a project that is already open keeps running its hooks until Namzu connects to it again. Close and reopen the project to stop them now.'
+		? 'Saved. New conversations run hooks. A conversation that is already open keeps running without them.'
+		: 'Saved. New conversations do not run hooks. A conversation that is already open keeps running its hooks; start a new one to stop them.'
 }

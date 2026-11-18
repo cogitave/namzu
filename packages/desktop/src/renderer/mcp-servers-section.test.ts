@@ -70,7 +70,11 @@ it('offers no approval when nothing waits, and says so when nothing is set up', 
 	expect(none).not.toContain('Approve')
 	const empty = markup(controls({ view: { servers: [] } }))
 	expect(empty).toContain('No tool servers are set up for this project.')
-	expect(markup(controls({ supported: false }))).toBe('')
+	// The row stays with no project open, and says why it is empty.
+	const closed = markup(controls({ supported: false }))
+	expect(closed).toContain('Tool servers')
+	expect(closed).toContain('Open a project to see its servers.')
+	expect(closed).not.toContain('Approve')
 })
 
 it('says why the settings could not be read, and counts waiting servers for the button', () => {

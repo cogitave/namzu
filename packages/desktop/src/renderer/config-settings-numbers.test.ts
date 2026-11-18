@@ -138,6 +138,10 @@ describe('a setting that needs another', () => {
 const controls = (view: ConfigSettingsView): ConfigSettingsControls => ({
 	view,
 	loadError: '',
+	loading: false,
+	reload: () => {},
+	resets: {},
+	discard: () => {},
 	errors: {},
 	change: async () => true,
 	confirmation: undefined,

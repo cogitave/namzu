@@ -2400,6 +2400,8 @@ export function App({
 			}
 			// The unread store listens for its own event; nothing here belongs to a conversation.
 			if (event.kind === 'unread') return
+			// Settings listens for this one itself.
+			if (event.kind === 'config-file-changed') return
 			// What the providers say about the account: held in memory for the popover and the ring.
 			if (event.kind === 'limits') {
 				setLimitsView(event.limits)

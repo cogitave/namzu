@@ -238,15 +238,39 @@ export function numberPlaceholder(descriptor: ConfigSettingDescriptor): string {
 }
 
 /** Search entries for every engine setting, so the page's search finds them with the rest. */
+/** The sections whose page draws a group of the engine's rows (`ConfigSettingsGroup`). */
+export const CONFIG_GROUP_SECTIONS: readonly SettingsSection[] = [
+	'general',
+	'models',
+	'agent',
+	'tools',
+	'projects',
+	'terminal',
+	'telemetry',
+	'updates',
+]
+
+/**
+ * Engine settings the page draws as a row of its own (tool servers, Run hooks, Hooks), so the
+ * plain row is neither drawn in the group nor offered by search. Search finds those rows by their
+ * own entries in the settings catalogue.
+ */
+export const OWN_ROW_CONFIG_PATHS: readonly string[] = ['mcpServers', 'disableHooks', 'hooks']
+
+/** Search offers a row only where the page draws it. */
 export function configSearchEntries(view: ConfigSettingsView | undefined): SettingsEntry[] {
 	if (!view) return []
-	return view.descriptors.map((d) => ({
-		id: configSettingId(d.path),
-		section: d.section,
-		label: d.label,
-		description: d.description,
-		keywords: [...(d.keywords ?? []), ...d.path.split('.')],
-	}))
+	return view.descriptors
+		.filter(
+			(d) => CONFIG_GROUP_SECTIONS.includes(d.section) && !OWN_ROW_CONFIG_PATHS.includes(d.path),
+		)
+		.map((d) => ({
+			id: configSettingId(d.path),
+			section: d.section,
+			label: d.label,
+			description: d.description,
+			keywords: [...(d.keywords ?? []), ...d.path.split('.')],
+		}))
 }
 
 /** The words of the dialog that asks before a risky setting changes. */

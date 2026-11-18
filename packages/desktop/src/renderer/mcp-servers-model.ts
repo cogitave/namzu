@@ -52,3 +52,6 @@ export function approveLabel(count: number): string {
 export function mcpServersNote(projectName: string | undefined): string {
 	return `${projectName ? `The tool servers for “${projectName}”.` : 'The tool servers for the open project.'} This list is read-only: add or change servers in your config file, or with “namzu mcp” in the terminal.`
 }
+
+/** What the Tool servers row says while no project is open. */
+export const OPEN_A_PROJECT_FOR_SERVERS = 'Open a project to see its servers.'

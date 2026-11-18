@@ -37,8 +37,18 @@ function needsConfirmation(entry: ConfigSettingDescriptor, value: unknown): bool
 	return value === (entry.confirmWhen === 'on')
 }
 
-/** A clear asks unless the risky values are named and the plain default is none of them. */
+/**
+ * A clear asks unless the risky values are named and the plain default is none of them. A switch
+ * that asks for one direction (`confirmWhen` on or off) is answered by its typed default: going back
+ * to the side that does not ask is not put behind a warning.
+ */
 function clearReachesRiskyDefault(entry: ConfigSettingDescriptor): boolean {
+	if (
+		(entry.confirmWhen === 'on' || entry.confirmWhen === 'off') &&
+		typeof entry.default === 'boolean' &&
+		!entry.defaultWhen?.length
+	)
+		return entry.default === (entry.confirmWhen === 'on')
 	const risky =
 		entry.confirmValues ?? (entry.confirmValue !== undefined ? [entry.confirmValue] : undefined)
 	if (risky === undefined || entry.defaultWhen?.length) return true

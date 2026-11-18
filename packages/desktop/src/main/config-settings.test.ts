@@ -180,6 +180,34 @@ describe('changing an engine setting', () => {
 		expect((await settings.change('w1', { path: 'web.search' })).status).toBe('confirm')
 	})
 
+	it('does not ask on a clear that puts a switch back to the side that never asks, and asks when the default is the risky side', async () => {
+		const toggle = (path: string, confirmWhen: 'on' | 'off', fallback: boolean) => ({
+			path,
+			label: path,
+			description: 'x',
+			section: 'agent' as const,
+			control: { kind: 'toggle' as const },
+			confirm: 'Are you sure?',
+			confirmWhen,
+			default: fallback,
+		})
+		const wide: ConfigSettingsView = {
+			file: '/f',
+			descriptors: [
+				toggle('hypermode', 'on', false),
+				toggle('limits.doneGate', 'off', true),
+				toggle('sandbox.enabled', 'off', false),
+			],
+			settings: [],
+		}
+		const write = vi.fn(async () => wide)
+		const settings = new ConfigSettings({ read: async () => wide, write, validate: async () => {} })
+		expect((await settings.change('w1', { path: 'hypermode' })).status).toBe('saved')
+		expect((await settings.change('w1', { path: 'limits.doneGate' })).status).toBe('saved')
+		// Its default is the side that asks, so the clear asks too.
+		expect((await settings.change('w1', { path: 'sandbox.enabled' })).status).toBe('confirm')
+	})
+
 	it('refuses a bad value before it shows a dialog', async () => {
 		const validate = vi.fn(async () => {
 			throw new Error('That is not valid JSON')

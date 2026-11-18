@@ -513,6 +513,25 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		trustedContexts.set(target, trusted)
 		return trusted
 	}
+	/**
+	 * Reads the user and project files again, for a host that starts a conversation after the
+	 * process has been running. A file that no longer loads (half-written, or invalid) leaves the
+	 * last good context in place; the Settings page reads the same files and says why.
+	 */
+	const refreshTrustedContext = (cwd: string): ResolvedCommandContext => {
+		const target = resolve(cwd)
+		const cached = trustedContexts.get(target)
+		if (!cached) return getTrustedContext(cwd)
+		try {
+			const fresh = buildContext(() =>
+				runtime().loadConfigWithProvenance(selectedConfigOpts(target)),
+			)
+			trustedContexts.set(target, fresh)
+			return fresh
+		} catch {
+			return cached
+		}
+	}
 	const getBootstrapContext = (): ResolvedCommandContext => {
 		if (bootstrapCtx) return bootstrapCtx
 		const loaded = runtime().loadBootstrapConfigWithProvenance(selectedConfigOpts())
@@ -524,7 +543,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			runtime().createStderrSink(bootstrap.logging.format),
 			bootstrap.logging.level,
 		)
-		bootstrapCtx = bindTrustedProjectContext(bootstrap, getTrustedContext)
+		bootstrapCtx = bindTrustedProjectContext(bootstrap, getTrustedContext, refreshTrustedContext)
 		return bootstrapCtx
 	}
 	const getContext = (): ResolvedCommandContext => {

@@ -276,6 +276,25 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 
 	// Tools
 	{
+		id: 'mcpServers',
+		owner: 'view',
+		section: 'tools',
+		label: 'Tool servers',
+		description:
+			'The servers that give Namzu more tools in the open project: where each is set up and whether it is running.',
+		control: panel,
+		appliesWhen: 'next-conversation',
+		keywords: [
+			'connected servers',
+			'connected',
+			'servers',
+			'mcp',
+			'connectors',
+			'approve',
+			'mcp.json',
+		],
+	},
+	{
 		id: 'runHooks',
 		owner: 'view',
 		section: 'tools',

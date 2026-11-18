@@ -35,6 +35,10 @@ const controls = (view: ConfigSettingsView): ConfigSettingsControls =>
 	({
 		view,
 		loadError: undefined,
+		loading: false,
+		resets: {},
+		discard: () => undefined,
+		reload: () => undefined,
 		confirmation: undefined,
 		errors: {},
 		change: async () => true,

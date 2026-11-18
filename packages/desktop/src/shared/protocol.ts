@@ -765,6 +765,8 @@ export type DesktopEvent = (
 	| { kind: 'model-catalogue-updated'; engine: string; provider: string }
 	/** A key was saved or removed: every window re-reads which providers can answer. */
 	| { kind: 'providers-changed' }
+	/** The engine's config file changed on disk (an edit elsewhere or a save here): Settings reads it again. */
+	| { kind: 'config-file-changed' }
 	| {
 			kind: 'pal-deleted'
 			palId: string

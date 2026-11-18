@@ -76,6 +76,10 @@ const view: ConfigSettingsView = {
 const controls = (over: Partial<ConfigSettingsControls> = {}): ConfigSettingsControls => ({
 	view,
 	loadError: '',
+	loading: false,
+	reload: () => {},
+	resets: {},
+	discard: () => {},
 	errors: {},
 	change: vi.fn(async () => true),
 	confirmation: undefined,
@@ -150,5 +154,87 @@ describe('helpers', () => {
 		expect(numberFromText('1', { min: 2 })).toEqual({ error: 'Enter 2 or more.' })
 		expect(numberFromText('17', { max: 16 })).toEqual({ error: 'Enter 16 or less.' })
 		expect(numberFromText(' 8 ', { min: 2, max: 16 })).toEqual({ value: 8 })
+	})
+})
+
+describe('what every page with engine rows says when the list is not there', () => {
+	const failed = controls({ view: undefined, loadError: 'Could not read your settings.' })
+	it('shows the plain message and a Try again button on every page, not a blank one', () => {
+		for (const section of [
+			'general',
+			'models',
+			'agent',
+			'tools',
+			'projects',
+			'terminal',
+		] as const) {
+			const markup = renderToStaticMarkup(
+				createElement(ConfigSettingsGroup, { section, config: failed }),
+			)
+			expect(markup, section).toContain('Could not read your settings.')
+			expect(markup, section).toContain('Try again')
+		}
+	})
+	it('says it is reading while the first read is out, and nothing when there is no engine', () => {
+		const reading = renderToStaticMarkup(
+			createElement(ConfigSettingsGroup, {
+				section: 'tools',
+				config: controls({ view: undefined, loading: true }),
+			}),
+		)
+		expect(reading).toContain('Reading your settings')
+		expect(
+			renderToStaticMarkup(
+				createElement(ConfigSettingsGroup, {
+					section: 'tools',
+					config: controls({ view: undefined }),
+				}),
+			),
+		).toBe('')
+	})
+})
+
+describe('search offers only rows the page draws', () => {
+	const wide: ConfigSettingsView = {
+		file: '/x/config.yaml',
+		descriptors: [
+			...view.descriptors,
+			{
+				path: 'mcpServers',
+				label: 'Connected servers',
+				description: 'Servers.',
+				section: 'tools',
+				control: { kind: 'file-only' },
+			},
+			{
+				path: 'disableHooks',
+				label: 'Turn off hooks',
+				description: 'Do not run hooks.',
+				section: 'tools',
+				control: { kind: 'toggle' },
+			},
+			{
+				path: 'hooks',
+				label: 'Hooks',
+				description: 'Edit them in the config file.',
+				section: 'tools',
+				control: { kind: 'file-only' },
+			},
+		],
+		settings: [],
+	}
+	it('leaves out the rows Desktop draws as its own, and points the words at them', () => {
+		const ids = configSearchEntries(wide).map((entry) => entry.id)
+		expect(ids).not.toContain('cfg-mcpServers')
+		expect(ids).not.toContain('cfg-disableHooks')
+		expect(ids).not.toContain('cfg-hooks')
+		const found = (query: string) => searchSettings(query).map((entry) => entry.id)
+		expect(found('connected servers')).toContain('mcpServers')
+		expect(found('turn off hooks')).toContain('runHooks')
+		expect(found('hooks').filter((id) => id === 'hooks')).toHaveLength(1)
+	})
+	it('finds the graphics card and the engine switch', () => {
+		expect(searchSettings('graphics').map((entry) => entry.id)).toContain('hardware-acceleration')
+		expect(searchSettings('keep engine').map((entry) => entry.id)).toContain('keep-engine')
 	})
 })

@@ -43,12 +43,19 @@ export function ConfigSettingsGroup({
 	const rows = configSettingsFor(config.view, section).filter(
 		(descriptor) => !omit?.includes(descriptor.path),
 	)
-	if (config.loadError && section === 'agent')
+	// Every page with engine rows says when the list could not be read or is still being read.
+	if (config.loadError)
 		return (
-			<p role="alert" className="settings-error">
-				{config.loadError}
-			</p>
+			<div className="settings-config-state">
+				<p role="alert" className="settings-error">
+					{config.loadError}
+				</p>
+				<Button variant="outline" size="sm" onClick={config.reload}>
+					Try again
+				</Button>
+			</div>
 		)
+	if (config.loading) return <p className="settings-note">Reading your settings…</p>
 	if (!config.view || rows.length === 0) return null
 	return (
 		<>
@@ -102,7 +109,13 @@ function ConfigRow({
 			<Button
 				variant="ghost-muted"
 				size="xs"
-				onClick={() => void config.change(descriptor.path)}
+				// The button must not take the focus from a field first: leaving a field saves what is
+				// typed in it, which is the opposite of asking for the default.
+				onMouseDown={(event) => event.preventDefault()}
+				onClick={() => {
+					config.discard(descriptor.path)
+					void config.change(descriptor.path)
+				}}
 				aria-label={`Use the default for ${descriptor.label}`}
 			>
 				Use default
@@ -119,6 +132,7 @@ function ConfigRow({
 		>
 			<div className="settings-config-control">
 				<Control
+					key={config.resets[descriptor.path] ?? 0}
 					descriptor={descriptor}
 					value={state?.value}
 					set={state?.set ?? false}

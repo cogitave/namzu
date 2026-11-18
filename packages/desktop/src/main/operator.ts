@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import { existsSync, realpathSync } from 'node:fs'
+import { existsSync, realpathSync, watch } from 'node:fs'
 import { lstat, mkdir, readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, isAbsolute, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, resolve } from 'node:path'
 import type {
 	AcpRequestPermissionParams,
 	AcpSessionPromptResult,
@@ -999,7 +999,39 @@ export class Operator {
 	/** The engine's own list of settings and their saved values. Secrets never come back. */
 	async configSettings(): Promise<ConfigSettingsView> {
 		const client = await this.providerHost()
-		return readConfigSettingsView(await client.request('namzu/config/get'))
+		const view = readConfigSettingsView(await client.request('namzu/config/get'))
+		this.watchConfigFile(view.file)
+		return view
+	}
+	private configWatch: { file: string; close: () => void } | undefined
+	/**
+	 * Tells the windows when the engine's config file changes on disk, so Settings shows an edit
+	 * made elsewhere. It watches the file's folder (an editor that replaces the file keeps working),
+	 * waits for the burst of writes to settle, and holds nothing open on the process's behalf.
+	 */
+	private watchConfigFile(file: string): void {
+		if (!file || this.configWatch?.file === file) return
+		this.configWatch?.close()
+		this.configWatch = undefined
+		try {
+			const name = basename(file)
+			let timer: ReturnType<typeof setTimeout> | undefined
+			const watcher = watch(dirname(file), { persistent: false }, (_kind, changed) => {
+				if (changed && String(changed) !== name) return
+				if (timer) clearTimeout(timer)
+				timer = setTimeout(() => this.emit({ kind: 'config-file-changed' }), 150)
+			})
+			watcher.on('error', () => undefined)
+			this.configWatch = {
+				file,
+				close: () => {
+					if (timer) clearTimeout(timer)
+					watcher.close()
+				},
+			}
+		} catch {
+			// A folder that cannot be watched only costs the refresh on focus.
+		}
 	}
 	async setConfigSetting(path: string, value: unknown): Promise<ConfigSettingsView> {
 		const client = await this.providerHost()
@@ -1800,6 +1832,7 @@ export class Operator {
 			event.kind !== 'show-conversation' &&
 			event.kind !== 'model-catalogue-updated' &&
 			event.kind !== 'providers-changed' &&
+			event.kind !== 'config-file-changed' &&
 			event.kind !== 'limits' &&
 			event.kind !== 'unread'
 		) {

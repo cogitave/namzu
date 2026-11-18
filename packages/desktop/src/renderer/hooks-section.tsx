@@ -16,6 +16,11 @@ import { Row, Switch } from './settings-row.js'
 import type { ConfigSettingsControls } from './use-config-settings.js'
 import type { HooksControls } from './use-hooks-view.js'
 
+/** Where the hooks are written, so the one Hooks row also says which file to edit. */
+function hooksFileLine(file: string | undefined): string | undefined {
+	return file ? `Edit the hooks in your config file: ${file}.` : undefined
+}
+
 function Problem({ problem }: { problem: ProblemView }) {
 	return (
 		<p
@@ -84,7 +89,7 @@ export function HooksRows({
 				<Row
 					id="runHooks"
 					label="Run hooks"
-					description="Hooks are commands your settings, plugins, skills and agent files start by themselves at set moments. Switched off, the ones from your own and a project’s files do not run; the ones in your administrator’s file still do. A project that is open keeps what it started with: a change reaches it when Namzu next connects to it."
+					description="Hooks are commands your settings, plugins, skills and agent files start by themselves at set moments. Switched off, the ones from your own and a project’s files do not run; the ones in your administrator’s file still do. A change reaches new conversations; one that is already open keeps what it started with."
 				>
 					<div className="hooks-switch">
 						<Switch
@@ -116,6 +121,7 @@ export function HooksRows({
 					id="hooks"
 					label="Hooks"
 					description={hooksNote(view?.own ?? true, projectName)}
+					meta={hooksFileLine(config.view?.file)}
 					stacked
 				>
 					<div className="hooks-view">

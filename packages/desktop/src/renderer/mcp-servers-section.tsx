@@ -1,4 +1,5 @@
 import {
+	OPEN_A_PROJECT_FOR_SERVERS,
 	approveLabel,
 	mcpServerRowView,
 	mcpServersNote,
@@ -19,7 +20,15 @@ export function McpServersRows({
 	servers: McpServersControls
 	projectName?: string
 }) {
-	if (!servers.supported) return null
+	// The row stays when no project is open, and says why it has nothing to show.
+	if (!servers.supported)
+		return (
+			<Row id="mcpServers" label="Tool servers" description={mcpServersNote(projectName)} stacked>
+				<div className="mcp-servers">
+					<p className="settings-note">{OPEN_A_PROJECT_FOR_SERVERS}</p>
+				</div>
+			</Row>
+		)
 	const waiting = waitingServers(servers.view)
 	const rows = (servers.view?.servers ?? []).map(mcpServerRowView)
 	return (

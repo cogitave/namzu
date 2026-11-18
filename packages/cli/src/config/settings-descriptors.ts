@@ -154,9 +154,12 @@ const fileOnly: SettingControl = { kind: 'file-only' }
 
 /**
  * When a key's saved value is read. Found from the code that reads it: the terminal app, the
- * schedule daemon, the update check and telemetry read once at launch; a few engine keys are read
- * when a conversation is created. Every key not traced to a session reader, including limits.*,
- * defaults to `next-start`, the later and therefore safe claim.
+ * schedule daemon, the update check, telemetry, the plugin loader, the model choice and the list of
+ * permission modes a host offers read once at launch. The host re-reads the user and project files
+ * whenever it starts a conversation (`ensureSession` in `commands/acp.ts`), and builds the session
+ * options, the permission rules, the browser rules and the per-turn options from that fresh read,
+ * so those keys reach the next conversation and never one that is already open. Every key not
+ * traced to one of those readers defaults to `next-start`, the later and therefore safe claim.
  */
 export function appliesWhenFor(path: string): AppliesWhen {
 	const startOnly = [
@@ -167,16 +170,43 @@ export function appliesWhenFor(path: string): AppliesWhen {
 		'plugins.',
 		'composerTriggers.',
 		'learningGenerator.',
+		// The modes a host offers and Auto's availability are read once when the host starts.
+		'permissions.autoMode',
+		'permissions.disableAutoMode',
+		'permissions.disableBypassMode',
 	]
 	if (startOnly.some((prefix) => path.startsWith(prefix))) return 'next-start'
-	// Only keys whose reader was traced to session creation (measured, not assumed).
-	const nextConversation = new Set([
-		'handBack.enabled',
-		'skills.builtin',
-		'compaction.softTargetHeadroom',
-		'compaction.recallEvidence',
+	const conversationPrefixes = [
+		'limits.',
+		'workflow.',
+		'handBack.',
+		'sandbox.',
+		'compaction.',
+		'memory.',
+		'skills.',
+		'web.',
+		'browser.',
+		'permissions.',
+		'codeAnalysis.',
+	]
+	const conversationKeys = new Set([
+		'hypermode',
+		'refusalFallback',
+		'smallModel',
+		'decision',
+		'learningObservations',
+		'toolResultScreens',
+		'additionalDirectories',
+		'permissions',
+		'permissionChecks',
+		'mcpServers',
+		'hooks',
+		'disableHooks',
 	])
-	return nextConversation.has(path) ? 'next-conversation' : 'next-start'
+	return conversationKeys.has(path) ||
+		conversationPrefixes.some((prefix) => path.startsWith(prefix))
+		? 'next-conversation'
+		: 'next-start'
 }
 
 function d(

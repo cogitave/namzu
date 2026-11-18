@@ -44,7 +44,10 @@ import {
 
 import { FileCheckpointStore, type TurnUndoStatus, type UndoPreview } from '../checkpoints/store.js'
 import { flushCompileCacheWhenIdle } from '../compile-cache.js'
-import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
+import {
+	refreshTrustedProjectContext,
+	resolveTrustedProjectContext,
+} from '../config/trusted-project-context.js'
 import { DESKTOP_CONTRACT } from '../desktop-contract.js'
 import { type PluginInventoryView, readPluginInventory } from '../integrations/plugins/inventory.js'
 import { canSelectModel } from '../integrations/providers/access.js'
@@ -289,6 +292,8 @@ export interface AcpRuntimeDependencies {
 	) => Promise<AcpLiveSession>
 	readonly decideTrust: typeof decideHeadlessTrust
 	readonly resolveProjectContext: typeof resolveTrustedProjectContext
+	/** The project's context with its files read again: a new conversation takes the saved settings. */
+	readonly refreshProjectContext?: typeof refreshTrustedProjectContext
 	/** Which namzu session a wire session id stands for; see {@link resolveAcpSession}. */
 	readonly resolveSession: (wireSessionId: string) => Promise<AcpSessionTarget>
 	/** Durable CLI catalog owned for the lifetime of one runtime session. */
@@ -673,6 +678,7 @@ const DEFAULT_RUNTIME_DEPS: AcpRuntimeDependencies = {
 	createSession: createAgentSession,
 	decideTrust: decideHeadlessTrust,
 	resolveProjectContext: resolveTrustedProjectContext,
+	refreshProjectContext: refreshTrustedProjectContext,
 	resolveSession: (wireSessionId) => resolveAcpSession(wireSessionId, lookupInIndex),
 }
 
@@ -927,7 +933,10 @@ export function createCliAcpRuntime(
 				}
 			}
 			try {
-				const projectCtx = deps.resolveProjectContext(bootstrapCtx, cwd)
+				const projectCtx = (deps.refreshProjectContext ?? deps.resolveProjectContext)(
+					bootstrapCtx,
+					cwd,
+				)
 				warnLegacyMcpPermissionNames(projectCtx.config.permissions)
 				const permissions = compilePermissionLayers(
 					permissionLayersOf(projectCtx.config),
