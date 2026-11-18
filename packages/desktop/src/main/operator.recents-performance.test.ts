@@ -652,7 +652,7 @@ it('refuses a delayed readiness acknowledgement after the owned connection close
 		const project = await owner.openProject(process.cwd())
 		await owner.openConversation(project.id, 'cold-session')
 		const readiness = owner.readyConversation(project.id, 'cold-session')
-		const refused = expect(readiness).rejects.toThrow('connection changed')
+		const refused = expect(readiness).rejects.toThrow('couldn’t check whether')
 		await entered.promise
 		const closed = wait((event) => event.kind === 'connection' && event.project.status === 'error')
 		await expect(client().request('test/exit')).rejects.toThrow('connection closed')

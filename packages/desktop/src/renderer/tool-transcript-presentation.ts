@@ -16,7 +16,15 @@ export type ToolTranscriptState =
 	| 'declined'
 
 /** What an action row is about; picks its icon, its label and what a click does. */
-export type ActionKind = 'command' | 'edit' | 'read' | 'search' | 'web' | 'lookup' | 'other'
+export type ActionKind =
+	| 'command'
+	| 'edit'
+	| 'read'
+	| 'search'
+	| 'web'
+	| 'lookup'
+	| 'skill'
+	| 'other'
 
 export interface ActionFile {
 	/** The base name drawn in the row. */
@@ -50,6 +58,8 @@ export type ToolBody =
 export interface ToolTranscriptPresentation {
 	label: string
 	kind: ActionKind
+	/** The skill a skill row is about, as a person reads its name. */
+	skill?: string
 	/** Text before the file name; the row draws `lead` and then the name, so `label` is both. */
 	lead?: string
 	file?: ActionFile
@@ -279,9 +289,9 @@ function observedActionLabel(
 				completed: 'Checked earlier messages',
 				failed: 'Could not check earlier messages',
 				cancelled: 'Stopped checking earlier messages',
-				interrupted: 'Earlier message lookup interrupted',
-				skipped: 'Skipped earlier message lookup',
-				declined: 'Declined earlier message lookup',
+				interrupted: 'Stopped checking earlier messages',
+				skipped: 'Skipped checking earlier messages',
+				declined: 'Declined checking earlier messages',
 			}
 		: search
 			? {
@@ -356,7 +366,7 @@ function commandBody(
 	if (facts.binary)
 		return {
 			kind: 'notice',
-			text: `Binary output, ${humanBytes(facts.binary.bytes)}`,
+			text: `Not text, ${humanBytes(facts.binary.bytes)}. Not shown.`,
 		}
 	const stdout = facts.stdout && facts.stdout.totalLines > 0 ? streamText(facts.stdout) : undefined
 	const stderr = facts.stderr && facts.stderr.totalLines > 0 ? streamText(facts.stderr) : undefined
@@ -376,7 +386,8 @@ function commandStatus(facts: CommandFacts): string | undefined {
 	if (facts.background) return undefined
 	if (facts.timedOut) return 'Timed out'
 	if (facts.signal) return 'Stopped before it finished'
-	if (facts.exitCode !== undefined && facts.exitCode !== 0) return `Exit code ${facts.exitCode}`
+	if (facts.exitCode !== undefined && facts.exitCode !== 0)
+		return `Didn’t finish (code ${facts.exitCode})`
 	return undefined
 }
 
@@ -390,7 +401,7 @@ function commandShell(facts: CommandFacts): ShellCellData {
 		...(stderr ? { stderr } : {}),
 		...(status ? { status } : {}),
 		...(facts.background ? { background: true as const } : {}),
-		...(facts.binary ? { notice: `Binary output, ${humanBytes(facts.binary.bytes)}` } : {}),
+		...(facts.binary ? { notice: `Not text, ${humanBytes(facts.binary.bytes)}. Not shown.` } : {}),
 	}
 }
 
@@ -401,14 +412,14 @@ const FAILURE_TEXT: Record<ToolFailureReason, string> = {
 	already_exists: 'it already exists',
 	blocked: 'not allowed',
 	needs_administrator: 'needs administrator rights',
-	unknown_tool: 'unknown tool',
+	unknown_tool: 'Namzu couldn’t use that tool',
 	timed_out: 'timed out',
-	invalid_input: 'invalid request',
-	not_read: 'not read yet',
-	changed_on_disk: 'changed since it was read',
+	invalid_input: 'Namzu sent the tool a request it couldn’t read',
+	not_read: 'needs to read the file first',
+	changed_on_disk: 'changed since Namzu read it',
 	text_not_found: 'text not found',
 	not_unique: 'text appears more than once',
-	invalid_arguments: 'invalid parameters',
+	invalid_arguments: 'Namzu sent the tool a request it couldn’t read',
 }
 
 function failureLead(kind: ActionKind): string {
@@ -531,7 +542,7 @@ function failureRow(
 	const name = tool.title.toLowerCase()
 	const command = COMMAND_TOOLS.has(name) || call?.kind === 'command'
 	if (facts.reason === 'unknown_tool') {
-		const main = `Namzu tried a tool it doesn’t have${facts.subject ? ` (${facts.subject})` : ''}`
+		const main = `Namzu couldn’t use that tool${facts.subject ? ` (${facts.subject})` : ''}`
 		return { label: main, main, kind: 'other' }
 	}
 	if (facts.reason === 'blocked' || facts.reason === 'needs_administrator') {
@@ -665,6 +676,33 @@ function writeLead(
 }
 
 const PAL_MESSAGE_TOOL = 'send_pal_message'
+const SKILL_TOOL = 'skill'
+
+/**
+ * The skill a load call names, or undefined for the call that lists skills. A skill that came
+ * with a plugin is named `plugin__skill`; the row says the part a person knows.
+ */
+export function skillNameOf(tool: ProjectedToolCall): string | undefined {
+	if (tool.title !== SKILL_TOOL) return undefined
+	const named = tool.callView ?? tool.view
+	const label = named.kind === 'generic' ? firstLine(named.label) : ''
+	const name = /^Read skill (.+?)(?: \(continued\))?$/.exec(label)?.[1]?.trim()
+	return name ? (name.split('__').pop() ?? name) : undefined
+}
+
+function skillLabel(name: string, state: ToolTranscriptState): string {
+	const labels: Record<ToolTranscriptState, string> = {
+		waiting: `Waiting to use the ${name} skill`,
+		running: `Using the ${name} skill`,
+		completed: `Used the ${name} skill`,
+		failed: `Couldn’t use the ${name} skill`,
+		cancelled: `Cancelled the ${name} skill`,
+		interrupted: `Interrupted the ${name} skill`,
+		skipped: `Skipped the ${name} skill`,
+		declined: `Declined the ${name} skill`,
+	}
+	return labels[state]
+}
 
 /**
  * Who a message to a Pal was for. The tool authors "Message to <name>" for the call and
@@ -772,17 +810,22 @@ export function toolTranscriptPresentation(
 	const observed = observedActionLabel(tool, state)
 	const explored = exploration(tool)
 	const palName = palMessageName(tool)
+	const skill = skillNameOf(tool)
 	// What the tool reported as fields; before it finished, what the call was about.
 	const call = callFactsOf(tool)
 	const facts = tool.facts ?? call
 	const typed =
-		!palName && !observed && view.kind !== 'diff' && facts
+		!palName && !skill && !observed && view.kind !== 'diff' && facts
 			? factsRow(tool, state, facts, call)
 			: undefined
 	if (palName) {
 		// The row names the Pal and says the message reached its inbox, never that it was read.
 		label = palMessageLabel(palName, state)
 		if (state === 'completed') tooltip = 'Sent to inbox'
+		detailView = undefined
+	} else if (skill) {
+		label = skillLabel(skill, state)
+		kind = 'skill'
 		detailView = undefined
 	} else if (observed) {
 		label = observed
@@ -880,6 +923,7 @@ export function toolTranscriptPresentation(
 	return {
 		label,
 		kind,
+		...(skill ? { skill } : {}),
 		...(lead ? { lead } : {}),
 		...(file ? { file } : {}),
 		...(main !== undefined && tail ? { main } : {}),

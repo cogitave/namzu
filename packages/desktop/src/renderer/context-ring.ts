@@ -65,26 +65,25 @@ export function contextRingModel(usage: ThreadUsage | undefined): ContextRingMod
 	const percent = Math.round(fraction * 100)
 	const tone: ContextRingTone =
 		fraction >= RING_FULL ? 'full' : fraction >= RING_HIGH ? 'high' : 'normal'
-	const size = `${formatTokens(used)} of ${formatTokens(window)} tokens`
-	const lines = [
-		`Context: ${size} (${percent}%)${usage?.measuredBy === 'estimate' ? ', estimated' : ''}`,
-	]
+	const about = usage?.measuredBy === 'estimate' ? 'about ' : ''
+	const size = `${about}${formatTokens(used)} of ${formatTokens(window)}`
+	const lines = [`${percent}% of this conversation’s memory used (${size})`]
 	if (tone !== 'normal') lines.push('Older messages may be summarised to make room.')
 	if (usage?.cost !== undefined) lines.push(`Cost so far: ${formatCost(usage.cost)}`)
 	return {
 		fraction,
 		percent,
 		tone,
-		label: `Context ${percent}% full. ${size}.${usage?.cost !== undefined ? ` Cost so far ${formatCost(usage.cost)}.` : ''}`,
+		label: `${percent}% of this conversation’s memory used, ${size}.${usage?.cost !== undefined ? ` Cost so far ${formatCost(usage.cost)}.` : ''}`,
 		lines,
 		readout: `${percent}%${usage?.cost !== undefined ? ` · ${formatCostShort(usage.cost)}` : ''}`,
 	}
 }
 
-/** The working line while a compaction pass runs, and the note that replaces it. */
-export const COMPACTING_TEXT = 'Compacting the conversation…'
+/** The working line while the conversation is being shortened, and the note that replaces it. */
+export const COMPACTING_TEXT = 'Shortening the conversation…'
 export function compactedText(compaction: { tokensBefore?: number; tokensAfter?: number }): string {
 	return compaction.tokensBefore !== undefined && compaction.tokensAfter !== undefined
-		? `Conversation compacted · ${formatTokens(compaction.tokensBefore)} to ${formatTokens(compaction.tokensAfter)} tokens`
-		: 'Conversation compacted'
+		? `Conversation shortened · from ${formatTokens(compaction.tokensBefore)} to ${formatTokens(compaction.tokensAfter)}`
+		: 'Conversation shortened'
 }

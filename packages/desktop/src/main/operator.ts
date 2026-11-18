@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, realpathSync, watch } from 'node:fs'
-import { lstat, mkdir, readdir, realpath, stat } from 'node:fs/promises'
+import { copyFile, lstat, mkdir, open as openFile, readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, resolve } from 'node:path'
 import type {
@@ -35,6 +35,11 @@ import {
 	type ConfigSettingsView,
 	readConfigSettingsView,
 } from '../shared/config-settings-protocol.js'
+import {
+	CONTEXT_REQUEST,
+	type ContextReport,
+	readContextReport,
+} from '../shared/context-protocol.js'
 import { QUESTION_TOOL } from '../shared/conversation-status.js'
 import { type HistoryWorkSnapshot, restoreHistoryWork } from '../shared/history-work.js'
 import { readHooksReport } from '../shared/hooks-report.js'
@@ -45,6 +50,7 @@ import {
 	readLimitsNotice,
 } from '../shared/limits-protocol.js'
 import { OUTCOME_NOTIFICATION, readOutcomeNotice } from '../shared/outcome-protocol.js'
+import { mayOpenWithSystem } from '../shared/output-files.js'
 import type {
 	PalPermissionChange,
 	PalSubscriptionCreate,
@@ -52,6 +58,7 @@ import type {
 } from '../shared/pal-communication-protocol.js'
 import { duplicatePalNameMessage, isDuplicatePalName } from '../shared/pal-name.js'
 import { readPermissionCalls, readPermissionResponse } from '../shared/permission-protocol.js'
+import { engineFailureText } from '../shared/plain-error.js'
 import { type ThreadState, applyEvent, emptyThread, threadPhase } from '../shared/projection.js'
 import type {
 	AttachmentInput,
@@ -132,6 +139,7 @@ import {
 	type SavedLastModel,
 } from './desktop-conversation-store.js'
 import type { DesktopDiagnosticSink } from './diagnostics.js'
+import { type MadeFile, madeSince, scanFolder } from './made-files.js'
 import { ModelListStore, type StoredModelList, modelListKey } from './model-list-store.js'
 import { isNormalChatWorkspace, normalChatWorkspace } from './normal-chat-workspace.js'
 import type { OpenIn, OpenTarget } from './open-in.js'
@@ -144,7 +152,14 @@ import { ProjectFiles, confineProjectPath, resolveProjectLinks } from './project
 import { type ProjectNameStore, projectNameProblem } from './project-names.js'
 import { parseUntrust, projectBusyReason, withoutProject } from './project-removal.js'
 import { RuntimeClient, type RuntimeCommand } from './rpc-client.js'
-import { type OutputAccess, readOutput, resolveOutput } from './session-output.js'
+import {
+	type OutputAccess,
+	type OutputDetail,
+	describeOutputs,
+	readOutput,
+	resolveOutput,
+	saveOutputCopy,
+} from './session-output.js'
 import {
 	ConversationHostChangedError,
 	SupersededConversationSettingsError,
@@ -920,6 +935,18 @@ export class Operator {
 	private readonly computerGrants = new Map<string, ComputerGrants>()
 	/** Conversations whose running turn has driven the computer: only these may raise Namzu over other applications. */
 	private readonly computerTurns = new Set<string>()
+	/**
+	 * Per conversation: the work folder as it stood when the running turn began, and the result
+	 * files earlier turns made by running something. Never stored; a restored conversation has none.
+	 */
+	private readonly madeScans = new Map<
+		string,
+		{
+			startedAt?: number
+			settled?: Promise<void>
+			made: (MadeFile & { turn: number })[]
+		}
+	>()
 	/** The requests that ask whether to allow applications, by request id. */
 	private readonly appRequests = new Map<string, { sessionId: string; apps: string[] }>()
 	private grantsFor(sessionId: string): ComputerGrants {
@@ -1212,7 +1239,7 @@ export class Operator {
 	}
 	async palModels(provider: string): Promise<ModelCatalogueView> {
 		if (typeof provider !== 'string' || !provider.trim() || provider.length > 400)
-			throw new Error('Invalid provider.')
+			throw new Error('That AI service isn’t available.')
 		return (await (
 			await this.registry()
 		).request('namzu/providers/models', {
@@ -1593,7 +1620,7 @@ export class Operator {
 			throw new Error('Invalid Pal computer generation.')
 		const client = await this.controlClient(id, reuseReady)
 		if (!client.supportsPalComputerControl())
-			throw new Error('This computer provider does not support operator control.')
+			throw new Error('This computer can’t be controlled from Namzu.')
 		const current = await this.computerStatus(client, id)
 		if (
 			current.status !== 'ready' ||
@@ -1616,7 +1643,7 @@ export class Operator {
 			for (const item of owned) {
 				if (item.running) {
 					const settled = item.runSettled
-					if (!settled) throw new Error('This Pal turn has no confirmed completion boundary.')
+					if (!settled) throw new Error('Namzu couldn’t confirm that this Pal finished its reply.')
 					await this.cancel(item.view.id)
 					await settled
 				}
@@ -1984,8 +2011,12 @@ export class Operator {
 				if (!wasRunning && session.projection.running) {
 					this.computerTurns.delete(id)
 					this.options.notices?.turnStarted(id)
+					this.beginMadeScan(session)
 				}
-				if (wasRunning && !session.projection.running) this.noticeTurnEnded(session)
+				if (wasRunning && !session.projection.running) {
+					this.noticeTurnEnded(session)
+					this.endMadeScan(session)
+				}
 				if (
 					wasRunning &&
 					!session.projection.running &&
@@ -2385,7 +2416,7 @@ export class Operator {
 			// A connection that was working and dropped is not an unopenable folder: the
 			// conversation stays on screen and Namzu reconnects by itself.
 			const lost = view.status === 'ready' && !view.missing
-			const failure = view.status === 'error' && view.error ? view.error : error.message
+			const failure = view.status === 'error' && view.error ? view.error : engineFailureText(error)
 			view.status = 'error'
 			view.error = failure
 			if (lost) view.lost = true
@@ -2430,7 +2461,7 @@ export class Operator {
 			view.status = 'ready'
 		} catch (error) {
 			view.status = 'error'
-			view.error = error instanceof Error ? error.message : String(error)
+			view.error = engineFailureText(error)
 			await this.closeClient(client)
 			if (this.closing) throw error
 		}
@@ -3030,7 +3061,7 @@ export class Operator {
 		const session = this.session(sessionId)
 		if (session.view.palId) throw new Error(`A Pal conversation cannot ${action}.`)
 		if (session.view.harness && session.view.harness !== 'namzu')
-			throw new Error(`This engine’s conversation cannot ${action} from Namzu.`)
+			throw new Error(`This conversation can’t ${action} from Namzu.`)
 		return session
 	}
 	private archivedClient(project: Project): RuntimeClient {
@@ -3480,6 +3511,7 @@ export class Operator {
 			if (path && isAbsolute(path)) written.push(path)
 			else if (path) written.push(resolve(project.view.path, path))
 		}
+		for (const made of this.madeScans.get(sessionId)?.made ?? []) written.push(made.path)
 		return { root: project.view.path, written }
 	}
 	/** The folder a conversation's Browser pane may open local files from; none for a Pal. */
@@ -3491,18 +3523,91 @@ export class Operator {
 			return undefined
 		}
 	}
+	/** The folder a conversation's made files are looked for in, or nothing when it has none to scan. */
+	private madeFolder(session: Conversation): string | undefined {
+		if (session.view.palId) return undefined
+		const project = this.projects.get(session.view.projectId)
+		if (!project?.view.trusted || project.view.palId) return undefined
+		return project.view.path
+	}
+	private beginMadeScan(session: Conversation): void {
+		if (!this.madeFolder(session)) return
+		const entry = this.madeScans.get(session.view.id) ?? { made: [] }
+		// Files are told apart by their own time, not by a listing taken now: a listing taken while
+		// the turn already runs can miss a file the turn wrote first.
+		entry.startedAt = Date.now()
+		this.madeScans.set(session.view.id, entry)
+	}
+	private endMadeScan(session: Conversation): void {
+		const entry = this.madeScans.get(session.view.id)
+		const folder = this.madeFolder(session)
+		const startedAt = entry?.startedAt
+		if (!entry || startedAt === undefined || !folder) return
+		entry.startedAt = undefined
+		const turn = session.projection.turn
+		entry.settled = (async () => {
+			const scan = await scanFolder(folder).catch(() => undefined)
+			// A walk cut short may miss files or cut at a different place than another; say nothing.
+			if (!scan?.complete) return
+			for (const file of madeSince(scan.files, startedAt))
+				entry.made = [...entry.made.filter((old) => old.path !== file.path), { ...file, turn }]
+		})().catch(() => undefined)
+	}
+	/** Result files the conversation's turns made by running something, with the turn that made each. */
+	async madeSessionFiles(sessionId: string): Promise<{ path: string; turn: number }[]> {
+		this.outputAccess(sessionId)
+		// A turn still ending has its scan under way; wait for it, so a pull right after sees it.
+		await this.madeScans.get(sessionId)?.settled
+		return (this.madeScans.get(sessionId)?.made ?? []).map(({ path, turn }) => ({ path, turn }))
+	}
+	async describeSessionOutputs(sessionId: string, paths: string[]): Promise<OutputDetail[]> {
+		return describeOutputs(this.outputAccess(sessionId), paths, {
+			stat: async (path) => {
+				try {
+					const info = await stat(path)
+					return info.isFile() ? { size: info.size } : undefined
+				} catch {
+					return undefined
+				}
+			},
+			head: async (path, bytes) => {
+				const handle = await openFile(path, 'r')
+				try {
+					const buffer = Buffer.alloc(bytes)
+					const { bytesRead } = await handle.read(buffer, 0, bytes, 0)
+					return buffer.subarray(0, bytesRead).toString('utf8')
+				} finally {
+					await handle.close()
+				}
+			},
+		})
+	}
+	/** Saves a copy of a made file where the person chooses; `choose` is the system save dialog. */
+	async saveSessionOutput(
+		sessionId: string,
+		path: string,
+		choose: (defaultName: string) => Promise<string | undefined>,
+	): Promise<{ saved: boolean }> {
+		return saveOutputCopy(this.outputAccess(sessionId), path, {
+			choose,
+			copy: (from, to) => copyFile(from, to),
+		})
+	}
 	async readSessionOutput(sessionId: string, path: string): Promise<ProjectFileContent> {
 		return readOutput(this.outputAccess(sessionId), path, this.projectFiles)
 	}
 	async openSessionOutput(
 		sessionId: string,
 		path: string,
-		target: 'browser' | 'file-manager',
+		target: 'browser' | 'file-manager' | 'system',
 	): Promise<void> {
 		if (!this.openIn) throw new Error('Opening files is not available here.')
-		if (target !== 'browser' && target !== 'file-manager')
+		if (target !== 'browser' && target !== 'file-manager' && target !== 'system')
 			throw new Error('That way of opening is not supported.')
 		const found = await resolveOutput(this.outputAccess(sessionId), path)
+		// The system's own program opens results only, never something that could run.
+		if (target === 'system' && !mayOpenWithSystem(found.absolute))
+			throw new Error('Namzu only opens pages, documents, pictures, sheets and slides this way.')
 		await this.openIn.open(found.absolute, 'file', target)
 	}
 	async resolveProjectLinks(projectId: string, refs: string[]): Promise<ProjectLinkResolution[]> {
@@ -3707,14 +3812,14 @@ export class Operator {
 		if (session.view.palId)
 			throw new Error('External engines are available in normal conversations only.')
 		if (!['namzu', 'codex-cli', 'claude-code'].includes(engine))
-			throw new Error('Unknown execution engine.')
+			throw new Error('Namzu doesn’t know that assistant. Choose another one.')
 		if (
 			session.running ||
 			session.admitting ||
 			session.queue.length ||
 			this.changingPlugins.has(sessionId)
 		)
-			throw new Error('Stop this conversation before changing its engine.')
+			throw new Error('Stop this reply before switching the assistant.')
 		this.changingPlugins.add(sessionId)
 		session.selectionRevision = (session.selectionRevision ?? 0) + 1
 		session.selectionPending = true
@@ -3754,7 +3859,7 @@ export class Operator {
 					assertCurrent()
 					// The engine ACK remains authoritative when follow-up metadata is unavailable.
 					session.providerSetupFailure =
-						'The selected engine’s model settings could not be read. Retry model discovery or choose a model. Your draft is retained.'
+						'Namzu couldn’t load the models for this assistant. Try again, or choose a model. Your draft is kept.'
 				}
 			}
 			this.persistDesktop()
@@ -3817,7 +3922,7 @@ export class Operator {
 			engine !== 'namzu' &&
 			(providers.selected?.id !== engine || !providers.selected.model)
 		)
-			throw new Error('This engine did not report its selected model. Choose a model again.')
+			throw new Error('This assistant didn’t report which model it uses. Choose a model again.')
 		if (providers.selected)
 			session.providerSelection = {
 				provider: providers.selected.id,
@@ -3990,7 +4095,7 @@ export class Operator {
 			() => {
 				assertCurrent()
 				if ((session.executionRevision ?? 0) !== executionRevision || session.running)
-					throw new Error('This turn changed while loading. Open it again.')
+					throw new Error('This reply changed while it was loading. Open the conversation again.')
 			},
 		)
 		const reading = {
@@ -4089,7 +4194,7 @@ export class Operator {
 					})) as HarnessView
 					stillOwned()
 					if (restored.selected !== engine)
-						throw new Error('The selected engine could not be restored. Your draft is retained.')
+						throw new Error('Namzu couldn’t reopen this assistant. Your draft is kept.')
 					if (choice?.provider === engine && choice.model) {
 						await client.request('namzu/providers/select', {
 							sessionId: session.runtimeSessionId,
@@ -4120,7 +4225,7 @@ export class Operator {
 					})) as HarnessView
 					stillOwned()
 					if (restored.selected !== requested.engine)
-						throw new Error('The selected engine could not be restored. Your draft is retained.')
+						throw new Error('Namzu couldn’t reopen this assistant. Your draft is kept.')
 					session.view.harness = requested.engine
 					this.backgroundWork.invalidate(session.view.id)
 				}
@@ -4275,7 +4380,7 @@ export class Operator {
 	async models(id: string, provider: string, sessionId?: string): Promise<ModelCatalogueView> {
 		const project = this.project(id)
 		if (typeof provider !== 'string' || !provider.trim() || provider.length > 400)
-			throw new Error('Invalid provider.')
+			throw new Error('That AI service isn’t available.')
 		const session = sessionId === undefined ? undefined : this.session(sessionId)
 		if (session && session.view.projectId !== id)
 			throw new Error('This conversation belongs to another project.')
@@ -4599,7 +4704,7 @@ export class Operator {
 		if (session.view.palId)
 			throw new Error('Auto is not available in a Pal conversation. A Pal keeps its own model.')
 		if (session.view.harness !== undefined && session.view.harness !== 'namzu')
-			throw new Error('Auto is only available with the Namzu engine.')
+			throw new Error('Auto works only with Namzu’s own assistant.')
 		this.changingPlugins.add(sessionId)
 		session.selectionRevision = (session.selectionRevision ?? 0) + 1
 		session.selectionPending = true
@@ -4991,9 +5096,7 @@ export class Operator {
 		const ids = options?.attachmentIds ?? []
 		if (session.view.harness && session.view.harness !== 'namzu') {
 			if (ids.length)
-				throw new Error(
-					'This engine connection does not support attachments yet. Your draft is retained.',
-				)
+				throw new Error('This assistant can’t take attachments yet. Your draft is kept.')
 			const supportedReviewModes =
 				session.view.harness === 'codex-cli'
 					? ['prompt', 'plan', 'accept-edits', 'auto', 'bypass', 'strict']
@@ -5001,8 +5104,8 @@ export class Operator {
 			if (options?.permissionMode && !supportedReviewModes.includes(options.permissionMode))
 				throw new Error(
 					session.view.harness === 'claude-code'
-						? 'This engine supports Ask first and Plan only.'
-						: 'This engine does not support the selected permission mode.',
+						? 'This assistant only supports Ask first and Plan only. Pick one of those.'
+						: 'This assistant doesn’t support that approval choice. Pick another one.',
 				)
 		}
 		if (
@@ -5110,7 +5213,7 @@ export class Operator {
 				} else if (status.retry || status.notice || session.projection.reason === 'paused')
 					throw new Error(
 						status.notice ??
-							'This conversation has a paused turn. Retry it before sending a new message. Your draft is retained.',
+							'This conversation has a paused reply. Try it again before you send a new message. Your draft is kept.',
 					)
 				this.assertPalAdmission(session.view.palId)
 				this.admitMessage(session, captured)
@@ -5119,9 +5222,7 @@ export class Operator {
 			})
 		}
 		if (session.projection.reason === 'paused')
-			throw new Error(
-				'This conversation has a paused turn. Your draft is retained; update Namzu to retry it.',
-			)
+			throw new Error('This reply is paused. Your draft is kept. Update Namzu to try it again.')
 		this.admitMessage(session, captured)
 	}
 	private admitMessage(session: Conversation, captured: PendingMessage): void {
@@ -5151,9 +5252,13 @@ export class Operator {
 			session.client !== client ||
 			session.runtimeSessionId !== runtimeId
 		)
-			throw new Error('The connection changed while reading this turn’s retry status.')
+			throw new Error(
+				'Namzu couldn’t check whether this reply can be tried again. Try again in a moment.',
+			)
 		if (!result || typeof result !== 'object' || Array.isArray(result))
-			throw new Error('Namzu returned an invalid turn retry status.')
+			throw new Error(
+				'Namzu couldn’t check whether this reply can be tried again. Try again in a moment.',
+			)
 		const { retry, notice, unknownUsage, closable } = result as DesktopRetryStatus
 		if (
 			(retry !== undefined &&
@@ -5177,16 +5282,18 @@ export class Operator {
 			(unknownUsage !== undefined &&
 				(!Number.isSafeInteger(unknownUsage) || unknownUsage < 1 || unknownUsage > 100_000))
 		)
-			throw new Error('Namzu returned an invalid turn retry status.')
+			throw new Error(
+				'Namzu couldn’t check whether this reply can be tried again. Try again in a moment.',
+			)
 		if ((session.executionRevision ?? 0) !== executionRevision || session.running)
-			throw new Error('This turn changed while reading its retry status. Open it again.')
+			throw new Error('This reply changed while Namzu checked it. Open the conversation again.')
 		if (
 			(session.selectionRevision ?? 0) !== selectionRevision ||
 			session.selectionPending ||
 			this.changingPlugins.has(session.view.id)
 		)
 			throw new Error(
-				'This conversation’s settings changed while reading retry status. Open it again.',
+				'This conversation’s settings changed while Namzu checked it. Open the conversation again.',
 			)
 		if (
 			JSON.stringify(session.projection.retry) !== JSON.stringify(retry) ||
@@ -5575,7 +5682,7 @@ export class Operator {
 			if (result.stopReason === 'error' && !session.projection.error)
 				this.state(
 					session,
-					'Namzu could not retry this turn. Your conversation and draft are retained.',
+					'Namzu couldn’t try this reply again. Your conversation and draft are kept.',
 				)
 		} catch (error) {
 			if (!session.projection.stopReason)
@@ -5590,7 +5697,7 @@ export class Operator {
 						reason: 'paused',
 					},
 				})
-			this.state(session, error instanceof Error ? error.message : String(error))
+			this.state(session, engineFailureText(error))
 		} finally {
 			const settlement = Symbol('retry settlement')
 			session.admitting = settlement
@@ -5892,7 +5999,7 @@ export class Operator {
 			if (result.stopReason === 'error' && !session.projection.error)
 				this.state(
 					session,
-					'Namzu could not finish this turn. Your conversation is retained; check the provider or tool error before retrying.',
+					'Namzu couldn’t finish this reply. Your conversation is saved. Try again.',
 				)
 		} catch (error) {
 			failed = true
@@ -5903,7 +6010,7 @@ export class Operator {
 					sessionId: session.view.id,
 					update: { kind: 'turn_ended', stopReason: 'error' },
 				})
-			this.state(session, error instanceof Error ? error.message : String(error))
+			this.state(session, engineFailureText(error))
 		} finally {
 			if (
 				!hadPrompted &&
@@ -6491,6 +6598,28 @@ export class Operator {
 			sessionId: session.runtimeSessionId,
 		})
 	}
+	/**
+	 * Where a conversation's window goes, from the engine that serves it. Null when the engine has
+	 * not counted yet or cannot say; the ring still shows the total from the usage notices.
+	 */
+	async contextUsage(sessionId: string, detail?: unknown): Promise<ContextReport | null> {
+		const session = this.session(sessionId)
+		if (!session.client.supportsContextPanel()) return null
+		if (session.view.palId || (session.view.harness && session.view.harness !== 'namzu'))
+			return null
+		if (detail !== undefined && detail !== 'summary' && detail !== 'full')
+			throw new Error('Invalid context request.')
+		const client = session.client
+		const runtimeSessionId = session.runtimeSessionId
+		const result = await client.request(
+			CONTEXT_REQUEST,
+			{ sessionId: runtimeSessionId, detail: detail ?? 'summary' },
+			8_000,
+		)
+		if (this.session(sessionId) !== session || session.runtimeSessionId !== runtimeSessionId)
+			return null
+		return readContextReport(result)
+	}
 	async readJob(sessionId: string, jobId: string): Promise<unknown> {
 		const session = this.session(sessionId)
 		if (typeof jobId !== 'string' || jobId.length > 400) throw new Error('Invalid job.')
@@ -6540,7 +6669,7 @@ export class Operator {
 				[...closing, ...starting]
 					.filter((result) => result.status === 'rejected')
 					.map((result) => result.reason),
-				'Namzu could not confirm that all runtime processes stopped. Retry closing Namzu.',
+				'Namzu couldn’t confirm that everything stopped. Try closing Namzu again.',
 			)
 		}
 		this.registryClient = undefined

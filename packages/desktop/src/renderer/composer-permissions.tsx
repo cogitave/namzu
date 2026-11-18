@@ -103,9 +103,18 @@ const rowCopy: Record<
 		'claude-code': { label: 'Plan only', description: 'Reads and plans; changes nothing.' },
 	},
 	strict: {
-		namzu: { label: 'Preapproved only', description: 'Uses only tools your rules allow.' },
-		'codex-cli': { label: 'Preapproved only', description: 'Uses only tools your rules allow.' },
-		'claude-code': { label: 'Preapproved only', description: 'Uses only tools your rules allow.' },
+		namzu: {
+			label: 'Only actions you already allowed',
+			description: 'Namzu uses only what your rules already allow.',
+		},
+		'codex-cli': {
+			label: 'Only actions you already allowed',
+			description: 'Namzu uses only what your rules already allow.',
+		},
+		'claude-code': {
+			label: 'Only actions you already allowed',
+			description: 'Namzu uses only what your rules already allow.',
+		},
 	},
 }
 

@@ -1583,6 +1583,15 @@ export interface AgentSession {
 			/** The connected tool server it came from; absent for a built-in tool. */
 			readonly server?: string
 		}[]
+		/**
+		 * Definitions that load only when the model asks for them (tool search),
+		 * sized the way they will be once loaded. They are not in the request yet.
+		 */
+		readonly deferredTools?: readonly {
+			readonly name: string
+			readonly tokens: number
+			readonly server?: string
+		}[]
 	}
 	/**
 	 * This session's real tool-call/result presenter (`createToolPresenter`
@@ -6368,10 +6377,8 @@ export async function createAgentSession(
 				.filter((name) => !goalToolNames.has(name)),
 		contextInventory: () => {
 			const live = liveManager()
-			const sized = describeToolCatalogTokens(live.toLLMTools())
-			return {
-				systemPrompt: lastSystemPromptText,
-				tools: sized
+			const withServer = (sized: readonly { name: string; tokens: number }[]) =>
+				sized
 					.filter((tool) => !goalToolNames.has(tool.name))
 					.map((tool) => {
 						let server: string | undefined
@@ -6381,7 +6388,17 @@ export async function createAgentSession(
 							// A tool that left the registry between the two reads is a built-in's size.
 						}
 						return server === undefined ? tool : { ...tool, server }
-					}),
+					})
+			let deferred: ReturnType<typeof withServer> = []
+			try {
+				deferred = withServer(describeToolCatalogTokens(live.toDeferredLLMTools()))
+			} catch {
+				// A registry that cannot render its deferred tools leaves that block out.
+			}
+			return {
+				systemPrompt: lastSystemPromptText,
+				tools: withServer(describeToolCatalogTokens(live.toLLMTools())),
+				deferredTools: deferred,
 			}
 		},
 		presenter: sessionPresenter,

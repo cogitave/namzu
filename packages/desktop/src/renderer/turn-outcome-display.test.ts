@@ -189,13 +189,13 @@ describe('a failed command', () => {
 		expect(html).toContain('shell-cell')
 		expect(html).toContain('# fail 1')
 		expect(html).toContain('not ok 7 - slugify')
-		expect(html).toContain('Exit code 1')
+		expect(html).toContain('Didn’t finish (code 1)')
 	})
 	it('leads with the last lines, not the first', () => {
 		const rows = shellCellRows(
 			{
 				failed: true,
-				status: 'Exit code 1',
+				status: 'Didn’t finish (code 1)',
 				stdout: {
 					head: lines(5),
 					tail: Array.from({ length: 12 }, (_, i) => `end ${i + 1}`).join('\n'),

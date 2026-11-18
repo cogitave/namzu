@@ -79,6 +79,7 @@ import {
 	type ProjectCommit,
 	createProjectCommit,
 } from './desktop-commit.js'
+import { readContextRequest } from './desktop-context.js'
 import { createProjectChanges } from './desktop-host-changes.js'
 import { type ProjectGitState, capMarkdown, createProjectGit } from './desktop-host-header.js'
 import { projectPr } from './desktop-host-pr.js'
@@ -1994,6 +1995,13 @@ export function createDesktopHostExtensions(
 			runtime.removeProviderKey(text(params, 'provider')),
 		'namzu/providers/test': async (params: Record<string, unknown>) =>
 			runtime.testProvider(text(params, 'provider')),
+		/** Where this conversation's context window goes; null until the engine has reported one. */
+		'namzu/session/context': async (params: Record<string, unknown>) => {
+			const request = readContextRequest(params)
+			if (!runtime.contextUsage) return null
+			const id = await ownedReadSession({ sessionId: request.sessionId })
+			return runtime.contextUsage(id, request.detail)
+		},
 		'namzu/jobs/list': async (params: Record<string, unknown>) =>
 			runtime.jobs(await ownedReadSession(params)),
 		'namzu/jobs/read': async (params: Record<string, unknown>) =>

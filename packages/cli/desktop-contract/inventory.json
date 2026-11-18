@@ -104,6 +104,9 @@
     "hooksView": [
       "namzu/hooks/list"
     ],
+    "contextPanel": [
+      "namzu/session/context"
+    ],
     "conversationSearch": [
       "namzu/conversations/search"
     ],

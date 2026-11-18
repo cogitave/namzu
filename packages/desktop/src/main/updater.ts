@@ -333,7 +333,7 @@ export class UpdateController {
 				version,
 				error: 'Namzu could not stop its work cleanly, so the update was not installed.',
 			})
-			return { ok: false, error: 'Shutdown failed.' }
+			return { ok: false, error: 'Namzu couldn’t stop, so the update wasn’t installed.' }
 		}
 		this.set({ status: 'installing', version, phase: 'installing' })
 		try {

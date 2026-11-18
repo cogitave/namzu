@@ -1,3 +1,4 @@
+import { type OutputCardKind, outputCardKind } from '../shared/output-files.js'
 import type { ThreadState } from '../shared/projection.js'
 import { baseName, turnChanges } from './turn-changes.js'
 
@@ -23,6 +24,16 @@ export interface OutputFile {
 	version: number
 	/** The conversation made the file, as opposed to editing one that was there. */
 	created: boolean
+	/** What a person calls it: a page, a document, a picture. */
+	cardKind: OutputCardKind
+	/** A command or a tool made it, so no edit receipt names it. */
+	made?: true
+}
+
+/** A result file the host found a turn made by running something. */
+export interface MadeOutput {
+	path: string
+	turn: number
 }
 
 const HTML = /\.html?$/i
@@ -45,6 +56,24 @@ export const opensByItself = (kind: PreviewKind): boolean =>
 
 /** Kinds the Browser pane shows: a page, and a picture the browser draws as it is. */
 export const opensInBrowser = (kind: PreviewKind): boolean => kind === 'html' || kind === 'image'
+
+/**
+ * The page or document output a link in a reply names. The link is written from the project's
+ * folder and the output's path may be the whole path, so a whole-segment ending decides. Source
+ * and other files are not found here: they keep opening as files.
+ */
+export function outputForLink(
+	outputs: readonly OutputFile[],
+	linkPath: string,
+): OutputFile | undefined {
+	const wanted = linkPath.replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\/+/, '')
+	if (!wanted) return undefined
+	return outputs.find((output) => {
+		if (!opensByItself(output.kind)) return false
+		const path = output.path.replace(/\\/g, '/')
+		return path === wanted || path.endsWith(`/${wanted}`)
+	})
+}
 
 function folderOf(path: string): string {
 	const parts = path.split(/[\\/]/).filter(Boolean)
@@ -74,6 +103,7 @@ export function outputAddress(path: string, workFolder?: string): string {
 /** Every output of the conversation, the most recently written first. */
 export function outputFiles(
 	thread: Pick<ThreadState, 'timeline' | 'tools' | 'turns' | 'undo'>,
+	made: readonly MadeOutput[] = [],
 ): OutputFile[] {
 	const byPath = new Map<string, OutputFile>()
 	const turns = [...turnChanges(thread).values()].sort((a, b) => a.turn - b.turn)
@@ -96,8 +126,30 @@ export function outputFiles(
 				turn: changes.turn,
 				version: (before?.version ?? 0) + file.receiptIds.length,
 				created: before?.created ?? file.created,
+				cardKind: outputCardKind(file.path),
 			})
 		}
+	}
+	// A file a command or a tool made is an output too, unless a receipt already names it (the same
+	// path, or the same file written as a path from the work folder) or its turn was undone.
+	const written = [...byPath.keys()].map((path) => path.replace(/\\/g, '/').replace(/^\.\//, ''))
+	for (const file of made) {
+		const turnId = thread.turns[file.turn]?.turnId
+		if (turnId && thread.undo?.[turnId]?.status === 'undone') continue
+		const flat = file.path.replace(/\\/g, '/')
+		if (written.some((path) => flat === path || flat.endsWith(`/${path}`))) continue
+		const before = byPath.get(file.path)
+		byPath.set(file.path, {
+			path: file.path,
+			name: baseName(file.path),
+			folder: folderOf(file.path),
+			kind: previewKind(file.path),
+			turn: Math.max(before?.turn ?? 0, file.turn),
+			version: (before?.version ?? 0) + 1,
+			created: true,
+			cardKind: outputCardKind(file.path),
+			made: true,
+		})
 	}
 	return [...byPath.values()].sort((a, b) => b.turn - a.turn || a.name.localeCompare(b.name))
 }

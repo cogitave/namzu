@@ -31,6 +31,7 @@ import { localSpendEstimate } from './desktop-limits-spend.js'
 
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -45,6 +46,7 @@ import {
 
 import { FileCheckpointStore, type TurnUndoStatus, type UndoPreview } from '../checkpoints/store.js'
 import { flushCompileCacheWhenIdle } from '../compile-cache.js'
+import type { SkillsConfig } from '../config/schema.js'
 import {
 	refreshTrustedProjectContext,
 	resolveTrustedProjectContext,
@@ -72,6 +74,7 @@ import {
 } from '../integrations/providers/discover.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 import { isOfferableModel } from '../integrations/providers/zen-catalogue.js'
+import { discoverContextLists, gatherContext } from '../integrations/sessions/context-gather.js'
 import {
 	type CliSessionScope,
 	closeSessions,
@@ -113,6 +116,7 @@ import {
 	probeAgentSession,
 	verifyCredential,
 } from '../tui/agent.js'
+import { displayPath } from '../tui/display-path.js'
 import { withCliHarnesses } from './acp-harness.js'
 import {
 	type ProviderRetryStatus,
@@ -126,6 +130,12 @@ import {
 	commitMessageBody,
 } from './desktop-commit.js'
 import { COMPUTER_FRAME_NOTIFICATION } from './desktop-computer-feed.js'
+import {
+	type ContextDetail,
+	type ContextReport,
+	buildContextReport,
+	createContextTracker,
+} from './desktop-context.js'
 import { createDesktopHostExtensions } from './desktop-host.js'
 import { desktopModelCatalogue } from './desktop-model-catalogue.js'
 import { announceOutcome } from './desktop-outcome-feed.js'
@@ -135,6 +145,15 @@ import { withPreviews } from './permission-preview.js'
 import type { CommandContext, CommandDef } from './types.js'
 
 /** Same read as `cli.ts`'s `--version`: the manifest, never a second copy. */
+/**
+ * A failure a person reads, with a stable code a front end can map to its own wording. The
+ * sentence is plain on its own, for front ends that show it as is; the code travels as the
+ * JSON-RPC error's `data.code`.
+ */
+function engineFailure(code: string, message: string): Error {
+	return Object.assign(new Error(message), { data: { code } })
+}
+
 function readPackageVersion(): string {
 	try {
 		const here = dirname(fileURLToPath(import.meta.url))
@@ -288,6 +307,9 @@ type AcpLiveSession = Pick<
 	readonly resumePaused?: AgentSession['resumePaused']
 	readonly abandonTurn?: AgentSession['abandonTurn']
 	readonly describeComputerUseCall?: AgentSession['describeComputerUseCall']
+	/** What the context panel sizes; a fake session may leave them out. */
+	readonly contextInventory?: AgentSession['contextInventory']
+	readonly instructionFiles?: AgentSession['instructionFiles']
 }
 
 export interface AcpRuntimeDependencies {
@@ -353,6 +375,8 @@ interface AcpRuntimeRecord {
 	readonly turnOptions: ReturnType<typeof turnOptionsFromConfig>
 	/** Tracks the prompt cache across turns, to shed old tool results once it has lapsed. */
 	readonly staleResults: IdleCompactor
+	/** The skills settings this conversation started with, for the context panel's skill list. */
+	readonly skillsConfig?: SkillsConfig
 	/** `permissions.disableBypassMode` and friends, which the host cannot be talked out of. */
 	readonly permissionSettings?: PermissionSettings
 	/** The model this connection runs on now; a retry repeats the paused turn on it, not on the failed one. */
@@ -550,6 +574,11 @@ export interface CliAcpRuntime {
 	 * active work. Absent on a runtime that cannot route.
 	 */
 	selectAuto?(sessionId: string): Promise<void>
+	/**
+	 * Where this conversation's context window goes (the desktop's context panel). Null before the
+	 * engine has reported a window. `full` also lists the tool server tools, skills, agents and notes.
+	 */
+	contextUsage?(sessionId: string, detail: ContextDetail): Promise<ContextReport | null>
 	jobs(sessionId: string): readonly import('@namzu/sdk').BackgroundJob[]
 	readJob(sessionId: string, jobId: string): unknown
 	stopJob(sessionId: string, jobId: string): Promise<unknown>
@@ -609,7 +638,7 @@ class LivePromptInbox {
 	}
 	accept(input: { scopeId: string; inputId: string; prompt: string }) {
 		if (!this.available || input.scopeId !== this.scopeId)
-			throw new Error('This live prompt is no longer available. Your message was not admitted.')
+			throw engineFailure('message-not-sent', 'Your message wasn’t sent. Send it again.')
 		if (
 			typeof input.inputId !== 'string' ||
 			!input.inputId.trim() ||
@@ -624,7 +653,10 @@ class LivePromptInbox {
 			throw new Error('This live input id already belongs to a different message.')
 		if (!previous) {
 			if (this.entries.size >= 20 || this.chars + input.prompt.length > 1_000_000)
-				throw new Error('The live input mailbox is full. Your message was not admitted.')
+				throw engineFailure(
+					'too-many-messages',
+					'Namzu is busy with too many messages. Wait a moment, then send again.',
+				)
 			this.entries.set(input.inputId, {
 				prompt: input.prompt,
 				status: 'pending',
@@ -734,6 +766,16 @@ export function createCliAcpRuntime(
 	runtimeOptions: CliAcpRuntimeOptions = {},
 ): CliAcpRuntime {
 	const records = new Map<string, AcpRuntimeRecord>()
+	const contextTracker = createContextTracker()
+	// What was read from disk for the context panel, until the next turn or shortening ends.
+	const contextReads = new Map<
+		string,
+		{
+			version: number
+			lists: Awaited<ReturnType<typeof discoverContextLists>>
+			files: Map<string, string>
+		}
+	>()
 	// The tool servers that stopped the last conversation from starting in a folder. A session whose
 	// server failed never exists, so this is the only place the reason survives for a settings page.
 	const mcpFailures = new Map<string, readonly { name: string; reason: string; config: string }[]>()
@@ -903,12 +945,20 @@ export function createCliAcpRuntime(
 		signal: AbortSignal,
 	): Promise<AcpRuntimeRecord> => {
 		signal.throwIfAborted()
-		if (closed) throw new Error('The ACP connection has closed.')
+		if (closed)
+			throw engineFailure(
+				'connection-closed',
+				'Namzu lost its connection to this conversation. Try again, or restart Namzu if it keeps happening.',
+			)
 
 		// This is the first project-aware operation. Session creation and the
 		// protocol handshake remain credential-free and do not read the target.
 		const trust = deps.decideTrust({ cwd: requestedCwd, trustFlag: false })
-		if (!trust.allowed) throw new Error(trust.message ?? 'folder not trusted')
+		if (!trust.allowed)
+			throw engineFailure(
+				'folder-not-trusted',
+				trust.message ?? 'Trust this folder first, then send again.',
+			)
 		const cwd = trust.cwd
 		const palBinding = await deps.palBinding?.(cwd, sessionId)
 		if (palBinding?.pal.paused) throw new Error('This Pal is paused.')
@@ -920,14 +970,18 @@ export function createCliAcpRuntime(
 		const existing = records.get(sessionId)
 		if (existing) {
 			if (existing.cwd !== cwd) {
-				throw new Error(
-					`ACP session "${sessionId}" already owns ${existing.cwd}; refusing to reuse it for ${cwd}.`,
+				throw engineFailure(
+					'conversation-in-other-folder',
+					'This conversation is already open in another folder. Open it again from the sidebar.',
 				)
 			}
 			return existing
 		}
 		if (constructing.has(sessionId)) {
-			throw new Error(`ACP session "${sessionId}" is already being constructed.`)
+			throw engineFailure(
+				'conversation-opening',
+				'This conversation is still opening. Wait a moment, then try again.',
+			)
 		}
 		constructing.set(sessionId, cwd)
 		const carriedRetry = retryCarry.get(sessionId)
@@ -970,18 +1024,27 @@ export function createCliAcpRuntime(
 
 				const probe = await sharedProbe()
 				signal.throwIfAborted()
-				if (closed) throw new Error('The ACP connection closed while its session was starting.')
+				if (closed)
+					throw engineFailure(
+						'connection-closed',
+						'Namzu lost its connection while this conversation was opening. Try again.',
+					)
 				const prefs = await preferencesFor(sessionId, probe, cwd)
 				const primary = prefs?.providers[0]
 				if (!prefs || !primary) {
-					throw new Error(
-						'No LLM provider is available on this machine: set a credential in the environment, or run `namzu` interactively to pick one. The protocol handshake succeeded; there is nothing to run a prompt with.',
+					throw engineFailure(
+						'no-provider',
+						'Namzu has no AI service set up on this computer yet. Add a key or sign in to one in Settings, then send again.',
 					)
 				}
 
 				const target = await deps.resolveSession(sessionId)
 				signal.throwIfAborted()
-				if (closed) throw new Error('The ACP connection closed while its session was starting.')
+				if (closed)
+					throw engineFailure(
+						'connection-closed',
+						'Namzu lost its connection while this conversation was opening. Try again.',
+					)
 				conversationState = await deps.openSessions?.(cwd)
 				const palRuntime = palBinding ? await deps.palRuntime?.() : undefined
 				if (palBinding && !palRuntime) throw new Error('This Pal runtime is unavailable.')
@@ -1073,10 +1136,13 @@ export function createCliAcpRuntime(
 				if (signal.aborted || closed) {
 					await closeCandidate()
 					signal.throwIfAborted()
-					throw new Error('The ACP connection closed while its session was starting.')
+					throw engineFailure(
+						'connection-closed',
+						'Namzu lost its connection while this conversation was opening. Try again.',
+					)
 				}
 				if (!candidate.hasProvider) {
-					const hint = candidate.errorHint ?? 'agent is not ready'
+					const hint = candidate.errorHint ?? 'Namzu isn’t ready yet. Try again in a moment.'
 					await closeCandidate()
 					throw new Error(hint)
 				}
@@ -1090,7 +1156,7 @@ export function createCliAcpRuntime(
 						})),
 					)
 					const failure = candidate.mcpFailed
-						.map((entry) => `tool server "${entry.name}" is not available: ${entry.reason}`)
+						.map((entry) => `The connected tool “${entry.name}” isn’t available: ${entry.reason}`)
 						.join('\n')
 					await closeCandidate()
 					throw new Error(failure)
@@ -1115,6 +1181,7 @@ export function createCliAcpRuntime(
 						? { palId: palBinding.pal.id, readyComputer: palEnvironment?.readyComputer }
 						: {}),
 					provider: primary.id,
+					...(projectCtx.config.skills ? { skillsConfig: projectCtx.config.skills } : {}),
 					...(projectCtx.config.permissionSettings
 						? { permissionSettings: projectCtx.config.permissionSettings }
 						: {}),
@@ -1226,6 +1293,7 @@ export function createCliAcpRuntime(
 					activeRecord = outer
 				}
 				try {
+					contextTracker.observe(sessionId, event)
 					runtimeOptions.observeEvent?.(sessionId, event)
 					titleFeed?.observe(sessionId, event)
 				} catch {
@@ -1408,14 +1476,16 @@ export function createCliAcpRuntime(
 			)
 			if (status.retry?.turnId !== turnId || status.retry.checkpointId !== checkpointId)
 				throw new Error(
-					status.notice ?? 'The paused turn or checkpoint has changed. Refresh this conversation.',
+					status.notice ??
+						'This paused reply has changed. Reopen the conversation to see its latest state.',
 				)
 			const original = record.retrySettings?.turnId === turnId ? record.retrySettings : undefined
 			assertRetryComputer(record, original)
 			const previous = original?.settings
 			if (!previous && options?.permissionMode === undefined)
-				throw new Error(
-					'The original approval settings are unavailable after reconnection. An explicit permission mode is required to retry this retained turn.',
+				throw engineFailure(
+					'permission-mode-needed',
+					'Namzu can’t restore the approval settings for this reply. Choose how much Namzu may do, then try again.',
 				)
 			const settings = validateComposerSendSettings(
 				{ ...previous, ...options },
@@ -1427,8 +1497,13 @@ export function createCliAcpRuntime(
 			const started = facts?.startedTurn(turnId)
 			const pause = facts?.latestPause(turnId)
 			if (!started?.model || !pause?.providerError)
-				throw new Error('The original provider and model cannot be verified for this retry.')
-			if (!record.model) throw new Error('The selected model cannot be verified for this retry.')
+				throw new Error(
+					'Namzu can’t confirm which AI service and model this reply used, so it can’t try it again here.',
+				)
+			if (!record.model)
+				throw new Error(
+					'Namzu can’t confirm which model this reply used, so it can’t try it again here.',
+				)
 			const routedEvent = (event: SessionEvent): void => {
 				const outer = activeRecord
 				activeRecord = record
@@ -1532,7 +1607,9 @@ export function createCliAcpRuntime(
 					authenticated.projectId !== record.conversations.projectId ||
 					authenticated.tenantId !== record.conversations.tenantId))
 		)
-			throw new Error('This conversation belongs to another project or application home.')
+			throw new Error(
+				'This conversation belongs to a different project or to another Namzu data folder.',
+			)
 		const target = await deps.resolveSession(sessionId)
 		const binding = await deps.palBinding?.(trust.cwd, target.sessionId, authenticated)
 		return { record, cwd: trust.cwd, sessionId: target.sessionId, binding }
@@ -1715,7 +1792,9 @@ export function createCliAcpRuntime(
 							authenticatedScope.projectId !== record.conversations.projectId ||
 							authenticatedScope.tenantId !== record.conversations.tenantId))
 				)
-					throw new Error('This conversation belongs to another project or application home.')
+					throw new Error(
+						'This conversation belongs to a different project or to another Namzu data folder.',
+					)
 			}
 			const target = await deps.resolveSession(sessionId)
 			const reading =
@@ -1767,12 +1846,14 @@ export function createCliAcpRuntime(
 					)
 				if ((record?.retrySettings ?? retryCarry.get(sessionId))?.turnId !== status.retry.turnId)
 					return blocked(
-						'The original approval settings are unavailable after reconnection. An explicit permission mode is required to retry this retained turn.',
+						'Namzu can’t restore the approval settings for this reply. Choose how much Namzu may do, then try again.',
 					)
 				const facts = await readConversationFacts(state, target.sessionId)
 				const pause = status.retry?.turnId ? facts?.latestPause(status.retry.turnId) : undefined
 				if (!pause?.providerError)
-					return blocked('The original provider cannot be verified for this retry.')
+					return blocked(
+						'Namzu can’t confirm which AI service this reply used, so it can’t try it again here.',
+					)
 				// A turn already retried stopped again on the model it was retried on.
 				const lastRun = retriedOn.get(status.retry.turnId)
 				return lastRun && !status.retry.original
@@ -2076,6 +2157,8 @@ export function createCliAcpRuntime(
 				if (existing) {
 					if (existing.retrySettings) retryCarry.set(sessionId, existing.retrySettings)
 					records.delete(sessionId)
+					contextReads.delete(sessionId)
+					contextTracker.forget(sessionId)
 					try {
 						await existing.session.close()
 					} finally {
@@ -2127,6 +2210,8 @@ export function createCliAcpRuntime(
 				if (existing) {
 					if (existing.retrySettings) retryCarry.set(sessionId, existing.retrySettings)
 					records.delete(sessionId)
+					contextReads.delete(sessionId)
+					contextTracker.forget(sessionId)
 					try {
 						await existing.session.close()
 					} finally {
@@ -2137,6 +2222,60 @@ export function createCliAcpRuntime(
 			} finally {
 				selecting.delete(sessionId)
 			}
+		},
+		contextUsage: async (sessionId, detail) => {
+			const record = records.get(sessionId)
+			const figures = contextTracker.figures(sessionId)
+			if (!record || !figures?.windowTokens || figures.windowTokens <= 0) return null
+			let reads = contextReads.get(sessionId)
+			if (!reads || reads.version !== figures.version) {
+				reads = {
+					version: figures.version,
+					lists: await discoverContextLists({
+						cwd: record.cwd,
+						skillsConfig: record.skillsConfig,
+					}),
+					files: new Map(),
+				}
+				contextReads.set(sessionId, reads)
+			}
+			const files = reads.files
+			const inventory = record.session.contextInventory?.()
+			const gathering = await gatherContext({
+				context: {
+					tokens: figures.tokens ?? 0,
+					windowTokens: figures.windowTokens,
+					measured: figures.measuredBy === 'provider',
+					...(figures.windowSource ? { windowSource: figures.windowSource } : {}),
+				},
+				autoCompact: true,
+				...(inventory?.systemPrompt ? { systemPrompt: inventory.systemPrompt } : {}),
+				tools: inventory?.tools ?? [],
+				...(inventory?.deferredTools ? { deferredTools: inventory.deferredTools } : {}),
+				// The history is not read here: the kernel's own figure already covers it.
+				messages: [],
+				instructionFiles: record.session.instructionFiles ?? [],
+				mcpInstructions: (record.session.mcpStatus?.().connected ?? []).flatMap((server) =>
+					server.instructions ? [server.instructions] : [],
+				),
+				skills: reads.lists.skills,
+				agents: reads.lists.agents,
+				displayPath: (path) => displayPath(path, record.cwd),
+				readText: async (path) => {
+					const known = files.get(path)
+					if (known !== undefined) return known
+					const text = await readFile(path, 'utf8')
+					files.set(path, text)
+					return text
+				},
+			})
+			return buildContextReport({
+				sessionId,
+				detail,
+				figures,
+				autoCompact: true,
+				gathering,
+			})
 		},
 		jobs: (sessionId) => records.get(sessionId)?.session.jobs?.() ?? [],
 		readJob: (sessionId, jobId) => {

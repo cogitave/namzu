@@ -417,7 +417,7 @@ describe('the CLI ACP runtime', () => {
 				filesystem: undefined,
 				history: resultA.history ?? [],
 			}),
-		).rejects.toThrow('already owns /canonical/a')
+		).rejects.toThrow('already open in another folder')
 		expect(createSession).toHaveBeenCalledTimes(2)
 
 		await runtime.close()
@@ -465,7 +465,7 @@ describe('the CLI ACP runtime', () => {
 			send,
 		})
 
-		await expect(prompt).rejects.toThrow('connection closed')
+		await expect(prompt).rejects.toThrow('lost its connection')
 		expect(close).toHaveBeenCalledTimes(1)
 		expect(send).not.toHaveBeenCalled()
 	})

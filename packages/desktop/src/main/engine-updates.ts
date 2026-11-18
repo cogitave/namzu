@@ -92,9 +92,9 @@ export function updateCommandText(id: EngineUpdateId, method: EngineInstallMetho
 }
 
 const METHOD_NOTES: Record<EngineInstallMethod, string> = {
-	'npm-global': 'Installed with npm',
+	'npm-global': 'Installed from the npm package list',
 	native: 'Installed by its own installer',
-	standalone: 'Standalone install',
+	standalone: 'Installed separately on this computer',
 	bundled:
 		'Bundled with Namzu Desktop, so it updates with the app. A copy you install yourself is listed here instead.',
 	unknown:
@@ -640,10 +640,9 @@ export class EngineUpdates {
 				// Nothing is left to read in a finished, successful update: the tab closes itself.
 				this.deps.finished?.(info.tabId)
 			} else {
-				const where = item.path ? ` (${item.path})` : ''
 				this.failures.set(
 					id,
-					`Updated, but the installed version is still ${installed ?? 'unknown'}. Another copy may be earlier on PATH${where}.`,
+					`Updated, but the old copy still runs first (version ${installed ?? 'unknown'}). Another copy may be installed elsewhere on this computer.`,
 				)
 				this.deps.notice(operation.windowId, {
 					text: `${name} update failed. The terminal tab shows why.`,

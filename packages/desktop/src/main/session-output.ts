@@ -1,5 +1,6 @@
 import { realpath } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path'
+import { previewLine } from '../shared/output-preview-line.js'
 import type { ProjectFileContent } from '../shared/protocol.js'
 import { ProjectPathError } from './project-files.js'
 
@@ -71,4 +72,70 @@ export async function readOutput(
 	const found = await resolveOutput(access, path)
 	if (found.inFolder !== undefined) return reader.read(await realpath(access.root), found.inFolder)
 	return reader.read(dirname(found.absolute), basename(found.absolute))
+}
+
+/** What a card shows about a file besides its name: how big it is, and a line of its start. */
+export interface OutputDetail {
+	path: string
+	/** Bytes; absent when the file is gone. */
+	size?: number
+	/** The file is no longer where it was. */
+	missing?: true
+	/** The first heading, sentence or line of code. */
+	preview?: string
+}
+
+const MAX_DETAIL_PATHS = 40
+const PREVIEW_BYTES = 4096
+
+/**
+ * Size and a one-line start for each path, for the cards. Every path goes through the same check
+ * as a read, so a path the conversation did not write is answered as missing, never described.
+ */
+export async function describeOutputs(
+	access: OutputAccess,
+	paths: unknown,
+	deps: {
+		stat(path: string): Promise<{ size: number } | undefined>
+		head(path: string, bytes: number): Promise<string>
+	},
+): Promise<OutputDetail[]> {
+	if (!Array.isArray(paths)) throw outside()
+	const result: OutputDetail[] = []
+	for (const path of paths.slice(0, MAX_DETAIL_PATHS)) {
+		if (typeof path !== 'string') continue
+		try {
+			const found = await resolveOutput(access, path)
+			const info = await deps.stat(found.absolute)
+			if (!info) {
+				result.push({ path, missing: true })
+				continue
+			}
+			const line = previewLine(path, await deps.head(found.absolute, PREVIEW_BYTES).catch(() => ''))
+			result.push({ path, size: info.size, ...(line ? { preview: line } : {}) })
+		} catch {
+			result.push({ path, missing: true })
+		}
+	}
+	return result
+}
+
+/**
+ * Copies a file the conversation made to a place the person chooses in the system's own save
+ * dialog. The source is resolved by the same check as a read; the destination is whatever the
+ * dialog returned, so the window never names a path to write.
+ */
+export async function saveOutputCopy(
+	access: OutputAccess,
+	path: unknown,
+	deps: {
+		choose(defaultName: string): Promise<string | undefined>
+		copy(from: string, to: string): Promise<void>
+	},
+): Promise<{ saved: boolean }> {
+	const found = await resolveOutput(access, path)
+	const target = await deps.choose(basename(found.absolute))
+	if (!target) return { saved: false }
+	await deps.copy(found.absolute, target)
+	return { saved: true }
 }

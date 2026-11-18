@@ -1,0 +1,261 @@
+/*
+ * The context panel: where the conversation's window goes. Quiet and dense. The body has no frame
+ * and fills the width it is given; the popover and the details column each put it where they need it.
+ * Sizes follow the reference's measured panel: a 4 px bar, 24 px rows, 10 px squares, two right columns.
+ */
+:root {
+	--context-c1: #3b82f6;
+	--context-c2: #14b8a6;
+	--context-c3: #8b5cf6;
+	--context-c4: #f59e0b;
+	--context-c5: #f43f5e;
+	--context-c6: #84cc16;
+	--context-c7: #64748b;
+	--context-c8: #0ea5e9;
+}
+.dark {
+	--context-c1: #6b9cf0;
+	--context-c2: #3fc9b8;
+	--context-c3: #a48af0;
+	--context-c4: #e8ad45;
+	--context-c5: #ef6b82;
+	--context-c6: #9bc84a;
+	--context-c7: #8493a8;
+	--context-c8: #4cb4e6;
+}
+
+.context-panel-popup {
+	width: 340px;
+}
+/* The popover's frame: the width, the height it scrolls at and the padding. */
+.context-panel-frame {
+	box-sizing: border-box;
+	width: 340px;
+	max-width: 100%;
+	max-height: 70vh;
+	overflow-y: auto;
+	padding: 14px 16px 12px;
+}
+.context-panel {
+	box-sizing: border-box;
+	width: 100%;
+	min-width: 0;
+	color: var(--popover-foreground, var(--foreground));
+	font-size: var(--text-small);
+}
+.context-panel-header,
+.context-panel-header-static {
+	display: flex;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 6px;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	font-size: var(--text-small);
+	font-weight: var(--weight-strong);
+	line-height: var(--leading-small);
+	cursor: pointer;
+}
+.context-panel-header-static {
+	cursor: default;
+}
+.context-panel-header svg {
+	width: 12px;
+	height: 12px;
+	color: var(--muted-foreground);
+}
+.context-panel-header:focus-visible,
+.context-panel-group:focus-visible,
+.context-panel-row-open:focus-visible,
+.context-panel-row-server:focus-visible,
+.context-panel-more:focus-visible {
+	outline: none;
+	box-shadow: var(--focus-ring);
+	border-radius: var(--radius-control);
+}
+/* One line: the share used on the left, the figures on the right. */
+.context-panel-figures {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 8px;
+	margin-top: 8px;
+}
+.context-panel-percent {
+	font-size: var(--text-interface);
+	font-weight: var(--weight-control);
+	line-height: var(--leading-interface);
+}
+.context-panel[data-tone="high"] .context-panel-percent {
+	color: var(--warning);
+}
+.context-panel[data-tone="full"] .context-panel-percent {
+	color: var(--error);
+}
+.context-panel-total {
+	color: var(--muted-foreground);
+	font-size: var(--text-small);
+	font-variant-numeric: tabular-nums;
+}
+/* A "~" says Namzu counted the total itself; the dotted line says there is a hint. */
+.context-panel-estimate {
+	text-decoration: underline dotted;
+	text-underline-offset: 3px;
+	cursor: help;
+}
+/* Drawn only from 80% used, when it is news. */
+.context-panel-sentence {
+	margin: 4px 0 0;
+	color: var(--warning);
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+}
+.context-panel[data-tone="full"] .context-panel-sentence {
+	color: var(--error);
+}
+.context-panel-bar {
+	display: flex;
+	gap: 1px;
+	height: 4px;
+	margin: 8px 0 11px;
+	overflow: hidden;
+	border-radius: 2px;
+	background: var(--accent);
+}
+.context-panel-bar i {
+	display: block;
+	min-width: 2px;
+	flex: none;
+}
+/* At 4 px a hatch is noise; the reserve is a flat, quiet segment. */
+.context-panel-bar i.context-panel-reserve {
+	background: color-mix(in srgb, var(--muted-foreground) 40%, transparent);
+}
+.context-panel-row {
+	display: grid;
+	grid-template-columns: 10px minmax(0, 1fr) auto 40px;
+	align-items: center;
+	column-gap: 14px;
+	width: 100%;
+	height: 24px;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	font-size: var(--text-small);
+	font-variant-numeric: tabular-nums;
+	text-align: left;
+}
+/* A group starts after one blank row, with no label: its first row carries the hover text. */
+.context-panel-row[data-group-start] {
+	margin-top: 24px;
+}
+.context-panel-row[data-kind="deferred"][data-group-start] {
+	margin-top: 30px;
+}
+.context-panel-row-open {
+	cursor: pointer;
+}
+.context-panel-row-open .context-panel-name {
+	text-decoration: underline;
+	text-decoration-color: var(--input);
+	text-underline-offset: 3px;
+}
+.context-panel-row-server {
+	grid-template-columns: minmax(0, 1fr) auto auto;
+	cursor: pointer;
+}
+.context-panel-square {
+	width: 10px;
+	height: 10px;
+	border-radius: 2px;
+}
+/* Reserve and deferred rows share one grey; free space is the lighter one. */
+.context-panel-row[data-kind="deferred"] .context-panel-square,
+.context-panel-row[data-kind="reserve"] .context-panel-square {
+	background: color-mix(in srgb, var(--muted-foreground) 40%, transparent);
+}
+.context-panel-row[data-kind="free"] .context-panel-square {
+	background: var(--accent);
+	border: 1px solid var(--border);
+}
+.context-panel-name,
+.context-panel-size {
+	color: var(--muted-foreground);
+}
+.context-panel-name {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.context-panel-size,
+.context-panel-share {
+	text-align: right;
+}
+.context-panel-share {
+	color: var(--foreground);
+	font-variant-numeric: tabular-nums;
+}
+.context-panel-note {
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+}
+.context-panel-small {
+	margin: 4px 0 0;
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+}
+.context-panel-sublist {
+	margin: 2px 0 4px 24px;
+	padding-left: 14px;
+	border-left: 1px solid var(--border);
+}
+.context-panel-subrow {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 8px;
+	height: 22px;
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+}
+.context-panel-more {
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--muted-foreground);
+	font: inherit;
+	font-size: var(--text-caption);
+	cursor: pointer;
+}
+/* The folded server row: a chevron, the label, and the count at the right. */
+.context-panel-group {
+	display: grid;
+	grid-template-columns: 10px minmax(0, 1fr) auto;
+	align-items: center;
+	column-gap: 14px;
+	width: 100%;
+	height: 24px;
+	margin-top: 6px;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--muted-foreground);
+	font: inherit;
+	font-size: var(--text-small);
+	text-align: left;
+	cursor: pointer;
+}
+.context-panel-group svg {
+	width: 10px;
+	height: 10px;
+}
+.context-panel-group-count {
+	font-variant-numeric: tabular-nums;
+}

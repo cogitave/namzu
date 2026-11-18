@@ -23,7 +23,7 @@ export interface EnvironmentReminderInput {
 }
 
 const FIRST =
-	'These are facts about right now. Prefer them over any date or branch you would otherwise assume.'
+	'These are facts about right now. Prefer them over any date or branch you would otherwise assume. Do not narrate them unless asked or relevant.'
 
 const CHANGED =
 	'The date or the working environment changed since you were last told. This needs no announcement to the user; use it where it matters.'

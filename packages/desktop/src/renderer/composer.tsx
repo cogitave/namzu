@@ -101,6 +101,7 @@ import { Textarea } from './ui/textarea.js'
 import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
 import './composer.css'
 import type { ThreadUsage } from '../shared/projection.js'
+import type { ContextPanelSource } from './context-panel.js'
 import { ContextReadout, ContextRing } from './context-ring-view.js'
 import { UsageIndicator, type UsageLimitsControl, indicatorState } from './usage-limits-popover.js'
 
@@ -113,7 +114,7 @@ function composerPermissionMode(mode: ReviewMode | undefined): ComposerPermissio
 }
 
 const PROVIDER_EMPTY_HELP =
-	'Namzu needs a model provider to answer. Paste an API key, or sign in with Claude Code or Codex and Namzu will find that sign-in.'
+	'Namzu needs an AI service to reply. Add a key for one, or sign in to Claude Code or Codex and Namzu will use that.'
 
 /** The review state in plain words, for the pull request chip's tooltip and name. */
 const REVIEW_WORDS: Record<ProjectPrView['review'], string> = {
@@ -159,6 +160,7 @@ export function Composer({
 	shells,
 	usage,
 	limits,
+	contextPanel,
 	pullRequest,
 	onSend,
 	onQueue,
@@ -269,6 +271,8 @@ export function Composer({
 	usage?: ThreadUsage
 	/** What the account behind the provider says about its limits; the indicator opens a popover with it. */
 	limits?: UsageLimitsControl
+	/** Lets the ring open the context panel; absent when the engine cannot say where the window goes. */
+	contextPanel?: ContextPanelSource
 	/** The branch's pull request; absent when there is none to show. */
 	pullRequest?: { pr: ProjectPrView; onOpen: () => void }
 	onSend: () => void
@@ -1209,9 +1213,17 @@ export function Composer({
 										{compact &&
 											!waiting &&
 											(limits ? (
-												<UsageIndicator usage={usage} control={limits} variant="ring" />
+												<UsageIndicator
+													usage={usage}
+													control={limits}
+													variant="ring"
+													{...(contextPanel ? { contextPanel } : {})}
+												/>
 											) : (
-												<ContextRing usage={usage} />
+												<ContextRing
+													usage={usage}
+													{...(contextPanel ? { panel: contextPanel } : {})}
+												/>
 											))}
 										{running &&
 											liveInputSupported &&
@@ -1341,12 +1353,12 @@ export function Composer({
 													{cliMode
 														? `Open ${cliLabel} in a terminal · Enter`
 														: noProvider
-															? 'Connect a provider to send'
+															? 'Connect an AI service to send'
 															: sending
 																? 'Sending'
 																: running
 																	? liveInputSupported && attachments.length === 0
-																		? 'Send text to this running reply with its current model and review settings'
+																		? 'Add this to the reply in progress. It keeps the current model and approvals.'
 																		: 'Queue for the next reply'
 																	: 'Send message · Enter'}
 												</TooltipPopup>
@@ -1419,9 +1431,17 @@ export function Composer({
 								<div className="composer-row-end">
 									<div className="composer-selected-model">{modelControl}</div>
 									{limits ? (
-										<UsageIndicator usage={usage} control={limits} variant="readout" />
+										<UsageIndicator
+											usage={usage}
+											control={limits}
+											variant="readout"
+											{...(contextPanel ? { contextPanel } : {})}
+										/>
 									) : (
-										<ContextReadout usage={usage} />
+										<ContextReadout
+											usage={usage}
+											{...(contextPanel ? { panel: contextPanel } : {})}
+										/>
 									)}
 								</div>
 							</div>
@@ -1434,7 +1454,7 @@ export function Composer({
 					)}
 					{noProvider && (
 						<section className="provider-empty" aria-labelledby="provider-empty-title">
-							<h2 id="provider-empty-title">Add an API key or sign in to start</h2>
+							<h2 id="provider-empty-title">Add a key or sign in to start</h2>
 							<p>{PROVIDER_EMPTY_HELP}</p>
 							{onOpenModelSettings ? (
 								<Button id="provider-empty-connect" size="sm" onClick={onOpenModelSettings}>

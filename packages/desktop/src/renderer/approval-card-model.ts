@@ -72,9 +72,48 @@ export function baseName(path: string): string {
 	return trimmed.split(/[\\/]/).pop() || trimmed || path
 }
 
-/** "web_fetch" reads as "web fetch" in a sentence. */
+/** What each tool does, as a verb phrase that completes "Waiting to ...". */
+const TOOL_VERBS: Readonly<Record<string, string>> = {
+	web_fetch: 'read a web page',
+	web_search: 'search the web',
+	read: 'read a file',
+	glob: 'find files',
+	grep: 'search the files',
+	ls: 'list a folder',
+	view_image: 'look at an image',
+	save_memory: 'save a note',
+	update_memory: 'change a note',
+	delete_memory: 'delete a note',
+	read_memory: 'look through notes',
+	search_memory: 'look through notes',
+	search_docs: 'search the documentation',
+	search_tools: 'look for a tool',
+	create_task: 'add a task',
+	task_create: 'add a task',
+	update_task: 'change a task',
+	task_update: 'change a task',
+	approve_plan: 'approve the plan',
+	consult_advisor: 'ask an advisor',
+	update_goal: 'change the goal',
+	browser: 'use the browser',
+}
+
+/**
+ * The action a tool stands for, in words a person uses: "read a web page", not "web fetch". A tool
+ * from a connected tool server ("mcp__name__tool") is "use a connected tool"; any other name
+ * reads as its own words.
+ */
 function plainName(name: string): string {
-	return name.replace(/[_-]+/g, ' ').trim() || 'this action'
+	const key = name.trim().toLowerCase()
+	const known = TOOL_VERBS[key]
+	if (known) return known
+	if (/^mcp[_-]/.test(key)) return 'use a connected tool'
+	return name.replace(/[_-]+/g, ' ').trim() || 'do this'
+}
+
+/** An argument's name as words: "max_results" reads as "max results". */
+function plainKey(name: string): string {
+	return name.replace(/[_-]+/g, ' ').trim() || 'value'
 }
 
 function sentenceCase(value: string): string {
@@ -93,7 +132,7 @@ export function summarizeInput(input: unknown): { label: string; value: string }
 	return Object.entries(input)
 		.slice(0, 8)
 		.map(([key, value]) => ({
-			label: sentenceCase(plainName(key.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase())),
+			label: sentenceCase(plainKey(key.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase())),
 			value:
 				typeof value === 'string'
 					? clip(value)
@@ -323,7 +362,7 @@ export function buildApprovalCard(
 
 	return {
 		kind: 'other',
-		title: `Allow ${plainName(first.name)}?`,
+		title: `Allow Namzu to ${plainName(first.name)}?`,
 		previewMissing: false,
 		entries: summarizeInput(first.input),
 		destructive,
@@ -585,7 +624,7 @@ export function approvalFlags(
 	else if (model.kind === 'edit' && !model.unchanged && (model.overwrites || model.write))
 		flags.push(approvalWarning(model))
 	else if (model.kind === 'command' && model.command !== undefined) {
-		if (elevatedCommand(model.command)) flags.push('Runs with elevated rights.')
+		if (elevatedCommand(model.command)) flags.push('Runs as administrator.')
 		if (riskyCommand(model.command)) flags.push('Looks like it deletes or overwrites files.')
 		else if (model.destructive) flags.push(approvalWarning(model))
 	} else if (model.kind === 'other' && model.destructive) flags.push(approvalWarning(model))
@@ -594,8 +633,8 @@ export function approvalFlags(
 	for (const call of permission.calls) {
 		const command = record(call.input) ? call.input.command : undefined
 		if (typeof command !== 'string' || command === model.command) continue
-		if (elevatedCommand(command) && !flags.includes('Runs with elevated rights.'))
-			flags.push('Runs with elevated rights.')
+		if (elevatedCommand(command) && !flags.includes('Runs as administrator.'))
+			flags.push('Runs as administrator.')
 		if (
 			riskyCommand(command) &&
 			!flags.includes('Looks like it deletes or overwrites files.') &&
@@ -650,7 +689,7 @@ export function approvalDetails(
 		const input = call.input
 		if (record(input)) {
 			for (const [key, value] of Object.entries(input).slice(0, 12)) {
-				const label = sentenceCase(plainName(key.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase()))
+				const label = sentenceCase(plainKey(key.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase()))
 				if (key === 'palId' && typeof value === 'string') {
 					const name = palNames?.get(value)
 					if (name) entries.push({ label: 'To', value: name })

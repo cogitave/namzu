@@ -169,12 +169,16 @@ describe('the session skill catalog', () => {
 			home,
 			systemDir: systemSkillsDir(),
 		})
+		// Every entry pays for the skill's own path, and a checkout sits under a longer one than an
+		// install, so this reads the shipped set on a window a little over 32k;
+		// builtin-skills.test.ts holds the 32k fit with an install-length path.
 		const withTools = await real.forTurn({
 			toolNames: ['browser', 'schedule'],
-			contextWindowTokens: 32_768,
+			contextWindowTokens: 40_000,
 		})
 		expect(withTools.manifest?.map((s) => s.metadata.name)).toEqual([
 			'browser-automation',
+			'document',
 			'review-changes',
 			'schedule-task',
 			'skill-creator',
@@ -186,9 +190,10 @@ describe('the session skill catalog', () => {
 		// Without the browser and schedule tools those two are hidden; the rest stay.
 		const bare = await real.forTurn({
 			toolNames: [],
-			contextWindowTokens: 32_768,
+			contextWindowTokens: 40_000,
 		})
 		expect(bare.manifest?.map((s) => s.metadata.name)).toEqual([
+			'document',
 			'review-changes',
 			'skill-creator',
 			'verify-change',

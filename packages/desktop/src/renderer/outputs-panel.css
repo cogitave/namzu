@@ -11,9 +11,9 @@
 }
 .outputs-heading {
 	margin: 0;
-	font-size: var(--text-reading);
-	line-height: var(--leading-reading);
-	font-weight: 600;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	font-weight: var(--weight-control);
 	color: var(--foreground);
 }
 .outputs-empty {
@@ -32,6 +32,39 @@
 	overflow-y: auto;
 	min-height: 0;
 }
+.output-row-item {
+	position: relative;
+	display: flex;
+	align-items: center;
+}
+.output-row-save {
+	appearance: none;
+	position: absolute;
+	right: 4px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 1.75rem;
+	height: 1.75rem;
+	border: 0;
+	border-radius: var(--radius-chip);
+	background: var(--card);
+	color: var(--muted-foreground);
+	opacity: 0;
+	cursor: pointer;
+}
+.output-row-save svg {
+	width: 1rem;
+	height: 1rem;
+}
+.output-row-item:hover .output-row-save,
+.output-row-item:focus-within .output-row-save {
+	opacity: 1;
+}
+.output-row-save:hover,
+.output-row-save:focus-visible {
+	color: var(--foreground);
+}
 .output-row {
 	appearance: none;
 	display: flex;
@@ -39,16 +72,23 @@
 	gap: 8px;
 	width: 100%;
 	min-width: 0;
-	padding: 6px 8px;
+	/* A 30 px row and the list's 2 px gap make the 32 px pitch the reference measures. */
+	padding: 5px 8px;
 	border: 0;
 	border-radius: var(--radius-md, 8px);
 	background: none;
 	color: var(--foreground);
 	font: inherit;
-	font-size: var(--text-reading);
-	line-height: var(--leading-reading);
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
 	text-align: left;
 	cursor: pointer;
+}
+.output-row > svg {
+	flex: none;
+	width: 1rem;
+	height: 1rem;
+	color: var(--muted-foreground);
 }
 .output-row:hover,
 .output-row:focus-visible {
@@ -69,29 +109,80 @@
 	text-overflow: ellipsis;
 	white-space: nowrap;
 	color: var(--muted-foreground);
-	font-size: var(--text-small);
-	line-height: var(--leading-small);
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+}
+/* A file open in the pane has no frame of its own: the header is one 43 px row, then the page. */
+.outputs-panel[data-outputs-viewing] {
+	padding: 0;
+	gap: 0;
 }
 .outputs-preview-bar {
 	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+	height: 43px;
+	padding: 0 16px;
+	border-bottom: 1px solid var(--border);
+}
+.outputs-title-button {
+	appearance: none;
+	display: inline-flex;
 	align-items: center;
 	gap: 6px;
 	min-width: 0;
-	flex-wrap: wrap;
+	max-width: 100%;
+	height: 28px;
+	padding: 0 6px;
+	margin-inline-start: -6px;
+	border: 0;
+	border-radius: var(--radius-control);
+	background: none;
+	color: var(--foreground);
+	font: inherit;
+	cursor: pointer;
+}
+.outputs-title-button:hover,
+.outputs-title-button[data-popup-open],
+.outputs-title-button:focus-visible {
+	background: var(--accent);
+	outline: none;
+}
+.outputs-title-button:focus-visible {
+	box-shadow: var(--focus-ring);
+}
+.outputs-title-button svg {
+	width: 12px;
+	height: 12px;
+	flex: none;
+	color: var(--muted-foreground);
 }
 .outputs-preview-name {
-	flex: 1 1 8ch;
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	font-weight: 600;
+	font-size: var(--text-interface);
+	font-weight: var(--weight-text);
+	line-height: var(--leading-interface);
 }
 .outputs-preview-actions {
 	display: flex;
 	align-items: center;
 	gap: 2px;
-	flex-wrap: wrap;
+	margin-inline-start: auto;
+}
+/* The path is the menu's first line: muted, and not something to press. */
+.outputs-menu-path {
+	max-width: 22rem;
+	padding: 6px var(--menu-text-inset, 8px);
+	overflow-wrap: anywhere;
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	user-select: text;
 }
 .outputs-preview-body {
 	flex: 1 1 auto;
@@ -110,27 +201,7 @@
 	border-radius: var(--radius-md, 8px);
 	background: #fff;
 }
-
-/* The address line: the file's path, read-only and selectable, as a browser shows one. */
-.outputs-address {
-	display: flex;
-	min-width: 0;
-}
-.outputs-address-input {
-	flex: 1 1 auto;
-	min-width: 0;
-	padding: 4px 8px;
-	border: 1px solid var(--border);
-	border-radius: var(--radius-md, 8px);
-	background: var(--muted, transparent);
-	color: var(--muted-foreground);
-	font: inherit;
-	font-size: var(--text-small);
-	line-height: var(--leading-small);
-	text-overflow: ellipsis;
-}
-.outputs-address-input:focus {
-	outline: none;
-	border-color: var(--ring, var(--border));
-	color: var(--foreground);
+.outputs-panel[data-outputs-viewing] .output-frame {
+	border: 0;
+	border-radius: 0;
 }

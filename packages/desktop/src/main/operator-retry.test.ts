@@ -457,7 +457,7 @@ it('keeps an older connection usable without inventing an unsupported retry rout
 	await expect(owner.retryTurn(session.id, 'original-turn', 'original-checkpoint')).rejects.toThrow(
 		'Update Namzu',
 	)
-	expect(() => owner.send(session.id, 'New prompt')).toThrow('paused turn')
+	expect(() => owner.send(session.id, 'New prompt')).toThrow('reply is paused')
 	expect(requests().filter((request) => request.method.startsWith('namzu/sessions/retry'))).toEqual(
 		[],
 	)

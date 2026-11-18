@@ -226,7 +226,7 @@ it('classifies actual stop metadata without promising unsupported recovery or bl
 	expect(terminalNotice('cost_unmeasurable')).toContain('could not be checked')
 	expect(terminalNotice('answer_rejected')).toContain('response')
 	expect(terminalNotice('plan_rejected')).toContain('plan')
-	expect(terminalNotice('max_iterations')).toContain('step limit')
+	expect(terminalNotice('max_iterations')).toContain('steps allowed')
 })
 
 it('does not infer command execution from terminal-shaped generic output', () => {

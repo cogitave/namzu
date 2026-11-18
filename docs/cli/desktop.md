@@ -902,7 +902,9 @@ A restored tab whose project folder is gone shows that project's own page (its n
 
 ## Errors that reach the screen
 
-Every error a person reads goes through one function, `plainError(error, context)` in `renderer/plain-error.ts`: Electron's "Error invoking remote method '…':" prefix, class names such as `TypeError:`, stack lines and operating-system codes never appear. A sentence the product wrote for a person passes through; a known failure becomes one plain sentence with a next step ("That file or folder no longer exists. Choose another one."); anything else becomes "Couldn’t *the action that failed*. Try again." and the cleaned original is reachable only behind **Details** in the banner. The banner (`ChatErrorBanner`) applies the same cleaning to any message it is handed, so a raw error cannot reach it by mistake. Developer sentences thrown in the main process (the runtime connection, terminals, voice installation and cleanup) are written for a person at their source.
+Every error a person reads goes through one function, `plainError(error, context)` in `shared/plain-error.ts` (`renderer/plain-error.ts` re-exports it, so the main process uses the same mapper): Electron's "Error invoking remote method '…':" prefix, class names such as `TypeError:`, stack lines and operating-system codes never appear. A sentence the product wrote for a person passes through; a known failure becomes one plain sentence with a next step ("That file or folder no longer exists. Choose another one."); anything else becomes "Couldn’t *the action that failed*. Try again." and the cleaned original is reachable only behind **Details** in the banner. The banner (`ChatErrorBanner`) applies the same cleaning to any message it is handed, so a raw error cannot reach it by mistake. Developer sentences thrown in the main process (the runtime connection, terminals, voice installation and cleanup) are written for a person at their source.
+
+**Engine failures carry a code.** The engine words its own refusals in plain sentences and attaches a stable code as the JSON-RPC error's `data.code` (`no-provider`, `connection-closed`, `folder-not-trusted`, `conversation-in-other-folder`, `conversation-opening`, `message-not-sent`, `too-many-messages`, `permission-mode-needed`). `RuntimeClient` keeps it on the error (`engineCode`), and `engineFailureText` words the failure by the code first; an older engine that sends only its old sentence is matched by that sentence and reads the same. A code this Desktop does not know falls back to the engine's sentence. The native boxes for a failed start or stop (`main/native-failure.ts`) say "Namzu couldn’t start" or "Namzu couldn’t close cleanly" with a sentence first and the original under "Details:", and the support-folder box says "Couldn’t open the support folder". A static test (`shared/plain-words.test.ts`) fails when a sentence in the files that own on-screen wording carries a word a person should not read (session, ACP, protocol, LLM, credential, exit code, token, MCP, admitted, mailbox).
 
 Picking a folder that is gone says "That folder no longer exists. Choose another folder." and opens no tab; a folder Namzu cannot read says so with the next step.
 
@@ -2455,7 +2457,7 @@ The stacks are tokens in `theme.css`. `--font-sans-app` is `"Geist"` followed by
 (`-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif`), and `--font-mono-app` is
 `"Geist Mono"` followed by `--font-mono-system` (`ui-monospace, "SF Mono", SFMono-Regular, Menlo,
 Consolas, "Liberation Mono", monospace`). `--font-sans` and `--font-mono` point at the first two, so a
-machine where a file cannot load falls back to its own fonts.
+machine where a file cannot load falls back to its own fonts. `--font-document` is the stack for the headings of a document page (`Georgia, "Iowan Old Style", "Palatino Linotype", "Times New Roman", serif`): a serif the machine already has, with no file shipped for it, used nowhere else.
 
 **Settings > Appearance > Interface font** chooses *Namzu's own* (the default) or *Your device's*. With
 the device's, the root carries `data-interface-font="system"`, `--font-sans` and `--font-mono` point at
@@ -3120,16 +3122,16 @@ else: never from the model's words and never from a guess. It is the record's ow
 
 | Verdict | What the row shows |
 |---|---|
-| `checked` | the passing check, "Checked: pnpm test passed, nothing changed since", with a green mark |
-| `failing` | the failing check ("pnpm test failed"), in bold red, with a red mark and no box; this is drawn even when no file changed ("No files changed" is then the record's lead and the row shows no counts) |
-| `stale`, `inconclusive` | the record's sentence ("pnpm test passed, then files changed again", "Ran npm test | tail, but the pipe hides whether it passed"), amber |
+| `checked` | "Tests passed" ("Checks passed" when the command is not a test run), with a green mark; the record's own sentence and the command are in the tooltip |
+| `failing` | "Tests failed" ("Checks failed", or "Some checks failed" when several did), in bold red, with a red mark and no box; this is drawn even when no file changed ("No files changed" is then the record's lead and the row shows no counts) |
+| `stale`, `inconclusive` | "Tests passed, then files changed again", "Couldn’t tell if the checks passed", "Checks didn’t finish" or "Checks passed, but files may have changed after", amber; the record's sentence is in the tooltip |
 | `unchecked` | the counts and no check segment at all; it says nothing about checking |
 | `unknown` | no file counted: nothing about changes, and the old quiet foot, which is the record's own sentence. Files counted from the edit tools: only the counts, no check segment, so the counts read as the whole change. The caveat stays reachable and is never dropped: the counts' tooltip, the row's accessible name and **Copy summary** say "These are the edits made with the edit tools." followed by the record's own sentence ("A command ran that may have changed files · cannot tell here …") |
 | `unchanged` | nothing about changes; a turn with no changed files keeps the old quiet foot |
 
 The chevron sits directly after the text. The row draws nothing round it at rest: on hover and on keyboard focus the whole row takes a soft fill with 8 px corners, and the "..." at its end is drawn only while the pointer is over the row, focus is inside it or its menu is open (always drawn where there is no hover, `@media (hover: none)`). **View changes** and **Undo** are also named at the end of the row, drawn together with the "..." (on hover, in focus, always where there is no hover). View changes does what the row does. Undo shows only while the reply can still be undone and runs the menu's own Undo, so it opens the same confirmation (`TurnResultLine`, `turn-result-line.tsx`). The whole row is one button that opens the changes pane (it never narrows the pane to the reply) and scrolls to the file of that
 reply that changed most; its accessible name reads the same facts ("Done in 3s, 4 files changed, 35
-added, 3 removed, Checked: pnpm test passed. Open changes"). A "..." at its end holds what the old card
+added, 3 removed, Tests passed. Open changes"). A "..." at its end holds what the old card
 offered: **Undo** (see [Undoing a reply](#undoing-a-reply)), **Open file** (one item per changed file,
 largest change first, the order the pane uses to choose what to open, at most eight, "Open file" when
 there is one), and **Copy summary** (the row's words and the changed paths). A turn that is undone
@@ -3432,10 +3434,48 @@ and focus in four viewport and motion settings, with the [source-bound receipt](
 
 Desktop receives the host's [usage and compaction notices](#usage-and-compaction-notices) (`shared/usage-protocol.ts` reads them; anything that does not read, or that names a conversation this connection does not own or a Pal conversation, is dropped) and keeps the last picture per conversation in the thread (`ThreadState.usage`, `ThreadState.compaction`). Usage outlives a closed tab, so the ring is right when the conversation is opened again.
 
-- **Context ring.** A small ring at the right end of the row under the composer box (`renderer/context-ring-view.tsx`, model in `context-ring.ts`) fills with the share of the window the conversation holds. It is a focusable control named "Context 6% full. 12.4k of 200k tokens." and its tooltip says the same in words, adds "estimated" when the host did not get a count from the provider, adds "Cost so far: $0.42" only when the engine priced every token, and from 75% (amber) and 90% (red) adds that older messages may be summarised to make room. It is **not drawn at all** until the engine has reported both a context size and a window (a custom model with no known window, or an engine that reports nothing); there is no placeholder. A figure the engine stops reporting disappears at the next notice.
-- **Compacting line.** From the moment a pass starts the live status line reads "Compacting the conversation…" (shimmering, still under reduced motion), and when it finishes it reads "Conversation compacted · 150k to 40k tokens" without a shimmer until the turn goes on, when the next streamed update replaces it. A pass that changed nothing, the end of the turn and the next prompt clear it at once. A decision wait still takes the line first.
+- **Context ring.** A small ring at the right end of the row under the composer box (`renderer/context-ring-view.tsx`, model in `context-ring.ts`) fills with the share of the window the conversation holds. It is a focusable control named "6% of this conversation’s memory used, 12.4k of 200k." and its tooltip says the same in words, adds "about" before the figures when the host did not get a count from the provider, adds "Cost so far: $0.42" only when the engine priced every token, and from 75% (amber) and 90% (red) adds that older messages may be summarised to make room. It is **not drawn at all** until the engine has reported both a context size and a window (a custom model with no known window, or an engine that reports nothing); there is no placeholder. A figure the engine stops reporting disappears at the next notice.
+- **Compacting line.** From the moment a pass starts the live status line reads "Shortening the conversation…" (shimmering, still under reduced motion), and when it finishes it reads "Conversation shortened · from 150k to 40k" without a shimmer until the turn goes on, when the next streamed update replaces it. A pass that changed nothing, the end of the turn and the next prompt clear it at once. A decision wait still takes the line first.
+
+- **Context panel.** Pressing the ring (or the readout in the conversation bar) opens [the panel](#context-panel). An engine that does not offer `namzu/session/context` keeps the tooltip alone.
 
 The ring and the line use the design tokens (`--radius-pill`, `--dur-quick`, `--dur-base`, `--focus-ring`, `--warning`, `--error`) and no animation under `prefers-reduced-motion`.
+
+### Context panel
+
+The panel's body (`ContextInline`) has no frame of its own and fills the width it is given. The popover above the composer wraps it in a frame (340 px wide, at most 70% of the window high, scrolling inside); the same body is also drawn inline in a panel that has room, with no frame (`renderer/context-panel.tsx`, `context-panel-model.ts`, `context-panel-reader.ts`). The popover opens from the ring and closes with Escape or a click outside. Top to bottom, at the measured sizes:
+
+- A "Context" header (13/18, semibold) with its chevron right beside the word; collapsing hides everything under the bar. The note about how the numbers were counted ("The total comes from your AI service. The rows are Namzu’s own estimates (about 4 characters to a token)...") is the header's hover text, not a line on screen.
+- One line: "8% used" at 14/20 on the left and "77.7k / 1M" at 13 in muted tabular numbers on the right. When Namzu counted the total itself the figure starts with a "~" (dotted underline, hover text "Estimated by Namzu") and the percent reads "about"; there is no tag.
+- The sentence ("About 889.3k left before Namzu shortens this conversation.") is drawn only from 80% used, in the warning colour (the error colour from 90%), and while the shortening runs. Below 80% it is the bar's hover text. This is `showSentence` in the model.
+- A 4 px bar with rounded ends and 1 px between segments: one segment per used row in a fixed colour, the kept-free reserve a flat grey (the hatch survives nowhere at this height), the rest the empty track; a segment under 2 px keeps 2 px; each has a hover title. 11 px under it, the rows.
+- Rows are 24 px apart: a 10 px colour square, a plain name (14 px after the square), a size and a share in two right-hand columns (the share's column is 40 px wide, brighter than the label and the size; 13 px, tabular numbers), biggest first: Messages, Built-in tools, Tool server tools, Namzu’s instructions, Skills, Project notes, Custom agents, Tool server notes. Skills, custom agents and project notes open in place to their entries (8, then "Show N more").
+- The groups under the used rows have no label and no paragraph. The tools that load only when needed come after a gap of 30 px, each name with "(deferred)" after it and a dash for its share; "Kept free for the next answer" and "Free space" (the room Namzu keeps so it can answer and shorten, drawn whenever automatic shortening is on) come after a gap of 24 px. Reserve and deferred squares are one grey, free space the lighter one. What each group is sits in the hover text of its first row ("Not in the conversation yet. Namzu loads them when it needs them.").
+- A folded "Tool servers" row (chevron, label, the tool count at the right) opens to each server (tool count and size), each openable to its tools.
+
+"Token" appears only in hover text, never in a label. Colours are eight categorical hues (`--context-c1` to `--context-c8`), lighter in dark mode; colour is never the only cue, since every row carries its name and size.
+
+The panel asks, it is not pushed. The renderer's reader (`ContextReader`) sends `contextUsage(conversationId, 'full')` when the panel opens and `'summary'` after each usage notice while it stays open, at most once every 400 ms; the newest answer wins, an answer that fails keeps what is on screen, and the lists from the last full answer are kept while a summary refreshes the figures. A Pal conversation, an external engine, an older engine and a conversation the engine has not counted yet get no panel data: the panel then says "Namzu hasn’t counted this conversation yet. Send a message and look again." and repeats the ring's line.
+
+The request and answer are `namzu/session/context` (`shared/context-protocol.ts` reads the answer; the host side is `packages/cli/src/commands/desktop-context.ts`):
+
+| Request field | Meaning |
+| --- | --- |
+| `sessionId` | the conversation |
+| `detail` | `summary` (the last figures; no lists) or `full` (also the lists, which may read skill, agent and note files; the host keeps those reads until a turn or a shortening ends). Default `summary`; anything else, and any other field, is refused |
+
+| Answer field | Meaning |
+| --- | --- |
+| `measuredBy` | `provider` or `estimate`; absent when the engine did not say |
+| `windowTokens`, `windowSource` | the window and where it came from (`config`, `provider`, `model-table`, `default`) |
+| `totalTokens`, `percentage` | what is in use, and its whole percent |
+| `autoCompact` | `{ enabled, bufferTokens, thresholdTokens? }`; the reserve and the size at which shortening starts |
+| `categories` | `[{ id, name, tokens, kind }]` with `kind` `used`, `deferred`, `buffer` or `free`; `id` one of `system-prompt`, `system-tools`, `mcp-tools`, `mcp-instructions`, `agents`, `memory`, `skills`, `messages`, `deferred-tools`, `deferred-mcp-tools`, `buffer`, `free` (the panel words each itself; `name` is the engine's) |
+| `lists` | on `full`: `mcpTools`, `deferredTools`, `skills`, `agents`, `memoryFiles`, each at most 500 entries, biggest first, with a name (a note file is its short label) and tokens; never contents |
+| `sizeOutOfDate` | a shortening rewrote the history since the last count from the AI service |
+| `approximate` | true unless the AI service counted the total and nothing has changed since |
+
+An answer is `null` before the engine has reported a window. The host does not read the conversation's history for this; it uses the engine's own figure and the kernel's estimate rules (an estimate covers the messages and the tool catalogue, and the other parts are added on top).
 
 ### Action rows
 
@@ -3698,8 +3738,9 @@ The side panel has an **Outputs** tab, after Changes, that lists the files the c
 
 - **A page or a document opens by itself.** When a running turn creates or edits an `.html` or `.md` file, the panel opens on Outputs with that file; a file whose version the window already knew (a conversation opened from history) never opens on its own, and code, text and images wait to be chosen. The file is read again when it is written again, and when its turn ends.
 - **A page** is drawn in a frame with no permission at all: `sandbox=""` (so no scripts, no same-origin access, no top navigation, no forms, no popups), `referrerpolicy="no-referrer"`, no address (the page is the frame's `srcdoc`, never a `file:` URL), and its own policy placed first in its head (`default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; media-src data:`), so it can fetch nothing from the network and draws only what its file embeds (`output-frame.ts`). **A document** is formatted text, its links and images inert; **code and text** show with line numbers, syntax colours and a copy button; **an image** shows as itself. A file that is not text, or over 2 MiB (4 MiB for an image), says so.
-- **Address line.** Under the header the preview shows the file's path in a read-only field the person can select and copy, as a browser shows its address: relative to the conversation's work folder when the file is inside it, the whole path otherwise (`outputAddress`, `src/renderer/outputs-model.ts`).
-- **Buttons.** "Open in browser" (a web page only) hands the real file to the default program for web pages; "Show in folder" shows it in the file manager; copy copies its text. A failure says so in a notice.
+- **Header.** A file open in the pane has one 43 px header row and no address field: the file's name with a chevron, which opens a menu, then a copy button (the file's text) and a close button, which goes back to the list. The menu's first line is the file's path, muted and not pressable (relative to the conversation's work folder when the file is inside it, the whole path otherwise: `outputAddress`, `src/renderer/outputs-model.ts`), then "Open in browser" (a web page only: it hands the real file to the default program for web pages), "Open in app" (not for source code), "Show in folder", "Save a copy" and "Copy path" (`outputMenuActions`). A failure says so in a notice.
+- **Rows.** The list's rows are 30 px with a 2 px gap (a 32 px pitch), 14/20 text, a file-type icon, and the kind and folder in 12 px muted at the right; its heading is 13/18 medium.
+- **Beside the conversation.** Pressing an output (on a card or in a reply's link) shows it beside the conversation: a page in its sandboxed frame and a picture as itself (a vector `.svg` file too, drawn through an image element so its scripts never run; there is no separate browser pane in Desktop, so the pane is where they open), a Markdown file or a document as the page, code as the file view's source with line numbers. A later setting that opens written pages and pictures by themselves has its hook in `outputToOpen` and is not added here.
 - **The host decides what may be read.** The renderer sends the conversation's id and a path; main reads it only if the file is inside the conversation's own work folder or is one that its turns wrote (its receipts name it), after symbolic links are resolved, never inside `.git`, with the project reader's limits (`session-output.ts`, `readSessionOutput`, `openSessionOutput`). Any other path is refused with a sentence that names no path, and the renderer never receives a `file:` path.
 - **Width.** Outputs is a reading panel (60 percent of the main area, 360 px at least); with less than that to give it lies over the conversation with **Back to conversation** and **Hide panel**, as the other panels do.
 
@@ -3734,6 +3775,20 @@ It is not drawn for a Pal, a conversation without a folder shows only Context an
 ## Usage limits
 
 The indicator beside the model opens **Your usage limits**: for each provider in use, only what is honestly known, in three row shapes (a window with its reset and percent, a spend estimate or credit, and one quiet "not reported" line). It turns amber at 75 percent and red at 90 of the worst of the context and the account's windows; a rejected window reads full; nothing is ever blocked by Desktop. What is shown per provider, where it comes from and what is kept is on [Usage limits](usage-limits.md).
+
+### Cards under a reply
+
+Only a document gets a card. Ordinary files (code, data, pages, pictures, and plain Markdown the agent wrote with the file tools) have no card list: they show as steps in the activity line, as the reply's own links. A document is a file the built-in `document` skill wrote in this reply (`isDocumentFile` in `output-card-model.ts`, found by the reply's skill row); Word, PDF, slides and spreadsheets made by a document service join it later. The card is one compact row (`output-card-model.ts`, `output-card.tsx`, `output-card.css`); the turn-end line stays below it. The card and the reply's receipts read one source, `outputFiles(thread, made)`.
+
+- **Which files.** A Markdown or text file the document skill created or changed in the reply, and a document write that is running, failed or was declined. A file a shell command or a tool made counts as an output (the host notes when a turn starts, lists the work folder when it ends and reports result-kind files written during the turn, by their own time: `made-files.ts`; at most 4,000 result files, 2,000 folders and 6 levels, skipping dot folders and build and dependency folders; when a limit cuts the walk short the turn reports none rather than a partial list; not kept across a restart); it gets a card only when it is a document of that reply. The system's own program is never started on older Word, Excel, PowerPoint or rich-text files, which can carry macros. The window asks `madeSessionFiles` when a turn ends.
+- **The row.** 320 wide and 36 tall, flat (the page's own fill, a 1 px border, no lift): a 16 px document icon, the file's name cut with an ellipsis, one state word (Created, Edited, Opened once pressed, Writing, Failed, Declined, Missing), and a chevron. The kind and size ("Document · Markdown · 6 KB") are in the tooltip, not drawn. Hover shows the soft fill only. A group has no caption up to three cards; more fold behind "Show N more", failures first. A reply with one document, like most, shows one row with 12 px above and below.
+- **States.** "Writing" with a moving line under the row while the call runs; a failed write keeps a compact red row (a red icon and "Failed") with one plain reason in a second line (no permission, not allowed, already exists, too long); "Declined"; "Missing" when the host cannot find the file any more.
+- **Actions** show on hover and on keyboard focus, in the place of the state word and the chevron, so the row never changes size: open in the browser (pages), open with the system's own program, copy the text, and Save a copy (24 px buttons). On a touch screen they are not drawn and pressing the row opens the document. Pressing the row opens the document in the Files pane. Save a copy opens the system's save dialog in the main process; the window names only the conversation and the source file, and the destination is what the dialog returns (`saveSessionOutput`). Opening with the system's program is limited to result kinds, never a program, a script or a shortcut (`mayOpenWithSystem`).
+- **Host calls.** `describeSessionOutputs(sessionId, paths)` answers size for files the conversation owns (anything else reads as gone), `madeSessionFiles(sessionId)`, `saveSessionOutput(sessionId, path)`, and `openSessionOutput` gained the target `system`. All go through the same check as `readSessionOutput`.
+
+#### The activity line
+
+A finished reply's activity line is one quiet sentence at 14 px, muted, with the steps behind it: "Ran 3 commands, created 5 files", then the lines the reply added in green ("+124") and the failure flag when something failed. The time it took is no longer on the line for a reply under a minute; it is in the line's tooltip ("Took 8s") and in its accessible name, and a reply of a minute or more says it on the line. Pressing the line opens a box of steps, one row per step: the verb, the file, its added lines ("Created kickoff.md +39") and the word Failed in red when it failed (`foldParts` in `transcript-motion.ts` returns `took`, `duration` and `added`). The turn-end line ("Done in 6s, 3 files +34 -0") stays but is quieter: its lead is muted and medium weight, only the counts are coloured.
 
 ## One band at the top
 
@@ -5228,6 +5283,7 @@ ACP methods and are not automatically installed in embedded SDK servers.
 | `namzu/plugins/list` | optional `sessionId` | bounded installed or live plugin inventory and whether it can be changed |
 | `namzu/plugins/set_enabled` | `sessionId`, `name`, `enabled` | changes one loaded plugin in an idle conversation and returns its inventory |
 | `namzu/turns/undo-status`, `namzu/turns/undo-preview`, `namzu/turns/undo` | see [Turn undo](turn-undo.md#acp-methods) | per-reply file undo, used by [Undoing a reply](#undoing-a-reply) |
+| `namzu/session/context` | `sessionId`, optional `detail` (`summary` or `full`) | where the conversation's context window goes: the [context panel](#context-panel)'s answer, or `null` before the engine has reported a window. Optional group `contextPanel` |
 | `namzu/jobs/list` | `sessionId` | this session's jobs |
 | `namzu/jobs/read` | `sessionId`, `jobId` | retained chunk, offsets and dropped-byte count |
 | `namzu/jobs/stop` | `sessionId`, `jobId` | stopped job |
@@ -5374,7 +5430,7 @@ reply to end. `withCliHarnesses` now asks the turn itself.
 
 **Shell commands.** A command is one row with its output under it (`shell-cell.ts`, `shell-cell-view.tsx`):
 the first three lines (ten for a failed command), then "+N lines" to open the rest, stderr in the error
-colour, how it ended once ("Exit code 3", "Timed out", "Stopped before it finished") instead of repeating it
+colour, how it ended once ("Didn’t finish (code 3)", "Timed out", "Stopped before it finished") instead of repeating it
 beside the command, and "(No output)". A command handed to a background job reads "Running in the background"
 with **See it**, which opens the activity panel. The run's header counts it: "Ran 4 commands, 1 failed, 1 in
 the background".

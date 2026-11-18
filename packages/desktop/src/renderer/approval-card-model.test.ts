@@ -170,7 +170,7 @@ it('shows a command in a box and any other tool as readable pairs', () => {
 			}),
 		]),
 	)
-	expect(other.title).toBe('Allow web fetch?')
+	expect(other.title).toBe('Allow Namzu to read a web page?')
 	expect(other.entries).toEqual([
 		{ label: 'Url', value: 'https://x.dev' },
 		{ label: 'Max bytes', value: '5' },

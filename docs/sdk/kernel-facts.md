@@ -215,7 +215,7 @@ the app starts relying on is recorded for the guard below. It records, as read f
 - the optional groups it probes, each a feature that is simply off when any method of the group is missing
   (`optionalGroups`: tasks, Pal communication, conversation actions, archived conversations, terminals,
   provider setup, project git, project pull request, tool servers, the user's own tool servers form (`userMcpServers`: `namzu/mcp/user-servers`, `namzu/mcp/save-user-server`, `namzu/mcp/remove-user-server`), the installed skills list (`skillsList`: `namzu/skills/list`), conversation search, untrust, project
-  changes, turn retry, abandon of a paused turn, undo, live input, Pals, Pal inbox, Pal computer control, hooks view: `namzu/hooks/list`, described in [What runs by itself here](hooks.md#what-runs-by-itself-here-one-answer-for-a-program));
+  changes, turn retry, abandon of a paused turn, undo, live input, Pals, Pal inbox, Pal computer control, hooks view: `namzu/hooks/list`, described in [What runs by itself here](hooks.md#what-runs-by-itself-here-one-answer-for-a-program); context panel: `namzu/session/context`, described in [Context panel](../cli/desktop.md#context-panel));
 - the methods it calls without probing (`otherMethods`);
 - the notifications it consumes, and the request the host sends it (`notifications`);
 - the flags it passes: the host's `acp --desktop`, the terminal UI's `--provider --model --effort

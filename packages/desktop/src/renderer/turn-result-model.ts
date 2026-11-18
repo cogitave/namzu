@@ -7,9 +7,11 @@ import { type UndoCardView, partialLabel } from './undo-model.js'
 
 export type ResultTone = 'ok' | 'warn' | 'error' | 'neutral'
 
-/** What the line says about checking: the kernel's own sentence, nothing else. */
+/** What the line says about checking, in plain words; the kernel's own sentence is the tooltip. */
 export interface ResultCheck {
 	text: string
+	/** The record's sentence with the command, for a tooltip. Absent when it adds nothing. */
+	title?: string
 	tone: 'ok' | 'warn' | 'error' | 'plain'
 }
 
@@ -37,22 +39,45 @@ export interface ResultLineModel {
 const capital = (text: string) =>
 	/^(checked:|ran )/.test(text) ? text.charAt(0).toUpperCase() + text.slice(1) : text
 
+/** A command that runs tests reads as "Tests"; any other recognised check reads as "Checks". */
+const TEST_COMMAND =
+	/\b(?:tests?|vitest|jest|mocha|pytest|rspec|phpunit)\b|\b(?:cargo|go|dotnet) test\b/i
+const kindOf = (command: string): 'Tests' | 'Checks' =>
+	TEST_COMMAND.test(command) ? 'Tests' : 'Checks'
+
 /**
- * The check part of the record's sentence. The host writes it as "<what changed> · <what checked
- * it>"; the first part is replaced by the counts, so only the second is kept. A turn that was not
- * checked and one the record could not read say nothing about checking.
+ * The check part of the record's sentence, in plain words. The host writes the record as "<what
+ * changed> · <what checked it>"; the first part is replaced by the counts. The second is turned
+ * into a few words ("Tests passed", "Tests failed", "Checks didn't finish"); the command and the
+ * record's exact sentence stay in the tooltip. A turn nothing checked, and one the record could not
+ * read, say nothing about checking.
  */
 export function checkSegment(outcome: TurnOutcomeSummary | undefined): ResultCheck | undefined {
 	if (!outcome?.line) return undefined
 	const { verdict, line } = outcome
-	if (verdict === 'unchecked' || verdict === 'unknown' || verdict === 'unchanged') return undefined
+	if (verdict === 'unknown' || verdict === 'unchanged' || verdict === 'unchecked') return undefined
 	const at = line.indexOf(' · ')
-	const text = capital(at < 0 ? line : line.slice(at + 3))
-	if (!text) return undefined
-	return {
-		text,
-		tone: verdict === 'checked' ? 'ok' : verdict === 'failing' ? 'error' : 'warn',
+	const rest = at < 0 ? line : line.slice(at + 3)
+	if (!rest) return undefined
+	const title = capital(rest)
+	if (verdict === 'checked') {
+		const command = rest.replace(/^checked:\s*/i, '').replace(/ passed, nothing changed since$/, '')
+		return { text: `${kindOf(command)} passed`, title, tone: 'ok' }
 	}
+	if (verdict === 'failing') {
+		const more = /\(and \d+ more\)$/.test(rest)
+		const command = rest.replace(/ failed(?: \(and \d+ more\))?$/, '')
+		return { text: more ? 'Some checks failed' : `${kindOf(command)} failed`, title, tone: 'error' }
+	}
+	if (verdict === 'stale') {
+		const command = rest.replace(/ passed, then files changed again$/, '')
+		return { text: `${kindOf(command)} passed, then files changed again`, title, tone: 'warn' }
+	}
+	if (/hides whether it passed/.test(rest))
+		return { text: 'Couldn’t tell if the checks passed', title, tone: 'warn' }
+	if (/its result was not seen/.test(rest))
+		return { text: 'Checks didn’t finish', title, tone: 'warn' }
+	return { text: 'Checks passed, but files may have changed after', title, tone: 'warn' }
 }
 
 /** How the turn ended, in the word the line leads with. */

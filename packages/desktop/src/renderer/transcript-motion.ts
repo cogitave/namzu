@@ -7,9 +7,11 @@ import { toolTranscriptPresentation } from './tool-transcript-presentation.js'
 import {
 	actionRunLabel,
 	elapsedLabel,
+	runActionOf,
 	transcriptOutcome,
 	turnDurationMs,
 } from './transcript-layout.js'
+import { turnChanges } from './turn-changes.js'
 
 export const transcriptMotion = {
 	entry: { duration: 120, easing: 'ease-out' },
@@ -235,7 +237,7 @@ export function turnStepCount(thread: ThreadState, turn: number): number {
 export function foldParts(
 	thread: ThreadState,
 	turn: number,
-): { text: string; duration?: string; sentence: boolean } {
+): { text: string; duration?: string; took?: string; added?: number; sentence: boolean } {
 	const outcomeReason =
 		thread.turns[turn]?.reason ??
 		thread.turns[turn]?.stopReason ??
@@ -248,25 +250,24 @@ export function foldParts(
 			if (entry.turn !== turn || entry.kind !== 'tool' || isTaskEntry(thread, entry)) return []
 			const presentation = toolTranscriptPresentation(thread, entry.id)
 			if (!presentation || presentation.state === 'declined') return []
-			return [
-				{
-					kind: presentation.kind,
-					subject: presentation.file?.path,
-					state: presentation.state,
-					created: presentation.operation === 'created',
-					background: presentation.shell?.background === true,
-				},
-			]
+			return [runActionOf(presentation)]
 		})
 		const text = actions.length ? actionRunLabel(actions, false) : ''
 		if (text) {
 			const milliseconds = turnDurationMs(thread, turn)
+			const took =
+				milliseconds === undefined || milliseconds < 1000 ? undefined : elapsedLabel(milliseconds)
+			const added = turnChanges(thread).get(turn)?.added
 			return {
 				text,
-				duration:
-					milliseconds === undefined || milliseconds < 1000
-						? undefined
-						: elapsedLabel(milliseconds),
+				// A short turn adds a digit to every line for nothing: its time rides the tooltip, and
+				// only a turn of a minute or more says it on the line.
+				...(took && milliseconds !== undefined && milliseconds >= SHOWN_DURATION_MS
+					? { duration: took }
+					: {}),
+				...(took ? { took } : {}),
+				// The lines the turn added, as the reference writes it at the end of the sentence.
+				...(added ? { added } : {}),
 				sentence: true,
 			}
 		}
@@ -281,10 +282,13 @@ export function foldParts(
 	}
 }
 
+/** A turn shorter than this keeps its time in the tooltip, off the line. */
+export const SHOWN_DURATION_MS = 60_000
+
 /** The same line as one string: the accessible name of the fold and the text of its label. */
 export function foldLabel(thread: ThreadState, turn: number): string {
-	const { text, duration } = foldParts(thread, turn)
-	return duration ? `${text} · ${duration}` : text
+	const { text, took } = foldParts(thread, turn)
+	return took ? `${text} · ${took}` : text
 }
 
 function historyState(node: HTMLElement): string | undefined {

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { displayPath } from './path-display.js'
+import { plainError } from './plain-error.js'
 import { afterQuietPeriod } from './project-stage.js'
 import { Button } from './ui/button.js'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from './ui/empty.js'
@@ -55,7 +56,7 @@ export function ProjectOpenError({
 				<EmptyTitle>
 					<h1>Couldn’t open this folder</h1>
 				</EmptyTitle>
-				<EmptyDescription>{message}</EmptyDescription>
+				<EmptyDescription>{plainError(message, 'connect to this folder').text}</EmptyDescription>
 			</EmptyHeader>
 			<Button
 				type="button"

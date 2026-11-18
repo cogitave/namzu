@@ -93,6 +93,8 @@ class Stop extends Error {
 		message: string,
 		/** true: given up with the stop's text; 'own': given up as the person's choice. */
 		readonly markBad: boolean | 'own' = false,
+		/** The technical cause, for the log only; the message is what a person may read. */
+		readonly detail?: string,
 	) {
 		super(message)
 	}
@@ -194,8 +196,10 @@ export async function runCheck(deps: CheckDeps): Promise<CheckResult> {
 	const { store } = deps.manager
 	const freshBefore = store.snapshot().lastFreshCheckAt
 	let waiting = false
+	let detail: string | undefined
 	const result = await attempt(deps).catch((error): CheckResult => {
 		if (error instanceof Waiting) waiting = true
+		if (error instanceof Stop) detail = error.detail
 		return error instanceof Stop
 			? {
 					kind: 'failed',
@@ -231,7 +235,9 @@ export async function runCheck(deps: CheckDeps): Promise<CheckResult> {
 		.catch(() => undefined)
 	store.log('check', {
 		result: waiting ? 'waiting' : result.kind,
-		...(result.kind === 'failed' ? { stage: result.stage, message: result.message } : {}),
+		...(result.kind === 'failed'
+			? { stage: result.stage, message: result.message, ...(detail ? { detail } : {}) }
+			: {}),
 	})
 	await emptyTmp(deps).catch(() => undefined)
 	await deps.manager.cleanup().catch(() => undefined)
@@ -386,20 +392,30 @@ async function install(
 			if (error instanceof ArchiveError)
 				throw new Stop(
 					'extract',
-					`The engine archive was refused (${error.code}: ${error.message}).`,
+					'The new engine couldn’t be downloaded safely. Namzu keeps the one it has.',
 					true,
+					`${error.code}: ${error.message}`,
 				)
 			throw error
 		}
 		const problem = await verifyFolderFully(fs, unpacked, list)
 		if (problem)
-			throw new Stop('verify', `The unpacked engine does not match its list (${problem}).`, true)
+			throw new Stop(
+				'verify',
+				'The new engine’s files don’t match what was published. Namzu keeps the one it has.',
+				true,
+				problem,
+			)
 		try {
 			let factsBytes: Buffer
 			try {
 				factsBytes = await fs.readFile(join(unpacked, 'kernel.json'))
 			} catch {
-				throw new Stop('verify', 'The engine carries no kernel.json.', true)
+				throw new Stop(
+					'verify',
+					'The new engine is missing a required file. Namzu keeps the one it has.',
+					true,
+				)
 			}
 			const facts = parseKernelFacts(factsBytes)
 			if (
@@ -410,7 +426,11 @@ async function install(
 				facts.platform !== options.platform ||
 				facts.arch !== options.arch
 			)
-				throw new Stop('verify', 'kernel.json does not agree with the manifest.', true)
+				throw new Stop(
+					'verify',
+					'The new engine’s details don’t match. Namzu keeps the one it has.',
+					true,
+				)
 		} catch (error) {
 			if (error instanceof FactsError) throw new Stop('verify', error.message, true)
 			throw error
@@ -435,23 +455,29 @@ async function install(
 		if (selfProblem)
 			throw new Stop(
 				'self-check',
-				`The engine failed its own check (${selfProblem}).`,
+				'The new engine didn’t pass its check. Namzu keeps the one it has.',
 				// A check that ran out of time says nothing against the engine; a later check tries again.
 				!selfProblem.includes(SELF_CHECK_TIMEOUT_TEXT),
+				selfProblem,
 			)
 		// The person may have chosen the app's own engine, or turned the setting off, while this ran.
 		if (deps.manager.ownEngineChoices !== ownChoices)
-			throw new Stop('install', 'The person chose this app’s own engine meanwhile.', 'own')
+			throw new Stop(
+				'install',
+				'You chose this app’s own copy, so the new one wasn’t started.',
+				'own',
+			)
 		if (deps.signal?.aborted || !deps.manager.active)
 			throw new Stop('install', 'The check was stopped before the engine was made ready.')
 		const saved = await store.update((state: KernelState) => {
 			state.pending = version
 		})
-		if (!saved) throw new Stop('install', 'Could not record the new engine.')
+		if (!saved) throw new Stop('install', 'Namzu couldn’t save the new engine. Try again.')
 	} catch (error) {
 		if (error instanceof Stop && error.markBad === 'own')
 			await store.markBad(version, 'the person chose this app’s own engine')
-		else if (error instanceof Stop && error.markBad) await store.markBad(version, error.message)
+		else if (error instanceof Stop && error.markBad)
+			await store.markBad(version, error.detail ?? error.message)
 		if (moved) await store.removeVersion(version).catch(() => undefined)
 		throw error
 	} finally {

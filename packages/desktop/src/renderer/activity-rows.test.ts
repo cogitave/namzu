@@ -113,6 +113,24 @@ describe('run summary labels', () => {
 		expect(actionRunLabel(actions, true)).toBe('Running 3 commands, 1 in the background')
 		expect(actionRunLabel(actions, false)).toBe('Ran 3 commands, 1 in the background')
 	})
+	it('names a skill and counts the files written beside it as one number', () => {
+		const skill = { ...a('skill'), skill: 'document' }
+		const run = [skill, { ...skill, state: 'completed' as const }, a('edit', 'Kickoff.md')]
+		expect(actionRunLabel(run, false)).toBe('Used the document skill, wrote 1 file')
+		expect(actionRunLabel(run, true)).toBe('Using the document skill, writing 1 file')
+		const two = [
+			skill,
+			{ ...a('edit', 'Kickoff.md'), created: true },
+			a('edit', 'Notes.md'),
+			a('edit', 'Notes.md'),
+		]
+		expect(actionRunLabel(two, false)).toBe('Used the document skill, wrote 2 files')
+		expect(
+			actionRunLabel([skill, { ...a('skill'), skill: 'review' }, a('edit', 'a.md')], false),
+		).toBe('Used 2 skills, wrote 1 file')
+		// Without a skill the words stay as they were.
+		expect(actionRunLabel([{ ...a('edit', 'a.md'), created: true }], false)).toBe('Created a file')
+	})
 	it('does not count a declined action as work that happened', () => {
 		const declined = (
 			kind: Parameters<typeof actionRunKind>[0][number]['kind'],

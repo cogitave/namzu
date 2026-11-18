@@ -403,6 +403,42 @@ it('does not open a finished command that printed nothing', () => {
 	expect(toolTranscriptPresentation(thread, key)?.tooltip).toBe('ls')
 })
 
+describe('a skill row', () => {
+	const call = (status: 'pending' | 'completed' | 'failed', label = 'Read skill document') => {
+		let thread = start({ kind: 'generic', label, presentation: 'activity' }, 'skill')
+		if (status !== 'pending')
+			thread = result(
+				thread,
+				{ kind: 'generic', label: 'read', visibility: 'hidden' },
+				status,
+				'skill',
+			)
+		return thread
+	}
+	it('says which skill was used, in plain words, and opens to nothing', () => {
+		expect(toolTranscriptPresentation(call('pending'), key)).toMatchObject({
+			label: 'Using the document skill',
+			kind: 'skill',
+			skill: 'document',
+		})
+		const done = toolTranscriptPresentation(call('completed'), key)
+		expect(done).toMatchObject({ label: 'Used the document skill', state: 'completed' })
+		expect(done?.detailView).toBeUndefined()
+		expect(toolTranscriptPresentation(call('failed'), key)?.label).toBe(
+			'Couldn’t use the document skill',
+		)
+	})
+	it('names a plugin skill by the part a person knows, and a continued read the same way', () => {
+		expect(
+			toolTranscriptPresentation(call('completed', 'Read skill kit__document (continued)'), key)
+				?.skill,
+		).toBe('document')
+	})
+	it('leaves the call that lists skills as an ordinary row', () => {
+		expect(toolTranscriptPresentation(call('pending', 'List skills'), key)?.kind).toBe('other')
+	})
+})
+
 describe('a message to a Pal from an ordinary conversation', () => {
 	const call = (status: 'pending' | 'completed' | 'failed', label: string, callLabel?: string) => {
 		let thread = start(

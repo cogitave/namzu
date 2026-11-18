@@ -1,10 +1,13 @@
 import type { AcpSessionUpdate } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
+import { outputCardKind } from '../shared/output-files.js'
 import { type ThreadState, applyEvent, emptyThread } from '../shared/projection.js'
 import {
+	type OutputFile,
 	opensInBrowser,
 	outputAddress,
 	outputFiles,
+	outputForLink,
 	outputToOpen,
 	previewKind,
 } from './outputs-model.js'
@@ -105,6 +108,7 @@ describe('what opens by itself', () => {
 		turn: 1,
 		version,
 		created: true,
+		cardKind: outputCardKind(path),
 	})
 	it('picks a page or document written or changed since it was last seen, not code', () => {
 		const outputs = [
@@ -134,6 +138,7 @@ describe('what opens by itself', () => {
 			name: path,
 			folder: '',
 			kind,
+			cardKind: outputCardKind(path),
 			turn: 1,
 			version: 1,
 			created: true,
@@ -159,5 +164,51 @@ describe('the address line', () => {
 		expect(outputAddress('/tmp/x.html', '/home/a/cafe')).toBe('/tmp/x.html')
 		expect(outputAddress('/home/a/cafe', '/home/a/cafe')).toBe('/home/a/cafe')
 		expect(outputAddress('/tmp/x.html')).toBe('/tmp/x.html')
+	})
+})
+
+describe('files a command made', () => {
+	it('counts a made file that no receipt names, once, under the turn that made it', () => {
+		let thread = turn(emptyThread(), 'make a page and a chart')
+		thread = wrote(thread, 'a', 'cafe/index.html', '', '<h1>hi</h1>\n')
+		const list = outputFiles(thread, [
+			{ path: '/work/cafe/index.html', turn: 0 },
+			{ path: '/work/chart.png', turn: 0 },
+		])
+		expect(list.map((item) => item.name).sort()).toEqual(['chart.png', 'index.html'])
+		const chart = list.find((item) => item.name === 'chart.png')
+		expect(chart).toMatchObject({ made: true, cardKind: 'image', created: true })
+		expect(list.find((item) => item.name === 'index.html')?.made).toBeUndefined()
+	})
+})
+
+describe('a link in a reply to a document the conversation wrote', () => {
+	const entry = (path: string): OutputFile => ({
+		path,
+		name: path.split('/').pop() ?? path,
+		folder: '',
+		kind: previewKind(path),
+		turn: 1,
+		version: 1,
+		created: true,
+		cardKind: outputCardKind(path),
+	})
+	const outputs = [
+		entry('/work/docs/Kickoff.md'),
+		entry('/work/src/a.ts'),
+		entry('/work/page.html'),
+	]
+	it('finds the document from the folder the link is written from', () => {
+		expect(outputForLink(outputs, 'docs/Kickoff.md')?.path).toBe('/work/docs/Kickoff.md')
+		expect(outputForLink(outputs, './docs/Kickoff.md')?.path).toBe('/work/docs/Kickoff.md')
+		expect(outputForLink(outputs, '/work/docs/Kickoff.md')?.path).toBe('/work/docs/Kickoff.md')
+		expect(outputForLink(outputs, 'page.html')?.path).toBe('/work/page.html')
+	})
+	it('does not match a part of a name, source code, or a file nobody wrote', () => {
+		expect(outputForLink(outputs, 'Kickoff.md')?.path).toBe('/work/docs/Kickoff.md')
+		expect(outputForLink(outputs, 'off.md')).toBeUndefined()
+		expect(outputForLink(outputs, 'src/a.ts')).toBeUndefined()
+		expect(outputForLink(outputs, 'other.md')).toBeUndefined()
+		expect(outputForLink(outputs, '')).toBeUndefined()
 	})
 })

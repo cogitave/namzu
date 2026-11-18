@@ -98,7 +98,7 @@ it('rejects old Python before downloading or creating an installed runtime', asy
 			run,
 			fetch: network,
 		}),
-	).rejects.toThrow('Python 3.11–3.14')
+	).rejects.toThrow('Python 3.11 to 3.14')
 	expect(run).toHaveBeenCalledTimes(1)
 	expect(run.mock.calls[0]?.[0]).toBe('/trusted/python')
 	expect(run.mock.calls[0]?.[1]).toContain('-I')
@@ -170,7 +170,7 @@ it('refuses cleanup through an unexpected symlink and preserves the linked exter
 	})
 	await expect(
 		installLocalSpeech({ directory: root, python: { program: '/trusted/python' }, run }),
-	).rejects.toThrow('could not be safely removed')
+	).rejects.toThrow('partial files couldn’t be removed')
 	expect(await readFile(join(external, 'keep.txt'), 'utf8')).toBe('outside owned runtime')
 	expect((await readdir(root)).filter((name) => name.startsWith('runtime-'))).toHaveLength(1)
 })

@@ -135,3 +135,7 @@
 	line-height: var(--leading-caption);
 	text-align: right;
 }
+
+.limits-context {
+	border-top: 1px solid var(--border);
+}

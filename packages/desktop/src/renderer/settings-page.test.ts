@@ -527,7 +527,7 @@ describe('settings words and paths', () => {
 
 	describe('About, when the registry knows a newer kernel than the one bundled', () => {
 		it('is quiet without a kernel fact', () => {
-			expect(page('about')).not.toContain('A newer one exists')
+			expect(page('about')).not.toContain('A newer version is available')
 		})
 		it('says it once under each version', () => {
 			const markup = page('about', {}, { cli: '51.0.1', engine: '62.12.0' })
@@ -606,7 +606,9 @@ describe('the engine the app keeps current', () => {
 		)
 		expect(
 			say({ kind: 'went-back', version: '26.0.0', problem: 'did-not-start', to: '25.3.0' }),
-		).toContain('Could not use engine 26.0.0 (it did not start) and went back to 25.3.0.')
+		).toContain(
+			'Couldn’t use the newer version 26.0.0 (it did not start). Namzu went back to 25.3.0.',
+		)
 		expect(say({ kind: 'needs-newer-app' })).toContain(
 			'A newer engine is out, but it needs a newer version of this app.',
 		)

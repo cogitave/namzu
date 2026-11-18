@@ -140,13 +140,14 @@ never affected.
 
 ## Built-in skills
 
-The CLI ships five, in `packages/cli/skills/`:
+The CLI ships six, in `packages/cli/skills/`:
 
 | Skill | Offered to | Needs | What it covers |
 | --- | --- | --- | --- |
 | `skill-creator` | model and operator | — | Interviewing the operator (purpose, trigger phrases, steps, constraints, an example), drafting a `SKILL.md` with a description that says when to use it, and saving it only through `save_skill`. A second mode turns the work just done in the conversation into a skill: generalise the task, replace this run's specifics with placeholders, strip secrets and personal data, never copy tool or page output. Without `save_skill` (a headless run) it shows the draft and tells the operator to run `/skills new` in the TUI. |
 | `browser-automation` | model only | `browser` | The procedure for the `browser` and `browser_act` tools: snapshot first, act by ref, copy `origin` from the snapshot header, verify with a snapshot, let a sign-in page or CAPTCHA pause the turn for the person and retry the step once it continues, never type credentials, never pick the profile, never route around a declined call, paginate, prefer read-only paths, report what changed. Hidden until the browser tools exist in the session. |
 | `schedule-task` | model and operator | `schedule` | Proposing a scheduled job with the `schedule` tool: choosing presets or rules, `unmatched` park or deny, budgets of one run, `when` and `tz`, a browser grant (`permissions.browser`, the profile signed in with `namzu browser login`, sites at `read`/`ask`/`act`), leaving the defaults unset, and wording a prompt for a run nobody watches. Offered in the TUI, where the `schedule` tool is. |
+| `document` | model and operator | — | Writing a document (a kickoff document, a report, a brief, a plan, notes) as one Markdown file: settle who reads it and what they do next (asking only when one answer would change the whole document), pick a specific title and a file name from it, put the file in the project (its `docs` or `documents` folder when it has one) or the conversation's work folder, and write it in one `write` call as a title, an italic date line, a short opening, `##` sections, lists, tables and task lists where they help. It reads the file back once to check headings, table rows and unmarked gaps, never invents a fact, figure or date (a gap is written as a bracketed open question), never replaces an existing file the person did not name, and ends its reply with one sentence that links the document by its title, then short lists of assumptions and open questions. Word, PDF, slides and spreadsheet files are not made yet: it says so and writes the Markdown file instead. In Desktop the file opens as a page beside the conversation ([Documents as pages](desktop.md#documents-as-pages)). |
 | `verify-change` | model and operator | — | Proving a change works by running the thing that changed: one sentence of what should now be true, how the project is really run, the smallest real exercise, a comparison, then the project's own check as a command of its own (no pipe, no second command, no background run) so the turn's record can see its exit status; one verdict (works, does not, could not be exercised) with the evidence. Never reports success from reading code, weakens a test, calls an unseen check passing, or does anything irreversible (push, install, delete, spend, touch a live service) without asking. Not for edits to documentation or comments. |
 | `review-changes` | model and operator | — | Reviewing a change for defects, not style: fix the scope, read each changed function whole with the callers it affects, write the failing case for every suspicion, check each before reporting, report most serious first as file and line, one sentence and the failing case, and say what was not looked at. On a request for a thorough review, with the `Agent` tool present, one sub-agent finds and another tries to refute each finding. Never pads the report, rewrites code, or does anything irreversible without asking. Not for tidying working code and not a substitute for running the change. |
 
@@ -163,10 +164,10 @@ Every built-in description says what the skill does, when to use it and, last,
 when not to, where a neighbour is easily confused with it. `verify-change` and
 `review-changes` also trigger on what the model is about to do (before it says
 a change works, before it hands one over), not only on the person's words. The
-five descriptions together cost 2,263 characters of the manifest (each entry
+six descriptions together cost 2,539 characters of the manifest (each entry
 counts its fixed markup, its name and an install path of 66 characters), against a budget of
-2,621 at a 32,768-token window, so all five are described in full from a window
-of about 28,300 tokens up; the test checks this. On a window of 16,385 or 8,192
+2,621 at a 32,768-token window, so all six are described in full from a window
+of about 31,800 tokens up; the test checks this. On a window of 16,385 or 8,192
 tokens the first ones that fit are described and the rest are only named, and
 stay loadable. `browser-automation` and `schedule-task` are left out when their
 tools are missing, which frees their share.

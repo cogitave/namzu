@@ -24,6 +24,7 @@ import type {
 	ConfigSettingResult,
 	ConfigSettingsView,
 } from './config-settings-protocol.js'
+import type { ContextReport } from './context-protocol.js'
 import type { EngineDeliveryView } from './engine-delivery-protocol.js'
 import type {
 	EngineUpdateAnnouncement,
@@ -907,6 +908,14 @@ export interface DesktopBoot {
 	notice?: { id: string; text: string }
 }
 
+/** What a card shows about a made file besides its name. */
+export interface SessionOutputDetail {
+	path: string
+	size?: number
+	missing?: true
+	preview?: string
+}
+
 export interface DesktopApi {
 	/** The pre-paint snapshot; absent when main did not answer. */
 	readonly boot?: DesktopBoot
@@ -938,8 +947,17 @@ export interface DesktopApi {
 	openSessionOutput?(
 		sessionId: string,
 		path: string,
-		target: 'browser' | 'file-manager',
+		target: 'browser' | 'file-manager' | 'system',
 	): Promise<void>
+	/** Size and a one-line start for each file a conversation made, for its cards. */
+	describeSessionOutputs?(sessionId: string, paths: string[]): Promise<SessionOutputDetail[]>
+	/** Result files a turn made by running something, with the turn; empty when none were found. */
+	madeSessionFiles?(sessionId: string): Promise<{ path: string; turn: number }[]>
+	/**
+	 * Saves a copy of such a file where the person chooses, in the system's save dialog. `saved` is
+	 * false when they closed the dialog.
+	 */
+	saveSessionOutput?(sessionId: string, path: string): Promise<{ saved: boolean }>
 	/** Working-tree changes; null when not a git repository, untrusted or unavailable. */
 	projectChanges?(projectId: string): Promise<ProjectChangesView | null>
 	/** Before and after text of one changed file. */
@@ -1280,6 +1298,11 @@ export interface DesktopApi {
 	backgroundWorkStatuses?(): Promise<Record<string, BackgroundWorkStatus>>
 	/** Refresh the existing planning projection without starting a turn. */
 	refreshTasks?(sessionId: string): Promise<void>
+	/**
+	 * Where the conversation's context window goes. Null when the engine has not counted yet or
+	 * cannot say. Absent in an older shell.
+	 */
+	contextUsage?(sessionId: string, detail?: 'summary' | 'full'): Promise<ContextReport | null>
 	readJob(sessionId: string, jobId: string): Promise<{ output: string; truncated?: boolean }>
 	stopJob(sessionId: string, jobId: string): Promise<void>
 	/** App updates. Absent in a preview that has no updater. */

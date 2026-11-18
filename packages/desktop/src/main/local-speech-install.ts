@@ -372,7 +372,7 @@ export async function installLocalSpeech(
 		),
 	) as { major?: number; minor?: number }
 	if (metadata.major !== 3 || !metadata.minor || metadata.minor < 11 || metadata.minor > 14)
-		throw new Error('Local speech needs Python 3.11–3.14. Install Python, then try again.')
+		throw new Error('Voice setup needs Python 3.11 to 3.14. Install it, then try again.')
 	const runtimeDirectory = `runtime-${randomUUID()}`
 	const paths = localSpeechRuntimePaths(directory, runtimeDirectory)
 	const wheels = join(paths.runtime, 'wheels')
@@ -504,7 +504,7 @@ export async function installLocalSpeech(
 			await rollbackRuntime(directory, runtimeDirectory, ownershipToken)
 		} catch {
 			throw new Error(
-				'Local speech installation failed. Its incomplete runtime could not be safely removed.',
+				'Voice setup didn’t finish, and the partial files couldn’t be removed. Restart Namzu, then try again.',
 			)
 		}
 		throw error

@@ -156,10 +156,21 @@
 .normal-transcript .activity-trigger[data-sentence] .turn-activity-elapsed {
 	color: color-mix(in srgb, var(--muted-foreground) 70%, transparent);
 }
+/* The lines the turn added, after the sentence: the reference's green count. */
+.normal-transcript .turn-activity-added {
+	margin-inline-start: 0.5em;
+	color: var(--changes-added, #15803d);
+	font-variant-numeric: tabular-nums;
+}
+.dark .normal-transcript .turn-activity-added {
+	color: var(--changes-added, #4ade80);
+}
 /* The sentence is a short label: its focus ring hugs the words, not the whole column. */
 .normal-transcript .activity-trigger[data-sentence] {
 	width: max-content;
 	max-width: 100%;
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
 }
 /* On a screen with no pointer there is no hover to show the time, so it is always drawn. */
 @media (hover: none) {
@@ -346,7 +357,11 @@
 	animation: working-shine 2.2s linear infinite;
 }
 @media (prefers-reduced-motion: reduce) {
-	:root:not([data-motion="full"]) .normal-transcript .message.commentary[data-streaming] .message-text > :last-child:is(p, ul, ol) {
+	:root:not([data-motion="full"])
+		.normal-transcript
+		.message.commentary[data-streaming]
+		.message-text
+		> :last-child:is(p, ul, ol) {
 		background: none;
 		color: var(--foreground);
 		animation: none;

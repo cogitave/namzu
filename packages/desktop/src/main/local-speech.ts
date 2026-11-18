@@ -116,7 +116,7 @@ export class LocalSpeechService {
 			if (this.installation) this.applyInstallation(this.installation)
 		} catch {
 			this.current.installation = 'failed'
-			this.current.error = 'Local speech installation integrity check failed.'
+			this.current.error = 'The voice files didn’t check out. Download them again.'
 		}
 	}
 	subscribe(listener: (event: LocalSpeechEvent) => void): () => void {
@@ -210,12 +210,11 @@ export class LocalSpeechService {
 						error instanceof LocalSpeechInstallShutdownError
 							? error.message
 							: error instanceof Error &&
-									(error.message.startsWith('Local speech needs Python') ||
-										error.message.startsWith('Local speech model ') ||
+									(error.message.startsWith('Voice setup needs Python') ||
 										error.message ===
-											'Local speech installation failed. Its incomplete runtime could not be safely removed.')
+											'Voice setup didn’t finish, and the partial files couldn’t be removed. Restart Namzu, then try again.')
 								? error.message
-								: 'Local speech installation failed. Check Python and the connection, then try again.'
+								: 'Voice setup didn’t finish. Check your internet connection, then try again.'
 				}
 			} finally {
 				this.installing = undefined
@@ -287,7 +286,7 @@ export class LocalSpeechService {
 		if (this.disposed) throw new Error('Local speech service is closed.')
 		if (!this.current.settings.enabled && !preview)
 			throw new Error('Enable local speech before playing audio.')
-		if (!this.installation) throw new Error('Install the local speech engine before playing audio.')
+		if (!this.installation) throw new Error('Download the voice first, then play this reply.')
 		if (this.active) this.cancel(this.active.id)
 		await this.stopping
 		if (this.speakRevision !== revision) throw new Error('Speech request was superseded.')
@@ -385,7 +384,7 @@ export class LocalSpeechService {
 			while (worker.buffer.includes('\n')) {
 				const boundary = worker.buffer.indexOf('\n')
 				if (boundary > MAX_WORKER_FRAME) {
-					this.failWorker(worker, 'Local speech worker returned invalid audio.')
+					this.failWorker(worker, 'Voice couldn’t play this reply. Try again.')
 					return
 				}
 				const frame = worker.buffer.slice(0, boundary)
@@ -393,16 +392,18 @@ export class LocalSpeechService {
 				try {
 					this.readWorkerFrame(worker, JSON.parse(frame))
 				} catch {
-					this.failWorker(worker, 'Local speech worker returned invalid audio.')
+					this.failWorker(worker, 'Voice couldn’t play this reply. Try again.')
 					return
 				}
 				if (this.worker !== worker) return
 			}
 			if (worker.buffer.length > MAX_WORKER_FRAME)
-				this.failWorker(worker, 'Local speech worker returned invalid audio.')
+				this.failWorker(worker, 'Voice couldn’t play this reply. Try again.')
 		})
 		child.stderr.resume()
-		child.once('error', () => this.failWorker(worker, 'Local speech worker could not start.'))
+		child.once('error', () =>
+			this.failWorker(worker, 'Voice couldn’t start. Restart Namzu, then try again.'),
+		)
 		worker.resourcesTimer = setInterval(() => {
 			if (this.worker === worker) this.write(worker, { type: 'sample' })
 		}, 2_000)

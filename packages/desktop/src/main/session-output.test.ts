@@ -1,9 +1,9 @@
-import { mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readFile, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { ProjectFiles } from './project-files.js'
-import { readOutput, resolveOutput } from './session-output.js'
+import { describeOutputs, readOutput, resolveOutput, saveOutputCopy } from './session-output.js'
 
 /** The host reads a file for the preview pane only when the conversation owns it. */
 
@@ -68,5 +68,55 @@ describe('which files the preview may read', () => {
 		await expect(resolveOutput({ root: folder, written: [] }, 'nope.html')).rejects.toThrow(
 			/was not found/,
 		)
+	})
+})
+
+describe('what a card shows and where a copy goes', () => {
+	const deps = {
+		stat: async (path: string) => {
+			try {
+				return { size: (await stat(path)).size }
+			} catch {
+				return undefined
+			}
+		},
+		head: async (path: string) => (await readFile(path, 'utf8')).slice(0, 4096),
+	}
+	it('describes only files the conversation owns, and says gone for the rest', async () => {
+		await writeFile(join(folder, 'plan.md'), '# The plan\nbody')
+		const access = { root: folder, written: [join(elsewhere, 'written.md')] }
+		const result = await describeOutputs(
+			access,
+			['plan.md', join(elsewhere, 'written.md'), join(elsewhere, 'secret.txt'), 'gone.md', 4],
+			deps,
+		)
+		expect(result).toEqual([
+			{ path: 'plan.md', size: 15, preview: 'The plan' },
+			{ path: join(elsewhere, 'written.md'), size: 9, preview: 'written' },
+			{ path: join(elsewhere, 'secret.txt'), missing: true },
+			{ path: 'gone.md', missing: true },
+		])
+		await expect(describeOutputs(access, 'plan.md', deps)).rejects.toThrow()
+	})
+	it('copies where the dialog says, and nowhere when it is closed', async () => {
+		const access = { root: folder, written: [] }
+		const target = join(elsewhere, 'copy.html')
+		const copy = (from: string, to: string) => copyFile(from, to)
+		expect(
+			await saveOutputCopy(access, 'cafe/index.html', {
+				choose: async (name) => {
+					expect(name).toBe('index.html')
+					return target
+				},
+				copy,
+			}),
+		).toEqual({ saved: true })
+		expect(await readFile(target, 'utf8')).toBe('<h1>Ada</h1>')
+		expect(
+			await saveOutputCopy(access, 'cafe/index.html', { choose: async () => undefined, copy }),
+		).toEqual({ saved: false })
+		await expect(
+			saveOutputCopy(access, join(elsewhere, 'secret.txt'), { choose: async () => target, copy }),
+		).rejects.toThrow(/not one this conversation wrote/)
 	})
 })

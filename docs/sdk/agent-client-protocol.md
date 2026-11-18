@@ -299,5 +299,9 @@ so a cold or originally offline Pal checkpoint remains blocked even when an
 explicit permission mode is supplied. Another active Pal conversation blocks
 admission.
 
+## A stable code on a failure
+
+A gateway (the host behind the server) may throw an error that carries `data: { code }`, a lower-case name such as `no-provider`, `connection-closed` or `folder-not-trusted`. The server sends it as the JSON-RPC error's `data` (`{ code, message, data: { code } }`) and keeps the sentence as `message`. A client words the failure by the code and falls back to the sentence; anything else on the error, and a code that is not a short lower-case name, is not sent. The CLI host's sentences are plain English for a person, so a client that shows `message` as it is stays readable.
+
 Stdout is reserved for JSON-RPC lines. Human logs go to stderr. Disconnect cancels
 owned prompts and rejects pending permission requests.

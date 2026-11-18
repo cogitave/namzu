@@ -399,10 +399,14 @@ describe('commands', () => {
 		)
 		const failed = row(thread)
 		expect(failed).toMatchObject({
-			// The headline never repeats the failure: the cell under it says "Exit code 3", once.
+			// The headline never repeats the failure: the cell under it says "Didn’t finish (code 3)", once.
 			label: 'Ran echo oops >&2; ls /nonexistent; exit 3',
 			state: 'failed',
-			shell: { failed: true, status: 'Exit code 3', stderr: { head: 'oops\nls: cannot access' } },
+			shell: {
+				failed: true,
+				status: 'Didn’t finish (code 3)',
+				stderr: { head: 'oops\nls: cannot access' },
+			},
 		})
 		expect(failed?.tail).toBeUndefined()
 		expect(failed?.body).toMatchObject({
@@ -430,7 +434,7 @@ describe('commands', () => {
 		})
 		expect(row(thread)?.body).toEqual({
 			kind: 'notice',
-			text: 'Binary output, 3 KB',
+			text: 'Not text, 3 KB. Not shown.',
 		})
 	})
 
@@ -503,13 +507,13 @@ describe('failures', () => {
 		expect(row(thread)?.detailView).toBeUndefined()
 	})
 
-	it('says Namzu tried a tool it does not have', () => {
+	it('says Namzu couldn’t use a tool it does not have', () => {
 		const thread = failed(
 			'ls',
 			{ kind: 'generic', label: 'ls' },
 			{ kind: 'failure', reason: 'unknown_tool', subject: 'ls' },
 		)
-		expect(row(thread)?.label).toBe('Namzu tried a tool it doesn’t have (ls)')
+		expect(row(thread)?.label).toBe('Namzu couldn’t use that tool (ls)')
 	})
 
 	it('says a command needing administrator rights was blocked, and why', () => {
@@ -544,8 +548,8 @@ describe('failures', () => {
 	})
 
 	it.each([
-		['not_read', 'not read yet'],
-		['changed_on_disk', 'changed since it was read'],
+		['not_read', 'needs to read the file first'],
+		['changed_on_disk', 'changed since Namzu read it'],
 		['text_not_found', 'text not found'],
 		['not_unique', 'text appears more than once'],
 	] as const)('says why an edit was refused: %s', (reason, said) => {
@@ -632,10 +636,10 @@ describe('what the row opens to', () => {
 	it('shows the notice for binary output and nothing else', () => {
 		const html = renderToStaticMarkup(
 			createElement(ToolBodyView, {
-				body: { kind: 'notice', text: 'Binary output, 3 KB' },
+				body: { kind: 'notice', text: 'Not text, 3 KB. Not shown.' },
 			}),
 		)
-		expect(html).toContain('Binary output, 3 KB')
+		expect(html).toContain('Not text, 3 KB. Not shown.')
 	})
 })
 
@@ -658,7 +662,7 @@ describe('the rendered row', () => {
 		const html = renderToStaticMarkup(createElement(ToolTranscriptRow, { thread, id: key() }))
 		expect(plain(html)).toContain('Ran exit 3')
 		// The failure is said once, under the headline, in the cell; the separate badge is for screen readers only.
-		expect(html.match(/Exit code 3/g)).toHaveLength(1)
+		expect(html.match(/Didn’t finish \(code 3\)/g)).toHaveLength(1)
 		expect(html).not.toContain('failed (exit 3)')
 		expect(html).toMatch(/class="tool-status transcript-visually-hidden">Failed</)
 		expect(html).not.toMatch(/class="tool-status">Failed</)

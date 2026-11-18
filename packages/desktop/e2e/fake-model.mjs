@@ -235,7 +235,17 @@ function respond(res, request, step) {
 			}
 		: { role: "assistant", content: step.text };
 	const finish = step.tool ? "tool_calls" : "stop";
-	const usage = { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 };
+	// A step may report its own usage (`usage: { prompt_tokens, completion_tokens }`) or none (`usage: null`),
+	// so a flow can show an exact total and an estimate.
+	const usage =
+		step.usage === null
+			? undefined
+			: step.usage
+				? {
+						...step.usage,
+						total_tokens: step.usage.prompt_tokens + (step.usage.completion_tokens ?? 0),
+					}
+				: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 };
 	if (!request.stream) {
 		res.setHeader("content-type", "application/json");
 		res.end(
@@ -277,7 +287,7 @@ function respond(res, request, step) {
 		);
 	} else res.write(chunk({ role: "assistant", content: step.text }, null));
 	res.write(chunk({}, finish));
-	if (request.stream_options?.include_usage)
+	if (usage && request.stream_options?.include_usage)
 		res.write(
 			`data: ${JSON.stringify({ id, object: "chat.completion.chunk", created: 1, model: request.model, choices: [], usage })}\n\n`,
 		);

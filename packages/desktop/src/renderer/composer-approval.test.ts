@@ -219,7 +219,7 @@ const screenMoment = (app = 'Editor'): PermissionView => ({
 it('draws the screen question as a one-time choice between allow now and not now', () => {
 	// A conversation that holds a standing yes still gets the question, and is not offered another one.
 	const html = draw(screenMoment(), '/work/site', 'Site', true)
-	expect(html).toContain('aria-label="Screen question"')
+	expect(html).toContain('aria-label="A question about the screen"')
 	expect(html).toContain('Let Editor use your keyboard and mouse for a moment?')
 	expect(html).toContain('Namzu needs your keyboard and mouse for a moment to use Editor.')
 	expect(html).toMatch(/data-tone="accept"[^>]*>Allow this app</)
@@ -280,7 +280,7 @@ it('says so when a command in a later call of the request is the risky one', () 
 		},
 		'/work',
 	)
-	expect(html).toContain('Runs with elevated rights.')
+	expect(html).toContain('Runs as administrator.')
 	expect(html).toContain('Looks like it deletes or overwrites files.')
 })
 

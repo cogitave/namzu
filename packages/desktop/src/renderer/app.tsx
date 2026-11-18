@@ -77,6 +77,7 @@ import { ComputerKeyboardOwners } from './computer-keyboard-owner.js'
 import { createComputerReadScheduler } from './computer-read-pace.js'
 import { computerWorkspaceIds } from './computer-workspace-toolbar.js'
 import { ConfirmRemovalDialog } from './confirm-removal-dialog.js'
+import type { ContextPanelSource } from './context-panel.js'
 import { ConversationActionsMenu } from './conversation-actions-menu.js'
 import {
 	type ConversationActionEntry,
@@ -176,7 +177,8 @@ import {
 import { normalConversationProject } from './normal-conversation.js'
 import { noticeClickAction } from './notice-target.js'
 import { dismissNotice, notify } from './notify.js'
-import { opensInBrowser, outputFiles, outputToOpen } from './outputs-model.js'
+import { OutputCardsContext, type OutputCardsContextValue } from './output-card.js'
+import { type MadeOutput, opensInBrowser, outputFiles, outputToOpen } from './outputs-model.js'
 import { PalChatTranscript } from './pal-chat-transcript.js'
 import { PalCommunicationDialog, type PalSettingsTab } from './pal-communication-dialog.js'
 import {
@@ -1247,9 +1249,27 @@ export function App({
 	const activePath = filesEnabled ? activeFilePath(panelTabs) : undefined
 	// What the conversation wrote, from the receipts the Changes panel reads.
 	const outputsEnabled = Boolean(api.readSessionOutput && !palConversation && sessionId)
+	// Result files a command or a tool made, found by the host when a turn ends.
+	const [madeFiles, setMadeFiles] = useState<{ sessionId: string; files: MadeOutput[] }>()
+	// biome-ignore lint/correctness/useExhaustiveDependencies: only a turn ending or another conversation decides.
+	useEffect(() => {
+		const ask = api.madeSessionFiles
+		if (!ask || !outputsEnabled || !sessionId || thread.running || historyPending) return
+		let current = true
+		ask(sessionId).then(
+			(files) => current && setMadeFiles({ sessionId, files }),
+			() => undefined,
+		)
+		return () => {
+			current = false
+		}
+	}, [sessionId, thread.running, historyPending, outputsEnabled])
 	const outputs = useMemo(
-		() => (outputsEnabled ? outputFiles(thread) : []),
-		[outputsEnabled, thread],
+		() =>
+			outputsEnabled
+				? outputFiles(thread, madeFiles?.sessionId === sessionId ? madeFiles.files : [])
+				: [],
+		[outputsEnabled, thread, madeFiles, sessionId],
 	)
 	// The conversation's browser pages; a page a turn writes is opened in them by the effect below.
 	const browserPane = useBrowserPane(api, sessionId)
@@ -1273,6 +1293,28 @@ export function App({
 			return true
 		},
 		[openLinksInBrowser],
+	)
+	const madeOutputs = useMemo(() => outputs.filter((file) => file.made), [outputs])
+	// A document a card or a link names opens in the Files pane, which reads Markdown as a page.
+	const openOutputBeside = useCallback(
+		(path: string) => {
+			updatePanelTabs((state) => openFileTab(state, path))
+			openPaneRef.current('files')
+		},
+		[updatePanelTabs],
+	)
+	const outputCardsValue = useMemo<OutputCardsContextValue | undefined>(
+		() =>
+			outputsEnabled && sessionId
+				? {
+						api,
+						sessionId,
+						made: madeOutputs,
+						onOpen: openOutputBeside,
+						onNotice: announce,
+					}
+				: undefined,
+		[outputsEnabled, api, sessionId, madeOutputs, openOutputBeside, announce],
 	)
 	// The versions of each output already known, so only a write made after this is news.
 	const outputsSeen = useRef(new Map<string, Map<string, number>>())
@@ -1508,6 +1550,13 @@ export function App({
 		enabled: Boolean(project?.trusted) && project?.status === 'ready',
 		running: thread.running,
 	})
+	const contextPanelSource: ContextPanelSource | undefined =
+		palConversation || !sessionId || !api.contextUsage
+			? undefined
+			: {
+					ask: (detail) => api.contextUsage?.(sessionId, detail) ?? Promise.resolve(null),
+					compacting: thread.compaction?.state === 'running',
+				}
 	const detailsWork: SessionWork = externalHarness
 		? { state: 'unavailable' }
 		: jobsSessionId === sessionId && !jobsLoading && !jobsError
@@ -1772,7 +1821,7 @@ export function App({
 	})
 	const surfaceEngine = permissionEngine ?? harnessView?.selected ?? 'namzu'
 	const surfaceReason = !terminalReady
-		? 'Open a trusted project to use the engine’s command line.'
+		? 'Open a trusted project to run this in a terminal.'
 		: thread.messages.length > 0 || thread.running
 			? 'Start a new conversation to open this engine’s command line.'
 			: undefined
@@ -1924,7 +1973,7 @@ export function App({
 				tab.exitCode !== 0 &&
 				terminalGroup?.order.includes(tab.id)
 			)
-				notify(`${tab.title} exited with code ${tab.exitCode}.`, { tone: 'warning' })
+				notify(`${tab.title} closed with an error.`, { tone: 'warning' })
 		}
 	}, [terminalGroup?.tabs, terminalGroup?.order])
 	const pluginOwner = useRef({ key: pluginsKey, generation: 0 })
@@ -3387,9 +3436,7 @@ export function App({
 								modelSettings: new Map(),
 							})
 						)
-							throw new Error(
-								'This conversation’s connection or pane changed while opening. Try again.',
-							)
+							throw new Error('This conversation changed while it was opening. Try again.')
 					}
 					if (!status) return
 					hydratedSession.current = view.id
@@ -4079,15 +4126,16 @@ export function App({
 						throw new Error(
 							'This conversation is too large to copy. The limit is 4 MB, so nothing was copied.',
 						)
-					await copyToClipboard(result.markdown, 'Conversation copied as Markdown.')
+					await copyToClipboard(result.markdown, 'Conversation copied as text.')
 				})
 				return
 			case 'copy-id':
-				void act(() => copyToClipboard(view.id, 'Conversation ID copied.'))
+				void act(() => copyToClipboard(view.id, 'Copied to clipboard.'))
 				return
 			case 'copy-path': {
 				const owner = projects.find((item) => item.id === view.projectId)
-				if (owner?.path) void act(() => copyToClipboard(owner.path, 'Project path copied.'))
+				if (owner?.path)
+					void act(() => copyToClipboard(owner.path, 'Folder location copied to clipboard.'))
 				return
 			}
 			case 'open-editor':
@@ -4269,7 +4317,7 @@ export function App({
 					palId: saved.id,
 					name: saved.name,
 					startedAt: Date.now(),
-					failure: failure instanceof Error ? failure.message : String(failure),
+					failure: plainErrorText(failure, 'open this Pal'),
 				})
 			return
 		}
@@ -7892,71 +7940,73 @@ export function App({
 											<ProjectFilesContext.Provider value={projectFiles}>
 												<BackgroundWorkContext.Provider value={openBackgroundWork}>
 													<PalStartContext.Provider value={palStartControls}>
-														<Transcript
-															key={sessionId || 'blank'}
-															thread={thread}
-															animate={!historyPending && !restoringTabs}
-															workDisclosures={
-																workDisclosureView.sessionId === sessionId
-																	? workDisclosureView.choices
-																	: undefined
-															}
-															onWorkDisclosureChange={(key, open) =>
-																onWorkDisclosureChange(sessionId, key, open)
-															}
-															onOpenTurnChanges={(path) => {
-																focusChangesFile(path)
-																openPane('changes')
-															}}
-															onOpenChangedFile={projectFiles ? openChangedFile : undefined}
-															onOpenPalInbox={openPalInbox}
-															onCopySummary={(text) =>
-																void copyToClipboard(text, 'Summary copied.').catch(() =>
-																	notify('Copy is unavailable.', { tone: 'error' }),
-																)
-															}
-															onOpenTasks={() => {
-																openSessionPane()
-															}}
-															onUndoTurn={
-																api.undoPreview && api.undoTurn
-																	? (turnId) => setUndoingTurn({ sessionId, turnId })
-																	: undefined
-															}
-															undoKept={undoKept}
-															projectRoot={project?.path}
-															closedWhileRunning={conversation?.closedWhileRunning === true}
-															onContinueStopped={
-																conversation?.closedWhileRunning === true &&
-																!thread.running &&
-																!loading &&
-																!restoringTabs &&
-																!frozen &&
-																project?.trusted &&
-																project.status === 'ready' &&
-																choice.provider &&
-																providerReady
-																	? () => void act(() => retryReply(CONTINUE_STOPPED_PROMPT))
-																	: undefined
-															}
-															stopShownBelow={stopShownBelow}
-															renderMessageAction={(message, key) => (
-																<MessageActions
-																	text={message.text}
-																	onRetry={
-																		retryable && retryable.reply === message
-																			? () => void act(() => retryReply(retryable.prompt))
-																			: undefined
-																	}
-																>
-																	<LocalSpeechReadAloud
-																		speech={speech}
-																		messageId={key}
+														<OutputCardsContext.Provider value={outputCardsValue}>
+															<Transcript
+																key={sessionId || 'blank'}
+																thread={thread}
+																animate={!historyPending && !restoringTabs}
+																workDisclosures={
+																	workDisclosureView.sessionId === sessionId
+																		? workDisclosureView.choices
+																		: undefined
+																}
+																onWorkDisclosureChange={(key, open) =>
+																	onWorkDisclosureChange(sessionId, key, open)
+																}
+																onOpenTurnChanges={(path) => {
+																	focusChangesFile(path)
+																	openPane('changes')
+																}}
+																onOpenChangedFile={projectFiles ? openChangedFile : undefined}
+																onOpenPalInbox={openPalInbox}
+																onCopySummary={(text) =>
+																	void copyToClipboard(text, 'Summary copied.').catch(() =>
+																		notify('Copy is unavailable.', { tone: 'error' }),
+																	)
+																}
+																onOpenTasks={() => {
+																	openSessionPane()
+																}}
+																onUndoTurn={
+																	api.undoPreview && api.undoTurn
+																		? (turnId) => setUndoingTurn({ sessionId, turnId })
+																		: undefined
+																}
+																undoKept={undoKept}
+																projectRoot={project?.path}
+																closedWhileRunning={conversation?.closedWhileRunning === true}
+																onContinueStopped={
+																	conversation?.closedWhileRunning === true &&
+																	!thread.running &&
+																	!loading &&
+																	!restoringTabs &&
+																	!frozen &&
+																	project?.trusted &&
+																	project.status === 'ready' &&
+																	choice.provider &&
+																	providerReady
+																		? () => void act(() => retryReply(CONTINUE_STOPPED_PROMPT))
+																		: undefined
+																}
+																stopShownBelow={stopShownBelow}
+																renderMessageAction={(message, key) => (
+																	<MessageActions
 																		text={message.text}
-																	/>
-																</MessageActions>
-															)}
-														/>
+																		onRetry={
+																			retryable && retryable.reply === message
+																				? () => void act(() => retryReply(retryable.prompt))
+																				: undefined
+																		}
+																	>
+																		<LocalSpeechReadAloud
+																			speech={speech}
+																			messageId={key}
+																			text={message.text}
+																		/>
+																	</MessageActions>
+																)}
+															/>
+														</OutputCardsContext.Provider>
 													</PalStartContext.Provider>
 												</BackgroundWorkContext.Provider>
 											</ProjectFilesContext.Provider>
@@ -8193,6 +8243,7 @@ export function App({
 								sending={sending[draftOwner] ?? false}
 								usage={palConversation ? undefined : thread.usage}
 								limits={usageLimits}
+								contextPanel={contextPanelSource}
 								shells={
 									// The open Activity panel's own list is the freshest count; otherwise the observer's.
 									detailsWork.state === 'known' && detailsWork.running > 0

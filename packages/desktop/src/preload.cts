@@ -187,6 +187,9 @@ const api: DesktopApi = {
 		return () => ipcRenderer.removeListener('namzu:browser-event', handler)
 	},
 	openSessionOutput: (id, path, target) => invoke('openSessionOutput', id, path, target),
+	describeSessionOutputs: (id, paths) => invoke('describeSessionOutputs', id, paths),
+	madeSessionFiles: (id) => invoke('madeSessionFiles', id),
+	saveSessionOutput: (id, path) => invoke('saveSessionOutput', id, path),
 	resolveProjectLinks: (id, refs) => invoke('resolveProjectLinks', id, refs),
 	openProjectPath: (id, path, target, line) => invoke('openProjectPath', id, path, target, line),
 	projectEditors: () => invoke('projectEditors'),
@@ -229,6 +232,7 @@ const api: DesktopApi = {
 	backgroundWorkStatuses: () => invoke('backgroundWorkStatuses'),
 	refreshTasks: (id) => invoke('refreshTasks', id),
 	readJob: (id, job) => invoke('readJob', id, job),
+	contextUsage: (id, detail) => invoke('contextUsage', id, detail),
 	stopJob: (id, job) => invoke('stopJob', id, job),
 	updateState: () => invoke('updateState'),
 	updateInfo: () => invoke('updateInfo'),

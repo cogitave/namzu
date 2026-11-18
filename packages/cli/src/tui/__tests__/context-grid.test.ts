@@ -118,8 +118,34 @@ describe('the legend and header', () => {
 		expect(lines).toEqual([
 			'⛁ System prompt: 4k tokens (2.0%)',
 			'⛁ Messages: 38k tokens (19.0%)',
-			'⛶ Free space: 158k (79.0%)',
+			'⛶ Free space: 125k (62.5%)',
+			'⛝ Autocompact buffer: 33k tokens (16.5%)',
 		])
+	})
+
+	it('lists tools that load only when needed last, dim, and gives them no squares', () => {
+		const withDeferred = analyzeContextUsage({
+			windowTokens: 200_000,
+			windowSource: 'auto',
+			autoCompact: true,
+			contextTokens: 42_000,
+			deferredMcpToolTokens: 61_500,
+		})
+		const legend = buildLegend(withDeferred)
+		expect(legend.at(-1)).toMatchObject({
+			name: 'MCP tools (deferred)',
+			value: '61.5k tokens, loaded only when needed',
+			dimName: true,
+		})
+		const plain = analyzeContextUsage({
+			windowTokens: 200_000,
+			windowSource: 'auto',
+			autoCompact: true,
+			contextTokens: 42_000,
+		})
+		expect(buildGridCells(withDeferred.categories, 200_000, 100)).toEqual(
+			buildGridCells(plain.categories, 200_000, 100),
+		)
 	})
 
 	it('names the compaction window only when it was overridden', () => {

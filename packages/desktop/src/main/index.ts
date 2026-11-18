@@ -105,6 +105,7 @@ import { LocalSpeechService } from './local-speech.js'
 import { applyLoginItem, loginItemAvailable, readLoginItem } from './login-item.js'
 import { installMediaPermissions } from './media-permissions.js'
 import { MeteredWatch, windowsCostQuery } from './metered-network.js'
+import { nativeFailureBody } from './native-failure.js'
 import { createNewProject } from './new-project.js'
 import { OpenIn, systemOpenInHost } from './open-in.js'
 import { Operator } from './operator.js'
@@ -1270,6 +1271,7 @@ function register(): void {
 		['jobs', 0],
 		['browserPane', 0],
 		['readJob', 0],
+		['contextUsage', 0],
 		['harnesses', 1],
 		['providers', 1],
 		['readyConversation', 1],
@@ -1831,8 +1833,25 @@ function register(): void {
 		else if (!on) releaseAwake((held) => held === sessionId)
 		return awakeHolds.has(sessionId)
 	})
-	handle('openSessionOutput', (id: string, path: string, target: 'browser' | 'file-manager') =>
-		operator.openSessionOutput(id, path, target),
+	handle(
+		'openSessionOutput',
+		(id: string, path: string, target: 'browser' | 'file-manager' | 'system') =>
+			operator.openSessionOutput(id, path, target),
+	)
+	handle('describeSessionOutputs', (id: string, paths: string[]) =>
+		operator.describeSessionOutputs(id, paths),
+	)
+	handle('madeSessionFiles', (id: string) => operator.madeSessionFiles(id))
+	// The dialog is the only place a destination is chosen; the window never names a path to write.
+	handleWindow('saveSessionOutput', ({ window }, id: string, path: string) =>
+		operator.saveSessionOutput(id, path, async (defaultName) => {
+			if (!window) return undefined
+			const picked = await dialog.showSaveDialog(window, {
+				title: 'Save a copy',
+				defaultPath: join(app.getPath('downloads'), defaultName),
+			})
+			return picked.canceled ? undefined : picked.filePath
+		}),
 	)
 	handle('resolveProjectLinks', (id: string, refs: string[]) =>
 		operator.resolveProjectLinks(id, refs),
@@ -2166,6 +2185,9 @@ function register(): void {
 	handle('backgroundWorkStatuses', () => operator.backgroundWorkStatuses())
 	handle('refreshTasks', (id: string) => operator.refreshTasks(id))
 	handle('readJob', (id: string, job: string) => operator.readJob(id, job))
+	handle('contextUsage', (id: string, detail?: 'summary' | 'full') =>
+		operator.contextUsage(id, detail),
+	)
 	handle('stopJob', (id: string, job: string) => operator.stopJob(id, job))
 }
 // The development and unpacked app have no embedded executable icon; an installed build does, and
@@ -2657,10 +2679,7 @@ app.on('before-quit', (event) => {
 		.then(() => app.quit())
 		.catch((error: unknown) => {
 			diagnostics.record('shutdown_failed', { error })
-			dialog.showErrorBox(
-				'Namzu could not stop',
-				error instanceof Error ? error.message : String(error),
-			)
+			dialog.showErrorBox('Namzu couldn’t close cleanly', nativeFailureBody(error, 'stop'))
 		})
 })
 // Keep module loading independent of Electron's ready event.
@@ -2786,7 +2805,7 @@ void app
 					label: 'Help',
 					submenu: [
 						{
-							label: 'Open diagnostic logs',
+							label: 'Open support logs',
 							accelerator: 'CmdOrCtrl+Shift+L',
 							click: () => {
 								void observeDesktopIpc(
@@ -2799,8 +2818,8 @@ void app
 									0,
 								).catch(() =>
 									dialog.showErrorBox(
-										'Diagnostic logs unavailable',
-										diagnostics.view().notice ?? 'Could not open the diagnostic folder.',
+										'Couldn’t open the support folder',
+										'Try again. If it keeps failing, restart Namzu.',
 									),
 								)
 							},
@@ -2876,9 +2895,6 @@ void app
 	})
 	.catch((error: unknown) => {
 		diagnostics.record('startup_failed', { error })
-		dialog.showErrorBox(
-			'Namzu could not start',
-			error instanceof Error ? error.message : String(error),
-		)
+		dialog.showErrorBox('Namzu couldn’t start', nativeFailureBody(error, 'start'))
 		app.quit()
 	})

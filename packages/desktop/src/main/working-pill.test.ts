@@ -145,7 +145,8 @@ describe('the working pill', () => {
 		press({ type: 'stop', sessionId: 's1' })
 		await Promise.resolve()
 		await Promise.resolve()
-		expect(shown.at(-1)).toMatchObject({ step: expect.stringContaining('Could not stop') })
+		expect(shown.at(-1)).toMatchObject({ step: 'Couldn’t stop this reply' })
+		expect(JSON.stringify(shown.at(-1))).not.toContain('engine did not answer')
 	})
 
 	it('grows to hold an approval that can be answered from the pill', () => {

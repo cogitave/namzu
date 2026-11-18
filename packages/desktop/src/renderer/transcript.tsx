@@ -15,6 +15,7 @@ import { AttachmentList } from './attachment-list.js'
 import { providerWaitAnnouncement, providerWaitText } from './friendly-errors.js'
 import { ChevronRightIcon } from './icons.js'
 import { Message, MessageContent, MessageFooter, timeDescription, timeRoleOf } from './message.js'
+import { TurnOutputs } from './output-card.js'
 import { PalMessageReceipts } from './pal-message-receipts.js'
 import { PlanBox, PlanRow, PlanTouched } from './plan-row-view.js'
 import { isTaskEntry, latestPlanTurn, planSummary } from './plan-row.js'
@@ -29,6 +30,7 @@ import {
 	dateSeparatorLabel,
 	elapsedLabel,
 	replyClock,
+	runActionOf,
 	runDefaultOpen,
 	splitActivity,
 	stoppedWorkSummary,
@@ -115,7 +117,7 @@ function Entry({
 		return thought?.text.trim() ? (
 			<section
 				className="reasoning"
-				aria-label="Public reasoning"
+				aria-label="Thinking"
 				data-timeline-turn={entry.turn}
 				data-reasoning-id={entry.id}
 				data-transcript-entry-key={transcriptEntryKey(entry)}
@@ -282,13 +284,7 @@ function ToolRun({
 	const active = presentations.some((item) => item.state === 'running' || item.state === 'waiting')
 	const live = active || (turnLive && last)
 	const states = presentations.map((item) => item.state)
-	const actions = presentations.map((item) => ({
-		kind: item.kind,
-		subject: item.file?.path,
-		state: item.state,
-		created: item.operation === 'created',
-		background: item.shell?.background === true,
-	}))
+	const actions = presentations.map(runActionOf)
 	const attention = turnAttention(thread, entries)
 	const lookups = presentations.length > 0 && presentations.every((item) => item.kind === 'lookup')
 	const label = lookups
@@ -536,19 +532,17 @@ function TurnActivity({
 				<CollapsibleTrigger
 					className="activity-trigger"
 					aria-label={[
-						elapsed
-							? `${label} for ${elapsed}`
-							: fold?.duration
-								? `${label} · ${fold.duration}`
-								: label,
+						elapsed ? `${label} for ${elapsed}` : fold?.took ? `${label} · ${fold.took}` : label,
 						...flags.map((flag) => flag.text),
 					].join('. ')}
 					title={
 						savedDuration
-							? 'Time reported for this saved work'
+							? 'How long this work took'
 							: live
 								? undefined
-								: timeDescription(savedTime)
+								: [timeDescription(savedTime), fold?.took ? `Took ${fold.took}` : undefined]
+										.filter(Boolean)
+										.join('. ') || undefined
 					}
 					data-duration-source={savedDuration ? 'recorded-runtime' : undefined}
 					data-live={live ? '' : undefined}
@@ -577,6 +571,11 @@ function TurnActivity({
 								· {fold.duration}
 							</span>
 						)}
+						{fold?.added ? (
+							<span className="turn-activity-added" data-tone="added">
+								+{fold.added}
+							</span>
+						) : null}
 						<AttentionFlags flags={flags} />
 					</span>
 					<FoldChevron />
@@ -956,6 +955,7 @@ const TurnGroupView = memo(function TurnGroupView({
 						<MessageFooter time={clock.time} focusable />
 					</Message>
 				)}
+				<TurnOutputs thread={thread} turn={group.turn} changes={changes} />
 				{!live && (
 					<TurnFoot
 						thread={thread}

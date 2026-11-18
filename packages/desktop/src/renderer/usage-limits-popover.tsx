@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { LimitsNotification } from '../shared/limits-protocol.js'
 import type { ThreadUsage } from '../shared/projection.js'
+import { ContextInline, type ContextPanelSource, useContextPanel } from './context-panel.js'
 import { type ContextRingModel, contextRingModel, piePath } from './context-ring.js'
 import { Button } from './ui/button.js'
 import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
@@ -189,14 +190,30 @@ export function indicatorState(
  * The small indicator beside the model, as a ring or a pie, that opens the usage limits popover.
  * It turns amber at 75 percent of the context or of any account window, and red at 90.
  */
+/** Where the context goes, under the limits: read only while the popover is open (it mounts then). */
+function ContextSection({
+	source,
+	usage,
+}: { source: ContextPanelSource; usage: ThreadUsage | undefined }) {
+	const read = useContextPanel(source, usage, true)
+	return (
+		<div className="limits-context" data-testid="limits-context">
+			<ContextInline read={read} usage={usage} compacting={source.compacting} />
+		</div>
+	)
+}
+
 export function UsageIndicator({
 	usage,
 	control,
 	variant,
+	contextPanel,
 }: {
 	usage: ThreadUsage | undefined
 	control: UsageLimitsControl
 	variant: 'ring' | 'readout'
+	/** When given, the popover also says where the context goes. */
+	contextPanel?: ContextPanelSource
 }) {
 	const [open, setOpen] = useState(false)
 	const state = indicatorState(usage, control)
@@ -275,6 +292,7 @@ export function UsageIndicator({
 				className="limits-popup"
 			>
 				<UsageLimitsPanel model={model} context={state.context} control={control} />
+				{contextPanel ? <ContextSection source={contextPanel} usage={usage} /> : null}
 			</PopoverPopup>
 		</Popover>
 	)

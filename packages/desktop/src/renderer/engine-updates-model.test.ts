@@ -28,7 +28,7 @@ const codex: EngineUpdateItem = {
 	checkedAt: 5,
 	command: 'npm install -g @openai/codex@latest',
 	runnable: true,
-	note: 'Installed with npm',
+	note: 'Installed from the npm package list',
 }
 const second: EngineUpdateItem = {
 	id: 'claude-code',
@@ -61,7 +61,7 @@ describe('a row of Settings ▸ Updates', () => {
 			versions: '0.154.0 → 0.162.0',
 			status: 'Update available',
 			tone: 'attention',
-			note: 'Installed with npm',
+			note: 'Installed from the npm package list',
 			action: 'update',
 			command: 'npm install -g @openai/codex@latest',
 			busy: false,
@@ -73,7 +73,7 @@ describe('a row of Settings ▸ Updates', () => {
 			...namzu,
 			bundled: false,
 			method: 'npm-global',
-			note: 'Installed with npm',
+			note: 'Installed from the npm package list',
 		}
 		expect(engineRowView(standalone).title).toBe('Namzu command line (installed separately)')
 		expect(engineRowView({ ...standalone, missing: true }).title).toBe('Namzu command line')
@@ -180,7 +180,11 @@ describe('the bundled command line when the registry knows a newer one', () => {
 	const behind = { ...namzu, installed: '49.1.1', latest: '51.0.1', newerThanBundled: '51.0.1' }
 	it('names the bundled version, the newest known and how it arrives, not "Up to date"', () => {
 		const view = engineRowView(behind)
-		expect(view).toMatchObject({ versions: '49.1.1', status: 'A newer one exists', busy: false })
+		expect(view).toMatchObject({
+			versions: '49.1.1',
+			status: 'A newer version is available',
+			busy: false,
+		})
 		expect(view.note).toBe(
 			'Bundled with this app: 49.1.1. The newest known is 51.0.1. It arrives with an update of this app.',
 		)
@@ -208,7 +212,7 @@ describe('the bundled command line when the registry knows a newer one', () => {
 				createElement(EngineUpdateRows, { target: { groupId: 'g1' } }),
 			),
 		)
-		expect(markup).toContain('A newer one exists')
+		expect(markup).toContain('A newer version is available')
 		expect(markup).toContain('The newest known is 51.0.1')
 		expect(markup).not.toContain('aria-label="Update Namzu command line"')
 		expect(markup).not.toContain('<code>')
@@ -226,13 +230,13 @@ describe('what is behind', () => {
 		expect(availableEngineUpdates(behind)).toEqual([codex])
 		expect(engineBadge(behind)).toEqual({
 			visible: true,
-			label: 'Updates available. Open Settings to update Codex CLI',
+			label: 'Updates available for Codex CLI. Open Settings to update.',
 			tooltip: 'Update available for Codex CLI',
 		})
 		expect(
 			engineBadge(state(codex, { ...second, status: 'available', latest: '2.1.296' })),
 		).toMatchObject({
-			label: 'Updates available. Open Settings to update Codex CLI and Claude Code',
+			label: 'Updates available for Codex CLI and Claude Code. Open Settings to update.',
 		})
 		expect(engineBadge(state(second, namzu))).toEqual({ visible: false })
 		expect(engineBadge(undefined)).toEqual({ visible: false })
@@ -351,7 +355,7 @@ describe('the rail badge for programs that are behind', () => {
 	it('is a labelled button directly above Settings when a program is behind', () => {
 		const markup = rail(controls(state(codex)), { status: 'idle' })
 		const badge = markup.indexOf(
-			'aria-label="Updates available. Open Settings to update Codex CLI"',
+			'aria-label="Updates available for Codex CLI. Open Settings to update."',
 		)
 		expect(badge).toBeGreaterThan(-1)
 		expect(badge).toBeLessThan(markup.indexOf('aria-label="Settings"'))
@@ -362,7 +366,7 @@ describe('the rail badge for programs that are behind', () => {
 	it('lets the app’s own restart keep priority', () => {
 		const markup = rail(controls(state(codex)), { status: 'ready', version: '0.2.0' })
 		expect(markup).toContain('Update ready. Restart Namzu to install version 0.2.0')
-		expect(markup).not.toContain('Updates available. Open Settings')
+		expect(markup).not.toContain('Open Settings to update')
 	})
 	it('is absent when nothing is behind or there is nowhere to open', () => {
 		expect(rail(controls(state(second, namzu)), { status: 'idle' })).not.toContain(

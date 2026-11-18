@@ -8,7 +8,8 @@
  *
  * The conversation's own share is never counted separately: it is whatever the
  * measured prompt size is once the fixed parts are taken out, so the categories
- * always add up to the figure the provider reported.
+ * always add up to the figure the provider reported. A figure the kernel only
+ * estimated covers less than a provider's, and is read that way.
  */
 
 import { CHARS_PER_TOKEN } from '../constants/limits.js'
@@ -29,14 +30,29 @@ export const CONTEXT_CATEGORY_ORDER = [
 	'messages',
 ] as const
 
-export type ContextCategoryId = (typeof CONTEXT_CATEGORY_ORDER)[number] | 'buffer' | 'free'
-export type ContextCategoryKind = 'used' | 'free' | 'buffer'
+/**
+ * Tool definitions that are not sent yet (they load only when the model asks
+ * for them) are sized as `deferred`. They are never counted as used.
+ */
+export const DEFERRED_CATEGORY_ORDER = ['deferred-tools', 'deferred-mcp-tools'] as const
+
+export type ContextCategoryId =
+	| (typeof CONTEXT_CATEGORY_ORDER)[number]
+	| (typeof DEFERRED_CATEGORY_ORDER)[number]
+	| 'buffer'
+	| 'free'
+export type ContextCategoryKind = 'used' | 'deferred' | 'free' | 'buffer'
 
 export interface ContextCategory {
 	readonly id: ContextCategoryId
 	readonly name: string
 	readonly tokens: number
 	readonly kind: ContextCategoryKind
+}
+
+const DEFERRED_NAMES: Record<(typeof DEFERRED_CATEGORY_ORDER)[number], string> = {
+	'deferred-tools': 'System tools (deferred)',
+	'deferred-mcp-tools': 'MCP tools (deferred)',
 }
 
 const NAMES: Record<(typeof CONTEXT_CATEGORY_ORDER)[number], string> = {
@@ -53,9 +69,11 @@ const NAMES: Record<(typeof CONTEXT_CATEGORY_ORDER)[number], string> = {
 export interface ContextUsageInput {
 	readonly windowTokens: number
 	/**
-	 * `auto` when the window is what the provider or model table declares.
-	 * Anything else (`config`, `default`) means the figure was overridden or
-	 * guessed, and the compaction buffer is then drawn.
+	 * `auto` when the window is what the provider or model table declares;
+	 * `config` or `default` when it was overridden or guessed. The compaction
+	 * buffer is drawn for every source whenever the session summarises on its
+	 * own, so this no longer changes the numbers; it stays so a host can say
+	 * where the window came from.
 	 */
 	readonly windowSource: 'auto' | 'config' | 'default'
 	/** What the model may write in one reply; absent reserves the full cap. */
@@ -67,6 +85,13 @@ export interface ContextUsageInput {
 	 * Absent, the conversation is estimated from `messages`.
 	 */
 	readonly contextTokens?: number
+	/**
+	 * Who counted `contextTokens`. A provider counts the whole request. The
+	 * kernel's own estimate covers only the messages and the tool catalogue, so
+	 * the system prompt, instruction files, skills and agents are added on top
+	 * of it instead of being taken out of it. Absent is read as `provider`.
+	 */
+	readonly measuredBy?: 'provider' | 'estimate'
 	readonly systemPromptTokens?: number
 	/** Tokens of the built-in tool definitions. */
 	readonly systemToolTokens?: number
@@ -75,6 +100,10 @@ export interface ContextUsageInput {
 	readonly agentTokens?: number
 	readonly memoryTokens?: number
 	readonly skillTokens?: number
+	/** Tokens of built-in tool definitions that load only when needed; not counted as used. */
+	readonly deferredToolTokens?: number
+	/** Tokens of tool-server tool definitions that load only when needed; not counted as used. */
+	readonly deferredMcpToolTokens?: number
 	/** The conversation, for the estimate and for the per-tool breakdown. */
 	readonly messages?: readonly Message[]
 }
@@ -125,9 +154,8 @@ function nonNegative(value: number | undefined): number {
 
 function bufferFor(input: ContextUsageInput): number {
 	if (input.autoCompact) {
-		// Drawn only when the window was overridden: on a declared window the
-		// room kept for a reply is not a thing the person chose.
-		if (input.windowSource === 'auto') return 0
+		// Drawn whenever the session summarises on its own, for every window
+		// source: it is the room the trigger keeps for the next reply.
 		const reserve = Math.min(
 			input.maxOutputTokens !== undefined && input.maxOutputTokens > 0
 				? input.maxOutputTokens
@@ -191,6 +219,13 @@ export function analyzeContextUsage(input: ContextUsageInput): ContextBreakdown 
 		messages: 0,
 	}
 	const fixedTotal = Object.values(fixed).reduce((sum, tokens) => sum + tokens, 0)
+	// The kernel's estimate counts the messages (recorded context included) and
+	// the tool catalogue, and nothing else; the rest sits on top of it.
+	const estimated = input.measuredBy === 'estimate'
+	const inEstimate = estimated
+		? fixed['system-tools'] + fixed['mcp-tools'] + recordedTokens
+		: fixedTotal
+	const outsideEstimate = fixedTotal - inEstimate
 	const messages = input.messages ?? []
 	const bufferTokens = Math.min(bufferFor(input), windowTokens)
 
@@ -199,18 +234,25 @@ export function analyzeContextUsage(input: ContextUsageInput): ContextBreakdown 
 	const measured = nonNegative(input.contextTokens)
 	const rawMessages =
 		measured > 0
-			? Math.max(0, measured - fixedTotal)
+			? Math.max(0, measured - inEstimate)
 			: messages.reduce(
 					(sum, message) => (isTurnContextEntry(message) ? sum : sum + tokensOfContent(message)),
 					0,
 				)
 	fixed.messages = Math.min(rawMessages, Math.max(0, windowTokens - fixedTotal - bufferTokens))
 
-	const totalTokens = measured > 0 ? Math.max(measured, fixedTotal) : fixedTotal + rawMessages
+	const totalTokens =
+		measured > 0 ? Math.max(measured + outsideEstimate, fixedTotal) : fixedTotal + rawMessages
 	const used = fixedTotal + fixed.messages
 	const categories: ContextCategory[] = []
 	for (const id of CONTEXT_CATEGORY_ORDER) {
 		if (fixed[id] > 0) categories.push({ id, name: NAMES[id], tokens: fixed[id], kind: 'used' })
+	}
+	for (const id of DEFERRED_CATEGORY_ORDER) {
+		const tokens = nonNegative(
+			id === 'deferred-tools' ? input.deferredToolTokens : input.deferredMcpToolTokens,
+		)
+		if (tokens > 0) categories.push({ id, name: DEFERRED_NAMES[id], tokens, kind: 'deferred' })
 	}
 	const free = Math.max(0, windowTokens - used - bufferTokens)
 	if (bufferTokens > 0) {

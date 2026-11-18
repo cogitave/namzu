@@ -257,7 +257,7 @@ it('retains Pal attachments, queue editing and complete approval while composing
 	})
 	expect(html).toContain('notes.txt')
 	expect(button(html, 'Remove notes.txt')).not.toMatch(/\bdisabled=/)
-	expect(html).toContain('aria-label="Tool approval"')
+	expect(html).toContain('aria-label="Permission to act"')
 	expect(html).toContain('pwd')
 	expect(html).toContain('Accept')
 	expect(button(html, 'Stop reply')).not.toMatch(/\bdisabled=/)
@@ -417,7 +417,7 @@ it('retains functional normal attachment, plugin, effort, queue and approval con
 	expect(html).toContain('aria-label="Model: space-bunny-free')
 	expect(html).toContain('composer-waiting')
 	expect(button(html, 'Remove notes.txt')).not.toMatch(/\bdisabled=/)
-	expect(html).toContain('aria-label="Tool approval"')
+	expect(html).toContain('aria-label="Permission to act"')
 	expect(html).toContain('Accept')
 	// Saved as the old Full access id (`auto`), shown as Full access (`bypass`).
 	expect(html).toContain('data-composer-permission="bypass"')
@@ -593,7 +593,7 @@ it('is ready on first open with only the free Zen models: no card, Send enabled,
 		draft: 'make me a small website',
 		onOpenModelSettings: () => {},
 	})
-	expect(html).not.toContain('Add an API key or sign in to start')
+	expect(html).not.toContain('Add a key or sign in to start')
 	expect(html).not.toContain('Connect a provider')
 	expect(button(html, 'Send message')).not.toMatch(/\bdisabled=/)
 	expect(button(html, 'Send message')).not.toMatch(/aria-disabled=/)
@@ -609,7 +609,7 @@ it('shows the starter ideas on first open with only the free models and an empty
 		draft: '',
 	})
 	expect(html).toContain('Ideas to get started')
-	expect(html).not.toContain('Add an API key or sign in to start')
+	expect(html).not.toContain('Add a key or sign in to start')
 })
 
 it('still tells a first-timer to add a key or sign in when truly nothing is available', () => {
@@ -620,7 +620,7 @@ it('still tells a first-timer to add a key or sign in when truly nothing is avai
 		draft: 'make me a small website',
 		onOpenModelSettings: () => {},
 	})
-	expect(html).toContain('Add an API key or sign in to start')
+	expect(html).toContain('Add a key or sign in to start')
 	expect(html).toContain('Connect a provider')
 	expect(html).not.toContain('Ideas to get started')
 	expect(html).not.toContain('Namzu terminal app')
@@ -629,14 +629,14 @@ it('still tells a first-timer to add a key or sign in when truly nothing is avai
 
 it('keeps the empty state away once a provider is connected, and while providers still load', () => {
 	const connected = render({ connected: true, empty: true, draft: '' })
-	expect(connected).not.toContain('Add an API key or sign in to start')
+	expect(connected).not.toContain('Add a key or sign in to start')
 	expect(connected).toContain('Ideas to get started')
 	const loading = render({
 		providers: { available: [], selected: null },
 		providersLoading: true,
 		empty: true,
 	})
-	expect(loading).not.toContain('Add an API key or sign in to start')
+	expect(loading).not.toContain('Add a key or sign in to start')
 })
 
 it('names the shortcut that takes the newest waiting message back, only while one waits', () => {

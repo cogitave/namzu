@@ -317,11 +317,20 @@ the other categories are taken out, so the lines add up to the window.
 When the provider lets the prompt cache lifetime be chosen, `Prompt cache lifetime: 5 minutes` (or `1 hour`) follows the legend.
 
 The Autocompact buffer (the room kept for a reply plus 13,000 tokens, 33,000 on
-a 200,000-token window) and an `Auto-compact window:` line appear only when the
-window was set in the config or assumed for an unrecognised model. On a window
-the provider or Namzu's model table declares, there is no buffer and free space
-is the window minus what is used. When the context is past the window, a red
-line says by how much and to run `/compact`.
+a 200,000-token window) is drawn whenever automatic shortening is on, whatever
+the window's source; free space is the window minus what is used and the
+buffer. (Before this change it was drawn only for a window set in the config or
+assumed for an unrecognised model, so on a window the provider declares the
+numbers were 33,000 tokens higher in free space.) An `Auto-compact window:`
+line appears only when the window was set in the config or assumed. Tool
+definitions that load only when needed (tool search) are listed after the
+categories as `System tools (deferred)` and `MCP tools (deferred)`, dim, with
+no squares and no share: they are not in the request, so they are not counted
+as used. When the context is past the window, a red line says by how much and
+to run `/compact`.
+
+The sizes are gathered by one shared module (`src/integrations/sessions/context-gather.ts`)
+that the Desktop's context panel uses too, so the two agree.
 
 Under the grid, each list that has something in it: MCP tools (`/mcp`), Custom
 agents (`.namzu/agents/`, grouped by Project and User), Memory files

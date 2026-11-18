@@ -104,7 +104,7 @@ it('flags what the request itself says about a deletion, an overwrite and a risk
 		]),
 	).toEqual(['This replaces n.md, which already exists.'])
 	expect(flagsOf([call('bash', { command: 'sudo rm -rf /var/cache/x' })])).toEqual([
-		'Runs with elevated rights.',
+		'Runs as administrator.',
 		'Looks like it deletes or overwrites files.',
 	])
 	// A call the agent marked destructive says so when nothing more specific is known.
@@ -185,6 +185,8 @@ it('names the step a waiting request is about for the line of the turn in flight
 		'Waiting to edit session.ts',
 	)
 	expect(label([call('bash', { command: 'ls' })])).toBe('Waiting to run command')
+	expect(label([call('web_fetch', { url: 'https://x.dev' })])).toBe('Waiting to read a web page')
+	expect(label([call('mcp__docs__lookup', {})])).toBe('Waiting to use a connected tool')
 	expect(label([call('delete', { path: 'old.txt' })])).toBe('Waiting to delete old.txt')
 	expect(
 		label([

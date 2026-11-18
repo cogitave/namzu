@@ -116,7 +116,9 @@ describe('namzu config', () => {
 			}
 			const desktop = readSettings({ home, env: {} as NodeJS.ProcessEnv })
 			// Listed in the order of the Settings nav, so compare as sets.
-			expect(listed.settings.map((s) => s.key).sort()).toEqual(descriptors.map((d) => d.path).sort())
+			expect(listed.settings.map((s) => s.key).sort()).toEqual(
+				descriptors.map((d) => d.path).sort(),
+			)
 			for (const row of listed.settings) {
 				const seen = desktop.descriptors.find((d) => d.path === row.key)
 				expect(row.default, row.key).toEqual(seen?.default)

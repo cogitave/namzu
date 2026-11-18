@@ -118,6 +118,11 @@ export class RuntimeClient extends EventEmitter {
 	supportsHooksView(): boolean {
 		return this.hooksView
 	}
+	private contextPanel = false
+	/** A host that predates the context panel does not list `namzu/session/context`. */
+	supportsContextPanel(): boolean {
+		return this.contextPanel
+	}
 	private conversationSearch = false
 	supportsConversationSearch(): boolean {
 		return this.conversationSearch
@@ -373,6 +378,7 @@ export class RuntimeClient extends EventEmitter {
 		this.skillsList = offers('skillsList')
 		this.browserStatus = offers('browserStatus')
 		this.hooksView = offers('hooksView')
+		this.contextPanel = offers('contextPanel')
 		this.conversationSearch = offers('conversationSearch')
 		this.projectUntrust = offers('projectUntrust')
 		this.projectChanges = offers('projectChanges')
@@ -473,6 +479,9 @@ export class RuntimeClient extends EventEmitter {
 								const error = new Error(
 									String((frame.error as { message?: unknown }).message ?? 'Namzu request failed.'),
 								)
+								// A stable code the engine attached; Desktop words the failure by it.
+								const engineCode = (frame.error as { data?: { code?: unknown } }).data?.code
+								if (typeof engineCode === 'string') Object.assign(error, { engineCode })
 								this.report('cli_request_failed', {
 									operation: entry.method,
 									request: frame.id,

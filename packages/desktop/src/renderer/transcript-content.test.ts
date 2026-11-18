@@ -70,7 +70,7 @@ describe('public transcript content', () => {
 		const html = render(thread)
 		expect(html).toContain('data-message-phase="commentary"')
 		expect(html).toContain('aria-label="Progress update"')
-		expect(html).toContain('aria-label="Public reasoning"')
+		expect(html).toContain('aria-label="Thinking"')
 		expect(html).not.toContain('transcript-content-label')
 		expect(html).toContain('Completed')
 		const contents = [

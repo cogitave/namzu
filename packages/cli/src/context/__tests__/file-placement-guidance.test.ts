@@ -28,7 +28,7 @@ describe('the "Where files go" guidance', () => {
 		for (const phrase of [
 			'A file they asked for goes where they said, or where the project keeps such files',
 			'A backup copy goes in the scratch folder, not beside the file',
-			'Give the person the full path',
+			'Give a full path only when the person needs it',
 		]) {
 			expect(text, phrase).toContain(phrase)
 		}
