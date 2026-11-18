@@ -775,6 +775,10 @@
 	align-items: stretch;
 	width: 100%;
 }
+/* Under a wide control the default button sits at the start, where a box's Save sits. */
+.settings-row[data-stacked] .settings-config-control > button {
+	align-self: flex-start;
+}
 .settings-config-field {
 	display: inline-flex;
 	align-items: center;
@@ -855,6 +859,16 @@ input.settings-config-number {
 	justify-content: space-between;
 	gap: 12px;
 }
+/* Each entry of a per-entry choice reads like a row's own text: name, then a muted line. */
+.settings-config-level-name {
+	min-width: 0;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+}
+.settings-config-levels select {
+	flex: none;
+	width: 168px;
+}
 .settings-config-item {
 	min-width: 0;
 	overflow-wrap: anywhere;
@@ -919,9 +933,15 @@ input.settings-config-number {
 }
 .mcp-server-main {
 	display: flex;
+	flex: 1 1 auto;
 	flex-direction: column;
 	min-width: 0;
 	gap: 2px;
+}
+/* The state sits beside the actions at the line's end, so it lines up from one server to the next. */
+.mcp-server > .settings-badge {
+	flex: none;
+	align-self: center;
 }
 .mcp-server-name {
 	font-size: var(--text-small);
