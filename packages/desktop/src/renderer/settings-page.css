@@ -1,6 +1,4 @@
 .settings-page {
-	/* The page's scrolling area starts under the 36 px header band, so its first line never sits against the band's line. */
-	margin-top: var(--frame-header-height);
 	flex: 1;
 	min-width: 0;
 	min-height: 0;
@@ -12,7 +10,7 @@
 	/* No wider than the input box's column and centred in the main area, with the same side space. */
 	width: min(var(--settings-column-width), 100% - 2 * var(--frame-column-side));
 	margin: 0 auto;
-	padding: 24px 0 32px;
+	padding: 16px 0 32px;
 	box-sizing: border-box;
 	animation: plugins-arrive 180ms var(--motion-ease) both;
 }
@@ -38,48 +36,6 @@
 	color: var(--muted-foreground);
 	font-size: var(--text-small);
 	line-height: var(--leading-small);
-}
-.settings-page-search {
-	display: flex;
-	align-items: center;
-	width: 260px;
-	min-width: 0;
-	height: var(--settings-search-height);
-	gap: 8px;
-	padding: 0 6px 0 8px;
-	border: 1px solid var(--border);
-	border-radius: var(--settings-search-radius);
-	background: var(--background);
-	color: var(--muted-foreground);
-	transition: border-color 150ms var(--motion-ease), box-shadow 150ms var(--motion-ease);
-}
-.settings-page-search:focus-within {
-	border-color: var(--ring);
-	outline: 2px solid transparent;
-	outline-offset: 1px;
-	box-shadow: var(--focus-ring);
-}
-.settings-page-search > svg {
-	width: 16px;
-	height: 16px;
-	flex: none;
-}
-.settings-page-search input {
-	width: 100%;
-	min-width: 0;
-	padding: 0;
-	border: 0;
-	background: transparent;
-	color: var(--foreground);
-	font: inherit;
-	font-size: var(--text-small);
-	outline: none;
-}
-.settings-page-search input::placeholder {
-	color: var(--muted-foreground);
-}
-.settings-page-search input::-webkit-search-cancel-button {
-	appearance: none;
 }
 /* A group heading: 15/22 at weight 600, 40 above and 16 under. The first one has the title block's own
    space above it, so it adds none. */
@@ -553,12 +509,166 @@
 	font-size: var(--text-caption);
 	line-height: var(--leading-caption);
 }
-/* The left column: one button per section, the current one marked. */
+/* The dialog: one panel over the app. Its size and margins are the --settings-dialog-* tokens; a
+   narrower window keeps at least 16 px of the app visible around it. */
+.settings-dialog-scrim {
+	position: fixed;
+	inset: 0;
+	z-index: var(--z-overlay-scrim);
+	background: var(--settings-scrim);
+	animation: settings-dialog-fade var(--dur-quick) var(--motion-ease) both;
+}
+.settings-dialog-viewport {
+	position: fixed;
+	inset: 0;
+	z-index: var(--z-overlay);
+	pointer-events: none;
+}
+.settings-dialog {
+	--settings-dialog-side: clamp(16px, 10vw, var(--settings-dialog-margin-x));
+	--settings-dialog-block: clamp(16px, 4.4vh, var(--settings-dialog-margin-y));
+	position: fixed;
+	inset: 0;
+	margin: auto;
+	box-sizing: border-box;
+	width: min(var(--settings-dialog-width), 100vw - 2 * var(--settings-dialog-side));
+	height: min(var(--settings-dialog-height), 100vh - 2 * var(--settings-dialog-block));
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+	container-type: inline-size;
+	container-name: settings-dialog;
+	border: 1px solid var(--border);
+	border-radius: var(--settings-dialog-radius);
+	background: var(--background);
+	color: var(--foreground);
+	box-shadow: none;
+	outline: none;
+	pointer-events: auto;
+	animation: settings-dialog-fade var(--dur-quick) var(--motion-ease) both;
+}
+@keyframes settings-dialog-fade {
+	from {
+		opacity: 0;
+	}
+}
+.settings-dialog-title {
+	position: relative;
+	flex: none;
+	display: flex;
+	align-items: center;
+	height: var(--settings-dialog-title-height);
+	padding: 0 var(--settings-dialog-title-height) 0 var(--settings-nav-pad);
+	box-shadow: inset 0 -1px 0 var(--border);
+}
+.settings-dialog-title h2 {
+	margin: 0;
+	font-size: var(--text-reading);
+	font-weight: var(--weight-strong);
+	line-height: var(--leading-reading);
+}
+.settings-dialog-close {
+	position: absolute;
+	/* The panel's own 1 px edge sits outside this box, so the button is 8 px from the edge's outer line. */
+	top: calc(var(--settings-dialog-close-inset) - 1px);
+	right: calc(var(--settings-dialog-close-inset) - 1px);
+	width: var(--settings-dialog-close-size);
+	height: var(--settings-dialog-close-size);
+}
+.settings-dialog-body {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+}
+.settings-dialog-nav {
+	flex: none;
+	box-sizing: border-box;
+	width: clamp(var(--settings-nav-min-width), 20.7%, var(--settings-nav-width));
+	min-height: 0;
+	overflow: hidden;
+	background: var(--sidebar);
+	box-shadow: inset -1px 0 0 var(--sidebar-border);
+}
+.settings-dialog .settings-page {
+	margin-top: 0;
+}
+.settings-dialog .settings-page-content {
+	width: calc(100% - 2 * var(--settings-nav-pad));
+	max-width: var(--settings-column-width);
+	margin-inline: auto 0;
+	margin-inline-start: var(--settings-nav-pad);
+	padding-top: var(--settings-nav-pad);
+}
+/* The left column: search on top, then the groups of sections, the current one filled. It does not scroll. */
+.settings-sidebar-content {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	padding: var(--settings-nav-pad) var(--settings-nav-pad) 0;
+	box-sizing: border-box;
+	overflow: hidden;
+}
+.settings-nav-search {
+	flex: none;
+	display: flex;
+	align-items: center;
+	height: var(--settings-search-height);
+	gap: 8px;
+	padding: 0 4px 0 10px;
+	border-radius: var(--settings-search-radius);
+	background: var(--input);
+	color: var(--muted-foreground);
+	transition: box-shadow 150ms var(--motion-ease);
+}
+.settings-nav-search:focus-within {
+	box-shadow: var(--focus-ring);
+}
+.settings-nav-search > svg {
+	width: 16px;
+	height: 16px;
+	flex: none;
+}
+.settings-nav-search input {
+	flex: 1;
+	width: 100%;
+	min-width: 0;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--foreground);
+	font: inherit;
+	font-size: var(--text-small);
+	outline: none;
+}
+.settings-nav-search input::placeholder {
+	color: var(--muted-foreground);
+}
+.settings-nav-search input::-webkit-search-cancel-button {
+	appearance: none;
+}
 .settings-sidebar-navigation {
 	display: flex;
 	flex-direction: column;
+	padding-top: 12px;
+}
+.settings-nav-group {
+	display: flex;
+	flex-direction: column;
 	gap: var(--frame-row-space);
-	padding: var(--frame-row-first) var(--frame-row-inset-end) 0 var(--frame-row-inset);
+}
+/* A hairline between groups, 12 px from each side's rows and inset from the column's edges. */
+.settings-nav-group + .settings-nav-group {
+	margin-top: 12px;
+	padding-top: 12px;
+	background: linear-gradient(var(--sidebar-border), var(--sidebar-border)) top / calc(100% - 24px) 1px
+		no-repeat;
+	background-position: center top;
+}
+.settings-nav-empty {
+	margin: 4px 10px;
+	color: var(--muted-foreground);
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .settings-sidebar-navigation button {
 	display: flex;
@@ -568,7 +678,7 @@
 	width: 100%;
 	padding: 0 var(--frame-row-padding);
 	border: 0;
-	border-radius: var(--frame-row-radius);
+	border-radius: var(--settings-nav-row-radius);
 	background: transparent;
 	color: var(--foreground);
 	font-size: var(--text-small);
@@ -592,6 +702,34 @@
 	flex: none;
 	color: var(--sidebar-muted-foreground);
 }
+/* A narrow dialog keeps the column but drops the labels, so the nav never overlaps the content. */
+@container settings-dialog (max-width: 520px) {
+	.settings-dialog-nav {
+		width: var(--settings-nav-icon-width);
+	}
+	.settings-sidebar-content {
+		padding-inline: 6px;
+	}
+	.settings-nav-search input,
+	.settings-nav-search > button {
+		display: none;
+	}
+	.settings-nav-search {
+		justify-content: center;
+		padding: 0;
+	}
+	.settings-sidebar-navigation button {
+		justify-content: center;
+		padding: 0;
+	}
+	.settings-sidebar-navigation button > span {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+	}
+}
 @container workspace (max-width: 640px) {
 	.settings-page-content {
 		width: calc(100% - 2 * var(--frame-column-side-narrow));
@@ -600,9 +738,6 @@
 		flex-direction: column;
 		align-items: stretch;
 		gap: 14px;
-	}
-	.settings-page-search {
-		width: auto;
 	}
 	.settings-project {
 		flex-wrap: wrap;
@@ -618,8 +753,12 @@
 	.settings-switch,
 	.settings-switch::after,
 	.settings-sidebar-navigation button,
-	.settings-page-search {
+	.settings-nav-search {
 		transition: none;
+	}
+	.settings-dialog,
+	.settings-dialog-scrim {
+		animation: none;
 	}
 }
 

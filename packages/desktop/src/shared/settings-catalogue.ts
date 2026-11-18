@@ -12,7 +12,8 @@
  *
  * Add an entry here and it is validated, drawn, searchable and defaulted with no second edit.
  */
-import type { DesktopSettings, SettingsSection } from './settings-protocol.js'
+import type { DesktopSettings } from './settings-protocol.js'
+import { SETTINGS_SECTIONS, type SettingsSection } from './settings-sections.js'
 import { SHELL_CHOICES, SHELL_CHOICE_LABELS } from './terminal-tabs.js'
 
 /** The seconds a turn must run before a "finished" notice is worth showing. */
@@ -410,6 +411,25 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		default: false,
 		appliesWhen: 'now',
 		keywords: ['tabs', 'strip', 'bar', 'conversations', 'window', 'layout'],
+	},
+
+	{
+		id: 'last-settings-section',
+		key: 'lastSettingsSection',
+		owner: 'desktop',
+		section: 'general',
+		label: 'Last section of Settings',
+		description: 'Settings opens on the section you looked at last.',
+		control: {
+			kind: 'select',
+			options: SETTINGS_SECTIONS.map((value) => ({
+				value,
+				label: value.charAt(0).toUpperCase() + value.slice(1),
+			})),
+		},
+		default: 'general',
+		appliesWhen: 'now',
+		hidden: true,
 	},
 
 	// Updates

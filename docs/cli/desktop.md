@@ -955,17 +955,19 @@ With the strip hidden, every way of moving still works:
 
 ## Settings
 
-**Settings** is a page of its own in the main area, like Plugins: the gear (in the foot of the sidebar, or in the rail while it is collapsed), the
-command palette's **Settings**, the File menu's **Settings…**
-(`Ctrl+,` or `⌘,`) all open it. The left column lists the sections and the right side shows
-one, under one heading, the section's name (the column's "Settings" is the only other one). A section is addressed as `settings/<section>` (`general`, `models`, `projects`, `appearance`,
-`updates`, `speech`, `about`); the search field at the top matches setting labels,
+**Settings** is a dialog over the app, not a page: the gear (in the foot of the sidebar, or in the rail while it is collapsed), the
+command palette's **Settings**, the File menu's **Settings…** (`Ctrl+,` or `⌘,`) and the slash commands `/config`, `/mcp`, `/hooks`, `/theme`, `/login` and `/release-notes` all open it. Nothing behind it changes: the conversation, its draft, the panes and the scroll stay as they were, the app is dimmed (a 52 percent black layer, also over the title row) and inert while the dialog is open, and closing puts the focus back on the control that opened it.
+
+The panel is 1024 by 761 pixels in a 1280 by 833 window (128 pixels at the sides, 36 above and below), never larger, with a 12 pixel corner, a hairline edge and no shadow; in a smaller window it keeps at least 16 pixels of the app around it, and below 520 pixels wide the left column shows only icons. The sizes are the `--settings-dialog-*` tokens in `theme.css`. A title band ("Settings", and a close button at the top right) sits over two columns: the left column (it never scrolls) holds the search field and the sections in four groups separated by hairlines (Models; General, Appearance, Speech; Agent, Tools, Projects, Terminal; Telemetry, Updates, About, `SETTINGS_NAV_GROUPS` in `settings-model.ts`); the right column shows one section under one heading and scrolls on its own.
+
+It closes by the X button, **Esc** and a click on the dimmed area. **Esc** in a search that has text clears it first. A confirmation asked from inside Settings (a risky value, **Remove project**) stacks above the dialog and **Esc** closes only it. Settings opens on the section visited last, also after a restart (`lastSettingsSection` in `desktop-settings.json`); a command or link that names a section wins. A section is addressed as `settings/<section>` (`general`, `models`, `projects`, `appearance`,
+`updates`, `speech`, `about`); the search field at the top of the left column matches setting labels,
 descriptions and keywords (`src/renderer/settings-model.ts`, case and accents folded so a Turkish
-capital İ or a dotless ı finds the plain letters) and a result opens its section
+capital İ or a dotless ı finds the plain letters), lists only the sections with a match, and a result opens its section
 and focuses that setting. Every control is a real input with a label, groups are
-fieldsets, the section list is a `nav`, and the page works at the 560px minimum window.
+fieldsets, the section list is a `nav`, and the dialog works at the 560px minimum window.
 Screenshots of every section in both themes, narrow, the search, and both removal
-surfaces are in [`research/settings-20261008/`](../../research/settings-20261008/).
+surfaces are in [`research/settings-20261008/`](../../research/settings-20261008/) (taken when Settings was a page).
 
 Sections `agent`, `tools`, `terminal` and `telemetry` and a **Namzu settings** group in General, Models, Projects and Updates hold the keys of the user config file, drawn from the engine's own list; see [Desktop settings for config keys](desktop-settings.md).
 

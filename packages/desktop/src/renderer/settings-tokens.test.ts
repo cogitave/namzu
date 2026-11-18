@@ -17,6 +17,16 @@ const token = (name: string) => new RegExp(`${name}:\\s*([^;]+);`).exec(theme)?.
 describe('settings and search overlay tokens', () => {
 	it('holds the numbers they are measured by', () => {
 		const want: Record<string, string> = {
+			'--settings-dialog-width': '1024px',
+			'--settings-dialog-height': '761px',
+			'--settings-dialog-margin-x': '128px',
+			'--settings-dialog-margin-y': '36px',
+			'--settings-dialog-radius': '12px',
+			'--settings-dialog-title-height': '44px',
+			'--settings-dialog-close-size': '28px',
+			'--settings-dialog-close-inset': '8px',
+			'--settings-nav-width': '211px',
+			'--settings-scrim': 'color-mix(in srgb, black 52%, transparent)',
 			'--settings-search-height': '28px',
 			'--settings-search-radius': '8px',
 			'--settings-group-before': '40px',
@@ -55,6 +65,12 @@ describe('settings and search overlay tokens', () => {
 			'--settings-switch-width',
 			'--settings-control-height',
 			'--settings-search-height',
+			'--settings-dialog-width',
+			'--settings-dialog-height',
+			'--settings-dialog-radius',
+			'--settings-dialog-title-height',
+			'--settings-nav-width',
+			'--settings-scrim',
 		])
 			expect(settings, t).toContain(`var(${t})`)
 		for (const t of [

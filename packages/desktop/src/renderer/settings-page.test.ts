@@ -171,7 +171,8 @@ describe('the settings page', () => {
 			expect(markup.match(/<h1>/g)).toHaveLength(1)
 			expect(markup).toContain(`<h1>${SETTINGS_SECTION_TITLES[section]}</h1>`)
 			expect(markup).not.toContain('<h1>Settings</h1>')
-			expect(markup).toContain('aria-label="Search settings"')
+			// The search lives in the dialog's left column, not in the page header.
+			expect(markup).not.toContain('aria-label="Search settings"')
 			expect(markup).not.toContain('<h2 class="settings-section-title">')
 		}
 	})
@@ -386,6 +387,30 @@ describe('the settings page', () => {
 })
 
 describe('the settings sidebar', () => {
+	it('puts the search on top and the sections in four groups', () => {
+		const markup = renderToStaticMarkup(
+			createElement(SettingsSidebar, { section: 'general', onSection: () => {} }),
+		)
+		expect(markup.indexOf('aria-label="Search settings"')).toBeLessThan(
+			markup.indexOf('aria-label="Settings sections"'),
+		)
+		expect(markup.match(/settings-nav-group/g)).toHaveLength(4)
+	})
+
+	it('lists only the sections with a match while a search is typed', () => {
+		const markup = renderToStaticMarkup(
+			createElement(SettingsSidebar, {
+				section: 'general',
+				onSection: () => {},
+				query: 'theme',
+				matches: [{ id: 'theme', section: 'appearance', label: 'Theme', description: '' }],
+			}),
+		)
+		expect(markup).toContain('<span>Appearance</span>')
+		expect(markup).not.toContain('<span>About</span>')
+		expect(markup.match(/settings-nav-group/g)).toHaveLength(1)
+	})
+
 	it('lists every section as a button and marks the current one', () => {
 		const markup = renderToStaticMarkup(
 			createElement(SettingsSidebar, { section: 'updates', onSection: () => {} }),

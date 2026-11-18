@@ -7,6 +7,7 @@ import {
 	FINISHED_NOTICE_AFTER_SECONDS,
 	catalogueAccepts,
 } from './settings-catalogue.js'
+import { SETTINGS_SECTIONS, type SettingsSection, isSettingsSection } from './settings-sections.js'
 import type { ShellChoice } from './terminal-tabs.js'
 
 export type StartupBehavior = 'continue' | 'home'
@@ -52,6 +53,8 @@ export interface DesktopSettings {
 	 * the one list of conversations, and the bar above the conversation carries its title.
 	 */
 	showConversationTabs: boolean
+	/** The section the Settings dialog was last on; it opens there again, also after a restart. */
+	lastSettingsSection: SettingsSection
 }
 
 /** The values with nothing saved, read from the catalogue so there is one place to change them. */
@@ -103,24 +106,7 @@ export function storedDesktopSettings(value: unknown): DesktopSettings {
 	return settings
 }
 
-export const SETTINGS_SECTIONS = [
-	'general',
-	'models',
-	'agent',
-	'tools',
-	'projects',
-	'appearance',
-	'terminal',
-	'telemetry',
-	'updates',
-	'speech',
-	'about',
-] as const
-export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
-
-export function isSettingsSection(value: unknown): value is SettingsSection {
-	return typeof value === 'string' && (SETTINGS_SECTIONS as readonly string[]).includes(value)
-}
+export { SETTINGS_SECTIONS, isSettingsSection, type SettingsSection }
 
 /** The folders a person may open from About. Main resolves the kind to a path. */
 export type DataFolderKind = 'app' | 'namzu' | 'diagnostics' | 'speech'

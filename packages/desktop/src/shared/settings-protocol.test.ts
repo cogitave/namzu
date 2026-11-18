@@ -57,6 +57,7 @@ it('reads a stored file entry by entry and ignores what it does not know', () =>
 		notifyFinished: true,
 		notifySound: false,
 		showConversationTabs: false,
+		lastSettingsSection: 'general',
 	})
 })
 
@@ -76,6 +77,7 @@ it('documents the defaults the spec names', () => {
 		notifyFinished: true,
 		notifySound: false,
 		showConversationTabs: false,
+		lastSettingsSection: 'general',
 	})
 })
 
@@ -116,4 +118,14 @@ it('names the notification defaults: needs you, failed and finished on, sound of
 		showConversationTabs: false,
 		notifyFailed: false,
 	})
+})
+
+it('remembers the section Settings was last on, and ignores anything that is not one', () => {
+	expect(DEFAULT_DESKTOP_SETTINGS.lastSettingsSection).toBe('general')
+	expect(desktopSettingsPatch({ lastSettingsSection: 'appearance' })).toEqual({
+		lastSettingsSection: 'appearance',
+	})
+	expect(() => desktopSettingsPatch({ lastSettingsSection: 'plugins' })).toThrow()
+	expect(storedDesktopSettings({ lastSettingsSection: 'about' }).lastSettingsSection).toBe('about')
+	expect(storedDesktopSettings({ lastSettingsSection: 'nope' }).lastSettingsSection).toBe('general')
 })

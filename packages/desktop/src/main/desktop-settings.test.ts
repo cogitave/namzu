@@ -33,6 +33,7 @@ it('starts on the documented defaults without writing anything', () => {
 		notifyFinished: true,
 		notifySound: false,
 		showConversationTabs: false,
+		lastSettingsSection: 'general',
 	})
 	expect(onError).not.toHaveBeenCalled()
 	expect(() => readFileSync(file)).toThrow()
@@ -59,6 +60,7 @@ it('validates a change, saves it atomically, and survives a restart', () => {
 		notifyFinished: true,
 		notifySound: false,
 		showConversationTabs: false,
+		lastSettingsSection: 'general',
 	})
 	expect(changes).toHaveLength(1)
 	expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({
@@ -77,6 +79,7 @@ it('validates a change, saves it atomically, and survives a restart', () => {
 		notifyFinished: true,
 		notifySound: false,
 		showConversationTabs: false,
+		lastSettingsSection: 'general',
 	})
 	expect(new DesktopSettingsStore({ file }).get()).toMatchObject({
 		startup: 'home',

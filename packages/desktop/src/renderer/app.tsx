@@ -244,7 +244,7 @@ import { readSessionPanelOpen, writeSessionPanelOpen } from './session-panel-sta
 import { SessionPanel } from './session-panel.js'
 import { type SessionServers, type SessionWork, sessionSummary } from './session-summary-model.js'
 import { projectRemovalCopy, removalNotice, settingsRoute } from './settings-model.js'
-import { SettingsPage, SettingsSidebar } from './settings-page.js'
+import { SettingsDialog } from './settings-page.js'
 import type { ArchiveView } from './sidebar-archive.js'
 import {
 	type ListOutcome,
@@ -861,7 +861,7 @@ export function App({
 				event.defaultPrevented
 			)
 				return
-			if (commandOpen) return
+			if (commandOpen || settingsOpenRef.current) return
 			// Ctrl+Shift+B is the Browser pane's.
 			if (
 				(event.ctrlKey || event.metaKey) &&
@@ -877,12 +877,17 @@ export function App({
 		return () => window.removeEventListener('keydown', key)
 	}, [toggleSidebar, commandOpen])
 	const setAppearance = onAppearanceChange
-	const [railSection, setRailSection] = useState<'spaces' | 'plugins' | 'settings' | null>(null)
+	const [railSection, setRailSection] = useState<'spaces' | 'plugins' | null>(null)
 	const [settingsSection, setSettingsSection] = useState<SettingsSection>('general')
 	const [settingsFocus, setSettingsFocus] = useState<string>()
-	/** Plugins and Settings replace the conversation with a page of their own. */
-	const pageOpen = railSection === 'plugins' || railSection === 'settings'
-	const settingsOpen = railSection === 'settings'
+	/** Settings is a dialog over whatever is showing; nothing behind it changes. */
+	const [settingsOpen, setSettingsOpen] = useState(false)
+	const settingsOpenRef = useRef(settingsOpen)
+	settingsOpenRef.current = settingsOpen
+	/** The control that had the focus when Settings opened, so closing puts it back. */
+	const settingsOpener = useRef<HTMLElement | null>(null)
+	/** Plugins replaces the conversation with a page of its own. */
+	const pageOpen = railSection === 'plugins'
 	// Read at all times: it decides whether the strip of tabs or the bar stands above the conversation.
 	const desktopSettings = useDesktopSettings(api, true)
 	const tabsHint = useMemo(() => readShowTabsHint(localStorage), [])
@@ -901,7 +906,7 @@ export function App({
 	useEffect(() => {
 		const previous = previousRailSection.current
 		previousRailSection.current = railSection
-		if ((previous === 'plugins' || previous === 'settings') && railSection === null)
+		if (previous === 'plugins' && railSection === null)
 			input.current?.focus({ preventScroll: true })
 	}, [railSection])
 	// The panes beside the conversation are showing. What they hold is the layout below; this flag is
@@ -4639,7 +4644,7 @@ export function App({
 		if (focused)
 			onShellState({
 				page:
-					railSection === 'plugins' || railSection === 'settings'
+					railSection === 'plugins'
 						? railSection
 						: palsPage
 							? 'pals'
@@ -5177,23 +5182,58 @@ export function App({
 		setRailSection('spaces')
 		revealSidebar('[data-project-group] .project-row')
 	}
-	/** Settings is a page like Plugins; `settings/<section>` is its route and a search result adds a target. */
+	/**
+	 * Settings is a dialog over the app; `settings/<section>` is its route and a search result adds a
+	 * target row. A section asked for wins; with none, it opens on the one visited last, and an open
+	 * dialog stays where it is. Nothing behind it changes.
+	 */
 	const openSettings = (section?: SettingsSection, focusId?: string) => {
-		abandonTabRestore()
-		navigation.current += 1
-		setPalScreen(undefined)
-		setPluginSelection(undefined)
-		setPalsPage(false)
-		if (section) setSettingsSection(section)
+		if (!settingsOpenRef.current) {
+			const active = document.activeElement
+			settingsOpener.current =
+				active instanceof HTMLElement && active !== document.body ? active : null
+			setSettingsSection(section ?? desktopSettings.settings?.lastSettingsSection ?? 'general')
+		} else if (section) setSettingsSection(section)
 		setSettingsFocus(focusId)
-		setRailSection('settings')
-		setJobsOpen(false)
+		setSettingsOpen(true)
 		setSideOpen(false)
 	}
+	const closeSettings = () => setSettingsOpen(false)
+	const settingsReturnFocus = () =>
+		settingsOpener.current?.isConnected && settingsOpener.current.getClientRects().length > 0
+			? settingsOpener.current
+			: input.current
+	// The section shown is the one reopened next time, also after a restart.
+	const storedSettingsSection = useRef(desktopSettings.settings?.lastSettingsSection)
+	storedSettingsSection.current = desktopSettings.settings?.lastSettingsSection
+	const changeDesktopSettings = desktopSettings.change
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a visit is the trigger; the stored value is read through its ref
+	useEffect(() => {
+		if (settingsOpen && storedSettingsSection.current !== settingsSection)
+			void changeDesktopSettings({ lastSettingsSection: settingsSection })
+	}, [settingsOpen, settingsSection])
 	/** Home, from the rail or from the foot of a sidebar with no "New conversation" row: a new conversation. */
 	const goHome = () => {
 		if (!loading) void act(newConversation)
 	}
+	/** The confirmation for removing a project; while Settings is open it stacks inside that dialog. */
+	const projectRemovalDialog = removingProject
+		? (() => {
+				const copy = projectRemovalCopy(removingProject)
+				return (
+					<ConfirmRemovalDialog
+						key={`remove-project:${removingProject.id}`}
+						title={copy.title}
+						description={copy.description}
+						actionLabel={copy.actionLabel}
+						pendingLabel={copy.pendingLabel}
+						onClose={() => setRemovingProject(undefined)}
+						returnFocus={projectRemovalReturnFocus}
+						onConfirm={() => confirmedRemoval(() => removeProject(removingProject))}
+					/>
+				)
+			})()
+		: null
 	// While the sidebar is open its foot holds the rail's controls, and the rail is drawn only when the
 	// sidebar is collapsed (or an overlay, in a narrow window). A control with the focus moves with it.
 	const railDrawn = mobile || sideCollapsed
@@ -5619,6 +5659,8 @@ export function App({
 			)
 				return
 			if (event.defaultPrevented) return
+			// The dialog owns the keyboard while it is open: nothing behind it reacts.
+			if (settingsOpenRef.current) return
 			if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 'k') {
 				event.preventDefault()
 				if (commandOpen) setCommandOpen(false)
@@ -6888,22 +6930,7 @@ export function App({
 								}}
 							/>
 						)}
-						{removingProject &&
-							(() => {
-								const copy = projectRemovalCopy(removingProject)
-								return (
-									<ConfirmRemovalDialog
-										key={`remove-project:${removingProject.id}`}
-										title={copy.title}
-										description={copy.description}
-										actionLabel={copy.actionLabel}
-										pendingLabel={copy.pendingLabel}
-										onClose={() => setRemovingProject(undefined)}
-										returnFocus={projectRemovalReturnFocus}
-										onConfirm={() => confirmedRemoval(() => removeProject(removingProject))}
-									/>
-								)
-							})()}
+						{!settingsOpen && projectRemovalDialog}
 						<CommandPalette
 							open={commandOpen}
 							onOpenChange={setCommandOpen}
@@ -7048,51 +7075,6 @@ export function App({
 									: undefined
 							}
 						/>
-						{railSection === 'settings' && (
-							<>
-								{sideOpen && (
-									<button
-										type="button"
-										className="scrim"
-										aria-label="Close sidebar"
-										onClick={() => setSideOpen(false)}
-									/>
-								)}
-								<aside
-									id="namzu-settings-sidebar"
-									className={`sidebar plugins-navigation-sidebar settings-navigation-sidebar ${sideOpen ? 'open' : ''}`}
-									inert={sideCollapsed && !sideOpen}
-									aria-hidden={sideCollapsed && !sideOpen}
-									aria-label="Settings"
-								>
-									<SettingsSidebar
-										section={settingsSection}
-										onSection={(section) => {
-											setSettingsSection(section)
-											setSettingsFocus(undefined)
-											// A narrow window shows the list as an overlay; choosing a section closes it.
-											setSideOpen(false)
-										}}
-									/>
-									<Button
-										variant="ghost-muted"
-										size="icon-xs"
-										className="sidebar-close plugins-sidebar-close"
-										aria-label="Close sidebar"
-										onClick={() => setSideOpen(false)}
-									>
-										<XIcon />
-									</Button>
-									<SidebarFoot
-										section={railSection ?? 'home'}
-										onHome={goHome}
-										onSettings={() => openSettings()}
-										update={update}
-										onOpenUpdates={() => openSettings('updates')}
-									/>
-								</aside>
-							</>
-						)}
 						{railSection === 'plugins' && (
 							<>
 								{sideOpen && (
@@ -7154,7 +7136,7 @@ export function App({
 				data-computer-chat={computerPage ? chatMotion.renderedLayout : undefined}
 				data-chat-minimized={computerPage && floatingChatMinimized}
 				data-page={
-					railSection === 'plugins' || railSection === 'settings'
+					railSection === 'plugins'
 						? railSection
 						: palsPage
 							? 'pals'
@@ -7313,8 +7295,11 @@ export function App({
 						<PalContextCard {...palContextProps} />
 					</div>
 				)}
-				{railSection === 'settings' && (
-					<SettingsPage
+				{settingsOpen && (
+					<SettingsDialog
+						onClose={closeSettings}
+						returnFocus={settingsReturnFocus}
+						stacked={projectRemovalDialog}
 						section={settingsSection}
 						onSection={(section, focusId) => {
 							setSettingsSection(section)
@@ -7327,13 +7312,13 @@ export function App({
 							...(terminalReady
 								? {
 										onOpenTerminal: () => {
-											setRailSection(null)
+											closeSettings()
 											void act(() => openShellTerminal())
 										},
 									}
 								: {}),
 							onShowOutput: (tabId) => {
-								setRailSection(null)
+								closeSettings()
 								void onAction({ kind: 'activate', groupId: group.id, tabId }).catch((failure) =>
 									showError(failure, 'switch tabs'),
 								)

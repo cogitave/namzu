@@ -4,6 +4,7 @@ import { FINISHED_NOTICE_AFTER_MS, SETTINGS_SECTIONS } from '../shared/settings-
 import {
 	ENGINE_ONLY_SECTIONS,
 	SETTINGS_ENTRIES,
+	SETTINGS_NAV_GROUPS,
 	SETTINGS_SECTION_TITLES,
 	aboutDetailsText,
 	lastCheckedText,
@@ -15,6 +16,7 @@ import {
 	searchSettings,
 	settingsRoute,
 	updateStatusView,
+	visibleNavGroups,
 } from './settings-model.js'
 
 describe('deep links', () => {
@@ -236,5 +238,21 @@ describe('finished notification wording', () => {
 	it('names the same threshold the main process uses, and says "or more"', () => {
 		const entry = searchSettings('done').find((item) => item.id === 'notify-finished')
 		expect(entry?.description).toContain(`${FINISHED_NOTICE_AFTER_MS / 1000} seconds or more`)
+	})
+})
+
+describe('the left column groups', () => {
+	it('lists every section exactly once, in four groups', () => {
+		expect(SETTINGS_NAV_GROUPS).toHaveLength(4)
+		expect([...SETTINGS_NAV_GROUPS.flat()].sort()).toEqual([...SETTINGS_SECTIONS].sort())
+	})
+
+	it('keeps whole groups with no search and only the matching sections with one', () => {
+		expect(visibleNavGroups(undefined)).toEqual(SETTINGS_NAV_GROUPS)
+		expect(visibleNavGroups([{ section: 'speech' }, { section: 'models' }])).toEqual([
+			['models'],
+			['speech'],
+		])
+		expect(visibleNavGroups([])).toEqual([])
 	})
 })

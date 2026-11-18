@@ -132,14 +132,8 @@ pre {
 	visibility: hidden;
 }
 .app[data-page="plugins"] > .sidebar:not(.plugins-navigation-sidebar),
-.app[data-page="settings"] > .sidebar:not(.settings-navigation-sidebar),
-.workspace[data-page="settings"] > :not(.settings-page):not(.toast-viewport),
 .workspace[data-page="plugins"] > :not(.plugins-page) {
 	display: none;
-}
-/* The Settings page has no composer to ride above, so notices sit near the bottom edge. */
-.workspace[data-page="settings"] > .toast-viewport {
-	bottom: 24px;
 }
 .plugins-sidebar-close {
 	position: absolute;
@@ -637,9 +631,9 @@ pre {
 .workspace:has([data-composer-home]) > .topbar {
 	box-shadow: none;
 }
-/* Settings, Plugins and the Pals page have no top bar of their own; the same line is drawn across the
+/* Plugins and the Pals page have no top bar of their own; the same line is drawn across the
    pane at the same y, inside the band, over the page. */
-.workspace:is([data-page="settings"], [data-page="plugins"], [data-page="pals"])::before {
+.workspace:is([data-page="plugins"], [data-page="pals"])::before {
 	content: "";
 	position: absolute;
 	inset: 0 0 auto;

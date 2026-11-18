@@ -51,6 +51,28 @@ export const ENGINE_ONLY_SECTIONS: readonly SettingsSection[] = [
 /** The line under the heading while a search is showing results. */
 export const SETTINGS_SEARCH_SUBTITLE = 'Matches from every section.'
 
+/**
+ * The left column's groups, top to bottom, with a hairline between them. Models comes first on its
+ * own because nothing else works without a provider; what the app looks like and says comes next;
+ * what the agent may do follows; the facts about this install end the list.
+ */
+export const SETTINGS_NAV_GROUPS: readonly (readonly SettingsSection[])[] = [
+	['models'],
+	['general', 'appearance', 'speech'],
+	['agent', 'tools', 'projects', 'terminal'],
+	['telemetry', 'updates', 'about'],
+]
+
+/** The groups with only the sections that have a match; with no search, every group whole. */
+export function visibleNavGroups(
+	matches: readonly { section: SettingsSection }[] | undefined,
+): SettingsSection[][] {
+	const shown = matches ? new Set(matches.map((entry) => entry.section)) : undefined
+	return SETTINGS_NAV_GROUPS.map((group) =>
+		group.filter((section) => !shown || shown.has(section)),
+	).filter((group) => group.length > 0)
+}
+
 /** `settings/<section>`; a bare `settings` means the first section. */
 export function settingsRoute(section: SettingsSection): string {
 	return `settings/${section}`

@@ -349,6 +349,22 @@
 	   28 px control make 52, a label over one line of description makes 68 (the copy block carries 1 px
 	   above and below its two lines, the one pixel that brings 42 to 44). */
 	--settings-column-width: var(--frame-column-width);
+	/* The Settings dialog: 1024 x 761 in a 1280 x 833 window (128 at the sides, 36 above and below), never
+	   larger, the nav column 211 wide, the title band 44, the close button 28 at 8 from the corner. */
+	--settings-dialog-width: 1024px;
+	--settings-dialog-height: 761px;
+	--settings-dialog-margin-x: 128px;
+	--settings-dialog-margin-y: 36px;
+	--settings-dialog-radius: 12px;
+	--settings-dialog-title-height: 44px;
+	--settings-dialog-close-size: 28px;
+	--settings-dialog-close-inset: 8px;
+	--settings-nav-width: 211px;
+	--settings-nav-min-width: 168px;
+	--settings-nav-icon-width: 56px;
+	--settings-nav-pad: 16px;
+	--settings-nav-row-radius: 8px;
+	--settings-scrim: color-mix(in srgb, black 52%, transparent);
 	--settings-search-height: 28px;
 	--settings-search-radius: 8px;
 	--settings-group-before: 40px;

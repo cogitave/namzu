@@ -1,3 +1,4 @@
+import { Dialog } from '@base-ui/react/dialog'
 import { Activity, Bot, KeyRound, SquareTerminal, Volume2, Wrench } from 'lucide-react'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { newerKernelText } from '../shared/engine-update-protocol.js'
@@ -8,13 +9,12 @@ import {
 	appliesText,
 	catalogueEntry,
 } from '../shared/settings-catalogue.js'
-import {
-	type DataFolderKind,
-	type DesktopInfo,
-	type DesktopSettings,
-	SETTINGS_SECTIONS,
-	type SettingsSection,
-	type StartupBehavior,
+import type {
+	DataFolderKind,
+	DesktopInfo,
+	DesktopSettings,
+	SettingsSection,
+	StartupBehavior,
 } from '../shared/settings-protocol.js'
 import type { UpdateInfo, UpdateState } from '../shared/update-protocol.js'
 import { OWN_ROW_CONFIG_PATHS, configSearchEntries } from './config-settings-model.js'
@@ -48,12 +48,14 @@ import {
 	SETTINGS_SEARCH_SUBTITLE,
 	SETTINGS_SECTION_SUBTITLES,
 	SETTINGS_SECTION_TITLES,
+	type SettingsEntry,
 	aboutDetailsText,
 	lastCheckedText,
 	platformText,
 	projectTrustText,
 	searchSettings,
 	updateStatusView,
+	visibleNavGroups,
 } from './settings-model.js'
 import { Row, Switch } from './settings-row.js'
 import type { Appearance } from './sidebar.js'
@@ -84,34 +86,76 @@ const SECTION_ICONS: Record<SettingsSection, IconComponent> = {
 	about: InfoIcon,
 }
 
-/** The left column: the sections, as a list of buttons in the Plugins page's style. */
+/**
+ * The left column: the search field on top, then the sections in groups with a hairline between
+ * them. While a search is typed only the sections with a match are listed. It never scrolls.
+ */
 export function SettingsSidebar({
 	section,
 	onSection,
+	query = '',
+	onQuery = () => undefined,
+	matches,
+	searchRef,
 }: {
 	section: SettingsSection
 	onSection: (section: SettingsSection) => void
+	query?: string
+	onQuery?: (query: string) => void
+	/** The search results; their sections are the ones listed. Absent: every section. */
+	matches?: readonly SettingsEntry[]
+	searchRef?: React.RefObject<HTMLInputElement | null>
 }) {
+	const groups = visibleNavGroups(matches)
 	return (
-		<div className="plugins-sidebar-content settings-sidebar-content">
-			<header className="plugins-sidebar-header">
-				<span>Settings</span>
-			</header>
+		<div className="settings-sidebar-content">
+			<div className="settings-nav-search">
+				<SearchIcon aria-hidden="true" />
+				<input
+					ref={searchRef}
+					type="search"
+					aria-label="Search settings"
+					placeholder="Search"
+					value={query}
+					autoComplete="off"
+					spellCheck={false}
+					onChange={(event) => onQuery(event.target.value)}
+				/>
+				{query && (
+					<Button
+						variant="ghost-muted"
+						size="icon-xs"
+						aria-label="Clear settings search"
+						onClick={() => {
+							onQuery('')
+							searchRef?.current?.focus()
+						}}
+					>
+						<XIcon aria-hidden="true" />
+					</Button>
+				)}
+			</div>
 			<nav className="settings-sidebar-navigation" aria-label="Settings sections">
-				{SETTINGS_SECTIONS.map((id) => {
-					const Icon = SECTION_ICONS[id]
-					return (
-						<button
-							key={id}
-							type="button"
-							aria-current={section === id ? 'page' : undefined}
-							onClick={() => onSection(id)}
-						>
-							<Icon aria-hidden="true" />
-							<span>{SETTINGS_SECTION_TITLES[id]}</span>
-						</button>
-					)
-				})}
+				{groups.map((group, index) => (
+					// biome-ignore lint/suspicious/noArrayIndexKey: the groups are a fixed list
+					<div key={index} className="settings-nav-group">
+						{group.map((id) => {
+							const Icon = SECTION_ICONS[id]
+							return (
+								<button
+									key={id}
+									type="button"
+									aria-current={section === id ? 'page' : undefined}
+									onClick={() => onSection(id)}
+								>
+									<Icon aria-hidden="true" />
+									<span>{SETTINGS_SECTION_TITLES[id]}</span>
+								</button>
+							)
+						})}
+					</div>
+				))}
+				{groups.length === 0 && <p className="settings-nav-empty">No section matches.</p>}
 			</nav>
 		</div>
 	)
@@ -169,16 +213,22 @@ function useTerminalShells(): ShellChoice[] | null | undefined {
 	return bridge?.terminalShells ? shells : null
 }
 
-export function SettingsPage(props: SettingsPageProps) {
-	const { section, focusId } = props
-	const [query, setQuery] = useState('')
-	const searchId = useId()
+/** What the dialog's search needs from the engine's rows and the machine, and what it found. */
+interface SettingsSearch {
+	query: string
+	results: SettingsEntry[]
+	shells: ShellChoice[] | null | undefined
+	config: ConfigSettingsControls
+	hasAppUpdater: boolean
+}
+
+function useSettingsSearch(query: string, update: SettingsPageProps['update']): SettingsSearch {
 	const shells = useTerminalShells()
 	const config = useConfigSettings(typeof window === 'undefined' ? undefined : window.namzu, true)
 	const delivery = useEngineDelivery()
 	// A row that does nothing here is neither shown nor found by search.
 	const hasShellChoice = (shells?.length ?? 0) > 1
-	const hasAppUpdater = props.update !== undefined && props.update.state.status !== 'disabled'
+	const hasAppUpdater = update !== undefined && update.state.status !== 'disabled'
 	const results = searchSettings(
 		query,
 		[...SETTINGS_ENTRIES, ...configSearchEntries(config.view)].filter(
@@ -192,6 +242,20 @@ export function SettingsPage(props: SettingsPageProps) {
 				((entry.id !== 'engine-delivery' && entry.id !== 'keep-engine') || delivery !== undefined),
 		),
 	)
+	return { query, results, shells, config, hasAppUpdater }
+}
+
+/** The page's content on its own: the search is typed elsewhere and passed in as `query`. */
+export function SettingsPage(props: SettingsPageProps & { query?: string }) {
+	const search = useSettingsSearch(props.query ?? '', props.update)
+	return <SettingsContent {...props} search={search} />
+}
+
+function SettingsContent(
+	props: SettingsPageProps & { search: SettingsSearch; onQuery?: (query: string) => void },
+) {
+	const { section, focusId, search } = props
+	const { query, results, shells, config, hasAppUpdater } = search
 	const searching = query.trim().length > 0
 	const page = useRef<HTMLElement>(null)
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a new target or section is the trigger.
@@ -236,33 +300,6 @@ export function SettingsPage(props: SettingsPageProps) {
 						<h1>{searching ? 'Search results' : SETTINGS_SECTION_TITLES[section]}</h1>
 						<p>{searching ? SETTINGS_SEARCH_SUBTITLE : SETTINGS_SECTION_SUBTITLES[section]}</p>
 					</div>
-					<div className="settings-page-search">
-						<SearchIcon aria-hidden="true" />
-						<input
-							id={searchId}
-							type="search"
-							aria-label="Search settings"
-							placeholder="Search settings"
-							value={query}
-							onChange={(event) => setQuery(event.target.value)}
-							onKeyDown={(event) => {
-								if (event.key === 'Escape' && query) {
-									event.stopPropagation()
-									setQuery('')
-								}
-							}}
-						/>
-						{query && (
-							<Button
-								variant="ghost-muted"
-								size="icon-xs"
-								aria-label="Clear settings search"
-								onClick={() => setQuery('')}
-							>
-								<XIcon aria-hidden="true" />
-							</Button>
-						)}
-					</div>
 				</header>
 				{props.settings.error && (
 					<p role="alert" className="settings-error">
@@ -287,7 +324,7 @@ export function SettingsPage(props: SettingsPageProps) {
 									<button
 										type="button"
 										onClick={() => {
-											setQuery('')
+											props.onQuery?.('')
 											props.onSection(entry.section, entry.id)
 										}}
 									>
@@ -306,6 +343,99 @@ export function SettingsPage(props: SettingsPageProps) {
 				)}
 			</div>
 		</section>
+	)
+}
+
+export interface SettingsDialogProps extends SettingsPageProps {
+	onClose: () => void
+	/** Where the focus goes when the dialog closes: the control that opened it. */
+	returnFocus?: () => HTMLElement | null
+	/** A confirmation another part of the app asks while Settings is open; it stacks above this dialog. */
+	stacked?: ReactNode
+}
+
+/**
+ * Settings as a dialog over the app: a title band, the sections and their search on the left, the
+ * chosen section on the right. The app behind is inert and dimmed. Esc clears a typed search first
+ * and then closes; so do the X button and a click on the dimmed area.
+ */
+export function SettingsDialog({ onClose, returnFocus, stacked, ...props }: SettingsDialogProps) {
+	// Set by the layout while it is mounted: clears a typed search and says whether there was one.
+	const clearSearch = useRef<() => boolean>(() => false)
+	const search = useRef<HTMLInputElement>(null)
+	return (
+		<Dialog.Root
+			open
+			onOpenChange={(open, details) => {
+				if (open) return
+				if (details.reason === 'escape-key' && clearSearch.current()) {
+					details.cancel()
+					return
+				}
+				onClose()
+			}}
+		>
+			<Dialog.Portal>
+				<Dialog.Backdrop className="settings-dialog-scrim" />
+				<Dialog.Viewport className="settings-dialog-viewport">
+					<Dialog.Popup
+						className="settings-dialog"
+						aria-modal="true"
+						initialFocus={() => (props.focusId ? false : search.current)}
+						finalFocus={returnFocus}
+					>
+						<header className="settings-dialog-title">
+							<Dialog.Title>Settings</Dialog.Title>
+							<Dialog.Close
+								className="settings-dialog-close"
+								aria-label="Close settings"
+								render={<Button variant="ghost-muted" size="icon-xs" />}
+							>
+								<XIcon aria-hidden="true" />
+							</Dialog.Close>
+						</header>
+						<SettingsDialogLayout {...props} clearSearch={clearSearch} searchRef={search} />
+						{stacked}
+					</Dialog.Popup>
+				</Dialog.Viewport>
+			</Dialog.Portal>
+		</Dialog.Root>
+	)
+}
+
+function SettingsDialogLayout({
+	clearSearch,
+	searchRef,
+	...props
+}: SettingsPageProps & {
+	clearSearch: React.RefObject<() => boolean>
+	searchRef: React.RefObject<HTMLInputElement | null>
+}) {
+	const [query, setQuery] = useState('')
+	const search = useSettingsSearch(query, props.update)
+	const searching = query.trim().length > 0
+	clearSearch.current = () => {
+		if (!query) return false
+		setQuery('')
+		return true
+	}
+	return (
+		<div className="settings-dialog-body">
+			<aside className="settings-dialog-nav" aria-label="Settings navigation">
+				<SettingsSidebar
+					section={props.section}
+					onSection={(section) => {
+						setQuery('')
+						props.onSection(section)
+					}}
+					query={query}
+					onQuery={setQuery}
+					matches={searching ? search.results : undefined}
+					searchRef={searchRef}
+				/>
+			</aside>
+			<SettingsContent {...props} search={search} onQuery={setQuery} />
+		</div>
 	)
 }
 
