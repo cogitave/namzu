@@ -1029,7 +1029,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'browser.enabled',
 		'tools',
 		'Browser',
-		'Let Namzu use a browser for web tasks, in the terminal app and in Desktop conversations. Off removes the browser tools. The rows below set how it runs.',
+		'Let Namzu use a browser for web tasks, in the terminal app and in Desktop conversations that use this computer (not in Pal conversations). Off removes the browser tools. The rows below set how it runs.',
 		on,
 		{
 			default: true,
@@ -1237,8 +1237,8 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		d(
 			'tui.theme',
 			'terminal',
-			'Terminal theme',
-			'Colours in the terminal app.',
+			'Theme',
+			'Colours.',
 			pick(
 				['auto', 'Match the terminal', 'Dark or light, whichever the terminal uses.'],
 				['dark', 'Dark', 'Colours for a dark background.'],
@@ -1258,7 +1258,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 			),
 			{ default: 'dark' },
 		),
-		d('tui.reducedMotion', 'terminal', 'Reduce motion', 'Less movement in the terminal app.', on, {
+		d('tui.reducedMotion', 'terminal', 'Reduce motion', 'Less movement on screen.', on, {
 			default: false,
 		}),
 		d(
@@ -1354,7 +1354,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		d(
 			'tui.sound',
 			'terminal',
-			'Sound in the terminal app',
+			'Sound',
 			'Play a sound with notifications from the terminal app. The Desktop app has its own switch under General.',
 			on,
 			{

@@ -32,12 +32,18 @@ export function ConfigSettingsGroup({
 	section,
 	config,
 	heading,
+	fallbackHeading,
 	omit,
 }: {
 	section: SettingsSection
 	config: ConfigSettingsControls
 	/** A line above the group, when the section has nothing else on the page. */
 	heading?: string
+	/**
+	 * The heading to draw over the engine's rows when the engine names no group (an older engine),
+	 * so they do not run on from the app's own rows above them.
+	 */
+	fallbackHeading?: string
 	/** Settings the page shows another way. */
 	omit?: readonly string[]
 }) {
@@ -68,19 +74,22 @@ export function ConfigSettingsGroup({
 					copy={confirmationCopy(config.confirmation.message)}
 				/>
 			)}
-			{configRowRuns(rows).map((run) => (
-				<Fragment key={run.heading ?? ''}>
-					{run.heading && <h2 className="settings-section-title">{run.heading}</h2>}
-					{run.rows.map((descriptor) => (
-						<ConfigRow
-							key={descriptor.path}
-							descriptor={descriptor}
-							view={config.view as ConfigSettingsView}
-							config={config}
-						/>
-					))}
-				</Fragment>
-			))}
+			{configRowRuns(rows).map((run) => {
+				const title = run.heading ?? (rows.some((row) => row.group) ? undefined : fallbackHeading)
+				return (
+					<Fragment key={title ?? ''}>
+						{title && <h2 className="settings-section-title">{title}</h2>}
+						{run.rows.map((descriptor) => (
+							<ConfigRow
+								key={descriptor.path}
+								descriptor={descriptor}
+								view={config.view as ConfigSettingsView}
+								config={config}
+							/>
+						))}
+					</Fragment>
+				)
+			})}
 		</>
 	)
 }

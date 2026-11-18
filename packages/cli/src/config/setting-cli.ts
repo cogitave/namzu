@@ -46,11 +46,11 @@ export const SETTING_SECTIONS: readonly SettingSection[] = [
 	'models',
 	'projects',
 	'appearance',
-	'updates',
 	'agent',
 	'tools',
-	'telemetry',
 	'terminal',
+	'telemetry',
+	'updates',
 ]
 
 export function isSettingSection(name: string): name is SettingSection {
@@ -210,9 +210,12 @@ export function listSettings(
 	const snapshot = readSettings(opts)
 	const byPath = new Map(snapshot.settings.map((state) => [state.path, state]))
 	const saved = (path: string) => byPath.get(path) ?? { set: false }
-	const rows = SETTING_DESCRIPTORS.filter((entry) => !section || entry.section === section).map(
-		(entry) => toRow(entry, byPath.get(entry.path), saved),
-	)
+	// Sections print in the order SETTING_SECTIONS names; inside one, the descriptors' own order.
+	const rank = (name: SettingSection) => SETTING_SECTIONS.indexOf(name)
+	const rows = SETTING_DESCRIPTORS.filter((entry) => !section || entry.section === section)
+		.map((entry, index) => ({ entry, index }))
+		.sort((a, b) => rank(a.entry.section) - rank(b.entry.section) || a.index - b.index)
+		.map(({ entry }) => toRow(entry, byPath.get(entry.path), saved))
 	return { file: snapshot.file, rows }
 }
 
@@ -259,6 +262,8 @@ export function renderSettingList(rows: readonly SettingRow[], file: string): st
 	const labelWidth = Math.max(...rows.map((row) => row.label.length), 5)
 	const valueWidth = Math.min(Math.max(...rows.map((row) => row.valueText.length), 5), 40)
 	const lines = [`Settings in ${file}`, '']
+	if (rows.length === 0)
+		lines.push('No settings in this section. Its settings moved: run namzu config list.')
 	let section: SettingSection | undefined
 	let group: SettingGroup | undefined
 	for (const row of rows) {

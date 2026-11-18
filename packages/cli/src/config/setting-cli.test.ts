@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { readSettings } from './desktop-settings.js'
 import {
+	SETTING_SECTIONS,
 	closestSettings,
 	findSetting,
 	listSettings,
@@ -36,7 +37,10 @@ describe('one source for the terminal and Desktop', () => {
 	it('lists every described setting, with the default and range Desktop reads', () => {
 		const { rows } = listSettings(opts())
 		const desktop = readSettings(opts())
-		expect(rows.map((row) => row.key)).toEqual(SETTING_DESCRIPTORS.map((d) => d.path))
+		expect(rows.map((row) => row.key).sort()).toEqual(SETTING_DESCRIPTORS.map((d) => d.path).sort())
+		// Sections print in the order SETTING_SECTIONS names, so the list reads like the nav.
+		const seen = [...new Set(rows.map((row) => row.section))]
+		expect(seen).toEqual(SETTING_SECTIONS.filter((name) => seen.includes(name)))
 		for (const row of rows) {
 			const seen = desktop.descriptors.find((d) => d.path === row.key)
 			expect(row.default, row.key).toEqual(seen?.default)
@@ -45,6 +49,11 @@ describe('one source for the terminal and Desktop', () => {
 			// Every one is reachable by key.
 			expect(readSettingRow(row.key, opts()).key).toBe(row.key)
 		}
+	})
+
+	it('says so when a valid section has no rows', () => {
+		const text = renderSettingList(listSettings(opts(), 'general').rows, 'f')
+		expect(text).toContain('No settings in this section')
 	})
 
 	it('shows a setting added to the description in the list, in get and in what Desktop reads', () => {

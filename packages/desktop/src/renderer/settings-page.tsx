@@ -473,6 +473,13 @@ function SectionBody(props: SectionProps) {
 					section={props.section}
 					config={props.config}
 					omit={props.section === 'tools' ? OWN_ROW_CONFIG_PATHS : undefined}
+					fallbackHeading={
+						props.section === 'terminal'
+							? 'Terminal app'
+							: props.section === 'updates'
+								? 'Command line'
+								: undefined
+					}
 					heading={
 						props.section === 'general' ||
 						props.section === 'models' ||
@@ -857,7 +864,11 @@ function UpdatesSection({
 	// moving while nothing else re-renders the page.
 	const now = Math.max(renderedAt, opened.current.page + (ticked - opened.current.clock))
 	if (!update && !engines)
-		return <p className="settings-empty">Updates are managed outside this window in this build.</p>
+		return (
+			<p className="settings-empty">
+				This app's own updates are managed outside this window in this build.
+			</p>
+		)
 	const checkedAt = Math.max(update?.info?.lastCheckedAt ?? 0, engines?.state.checkedAt ?? 0)
 	const view = update
 		? updateStatusView(update.state, (update.info?.lastCheckedAt ?? 0) > 0)

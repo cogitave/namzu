@@ -32,7 +32,7 @@ therefore cannot reach the loader without a decision about Desktop.
 General, Models and Projects keep their own rows and add the engine's below them under
 **Namzu settings**. **Agent** (limits, workflows, compaction, memory, learning, skills, schedule,
 hypermode), **Tools** (web, browser and its switch, code analysis, servers, hooks, plugins),
-**Telemetry** and **Terminal** are made of the engine's rows. **Desktop app** holds only the app's own.
+and **Telemetry** are made of the engine's rows. **Terminal** and **Updates** draw the app's own rows first and the engine's after, under headings the engine names. **Desktop app** holds only the app's own.
 
 A row sits where its effect is, so the engine can name a heading inside a section. A descriptor's
 optional `group` is one of `terminal-app` or `command-line` (`SettingGroup`), and
