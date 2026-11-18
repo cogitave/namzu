@@ -190,11 +190,14 @@ describe('the small model', () => {
 		expect(saved().smallModel).toBeUndefined()
 	})
 
-	it('says when NAMZU_SMALL_MODEL is set for the process, and only then', () => {
+	it('says when NAMZU_SMALL_MODEL is set for the process (blank included), and only then', () => {
 		const state = (env: NodeJS.ProcessEnv) =>
 			readSettings(opts(env)).settings.find((s) => s.path === 'smallModel')
 		expect(state({})?.env).toBeUndefined()
-		expect(state({ NAMZU_SMALL_MODEL: '  ' })?.env).toBeUndefined()
+		expect(state({ NAMZU_SMALL_MODEL: '  ' })?.env).toEqual({
+			variable: 'NAMZU_SMALL_MODEL',
+			value: '',
+		})
 		expect(state({ NAMZU_SMALL_MODEL: 'acme/small' })?.env).toEqual({
 			variable: 'NAMZU_SMALL_MODEL',
 			value: 'acme/small',

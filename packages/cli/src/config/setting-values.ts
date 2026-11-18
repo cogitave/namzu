@@ -7,6 +7,7 @@
  * inputs to both. The terminal's `namzu config` and `/config <key>` read from here.
  */
 
+import { foldRuleLists } from '../permissions/rule-strings.js'
 import type {
 	SettingControl,
 	SettingDefault,
@@ -703,6 +704,8 @@ function modelsControlWords(
 
 /** What a row says when an environment variable replaces what is saved. */
 export function environmentNote(env: { variable: string; value: string }): string {
+	if (env.value === '')
+		return `${env.variable} is set but empty, and Namzu refuses to start with it; unset it or give it a model.`
 	return `${env.variable} is set to ${env.value}, and Namzu uses that instead of what is saved here.`
 }
 
@@ -722,6 +725,17 @@ export const PERMISSION_MODE_KEYS: readonly string[] = [
 const EFFECT_WORDS = ['allow', 'ask', 'deny'] as const
 const isEffect = (value: unknown): value is (typeof EFFECT_WORDS)[number] =>
 	typeof value === 'string' && (EFFECT_WORDS as readonly string[]).includes(value)
+
+/**
+ * What is wrong with a tool's spelling, or `undefined`. The engine matches the name as written,
+ * and its tools are named in lower case (`bash`, `web_fetch`), so `Bash` would be saved and never
+ * match. Only the lists of `Tool(specifier)` strings map `Bash` to `bash`; a table does not.
+ */
+export function toolSpellingProblem(tool: string): string | undefined {
+	if (tool.startsWith('mcp__') || !/[A-Z]/.test(tool)) return undefined
+	const said = tool.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()
+	return `"${tool}" is not a tool name Namzu matches: write ${said}, in lower case.`
+}
 
 /** One rule: a tool, a pattern of its input (empty for every call) and what happens. */
 export interface PermissionRuleRow {
@@ -770,6 +784,8 @@ export function permissionRulesTable(
 			return { error: `"${tool}" is not a tool name: a tool is one word, such as bash.` }
 		if (PERMISSION_MODE_KEYS.includes(tool))
 			return { error: `${tool} is a permission setting with a row of its own, not a tool.` }
+		const spelling = toolSpellingProblem(tool)
+		if (spelling) return { error: spelling }
 		if (!isEffect(row.effect)) return { error: `Choose allow, ask or deny for ${tool}.` }
 		const pattern = row.pattern.trim()
 		if (tool === 'sources' && pattern === '')
@@ -794,6 +810,24 @@ export function permissionRulesTable(
 	return { value }
 }
 
+/**
+ * The rule table a value holds, however it is written: JSON text is read, and the `allow`, `ask`
+ * and `deny` lists are folded into the per-tool table as the loader folds them, so the question
+ * is asked about the rules that will be saved and not about the spelling.
+ */
+function rulesOf(value: unknown): unknown {
+	let held = value
+	if (typeof held === 'string') {
+		try {
+			held = JSON.parse(held) as unknown
+		} catch {
+			return {}
+		}
+	}
+	const table = plain(held)
+	return table ? foldRuleLists(table).table : {}
+}
+
 /** How much a rule lets run without a person: deny, then ask, then allow. */
 const PERMISSIVE = { deny: 0, ask: 1, allow: 2 } as const
 
@@ -813,9 +847,11 @@ export interface RuleLoosened {
  * is not listed.
  */
 export function permissionRulesLoosened(current: unknown, value: unknown): RuleLoosened[] {
-	const key = (row: PermissionRuleRow): string => `${row.tool}\u0000${row.pattern}`
-	const before = new Map(permissionRuleRows(current).map((row) => [key(row), row]))
-	const after = new Map(permissionRuleRows(value).map((row) => [key(row), row]))
+	// A rule for every call is the pattern `*` however it is written, so the two spellings are one rule.
+	const key = (row: PermissionRuleRow): string =>
+		`${row.tool}\u0000${row.pattern === '' ? '*' : row.pattern}`
+	const before = new Map(permissionRuleRows(rulesOf(current)).map((row) => [key(row), row]))
+	const after = new Map(permissionRuleRows(rulesOf(value)).map((row) => [key(row), row]))
 	const out: RuleLoosened[] = []
 	for (const [id, row] of after) {
 		const had = before.get(id)
@@ -930,7 +966,7 @@ export function checkInputFromText(
 ): { value: Record<string, unknown> } | { error: string } {
 	if (commandTools.includes(tool.trim())) {
 		if (text.trim() === '') return { error: 'Enter the command the check runs.' }
-		return { value: { [commandField]: text } }
+		return { value: { [commandField]: text.trim() } }
 	}
 	let parsed: unknown
 	try {
@@ -1049,13 +1085,18 @@ export function sitesConfirmation(
 	value: unknown,
 	defaultLevel = 'ask',
 ): string {
-	const parts = sitesLoosened(current, value, defaultLevel).map((change) => {
-		const name = change.site === '*' ? 'every other site' : change.site
+	const changes = sitesLoosened(current, value, defaultLevel)
+	const parts = changes.map((change) => {
+		const every = change.site === '*'
 		return change.now === 'act'
-			? `Namzu may click and type on ${name}.`
-			: `${name} is no longer denied; it is now ${change.now}.`
+			? `Namzu may click and type on ${every ? 'every other site' : change.site}.`
+			: `${every ? 'Every other site' : change.site} is no longer denied; it is now ${change.now}.`
 	})
-	return parts.length === 0 ? sentence : `${sentence} ${parts.join(' ')}`
+	if (parts.length === 0) return sentence
+	// The sentence is about allowing act: it leads only when a site becomes act.
+	return changes.some((change) => change.now === 'act')
+		? `${sentence} ${parts.join(' ')}`
+		: parts.join(' ')
 }
 
 function sitesWords(

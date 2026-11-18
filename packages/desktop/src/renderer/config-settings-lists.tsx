@@ -855,7 +855,12 @@ export function RoutingEditor({
 		const built = routingValue(form, value)
 		if ('error' in built) return setLocal(built.error)
 		setLocal('')
-		if (await config.change(descriptor.path, built.value)) setDraft(undefined)
+		// Every field empty is the same as no table: clear it rather than save an empty one.
+		const empty = Object.keys(built.value).length === 0
+		if (
+			await (empty ? config.change(descriptor.path) : config.change(descriptor.path, built.value))
+		)
+			setDraft(undefined)
 	}
 	const field = (
 		name: string,
@@ -1000,7 +1005,7 @@ export function AutoModeEditor({
 									variant="ghost-muted"
 									size="xs"
 									onClick={() => void save(autoModeSet(value, { [list.value]: undefined }))}
-									aria-label={`Use the built-in rules for ${list.label}`}
+									aria-label={`Use built-in rules, ${list.label}`}
 								>
 									Use built-in rules
 								</Button>

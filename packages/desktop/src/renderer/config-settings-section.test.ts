@@ -756,9 +756,9 @@ describe('the model rows, drawn from the real engine list', () => {
 			)
 			expect(html).toContain('value="anthropic/claude-haiku-4-5"')
 			expect(html).toContain('Run the test suite')
-			expect(html).toContain('Use the built-in rules for Always allowed')
-			expect(html).toContain('Use the built-in rules for Always blocked')
-			expect(html).not.toContain('Use the built-in rules for Trusted here')
+			expect(html).toContain('Use built-in rules, Always allowed')
+			expect(html).toContain('Use built-in rules, Always blocked')
+			expect(html).not.toContain('Use built-in rules, Trusted here')
 		},
 		SLOW_IMPORT_MS,
 	)

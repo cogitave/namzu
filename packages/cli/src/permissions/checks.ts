@@ -141,7 +141,7 @@ export function permissionCheckProblem(
 	index: number,
 ): CompileDiagnostic | undefined {
 	const where = `permissionChecks[${index}]`
-	if (typeof check?.tool !== 'string' || check.tool === '') {
+	if (typeof check?.tool !== 'string' || check.tool.trim() === '') {
 		return { tool: where, message: 'expected a "tool" naming the tool to evaluate' }
 	}
 	if (typeof check.input !== 'object' || check.input === null || Array.isArray(check.input)) {

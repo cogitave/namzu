@@ -280,6 +280,8 @@ describe('Desktop and the terminal read the routing table and the reviewer alike
 			expect(cli.autoEntryLabel(entry)).toBe(values.autoEntryLabel(entry))
 		const env = { variable: 'NAMZU_SMALL_MODEL', value: 'a/b' }
 		expect(cli.environmentNote(env)).toBe(values.environmentNote(env))
+		const blank = { variable: 'NAMZU_SMALL_MODEL', value: '' }
+		expect(cli.environmentNote(blank)).toBe(values.environmentNote(blank))
 	})
 })
 
@@ -349,9 +351,13 @@ describe('Desktop and the terminal read the permission and browser rows alike', 
 				expect(cli.permissionRulesConfirmation('S.', table, next)).toBe(
 					values.permissionRulesConfirmation('S.', table, next),
 				)
-				expect(cli.loosenAsks(rulesControl as never, table, next)).toBe(
-					values.loosenAsks(rulesControl as never, table, next),
-				)
+				// A value spelled as lists or text is asked about whole here, and by rule in the terminal.
+				if (values.rulesSpelledAsLists(next))
+					expect(values.loosenAsks(rulesControl as never, table, next)).toBe(true)
+				else
+					expect(cli.loosenAsks(rulesControl as never, table, next)).toBe(
+						values.loosenAsks(rulesControl as never, table, next),
+					)
 			}
 		}
 		for (const rows of [
@@ -363,6 +369,9 @@ describe('Desktop and the terminal read the permission and browser rows alike', 
 			],
 			[{ tool: ' ', pattern: '', effect: 'ask' }],
 			[{ tool: 'a b', pattern: '', effect: 'ask' }],
+			[{ tool: 'Bash', pattern: '', effect: 'deny' }],
+			[{ tool: 'WebFetch', pattern: '', effect: 'deny' }],
+			[{ tool: 'mcp__Files__x', pattern: '', effect: 'deny' }],
 			[{ tool: 'autoMode', pattern: '', effect: 'ask' }],
 			[{ tool: 'sources', pattern: '', effect: 'deny' }],
 			[{ tool: 'bash', pattern: 'ls', effect: 'maybe' }],
@@ -452,5 +461,33 @@ describe('Desktop and the terminal read the permission and browser rows alike', 
 			expect(cli.sitesValue(lines as never, other), JSON.stringify(lines)).toEqual(
 				values.sitesValue(lines as never, other),
 			)
+	})
+
+	it('reads a whole-tool rule and the pattern * as one rule, and a sites question alike', async () => {
+		const cli = (await import(/* @vite-ignore */ CLI)) as typeof values
+		for (const [before, after] of [
+			[{ bash: 'allow' }, { bash: { '*': 'allow', 'rm *': 'deny' } }],
+			[{ bash: { '*': 'ask', 'git *': 'allow' } }, { bash: 'ask' }],
+			[{ bash: 'deny' }, { ask: ['Bash(rm *)'], bash: { '*': 'deny' } }],
+		] as const)
+			expect(
+				values.permissionRulesLoosened(before, after as never).length > 0,
+				JSON.stringify([before, after]),
+			).toBe(cli.permissionRulesLoosened(before, after).length > 0)
+		for (const [before, after] of [
+			[{ '*': 'deny' }, { '*': 'read' }],
+			[{}, { '*': 'act' }],
+			[{ 'https://a.dev': 'deny', '*': 'ask' }, { '*': 'ask' }],
+		] as const)
+			expect(values.sitesConfirmation('S.', before, after)).toBe(
+				cli.sitesConfirmation('S.', before, after),
+			)
+	})
+	it('asks about rules written as lists or text, in the terminal by rule and here as a whole', async () => {
+		const cli = (await import(/* @vite-ignore */ CLI)) as typeof values
+		for (const value of [{ allow: ['Bash'] }, '{"allow":["Bash"]}'])
+			expect(values.rulesSpelledAsLists(value)).toBe(true)
+		expect(values.rulesSpelledAsLists({ bash: 'allow' })).toBe(false)
+		expect(cli.permissionRulesLoosened({}, { allow: ['Bash'] }).length).toBeGreaterThan(0)
 	})
 })

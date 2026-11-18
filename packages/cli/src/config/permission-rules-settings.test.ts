@@ -490,7 +490,7 @@ describe('browser sites', () => {
 	it('asks when a deny line is removed or changed and the site is then open, not when it stays denied', () => {
 		const before = { 'https://a.dev': 'deny', '*': 'ask' }
 		expect(sitesConfirmation('S.', before, { '*': 'ask' })).toBe(
-			'S. https://a.dev is no longer denied; it is now ask.',
+			'https://a.dev is no longer denied; it is now ask.',
 		)
 		expect(sitesLoosened(before, { 'https://a.dev': 'read', '*': 'ask' })).toHaveLength(1)
 		// Removed while every other site is denied: still denied, so nothing widens.
@@ -527,5 +527,103 @@ describe('browser sites', () => {
 		expect(describeSetting('browser.sites', opts())).toContain(
 			'https://a.dev Read; every other site Ask',
 		)
+	})
+})
+
+describe('review fixes: the question is asked about the rules, not their spelling', () => {
+	it('asks for an allow written as the list spelling, in the terminal and by function', () => {
+		seed(MODES)
+		const plan = planSettingChange('permissions', '{"allow":["Bash(rm *)","Write"]}', opts())
+		if (!plan.ok) throw new Error(plan.error)
+		expect(plan.confirm).toBe(
+			'Rules can let tools run without asking you. write (every call) is allowed without asking. bash "rm *" is allowed without asking.',
+		)
+		expect(needsConfirmation(entry('permissions'), { allow: ['Bash'] }, {})).toBe(true)
+		expect(needsConfirmation(entry('permissions'), '{"allow":["Bash"]}', {})).toBe(true)
+		expect(needsConfirmation(entry('permissions'), { deny: ['Bash'] }, {})).toBe(false)
+	})
+	it('sees a rule moved into a list as the same rule', () => {
+		expect(permissionRulesLoosened({ bash: 'deny' }, { deny: ['Bash'] })).toEqual([])
+		expect(
+			permissionRulesLoosened({ bash: 'deny' }, { allow: ['Bash'] }).map((c) => c.kind),
+		).toEqual(['changed'])
+	})
+	it('counts a whole-tool rule and the pattern * as one rule', () => {
+		expect(
+			permissionRulesLoosened({ bash: 'allow' }, { bash: { '*': 'allow', 'rm *': 'deny' } }),
+		).toEqual([])
+		expect(
+			permissionRulesLoosened({ bash: { '*': 'ask', 'git *': 'allow' } }, { bash: 'ask' }),
+		).toEqual(
+			[{ kind: 'removed', tool: 'bash', pattern: 'git *', effect: 'allow' }].filter(
+				(c) => c.effect !== 'allow',
+			),
+		)
+		expect(
+			permissionRulesLoosened({ bash: 'deny' }, { ask: ['Bash(rm *)'], bash: { '*': 'deny' } }),
+		).toEqual([])
+	})
+	it('refuses a tool spelled in a way the matcher never matches', () => {
+		expect(permissionRulesTable([{ tool: 'Bash', pattern: '', effect: 'deny' }])).toEqual({
+			error: '"Bash" is not a tool name Namzu matches: write bash, in lower case.',
+		})
+		expect(permissionRulesTable([{ tool: 'WebFetch', pattern: '', effect: 'deny' }])).toEqual({
+			error: '"WebFetch" is not a tool name Namzu matches: write web_fetch, in lower case.',
+		})
+		expect(
+			'value' in permissionRulesTable([{ tool: 'mcp__Files__x', pattern: '', effect: 'deny' }]),
+		).toBe(true)
+		expect(() => writeSetting({ path: 'permissions', value: { Bash: 'deny' } }, opts())).toThrow(
+			'write bash',
+		)
+		expect(() =>
+			writeSetting(
+				{ path: 'permissionChecks', value: [{ tool: 'Bash', input: {}, expect: 'deny' }] },
+				opts(),
+			),
+		).toThrow('write bash')
+	})
+	it('refuses a check whose tool is only blanks, in the loader words', () => {
+		expect(() =>
+			writeSetting(
+				{ path: 'permissionChecks', value: [{ tool: '  ', input: {}, expect: 'deny' }] },
+				opts(),
+			),
+		).toThrow('expected a "tool" naming the tool to evaluate')
+	})
+	it('trims the command of a check', () => {
+		expect(checkInputFromText('bash', '  rm -rf /  ', ['bash'], 'command')).toEqual({
+			value: { command: 'rm -rf /' },
+		})
+	})
+	it('opens a sites question with the act sentence only when a site becomes act', () => {
+		const s = 'Allowing act lets Namzu click and type on that site.'
+		expect(sitesConfirmation(s, { '*': 'deny' }, { '*': 'read' })).toBe(
+			'Every other site is no longer denied; it is now read.',
+		)
+		expect(sitesConfirmation(s, {}, { '*': 'act' })).toBe(
+			`${s} Namzu may click and type on every other site.`,
+		)
+	})
+	it('says what permissions, permissionChecks and browser.sites take and when they ask', () => {
+		const rules = describeSetting('permissions', opts())
+		expect(rules).toContain('Takes:    JSON, such as {"bash"')
+		expect(rules).not.toContain('nothing here')
+		expect(rules).toContain('allow')
+		expect(rules).toContain('an allow rule added')
+		expect(describeSetting('permissionChecks', opts())).toContain(
+			'Takes:    JSON, such as [{"tool":"bash"',
+		)
+		const sites = describeSetting('browser.sites', opts())
+		expect(sites).toContain('Takes:    JSON, such as {"https://example.com"')
+		expect(sites).toContain('reads as ask when left out')
+		expect(sites).toContain('when a site becomes act')
+	})
+	it('names a blank environment variable instead of staying silent', () => {
+		const snapshot = readSettings({ home, env: { NAMZU_SMALL_MODEL: ' ' } })
+		expect(snapshot.settings.find((s) => s.path === 'smallModel')?.env).toEqual({
+			variable: 'NAMZU_SMALL_MODEL',
+			value: '',
+		})
 	})
 })

@@ -605,6 +605,21 @@ describe('permission rules, self-checks and browser sites ask only when more wou
 		).toBe('saved')
 	})
 
+	it('asks about rules written as lists or text, which it cannot compare rule by rule', async () => {
+		for (const value of [{ allow: ['Bash'] }, '{"allow":["Bash"]}']) {
+			const answer = await run('permissions', {}, value)
+			expect(answer.result.status).toBe('confirm')
+			expect(message(answer)).toContain('written as lists')
+		}
+	})
+
+	it('treats a whole-tool rule and the pattern * as one rule', async () => {
+		expect(
+			(await run('permissions', { bash: 'allow' }, { bash: { '*': 'allow', 'rm *': 'deny' } }))
+				.result.status,
+		).toBe('saved')
+	})
+
 	it('asks when a site becomes act or stops being denied, never for deny or read', async () => {
 		expect(
 			message(await run('browser.sites', { 'https://a.dev': 'read' }, { 'https://a.dev': 'act' })),
@@ -612,7 +627,7 @@ describe('permission rules, self-checks and browser sites ask only when more wou
 			'Allowing act lets Namzu click and type on that site. Namzu may click and type on https://a.dev.',
 		)
 		expect(message(await run('browser.sites', { '*': 'deny' }, { '*': 'ask' }))).toContain(
-			'every other site is no longer denied; it is now ask.',
+			'Every other site is no longer denied; it is now ask.',
 		)
 		expect(message(await run('browser.sites', { 'https://a.dev': 'deny' }, {}))).toContain(
 			'https://a.dev is no longer denied',

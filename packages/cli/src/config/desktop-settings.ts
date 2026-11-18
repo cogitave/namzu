@@ -27,6 +27,7 @@ import {
 	screenNames,
 	screenTools,
 	screensValue,
+	toolSpellingProblem,
 } from './setting-values.js'
 import {
 	SETTING_DESCRIPTORS,
@@ -65,8 +66,10 @@ const SETTING_ENVIRONMENT: Readonly<Record<string, string>> = { smallModel: 'NAM
 
 function environmentFor(path: string, env: NodeJS.ProcessEnv): SettingState['env'] {
 	const variable = SETTING_ENVIRONMENT[path]
-	const value = variable === undefined ? undefined : env[variable]?.trim()
-	return variable !== undefined && value ? { variable, value } : undefined
+	if (variable === undefined) return undefined
+	const raw = env[variable]
+	// Set but blank: the loader refuses it (it must name a model), so the row says it is set.
+	return raw === undefined ? undefined : { variable, value: raw.trim() }
 }
 
 export interface SettingsSnapshot {
@@ -353,9 +356,12 @@ function coerce(entry: SettingDescriptor, raw: unknown): unknown {
 			const list = jsonValue(raw)
 			if (!Array.isArray(list)) throw new Error('permissionChecks must be a list.')
 			const checks = list.map((check, index) => {
-				const problem = permissionCheckProblem(check, index)
+				const tool = typeof check?.tool === 'string' ? check.tool.trim() : check?.tool
+				const problem = permissionCheckProblem({ ...check, tool }, index)
 				if (problem) throw new Error(`${problem.tool}: ${problem.message}`)
-				return { tool: check.tool.trim(), input: check.input, expect: check.expect }
+				const wrong = toolSpellingProblem(tool)
+				if (wrong) throw new Error(`permissionChecks[${index}]: ${wrong}`)
+				return { tool, input: check.input, expect: check.expect }
 			})
 			// A list with no check in it is the same as no list.
 			return checks.length === 0 ? undefined : checks

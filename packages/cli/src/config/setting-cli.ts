@@ -208,8 +208,18 @@ function asksWhenWords(entry: SettingDescriptor): string {
 	if (entry.confirmValue !== undefined) return `when set to ${entry.confirmValue}`
 	if (entry.confirmWhen === 'zero') return 'when set to 0'
 	if (entry.confirmWhen === 'widens') return 'when an entry is added'
-	if (entry.confirmWhen === 'loosens')
-		return 'when the model changes or a list lets more run without asking you'
+	if (entry.confirmWhen === 'loosens') {
+		switch (entry.control.kind) {
+			case 'permission-rules':
+				return 'when a rule lets more run without asking: an allow rule added, a rule made more permissive, or a deny or ask rule removed'
+			case 'permission-checks':
+				return 'when a check is removed or changed'
+			case 'sites':
+				return 'when a site becomes act, or a denied site is opened'
+			default:
+				return 'when the model changes or a list lets more run without asking you'
+		}
+	}
 	if (entry.confirmWhen === 'on' || entry.confirmWhen === 'off')
 		return `when turned ${entry.confirmWhen}`
 	return 'on any change'
@@ -364,6 +374,33 @@ export function renderSetting(row: SettingRow, file: string): string {
 			lines.push(
 				'Model:    provider/model, a bare model of your provider, or smallModel for the side model',
 			)
+		}
+	} else if (
+		control.kind === 'permission-rules' ||
+		control.kind === 'permission-checks' ||
+		control.kind === 'sites'
+	) {
+		lines.push(`Takes:    JSON, such as ${control.example}`)
+		if (control.kind === 'permission-rules') {
+			lines.push('          a tool name (as written in lower case, such as bash) and, inside it,')
+			lines.push('          a pattern of its input with the answer. Only the rules are set here;')
+			lines.push('          the permission modes have their own keys.')
+			lines.push('Answers:')
+			lines.push(...optionLines(control.effects))
+		} else if (control.kind === 'permission-checks') {
+			lines.push('          each check is a tool, the input it is called with (an object; for')
+			lines.push(
+				`          ${control.commandTools.join(', ')} the field ${control.commandField}) and the answer expected.`,
+			)
+			lines.push('Expected:')
+			lines.push(...optionLines(control.effects))
+		} else {
+			lines.push('          a site as the engine matches it (with its scheme) and a level;')
+			lines.push(
+				`          * is every other site, and reads as ${control.defaultLevel} when left out.`,
+			)
+			lines.push('Levels:')
+			lines.push(...optionLines(control.levels))
 		}
 	} else lines.push('Takes:    nothing here; edit this one in the config file')
 	if (row.confirm) lines.push(`Asks:     ${row.asksWhen}: ${row.confirm}`)
