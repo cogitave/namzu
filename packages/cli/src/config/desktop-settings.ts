@@ -42,6 +42,11 @@ import {
 	setUserConfigValue,
 	userConfigPath,
 } from './user-config.js'
+import {
+	branchPrefixProblem,
+	sparseFolderProblem,
+	worktreeLocationProblem,
+} from './worktree-settings.js'
 
 export interface SettingState {
 	readonly path: string
@@ -475,6 +480,22 @@ export function checkAcrossKeys(
 
 /** Checks on one value that its control alone does not make. Each says its rule in plain words. */
 const VALUE_CHECKS: Readonly<Record<string, (value: unknown) => void>> = {
+	'worktrees.branchPrefix': (value) => {
+		const problem = branchPrefixProblem(String(value))
+		if (problem) throw new Error(problem)
+	},
+	// The folder is looked at when it is saved, so a typo is refused here and not at the next
+	// worktree. It is looked at again when the worktree is made.
+	'worktrees.location': (value) => {
+		const problem = worktreeLocationProblem(String(value))
+		if (problem) throw new Error(problem)
+	},
+	'worktrees.sparseFolders': (value) => {
+		for (const item of Array.isArray(value) ? value : []) {
+			const problem = sparseFolderProblem(String(item))
+			if (problem) throw new Error(problem)
+		}
+	},
 	'browser.defaultProfile': (value) => {
 		const name = String(value)
 		if (name.length > 64 || !BROWSER_PROFILE_NAME.test(name))

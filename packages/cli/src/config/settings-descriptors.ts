@@ -51,6 +51,8 @@ export type SettingGroup =
 	| 'code-plugins'
 	| 'permissions'
 	| 'folders'
+	| 'conversations'
+	| 'worktrees'
 	| 'sandbox'
 	| 'terminal-look'
 	| 'terminal-mouse'
@@ -76,6 +78,8 @@ export const SETTING_GROUP_LABELS: Readonly<Record<SettingGroup, string>> = {
 	'code-plugins': 'Code and plugins',
 	permissions: 'Permissions',
 	folders: 'Folders',
+	conversations: 'Conversations',
+	worktrees: 'Worktrees',
 	sandbox: 'Sandbox',
 	'terminal-look': 'Terminal app: look',
 	'terminal-mouse': 'Terminal app: mouse and scrolling',
@@ -101,6 +105,8 @@ export const SETTING_GROUP_ORDER: readonly SettingGroup[] = [
 	'code-plugins',
 	'permissions',
 	'folders',
+	'conversations',
+	'worktrees',
 	'sandbox',
 	'terminal-look',
 	'terminal-mouse',
@@ -237,7 +243,8 @@ export type SettingControl =
 			readonly max?: number
 			readonly unit?: string
 	  }
-	| { readonly kind: 'text'; readonly placeholder?: string }
+	/** One line of text. `picker` names a way to choose it other than typing; a screen that does not know it keeps the box. */
+	| { readonly kind: 'text'; readonly placeholder?: string; readonly picker?: 'folder' }
 	/**
 	 * A model named as `provider/model`, or just the model of the provider a conversation runs on.
 	 * A screen offers the models it knows and still takes a name it does not list.
@@ -477,6 +484,7 @@ export function appliesWhenFor(path: string): AppliesWhen {
 		'limits.',
 		'workflow.',
 		'handBack.',
+		'worktrees.',
 		'sandbox.',
 		'compaction.',
 		'memory.',
@@ -802,6 +810,60 @@ const DECLARED: readonly SettingDescriptor[] = [
 			default: [],
 			confirm: 'Namzu will be able to reach this folder in every project.',
 			confirmWhen: 'widens',
+		},
+	),
+	d(
+		'worktrees.branchPrefix',
+		'projects',
+		'Branch prefix',
+		'Added to the start of every branch name Namzu makes for a new worktree, as prefix/name. Worktrees you already have keep the branch they were made with.',
+		{ kind: 'text', placeholder: 'namzu' },
+		{
+			group: 'worktrees',
+			keywords: ['branch name', 'prefix', 'worktree branch'],
+			default: 'namzu',
+		},
+	),
+	d(
+		'worktrees.location',
+		'projects',
+		'Worktree location',
+		'The folder where Namzu stores Git worktrees for isolated coding conversations on this computer. Each project gets its own folder inside it. The folder has to exist and be one Namzu can write to. Worktrees you already have stay where they are.',
+		{ kind: 'text', placeholder: 'Inside the project', picker: 'folder' },
+		{
+			group: 'worktrees',
+			keywords: ['worktrees folder', 'where worktrees go', 'worktree directory'],
+			defaultText: "inside the project's Namzu folder",
+		},
+	),
+	d(
+		'worktrees.sparseFolders',
+		'projects',
+		'Worktree folders',
+		'A new worktree holds only these folders of the project, as written from its top, such as src/app. The files at the top of the project stay. Leave it empty to get everything.',
+		{ kind: 'list', itemLabel: 'folder', placeholder: 'src/app' },
+		{
+			group: 'worktrees',
+			keywords: ['sparse checkout', 'sparse folders', 'worktree sparse', 'only these folders'],
+			default: [],
+		},
+	),
+	d(
+		'archiveInactive',
+		'projects',
+		'Archive inactive conversations',
+		'Moves a conversation to the archive after it has had no activity for this long. A conversation that is running or has background work is never archived, and nothing is deleted: a worktree with uncommitted changes stays on disk, and you can restore the conversation.',
+		pick(
+			['never', 'Never', 'Conversations stay where they are.'],
+			['1d', 'After 1 day', 'Archived once idle for a day.'],
+			['7d', 'After 7 days', 'Archived once idle for a week.'],
+			['30d', 'After 30 days', 'Archived once idle for thirty days.'],
+		),
+		{
+			appliesWhen: 'now',
+			group: 'conversations',
+			keywords: ['archive inactive sessions', 'archive', 'idle', 'auto archive'],
+			default: 'never',
 		},
 	),
 	d(

@@ -118,6 +118,7 @@ import type {
 	UpdateChannel,
 	UpdatesConfig,
 	WorkflowCliConfig,
+	WorktreesCliConfig,
 } from './schema.js'
 import {
 	DECISION_POINT_IDS,
@@ -134,6 +135,11 @@ import {
 	type ToolResultScreenConfig,
 	isToolResultScreenName,
 } from './tool-result-screens.js'
+import {
+	branchPrefixProblem,
+	sparseFolderProblem,
+	worktreeLocationShapeProblem,
+} from './worktree-settings.js'
 
 export interface LoadConfigOptions {
 	/** Override the user's home dir (testing). */
@@ -1801,6 +1807,42 @@ const CONFIG_READERS: ConfigReaders = {
 		}
 		return v as HandBackCliConfig
 	},
+	worktrees: (v, context) => {
+		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
+		const raw = v as Record<string, unknown>
+		for (const key of Object.keys(raw))
+			if (key !== 'branchPrefix' && key !== 'location' && key !== 'sparseFolders')
+				return invalidConfigValue(
+					context,
+					[key],
+					'is not a worktrees setting (branchPrefix, location, sparseFolders)',
+				)
+		if (raw.branchPrefix !== undefined) {
+			const problem =
+				typeof raw.branchPrefix === 'string' ? branchPrefixProblem(raw.branchPrefix) : 'Write text.'
+			if (problem) return invalidConfigValue(context, ['branchPrefix'], problem)
+		}
+		if (raw.location !== undefined) {
+			const problem =
+				typeof raw.location === 'string'
+					? worktreeLocationShapeProblem(raw.location)
+					: 'Write text.'
+			if (problem) return invalidConfigValue(context, ['location'], problem)
+		}
+		if (raw.sparseFolders !== undefined) {
+			if (!Array.isArray(raw.sparseFolders))
+				return invalidConfigValue(context, ['sparseFolders'], 'must be a list of folders')
+			for (const [index, entry] of raw.sparseFolders.entries()) {
+				const problem = typeof entry === 'string' ? sparseFolderProblem(entry) : 'Write text.'
+				if (problem) return invalidConfigValue(context, ['sparseFolders', index], problem)
+			}
+		}
+		return raw as WorktreesCliConfig
+	},
+	archiveInactive: (v, context) => {
+		if (v === 'never' || v === '1d' || v === '7d' || v === '30d') return v
+		return invalidConfigValue(context, [], 'must be never, 1d, 7d or 30d')
+	},
 	workflow: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		const caps = { maxConcurrency: 16, maxAgents: 1000 } as const
@@ -2519,6 +2561,10 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	goal: undefined,
 	// Whether the model may hand a task back is a decision in the file, not a shell's.
 	handBack: undefined,
+	// Where Namzu writes checkouts, and what a branch is called, is the operator's own call.
+	worktrees: undefined,
+	// Archiving is a standing decision about the person's history, never a variable's.
+	archiveInactive: undefined,
 	// Outbound reach is opted into in the file, never from the environment.
 	web: undefined,
 	// A browser signed in to the operator's sites, and which of them it may
@@ -3046,6 +3092,18 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 				// Once on, no later layer turns it off.
 				continue
 			}
+			if (key === 'worktrees' && layer.config.worktrees !== undefined) {
+				// A project cannot choose where Namzu writes checkouts, nor what they are called.
+				if (isProjectSource(layer.sourceFor(key))) {
+					configWarnings.add(
+						`worktrees in ${describeSource(layer.sourceFor(key))} is ignored: only your own config file or the managed file can set it.`,
+					)
+					continue
+				}
+				out.worktrees = { ...out.worktrees, ...layer.config.worktrees }
+				provenance[key] = layer.sourceFor(key)
+				continue
+			}
 			if (key === 'permissions' && layer.config.permissions) {
 				// Joined, not replaced: a project's table must not erase a user's
 				// deny, nor a managed table the rules below it. See
@@ -3417,6 +3475,8 @@ export function projectLayerHolds(path: string, value: unknown): boolean {
 			return tail === 'auto' || tail === 'check' ? value === false : false
 		case 'disableHooks':
 			return value === false
+		case 'worktrees':
+			return false
 		case 'codeAnalysis':
 			return tail === 'enabled' ? value === false : true
 		case 'learningGenerator':

@@ -245,6 +245,19 @@ export interface HandBackCliConfig {
 	readonly enabled?: boolean
 }
 
+/** See `NamzuCliConfig.worktrees`. */
+export interface WorktreesCliConfig {
+	/** A new worktree's branch is `<branchPrefix>/<name>`. Default `namzu`. */
+	readonly branchPrefix?: string
+	/** The folder new worktrees are made in. Absent means inside the project's Namzu folder. */
+	readonly location?: string
+	/** Folders of the project a new worktree holds; the rest is left out of its files. */
+	readonly sparseFolders?: readonly string[]
+}
+
+/** How long a conversation sits idle before it is archived. */
+export type ArchiveInactiveAfter = 'never' | '1d' | '7d' | '30d'
+
 /** See `NamzuCliConfig.workflow`. */
 export interface WorkflowCliConfig {
 	/** Agents one workflow runs at once. Default `min(16, CPUs - 2)`, at least 2; at most 16. */
@@ -554,6 +567,16 @@ export interface NamzuCliConfig {
 	readonly goal?: GoalCliConfig
 	/** Whether the model may hand a task back to a person; see {@link HandBackCliConfig}. */
 	readonly handBack?: HandBackCliConfig
+	/**
+	 * Where and how a new worktree is made; see {@link WorktreesCliConfig}. Read from the user
+	 * file and the managed file only: a project cannot choose where Namzu writes.
+	 */
+	readonly worktrees?: WorktreesCliConfig
+	/**
+	 * Archive a conversation left idle this long (the desktop app does the sweeping). Absent
+	 * means `never`. An archived conversation is moved, never deleted, and can be restored.
+	 */
+	readonly archiveInactive?: ArchiveInactiveAfter
 	/**
 	 * Isolation for the commands this CLI runs.
 	 *

@@ -23,6 +23,11 @@ import {
 	saveUserMcpServer,
 } from '../integrations/mcp/user-config.js'
 import {
+	archiveAfterMs,
+	archiveIdleConversations,
+	readArchiveInactive,
+} from '../integrations/sessions/archive-inactive.js'
+import {
 	type CliSessionScope,
 	archiveConversation,
 	closeSessions,
@@ -1018,6 +1023,81 @@ export function createDesktopHostExtensions(
 			throw new Error('Live input requires this connection’s owned ordinary conversation.')
 		return id
 	}
+	/** The archive every route shares: the sweep for idle conversations goes through the same gates. */
+	const archiveConversationById = async (requestedId: string) => {
+		const home = resolveNamzuHome()
+		const assertTrust = () => {
+			if (!isTrustedAtStateRoot(cwd, home))
+				throw new Error('Trust this folder before archiving its conversations.')
+		}
+		assertTrust()
+		const state = await openSessions(cwd, { stateRoot: home })
+		try {
+			assertTrust()
+			const id = asSessionId(requestedId)
+			const facts = await readConversationFacts(state, id)
+			const assertJobsIdle = () => {
+				const jobs = runtime.jobs(id)
+				if (
+					!Array.isArray(jobs) ||
+					jobs.some((job) => job.status === 'running' || job.recoveryRequired)
+				)
+					throw new Error('Stop this conversation’s background work before archiving it.')
+			}
+			if (!facts) {
+				let absent = false
+				try {
+					await lstat(state.paths.sessionLog({ sessionId: id }))
+				} catch (error) {
+					if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+					absent = true
+				}
+				if (!absent) throw new Error('This conversation’s journal has no verified session header.')
+				const publishedCwd = publishedSessionCwd?.(id)
+				if (publishedCwd !== undefined && canonicalProjectPath(publishedCwd) !== cwd)
+					throw new Error('This conversation does not belong to this project.')
+				assertJobsIdle()
+				assertTrust()
+				// Absence is an observation, never an archive or execution admission.
+				return {
+					sessionId: id,
+					archived: false as const,
+					missing: true as const,
+				}
+			}
+			if (facts.started.tenantId !== undefined && facts.started.tenantId !== state.tenantId)
+				throw new Error(DIFFERENT_IDENTITY_MESSAGE)
+			await ownedSessionIn({ sessionId: requestedId }, state)
+			if (facts.activeTurn)
+				throw new Error('Resolve this conversation’s open turn before archiving it.')
+			assertJobsIdle()
+			assertTrust()
+			const archive = async () => {
+				assertJobsIdle()
+				assertTrust()
+				try {
+					await archiveConversation(state, id)
+				} catch (error) {
+					// An idempotent retry still passes the real writer/scope gate.
+					if (
+						!(error instanceof Error) ||
+						error.message !== `Conversation ${id} is already archived.`
+					)
+						throw error
+					const current = await readConversationFacts(state, id)
+					if (!current?.archived || current.activeTurn) throw error
+				}
+				return { sessionId: id, archived: true as const }
+			}
+			const harness = runtime as Partial<CliHarnessRuntime>
+			return !palAtWorkspace(cwd, state.root) &&
+				typeof harness.withIdleConversationForArchive === 'function'
+				? await harness.withIdleConversationForArchive(id, state, archive)
+				: await archive()
+		} finally {
+			closeSessions(state)
+		}
+	}
 	return {
 		...(liveInputStatus && liveInput && publishedSessionCwd
 			? {
@@ -1295,7 +1375,17 @@ export function createDesktopHostExtensions(
 			withState(async (state) => {
 				const currentPal = pal()
 				if (currentPal) return listPalConversations(cwd, currentPal.id)
-				return conversationRows(state, await listRecent(state, 100))
+				const rows = await listRecent(state, 100)
+				const archived = await archiveIdleConversations({
+					candidates: rows,
+					afterMs: archiveAfterMs(readArchiveInactive()),
+					now: Date.now(),
+					archive: archiveConversationById,
+				})
+				return conversationRows(
+					state,
+					archived.length === 0 ? rows : rows.filter((row) => !archived.includes(row.id)),
+				)
 			}),
 		/**
 		 * Full-text search over what a conversation said and did (replies and tool output), through
@@ -1513,80 +1603,7 @@ export function createDesktopHostExtensions(
 				Object.keys(params).some((key) => key !== 'sessionId')
 			)
 				throw new Error('Invalid conversation archive request.')
-			const requestedId = session(params)
-			const home = resolveNamzuHome()
-			const assertTrust = () => {
-				if (!isTrustedAtStateRoot(cwd, home))
-					throw new Error('Trust this folder before archiving its conversations.')
-			}
-			assertTrust()
-			const state = await openSessions(cwd, { stateRoot: home })
-			try {
-				assertTrust()
-				const id = asSessionId(requestedId)
-				const facts = await readConversationFacts(state, id)
-				const assertJobsIdle = () => {
-					const jobs = runtime.jobs(id)
-					if (
-						!Array.isArray(jobs) ||
-						jobs.some((job) => job.status === 'running' || job.recoveryRequired)
-					)
-						throw new Error('Stop this conversation’s background work before archiving it.')
-				}
-				if (!facts) {
-					let absent = false
-					try {
-						await lstat(state.paths.sessionLog({ sessionId: id }))
-					} catch (error) {
-						if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-						absent = true
-					}
-					if (!absent)
-						throw new Error('This conversation’s journal has no verified session header.')
-					const publishedCwd = publishedSessionCwd?.(id)
-					if (publishedCwd !== undefined && canonicalProjectPath(publishedCwd) !== cwd)
-						throw new Error('This conversation does not belong to this project.')
-					assertJobsIdle()
-					assertTrust()
-					// Absence is an observation, never an archive or execution admission.
-					return {
-						sessionId: id,
-						archived: false as const,
-						missing: true as const,
-					}
-				}
-				if (facts.started.tenantId !== undefined && facts.started.tenantId !== state.tenantId)
-					throw new Error(DIFFERENT_IDENTITY_MESSAGE)
-				await ownedSessionIn({ sessionId: requestedId }, state)
-				if (facts.activeTurn)
-					throw new Error('Resolve this conversation’s open turn before archiving it.')
-				assertJobsIdle()
-				assertTrust()
-				const archive = async () => {
-					assertJobsIdle()
-					assertTrust()
-					try {
-						await archiveConversation(state, id)
-					} catch (error) {
-						// An idempotent retry still passes the real writer/scope gate.
-						if (
-							!(error instanceof Error) ||
-							error.message !== `Conversation ${id} is already archived.`
-						)
-							throw error
-						const current = await readConversationFacts(state, id)
-						if (!current?.archived || current.activeTurn) throw error
-					}
-					return { sessionId: id, archived: true as const }
-				}
-				const harness = runtime as Partial<CliHarnessRuntime>
-				return !palAtWorkspace(cwd, state.root) &&
-					typeof harness.withIdleConversationForArchive === 'function'
-					? await harness.withIdleConversationForArchive(id, state, archive)
-					: await archive()
-			} finally {
-				closeSessions(state)
-			}
+			return archiveConversationById(session(params))
 		},
 		'namzu/conversations/rename': async (params: Record<string, unknown>) => {
 			if (

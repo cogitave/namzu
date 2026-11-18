@@ -150,6 +150,18 @@ reply, a later revision, or a legacy message without that event remains
 visible. These display rows do not change the journal or model replay, and
 cold history does not reconstruct tool receipts or reasoning.
 
+## Archiving idle conversations
+
+`archiveInactive` (Settings, Projects, *Archive inactive conversations*) is `never` by default, or `1d`, `7d`
+or `30d`. The desktop host reads it from your own file and the managed file each time it lists a project's
+conversations, and archives each one whose last activity is at least that old, through the same
+`namzu/conversations/archive` route and the same gates: a conversation with an open turn, one with running
+background work, and one in a folder that is not trusted are never archived (they are tried again on a later
+listing). Archiving only moves a conversation to the archive, where it stays readable and can be restored; it
+never deletes a conversation and it never touches a worktree, so a worktree with uncommitted changes stays on
+disk. The terminal app has no sweep of its own: the setting is applied where the conversation list is drawn by
+the desktop app.
+
 ## Archived conversations
 
 `/archive` asks before archiving the current conversation and exiting. Its
