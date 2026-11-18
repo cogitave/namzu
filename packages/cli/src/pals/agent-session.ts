@@ -415,6 +415,9 @@ export async function createPalAgentSession(
 									throw new Error('This Pal computer does not support browser operations.')
 								return browser
 							}),
+							// The Pal's browser belongs to its own computer: it neither shares
+							// this machine's loopback nor its folders.
+							{ localPages: false },
 						)
 					: []),
 			]
