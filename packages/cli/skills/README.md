@@ -14,6 +14,9 @@ name in `~/.agents/skills`, `~/.namzu/skills` or the project shadows it.
   project's own check plainly so the turn's record can read its status.
 - `review-changes` — reviewing a change for defects, each finding with its
   failing case and checked before it is reported.
+- `document` — writing a document as one well-structured Markdown file in the
+  project, with a short list of assumptions and open questions in the reply.
+  Word, PDF, slides and spreadsheets are not offered yet.
 
 Each is a single `SKILL.md`. A built-in that bundles files (`scripts/`,
 `references/`) must not depend on them under the sandbox: the installed

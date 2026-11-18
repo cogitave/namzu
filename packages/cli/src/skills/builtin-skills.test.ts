@@ -61,9 +61,10 @@ function topLevelCommandExists(name: string): boolean {
 }
 
 describe('the built-in skills', () => {
-	it('ships the five built-in skills', () => {
+	it('ships the six built-in skills', () => {
 		expect(builtinSkillDirs()).toEqual([
 			'browser-automation',
+			'document',
 			'review-changes',
 			'schedule-task',
 			'skill-creator',
@@ -156,7 +157,7 @@ describe('the built-in skills', () => {
 		expect(problems).toEqual([])
 	})
 
-	it('all five descriptions fit in full on the smallest window the model table lists for open weights', async () => {
+	it('all six descriptions fit in full on the smallest window the model table lists for open weights', async () => {
 		// 32,768 tokens is the smallest window the table gives a current family
 		// (the 8k and 16k rows are older chat models). A real install sits under
 		// a path of this length, which every entry also pays for.
