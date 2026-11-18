@@ -1,7 +1,6 @@
 import { formatSize } from '../shared/format-size.js'
 import {
 	type OutputCardKind,
-	isMadeFileKind,
 	isTextOutput,
 	mayOpenWithSystem,
 	outputCardKind,
@@ -11,12 +10,16 @@ import {
 import type { ThreadState } from '../shared/projection.js'
 import type { SessionOutputDetail } from '../shared/protocol.js'
 import type { OutputFile } from './outputs-model.js'
+import { skillNameOf } from './tool-transcript-presentation.js'
 import { type TurnChanges, baseName } from './turn-changes.js'
 
 /**
- * The cards under a reply: one for each result the reply made. The list comes from the same
- * receipts and made-file records the Outputs pane reads, so a card and the pane never disagree.
- * A card is only ever built from a path, a state and the host's facts about the file.
+ * The cards under a reply: one for each document the reply made. Ordinary files (code, data,
+ * pages, pictures, plain Markdown written with the file tools) get no card: they show as steps in
+ * the activity line, as the reply's own links and in the Outputs list of the details column. A
+ * document is a file the built-in document skill wrote; Word, PDF, slides and spreadsheets made by
+ * a document service join it later through `isDocumentFile`. The list comes from the same receipts
+ * and made-file records the Outputs pane reads, so a card and the pane never disagree.
  */
 
 export type OutputCardState = 'writing' | 'done' | 'failed' | 'declined' | 'gone'
@@ -32,8 +35,8 @@ export interface OutputCard {
 	kindLine: string
 	/** Why a failed card failed, in one plain sentence. */
 	reason?: string
-	/** One line of the start of a document or of code. */
-	preview?: string
+	/** The one word at the row's right: Created, Edited, Opened, Writing, Failed. */
+	stateWord: string
 	/** Opens beside the conversation: only a finished card does. */
 	canOpen: boolean
 	canOpenInBrowser: boolean
@@ -43,7 +46,28 @@ export interface OutputCard {
 }
 
 /** Cards beyond this many are folded behind "Show N more". */
-export const CARDS_SHOWN = 4
+export const CARDS_SHOWN = 3
+
+/** The skill whose Markdown file is a document card. */
+export const DOCUMENT_SKILL = 'document'
+
+/**
+ * Whether a file belongs on a card: a document the document skill wrote in this reply. Only
+ * Markdown and text files are in scope today; the formats a document service makes later are
+ * added here.
+ */
+export function isDocumentFile(path: string, documentTurn: boolean): boolean {
+	return documentTurn && outputCardKind(path) === 'document'
+}
+
+function documentTurnOf(thread: Pick<ThreadState, 'timeline' | 'tools'>, turn: number): boolean {
+	for (const entry of thread.timeline) {
+		if (entry.kind !== 'tool' || entry.turn !== turn) continue
+		const tool = thread.tools[entry.id]
+		if (tool && skillNameOf(tool) === DOCUMENT_SKILL && tool.status !== 'failed') return true
+	}
+	return false
+}
 
 const WRITE_FAILURES: Record<string, string> = {
 	permission_denied: 'Namzu didn’t have permission.',
@@ -80,7 +104,12 @@ export function cardKindLine(path: string, size?: number): string {
 		.join(' · ')
 }
 
-function doneCard(turn: number, path: string, detail: SessionOutputDetail | undefined): OutputCard {
+function doneCard(
+	turn: number,
+	path: string,
+	detail: SessionOutputDetail | undefined,
+	created: boolean,
+): OutputCard {
 	const kind = outputCardKind(path)
 	const ext = path.toLowerCase()
 	const gone = detail?.missing === true
@@ -91,7 +120,7 @@ function doneCard(turn: number, path: string, detail: SessionOutputDetail | unde
 		kind,
 		state: gone ? 'gone' : 'done',
 		kindLine: gone ? 'No longer in the folder' : cardKindLine(path, detail?.size),
-		...(detail?.preview && !gone ? { preview: detail.preview } : {}),
+		stateWord: gone ? 'Missing' : created ? 'Created' : 'Edited',
 		canOpen: !gone,
 		canOpenInBrowser: !gone && /\.html?$/.test(ext),
 		canOpenWithSystem: !gone && mayOpenWithSystem(path),
@@ -112,6 +141,7 @@ function pendingCard(
 		name: baseName(path),
 		kind: outputCardKind(path),
 		state,
+		stateWord: state === 'writing' ? 'Writing' : state === 'declined' ? 'Declined' : 'Failed',
 		kindLine:
 			state === 'writing'
 				? 'Writing…'
@@ -128,9 +158,9 @@ function pendingCard(
 }
 
 /**
- * The cards for one reply, in the order the files were made. A file the reply wrote is a card when
- * the reply created it, or when it is a page, document, picture, sheet or set of slides it
- * changed; edits to source code stay in the Changes panel. A reply that was put back makes none.
+ * The cards for one reply, in the order the files were made: the documents the document skill
+ * wrote or changed, and a document write that is running, failed or was declined. Everything else
+ * the reply wrote stays out; a reply that was put back makes none.
  */
 export function turnOutputCards(
 	thread: Pick<ThreadState, 'timeline' | 'tools' | 'turns' | 'undo' | 'running' | 'turn'> &
@@ -142,25 +172,28 @@ export function turnOutputCards(
 ): OutputCard[] {
 	const turnId = thread.turns[turn]?.turnId
 	if (turnId && thread.undo?.[turnId]?.status === 'undone') return []
+	const documentTurn = documentTurnOf(thread, turn)
+	if (!documentTurn) return []
 	const cards: OutputCard[] = []
 	const seen = new Set<string>()
 	for (const file of changes?.files ?? []) {
 		if (!file.path || file.path === 'File' || seen.has(file.path)) continue
-		if (!file.created && !isMadeFileKind(file.path)) continue
+		if (!isDocumentFile(file.path, documentTurn)) continue
 		seen.add(file.path)
-		cards.push(doneCard(turn, file.path, details.get(file.path)))
+		cards.push(doneCard(turn, file.path, details.get(file.path), file.created))
 	}
 	for (const file of made) {
 		if (!file.made || file.turn !== turn || seen.has(file.path)) continue
+		if (!isDocumentFile(file.path, documentTurn)) continue
 		seen.add(file.path)
-		cards.push(doneCard(turn, file.path, details.get(file.path)))
+		cards.push(doneCard(turn, file.path, details.get(file.path), true))
 	}
 	for (const entry of thread.timeline) {
 		if (entry.kind !== 'tool' || entry.turn !== turn) continue
 		const tool = thread.tools[entry.id]
 		if (!tool || tool.status === 'completed') continue
 		const path = writtenPath(tool)
-		if (!path || seen.has(path)) continue
+		if (!path || seen.has(path) || !isDocumentFile(path, documentTurn)) continue
 		if (tool.status === 'pending') {
 			const active =
 				thread.running && thread.turn === turn && (thread.activeToolIds?.includes(entry.id) ?? true)
@@ -182,11 +215,8 @@ export function turnOutputCards(
 export interface OutputGroupView {
 	/** "1 output", "3 outputs". */
 	label: string
-	/** A reply with one result draws it large. */
-	large: boolean
-	/** Finished pictures, drawn two to a row; empty when there is only one card. */
-	pictures: OutputCard[]
-	/** Everything else, in order. */
+	/** The caption over the rows: only a longer block names itself. */
+	caption: boolean
 	rows: OutputCard[]
 	hidden: number
 }
@@ -199,14 +229,10 @@ export function outputGroupView(cards: readonly OutputCard[], expanded: boolean)
 		...cards.filter((card) => card.state !== 'failed'),
 	]
 	const shown = expanded ? ordered : ordered.slice(0, CARDS_SHOWN)
-	const large = cards.length === 1
-	const isPicture = (card: OutputCard) => card.kind === 'image' && card.state === 'done'
-	const pictures = !large && shown.filter(isPicture).length >= 2 ? shown.filter(isPicture) : []
 	return {
 		label: cards.length === 1 ? '1 output' : `${cards.length} outputs`,
-		large,
-		pictures,
-		rows: shown.filter((card) => !pictures.includes(card)),
+		caption: cards.length > CARDS_SHOWN,
+		rows: shown,
 		hidden: cards.length - shown.length,
 	}
 }

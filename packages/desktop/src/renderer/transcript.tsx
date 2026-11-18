@@ -525,11 +525,7 @@ function TurnActivity({
 				<CollapsibleTrigger
 					className="activity-trigger"
 					aria-label={[
-						elapsed
-							? `${label} for ${elapsed}`
-							: fold?.duration
-								? `${label} · ${fold.duration}`
-								: label,
+						elapsed ? `${label} for ${elapsed}` : fold?.took ? `${label} · ${fold.took}` : label,
 						...flags.map((flag) => flag.text),
 					].join('. ')}
 					title={
@@ -537,7 +533,9 @@ function TurnActivity({
 							? 'How long this work took'
 							: live
 								? undefined
-								: timeDescription(savedTime)
+								: [timeDescription(savedTime), fold?.took ? `Took ${fold.took}` : undefined]
+										.filter(Boolean)
+										.join('. ') || undefined
 					}
 					data-duration-source={savedDuration ? 'recorded-runtime' : undefined}
 					data-live={live ? '' : undefined}
@@ -566,6 +564,11 @@ function TurnActivity({
 								· {fold.duration}
 							</span>
 						)}
+						{fold?.added ? (
+							<span className="turn-activity-added" data-tone="added">
+								+{fold.added}
+							</span>
+						) : null}
 						<AttentionFlags flags={flags} />
 					</span>
 					<FoldChevron />

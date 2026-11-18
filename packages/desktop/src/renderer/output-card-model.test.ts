@@ -39,6 +39,16 @@ function wrote(thread: ThreadState, id: string, path: string, before: string, af
 		done,
 	)
 }
+/** The reply loads the built-in document skill first, as a document request does. */
+function withSkill(thread: ThreadState, name = 'document'): ThreadState {
+	return send(thread, {
+		kind: 'tool_call',
+		toolCallId: `skill-${name}`,
+		title: 'skill',
+		status: 'completed',
+		view: { kind: 'generic', label: `Read skill ${name}` },
+	} as AcpSessionUpdate)
+}
 const cardsOf = (thread: ThreadState, details = new Map()) =>
 	turnOutputCards(
 		thread,
@@ -57,25 +67,40 @@ describe('the kind line', () => {
 })
 
 describe('the cards for a reply', () => {
-	it('makes a card for a created file, and one for an edited page, but not edited code', () => {
-		let thread = start(emptyThread())
+	it('makes a card for a document the document skill wrote, and for nothing else', () => {
+		let thread = withSkill(start(emptyThread()))
 		thread = wrote(thread, 'a', 'notes/plan.md', '', '# Plan\n')
 		thread = wrote(thread, 'b', 'src/app.ts', 'a', 'b')
 		thread = wrote(thread, 'c', 'site/index.html', '<p>a</p>', '<p>b</p>')
+		thread = wrote(thread, 'd', 'logo.svg', '', '<svg/>')
 		const cards = cardsOf(
 			thread,
 			new Map([['notes/plan.md', { path: 'notes/plan.md', size: 2048, preview: 'Plan' }]]),
 		)
-		expect(cards.map((card) => card.name)).toEqual(['plan.md', 'index.html'])
+		expect(cards.map((card) => card.name)).toEqual(['plan.md'])
 		expect(cards[0]).toMatchObject({
 			state: 'done',
+			stateWord: 'Created',
 			kindLine: 'Document · Markdown · 2 KB',
-			preview: 'Plan',
 			canCopy: true,
 			canOpenInBrowser: false,
 			canSave: true,
 		})
-		expect(cards[1]).toMatchObject({ canOpenInBrowser: true, canOpenWithSystem: true })
+	})
+	it('makes no card for ordinary files, Markdown written with the file tools included', () => {
+		let thread = start(emptyThread())
+		thread = wrote(thread, 'a', 'notes/plan.md', '', '# Plan\n')
+		thread = wrote(thread, 'c', 'site/index.html', '', '<p>b</p>')
+		expect(cardsOf(thread)).toEqual([])
+		// Another skill's run does not make the Markdown a document.
+		expect(
+			cardsOf(wrote(withSkill(start(emptyThread()), 'review'), 'a', 'p.md', '', '# x\n')),
+		).toEqual([])
+	})
+	it('calls an edited document Edited', () => {
+		let thread = withSkill(start(emptyThread()))
+		thread = wrote(thread, 'a', 'plan.md', '# Old\n', '# New\n')
+		expect(cardsOf(thread)[0]).toMatchObject({ stateWord: 'Edited' })
 	})
 	const call = (id: string, status: 'pending' | 'failed', extra: object = {}): AcpSessionUpdate =>
 		({
@@ -86,30 +111,37 @@ describe('the cards for a reply', () => {
 			view: {
 				kind: 'generic',
 				label: 'write',
-				facts: { kind: 'write', path: 'site/new.html', operation: 'created' },
+				facts: { kind: 'write', path: 'site/new.md', operation: 'created' },
 				...extra,
 			},
 		}) as AcpSessionUpdate
 	it('shows a writing card while the call runs, named from the call', () => {
-		const thread = send(start(emptyThread()), call('w', 'pending'))
+		const thread = send(withSkill(start(emptyThread())), call('w', 'pending'))
 		expect(cardsOf(thread)).toMatchObject([
-			{ name: 'new.html', state: 'writing', kindLine: 'Writing…', canOpen: false },
+			{
+				name: 'new.md',
+				state: 'writing',
+				stateWord: 'Writing',
+				kindLine: 'Writing…',
+				canOpen: false,
+			},
 		])
 	})
 	it('shows a failed card with a plain reason, and a declined one without blame', () => {
-		let thread = send(start(emptyThread()), call('w', 'pending'))
+		let thread = send(withSkill(start(emptyThread())), call('w', 'pending'))
 		thread = send(thread, {
 			...call('w', 'failed'),
-			facts: { kind: 'failure', reason: 'permission_denied', subject: 'site/new.html' },
+			facts: { kind: 'failure', reason: 'permission_denied', subject: 'site/new.md' },
 		} as AcpSessionUpdate)
 		expect(cardsOf(thread)).toMatchObject([
 			{
 				state: 'failed',
+				stateWord: 'Failed',
 				kindLine: 'Couldn’t write this file',
 				reason: 'Namzu didn’t have permission.',
 			},
 		])
-		let declined = send(start(emptyThread()), call('d', 'pending'))
+		let declined = send(withSkill(start(emptyThread())), call('d', 'pending'))
 		declined = send(declined, call('d', 'failed', { declined: {} }))
 		expect(cardsOf(declined)).toMatchObject([{ state: 'declined', kindLine: 'You declined this' }])
 	})
@@ -122,7 +154,7 @@ describe('the cards for a reply', () => {
 				status,
 				view: { kind: 'diff', path: 'blocked/report.md', before: '', after: '# Report\n' },
 			}) as AcpSessionUpdate
-		let thread = send(start(emptyThread()), diff('pending'))
+		let thread = send(withSkill(start(emptyThread())), diff('pending'))
 		expect(cardsOf(thread)).toMatchObject([{ name: 'report.md', state: 'writing' }])
 		thread = send(thread, {
 			...diff('failed'),
@@ -137,19 +169,23 @@ describe('the cards for a reply', () => {
 		])
 	})
 	it('says a file is gone when the host cannot find it any more', () => {
-		let thread = start(emptyThread())
+		let thread = withSkill(start(emptyThread()))
 		thread = wrote(thread, 'a', 'plan.md', '', '# x\n')
 		const [card] = cardsOf(thread, new Map([['plan.md', { path: 'plan.md', missing: true }]]))
 		expect(card).toMatchObject({
 			state: 'gone',
+			stateWord: 'Missing',
 			kindLine: 'No longer in the folder',
 			canOpen: false,
 		})
 	})
-	it('adds a file a command made, under the turn that made it, once', () => {
-		let thread = start(emptyThread())
+	it('adds a document a command made, under the turn that made it, once', () => {
+		let thread = withSkill(start(emptyThread()))
 		thread = wrote(thread, 'a', 'plan.md', '', '# x\n')
-		const made = [{ path: '/w/chart.png', turn: thread.turn }]
+		const made = [
+			{ path: '/w/notes.md', turn: thread.turn },
+			{ path: '/w/chart.png', turn: thread.turn },
+		]
 		const cards = turnOutputCards(
 			thread,
 			thread.turn,
@@ -157,7 +193,7 @@ describe('the cards for a reply', () => {
 			outputFiles(thread, made),
 			new Map(),
 		)
-		expect(cards.map((card) => card.name)).toEqual(['plan.md', 'chart.png'])
+		expect(cards.map((card) => card.name)).toEqual(['plan.md', 'notes.md'])
 		expect(
 			turnOutputCards(thread, thread.turn + 1, undefined, outputFiles(thread, made), new Map()),
 		).toEqual([])
@@ -172,31 +208,28 @@ describe('the group', () => {
 		kind,
 		state: 'done',
 		kindLine: 'x',
+		stateWord: 'Created',
 		canOpen: true,
 		canOpenInBrowser: false,
 		canOpenWithSystem: true,
 		canCopy: false,
 		canSave: true,
 	})
-	it('draws one output large and labels the group', () => {
-		expect(outputGroupView([card('a.md')], false)).toMatchObject({ large: true, label: '1 output' })
+	it('labels the group and names it only when it is longer than the cards shown', () => {
+		expect(outputGroupView([card('a.md')], false)).toMatchObject({
+			caption: false,
+			label: '1 output',
+		})
+		const many = Array.from({ length: 5 }, (_, index) => card(`f${index}.md`))
+		expect(outputGroupView(many, false)).toMatchObject({ caption: true, label: '5 outputs' })
 	})
-	it('shows four, folds the rest, and expands in place', () => {
-		const many = Array.from({ length: 6 }, (_, index) => card(`f${index}.md`))
+	it('shows three, folds the rest, and expands in place', () => {
+		const many = Array.from({ length: 5 }, (_, index) => card(`f${index}.md`))
 		const folded = outputGroupView(many, false)
 		expect(folded.rows).toHaveLength(CARDS_SHOWN)
+		expect(CARDS_SHOWN).toBe(3)
 		expect(folded.hidden).toBe(2)
-		expect(folded.label).toBe('6 outputs')
 		expect(outputGroupView(many, true)).toMatchObject({ hidden: 0 })
-	})
-	it('pairs two or more pictures and leaves the others in order', () => {
-		const view = outputGroupView(
-			[card('a.png', 'image'), card('b.md'), card('c.png', 'image')],
-			false,
-		)
-		expect(view.pictures.map((item) => item.name)).toEqual(['a.png', 'c.png'])
-		expect(view.rows.map((item) => item.name)).toEqual(['b.md'])
-		expect(outputGroupView([card('a.png', 'image'), card('b.md')], false).pictures).toEqual([])
 	})
 	it('names a card for a screen reader', () => {
 		expect(cardAccessibleName({ ...card('a.md'), kindLine: 'Document · Markdown · 1 KB' })).toBe(
@@ -215,7 +248,7 @@ describe('folding the cards', () => {
 			kind: 'document',
 			state: 'failed',
 		} as unknown as OutputCard
-		const cards = [done('a.md'), done('b.md'), done('c.md'), done('d.md'), done('e.md'), failed]
+		const cards = [done('a.md'), done('b.md'), done('c.md'), done('d.md'), failed]
 		const view = outputGroupView(cards, false)
 		expect(view.rows[0]?.name).toBe('report.md')
 		expect(view.hidden).toBe(2)

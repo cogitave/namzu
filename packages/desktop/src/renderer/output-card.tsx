@@ -1,26 +1,13 @@
 import {
 	AppWindow,
-	Code,
+	ChevronRight,
 	Copy,
 	Download,
 	ExternalLink,
-	File,
 	FileText,
-	Image,
-	Presentation,
-	Table2,
 	TriangleAlert,
 } from 'lucide-react'
-import {
-	type ComponentType,
-	createContext,
-	useContext,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
-} from 'react'
-import { type OutputCardKind, extensionOf } from '../shared/output-files.js'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ThreadState } from '../shared/projection.js'
 import type { DesktopApi, SessionOutputDetail } from '../shared/protocol.js'
 import { copyPlainText } from './copy-button.js'
@@ -31,9 +18,7 @@ import {
 	outputGroupView,
 	turnOutputCards,
 } from './output-card-model.js'
-import { OUTPUT_FRAME_SANDBOX, outputFrameDocument } from './output-frame.js'
 import type { OutputFile } from './outputs-model.js'
-import { useSessionOutput } from './outputs-panel.js'
 import { plainErrorText } from './plain-error.js'
 import type { TurnChanges } from './turn-changes.js'
 import './output-card.css'
@@ -53,17 +38,7 @@ export interface OutputCardsContextValue {
 }
 export const OutputCardsContext = createContext<OutputCardsContextValue | undefined>(undefined)
 
-const GLYPHS: Record<OutputCardKind, ComponentType<{ 'aria-hidden'?: boolean }>> = {
-	page: AppWindow,
-	document: FileText,
-	image: Image,
-	spreadsheet: Table2,
-	presentation: Presentation,
-	code: Code,
-	file: File,
-}
-
-/** Size and a first line for the finished cards; asked again when the turn settles. */
+/** The size of the finished cards, for the tooltip; asked again when the turn settles. */
 function useDetails(
 	ctx: OutputCardsContextValue | undefined,
 	paths: readonly string[],
@@ -85,54 +60,6 @@ function useDetails(
 		}
 	}, [ctx?.api, ctx?.sessionId, key, settled])
 	return details
-}
-
-function Thumb({
-	card,
-	large,
-	ctx,
-}: { card: OutputCard; large: boolean; ctx: OutputCardsContextValue }) {
-	const Glyph = GLYPHS[card.kind]
-	const badge = extensionOf(card.path).slice(0, 4).toUpperCase()
-	const wantsImage = card.kind === 'image' && card.state === 'done'
-	const wantsPage = card.kind === 'page' && card.state === 'done' && large
-	const load = useSessionOutput(ctx.api, ctx.sessionId, wantsImage || wantsPage ? card.path : '', 0)
-	if (wantsImage && load.status === 'ready' && load.content.kind === 'image' && load.content.image)
-		return (
-			<span className="output-card-thumb" data-thumb="image">
-				<img src={load.content.image} alt="" />
-			</span>
-		)
-	if (wantsPage && load.status === 'ready' && load.content.text !== undefined)
-		return (
-			<span
-				className="output-card-thumb output-card-thumb-page"
-				data-thumb="page"
-				aria-hidden="true"
-			>
-				<iframe
-					title="Preview"
-					tabIndex={-1}
-					sandbox={OUTPUT_FRAME_SANDBOX}
-					referrerPolicy="no-referrer"
-					srcDoc={outputFrameDocument(load.content.text)}
-				/>
-			</span>
-		)
-	return (
-		<span
-			className="output-card-tile"
-			data-kind={card.kind}
-			data-sheet={large && card.kind === 'document' ? '' : undefined}
-		>
-			{card.state === 'failed' ? <TriangleAlert aria-hidden /> : <Glyph aria-hidden />}
-			{badge ? (
-				<span className="output-card-badge" aria-hidden="true">
-					{badge}
-				</span>
-			) : null}
-		</span>
-	)
 }
 
 function CardActions({ card, ctx }: { card: OutputCard; ctx: OutputCardsContextValue }) {
@@ -214,37 +141,33 @@ function CardActions({ card, ctx }: { card: OutputCard; ctx: OutputCardsContextV
 	)
 }
 
-export function OutputCardView({
-	card,
-	large,
-	ctx,
-}: { card: OutputCard; large: boolean; ctx: OutputCardsContextValue }) {
+/** One compact row: a document icon, the title, one state word, a chevron. */
+export function OutputCardView({ card, ctx }: { card: OutputCard; ctx: OutputCardsContextValue }) {
+	const [opened, setOpened] = useState(false)
+	const word = opened && card.state === 'done' ? 'Opened' : card.stateWord
+	const failed = card.state === 'failed'
 	const body = (
 		<>
-			<Thumb card={card} large={large} ctx={ctx} />
-			<span className="output-card-text">
-				<span className="output-card-name" title={card.name}>
-					{card.name}
-				</span>
-				<span className="output-card-kind">{card.kindLine}</span>
-				{card.reason && <span className="output-card-reason">{card.reason}</span>}
-				{card.preview && <span className="output-card-preview">{card.preview}</span>}
+			<span className="output-card-icon" aria-hidden="true">
+				{failed ? <TriangleAlert /> : <FileText />}
 			</span>
+			<span className="output-card-name">{card.name}</span>
+			<span className="output-card-state">{word}</span>
+			{card.canOpen && <ChevronRight className="output-card-chevron" aria-hidden />}
 		</>
 	)
+	const title = card.reason ? `${card.kindLine}. ${card.reason}` : card.kindLine
 	return (
-		<div
-			className="output-card"
-			data-output-card={card.path}
-			data-state={card.state}
-			data-large={large ? '' : undefined}
-		>
+		<div className="output-card" data-output-card={card.path} data-state={card.state} title={title}>
 			{card.canOpen ? (
 				<button
 					type="button"
 					className="output-card-main"
 					aria-label={cardAccessibleName(card)}
-					onClick={() => ctx.onOpen(card.path)}
+					onClick={() => {
+						setOpened(true)
+						ctx.onOpen(card.path)
+					}}
 				>
 					{body}
 				</button>
@@ -253,6 +176,7 @@ export function OutputCardView({
 					{body}
 				</div>
 			)}
+			{failed && card.reason && <span className="output-card-reason">{card.reason}</span>}
 			<CardActions card={card} ctx={ctx} />
 			{card.state === 'writing' && <span className="output-card-progress" aria-hidden="true" />}
 		</div>
@@ -266,16 +190,9 @@ export function OutputGroup({
 }: { view: OutputGroupView; ctx: OutputCardsContextValue; onExpand: () => void }) {
 	return (
 		<section className="output-group" aria-label={view.label} data-output-group>
-			<p className="output-group-caption">Made in this reply</p>
-			{view.pictures.length > 0 && (
-				<div className="output-group-pictures">
-					{view.pictures.map((card) => (
-						<OutputCardView key={card.key} card={card} large={false} ctx={ctx} />
-					))}
-				</div>
-			)}
+			{view.caption && <p className="output-group-caption">Made in this reply</p>}
 			{view.rows.map((card) => (
-				<OutputCardView key={card.key} card={card} large={view.large} ctx={ctx} />
+				<OutputCardView key={card.key} card={card} ctx={ctx} />
 			))}
 			{view.hidden > 0 && (
 				<button type="button" className="output-group-more" onClick={onExpand}>

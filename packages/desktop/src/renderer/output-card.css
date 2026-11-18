@@ -3,7 +3,7 @@
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-2, 8px);
-	margin: var(--space-2, 8px) 0;
+	margin: var(--space-3, 12px) 0;
 	max-width: 100%;
 }
 .output-group-caption {
@@ -11,15 +11,6 @@
 	color: var(--muted-foreground);
 	font-size: var(--text-caption);
 	line-height: var(--leading-caption);
-}
-.output-group-pictures {
-	display: flex;
-	flex-wrap: wrap;
-	gap: var(--space-2, 8px);
-}
-.output-group-pictures .output-card {
-	flex: 1 1 calc(50% - var(--space-2, 8px));
-	max-width: calc(50% - var(--space-2, 8px));
 }
 .output-group-more {
 	appearance: none;
@@ -42,23 +33,21 @@
 .output-card {
 	position: relative;
 	display: flex;
-	align-items: stretch;
-	width: min(100%, 24rem);
+	flex-wrap: wrap;
+	align-items: center;
+	width: min(100%, 20rem);
 	min-width: 0;
+	min-height: 36px;
 	overflow: hidden;
 	border: 1px solid var(--border);
-	border-radius: var(--radius-card);
-	background: var(--card);
+	border-radius: var(--radius-md);
+	background: var(--background);
 	color: var(--foreground);
 	animation: output-card-in 200ms ease-out;
-	transition: transform 160ms ease-out, border-color 160ms ease-out;
-}
-.output-card[data-large] {
-	width: min(100%, 30rem);
+	transition: background-color 120ms ease-out;
 }
 .output-card:hover {
-	transform: translateY(-2px);
-	border-color: var(--input);
+	background: var(--accent);
 }
 .output-card:focus-within {
 	outline: 2px solid var(--ring);
@@ -73,11 +62,12 @@
 .output-card-main {
 	appearance: none;
 	display: flex;
-	flex: 1 1 auto;
+	flex: 1 1 100%;
 	align-items: center;
-	gap: var(--space-3, 12px);
+	gap: var(--space-2, 8px);
 	min-width: 0;
-	padding: var(--space-3, 12px);
+	height: 34px;
+	padding: 0 12px;
 	border: 0;
 	background: none;
 	color: inherit;
@@ -91,133 +81,72 @@
 div.output-card-main {
 	cursor: default;
 }
-.output-card-tile {
-	position: relative;
+.output-card-icon {
 	display: inline-flex;
 	flex: none;
 	align-items: center;
 	justify-content: center;
-	width: 3rem;
-	height: 3rem;
-	/* The extension badge sits on the tile's lower edge: the glyph sits above it, never under it. */
-	padding-bottom: 0.875rem;
-	border-radius: var(--radius-md);
-	background: var(--accent);
+	width: 16px;
+	height: 16px;
 	color: var(--muted-foreground);
 }
-.output-card-badge {
-	position: absolute;
-	right: 0.1875rem;
-	bottom: 0.1875rem;
-	padding: 0 0.25rem;
-	border-radius: var(--radius-sm);
-	background: var(--background);
-	color: var(--muted-foreground);
-	font-size: var(--text-caption);
-	font-weight: 600;
-	line-height: 1.1;
-	letter-spacing: 0.02em;
+.output-card-icon svg {
+	width: 16px;
+	height: 16px;
 }
-.output-card-tile svg {
-	width: 1.375rem;
-	height: 1.375rem;
-}
-.output-card[data-large] .output-card-tile {
-	width: 4.5rem;
-	height: 4.5rem;
-}
-.output-card[data-state="failed"] .output-card-tile {
-	background: color-mix(in srgb, var(--error) 12%, transparent);
+.output-card[data-state="failed"] .output-card-icon {
 	color: var(--error);
 }
-.output-card-tile[data-sheet] {
-	box-shadow: -0.25rem 0.125rem 0 -0.0625rem var(--border);
-}
-.output-card-thumb {
-	display: inline-flex;
-	flex: none;
-	width: 4rem;
-	height: 3rem;
-	overflow: hidden;
-	border: 1px solid var(--border);
-	border-radius: var(--radius-chip);
-	background: var(--accent);
-	box-shadow: inset 0 0 0 1px rgb(255 255 255 / 6%);
-}
-.output-card[data-large] .output-card-thumb {
-	width: 7rem;
-	height: 4.5rem;
-}
-.output-card-thumb img {
-	width: 100%;
-	height: 100%;
-	object-fit: cover;
-}
-.output-card-thumb-page {
-	position: relative;
-	background: white;
-}
-.output-card-thumb-page iframe {
-	position: absolute;
-	top: 0;
-	left: 0;
-	width: 56rem;
-	height: 36rem;
-	border: 0;
-	transform: scale(0.125);
-	transform-origin: 0 0;
-	pointer-events: none;
-}
-.output-card-text {
-	display: flex;
-	flex-direction: column;
-	min-width: 0;
-	gap: 2px;
-}
 .output-card-name {
+	flex: 1 1 auto;
+	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 	font-size: var(--text-interface);
 	line-height: var(--leading-interface);
-	font-weight: 600;
+	font-weight: 400;
 }
-.output-card[data-large] .output-card-name {
-	font-size: var(--text-heading);
-	line-height: var(--leading-heading);
+.output-card-state {
+	flex: none;
+	color: var(--muted-foreground);
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	transition: opacity 120ms ease-out;
 }
-.output-card-kind,
-.output-card-preview,
+.output-card[data-state="failed"] .output-card-state {
+	color: var(--error);
+}
+.output-card-chevron {
+	flex: none;
+	width: 14px;
+	height: 14px;
+	color: var(--muted-foreground);
+	transition: opacity 120ms ease-out;
+}
 .output-card-reason {
+	flex: 1 1 100%;
+	padding: 0 12px 6px 36px;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	color: var(--muted-foreground);
+	color: var(--error);
 	font-size: var(--text-caption);
 	line-height: var(--leading-caption);
 }
-.output-card[data-state="failed"] .output-card-kind {
-	color: var(--error);
-}
-.output-card[data-large] .output-card-preview {
-	white-space: normal;
-	display: -webkit-box;
-	-webkit-line-clamp: 2;
-	-webkit-box-orient: vertical;
-}
+/* The actions take the state word's slot at the row's right: the word and the chevron fade out as
+   they arrive, so the row never widens or grows taller. A touch screen has no hover, so there the
+   actions stay out of the row and the card opens on a press. */
 .output-card-actions {
-	/* Over the end of the card, not beside the text: a narrow card keeps its whole kind line until the
-	   pointer or focus arrives. A touch screen has no hover, so there they sit in the row. */
 	position: absolute;
-	top: 50%;
-	right: var(--space-2, 8px);
+	top: 5px;
+	right: 6px;
 	display: flex;
 	align-items: center;
 	gap: 2px;
 	padding-left: var(--space-2, 8px);
 	border-radius: var(--radius-chip);
-	background: var(--card);
-	transform: translateY(-50%);
+	background: var(--accent);
 	opacity: 0;
 	pointer-events: none;
 	transition: opacity 120ms ease-out;
@@ -227,15 +156,19 @@ div.output-card-main {
 	opacity: 1;
 	pointer-events: auto;
 }
+.output-card:hover .output-card-state,
+.output-card:hover .output-card-chevron,
+.output-card:focus-within .output-card-state,
+.output-card:focus-within .output-card-chevron {
+	opacity: 0;
+}
 @media (pointer: coarse), (forced-colors: active) {
 	.output-card-actions {
-		position: static;
-		flex: none;
-		padding: 0 var(--space-2, 8px) 0 0;
-		background: none;
-		transform: none;
+		display: none;
+	}
+	.output-card:hover .output-card-state,
+	.output-card:hover .output-card-chevron {
 		opacity: 1;
-		pointer-events: auto;
 	}
 }
 .output-card-action {
@@ -243,8 +176,8 @@ div.output-card-main {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	width: 1.75rem;
-	height: 1.75rem;
+	width: 24px;
+	height: 24px;
 	border: 0;
 	border-radius: var(--radius-chip);
 	background: none;
@@ -252,12 +185,12 @@ div.output-card-main {
 	cursor: pointer;
 }
 .output-card-action svg {
-	width: 1rem;
-	height: 1rem;
+	width: 16px;
+	height: 16px;
 }
 .output-card-action:hover,
 .output-card-action:focus-visible {
-	background: var(--accent);
+	background: var(--background);
 	color: var(--foreground);
 }
 .output-card-progress {
@@ -295,9 +228,6 @@ div.output-card-main {
 	.output-card-actions {
 		animation: none;
 		transition: none;
-	}
-	.output-card:hover {
-		transform: none;
 	}
 	.output-card-progress::after {
 		animation: none;
