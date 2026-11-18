@@ -1249,7 +1249,7 @@ const DECLARED: readonly SettingDescriptor[] = [
 		'workflow.enabled',
 		'agent',
 		'Dynamic workflows',
-		'Let Namzu run several helper agents at once on complex tasks. Uses your limit faster.',
+		'In the terminal app and one-shot runs, let Namzu run several helper agents at once on complex tasks. Uses your limit faster.',
 		on,
 		{
 			group: 'helpers-workflows',

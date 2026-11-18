@@ -164,7 +164,18 @@ export async function listMentionableFiles(
 	add(await list(['--cached', '--others', '--exclude-standard'], false))
 	// Off: ignored files follow the others, so they never crowd out what the project tracks.
 	if (options.respectGitignore === false && files.length < MAX_MENTION_FILES)
-		add(await list(['--others', '--ignored', '--exclude-standard'], true))
+		add(
+			await list(
+				[
+					'--others',
+					'--ignored',
+					'--exclude-standard',
+					// Installed packages would fill the buffer before the ignored files that matter.
+					':(exclude,glob)**/node_modules/**',
+				],
+				true,
+			),
+		)
 	return files
 }
 
