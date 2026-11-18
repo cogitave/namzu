@@ -25,6 +25,7 @@ import type {
 	TranscriptTextSize,
 	TranscriptWidth,
 } from '../shared/settings-protocol.js'
+import { DICTATION_CHOICES } from '../shared/shortcuts.js'
 import type { UpdateInfo, UpdateState } from '../shared/update-protocol.js'
 import { CodePreview } from './code-preview.js'
 import { OWN_ROW_CONFIG_PATHS, configSearchEntries } from './config-settings-model.js'
@@ -76,6 +77,7 @@ import {
 	visibleNavGroups,
 } from './settings-model.js'
 import { Row, SegmentedControl, SelectControl, Switch } from './settings-row.js'
+import { ShortcutBox } from './settings-shortcut.js'
 import type { Appearance } from './sidebar.js'
 import { Button } from './ui/button.js'
 import { useClock } from './use-clock.js'
@@ -617,6 +619,8 @@ function catalogueMeta(entry: CatalogueEntry): string {
 	else if (typeof fallback === 'string' && entry.control.kind === 'text') {
 		const label = entry.control.placeholder
 		if (label) defaultLine = `Default: ${label}.`
+	} else if (typeof fallback === 'string' && entry.control.kind === 'shortcut') {
+		defaultLine = `Default: ${fallback || 'Off'}.`
 	} else if (typeof fallback === 'string' && entry.control.kind === 'select') {
 		const label = entry.control.options.find((option) => option.value === fallback)?.label
 		if (label) defaultLine = `Default: ${label}.`
@@ -896,6 +900,52 @@ export function DesktopSection({ settings, os }: Pick<SectionProps, 'settings' |
 					/>
 				</CatalogueRow>
 			)}
+			<CatalogueRow
+				id="quick-entry-shortcut"
+				below={
+					saved?.quickEntryShortcut && os?.shortcuts?.quickEntry.problem ? (
+						<RowLine>{os.shortcuts.quickEntry.problem}</RowLine>
+					) : undefined
+				}
+			>
+				<ShortcutBox
+					label="Quick Entry shortcut"
+					value={saved?.quickEntryShortcut ?? ''}
+					emptyText="Off"
+					disabled={off}
+					onChange={(value) => void settings.change({ quickEntryShortcut: value })}
+				/>
+			</CatalogueRow>
+			<CatalogueRow id="dictation-shortcut">
+				<SelectControl
+					label="Dictation shortcut"
+					value={saved?.dictationShortcut ?? 'ctrl-d'}
+					disabled={off}
+					onChange={(value) => void settings.change({ dictationShortcut: value })}
+				>
+					{DICTATION_CHOICES.map((choice) => (
+						<option key={choice.value} value={choice.value}>
+							{choice.label}
+						</option>
+					))}
+				</SelectControl>
+			</CatalogueRow>
+			<CatalogueRow
+				id="voice-shortcut"
+				below={
+					saved?.voiceShortcut && os?.shortcuts?.voice.problem ? (
+						<RowLine>{os.shortcuts.voice.problem}</RowLine>
+					) : undefined
+				}
+			>
+				<ShortcutBox
+					label="Voice shortcut"
+					value={saved?.voiceShortcut ?? ''}
+					emptyText="Off"
+					disabled={off}
+					onChange={(value) => void settings.change({ voiceShortcut: value })}
+				/>
+			</CatalogueRow>
 			{os && (
 				<CatalogueRow
 					id="system-tray"

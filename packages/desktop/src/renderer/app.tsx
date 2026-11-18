@@ -31,6 +31,7 @@ import type {
 import { usableProviders } from '../shared/provider-connections.js'
 import { ReconnectRetry } from '../shared/reconnect-retry.js'
 import type { DataFolderKind, SettingsSection } from '../shared/settings-protocol.js'
+import { dictationPressed } from '../shared/shortcuts.js'
 import type { SidebarSnapshot } from '../shared/sidebar-snapshot.js'
 import { PROMPT_NOT_PASSED, TERMINAL_ENGINE_LABELS } from '../shared/terminal-tabs.js'
 import type { UpdateState } from '../shared/update-protocol.js'
@@ -300,7 +301,7 @@ import { usePullRequest } from './use-pull-request.js'
 import { useTranscriptScroll } from './use-transcript-scroll.js'
 import { useUndoKept } from './use-undo-kept.js'
 import { useBargeIn, useSpokenReplies, useVoiceInput } from './use-voice-input.js'
-import { VoiceInputStatus, VoiceMicButton } from './voice-input-ui.js'
+import { VoiceInputStatus, VoiceMicButton, micAvailable } from './voice-input-ui.js'
 import { WindowTitlebar } from './window-titlebar.js'
 import {
 	WorkspaceBreadcrumb,
@@ -1016,6 +1017,8 @@ export function App({
 	const [sending, setSending] = useState<Record<string, boolean>>({})
 	const sendingRef = useRef(new Set<string>())
 	const input = useRef<HTMLTextAreaElement>(null)
+	// Reads what a global shortcut left for this window (Quick Entry lines, a voice request).
+	const pullPendingRef = useRef<() => void>(() => undefined)
 	const transcript = useRef<HTMLDivElement>(null)
 	const follow = useRef(true)
 	// Where the reader stopped is kept with the rest of the conversation's view, so a restart
@@ -2207,6 +2210,10 @@ export function App({
 		}
 		return api.onEvent((event: DesktopEvent) => {
 			if (event.kind === 'workspace') return
+			if (event.kind === 'pending-entry') {
+				pullPendingRef.current()
+				return
+			}
 			if (event.kind === 'background-work-status') {
 				if (
 					removedConversations.current.has(event.sessionId) ||
@@ -5532,6 +5539,92 @@ export function App({
 			setSending((all) => ({ ...all, [owner]: false, [target]: false }))
 		}
 	}
+
+	// Quick Entry: a line typed into the global box starts a new conversation with that text, in the
+	// project the last conversation used, or on Home. The steps wait for each render in between.
+	const [quickEntry, setQuickEntry] = useState<{
+		text: string
+		stage: 'new' | 'creating' | 'fill' | 'send'
+	} | null>(null)
+	const quickQueue = useRef<string[]>([])
+	const voiceRequested = useRef(false)
+	const sendRef = useRef(send)
+	sendRef.current = send
+	const voiceRef = useRef({ voice, listening, hasConversation: Boolean(sessionId) })
+	voiceRef.current = { voice, listening, hasConversation: Boolean(sessionId) }
+	const startNextQuickEntry = useCallback(() => {
+		if (quickEntry) return
+		const text = quickQueue.current.shift()
+		if (text !== undefined) setQuickEntry({ text, stage: 'new' })
+	}, [quickEntry])
+	const startVoiceRequest = useCallback(() => {
+		if (!voiceRequested.current) return
+		voiceRequested.current = false
+		input.current?.focus()
+		const { voice: controls, listening: engine, hasConversation } = voiceRef.current
+		if (controls.phase === 'off' && micAvailable({ voice: controls, engine, hasConversation }))
+			controls.toggle()
+	}, [])
+	pullPendingRef.current = () => {
+		void api?.takePendingEntries?.().then(
+			(pending) => {
+				if (!pending || !mounted.current) return
+				quickQueue.current.push(...pending.quickEntries)
+				if (pending.voice) voiceRequested.current = true
+				startNextQuickEntry()
+				startVoiceRequest()
+			},
+			() => undefined,
+		)
+	}
+	// A window opened by a shortcut asks once it is up; one already open is told by an event.
+	useEffect(() => {
+		pullPendingRef.current()
+	}, [])
+	useEffect(() => {
+		if (!quickEntry) {
+			if (quickQueue.current.length > 0 && !loading && !context.current.frozen)
+				startNextQuickEntry()
+			return
+		}
+		if (quickEntry.stage !== 'creating' && (loading || context.current.frozen)) return
+		if (quickEntry.stage === 'new') {
+			setQuickEntry({ ...quickEntry, stage: 'creating' })
+			void act(newConversation).then(() =>
+				setQuickEntry((current) => (current ? { ...current, stage: 'fill' } : current)),
+			)
+		} else if (quickEntry.stage === 'creating') {
+			return
+		} else if (quickEntry.stage === 'fill') {
+			draftsRef.current[draftOwner] = quickEntry.text
+			setDrafts((all) => ({ ...all, [draftOwner]: quickEntry.text }))
+			setQuickEntry({ ...quickEntry, stage: 'send' })
+		} else if (draft === quickEntry.text) {
+			// A send that cannot go yet (no model connected, say) leaves the line in the box.
+			setQuickEntry(null)
+			void act(() => sendRef.current())
+		}
+	}, [quickEntry, loading, draft, draftOwner, act, newConversation, startNextQuickEntry])
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a waiting voice request tries again when the conversation or the voice engine changes.
+	useEffect(() => {
+		if (voiceRequested.current) startVoiceRequest()
+	}, [startVoiceRequest, sessionId, listening.state])
+	// Dictation: the chosen keys start and stop voice input while typing in the message box.
+	const dictationChoice = desktopSettings.settings?.dictationShortcut ?? 'ctrl-d'
+	useEffect(() => {
+		if (dictationChoice === 'off') return
+		const onKey = (event: KeyboardEvent) => {
+			if (event.defaultPrevented || event.isComposing || !dictationPressed(dictationChoice, event))
+				return
+			if (!(event.target instanceof Element) || !event.target.closest('.composer-input')) return
+			event.preventDefault()
+			const { voice: controls, listening: engine, hasConversation } = voiceRef.current
+			if (controls.phase !== 'off' || micAvailable({ voice: controls, engine, hasConversation }))
+				controls.toggle()
+		}
+		window.addEventListener('keydown', onKey)
+		return () => window.removeEventListener('keydown', onKey)
+	}, [dictationChoice])
 
 	/** Asks the newest reply's question again, exactly as it was typed. */
 	const retryable = retryableReply(thread)

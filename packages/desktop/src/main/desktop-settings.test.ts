@@ -49,6 +49,9 @@ it('starts on the documented defaults without writing anything', () => {
 		keepAwakeWhileWorking: false,
 		keepAwakeOnBattery: false,
 		pauseOnMetered: true,
+		quickEntryShortcut: 'Ctrl+Alt+Space',
+		dictationShortcut: 'ctrl-d',
+		voiceShortcut: '',
 		lastSettingsSection: 'general',
 	})
 	expect(onError).not.toHaveBeenCalled()
@@ -92,6 +95,9 @@ it('validates a change, saves it atomically, and survives a restart', () => {
 		keepAwakeWhileWorking: false,
 		keepAwakeOnBattery: false,
 		pauseOnMetered: true,
+		quickEntryShortcut: 'Ctrl+Alt+Space',
+		dictationShortcut: 'ctrl-d',
+		voiceShortcut: '',
 		lastSettingsSection: 'general',
 	})
 	expect(changes).toHaveLength(1)
@@ -127,6 +133,9 @@ it('validates a change, saves it atomically, and survives a restart', () => {
 		keepAwakeWhileWorking: false,
 		keepAwakeOnBattery: false,
 		pauseOnMetered: true,
+		quickEntryShortcut: 'Ctrl+Alt+Space',
+		dictationShortcut: 'ctrl-d',
+		voiceShortcut: '',
 		lastSettingsSection: 'general',
 	})
 	expect(new DesktopSettingsStore({ file }).get()).toMatchObject({

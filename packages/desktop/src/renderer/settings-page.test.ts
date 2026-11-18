@@ -834,6 +834,45 @@ describe('the rows the system applies', () => {
 		expect(unknown).toContain('Keep computer awake')
 	})
 
+	it('draws the three shortcut rows and says under a row when the system did not give the keys', () => {
+		const ok = renderToStaticMarkup(
+			createElement(DesktopSection, { settings: controls(), os: windows }),
+		)
+		expect(ok).toContain('id="setting-quick-entry-shortcut"')
+		expect(ok).toContain('Ctrl+Alt+Space')
+		expect(ok).toContain('id="setting-dictation-shortcut"')
+		expect(ok).toContain('Ctrl+Shift+D')
+		expect(ok).toContain('id="setting-voice-shortcut"')
+		const taken = renderToStaticMarkup(
+			createElement(DesktopSection, {
+				settings: controls(undefined, { voiceShortcut: 'Ctrl+Alt+V' }),
+				os: {
+					...windows,
+					shortcuts: {
+						quickEntry: {
+							registered: false,
+							problem: 'Ctrl+Alt+Space is taken, so it is not registered.',
+						},
+						voice: { registered: false, problem: 'Ctrl+Alt+V is taken, so it is not registered.' },
+					},
+				},
+			}),
+		)
+		expect(taken).toContain('Ctrl+Alt+Space is taken')
+		expect(taken).toContain('Ctrl+Alt+V is taken')
+		// A cleared shortcut has nothing to complain about.
+		const cleared = renderToStaticMarkup(
+			createElement(DesktopSection, {
+				settings: controls(undefined, { quickEntryShortcut: '' }),
+				os: {
+					...windows,
+					shortcuts: { quickEntry: { registered: false }, voice: { registered: false } },
+				},
+			}),
+		)
+		expect(cleared).not.toContain('is taken')
+	})
+
 	it('keeps awake on battery under the working switch, off until that is on', () => {
 		const off = renderToStaticMarkup(createElement(AgentSleepRows, { settings: controls() }))
 		expect(off).toContain('Keep computer awake while working')

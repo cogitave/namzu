@@ -20,6 +20,7 @@ import {
 } from './code-themes.js'
 import type { DesktopSettings } from './settings-protocol.js'
 import { SETTINGS_SECTIONS, type SettingsSection } from './settings-sections.js'
+import { DICTATION_CHOICES, isShortcutSetting } from './shortcuts.js'
 import { SHELL_CHOICES, SHELL_CHOICE_LABELS } from './terminal-tabs.js'
 
 /** The response font's value when it follows the interface font. */
@@ -78,6 +79,8 @@ export type CatalogueControl =
 	| { kind: 'text'; maxLength: number; placeholder?: string }
 	/** A whole number from `min` to `max`, drawn as a list of the sizes. */
 	| { kind: 'number'; min: number; max: number; unit: string }
+	/** A key combination pressed into a box, stored as `Ctrl+Alt+Space`; empty is off. */
+	| { kind: 'shortcut'; placeholder?: string }
 	/** A page of its own or a list: there is no single value to validate. */
 	| { kind: 'panel' }
 
@@ -339,6 +342,47 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		default: true,
 		appliesWhen: 'now',
 		keywords: ['metered', 'data', 'cellular', 'hotspot', 'bandwidth', 'download', 'low data'],
+	},
+	{
+		id: 'quick-entry-shortcut',
+		key: 'quickEntryShortcut',
+		owner: 'desktop',
+		section: 'desktop',
+		label: 'Quick Entry shortcut',
+		description:
+			'Press it anywhere to open a small box. Type a line and press Enter to start a new conversation with it. Escape closes the box.',
+		control: { kind: 'shortcut', placeholder: 'Ctrl+Alt+Space' },
+		default: 'Ctrl+Alt+Space',
+		appliesWhen: 'now',
+		keywords: ['hotkey', 'global', 'quick', 'launcher', 'new conversation', 'shortcut', 'keys'],
+	},
+	{
+		id: 'dictation-shortcut',
+		key: 'dictationShortcut',
+		owner: 'desktop',
+		section: 'desktop',
+		label: 'Dictation shortcut',
+		description: 'In the message box, start or stop voice input with these keys.',
+		control: {
+			kind: 'select',
+			options: DICTATION_CHOICES.map(({ value, label }) => ({ value, label })),
+		},
+		default: 'ctrl-d',
+		appliesWhen: 'now',
+		keywords: ['hotkey', 'voice', 'microphone', 'speak', 'dictate', 'shortcut', 'keys'],
+	},
+	{
+		id: 'voice-shortcut',
+		key: 'voiceShortcut',
+		owner: 'desktop',
+		section: 'desktop',
+		label: 'Voice shortcut',
+		description:
+			'Press it anywhere to bring Namzu forward and start voice input in the message box. Off until you set it.',
+		control: { kind: 'shortcut', placeholder: 'Off' },
+		default: '',
+		appliesWhen: 'now',
+		keywords: ['hotkey', 'global', 'voice', 'microphone', 'speak', 'shortcut', 'keys'],
 	},
 	{
 		id: 'voice-consent',
@@ -872,6 +916,7 @@ export function catalogueAccepts(entry: CatalogueEntry, value: unknown): boolean
 			value >= entry.control.min &&
 			value <= entry.control.max
 		)
+	if (entry.control.kind === 'shortcut') return isShortcutSetting(value)
 	if (entry.control.kind === 'text') {
 		if (typeof value !== 'string' || value.length > entry.control.maxLength) return false
 		if (entry.key === 'responseFont')

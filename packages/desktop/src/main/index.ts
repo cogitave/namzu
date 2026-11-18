@@ -14,6 +14,7 @@ import {
 	app,
 	clipboard,
 	dialog,
+	globalShortcut,
 	ipcMain,
 	nativeImage,
 	nativeTheme,
@@ -124,9 +125,16 @@ import {
 import { IdleStopper } from './pal-computer-idle.js'
 import { PalComputerSetupService } from './pal-computer-setup.js'
 import { PalStreamProxy } from './pal-stream-proxy.js'
+import { PendingQueue } from './pending-entries.js'
 import { projectDraftOwner } from './project-draft-owner.js'
 import { setFileSortLocale } from './project-files.js'
 import { ProjectNameStore } from './project-names.js'
+import {
+	QUICK_ENTRY_CANCEL,
+	QUICK_ENTRY_SIZE,
+	QUICK_ENTRY_SUBMIT,
+	quickEntryUrl,
+} from './quick-entry-page.js'
 import { recoveryCardPage, recoveryCardUrl } from './recovery-card.js'
 import { selectRendererPage } from './renderer-page.js'
 import { restoreProjects } from './restore-projects.js'
@@ -139,6 +147,7 @@ import {
 } from './runtime-node-args.js'
 import { readRuntimeVersions } from './runtime-versions.js'
 import { SettingsConfirmation } from './settings-confirmation.js'
+import { ShortcutController } from './shortcut-controller.js'
 import { runShutdown } from './shutdown-sequence.js'
 import { SidebarSnapshotStore } from './sidebar-snapshot-store.js'
 import { SleepGuard } from './sleep-guard.js'
@@ -916,11 +925,104 @@ function osRowsChanged(settings: DesktopSettings, previous: DesktopSettings): vo
 	}
 	if (settings.systemTray !== previous.systemTray)
 		void trayController.sync(settings.systemTray, trayName(process.platform))
+	if (
+		settings.quickEntryShortcut !== previous.quickEntryShortcut ||
+		settings.voiceShortcut !== previous.voiceShortcut
+	)
+		syncShortcuts()
 	sleepGuard.update()
 	if (settings.pauseOnMetered !== previous.pauseOnMetered) {
 		updates.autoDownloadChanged()
 		engineDelivery?.settingChanged()
 	}
+}
+const pendingEntries = new PendingQueue()
+let quickEntryWindow: BrowserWindow | undefined
+function closeQuickEntry(): void {
+	const window = quickEntryWindow
+	quickEntryWindow = undefined
+	if (window && !window.isDestroyed()) window.close()
+}
+/** The small box a global shortcut opens: one line, closed by Enter, Escape or losing focus. */
+function openQuickEntry(): void {
+	if (quickEntryWindow && !quickEntryWindow.isDestroyed()) {
+		closeQuickEntry()
+		return
+	}
+	const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+	const { width, height } = QUICK_ENTRY_SIZE
+	const window = new BrowserWindow({
+		width,
+		height,
+		x: Math.round(display.workArea.x + (display.workArea.width - width) / 2),
+		y: Math.round(display.workArea.y + display.workArea.height * 0.25),
+		frame: false,
+		resizable: false,
+		minimizable: false,
+		maximizable: false,
+		skipTaskbar: true,
+		alwaysOnTop: true,
+		transparent: false,
+		show: false,
+		title: 'Namzu Quick Entry',
+		webPreferences: {
+			preload: join(here, '../quick-entry-preload.cjs'),
+			contextIsolation: true,
+			nodeIntegration: false,
+			sandbox: true,
+			webSecurity: true,
+		},
+	})
+	quickEntryWindow = window
+	window.setMenuBarVisibility(false)
+	window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+	window.webContents.on('will-navigate', (event) => event.preventDefault())
+	window.once('ready-to-show', () => {
+		if (window.isDestroyed()) return
+		window.show()
+		window.focus()
+	})
+	window.on('blur', () => {
+		if (quickEntryWindow === window) closeQuickEntry()
+	})
+	window.on('closed', () => {
+		if (quickEntryWindow === window) quickEntryWindow = undefined
+	})
+	void window.loadURL(quickEntryUrl()).catch((error) => {
+		diagnostics.record('renderer_load_failed', { error })
+		if (quickEntryWindow === window) closeQuickEntry()
+	})
+}
+/** Bring an app window forward and tell it something is waiting; a window not open yet asks on its own. */
+function deliverPending(): void {
+	const target = windows
+		.entries()
+		.map(([, window]) => window)
+		.find((window) => !window.isDestroyed())
+	showMainWindow()
+	if (!target) return
+	try {
+		target.webContents.send('namzu:event', { kind: 'pending-entry' })
+	} catch (error) {
+		diagnostics.record('renderer_failed', { error })
+	}
+}
+const shortcuts = new ShortcutController(
+	{
+		register: (accelerator, run) => globalShortcut.register(accelerator, run),
+		unregister: (accelerator) => globalShortcut.unregister(accelerator),
+	},
+	{
+		quickEntry: openQuickEntry,
+		voice: () => {
+			pendingEntries.addVoice()
+			deliverPending()
+		},
+	},
+)
+function syncShortcuts(): void {
+	const settings = settingsStore.get()
+	shortcuts.sync({ quickEntry: settings.quickEntryShortcut, voice: settings.voiceShortcut })
 }
 /** A window to the front: the first open one, or a new one from the saved layout when none is open. */
 function showMainWindow(): void {
@@ -961,6 +1063,7 @@ async function osState(): Promise<OsState> {
 				}
 			: {}),
 		tray: { shown: trayController.shown(), ...(tray ? { problem: tray } : {}) },
+		shortcuts: { quickEntry: shortcuts.state('quickEntry'), voice: shortcuts.state('voice') },
 		...(meteredWatch.available() ? { metered: { state: meteredWatch.state() } } : {}),
 	}
 }
@@ -1335,6 +1438,16 @@ function register(): void {
 	handle('terminals', () => terminals.list())
 	handle('terminalAvailability', (projectId: string) => terminals.availability(projectId))
 	handle('osState', () => osState())
+	handle('takePendingEntries', () => pendingEntries.take())
+	ipcMain.on(QUICK_ENTRY_SUBMIT, (event, text: unknown) => {
+		if (!quickEntryWindow || event.sender !== quickEntryWindow.webContents) return
+		const kept = typeof text === 'string' && pendingEntries.addLine(text)
+		closeQuickEntry()
+		if (kept) deliverPending()
+	})
+	ipcMain.on(QUICK_ENTRY_CANCEL, (event) => {
+		if (quickEntryWindow && event.sender === quickEntryWindow.webContents) closeQuickEntry()
+	})
 	handle('terminalShells', () =>
 		availableShells(shellEnvironment()).map((value) => ({
 			value,
@@ -2417,6 +2530,8 @@ function shutdown(): Promise<void> {
 	sleepGuard.close()
 	meteredWatch.close()
 	trayController.dispose()
+	closeQuickEntry()
+	shortcuts.dispose()
 	working.pill?.close()
 	sidebarSnapshot.flush()
 	// A check that runs is stopped and the engine log reaches its file; a stuck one is not waited for.
@@ -2502,6 +2617,7 @@ void app
 		void trayController.sync(settingsStore.get().systemTray, trayName(process.platform))
 		sleepGuard.start()
 		meteredWatch.start()
+		syncShortcuts()
 		// Listening never survives the computer going to sleep or being locked.
 		powerMonitor.on('suspend', () => void voiceInput.stopAll('sleep'))
 		powerMonitor.on('lock-screen', () => void voiceInput.stopAll('sleep'))

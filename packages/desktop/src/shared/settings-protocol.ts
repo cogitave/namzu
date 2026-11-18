@@ -92,6 +92,12 @@ export interface DesktopSettings {
 	keepAwakeOnBattery: boolean
 	/** Wait with downloads Namzu starts by itself while the connection is metered. */
 	pauseOnMetered: boolean
+	/** Global keys that open the Quick Entry box; empty is off. Stored as `Ctrl+Alt+Space`. */
+	quickEntryShortcut: string
+	/** The keys that start and stop voice input in the message box: `ctrl-d`, `ctrl-shift-d` or `off`. */
+	dictationShortcut: string
+	/** Global keys that bring Namzu forward and start voice input; empty is off. */
+	voiceShortcut: string
 	/** The section the Settings dialog was last on; it opens there again, also after a restart. */
 	lastSettingsSection: SettingsSection
 }

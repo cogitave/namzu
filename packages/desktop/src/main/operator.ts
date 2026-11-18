@@ -1890,6 +1890,7 @@ export class Operator {
 			event.kind !== 'open-settings' &&
 			event.kind !== 'tab-command' &&
 			event.kind !== 'show-conversation' &&
+			event.kind !== 'pending-entry' &&
 			event.kind !== 'model-catalogue-updated' &&
 			event.kind !== 'providers-changed' &&
 			event.kind !== 'config-file-changed' &&

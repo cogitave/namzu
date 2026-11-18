@@ -767,6 +767,8 @@ export type DesktopEvent = (
 	| { kind: 'tab-command'; command: TabCommand }
 	/** A system notification was clicked: show this conversation; only the focused window gets it. */
 	| { kind: 'show-conversation'; sessionId: string }
+	/** A global shortcut left something for the window to pick up (`takePendingEntries`). */
+	| { kind: 'pending-entry' }
 	| { kind: 'project-removed'; projectId: string; sessionIds: string[] }
 	/** A stored model list was refreshed and its rows differ; the next read returns the new rows. */
 	| { kind: 'model-catalogue-updated'; engine: string; provider: string }
@@ -1303,6 +1305,8 @@ export interface DesktopApi {
 	/** The shells a plain terminal tab can open on this machine, for the setting. */
 	/** What the system says about the rows it applies (start at sign-in, tray, metered connection). */
 	osState?(): Promise<import('./os-state.js').OsState>
+	/** What global shortcuts left for a window: Quick Entry lines and a voice request. Each is handed out once. */
+	takePendingEntries?(): Promise<{ quickEntries: string[]; voice: boolean }>
 	terminalShells?(): Promise<TerminalShellChoice[]>
 	/** Start a terminal in a project and open it as a tab in the given pane. */
 	openTerminal?(request: TerminalOpenRequest): Promise<TerminalOpenResult>

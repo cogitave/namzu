@@ -5,6 +5,11 @@
  */
 export type MeteredState = 'metered' | 'unmetered' | 'unknown'
 
+export interface ShortcutState {
+	registered: boolean
+	problem?: string
+}
+
 export interface OsState {
 	/** `process.platform` of the running app. */
 	platform: string
@@ -12,6 +17,8 @@ export interface OsState {
 	loginItem?: { enabled: boolean; problem?: string }
 	/** Whether the tray icon is up; `problem` says why not when it was asked for. */
 	tray: { shown: boolean; problem?: string }
+	/** Whether each global shortcut is held; `problem` says why not when it was asked for. */
+	shortcuts?: { quickEntry: ShortcutState; voice: ShortcutState }
 	/** Absent where Namzu cannot read the connection's cost. */
 	metered?: { state: MeteredState }
 }

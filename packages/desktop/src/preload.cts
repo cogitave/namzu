@@ -239,6 +239,7 @@ const api: DesktopApi = {
 	terminals: () => invoke('terminals'),
 	terminalAvailability: (projectId) => invoke('terminalAvailability', projectId),
 	osState: () => invoke('osState'),
+	takePendingEntries: () => invoke('takePendingEntries'),
 	terminalShells: () => invoke('terminalShells'),
 	openTerminal: (request) => invoke('openTerminal', request),
 	attachTerminal: (tabId, viewerId, options) => invoke('attachTerminal', tabId, viewerId, options),

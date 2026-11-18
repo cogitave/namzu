@@ -1279,3 +1279,18 @@ input.settings-config-number {
 	color: var(--destructive, #c10007);
 	font-size: var(--text-caption);
 }
+.settings-shortcut {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+}
+.settings-shortcut-box {
+	min-width: 150px;
+	height: var(--settings-control-height);
+	text-align: left;
+	cursor: pointer;
+	font-variant-numeric: tabular-nums;
+}
+.settings-shortcut-box[data-recording] {
+	border-color: var(--ring, currentColor);
+}

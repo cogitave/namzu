@@ -68,6 +68,16 @@ export function micPresentation(input: {
 	return { label: 'Turn on voice input', phase, pressed: false, opensSettings: false }
 }
 
+/** Whether pressing the microphone would start listening right now (a shortcut asks the same). */
+export function micAvailable(input: {
+	voice: Pick<VoiceInputControls, 'phase' | 'supported'>
+	engine: Pick<LocalListeningSnapshot, 'state' | 'loading' | 'supported'>
+	hasConversation: boolean
+}): boolean {
+	if (!input.voice.supported || !input.engine.supported) return false
+	return micPresentation(input).reason === undefined
+}
+
 /** A quiet icon in the composer, shown once voice input is set up: off, starting, listening, hearing speech, or writing it down. */
 export function VoiceMicButton({
 	voice,
