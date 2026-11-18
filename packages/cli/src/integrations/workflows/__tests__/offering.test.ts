@@ -1,7 +1,6 @@
 import { parseWorkflowMeta } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
-import { WORKFLOW_DOCTRINE } from '../doctrine.js'
 import { WORKFLOW_TOOL_DESCRIPTION, workflowRefusal } from '../offering.js'
 
 describe('who may start one', () => {
@@ -64,18 +63,23 @@ describe('the opt-in rule the model reads', () => {
 		expect(WORKFLOW_TOOL_DESCRIPTION).toContain('do not call')
 	})
 
-	it('keeps the system prompt to a pointer: the opt-in list has one home', () => {
-		expect(WORKFLOW_DOCTRINE).toContain('its description lists the opt-ins')
-		expect(WORKFLOW_DOCTRINE).not.toContain('"hypermode"')
-		expect(WORKFLOW_DOCTRINE).not.toContain('saved workflow')
-		expect(WORKFLOW_DOCTRINE).toContain('hypermode is on')
+	it('says the opt-in list once, in the description, with the standing hypermode opt-in', () => {
+		expect(WORKFLOW_TOOL_DESCRIPTION.match(/Call it only after an explicit opt-in/g)).toHaveLength(
+			1,
+		)
+		expect(WORKFLOW_TOOL_DESCRIPTION).toContain(
+			'When hypermode is on, that is a standing opt-in for every substantive task',
+		)
+		expect(WORKFLOW_TOOL_DESCRIPTION).toContain('saved workflow')
 	})
 
 	it('sends a status question to the run’s state, not to the launch receipt', () => {
-		expect(WORKFLOW_DOCTRINE).toContain('how a workflow is going')
-		expect(WORKFLOW_DOCTRINE).toContain('`agent_task_list`')
-		expect(WORKFLOW_DOCTRINE).toContain('which is only a receipt')
-		expect(WORKFLOW_DOCTRINE).toContain('still running until its message has arrived')
+		expect(WORKFLOW_TOOL_DESCRIPTION).toContain('When asked how it is going')
+		expect(WORKFLOW_TOOL_DESCRIPTION).toContain('`agent_task_list`')
+		expect(WORKFLOW_TOOL_DESCRIPTION).toContain('which is only a receipt')
+		expect(WORKFLOW_TOOL_DESCRIPTION).toContain(
+			'still running until its completion message has arrived',
+		)
 	})
 
 	it('points to the quality patterns', () => {

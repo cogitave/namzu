@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Where files go
-description: The standing guidance that tells a session where to put what it creates, the checklist for anything that keeps running, and the quiet line shown when a session starts in the home folder or the filesystem root.
+description: The two-line standing guidance that tells a session where to put what it creates and to ask before touching the home folder or root top level, and the quiet line shown when a session starts there.
 resource: packages/cli/src/context/file-placement.ts
 tags: [cli, system-prompt, files, startup]
 status: stable
@@ -15,31 +15,20 @@ live. Without a rule it picks a folder of its own and may leave it in the home
 folder, unmentioned. Every session now carries a short section, **Where files
 go**, in the cached part of its system prompt, next to the working doctrine.
 
-The section is built once at start from the platform alone, so it renders only
-that platform's lines and never changes mid-session; the prompt prefix stays
-byte-stable. It says:
+The section is two lines, the same on every platform and every turn, so the
+prompt prefix stays byte-stable. It says:
 
-- Temporary work goes in the session scratchpad or the OS temp folder.
-- App data, config, caches and logs follow the platform: `~/.config`,
-  `~/.local/share`, `~/.local/state`, `~/.cache` on Linux;
-  `~/Library/Application Support`, `Caches`, `Logs` on macOS; `%APPDATA%` and
-  `%LOCALAPPDATA%` on Windows. A system-wide service uses `/opt/<app>`,
-  `/etc/<app>`, `/var/lib/<app>`, `/var/log/<app>` under systemd, a
-  LaunchDaemon on macOS, or a Windows service.
-- A container stack keeps its compose and config files in a dedicated, named
-  project folder the person agrees to, and its data in named volumes.
-- A repository the person will work on goes in their projects folder; ask when
-  it is not known.
+- Temporary work goes in the session scratchpad or the OS temp folder, and the
+  person is told the full path of every folder created.
 - Never create or delete a top-level entry in the home folder or the
-  filesystem root without asking, even when tools run without approval.
-- Say the full path of every folder created; `rm -rf` only a path this session
-  created and checked.
-- Anything long-running (a service, daemon, container stack or agent) is
-  checked against one line each for identity, configuration, data, logs,
-  supervisor, secrets, state, monitoring and host, and any deviation (no
-  root, a personal machine) is named with its reason.
-- A finished setup ends with a receipt: what was installed, where, how it
-  starts, how to remove it.
+  filesystem root without asking.
+
+It used to carry per-platform folder lists, a container and repository
+paragraph and a nine-line checklist for anything that keeps running (service
+account, configuration, data, logs, supervisor, secrets, retention,
+monitoring, host) with a receipt at the end. Most turns never install a
+service, so that advice is no longer sent; a model asked to set one up works
+from its own knowledge of the platform.
 
 The guidance is backed by a check in code, below. The schedule tool also
 refuses the home folder as a task directory.

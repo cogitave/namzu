@@ -3,9 +3,8 @@
  *
  * A new turn and a resumed delegated turn both call `composeSessionSystemPrompt`
  * with the facts they hold; neither lists sections of its own. A section a
- * resumed turn lacks is lacking because the input says so (its toolset has no
- * workflow tool, so `workflowOffered` is false), never because a second list
- * forgot it.
+ * resumed turn lacks is lacking because the input says so, never because a
+ * second list forgot it.
  *
  * Which audience gets which section, written down once:
  *
@@ -15,7 +14,6 @@
  * | working doctrine          | yes          | yes          | yes (inside its role) |
  * | browser/desktop routing   | yes          | yes          | no        |
  * | delegation doctrine       | if the Agent tool is not withheld | same | no, a child does not delegate |
- * | workflow doctrine         | if the workflow tool is offered | no, a resumed turn is not offered it | no |
  * | pal block                 | yes          | yes          | no        |
  * | conversation evidence     | if enabled   | if enabled   | no        |
  * | where-files-go guidance  | yes          | yes          | no        |
@@ -34,7 +32,6 @@
  */
 
 import { CONVERSATION_EVIDENCE_GUIDANCE } from '../integrations/sessions/conversation-search.js'
-import { WORKFLOW_DOCTRINE } from '../integrations/workflows/doctrine.js'
 import {
 	NAMZU_DELEGATION_DOCTRINE,
 	NAMZU_PLAN_FILE_DOCTRINE,
@@ -86,15 +83,11 @@ export interface SessionPromptInput {
 	readonly environment?: string | undefined
 	/** True when the Agent tool is sent to this turn. */
 	readonly delegationAvailable: boolean
-	/** True when the workflow tool is in this turn's toolset. */
-	readonly workflowOffered: boolean
-	/** The session's workflow size guideline, said beside the workflow doctrine; empty for none. */
-	readonly workflowSizeAdvice?: string | undefined
 	readonly conversationEvidence?: string | undefined
 	/** The memory section, present only for a session that holds the tool it teaches. */
 	readonly memoryGuidance?: string | undefined
 	readonly shellEscapeGuidance?: string | undefined
-	/** The platform's "Where files go" section; a function of the platform alone, so it never changes mid-session. */
+	/** The "Where files go" section; constant, so it never changes mid-session. */
 	readonly filePlacementGuidance?: string | undefined
 	/** True when a tool in this turn's roster is deferred behind `search_tools`. */
 	readonly toolsDeferred: boolean
@@ -127,13 +120,10 @@ export interface SessionPromptFacts {
 	readonly anyToolDeferred: boolean
 	readonly planPath?: string | undefined
 	readonly skillsOverflowNote?: string | null | undefined
-	readonly workflowSizeAdvice?: string | undefined
 }
 
 /** What differs between one turn and another that holds the same facts. */
 export interface SessionPromptTurn {
-	/** A resumed turn runs over the session's toolset, which has no workflow tool. */
-	readonly workflowOffered: boolean
 	/**
 	 * The plan-mode reminder carries the plan file's instructions, so the
 	 * prefix does not hold them (and does not change when the mode does).
@@ -162,7 +152,6 @@ export function sessionPromptInput(
 		palBlock: facts.palBlock,
 		environment: facts.environment,
 		delegationAvailable: !facts.withheldTools?.includes(AGENT_LAUNCH_TOOL),
-		workflowOffered: turn.workflowOffered,
 		conversationEvidence: withNote(
 			facts.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
 			CONVERSATION_DEFERRED_NOTE,
@@ -177,7 +166,6 @@ export function sessionPromptInput(
 		extraSystem: turn.extraSystem,
 		systemNote: turn.systemNote,
 		skillsOverflowNote: facts.skillsOverflowNote,
-		workflowSizeAdvice: facts.workflowSizeAdvice,
 	}
 }
 
@@ -190,9 +178,6 @@ export function composeSessionSystemPrompt(input: SessionPromptInput): string | 
 		// Advice on delegating, for a turn that has the Agent tool: a run whose
 		// job withholds it would only be told how to use a tool it was not sent.
 		!input.delegationAvailable ? undefined : NAMZU_DELEGATION_DOCTRINE,
-		input.workflowOffered
-			? [WORKFLOW_DOCTRINE, input.workflowSizeAdvice].filter(Boolean).join('\n\n')
-			: undefined,
 		input.palBlock,
 		input.conversationEvidence,
 		input.filePlacementGuidance,
