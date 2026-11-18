@@ -49,6 +49,8 @@ const FULL = {
 	},
 	workflow: { maxAgents: 2 },
 	handBack: { enabled: true },
+	effort: 'low',
+	closingSummary: false,
 	sandbox: { enabled: true },
 	decision: { enabled: true },
 	codeAnalysis: { enabled: true },

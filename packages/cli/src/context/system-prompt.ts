@@ -37,6 +37,7 @@ import {
 	NAMZU_PLAN_FILE_DOCTRINE,
 	NAMZU_PLAN_MODE_DOCTRINE,
 	NAMZU_WORKING_DOCTRINE,
+	NAMZU_WORKING_DOCTRINE_WITHOUT_CLOSING,
 } from './doctrine.js'
 import { AGENT_LAUNCH_TOOL, NAMZU_IDENTITY } from './identity.js'
 
@@ -99,6 +100,8 @@ export interface SessionPromptInput {
 	readonly extraSystem?: string | undefined
 	readonly systemNote?: string | undefined
 	readonly skillsOverflowNote?: string | null | undefined
+	/** See {@link SessionPromptFacts.closingSummary}. */
+	readonly closingSummary?: boolean | undefined
 }
 
 /** What a session knows when it builds a turn's prompt, whichever path builds it. */
@@ -120,6 +123,8 @@ export interface SessionPromptFacts {
 	readonly anyToolDeferred: boolean
 	readonly planPath?: string | undefined
 	readonly skillsOverflowNote?: string | null | undefined
+	/** `false` leaves the closing rule out of the working rules; absent keeps them whole. */
+	readonly closingSummary?: boolean | undefined
 }
 
 /** What differs between one turn and another that holds the same facts. */
@@ -166,13 +171,16 @@ export function sessionPromptInput(
 		extraSystem: turn.extraSystem,
 		systemNote: turn.systemNote,
 		skillsOverflowNote: facts.skillsOverflowNote,
+		closingSummary: facts.closingSummary,
 	}
 }
 
 export function composeSessionSystemPrompt(input: SessionPromptInput): string | undefined {
 	const sections: (string | null | undefined)[] = [
 		NAMZU_IDENTITY,
-		NAMZU_WORKING_DOCTRINE,
+		input.closingSummary === false
+			? NAMZU_WORKING_DOCTRINE_WITHOUT_CLOSING
+			: NAMZU_WORKING_DOCTRINE,
 		input.browserDesktopRouting,
 		input.browserWebTask,
 		// Advice on delegating, for a turn that has the Agent tool: a run whose

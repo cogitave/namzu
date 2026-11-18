@@ -28,6 +28,7 @@ import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import {
 	RENAMED_PLUGIN_HOOK_EVENTS,
+	type ReasoningEffort,
 	SHELL_HOOK_EVENTS,
 	isPluginFolderVariable,
 	referencedVariables,
@@ -39,6 +40,7 @@ import { parsePrefix } from '../workspaces/prefix.js'
 
 import { parse as yamlParse } from 'yaml'
 
+import { REASONING_EFFORT_LEVELS } from '../commands/effort-levels.js'
 import { splitProjectMcpServers } from '../integrations/mcp/project-approval.js'
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import {
@@ -323,6 +325,9 @@ function resolveConfigWithProvenance(
 				'model',
 				'routing',
 				'smallModel',
+				'effort',
+				'fast',
+				'respectGitignore',
 				'memory.select',
 				'profiles.*.memory.select',
 				'memory.curation',
@@ -1843,6 +1848,27 @@ const CONFIG_READERS: ConfigReaders = {
 		if (typeof v === 'boolean') return v
 		return invalidConfigValue(context, [], 'must be a boolean')
 	},
+	effort: (v, context) => {
+		if (typeof v === 'string' && (REASONING_EFFORT_LEVELS as readonly string[]).includes(v))
+			return v as ReasoningEffort
+		return invalidConfigValue(
+			context,
+			[],
+			`must be one of ${REASONING_EFFORT_LEVELS.join(', ')}; leave it out for the model's own default`,
+		)
+	},
+	fast: (v, context) => {
+		if (typeof v === 'boolean') return v
+		return invalidConfigValue(context, [], 'must be true or false')
+	},
+	respectGitignore: (v, context) => {
+		if (typeof v === 'boolean') return v
+		return invalidConfigValue(context, [], 'must be true or false')
+	},
+	closingSummary: (v, context) => {
+		if (typeof v === 'boolean') return v
+		return invalidConfigValue(context, [], 'must be true or false')
+	},
 	archiveInactive: (v, context) => {
 		if (v === 'never' || v === '1d' || v === '7d' || v === '30d') return v
 		return invalidConfigValue(context, [], 'must be never, 1d, 7d or 30d')
@@ -1852,6 +1878,11 @@ const CONFIG_READERS: ConfigReaders = {
 		const caps = { maxConcurrency: 16, maxAgents: 1000 } as const
 		for (const key of Object.keys(v)) {
 			const value = (v as Record<string, unknown>)[key]
+			if (key === 'enabled') {
+				if (typeof value !== 'boolean')
+					return invalidConfigValue(context, [key], 'must be true or false')
+				continue
+			}
 			if (key === 'sizeGuideline') {
 				if (!isWorkflowSizeGuideline(value))
 					return invalidConfigValue(
@@ -1865,7 +1896,7 @@ const CONFIG_READERS: ConfigReaders = {
 				return invalidConfigValue(
 					context,
 					[key],
-					'is not a workflow setting (maxConcurrency, maxAgents, sizeGuideline)',
+					'is not a workflow setting (enabled, maxConcurrency, maxAgents, sizeGuideline)',
 				)
 			if (
 				typeof value !== 'number' ||
@@ -2571,6 +2602,15 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	archiveInactive: undefined,
 	// A display choice for the desktop app's sidebar, made in its settings.
 	statusMarks: undefined,
+	// The effort has its own variable (NAMZU_EFFORT_LEVEL), read where a launch is made and
+	// winning over this saved default; this key is the file's.
+	effort: undefined,
+	// What a conversation costs per token is a file decision, never a shell's.
+	fast: undefined,
+	// What the pickers show of an ignored file is a file decision, never a shell's.
+	respectGitignore: undefined,
+	// How the working rules close is a file decision, not a shell's.
+	closingSummary: undefined,
 	// Outbound reach is opted into in the file, never from the environment.
 	web: undefined,
 	// A browser signed in to the operator's sites, and which of them it may

@@ -2852,6 +2852,17 @@ export interface AgentSessionOptions {
 	 */
 	readonly handBack?: boolean
 	/**
+	 * See `NamzuCliConfig.effort`: the reasoning effort a turn uses when the caller chose none and
+	 * `NAMZU_EFFORT_LEVEL` is unset. Used only when the model offers it; otherwise the model's own
+	 * default stands.
+	 */
+	readonly savedEffort?: ReasoningEffort
+	/**
+	 * See `NamzuCliConfig.closingSummary`: `false` leaves the closing rule (what changed, what was
+	 * verified, what is left) out of the working rules. Absent keeps them whole.
+	 */
+	readonly closingSummary?: boolean
+	/**
 	 * Mount host desktop control for a surface that owns an interactive
 	 * permission callback. False by default: `exec`, `exec --json` and `drain`
 	 * have no human prompt to guard pointer/keyboard input and must not inherit
@@ -4718,7 +4729,7 @@ export async function createAgentSession(
 			limitsFor: (turnId) => {
 				const budget = delegationLimits.get(turnId)?.tokenBudget
 				const ceiling = workflowTokenCeiling(budget, workflowTokenTargets.get(turnId))
-				const { sizeGuideline: _advice, ...caps } = options.workflow ?? {}
+				const { sizeGuideline: _advice, enabled: _enabled, ...caps } = options.workflow ?? {}
 				return {
 					...(ceiling !== undefined ? { tokenBudget: ceiling } : {}),
 					...caps,
@@ -5831,6 +5842,7 @@ export async function createAgentSession(
 						conversationSessions: options.conversationSessions,
 						toolLoading: resolveToolLoading(options.toolLoading),
 						anyToolDeferred: anyDeferred(sessionToolsets),
+						closingSummary: options.closingSummary,
 						planPath: resumePlanPath,
 						skillsOverflowNote: turnSkills.overflowNote,
 					},
@@ -6935,7 +6947,21 @@ export async function createAgentSession(
 				(async function* () {
 					const selectTaskStore = beginTaskStoreReadout()
 					const turnLimits = resolveTurnGuards(options.limits, opts?.limits)
-					const turnOpts: SendOptions = { ...opts, signal }
+					// A saved default effort stands only where nothing chose one: the caller's
+					// pick (a flag or the picker) and `NAMZU_EFFORT_LEVEL` come first, and a
+					// level the current model does not offer leaves the model's own default.
+					const savedEffort =
+						opts?.effort === undefined &&
+						modelEnvironment.effort === undefined &&
+						options.savedEffort !== undefined &&
+						reasoningEffortLevels?.includes(options.savedEffort)
+							? options.savedEffort
+							: undefined
+					const turnOpts: SendOptions = {
+						...opts,
+						signal,
+						...(savedEffort !== undefined ? { effort: savedEffort } : {}),
+					}
 					// The time between turns is nobody's work; the clock starts here.
 					quietStretch?.turnStarted()
 					// Per-send membership: neither another send nor delegated sessions
@@ -7149,7 +7175,12 @@ export async function createAgentSession(
 						// it may be called (the operator's keyword, hypermode on, their own
 						// words). A tool list that changes with the message would also change
 						// the cached prefix.
-						const workflowOffer = workflowHost !== undefined && opts?.workflowReview !== undefined
+						// `workflow.enabled: false` keeps it out of every turn of the session, so the
+						// list never changes mid-conversation and hypermode reads the no-tool text.
+						const workflowOffer =
+							workflowHost !== undefined &&
+							opts?.workflowReview !== undefined &&
+							options.workflow?.enabled !== false
 						if (workflowOffer && workflowHost) {
 							const workflowToolset = toolset('workflow', [workflowHost.tool])
 							// Its schema is the largest of any tool and most turns never run a
@@ -7200,6 +7231,7 @@ export async function createAgentSession(
 									conversationSessions: options.conversationSessions,
 									toolLoading: resolveToolLoading(options.toolLoading),
 									anyToolDeferred: anyDeferred(runToolsets),
+									closingSummary: options.closingSummary,
 									planPath,
 									// The reminders carry the skill list, overflow included.
 									skillsOverflowNote: null,

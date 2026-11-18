@@ -54,3 +54,7 @@ The terminal and Desktop messages carry it. Sub-agents' prompts, goal rounds, pe
 ## Tool results that name the next move
 
 Some results say what to do next because a wrong next move was common in the benchmark runs: a read-back after a write, a re-read of a file a refusal had just handed over, a guessed second path after "no such file", a write over a file nobody read, a search re-asked with an inline flag. The wording and the counts are in [File tools](../sdk/file-tool-limits.md#edit-and-write). They are clauses on results, not on tool descriptions, so they cost nothing until the moment they apply.
+
+## The closing note
+
+The working rules end with one rule: when the model changed something, it closes with what changed, what was verified and what is left, and for a question the reply is the answer. The config key `closingSummary` (default `true`; Desktop Settings > Agent > *Summary and next steps*) leaves that one rule out of the working rules of conversations started after the change, and nothing else in them changes; with the key absent or `true` the prompt is byte for byte what it was. It is a rule the model follows, not a block the app draws, so a small model may still write one, and the setting adds no model request. A delegated agent reads its own final-report rule and is unaffected, and so are the other places a reply is shaped (the done gate, the turn-end reminders).

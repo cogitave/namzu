@@ -45,6 +45,8 @@ export type ConfigSessionOptions = Pick<
 	| 'limits'
 	| 'workflow'
 	| 'handBack'
+	| 'savedEffort'
+	| 'closingSummary'
 	| 'sandbox'
 	| 'decision'
 	| 'toolResultScreens'
@@ -74,6 +76,11 @@ export const SESSION_KEY_MAP: Readonly<Record<keyof NamzuCliConfig, string>> = {
 	handBack: 'handBack',
 	worktrees: 'excluded: read when a worktree is made (`openManagedWorktrees`), not by the session',
 	statusMarks: 'excluded: a sidebar display choice read by the desktop app, not by the session',
+	effort: 'savedEffort',
+	fast: 'excluded: read once by the terminal app at launch, like `--fast`; no other host has fast mode',
+	respectGitignore:
+		'excluded: read by the terminal app and the desktop app for their file pickers, not by the session',
+	closingSummary: 'closingSummary',
 	archiveInactive:
 		'excluded: read by the desktop host when it lists conversations, not by the session',
 	sandbox: 'sandbox',
@@ -132,6 +139,8 @@ export function sessionOptionsFromConfig(
 		...(Object.keys(limits).length > 0 ? { limits } : {}),
 		...(config.workflow ? { workflow: config.workflow } : {}),
 		...(extras.handBackFlag || config.handBack?.enabled === true ? { handBack: true } : {}),
+		...(config.effort ? { savedEffort: config.effort } : {}),
+		...(config.closingSummary === false ? { closingSummary: false } : {}),
 		...(config.sandbox ? { sandbox: config.sandbox } : {}),
 		...(config.decision ? { decision: config.decision } : {}),
 		...(config.codeAnalysis ? { codeAnalysis: config.codeAnalysis } : {}),

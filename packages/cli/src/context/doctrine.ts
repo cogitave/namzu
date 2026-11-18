@@ -88,6 +88,23 @@ function withChildReport(doctrine: string): string {
 export const NAMZU_CHILD_WORKING_DOCTRINE: string = withChildReport(withoutAsking(WORKING_DOCTRINE))
 
 /**
+ * The working rules without their last rule, the one that closes finished work with what
+ * changed, what was verified and what is left (the `closingSummary` setting, off). Cut at the
+ * rule's own text, so the rest stays byte for byte what it is with the setting on; the
+ * statement of the rule is checked here so a reworded rule cannot silently stop being cut.
+ */
+const CLOSING_RULE =
+	'\n- When you changed something, close with what changed, what was verified and what is left. For a question the reply is the answer.'
+
+function withoutClosingRule(doctrine: string): string {
+	if (!doctrine.endsWith(CLOSING_RULE))
+		throw new Error('The working rules no longer end with the closing rule.')
+	return doctrine.slice(0, -CLOSING_RULE.length)
+}
+
+export const NAMZU_WORKING_DOCTRINE_WITHOUT_CLOSING: string = withoutClosingRule(WORKING_DOCTRINE)
+
+/**
  * Plan mode in a session that has the plan file and `exit_plan_mode` (the
  * interactive terminal). The kernel's `PLAN_MODE_DOCTRINE` tells a host with
  * neither to reply with the plan and stop; this one tells the model the plan

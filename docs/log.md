@@ -2,6 +2,10 @@
 
 ## 2026-11-18
 
+- **Creation** [Turning workflows off](cli/workflows.md#turning-workflows-off): `workflow.enabled` (default on) leaves the `workflow` tool out of conversations started after the change; hypermode then delegates with the `Agent` tool.
+- **Creation** [The closing note](cli/turn-notes.md#the-closing-note): `closingSummary` (default on) leaves the working rules' one closing rule out of new conversations; the default prompt is unchanged.
+- **Update** [Launch flags](cli/launch-flags.md#how-they-combine-with-what-is-saved): saved `effort` and `fast` settings sit below `--effort` / `NAMZU_EFFORT_LEVEL` and `--fast`; a project file cannot set them.
+- **Update** [Desktop](cli/desktop.md): `respectGitignore` (default on) decides whether `.gitignore` hides files from the project file list, search and reads, and from the terminal app's `@` list; `.git` and `node_modules` stay hidden.
 - **Update** [Desktop](cli/desktop.md): a list that is empty by default and a text box with its own placeholder no longer repeat their default in a line under the row; the worktree folders and status marks rows read as one sentence.
 - **Update** [Session storage](cli/session-storage.md): the conversation list names the conversations it just archived for being idle only when the app asks for them (`idleArchivedRows: true`), so an older app never draws an empty row for one.
 - **Creation** [Status marks in the sidebar](cli/desktop.md#status-marks-in-the-sidebar): the config key `statusMarks` (default on) switches the sidebar's per-conversation marks off; they are worked out from app state and cost no model call. The transcript has one view in Desktop, so no default-view setting was added.

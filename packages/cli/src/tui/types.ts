@@ -286,6 +286,12 @@ export interface TuiContext {
 	readonly goal?: GoalCliConfig
 	/** See `NamzuCliConfig.handBack`. */
 	readonly handBack?: HandBackCliConfig
+	/** See `NamzuCliConfig.effort`. */
+	readonly savedEffort?: import('@namzu/sdk').ReasoningEffort
+	/** See `NamzuCliConfig.closingSummary`. Only `false` is ever set. */
+	readonly closingSummary?: boolean
+	/** See `NamzuCliConfig.respectGitignore`. Only `false` is ever set. */
+	readonly respectGitignore?: boolean
 	/** See `NamzuCliConfig.decision`. */
 	readonly decision?: DecisionConfig
 	/**

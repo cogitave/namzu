@@ -1890,6 +1890,9 @@ function AppBody({
 	const autoActiveRef = useRef(initialCtx.routing !== undefined && initialCtx.autoDefault === true)
 	const [autoActive, setAutoActive] = useState(autoActiveRef.current)
 	const launchEffortPendingRef = useRef(initialCtx.launchSettings?.effort)
+	// The saved default effort (`effort` in the config file): applied once the model's levels are
+	// known, below `--effort`, and quietly dropped when the model does not offer it.
+	const savedEffortPendingRef = useRef(initialCtx.launchSettings?.savedEffort)
 	/**
 	 * Why the picker is open, drawn ON the picker.
 	 *
@@ -2000,7 +2003,14 @@ function AppBody({
 	// that cannot keep it.
 	const [fastMode, setFastModeState] = useState(false)
 	const fastModeRef = useRef(false)
-	const launchFastPendingRef = useRef(initialCtx.launchSettings?.fast === true)
+	// Where a pending fast start came from, so a refusal names the right thing.
+	const launchFastPendingRef = useRef<'flag' | 'saved' | undefined>(
+		initialCtx.launchSettings?.fast === true
+			? 'flag'
+			: initialCtx.launchSettings?.savedFast === true
+				? 'saved'
+				: undefined,
+	)
 	const setFastMode = useCallback((next: boolean) => {
 		fastModeRef.current = next
 		setFastModeState(next)
@@ -6473,6 +6483,8 @@ function AppBody({
 									}
 								: {}),
 							...(activeCtx.handBack?.enabled === true ? { handBack: true } : {}),
+							...(activeCtx.savedEffort ? { savedEffort: activeCtx.savedEffort } : {}),
+							...(activeCtx.closingSummary === false ? { closingSummary: false } : {}),
 							...(activeCtx.mcpServers ? { mcpServers: activeCtx.mcpServers } : {}),
 							// The composer is ready at once; each server's tools join as it connects.
 							toolServers: 'background',
@@ -6579,10 +6591,11 @@ function AppBody({
 			// Fast mode follows the model: a launch `--fast` is applied once the
 			// session exists, and a model change that cannot take it ends it.
 			if (launchFastPendingRef.current && s.hasProvider) {
-				launchFastPendingRef.current = false
+				const fastSource = launchFastPendingRef.current
+				launchFastPendingRef.current = undefined
 				void fastModeBlocker(s.providerId, s.modelSummary).then((blocker) => {
 					if (blocker === undefined) setFastMode(true)
-					else pushMessage('system', fastLaunchRefusal(blocker))
+					else pushMessage('system', fastLaunchRefusal(blocker, fastSource))
 				})
 			} else if (fastModeRef.current) {
 				void fastModeBlocker(s.providerId, s.modelSummary).then((blocker) => {
@@ -6604,6 +6617,12 @@ function AppBody({
 							'system',
 							`--effort ${launchEffort} is not offered by ${primaryProvider(prefs).model ?? primaryProvider(prefs).id}; using the provider default.`,
 						)
+				}
+				const savedEffort = savedEffortPendingRef.current
+				if (savedEffort && s.hasProvider) {
+					savedEffortPendingRef.current = undefined
+					if (!launchEffort && s.reasoningEffortLevels?.includes(savedEffort))
+						setReasoningEffort(savedEffort)
 				}
 				// Hypermode is independent of effort, so the picker a model change
 				// asks for opens whether or not it is on.
@@ -6632,7 +6651,11 @@ function AppBody({
 			const mentionLoadOwner = {}
 			mentionLoadOwnerRef.current = mentionLoadOwner
 			void (
-				definition ? Promise.resolve([]) : listMentionableFiles(activeCtx.cwd, appLifetime.signal)
+				definition
+					? Promise.resolve([])
+					: listMentionableFiles(activeCtx.cwd, appLifetime.signal, {
+							respectGitignore: activeCtx.respectGitignore !== false,
+						})
 			).then((files) => {
 				if (!appLifetime.signal.aborted && mentionLoadOwnerRef.current === mentionLoadOwner)
 					setMentionCandidates(files)

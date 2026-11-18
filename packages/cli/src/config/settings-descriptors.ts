@@ -146,7 +146,8 @@ export function appliesTextFor(entry: Pick<SettingDescriptor, 'path' | 'appliesW
 		entry.appliesWhen === 'next-start' &&
 		(entry.path.startsWith('tui.') ||
 			entry.path.startsWith('composerTriggers.') ||
-			entry.path === 'statusLine')
+			entry.path === 'statusLine' ||
+			entry.path === 'fast')
 	)
 		return 'Applies the next time the terminal app starts.'
 	return APPLIES_WHEN_TEXT[entry.appliesWhen]
@@ -496,6 +497,9 @@ export function appliesWhenFor(path: string): AppliesWhen {
 	]
 	const conversationKeys = new Set([
 		'hypermode',
+		'closingSummary',
+		'effort',
+		'respectGitignore',
 		'refusalFallback',
 		'smallModel',
 		'decision',
@@ -601,6 +605,41 @@ const DECLARED: readonly SettingDescriptor[] = [
 			default: 'auto',
 			confirm: 'The request will be sent to a different model after a refusal.',
 			confirmValue: 'auto',
+		},
+	),
+	d(
+		'effort',
+		'models',
+		'Default reasoning effort',
+		'How much a model thinks before it answers in new conversations. A level the model does not offer is ignored. Higher levels use more of your limit.',
+		pick(
+			['none', 'None', 'No extra thinking.'],
+			['minimal', 'Minimal', 'The least thinking a model offers.'],
+			['low', 'Low', 'Quick answers with light thinking.'],
+			['medium', 'Medium', 'Balanced thinking.'],
+			['high', 'High', 'Careful thinking.'],
+			['xhigh', 'Extra high', 'Very careful thinking.'],
+			['max', 'Max', 'Maximum thinking.'],
+			['ultra', 'Ultra', 'The highest level, where a model has one.'],
+		),
+		{
+			group: 'choosing-models',
+			keywords: ['effort', 'thinking', 'reasoning', 'reasoning effort', 'effort level'],
+			defaultText: "the model's own default",
+		},
+	),
+	d(
+		'fast',
+		'models',
+		'Fast mode',
+		'Start the terminal app with faster replies on models that offer it. Billed at twice the standard rate.',
+		on,
+		{
+			group: 'choosing-models',
+			keywords: ['fast', 'speed', 'faster replies', 'priority'],
+			default: false,
+			confirm: 'Replies on models that offer fast mode will be billed at twice the standard rate.',
+			confirmWhen: 'on',
 		},
 	),
 	d(
@@ -810,6 +849,20 @@ const DECLARED: readonly SettingDescriptor[] = [
 			default: [],
 			confirm: 'Namzu will be able to reach this folder in every project.',
 			confirmWhen: 'widens',
+		},
+	),
+	d(
+		'respectGitignore',
+		'projects',
+		'Respect .gitignore',
+		'Keep files that .gitignore ignores out of file pickers and file search.',
+		on,
+		{
+			group: 'folders',
+			keywords: ['gitignore', 'ignored files', 'file picker', 'file search', 'mentions'],
+			default: true,
+			confirm: 'Ignored files, such as local keys and installed packages, will show in file lists.',
+			confirmWhen: 'off',
 		},
 	),
 	d(
@@ -1035,6 +1088,18 @@ const DECLARED: readonly SettingDescriptor[] = [
 		},
 	),
 	d(
+		'closingSummary',
+		'agent',
+		'Summary and next steps',
+		'End finished work with a short note of what changed, what was checked and what is left.',
+		on,
+		{
+			group: 'while-working',
+			keywords: ['closing note', 'summary', 'next steps', 'what is left', 'wrap up'],
+			default: true,
+		},
+	),
+	d(
 		'limits.maxResponseTokens',
 		'agent',
 		'Longest answer',
@@ -1134,6 +1199,18 @@ const DECLARED: readonly SettingDescriptor[] = [
 			group: 'limits',
 			keywords: ['rate limit', 'busy', '429', 'overloaded'],
 			defaultText: 'a one-shot run does not wait; a scheduled run waits 10 minutes',
+		},
+	),
+	d(
+		'workflow.enabled',
+		'agent',
+		'Dynamic workflows',
+		'Let Namzu run several helper agents at once on complex tasks. Uses your limit faster.',
+		on,
+		{
+			group: 'helpers-workflows',
+			keywords: ['workflow', 'workflows', 'workflow tool', 'helper agents', 'multi-agent'],
+			default: true,
 		},
 	),
 	d(

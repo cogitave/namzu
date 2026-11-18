@@ -122,7 +122,8 @@ function isMentionablePath(path: string): boolean {
 }
 
 /**
- * List tracked and unignored project files once per hydrated TUI session.
+ * List tracked and unignored project files once per hydrated TUI session. With
+ * `respectGitignore: false` (the saved setting) ignored files are listed too.
  *
  * The command is argument-vector based (no shell), bounded by time, output and
  * result count, and returns no candidates outside a repository. Exact `@path`
@@ -131,28 +132,40 @@ function isMentionablePath(path: string): boolean {
 export async function listMentionableFiles(
 	cwd: string,
 	signal?: AbortSignal,
+	options: { readonly respectGitignore?: boolean } = {},
 ): Promise<readonly string[]> {
-	try {
-		const { stdout } = await run(
-			'git',
-			['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--'],
-			{
+	const list = async (args: readonly string[], tolerateOverflow: boolean): Promise<string[]> => {
+		try {
+			const { stdout } = await run('git', ['ls-files', ...args, '-z', '--'], {
 				cwd,
 				signal,
 				timeout: FILE_LIST_TIMEOUT_MS,
 				maxBuffer: 2 * 1024 * 1024,
-			},
-		)
-		const files: string[] = []
-		for (const path of stdout.split('\0')) {
-			if (!isMentionablePath(path)) continue
-			files.push(path)
-			if (files.length === MAX_MENTION_FILES) break
+			})
+			return stdout.split('\0')
+		} catch (error) {
+			// An ignored folder such as installed packages can outrun the buffer; what arrived
+			// is still a list, and the unignored files were asked for first.
+			const partial = (error as { stdout?: unknown }).stdout
+			if (tolerateOverflow && typeof partial === 'string') return partial.split('\0').slice(0, -1)
+			return []
 		}
-		return files
-	} catch {
-		return []
 	}
+	const files: string[] = []
+	const seen = new Set<string>()
+	const add = (paths: readonly string[]) => {
+		for (const path of paths) {
+			if (files.length === MAX_MENTION_FILES) return
+			if (!isMentionablePath(path) || seen.has(path)) continue
+			seen.add(path)
+			files.push(path)
+		}
+	}
+	add(await list(['--cached', '--others', '--exclude-standard'], false))
+	// Off: ignored files follow the others, so they never crowd out what the project tracks.
+	if (options.respectGitignore === false && files.length < MAX_MENTION_FILES)
+		add(await list(['--others', '--ignored', '--exclude-standard'], true))
+	return files
 }
 
 function isMentionableLabel(label: string): boolean {

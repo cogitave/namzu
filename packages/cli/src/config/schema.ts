@@ -7,7 +7,12 @@
  * validation decision whenever that list grows.
  */
 
-import type { ShellHookEvent, ShellHookHandler, ShellHooksConfig } from '@namzu/sdk'
+import type {
+	ReasoningEffort,
+	ShellHookEvent,
+	ShellHookHandler,
+	ShellHooksConfig,
+} from '@namzu/sdk'
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import type { FormatName } from '../output/index.js'
 import type { BrowserSitesConfig } from '../permissions/browser-sites.js'
@@ -260,6 +265,11 @@ export type ArchiveInactiveAfter = 'never' | '1d' | '7d' | '30d'
 
 /** See `NamzuCliConfig.workflow`. */
 export interface WorkflowCliConfig {
+	/**
+	 * Whether the `workflow` tool is offered to the model. Default true. `false` leaves it out of
+	 * every conversation started afterwards, and hypermode then delegates with the `Agent` tool.
+	 */
+	readonly enabled?: boolean
 	/** Agents one workflow runs at once. Default `min(16, CPUs - 2)`, at least 2; at most 16. */
 	readonly maxConcurrency?: number
 	/** Agents one workflow run may start. Default 1000; at most 1000. */
@@ -583,6 +593,32 @@ export interface NamzuCliConfig {
 	 * already holds, never from a model call, so turning them off saves nothing but screen space.
 	 */
 	readonly statusMarks?: boolean
+	/**
+	 * The reasoning effort a conversation starts with when nothing else chose one: `--effort` and
+	 * `NAMZU_EFFORT_LEVEL` win, and so does the level picked inside a conversation. A level the
+	 * model does not offer is ignored and the model's own default stands. Absent means the
+	 * model's own default. Read from the user and managed files only.
+	 */
+	readonly effort?: ReasoningEffort
+	/**
+	 * Start the terminal app with fast inference on, for a model that offers it (it bills at
+	 * twice the standard rate). `--fast` and `/fast` still work; a model that cannot take it
+	 * leaves fast mode off, with a message. Absent means off. Read from the user and managed
+	 * files only.
+	 */
+	readonly fast?: boolean
+	/**
+	 * Whether the file pickers and file search of the terminal app and the desktop app leave out
+	 * what `.gitignore` ignores. Absent means true. A model's own `glob` and `grep` keep skipping
+	 * ignored files unless a call asks for them. Read from the user and managed files only.
+	 */
+	readonly respectGitignore?: boolean
+	/**
+	 * Whether the model closes finished work with what changed, what was verified and what is
+	 * left. Absent means true; `false` leaves that one rule out of the working rules of new
+	 * conversations. Delegated agents are unaffected.
+	 */
+	readonly closingSummary?: boolean
 	/**
 	 * Isolation for the commands this CLI runs.
 	 *

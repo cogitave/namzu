@@ -483,6 +483,17 @@ whole numbers, and are never read from the environment. The review shows the val
 in force ("Agents: up to 4 at a time, 300 in all"). The turn's token budget
 ([Turn limits](turn-limits.md)) also stops a run from starting agents once it is spent.
 
+### Turning workflows off
+
+`workflow.enabled` (default `true`; Desktop Settings > Agent > *Dynamic workflows*) is the one
+switch. With `false` the `workflow` tool is not in the tool list of any conversation started after the
+change, whoever asks for it (the keyword, hypermode, the slash command), and hypermode reads its
+text for a run without the tool, which delegates with the `Agent` tool. The list stays the same for
+the whole conversation, so the cached prefix does not change mid-way, and an open conversation keeps
+what it began with. `enabled` is separate from the caps above, which still apply when it is on, and
+turning it off leaves `/workflows` listing the runs already made. A workflow uses more of your limit
+than a plain reply, which is why the row says so.
+
 ### Size guideline and the large-run warning
 
 `sizeGuideline` is `small` (fewer than 5 agents), `medium` (fewer than 10, the
