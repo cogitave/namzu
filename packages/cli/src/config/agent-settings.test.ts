@@ -355,7 +355,10 @@ describe('agent settings', () => {
 			expect(await set?.refuseBeforeReview?.(same, toolContext)).toEqual({
 				error: 'Notification sound is already None, so nothing was changed.',
 			})
-			expect(set?.presentCall?.(same)).toEqual({ kind: 'generic', label: 'Change a setting' })
+			expect(set?.presentCall?.(same)).toEqual({
+				kind: 'generic',
+				label: 'Change Notification sound',
+			})
 		})
 
 		it('stops offering itself once the switch is turned off after the tools were built', async () => {

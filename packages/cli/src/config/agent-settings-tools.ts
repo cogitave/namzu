@@ -114,7 +114,14 @@ export function createAgentSettingsTools(ctx: AgentSettingsContext): ToolDefinit
 		presentCall(input) {
 			const said = describeAgentChange(ctx, input)
 			// Refused or unchanged calls still read as plain words, never as the raw input.
-			if (!said) return { kind: 'generic', label: 'Change a setting' }
+			if (!said) {
+				// A call that ran has already changed the value, so it reads as unchanged: name the setting.
+				const planned = planAgentChange(ctx, input as { setting: unknown; value: unknown })
+				return {
+					kind: 'generic',
+					label: planned.ok ? `Change ${planned.change.name}` : 'Change a setting',
+				}
+			}
 			return { kind: 'generic', label: `Change ${said.setting}: ${said.from} to ${said.to}` }
 		},
 		async execute(input) {
