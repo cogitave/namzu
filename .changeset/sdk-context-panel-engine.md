@@ -1,0 +1,7 @@
+---
+'@namzu/sdk': minor
+---
+
+`analyzeContextUsage` now draws the compaction reserve whenever `autoCompact` is on, for every `windowSource`. Before, a window the provider or the model table declares (`windowSource: 'auto'`) had no reserve, so `categories` had no `buffer` entry and `Free space` was larger by the reserve (up to 33,000 tokens). A host that draws these categories shows the reserve, and a smaller free space, on those windows; to keep the old numbers, drop the `buffer` category before drawing. `windowSource` stays in the input and no longer changes the result.
+
+New: `measuredBy: 'provider' | 'estimate'` on the input says who counted `contextTokens`. The kernel's own estimate covers only messages and the tool catalogue, so with `'estimate'` the system prompt, server instructions, agents, instruction files and skills are added on top instead of being subtracted, which fixes an understated Messages row on a conversation with no reply yet or just after a shortening. Absent is read as `'provider'`, as before. New: `deferredToolTokens` and `deferredMcpToolTokens` size the tool definitions that load only when needed as categories `deferred-tools` and `deferred-mcp-tools` of kind `deferred` (`ContextCategoryKind` gains `'deferred'`); they are never counted in `totalTokens`. `ToolManager.toDeferredLLMTools()` renders those definitions for sizing, and `DEFERRED_CATEGORY_ORDER` is exported.

@@ -531,7 +531,18 @@ export class ToolManager {
 	// ---- Rendering to the model ----------------------------------------------
 
 	toLLMTools(names?: readonly string[]): LLMToolSchema[] {
-		const tools = this.getByAvailability(['active'], names)
+		return this.renderTools(this.getByAvailability(['active'], names))
+	}
+
+	/**
+	 * The definitions that are not sent yet because they load only when the
+	 * model asks, rendered the way they will be once loaded. For sizing only.
+	 */
+	toDeferredLLMTools(names?: readonly string[]): LLMToolSchema[] {
+		return this.renderTools(this.getByAvailability(['deferred'], names))
+	}
+
+	private renderTools(tools: readonly ToolDefinition[]): LLMToolSchema[] {
 		return tools.map((tool) => {
 			let description = tool.description
 			if (this.tierConfig?.labelInDescription && tool.tier) {

@@ -147,6 +147,15 @@ describe('ToolManager — availability (derived)', () => {
 		expect(m.availability('read')).toBe('active')
 	})
 
+	it('renders deferred tools for sizing without sending them', () => {
+		const m = manager([
+			toolset('a', [makeTool('shown')]),
+			deferred(toolset('b', [makeTool('hidden')])),
+		])
+		expect(m.toLLMTools().map((t) => t.function.name)).toEqual(['shown'])
+		expect(m.toDeferredLLMTools().map((t) => t.function.name)).toEqual(['hidden'])
+	})
+
 	it('deferred(toolset) tools start deferred', () => {
 		const m = manager([deferred(toolset('a', [makeTool('hidden')]))])
 		expect(m.availability('hidden')).toBe('deferred')

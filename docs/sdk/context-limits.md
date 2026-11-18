@@ -17,16 +17,27 @@ generated:
 `analyzeContextUsage(input)` splits a window into categories for a host that
 draws "where did my context go": System prompt, System tools, MCP tools, MCP
 server instructions, Custom agents, Memory files, Skills and Messages (in that
-order, empty ones left out), then the compaction buffer and Free space. The
+order, empty ones left out), then the tools that load only when needed
+(`deferred-tools`, `deferred-mcp-tools`, kind `deferred`: sized with
+`deferredToolTokens` and `deferredMcpToolTokens`, never counted as used, never
+part of `totalTokens`, and sized by `ToolManager.toDeferredLLMTools()`), the
+compaction buffer and Free space. The
 host passes the size of each fixed part and `contextTokens`, the whole prompt
 as the provider counted it or as estimated; Messages is that figure minus the
 fixed parts, clamped to the room left, so the categories add up to the window.
-Without `contextTokens` it is estimated from `messages`. `totalTokens` can
+Without `contextTokens` it is estimated from `messages`. `measuredBy` says who
+counted `contextTokens`: a provider counts the whole request, but the kernel's
+own estimate (no reply yet, or after a shortening) covers only the messages and
+the tool catalogue. With `measuredBy: 'estimate'` the system prompt, tool server
+instructions, agents, instruction files and skills are added on top of it, not
+taken out of it, so Messages is no longer understated (absent is read as
+`provider`). `totalTokens` can
 exceed the window, and `overflowTokens` says by how much.
 
 The buffer is `min(maxOutputTokens, 20,000) + 13,000` (the same two figures as
-the trigger above) and is drawn only when `windowSource` is not `auto`, that is
-when the window was configured or assumed. With `autoCompact` off the buffer is 3,000 tokens and named `Compact buffer`; a host draws it as an ordinary legend line while still marking its squares as buffer. `messageBreakdown` sizes tool calls and tool results by tool name,
+the trigger above) and is drawn whenever `autoCompact` is on, for every
+`windowSource` (it was drawn only for a configured or assumed window before;
+`windowSource` stays in the input and no longer changes the numbers). With `autoCompact` off the buffer is 3,000 tokens and named `Compact buffer`; a host draws it as an ordinary legend line while still marking its squares as buffer. `messageBreakdown` sizes tool calls and tool results by tool name,
 matching each result to its call by id. `describeToolCatalogTokens(tools)` sizes
 a rendered tool catalogue tool by tool, and `estimateTextTokens(text)` is the
 characters-per-token estimate for a string.
