@@ -3,8 +3,9 @@ import type { DesktopApi, ProjectFileContent } from '../shared/protocol.js'
 import { CopyButton } from './copy-button.js'
 import { FileTypeIcon } from './file-panel/file-icons.js'
 import { SourceView } from './file-panel/file-view.js'
-import { AppWindowIcon, ArrowLeftIcon, FolderOpenIcon } from './icons.js'
+import { AppWindowIcon, ArrowLeftIcon, DownloadIcon, FolderOpenIcon } from './icons.js'
 import { MarkdownContent } from './message.js'
+import { cardKindLine } from './output-card-model.js'
 import { OUTPUT_FRAME_SANDBOX, outputFrameDocument } from './output-frame.js'
 import { type OutputFile, outputAddress } from './outputs-model.js'
 import { plainErrorText } from './plain-error.js'
@@ -54,13 +55,6 @@ export function useSessionOutput(
 		}
 	}, [api, sessionId, path, version])
 	return state.path === path ? state : { path, status: 'loading' }
-}
-
-const KIND_WORDS: Record<OutputFile['kind'], string> = {
-	html: 'Page',
-	markdown: 'Document',
-	image: 'Image',
-	code: 'File',
 }
 
 /** The kinds a text file reads as in the pane. */
@@ -121,12 +115,14 @@ export function OutputPreview({
 function OutputRow({
 	file,
 	onOpen,
+	onSave,
 }: {
 	file: OutputFile
 	onOpen: (path: string) => void
+	onSave?: (file: OutputFile) => void
 }) {
 	return (
-		<li>
+		<li className="output-row-item">
 			<button
 				type="button"
 				className="output-row"
@@ -137,8 +133,19 @@ function OutputRow({
 				<FileTypeIcon path={file.name} />
 				<span className="output-row-name">{file.name}</span>
 				{file.folder && <span className="output-row-folder">{file.folder}</span>}
-				<span className="output-row-kind">{KIND_WORDS[file.kind]}</span>
+				<span className="output-row-kind">{cardKindLine(file.path)}</span>
 			</button>
+			{onSave && (
+				<button
+					type="button"
+					className="output-row-save"
+					title="Save a copy…"
+					aria-label={`Save a copy of ${file.name}`}
+					onClick={() => onSave(file)}
+				>
+					<DownloadIcon aria-hidden="true" />
+				</button>
+			)}
 		</li>
 	)
 }
@@ -159,7 +166,7 @@ export function OutputsPanel({
 	onNotice,
 	workFolder,
 }: {
-	api: Pick<DesktopApi, 'readSessionOutput' | 'openSessionOutput'>
+	api: Pick<DesktopApi, 'readSessionOutput' | 'openSessionOutput' | 'saveSessionOutput'>
 	sessionId: string
 	outputs: readonly OutputFile[]
 	selected?: string
@@ -183,7 +190,19 @@ export function OutputsPanel({
 				) : (
 					<ul className="outputs-list" aria-label="Files written in this conversation">
 						{outputs.map((item) => (
-							<OutputRow key={item.path} file={item} onOpen={onSelect} />
+							<OutputRow
+								key={item.path}
+								file={item}
+								onOpen={onSelect}
+								onSave={
+									api.saveSessionOutput
+										? (target) =>
+												void api
+													.saveSessionOutput?.(sessionId, target.path)
+													.catch((failure) => onNotice(plainErrorText(failure, 'save a copy')))
+										: undefined
+								}
+							/>
 						))}
 					</ul>
 				)}
@@ -229,6 +248,21 @@ export function OutputsPanel({
 						<FolderOpenIcon aria-hidden="true" />
 						Show in folder
 					</Button>
+					{api.saveSessionOutput && (
+						<Button
+							type="button"
+							size="xs"
+							variant="ghost-muted"
+							onClick={() =>
+								void api
+									.saveSessionOutput?.(sessionId, file.path)
+									.catch((failure) => onNotice(plainErrorText(failure, 'save a copy')))
+							}
+						>
+							<DownloadIcon aria-hidden="true" />
+							Save a copy
+						</Button>
+					)}
 					{load.status === 'ready' && load.content.text !== undefined && (
 						<CopyButton text={load.content.text} label="Copy file contents" />
 					)}

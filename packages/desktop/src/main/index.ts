@@ -1433,8 +1433,25 @@ function register(): void {
 	handle('projectFileIndex', (id: string) => operator.projectFileIndex(id))
 	handle('readProjectFile', (id: string, path: string) => operator.readProjectFile(id, path))
 	handle('readSessionOutput', (id: string, path: string) => operator.readSessionOutput(id, path))
-	handle('openSessionOutput', (id: string, path: string, target: 'browser' | 'file-manager') =>
-		operator.openSessionOutput(id, path, target),
+	handle(
+		'openSessionOutput',
+		(id: string, path: string, target: 'browser' | 'file-manager' | 'system') =>
+			operator.openSessionOutput(id, path, target),
+	)
+	handle('describeSessionOutputs', (id: string, paths: string[]) =>
+		operator.describeSessionOutputs(id, paths),
+	)
+	handle('madeSessionFiles', (id: string) => operator.madeSessionFiles(id))
+	// The dialog is the only place a destination is chosen; the window never names a path to write.
+	handleWindow('saveSessionOutput', ({ window }, id: string, path: string) =>
+		operator.saveSessionOutput(id, path, async (defaultName) => {
+			if (!window) return undefined
+			const picked = await dialog.showSaveDialog(window, {
+				title: 'Save a copy',
+				defaultPath: join(app.getPath('downloads'), defaultName),
+			})
+			return picked.canceled ? undefined : picked.filePath
+		}),
 	)
 	handle('resolveProjectLinks', (id: string, refs: string[]) =>
 		operator.resolveProjectLinks(id, refs),

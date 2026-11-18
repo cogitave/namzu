@@ -190,7 +190,8 @@ import {
 import { normalConversationProject } from './normal-conversation.js'
 import { noticeClickAction } from './notice-target.js'
 import { dismissNotice, notify } from './notify.js'
-import { outputFiles, outputToOpen } from './outputs-model.js'
+import { OutputCardsContext, type OutputCardsContextValue } from './output-card.js'
+import { type MadeOutput, outputFiles, outputToOpen } from './outputs-model.js'
 import { OutputsPanel } from './outputs-panel.js'
 import { PalChatTranscript } from './pal-chat-transcript.js'
 import { PalCommunicationDialog, type PalSettingsTab } from './pal-communication-dialog.js'
@@ -1203,16 +1204,56 @@ export function App({
 	const panelView: PanelView =
 		filesEnabled && panelTabs.browsing ? 'browse' : (shownPanelTab?.kind ?? 'empty')
 	const changesPaneOpen = detailsOpen && panelView === 'changes'
+	// Result files a command or a tool made, found by the host when a turn ends.
+	const [madeFiles, setMadeFiles] = useState<{ sessionId: string; files: MadeOutput[] }>()
+	// biome-ignore lint/correctness/useExhaustiveDependencies: only a turn ending or another conversation decides.
+	useEffect(() => {
+		const ask = api.madeSessionFiles
+		if (!ask || !outputsEnabled || !sessionId || thread.running || historyPending) return
+		let current = true
+		ask(sessionId).then(
+			(files) => current && setMadeFiles({ sessionId, files }),
+			() => undefined,
+		)
+		return () => {
+			current = false
+		}
+	}, [sessionId, thread.running, historyPending, outputsEnabled])
 	// What the conversation wrote, from the receipts the Changes panel reads.
 	const outputs = useMemo(
-		() => (outputsEnabled ? outputFiles(thread) : []),
-		[outputsEnabled, thread],
+		() =>
+			outputsEnabled
+				? outputFiles(thread, madeFiles?.sessionId === sessionId ? madeFiles.files : [])
+				: [],
+		[outputsEnabled, thread, madeFiles, sessionId],
 	)
 	const [outputPick, setOutputPick] = useState<{ sessionId: string; path?: string }>()
 	const pickedOutput = outputPick?.sessionId === sessionId ? outputPick.path : undefined
 	const pickOutput = useCallback(
 		(path: string | undefined) => setOutputPick({ sessionId, path }),
 		[sessionId],
+	)
+	const madeOutputs = useMemo(() => outputs.filter((file) => file.made), [outputs])
+	const openOutputBeside = useCallback(
+		(path: string) => {
+			setOutputPick({ sessionId, path })
+			updatePanelTabs((state) => ensurePanelTab(state, outputsTab))
+			setJobsOpen(true)
+		},
+		[sessionId, updatePanelTabs],
+	)
+	const outputCardsValue = useMemo<OutputCardsContextValue | undefined>(
+		() =>
+			outputsEnabled && sessionId
+				? {
+						api,
+						sessionId,
+						made: madeOutputs,
+						onOpen: openOutputBeside,
+						onNotice: announce,
+					}
+				: undefined,
+		[outputsEnabled, api, sessionId, madeOutputs, openOutputBeside, announce],
 	)
 	// The versions of each output already known, so only a write made after this is news.
 	const outputsSeen = useRef(new Map<string, Map<string, number>>())
@@ -7387,73 +7428,75 @@ export function App({
 											<ProjectFilesContext.Provider value={projectFiles}>
 												<BackgroundWorkContext.Provider value={openBackgroundWork}>
 													<PalStartContext.Provider value={palStartControls}>
-														<Transcript
-															key={sessionId || 'blank'}
-															thread={thread}
-															animate={!historyPending && !restoringTabs}
-															workDisclosures={
-																workDisclosureView.sessionId === sessionId
-																	? workDisclosureView.choices
-																	: undefined
-															}
-															onWorkDisclosureChange={(key, open) =>
-																onWorkDisclosureChange(sessionId, key, open)
-															}
-															onOpenTurnChanges={(receiptIds, path) => {
-																setChangesFilter(receiptIds, path)
-																showPanelTab('changes')
-																setJobsOpen(true)
-															}}
-															onOpenChangedFile={projectFiles ? openChangedFile : undefined}
-															onOpenPalInbox={openPalInbox}
-															onCopySummary={(text) =>
-																void copyToClipboard(text, 'Summary copied.').catch(() =>
-																	notify('Copy is unavailable.', { tone: 'error' }),
-																)
-															}
-															onOpenTasks={() => {
-																showPanelTab('activity')
-																setJobsOpen(true)
-															}}
-															onUndoTurn={
-																api.undoPreview && api.undoTurn
-																	? (turnId) => setUndoingTurn({ sessionId, turnId })
-																	: undefined
-															}
-															undoKept={undoKept}
-															projectRoot={project?.path}
-															closedWhileRunning={conversation?.closedWhileRunning === true}
-															onContinueStopped={
-																conversation?.closedWhileRunning === true &&
-																!thread.running &&
-																!loading &&
-																!restoringTabs &&
-																!frozen &&
-																project?.trusted &&
-																project.status === 'ready' &&
-																choice.provider &&
-																providerReady
-																	? () => void act(() => retryReply(CONTINUE_STOPPED_PROMPT))
-																	: undefined
-															}
-															stopShownBelow={stopShownBelow}
-															renderMessageAction={(message, key) => (
-																<MessageActions
-																	text={message.text}
-																	onRetry={
-																		retryable && retryable.reply === message
-																			? () => void act(() => retryReply(retryable.prompt))
-																			: undefined
-																	}
-																>
-																	<LocalSpeechReadAloud
-																		speech={speech}
-																		messageId={key}
+														<OutputCardsContext.Provider value={outputCardsValue}>
+															<Transcript
+																key={sessionId || 'blank'}
+																thread={thread}
+																animate={!historyPending && !restoringTabs}
+																workDisclosures={
+																	workDisclosureView.sessionId === sessionId
+																		? workDisclosureView.choices
+																		: undefined
+																}
+																onWorkDisclosureChange={(key, open) =>
+																	onWorkDisclosureChange(sessionId, key, open)
+																}
+																onOpenTurnChanges={(receiptIds, path) => {
+																	setChangesFilter(receiptIds, path)
+																	showPanelTab('changes')
+																	setJobsOpen(true)
+																}}
+																onOpenChangedFile={projectFiles ? openChangedFile : undefined}
+																onOpenPalInbox={openPalInbox}
+																onCopySummary={(text) =>
+																	void copyToClipboard(text, 'Summary copied.').catch(() =>
+																		notify('Copy is unavailable.', { tone: 'error' }),
+																	)
+																}
+																onOpenTasks={() => {
+																	showPanelTab('activity')
+																	setJobsOpen(true)
+																}}
+																onUndoTurn={
+																	api.undoPreview && api.undoTurn
+																		? (turnId) => setUndoingTurn({ sessionId, turnId })
+																		: undefined
+																}
+																undoKept={undoKept}
+																projectRoot={project?.path}
+																closedWhileRunning={conversation?.closedWhileRunning === true}
+																onContinueStopped={
+																	conversation?.closedWhileRunning === true &&
+																	!thread.running &&
+																	!loading &&
+																	!restoringTabs &&
+																	!frozen &&
+																	project?.trusted &&
+																	project.status === 'ready' &&
+																	choice.provider &&
+																	providerReady
+																		? () => void act(() => retryReply(CONTINUE_STOPPED_PROMPT))
+																		: undefined
+																}
+																stopShownBelow={stopShownBelow}
+																renderMessageAction={(message, key) => (
+																	<MessageActions
 																		text={message.text}
-																	/>
-																</MessageActions>
-															)}
-														/>
+																		onRetry={
+																			retryable && retryable.reply === message
+																				? () => void act(() => retryReply(retryable.prompt))
+																				: undefined
+																		}
+																	>
+																		<LocalSpeechReadAloud
+																			speech={speech}
+																			messageId={key}
+																			text={message.text}
+																		/>
+																	</MessageActions>
+																)}
+															/>
+														</OutputCardsContext.Provider>
 													</PalStartContext.Provider>
 												</BackgroundWorkContext.Provider>
 											</ProjectFilesContext.Provider>

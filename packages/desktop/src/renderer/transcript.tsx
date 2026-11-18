@@ -15,6 +15,7 @@ import { AttachmentList } from './attachment-list.js'
 import { providerWaitAnnouncement, providerWaitText } from './friendly-errors.js'
 import { ChevronRightIcon } from './icons.js'
 import { Message, MessageContent, MessageFooter, timeDescription, timeRoleOf } from './message.js'
+import { TurnOutputs } from './output-card.js'
 import { PalMessageReceipts } from './pal-message-receipts.js'
 import { PlanBox, PlanRow, PlanTouched } from './plan-row-view.js'
 import { isTaskEntry, latestPlanTurn } from './plan-row.js'
@@ -949,6 +950,7 @@ const TurnGroupView = memo(function TurnGroupView({
 						<MessageFooter time={clock.time} focusable />
 					</Message>
 				)}
+				<TurnOutputs thread={thread} turn={group.turn} changes={changes} />
 				{!live && (
 					<TurnFoot
 						thread={thread}

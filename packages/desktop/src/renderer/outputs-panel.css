@@ -32,6 +32,39 @@
 	overflow-y: auto;
 	min-height: 0;
 }
+.output-row-item {
+	position: relative;
+	display: flex;
+	align-items: center;
+}
+.output-row-save {
+	appearance: none;
+	position: absolute;
+	right: 4px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 1.75rem;
+	height: 1.75rem;
+	border: 0;
+	border-radius: var(--radius-chip);
+	background: var(--card);
+	color: var(--muted-foreground);
+	opacity: 0;
+	cursor: pointer;
+}
+.output-row-save svg {
+	width: 1rem;
+	height: 1rem;
+}
+.output-row-item:hover .output-row-save,
+.output-row-item:focus-within .output-row-save {
+	opacity: 1;
+}
+.output-row-save:hover,
+.output-row-save:focus-visible {
+	color: var(--foreground);
+}
 .output-row {
 	appearance: none;
 	display: flex;

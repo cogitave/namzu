@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, realpathSync } from 'node:fs'
-import { lstat, mkdir, readdir, realpath, stat } from 'node:fs/promises'
+import { copyFile, lstat, mkdir, open as openFile, readdir, realpath, stat } from 'node:fs/promises'
 import { basename, isAbsolute, resolve } from 'node:path'
 import type {
 	AcpRequestPermissionParams,
@@ -23,6 +23,7 @@ import {
 import { type HistoryWorkSnapshot, restoreHistoryWork } from '../shared/history-work.js'
 import { readHooksReport } from '../shared/hooks-report.js'
 import { OUTCOME_NOTIFICATION, readOutcomeNotice } from '../shared/outcome-protocol.js'
+import { mayOpenWithSystem } from '../shared/output-files.js'
 import type {
 	PalPermissionChange,
 	PalSubscriptionCreate,
@@ -110,6 +111,7 @@ import {
 	type SavedLastModel,
 } from './desktop-conversation-store.js'
 import type { DesktopDiagnosticSink } from './diagnostics.js'
+import { type FolderSnapshot, type MadeFile, madeBetween, snapshotFolder } from './made-files.js'
 import { ModelListStore, type StoredModelList, modelListKey } from './model-list-store.js'
 import { isNormalChatWorkspace, normalChatWorkspace } from './normal-chat-workspace.js'
 import type { OpenIn, OpenTarget } from './open-in.js'
@@ -121,7 +123,14 @@ import { ProjectFiles, confineProjectPath, resolveProjectLinks } from './project
 import { type ProjectNameStore, projectNameProblem } from './project-names.js'
 import { parseUntrust, projectBusyReason, withoutProject } from './project-removal.js'
 import { RuntimeClient, type RuntimeCommand } from './rpc-client.js'
-import { type OutputAccess, readOutput, resolveOutput } from './session-output.js'
+import {
+	type OutputAccess,
+	type OutputDetail,
+	describeOutputs,
+	readOutput,
+	resolveOutput,
+	saveOutputCopy,
+} from './session-output.js'
 import {
 	ConversationHostChangedError,
 	SupersededConversationSettingsError,
@@ -885,6 +894,18 @@ export class Operator {
 	private readonly computerGrants = new Map<string, ComputerGrants>()
 	/** Conversations whose running turn has driven the computer: only these may raise Namzu over other applications. */
 	private readonly computerTurns = new Set<string>()
+	/**
+	 * Per conversation: the work folder as it stood when the running turn began, and the result
+	 * files earlier turns made by running something. Never stored; a restored conversation has none.
+	 */
+	private readonly madeScans = new Map<
+		string,
+		{
+			before?: Promise<FolderSnapshot | undefined>
+			settled?: Promise<void>
+			made: (MadeFile & { turn: number })[]
+		}
+	>()
 	/** The requests that ask whether to allow applications, by request id. */
 	private readonly appRequests = new Map<string, { sessionId: string; apps: string[] }>()
 	private grantsFor(sessionId: string): ComputerGrants {
@@ -1835,8 +1856,12 @@ export class Operator {
 				if (!wasRunning && session.projection.running) {
 					this.computerTurns.delete(id)
 					this.options.notices?.turnStarted(id)
+					this.beginMadeScan(session)
 				}
-				if (wasRunning && !session.projection.running) this.noticeTurnEnded(session)
+				if (wasRunning && !session.projection.running) {
+					this.noticeTurnEnded(session)
+					this.endMadeScan(session)
+				}
 				if (
 					wasRunning &&
 					!session.projection.running &&
@@ -3240,7 +3265,78 @@ export class Operator {
 			if (path && isAbsolute(path)) written.push(path)
 			else if (path) written.push(resolve(project.view.path, path))
 		}
+		for (const made of this.madeScans.get(sessionId)?.made ?? []) written.push(made.path)
 		return { root: project.view.path, written }
+	}
+	/** The folder a conversation's made files are looked for in, or nothing when it has none to scan. */
+	private madeFolder(session: Conversation): string | undefined {
+		if (session.view.palId) return undefined
+		const project = this.projects.get(session.view.projectId)
+		if (!project?.view.trusted || project.view.palId) return undefined
+		return project.view.path
+	}
+	private beginMadeScan(session: Conversation): void {
+		const folder = this.madeFolder(session)
+		if (!folder) return
+		const entry = this.madeScans.get(session.view.id) ?? { made: [] }
+		entry.before = snapshotFolder(folder).catch(() => undefined)
+		this.madeScans.set(session.view.id, entry)
+	}
+	private endMadeScan(session: Conversation): void {
+		const entry = this.madeScans.get(session.view.id)
+		const folder = this.madeFolder(session)
+		const before = entry?.before
+		if (!entry || !before || !folder) return
+		entry.before = undefined
+		const turn = session.projection.turn
+		entry.settled = (async () => {
+			const first = await before
+			if (!first) return
+			const after = await snapshotFolder(folder).catch(() => undefined)
+			if (!after) return
+			for (const file of madeBetween(first, after))
+				entry.made = [...entry.made.filter((old) => old.path !== file.path), { ...file, turn }]
+		})().catch(() => undefined)
+	}
+	/** Result files the conversation's turns made by running something, with the turn that made each. */
+	async madeSessionFiles(sessionId: string): Promise<{ path: string; turn: number }[]> {
+		this.outputAccess(sessionId)
+		// A turn still ending has its scan under way; wait for it, so a pull right after sees it.
+		await this.madeScans.get(sessionId)?.settled
+		return (this.madeScans.get(sessionId)?.made ?? []).map(({ path, turn }) => ({ path, turn }))
+	}
+	async describeSessionOutputs(sessionId: string, paths: string[]): Promise<OutputDetail[]> {
+		return describeOutputs(this.outputAccess(sessionId), paths, {
+			stat: async (path) => {
+				try {
+					const info = await stat(path)
+					return info.isFile() ? { size: info.size } : undefined
+				} catch {
+					return undefined
+				}
+			},
+			head: async (path, bytes) => {
+				const handle = await openFile(path, 'r')
+				try {
+					const buffer = Buffer.alloc(bytes)
+					const { bytesRead } = await handle.read(buffer, 0, bytes, 0)
+					return buffer.subarray(0, bytesRead).toString('utf8')
+				} finally {
+					await handle.close()
+				}
+			},
+		})
+	}
+	/** Saves a copy of a made file where the person chooses; `choose` is the system save dialog. */
+	async saveSessionOutput(
+		sessionId: string,
+		path: string,
+		choose: (defaultName: string) => Promise<string | undefined>,
+	): Promise<{ saved: boolean }> {
+		return saveOutputCopy(this.outputAccess(sessionId), path, {
+			choose,
+			copy: (from, to) => copyFile(from, to),
+		})
 	}
 	async readSessionOutput(sessionId: string, path: string): Promise<ProjectFileContent> {
 		return readOutput(this.outputAccess(sessionId), path, this.projectFiles)
@@ -3248,12 +3344,15 @@ export class Operator {
 	async openSessionOutput(
 		sessionId: string,
 		path: string,
-		target: 'browser' | 'file-manager',
+		target: 'browser' | 'file-manager' | 'system',
 	): Promise<void> {
 		if (!this.openIn) throw new Error('Opening files is not available here.')
-		if (target !== 'browser' && target !== 'file-manager')
+		if (target !== 'browser' && target !== 'file-manager' && target !== 'system')
 			throw new Error('That way of opening is not supported.')
 		const found = await resolveOutput(this.outputAccess(sessionId), path)
+		// The system's own program opens results only, never something that could run.
+		if (target === 'system' && !mayOpenWithSystem(found.absolute))
+			throw new Error('Namzu only opens pages, documents, pictures, sheets and slides this way.')
 		await this.openIn.open(found.absolute, 'file', target)
 	}
 	async resolveProjectLinks(projectId: string, refs: string[]): Promise<ProjectLinkResolution[]> {

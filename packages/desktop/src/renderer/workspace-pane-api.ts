@@ -72,6 +72,9 @@ export function createWorkspacePaneApi(
 		readProjectFile,
 		readSessionOutput,
 		openSessionOutput,
+		describeSessionOutputs,
+		madeSessionFiles,
+		saveSessionOutput,
 		resolveProjectLinks,
 		openProjectPath,
 		projectEditors,
@@ -489,6 +492,20 @@ export function createWorkspacePaneApi(
 			? {
 					openSessionOutput: (owner, path, target) =>
 						invoke(() => openSessionOutput(owner, path, target), [owner]),
+				}
+			: {}),
+		...(describeSessionOutputs
+			? {
+					describeSessionOutputs: (owner, paths) =>
+						invoke(() => describeSessionOutputs(owner, paths), [owner]),
+				}
+			: {}),
+		...(madeSessionFiles
+			? { madeSessionFiles: (owner) => invoke(() => madeSessionFiles(owner), [owner]) }
+			: {}),
+		...(saveSessionOutput
+			? {
+					saveSessionOutput: (owner, path) => invoke(() => saveSessionOutput(owner, path), [owner]),
 				}
 			: {}),
 		...(resolveProjectLinks

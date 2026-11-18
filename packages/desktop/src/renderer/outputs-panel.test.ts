@@ -1,6 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
+import { outputCardKind } from '../shared/output-files.js'
 import type { OutputFile } from './outputs-model.js'
 import { OutputPreview, OutputsPanel } from './outputs-panel.js'
 
@@ -12,6 +13,7 @@ const file = (name: string, kind: OutputFile['kind']): OutputFile => ({
 	turn: 1,
 	version: 1,
 	created: true,
+	cardKind: outputCardKind(name),
 })
 const noop = () => {}
 const html = (view: OutputFile, text: string, kind: 'text' | 'image' = 'text') =>

@@ -1,5 +1,6 @@
 import type { AcpSessionUpdate } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
+import { outputCardKind } from '../shared/output-files.js'
 import { type ThreadState, applyEvent, emptyThread } from '../shared/projection.js'
 import { outputAddress, outputFiles, outputToOpen, previewKind } from './outputs-model.js'
 
@@ -99,6 +100,7 @@ describe('what opens by itself', () => {
 		turn: 1,
 		version,
 		created: true,
+		cardKind: outputCardKind(path),
 	})
 	it('picks a page or document written or changed since it was last seen, not code', () => {
 		const outputs = [
@@ -134,5 +136,20 @@ describe('the address line', () => {
 		expect(outputAddress('/tmp/x.html', '/home/a/cafe')).toBe('/tmp/x.html')
 		expect(outputAddress('/home/a/cafe', '/home/a/cafe')).toBe('/home/a/cafe')
 		expect(outputAddress('/tmp/x.html')).toBe('/tmp/x.html')
+	})
+})
+
+describe('files a command made', () => {
+	it('counts a made file that no receipt names, once, under the turn that made it', () => {
+		let thread = turn(emptyThread(), 'make a page and a chart')
+		thread = wrote(thread, 'a', 'cafe/index.html', '', '<h1>hi</h1>\n')
+		const list = outputFiles(thread, [
+			{ path: '/work/cafe/index.html', turn: 0 },
+			{ path: '/work/chart.png', turn: 0 },
+		])
+		expect(list.map((item) => item.name).sort()).toEqual(['chart.png', 'index.html'])
+		const chart = list.find((item) => item.name === 'chart.png')
+		expect(chart).toMatchObject({ made: true, cardKind: 'image', created: true })
+		expect(list.find((item) => item.name === 'index.html')?.made).toBeUndefined()
 	})
 })

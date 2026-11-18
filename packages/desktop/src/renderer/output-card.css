@@ -1,0 +1,278 @@
+/* The cards under a reply: one for each result it made. Quiet; the transcript column stays calm. */
+.output-group {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2, 8px);
+	margin: var(--space-2, 8px) 0;
+	max-width: 100%;
+}
+.output-group-caption {
+	margin: 0;
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+}
+.output-group-pictures {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2, 8px);
+}
+.output-group-pictures .output-card {
+	flex: 1 1 calc(50% - var(--space-2, 8px));
+	max-width: calc(50% - var(--space-2, 8px));
+}
+.output-group-more {
+	appearance: none;
+	align-self: flex-start;
+	border: 0;
+	background: none;
+	padding: 0;
+	color: var(--muted-foreground);
+	font: inherit;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	cursor: pointer;
+}
+.output-group-more:hover,
+.output-group-more:focus-visible {
+	color: var(--foreground);
+	text-decoration: underline;
+}
+
+.output-card {
+	position: relative;
+	display: flex;
+	align-items: stretch;
+	width: min(100%, 24rem);
+	min-width: 0;
+	overflow: hidden;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-card);
+	background: var(--card);
+	color: var(--foreground);
+	animation: output-card-in 200ms ease-out;
+	transition: transform 160ms ease-out, border-color 160ms ease-out;
+}
+.output-card[data-large] {
+	width: min(100%, 30rem);
+}
+.output-card:hover {
+	transform: translateY(-2px);
+	border-color: var(--input);
+}
+.output-card:focus-within {
+	outline: 2px solid var(--ring);
+	outline-offset: 1px;
+}
+.output-card[data-state="failed"] {
+	border-color: color-mix(in srgb, var(--error) 40%, transparent);
+}
+.output-card[data-state="gone"] {
+	opacity: 0.75;
+}
+.output-card-main {
+	appearance: none;
+	display: flex;
+	flex: 1 1 auto;
+	align-items: center;
+	gap: var(--space-3, 12px);
+	min-width: 0;
+	padding: var(--space-3, 12px);
+	border: 0;
+	background: none;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+.output-card-main:focus-visible {
+	outline: none;
+}
+div.output-card-main {
+	cursor: default;
+}
+.output-card-tile {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	justify-content: center;
+	width: 3rem;
+	height: 3rem;
+	border-radius: var(--radius-md);
+	background: var(--accent);
+	color: var(--muted-foreground);
+}
+.output-card-tile svg {
+	width: 1.5rem;
+	height: 1.5rem;
+}
+.output-card[data-large] .output-card-tile {
+	width: 4.5rem;
+	height: 4.5rem;
+}
+.output-card[data-state="failed"] .output-card-tile {
+	background: color-mix(in srgb, var(--error) 12%, transparent);
+	color: var(--error);
+}
+.output-card-tile[data-sheet] {
+	box-shadow: -0.25rem 0.125rem 0 -0.0625rem var(--border);
+}
+.output-card-thumb {
+	display: inline-flex;
+	flex: none;
+	width: 4rem;
+	height: 3rem;
+	overflow: hidden;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-chip);
+	background: var(--accent);
+	box-shadow: inset 0 0 0 1px rgb(255 255 255 / 6%);
+}
+.output-card[data-large] .output-card-thumb {
+	width: 7rem;
+	height: 4.5rem;
+}
+.output-card-thumb img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+.output-card-thumb-page {
+	position: relative;
+	background: white;
+}
+.output-card-thumb-page iframe {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 56rem;
+	height: 36rem;
+	border: 0;
+	transform: scale(0.125);
+	transform-origin: 0 0;
+	pointer-events: none;
+}
+.output-card[data-large] .output-card-thumb-page iframe {
+	transform: scale(0.2);
+}
+.output-card-text {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	gap: 2px;
+}
+.output-card-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
+	font-weight: 600;
+}
+.output-card[data-large] .output-card-name {
+	font-size: var(--text-heading);
+	line-height: var(--leading-heading);
+}
+.output-card-kind,
+.output-card-preview,
+.output-card-reason {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+}
+.output-card[data-state="failed"] .output-card-kind {
+	color: var(--error);
+}
+.output-card[data-large] .output-card-preview {
+	white-space: normal;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+}
+.output-card-actions {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 2px;
+	padding-right: var(--space-2, 8px);
+	opacity: 0;
+	transition: opacity 120ms ease-out;
+}
+.output-card:hover .output-card-actions,
+.output-card:focus-within .output-card-actions {
+	opacity: 1;
+}
+@media (pointer: coarse), (forced-colors: active) {
+	.output-card-actions {
+		opacity: 1;
+	}
+}
+.output-card-action {
+	appearance: none;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 1.75rem;
+	height: 1.75rem;
+	border: 0;
+	border-radius: var(--radius-chip);
+	background: none;
+	color: var(--muted-foreground);
+	cursor: pointer;
+}
+.output-card-action svg {
+	width: 1rem;
+	height: 1rem;
+}
+.output-card-action:hover,
+.output-card-action:focus-visible {
+	background: var(--accent);
+	color: var(--foreground);
+}
+.output-card-progress {
+	position: absolute;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	height: 2px;
+	overflow: hidden;
+	background: var(--border);
+}
+.output-card-progress::after {
+	content: "";
+	display: block;
+	width: 40%;
+	height: 100%;
+	background: var(--primary);
+	animation: output-card-slide 1.2s ease-in-out infinite;
+}
+@keyframes output-card-in {
+	from {
+		opacity: 0;
+	}
+}
+@keyframes output-card-slide {
+	from {
+		transform: translateX(-100%);
+	}
+	to {
+		transform: translateX(250%);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.output-card,
+	.output-card-actions {
+		animation: none;
+		transition: none;
+	}
+	.output-card:hover {
+		transform: none;
+	}
+	.output-card-progress::after {
+		animation: none;
+		width: 100%;
+	}
+}
