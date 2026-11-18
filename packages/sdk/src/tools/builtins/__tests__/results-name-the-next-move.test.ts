@@ -66,11 +66,13 @@ describe('a write or an edit that went through', () => {
 })
 
 describe('an edit refused because the file was never read', () => {
+	// An unread file whose text matches exactly is edited at once (see edit.ts), so the refusal is
+	// reached by an edit whose text is not in the file.
 	it('hands the file over and says not to read it again', async () => {
 		const dir = scratch()
 		writeFileSync(join(dir, 'doc.md'), 'alpha\nbeta\n')
 		const refused = await EditTool.execute(
-			{ path: 'doc.md', old_string: 'beta', new_string: 'gamma', replace_all: false },
+			{ path: 'doc.md', old_string: 'delta', new_string: 'gamma', replace_all: false },
 			context(dir, tracker()),
 		)
 		expect(refused.success).toBe(false)
