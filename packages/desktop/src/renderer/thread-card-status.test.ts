@@ -4,6 +4,7 @@ import { expect, it } from 'vitest'
 import { emptyThread } from '../shared/projection.js'
 import type { ThreadState } from '../shared/projection.js'
 import type { ConversationView, ProjectView } from '../shared/protocol.js'
+import { setStatusMarks, statusMarksFrom } from './status-marks.js'
 import { ThreadCard } from './thread-card.js'
 
 const conversation: ConversationView = {
@@ -65,4 +66,35 @@ it('shows one mark per row, the most pressing one, each with words', () => {
 it('does not show a stopped turn as running', () => {
 	const html = row({ thread: { running: true, stopReason: 'cancelled' } })
 	expect(html).not.toContain('aria-label="Running"')
+})
+
+it('shows no mark when the setting is off, and the row is otherwise the same', () => {
+	setStatusMarks(false)
+	try {
+		const html = row({
+			thread: { running: true, error: 'x', permissions: [request('write_file')] },
+			unread: true,
+		})
+		expect(html).not.toContain('data-status')
+		expect(html).not.toContain('thread-unread-dot')
+		expect(html).not.toContain('Running')
+		expect(html).not.toContain('Approval needed')
+		expect(html).toContain('Tidy the notes')
+	} finally {
+		setStatusMarks(true)
+	}
+})
+
+it('reads the setting: on unless it says off, and the layer in force wins', () => {
+	const view = (state: Record<string, unknown>) =>
+		({
+			file: '',
+			descriptors: [],
+			settings: [{ path: 'statusMarks', set: true, ...state }],
+		}) as never
+	expect(statusMarksFrom(undefined)).toBe(true)
+	expect(statusMarksFrom(view({ set: false }))).toBe(true)
+	expect(statusMarksFrom(view({ value: false }))).toBe(false)
+	expect(statusMarksFrom(view({ value: false, effective: true }))).toBe(true)
+	expect(statusMarksFrom(view({ value: true, effective: false }))).toBe(false)
 })

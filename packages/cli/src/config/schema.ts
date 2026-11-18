@@ -578,6 +578,12 @@ export interface NamzuCliConfig {
 	 */
 	readonly archiveInactive?: ArchiveInactiveAfter
 	/**
+	 * Whether the desktop app marks a conversation in its sidebar when it needs the person, is
+	 * running, failed or has a new reply. Absent means on. The marks come from state the app
+	 * already holds, never from a model call, so turning them off saves nothing but screen space.
+	 */
+	readonly statusMarks?: boolean
+	/**
 	 * Isolation for the commands this CLI runs.
 	 *
 	 * Absent means ON. That is a change from every version before this one,

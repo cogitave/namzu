@@ -278,6 +278,7 @@ import {
 	settleLaunchSeed,
 	sidebarSeed,
 } from './startup-restore.js'
+import { useStatusMarksSetting } from './status-marks.js'
 import { type StopRequests, clearStop, isStopping, requestStop } from './stop-request.js'
 import { createSubmitGuard } from './submit-guard.js'
 import { type TabChord, movedTabIndex, selectedTabIndex, tabChord } from './tab-keys.js'
@@ -423,6 +424,7 @@ export function App({
 			},
 		})
 	const api = facade.current.api
+	useStatusMarksSetting(api)
 	const [projectsLoaded, setProjectsLoaded] = useState(false)
 	// A clicked notification's conversation, until the window can open it.
 	const [noticeConversation, setNoticeConversation] = useState<string | null>(null)

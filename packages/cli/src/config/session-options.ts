@@ -73,6 +73,7 @@ export const SESSION_KEY_MAP: Readonly<Record<keyof NamzuCliConfig, string>> = {
 	goal: 'excluded: goal rounds are driven by the terminal app, not by a session option',
 	handBack: 'handBack',
 	worktrees: 'excluded: read when a worktree is made (`openManagedWorktrees`), not by the session',
+	statusMarks: 'excluded: a sidebar display choice read by the desktop app, not by the session',
 	archiveInactive:
 		'excluded: read by the desktop host when it lists conversations, not by the session',
 	sandbox: 'sandbox',

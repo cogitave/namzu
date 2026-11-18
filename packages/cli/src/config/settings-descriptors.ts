@@ -849,6 +849,19 @@ const DECLARED: readonly SettingDescriptor[] = [
 		},
 	),
 	d(
+		'statusMarks',
+		'appearance',
+		'Label conversations by status',
+		'Marks a conversation in the sidebar when it needs your answer, is running, hit an error or has a new reply. The marks come from what Namzu already knows, so they use none of your model usage.',
+		on,
+		{
+			appliesWhen: 'now',
+			group: 'conversations',
+			keywords: ['status', 'label sessions', 'sidebar marks', 'blocked', 'unread', 'badge'],
+			default: true,
+		},
+	),
+	d(
 		'archiveInactive',
 		'projects',
 		'Archive inactive conversations',

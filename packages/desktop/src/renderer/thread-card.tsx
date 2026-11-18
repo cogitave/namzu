@@ -24,6 +24,7 @@ import {
 import { cn } from './lib/utils.js'
 import { ROW_TITLE_CHARS, shortenTitle } from './short-title.js'
 import { createHoverIntent, relativeAge } from './sidebar-hover-card.js'
+import { useStatusMarks } from './status-marks.js'
 import { ThreadHoverCard } from './thread-hover-card.js'
 import { Button } from './ui/button.js'
 import { PreviewCard, PreviewCardPopup, PreviewCardTrigger } from './ui/preview-card.js'
@@ -109,11 +110,13 @@ export function ThreadCard({
 	// A stopped turn is not running, even before the host has settled it.
 	const busy = !!thread?.running && thread.stopReason === undefined
 	// The row's one mark. Main decides what is unread, so a conversation being looked at never is.
+	// With the setting off the row shows no mark; nothing else about it changes.
+	const marksOn = useStatusMarks()
 	const glyph = conversationGlyph({
-		permissions: thread?.permissions ?? [],
-		running: busy,
-		error: !!thread?.error,
-		unread,
+		permissions: marksOn ? (thread?.permissions ?? []) : [],
+		running: marksOn && busy,
+		error: marksOn && !!thread?.error,
+		unread: marksOn && unread,
 	})
 	const threadStatus = glyph.kind === 'idle' ? undefined : glyph.label
 	const archiveReason = archiveBlockedReason({

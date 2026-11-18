@@ -1839,6 +1839,10 @@ const CONFIG_READERS: ConfigReaders = {
 		}
 		return raw as WorktreesCliConfig
 	},
+	statusMarks: (v, context) => {
+		if (typeof v === 'boolean') return v
+		return invalidConfigValue(context, [], 'must be a boolean')
+	},
 	archiveInactive: (v, context) => {
 		if (v === 'never' || v === '1d' || v === '7d' || v === '30d') return v
 		return invalidConfigValue(context, [], 'must be never, 1d, 7d or 30d')
@@ -2565,6 +2569,8 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	worktrees: undefined,
 	// Archiving is a standing decision about the person's history, never a variable's.
 	archiveInactive: undefined,
+	// A display choice for the desktop app's sidebar, made in its settings.
+	statusMarks: undefined,
 	// Outbound reach is opted into in the file, never from the environment.
 	web: undefined,
 	// A browser signed in to the operator's sites, and which of them it may
