@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { UserMcpServerChange, UserMcpServersView } from '../shared/config-lists-protocol.js'
+import type {
+	UserMcpServerChange,
+	UserMcpServerView,
+	UserMcpServersView,
+} from '../shared/config-lists-protocol.js'
 import type { DesktopApi } from '../shared/protocol.js'
 import { plainErrorText } from './plain-error.js'
 
-type Bridge = Pick<DesktopApi, 'userMcpServers' | 'saveUserMcpServer' | 'removeUserMcpServer'>
+type Bridge = Pick<
+	DesktopApi,
+	'userMcpServers' | 'userMcpServer' | 'saveUserMcpServer' | 'removeUserMcpServer'
+>
 
 export interface UserServerConfirmation {
 	change: UserMcpServerChange
@@ -22,6 +29,8 @@ export interface UserMcpServersControls {
 	confirm: () => Promise<boolean>
 	dismiss: () => void
 	remove: (name: string) => Promise<boolean>
+	/** One server whole (arguments and address), read only when its edit form opens. */
+	open: (name: string) => Promise<UserMcpServerView | undefined>
 	clearError: () => void
 }
 
@@ -41,6 +50,7 @@ export function useUserMcpServers(
 	const read = api?.userMcpServers
 	const write = api?.saveUserMcpServer
 	const drop = api?.removeUserMcpServer
+	const one = api?.userMcpServer
 	useEffect(() => {
 		live.current = true
 		return () => {
@@ -112,7 +122,20 @@ export function useUserMcpServers(
 			}, 'remove the tool server'),
 		[apply, drop, changed],
 	)
-	if (!read || !write || !drop) return undefined
+	const open = useCallback(
+		async (name: string) => {
+			if (!one) return undefined
+			setError(undefined)
+			try {
+				return await one(name)
+			} catch (failure) {
+				if (live.current) setError(plainErrorText(failure, 'read the tool server'))
+				return undefined
+			}
+		},
+		[one],
+	)
+	if (!read || !write || !drop || !one) return undefined
 	return {
 		view,
 		error,
@@ -122,6 +145,7 @@ export function useUserMcpServers(
 		confirm,
 		dismiss: () => setConfirmation(undefined),
 		remove,
+		open,
 		clearError: () => setError(undefined),
 	}
 }

@@ -4,7 +4,12 @@ import {
 	type ConfigSettingsView,
 	readConfigSettingChange,
 } from '../shared/config-settings-protocol.js'
-import { droppedFromDefault, sameSet, widensList } from '../shared/config-settings-values.js'
+import {
+	droppedFromDefault,
+	sameSet,
+	widenedConfirmation,
+	widensList,
+} from '../shared/config-settings-values.js'
 import { FolderAccessTokens } from './folder-access.js'
 
 export interface ConfigSettingsDeps {
@@ -113,7 +118,10 @@ export class ConfigSettings {
 					status: 'confirm',
 					view,
 					token: this.tokens.issue(windowId, key),
-					message: entry.confirm as string,
+					message:
+						entry.confirmWhen === 'widens'
+							? widenedConfirmation(entry.confirm as string, current, change.value)
+							: (entry.confirm as string),
 				}
 			}
 			if (!this.tokens.redeem(token, windowId, key)) throw new Error('The confirmation expired.')

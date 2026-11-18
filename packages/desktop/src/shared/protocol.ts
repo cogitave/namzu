@@ -15,6 +15,7 @@ import type {
 	InstalledSkillsView,
 	UserMcpServerChange,
 	UserMcpServerResult,
+	UserMcpServerView,
 	UserMcpServersView,
 } from './config-lists-protocol.js'
 import type {
@@ -1020,6 +1021,8 @@ export interface DesktopApi {
 	installedSkills?(projectId?: string): Promise<InstalledSkillsView | null>
 	/** The tool servers in the person's own config file, as the Settings form edits them. */
 	userMcpServers?(): Promise<UserMcpServersView>
+	/** One tool server whole, for its edit form; the list carries no arguments or address path. */
+	userMcpServer?(name: string): Promise<UserMcpServerView | undefined>
 	/** Adds or edits one; a server that runs a command is answered with a question first. */
 	saveUserMcpServer?(change: UserMcpServerChange, token?: string): Promise<UserMcpServerResult>
 	removeUserMcpServer?(name: string): Promise<UserMcpServersView>

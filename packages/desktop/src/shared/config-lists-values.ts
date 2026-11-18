@@ -5,11 +5,12 @@
  */
 
 import type { InstalledSkillView } from './config-lists-protocol.js'
+import { folderKey } from './config-settings-values.js'
 
 /** The folders after one is picked: trimmed, and never twice. */
 export function addFolder(items: readonly string[], picked: string): string[] {
-	const path = picked.trim()
-	if (path === '' || items.includes(path)) return [...items]
+	const path = folderKey(picked)
+	if (path === '' || items.some((item) => folderKey(item) === path)) return [...items]
 	return [...items, path]
 }
 

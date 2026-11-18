@@ -1,6 +1,7 @@
 import {
 	type UserMcpServerChange,
 	type UserMcpServerResult,
+	type UserMcpServerView,
 	type UserMcpServersView,
 	commandConfirmation,
 	readUserMcpServerChange,
@@ -10,6 +11,8 @@ import { FolderAccessTokens } from './folder-access.js'
 
 export interface UserMcpServersDeps {
 	read(): Promise<UserMcpServersView>
+	/** One server whole (arguments and address included), for the edit form and the question. */
+	readOne(name: string): Promise<UserMcpServerView | undefined>
 	/** Saves the change, or with `dryRun` only says whether the engine would take it. */
 	save(change: UserMcpServerChange, dryRun: boolean): Promise<UserMcpServersView>
 	remove(name: string): Promise<UserMcpServersView>
@@ -32,11 +35,17 @@ export class UserMcpServers {
 		return this.deps.read()
 	}
 
+	readOne(name: unknown): Promise<UserMcpServerView | undefined> {
+		if (typeof name !== 'string' || name.length === 0 || name.length > 64)
+			throw new Error('Choose a tool server.')
+		return this.deps.readOne(name)
+	}
+
 	async save(windowId: string, raw: unknown, token?: unknown): Promise<UserMcpServerResult> {
 		const change = readUserMcpServerChange(raw)
 		if (token !== undefined && typeof token !== 'string') throw new Error('Invalid confirmation.')
 		const view = await this.deps.read()
-		const held = view.servers.find((server) => server.name === change.name)
+		const held = await this.deps.readOne(change.name)
 		if (startsNewCommand(change, held)) {
 			const key = JSON.stringify(change)
 			if (token === undefined) {

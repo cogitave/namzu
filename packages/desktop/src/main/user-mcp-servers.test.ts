@@ -11,7 +11,16 @@ const withNotes: UserMcpServersView = {
 function build(view: UserMcpServersView = empty) {
 	const save = vi.fn(async (_change: unknown, _dryRun: boolean) => view)
 	const remove = vi.fn(async () => empty)
-	return { save, remove, servers: new UserMcpServers({ read: async () => view, save, remove }) }
+	return {
+		save,
+		remove,
+		servers: new UserMcpServers({
+			read: async () => view,
+			readOne: async (name) => view.servers.find((server) => server.name === name),
+			save,
+			remove,
+		}),
+	}
 }
 
 describe('saving a tool server', () => {

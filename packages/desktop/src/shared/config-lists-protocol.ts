@@ -44,6 +44,9 @@ export interface UserMcpServerView {
 	command?: string
 	args?: string[]
 	url?: string
+	/** In the list, only how many arguments and the origin of an address; the entry is read whole to edit. */
+	argCount?: number
+	origin?: string
 }
 
 export interface UserMcpServersView {
@@ -72,6 +75,12 @@ export function readUserMcpServersView(value: unknown): UserMcpServersView {
 				...(kind === 'command' && command ? { command } : {}),
 				...(kind === 'command' && args && args.length > 0 ? { args } : {}),
 				...(kind === 'address' && url ? { url } : {}),
+				...(kind === 'command' && typeof row.argCount === 'number' && row.argCount > 0
+					? { argCount: Math.min(Math.floor(row.argCount), 200) }
+					: {}),
+				...(kind === 'address' && short(row.origin, 2000)
+					? { origin: short(row.origin, 2000) }
+					: {}),
 			})
 		}
 	return { file: typeof answer?.file === 'string' ? answer.file : '', servers }
@@ -108,6 +117,15 @@ export function readUserMcpServerChange(raw: unknown): UserMcpServerChange {
 			row.args.some((arg) => typeof arg !== 'string' || arg.length > 2000))
 	)
 		throw bad
+	if (
+		commandLine({
+			command: row.command as string | undefined,
+			args: row.args as string[] | undefined,
+		}).length > COMMAND_LINE_LIMIT
+	)
+		throw new Error(
+			`The command and its arguments are longer than ${COMMAND_LINE_LIMIT} characters. Use a shorter command line, or edit the file.`,
+		)
 	return {
 		mode: row.mode,
 		name,
@@ -124,8 +142,11 @@ export function commandLine(change: { command?: string; args?: readonly string[]
 		.filter((part) => part !== '')
 		.join(' ')
 		.replace(/[\r\n\t]+/g, ' ')
-	return line.length > 200 ? `${line.slice(0, 200)}…` : line
+	return line
 }
+
+/** The longest command line the question shows whole; a longer one is refused, never cut. */
+export const COMMAND_LINE_LIMIT = 1000
 
 /** The question asked before a server that runs a command is saved. */
 export function commandConfirmation(change: {

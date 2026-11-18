@@ -50,11 +50,41 @@ export function droppedFromDefault(defaults: unknown, value: unknown): boolean {
 	return wanted.some((name) => !now.includes(name))
 }
 
+/** A folder as compared: without a trailing separator, which names the same folder. */
+export function folderKey(path: string): string {
+	const trimmed = path.trim()
+	const bare = trimmed.replace(/[\\/]+$/, '')
+	return bare === '' || /^[A-Za-z]:$/.test(bare) ? trimmed : bare
+}
+
+/** What a list adds to the one in force, in the order written (a trailing separator is not a new folder). */
+export function addedItems(current: unknown, value: unknown): string[] {
+	if (!Array.isArray(value)) return []
+	const held = new Set(
+		(Array.isArray(current) ? (current as unknown[]) : []).map((x) =>
+			typeof x === 'string' ? folderKey(x) : x,
+		),
+	)
+	return value.filter(
+		(item): item is string => typeof item === 'string' && !held.has(folderKey(item)),
+	)
+}
+
+/** The sentence asked before a list is widened, naming what is added so a wrong split shows. */
+export function widenedConfirmation(sentence: string, current: unknown, value: unknown): string {
+	const added = addedItems(current, value)
+	return added.length === 0 ? sentence : `${sentence} Added: ${added.join(', ')}.`
+}
+
 /** Whether a new list holds an entry the list now in force lacks. */
 export function widensList(current: unknown, value: unknown): boolean {
 	if (!Array.isArray(value)) return true
-	const held = new Set(Array.isArray(current) ? (current as unknown[]) : [])
-	return value.some((item) => !held.has(item))
+	const held = new Set(
+		(Array.isArray(current) ? (current as unknown[]) : []).map((x) =>
+			typeof x === 'string' ? folderKey(x) : x,
+		),
+	)
+	return value.some((item) => !held.has(typeof item === 'string' ? folderKey(item) : item))
 }
 
 /**

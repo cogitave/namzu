@@ -67,6 +67,7 @@ export function variablesNote(file: string | undefined): string {
 /** What a server in the user's file starts or reaches, for the list: the command, or the address. */
 export function userServerDetail(server: UserMcpServerView): string | undefined {
 	if (server.kind === 'command') return server.command
+	if (server.kind === 'address' && server.origin) return server.origin
 	if (server.kind === 'address' && server.url) {
 		try {
 			return new URL(server.url).origin

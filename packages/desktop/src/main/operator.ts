@@ -24,6 +24,7 @@ import { COMPUTER_FRAME_NOTIFICATION, readComputerFrame } from '../shared/comput
 import {
 	type InstalledSkillsView,
 	type UserMcpServerChange,
+	type UserMcpServerView,
 	type UserMcpServersView,
 	readInstalledSkills,
 	readUserMcpServersView,
@@ -1069,6 +1070,12 @@ export class Operator {
 	async userMcpServers(): Promise<UserMcpServersView> {
 		const client = await this.userServersHost()
 		return readUserMcpServersView(await client.request('namzu/mcp/user-servers', {}))
+	}
+	/** One server of the user's file, whole, for its edit form. */
+	async userMcpServer(name: string): Promise<UserMcpServerView | undefined> {
+		const client = await this.userServersHost()
+		const view = readUserMcpServersView(await client.request('namzu/mcp/user-servers', { name }))
+		return view.servers.find((server) => server.name === name)
 	}
 	async saveUserMcpServer(
 		change: UserMcpServerChange,

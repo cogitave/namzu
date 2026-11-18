@@ -127,6 +127,8 @@ export function ListSwitch({
 	)
 }
 
+const OFFERED_NOT = '\u0000not-offered'
+
 /** One key of a closed list, with the default as the first choice. */
 export function KeyPicker({
 	descriptor,
@@ -150,7 +152,7 @@ export function KeyPicker({
 		<select
 			className="settings-config-input"
 			aria-label={descriptor.label}
-			value={set && known ? saved : ''}
+			value={set && known ? saved : set && saved !== '' ? OFFERED_NOT : ''}
 			onChange={(event) =>
 				void config.change(
 					descriptor.path,
@@ -159,6 +161,11 @@ export function KeyPicker({
 			}
 		>
 			<option value="">{defaultText ? `Default (${defaultText})` : 'Default'}</option>
+			{set && !known && saved !== '' && (
+				<option value={OFFERED_NOT} disabled>
+					{`${saved} (saved, not offered here)`}
+				</option>
+			)}
 			{control.options.map((option) => (
 				<option key={option.value} value={option.value}>
 					{option.label}
@@ -229,6 +236,7 @@ export function ListEditor({
 	items,
 	disabled,
 	onChange,
+	onPending,
 }: {
 	label: string
 	itemLabel: string
@@ -236,8 +244,14 @@ export function ListEditor({
 	items: readonly string[]
 	disabled?: boolean
 	onChange: (next: string[]) => Promise<boolean | undefined> | undefined
+	/** Told what is typed and not yet added, so a form can ask for it to be added or cleared. */
+	onPending?: (text: string) => void
 }) {
-	const [draft, setDraft] = useState('')
+	const [draft, setDraftText] = useState('')
+	const setDraft = (text: string) => {
+		setDraftText(text)
+		onPending?.(text)
+	}
 	const add = async () => {
 		const word = draft.trim()
 		if (word === '') return
@@ -275,7 +289,11 @@ export function ListEditor({
 					spellCheck={false}
 					onChange={(event) => setDraft(event.target.value)}
 					onKeyDown={(event) => {
-						if (event.key === 'Enter') void add()
+						if (event.key === 'Enter') {
+							// Inside a form, Enter adds the entry; it must not also submit the form.
+							event.preventDefault()
+							void add()
+						}
 					}}
 				/>
 				<Button

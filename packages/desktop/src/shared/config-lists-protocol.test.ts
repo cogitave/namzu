@@ -82,7 +82,10 @@ describe('the question before a command is saved', () => {
 	it('names the whole command line on one line, clipped', () => {
 		expect(commandLine({ command: 'npx', args: ['-y', ' pkg ', ''] })).toBe('npx -y pkg')
 		expect(commandLine({ command: 'a\nb' })).toBe('a b')
-		expect(commandLine({ command: 'x'.repeat(300) }).length).toBe(201)
+		expect(commandLine({ command: 'x'.repeat(300) }).length).toBe(300)
+		expect(() =>
+			readUserMcpServerChange({ mode: 'add', name: 'a', command: 'npx', args: ['y'.repeat(1200)] }),
+		).toThrow(/longer than/)
 		expect(commandConfirmation({ command: 'npx', args: ['-y'] })).toBe(
 			'This server starts npx -y when a conversation starts.',
 		)
@@ -111,5 +114,21 @@ describe('the question before a command is saved', () => {
 			),
 		).toBe(true)
 		expect(startsNewCommand({ mode: 'add', name: 'n', command: '  ' }, undefined)).toBe(false)
+	})
+})
+
+describe('the server list carries no arguments or address path', () => {
+	it('reads only the argument count and the origin the host sent', () => {
+		const view = readUserMcpServersView({
+			file: '/h/c.yaml',
+			servers: [
+				{ name: 'a', kind: 'command', command: 'npx', argCount: 2 },
+				{ name: 'b', kind: 'address', origin: 'https://e.com' },
+			],
+		})
+		expect(view.servers).toEqual([
+			{ name: 'a', kind: 'command', command: 'npx', argCount: 2 },
+			{ name: 'b', kind: 'address', origin: 'https://e.com' },
+		])
 	})
 })

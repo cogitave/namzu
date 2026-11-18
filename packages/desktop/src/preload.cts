@@ -79,6 +79,7 @@ const api: DesktopApi = {
 	existingFolders: (paths) => invoke('existingFolders', paths),
 	installedSkills: (projectId) => invoke('installedSkills', projectId),
 	userMcpServers: () => invoke('userMcpServers'),
+	userMcpServer: (name) => invoke('userMcpServer', name),
 	saveUserMcpServer: (change, token) => invoke('saveUserMcpServer', change, token),
 	removeUserMcpServer: (name) => invoke('removeUserMcpServer', name),
 	desktopInfo: () => invoke('desktopInfo'),

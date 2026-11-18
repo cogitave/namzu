@@ -114,6 +114,7 @@ describe('adding, changing and removing the servers in your own settings', () =>
 		confirm: vi.fn(async () => true),
 		dismiss: vi.fn(),
 		remove: vi.fn(async () => true),
+		open: vi.fn(async (name: string) => ownView.servers.find((s) => s.name === name)),
 		clearError: vi.fn(),
 		...over,
 	})

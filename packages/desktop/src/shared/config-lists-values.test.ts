@@ -61,3 +61,12 @@ describe('the skills switches', () => {
 		expect(skillsDisabledValue(['gone'], 'review', false)).toEqual(['gone', 'review'])
 	})
 })
+
+describe('one folder spelled two ways', () => {
+	it('does not add a folder that differs only by a trailing separator', () => {
+		expect(addFolder(['/home/u/x'], '/home/u/x/')).toEqual(['/home/u/x'])
+		expect(addFolder(['/home/u/x/'], '/home/u/x')).toEqual(['/home/u/x/'])
+		expect(addFolder([], '/home/u/x/')).toEqual(['/home/u/x'])
+		expect(addFolder([], '/')).toEqual(['/'])
+	})
+})

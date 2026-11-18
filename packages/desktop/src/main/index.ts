@@ -1250,6 +1250,7 @@ function register(): void {
 	)
 	const userMcpServers = new UserMcpServers({
 		read: () => operator.userMcpServers(),
+		readOne: (name) => operator.userMcpServer(name),
 		save: (change, dryRun) => operator.saveUserMcpServer(change, dryRun),
 		remove: (name) => operator.removeUserMcpServer(name),
 	})
@@ -1264,6 +1265,7 @@ function register(): void {
 	handle('existingFolders', (paths: unknown) => existingFolders(paths))
 	handle('installedSkills', (projectId?: string) => operator.installedSkills(projectId))
 	handle('userMcpServers', () => userMcpServers.read())
+	handle('userMcpServer', (name: unknown) => userMcpServers.readOne(name))
 	handleWindow('saveUserMcpServer', ({ id }, change: unknown, token: unknown) =>
 		userMcpServers.save(id, change, token),
 	)

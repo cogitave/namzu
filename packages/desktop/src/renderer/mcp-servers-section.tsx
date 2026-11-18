@@ -41,7 +41,12 @@ export function ServerForm({
 	onSave: () => void
 	onCancel: () => void
 }) {
-	const missing = draftMissing(draft)
+	const [pending, setPending] = useState('')
+	const missing =
+		draftMissing(draft) ??
+		(draft.kind === 'command' && pending.trim() !== ''
+			? 'Add the argument you typed, or clear the box.'
+			: undefined)
 	return (
 		<form
 			className="mcp-form"
@@ -104,6 +109,7 @@ export function ServerForm({
 							itemLabel="argument"
 							placeholder="-y"
 							items={draft.args}
+							onPending={setPending}
 							onChange={(args) => {
 								onChange({ ...draft, args })
 								return undefined
@@ -125,6 +131,9 @@ export function ServerForm({
 				</label>
 			)}
 			<p className="settings-note">{variablesNote(file)}</p>
+			{pending.trim() !== '' && draft.kind === 'command' && (
+				<p className="settings-note">{missing}</p>
+			)}
 			{error && (
 				<p role="alert" className="settings-error">
 					{error}
@@ -256,7 +265,7 @@ export function McpServersRows({
 				removing={removing === name}
 				onEdit={() => {
 					own.clearError()
-					setDraft(draftFor(held))
+					void own.open(name).then((whole) => whole && setDraft(draftFor(whole)))
 				}}
 				onAskRemove={() => setRemoving(name)}
 				onRemove={() => void own.remove(name).then((done) => done && setRemoving(undefined))}
@@ -294,7 +303,7 @@ export function McpServersRows({
 					)}
 					{form}
 					{addButton}
-					{own && <p className="settings-note">{variablesNote(file)}</p>}
+					{own && !draft && <p className="settings-note">{variablesNote(file)}</p>}
 					{dialog}
 				</div>
 			</Row>
@@ -372,7 +381,7 @@ export function McpServersRows({
 				)}
 				{form}
 				{addButton}
-				{own && <p className="settings-note">{variablesNote(file)}</p>}
+				{own && !draft && <p className="settings-note">{variablesNote(file)}</p>}
 				{dialog}
 			</div>
 		</Row>
