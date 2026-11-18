@@ -122,16 +122,6 @@ export function defaultLabel(
 	return value
 }
 
-export function defaultNote(
-	descriptor: ConfigSettingDescriptor,
-	view?: ConfigSettingsView,
-): string {
-	const label = defaultLabel(descriptor, view)
-	if (!label) return ''
-	const note = descriptor.default !== undefined ? descriptor.defaultNote : undefined
-	return `Default: ${label.replace(/\.$/, '')}.${note ? ` ${note}` : ''}`
-}
-
 /**
  * The default a row says in words under it, for the controls that cannot show it themselves. A
  * switch shows none, a choice marks its default inside the list, and a number or a text box shows
@@ -141,16 +131,17 @@ export function defaultHelper(
 	descriptor: ConfigSettingDescriptor,
 	view?: ConfigSettingsView,
 ): string {
-	const own: readonly string[] = [
-		'toggle',
-		'toggle-list',
-		'toggle-checks',
-		'select',
-		'key',
-		'number',
-		'text',
-	]
+	const own: readonly string[] = ['toggle', 'toggle-list', 'toggle-checks', 'select', 'key']
 	if (own.includes(descriptor.control.kind)) return ''
+	// A number or text box shows a short default as its placeholder. A default that is a sentence
+	// does not fit there (the placeholder falls back to the word 'default'), so say it under the row.
+	if (descriptor.control.kind === 'number' || descriptor.control.kind === 'text') {
+		const fits =
+			typeof descriptor.default === 'number' ||
+			typeof descriptor.default === 'string' ||
+			(descriptor.defaultText ?? '').length <= 12
+		if (fits) return ''
+	}
 	const label = defaultLabel(descriptor, view)
 	return label ? `Default · ${label.replace(/\.$/, '')}` : ''
 }

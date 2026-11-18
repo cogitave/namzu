@@ -9,8 +9,8 @@ import {
 } from '../shared/config-settings-protocol.js'
 import {
 	appliesLine,
+	defaultHelper,
 	defaultLabel,
-	defaultNote,
 	defaultToggle,
 	effectiveDefault,
 } from './config-settings-model.js'
@@ -79,7 +79,6 @@ describe('a default is read from its typed value', () => {
 		expect(defaultLabel(d)).toBe('English, Turkish')
 		const out = page(viewOf([d]))
 		expect(out.match(/checked=""/g)?.length).toBe(2)
-		expect(defaultNote(d)).toBe('Default: English, Turkish.')
 	})
 
 	it('follows the rule that changes a default when another key is set', () => {
@@ -115,7 +114,23 @@ describe('a default is read from its typed value', () => {
 			control: { kind: 'select', options: [{ value: 'a', label: 'Alpha', help: 'The first.' }] },
 			default: 'a',
 		}
-		expect(defaultNote(sel)).toBe('Default: Alpha.')
+		expect(defaultHelper(sel)).toBe('')
+	})
+
+	it('keeps a sentence default under a number row, where the placeholder cannot hold it', () => {
+		const sentence: ConfigSettingDescriptor = {
+			...toggle({}),
+			control: { kind: 'number', unit: 'ms' },
+			default: { dynamic: true } as never,
+			defaultText: 'a one-shot run does not wait; a scheduled run waits 10 minutes',
+		}
+		expect(defaultHelper(sentence)).toBe(
+			'Default · a one-shot run does not wait; a scheduled run waits 10 minutes',
+		)
+		const typed: ConfigSettingDescriptor = { ...sentence, default: 600000, defaultText: undefined }
+		expect(defaultHelper(typed)).toBe('')
+		const short: ConfigSettingDescriptor = { ...sentence, defaultText: 'unlimited' }
+		expect(defaultHelper(short)).toBe('')
 	})
 })
 

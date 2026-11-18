@@ -597,7 +597,7 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		appliesWhen: 'next-conversation',
 		keywords: [
 			'Models and API keys',
-			'Connect a provider: paste an API key, or use a Claude or ChatGPT sign-in Namzu finds. Check or remove a key.',
+			'Connect a provider: paste an API key',
 			'provider',
 			'api key',
 			'key',
