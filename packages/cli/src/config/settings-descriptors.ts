@@ -48,6 +48,7 @@ export type SettingGroup =
 	| 'servers-hooks'
 	| 'web'
 	| 'browser'
+	| 'computer-use'
 	| 'code-plugins'
 	| 'permissions'
 	| 'folders'
@@ -75,6 +76,7 @@ export const SETTING_GROUP_LABELS: Readonly<Record<SettingGroup, string>> = {
 	'servers-hooks': 'Tool servers and hooks',
 	web: 'Web',
 	browser: 'Browser',
+	'computer-use': 'Computer use',
 	'code-plugins': 'Code and plugins',
 	permissions: 'Permissions',
 	folders: 'Folders',
@@ -102,6 +104,7 @@ export const SETTING_GROUP_ORDER: readonly SettingGroup[] = [
 	'servers-hooks',
 	'web',
 	'browser',
+	'computer-use',
 	'code-plugins',
 	'permissions',
 	'folders',
@@ -486,6 +489,7 @@ export function appliesWhenFor(path: string): AppliesWhen {
 		'permissions.autoMode',
 		'permissions.disableAutoMode',
 		'permissions.disableBypassMode',
+		'permissions.allowBypassMode',
 	]
 	if (startOnly.some((prefix) => path.startsWith(prefix))) return 'next-start'
 	const conversationPrefixes = [
@@ -499,6 +503,7 @@ export function appliesWhenFor(path: string): AppliesWhen {
 		'skills.',
 		'web.',
 		'browser.',
+		'computerUse.',
 		'permissions.',
 		'codeAnalysis.',
 	]
@@ -748,6 +753,21 @@ const DECLARED: readonly SettingDescriptor[] = [
 			default: 'prompt',
 			confirm: 'Some modes let Namzu act without asking. Only choose one you are comfortable with.',
 			confirmValues: ['accept-edits', 'bypass', 'auto'],
+		},
+	),
+	d(
+		'permissions.allowBypassMode',
+		'projects',
+		'Allow bypass permissions mode',
+		'Let the mode that skips every question be chosen from the mode menu. Off by default. A project cannot turn it on, only your own settings or your administrator can.',
+		on,
+		{
+			group: 'permissions',
+			keywords: ['bypass', 'dangerously skip', 'skip every question', 'full access'],
+			default: false,
+			confirm:
+				'In this mode Namzu runs every action without asking you first, including ones that change or delete files. Only turn it on if you accept that.',
+			confirmWhen: 'on',
 		},
 	),
 	d(
@@ -1779,6 +1799,38 @@ const DECLARED: readonly SettingDescriptor[] = [
 		'Let Namzu use a browser for web tasks, in the terminal app and in Desktop conversations that use this computer. Off removes the browser tools.',
 		on,
 		{ group: 'browser', keywords: ['Browser', 'enabled'], default: true },
+	),
+	d(
+		'computerUse.enabled',
+		'tools',
+		'Enable computer use',
+		'Let Namzu look at the screen and use the mouse and keyboard on this computer, in the terminal app and in Desktop conversations that use this computer. Off by default; off removes the computer tools. A project cannot turn it on, only your own settings or your administrator can.',
+		on,
+		{
+			group: 'computer-use',
+			keywords: ['computer use', 'screen', 'mouse', 'keyboard', 'control apps'],
+			default: false,
+			confirm:
+				'Namzu will be able to see your screen and use the mouse and keyboard in apps on this computer. It still asks before it uses an app.',
+			confirmWhen: 'on',
+		},
+	),
+	d(
+		'computerUse.deniedApps',
+		'tools',
+		'Denied apps',
+		'Apps Namzu never uses, however it is asked. Write each as the app is named in its window list; capital letters and a closing .exe do not matter. A project can add an app but cannot remove one you listed.',
+		{ kind: 'list', itemLabel: 'app', placeholder: 'App name' },
+		{
+			group: 'computer-use',
+			keywords: ['denied apps', 'blocked apps', 'never use', 'computer use'],
+			default: [],
+			requires: {
+				path: 'computerUse.enabled',
+				is: 'true',
+				note: 'Computer use is off, so this list does nothing yet.',
+			},
+		},
 	),
 	d(
 		'browser.defaultProfile',

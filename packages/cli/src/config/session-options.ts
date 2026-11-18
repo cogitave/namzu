@@ -54,6 +54,7 @@ export type ConfigSessionOptions = Pick<
 	| 'toolResultScreens'
 	| 'codeAnalysis'
 	| 'additionalDirectories'
+	| 'deniedComputerApps'
 >
 
 /**
@@ -91,6 +92,8 @@ export const SESSION_KEY_MAP: Readonly<Record<keyof NamzuCliConfig, string>> = {
 		'excluded: read by the desktop host when it lists conversations, not by the session',
 	sandbox: 'sandbox',
 	web: 'web',
+	// Whether the tools are offered is each host's own decision, read with `computerUseEnabled`.
+	computerUse: 'deniedComputerApps',
 	browser: 'excluded: the browser needs a host to own it (Desktop builds it in the ACP host)',
 	codeAnalysis: 'codeAnalysis',
 	decision: 'decision',
@@ -153,12 +156,20 @@ export function sessionOptionsFromConfig(
 		...(config.decision ? { decision: config.decision } : {}),
 		...(config.codeAnalysis ? { codeAnalysis: config.codeAnalysis } : {}),
 		...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
+		...(config.computerUse?.deniedApps?.length
+			? { deniedComputerApps: config.computerUse.deniedApps }
+			: {}),
 		// `!== undefined`, not truthiness: an empty list is the operator turning
 		// the default screen OFF, and a falsy check would drop it.
 		...(config.toolResultScreens !== undefined
 			? { toolResultScreens: config.toolResultScreens }
 			: {}),
 	}
+}
+
+/** Whether the computer tools are on: off unless the loaded configuration turned them on. */
+export function computerUseEnabled(config: Pick<NamzuCliConfig, 'computerUse'>): boolean {
+	return config.computerUse?.enabled === true
 }
 
 /** What a configuration decides about each turn, rather than the session. */
@@ -174,8 +185,8 @@ export function turnOptionsFromConfig(config: NamzuCliConfig): {
 }
 
 /**
- * The prompt permission modes a host advertises: Auto (`classify`) and bypass,
- * each left out when the configuration or the machine closes it (the same
+ * The prompt permission modes a host advertises: Auto (`classify`) and bypass
+ * (only after the opt-in), each left out when the configuration or the machine closes it (the same
  * decision `launchRefusal` makes when the pick arrives, so the list and the
  * refusal cannot disagree). An empty list means neither is on offer.
  */
@@ -184,7 +195,12 @@ export function advertisedPromptModes(
 	environment?: LaunchEnvironment,
 ): ('bypass' | 'classify')[] {
 	const settings = config.permissionSettings
+	// Bypass is offered only after the person opted in (`permissions.allowBypassMode`)
+	// or made it their default; the forbid key and the root guard still close it.
+	const bypassOptedIn = settings?.allowBypassMode === true || settings?.defaultMode === 'bypass'
 	return (['bypass', 'classify'] as const).filter(
-		(mode) => launchRefusal(mode, { settings, environment }) === undefined,
+		(mode) =>
+			(mode !== 'bypass' || bypassOptedIn) &&
+			launchRefusal(mode, { settings, environment }) === undefined,
 	)
 }

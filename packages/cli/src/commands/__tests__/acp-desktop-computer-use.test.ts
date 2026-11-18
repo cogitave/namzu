@@ -76,13 +76,32 @@ async function optionsSeen(
 	return seen
 }
 
-it('mounts the host computer for the desktop', async () => {
-	expect((await optionsSeen({ computerUse: true })).enableComputerUse).toBe(true)
+it('mounts the host computer for the desktop once computer use is turned on', async () => {
+	const seen = await optionsSeen({ computerUse: true }, { computerUse: { enabled: true } })
+	expect(seen.enableComputerUse).toBe(true)
+})
+
+it('leaves the host computer out for the desktop until computer use is turned on', async () => {
+	expect('enableComputerUse' in (await optionsSeen({ computerUse: true }))).toBe(false)
+	expect(
+		'enableComputerUse' in
+			(await optionsSeen({ computerUse: true }, { computerUse: { enabled: false } })),
+	).toBe(false)
+	// The apps on the list still reach the session; the tool only mounts when it is on.
+	expect(
+		(
+			await optionsSeen(
+				{ computerUse: true },
+				{ computerUse: { enabled: true, deniedApps: ['Banking'] } },
+			)
+		).deniedComputerApps,
+	).toEqual(['Banking'])
 })
 
 it('leaves a bare ACP client without it', async () => {
-	expect('enableComputerUse' in (await optionsSeen())).toBe(false)
-	expect('enableComputerUse' in (await optionsSeen({ computerUse: false }))).toBe(false)
+	const on = { computerUse: { enabled: true } }
+	expect('enableComputerUse' in (await optionsSeen(undefined, on))).toBe(false)
+	expect('enableComputerUse' in (await optionsSeen({ computerUse: false }, on))).toBe(false)
 })
 
 it('mounts the browser tools for the desktop with the config the terminal reads', async () => {

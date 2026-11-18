@@ -101,6 +101,7 @@ import type {
 	ComposerTriggerArming,
 	ComposerTriggerId,
 	ComposerTriggerLanguage,
+	ComputerUseConfig,
 	DecisionPointId,
 	DecisionPointMode,
 	DecisionPointsConfig,
@@ -1722,6 +1723,7 @@ const CONFIG_READERS: ConfigReaders = {
 		}
 	},
 	browser: (v, context) => readBrowserConfig(v, context),
+	computerUse: (v, context) => readComputerUseConfig(v, context),
 	progressNudge: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		for (const key of Object.keys(v)) {
@@ -2669,6 +2671,9 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// A browser signed in to the operator's sites, and which of them it may
 	// change: a file decision, never a shell's.
 	browser: undefined,
+	// Whether the machine's screen can be driven, and which applications are
+	// off limits: a file decision, never a variable a shell profile could carry.
+	computerUse: undefined,
 	// Reads project files into an index kept under the Namzu home; a file
 	// decision, never a variable a shell profile could carry invisibly.
 	codeAnalysis: undefined,
@@ -3235,6 +3240,16 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 				provenance[key] = layer.sourceFor(key)
 				continue
 			}
+			if (key === 'computerUse' && layer.config.computerUse) {
+				// Merged, not replaced: see `mergeComputerUseConfig`.
+				out.computerUse = mergeComputerUseConfig(
+					out.computerUse,
+					layer.config.computerUse,
+					layer.sourceFor(key),
+				)
+				provenance[key] = layer.sourceFor(key)
+				continue
+			}
 			if (key === 'progressNudge' && layer.config.progressNudge) {
 				// Key by key: a later file that sets only the mode keeps the stretch an earlier one set.
 				out.progressNudge = { ...out.progressNudge, ...layer.config.progressNudge }
@@ -3736,6 +3751,76 @@ export function mergeBrowserConfig(
 		...layer,
 		...(enabled !== undefined ? { enabled } : {}),
 		...(sites !== undefined ? { sites } : {}),
+	}
+}
+
+// ---------------------------------------------------------------------------
+// computerUse
+// ---------------------------------------------------------------------------
+
+const COMPUTER_USE_KEYS = new Set(['enabled', 'deniedApps'])
+
+function readComputerUseConfig(v: unknown, context: ConfigReaderContext): ComputerUseConfig {
+	if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
+	for (const key of Object.keys(v)) {
+		if (!COMPUTER_USE_KEYS.has(key)) {
+			return invalidConfigValue(
+				context,
+				[key],
+				'is not a computer use setting (enabled, deniedApps)',
+			)
+		}
+	}
+	const raw = v as Record<string, unknown>
+	if (raw.enabled !== undefined && typeof raw.enabled !== 'boolean')
+		return invalidConfigValue(context, ['enabled'], 'must be true or false')
+	let deniedApps: string[] | undefined
+	if (raw.deniedApps !== undefined) {
+		if (!Array.isArray(raw.deniedApps) || raw.deniedApps.some((app) => typeof app !== 'string'))
+			return invalidConfigValue(context, ['deniedApps'], 'must be a list of application names')
+		deniedApps = []
+		for (const app of raw.deniedApps as string[]) {
+			const name = app.trim()
+			if (name === '' || name.length > 200)
+				return invalidConfigValue(
+					context,
+					['deniedApps'],
+					'each application name takes 1 to 200 characters',
+				)
+			if (!deniedApps.some((held) => held.toLowerCase() === name.toLowerCase()))
+				deniedApps.push(name)
+		}
+	}
+	return {
+		...(raw.enabled !== undefined ? { enabled: raw.enabled as boolean } : {}),
+		...(deniedApps !== undefined ? { deniedApps } : {}),
+	}
+}
+
+/**
+ * `computerUse` from one more layer, over what the layers below it said.
+ *
+ * - `enabled`: the user's file and the managed file open and close it, the
+ *   later one winning. A project file (or a repository's profile) can only
+ *   close it: its `true` is dropped, so a repository cannot make a clone of
+ *   itself drive the screen.
+ * - `deniedApps` adds up across files; no file removes another's entry.
+ */
+export function mergeComputerUseConfig(
+	below: ComputerUseConfig | undefined,
+	layer: ComputerUseConfig,
+	source: ConfigSource,
+): ComputerUseConfig {
+	const enabled =
+		layer.enabled === true && isProjectSource(source)
+			? below?.enabled
+			: (layer.enabled ?? below?.enabled)
+	const denied = [...(below?.deniedApps ?? [])]
+	for (const app of layer.deniedApps ?? [])
+		if (!denied.some((held) => held.toLowerCase() === app.toLowerCase())) denied.push(app)
+	return {
+		...(enabled !== undefined ? { enabled } : {}),
+		...(denied.length > 0 ? { deniedApps: denied } : {}),
 	}
 }
 

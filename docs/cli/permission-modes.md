@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Permission modes
-description: The six modes a Namzu session can run in (prompt, accept-edits, plan, bypass, auto, strict), the flags and Shift+Tab that reach them, which two need an opt-in, what each still stops for, the permissions settings that choose or shut them, how the auto classifier picks its model, how the terminal asks about one call at a time, and what Desktop and sub-agents do with them.
+description: The six modes a Namzu session can run in (prompt, accept-edits, plan, bypass, auto, strict), the flags and Shift+Tab that reach them, which two need an opt-in (bypass through `permissions.allowBypassMode` or a flag), what each still stops for, the permissions settings that choose or shut them, how the auto classifier picks its model, how the terminal asks about one call at a time, and what Desktop and sub-agents do with them.
 resource: packages/cli/src/permissions/mode.ts
 tags: [cli, permissions, modes, bypass, auto, classifier]
 status: stable
@@ -53,7 +53,7 @@ The question before the screen opens when bypass starts (the one-time "Run witho
 
 ## Which modes are available
 
-**Bypass** is available only when the launch opened it: `--yolo`, `--dangerously-skip-permissions`, `--allow-dangerously-skip-permissions`, `--permission-mode bypass`, or `permissions.defaultMode: bypass` in your own user file or the managed file. A project file cannot open it. `permissions.disableBypassMode: true` in any file shuts it for good, and a flag that names it is then an error (`Bypass mode is turned off by permissions.disableBypassMode in your configuration.`). Switching to bypass from inside a session when the launch did not open it is refused with a sentence that says how to start one that can.
+**Bypass** is available only when the launch opened it: `--yolo`, `--dangerously-skip-permissions`, `--allow-dangerously-skip-permissions`, `--permission-mode bypass`, or `permissions.defaultMode: bypass` or `permissions.allowBypassMode: true` in your own user file or the managed file. A project file cannot open it. `allowBypassMode` is the opt-in for choosing bypass from a menu: with it off (the default) Desktop's permission chip and an ACP client do not offer bypass, and Shift+Tab does not stop on it; a flag you type still starts the session you asked for. `permissions.disableBypassMode: true` in any file shuts it for good, and a flag that names it is then an error (`Bypass mode is turned off by permissions.disableBypassMode in your configuration.`). Switching to bypass from inside a session when the launch did not open it is refused with a sentence that says how to start one that can.
 
 **The first time** a person enters bypass, one question is asked: before the screen opens when the launch is in bypass (`Start in bypass mode? [y/N]`), or in the terminal when the switch is made from inside. The answer is kept in `~/.namzu/acknowledgements.json`; answering no leaves the session in the mode it was in.
 
@@ -99,12 +99,13 @@ The kernel owns the mechanism ([The auto-review classifier](../sdk/auto-review.m
 
 ## Settings
 
-All five live in the `permissions` table, beside the tool rules, in `~/.namzu/config.yaml`, `namzu.config.json`, the local file or the managed file:
+All six live in the `permissions` table, beside the tool rules, in `~/.namzu/config.yaml`, `namzu.config.json`, the local file or the managed file:
 
 ```yaml
 permissions:
   defaultMode: accept-edits     # prompt | accept-edits | plan | bypass | auto | strict
-  disableBypassMode: false      # true: no session may enter bypass
+  allowBypassMode: false        # true: bypass can be chosen from the mode menu (default: it cannot)
+  disableBypassMode: false      # true: no session may enter bypass, whatever else is set
   disableAutoMode: false        # true: no session may enter auto
   outsideRoot: ask              # ask | refuse: a file outside the working folder
   autoMode:
@@ -124,13 +125,14 @@ permissions:
 | Key | Who may set it |
 | --- | --- |
 | `defaultMode` | any file for the stricter modes; **only the user file and the managed file** for `bypass` and `auto` (a project value is ignored and said so at launch) |
+| `allowBypassMode` | **only the user file and the managed file**; a project's `true` is ignored and said so at launch. The managed file's value wins over the user file's, so an administrator can lock it off with `false` |
 | `disableBypassMode`, `disableAutoMode` | any file; a `true` is not undone by another file |
 | `outsideRoot` | any file; `refuse` is not undone by an `ask` in another file, so a project file can make it stricter and cannot loosen what your own or the managed file set |
 | `autoMode.*` | the user file and the managed file only: it chooses where the conversation goes and what the classifier lets through |
 
 `outsideRoot` decides what a file tool's path outside the working directory and the [added directories](add-dir.md) becomes. `ask` (the default, the same as leaving it out) is the approval request [described here](tool-boundary.md). `refuse` refuses the call without asking, before any mode is consulted, so `bypass` and `auto` do not lift it, with a message that names the setting and says `--add-dir` or `/add-dir` reaches a folder. It covers `read`, `write`, `edit`, `glob`, `grep`, `ls` and every other tool that declares a path argument (`view_image`, `lsp`, `code_analysis`, `browser`); the session's scratch folder and its retained tool output stay reachable. Shell command operands and redirections are still asked about as before, and a sandboxed session does not use it (its file tools work inside the sandbox). Desktop Settings lists it as "Paths outside the working folder"; changing it asks first only when the new value is `ask`, since `refuse` narrows what can happen.
 
-Desktop Settings, Models, edits `autoMode` as a model box and four lists and asks first when it lets more run without a person ([Desktop settings](desktop-settings.md#list-and-map-controls)). Settings, Projects, edits the tool rules of the same table (*Permission rules*) as a list and never touches the keys above: changing a rule leaves `defaultMode`, `disableBypassMode`, `disableAutoMode`, `outsideRoot` and `autoMode` as written, and *Use default* there clears only the rules.
+Desktop Settings, Models, edits `autoMode` as a model box and four lists and asks first when it lets more run without a person ([Desktop settings](desktop-settings.md#list-and-map-controls)). Settings, Projects, edits the tool rules of the same table (*Permission rules*) as a list and never touches the keys above: changing a rule leaves `defaultMode`, `allowBypassMode`, `disableBypassMode`, `disableAutoMode`, `outsideRoot` and `autoMode` as written, and *Use default* there clears only the rules.
 
 In `autoMode`, a list left out keeps the built-in rules; a list that is given replaces them; the entry `$defaults` stands for the built-ins at that position, and `[]` removes them. `allow` names ordinary work never to block, `softDeny` what is blocked unless your own messages name the action and its risky detail, `hardDeny` what is blocked whatever you said, and `environment` what is trusted here.
 
@@ -178,7 +180,7 @@ A sub-agent borrows the review channel of the turn that started it, so each call
 
 ## Desktop and ACP
 
-Desktop's permission chip offers **Ask first**, **Edit automatically**, **Auto** (Namzu's own, the classifier), **Full access** (bypass) and **Plan only**; Preapproved only appears when it is the saved mode. Full access asks once, in a dialog, before it applies, and that dialog is the person's consent. Over ACP the modes travel as the kernel's names: `bypass` and `classify`. The settings still hold there: `permissions.disableBypassMode` and the root guard refuse bypass, and auto is refused with its reason when no model can answer. A conversation that saved Full access before this change (the kernel's old `auto`) shows as Full access and means `bypass`.
+Desktop's permission chip offers **Ask first**, **Edit automatically**, **Auto** (Namzu's own, the classifier), **Full access** (bypass, only after *Allow bypass permissions mode* is turned on) and **Plan only**; Preapproved only appears when it is the saved mode. Full access asks once, in a dialog, before it applies, and that dialog is the person's consent. Settings, Projects, Permissions has *Allow bypass permissions mode* (next to *Disable bypass permissions mode*, which stays the stronger one); turning it on asks first with a plain warning, and it applies the next time Namzu starts. Over ACP the modes travel as the kernel's names: `bypass` and `classify`. The settings still hold there: bypass is not advertised until `permissions.allowBypassMode` is true (or `defaultMode` is `bypass` in your own file), a prompt that asks for it anyway is refused, `permissions.disableBypassMode` and the root guard refuse it even then, and auto is refused with its reason when no model can answer. A conversation that saved Full access before this change (the kernel's old `auto`) shows as Full access and means `bypass`.
 
 The Desktop terminal tab launches the CLI with the CLI's words (`--permission-mode bypass`, `--permission-mode auto`).
 

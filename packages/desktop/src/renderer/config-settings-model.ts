@@ -303,7 +303,8 @@ export function requirementNote(
 	const state = stateFor(view, need.path)
 	const other = view.descriptors.find((d) => d.path === need.path)
 	const current = state?.set ? state.value : other ? effectiveDefault(other, view) : undefined
-	return current === need.is ? '' : need.note
+	// A switch is held as true or false; `is` is written as a word.
+	return String(current) === need.is ? '' : need.note
 }
 
 /** A short placeholder for a number box: the typed default, or the words when they fit the box. */

@@ -13,6 +13,7 @@ import type {
 	CodeAnalysisConfig,
 	CompactionCliConfig,
 	ComposerTriggersConfig,
+	ComputerUseConfig,
 	DecisionConfig,
 	GoalCliConfig,
 	HandBackCliConfig,
@@ -266,6 +267,8 @@ export interface TuiContext {
 	 * embed did not ask). Its site rules are already in `rules`.
 	 */
 	readonly browser?: BrowserConfig
+	/** See `NamzuCliConfig.computerUse`. */
+	readonly computerUse?: ComputerUseConfig
 	/** See `NamzuCliConfig.codeAnalysis`. */
 	readonly codeAnalysis?: CodeAnalysisConfig
 	/** See `NamzuCliConfig.progressNudge`. */

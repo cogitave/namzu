@@ -146,6 +146,7 @@ describe('the typed setting description', () => {
 			// Read once when the process or the host starts.
 			'permissions.autoMode': 'next-start',
 			'permissions.disableBypassMode': 'next-start',
+			'permissions.allowBypassMode': 'next-start',
 			'plugins.enabled': 'next-start',
 			'telemetry.otlp.endpoint': 'next-start',
 			modelCatalogueRefresh: 'next-start',

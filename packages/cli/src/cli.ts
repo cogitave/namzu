@@ -982,6 +982,9 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					...(resolvedCtx.config.codeAnalysis
 						? { codeAnalysis: resolvedCtx.config.codeAnalysis }
 						: {}),
+					...(resolvedCtx.config.computerUse
+						? { computerUse: resolvedCtx.config.computerUse }
+						: {}),
 					...(resolvedCtx.config.progressNudge
 						? { progressNudge: resolvedCtx.config.progressNudge }
 						: {}),

@@ -36,6 +36,7 @@ import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
 	advertisedPromptModes,
+	computerUseEnabled,
 	sessionOptionsFromConfig,
 	turnOptionsFromConfig,
 } from '../config/session-options.js'
@@ -1062,11 +1063,16 @@ export function createCliAcpRuntime(
 					runtimeOptions.computerUse === true && !palEnvironment && browserConfig?.enabled !== false
 						? compileBrowserSites(browserConfig?.sites)
 						: undefined
+				// The computer tools are off until the user's own settings turn them on.
+				const computerOn =
+					runtimeOptions.computerUse === true &&
+					!palEnvironment &&
+					computerUseEnabled(projectCtx.config)
 				candidate = await deps.createSession(prefs, probe.detected, {
 					...(palEnvironment ? { palEnvironment } : {}),
 					// The host PC, for the desktop only. A Pal conversation has its own
 					// computer behind the same tool name, so it never gets both.
-					...(runtimeOptions.computerUse === true && !palEnvironment
+					...(computerOn
 						? {
 								enableComputerUse: true,
 								...(runtimeOptions.observeComputer

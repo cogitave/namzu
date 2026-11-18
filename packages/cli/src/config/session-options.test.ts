@@ -6,6 +6,7 @@ import type { NamzuCliConfig } from './schema.js'
 import {
 	SESSION_KEY_MAP,
 	advertisedPromptModes,
+	computerUseEnabled,
 	sessionOptionsFromConfig,
 	turnOptionsFromConfig,
 } from './session-options.js'
@@ -56,6 +57,7 @@ const FULL = {
 	sandbox: { enabled: true },
 	decision: { enabled: true },
 	codeAnalysis: { enabled: true },
+	computerUse: { enabled: true, deniedApps: ['Banking'] },
 	additionalDirectories: ['extra'],
 	toolResultScreens: [],
 } as unknown as NamzuCliConfig
@@ -175,20 +177,59 @@ describe('the hosts read the configuration through the one builder', () => {
 	}
 })
 
+describe('computer use in a configuration', () => {
+	it('is off unless the loaded configuration turned it on', () => {
+		expect(computerUseEnabled({})).toBe(false)
+		expect(computerUseEnabled({ computerUse: { deniedApps: ['A'] } })).toBe(false)
+		expect(computerUseEnabled({ computerUse: { enabled: false } })).toBe(false)
+		expect(computerUseEnabled({ computerUse: { enabled: true } })).toBe(true)
+	})
+
+	it('hands the denied apps to every session, and nothing when there are none', () => {
+		expect(
+			sessionOptionsFromConfig(
+				{ computerUse: { enabled: true, deniedApps: ['A'] } },
+				{ cwd: '/w' },
+			),
+		).toHaveProperty('deniedComputerApps', ['A'])
+		expect(
+			sessionOptionsFromConfig({ computerUse: { enabled: true } }, { cwd: '/w' }),
+		).not.toHaveProperty('deniedComputerApps')
+	})
+})
+
 describe('the prompt modes a host advertises', () => {
 	const safe = { root: false, sandboxed: false } as never
-	it('offers both unless the settings close one', () => {
-		expect(advertisedPromptModes({}, safe)).toEqual(['bypass', 'classify'])
-		expect(advertisedPromptModes({ permissionSettings: { disableAutoMode: true } }, safe)).toEqual([
+	it('offers bypass only after the opt-in, and auto unless the settings close it', () => {
+		expect(advertisedPromptModes({}, safe)).toEqual(['classify'])
+		expect(advertisedPromptModes({ permissionSettings: { allowBypassMode: true } }, safe)).toEqual([
 			'bypass',
+			'classify',
+		])
+		expect(advertisedPromptModes({ permissionSettings: { defaultMode: 'bypass' } }, safe)).toEqual([
+			'bypass',
+			'classify',
 		])
 		expect(
-			advertisedPromptModes({ permissionSettings: { disableBypassMode: true } }, safe),
+			advertisedPromptModes(
+				{ permissionSettings: { allowBypassMode: true, disableAutoMode: true } },
+				safe,
+			),
+		).toEqual(['bypass'])
+	})
+
+	it('keeps the forbid key stronger than the opt-in', () => {
+		expect(
+			advertisedPromptModes(
+				{ permissionSettings: { allowBypassMode: true, disableBypassMode: true } },
+				safe,
+			),
 		).toEqual(['classify'])
 		expect(
 			advertisedPromptModes(
 				{
 					permissionSettings: {
+						allowBypassMode: true,
 						disableAutoMode: true,
 						disableBypassMode: true,
 					},

@@ -149,7 +149,7 @@ export function nextCycleMode(
  *
  * A flag that names it (`--yolo`, `--dangerously-skip-permissions`,
  * `--allow-dangerously-skip-permissions`, `--permission-mode bypass`) or the
- * operator's own `permissions.defaultMode: bypass` opens the door; the
+ * operator's own `permissions.defaultMode: bypass` or `permissions.allowBypassMode: true` opens the door; the
  * `permissions.disableBypassMode` setting shuts it for good. The loader has
  * already dropped a project file's `defaultMode: bypass`, so what arrives here
  * is trusted.
@@ -158,9 +158,11 @@ export function bypassAvailable(opts: {
 	readonly flagged: boolean
 	readonly defaultMode?: PermissionModeName | undefined
 	readonly disabled?: boolean | undefined
+	/** The operator's `permissions.allowBypassMode` opt-in. */
+	readonly allowed?: boolean | undefined
 }): boolean {
 	if (opts.disabled === true) return false
-	return opts.flagged || opts.defaultMode === 'bypass'
+	return opts.flagged || opts.defaultMode === 'bypass' || opts.allowed === true
 }
 
 /** Whether auto may be entered: on unless switched off, and only with a model to ask. */

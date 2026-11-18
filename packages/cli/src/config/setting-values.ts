@@ -742,6 +742,7 @@ export function layerNote(
 export const PERMISSION_MODE_KEYS: readonly string[] = [
 	'defaultMode',
 	'disableBypassMode',
+	'allowBypassMode',
 	'disableAutoMode',
 	'outsideRoot',
 	'autoMode',

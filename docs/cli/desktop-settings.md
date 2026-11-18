@@ -121,7 +121,7 @@ and **Telemetry** are made of the engine's rows. **Terminal** and **Updates** dr
 A row sits where its effect is, so the engine can name a heading inside a section. A descriptor's
 optional `group` is one of a closed list (`SettingGroup`: *Choosing models*, *While Namzu works*, *Limits*,
 *Helpers and workflows*, *Long conversations*, *Memory*, *Learning and skills*, *Scheduled tasks*,
-*Tool servers and hooks*, *Web*, *Browser*, *Code and plugins*, *Permissions*, *Folders*, *Conversations*, *Worktrees*, *Sandbox*, four
+*Tool servers and hooks*, *Web*, *Browser*, *Computer use*, *Code and plugins*, *Permissions*, *Folders*, *Conversations*, *Worktrees*, *Sandbox*, four
 *Terminal app* headings, *Saved conversations*, *Traces* and *Command line*), and `SETTING_GROUP_LABELS`
 in `settings-descriptors.ts` is the only place the words live: the engine sends `group` with
 `groupLabel` and Desktop draws the heading it is given, rows with no group first. The engine lists a
@@ -132,7 +132,7 @@ engine older than the field sends neither, and Desktop draws its rows with no he
   and **Terminal app: message box** (`tui.*`, `statusLine`, `composerTriggers.*`) and **Command line** (`format`,
   `quiet`, `profiles`). The app's own **Terminal tabs** rows come first.
 - Updates: the app's own rows, then **Command line** (`updates.channel`, `updates.auto`, `updates.check`).
-- Tools: `browser.enabled` and `codeAnalysis.enabled`, which a Desktop conversation honours as well as
+- Tools: `computerUse.enabled` and `computerUse.deniedApps` under a *Computer use* heading ([Computer use settings](computer-use-settings.md); off by default, the list's note shows while the switch is off), `browser.enabled` and `codeAnalysis.enabled`, which a Desktop conversation honours as well as
   the terminal app.
   After the engine's **Browser** rows Tools draws a **Built-in browser** heading with the app's own rows for
   the pane beside a conversation (*Auto-open files Namzu writes*, *Keep cookies*, *Open links in built-in

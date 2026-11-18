@@ -6458,7 +6458,11 @@ function AppBody({
 									flushLearnedRef.current()
 								},
 							},
-							enableComputerUse: true,
+							// Off until the user's own settings turn it on (`computerUse.enabled`).
+							enableComputerUse: activeCtx.computerUse?.enabled === true,
+							...(activeCtx.computerUse?.deniedApps?.length
+								? { deniedComputerApps: activeCtx.computerUse.deniedApps }
+								: {}),
 							// The terminal is watched live: the quiet-stretch nudge, unless the
 							// config turned it off.
 							...(() => {
@@ -18926,7 +18930,7 @@ function pluginActionPicker(owner: AgentSession, name: string): ChoicePickerStat
 
 /** Why bypass cannot be entered, in the words a person can act on. */
 const BYPASS_UNAVAILABLE_NOTICE =
-	'Bypass mode is not available in this session. Start Namzu with --allow-dangerously-skip-permissions (or --yolo) to use it, unless permissions.disableBypassMode is set.'
+	'Bypass mode is not available in this session. Start Namzu with --allow-dangerously-skip-permissions (or --yolo), or set permissions.allowBypassMode to true in your own config file, to use it, unless permissions.disableBypassMode is set.'
 const AUTO_UNAVAILABLE_NOTICE = 'Auto mode is not available in this session.'
 
 export function permissionPicker(

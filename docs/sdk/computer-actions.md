@@ -506,6 +506,21 @@ switch keeps it, `/new`, `/clear` or `/model` (a new session or provider)
 ask again. The box is the SDK's consent request; the record is kept by the
 interactive session (`packages/cli/src/tui/agent.ts`).
 
+## Applications put off limits
+
+`options.deniedApps` is a list of application names the tool never acts in, compared as the
+host's window list names them with case, surrounding spaces and a trailing `.exe` ignored. The check
+runs in `execute`, before the host is touched, so it holds in every host and does not depend on the
+model following a prompt. After reading a fresh window list it refuses a call whose window is a
+listed application: a window id the call names, the window a screenshot was taken of, and, for a
+click, key or text, the window under the point or the one in front. A look at the whole display is
+not aimed at one application and is not refused; `list_windows` is not either. The refusal reads
+`computer_use does not act in <app>: the person put it off limits. Nothing was done.` When the host
+cannot list windows the tool cannot tell where an action would land, so while the list is not empty
+it refuses every acting call (looks still work). Absent or empty, nothing changes.
+
+The CLI fills it from `computerUse.deniedApps` ([Computer use settings](../cli/computer-use-settings.md)).
+
 ## Host action declarations
 
 `ComputerUseCapabilities.supportedActions` optionally declares an exact action

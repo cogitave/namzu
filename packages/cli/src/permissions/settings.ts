@@ -19,6 +19,8 @@ import { PERMISSION_MODE_NAMES } from './mode-names.js'
  *
  * - `defaultMode` of `bypass` or `auto` is honoured from the user's file and the
  *   managed file only. A project may still pick a stricter default.
+ * - `allowBypassMode` (the opt-in to choosing bypass from a menu) is honoured from
+ *   the user's file and the managed file only; a project's `true` is dropped.
  * - `disableBypassMode` and `disableAutoMode` can only close a door, so every
  *   file may write them, and a `true` in one file is not undone by another.
  * - `outsideRoot` of `refuse` only closes a door too (a path outside the working
@@ -34,6 +36,11 @@ export interface PermissionSettings {
 	readonly defaultMode?: PermissionModeName
 	/** No session may enter bypass, whatever flag was given. */
 	readonly disableBypassMode?: boolean
+	/**
+	 * The person opted in to choosing bypass from the mode menu. Absent or
+	 * `false`: the menu does not offer it. Only an operator's file may say `true`.
+	 */
+	readonly allowBypassMode?: boolean
 	/** No session may enter auto. */
 	readonly disableAutoMode?: boolean
 	/**
@@ -67,6 +74,7 @@ export interface AutoModeSettings {
 export const PERMISSION_SETTING_KEYS: readonly string[] = [
 	'defaultMode',
 	'disableBypassMode',
+	'allowBypassMode',
 	'disableAutoMode',
 	'outsideRoot',
 	'autoMode',
@@ -96,7 +104,7 @@ export function permissionSettingsProblem(
 			message: `must be one of: ${PERMISSION_MODE_NAMES.join(', ')}`,
 		}
 	}
-	for (const key of ['disableBypassMode', 'disableAutoMode'] as const) {
+	for (const key of ['disableBypassMode', 'allowBypassMode', 'disableAutoMode'] as const) {
 		if (table[key] !== undefined && typeof table[key] !== 'boolean') {
 			return { path: [key], message: 'must be true or false' }
 		}
@@ -168,6 +176,16 @@ export function splitPermissionsTable<T>(
 			defaultMode = mode
 		}
 	}
+	let allowBypassMode: boolean | undefined
+	if (typeof raw.allowBypassMode === 'boolean') {
+		if (authority === 'workspace' && raw.allowBypassMode) {
+			ignored.push(
+				`permissions.allowBypassMode in ${where} is ignored; choosing the mode that skips every question is set in your own config file (~/.namzu/config.yaml).`,
+			)
+		} else if (authority !== 'workspace') {
+			allowBypassMode = raw.allowBypassMode
+		}
+	}
 	let autoMode: AutoModeSettings | undefined
 	if (raw.autoMode !== undefined) {
 		if (authority === 'workspace') {
@@ -183,6 +201,7 @@ export function splitPermissionsTable<T>(
 		settings: {
 			...(defaultMode ? { defaultMode } : {}),
 			...(raw.disableBypassMode === true ? { disableBypassMode: true } : {}),
+			...(allowBypassMode !== undefined ? { allowBypassMode } : {}),
 			...(raw.disableAutoMode === true ? { disableAutoMode: true } : {}),
 			...(raw.outsideRoot === 'refuse' ? { outsideRoot: 'refuse' as const } : {}),
 			...(autoMode ? { autoMode } : {}),
@@ -204,9 +223,11 @@ export function mergePermissionSettings(
 	const autoMode =
 		base?.autoMode || next.autoMode ? { ...base?.autoMode, ...next.autoMode } : undefined
 	const defaultMode = next.defaultMode ?? base?.defaultMode
+	const allowBypassMode = next.allowBypassMode ?? base?.allowBypassMode
 	return {
 		...(defaultMode ? { defaultMode } : {}),
 		...(base?.disableBypassMode || next.disableBypassMode ? { disableBypassMode: true } : {}),
+		...(allowBypassMode !== undefined ? { allowBypassMode } : {}),
 		...(base?.disableAutoMode || next.disableAutoMode ? { disableAutoMode: true } : {}),
 		...(base?.outsideRoot || next.outsideRoot ? { outsideRoot: 'refuse' as const } : {}),
 		...(autoMode ? { autoMode } : {}),

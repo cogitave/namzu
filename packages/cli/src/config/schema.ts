@@ -364,6 +364,23 @@ export interface CompactionCliConfig {
 	readonly modelSummary?: boolean
 }
 
+/** See `NamzuCliConfig.computerUse`. */
+export interface ComputerUseConfig {
+	/**
+	 * Offer the computer tools (screen, mouse, keyboard on this computer) in the
+	 * terminal app and in Desktop conversations that use this computer. Default
+	 * `false`: nothing in a conversation can reach the screen until a person
+	 * turns it on. Only the user's file and the managed file can turn it on.
+	 */
+	readonly enabled?: boolean
+	/**
+	 * Applications computer use never acts in, as the window list names them
+	 * (case and a trailing `.exe` do not matter). Every file may add to the
+	 * list; none can take another file's entry out.
+	 */
+	readonly deniedApps?: readonly string[]
+}
+
 /** See `NamzuCliConfig.browser`. */
 export interface BrowserConfig {
 	/**
@@ -689,6 +706,14 @@ export interface NamzuCliConfig {
 	 * file above it switched it off. Not settable from the environment.
 	 */
 	readonly browser?: BrowserConfig
+	/**
+	 * The computer tools: whether they are offered at all and which
+	 * applications they never act in. Off unless the user's file or the managed
+	 * file turns it on: a project file can only close it. `deniedApps` is merged
+	 * across files, so a project can add an application and never remove one.
+	 * Not settable from the environment.
+	 */
+	readonly computerUse?: ComputerUseConfig
 	/**
 	 * The `code_analysis` tool in the interactive terminal: cited, paged
 	 * lookups over an index of the project's JavaScript and TypeScript (a

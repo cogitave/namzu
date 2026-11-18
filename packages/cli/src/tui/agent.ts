@@ -2875,6 +2875,11 @@ export interface AgentSessionOptions {
 	 */
 	readonly enableComputerUse?: boolean
 	/**
+	 * Applications the computer tool never acts in (`computerUse.deniedApps`), enforced by the
+	 * tool before any call reaches the host. Only read when `enableComputerUse` is true.
+	 */
+	readonly deniedComputerApps?: readonly string[]
+	/**
 	 * Told what the model saw after a `computer_use` call that returned a screenshot,
 	 * made small. The desktop shows it beside the call; it never changes what the
 	 * model is given.
@@ -3856,6 +3861,7 @@ export async function createAgentSession(
 			const advisor = createPickAdvisor(decisionPoints)
 			computerUseTool = createComputerUseTool(candidate, {
 				...(advisor ? { advisor } : {}),
+				...(options.deniedComputerApps?.length ? { deniedApps: options.deniedComputerApps } : {}),
 				...(options.onComputerObservation
 					? { onObservation: (seen) => options.onComputerObservation?.(seen) }
 					: {}),

@@ -196,6 +196,25 @@ export interface ComputerUseToolOptions {
 	 * changes what the model is given. A throw in it is ignored.
 	 */
 	readonly onObservation?: (observation: ComputerUseObservation) => void
+	/**
+	 * Applications the tool never acts in, as the host's window list names them
+	 * (case and a trailing `.exe` do not matter). A call that works in one is
+	 * refused before it reaches the host: the window it names, a window
+	 * screenshot's window, and for a click or key the window under the point or
+	 * in front. A look at the whole display is not refused, since it is not
+	 * aimed at one application. When the host cannot list windows, an action is
+	 * refused outright while this list is not empty, because the tool cannot
+	 * tell where it would land. Absent or empty: no application is off limits.
+	 */
+	readonly deniedApps?: readonly string[]
+}
+
+/** How an application name is compared: trimmed, lower case, without a trailing `.exe`. */
+function deniedAppKey(app: string): string {
+	return app
+		.trim()
+		.toLowerCase()
+		.replace(/\.exe$/, '')
 }
 
 /** What {@link ComputerUseToolOptions.onObservation} is told. */
@@ -2883,7 +2902,7 @@ export function createComputerUseTool(
 	 * window a window screenshot is bound to, and on a display screenshot the window under the
 	 * click or the one in front, as the newest list this tool read has them.
 	 */
-	const appsKnown = (input: unknown): string[] => {
+	const appsKnown = (input: unknown, namedOnly = false): string[] => {
 		const found: string[] = []
 		const add = (app: string | undefined): void => {
 			if (app && !found.includes(app)) found.push(app)
@@ -2906,6 +2925,8 @@ export function createComputerUseTool(
 				add(frame.window.window.app)
 				continue
 			}
+			// A look at the whole display names no application.
+			if (namedOnly) continue
 			const listed = knownWindows.filter((window) => !window.minimized)
 			const at = isRecord(item.at) ? item.at : undefined
 			if (frame && at && typeof at.x === 'number' && typeof at.y === 'number') {
@@ -3025,6 +3046,34 @@ export function createComputerUseTool(
 		}
 	}
 
+	const deniedKeys = new Set(
+		(options.deniedApps ?? []).map(deniedAppKey).filter((key) => key !== ''),
+	)
+	/**
+	 * Why this call may not run because of the denied-application list, or undefined. Checked
+	 * before the host is touched, so no look, click or key reaches a window of a listed application.
+	 */
+	const deniedAppRefusal = async (
+		input: ActionInput,
+		context: ToolContext,
+	): Promise<string | undefined> => {
+		if (deniedKeys.size === 0) return undefined
+		const readOnly = isReadOnlyInput(input)
+		if (typeof host.listWindows === 'function') {
+			try {
+				rememberWindows(await host.listWindows(context.abortSignal))
+			} catch (error) {
+				if (!readOnly)
+					return `computer_use could not read which application this would act in (${errorText(error)}), and some applications are off limits, so nothing was done.`
+			}
+		} else if (!readOnly) {
+			return 'computer_use cannot tell which application this would act in on this computer, and some applications are off limits, so nothing was done.'
+		}
+		const app = appsKnown(input, readOnly).find((name) => deniedKeys.has(deniedAppKey(name)))
+		if (app === undefined) return undefined
+		return `computer_use does not act in ${applicationName(app)}: the person put it off limits. Nothing was done. Use another application, or tell the person you need it and let them change the list.`
+	}
+
 	const runAction = async (input: ActionInput, context: ToolContext): Promise<ToolResult> => {
 		const denied = refusal(input.type)
 		if (denied) return { success: false, output: '', error: denied }
@@ -3107,6 +3156,8 @@ export function createComputerUseTool(
 		},
 
 		async execute(input, context): Promise<ToolResult> {
+			const keptOut = await deniedAppRefusal(input, context)
+			if (keptOut) return { success: false, output: '', error: keptOut }
 			const shotId = 'screenshot_id' in input ? input.screenshot_id : undefined
 			const before = shotId ? frames.get(shotId) : frames.latest()
 			// Only what is already known: acting must not cost the host a call it would not make.
