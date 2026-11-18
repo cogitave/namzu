@@ -16,7 +16,8 @@
       "agentInfo.name",
       "extensions",
       "promptAttachments",
-      "promptOptions"
+      "promptOptions",
+      "promptPermissionModes"
     ],
     "agentName": "namzu"
   },
