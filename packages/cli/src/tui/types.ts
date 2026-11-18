@@ -90,6 +90,10 @@ export interface TranscriptMessage {
 	/** The `/context` grid and lists; `content` carries the same as plain text. */
 	readonly contextView?: ContextView
 	readonly pending?: boolean
+	/** When a reply began (epoch milliseconds); only the detailed transcript shows it. */
+	readonly at?: number
+	/** The model that wrote a reply, as the footer names it; only the detailed transcript shows it. */
+	readonly model?: string
 	/** A streaming reply's frozen part: printed into the transcript already, in order. */
 	readonly printed?: readonly PrintedChunk[]
 	/**

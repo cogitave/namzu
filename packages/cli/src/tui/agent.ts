@@ -27,6 +27,7 @@ import { PLAN_FILE_LABEL, displayPath, isSessionPlanPath } from './display-path.
 import { createLiveModelStep } from './live-model-step.js'
 import { homePath } from './person-terms.js'
 import { explainFailure, workingDirectoryProblem } from './plain-failure.js'
+import { withoutCdToCwd } from './shell-display.js'
 import {
 	factsHeadline,
 	shortToolFailure,
@@ -9282,14 +9283,32 @@ export function toAgentEvent(
 				toolUseId: event.toolUseId,
 				toolName: event.toolName,
 				...(() => {
-					const view = presenter.presentCall(event.toolName, event.input)
+					const presented = presenter.presentCall(event.toolName, event.input)
+					// A command that starts with `cd <the working folder> &&` is shown without it.
+					const view =
+						presented.kind === 'terminal' && presented.command !== undefined
+							? { ...presented, command: withoutCdToCwd(presented.command, cwd) }
+							: presented
+					// A shell call whose line starts with `cd <the working folder> &&` is shown without it.
+					const typed =
+						event.toolName === 'bash' &&
+						typeof event.input === 'object' &&
+						event.input !== null &&
+						typeof (event.input as { command?: unknown }).command === 'string'
+							? (event.input as { command: string }).command
+							: undefined
+					const bare = typed !== undefined ? withoutCdToCwd(typed, cwd) : undefined
+					const cut = bare !== undefined && bare !== typed
 					return {
 						summary: event.toolName.startsWith('mcp__')
 							? connectorCallSummary(event.input)
-							: pathSummary(viewToSummary(view), event.input, cwd),
+							: cut
+								? truncate(bare, 120)
+								: pathSummary(viewToSummary(view), event.input, cwd),
 						...(() => {
-							const command =
-								view.kind === 'terminal'
+							const command = cut
+								? bare
+								: view.kind === 'terminal'
 									? view.command
 									: view.kind === 'generic' && view.facts?.kind === 'command'
 										? view.facts.command

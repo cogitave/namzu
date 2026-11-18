@@ -109,9 +109,10 @@ export interface TuiConfig {
 	readonly agentCalls?: boolean
 	/**
 	 * Draw the terminal UI on the alternate screen with its own scrolling (mouse
-	 * wheel, PgUp and PgDn, Home and End) instead of the terminal's scrollback.
-	 * Absent or `false` means the scrollback. `NAMZU_FULLSCREEN=1` or `=0` in the
-	 * environment overrides it. Your own config files only.
+	 * wheel, PgUp and PgDn, Home and End, and the mouse) instead of the terminal's
+	 * scrollback. Absent or `true` means fullscreen; `false` keeps the scrollback.
+	 * `NAMZU_FULLSCREEN=1` or `=0` in the environment overrides it. Your own
+	 * config files only.
 	 */
 	readonly fullscreen?: boolean
 	/**

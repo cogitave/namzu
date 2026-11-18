@@ -10,7 +10,7 @@ import type { FsRow, StyledSpan } from './rows.js'
 export interface Mark {
 	readonly from: number
 	readonly to: number
-	readonly style: Pick<StyledSpan, 'inverse' | 'bold' | 'underline'>
+	readonly style: Pick<StyledSpan, 'inverse' | 'bold' | 'underline' | 'href'>
 }
 
 /** The row's spans, the way it is drawn when it has none of its own. */

@@ -106,6 +106,8 @@ A `turn_end` or `subagent_stop` hook can refuse to let a turn end ([Hooks](../sd
 
 A turn that changed something, or ran a check that failed, ends with one quiet line in the conversation, in plain words, from the kernel's record of the turn's own tool calls ([Turn outcome](../sdk/turn-outcome.md)). A turn that changed nothing prints nothing. The line works the same in fullscreen mode.
 
+A command in the line is cut after a whole word, never in the middle of a word or inside a quoted string; one that does not fit ends with ` …` (`ran node bin/sales.js; node -e …, but the command line hides whether it passed`), and a leading `cd <the working folder> &&` is left out of it.
+
 | The record says | The line |
 |---|---|
 | Changed, no check ran | `Changed 4 files · not checked` |
