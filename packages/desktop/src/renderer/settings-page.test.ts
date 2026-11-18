@@ -701,11 +701,14 @@ describe('the code rows', () => {
 		expect(markup).toContain('<option value="18">18 px</option>')
 	})
 
-	it('marks each choice that is the default and draws no default or apply line under a row', () => {
+	it('marks the default inside a drop-down only, and draws no default or apply line under a row', () => {
 		const markup = page('appearance')
-		expect(markup).toContain('Default · System')
-		expect(markup).toContain('Default · Medium')
-		expect(markup).toContain('Default · Narrow')
+		expect(markup).toContain('Default · Namzu’s own')
+		expect(markup).toContain('>Default · 13 px</option>')
+		// Side-by-side choices show every option at once, so they carry no mark.
+		expect(markup).not.toContain('Default · System')
+		expect(markup).not.toContain('Default · Medium')
+		expect(markup).not.toContain('Default · Narrow')
 		expect(markup).not.toContain('Default:')
 		expect(markup).not.toContain('Applies at once.')
 	})

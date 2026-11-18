@@ -629,7 +629,7 @@ const STARTUP_CHOICES = (
 	catalogueEntry('startup').control as { options: readonly CatalogueOption[] }
 ).options.map((option) => ({
 	value: option.value as StartupBehavior,
-	label: defaultMarked('startup', option.value, option.label),
+	label: option.label,
 	hint: option.help ?? '',
 }))
 
@@ -652,7 +652,7 @@ function labelOf(id: string): string {
 	return catalogueEntry(id).label
 }
 
-/** A choice's text with its default mark: the default reads "Default · X". */
+/** A drop-down choice's text with its default mark: the default reads "Default · X". */
 export function defaultMarked(id: string, value: string, text: string): string {
 	return String(catalogueEntry(id).default) === value ? `Default · ${text}` : text
 }
@@ -1209,13 +1209,13 @@ const APPEARANCE_CHOICES = [
 	{ value: 'dark', label: 'Dark', Icon: MoonIcon },
 ] as const
 
-/** The options of a catalogue select, as a segmented control wants them. */
+/**
+ * The options of a catalogue select, as a segmented control wants them. A segmented control shows
+ * every choice side by side, so it carries no default mark; only a drop-down list does.
+ */
 function catalogueChoices<T extends string>(id: string): { value: T; label: string }[] {
 	return (catalogueEntry(id).control as { options: readonly CatalogueOption[] }).options.map(
-		(option) => ({
-			value: option.value as T,
-			label: defaultMarked(id, option.value, option.label),
-		}),
+		(option) => ({ value: option.value as T, label: option.label }),
 	)
 }
 
@@ -1241,10 +1241,7 @@ function AppearanceSection({ appearance, onAppearanceChange, settings }: Setting
 				<SegmentedControl
 					label={labelOf('theme')}
 					value={appearance}
-					options={APPEARANCE_CHOICES.map((choice) => ({
-						...choice,
-						label: defaultMarked('theme', choice.value, choice.label),
-					}))}
+					options={APPEARANCE_CHOICES}
 					onChange={onAppearanceChange}
 				/>
 			</CatalogueRow>

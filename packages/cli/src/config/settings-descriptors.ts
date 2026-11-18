@@ -1804,17 +1804,17 @@ const DECLARED: readonly SettingDescriptor[] = [
 		"The colors of the terminal app. This window's own colors are under Appearance.",
 		pick(
 			['auto', 'Match the terminal', 'Dark or light, whichever the terminal uses.'],
-			['dark', 'Dark', 'Colours for a dark background.'],
-			['light', 'Light', 'Colours for a light background.'],
+			['dark', 'Dark', 'Colors for a dark background.'],
+			['light', 'Light', 'Colors for a light background.'],
 			[
 				'dark-daltonized',
-				'Dark, colour-blind friendly',
-				'Dark colours chosen to stay apart for colour blindness.',
+				'Dark, color-blind friendly',
+				'Dark colors chosen to stay apart for color blindness.',
 			],
 			[
 				'light-daltonized',
-				'Light, colour-blind friendly',
-				'Light colours chosen to stay apart for colour blindness.',
+				'Light, color-blind friendly',
+				'Light colors chosen to stay apart for color blindness.',
 			],
 			['dark-ansi', 'Dark, basic colours', 'Only the 16 colours every terminal has.'],
 			['light-ansi', 'Light, basic colours', 'Only the 16 colours every terminal has.'],
