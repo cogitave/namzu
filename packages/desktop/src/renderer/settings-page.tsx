@@ -274,7 +274,14 @@ function SettingsContent(
 		const land = (): boolean => {
 			const row = document.getElementById(`setting-${focusId}`)
 			if (!row) return false
-			row.scrollIntoView?.({ block: 'center' })
+			// Only the content column scrolls. scrollIntoView would also move the dialog's own frame
+			// when the row sits near the end and the column cannot centre it, cutting off the title.
+			const column = page.current
+			if (column) {
+				const box = column.getBoundingClientRect()
+				const at = row.getBoundingClientRect()
+				column.scrollTop += at.top - box.top - Math.max(0, (box.height - at.height) / 2)
+			}
 			const control = row.querySelector<HTMLElement>(
 				'input:not(:disabled), select:not(:disabled), textarea:not(:disabled), button:not(:disabled), summary, [tabindex]',
 			)

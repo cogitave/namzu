@@ -535,7 +535,8 @@
 	height: min(var(--settings-dialog-height), 100vh - 2 * var(--settings-dialog-block));
 	display: flex;
 	flex-direction: column;
-	overflow: hidden;
+	/* Clip, not hidden: a hidden box can still be scrolled by code, which moved the frame's title out of sight. */
+	overflow: clip;
 	container-type: inline-size;
 	container-name: settings-dialog;
 	border: 1px solid var(--border);
