@@ -693,6 +693,29 @@ describe('the code rows', () => {
 		expect(markup).toContain('<option value="18">18 px</option>')
 	})
 
+	it('Appearance draws its rows in the order the catalogue lists them', () => {
+		const markup = page('appearance')
+		const drawn = [...markup.matchAll(/ id="setting-([a-z-]+?)(?:-label)?"/g)].map(
+			(match) => match[1],
+		)
+		const rows = [...new Set(drawn)]
+		expect(rows).toEqual([
+			'theme',
+			'interface-font',
+			'response-font',
+			'transcript-text-size',
+			'transcript-width',
+			'motion',
+			'code-theme-light',
+			'code-theme-dark',
+			'code-font',
+			'code-font-size',
+			'conversation-tabs',
+			'auto-dismiss-popups',
+			'virtualize-conversations',
+		])
+	})
+
 	it('the Terminal section links to the code rows in Appearance, and only where it can open them', () => {
 		const settings = {
 			settings: { ...DEFAULT_DESKTOP_SETTINGS },

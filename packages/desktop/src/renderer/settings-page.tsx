@@ -982,14 +982,6 @@ function AppearanceSection({ appearance, onAppearanceChange, settings }: Setting
 					onChange={(value) => setInterfaceFont(parseInterfaceFont(value))}
 				/>
 			</CatalogueRow>
-			<CatalogueRow id="conversation-tabs">
-				<Switch
-					label="Show conversation tabs"
-					checked={saved?.showConversationTabs ?? false}
-					disabled={!ready}
-					onChange={(value) => void settings.change({ showConversationTabs: value })}
-				/>
-			</CatalogueRow>
 			<CatalogueRow id="response-font">
 				<FontChoice
 					label="Response font"
@@ -1085,6 +1077,14 @@ function AppearanceSection({ appearance, onAppearanceChange, settings }: Setting
 						</option>
 					))}
 				</SelectControl>
+			</CatalogueRow>
+			<CatalogueRow id="conversation-tabs">
+				<Switch
+					label="Show conversation tabs"
+					checked={saved?.showConversationTabs ?? false}
+					disabled={!ready}
+					onChange={(value) => void settings.change({ showConversationTabs: value })}
+				/>
 			</CatalogueRow>
 			<CatalogueRow id="auto-dismiss-popups">
 				<Switch
