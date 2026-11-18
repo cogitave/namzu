@@ -215,7 +215,7 @@ describe('the small model', () => {
 
 	it('prints the note in namzu config get', () => {
 		const text = describeSetting('smallModel', opts({ NAMZU_SMALL_MODEL: 'acme/small' }))
-		expect(text).toContain('NAMZU_SMALL_MODEL is set to acme/small')
+		expect(text).toContain('Set by an environment variable (NAMZU_SMALL_MODEL)')
 		expect(describeSetting('smallModel', opts())).not.toContain('NAMZU_SMALL_MODEL is set')
 		expect(readSettingRow('smallModel', opts()).env).toBeUndefined()
 	})

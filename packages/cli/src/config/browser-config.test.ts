@@ -20,7 +20,7 @@ function setup(user?: unknown, project?: unknown, managed?: unknown) {
 describe('browser.signInDetection default', () => {
 	it('is page in the settings list, with address still offered', () => {
 		const descriptor = SETTING_DESCRIPTORS.find((entry) => entry.path === 'browser.signInDetection')
-		expect(descriptor?.defaultText).toBe('page')
+		expect(descriptor?.default).toBe('page')
 		expect(JSON.stringify(descriptor?.control)).toContain('address')
 	})
 
