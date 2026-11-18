@@ -83,7 +83,7 @@ export function StoragePanel({ storage }: { storage: StorageControls }) {
 
 /**
  * The folders the engine trusts. This is the list that decides whether a folder may be used, so
- * the view says so; Remove asks first, and a removed folder asks again the next time.
+ * the view says which list it is; Remove asks first. The row above says what removing does.
  */
 export function TrustedFoldersPanel({ trusted }: { trusted: TrustedFoldersControls }) {
 	const [asking, setAsking] = useState<string>()
@@ -98,10 +98,7 @@ export function TrustedFoldersPanel({ trusted }: { trusted: TrustedFoldersContro
 			{!view && !error && <p className="settings-empty">Loading…</p>}
 			{view && (
 				<>
-					<p className="settings-help">
-						This is Namzu’s own list of trusted folders, kept in {tildePath(view.file)}. It is the
-						list that decides whether a folder may be used.
-					</p>
+					<p className="settings-help">Namzu’s own list, kept in {tildePath(view.file)}.</p>
 					{view.unreadable && (
 						<p role="alert" className="settings-error">
 							The list could not be read, so some folders may be missing here.

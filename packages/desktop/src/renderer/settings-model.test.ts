@@ -37,7 +37,7 @@ describe('deep links', () => {
 
 describe('search', () => {
 	it('finds a setting by its label, a description word or a keyword', () => {
-		expect(searchSettings('theme')[0]?.id).toBe('theme')
+		expect(searchSettings('theme').map((e) => e.id)).toContain('theme')
 		expect(searchSettings('dark').map((e) => e.id)).toContain('theme')
 		expect(
 			searchSettings('startup')
@@ -58,10 +58,10 @@ describe('search', () => {
 	it('is empty for a blank query and ignores case and punctuation', () => {
 		expect(searchSettings('')).toEqual([])
 		expect(searchSettings('   ')).toEqual([])
-		// The label match comes first; the code colour rows and the terminal's link carry "theme" as a keyword.
+		// Every row with "theme" in its label ranks together, in the registry's order.
 		expect(searchSettings('  THEME!! ').map((e) => e.id)).toEqual([
-			'theme',
 			'terminal-code-link',
+			'theme',
 			'code-theme-light',
 			'code-theme-dark',
 		])

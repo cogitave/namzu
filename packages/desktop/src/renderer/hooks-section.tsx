@@ -92,7 +92,7 @@ export function HooksRows({
 				<Row
 					id="runHooks"
 					label="Run hooks"
-					description="Hooks are commands your settings, plugins, skills and agent files start by themselves at set moments. Switched off, the ones from your own and a project’s files do not run; the ones in your administrator’s file still do. A change reaches new conversations; one that is already open keeps what it started with."
+					description="Hooks are commands your settings, plugins, skills and agent files start by themselves at set moments. Switched off, the ones from your own and a project’s files do not run; ones from your administrator still do."
 				>
 					<div className="hooks-switch">
 						<Switch

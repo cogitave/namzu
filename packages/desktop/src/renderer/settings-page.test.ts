@@ -186,7 +186,8 @@ describe('the settings page', () => {
 			expect(markup).not.toContain('<h1>Settings</h1>')
 			// The search lives in the dialog's left column, not in the page header.
 			expect(markup).not.toContain('aria-label="Search settings"')
-			expect(markup).not.toContain('<h2 class="settings-section-title">')
+			// Sub-headings are h2; the page heading is the h1, so none is named Settings.
+			expect(markup).not.toContain('<h2 class="settings-section-title">Settings</h2>')
 		}
 	})
 
@@ -220,7 +221,7 @@ describe('the settings page', () => {
 		expect(markup).toContain('aria-label="Remove Docs…"')
 		expect(markup).toMatch(/<input[^>]*role="switch"[^>]*>/)
 		expect((markup.match(/<input[^>]*role="switch"[^>]*>/) ?? [''])[0]).toContain('checked=""')
-		expect(markup).toContain('Ask again when a project’s automatic settings change')
+		expect(markup).toContain('Ask again when a trusted project changes')
 		expect(page('projects', { onRemoveProject: undefined })).not.toContain('Remove App')
 		expect(page('projects', { projects: [] })).toContain('No projects yet')
 	})
@@ -284,7 +285,7 @@ describe('the settings page', () => {
 			},
 		})
 		expect(disabled).not.toContain('Download updates automatically')
-		expect(disabled).toContain('Namzu Desktop version')
+		expect(disabled).toContain('Desktop app version')
 		// The generic heading is gone: the engine's rows sit under their own group heading.
 		expect(disabled).not.toContain('Namzu settings')
 		expect(page('updates', { update: undefined })).not.toContain('Download updates automatically')
@@ -312,14 +313,14 @@ describe('the settings page', () => {
 		])
 		expect(windows).toContain('Default terminal shell')
 		expect(windows).toContain('Command Prompt')
-		expect(windows).toContain('Bring terminal tabs back')
+		expect(windows).toContain('Restore terminal tabs')
 		// The row says where it works, and Desktop's own process rows are not here any more.
 		expect(windows).toContain('Windows only.')
-		expect(windows).not.toContain('Use the graphics card')
+		expect(windows).not.toContain('Use hardware acceleration')
 		// Under its own heading, above the engine's terminal rows.
 		expect(windows.indexOf('<h2 class="settings-section-title">Terminal tabs</h2>')).toBe(0)
 		expect(windows.indexOf('Default terminal shell')).toBeLessThan(
-			windows.indexOf('Bring terminal tabs back'),
+			windows.indexOf('Restore terminal tabs'),
 		)
 	})
 
@@ -327,21 +328,21 @@ describe('the settings page', () => {
 		const general = page('general')
 		for (const gone of [
 			'Default terminal shell',
-			'Bring terminal tabs back',
-			'Use the graphics card',
+			'Restore terminal tabs',
+			'Use hardware acceleration',
 		])
 			expect(general).not.toContain(gone)
 		expect(general).toContain('Play a sound with notifications')
 		const desktop = page('desktop')
 		expect(desktop).toContain('id="setting-hardware-acceleration"')
-		expect(desktop).toContain('Use the graphics card')
+		expect(desktop).toContain('Use hardware acceleration')
 		expect(desktop).toContain('<h1>Desktop app</h1>')
 	})
 
 	it('the Terminal section draws no tab rows and no heading where there are no terminals', () => {
 		const terminal = page('terminal')
 		expect(terminal).not.toContain('Terminal tabs')
-		expect(terminal).not.toContain('Bring terminal tabs back')
+		expect(terminal).not.toContain('Restore terminal tabs')
 	})
 
 	it('every row search can offer is drawn on the page of the section it names', () => {
@@ -690,14 +691,38 @@ describe('the engine the app keeps current', () => {
 describe('the code rows', () => {
 	it('Appearance draws the two code colour rows with a sample each, the font and the size', () => {
 		const markup = page('appearance')
-		for (const label of ['Light code colours', 'Dark code colours', 'Code font', 'Code font size'])
+		for (const label of ['Light code theme', 'Dark code theme', 'Code font', 'Code font size'])
 			expect(markup, label).toContain(label)
 		expect(markup).toContain('data-mode="light"')
 		expect(markup).toContain('data-mode="dark"')
 		expect(markup).toContain('High contrast')
-		expect(markup).toContain('placeholder="Namzu’s own"')
-		expect(markup).toContain('Default: 13 px.')
+		expect(markup).toContain('placeholder="Default · Namzu’s own"')
+		expect(markup).toContain('>Default · 13 px</option>')
 		expect(markup).toContain('<option value="18">18 px</option>')
+	})
+
+	it('marks each choice that is the default and draws no default or apply line under a row', () => {
+		const markup = page('appearance')
+		expect(markup).toContain('Default · System')
+		expect(markup).toContain('Default · Medium')
+		expect(markup).toContain('Default · Narrow')
+		expect(markup).not.toContain('Default:')
+		expect(markup).not.toContain('Applies at once.')
+	})
+
+	it('groups Appearance under Code and Accessibility, and General under Notifications', () => {
+		const appearance = page('appearance')
+		expect(appearance).toContain('<h2 class="settings-section-title">Code</h2>')
+		expect(appearance).toContain('<h2 class="settings-section-title">Accessibility</h2>')
+		expect(appearance.indexOf('>Code</h2>')).toBeLessThan(appearance.indexOf('Light code theme'))
+		expect(page('general')).toContain('<h2 class="settings-section-title">Notifications</h2>')
+	})
+
+	it('shows After restart only on the rows that wait for one', () => {
+		const general = page('general')
+		expect(general).toContain('settings-row-badge')
+		expect(general).toContain('Applies the next time the app opens.')
+		expect(page('appearance')).not.toContain('settings-row-badge')
 	})
 
 	it('Appearance draws its rows in the order the catalogue lists them', () => {
@@ -713,11 +738,11 @@ describe('the code rows', () => {
 			'transcript-text-size',
 			'transcript-width',
 			'motion',
+			'conversation-tabs',
 			'code-theme-light',
 			'code-theme-dark',
 			'code-font',
 			'code-font-size',
-			'conversation-tabs',
 			'auto-dismiss-popups',
 			'virtualize-conversations',
 		])
@@ -736,7 +761,7 @@ describe('the code rows', () => {
 		const withLink = renderToStaticMarkup(
 			createElement(TerminalSettings, { settings, shells, onSection: () => {} }),
 		)
-		expect(withLink).toContain('Code font and colours')
+		expect(withLink).toContain('Code theme and font')
 		expect(withLink).toContain('Open Appearance')
 		expect(
 			renderToStaticMarkup(createElement(TerminalSettings, { settings, shells })),
@@ -878,7 +903,7 @@ describe('the rows the system applies', () => {
 
 	it('keeps awake on battery under the working switch, off until that is on', () => {
 		const off = renderToStaticMarkup(createElement(AgentSleepRows, { settings: controls() }))
-		expect(off).toContain('Keep computer awake while working')
+		expect(off).toContain('Keep computer awake while Namzu works')
 		expect(off).toMatch(/aria-label="Keep awake on battery power"[^>]*disabled/)
 		expect(off).toContain('data-child="true"')
 		const on = renderToStaticMarkup(
@@ -981,7 +1006,7 @@ describe('the storage and data rows', () => {
 				},
 			}),
 		)
-		expect(markup).toContain('list that decides')
+		expect(markup).toContain('Namzu’s own list, kept in')
 		expect(markup).toContain('trust.json')
 		expect(markup).toContain('aria-label="Remove /work/app"')
 		expect(markup).toContain('aria-label="Remove /work/lib"')

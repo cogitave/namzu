@@ -58,7 +58,7 @@ export function LocalSpeechSettingsContent({
 	return (
 		<div className="local-speech-settings">
 			<header className="local-speech-heading">
-				<Heading>Voice</Heading>
+				<Heading>Read replies aloud</Heading>
 				<span className="local-speech-badge">On this device</span>
 			</header>
 			<p className="local-speech-help">

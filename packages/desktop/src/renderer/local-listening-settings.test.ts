@@ -58,7 +58,7 @@ describe('the Voice input card', () => {
 		expect(markup).toContain('Download voice input')
 		expect(markup).not.toContain('Remove voice input')
 		expect(markup).not.toContain('Cancel download')
-		expect(markup).not.toContain('Let Namzu use the microphone')
+		expect(markup).not.toContain('Microphone access')
 	})
 
 	it('downloading: shows progress and a Cancel', () => {
@@ -115,7 +115,7 @@ describe('the Voice input card', () => {
 			controls({ state: state({ installation: 'ready', diskBytes: 1_037_257_645 }) }),
 		)
 		expect(markup).toContain('Remove voice input…')
-		expect(markup).toContain('Let Namzu use the microphone')
+		expect(markup).toContain('Microphone access')
 		expect(markup).toContain('aria-checked="true"')
 		expect(markup).toContain('Stored on this device')
 		expect(markup).not.toContain('Download voice input')

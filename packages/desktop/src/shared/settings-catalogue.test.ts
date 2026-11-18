@@ -79,3 +79,20 @@ describe('the Desktop settings catalogue', () => {
 		expect(catalogueEntry('projects').description).toMatch(/Locate .* trust/)
 	})
 })
+
+describe('renamed rows', () => {
+	it('stay findable by the name they had', async () => {
+		const { searchSettings } = await import('../renderer/settings-model.js')
+		const found = (query: string) => searchSettings(query).map((entry) => entry.id)
+		expect(found('Use the graphics card')).toContain('hardware-acceleration')
+		expect(found('Bring terminal tabs back')).toContain('terminal-restore')
+		expect(found('Skip drawing what is off screen')).toContain('virtualize-conversations')
+		expect(found('Light code colours')).toContain('code-theme-light')
+		expect(found('Close popups by themselves')).toContain('auto-dismiss-popups')
+	})
+
+	it('say nothing about when a change applies for a row that applies at once', () => {
+		expect(appliesText(catalogueEntry('trusted-folders'))).toBe('Applies at once.')
+		expect(catalogueEntry('trusted-folders').appliesNote).toBeUndefined()
+	})
+})

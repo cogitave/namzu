@@ -919,3 +919,62 @@ describe('the permission and browser rows, drawn from the real engine list', () 
 		SLOW_IMPORT_MS,
 	)
 })
+
+describe("the app's own rows under an engine heading", () => {
+	const lead = { heading: 'While Namzu works', rows: createElement('p', null, 'LEAD ROW') }
+	it('get their own heading when the engine has none of that name', () => {
+		const out = renderToStaticMarkup(
+			createElement(ConfigSettingsGroup, { section: 'agent', config: controls(), lead }),
+		)
+		expect(out.match(/While Namzu works/g)).toHaveLength(1)
+		expect(out).toContain('LEAD ROW')
+	})
+	it('are drawn at once while the engine list is still being read', () => {
+		const out = renderToStaticMarkup(
+			createElement(ConfigSettingsGroup, {
+				section: 'agent',
+				config: controls({ view: undefined, loading: true }),
+				lead,
+			}),
+		)
+		expect(out).toContain('While Namzu works')
+		expect(out).toContain('LEAD ROW')
+		expect(out).toContain('Reading your settings')
+	})
+	it(
+		'join the engine heading of that name, so it is said once, with the app rows first',
+		async () => {
+			const { SETTING_DESCRIPTORS } = (await import(/* @vite-ignore */ CLI_DESCRIPTORS)) as {
+				SETTING_DESCRIPTORS: readonly { path: string }[]
+			}
+			const { withDefaultText } = (await import(/* @vite-ignore */ CLI_SETTINGS)) as {
+				withDefaultText: (entry: unknown) => unknown
+			}
+			const real = readConfigSettingsView(
+				JSON.parse(
+					JSON.stringify({
+						file: '/x/config.yaml',
+						settings: [],
+						descriptors: SETTING_DESCRIPTORS.map(withDefaultText),
+					}),
+				),
+			)
+			const out = renderToStaticMarkup(
+				createElement(ConfigSettingsGroup, {
+					section: 'agent',
+					config: controls({ view: real }),
+					lead,
+				}),
+			)
+			expect(out.match(/>While Namzu works<\/h2>/g)).toHaveLength(1)
+			const heading = out.indexOf('>While Namzu works</h2>')
+			expect(out.indexOf('LEAD ROW')).toBeGreaterThan(heading)
+			// The engine's own rows of that heading follow the app's row, before the next heading.
+			const after = out.slice(out.indexOf('LEAD ROW'))
+			const next = after.indexOf('<h2')
+			expect(after.indexOf('id="setting-')).toBeGreaterThan(-1)
+			expect(after.indexOf('id="setting-')).toBeLessThan(next === -1 ? after.length : next)
+		},
+		SLOW_IMPORT_MS,
+	)
+})

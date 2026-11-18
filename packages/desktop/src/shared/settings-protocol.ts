@@ -30,7 +30,7 @@ export interface DesktopSettings {
 	keepEngineUpToDate: boolean
 	/** The shell a plain terminal tab opens. Elsewhere than Windows only `auto` applies. */
 	terminalShell: ShellChoice
-	/** Bring terminal tabs back after a restart, as ended terminals showing their last screen. */
+	/** Restore terminal tabs after a restart, as ended terminals showing their last screen. */
 	restoreTerminals: boolean
 	/** The person agreed to voice input once: the microphone may be opened by Namzu's own windows. */
 	voiceInputAccepted: boolean

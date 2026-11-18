@@ -53,7 +53,7 @@ export function approveLabel(count: number): string {
 
 /** What the group says under its title: where the list comes from and what can be changed here. */
 export function mcpServersNote(projectName: string | undefined): string {
-	return `${projectName ? `The tool servers for “${projectName}”.` : 'The tool servers for the open project.'} You can add, change and remove the ones in your own settings here. A project’s own servers are approved here and changed in the project’s files.`
+	return `${projectName ? `The tool servers for “${projectName}”.` : 'The tool servers for the open project.'} You can add, change and remove the ones in your own settings here; a project’s own servers are approved here and changed in the project.`
 }
 
 /** What the Tool servers row says while no project is open. */

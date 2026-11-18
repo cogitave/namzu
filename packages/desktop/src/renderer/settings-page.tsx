@@ -536,10 +536,19 @@ function SectionBody(props: SectionProps) {
 	return (
 		<div className="settings-section" data-section={props.section}>
 			{props.section === 'general' && <GeneralSection {...props} />}
-			{props.section === 'models' && <ModelsContainer />}
-			{props.section === 'agent' && <AgentSleepRows {...props} />}
-			{props.section === 'tools' && <McpServersContainer {...props} />}
-			{props.section === 'tools' && <HooksContainer {...props} />}
+			{props.section === 'models' && (
+				<>
+					<h2 className="settings-section-title">Providers</h2>
+					<ModelsContainer />
+				</>
+			)}
+			{props.section === 'tools' && (
+				<>
+					<h2 className="settings-section-title">Tool servers and hooks</h2>
+					<McpServersContainer {...props} />
+					<HooksContainer {...props} />
+				</>
+			)}
 			{props.section === 'projects' && <ProjectsSection {...props} />}
 			{props.section === 'appearance' && <AppearanceSection {...props} />}
 			{props.section === 'updates' && <UpdatesSection {...props} />}
@@ -557,6 +566,11 @@ function SectionBody(props: SectionProps) {
 					section={props.section}
 					config={props.config}
 					omit={props.section === 'tools' ? OWN_ROW_CONFIG_PATHS : undefined}
+					lead={
+						props.section === 'agent'
+							? { heading: 'While Namzu works', rows: <AgentSleepRows {...props} /> }
+							: undefined
+					}
 					fallbackHeading={
 						props.section === 'terminal'
 							? 'Terminal app'
@@ -615,27 +629,32 @@ const STARTUP_CHOICES = (
 	catalogueEntry('startup').control as { options: readonly CatalogueOption[] }
 ).options.map((option) => ({
 	value: option.value as StartupBehavior,
-	label: option.label,
+	label: defaultMarked('startup', option.value, option.label),
 	hint: option.help ?? '',
 }))
 
-/** The line under a row's description: its default and when a change applies, from the catalogue. */
+/** Whether a change to this row waits for a restart, which the row's badge says. */
+function waitsForRestart(entry: CatalogueEntry): boolean {
+	return entry.appliesWhen === 'next-start' || entry.appliesWhen === 'next-launch'
+}
+
+/**
+ * The short line under a row's description. The default is marked inside the control and the
+ * section note covers the common apply time, so only a row whose apply differs from its section
+ * says so here; a row that waits for a restart carries a badge instead.
+ */
 function catalogueMeta(entry: CatalogueEntry): string {
-	const fallback = entry.default
-	let defaultLine = ''
-	if (typeof fallback === 'boolean') defaultLine = `Default: ${fallback ? 'On' : 'Off'}.`
-	else if (typeof fallback === 'number' && entry.control.kind === 'number')
-		defaultLine = `Default: ${fallback} ${entry.control.unit}.`
-	else if (typeof fallback === 'string' && entry.control.kind === 'text') {
-		const label = entry.control.placeholder
-		if (label) defaultLine = `Default: ${label}.`
-	} else if (typeof fallback === 'string' && entry.control.kind === 'shortcut') {
-		defaultLine = `Default: ${fallback || 'Off'}.`
-	} else if (typeof fallback === 'string' && entry.control.kind === 'select') {
-		const label = entry.control.options.find((option) => option.value === fallback)?.label
-		if (label) defaultLine = `Default: ${label}.`
-	}
-	return [defaultLine, appliesText(entry)].filter(Boolean).join(' ')
+	return waitsForRestart(entry) ? '' : (entry.appliesNote ?? '')
+}
+
+/** A catalogue row's name, so a control's accessible name is the row's label. */
+function labelOf(id: string): string {
+	return catalogueEntry(id).label
+}
+
+/** A choice's text with its default mark: the default reads "Default · X". */
+export function defaultMarked(id: string, value: string, text: string): string {
+	return String(catalogueEntry(id).default) === value ? `Default · ${text}` : text
 }
 
 /** A row whose label, help, default and apply time all come from the settings catalogue. */
@@ -663,6 +682,9 @@ function CatalogueRow({
 			child={child}
 			description={entry.description}
 			meta={catalogueMeta(entry)}
+			badge={
+				waitsForRestart(entry) ? { text: 'After restart', sentence: appliesText(entry) } : undefined
+			}
 			stacked={stacked}
 			below={below}
 		>
@@ -678,7 +700,7 @@ function GeneralSection({ settings }: SectionProps) {
 		<>
 			<CatalogueRow id="startup" stacked>
 				<fieldset className="settings-choices" disabled={!settings.settings}>
-					<legend className="sr-only">When Namzu starts</legend>
+					<legend className="sr-only">{labelOf('startup')}</legend>
 					{STARTUP_CHOICES.map((choice) => (
 						<label key={choice.value} className="settings-choice">
 							<input
@@ -696,9 +718,10 @@ function GeneralSection({ settings }: SectionProps) {
 					))}
 				</fieldset>
 			</CatalogueRow>
+			<h2 className="settings-section-title">Notifications</h2>
 			<CatalogueRow id="attention-signals">
 				<Switch
-					label="Show when a conversation needs you"
+					label={labelOf('attention-signals')}
 					checked={settings.settings?.attentionSignals ?? true}
 					disabled={!settings.settings}
 					onChange={(value) => void settings.change({ attentionSignals: value })}
@@ -706,7 +729,7 @@ function GeneralSection({ settings }: SectionProps) {
 			</CatalogueRow>
 			<CatalogueRow id="notify-needs-you">
 				<Switch
-					label="Notify me when a conversation needs my answer"
+					label={labelOf('notify-needs-you')}
 					checked={settings.settings?.notifyNeedsYou ?? true}
 					disabled={!settings.settings}
 					onChange={(value) => void settings.change({ notifyNeedsYou: value })}
@@ -714,7 +737,7 @@ function GeneralSection({ settings }: SectionProps) {
 			</CatalogueRow>
 			<CatalogueRow id="notify-failed">
 				<Switch
-					label="Notify me when a conversation stops with an error"
+					label={labelOf('notify-failed')}
 					checked={settings.settings?.notifyFailed ?? true}
 					disabled={!settings.settings}
 					onChange={(value) => void settings.change({ notifyFailed: value })}
@@ -722,7 +745,7 @@ function GeneralSection({ settings }: SectionProps) {
 			</CatalogueRow>
 			<CatalogueRow id="notify-finished">
 				<Switch
-					label="Notify me when a long reply finishes"
+					label={labelOf('notify-finished')}
 					checked={settings.settings?.notifyFinished ?? true}
 					disabled={!settings.settings}
 					onChange={(value) => void settings.change({ notifyFinished: value })}
@@ -730,7 +753,7 @@ function GeneralSection({ settings }: SectionProps) {
 			</CatalogueRow>
 			<CatalogueRow id="notify-sound">
 				<Switch
-					label="Play a sound with notifications"
+					label={labelOf('notify-sound')}
 					checked={settings.settings?.notifySound ?? false}
 					disabled={!settings.settings}
 					onChange={(value) => void settings.change({ notifySound: value })}
@@ -765,7 +788,7 @@ export function TerminalSettings({
 			{choices.length > 1 && (
 				<CatalogueRow id="terminal-shell" stacked>
 					<fieldset className="settings-choices" disabled={!settings.settings}>
-						<legend className="sr-only">Default terminal shell</legend>
+						<legend className="sr-only">{labelOf('terminal-shell')}</legend>
 						{choices.map((choice) => (
 							<label key={choice.value} className="settings-choice">
 								<input
@@ -780,7 +803,9 @@ export function TerminalSettings({
 									}
 								/>
 								<span>
-									<span className="settings-choice-label">{choice.label}</span>
+									<span className="settings-choice-label">
+										{defaultMarked('terminal-shell', choice.value, choice.label)}
+									</span>
 									{choice.value === 'powershell' ? (
 										<span className="settings-choice-hint">
 											Can drop some typed Turkish capitals.
@@ -794,7 +819,7 @@ export function TerminalSettings({
 			)}
 			<CatalogueRow id="terminal-restore">
 				<Switch
-					label="Bring terminal tabs back"
+					label={labelOf('terminal-restore')}
 					checked={settings.settings?.restoreTerminals ?? true}
 					disabled={!settings.settings}
 					onChange={(value) => void settings.change({ restoreTerminals: value })}
@@ -824,6 +849,9 @@ export function escapeRevertsDraft(key: string, draft: string, saved: string): b
  * A font name typed into a box. The value is saved when the box loses the focus or Enter is
  * pressed, and only if it is empty or a name a font-family can carry; otherwise the box says why.
  */
+const codeFontPlaceholder = (catalogueEntry('code-font').control as { placeholder?: string })
+	.placeholder
+
 export function CodeFontInput({
 	value,
 	disabled,
@@ -844,10 +872,10 @@ export function CodeFontInput({
 			<input
 				type="text"
 				className="settings-config-input"
-				aria-label="Code font"
+				aria-label={labelOf('code-font')}
 				aria-invalid={invalid || undefined}
 				aria-describedby={invalid ? messageId : undefined}
-				placeholder="Namzu’s own"
+				placeholder={codeFontPlaceholder}
 				maxLength={80}
 				spellCheck={false}
 				value={draft}
@@ -895,7 +923,7 @@ export function DesktopSection({
 		<>
 			<CatalogueRow id="hardware-acceleration">
 				<Switch
-					label="Use the graphics card"
+					label={labelOf('hardware-acceleration')}
 					checked={saved?.hardwareAcceleration ?? true}
 					disabled={off}
 					onChange={(value) => void settings.change({ hardwareAcceleration: value })}
@@ -907,7 +935,7 @@ export function DesktopSection({
 					below={os.loginItem.problem ? <RowLine>{os.loginItem.problem}</RowLine> : undefined}
 				>
 					<Switch
-						label="Run on startup"
+						label={labelOf('run-on-startup')}
 						checked={os.loginItem.enabled}
 						disabled={off}
 						onChange={(value) => void settings.change({ runOnStartup: value })}
@@ -923,7 +951,7 @@ export function DesktopSection({
 				}
 			>
 				<ShortcutBox
-					label="Quick Entry shortcut"
+					label={labelOf('quick-entry-shortcut')}
 					value={saved?.quickEntryShortcut ?? ''}
 					emptyText="Off"
 					disabled={off}
@@ -932,14 +960,14 @@ export function DesktopSection({
 			</CatalogueRow>
 			<CatalogueRow id="dictation-shortcut">
 				<SelectControl
-					label="Dictation shortcut"
+					label={labelOf('dictation-shortcut')}
 					value={saved?.dictationShortcut ?? 'ctrl-d'}
 					disabled={off}
 					onChange={(value) => void settings.change({ dictationShortcut: value })}
 				>
 					{DICTATION_CHOICES.map((choice) => (
 						<option key={choice.value} value={choice.value}>
-							{choice.label}
+							{defaultMarked('dictation-shortcut', choice.value, choice.label)}
 						</option>
 					))}
 				</SelectControl>
@@ -953,7 +981,7 @@ export function DesktopSection({
 				}
 			>
 				<ShortcutBox
-					label="Voice shortcut"
+					label={labelOf('voice-shortcut')}
 					value={saved?.voiceShortcut ?? ''}
 					emptyText="Off"
 					disabled={off}
@@ -978,7 +1006,7 @@ export function DesktopSection({
 			)}
 			<CatalogueRow id="keep-awake">
 				<Switch
-					label="Keep computer awake"
+					label={labelOf('keep-awake')}
 					checked={saved?.keepAwakeAppOpen ?? false}
 					disabled={off}
 					onChange={(value) => void settings.change({ keepAwakeAppOpen: value })}
@@ -990,7 +1018,7 @@ export function DesktopSection({
 					below={<RowLine>{meteredLine(os.metered.state)}</RowLine>}
 				>
 					<Switch
-						label="Pause downloads on low data"
+						label={labelOf('pause-on-metered')}
 						checked={saved?.pauseOnMetered ?? true}
 						disabled={off}
 						onChange={(value) => void settings.change({ pauseOnMetered: value })}
@@ -1003,7 +1031,7 @@ export function DesktopSection({
 				<Button
 					variant="outline"
 					size="sm"
-					aria-label="Manage extensions"
+					aria-label={`Manage ${labelOf('extensions-manage').toLowerCase()}`}
 					disabled={!onOpenPlugins}
 					onClick={() => onOpenPlugins?.()}
 				>
@@ -1079,7 +1107,7 @@ export function AgentSleepRows({ settings }: Pick<SectionProps, 'settings'>) {
 		<>
 			<CatalogueRow id="keep-awake-working">
 				<Switch
-					label="Keep computer awake while working"
+					label={labelOf('keep-awake-working')}
 					checked={saved?.keepAwakeWhileWorking ?? false}
 					disabled={!saved}
 					onChange={(value) => void settings.change({ keepAwakeWhileWorking: value })}
@@ -1087,7 +1115,7 @@ export function AgentSleepRows({ settings }: Pick<SectionProps, 'settings'>) {
 			</CatalogueRow>
 			<CatalogueRow id="keep-awake-battery" child>
 				<Switch
-					label="Keep awake on battery power"
+					label={labelOf('keep-awake-battery')}
 					checked={saved?.keepAwakeOnBattery ?? false}
 					disabled={!saved || !saved.keepAwakeWhileWorking}
 					onChange={(value) => void settings.change({ keepAwakeOnBattery: value })}
@@ -1115,10 +1143,11 @@ function ProjectsSection({
 					}
 				/>
 			)}
+			<h2 className="settings-section-title">Your projects</h2>
 			<CatalogueRow id="retrust">
 				<div ref={switchRow}>
 					<Switch
-						label="Ask again when a project’s automatic settings change"
+						label={labelOf('retrust')}
 						checked={settings.settings?.retrustOnConfigChange ?? true}
 						disabled={!settings.settings}
 						onChange={(value) => void settings.change({ retrustOnConfigChange: value })}
@@ -1126,12 +1155,8 @@ function ProjectsSection({
 				</div>
 			</CatalogueRow>
 			<div id="setting-projects" className="settings-projects">
-				<h3 className="settings-subtitle">Your projects</h3>
-				<p className="settings-help">
-					Removing a project only takes it out of Namzu. Your files and existing conversations stay
-					where they are. Locate points a moved project at its new folder, and asks you to trust
-					that folder.
-				</p>
+				<h3 className="settings-subtitle">{labelOf('projects')}</h3>
+				<p className="settings-help">{catalogueEntry('projects').description}</p>
 				{projects.length === 0 ? (
 					<p className="settings-empty">No projects yet. Open a folder to add one.</p>
 				) : (
@@ -1186,7 +1211,10 @@ const APPEARANCE_CHOICES = [
 /** The options of a catalogue select, as a segmented control wants them. */
 function catalogueChoices<T extends string>(id: string): { value: T; label: string }[] {
 	return (catalogueEntry(id).control as { options: readonly CatalogueOption[] }).options.map(
-		(option) => ({ value: option.value as T, label: option.label }),
+		(option) => ({
+			value: option.value as T,
+			label: defaultMarked(id, option.value, option.label),
+		}),
 	)
 }
 
@@ -1210,19 +1238,22 @@ function AppearanceSection({ appearance, onAppearanceChange, settings }: Setting
 		<>
 			<CatalogueRow id="theme">
 				<SegmentedControl
-					label="Theme"
+					label={labelOf('theme')}
 					value={appearance}
-					options={APPEARANCE_CHOICES}
+					options={APPEARANCE_CHOICES.map((choice) => ({
+						...choice,
+						label: defaultMarked('theme', choice.value, choice.label),
+					}))}
 					onChange={onAppearanceChange}
 				/>
 			</CatalogueRow>
 			<CatalogueRow id="interface-font">
 				<FontChoice
-					label="Interface font"
+					label={labelOf('interface-font')}
 					value={interfaceFont}
 					named={INTERFACE_FONT_CHOICES.map((choice) => ({
 						value: choice.value,
-						label: choice.label,
+						label: defaultMarked('interface-font', choice.value, choice.label),
 					}))}
 					familyValue={(family) => `${FAMILY_PREFIX}${family}`}
 					familyOf={(value) => familyOf(parseInterfaceFont(value))}
@@ -1231,10 +1262,13 @@ function AppearanceSection({ appearance, onAppearanceChange, settings }: Setting
 			</CatalogueRow>
 			<CatalogueRow id="response-font">
 				<FontChoice
-					label="Response font"
+					label={labelOf('response-font')}
 					value={saved?.responseFont ?? RESPONSE_FONT_MATCH}
 					named={[
-						{ value: RESPONSE_FONT_MATCH, label: 'Match interface' },
+						{
+							value: RESPONSE_FONT_MATCH,
+							label: defaultMarked('response-font', RESPONSE_FONT_MATCH, 'Match interface'),
+						},
 						{ value: 'app', label: 'Namzu’s own' },
 						{ value: 'system', label: 'Your device’s' },
 					]}
@@ -1245,7 +1279,7 @@ function AppearanceSection({ appearance, onAppearanceChange, settings }: Setting
 			</CatalogueRow>
 			<CatalogueRow id="transcript-text-size">
 				<SegmentedControl
-					label="Transcript text size"
+					label={labelOf('transcript-text-size')}
 					value={saved?.transcriptTextSize ?? 'medium'}
 					options={TEXT_SIZE_CHOICES}
 					disabled={!ready}
@@ -1254,7 +1288,7 @@ function AppearanceSection({ appearance, onAppearanceChange, settings }: Setting
 			</CatalogueRow>
 			<CatalogueRow id="transcript-width">
 				<SegmentedControl
-					label="Transcript width"
+					label={labelOf('transcript-width')}
 					value={saved?.transcriptWidth ?? 'narrow'}
 					options={WIDTH_CHOICES}
 					disabled={!ready}
@@ -1263,26 +1297,35 @@ function AppearanceSection({ appearance, onAppearanceChange, settings }: Setting
 			</CatalogueRow>
 			<CatalogueRow id="motion">
 				<SegmentedControl
-					label="Motion"
+					label={labelOf('motion')}
 					value={saved?.motion ?? 'system'}
 					options={MOTION_CHOICES}
 					disabled={!ready}
 					onChange={(value) => void settings.change({ motion: value })}
 				/>
 			</CatalogueRow>
+			<CatalogueRow id="conversation-tabs">
+				<Switch
+					label={labelOf('conversation-tabs')}
+					checked={saved?.showConversationTabs ?? false}
+					disabled={!ready}
+					onChange={(value) => void settings.change({ showConversationTabs: value })}
+				/>
+			</CatalogueRow>
+			<h2 className="settings-section-title">Code</h2>
 			<CatalogueRow
 				id="code-theme-light"
 				below={<CodePreview mode="light" value={saved?.lightCodeTheme ?? 'default'} />}
 			>
 				<SelectControl
-					label="Light code colours"
+					label={labelOf('code-theme-light')}
 					value={saved?.lightCodeTheme ?? 'default'}
 					disabled={!ready}
 					onChange={(value) => void settings.change({ lightCodeTheme: value as CodeThemeKey })}
 				>
 					{CODE_THEME_CHOICES.map((option) => (
 						<option key={option.value} value={option.value}>
-							{option.label}
+							{defaultMarked('code-theme-light', option.value, option.label)}
 						</option>
 					))}
 				</SelectControl>
@@ -1292,14 +1335,14 @@ function AppearanceSection({ appearance, onAppearanceChange, settings }: Setting
 				below={<CodePreview mode="dark" value={saved?.darkCodeTheme ?? 'default'} />}
 			>
 				<SelectControl
-					label="Dark code colours"
+					label={labelOf('code-theme-dark')}
 					value={saved?.darkCodeTheme ?? 'default'}
 					disabled={!ready}
 					onChange={(value) => void settings.change({ darkCodeTheme: value as CodeThemeKey })}
 				>
 					{CODE_THEME_CHOICES.map((option) => (
 						<option key={option.value} value={option.value}>
-							{option.label}
+							{defaultMarked('code-theme-dark', option.value, option.label)}
 						</option>
 					))}
 				</SelectControl>
@@ -1313,29 +1356,22 @@ function AppearanceSection({ appearance, onAppearanceChange, settings }: Setting
 			</CatalogueRow>
 			<CatalogueRow id="code-font-size">
 				<SelectControl
-					label="Code font size"
+					label={labelOf('code-font-size')}
 					value={String(saved?.codeFontSize ?? CODE_FONT_SIZE_DEFAULT)}
 					disabled={!ready}
 					onChange={(value) => void settings.change({ codeFontSize: Number(value) })}
 				>
 					{CODE_SIZE_CHOICES.map((size) => (
 						<option key={size} value={size}>
-							{size} px
+							{defaultMarked('code-font-size', String(size), `${size} px`)}
 						</option>
 					))}
 				</SelectControl>
 			</CatalogueRow>
-			<CatalogueRow id="conversation-tabs">
-				<Switch
-					label="Show conversation tabs"
-					checked={saved?.showConversationTabs ?? false}
-					disabled={!ready}
-					onChange={(value) => void settings.change({ showConversationTabs: value })}
-				/>
-			</CatalogueRow>
+			<h2 className="settings-section-title">Accessibility</h2>
 			<CatalogueRow id="auto-dismiss-popups">
 				<Switch
-					label="Close popups by themselves"
+					label={labelOf('auto-dismiss-popups')}
 					checked={saved?.autoDismissPopups ?? true}
 					disabled={!ready}
 					onChange={(value) => void settings.change({ autoDismissPopups: value })}
@@ -1343,7 +1379,7 @@ function AppearanceSection({ appearance, onAppearanceChange, settings }: Setting
 			</CatalogueRow>
 			<CatalogueRow id="virtualize-conversations">
 				<Switch
-					label="Skip drawing what is off screen"
+					label={labelOf('virtualize-conversations')}
 					checked={saved?.virtualizeConversations ?? true}
 					disabled={!ready}
 					onChange={(value) => void settings.change({ virtualizeConversations: value })}
@@ -1385,9 +1421,10 @@ function UpdatesSection({
 	}
 	return (
 		<>
+			<h2 className="settings-section-title">Namzu Desktop</h2>
 			<Row
 				id="version"
-				label="Namzu Desktop version"
+				label={labelOf('version')}
 				// A copy that cannot update itself made no check of its own, so it claims none.
 				description={
 					hasAppUpdater
@@ -1416,18 +1453,18 @@ function UpdatesSection({
 					</Button>
 				</div>
 			</div>
-			<EngineUpdateRows target={engineTarget} />
-			<EngineDeliveryRows settings={settings} now={now} />
 			{hasAppUpdater && (
 				<CatalogueRow id="auto-download">
 					<Switch
-						label="Download updates automatically"
+						label={labelOf('auto-download')}
 						checked={settings.settings?.autoDownloadUpdates ?? true}
 						disabled={!settings.settings}
 						onChange={(value) => void settings.change({ autoDownloadUpdates: value })}
 					/>
 				</CatalogueRow>
 			)}
+			<EngineUpdateRows target={engineTarget} />
+			<EngineDeliveryRows settings={settings} now={now} />
 		</>
 	)
 }
@@ -1448,7 +1485,7 @@ function EngineDeliveryRows({ settings, now }: { settings: DesktopSettingsContro
 		<>
 			<Row
 				id="engine-delivery"
-				label="Namzu engine"
+				label={labelOf('engine-delivery')}
 				description={`${
 					view.runs.commandLine ? `Running ${plainVersion(view.runs.commandLine)}. ` : ''
 				}${engineSourceText(view.runs, now)}`}
@@ -1479,7 +1516,7 @@ function EngineDeliveryRows({ settings, now }: { settings: DesktopSettingsContro
 			</div>
 			<CatalogueRow id="keep-engine">
 				<Switch
-					label="Keep the engine up to date"
+					label={labelOf('keep-engine')}
 					checked={enabled}
 					disabled={!settings.settings}
 					onChange={(value) => void settings.change({ keepEngineUpToDate: value })}
@@ -1627,11 +1664,8 @@ function AboutSection({ info, infoError, onOpenFolder, now }: SettingsPageProps)
 				</div>
 			</div>
 			<div id="setting-folders" className="settings-folders">
-				<h3 className="settings-subtitle">Data folders</h3>
-				<p className="settings-help">
-					Logs and the downloaded voice are safe to delete. The Namzu home folder holds your work,
-					so keep it.
-				</p>
+				<h3 className="settings-subtitle">{labelOf('folders')}</h3>
+				<p className="settings-help">{catalogueEntry('folders').description}</p>
 				<ul>
 					{info.folders.map((folder) => (
 						<li key={folder.kind}>

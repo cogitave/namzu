@@ -1,4 +1,4 @@
-import { Fragment, useId, useState } from 'react'
+import { Fragment, type ReactNode, useId, useState } from 'react'
 import type {
 	ConfigSettingDescriptor,
 	ConfigSettingsView,
@@ -50,6 +50,7 @@ export function ConfigSettingsGroup({
 	heading,
 	fallbackHeading,
 	omit,
+	lead,
 }: {
 	section: SettingsSection
 	config: ConfigSettingsControls
@@ -62,14 +63,30 @@ export function ConfigSettingsGroup({
 	fallbackHeading?: string
 	/** Settings the page shows another way. */
 	omit?: readonly string[]
+	/**
+	 * Rows the app draws itself that belong under one of the engine's own headings: they are drawn
+	 * first under it, so the heading is said once. Without such a heading they get their own.
+	 */
+	lead?: { heading: string; rows: ReactNode }
 }) {
 	const rows = configSettingsFor(config.view, section).filter(
 		(descriptor) => !omit?.includes(descriptor.path),
 	)
+	const runs = config.view && rows.length > 0 ? configRowRuns(rows) : []
+	const joins = lead !== undefined && runs.some((run) => run.heading === lead.heading)
+	// The app's own rows are drawn at once when there is no engine heading of that name to join.
+	const own =
+		lead && !joins ? (
+			<>
+				<h2 className="settings-section-title">{lead.heading}</h2>
+				{lead.rows}
+			</>
+		) : null
 	// Every page with engine rows says when the list could not be read or is still being read.
 	if (config.loadError)
 		return (
 			<div className="settings-config-state">
+				{own}
 				<p role="alert" className="settings-error">
 					{config.loadError}
 				</p>
@@ -78,10 +95,17 @@ export function ConfigSettingsGroup({
 				</Button>
 			</div>
 		)
-	if (config.loading) return <p className="settings-note">Reading your settings…</p>
-	if (!config.view || rows.length === 0) return null
+	if (config.loading)
+		return (
+			<>
+				{own}
+				<p className="settings-note">Reading your settings…</p>
+			</>
+		)
+	if (!config.view || rows.length === 0) return own
 	return (
 		<>
+			{own}
 			{heading && <h2 className="settings-section-title">{heading}</h2>}
 			{config.confirmation && (
 				<SettingsConfirmDialog
@@ -90,11 +114,12 @@ export function ConfigSettingsGroup({
 					copy={confirmationCopy(config.confirmation.message)}
 				/>
 			)}
-			{configRowRuns(rows).map((run) => {
+			{runs.map((run) => {
 				const title = run.heading ?? (rows.some((row) => row.group) ? undefined : fallbackHeading)
 				return (
 					<Fragment key={title ?? ''}>
 						{title && <h2 className="settings-section-title">{title}</h2>}
+						{lead && joins && run.heading === lead.heading && lead.rows}
 						{run.rows.map((descriptor) => (
 							<ConfigRow
 								key={descriptor.path}
