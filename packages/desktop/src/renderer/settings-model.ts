@@ -142,7 +142,11 @@ export interface UpdateStatusView {
 	canCheck: boolean
 }
 
-export function updateStatusView(state: UpdateState): UpdateStatusView {
+/**
+ * `checked` is whether this copy has made a check since it started. Before one, "up to date" would
+ * be a claim nothing backs, so the idle state says it has not looked.
+ */
+export function updateStatusView(state: UpdateState, checked = true): UpdateStatusView {
 	switch (state.status) {
 		case 'disabled':
 			return {
@@ -150,7 +154,11 @@ export function updateStatusView(state: UpdateState): UpdateStatusView {
 				canCheck: false,
 			}
 		case 'idle':
-			return { text: 'Up to date.', action: 'check', canCheck: true }
+			return {
+				text: checked ? 'Up to date.' : 'Not checked yet.',
+				action: 'check',
+				canCheck: true,
+			}
 		case 'checking':
 			return { text: 'Checking for updates…', canCheck: false }
 		case 'available':
@@ -246,7 +254,7 @@ export function projectRemovalCopy(project: Pick<ProjectView, 'name' | 'missing'
 		title: `Remove ${quoted} from Namzu?`,
 		description: project.missing
 			? `Namzu can\u2019t find the folder for ${quoted}. This only removes the project from Namzu. Nothing on your computer is deleted.`
-			: `This removes ${quoted} from Namzu and takes the folder off Namzu\u2019s trusted list, so Namzu asks again if you add it back. Its open tabs close. Files on your computer and existing conversations won\u2019t be deleted.`,
+			: `This removes ${quoted} from Namzu and takes the folder off Namzu\u2019s trusted list and forgets what this app recorded about it, so Namzu asks again if you add it back. Its open tabs close. Files on your computer and existing conversations won\u2019t be deleted.`,
 		actionLabel: 'Remove project',
 		pendingLabel: 'Removing\u2026',
 	}

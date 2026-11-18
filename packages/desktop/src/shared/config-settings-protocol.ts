@@ -87,6 +87,10 @@ export interface ConfigSettingDescriptor {
 	confirmWhen?: 'on' | 'off' | 'zero'
 	/** For a select, the one new value that asks. Absent: every change asks. */
 	confirmValue?: string
+	/** For a select with several risky values, each one that asks. */
+	confirmValues?: string[]
+	/** Another setting this one does nothing without; the page warns while it is not `is`. */
+	requires?: { path: string; is: string; note: string }
 	keywords?: string[]
 }
 
@@ -234,6 +238,21 @@ export function readConfigSettingsView(value: unknown): ConfigSettingsView {
 				? { confirmWhen: d.confirmWhen }
 				: {}),
 			...(typeof d.confirmValue === 'string' ? { confirmValue: d.confirmValue } : {}),
+			...(Array.isArray(d.confirmValues)
+				? { confirmValues: d.confirmValues.filter((v): v is string => typeof v === 'string') }
+				: {}),
+			...(record(d.requires) &&
+			typeof record(d.requires)?.path === 'string' &&
+			typeof record(d.requires)?.is === 'string' &&
+			typeof record(d.requires)?.note === 'string'
+				? {
+						requires: {
+							path: record(d.requires)?.path as string,
+							is: record(d.requires)?.is as string,
+							note: record(d.requires)?.note as string,
+						},
+					}
+				: {}),
 			...(Array.isArray(d.keywords)
 				? { keywords: d.keywords.filter((k): k is string => typeof k === 'string') }
 				: {}),

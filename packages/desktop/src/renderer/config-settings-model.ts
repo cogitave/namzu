@@ -107,22 +107,130 @@ export function jsonText(value: unknown): string {
 	return value === undefined ? '' : JSON.stringify(value, null, 2)
 }
 
+const MS_UNITS = { h: 3_600_000, m: 60_000, s: 1_000 } as const
+
+/** A time as a person writes it: `5m`, `90s`, `1h 30m`, `250ms`. A bare number is minutes. */
+export function parseDuration(text: string): number | undefined {
+	const t = text.trim().toLowerCase()
+	if (t === '') return undefined
+	if (/^\d+(?:\.\d+)?$/.test(t)) return Math.round(Number(t) * MS_UNITS.m)
+	const match =
+		/^(?:(\d+(?:\.\d+)?)\s*h)?\s*(?:(\d+(?:\.\d+)?)\s*m(?!s))?\s*(?:(\d+(?:\.\d+)?)\s*s)?\s*(?:(\d+)\s*ms)?$/.exec(
+			t,
+		)
+	if (!match) return undefined
+	const [, h, m, s, ms] = match
+	return Math.round(
+		Number(h ?? 0) * MS_UNITS.h +
+			Number(m ?? 0) * MS_UNITS.m +
+			Number(s ?? 0) * MS_UNITS.s +
+			Number(ms ?? 0),
+	)
+}
+
+/** Milliseconds as minutes and seconds: `5m`, `1m 30s`, `250ms`; 0 stays `0`. */
+export function formatDuration(ms: number): string {
+	if (ms === 0) return '0'
+	const parts: string[] = []
+	let rest = ms
+	for (const [unit, size] of [
+		['h', MS_UNITS.h],
+		['m', MS_UNITS.m],
+		['s', MS_UNITS.s],
+	] as const) {
+		const n = Math.floor(rest / size)
+		if (n > 0) parts.push(`${n}${unit}`)
+		rest -= n * size
+	}
+	if (rest > 0) parts.push(`${rest}ms`)
+	return parts.join(' ')
+}
+
+/** A token count as written: `786k`, `1m`, `200000`. */
+export function parseTokens(text: string): number | undefined {
+	const match = /^(\d+(?:\.\d+)?)\s*([km])?$/.exec(text.trim().toLowerCase().replace(/,/g, ''))
+	if (!match) return undefined
+	const [, n, suffix] = match
+	return Math.round(Number(n) * (suffix === 'k' ? 1_000 : suffix === 'm' ? 1_000_000 : 1))
+}
+
+function formatTokens(value: number): string {
+	if (value >= 1_000_000 && value % 1_000_000 === 0) return `${value / 1_000_000}m`
+	if (value >= 1_000 && value % 1_000 === 0) return `${value / 1_000}k`
+	return String(value)
+}
+
+/** A number as its box shows it: a time in minutes and seconds, anything else as it is. */
+export function displayNumber(value: number, unit?: string): string {
+	return unit === 'ms' ? formatDuration(value) : String(value)
+}
+
+function bound(value: number, unit?: string): string {
+	return unit === 'ms'
+		? formatDuration(value)
+		: unit === 'tokens'
+			? formatTokens(value)
+			: String(value)
+}
+
+/** The range a number box takes, as a short sentence; empty when it is any whole number from 0. */
+export function rangeText(control: { min?: number; max?: number; unit?: string }): string {
+	const { min, max, unit } = control
+	if (min !== undefined && max !== undefined)
+		return `From ${bound(min, unit)} to ${bound(max, unit)}.`
+	if (max !== undefined) return `Up to ${bound(max, unit)}.`
+	// A time that must be at least a millisecond is no limit worth naming.
+	if (min !== undefined && min > 0 && !(unit === 'ms' && min < 1000))
+		return `At least ${bound(min, unit)}.`
+	return ''
+}
+
 /**
- * A number field's text to the number sent, or the sentence to show. The engine checks the same
- * bounds again; this only stops a request that cannot be right.
+ * A number field's text to the number sent, or the sentence to show. A time box takes minutes and
+ * seconds and a token box takes 200k or 1m. The engine checks the same bounds again; this only
+ * stops a request that cannot be right.
  */
 export function numberFromText(
 	text: string,
-	control: { min?: number; max?: number },
+	control: { min?: number; max?: number; unit?: string },
 ): { value: number } | { error: string } {
 	const trimmed = text.trim()
-	if (trimmed === '' || !Number.isFinite(Number(trimmed))) return { error: 'Enter a number.' }
-	const value = Number(trimmed)
+	let value: number | undefined
+	let wrong = 'Enter a number.'
+	if (control.unit === 'ms') {
+		value = parseDuration(trimmed)
+		wrong = 'Enter minutes and seconds, such as 5m or 90s.'
+	} else if (control.unit === 'tokens') {
+		value = parseTokens(trimmed)
+		wrong = 'Enter a number, such as 200000, 200k or 1m.'
+	} else if (trimmed !== '' && Number.isFinite(Number(trimmed))) value = Number(trimmed)
+	if (value === undefined || !Number.isFinite(value)) return { error: wrong }
 	if (control.min !== undefined && value < control.min)
-		return { error: `Enter ${control.min} or more.` }
+		return { error: `Enter ${bound(control.min, control.unit)} or more.` }
 	if (control.max !== undefined && value > control.max)
-		return { error: `Enter ${control.max} or less.` }
+		return { error: `Enter ${bound(control.max, control.unit)} or less.` }
 	return { value }
+}
+
+/** The warning a setting shows while the setting it needs is not in the state it needs. */
+export function requirementNote(
+	descriptor: ConfigSettingDescriptor,
+	view: ConfigSettingsView,
+): string {
+	const need = descriptor.requires
+	if (!need) return ''
+	const state = stateFor(view, need.path)
+	const other = view.descriptors.find((d) => d.path === need.path)
+	const current = state?.set ? state.value : other ? effectiveDefault(other, view) : undefined
+	return current === need.is ? '' : need.note
+}
+
+/** A short placeholder for a number box: the typed default, or the words when they fit the box. */
+export function numberPlaceholder(descriptor: ConfigSettingDescriptor): string {
+	const unit = descriptor.control.kind === 'number' ? descriptor.control.unit : undefined
+	if (typeof descriptor.default === 'number') return displayNumber(descriptor.default, unit)
+	const words = descriptor.defaultText ?? ''
+	return words.length <= 12 ? words : 'default'
 }
 
 /** Search entries for every engine setting, so the page's search finds them with the rest. */

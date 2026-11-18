@@ -653,7 +653,8 @@
 	font: inherit;
 	font-size: var(--text-small);
 }
-input.settings-config-input[type="number"] {
+input.settings-config-input[type="number"],
+input.settings-config-number {
 	width: 140px;
 	font-variant-numeric: tabular-nums;
 }

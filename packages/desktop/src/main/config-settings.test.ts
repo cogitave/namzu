@@ -170,3 +170,65 @@ describe('changing an engine setting', () => {
 		)
 	})
 })
+
+describe('asking only for the risky direction', () => {
+	const modes = {
+		path: 'permissions.defaultMode',
+		label: 'Mode',
+		description: 'x',
+		section: 'projects' as const,
+		control: {
+			kind: 'select' as const,
+			options: ['prompt', 'plan', 'accept-edits', 'bypass', 'auto', 'strict'].map((value) => ({
+				value,
+				label: value,
+			})),
+		},
+		confirm: 'Some modes act without asking.',
+		confirmValues: ['accept-edits', 'bypass', 'auto'],
+		default: 'prompt',
+	}
+	const profile = {
+		path: 'browser.defaultProfile',
+		label: 'Profile',
+		description: 'x',
+		section: 'tools' as const,
+		control: { kind: 'text' as const },
+		confirm: 'That profile holds sign-ins.',
+		default: 'default',
+	}
+	const make = (saved: { path: string; set: boolean; value?: unknown }[] = []) => {
+		const v: ConfigSettingsView = { file: '/x', descriptors: [modes, profile], settings: saved }
+		const write = vi.fn(async () => v)
+		return {
+			write,
+			settings: new ConfigSettings({ read: async () => v, write, validate: async () => {} }),
+		}
+	}
+	it('does not ask when moving to a safer mode, and asks for each wider one', async () => {
+		const { settings } = make()
+		for (const safer of ['prompt', 'plan', 'strict'])
+			expect(
+				(await settings.change('w', { path: 'permissions.defaultMode', value: safer })).status,
+			).toBe('saved')
+		for (const wider of ['accept-edits', 'bypass', 'auto'])
+			expect(
+				(await settings.change('w', { path: 'permissions.defaultMode', value: wider })).status,
+			).toBe('confirm')
+	})
+	it('does not ask to save the value a setting already holds', async () => {
+		const { settings } = make([{ path: 'browser.defaultProfile', set: true, value: 'work' }])
+		expect(
+			(await settings.change('w', { path: 'browser.defaultProfile', value: 'work' })).status,
+		).toBe('saved')
+		expect(
+			(await settings.change('w', { path: 'browser.defaultProfile', value: 'other' })).status,
+		).toBe('confirm')
+		// unset: the default is what it holds
+		const fresh = make()
+		expect(
+			(await fresh.settings.change('w', { path: 'browser.defaultProfile', value: 'default' }))
+				.status,
+		).toBe('saved')
+	})
+})

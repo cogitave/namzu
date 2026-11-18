@@ -12,9 +12,13 @@ import {
 	defaultLabel,
 	defaultNote,
 	defaultToggle,
+	displayNumber,
 	effectiveDefault,
 	jsonText,
 	numberFromText,
+	numberPlaceholder,
+	rangeText,
+	requirementNote,
 	stateFor,
 } from './config-settings-model.js'
 import { SettingsConfirmDialog } from './settings-confirm-dialog.js'
@@ -85,7 +89,10 @@ function ConfigRow({
 		control.kind === 'select' ? control.options.find((o) => o.value === chosen)?.help : undefined
 	const meta = [
 		optionHelp,
+		control.kind === 'number' ? rangeText(control) : '',
 		state?.set ? '' : defaultNote(descriptor, view),
+		requirementNote(descriptor, view),
+		control.kind === 'file-only' && view.file ? `Config file: ${view.file}.` : '',
 		appliesLine(descriptor),
 	]
 		.filter(Boolean)
@@ -257,7 +264,8 @@ function NumberInput({
 	config: ConfigSettingsControls
 }) {
 	const id = useId()
-	const saved = typeof value === 'number' ? String(value) : ''
+	const saved = typeof value === 'number' ? displayNumber(value, control.unit) : ''
+	const typed = control.unit === 'ms' || control.unit === 'tokens'
 	const [draft, setDraft] = useState<string>()
 	const [local, setLocal] = useState('')
 	const text = draft ?? saved
@@ -272,25 +280,24 @@ function NumberInput({
 		<span className="settings-config-field">
 			<input
 				id={id}
-				type="number"
-				inputMode="numeric"
-				className="settings-config-input"
+				type={typed ? 'text' : 'number'}
+				inputMode={typed ? 'text' : 'numeric'}
+				className="settings-config-input settings-config-number"
 				aria-label={descriptor.label}
 				value={text}
-				placeholder={
-					typeof descriptor.default === 'number'
-						? String(descriptor.default)
-						: (descriptor.defaultText ?? '')
-				}
-				min={control.min}
-				max={control.max}
+				placeholder={numberPlaceholder(descriptor)}
+				spellCheck={false}
+				min={typed ? undefined : control.min}
+				max={typed ? undefined : control.max}
 				onChange={(event) => setDraft(event.target.value)}
 				onBlur={() => void commit()}
 				onKeyDown={(event) => {
 					if (event.key === 'Enter') void commit()
 				}}
 			/>
-			{control.unit && <span className="settings-config-unit">{control.unit}</span>}
+			{control.unit && control.unit !== 'ms' && (
+				<span className="settings-config-unit">{control.unit}</span>
+			)}
 			{local && (
 				<span role="alert" className="settings-error settings-config-error">
 					{local}

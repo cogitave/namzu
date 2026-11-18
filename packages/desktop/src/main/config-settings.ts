@@ -27,11 +27,16 @@ function changeKey(path: string, value: unknown): string {
 function needsConfirmation(entry: ConfigSettingDescriptor, value: unknown): boolean {
 	if (!entry.confirm) return false
 	if (value === undefined) return true
+	if (entry.confirmValues !== undefined) return entry.confirmValues.includes(value as string)
 	if (entry.confirmValue !== undefined) return value === entry.confirmValue
 	if (!entry.confirmWhen) return true
 	if (entry.confirmWhen === 'zero') return value === 0
 	if (typeof value !== 'boolean') return true
 	return value === (entry.confirmWhen === 'on')
+}
+
+function sameValue(a: unknown, b: unknown): boolean {
+	return JSON.stringify(a) === JSON.stringify(b)
 }
 
 /**
@@ -57,7 +62,12 @@ export class ConfigSettings {
 		const view = await this.deps.read()
 		const entry = view.descriptors.find((d) => d.path === change.path)
 		if (!entry) throw new Error('That is not a setting Namzu can change here.')
-		if (needsConfirmation(entry, change.value)) {
+		// Saving what the setting already holds changes nothing, so it never asks.
+		const state = view.settings.find((s) => s.path === change.path)
+		const current = state?.set ? state.value : entry.default
+		const unchanged =
+			change.value !== undefined && current !== undefined && sameValue(current, change.value)
+		if (!unchanged && needsConfirmation(entry, change.value)) {
 			const key = changeKey(change.path, change.value)
 			if (token === undefined) {
 				// A value the engine would refuse never costs a dialog.

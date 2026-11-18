@@ -40,6 +40,16 @@ export class TrustedFolderStore {
 		next[path] = { ...fingerprint, at: (this.options.now?.() ?? new Date()).toISOString() }
 		const keys = Object.keys(next)
 		for (const key of keys.slice(0, Math.max(0, keys.length - MAX_FOLDERS))) delete next[key]
+		this.save(next)
+	}
+	/** Forgets a folder, so adding it back is a first trust again. A folder not listed changes nothing. */
+	delete(path: string): void {
+		if (!(path in this.records)) return
+		const next = { ...this.records }
+		delete next[path]
+		this.save(next)
+	}
+	private save(next: Record<string, TrustedFolderRecord>): void {
 		try {
 			mkdirSync(dirname(this.file), { recursive: true, mode: 0o700 })
 			const temporary = `${this.file}.${process.pid}.${randomUUID()}.tmp`
@@ -89,10 +99,12 @@ export interface FolderTrustGuard {
 	check(path: string): Promise<string[]>
 	/** Desktop granted trust to the folder as it is now. */
 	record(path: string): Promise<void>
+	/** The folder left Desktop: drop what was recorded about it, so adding it back starts fresh. */
+	forget(path: string): void
 }
 
 export function createFolderTrustGuard(deps: {
-	store: Pick<TrustedFolderStore, 'get' | 'set'>
+	store: Pick<TrustedFolderStore, 'get' | 'set' | 'delete'>
 	enabled: () => boolean
 	canonical?: (path: string) => string
 	fingerprint?: (path: string) => Promise<FolderFingerprint>
@@ -119,6 +131,9 @@ export function createFolderTrustGuard(deps: {
 		async record(path) {
 			const key = canonical(path)
 			deps.store.set(key, await fingerprint(key))
+		},
+		forget(path) {
+			deps.store.delete(canonical(path))
 		},
 	}
 }

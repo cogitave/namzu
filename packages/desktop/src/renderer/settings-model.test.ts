@@ -181,6 +181,7 @@ describe('projects', () => {
 		expect(copy.title).toBe('Remove \u201cApp\u201d from Namzu?')
 		expect(copy.description).toContain('\u201cApp\u201d')
 		expect(copy.description).toContain('off Namzu\u2019s trusted list')
+		expect(copy.description).toContain('forgets what this app recorded about it')
 		expect(copy.description).toContain('asks again if you add it back')
 		expect(copy.description).toContain(
 			'Files on your computer and existing conversations won\u2019t be deleted',

@@ -1998,6 +1998,7 @@ export class Operator {
 			this.attachmentPreviews.forget(id)
 		}
 		this.attentionChanged()
+		this.forgetFolderRecord(missing.path)
 		this.missingProjects.delete(projectId)
 		this.unopenedProjects.delete(projectId)
 		for (const [path, id] of this.relocations) if (id === projectId) this.relocations.delete(path)
@@ -2656,6 +2657,14 @@ export class Operator {
 	 * the folder and the conversation journals stay, so opening the folder again lists its
 	 * conversations. Refused while any work in the project is still running.
 	 */
+	/** Drops Desktop's own record of a folder's automatic settings; a failure here never blocks a removal. */
+	private forgetFolderRecord(path: string): void {
+		try {
+			this.folderGuard?.forget(path)
+		} catch (error) {
+			this.diagnostics?.record('ipc_failed', { operation: 'forgetFolderRecord', error })
+		}
+	}
 	async removeProject(projectId: unknown): Promise<ProjectRemovalResult> {
 		if (this.closing) throw new Error('Namzu is closing.')
 		if (typeof projectId !== 'string' || !projectId.trim() || projectId.length > 400)
@@ -2744,6 +2753,7 @@ export class Operator {
 			}
 			// Leave the map first so the connection's own close is not reported as a failure.
 			this.projects.delete(projectId)
+			this.forgetFolderRecord(view.path)
 			this.undoRetries.drop(projectId)
 			this.backgroundWork.invalidateProject(projectId)
 			try {

@@ -58,6 +58,7 @@ import {
 import { Row, Switch } from './settings-row.js'
 import type { Appearance } from './sidebar.js'
 import { Button } from './ui/button.js'
+import { useClock } from './use-clock.js'
 import { type ConfigSettingsControls, useConfigSettings } from './use-config-settings.js'
 import type { DesktopSettingsControls } from './use-desktop-settings.js'
 import { useEngineDelivery } from './use-engine-delivery.js'
@@ -678,14 +679,28 @@ function AppearanceSection({ appearance, onAppearanceChange, settings }: Setting
 	)
 }
 
-function UpdatesSection({ update, settings, now, engineTarget, hasAppUpdater }: SectionProps) {
+function UpdatesSection({
+	update,
+	settings,
+	now: renderedAt,
+	engineTarget,
+	hasAppUpdater,
+}: SectionProps) {
 	const engines = useEngineUpdates()
+	// The page's own clock, so "Last checked" moves while the section stays open.
+	const ticked = useClock(true)
+	const opened = useRef({ page: renderedAt, clock: ticked })
+	// The time the page gave when this section opened, moved on by the clock since, so it keeps
+	// moving while nothing else re-renders the page.
+	const now = Math.max(renderedAt, opened.current.page + (ticked - opened.current.clock))
 	if (!update && !engines)
 		return <p className="settings-empty">Updates are managed outside this window in this build.</p>
-	const view = update ? updateStatusView(update.state) : undefined
+	const checkedAt = Math.max(update?.info?.lastCheckedAt ?? 0, engines?.state.checkedAt ?? 0)
+	const view = update
+		? updateStatusView(update.state, (update.info?.lastCheckedAt ?? 0) > 0)
+		: undefined
 	const checking = engines?.state.checking === true
 	const canCheck = (view?.canCheck ?? false) || (engines !== undefined && !checking)
-	const checkedAt = Math.max(update?.info?.lastCheckedAt ?? 0, engines?.state.checkedAt ?? 0)
 	const check = () => {
 		if (view?.canCheck) update?.onCheck()
 		engines?.check()

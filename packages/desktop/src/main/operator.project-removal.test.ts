@@ -7,6 +7,7 @@ import { afterEach, expect, it } from 'vitest'
 import type { DesktopEvent } from '../shared/protocol.js'
 import { DesktopConversationStore } from './desktop-conversation-store.js'
 import { Operator } from './operator.js'
+import type { FolderTrustGuard } from './trusted-folders.js'
 
 const owners: Operator[] = []
 const directories: string[] = []
@@ -21,7 +22,7 @@ const folder = async () => {
 	return path
 }
 
-async function setup(env: NodeJS.ProcessEnv = {}, extraSaved = true) {
+async function setup(env: NodeJS.ProcessEnv = {}, extraSaved = true, guard?: FolderTrustGuard) {
 	const root = await mkdtemp(join(tmpdir(), 'namzu-project-removal-'))
 	directories.push(root)
 	const path = await folder()
@@ -61,6 +62,10 @@ async function setup(env: NodeJS.ProcessEnv = {}, extraSaved = true) {
 			bus.emit('event', event)
 		},
 		root,
+		undefined,
+		undefined,
+		undefined,
+		guard,
 	)
 	owners.push(owner)
 	const project = await owner.openProject(path)
@@ -115,6 +120,19 @@ it('removes the project everywhere, untrusts only its folder, and keeps files an
 	expect(owner.restoredProjectPaths(['saved'])).toEqual([])
 	await expect(owner.listConversations('project')).rejects.toThrow()
 	await expect(owner.removeProject('project')).rejects.toThrow('no longer in Namzu')
+})
+
+it("forgets the folder in Desktop's own trusted-folder record, not only in the engine's list", async () => {
+	const forgotten: string[] = []
+	const { owner, project, path } = await setup({}, true, {
+		check: async () => [],
+		record: async () => {},
+		forget: (folder) => {
+			forgotten.push(folder)
+		},
+	})
+	await owner.removeProject(project.id)
+	expect(forgotten).toEqual([path])
 })
 
 it('lists the conversations again when the same folder is added back, under a new project id', async () => {
