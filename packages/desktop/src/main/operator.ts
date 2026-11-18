@@ -22,6 +22,13 @@ import {
 import { resolveComposerSendOptions } from '../shared/composer-send-options.js'
 import { COMPUTER_FRAME_NOTIFICATION, readComputerFrame } from '../shared/computer-protocol.js'
 import {
+	type InstalledSkillsView,
+	type UserMcpServerChange,
+	type UserMcpServersView,
+	readInstalledSkills,
+	readUserMcpServersView,
+} from '../shared/config-lists-protocol.js'
+import {
 	type ConfigSettingsView,
 	readConfigSettingsView,
 } from '../shared/config-settings-protocol.js'
@@ -1034,6 +1041,50 @@ export class Operator {
 		} catch {
 			// A folder that cannot be watched only costs the refresh on focus.
 		}
+	}
+	/**
+	 * The skills the engine finds: for a project, as that project's engine sees them (built-in, the
+	 * person's and the project's); with no project, the person's own. Names and tiers only. Null
+	 * where the engine does not know the question.
+	 */
+	async installedSkills(projectId?: unknown): Promise<InstalledSkillsView | null> {
+		let client: RuntimeClient
+		const project =
+			projectId === undefined || projectId === null ? undefined : this.project(projectId)
+		if (project && !project.view.palId) client = project.client
+		else client = await this.registry(false)
+		if (!client.supportsSkillsList()) return null
+		const result = await client.request('namzu/skills/list', {})
+		if (project && !project.view.palId && this.projects.get(project.view.id) !== project)
+			return null
+		return readInstalledSkills(result)
+	}
+	private async userServersHost(): Promise<RuntimeClient> {
+		const client = await this.registry(false)
+		if (!client.supportsUserMcpServers())
+			throw new Error('Update Namzu to a version that can change tool servers here.')
+		return client
+	}
+	/** The tool servers in the person's own config file, as the form edits them. */
+	async userMcpServers(): Promise<UserMcpServersView> {
+		const client = await this.userServersHost()
+		return readUserMcpServersView(await client.request('namzu/mcp/user-servers', {}))
+	}
+	async saveUserMcpServer(
+		change: UserMcpServerChange,
+		dryRun: boolean,
+	): Promise<UserMcpServersView> {
+		const client = await this.userServersHost()
+		return readUserMcpServersView(
+			await client.request('namzu/mcp/save-user-server', {
+				...change,
+				...(dryRun ? { dryRun } : {}),
+			}),
+		)
+	}
+	async removeUserMcpServer(name: string): Promise<UserMcpServersView> {
+		const client = await this.userServersHost()
+		return readUserMcpServersView(await client.request('namzu/mcp/remove-user-server', { name }))
 	}
 	async setConfigSetting(path: string, value: unknown): Promise<ConfigSettingsView> {
 		const client = await this.providerHost()

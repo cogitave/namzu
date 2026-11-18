@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { InstalledSkillsView } from '../shared/config-lists-protocol.js'
 import type { ConfigSettingsView } from '../shared/config-settings-protocol.js'
 import type { DesktopApi } from '../shared/protocol.js'
 import { cleanErrorMessage, plainErrorText } from './plain-error.js'
@@ -11,7 +12,20 @@ export interface ConfigSettingConfirmation {
 	message: string
 }
 
+/**
+ * What a list row asks the app for beyond the setting itself: the system folder picker, a check of
+ * which folders exist, and the installed skills. Each is absent when this window has no bridge
+ * for it, and the row then falls back to typing.
+ */
+export interface ConfigListTools {
+	pickFolder?: () => Promise<string | null>
+	existingFolders?: (paths: string[]) => Promise<string[]>
+	installedSkills?: () => Promise<InstalledSkillsView | null>
+}
+
 export interface ConfigSettingsControls {
+	/** What list rows may ask the app for. */
+	tools?: ConfigListTools
 	/** Undefined until the engine answers, or when this window has no engine. */
 	view: ConfigSettingsView | undefined
 	/** Why the list could not be read, in words. Empty once a later read worked. */
@@ -37,9 +51,14 @@ export interface ConfigSettingsControls {
 }
 
 type Api = Pick<DesktopApi, 'configSettings' | 'setConfigSetting'> &
-	Partial<Pick<DesktopApi, 'onEvent'>>
+	Partial<Pick<DesktopApi, 'onEvent' | 'pickFolder' | 'existingFolders' | 'installedSkills'>>
 
-export function useConfigSettings(api: Api | undefined, active: boolean): ConfigSettingsControls {
+export function useConfigSettings(
+	api: Api | undefined,
+	active: boolean,
+	/** The open project, so the skills list is the one that project's engine sees. */
+	projectId?: string,
+): ConfigSettingsControls {
 	const [view, setView] = useState<ConfigSettingsView>()
 	const [loadError, setLoadError] = useState('')
 	const [loading, setLoading] = useState(false)
@@ -157,7 +176,19 @@ export function useConfigSettings(api: Api | undefined, active: boolean): Config
 		if (confirmation) reset(confirmation.path)
 		setConfirmation(undefined)
 	}, [confirmation, reset])
+	const pick = api?.pickFolder
+	const exist = api?.existingFolders
+	const skills = api?.installedSkills
+	const tools = useMemo<ConfigListTools>(
+		() => ({
+			...(pick ? { pickFolder: () => pick() } : {}),
+			...(exist ? { existingFolders: (paths: string[]) => exist(paths) } : {}),
+			...(skills ? { installedSkills: () => skills(projectId) } : {}),
+		}),
+		[pick, exist, skills, projectId],
+	)
 	return {
+		tools,
 		view,
 		loadError,
 		loading: loading && !view,

@@ -156,6 +156,20 @@ describe('Desktop and the terminal read the list and map controls alike', () => 
 			['a', ['a']],
 		])
 			expect(cli.sameSet(a, b)).toBe(values.sameSet(a, b))
+		for (const [current, value] of [
+			[['/a'], ['/a', '/b']],
+			[['/a', '/b'], ['/a']],
+			[
+				['/a', '/b'],
+				['/b', '/a'],
+			],
+			[undefined, ['/a']],
+			[undefined, []],
+			[[], 'x'],
+		] as const)
+			expect(cli.widensList(current, value), JSON.stringify([current, value])).toBe(
+				values.widensList(current, value),
+			)
 		for (const [defaults, value] of [
 			[['correspondence'], []],
 			[['correspondence'], ['correspondence', 'injection']],

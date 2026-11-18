@@ -70,7 +70,13 @@ export type ConfigSettingControl =
 			options: ConfigSettingOption[]
 			passthrough: { screen: string; field: string; label: string; placeholder?: string }
 	  }
-	| { kind: 'list'; itemLabel: string; placeholder?: string; picker?: 'folder' }
+	| {
+			kind: 'list'
+			itemLabel: string
+			placeholder?: string
+			picker?: 'folder'
+			source?: 'skills'
+	  }
 	| { kind: 'number'; min?: number; max?: number; unit?: string }
 	| { kind: 'text'; placeholder?: string }
 	| { kind: 'json'; example: string }
@@ -101,7 +107,7 @@ export interface ConfigSettingDescriptor {
 	appliesWhen?: ConfigSettingAppliesWhen
 	confirm?: string
 	/** Which new value asks: `on`/`off` for a toggle, `zero` for a cap. Absent: every change asks. */
-	confirmWhen?: 'on' | 'off' | 'zero' | 'drops-default'
+	confirmWhen?: 'on' | 'off' | 'zero' | 'drops-default' | 'widens'
 	/** For a select, the one new value that asks. Absent: every change asks. */
 	confirmValue?: string
 	/** For a select with several risky values, each one that asks. A clear asks only if the default is one of them. */
@@ -245,6 +251,7 @@ function control(value: unknown): ConfigSettingControl | undefined {
 						itemLabel: c.itemLabel,
 						...(typeof c.placeholder === 'string' ? { placeholder: c.placeholder } : {}),
 						...(c.picker === 'folder' ? { picker: 'folder' as const } : {}),
+						...(c.source === 'skills' ? { source: 'skills' as const } : {}),
 					}
 				: undefined
 		case 'number':
@@ -328,7 +335,8 @@ export function readConfigSettingsView(value: unknown): ConfigSettingsView {
 			...(d.confirmWhen === 'on' ||
 			d.confirmWhen === 'off' ||
 			d.confirmWhen === 'zero' ||
-			d.confirmWhen === 'drops-default'
+			d.confirmWhen === 'drops-default' ||
+			d.confirmWhen === 'widens'
 				? { confirmWhen: d.confirmWhen }
 				: {}),
 			...(typeof d.confirmValue === 'string' ? { confirmValue: d.confirmValue } : {}),

@@ -85,8 +85,18 @@ const view: ConfigSettingsView = {
 			control: { kind: 'json', example: '{}' },
 			confirm: 'Rules can let tools run.',
 		},
+		{
+			path: 'additionalDirectories',
+			label: 'Folders',
+			description: 'x',
+			section: 'projects',
+			control: { kind: 'list', itemLabel: 'folder', picker: 'folder' },
+			default: [],
+			confirm: 'Namzu will be able to reach this folder in every project.',
+			confirmWhen: 'widens',
+		},
 	],
-	settings: [],
+	settings: [{ path: 'additionalDirectories', set: true, value: ['/a', '/b'] }],
 }
 
 function build() {
@@ -372,5 +382,39 @@ describe('confirmation for the list controls', () => {
 			).status,
 		).toBe('saved')
 		expect((await settings.change('w1', { path })).status).toBe('saved')
+	})
+})
+
+describe('the extra folders ask only when one is added', () => {
+	it('asks for a folder that is new, and writes nothing until confirmed', async () => {
+		const { settings, write } = build()
+		const added = await settings.change('w1', {
+			path: 'additionalDirectories',
+			value: ['/a', '/b', '/c'],
+		})
+		expect(added.status).toBe('confirm')
+		expect(write).not.toHaveBeenCalled()
+		if (added.status !== 'confirm') return
+		expect(
+			(
+				await settings.change(
+					'w1',
+					{ path: 'additionalDirectories', value: ['/a', '/b', '/c'] },
+					added.token,
+				)
+			).status,
+		).toBe('saved')
+	})
+
+	it('saves a removal, a reorder and a clear at once', async () => {
+		const { settings, write } = build()
+		for (const value of [['/a'], ['/b', '/a'], undefined]) {
+			const result = await settings.change('w1', {
+				path: 'additionalDirectories',
+				...(value ? { value } : {}),
+			})
+			expect(result.status).toBe('saved')
+		}
+		expect(write).toHaveBeenCalledTimes(3)
 	})
 })

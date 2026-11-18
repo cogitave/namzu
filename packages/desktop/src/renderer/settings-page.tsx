@@ -71,6 +71,7 @@ import type { LocalListeningControls } from './use-local-listening.js'
 import type { LocalSpeechControls } from './use-local-speech.js'
 import { useMcpServers } from './use-mcp-servers.js'
 import { useProviderConnections } from './use-provider-connections.js'
+import { useUserMcpServers } from './use-user-mcp-servers.js'
 import './settings-page.css'
 
 const SECTION_ICONS: Record<SettingsSection, IconComponent> = {
@@ -226,9 +227,17 @@ interface SettingsSearch {
 	hasAppUpdater: boolean
 }
 
-function useSettingsSearch(query: string, update: SettingsPageProps['update']): SettingsSearch {
+function useSettingsSearch(
+	query: string,
+	update: SettingsPageProps['update'],
+	projectId?: string,
+): SettingsSearch {
 	const shells = useTerminalShells()
-	const config = useConfigSettings(typeof window === 'undefined' ? undefined : window.namzu, true)
+	const config = useConfigSettings(
+		typeof window === 'undefined' ? undefined : window.namzu,
+		true,
+		projectId,
+	)
 	const delivery = useEngineDelivery()
 	// A row that does nothing here is neither shown nor found by search.
 	const hasAppUpdater = update !== undefined && update.state.status !== 'disabled'
@@ -248,7 +257,7 @@ function useSettingsSearch(query: string, update: SettingsPageProps['update']): 
 
 /** The page's content on its own: the search is typed elsewhere and passed in as `query`. */
 export function SettingsPage(props: SettingsPageProps & { query?: string }) {
-	const search = useSettingsSearch(props.query ?? '', props.update)
+	const search = useSettingsSearch(props.query ?? '', props.update, props.engineTarget?.projectId)
 	return <SettingsContent {...props} search={search} />
 }
 
@@ -440,7 +449,7 @@ function SettingsDialogLayout({
 	searchRef: React.RefObject<HTMLInputElement | null>
 }) {
 	const [query, setQuery] = useState('')
-	const search = useSettingsSearch(query, props.update)
+	const search = useSettingsSearch(query, props.update, props.engineTarget?.projectId)
 	const searching = query.trim().length > 0
 	// biome-ignore lint/correctness/useExhaustiveDependencies: an ask from outside is the trigger
 	useEffect(() => setQuery(''), [props.section, props.focusId, props.request])
@@ -526,9 +535,11 @@ function McpServersContainer({ engineTarget, projects }: SectionProps) {
 	const bridge = typeof window === 'undefined' ? undefined : window.namzu
 	const projectId = engineTarget?.projectId
 	const servers = useMcpServers(bridge, projectId)
+	const own = useUserMcpServers(bridge, servers.reload)
 	return (
 		<McpServersRows
 			servers={servers}
+			own={own}
 			projectName={projects.find((project) => project.id === projectId)?.name}
 		/>
 	)

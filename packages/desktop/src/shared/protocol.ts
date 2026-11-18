@@ -12,6 +12,12 @@ import type { BrowserPaneRequest, BrowserPaneState } from './browser-pane.js'
 import type { CommitOutcomeView, CommitPreviewView, CommitRequestView } from './commit-protocol.js'
 import type { ComputerAppsView, ComputerFrameView } from './computer-protocol.js'
 import type {
+	InstalledSkillsView,
+	UserMcpServerChange,
+	UserMcpServerResult,
+	UserMcpServersView,
+} from './config-lists-protocol.js'
+import type {
 	ConfigSettingChange,
 	ConfigSettingResult,
 	ConfigSettingsView,
@@ -1006,6 +1012,17 @@ export interface DesktopApi {
 	/** Settings the engine owns (limits, tools, sandbox, ...); the engine describes and validates them. */
 	configSettings?(): Promise<ConfigSettingsView>
 	setConfigSetting?(change: ConfigSettingChange, token?: string): Promise<ConfigSettingResult>
+	/** The system folder picker; the chosen folder's path, or null when the person cancels. */
+	pickFolder?(): Promise<string | null>
+	/** Which of these folders exist (a folder, not a file), asked with absolute paths only. */
+	existingFolders?(paths: string[]): Promise<string[]>
+	/** The installed skills (names and where they live), for a project or the person's own; null where the engine cannot say. */
+	installedSkills?(projectId?: string): Promise<InstalledSkillsView | null>
+	/** The tool servers in the person's own config file, as the Settings form edits them. */
+	userMcpServers?(): Promise<UserMcpServersView>
+	/** Adds or edits one; a server that runs a command is answered with a question first. */
+	saveUserMcpServer?(change: UserMcpServerChange, token?: string): Promise<UserMcpServerResult>
+	removeUserMcpServer?(name: string): Promise<UserMcpServersView>
 	desktopInfo?(): Promise<DesktopInfo>
 	/** Opens one of the app's own data folders in the file manager. */
 	openDataFolder?(kind: DataFolderKind): Promise<void>

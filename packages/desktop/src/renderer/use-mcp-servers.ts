@@ -12,6 +12,8 @@ export interface McpServersControls {
 	approving: boolean
 	supported: boolean
 	approve: () => Promise<void>
+	/** Reads the list again, for after the person's own servers change. */
+	reload?: () => void
 }
 
 /** What was last read, and for which project: a list never shows under another project's name. */
@@ -137,5 +139,8 @@ export function useMcpServers(
 		approving,
 		supported,
 		approve,
+		reload: () => {
+			if (reader && projectId) reader.load(projectId)
+		},
 	}
 }

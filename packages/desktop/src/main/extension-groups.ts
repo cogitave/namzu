@@ -29,6 +29,12 @@ export const OPTIONAL_EXTENSION_GROUPS = {
 	projectCommit: ['namzu/project/commit-preview', 'namzu/project/commit'],
 	projectPr: ['namzu/project/pr'],
 	mcpServers: ['namzu/mcp/servers', 'namzu/mcp/approve'],
+	userMcpServers: [
+		'namzu/mcp/user-servers',
+		'namzu/mcp/save-user-server',
+		'namzu/mcp/remove-user-server',
+	],
+	skillsList: ['namzu/skills/list'],
 	hooksView: ['namzu/hooks/list'],
 	conversationSearch: ['namzu/conversations/search'],
 	projectUntrust: ['namzu/project/untrust'],

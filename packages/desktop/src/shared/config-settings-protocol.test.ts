@@ -93,6 +93,18 @@ describe('the list and map controls', () => {
 			itemLabel: 'folder',
 			picker: 'folder',
 		})
+		expect(view({ kind: 'list', itemLabel: 'skill name', source: 'skills' })?.control).toEqual({
+			kind: 'list',
+			itemLabel: 'skill name',
+			source: 'skills',
+		})
+		expect(view({ kind: 'list', itemLabel: 'x', source: 'other' })?.control).toEqual({
+			kind: 'list',
+			itemLabel: 'x',
+		})
+		expect(
+			view({ kind: 'list', itemLabel: 'folder' }, { confirmWhen: 'widens' })?.confirmWhen,
+		).toBe('widens')
 		expect(view({ kind: 'checks', options, allLabel: 'All', emptyNote: 'None.' })?.control).toEqual(
 			{
 				kind: 'checks',

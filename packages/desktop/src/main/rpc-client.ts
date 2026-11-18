@@ -97,6 +97,16 @@ export class RuntimeClient extends EventEmitter {
 	supportsMcpServers(): boolean {
 		return this.mcpServers
 	}
+	private userMcpServers = false
+	/** A host that predates the Settings form for tool servers lacks its three methods. */
+	supportsUserMcpServers(): boolean {
+		return this.userMcpServers
+	}
+	private skillsList = false
+	/** A host that predates the skills list does not list `namzu/skills/list`. */
+	supportsSkillsList(): boolean {
+		return this.skillsList
+	}
 	private hooksView = false
 	/** A host that predates the hooks view does not list `namzu/hooks/list`. */
 	supportsHooksView(): boolean {
@@ -348,6 +358,8 @@ export class RuntimeClient extends EventEmitter {
 		this.projectCommit = offers('projectCommit')
 		this.projectPr = offers('projectPr')
 		this.mcpServers = offers('mcpServers')
+		this.userMcpServers = offers('userMcpServers')
+		this.skillsList = offers('skillsList')
 		this.hooksView = offers('hooksView')
 		this.conversationSearch = offers('conversationSearch')
 		this.projectUntrust = offers('projectUntrust')

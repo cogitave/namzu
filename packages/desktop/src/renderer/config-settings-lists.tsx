@@ -1,4 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import type { InstalledSkillsView } from '../shared/config-lists-protocol.js'
+import {
+	addFolder,
+	missingFolders,
+	skillSwitchRows,
+	skillsDisabledValue,
+	withoutItem,
+} from '../shared/config-lists-values.js'
 import type {
 	ConfigSettingControl,
 	ConfigSettingDescriptor,
@@ -283,8 +291,232 @@ export function ListEditor({
 	)
 }
 
-/** The list kind: a saved list of words. A picker other than typing is the caller's to add. */
-export function WordList({
+/** Folders, one per line with Remove; a folder that is not there is flagged. */
+export function FolderListView({
+	label,
+	items,
+	missing,
+	canPick,
+	disabled,
+	onAdd,
+	onRemove,
+}: {
+	label: string
+	items: readonly string[]
+	missing: ReadonlySet<string>
+	canPick: boolean
+	disabled?: boolean
+	onAdd: () => void
+	onRemove: (item: string) => void
+}) {
+	return (
+		<div className="settings-config-list">
+			{items.length > 0 && (
+				<ul className="settings-config-items" aria-label={label}>
+					{items.map((item) => (
+						<li key={item} data-missing={missing.has(item) || undefined}>
+							<span className="settings-config-item">
+								{item}
+								{missing.has(item) && (
+									<span className="settings-config-flag">This folder was not found.</span>
+								)}
+							</span>
+							<Button
+								variant="ghost-muted"
+								size="xs"
+								disabled={disabled}
+								aria-label={`Remove ${item}`}
+								onClick={() => onRemove(item)}
+							>
+								Remove
+							</Button>
+						</li>
+					))}
+				</ul>
+			)}
+			{items.length === 0 && <p className="settings-note">No extra folders.</p>}
+			{canPick && (
+				<span className="settings-config-field">
+					<Button variant="outline" size="sm" disabled={disabled} onClick={onAdd}>
+						Add folder
+					</Button>
+				</span>
+			)}
+		</div>
+	)
+}
+
+/** The extra folders, added through the system folder picker. */
+export function FolderList({
+	descriptor,
+	value,
+	config,
+}: {
+	descriptor: ConfigSettingDescriptor
+	value: unknown
+	config: ConfigSettingsControls
+}) {
+	const items = Array.isArray(value) ? (value as string[]) : []
+	const pick = config.tools?.pickFolder
+	const check = config.tools?.existingFolders
+	const [found, setFound] = useState<string[]>()
+	const [pickError, setPickError] = useState('')
+	const key = JSON.stringify(items)
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the list is read through its key
+	useEffect(() => {
+		if (!check || items.length === 0) return setFound(undefined)
+		let current = true
+		check(items).then(
+			(answer) => current && setFound(answer),
+			() => current && setFound(undefined),
+		)
+		return () => {
+			current = false
+		}
+	}, [check, key])
+	return (
+		<>
+			<FolderListView
+				label={descriptor.label}
+				items={items}
+				missing={missingFolders(items, found)}
+				canPick={pick !== undefined}
+				onAdd={() => {
+					if (!pick) return
+					setPickError('')
+					pick().then(
+						(picked) => {
+							if (picked) void config.change(descriptor.path, addFolder(items, picked))
+						},
+						() => setPickError('The folder picker did not open.'),
+					)
+				}}
+				onRemove={(item) => {
+					const next = withoutItem(items, item)
+					void (next.length === 0
+						? config.change(descriptor.path)
+						: config.change(descriptor.path, next))
+				}}
+			/>
+			{pickError && (
+				<p role="alert" className="settings-error settings-config-error">
+					{pickError}
+				</p>
+			)}
+		</>
+	)
+}
+
+/** The installed skills with a switch each, and the names in the file that no skill has. */
+export function SkillSwitchesView({
+	label,
+	rows,
+	onSwitch,
+	onRemoveUnknown,
+}: {
+	label: string
+	rows: ReturnType<typeof skillSwitchRows>
+	onSwitch: (name: string, on: boolean) => void
+	onRemoveUnknown: (name: string) => void
+}) {
+	return (
+		<div className="settings-config-list">
+			{rows.installed.length === 0 && rows.unknown.length === 0 && (
+				<p className="settings-note">No skills are installed.</p>
+			)}
+			<ul className="settings-config-items" aria-label={label}>
+				{rows.installed.map((skill) => (
+					<li key={skill.name} data-off={!skill.on || undefined}>
+						<span className="settings-config-item">
+							{skill.name}
+							<span className="settings-config-help">
+								{skill.on ? skill.where : `${skill.where} · Off`}
+							</span>
+						</span>
+						<Switch
+							label={`Use ${skill.name}`}
+							checked={skill.on}
+							onChange={(on) => onSwitch(skill.name, on)}
+						/>
+					</li>
+				))}
+				{rows.unknown.map((name) => (
+					<li key={`unknown:${name}`} data-off>
+						<span className="settings-config-item">
+							{name}
+							<span className="settings-config-help">Off. No installed skill has this name.</span>
+						</span>
+						<Button
+							variant="ghost-muted"
+							size="xs"
+							aria-label={`Remove ${name}`}
+							onClick={() => onRemoveUnknown(name)}
+						>
+							Remove
+						</Button>
+					</li>
+				))}
+			</ul>
+		</div>
+	)
+}
+
+/** Reads the installed skills once per page and per project; null while unread or unavailable. */
+function useInstalledSkills(config: ConfigSettingsControls) {
+	const read = config.tools?.installedSkills
+	const [skills, setSkills] = useState<InstalledSkillsView | null | undefined>()
+	useEffect(() => {
+		if (!read) return
+		let current = true
+		const load = () =>
+			read().then(
+				(answer) => current && setSkills(answer),
+				() => current && setSkills(null),
+			)
+		void load()
+		window.addEventListener('focus', load)
+		return () => {
+			current = false
+			window.removeEventListener('focus', load)
+		}
+	}, [read])
+	return read ? skills : null
+}
+
+export function SkillSwitches({
+	descriptor,
+	control,
+	value,
+	config,
+}: {
+	descriptor: ConfigSettingDescriptor
+	control: Of<'list'>
+	value: unknown
+	config: ConfigSettingsControls
+}) {
+	const skills = useInstalledSkills(config)
+	// An engine that cannot list its skills keeps the typed list.
+	if (skills === null)
+		return <TypedList descriptor={descriptor} control={control} value={value} config={config} />
+	if (skills === undefined) return <p className="settings-note">Reading the installed skills…</p>
+	const save = (next: string[] | undefined) =>
+		void (next === undefined
+			? config.change(descriptor.path)
+			: config.change(descriptor.path, next))
+	return (
+		<SkillSwitchesView
+			label={descriptor.label}
+			rows={skillSwitchRows(skills.skills, value)}
+			onSwitch={(name, on) => save(skillsDisabledValue(value, name, on))}
+			onRemoveUnknown={(name) => {
+				const next = withoutItem(Array.isArray(value) ? (value as string[]) : [], name)
+				save(next.length === 0 ? undefined : next)
+			}}
+		/>
+	)
+}
+
+function TypedList({
 	descriptor,
 	control,
 	value,
@@ -305,6 +537,25 @@ export function WordList({
 			onChange={(next) => config.change(descriptor.path, next)}
 		/>
 	)
+}
+
+/** The list kind: a saved list of words, with a folder picker or the installed skills when named. */
+export function WordList({
+	descriptor,
+	control,
+	value,
+	config,
+}: {
+	descriptor: ConfigSettingDescriptor
+	control: Of<'list'>
+	value: unknown
+	config: ConfigSettingsControls
+}) {
+	if (control.source === 'skills')
+		return <SkillSwitches descriptor={descriptor} control={control} value={value} config={config} />
+	if (control.picker === 'folder' && config.tools?.pickFolder)
+		return <FolderList descriptor={descriptor} value={value} config={config} />
+	return <TypedList descriptor={descriptor} control={control} value={value} config={config} />
 }
 
 /** The screens a tool result passes, and the tools one of them lets through. */

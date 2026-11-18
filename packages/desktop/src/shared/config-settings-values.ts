@@ -50,6 +50,13 @@ export function droppedFromDefault(defaults: unknown, value: unknown): boolean {
 	return wanted.some((name) => !now.includes(name))
 }
 
+/** Whether a new list holds an entry the list now in force lacks. */
+export function widensList(current: unknown, value: unknown): boolean {
+	if (!Array.isArray(value)) return true
+	const held = new Set(Array.isArray(current) ? (current as unknown[]) : [])
+	return value.some((item) => !held.has(item))
+}
+
 /**
  * The value a switch with event checks writes for the ticked events: `false` for none, `true` for
  * exactly the events `true` stands for, otherwise the list in the order the options are drawn.

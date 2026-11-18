@@ -522,3 +522,97 @@ describe('the typed list and map rows, drawn from the real engine list', () => {
 		SLOW_IMPORT_MS,
 	)
 })
+
+describe('the extra folders and the turned-off skills, drawn from the real engine list', () => {
+	const drawReal = async (
+		section: 'projects' | 'agent',
+		over: Partial<ConfigSettingsControls> = {},
+		settings: ConfigSettingsView['settings'] = [],
+	) => {
+		const { SETTING_DESCRIPTORS } = (await import(/* @vite-ignore */ CLI_DESCRIPTORS)) as {
+			SETTING_DESCRIPTORS: readonly { path: string }[]
+		}
+		const { withDefaultText } = (await import(/* @vite-ignore */ CLI_SETTINGS)) as {
+			withDefaultText: (entry: unknown) => unknown
+		}
+		const real = readConfigSettingsView(
+			JSON.parse(
+				JSON.stringify({
+					file: '/x/config.yaml',
+					settings,
+					descriptors: SETTING_DESCRIPTORS.map(withDefaultText),
+				}),
+			),
+		)
+		return renderToStaticMarkup(
+			createElement(ConfigSettingsGroup, { section, config: controls({ view: real, ...over }) }),
+		)
+	}
+	const row = (page: string, path: string) => {
+		const start = page.indexOf(`id="setting-${configSettingId(path)}"`)
+		expect(start, path).toBeGreaterThan(-1)
+		const next = page.indexOf('<div id="setting-', start + 10)
+		return page.slice(start, next === -1 ? undefined : next)
+	}
+	const tools = {
+		pickFolder: async () => '/x',
+		existingFolders: async (paths: string[]) => paths,
+		installedSkills: async () => ({ skills: [] }),
+	}
+
+	it(
+		'draws the folders as lines with Remove and an Add folder button, never a JSON box',
+		async () => {
+			const html = row(
+				await drawReal('projects', { tools }, [
+					{ path: 'additionalDirectories', set: true, value: ['/data/a', '/data/b'] },
+				]),
+				'additionalDirectories',
+			)
+			expect(html).toContain('/data/a')
+			expect(html).toContain('/data/b')
+			expect(html.match(/>Remove</g)?.length).toBe(2)
+			expect(html).toContain('Add folder')
+			expect(html).not.toContain('<textarea')
+			expect(html).toContain('Use default')
+		},
+		SLOW_IMPORT_MS,
+	)
+
+	it(
+		'says there are none by default, and types a folder only where there is no picker',
+		async () => {
+			const withPicker = row(await drawReal('projects', { tools }), 'additionalDirectories')
+			expect(withPicker).toContain('No extra folders.')
+			expect(withPicker).toContain('Default: None.')
+			const typed = row(await drawReal('projects', { tools: {} }), 'additionalDirectories')
+			expect(typed).toContain('aria-label="Add folder"')
+			expect(typed).not.toContain('>Add folder<')
+		},
+		SLOW_IMPORT_MS,
+	)
+
+	it(
+		'draws the skills row from the engine’s list, and keeps the typed list where it has none',
+		async () => {
+			const reading = row(await drawReal('agent', { tools }), 'skills.disabled')
+			expect(reading).toContain('Reading the installed skills')
+			expect(reading).not.toContain('<textarea')
+			const typed = row(await drawReal('agent', { tools: {} }), 'skills.disabled')
+			expect(typed).toContain('aria-label="Add skill name"')
+		},
+		SLOW_IMPORT_MS,
+	)
+
+	it(
+		'no longer draws any of the three as a raw JSON box',
+		async () => {
+			const projects = await drawReal('projects', { tools })
+			const agent = await drawReal('agent', { tools })
+			expect(row(projects, 'additionalDirectories')).not.toContain('<textarea')
+			expect(row(agent, 'skills.disabled')).not.toContain('<textarea')
+			expect(projects).not.toContain('id="setting-cfg-mcpServers"')
+		},
+		SLOW_IMPORT_MS,
+	)
+})

@@ -282,7 +282,7 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		section: 'tools',
 		label: 'Tool servers',
 		description:
-			'The servers that give Namzu more tools in the open project: where each is set up and whether it is running.',
+			'The servers that give Namzu more tools: where each is set up and whether it is running. Add, change or remove the ones in your own settings here.',
 		control: panel,
 		appliesWhen: 'next-conversation',
 		keywords: [

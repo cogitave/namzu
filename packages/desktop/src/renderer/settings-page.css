@@ -1051,3 +1051,25 @@ input.settings-config-number {
 	color: var(--foreground);
 	background: color-mix(in srgb, var(--foreground) 14%, transparent);
 }
+.settings-config-flag {
+	display: block;
+	color: var(--error, var(--destructive-foreground));
+	font-family: inherit;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+}
+.settings-config-items li[data-off] .settings-config-item {
+	color: var(--muted-foreground);
+}
+.mcp-form {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	min-width: 0;
+}
+.mcp-form-field {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	font-size: var(--text-small);
+}

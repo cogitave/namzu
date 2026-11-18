@@ -84,6 +84,7 @@ import {
 	versionRunner,
 } from './engine-updates-system.js'
 import { EngineUpdates } from './engine-updates.js'
+import { existingFolders } from './existing-folders.js'
 import { externalSourceUrl } from './external-url.js'
 import { FolderAccessTokens, canonicalFolder } from './folder-access.js'
 import { FolderAccess } from './folder-access.js'
@@ -152,6 +153,7 @@ import {
 	bakedFeedDeclared,
 	updateFeedFromEnv,
 } from './updater.js'
+import { UserMcpServers } from './user-mcp-servers.js'
 import { viewedTabs, windowsHoldingTab } from './viewed-conversations.js'
 import { VoiceInputManager } from './voice-input.js'
 import {
@@ -1246,6 +1248,26 @@ function register(): void {
 	handleWindow('setConfigSetting', ({ id }, change: unknown, token: unknown) =>
 		configSettings.change(id, change, token),
 	)
+	const userMcpServers = new UserMcpServers({
+		read: () => operator.userMcpServers(),
+		save: (change, dryRun) => operator.saveUserMcpServer(change, dryRun),
+		remove: (name) => operator.removeUserMcpServer(name),
+	})
+	handleWindow('pickFolder', async ({ window }) => {
+		if (!window) return null
+		const picked = await dialog.showOpenDialog(window, {
+			title: 'Add a folder',
+			properties: ['openDirectory'],
+		})
+		return picked.canceled || !picked.filePaths[0] ? null : picked.filePaths[0]
+	})
+	handle('existingFolders', (paths: unknown) => existingFolders(paths))
+	handle('installedSkills', (projectId?: string) => operator.installedSkills(projectId))
+	handle('userMcpServers', () => userMcpServers.read())
+	handleWindow('saveUserMcpServer', ({ id }, change: unknown, token: unknown) =>
+		userMcpServers.save(id, change, token),
+	)
+	handle('removeUserMcpServer', (name: unknown) => userMcpServers.remove(name))
 	handle('desktopInfo', () => desktopInfo())
 	handle('openDataFolder', (kind: unknown) => openDataFolder(kind))
 	handle('openPalFolder', async (id: unknown) => {
