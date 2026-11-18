@@ -29,7 +29,7 @@ therefore cannot reach the loader without a decision about Desktop.
 
 ## List and map controls
 
-A list or a small map is a typed control, not a box of JSON. Each kind has one way to be read from
+A list, a small map or a model is a typed control, not a box of JSON. Each kind has one way to be read from
 Desktop and from `namzu config set`, and one value it writes:
 
 | Kind | Row | What it writes |
@@ -42,6 +42,9 @@ Desktop and from `namzu config set`, and one value it writes:
 | `toggle-list` | `telemetry.sessionExport.redactors`: one switch, *Hide secrets* | On writes `["secrets"]` (the default), off writes `[]` and asks first. `secrets` is the only redactor the engine installs by name. |
 | `list` with `picker: folder` | `additionalDirectories` (Projects, *Extra folders*): one folder per line with Remove, and **Add folder**, which opens the system folder picker | The list of paths, as picked or typed. An empty list removes the key (none is the default). A folder that is not there is flagged on its line (`existingFolders` in the main process answers which of the listed absolute paths are folders; a relative path cannot be told from there and is not flagged). Asks only when a folder is added, never when one is removed. |
 | `list` with `source: skills` | `skills.disabled` (Agent, *Turned-off skills*): every installed skill with a switch | The names of the skills switched off. Off adds the name, on takes it out, an empty list removes the key. The skills come from the engine's own discovery (`namzu/skills/list`): built-in, `~/.agents/skills`, `~/.namzu/skills` and, for a trusted project, the project's tiers; one entry per name, with its tier in words. A name in the file that no installed skill has stays listed with a note and Remove. A host without the method keeps a typed list. |
+| `model` | `smallModel` (Models, *Small model*): a text box that offers the models Desktop already knows | The text as written, `provider/model` when picked from the list, or a bare model id of the provider a conversation runs on; the loader refuses a name with a space in it. Empty puts the default back. When `NAMZU_SMALL_MODEL` is set in the engine's environment the row says so, with its value, and that it is used instead of what is saved (the loader gives the variable priority over the user file; a managed file still wins over both). |
+| `routing` | `routing` (Models, *Automatic routing*): a form with *Default model*, *Fast model*, *Large model*, *How a task is sized* and *Time to decide* in seconds | The table the loader reads, in its order: `default: { provider, model }`, `tiers: { fast, big }`, `strategy` (`yesno` or `score`), `thresholds` and `timeoutMs`. A model written `provider/model` is split at the first slash into the two fields (a model that holds slashes of its own keeps them); fields left empty are left out; seconds become `timeoutMs` (`1.5` is `1500`, from 0.001 to 10); the thresholds the form has no field for stay as they are. Nothing is saved until **Save**. A default with no provider, or no default at all, is refused in the loader's words, and so is removing the default while `model` is `auto`. |
+| `auto-mode` | `permissions.autoMode` (Models, *Auto mode reviewer*): a *Reviewer model* box and four lists, *Always allowed* (`allow`), *Blocked unless you said so* (`softDeny`), *Always blocked* (`hardDeny`) and *Trusted here* (`environment`) | Only the keys that are set, in the order `model`, `allow`, `softDeny`, `hardDeny`, `environment`, under `permissions.autoMode`; nothing else in `permissions` is touched, and an empty table removes `autoMode`. A list left out keeps the built-in rules and the row shows them as one entry, *Built-in rules* (`$defaults`); adding to it writes `[$defaults, <entry>]`, so the built-ins stay; removing that entry writes a list without it (`[]` removes the built-ins); **Use built-in rules** takes the key out. The model is written as `provider/model`, a bare model of the session's provider, or `smallModel` for the side model (offered in the box). Asks first (`confirmWhen: 'loosens'`) when the model changes, when an entry is added to *Always allowed* or *Trusted here*, or when an entry (including the built-ins) is removed from *Blocked unless you said so* or *Always blocked*; the question names the model and each entry. A change that only restricts saves at once. |
 
 `mcpServers` (Tools, *Tool servers*) is not a control of its own: the page draws a row for it, see
 [Tool servers in Settings](desktop.md#tool-servers-in-settings). A `list` without a `picker` or `source` is words
@@ -54,7 +57,9 @@ through the loader's own reader for the whole block, so a list Desktop sends is 
 words if the loader would refuse it. `confirmWhen: 'drops-default'` asks only when a list leaves out
 something the default holds; `confirmWhen: 'widens'` asks only when a list holds an entry the list in
 force lacks (adding a folder asks, removing one does not); on a `toggle-list`, `confirmWhen: 'off'` asks
-when the switch goes to its `off` list.
+when the switch goes to its `off` list; `confirmWhen: 'loosens'` is the auto mode reviewer's rule above.
+
+Model fields offer the models Desktop already lists for its composer and Pal pages (the providers that can answer, `namzu/providers/status`, and each one's list, `namzu/providers/models`), read the first time a model field is used and again after a key is saved or removed; a name that is not in the list is kept as typed. The terminal takes the same value as text (`smallModel`) or JSON (`routing`, `permissions.autoMode`); `namzu config get` prints what each takes.
 
 ## Sections
 

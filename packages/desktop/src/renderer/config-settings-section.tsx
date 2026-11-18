@@ -3,13 +3,17 @@ import type {
 	ConfigSettingDescriptor,
 	ConfigSettingsView,
 } from '../shared/config-settings-protocol.js'
+import { environmentNote } from '../shared/config-settings-values.js'
 import type { SettingsSection } from '../shared/settings-protocol.js'
 import {
+	AutoModeEditor,
 	EventSwitch,
 	KeyPicker,
 	LevelsEditor,
 	ListSwitch,
 	ManyChecks,
+	ModelSetting,
+	RoutingEditor,
 	ScreensEditor,
 	WordList,
 } from './config-settings-lists.js'
@@ -110,6 +114,8 @@ const STACKED_KINDS: readonly string[] = [
 	'levels',
 	'screens',
 	'list',
+	'routing',
+	'auto-mode',
 ]
 
 function ConfigRow({
@@ -132,6 +138,7 @@ function ConfigRow({
 		control.kind === 'number' ? rangeText(control) : '',
 		state?.set ? '' : defaultNote(descriptor, view),
 		requirementNote(descriptor, view),
+		state?.env ? environmentNote(state.env) : '',
 		control.kind === 'file-only' && view.file ? `Config file: ${view.file}.` : '',
 		appliesLine(descriptor),
 	]
@@ -309,6 +316,16 @@ function Control({
 					value={value}
 					config={config}
 				/>
+			)
+		case 'model':
+			return (
+				<ModelSetting descriptor={descriptor} control={control} value={value} config={config} />
+			)
+		case 'routing':
+			return <RoutingEditor descriptor={descriptor} value={value} config={config} />
+		case 'auto-mode':
+			return (
+				<AutoModeEditor descriptor={descriptor} control={control} value={value} config={config} />
 			)
 		case 'json':
 			return (

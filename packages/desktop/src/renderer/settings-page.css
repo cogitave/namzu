@@ -870,6 +870,19 @@ input.settings-config-number {
 	flex: none;
 	width: 168px;
 }
+.settings-config-levels .settings-config-model {
+	flex: none;
+	width: 240px;
+	max-width: 100%;
+}
+.settings-config-model {
+	width: min(320px, 100%);
+}
+/* A form's Save and Discard sit at the start under its lines, like a JSON box's. */
+.settings-config-actions {
+	display: flex;
+	gap: 6px;
+}
 .settings-config-item {
 	min-width: 0;
 	overflow-wrap: anywhere;

@@ -211,3 +211,74 @@ describe('Desktop and the terminal read the list and map controls alike', () => 
 				).toBe(values.listControlWords(control as never, value))
 	})
 })
+
+describe('Desktop and the terminal read the routing table and the reviewer alike', () => {
+	const routingControl = { kind: 'routing', example: '{}' }
+	const autoControl = {
+		kind: 'auto-mode',
+		example: '{}',
+		lists: [
+			{ value: 'allow', label: 'Always allowed' },
+			{ value: 'softDeny', label: 'Blocked unless you said so' },
+			{ value: 'hardDeny', label: 'Always blocked' },
+			{ value: 'environment', label: 'Trusted here' },
+		],
+	}
+	const tables = [
+		undefined,
+		{},
+		{ default: { provider: 'a', model: 'b' } },
+		{
+			default: { provider: 'a', model: 'b/c' },
+			tiers: { fast: { provider: 'x', model: 'y' }, big: { provider: 'z', model: 'w' } },
+			strategy: 'score',
+			thresholds: { fast: 0.9 },
+			timeoutMs: 1500,
+		},
+		{ model: 'smallModel', allow: ['$defaults', 'Run tests'], hardDeny: [] },
+		{ hardDeny: ['$defaults', 'A'], environment: ['Our CI'] },
+		'text',
+	]
+
+	it('answer every input the same way', async () => {
+		const cli = (await import(/* @vite-ignore */ CLI)) as typeof values
+		for (const text of ['a/b', ' a/b/c ', 'claude', '', '/x', 'a/'])
+			expect(cli.routingTarget(text), text).toEqual(values.routingTarget(text))
+		for (const text of ['1.5', '', '0', '10', '10.001', '11', 'x', '1.2345', '0.001', ' 2 '])
+			expect(cli.timeoutFromSeconds(text), text).toEqual(values.timeoutFromSeconds(text))
+		for (const ms of [1, 1500, 10_000])
+			expect(cli.timeoutSeconds(ms)).toBe(values.timeoutSeconds(ms))
+		for (const table of tables) {
+			expect(cli.routingForm(table), JSON.stringify(table)).toEqual(values.routingForm(table))
+			expect(cli.autoModeModel(table)).toBe(values.autoModeModel(table))
+			for (const field of ['allow', 'hardDeny', 'environment'])
+				expect(cli.autoModeList(table, field)).toEqual(values.autoModeList(table, field))
+			expect(cli.autoModeSet(table, { model: undefined, allow: ['q'] })).toEqual(
+				values.autoModeSet(table, { model: undefined, allow: ['q'] }),
+			)
+			for (const control of [routingControl, autoControl])
+				expect(cli.listControlWords(control as never, table), JSON.stringify(table)).toBe(
+					values.listControlWords(control as never, table),
+				)
+			for (const next of tables) {
+				expect(cli.autoModeLoosened(table, next)).toEqual(values.autoModeLoosened(table, next))
+				expect(cli.autoModeAsks(table, next)).toBe(values.autoModeAsks(table, next))
+				expect(cli.autoModeConfirmation('Sentence.', table, next, autoControl.lists)).toBe(
+					values.autoModeConfirmation('Sentence.', table, next, autoControl.lists),
+				)
+			}
+		}
+		for (const form of [
+			{ default: 'a/b', fast: '', big: '', strategy: '', timeout: '' },
+			{ default: 'a/b', fast: 'c/d', big: 'e/f', strategy: 'yesno', timeout: '2' },
+			{ default: '', fast: 'c/d', big: '', strategy: 'score', timeout: '3' },
+			{ default: 'a/b', fast: '', big: '', strategy: '', timeout: 'soon' },
+		])
+			for (const held of tables)
+				expect(cli.routingValue(form, held)).toEqual(values.routingValue(form, held))
+		for (const entry of ['$defaults', 'a sentence'])
+			expect(cli.autoEntryLabel(entry)).toBe(values.autoEntryLabel(entry))
+		const env = { variable: 'NAMZU_SMALL_MODEL', value: 'a/b' }
+		expect(cli.environmentNote(env)).toBe(values.environmentNote(env))
+	})
+})

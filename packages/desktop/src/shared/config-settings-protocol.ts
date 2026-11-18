@@ -79,6 +79,9 @@ export type ConfigSettingControl =
 	  }
 	| { kind: 'number'; min?: number; max?: number; unit?: string }
 	| { kind: 'text'; placeholder?: string }
+	| { kind: 'model'; placeholder?: string }
+	| { kind: 'routing'; example: string }
+	| { kind: 'auto-mode'; lists: ConfigSettingOption[]; example: string }
 	| { kind: 'json'; example: string }
 	| { kind: 'file-only' }
 
@@ -107,7 +110,7 @@ export interface ConfigSettingDescriptor {
 	appliesWhen?: ConfigSettingAppliesWhen
 	confirm?: string
 	/** Which new value asks: `on`/`off` for a toggle, `zero` for a cap. Absent: every change asks. */
-	confirmWhen?: 'on' | 'off' | 'zero' | 'drops-default' | 'widens'
+	confirmWhen?: 'on' | 'off' | 'zero' | 'drops-default' | 'widens' | 'loosens'
 	/** For a select, the one new value that asks. Absent: every change asks. */
 	confirmValue?: string
 	/** For a select with several risky values, each one that asks. A clear asks only if the default is one of them. */
@@ -124,6 +127,8 @@ export interface ConfigSettingState {
 	value?: unknown
 	/** The file the value came from, when the engine says. */
 	layer?: ConfigSettingLayer
+	/** An environment variable the engine has set that is used in place of the saved value. */
+	env?: { variable: string; value: string }
 }
 
 export interface ConfigSettingsView {
@@ -266,6 +271,19 @@ function control(value: unknown): ConfigSettingControl | undefined {
 				kind: 'text',
 				...(typeof c.placeholder === 'string' ? { placeholder: c.placeholder } : {}),
 			}
+		case 'model':
+			return {
+				kind: 'model',
+				...(typeof c.placeholder === 'string' ? { placeholder: c.placeholder } : {}),
+			}
+		case 'routing':
+			return typeof c.example === 'string' ? { kind: 'routing', example: c.example } : undefined
+		case 'auto-mode': {
+			const lists = options(c.lists)
+			return lists && typeof c.example === 'string'
+				? { kind: 'auto-mode', lists, example: c.example }
+				: undefined
+		}
 		case 'json':
 			return typeof c.example === 'string' ? { kind: 'json', example: c.example } : undefined
 		default:
@@ -336,7 +354,8 @@ export function readConfigSettingsView(value: unknown): ConfigSettingsView {
 			d.confirmWhen === 'off' ||
 			d.confirmWhen === 'zero' ||
 			d.confirmWhen === 'drops-default' ||
-			d.confirmWhen === 'widens'
+			d.confirmWhen === 'widens' ||
+			d.confirmWhen === 'loosens'
 				? { confirmWhen: d.confirmWhen }
 				: {}),
 			...(typeof d.confirmValue === 'string' ? { confirmValue: d.confirmValue } : {}),
@@ -370,6 +389,16 @@ export function readConfigSettingsView(value: unknown): ConfigSettingsView {
 			...(s.set && 'value' in s ? { value: s.value } : {}),
 			...(typeof s.layer === 'string' && LAYERS.includes(s.layer)
 				? { layer: s.layer as ConfigSettingLayer }
+				: {}),
+			...(record(s.env) &&
+			typeof record(s.env)?.variable === 'string' &&
+			typeof record(s.env)?.value === 'string'
+				? {
+						env: {
+							variable: record(s.env)?.variable as string,
+							value: record(s.env)?.value as string,
+						},
+					}
 				: {}),
 		})
 	}

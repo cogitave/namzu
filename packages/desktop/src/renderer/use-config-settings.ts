@@ -17,7 +17,16 @@ export interface ConfigSettingConfirmation {
  * which folders exist, and the installed skills. Each is absent when this window has no bridge
  * for it, and the row then falls back to typing.
  */
+/** The models one provider offers, as the composer's own list reads them. */
+export interface ModelChoiceGroup {
+	provider: string
+	label: string
+	models: { id: string; label: string }[]
+}
+
 export interface ConfigListTools {
+	/** The models Desktop already knows, grouped by provider. Read when a model field is first used. */
+	modelChoices?: () => Promise<ModelChoiceGroup[]>
 	pickFolder?: () => Promise<string | null>
 	existingFolders?: (paths: string[]) => Promise<string[]>
 	installedSkills?: () => Promise<InstalledSkillsView | null>
@@ -51,7 +60,43 @@ export interface ConfigSettingsControls {
 }
 
 type Api = Pick<DesktopApi, 'configSettings' | 'setConfigSetting'> &
-	Partial<Pick<DesktopApi, 'onEvent' | 'pickFolder' | 'existingFolders' | 'installedSkills'>>
+	Partial<
+		Pick<
+			DesktopApi,
+			| 'onEvent'
+			| 'pickFolder'
+			| 'existingFolders'
+			| 'installedSkills'
+			| 'palProviders'
+			| 'palModels'
+		>
+	>
+
+/**
+ * The providers that can answer and each one's models, from the lists the composer and the Pal
+ * page already read. A provider whose list cannot be read is left out, and its default model is
+ * offered instead when it names one.
+ */
+export async function readModelChoices(
+	providers: () => ReturnType<DesktopApi['palProviders']>,
+	models: DesktopApi['palModels'],
+): Promise<ModelChoiceGroup[]> {
+	const view = await providers()
+	const groups = await Promise.all(
+		view.available.map(async (provider): Promise<ModelChoiceGroup> => {
+			const group: ModelChoiceGroup = { provider: provider.id, label: provider.label, models: [] }
+			try {
+				const list = await models(provider.id)
+				group.models = list.models.map((model) => ({ id: model.id, label: model.label }))
+			} catch {
+				if (provider.defaultModel)
+					group.models = [{ id: provider.defaultModel, label: provider.defaultModel }]
+			}
+			return group
+		}),
+	)
+	return groups.filter((group) => group.models.length > 0)
+}
 
 export function useConfigSettings(
 	api: Api | undefined,
@@ -73,6 +118,7 @@ export function useConfigSettings(
 		}
 	}, [])
 	const latest = useRef(0)
+	const modelChoices = useRef<Promise<ModelChoiceGroup[]> | undefined>(undefined)
 	const reload = useCallback(() => {
 		if (!active || !api?.configSettings) return
 		const mine = ++latest.current
@@ -107,6 +153,8 @@ export function useConfigSettings(
 		window.addEventListener('focus', reload)
 		const stop = api.onEvent?.((event) => {
 			if (event.kind === 'config-file-changed') reload()
+			// A key was saved or removed: the providers that can answer, and their models, changed.
+			if (event.kind === 'providers-changed') modelChoices.current = undefined
 		})
 		return () => {
 			window.removeEventListener('focus', reload)
@@ -176,16 +224,34 @@ export function useConfigSettings(
 		if (confirmation) reset(confirmation.path)
 		setConfirmation(undefined)
 	}, [confirmation, reset])
+	const providersApi = api?.palProviders
+	const modelsApi = api?.palModels
+	const readChoices = useCallback(() => {
+		if (!providersApi || !modelsApi) return undefined
+		if (!modelChoices.current) {
+			const read = readModelChoices(
+				() => providersApi(),
+				(provider) => modelsApi(provider),
+			)
+			modelChoices.current = read
+			// A failed read is tried again the next time a model field is used.
+			read.catch(() => {
+				if (modelChoices.current === read) modelChoices.current = undefined
+			})
+		}
+		return modelChoices.current
+	}, [providersApi, modelsApi])
 	const pick = api?.pickFolder
 	const exist = api?.existingFolders
 	const skills = api?.installedSkills
 	const tools = useMemo<ConfigListTools>(
 		() => ({
+			...(readChoices ? { modelChoices: () => readChoices() as Promise<ModelChoiceGroup[]> } : {}),
 			...(pick ? { pickFolder: () => pick() } : {}),
 			...(exist ? { existingFolders: (paths: string[]) => exist(paths) } : {}),
 			...(skills ? { installedSkills: () => skills(projectId) } : {}),
 		}),
-		[pick, exist, skills, projectId],
+		[readChoices, pick, exist, skills, projectId],
 	)
 	return {
 		tools,

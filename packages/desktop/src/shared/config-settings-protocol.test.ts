@@ -130,3 +130,49 @@ describe('the list and map controls', () => {
 		expect(view({ kind: 'toggle' }, { default: { a: 'arm' } })?.default).toBeUndefined()
 	})
 })
+
+describe('reading the model rows', () => {
+	const row = (control: unknown, extra: Record<string, unknown> = {}) =>
+		readConfigSettingsView({
+			descriptors: [{ ...descriptor, path: 'm', section: 'models', control, ...extra }],
+			settings: [],
+		}).descriptors[0]
+
+	it('reads the model, routing and reviewer controls', () => {
+		expect(row({ kind: 'model', placeholder: 'provider/model' })?.control).toEqual({
+			kind: 'model',
+			placeholder: 'provider/model',
+		})
+		expect(row({ kind: 'routing', example: '{}' })?.control).toEqual({
+			kind: 'routing',
+			example: '{}',
+		})
+		const lists = [{ value: 'allow', label: 'Always allowed', help: 'x' }]
+		expect(
+			row({ kind: 'auto-mode', lists, example: '{}' }, { confirmWhen: 'loosens' }),
+		).toMatchObject({
+			control: { kind: 'auto-mode', lists },
+			confirmWhen: 'loosens',
+		})
+	})
+
+	it('drops a reviewer or routing row that lacks what Desktop needs to draw it', () => {
+		expect(row({ kind: 'routing' })).toBeUndefined()
+		expect(row({ kind: 'auto-mode', example: '{}' })).toBeUndefined()
+		expect(row({ kind: 'auto-mode', lists: [{ value: 1 }], example: '{}' })).toBeUndefined()
+	})
+
+	it('keeps the variable that replaces a saved value, and nothing malformed', () => {
+		const view = readConfigSettingsView({
+			descriptors: [],
+			settings: [
+				{ path: 'smallModel', set: false, env: { variable: 'NAMZU_SMALL_MODEL', value: 'a/b' } },
+				{ path: 'x', set: false, env: { variable: 'NAMZU_X' } },
+			],
+		})
+		expect(view.settings).toEqual([
+			{ path: 'smallModel', set: false, env: { variable: 'NAMZU_SMALL_MODEL', value: 'a/b' } },
+			{ path: 'x', set: false },
+		])
+	})
+})

@@ -418,3 +418,74 @@ describe('the extra folders ask only when one is added', () => {
 		expect(write).toHaveBeenCalledTimes(3)
 	})
 })
+
+describe('the auto mode reviewer asks only when it loosens or changes model', () => {
+	const lists = [
+		{ value: 'allow', label: 'Always allowed' },
+		{ value: 'hardDeny', label: 'Always blocked' },
+	]
+	const reviewerView = (held: unknown): ConfigSettingsView => ({
+		file: '/x/config.yaml',
+		descriptors: [
+			{
+				path: 'permissions.autoMode',
+				label: 'Auto mode reviewer',
+				description: 'x',
+				section: 'models',
+				control: { kind: 'auto-mode', lists, example: '{}' },
+				confirm: 'This decides which actions are approved without asking you.',
+				confirmWhen: 'loosens',
+			},
+		],
+		settings: held === undefined ? [] : [{ path: 'permissions.autoMode', set: true, value: held }],
+	})
+	const run = async (held: unknown, value: unknown) => {
+		const write = vi.fn(async () => reviewerView(held))
+		const settings = new ConfigSettings({
+			read: async () => reviewerView(held),
+			write,
+			validate: async () => {},
+		})
+		const result = await settings.change('w1', { path: 'permissions.autoMode', value })
+		return { result, write }
+	}
+
+	it('asks with the entry named when an allow list gains one', async () => {
+		const { result, write } = await run(undefined, { allow: ['$defaults', 'Run the tests'] })
+		expect(result.status).toBe('confirm')
+		if (result.status === 'confirm')
+			expect(result.message).toContain('Added to "Always allowed": Run the tests.')
+		expect(write).not.toHaveBeenCalled()
+	})
+
+	it('asks when a block list loses an entry, and when the model changes', async () => {
+		const held = { hardDeny: ['$defaults', 'Drop the database'] }
+		const removed = await run(held, { hardDeny: ['$defaults'] })
+		expect(removed.result.status).toBe('confirm')
+		if (removed.result.status === 'confirm')
+			expect(removed.result.message).toContain('Removed from "Always blocked": Drop the database.')
+		const model = await run(held, { ...held, model: 'smallModel' })
+		expect(model.result.status).toBe('confirm')
+		if (model.result.status === 'confirm')
+			expect(model.result.message).toContain('Reviewer model: smallModel.')
+	})
+
+	it('saves a change that only restricts at once, and keeping the same table asks nothing', async () => {
+		const held = { hardDeny: ['$defaults'], allow: ['A'] }
+		const tighter = await run(held, { hardDeny: ['$defaults', 'B'], allow: [] })
+		expect(tighter.result.status).toBe('saved')
+		expect(tighter.write).toHaveBeenCalledTimes(1)
+		const same = await run(held, held)
+		expect(same.result.status).toBe('saved')
+	})
+
+	it('asks when Use default would bring a removed block list back looser', async () => {
+		const settings = new ConfigSettings({
+			read: async () => reviewerView({ allow: [] }),
+			write: async () => reviewerView(undefined),
+			validate: async () => {},
+		})
+		const result = await settings.change('w1', { path: 'permissions.autoMode' })
+		expect(result.status).toBe('confirm')
+	})
+})

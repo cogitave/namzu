@@ -6,6 +6,7 @@ import {
 	type ConfigSettingsView,
 	readConfigSettingsView,
 } from '../shared/config-settings-protocol.js'
+import { modelOptionRows } from './config-settings-lists.js'
 import {
 	type CONFIG_GROUP_SECTIONS,
 	OWN_ROW_CONFIG_PATHS,
@@ -18,7 +19,7 @@ import {
 } from './config-settings-model.js'
 import { ConfigSettingsGroup } from './config-settings-section.js'
 import { searchSettings } from './settings-model.js'
-import type { ConfigSettingsControls } from './use-config-settings.js'
+import { type ConfigSettingsControls, readModelChoices } from './use-config-settings.js'
 
 const view: ConfigSettingsView = {
 	file: '/x/config.yaml',
@@ -616,4 +617,188 @@ describe('the extra folders and the turned-off skills, drawn from the real engin
 		},
 		SLOW_IMPORT_MS,
 	)
+})
+
+describe('the model rows, drawn from the real engine list', () => {
+	const drawModels = async (
+		settings: ConfigSettingsView['settings'] = [],
+		over: Partial<ConfigSettingsControls> = {},
+	) => {
+		const { SETTING_DESCRIPTORS } = (await import(/* @vite-ignore */ CLI_DESCRIPTORS)) as {
+			SETTING_DESCRIPTORS: readonly { path: string }[]
+		}
+		const { withDefaultText } = (await import(/* @vite-ignore */ CLI_SETTINGS)) as {
+			withDefaultText: (entry: unknown) => unknown
+		}
+		const real = readConfigSettingsView(
+			JSON.parse(
+				JSON.stringify({
+					file: '/x/config.yaml',
+					settings,
+					descriptors: SETTING_DESCRIPTORS.map(withDefaultText),
+				}),
+			),
+		)
+		return renderToStaticMarkup(
+			createElement(ConfigSettingsGroup, {
+				section: 'models',
+				config: controls({ view: real, ...over }),
+			}),
+		)
+	}
+	const row = (page: string, path: string) => {
+		const start = page.indexOf(`id="setting-${configSettingId(path)}"`)
+		expect(start, path).toBeGreaterThan(-1)
+		const next = page.indexOf('<div id="setting-', start + 10)
+		return page.slice(start, next === -1 ? undefined : next)
+	}
+
+	it(
+		'draws the small model as a text box that offers models, with no JSON box',
+		async () => {
+			const html = row(await drawModels(), 'smallModel')
+			expect(html).toContain('aria-label="Small model"')
+			expect(html).toContain('list="')
+			expect(html).toContain('<datalist')
+			expect(html).toContain('placeholder="provider/model"')
+			expect(html).not.toContain('<textarea')
+		},
+		SLOW_IMPORT_MS,
+	)
+
+	it(
+		'says when NAMZU_SMALL_MODEL replaces the saved model',
+		async () => {
+			const env = { variable: 'NAMZU_SMALL_MODEL', value: 'acme/small' }
+			const page = await drawModels([{ path: 'smallModel', set: true, value: 'other', env }])
+			expect(row(page, 'smallModel')).toContain(
+				'NAMZU_SMALL_MODEL is set to acme/small, and Namzu uses that instead of what is saved here.',
+			)
+			expect(row(await drawModels(), 'smallModel')).not.toContain('NAMZU_SMALL_MODEL is set')
+		},
+		SLOW_IMPORT_MS,
+	)
+
+	it(
+		'draws routing as a form of model boxes, a choice and a time, never a JSON box',
+		async () => {
+			const html = row(await drawModels(), 'routing')
+			for (const name of [
+				'Default model',
+				'Fast model',
+				'Large model',
+				'How a task is sized',
+				'Time to decide in seconds',
+			])
+				expect(html).toContain(`aria-label="${name}"`)
+			expect(html).toContain('Two yes or no questions')
+			expect(html).toContain('One rating')
+			expect(html).toContain('seconds')
+			expect(html).toContain('disabled')
+			expect(html).not.toContain('<textarea')
+		},
+		SLOW_IMPORT_MS,
+	)
+
+	it(
+		'fills the routing form from the saved table',
+		async () => {
+			const routing = {
+				default: { provider: 'anthropic', model: 'claude-sonnet-4-5' },
+				tiers: { big: { provider: 'openai', model: 'gpt-x' } },
+				strategy: 'score',
+				timeoutMs: 2500,
+			}
+			const html = row(
+				await drawModels([{ path: 'routing', set: true, value: routing }]),
+				'routing',
+			)
+			expect(html).toContain('value="anthropic/claude-sonnet-4-5"')
+			expect(html).toContain('value="openai/gpt-x"')
+			expect(html).toContain('value="2.5"')
+			expect(html).toContain('<option value="score" selected="">One rating</option>')
+			expect(html).toContain('Use the default for Automatic routing')
+		},
+		SLOW_IMPORT_MS,
+	)
+
+	it(
+		'draws the reviewer as a model box and four lists that show the built-in rules until changed',
+		async () => {
+			const html = row(await drawModels(), 'permissions.autoMode')
+			expect(html).toContain('aria-label="Reviewer model"')
+			expect(html).toContain('<option value="smallModel">')
+			for (const name of [
+				'Always allowed',
+				'Blocked unless you said so',
+				'Always blocked',
+				'Trusted here',
+			])
+				expect(html).toContain(name)
+			expect(html.match(/>Built-in rules</g)?.length).toBe(4)
+			expect(html).not.toContain('Use the built-in rules for')
+			expect(html).not.toContain('<textarea')
+		},
+		SLOW_IMPORT_MS,
+	)
+
+	it(
+		'shows a saved list as written and offers the built-in rules back only for that list',
+		async () => {
+			const saved = {
+				model: 'anthropic/claude-haiku-4-5',
+				allow: ['$defaults', 'Run the test suite'],
+				hardDeny: [],
+			}
+			const html = row(
+				await drawModels([{ path: 'permissions.autoMode', set: true, value: saved }]),
+				'permissions.autoMode',
+			)
+			expect(html).toContain('value="anthropic/claude-haiku-4-5"')
+			expect(html).toContain('Run the test suite')
+			expect(html).toContain('Use the built-in rules for Always allowed')
+			expect(html).toContain('Use the built-in rules for Always blocked')
+			expect(html).not.toContain('Use the built-in rules for Trusted here')
+		},
+		SLOW_IMPORT_MS,
+	)
+})
+
+describe('the models a model field offers', () => {
+	it('lists each model as provider/model with the provider named', () => {
+		expect(
+			modelOptionRows([
+				{
+					provider: 'anthropic',
+					label: 'Anthropic',
+					models: [{ id: 'claude-a', label: 'Claude A' }],
+				},
+				{ provider: 'openai', label: 'OpenAI', models: [{ id: 'gpt-x', label: 'GPT X' }] },
+			]),
+		).toEqual([
+			{ value: 'anthropic/claude-a', label: 'Anthropic: Claude A' },
+			{ value: 'openai/gpt-x', label: 'OpenAI: GPT X' },
+		])
+	})
+
+	it('reads the providers that can answer and their lists, keeping a provider whose list fails by its default model', async () => {
+		const providers = vi.fn(async () => ({
+			available: [
+				{ id: 'a', label: 'A', defaultModel: 'a-1' },
+				{ id: 'b', label: 'B', defaultModel: 'b-1' },
+				{ id: 'c', label: 'C', defaultModel: '' },
+			],
+			selected: null,
+		}))
+		const models = vi.fn(async (provider: string) => {
+			if (provider === 'a') return { models: [{ id: 'a-2', label: 'A two' }], notice: null }
+			throw new Error('offline')
+		})
+		expect(await readModelChoices(providers as never, models as never)).toEqual([
+			{ provider: 'a', label: 'A', models: [{ id: 'a-2', label: 'A two' }] },
+			{ provider: 'b', label: 'B', models: [{ id: 'b-1', label: 'b-1' }] },
+		])
+		expect(providers).toHaveBeenCalledTimes(1)
+		expect(models).toHaveBeenCalledTimes(3)
+	})
 })

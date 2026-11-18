@@ -5,6 +5,8 @@ import {
 	readConfigSettingChange,
 } from '../shared/config-settings-protocol.js'
 import {
+	autoModeAsks,
+	autoModeConfirmation,
 	droppedFromDefault,
 	sameSet,
 	widenedConfirmation,
@@ -38,6 +40,7 @@ function needsConfirmation(
 	current: unknown,
 ): boolean {
 	if (!entry.confirm) return false
+	if (entry.confirmWhen === 'loosens') return autoModeAsks(current, value)
 	if (value === undefined) return clearReachesRiskyDefault(entry)
 	if (entry.confirmWhen === 'widens') return widensList(current, value)
 	if (entry.confirmWhen === 'drops-default')
@@ -58,7 +61,12 @@ function needsConfirmation(
  * to the side that does not ask is not put behind a warning.
  */
 function clearReachesRiskyDefault(entry: ConfigSettingDescriptor): boolean {
-	if (entry.confirmWhen === 'drops-default' || entry.confirmWhen === 'widens') return false
+	if (
+		entry.confirmWhen === 'drops-default' ||
+		entry.confirmWhen === 'widens' ||
+		entry.confirmWhen === 'loosens'
+	)
+		return false
 	if (entry.control.kind === 'toggle-list' && entry.confirmWhen !== undefined)
 		return sameSet(
 			entry.default,
@@ -75,6 +83,19 @@ function clearReachesRiskyDefault(entry: ConfigSettingDescriptor): boolean {
 	if (risky === undefined || entry.defaultWhen?.length) return true
 	if (typeof entry.default !== 'string') return true
 	return risky.includes(entry.default)
+}
+
+/** The sentence asked first: the descriptor's own, with what a widening or loosening adds to it. */
+function confirmationSentence(
+	entry: ConfigSettingDescriptor,
+	current: unknown,
+	value: unknown,
+): string {
+	const sentence = entry.confirm as string
+	if (entry.confirmWhen === 'widens') return widenedConfirmation(sentence, current, value)
+	if (entry.confirmWhen === 'loosens' && entry.control.kind === 'auto-mode')
+		return autoModeConfirmation(sentence, current, value, entry.control.lists)
+	return sentence
 }
 
 function sameValue(a: unknown, b: unknown): boolean {
@@ -118,10 +139,7 @@ export class ConfigSettings {
 					status: 'confirm',
 					view,
 					token: this.tokens.issue(windowId, key),
-					message:
-						entry.confirmWhen === 'widens'
-							? widenedConfirmation(entry.confirm as string, current, change.value)
-							: (entry.confirm as string),
+					message: confirmationSentence(entry, current, change.value),
 				}
 			}
 			if (!this.tokens.redeem(token, windowId, key)) throw new Error('The confirmation expired.')

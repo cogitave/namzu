@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useId, useState } from 'react'
 import type { InstalledSkillsView } from '../shared/config-lists-protocol.js'
 import {
 	addFolder,
@@ -13,10 +13,19 @@ import type {
 	ConfigSettingOption,
 } from '../shared/config-settings-protocol.js'
 import {
+	DEFAULTS_ENTRY,
+	type RoutingForm,
+	SMALL_MODEL_WORD,
+	autoEntryLabel,
+	autoModeList,
+	autoModeModel,
+	autoModeSet,
 	eventSwitchTicked,
 	eventSwitchValue,
 	levelsHeld,
 	levelsValue,
+	routingForm,
+	routingValue,
 	sameSet,
 	screenNames,
 	screenTools,
@@ -24,7 +33,7 @@ import {
 } from '../shared/config-settings-values.js'
 import { Switch } from './settings-row.js'
 import { Button } from './ui/button.js'
-import type { ConfigSettingsControls } from './use-config-settings.js'
+import type { ConfigSettingsControls, ModelChoiceGroup } from './use-config-settings.js'
 
 type Of<K extends ConfigSettingControl['kind']> = Extract<ConfigSettingControl, { kind: K }>
 
@@ -233,6 +242,7 @@ export function ListEditor({
 	placeholder,
 	items,
 	disabled,
+	itemText,
 	onChange,
 	onPending,
 }: {
@@ -241,6 +251,8 @@ export function ListEditor({
 	placeholder?: string
 	items: readonly string[]
 	disabled?: boolean
+	/** How an entry reads in the list, when that is not the entry as written. */
+	itemText?: (item: string) => string
 	onChange: (next: string[]) => Promise<boolean | undefined> | undefined
 	/** Told what is typed and not yet added, so a form can ask for it to be added or cleared. */
 	onPending?: (text: string) => void
@@ -262,12 +274,12 @@ export function ListEditor({
 				<ul className="settings-config-items" aria-label={label}>
 					{items.map((item) => (
 						<li key={item}>
-							<span className="settings-config-item">{item}</span>
+							<span className="settings-config-item">{itemText ? itemText(item) : item}</span>
 							<Button
 								variant="ghost-muted"
 								size="xs"
 								disabled={disabled}
-								aria-label={`Remove ${item}`}
+								aria-label={`Remove ${itemText ? itemText(item) : item}`}
 								onClick={() => void onChange(items.filter((other) => other !== item))}
 							>
 								Remove
@@ -658,6 +670,336 @@ export function ManyChecks({
 			{ticked.length === 0 && control.emptyNote && (
 				<p className="settings-note">{control.emptyNote}</p>
 			)}
+		</div>
+	)
+}
+
+/** Reads the models Desktop already knows the first time a model field is used. */
+function useModelChoices(config: ConfigSettingsControls): {
+	groups: ModelChoiceGroup[]
+	ask: () => void
+} {
+	const read = config.tools?.modelChoices
+	const [groups, setGroups] = useState<ModelChoiceGroup[]>([])
+	const [asked, setAsked] = useState(false)
+	const ask = useCallback(() => {
+		if (!read || asked) return
+		setAsked(true)
+		read().then(setGroups, () => setAsked(false))
+	}, [read, asked])
+	return { groups, ask }
+}
+
+/** The models offered as a person types: each as `provider/model`, with the provider named. */
+export function modelOptionRows(
+	groups: readonly ModelChoiceGroup[],
+): { value: string; label: string }[] {
+	return groups.flatMap((group) =>
+		group.models.map((model) => ({
+			value: `${group.provider}/${model.id}`,
+			label: `${group.label}: ${model.label}`,
+		})),
+	)
+}
+
+/**
+ * A model typed or picked. The list is the models Desktop already knows, offered as the person
+ * types; a name that is not in it is kept as written. `extra` adds words that are not a model.
+ */
+export function ModelInput({
+	label,
+	value,
+	placeholder,
+	extra,
+	className,
+	config,
+	onChange,
+	onCommit,
+}: {
+	label: string
+	value: string
+	placeholder?: string
+	extra?: readonly ConfigSettingOption[]
+	className?: string
+	config: ConfigSettingsControls
+	onChange: (text: string) => void
+	/** Called when the person leaves the field or presses Enter. */
+	onCommit?: () => void
+}) {
+	const list = useId()
+	const { groups, ask } = useModelChoices(config)
+	return (
+		<>
+			<input
+				type="text"
+				list={list}
+				className={className ?? 'settings-config-input settings-config-wide'}
+				aria-label={label}
+				value={value}
+				placeholder={placeholder ?? ''}
+				spellCheck={false}
+				autoComplete="off"
+				onFocus={ask}
+				onChange={(event) => onChange(event.target.value)}
+				onBlur={() => onCommit?.()}
+				onKeyDown={(event) => {
+					if (event.key === 'Enter') {
+						event.preventDefault()
+						onCommit?.()
+					}
+				}}
+			/>
+			<datalist id={list}>
+				{extra?.map((option) => (
+					<option key={option.value} value={option.value}>
+						{option.label}
+					</option>
+				))}
+				{modelOptionRows(groups).map((option) => (
+					<option key={option.value} value={option.value}>
+						{option.label}
+					</option>
+				))}
+			</datalist>
+		</>
+	)
+}
+
+/** The model kind: one model, saved as the text written or picked. Empty puts the default back. */
+export function ModelSetting({
+	descriptor,
+	control,
+	value,
+	config,
+}: {
+	descriptor: ConfigSettingDescriptor
+	control: Of<'model'>
+	value: unknown
+	config: ConfigSettingsControls
+}) {
+	const saved = typeof value === 'string' ? value : ''
+	const [draft, setDraft] = useState<string>()
+	const commit = async () => {
+		if (draft === undefined || draft.trim() === saved) return setDraft(undefined)
+		const ok = await config.change(descriptor.path, draft.trim() === '' ? undefined : draft.trim())
+		if (ok) setDraft(undefined)
+	}
+	return (
+		<ModelInput
+			label={descriptor.label}
+			value={draft ?? saved}
+			placeholder={control.placeholder}
+			config={config}
+			onChange={setDraft}
+			onCommit={() => void commit()}
+		/>
+	)
+}
+
+/** One line of a small form: its name and help at the left, its control at the right. */
+function FormLine({
+	name,
+	help,
+	children,
+}: {
+	name: string
+	help?: string
+	children: React.ReactNode
+}) {
+	return (
+		<li>
+			<span className="settings-config-level-name">
+				{name}
+				{help && <span className="settings-config-help">{help}</span>}
+			</span>
+			{children}
+		</li>
+	)
+}
+
+const STRATEGIES: readonly ConfigSettingOption[] = [
+	{ value: '', label: 'Default (two yes or no questions)' },
+	{ value: 'yesno', label: 'Two yes or no questions' },
+	{ value: 'score', label: 'One rating' },
+]
+
+/**
+ * The routing table as a form. Nothing is saved until Save, so a half-filled form never reaches
+ * the file; the engine refuses a table with no default model in its own words.
+ */
+export function RoutingEditor({
+	descriptor,
+	value,
+	config,
+}: {
+	descriptor: ConfigSettingDescriptor
+	value: unknown
+	config: ConfigSettingsControls
+}) {
+	const saved = routingForm(value)
+	const [draft, setDraft] = useState<RoutingForm>()
+	const [local, setLocal] = useState('')
+	const form = draft ?? saved
+	const dirty = draft !== undefined && JSON.stringify(draft) !== JSON.stringify(saved)
+	const edit = (patch: Partial<RoutingForm>) => setDraft({ ...form, ...patch })
+	const save = async () => {
+		const built = routingValue(form, value)
+		if ('error' in built) return setLocal(built.error)
+		setLocal('')
+		if (await config.change(descriptor.path, built.value)) setDraft(undefined)
+	}
+	const field = (
+		name: string,
+		help: string,
+		key: 'default' | 'fast' | 'big',
+		placeholder: string,
+	) => (
+		<FormLine name={name} help={help}>
+			<ModelInput
+				label={name}
+				value={form[key]}
+				placeholder={placeholder}
+				className="settings-config-input settings-config-model"
+				config={config}
+				onChange={(text) => edit({ [key]: text })}
+			/>
+		</FormLine>
+	)
+	return (
+		<div className="settings-config-list">
+			<ul className="settings-config-levels">
+				{field(
+					'Default model',
+					'Used whenever Namzu does not choose another.',
+					'default',
+					'provider/model',
+				)}
+				{field('Fast model', 'For short questions and one-step tasks.', 'fast', 'Not used')}
+				{field('Large model', 'For long, many-step work.', 'big', 'Not used')}
+				<FormLine name="How a task is sized">
+					<select
+						className="settings-config-input"
+						aria-label="How a task is sized"
+						value={form.strategy}
+						onChange={(event) => edit({ strategy: event.target.value })}
+					>
+						{STRATEGIES.map((option) => (
+							<option key={option.value} value={option.value}>
+								{option.label}
+							</option>
+						))}
+					</select>
+				</FormLine>
+				<FormLine name="Time to decide" help="Longest wait before the default model is used.">
+					<span className="settings-config-field">
+						<input
+							type="text"
+							inputMode="decimal"
+							className="settings-config-input settings-config-number"
+							aria-label="Time to decide in seconds"
+							value={form.timeout}
+							placeholder="1.5"
+							spellCheck={false}
+							onChange={(event) => edit({ timeout: event.target.value })}
+						/>
+						<span className="settings-config-unit">seconds</span>
+					</span>
+				</FormLine>
+			</ul>
+			{local && (
+				<p role="alert" className="settings-error settings-config-error">
+					{local}
+				</p>
+			)}
+			<span className="settings-config-actions">
+				<Button variant="outline" size="sm" disabled={!dirty} onClick={() => void save()}>
+					Save
+				</Button>
+				{dirty && (
+					<Button
+						variant="ghost-muted"
+						size="sm"
+						onClick={() => {
+							setDraft(undefined)
+							setLocal('')
+						}}
+					>
+						Discard
+					</Button>
+				)}
+			</span>
+		</div>
+	)
+}
+
+/** The auto mode reviewer: its model, and four lists of sentences that steer it. */
+export function AutoModeEditor({
+	descriptor,
+	control,
+	value,
+	config,
+}: {
+	descriptor: ConfigSettingDescriptor
+	control: Of<'auto-mode'>
+	value: unknown
+	config: ConfigSettingsControls
+}) {
+	const savedModel = autoModeModel(value)
+	const [model, setModel] = useState<string>()
+	const save = (next: Record<string, unknown> | undefined) =>
+		next === undefined ? config.change(descriptor.path) : config.change(descriptor.path, next)
+	const commitModel = async () => {
+		if (model === undefined || model.trim() === savedModel) return setModel(undefined)
+		const next = autoModeSet(value, { model: model.trim() === '' ? undefined : model.trim() })
+		if (await save(next)) setModel(undefined)
+	}
+	return (
+		<div className="settings-config-list">
+			<ul className="settings-config-levels">
+				<FormLine name="Reviewer model" help="Left empty, the conversation's own model reviews.">
+					<ModelInput
+						label="Reviewer model"
+						value={model ?? savedModel}
+						placeholder="provider/model"
+						extra={[{ value: SMALL_MODEL_WORD, label: 'The small model (cheaper, for side jobs)' }]}
+						className="settings-config-input settings-config-model"
+						config={config}
+						onChange={setModel}
+						onCommit={() => void commitModel()}
+					/>
+				</FormLine>
+			</ul>
+			{control.lists.map((list) => {
+				const own = autoModeList(value, list.value)
+				return (
+					<div key={list.value} className="settings-config-sub">
+						<span className="settings-config-sub-label">
+							{list.label}
+							{list.help && <span className="settings-config-help">{list.help}</span>}
+						</span>
+						<ListEditor
+							label={list.label}
+							itemLabel="rule"
+							placeholder="A sentence describing the action"
+							items={own ?? [DEFAULTS_ENTRY]}
+							itemText={autoEntryLabel}
+							onChange={(next) => save(autoModeSet(value, { [list.value]: next }))}
+						/>
+						{own !== undefined && (
+							<span>
+								<Button
+									variant="ghost-muted"
+									size="xs"
+									onClick={() => void save(autoModeSet(value, { [list.value]: undefined }))}
+									aria-label={`Use the built-in rules for ${list.label}`}
+								>
+									Use built-in rules
+								</Button>
+							</span>
+						)}
+					</div>
+				)
+			})}
 		</div>
 	)
 }
