@@ -58,3 +58,63 @@ describe('reading a change', () => {
 		expect(() => readConfigSettingChange('quiet')).toThrow()
 	})
 })
+
+describe('the list and map controls', () => {
+	const view = (control: unknown, extra: Record<string, unknown> = {}) =>
+		readConfigSettingsView({
+			file: '/f',
+			settings: [],
+			descriptors: [
+				{ path: 'k', label: 'K', description: 'd', section: 'terminal', control, ...extra },
+			],
+		}).descriptors[0]
+
+	it('reads every new kind with the fields it needs', () => {
+		const options = [{ value: 'a', label: 'A', help: 'h' }]
+		expect(view({ kind: 'toggle-checks', options, whenOn: ['a'] })?.control).toEqual({
+			kind: 'toggle-checks',
+			options,
+			whenOn: ['a'],
+		})
+		expect(view({ kind: 'toggle-list', on: ['secrets'], off: [] })?.control.kind).toBe(
+			'toggle-list',
+		)
+		expect(view({ kind: 'key', options })?.control.kind).toBe('key')
+		expect(view({ kind: 'levels', entries: options, levels: options })?.control.kind).toBe('levels')
+		expect(
+			view({
+				kind: 'screens',
+				options,
+				passthrough: { screen: 'a', field: 'f', label: 'L' },
+			})?.control.kind,
+		).toBe('screens')
+		expect(view({ kind: 'list', itemLabel: 'folder', picker: 'folder' })?.control).toEqual({
+			kind: 'list',
+			itemLabel: 'folder',
+			picker: 'folder',
+		})
+		expect(view({ kind: 'checks', options, allLabel: 'All', emptyNote: 'None.' })?.control).toEqual(
+			{
+				kind: 'checks',
+				options,
+				allLabel: 'All',
+				emptyNote: 'None.',
+			},
+		)
+	})
+
+	it('drops a control that lacks what it needs, and reads a map default and a new confirm rule', () => {
+		expect(view({ kind: 'levels', entries: [] })).toBeUndefined()
+		expect(view({ kind: 'toggle-list', on: ['x'] })).toBeUndefined()
+		const levels = {
+			kind: 'levels',
+			entries: [{ value: 'a', label: 'A' }],
+			levels: [{ value: 'arm', label: 'Arm' }],
+		}
+		const row = view(levels, { default: { a: 'arm' }, confirmWhen: 'drops-default' })
+		expect(row?.default).toEqual({ a: 'arm' })
+		expect(row?.confirmWhen).toBe('drops-default')
+		// A map is a default only for a control that holds one.
+		expect(view({ kind: 'toggle' }, { default: { a: 'arm' } })?.default).toBeUndefined()
+	})
+})

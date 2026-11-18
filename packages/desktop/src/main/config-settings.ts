@@ -4,6 +4,7 @@ import {
 	type ConfigSettingsView,
 	readConfigSettingChange,
 } from '../shared/config-settings-protocol.js'
+import { droppedFromDefault, sameSet } from '../shared/config-settings-values.js'
 import { FolderAccessTokens } from './folder-access.js'
 
 export interface ConfigSettingsDeps {
@@ -29,6 +30,10 @@ function changeKey(path: string, value: unknown): string {
 function needsConfirmation(entry: ConfigSettingDescriptor, value: unknown): boolean {
 	if (!entry.confirm) return false
 	if (value === undefined) return clearReachesRiskyDefault(entry)
+	if (entry.confirmWhen === 'drops-default')
+		return typeof entry.default === 'object' && droppedFromDefault(entry.default, value)
+	if (entry.control.kind === 'toggle-list' && entry.confirmWhen !== undefined)
+		return sameSet(value, entry.confirmWhen === 'off' ? entry.control.off : entry.control.on)
 	if (entry.confirmValues !== undefined) return entry.confirmValues.includes(value as string)
 	if (entry.confirmValue !== undefined) return value === entry.confirmValue
 	if (!entry.confirmWhen) return true
@@ -43,6 +48,12 @@ function needsConfirmation(entry: ConfigSettingDescriptor, value: unknown): bool
  * to the side that does not ask is not put behind a warning.
  */
 function clearReachesRiskyDefault(entry: ConfigSettingDescriptor): boolean {
+	if (entry.confirmWhen === 'drops-default') return false
+	if (entry.control.kind === 'toggle-list' && entry.confirmWhen !== undefined)
+		return sameSet(
+			entry.default,
+			entry.confirmWhen === 'off' ? entry.control.off : entry.control.on,
+		)
 	if (
 		(entry.confirmWhen === 'on' || entry.confirmWhen === 'off') &&
 		typeof entry.default === 'boolean' &&

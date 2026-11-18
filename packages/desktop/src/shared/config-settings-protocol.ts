@@ -43,7 +43,7 @@ const APPLIES_WHEN: readonly string[] = [
 ]
 
 /** A value a setting holds when nothing is saved. A list is the list of ticked option values. */
-export type ConfigSettingDefault = boolean | number | string | string[]
+export type ConfigSettingDefault = boolean | number | string | string[] | Record<string, string>
 
 export interface ConfigSettingOption {
 	value: string
@@ -60,7 +60,17 @@ const LAYERS: readonly string[] = ['user', 'project', 'local', 'profile', 'manag
 export type ConfigSettingControl =
 	| { kind: 'toggle' }
 	| { kind: 'select'; options: ConfigSettingOption[] }
-	| { kind: 'checks'; options: ConfigSettingOption[] }
+	| { kind: 'checks'; options: ConfigSettingOption[]; allLabel?: string; emptyNote?: string }
+	| { kind: 'toggle-checks'; options: ConfigSettingOption[]; whenOn: string[] }
+	| { kind: 'toggle-list'; on: string[]; off: string[] }
+	| { kind: 'key'; options: ConfigSettingOption[] }
+	| { kind: 'levels'; entries: ConfigSettingOption[]; levels: ConfigSettingOption[] }
+	| {
+			kind: 'screens'
+			options: ConfigSettingOption[]
+			passthrough: { screen: string; field: string; label: string; placeholder?: string }
+	  }
+	| { kind: 'list'; itemLabel: string; placeholder?: string; picker?: 'folder' }
 	| { kind: 'number'; min?: number; max?: number; unit?: string }
 	| { kind: 'text'; placeholder?: string }
 	| { kind: 'json'; example: string }
@@ -91,7 +101,7 @@ export interface ConfigSettingDescriptor {
 	appliesWhen?: ConfigSettingAppliesWhen
 	confirm?: string
 	/** Which new value asks: `on`/`off` for a toggle, `zero` for a cap. Absent: every change asks. */
-	confirmWhen?: 'on' | 'off' | 'zero'
+	confirmWhen?: 'on' | 'off' | 'zero' | 'drops-default'
 	/** For a select, the one new value that asks. Absent: every change asks. */
 	confirmValue?: string
 	/** For a select with several risky values, each one that asks. A clear asks only if the default is one of them. */
@@ -126,18 +136,22 @@ export type ConfigSettingResult =
 	| { status: 'saved'; view: ConfigSettingsView }
 	| { status: 'confirm'; view: ConfigSettingsView; token: string; message: string }
 
-function defaultValue(value: unknown): ConfigSettingDefault | undefined {
-	if (typeof value === 'boolean' || typeof value === 'number' || typeof value === 'string')
-		return value
-	if (Array.isArray(value) && value.every((item) => typeof item === 'string'))
-		return value as string[]
-	return undefined
-}
-
 const record = (value: unknown): Record<string, unknown> | undefined =>
 	value && typeof value === 'object' && !Array.isArray(value)
 		? (value as Record<string, unknown>)
 		: undefined
+
+/** A map (one level for each entry) is a default only for a `levels` control. */
+function defaultValue(value: unknown, allowMap = false): ConfigSettingDefault | undefined {
+	if (typeof value === 'boolean' || typeof value === 'number' || typeof value === 'string')
+		return value
+	if (Array.isArray(value) && value.every((item) => typeof item === 'string'))
+		return value as string[]
+	const map = record(value)
+	if (allowMap && map && Object.values(map).every((item) => typeof item === 'string'))
+		return map as Record<string, string>
+	return undefined
+}
 
 function options(value: unknown): ConfigSettingOption[] | undefined {
 	if (!Array.isArray(value)) return undefined
@@ -155,6 +169,12 @@ function options(value: unknown): ConfigSettingOption[] | undefined {
 	return out
 }
 
+function words(value: unknown): string[] | undefined {
+	return Array.isArray(value) && value.every((item) => typeof item === 'string')
+		? (value as string[])
+		: undefined
+}
+
 function control(value: unknown): ConfigSettingControl | undefined {
 	const c = record(value)
 	if (!c) return undefined
@@ -162,11 +182,71 @@ function control(value: unknown): ConfigSettingControl | undefined {
 		case 'toggle':
 		case 'file-only':
 			return { kind: c.kind }
-		case 'select':
+		case 'select': {
+			const list = options(c.options)
+			return list ? { kind: 'select', options: list } : undefined
+		}
 		case 'checks': {
 			const list = options(c.options)
-			return list ? { kind: c.kind, options: list } : undefined
+			return list
+				? {
+						kind: 'checks',
+						options: list,
+						...(typeof c.allLabel === 'string' ? { allLabel: c.allLabel } : {}),
+						...(typeof c.emptyNote === 'string' ? { emptyNote: c.emptyNote } : {}),
+					}
+				: undefined
 		}
+		case 'toggle-checks': {
+			const list = options(c.options)
+			const whenOn = words(c.whenOn)
+			return list && whenOn ? { kind: 'toggle-checks', options: list, whenOn } : undefined
+		}
+		case 'toggle-list': {
+			const on = words(c.on)
+			const off = words(c.off)
+			return on && off ? { kind: 'toggle-list', on, off } : undefined
+		}
+		case 'key': {
+			const list = options(c.options)
+			return list ? { kind: 'key', options: list } : undefined
+		}
+		case 'levels': {
+			const entries = options(c.entries)
+			const levels = options(c.levels)
+			return entries && levels ? { kind: 'levels', entries, levels } : undefined
+		}
+		case 'screens': {
+			const list = options(c.options)
+			const through = record(c.passthrough)
+			if (
+				!list ||
+				!through ||
+				typeof through.screen !== 'string' ||
+				typeof through.field !== 'string' ||
+				typeof through.label !== 'string'
+			)
+				return undefined
+			return {
+				kind: 'screens',
+				options: list,
+				passthrough: {
+					screen: through.screen,
+					field: through.field,
+					label: through.label,
+					...(typeof through.placeholder === 'string' ? { placeholder: through.placeholder } : {}),
+				},
+			}
+		}
+		case 'list':
+			return typeof c.itemLabel === 'string'
+				? {
+						kind: 'list',
+						itemLabel: c.itemLabel,
+						...(typeof c.placeholder === 'string' ? { placeholder: c.placeholder } : {}),
+						...(c.picker === 'folder' ? { picker: 'folder' as const } : {}),
+					}
+				: undefined
 		case 'number':
 			return {
 				kind: 'number',
@@ -235,8 +315,8 @@ export function readConfigSettingsView(value: unknown): ConfigSettingsView {
 				? { group: d.group, groupLabel: d.groupLabel }
 				: {}),
 			control: ctl,
-			...(defaultValue(d.default) !== undefined
-				? { default: defaultValue(d.default) as ConfigSettingDefault }
+			...(defaultValue(d.default, ctl.kind === 'levels') !== undefined
+				? { default: defaultValue(d.default, ctl.kind === 'levels') as ConfigSettingDefault }
 				: {}),
 			...(typeof d.defaultNote === 'string' ? { defaultNote: d.defaultNote } : {}),
 			...(Array.isArray(d.defaultWhen) ? { defaultWhen: readDefaultWhen(d.defaultWhen) } : {}),
@@ -245,7 +325,10 @@ export function readConfigSettingsView(value: unknown): ConfigSettingsView {
 				? { appliesWhen: d.appliesWhen as ConfigSettingAppliesWhen }
 				: {}),
 			...(typeof d.confirm === 'string' ? { confirm: d.confirm } : {}),
-			...(d.confirmWhen === 'on' || d.confirmWhen === 'off' || d.confirmWhen === 'zero'
+			...(d.confirmWhen === 'on' ||
+			d.confirmWhen === 'off' ||
+			d.confirmWhen === 'zero' ||
+			d.confirmWhen === 'drops-default'
 				? { confirmWhen: d.confirmWhen }
 				: {}),
 			...(typeof d.confirmValue === 'string' ? { confirmValue: d.confirmValue } : {}),

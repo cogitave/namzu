@@ -299,3 +299,78 @@ describe('asking only for the risky direction', () => {
 		).toBe('saved')
 	})
 })
+
+describe('confirmation for the list controls', () => {
+	const entries: ConfigSettingsView = {
+		file: '/f',
+		settings: [],
+		descriptors: [
+			{
+				path: 'telemetry.sessionExport.redactors',
+				label: 'Hide secrets',
+				description: 'x',
+				section: 'telemetry',
+				control: { kind: 'toggle-list', on: ['secrets'], off: [] },
+				default: ['secrets'],
+				confirm: 'Secrets would be saved as they are.',
+				confirmWhen: 'off',
+			},
+			{
+				path: 'toolResultScreens',
+				label: 'Screens',
+				description: 'x',
+				section: 'agent',
+				control: {
+					kind: 'screens',
+					options: [
+						{ value: 'correspondence', label: 'A' },
+						{ value: 'injection', label: 'B' },
+					],
+					passthrough: { screen: 'correspondence', field: 'passthroughTools', label: 'Tools' },
+				},
+				default: ['correspondence'],
+				confirm: 'Tool output would reach the model unchecked.',
+				confirmWhen: 'drops-default',
+			},
+		],
+	}
+	const build = () => {
+		const write = vi.fn(async () => entries)
+		return {
+			write,
+			settings: new ConfigSettings({
+				read: async () => entries,
+				write,
+				validate: async () => {},
+			}),
+		}
+	}
+
+	it('asks for the switch only when it goes off, and never for going back to the default', async () => {
+		const { settings, write } = build()
+		const path = 'telemetry.sessionExport.redactors'
+		expect((await settings.change('w1', { path, value: [] })).status).toBe('confirm')
+		expect((await settings.change('w1', { path, value: ['secrets'] })).status).toBe('saved')
+		expect((await settings.change('w1', { path })).status).toBe('saved')
+		expect(write).toHaveBeenCalledTimes(2)
+	})
+
+	it('asks for the screens only when the new list drops one the default holds', async () => {
+		const { settings } = build()
+		const path = 'toolResultScreens'
+		expect((await settings.change('w1', { path, value: [] })).status).toBe('confirm')
+		expect((await settings.change('w1', { path, value: ['injection'] })).status).toBe('confirm')
+		expect(
+			(await settings.change('w1', { path, value: ['correspondence', 'injection'] })).status,
+		).toBe('saved')
+		expect(
+			(
+				await settings.change('w1', {
+					path,
+					value: [{ name: 'correspondence', passthroughTools: ['x'] }],
+				})
+			).status,
+		).toBe('saved')
+		expect((await settings.change('w1', { path })).status).toBe('saved')
+	})
+})

@@ -5,6 +5,15 @@ import type {
 } from '../shared/config-settings-protocol.js'
 import type { SettingsSection } from '../shared/settings-protocol.js'
 import {
+	EventSwitch,
+	KeyPicker,
+	LevelsEditor,
+	ListSwitch,
+	ManyChecks,
+	ScreensEditor,
+	WordList,
+} from './config-settings-lists.js'
+import {
 	appliesLine,
 	configRowRuns,
 	configSettingId,
@@ -94,6 +103,15 @@ export function ConfigSettingsGroup({
 	)
 }
 
+const STACKED_KINDS: readonly string[] = [
+	'json',
+	'checks',
+	'toggle-checks',
+	'levels',
+	'screens',
+	'list',
+]
+
 function ConfigRow({
 	descriptor,
 	view,
@@ -136,7 +154,7 @@ function ConfigRow({
 				Use default
 			</Button>
 		) : null
-	const stacked = descriptor.control.kind === 'json' || descriptor.control.kind === 'checks'
+	const stacked = STACKED_KINDS.includes(descriptor.control.kind)
 	return (
 		<Row
 			id={configSettingId(descriptor.path)}
@@ -213,7 +231,66 @@ function Control({
 					))}
 				</select>
 			)
+		case 'toggle-checks':
+			return (
+				<EventSwitch
+					descriptor={descriptor}
+					control={control}
+					value={set ? value : effectiveDefault(descriptor, view)}
+					config={config}
+				/>
+			)
+		case 'toggle-list':
+			return (
+				<ListSwitch
+					descriptor={descriptor}
+					control={control}
+					value={set ? value : effectiveDefault(descriptor, view)}
+					config={config}
+				/>
+			)
+		case 'key':
+			return (
+				<KeyPicker
+					descriptor={descriptor}
+					control={control}
+					value={value}
+					set={set}
+					defaultText={defaultLabel(descriptor, view)}
+					config={config}
+				/>
+			)
+		case 'levels':
+			return (
+				<LevelsEditor
+					descriptor={descriptor}
+					control={control}
+					value={set ? value : undefined}
+					config={config}
+				/>
+			)
+		case 'screens':
+			return (
+				<ScreensEditor
+					descriptor={descriptor}
+					control={control}
+					value={value}
+					set={set}
+					config={config}
+				/>
+			)
+		case 'list':
+			return <WordList descriptor={descriptor} control={control} value={value} config={config} />
 		case 'checks':
+			if (control.allLabel)
+				return (
+					<ManyChecks
+						descriptor={descriptor}
+						control={control}
+						value={set ? value : effectiveDefault(descriptor, view)}
+						config={config}
+					/>
+				)
 			return (
 				<Checks
 					descriptor={descriptor}

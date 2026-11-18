@@ -4,6 +4,7 @@ import type {
 	ConfigSettingState,
 	ConfigSettingsView,
 } from '../shared/config-settings-protocol.js'
+import { listControlWords } from '../shared/config-settings-values.js'
 import type { SettingsSection } from '../shared/settings-protocol.js'
 import type { SettingsEntry } from './settings-model.js'
 
@@ -103,6 +104,8 @@ export function defaultLabel(
 	const value = effectiveDefault(descriptor, view)
 	const control = descriptor.control
 	if (value === undefined) return descriptor.defaultText
+	const listed = typeof value === 'boolean' ? undefined : listControlWords(control, value)
+	if (listed !== undefined) return listed.charAt(0).toUpperCase() + listed.slice(1)
 	if (typeof value === 'boolean') return value ? 'On' : 'Off'
 	if (Array.isArray(value)) {
 		if (value.length === 0) return 'none'
@@ -113,6 +116,7 @@ export function defaultLabel(
 		if (control.kind === 'number' && control.unit === 'ms') return formatDuration(value)
 		return control.kind === 'number' && control.unit ? `${value} ${control.unit}` : String(value)
 	}
+	if (typeof value === 'object') return descriptor.defaultText
 	if (control.kind === 'select')
 		return control.options.find((o) => o.value === value)?.label ?? value
 	return value

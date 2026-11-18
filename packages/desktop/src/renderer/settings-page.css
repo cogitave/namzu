@@ -822,6 +822,53 @@ input.settings-config-number {
 	outline: 2px solid transparent;
 	box-shadow: var(--focus-ring);
 }
+.settings-config-list {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	min-width: 0;
+	width: 100%;
+}
+.settings-config-checks[data-scroll] {
+	max-height: 240px;
+	overflow-y: auto;
+}
+.settings-config-help {
+	display: block;
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+}
+.settings-config-levels,
+.settings-config-items {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.settings-config-levels li,
+.settings-config-items li {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+}
+.settings-config-item {
+	min-width: 0;
+	overflow-wrap: anywhere;
+	font-family: var(--font-mono, ui-monospace, monospace);
+	font-size: var(--text-caption);
+}
+.settings-config-sub {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+.settings-config-sub-label {
+	font-size: var(--text-small);
+}
 .settings-config-unit {
 	color: var(--muted-foreground);
 	font-size: var(--text-caption);

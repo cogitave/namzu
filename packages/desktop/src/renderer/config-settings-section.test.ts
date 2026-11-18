@@ -425,3 +425,100 @@ describe('the real engine list, section by section', () => {
 		SLOW_IMPORT_MS,
 	)
 })
+
+describe('the typed list and map rows, drawn from the real engine list', () => {
+	const drawReal = async (section: 'terminal' | 'agent' | 'telemetry') => {
+		const { SETTING_DESCRIPTORS } = (await import(/* @vite-ignore */ CLI_DESCRIPTORS)) as {
+			SETTING_DESCRIPTORS: readonly { path: string }[]
+		}
+		const { withDefaultText } = (await import(/* @vite-ignore */ CLI_SETTINGS)) as {
+			withDefaultText: (entry: unknown) => unknown
+		}
+		const view = readConfigSettingsView(
+			JSON.parse(
+				JSON.stringify({
+					file: '/x/config.yaml',
+					settings: [],
+					descriptors: SETTING_DESCRIPTORS.map(withDefaultText),
+				}),
+			),
+		)
+		return renderToStaticMarkup(
+			createElement(ConfigSettingsGroup, { section, config: controls({ view }) }),
+		)
+	}
+	const row = (page: string, path: string) => {
+		const start = page.indexOf(`id="setting-${configSettingId(path)}"`)
+		expect(start, path).toBeGreaterThan(-1)
+		const next = page.indexOf('<div id="setting-', start + 10)
+		return page.slice(start, next === -1 ? undefined : next)
+	}
+
+	it(
+		'draws a switch with three event checks, and says what the idle one is',
+		async () => {
+			const html = row(await drawReal('terminal'), 'tui.notifications')
+			expect(html).toContain('role="switch"')
+			expect(html.match(/type="checkbox"/g)?.length).toBe(4)
+			expect(html).toContain('Waiting for you')
+			expect(html).toContain('minute of quiet')
+			expect(html).not.toContain('<textarea')
+		},
+		SLOW_IMPORT_MS,
+	)
+
+	it(
+		'draws the workspaces key as a pick with the default named and no refused key',
+		async () => {
+			const html = row(await drawReal('terminal'), 'tui.workspacesPrefix')
+			expect(html).toContain('<select')
+			expect(html).toContain('Default (Ctrl+B)')
+			expect(html).toContain('value="ctrl+space"')
+			for (const refused of ['ctrl+c', 'ctrl+d', 'ctrl+z', 'ctrl+i', 'ctrl+m'])
+				expect(html).not.toContain(`value="${refused}"`)
+		},
+		SLOW_IMPORT_MS,
+	)
+
+	it(
+		'draws one Arm, Suggest, Off choice per trigger with its default marked',
+		async () => {
+			const html = row(await drawReal('terminal'), 'composerTriggers.builtin')
+			expect(html.match(/<select/g)?.length).toBe(5)
+			for (const name of ['Hypermode', 'Workflow', 'Save as skill', 'Schedule', 'Maximum effort'])
+				expect(html).toContain(name)
+			expect(html.match(/\(default\)/g)?.length).toBe(5)
+			expect(html).toContain('Suggest (default)')
+		},
+		SLOW_IMPORT_MS,
+	)
+
+	it(
+		'draws the screens with the engine default ticked and a place for tools',
+		async () => {
+			const html = row(await drawReal('agent'), 'toolResultScreens')
+			expect(html).toContain('Repeats the request')
+			expect(html).toContain('Hidden instructions')
+			expect(html).toContain('Tools that may repeat the request')
+			expect(html.match(/checked=""/g)?.length).toBe(1)
+		},
+		SLOW_IMPORT_MS,
+	)
+
+	it(
+		'draws every saved event type ticked while the key is absent, and the switch for secrets on',
+		async () => {
+			const page = await drawReal('telemetry')
+			const events = row(page, 'telemetry.sessionExport.eventTypes')
+			const boxes = events.match(/type="checkbox"/g)?.length ?? 0
+			expect(boxes).toBeGreaterThan(40)
+			expect(events.match(/checked=""/g)?.length).toBe(boxes)
+			expect(events).toContain('Default: All events.')
+			expect(events).not.toContain('<textarea')
+			const secrets = row(page, 'telemetry.sessionExport.redactors')
+			expect(secrets).toContain('role="switch"')
+			expect(secrets).toContain('checked=""')
+		},
+		SLOW_IMPORT_MS,
+	)
+})
