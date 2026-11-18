@@ -10,6 +10,8 @@ import {
 	APPLIES_WHEN_TEXT,
 	SETTING_DESCRIPTORS,
 	SETTING_EXCLUSIONS,
+	SETTING_GROUP_LABELS,
+	SETTING_GROUP_ORDER,
 	SETTING_SUBKEY_EXCLUSIONS,
 	type SettingDescriptor,
 	appliesWhenFor,
@@ -243,5 +245,86 @@ describe('the typed setting description', () => {
 		expect(text('sandbox.enabled')).toMatch(/^off\./)
 		// Words written by hand are left alone.
 		expect(text('limits.maxIterations')).toBe('no limit')
+	})
+})
+
+describe('where each setting sits', () => {
+	const sectionOf = (path: string) => SETTING_DESCRIPTORS.find((entry) => entry.path === path)
+	const inSection = (section: string) =>
+		SETTING_DESCRIPTORS.filter((entry) => entry.section === section).map((entry) => entry.path)
+
+	it('puts the update checks in Updates, under Command line, with the channel first', () => {
+		const rows = SETTING_DESCRIPTORS.filter((entry) => entry.section === 'updates')
+		expect(rows.map((entry) => entry.path)).toEqual([
+			'updates.channel',
+			'updates.auto',
+			'updates.check',
+		])
+		for (const row of rows) expect(row.group, row.path).toBe('command-line')
+		// The heading says it, so no label repeats it.
+		for (const row of rows) expect(row.label, row.path).not.toMatch(/command line/i)
+	})
+
+	it('puts the browser and code analysis switches in Tools, the browser switch before its rows', () => {
+		expect(sectionOf('codeAnalysis.enabled')?.section).toBe('tools')
+		const tools = inSection('tools')
+		expect(tools.indexOf('browser.enabled')).toBeGreaterThanOrEqual(0)
+		expect(tools.indexOf('browser.enabled')).toBeLessThan(
+			Math.min(
+				...tools
+					.filter((p) => p.startsWith('browser.') && p !== 'browser.enabled')
+					.map((p) => tools.indexOf(p)),
+			),
+		)
+		// Both are read by a Desktop conversation too, so neither says it is only the terminal app.
+		for (const path of ['browser.enabled', 'codeAnalysis.enabled'])
+			expect(`${sectionOf(path)?.label} ${sectionOf(path)?.description}`).toMatch(/Desktop/)
+		expect(sectionOf('browser.enabled')?.description).not.toMatch(/only the terminal app/i)
+	})
+
+	it('keeps the terminal app rows apart from the command line rows', () => {
+		const terminal = SETTING_DESCRIPTORS.filter((entry) => entry.section === 'terminal')
+		for (const row of terminal) {
+			const app = /^(tui\.|composerTriggers\.|statusLine$)/.test(row.path)
+			expect(row.group, row.path).toBe(app ? 'terminal-app' : 'command-line')
+		}
+		expect(terminal.filter((row) => row.group === 'command-line').map((row) => row.path)).toEqual([
+			'format',
+			'quiet',
+			'profiles',
+		])
+		// The two output switches say they shape one-shot commands, not the terminal app.
+		for (const path of ['format', 'quiet'])
+			expect(sectionOf(path)?.description, path).toMatch(/namzu exec/)
+	})
+
+	it('moves how-the-agent-works keys out of General, which the engine no longer fills', () => {
+		expect(sectionOf('hypermode')?.section).toBe('agent')
+		expect(inSection('general')).toEqual([])
+	})
+
+	it('keeps a section together and each group in the one declared order, so a list can print headings', () => {
+		const seen: string[] = []
+		let rank = -1
+		let last = ''
+		for (const entry of SETTING_DESCRIPTORS) {
+			if (entry.section !== last) {
+				expect(seen, `${entry.path} reopens ${entry.section}`).not.toContain(entry.section)
+				seen.push(entry.section)
+				last = entry.section
+				rank = -1
+			}
+			const here = entry.group ? SETTING_GROUP_ORDER.indexOf(entry.group) : -1
+			expect(here, `${entry.path} is out of group order`).toBeGreaterThanOrEqual(rank)
+			rank = here
+		}
+	})
+
+	it('has words for every group and sends them with a described row', () => {
+		for (const group of SETTING_GROUP_ORDER) expect(SETTING_GROUP_LABELS[group]).toBeTruthy()
+		const sent = withDefaultText(sectionOf('statusLine') as SettingDescriptor)
+		expect(sent.group).toBe('terminal-app')
+		expect(sent.groupLabel).toBe('Terminal app')
+		expect(withDefaultText(sectionOf('hypermode') as SettingDescriptor).groupLabel).toBeUndefined()
 	})
 })

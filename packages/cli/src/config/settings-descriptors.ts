@@ -22,6 +22,25 @@ export type SettingSection =
 	| 'terminal'
 
 /**
+ * A heading inside a section, for rows that share one kind of effect. Closed on purpose: a screen
+ * draws the heading from `SETTING_GROUP_LABELS`, so the words live here once and no page invents
+ * its own. A row with no group sits above the grouped ones, under the section's own title.
+ *
+ * - `terminal-app`: changes only the terminal app (colours, mouse, notices, the message box).
+ * - `command-line`: changes only the command line, what you type in a shell: its output, its
+ *   profiles, how it updates itself. The Desktop app and its conversations do not read these.
+ */
+export type SettingGroup = 'terminal-app' | 'command-line'
+
+/** The heading each group is drawn under, and the order groups follow inside a section. */
+export const SETTING_GROUP_LABELS: Readonly<Record<SettingGroup, string>> = {
+	'terminal-app': 'Terminal app',
+	'command-line': 'Command line',
+}
+
+export const SETTING_GROUP_ORDER: readonly SettingGroup[] = ['terminal-app', 'command-line']
+
+/**
  * When a saved change reaches what the person is doing.
  *
  * - `now`: the next thing that reads it, with no wait.
@@ -75,6 +94,8 @@ export interface SettingDescriptor {
 	readonly label: string
 	readonly description: string
 	readonly section: SettingSection
+	/** The heading it sits under inside its section. Absent means directly under the section. */
+	readonly group?: SettingGroup
 	readonly control: SettingControl
 	/**
 	 * What the setting holds when its key is absent, as a typed value: a switch's on or off, a
@@ -232,50 +253,12 @@ function d(
 	}
 }
 
-export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
-	// General
-	d(
-		'format',
-		'terminal',
-		'Output format',
-		'How the command line prints its results.',
-		pick(
-			['text', 'Plain text', 'Readable lines for a person.'],
-			['json', 'JSON', 'One structured document, for a script to read.'],
-			['yaml', 'YAML', 'Structured text a person can still read.'],
-		),
-		{ default: 'text' },
-	),
-	d(
-		'quiet',
-		'terminal',
-		'Quiet output',
-		'Print only what was asked for. For the terminal app.',
-		on,
-		{
-			default: false,
-		},
-	),
-	d(
-		'hypermode',
-		'general',
-		'Hypermode',
-		'Let Namzu run longer, larger jobs without stopping to check in.',
-		on,
-		{
-			default: false,
-			confirm: 'Namzu will run longer jobs without stopping to check in with you.',
-			confirmWhen: 'on',
-		},
-	),
-	d(
-		'profiles',
-		'general',
-		'Profiles',
-		'Named bundles of settings you switch between with --profile name on the command line. Add a profiles section to the config file shown here; this window does not edit it.',
-		fileOnly,
-	),
+/** Puts every descriptor of a block under one heading. */
+function inGroup(group: SettingGroup, ...entries: SettingDescriptor[]): SettingDescriptor[] {
+	return entries.map((entry) => ({ ...entry, group }))
+}
 
+export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 	// Models
 	d(
 		'model',
@@ -539,39 +522,52 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 
 	// Updates
 	d(
+		'updates.channel',
+		'updates',
+		'Release channel',
+		'Which releases the command line (the terminal app) updates to: latest gets new versions first, stable waits longer. The Desktop app has its own releases.',
+		pick(
+			['latest', 'Newest', 'New versions arrive as soon as they are released.'],
+			['stable', 'Stable', 'New versions arrive later, after they have had more use.'],
+		),
+		{ default: 'latest', group: 'command-line' },
+	),
+	d(
 		'updates.auto',
-		'terminal',
-		'Install command line updates automatically',
-		'Namzu updates itself in the background.',
+		'updates',
+		'Install new versions by itself',
+		'The command line updates itself in the background. The Desktop app updates on its own.',
 		on,
 		{
 			default: true,
 			defaultNote: 'Off in automated runs such as CI.',
 			confirm: 'Namzu will install new versions of its command line on its own.',
 			confirmWhen: 'on',
+			group: 'command-line',
 		},
 	),
 	d(
-		'updates.channel',
-		'updates',
-		'Command line update channel',
-		'Which releases the command line (the terminal app) updates to: latest gets new versions first, stable waits longer. The Desktop app has its own releases.',
-		pick(
-			['latest', 'Newest', 'New versions arrive as soon as they are released.'],
-			['stable', 'Stable', 'New versions arrive later, after they have had more use.'],
-		),
-		{ default: 'latest' },
-	),
-	d(
 		'updates.check',
-		'terminal',
-		'Check for command line updates',
-		'Look for a new version when Namzu starts.',
+		'updates',
+		'Look for new versions',
+		'Look for a new version of the command line when it starts.',
 		on,
-		{ default: true },
+		{ default: true, group: 'command-line' },
 	),
 
 	// Agent
+	d(
+		'hypermode',
+		'agent',
+		'Hypermode',
+		'Let Namzu run longer, larger jobs without stopping to check in.',
+		on,
+		{
+			default: false,
+			confirm: 'Namzu will run longer jobs without stopping to check in with you.',
+			confirmWhen: 'on',
+		},
+	),
 	d(
 		'limits.maxResponseTokens',
 		'agent',
@@ -1029,9 +1025,16 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		confirm: 'Namzu will download pages from the internet.',
 		confirmWhen: 'on',
 	}),
-	d('browser.enabled', 'terminal', 'Browser', 'Let the terminal app use a browser.', on, {
-		default: true,
-	}),
+	d(
+		'browser.enabled',
+		'tools',
+		'Browser',
+		'Let Namzu use a browser for web tasks, in the terminal app and in Desktop conversations. Off removes the browser tools. The rows below set how it runs.',
+		on,
+		{
+			default: true,
+		},
+	),
 	d(
 		'browser.defaultProfile',
 		'tools',
@@ -1114,9 +1117,9 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 	),
 	d(
 		'codeAnalysis.enabled',
-		'terminal',
+		'tools',
 		'Code analysis',
-		'Understand code structure in the terminal app.',
+		'Let Namzu read the structure of your code (definitions and references), in the terminal app and in Desktop conversations. Off removes the code analysis tool.',
 		on,
 		{ default: true },
 	),
@@ -1229,178 +1232,214 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 	),
 
 	// Terminal app
-	d(
-		'tui.theme',
-		'terminal',
-		'Terminal theme',
-		'Colours in the terminal app.',
-		pick(
-			['auto', 'Match the terminal', 'Dark or light, whichever the terminal uses.'],
-			['dark', 'Dark', 'Colours for a dark background.'],
-			['light', 'Light', 'Colours for a light background.'],
-			[
-				'dark-daltonized',
-				'Dark, colour-blind friendly',
-				'Dark colours chosen to stay apart for colour blindness.',
-			],
-			[
-				'light-daltonized',
-				'Light, colour-blind friendly',
-				'Light colours chosen to stay apart for colour blindness.',
-			],
-			['dark-ansi', 'Dark, basic colours', 'Only the 16 colours every terminal has.'],
-			['light-ansi', 'Light, basic colours', 'Only the 16 colours every terminal has.'],
+	...inGroup(
+		'terminal-app',
+		d(
+			'tui.theme',
+			'terminal',
+			'Terminal theme',
+			'Colours in the terminal app.',
+			pick(
+				['auto', 'Match the terminal', 'Dark or light, whichever the terminal uses.'],
+				['dark', 'Dark', 'Colours for a dark background.'],
+				['light', 'Light', 'Colours for a light background.'],
+				[
+					'dark-daltonized',
+					'Dark, colour-blind friendly',
+					'Dark colours chosen to stay apart for colour blindness.',
+				],
+				[
+					'light-daltonized',
+					'Light, colour-blind friendly',
+					'Light colours chosen to stay apart for colour blindness.',
+				],
+				['dark-ansi', 'Dark, basic colours', 'Only the 16 colours every terminal has.'],
+				['light-ansi', 'Light, basic colours', 'Only the 16 colours every terminal has.'],
+			),
+			{ default: 'dark' },
 		),
-		{ default: 'dark' },
-	),
-	d('tui.reducedMotion', 'terminal', 'Reduce motion', 'Less movement in the terminal app.', on, {
-		default: false,
-	}),
-	d(
-		'tui.showExpandedTodos',
-		'terminal',
-		'Expand task lists',
-		'Open the task list expanded. Even then it shows four tasks and a count of the rest.',
-		on,
-		{ default: false },
-	),
-	d(
-		'tui.agentCalls',
-		'terminal',
-		'Agent calls',
-		"Show a waiting agent's last calls and one block for agents that finished. Off drops that call detail; the agent rows still show.",
-		on,
-		{ default: true },
-	),
-	d('tui.fullscreen', 'terminal', 'Full screen', 'Use the whole terminal window.', on, {
-		default: false,
-	}),
-	d(
-		'tui.wheelAccel',
-		'terminal',
-		'Wheel speed-up',
-		'A fast run of wheel notches scrolls faster in full screen.',
-		on,
-		{ default: true },
-	),
-	d(
-		'tui.wheelRows',
-		'terminal',
-		'Rows per wheel notch',
-		'How far one wheel notch scrolls in full screen.',
-		num(1, 20, 'rows'),
-		{ default: 3 },
-	),
-	d(
-		'tui.mouse',
-		'terminal',
-		'Mouse',
-		'Full, scroll only, or off.',
-		pick(
-			['full', 'Clicks and scrolling', 'The mouse clicks, selects and scrolls.'],
-			['scroll', 'Scrolling only', 'The mouse scrolls and nothing else.'],
-			[
-				'off',
-				'Off',
-				'Namzu asks for no mouse reports, so the terminal handles the mouse itself. Scroll with the keyboard.',
-			],
+		d('tui.reducedMotion', 'terminal', 'Reduce motion', 'Less movement in the terminal app.', on, {
+			default: false,
+		}),
+		d(
+			'tui.showExpandedTodos',
+			'terminal',
+			'Expand task lists',
+			'Open the task list expanded. Even then it shows four tasks and a count of the rest.',
+			on,
+			{ default: false },
 		),
-		{
-			default: 'full',
-		},
-	),
-	d('tui.copyOnSelect', 'terminal', 'Copy on select', 'Copy text when you select it.', on, {
-		default: true,
-	}),
-	d(
-		'tui.recap',
-		'terminal',
-		'Recap on return',
-		'Write a short recap of a conversation while you are away, so it is there when you come back.',
-		on,
-		{ default: true },
-	),
-	d('tui.syntaxHighlight', 'terminal', 'Code colour', 'Colour the syntax of code blocks.', on, {
-		default: true,
-	}),
-	d('tui.spinnerTips', 'terminal', 'Tips while working', 'Show a tip next to the spinner.', on, {
-		default: true,
-	}),
-	d('tui.notifications', 'terminal', 'Notifications', 'Which events notify you.', json('true'), {
-		default: false,
-	}),
-	d(
-		'tui.notificationMethod',
-		'terminal',
-		'Notification method',
-		'How the terminal tells you.',
-		pick(
-			[
-				'osc9',
-				'Desktop notification',
-				'A system notice through the terminal. Most terminals support it.',
-			],
-			['bel', 'Bell', 'The terminal bell.'],
-			['kitty', 'Kitty', 'A notice in the Kitty terminal.'],
-			['ghostty', 'Ghostty', 'A notice in the Ghostty terminal.'],
+		d(
+			'tui.agentCalls',
+			'terminal',
+			'Agent calls',
+			"Show a waiting agent's last calls and one block for agents that finished. Off drops that call detail; the agent rows still show.",
+			on,
+			{ default: true },
 		),
-		{ default: 'osc9' },
-	),
-	d(
-		'tui.sound',
-		'terminal',
-		'Sound in the terminal app',
-		'Play a sound with notifications from the terminal app. The Desktop app has its own switch under General.',
-		on,
-		{
+		d('tui.fullscreen', 'terminal', 'Full screen', 'Use the whole terminal window.', on, {
+			default: false,
+		}),
+		d(
+			'tui.wheelAccel',
+			'terminal',
+			'Wheel speed-up',
+			'A fast run of wheel notches scrolls faster in full screen.',
+			on,
+			{ default: true },
+		),
+		d(
+			'tui.wheelRows',
+			'terminal',
+			'Rows per wheel notch',
+			'How far one wheel notch scrolls in full screen.',
+			num(1, 20, 'rows'),
+			{ default: 3 },
+		),
+		d(
+			'tui.mouse',
+			'terminal',
+			'Mouse',
+			'Full, scroll only, or off.',
+			pick(
+				['full', 'Clicks and scrolling', 'The mouse clicks, selects and scrolls.'],
+				['scroll', 'Scrolling only', 'The mouse scrolls and nothing else.'],
+				[
+					'off',
+					'Off',
+					'Namzu asks for no mouse reports, so the terminal handles the mouse itself. Scroll with the keyboard.',
+				],
+			),
+			{
+				default: 'full',
+			},
+		),
+		d('tui.copyOnSelect', 'terminal', 'Copy on select', 'Copy text when you select it.', on, {
 			default: true,
+		}),
+		d(
+			'tui.recap',
+			'terminal',
+			'Recap on return',
+			'Write a short recap of a conversation while you are away, so it is there when you come back.',
+			on,
+			{ default: true },
+		),
+		d('tui.syntaxHighlight', 'terminal', 'Code colour', 'Colour the syntax of code blocks.', on, {
+			default: true,
+		}),
+		d('tui.spinnerTips', 'terminal', 'Tips while working', 'Show a tip next to the spinner.', on, {
+			default: true,
+		}),
+		d('tui.notifications', 'terminal', 'Notifications', 'Which events notify you.', json('true'), {
+			default: false,
+		}),
+		d(
+			'tui.notificationMethod',
+			'terminal',
+			'Notification method',
+			'How the terminal tells you.',
+			pick(
+				[
+					'osc9',
+					'Desktop notification',
+					'A system notice through the terminal. Most terminals support it.',
+				],
+				['bel', 'Bell', 'The terminal bell.'],
+				['kitty', 'Kitty', 'A notice in the Kitty terminal.'],
+				['ghostty', 'Ghostty', 'A notice in the Ghostty terminal.'],
+			),
+			{ default: 'osc9' },
+		),
+		d(
+			'tui.sound',
+			'terminal',
+			'Sound in the terminal app',
+			'Play a sound with notifications from the terminal app. The Desktop app has its own switch under General.',
+			on,
+			{
+				default: true,
+			},
+		),
+		d(
+			'tui.workspacesPrefix',
+			'terminal',
+			'Workspaces key',
+			'The key that starts a workspace shortcut, like ctrl+b.',
+			{ kind: 'text', placeholder: 'ctrl+b' },
+			{ default: 'ctrl+b' },
+		),
+		d(
+			'composerTriggers.enabled',
+			'terminal',
+			'Composer triggers',
+			'Words in the message box that start things.',
+			on,
+			{ default: true },
+		),
+		d(
+			'composerTriggers.suggest',
+			'terminal',
+			'Suggest triggers',
+			'Offer a trigger when one fits. Triggers you have armed still show.',
+			on,
+			{ default: true },
+		),
+		d(
+			'composerTriggers.languages',
+			'terminal',
+			'Trigger languages',
+			'Languages the triggers listen for.',
+			checks(['en', 'English'], ['tr', 'Turkish']),
+			{ default: ['en', 'tr'] },
+		),
+		d(
+			'composerTriggers.builtin',
+			'terminal',
+			'Each trigger',
+			'Per trigger: arm, suggest or off.',
+			json('{ "hypermode": "suggest" }'),
+		),
+		d(
+			'statusLine',
+			'terminal',
+			'Status line',
+			'A command whose output fills the terminal status line. It runs a command, so add a statusLine section to the config file shown here; this window does not edit it.',
+			fileOnly,
+		),
+	),
+
+	// Terminal: the command line
+	d(
+		'format',
+		'terminal',
+		'Output format',
+		'How commands such as namzu exec print their results. Does not change the terminal app or the Desktop app.',
+		pick(
+			['text', 'Plain text', 'Readable lines for a person.'],
+			['json', 'JSON', 'One structured document, for a script to read.'],
+			['yaml', 'YAML', 'Structured text a person can still read.'],
+		),
+		{ default: 'text', group: 'command-line' },
+	),
+	d(
+		'quiet',
+		'terminal',
+		'Quiet output',
+		'Commands such as namzu exec print only what you asked for, with less around it. Does not change the terminal app or the Desktop app.',
+		on,
+		{
+			default: false,
+			group: 'command-line',
 		},
 	),
 	d(
-		'tui.workspacesPrefix',
+		'profiles',
 		'terminal',
-		'Workspaces key',
-		'The key that starts a workspace shortcut, like ctrl+b.',
-		{ kind: 'text', placeholder: 'ctrl+b' },
-		{ default: 'ctrl+b' },
-	),
-	d(
-		'composerTriggers.enabled',
-		'terminal',
-		'Composer triggers',
-		'Words in the message box that start things.',
-		on,
-		{ default: true },
-	),
-	d(
-		'composerTriggers.suggest',
-		'terminal',
-		'Suggest triggers',
-		'Offer a trigger when one fits. Triggers you have armed still show.',
-		on,
-		{ default: true },
-	),
-	d(
-		'composerTriggers.languages',
-		'terminal',
-		'Trigger languages',
-		'Languages the triggers listen for.',
-		checks(['en', 'English'], ['tr', 'Turkish']),
-		{ default: ['en', 'tr'] },
-	),
-	d(
-		'composerTriggers.builtin',
-		'terminal',
-		'Each trigger',
-		'Per trigger: arm, suggest or off.',
-		json('{ "hypermode": "suggest" }'),
-	),
-	d(
-		'statusLine',
-		'terminal',
-		'Status line',
-		'A command whose output fills the terminal status line. It runs a command, so add a statusLine section to the config file shown here; this window does not edit it.',
+		'Profiles',
+		'Named bundles of settings you switch between with --profile name on the command line. Add a profiles section to the config file shown here; this window does not edit it.',
 		fileOnly,
+		{ group: 'command-line' },
 	),
 ]
 

@@ -194,3 +194,29 @@ describe('changing a setting', () => {
 		if (!plan.ok) expect(plan.error).toContain('limits.maxIterations')
 	})
 })
+
+describe('the list names the group a row sits under', () => {
+	it('prints a heading over each group inside a section, and carries the group in the data', () => {
+		const { rows } = listSettings(opts(), 'terminal')
+		const text = renderSettingList(rows, 'f').split('\n')
+		const heading = (words: string) => text.findIndex((line) => line.trim() === words)
+		expect(heading('Terminal app')).toBeGreaterThan(text.indexOf('[terminal]'))
+		expect(heading('Command line')).toBeGreaterThan(heading('Terminal app'))
+		expect(text.findIndex((line) => line.includes('tui.theme'))).toBeGreaterThan(
+			heading('Terminal app'),
+		)
+		expect(text.findIndex((line) => line.includes('format'))).toBeGreaterThan(
+			heading('Command line'),
+		)
+		const format = rows.find((row) => row.key === 'format')
+		expect(rowData(format as (typeof rows)[number])).toMatchObject({
+			group: 'command-line',
+			groupLabel: 'Command line',
+		})
+		const updates = renderSettingList(listSettings(opts(), 'updates').rows, 'f')
+		expect(updates).toContain('[updates]\n  Command line\n')
+		// A row with no group has no group key and no heading.
+		const hyper = listSettings(opts(), 'agent').rows.find((row) => row.key === 'hypermode')
+		expect(rowData(hyper as (typeof rows)[number])).not.toHaveProperty('group')
+	})
+})

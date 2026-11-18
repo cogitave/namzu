@@ -78,16 +78,11 @@ describe('Desktop settings descriptors', () => {
 		expect(entry?.confirmValue).toBe('ask')
 	})
 
-	it('keep terminal-only keys in the terminal section', () => {
-		for (const path of [
-			'format',
-			'quiet',
-			'browser.enabled',
-			'codeAnalysis.enabled',
-			'updates.auto',
-			'updates.check',
-		])
+	it('keep command-line-only keys in the terminal section, and the update checks in Updates', () => {
+		for (const path of ['format', 'quiet', 'profiles'])
 			expect(SETTING_DESCRIPTORS.find((e) => e.path === path)?.section, path).toBe('terminal')
+		for (const path of ['updates.channel', 'updates.auto', 'updates.check'])
+			expect(SETTING_DESCRIPTORS.find((e) => e.path === path)?.section, path).toBe('updates')
 	})
 
 	it('never put a secret-bearing key behind an editable control', () => {

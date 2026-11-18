@@ -26,7 +26,9 @@ import {
 	APPLIES_WHEN_TEXT,
 	type AppliesWhen,
 	SETTING_DESCRIPTORS,
+	SETTING_GROUP_LABELS,
 	type SettingDescriptor,
+	type SettingGroup,
 	type SettingSection,
 } from './settings-descriptors.js'
 import { type UserConfigWriteOptions, userConfigPath } from './user-config.js'
@@ -140,6 +142,8 @@ export interface SettingRow {
 	readonly key: string
 	readonly label: string
 	readonly section: SettingSection
+	/** The heading it sits under inside its section, when it has one. */
+	readonly group?: SettingGroup
 	readonly description: string
 	/** Written in the user file. False means the default applies. */
 	readonly set: boolean
@@ -170,6 +174,7 @@ function toRow(
 		key: entry.path,
 		label: entry.label,
 		section: entry.section,
+		...(entry.group ? { group: entry.group } : {}),
 		description: entry.description,
 		set,
 		...(set && !fileOnly && state?.value !== undefined ? { value: state.value } : {}),
@@ -226,6 +231,7 @@ export function rowData(row: SettingRow): Record<string, unknown> {
 		key: row.key,
 		label: row.label,
 		section: row.section,
+		...(row.group ? { group: row.group, groupLabel: SETTING_GROUP_LABELS[row.group] } : {}),
 		description: row.description,
 		set: row.set,
 		...(row.value !== undefined ? { value: row.value } : {}),
@@ -254,11 +260,18 @@ export function renderSettingList(rows: readonly SettingRow[], file: string): st
 	const valueWidth = Math.min(Math.max(...rows.map((row) => row.valueText.length), 5), 40)
 	const lines = [`Settings in ${file}`, '']
 	let section: SettingSection | undefined
+	let group: SettingGroup | undefined
 	for (const row of rows) {
 		if (row.section !== section) {
 			if (section !== undefined) lines.push('')
 			section = row.section
+			group = undefined
 			lines.push(`[${section}]`)
+		}
+		if (row.group !== group) {
+			group = row.group
+			// The descriptors keep a section's rows together, ungrouped first, then each group in turn.
+			if (group) lines.push(`  ${SETTING_GROUP_LABELS[group]}`)
 		}
 		lines.push(
 			`  ${row.key.padEnd(keyWidth)}  ${row.label.padEnd(labelWidth)}  ${row.valueText.padEnd(valueWidth)}  default ${shortDefault(row)}; applies ${shortApplies(row)}`,

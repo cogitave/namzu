@@ -13,6 +13,7 @@ import { parse as yamlParse } from 'yaml'
 import { BROWSER_PROFILE_NAME, ConfigValueError, readConfigKey } from './load.js'
 import {
 	SETTING_DESCRIPTORS,
+	SETTING_GROUP_LABELS,
 	type SettingDescriptor,
 	type SettingSection,
 } from './settings-descriptors.js'
@@ -80,7 +81,15 @@ function lookup(doc: Record<string, unknown>, path: readonly string[]): unknown 
  * A Desktop older than the typed default reads only `defaultText`. Fill it from the typed value so
  * that an app built before `default` existed still shows a default, in the words of the option.
  */
-export function withDefaultText(entry: SettingDescriptor): SettingDescriptor {
+export function withDefaultText(
+	entry: SettingDescriptor,
+): SettingDescriptor & { readonly groupLabel?: string } {
+	const filled = withTypedDefaultText(entry)
+	// Sent with the id so a screen draws the heading without a second copy of the words.
+	return entry.group ? { ...filled, groupLabel: SETTING_GROUP_LABELS[entry.group] } : filled
+}
+
+function withTypedDefaultText(entry: SettingDescriptor): SettingDescriptor {
 	if (entry.defaultText !== undefined || entry.default === undefined) return entry
 	const control = entry.control
 	const value = entry.default
