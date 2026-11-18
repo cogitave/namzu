@@ -253,6 +253,7 @@ export function ListEditor({
 	items,
 	disabled,
 	itemText,
+	sentences,
 	onChange,
 	onPending,
 }: {
@@ -263,6 +264,8 @@ export function ListEditor({
 	disabled?: boolean
 	/** How an entry reads in the list, when that is not the entry as written. */
 	itemText?: (item: string) => string
+	/** The entries are sentences, not tools, paths or ids: they read in the row's own type, not monospace. */
+	sentences?: boolean
 	onChange: (next: string[]) => Promise<boolean | undefined> | undefined
 	/** Told what is typed and not yet added, so a form can ask for it to be added or cleared. */
 	onPending?: (text: string) => void
@@ -284,7 +287,13 @@ export function ListEditor({
 				<ul className="settings-config-items" aria-label={label}>
 					{items.map((item) => (
 						<li key={item}>
-							<span className="settings-config-item">{itemText ? itemText(item) : item}</span>
+							<span
+								className={
+									sentences ? 'settings-config-item settings-config-name' : 'settings-config-item'
+								}
+							>
+								{itemText ? itemText(item) : item}
+							</span>
 							<Button
 								variant="ghost-muted"
 								size="xs"
@@ -998,6 +1007,7 @@ export function AutoModeEditor({
 							placeholder="A sentence describing the action"
 							items={own ?? [DEFAULTS_ENTRY]}
 							itemText={autoEntryLabel}
+							sentences
 							onChange={(next) => save(autoModeSet(value, { [list.value]: next }))}
 						/>
 						{own !== undefined && (
@@ -1124,52 +1134,58 @@ export function PermissionRulesEditor({
 					))}
 				</ul>
 			)}
-			<span className="settings-config-field">
-				<input
-					type="text"
-					className="settings-config-input settings-config-short"
-					aria-label="Add a rule: tool"
-					value={tool}
-					placeholder="Tool, such as bash"
-					spellCheck={false}
-					onChange={(event) => setTool(event.target.value)}
-				/>
-				<input
-					type="text"
-					className="settings-config-input settings-config-short"
-					aria-label="Add a rule: pattern"
-					value={pattern}
-					placeholder="Pattern, or empty for every call"
-					spellCheck={false}
-					onChange={(event) => setPattern(event.target.value)}
-					onKeyDown={(event) => {
-						if (event.key === 'Enter') {
-							event.preventDefault()
-							void add()
-						}
-					}}
-				/>
-				<select
-					className="settings-config-input settings-config-answer"
-					aria-label="Add a rule: answer"
-					value={effect}
-					onChange={(event) => setEffect(event.target.value)}
-				>
-					{control.effects.map((option) => (
-						<option key={option.value} value={option.value}>
-							{option.label}
-						</option>
-					))}
-				</select>
-				<Button
-					variant="outline"
-					size="sm"
-					disabled={tool.trim() === ''}
-					onClick={() => void add()}
-				>
-					Add
-				</Button>
-			</span>
+			{/* The add line is the next row of the table: the same left edge, and the answer and button
+			    in the columns the rows above use. */}
+			<div className="settings-config-add">
+				<span className="settings-config-add-name">
+					<input
+						type="text"
+						className="settings-config-input"
+						aria-label="Add a rule: tool"
+						value={tool}
+						placeholder="Tool, such as bash"
+						spellCheck={false}
+						onChange={(event) => setTool(event.target.value)}
+					/>
+					<input
+						type="text"
+						className="settings-config-input"
+						aria-label="Add a rule: pattern"
+						value={pattern}
+						placeholder="Pattern, or empty for every call"
+						spellCheck={false}
+						onChange={(event) => setPattern(event.target.value)}
+						onKeyDown={(event) => {
+							if (event.key === 'Enter') {
+								event.preventDefault()
+								void add()
+							}
+						}}
+					/>
+				</span>
+				<span className="settings-config-field">
+					<select
+						className="settings-config-input settings-config-answer"
+						aria-label="Add a rule: answer"
+						value={effect}
+						onChange={(event) => setEffect(event.target.value)}
+					>
+						{control.effects.map((option) => (
+							<option key={option.value} value={option.value}>
+								{option.label}
+							</option>
+						))}
+					</select>
+					<Button
+						variant="outline"
+						size="xs"
+						disabled={tool.trim() === ''}
+						onClick={() => void add()}
+					>
+						Add
+					</Button>
+				</span>
+			</div>
 			<LocalError text={local} />
 		</div>
 	)
