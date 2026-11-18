@@ -43,10 +43,13 @@ import { turnInputsUnchanged } from './transcript-memo.js'
 import {
 	foldParts,
 	livePhaseLabel,
+	liveRecentSteps,
 	liveStatus,
 	liveStep,
+	liveStepMs,
 	narrationBeingWritten,
 	transcriptEntryKey,
+	turnActiveMs,
 	turnActivityLabel,
 	useTranscriptEntryMotion,
 	useTranscriptPhaseMotion,
@@ -484,8 +487,11 @@ function TurnActivity({
 		})
 	// Bad news is said in the header, so a finished turn never looks fine while a command failed.
 	const flags = live ? [] : attentionNow
-	const start = live && ownsTurnSummary ? thread.turns[turn]?.startedAt : undefined
-	const elapsed = start === undefined ? undefined : elapsedLabel(now - start)
+	// The turn's clock leaves out the time it spent waiting for the person.
+	const activeMs = live && ownsTurnSummary ? turnActiveMs(thread, turn, now) : undefined
+	const elapsed = activeMs === undefined ? undefined : elapsedLabel(activeMs)
+	// The step on its own clock, beside the total; a wait for the person has none.
+	const stepMs = liveLine && step?.state !== 'waiting' ? liveStepMs(thread, now) : undefined
 	const savedTime = ownsTurnSummary
 		? (thread.turns[turn]?.startedTime ??
 			(thread.turns[turn]?.startedAt === undefined
@@ -497,6 +503,16 @@ function TurnActivity({
 		!live &&
 		thread.turns[turn]?.recordedDurationMs !== undefined &&
 		thread.turns[turn]?.startedAt === undefined
+	const blockOpen = workBlockOpen(
+		controlled ? savedOpen : chosenOpen,
+		live && !answered && (attentionNow.length > 0 || badStep),
+	)
+	const setBlockOpen = (open: boolean) => {
+		if (disclosureKey && onWorkDisclosureChange) onWorkDisclosureChange(disclosureKey, open)
+		else setChosenOpen(open)
+	}
+	// While the block is folded under the live line, its last actions stay in view.
+	const recent = liveLine && !blockOpen ? liveRecentSteps(thread, entries) : undefined
 	return (
 		<>
 			{planOutside && <PlanBox tasks={thread.tasks} onOpenTasks={onOpenTasks} />}
@@ -504,14 +520,8 @@ function TurnActivity({
 				className="turn-activity"
 				// Fold when the answer arrives, not after it: folding later shrinks the page under a reader at the end.
 				// The work stays behind the line unless something failed or was refused: that stays in view.
-				open={workBlockOpen(
-					controlled ? savedOpen : chosenOpen,
-					live && !answered && (attentionNow.length > 0 || badStep),
-				)}
-				onOpenChange={(open) => {
-					if (disclosureKey && onWorkDisclosureChange) onWorkDisclosureChange(disclosureKey, open)
-					else setChosenOpen(open)
-				}}
+				open={blockOpen}
+				onOpenChange={setBlockOpen}
 				data-activity-turn={turn}
 				// No choice yet, so any fold is the work finishing: it settles at once, in the same frame the answer lands.
 				data-automatic={(controlled ? savedOpen : chosenOpen) === undefined ? '' : undefined}
@@ -545,6 +555,11 @@ function TurnActivity({
 							/>
 						)}
 						<PhaseLabel label={label} animate={animate} />
+						{stepMs !== undefined && (
+							<span className="turn-activity-step" data-live-step-clock="">
+								{elapsedLabel(stepMs)}
+							</span>
+						)}
 						{elapsed && (
 							<span className="turn-activity-elapsed">
 								{liveLine ? `· ${elapsed}` : `for ${elapsed}`}
@@ -617,6 +632,18 @@ function TurnActivity({
 					</div>
 				</CollapsiblePanel>
 			</Collapsible>
+			{recent && recent.shown.length > 0 && (
+				<div className="live-steps" data-live-steps="">
+					{recent.more > 0 && (
+						<button type="button" className="live-steps-more" onClick={() => setBlockOpen(true)}>
+							{recent.more} more {recent.more === 1 ? 'step' : 'steps'}
+						</button>
+					)}
+					{recent.shown.map((entry) => (
+						<Entry key={entryKey(entry)} entry={entry} thread={thread} quiet />
+					))}
+				</div>
+			)}
 			{redirectNotes(thread, entries).map((note) => (
 				// What the person typed when they declined, so it is drawn as their own message.
 				<Message key={note.id} from="user" className="message user redirect-note">
@@ -654,7 +681,14 @@ function LiveStatus({
 	showElapsed: boolean
 }) {
 	const phase = threadPhase(thread)
-	const label = livePhaseLabel(thread)
+	// With no work header above it, a running action is named in the status itself.
+	const label =
+		phase === 'tools' && !visuallyHidden
+			? (liveStep(
+					thread,
+					thread.timeline.filter((entry) => entry.turn === thread.turn),
+				)?.label ?? livePhaseLabel(thread))
+			: livePhaseLabel(thread)
 	const provider = useContext(ProviderNameContext)
 	const wait = thread.running && thread.stopReason === undefined ? thread.providerWait : undefined
 	const retained = useRef(label)
@@ -663,7 +697,8 @@ function LiveStatus({
 	useEffect(() => {
 		if (label) retained.current = label
 	}, [label])
-	const start = thread.turns[thread.turn]?.startedAt
+	const total = turnActiveMs(thread, thread.turn, now)
+	const stepMs = liveStepMs(thread, now)
 	if (wait)
 		return (
 			<output className="working working-wait" aria-live="polite" data-transcript-phase="working">
@@ -691,9 +726,14 @@ function LiveStatus({
 			<span className="working-label transcript-phase-label" aria-hidden="true">
 				<span className="transcript-phase-text">{label ?? retained.current}</span>
 			</span>
-			{start !== undefined && showElapsed && !visuallyHidden && (
+			{stepMs !== undefined && !visuallyHidden && (
+				<span className="working-step" aria-hidden="true" data-live-step-clock="">
+					{elapsedLabel(stepMs)}
+				</span>
+			)}
+			{total !== undefined && showElapsed && !visuallyHidden && (
 				<span className="working-elapsed" aria-hidden="true">
-					{elapsedLabel(now - start)}
+					{elapsedLabel(total)}
 				</span>
 			)}
 		</output>
@@ -1068,8 +1108,19 @@ export function Transcript({
 				group.turn === thread.turn &&
 				group.segments.some((segment) => hasPublicActivity(segment.activity, thread)),
 		)
-	// The stage line under the clock names the state once there is work to show.
-	const visuallyHidden = hasLiveActivity || threadPhase(thread) === 'waiting'
+	// The status line below is the one place the live step is said, unless the work header already
+	// says it: that is only so while the turn has work to show and no reply text has started.
+	const headerSaysStep =
+		thread.running &&
+		thread.stopReason === undefined &&
+		groups.some((group) => {
+			if (group.turn !== thread.turn) return false
+			const owner = [...group.segments]
+				.reverse()
+				.find((segment) => hasPublicActivity(segment.activity, thread))
+			return owner !== undefined && !hasPublicActivity(owner.answer, thread)
+		})
+	const visuallyHidden = headerSaysStep
 	const [now, setNow] = useState(Date.now)
 	const start = thread.turns[thread.turn]?.startedAt
 	useEffect(() => {

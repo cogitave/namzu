@@ -266,7 +266,7 @@ describe('truthful turn labels', () => {
 		thread.reasoning.r = { text: '', status: 'pending', turn: 1 }
 		expect(turnActivityLabel(thread, 1)).toBe('Working')
 		thread.permissions = [{ id: 'review', sessionId: 's', projectId: 'p', calls: [] }]
-		expect(livePhaseLabel(thread)).toBe('Waiting for your decision')
+		expect(livePhaseLabel(thread)).toBe('Waiting for you')
 		expect(turnActivityLabel(thread, 1)).toBe('Working')
 		thread.running = false
 		thread.turns[1] = {

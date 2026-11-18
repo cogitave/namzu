@@ -16,6 +16,7 @@ import {
 	filePaths,
 	fileTab,
 	openFileTab,
+	outputsTab,
 	panelKindOf,
 	parsePanelTabs,
 	readPanelTabs,
@@ -214,5 +215,20 @@ describe('panel width', () => {
 		expect(readPanelWidth(storage, 'right')).toBeUndefined()
 		store.set('namzu.workspace.panel-width:left', '12')
 		expect(readPanelWidth(storage, 'left')).toBeUndefined()
+	})
+})
+
+describe('the Outputs tab', () => {
+	it('sits after Changes, before Activity, and shows when ensured', () => {
+		const shown = ensurePanelTab(emptyPanelTabs, outputsTab)
+		expect(shown.tabs.map((tab) => tab.kind)).toEqual(['changes', 'outputs', 'activity'])
+		expect(shown.active).toEqual(outputsTab)
+		expect(panelKindOf('outputs')).toBe('reading')
+	})
+	it('is remembered with the other tabs', () => {
+		const state = ensurePanelTab(emptyPanelTabs, outputsTab)
+		const back = parsePanelTabs(serializePanelTabs(state))
+		expect(back.tabs.map((tab) => tab.kind)).toEqual(['changes', 'outputs', 'activity'])
+		expect(back.active).toEqual(outputsTab)
 	})
 })

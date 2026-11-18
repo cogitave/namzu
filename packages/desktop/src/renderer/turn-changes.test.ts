@@ -140,7 +140,9 @@ describe('per-reply edit summary', () => {
 		expect(html).toContain('aria-label="Done in 3s, 1 file changed, ')
 		expect(html).toContain('. Open changes"')
 		expect(html).toContain('aria-label="More about this reply"')
-		expect(html).not.toContain('View changes')
+		// The line names View changes; with no undo offered it names no Undo.
+		expect(html).toContain('data-turn-action="view-changes"')
+		expect(html).not.toContain('data-turn-action="undo"')
 		expect(html).not.toContain('data-undo=')
 	})
 

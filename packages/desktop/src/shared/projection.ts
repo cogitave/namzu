@@ -41,6 +41,12 @@ export interface TurnState {
 	result?: string
 	/** What the turn changed and what checked it, as the kernel recorded it; absent until it says. */
 	outcome?: TurnOutcomeSummary
+	/** Time the turn spent waiting for the person to answer, so a running clock can leave it out. */
+	waitedMs?: number
+	/** When the turn began waiting for an answer; present only while it waits. */
+	waitingSince?: number
+	/** When the last wait ended, so a step that began before it counts only from here. */
+	resumedAt?: number
 }
 /**
  * A finished edit reports a sentence for the model; the change itself is what the call carried.
@@ -725,7 +731,19 @@ function applyEventCore(previous: ThreadState, event: DesktopEvent): ThreadState
 		const permissions = [...thread.permissions]
 		if (index < 0) permissions.push(event.request)
 		else permissions[index] = event.request
-		return { ...thread, permissions }
+		// The first open request starts a wait: the turn's clock stops counting from here.
+		const at = timestamp(event.at)
+		const state = thread.turns[thread.turn]
+		return {
+			...thread,
+			permissions,
+			...(thread.permissions.length === 0 &&
+			at !== undefined &&
+			state &&
+			state.waitingSince === undefined
+				? { turns: { ...thread.turns, [thread.turn]: { ...state, waitingSince: at } } }
+				: {}),
+		}
 	}
 	if (event.kind === 'permission-cleared') {
 		// Clearing everything at once is the turn ending; what still waited never ran.
@@ -734,11 +752,28 @@ function applyEventCore(previous: ThreadState, event: DesktopEvent): ThreadState
 			: thread.permissions.flatMap((permission) =>
 					permission.calls.map((call) => ({ id: call.id, name: call.name })),
 				)
+		const permissions = event.requestId
+			? thread.permissions.filter((permission) => permission.id !== event.requestId)
+			: []
+		// The last answer ends the wait; its length is kept out of the turn's total.
+		const at = timestamp(event.at)
+		const state = thread.turns[thread.turn]
+		const ended =
+			permissions.length === 0 && state?.waitingSince !== undefined
+				? (() => {
+						const { waitingSince, ...rest } = state
+						return {
+							...rest,
+							waitedMs:
+								(state.waitedMs ?? 0) + (at === undefined ? 0 : Math.max(0, at - waitingSince)),
+							...(at === undefined ? {} : { resumedAt: at }),
+						}
+					})()
+				: undefined
 		return {
 			...thread,
-			permissions: event.requestId
-				? thread.permissions.filter((permission) => permission.id !== event.requestId)
-				: [],
+			permissions,
+			...(ended ? { turns: { ...thread.turns, [thread.turn]: ended } } : {}),
 			...(calls.length ? { unanswered: { turn: thread.turn, calls } } : {}),
 		}
 	}

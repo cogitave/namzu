@@ -147,6 +147,48 @@ button.turn-result-main:focus-visible,
 	margin-inline-start: -6px;
 	color: var(--muted-foreground);
 }
+/* View changes and Undo: named at the end of the row, drawn with the "..." (on hover, in focus, or where there is no hover). */
+.turn-result-actions {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	gap: 2px;
+	opacity: 0;
+	transition: opacity var(--dur-quick) var(--ease-out);
+}
+.turn-result:hover .turn-result-actions,
+.turn-result:focus-within .turn-result-actions {
+	opacity: 1;
+}
+@media (hover: none) {
+	.turn-result-actions {
+		opacity: 1;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.turn-result-actions {
+		transition: none;
+	}
+}
+.turn-result-action {
+	height: 24px;
+	padding-inline: 8px;
+	border-radius: var(--radius-chip);
+	color: var(--muted-foreground);
+	font: inherit;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	white-space: nowrap;
+	cursor: pointer;
+}
+.turn-result-action:hover {
+	background: var(--accent);
+	color: var(--foreground);
+}
+.turn-result-action:focus-visible {
+	outline: 2px solid transparent;
+	box-shadow: var(--focus-ring);
+}
 /* The "..." is the end of the row; it is drawn while the pointer is over the row, focus is inside it, or its menu is open. */
 .turn-result-more {
 	display: inline-flex;

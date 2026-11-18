@@ -26,9 +26,18 @@ export function visibleOutcome(
 	return state.outcome
 }
 
-/** The line under a finished turn: what changed and what the kernel's record says about checking it. */
+/**
+ * Only a verdict that is news gets a sentence: a check that failed, ran before the last change, or
+ * could not be read. "Not checked" and "could not tell" are standing conditions, not events, so
+ * they are never drawn; the record itself still keeps them.
+ */
+export function outcomeSpeaks(verdict: OutcomeVerdict): boolean {
+	return verdict === 'failing' || verdict === 'stale' || verdict === 'inconclusive'
+}
+
+/** The line under a finished turn: what the kernel's record says about a check that is not a pass. */
 export function TurnOutcomeLine({ outcome }: { outcome: TurnOutcomeSummary | undefined }) {
-	if (!outcome?.line) return null
+	if (!outcome?.line || !outcomeSpeaks(outcome.verdict)) return null
 	return (
 		<p className="turn-outcome-line" data-outcome-verdict={outcome.verdict}>
 			<span

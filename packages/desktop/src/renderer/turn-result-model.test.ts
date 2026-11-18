@@ -215,30 +215,18 @@ describe('the result line model', () => {
 			})?.lead,
 		).toBe('Done')
 	})
-	it('shows only the counts for an unknown record and keeps its sentence reachable', () => {
-		const line = 'A command ran that may have changed files · cannot tell'
+	it('shows only the counts for an unknown record and carries no caveat', () => {
 		const model = turnResultModel({
 			reason: 'end_turn',
 			changes: changes(2),
-			outcome: outcome('unknown', line, 3),
+			outcome: outcome('unknown', 'A command ran that may have changed files · cannot tell', 3),
 		})
 		expect(model?.check).toBeUndefined()
 		expect(model?.tone).toBe('neutral')
 		expect(model?.files).toBe(2)
-		const caveat = `These are the edits made with the edit tools. ${line}`
-		expect(model?.caveat).toBe(caveat)
-		expect(model?.label).toContain(caveat)
-		expect(model?.summary.split('\n')[0]).toContain(caveat)
-	})
-	it('has no caveat when the record is not unknown or no edit was counted', () => {
-		expect(
-			turnResultModel({
-				reason: 'end_turn',
-				changes: changes(1),
-				outcome: outcome('unchecked', 'Changed 1 file · not checked'),
-			})?.caveat,
-		).toBeUndefined()
-		expect(turnResultModel({ reason: 'end_turn', changes: changes(1) })?.caveat).toBeUndefined()
+		expect(model?.label).not.toContain('cannot tell')
+		expect(model?.summary).not.toContain('may have changed files')
+		expect(Object.keys(model ?? {})).not.toContain('caveat')
 	})
 	it('lists the largest changes first in the menu, and not the files a full undo removed', () => {
 		const base = changes(3)

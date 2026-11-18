@@ -2674,6 +2674,8 @@ export interface AgentSessionOptions {
 	 * `--session`), whose history arrives with each call.
 	 */
 	readonly ephemeral?: boolean
+	/** The session runs inside the desktop application, which shows written files in a preview pane. */
+	readonly desktop?: boolean
 	/**
 	 * Keep this conversation's failures and unrecovered stops as learning
 	 * observations in the project's own state directory. Default `false`; the
@@ -7078,6 +7080,7 @@ export async function createAgentSession(
 								...scratchpadFact(paths, turnScope.sessionId),
 								boundary: boundaryFor(opts?.onPermission !== undefined, undefined),
 								...(wsl ? { wsl } : {}),
+								...(options.desktop ? { host: 'desktop' as const } : {}),
 							},
 							{ stable: true },
 						)

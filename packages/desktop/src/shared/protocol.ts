@@ -867,6 +867,17 @@ export interface DesktopApi {
 	projectFileIndex?(projectId: string): Promise<{ paths: string[]; truncated: boolean }>
 	/** A project file as text, image or a size/binary verdict. */
 	readProjectFile?(projectId: string, path: string): Promise<ProjectFileContent>
+	/**
+	 * A file this conversation's turns wrote, or one inside its work folder, for the preview pane.
+	 * The host decides what may be read; any other path is refused in plain words.
+	 */
+	readSessionOutput?(sessionId: string, path: string): Promise<ProjectFileContent>
+	/** Opens such a file in the default browser (a web page only) or shows it in its folder. */
+	openSessionOutput?(
+		sessionId: string,
+		path: string,
+		target: 'browser' | 'file-manager',
+	): Promise<void>
 	/** Working-tree changes; null when not a git repository, untrusted or unavailable. */
 	projectChanges?(projectId: string): Promise<ProjectChangesView | null>
 	/** Before and after text of one changed file. */
