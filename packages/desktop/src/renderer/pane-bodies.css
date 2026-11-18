@@ -1,14 +1,18 @@
-/* A pane's tab strip sits in its header: the 28 high tabs line up with the 28 square controls. */
+/* A pane's tab strip sits in its header: the 28 high tabs line up with the 28 square controls. The
+   strip is the size its header gives it, so the tabs can be measured against it (below). */
 .pane-tabs {
 	min-width: 0;
+	container-type: inline-size;
 }
 /* A tab keeps the room its name needs, up to the tab's own cap; in a narrow pane the strip scrolls
-   rather than squeezing a name down to a few letters. A tab is never wider than the strip itself:
-   one that would be ends its name with an ellipsis instead of being cut off at the strip's edge. */
+   rather than squeezing a name down to a few letters. A tab is never wider than the strip less its
+   "+": one that would be ends its name with an ellipsis instead of being cut off at the strip's edge.
+   The cap is measured against the strip (cqw), not as a percentage: a percentage is ignored while the
+   tab list sizes itself, so the list kept the whole name's width and left a gap before the "+". */
 .pane-tabs .panel-tab-scroll > .panel-tab {
 	flex: none;
 	min-width: 0;
-	max-width: min(220px, 100%);
+	max-width: min(220px, calc(100cqw - var(--frame-control-size, 28px) - 6px));
 }
 .browser-pane {
 	display: flex;

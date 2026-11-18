@@ -3699,7 +3699,8 @@ and no resize rewrites the layout.
   narrow pane the strip scrolls instead of squeezing a name to a few letters, and the shown tab is scrolled into
   view when it changes, when a tab is added and when the pane is resized (`PaneTabs` in `pane-bodies.tsx`). A tab
   is never wider than the strip: one whose name does not fit ends it with an ellipsis rather than being cut at the
-  strip's edge, and a soft edge shows on a side that has tabs out of sight.
+  strip's edge, and a soft edge shows on a side that has tabs out of sight. The "+" sits right after the last tab,
+  however long that tab's name is.
 - **A terminal** started from the Terminal pane or button opens in the conversation's project folder, and in the
   home folder for a conversation that has no project (its own folder would be Namzu's chats folder, which is nobody's
   work; `terminalFolder` in `src/main/terminal-env.ts`). The pane lists only the terminals of this conversation's
