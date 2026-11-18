@@ -35,7 +35,7 @@
  * app's scale: a 15/24 body (the reference draws 16), and serif headings at the scale's display, title and
  * heading sizes, regular to medium weight, lighter than the 600 they had.
  */
-.document-page-sheet {
+.file-document.document-page-sheet {
 	width: 100%;
 	max-width: calc(42rem + 104px);
 	box-sizing: border-box;

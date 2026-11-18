@@ -203,6 +203,10 @@ describe('the pane', () => {
 		expect(page).toMatch(/\.document-outline-trigger \{[^}]*width: 36px;[^}]*height: 36px;/)
 		expect(page).toContain('max-width: calc(42rem + 104px)')
 		expect(page).toContain('padding: 8px 52px 64px')
+		// The file view's own .file-document rule loads later with the same weight: the sheet must out-rank it.
+		expect(page).toMatch(/\.file-document\.document-page-sheet \{/)
+		// A 16 px mark keeps the row at 30 px, so the 32 px pitch holds.
+		expect(panel).toMatch(/\.output-row > svg \{[^}]*width: 1rem;[^}]*height: 1rem;/)
 		// Square tables with a line on every cell edge.
 		expect(page).toContain('border-collapse: collapse')
 		expect(page).toMatch(/th,[^{]*td \{[^}]*border: 1px solid var\(--border-table\)/)
