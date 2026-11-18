@@ -14,7 +14,7 @@ The [process-local model profile](model-profiles.md) also accepts model choices
 through environment variables. Explicit `--provider`, `--model` and `--effort`
 flags win over those defaults. `--max-output-tokens <n>` sets the per-call output
 allowance for an interactive launch, including `namzu resume`, without editing
-config or preferences; pass it after `exec` for headless work. `--no-done-gate` turns off, for one launch, the reminder to check edits before a turn ends ([Turn limits](turn-limits.md#done-gate)); `namzu exec` reads `limits.doneGate` from the config instead.
+config or preferences; pass it after `exec` for headless work. The reminder to check edits before a turn ends is off unless `limits.doneGate` is `true` in the config; `--no-done-gate` turns it off again for one launch ([Turn limits](turn-limits.md#done-gate)), and `namzu exec` reads `limits.doneGate` from the config instead.
 
 ```sh
 namzu --provider openai --model gpt-5 --effort high --permission-mode plan

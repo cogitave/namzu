@@ -200,7 +200,6 @@ it('leaves both at the kernel default when nothing sets them, and lets a later l
 		tokenBudget: 0,
 		maxIterations: 0,
 		timeoutMs: 0,
-		completionAudit: true,
 		maxHookRefusals: DEFAULT_MAX_HOOK_REFUSALS,
 	})
 	expect(
@@ -209,9 +208,11 @@ it('leaves both at the kernel default when nothing sets them, and lets a later l
 	).toEqual({ maxTokens: 0 })
 })
 
-it('turns the done-gate off with doneGate: false, and refuses a bad cap', () => {
-	const off = resolveTurnGuards({ doneGate: false })
-	expect(turnConfigFields(off, { completionAudit: true }).completionAudit).toBeUndefined()
+it('leaves the done-gate off unless doneGate: true, and refuses a bad cap', () => {
+	for (const layers of [[], [{ doneGate: false }]] as const) {
+		const off = resolveTurnGuards(...layers)
+		expect(turnConfigFields(off, { completionAudit: true }).completionAudit).toBeUndefined()
+	}
 	expect(() => resolveTurnGuards({ maxReasoningTokens: -1 })).toThrow('maxReasoningTokens')
 })
 

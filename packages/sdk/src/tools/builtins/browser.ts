@@ -455,10 +455,15 @@ function actModelSchema(actions: readonly BrowserActActionName[]) {
 					'press: a key or chord, e.g. Enter or Control+A. Without ref only Escape, Enter, Tab, Shift+Tab, PageDown, PageUp, Home, End and Space are accepted, and only when the focused control is not a password or code field.',
 			},
 			path: { type: 'string', description: 'upload: local file path.' },
-			accept: { type: 'boolean', description: 'dialog: accept (true) or dismiss (false).' },
+			accept: {
+				type: 'boolean',
+				description:
+					'dialog: accept (true) or dismiss (false) a page dialog (alert, confirm or prompt). The page waits for your answer; accept an alert or confirm to go ahead, dismiss it to cancel.',
+			},
 			promptText: {
 				type: 'string',
-				description: 'dialog: the text to enter when the dialog is a prompt that takes one.',
+				description:
+					'dialog: the text to enter when accepting a prompt dialog (empty when omitted). Refused when the prompt asks for a password or a code.',
 			},
 			snapshot: { type: 'boolean', description: 'Return a snapshot of the page afterwards.' },
 		},
@@ -1025,7 +1030,7 @@ function observeDescription(caps: BrowserCapabilities): string {
 
 function actDescription(caps: BrowserCapabilities): string {
 	return [
-		"Changes the page in the web browser: click, type, fill_form, select, press, hover, upload, dialog. Act by ref from the latest snapshot of the browser tool. When an element has no ref (a menu that opens on hover, a control the snapshot leaves out), click and hover also take its visible text, or its role with its accessible name; they refuse and list the candidates when none or several match. A click or hover on a large container lands on the container's own text or its first control, not its middle.",
+		"Changes the page in the web browser: click, type, fill_form, select, press, hover, upload, dialog (accept or dismiss a page alert, confirm or prompt; a prompt takes promptText, never a password or code). Act by ref from the latest snapshot of the browser tool. When an element has no ref (a menu that opens on hover, a control the snapshot leaves out), click and hover also take its visible text, or its role with its accessible name; they refuse and list the candidates when none or several match. A click or hover on a large container lands on the container's own text or its first control, not its middle.",
 		'press takes a key; without ref it sends Escape, Enter, Tab, Shift+Tab, PageDown, PageUp, Home, End or Space to the focused element, and refuses when that is a password or code field. type can send real key presses (keys), keep the existing text (append) or clear first (clear).',
 		'Every call must carry origin, copied from the snapshot header ("Page: <origin> — …"); if the page is no longer on that origin nothing is done. A stale ref is refused the same way: take a new snapshot.',
 		'Every result starts with "Effect:", what the action did to the page (lines that appeared or went, an address change, or "no visible change"). Read it before the next call: "no visible change" means nothing happened, so do not repeat the same call; look at the page or choose a different element. Set snapshot: true to get the whole page back after the action. Leave passwords and one-time codes to the person, because a model that holds a credential can be steered into leaking it; if the page needs a person, stop and tell the user.',
