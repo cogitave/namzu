@@ -893,7 +893,7 @@ export function RoutingEditor({
 				{field('Large model', 'For long, many-step work.', 'big', 'Not used')}
 				<FormLine name="How a task is sized">
 					<select
-						className="settings-config-input"
+						className="settings-config-input settings-config-model"
 						aria-label="How a task is sized"
 						value={form.strategy}
 						onChange={(event) => edit({ strategy: event.target.value })}

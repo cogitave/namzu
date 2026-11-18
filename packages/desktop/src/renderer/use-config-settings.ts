@@ -12,7 +12,11 @@ import { desktopSettingsFileError, isSettingsFileError } from './settings-file-e
  * the system (a file that cannot be written, a lost connection) still goes through that rule.
  */
 export function saveRefusalText(failure: unknown): string {
-	const cleaned = cleanErrorMessage(failure instanceof Error ? failure.message : String(failure))
+	// The loader names the file it read first ('config file "/home/.../config.yaml": ...'); the row
+	// already says which file it saves to, so the sentence starts after it.
+	const cleaned = cleanErrorMessage(
+		failure instanceof Error ? failure.message : String(failure),
+	).replace(/^config file (?:"[^"]*"|\S+):\s*/u, '')
 	const system =
 		/\b(?:E[A-Z]{3,}|ERR_[A-Z_]+)\b|errno|syscall|\bat [^ ]+:\d+|(?:fetch failed|network|permission denied|no such file)/
 	if (cleaned !== '' && cleaned.length <= 300 && !system.test(cleaned)) return cleaned

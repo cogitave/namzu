@@ -19,6 +19,15 @@ describe('what a refused save says', () => {
 			),
 		).toMatch(/^permissionChecks\[0\]: expected "expect"/)
 	})
+	it('leaves out the config file the loader names first', () => {
+		expect(
+			saveRefusalText(
+				new Error(
+					'config file "/home/a/.namzu/config.yaml": routing.default.provider must be a non-empty string',
+				),
+			),
+		).toBe('routing.default.provider must be a non-empty string')
+	})
 	it('still turns a system failure into one plain sentence', () => {
 		expect(saveRefusalText(new Error("EACCES: permission denied, open '/x/config.yaml'"))).toBe(
 			'Namzu isn’t allowed to open that. Check its permissions, then try again.',
