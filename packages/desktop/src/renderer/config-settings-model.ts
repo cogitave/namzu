@@ -371,3 +371,20 @@ export function textCommitAction(
 	if (draft === undefined) return 'nothing'
 	return draft === saved ? 'discard' : 'save'
 }
+
+const squash = (text: string): string =>
+	text
+		.toLowerCase()
+		.replace(/[^\p{L}\p{N}]+/gu, ' ')
+		.trim()
+
+/**
+ * `line` for the second line under a row, or nothing when it only says again what the row's
+ * description already says (a choice whose help is the description's first sentence).
+ */
+export function unlessRepeated(line: string | undefined, description: string | undefined): string {
+	if (!line) return ''
+	const flat = squash(line)
+	if (flat && description && squash(description).includes(flat)) return ''
+	return line
+}

@@ -467,6 +467,23 @@ export interface MemoryCliConfig {
 	 * profile in one, cannot set it.
 	 */
 	readonly retireAfterDays?: number
+	/**
+	 * Write memory from conversations. Default true. `false`: nothing a
+	 * conversation learned is saved as memory (no claim is promoted at the end
+	 * of a turn or at compaction, and none is consolidated); memory you save
+	 * yourself, `/memory add` and recall are unchanged. Your own config and
+	 * managed config only; a project file, or a profile in one, cannot set it.
+	 */
+	readonly fromConversations?: boolean
+	/**
+	 * Offer the model a tool that searches this project's earlier
+	 * conversations (deferred: one name line in the tool listing until it is
+	 * loaded). Default true. `false` removes the tool. Excerpts of past
+	 * conversations are sent to the model when it searches. Your own config
+	 * and managed config only; a project file, or a profile in one, cannot
+	 * set it.
+	 */
+	readonly searchPastConversations?: boolean
 }
 
 /**

@@ -141,6 +141,27 @@ describe('the turn memory promoter', () => {
 		await drive()
 	})
 
+	it('is not handed over, nor is consolidation, when memory from conversations is off', async () => {
+		const { createAgentSession } = await import('../tui/agent.js')
+		for (const consolidate of [false, true]) {
+			queryCalls.length = 0
+			const session = await createAgentSession(prefs, detectedAnthropic(), {
+				toolLoading: 'eager',
+				cwd,
+				memory: { curation: 'off', fromConversations: false },
+				...(consolidate ? { compaction: { consolidate: true } } : {}),
+			})
+			for await (const _ of session.send([{ role: 'user', content: 'hi', timestamp: 0 }])) {
+				// drain
+			}
+			expect(queryCalls.length).toBe(1)
+			expect(queryCalls[0]?.promoteMemory).toBeUndefined()
+			expect(queryCalls[0]?.consolidateInto).toBeUndefined()
+			await session.close()
+		}
+		expect((await sessionMemoryStore(cwd).list()).totalCount).toBe(0)
+	})
+
 	it('writes into the SAME store `search_memory` reads', async () => {
 		const promote = await drive()
 

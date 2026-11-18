@@ -337,6 +337,10 @@ function resolveConfigWithProvenance(
 				'profiles.*.memory.curation',
 				'memory.retireAfterDays',
 				'profiles.*.memory.retireAfterDays',
+				'memory.fromConversations',
+				'profiles.*.memory.fromConversations',
+				'memory.searchPastConversations',
+				'profiles.*.memory.searchPastConversations',
 			])
 		: {}
 	// `.mcp.json`: the project's shared tool servers. Read under the same trust
@@ -369,6 +373,10 @@ function resolveConfigWithProvenance(
 				'profiles.*.memory.curation',
 				'memory.retireAfterDays',
 				'profiles.*.memory.retireAfterDays',
+				'memory.fromConversations',
+				'profiles.*.memory.fromConversations',
+				'memory.searchPastConversations',
+				'profiles.*.memory.searchPastConversations',
 			])
 		: {}
 	const managedCfg = readJsonIfExists(managedPath, shortHomePath(managedPath))
@@ -1133,7 +1141,9 @@ const CONFIG_READERS: ConfigReaders = {
 				key !== 'identifierGrounding' &&
 				key !== 'select' &&
 				key !== 'curation' &&
-				key !== 'retireAfterDays'
+				key !== 'retireAfterDays' &&
+				key !== 'fromConversations' &&
+				key !== 'searchPastConversations'
 			)
 				return invalidConfigValue(context, [key], 'is not a memory key')
 		}
@@ -1161,7 +1171,17 @@ const CONFIG_READERS: ConfigReaders = {
 				'must be a whole number of days, or 0 to keep records active for ever',
 			)
 		}
+		for (const key of ['fromConversations', 'searchPastConversations'] as const) {
+			if (v[key] !== undefined && typeof v[key] !== 'boolean')
+				return invalidConfigValue(context, [key], 'must be true or false')
+		}
 		return {
+			...(v.fromConversations === undefined
+				? {}
+				: { fromConversations: v.fromConversations as boolean }),
+			...(v.searchPastConversations === undefined
+				? {}
+				: { searchPastConversations: v.searchPastConversations as boolean }),
 			...(v.retireAfterDays === undefined ? {} : { retireAfterDays: v.retireAfterDays as number }),
 			...(v.select === undefined ? {} : { select: v.select as 'on' | 'off' }),
 			...(v.curation === undefined ? {} : { curation: v.curation as 'on' | 'off' }),

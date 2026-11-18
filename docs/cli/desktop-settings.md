@@ -49,7 +49,7 @@ a layer other than the user file decides:
 
 Settings whose layers combine (`permissions`, `permissionChecks`, `routing`, `permissions.autoMode`) and
 file-only settings carry no layer. A project file's `model`, `routing`, `smallModel`, `decision` and
-memory curation keys are dropped by the loader and are not reported either, nor is any value the loader
+memory curation, memory-from-conversations and past-conversation search keys are dropped by the loader and are not reported either, nor is any value the loader
 ignores for a project source: the terminal's own look (`tui.*` taste keys), `updates.channel`, `updates.auto`
 or `updates.check` set to true, `disableHooks` set to true, and a sandbox, code analysis, learning or
 composer-trigger value that would loosen what is below it (`projectLayerHolds` in `config/load.ts`, shared with
@@ -148,6 +148,8 @@ Two rows in **Agent**, under **Memory**, are the person's own text rather than c
 
 - **Instructions** (`standingInstructions`: `namzu/instructions/get`, `namzu/instructions/set`) is a box over `AGENTS.md` in the Namzu home, the file the terminal app and Desktop both load for every conversation ([project instructions](project-instructions.md)). It is read as it is on disk each time, so a hand edit shows at once. Emptying the box removes the file. The `rules/` folder and `@` imports are not shown or changed. The text is limited to the 32,000 characters a conversation follows, and a link or folder in the file's place is refused, so the box is disabled with a note. The next message of a running conversation reads the new text, because each new turn re-reads the home file. `get` returns a revision of the text it read and `set` may name it: a file that changed since (an edit in the terminal app) is not overwritten, and the current text comes back marked `changed`, which the box shows with a note. The note under the box says the text is sent with every message, so a long one uses context, and that a paste over the limit was cut. Nothing is sent to a model by the box itself.
 - **Your memory** (`savedMemory`: `namzu/memory/list`, `namzu/memory/read`, `namzu/memory/update`, `namzu/memory/delete`) is a Manage button, enabled when a project is open, that opens a dialog over that project's saved memories ([seeing and deleting stored memory](memory.md#seeing-and-deleting-stored-memory)): a list with search over title and the start of the text, who saved each one (You saved it, Namzu saved it, Saved from a conversation), retired ones marked, and one memory opened for editing its title and text. Edits and deletes name the version that was listed, so a memory that changed since is refused with a sentence, not overwritten. Delete asks first and is final for that one memory; a conversation that already read it keeps what it read until it is cleared. `MEMORY.md` and `USER.md` are not records and are not listed. The edit rewrites the summary line from the new text.
+- **Generate memory from conversations** (`memory.fromConversations`, default on) is a switch. Off, nothing a conversation learned is saved as memory: no claim is promoted when a turn ends or at compaction and nothing is consolidated. Memory you save yourself (the `save_memory` tool when you ask it to remember, `/memory add`), recall and what is already saved are unchanged. Applies to the next conversation. A project file cannot set it ([what turns record](memory.md#turning-off-memory-from-conversations)).
+- **Search and reference conversations** (`memory.searchPastConversations`, default on) is a switch. On, the model is offered the deferred tool `search_past_conversations`, which finds excerpts in this project's earlier conversations; the row says that excerpts from past conversations are sent to the model. Off removes the tool. A project file cannot set it ([how it searches](conversation-evidence.md#searching-earlier-conversations)).
 
 Both acts on the person's home only: a project's own files cannot set either, and Pals are refused.
 
@@ -178,10 +180,7 @@ variables or headers. Provider keys keep their own masked flow under Models.
 
 ## Not exposed
 
-Two rows the reference has are not offered, because no setting of the engine means what the row would say:
-
-- *Search and reference past chats*: the model's `search_conversation` and `read_conversation` tools and the per-turn history lookup are bound to the current conversation. Searching across conversations exists only as the sidebar's `namzu/conversations/search`, which the model cannot call, and `compaction.recallEvidence` is also per conversation. A switch with that name would mislead. It needs a new model tool over the session index, with its scope (this project or all) chosen on purpose and a default of off.
-- *Generate memory from chats*: claims are promoted to memory at compaction. `memory.curation` changes only how they are tidied, `decision.memory: off` skips the question and still writes, and `memory.recall` stops recall only. There is no mode to choose between, so no select is drawn. A switch needs a new key (`memory.fromConversations`, default on) that leaves the promotion out of compaction when off.
+Every row the reference has under its memory settings is now offered. What stays out of Settings is derived by the loader or deprecated:
 
 `permissionLayers` and `permissionSettings` are derived by the loader. `tui.spacesPrefix` is a deprecated
 alias of `tui.workspacesPrefix`. Project-scope limits (for example a project cannot set `model` or

@@ -38,6 +38,7 @@ import {
 	restartBadge,
 	stateFor,
 	textCommitAction,
+	unlessRepeated,
 } from './config-settings-model.js'
 import { SettingsConfirmDialog } from './settings-confirm-dialog.js'
 import { Row, Switch } from './settings-row.js'
@@ -209,7 +210,7 @@ function ConfigRow({
 	const optionHelp =
 		control.kind === 'select' ? control.options.find((o) => o.value === chosen)?.help : undefined
 	const meta = [
-		optionHelp,
+		unlessRepeated(optionHelp, descriptor.description),
 		control.kind === 'number' ? rangeText(control) : '',
 		state?.set || locked ? '' : defaultHelper(descriptor, view),
 		requirementNote(descriptor, view),

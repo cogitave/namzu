@@ -410,6 +410,23 @@ again. To restore an archived record, open its file in the memory directory and
 change `status: archived` to `status: active`; to run the pass again, delete the
 marker.
 
+### Turning off memory from conversations
+
+`memory.fromConversations` (default `true`) is the switch for everything above. Set it
+to `false` in your own config, or turn off **Generate memory from conversations**
+under Settings, Agent, Memory, and a turn's claims are neither promoted when the turn
+ends nor at compaction, and `compaction.consolidate` writes no turn record. What you
+save yourself (`save_memory` on your request, `/memory add`, `--user add`, the Desktop
+editor), recall and every memory already saved are unchanged. The key is read when a
+conversation starts. A project's `namzu.config.json` or local file, including a
+profile in one, cannot set it; only your own config and a managed config can.
+
+```yaml
+# ~/.namzu/config.yaml
+memory:
+  fromConversations: false   # default: true
+```
+
 ### How what turns learn is curated
 
 The screened claims of a turn no longer become a record of their own. When the

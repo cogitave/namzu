@@ -111,6 +111,8 @@ const PROJECT_DROPPED = [
 	'memory.select',
 	'memory.curation',
 	'memory.retireAfterDays',
+	'memory.fromConversations',
+	'memory.searchPastConversations',
 ]
 const LOCAL_DROPPED = [
 	'decision',
@@ -119,6 +121,8 @@ const LOCAL_DROPPED = [
 	'memory.select',
 	'memory.curation',
 	'memory.retireAfterDays',
+	'memory.fromConversations',
+	'memory.searchPastConversations',
 ]
 
 function readJson(file: string): Record<string, unknown> {

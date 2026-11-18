@@ -423,6 +423,7 @@ import {
 	releaseConversationEvidence,
 } from '../integrations/sessions/conversation-search.js'
 import { createConversationEvidenceRecall } from '../integrations/sessions/evidence-recall.js'
+import { buildPastConversationSearchTool } from '../integrations/sessions/past-conversations.js'
 import {
 	type ConversationContext,
 	conversationLogPath,
@@ -4194,6 +4195,30 @@ export async function createAgentSession(
 			),
 		)
 	}
+	// Earlier conversations of this project, searched through the session index.
+	// Deferred like any tool outside the eager list, so the listing gains one name
+	// line until the model loads it. A Pal never gets it: its conversations are its own.
+	if (
+		options.conversationSessions &&
+		!options.palEnvironment &&
+		options.memory?.searchPastConversations !== false
+	) {
+		const sessions = options.conversationSessions
+		toolsets.push(
+			toolset('past-conversations', [
+				buildPastConversationSearchTool((context) => {
+					const owner = delegationScopes.get(context.turnId)
+					if (
+						!owner ||
+						owner.projectId !== sessions.projectId ||
+						owner.tenantId !== sessions.tenantId
+					)
+						throw new Error('The requesting turn does not own this conversation.')
+					return { sessions, sessionId: owner.sessionId }
+				}),
+			]),
+		)
+	}
 	// `session_cost`: what this conversation has cost, read from its own log with
 	// the spend ledger's fold, so a cost question is one call rather than a search
 	// of the disk. Read-only; it can only read the conversation of the turn that
@@ -5991,9 +6016,11 @@ export async function createAgentSession(
 						...evidenceRecallFor(entry.sessionId),
 						...memoryContextSteps(curatedMemoryPrompt, storedMemory.prompt),
 					],
-					...(options.compaction?.consolidate
-						? { consolidateInto: memoryStore, consolidationScreen }
-						: { promoteMemory }),
+					...(options.memory?.fromConversations === false
+						? {}
+						: options.compaction?.consolidate
+							? { consolidateInto: memoryStore, consolidationScreen }
+							: { promoteMemory }),
 					projectInstructionContext: projectInstructions.createTurnContext(),
 					postCompactionContext: () =>
 						carriedAcrossCompaction({
@@ -7486,7 +7513,7 @@ export async function createAgentSession(
 								retainedToolPreviewChars: options.conversationSessions
 									? (options.compaction?.retainedToolPreviewChars ?? 4_000)
 									: undefined,
-								...(options.compaction?.consolidate
+								...(options.compaction?.consolidate && options.memory?.fromConversations !== false
 									? { consolidateInto: memoryStore, consolidationScreen }
 									: {}),
 								...(jobRegistry
@@ -7541,7 +7568,10 @@ export async function createAgentSession(
 								structuredOutput: options.structuredOutput,
 								reviewAnswer: options.reviewAnswer,
 								maxAnswerReviews: options.maxAnswerReviews,
-								promoteMemory: options.compaction?.consolidate ? undefined : promoteMemory,
+								promoteMemory:
+									options.compaction?.consolidate || options.memory?.fromConversations === false
+										? undefined
+										: promoteMemory,
 								...(options.memory?.recall === false ? {} : { memoryLifecycle }),
 								prepareStep: [
 									createTaskContextStep(turnTaskStore, turnScope.tenantId),

@@ -1535,6 +1535,30 @@ const DECLARED: readonly SettingDescriptor[] = [
 		),
 		{ group: 'long-conversations', keywords: ['prompt cache', 'ttl', 'cache ttl'], default: '5m' },
 	),
+	d(
+		'memory.fromConversations',
+		'agent',
+		'Generate memory from conversations',
+		'Let Namzu save what it learns in your conversations as memory. Off, nothing is saved from them; memory you save yourself still works.',
+		on,
+		{
+			group: 'memory',
+			keywords: ['Generate memory from chats', 'remember from chats', 'learn from conversations'],
+			default: true,
+		},
+	),
+	d(
+		'memory.searchPastConversations',
+		'agent',
+		'Search and reference conversations',
+		"Let the model search this project's earlier conversations for relevant details. Excerpts from past conversations are sent to the model.",
+		on,
+		{
+			group: 'memory',
+			keywords: ['Search and reference chats', 'past chats', 'past conversations', 'history'],
+			default: true,
+		},
+	),
 	d('memory.recall', 'agent', 'Use saved memory', 'Bring saved memory into a conversation.', on, {
 		group: 'memory',
 		keywords: ['Recall memory', 'memory recall'],
