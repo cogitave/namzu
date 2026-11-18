@@ -89,7 +89,9 @@ namzu config set browser.sites '{"https://example.com":"read","*":"ask"}'
   replaces them and the entry `$defaults` stands for them; the model is `provider/model`, a bare model, or `smallModel`
   (`provider:model` is not read). `permissions.autoMode` asks first when its model changes, when an entry is added to
   `allow` or `environment`, or when an entry is removed from `softDeny` or `hardDeny`, and names it; a change that only
-  restricts applies at once. `namzu config get smallModel` says so when `NAMZU_SMALL_MODEL` is set for the command.
+  restricts applies at once. `namzu config get <key>` says so, with an `In force:` line, when an environment variable, the project's file or the
+  managed file decides the value instead of the user file (`NAMZU_SMALL_MODEL`, `NAMZU_MAX_OUTPUT_TOKENS`, `NAMZU_FULLSCREEN`, and the
+  other variables the loader reads); `--json` carries `layer` and `effective`. See [Desktop settings](desktop-settings.md#which-layer-decides-a-value).
 - **Permissions and browser sites.** `permissions`, `permissionChecks` and `browser.sites` take JSON, the table or list
   the loader reads, and refuse what the loader refuses (a rule answer other than `allow`, `ask` or `deny`; a check whose
   `input` is not an object, such as `permissionChecks[0]: expected an "input" object for bash; got string`; a site with no

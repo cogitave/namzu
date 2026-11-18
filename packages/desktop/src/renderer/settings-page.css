@@ -786,6 +786,16 @@
 	min-width: 0;
 	max-width: 100%;
 }
+.settings-config-locked {
+	display: contents;
+	border: 0;
+	margin: 0;
+	padding: 0;
+	min-width: 0;
+}
+.settings-config-locked:disabled > * {
+	opacity: 0.7;
+}
 .settings-row[data-stacked] .settings-config-control {
 	align-items: stretch;
 	width: 100%;

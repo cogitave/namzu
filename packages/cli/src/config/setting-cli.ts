@@ -18,6 +18,7 @@ import {
 	defaultWords,
 	effectiveDefault,
 	environmentNote,
+	layerNote,
 	levelsHeld,
 	loosenConfirmation,
 	needsConfirmation,
@@ -168,6 +169,11 @@ export interface SettingRow {
 	readonly fileOnly: boolean
 	/** A variable in the environment that is used in place of the saved value. */
 	readonly env?: { readonly variable: string; readonly value: string }
+	/** The layer that decides the value when it is not the user file, and the value it gives. */
+	readonly layer?: SettingState['layer']
+	readonly effective?: unknown
+	/** `effective` in words, for the line that says what is in force. */
+	readonly effectiveText?: string
 }
 
 function toRow(
@@ -199,6 +205,13 @@ function toRow(
 		...(entry.confirm ? { confirm: entry.confirm, asksWhen: asksWhenWords(entry) } : {}),
 		fileOnly,
 		...(state?.env ? { env: state.env } : {}),
+		...(state?.layer ? { layer: state.layer } : {}),
+		...(state?.effective !== undefined
+			? {
+					effective: state.effective,
+					effectiveText: valueWords(entry, state.effective),
+				}
+			: {}),
 	}
 }
 
@@ -267,6 +280,8 @@ export function rowData(row: SettingRow): Record<string, unknown> {
 		appliesText: row.appliesText,
 		...(row.confirm ? { confirm: row.confirm, asksWhen: row.asksWhen } : {}),
 		...(row.env ? { env: row.env } : {}),
+		...(row.layer ? { layer: row.layer } : {}),
+		...(row.effective !== undefined ? { effective: row.effective } : {}),
 	}
 }
 
@@ -315,7 +330,10 @@ export function renderSetting(row: SettingRow, file: string): string {
 	lines.push(
 		`Value:    ${row.set ? row.valueText : `default (${row.defaultText})`}${row.set ? ' (set in the user file)' : ''}`,
 	)
-	if (row.env) lines.push(`Note:     ${environmentNote(row.env)}`)
+	if (row.effectiveText !== undefined) lines.push(`In force: ${row.effectiveText}`)
+	if (row.layer && row.layer !== 'user' && row.env?.value !== '')
+		lines.push(`Note:     ${layerNote(row.layer, row.env, row.set)}`)
+	else if (row.env) lines.push(`Note:     ${environmentNote(row.env)}`)
 	// When a change applies follows the default, as on the Desktop row.
 	lines.push(`Default:  ${row.defaultText.replace(/\.$/, '')}. ${row.appliesText}`)
 	const control = row.control

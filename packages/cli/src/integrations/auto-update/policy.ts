@@ -28,7 +28,7 @@ export interface UpdatePolicyInput {
 const ON_WORDS = new Set(['1', 'true', 'yes', 'on'])
 const OFF_WORDS = new Set(['0', 'false', 'no', 'off'])
 
-function readSwitch(value: string | undefined): boolean | undefined {
+export function readSwitch(value: string | undefined): boolean | undefined {
 	const word = value?.trim().toLowerCase()
 	if (!word) return undefined
 	if (ON_WORDS.has(word)) return true

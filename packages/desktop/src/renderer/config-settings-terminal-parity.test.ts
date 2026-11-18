@@ -282,6 +282,9 @@ describe('Desktop and the terminal read the routing table and the reviewer alike
 		expect(cli.environmentNote(env)).toBe(values.environmentNote(env))
 		const blank = { variable: 'NAMZU_SMALL_MODEL', value: '' }
 		expect(cli.environmentNote(blank)).toBe(values.environmentNote(blank))
+		for (const layer of ['env', 'project', 'local', 'managed', 'profile', 'user'] as const)
+			for (const saved of [true, false])
+				expect(cli.layerNote(layer, env, saved)).toBe(values.layerNote(layer, env, saved))
 	})
 })
 

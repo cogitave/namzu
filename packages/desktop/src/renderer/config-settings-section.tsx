@@ -3,7 +3,7 @@ import type {
 	ConfigSettingDescriptor,
 	ConfigSettingsView,
 } from '../shared/config-settings-protocol.js'
-import { environmentNote } from '../shared/config-settings-values.js'
+import { environmentNote, layerNote } from '../shared/config-settings-values.js'
 import type { SettingsSection } from '../shared/settings-protocol.js'
 import {
 	AutoModeEditor,
@@ -182,15 +182,32 @@ function ConfigRow({
 	const state = stateFor(view, descriptor.path)
 	const error = config.errors[descriptor.path]
 	const control = descriptor.control
-	const chosen = state?.set ? state.value : effectiveDefault(descriptor, view)
+	// A layer other than the user's file decides the value: the row shows that value, read-only.
+	const locked =
+		state?.effective !== undefined &&
+		(state.layer === 'project' ||
+			state.layer === 'local' ||
+			state.layer === 'managed' ||
+			state.layer === 'env')
+	const shownSet = locked ? true : (state?.set ?? false)
+	const shownValue = locked ? state?.effective : state?.value
+	const chosen = locked
+		? state?.effective
+		: state?.set
+			? state.value
+			: effectiveDefault(descriptor, view)
 	const optionHelp =
 		control.kind === 'select' ? control.options.find((o) => o.value === chosen)?.help : undefined
 	const meta = [
 		optionHelp,
 		control.kind === 'number' ? rangeText(control) : '',
-		state?.set ? '' : defaultHelper(descriptor, view),
+		state?.set || locked ? '' : defaultHelper(descriptor, view),
 		requirementNote(descriptor, view),
-		state?.env ? environmentNote(state.env) : '',
+		state?.layer && state.layer !== 'user' && state.env?.value !== ''
+			? layerNote(state.layer, state.env, state.set)
+			: state?.env
+				? environmentNote(state.env)
+				: '',
 		control.kind === 'file-only' && view.file ? `Config file: ${view.file}.` : '',
 	]
 		.filter(Boolean)
@@ -226,14 +243,17 @@ function ConfigRow({
 			stacked={stacked}
 		>
 			<div className="settings-config-control">
-				<Control
-					key={config.resets[descriptor.path] ?? 0}
-					descriptor={descriptor}
-					value={state?.value}
-					set={state?.set ?? false}
-					view={view}
-					config={config}
-				/>
+				{/* A disabled fieldset turns off every field and button inside it, whatever the control. */}
+				<fieldset disabled={locked} className="settings-config-locked">
+					<Control
+						key={config.resets[descriptor.path] ?? 0}
+						descriptor={descriptor}
+						value={shownValue}
+						set={shownSet}
+						view={view}
+						config={config}
+					/>
+				</fieldset>
 				{reset}
 				{error && (
 					<p role="alert" className="settings-error settings-config-error">

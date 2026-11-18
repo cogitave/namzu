@@ -16,6 +16,7 @@ import { foldRuleLists } from '../permissions/rule-strings.js'
 import { compilePermissions } from '../permissions/rules.js'
 import { parsePrefix } from '../workspaces/prefix.js'
 import { BROWSER_PROFILE_NAME, ConfigValueError, readConfigKey } from './load.js'
+import { layerReader } from './setting-layers.js'
 import {
 	PERMISSION_MODE_KEYS,
 	levelsValue,
@@ -49,27 +50,27 @@ export interface SettingState {
 	/** The value, as JSON text for a list or table. Never present for a `file-only` setting. */
 	readonly value?: unknown
 	/**
-	 * The file the value in force came from. Not filled yet: the read-side layer lane sets it, and
-	 * Desktop already reads the field.
+	 * Which layer decides the value in force, when it is not the user file: `project` (the project's
+	 * own file), `local` (its git-ignored file), `managed` (the administrator's file) or `env` (an
+	 * environment variable). Absent means the user file, or the default when nothing is saved. A
+	 * Desktop older than the field ignores it and keeps showing the saved value.
 	 */
-	readonly layer?: 'user' | 'project' | 'local' | 'profile' | 'managed'
+	readonly layer?: 'user' | 'project' | 'local' | 'profile' | 'managed' | 'env'
+	/** The value in force, as that layer gives it. Present with `layer`, unless an environment value is unusable. */
+	readonly effective?: unknown
 	/**
 	 * An environment variable set for this process that the loader uses in place of the saved value.
-	 * Only for a setting whose variable is described in `SETTING_ENVIRONMENT`; the value is a model
-	 * name, never a secret.
+	 * Only for a setting whose variable is described in `ENVIRONMENT_BINDINGS`; the value is a model
+	 * name, size, switch or channel, never a secret.
 	 */
 	readonly env?: { readonly variable: string; readonly value: string }
 }
 
-/** The settings a `NAMZU_*` variable replaces, by the variable the loader reads (`ENV_VARIABLE_NAMES`). */
-const SETTING_ENVIRONMENT: Readonly<Record<string, string>> = { smallModel: 'NAMZU_SMALL_MODEL' }
-
-function environmentFor(path: string, env: NodeJS.ProcessEnv): SettingState['env'] {
-	const variable = SETTING_ENVIRONMENT[path]
-	if (variable === undefined) return undefined
-	const raw = env[variable]
-	// Set but blank: the loader refuses it (it must name a model), so the row says it is set.
-	return raw === undefined ? undefined : { variable, value: raw.trim() }
+export interface ReadSettingsOptions extends UserConfigWriteOptions {
+	/** The folder whose project files count; defaults to the process's. */
+	readonly cwd?: string
+	/** Overridable for tests; defaults to the machine-wide managed file. */
+	readonly managedPath?: string
 }
 
 export interface SettingsSnapshot {
@@ -149,8 +150,16 @@ function withTypedDefaultText(entry: SettingDescriptor): SettingDescriptor {
 const WORKSPACES_PREFIX = 'tui.workspacesPrefix'
 const LEGACY_SPACES_PREFIX = 'tui.spacesPrefix'
 
-export function readSettings(opts: UserConfigWriteOptions = {}): SettingsSnapshot {
+/** Rows whose layers combine by tightening or by merging tables: one layer's value is not the answer. */
+const NOT_LAYERED = ['file-only', 'permission-rules', 'permission-checks', 'routing', 'auto-mode']
+
+export function readSettings(opts: ReadSettingsOptions = {}): SettingsSnapshot {
 	const doc = readUserDocument(opts)
+	const layerOf = layerReader({
+		env: opts.env ?? process.env,
+		cwd: opts.cwd ?? process.cwd(),
+		...(opts.managedPath ? { managedPath: opts.managedPath } : {}),
+	})
 	const settings = SETTING_DESCRIPTORS.map((entry): SettingState => {
 		let value = lookup(doc, entry.path.split('.'))
 		// The key from before the rename is read by the loader while the new one is absent.
@@ -161,10 +170,17 @@ export function readSettings(opts: UserConfigWriteOptions = {}): SettingsSnapsho
 			const rules = ruleTableOf(value)
 			value = Object.keys(rules).length === 0 ? undefined : rules
 		}
-		const env = environmentFor(entry.path, opts.env ?? process.env)
-		if (value === undefined) return { path: entry.path, set: false, ...(env ? { env } : {}) }
+		const answer = NOT_LAYERED.includes(entry.control.kind) ? undefined : layerOf(entry.path)
+		const decided = answer
+			? {
+					layer: answer.layer,
+					...(answer.effective !== undefined ? { effective: answer.effective } : {}),
+					...(answer.env ? { env: answer.env } : {}),
+				}
+			: {}
+		if (value === undefined) return { path: entry.path, set: false, ...decided }
 		if (entry.control.kind === 'file-only') return { path: entry.path, set: true }
-		return { path: entry.path, set: true, value, ...(env ? { env } : {}) }
+		return { path: entry.path, set: true, value, ...decided }
 	})
 	return {
 		file: userConfigPath(opts),

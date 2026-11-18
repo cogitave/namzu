@@ -152,6 +152,71 @@ describe('engine settings in the page', () => {
 	})
 })
 
+describe('a row another layer decides', () => {
+	const withState = (state: ConfigSettingsView['settings'][number]) => {
+		const rest = view.settings.filter((s) => s.path !== state.path)
+		const next = { ...view, settings: [...rest, state] }
+		return html('agent', controls({ view: next }))
+	}
+	const row = (out: string, label: string) => {
+		const at = out.indexOf(`aria-label="${label}"`)
+		return out.slice(Math.max(0, at - 300), at + 700)
+	}
+
+	it('shows the environment value, says so, and turns the control off', () => {
+		const out = withState({
+			path: 'limits.maxIterations',
+			set: true,
+			value: 7,
+			layer: 'env',
+			effective: 99,
+			env: { variable: 'NAMZU_MAX_ITERATIONS', value: '99' },
+		})
+		expect(out).toContain('value="99"')
+		expect(out).not.toContain('value="7"')
+		expect(out).toContain('Set by an environment variable (NAMZU_MAX_ITERATIONS).')
+		expect(out).toContain('<fieldset disabled=""')
+		// The saved value stays removable.
+		expect(out).toContain('Use the default for Most steps per task')
+	})
+
+	it('says it is the project or the administrator, with no saved value to go back to', () => {
+		const project = withState({
+			path: 'limits.maxIterations',
+			set: false,
+			layer: 'project',
+			effective: 4,
+		})
+		expect(project).toContain('Set by this project, so it cannot be changed here.')
+		expect(project).toContain('value="4"')
+		const managed = withState({
+			path: 'limits.doneGate',
+			set: false,
+			layer: 'managed',
+			effective: false,
+		})
+		expect(managed).toContain('Set by your administrator, so it cannot be changed here.')
+		expect(row(managed, 'Check before finishing')).toContain('aria-checked="false"')
+	})
+
+	it('leaves a row alone when the user file decides, and under an engine that does not say', () => {
+		const out = html('agent')
+		expect(out).not.toContain('<fieldset disabled')
+		expect(out).not.toContain('Set by ')
+	})
+
+	it('keeps the old environment sentence for an engine that sends only the variable', () => {
+		const out = withState({
+			path: 'limits.maxIterations',
+			set: true,
+			value: 7,
+			env: { variable: 'NAMZU_X', value: '3' },
+		})
+		expect(out).toContain('NAMZU_X is set to 3')
+		expect(out).not.toContain('<fieldset disabled')
+	})
+})
+
 describe('helpers', () => {
 	it('reads the default of a switch from its words', () => {
 		expect(defaultToggle(view.descriptors[0]!)).toBe(true)

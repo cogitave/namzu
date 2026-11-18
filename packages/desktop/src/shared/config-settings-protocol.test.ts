@@ -43,6 +43,39 @@ describe('reading the engine description', () => {
 	})
 })
 
+describe('reading the layer that decides a value', () => {
+	it('keeps the layer and the value in force, also for a setting not saved by the user', () => {
+		const view = readConfigSettingsView({
+			descriptors: [],
+			settings: [
+				{
+					path: 'a',
+					set: false,
+					layer: 'env',
+					effective: 4096,
+					env: { variable: 'NAMZU_X', value: '4096' },
+				},
+				{ path: 'b', set: true, value: 1, layer: 'managed', effective: false },
+				{ path: 'c', set: false, layer: 'somewhere-new', effective: 1 },
+				{ path: 'd', set: false, layer: 'project' },
+			],
+		})
+		expect(view.settings).toEqual([
+			{
+				path: 'a',
+				set: false,
+				layer: 'env',
+				effective: 4096,
+				env: { variable: 'NAMZU_X', value: '4096' },
+			},
+			{ path: 'b', set: true, value: 1, layer: 'managed', effective: false },
+			// A layer this app does not know is dropped; the row then shows what is saved.
+			{ path: 'c', set: false, effective: 1 },
+			{ path: 'd', set: false, layer: 'project' },
+		])
+	})
+})
+
 describe('reading a change', () => {
 	it('accepts a path and an optional value', () => {
 		expect(readConfigSettingChange({ path: 'quiet', value: true })).toEqual({

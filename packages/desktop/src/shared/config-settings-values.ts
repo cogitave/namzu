@@ -466,6 +466,31 @@ export function environmentNote(env: { variable: string; value: string }): strin
 	return `${env.variable} is set to ${env.value}, and Namzu uses that instead of what is saved here.`
 }
 
+/**
+ * What a row says when a layer other than the user's own file decides its value, in plain words.
+ * `saved` is whether the user file also holds a value, which then does not apply.
+ */
+export function layerNote(
+	layer: 'user' | 'project' | 'local' | 'profile' | 'managed' | 'env',
+	env: { variable: string } | undefined,
+	saved: boolean,
+): string {
+	const who =
+		layer === 'env'
+			? `Set by an environment variable${env ? ` (${env.variable})` : ''}`
+			: layer === 'managed'
+				? 'Set by your administrator'
+				: layer === 'project' || layer === 'local'
+					? 'Set by this project'
+					: layer === 'profile'
+						? 'Set by the profile in use'
+						: ''
+	if (who === '') return ''
+	return saved
+		? `${who}. Your own saved value does not apply while it is set.`
+		: `${who}, so it cannot be changed here.`
+}
+
 // ---------------------------------------------------------------------------
 // Permissions and browser sites: rows, the tables they save, and what lets more run
 // ---------------------------------------------------------------------------

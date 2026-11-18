@@ -52,10 +52,14 @@ export interface ConfigSettingOption {
 	help?: string
 }
 
-/** Which file a saved value came from. The engine fills it; absent means it was not said. */
-export type ConfigSettingLayer = 'user' | 'project' | 'local' | 'profile' | 'managed'
+/**
+ * Which layer decides the value in force when it is not the user's own file: the project's file,
+ * its local file, the administrator's file or an environment variable. The engine fills it; absent
+ * means the user file (or the default). An engine older than the field never sends it.
+ */
+export type ConfigSettingLayer = 'user' | 'project' | 'local' | 'profile' | 'managed' | 'env'
 
-const LAYERS: readonly string[] = ['user', 'project', 'local', 'profile', 'managed']
+const LAYERS: readonly string[] = ['user', 'project', 'local', 'profile', 'managed', 'env']
 
 export type ConfigSettingControl =
 	| { kind: 'toggle' }
@@ -134,8 +138,10 @@ export interface ConfigSettingState {
 	set: boolean
 	/** Never present for a `file-only` setting. */
 	value?: unknown
-	/** The file the value came from, when the engine says. */
+	/** The layer that decides the value in force, when it is not the user file. */
 	layer?: ConfigSettingLayer
+	/** The value in force from that layer. Absent when the layer's own value is unusable. */
+	effective?: unknown
 	/** An environment variable the engine has set that is used in place of the saved value. */
 	env?: { variable: string; value: string }
 }
@@ -427,6 +433,9 @@ export function readConfigSettingsView(value: unknown): ConfigSettingsView {
 			...(s.set && 'value' in s ? { value: s.value } : {}),
 			...(typeof s.layer === 'string' && LAYERS.includes(s.layer)
 				? { layer: s.layer as ConfigSettingLayer }
+				: {}),
+			...('effective' in s && s.effective !== undefined && s.effective !== null
+				? { effective: s.effective }
 				: {}),
 			...(record(s.env) &&
 			typeof record(s.env)?.variable === 'string' &&

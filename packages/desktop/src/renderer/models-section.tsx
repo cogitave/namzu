@@ -8,6 +8,7 @@ import {
 	connectionSource,
 	connectionStatus,
 	keyProblem,
+	savedKeyIgnoredNote,
 	testOutcome,
 	unconnectedHint,
 } from './provider-connections-model.js'
@@ -128,6 +129,9 @@ function ProviderRow({
 						{rejected ? REJECTED_KEY_STATUS : connectionStatus(row)}
 					</p>
 					{unconnectedHint(row) && <p className="models-row-help">{unconnectedHint(row)}</p>}
+					{savedKeyIgnoredNote(row) && (
+						<p className="models-row-help">{savedKeyIgnoredNote(row)}</p>
+					)}
 				</div>
 				<div className="models-row-actions">
 					{connected && (

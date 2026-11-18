@@ -27,6 +27,46 @@ default in words, and, for a risky one, the sentence the confirmation shows. The
 `config/load.ts`) has neither a descriptor nor an entry in `SETTING_EXCLUSIONS` with a reason. A new key
 therefore cannot reach the loader without a decision about Desktop.
 
+## Which layer decides a value
+
+A saved value is not always the one in force. The engine merges, weakest to strongest, the defaults, the
+user file, the project's `namzu.config.json`, the project's `namzu.config.local.json`, a profile, the
+environment, and the managed (administrator) file. `namzu/config/get` therefore says, per setting, when
+a layer other than the user file decides:
+
+- `layer`: `project`, `local` (the project's git-ignored file, which wins over `project`), `managed` or
+  `env`. Desktop words both project files as "this project". Absent means the user file, or the default
+  when nothing is saved. A profile is not reported: which one is in force belongs to a launch.
+- `effective`: the value that layer gives, as the loader reads it (a number, a switch, a word). Absent
+  when an environment value is unusable (`NAMZU_MAX_OUTPUT_TOKENS=lots`), which the loader refuses.
+- `env`: `{variable, value}` for `env`, the same field that already carried `NAMZU_SMALL_MODEL`. It now
+  covers every setting an environment variable decides: `limits.maxResponseTokens`
+  (`NAMZU_MAX_OUTPUT_TOKENS`), `compaction.autoCompactWindowTokens` (`NAMZU_AUTO_COMPACT_WINDOW`),
+  `smallModel`, `format`, `quiet`, `disableHooks`, `modelCatalogueRefresh`, `updates.auto`,
+  `updates.check`, `updates.channel` and `tui.fullscreen` (`NAMZU_FULLSCREEN`, which beats the saved
+  value). The table is `ENVIRONMENT_BINDINGS` in `config/setting-layers.ts`; a variable the loader does
+  not read for a key is not listed. Values are models, sizes, switches and channels, never secrets.
+
+Settings whose layers combine (`permissions`, `permissionChecks`, `routing`, `permissions.autoMode`) and
+file-only settings carry no layer. A project file's `model`, `routing`, `smallModel`, `decision` and
+memory curation keys are dropped by the loader and are not reported either. The project files are read
+from the host's working folder; whether that folder is trusted is not checked here, so a row can say
+"Set by this project" for a folder whose file the loader would not yet read.
+
+The row shows the value in force in its control, turned off, and one sentence: "Set by an environment
+variable (NAMZU_MAX_OUTPUT_TOKENS)", "Set by this project" or "Set by your administrator", followed by "so
+it cannot be changed here", or, when the user file also holds a value, "Your own saved value does not
+apply while it is set" (**Use default** stays, to remove that value). Saving a user value under a layer
+that wins is not offered, since it would change nothing. A Desktop older than the fields ignores them and
+shows the saved value; an engine older than the fields sends none, and the row looks as it did. The
+terminal's `namzu config get <key>` prints `In force:` and the same sentence, and `--json` carries
+`layer` and `effective`.
+
+*Providers* is the same rule for keys: when a key in the environment and a key saved in Settings both
+exist for a provider, the row says "The key from OPENAI_API_KEY on this computer is used. The key you saved
+here is not used while it is set." (no key is ever shown). The connection list already carried both facts
+(`how: 'environment'` with `envName`, and `hasSavedKey`), so it needs no wire change.
+
 ## List and map controls
 
 A list, a small map or a model is a typed control, not a box of JSON. Each kind has one way to be read from

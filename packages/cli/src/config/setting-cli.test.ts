@@ -51,6 +51,18 @@ describe('one source for the terminal and Desktop', () => {
 		}
 	})
 
+	it('says which layer decides a value, and what is in force', () => {
+		const row = readSettingRow('limits.maxResponseTokens', {
+			...opts(),
+			env: { NAMZU_MAX_OUTPUT_TOKENS: '4096' } as NodeJS.ProcessEnv,
+		})
+		expect(row.layer).toBe('env')
+		const text = renderSetting(row, 'f')
+		expect(text).toContain('In force: 4096')
+		expect(text).toContain('Set by an environment variable (NAMZU_MAX_OUTPUT_TOKENS)')
+		expect(rowData(row)).toMatchObject({ layer: 'env', effective: 4096 })
+	})
+
 	it('says so when a valid section has no rows', () => {
 		const text = renderSettingList(listSettings(opts(), 'general').rows, 'f')
 		expect(text).toContain('No settings in this section')
