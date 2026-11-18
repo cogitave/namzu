@@ -967,6 +967,12 @@ export function Composer({
 							/>
 						</fieldset>
 					)}
+					{/* A note about the conversation itself sits above the box, never inside what you type in. */}
+					{notice && (
+						<output data-composer-note className="block px-3 pb-1.5 text-xs text-muted-foreground">
+							{notice}
+						</output>
+					)}
 					<ComposerSurface.Shell
 						className={cn(
 							compact ? 'pal-composer-shell' : 'normal-composer-shell',
@@ -1024,9 +1030,6 @@ export function Composer({
 										<output className="block pb-2 text-xs text-muted-foreground">
 											{UNSUPPORTED_ATTACHMENTS_HINT}
 										</output>
-									)}
-									{notice && (
-										<output className="block pb-2 text-xs text-muted-foreground">{notice}</output>
 									)}
 									{pasteNotice && (
 										<output className="block pb-2 text-xs text-muted-foreground">

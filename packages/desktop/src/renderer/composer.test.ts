@@ -794,3 +794,14 @@ it('reads the saved hypermode key as the mode in force until the person chooses'
 	})
 	expect(chosenOff).not.toContain(', hypermode')
 })
+
+it('draws a note about the conversation above the composer box, not inside it', () => {
+	const html = render({
+		notice: 'Full access is off in Settings, so this conversation asks first again.',
+	})
+	const note = html.indexOf('data-composer-note')
+	const shell = html.indexOf('normal-composer-shell')
+	expect(note).toBeGreaterThan(-1)
+	expect(shell).toBeGreaterThan(note)
+	expect(html.slice(shell)).not.toContain('Full access is off in Settings')
+})
