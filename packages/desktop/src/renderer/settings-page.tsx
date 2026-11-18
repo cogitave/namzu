@@ -750,11 +750,22 @@ export function NotificationsSection({ settings }: { settings: DesktopSettingsCo
 		value: string,
 		onChange: (value: string) => void,
 		child?: boolean,
+		badgeNeedsAttention?: boolean,
 	) => (
 		<CatalogueRow id={id} child={child}>
 			<SelectControl label={labelOf(id)} value={value} disabled={!ready} onChange={onChange}>
 				{NOTICE_LEVEL_OPTIONS(id).map((option) => (
-					<option key={option.value} value={option.value}>
+					<option
+						key={option.value}
+						value={option.value}
+						// The icon count belongs to Draw attention, so Badge only does nothing while that is off.
+						disabled={
+							badgeNeedsAttention === true &&
+							option.value === 'badge' &&
+							value !== 'badge' &&
+							saved?.attentionSignals === false
+						}
+					>
 						{defaultMarked(id, option.value, option.label)}
 					</option>
 				))}
@@ -776,11 +787,15 @@ export function NotificationsSection({ settings }: { settings: DesktopSettingsCo
 				'notify-permission',
 				saved?.notifyPermission ?? 'banner',
 				(value) => void settings.change({ notifyPermission: value as NoticeLevel }),
+				undefined,
+				true,
 			)}
 			{levelRow(
 				'notify-question',
 				saved?.notifyQuestion ?? 'banner',
 				(value) => void settings.change({ notifyQuestion: value as NoticeLevel }),
+				undefined,
+				true,
 			)}
 			{levelRow(
 				'notify-task-complete',

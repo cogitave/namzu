@@ -16,6 +16,12 @@ import {
 } from './settings-protocol.js'
 
 describe('the Desktop settings catalogue', () => {
+	it('keeps every Notifications description to one plain sentence', () => {
+		for (const entry of SETTINGS_CATALOGUE.filter((e) => e.section === 'notifications')) {
+			expect(entry.description, entry.id).not.toMatch(/[;]|\.\s+\S/)
+		}
+	})
+
 	it('has one entry per id, in a real section, with a label, a description and an apply time', () => {
 		const ids = SETTINGS_CATALOGUE.map((entry) => entry.id)
 		expect(new Set(ids).size).toBe(ids.length)

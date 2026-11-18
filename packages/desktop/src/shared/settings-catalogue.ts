@@ -166,7 +166,7 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		section: 'notifications',
 		label: 'Draw attention when a conversation needs you',
 		description:
-			'While Namzu is in the background and a conversation is waiting for an answer, show a count on its icon and flash the taskbar or dock once. It clears when you come back.',
+			'Show a count on the icon and flash the taskbar when a conversation is waiting for you.',
 		control: toggle,
 		default: true,
 		appliesWhen: 'now',
@@ -190,8 +190,7 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		owner: 'desktop',
 		section: 'notifications',
 		label: 'Permission requests',
-		description:
-			"Namzu needs your approval to use a tool while it is in the background; a banner shows only the project's name.",
+		description: 'When Namzu needs your approval to use a tool.',
 		control: { kind: 'select', options: NOTICE_LEVEL_OPTIONS },
 		default: 'banner',
 		appliesWhen: 'now',
@@ -213,8 +212,7 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		owner: 'desktop',
 		section: 'notifications',
 		label: 'Questions',
-		description:
-			"Namzu is asking you to choose while it is in the background; a banner shows only the project's name.",
+		description: 'When Namzu asks you to choose.',
 		control: { kind: 'select', options: NOTICE_LEVEL_OPTIONS },
 		default: 'banner',
 		appliesWhen: 'now',
@@ -237,8 +235,7 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		owner: 'desktop',
 		section: 'notifications',
 		label: 'Task complete',
-		description:
-			'Namzu finished a response that took longer than the time set below while it was in the background.',
+		description: 'When Namzu finishes a response that took longer than the time set below.',
 		control: { kind: 'select', options: BANNER_LEVEL_OPTIONS },
 		default: 'banner',
 		appliesWhen: 'now',
@@ -311,8 +308,7 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		owner: 'desktop',
 		section: 'notifications',
 		label: 'Notification sound',
-		description:
-			"Played when a notification is shown; your system's do-not-disturb setting still applies, and the terminal app has its own sound switch under Terminal.",
+		description: 'Play a sound when a notification is shown.',
 		control: {
 			kind: 'select',
 			options: [
