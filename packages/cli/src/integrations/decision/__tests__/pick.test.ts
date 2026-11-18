@@ -29,6 +29,19 @@ function pointsWith(
 	return { points, choice, entries }
 }
 
+describe('the pick advisor by default', () => {
+	it('acts when a decision model is configured and the point is not named, and is absent without one', () => {
+		const model = { choice: vi.fn() } as unknown as DecisionModel
+		expect(createPickAdvisor(createDecisionPoints({ model, modes: undefined }))?.acts).toBe(true)
+		expect(
+			createPickAdvisor(createDecisionPoints({ model: undefined, modes: undefined })),
+		).toBeUndefined()
+		expect(
+			createPickAdvisor(createDecisionPoints({ model, modes: { pick: 'off' } })),
+		).toBeUndefined()
+	})
+})
+
 describe('the pick advisor', () => {
 	it('does not exist while the point is off, so the tool is the tool without one', () => {
 		const { points } = pointsWith('off', () => ({}))

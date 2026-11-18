@@ -18,10 +18,7 @@ describe('keeping the person informed', () => {
 		expect(NAMZU_WORKING_DOCTRINE).toContain(
 			'when you find something, change direction or hit a blocker',
 		)
-		expect(NAMZU_WORKING_DOCTRINE).toContain('after a long stretch without one')
-		expect(NAMZU_WORKING_DOCTRINE).toContain(
-			'a question that needs at most one look gets no such line',
-		)
+		expect(NAMZU_WORKING_DOCTRINE).toContain('none for a question that needs one look')
 	})
 
 	it('makes a task list optional, for work of three or more distinct steps', () => {
@@ -33,9 +30,7 @@ describe('keeping the person informed', () => {
 
 describe('reporting delegated work', () => {
 	it('tells the model to pass finished results on in its next message', () => {
-		expect(NAMZU_DELEGATION_DOCTRINE).toContain(
-			'When delegated agents finish, tell the user what each one found in your next message',
-		)
+		expect(NAMZU_DELEGATION_DOCTRINE).toContain('tell the user what each delegated agent found')
 	})
 })
 

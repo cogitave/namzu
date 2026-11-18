@@ -48,6 +48,20 @@ deferred tools exist; a runtime override cannot defer or suspend it. Either
 invalid setup fails before the model request, instead of leaving discovery
 without an executable search tool.
 
+A tool can declare `loadsWith: readonly string[]` (on `ToolDefinition` and
+`defineTool`), the names of tools that are needed right after it. When
+`search_tools` loads such a tool it loads those companions in the same call,
+marks each `(loaded with <tool>)` in its result, lists them as
+`data.companions` and reveals them like any other match. A companion is
+loaded only if it is deferred and inside `ToolContext.allowedTools`; one that
+is already loaded is simply left out, and a companion's own `loadsWith` is not
+followed. Companions do not count against the five-tool limit. The shipped
+pairs are `browser` with `browser_act` (looking at a page and acting on it,
+both ways) and `task_create` with `task_update` (a task is made to be moved
+through its statuses). The deferred catalogue line of a tool with companions
+ends `(loads with <names>)`. Memory tools, `task_list` and `computer_use` are
+not grouped: each is used alone as often as with another.
+
 When no permitted deferred tool matches, the receipt says so — plainly, with
 no active-tool echo. `ToolsView` (what a tool body reaches through
 `ToolContext.toolRegistry`) has no active-tool search, only `has`,
@@ -145,3 +159,25 @@ Generated planning tools require `query()`'s `taskStore`; caller toolsets alone
 do not enable `task_create`, `task_update` and `task_list`. See
 [task tracking](task-tracking.md) for planning state, delegated invocation
 handles and host composition.
+
+## The CLI defers by default
+
+`@namzu/cli` builds every agent session (terminal, `exec`, ACP and the
+Desktop host, Pal sessions) with `toolLoading: 'deferred'` unless the caller
+passes `'eager'`. Only a resident set sends its schema on every request:
+`read`, `glob`, `grep`, `write`, `edit`, `bash`, `job` and `wait_for_job` (the
+bash description sends the model to both), `skill`, `search_tools`, the
+delegation tool `Agent`, `ask_user_question` and `session_cost` (a cost
+question is short, and a search first would double it). Everything else,
+including web search and fetch, conversation search and read, the memory and
+task tools, the workflow and coordinator tools, `browser`,
+`browser_act`, `computer_use`, `code_analysis`, `monitor` and every MCP tool,
+is listed in the system prompt under `<deferred_tools>` with its name and a
+one-line purpose, and its schema arrives through `search_tools`.
+
+A call to a deferred tool before it is loaded is refused with one short
+result, `Tool "<name>" is not loaded yet. Call search_tools with its exact
+name, then call it again.`; the turn goes on. The memory, conversation-evidence
+and web-task sections of the prompt say the same where they name a tool that
+may be deferred. `toolLoading: 'eager'` brings back the old roster, every
+schema on every request.

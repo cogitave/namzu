@@ -34,7 +34,7 @@ A turn that changed no file, or whose last change was followed by a check, ends 
 
 `TurnConfig.completionAudit: true` turns it on; it is off when absent, so an embedding host gets no change. The reminder is recorded as a `progress-nudge` runtime-context message.
 
-The CLI turns it on for the interactive session and for `exec`. `limits.doneGate: false` in the config, or `--no-done-gate`, turns it off. Sub-agents are not audited.
+The CLI leaves it off. `limits.doneGate: true` in the config turns it on for the interactive session, `exec` and the Desktop host; before this change it was on unless `limits.doneGate` was `false`. Sub-agents are not audited. `--no-done-gate` is still accepted and changes nothing unless the config turned the gate on, in which case it turns it off for that launch.
 
 ## Related
 
