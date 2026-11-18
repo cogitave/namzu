@@ -178,6 +178,10 @@
         "from": "cli OUTCOME_NOTIFICATION"
       },
       {
+        "name": "namzu/session/computer-frame",
+        "from": "cli COMPUTER_FRAME_NOTIFICATION"
+      },
+      {
         "name": "namzu/terminal/data",
         "from": "cli TERMINAL_NOTIFICATIONS.data"
       },
@@ -328,6 +332,17 @@
         "names": [
           "OUTCOME_NOTIFICATION",
           "OutcomeNotification"
+        ]
+      },
+      "src/commands/desktop-computer-feed.ts": {
+        "mirroredBy": "packages/desktop/src/shared/computer-protocol.ts",
+        "digests": {
+          "COMPUTER_FRAME_NOTIFICATION": "dd7a715deac84592",
+          "ComputerFrameNotification": "2b9dd7e73e363347"
+        },
+        "names": [
+          "COMPUTER_FRAME_NOTIFICATION",
+          "ComputerFrameNotification"
         ]
       },
       "src/config/hooks-report.ts": {

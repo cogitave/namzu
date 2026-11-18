@@ -2,6 +2,7 @@ import {
 	ACPServer,
 	type AcpAgentGateway,
 	type AcpHostKernelFacts,
+	type ComputerUseObservation,
 	DiskSessionLog,
 	type ExternalRefTarget,
 	HostCommandRegistry,
@@ -35,6 +36,7 @@ import { flushCompileCacheWhenIdle } from '../compile-cache.js'
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { messageTimeNote, previousSentAt } from '../context/message-time.js'
 import { DESKTOP_CONTRACT } from '../desktop-contract.js'
+import { accountForProvider } from '../integrations/accounts/binding.js'
 import { type PluginInventoryView, readPluginInventory } from '../integrations/plugins/inventory.js'
 import { canSelectModel } from '../integrations/providers/access.js'
 import {
@@ -101,6 +103,7 @@ import {
 	settleTurnOfGoneHost,
 } from './acp-provider-retry.js'
 import { questionsOverPermission } from './acp-screen-question.js'
+import { COMPUTER_FRAME_NOTIFICATION } from './desktop-computer-feed.js'
 import { createDesktopHostExtensions } from './desktop-host.js'
 import { desktopModelCatalogue } from './desktop-model-catalogue.js'
 import { announceOutcome } from './desktop-outcome-feed.js'
@@ -119,6 +122,15 @@ function readPackageVersion(): string {
 	} catch {
 		return '0.0.0'
 	}
+}
+
+/** The account the saved chain pins for a provider, as a member field: a model pick keeps it. */
+function accountPin(
+	preferences: Preferences | null | undefined,
+	provider: string,
+): { readonly account: string } | Record<string, never> {
+	const account = preferences ? accountForProvider(preferences, provider) : undefined
+	return account !== undefined ? { account } : {}
 }
 
 function defaultPrefs(detected: readonly DetectedProvider[]): Preferences | null {
@@ -250,6 +262,7 @@ type AcpLiveSession = Pick<
 > & {
 	readonly resumePaused?: AgentSession['resumePaused']
 	readonly abandonTurn?: AgentSession['abandonTurn']
+	readonly describeComputerUseCall?: AgentSession['describeComputerUseCall']
 }
 
 export interface AcpRuntimeDependencies {
@@ -638,6 +651,11 @@ export interface CliAcpRuntimeOptions {
 	 * here, which the shared bridge leaves out. It must not throw or wait.
 	 */
 	readonly observeEvent?: (sessionId: string, event: SessionEvent) => void
+	/**
+	 * Sees what the model saw after a `computer_use` call, made small, with its wire
+	 * session id. The desktop host shows it beside the call. It must not throw or wait.
+	 */
+	readonly observeComputer?: (sessionId: string, observation: ComputerUseObservation) => void
 }
 
 export function createCliAcpRuntime(
@@ -893,7 +911,15 @@ export function createCliAcpRuntime(
 					// The host PC, for the desktop only. A Pal conversation has its own
 					// computer behind the same tool name, so it never gets both.
 					...(runtimeOptions.computerUse === true && !palEnvironment
-						? { enableComputerUse: true }
+						? {
+								enableComputerUse: true,
+								...(runtimeOptions.observeComputer
+									? {
+											onComputerObservation: (seen: ComputerUseObservation) =>
+												runtimeOptions.observeComputer?.(sessionId, seen),
+										}
+									: {}),
+							}
 						: {}),
 					cwd,
 					sessionId: target.sessionId,
@@ -1140,6 +1166,9 @@ export function createCliAcpRuntime(
 						sessionId,
 						toolCalls: await withPreviews(request.toolCalls, [record.cwd], {
 							askEveryCall: request.screenConsent === true,
+							computer: (call) =>
+								record.session.describeComputerUseCall?.(call.name, call.input) ??
+								Promise.resolve(undefined),
 						}),
 					})
 					switch (outcome.kind) {
@@ -1340,6 +1369,9 @@ export function createCliAcpRuntime(
 							sessionId,
 							toolCalls: await withPreviews(request.toolCalls, [record.cwd], {
 								askEveryCall: request.screenConsent === true,
+								computer: (call) =>
+									record.session.describeComputerUseCall?.(call.name, call.input) ??
+									Promise.resolve(undefined),
 							}),
 						})
 						if (outcome.kind === 'approve_all') return { kind: 'approve-all' }
@@ -1696,7 +1728,11 @@ export function createCliAcpRuntime(
 				{
 					...(preferences ?? { version: 3, subagents: { active: [] } }),
 					providers: [
-						{ id: detected.entry.id, model },
+						{
+							id: detected.entry.id,
+							model,
+							...accountPin(preferences, detected.entry.id),
+						},
 						...(preferences?.providers.slice(1).filter((item) => item.id !== provider) ?? []),
 					],
 				},
@@ -1948,7 +1984,11 @@ export function createCliAcpRuntime(
 				selections.set(sessionId, {
 					...(preferences ?? { version: 3, subagents: { active: [] } }),
 					providers: [
-						{ id: detected.entry.id, ...(model ? { model } : {}) },
+						{
+							id: detected.entry.id,
+							...(model ? { model } : {}),
+							...accountPin(preferences, detected.entry.id),
+						},
 						...(preferences?.providers.slice(1).filter((item) => item.id !== detected.entry.id) ??
 							[]),
 					],
@@ -2101,6 +2141,12 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 	const runtime = withCliHarnesses(
 		createCliAcpRuntime(ctx, DEFAULT_RUNTIME_DEPS, {
 			computerUse: desktop,
+			...(desktop
+				? {
+						observeComputer: (id: string, seen: ComputerUseObservation) =>
+							announce(COMPUTER_FRAME_NOTIFICATION, { sessionId: id, ...seen }),
+					}
+				: {}),
 			...(usageFeed
 				? {
 						observeEvent: (id, event) => {

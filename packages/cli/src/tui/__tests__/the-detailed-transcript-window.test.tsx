@@ -31,20 +31,32 @@ function open(n: number) {
 }
 
 describe('the detailed transcript window', () => {
-	it('shows the last 30 rows under a divider that counts the older ones', async () => {
+	it('shows a conversation whole from the start, however far past the tail it goes', async () => {
 		const { lastFrame } = open(45)
 		const frame = lastFrame() ?? ''
-		expect(frame).toContain('ctrl+e to show 15 previous messages')
-		expect(frame).not.toContain('row-14-end')
-		expect(frame).toContain('row-15-end')
+		expect(frame).toContain('row-0-end')
+		expect(frame).toContain('row-14-end')
 		expect(frame).toContain('row-44-end')
+		expect(frame).toContain('ctrl+e to hide 15 previous messages')
 	})
 
-	it('shows all of them after Ctrl+E, and the divider offers to hide them', async () => {
-		const { lastFrame, stdin } = open(45)
+	it('shows the last 30 rows of a very long conversation under a divider that counts the older ones', async () => {
+		const { lastFrame } = open(250)
+		const frame = lastFrame() ?? ''
+		expect(frame).toContain('ctrl+e to show 220 previous messages')
+		expect(frame).not.toContain('row-189-end')
+		expect(frame).toContain('row-220-end')
+		expect(frame).toContain('row-249-end')
+	})
+
+	it('shows all of a very long one after Ctrl+E, and the divider offers to hide them', async () => {
+		const { lastFrame, stdin } = open(250)
 		stdin.write('\x05')
+		await vi.waitFor(() => expect(lastFrame() ?? '').toContain('ctrl+e to collapse'))
+		// All of it is more than the screen holds: `g` goes to the top, where the divider is.
+		stdin.write('g')
 		await vi.waitFor(() =>
-			expect(lastFrame() ?? '').toContain('ctrl+e to hide 15 previous messages'),
+			expect(lastFrame() ?? '').toContain('ctrl+e to hide 220 previous messages'),
 		)
 		const frame = lastFrame() ?? ''
 		expect(frame).toContain('row-0-end')

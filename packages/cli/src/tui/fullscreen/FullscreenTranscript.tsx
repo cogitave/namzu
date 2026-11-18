@@ -3,6 +3,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 
 import { ClickCounter } from '../../workspaces/selection.js'
 import { isAction } from '../keymap.js'
+import { type FoundLink, linkHref } from '../links.js'
 import { motionAllowed } from '../motion.js'
 import {
 	type ReplyBaseline,
@@ -12,9 +13,11 @@ import {
 	promptAfter,
 	replyList,
 } from '../new-output.js'
+import { terminalLinkTo } from '../terminal-hyperlinks.js'
 import { useThemeEpoch } from '../theme-store.js'
 import { theme } from '../theme.js'
 import type { TranscriptMessage } from '../types.js'
+import { cellsOf } from './cells.js'
 import {
 	DEFAULT_WHEEL,
 	WHEEL_FEEL,
@@ -27,6 +30,7 @@ import {
 import { type UnseenMark, createLayoutCache, layoutTranscript } from './layout.js'
 import type { PointerReport, WheelDirection } from './mouse-wheel.js'
 import { type Mark, paintRow } from './paint.js'
+import { type FindLinks, type RowLink, linkAt, linksOnLine } from './row-links.js'
 import type { FsRow, StyledSpan } from './rows.js'
 import { type Match, editSearch, findMatches, searchLine, startMatch, stepMatch } from './search.js'
 import {
@@ -99,8 +103,38 @@ export interface FullscreenTranscriptProps {
 	readonly copy?: (text: string) => Promise<CopyReport | null>
 	/** Whether a selection is copied the moment the button is released. */
 	readonly copyOnSelect?: boolean
-	/** Told when the search line opens or closes: the composer must not take keys while it is open. */
-	readonly onSearchChange?: (open: boolean) => void
+	/**
+	 * Links in the text. `find` reads a line of text for them; `activate` is what a click does:
+	 * `hint` for a plain click, `open` for a ctrl-click or alt-click. Absent, nothing is a link.
+	 */
+	readonly links?: {
+		readonly find: FindLinks
+		readonly activate: (link: FoundLink, how: 'open' | 'hint') => CopyReport
+	}
+	/** The terminal takes OSC 8 links: link text is sent as one, so the terminal's own click works too. */
+	readonly hyperlinks?: boolean
+	/**
+	 * Where a short passing note goes (a copy, a link). Absent, the view draws it over its own
+	 * last row; present, the owner shows it in the status area and the rows stay as they are.
+	 */
+	readonly onNote?: (report: CopyReport) => void
+	/**
+	 * Told when the search line opens or closes: the composer must not take keys while it is open.
+	 * `typing` is false once the query was confirmed and the keys step through the matches.
+	 */
+	readonly onSearchChange?: (open: boolean, typing?: boolean) => void
+	/**
+	 * The detailed transcript (ctrl+o): every body whole and open, a click folds one, the model's
+	 * reasoning and each reply's stamp are drawn, `/` searches and `n` and `N` step through the
+	 * matches, and typing never jumps to the end.
+	 */
+	readonly detailed?: boolean
+	/** Screen row (1 is the top) the window starts at, when something is drawn above it. */
+	readonly top?: number
+	/** Ignores the wheel and the pointer: another view is on screen and has them. */
+	readonly inert?: boolean
+	/** Takes no room while another view is on screen, keeping its place for when it comes back. */
+	readonly yielded?: boolean
 	readonly control: { current: FullscreenControl | null }
 	/** Rows a slow wheel notch moves (`tui.wheelRows`); 3 when absent. */
 	readonly wheelRows?: number
@@ -141,8 +175,15 @@ const CURRENT: Mark['style'] = { inverse: true, bold: true }
 
 interface SearchOpen {
 	readonly query: string
+	/** The query was confirmed: `n` and `N` step through the matches and `/` types again. */
+	readonly browsing?: boolean
 	readonly cursor: { readonly row: number; readonly from: number } | null
 }
+
+/** What the pointer rests on that answers a click: a link (with every row it covers) or a row that opens. */
+type Hover =
+	| { readonly key: string; readonly link: RowLink }
+	| { readonly key: string; readonly row: number }
 
 interface Dragging {
 	readonly selection: Selection
@@ -156,6 +197,7 @@ interface Dragging {
 }
 
 function spanElement(span: StyledSpan, key: number) {
+	const linked = span.href !== undefined ? terminalLinkTo(span.text, span.href) : null
 	return (
 		<Text
 			key={key}
@@ -166,7 +208,7 @@ function spanElement(span: StyledSpan, key: number) {
 			inverse={span.inverse}
 			{...(span.background !== undefined ? { backgroundColor: span.background } : {})}
 		>
-			{span.text}
+			{linked ?? span.text}
 		</Text>
 	)
 }
@@ -200,7 +242,14 @@ export function FullscreenTranscript({
 	subscribePointer,
 	copy,
 	copyOnSelect = true,
+	links,
+	hyperlinks = false,
+	onNote,
 	onSearchChange,
+	detailed = false,
+	top = 1,
+	inert = false,
+	yielded = false,
 	control,
 	noteMs,
 	clock = REAL_CLOCK,
@@ -237,8 +286,17 @@ export function FullscreenTranscript({
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a new theme lays the rows out again.
 	const { rows, index } = useMemo(
-		() => layoutTranscript(messages, pending, pendingAt, columns, cache, { click, open }, mark),
-		[messages, pending, pendingAt, columns, cache, epoch, click, open, mark],
+		() =>
+			layoutTranscript(
+				messages,
+				pending,
+				pendingAt,
+				columns,
+				cache,
+				{ click, open, detailed },
+				mark,
+			),
+		[messages, pending, pendingAt, columns, cache, epoch, click, open, detailed, mark],
 	)
 	// A row that left the conversation (a compaction, a new session) is not open any more.
 	useEffect(() => {
@@ -251,6 +309,23 @@ export function FullscreenTranscript({
 		setOpen(next)
 	}, [open, index])
 	const boxRef = useRef<DOMElement>(null)
+	// How tall the box and the header really are, read after each frame. With a header, a
+	// conversation that is shorter than the box is drawn from its top, so the header opens the screen
+	// and the prompt stays at the bottom; once it fills the box the rows sit at the bottom and the
+	// top is clipped. Without a header the rows sit at the bottom, as they always did.
+	const headerBox = useRef<DOMElement>(null)
+	const boxHeight = useRef(maxRows)
+	const headerHeight = useRef(0)
+	const [, measured] = useState(0)
+	useEffect(() => {
+		const height = boxRef.current ? measureElement(boxRef.current).height : 0
+		const header = headerBox.current ? measureElement(headerBox.current).height : 0
+		if ((height > 0 && height !== boxHeight.current) || header !== headerHeight.current) {
+			if (height > 0) boxHeight.current = height
+			headerHeight.current = header
+			measured((n) => n + 1)
+		}
+	})
 	// Pages and the top clamp want the room actually on screen. It is only read
 	// when the reader acts, so it needs no state of its own.
 	const roomRef = useRef(maxRows)
@@ -332,8 +407,12 @@ export function FullscreenTranscript({
 		if (wheelState.current.pending !== 0)
 			glideTimer.current = clock.after(() => runFrame.current(), WHEEL_FEEL.frameMs)
 	}
+	const hoverClear = useRef<() => void>(() => undefined)
 	const onWheel = useCallback(
 		(direction: WheelDirection) => {
+			if (inert) return
+			// The rows move under a pointer that does not: what it rested on is not known until it moves.
+			hoverClear.current()
 			wheelState.current = notch(
 				wheelState.current,
 				direction,
@@ -351,7 +430,7 @@ export function FullscreenTranscript({
 			// The first frame is at once, so scrolling up stops following at the first notch.
 			if (glideTimer.current === null) runFrame.current()
 		},
-		[room, moveRows, wheelRows, wheelAccel, clock],
+		[room, moveRows, wheelRows, wheelAccel, clock, inert],
 	)
 	useEffect(() => subscribeWheel(onWheel), [subscribeWheel, onWheel])
 
@@ -366,7 +445,7 @@ export function FullscreenTranscript({
 	}, [])
 	const [note, setNote] = useState<CopyReport | null>(null)
 	const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-	const showNote = useCallback(
+	const showOwnNote = useCallback(
 		(report: CopyReport) => {
 			setNote(report)
 			if (noteTimer.current) clearTimeout(noteTimer.current)
@@ -380,6 +459,7 @@ export function FullscreenTranscript({
 		},
 		[noteMs],
 	)
+	const showNote = onNote ?? showOwnNote
 	useEffect(
 		() => () => {
 			if (noteTimer.current) clearTimeout(noteTimer.current)
@@ -410,7 +490,7 @@ export function FullscreenTranscript({
 	const clicks = useRef(new ClickCounter(() => Date.now(), DOUBLE_CLICK_MS)).current
 	// Where the window is on the screen, read when the pointer reports.
 	const geometryRef = useRef<Geometry>({
-		top: 1,
+		top,
 		height: maxRows,
 		from: 0,
 		to: 0,
@@ -433,31 +513,67 @@ export function FullscreenTranscript({
 			const after = layoutTranscript(now.messages, now.pending, now.pendingAt, now.columns, cache, {
 				click,
 				open: next,
+				detailed,
 			})
+			// A conversation that sits at the top of the window has nothing to hold in place: it
+			// keeps following, and grows downward.
 			place(
-				holdRow(viewNow.current, now.index, after.index, id, offset, {
-					height: room(),
-					footer: geometryRef.current.footer,
-					searching: searchRef.current !== null,
-				}),
+				viewNow.current.follow && geometryRef.current.packed !== undefined
+					? FOLLOWING
+					: holdRow(viewNow.current, now.index, after.index, id, offset, {
+							height: room(),
+							footer: geometryRef.current.footer,
+							searching: searchRef.current !== null,
+						}),
 			)
 			openRef.current = next
 			setOpen(next)
 		},
-		[cache, click, room, place],
+		[cache, click, detailed, room, place],
 	)
 
 	// Whether the footer row is the jump hint now, and whether a press began on it.
 	const hintRef = useRef(false)
 	const hintPress = useRef(false)
+	// What is under the pointer. The state changes only when the target does, so a sweep of the
+	// pointer over text costs a redraw per link or row it enters, none while it moves inside one.
+	const [hover, setHover] = useState<Hover | null>(null)
+	const hoverRef = useRef<Hover | null>(null)
+	const updateHover = useCallback((next: Hover | null) => {
+		if ((hoverRef.current?.key ?? '') === (next?.key ?? '')) return
+		hoverRef.current = next
+		setHover(next)
+	}, [])
+	hoverClear.current = () => updateHover(null)
+	// A ctrl-click or alt-click that went down on a link: opened when the button comes up on the same cell.
+	const linkPress = useRef<{
+		readonly link: FoundLink
+		readonly x: number
+		readonly y: number
+	} | null>(null)
 	const pointer = useCallback(
 		(report: PointerReport) => {
+			if (inert) return
 			const node = boxRef.current
 			const geometry = {
 				...geometryRef.current,
 				height: node ? measureElement(node).height || geometryRef.current.height : 0,
 			}
 			const landing = landOn(geometry, report.x, report.y)
+			if (report.kind === 'move') {
+				let next: Hover | null = null
+				if (landing.kind === 'on') {
+					const { rows: now } = latest.current
+					const found = links
+						? linkAt(now, landing.point.line, landing.point.col, links.find)
+						: null
+					if (found) next = { key: `l:${found.id}`, link: found }
+					else if (now[landing.point.line]?.opens === true)
+						next = { key: `r:${landing.point.line}`, row: landing.point.line }
+				}
+				updateHover(next)
+				return
+			}
 			const current = selectionRef.current
 			// The hint's row is the bottom row of the window, and answers a click when it is the hint.
 			const onHint = hintRef.current && report.y === geometry.top + geometry.height - 1
@@ -474,6 +590,21 @@ export function FullscreenTranscript({
 					if (current) updateSelection(null)
 					return
 				}
+				// ctrl-click or alt-click on a link opens it; the link is not selected.
+				linkPress.current = null
+				if (links && (report.ctrl === true || report.alt === true)) {
+					const found = linkAt(
+						latest.current.rows,
+						landing.point.line,
+						landing.point.col,
+						links.find,
+					)
+					if (found) {
+						if (current) updateSelection(null)
+						linkPress.current = { link: found.link, x: report.x, y: report.y }
+						return
+					}
+				}
 				const count = clicks.press(report.x, report.y)
 				const mode = count === 1 ? 'char' : count === 2 ? 'word' : 'line'
 				updateSelection({
@@ -489,6 +620,13 @@ export function FullscreenTranscript({
 			if (report.kind === 'release' && hintPress.current) {
 				hintPress.current = false
 				if (onHint) place(FOLLOWING)
+				return
+			}
+			if (report.kind === 'release' && linkPress.current) {
+				const pressed = linkPress.current
+				linkPress.current = null
+				if (links && report.x === pressed.x && report.y === pressed.y)
+					showNote(links.activate(pressed.link, 'open'))
 				return
 			}
 			if (!current?.pressing) return
@@ -517,6 +655,20 @@ export function FullscreenTranscript({
 				// the row, unless it only let go of a selection.
 				updateSelection(null)
 				const row = landing.kind === 'on' ? latest.current.rows[landing.point.line] : undefined
+				// A plain click on a link says how to open it; it opens nothing, and opens no row.
+				const found =
+					links &&
+					landing.kind === 'on' &&
+					!current.moved &&
+					!current.replaced &&
+					report.x === current.at.x &&
+					report.y === current.at.y
+						? linkAt(latest.current.rows, landing.point.line, landing.point.col, links.find)
+						: null
+				if (found && links) {
+					showNote(links.activate(found.link, 'hint'))
+					return
+				}
 				if (
 					click &&
 					!current.moved &&
@@ -542,8 +694,11 @@ export function FullscreenTranscript({
 			showNote,
 			toggleAt,
 			updateSelection,
+			updateHover,
 			stopGlide,
 			place,
+			links,
+			inert,
 		],
 	)
 	useEffect(
@@ -564,10 +719,15 @@ export function FullscreenTranscript({
 		: -1
 	const updateSearch = useCallback(
 		(next: SearchOpen | null) => {
-			const was = searchRef.current !== null
+			const before = searchRef.current
 			searchRef.current = next
 			setSearch(next)
-			if (was !== (next !== null)) onSearchChange?.(next !== null)
+			const typing = next !== null && next.browsing !== true
+			if (
+				(before !== null) !== (next !== null) ||
+				(before !== null && (before.browsing !== true) !== typing)
+			)
+				onSearchChange?.(next !== null, typing)
 		},
 		[onSearchChange],
 	)
@@ -637,6 +797,23 @@ export function FullscreenTranscript({
 					scroll('page-down')
 					return
 				}
+				// Confirmed: the keys step through the matches, `/` types the query again, and Esc (taken
+				// through the control) closes. Everything else is the owner's.
+				if (open.browsing) {
+					if (input === '/') updateSearch({ ...open, browsing: false })
+					else if (input === 'n' || input === 'N') {
+						const found = findMatches(latest.current.rows, open.query)
+						const was = found.findIndex(
+							(m) => m.row === open.cursor?.row && m.from === open.cursor?.from,
+						)
+						const to = found[stepMatch(found.length, was, input === 'n' ? 1 : -1)]
+						if (to) {
+							updateSearch({ ...open, cursor: { row: to.row, from: to.from } })
+							goTo(to)
+						}
+					}
+					return
+				}
 				const edit = editSearch(open.query, input, key)
 				const { rows: now, synced: state, index: at } = latest.current
 				// Escape is taken through the control, so the owner can tell a key that
@@ -649,6 +826,19 @@ export function FullscreenTranscript({
 						cursor: first ? { row: first.row, from: first.from } : null,
 					})
 					goTo(first)
+				} else if (detailed && edit.kind === 'next' && open.query.length > 0) {
+					// Enter confirms the query: from here `n` and `N` step, the way a pager does.
+					const found = findMatches(now, open.query)
+					const current = found.findIndex(
+						(m) => m.row === open.cursor?.row && m.from === open.cursor?.from,
+					)
+					const to = found[current >= 0 ? current : startMatch(found, bottomRow(state, at))]
+					updateSearch({
+						...open,
+						browsing: true,
+						cursor: to ? { row: to.row, from: to.from } : open.cursor,
+					})
+					goTo(to)
 				} else if (edit.kind === 'next' || edit.kind === 'previous') {
 					const found = findMatches(now, open.query)
 					const was = found.findIndex(
@@ -662,14 +852,18 @@ export function FullscreenTranscript({
 				}
 				return
 			}
-			if (isAction('app:searchTranscript', input, key)) {
+			if (isAction('app:searchTranscript', input, key) || (detailed && input === '/')) {
 				openSearch()
 				return
 			}
 			if (key.pageDown) scroll('page-down')
 			else if (homeEndActive && key.home) scroll('top')
 			else if (homeEndActive && key.end) scroll('bottom')
-			else if (!key.pageUp && (key.return || (input.length > 0 && !key.ctrl && !key.meta))) {
+			else if (
+				!detailed &&
+				!key.pageUp &&
+				(key.return || (input.length > 0 && !key.ctrl && !key.meta))
+			) {
 				// Typing is a reason to look at the end again, and to let go of a selection.
 				if (selectionRef.current) updateSelection(null)
 				if (!viewNow.current.follow) place(FOLLOWING)
@@ -679,6 +873,11 @@ export function FullscreenTranscript({
 	)
 
 	const { from, to } = visibleRange(synced, index, maxRows)
+	const packedRows =
+		header && !hidden && !yielded && synced.follow && from === 0 && !search
+			? headerHeight.current + index.total
+			: Number.POSITIVE_INFINITY
+	const topAligned = packedRows <= boxHeight.current
 	const unseen = hasUnseen(synced, index)
 	const news =
 		!synced.follow && away.current && replies
@@ -694,7 +893,13 @@ export function FullscreenTranscript({
 		: null
 	const footer: { text: string; color: string } | null = search
 		? {
-				text: searchLine(search.query, currentIndex, matches.length, columns),
+				text: searchLine(
+					search.query,
+					currentIndex,
+					matches.length,
+					columns,
+					search.browsing === true,
+				),
 				color: theme.text.primary,
 			}
 		: ((noteLine && hint ? noteLine : null) ??
@@ -704,13 +909,14 @@ export function FullscreenTranscript({
 	const overlay = !search && !hint ? noteLine : null
 	hintRef.current = hint !== null && !search && !noteLine
 	geometryRef.current = {
-		top: 1,
+		top,
 		height: geometryRef.current.height,
 		from,
 		to,
 		footer: footer ? 1 : 0,
 		left: 1 + SCREEN_PADDING + GUTTER,
 		cols: textWidth,
+		...(topAligned ? { packed: headerHeight.current } : {}),
 	}
 
 	const range =
@@ -719,6 +925,28 @@ export function FullscreenTranscript({
 			: null
 	const marksFor = (row: FsRow, at: number): readonly Mark[] => {
 		const marks: Mark[] = []
+		// What the pointer can click, under it: a link is underlined, a row that opens is lit.
+		// Where the terminal takes links, every link is sent as one as well.
+		if (links && row.mark === undefined && (hyperlinks || hover !== null)) {
+			for (const found of linksOnLine(rows, at, links.find)) {
+				const lit = hover !== null && 'link' in hover && hover.link.id === found.id
+				if (!lit && !hyperlinks) continue
+				const style: Mark['style'] = {
+					...(lit ? { underline: true } : {}),
+					...(hyperlinks ? { href: linkHref(found.link) } : {}),
+				}
+				for (const piece of found.pieces)
+					if (piece.row === at) marks.push({ from: piece.from, to: piece.to, style })
+			}
+		}
+		if (hover !== null && 'row' in hover && hover.row === at) {
+			const last = cellsOf(row.text).at(-1)
+			marks.push({
+				from: 0,
+				to: last ? last.at + last.width : 0,
+				style: { bold: true, underline: true },
+			})
+		}
 		if (search) {
 			matches.forEach((match, i) => {
 				if (match.row !== at) return
@@ -740,15 +968,16 @@ export function FullscreenTranscript({
 		<Box
 			ref={boxRef}
 			flexDirection="column"
-			flexGrow={1}
+			flexGrow={yielded ? 0 : 1}
 			flexShrink={1}
 			flexBasis={0}
+			{...(yielded ? { height: 0 } : {})}
 			overflowY="hidden"
-			justifyContent="flex-end"
+			justifyContent={topAligned ? 'flex-start' : 'flex-end'}
 		>
-			{hidden ? null : (
+			{hidden || yielded ? null : (
 				<Box flexDirection="column" flexShrink={0}>
-					{from === 0 && header ? <Box>{header}</Box> : null}
+					{from === 0 && header ? <Box ref={headerBox}>{header}</Box> : null}
 					{rows.slice(from, to).map((row, i) => {
 						if (overlay && from + i === to - 1) {
 							return (

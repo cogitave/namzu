@@ -555,7 +555,7 @@ export const SANDBOX_ESCAPE_NOT_APPROVED =
 	'dangerously_disable_sandbox was not approved for this call, so the command did not run. Leaving the sandbox needs the user to confirm it each time, and this turn either cannot ask or does not allow it. Run the command inside the sandbox, or tell the user what it needs and let them run it.'
 
 const BASH_DESCRIPTION =
-	'Executes a command line using the execution shell disclosed in the system context and returns stdout/stderr output. The working directory persists between calls, but shell state does not. Command timeout is configurable. Read and search with `read`, `grep` and `glob`, not shell loops: a file read through the shell earns no read credit, so its next edit is refused once. Run a check on its own, not piped: its output is already trimmed, and a pipe hides the exit status.'
+	'Executes a command line using the execution shell disclosed in the system context and returns stdout/stderr output. The working directory persists between calls, but shell state does not. Command timeout is configurable. Read and search with `read`, `grep` and `glob`, not shell loops: a file read through the shell earns no read credit, so its next edit is refused once. Run a check on its own, not piped: its output is already trimmed, and a pipe hides the exit status. Output too long for the result and the output of a background job are saved to a file whose path you are given: do not redirect output into files of your own.'
 
 const BashToolBase = defineTool({
 	name: 'bash',
@@ -709,8 +709,16 @@ const BashToolBase = defineTool({
 				}
 				return {
 					success: true,
-					output: `Started background job ${job.id}; state: running.`,
-					data: { jobId: job.id, background: true },
+					output: `Started background job ${job.id}; state: running.${
+						job.outputFile === undefined
+							? ''
+							: ` Its output is saved to ${job.outputFile}; do not redirect it into a file of your own. Use wait_for_job to wait for it to finish and job to read it.`
+					}`,
+					data: {
+						jobId: job.id,
+						background: true,
+						...(job.outputFile === undefined ? {} : { outputFile: job.outputFile }),
+					},
 					facts: { kind: 'command', command: input.command, background: true },
 				}
 			} catch (err) {

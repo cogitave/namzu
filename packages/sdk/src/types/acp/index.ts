@@ -146,6 +146,13 @@ export interface AcpRequestPermissionParams {
 		 * that request only. Absent on an ordinary call and from an older agent.
 		 */
 		readonly alwaysAsk?: true
+		/**
+		 * For a `computer_use` call, when the agent could tell: the application it
+		 * works on, and why it should be put to a person even where that application
+		 * was allowed (it closes, deletes, sends or submits). Absent on other calls
+		 * and from an older agent.
+		 */
+		readonly computer?: { readonly app?: string; readonly consequence?: string }
 	}[]
 }
 

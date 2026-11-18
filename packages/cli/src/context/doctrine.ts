@@ -48,6 +48,10 @@ const NO_ONE_TO_ASK: ReadonlyArray<readonly [string, string]> = [
 		'If the user repeats or reaffirms a request after you raised a concern, that is their decision: say so and do the full request.',
 		'If the task repeats a request after a concern was raised, that is the decision: say so and do the full request.',
 	],
+	[
+		'Confirm first before an action that is hard to reverse or visible outside this machine (deleting data, sending a message, publishing, changing a shared system), unless the user asked for exactly that.',
+		'Do not take an action that is hard to reverse or visible outside this machine (deleting data, sending a message, publishing, changing a shared system) unless the task asks for exactly that; name it in your summary.',
+	],
 	['without asking: not', 'unless the task says so: not'],
 	[
 		'stop and tell the user the command to set one; do not invent one.',

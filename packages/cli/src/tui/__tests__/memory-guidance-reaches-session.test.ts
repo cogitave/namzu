@@ -171,17 +171,16 @@ describe('memory guidance wording', () => {
 		}
 	})
 
-	it('saves a failure lesson only when it will recur or was not obvious', () => {
+	it('saves a failure lesson only when it will recur', () => {
 		for (const text of both) {
-			expect(text).toContain('likely to come up again or was not obvious')
-			expect(text).toContain('a one-off slip')
+			expect(text).toContain('a lesson from a failure likely to recur')
 		}
 	})
 
 	it('says an explicit ask to remember yields to the leave-out rule for what the repository holds', () => {
 		for (const text of both) {
 			expect(text).toContain(
-				'If the repository already records it, save only what was surprising or non-obvious about it.',
+				'even when asked to remember it, save only what was surprising about it',
 			)
 		}
 	})

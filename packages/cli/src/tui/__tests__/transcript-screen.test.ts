@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest'
 
 import {
 	TRANSCRIPT_SCREEN_TAIL,
+	replyStamp,
 	screenDivider,
 	screenFooter,
 	screenWindow,
+	transcriptPlainText,
 } from '../transcript-screen.js'
 import type { TranscriptMessage } from '../types.js'
 
@@ -62,5 +64,39 @@ describe('the detailed transcript footer', () => {
 		const { prefix, text } = screenFooter({ showAll: false, dialogWaiting: true, columns: 40 })
 		expect(prefix.length + text.length).toBeLessThanOrEqual(40)
 		expect(text.endsWith('…')).toBe(true)
+	})
+})
+
+describe('what a reply says about itself in the detailed transcript', () => {
+	const at = new Date(2026, 10, 16, 9, 5).getTime()
+	const now = new Date(2026, 10, 16, 18, 0).getTime()
+	const reply = { role: 'assistant', at, model: 'a-model', pending: false } as const
+
+	it('is the time and the model, with the date only when it was not today', () => {
+		expect(replyStamp(reply, now)).toBe('09:05 · a-model')
+		expect(replyStamp({ ...reply, at: new Date(2026, 10, 14, 23, 59).getTime() }, now)).toBe(
+			'2026-11-14 23:59 · a-model',
+		)
+		expect(replyStamp({ role: 'assistant', model: 'a-model' }, now)).toBe('a-model')
+	})
+
+	it('is nothing for a message that is not a finished reply, or that knows neither', () => {
+		expect(replyStamp({ ...reply, role: 'user' }, now)).toBeNull()
+		expect(replyStamp({ ...reply, pending: true }, now)).toBeNull()
+		expect(replyStamp({ role: 'assistant' }, now)).toBeNull()
+	})
+
+	it('puts the whole conversation into the text the editor opens, stamps and reasoning included', () => {
+		const text = transcriptPlainText(
+			[
+				{ id: '1', role: 'user', content: 'fix it' },
+				{ id: '2', role: 'assistant', content: 'done', at, model: 'a-model', thinking: 'a plan' },
+				{ id: '3', role: 'tool', content: 'Bash(ls)', detail: ['a', 'b'] },
+			],
+			now,
+		)
+		expect(text).toBe(
+			'You:\nfix it\n\n[thinking]\na plan\n\nNamzu (09:05 · a-model):\ndone\n\nTool:\nBash(ls)\na\nb\n',
+		)
 	})
 })

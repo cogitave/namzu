@@ -1,5 +1,6 @@
 import type { AcpSessionUpdate, AcpTask, ToolCallView } from '@namzu/sdk'
 import { splitAttachmentWrapper } from './attachment-wrapper.js'
+import { type ComputerAppsView, type ComputerFrameView, keepFrames } from './computer-protocol.js'
 import type { TurnOutcomeSummary } from './outcome-protocol.js'
 import type {
 	ChatMessage,
@@ -115,6 +116,10 @@ export interface ThreadState {
 	tools: Record<string, ProjectedToolCall>
 	activeToolIds: string[]
 	permissions: PermissionView[]
+	/** What the model saw after its newest computer actions (small, the newest few), by call. */
+	computerFrames?: ComputerFrameView[]
+	/** The applications this conversation has allowed and the ones it has used. */
+	computerApps?: ComputerAppsView
 	/** Calls that were still waiting for an answer when the turn ended: they never ran. */
 	unanswered?: { turn: number; calls: { id: string; name: string }[] }
 	reasoning: Record<string, ReasoningSegment>
@@ -711,6 +716,10 @@ function applyEventCore(previous: ThreadState, event: DesktopEvent): ThreadState
 			queuedItems: event.queuedItems ?? [],
 			...(event.error ? { error: event.error } : event.clearError ? { error: undefined } : {}),
 		}
+	if (event.kind === 'computer-frame')
+		return { ...thread, computerFrames: keepFrames(thread.computerFrames ?? [], event.frame) }
+	if (event.kind === 'computer-apps')
+		return { ...thread, computerApps: { granted: event.granted, used: event.used } }
 	if (event.kind === 'permission') {
 		const index = thread.permissions.findIndex((permission) => permission.id === event.request.id)
 		const permissions = [...thread.permissions]

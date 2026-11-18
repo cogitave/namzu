@@ -30,11 +30,11 @@ export interface BrowserHumanClassifierOptions {
 	 */
 	readonly signInAddresses?: readonly string[]
 	/**
-	 * What makes a page a sign-in page. `address` (the default) takes a path
-	 * such as `/login` as proof, wherever it appears. `page` takes the hosts
+	 * What makes a page a sign-in page. `page` (the default) takes the hosts
 	 * in {@link SIGN_IN_ADDRESSES} and `signInAddresses` as proof, and a path
 	 * only as a hint: the page itself must show a password or code field, and
 	 * even then it is reported by {@link signInNotice}, not as a stop.
+	 * `address` takes a path such as `/login` as proof, wherever it appears.
 	 */
 	readonly signInDetection?: BrowserSignInDetection
 }
@@ -153,14 +153,14 @@ export function isSignInAddress(
 	const url = parse(rawUrl)
 	if (!url || (url.protocol !== 'https:' && url.protocol !== 'http:')) return false
 	if (isListedSignInAddress(url, options)) return true
-	return options.signInDetection === 'page' ? false : SIGN_IN_PATH.test(url.pathname)
+	return options.signInDetection === 'address' ? SIGN_IN_PATH.test(url.pathname) : false
 }
 
 function isTwoFactorAddress(rawUrl: string, options: BrowserHumanClassifierOptions): boolean {
 	const url = parse(rawUrl)
 	if (!url) return false
 	if (TWO_FACTOR_ADDRESSES.some((entry) => addressMatches(url, entry))) return true
-	return options.signInDetection === 'page' ? false : TWO_FACTOR_PATH.test(url.pathname)
+	return options.signInDetection === 'address' ? TWO_FACTOR_PATH.test(url.pathname) : false
 }
 
 /**
@@ -197,7 +197,7 @@ export function classifyHumanRequired(
 }
 
 /**
- * With `signInDetection: 'page'`, a page that shows a password or code field
+ * Unless `signInDetection` is `address`, a page that shows a password or code field
  * but did not stop the turn: what to tell the model instead. `undefined` when
  * the page shows no such field, or when the turn was already stopped for it.
  * The words say that a credential is never typed by the model, why, and that
@@ -208,7 +208,7 @@ export function signInNotice(
 	options: BrowserHumanClassifierOptions = {},
 	loginCommand?: string,
 ): string | undefined {
-	if (options.signInDetection !== 'page') return undefined
+	if (options.signInDetection === 'address') return undefined
 	if (signals.passwordFields === 0 && signals.oneTimeCodeFields === 0) return undefined
 	if (classifyHumanRequired(signals, options) !== undefined) return undefined
 	const how = loginCommand ? ` The user can sign in with: ${loginCommand}` : ''
@@ -238,4 +238,16 @@ export function isCredentialField(field: BrowserFieldFacts): boolean {
 	const autocomplete = field.autocomplete.toLowerCase()
 	if (/\b(?:current-password|new-password|one-time-code)\b/.test(autocomplete)) return true
 	return [field.name, field.id, field.label].some((value) => ONE_TIME_CODE_NAME.test(value))
+}
+
+const CREDENTIAL_PROMPT =
+	/\b(?:password|passwords|passcode|passphrase|otp|totp|2fa|mfa|one[-_ ]?time|verification code|security code|authenticat\w* code|login code|sign[- ]?in code)\b/i
+
+/**
+ * Does the text of a page dialog ask for a password, a passcode or a one-time
+ * code? The model never types one, so a prompt that asks for one is not
+ * answered with text.
+ */
+export function asksForCredential(message: string): boolean {
+	return CREDENTIAL_PROMPT.test(message)
 }

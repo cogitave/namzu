@@ -77,7 +77,7 @@ import { describeTurnInterruption, retryAfterMs } from '../tui/turn-interruption
 import { expandHeadlessCommand } from '../user-commands/store.js'
 import {
 	type ExecFlags,
-	applyProviderFlags,
+	applyLaunchFlags,
 	buildGate,
 	launchMcpServers,
 	loadSkillsContext,
@@ -311,7 +311,12 @@ async function execPrint(
 		})
 		return 1
 	}
-	prefs = applyProviderFlags(prefs, flags)
+	const launched = applyLaunchFlags(prefs, flags)
+	if ('error' in launched) {
+		ctx.formatter.error({ message: launched.error })
+		return EXIT_USAGE
+	}
+	prefs = launched
 	// The appended instructions, the tool lists and the fallback chain: read
 	// before anything is opened, so a typo costs nothing.
 	const run = resolveRunFlags(flags, prefs)
@@ -992,6 +997,7 @@ export const execCommand: CommandDef = {
 		'  --cwd <path>          Directory the agent works in (default: this one)',
 		'  --provider <id>       Provider to answer with',
 		'  --model <id>          Model to answer with',
+		'  --account <label>     Account to run under: a label from /auth, or provider:label',
 		'  --skills <a,b,c>      Load these skills as context for the turn',
 		'  --continue, -c        Resume the most recent conversation here',
 		'  --resume <id>         Resume that conversation, and no other',

@@ -175,7 +175,8 @@ describe('opening the built command on a pseudo-terminal', () => {
 		async () => {
 			t = new Screen()
 			await fill(t, 'namzu')
-			t.start()
+			// The scrollback screen is the opt-out: fullscreen is what a fresh start gets.
+			t.start({ NAMZU_FULLSCREEN: '0' })
 			await t.until(ready)
 			let visible = t.visible()
 			// The banner sits on the second row, under the screen's one blank margin row, and nothing the shell
@@ -198,7 +199,7 @@ describe('opening the built command on a pseudo-terminal', () => {
 
 			// The same terminal, a second time: one live banner on the second row, the first run above it.
 			await t.shell('$ namzu again\r\n')
-			t.start()
+			t.start({ NAMZU_FULLSCREEN: '0' })
 			await t.until(ready)
 			visible = t.visible()
 			expect(visible.filter(banner)).toHaveLength(1)
@@ -214,16 +215,43 @@ describe('opening the built command on a pseudo-terminal', () => {
 	)
 
 	it(
-		'fullscreen keeps its alternate screen and does not push the shell into the scrollback',
+		'starts fullscreen by default: alternate screen, pointer on, the header at the top and the prompt at the bottom',
 		async () => {
 			t = new Screen()
 			await fill(t, 'namzu')
-			t.start({ NAMZU_FULLSCREEN: '1' })
-			await t.until((rows) => rows.some((row) => row.includes('Namzu v')))
+			t.start()
+			await t.until(ready)
 			expect(t.raw).toContain(`${ESC}[?1049h`)
+			// The pointer is asked for in full, with motion for hover.
+			for (const mode of ['1000', '1002', '1003', '1006'])
+				expect(t.raw).toContain(`${ESC}[?${mode}h`)
 			// The terminal's own screen is exactly as the shell left it, under the alternate screen.
 			expect(t.raw.startsWith('\n'.repeat(ROWS))).toBe(false)
 			expect(t.term.buffer.active.type).toBe('alternate')
+			const visible = t.visible()
+			const header = visible.findIndex(banner)
+			const prompt = visible.findIndex((row) => row.includes('❯'))
+			// The header is on the first rows and not drawn above the prompt with a blank screen over it.
+			expect(header).toBeGreaterThanOrEqual(0)
+			expect(header).toBeLessThanOrEqual(2)
+			expect(prompt).toBeGreaterThan(ROWS - 8)
+			expect(prompt).toBeGreaterThan(header)
+			expect(await t.leave()).toBe(0)
+		},
+		SLOW_MS,
+	)
+
+	it(
+		'NAMZU_FULLSCREEN=0 keeps the scrollback screen: no alternate screen and no pointer reports',
+		async () => {
+			t = new Screen()
+			await fill(t, 'namzu')
+			t.start({ NAMZU_FULLSCREEN: '0' })
+			await t.until(ready)
+			expect(t.raw).not.toContain(`${ESC}[?1049h`)
+			expect(t.raw).not.toContain(`${ESC}[?1000h`)
+			expect(t.term.buffer.active.type).toBe('normal')
+			expect(await t.leave()).toBe(0)
 		},
 		SLOW_MS,
 	)

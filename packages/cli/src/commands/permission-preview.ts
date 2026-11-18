@@ -96,12 +96,20 @@ async function readCurrent(path: string): Promise<string | null | undefined> {
 export async function withPreviews(
 	calls: readonly CallLike[],
 	roots: readonly string[],
-	options: { readonly askEveryCall?: boolean } = {},
+	options: {
+		readonly askEveryCall?: boolean
+		/** What a host can add about a call it knows more of (the application a computer action works on). */
+		readonly computer?: (
+			call: CallLike,
+		) => Promise<{ app?: string; apps?: string[]; consequence?: string } | undefined>
+	} = {},
 ) {
 	return Promise.all(
 		calls.map(async (call) => {
 			const preview = await buildFilePreview(call, roots)
+			const computer = await options.computer?.(call).catch(() => undefined)
 			return {
+				...(computer && (computer.app || computer.consequence) ? { computer } : {}),
 				id: call.id,
 				name: call.name,
 				input: call.input,

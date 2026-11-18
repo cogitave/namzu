@@ -84,13 +84,18 @@ bound by its own `maxOutputChars`.
 
 Results that name the next move: a successful `edit` or `write` ends with `The file on disk is now exactly this; no need to read it back.`, and a `read` or `edit` of a path that does not exist ends with `Nothing exists at that path. Find the file with \`glob\` instead of trying another guess.` A `write` refused over an existing file adds `Calling \`write\` again without reading it fails the same way.`, and `grep` refuses an inline flag such as `(?i)` with the parameter to use (`case_sensitive: false`). These five come from counting wrong next moves in 168 benchmark runs on the two small models, the commonest first (a read-back after a write, 16; a re-read of a file the refusal had just handed over, 10; a guessed second path, 9; a write over an unread file, 6; a re-asked search, 5). Tool descriptions did not change. Other candidates (a refused fetch repeated, a search for a tool already loaded, a polled background job, an edit after a command changed the file) never occurred in those runs and were left alone.
 
-`edit` refuses a file the session has not read: `<path> had not been read in this session, so this edit was not
-applied. It has now been read for you; its current contents follow. Repeat the edit against them, without reading the file again.
-Nothing was written.`, followed by the numbered contents. The file is already in hand when the refusal is made, so showing it and
-crediting the read that showing amounts to keeps the turn: the repeat is one call and is admitted. A file too large
-to hand over (more than 600 lines or 24,000 characters, or not text) is refused with the remedy in one line, `<path>
-has not been read in this session, so the edit was not applied. Read it with the read tool (one call, no range),
-then repeat the edit.`, and is not credited. `write` already refused an existing file it had not read. Both consult
+`edit` on a file the session has not read reads it first. When every replacement in the call matches the body exactly
+(once, or at least once under `replace_all`) the edit is applied in the same call, the read is credited, and the result
+ends with `(file was not read before; the edit matched exactly and was applied)`: a model that learned the text from a
+shell print or a search should not pay a request to be told to repeat it. When the text is not found, is ambiguous, or
+the call is an insertion or a batch with a failing entry, the edit is refused: `<path> had not been read in this
+session, so this edit was not applied. It has now been read for you; its current contents follow. Repeat the edit
+against them, without reading the file again. Nothing was written.`, followed by the numbered contents. The file is already in hand when the refusal is
+made, so showing it and crediting the read that showing amounts to keeps the turn: the repeat is one call and is
+admitted. A file too large to hand over (more than 600 lines or 24,000 characters, or not text) is refused with the
+remedy in one line, `<path> has not been read in this session, so the edit was not applied. Read it with the read tool
+(one call, no range), then repeat the edit.`, and is not credited. A file that was read and then changed on disk is
+still refused as stale. `write` still refuses an existing file it had not read. Both consult
 the turn's `fileReadTracker`; a host that supplies none is not refused, because it has nothing to ask. A windowed
 read counts as a read here (the ledger records the whole body); an edit after a partial view is not refused.
 

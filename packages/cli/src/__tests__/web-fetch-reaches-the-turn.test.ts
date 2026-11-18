@@ -7,7 +7,7 @@
  *   config.web  → AgentSessionOptions.web
  *               → `web_fetch` in the parent registry
  *               → `web.fetch` provider handed to query()
- *               → the citation guidance registered as a contribution
+ *               → no citation guidance contribution: the rules ride in the tool descriptions
  *
  * The negative half is the one that matters for a person who opted out: a
  * session configured with `fetch: false` must not carry the tool, because a
@@ -154,13 +154,14 @@ async function drive(
 }
 
 describe('web.fetch', () => {
-	it('mounts the tool, hands query() a provider, and registers the citation guidance', async () => {
+	it('mounts the tool and hands query() a provider, without a citation-guidance contribution', async () => {
 		const turn = await drive({ fetch: true })
 
 		expect(turn.toolNames).toContain('web_fetch')
 		expect(turn.session.toolNames()).toContain('web_fetch')
 		expect(turn.web?.fetch, 'the tool without its provider reports itself unwired').toBeDefined()
-		expect(turn.hasGuidance).toBe(true)
+		// The usage rules are in the tool descriptions now, not a system-prompt contribution.
+		expect(turn.hasGuidance).toBe(false)
 	})
 
 	it('is on by default, with hosted search alongside', async () => {
@@ -170,7 +171,8 @@ describe('web.fetch', () => {
 		expect(turn.toolNames).not.toContain('web_search')
 		expect(turn.turnConfig.webSearch).toEqual({ mode: 'live' })
 		expect(turn.web?.fetch).toBeDefined()
-		expect(turn.hasGuidance).toBe(true)
+		// The usage rules are in the tool descriptions now, not a system-prompt contribution.
+		expect(turn.hasGuidance).toBe(false)
 	})
 
 	it('reviews a fetch as a network call, so a new domain is asked about', async () => {

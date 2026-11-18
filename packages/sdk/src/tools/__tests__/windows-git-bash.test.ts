@@ -291,4 +291,20 @@ describe('what the model is told', () => {
 		setHostCommandShellForTesting({ path: undefined, dialect: 'cmd', source: 'platform' })
 		expect(BashTool.description).not.toContain('Git Bash')
 	})
+
+	it('tells the model how PowerShell gets its script past bash, and how to write a file without a BOM', () => {
+		// Double quotes were the old advice: bash replaced every $name before PowerShell saw it.
+		expect(WINDOWS_BASH_GUIDANCE).not.toContain('-Command "')
+		expect(WINDOWS_BASH_GUIDANCE).toContain('never put a script in double quotes')
+		expect(WINDOWS_BASH_GUIDANCE).toContain("powershell -NoProfile -Command '$x = 1; $x + 1'")
+		expect(WINDOWS_BASH_GUIDANCE).toContain("powershell -NoProfile -Command - <<'PS'")
+		expect(WINDOWS_BASH_GUIDANCE).toContain(
+			"powershell -NoProfile -Command 'Start-Process program.exe'",
+		)
+		expect(WINDOWS_BASH_GUIDANCE).toContain('`cmd.exe //c start …` does')
+		expect(WINDOWS_BASH_GUIDANCE).toContain('`-File`')
+		expect(WINDOWS_BASH_GUIDANCE).toContain('[System.IO.File]::WriteAllText($path, $text)')
+		expect(WINDOWS_BASH_GUIDANCE).toContain('without a BOM')
+		expect(WINDOWS_BASH_GUIDANCE).toContain('add a BOM in Windows PowerShell 5')
+	})
 })

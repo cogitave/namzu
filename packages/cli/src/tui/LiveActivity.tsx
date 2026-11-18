@@ -206,13 +206,18 @@ export function LiveActivity({
 		const shownQueued = queued.slice(0, MAX_VISIBLE_TOOLS)
 		return (
 			<Box flexDirection="column" marginTop={1}>
-				<Box>
-					<Text color={theme.text.secondary}>{workingMark(0, false)} </Text>
-					<Text color={theme.text.secondary}>
-						{waitingFor === 'approval' ? 'Waiting for your approval' : 'Waiting for you'}
-					</Text>
-					<Text color={theme.text.muted}> · the question below</Text>
-				</Box>
+				{/* One waiting row for one fact: when the calls waiting for a yes have their rows, those are
+				    the waiting, and the question is the box under them. Only with none to show does a line of
+				    its own say that the turn is waiting. */}
+				{shownQueued.length === 0 ? (
+					<Box>
+						<Text color={theme.text.secondary}>{workingMark(0, false)} </Text>
+						<Text color={theme.text.secondary}>
+							{waitingFor === 'approval' ? 'Waiting for your approval' : 'Waiting for you'}
+						</Text>
+						<Text color={theme.text.muted}> · the question below</Text>
+					</Box>
+				) : null}
 				{shownQueued.map((tool) => (
 					<QueuedToolRow key={tool.id} tool={tool} />
 				))}

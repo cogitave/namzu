@@ -1,0 +1,90 @@
+.computer-frame-thumb {
+	display: block;
+	margin: 4px 0 2px 26px;
+	padding: 0;
+	border: 1px solid var(--border, rgba(255, 255, 255, 0.14));
+	border-radius: var(--radius-chip);
+	background: none;
+	cursor: zoom-in;
+	overflow: hidden;
+	line-height: 0;
+}
+.computer-frame-thumb:focus-visible {
+	outline: none;
+	box-shadow: var(--focus-ring);
+}
+.computer-frame-box {
+	position: relative;
+	display: inline-block;
+}
+.computer-frame-thumb img {
+	display: block;
+	width: 144px;
+	height: auto;
+	max-height: 96px;
+	object-fit: cover;
+	object-position: top left;
+}
+.computer-frame-point {
+	position: absolute;
+	width: 14px;
+	height: 14px;
+	margin: -7px 0 0 -7px;
+	border: 2px solid #ff4d4d;
+	border-radius: 50%;
+	background: rgba(255, 77, 77, 0.25);
+	pointer-events: none;
+}
+.computer-frame-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: var(--z-dialog);
+	display: grid;
+	place-items: center;
+	background: rgba(0, 0, 0, 0.6);
+}
+.computer-frame-dialog {
+	position: static;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	max-width: min(92vw, 1100px);
+	max-height: 92vh;
+	padding: 12px;
+	border: 1px solid var(--border, rgba(255, 255, 255, 0.18));
+	border-radius: var(--radius-card);
+	background: var(--background, #1b1b1d);
+	color: var(--foreground, #f2f2f3);
+}
+.computer-frame-caption {
+	margin: 0;
+	font-size: 12px;
+	opacity: 0.8;
+}
+.computer-frame-large-box img {
+	display: block;
+	max-width: 100%;
+	max-height: calc(92vh - 96px);
+	width: auto;
+	height: auto;
+}
+.computer-frame-close {
+	align-self: flex-end;
+	padding: 4px 12px;
+	border: 1px solid var(--border, rgba(255, 255, 255, 0.18));
+	border-radius: var(--radius-chip);
+	background: none;
+	color: inherit;
+	cursor: pointer;
+}
+.computer-frame-scrim {
+	position: absolute;
+	inset: 0;
+	border: 0;
+	padding: 0;
+	background: none;
+	cursor: zoom-out;
+}
+.computer-frame-dialog {
+	position: relative;
+}

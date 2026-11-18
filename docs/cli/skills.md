@@ -237,8 +237,10 @@ model nothing and costs nothing. Nothing is saved unless you type
 - it ended by answering (`end_turn`), not by an error, a pause, a budget or
   a cancel;
 - at least `skills.suggestMinToolCalls` (default 6) tool calls succeeded,
-  across at least two different tools, and at least one of them was not
-  read-only by its tool's own declaration (it wrote a file, ran a command).
+  across at least three different tools (read some files, change one, check:
+  two tools is most coding turns, not a procedure), and at least one of them
+  was not read-only by its tool's own declaration (it wrote a file, ran a
+  command).
   The plan bookkeeping tools (`task_create`, `task_update`, `update_goal`)
   are not counted;
 - none of the last three tool results failed, and no call refused by a
@@ -250,8 +252,10 @@ model nothing and costs nothing. Nothing is saved unless you type
   `/skills <name>` (an activated skill stays active after `/clear`, so it
   counts there too), and the turn was not `/skills save`, `/skills new` or a
   `save_skill` call;
-- this conversation has not proposed one already (`/clear`, `/resume` and a
-  fork start a new conversation);
+- nothing has been proposed already in this run of the program: at most one
+  suggestion is shown per session, however many conversations it opens
+  (`/clear`, `/resume` and a fork start a new conversation, but not a new
+  session);
 - `skills.suggest` is not `false`.
 
 **`/skills save [name]`** sends one turn in the same conversation asking the
