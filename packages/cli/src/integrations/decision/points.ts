@@ -5,8 +5,8 @@
  * decision model may be asked the same question beside the rule, and a point has a
  * mode:
  *
- * - `off`: nothing is asked. The default for every point, because a question
- *   carries text of the conversation to the decision service.
+ * - `off`: nothing is asked. The default for every point but `pick`, because a
+ *   question carries text of the conversation to the decision service.
  * - `shadow`: the model is asked and its answer is written to the log with what
  *   the rule decided, and nothing else happens. This is how a point earns trust:
  *   the log says how often the two agree before anyone lets the model act.
@@ -107,6 +107,15 @@ export interface DecisionPoints {
 	): Promise<DecisionRanking | undefined>
 }
 
+/**
+ * The mode of a point the operator did not name, once a decision model is configured. Every point
+ * is `off` except `pick`: what it sends is the names of the controls of one window and a few words
+ * of intent, never conversation text, and it acts only when the model is sure.
+ */
+export function defaultPointMode(point: DecisionPointId): DecisionPointMode {
+	return point === 'pick' ? 'on' : 'off'
+}
+
 const DEFAULT_TIMEOUT_MS = 1_500
 const LOG_ROTATE_BYTES = 1_000_000
 
@@ -116,7 +125,7 @@ export function createDecisionPoints(options: DecisionPointsOptions): DecisionPo
 	const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
 	const log = options.log ?? appendDecisionLog
 	const mode = (point: DecisionPointId): DecisionPointMode =>
-		model === undefined ? 'off' : (options.modes?.[point] ?? 'off')
+		model === undefined ? 'off' : (options.modes?.[point] ?? defaultPointMode(point))
 
 	/** Runs one call to the model inside the timeout and the caller's signal. Never throws. */
 	const timed = async <T>(

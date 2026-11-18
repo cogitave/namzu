@@ -58,6 +58,7 @@ export type { BrowserLandingVerdict, BrowserSiteLevel, BrowserSiteRules } from '
 export {
 	CAPTCHA_FRAME_HOSTS,
 	SIGN_IN_ADDRESSES,
+	asksForCredential,
 	classifyHumanRequired,
 	isBotBlockTitle,
 	isCaptchaFrame,
