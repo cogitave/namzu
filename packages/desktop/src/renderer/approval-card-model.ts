@@ -38,6 +38,8 @@ export interface ApprovalCardModel {
 	destructive: boolean
 	/** The one-time question that an application needs the keyboard and mouse for a moment. */
 	screenMoment?: { app: string }
+	/** The question whether Namzu may use these applications in this conversation. */
+	appAccess?: { apps: string[] }
 	/** Titles of the other calls of the same batch, which one answer covers. */
 	others: string[]
 }
@@ -184,10 +186,28 @@ function palMessageTitle(call: Call, palNames?: ReadonlyMap<string, string>): st
 	return name ? `Message to ${name}` : 'Message to a Pal'
 }
 
+/** What saying yes to an application lets happen, and for how long. */
+export function appAccessNote(apps: readonly string[]): string {
+	const them = apps.join(' and ')
+	return `Allow lets Namzu click, type and press keys in ${them} for the rest of this conversation without asking again. It still asks before it closes, deletes, sends or submits something. Access is to the whole application, every window in it. You can take it back from the conversation details. Allow once covers this step only.`
+}
+
 export function buildApprovalCard(
 	permission: PermissionView,
 	palNames?: ReadonlyMap<string, string>,
 ): ApprovalCardModel {
+	if (permission.appRequest && permission.appRequest.apps.length > 0) {
+		const apps = permission.appRequest.apps
+		return {
+			kind: 'other',
+			title: `Allow Namzu to use ${apps.join(' and ')} in this conversation?`,
+			appAccess: { apps },
+			previewMissing: false,
+			entries: [],
+			destructive: false,
+			others: [],
+		}
+	}
 	const [first, ...rest] = permission.calls
 	const others = rest.map((call) => cardTitle(call, palNames))
 	if (!first) {
@@ -434,7 +454,7 @@ export function offersConversationAllowance(permission: PermissionView): boolean
 export function rejectsFirst(model: ApprovalCardModel, permission: PermissionView): boolean {
 	if (model.kind === 'delete') return true
 	// The person is using the keyboard when this card appears, so a stray Enter must not allow it.
-	if (model.screenMoment) return true
+	if (model.screenMoment || model.appAccess) return true
 	return permission.calls.some((call) => {
 		if (DELETE_TOOLS.has(call.name.toLowerCase())) return true
 		const command = record(call.input) ? call.input.command : undefined
@@ -476,7 +496,7 @@ export function waitingLabel(permission: PermissionView | undefined): string {
 	const first = permission?.calls[0]
 	if (!permission || !first) return 'Waiting for your decision'
 	const model = buildApprovalCard(permission)
-	if (model.screenMoment) return 'Waiting for your decision'
+	if (model.screenMoment || model.appAccess) return 'Waiting for your decision'
 	switch (model.kind) {
 		case 'command':
 			return 'Waiting to run command'
@@ -552,7 +572,7 @@ export function approvalFlags(
 	permission: PermissionView,
 	folder?: string,
 ): string[] {
-	if (model.screenMoment) return []
+	if (model.screenMoment || model.appAccess) return []
 	const flags: string[] = []
 	if (permission.calls.some((call) => call.alwaysAsk === true))
 		flags.push('Namzu asks about this every time, whatever you allowed before.')

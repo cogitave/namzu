@@ -8,6 +8,7 @@ import type {
 	ReviewMode,
 } from '@namzu/sdk'
 import type { BackgroundWorkStatus, BackgroundWorkStatusEvent } from './background-work-protocol.js'
+import type { ComputerAppsView, ComputerFrameView } from './computer-protocol.js'
 import type {
 	ConfigSettingChange,
 	ConfigSettingResult,
@@ -557,7 +558,19 @@ export interface PermissionView {
 		 * look at the screen. Absent on an ordinary call and from an agent that sends none.
 		 */
 		alwaysAsk?: true
+		/**
+		 * For a `computer_use` call, when the agent could tell: the application it works on, and
+		 * why it should be asked about even where that application was allowed (it closes, deletes,
+		 * sends or submits).
+		 */
+		computer?: { app?: string; apps?: string[]; consequence?: string }
 	}[]
+	/**
+	 * Set by this application on a request that asks whether Namzu may use these applications in
+	 * this conversation, instead of asking about one action. "Allow" (`approve_all`) allows them for
+	 * the conversation, "Allow once" (`approve`) answers this action only, and No refuses.
+	 */
+	appRequest?: { apps: string[] }
 }
 /**
  * Reject carries the person's note to the model (`feedback`) and, apart from any wrapper, as they wrote it (`note`) for the record; approve carries nothing.
@@ -683,6 +696,10 @@ export type DesktopEvent = (
 	| ({ kind: 'usage' } & UsageNotice)
 	/** What a finished turn changed and what checked it; see `OutcomeNotice`. */
 	| ({ kind: 'outcome' } & OutcomeNotice)
+	/** What the model saw after a computer action, small, with where a click landed. */
+	| { kind: 'computer-frame'; sessionId: string; frame: ComputerFrameView }
+	/** The applications this conversation has allowed and the ones it has used. */
+	| ({ kind: 'computer-apps'; sessionId: string } & ComputerAppsView)
 	| { kind: 'tasks'; sessionId: string; tasks?: AcpTask[]; notice?: string }
 	| { kind: 'permission-cleared'; sessionId: string; requestId?: string }
 	/** Display-only retirement; admitted, queued and retry file bytes are unchanged. */
@@ -1146,6 +1163,8 @@ export interface DesktopApi {
 		requestId: string,
 		response: PermissionResponse,
 	): Promise<void>
+	/** Take an application back from the conversation: the next action in it asks again. Absent in an older shell. */
+	revokeComputerApp?(sessionId: string, app: string): Promise<ComputerAppsView>
 	jobs(sessionId: string): Promise<JobView[]>
 	/** Metadata for already observed ordinary work; never admission or a job-output read. */
 	backgroundWorkStatuses?(): Promise<Record<string, BackgroundWorkStatus>>

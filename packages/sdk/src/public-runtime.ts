@@ -1830,6 +1830,7 @@ export type {
 	ComputerUseAdvisor,
 	ComputerUseAdvisorCandidate,
 	ComputerUseAdvisorRequest,
+	ComputerUseObservation,
 	ComputerUseTool,
 	ComputerUseToolOptions,
 	ImageSize,

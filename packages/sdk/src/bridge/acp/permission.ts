@@ -26,6 +26,8 @@ export interface AcpPermissionRequest {
 		 * `mustAskPerson`; a gateway that sends none keeps the old behaviour.
 		 */
 		readonly alwaysAsk?: boolean
+		/** Rides to the client untouched; see `AcpRequestPermissionParams`. */
+		readonly computer?: { readonly app?: string; readonly consequence?: string }
 	})[]
 }
 

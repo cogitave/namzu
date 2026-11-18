@@ -27,6 +27,7 @@ import {
 	desktopServerExtensions,
 	parseAcpArgs,
 } from './commands/acp.js'
+import { COMPUTER_FRAME_NOTIFICATION } from './commands/desktop-computer-feed.js'
 import { OUTCOME_NOTIFICATION } from './commands/desktop-outcome-feed.js'
 import { USAGE_NOTIFICATION } from './commands/desktop-usage-feed.js'
 import { readPalComputerBundle } from './computer/bundle.js'
@@ -268,6 +269,7 @@ describe('every recorded name still exists in what the host offers', () => {
 			'sdk ACP_CLIENT_NOTIFICATIONS.SESSION_UPDATE': ACP_CLIENT_NOTIFICATIONS.SESSION_UPDATE,
 			'sdk ACP_CLIENT_NOTIFICATIONS.TASK_UPDATE': ACP_CLIENT_NOTIFICATIONS.TASK_UPDATE,
 			'cli USAGE_NOTIFICATION': USAGE_NOTIFICATION,
+			'cli COMPUTER_FRAME_NOTIFICATION': COMPUTER_FRAME_NOTIFICATION,
 			'cli OUTCOME_NOTIFICATION': OUTCOME_NOTIFICATION,
 			'cli TERMINAL_NOTIFICATIONS.data': TERMINAL_NOTIFICATIONS.data,
 			'cli TERMINAL_NOTIFICATIONS.exit': TERMINAL_NOTIFICATIONS.exit,

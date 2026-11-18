@@ -15,6 +15,7 @@ import {
 	type ApprovalCardModel,
 	CONVERSATION_ALLOWANCE_SCOPE,
 	FEEDBACK_NOTE_MAX,
+	appAccessNote,
 	approvalConsequence,
 	approvalConsequenceTitle,
 	approvalDetails,
@@ -330,7 +331,10 @@ export function ComposerApproval({
 		if (guard.current?.active() ?? true) return
 		respond(response)
 	}
-	const accept = () => allow({ outcome: 'approve' })
+	const appAccess = model.appAccess
+	// For an application, the plain yes is Allow: it keeps the application for the conversation.
+	const accept = () => allow({ outcome: appAccess ? 'approve_all' : 'approve' })
+	const acceptOnce = () => allow({ outcome: 'approve' })
 	const acceptForConversation = () => allow({ outcome: 'approve_all' })
 	const reject = () => respond({ outcome: 'reject' })
 	const send = () => {
@@ -389,7 +393,8 @@ export function ComposerApproval({
 	const hasDiff = Boolean(model.diff) && !model.unchanged
 	const screenMoment = model.screenMoment
 	const showDetails =
-		(!screenMoment && !(model.diff && !model.diff.fragment)) || permission.calls.length > 1
+		!appAccess &&
+		((!screenMoment && !(model.diff && !model.diff.fragment)) || permission.calls.length > 1)
 	const diff = model.diff
 	const verdict = useMemo(
 		() =>
@@ -511,21 +516,27 @@ export function ComposerApproval({
 			</Menu.Portal>
 		</Menu.Root>
 	)
-	const acceptTip = screenMoment
-		? 'Allow this app · Ctrl+Enter. Enter says not now.'
-		: risky
-			? 'Accept · Ctrl+Enter. This one looks risky, so Enter rejects it.'
-			: 'Accept · Enter'
-	const rejectTip = screenMoment
-		? 'Not now · Enter or Esc'
-		: risky
-			? 'Reject · Enter or Esc'
-			: 'Reject · Esc'
+	const acceptTip = appAccess
+		? 'Allow · Ctrl+Enter. Enter says no.'
+		: screenMoment
+			? 'Allow this app · Ctrl+Enter. Enter says not now.'
+			: risky
+				? 'Accept · Ctrl+Enter. This one looks risky, so Enter rejects it.'
+				: 'Accept · Enter'
+	const rejectTip = appAccess
+		? 'Deny · Enter or Esc'
+		: screenMoment
+			? 'Not now · Enter or Esc'
+			: risky
+				? 'Reject · Enter or Esc'
+				: 'Reject · Esc'
 	return (
 		// One card: its own ring and fill, directly above the box, with nothing drawn behind both.
 		<section
 			className="approval-surface"
-			aria-label={screenMoment ? 'Screen question' : 'Tool approval'}
+			aria-label={
+				appAccess ? 'Application access' : screenMoment ? 'Screen question' : 'Tool approval'
+			}
 			onKeyDown={onKeyDown}
 		>
 			<div className="approval-card" data-kind={model.kind}>
@@ -670,6 +681,9 @@ export function ComposerApproval({
 				{screenMoment && (
 					<p className="approval-note approval-consequence">{screenMomentNote(screenMoment.app)}</p>
 				)}
+				{appAccess && (
+					<p className="approval-note approval-consequence">{appAccessNote(appAccess.apps)}</p>
+				)}
 				{model.others.length > 0 && (
 					<p className="approval-note">
 						Also in this request: {model.others.join(', ')}. Your answer covers all of them.
@@ -742,7 +756,7 @@ export function ComposerApproval({
 									aria-keyshortcuts="Escape"
 									onClick={reject}
 								>
-									{screenMoment ? 'Not now' : 'Reject'}
+									{appAccess ? 'Deny' : screenMoment ? 'Not now' : 'Reject'}
 									<span className="approval-key" aria-hidden="true">
 										Esc
 									</span>
@@ -796,6 +810,17 @@ export function ComposerApproval({
 										</span>
 									</div>
 								)}
+								{appAccess && (
+									<button
+										type="button"
+										className="approval-button"
+										aria-disabled={guarding || undefined}
+										title="Allow this step only"
+										onClick={acceptOnce}
+									>
+										Allow once
+									</button>
+								)}
 								<button
 									ref={acceptButton}
 									type="button"
@@ -807,7 +832,7 @@ export function ComposerApproval({
 									aria-keyshortcuts="Control+Enter"
 									onClick={accept}
 								>
-									{screenMoment ? 'Allow this app' : 'Accept'}
+									{appAccess ? 'Allow' : screenMoment ? 'Allow this app' : 'Accept'}
 									<span className="approval-key" aria-hidden="true">
 										{acceptKey()}
 									</span>

@@ -6023,6 +6023,13 @@ export function App({
 							? showArchivedConversations
 							: undefined
 					}
+					apps={thread.computerApps}
+					onRevokeApp={
+						api.revokeComputerApp && sessionId
+							? (app) =>
+									void act(() => api.revokeComputerApp?.(sessionId, app) ?? Promise.resolve())
+							: undefined
+					}
 					onAttach={() => {
 						setDetailsPopoverOpen(false)
 						void act(attached.pick)
