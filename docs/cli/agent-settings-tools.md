@@ -89,4 +89,4 @@ sent to the app.
 
 Settings, Agent, Memory: *Let Namzu change settings* (`agentSettings`, default on). Off, both tools are
 left out of new conversations and the tool listing is exactly what it was. Only your own config file and
-the managed file can set it; a project file's value is ignored with a warning.
+the managed file can set it; a project file's value is ignored with a warning. Turning it off also stops both tools in a conversation already open: each call reads the switch again and answers that it is off. A change to the value a setting already has draws no card and is answered with "nothing was changed".
