@@ -177,6 +177,55 @@ describe('GitWorktreeDriver', () => {
 		expect(exec).toHaveBeenCalledOnce()
 	})
 
+	it('create: names the branch with the prefix the host chose', async () => {
+		const calls: Array<readonly string[]> = []
+		const exec: ExecFile = async (_file, args) => {
+			calls.push([...args])
+			return okExec()
+		}
+		const driver = new GitWorktreeDriver({
+			repoRoot: '/repo',
+			logger: stubLogger(),
+			execFile: exec,
+			branchPrefix: 'ada',
+		})
+		const ref = await driver.create({ label: 'foo' })
+		expect(ref.meta.branch).toBe('ada/foo')
+		expect(calls[0]?.slice(4, 6)).toEqual(['-b', 'ada/foo'])
+	})
+
+	it.each(['', 'a/b', '-x', '.x', 'a..b', 'x.lock', 'a b', 'a'.repeat(41)])(
+		'refuses the branch prefix %j when the driver is made',
+		(branchPrefix) => {
+			expect(
+				() => new GitWorktreeDriver({ repoRoot: '/repo', logger: stubLogger(), branchPrefix }),
+			).toThrow(/branch prefix/)
+		},
+	)
+
+	it('inspect: still owns a worktree made under an earlier prefix', async () => {
+		const exec = vi.fn(async (_file: string, args: readonly string[]) =>
+			args.includes('list') ? okExec(listedWorktree(`${WT}/x`, 'old/x')) : okExec(),
+		)
+		const driver = new GitWorktreeDriver({
+			repoRoot: '/repo',
+			logger: stubLogger(),
+			execFile: exec,
+			branchPrefix: 'ada',
+		})
+		const ref: WorkspaceRef = {
+			id: 'a9c7d378-b043-4240-a36a-1762357e341a' as unknown as WorkspaceRef['id'],
+			meta: {
+				backend: 'git-worktree',
+				repoRoot: '/repo',
+				branch: 'old/x',
+				worktreePath: `${WT}/x`,
+			},
+			createdAt: new Date(),
+		}
+		await expect(driver.inspect(ref)).resolves.toMatchObject({ exists: true })
+	})
+
 	it.each([
 		{
 			name: 'a path outside the managed directory',
