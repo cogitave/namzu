@@ -1713,6 +1713,28 @@ export function createDesktopHostExtensions(
 				live: runtime.mcpStatus?.(cwd) ?? { connected: [], failed: [] },
 			})
 		},
+		/** Which browser the engine would drive here, for the Connected browsers table; launches nothing. */
+		'namzu/browser/status': async (params: Record<string, unknown> = {}) => {
+			if (
+				!params ||
+				typeof params !== 'object' ||
+				Array.isArray(params) ||
+				Object.keys(params).length > 0
+			)
+				throw new Error('Invalid browser status request.')
+			if (pal()) throw new Error('Pals do not read the host settings.')
+			const saved = new Map(readSettings().settings.map((item) => [item.path, item.value]))
+			const choice = <T extends string>(path: string, allowed: readonly T[]): T | undefined =>
+				allowed.find((item) => item === saved.get(path))
+			const engine = choice('browser.engine', ['auto', 'windows', 'local'] as const)
+			const headless = choice('browser.headless', ['auto', 'always', 'never'] as const)
+			const { browserStatus } = await import('../browser/status.js')
+			return browserStatus({
+				enabled: saved.get('browser.enabled') !== false,
+				...(engine ? { engine } : {}),
+				...(headless ? { headless } : {}),
+			})
+		},
 		/** The skills this folder's engine finds, names and tiers only; reads files, runs nothing. */
 		'namzu/skills/list': async (params: Record<string, unknown> = {}) => {
 			if (

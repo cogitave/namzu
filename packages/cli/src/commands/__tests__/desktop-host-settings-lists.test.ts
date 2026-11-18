@@ -146,3 +146,17 @@ it('refuses what the engine refuses, with its words, and odd requests', async ()
 		await owner.close()
 	}
 })
+
+it('answers which browser the engine would drive, from the user file, and refuses parameters', async () => {
+	writeFileSync(userFile(), 'browser:\n  enabled: false\n')
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	try {
+		expect(await host['namzu/browser/status']({})).toMatchObject({ enabled: false, state: 'off' })
+		await expect(host['namzu/browser/status']({ cwd: '/x' })).rejects.toThrow(
+			'Invalid browser status request.',
+		)
+	} finally {
+		await owner.close()
+	}
+})

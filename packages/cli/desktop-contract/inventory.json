@@ -97,6 +97,9 @@
     "skillsList": [
       "namzu/skills/list"
     ],
+    "browserStatus": [
+      "namzu/browser/status"
+    ],
     "hooksView": [
       "namzu/hooks/list"
     ],
