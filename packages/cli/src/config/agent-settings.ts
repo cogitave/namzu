@@ -528,7 +528,7 @@ export function describeAgentChange(
 ): { readonly setting: string; readonly from: string; readonly to: string } | undefined {
 	if (typeof input !== 'object' || input === null) return undefined
 	const planned = planAgentChange(ctx, input as { setting: unknown; value: unknown })
-	if (!planned.ok) return undefined
+	if (!planned.ok || planned.change.unchanged) return undefined
 	return { setting: planned.change.name, from: planned.change.from, to: planned.change.to }
 }
 

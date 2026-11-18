@@ -349,6 +349,30 @@ describe('agent settings', () => {
 			).toBeUndefined()
 		})
 
+		it('draws no card for a value the setting already has', async () => {
+			const set = createAgentSettingsTools(withDesktop())[1]
+			const same = { setting: 'notification_sound', value: 'none' }
+			expect(await set?.refuseBeforeReview?.(same, toolContext)).toEqual({
+				error: 'Notification sound is already None, so nothing was changed.',
+			})
+			expect(set?.presentCall?.(same)).toBeUndefined()
+		})
+
+		it('stops offering itself once the switch is turned off after the tools were built', async () => {
+			const [get, set] = createAgentSettingsTools(ctx())
+			expect((await get?.execute({}, toolContext))?.success).toBe(true)
+			mkdirSync(join(home, '.namzu'), { recursive: true })
+			writeFileSync(userConfigPath({ home, env: {} }), 'agentSettings: false\n')
+			const off = 'Letting Namzu change settings is off.'
+			expect(await get?.execute({}, toolContext)).toMatchObject({ success: false, error: off })
+			expect(
+				await set?.refuseBeforeReview?.({ setting: 'closing_summary', value: false }, toolContext),
+			).toEqual({ error: off })
+			expect(
+				await set?.execute({ setting: 'closing_summary', value: false }, toolContext),
+			).toMatchObject({ success: false, error: off })
+		})
+
 		it('runs a change and reports it, or reports the refusal', async () => {
 			const set = createAgentSettingsTools(ctx())[1]
 			const done = await set?.execute({ setting: 'prompt_suggestions', value: false }, toolContext)

@@ -1596,7 +1596,7 @@ const DECLARED: readonly SettingDescriptor[] = [
 				'change settings',
 				'agent settings',
 				'settings tool',
-				'let Claude change settings',
+				'let the model change settings',
 			],
 			default: true,
 		},

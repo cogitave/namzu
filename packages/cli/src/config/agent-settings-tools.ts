@@ -19,6 +19,20 @@ import {
 	planAgentChange,
 	readAgentSettings,
 } from './agent-settings.js'
+import { readSettings } from './desktop-settings.js'
+
+const SWITCHED_OFF = 'Letting Namzu change settings is off.'
+
+/** Read again at each call, so turning the row off in Settings takes effect in an open conversation. */
+function switchedOff(ctx: AgentSettingsContext): boolean {
+	try {
+		const state = readSettings(ctx).settings.find((entry) => entry.path === 'agentSettings')
+		if (!state) return false
+		return (state.layer ? state.effective : state.value) === false
+	} catch {
+		return false
+	}
+}
 
 export const GET_SETTINGS_TOOL = 'get_settings'
 export const SET_SETTING_TOOL = 'set_setting'
@@ -44,6 +58,7 @@ export function createAgentSettingsTools(ctx: AgentSettingsContext): ToolDefinit
 		destructive: false,
 		concurrencySafe: true,
 		async execute() {
+			if (switchedOff(ctx)) return { success: false, output: '', error: SWITCHED_OFF }
 			try {
 				return { success: true, output: JSON.stringify(readAgentSettings(ctx)) }
 			} catch (cause) {
@@ -83,8 +98,15 @@ export function createAgentSettingsTools(ctx: AgentSettingsContext): ToolDefinit
 		// Every call, whatever the mode or any earlier yes: this is the person's own settings.
 		requiresApproval: true,
 		async refuseBeforeReview(input) {
+			if (switchedOff(ctx)) return { error: SWITCHED_OFF }
 			const planned = planAgentChange(ctx, input as { setting: unknown; value: unknown })
-			return planned.ok ? undefined : { error: planned.reason }
+			if (!planned.ok) return { error: planned.reason }
+			// Nothing to change: no card for the person to answer.
+			if (planned.change.unchanged)
+				return {
+					error: `${planned.change.name} is already ${planned.change.to}, so nothing was changed.`,
+				}
+			return undefined
 		},
 		presentCall(input) {
 			const said = describeAgentChange(ctx, input)
@@ -92,6 +114,7 @@ export function createAgentSettingsTools(ctx: AgentSettingsContext): ToolDefinit
 			return { kind: 'generic', label: `Change ${said.setting}: ${said.from} to ${said.to}` }
 		},
 		async execute(input) {
+			if (switchedOff(ctx)) return { success: false, output: '', error: SWITCHED_OFF }
 			const planned = planAgentChange(ctx, input as { setting: unknown; value: unknown })
 			if (!planned.ok) return { success: false, output: '', error: planned.reason }
 			try {
