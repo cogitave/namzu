@@ -178,7 +178,13 @@ import { normalConversationProject } from './normal-conversation.js'
 import { noticeClickAction } from './notice-target.js'
 import { dismissNotice, notify } from './notify.js'
 import { OutputCardsContext, type OutputCardsContextValue } from './output-card.js'
-import { type MadeOutput, opensInBrowser, outputFiles, outputToOpen } from './outputs-model.js'
+import {
+	type MadeOutput,
+	type OutputFile,
+	opensInBrowser,
+	outputFiles,
+	outputToOpen,
+} from './outputs-model.js'
 import { PalChatTranscript } from './pal-chat-transcript.js'
 import { PalCommunicationDialog, type PalSettingsTab } from './pal-communication-dialog.js'
 import {
@@ -1302,6 +1308,16 @@ export function App({
 			openPaneRef.current('files')
 		},
 		[updatePanelTabs],
+	)
+	// A page or a picture opens in the Browser pane; a document or code opens in Files.
+	const openOutput = useCallback(
+		(file: OutputFile) => {
+			if (opensInBrowser(file.kind) && browserActRef.current) {
+				browserActRef.current({ kind: 'open', path: file.path })
+				openPaneRef.current('browser')
+			} else openOutputBeside(file.path)
+		},
+		[openOutputBeside],
 	)
 	const outputCardsValue = useMemo<OutputCardsContextValue | undefined>(
 		() =>
@@ -8333,6 +8349,10 @@ export function App({
 											? () => void act(() => copyToClipboard(project.path, 'Path copied.'))
 											: undefined
 									}
+									contextPanel={contextPanelSource}
+									usage={thread.usage}
+									outputs={outputs}
+									onOpenOutput={openOutput}
 									onOpenChanges={() => {
 										openPane('changes')
 									}}

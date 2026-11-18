@@ -5,7 +5,6 @@ import { type ThreadState, applyEvent, emptyThread } from '../shared/projection.
 import {
 	type OutputFile,
 	opensInBrowser,
-	outputAddress,
 	outputFiles,
 	outputForLink,
 	outputToOpen,
@@ -148,22 +147,6 @@ describe('what opens by itself', () => {
 		expect(opensInBrowser('image')).toBe(true)
 		expect(opensInBrowser('markdown')).toBe(false)
 		expect(opensInBrowser('code')).toBe(false)
-	})
-})
-
-describe('the address line', () => {
-	it('shows a file inside the work folder from the folder', () => {
-		expect(outputAddress('/home/a/cafe/site/index.html', '/home/a/cafe')).toBe('site/index.html')
-		expect(outputAddress('/home/a/cafe/index.html', '/home/a/cafe/')).toBe('index.html')
-		expect(outputAddress('C:\\Users\\a\\cafe\\index.html', 'c:/users/a/cafe')).toBe('index.html')
-	})
-	it('shows any other path in full', () => {
-		expect(outputAddress('/home/a/cafe2/index.html', '/home/a/cafe')).toBe(
-			'/home/a/cafe2/index.html',
-		)
-		expect(outputAddress('/tmp/x.html', '/home/a/cafe')).toBe('/tmp/x.html')
-		expect(outputAddress('/home/a/cafe', '/home/a/cafe')).toBe('/home/a/cafe')
-		expect(outputAddress('/tmp/x.html')).toBe('/tmp/x.html')
 	})
 })
 

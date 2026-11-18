@@ -1,8 +1,11 @@
 import { Menu } from '@base-ui/react/menu'
 import { type ReactNode, useState } from 'react'
 import type { ComputerAppsView } from '../shared/computer-protocol.js'
+import type { ThreadUsage } from '../shared/projection.js'
 import type { JobView } from '../shared/protocol.js'
+import { ContextInline, type ContextPanelSource, useContextPanel } from './context-panel.js'
 import type { ConversationSource } from './conversation-actions.js'
+import { FileTypeIcon } from './file-panel/file-icons.js'
 import {
 	ArchiveIcon,
 	ChevronRightIcon,
@@ -22,6 +25,7 @@ import {
 } from './icons.js'
 import { jobLabel, jobStatusOf } from './job-row.js'
 import { MENU_OFFSET } from './menu-metrics.js'
+import type { OutputFile } from './outputs-model.js'
 import { type SessionSummary, finishedText, jobElapsed } from './session-summary-model.js'
 import { Button } from './ui/button.js'
 import './session-panel.css'
@@ -55,6 +59,13 @@ export interface SessionPanelProps {
 	onRevokeApp?: (app: string) => void
 	/** A detached head has no branch name; the row then shows a commit mark. */
 	detached?: boolean
+	/** Lets Context read the full breakdown; without it only the bar and the figure are drawn. */
+	contextPanel?: ContextPanelSource | undefined
+	usage?: ThreadUsage | undefined
+	/** What this conversation made, newest first; the section is drawn only when there is one. */
+	outputs?: readonly OutputFile[]
+	/** Opens one output where its kind belongs: a page in the browser, a document or code in Files. */
+	onOpenOutput?: (file: OutputFile) => void
 }
 
 const COLLAPSED_SOURCES = 3
@@ -138,6 +149,19 @@ function Section({
 	)
 }
 
+/** The breakdown of the context window, read while the panel is open and drawn with no frame. */
+function ContextBreakdown({
+	source,
+	usage,
+}: { source: ContextPanelSource; usage: ThreadUsage | undefined }) {
+	const read = useContextPanel(source, usage, true)
+	return (
+		<section className="session-section session-context-section" aria-label="Context">
+			<ContextInline read={read} usage={usage} compacting={source.compacting} />
+		</section>
+	)
+}
+
 function StopButton({ job, onStop }: { job: JobView; onStop: () => Promise<unknown> }) {
 	const [stopping, setStopping] = useState(false)
 	const label = jobLabel(job)
@@ -179,6 +203,10 @@ export function SessionPanel({
 	onOpenArchived,
 	apps,
 	onRevokeApp,
+	contextPanel,
+	usage,
+	outputs,
+	onOpenOutput,
 }: SessionPanelProps) {
 	const [serversOpen, setServersOpen] = useState(false)
 	const [showAllSources, setShowAllSources] = useState(false)
@@ -241,19 +269,23 @@ export function SessionPanel({
 						{environment.branchNote && <p className="session-note">{environment.branchNote}</p>}
 					</Section>
 				)}
-				<Section title="Context">
-					<div className="session-row" data-testid="session-context">
-						<span
-							className="session-bar"
-							data-tone={context.tone}
-							data-measured={context.measured || undefined}
-							aria-hidden="true"
-						>
-							<span style={{ width: `${Math.round(context.fraction * 100)}%` }} />
-						</span>
-						<span className="session-value">{context.text}</span>
-					</div>
-				</Section>
+				{contextPanel ? (
+					<ContextBreakdown source={contextPanel} usage={usage} />
+				) : (
+					<Section title="Context">
+						<div className="session-row" data-testid="session-context">
+							<span
+								className="session-bar"
+								data-tone={context.tone}
+								data-measured={context.measured || undefined}
+								aria-hidden="true"
+							>
+								<span style={{ width: `${Math.round(context.fraction * 100)}%` }} />
+							</span>
+							<span className="session-value">{context.text}</span>
+						</div>
+					</Section>
+				)}
 				{!chatOnly && toolServers && (
 					<Section title={toolServers.label}>
 						<button
@@ -288,6 +320,26 @@ export function SessionPanel({
 								))}
 							</ul>
 						)}
+					</Section>
+				)}
+				{outputs && outputs.length > 0 && (
+					<Section title="Outputs">
+						<ul className="session-list session-outputs" data-testid="session-outputs">
+							{outputs.map((file) => (
+								<li key={file.path}>
+									<button
+										type="button"
+										className="session-output"
+										data-output-row={file.path}
+										title={file.path}
+										onClick={() => onOpenOutput?.(file)}
+									>
+										<FileTypeIcon path={file.name} />
+										<span className="session-label">{file.name}</span>
+									</button>
+								</li>
+							))}
+						</ul>
 					</Section>
 				)}
 				{apps && (apps.granted.length > 0 || apps.used.length > 0) && (

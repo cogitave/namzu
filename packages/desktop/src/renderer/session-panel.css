@@ -272,3 +272,35 @@
 .session-more {
 	margin-block: 2px;
 }
+/* The context breakdown has its own header and rows; the section only gives it the column's sides. */
+.session-context-section {
+	padding: 10px 16px 12px;
+}
+/* Outputs: one row per file, 32 px apart, the kind's mark and the name. */
+.session-outputs > li {
+	padding: 0;
+	min-height: 32px;
+}
+.session-output {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex: 1 1 auto;
+	min-width: 0;
+	min-height: 32px;
+	padding: 0 8px;
+	border: 0;
+	border-radius: var(--control-radius);
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+.session-output:hover {
+	background: var(--accent);
+}
+.session-output:focus-visible {
+	outline: none;
+	box-shadow: var(--focus-ring);
+}
