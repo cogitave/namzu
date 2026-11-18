@@ -49,6 +49,9 @@ tool cannot check them.
 
 ## Settings
 
+A name must be written as the app is named in its window list; capital letters and a closing `.exe` do
+not matter. A project file can add an app but cannot remove one you listed.
+
 Settings, Tools has a *Computer use* heading with *Enable computer use* and *Denied apps*. The list
 shows a note while the switch is off. Turning it on asks first.
 

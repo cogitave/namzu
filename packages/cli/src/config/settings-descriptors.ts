@@ -759,7 +759,7 @@ const DECLARED: readonly SettingDescriptor[] = [
 		'permissions.allowBypassMode',
 		'projects',
 		'Allow bypass permissions mode',
-		'Let the mode that skips every question be chosen from the mode menu. Off by default. A project cannot turn it on, only your own settings or your administrator can.',
+		'Lets you choose the mode that skips every question.',
 		on,
 		{
 			group: 'permissions',
@@ -1804,7 +1804,7 @@ const DECLARED: readonly SettingDescriptor[] = [
 		'computerUse.enabled',
 		'tools',
 		'Enable computer use',
-		'Let Namzu look at the screen and use the mouse and keyboard on this computer, in the terminal app and in Desktop conversations that use this computer. Off by default; off removes the computer tools. A project cannot turn it on, only your own settings or your administrator can.',
+		'Lets Namzu see your screen and use the mouse and keyboard in apps on this computer.',
 		on,
 		{
 			group: 'computer-use',
@@ -1819,7 +1819,7 @@ const DECLARED: readonly SettingDescriptor[] = [
 		'computerUse.deniedApps',
 		'tools',
 		'Denied apps',
-		'Apps Namzu never uses, however it is asked. Write each as the app is named in its window list; capital letters and a closing .exe do not matter. A project can add an app but cannot remove one you listed.',
+		'Apps Namzu will never use.',
 		{ kind: 'list', itemLabel: 'app', placeholder: 'App name' },
 		{
 			group: 'computer-use',

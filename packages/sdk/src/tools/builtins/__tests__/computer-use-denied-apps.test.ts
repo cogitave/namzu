@@ -157,4 +157,49 @@ describe('computer_use and the applications put off limits', () => {
 		expect(result.error).toContain('cannot tell which application')
 		expect(touched).toEqual([])
 	})
+
+	it('refuses a tree read and a wait on text that name no window while a listed application is in front', async () => {
+		const { host, touched } = makeHost()
+		let reads = 0
+		const counting: ComputerUseHost = {
+			...host,
+			uiSnapshot: async (windowId, options, signal) => {
+				reads += 1
+				return (host.uiSnapshot as NonNullable<ComputerUseHost['uiSnapshot']>)(
+					windowId,
+					options,
+					signal,
+				)
+			},
+		}
+		const tool = createComputerUseTool(counting, { settleMs: 0, deniedApps: ['FormApp'] })
+		for (const input of [
+			{ type: 'ui_snapshot' },
+			{ type: 'wait_for', until: 'text_appears', match: 'secret' },
+		]) {
+			const result = await run(tool, input)
+			expect(result.success, JSON.stringify(input)).toBe(false)
+			expect(result.error).toContain('off limits')
+		}
+		expect(reads).toBe(0)
+		expect(touched).toEqual([])
+	})
+
+	it('refuses a window the list cannot place, and a named window when the list cannot be read', async () => {
+		const { host, captured } = makeHost()
+		const tool = createComputerUseTool(host, { settleMs: 0, deniedApps: ['Bank'] })
+		const unknown = await run(tool, { type: 'screenshot', window_id: '0xdead' })
+		expect(unknown.success).toBe(false)
+		expect(unknown.error).toContain('cannot tell which application')
+		const broken: ComputerUseHost = {
+			...host,
+			listWindows: async () => {
+				throw new Error('no list')
+			},
+		}
+		const blind = createComputerUseTool(broken, { settleMs: 0, deniedApps: ['Bank'] })
+		const stale = await run(blind, { type: 'screenshot', window_id: '0x2b040a' })
+		expect(stale.success).toBe(false)
+		expect(captured).toEqual([])
+	})
 })

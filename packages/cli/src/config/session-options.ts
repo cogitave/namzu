@@ -185,6 +185,19 @@ export function turnOptionsFromConfig(config: NamzuCliConfig): {
 }
 
 /**
+ * Whether the person opted in to the mode that skips every question
+ * (`permissions.allowBypassMode`) or made it their default. The one predicate
+ * the advertised list and the refusal on a pick share.
+ */
+export function bypassOptedIn(
+	settings:
+		| Pick<NonNullable<NamzuCliConfig['permissionSettings']>, 'allowBypassMode' | 'defaultMode'>
+		| undefined,
+): boolean {
+	return settings?.allowBypassMode === true || settings?.defaultMode === 'bypass'
+}
+
+/**
  * The prompt permission modes a host advertises: Auto (`classify`) and bypass
  * (only after the opt-in), each left out when the configuration or the machine closes it (the same
  * decision `launchRefusal` makes when the pick arrives, so the list and the
@@ -195,12 +208,10 @@ export function advertisedPromptModes(
 	environment?: LaunchEnvironment,
 ): ('bypass' | 'classify')[] {
 	const settings = config.permissionSettings
-	// Bypass is offered only after the person opted in (`permissions.allowBypassMode`)
-	// or made it their default; the forbid key and the root guard still close it.
-	const bypassOptedIn = settings?.allowBypassMode === true || settings?.defaultMode === 'bypass'
+	// Bypass is offered only after the person opted in; the forbid key and the root guard still close it.
 	return (['bypass', 'classify'] as const).filter(
 		(mode) =>
-			(mode !== 'bypass' || bypassOptedIn) &&
+			(mode !== 'bypass' || bypassOptedIn(settings)) &&
 			launchRefusal(mode, { settings, environment }) === undefined,
 	)
 }

@@ -282,7 +282,7 @@ describe('ACP composer settings use the exact owned session', () => {
 
 describe('ACP carries the two modes that stop asking', () => {
 	it('passes bypass and auto to the session as chosen, and hands it the settings', async () => {
-		const settings: PermissionSettings = { autoMode: { model: 'cheap' } }
+		const settings: PermissionSettings = { autoMode: { model: 'cheap' }, allowBypassMode: true }
 		const f = fixture(false, { permissionSettings: settings })
 		try {
 			await f.prompt({ permissionMode: 'bypass' })
@@ -309,6 +309,18 @@ describe('ACP carries the two modes that stop asking', () => {
 			expect(f.send).not.toHaveBeenCalled()
 			await f.prompt({ permissionMode: 'prompt' })
 			expect(f.send).toHaveBeenCalledOnce()
+		} finally {
+			await f.runtime.close()
+		}
+	})
+
+	it('refuses bypass before any send until the person opted in', async () => {
+		const f = fixture(false, { permissionSettings: { autoMode: { model: 'cheap' } } })
+		try {
+			await expect(f.prompt({ permissionMode: 'bypass' })).rejects.toThrow(
+				'Allow bypass permissions mode',
+			)
+			expect(f.send).not.toHaveBeenCalled()
 		} finally {
 			await f.runtime.close()
 		}

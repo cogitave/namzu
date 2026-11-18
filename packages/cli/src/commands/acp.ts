@@ -36,6 +36,7 @@ import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
 	advertisedPromptModes,
+	bypassOptedIn,
 	computerUseEnabled,
 	sessionOptionsFromConfig,
 	turnOptionsFromConfig,
@@ -399,6 +400,11 @@ interface AcpRuntimeRecord {
 function assertModeAllowed(record: AcpRuntimeRecord, mode: PermissionMode): void {
 	const refusal = launchRefusal(mode, { settings: record.permissionSettings })
 	if (refusal) throw new Error(refusal)
+	if (mode === 'bypass' && !bypassOptedIn(record.permissionSettings)) {
+		throw new Error(
+			'The mode that skips every question is off. Turn on Allow bypass permissions mode in Settings first.',
+		)
+	}
 	if (mode === 'classify' && record.session.autoMode?.available === false) {
 		throw new Error(record.session.autoMode.reason ?? 'Auto mode is not available here.')
 	}

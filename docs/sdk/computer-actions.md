@@ -514,7 +514,11 @@ runs in `execute`, before the host is touched, so it holds in every host and doe
 model following a prompt. After reading a fresh window list it refuses a call whose window is a
 listed application: a window id the call names, the window a screenshot was taken of, and, for a
 click, key or text, the window under the point or the one in front. A look at the whole display is
-not aimed at one application and is not refused; `list_windows` is not either. The refusal reads
+not aimed at one application and is not refused; `list_windows` is not either. A `ui_snapshot` or a
+`wait_for` on a control or text that names no window reads the window in front (or the one an earlier
+tree read or a ref bound it to), so it is checked against that window. A window id the fresh list does
+not contain is refused as unplaceable, and so is a call that names or reads a window when the list
+could not be read. The refusal reads
 `computer_use does not act in <app>: the person put it off limits. Nothing was done.` When the host
 cannot list windows the tool cannot tell where an action would land, so while the list is not empty
 it refuses every acting call (looks still work). Absent or empty, nothing changes.

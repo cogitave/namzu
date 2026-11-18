@@ -2902,6 +2902,18 @@ export function createComputerUseTool(
 	 * window a window screenshot is bound to, and on a display screenshot the window under the
 	 * click or the one in front, as the newest list this tool read has them.
 	 */
+	/** A tree read or a wait on a control or text with no window named: it reads a window the tool already bound, or else the one in front. */
+	const readsFrontWindow = (item: Record<string, unknown>): boolean =>
+		item.type === 'ui_snapshot' ||
+		(item.type === 'wait_for' && !String(item.until ?? '').startsWith('window_'))
+	/** The window such a call is bound to by a ref or an earlier tree read, when it names none. */
+	const boundWindowId = (item: Record<string, unknown>): string | undefined => {
+		if (typeof item.window_id === 'string') return item.window_id
+		if (item.type === 'ui_snapshot' && typeof item.root === 'string')
+			return uiRefs.get(item.root)?.windowId
+		if (item.type === 'wait_for' && readsFrontWindow(item)) return uiSnapshotWindowId
+		return undefined
+	}
 	const appsKnown = (input: unknown, namedOnly = false): string[] => {
 		const found: string[] = []
 		const add = (app: string | undefined): void => {
@@ -2912,6 +2924,15 @@ export function createComputerUseTool(
 			if (!isRecord(item)) continue
 			if (typeof item.window_id === 'string') {
 				add(knownWindows.find((window) => window.id === item.window_id)?.app)
+				continue
+			}
+			const bound = boundWindowId(item)
+			if (bound !== undefined) {
+				add(knownWindows.find((window) => window.id === bound)?.app)
+				continue
+			}
+			if (readsFrontWindow(item)) {
+				add(knownWindows.find((window) => window.focused && !window.minimized)?.app)
 				continue
 			}
 			const shotId =
@@ -3059,15 +3080,26 @@ export function createComputerUseTool(
 	): Promise<string | undefined> => {
 		if (deniedKeys.size === 0) return undefined
 		const readOnly = isReadOnlyInput(input)
+		let refreshFailed = false
 		if (typeof host.listWindows === 'function') {
 			try {
 				rememberWindows(await host.listWindows(context.abortSignal))
 			} catch (error) {
+				refreshFailed = true
 				if (!readOnly)
 					return `computer_use could not read which application this would act in (${errorText(error)}), and some applications are off limits, so nothing was done.`
 			}
 		} else if (!readOnly) {
 			return 'computer_use cannot tell which application this would act in on this computer, and some applications are off limits, so nothing was done.'
+		}
+		// A window the list cannot place may belong to a listed application: refuse it.
+		const stale = refreshFailed
+		for (const item of batchActions(input) ?? [input]) {
+			if (!isRecord(item)) continue
+			const id = boundWindowId(item)
+			const placeable = id === undefined || knownWindows.some((window) => window.id === id)
+			if (!placeable || (stale && (id !== undefined || readsFrontWindow(item))))
+				return 'computer_use cannot tell which application that window belongs to, and some applications are off limits, so nothing was done.'
 		}
 		const app = appsKnown(input, readOnly).find((name) => deniedKeys.has(deniedAppKey(name)))
 		if (app === undefined) return undefined
