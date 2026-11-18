@@ -682,6 +682,24 @@ describe('the extra folders and the turned-off skills, drawn from the real engin
 	)
 
 	it(
+		'draws prose a person writes as a box that wraps under the row, and a short text as one line',
+		async () => {
+			const style = row(
+				await drawReal('agent', {}, [
+					{ path: 'outputStyle', set: true, value: 'Short, plain sentences.\nNo headings.' },
+				]),
+				'outputStyle',
+			)
+			expect(style).toContain('<textarea')
+			expect(style).toContain('No headings.')
+			const prefix = row(await drawReal('projects', { tools }), 'worktrees.branchPrefix')
+			expect(prefix).not.toContain('<textarea')
+			expect(prefix).toContain('type="text"')
+		},
+		SLOW_IMPORT_MS,
+	)
+
+	it(
 		'says there are none by default, and types a folder only where there is no picker',
 		async () => {
 			const withPicker = row(await drawReal('projects', { tools }), 'additionalDirectories')

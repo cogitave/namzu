@@ -121,6 +121,12 @@ describe('the list and map controls', () => {
 				passthrough: { screen: 'a', field: 'f', label: 'L' },
 			})?.control.kind,
 		).toBe('screens')
+		expect(view({ kind: 'text', placeholder: 'p', multiline: true })?.control).toEqual({
+			kind: 'text',
+			placeholder: 'p',
+			multiline: true,
+		})
+		expect(view({ kind: 'text', multiline: 'yes' })?.control).toEqual({ kind: 'text' })
 		expect(view({ kind: 'list', itemLabel: 'folder', picker: 'folder' })?.control).toEqual({
 			kind: 'list',
 			itemLabel: 'folder',

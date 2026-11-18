@@ -246,7 +246,13 @@ export type SettingControl =
 			readonly unit?: string
 	  }
 	/** One line of text. `picker` names a way to choose it other than typing; a screen that does not know it keeps the box. */
-	| { readonly kind: 'text'; readonly placeholder?: string; readonly picker?: 'folder' }
+	| {
+			readonly kind: 'text'
+			readonly placeholder?: string
+			readonly picker?: 'folder'
+			/** Prose a person writes: a box that wraps and keeps line breaks, under the row. */
+			readonly multiline?: true
+	  }
 	/**
 	 * A model named as `provider/model`, or just the model of the provider a conversation runs on.
 	 * A screen offers the models it knows and still takes a name it does not list.
@@ -873,7 +879,7 @@ const DECLARED: readonly SettingDescriptor[] = [
 		'projects',
 		'Commit and pull request text',
 		'Text Namzu ends the commit messages and pull request descriptions it writes with. Leave it empty to add nothing.',
-		{ kind: 'text', placeholder: 'Nothing added' },
+		{ kind: 'text', placeholder: 'Nothing added', multiline: true },
 		{
 			group: 'worktrees',
 			keywords: [
@@ -1125,7 +1131,11 @@ const DECLARED: readonly SettingDescriptor[] = [
 		'agent',
 		'Output style',
 		'Say how replies should read, in your own words. Namzu follows it in new conversations, and it never overrides its working rules.',
-		{ kind: 'text', placeholder: 'For example: short, plain sentences with no lists' },
+		{
+			kind: 'text',
+			placeholder: 'For example: short, plain sentences with no lists',
+			multiline: true,
+		},
 		{
 			group: 'while-working',
 			keywords: ['style', 'tone', 'reply style', 'verbosity', 'concise', 'formatting'],

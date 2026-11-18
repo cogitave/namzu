@@ -240,7 +240,9 @@ function ConfigRow({
 				{lockedByLayer ? 'Remove my saved value' : 'Use default'}
 			</Button>
 		) : null
-	const stacked = STACKED_KINDS.includes(descriptor.control.kind)
+	const stacked =
+		STACKED_KINDS.includes(descriptor.control.kind) ||
+		(descriptor.control.kind === 'text' && descriptor.control.multiline === true)
 	return (
 		<Row
 			id={configSettingId(descriptor.path)}
@@ -397,6 +399,7 @@ function Control({
 					descriptor={descriptor}
 					placeholder={control.placeholder}
 					folderPicker={control.picker === 'folder'}
+					multiline={control.multiline === true}
 					value={value}
 					config={config}
 				/>
@@ -538,6 +541,7 @@ function TextInput({
 	descriptor,
 	placeholder,
 	folderPicker,
+	multiline,
 	value,
 	config,
 }: {
@@ -545,6 +549,8 @@ function TextInput({
 	placeholder?: string
 	/** A button beside the box chooses a folder with the system picker. */
 	folderPicker?: boolean
+	/** Prose: a box that wraps and keeps line breaks; Ctrl+Enter or leaving it saves. */
+	multiline?: boolean
 	value: unknown
 	config: ConfigSettingsControls
 }) {
@@ -562,6 +568,23 @@ function TextInput({
 		}
 		const ok = await config.change(descriptor.path, draft?.trim() === '' ? undefined : draft)
 		if (ok) setDraft(undefined)
+	}
+	if (multiline) {
+		const text = draft ?? saved
+		return (
+			<textarea
+				className="settings-config-input settings-config-area"
+				aria-label={descriptor.label}
+				value={text}
+				rows={Math.min(8, Math.max(3, text.split('\n').length))}
+				placeholder={placeholder ?? ''}
+				onChange={(event) => setDraft(event.target.value)}
+				onBlur={() => void commit()}
+				onKeyDown={(event) => {
+					if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) void commit()
+				}}
+			/>
+		)
 	}
 	const box = (
 		<input
