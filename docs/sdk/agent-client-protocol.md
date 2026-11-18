@@ -210,7 +210,8 @@ provider explicitly declares that media unsupported. Transport attachment
 support alone does not establish model capability.
 
 `AcpSessionPromptParams.options` optionally accepts `AcpPromptOptions` with
-`effort?: ReasoningEffort` and `permissionMode?: ReviewMode`. The host opts in with
+`effort?: ReasoningEffort`, `permissionMode?: ReviewMode` and `hypermode?: boolean` (the
+standing orchestration mode for that turn; the host decides whether it may run). The host opts in with
 `supportsPromptOptions: true`, advertised as `promptOptions: true` at
 initialization. Unknown fields, invalid modes and unsupported explicit options
 are refused before execution. The CLI validates effort against the selected

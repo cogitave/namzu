@@ -932,9 +932,12 @@ export class ACPServer {
 			)
 		if (!value || typeof value !== 'object' || Array.isArray(value))
 			throw new AcpError(ACP_ERROR_CODES.INVALID_PARAMS, 'Invalid prompt settings.')
-		const { effort, permissionMode } = value as Record<string, unknown>
+		const { effort, permissionMode, hypermode } = value as Record<string, unknown>
 		if (
-			Object.keys(value).some((key) => key !== 'effort' && key !== 'permissionMode') ||
+			Object.keys(value).some(
+				(key) => key !== 'effort' && key !== 'permissionMode' && key !== 'hypermode',
+			) ||
+			(hypermode !== undefined && typeof hypermode !== 'boolean') ||
 			(effort !== undefined &&
 				(typeof effort !== 'string' ||
 					!['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'].includes(
@@ -963,6 +966,7 @@ export class ACPServer {
 						>['permissionMode'],
 					}
 				: {}),
+			...(typeof hypermode === 'boolean' ? { hypermode } : {}),
 		}
 	}
 	private readPromptAttachments(

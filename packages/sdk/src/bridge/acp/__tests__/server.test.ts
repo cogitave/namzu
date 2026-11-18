@@ -1910,6 +1910,37 @@ describe('per-message prompt settings', () => {
 		expect(received?.options).toEqual({ effort: 'high', permissionMode: 'strict' })
 		await fixture.server.stop()
 	})
+	it('forwards the standing orchestration choice, and rejects one that is not a boolean', async () => {
+		const seen: unknown[] = []
+		const fixture = build({
+			supportsPromptOptions: true,
+			gateway: {
+				prompt: async (request) => {
+					seen.push(request.options)
+					return { stopReason: 'end_turn' }
+				},
+			},
+		})
+		await handshake(fixture)
+		for (const [index, options] of [
+			{ hypermode: true },
+			{ hypermode: false },
+			{ hypermode: 'on' },
+		].entries()) {
+			fixture.deliver({
+				jsonrpc: '2.0',
+				id: 3 + index,
+				method: 'session/prompt',
+				params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'Go', options },
+			})
+			await settle()
+		}
+		expect(seen).toEqual([{ hypermode: true }, { hypermode: false }])
+		expect(fixture.sent.find((frame) => frame.id === 5)?.error?.code).toBe(
+			ACP_ERROR_CODES.INVALID_PARAMS,
+		)
+		await fixture.server.stop()
+	})
 	it('rejects invalid or unsupported settings before the gateway and leaves the session usable', async () => {
 		let calls = 0
 		for (const supports of [false, true]) {
