@@ -47,8 +47,12 @@ export function isSafeFontName(value: unknown): value is string {
 	return typeof value === 'string' && value.length <= 80 && FONT_NAME_PATTERN.test(value)
 }
 
-/** The seconds a turn must run before a "finished" notice is worth showing. */
+/** The seconds a turn must run before a "finished" notice is worth showing, with nothing saved. */
 export const FINISHED_NOTICE_AFTER_SECONDS = 30
+
+/** The range of the long-response time: under 5 seconds it would notify about nearly everything; over an hour it never would. */
+export const NOTICE_LONG_REPLY_MIN_SECONDS = 5
+export const NOTICE_LONG_REPLY_MAX_SECONDS = 3600
 
 /** When a change reaches the work. The same five words the engine uses. */
 export type CatalogueAppliesWhen =
@@ -113,6 +117,16 @@ export interface CatalogueEntry {
 	hidden?: boolean
 }
 
+const NOTICE_LEVEL_OPTIONS: readonly CatalogueOption[] = [
+	{ value: 'off', label: 'Off' },
+	{ value: 'badge', label: 'Badge only' },
+	{ value: 'banner', label: 'Banner' },
+]
+const BANNER_LEVEL_OPTIONS: readonly CatalogueOption[] = [
+	{ value: 'off', label: 'Off' },
+	{ value: 'banner', label: 'Banner' },
+]
+
 const toggle: CatalogueControl = { kind: 'toggle' }
 const panel: CatalogueControl = { kind: 'panel' }
 
@@ -144,11 +158,12 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		appliesWhen: 'next-launch',
 		keywords: ['startup', 'launch', 'open', 'restore', 'tabs', 'home', 'restart', 'on start'],
 	},
+	// Notifications. Every row is about this computer, so the page has one heading for them.
 	{
 		id: 'attention-signals',
 		key: 'attentionSignals',
 		owner: 'desktop',
-		section: 'general',
+		section: 'notifications',
 		label: 'Draw attention when a conversation needs you',
 		description:
 			'While Namzu is in the background and a conversation is waiting for an answer, show a count on its icon and flash the taskbar or dock once. It clears when you come back.',
@@ -156,6 +171,7 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		default: true,
 		appliesWhen: 'now',
 		keywords: [
+			'Draw attention on notifications',
 			'Show when a conversation needs you',
 			'badge',
 			'flash',
@@ -169,64 +185,67 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		],
 	},
 	{
-		id: 'notify-needs-you',
-		key: 'notifyNeedsYou',
+		id: 'notify-permission',
+		key: 'notifyPermission',
 		owner: 'desktop',
-		section: 'general',
-		label: 'Permission requests and questions',
+		section: 'notifications',
+		label: 'Permission requests',
 		description:
-			"Show a system notification when Namzu needs your approval or has a question and is in the background. It shows only the project's name, nothing from the conversation.",
-		control: toggle,
-		default: true,
+			"Namzu needs your approval to use a tool while it is in the background; a banner shows only the project's name.",
+		control: { kind: 'select', options: NOTICE_LEVEL_OPTIONS },
+		default: 'banner',
 		appliesWhen: 'now',
 		keywords: [
+			'Permission requests and questions',
 			'Notify me when a conversation needs my answer',
-			"A system notification when an approval or a question is waiting and Namzu is in the background. It shows the project's name and nothing from the conversation.",
 			'notification',
 			'notify',
 			'banner',
+			'badge',
 			'alert',
 			'approval',
-			'question',
 			'background',
 		],
 	},
 	{
-		id: 'notify-failed',
-		key: 'notifyFailed',
+		id: 'notify-question',
+		key: 'notifyQuestion',
 		owner: 'desktop',
-		section: 'general',
-		label: 'Response errors',
+		section: 'notifications',
+		label: 'Questions',
 		description:
-			'Show a system notification when a reply stops with an error while Namzu is in the background.',
-		control: toggle,
-		default: true,
+			"Namzu is asking you to choose while it is in the background; a banner shows only the project's name.",
+		control: { kind: 'select', options: NOTICE_LEVEL_OPTIONS },
+		default: 'banner',
 		appliesWhen: 'now',
 		keywords: [
-			'Notify me when a conversation stops with an error',
-			'A system notification when a reply stops with an error and Namzu is in the background.',
+			'Permission requests and questions',
+			'Notify me when a conversation needs my answer',
 			'notification',
 			'notify',
 			'banner',
+			'badge',
 			'alert',
-			'error',
-			'failed',
+			'question',
+			'ask',
 			'background',
 		],
 	},
 	{
-		id: 'notify-finished',
-		key: 'notifyFinished',
+		id: 'notify-task-complete',
+		key: 'notifyTaskComplete',
 		owner: 'desktop',
-		section: 'general',
-		label: 'Finished long responses',
-		description: `Show a system notification when a response that took ${FINISHED_NOTICE_AFTER_SECONDS} seconds or more is done and Namzu is in the background. A response you watched end needs none.`,
-		control: toggle,
-		default: true,
+		section: 'notifications',
+		label: 'Task complete',
+		description:
+			'Namzu finished a response that took longer than the time set below while it was in the background.',
+		control: { kind: 'select', options: BANNER_LEVEL_OPTIONS },
+		default: 'banner',
 		appliesWhen: 'now',
 		keywords: [
+			'Finished long responses',
+			'Finished responses',
 			'Notify me when a long reply finishes',
-			'A system notification when a reply that took 30 seconds or more is done and Namzu is in the background. A reply you watched end needs none.',
 			'notification',
 			'notify',
 			'banner',
@@ -238,19 +257,73 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		],
 	},
 	{
-		id: 'notify-sound',
-		key: 'notifySound',
+		id: 'notify-long-reply',
+		key: 'notifyLongReplySeconds',
 		owner: 'desktop',
-		section: 'general',
+		section: 'notifications',
+		label: 'Long response time',
+		description:
+			'A response that finishes in fewer seconds than this never sends a Task complete notification.',
+		control: {
+			kind: 'number',
+			min: NOTICE_LONG_REPLY_MIN_SECONDS,
+			max: NOTICE_LONG_REPLY_MAX_SECONDS,
+			unit: 'seconds',
+		},
+		default: FINISHED_NOTICE_AFTER_SECONDS,
+		appliesWhen: 'now',
+		keywords: [
+			'Finished long responses',
+			'long reply',
+			'threshold',
+			'seconds',
+			'how long',
+			'notify',
+			'notification',
+			'finished',
+		],
+	},
+	{
+		id: 'notify-error',
+		key: 'notifyError',
+		owner: 'desktop',
+		section: 'notifications',
+		label: 'Response errors',
+		description:
+			'A response stopped with an error while Namzu was in the background, however long it ran.',
+		control: { kind: 'select', options: BANNER_LEVEL_OPTIONS },
+		default: 'banner',
+		appliesWhen: 'now',
+		keywords: [
+			'Notify me when a conversation stops with an error',
+			'notification',
+			'notify',
+			'banner',
+			'alert',
+			'error',
+			'failed',
+			'background',
+		],
+	},
+	{
+		id: 'notify-sound',
+		key: 'notificationSound',
+		owner: 'desktop',
+		section: 'notifications',
 		label: 'Notification sound',
 		description:
-			"Play a sound with notifications. Your system's do-not-disturb setting still applies; the terminal app has its own sound switch under Terminal.",
-		control: toggle,
-		default: false,
+			"Played when a notification is shown; your system's do-not-disturb setting still applies, and the terminal app has its own sound switch under Terminal.",
+		control: {
+			kind: 'select',
+			options: [
+				{ value: 'system', label: 'System sound' },
+				{ value: 'none', label: 'None' },
+			],
+		},
+		default: 'none',
 		appliesWhen: 'now',
 		keywords: [
 			'Play a sound with notifications',
-			"Off by default. Your system's do-not-disturb setting still applies. The terminal app has its own sound switch under Terminal.",
 			'notification',
 			'sound',
 			'chime',

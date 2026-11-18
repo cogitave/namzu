@@ -564,6 +564,16 @@ const palComputerIdle = new IdleStopper({
 	},
 })
 // Built before the operator that reports to it; `enabled` reads the settings store only when called.
+/** What waits on the person, by kind, as the operator last reported it. */
+let waitingByKind: { permission: string[]; question: string[] } = { permission: [], question: [] }
+/** The conversations the icon counts: a kind set to Off adds none; Badge only and Banner both do. */
+function countedForAttention(): string[] {
+	const settings = settingsStore.get()
+	const ids = new Set<string>()
+	if (settings.notifyPermission !== 'off') for (const id of waitingByKind.permission) ids.add(id)
+	if (settings.notifyQuestion !== 'off') for (const id of waitingByKind.question) ids.add(id)
+	return [...ids]
+}
 const attention = new AttentionSignals({
 	platform: process.platform,
 	windows: () => windows.entries().map(([, window]) => window),
@@ -655,6 +665,9 @@ const notices = new SystemNotices({
 	// A run that records instead of showing cannot wait half a minute for a turn to count as long,
 	// nor three seconds for events to fold.
 	...(noticeHook ? { finishedAfterMs: () => 1, foldMs: () => 50 } : {}),
+	...(noticeHook
+		? {}
+		: { finishedAfterMs: () => settingsStore.get().notifyLongReplySeconds * 1000 }),
 	schedule: (ms, run) => {
 		const timer = setTimeout(run, ms)
 		timer.unref()
@@ -663,10 +676,11 @@ const notices = new SystemNotices({
 	settings: () => {
 		const settings = settingsStore.get()
 		return {
-			needsYou: settings.notifyNeedsYou,
-			failed: settings.notifyFailed,
-			finished: settings.notifyFinished,
-			sound: settings.notifySound,
+			permission: settings.notifyPermission,
+			question: settings.notifyQuestion,
+			failed: settings.notifyError,
+			finished: settings.notifyTaskComplete,
+			sound: settings.notificationSound === 'system',
 		}
 	},
 	projectName: (id): string | undefined => operator.projectNameOf(id),
@@ -766,7 +780,10 @@ const operator = new Operator(
 		autoReconnect: true,
 		projectNames: new ProjectNameStore(join(app.getPath('userData'), 'project-names.json')),
 		viewedConversations,
-		attentionChanged: (ids) => attention.update(ids),
+		attentionChanged: (_ids, byKind) => {
+			waitingByKind = byKind
+			attention.update(countedForAttention())
+		},
 		notices,
 		// The agent is never allowed into Namzu's own windows: it could answer its own questions.
 		ownAppNames: () => [app.getName(), 'Namzu', basename(process.execPath), 'Electron'],
@@ -827,7 +844,12 @@ const settingsStore = new DesktopSettingsStore({
 		windows.fanout({ kind: 'settings', settings }, (error) =>
 			diagnostics.record('renderer_failed', { error }),
 		)
-		if (settings.attentionSignals !== previous.attentionSignals) attention.refresh()
+		if (
+			settings.notifyPermission !== previous.notifyPermission ||
+			settings.notifyQuestion !== previous.notifyQuestion
+		)
+			attention.update(countedForAttention())
+		else if (settings.attentionSignals !== previous.attentionSignals) attention.refresh()
 		// Settings can change the tab strip's switch; the View menu's checkbox follows it.
 		if (settings.showConversationTabs !== previous.showConversationTabs) {
 			const item = Menu.getApplicationMenu()?.getMenuItemById(SHOW_TABS_MENU_ID)

@@ -39,12 +39,14 @@ describe('the Desktop settings catalogue', () => {
 	})
 
 	it('is the only validator: a key is known because it is catalogued, a value is valid because its control holds it', () => {
-		expect(desktopSettingsPatch({ startup: 'home', notifySound: true })).toEqual({
+		expect(desktopSettingsPatch({ startup: 'home', notificationSound: 'system' })).toEqual({
 			startup: 'home',
-			notifySound: true,
+			notificationSound: 'system',
 		})
 		expect(() => desktopSettingsPatch({ startup: 'later' })).toThrow('Invalid setting value.')
-		expect(() => desktopSettingsPatch({ notifySound: 'yes' })).toThrow('Invalid setting value.')
+		expect(() => desktopSettingsPatch({ notificationSound: 'yes' })).toThrow(
+			'Invalid setting value.',
+		)
 		expect(() => desktopSettingsPatch({ nope: true })).toThrow('Unknown setting.')
 		expect(() => desktopSettingsPatch({ terminalShell: 'zsh' })).toThrow('Invalid setting value.')
 		expect(desktopSettingsPatch({ terminalShell: 'wsl' })).toEqual({ terminalShell: 'wsl' })

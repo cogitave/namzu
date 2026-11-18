@@ -332,7 +332,8 @@ describe('the settings page', () => {
 			'Use hardware acceleration',
 		])
 			expect(general).not.toContain(gone)
-		expect(general).toContain('Play a sound with notifications')
+		expect(general).not.toContain('Notification sound')
+		expect(page('notifications')).toContain('Notification sound')
 		const desktop = page('desktop')
 		expect(desktop).toContain('id="setting-hardware-acceleration"')
 		expect(desktop).toContain('Use hardware acceleration')
@@ -713,12 +714,51 @@ describe('the code rows', () => {
 		expect(markup).not.toContain('Applies at once.')
 	})
 
-	it('groups Appearance under Code and Accessibility, and General under Notifications', () => {
+	it('groups Appearance under Code and Accessibility, and Notifications under On this computer', () => {
 		const appearance = page('appearance')
 		expect(appearance).toContain('<h2 class="settings-section-title">Code</h2>')
 		expect(appearance).toContain('<h2 class="settings-section-title">Accessibility</h2>')
 		expect(appearance.indexOf('>Code</h2>')).toBeLessThan(appearance.indexOf('Light code theme'))
-		expect(page('general')).toContain('<h2 class="settings-section-title">Notifications</h2>')
+		expect(page('general')).not.toContain('>Notifications</h2>')
+		expect(page('notifications')).toContain(
+			'<h2 class="settings-section-title">On this computer</h2>',
+		)
+	})
+
+	it('draws the notification rows in the reference order, each level marking its default', () => {
+		const markup = page('notifications')
+		const order = [
+			'Draw attention when a conversation needs you',
+			'Permission requests',
+			'Questions',
+			'Task complete',
+			'Long response time',
+			'Response errors',
+			'Notification sound',
+		].map((label) => markup.indexOf(`>${label}`))
+		expect(order.every((at) => at >= 0)).toBe(true)
+		expect([...order].sort((a, b) => a - b)).toEqual(order)
+		expect(markup).toContain('>Default · Banner</option>')
+		expect(markup).toContain('>Badge only</option>')
+		expect(markup).toContain('>Default · None</option>')
+		expect(markup).toContain('>System sound</option>')
+		expect(markup).toContain('placeholder="30"')
+		expect(markup).not.toContain('Default:')
+	})
+
+	it('leaves the long-response time alone while Task complete is Off', () => {
+		const off = page('notifications', {
+			settings: {
+				settings: { ...DEFAULT_DESKTOP_SETTINGS, notifyTaskComplete: 'off' },
+				error: '',
+				change: async () => {},
+				confirmation: undefined,
+				confirm: async () => {},
+				dismiss: () => {},
+			},
+		})
+		const tag = (off.match(/<input[^>]*aria-label="Long response time"[^>]*>/) ?? [''])[0]
+		expect(tag).toContain('disabled')
 	})
 
 	it('shows After restart only on the rows that wait for one', () => {

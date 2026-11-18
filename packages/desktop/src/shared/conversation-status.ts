@@ -18,7 +18,7 @@ export interface ConversationGlyph {
 }
 
 /** The tool a model uses to put a question to the person; its request is not a permission. */
-const QUESTION_TOOL = 'ask_user_question'
+export const QUESTION_TOOL = 'ask_user_question'
 
 const LABELS: Record<ConversationGlyphKind, string> = {
 	question: 'Question waiting',

@@ -1,5 +1,14 @@
 import { Dialog } from '@base-ui/react/dialog'
-import { Activity, Bot, KeyRound, Monitor, SquareTerminal, Volume2, Wrench } from 'lucide-react'
+import {
+	Activity,
+	Bell,
+	Bot,
+	KeyRound,
+	Monitor,
+	SquareTerminal,
+	Volume2,
+	Wrench,
+} from 'lucide-react'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { CODE_FONT_SIZE_DEFAULT, type CodeThemeKey } from '../shared/code-themes.js'
 import { newerKernelText } from '../shared/engine-update-protocol.js'
@@ -8,6 +17,7 @@ import type { DesktopApi, ProjectView } from '../shared/protocol.js'
 import {
 	type CatalogueEntry,
 	type CatalogueOption,
+	FINISHED_NOTICE_AFTER_SECONDS,
 	FONT_FAMILY_PREFIX,
 	RESPONSE_FONT_MATCH,
 	appliesText,
@@ -16,10 +26,13 @@ import {
 	storedFamily,
 } from '../shared/settings-catalogue.js'
 import type {
+	BannerLevel,
 	DataFolderKind,
 	DesktopInfo,
 	DesktopSettings,
 	MotionChoice,
+	NoticeLevel,
+	NoticeSound,
 	SettingsSection,
 	StartupBehavior,
 	TranscriptTextSize,
@@ -104,6 +117,7 @@ const SECTION_ICONS: Record<SettingsSection, IconComponent> = {
 	tools: Wrench as IconComponent,
 	projects: FoldersIcon,
 	appearance: SunIcon,
+	notifications: Bell as IconComponent,
 	terminal: SquareTerminal as IconComponent,
 	desktop: Monitor as IconComponent,
 	telemetry: Activity as IconComponent,
@@ -551,6 +565,7 @@ function SectionBody(props: SectionProps) {
 			)}
 			{props.section === 'projects' && <ProjectsSection {...props} />}
 			{props.section === 'appearance' && <AppearanceSection {...props} />}
+			{props.section === 'notifications' && <NotificationsSection {...props} />}
 			{props.section === 'updates' && <UpdatesSection {...props} />}
 			{props.section === 'desktop' && <DesktopSection {...props} />}
 			{props.section === 'terminal' && <TerminalSettings {...props} />}
@@ -718,48 +733,135 @@ function GeneralSection({ settings }: SectionProps) {
 					))}
 				</fieldset>
 			</CatalogueRow>
-			<h2 className="settings-section-title">Notifications</h2>
+		</>
+	)
+}
+
+/** What each notification level lists, from the catalogue so the page and the validator agree. */
+const NOTICE_LEVEL_OPTIONS = (id: string) =>
+	(catalogueEntry(id).control as { options: readonly CatalogueOption[] }).options
+
+/** Every row here is about this computer: the icon count, the banners and their sound. */
+export function NotificationsSection({ settings }: { settings: DesktopSettingsControls }) {
+	const saved = settings.settings
+	const ready = saved !== undefined
+	const levelRow = (
+		id: string,
+		value: string,
+		onChange: (value: string) => void,
+		child?: boolean,
+	) => (
+		<CatalogueRow id={id} child={child}>
+			<SelectControl label={labelOf(id)} value={value} disabled={!ready} onChange={onChange}>
+				{NOTICE_LEVEL_OPTIONS(id).map((option) => (
+					<option key={option.value} value={option.value}>
+						{defaultMarked(id, option.value, option.label)}
+					</option>
+				))}
+			</SelectControl>
+		</CatalogueRow>
+	)
+	return (
+		<>
+			<h2 className="settings-section-title">On this computer</h2>
 			<CatalogueRow id="attention-signals">
 				<Switch
 					label={labelOf('attention-signals')}
-					checked={settings.settings?.attentionSignals ?? true}
-					disabled={!settings.settings}
+					checked={saved?.attentionSignals ?? true}
+					disabled={!ready}
 					onChange={(value) => void settings.change({ attentionSignals: value })}
 				/>
 			</CatalogueRow>
-			<CatalogueRow id="notify-needs-you">
-				<Switch
-					label={labelOf('notify-needs-you')}
-					checked={settings.settings?.notifyNeedsYou ?? true}
-					disabled={!settings.settings}
-					onChange={(value) => void settings.change({ notifyNeedsYou: value })}
+			{levelRow(
+				'notify-permission',
+				saved?.notifyPermission ?? 'banner',
+				(value) => void settings.change({ notifyPermission: value as NoticeLevel }),
+			)}
+			{levelRow(
+				'notify-question',
+				saved?.notifyQuestion ?? 'banner',
+				(value) => void settings.change({ notifyQuestion: value as NoticeLevel }),
+			)}
+			{levelRow(
+				'notify-task-complete',
+				saved?.notifyTaskComplete ?? 'banner',
+				(value) => void settings.change({ notifyTaskComplete: value as BannerLevel }),
+			)}
+			<CatalogueRow id="notify-long-reply" child>
+				<SecondsInput
+					value={saved?.notifyLongReplySeconds ?? FINISHED_NOTICE_AFTER_SECONDS}
+					disabled={!ready || saved?.notifyTaskComplete === 'off'}
+					onCommit={(value) => void settings.change({ notifyLongReplySeconds: value })}
 				/>
 			</CatalogueRow>
-			<CatalogueRow id="notify-failed">
-				<Switch
-					label={labelOf('notify-failed')}
-					checked={settings.settings?.notifyFailed ?? true}
-					disabled={!settings.settings}
-					onChange={(value) => void settings.change({ notifyFailed: value })}
-				/>
-			</CatalogueRow>
-			<CatalogueRow id="notify-finished">
-				<Switch
-					label={labelOf('notify-finished')}
-					checked={settings.settings?.notifyFinished ?? true}
-					disabled={!settings.settings}
-					onChange={(value) => void settings.change({ notifyFinished: value })}
-				/>
-			</CatalogueRow>
-			<CatalogueRow id="notify-sound">
-				<Switch
-					label={labelOf('notify-sound')}
-					checked={settings.settings?.notifySound ?? false}
-					disabled={!settings.settings}
-					onChange={(value) => void settings.change({ notifySound: value })}
-				/>
-			</CatalogueRow>
+			{levelRow(
+				'notify-error',
+				saved?.notifyError ?? 'banner',
+				(value) => void settings.change({ notifyError: value as BannerLevel }),
+			)}
+			{levelRow(
+				'notify-sound',
+				saved?.notificationSound ?? 'none',
+				(value) => void settings.change({ notificationSound: value as NoticeSound }),
+			)}
 		</>
+	)
+}
+
+/** The seconds a reply must take before its end notifies. An empty box is the default. */
+export function SecondsInput({
+	value,
+	disabled,
+	onCommit,
+}: { value: number; disabled?: boolean; onCommit: (value: number) => void }) {
+	const control = catalogueEntry('notify-long-reply').control as {
+		min: number
+		max: number
+		unit: string
+	}
+	const shown = value === FINISHED_NOTICE_AFTER_SECONDS ? '' : String(value)
+	const [draft, setDraft] = useState(shown)
+	useEffect(() => setDraft(shown), [shown])
+	const text = draft.trim()
+	const parsed = text === '' ? FINISHED_NOTICE_AFTER_SECONDS : Number(text)
+	const invalid =
+		!Number.isInteger(parsed) || /\D/.test(text) || parsed < control.min || parsed > control.max
+	const messageId = useId()
+	const commit = () => {
+		if (invalid) return
+		if (parsed !== value) onCommit(parsed)
+		setDraft(parsed === FINISHED_NOTICE_AFTER_SECONDS ? '' : String(parsed))
+	}
+	return (
+		<div className="settings-code-font">
+			<input
+				type="text"
+				inputMode="numeric"
+				className="settings-config-input"
+				aria-label={labelOf('notify-long-reply')}
+				aria-invalid={invalid || undefined}
+				aria-describedby={invalid ? messageId : undefined}
+				placeholder={String(FINISHED_NOTICE_AFTER_SECONDS)}
+				maxLength={4}
+				value={draft}
+				disabled={disabled}
+				onChange={(event) => setDraft(event.target.value)}
+				onBlur={commit}
+				onKeyDown={(event) => {
+					if (event.key === 'Enter') commit()
+					if (escapeRevertsDraft(event.key, draft, shown)) {
+						event.stopPropagation()
+						setDraft(shown)
+					}
+				}}
+			/>
+			<span className="settings-note">{control.unit}</span>
+			{invalid && (
+				<span id={messageId} data-invalid role="alert">
+					{`Enter a whole number from ${control.min} to ${control.max}. Escape goes back to the saved one.`}
+				</span>
+			)}
+		</div>
 	)
 }
 

@@ -12,9 +12,11 @@ export interface NoticePayload {
 }
 
 export interface NoticeSettings {
-	needsYou: boolean
-	failed: boolean
-	finished: boolean
+	/** Only `banner` shows a system notification; `badge` is the icon count, which is not this class's. */
+	permission: 'off' | 'badge' | 'banner'
+	question: 'off' | 'badge' | 'banner'
+	finished: 'off' | 'banner'
+	failed: 'off' | 'banner'
 	sound: boolean
 }
 
@@ -68,7 +70,8 @@ const FALLBACK_TITLE = 'Namzu'
  * real clock; the host is injected.
  */
 export class SystemNotices {
-	private waiting = new Set<string>()
+	private waitingPermission = new Set<string>()
+	private waitingQuestion = new Set<string>()
 	private started = new Map<string, number>()
 	private batch = new Map<NoticeKind, string[]>()
 	private cancelFold: (() => void) | undefined
@@ -78,13 +81,20 @@ export class SystemNotices {
 	constructor(private readonly host: NoticeHost) {}
 
 	/**
-	 * The conversations waiting on the person changed. Only a conversation that was not waiting
-	 * before is an event; one that was already waiting when the window lost focus is not.
+	 * The conversations waiting on the person changed: `permission` for an approval, `question` for
+	 * a question. Only a conversation that was not waiting for that before is an event; one that
+	 * was already waiting when the window lost focus is not.
 	 */
-	needsYou(ids: readonly string[]): void {
-		const before = this.waiting
-		this.waiting = new Set(ids)
-		for (const id of this.waiting) if (!before.has(id)) this.raise('needs-you', id)
+	needsYou(permission: readonly string[], question: readonly string[] = []): void {
+		const settings = this.host.settings()
+		const beforePermission = this.waitingPermission
+		const beforeQuestion = this.waitingQuestion
+		this.waitingPermission = new Set(permission)
+		this.waitingQuestion = new Set(question)
+		for (const id of this.waitingPermission)
+			if (!beforePermission.has(id) && settings.permission === 'banner') this.raise('needs-you', id)
+		for (const id of this.waitingQuestion)
+			if (!beforeQuestion.has(id) && settings.question === 'banner') this.raise('needs-you', id)
 	}
 
 	/** A turn began; the clock starts for the "finished" threshold. */
@@ -113,7 +123,8 @@ export class SystemNotices {
 
 	/** A conversation is gone: it keeps nothing here. */
 	forget(id: string): void {
-		this.waiting.delete(id)
+		this.waitingPermission.delete(id)
+		this.waitingQuestion.delete(id)
 		this.started.delete(id)
 		for (const kind of Object.keys(NOTICE_SENTENCES) as NoticeKind[])
 			this.shown.delete(`${kind}:${id}`)
@@ -131,11 +142,10 @@ export class SystemNotices {
 
 	private enabled(kind: NoticeKind): boolean {
 		const settings = this.host.settings()
+		// A waiting conversation was already checked against its own level when it arrived.
 		return kind === 'needs-you'
-			? settings.needsYou
-			: kind === 'failed'
-				? settings.failed
-				: settings.finished
+			? true
+			: (kind === 'failed' ? settings.failed : settings.finished) === 'banner'
 	}
 
 	private raise(kind: NoticeKind, id: string): void {

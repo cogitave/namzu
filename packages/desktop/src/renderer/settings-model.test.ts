@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ProjectView } from '../shared/protocol.js'
+import { SETTINGS_CATALOGUE } from '../shared/settings-catalogue.js'
 import {
 	FINISHED_NOTICE_AFTER_MS,
 	SETTINGS_SECTIONS,
@@ -107,9 +108,22 @@ describe('where the Desktop rows sit', () => {
 		expect(sectionOf('terminal-restore')).toBe('terminal')
 		expect(searchSettings('shell')[0]?.section).toBe('terminal')
 		expect(searchSettings('bring terminal tabs back')[0]?.section).toBe('terminal')
-		// Notifications stay in General until they have a section of their own.
-		for (const id of ['notify-needs-you', 'notify-failed', 'notify-finished', 'notify-sound'])
-			expect(sectionOf(id)).toBe('general')
+		for (const id of [
+			'attention-signals',
+			'notify-permission',
+			'notify-question',
+			'notify-task-complete',
+			'notify-long-reply',
+			'notify-error',
+			'notify-sound',
+		])
+			expect(sectionOf(id)).toBe('notifications')
+	})
+
+	it('lists Notifications after Appearance in the second group', () => {
+		expect(SETTINGS_NAV_GROUPS[1]).toEqual(['general', 'appearance', 'notifications', 'speech'])
+		expect(SETTINGS_SECTION_TITLES.notifications).toBe('Notifications')
+		expect(parseSettingsRoute('settings/notifications')).toBe('notifications')
 	})
 
 	it('has a Desktop app section in the fourth group, first, and it is a valid stored section', () => {
@@ -281,26 +295,29 @@ describe('attention setting search', () => {
 })
 
 describe('notification setting search', () => {
-	it('finds each notification switch by plain words', () => {
+	it('finds each notification row by plain words, and by the names it had before', () => {
 		const find = (word: string) => searchSettings(word).map((entry) => entry.id)
 		expect(find('notification')).toEqual(
 			expect.arrayContaining([
-				'notify-needs-you',
-				'notify-failed',
-				'notify-finished',
+				'notify-permission',
+				'notify-question',
+				'notify-task-complete',
+				'notify-error',
 				'notify-sound',
 			]),
 		)
-		expect(find('banner')).toContain('notify-needs-you')
+		expect(find('banner')).toContain('notify-permission')
 		expect(find('chime')).toContain('notify-sound')
-		expect(find('done')).toContain('notify-finished')
+		expect(find('done')).toContain('notify-task-complete')
+		expect(find('Permission requests and questions')).toContain('notify-permission')
+		expect(find('Finished long responses')).toContain('notify-long-reply')
 	})
 })
 
-describe('finished notification wording', () => {
-	it('names the same threshold the main process uses, and says "or more"', () => {
-		const entry = searchSettings('done').find((item) => item.id === 'notify-finished')
-		expect(entry?.description).toContain(`${FINISHED_NOTICE_AFTER_MS / 1000} seconds or more`)
+describe('long response time', () => {
+	it('defaults to the threshold the main process used before it could be set', () => {
+		const entry = SETTINGS_CATALOGUE.find((item) => item.id === 'notify-long-reply')
+		expect(entry?.default).toBe(FINISHED_NOTICE_AFTER_MS / 1000)
 	})
 })
 

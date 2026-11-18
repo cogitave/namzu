@@ -33,6 +33,7 @@ import {
 	type ConfigSettingsView,
 	readConfigSettingsView,
 } from '../shared/config-settings-protocol.js'
+import { QUESTION_TOOL } from '../shared/conversation-status.js'
 import { type HistoryWorkSnapshot, restoreHistoryWork } from '../shared/history-work.js'
 import { readHooksReport } from '../shared/hooks-report.js'
 import {
@@ -536,7 +537,11 @@ export class Operator {
 			/** The conversations some open window is showing right now. */
 			viewedConversations?: () => ReadonlySet<string>
 			/** The conversations that need the person changed; called with every one that does. */
-			attentionChanged?: (ids: string[]) => void
+			attentionChanged?: (
+				ids: string[],
+				/** The same ids split by what is waiting: an approval or a question. */
+				byKind: { permission: string[]; question: string[] },
+			) => void
 			/**
 			 * Names of this application's own windows, as the engine reports an application. The agent
 			 * is never allowed into them, so it cannot answer its own questions.
@@ -552,8 +557,8 @@ export class Operator {
 			 * ended); never a message, a file or a command.
 			 */
 			notices?: {
-				/** Every conversation waiting on the person, Pals included. */
-				needsYou(ids: string[]): void
+				/** Every conversation waiting on the person, Pals included, split by an approval or a question. */
+				needsYou(permission: string[], question: string[]): void
 				turnStarted(id: string): void
 				turnEnded(id: string, outcome: 'finished' | 'failed' | 'other', pal: boolean): void
 			}
@@ -866,13 +871,20 @@ export class Operator {
 		return this.needsYouRows(false)
 	}
 	/** One rule for "waiting on the person"; a Pal's conversation counts only when `includePals`. */
-	private needsYouRows(includePals: boolean): string[] {
+	private needsYouRows(includePals: boolean, kind?: 'permission' | 'question'): string[] {
 		return needsYouIds(
 			[...this.conversations.entries()].map(([id, session]) => ({
 				id,
 				running: session.projection.running,
 				waiting:
-					threadPhase(session.projection) === 'waiting' ? session.projection.permissions.length : 0,
+					threadPhase(session.projection) === 'waiting'
+						? session.projection.permissions.filter(
+								(request) =>
+									kind === undefined ||
+									request.calls.some((call) => call.name === QUESTION_TOOL) ===
+										(kind === 'question'),
+							).length
+						: 0,
 				...(includePals ? {} : { pal: Boolean(session.view.palId) }),
 			})),
 		)
@@ -911,9 +923,15 @@ export class Operator {
 	private attentionChanged(): void {
 		if (this.options.attentionChanged || this.options.notices) {
 			try {
-				this.options.attentionChanged?.(this.needsYou())
+				this.options.attentionChanged?.(this.needsYou(), {
+					permission: this.needsYouRows(false, 'permission'),
+					question: this.needsYouRows(false, 'question'),
+				})
 				// A Pal that asks is still blocked on the person, so the notice counts it; the badge does not.
-				this.options.notices?.needsYou(this.needsYouRows(true))
+				this.options.notices?.needsYou(
+					this.needsYouRows(true, 'permission'),
+					this.needsYouRows(true, 'question'),
+				)
 			} catch (error) {
 				this.diagnostics?.record('ipc_failed', { operation: 'attention', error })
 			}

@@ -15,6 +15,10 @@ export type StartupBehavior = 'continue' | 'home'
 export type TranscriptTextSize = 'small' | 'medium' | 'large'
 export type TranscriptWidth = 'narrow' | 'medium' | 'wide'
 export type MotionChoice = 'system' | 'reduce' | 'full'
+/** `badge` is the count on the app icon only; `banner` is a system notification (and the count, while the icon count is on). */
+export type NoticeLevel = 'off' | 'badge' | 'banner'
+export type BannerLevel = 'off' | 'banner'
+export type NoticeSound = 'system' | 'none'
 
 export interface DesktopSettings {
 	/** What the app shows when it starts. */
@@ -44,14 +48,18 @@ export interface DesktopSettings {
 	 * icon and flash the taskbar or dock once.
 	 */
 	attentionSignals: boolean
-	/** A system notification while no Namzu window is focused and a conversation needs an answer. */
-	notifyNeedsYou: boolean
-	/** The same when a turn stops with an error. */
-	notifyFailed: boolean
-	/** The same when a turn finishes, but only a turn that ran `FINISHED_NOTICE_AFTER_MS` or longer. */
-	notifyFinished: boolean
-	/** Let a notification make the system's sound. Off by default. */
-	notifySound: boolean
+	/** What a permission request does while no Namzu window is focused: nothing, a count on the icon, or a system notification. */
+	notifyPermission: NoticeLevel
+	/** The same for a question Namzu puts to the person. */
+	notifyQuestion: NoticeLevel
+	/** A system notification when a reply finishes, but only one that took `notifyLongReplySeconds` or longer. */
+	notifyTaskComplete: BannerLevel
+	/** A system notification when a reply stops with an error, however long it ran. */
+	notifyError: BannerLevel
+	/** Seconds a reply must take before its end is worth a notification; a shorter one never notifies. */
+	notifyLongReplySeconds: number
+	/** What a notification sounds like: the system's own sound, or none. */
+	notificationSound: NoticeSound
 	/**
 	 * Show the strip of conversation tabs above the conversation. Off by default: the sidebar is
 	 * the one list of conversations, and the bar above the conversation carries its title.
@@ -107,7 +115,7 @@ export const DEFAULT_DESKTOP_SETTINGS: Readonly<DesktopSettings> = Object.fromEn
 	DESKTOP_KEYED_ENTRIES.map((entry) => [entry.key, entry.default]),
 ) as unknown as DesktopSettings
 
-/** A turn you just watched end does not need a notification: only one that ran this long or longer does. */
+/** The default for `notifyLongReplySeconds`, in ms: a turn you just watched end does not need a notification. */
 export const FINISHED_NOTICE_AFTER_MS = FINISHED_NOTICE_AFTER_SECONDS * 1000
 export { FINISHED_NOTICE_AFTER_SECONDS }
 
@@ -145,10 +153,39 @@ export type SettingsChangeResult =
 export function storedDesktopSettings(value: unknown): DesktopSettings {
 	const settings: DesktopSettings = { ...DEFAULT_DESKTOP_SETTINGS }
 	if (!value || typeof value !== 'object' || Array.isArray(value)) return settings
-	const record = value as Record<string, unknown>
+	const record = withLegacyNotices(value as Record<string, unknown>)
 	for (const key of KEYS)
 		if (valid(key, record[key])) (settings as unknown as Record<string, unknown>)[key] = record[key]
 	return settings
+}
+
+/**
+ * A file saved while notifications were four switches: `notifyNeedsYou`, `notifyFailed`,
+ * `notifyFinished` and `notifySound`. A new key that is saved wins; one that is missing reads from
+ * the old switch. On becomes Banner. Off becomes Off for a banner of its own, but a permission
+ * request or question keeps the icon count the person still had, so it reads Badge only unless
+ * the icon count was off too.
+ */
+function withLegacyNotices(record: Record<string, unknown>): Record<string, unknown> {
+	const next = { ...record }
+	const missing = (key: string) => next[key] === undefined
+	const legacy = (key: string): boolean | undefined =>
+		typeof record[key] === 'boolean' ? (record[key] as boolean) : undefined
+	const needsYou = legacy('notifyNeedsYou')
+	if (needsYou !== undefined) {
+		const level = needsYou ? 'banner' : record.attentionSignals === false ? 'off' : 'badge'
+		if (missing('notifyPermission')) next.notifyPermission = level
+		if (missing('notifyQuestion')) next.notifyQuestion = level
+	}
+	const failed = legacy('notifyFailed')
+	if (failed !== undefined && missing('notifyError')) next.notifyError = failed ? 'banner' : 'off'
+	const finished = legacy('notifyFinished')
+	if (finished !== undefined && missing('notifyTaskComplete'))
+		next.notifyTaskComplete = finished ? 'banner' : 'off'
+	const sound = legacy('notifySound')
+	if (sound !== undefined && missing('notificationSound'))
+		next.notificationSound = sound ? 'system' : 'none'
+	return next
 }
 
 export { SETTINGS_SECTIONS, isSettingsSection, type SettingsSection }

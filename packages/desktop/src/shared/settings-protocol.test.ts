@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
 	DEFAULT_DESKTOP_SETTINGS,
 	desktopSettingsPatch,
@@ -52,10 +52,12 @@ it('reads a stored file entry by entry and ignores what it does not know', () =>
 		voiceInputAccepted: false,
 		hardwareAcceleration: true,
 		attentionSignals: true,
-		notifyNeedsYou: true,
-		notifyFailed: true,
-		notifyFinished: true,
-		notifySound: false,
+		notifyPermission: 'banner',
+		notifyQuestion: 'banner',
+		notifyTaskComplete: 'banner',
+		notifyError: 'banner',
+		notifyLongReplySeconds: 30,
+		notificationSound: 'none',
 		showConversationTabs: false,
 		responseFont: 'match',
 		transcriptTextSize: 'medium',
@@ -91,10 +93,12 @@ it('documents the defaults the spec names', () => {
 		voiceInputAccepted: false,
 		hardwareAcceleration: true,
 		attentionSignals: true,
-		notifyNeedsYou: true,
-		notifyFailed: true,
-		notifyFinished: true,
-		notifySound: false,
+		notifyPermission: 'banner',
+		notifyQuestion: 'banner',
+		notifyTaskComplete: 'banner',
+		notifyError: 'banner',
+		notifyLongReplySeconds: 30,
+		notificationSound: 'none',
 		showConversationTabs: false,
 		responseFont: 'match',
 		transcriptTextSize: 'medium',
@@ -150,20 +154,25 @@ it('turns the attention signals on by default and round trips the choice', () =>
 	expect(storedDesktopSettings({ attentionSignals: 'x' }).attentionSignals).toBe(true)
 })
 
-it('names the notification defaults: needs you, failed and finished on, sound off', () => {
+it('names the notification defaults: every level a banner, 30 seconds, sound none', () => {
 	expect(DEFAULT_DESKTOP_SETTINGS).toMatchObject({
-		notifyNeedsYou: true,
-		notifyFailed: true,
-		notifyFinished: true,
-		notifySound: false,
+		notifyPermission: 'banner',
+		notifyQuestion: 'banner',
+		notifyTaskComplete: 'banner',
+		notifyError: 'banner',
+		notifyLongReplySeconds: 30,
+		notificationSound: 'none',
 		showConversationTabs: false,
 	})
-	expect(desktopSettingsPatch({ notifySound: true })).toEqual({ notifySound: true })
-	expect(() => desktopSettingsPatch({ notifyFinished: 'yes' })).toThrow()
-	expect(storedDesktopSettings({ notifySound: 'x', notifyFailed: false })).toMatchObject({
-		notifySound: false,
+	expect(desktopSettingsPatch({ notificationSound: 'system' })).toEqual({
+		notificationSound: 'system',
+	})
+	expect(() => desktopSettingsPatch({ notifyTaskComplete: 'yes' })).toThrow()
+	expect(() => desktopSettingsPatch({ notifyFinished: true })).toThrow('Unknown setting.')
+	expect(storedDesktopSettings({ notificationSound: 'x', notifyError: 'off' })).toMatchObject({
+		notificationSound: 'none',
 		showConversationTabs: false,
-		notifyFailed: false,
+		notifyError: 'off',
 	})
 })
 
@@ -222,4 +231,57 @@ it('shortcut settings migrate from absent and refuse text that is not a shortcut
 		dictationShortcut: 'off',
 	})
 	expect(() => desktopSettingsPatch({ voiceShortcut: 'Ctrl+' })).toThrow()
+})
+
+describe('notifications saved as four switches', () => {
+	it('loads a file from before the keys existed as the old defaults', () => {
+		const settings = storedDesktopSettings({ startup: 'home' })
+		expect(settings).toMatchObject({
+			notifyPermission: 'banner',
+			notifyQuestion: 'banner',
+			notifyTaskComplete: 'banner',
+			notifyError: 'banner',
+			notifyLongReplySeconds: 30,
+			notificationSound: 'none',
+		})
+	})
+
+	it('maps an on switch to Banner and an off switch to Off', () => {
+		const settings = storedDesktopSettings({
+			notifyNeedsYou: true,
+			notifyFailed: false,
+			notifyFinished: false,
+			notifySound: true,
+		})
+		expect(settings).toMatchObject({
+			notifyPermission: 'banner',
+			notifyQuestion: 'banner',
+			notifyError: 'off',
+			notifyTaskComplete: 'off',
+			notificationSound: 'system',
+		})
+	})
+
+	it('keeps the icon count of a person who only turned the banner off', () => {
+		expect(storedDesktopSettings({ notifyNeedsYou: false }).notifyPermission).toBe('badge')
+		expect(storedDesktopSettings({ notifyNeedsYou: false }).notifyQuestion).toBe('badge')
+		expect(
+			storedDesktopSettings({ notifyNeedsYou: false, attentionSignals: false }).notifyPermission,
+		).toBe('off')
+	})
+
+	it('lets a saved new key win over an old switch, and rejects bad levels and times', () => {
+		expect(
+			storedDesktopSettings({ notifyNeedsYou: false, notifyPermission: 'banner' }).notifyPermission,
+		).toBe('banner')
+		expect(storedDesktopSettings({ notifyQuestion: 'loud' }).notifyQuestion).toBe('banner')
+		expect(storedDesktopSettings({ notifyTaskComplete: 'badge' }).notifyTaskComplete).toBe('banner')
+		expect(storedDesktopSettings({ notifyLongReplySeconds: 45 }).notifyLongReplySeconds).toBe(45)
+		expect(storedDesktopSettings({ notifyLongReplySeconds: 2 }).notifyLongReplySeconds).toBe(30)
+		expect(storedDesktopSettings({ notifyLongReplySeconds: 4000 }).notifyLongReplySeconds).toBe(30)
+		expect(desktopSettingsPatch({ notifyQuestion: 'badge' })).toEqual({ notifyQuestion: 'badge' })
+		expect(() => desktopSettingsPatch({ notifyError: 'badge' })).toThrow('Invalid setting value.')
+		expect(() => desktopSettingsPatch({ notifyLongReplySeconds: 12.5 })).toThrow()
+		expect(() => desktopSettingsPatch({ notificationSound: true })).toThrow()
+	})
 })

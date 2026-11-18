@@ -6,6 +6,7 @@ export const SETTINGS_SECTIONS = [
 	'tools',
 	'projects',
 	'appearance',
+	'notifications',
 	'terminal',
 	'desktop',
 	'telemetry',

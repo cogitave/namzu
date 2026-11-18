@@ -9,7 +9,10 @@ afterEach(async () => {
 	await Promise.all(owners.splice(0).map((owner) => owner.close()))
 })
 
-type Call = ['needsYou', string[]] | ['started', string] | ['ended', string, string, boolean]
+type Call =
+	| ['needsYou', string[], string[]]
+	| ['started', string]
+	| ['ended', string, string, boolean]
 
 function harness() {
 	const events = new EventEmitter()
@@ -27,7 +30,7 @@ function harness() {
 		undefined,
 		{
 			notices: {
-				needsYou: (ids) => calls.push(['needsYou', ids]),
+				needsYou: (ids, questions) => calls.push(['needsYou', ids, questions]),
 				turnStarted: (id) => calls.push(['started', id]),
 				turnEnded: (id, outcome, pal) => calls.push(['ended', id, outcome, pal]),
 			},
@@ -111,7 +114,7 @@ it('reports a waiting conversation to the notices, a Pal included', async () => 
 	const asked = h.wait((e) => e.kind === 'permission' && e.request.sessionId === a.id)
 	h.owner.send(a.id, 'Needs approval')
 	await asked
-	expect(h.calls.filter((call) => call[0] === 'needsYou').at(-1)).toEqual(['needsYou', [a.id]])
+	expect(h.calls.filter((call) => call[0] === 'needsYou').at(-1)).toEqual(['needsYou', [a.id], []])
 	expect(h.owner.needsYou()).toEqual([])
 	expect(h.owner.projectNameOf(a.id)).toBe(project.name)
 })

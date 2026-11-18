@@ -80,10 +80,10 @@ describe('the Appearance settings', () => {
 			})
 
 			it('loads from a file written before it existed, and leaves the other values as they were', () => {
-				const old = storedDesktopSettings({ startup: 'home', notifySound: true })
+				const old = storedDesktopSettings({ startup: 'home', notificationSound: 'system' })
 				expect(old[row.key]).toBe(row.fallback)
 				expect(old.startup).toBe('home')
-				expect(old.notifySound).toBe(true)
+				expect(old.notificationSound).toBe('system')
 			})
 
 			it('is accepted in a change request only when valid', () => {
