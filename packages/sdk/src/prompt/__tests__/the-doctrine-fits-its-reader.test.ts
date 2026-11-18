@@ -130,20 +130,18 @@ describe('the coding-agent doctrine', () => {
 		const child = codingAgentDoctrineContribution({ delegation: false }).render({})
 		const rules = [
 			'do small work, or work whose target you already know, yourself',
-			'never a conclusion for the sub-agent to confirm',
-			'do not do the work again yourself',
+			'never a conclusion to confirm',
 			'report is a claim, not a fact',
 			'check one claim you will build on',
-			'separate worktrees',
-			'not for reviewing or auditing whole files',
+			'tell the user what each delegated agent found',
 		]
 		for (const rule of rules) {
 			expect((parent ?? '').toLowerCase()).toContain(rule.toLowerCase())
 			expect((child ?? '').toLowerCase()).not.toContain(rule.toLowerCase())
 		}
-		expect(CODING_AGENT_DELEGATION_DOCTRINE).toContain('any record line shown beside it')
-		expect(CODING_AGENT_DELEGATION_DOCTRINE).toContain('when the checkout is a git repo')
-		expect(CODING_AGENT_DELEGATION_DOCTRINE).not.toContain('the kernel writes beside it')
+		// Forks, explore, worktrees and parallel writers are the Agent tool's own description now.
+		for (const moved of ['fork', 'worktree', 'explore'])
+			expect(CODING_AGENT_DELEGATION_DOCTRINE).not.toContain(moved)
 		// Hypermode says outright that it overrides the do-it-yourself rule.
 		expect(CODING_AGENT_HYPERMODE_DOCTRINE).toContain(
 			'overrides the advice above to do small work yourself',
@@ -163,67 +161,69 @@ describe('the coding-agent doctrine', () => {
 		}
 	})
 
-	it('tells the parent how to answer "how is it going", and keeps that rule out of a sub-agent prompt', () => {
-		const section = CODING_AGENT_DELEGATION_DOCTRINE.slice(
-			CODING_AGENT_DELEGATION_DOCTRINE.indexOf('### Answering how work is going'),
-		)
-		expect(section).toContain('note about running work')
-		for (const verdict of ['progressing', 'waiting', 'stalled', 'dead'])
-			expect(section).toContain(verdict)
-		expect(section).toContain('how long ago it last moved')
-		expect(section).toContain('finished (with its result), running (and where it is), queued')
-		// The language rule lives once, at the top of the identity, not in this section.
-		expect(section).not.toMatch(/language/)
-		expect(section).toContain('say it is still running')
-		expect(section).toContain('offer to run it again')
-		// Stated as what to do, with its reason, in plain words.
-		expect(section).not.toMatch(/\b(MUST|NEVER|CRITICAL)\b/)
-		expect(section).not.toMatch(/\/jobs|\/agents|\/tasks/)
-		expect(codingAgentDoctrineContribution({ delegation: false }).render({})).not.toContain(
-			'Answering how work is going',
-		)
+	it('leaves the "how is it going" rules to the running-work note, and out of every doctrine', () => {
+		// The rules ride with the note that lists running work, so a session with
+		// nothing running never reads them.
+		for (const text of [CODING_AGENT_WORKING_DOCTRINE, CODING_AGENT_DELEGATION_DOCTRINE]) {
+			expect(text).not.toContain('Answering how work is going')
+			expect(text).not.toContain('note about running work')
+		}
 	})
 
-	it('answers a question before acting, without an apology or a promise', () => {
-		const section = CODING_AGENT_WORKING_DOCTRINE.slice(
-			CODING_AGENT_WORKING_DOCTRINE.indexOf('### Answering a question'),
-			CODING_AGENT_WORKING_DOCTRINE.indexOf('### Asking and proceeding'),
+	const section = (from: string, to: string) =>
+		CODING_AGENT_WORKING_DOCTRINE.slice(
+			CODING_AGENT_WORKING_DOCTRINE.indexOf(from),
+			CODING_AGENT_WORKING_DOCTRINE.indexOf(to),
 		)
-		expect(section).toContain('gets an answer or an assessment first')
-		expect(section).toContain('Act only when asked to act')
-		expect(section).toContain('not with an apology')
-		expect(section).toContain('a turn never ends on a promise of a later answer')
-		// The answering section comes first in the working rules, not mid-prompt.
-		expect(CODING_AGENT_WORKING_DOCTRINE.indexOf('### Answering a question')).toBeLessThan(
-			CODING_AGENT_WORKING_DOCTRINE.indexOf('### Reporting'),
+
+	it('answers a plain question first, without an apology, and treats a report of something broken as a request to fix it', () => {
+		const text = section('### Questions, problems and investigations', '### Reporting')
+		expect(text).toContain('A plain question')
+		expect(text).toContain('gets the answer first')
+		expect(text).toContain('not with an apology')
+		expect(text).toContain('Put every look it needs in one response')
+		expect(text).toContain('A status or cost question is answered from what is at hand')
+		// A description of a problem is not held back as "a question to assess".
+		expect(text).toContain(
+			'is a request to fix it, unless the person says they only want a diagnosis',
 		)
+		expect(CODING_AGENT_WORKING_DOCTRINE).not.toContain('Act only when asked to act')
+		expect(CODING_AGENT_WORKING_DOCTRINE).not.toContain('then stop; look further only when')
 		// Every agent gets it, a sub-agent included.
-		expect(codingAgentDoctrineContribution({ delegation: false }).render({})).toContain(section)
+		expect(codingAgentDoctrineContribution({ delegation: false }).render({})).toContain(text)
 	})
 
-	it('says what is missing and stops when a look finds nothing, rather than widening the search', () => {
-		const section = CODING_AGENT_WORKING_DOCTRINE.slice(
-			CODING_AGENT_WORKING_DOCTRINE.indexOf('### Answering a question'),
-			CODING_AGENT_WORKING_DOCTRINE.indexOf('### Asking and proceeding'),
-		)
-		// The look is one step, with every independent search in the same response,
-		// so a question costs one request for the look and one for the answer.
-		expect(section).toContain(
-			'independent tool calls, such as every search for the fact, go in one response',
-		)
-		expect(section).toContain('say what you looked at and what is missing, then stop')
-		expect(section).toContain('look further only when the result itself names where the fact is')
-		expect(section).toContain('report what you ruled out and what would settle it')
+	it('carries an investigation to its cause instead of stopping after one look', () => {
+		const text = section('### Questions, problems and investigations', '### Reporting')
+		expect(text).toContain('continues until the cause is found or every reasonable lead is used up')
+		expect(text).toContain('what you ruled out and what would settle it')
 	})
 
-	it('asks only when the most likely reading cannot be named, asks once, and does not repeat a failed call', () => {
-		const section = CODING_AGENT_WORKING_DOCTRINE.slice(
-			CODING_AGENT_WORKING_DOCTRINE.indexOf('### Asking and proceeding'),
+	it('finishes the whole task: no plan or promise in place of the work, obstacles worked through, no early wrap-up', () => {
+		const text = section('### Finishing the work', '### Asking and proceeding')
+		expect(text).toContain('Ending your turn stops all work')
+		expect(text).toContain('never close on a plan or a promise of later work: do it now')
+		expect(text).toContain('A step that says it will do something does it in that step')
+		expect(text).toContain('Work through ordinary obstacles')
+		expect(text).toContain('A denied call is a decision: adjust, and do not retry it')
+		expect(text).toContain('do not issue the same call again')
+		expect(text).toContain('finish every other part in full, and say what you left out and why')
+		expect(text).toContain('Context is compacted automatically')
+		expect(text).toContain('never a reason to wrap up early')
+		// First in the working rules, and for every agent.
+		expect(CODING_AGENT_WORKING_DOCTRINE.indexOf('### Finishing the work')).toBeLessThan(
 			CODING_AGENT_WORKING_DOCTRINE.indexOf('### Reporting'),
 		)
-		expect(section).toContain('Ask only when you cannot name the most likely reading')
-		expect(section).toContain('Ask once, with your best guess')
-		expect(section).toContain('change the request or report it; do not issue the same call again')
+		expect(codingAgentDoctrineContribution({ delegation: false }).render({})).toContain(text)
+	})
+
+	it('acts on enough information, keeps decisions settled, and recommends instead of surveying', () => {
+		const text = section('### Asking and proceeding', '### Questions, problems and investigations')
+		expect(text).toContain('Act when you have enough information')
+		expect(text).toContain('without re-deriving or reopening them')
+		expect(text).toContain('give a recommendation, not a survey of options')
+		expect(text).toContain('Ask only when you cannot name the most likely reading')
+		expect(text).toContain('Ask once, with your best guess')
 	})
 
 	it('keeps the coding specifics under one heading that applies only to a change, and the closing report conditional', () => {
@@ -233,7 +233,6 @@ describe('the coding-agent doctrine', () => {
 		expect(code).toContain('applies only when you were asked to change something')
 		for (const rule of [
 			'Begin editing once you know the first change',
-			'Finish the whole task',
 			'reproduce it first',
 			"Run the project's tests",
 		]) {
@@ -247,41 +246,31 @@ describe('the coding-agent doctrine', () => {
 	})
 
 	it('narrates only work of several calls: one line first, one on a finding, none per call', () => {
-		const section = CODING_AGENT_WORKING_DOCTRINE.slice(
+		const text = CODING_AGENT_WORKING_DOCTRINE.slice(
 			CODING_AGENT_WORKING_DOCTRINE.indexOf('### Keeping the user informed'),
 		)
-		expect(section).toContain(
+		expect(text).toContain(
 			'For work that takes several calls, say one short line before the first call',
 		)
-		expect(section).toContain('when you find something, change direction or hit a blocker')
-		expect(section).toContain('after a long stretch without one')
-		expect(section).toContain('a question that needs at most one look gets no such line')
-		expect(section).toContain('no line goes beside each call')
+		expect(text).toContain('when you find something, change direction or hit a blocker')
+		expect(text).toContain('none beside each call')
+		expect(text).toContain('none for a question that needs one look')
 		// Said once: the old unconditional line is gone.
 		expect(CODING_AGENT_WORKING_DOCTRINE.match(/first call/g) ?? []).toHaveLength(1)
 		expect(CODING_AGENT_WORKING_DOCTRINE).not.toContain('Before your first tool call')
 	})
 
-	it('keeps the mismatch rule and the earlier-state rule for evidence', () => {
+	it('keeps the mismatch rule for evidence', () => {
 		expect(CODING_AGENT_WORKING_DOCTRINE).toContain(
-			'If a check or an exact-match edit reports a mismatch, inspect the current state and revise the action.',
+			'If a check or an exact-match edit reports a mismatch, inspect the current state and revise',
 		)
-		expect(CODING_AGENT_WORKING_DOCTRINE).toContain(
-			'For a question about an earlier state, use that observation or its retained original',
-		)
-		expect(CODING_AGENT_WORKING_DOCTRINE).toContain("leave today's value out")
 	})
 
-	it('keeps the fork, explore and parallel-call behaviours the trimming once dropped', () => {
-		// A fork's report is never predicted, a fork cannot start forks, an explore
-		// agent never asks the user for permission, and independent calls share a response.
-		expect(CODING_AGENT_DELEGATION_DOCTRINE).toContain(
-			'Never guess what it will find before its report arrives',
-		)
-		expect(CODING_AGENT_DELEGATION_DOCTRINE).toContain('a fork cannot start forks')
-		expect(CODING_AGENT_DELEGATION_DOCTRINE).toContain('never asks the user for permission')
-		expect(CODING_AGENT_WORKING_DOCTRINE).toContain(
-			'independent tool calls, such as every search for the fact, go in one response',
-		)
+	it('leaves fork, explore and parallel-writer mechanics to the Agent tool, and keeps looks in one response', () => {
+		// Those details ride in the Agent tool's description (a CLI test reads it);
+		// the doctrine keeps only the rules about when to delegate and how to brief.
+		expect(CODING_AGENT_DELEGATION_DOCTRINE).not.toContain('a fork cannot start forks')
+		expect(CODING_AGENT_DELEGATION_DOCTRINE).not.toContain('never asks the user for permission')
+		expect(CODING_AGENT_WORKING_DOCTRINE).toContain('Put every look it needs in one response')
 	})
 })

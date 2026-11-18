@@ -247,11 +247,11 @@ describe('a schema error is a plain sentence naming the field', () => {
 })
 
 describe('what is unchanged', () => {
-	it('refuses an edit to a file the session has not read, and shows it', async () => {
+	it('refuses an edit to a file the session has not read when the text is missing, and shows it', async () => {
 		const { dir, read } = workspace()
 		const tracker = createFileReadTracker()
 		const result = await EditTool.execute(
-			{ path: 'levels.md', old_string: OLD, new_string: NEW, edits: [] },
+			{ path: 'levels.md', old_string: `${OLD} (typo)`, new_string: NEW, edits: [] },
 			context(dir, { fileReadTracker: tracker }),
 		)
 		expect(result.success).toBe(false)

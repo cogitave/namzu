@@ -36,6 +36,8 @@ export function buildTaskCreateTool(
 		readOnly: false,
 		destructive: false,
 		concurrencySafe: true,
+		// Tasks are made to be moved through their statuses as the work goes.
+		loadsWith: ['task_update'],
 		presentCall: presentTaskCreateCall,
 		presentResult: presentTaskCreateResult,
 		async execute({ subject, description, activeForm, owner, blockedBy, metadata }) {

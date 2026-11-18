@@ -3540,8 +3540,22 @@ them in the running app at 1280 by 820.
 - **The window's own buttons** (Windows and Linux) end the band: the caption overlay is 36 px high
   (`WINDOW_CHROME_HEIGHT`, which a test keeps equal to `--frame-header-height`), and the page reads its
   width from `env(titlebar-area-width)` into `--frame-controls-inset`, so no header control sits under
-  it. The band is the window's drag region except over its controls. The window's title is no longer
-  drawn as text; the operating system still has it.
+  it. The window's title is no longer drawn as text; the operating system still has it.
+- **Dragging** comes from one empty element, `.window-drag-layer`, the first thing in the window and as
+  tall as the band. Nothing else declares `-webkit-app-region: drag`. The reason is how Chromium builds the
+  draggable region: it walks the elements in document order and each drag or no-drag rectangle overrides
+  the earlier ones over the same pixels, so a drag element that comes after a button and overlaps it turns
+  the button into window caption. On Windows and macOS the operating system asks the window what is under
+  the pointer (`WM_NCHITTEST` answers caption, `HTCAPTION`), so a press on the menu, sidebar toggle or Back
+  button started a window drag and the page never saw the click, while a browser-driven test click went
+  through. With the layer first, every control (all `button`s, and the wrappers and tabs that set no-drag)
+  comes after it and wins, and empty title space, a double click to maximise included, still belongs to the
+  layer. Add a control to the band and it needs no rule of its own unless it is not a button, link or
+  field. A pane under another pane in a split has no window drag of its own: only the top band moves the
+  window. `e2e/ux-titlebar-hit.test.mjs` replays Chromium's rule at the centre and edges of every control
+  in the band, in both themes, with the sidebar open and collapsed, wide and narrow, on the home screen,
+  in a conversation, with the side panel open, in Settings, in fullscreen and with each platform's frame
+  rules.
 
 ## The side panels
 

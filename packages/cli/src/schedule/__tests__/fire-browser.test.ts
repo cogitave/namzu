@@ -179,7 +179,14 @@ describe('the tools a browser job’s run is sent', () => {
 		const sent = (JSON.parse(bodies[0] as string).tools as { function: { name: string } }[]).map(
 			(tool) => tool.function.name,
 		)
-		expect(sent).toEqual(expect.arrayContaining(['browser', 'browser_act', 'read', 'grep']))
+		// The browser tools are deferred like everywhere else: named in the
+		// catalogue, loaded through search_tools. Neither is sent as a schema.
+		expect(sent).toEqual(expect.arrayContaining(['search_tools', 'read', 'grep']))
+		expect(sent).not.toContain('browser')
+		const catalogue = bodies[0] as string
+		expect(catalogue).toContain('<deferred_tools>')
+		expect(catalogue).toMatch(/- browser:/)
+		expect(catalogue).toMatch(/- browser_act:/)
 		for (const never of ['bash', 'edit', 'write', 'web_search', 'job', 'Agent', 'save_memory'])
 			expect(sent).not.toContain(never)
 		// Nor advice on delegating to an Agent tool it was not sent.

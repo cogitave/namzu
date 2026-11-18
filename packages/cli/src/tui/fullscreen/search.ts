@@ -131,14 +131,27 @@ function tail(text: string, max: number): string {
  * The search line: what is typed, which match is current, and the keys, in the
  * longest form that fits `columns` cells. `current` counts from 0, -1 for none.
  */
-export function searchLine(query: string, current: number, count: number, columns: number): string {
+export function searchLine(
+	query: string,
+	current: number,
+	count: number,
+	columns: number,
+	browsing = false,
+): string {
 	const status = query.length === 0 ? '' : count === 0 ? 'No matches' : `${current + 1}/${count}`
-	const forms = [
-		`Find: ${query}▏  ${status}  ↵ next · ⇧↵ previous · esc close`,
-		`Find: ${query}▏  ${status}  ↵ next · esc close`,
-		`Find: ${query}▏  ${status}`,
-		`${query}▏ ${status}`,
-	].map((form) => form.replace(/ {3,}/gu, '  ').replace(/ +$/u, ''))
+	const forms = browsing
+		? [
+				`Find: ${query}  ${status}  n next · N previous · / edit · esc close`,
+				`Find: ${query}  ${status}  n next · N previous · esc close`,
+				`Find: ${query}  ${status}`,
+				`${query} ${status}`,
+			].map((form) => form.replace(/ {3,}/gu, '  ').replace(/ +$/u, ''))
+		: [
+				`Find: ${query}▏  ${status}  ↵ next · ⇧↵ previous · esc close`,
+				`Find: ${query}▏  ${status}  ↵ next · esc close`,
+				`Find: ${query}▏  ${status}`,
+				`${query}▏ ${status}`,
+			].map((form) => form.replace(/ {3,}/gu, '  ').replace(/ +$/u, ''))
 	for (const form of forms) if (widthOf(form) <= columns) return form
 	const room = Math.max(1, columns - widthOf(`Find: ▏  ${status}`))
 	return `Find: ${tail(query, room)}▏  ${status}`.trimEnd()

@@ -16,11 +16,18 @@ import { MOUSE_OFF, mouseOn } from '../../workspaces/mouse.js'
 
 export type WheelDirection = 'up' | 'down'
 
-/** The left button: pressed, moved while held, or let go. `x` and `y` count from 1. */
+/**
+ * The left button pressed, moved while held, or let go; or the pointer moved with no button down
+ * (`move`, reported only while any-motion reporting is on). `x` and `y` count from 1. A modifier
+ * key held at the time is named by `ctrl`, `alt` or `shift`; each is absent when not held.
+ */
 export interface PointerReport {
-	readonly kind: 'press' | 'drag' | 'release'
+	readonly kind: 'press' | 'drag' | 'release' | 'move'
 	readonly x: number
 	readonly y: number
+	readonly ctrl?: true
+	readonly alt?: true
+	readonly shift?: true
 }
 
 // biome-ignore lint/suspicious/noControlCharactersInRegex: the report starts with the ESC byte
@@ -43,11 +50,27 @@ export interface MouseFilter {
 	}
 }
 
-/** The left button's report for a button code, or null for anything else. */
+/** The modifier keys a button code carries: shift 4, alt 8, ctrl 16. */
+function modifiersOf(code: number): Pick<PointerReport, 'ctrl' | 'alt' | 'shift'> {
+	return {
+		...((code & 4) !== 0 ? { shift: true as const } : {}),
+		...((code & 8) !== 0 ? { alt: true as const } : {}),
+		...((code & 16) !== 0 ? { ctrl: true as const } : {}),
+	}
+}
+
+/**
+ * The report for a button code: the left button, or motion with no button (code 35 and its
+ * modifier variants). Any other button, or the wheel, is null.
+ */
 function pointerOf(code: number, x: number, y: number, kind: string): PointerReport | null {
-	if ((code & 3) !== 0 || (code & 64) !== 0) return null
-	if (kind === 'm') return { kind: 'release', x, y }
-	return { kind: (code & 32) !== 0 ? 'drag' : 'press', x, y }
+	if ((code & 64) !== 0) return null
+	const mods = modifiersOf(code)
+	if ((code & 3) === 3)
+		return (code & 32) !== 0 && kind === 'M' ? { kind: 'move', x, y, ...mods } : null
+	if ((code & 3) !== 0) return null
+	if (kind === 'm') return { kind: 'release', x, y, ...mods }
+	return { kind: (code & 32) !== 0 ? 'drag' : 'press', x, y, ...mods }
 }
 
 export function createMouseFilter(): MouseFilter {
@@ -68,6 +91,11 @@ export function createMouseFilter(): MouseFilter {
 				}
 				return ''
 			})
+			// A run of motion reports says only where the pointer ended up: the last one is kept, so a
+			// fast sweep costs one hit test and not hundreds.
+			for (let i = pointer.length - 2; i >= 0; i--) {
+				if (pointer[i]?.kind === 'move' && pointer[i + 1]?.kind === 'move') pointer.splice(i, 1)
+			}
 			const tail = UNFINISHED.exec(text)
 			if (tail) {
 				held = tail[0]
@@ -99,6 +127,7 @@ export function installMouseWheel(
 	stdout: WheelOutput,
 	onWheel: (direction: WheelDirection) => void,
 	onPointer?: (report: PointerReport) => void,
+	options: { readonly hover?: boolean } = {},
 ): () => void {
 	if (stdin.isTTY !== true || stdout.isTTY !== true) return () => undefined
 	const filter = createMouseFilter()
@@ -118,7 +147,7 @@ export function installMouseWheel(
 		if (onPointer) for (const report of filtered.pointer) onPointer(report)
 		return filtered.text
 	}
-	write(mouseOn(onPointer ? 'full' : 'scroll'))
+	write(mouseOn(onPointer ? 'full' : 'scroll', onPointer !== undefined && options.hover === true))
 	let removed = false
 	return () => {
 		if (removed) return

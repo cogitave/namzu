@@ -12,7 +12,7 @@ import {
 	toolset,
 } from '@namzu/sdk'
 import { type Page, chromium } from 'playwright-core'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { LocalBrowserPlan } from '../../detect.js'
 import { ProfileBusyError } from '../../errors.js'
 import { PlaywrightBrowserHost } from '../../host.js'
@@ -122,6 +122,7 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 			profile: 'e2e',
 			sessionId: 'e2e',
 			sites: { [server.allowed]: 'act', '*': 'ask' },
+			signInDetection: 'address',
 		})
 	})
 
@@ -834,7 +835,7 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 		}
 	})
 
-	it('surfaces a dialog, holds other actions, and only lets the agent dismiss it', async () => {
+	it('surfaces a dialog, holds other actions, and lets the agent dismiss it', async () => {
 		await host.observe({
 			action: 'navigate',
 			url: `${origin()}/dialog.html`,
@@ -855,14 +856,6 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 				origin: origin(),
 			}),
 		).rejects.toThrow(/dialog is open/)
-		const refused = await refusal(
-			host.act({
-				action: 'dialog',
-				accept: true,
-				origin: origin(),
-			}),
-		)
-		expectOrdinaryRefusal(refused, 'The agent cannot accept a page-created dialog')
 		expect((await snap()).text).toContain('- dialog (confirm) "Delete everything?"')
 		const dismissed = await host.act({
 			action: 'dialog',
@@ -874,7 +867,83 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 		expect(dismissed.snapshot?.text).toContain('cancelled')
 	})
 
-	it('refuses to accept a page-created dialog on a credential page but can dismiss it', async () => {
+	describe('answering a held dialog', () => {
+		const open = async (button: RegExp) => {
+			await host.observe({ action: 'navigate', url: `${origin()}/prompt.html` })
+			const text = (await snap()).text
+			return host.act({ action: 'click', ref: refOf(text, button), origin: origin() })
+		}
+		const answer = (accept: boolean, promptText?: string) =>
+			host.act({
+				action: 'dialog',
+				accept,
+				...(promptText !== undefined ? { promptText } : {}),
+				origin: origin(),
+				snapshot: true,
+			})
+
+		it('accepts a confirm', async () => {
+			const opened = await open(/button "Proceed"/)
+			expect(opened.message).toMatch(/accept it/)
+			const accepted = await answer(true)
+			expect(accepted.message).toMatch(/accepted/)
+			expect(accepted.snapshot?.text).toContain('confirmed')
+		})
+
+		it('accepts an alert', async () => {
+			await open(/button "Notify"/)
+			expect((await snap()).text).toContain('- dialog (alert) "Saved"')
+			const accepted = await answer(true)
+			expect(accepted.snapshot?.text).toContain('alert closed')
+		})
+
+		it('accepts a prompt with the text given', async () => {
+			await open(/button "Rename"/)
+			const accepted = await answer(true, 'report')
+			expect(accepted.message).toMatch(/accepted/)
+			expect(accepted.snapshot?.text).toContain('name="report"')
+		})
+
+		it('accepts a prompt without text as an empty answer', async () => {
+			await open(/button "Rename"/)
+			const accepted = await answer(true)
+			expect(accepted.snapshot?.text).toContain('name=""')
+		})
+
+		it('refuses text for a prompt that asks for a password, and says nothing was typed', async () => {
+			await open(/button "Ask password"/)
+			const refused = await refusal(answer(true, 'hunter2'))
+			expect(String(refused.message)).toContain('Nothing was typed')
+			// The dialog is still open and can be dismissed.
+			expect((await snap()).text).toContain('- dialog (prompt)')
+			const dismissed = await answer(false)
+			expect(dismissed.message).toMatch(/dismissed/)
+			expect(dismissed.snapshot?.text).toContain('secret=null')
+			expect(dismissed.snapshot?.text).not.toContain('hunter2')
+		})
+
+		it('dismisses a confirm', async () => {
+			await open(/button "Proceed"/)
+			const dismissed = await answer(false)
+			expect(dismissed.message).toMatch(/dismissed/)
+			expect(dismissed.snapshot?.text).toContain('cancelled')
+		})
+
+		it('dismisses a second dialog that arrives while one is held, and keeps the first', async () => {
+			await open(/button "Proceed"/)
+			const internals = host as unknown as {
+				tabs: Map<string, unknown>
+				onDialog: (tab: unknown, dialog: unknown) => void
+			}
+			const second = { type: () => 'alert', dismiss: vi.fn(async () => undefined) }
+			internals.onDialog([...internals.tabs.values()][0], second)
+			expect(second.dismiss).toHaveBeenCalledTimes(1)
+			expect((await snap()).text).toContain('- dialog (confirm) "Proceed?"')
+			await answer(false)
+		})
+	})
+
+	it('can dismiss a page-created dialog on a credential page', async () => {
 		const submitRequests = () =>
 			server.requests.filter((request) => request.includes('/credential-submit')).length
 		const before = submitRequests()
@@ -892,8 +961,6 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 		const shown = await snap()
 		expect(shown.text).toContain('- dialog (confirm) "Submit stored credentials?"')
 
-		const denied = await refusal(host.act({ action: 'dialog', accept: true, origin: origin() }))
-		expectOrdinaryRefusal(denied, 'The agent cannot accept a page-created dialog')
 		expect(submitRequests()).toBe(before)
 		expect((await snap()).text).toContain('- dialog (confirm) "Submit stored credentials?"')
 
@@ -908,7 +975,7 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 		expect(submitRequests()).toBe(before)
 	})
 
-	it('refuses a confirmation after an agent click adds a credential field', async () => {
+	it('can dismiss a confirmation after an agent click adds a credential field', async () => {
 		const submitRequests = () =>
 			server.requests.filter((request) => request.includes('/credential-submit')).length
 		const before = submitRequests()
@@ -926,8 +993,6 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 		expect(opened.message).toContain('confirm dialog is open')
 		expect((await snap()).text).toContain('- dialog (confirm) "Submit newly added credentials?"')
 
-		const denied = await refusal(host.act({ action: 'dialog', accept: true, origin: origin() }))
-		expectOrdinaryRefusal(denied, 'The agent cannot accept a page-created dialog')
 		expect(submitRequests()).toBe(before)
 		expect((await snap()).text).toContain('- dialog (confirm) "Submit newly added credentials?"')
 
@@ -1252,7 +1317,7 @@ describe.skipIf(!HEADED)('PlaywrightBrowserHost headed', { timeout: 60_000 }, ()
 	})
 })
 
-describe.skipIf(!E2E)('sign-in detection by page', { timeout: 30_000 }, () => {
+describe.skipIf(!E2E)('sign-in detection by page (the default)', { timeout: 30_000 }, () => {
 	let server: FixtureServer
 	let home: string
 	let host: PlaywrightBrowserHost
@@ -1266,7 +1331,6 @@ describe.skipIf(!E2E)('sign-in detection by page', { timeout: 30_000 }, () => {
 			profile: 'e2e-page',
 			sessionId: 'e2e-page',
 			sites: { [server.allowed]: 'act', '*': 'ask' },
-			signInDetection: 'page',
 		})
 	})
 

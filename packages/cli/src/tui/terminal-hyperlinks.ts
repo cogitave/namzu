@@ -77,6 +77,24 @@ export function terminalFileHyperlink(label: string, absolutePath: string): stri
 	return `${OSC}8;;${target}${ST}${label}${OSC}8;;${ST}`
 }
 
+/**
+ * Wrap a label in an OSC 8 link whose target is an `https:`, `http:` or `file:` address, as the
+ * link finder names it. Anything else, or a target with a control character, comes back as null.
+ */
+export function terminalLinkTo(label: string, rawTarget: string): string | null {
+	if (containsTerminalControl(rawTarget)) return null
+	let url: URL
+	try {
+		url = new URL(rawTarget)
+	} catch {
+		return null
+	}
+	if (url.protocol !== 'https:' && url.protocol !== 'http:' && url.protocol !== 'file:') return null
+	const target = url.href
+	if (Buffer.byteLength(target, 'utf8') > MAX_TARGET_BYTES) return null
+	return `${OSC}8;;${target}${ST}${label}${OSC}8;;${ST}`
+}
+
 function containsTerminalControl(value: string): boolean {
 	for (const char of value) {
 		const code = char.codePointAt(0) ?? 0

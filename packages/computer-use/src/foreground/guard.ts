@@ -117,6 +117,7 @@ export function guardForeground(adapter: Adapter, ladder: ForegroundLadder): Ada
 			await adapter.dispose?.()
 		},
 	}
+	if (adapter.release) guarded.release = adapter.release.bind(adapter)
 	if (adapter.listWindows) {
 		const list = adapter.listWindows.bind(adapter)
 		guarded.listWindows = async () => {

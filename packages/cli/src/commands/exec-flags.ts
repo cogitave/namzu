@@ -21,10 +21,16 @@ import { statSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { DEFAULT_GATE_MAX_RETRIES, createCommandGate } from '@namzu/sdk'
-import type { ReasoningEffort, ReviewAnswer } from '@namzu/sdk'
+import type { AccountRegistry, ReasoningEffort, ReviewAnswer } from '@namzu/sdk'
 
 import { positiveTokenCount } from '../config/model-environment.js'
 import type { SkillsConfig } from '../config/schema.js'
+import {
+	accountForProvider,
+	bindAccount,
+	findAccountByName,
+} from '../integrations/accounts/binding.js'
+import { openCliAccounts } from '../integrations/accounts/open.js'
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import { McpServerFileError, mergeLaunchMcpServers } from '../integrations/mcp/shared-file.js'
 import type { Preferences, ProviderChoice, ProviderId } from '../integrations/providers/index.js'
@@ -61,6 +67,8 @@ export interface ExecFlags {
 	session: string | null
 	model: string | null
 	provider: string | null
+	/** `--account <label|provider:label>`: the account this run uses, from `/auth`. */
+	account: string | null
 	/** Exact reasoning effort forwarded to the selected provider. */
 	effort: ReasoningEffort | null
 	/** Where the agent works: filesystem tools, sub-agents, session store, skills. */
@@ -181,6 +189,7 @@ export function parseExecFlags(rawArgs: readonly string[]): ExecFlags {
 		session: null,
 		model: null,
 		provider: null,
+		account: null,
 		effort: null,
 		cwd: null,
 		permissionMode: null,
@@ -455,6 +464,17 @@ export function parseExecFlags(rawArgs: readonly string[]): ExecFlags {
 		if (
 			take(
 				a,
+				'account',
+				trimmed((v) => {
+					out.account = v
+				}),
+				idx,
+			)
+		)
+			continue
+		if (
+			take(
+				a,
 				'skills',
 				(v) => {
 					out.skills = v
@@ -672,9 +692,13 @@ export function applyProviderFlags(
 	if (!flags.provider && !flags.model) return prefs
 
 	if (flags.provider) {
+		// The account configured for this provider stays with it: naming the
+		// provider on the command line is not a request to sign in again.
+		const account = accountForProvider(prefs, flags.provider)
 		const member: ProviderChoice = {
 			id: flags.provider as ProviderId,
 			...(flags.model ? { model: flags.model } : {}),
+			...(account !== undefined ? { account } : {}),
 		}
 		return { ...prefs, providers: [member] }
 	}
@@ -683,8 +707,49 @@ export function applyProviderFlags(
 	if (!head) return prefs
 	// `flags.model` is non-null here: the early return above covers the case
 	// where neither flag was given, and the branch above covers `--provider`.
-	const remodelled: ProviderChoice = { id: head.id, model: flags.model as string }
+	const remodelled: ProviderChoice = { ...head, model: flags.model as string }
 	return { ...prefs, providers: [remodelled, ...rest] }
+}
+
+/**
+ * Apply `--account` to the chain: the named account becomes the primary's
+ * account, with its provider. Refused when the name matches no account, or
+ * when it belongs to another provider than `--provider` named.
+ */
+export function applyAccountFlag(
+	prefs: Preferences,
+	flags: Pick<ExecFlags, 'provider' | 'model' | 'account'>,
+	registry: Pick<AccountRegistry, 'list' | 'get'>,
+): Preferences | { readonly error: string } {
+	if (flags.account === null) return prefs
+	const found = findAccountByName(registry, flags.account)
+	if ('error' in found) return found
+	if (flags.provider && flags.provider !== found.account.provider) {
+		return {
+			error: `--account ${flags.account} belongs to ${found.account.provider}, not ${flags.provider}. Drop --provider or name another account.`,
+		}
+	}
+	return bindAccount(prefs, found.account, flags.model ? { model: flags.model } : {})
+}
+
+/**
+ * `--provider`, `--model` and `--account` together, for the commands that run
+ * one turn. The accounts are read only when `--account` is given.
+ */
+export function applyLaunchFlags(
+	prefs: Preferences,
+	flags: Pick<ExecFlags, 'provider' | 'model' | 'account'>,
+	openRegistry: () => Pick<AccountRegistry, 'list' | 'get'> = () => openCliAccounts().registry,
+): Preferences | { readonly error: string } {
+	const applied = applyProviderFlags(prefs, flags)
+	if (flags.account === null) return applied
+	let registry: Pick<AccountRegistry, 'list' | 'get'>
+	try {
+		registry = openRegistry()
+	} catch (error) {
+		return { error: `Could not read your accounts: ${(error as Error).message}` }
+	}
+	return applyAccountFlag(applied, flags, registry)
 }
 
 /** The tool servers this run starts: the config's, plus each `--mcp-config` file's. */

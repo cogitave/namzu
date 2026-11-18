@@ -19,8 +19,8 @@ import {
 	PLAN_PROMPT,
 	SUBAGENT_PROMPT,
 } from '../../integrations/subagents/runtime.js'
-import { WORKFLOW_DOCTRINE } from '../../integrations/workflows/doctrine.js'
 import { WORKFLOW_TOOL_NAME } from '../../integrations/workflows/offering.js'
+import { composeMemoryGuidance } from '../../memory/typed.js'
 import { EXIT_PLAN_MODE_TOOL_NAME } from '../../plan/approval.js'
 import { hypermodeReminders } from '../../reminders/hypermode.js'
 import { modeReminders } from '../../reminders/mode.js'
@@ -34,6 +34,7 @@ import {
 	NAMZU_WORKING_DOCTRINE,
 } from '../doctrine.js'
 import { type EnvironmentFacts, composeEnvironmentPrompt } from '../environment.js'
+import { composeFilePlacementGuidance } from '../file-placement.js'
 import { AGENT_LAUNCH_TOOL, FOREGROUND_BASH_DESCRIPTION, NAMZU_IDENTITY } from '../identity.js'
 
 /** Every builtin tool the SDK ships, by the name the model calls it. */
@@ -114,7 +115,7 @@ function environments(): readonly string[] {
 }
 
 /** The assembled main prompt with the largest environment block, in characters. */
-const MAIN_CEILING = 17_500
+const MAIN_CEILING = 15_500
 
 const join = (parts: readonly string[]): string => parts.join('\n\n')
 
@@ -123,7 +124,6 @@ function assembled(): ReadonlyArray<readonly [string, string]> {
 		NAMZU_IDENTITY,
 		NAMZU_WORKING_DOCTRINE,
 		NAMZU_DELEGATION_DOCTRINE,
-		WORKFLOW_DOCTRINE,
 		CONVERSATION_EVIDENCE_GUIDANCE,
 		DEFERRED_TOOL_GUIDANCE,
 	]
@@ -188,13 +188,20 @@ describe('the assembled prompts', () => {
 		expect(NAMZU_IDENTITY).not.toContain('bash.run')
 	})
 
-	it('says one thing about running shell commands in parallel', () => {
-		// The identity and the shell tool's own description both speak to it, so
-		// neither may send delegation through a sub-agent as a way to get parallel
-		// shell commands, and both keep the rule against claiming concurrency.
+	it('tells the model to send independent calls together, and says shell calls run in order in one short note', () => {
+		// One call per response doubled the requests a task cost, so the identity
+		// asks for independent reads, searches and commands in one response. The
+		// shell tool's own description agrees, and neither sends delegation
+		// through a sub-agent as a way to get parallel shell commands.
 		expect(FOREGROUND_BASH_DESCRIPTION).not.toContain(AGENT_LAUNCH_TOOL)
 		expect(NAMZU_IDENTITY).not.toMatch(/delegate genuinely independent work/i)
-		expect(NAMZU_IDENTITY).toContain('timestamped proof of overlap')
+		expect(NAMZU_IDENTITY).toContain(
+			'Send independent tool calls (reads, searches, independent commands) together in one response',
+		)
+		expect(NAMZU_IDENTITY).toContain('still run in order')
+		// The old wording made models send one call per response.
+		expect(NAMZU_IDENTITY).not.toContain('timestamped proof of overlap')
+		expect(NAMZU_IDENTITY).not.toContain('run one at a time')
 	})
 
 	it.each(assembled())('%s: uses ordinary emphasis, with no capitals stacks', (_n, text) => {
@@ -209,11 +216,12 @@ describe('the assembled prompts', () => {
 
 	it('states the wanted behaviour, keeping a flat never for the rules with no positive twin', () => {
 		// The main prompt once held 32 prohibitions in 14k characters. The flat
-		// nevers that remain are the git rules, which have no positive phrasing.
+		// nevers that remain are the git rules and the finishing rules (no plan in
+		// place of the work, no repeating a refused call), which have no positive phrasing.
 		const nevers =
 			(NAMZU_IDENTITY + NAMZU_WORKING_DOCTRINE).match(/\b[Nn]ever\b|\b[Dd]o not\b|\b[Dd]on't\b/g) ??
 			[]
-		expect(nevers.length).toBeLessThanOrEqual(8)
+		expect(nevers.length).toBeLessThanOrEqual(10)
 		for (const gone of [
 			'Never say you ran',
 			'Never invent file paths',
@@ -229,7 +237,7 @@ describe('the assembled prompts', () => {
 		)
 		// Narration is said once, in the working rules, and only for long work.
 		expect(NAMZU_IDENTITY).not.toMatch(/announce/i)
-		expect(NAMZU_WORKING_DOCTRINE).toContain('no line goes beside each call')
+		expect(NAMZU_WORKING_DOCTRINE).toContain('none beside each call')
 	})
 
 	it('gives each rule one home', () => {
@@ -237,7 +245,6 @@ describe('the assembled prompts', () => {
 			NAMZU_IDENTITY,
 			NAMZU_WORKING_DOCTRINE,
 			NAMZU_DELEGATION_DOCTRINE,
-			WORKFLOW_DOCTRINE,
 			CONVERSATION_EVIDENCE_GUIDANCE,
 		])
 		// Tool-specific rules live in the tool's description, not in the system prompt.
@@ -246,6 +253,7 @@ describe('the assembled prompts', () => {
 		expect(all).not.toContain('replace_all')
 		// The opt-in list for the workflow tool is in the tool's description only.
 		expect(all).not.toContain('saved workflow')
+		expect(all).not.toContain('`workflow`')
 		// Replaying an action for old output is spoken to once, in the working rules.
 		expect(all.match(/state-changing action/g) ?? []).toHaveLength(1)
 		// The prefer-dedicated-tools rule is in the working rules, not repeated in the identity.
@@ -266,7 +274,8 @@ describe('the assembled prompts', () => {
 	it('gives a delegated agent the working rules exactly once, under one blurb for its kind', () => {
 		for (const prompt of [SUBAGENT_PROMPT, EXPLORE_PROMPT, PLAN_PROMPT]) {
 			expect(prompt.match(/## How you work/g) ?? []).toHaveLength(1)
-			expect(prompt.match(/### Answering a question/g) ?? []).toHaveLength(1)
+			expect(prompt.match(/### Questions, problems and investigations/g) ?? []).toHaveLength(1)
+			expect(prompt.match(/### Finishing the work/g) ?? []).toHaveLength(1)
 		}
 		// A read-only searcher is not also told to change files and finish the whole task as a worker.
 		expect(EXPLORE_PROMPT).toContain('read-only sub-agent')
@@ -280,20 +289,22 @@ describe('the assembled prompts', () => {
 	})
 
 	it('keeps the system prompts short', () => {
-		// The figures a captured first request showed: about 17,500 characters for the
-		// main system message (these pieces plus the environment block the CLI
-		// composes) and about 7,500 for an explore agent. The pieces are measured
-		// without the environment so the bound does not move with the host; the
-		// assembled agents are measured with the largest environment block.
+		// A lean main prompt is part of how many requests a task costs. The pieces a
+		// default interactive session sends before the environment block (identity,
+		// working rules, delegation, where files go, memory, deferred-tool
+		// guidance) stay under about 10,000 characters (the placement rule for files that are not the work added about 450 to the earlier 9,600); the environment block is measured
+		// separately so the bound does not move with the host.
 		const pieces = [
 			NAMZU_IDENTITY,
 			NAMZU_WORKING_DOCTRINE,
 			NAMZU_DELEGATION_DOCTRINE,
-			WORKFLOW_DOCTRINE,
-			CONVERSATION_EVIDENCE_GUIDANCE,
+			composeFilePlacementGuidance(),
+			composeMemoryGuidance({ taskList: true }),
 			DEFERRED_TOOL_GUIDANCE,
 		]
-		expect(pieces.join('\n\n').length).toBeLessThan(14_550)
+		expect(pieces.join('\n\n').length).toBeLessThan(10_000)
+		expect(composeMemoryGuidance({ taskList: true }).length).toBeGreaterThan(600)
+		expect(composeMemoryGuidance({ taskList: true }).length).toBeLessThan(950)
 		for (const [name, text] of assembled()) {
 			if (name.startsWith('main')) expect(text.length, name).toBeLessThan(MAIN_CEILING)
 			if (name.startsWith('explore') || name.startsWith('planner'))
@@ -305,8 +316,8 @@ describe('the assembled prompts', () => {
 		for (const part of [
 			'the objective',
 			'what is out of bounds',
-			'which tools and sources to use',
-			'the shape of the reply you want',
+			'the sources to use',
+			'the shape of the reply',
 		]) {
 			expect(NAMZU_DELEGATION_DOCTRINE).toContain(part)
 		}
@@ -327,6 +338,21 @@ describe('the assembled prompts', () => {
 			/stop and ask|Reserve blocking questions|Ask for clarification|check in only when/,
 		)
 		expect(SUBAGENT_PROMPT).not.toContain('tell the user the command')
+	})
+
+	it('tells the parent to confirm risky actions first and a sub-agent to leave them alone', () => {
+		// Hard to reverse or outward-facing actions are confirmed before they run;
+		// a sub-agent has no one to confirm with, so it does not take them unless
+		// the task asks for exactly that.
+		expect(NAMZU_WORKING_DOCTRINE).toContain(
+			'Confirm first before an action that is hard to reverse',
+		)
+		expect(NAMZU_WORKING_DOCTRINE).toContain('Never type a credential the user did not give you')
+		expect(NAMZU_CHILD_WORKING_DOCTRINE).not.toContain('Confirm first')
+		expect(NAMZU_CHILD_WORKING_DOCTRINE).toContain(
+			'Do not take an action that is hard to reverse or visible outside this machine',
+		)
+		expect(NAMZU_CHILD_WORKING_DOCTRINE).toContain('Never type a credential')
 	})
 })
 

@@ -98,6 +98,12 @@ export interface WorkflowHostOptions {
 	/** What the operator was shown of each saved script; a run refuses a file that reads differently now. */
 	readonly reviewedScripts?: ReviewedScripts
 	readonly registry?: WorkflowRunRegistry
+	/**
+	 * The session's workflow size guideline, said at the end of the tool's
+	 * description (see `sessionWorkflowSizeAdvice`); empty for none. A session
+	 * fixes it at start, so the definition stays the same from turn to turn.
+	 */
+	readonly sizeAdvice?: string
 }
 
 export interface WorkflowHost {
@@ -193,7 +199,7 @@ export function createWorkflowHost(options: WorkflowHostOptions): WorkflowHost {
 	const registry = options.registry ?? new WorkflowRunRegistry()
 	const tool = defineTool({
 		name: WORKFLOW_TOOL_NAME,
-		description: WORKFLOW_TOOL_DESCRIPTION,
+		description: [WORKFLOW_TOOL_DESCRIPTION, options.sizeAdvice].filter(Boolean).join('\n\n'),
 		inputSchema: mcpJsonSchemaToZod({
 			type: 'object',
 			properties: {
