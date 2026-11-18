@@ -54,6 +54,24 @@ export function accountOfPreferences(prefs: Preferences): string | undefined {
 	return id === undefined || isDefaultAccountId(id) ? undefined : id
 }
 
+/**
+ * The account a chain pins for one provider: the first member of that
+ * provider that names an account other than the usual sign-in. Choosing a
+ * model or naming the provider again keeps it, so a person whose provider
+ * runs under a configured account is never sent back to an environment key.
+ */
+export function accountForProvider(prefs: Preferences, provider: string): string | undefined {
+	for (const member of prefs.providers) {
+		if (
+			member.id === provider &&
+			member.account !== undefined &&
+			!isDefaultAccountId(member.account)
+		)
+			return member.account
+	}
+	return undefined
+}
+
 /** Look up the account a `--account` value names: `<label>` or `<provider>:<label>`. */
 export function findAccountByName(
 	registry: Pick<AccountRegistry, 'list' | 'get'>,

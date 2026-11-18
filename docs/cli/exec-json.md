@@ -23,7 +23,7 @@ namzu exec --json --session my-window-7 "refactor the parser" \
 ```
 
 It takes the same options as the default mode (`--provider`, `--model`,
-`--effort`, `--permission-mode`, `--cwd`, `--skills`, `--gate`, `--trust`,
+`--account` ([accounts](accounts.md#starting-on-an-account)), `--effort`, `--permission-mode`, `--cwd`, `--skills`, `--gate`, `--trust`,
 `--output-schema`, `--mcp-config`, the limit flags, the [per-run flags](run-flags.md) and the `[permissions]` config table),
 except `--continue`, `--resume`, `--fork-session` and `--wait-for-provider`, which are refused by
 name rather than ignored. With `--output-schema <file>` the settled answer in
