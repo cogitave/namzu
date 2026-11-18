@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+	asksForCredential,
 	classifyHumanRequired,
 	isBotBlockTitle,
 	isCaptchaFrame,
@@ -8,6 +9,8 @@ import {
 	signInNotice,
 } from '../classifier.js'
 import { FIXTURE_EXPECTATIONS } from './fixture-signals.js'
+
+const address = { signInDetection: 'address' } as const
 
 const NEUTRAL = 'https://shop.example.test/account/overview'
 
@@ -23,14 +26,17 @@ describe('classifyHumanRequired over the fixture pages', () => {
 	for (const [name, expected] of Object.entries(FIXTURE_EXPECTATIONS)) {
 		it(`${name} → ${expected.reason ?? 'no person needed'}`, () => {
 			expect(
-				classifyHumanRequired({
-					url: `https://shop.example.test/${name}`,
-					title: expected.title,
-					passwordFields: expected.passwordFields,
-					oneTimeCodeFields: expected.oneTimeCodeFields,
-					frameUrls: expected.frameUrls,
-					status: expected.status ?? 200,
-				}),
+				classifyHumanRequired(
+					{
+						url: `https://shop.example.test/${name}`,
+						title: expected.title,
+						passwordFields: expected.passwordFields,
+						oneTimeCodeFields: expected.oneTimeCodeFields,
+						frameUrls: expected.frameUrls,
+						status: expected.status ?? 200,
+					},
+					address,
+				),
 			).toBe(expected.reason)
 		})
 	}
@@ -130,31 +136,42 @@ describe('classifyHumanRequired', () => {
 
 	it('reads a sign-in address even with no password box on the page', () => {
 		expect(
-			classifyHumanRequired({
-				...quiet,
-				url: 'https://accounts.google.com/v3/signin',
-			}),
+			classifyHumanRequired(
+				{
+					...quiet,
+					url: 'https://accounts.google.com/v3/signin',
+				},
+				address,
+			),
 		).toBe('sign-in')
-		expect(classifyHumanRequired({ ...quiet, url: 'https://github.com/login' })).toBe('sign-in')
-		expect(classifyHumanRequired({ ...quiet, url: 'https://example.com/sso/start' })).toBe(
+		expect(classifyHumanRequired({ ...quiet, url: 'https://github.com/login' }, address)).toBe(
+			'sign-in',
+		)
+		expect(classifyHumanRequired({ ...quiet, url: 'https://example.com/sso/start' }, address)).toBe(
 			'sign-in',
 		)
 	})
 
 	it('reads a second-factor address as two-factor, not sign-in', () => {
 		expect(
-			classifyHumanRequired({
-				...quiet,
-				url: 'https://github.com/sessions/two-factor/app',
-			}),
+			classifyHumanRequired(
+				{
+					...quiet,
+					url: 'https://github.com/sessions/two-factor/app',
+				},
+				address,
+			),
 		).toBe('two-factor')
 		expect(
-			classifyHumanRequired({
-				...quiet,
-				url: 'https://example.com/login',
-				status: 200,
-				oneTimeCodeFields: 1,
-			}),
+			classifyHumanRequired(
+				{
+					...quiet,
+					url: 'https://example.com/login',
+					status: 200,
+					oneTimeCodeFields: 1,
+				},
+				address,
+			),
 		).toBe('two-factor')
 	})
 
@@ -185,7 +202,7 @@ describe('isSignInAddress', () => {
 		['https://notgithub.com/login-help', false],
 		['file:///login', false],
 	])('%s → %s', (url, expected) => {
-		expect(isSignInAddress(url)).toBe(expected)
+		expect(isSignInAddress(url, address)).toBe(expected)
 	})
 })
 
@@ -262,10 +279,17 @@ describe('signInDetection: page', () => {
 		status: 200,
 	}
 
-	it("keeps today's answer by default: a /login path alone is a sign-in", () => {
-		expect(classifyHumanRequired(demo)).toBe('sign-in')
-		expect(classifyHumanRequired({ ...demo, passwordFields: 1 })).toBe('sign-in')
-		expect(isSignInAddress(demo.url)).toBe(true)
+	it('is the default: a /login path alone is not a sign-in, and the page is noted instead', () => {
+		expect(classifyHumanRequired(demo)).toBeUndefined()
+		expect(classifyHumanRequired({ ...demo, passwordFields: 1 })).toBeUndefined()
+		expect(isSignInAddress(demo.url)).toBe(false)
+		expect(signInNotice({ ...demo, passwordFields: 1 })).toContain('You cannot type one')
+	})
+
+	it('keeps the old answer when address is asked for: a /login path alone is a sign-in', () => {
+		expect(classifyHumanRequired(demo, address)).toBe('sign-in')
+		expect(classifyHumanRequired({ ...demo, passwordFields: 1 }, address)).toBe('sign-in')
+		expect(isSignInAddress(demo.url, address)).toBe(true)
 	})
 
 	it('does not stop on a /login path, with or without a password field', () => {
@@ -316,11 +340,24 @@ describe('signInDetection: page', () => {
 		expect(text).toContain('namzu browser login work')
 		expect(signInNotice({ ...demo, oneTimeCodeFields: 1 }, page)).toContain('code')
 		expect(signInNotice(demo, page)).toBeUndefined()
-		// Today's mode stops the turn instead, so it has nothing to add.
-		expect(signInNotice({ ...demo, passwordFields: 1 })).toBeUndefined()
+		// Address mode stops the turn instead, so it has nothing to add.
+		expect(signInNotice({ ...demo, passwordFields: 1 }, address)).toBeUndefined()
 		// A page that already stopped the turn is not noted twice.
 		expect(
 			signInNotice({ ...demo, url: 'https://accounts.google.com/x', passwordFields: 1 }, page),
 		).toBeUndefined()
+	})
+})
+
+describe('asksForCredential', () => {
+	it.each([
+		['Enter your password to continue', true],
+		['Please type the one-time code we sent you', true],
+		['Passcode:', true],
+		['Your 2FA code?', true],
+		['Name your new folder', false],
+		['How many copies?', false],
+	])('%s → %s', (message, expected) => {
+		expect(asksForCredential(message)).toBe(expected)
 	})
 })

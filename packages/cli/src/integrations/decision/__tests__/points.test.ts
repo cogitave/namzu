@@ -39,6 +39,26 @@ describe('a decision point', () => {
 		expect(entries).toEqual([])
 	})
 
+	it('puts pick on, and every other point off, once a decision model is configured and nothing is named', () => {
+		const { model } = modelAnswering(0.9)
+		const points = createDecisionPoints({ model, modes: undefined })
+		expect(points.mode('pick')).toBe('on')
+		for (const other of ['notify', 'memory', 'skill'] as const)
+			expect(points.mode(other)).toBe('off')
+		expect(createDecisionPoints({ model, modes: {} }).mode('pick')).toBe('on')
+		expect(createDecisionPoints({ model, modes: { notify: 'on' } }).mode('pick')).toBe('on')
+	})
+
+	it('lets an explicit pick mode win over the default', () => {
+		const { model } = modelAnswering(0.9)
+		expect(createDecisionPoints({ model, modes: { pick: 'off' } }).mode('pick')).toBe('off')
+		expect(createDecisionPoints({ model, modes: { pick: 'shadow' } }).mode('pick')).toBe('shadow')
+	})
+
+	it('keeps pick off without a decision model', () => {
+		expect(createDecisionPoints({ model: undefined, modes: undefined }).mode('pick')).toBe('off')
+	})
+
 	it('is off without a model, whatever the config says', async () => {
 		const points = createDecisionPoints({ model: undefined, modes: { notify: 'on' } })
 		expect(points.mode('notify')).toBe('off')
@@ -201,7 +221,7 @@ describe('a decision point asked to choose', () => {
 		const entries: DecisionLogEntry[] = []
 		const points = createDecisionPoints({
 			model,
-			modes: undefined,
+			modes: { pick: 'off' },
 			log: (e) => entries.push(e),
 		})
 		expect(await points.choose(ask())).toBeUndefined()

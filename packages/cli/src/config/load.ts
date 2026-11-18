@@ -1669,6 +1669,34 @@ const CONFIG_READERS: ConfigReaders = {
 		}
 	},
 	browser: (v, context) => readBrowserConfig(v, context),
+	progressNudge: (v, context) => {
+		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
+		for (const key of Object.keys(v)) {
+			if (key !== 'mode' && key !== 'afterSeconds' && key !== 'afterCalls') {
+				return invalidConfigValue(
+					context,
+					[key],
+					'is not a progressNudge setting (mode, afterSeconds, afterCalls)',
+				)
+			}
+		}
+		const raw = v as { mode?: unknown; afterSeconds?: unknown; afterCalls?: unknown }
+		if (raw.mode !== undefined && !['auto', 'on', 'off'].includes(raw.mode as string))
+			return invalidConfigValue(context, ['mode'], 'must be auto, on or off')
+		for (const key of ['afterSeconds', 'afterCalls'] as const) {
+			const value = raw[key]
+			if (
+				value !== undefined &&
+				(typeof value !== 'number' || !Number.isInteger(value) || value < 1)
+			)
+				return invalidConfigValue(context, [key], 'must be a whole number, 1 or more')
+		}
+		return {
+			...(raw.mode !== undefined ? { mode: raw.mode as 'auto' | 'on' | 'off' } : {}),
+			...(raw.afterSeconds !== undefined ? { afterSeconds: raw.afterSeconds as number } : {}),
+			...(raw.afterCalls !== undefined ? { afterCalls: raw.afterCalls as number } : {}),
+		}
+	},
 	codeAnalysis: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		for (const key of Object.keys(v)) {
@@ -2499,6 +2527,8 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// Reads project files into an index kept under the Namzu home; a file
 	// decision, never a variable a shell profile could carry invisibly.
 	codeAnalysis: undefined,
+	// Whether the model is nudged to speak is a file decision, not a shell's.
+	progressNudge: undefined,
 	// A hook runs a command with the operator's authority; the file is the only
 	// place one may be declared.
 	hooks: undefined,
@@ -3045,6 +3075,12 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 			if (key === 'browser' && layer.config.browser) {
 				// Merged, not replaced: see `mergeBrowserConfig`.
 				out.browser = mergeBrowserConfig(out.browser, layer.config.browser, layer.sourceFor(key))
+				provenance[key] = layer.sourceFor(key)
+				continue
+			}
+			if (key === 'progressNudge' && layer.config.progressNudge) {
+				// Key by key: a later file that sets only the mode keeps the stretch an earlier one set.
+				out.progressNudge = { ...out.progressNudge, ...layer.config.progressNudge }
 				provenance[key] = layer.sourceFor(key)
 				continue
 			}

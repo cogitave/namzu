@@ -62,6 +62,11 @@ export interface Adapter {
 	/** With `capabilities.uiTree`. */
 	uiAct?(ref: string, action: UiElementAction, value?: string): Promise<UiActResult>
 	dispose?(): Promise<void>
+	/**
+	 * Lets go of what the adapter keeps running while nobody uses it; the next call starts it again.
+	 * Optional: an adapter that holds nothing between calls has nothing to let go of.
+	 */
+	release?(stillIdle?: () => boolean): Promise<void>
 }
 
 /**

@@ -319,7 +319,7 @@ the next time `ToolManager.refresh()` is asked, with nothing to register or
 unregister), and `agents`/`agents:*` (the coordinator tools — parent-only: a
 sub-agent's own roster reuses the SAME `builtin`/`memory` `Toolset` objects
 directly, never these). A withheld-tools denylist and
-`toolLoading: 'deferred'` are both `filtered`/`deferred` wrappers applied
+`toolLoading: 'deferred'` (the default; see [Tool discovery](tool-discovery.md#the-cli-defers-by-default)) are both `filtered`/`deferred` wrappers applied
 per named toolset — never to one toolset collapsed from the others first,
 since `ToolManager` reads a derived tool's default availability off
 whichever ARRAY ENTRY served its name, and a toolset combined from an

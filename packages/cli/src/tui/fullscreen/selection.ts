@@ -133,6 +133,12 @@ export interface Geometry {
 	readonly left: number
 	/** Cells of text a row has. */
 	readonly cols: number
+	/**
+	 * Set when the conversation is shorter than the window and sits at its top: the rows drawn above
+	 * the first row of text (the header). Absent when the rows sit at the bottom, as they do once
+	 * the conversation fills the window.
+	 */
+	readonly packed?: number
 }
 
 /** Where a pointer report landed: on a row, or beyond the window's top or bottom. */
@@ -146,7 +152,9 @@ export function landOn(g: Geometry, x: number, y: number): Landing {
 	if (g.to <= g.from) return { kind: 'outside' }
 	const bottom = g.top + g.height - 1
 	const col = Math.min(Math.max(x - g.left, 0), Math.max(0, g.cols - 1))
-	const row = g.to - 1 - (bottom - g.footer - y)
+	const textBottom =
+		g.packed !== undefined ? g.top + g.packed + (g.to - g.from) - 1 : bottom - g.footer
+	const row = g.to - 1 - (textBottom - y)
 	if (y < g.top) return { kind: 'above', point: { line: g.from, col } }
 	if (y > bottom) return { kind: 'outside' }
 	if (row < g.from) return { kind: 'above', point: { line: g.from, col } }

@@ -1,14 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+	blankRanges,
 	chipRanges,
 	expandChips,
+	expandChipsWithRanges,
+	expandMentionsAround,
 	highestAttachmentNumber,
 	isChipPaste,
 	keepChipsWhole,
 	numberAttachments,
 	pasteChip,
 	pasteChipLines,
+	shiftRanges,
 	snapOutOfChip,
 	widenOverChips,
 } from './paste-chips.js'
@@ -82,5 +86,57 @@ describe('paste chips', () => {
 		expect(numberAttachments('no markers', ['Image', 'Image'], 4)).toEqual([5, 6])
 		expect(numberAttachments('typed [Image #9] by hand', ['Image', 'Image'], 2)).toEqual([10, 11])
 		expect(highestAttachmentNumber('[Image #2] [Document #7] [Pasted text #9]')).toBe(7)
+	})
+})
+
+describe('where a paste lands in the sent text', () => {
+	const pastes = new Map([
+		[1, 'ONE\nTWO'],
+		[2, 'THREE'],
+	])
+
+	it('reports the stretch each held paste takes, and leaves a hand-edited chip alone', () => {
+		const out = expandChipsWithRanges(
+			'a [Pasted text #1 +1 lines] b [Pasted text #2] [Pasted text #9]',
+			pastes,
+		)
+		expect(out.text).toBe('a ONE\nTWO b THREE [Pasted text #9]')
+		expect(out.ranges).toEqual([
+			{ start: 2, end: 9 },
+			{ start: 12, end: 17 },
+		])
+		for (const range of out.ranges)
+			expect(['ONE\nTWO', 'THREE']).toContain(out.text.slice(range.start, range.end))
+	})
+
+	it('agrees with expandChips on the text', () => {
+		const value = '  x [Pasted text #2] y '
+		expect(expandChipsWithRanges(value, pastes).text).toBe(expandChips(value, pastes))
+	})
+
+	it('moves with a trim and drops what the trim cuts away', () => {
+		expect(shiftRanges([{ start: 2, end: 9 }], 2, 7)).toEqual([{ start: 0, end: 7 }])
+		expect(shiftRanges([{ start: 0, end: 2 }], 2, 7)).toEqual([])
+	})
+
+	it('blanks pasted stretches without moving anything else', () => {
+		expect(blankRanges('see @a.ts PASTE @b.ts', [{ start: 10, end: 15 }])).toBe(
+			'see @a.ts       @b.ts',
+		)
+		expect(blankRanges('same', undefined)).toBe('same')
+	})
+
+	it('reads no file mention inside a paste, and still appends what the typed ones bring', () => {
+		const seen: string[] = []
+		const out = expandMentionsAround(
+			'look @typed.ts then @pasted.ts',
+			[{ start: 16, end: 30 }],
+			(text) => {
+				seen.push(text)
+				return { sendText: `${text}\n\n<file path="typed.ts">x</file>` }
+			},
+		)
+		expect(seen[0]).not.toContain('@pasted.ts')
+		expect(out.sendText.startsWith('look @typed.ts then @pasted.ts\n\n<file')).toBe(true)
 	})
 })

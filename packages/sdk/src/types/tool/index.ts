@@ -220,6 +220,8 @@ export interface BackgroundJobRegistryRef {
 	start(params: { command: string; workingDirectory: string }): {
 		id: string
 		status: string
+		/** The file the job's output is also written to, when the host keeps one. */
+		outputFile?: string
 	}
 	/**
 	 * Start a command whose stdout lines reach the model as events while it
@@ -256,6 +258,8 @@ export interface BackgroundJobRegistryRef {
 		error?: string
 		/** When it last wrote output (epoch ms); absent until it has. */
 		lastOutputAt?: number
+		/** The file the job's output is also written to, when the host keeps one. */
+		outputFile?: string
 	}
 	/**
 	 * Take over a process the caller already started and is waiting on, so a
@@ -268,7 +272,7 @@ export interface BackgroundJobRegistryRef {
 		child: ChildProcess
 		workingDirectory?: string
 		initialOutput?: readonly { readonly stream: 'stdout' | 'stderr'; readonly text: string }[]
-	}): { id: string; status: string }
+	}): { id: string; status: string; outputFile?: string }
 	/**
 	 * Offer a foreground command this call is waiting on for hand-over to the
 	 * background, until the returned function is called. `background` is asked
@@ -1295,6 +1299,18 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	 * the safe direction to be wrong in.
 	 */
 	pathArgument?: string
+	/**
+	 * Names of tools that are needed right after this one in ordinary use, so
+	 * `search_tools` loads them in the same call when it loads this one.
+	 *
+	 * Declared for a pair that is only useful together (a tool that looks and
+	 * a tool that acts on what it saw), so a deferred session pays one search
+	 * and one extra model request, not two. A name that is not deferred, not
+	 * permitted this turn or not served at all is skipped; a companion's own
+	 * `loadsWith` is not followed. Keep it to a tool the next step would
+	 * otherwise have to search for: a loaded schema rides every later request.
+	 */
+	loadsWith?: readonly string[]
 	/**
 	 * A refusal that needs no person's answer: the call cannot run as it stands,
 	 * and the tool can already tell.

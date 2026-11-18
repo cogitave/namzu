@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
 	net,
@@ -56,6 +56,7 @@ import {
 } from '../shared/workspace-layout.js'
 import { OVERLAY_SIZE, overlayBitmap } from './attention-overlay.js'
 import { AttentionSignals } from './attention-signals.js'
+import { BringBack } from './bring-back.js'
 import { bundledCliEntry } from './bundled-runtime.js'
 import { ClipboardTextWriter } from './clipboard-text.js'
 import { ConfigSettings } from './config-settings.js'
@@ -156,6 +157,8 @@ import {
 } from './window-chrome.js'
 import { clickWindowMenuItem, windowMenuItem, windowMenuModel } from './window-menu.js'
 import { WindowRecovery } from './window-recovery.js'
+import { createPillSurface } from './working-pill-window.js'
+import { WorkingPill } from './working-pill.js'
 import {
 	WorkspaceWindowRegistry,
 	WorkspaceWindows,
@@ -537,6 +540,27 @@ const attention = new AttentionSignals({
 		}),
 	enabled: () => settingsStore.get().attentionSignals,
 })
+// Brought forward once when something needs the main window and an application covers it.
+const bringBack = new BringBack(() =>
+	windows.entries().map(([, window]) => ({
+		isDestroyed: () => window.isDestroyed(),
+		isFocused: () => window.isFocused(),
+		isMinimized: () => window.isMinimized(),
+		isVisible: () => window.isVisible(),
+		// Windows keeps another application's window on top of a background one: a request to move
+		// up is dropped. A window made topmost and let go again lands above the ordinary windows
+		// without taking focus, which is the one way a background program may show itself.
+		moveTop: () => {
+			if (process.platform === 'win32' && !window.isAlwaysOnTop()) {
+				window.setAlwaysOnTop(true)
+				window.setAlwaysOnTop(false)
+			} else window.moveTop()
+		},
+		flashFrame: (flash: boolean) => window.flashFrame(flash),
+	})),
+)
+// The pill is made when operator exists; events that arrive before then have nothing to show.
+const working: { pill?: WorkingPill } = {}
 /** A notification was clicked: bring a window forward and show that conversation. */
 function showConversationFromNotice(sessionId: string): void {
 	const open = new Map(windows.entries())
@@ -657,6 +681,11 @@ const operator = new Operator(
 					discardAbortedWindows()
 				})
 				.catch((error) => diagnostics.record('ipc_failed', { operation: 'closeTerminals', error }))
+		try {
+			working.pill?.observe(event)
+		} catch (error) {
+			diagnostics.record('ipc_failed', { operation: 'workingPill', error })
+		}
 		windows.fanout(event, (error) => diagnostics.record('renderer_failed', { error }))
 	},
 	app.getPath('userData'),
@@ -684,8 +713,24 @@ const operator = new Operator(
 		viewedConversations,
 		attentionChanged: (ids) => attention.update(ids),
 		notices,
+		// The agent is never allowed into Namzu's own windows: it could answer its own questions.
+		ownAppNames: () => [app.getName(), 'Namzu', basename(process.execPath), 'Electron'],
+		needsMainWindow: () => {
+			bringBack.needed()
+		},
 	},
 )
+working.pill = new WorkingPill({
+	create: (act) => createPillSurface(act),
+	stop: (sessionId) => operator.cancel(sessionId),
+	answer: (sessionId, requestId, response) =>
+		operator.respondPermission(sessionId, requestId, response),
+	own: (name) =>
+		[app.getName(), 'Namzu', basename(process.execPath), 'Electron'].some(
+			(own) =>
+				own.replace(/\.exe$/i, '').toLowerCase() === name.replace(/\.exe$/i, '').toLowerCase(),
+		),
+})
 operatorReady = true
 /** Documents as the platform names it; the home folder's Documents when the platform has none. */
 function documentsFolder(): string {
@@ -935,6 +980,7 @@ function register(): void {
 		['updateQueued', 0],
 		['sendNow', 0],
 		['respondPermission', 0],
+		['revokeComputerApp', 0],
 		['stopJob', 0],
 		['renameConversation', 0],
 		['setConversationPinned', 0],
@@ -1715,6 +1761,7 @@ function register(): void {
 	handle('respondPermission', (id: string, request: string, response: PermissionResponse) =>
 		operator.respondPermission(id, request, response),
 	)
+	handle('revokeComputerApp', (id: string, app: string) => operator.revokeComputerApp(id, app))
 	handle('jobs', (id: string) => operator.jobs(id))
 	handle('backgroundWorkStatuses', () => operator.backgroundWorkStatuses())
 	handle('refreshTasks', (id: string) => operator.refreshTasks(id))
@@ -1860,6 +1907,7 @@ async function createWindow(
 	window.on('focus', () => {
 		attention.refresh()
 		notices.focused()
+		bringBack.focused()
 	})
 	// Moving between two windows blurs one before the other focuses: look again once it has settled.
 	window.on('blur', () => attention.windowBlurred())
@@ -2126,6 +2174,7 @@ function shutdown(): Promise<void> {
 	recordOnce('quit_requested')
 	if (shutdownRun) return shutdownRun
 	quitting = true
+	working.pill?.close()
 	sidebarSnapshot.flush()
 	// A check that runs is stopped and the engine log reaches its file; a stuck one is not waited for.
 	const engineStop = engineDelivery

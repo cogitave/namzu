@@ -10,6 +10,7 @@ import type {
 import { needsYouIds } from '../shared/attention-state.js'
 import type { BackgroundWorkStatus } from '../shared/background-work-protocol.js'
 import { resolveComposerSendOptions } from '../shared/composer-send-options.js'
+import { COMPUTER_FRAME_NOTIFICATION, readComputerFrame } from '../shared/computer-protocol.js'
 import {
 	type ConfigSettingsView,
 	readConfigSettingsView,
@@ -95,6 +96,7 @@ import {
 	validateAttachmentBatch,
 } from './attachments.js'
 import { type BackgroundWorkOwner, BackgroundWorkStatusTracker } from './background-work-status.js'
+import { ComputerGrants } from './computer-grants.js'
 import { ConversationUnread } from './conversation-unread.js'
 import {
 	type DesktopConversationSnapshot,
@@ -131,6 +133,31 @@ interface PendingMessage {
 	/** Authored edits and explicit clears fence first-prompt recovery. */
 	draftRevision: number
 	options?: Omit<DesktopSendOptions, 'attachmentIds'>
+	/** Pasted stretches of `prompt`, checked; sent only to an engine that sets them apart. */
+	pasted?: { start: number; end: number }[]
+}
+
+/** The ranges of `prompt` a renderer says were pasted, or none when they do not fit it. */
+function readPastedRanges(value: unknown, prompt: string): { start: number; end: number }[] {
+	if (!Array.isArray(value) || value.length > 64) return []
+	const ranges: { start: number; end: number }[] = []
+	let floor = 0
+	for (const item of value) {
+		const range = item as { start?: unknown; end?: unknown } | null
+		if (
+			!range ||
+			typeof range !== 'object' ||
+			!Number.isInteger(range.start) ||
+			!Number.isInteger(range.end) ||
+			(range.start as number) < floor ||
+			(range.end as number) <= (range.start as number) ||
+			(range.end as number) > prompt.length
+		)
+			return []
+		floor = range.end as number
+		ranges.push({ start: range.start as number, end: range.end as number })
+	}
+	return ranges
 }
 interface LiveInputReceipt {
 	id: string
@@ -251,6 +278,7 @@ interface Conversation {
 	restorePending?: boolean
 	permissions: Map<string, string | number>
 }
+type ComputerAppsViewResult = import('../shared/computer-protocol.js').ComputerAppsView
 /** A stored model list older than this is read again in the background. */
 const MODEL_LIST_MAX_AGE_MS = 6 * 60 * 60 * 1000
 // The CLI's own wording; only this notice describes the list rather than the conversation.
@@ -507,6 +535,16 @@ export class Operator {
 			viewedConversations?: () => ReadonlySet<string>
 			/** The conversations that need the person changed; called with every one that does. */
 			attentionChanged?: (ids: string[]) => void
+			/**
+			 * Names of this application's own windows, as the engine reports an application. The agent
+			 * is never allowed into them, so it cannot answer its own questions.
+			 */
+			ownAppNames?: () => readonly string[]
+			/**
+			 * A conversation needs the main window and the pill cannot answer it: bring the window
+			 * forward once if it is covered. `question` is a turn that ended asking something.
+			 */
+			needsMainWindow?: (reason: 'approval' | 'question', sessionId: string) => void
 			/**
 			 * What the system notifications need to know. Facts only (a conversation id, how a turn
 			 * ended); never a message, a file or a command.
@@ -837,6 +875,37 @@ export class Operator {
 			})),
 		)
 	}
+	/** What each conversation has allowed the agent to drive, by conversation. */
+	private readonly computerGrants = new Map<string, ComputerGrants>()
+	/** Conversations whose running turn has driven the computer: only these may raise Namzu over other applications. */
+	private readonly computerTurns = new Set<string>()
+	/** The requests that ask whether to allow applications, by request id. */
+	private readonly appRequests = new Map<string, { sessionId: string; apps: string[] }>()
+	private grantsFor(sessionId: string): ComputerGrants {
+		let grants = this.computerGrants.get(sessionId)
+		if (!grants) {
+			grants = new ComputerGrants(() => this.options.ownAppNames?.() ?? ['Namzu', 'Electron'])
+			this.computerGrants.set(sessionId, grants)
+		}
+		return grants
+	}
+	private announceComputerApps(sessionId: string): void {
+		this.emit({ kind: 'computer-apps', sessionId, ...this.grantsFor(sessionId).view() })
+	}
+	/** The person took an application back; the next action in it asks again. */
+	revokeComputerApp(sessionId: string, app: string): ComputerAppsViewResult {
+		this.session(sessionId)
+		if (typeof app !== 'string' || !app.trim() || app.length > 120)
+			throw new Error('Invalid application.')
+		this.grantsFor(sessionId).revoke(app)
+		this.announceComputerApps(sessionId)
+		return this.grantsFor(sessionId).view()
+	}
+	/** The applications this conversation has allowed and the ones it has used. */
+	computerApps(sessionId: string): ComputerAppsViewResult {
+		this.session(sessionId)
+		return this.grantsFor(sessionId).view()
+	}
 	private attentionChanged(): void {
 		if (this.options.attentionChanged || this.options.notices) {
 			try {
@@ -861,6 +930,19 @@ export class Operator {
 			error || stopReason === 'error' ? 'failed' : stopReason === 'cancelled' ? 'other' : 'finished'
 		try {
 			this.options.notices?.turnEnded(session.view.id, outcome, Boolean(session.view.palId))
+			// A reply that ends on a question waits for the person; if Namzu is covered by the
+			// application it was driving, the window comes forward once.
+			const reply = outcome === 'finished' ? lastReplyText(session.projection.messages) : undefined
+			// Only a turn that drove the computer can have been covered by what it drove; any other
+			// question is left to the notice above.
+			if (
+				reply &&
+				!session.view.palId &&
+				this.computerTurns.has(session.view.id) &&
+				/[?？]\s*$/.test(reply.trim())
+			)
+				this.options.needsMainWindow?.('question', session.view.id)
+			this.computerTurns.delete(session.view.id)
 		} catch (error) {
 			this.diagnostics?.record('ipc_failed', { operation: 'notice', error })
 		}
@@ -1744,7 +1826,10 @@ export class Operator {
 					wasWaiting !== session.projection.permissions.length
 				)
 					this.attentionChanged()
-				if (!wasRunning && session.projection.running) this.options.notices?.turnStarted(id)
+				if (!wasRunning && session.projection.running) {
+					this.computerTurns.delete(id)
+					this.options.notices?.turnStarted(id)
+				}
 				if (wasRunning && !session.projection.running) this.noticeTurnEnded(session)
 				if (
 					wasRunning &&
@@ -4702,11 +4787,13 @@ export class Operator {
 			throw new Error('Update Namzu to a version that can apply message settings.')
 		if (typeof prompt !== 'string' || (!prompt.trim() && !files.length) || prompt.length > 50_000)
 			throw new Error('Enter a message under 50,000 characters.')
+		const pasted = readPastedRanges(options?.pasted, prompt)
 		const captured: PendingMessage = {
 			id: randomUUID(),
 			prompt,
 			files,
 			draftRevision: session.draftRevision ?? 0,
+			...(pasted.length ? { pasted } : {}),
 			...(options || session.view.palId
 				? {
 						options: resolveComposerSendOptions(options, session.view.palId),
@@ -5467,7 +5554,7 @@ export class Operator {
 		void running.then(clear, clear)
 	}
 	private async run(session: Conversation, item: PendingMessage): Promise<void> {
-		const { prompt, files, options } = item
+		const { prompt, files, options, pasted } = item
 		const hadPrompted =
 			session.hasPrompted &&
 			(!session.view.palId ||
@@ -5527,6 +5614,8 @@ export class Operator {
 					prompt: content,
 					...(images.length ? { attachments: images } : {}),
 					...(options && session.client.supportsPromptOptions() ? { options } : {}),
+					// `prompt` leads `content`, so its offsets still hold.
+					...(pasted?.length && session.client.supportsPromptPasted() ? { pasted } : {}),
 				},
 				0,
 			)) as AcpSessionPromptResult
@@ -5924,6 +6013,30 @@ export class Operator {
 		if (wireId === undefined || !session.running)
 			throw new Error('This approval is no longer pending.')
 		session.permissions.delete(requestId)
+		const appRequest = this.appRequests.get(requestId)
+		this.appRequests.delete(requestId)
+		if (appRequest) {
+			// The yes of a whole conversation is Namzu's to keep; the engine is told one plain yes,
+			// so its own "approve all" is never set by a question about an application.
+			if (answer.outcome === 'approve_all') {
+				this.grantsFor(sessionId).grant(appRequest.apps)
+				this.announceComputerApps(sessionId)
+			}
+			session.client.answer(
+				wireId,
+				answer.outcome === 'reject'
+					? {
+							outcome: 'reject',
+							feedback:
+								answer.feedback ??
+								`The person did not allow Namzu to use ${appRequest.apps.join(' and ')} in this conversation.`,
+							declined: answer.note ? { note: answer.note } : {},
+						}
+					: { outcome: 'approve' },
+			)
+			this.emit({ kind: 'permission-cleared', sessionId, requestId })
+			return
+		}
 		// A No from the window is the person's, so the agent records the call as
 		// declined by them; the refusals this host makes itself do not say so.
 		session.client.answer(
@@ -5978,6 +6091,21 @@ export class Operator {
 				(!session.view.harness || session.view.harness === 'namzu')
 			)
 				this.emit({ ...notice, kind: 'usage', sessionId: session.view.id })
+		} else if (frame.method === COMPUTER_FRAME_NOTIFICATION) {
+			// What the model saw after a computer action, small. One that does not read, or names a
+			// conversation this connection does not own, is dropped.
+			const seen = readComputerFrame(frame.params)
+			const session = seen ? this.runtimeSession(project, seen.sessionId) : undefined
+			if (seen && session && (!session.view.harness || session.view.harness === 'namzu')) {
+				this.emit({
+					kind: 'computer-frame',
+					sessionId: session.view.id,
+					frame: { ...seen, sessionId: session.view.id },
+				})
+				this.computerTurns.add(session.view.id)
+				if (seen.app && this.grantsFor(session.view.id).markUsed(seen.app))
+					this.announceComputerApps(session.view.id)
+			}
 		} else if (frame.method === TITLE_NOTIFICATION) {
 			// The name the model gave a conversation. It replaces the words of the first message only
 			// while the title is still those words: a name the person typed is never overwritten.
@@ -6046,15 +6174,44 @@ export class Operator {
 				project.client.answer(frame.id, { outcome: 'reject' })
 				return
 			}
+			const calls = readPermissionCalls(params.toolCalls)
+			// Actions in an application this conversation allowed run without a card; an
+			// application nobody allowed yet is asked about once, in place of its first action.
+			const decision = this.grantsFor(session.view.id).decide(calls)
+			if (decision.kind === 'allow') {
+				for (const call of calls) {
+					for (const app of call.computer?.apps ?? [call.computer?.app]) {
+						if (app && this.grantsFor(session.view.id).markUsed(app))
+							this.announceComputerApps(session.view.id)
+					}
+				}
+				project.client.answer(frame.id, { outcome: 'approve' })
+				return
+			}
 			const id = randomUUID()
 			session.permissions.set(id, frame.id)
 			const request: PermissionView = {
 				id,
 				sessionId: session.view.id,
 				projectId: project.view.id,
-				calls: readPermissionCalls(params.toolCalls),
+				calls,
+				...(decision.kind === 'ask-app' ? { appRequest: { apps: decision.apps } } : {}),
 			}
+			if (decision.kind === 'ask-app')
+				this.appRequests.set(id, { sessionId: session.view.id, apps: decision.apps })
 			this.emit({ kind: 'permission', request })
+			const driving = calls.some(
+				(call) => call.name === 'computer_use' || call.name === 'screen_moment',
+			)
+			if (driving) this.computerTurns.add(session.view.id)
+			// Anything the pill cannot answer, asked while the agent is driving the computer, needs
+			// the main window; the application it drives may cover it. An ordinary approval in a
+			// turn that never touched the computer leaves the window where it is.
+			if (
+				this.computerTurns.has(session.view.id) &&
+				!calls.every((call) => call.name === 'computer_use' || call.name === 'screen_moment')
+			)
+				this.options.needsMainWindow?.('approval', session.view.id)
 		} else if (
 			frame.id !== undefined &&
 			(typeof frame.id === 'string' || typeof frame.id === 'number')

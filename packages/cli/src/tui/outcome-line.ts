@@ -10,6 +10,8 @@ import {
 	handBackModelLines,
 } from '@namzu/sdk'
 
+import { fitCommand, withoutCdToCwd } from './shell-display.js'
+
 /**
  * The one quiet line a turn ends with when it changed something or a check
  * failed: what changed, and what the kernel's record says about checking it.
@@ -19,7 +21,11 @@ import {
  * check established and no more: `checked` is a check that passed with nothing
  * changed after it, not a claim that the check covers the change.
  */
-export function outcomeLine(outcome: TurnOutcome | undefined): string | undefined {
+export function outcomeLine(
+	outcome: TurnOutcome | undefined,
+	/** The working folder: a command's leading `cd` to it is left out of the line. */
+	cwd?: string,
+): string | undefined {
 	if (outcome === undefined) return undefined
 	const { verdict, changes, checks } = outcome
 	if (verdict === 'unchanged') return undefined
@@ -37,7 +43,7 @@ export function outcomeLine(outcome: TurnOutcome | undefined): string | undefine
 					: 'Changed files'
 
 	const ran = (check: TurnOutcomeCheck | undefined): string =>
-		check === undefined ? 'a check' : shown(check.command)
+		check === undefined ? 'a check' : shown(check.command, cwd)
 
 	switch (verdict) {
 		case 'unchecked':
@@ -99,9 +105,10 @@ export function outcomeNotice(
 	outcome: TurnOutcome | undefined,
 	telling: OutcomeTelling,
 	reason?: CannotTellReason,
+	cwd?: string,
 ): { readonly line?: string; readonly telling: OutcomeTelling } {
 	if (outcome?.verdict !== 'unknown') {
-		const line = outcomeLine(outcome)
+		const line = outcomeLine(outcome, cwd)
 		return { ...(line ? { line } : {}), telling }
 	}
 	if (telling.toldCannotTell) return { telling }
@@ -156,10 +163,11 @@ const SHOWN_CHARS = 60
 /**
  * A command as one short line of text. It came from the model, so control
  * characters (an escape sequence would be run by the terminal) become spaces.
+ * Too long for the line, it is cut after a whole word of the command and ends in
+ * ` …`: never in the middle of a word or of a quoted string.
  */
-function shown(command: string): string {
-	const flat = plain(command)
-	return flat.length > SHOWN_CHARS ? `${flat.slice(0, SHOWN_CHARS - 1)}…` : flat
+function shown(command: string, cwd?: string): string {
+	return fitCommand(plain(withoutCdToCwd(command, cwd)), SHOWN_CHARS)
 }
 
 function plain(text: string): string {

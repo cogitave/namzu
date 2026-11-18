@@ -45,14 +45,17 @@ import { parseModelSelectionIntent } from './model-selection-intent.js'
 import type { Notice } from './notifications.js'
 import {
 	type ChipRange,
+	type PasteRange,
 	attachmentChip,
 	chipRanges,
 	expandChips,
+	expandChipsWithRanges,
 	isChipPaste,
 	keepChipsWhole,
 	noteAttachmentNumber,
 	numberAttachments,
 	pasteChip,
+	shiftRanges,
 	snapOutOfChip,
 	widenOverChips,
 } from './paste-chips.js'
@@ -318,6 +321,8 @@ export type SubmitMeta =
 			 * paste chip or attachment: a standalone trigger runs its command.
 			 */
 			readonly onlyTriggers: boolean
+			/** Which stretches of the message are pasted text: `[start, end)` in the message. */
+			readonly pasted?: readonly PasteRange[]
 	  }
 	| {
 			readonly source: 'keybinding'
@@ -1523,6 +1528,8 @@ export function Composer({
 				// The message is the draft trimmed: offsets move by what the trim took.
 				const whole = toMessage(valueRef.current)
 				const lead = whole.length - whole.trimStart().length
+				const wholeRanges = expandChipsWithRanges(valueRef.current, pastes).ranges
+				const pastedRanges = shiftRanges(wholeRanges, lead, message.length)
 				const armed = detection.hits
 					.filter((hit) => hit.state === 'armed')
 					.map((hit) => ({
@@ -1535,6 +1542,7 @@ export function Composer({
 					triggers: armed,
 					onlyTriggers:
 						armed.length > 0 && detection.onlyTriggers && currentAttachments.length === 0,
+					...(pastedRanges.length > 0 ? { pasted: pastedRanges } : {}),
 				})
 				reset()
 				// A draft set aside comes back once the message in its place is sent.

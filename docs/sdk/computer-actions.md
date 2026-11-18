@@ -63,10 +63,18 @@ centre of the area that pixel showed — and the reverse mapping returns the
 same image pixel, so a click lands within one screenshot pixel of what the
 model saw. A coordinate past the image's far edge is refused, not clamped:
 it was read off some other image, and acting on it would click somewhere the
-model never looked. Before the first screenshot, actions that take
-coordinates, and `type_text` and `key` (which go to whichever window has
-focus after a display capture), are refused with "take a screenshot first". `cursor_position` reports
-in screenshot pixels.
+model never looked. Before the first screenshot, an action that takes
+coordinates, `cursor_position`, `type_text` or `key` (which go to whichever
+window has focus after a display capture) is not sent. The tool takes the display
+screenshot and returns it as the result of that call, with a line that says
+plainly that no screenshot had been taken yet, so nothing was clicked or typed,
+and that the model should choose the target on the screenshot that follows and
+send the action again. The model gets the frame without a separate screenshot
+call, and never clicks on coordinates it chose without seeing the screen. In a
+batch, the actions before the first such input run, the screenshot is taken after
+them, and the result says which actions ran and which did not. The old refusal
+("take a screenshot first") remains only where the host has no display screenshot
+to take. `cursor_position` reports in screenshot pixels.
 
 The latest screenshot's size is also pinned into the turn's working memory
 (`computer_use.screenshot`), so it survives compaction when older images are
@@ -79,7 +87,10 @@ from the fitted model image back to the driver's exact window PNG, then use
 window-scoped input. This matters when the driver already shrank the window
 and the SDK fits it a second time. The tool refuses an older window frame,
 and the host refuses one after the window moves, is minimized, is replaced,
-or its driver session restarts. Post-action screenshots of a window frame
+or its driver session restarts. A window id may be written however the model has it
+(`0x2b040a`, `2819082`, a bare number, or an object such as `{ "hwnd": 2819082 }`):
+the tool remembers a window by its number, so a read of its controls, a screenshot
+and a click agree whichever spelling each used. Post-action screenshots of a window frame
 capture that same window. A plain `screenshot` captures the display only when
 the host offers display screenshots. A window-only host requires `window_id`
 and can still offer scoped clicks, dragging, text and keys. Neither a failed
@@ -277,7 +288,7 @@ fails, is slow or is unsure is the same as none, and with no advisor the tool ha
   Refused with no snapshot taken, with no control offering the action, and for `set_value` without `value`.
 
 The advisor sees control refs, kinds and names (cut), never a screenshot. The CLI builds one from its
-[`pick` decision point](../cli/decision-points.md#pick).
+[`pick` decision point](../cli/decision-points.md#pick), which is on by default once a decision model is configured (`decision.points.pick: off` removes `ui_do`). Without a decision model the tool has no advisor, and the model acts by ref with `ui_act`.
 
 ### What an action reports about itself
 
@@ -304,7 +315,13 @@ itself before it, or when a control only changed state (selected, disabled). The
 evidence is the read-back (`reads "…"`). A change that does not show the typed
 text, or a window that changes by itself, leaves the step `sent, not confirmed`
 (a change that cannot be tied to the input says that sending it again could do it
-twice): an unrelated change is never reported as the effect. A window that never
+twice): an unrelated change is never reported as the effect. `expand` and `collapse` are judged on their own, because the driver reports no
+expanded state for a control: they are `done, verified` only when the window shows
+what opened (a new window of the program, or controls that were not there) and shows
+it again a moment later; a menu that opened and closed again, or a click after which
+nothing showed, is `sent, not confirmed` with what was seen. The check is of the window's controls,
+not of the clicked control's own state, so a control that appears for another reason in those
+moments can read as opened; the screenshot after the step is the check. A window that never
 changed at all is `sent, no effect seen`, and is the only unconfirmed result that
 is safe to send again. For a classic edit control the host reads the control's own text.
 
@@ -435,6 +452,16 @@ A call is presented as one activity line (`Click left at (812, 403)`;
 a batch as `3 desktop actions: Click left at (812, 403) · Type "…" · Press ENTER`).
 A successful action's result row is hidden — the call row already says it —
 while screenshots, zooms, window lists and failures stay visible.
+
+## What a host shows a person
+
+A host that draws computer work for a person (the Desktop application) reads three things from the tool, none of which change what the model is given:
+
+- `ComputerUseToolOptions.onObservation` is told after each call that returned a screenshot: the picture made small (720 pixels on its longest edge), the screenshot id, the call's words, the application, and where a click landed as fractions of the picture. A throw in it is ignored.
+- `ComputerUseTool.appOf(input)` is the application a call works on, before it runs: the window a `window_id` or a window screenshot names, the window under a click on a display screenshot (needs `listWindows`), or the window in front for keys and text. Undefined when the host cannot say. `ComputerUseTool.appsOf(input)` lists every application a call reaches, in order (a batch can act in several); `appOf` is its first.
+- `ComputerUseTool.consequence(input)` is why a call should be put to a person even where its application was allowed: a key that closes or deletes (Alt+F4, Ctrl+Q, Ctrl+W, Delete and the like) or a control whose name or intent says delete, discard, don't save, send, submit, close or pay (English and Turkish). It reads the call's words, not the screen.
+
+The first call that works in an application also carries `data.firstUseOf` and presents as "Using <application>", so a conversation lists the applications it used. The permission request of the ACP bridge carries `computer: { app, consequence }` on such a call (`AcpRequestPermissionParams`).
 
 ## Providers that cannot show the model a screenshot
 

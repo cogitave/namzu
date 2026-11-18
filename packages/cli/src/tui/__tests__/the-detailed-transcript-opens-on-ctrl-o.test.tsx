@@ -169,7 +169,8 @@ describe('the detailed transcript', () => {
 		expect(frame).toContain('body-line-9')
 		expect(frame).toContain('body-line-12')
 		expect(frame).toContain('ctrl+o to toggle')
-		expect(frame).toContain('ctrl+e to show all')
+		// A short conversation is shown whole from the start; ctrl+e then offers the short window.
+		expect(frame).toContain('ctrl+e to collapse')
 		expect(frame).toContain('verbose')
 		expect(frame, 'a hint points at the screen it is on').not.toContain('(ctrl+o to expand)')
 		// The window is as tall as the terminal; `g` goes to its first row, where
@@ -217,11 +218,11 @@ describe('the detailed transcript', () => {
 	it('Ctrl+E changes the footer line', async () => {
 		const { stdin, lastFrame } = await afterATurn()
 		stdin.write(CTRL_O)
-		await frameShows(lastFrame, 'ctrl+e to show all')
-		stdin.write(CTRL_E)
 		await frameShows(lastFrame, 'ctrl+e to collapse')
 		stdin.write(CTRL_E)
 		await frameShows(lastFrame, 'ctrl+e to show all')
+		stdin.write(CTRL_E)
+		await frameShows(lastFrame, 'ctrl+e to collapse')
 	})
 
 	it('keeps drawing the reply that is still streaming', async () => {

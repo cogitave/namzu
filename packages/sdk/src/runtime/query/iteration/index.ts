@@ -72,6 +72,7 @@ import { SandboxAcquisitionStopped } from '../deferred-sandbox.js'
 import { deliverDurableInbound } from '../durable-inbound.js'
 import type { ToolCallOutcome } from '../executor.js'
 import { projectObservationContext } from '../observation-context.js'
+import { framePastedMessages } from '../pasted-frames.js'
 import { applyLifecycleHookResults, lastAssistantMessageField } from '../plugin-hooks.js'
 import {
 	type RequestContextSnapshot,
@@ -1065,7 +1066,9 @@ export class IterationOrchestrator {
 					// and a mode change would re-key the whole conversation.
 					if (policyNotice) requestHistory.push(stepContextMessage(policyNotice))
 					const projected = projectRequestRichContent(
-						withoutVoidAssistantTurns(this.projectObservations(requestHistory)),
+						withoutVoidAssistantTurns(
+							this.projectObservations(framePastedMessages(requestHistory)),
+						),
 						this.richContentBudget(),
 						{ imagesReadable: this.modelReadsImages(stepModel) },
 					)
@@ -2723,7 +2726,7 @@ export class IterationOrchestrator {
 		// tool result can be shed. Initial history was already extracted at seed.
 		const manager = this.ctx.workingStateManager
 		if (arriving && manager) {
-			extractFromUserMessage(manager, message.content, !manager.getState().task)
+			extractFromUserMessage(manager, message, !manager.getState().task)
 		}
 	}
 
@@ -3804,7 +3807,7 @@ export class IterationOrchestrator {
 				...(workingMemory.context ? [workingMemory.context] : []),
 			]
 			const finalMessages = projectRequestRichContent(
-				withoutVoidAssistantTurns(this.projectObservations(finalHistory)),
+				withoutVoidAssistantTurns(this.projectObservations(framePastedMessages(finalHistory))),
 				this.richContentBudget(),
 				{ imagesReadable: this.modelReadsImages(model) },
 			)

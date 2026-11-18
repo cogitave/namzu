@@ -52,6 +52,7 @@ import { menuAcceleratorOf, translateKeyForCuaDriver } from './keys.js'
 import {
 	type Observation,
 	type ObservedVerdict,
+	changeBetween,
 	judgeEdit,
 	judgeEditBetween,
 	judgeObserved,
@@ -154,6 +155,8 @@ const SPARSE_TREE = 12
 const CHOICE_ROLES = /^(ComboBox|List|ListBox)$/i
 /** Waits (ms) before each read that looks for an input's effect: at once, then a little later. */
 const OBSERVE_WAITS_MS = [0, 80, 200, 450] as const
+/** expand and collapse: a first read after the click, and a second one this much later that must agree. */
+const EXPAND_WAITS_MS = [150, 450] as const
 /**
  * How old (ms) the window list read just before an input may be and still
  * stand for the check that the window has not moved. A list takes over a
@@ -430,6 +433,8 @@ export class CuaDriverAdapter implements Adapter {
 	private driverCursorOff: boolean | undefined
 	/** cua-driver's screenshot resize registry is per PID, so only this capture may drive input. */
 	private windowFrame: WindowCaptureFrame | undefined
+	/** The process count at the last idle release, for a screenshot taken from that process. */
+	private releasedStarts: number | undefined
 	/** Capture and scoped input must not race over cua-driver's per-PID resize ratio. */
 	private windowOperation: Promise<void> = Promise.resolve()
 	/** Refs the model holds, by the adapter's ref. A handle is usable only in its window's latest read; otherwise the ref is found again. */
@@ -714,6 +719,27 @@ export class CuaDriverAdapter implements Adapter {
 		return this.serializeWindowOperation(() => this.captureWindowInternal(id))
 	}
 
+	/**
+	 * Read the window again with a screenshot, so the driver can place pixels of `frame` on it.
+	 * True when that read has the size of the screenshot the model is looking at.
+	 */
+	private async restoreDriverFrame(frame: WindowCaptureFrame): Promise<boolean> {
+		const hwnd = parseWindowId(frame.window.id)
+		if (hwnd === undefined) return false
+		try {
+			const result = await this.callTool('get_window_state', {
+				pid: frame.window.pid,
+				window_id: hwnd,
+				include_accessibility_tree: false,
+				include_screenshot: true,
+			})
+			const facts = structured(result, 'get_window_state')
+			return facts.screenshot_width === frame.width && facts.screenshot_height === frame.height
+		} catch {
+			return false
+		}
+	}
+
 	private async captureWindowInternal(id: string): Promise<WindowScreenshotResult> {
 		const target = await this.resolveWindow(id)
 		// A failed or overlapping capture invalidates the old resize ratio even
@@ -884,6 +910,7 @@ export class CuaDriverAdapter implements Adapter {
 		action: WindowInputAction,
 		route: InputRoute,
 	): Promise<WindowInputResult | undefined> {
+		await this.carryFrameOver(captureId)
 		const frame = this.windowFrame
 		const watched =
 			action.type === 'type_text' || action.type === 'key' || action.type === 'mouse_click'
@@ -1100,6 +1127,7 @@ export class CuaDriverAdapter implements Adapter {
 		route: InputRoute = { foreground: false, onScreen: false },
 		listing?: WindowListing,
 	): Promise<WindowInputResult | undefined> {
+		await this.carryFrameOver(captureId)
 		const frame = this.windowFrame
 		if (!frame || frame.id !== captureId)
 			throw new Error(
@@ -1150,7 +1178,18 @@ export class CuaDriverAdapter implements Adapter {
 				)
 			this.showPresence(frame, current.bounds, name, args)
 			await this.markForSettle(target.window_id as number)
-			return this.callTool(name, { ...target, ...args }, undefined, undefined, undefined, frame)
+			const sendOnce = () =>
+				this.callTool(name, { ...target, ...args }, undefined, undefined, undefined, frame)
+			try {
+				return await sendOnce()
+			} catch (error) {
+				// The driver keeps one latest read per window, and a read of the controls (made just before
+				// an input to judge it) replaces a screenshot with one that has none. It then refuses a
+				// pixel input and sends nothing. The window is unchanged (checked above), so the same
+				// screenshot is taken again for the driver and the input goes once more.
+				if (!isNoDriverFrame(error) || !(await this.restoreDriverFrame(frame))) throw error
+				return await sendOnce()
+			}
 		}
 		// The driver's hotkey finds a shortcut only through an accelerator the window names, and refuses (sending
 		// nothing) when there is none; the same combination as a key with modifiers is real input.
@@ -1676,9 +1715,10 @@ export class CuaDriverAdapter implements Adapter {
 		)
 		try {
 			switch (action) {
-				case 'invoke':
 				case 'expand':
 				case 'collapse':
+					return await this.expandAndWatch(facts, uiRef, action)
+				case 'invoke':
 					// cua-driver's click on an element token performs the control's
 					// own pattern in the background (Invoke, or a posted click at its
 					// centre), with no pointer move and no change of foreground.
@@ -2009,6 +2049,91 @@ export class CuaDriverAdapter implements Adapter {
 	}
 
 	/**
+	 * expand or collapse, which the driver sends as a click and cannot read back: the control reports no
+	 * expanded state. What counts is what the window shows afterwards, and it has to still be there a
+	 * moment later. A menu that opened and closed again is not an expanded menu.
+	 */
+	private async expandAndWatch(
+		facts: UiRefEntry,
+		uiRef: { readonly ref: string; readonly facts: UiRefEntry },
+		want: 'expand' | 'collapse',
+	): Promise<UiActResult> {
+		const target = { hwnd: facts.hwnd, pid: facts.pid }
+		const before = await this.observe(target)
+		const windows = await this.windowIdsOf(target.pid)
+		// Each read of the window replaces the driver's handles: click through the refreshed one.
+		const current = this.uiRefs.get(uiRef.ref) ?? facts
+		const sent = await this.clickRef(current, { ref: uiRef.ref, facts: current })
+		if (!sent.ok || sent.delivery === 'not_delivered') return sent
+		const what = describeEvidence(current)
+		const unverified = (detail: string): UiActResult => ({
+			ok: true,
+			delivery: 'delivered_unverified',
+			retrySafety: 'unsafe',
+			detail,
+		})
+		if (!before)
+			return unverified(
+				`the click on ${what} was sent, but the window could not be read to see whether it ${want === 'expand' ? 'opened' : 'closed'}. Look at the window before repeating it.`,
+			)
+		const readState = async (): Promise<
+			{ shown: string | undefined; held: boolean } | undefined
+		> => {
+			const newWindow = windows ? await this.newWindowOf(target.pid, windows) : undefined
+			const after = await this.observe(target)
+			if (!after) return undefined
+			const change = changeBetween(before, after)
+			const gone = windows ? await this.windowGone(target.pid, windows) : false
+			if (want === 'expand') {
+				const shown = newWindow?.title.trim() || change.added[0]
+				return { shown, held: newWindow !== undefined || change.added.length > 0 }
+			}
+			return { shown: change.removed[0], held: gone || change.removed.length > 0 }
+		}
+		await this.settle(EXPAND_WAITS_MS[0])
+		const first = await readState()
+		if (!first)
+			return unverified(
+				`the click on ${what} was sent, but the window could not be read afterwards. Look at the window before repeating it.`,
+			)
+		await this.settle(EXPAND_WAITS_MS[1])
+		const second = await readState()
+		if (first.held && second?.held)
+			return {
+				ok: true,
+				delivery: 'delivered_verified',
+				retrySafety: 'unsafe',
+				...(second.shown !== undefined ? { readBack: { observed: trimText(second.shown) } } : {}),
+				detail:
+					want === 'expand'
+						? `${what} is open: the window shows what it opened, and still did a moment later.`
+						: `${what} is closed: what it showed is gone, and stayed gone a moment later.`,
+			}
+		if (first.held && second && !second.held)
+			return unverified(
+				want === 'expand'
+					? `${what} opened and closed again, so it is not open now. Look at the window; a menu that closes on its own may need the keyboard (alt+letter) or a click in the foreground.`
+					: `${what} looked closed, but what it showed is back. Look at the window before repeating it.`,
+			)
+		return unverified(
+			want === 'expand'
+				? `the click on ${what} was sent, but no menu or new control showed in the window afterwards, so it may not be open. Look at the window (a window screenshot) before repeating it.`
+				: `the click on ${what} was sent, but nothing in the window changed, so it may still be open. Look at the window before repeating it.`,
+		)
+	}
+
+	/** Whether a window the program had before (a popup that was open) is no longer listed. */
+	private async windowGone(pid: number, known: ReadonlySet<string>): Promise<boolean> {
+		try {
+			const now = new Set((await this.listWindows()).filter((w) => w.pid === pid).map((w) => w.id))
+			for (const id of known) if (!now.has(id)) return true
+			return false
+		} catch {
+			return false
+		}
+	}
+
+	/**
 	 * A click on a control by its driver token, in the background. Where the
 	 * driver says the window cannot take background input (or is covered) the
 	 * same click is retried in the foreground through the ladder.
@@ -2109,6 +2234,46 @@ export class CuaDriverAdapter implements Adapter {
 
 	async dispose(): Promise<void> {
 		await this.client.dispose()
+	}
+
+	/**
+	 * Let go of the driver process (and the agent cursor it draws) while nobody is using it. The next
+	 * call starts it again; every screenshot and ref taken from the old process is then stale, which
+	 * the process counter already says.
+	 */
+	async release(stillIdle: () => boolean = () => true): Promise<void> {
+		const before = this.client.starts
+		const ended = await this.client.release()
+		// Nothing below runs unless the process really ended and no call began while it wound down;
+		// a call that did started its own process, and its frame and helpers are not ours to clear.
+		if (!ended || this.client.starts !== before || !stillIdle()) return
+		// The refs read from the old process are dead. The window screenshot is kept: the model may
+		// still be looking at it, and the first input on it reads the window again for the new process.
+		this.windowReads.clear()
+		this.releasedStarts = before
+		// The helpers started beside it (the overlay, the accessibility host) are processes too; the
+		// next window list starts them again.
+		this.presence?.release?.()
+		this.a11y?.release?.()
+	}
+
+	/**
+	 * After an idle release the screenshot the model took is still the one it acts on. Read the window
+	 * again for the new process (the same size is required) and carry the screenshot over to it.
+	 */
+	private async carryFrameOver(captureId: string): Promise<void> {
+		const frame = this.windowFrame
+		if (
+			!frame ||
+			frame.id !== captureId ||
+			this.releasedStarts !== frame.processStarts ||
+			frame.generation !== this.sessionGeneration
+		)
+			return
+		if (!(await this.restoreDriverFrame(frame))) return
+		if (this.windowFrame !== frame) return
+		this.windowFrame = { ...frame, processStarts: this.client.starts }
+		this.releasedStarts = undefined
 	}
 
 	/** Tells the overlay where the agent is about to act in a window; never waits and never fails the action. */
@@ -2465,6 +2630,12 @@ export function failureDelivery(error: McpToolError): WindowInputResult {
 			typeof refusal?.message === 'string' ? refusal.message : error.message,
 		)
 	}
+	if (isNoDriverFrame(error))
+		return verdict(
+			'not_delivered',
+			'safe',
+			'the driver had no screenshot of this window to place the pixels on, so nothing was sent. Take a new window screenshot and click again.',
+		)
 	if (/stale (window|screenshot)/i.test(error.message))
 		return verdict('not_delivered', 'safe', trimText(error.message, 300))
 	if (/stale/i.test(`${error.message} ${JSON.stringify(facts)}`))
@@ -2480,6 +2651,11 @@ export function failureDelivery(error: McpToolError): WindowInputResult {
 		'unsafe',
 		`${trimText(error.message, 300)} The input may have been sent; look at the window before repeating it.`,
 	)
+}
+
+/** The driver refused a pixel input because it holds no screenshot of the window (nothing was sent). */
+function isNoDriverFrame(error: unknown): boolean {
+	return error instanceof McpToolError && /No screenshot frame for/i.test(error.message)
 }
 
 /** The driver refused a handle a newer read of its window replaced (nothing was sent). */
@@ -2640,6 +2816,18 @@ export function windowIdOf(hwnd: number): string {
 }
 
 export function parseWindowId(value: unknown): number | undefined {
+	// A handle as an object ({ hwnd }, { id }, { window_id } ...) is read by the id inside it.
+	if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+		const record = value as Record<string, unknown>
+		for (const key of ['window_id', 'windowId', 'hwnd', 'handle', 'id', 'value']) {
+			if (record[key] === undefined || typeof record[key] === 'object') continue
+			const found = parseWindowId(record[key])
+			if (found !== undefined) return found
+		}
+		return undefined
+	}
+	if (typeof value === 'bigint')
+		return value > 0n && value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : undefined
 	if (typeof value === 'number') return Number.isSafeInteger(value) && value > 0 ? value : undefined
 	if (typeof value !== 'string') return undefined
 	const text = value.trim().toLowerCase()

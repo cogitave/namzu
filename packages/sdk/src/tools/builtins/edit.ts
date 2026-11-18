@@ -8,6 +8,7 @@ import { resolveWithinAnyReal, toolRoots } from '../paths.js'
 import { atomicWriteFile } from './atomic-write-file.js'
 import { clip, describeChange } from './classifier-input.js'
 import {
+	CURRENT_ON_DISK,
 	fingerprintContent,
 	staleFileError,
 	unreadEditShownError,
@@ -408,16 +409,23 @@ function recordDrift(context: ToolContext, key: string): void {
 
 type EditAdmission =
 	| { success: false; output: ''; error: string; facts: ToolFacts }
-	| { success: true; result: ReturnType<typeof applyEdit> }
+	| { success: true; result: ReturnType<typeof applyEdit>; unreadNote?: string }
+
+/** Appended to the result of an edit that was applied to a file the session had not read. */
+const UNREAD_APPLIED_NOTE = '(file was not read before; the edit matched exactly and was applied)'
 
 /**
  * Decide whether this edit may run against the body now on disk, and apply it.
  *
  * Two rules, in this order:
  *
- * 1. A file the session never read is refused. The model is about to rewrite
- *    text it has not seen, which is the commonest source of a wrong patch. A
- *    host that supplies no tracker has no ledger to ask and is not refused.
+ * 1. A file the session never read is read here. When every replacement in the
+ *    call matches the body exactly (once, or at least once under `replace_all`)
+ *    the model plainly knew the text, from a shell print or a search, so the
+ *    edit is applied and the read is credited. Otherwise (no match, an
+ *    ambiguous match, an insertion, or a body that is not text) the edit is
+ *    refused and, for a small file, the contents are handed back. A host that
+ *    supplies no tracker has no ledger to ask and is not refused.
  * 2. A file that moved since the read is refused, whatever the operations are.
  *    There is no recovery: a replacement that "still applies" to the moved body
  *    can apply somewhere the model never meant (the read said `a = 1`, the file
@@ -434,6 +442,13 @@ function admitAgainstRead(
 ): EditAdmission {
 	const tracker = context.fileReadTracker
 	if (tracker && !tracker.hasRead(key)) {
+		if (!content.includes('\u0000') && operations.every((op) => op.operation === 'replace')) {
+			const applied = applyEdit(content, operations)
+			if (applied.success) {
+				tracker.recordRead(key, content)
+				return { success: true, result: applied, unreadNote: UNREAD_APPLIED_NOTE }
+			}
+		}
 		// The file is already in hand, so a small one is shown and the read that
 		// showing amounts to is credited: the repeat is one call and is admitted.
 		const shown = unreadEditShownError(key, content)
@@ -639,7 +654,7 @@ export const EditTool = defineTool({
 				const changed = editFacts(parsed.data.path, result.replacements, content, result.content)
 				return {
 					success: true as const,
-					output: `Edited ${parsed.data.path}: ${result.replacements} replacement(s) (+${changed.diff.added} -${changed.diff.removed}) [sandboxed]`,
+					output: `Edited ${parsed.data.path}: ${result.replacements} replacement(s) (+${changed.diff.added} -${changed.diff.removed}) [sandboxed]${admitted.unreadNote ? ` ${admitted.unreadNote}` : ''}. ${CURRENT_ON_DISK}`,
 					data: {
 						path: parsed.data.path,
 						replacements: result.replacements,
@@ -670,7 +685,7 @@ export const EditTool = defineTool({
 			const changed = editFacts(hostPath, result.replacements, content, result.content)
 			return {
 				success: true as const,
-				output: `Edited ${hostPath}: ${result.replacements} replacement(s) (+${changed.diff.added} -${changed.diff.removed})`,
+				output: `Edited ${hostPath}: ${result.replacements} replacement(s) (+${changed.diff.added} -${changed.diff.removed})${admitted.unreadNote ? ` ${admitted.unreadNote}` : ''}. ${CURRENT_ON_DISK}`,
 				data: { path: hostPath, replacements: result.replacements },
 				facts: changed.facts,
 			}

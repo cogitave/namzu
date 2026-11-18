@@ -35,6 +35,7 @@ import { terminalFileHyperlink } from './terminal-hyperlinks.js'
 import { useThemeEpoch } from './theme-store.js'
 import { paint, rowTints, theme } from './theme.js'
 import { NOT_SHOWN_LINE } from './tidy-tool-output.js'
+import { replyStamp } from './transcript-screen.js'
 import type { TranscriptMessage } from './types.js'
 
 export interface TranscriptProps {
@@ -713,7 +714,22 @@ export function ScreenMessageRow({
 	readonly prev: TranscriptMessage | undefined
 	readonly hyperlinks?: boolean
 }) {
-	return <MessageRow message={screenMessage(message)} prev={prev} hyperlinks={hyperlinks} screen />
+	const stamp = replyStamp(message)
+	const row = (
+		<MessageRow message={screenMessage(message)} prev={prev} hyperlinks={hyperlinks} screen />
+	)
+	if (stamp === null) return row
+	// When and by which model a reply was written, one quiet line under it.
+	return (
+		<Box flexDirection="column">
+			{row}
+			<Box paddingLeft={2}>
+				<Text color={theme.text.muted} wrap="truncate-end">
+					{stamp}
+				</Text>
+			</Box>
+		</Box>
+	)
 }
 
 /** Columns the `⎿` prefix and its indent take from a result row. */

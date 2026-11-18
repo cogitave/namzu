@@ -386,10 +386,10 @@ export interface ToolExecutorConfig {
 	/** See `ToolContext.additionalDirectories`. */
 	additionalDirectories?: readonly string[]
 	/**
-	 * Where this session's own scratch folder is (it need not exist). It becomes
-	 * a root of the file tools, and a write inside it needs no review, once a call
-	 * names it and the folder has been made and checked. Unset on a sandboxed
-	 * turn and on a session with no layout on disk.
+	 * Where this session's own scratch folder is. It becomes a root of the file
+	 * tools once it has been made and checked, a write inside it needs no review,
+	 * and background jobs keep their output files in its `jobs` folder. Unset on a
+	 * sandboxed turn and when the folder could not be made.
 	 */
 	scratchpadDirectory?: string
 	/** See `QueryParams.outsideRootAccess`. Default `'refuse'`. */
@@ -914,22 +914,15 @@ export class ToolExecutor {
 	}
 
 	/**
-	 * Make the session's scratch folder a root when a call names it. Lazy: a
-	 * session that never uses it leaves nothing on disk. The folder must be
-	 * inside the private temporary root with no link on the way; otherwise it
-	 * stays outside the roots and a path in it is asked about like any other.
+	 * Make the session's scratch folder a root of the file tools. The turn made
+	 * it when it started; this checks it again (no link on the way, ours) before
+	 * the first call trusts it, and leaves it outside the roots when it fails,
+	 * so a path in it is asked about like any other.
 	 */
 	private admitScratchpad(call: PreparedSafetyCall): void {
 		const directory = this.config.scratchpadDirectory
 		if (directory === undefined || this.scratchpadReady !== undefined || this.sandboxed) return
 		if (call.kind === 'synthetic') return
-		let named = false
-		try {
-			named = JSON.stringify(call.input)?.includes(JSON.stringify(directory).slice(1, -1)) === true
-		} catch {
-			// An input that cannot be serialised names nothing.
-		}
-		if (!named) return
 		try {
 			this.scratchpadReady = ensureScratchpadDirectory(directory)
 		} catch (error) {
@@ -2627,6 +2620,11 @@ export class ToolExecutor {
 							this.config.backgroundJobs,
 							this.config.backgroundJobOwner ?? this.config.turnId,
 							{
+								// Every job's output is also saved to a file the model is told
+								// about, so it has no reason to redirect it into the project.
+								...(this.config.scratchpadDirectory !== undefined && !this.sandboxed
+									? { outputDirectory: join(this.config.scratchpadDirectory, 'jobs') }
+									: {}),
 								workingDirectory: this.config.workingDirectory,
 								env: this.config.env,
 								...(this.config.sandbox?.spawnDetached

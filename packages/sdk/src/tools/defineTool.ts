@@ -85,6 +85,8 @@ export interface DefineToolOptions<S extends z.ZodType> {
 	commandDialect?: ToolDefinition['commandDialect']
 	/** The argument holding a filesystem path; see {@link ToolDefinition.pathArgument}. */
 	pathArgument?: string
+	/** Tools `search_tools` loads together with this one; see {@link ToolDefinition.loadsWith}. */
+	loadsWith?: readonly string[]
 	/** A refusal known before any reviewer is asked; see {@link ToolDefinition.refuseBeforeReview}. */
 	refuseBeforeReview?: ToolDefinition<z.infer<S>>['refuseBeforeReview']
 	/** The argument holding a canonical URL; see {@link ToolDefinition.urlArgument}. */
@@ -150,6 +152,9 @@ export function defineTool<S extends z.ZodType>(
 		...(options.commandArgument !== undefined ? { commandArgument: options.commandArgument } : {}),
 		...(options.commandDialect !== undefined ? { commandDialect: options.commandDialect } : {}),
 		...(options.pathArgument !== undefined ? { pathArgument: options.pathArgument } : {}),
+		...(options.loadsWith !== undefined && options.loadsWith.length > 0
+			? { loadsWith: options.loadsWith }
+			: {}),
 		...(options.refuseBeforeReview ? { refuseBeforeReview: options.refuseBeforeReview } : {}),
 		...(options.urlArgument !== undefined ? { urlArgument: options.urlArgument } : {}),
 		...(options.sandboxEscapeArgument !== undefined
@@ -201,7 +206,7 @@ export function defineTool<S extends z.ZodType>(
 			try {
 				return await options.execute(input, context)
 			} catch (err) {
-				const message = toErrorMessage(err)
+				const message = `${toErrorMessage(err)}${missingPathNote(options.name, err)}`
 				const facts = failureFactsFromError(err)
 				return {
 					success: false,
@@ -213,4 +218,18 @@ export function defineTool<S extends z.ZodType>(
 			}
 		},
 	}
+}
+
+/** The file tools a model points at a path it only guessed. */
+const PATH_GUESSING_TOOLS: ReadonlySet<string> = new Set(['read', 'edit'])
+
+/**
+ * What to do when a path does not exist. A model that is told only "no such
+ * file" tries another guess; listing the folder finds the real name in one call.
+ */
+function missingPathNote(toolName: string, err: unknown): string {
+	if (!PATH_GUESSING_TOOLS.has(toolName)) return ''
+	return (err as { code?: unknown } | null)?.code === 'ENOENT'
+		? ' Nothing exists at that path. Find the file with `glob` instead of trying another guess.'
+		: ''
 }

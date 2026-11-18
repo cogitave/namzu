@@ -15,6 +15,20 @@ describe('a sub-agent prompt reports to its parent', () => {
 		expect(SUBAGENT_PROMPT).not.toContain('Before a batch of tool calls')
 	})
 
+	it('keeps the finishing, fix-what-is-broken and investigation rules, and sends nobody to a person', () => {
+		for (const rule of [
+			'### Finishing the work',
+			'never close on a plan or a promise of later work',
+			'Context is compacted automatically',
+			'is a request to fix it, unless the person says they only want a diagnosis',
+			'An investigation continues until the cause is found',
+		]) {
+			expect(NAMZU_CHILD_WORKING_DOCTRINE, rule).toContain(rule)
+		}
+		expect(NAMZU_CHILD_WORKING_DOCTRINE).not.toContain('Ask once')
+		expect(NAMZU_CHILD_WORKING_DOCTRINE).not.toContain('stop and ask')
+	})
+
 	it('asks for a complete report without filler, in one place', () => {
 		expect(SUBAGENT_PROMPT).not.toContain('Be thorough, and state every assumption')
 		expect(SUBAGENT_PROMPT).toContain('complete')

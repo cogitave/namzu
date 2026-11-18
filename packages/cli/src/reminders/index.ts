@@ -12,6 +12,7 @@ import { type MemoryIndexInput, memoryIndexReminders } from './memory-index.js'
 import { modeReminders } from './mode.js'
 import { type ModelReminderFacts, modelReminders } from './model.js'
 import { planModeReminders } from './plan-mode.js'
+import type { QuietStretch } from './quiet-stretch.js'
 import { type SkillListingInput, skillListingReminders } from './skills.js'
 import { taskNudge } from './task-nudge.js'
 
@@ -25,6 +26,8 @@ export { skillListingReminders } from './skills.js'
 export { memoryIndexReminders } from './memory-index.js'
 export { mcpInstructionsReminders } from './mcp-instructions.js'
 export { taskNudge } from './task-nudge.js'
+export { resolveProgressNudge, type ProgressNudgeSettings } from './progress-nudge.js'
+export { QUIET_STRETCH_CALLS, QUIET_STRETCH_MS, QuietStretch } from './quiet-stretch.js'
 
 export interface CliReminderOptions {
 	/** The exact model selected for this turn; no inferred catalogue dates. */
@@ -66,6 +69,12 @@ export interface CliReminderOptions {
 	 * and that someone else changed since is said once, with what changed.
 	 */
 	readonly changedFiles?: () => Promise<ChangedFilesInput>
+	/**
+	 * The clock for the quiet-stretch nudge, on a surface where a person watches
+	 * live; absent means no nudge (a sub-agent, a scheduled run, a Pal, any
+	 * non-interactive run).
+	 */
+	readonly quietStretch?: QuietStretch
 	/** Whether a person answers permission prompts; absent means no mode announcements. */
 	readonly interactive?: boolean
 	/** Whether the plan file exists; defaults to the filesystem. */
@@ -120,6 +129,8 @@ export function createCliReminderSource(options: CliReminderOptions): ReminderSo
 			const nudge = taskNudge(messages, [])
 			if (nudge.length > 0) out.push(...taskNudge(messages, await options.tasks()))
 		}
+		// Last: it is the newest thing the model reads, and it only fires deep in a long run.
+		if (options.quietStretch) out.push(...options.quietStretch.remind(messages))
 		return out
 	}
 }

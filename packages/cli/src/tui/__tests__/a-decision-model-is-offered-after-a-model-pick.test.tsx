@@ -257,7 +257,7 @@ it('connects my own server in three fields, keeps the key out of the config, and
 	await shows(screen, 'Model name (optional)')
 	await press(screen, '\r')
 	await shows(screen, 'Connected · ')
-	await shows(screen, 'notify and skill are on')
+	await shows(screen, 'notify, skill and pick are on')
 	expect(askedFor).toEqual(['http://127.0.0.1:8080/decide Bearer SECRET-SERVER-KEY-0123456789'])
 	const config = readFileSync(join(home, '.namzu', 'config.yaml'), 'utf8')
 	expect(config).toContain('http://127.0.0.1:8080/decide')
