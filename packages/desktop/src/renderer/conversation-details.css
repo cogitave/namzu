@@ -1,0 +1,143 @@
+/*
+ * The details column: where the conversation runs, its context, tool servers, outputs and changes.
+ * 320 px as its own column on a wide window, the same body in a tab of the side panel otherwise.
+ * Sections are told apart by one hairline and 16 px side padding; rows sit on a 32 px pitch.
+ */
+.conversation-details-column {
+	--details-added: #15803d;
+	--details-removed: var(--error-foreground);
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+	overflow-y: auto;
+	color: var(--foreground);
+}
+.dark .conversation-details-column {
+	--details-added: #4ade80;
+}
+.details-section {
+	padding: 16px 16px 20px;
+	border-bottom: 1px solid var(--border);
+}
+.details-section:last-child {
+	border-bottom: 0;
+}
+.details-heading {
+	margin: 0 0 8px;
+	color: var(--foreground);
+	font-size: var(--text-small);
+	font-weight: var(--weight-control);
+	line-height: var(--leading-small);
+}
+.details-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	min-width: 0;
+	height: 32px;
+	padding: 0;
+	border: 0;
+	background: none;
+	color: var(--foreground);
+	font: inherit;
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
+	text-align: left;
+}
+.details-row > svg {
+	width: 16px;
+	height: 16px;
+	flex: none;
+	color: var(--muted-foreground);
+}
+.details-row-button {
+	cursor: pointer;
+}
+.details-row-text {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.details-row-value {
+	flex: none;
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+}
+.details-dot {
+	width: 8px;
+	height: 8px;
+	flex: none;
+	margin-inline: 4px;
+	border-radius: 50%;
+	background: var(--primary);
+}
+.details-empty {
+	margin: 0;
+	color: var(--muted-foreground);
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+}
+/* The context body fills the column's width with no frame of its own. */
+.details-context {
+	padding-block: 16px;
+}
+.details-outputs {
+	overflow: visible;
+}
+.details-changes {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	margin-bottom: 8px;
+	font-size: var(--text-interface);
+	font-variant-numeric: tabular-nums;
+	line-height: var(--leading-interface);
+}
+.details-added {
+	color: var(--details-added);
+}
+.details-removed {
+	color: var(--details-removed);
+}
+.details-changes-button {
+	margin-top: 4px;
+}
+
+/* The column beside the conversation (a wide window only): its own 320 px between transcript and panel. */
+.details-column {
+	position: absolute;
+	inset: var(--frame-header-height) 0 0 auto;
+	z-index: var(--z-panel-raised);
+	display: flex;
+	flex-direction: column;
+	width: var(--details-column-width);
+	border-left: 1px solid var(--border);
+	background: var(--background);
+}
+/* Open beside a side panel, the column keeps to the conversation's side of it. */
+.workspace.jobs-open .details-column {
+	inset-inline-end: var(--panel-width);
+}
+.details-column > .conversation-details-column {
+	flex: 1 1 auto;
+}
+.details-outputs .output-row-folder,
+.details-outputs .output-row-kind {
+	display: none;
+}
+
+/* The column belongs to a wide window; in a narrow pane it gives the width back. */
+.workspace {
+	--details-column-width: 320px;
+}
+@container workspace (max-width: 899px) {
+	.details-column {
+		display: none;
+	}
+}

@@ -49,9 +49,19 @@ describe('the panel for a measured conversation', () => {
 
 	it('says percent and size in plain words', () => {
 		expect(model.headline).toBe('8% used')
-		expect(model.size).toBe('77.7k of 1M')
+		expect(model.size).toBe('77.7k / 1M')
 		expect(model.tag?.text).toBe('Exact total')
 		expect(model.sentence).toBe('About 889.3k left before Namzu shortens this conversation.')
+	})
+
+	it('draws the sentence only from 80% used and keeps it as hover text before that', () => {
+		expect(model.showSentence).toBe(false)
+		expect(model.estimated).toBe(false)
+		const near = contextPanelModel({
+			report: report({ windowTokens: 200_000, totalTokens: 164_000 }),
+		})
+		expect(near.showSentence).toBe(true)
+		expect(contextPanelModel({ report: report(), compacting: true }).showSentence).toBe(true)
 	})
 
 	it('lists used rows biggest first, with plain names', () => {
@@ -125,7 +135,8 @@ describe('an estimate', () => {
 			}),
 		})
 		expect(model.headline).toBe('about 91% used')
-		expect(model.size).toBe('about 182k of 200k')
+		expect(model.size).toBe('~182k / 200k')
+		expect(model.estimated).toBe(true)
 		expect(model.tag?.text).toBe('Estimate')
 		expect(model.sentence).toBe('Namzu will shorten this conversation soon.')
 		expect(model.tone).toBe('full')

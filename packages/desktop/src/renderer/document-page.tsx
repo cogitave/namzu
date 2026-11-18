@@ -76,11 +76,18 @@ function Outline({ text, page }: { text: string; page: React.RefObject<HTMLEleme
 		<Popover open={open} onOpenChange={setOpen}>
 			<PopoverTrigger
 				render={
-					<Button type="button" size="xs" variant="ghost-muted" data-document-outline-button />
+					<Button
+						type="button"
+						size="icon-sm"
+						variant="outline"
+						className="document-outline-trigger"
+						aria-label="Outline"
+						title="Outline"
+						data-document-outline-button
+					/>
 				}
 			>
 				<List aria-hidden="true" />
-				Outline
 			</PopoverTrigger>
 			<PopoverPopup
 				side="bottom"

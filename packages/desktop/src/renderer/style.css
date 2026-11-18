@@ -632,6 +632,29 @@ pre {
 .workspace.jobs-open > :is(.connection-error, .welcome, .chat-stage) {
 	width: calc(100% - var(--panel-width));
 }
+/* The details column (conversation-details.css) takes its 320 px from the conversation's side. */
+.workspace[data-details-column] > :is(.connection-error, .welcome, .chat-stage) {
+	width: calc(100% - var(--details-column-width));
+}
+.workspace[data-details-column].jobs-open > :is(.connection-error, .welcome, .chat-stage) {
+	width: calc(100% - var(--panel-width) - var(--details-column-width));
+}
+/* The panel's share is of what the column leaves, so the conversation keeps its own. */
+.workspace[data-details-column] {
+	--panel-reading-width: max(
+		var(--panel-reading-min),
+		calc((100% - var(--details-column-width)) * 0.6)
+	);
+	--panel-tool-width: clamp(
+		var(--panel-tool-min),
+		calc((100% - var(--details-column-width)) * 0.4),
+		var(--panel-tool-max)
+	);
+}
+/* The turn's totals are in the details body's Changes block while it is open. */
+.workspace[data-details-shown] .turn-result {
+	display: none;
+}
 .topbar {
 	/* The title starts after the left cluster; the controls at the right edge sit one bar inset from it,
 	   and from the window's own buttons where those are drawn over the band. */

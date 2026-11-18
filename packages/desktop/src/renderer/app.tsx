@@ -76,6 +76,7 @@ import { ComputerKeyboardOwners } from './computer-keyboard-owner.js'
 import { createComputerReadScheduler } from './computer-read-pace.js'
 import { computerWorkspaceIds } from './computer-workspace-toolbar.js'
 import { ConfirmRemovalDialog } from './confirm-removal-dialog.js'
+import type { ContextPanelSource } from './context-panel.js'
 import { ConversationActionsMenu } from './conversation-actions-menu.js'
 import {
 	type ConversationActionId,
@@ -87,6 +88,7 @@ import {
 } from './conversation-actions.js'
 import { ConversationBar } from './conversation-bar.js'
 import { ConversationDetailsPopover, type DetailsWork } from './conversation-details-popover.js'
+import { ConversationDetailsBody } from './conversation-details.js'
 import { compareConversationRecency } from './conversation-order.js'
 import {
 	blankConversationTabs,
@@ -103,6 +105,12 @@ import {
 import { ConversationTasks } from './conversation-tasks.js'
 import { useConversationUnread } from './conversation-unread-store.js'
 import { copyPlainText } from './copy-button.js'
+import {
+	DETAILS_COLUMN_QUERY,
+	detailsToggleAction,
+	readDetailsColumn,
+	writeDetailsColumn,
+} from './details-column.js'
 import { holdsDiscardableDraft } from './discard-draft.js'
 import { signInHelpFor } from './engine-setup.js'
 import { setEngineSignedOut } from './engine-sign-in.js'
@@ -124,6 +132,7 @@ import {
 	clampPanelWidth,
 	clearPanelWidth,
 	closePanelTab,
+	detailsTab,
 	emptyPanelTabs,
 	ensurePanelTab,
 	openFileTab,
@@ -156,6 +165,7 @@ import {
 	FolderIcon,
 	MoreHorizontalIcon,
 	PanelLeftIcon,
+	PanelRightIcon,
 	PlusIcon,
 	SearchIcon,
 	SettingsIcon,
@@ -1142,6 +1152,18 @@ export function App({
 	)
 	const palConversation = Boolean(project?.palId || conversation?.palId)
 	const detailsOpen = jobsOpen && !palConversation
+	// On a wide window the details are a column of their own; below it they are a tab of the side panel.
+	const [wideWindow, setWideWindow] = useState(
+		() => window.matchMedia(DETAILS_COLUMN_QUERY).matches,
+	)
+	useEffect(() => {
+		const media = window.matchMedia(DETAILS_COLUMN_QUERY)
+		const update = () => setWideWindow(media.matches)
+		media.addEventListener('change', update)
+		return () => media.removeEventListener('change', update)
+	}, [])
+	const [detailsColumnPref, setDetailsColumnPref] = useState(() => readDetailsColumn(localStorage))
+	const detailsColumnOn = wideWindow && detailsColumnPref && !palConversation
 	// Files belong to a trusted, ready project the person opened; never a chat or a Pal's workspace.
 	const filesEnabled = Boolean(
 		project?.trusted &&
@@ -1193,8 +1215,13 @@ export function App({
 	const outputsEnabled = Boolean(api.readSessionOutput && !palConversation && sessionId)
 	const panelAllows = useCallback(
 		(tab: PanelTab) =>
-			tab.kind === 'outputs' ? outputsEnabled : filesEnabled || tab.kind !== 'file',
-		[filesEnabled, outputsEnabled],
+			tab.kind === 'outputs'
+				? outputsEnabled
+				: tab.kind === 'details'
+					? // The column shows the same body, so the tab would only repeat it.
+						!detailsColumnOn
+					: filesEnabled || tab.kind !== 'file',
+		[filesEnabled, outputsEnabled, detailsColumnOn],
 	)
 	const listedTabs = useMemo(
 		() => panelTabs.tabs.filter(panelAllows),
@@ -1295,11 +1322,17 @@ export function App({
 		panelView === 'file' ? activeFilePath({ ...panelTabs, active: shownPanelTab }) : undefined
 	/** Makes sure Changes or Activity is a tab, and shows it. */
 	const showPanelTab = useCallback(
-		(tab: 'activity' | 'changes' | 'outputs') =>
+		(tab: 'activity' | 'changes' | 'outputs' | 'details') =>
 			updatePanelTabs((state) =>
 				ensurePanelTab(
 					state,
-					tab === 'changes' ? changesTab : tab === 'outputs' ? outputsTab : activityTab,
+					tab === 'changes'
+						? changesTab
+						: tab === 'outputs'
+							? outputsTab
+							: tab === 'details'
+								? detailsTab
+								: activityTab,
 				),
 			),
 		[updatePanelTabs],
@@ -1533,6 +1566,13 @@ export function App({
 		enabled: Boolean(project?.trusted) && project?.status === 'ready',
 		running: thread.running,
 	})
+	const contextPanelSource: ContextPanelSource | undefined =
+		palConversation || !sessionId || !api.contextUsage
+			? undefined
+			: {
+					ask: (detail) => api.contextUsage?.(sessionId, detail) ?? Promise.resolve(null),
+					compacting: thread.compaction?.state === 'running',
+				}
 	const detailsWork: DetailsWork = externalHarness
 		? { state: 'unavailable' }
 		: jobsSessionId === sessionId && !jobsLoading && !jobsError
@@ -1551,6 +1591,20 @@ export function App({
 			? project.id
 			: undefined
 	const turnRunning = thread.running
+	// The details body (column or tab) is on screen, so it reads what the popover reads.
+	const detailsPaneShown = detailsOpen && panelView === 'details'
+	const detailsBodyShown = detailsColumnOn || detailsPaneShown
+	const toggleDetails = () => {
+		const action = detailsToggleAction({ wide: wideWindow, pane: detailsPaneShown })
+		if (action === 'column') {
+			setDetailsColumnPref(!detailsColumnPref)
+			writeDetailsColumn(localStorage, !detailsColumnPref)
+		} else if (action === 'pane-close') closeDetails()
+		else {
+			showPanelTab('details')
+			setJobsOpen(true)
+		}
+	}
 	const undoKept = useUndoKept(api.undoPreview, sessionId, thread.undo)
 	// A settled turn may have written files; the open file and the tree read the disk again.
 	const [filesRefresh, setFilesRefresh] = useState(0)
@@ -1562,7 +1616,7 @@ export function App({
 	// Read when the popover opens, and again if a turn ends while it is open. The host caches briefly.
 	useEffect(() => {
 		void turnRunning
-		if (!detailsPopoverOpen || !gitProjectId || !api.projectGit) return
+		if (!(detailsPopoverOpen || detailsBodyShown) || !gitProjectId || !api.projectGit) return
 		let current = true
 		void api.projectGit(gitProjectId).then(
 			(value) => {
@@ -1575,7 +1629,7 @@ export function App({
 		return () => {
 			current = false
 		}
-	}, [detailsPopoverOpen, gitProjectId, turnRunning, api])
+	}, [detailsPopoverOpen, detailsBodyShown, gitProjectId, turnRunning, api])
 	const normalTabs = group.tabs.map(
 		(id): ConversationView =>
 			conversations.find((item) => item.id === id) ??
@@ -6067,6 +6121,25 @@ export function App({
 					: ''
 			return { id, title: held ? `New conversation · ${held}` : 'New conversation' }
 		})
+	const detailsBody = (
+		<ConversationDetailsBody
+			where="This computer"
+			project={project && !project.isChat ? { name: project.name, path: project.path } : undefined}
+			branch={git && git.projectId === gitProjectId ? git.value?.branch : null}
+			context={contextPanelSource}
+			usage={thread.usage}
+			outputs={outputs}
+			onOpenOutput={openOutputBeside}
+			totals={totals}
+			onOpenChanges={() => {
+				setChangesFilter(undefined)
+				showPanelTab('changes')
+				setJobsOpen(true)
+			}}
+			work={detailsWork}
+			onOpenWork={openBackgroundWork}
+		/>
+	)
 	const headerActionsVisible =
 		!palConversation && Boolean(sessionId && conversation && !activeTerminal)
 	const headerActions =
@@ -6091,6 +6164,19 @@ export function App({
 					}
 					onAction={(id, trigger) => runConversationAction(id, conversation, trigger)}
 				/>
+				<Button
+					type="button"
+					variant="ghost-muted"
+					size="icon-sm"
+					className="conversation-header-button"
+					aria-label={detailsBodyShown ? 'Hide details' : 'Show details'}
+					aria-pressed={detailsBodyShown}
+					title={detailsBodyShown ? 'Hide details' : 'Show details'}
+					data-details-toggle
+					onClick={toggleDetails}
+				>
+					<PanelRightIcon className="size-4" aria-hidden="true" />
+				</Button>
 				<ConversationDetailsPopover
 					open={detailsPopoverOpen}
 					onOpenChange={setDetailsPopoverOpen}
@@ -6864,11 +6950,13 @@ export function App({
 				data-panel-resizing={panelResizing || undefined}
 				data-panel-expanded={(detailsOpen && panelExpanded) || undefined}
 				data-panel-kind={panelKind}
+				data-details-column={detailsColumnOn || undefined}
+				data-details-shown={detailsBodyShown || undefined}
 				style={
 					panelWidth !== undefined
 						? ({
-								// What a person dragged it to, within its floor and what leaves the conversation its minimum.
-								'--panel-width': `max(var(--panel-${panelKind}-min), min(${panelWidth}px, calc(100% - var(--panel-conversation-min))))`,
+								// What a person dragged it to, within its floor and what leaves the conversation its minimum (and the column its own width).
+								'--panel-width': `max(var(--panel-${panelKind}-min), min(${panelWidth}px, calc(100% - var(--panel-conversation-min)${detailsColumnOn ? ' - var(--details-column-width)' : ''})))`,
 							} as CSSProperties)
 						: undefined
 				}
@@ -7730,15 +7818,7 @@ export function App({
 								liveInputSupported={thread.liveInputSupported && !palConversation}
 								sending={sending[draftOwner] ?? false}
 								usage={palConversation ? undefined : thread.usage}
-								contextPanel={
-									palConversation || !sessionId || !api.contextUsage
-										? undefined
-										: {
-												ask: (detail) =>
-													api.contextUsage?.(sessionId, detail) ?? Promise.resolve(null),
-												compacting: thread.compaction?.state === 'running',
-											}
-								}
+								contextPanel={contextPanelSource}
 								shells={
 									// The open Activity panel's own list is the freshest count; otherwise the observer's.
 									detailsWork.state === 'known' && detailsWork.running > 0
@@ -7787,6 +7867,11 @@ export function App({
 						</div>
 					</div>
 				)}
+				{detailsColumnOn && (
+					<aside className="details-column" aria-label="Conversation details">
+						{detailsBody}
+					</aside>
+				)}
 				{!palConversation && (
 					<aside
 						ref={panelAside}
@@ -7801,9 +7886,11 @@ export function App({
 									? 'Changes'
 									: panelView === 'outputs'
 										? 'Outputs'
-										: panelView === 'empty'
-											? 'Side panel'
-											: 'Project files'
+										: panelView === 'details'
+											? 'Details'
+											: panelView === 'empty'
+												? 'Side panel'
+												: 'Project files'
 						}
 					>
 						<PanelResizeHandle
@@ -7875,7 +7962,9 @@ export function App({
 												? 'changes'
 												: tab.kind === 'outputs'
 													? 'outputs'
-													: 'activity',
+													: tab.kind === 'details'
+														? 'details'
+														: 'activity',
 										)
 									}}
 									onBrowse={() => updatePanelTabs(browsePanelTabs)}
@@ -7895,9 +7984,11 @@ export function App({
 										? 'Changes'
 										: panelView === 'outputs'
 											? 'Outputs'
-											: panelView === 'empty'
-												? 'Side panel'
-												: 'Project files'
+											: panelView === 'details'
+												? 'Details'
+												: panelView === 'empty'
+													? 'Side panel'
+													: 'Project files'
 							}
 							style={{ display: 'contents' }}
 						>
@@ -7920,6 +8011,8 @@ export function App({
 									onNotice={announce}
 									refreshToken={filesRefresh}
 								/>
+							) : panelView === 'details' ? (
+								detailsBody
 							) : panelView === 'outputs' ? (
 								<OutputsPanel
 									api={api}

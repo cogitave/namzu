@@ -47,7 +47,11 @@ function Items({ items }: { items: PanelItem[] }) {
 	)
 }
 
-function Row({ row }: { row: PanelRow }) {
+function Row({
+	row,
+	groupStart,
+	groupHint,
+}: { row: PanelRow; groupStart?: boolean; groupHint?: string }) {
 	const [open, setOpen] = useState(false)
 	const body = (
 		<>
@@ -69,6 +73,7 @@ function Row({ row }: { row: PanelRow }) {
 					type="button"
 					className="context-panel-row context-panel-row-open"
 					title={row.title}
+					data-group-start={groupStart || undefined}
 					aria-expanded={open}
 					onClick={() => setOpen(!open)}
 				>
@@ -78,7 +83,8 @@ function Row({ row }: { row: PanelRow }) {
 				<div
 					className="context-panel-row"
 					data-kind={row.id === 'buffer' ? 'reserve' : row.id === 'free' ? 'free' : undefined}
-					title={row.title}
+					data-group-start={groupStart || undefined}
+					title={groupHint ? `${groupHint} ${row.title}` : row.title}
 				>
 					{body}
 				</div>
@@ -99,10 +105,9 @@ function Servers({ servers }: { servers: NonNullable<PanelModel['servers']> }) {
 				aria-expanded={open}
 				onClick={() => setOpen(!open)}
 			>
-				<span>
-					Tool servers <span className="context-panel-note">{servers.total}</span>
-				</span>
 				{open ? <ChevronDownIcon aria-hidden="true" /> : <ChevronRightIcon aria-hidden="true" />}
+				<span className="context-panel-group-name">Tool servers</span>
+				<span className="context-panel-group-count">{servers.total}</span>
 			</button>
 			{open
 				? servers.list.map((server) => (
@@ -127,7 +132,11 @@ function Servers({ servers }: { servers: NonNullable<PanelModel['servers']> }) {
 	)
 }
 
-/** The panel's content: figures, the bar, the rows and a plain line about how they were counted. */
+/**
+ * The panel's content: figures, the bar and the rows. It has no frame of its own and fills the width it
+ * is given, so the popover and the details column hold the same body. What the old notes said is
+ * hover text now; the sentence about shortening is drawn only from 80% used.
+ */
 export function ContextPanelView({ model }: { model: PanelModel }) {
 	const [details, setDetails] = useState(true)
 	return (
@@ -136,6 +145,7 @@ export function ContextPanelView({ model }: { model: PanelModel }) {
 				type="button"
 				className="context-panel-header"
 				aria-expanded={details}
+				title={model.footnote}
 				onClick={() => setDetails(!details)}
 			>
 				<span>Context</span>
@@ -143,15 +153,22 @@ export function ContextPanelView({ model }: { model: PanelModel }) {
 			</button>
 			<div className="context-panel-figures">
 				<span className="context-panel-percent">{model.headline}</span>
-				<span className="context-panel-total">{model.size}</span>
-				{model.tag ? (
-					<span className="context-panel-tag" title={model.tag.title}>
-						{model.tag.text}
-					</span>
-				) : null}
+				<span className="context-panel-total">
+					{model.estimated ? (
+						<span className="context-panel-estimate" title="Estimated by Namzu">
+							{model.size.slice(0, 1)}
+						</span>
+					) : null}
+					{model.estimated ? model.size.slice(1) : model.size}
+				</span>
 			</div>
-			<p className="context-panel-sentence">{model.sentence}</p>
-			<div className="context-panel-bar" role="img" aria-label={model.bar.label}>
+			{model.showSentence ? <p className="context-panel-sentence">{model.sentence}</p> : null}
+			<div
+				className="context-panel-bar"
+				role="img"
+				aria-label={model.bar.label}
+				title={model.showSentence ? undefined : model.sentence}
+			>
 				{model.bar.segments.map((segment) => (
 					<i
 						key={segment.id}
@@ -169,40 +186,35 @@ export function ContextPanelView({ model }: { model: PanelModel }) {
 					{model.used.map((row) => (
 						<Row key={row.id} row={row} />
 					))}
-					{model.deferred.length > 0 ? (
-						<>
-							<div className="context-panel-section">Loaded only when needed</div>
-							{model.deferred.map((row) => (
-								<div
-									className="context-panel-row"
-									data-kind="deferred"
-									title={row.title}
-									key={row.id}
-								>
-									<span className="context-panel-square" aria-hidden="true" />
-									<span className="context-panel-name">{row.name}</span>
-									<span className="context-panel-size">{row.size}</span>
-									<span className="context-panel-share">
-										<span className="sr-only">Not counted</span>
-										<span aria-hidden="true">-</span>
-									</span>
-								</div>
-							))}
-							{model.deferredNote ? (
-								<p className="context-panel-small">{model.deferredNote}</p>
-							) : null}
-						</>
-					) : null}
-					{model.reserve.length > 0 ? (
-						<>
-							<div className="context-panel-section">Kept in reserve</div>
-							{model.reserve.map((row) => (
-								<Row key={row.id} row={row} />
-							))}
-						</>
-					) : null}
+					{model.deferred.map((row, index) => (
+						<div
+							className="context-panel-row"
+							data-kind="deferred"
+							data-group-start={index === 0 || undefined}
+							title={index === 0 ? `${model.groupHints.deferred} ${row.title}` : row.title}
+							key={row.id}
+						>
+							<span className="context-panel-square" aria-hidden="true" />
+							<span className="context-panel-name">
+								{row.name}
+								<span className="context-panel-note"> (deferred)</span>
+							</span>
+							<span className="context-panel-size">{row.size}</span>
+							<span className="context-panel-share">
+								<span className="sr-only">Not counted</span>
+								<span aria-hidden="true">-</span>
+							</span>
+						</div>
+					))}
+					{model.reserve.map((row, index) => (
+						<Row
+							key={row.id}
+							row={row}
+							groupStart={index === 0}
+							groupHint={index === 0 ? model.groupHints.reserve : undefined}
+						/>
+					))}
 					{model.servers ? <Servers servers={model.servers} /> : null}
-					<p className="context-panel-foot">{model.footnote}</p>
 				</>
 			) : null}
 		</div>
@@ -245,7 +257,8 @@ export function useContextPanel(
 	return read
 }
 
-function Body({
+/** The panel read for one conversation, with no frame: the details column draws it inline. */
+export function ContextInline({
 	read,
 	usage,
 	compacting,
@@ -295,7 +308,9 @@ export function ContextPanelTrigger({
 		<Popover open={open} onOpenChange={setOpen}>
 			<PopoverTrigger render={render}>{children}</PopoverTrigger>
 			<PopoverPopup side="top" align={align} padding="none" className="context-panel-popup">
-				<Body read={read} usage={usage} compacting={source.compacting} />
+				<div className="context-panel-frame">
+					<ContextInline read={read} usage={usage} compacting={source.compacting} />
+				</div>
 			</PopoverPopup>
 		</Popover>
 	)

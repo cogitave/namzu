@@ -1,17 +1,20 @@
+import { Menu } from '@base-ui/react/menu'
 import { ExternalLink } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { mayOpenWithSystem } from '../shared/output-files.js'
 import type { DesktopApi, ProjectFileContent } from '../shared/protocol.js'
-import { CopyButton } from './copy-button.js'
+import { CopyButton, copyPlainText } from './copy-button.js'
 import { DocumentPage } from './document-page.js'
 import { FileTypeIcon } from './file-panel/file-icons.js'
 import { SourceView } from './file-panel/file-view.js'
-import { AppWindowIcon, ArrowLeftIcon, DownloadIcon, FolderOpenIcon } from './icons.js'
+import { AppWindowIcon, ChevronDownIcon, DownloadIcon, FolderOpenIcon, XIcon } from './icons.js'
+import { MENU_OFFSET } from './menu-metrics.js'
 import { cardKindLine } from './output-card-model.js'
 import { OUTPUT_FRAME_SANDBOX, outputFrameDocument } from './output-frame.js'
 import { type OutputFile, outputAddress } from './outputs-model.js'
 import { plainErrorText } from './plain-error.js'
 import { Button } from './ui/button.js'
+import './conversation-actions-menu.css'
 import './file-panel/file-panel.css'
 import './outputs-panel.css'
 
@@ -116,7 +119,7 @@ export function OutputPreview({
 	)
 }
 
-function OutputRow({
+export function OutputRow({
 	file,
 	onOpen,
 	onSave,
@@ -152,6 +155,27 @@ function OutputRow({
 			)}
 		</li>
 	)
+}
+
+export type OutputMenuAction = 'browser' | 'system' | 'folder' | 'save' | 'copy-path'
+
+export const OUTPUT_ACTION_LABEL: Record<OutputMenuAction, string> = {
+	browser: 'Open in browser',
+	system: 'Open in app',
+	folder: 'Show in folder',
+	save: 'Save a copy',
+	'copy-path': 'Copy path',
+}
+
+/** What the title's menu offers for a file, in order: a page also opens in the browser. */
+export function outputMenuActions(file: OutputFile, can: { save: boolean }): OutputMenuAction[] {
+	return [
+		...(file.kind === 'html' ? (['browser'] as const) : []),
+		...(mayOpenWithSystem(file.path) ? (['system'] as const) : []),
+		'folder',
+		...(can.save ? (['save'] as const) : []),
+		'copy-path',
+	]
 }
 
 /**
@@ -229,81 +253,81 @@ export function OutputsPanel({
 				),
 			),
 		)
+	const copyPath = () =>
+		void copyPlainText(file.path).then(
+			() => onNotice('Path copied.'),
+			() => onNotice('Could not copy the path.'),
+		)
+	const actions = outputMenuActions(file, { save: Boolean(api.saveSessionOutput) })
+	const run = (id: OutputMenuAction) => {
+		if (id === 'browser') open('browser')
+		else if (id === 'system') open('system')
+		else if (id === 'folder') open('file-manager')
+		else if (id === 'copy-path') copyPath()
+		else
+			void api
+				.saveSessionOutput?.(sessionId, file.path)
+				.catch((failure) => onNotice(plainErrorText(failure, 'save a copy')))
+	}
 	return (
-		<div className="outputs-panel" data-outputs-preview={file.path}>
-			<div className="outputs-preview-bar">
-				<Button
-					type="button"
-					size="icon-xs"
-					variant="ghost-muted"
-					aria-label="All outputs"
-					title="All outputs"
-					onClick={() => onSelect(undefined)}
-				>
-					<ArrowLeftIcon aria-hidden="true" />
-				</Button>
-				<span className="outputs-preview-name" title={file.path}>
-					{file.name}
-				</span>
+		<div className="outputs-panel" data-outputs-preview={file.path} data-outputs-viewing>
+			<div className="outputs-preview-bar" data-output-header>
+				<Menu.Root>
+					<Menu.Trigger className="outputs-title-button" aria-label={`${file.name}, file actions`}>
+						<span className="outputs-preview-name" title={file.path}>
+							{file.name}
+						</span>
+						<ChevronDownIcon aria-hidden="true" />
+					</Menu.Trigger>
+					<Menu.Portal>
+						<Menu.Positioner
+							className="conversation-actions-positioner"
+							align="start"
+							sideOffset={MENU_OFFSET}
+						>
+							<Menu.Popup className="conversation-actions-popup" aria-label="File actions">
+								<div className="outputs-menu-path" data-output-address title={file.path}>
+									{outputAddress(file.path, workFolder)}
+								</div>
+								<Menu.Separator className="conversation-actions-separator" />
+								{actions.map((id) => (
+									<Menu.Item
+										key={id}
+										className="conversation-actions-item"
+										data-output-action={id}
+										onClick={() => run(id)}
+									>
+										{id === 'browser' ? (
+											<AppWindowIcon aria-hidden="true" />
+										) : id === 'system' ? (
+											<ExternalLink aria-hidden="true" />
+										) : id === 'save' ? (
+											<DownloadIcon aria-hidden="true" />
+										) : (
+											<FolderOpenIcon aria-hidden="true" />
+										)}
+										<span className="conversation-actions-label">{OUTPUT_ACTION_LABEL[id]}</span>
+									</Menu.Item>
+								))}
+							</Menu.Popup>
+						</Menu.Positioner>
+					</Menu.Portal>
+				</Menu.Root>
 				<div className="outputs-preview-actions">
-					{file.kind === 'html' && (
-						<Button type="button" size="xs" variant="ghost-muted" onClick={() => open('browser')}>
-							<AppWindowIcon aria-hidden="true" />
-							Open in browser
-						</Button>
-					)}
-					{mayOpenWithSystem(file.path) && (
-						<Button
-							type="button"
-							size="xs"
-							variant="ghost-muted"
-							title="Open with the app for this kind of file"
-							onClick={() => open('system')}
-						>
-							<ExternalLink aria-hidden="true" />
-							Open in app
-						</Button>
-					)}
-					<Button
-						type="button"
-						size="xs"
-						variant="ghost-muted"
-						onClick={() => open('file-manager')}
-					>
-						<FolderOpenIcon aria-hidden="true" />
-						Show in folder
-					</Button>
-					{api.saveSessionOutput && (
-						<Button
-							type="button"
-							size="xs"
-							variant="ghost-muted"
-							onClick={() =>
-								void api
-									.saveSessionOutput?.(sessionId, file.path)
-									.catch((failure) => onNotice(plainErrorText(failure, 'save a copy')))
-							}
-						>
-							<DownloadIcon aria-hidden="true" />
-							Save a copy
-						</Button>
-					)}
 					{load.status === 'ready' && load.content.text !== undefined && (
 						<CopyButton text={load.content.text} label="Copy file contents" />
 					)}
+					<Button
+						type="button"
+						size="icon-xs"
+						variant="ghost-muted"
+						aria-label="Close file"
+						title="Close file"
+						onClick={() => onSelect(undefined)}
+					>
+						<XIcon aria-hidden="true" />
+					</Button>
 				</div>
-			</div>
-			<div className="outputs-address" data-output-address>
-				<input
-					className="outputs-address-input"
-					type="text"
-					readOnly
-					spellCheck={false}
-					aria-label="Location"
-					value={outputAddress(file.path, workFolder)}
-					title={file.path}
-					onFocus={(event) => event.currentTarget.select()}
-				/>
 			</div>
 			<div className="outputs-preview-body">
 				{load.status === 'loading' ? (

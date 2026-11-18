@@ -109,8 +109,14 @@ export interface PanelServer {
 export interface PanelModel {
 	/** "8% used" or "about 8% used". */
 	headline: string
-	/** "77.7k of 1M" or "about 77.7k of 1M". */
+	/** "77.7k / 1M", with a "~" in front of the total when Namzu counted it itself. */
 	size: string
+	/** Namzu counted the total itself, so the figure carries a "~" and a hint. */
+	estimated: boolean
+	/** True from 80% used: only then is the sentence drawn; before that it is the bar's hover text. */
+	showSentence: boolean
+	/** What the deferred and reserve groups are, for hover text on their first row. */
+	groupHints: { deferred: string; reserve: string }
 	/** The small tag: the AI service counted it, or Namzu did. Absent when the engine did not say. */
 	tag?: { text: string; title: string }
 	/** The one sentence under the figures. */
@@ -317,7 +323,13 @@ export function contextPanelModel(input: PanelInput): PanelModel {
 	const servers = toServers(lists)
 	return {
 		headline: `${about}${percent}% used`,
-		size: `${about}${formatSize(total)} of ${formatSize(window)}`,
+		size: `${about ? '~' : ''}${formatSize(total)} / ${formatSize(window)}`,
+		estimated: about !== '',
+		showSentence: rawPercent >= 80 || Boolean(input.compacting),
+		groupHints: {
+			deferred: 'Not in the conversation yet. Namzu loads them when it needs them.',
+			reserve: 'Room Namzu keeps free so it can answer and shorten the conversation.',
+		},
 		...(tag ? { tag } : {}),
 		sentence,
 		tone,
