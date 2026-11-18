@@ -602,6 +602,11 @@ export interface PermissionView {
 		 * sends or submits).
 		 */
 		computer?: { app?: string; apps?: string[]; consequence?: string }
+		/**
+		 * For a call that changes one of the person's settings: the setting's name and the old and
+		 * new value in the words Settings uses. The card shows these instead of the call's input.
+		 */
+		settingChange?: { setting: string; from: string; to: string }
 	}[]
 	/**
 	 * Set by this application on a request that asks whether Namzu may use these applications in

@@ -69,6 +69,7 @@ import type {
 import { duplicatePalNameMessage, isDuplicatePalName } from '../shared/pal-name.js'
 import { readPermissionCalls, readPermissionResponse } from '../shared/permission-protocol.js'
 import { engineFailureText } from '../shared/plain-error.js'
+import { PREFERENCE_NOTIFICATION, readPreferenceRequest } from '../shared/preference-protocol.js'
 import { type ThreadState, applyEvent, emptyThread, threadPhase } from '../shared/projection.js'
 import type {
 	AttachmentInput,
@@ -122,6 +123,7 @@ import { readProviderConnections } from '../shared/provider-connections.js'
 import { ReconnectRetries } from '../shared/reconnect-retry.js'
 import { lastReplyText } from '../shared/reply.js'
 import { isReviewModeId } from '../shared/review-modes.js'
+import type { DesktopSettings } from '../shared/settings-protocol.js'
 import {
 	type SidebarSectionId,
 	collapsedSectionsFrom,
@@ -626,6 +628,8 @@ export class Operator {
 			 * is never allowed into them, so it cannot answer its own questions.
 			 */
 			ownAppNames?: () => readonly string[]
+			/** Saves preferences the agent changed with the person's yes; the engine has checked, the caller checks again. */
+			applyPreferences?: (patch: Partial<DesktopSettings>) => void
 			/**
 			 * A conversation needs the main window and the pill cannot answer it: bring the window
 			 * forward once if it is covered. `question` is a turn that ended asking something.
@@ -6624,6 +6628,17 @@ export class Operator {
 				session.view.title = notice.title
 				session.promptTitle = undefined
 				this.commitConversationView(session, project)
+			}
+		} else if (frame.method === PREFERENCE_NOTIFICATION) {
+			// The person said yes on a card to a change of one of the app's own preferences. Only the
+			// listed keys with a value that reads are applied; anything else is dropped.
+			const patch = readPreferenceRequest(frame.params)
+			if (patch) {
+				try {
+					this.options.applyPreferences?.(patch)
+				} catch (error) {
+					this.diagnostics?.record('ipc_failed', { operation: 'agentPreference', error })
+				}
 			}
 		} else if (frame.method === OUTCOME_NOTIFICATION) {
 			// What a finished turn changed and what checked it. A notice that does not read, or names a

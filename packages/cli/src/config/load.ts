@@ -1913,6 +1913,10 @@ const CONFIG_READERS: ConfigReaders = {
 		if (typeof v === 'boolean') return v
 		return invalidConfigValue(context, [], 'must be true or false')
 	},
+	agentSettings: (v, context) => {
+		if (typeof v === 'boolean') return v
+		return invalidConfigValue(context, [], 'must be true or false')
+	},
 	outputStyle: (v, context) => proseSetting(v, context),
 	attribution: (v, context) => proseSetting(v, context),
 	promptSuggestions: (v, context) => {
@@ -2661,6 +2665,8 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	respectGitignore: undefined,
 	// How the working rules close is a file decision, not a shell's.
 	closingSummary: undefined,
+	// Whether the model may touch the person's settings is a file decision, never a shell's.
+	agentSettings: undefined,
 	// Text that enters the model's rules is the person's file decision, never a shell's.
 	outputStyle: undefined,
 	attribution: undefined,
@@ -3194,6 +3200,13 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 			}
 			if (key === 'disableHooks' && out.disableHooks === true) {
 				// Once on, no later layer turns it off.
+				continue
+			}
+			if (key === 'agentSettings' && isProjectSource(layer.sourceFor(key))) {
+				// A repository cannot decide whether the model may change the person's settings.
+				configWarnings.add(
+					`agentSettings in ${describeSource(layer.sourceFor(key))} is ignored: only your own config file or the managed file can set it.`,
+				)
 				continue
 			}
 			if (key === 'worktrees' && layer.config.worktrees !== undefined) {

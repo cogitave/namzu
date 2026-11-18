@@ -6508,6 +6508,11 @@ function AppBody({
 							...(activeCtx.handBack?.enabled === true ? { handBack: true } : {}),
 							...(activeCtx.savedEffort ? { savedEffort: activeCtx.savedEffort } : {}),
 							...(activeCtx.closingSummary === false ? { closingSummary: false } : {}),
+							// Read and change the safe settings, each change asked on a prompt. On unless
+							// the config turned it off.
+							...(activeCtx.agentSettings === false
+								? {}
+								: { settingsTools: { cwd: activeCtx.cwd } }),
 							...(activeCtx.outputStyle ? { outputStyle: activeCtx.outputStyle } : {}),
 							...(activeCtx.attribution ? { attribution: activeCtx.attribution } : {}),
 							...(activeCtx.mcpServers ? { mcpServers: activeCtx.mcpServers } : {}),

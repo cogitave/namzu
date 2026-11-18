@@ -22,6 +22,8 @@ export interface RuntimeCommand {
 	program: string
 	args: string[]
 	env?: NodeJS.ProcessEnv
+	/** Variables added to the host's environment whichever engine the launcher chooses. */
+	extraEnv?: Readonly<Record<string, string>>
 	/** The app's own version, told to the host at initialize. Read from the app, never written here. */
 	clientVersion?: string
 	/**
@@ -322,7 +324,9 @@ export class RuntimeClient extends EventEmitter {
 		const generation = ++this.generation
 		const child = spawn(command.program, command.args, {
 			cwd: this.cwd,
-			env: command.env ?? process.env,
+			env: command.extraEnv
+				? { ...(command.env ?? process.env), ...command.extraEnv }
+				: (command.env ?? process.env),
 			stdio: 'pipe',
 			shell: false,
 			windowsHide: true,

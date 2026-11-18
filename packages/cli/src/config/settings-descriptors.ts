@@ -521,6 +521,7 @@ export function appliesWhenFor(path: string): AppliesWhen {
 	const conversationKeys = new Set([
 		'hypermode',
 		'closingSummary',
+		'agentSettings',
 		'outputStyle',
 		'attribution',
 		'effort',
@@ -1580,6 +1581,23 @@ const DECLARED: readonly SettingDescriptor[] = [
 		{
 			group: 'memory',
 			keywords: ['Search and reference chats', 'past chats', 'past conversations', 'history'],
+			default: true,
+		},
+	),
+	d(
+		'agentSettings',
+		'agent',
+		'Let Namzu change settings',
+		'Let Namzu read your settings and, when you say yes on a card, change a few harmless ones, such as notifications. It never changes permissions, the sandbox, the browser, sites, tool servers, models or keys.',
+		on,
+		{
+			group: 'memory',
+			keywords: [
+				'change settings',
+				'agent settings',
+				'settings tool',
+				'let Claude change settings',
+			],
 			default: true,
 		},
 	),

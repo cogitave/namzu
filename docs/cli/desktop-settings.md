@@ -179,6 +179,10 @@ or **Not set** and never read the value out or write it. The one exception is th
 changes and removes a server's command or address through its own methods and never reads or shows a server's
 variables or headers. Provider keys keep their own masked flow under Models.
 
+## The model changing a setting
+
+The model can change a few of these rows itself, one at a time, only after you say yes on a card. The list, the refusals and the switch (*Let Namzu change settings*) are in [Settings tools for the model](agent-settings-tools.md).
+
 ## Not exposed
 
 Every row the reference has under its memory settings is now offered. What stays out of Settings is derived by the loader or deprecated:

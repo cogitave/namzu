@@ -139,3 +139,24 @@ it('keeps every application a computer batch names, and drops a list of one', ()
 	expect(calls[0]?.computer).toEqual({ app: 'Notepad', apps: ['Notepad', 'Edge'] })
 	expect(calls[1]?.computer).toEqual({ app: 'Notepad' })
 })
+
+it('reads the words of a settings change and drops a malformed set', () => {
+	const calls = readPermissionCalls([
+		{
+			id: 'a',
+			name: 'set_setting',
+			input: {},
+			isDestructive: false,
+			settingChange: { setting: 'Output style', from: 'not set', to: 'short' },
+		},
+		{
+			id: 'b',
+			name: 'set_setting',
+			input: {},
+			isDestructive: false,
+			settingChange: { setting: 'x' },
+		},
+	])
+	expect(calls[0]?.settingChange).toEqual({ setting: 'Output style', from: 'not set', to: 'short' })
+	expect(calls[1]).not.toHaveProperty('settingChange')
+})

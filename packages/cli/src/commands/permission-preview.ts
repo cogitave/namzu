@@ -102,13 +102,28 @@ export async function withPreviews(
 		readonly computer?: (
 			call: CallLike,
 		) => Promise<{ app?: string; apps?: string[]; consequence?: string } | undefined>
+		/**
+		 * What a call that changes one of the person's settings says, in the words Settings uses:
+		 * the name and the old and new value. Sent so a card never shows a key or raw input.
+		 */
+		readonly settingChange?: (
+			call: CallLike,
+		) => { setting: string; from: string; to: string } | undefined
 	} = {},
 ) {
 	return Promise.all(
 		calls.map(async (call) => {
 			const preview = await buildFilePreview(call, roots)
 			const computer = await options.computer?.(call).catch(() => undefined)
+			const settingChange = (() => {
+				try {
+					return options.settingChange?.(call)
+				} catch {
+					return undefined
+				}
+			})()
 			return {
+				...(settingChange ? { settingChange } : {}),
 				...(computer && (computer.app || computer.consequence) ? { computer } : {}),
 				id: call.id,
 				name: call.name,

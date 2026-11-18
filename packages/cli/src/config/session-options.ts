@@ -84,6 +84,8 @@ export const SESSION_KEY_MAP: Readonly<Record<keyof NamzuCliConfig, string>> = {
 	respectGitignore:
 		'excluded: read by the terminal app and the desktop app for their file pickers, not by the session',
 	closingSummary: 'closingSummary',
+	agentSettings:
+		'excluded: the terminal app and the desktop host mount the settings tools (`agentSettingsOn`); other hosts have no card to ask on',
 	outputStyle: 'outputStyle',
 	attribution: 'attribution',
 	promptSuggestions:

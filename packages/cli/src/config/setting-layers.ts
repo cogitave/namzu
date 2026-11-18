@@ -104,6 +104,7 @@ export const ENVIRONMENT_BINDINGS: Readonly<Record<string, EnvBinding>> = {
  * there is not in force. The local file's list is the same but for `smallModel`.
  */
 const PROJECT_DROPPED = [
+	'agentSettings',
 	'decision',
 	'model',
 	'routing',
@@ -115,6 +116,7 @@ const PROJECT_DROPPED = [
 	'memory.searchPastConversations',
 ]
 const LOCAL_DROPPED = [
+	'agentSettings',
 	'decision',
 	'model',
 	'routing',

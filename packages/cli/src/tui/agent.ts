@@ -248,6 +248,7 @@ import {
 	withCheckpoints,
 	withShellNote,
 } from '../checkpoints/wrap.js'
+import { createAgentSettingsTools } from '../config/agent-settings-tools.js'
 import type { HooksSwitch } from '../config/hook-layers.js'
 import { takeConfigWarnings } from '../config/load.js'
 import { readModelLaunchEnvironment } from '../config/model-environment.js'
@@ -2928,6 +2929,13 @@ export interface AgentSessionOptions {
 	 */
 	readonly monitorTool?: boolean
 	/**
+	 * Offer `get_settings` and `set_setting` (deferred): the model reads the safe settings and,
+	 * with the person's yes on a card, changes one. Present only for a host that can ask a person
+	 * (the terminal app, the desktop host); the host leaves it out when `agentSettings` is off.
+	 * `desktop` is how the Desktop app's own preferences are reached. See `config/agent-settings.ts`.
+	 */
+	readonly settingsTools?: import('../config/agent-settings.js').AgentSettingsContext
+	/**
 	 * Tools this session's rules refuse whatever their input, left out of its
 	 * registry so their schemas are not sent with every model call. A
 	 * scheduled run passes the tools its job can never use
@@ -5022,6 +5030,15 @@ export async function createAgentSession(
 			getMonitorTools({ webAccessHint: MONITOR_WEB_ACCESS_HINT }),
 		)
 		toolsets.push(options.toolLoading === 'eager' ? monitorToolset : deferred(monitorToolset))
+	}
+	// The settings tools: deferred, so the listing gains two names and nothing else. Parent session
+	// only, and only where the host said it can put a change to a person.
+	if (options.settingsTools && !options.ephemeral) {
+		const settingsToolset = toolset(
+			'agent-settings',
+			createAgentSettingsTools(options.settingsTools),
+		)
+		toolsets.push(options.toolLoading === 'eager' ? settingsToolset : deferred(settingsToolset))
 	}
 	// The owner's Pals, reachable from an ordinary conversation of the Namzu engine.
 	// Mounted whether or not any Pal exists yet so one created mid-conversation is

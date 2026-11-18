@@ -660,6 +660,13 @@ export interface NamzuCliConfig {
 	 */
 	readonly closingSummary?: boolean
 	/**
+	 * Whether the model may read the safe settings and, with the person's yes on a card, change
+	 * one (`get_settings`, `set_setting`; see `config/agent-settings.ts`). Absent means true;
+	 * `false` leaves both tools out of new conversations. Read from the user and managed files
+	 * only: a project file cannot turn it on.
+	 */
+	readonly agentSettings?: boolean
+	/**
 	 * How replies should read, in the person's own words (for example "short, plain sentences,
 	 * no lists"). Added to the working rules of new conversations as a reply-style note that
 	 * never overrides them; absent or empty adds nothing. Read from the user and managed files

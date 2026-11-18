@@ -49,6 +49,9 @@ import {
 
 import { FileCheckpointStore, type TurnUndoStatus, type UndoPreview } from '../checkpoints/store.js'
 import { flushCompileCacheWhenIdle } from '../compile-cache.js'
+import { SET_SETTING_TOOL } from '../config/agent-settings-tools.js'
+import type { AgentSettingsContext, DesktopPreferences } from '../config/agent-settings.js'
+import { describeAgentChange } from '../config/agent-settings.js'
 import type { SkillsConfig } from '../config/schema.js'
 import {
 	refreshTrustedProjectContext,
@@ -142,6 +145,7 @@ import {
 import { createDesktopHostExtensions } from './desktop-host.js'
 import { desktopModelCatalogue } from './desktop-model-catalogue.js'
 import { announceOutcome } from './desktop-outcome-feed.js'
+import { desktopPreferencesBridge } from './desktop-preferences.js'
 import { createTitleFeed } from './desktop-title-feed.js'
 import { type UsageFeed, createUsageFeed } from './desktop-usage-feed.js'
 import { withPreviews } from './permission-preview.js'
@@ -768,6 +772,8 @@ export interface CliAcpRuntimeOptions {
 	 * with the small model, beside its first turn, and tells the desktop the name.
 	 */
 	readonly announce?: (method: string, params: Record<string, unknown>) => void
+	/** How the desktop app's own preferences are reached; absent when the app did not say. */
+	readonly desktopPreferences?: DesktopPreferences
 }
 
 export function createCliAcpRuntime(
@@ -796,6 +802,11 @@ export function createCliAcpRuntime(
 			return dir
 		}
 	}
+	/** What the settings tools read and write for a conversation in `cwd`. */
+	const settingsContext = (cwd: string): AgentSettingsContext => ({
+		cwd,
+		...(runtimeOptions.desktopPreferences ? { desktop: runtimeOptions.desktopPreferences } : {}),
+	})
 	const liveInputs = new Map<string, LivePromptInbox>()
 	const constructing = new Map<string, string>()
 	const selections = new Map<string, Preferences>()
@@ -1094,6 +1105,13 @@ export function createCliAcpRuntime(
 						: {}),
 					// The desktop shows what a turn writes in its Browser and Files panes; the model is told so.
 					...(runtimeOptions.announce && !palEnvironment ? { desktop: true } : {}),
+					// The model may read the safe settings and change one when the person says yes on
+					// the card; the desktop's own preferences join when the app said where they are.
+					...(runtimeOptions.announce &&
+					!palEnvironment &&
+					projectCtx.config.agentSettings !== false
+						? { settingsTools: settingsContext(cwd) }
+						: {}),
 					cwd,
 					sessionId: target.sessionId,
 					...(conversationState
@@ -1337,6 +1355,10 @@ export function createCliAcpRuntime(
 							computer: (call) =>
 								record.session.describeComputerUseCall?.(call.name, call.input) ??
 								Promise.resolve(undefined),
+							settingChange: (call) =>
+								call.name === SET_SETTING_TOOL
+									? describeAgentChange(settingsContext(record.cwd), call.input)
+									: undefined,
 						}),
 					})
 					switch (outcome.kind) {
@@ -1566,6 +1588,10 @@ export function createCliAcpRuntime(
 								computer: (call) =>
 									record.session.describeComputerUseCall?.(call.name, call.input) ??
 									Promise.resolve(undefined),
+								settingChange: (call) =>
+									call.name === SET_SETTING_TOOL
+										? describeAgentChange(settingsContext(record.cwd), call.input)
+										: undefined,
 							}),
 						})
 						if (outcome.kind === 'approve_all') return { kind: 'approve-all' }
@@ -2442,6 +2468,12 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 					}
 				: {}),
 			...(desktop ? { announce } : {}),
+			...(desktop
+				? (() => {
+						const bridge = desktopPreferencesBridge(process.env, announce)
+						return bridge ? { desktopPreferences: bridge } : {}
+					})()
+				: {}),
 			...(usageFeed
 				? {
 						observeEvent: (id, event) => {

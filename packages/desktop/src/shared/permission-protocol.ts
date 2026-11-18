@@ -6,6 +6,17 @@ export const PERMISSION_FEEDBACK_MAX = 4_000
 const PREVIEW_MAX_CHARS = 1_100_000
 const MAX_CALLS = 64
 
+/** The words a settings change is shown in, bounded; a call without them is drawn as any other. */
+function readSettingChange(
+	value: unknown,
+): { setting: string; from: string; to: string } | undefined {
+	if (!record(value)) return undefined
+	const setting = text(value.setting, 120)
+	const from = text(value.from, 700)
+	const to = text(value.to, 700)
+	return setting && from && to ? { setting, from, to } : undefined
+}
+
 const record = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value)
 
@@ -83,6 +94,8 @@ export function readPermissionCalls(value: unknown): PermissionView['calls'] {
 		}
 		const computer = readComputerCall(raw.computer)
 		if (computer) call.computer = computer
+		const settingChange = readSettingChange(raw.settingChange)
+		if (settingChange) call.settingChange = settingChange
 		const preview = raw.preview
 		if (
 			record(preview) &&

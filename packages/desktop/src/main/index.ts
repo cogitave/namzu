@@ -508,6 +508,9 @@ const engineDelivery = createEngineDelivery({
 // The host is told which app it serves; the number is the app's own, read at run time.
 const command: RuntimeCommand = {
 	...hostCommand,
+	// Where the engine can read the app's own preferences, for the settings tools. Read only: a
+	// change is asked of the app by notification.
+	extraEnv: { NAMZU_DESKTOP_SETTINGS_FILE: join(app.getPath('userData'), 'desktop-settings.json') },
 	clientVersion: app.getVersion(),
 	...(engineDelivery ? { launcher: engineDelivery.launcher() } : {}),
 }
@@ -788,6 +791,9 @@ const operator = new Operator(
 		notices,
 		// The agent is never allowed into Namzu's own windows: it could answer its own questions.
 		ownAppNames: () => [app.getName(), 'Namzu', basename(process.execPath), 'Electron'],
+		applyPreferences: (patch) => {
+			settingsStore.set(patch)
+		},
 		needsMainWindow: () => {
 			bringBack.needed()
 		},

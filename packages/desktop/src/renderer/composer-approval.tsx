@@ -396,6 +396,7 @@ export function ComposerApproval({
 	const screenMoment = model.screenMoment
 	const showDetails =
 		!appAccess &&
+		!model.settingChange &&
 		((!screenMoment && !(model.diff && !model.diff.fragment)) || permission.calls.length > 1)
 	const diff = model.diff
 	const verdict = useMemo(

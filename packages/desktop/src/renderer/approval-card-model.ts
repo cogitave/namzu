@@ -40,6 +40,8 @@ export interface ApprovalCardModel {
 	screenMoment?: { app: string }
 	/** The question whether Namzu may use these applications in this conversation. */
 	appAccess?: { apps: string[] }
+	/** A change to one of the person's settings: its name and the old and new value in Settings' words. */
+	settingChange?: { setting: string; from: string; to: string }
 	/** Titles of the other calls of the same batch, which one answer covers. */
 	others: string[]
 }
@@ -321,6 +323,22 @@ export function buildApprovalCard(
 		}
 	}
 
+	if (first.settingChange) {
+		const change = first.settingChange
+		return {
+			kind: 'other',
+			title: `Change ${change.setting}?`,
+			settingChange: change,
+			previewMissing: false,
+			entries: [
+				{ label: 'Now', value: change.from },
+				{ label: 'Change to', value: change.to },
+			],
+			destructive: false,
+			others,
+		}
+	}
+
 	if (name === SCREEN_MOMENT_TOOL) {
 		const app = screenApp(first)
 		return {
@@ -375,6 +393,7 @@ export function buildApprovalCard(
 function cardTitle(call: Call, palNames?: ReadonlyMap<string, string>): string {
 	const name = call.name.toLowerCase()
 	if (name === PAL_MESSAGE_TOOL) return palMessageTitle(call, palNames)
+	if (call.settingChange) return `Change ${call.settingChange.setting}`
 	const path = pathOf(call)
 	if (FILE_TOOLS.has(name) && path)
 		return `${name === 'write' ? 'Write' : 'Edit'} ${baseName(path)}`
@@ -536,7 +555,8 @@ export function waitingLabel(permission: PermissionView | undefined): string {
 	const first = permission?.calls[0]
 	if (!permission || !first) return 'Waiting for your decision'
 	const model = buildApprovalCard(permission)
-	if (model.screenMoment || model.appAccess) return 'Waiting for your decision'
+	if (model.screenMoment || model.appAccess || model.settingChange)
+		return 'Waiting for your decision'
 	switch (model.kind) {
 		case 'command':
 			return 'Waiting to run command'
@@ -688,6 +708,10 @@ export function approvalDetails(
 	return calls.map((call) => {
 		const entries: ApprovalDetailGroup['entries'] = []
 		const input = call.input
+		// A settings change is already said in full on the card; its input holds a key, not words.
+		if (call.settingChange) {
+			return calls.length > 1 ? { title: cardTitle(call, palNames), entries } : { entries }
+		}
 		if (record(input)) {
 			for (const [key, value] of Object.entries(input).slice(0, 12)) {
 				const label = sentenceCase(plainKey(key.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase()))

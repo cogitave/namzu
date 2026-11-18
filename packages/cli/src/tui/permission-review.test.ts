@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
@@ -908,5 +911,33 @@ describe('an edit is shown against the file as it is now', () => {
 		expect(summary.text).toContain('- a')
 		expect(summary.text).toContain('+ b')
 		expect(summary.text).not.toContain('no longer')
+	})
+})
+
+describe('a settings change in the approval prompt', () => {
+	it('names the setting and the old and new value, and never the key', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-review-home-'))
+		vi.stubEnv('NAMZU_HOME', home)
+		try {
+			const review = buildPermissionReview([
+				{
+					id: 'call_1',
+					name: 'set_setting',
+					input: { setting: 'archive_inactive_conversations', value: '7d' },
+					isDestructive: false,
+				},
+			])
+			expect(review.ok).toBe(true)
+			if (!review.ok) return
+			const summary = buildPermissionSummary(review.text, { cwd: home })
+			expect(summary.complete).toBe(true)
+			expect(summary.text).toContain('Change: Archive inactive conversations')
+			expect(summary.text).toContain('From: Never')
+			expect(summary.text).toContain('To: After 7 days')
+			expect(summary.text).not.toContain('archive_inactive_conversations')
+		} finally {
+			vi.unstubAllEnvs()
+			rmSync(home, { recursive: true, force: true })
+		}
 	})
 })

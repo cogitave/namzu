@@ -969,6 +969,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					...(resolvedCtx.config.handBack ? { handBack: resolvedCtx.config.handBack } : {}),
 					...(resolvedCtx.config.effort ? { savedEffort: resolvedCtx.config.effort } : {}),
 					...(resolvedCtx.config.closingSummary === false ? { closingSummary: false } : {}),
+					...(resolvedCtx.config.agentSettings === false ? { agentSettings: false } : {}),
 					...(resolvedCtx.config.outputStyle
 						? { outputStyle: resolvedCtx.config.outputStyle }
 						: {}),

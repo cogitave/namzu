@@ -183,3 +183,27 @@ describe('the two switches', () => {
 		expect(warnings.filter((line) => line.includes('hooksManagedOnly'))).toHaveLength(2)
 	})
 })
+
+describe('agentSettings', () => {
+	it('is read from the user file', () => {
+		expect(loadConfig(folder({ user: 'agentSettings: false\n' })).agentSettings).toBe(false)
+	})
+
+	it('is ignored in a project or local file, with a warning that says so', () => {
+		takeConfigWarnings()
+		const config = loadConfig(
+			folder({ user: 'agentSettings: false\n', project: { agentSettings: true } }),
+		)
+		expect(config.agentSettings).toBe(false)
+		expect(takeConfigWarnings().join('\n')).toContain('agentSettings')
+		const local = loadConfig(folder({ local: { agentSettings: false } }))
+		expect(local.agentSettings).toBeUndefined()
+	})
+
+	it('can be turned off by the administrator, and a project cannot undo it', () => {
+		const config = loadConfig(
+			folder({ managed: { agentSettings: false }, project: { agentSettings: true } }),
+		)
+		expect(config.agentSettings).toBe(false)
+	})
+})

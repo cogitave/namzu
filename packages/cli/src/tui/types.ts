@@ -293,6 +293,8 @@ export interface TuiContext {
 	readonly savedEffort?: import('@namzu/sdk').ReasoningEffort
 	/** See `NamzuCliConfig.closingSummary`. Only `false` is ever set. */
 	readonly closingSummary?: boolean
+	/** See `NamzuCliConfig.agentSettings`. Only `false` is ever set. */
+	readonly agentSettings?: boolean
 	/** See `NamzuCliConfig.outputStyle`. */
 	readonly outputStyle?: string
 	/** See `NamzuCliConfig.attribution`. */
