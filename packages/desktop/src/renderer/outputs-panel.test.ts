@@ -72,6 +72,23 @@ describe('the preview of a written file', () => {
 	})
 })
 
+describe('a vector picture', () => {
+	it('shows as a picture, not as its source', () => {
+		const svg =
+			'<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8"/></svg>'
+		const out = renderToStaticMarkup(
+			createElement(OutputPreview, {
+				file: file('logo.svg', 'image'),
+				dark: false,
+				content: { path: 'art/logo.svg', size: svg.length, kind: 'text', text: svg },
+			}),
+		)
+		expect(out).toContain('data-output-preview="image"')
+		expect(out).toContain('src="data:image/svg+xml;charset=utf-8,')
+		expect(out).not.toContain('data-output-preview="code"')
+	})
+})
+
 describe('a document drawn as a page', () => {
 	const doc =
 		'# Kickoff\n\n## Goals\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\n![Chart](img/chart.png)\n\n- [ ] task\n'

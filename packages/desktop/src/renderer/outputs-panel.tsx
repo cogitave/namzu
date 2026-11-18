@@ -84,6 +84,16 @@ export function OutputPreview({
 			</div>
 		)
 	if (content.kind === 'text' && content.text !== undefined) {
+		// A vector picture is text on disk but a picture to the reader. Inside an <img> its scripts never run.
+		if (/\.svg$/i.test(file.path))
+			return (
+				<div className="file-image" data-output-preview="image">
+					<img
+						src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(content.text)}`}
+						alt={file.name}
+					/>
+				</div>
+			)
 		if (file.kind === 'html')
 			return (
 				<iframe
