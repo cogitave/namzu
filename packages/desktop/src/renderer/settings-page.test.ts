@@ -12,7 +12,12 @@ import {
 	SETTINGS_SECTIONS,
 	type SettingsSection,
 } from '../shared/settings-protocol.js'
-import { SETTINGS_SECTION_TITLES, aboutDetailsText } from './settings-model.js'
+import {
+	SETTINGS_ENTRIES,
+	SETTINGS_SECTION_TITLES,
+	aboutDetailsText,
+	entryIsDrawn,
+} from './settings-model.js'
 import {
 	SettingsPage,
 	type SettingsPageProps,
@@ -272,6 +277,8 @@ describe('the settings page', () => {
 		})
 		expect(disabled).not.toContain('Download updates automatically')
 		expect(disabled).toContain('Namzu Desktop version')
+		// The generic heading is gone: the engine's rows sit under their own group heading.
+		expect(disabled).not.toContain('Namzu settings')
 		expect(page('updates', { update: undefined })).not.toContain('Download updates automatically')
 	})
 
@@ -298,6 +305,57 @@ describe('the settings page', () => {
 		expect(windows).toContain('Default terminal shell')
 		expect(windows).toContain('Command Prompt')
 		expect(windows).toContain('Bring terminal tabs back')
+		// The row says where it works, and Desktop's own process rows are not here any more.
+		expect(windows).toContain('Windows only.')
+		expect(windows).not.toContain('Use the graphics card')
+		// Under its own heading, above the engine's terminal rows.
+		expect(windows.indexOf('<h2 class="settings-section-title">Terminal tabs</h2>')).toBe(0)
+		expect(windows.indexOf('Default terminal shell')).toBeLessThan(
+			windows.indexOf('Bring terminal tabs back'),
+		)
+	})
+
+	it('General no longer holds the terminal rows or the graphics card; Desktop app holds the card', () => {
+		const general = page('general')
+		for (const gone of [
+			'Default terminal shell',
+			'Bring terminal tabs back',
+			'Use the graphics card',
+		])
+			expect(general).not.toContain(gone)
+		expect(general).toContain('Play a sound with notifications')
+		const desktop = page('desktop')
+		expect(desktop).toContain('id="setting-hardware-acceleration"')
+		expect(desktop).toContain('Use the graphics card')
+		expect(desktop).toContain('<h1>Desktop app</h1>')
+	})
+
+	it('the Terminal section draws no tab rows and no heading where there are no terminals', () => {
+		const terminal = page('terminal')
+		expect(terminal).not.toContain('Terminal tabs')
+		expect(terminal).not.toContain('Bring terminal tabs back')
+	})
+
+	it('every row search can offer is drawn on the page of the section it names', () => {
+		// No bridge here, so there are no terminals: the shell and restore rows are not drawn, and
+		// search must not offer them. Everything else must land on a drawn row.
+		const facts = { shells: null, hasAppUpdater: true, canFetchEngines: false }
+		const drawn = SETTINGS_ENTRIES.filter((entry) => entryIsDrawn(entry.id, facts))
+		expect(drawn.map((entry) => entry.id)).not.toContain('terminal-shell')
+		expect(drawn.map((entry) => entry.id)).not.toContain('terminal-restore')
+		expect(drawn.map((entry) => entry.id)).not.toContain('keep-engine')
+		const sections = new Map<string, string>()
+		for (const entry of drawn) {
+			if (!sections.has(entry.section)) sections.set(entry.section, page(entry.section))
+			// Three panels draw their rows from a live connection, which a static render has none of.
+			if (['models', 'runHooks', 'hooks'].includes(entry.id)) continue
+			expect(sections.get(entry.section), `${entry.id} in ${entry.section}`).toContain(
+				`id="setting-${entry.id}"`,
+			)
+		}
+		// The moved rows are among them, in their new sections.
+		const byId = new Map(drawn.map((entry) => [entry.id, entry.section]))
+		expect(byId.get('hardware-acceleration')).toBe('desktop')
 	})
 
 	it('Updates offers Download for an offered update and disables Check while busy', () => {
@@ -416,7 +474,15 @@ describe('the settings sidebar', () => {
 			createElement(SettingsSidebar, { section: 'updates', onSection: () => {} }),
 		)
 		expect(markup).toContain('aria-label="Settings sections"')
-		for (const title of ['General', 'Projects', 'Appearance', 'Updates', 'Speech', 'About'])
+		for (const title of [
+			'General',
+			'Projects',
+			'Appearance',
+			'Desktop app',
+			'Updates',
+			'Speech',
+			'About',
+		])
 			expect(markup).toContain(`<span>${title}</span>`)
 		expect(markup.match(/aria-current="page"/g)).toHaveLength(1)
 		expect(markup).toMatch(/aria-current="page"[^>]*>(?:(?!<\/button>).)*Updates/s)

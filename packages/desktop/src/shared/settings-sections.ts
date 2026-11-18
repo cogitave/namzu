@@ -7,6 +7,7 @@ export const SETTINGS_SECTIONS = [
 	'projects',
 	'appearance',
 	'terminal',
+	'desktop',
 	'telemetry',
 	'updates',
 	'speech',

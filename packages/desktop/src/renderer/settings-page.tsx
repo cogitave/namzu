@@ -1,5 +1,5 @@
 import { Dialog } from '@base-ui/react/dialog'
-import { Activity, Bot, KeyRound, SquareTerminal, Volume2, Wrench } from 'lucide-react'
+import { Activity, Bot, KeyRound, Monitor, SquareTerminal, Volume2, Wrench } from 'lucide-react'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { newerKernelText } from '../shared/engine-update-protocol.js'
 import type { ProjectView } from '../shared/protocol.js'
@@ -50,6 +50,7 @@ import {
 	SETTINGS_SECTION_TITLES,
 	type SettingsEntry,
 	aboutDetailsText,
+	entryIsDrawn,
 	lastCheckedText,
 	platformText,
 	projectTrustText,
@@ -80,6 +81,7 @@ const SECTION_ICONS: Record<SettingsSection, IconComponent> = {
 	projects: FoldersIcon,
 	appearance: SunIcon,
 	terminal: SquareTerminal as IconComponent,
+	desktop: Monitor as IconComponent,
 	telemetry: Activity as IconComponent,
 	updates: DownloadIcon,
 	speech: Volume2 as IconComponent,
@@ -229,19 +231,16 @@ function useSettingsSearch(query: string, update: SettingsPageProps['update']): 
 	const config = useConfigSettings(typeof window === 'undefined' ? undefined : window.namzu, true)
 	const delivery = useEngineDelivery()
 	// A row that does nothing here is neither shown nor found by search.
-	const hasShellChoice = (shells?.length ?? 0) > 1
 	const hasAppUpdater = update !== undefined && update.state.status !== 'disabled'
+	const facts = {
+		shells,
+		hasAppUpdater,
+		canFetchEngines: delivery !== undefined,
+	}
 	const results = searchSettings(
 		query,
-		[...SETTINGS_ENTRIES, ...configSearchEntries(config.view)].filter(
-			(entry) =>
-				// Shown as “Run hooks” in its own place, so the plain setting is not a second result.
-				entry.id !== 'cfg-disableHooks' &&
-				(entry.id !== 'terminal-shell' || hasShellChoice) &&
-				(entry.id !== 'terminal-restore' || shells !== null) &&
-				(entry.id !== 'auto-download' || hasAppUpdater) &&
-				// Drawn only in a build that can fetch engines.
-				((entry.id !== 'engine-delivery' && entry.id !== 'keep-engine') || delivery !== undefined),
+		[...SETTINGS_ENTRIES, ...configSearchEntries(config.view)].filter((entry) =>
+			entryIsDrawn(entry.id, facts),
 		),
 	)
 	return { query, results, shells, config, hasAppUpdater }
@@ -460,6 +459,8 @@ function SectionBody(props: SectionProps) {
 			{props.section === 'projects' && <ProjectsSection {...props} />}
 			{props.section === 'appearance' && <AppearanceSection {...props} />}
 			{props.section === 'updates' && <UpdatesSection {...props} />}
+			{props.section === 'desktop' && <DesktopSection {...props} />}
+			{props.section === 'terminal' && <TerminalSettings {...props} />}
 			{(props.section === 'general' ||
 				props.section === 'models' ||
 				props.section === 'agent' ||
@@ -475,8 +476,7 @@ function SectionBody(props: SectionProps) {
 					heading={
 						props.section === 'general' ||
 						props.section === 'models' ||
-						props.section === 'projects' ||
-						props.section === 'updates'
+						props.section === 'projects'
 							? 'Namzu settings'
 							: undefined
 					}
@@ -558,7 +558,7 @@ function CatalogueRow({
 	)
 }
 
-function GeneralSection({ settings, shells }: SectionProps) {
+function GeneralSection({ settings }: SectionProps) {
 	const group = useId()
 	const value = settings.settings?.startup
 	return (
@@ -623,14 +623,15 @@ function GeneralSection({ settings, shells }: SectionProps) {
 					onChange={(value) => void settings.change({ notifySound: value })}
 				/>
 			</CatalogueRow>
-			<TerminalSettings settings={settings} shells={shells} />
 		</>
 	)
 }
 
 /**
- * The shell a plain terminal tab opens, and whether terminal tabs come back after a restart. The
- * shell row appears only where there is a real choice; with one shell it would have nothing to click.
+ * The terminal tabs in this window: the shell a plain tab opens and whether tabs come back after a
+ * restart. The rows that follow in the section (the terminal app, the command line) are the
+ * engine's own. The shell row appears only where there is a real choice, which is Windows; with one
+ * shell it would have nothing to click. Where there are no terminals the heading goes too.
  */
 export function TerminalSettings({
 	settings,
@@ -642,6 +643,7 @@ export function TerminalSettings({
 	const choices = shells ?? []
 	return (
 		<>
+			<h2 className="settings-section-title">Terminal tabs</h2>
 			{choices.length > 1 && (
 				<CatalogueRow id="terminal-shell" stacked>
 					<fieldset className="settings-choices" disabled={!settings.settings}>
@@ -680,15 +682,21 @@ export function TerminalSettings({
 					onChange={(value) => void settings.change({ restoreTerminals: value })}
 				/>
 			</CatalogueRow>
-			<CatalogueRow id="hardware-acceleration">
-				<Switch
-					label="Use the graphics card"
-					checked={settings.settings?.hardwareAcceleration ?? true}
-					disabled={!settings.settings}
-					onChange={(value) => void settings.change({ hardwareAcceleration: value })}
-				/>
-			</CatalogueRow>
 		</>
+	)
+}
+
+/** How the app itself runs on this computer, as against what happens inside a conversation. */
+function DesktopSection({ settings }: SectionProps) {
+	return (
+		<CatalogueRow id="hardware-acceleration">
+			<Switch
+				label="Use the graphics card"
+				checked={settings.settings?.hardwareAcceleration ?? true}
+				disabled={!settings.settings}
+				onChange={(value) => void settings.change({ hardwareAcceleration: value })}
+			/>
+		</CatalogueRow>
 	)
 }
 

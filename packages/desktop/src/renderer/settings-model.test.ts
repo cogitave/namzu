@@ -1,12 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import type { ProjectView } from '../shared/protocol.js'
-import { FINISHED_NOTICE_AFTER_MS, SETTINGS_SECTIONS } from '../shared/settings-protocol.js'
+import {
+	FINISHED_NOTICE_AFTER_MS,
+	SETTINGS_SECTIONS,
+	isSettingsSection,
+} from '../shared/settings-protocol.js'
 import {
 	ENGINE_ONLY_SECTIONS,
 	SETTINGS_ENTRIES,
 	SETTINGS_NAV_GROUPS,
 	SETTINGS_SECTION_TITLES,
 	aboutDetailsText,
+	entryIsDrawn,
 	lastCheckedText,
 	parseSettingsRoute,
 	platformText,
@@ -70,6 +75,7 @@ describe('search', () => {
 		expect(searchSettings('startup').map((e) => e.id)).toContain('startup')
 		expect(searchSettings('tray').map((e) => e.id)).toContain('attention-signals')
 		expect(searchSettings('graphics card').map((e) => e.id)).toContain('hardware-acceleration')
+		expect(searchSettings('graphics card')[0]?.section).toBe('desktop')
 		expect(searchSettings('keep the engine').map((e) => e.id)).toContain('keep-engine')
 	})
 
@@ -80,6 +86,53 @@ describe('search', () => {
 			expect(SETTINGS_SECTION_TITLES[entry.section]).toBeTruthy()
 		for (const section of SETTINGS_SECTIONS.filter((s) => !ENGINE_ONLY_SECTIONS.includes(s)))
 			expect(SETTINGS_ENTRIES.some((e) => e.section === section)).toBe(true)
+	})
+})
+
+describe('where the Desktop rows sit', () => {
+	const sectionOf = (id: string) => SETTINGS_ENTRIES.find((entry) => entry.id === id)?.section
+	it('keeps each moved row in its new section, and a search hit names that section', () => {
+		expect(sectionOf('hardware-acceleration')).toBe('desktop')
+		expect(sectionOf('terminal-shell')).toBe('terminal')
+		expect(sectionOf('terminal-restore')).toBe('terminal')
+		expect(searchSettings('shell')[0]?.section).toBe('terminal')
+		expect(searchSettings('bring terminal tabs back')[0]?.section).toBe('terminal')
+		// Notifications stay in General until they have a section of their own.
+		for (const id of ['notify-needs-you', 'notify-failed', 'notify-finished', 'notify-sound'])
+			expect(sectionOf(id)).toBe('general')
+	})
+
+	it('has a Desktop app section in the fourth group, first, and it is a valid stored section', () => {
+		expect(SETTINGS_NAV_GROUPS[3]).toEqual(['desktop', 'telemetry', 'updates', 'about'])
+		expect(SETTINGS_SECTION_TITLES.desktop).toBe('Desktop app')
+		expect(isSettingsSection('desktop')).toBe(true)
+		expect(parseSettingsRoute('settings/desktop')).toBe('desktop')
+		// A section stored before the move still opens.
+		for (const old of ['general', 'models', 'agent', 'tools', 'projects', 'appearance', 'terminal'])
+			expect(isSettingsSection(old)).toBe(true)
+	})
+
+	it('draws the shell row only where main offers a choice, which is Windows, and search follows', () => {
+		const facts = { hasAppUpdater: true, canFetchEngines: true }
+		// Linux and macOS: main answers with the login shell alone.
+		expect(entryIsDrawn('terminal-shell', { ...facts, shells: [{ value: 'auto' }] })).toBe(false)
+		// Still being asked.
+		expect(entryIsDrawn('terminal-shell', { ...facts, shells: undefined })).toBe(false)
+		// No terminals at all.
+		expect(entryIsDrawn('terminal-shell', { ...facts, shells: null })).toBe(false)
+		expect(entryIsDrawn('terminal-restore', { ...facts, shells: null })).toBe(false)
+		// Windows: Automatic and at least Command Prompt.
+		const windows = { ...facts, shells: [{ value: 'auto' }, { value: 'cmd' }] }
+		expect(entryIsDrawn('terminal-shell', windows)).toBe(true)
+		expect(entryIsDrawn('terminal-restore', { ...facts, shells: [{ value: 'auto' }] })).toBe(true)
+		expect(entryIsDrawn('auto-download', { ...windows, hasAppUpdater: false })).toBe(false)
+		expect(entryIsDrawn('keep-engine', { ...windows, canFetchEngines: false })).toBe(false)
+		expect(entryIsDrawn('cfg-disableHooks', windows)).toBe(false)
+		expect(entryIsDrawn('theme', windows)).toBe(true)
+		// The row's own words say where it works.
+		expect(SETTINGS_ENTRIES.find((entry) => entry.id === 'terminal-shell')?.description).toMatch(
+			/^Windows only\./,
+		)
 	})
 })
 

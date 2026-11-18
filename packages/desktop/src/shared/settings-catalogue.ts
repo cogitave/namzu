@@ -194,10 +194,10 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		id: 'terminal-shell',
 		key: 'terminalShell',
 		owner: 'desktop',
-		section: 'general',
+		section: 'terminal',
 		label: 'Default terminal shell',
 		description:
-			'Automatic uses PowerShell 7 when it is installed and otherwise Command Prompt, which is set to UTF-8. Windows PowerShell can drop some typed Turkish capitals.',
+			'Windows only. Automatic uses PowerShell 7 when it is installed and otherwise Command Prompt, which is set to UTF-8. Windows PowerShell can drop some typed Turkish capitals.',
 		control: {
 			kind: 'select',
 			options: SHELL_CHOICES.map((value) => ({ value, label: SHELL_CHOICE_LABELS[value] })),
@@ -211,7 +211,7 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		id: 'terminal-restore',
 		key: 'restoreTerminals',
 		owner: 'desktop',
-		section: 'general',
+		section: 'terminal',
 		label: 'Bring terminal tabs back',
 		description:
 			'After a restart, terminal tabs return as ended terminals with their last screen. Their programs do not keep running while Namzu is closed.',
@@ -224,7 +224,7 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		id: 'hardware-acceleration',
 		key: 'hardwareAcceleration',
 		owner: 'desktop',
-		section: 'general',
+		section: 'desktop',
 		label: 'Use the graphics card',
 		description:
 			'Turn this off if Namzu’s windows flicker, go blank or stop working soon after they open.',

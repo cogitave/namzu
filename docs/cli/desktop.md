@@ -969,18 +969,30 @@ fieldsets, the section list is a `nav`, and the dialog works at the 560px minimu
 Screenshots of every section in both themes, narrow, the search, and both removal
 surfaces are in [`research/settings-20261008/`](../../research/settings-20261008/) (taken when Settings was a page).
 
-Sections `agent`, `tools`, `terminal` and `telemetry` and a **Namzu settings** group in General, Models, Projects and Updates hold the keys of the user config file, drawn from the engine's own list; see [Desktop settings for config keys](desktop-settings.md).
+Sections `agent`, `tools`, `terminal` and `telemetry` and a **Namzu settings** group in General, Models and Projects hold the keys of the user config file, drawn from the engine's own list; see [Desktop settings for config keys](desktop-settings.md).
+
+**The section map.** A row sits where its effect is. The nav has four groups: Models; General, Appearance, Speech; Agent, Tools, Projects, Terminal; Desktop app, Telemetry, Updates, About. Where the app and the engine both have rows in a section, the app's come first, then the engine's under a heading the engine names (`group` and `groupLabel` on the descriptor):
+
+- **Desktop app** (`desktop`) holds the rows about the app's own process: *Use the graphics card* today. It holds no engine rows.
+- **Terminal** reads, top to bottom: **Terminal tabs** (the app's own terminal pane: *Default terminal shell*, *Bring terminal tabs back*; the heading goes with the rows where there are no terminals), **Terminal app** (`tui.*`, `statusLine` and `composerTriggers.*`, which only the namzu terminal app reads: the Desktop composer has no triggers) and **Command line** (*Output format* and *Quiet output*, which shape the output of one-shot commands such as `namzu exec`, and *Profiles*, which only `--profile` on the command line selects).
+- **Updates** shows the app's own rows (version, check, download, engine) and then **Command line**: *Release channel*, *Install new versions by itself*, *Look for new versions* (`updates.channel`, `updates.auto`, `updates.check`).
+- **Tools** holds *Browser* (`browser.enabled`, first among the browser rows) and *Code analysis* (`codeAnalysis.enabled`). A Desktop conversation reads both: the engine host builds the browser tools from `browser.enabled` and the code analysis tool from `codeAnalysis`, so neither says "terminal app".
+- *Hypermode* is in Agent, not General. Notifications stay in General until they have a section of their own.
+- *Default terminal shell* is **Windows only**: main offers a choice of shells only on Windows (`availableShells`), elsewhere a terminal tab runs the login shell and the setting is never read. The row and its search entry are drawn only where main offers more than one shell (`entryIsDrawn` in `settings-model.ts`, asked by the page and by search alike), so search never offers a row that is not drawn.
+- A section stored before the move still opens, and `desktop` is a valid stored section (`lastSettingsSection`). `/mcp`, `/hooks`, `/theme`, `/login`, `/release-notes`, Ctrl+, and the menu item land on the same sections and rows as before.
 
 What it holds, and where each value lives (one source of truth per value):
 
 - **General** — *When Namzu starts*: `Continue where I left off` (default) or `Start on the home
-  screen` (see [Starting the app](#starting-the-app)); *Default terminal shell* (drawn only where
-  there is more than one shell to choose, in practice Windows, and left out of search where it is
-  not) and *Bring terminal tabs back* (see [Terminal tabs](#terminal-tabs)), and *Use the graphics
-  card* (default on; `hardwareAcceleration` in `desktop-settings.json`). Turn it off when windows
-  flicker, go blank or stop working soon after they open. It is read once, before the app is ready,
-  and applied with `app.disableHardwareAcceleration()`, so a change takes effect the next time
-  Namzu starts; the running windows are unchanged.
+  screen` (see [Starting the app](#starting-the-app)), and the notification rows.
+- **Terminal tabs** (in Terminal) — *Default terminal shell* (Windows only; drawn only where there
+  is more than one shell to choose, and left out of search where it is not) and *Bring terminal
+  tabs back* (see [Terminal tabs](#terminal-tabs)).
+- **Desktop app** — *Use the graphics card* (default on; `hardwareAcceleration` in
+  `desktop-settings.json`). Turn it off when windows flicker, go blank or stop working soon after
+  they open. It is read once, before the app is ready, and applied with
+  `app.disableHardwareAcceleration()`, so a change takes effect the next time Namzu starts; the
+  running windows are unchanged.
 - **Models** — which providers Namzu can answer with and how each is connected: a key in the
   environment (the variable's name, never its value), a key saved here, an existing `claude-code` or
   Codex sign-in, an OpenCode key, a local server, or the keyless free tier (listed as free, and

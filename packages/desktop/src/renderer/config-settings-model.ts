@@ -19,6 +19,43 @@ export function configSettingsFor(
 	return view ? view.descriptors.filter((d) => d.section === section) : []
 }
 
+/**
+ * The rows of a section in the order they are drawn, cut into runs that share a heading. The rows
+ * with no group come first, then each group in the order the engine lists it (the engine lists a
+ * section's rows with its groups already in order, so Desktop keeps no order of its own).
+ */
+export function configRowRuns(
+	rows: readonly ConfigSettingDescriptor[],
+): { heading?: string; rows: ConfigSettingDescriptor[] }[] {
+	const runs: {
+		group?: string
+		heading?: string
+		rows: ConfigSettingDescriptor[]
+	}[] = []
+	const open = (group: string | undefined, heading: string | undefined) => {
+		const run = runs.find((item) => item.group === group)
+		if (run) return run
+		const created: {
+			group?: string
+			heading?: string
+			rows: ConfigSettingDescriptor[]
+		} = {
+			...(group !== undefined ? { group } : {}),
+			...(heading !== undefined ? { heading } : {}),
+			rows: [],
+		}
+		runs.push(created)
+		return created
+	}
+	for (const row of rows) open(row.group, row.groupLabel).rows.push(row)
+	// A row with no group is drawn above the groups even when a group was listed first.
+	runs.sort((a, b) => Number(a.group !== undefined) - Number(b.group !== undefined))
+	return runs.map(({ heading, rows: list }) => ({
+		...(heading ? { heading } : {}),
+		rows: list,
+	}))
+}
+
 export function stateFor(view: ConfigSettingsView, path: string): ConfigSettingState | undefined {
 	return view.settings.find((s) => s.path === path)
 }

@@ -81,8 +81,17 @@ it('documents the defaults the spec names', () => {
 	})
 })
 
-it('knows the six sections', () => {
-	for (const section of ['general', 'projects', 'appearance', 'updates', 'speech', 'about'])
+it('knows the sections, the Desktop app one among them', () => {
+	for (const section of [
+		'general',
+		'projects',
+		'appearance',
+		'updates',
+		'speech',
+		'about',
+		'desktop',
+		'terminal',
+	])
 		expect(isSettingsSection(section)).toBe(true)
 	expect(isSettingsSection('plugins')).toBe(false)
 	expect(isSettingsSection(undefined)).toBe(false)
@@ -127,5 +136,11 @@ it('remembers the section Settings was last on, and ignores anything that is not
 	})
 	expect(() => desktopSettingsPatch({ lastSettingsSection: 'plugins' })).toThrow()
 	expect(storedDesktopSettings({ lastSettingsSection: 'about' }).lastSettingsSection).toBe('about')
+	expect(storedDesktopSettings({ lastSettingsSection: 'desktop' }).lastSettingsSection).toBe(
+		'desktop',
+	)
+	expect(desktopSettingsPatch({ lastSettingsSection: 'desktop' })).toEqual({
+		lastSettingsSection: 'desktop',
+	})
 	expect(storedDesktopSettings({ lastSettingsSection: 'nope' }).lastSettingsSection).toBe('general')
 })

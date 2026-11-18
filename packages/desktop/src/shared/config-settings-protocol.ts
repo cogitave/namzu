@@ -71,6 +71,13 @@ export interface ConfigSettingDescriptor {
 	label: string
 	description: string
 	section: ConfigSettingSection
+	/**
+	 * The heading the row sits under inside its section, and the words of that heading. Both come
+	 * from the engine, so Desktop keeps no list of them. Absent from an engine older than the field:
+	 * the row is then drawn above any group, with no heading.
+	 */
+	group?: string
+	groupLabel?: string
 	control: ConfigSettingControl
 	/** What the setting holds with nothing saved. Draw the default from this, never from prose. */
 	default?: ConfigSettingDefault
@@ -223,6 +230,10 @@ export function readConfigSettingsView(value: unknown): ConfigSettingsView {
 			label: d.label,
 			description: d.description,
 			section: d.section as ConfigSettingSection,
+			// A group needs both its id and its words; one without the other draws no heading.
+			...(typeof d.group === 'string' && typeof d.groupLabel === 'string' && d.groupLabel !== ''
+				? { group: d.group, groupLabel: d.groupLabel }
+				: {}),
 			control: ctl,
 			...(defaultValue(d.default) !== undefined
 				? { default: defaultValue(d.default) as ConfigSettingDefault }

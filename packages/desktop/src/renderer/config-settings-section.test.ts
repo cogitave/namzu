@@ -1,8 +1,15 @@
+import { fileURLToPath } from 'node:url'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
-import type { ConfigSettingsView } from '../shared/config-settings-protocol.js'
 import {
+	type ConfigSettingsView,
+	readConfigSettingsView,
+} from '../shared/config-settings-protocol.js'
+import {
+	type CONFIG_GROUP_SECTIONS,
+	OWN_ROW_CONFIG_PATHS,
+	configRowRuns,
 	configSearchEntries,
 	configSettingId,
 	confirmationCopy,
@@ -237,4 +244,168 @@ describe('search offers only rows the page draws', () => {
 		expect(searchSettings('graphics').map((entry) => entry.id)).toContain('hardware-acceleration')
 		expect(searchSettings('keep engine').map((entry) => entry.id)).toContain('keep-engine')
 	})
+})
+
+describe('headings inside a section', () => {
+	const row = (path: string, group?: string, groupLabel?: string) => ({
+		path,
+		label: path,
+		description: path,
+		section: 'terminal' as const,
+		control: { kind: 'toggle' as const },
+		...(group ? { group, groupLabel } : {}),
+	})
+	const grouped: ConfigSettingsView = {
+		file: '/x/config.yaml',
+		descriptors: [
+			row('tui.mouse', 'terminal-app', 'Terminal app'),
+			row('tui.sound', 'terminal-app', 'Terminal app'),
+			row('format', 'command-line', 'Command line'),
+			row('quiet', 'command-line', 'Command line'),
+		],
+		settings: [],
+	}
+	const markup = (view: ConfigSettingsView | undefined = grouped) =>
+		renderToStaticMarkup(
+			createElement(ConfigSettingsGroup, { section: 'terminal', config: controls({ view }) }),
+		)
+
+	it('draws one heading over each group, in the order the engine lists them, rows beneath', () => {
+		const out = markup()
+		const headings = [...out.matchAll(/<h2 class="settings-section-title">([^<]+)<\/h2>/g)].map(
+			(match) => match[1],
+		)
+		expect(headings).toEqual(['Terminal app', 'Command line'])
+		expect(out.indexOf('Terminal app')).toBeLessThan(out.indexOf('id="setting-cfg-tui-mouse"'))
+		expect(out.indexOf('id="setting-cfg-tui-sound"')).toBeLessThan(out.indexOf('Command line'))
+		expect(out.indexOf('Command line')).toBeLessThan(out.indexOf('id="setting-cfg-format"'))
+	})
+
+	it('draws a row with no group above the groups and an older engine with no headings at all', () => {
+		const runs = configRowRuns([
+			row('tui.mouse', 'terminal-app', 'Terminal app'),
+			row('limits.x'),
+		] as never)
+		expect(runs.map((run) => run.heading)).toEqual([undefined, 'Terminal app'])
+		const old = markup({
+			...grouped,
+			descriptors: grouped.descriptors.map(({ group, groupLabel, ...rest }) => rest),
+		})
+		expect(old).not.toContain('settings-section-title')
+		expect(old).toContain('id="setting-cfg-format"')
+	})
+
+	it('reads a group only when the engine sent its words with it', () => {
+		const read = readConfigSettingsView({
+			file: '/x',
+			settings: [],
+			descriptors: [
+				{ ...row('a', 'command-line', 'Command line') },
+				{ ...row('b'), group: 'command-line' },
+			],
+		})
+		expect(read.descriptors[0]).toMatchObject({ group: 'command-line', groupLabel: 'Command line' })
+		expect(read.descriptors[1]).not.toHaveProperty('group')
+	})
+})
+
+/** The engine's own list, read as Desktop reads it from the wire. */
+const CLI_DESCRIPTORS = fileURLToPath(
+	new URL('../../../cli/src/config/settings-descriptors.ts', import.meta.url),
+)
+const CLI_SETTINGS = fileURLToPath(
+	new URL('../../../cli/src/config/desktop-settings.ts', import.meta.url),
+)
+
+// The first import loads the engine's config loader through its source, which is slow on a loaded runner.
+const SLOW_IMPORT_MS = 30_000
+
+describe('the real engine list, section by section', () => {
+	const real = async (): Promise<ConfigSettingsView> => {
+		const { SETTING_DESCRIPTORS } = (await import(/* @vite-ignore */ CLI_DESCRIPTORS)) as {
+			SETTING_DESCRIPTORS: readonly { path: string }[]
+		}
+		const { withDefaultText } = (await import(/* @vite-ignore */ CLI_SETTINGS)) as {
+			withDefaultText: (entry: unknown) => unknown
+		}
+		return readConfigSettingsView(
+			JSON.parse(
+				JSON.stringify({
+					file: '/x/config.yaml',
+					settings: [],
+					descriptors: SETTING_DESCRIPTORS.map(withDefaultText),
+				}),
+			),
+		)
+	}
+	const draw = (view: ConfigSettingsView, section: (typeof CONFIG_GROUP_SECTIONS)[number]) =>
+		renderToStaticMarkup(
+			createElement(ConfigSettingsGroup, {
+				section,
+				config: controls({ view }),
+				omit: section === 'tools' ? OWN_ROW_CONFIG_PATHS : undefined,
+			}),
+		)
+
+	it(
+		'lands every search hit on a drawn row in the section the hit names',
+		async () => {
+			const view = await real()
+			const pages = new Map<string, string>()
+			const hits = configSearchEntries(view)
+			expect(hits.length).toBeGreaterThan(50)
+			for (const hit of hits) {
+				if (!pages.has(hit.section)) pages.set(hit.section, draw(view, hit.section))
+				expect(pages.get(hit.section), `${hit.id} in ${hit.section}`).toContain(
+					`id="setting-${hit.id}"`,
+				)
+			}
+		},
+		SLOW_IMPORT_MS,
+	)
+
+	it(
+		'puts each moved row in its new section and heading',
+		async () => {
+			const view = await real()
+			const where = new Map(view.descriptors.map((d) => [d.path, d]))
+			const check = (path: string, section: string, group?: string) => {
+				expect(where.get(path)?.section, path).toBe(section)
+				expect(where.get(path)?.group, path).toBe(group)
+			}
+			check('updates.auto', 'updates', 'command-line')
+			check('updates.check', 'updates', 'command-line')
+			check('updates.channel', 'updates', 'command-line')
+			check('browser.enabled', 'tools')
+			check('codeAnalysis.enabled', 'tools')
+			check('format', 'terminal', 'command-line')
+			check('quiet', 'terminal', 'command-line')
+			check('tui.theme', 'terminal', 'terminal-app')
+			check('composerTriggers.enabled', 'terminal', 'terminal-app')
+			check('statusLine', 'terminal', 'terminal-app')
+			check('hypermode', 'agent')
+			// The browser switch leads the browser rows.
+			const tools = draw(view, 'tools')
+			expect(tools.indexOf('id="setting-cfg-browser-enabled"')).toBeLessThan(
+				tools.indexOf('id="setting-cfg-browser-defaultProfile"'),
+			)
+		},
+		SLOW_IMPORT_MS,
+	)
+
+	it(
+		'orders the Terminal and Updates headings',
+		async () => {
+			const view = await real()
+			const headings = (section: (typeof CONFIG_GROUP_SECTIONS)[number]) =>
+				[...draw(view, section).matchAll(/<h2 class="settings-section-title">([^<]+)<\/h2>/g)].map(
+					(match) => match[1],
+				)
+			expect(headings('terminal')).toEqual(['Terminal app', 'Command line'])
+			expect(headings('updates')).toEqual(['Command line'])
+			// Updates draws the engine's three rows only, so the general “Namzu settings” has no place.
+			expect(draw(view, 'updates')).not.toContain('Namzu settings')
+		},
+		SLOW_IMPORT_MS,
+	)
 })

@@ -19,6 +19,7 @@ export const SETTINGS_SECTION_TITLES: Record<SettingsSection, string> = {
 	projects: 'Projects',
 	appearance: 'Appearance',
 	terminal: 'Terminal',
+	desktop: 'Desktop app',
 	telemetry: 'Telemetry',
 	updates: 'Updates',
 	speech: 'Speech',
@@ -33,7 +34,8 @@ export const SETTINGS_SECTION_SUBTITLES: Record<SettingsSection, string> = {
 	tools: 'The web, the browser, connected servers, hooks and plugins.',
 	projects: 'The folders Namzu knows, what it may do in them, and when it asks you.',
 	appearance: 'Choose how Namzu looks.',
-	terminal: 'Applies to the namzu terminal app, not to this window.',
+	terminal: 'The terminals in this window, the terminal app, and the command line.',
+	desktop: 'How this app itself runs on your computer.',
 	telemetry: 'Where records of your work may be sent. Off unless you set a place.',
 	updates: 'Keep Namzu and the programs it works with up to date.',
 	speech: 'Talk to Namzu and have replies read aloud, with voices that stay on this computer.',
@@ -41,12 +43,7 @@ export const SETTINGS_SECTION_SUBTITLES: Record<SettingsSection, string> = {
 }
 
 /** Sections whose rows all come from the engine's own description, so none is listed here. */
-export const ENGINE_ONLY_SECTIONS: readonly SettingsSection[] = [
-	'agent',
-	'tools',
-	'terminal',
-	'telemetry',
-]
+export const ENGINE_ONLY_SECTIONS: readonly SettingsSection[] = ['agent', 'tools', 'telemetry']
 
 /** The line under the heading while a search is showing results. */
 export const SETTINGS_SEARCH_SUBTITLE = 'Matches from every section.'
@@ -60,7 +57,7 @@ export const SETTINGS_NAV_GROUPS: readonly (readonly SettingsSection[])[] = [
 	['models'],
 	['general', 'appearance', 'speech'],
 	['agent', 'tools', 'projects', 'terminal'],
-	['telemetry', 'updates', 'about'],
+	['desktop', 'telemetry', 'updates', 'about'],
 ]
 
 /** The groups with only the sections that have a match; with no search, every group whole. */
@@ -107,6 +104,44 @@ export const SETTINGS_ENTRIES: readonly SettingsEntry[] = SETTINGS_CATALOGUE.fil
 	description: entry.description,
 	...(entry.keywords ? { keywords: entry.keywords } : {}),
 }))
+
+/** What decides whether a row is drawn on this machine: facts only the running app knows. */
+export interface DrawnFacts {
+	/**
+	 * The shells a new terminal tab can open: `undefined` until main answers, `null` where there
+	 * are no terminals. Main offers a choice only on Windows, the one platform whose terminals read
+	 * the setting, so more than one shell means Windows.
+	 */
+	shells: readonly unknown[] | null | undefined
+	/** This copy can update itself, so its own update rows mean something. */
+	hasAppUpdater: boolean
+	/** This build can fetch engines. */
+	canFetchEngines: boolean
+}
+
+/**
+ * Whether the page draws the row a search entry names. Search offers a row only where it is drawn
+ * (every hit lands on and focuses a row), so the page and the search both ask this one function.
+ */
+export function entryIsDrawn(id: string, facts: DrawnFacts): boolean {
+	switch (id) {
+		// Windows only: elsewhere the shell is the person's login shell and nothing is read.
+		case 'terminal-shell':
+			return (facts.shells?.length ?? 0) > 1
+		case 'terminal-restore':
+			return facts.shells !== null
+		case 'auto-download':
+			return facts.hasAppUpdater
+		case 'engine-delivery':
+		case 'keep-engine':
+			return facts.canFetchEngines
+		// Shown as “Run hooks” in its own place, so the plain setting is not a second result.
+		case 'cfg-disableHooks':
+			return false
+		default:
+			return true
+	}
+}
 
 function words(value: string): string[] {
 	return foldSearchText(value)

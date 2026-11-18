@@ -29,10 +29,24 @@ therefore cannot reach the loader without a decision about Desktop.
 
 ## Sections
 
-General, Models, Projects and Updates keep their own rows and add the engine's below them under
-**Namzu settings**. **Agent** (limits, workflows, compaction, memory, learning, skills, schedule),
-**Tools** (web, browser, servers, hooks, plugins), **Telemetry** and **Terminal** are new. Terminal says it
-applies to the namzu terminal app: `tui.*`, composer triggers and the status line. Search finds every one.
+General, Models and Projects keep their own rows and add the engine's below them under
+**Namzu settings**. **Agent** (limits, workflows, compaction, memory, learning, skills, schedule,
+hypermode), **Tools** (web, browser and its switch, code analysis, servers, hooks, plugins),
+**Telemetry** and **Terminal** are made of the engine's rows. **Desktop app** holds only the app's own.
+
+A row sits where its effect is, so the engine can name a heading inside a section. A descriptor's
+optional `group` is one of `terminal-app` or `command-line` (`SettingGroup`), and
+`SETTING_GROUP_LABELS` in `settings-descriptors.ts` is the only place the words live: the engine sends
+`group` with `groupLabel` and Desktop draws the heading it is given, rows with no group first. An
+engine older than the field sends neither, and Desktop draws its rows with no heading.
+
+- Terminal: **Terminal app** (`tui.*`, `statusLine`, `composerTriggers.*`) and **Command line** (`format`,
+  `quiet`, `profiles`). The app's own **Terminal tabs** rows come first.
+- Updates: the app's own rows, then **Command line** (`updates.channel`, `updates.auto`, `updates.check`).
+- Tools: `browser.enabled` and `codeAnalysis.enabled`, which a Desktop conversation honours as well as
+  the terminal app.
+
+Search finds every one, and a hit lands in the section that draws the row.
 
 ## What a write does
 

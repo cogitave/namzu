@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { Fragment, useId, useState } from 'react'
 import type {
 	ConfigSettingDescriptor,
 	ConfigSettingsView,
@@ -6,6 +6,7 @@ import type {
 import type { SettingsSection } from '../shared/settings-protocol.js'
 import {
 	appliesLine,
+	configRowRuns,
 	configSettingId,
 	configSettingsFor,
 	confirmationCopy,
@@ -67,13 +68,18 @@ export function ConfigSettingsGroup({
 					copy={confirmationCopy(config.confirmation.message)}
 				/>
 			)}
-			{rows.map((descriptor) => (
-				<ConfigRow
-					key={descriptor.path}
-					descriptor={descriptor}
-					view={config.view as ConfigSettingsView}
-					config={config}
-				/>
+			{configRowRuns(rows).map((run) => (
+				<Fragment key={run.heading ?? ''}>
+					{run.heading && <h2 className="settings-section-title">{run.heading}</h2>}
+					{run.rows.map((descriptor) => (
+						<ConfigRow
+							key={descriptor.path}
+							descriptor={descriptor}
+							view={config.view as ConfigSettingsView}
+							config={config}
+						/>
+					))}
+				</Fragment>
 			))}
 		</>
 	)
