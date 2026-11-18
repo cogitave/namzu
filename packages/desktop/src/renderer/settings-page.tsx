@@ -277,15 +277,42 @@ function SettingsContent(
 			}
 			return true
 		}
-		if (land()) return
+		// A row can lose the focus to the dialog a moment after it took it (About does, as the dialog
+		// settles): look again shortly, and take it back only when it fell to the dialog itself, never
+		// from a control the person chose.
+		const lostToDialog = (): boolean => {
+			const at = document.activeElement
+			return !at || at === document.body || at.classList.contains('settings-dialog')
+		}
+		const timers: number[] = []
+		const settle = () => {
+			for (const delay of [60, 200, 600])
+				timers.push(
+					window.setTimeout(() => {
+						if (lostToDialog()) land()
+					}, delay),
+				)
+		}
+		const clear = () => {
+			for (const timer of timers) window.clearTimeout(timer)
+		}
+		if (land()) {
+			settle()
+			return clear
+		}
 		// Some rows are drawn once their facts arrive (About, the engine's list): land when it is there.
 		const content = page.current
 		if (!content || typeof MutationObserver === 'undefined') return
 		const watch = new MutationObserver(() => {
-			if (land()) watch.disconnect()
+			if (!land()) return
+			watch.disconnect()
+			settle()
 		})
 		watch.observe(content, { childList: true, subtree: true })
-		return () => watch.disconnect()
+		return () => {
+			watch.disconnect()
+			clear()
+		}
 	}, [focusId, section, searching, props.request, config.view !== undefined])
 	return (
 		<section

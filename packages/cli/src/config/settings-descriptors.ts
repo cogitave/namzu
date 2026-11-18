@@ -544,6 +544,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 			confirm: 'Namzu will install new versions of its command line on its own.',
 			confirmWhen: 'on',
 			group: 'command-line',
+			keywords: ['automatic', 'auto update', 'automatic updates', 'background', 'upgrade'],
 		},
 	),
 	d(
@@ -552,7 +553,11 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Look for new versions',
 		'Look for a new version of the command line when it starts.',
 		on,
-		{ default: true, group: 'command-line' },
+		{
+			default: true,
+			group: 'command-line',
+			keywords: ['automatic', 'check for updates', 'upgrade'],
+		},
 	),
 
 	// Agent

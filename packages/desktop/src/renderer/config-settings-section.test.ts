@@ -365,6 +365,22 @@ describe('the real engine list, section by section', () => {
 	)
 
 	it(
+		'finds the update rows by the words a person types for them',
+		async () => {
+			const view = await real()
+			const entries = configSearchEntries(view)
+			for (const words of ['automatic update', 'auto update', 'automatic updates']) {
+				const hits = searchSettings(words, entries).filter((e) => e.section === 'updates')
+				expect(
+					hits.map((e) => e.id),
+					words,
+				).toContain(configSettingId('updates.auto'))
+			}
+		},
+		SLOW_IMPORT_MS,
+	)
+
+	it(
 		'puts each moved row in its new section and heading',
 		async () => {
 			const view = await real()
