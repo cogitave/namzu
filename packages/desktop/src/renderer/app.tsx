@@ -151,6 +151,7 @@ import {
 	XIcon,
 } from './icons.js'
 import { KeepAwakeItem } from './keep-awake.js'
+import { LinkRoutedToasts } from './link-route.js'
 import { LocalSpeechReadAloud } from './local-speech-settings.js'
 import { MessageActions } from './message-actions.js'
 import {
@@ -174,7 +175,7 @@ import {
 import { normalConversationProject } from './normal-conversation.js'
 import { noticeClickAction } from './notice-target.js'
 import { dismissNotice, notify } from './notify.js'
-import { outputFiles, outputToOpen } from './outputs-model.js'
+import { opensInBrowser, outputFiles, outputToOpen } from './outputs-model.js'
 import { PalChatTranscript } from './pal-chat-transcript.js'
 import { PalCommunicationDialog, type PalSettingsTab } from './pal-communication-dialog.js'
 import {
@@ -274,7 +275,6 @@ import { TerminalMark, TerminalPane } from './terminal-pane.js'
 import { openTerminalFind, terminalApi, terminalSessions } from './terminal-registry.js'
 import { engineTerminalRequest, shellTerminalRequest } from './terminal-request.js'
 import type { ThreadRowActions } from './thread-card.js'
-import { PaneToasts } from './toast.js'
 import { CONTINUE_STOPPED_PROMPT, turnEndTime } from './transcript-layout.js'
 import { Transcript } from './transcript.js'
 import { TurnRecovery, recoveryKey } from './turn-recovery.js'
@@ -1253,6 +1253,21 @@ export function App({
 	const browserPane = useBrowserPane(api, sessionId)
 	const browserActRef = useRef(browserPane?.act)
 	browserActRef.current = browserPane?.act
+	// Off, what a turn writes is remembered as seen but never opened by itself.
+	const autoOpenRef = useRef(true)
+	autoOpenRef.current = desktopSettings.settings?.autoOpenFiles ?? true
+	// A link in a reply opens in the Browser pane while the setting is on and the pane can take it.
+	const openLinksInBrowser = desktopSettings.settings?.openLinksInBrowser ?? true
+	const routeLink = useCallback(
+		(url: string): boolean => {
+			const act = browserActRef.current
+			if (!openLinksInBrowser || !act) return false
+			act({ kind: 'new', address: url })
+			openPaneRef.current('browser')
+			return true
+		},
+		[openLinksInBrowser],
+	)
 	// The versions of each output already known, so only a write made after this is news.
 	const outputsSeen = useRef(new Map<string, Map<string, number>>())
 	// Opens a pane for the kind of file a turn wrote: a page in the Browser, a document in Files.
@@ -1263,10 +1278,10 @@ export function App({
 		if (!sessionId || historyPending) return
 		const seen = outputsSeen.current.get(sessionId) ?? new Map<string, number>()
 		outputsSeen.current.set(sessionId, seen)
-		const news = thread.running ? outputToOpen(outputs, seen) : undefined
+		const news = thread.running && autoOpenRef.current ? outputToOpen(outputs, seen) : undefined
 		for (const file of outputs) seen.set(file.path, file.version)
 		if (!news) return
-		if (news.kind === 'html') {
+		if (opensInBrowser(news.kind)) {
 			browserActRef.current?.({ kind: 'open', path: news.path })
 			openPaneRef.current('browser')
 		} else openChangedFileRef.current(news.path)
@@ -6820,7 +6835,7 @@ export function App({
 		if (live) void act(() => openPalRef.current(live))
 	}, [palsLoading, pals, act, navigationSuperseded])
 	return (
-		<PaneToasts focused={focused} pane={paneRoot}>
+		<LinkRoutedToasts route={routeLink} focused={focused} pane={paneRoot}>
 			{focused &&
 				shell &&
 				createPortal(
@@ -8312,6 +8327,6 @@ export function App({
 					/>
 				)}
 			</main>
-		</PaneToasts>
+		</LinkRoutedToasts>
 	)
 }

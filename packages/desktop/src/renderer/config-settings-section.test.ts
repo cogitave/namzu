@@ -412,6 +412,32 @@ describe('the real engine list, section by section', () => {
 	)
 
 	it(
+		'draws the app’s own rows under a heading of their own right after the engine’s Browser rows',
+		async () => {
+			const view = await real()
+			const page = renderToStaticMarkup(
+				createElement(ConfigSettingsGroup, {
+					section: 'tools',
+					config: controls({ view }),
+					omit: OWN_ROW_CONFIG_PATHS,
+					after: {
+						heading: 'Browser',
+						title: 'Built-in browser',
+						rows: createElement('div', { id: 'setting-own-browser-row' }),
+					},
+				}),
+			)
+			const own = page.indexOf('id="setting-own-browser-row"')
+			expect(own).toBeGreaterThan(page.indexOf('id="setting-cfg-browser-keepOpen"'))
+			expect(page.slice(0, own)).toContain('Built-in browser')
+			// The next engine heading comes after them, and the page says the heading once.
+			expect(page.match(/>Built-in browser</g)).toHaveLength(1)
+			expect(page.indexOf('id="setting-cfg-codeAnalysis-enabled"')).toBeGreaterThan(own)
+		},
+		SLOW_IMPORT_MS,
+	)
+
+	it(
 		'orders the Terminal and Updates headings',
 		async () => {
 			const view = await real()

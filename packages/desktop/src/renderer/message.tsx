@@ -24,6 +24,7 @@ import {
 import { codeRef, linkRef } from './file-panel/project-refs.js'
 import { cn } from './lib/utils.js'
 import { LinkPreviewCard } from './link-preview-card.js'
+import { LinkRouteContext } from './link-route.js'
 import { markdownBlockSources } from './markdown-blocks.js'
 import { COPY_CODE_PROPERTY, markdownCodeCopy, remarkCodeCopy } from './markdown-code-copy.js'
 import { useThrottledText } from './throttled-text.js'
@@ -72,6 +73,7 @@ function MessageLink({ children, href }: { children?: ReactNode; href?: string }
 	const [failed, setFailed] = useState(false)
 	const handle = useContext(LinkPreviewContext)
 	const refs = useContext(ResolvedRefsContext)
+	const route = useContext(LinkRouteContext)
 	const url = externalWebUrl(href)
 	const payload = useMemo(
 		() => (url ? { url, text: plainText(children) } : undefined),
@@ -93,6 +95,7 @@ function MessageLink({ children, href }: { children?: ReactNode; href?: string }
 		rel: 'noopener noreferrer',
 		onClick: (event: { preventDefault(): void }) => {
 			event.preventDefault()
+			if (route?.(url)) return
 			void window.namzu.openExternal?.(url).catch(() => setFailed(true))
 		},
 	}
@@ -303,6 +306,7 @@ export const MarkdownContent = memo(function MarkdownContent({
 
 /** Opening a card changes only this subtree. */
 function LinkPreviews({ handle }: { handle: LinkPreviewHandle }) {
+	const route = useContext(LinkRouteContext)
 	return (
 		<PreviewCard handle={handle}>
 			{({ payload }) =>
@@ -313,6 +317,7 @@ function LinkPreviews({ handle }: { handle: LinkPreviewHandle }) {
 							url={payload.url}
 							onOpen={(url) => {
 								handle.close()
+								if (route?.(url)) return
 								void window.namzu?.openExternal?.(url).catch(() => {})
 							}}
 						/>

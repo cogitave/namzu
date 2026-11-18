@@ -107,6 +107,11 @@ export class RuntimeClient extends EventEmitter {
 	supportsSkillsList(): boolean {
 		return this.skillsList
 	}
+	private browserStatus = false
+	/** A host that predates the browser status does not list `namzu/browser/status`. */
+	supportsBrowserStatus(): boolean {
+		return this.browserStatus
+	}
 	private hooksView = false
 	/** A host that predates the hooks view does not list `namzu/hooks/list`. */
 	supportsHooksView(): boolean {
@@ -360,6 +365,7 @@ export class RuntimeClient extends EventEmitter {
 		this.mcpServers = offers('mcpServers')
 		this.userMcpServers = offers('userMcpServers')
 		this.skillsList = offers('skillsList')
+		this.browserStatus = offers('browserStatus')
 		this.hooksView = offers('hooksView')
 		this.conversationSearch = offers('conversationSearch')
 		this.projectUntrust = offers('projectUntrust')

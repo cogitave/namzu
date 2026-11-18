@@ -51,6 +51,7 @@ export function ConfigSettingsGroup({
 	fallbackHeading,
 	omit,
 	lead,
+	after,
 }: {
 	section: SettingsSection
 	config: ConfigSettingsControls
@@ -68,6 +69,11 @@ export function ConfigSettingsGroup({
 	 * first under it, so the heading is said once. Without such a heading they get their own.
 	 */
 	lead?: { heading: string; rows: ReactNode }
+	/**
+	 * Rows the app draws itself that belong with one of the engine's headings but under a heading of
+	 * their own: drawn right after the engine's rows of `heading`, or first when it names none.
+	 */
+	after?: { heading: string; title: string; rows: ReactNode }
 }) {
 	const rows = configSettingsFor(config.view, section).filter(
 		(descriptor) => !omit?.includes(descriptor.path),
@@ -75,11 +81,23 @@ export function ConfigSettingsGroup({
 	const runs = config.view && rows.length > 0 ? configRowRuns(rows) : []
 	const joins = lead !== undefined && runs.some((run) => run.heading === lead.heading)
 	// The app's own rows are drawn at once when there is no engine heading of that name to join.
+	const afterFits = after !== undefined && runs.some((run) => run.heading === after.heading)
+	const afterRows = after ? (
+		<>
+			<h2 className="settings-section-title">{after.title}</h2>
+			{after.rows}
+		</>
+	) : null
 	const own =
-		lead && !joins ? (
+		(lead && !joins) || (after && !afterFits) ? (
 			<>
-				<h2 className="settings-section-title">{lead.heading}</h2>
-				{lead.rows}
+				{lead && !joins && (
+					<>
+						<h2 className="settings-section-title">{lead.heading}</h2>
+						{lead.rows}
+					</>
+				)}
+				{after && !afterFits && afterRows}
 			</>
 		) : null
 	// Every page with engine rows says when the list could not be read or is still being read.
@@ -130,6 +148,7 @@ export function ConfigSettingsGroup({
 								config={config}
 							/>
 						))}
+						{after && afterFits && run.heading === after.heading && afterRows}
 					</Fragment>
 				)
 			})}

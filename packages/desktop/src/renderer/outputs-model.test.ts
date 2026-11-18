@@ -1,7 +1,13 @@
 import type { AcpSessionUpdate } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 import { type ThreadState, applyEvent, emptyThread } from '../shared/projection.js'
-import { outputAddress, outputFiles, outputToOpen, previewKind } from './outputs-model.js'
+import {
+	opensInBrowser,
+	outputAddress,
+	outputFiles,
+	outputToOpen,
+	previewKind,
+} from './outputs-model.js'
 
 function turn(thread: ThreadState, prompt: string): ThreadState {
 	return applyEvent(applyEvent(thread, { kind: 'prompt', sessionId: 's', prompt, at: 1000 }), {
@@ -118,6 +124,25 @@ describe('what opens by itself', () => {
 			),
 		).toBeUndefined()
 		expect(outputToOpen(outputs, new Map([['b.html', 1]]))?.path).toBe('b.html')
+	})
+})
+
+describe('what opens by itself', () => {
+	it('includes a picture, and sends a page and a picture to the Browser pane but a document elsewhere', () => {
+		const file = (path: string, kind: 'html' | 'markdown' | 'image' | 'code') => ({
+			path,
+			name: path,
+			folder: '',
+			kind,
+			turn: 1,
+			version: 1,
+			created: true,
+		})
+		expect(outputToOpen([file('a.png', 'image')], new Map())?.path).toBe('a.png')
+		expect(opensInBrowser('html')).toBe(true)
+		expect(opensInBrowser('image')).toBe(true)
+		expect(opensInBrowser('markdown')).toBe(false)
+		expect(opensInBrowser('code')).toBe(false)
 	})
 })
 

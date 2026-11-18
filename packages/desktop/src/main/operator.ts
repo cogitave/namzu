@@ -22,10 +22,12 @@ import {
 import { resolveComposerSendOptions } from '../shared/composer-send-options.js'
 import { COMPUTER_FRAME_NOTIFICATION, readComputerFrame } from '../shared/computer-protocol.js'
 import {
+	type EngineBrowserView,
 	type InstalledSkillsView,
 	type UserMcpServerChange,
 	type UserMcpServerView,
 	type UserMcpServersView,
+	readEngineBrowser,
 	readInstalledSkills,
 	readUserMcpServersView,
 } from '../shared/config-lists-protocol.js'
@@ -1077,6 +1079,12 @@ export class Operator {
 		if (project && !project.view.palId && this.projects.get(project.view.id) !== project)
 			return null
 		return readInstalledSkills(result)
+	}
+	/** Which browser the engine would drive on this computer; null where the engine does not know the question. */
+	async engineBrowser(): Promise<EngineBrowserView | null> {
+		const client = await this.registry(false)
+		if (!client.supportsBrowserStatus()) return null
+		return readEngineBrowser(await client.request('namzu/browser/status', {}))
 	}
 	private async userServersHost(): Promise<RuntimeClient> {
 		const client = await this.registry(false)

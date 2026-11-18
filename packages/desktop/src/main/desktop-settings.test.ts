@@ -54,6 +54,9 @@ it('starts on the documented defaults without writing anything', () => {
 		quickEntryShortcut: 'Ctrl+Alt+N',
 		dictationShortcut: 'ctrl-d',
 		voiceShortcut: '',
+		autoOpenFiles: true,
+		browserCookies: 'quit',
+		openLinksInBrowser: true,
 		lastSettingsSection: 'general',
 	})
 	expect(onError).not.toHaveBeenCalled()
@@ -102,6 +105,9 @@ it('validates a change, saves it atomically, and survives a restart', () => {
 		quickEntryShortcut: 'Ctrl+Alt+N',
 		dictationShortcut: 'ctrl-d',
 		voiceShortcut: '',
+		autoOpenFiles: true,
+		browserCookies: 'quit',
+		openLinksInBrowser: true,
 		lastSettingsSection: 'general',
 	})
 	expect(changes).toHaveLength(1)
@@ -142,6 +148,9 @@ it('validates a change, saves it atomically, and survives a restart', () => {
 		quickEntryShortcut: 'Ctrl+Alt+N',
 		dictationShortcut: 'ctrl-d',
 		voiceShortcut: '',
+		autoOpenFiles: true,
+		browserCookies: 'quit',
+		openLinksInBrowser: true,
 		lastSettingsSection: 'general',
 	})
 	expect(new DesktopSettingsStore({ file }).get()).toMatchObject({

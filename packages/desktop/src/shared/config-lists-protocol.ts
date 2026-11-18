@@ -36,6 +36,28 @@ export function readInstalledSkills(value: unknown): InstalledSkillsView {
 	return { skills }
 }
 
+/** Where the browser the engine drives stands, for the Connected browsers table: a state and one line. */
+export interface EngineBrowserView {
+	state: 'ready' | 'warning' | 'unavailable' | 'off' | 'missing'
+	text: string
+}
+
+const ENGINE_BROWSER_STATES: readonly EngineBrowserView['state'][] = [
+	'ready',
+	'warning',
+	'unavailable',
+	'off',
+	'missing',
+]
+
+/** The engine's answer, or null when it is not the shape asked for. */
+export function readEngineBrowser(value: unknown): EngineBrowserView | null {
+	const row = record(value)
+	const text = short(row?.text, 600)
+	const state = ENGINE_BROWSER_STATES.find((item) => item === row?.state)
+	return state && text ? { state, text } : null
+}
+
 /** A tool server in the user's file: what the form edits. Variables and headers are never here. */
 export interface UserMcpServerView {
 	name: string

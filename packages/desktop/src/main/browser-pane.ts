@@ -6,6 +6,7 @@ import type {
 	BrowserPaneState,
 	BrowserTabView,
 } from '../shared/browser-pane.js'
+import type { BrowserCookieScope } from '../shared/settings-protocol.js'
 import { type AddressRules, addressText, fileAllowed, resolveAddress } from './browser-address.js'
 
 /**
@@ -14,8 +15,10 @@ import { type AddressRules, addressText, fileAllowed, resolveAddress } from './b
  * Safety model. A page here is untrusted web content, so it is kept as far from the app as a page
  * in any other browser: each page is its own `WebContentsView`, never a `<webview>` (the main
  * window still refuses those), with no preload, no Node, context isolation and the sandbox on. Its
- * session is a partition of its own, named for the conversation and never persisted: no cookie,
- * storage or cache of the app is in it, and it is gone when the app closes. Every permission a
+ * session is a partition of its own and holds no cookie, storage or cache of the app. How long a
+ * sign-in in it lasts is the person's choice (`browserCookies`, read when a tab is made): one
+ * partition shared by every conversation and gone when the app closes, a `persist:` partition kept
+ * across restarts, or a partition for each conversation, gone when the app closes. Every permission a
  * page can ask for (camera, microphone, notifications, location, a device) is denied, a download
  * is refused, and `window.open` opens a tab in this pane instead of a window. A page may load
  * `http` and `https` addresses; a `file:` address, whether typed, linked, redirected to or
@@ -49,10 +52,16 @@ export interface BrowserPaneDeps {
 	workFolder: (sessionId: string) => string | undefined
 	caseless: boolean
 	send: (state: BrowserPaneState) => void
+	/** How long sign-ins last, read each time a tab is made so a change reaches new tabs. */
+	cookieScope: () => BrowserCookieScope
 }
 
-const partitionOf = (sessionId: string) =>
-	`namzu-browser-${createHash('sha256').update(sessionId).digest('hex').slice(0, 24)}`
+/** The partition of the built-in browser's tabs: where its cookies and storage live. */
+export function partitionOf(scope: BrowserCookieScope, sessionId: string): string {
+	if (scope === 'restarts') return 'persist:namzu-browser'
+	if (scope === 'quit') return 'namzu-browser-shared'
+	return `namzu-browser-${createHash('sha256').update(sessionId).digest('hex').slice(0, 24)}`
+}
 
 /** One window's browser pages, kept per conversation. */
 export class BrowserPaneHost {
@@ -80,9 +89,17 @@ export class BrowserPaneHost {
 		return browser
 	}
 
+	/** The conversation a request came from: a partition can be shared, so the page's own tab says. */
+	private sessionOfContents(webContentsId: number | undefined): string | undefined {
+		if (webContentsId === undefined) return undefined
+		for (const [sessionId, browser] of this.browsers)
+			if (browser.tabs.some((tab) => tab.view.webContents.id === webContentsId)) return sessionId
+		return undefined
+	}
+
 	/** Shuts a partition's doors once: permissions, downloads and files outside the work folder. */
 	private guard(sessionId: string): string {
-		const partition = partitionOf(sessionId)
+		const partition = partitionOf(this.deps.cookieScope(), sessionId)
 		if (this.guarded.has(partition)) return partition
 		this.guarded.add(partition)
 		const ses = this.deps.sessionOf(partition)
@@ -91,8 +108,12 @@ export class BrowserPaneHost {
 		ses.setDevicePermissionHandler(() => false)
 		ses.on('will-download', (event) => event.preventDefault())
 		ses.webRequest.onBeforeRequest((details, callback) => {
+			// A shared partition serves many conversations: a file is judged by the work folder of the
+			// conversation whose tab asked, and a request from no known tab may load no file.
+			const owner = this.sessionOfContents(details.webContentsId)
 			const blocked =
-				details.url.startsWith('file:') && !fileAllowed(details.url, this.rules(sessionId))
+				details.url.startsWith('file:') &&
+				(owner === undefined || !fileAllowed(details.url, this.rules(owner)))
 			callback({ cancel: blocked })
 		})
 		return partition

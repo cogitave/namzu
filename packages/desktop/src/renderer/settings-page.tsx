@@ -27,6 +27,7 @@ import {
 } from '../shared/settings-catalogue.js'
 import type {
 	BannerLevel,
+	BrowserCookieScope,
 	DataFolderKind,
 	DesktopInfo,
 	DesktopSettings,
@@ -43,6 +44,7 @@ import type { UpdateInfo, UpdateState } from '../shared/update-protocol.js'
 import { CodePreview } from './code-preview.js'
 import { OWN_ROW_CONFIG_PATHS, configSearchEntries } from './config-settings-model.js'
 import { ConfigSettingsGroup } from './config-settings-section.js'
+import { ConnectedBrowsersRow } from './connected-browsers.js'
 import { copyPlainText } from './copy-button.js'
 import { engineSourceText, engineStatusText, plainVersion } from './engine-delivery-model.js'
 import { EngineUpdateRows, type EngineUpdateTarget } from './engine-updates-section.js'
@@ -582,6 +584,15 @@ function SectionBody(props: SectionProps) {
 					section={props.section}
 					config={props.config}
 					omit={props.section === 'tools' ? OWN_ROW_CONFIG_PATHS : undefined}
+					after={
+						props.section === 'tools'
+							? {
+									heading: 'Browser',
+									title: 'Built-in browser',
+									rows: <BuiltInBrowserRows {...props} />,
+								}
+							: undefined
+					}
 					lead={
 						props.section === 'agent'
 							? { heading: 'While Namzu works', rows: <AgentSleepRows {...props} /> }
@@ -606,6 +617,57 @@ function SectionBody(props: SectionProps) {
 			{props.section === 'speech' && <SpeechSection {...props} />}
 			{props.section === 'about' && <AboutSection {...props} />}
 		</div>
+	)
+}
+
+/**
+ * The browser beside a conversation: what opens in it, how long its sign-ins last, where a link in a
+ * reply goes, and the table of the browsers Namzu can use. They sit in Tools after the engine's own
+ * Browser rows, because they are about the same thing from the app's side; the engine's Site
+ * permissions do not govern this pane, which opens any web address a person or a link gives it.
+ */
+function BuiltInBrowserRows({ settings }: SectionProps) {
+	const saved = settings.settings
+	const cookies = catalogueEntry('browser-cookies').control as {
+		options: readonly CatalogueOption[]
+	}
+	const bridge = typeof window === 'undefined' ? undefined : window.namzu
+	return (
+		<>
+			<CatalogueRow id="browser-auto-open">
+				<Switch
+					label={labelOf('browser-auto-open')}
+					checked={saved?.autoOpenFiles ?? true}
+					disabled={!saved}
+					onChange={(value) => void settings.change({ autoOpenFiles: value })}
+				/>
+			</CatalogueRow>
+			<CatalogueRow id="browser-cookies">
+				<SelectControl
+					label={labelOf('browser-cookies')}
+					value={saved?.browserCookies ?? 'quit'}
+					disabled={!saved}
+					onChange={(value) =>
+						void settings.change({ browserCookies: value as BrowserCookieScope })
+					}
+				>
+					{cookies.options.map((option) => (
+						<option key={option.value} value={option.value}>
+							{defaultMarked('browser-cookies', option.value, option.label)}
+						</option>
+					))}
+				</SelectControl>
+			</CatalogueRow>
+			<CatalogueRow id="open-links-in-browser">
+				<Switch
+					label={labelOf('open-links-in-browser')}
+					checked={saved?.openLinksInBrowser ?? true}
+					disabled={!saved}
+					onChange={(value) => void settings.change({ openLinksInBrowser: value })}
+				/>
+			</CatalogueRow>
+			<ConnectedBrowsersRow bridge={bridge} />
+		</>
 	)
 }
 

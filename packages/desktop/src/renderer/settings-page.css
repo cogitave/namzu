@@ -1334,3 +1334,30 @@ input.settings-config-number {
 	flex-basis: 100%;
 	text-align: right;
 }
+
+/* The Connected browsers table: a browser, and how it stands. */
+.settings-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+}
+.settings-table th,
+.settings-table td {
+	padding: 6px 8px;
+	text-align: left;
+	vertical-align: top;
+	border-bottom: 1px solid var(--border);
+}
+.settings-table thead th {
+	color: var(--muted-foreground);
+	font-weight: 500;
+}
+.settings-table tbody th {
+	font-weight: 500;
+	white-space: nowrap;
+}
+.settings-table-state {
+	display: block;
+	color: var(--foreground);
+}

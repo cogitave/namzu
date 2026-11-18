@@ -78,6 +78,9 @@ it('reads a stored file entry by entry and ignores what it does not know', () =>
 		quickEntryShortcut: 'Ctrl+Alt+N',
 		dictationShortcut: 'ctrl-d',
 		voiceShortcut: '',
+		autoOpenFiles: true,
+		browserCookies: 'quit',
+		openLinksInBrowser: true,
 		lastSettingsSection: 'general',
 	})
 })
@@ -119,6 +122,9 @@ it('documents the defaults the spec names', () => {
 		quickEntryShortcut: 'Ctrl+Alt+N',
 		dictationShortcut: 'ctrl-d',
 		voiceShortcut: '',
+		autoOpenFiles: true,
+		browserCookies: 'quit',
+		openLinksInBrowser: true,
 		lastSettingsSection: 'general',
 	})
 })
@@ -283,5 +289,32 @@ describe('notifications saved as four switches', () => {
 		expect(() => desktopSettingsPatch({ notifyError: 'badge' })).toThrow('Invalid setting value.')
 		expect(() => desktopSettingsPatch({ notifyLongReplySeconds: 12.5 })).toThrow()
 		expect(() => desktopSettingsPatch({ notificationSound: true })).toThrow()
+	})
+})
+
+it('keeps the built-in browser rows: files that open by themselves, how long sign-ins last, where links go', () => {
+	expect(DEFAULT_DESKTOP_SETTINGS).toMatchObject({
+		autoOpenFiles: true,
+		browserCookies: 'quit',
+		openLinksInBrowser: true,
+	})
+	expect(
+		desktopSettingsPatch({
+			autoOpenFiles: false,
+			browserCookies: 'restarts',
+			openLinksInBrowser: false,
+		}),
+	).toEqual({ autoOpenFiles: false, browserCookies: 'restarts', openLinksInBrowser: false })
+	for (const scope of ['quit', 'restarts', 'conversation'])
+		expect(desktopSettingsPatch({ browserCookies: scope })).toEqual({ browserCookies: scope })
+	for (const bad of [
+		{ browserCookies: 'forever' },
+		{ autoOpenFiles: 'yes' },
+		{ openLinksInBrowser: 1 },
+	])
+		expect(() => desktopSettingsPatch(bad)).toThrow('Invalid setting value.')
+	expect(storedDesktopSettings({ browserCookies: 'forever', autoOpenFiles: 'no' })).toMatchObject({
+		browserCookies: 'quit',
+		autoOpenFiles: true,
 	})
 })

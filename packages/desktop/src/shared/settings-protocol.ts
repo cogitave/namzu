@@ -14,6 +14,7 @@ import type { ShellChoice } from './terminal-tabs.js'
 export type StartupBehavior = 'continue' | 'home'
 export type TranscriptTextSize = 'small' | 'medium' | 'large'
 export type TranscriptWidth = 'narrow' | 'medium' | 'wide'
+export type BrowserCookieScope = 'quit' | 'restarts' | 'conversation'
 export type MotionChoice = 'system' | 'reduce' | 'full'
 /** `badge` is the count on the app icon only; `banner` is a system notification (and the count, while the icon count is on). */
 export type NoticeLevel = 'off' | 'badge' | 'banner'
@@ -106,6 +107,15 @@ export interface DesktopSettings {
 	dictationShortcut: string
 	/** Global keys that bring Namzu forward and start voice input; empty is off. */
 	voiceShortcut: string
+	/** Open a page or picture a turn writes in the built-in browser, and a document in Files, as it is written. */
+	autoOpenFiles: boolean
+	/**
+	 * How long the built-in browser keeps sign-ins: one shared set until the app quits, a set kept
+	 * on disk across restarts, or a set for each conversation. Read when a tab is made.
+	 */
+	browserCookies: BrowserCookieScope
+	/** A link in a reply opens in the built-in browser; off, in the system's default browser. */
+	openLinksInBrowser: boolean
 	/** The section the Settings dialog was last on; it opens there again, also after a restart. */
 	lastSettingsSection: SettingsSection
 }

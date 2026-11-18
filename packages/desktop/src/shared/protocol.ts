@@ -12,6 +12,7 @@ import type { BrowserPaneRequest, BrowserPaneState } from './browser-pane.js'
 import type { CommitOutcomeView, CommitPreviewView, CommitRequestView } from './commit-protocol.js'
 import type { ComputerAppsView, ComputerFrameView } from './computer-protocol.js'
 import type {
+	EngineBrowserView,
 	InstalledSkillsView,
 	UserMcpServerChange,
 	UserMcpServerResult,
@@ -1021,6 +1022,8 @@ export interface DesktopApi {
 	existingFolders?(paths: string[]): Promise<string[]>
 	/** The installed skills (names and where they live), for a project or the person's own; null where the engine cannot say. */
 	installedSkills?(projectId?: string): Promise<InstalledSkillsView | null>
+	/** Which browser the engine would drive on this computer, read without launching it; null where the engine cannot say. */
+	engineBrowser?(): Promise<EngineBrowserView | null>
 	/** The tool servers in the person's own config file, as the Settings form edits them. */
 	userMcpServers?(): Promise<UserMcpServersView>
 	/** One tool server whole, for its edit form; the list carries no arguments or address path. */

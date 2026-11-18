@@ -78,6 +78,7 @@ const api: DesktopApi = {
 	pickFolder: () => invoke('pickFolder'),
 	existingFolders: (paths) => invoke('existingFolders', paths),
 	installedSkills: (projectId) => invoke('installedSkills', projectId),
+	engineBrowser: () => invoke('engineBrowser'),
 	userMcpServers: () => invoke('userMcpServers'),
 	userMcpServer: (name) => invoke('userMcpServer', name),
 	saveUserMcpServer: (change, token) => invoke('saveUserMcpServer', change, token),

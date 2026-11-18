@@ -39,8 +39,12 @@ export function previewKind(path: string): PreviewKind {
 				: 'code'
 }
 
-/** Kinds a person is shown without asking: a page or a document the turn wrote or changed. */
-export const opensByItself = (kind: PreviewKind): boolean => kind === 'html' || kind === 'markdown'
+/** Kinds a person is shown without asking: a page, a document or a picture the turn wrote or changed. */
+export const opensByItself = (kind: PreviewKind): boolean =>
+	kind === 'html' || kind === 'markdown' || kind === 'image'
+
+/** Kinds the Browser pane shows: a page, and a picture the browser draws as it is. */
+export const opensInBrowser = (kind: PreviewKind): boolean => kind === 'html' || kind === 'image'
 
 function folderOf(path: string): string {
 	const parts = path.split(/[\\/]/).filter(Boolean)
@@ -99,7 +103,7 @@ export function outputFiles(
 }
 
 /**
- * The output to open on its own after a change, or `undefined`. Only a page or a document the
+ * The output to open on its own after a change, or `undefined`. Only a page, a document or a picture the
  * turn wrote or changed since `seen` counts; with several, the most recently written wins.
  * `seen` maps a path to the version already known; a conversation first loaded from history
  * passes its own current versions, so old files never pop open.

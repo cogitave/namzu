@@ -3859,8 +3859,9 @@ The Browser pane shows a page for real: its own scripts, styles and images run, 
 and **+**); under it are Back, Forward, Reload and an address bar that can be edited. For a file the bar shows
 the whole local path (`C:/Users/me/work/site/index.html`, or `/home/me/work/site/index.html`), and for a web
 page its address; Enter opens what was typed, Esc puts back what was there. A bare host such as `example.com`
-gets `https://`. A page a turn writes (an `.html` file) opens here by itself while the turn runs, in the tab
-that has no page yet or in a new tab, and writing it again reloads its tab.
+gets `https://`. A page or a picture (`.png`, `.jpg`, `.gif`, `.webp`) a turn writes opens here by itself while the turn runs
+(unless **Auto-open files Namzu writes** is off), in the tab that has no page yet or in a new tab, and writing
+it again reloads its tab.
 
 **How it is kept apart from the app.** A page is untrusted web content, so it gets the same distance from the
 app as a page in another browser.
@@ -3870,8 +3871,11 @@ app as a page in another browser.
   (`BrowserPaneRequest`, read and checked in `src/shared/browser-pane.ts` because the renderer is not trusted).
 - The view has no preload, no Node, context isolation and the sandbox on. A page can see neither `require`
   nor `process`.
-- Its session is a partition of its own, named for the conversation and never persisted (no `persist:` prefix):
-  none of the app's cookies or storage is in it, and it is gone when the app closes.
+- Its session is a partition of its own, and none of the app's cookies or storage is in it. How long a sign-in
+  in it lasts is the **Keep cookies** setting (see [Browser rows in Settings](#browser-rows-in-settings)): one
+  partition shared by every conversation and gone when the app closes, a `persist:` partition kept across
+  restarts, or a partition for each conversation. The choice is read when a tab is made, so a change reaches
+  new tabs and open ones keep what they have.
 - Every permission a page can ask for (camera, microphone, notifications, location, a device) is denied, and a
   download is refused.
 - `window.open` and links that ask for a new window open a tab in this pane, never a window.
@@ -4068,6 +4072,24 @@ and at the right. Behind it the window is covered, sidebar and header included, 
 the dark theme and 40 in the light one (`--dialog-scrim`). The dialogs that are not confirmations (rename,
 the folder's access, undo, the update dialog, a Pal's settings and customize, an attachment preview) keep
 their own widths and take the same padding, corners, scrim and button height.
+
+### Browser rows in Settings
+
+Settings, Tools, has a **Built-in browser** heading right after the engine's **Browser** rows. The engine's
+*Site permissions* (`browser.sites`) govern the browser Namzu drives, not this pane. The rows are the app's
+own (`desktop-settings.json`), and each applies at once except where it says so:
+
+| Row | Key | Default | Control | What main does |
+| --- | --- | --- | --- | --- |
+| *Auto-open files Namzu writes* | `autoOpenFiles` | on | switch | Nothing in main: the window reads it. On, a page or picture a turn writes opens in the Browser pane (`opensInBrowser`: `html`, `png`, `jpg`, `gif`, `webp`). Off, the file is still noted as seen, so turning the switch on later never opens old files, but nothing opens by itself. Documents (`.md`) have no auto-open path today, and a PDF has no preview kind, so neither is covered. |
+| *Keep cookies* | `browserCookies` | *Until you quit* | drop-down | `BrowserPaneHost` reads it when a tab is made (`cookieScope`) and picks the partition (`partitionOf`): *Until you quit* is `namzu-browser-shared` (no `persist:`), *Across restarts* is `persist:namzu-browser`, *Per conversation* is one partition per conversation id, as before. A change applies to new tabs; the row says so. A partition several conversations share judges a `file:` request by the work folder of the conversation whose tab asked (`webContentsId`), and a request from no known tab may load no file. |
+| *Open links in built-in browser* | `openLinksInBrowser` | on | switch | A link in a reply (`MessageLink`, and the open button of its preview card) asks the window's `LinkRouteContext`. On, the window opens a new Browser tab at the address and shows the pane; the system browser is not touched. Off, or when the window has no pane, the link goes to `openExternal` and the system's default browser, as before. Only `http` and `https` links reach this path. |
+| *Connected browsers* | none | | table, **Recheck** | Two lines. *Built-in browser* is ready when the window has a pane. *Browser Namzu drives* is the engine's answer to `namzu/browser/status` (`describeBrowserPlan`: which browser, where, with or without a window), read from the user file's `browser.enabled`, `browser.engine` and `browser.headless`, and launches nothing, like `namzu browser status`. States: ready, ready with a note, not available (with the reason), switched off, not installed. An engine without the method reads *Not known*. Recheck asks again. |
+
+*Allowed sites for the built-in browser* is not a row. The pane has no per-site gate: an `http` or `https`
+address is open to the whole web (`resolveAddress`), and the only address rule is the work-folder rule for
+`file:`. A list would have to be enforced in `will-navigate`, `will-redirect` and the request filter, which
+nothing does today, so a row that looked like a gate would not be one.
 
 ## Settings and the search overlay
 

@@ -1587,6 +1587,7 @@ function register(): void {
 	})
 	handle('existingFolders', (paths: unknown) => existingFolders(paths))
 	handle('installedSkills', (projectId?: string) => operator.installedSkills(projectId))
+	handle('engineBrowser', () => operator.engineBrowser())
 	handle('userMcpServers', () => userMcpServers.read())
 	handle('userMcpServer', (name: unknown) => userMcpServers.readOne(name))
 	handleWindow('saveUserMcpServer', ({ id }, change: unknown, token: unknown) =>
@@ -2214,6 +2215,7 @@ async function createWindow(
 			sessionOf: (partition) => session.fromPartition(partition),
 			workFolder: (sessionId) => operator.browserWorkFolder(sessionId),
 			caseless: process.platform === 'win32',
+			cookieScope: () => settingsStore.get().browserCookies,
 			send: (state) => {
 				if (!window.isDestroyed()) window.webContents.send('namzu:browser-event', state)
 			},

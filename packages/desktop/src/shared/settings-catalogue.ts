@@ -738,6 +738,95 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		appliesWhen: 'next-conversation',
 		keywords: ['hooks', 'automatic', 'commands', 'plugin', 'skill', 'agent', 'pre_tool_use'],
 	},
+	{
+		id: 'browser-auto-open',
+		key: 'autoOpenFiles',
+		owner: 'desktop',
+		section: 'tools',
+		label: 'Auto-open files Namzu writes',
+		description:
+			'Open a page or picture Namzu writes in the built-in browser as soon as it is written. Off, nothing opens by itself.',
+		control: toggle,
+		default: true,
+		appliesWhen: 'now',
+		keywords: [
+			'open files',
+			'outputs',
+			'preview',
+			'html',
+			'page',
+			'picture',
+			'image',
+			'browser pane',
+			'automatically',
+		],
+	},
+	{
+		id: 'browser-cookies',
+		key: 'browserCookies',
+		owner: 'desktop',
+		section: 'tools',
+		label: 'Keep cookies',
+		description:
+			'Whether a site you sign in to in the built-in browser remembers you until you quit Namzu, across restarts, or in one conversation only.',
+		control: {
+			kind: 'select',
+			options: [
+				{
+					value: 'quit',
+					label: 'Until you quit',
+					help: 'Every conversation shares one set of sign-ins, forgotten when Namzu closes.',
+				},
+				{
+					value: 'restarts',
+					label: 'Across restarts',
+					help: 'Sign-ins are kept on this computer and shared by every conversation.',
+				},
+				{
+					value: 'conversation',
+					label: 'Per conversation',
+					help: 'Each conversation has its own sign-ins, forgotten when Namzu closes.',
+				},
+			],
+		},
+		default: 'quit',
+		appliesWhen: 'now',
+		appliesNote: 'Applies to new browser tabs. Tabs that are already open keep their sign-ins.',
+		keywords: [
+			'cookies',
+			'sign-in',
+			'sign in',
+			'login',
+			'session',
+			'browser pane',
+			'privacy',
+			'remember',
+		],
+	},
+	{
+		id: 'open-links-in-browser',
+		key: 'openLinksInBrowser',
+		owner: 'desktop',
+		section: 'tools',
+		label: 'Open links in built-in browser',
+		description:
+			"Links in replies open in the built-in browser instead of your computer's default browser.",
+		control: toggle,
+		default: true,
+		appliesWhen: 'now',
+		keywords: ['links', 'urls', 'default browser', 'system browser', 'external', 'web address'],
+	},
+	{
+		id: 'connected-browsers',
+		owner: 'view',
+		section: 'tools',
+		label: 'Connected browsers',
+		description:
+			'The browsers Namzu can use: the built-in browser beside the conversation, and the one Namzu drives for web tasks. Recheck looks again.',
+		control: panel,
+		appliesWhen: 'now',
+		keywords: ['browser', 'chrome', 'edge', 'chromium', 'status', 'recheck', 'windows browser'],
+	},
 
 	// Projects
 	{

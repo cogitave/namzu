@@ -87,6 +87,11 @@ engine older than the field sends neither, and Desktop draws its rows with no he
 - Updates: the app's own rows, then **Command line** (`updates.channel`, `updates.auto`, `updates.check`).
 - Tools: `browser.enabled` and `codeAnalysis.enabled`, which a Desktop conversation honours as well as
   the terminal app.
+  After the engine's **Browser** rows Tools draws a **Built-in browser** heading with the app's own rows for
+  the pane beside a conversation (*Auto-open files Namzu writes*, *Keep cookies*, *Open links in built-in
+  browser*, *Connected browsers*); see [Browser rows in Settings](desktop.md#browser-rows-in-settings).
+  *Connected browsers* reads the engine's `namzu/browser/status`, which answers which browser the engine
+  would drive without launching it.
 
 Search finds every one, and a hit lands in the section that draws the row.
 
