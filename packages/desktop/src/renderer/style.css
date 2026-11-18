@@ -58,7 +58,19 @@ pre {
 	background: var(--app-scrollbar-thumb-hover);
 }
 
-.drag-region {
+/* The one place the window is dragged from. Chromium builds the draggable region from the elements that
+   declare -webkit-app-region in document order, and a later element overrides an earlier one over the same
+   pixels, so a drag element that comes after a button and overlaps it makes the button part of the caption:
+   on Windows and macOS the press then starts a window drag and the control never sees it. This layer is the
+   first thing in the window and nothing else declares drag, so every control (no-drag, in the button rule
+   above or its own rule) comes after it and wins. It draws nothing and spans the band; empty title space,
+   in the sidebar, the rail and the main header alike, is drag because it lies over this layer.
+   e2e/ux-titlebar-hit.test.mjs replays the rule. */
+.window-drag-layer {
+	position: absolute;
+	inset: 0 0 auto;
+	height: var(--frame-header-height);
+	pointer-events: none;
 	-webkit-app-region: drag;
 }
 /* The window's own buttons are drawn by the system over the right end of the band on Windows and Linux;
@@ -147,7 +159,6 @@ pre {
 	height: var(--frame-header-height);
 	padding-inline-start: var(--frame-cluster-start);
 	color: var(--muted-foreground);
-	-webkit-app-region: drag;
 	user-select: none;
 }
 /* The traffic lights cover the rail's width and more: with the sidebar collapsed the cluster starts
@@ -284,7 +295,6 @@ pre {
 }
 .rail-band {
 	height: var(--frame-header-height);
-	-webkit-app-region: drag;
 }
 :root[data-chrome-platform="darwin"] .rail-band > .rail-button {
 	/* The traffic lights are drawn over the band: the button moves to the first row under it. */
@@ -340,7 +350,6 @@ pre {
 .sidebar-chrome {
 	position: relative;
 	isolation: isolate;
-	-webkit-app-region: drag;
 	/* The sidebar's header draws no line under it: the rows start 8 below the band. */
 	background: var(--sidebar);
 }
@@ -624,7 +633,6 @@ pre {
 	width: calc(100% - var(--panel-width));
 }
 .topbar {
-	-webkit-app-region: drag;
 	/* The title starts after the left cluster; the controls at the right edge sit one bar inset from it,
 	   and from the window's own buttons where those are drawn over the band. */
 	padding-left: var(--frame-header-start);
