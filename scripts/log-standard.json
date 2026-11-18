@@ -132,6 +132,18 @@
 			"reason": "the one JSON value each host query (history, skills-json, providers-json) prints for a host UI to parse, or `[]` on failure; stderr carries NDJSON log records, so no log line lands on this channel."
 		},
 		{
+			"file": "packages/cli/src/commands/config.ts",
+			"symbol": "process.stdout.write",
+			"count": 1,
+			"reason": "the answer `namzu config list|get|set|unset` was asked for (text, or the one JSON value under --json); a script or a person reads it from this channel, so it is not a log line."
+		},
+		{
+			"file": "packages/cli/src/commands/config.ts",
+			"symbol": "process.stderr.write",
+			"count": 1,
+			"reason": "the refusal or question `namzu config` prints for a person (the same sentence Desktop shows, and the y/N prompt); it is the command's own message, not a log record."
+		},
+		{
 			"file": "packages/cli/src/commands/hooks.ts",
 			"symbol": "process.stdout.write",
 			"count": 1,
