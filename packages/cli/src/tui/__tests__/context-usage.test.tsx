@@ -203,7 +203,7 @@ describe('the drawn view', () => {
 		expect(text).toContain('42k/200k tokens (21%)')
 		expect(text).toContain('Estimated usage by category')
 		expect(text).toContain('System prompt: 2k tokens (1.0%)')
-		expect(text).toContain('Free space: 158k (79.0%)')
+		expect(text).toContain('Free space: 125k (62.5%)')
 		expect(text).toContain('Memory files · /memory')
 		expect(text).toContain('└ AGENTS.md: 500 tokens')
 		const gridRows = screen.viewport().filter((line) => /^\s*[⛁⛀⛶⛝]( [⛁⛀⛶⛝]){9}/u.test(line))

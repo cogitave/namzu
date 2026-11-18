@@ -27,12 +27,14 @@ import {
 
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { hookSwitch } from '../config/hook-layers.js'
 
 import { FileCheckpointStore, type TurnUndoStatus, type UndoPreview } from '../checkpoints/store.js'
 import { flushCompileCacheWhenIdle } from '../compile-cache.js'
+import type { SkillsConfig } from '../config/schema.js'
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { messageTimeNote, previousSentAt } from '../context/message-time.js'
 import { DESKTOP_CONTRACT } from '../desktop-contract.js'
@@ -57,6 +59,7 @@ import {
 } from '../integrations/providers/discover.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 import { isOfferableModel } from '../integrations/providers/zen-catalogue.js'
+import { discoverContextLists, gatherContext } from '../integrations/sessions/context-gather.js'
 import {
 	type CliSessionScope,
 	closeSessions,
@@ -98,6 +101,7 @@ import {
 	probeAgentSession,
 	verifyCredential,
 } from '../tui/agent.js'
+import { displayPath } from '../tui/display-path.js'
 import { withCliHarnesses } from './acp-harness.js'
 import {
 	type ProviderRetryStatus,
@@ -106,6 +110,12 @@ import {
 } from './acp-provider-retry.js'
 import { questionsOverPermission } from './acp-screen-question.js'
 import { COMPUTER_FRAME_NOTIFICATION } from './desktop-computer-feed.js'
+import {
+	type ContextDetail,
+	type ContextReport,
+	buildContextReport,
+	createContextTracker,
+} from './desktop-context.js'
 import { createDesktopHostExtensions } from './desktop-host.js'
 import { desktopModelCatalogue } from './desktop-model-catalogue.js'
 import { announceOutcome } from './desktop-outcome-feed.js'
@@ -276,6 +286,9 @@ type AcpLiveSession = Pick<
 	readonly resumePaused?: AgentSession['resumePaused']
 	readonly abandonTurn?: AgentSession['abandonTurn']
 	readonly describeComputerUseCall?: AgentSession['describeComputerUseCall']
+	/** What the context panel sizes; a fake session may leave them out. */
+	readonly contextInventory?: AgentSession['contextInventory']
+	readonly instructionFiles?: AgentSession['instructionFiles']
 }
 
 export interface AcpRuntimeDependencies {
@@ -311,6 +324,8 @@ interface AcpRuntimeRecord {
 	readonly palId?: string
 	readonly readyComputer?: () => PalEnvironmentLease | undefined
 	readonly provider: string
+	/** The skills settings this conversation started with, for the context panel's skill list. */
+	readonly skillsConfig?: SkillsConfig
 	/** `permissions.disableBypassMode` and friends, which the host cannot be talked out of. */
 	readonly permissionSettings?: PermissionSettings
 	/** The model this connection runs on now; a retry repeats the paused turn on it, not on the failed one. */
@@ -499,6 +514,11 @@ export interface CliAcpRuntime {
 	 * active work. Absent on a runtime that cannot route.
 	 */
 	selectAuto?(sessionId: string): Promise<void>
+	/**
+	 * Where this conversation's context window goes (the desktop's context panel). Null before the
+	 * engine has reported a window. `full` also lists the tool server tools, skills, agents and notes.
+	 */
+	contextUsage?(sessionId: string, detail: ContextDetail): Promise<ContextReport | null>
 	jobs(sessionId: string): readonly import('@namzu/sdk').BackgroundJob[]
 	readJob(sessionId: string, jobId: string): unknown
 	stopJob(sessionId: string, jobId: string): Promise<unknown>
@@ -685,6 +705,16 @@ export function createCliAcpRuntime(
 	runtimeOptions: CliAcpRuntimeOptions = {},
 ): CliAcpRuntime {
 	const records = new Map<string, AcpRuntimeRecord>()
+	const contextTracker = createContextTracker()
+	// What was read from disk for the context panel, until the next turn or shortening ends.
+	const contextReads = new Map<
+		string,
+		{
+			version: number
+			lists: Awaited<ReturnType<typeof discoverContextLists>>
+			files: Map<string, string>
+		}
+	>()
 	// The tool servers that stopped the last conversation from starting in a folder. A session whose
 	// server failed never exists, so this is the only place the reason survives for a settings page.
 	const mcpFailures = new Map<string, readonly { name: string; reason: string; config: string }[]>()
@@ -1103,6 +1133,7 @@ export function createCliAcpRuntime(
 						? { palId: palBinding.pal.id, readyComputer: palEnvironment?.readyComputer }
 						: {}),
 					provider: primary.id,
+					...(projectCtx.config.skills ? { skillsConfig: projectCtx.config.skills } : {}),
 					...(projectCtx.config.permissionSettings
 						? { permissionSettings: projectCtx.config.permissionSettings }
 						: {}),
@@ -1212,6 +1243,7 @@ export function createCliAcpRuntime(
 					activeRecord = outer
 				}
 				try {
+					contextTracker.observe(sessionId, event)
 					runtimeOptions.observeEvent?.(sessionId, event)
 					titleFeed?.observe(sessionId, event)
 				} catch {
@@ -2053,6 +2085,8 @@ export function createCliAcpRuntime(
 				if (existing) {
 					if (existing.retrySettings) retryCarry.set(sessionId, existing.retrySettings)
 					records.delete(sessionId)
+					contextReads.delete(sessionId)
+					contextTracker.forget(sessionId)
 					try {
 						await existing.session.close()
 					} finally {
@@ -2104,6 +2138,8 @@ export function createCliAcpRuntime(
 				if (existing) {
 					if (existing.retrySettings) retryCarry.set(sessionId, existing.retrySettings)
 					records.delete(sessionId)
+					contextReads.delete(sessionId)
+					contextTracker.forget(sessionId)
 					try {
 						await existing.session.close()
 					} finally {
@@ -2114,6 +2150,60 @@ export function createCliAcpRuntime(
 			} finally {
 				selecting.delete(sessionId)
 			}
+		},
+		contextUsage: async (sessionId, detail) => {
+			const record = records.get(sessionId)
+			const figures = contextTracker.figures(sessionId)
+			if (!record || !figures?.windowTokens || figures.windowTokens <= 0) return null
+			let reads = contextReads.get(sessionId)
+			if (!reads || reads.version !== figures.version) {
+				reads = {
+					version: figures.version,
+					lists: await discoverContextLists({
+						cwd: record.cwd,
+						skillsConfig: record.skillsConfig,
+					}),
+					files: new Map(),
+				}
+				contextReads.set(sessionId, reads)
+			}
+			const files = reads.files
+			const inventory = record.session.contextInventory?.()
+			const gathering = await gatherContext({
+				context: {
+					tokens: figures.tokens ?? 0,
+					windowTokens: figures.windowTokens,
+					measured: figures.measuredBy === 'provider',
+					...(figures.windowSource ? { windowSource: figures.windowSource } : {}),
+				},
+				autoCompact: true,
+				...(inventory?.systemPrompt ? { systemPrompt: inventory.systemPrompt } : {}),
+				tools: inventory?.tools ?? [],
+				...(inventory?.deferredTools ? { deferredTools: inventory.deferredTools } : {}),
+				// The history is not read here: the kernel's own figure already covers it.
+				messages: [],
+				instructionFiles: record.session.instructionFiles ?? [],
+				mcpInstructions: (record.session.mcpStatus?.().connected ?? []).flatMap((server) =>
+					server.instructions ? [server.instructions] : [],
+				),
+				skills: reads.lists.skills,
+				agents: reads.lists.agents,
+				displayPath: (path) => displayPath(path, record.cwd),
+				readText: async (path) => {
+					const known = files.get(path)
+					if (known !== undefined) return known
+					const text = await readFile(path, 'utf8')
+					files.set(path, text)
+					return text
+				},
+			})
+			return buildContextReport({
+				sessionId,
+				detail,
+				figures,
+				autoCompact: true,
+				gathering,
+			})
 		},
 		jobs: (sessionId) => records.get(sessionId)?.session.jobs?.() ?? [],
 		readJob: (sessionId, jobId) => {

@@ -1198,11 +1198,11 @@ it('reads fresh retry eligibility without an index or a model runtime', async ()
 	try {
 		expect(await owner.providerRetryStatus!(f.sessionId, cwd)).toEqual({
 			closable: true,
-			notice: expect.stringContaining('original approval settings'),
+			notice: expect.stringContaining('restore the approval settings'),
 		})
 		expect(await host['namzu/sessions/retry-status']!({ sessionId: f.sessionId })).toEqual({
 			closable: true,
-			notice: expect.stringContaining('original approval settings'),
+			notice: expect.stringContaining('restore the approval settings'),
 		})
 		const lease = await f.log.claim({
 			holder: 'fresh-retry-read',
@@ -1257,7 +1257,7 @@ it('keeps retry authorization, trust and status in the captured application home
 	try {
 		expect(await host['namzu/sessions/retry-status']!({ sessionId: f.sessionId })).toEqual({
 			closable: true,
-			notice: expect.stringContaining('original approval settings'),
+			notice: expect.stringContaining('restore the approval settings'),
 		})
 		expect(opened).toHaveBeenCalledTimes(1)
 		expect(indexed).not.toHaveBeenCalled()
@@ -1280,7 +1280,7 @@ it('refuses a foreign authenticated retry scope and revoked captured trust', asy
 	const other = await sessionStorage.openSessionScope(foreign)
 	try {
 		await expect(owner.providerRetryStatus!(sessionId, cwd, other)).rejects.toThrow(
-			'another project',
+			'belongs to a different project',
 		)
 		const scope = await sessionStorage.openSessionScope(cwd)
 		writeFileSync(join(scope.root, 'trust.json'), JSON.stringify({ version: 1, trusted: [] }))
@@ -1320,7 +1320,7 @@ it.each(['load', 'retry'] as const)(
 			} else {
 				expect(await owner.providerRetryStatus!(f.sessionId, cwd)).toEqual({
 					closable: true,
-					notice: expect.stringContaining('original approval settings'),
+					notice: expect.stringContaining('restore the approval settings'),
 				})
 			}
 			expect(indexed).not.toHaveBeenCalled()
