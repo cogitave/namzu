@@ -2598,8 +2598,22 @@ export class Operator {
 		}[]
 		assertCurrent()
 		if (!Array.isArray(rows)) throw new Error('Namzu returned an invalid conversation list.')
+		// Conversations the engine archived for being idle: dropped the way a person's archive is, so a
+		// row this window still holds goes with it and no one is left on an archived conversation.
+		const swept = rows.filter((row) => (row as { idleArchived?: unknown }).idleArchived === true)
+		for (const row of swept) {
+			try {
+				await this.removeConversation(row.id)
+			} catch {
+				// Not a row this window knew, or one that has since become busy: nothing to drop.
+			}
+		}
 		const views = rows
-			.filter((row) => !this.removedConversations.has(row.id))
+			.filter(
+				(row) =>
+					!this.removedConversations.has(row.id) &&
+					(row as { idleArchived?: unknown }).idleArchived !== true,
+			)
 			.map((row) => ({
 				id: this.runtimeSession(project, row.id)?.view.id ?? row.id,
 				title: row.title,

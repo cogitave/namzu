@@ -23,6 +23,7 @@ const discovery = (id, kind, result) => {
 const releaseDiscoveries = () => {
 	for (const { id, result } of delayedDiscoveries.splice(0)) reply(id, result)
 }
+let listCalls = 0
 const methods = ['namzu/harnesses/list', 'namzu/harnesses/select', 'namzu/project/status', 'namzu/project/trust', ...(process.env.FIXTURE_NO_UNTRUST ? [] : ['namzu/project/untrust']), 'namzu/conversations/list', 'namzu/conversations/history', 'namzu/providers/status', 'namzu/providers/models', 'namzu/providers/select', ...(process.env.FIXTURE_AUTO ? ['namzu/providers/select_auto'] : []), 'namzu/jobs/list', 'namzu/jobs/read', 'namzu/jobs/stop', ...(process.env.FIXTURE_LIVE_INPUT ? ['namzu/conversations/input/status', 'namzu/conversations/input'] : []), 'namzu/conversations/rename', 'namzu/conversations/fork', 'namzu/conversations/markdown', 'namzu/project/git', ...(process.env.FIXTURE_PR ? ['namzu/project/pr'] : []), ...(process.env.FIXTURE_MCP ? ['namzu/mcp/servers', 'namzu/mcp/approve'] : []), ...(process.env.FIXTURE_HOOKS ? ['namzu/hooks/list'] : []), ...(process.env.FIXTURE_SEARCH ? ['namzu/conversations/search'] : []), ...(process.env.FIXTURE_NO_CHANGES ? [] : ['namzu/project/changes', 'namzu/project/diff']), 'namzu/conversations/archived', 'namzu/conversations/unarchive', ...(process.env.FIXTURE_ARCHIVE ? ['namzu/conversations/archive'] : []), ...(process.env.FIXTURE_PROVIDER_SETUP ? ['connections', 'save_key', 'remove_key', 'test', 'refresh'].map((name) => `namzu/providers/${name}`) : []), ...(process.env.FIXTURE_TERMINALS ? ['status', 'create', 'list', 'attach', 'detach', 'write', 'resize', 'ack', 'kill', 'close'].map((name) => `namzu/terminal/${name}`) : [])]
 // Sessions whose conversation runs on Auto; a model picked by hand removes it.
 const autoSessions = new Set()
@@ -75,7 +76,7 @@ lines.on('line', (line) => {
 	else if (method === 'namzu/providers/remove_key') { savedKeys.delete(params.provider); reply(id, { removed: true }) }
 	else if (method === 'namzu/providers/test') reply(id, { status: !savedKeys.has(params.provider) ? 'missing' : params.provider === 'anthropic' ? 'rejected' : params.provider === 'google' ? 'unchecked' : 'ok', ...(params.provider === 'google' ? { cause: 'quota' } : {}) })
 	else if (method === 'namzu/providers/refresh') reply(id, { refreshed: true })
-	else if (method === 'namzu/conversations/list') reply(id, process.env.FIXTURE_LIST_ROWS ? JSON.parse(process.env.FIXTURE_LIST_ROWS) : [])
+	else if (method === 'namzu/conversations/list') { listCalls += 1; const later = listCalls > 1 && process.env.FIXTURE_LIST_ROWS_LATER; reply(id, later ? JSON.parse(later) : process.env.FIXTURE_LIST_ROWS ? JSON.parse(process.env.FIXTURE_LIST_ROWS) : []) }
 	else if (method === 'namzu/conversations/rename') reply(id, { title: params.title || 'Derived title' })
 	else if (method === 'namzu/conversations/fork') reply(id, { id: `fork-${randomUUID()}`, title: 'Forked conversation (fork)' })
 	else if (method === 'namzu/conversations/archived') reply(id, process.env.FIXTURE_ARCHIVED_ROWS ? JSON.parse(process.env.FIXTURE_ARCHIVED_ROWS) : [])

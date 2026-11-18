@@ -1390,7 +1390,10 @@ export function createDesktopHostExtensions(
 					refused: refusedIdleArchives,
 				})
 				const kept = archived.length === 0 ? pool : pool.filter((row) => !archived.includes(row.id))
-				return conversationRows(state, kept.slice(0, 100))
+				const rows = await conversationRows(state, kept.slice(0, 100))
+				// The app may still hold a row it drew earlier for a conversation just archived: naming it
+				// lets the app drop that row the way it drops one the person archived.
+				return [...rows, ...archived.map((id) => ({ id, idleArchived: true as const }))]
 			}),
 		/**
 		 * Full-text search over what a conversation said and did (replies and tool output), through

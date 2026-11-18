@@ -346,6 +346,34 @@ it('restores a conversation archived a moment ago, without the archived list bei
 	expect(restored).toMatchObject({ id: 'just-archived', projectId: project.id })
 })
 
+it('drops a row the engine archived for being idle, with the conversation events a person archive sends', async () => {
+	const first = [
+		{ id: 'idle', title: 'Idle chat', updatedAt: '2026-10-01T00:00:00.000Z' },
+		{ id: 'busy', title: 'Recent chat', updatedAt: '2026-10-05T00:00:00.000Z' },
+	]
+	// The next listing names the idle one as archived and no longer lists it as a row.
+	const later = [
+		{ id: 'busy', title: 'Recent chat', updatedAt: '2026-10-05T00:00:00.000Z' },
+		{ id: 'idle', idleArchived: true },
+	]
+	const { owner, project, events } = await setup({
+		FIXTURE_LIST_ROWS: JSON.stringify(first),
+		FIXTURE_LIST_ROWS_LATER: JSON.stringify(later),
+		FIXTURE_ARCHIVE: '1',
+	})
+	expect((await owner.listConversations(project.id)).map((row) => row.id)).toEqual(
+		expect.arrayContaining(['busy', 'idle']),
+	)
+	const second = (await owner.listConversations(project.id)).map((row) => row.id)
+	expect(second).toContain('busy')
+	expect(second).not.toContain('idle')
+	expect(events).toContainEqual(
+		expect.objectContaining({ kind: 'conversation-removed', sessionId: 'idle', archived: true }),
+	)
+	// A swept conversation the window never drew is simply left out.
+	expect((await owner.listConversations(project.id)).map((row) => row.id)).not.toContain('idle')
+})
+
 it('refuses an invalid archived row from the host', async () => {
 	const { owner, project } = await setup({
 		FIXTURE_ARCHIVED_ROWS: JSON.stringify([{ id: 'x', title: 3 }]),

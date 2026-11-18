@@ -618,6 +618,33 @@ it('reads fresh journal history without opening the installation index, while li
 	}
 })
 
+it('archives an idle conversation when it lists, and names it so the app drops its row', async () => {
+	writeFileSync(join(root, 'state', 'config.yaml'), 'archiveInactive: 7d\n')
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	const { state, sessionId } = await seeded()
+	try {
+		// Three days on: not idle long enough, so the row is an ordinary row.
+		const now = Date.now()
+		const clock = vi.spyOn(Date, 'now')
+		clock.mockReturnValue(now + 3 * 24 * 60 * 60 * 1000)
+		expect(await host['namzu/conversations/list']()).toContainEqual(
+			expect.objectContaining({ id: sessionId, title: expect.any(String) }),
+		)
+		// Eight days on: archived, and listed only as a name with the mark.
+		clock.mockReturnValue(now + 8 * 24 * 60 * 60 * 1000)
+		const rows = await host['namzu/conversations/list']()
+		expect(rows).toEqual([{ id: sessionId, idleArchived: true }])
+		expect(
+			(await host['namzu/conversations/archived']()).map((row: { id: string }) => row.id),
+		).toContain(sessionId)
+	} finally {
+		closeSessions(state)
+		await owner.close()
+	}
+})
+
 it('omits tool-only assistant history without truncating text, media placeholders or model replay', async () => {
 	const owner = runtime()
 	const host = createDesktopHostExtensions(owner, cwd)
