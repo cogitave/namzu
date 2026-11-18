@@ -766,11 +766,13 @@ const DECLARED: readonly SettingDescriptor[] = [
 			confirmValues: ['accept-edits', 'bypass', 'auto'],
 		},
 	),
+	// `permissions.disableBypassMode` has no row: it is file-only, for administrators and the managed
+	// layer, and it removes bypass mode for good. This row reads off while any layer sets it.
 	d(
 		'permissions.allowBypassMode',
 		'projects',
 		'Allow bypass permissions mode',
-		'Lets you choose the mode that skips every question.',
+		'Lets you choose the mode that skips every question. Administrators can turn it off for everyone.',
 		on,
 		{
 			group: 'permissions',
@@ -779,20 +781,6 @@ const DECLARED: readonly SettingDescriptor[] = [
 			confirm:
 				'In this mode Namzu runs every action without asking you first, including ones that change or delete files. Only turn it on if you accept that.',
 			confirmWhen: 'on',
-		},
-	),
-	d(
-		'permissions.disableBypassMode',
-		'projects',
-		'Disable bypass permissions mode',
-		'Remove the mode that skips every question.',
-		on,
-		{
-			group: 'permissions',
-			keywords: ['Forbid bypass mode', 'bypass', 'dangerously skip'],
-			default: false,
-			confirm: 'Bypass mode, which skips every question, will be available again.',
-			confirmWhen: 'off',
 		},
 	),
 	d(
@@ -1288,12 +1276,30 @@ const DECLARED: readonly SettingDescriptor[] = [
 		'workflow.keywordTrigger',
 		'agent',
 		'Keyword trigger',
-		"Typing the mode's keyword in a message turns workflows on for that message.",
+		'Typing hypermode or workflow in a message turns workflows on for that message only.',
 		on,
 		{
 			group: 'helpers-workflows',
 			keywords: ['hypermode', 'keyword', 'trigger word', 'workflow word'],
 			default: true,
+		},
+	),
+	d(
+		'workflow.sizeGuideline',
+		'agent',
+		'Dynamic workflow size',
+		'How large a workflow Namzu aims for.',
+		pick(
+			['unrestricted', 'No advice', 'Namzu is not told how large a workflow to aim for.'],
+			['small', 'Small', 'Namzu is advised to keep a workflow under 5 helpers.'],
+			['medium', 'Medium', 'Namzu is advised to keep a workflow under 10 helpers.'],
+			['large', 'Large', 'Namzu is advised to keep a workflow under 50 helpers.'],
+		),
+		{
+			group: 'helpers-workflows',
+			keywords: ['Workflow size', 'Preferred workflow size', 'size guideline'],
+			default: 'medium',
+			shownWhen: WORKFLOWS_ON,
 		},
 	),
 	d(
@@ -1319,24 +1325,6 @@ const DECLARED: readonly SettingDescriptor[] = [
 			group: 'helpers-workflows',
 			keywords: ['max agents'],
 			default: 1000,
-			shownWhen: WORKFLOWS_ON,
-		},
-	),
-	d(
-		'workflow.sizeGuideline',
-		'agent',
-		'Dynamic workflow size',
-		'How large a workflow Namzu aims for.',
-		pick(
-			['unrestricted', 'No advice', 'Namzu is not told how large a workflow to aim for.'],
-			['small', 'Small', 'Namzu is advised to keep a workflow under 5 helpers.'],
-			['medium', 'Medium', 'Namzu is advised to keep a workflow under 10 helpers.'],
-			['large', 'Large', 'Namzu is advised to keep a workflow under 50 helpers.'],
-		),
-		{
-			group: 'helpers-workflows',
-			keywords: ['Workflow size', 'Preferred workflow size', 'size guideline'],
-			default: 'medium',
 			shownWhen: WORKFLOWS_ON,
 		},
 	),

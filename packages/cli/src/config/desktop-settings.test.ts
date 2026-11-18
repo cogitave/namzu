@@ -52,7 +52,6 @@ describe('Desktop settings descriptors', () => {
 
 	it('ask before every control that removes a check or a cap', () => {
 		const expected: Record<string, string> = {
-			'permissions.disableBypassMode': 'off',
 			'permissions.disableAutoMode': 'off',
 			'limits.maxIterations': 'zero',
 			'limits.tokenBudget': 'zero',

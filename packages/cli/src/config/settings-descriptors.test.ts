@@ -345,8 +345,15 @@ describe('where each setting sits', () => {
 		const keyword = sectionOf('workflow.keywordTrigger')
 		expect(keyword?.default).toBe(true)
 		expect(keyword?.description).toBe(
-			"Typing the mode's keyword in a message turns workflows on for that message.",
+			'Typing hypermode or workflow in a message turns workflows on for that message only.',
 		)
+		expect(paths.slice(0, 5)).toEqual([
+			'workflow.enabled',
+			'workflow.keywordTrigger',
+			'workflow.sizeGuideline',
+			'workflow.maxConcurrency',
+			'workflow.maxAgents',
+		])
 		expect(sectionOf('workflow.sizeGuideline')?.label).toBe('Dynamic workflow size')
 	})
 

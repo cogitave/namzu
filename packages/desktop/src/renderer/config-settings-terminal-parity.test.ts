@@ -285,6 +285,8 @@ describe('Desktop and the terminal read the routing table and the reviewer alike
 		for (const layer of ['env', 'project', 'local', 'managed', 'profile', 'user'] as const)
 			for (const saved of [true, false])
 				expect(cli.layerNote(layer, env, saved)).toBe(values.layerNote(layer, env, saved))
+		for (const by of ['user', 'project', 'local', 'managed'] as const)
+			expect(cli.turnedOffNote(by)).toBe(values.turnedOffNote(by))
 	})
 })
 

@@ -53,7 +53,7 @@ A name must be written as the app is named in its window list; capital letters a
 not matter. A project file can add an app but cannot remove one you listed.
 
 Settings, Tools has a *Computer use* heading with *Enable computer use* and *Denied apps*. The list
-shows a note while the switch is off. Turning it on asks first.
+shows a note while the switch is off, and the app names read in the interface font. Turning it on asks first.
 
 ## No setting to unhide apps
 

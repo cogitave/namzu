@@ -69,6 +69,12 @@ export interface SettingState {
 	 * name, size, switch or channel, never a secret.
 	 */
 	readonly env?: { readonly variable: string; readonly value: string }
+	/**
+	 * Only on `permissions.allowBypassMode`: who has set `permissions.disableBypassMode`, which beats
+	 * the opt-in. `user` is the user file, `managed` the administrator's file, `project` and `local`
+	 * the project's files. Absent means nothing forbids the mode.
+	 */
+	readonly turnedOffBy?: 'user' | 'project' | 'local' | 'managed'
 }
 
 export interface ReadSettingsOptions extends UserConfigWriteOptions {
@@ -158,6 +164,23 @@ const LEGACY_SPACES_PREFIX = 'tui.spacesPrefix'
 /** Rows whose layers combine by tightening or by merging tables: one layer's value is not the answer. */
 const NOT_LAYERED = ['file-only', 'permission-rules', 'permission-checks', 'routing', 'auto-mode']
 
+const ALLOW_BYPASS = 'permissions.allowBypassMode'
+/** A file-only key with no row: it still forbids bypass mode, whoever sets it. */
+const FORBID_BYPASS = 'permissions.disableBypassMode'
+
+/** Who forbids bypass mode, strongest layer first, or `undefined` when no layer does. */
+function bypassForbiddenBy(
+	doc: Record<string, unknown>,
+	answer: ReturnType<ReturnType<typeof layerReader>>,
+): SettingState['turnedOffBy'] {
+	if (
+		answer?.effective === true &&
+		(answer.layer === 'managed' || answer.layer === 'local' || answer.layer === 'project')
+	)
+		return answer.layer
+	return lookup(doc, FORBID_BYPASS.split('.')) === true ? 'user' : undefined
+}
+
 export function readSettings(opts: ReadSettingsOptions = {}): SettingsSnapshot {
 	const doc = readUserDocument(opts)
 	const layerOf = layerReader({
@@ -176,6 +199,8 @@ export function readSettings(opts: ReadSettingsOptions = {}): SettingsSnapshot {
 			value = Object.keys(rules).length === 0 ? undefined : rules
 		}
 		const answer = NOT_LAYERED.includes(entry.control.kind) ? undefined : layerOf(entry.path)
+		const forbidden =
+			entry.path === ALLOW_BYPASS ? bypassForbiddenBy(doc, layerOf(FORBID_BYPASS)) : undefined
 		const decided = answer
 			? {
 					layer: answer.layer,
@@ -183,9 +208,10 @@ export function readSettings(opts: ReadSettingsOptions = {}): SettingsSnapshot {
 					...(answer.env ? { env: answer.env } : {}),
 				}
 			: {}
-		if (value === undefined) return { path: entry.path, set: false, ...decided }
+		const turnedOff = forbidden ? { turnedOffBy: forbidden } : {}
+		if (value === undefined) return { path: entry.path, set: false, ...decided, ...turnedOff }
 		if (entry.control.kind === 'file-only') return { path: entry.path, set: true }
-		return { path: entry.path, set: true, value, ...decided }
+		return { path: entry.path, set: true, value, ...decided, ...turnedOff }
 	})
 	return {
 		file: userConfigPath(opts),

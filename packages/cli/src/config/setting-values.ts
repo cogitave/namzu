@@ -709,6 +709,19 @@ export function environmentNote(env: { variable: string; value: string }): strin
 	return `${env.variable} is set to ${env.value}, and Namzu uses that instead of what is saved here.`
 }
 
+/** The one plain line a turned-off row says, naming who turned it off. */
+export function turnedOffNote(by: 'user' | 'project' | 'local' | 'managed'): string {
+	switch (by) {
+		case 'managed':
+			return 'Turned off by your administrator.'
+		case 'project':
+		case 'local':
+			return 'Turned off by this project.'
+		default:
+			return 'Turned off in your config file.'
+	}
+}
+
 /**
  * What a row says when a layer other than the user's own file decides its value, in plain words.
  * `saved` is whether the user file also holds a value, which then does not apply.

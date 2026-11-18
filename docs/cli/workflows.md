@@ -497,11 +497,11 @@ what it began with. `enabled` is separate from the caps above, which still apply
 turning it off leaves `/workflows` listing the runs already made.
 
 Directly under that row, *Keyword trigger* (`workflow.keywordTrigger`, default `true`, read when
-the terminal app starts) decides whether typing the mode's keyword in a message opts that message
+the terminal app starts) decides whether typing `hypermode` or `workflow` in a message opts that message
 in. With `false`, `hypermode` and `workflow` in a message are plain words; `/effort hypermode`
 and the `workflow` tool itself are unaffected. The other [composer triggers](composer-triggers.md)
 keep their own per-word levels. *Dynamic workflow size* (`workflow.sizeGuideline`) and the two
-caps are shown in Desktop Settings only while *Dynamic workflows* is on; the saved values are kept. A workflow uses more of your limit
+caps follow it, in that order (*Helpers working at once*, then *Most helpers per workflow*), and are shown in Desktop Settings only while *Dynamic workflows* is on; the saved values are kept. A workflow uses more of your limit
 than a plain reply, which is why the row says so.
 
 ### Size guideline and the large-run warning

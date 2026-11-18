@@ -24,6 +24,7 @@ import {
 	needsConfirmation,
 	numberFromText,
 	rangeText,
+	turnedOffNote,
 	valueWords,
 	widenedConfirmation,
 } from './setting-values.js'
@@ -174,6 +175,8 @@ export interface SettingRow {
 	readonly effective?: unknown
 	/** `effective` in words, for the line that says what is in force. */
 	readonly effectiveText?: string
+	/** Who has forbidden the mode this row opts into, which beats the opt-in. */
+	readonly turnedOffBy?: SettingState['turnedOffBy']
 }
 
 function toRow(
@@ -206,6 +209,7 @@ function toRow(
 		fileOnly,
 		...(state?.env ? { env: state.env } : {}),
 		...(state?.layer ? { layer: state.layer } : {}),
+		...(state?.turnedOffBy ? { turnedOffBy: state.turnedOffBy } : {}),
 		...(state?.effective !== undefined
 			? {
 					effective: state.effective,
@@ -281,6 +285,7 @@ export function rowData(row: SettingRow): Record<string, unknown> {
 		...(row.confirm ? { confirm: row.confirm, asksWhen: row.asksWhen } : {}),
 		...(row.env ? { env: row.env } : {}),
 		...(row.layer ? { layer: row.layer } : {}),
+		...(row.turnedOffBy ? { turnedOffBy: row.turnedOffBy } : {}),
 		...(row.effective !== undefined ? { effective: row.effective } : {}),
 	}
 }
@@ -331,7 +336,8 @@ export function renderSetting(row: SettingRow, file: string): string {
 		`Value:    ${row.set ? row.valueText : `default (${row.defaultText})`}${row.set ? ' (set in the user file)' : ''}`,
 	)
 	if (row.effectiveText !== undefined) lines.push(`In force: ${row.effectiveText}`)
-	if (row.layer && row.layer !== 'user' && row.env?.value !== '')
+	if (row.turnedOffBy) lines.push(`Note:     ${turnedOffNote(row.turnedOffBy)}`)
+	else if (row.layer && row.layer !== 'user' && row.env?.value !== '')
 		lines.push(`Note:     ${layerNote(row.layer, row.env, row.set)}`)
 	else if (row.env) lines.push(`Note:     ${environmentNote(row.env)}`)
 	// When a change applies follows the default, as on the Desktop row.

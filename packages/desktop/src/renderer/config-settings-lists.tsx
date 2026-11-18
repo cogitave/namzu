@@ -567,7 +567,7 @@ export function SkillSwitches({
 	)
 }
 
-function TypedList({
+export function TypedList({
 	descriptor,
 	control,
 	value,
@@ -585,6 +585,8 @@ function TypedList({
 			itemLabel={control.itemLabel}
 			placeholder={control.placeholder}
 			items={items}
+			// Names of apps are words, not paths or ids: they read in the row's own type.
+			sentences={control.itemLabel === 'app'}
 			onChange={(next) => config.change(descriptor.path, next)}
 		/>
 	)

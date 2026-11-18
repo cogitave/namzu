@@ -491,6 +491,19 @@ export function layerNote(
 		: `${who}, so it cannot be changed here.`
 }
 
+/** The one plain line a turned-off row says, naming who turned it off. */
+export function turnedOffNote(by: 'user' | 'project' | 'local' | 'managed'): string {
+	switch (by) {
+		case 'managed':
+			return 'Turned off by your administrator.'
+		case 'project':
+		case 'local':
+			return 'Turned off by this project.'
+		default:
+			return 'Turned off in your config file.'
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Permissions and browser sites: rows, the tables they save, and what lets more run
 // ---------------------------------------------------------------------------

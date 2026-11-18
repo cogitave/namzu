@@ -3,7 +3,7 @@ import type {
 	ConfigSettingDescriptor,
 	ConfigSettingsView,
 } from '../shared/config-settings-protocol.js'
-import { environmentNote, layerNote } from '../shared/config-settings-values.js'
+import { environmentNote, layerNote, turnedOffNote } from '../shared/config-settings-values.js'
 import type { SettingsSection } from '../shared/settings-protocol.js'
 import {
 	AutoModeEditor,
@@ -200,8 +200,10 @@ function ConfigRow({
 			state.layer === 'local' ||
 			state.layer === 'managed' ||
 			state.layer === 'env')
-	const shownSet = locked ? true : (state?.set ?? false)
-	const shownValue = locked ? state?.effective : state?.value
+	// Something has forbidden the mode: the row reads off and cannot be changed, whatever is saved.
+	const forbidden = state?.turnedOffBy !== undefined
+	const shownSet = forbidden || locked ? true : (state?.set ?? false)
+	const shownValue = forbidden ? false : locked ? state?.effective : state?.value
 	const chosen = locked
 		? state?.effective
 		: state?.set
@@ -214,18 +216,20 @@ function ConfigRow({
 		control.kind === 'number' ? rangeText(control) : '',
 		state?.set || locked ? '' : defaultHelper(descriptor, view),
 		requirementNote(descriptor, view),
-		state?.layer && state.layer !== 'user' && state.env?.value !== ''
-			? layerNote(state.layer, state.env, state.set)
-			: state?.env
-				? environmentNote(state.env)
-				: '',
+		state?.turnedOffBy
+			? turnedOffNote(state.turnedOffBy)
+			: state?.layer && state.layer !== 'user' && state.env?.value !== ''
+				? layerNote(state.layer, state.env, state.set)
+				: state?.env
+					? environmentNote(state.env)
+					: '',
 		control.kind === 'file-only' && view.file ? `Config file: ${view.file}.` : '',
 	]
 		.filter(Boolean)
 		.join(' ')
 	const lockedByLayer = Boolean(state?.layer && state.layer !== 'user')
 	const reset =
-		state?.set && descriptor.control.kind !== 'file-only' ? (
+		state?.set && !forbidden && descriptor.control.kind !== 'file-only' ? (
 			<Button
 				variant="ghost-muted"
 				size="xs"
@@ -264,7 +268,7 @@ function ConfigRow({
 		>
 			<div className="settings-config-control">
 				{/* A disabled fieldset turns off every field and button inside it, whatever the control. */}
-				<fieldset disabled={locked} className="settings-config-locked">
+				<fieldset disabled={locked || forbidden} className="settings-config-locked">
 					<Control
 						key={config.resets[descriptor.path] ?? 0}
 						descriptor={descriptor}

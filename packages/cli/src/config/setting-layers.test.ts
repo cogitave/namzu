@@ -228,11 +228,34 @@ describe('readSettings says which layer decides a value', () => {
 		expect(state('computerUse.enabled')?.layer).toBeUndefined()
 		expect(state('computerUse.deniedApps')?.layer).toBeUndefined()
 		// What a project may do still shows: it can forbid bypass and close computer use.
-		expect(state('permissions.disableBypassMode')).toMatchObject({ layer: 'project' })
+		expect(state('permissions.disableBypassMode')).toBeUndefined()
+		expect(state('permissions.allowBypassMode')?.turnedOffBy).toBe('project')
 		writeFileSync(
 			join(project, 'namzu.config.json'),
 			JSON.stringify({ computerUse: { enabled: false } }),
 		)
 		expect(state('computerUse.enabled')).toMatchObject({ layer: 'project', effective: false })
+	})
+
+	it('says who turned the bypass opt-in off, the strongest layer first', () => {
+		expect(state('permissions.allowBypassMode')?.turnedOffBy).toBeUndefined()
+		writeFileSync(
+			userConfigPath({ home, env: {} }),
+			'permissions:\n  allowBypassMode: true\n  disableBypassMode: true\n',
+		)
+		expect(state('permissions.allowBypassMode')?.turnedOffBy).toBe('user')
+		writeFileSync(
+			join(project, 'namzu.config.json'),
+			JSON.stringify({ permissions: { disableBypassMode: true } }),
+		)
+		expect(state('permissions.allowBypassMode')?.turnedOffBy).toBe('project')
+		writeFileSync(managed, JSON.stringify({ permissions: { disableBypassMode: true } }))
+		expect(state('permissions.allowBypassMode')?.turnedOffBy).toBe('managed')
+	})
+
+	it('does not call a managed false a turn-off, and keeps the key out of the rows', () => {
+		writeFileSync(managed, JSON.stringify({ permissions: { disableBypassMode: false } }))
+		expect(state('permissions.allowBypassMode')?.turnedOffBy).toBeUndefined()
+		expect(state('permissions.disableBypassMode')).toBeUndefined()
 	})
 })

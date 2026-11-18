@@ -146,6 +146,8 @@ export interface ConfigSettingState {
 	effective?: unknown
 	/** An environment variable the engine has set that is used in place of the saved value. */
 	env?: { variable: string; value: string }
+	/** Only on the bypass opt-in: who has forbidden the mode, which beats the opt-in. */
+	turnedOffBy?: 'user' | 'project' | 'local' | 'managed'
 }
 
 export interface ConfigSettingsView {
@@ -447,6 +449,12 @@ export function readConfigSettingsView(value: unknown): ConfigSettingsView {
 			...(s.set && 'value' in s ? { value: s.value } : {}),
 			...(typeof s.layer === 'string' && LAYERS.includes(s.layer)
 				? { layer: s.layer as ConfigSettingLayer }
+				: {}),
+			...(s.turnedOffBy === 'user' ||
+			s.turnedOffBy === 'project' ||
+			s.turnedOffBy === 'local' ||
+			s.turnedOffBy === 'managed'
+				? { turnedOffBy: s.turnedOffBy }
 				: {}),
 			...('effective' in s && s.effective !== undefined && s.effective !== null
 				? { effective: s.effective }
