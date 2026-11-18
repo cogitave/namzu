@@ -6,7 +6,7 @@ import {
 	mcpJsonSchemaToZod,
 } from '@namzu/sdk'
 import { searchHitExcerpt } from './search-excerpt.js'
-import type { ConversationContext } from './store.js'
+import { type ConversationContext, displayTitleOf, readConversationRecords } from './store.js'
 
 export const PAST_CONVERSATION_SEARCH_TOOL = 'search_past_conversations'
 
@@ -21,6 +21,24 @@ export interface PastConversationMatch {
 	readonly title: string
 	readonly updatedAt: string
 	readonly excerpt: string
+}
+
+/**
+ * The title the sidebar shows: a conversation nobody named has no stored title, so it is taken from
+ * its first message, the same way the list does. Falls back to the indexed title, then a plain label.
+ */
+async function titleOf(
+	sessions: ConversationContext,
+	row: { readonly id: SessionId; readonly title?: string },
+): Promise<string> {
+	try {
+		const records = await readConversationRecords(sessions, row.id, 'tolerant')
+		const derived = records ? displayTitleOf(records).trim() : ''
+		if (derived) return derived
+	} catch {
+		// A log that cannot be read leaves the indexed title.
+	}
+	return row.title?.trim() || 'Untitled conversation'
 }
 
 /**
@@ -73,7 +91,7 @@ export async function searchPastConversations(
 		})
 		if (!hit) continue
 		out.push({
-			title: row.title?.trim() || 'Untitled conversation',
+			title: await titleOf(sessions, row),
 			updatedAt: row.updatedAt,
 			excerpt: searchHitExcerpt(hit, query),
 		})
