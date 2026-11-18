@@ -75,6 +75,7 @@ describe('the range sentence and the placeholder', () => {
 		expect(rangeText({ min: 1, max: 16 })).toBe('From 1 to 16.')
 		expect(rangeText({ min: 1 })).toBe('At least 1.')
 		expect(rangeText({ max: 20 })).toBe('Up to 20.')
+		expect(rangeText({ min: 1, max: 2_147_483_647, unit: 'ms' })).toBe('')
 	})
 	it('keeps the placeholder inside a 140 px box', () => {
 		const d = (over: Partial<ConfigSettingDescriptor>): ConfigSettingDescriptor => ({

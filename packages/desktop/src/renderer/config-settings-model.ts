@@ -72,8 +72,10 @@ export function defaultLabel(
 		const options = control.kind === 'checks' ? control.options : []
 		return value.map((item) => options.find((o) => o.value === item)?.label ?? item).join(', ')
 	}
-	if (typeof value === 'number')
+	if (typeof value === 'number') {
+		if (control.kind === 'number' && control.unit === 'ms') return formatDuration(value)
 		return control.kind === 'number' && control.unit ? `${value} ${control.unit}` : String(value)
+	}
 	if (control.kind === 'select')
 		return control.options.find((o) => o.value === value)?.label ?? value
 	return value
@@ -176,6 +178,8 @@ function bound(value: number, unit?: string): string {
 /** The range a number box takes, as a short sentence; empty when it is any whole number from 0. */
 export function rangeText(control: { min?: number; max?: number; unit?: string }): string {
 	const { min, max, unit } = control
+	// A time limit of weeks is no range worth reading; only a short span is named.
+	if (unit === 'ms' && (max === undefined || max > 86_400_000)) return ''
 	if (min !== undefined && max !== undefined)
 		return `From ${bound(min, unit)} to ${bound(max, unit)}.`
 	if (max !== undefined) return `Up to ${bound(max, unit)}.`

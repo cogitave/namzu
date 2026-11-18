@@ -105,7 +105,7 @@ describe('a default is read from its typed value', () => {
 			control: { kind: 'number', unit: 'ms' },
 			default: 600000,
 		}
-		expect(defaultLabel(n)).toBe('600000 ms')
+		expect(defaultLabel(n)).toBe('10m')
 		const sel: ConfigSettingDescriptor = {
 			...toggle({}),
 			control: { kind: 'select', options: [{ value: 'a', label: 'Alpha', help: 'The first.' }] },
