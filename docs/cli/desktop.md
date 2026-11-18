@@ -16,9 +16,9 @@ import CLI code or create a second agent execution loop.
 ## Local Turkish speech
 
 **Settings ▸ Speech** (see [Settings](#settings)) offers Turkish playback through EMA Lightning
-1.0.1 on this device, and **Read aloud** on a reply stays where it was. **Speech language** selects the
-synthesis language; it does not change the model's chat language. This engine supplies one Turkish voice and
-runs on CPU. It only speaks: it does not listen. Listening is a separate feature, **Voice input**
+1.0.1 on this device, and **Read aloud** on a reply stays where it was. **Speech language** reads
+"Turkish" as plain text until a second language exists. This engine supplies one Turkish voice and
+runs on CPU, with no speed or speaker setting, so Settings offers no voice style or speed row. It only speaks: it does not listen. Listening is a separate feature, **Voice input**
 (**Settings ▸ Speech ▸ Voice input**, [Desktop voice input](desktop-listening.md)): once its on-device
 recognition model is downloaded and consent is given, the composer shows a microphone, and what is said is
 transcribed on the computer and sent as an ordinary message. The microphone is not drawn before that.
@@ -58,7 +58,7 @@ latency appear only after measurement; unavailable values say **Not measured**.
 GPU memory is inapplicable to this CPU implementation. CPU percentage refers to
 one core, so multithreaded work may exceed 100%. Measurements exclude Desktop
 itself and are not an estimate for another device. **Free memory when idle**
-unloads the model after five minutes; disabling that option retains it until
+unloads the model after 1, 5 (default) or 15 minutes without playback; **Never** retains it until
 explicit cancellation or application shutdown. Reloading after an unload adds
 latency to the next playback.
 

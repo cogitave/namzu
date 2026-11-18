@@ -5,12 +5,16 @@ export const LOCAL_SPEECH_MODEL_BYTES = 34_389_147
 export const LOCAL_SPEECH_MAX_TEXT = 8_000
 export const LOCAL_SPEECH_SAMPLE_RATE = 24_000
 
+/** The idle times the Speech settings offer: 1, 5 and 15 minutes, or never (zero). */
+export const LOCAL_SPEECH_IDLE_UNLOAD_SECONDS = [60, 300, 900, 0] as const
+export type LocalSpeechIdleUnloadSeconds = (typeof LOCAL_SPEECH_IDLE_UNLOAD_SECONDS)[number]
+
 export interface LocalSpeechSettings {
 	enabled: boolean
 	language: 'tr'
 	engine: 'ema-lightning'
 	/** Zero keeps an already loaded model in memory. */
-	idleUnloadSeconds: 0 | 300
+	idleUnloadSeconds: LocalSpeechIdleUnloadSeconds
 }
 export const DEFAULT_LOCAL_SPEECH_SETTINGS: Readonly<LocalSpeechSettings> = {
 	enabled: false,
@@ -85,7 +89,10 @@ export function localSpeechSettings(
 		throw new Error('EMA Lightning supports Turkish only.')
 	if ('engine' in record && record.engine !== 'ema-lightning')
 		throw new Error('Unsupported local speech engine.')
-	if ('idleUnloadSeconds' in record && ![0, 300].includes(record.idleUnloadSeconds as number))
+	if (
+		'idleUnloadSeconds' in record &&
+		!(LOCAL_SPEECH_IDLE_UNLOAD_SECONDS as readonly unknown[]).includes(record.idleUnloadSeconds)
+	)
 		throw new Error('Invalid local speech memory preference.')
 	return { ...base, ...record } as LocalSpeechSettings
 }

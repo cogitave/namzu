@@ -209,3 +209,11 @@
 	margin-top: 6px;
 	accent-color: var(--foreground);
 }
+
+.local-speech-value {
+	font-size: 12px;
+	color: var(--secondary-label, inherit);
+}
+.local-speech-memory small {
+	display: block;
+}

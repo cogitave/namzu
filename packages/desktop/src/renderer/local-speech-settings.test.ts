@@ -121,7 +121,9 @@ describe('local speech settings display', () => {
 			createElement(LocalSpeechSettingsContent, { speech: controls({ state: view }) }),
 		)
 		expect(html).toContain('Speech language')
-		expect(html).toContain('Türkçe')
+		expect(html).toContain('Turkish')
+		expect(html).not.toContain('Türkçe')
+		expect(html).toContain('5 minutes')
 		expect(html).toContain('Enable voice')
 		expect(html).toContain('Free memory when idle')
 		expect(html).toContain('Preview voice')
