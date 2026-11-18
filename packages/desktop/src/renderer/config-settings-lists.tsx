@@ -307,33 +307,37 @@ export function ListEditor({
 					))}
 				</ul>
 			)}
-			<span className="settings-config-field">
-				<input
-					type="text"
-					className="settings-config-input settings-config-wide"
-					aria-label={`Add ${itemLabel}`}
-					value={draft}
-					placeholder={placeholder ?? ''}
-					disabled={disabled}
-					spellCheck={false}
-					onChange={(event) => setDraft(event.target.value)}
-					onKeyDown={(event) => {
-						if (event.key === 'Enter') {
-							// Inside a form, Enter adds the entry; it must not also submit the form.
-							event.preventDefault()
-							void add()
-						}
-					}}
-				/>
-				<Button
-					variant="outline"
-					size="sm"
-					disabled={disabled || draft.trim() === ''}
-					onClick={() => void add()}
-				>
-					Add
-				</Button>
-			</span>
+			<div className="settings-config-add">
+				<span className="settings-config-add-name">
+					<input
+						type="text"
+						className="settings-config-input"
+						aria-label={`Add ${itemLabel}`}
+						value={draft}
+						placeholder={placeholder ?? ''}
+						disabled={disabled}
+						spellCheck={false}
+						onChange={(event) => setDraft(event.target.value)}
+						onKeyDown={(event) => {
+							if (event.key === 'Enter') {
+								// Inside a form, Enter adds the entry; it must not also submit the form.
+								event.preventDefault()
+								void add()
+							}
+						}}
+					/>
+				</span>
+				<span className="settings-config-field">
+					<Button
+						variant="outline"
+						size="xs"
+						disabled={disabled || draft.trim() === ''}
+						onClick={() => void add()}
+					>
+						Add
+					</Button>
+				</span>
+			</div>
 		</div>
 	)
 }
@@ -1254,54 +1258,58 @@ export function PermissionChecksEditor({
 					))}
 				</ul>
 			)}
-			<span className="settings-config-field">
-				<input
-					type="text"
-					className="settings-config-input settings-config-short"
-					aria-label="Add a check: tool"
-					value={tool}
-					placeholder="Tool, such as bash"
-					spellCheck={false}
-					onChange={(event) => setTool(event.target.value)}
-				/>
-				<input
-					type="text"
-					className="settings-config-input settings-config-short"
-					aria-label={isCommand ? 'Add a check: command' : 'Add a check: input'}
-					value={input}
-					placeholder={
-						isCommand ? 'Command, such as git status' : 'Input as JSON, such as {"path":"a.txt"}'
-					}
-					spellCheck={false}
-					onChange={(event) => setInput(event.target.value)}
-					onKeyDown={(event) => {
-						if (event.key === 'Enter') {
-							event.preventDefault()
-							void add()
+			<div className="settings-config-add">
+				<span className="settings-config-add-name">
+					<input
+						type="text"
+						className="settings-config-input"
+						aria-label="Add a check: tool"
+						value={tool}
+						placeholder="Tool, such as bash"
+						spellCheck={false}
+						onChange={(event) => setTool(event.target.value)}
+					/>
+					<input
+						type="text"
+						className="settings-config-input"
+						aria-label={isCommand ? 'Add a check: command' : 'Add a check: input'}
+						value={input}
+						placeholder={
+							isCommand ? 'Command, such as git status' : 'Input as JSON, such as {"path":"a.txt"}'
 						}
-					}}
-				/>
-				<select
-					className="settings-config-input settings-config-answer"
-					aria-label="Add a check: expected answer"
-					value={expect}
-					onChange={(event) => setExpect(event.target.value)}
-				>
-					{control.effects.map((option) => (
-						<option key={option.value} value={option.value}>
-							{option.label}
-						</option>
-					))}
-				</select>
-				<Button
-					variant="outline"
-					size="sm"
-					disabled={tool.trim() === ''}
-					onClick={() => void add()}
-				>
-					Add
-				</Button>
-			</span>
+						spellCheck={false}
+						onChange={(event) => setInput(event.target.value)}
+						onKeyDown={(event) => {
+							if (event.key === 'Enter') {
+								event.preventDefault()
+								void add()
+							}
+						}}
+					/>
+				</span>
+				<span className="settings-config-field">
+					<select
+						className="settings-config-input settings-config-answer"
+						aria-label="Add a check: expected answer"
+						value={expect}
+						onChange={(event) => setExpect(event.target.value)}
+					>
+						{control.effects.map((option) => (
+							<option key={option.value} value={option.value}>
+								{option.label}
+							</option>
+						))}
+					</select>
+					<Button
+						variant="outline"
+						size="xs"
+						disabled={tool.trim() === ''}
+						onClick={() => void add()}
+					>
+						Add
+					</Button>
+				</span>
+			</div>
 			<LocalError text={local} />
 		</div>
 	)
@@ -1385,43 +1393,47 @@ export function SitesEditor({
 					</span>
 				</li>
 			</ul>
-			<span className="settings-config-field">
-				<input
-					type="text"
-					className="settings-config-input settings-config-short"
-					aria-label="Add a site"
-					value={site}
-					placeholder="https://example.com or https://*.example.com"
-					spellCheck={false}
-					onChange={(event) => setSite(event.target.value)}
-					onKeyDown={(event) => {
-						if (event.key === 'Enter') {
-							event.preventDefault()
-							void add()
-						}
-					}}
-				/>
-				<select
-					className="settings-config-input settings-config-answer"
-					aria-label="Add a site: level"
-					value={level}
-					onChange={(event) => setLevel(event.target.value)}
-				>
-					{control.levels.map((option) => (
-						<option key={option.value} value={option.value}>
-							{option.label}
-						</option>
-					))}
-				</select>
-				<Button
-					variant="outline"
-					size="sm"
-					disabled={site.trim() === ''}
-					onClick={() => void add()}
-				>
-					Add
-				</Button>
-			</span>
+			<div className="settings-config-add">
+				<span className="settings-config-add-name">
+					<input
+						type="text"
+						className="settings-config-input"
+						aria-label="Add a site"
+						value={site}
+						placeholder="https://example.com or https://*.example.com"
+						spellCheck={false}
+						onChange={(event) => setSite(event.target.value)}
+						onKeyDown={(event) => {
+							if (event.key === 'Enter') {
+								event.preventDefault()
+								void add()
+							}
+						}}
+					/>
+				</span>
+				<span className="settings-config-field">
+					<select
+						className="settings-config-input settings-config-answer"
+						aria-label="Add a site: level"
+						value={level}
+						onChange={(event) => setLevel(event.target.value)}
+					>
+						{control.levels.map((option) => (
+							<option key={option.value} value={option.value}>
+								{option.label}
+							</option>
+						))}
+					</select>
+					<Button
+						variant="outline"
+						size="xs"
+						disabled={site.trim() === ''}
+						onClick={() => void add()}
+					>
+						Add
+					</Button>
+				</span>
+			</div>
 			<LocalError text={local} />
 		</div>
 	)

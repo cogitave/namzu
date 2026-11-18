@@ -1627,14 +1627,12 @@ pre {
 	overflow: hidden;
 	border: 1px solid var(--border);
 	border-radius: var(--radius-card);
-	background: var(--muted);
-}
-/* A coloured block sits on the same surface as diffs and file views, whose colours are chosen for it
-   in either window mode; a block still plain keeps the muted surface. */
-.chat-markdown .chat-markdown-codeblock[data-highlighted] {
 	background: var(--code-background);
 }
-.chat-markdown .chat-markdown-codeblock[data-highlighted] pre {
+/* Every block sits on the surface of diffs and file views, whose colours are chosen for it in either
+   window mode. A block still plain (the open end of a streaming reply, an unknown language) uses the
+   same surface, so nothing jumps when its colours arrive. */
+.chat-markdown .chat-markdown-codeblock pre {
 	color: var(--code-foreground);
 }
 

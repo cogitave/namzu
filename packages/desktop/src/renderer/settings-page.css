@@ -878,10 +878,6 @@ input.settings-config-number {
 .settings-config-model {
 	width: min(320px, 100%);
 }
-/* A line of rules: a short box for each part, then its answer. */
-.settings-config-short {
-	width: min(200px, 100%);
-}
 .settings-config-answer {
 	flex: none;
 	width: 120px;
@@ -891,8 +887,8 @@ input.settings-config-number {
 	flex: none;
 	flex-wrap: nowrap;
 }
-/* The add line of the permission rules is a row like the ones above it: two boxes where a rule's
-   name sits, and the answer and button where its answer and Remove sit, in the same widths. */
+/* The add line of a list is the next row of it: its boxes where an entry's name sits, from the same
+   left edge, and its answer and Add where an entry's answer and Remove sit, in the same widths. */
 .settings-config-add {
 	display: flex;
 	align-items: center;

@@ -2482,9 +2482,10 @@ done; the tail shows plain text until then, so a growing reply is not highlighte
 is the fence's own name (the highlighter resolves `ts`, `sh`, `py` and the rest itself, each loaded once on
 demand). A block with no or an unknown language, one over 20,000 characters or 500 lines, and a highlighter that
 cannot load stay plain. The coloured spans spell exactly the original text, so selecting, copying by hand and
-the copy button are unchanged, and the header is unchanged. A coloured block sits on `--code-background`, as diffs
-and file views do, so the Default set looks the same everywhere; a plain block keeps its muted surface. Inline code
-is not coloured. The highlighter themes are not CSS, so `renderer/code-prefs.ts` holds
+the copy button are unchanged, and the header is unchanged. Every fenced block sits on `--code-background`, as diffs
+and file views do, so the Default set looks the same everywhere, and a plain block (the open end of a streaming
+reply, an unknown language) uses the same surface, so nothing jumps when its colours arrive. Inline code is not
+coloured. The highlighter themes are not CSS, so `renderer/code-prefs.ts` holds
 them: it starts from the mirror (`namzu.appearance-prefs`) and `useAppearancePrefs` updates it after
 it sets the root's tokens. The font and size are in the same mirror and `public/theme-boot.js` sets the
 two tokens before the first paint. **Open terminals:** `terminal-registry.ts` subscribes to
