@@ -960,6 +960,15 @@ function closeQuickEntry(): void {
 	quickEntryWindow = undefined
 	if (window && !window.isDestroyed()) window.close()
 }
+/** The app's own face as a data address (a data page cannot reach the app's files); undefined when it is missing. */
+function quickEntryFont(): string | undefined {
+	try {
+		const bytes = readFileSync(join(here, '../renderer/fonts/Geist-wght.woff2'))
+		return `data:font/woff2;base64,${bytes.toString('base64')}`
+	} catch {
+		return undefined
+	}
+}
 /** The small box a global shortcut opens: one line, closed by Enter, Escape or losing focus. */
 function openQuickEntry(): void {
 	if (quickEntryWindow && !quickEntryWindow.isDestroyed()) {
@@ -1005,10 +1014,12 @@ function openQuickEntry(): void {
 	window.on('closed', () => {
 		if (quickEntryWindow === window) quickEntryWindow = undefined
 	})
-	void window.loadURL(quickEntryUrl()).catch((error) => {
-		diagnostics.record('renderer_load_failed', { error })
-		if (quickEntryWindow === window) closeQuickEntry()
-	})
+	void window
+		.loadURL(quickEntryUrl({ appearance: heardAppearance, fontData: quickEntryFont() }))
+		.catch((error) => {
+			diagnostics.record('renderer_load_failed', { error })
+			if (quickEntryWindow === window) closeQuickEntry()
+		})
 }
 /** Bring an app window forward and tell it something is waiting; a window not open yet asks on its own. */
 function deliverPending(): void {
