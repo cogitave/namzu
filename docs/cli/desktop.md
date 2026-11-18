@@ -2534,6 +2534,10 @@ window gets the focus.
 | Dictation shortcut | `dictationShortcut`: `ctrl-d` (`ctrl-shift-d` or `off`) | Desktop app | A key handler in the window, only while typing in the message box: it starts and stops voice input the way the microphone button does, and only when that button would work (voice input set up, a conversation open). The composer had no voice key before, so Ctrl+D is the default for lack of an existing key. |
 | Voice shortcut | `voiceShortcut`: off | Desktop app; every system | A global shortcut. Pressing it brings an app window forward, focuses the message box and starts voice input when the microphone button would work. With no conversation open nothing starts (voice input needs one). |
 
+| Storage | none (a view) | Desktop app, **Manage** | Opens a view under the row (`storageUsage` on the bridge, `main/storage-usage.ts`). It lists the space by part: *Conversations and work* (the Namzu home: conversations, Pals, the trusted folders list, scheduled tasks), *Engine* (`<app data>/kernel`), *Voice models* (`local-speech`, `local-listening`), *Logs*, *Caches* (Chromium's cache folders) and *Other* (the rest of the app's data). Files are counted, links are never followed, and a tree over 200,000 entries is counted up to there and shown as "more than". **Clear** is offered only on Logs and Caches, asks first (the button turns into "Clear logs?"), and the main process refuses any other part by name, so a request cannot reach conversations, settings or keys. The log being written stays. A file in use stays and the new size says so. |
+| Trusted folders | none (a view) | Desktop app, **Manage** | Lists the folders in the engine's trust list, `trust.json` in the Namzu home, and says so: it is the list that decides whether a folder may be used (the command line reads it on every check). **Remove** asks first, takes exactly that entry off (a parent entry that covers the folder is never touched) and also forgets Desktop's own fingerprint of the folder in `trusted-folders.json`, so adding it back is a first trust again. Desktop cannot import the command line, so `main/trust-list.ts` reads and writes the same file shape (`{ version, trusted }`) with a temporary file and a rename. A file that cannot be read is shown as unreadable and is never rewritten. A project already open keeps its trusted mark until the app starts again. |
+| Extensions | none (a button) | Desktop app, **Manage** | Closes Settings and opens the Plugins page. |
+
 Closing the window and the tray: `window-all-closed`, the close handler of a window and
 `finishWindowClose` all ask one function, `staysRunningWithoutWindows` (macOS, or the tray icon is up).
 Quitting from the tray runs the same quit as the menu: the reply guard asks first when a reply would be cut
@@ -2545,6 +2549,20 @@ off, then the graceful shutdown.
   (`electron-builder.yml`, `desktop-release.yml` uploads only there). `NAMZU_UPDATE_FEED_URL` still
   decides the feed for a development run and for a loopback test.
 - *Quick access shortcut* (`SET-213`): macOS only, and there is no macOS to check it on.
+- *Storage folder, Change and Use recommended* (`SET-220`): Namzu has no movable artifacts or scheduled-task
+  folder of its own. Scheduled tasks live in `schedule/` inside the Namzu home, which the command line
+  shares and which `NAMZU_HOME` sets for both; there is no artifacts store. Moving it from Desktop alone
+  would split the app from the command line's conversations, trust list and schedules. The place is shown
+  and can be opened and copied under About, Data folders.
+- *Only on this computer* (`SET-243`): Desktop has no scheduled-task feature and starts no scheduler. The
+  scheduler is the command line's (`schedule install` makes an operating system service that runs without
+  any window), so a switch here would describe nothing the app does. No row, no read-only line.
+
+**Data folders** (About, `SET-170`). Open and Copy path were already there; what was wrong were the notes.
+The Namzu home note now names `trust.json` (the engine's trust list) and scheduled tasks, and the app data
+note names `trusted-folders.json` (what Desktop remembers about each trusted folder) and the project list.
+The Namzu home is labelled "conversations and trusted folders".
+
 
 Shortcuts are stored as `Ctrl+Alt+Space` text: modifiers in the order Ctrl, Alt, Shift, Super, then one key (a letter, a digit, F1 to F24, Space, Tab, an arrow, Home, End, PageUp, PageDown, Insert or Delete), with at least one of Ctrl, Alt or Super (`shared/shortcuts.ts`). The shortcut box records a press by the physical key; Escape cancels; **Clear** removes it. A saved value that is not a shortcut loads as the default. The two global shortcuts cannot be the same keys. None of this has been run in Electron in this lane: the registration, the box and the hand-off to the window are tested with fakes only.
 

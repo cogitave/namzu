@@ -4,7 +4,7 @@ import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { CODE_FONT_SIZE_DEFAULT, type CodeThemeKey } from '../shared/code-themes.js'
 import { newerKernelText } from '../shared/engine-update-protocol.js'
 import { type OsState, meteredLine, trayName } from '../shared/os-state.js'
-import type { ProjectView } from '../shared/protocol.js'
+import type { DesktopApi, ProjectView } from '../shared/protocol.js'
 import {
 	type CatalogueEntry,
 	type CatalogueOption,
@@ -78,6 +78,7 @@ import {
 } from './settings-model.js'
 import { Row, SegmentedControl, SelectControl, Switch } from './settings-row.js'
 import { ShortcutBox } from './settings-shortcut.js'
+import { StoragePanel, TrustedFoldersPanel } from './settings-storage.js'
 import type { Appearance } from './sidebar.js'
 import { Button } from './ui/button.js'
 import { useClock } from './use-clock.js'
@@ -91,6 +92,7 @@ import type { LocalSpeechControls } from './use-local-speech.js'
 import { useMcpServers } from './use-mcp-servers.js'
 import { useOsState } from './use-os-state.js'
 import { useProviderConnections } from './use-provider-connections.js'
+import { useStorageUsage, useTrustedFolders } from './use-storage-views.js'
 import { useUserMcpServers } from './use-user-mcp-servers.js'
 import './settings-page.css'
 
@@ -215,6 +217,8 @@ export interface SettingsPageProps {
 	info?: DesktopInfo
 	infoError?: string
 	onOpenFolder?: (kind: DataFolderKind) => void
+	/** Closes Settings and shows the Plugins page; absent where there is no such page. */
+	onOpenPlugins?: () => void
 	/** The clock is passed in so relative times are deterministic in tests. */
 	now: number
 }
@@ -874,7 +878,11 @@ function RowLine({ children }: { children: ReactNode }) {
 }
 
 /** How the app itself runs on this computer, as against what happens inside a conversation. */
-export function DesktopSection({ settings, os }: Pick<SectionProps, 'settings' | 'os'>) {
+export function DesktopSection({
+	settings,
+	os,
+	onOpenPlugins,
+}: Pick<SectionProps, 'settings' | 'os' | 'onOpenPlugins'>) {
 	const saved = settings.settings
 	const off = !saved
 	return (
@@ -983,8 +991,76 @@ export function DesktopSection({ settings, os }: Pick<SectionProps, 'settings' |
 					/>
 				</CatalogueRow>
 			)}
+			<StorageRow />
+			<TrustedFoldersRow />
+			<CatalogueRow id="extensions-manage">
+				<Button
+					variant="outline"
+					size="sm"
+					aria-label="Manage extensions"
+					disabled={!onOpenPlugins}
+					onClick={() => onOpenPlugins?.()}
+				>
+					Manage
+				</Button>
+			</CatalogueRow>
 		</>
 	)
+}
+
+/** A button that opens a view under its row. The view measures or reads only while it is open. */
+function ManageRow({
+	id,
+	label,
+	available,
+	children,
+}: {
+	id: string
+	label: string
+	available: boolean
+	children: ReactNode
+}) {
+	const [open, setOpen] = useState(false)
+	return (
+		<CatalogueRow id={id} below={open && available ? children : undefined}>
+			<Button
+				variant="outline"
+				size="sm"
+				aria-label={`${open ? 'Hide' : 'Manage'} ${label}`}
+				aria-expanded={open}
+				disabled={!available}
+				onClick={() => setOpen((value) => !value)}
+			>
+				{open ? 'Hide' : 'Manage'}
+			</Button>
+		</CatalogueRow>
+	)
+}
+
+function StorageRow() {
+	const bridge = typeof window === 'undefined' ? undefined : window.namzu
+	return (
+		<ManageRow id="storage" label="storage" available={!!bridge?.storageUsage}>
+			<StoragePanelContainer bridge={bridge} />
+		</ManageRow>
+	)
+}
+
+function StoragePanelContainer({ bridge }: { bridge: DesktopApi | undefined }) {
+	return <StoragePanel storage={useStorageUsage(bridge, true)} />
+}
+
+function TrustedFoldersRow() {
+	const bridge = typeof window === 'undefined' ? undefined : window.namzu
+	return (
+		<ManageRow id="trusted-folders" label="trusted folders" available={!!bridge?.trustedFolders}>
+			<TrustedFoldersContainer bridge={bridge} />
+		</ManageRow>
+	)
+}
+
+function TrustedFoldersContainer({ bridge }: { bridge: DesktopApi | undefined }) {
+	return <TrustedFoldersPanel trusted={useTrustedFolders(bridge, true)} />
 }
 
 /**

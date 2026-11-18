@@ -346,10 +346,13 @@ export function removalNotice(
 
 /** What deleting each data folder does, so a person knows which are safe to clear. */
 export const DATA_FOLDER_NOTES: Record<DataFolderKind, { safe: boolean; text: string }> = {
-	app: { safe: false, text: 'Your settings, open tabs and drafts. Deleting it resets the app.' },
+	app: {
+		safe: false,
+		text: 'Your settings, open tabs, drafts, project list and trusted-folders.json (what the app remembers about each trusted folder). Deleting it resets the app.',
+	},
 	namzu: {
 		safe: false,
-		text: 'Your conversations, Pals and projects. Keep this folder.',
+		text: 'Your conversations, Pals, scheduled tasks and trust.json (the folders you trusted). Keep this folder.',
 	},
 	diagnostics: { safe: true, text: 'Logs for support. Safe to delete.' },
 	speech: {

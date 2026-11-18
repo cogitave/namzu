@@ -887,7 +887,7 @@ const api: DesktopApi = {
 			{ kind: 'app', label: 'Desktop app data', path: '/sample/appdata/Namzu' },
 			{
 				kind: 'namzu',
-				label: 'Namzu home (conversations and trust list)',
+				label: 'Namzu home (conversations and trusted folders)',
 				path: '/sample/home/.namzu',
 			},
 			{ kind: 'diagnostics', label: 'Diagnostic logs', path: '/sample/appdata/Namzu/logs' },

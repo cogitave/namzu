@@ -1305,6 +1305,16 @@ export interface DesktopApi {
 	/** The shells a plain terminal tab can open on this machine, for the setting. */
 	/** What the system says about the rows it applies (start at sign-in, tray, metered connection). */
 	osState?(): Promise<import('./os-state.js').OsState>
+	/** How much space Namzu uses on this computer, by part. */
+	storageUsage?(): Promise<import('./storage-protocol.js').StorageReport>
+	/** Empties one part that is safe to clear (logs, caches) and answers the new sizes. */
+	clearStorage?(
+		id: import('./storage-protocol.js').StoragePartId,
+	): Promise<import('./storage-protocol.js').StorageReport>
+	/** The folders the engine trusts: the list that decides trust. */
+	trustedFolders?(): Promise<import('./storage-protocol.js').TrustedFoldersView>
+	/** Takes one folder off that list (and forgets Desktop's fingerprint of it); it asks again next time. */
+	removeTrustedFolder?(path: string): Promise<import('./storage-protocol.js').TrustedFoldersView>
 	/** What global shortcuts left for a window: Quick Entry lines and a voice request. Each is handed out once. */
 	takePendingEntries?(): Promise<{ quickEntries: string[]; voice: boolean }>
 	terminalShells?(): Promise<TerminalShellChoice[]>

@@ -14,7 +14,9 @@ import {
 	SETTINGS_SECTIONS,
 	type SettingsSection,
 } from '../shared/settings-protocol.js'
+import type { StorageReport } from '../shared/storage-protocol.js'
 import {
+	DATA_FOLDER_NOTES,
 	SETTINGS_ENTRIES,
 	SETTINGS_SECTION_TITLES,
 	aboutDetailsText,
@@ -29,6 +31,7 @@ import {
 	TerminalSettings,
 	escapeRevertsDraft,
 } from './settings-page.js'
+import { StoragePanel, TrustedFoldersPanel } from './settings-storage.js'
 import { EngineDeliveryContext } from './use-engine-delivery.js'
 import { EngineUpdatesContext } from './use-engine-updates.js'
 import type { LocalListeningControls } from './use-local-listening.js'
@@ -905,5 +908,98 @@ describe('the rows the system applies', () => {
 			entryIsDrawn('system-tray', { ...base, os: { platform: 'linux', tray: { shown: false } } }),
 		).toBe(true)
 		expect(entryIsDrawn('keep-awake', base)).toBe(true)
+	})
+})
+
+describe('the storage and data rows', () => {
+	const controls = () => ({
+		settings: { ...DEFAULT_DESKTOP_SETTINGS },
+		error: '',
+		change: vi.fn(async () => {}),
+		confirmation: undefined,
+		confirm: async () => {},
+		dismiss: () => {},
+	})
+	const report: StorageReport = {
+		parts: [
+			{
+				id: 'conversations',
+				label: 'Conversations and work',
+				note: 'n',
+				bytes: 2048,
+				clearable: false,
+			},
+			{ id: 'logs', label: 'Logs', note: 'n', bytes: 1024, clearable: true },
+			{ id: 'caches', label: 'Caches', note: 'n', bytes: 0, clearable: true, approximate: true },
+		],
+		totalBytes: 3072,
+	}
+
+	it('draws Manage for storage and trusted folders, and Extensions that opens the Plugins page', () => {
+		const markup = renderToStaticMarkup(
+			createElement(DesktopSection, {
+				settings: controls(),
+				os: undefined,
+				onOpenPlugins: () => {},
+			}),
+		)
+		expect(markup).toContain('id="setting-storage"')
+		expect(markup).toContain('id="setting-trusted-folders"')
+		expect(markup).toContain('id="setting-extensions-manage"')
+		expect(markup).toMatch(/aria-label="Manage extensions"(?![^>]*disabled)/)
+	})
+
+	it('disables Extensions where there is no Plugins page to open', () => {
+		const markup = renderToStaticMarkup(
+			createElement(DesktopSection, { settings: controls(), os: undefined }),
+		)
+		expect(markup).toMatch(/aria-label="Manage extensions"[^>]*disabled/)
+	})
+
+	it('lists the sizes and offers Clear only on the parts that are safe to clear', () => {
+		const markup = renderToStaticMarkup(
+			createElement(StoragePanel, {
+				storage: { report, busy: false, clear: async () => {} },
+			}),
+		)
+		expect(markup).toContain('2.0 KB')
+		expect(markup).toContain('aria-label="Clear logs"')
+		expect(markup).not.toContain('Clear conversations')
+		// Nothing to clear in an empty part.
+		expect(markup).toMatch(/disabled=""[^>]*aria-label="Clear caches"/)
+		expect(markup).toContain('more than 0 B')
+		expect(markup).toContain('never cleared from here')
+	})
+
+	it('says which trust list it shows, lists each folder with Remove, and says when it is empty', () => {
+		const markup = renderToStaticMarkup(
+			createElement(TrustedFoldersPanel, {
+				trusted: {
+					view: { file: '/home/me/.namzu/trust.json', folders: ['/work/app', '/work/lib'] },
+					busy: false,
+					remove: async () => {},
+				},
+			}),
+		)
+		expect(markup).toContain('list that decides')
+		expect(markup).toContain('trust.json')
+		expect(markup).toContain('aria-label="Remove /work/app"')
+		expect(markup).toContain('aria-label="Remove /work/lib"')
+		const empty = renderToStaticMarkup(
+			createElement(TrustedFoldersPanel, {
+				trusted: {
+					view: { file: '/x/trust.json', folders: [] },
+					busy: false,
+					remove: async () => {},
+				},
+			}),
+		)
+		expect(empty).toContain('No folder is trusted')
+	})
+
+	it('names the trust files correctly in the data folder notes', () => {
+		expect(DATA_FOLDER_NOTES.namzu.text).toContain('trust.json')
+		expect(DATA_FOLDER_NOTES.app.text).toContain('trusted-folders.json')
+		expect(page('about')).not.toContain('conversations and trust list')
 	})
 })

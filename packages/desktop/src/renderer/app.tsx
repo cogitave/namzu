@@ -5218,6 +5218,15 @@ export function App({
 		setSideOpen(false)
 	}
 	const closeSettings = () => setSettingsOpen(false)
+	/** Settings' Extensions row: the dialog closes and the Plugins page opens in its place. */
+	const showPluginsFromSettings = () => {
+		abandonTabRestore()
+		navigation.current += 1
+		setPalScreen(undefined)
+		setPalsPage(false)
+		setRailSection('plugins')
+		setSettingsOpen(false)
+	}
 	const settingsReturnFocus = () =>
 		settingsOpener.current?.isConnected && settingsOpener.current.getClientRects().length > 0
 			? settingsOpener.current
@@ -7466,6 +7475,7 @@ export function App({
 						listening={listening}
 						info={desktopInfo.info}
 						infoError={desktopInfo.error}
+						onOpenPlugins={showPluginsFromSettings}
 						onOpenFolder={
 							api.openDataFolder
 								? (kind: DataFolderKind) =>

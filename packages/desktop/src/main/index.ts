@@ -151,6 +151,7 @@ import { ShortcutController } from './shortcut-controller.js'
 import { runShutdown } from './shutdown-sequence.js'
 import { SidebarSnapshotStore } from './sidebar-snapshot-store.js'
 import { SleepGuard } from './sleep-guard.js'
+import { type StorageLayout, clearStorage, measureStorage } from './storage-usage.js'
 import { installStreamRendererPolicy, withStreamRendererPort } from './stream-renderer-policy.js'
 import { SupersededConversationSettingsError } from './superseded-settings.js'
 import { SystemNotices } from './system-notices.js'
@@ -160,6 +161,7 @@ import { engineHost, findProgram, shellEnvironment } from './terminal-env.js'
 import { TerminalHub } from './terminal-hub.js'
 import { TerminalTabStore } from './terminal-tab-store.js'
 import { TrayController } from './tray-controller.js'
+import { EngineTrustList } from './trust-list.js'
 import { TrustedFolderStore, createFolderTrustGuard } from './trusted-folders.js'
 import { clearInstalledPending } from './updater-cache.js'
 import {
@@ -670,6 +672,22 @@ const notices = new SystemNotices({
 	projectName: (id): string | undefined => operator.projectNameOf(id),
 	open: (id) => showConversationFromNotice(id),
 })
+const folderTrustGuard = createFolderTrustGuard({
+	store: new TrustedFolderStore(join(app.getPath('userData'), 'trusted-folders.json'), {
+		onError: (error, operation) =>
+			diagnostics.record('ipc_failed', { operation: `trustedFolders.${operation}`, error }),
+	}),
+	// Read on each check: the setting can change while the app runs.
+	enabled: () => settingsStore.get().retrustOnConfigChange,
+	canonical: canonicalFolder,
+})
+const engineTrustList = new EngineTrustList(namzuHome(), (error, operation) =>
+	diagnostics.record('ipc_failed', { operation: `trustList.${operation}`, error }),
+)
+const storageLayout = (): StorageLayout => ({
+	userData: app.getPath('userData'),
+	namzuHome: namzuHome(),
+})
 const operator = new Operator(
 	command,
 	(event: DesktopEvent) => {
@@ -740,15 +758,7 @@ const operator = new Operator(
 			openPath: (path) => shell.openPath(path),
 		}),
 	),
-	createFolderTrustGuard({
-		store: new TrustedFolderStore(join(app.getPath('userData'), 'trusted-folders.json'), {
-			onError: (error, operation) =>
-				diagnostics.record('ipc_failed', { operation: `trustedFolders.${operation}`, error }),
-		}),
-		// Read on each check: the setting can change while the app runs.
-		enabled: () => settingsStore.get().retrustOnConfigChange,
-		canonical: canonicalFolder,
-	}),
+	folderTrustGuard,
 	// A host that drops under an open conversation is reopened once, without a click.
 	{
 		autoReconnect: true,
@@ -1164,7 +1174,7 @@ const dataFolders = (): Record<DataFolderKind, string> => ({
 })
 const FOLDER_LABELS: Record<DataFolderKind, string> = {
 	app: 'Desktop app data',
-	namzu: 'Namzu home (conversations and trust list)',
+	namzu: 'Namzu home (conversations and trusted folders)',
 	diagnostics: 'Diagnostic logs',
 	speech: 'Downloaded voice',
 }
@@ -1438,6 +1448,19 @@ function register(): void {
 	handle('terminals', () => terminals.list())
 	handle('terminalAvailability', (projectId: string) => terminals.availability(projectId))
 	handle('osState', () => osState())
+	handle('storageUsage', () => measureStorage(storageLayout()))
+	handle('clearStorage', (id: unknown) => clearStorage(storageLayout(), id))
+	handle('trustedFolders', () => engineTrustList.view())
+	handle('removeTrustedFolder', (path: unknown) => {
+		const view = engineTrustList.remove(path)
+		// Desktop's fingerprint of the folder goes too, so adding it back is a first trust again.
+		try {
+			folderTrustGuard.forget(path as string)
+		} catch (error) {
+			diagnostics.record('ipc_failed', { operation: 'forgetFolderRecord', error })
+		}
+		return view
+	})
 	handle('takePendingEntries', () => pendingEntries.take())
 	ipcMain.on(QUICK_ENTRY_SUBMIT, (event, text: unknown) => {
 		if (!quickEntryWindow || event.sender !== quickEntryWindow.webContents) return
