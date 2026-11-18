@@ -541,6 +541,22 @@ function SettingsDialogLayout({
 	)
 }
 
+/**
+ * The sections that draw the engine's own rows under the app's. A section the engine files a row
+ * under but that is missing here shows nothing: the row exists and no one can reach it.
+ */
+export const ENGINE_ROW_SECTIONS: readonly SettingsSection[] = [
+	'general',
+	'models',
+	'agent',
+	'tools',
+	'projects',
+	'appearance',
+	'terminal',
+	'telemetry',
+	'updates',
+]
+
 interface SectionProps extends SettingsPageProps {
 	shells: ShellChoice[] | null | undefined
 	hasAppUpdater: boolean
@@ -572,14 +588,7 @@ function SectionBody(props: SectionProps) {
 			{props.section === 'updates' && <UpdatesSection {...props} />}
 			{props.section === 'desktop' && <DesktopSection {...props} />}
 			{props.section === 'terminal' && <TerminalSettings {...props} />}
-			{(props.section === 'general' ||
-				props.section === 'models' ||
-				props.section === 'agent' ||
-				props.section === 'tools' ||
-				props.section === 'projects' ||
-				props.section === 'terminal' ||
-				props.section === 'telemetry' ||
-				props.section === 'updates') && (
+			{ENGINE_ROW_SECTIONS.includes(props.section) && (
 				<ConfigSettingsGroup
 					section={props.section}
 					config={props.config}

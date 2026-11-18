@@ -1,6 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
+import type { ConfigSettingSection } from '../shared/config-settings-protocol.js'
 import type { EngineDeliveryView } from '../shared/engine-delivery-protocol.js'
 import type { KernelNewer } from '../shared/engine-update-protocol.js'
 import type { LocalListeningState } from '../shared/local-listening-protocol.js'
@@ -25,6 +26,7 @@ import {
 import {
 	AgentSleepRows,
 	DesktopSection,
+	ENGINE_ROW_SECTIONS,
 	SettingsPage,
 	type SettingsPageProps,
 	SettingsSidebar,
@@ -175,6 +177,26 @@ function page(
 			: withKernel,
 	)
 }
+
+describe('the engine rows on the settings page', () => {
+	it('are drawn in every section the engine files a row under', () => {
+		// Written as a record so a section added to the protocol fails to compile until it is listed.
+		const filed: Record<ConfigSettingSection, true> = {
+			general: true,
+			models: true,
+			projects: true,
+			appearance: true,
+			updates: true,
+			agent: true,
+			tools: true,
+			telemetry: true,
+			terminal: true,
+		}
+		for (const section of Object.keys(filed)) {
+			expect(ENGINE_ROW_SECTIONS).toContain(section)
+		}
+	})
+})
 
 describe('the settings page', () => {
 	it('is a labelled region whose one h1 is the section, never a second "Settings" heading', () => {
