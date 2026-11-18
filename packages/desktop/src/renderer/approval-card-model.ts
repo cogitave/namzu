@@ -96,6 +96,7 @@ const TOOL_VERBS: Readonly<Record<string, string>> = {
 	consult_advisor: 'ask an advisor',
 	update_goal: 'change the goal',
 	browser: 'use the browser',
+	computer_use: 'use your computer',
 }
 
 /**

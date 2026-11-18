@@ -454,8 +454,8 @@ it('turns a request that asks about applications into one question, not one abou
 	expect(appAccessNote(['Notepad'])).toContain(
 		'still asks before it closes, deletes, sends or submits',
 	)
-	// A plain computer action keeps its ordinary card.
-	expect(
-		buildApprovalCard(request([call('computer_use', { type: 'key', keys: 'A' })])).appAccess,
-	).toBeUndefined()
+	// A plain computer action keeps its ordinary card, titled in words a person uses.
+	const plainCard = buildApprovalCard(request([call('computer_use', { type: 'key', keys: 'A' })]))
+	expect(plainCard.appAccess).toBeUndefined()
+	expect(plainCard.title).toBe('Allow Namzu to use your computer?')
 })
