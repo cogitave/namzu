@@ -39,6 +39,7 @@ import {
 	screensValue,
 	siteRows,
 	sitesValue,
+	toolSpellingProblem,
 } from '../shared/config-settings-values.js'
 import { Switch } from './settings-row.js'
 import { Button } from './ui/button.js'
@@ -1199,6 +1200,10 @@ export function PermissionChecksEditor({
 	const save = (next: typeof rows) =>
 		config.change(descriptor.path, next.length === 0 ? undefined : next)
 	const add = async () => {
+		// The engine would refuse a tool it never matches, but its sentence names the list position
+		// and does not reach the screen as written, so the spelling is said here, in the same words.
+		const spelling = toolSpellingProblem(tool.trim())
+		if (spelling) return setLocal(spelling)
 		const built = checkInputFromText(tool, input, control.commandTools, control.commandField)
 		if ('error' in built) return setLocal(built.error)
 		setLocal('')

@@ -5,6 +5,20 @@ import type { DesktopApi } from '../shared/protocol.js'
 import { cleanErrorMessage, plainErrorText } from './plain-error.js'
 import { desktopSettingsFileError, isSettingsFileError } from './settings-file-error.js'
 
+/**
+ * What a refused save says. The engine words a refusal for the person ("not a site: ... write
+ * scheme://host"), but it need not start with a capital, so the general rule for error text would
+ * hide it behind "Couldn't save the setting". A setting's refusal is shown as written; a failure of
+ * the system (a file that cannot be written, a lost connection) still goes through that rule.
+ */
+export function saveRefusalText(failure: unknown): string {
+	const cleaned = cleanErrorMessage(failure instanceof Error ? failure.message : String(failure))
+	const system =
+		/\b(?:E[A-Z]{3,}|ERR_[A-Z_]+)\b|errno|syscall|\bat [^ ]+:\d+|(?:fetch failed|network|permission denied|no such file)/
+	if (cleaned !== '' && cleaned.length <= 300 && !system.test(cleaned)) return cleaned
+	return plainErrorText(failure, 'save the setting')
+}
+
 export interface ConfigSettingConfirmation {
 	path: string
 	value: unknown
@@ -186,7 +200,7 @@ export function useConfigSettings(
 				if (live.current)
 					setErrors((current) => ({
 						...current,
-						[path]: plainErrorText(failure, 'save the setting'),
+						[path]: saveRefusalText(failure),
 					}))
 				return false
 			}
@@ -214,7 +228,7 @@ export function useConfigSettings(
 			if (live.current)
 				setErrors((current) => ({
 					...current,
-					[path]: plainErrorText(failure, 'save the setting'),
+					[path]: saveRefusalText(failure),
 				}))
 		}
 		if (live.current) setConfirmation(undefined)
