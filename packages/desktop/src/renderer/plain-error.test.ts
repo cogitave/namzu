@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { cleanErrorMessage, ensurePlain, isPlainMessage, plainError } from './plain-error.js'
+import {
+	cleanErrorMessage,
+	ensurePlain,
+	isPlainMessage,
+	plainError,
+	plainErrorText,
+} from './plain-error.js'
 
 const RAW = [
 	"Error invoking remote method 'namzu:renameProject': Error: ENOENT: no such file or directory, open '/x/y'",
@@ -129,5 +135,37 @@ describe('a refusal to close a paused reply', () => {
 	it('the host’s own sentence passes through unchanged', () => {
 		const own = 'Namzu can’t read this conversation right now. Open it again.'
 		expect(plainError(new Error(own), 'continue without this reply')).toEqual({ text: own })
+	})
+})
+
+describe('engine codes', () => {
+	it('words a coded failure by its code, and an older engine by its sentence', async () => {
+		const { engineFailureText, ENGINE_CODE_SENTENCES } = await import('../shared/plain-error.js')
+		const coded = Object.assign(new Error('anything'), { engineCode: 'folder-not-trusted' })
+		expect(engineFailureText(coded)).toBe(ENGINE_CODE_SENTENCES['folder-not-trusted'])
+		expect(engineFailureText(new Error('No LLM provider is available on this machine: x'))).toBe(
+			ENGINE_CODE_SENTENCES['no-provider'],
+		)
+		expect(engineFailureText(new Error('Some provider text'))).toBe('Some provider text')
+		expect(
+			engineFailureText(Object.assign(new Error('x y z'), { engineCode: 'never-heard-of-it' })),
+		).toBe('x y z')
+	})
+	it('never shows the words of an older engine', () => {
+		for (const raw of [
+			'The live input mailbox is full. Your message was not admitted.',
+			'ACP session "s" is already being constructed.',
+			'An explicit permission mode is required to retry this retained turn.',
+		])
+			expect(plainErrorText(new Error(raw))).not.toMatch(
+				/mailbox|admitted|ACP|session|permission mode/,
+			)
+	})
+	it('keeps an unknown sentence with a stop word out of the banner', () => {
+		const text = plainErrorText(
+			new Error('The credential handshake over the protocol failed.'),
+			'send',
+		)
+		expect(text).toBe('Couldn’t send. Try again.')
 	})
 })

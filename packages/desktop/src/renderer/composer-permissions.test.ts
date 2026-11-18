@@ -146,7 +146,7 @@ it('reaches accept-edits whenever the engine supports it', () => {
 it('hides strict unless it is the saved mode, then shows it as preapproved only', () => {
 	expect(permissionRows('namzu', all6, 'prompt').map((row) => row.value)).not.toContain('strict')
 	const saved = permissionRows('namzu', all6, 'strict')
-	expect(saved.at(-1)).toMatchObject({ value: 'strict', label: 'Preapproved only' })
+	expect(saved.at(-1)).toMatchObject({ value: 'strict', label: 'Only actions you already allowed' })
 })
 
 it('titles plan as Read only for Codex and marks only Full access as a warning', () => {

@@ -699,7 +699,7 @@ describe('after the terminal ends', () => {
 		await fake.updates.terminalEnded({ tabId: 'terminal-1', exitCode: 0, tail: '' })
 		expect(item(fake, 'codex-cli')).toMatchObject({ status: 'failed' })
 		expect(item(fake, 'codex-cli').error).toBe(
-			'Updated, but the installed version is still 0.154.0. Another copy may be earlier on PATH (/h/.npm-global/bin/codex).',
+			'Updated, but the old copy still runs first (version 0.154.0). Another copy may be installed elsewhere on this computer.',
 		)
 		expect(fake.changed).toEqual([])
 		expect(fake.notices[0]?.notice).toEqual({

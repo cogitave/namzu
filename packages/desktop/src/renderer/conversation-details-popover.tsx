@@ -189,7 +189,7 @@ export function ConversationDetailsPopover({
 					)}
 					<output className="conversation-details-status" aria-live="polite">
 						{copied === 'done'
-							? 'Path copied.'
+							? 'Folder location copied to clipboard.'
 							: copied === 'failed'
 								? 'Could not copy the path.'
 								: ''}

@@ -240,7 +240,7 @@ export function OutputsPanel({
 					type="text"
 					readOnly
 					spellCheck={false}
-					aria-label="File path"
+					aria-label="Location"
 					value={outputAddress(file.path, workFolder)}
 					title={file.path}
 					onFocus={(event) => event.currentTarget.select()}

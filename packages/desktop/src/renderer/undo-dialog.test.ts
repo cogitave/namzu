@@ -183,8 +183,8 @@ describe('undo plan choices', () => {
 	})
 	it('words the queued-message warning', () => {
 		expect(queuedWarning(0)).toBeUndefined()
-		expect(queuedWarning(1)).toContain('1 queued message was written')
-		expect(queuedWarning(3)).toContain('3 queued messages were written')
+		expect(queuedWarning(1)).toContain('1 waiting message was written')
+		expect(queuedWarning(3)).toContain('3 waiting messages were written')
 	})
 })
 
@@ -217,7 +217,7 @@ describe('undo dialog body', () => {
 			{ alsoLater: true, queued: 2 },
 		)
 		expect(html).toContain('From later replies')
-		expect(html).toContain('2 queued messages were written')
+		expect(html).toContain('2 waiting messages were written')
 		expect(html).toMatch(/type="checkbox"[^>]*checked/)
 	})
 	it('shows a refreshed plan with the reason it was refreshed', () => {

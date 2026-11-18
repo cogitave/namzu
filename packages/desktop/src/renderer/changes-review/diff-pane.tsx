@@ -98,7 +98,7 @@ function DiffHeader({
 						<Menu.Popup className="conversation-actions-popup" aria-label="File actions">
 							<Menu.Item
 								className="conversation-actions-item"
-								onClick={() => actions.onCopy(file.path, 'Path copied.')}
+								onClick={() => actions.onCopy(file.path, 'Folder location copied to clipboard.')}
 							>
 								<CopyIcon aria-hidden="true" />
 								<span className="conversation-actions-label">Copy path</span>

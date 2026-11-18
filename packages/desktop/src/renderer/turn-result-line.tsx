@@ -85,7 +85,7 @@ export function TurnResultLine({
 				<span
 					className="turn-result-check"
 					data-tone={model.check.tone}
-					title={model.check.text}
+					title={model.check.title ?? model.check.text}
 					aria-hidden="true"
 				>
 					{model.check.text}

@@ -1103,7 +1103,7 @@ function ModelBrowser({
 				)}
 			</div>
 			{(errors.length > 0 || notices.length > 0 || sharedNotes.size > 0 || settingsNotice) && (
-				<div className="model-picker-feedback" aria-label="Model catalogue information">
+				<div className="model-picker-feedback" aria-label="About these models">
 					{settingsNotice && <p className="model-picker-settings-notice">{settingsNotice}</p>}
 					{errors.length > 0 && (
 						<div className="model-picker-notice">

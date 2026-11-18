@@ -149,9 +149,9 @@ it('refuses to fork a conversation that was never prompted', async () => {
 it('refuses rename, fork and export for external engines', async () => {
 	const { owner } = await setup()
 	await owner.selectHarness('saved', 'codex-cli')
-	await expect(owner.renameConversation('saved', 'x')).rejects.toThrow('cannot be renamed')
-	await expect(owner.forkConversation('saved')).rejects.toThrow('cannot be forked')
-	await expect(owner.conversationMarkdown('saved')).rejects.toThrow('cannot be exported')
+	await expect(owner.renameConversation('saved', 'x')).rejects.toThrow('can’t be renamed')
+	await expect(owner.forkConversation('saved')).rejects.toThrow('can’t be forked')
+	await expect(owner.conversationMarkdown('saved')).rejects.toThrow('can’t be exported')
 	// Pinning is desktop-local, so every ordinary engine can do it.
 	await expect(owner.setConversationPinned('saved', true)).resolves.toMatchObject({ pinned: true })
 })

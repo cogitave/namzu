@@ -535,7 +535,11 @@ export function ComposerApproval({
 		<section
 			className="approval-surface"
 			aria-label={
-				appAccess ? 'Application access' : screenMoment ? 'Screen question' : 'Tool approval'
+				appAccess
+					? 'Use of an app'
+					: screenMoment
+						? 'A question about the screen'
+						: 'Permission to act'
 			}
 			onKeyDown={onKeyDown}
 		>

@@ -186,6 +186,8 @@ lines.on('line', (line) => {
 		if (!previous) scope.inputs.set(params.inputId, { id: params.inputId, prompt: params.prompt, status: 'pending' })
 		if (process.env.FIXTURE_LIVE_INPUT_MODE_FILE && existsSync(process.env.FIXTURE_LIVE_INPUT_MODE_FILE) && readFileSync(process.env.FIXTURE_LIVE_INPUT_MODE_FILE, 'utf8') === 'lost-ack-and-status') { send({ id, error: { code: -32603, message: 'ACK lost in isolated fixture.' } }); return }
 		reply(id, { accepted: true, scopeId: scope.scopeId, inputId: params.inputId })
+	} else if (method === 'test/coded') {
+		send({ id, error: { code: -32603, message: 'No LLM provider is available on this machine.', data: { code: 'no-provider' } } })
 	} else if (method === 'test/echo') {
 		const bytes = Buffer.from(`${JSON.stringify({ jsonrpc: '2.0', id, result: 'Türkçe 🧪' })}\n`)
 		const split = bytes.indexOf(Buffer.from('ü')) + 1

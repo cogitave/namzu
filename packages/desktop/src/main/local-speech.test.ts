@@ -405,7 +405,7 @@ it('removes the downloaded engine, keeps the saved preferences and refuses while
 	expect((await readdir(fixture.directory)).sort()).toEqual(['settings.json'])
 	await expect(
 		fixture.service.speak({ requestId: 'after-removal', text: 'Merhaba.' }),
-	).rejects.toThrow('Install the local speech engine')
+	).rejects.toThrow('Download the voice first')
 	const gate = deferred<LocalSpeechInstallation>()
 	fixture.install.mockReturnValueOnce(gate.promise)
 	const installing = fixture.service.install()

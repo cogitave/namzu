@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { ACTIVITY_LABELS, type TerminalTabView } from '../shared/terminal-tabs.js'
 import { HarnessMark } from './harness-picker.js'
 import { TerminalIcon } from './icons.js'
+import { plainErrorText } from './plain-error.js'
 import { isTerminalAppChord } from './terminal-keys.js'
 import { pressReturnsKeyboard } from './terminal-pane-focus.js'
 import { onTerminalFind } from './terminal-registry.js'
@@ -31,7 +32,7 @@ export function terminalBadgeLabel(tab: TerminalTabView): string | undefined {
 	if (tab.kind !== 'engine' || !tab.activity) return undefined
 	if (tab.activity === 'exited')
 		return tab.exitCode !== undefined && tab.exitCode !== 0
-			? `Exited with code ${tab.exitCode}`
+			? 'Closed with an error'
 			: ACTIVITY_LABELS.exited
 	return ACTIVITY_LABELS[tab.activity]
 }
@@ -73,7 +74,7 @@ export function endedNotice(
 	if (signal !== undefined && signal > 0) return 'The terminal was stopped.'
 	return exitCode === undefined || exitCode === 0
 		? 'This terminal has ended.'
-		: `This terminal has ended with code ${exitCode}.`
+		: 'This terminal closed with an error.'
 }
 
 /** Matches in a stronger colour than the selection, the current one stronger still. */
@@ -262,7 +263,9 @@ export function TerminalPane({
 			)}
 			{state.phase === 'failed' && (
 				<p className="terminal-pane-note" role="alert" data-tone="error">
-					{state.error ?? 'This terminal could not be opened.'}
+					{state.error
+						? plainErrorText(state.error, 'open this terminal')
+						: 'This terminal couldn’t open. Try again.'}
 				</p>
 			)}
 			{ended && (

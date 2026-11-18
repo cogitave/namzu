@@ -431,6 +431,9 @@ export class RuntimeClient extends EventEmitter {
 								const error = new Error(
 									String((frame.error as { message?: unknown }).message ?? 'Namzu request failed.'),
 								)
+								// A stable code the engine attached; Desktop words the failure by it.
+								const engineCode = (frame.error as { data?: { code?: unknown } }).data?.code
+								if (typeof engineCode === 'string') Object.assign(error, { engineCode })
 								this.report('cli_request_failed', {
 									operation: entry.method,
 									request: frame.id,

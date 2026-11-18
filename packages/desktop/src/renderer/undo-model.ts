@@ -38,13 +38,13 @@ export const conflictText: Record<DesktopUndoConflictReason, string> = {
 	drifted: 'Changed since this reply',
 	'later-reply': 'A later reply changed it too',
 	unavailable: 'The saved copy is gone',
-	symlink: 'Now a link, left alone',
+	symlink: 'Now a shortcut to another file, left alone',
 	'outside-cwd': 'Now outside this project',
 }
 export const skipText: Record<DesktopUndoSkipReason, string> = {
 	'too-large': 'Larger than 8 MB',
 	'outside-cwd': 'Outside the project folder',
-	sandbox: 'Edited inside a sandbox',
+	sandbox: 'Changed by a command in a protected area',
 	'snapshot-failed': 'Could not be saved',
 }
 
@@ -124,8 +124,7 @@ export function resolutionsFor(
 
 export function queuedWarning(queued: number): string | undefined {
 	if (queued <= 0) return undefined
-	return `${queued} queued ${queued === 1 ? 'message was' : 'messages were'} written against the files as they are now and will run after the undo.`
+	return `${queued} waiting ${queued === 1 ? 'message was' : 'messages were'} written for the files as they are now. ${queued === 1 ? 'It runs' : 'They run'} after the undo.`
 }
 
-export const SHELL_WARNING =
-	'This reply also ran shell commands. Undo cannot reverse what they changed.'
+export const SHELL_WARNING = 'This reply also ran commands. Undo can’t reverse what they changed.'

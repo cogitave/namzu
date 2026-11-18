@@ -29,9 +29,9 @@ describe('the engine row words', () => {
 		)
 		expect(
 			text({ kind: 'went-back', version: '52.0.0', problem: 'did-not-start', to: '51.1.0' }),
-		).toBe('Could not use engine 52.0.0 (it did not start) and went back to 51.1.0.')
+		).toBe('Couldn’t use the newer version 52.0.0 (it did not start). Namzu went back to 51.1.0.')
 		expect(text({ kind: 'went-back', version: '52.0.0', problem: 'ended-early' })).toBe(
-			'Could not use engine 52.0.0 (it kept stopping).',
+			'Couldn’t use the newer version 52.0.0 (it kept stopping).',
 		)
 		expect(
 			text({ kind: 'went-back', version: '52.0.0', problem: 'failed-checks', to: '51.1.0' }),

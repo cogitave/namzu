@@ -94,6 +94,7 @@ import {
 import { LocalSpeechRouting } from './local-speech-routing.js'
 import { LocalSpeechService } from './local-speech.js'
 import { installMediaPermissions } from './media-permissions.js'
+import { nativeFailureBody } from './native-failure.js'
 import { createNewProject } from './new-project.js'
 import { OpenIn, systemOpenInHost } from './open-in.js'
 import { Operator } from './operator.js'
@@ -892,10 +893,10 @@ const dataFolders = (): Record<DataFolderKind, string> => ({
 	speech: join(app.getPath('userData'), 'local-speech'),
 })
 const FOLDER_LABELS: Record<DataFolderKind, string> = {
-	app: 'Desktop app data',
-	namzu: 'Namzu home (conversations and trust list)',
-	diagnostics: 'Diagnostic logs',
-	speech: 'Downloaded voice',
+	app: 'Namzu app files',
+	namzu: 'Your conversations and projects',
+	diagnostics: 'Support logs',
+	speech: 'Voice files',
 }
 function desktopInfo(): DesktopInfo {
 	const folders = dataFolders()
@@ -2227,10 +2228,7 @@ app.on('before-quit', (event) => {
 		.then(() => app.quit())
 		.catch((error: unknown) => {
 			diagnostics.record('shutdown_failed', { error })
-			dialog.showErrorBox(
-				'Namzu could not stop',
-				error instanceof Error ? error.message : String(error),
-			)
+			dialog.showErrorBox('Namzu couldn’t close cleanly', nativeFailureBody(error, 'stop'))
 		})
 })
 // Keep module loading independent of Electron's ready event.
@@ -2346,7 +2344,7 @@ void app
 					label: 'Help',
 					submenu: [
 						{
-							label: 'Open diagnostic logs',
+							label: 'Open support logs',
 							accelerator: 'CmdOrCtrl+Shift+L',
 							click: () => {
 								void observeDesktopIpc(
@@ -2359,8 +2357,8 @@ void app
 									0,
 								).catch(() =>
 									dialog.showErrorBox(
-										'Diagnostic logs unavailable',
-										diagnostics.view().notice ?? 'Could not open the diagnostic folder.',
+										'Couldn’t open the support folder',
+										'Try again. If it keeps failing, restart Namzu.',
 									),
 								)
 							},
@@ -2436,9 +2434,6 @@ void app
 	})
 	.catch((error: unknown) => {
 		diagnostics.record('startup_failed', { error })
-		dialog.showErrorBox(
-			'Namzu could not start',
-			error instanceof Error ? error.message : String(error),
-		)
+		dialog.showErrorBox('Namzu couldn’t start', nativeFailureBody(error, 'start'))
 		app.quit()
 	})

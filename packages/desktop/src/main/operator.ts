@@ -25,6 +25,7 @@ import type {
 } from '../shared/pal-communication-protocol.js'
 import { duplicatePalNameMessage, isDuplicatePalName } from '../shared/pal-name.js'
 import { readPermissionCalls, readPermissionResponse } from '../shared/permission-protocol.js'
+import { engineFailureText } from '../shared/plain-error.js'
 import { type ThreadState, applyEvent, emptyThread, threadPhase } from '../shared/projection.js'
 import type {
 	AttachmentInput,
@@ -1060,7 +1061,7 @@ export class Operator {
 	}
 	async palModels(provider: string): Promise<ModelCatalogueView> {
 		if (typeof provider !== 'string' || !provider.trim() || provider.length > 400)
-			throw new Error('Invalid provider.')
+			throw new Error('That AI service isn’t available.')
 		return (await (
 			await this.registry()
 		).request('namzu/providers/models', {
@@ -1441,7 +1442,7 @@ export class Operator {
 			throw new Error('Invalid Pal computer generation.')
 		const client = await this.controlClient(id, reuseReady)
 		if (!client.supportsPalComputerControl())
-			throw new Error('This computer provider does not support operator control.')
+			throw new Error('This computer can’t be controlled from Namzu.')
 		const current = await this.computerStatus(client, id)
 		if (
 			current.status !== 'ready' ||
@@ -1464,7 +1465,7 @@ export class Operator {
 			for (const item of owned) {
 				if (item.running) {
 					const settled = item.runSettled
-					if (!settled) throw new Error('This Pal turn has no confirmed completion boundary.')
+					if (!settled) throw new Error('Namzu couldn’t confirm that this Pal finished its reply.')
 					await this.cancel(item.view.id)
 					await settled
 				}
@@ -2229,7 +2230,7 @@ export class Operator {
 			// A connection that was working and dropped is not an unopenable folder: the
 			// conversation stays on screen and Namzu reconnects by itself.
 			const lost = view.status === 'ready' && !view.missing
-			const failure = view.status === 'error' && view.error ? view.error : error.message
+			const failure = view.status === 'error' && view.error ? view.error : engineFailureText(error)
 			view.status = 'error'
 			view.error = failure
 			if (lost) view.lost = true
@@ -2271,7 +2272,7 @@ export class Operator {
 			view.status = 'ready'
 		} catch (error) {
 			view.status = 'error'
-			view.error = error instanceof Error ? error.message : String(error)
+			view.error = engineFailureText(error)
 			await this.closeClient(client)
 			if (this.closing) throw error
 		}
@@ -2858,7 +2859,7 @@ export class Operator {
 		const session = this.session(sessionId)
 		if (session.view.palId) throw new Error(`A Pal conversation cannot ${action}.`)
 		if (session.view.harness && session.view.harness !== 'namzu')
-			throw new Error(`This engine’s conversation cannot ${action} from Namzu.`)
+			throw new Error(`This conversation can’t ${action} from Namzu.`)
 		return session
 	}
 	private archivedClient(project: Project): RuntimeClient {
@@ -3452,14 +3453,14 @@ export class Operator {
 		if (session.view.palId)
 			throw new Error('External engines are available in normal conversations only.')
 		if (!['namzu', 'codex-cli', 'claude-code'].includes(engine))
-			throw new Error('Unknown execution engine.')
+			throw new Error('Namzu doesn’t know that assistant. Choose another one.')
 		if (
 			session.running ||
 			session.admitting ||
 			session.queue.length ||
 			this.changingPlugins.has(sessionId)
 		)
-			throw new Error('Stop this conversation before changing its engine.')
+			throw new Error('Stop this reply before switching the assistant.')
 		this.changingPlugins.add(sessionId)
 		session.selectionRevision = (session.selectionRevision ?? 0) + 1
 		session.selectionPending = true
@@ -3499,7 +3500,7 @@ export class Operator {
 					assertCurrent()
 					// The engine ACK remains authoritative when follow-up metadata is unavailable.
 					session.providerSetupFailure =
-						'The selected engine’s model settings could not be read. Retry model discovery or choose a model. Your draft is retained.'
+						'Namzu couldn’t load the models for this assistant. Try again, or choose a model. Your draft is kept.'
 				}
 			}
 			this.persistDesktop()
@@ -3562,7 +3563,7 @@ export class Operator {
 			engine !== 'namzu' &&
 			(providers.selected?.id !== engine || !providers.selected.model)
 		)
-			throw new Error('This engine did not report its selected model. Choose a model again.')
+			throw new Error('This assistant didn’t report which model it uses. Choose a model again.')
 		if (providers.selected)
 			session.providerSelection = {
 				provider: providers.selected.id,
@@ -3735,7 +3736,7 @@ export class Operator {
 			() => {
 				assertCurrent()
 				if ((session.executionRevision ?? 0) !== executionRevision || session.running)
-					throw new Error('This turn changed while loading. Open it again.')
+					throw new Error('This reply changed while it was loading. Open the conversation again.')
 			},
 		)
 		const reading = {
@@ -3834,7 +3835,7 @@ export class Operator {
 					})) as HarnessView
 					stillOwned()
 					if (restored.selected !== engine)
-						throw new Error('The selected engine could not be restored. Your draft is retained.')
+						throw new Error('Namzu couldn’t reopen this assistant. Your draft is kept.')
 					if (choice?.provider === engine && choice.model) {
 						await client.request('namzu/providers/select', {
 							sessionId: session.runtimeSessionId,
@@ -3865,7 +3866,7 @@ export class Operator {
 					})) as HarnessView
 					stillOwned()
 					if (restored.selected !== requested.engine)
-						throw new Error('The selected engine could not be restored. Your draft is retained.')
+						throw new Error('Namzu couldn’t reopen this assistant. Your draft is kept.')
 					session.view.harness = requested.engine
 					this.backgroundWork.invalidate(session.view.id)
 				}
@@ -4020,7 +4021,7 @@ export class Operator {
 	async models(id: string, provider: string, sessionId?: string): Promise<ModelCatalogueView> {
 		const project = this.project(id)
 		if (typeof provider !== 'string' || !provider.trim() || provider.length > 400)
-			throw new Error('Invalid provider.')
+			throw new Error('That AI service isn’t available.')
 		const session = sessionId === undefined ? undefined : this.session(sessionId)
 		if (session && session.view.projectId !== id)
 			throw new Error('This conversation belongs to another project.')
@@ -4344,7 +4345,7 @@ export class Operator {
 		if (session.view.palId)
 			throw new Error('Auto is not available in a Pal conversation. A Pal keeps its own model.')
 		if (session.view.harness !== undefined && session.view.harness !== 'namzu')
-			throw new Error('Auto is only available with the Namzu engine.')
+			throw new Error('Auto works only with Namzu’s own assistant.')
 		this.changingPlugins.add(sessionId)
 		session.selectionRevision = (session.selectionRevision ?? 0) + 1
 		session.selectionPending = true
@@ -4736,9 +4737,7 @@ export class Operator {
 		const ids = options?.attachmentIds ?? []
 		if (session.view.harness && session.view.harness !== 'namzu') {
 			if (ids.length)
-				throw new Error(
-					'This engine connection does not support attachments yet. Your draft is retained.',
-				)
+				throw new Error('This assistant can’t take attachments yet. Your draft is kept.')
 			const supportedReviewModes =
 				session.view.harness === 'codex-cli'
 					? ['prompt', 'plan', 'accept-edits', 'auto', 'bypass', 'strict']
@@ -4746,8 +4745,8 @@ export class Operator {
 			if (options?.permissionMode && !supportedReviewModes.includes(options.permissionMode))
 				throw new Error(
 					session.view.harness === 'claude-code'
-						? 'This engine supports Ask first and Plan only.'
-						: 'This engine does not support the selected permission mode.',
+						? 'This assistant only supports Ask first and Plan only. Pick one of those.'
+						: 'This assistant doesn’t support that approval choice. Pick another one.',
 				)
 		}
 		if (
@@ -4855,7 +4854,7 @@ export class Operator {
 				} else if (status.retry || status.notice || session.projection.reason === 'paused')
 					throw new Error(
 						status.notice ??
-							'This conversation has a paused turn. Retry it before sending a new message. Your draft is retained.',
+							'This conversation has a paused reply. Try it again before you send a new message. Your draft is kept.',
 					)
 				this.assertPalAdmission(session.view.palId)
 				this.admitMessage(session, captured)
@@ -4864,9 +4863,7 @@ export class Operator {
 			})
 		}
 		if (session.projection.reason === 'paused')
-			throw new Error(
-				'This conversation has a paused turn. Your draft is retained; update Namzu to retry it.',
-			)
+			throw new Error('This reply is paused. Your draft is kept. Update Namzu to try it again.')
 		this.admitMessage(session, captured)
 	}
 	private admitMessage(session: Conversation, captured: PendingMessage): void {
@@ -4896,9 +4893,13 @@ export class Operator {
 			session.client !== client ||
 			session.runtimeSessionId !== runtimeId
 		)
-			throw new Error('The connection changed while reading this turn’s retry status.')
+			throw new Error(
+				'Namzu couldn’t check whether this reply can be tried again. Try again in a moment.',
+			)
 		if (!result || typeof result !== 'object' || Array.isArray(result))
-			throw new Error('Namzu returned an invalid turn retry status.')
+			throw new Error(
+				'Namzu couldn’t check whether this reply can be tried again. Try again in a moment.',
+			)
 		const { retry, notice, unknownUsage, closable } = result as DesktopRetryStatus
 		if (
 			(retry !== undefined &&
@@ -4922,16 +4923,18 @@ export class Operator {
 			(unknownUsage !== undefined &&
 				(!Number.isSafeInteger(unknownUsage) || unknownUsage < 1 || unknownUsage > 100_000))
 		)
-			throw new Error('Namzu returned an invalid turn retry status.')
+			throw new Error(
+				'Namzu couldn’t check whether this reply can be tried again. Try again in a moment.',
+			)
 		if ((session.executionRevision ?? 0) !== executionRevision || session.running)
-			throw new Error('This turn changed while reading its retry status. Open it again.')
+			throw new Error('This reply changed while Namzu checked it. Open the conversation again.')
 		if (
 			(session.selectionRevision ?? 0) !== selectionRevision ||
 			session.selectionPending ||
 			this.changingPlugins.has(session.view.id)
 		)
 			throw new Error(
-				'This conversation’s settings changed while reading retry status. Open it again.',
+				'This conversation’s settings changed while Namzu checked it. Open the conversation again.',
 			)
 		if (
 			JSON.stringify(session.projection.retry) !== JSON.stringify(retry) ||
@@ -5320,7 +5323,7 @@ export class Operator {
 			if (result.stopReason === 'error' && !session.projection.error)
 				this.state(
 					session,
-					'Namzu could not retry this turn. Your conversation and draft are retained.',
+					'Namzu couldn’t try this reply again. Your conversation and draft are kept.',
 				)
 		} catch (error) {
 			if (!session.projection.stopReason)
@@ -5335,7 +5338,7 @@ export class Operator {
 						reason: 'paused',
 					},
 				})
-			this.state(session, error instanceof Error ? error.message : String(error))
+			this.state(session, engineFailureText(error))
 		} finally {
 			const settlement = Symbol('retry settlement')
 			session.admitting = settlement
@@ -5637,7 +5640,7 @@ export class Operator {
 			if (result.stopReason === 'error' && !session.projection.error)
 				this.state(
 					session,
-					'Namzu could not finish this turn. Your conversation is retained; check the provider or tool error before retrying.',
+					'Namzu couldn’t finish this reply. Your conversation is saved. Try again.',
 				)
 		} catch (error) {
 			failed = true
@@ -5648,7 +5651,7 @@ export class Operator {
 					sessionId: session.view.id,
 					update: { kind: 'turn_ended', stopReason: 'error' },
 				})
-			this.state(session, error instanceof Error ? error.message : String(error))
+			this.state(session, engineFailureText(error))
 		} finally {
 			if (
 				!hadPrompted &&
@@ -6279,7 +6282,7 @@ export class Operator {
 				[...closing, ...starting]
 					.filter((result) => result.status === 'rejected')
 					.map((result) => result.reason),
-				'Namzu could not confirm that all runtime processes stopped. Retry closing Namzu.',
+				'Namzu couldn’t confirm that everything stopped. Try closing Namzu again.',
 			)
 		}
 		this.registryClient = undefined

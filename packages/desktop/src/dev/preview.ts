@@ -884,14 +884,14 @@ const api: DesktopApi = {
 		sdkVersion: '25.2.1',
 		platform: 'preview (browser)',
 		folders: [
-			{ kind: 'app', label: 'Desktop app data', path: '/sample/appdata/Namzu' },
+			{ kind: 'app', label: 'Namzu app files', path: '/sample/appdata/Namzu' },
 			{
 				kind: 'namzu',
 				label: 'Namzu home (conversations and trust list)',
 				path: '/sample/home/.namzu',
 			},
 			{ kind: 'diagnostics', label: 'Diagnostic logs', path: '/sample/appdata/Namzu/logs' },
-			{ kind: 'speech', label: 'Downloaded voice', path: '/sample/appdata/Namzu/local-speech' },
+			{ kind: 'speech', label: 'Voice files', path: '/sample/appdata/Namzu/local-speech' },
 		],
 	}),
 	openDataFolder: async () => nativeOnly('Opening a folder'),

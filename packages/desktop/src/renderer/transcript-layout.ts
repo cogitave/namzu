@@ -364,9 +364,9 @@ export function terminalNotice(reason?: string, explained = false): string | und
 	if (outcome === 'paused') return 'Paused.'
 	if (outcome === 'stopped') return 'Stopped.'
 	if (reason === 'max_turns' || reason === 'max_iterations')
-		return 'Stopped at the step limit set for one reply.'
+		return 'Stopped after the most steps allowed for one reply.'
 	if (reason === 'token_budget' || reason === 'max_tokens')
-		return 'Stopped at the size limit set for one reply.'
+		return 'Stopped because this reply reached its size limit.'
 	if (reason === 'cost_limit') return 'Stopped at the cost limit that was set.'
 	if (reason === 'cost_unmeasurable') return 'Stopped because the cost limit could not be checked.'
 	if (reason === 'timeout') return 'This reply timed out.'

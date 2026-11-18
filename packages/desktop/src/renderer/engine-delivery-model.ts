@@ -71,7 +71,7 @@ export function engineStatusText(
 			return `A newer engine (${plainVersion(status.version)}) is ready. It takes effect the next time a project opens.`
 		case 'went-back': {
 			const to = plainVersion(status.to)
-			return `Could not use engine ${plainVersion(status.version)} (${PROBLEMS[status.problem]})${to ? ` and went back to ${to}` : ''}.`
+			return `Couldn’t use the newer version ${plainVersion(status.version)} (${PROBLEMS[status.problem]})${to ? `. Namzu went back to ${to}` : ''}.`
 		}
 		case 'needs-newer-app':
 			return 'A newer engine is out, but it needs a newer version of this app.'

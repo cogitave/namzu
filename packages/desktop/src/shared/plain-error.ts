@@ -6,13 +6,23 @@
  * failed, and the original (cleaned) text stays behind Details. The mapping reads only text.
  */
 
-import { NAMED_FAILURE_SENTENCES, namedFailureSentence } from '../shared/named-failures.js'
+import { NAMED_FAILURE_SENTENCES, namedFailureSentence } from './named-failures.js'
 
 export interface PlainError {
 	/** One sentence a person can act on. */
 	text: string
 	/** The cleaned original, when it says something the sentence does not. */
 	details?: string
+}
+
+/**
+ * What a failed engine request carries to the screen: the sentence for its stable code (or the
+ * one an older engine's text stands for), otherwise the message as it came. Provider failures keep
+ * their own shape here because the renderer reads them for the provider, status and next step.
+ */
+export function engineFailureText(error: unknown): string {
+	const raw = error instanceof Error ? error.message : String(error)
+	return engineCodeSentence(engineErrorCode(error) ?? engineCodeFromText(raw)) ?? raw
 }
 
 const REMOTE_PREFIX = /^\s*Error invoking remote method '[^']*':\s*/i
@@ -31,6 +41,58 @@ export function cleanErrorMessage(raw: string): string {
 }
 
 const NEXT_STEP = 'Try again.'
+
+/**
+ * What a person reads for each stable code the engine attaches to a failure (the JSON-RPC error's
+ * `data.code`). The engine words the same sentences itself for other front ends; Desktop prefers
+ * the code so a reworded engine sentence never changes what is shown here.
+ */
+export const ENGINE_CODE_SENTENCES: Readonly<Record<string, string>> = {
+	'no-provider':
+		'Namzu has no AI service set up on this computer yet. Add a key or sign in to one in Settings, then send again.',
+	'connection-closed':
+		'Namzu lost its connection to this conversation. Try again, or restart Namzu if it keeps happening.',
+	'folder-not-trusted': 'Trust this folder first, then send again.',
+	'conversation-in-other-folder':
+		'This conversation is already open in another folder. Open it again from the sidebar.',
+	'conversation-opening': 'This conversation is still opening. Wait a moment, then try again.',
+	'message-not-sent': 'Your message wasn’t sent. Send it again.',
+	'too-many-messages': 'Namzu is busy with too many messages. Wait a moment, then send again.',
+	'permission-mode-needed':
+		'Namzu can’t restore the approval settings for this reply. Choose how much Namzu may do, then try again.',
+}
+
+/** The code an engine attached to a failure, when the error carries one. */
+export function engineErrorCode(error: unknown): string | undefined {
+	if (!error || typeof error !== 'object') return undefined
+	const code = (error as { engineCode?: unknown }).engineCode
+	return typeof code === 'string' ? code : undefined
+}
+
+/** The sentence for an engine code; undefined for a code this Desktop does not know. */
+export function engineCodeSentence(code: string | undefined): string | undefined {
+	return code ? ENGINE_CODE_SENTENCES[code] : undefined
+}
+
+/**
+ * Engines older than the codes word these in their own technical text. Each is matched here and
+ * given the same sentence a code would, so an older engine reads the same as a current one.
+ */
+const OLD_ENGINE_TEXT: { match: RegExp; code: string }[] = [
+	{ match: /no LLM provider is available/i, code: 'no-provider' },
+	{ match: /ACP connection (?:has )?closed/i, code: 'connection-closed' },
+	{ match: /^folder not trusted$/i, code: 'folder-not-trusted' },
+	{ match: /ACP session ".*" already owns/i, code: 'conversation-in-other-folder' },
+	{ match: /ACP session ".*" is already being constructed/i, code: 'conversation-opening' },
+	{ match: /live prompt is no longer available.*not admitted/i, code: 'message-not-sent' },
+	{ match: /live input mailbox is full/i, code: 'too-many-messages' },
+	{ match: /explicit permission mode is required/i, code: 'permission-mode-needed' },
+]
+
+/** The code an older engine's sentence stands for. */
+export function engineCodeFromText(message: string): string | undefined {
+	return OLD_ENGINE_TEXT.find((entry) => entry.match.test(message))?.code
+}
 
 const KNOWN: { match: RegExp; text: string }[] = [
 	{ match: /invalid undo status/i, text: NAMED_FAILURE_SENTENCES['undo-status-invalid'] },
@@ -77,7 +139,7 @@ const KNOWN: { match: RegExp; text: string }[] = [
 
 /** Words and shapes that mark a message as written for developers, not for a person. */
 const DEVELOPER_WORDS =
-	/\b(?:undefined|null|NaN|json|stack|errno|syscall|protocol|frame|pipe|descendants?|ownership|handshake|socket|spawn|exit code|namzu\/[a-z]|harness|ledger|ingress|dispatch|checkpoint)\b|\[object|[a-z]+_[a-z_]+|\bat [^ ]+:\d+|0x[0-9a-f]{4,}|\b[0-9a-f]{8}-[0-9a-f]{4}-/i
+	/\b(?:undefined|null|NaN|json|stack|errno|syscall|protocol|frame|pipe|descendants?|ownership|handshake|socket|spawn|exit code|namzu\/[a-z]|harness|ledger|ingress|dispatch|checkpoint|LLM|credentials?|mcp|mailbox|admitted|session ids?|ACP|stderr|stdout)\b|\[object|[a-z]+_[a-z_]+|\bat [^ ]+:\d+|0x[0-9a-f]{4,}|\b[0-9a-f]{8}-[0-9a-f]{4}-/i
 /** Operating-system and library codes are upper case; matching them case-sensitively spares "Every". */
 /** A path, URL or status-code phrase is a developer's detail; it belongs behind Details. */
 const TECHNICAL = /[A-Za-z]:[\\/]|\\\\|(?:^|\s)\/[\w.-]+\/|https?:\/\/|status code|\bwin32\b/i
@@ -106,6 +168,8 @@ function fallback(context: string | undefined): string {
 export function plainError(error: unknown, context?: string, operation?: string): PlainError {
 	const raw = error instanceof Error ? error.message : typeof error === 'string' ? error : ''
 	const cleaned = cleanErrorMessage(raw)
+	const coded = engineCodeSentence(engineErrorCode(error) ?? engineCodeFromText(cleaned))
+	if (coded) return { text: coded, ...(cleaned && cleaned !== coded ? { details: cleaned } : {}) }
 	const known = KNOWN.find((item) => item.match.test(cleaned))
 	if (known) return { text: known.text, ...(cleaned ? { details: cleaned } : {}) }
 	if (isPlainMessage(cleaned)) return { text: cleaned }
@@ -118,13 +182,20 @@ export function plainError(error: unknown, context?: string, operation?: string)
 const RAW_MARKERS =
 	/Error invoking remote method|^\s*(?:[A-Za-z]+Error|Error|Exception):|\n\s+at\s|\[object|\bundefined\b|\bnull\b|\bNaN\b/
 
+/** Words a person never reads in a sentence: the sentence is rebuilt, the original kept in Details. */
+const STOP_WORDS =
+	/\b(?:LLM|credentials?|mailbox|admitted|exit code|protocol|handshake|session ids?)\b/i
+
 /**
  * A last defence for a sentence that arrives already built (project.error, a stored failure): it
  * stays as it is unless it carries a raw marker, then it goes through `plainError`.
  */
 export function ensurePlain(text: string, context?: string): PlainError {
-	const known = KNOWN.some((item) => item.match.test(text))
-	return RAW_MARKERS.test(text) || CODES.test(text) || known ? plainError(text, context) : { text }
+	const known =
+		KNOWN.some((item) => item.match.test(text)) || engineCodeFromText(text) !== undefined
+	return RAW_MARKERS.test(text) || CODES.test(text) || STOP_WORDS.test(text) || known
+		? plainError(text, context)
+		: { text }
 }
 
 /** `plainError(...).text`, for the places that carry only a sentence. */

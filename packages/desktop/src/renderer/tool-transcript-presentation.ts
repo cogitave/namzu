@@ -279,9 +279,9 @@ function observedActionLabel(
 				completed: 'Checked earlier messages',
 				failed: 'Could not check earlier messages',
 				cancelled: 'Stopped checking earlier messages',
-				interrupted: 'Earlier message lookup interrupted',
-				skipped: 'Skipped earlier message lookup',
-				declined: 'Declined earlier message lookup',
+				interrupted: 'Stopped checking earlier messages',
+				skipped: 'Skipped checking earlier messages',
+				declined: 'Declined checking earlier messages',
 			}
 		: search
 			? {
@@ -356,7 +356,7 @@ function commandBody(
 	if (facts.binary)
 		return {
 			kind: 'notice',
-			text: `Binary output, ${humanBytes(facts.binary.bytes)}`,
+			text: `Not text, ${humanBytes(facts.binary.bytes)}. Not shown.`,
 		}
 	const stdout = facts.stdout && facts.stdout.totalLines > 0 ? streamText(facts.stdout) : undefined
 	const stderr = facts.stderr && facts.stderr.totalLines > 0 ? streamText(facts.stderr) : undefined
@@ -376,7 +376,8 @@ function commandStatus(facts: CommandFacts): string | undefined {
 	if (facts.background) return undefined
 	if (facts.timedOut) return 'Timed out'
 	if (facts.signal) return 'Stopped before it finished'
-	if (facts.exitCode !== undefined && facts.exitCode !== 0) return `Exit code ${facts.exitCode}`
+	if (facts.exitCode !== undefined && facts.exitCode !== 0)
+		return `Didn’t finish (code ${facts.exitCode})`
 	return undefined
 }
 
@@ -390,7 +391,7 @@ function commandShell(facts: CommandFacts): ShellCellData {
 		...(stderr ? { stderr } : {}),
 		...(status ? { status } : {}),
 		...(facts.background ? { background: true as const } : {}),
-		...(facts.binary ? { notice: `Binary output, ${humanBytes(facts.binary.bytes)}` } : {}),
+		...(facts.binary ? { notice: `Not text, ${humanBytes(facts.binary.bytes)}. Not shown.` } : {}),
 	}
 }
 
@@ -401,14 +402,14 @@ const FAILURE_TEXT: Record<ToolFailureReason, string> = {
 	already_exists: 'it already exists',
 	blocked: 'not allowed',
 	needs_administrator: 'needs administrator rights',
-	unknown_tool: 'unknown tool',
+	unknown_tool: 'Namzu couldn’t use that tool',
 	timed_out: 'timed out',
-	invalid_input: 'invalid request',
-	not_read: 'not read yet',
-	changed_on_disk: 'changed since it was read',
+	invalid_input: 'Namzu sent the tool a request it couldn’t read',
+	not_read: 'needs to read the file first',
+	changed_on_disk: 'changed since Namzu read it',
 	text_not_found: 'text not found',
 	not_unique: 'text appears more than once',
-	invalid_arguments: 'invalid parameters',
+	invalid_arguments: 'Namzu sent the tool a request it couldn’t read',
 }
 
 function failureLead(kind: ActionKind): string {
@@ -531,7 +532,7 @@ function failureRow(
 	const name = tool.title.toLowerCase()
 	const command = COMMAND_TOOLS.has(name) || call?.kind === 'command'
 	if (facts.reason === 'unknown_tool') {
-		const main = `Namzu tried a tool it doesn’t have${facts.subject ? ` (${facts.subject})` : ''}`
+		const main = `Namzu couldn’t use that tool${facts.subject ? ` (${facts.subject})` : ''}`
 		return { label: main, main, kind: 'other' }
 	}
 	if (facts.reason === 'blocked' || facts.reason === 'needs_administrator') {

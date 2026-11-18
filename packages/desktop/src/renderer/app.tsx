@@ -1645,7 +1645,7 @@ export function App({
 	})
 	const surfaceEngine = permissionEngine ?? harnessView?.selected ?? 'namzu'
 	const surfaceReason = !terminalReady
-		? 'Open a trusted project to use the engine’s command line.'
+		? 'Open a trusted project to run this in a terminal.'
 		: thread.messages.length > 0 || thread.running
 			? 'Start a new conversation to open this engine’s command line.'
 			: undefined
@@ -1757,7 +1757,7 @@ export function App({
 				tab.exitCode !== 0 &&
 				terminalGroup?.order.includes(tab.id)
 			)
-				notify(`${tab.title} exited with code ${tab.exitCode}.`, { tone: 'warning' })
+				notify(`${tab.title} closed with an error.`, { tone: 'warning' })
 		}
 	}, [terminalGroup?.tabs, terminalGroup?.order])
 	const pluginOwner = useRef({ key: pluginsKey, generation: 0 })
@@ -3229,9 +3229,7 @@ export function App({
 								modelSettings: new Map(),
 							})
 						)
-							throw new Error(
-								'This conversation’s connection or pane changed while opening. Try again.',
-							)
+							throw new Error('This conversation changed while it was opening. Try again.')
 					}
 					if (!status) return
 					hydratedSession.current = view.id
@@ -3916,15 +3914,16 @@ export function App({
 						throw new Error(
 							'This conversation is too large to copy. The limit is 4 MB, so nothing was copied.',
 						)
-					await copyToClipboard(result.markdown, 'Conversation copied as Markdown.')
+					await copyToClipboard(result.markdown, 'Conversation copied as text.')
 				})
 				return
 			case 'copy-id':
-				void act(() => copyToClipboard(view.id, 'Conversation ID copied.'))
+				void act(() => copyToClipboard(view.id, 'Copied to clipboard.'))
 				return
 			case 'copy-path': {
 				const owner = projects.find((item) => item.id === view.projectId)
-				if (owner?.path) void act(() => copyToClipboard(owner.path, 'Project path copied.'))
+				if (owner?.path)
+					void act(() => copyToClipboard(owner.path, 'Folder location copied to clipboard.'))
 				return
 			}
 			case 'open-editor':
@@ -4106,7 +4105,7 @@ export function App({
 					palId: saved.id,
 					name: saved.name,
 					startedAt: Date.now(),
-					failure: failure instanceof Error ? failure.message : String(failure),
+					failure: plainErrorText(failure, 'open this Pal'),
 				})
 			return
 		}
@@ -6056,7 +6055,7 @@ export function App({
 					sources={sources}
 					attachReason={
 						externalHarness
-							? 'This engine does not take attachments.'
+							? 'This assistant can’t take attachments.'
 							: loading || restoringTabs || frozen
 								? 'Wait for the conversation to finish loading.'
 								: undefined

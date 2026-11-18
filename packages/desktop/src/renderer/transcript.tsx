@@ -115,7 +115,7 @@ function Entry({
 		return thought?.text.trim() ? (
 			<section
 				className="reasoning"
-				aria-label="Public reasoning"
+				aria-label="Thinking"
 				data-timeline-turn={entry.turn}
 				data-reasoning-id={entry.id}
 				data-transcript-entry-key={transcriptEntryKey(entry)}
@@ -538,7 +538,7 @@ function TurnActivity({
 					].join('. ')}
 					title={
 						savedDuration
-							? 'Time reported for this saved work'
+							? 'How long this work took'
 							: live
 								? undefined
 								: timeDescription(savedTime)

@@ -679,7 +679,7 @@ it('retains failed runtime shutdown ownership and confirms it on a later close',
 	}
 	// A transport may leave its UI slot before the process tree has been stopped.
 	transport.instances.find((client) => client.cwd !== workspace)?.emit('closed', new Error('EOF'))
-	await expect(owner.close()).rejects.toThrow('could not confirm')
+	await expect(owner.close()).rejects.toThrow('couldn’t confirm')
 	expect(registry?.closed).toBe(false)
 	expect(project?.closed).toBe(true)
 	expect(owner.listProjects().map((item) => item.id)).toContain(opened.project.id)
@@ -981,9 +981,9 @@ it('reports unsupported controls without attempting transfer or input', async ()
 		supported: false,
 		mode: 'unavailable',
 	})
-	await expect(owner.takeOverPalComputer(pal.id, '1')).rejects.toThrow('does not support')
+	await expect(owner.takeOverPalComputer(pal.id, '1')).rejects.toThrow('can’t be controlled')
 	await expect(owner.palComputerInput(pal.id, '1', { type: 'key', keys: 'A' })).rejects.toThrow(
-		'does not support',
+		'can’t be controlled',
 	)
 	expect(
 		transport.calls.some((call) =>

@@ -142,7 +142,7 @@ it('holds the prompt queue while an undo is in flight and releases it afterwards
 	gate.resolve({ turnId: 'turn-1', status: 'undone', files: {} })
 	await undoing
 	// Admission is free again: the next refusal is the fixture's paused turn, not the undo.
-	await expect(setup.owner.send(session.id, 'After the undo')).rejects.toThrow('paused turn')
+	await expect(setup.owner.send(session.id, 'After the undo')).rejects.toThrow('paused reply')
 })
 
 it('refuses while a reply is running', async () => {
@@ -189,7 +189,7 @@ it('rejects a malformed result and still releases admission', async () => {
 	const setup = harness()
 	const { session } = await settledSession(setup)
 	await expect(setup.owner.undoTurn(session.id, 'turn-1', 'plan-1')).rejects.toThrow('invalid')
-	await expect(setup.owner.send(session.id, 'Still usable')).rejects.toThrow('paused turn')
+	await expect(setup.owner.send(session.id, 'Still usable')).rejects.toThrow('paused reply')
 })
 
 it('validates its own arguments before asking the CLI', async () => {

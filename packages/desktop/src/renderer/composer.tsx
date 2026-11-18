@@ -81,7 +81,7 @@ function composerPermissionMode(mode: ReviewMode | undefined): ComposerPermissio
 }
 
 const PROVIDER_EMPTY_HELP =
-	'Namzu needs a model provider to answer. Paste an API key, or sign in with Claude Code or Codex and Namzu will find that sign-in.'
+	'Namzu needs an AI service to reply. Add a key for one, or sign in to Claude Code or Codex and Namzu will use that.'
 
 /** The review state in plain words, for the pull request chip's tooltip and name. */
 const REVIEW_WORDS: Record<ProjectPrView['review'], string> = {
@@ -912,12 +912,12 @@ export function Composer({
 													{cliMode
 														? `Open ${cliLabel} in a terminal · Enter`
 														: noProvider
-															? 'Connect a provider to send'
+															? 'Connect an AI service to send'
 															: sending
 																? 'Sending'
 																: running
 																	? liveInputSupported && attachments.length === 0
-																		? 'Send text to this running reply with its current model and review settings'
+																		? 'Add this to the reply in progress. It keeps the current model and approvals.'
 																		: 'Queue for the next reply'
 																	: 'Send message · Enter'}
 												</TooltipPopup>
@@ -995,7 +995,7 @@ export function Composer({
 					)}
 					{noProvider && (
 						<section className="provider-empty" aria-labelledby="provider-empty-title">
-							<h2 id="provider-empty-title">Add an API key or sign in to start</h2>
+							<h2 id="provider-empty-title">Add a key or sign in to start</h2>
 							<p>{PROVIDER_EMPTY_HELP}</p>
 							{onOpenModelSettings ? (
 								<Button id="provider-empty-connect" size="sm" onClick={onOpenModelSettings}>
