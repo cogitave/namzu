@@ -13,11 +13,12 @@ import {
 	unknownSettingMessage,
 } from '../config/setting-cli.js'
 import { userConfigPath } from '../config/user-config.js'
+import { EXIT_FAIL, EXIT_USAGE } from '../exit-codes.js'
 import type { CommandDef } from './types.js'
 
-/** Usage mistakes exit 2 here; a refused or failed change exits 1. */
-const EXIT_REFUSED = 1
-const EXIT_USAGE_CONFIG = 2
+/** A usage mistake exits 64 as in the other commands; a refused or failed change exits 1. */
+const EXIT_REFUSED = EXIT_FAIL
+const EXIT_USAGE_CONFIG = EXIT_USAGE
 
 const HELP = [
 	'Usage:',

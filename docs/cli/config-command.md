@@ -56,8 +56,8 @@ over a key of the same name.
 
 ## Exit codes
 
-`0` done, `1` refused or failed, `2` a usage mistake (unknown command or section, missing argument). Usage mistakes exit 2 here, where the
-other commands use 64; the retry hint a refused risky change prints quotes the value so it can be pasted.
+`0` done, `1` refused or failed, `64` a usage mistake (unknown command or section, missing argument), as in the other commands.
+The retry hint a refused risky change prints quotes the value so it can be pasted.
 
 ## Keeping the terminal and Desktop alike
 

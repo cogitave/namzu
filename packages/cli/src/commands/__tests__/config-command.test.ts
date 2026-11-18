@@ -80,9 +80,9 @@ describe('namzu config', () => {
 	})
 
 	it('exits 2 for a usage mistake', async () => {
-		expect(await run()).toBe(2)
-		expect(await run('set', 'limits.maxIterations')).toBe(2)
-		expect(await run('list', '--section', 'nope')).toBe(2)
+		expect(await run()).toBe(64)
+		expect(await run('set', 'limits.maxIterations')).toBe(64)
+		expect(await run('list', '--section', 'nope')).toBe(64)
 	})
 
 	it('quotes a value in the retry hint so the line can be pasted', async () => {
