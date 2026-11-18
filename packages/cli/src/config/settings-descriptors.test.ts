@@ -10,6 +10,7 @@ import {
 	APPLIES_WHEN_TEXT,
 	SETTING_DESCRIPTORS,
 	SETTING_EXCLUSIONS,
+	SETTING_SUBKEY_EXCLUSIONS,
 	type SettingDescriptor,
 	appliesWhenFor,
 } from './settings-descriptors.js'
@@ -29,6 +30,55 @@ function namzuCliConfigKeys(): string[] {
 	return keys
 }
 
+/**
+ * Every leaf path of `NamzuCliConfig` (`limits.tokenBudget`, `tui.mouse`, ...), from the type checker.
+ * A property whose type is a plain object with named properties is walked into; anything else (a
+ * scalar, a union, an array, a map with an index signature) is a leaf. So a sub-key added to an
+ * object that already has described siblings still has to be described or excluded on its own.
+ */
+function namzuCliConfigLeafPaths(): string[] {
+	const file = join(here, 'schema.ts')
+	const program = ts.createProgram([file], {
+		strict: true,
+		target: ts.ScriptTarget.ES2022,
+		module: ts.ModuleKind.NodeNext,
+		moduleResolution: ts.ModuleResolutionKind.NodeNext,
+		skipLibCheck: true,
+		noEmit: true,
+	})
+	const checker = program.getTypeChecker()
+	const source = program.getSourceFile(file)
+	let root: ts.Type | undefined
+	source?.forEachChild((node) => {
+		if (ts.isInterfaceDeclaration(node) && node.name.text === 'NamzuCliConfig')
+			root = checker.getTypeAtLocation(node)
+	})
+	if (!root) throw new Error('NamzuCliConfig not found in schema.ts')
+	const isPlainObject = (type: ts.Type): boolean => {
+		const bare = checker.getNonNullableType(type)
+		if (bare.isUnion() || checker.isArrayType(bare) || checker.isTupleType(bare)) return false
+		if (!(bare.flags & ts.TypeFlags.Object)) return false
+		if (checker.getIndexInfosOfType(bare).length > 0) return false
+		if (bare.getCallSignatures().length > 0) return false
+		return bare.getProperties().length > 0
+	}
+	const leaves: string[] = []
+	const walk = (type: ts.Type, prefix: string, depth: number): void => {
+		for (const property of checker.getPropertiesOfType(type)) {
+			const path = prefix ? `${prefix}.${property.name}` : property.name
+			const propertyType = checker.getTypeOfSymbol(property)
+			if (depth < 4 && isPlainObject(propertyType))
+				walk(checker.getNonNullableType(propertyType), path, depth + 1)
+			else leaves.push(path)
+		}
+	}
+	walk(root, '', 0)
+	return leaves
+}
+
+/** `key` names `path` itself or an object that contains it. */
+const covers = (path: string, key: string): boolean => path === key || path.startsWith(`${key}.`)
+
 const optionValues = (entry: SettingDescriptor): string[] =>
 	entry.control.kind === 'select' || entry.control.kind === 'checks'
 		? entry.control.options.map((option) => option.value)
@@ -46,6 +96,27 @@ describe('the typed setting description', () => {
 		)
 		for (const key of excluded.keys()) expect(keys).toContain(key)
 		for (const key of CONFIG_KEYS) expect(keys).toContain(key)
+	})
+
+	it('has a description or a stated exclusion for every nested key, not only the top-level one', () => {
+		const leaves = namzuCliConfigLeafPaths()
+		expect(leaves.length).toBeGreaterThan(100)
+		const described = SETTING_DESCRIPTORS.map((entry) => entry.path)
+		const excluded = [...SETTING_EXCLUSIONS, ...SETTING_SUBKEY_EXCLUSIONS].map((entry) => entry.key)
+		// A leaf is covered by a description of it or of an object around it (`routing` edited whole),
+		// by descriptions of its parts when its type is a union walked no further (`learningGenerator`,
+		// a switch or an object), or by an exclusion of it or of an object around it.
+		const missing = leaves.filter(
+			(leaf) =>
+				!described.some((path) => covers(leaf, path) || covers(path, leaf)) &&
+				!excluded.some((key) => covers(leaf, key)),
+		)
+		expect(missing, `config keys with no description and no exclusion: ${missing}`).toEqual([])
+		for (const entry of SETTING_SUBKEY_EXCLUSIONS)
+			expect(
+				leaves.some((leaf) => covers(leaf, entry.key)),
+				`${entry.key} is excluded but is not a config key`,
+			).toBe(true)
 	})
 
 	it('names when every change applies, in a way a screen can say', () => {
