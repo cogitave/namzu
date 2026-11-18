@@ -1,3 +1,4 @@
+import { childScratchpadFact } from '../context/subagent-scratchpad-fact.js'
 import { debugRequested } from '../debug-requested.js'
 import { isDefaultAccountId } from '../integrations/accounts/binding.js'
 import { resolveIdleCompactionMinTokens } from '../integrations/compaction/idle-compaction.js'
@@ -4388,6 +4389,13 @@ export async function createAgentSession(
 			readEnvironment: async (childCwd) =>
 				composeEnvironmentPrompt({
 					...(await readEnvironmentFacts(childCwd)),
+					// A sub-agent writes into the parent's scratch folder; an ephemeral
+					// session's children are not given one, and a sandbox does not
+					// have the host folder.
+					...childScratchpadFact(() => scratchpadFact(paths, scope.sessionId), {
+						ephemeral: options.ephemeral,
+						sandboxed: Boolean(sandbox.provider && sandbox.environment),
+					}),
 					boundary: { ...boundaryFor(lastSendInteractive), delegated: true },
 					...(wsl ? { wsl } : {}),
 				}),
@@ -5752,7 +5760,7 @@ export async function createAgentSession(
 			const environmentPrompt = composeEnvironmentPrompt({
 				...(await readEnvironmentFacts(cwd)),
 				additionalDirectories: [...directories],
-				...(options.ephemeral ? {} : scratchpadFact(paths, entry.sessionId)),
+				...scratchpadFact(paths, entry.sessionId),
 				boundary: boundaryFor(false),
 				...(wsl ? { wsl } : {}),
 			})
@@ -7015,7 +7023,7 @@ export async function createAgentSession(
 							{
 								...environmentFacts,
 								additionalDirectories: [...directories],
-								...(options.ephemeral ? {} : scratchpadFact(paths, turnScope.sessionId)),
+								...scratchpadFact(paths, turnScope.sessionId),
 								boundary: boundaryFor(opts?.onPermission !== undefined, undefined),
 								...(wsl ? { wsl } : {}),
 							},
@@ -7227,7 +7235,7 @@ export async function createAgentSession(
 								environment: () => ({
 									...environmentFacts,
 									// The sandbox does not have the folder (see the environment block).
-									...(options.ephemeral || (sandbox.provider && sandbox.environment)
+									...(sandbox.provider && sandbox.environment
 										? {}
 										: scratchpadFact(paths, turnScope.sessionId)),
 								}),
@@ -7377,6 +7385,9 @@ export async function createAgentSession(
 								...(options.monitorTimeoutCapMs !== undefined
 									? { monitorTimeoutCapMs: options.monitorTimeoutCapMs }
 									: {}),
+								// An ephemeral session has no folder of its own on disk, but it
+								// still has a scratch folder under the temporary root.
+								...(options.ephemeral ? scratchpadFact(paths, turnScope.sessionId) : {}),
 								// Constructed HERE, per turn, and that is not an optimisation to
 								// undo. `refreshTokenIfNeeded` above replaces the head's client
 								// object when an OAuth token rotates, so a member list built once at
@@ -8432,6 +8443,8 @@ interface TurnParams {
 	/** Where monitor events the kernel delivered in this turn are marked as read. */
 	readonly monitors?: MonitorInbox
 	readonly monitorTimeoutCapMs?: number
+	/** The scratch folder of a session that keeps no state on disk; see `QueryParams.scratchpadDirectory`. */
+	readonly scratchpadDirectory?: string
 	/**
 	 * The chain's tail for THIS turn. Empty means no failover, which is what a
 	 * one-member chain means and what every chain meant before this existed.
@@ -8545,6 +8558,7 @@ async function* runTurn({
 	backgroundJobOwner,
 	monitors,
 	monitorTimeoutCapMs,
+	scratchpadDirectory,
 	fallbackProviders,
 	model,
 	toolsets,
@@ -8677,6 +8691,7 @@ async function* runTurn({
 				opts?.onMonitorEventsDelivered?.(ids)
 			},
 			...(monitorTimeoutCapMs !== undefined ? { monitorTimeoutCapMs } : {}),
+			...(scratchpadDirectory !== undefined ? { scratchpadDirectory } : {}),
 			turnConfig: {
 				model,
 				...(sandboxProvider ? { sandbox: { workspace: sandboxWorkspace } } : {}),

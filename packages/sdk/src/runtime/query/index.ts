@@ -110,6 +110,7 @@ import type { ModelPricing } from '../../utils/cost.js'
 import { toErrorMessage } from '../../utils/error.js'
 import { errorAttributes } from '../../utils/log/exception.js'
 import type { Logger } from '../../utils/logger.js'
+import { ensureScratchpadDirectory } from '../../utils/temp.js'
 import { AwaitedJobs } from '../jobs/awaited-jobs.js'
 import type { BackgroundJobRegistry } from '../jobs/registry.js'
 import { catchUpFromCursor, settlePreStartCancellation } from './cancelled-before-start.js'
@@ -1046,6 +1047,16 @@ export interface QueryParams {
 	sandboxProvider?: SandboxProvider
 
 	/**
+	 * The session's scratch folder, for a host whose session state is not on
+	 * disk (an ephemeral run), where {@link paths} cannot name one. It must lie
+	 * inside the per-user private temporary folder (`privateTempRootPath()`);
+	 * anything else is refused and the turn runs without a scratch folder. With
+	 * `paths` and no value here, the folder is `paths.scratchpadPath(sessionId)`
+	 * (the parent's, for a delegated turn).
+	 */
+	scratchpadDirectory?: string
+
+	/**
 	 * Maximum time the turn waits for sandbox teardown, in milliseconds.
 	 *
 	 * Defaults to 30 seconds. A fresh private signal is passed to `destroy()`;
@@ -1601,15 +1612,24 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 		// pre-approves ends with the turn. Shared by the executor, where the
 		// `skill` tool records a grant, and the review phase, which reads it.
 		const skillGrants = new SkillGrantSet()
-		// The session's own scratch folder, a root of the file tools once a call
-		// names it. Not for a sandboxed turn (it is not mounted there), and not
-		// for a session whose state is not on disk.
+		// The session's own scratch folder: made now, owner-only, and a root of the
+		// file tools from the first call. A host that keeps no session state on
+		// disk names one itself (`scratchpadDirectory`). A delegated turn uses its
+		// parent's, so the files a team of agents leaves are in one place. Not for
+		// a sandboxed turn (it is not mounted there). A folder that cannot be made
+		// or is not safe stays unused, and the turn goes on without it.
 		let scratchpadDirectory: string | undefined
 		if (!params.sandboxProvider) {
 			try {
-				scratchpadDirectory = ctx.storage.paths?.scratchpadPath(ctx.sessionId)
-			} catch {
+				scratchpadDirectory =
+					params.scratchpadDirectory ??
+					ctx.storage.paths?.scratchpadPath(params.parentSessionId ?? ctx.sessionId)
+				if (scratchpadDirectory !== undefined) ensureScratchpadDirectory(scratchpadDirectory)
+			} catch (error) {
 				scratchpadDirectory = undefined
+				ctx.log.warn('The session scratch folder could not be made, so the turn runs without it', {
+					'exception.message': error instanceof Error ? error.message : String(error),
+				})
 			}
 		}
 		const toolExecutor = ToolingBootstrap.init(

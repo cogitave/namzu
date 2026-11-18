@@ -292,7 +292,7 @@ describe('the assembled prompts', () => {
 		// A lean main prompt is part of how many requests a task costs. The pieces a
 		// default interactive session sends before the environment block (identity,
 		// working rules, delegation, where files go, memory, deferred-tool
-		// guidance) stay under about 9,500 characters; the environment block is measured
+		// guidance) stay under about 10,000 characters (the placement rule for files that are not the work added about 450 to the earlier 9,600); the environment block is measured
 		// separately so the bound does not move with the host.
 		const pieces = [
 			NAMZU_IDENTITY,
@@ -302,7 +302,7 @@ describe('the assembled prompts', () => {
 			composeMemoryGuidance({ taskList: true }),
 			DEFERRED_TOOL_GUIDANCE,
 		]
-		expect(pieces.join('\n\n').length).toBeLessThan(9_600)
+		expect(pieces.join('\n\n').length).toBeLessThan(10_000)
 		expect(composeMemoryGuidance({ taskList: true }).length).toBeGreaterThan(600)
 		expect(composeMemoryGuidance({ taskList: true }).length).toBeLessThan(950)
 		for (const [name, text] of assembled()) {
