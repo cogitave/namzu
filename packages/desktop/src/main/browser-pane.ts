@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type { BrowserWindow, Session, WebContents, WebContentsView } from 'electron'
-import type {
-	BrowserBounds,
-	BrowserPaneRequest,
-	BrowserPaneState,
-	BrowserTabView,
+import {
+	type BrowserBounds,
+	type BrowserPaneRequest,
+	type BrowserPaneState,
+	type BrowserTabView,
+	MAX_BROWSER_TABS,
 } from '../shared/browser-pane.js'
 import type { BrowserCookieScope } from '../shared/settings-protocol.js'
 import { type AddressRules, addressText, fileAllowed, resolveAddress } from './browser-address.js'
@@ -26,7 +27,7 @@ import { type AddressRules, addressText, fileAllowed, resolveAddress } from './b
  * folder (see `browser-address.ts`).
  */
 
-const MAX_TABS = 8
+const MAX_TABS = MAX_BROWSER_TABS
 
 type View = WebContentsView
 interface Tab {

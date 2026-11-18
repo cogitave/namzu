@@ -64,7 +64,7 @@ import {
 import { OVERLAY_SIZE, overlayBitmap } from './attention-overlay.js'
 import { AttentionSignals } from './attention-signals.js'
 import { BringBack } from './bring-back.js'
-import { BrowserPaneHost } from './browser-pane.js'
+import { BrowserPaneHost, partitionOf } from './browser-pane.js'
 import { bundledCliEntry } from './bundled-runtime.js'
 import { ClipboardTextWriter } from './clipboard-text.js'
 import { ConfigSettings } from './config-settings.js'
@@ -859,6 +859,13 @@ const settingsStore = new DesktopSettingsStore({
 		if (settings.autoDownloadUpdates !== previous.autoDownloadUpdates) updates.autoDownloadChanged()
 		if (settings.keepEngineUpToDate !== previous.keepEngineUpToDate)
 			engineDelivery?.settingChanged()
+		if (previous.browserCookies === 'restarts' && settings.browserCookies !== 'restarts')
+			void session
+				.fromPartition(partitionOf('restarts', ''))
+				.clearStorageData()
+				.catch((error) =>
+					diagnostics.record('ipc_failed', { operation: 'clearBrowserSignIns', error }),
+				)
 		osRowsChanged(settings, previous)
 		if (settings.retrustOnConfigChange && !previous.retrustOnConfigChange)
 			void operator

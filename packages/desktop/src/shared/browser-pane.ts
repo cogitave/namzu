@@ -1,5 +1,8 @@
 /** What the renderer and the host say to each other about the Browser pane. */
 
+/** The most tabs a conversation's Browser pane holds; a new one past it is refused. */
+export const MAX_BROWSER_TABS = 8
+
 export interface BrowserTabView {
 	id: string
 	/** The page's title, or its address while it has none. */

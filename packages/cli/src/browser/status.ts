@@ -1,5 +1,4 @@
 import { probeOptionalPackage } from '../context/capabilities.js'
-import { describeBrowserPlan } from './describe.js'
 
 type BrowserModule = typeof import('@namzu/browser')
 
@@ -25,6 +24,29 @@ export interface BrowserStatusInput {
 	load?: () => Promise<BrowserModule>
 	/** Whether the browser package is installed; probed when not given. */
 	installed?: () => Promise<boolean>
+}
+
+const PLAIN_NAMES: Record<string, string> = {
+	chrome: 'Google Chrome',
+	msedge: 'Microsoft Edge',
+	chromium: 'Chromium',
+}
+
+/** The plan in words for the Settings table: no engine id, path or bridge, only which browser and where. */
+function plainPlan(plan: {
+	engine: string
+	browser: string
+	platform: string
+	headless: boolean
+}): string {
+	const name = PLAIN_NAMES[plan.browser] ?? plan.browser
+	const where =
+		plan.engine === 'windows-cdp'
+			? 'on Windows'
+			: plan.platform === 'wsl'
+				? 'inside WSL'
+				: 'on this computer'
+	return `${name} ${where}, ${plan.headless ? 'with no window' : 'with a visible window'}`
 }
 
 /**
@@ -67,6 +89,6 @@ export async function browserStatus(input: BrowserStatusInput): Promise<BrowserS
 	return {
 		enabled,
 		state: plan.warnings.length > 0 ? 'warning' : 'ready',
-		text: `${describeBrowserPlan(plan)}.${notes}`,
+		text: `${plainPlan(plan)}.${notes}`,
 	}
 }

@@ -22,6 +22,22 @@ const local = {
 }
 
 describe('the engine browser in the Connected browsers table', () => {
+	it('names a Windows browser without the engine id, path or bridge', async () => {
+		const { mod } = modWith({
+			...local,
+			engine: 'windows-cdp',
+			platform: 'wsl',
+			windowsExecutable: 'C:\\Chrome\\chrome.exe',
+			networkingMode: 'mirrored',
+		})
+		const status = await browserStatus({
+			enabled: true,
+			installed: async () => true,
+			load: async () => mod,
+		})
+		expect(status.text).toBe('Google Chrome on Windows, with a visible window.')
+	})
+
 	it('says the tools are off without loading anything', async () => {
 		const load = vi.fn()
 		const status = await browserStatus({ enabled: false, load })
@@ -48,7 +64,7 @@ describe('the engine browser in the Connected browsers table', () => {
 			platform: 'linux',
 		})
 		expect(status.state).toBe('ready')
-		expect(status.text).toContain('Google Chrome')
+		expect(status.text).toBe('Google Chrome on this computer, with a visible window.')
 		expect(detect).toHaveBeenCalledWith({}, 'linux', undefined, {
 			engine: 'windows',
 			headless: 'always',

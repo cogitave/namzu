@@ -11,7 +11,7 @@ describe('the Connected browsers table', () => {
 		})
 		expect(lines.map((line) => [line.name, line.state])).toEqual([
 			['Built-in browser', 'Ready'],
-			['Browser Namzu drives', 'Ready'],
+			['Browser Namzu uses', 'Ready'],
 		])
 		expect(lines[1]?.detail).toContain('Google Chrome')
 	})
@@ -44,8 +44,11 @@ describe('the Connected browsers table', () => {
 		)
 		expect(html).toContain('id="setting-connected-browsers"')
 		expect(html).toContain('Built-in browser')
-		expect(html).toContain('Browser Namzu drives')
+		expect(html).toContain('Browser Namzu uses')
 		expect(html).toContain('Recheck')
+		// The button's name is its visible word, and a result is announced.
+		expect(html).not.toContain('aria-label="Recheck')
+		expect(html).toContain('aria-live="polite"')
 		// A first paint is already checking, so the button waits.
 		expect(html).toMatch(/<button[^>]*disabled[^>]*>Recheck/)
 	})

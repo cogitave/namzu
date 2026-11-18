@@ -745,7 +745,7 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		section: 'tools',
 		label: 'Auto-open files Namzu writes',
 		description:
-			'Open a page or picture Namzu writes in the built-in browser as soon as it is written. Off, nothing opens by itself.',
+			'Open a page or picture Namzu writes in the built-in browser as soon as it is written.',
 		control: toggle,
 		default: true,
 		appliesWhen: 'now',
@@ -767,8 +767,7 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		owner: 'desktop',
 		section: 'tools',
 		label: 'Keep cookies',
-		description:
-			'Whether a site you sign in to in the built-in browser remembers you until you quit Namzu, across restarts, or in one conversation only.',
+		description: 'How long a site you sign in to in the built-in browser remembers you.',
 		control: {
 			kind: 'select',
 			options: [
@@ -789,9 +788,10 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 				},
 			],
 		},
-		default: 'quit',
+		default: 'conversation',
 		appliesWhen: 'now',
-		appliesNote: 'Applies to new browser tabs. Tabs that are already open keep their sign-ins.',
+		appliesNote:
+			'Applies to new browser tabs. Tabs that are already open keep their sign-ins. Leaving Across restarts forgets the sign-ins it saved.',
 		keywords: [
 			'cookies',
 			'sign-in',
@@ -821,8 +821,7 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		owner: 'view',
 		section: 'tools',
 		label: 'Connected browsers',
-		description:
-			'The browsers Namzu can use: the built-in browser beside the conversation, and the one Namzu drives for web tasks. Recheck looks again.',
+		description: 'The browsers Namzu can use, and whether each is ready.',
 		control: panel,
 		appliesWhen: 'now',
 		keywords: ['browser', 'chrome', 'edge', 'chromium', 'status', 'recheck', 'windows browser'],

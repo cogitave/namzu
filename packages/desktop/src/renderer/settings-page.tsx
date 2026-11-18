@@ -645,7 +645,7 @@ function BuiltInBrowserRows({ settings }: SectionProps) {
 			<CatalogueRow id="browser-cookies">
 				<SelectControl
 					label={labelOf('browser-cookies')}
-					value={saved?.browserCookies ?? 'quit'}
+					value={saved?.browserCookies ?? 'conversation'}
 					disabled={!saved}
 					onChange={(value) =>
 						void settings.change({ browserCookies: value as BrowserCookieScope })

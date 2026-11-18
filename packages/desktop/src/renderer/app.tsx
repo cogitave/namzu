@@ -5,6 +5,7 @@ import {
 	type BackgroundWorkStatus,
 	freshBackgroundWorkStatus,
 } from '../shared/background-work-protocol.js'
+import { MAX_BROWSER_TABS } from '../shared/browser-pane.js'
 import { resolveComposerSendOptions } from '../shared/composer-send-options.js'
 import type { LimitsNotification } from '../shared/limits-protocol.js'
 import { duplicatePalNameMessage, isDuplicatePalName } from '../shared/pal-name.js'
@@ -1253,6 +1254,8 @@ export function App({
 	const browserPane = useBrowserPane(api, sessionId)
 	const browserActRef = useRef(browserPane?.act)
 	browserActRef.current = browserPane?.act
+	const browserTabCountRef = useRef(browserPane?.state?.tabs.length)
+	browserTabCountRef.current = browserPane?.state?.tabs.length
 	// Off, what a turn writes is remembered as seen but never opened by itself.
 	const autoOpenRef = useRef(true)
 	autoOpenRef.current = desktopSettings.settings?.autoOpenFiles ?? true
@@ -1262,6 +1265,8 @@ export function App({
 		(url: string): boolean => {
 			const act = browserActRef.current
 			if (!openLinksInBrowser || !act) return false
+			// A pane that is full refuses a new tab, so the link goes to the system browser instead.
+			if ((browserTabCountRef.current ?? 0) >= MAX_BROWSER_TABS) return false
 			act({ kind: 'new', address: url })
 			openPaneRef.current('browser')
 			return true

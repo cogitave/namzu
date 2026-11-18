@@ -59,7 +59,7 @@ export function connectedBrowserLines(
 		state = STATE_WORDS[engine.view.state]
 		detail = engine.view.text
 	}
-	lines.push({ id: 'engine', name: 'Browser Namzu drives', state, detail })
+	lines.push({ id: 'engine', name: 'Browser Namzu uses', state, detail })
 	return lines
 }
 
@@ -120,7 +120,7 @@ export function ConnectedBrowsersRow({ bridge }: { bridge: Bridge | undefined })
 						{lines.map((line) => (
 							<tr key={line.id} data-browser={line.id}>
 								<th scope="row">{line.name}</th>
-								<td>
+								<td aria-live="polite">
 									<span className="settings-table-state">{line.state}</span>
 									<span className="settings-note">{line.detail}</span>
 								</td>
@@ -130,14 +130,7 @@ export function ConnectedBrowsersRow({ bridge }: { bridge: Bridge | undefined })
 				</table>
 			}
 		>
-			<Button
-				type="button"
-				variant="outline"
-				size="sm"
-				disabled={read.loading}
-				onClick={recheck}
-				aria-label="Recheck connected browsers"
-			>
+			<Button type="button" variant="outline" size="sm" disabled={read.loading} onClick={recheck}>
 				Recheck
 			</Button>
 		</Row>

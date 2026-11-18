@@ -79,7 +79,7 @@ it('reads a stored file entry by entry and ignores what it does not know', () =>
 		dictationShortcut: 'ctrl-d',
 		voiceShortcut: '',
 		autoOpenFiles: true,
-		browserCookies: 'quit',
+		browserCookies: 'conversation',
 		openLinksInBrowser: true,
 		lastSettingsSection: 'general',
 	})
@@ -123,7 +123,7 @@ it('documents the defaults the spec names', () => {
 		dictationShortcut: 'ctrl-d',
 		voiceShortcut: '',
 		autoOpenFiles: true,
-		browserCookies: 'quit',
+		browserCookies: 'conversation',
 		openLinksInBrowser: true,
 		lastSettingsSection: 'general',
 	})
@@ -295,7 +295,7 @@ describe('notifications saved as four switches', () => {
 it('keeps the built-in browser rows: files that open by themselves, how long sign-ins last, where links go', () => {
 	expect(DEFAULT_DESKTOP_SETTINGS).toMatchObject({
 		autoOpenFiles: true,
-		browserCookies: 'quit',
+		browserCookies: 'conversation',
 		openLinksInBrowser: true,
 	})
 	expect(
@@ -314,7 +314,11 @@ it('keeps the built-in browser rows: files that open by themselves, how long sig
 	])
 		expect(() => desktopSettingsPatch(bad)).toThrow('Invalid setting value.')
 	expect(storedDesktopSettings({ browserCookies: 'forever', autoOpenFiles: 'no' })).toMatchObject({
-		browserCookies: 'quit',
+		browserCookies: 'conversation',
 		autoOpenFiles: true,
 	})
+})
+
+it("keeps each conversation's sign-ins apart until the person picks another scope", () => {
+	expect(DEFAULT_DESKTOP_SETTINGS.browserCookies).toBe('conversation')
 })

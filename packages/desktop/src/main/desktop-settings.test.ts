@@ -55,7 +55,7 @@ it('starts on the documented defaults without writing anything', () => {
 		dictationShortcut: 'ctrl-d',
 		voiceShortcut: '',
 		autoOpenFiles: true,
-		browserCookies: 'quit',
+		browserCookies: 'conversation',
 		openLinksInBrowser: true,
 		lastSettingsSection: 'general',
 	})
@@ -106,7 +106,7 @@ it('validates a change, saves it atomically, and survives a restart', () => {
 		dictationShortcut: 'ctrl-d',
 		voiceShortcut: '',
 		autoOpenFiles: true,
-		browserCookies: 'quit',
+		browserCookies: 'conversation',
 		openLinksInBrowser: true,
 		lastSettingsSection: 'general',
 	})
@@ -149,7 +149,7 @@ it('validates a change, saves it atomically, and survives a restart', () => {
 		dictationShortcut: 'ctrl-d',
 		voiceShortcut: '',
 		autoOpenFiles: true,
-		browserCookies: 'quit',
+		browserCookies: 'conversation',
 		openLinksInBrowser: true,
 		lastSettingsSection: 'general',
 	})
