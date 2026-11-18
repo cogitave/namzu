@@ -62,6 +62,7 @@ async function open(provider: MockLLMProvider, hosted: boolean) {
 	vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
 	if (!hosted) {
 		const bare = await createAgentSession(preferences, detected, {
+			toolLoading: 'eager',
 			cwd,
 			sandbox: { enabled: false },
 			ephemeral: true,

@@ -60,7 +60,7 @@ The operator application.
 * [Plugins](plugins.md) - Trusted extension loading, live contributions and session enable/disable controls.
 * [namzu plugin validate](plugin-validate.md) - Check a plugin folder and every part it carries without running anything from it: problems with file and line, the codes, the JSON shape and the exit statuses.
 * [Skills](skills.md) - Where SKILL.md skills come from and which tier wins a name, how the model is offered them and loads one with the skill tool, which directory it is told a skill's files are in, the manifest budget, tool gating, and the skills config keys.
-* [Where files go](where-files-go.md) - The standing guidance on where a session puts what it creates, the checklist for long-running installs, and the home-folder startup line.
+* [Where files go](where-files-go.md) - The two-line standing guidance on where a session puts what it creates, and the home-folder startup line.
 * [The composer prefixes](composer-prefixes.md) - What a line starting with `!` or `#` does in the composer: a command run on the host without the model, or a note remembered, and what the model learns of either.
 * [Composer triggers](composer-triggers.md) - Words in a message that name one namzu action for it — the hypermode keyword, save-as-skill phrases in English and Turkish — how they are matched and shown, Alt+W, what they change about the turn, and the composerTriggers key that turns them off.
 * [Custom status line](status-line.md) - The statusLine key: a command whose output is drawn above the footer, the JSON it reads on stdin, when it runs, where it may be set, and what an empty or failed run shows.

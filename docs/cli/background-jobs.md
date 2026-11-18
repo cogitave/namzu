@@ -14,6 +14,23 @@ generated: { by: human:bahadirarda, at: 2026-09-02T00:00:00Z }
 
 The model passes `run_in_background: true` to `bash` for work that legitimately outlasts a tool call: a dev server, a watcher, a long build. The call returns the job's id at once and the turn goes on. The `job` tool reads a job's output (`action: read`, with the previous call's `next_offset` to see only what is new), lists them, or stops one. A foreground command that runs past its `timeout` becomes such a job too instead of being killed (see [Timeouts and output](../sdk/bash-tool.md#timeouts-and-output)); `/tasks` and the `N shells` pill show it like any other. To find out whether a job has finished, use `wait_for_job` (below) rather than calling `job` with `action: read` in a loop — `job`'s own description says so.
 
+# Where a job's output is kept
+
+Every job's whole output (stdout and stderr, in the order they arrived) is also
+written to a file, `<scratch folder>/jobs/<job id>.log`, in the session's
+[scratch folder](where-files-go.md#the-scratch-folder-is-always-there). The folder is
+private (mode 0700, the file 0600) and the file stops at 256 MiB with a line
+saying so while the job runs on. The model is told the path in the result that
+starts the job ("Its output is saved to <path>; do not redirect it into a file of your
+own", and that `wait_for_job` is the way to wait) and in every `job read` and
+`wait_for_job` result ("the whole output is in <path>"). Before this the
+output lived only in the registry's 1 MiB tail, so a model that ran a long
+build in the background redirected it into a log in the working directory,
+which is where such files ended up in a person's folder. The tail still feeds
+the live views and `/tasks`; the file is for reading what the tail dropped.
+A monitor's output is kept the same way. A job in a sandbox, and a session
+without a scratch folder, have no file and no path is given.
+
 # Moving a running command to the background
 
 A command the model started in the foreground does not have to be waited on or stopped. After it has run for two seconds its row gains a dim `(ctrl+b to run in background)` (inside tmux, which keeps the first press, `(ctrl+b ctrl+b (twice) to run in background)`). Three things move it to a background job, which keeps running, shows under `/jobs` and the shells count, and is announced when it ends:

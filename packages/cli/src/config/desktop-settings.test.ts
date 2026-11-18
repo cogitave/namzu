@@ -54,7 +54,6 @@ describe('Desktop settings descriptors', () => {
 		const expected: Record<string, string> = {
 			'permissions.disableBypassMode': 'off',
 			'permissions.disableAutoMode': 'off',
-			'limits.doneGate': 'off',
 			'limits.maxIterations': 'zero',
 			'limits.tokenBudget': 'zero',
 			'limits.costLimitUsd': 'zero',

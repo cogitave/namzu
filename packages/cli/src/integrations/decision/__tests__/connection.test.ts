@@ -95,14 +95,14 @@ describe('saving a connection', () => {
 		expect(store.keys[DECISION_KEY_ID]).toBe('SECRET-KEY-0123456789abcdef')
 	})
 
-	it('writes the default points: notify and skill on, memory and pick only recorded', () => {
+	it('writes the default points: notify, skill and pick on, memory only recorded', () => {
 		const { opts } = scratch()
 		saveConnection({ kind: 'http', url: 'http://127.0.0.1:9/x' }, opts)
 		const cfg = loadConfig({ ...opts, cwd: mkdtempSync(join(tmpdir(), 'cwd-')) })
 		expect(cfg.decision).toEqual({
 			provider: 'http',
 			url: 'http://127.0.0.1:9/x',
-			points: { notify: 'on', memory: 'shadow', skill: 'on', pick: 'shadow' },
+			points: { notify: 'on', memory: 'shadow', skill: 'on', pick: 'on' },
 		})
 		expect(readDecisionKey(opts)).toBeNull()
 	})
@@ -138,7 +138,7 @@ describe('decision: true', () => {
 		expect(load(opts).decision).toMatchObject({
 			provider: 'http',
 			url: 'http://h:1/x',
-			points: { notify: 'on', skill: 'on', memory: 'shadow', pick: 'shadow' },
+			points: { notify: 'on', skill: 'on', memory: 'shadow', pick: 'on' },
 		})
 	})
 
@@ -188,6 +188,20 @@ describe('decisionStatusLine', () => {
 			}),
 		).toBe('Connected · notify on, pick shadow')
 	})
+
+	it('shows pick as on when it is not named, and as off when the operator turned it off', () => {
+		const base = { provider: 'http', url: 'u' } as const
+		expect(decisionStatusLine({ config: base, connected: true, env: {} })).toBe(
+			'Connected · pick on',
+		)
+		expect(
+			decisionStatusLine({
+				config: { ...base, points: { pick: 'off' } },
+				connected: true,
+				env: {},
+			}),
+		).toBe('Connected · no point is on')
+	})
 })
 
 describe('a key belongs to the connection it was saved with', () => {
@@ -227,7 +241,7 @@ describe('a key belongs to the connection it was saved with', () => {
 describe('connectedPointsNotice', () => {
 	it('says which points act and which only record, for the defaults', () => {
 		expect(connectedPointsNotice()).toBe(
-			'notify and skill are on; memory and pick only record to the decision log until you set them to on.',
+			'notify, skill and pick are on; memory only records to the decision log until you set it to on.',
 		)
 	})
 })

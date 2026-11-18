@@ -119,7 +119,7 @@ function addLaunchOptions(command: Command): Command {
 		)
 		.option(
 			'--no-done-gate',
-			'Do not ask once for a check of edits (tests, lint) before a turn that changed files ends; also limits.doneGate: false.',
+			'Keep the check of edits (tests, lint) before a turn ends off for this launch; it is off unless limits.doneGate is true.',
 		)
 		.addOption(
 			new Option(

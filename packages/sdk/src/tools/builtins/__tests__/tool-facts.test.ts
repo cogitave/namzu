@@ -283,10 +283,10 @@ describe('edit and write', () => {
 		})
 	})
 
-	it('edit on a file nobody read is a not_read failure', async () => {
+	it('edit on a file nobody read, with text that is not in it, is a not_read failure', async () => {
 		const { dir, ctx } = project()
 		writeFileSync(join(dir, 'a.txt'), 'one\n')
-		const result = await EditTool.execute({ path: 'a.txt', old_string: 'one', new_string: 'two' }, {
+		const result = await EditTool.execute({ path: 'a.txt', old_string: 'uno', new_string: 'two' }, {
 			...ctx,
 			fileReadTracker: createFileReadTracker(),
 		} as never)

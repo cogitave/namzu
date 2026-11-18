@@ -96,7 +96,7 @@ A step that streams more reasoning than the cap before it has made a call is cut
 
 ## Done-gate
 
-A turn that changed files and tries to end without running a test, lint, format check, typecheck or build after the last change is asked once to check its work first ([Completion audit](../sdk/completion-audit.md)). It is on for the interactive session and for `namzu exec`. `limits.doneGate: false` in the config turns it off, and `--no-done-gate` does the same for one interactive launch (`namzu exec` takes the config key). Delegated children are not audited.
+A turn that changed files and tries to end without running a test, lint, format check, typecheck or build after the last change is asked once to check its work first ([Completion audit](../sdk/completion-audit.md)). It is off by default, because models routinely check their work in ways the gate cannot see and it cost extra requests after finished work. `limits.doneGate: true` in the config turns it on for the interactive session, `namzu exec` and the Desktop host; `--no-done-gate` turns it off again for one interactive launch. Delegated children are not audited.
 
 ## Hook refusals
 

@@ -1,4 +1,6 @@
 import type { spawn } from 'node:child_process'
+import { closeSync, mkdirSync, openSync, writeSync } from 'node:fs'
+import { join as joinPath } from 'node:path'
 
 import { SANDBOX_KILL_GRACE_MS } from '../../constants/sandbox/index.js'
 import { isSignalablePid, killTree } from '../../process/kill-tree.js'
@@ -98,7 +100,17 @@ export interface BackgroundJob {
 	/** The close code and reason the server ended a WebSocket connection with, if it did. */
 	readonly closeCode?: number
 	readonly closeReason?: string
+	/**
+	 * The file the job's whole output is also written to (stdout and stderr, in
+	 * the order they arrived), when the host gave the registry a folder for it.
+	 * The in-memory tail is capped; this file is not, up to
+	 * {@link JOB_OUTPUT_FILE_MAX_BYTES}.
+	 */
+	readonly outputFile?: string
 }
+
+/** The most one job writes to its output file; the file says so when it stops. */
+export const JOB_OUTPUT_FILE_MAX_BYTES = 256 * 1024 * 1024
 
 /**
  * One thing a monitor has to say: a batch of its stdout lines, or a notice
@@ -226,6 +238,13 @@ export interface StartJobParams {
 	 * decoded the way a foreground command's are, not as a Linux guest's.
 	 */
 	readonly hostOutput?: boolean
+	/**
+	 * A folder (made if it is missing, owner-only) for a file named after the
+	 * job that receives everything the job writes. Absent, the output lives in
+	 * memory only. A folder that cannot be made leaves the job without a file;
+	 * the job still runs.
+	 */
+	readonly outputDirectory?: string
 	/**
 	 * Run the command as a monitor: stdout is split into lines and delivered
 	 * to `onMonitorEvent` listeners in batches, and the job is stopped at
@@ -661,6 +680,32 @@ export class BackgroundJobRegistry {
 		}
 
 		const id = createBackgroundJobId((candidate) => this.jobs.has(candidate))
+		// The job's output file, when the host named a folder for it. A file that
+		// cannot be opened is not a reason to refuse the job: the in-memory tail
+		// is still there, and the model is simply not told a path.
+		let outputFile: string | undefined
+		let outputFd: number | undefined
+		let outputWritten = 0
+		if (params.outputDirectory !== undefined) {
+			try {
+				mkdirSync(params.outputDirectory, { recursive: true, mode: 0o700 })
+				const file = joinPath(params.outputDirectory, `${id}.log`)
+				outputFd = openSync(file, 'a', 0o600)
+				outputFile = file
+			} catch {
+				outputFd = undefined
+			}
+		}
+		const closeOutputFile = (): void => {
+			if (outputFd === undefined) return
+			const fd = outputFd
+			outputFd = undefined
+			try {
+				closeSync(fd)
+			} catch {
+				// Nothing is left to flush: every write above was synchronous.
+			}
+		}
 		// Same scrub as the foreground path: inheritance is implicit, so the
 		// operator's provider credentials do not travel into a command nobody
 		// decided should see them. A background job outlives the call that
@@ -747,6 +792,7 @@ export class BackgroundJobRegistry {
 				command: params.command,
 				status: 'running',
 				startedAt,
+				...(outputFile !== undefined ? { outputFile } : {}),
 				...(monitor
 					? {
 							kind: 'monitor' as const,
@@ -772,6 +818,7 @@ export class BackgroundJobRegistry {
 				const finalize = (code: number | null, signal: NodeJS.Signals | null): void => {
 					if (finalized) return
 					finalized = true
+					closeOutputFile()
 					untrackAtHostExit()
 					entry.record = {
 						...entry.record,
@@ -867,6 +914,23 @@ export class BackgroundJobRegistry {
 			const chunk: OutputChunk = { stream, offset: entry.produced, bytes: Buffer.from(text) }
 			if (chunk.bytes.length === 0) return
 			entry.produced += chunk.bytes.length
+			if (outputFd !== undefined) {
+				try {
+					if (outputWritten + chunk.bytes.length <= JOB_OUTPUT_FILE_MAX_BYTES) {
+						writeSync(outputFd, chunk.bytes)
+						outputWritten += chunk.bytes.length
+					} else {
+						writeSync(
+							outputFd,
+							`\n[the output file stopped at ${JOB_OUTPUT_FILE_MAX_BYTES} bytes; the job kept running]\n`,
+						)
+						closeOutputFile()
+					}
+				} catch {
+					// A full disk must not take the job's live output with it.
+					closeOutputFile()
+				}
+			}
 			const line = lastLineOf(text)
 			entry.record = {
 				...entry.record,
@@ -1366,8 +1430,17 @@ export function bindOwner(
 		 * reported, because the host wakes on its events.
 		 */
 		readonly onMonitorStarted?: (id: string) => void
+		/**
+		 * Where each job's output file goes; see {@link StartJobParams.outputDirectory}.
+		 * A function, so the folder is asked for when a job starts.
+		 */
+		readonly outputDirectory?: string | (() => string | undefined)
 	} = {},
 ) {
+	const outputDirectory = (): string | undefined =>
+		typeof defaults.outputDirectory === 'function'
+			? defaults.outputDirectory()
+			: defaults.outputDirectory
 	const mine = (id: string): BackgroundJob => {
 		const job = registry.get(id)
 		if (job.owner !== owner) throw new UnknownBackgroundJobError({ id })
@@ -1379,10 +1452,12 @@ export function bindOwner(
 	): BackgroundJob => {
 		const workingDirectory = params.workingDirectory ?? defaults.workingDirectory ?? process.cwd()
 		const spawnHost = defaults.spawn
+		const jobsFolder = outputDirectory()
 		return registry.start({
 			owner,
 			command: params.command,
 			workingDirectory,
+			...(jobsFolder !== undefined ? { outputDirectory: jobsFolder } : {}),
 			...(defaults.env ? { env: defaults.env } : {}),
 			...(spawnHost
 				? {
@@ -1454,6 +1529,9 @@ export function bindOwner(
 				workingDirectory: params.workingDirectory ?? defaults.workingDirectory ?? process.cwd(),
 				spawn: () => ({ child: params.child }),
 				hostOutput: true,
+				...(outputDirectory() !== undefined
+					? { outputDirectory: outputDirectory() as string }
+					: {}),
 				...(params.initialOutput ? { initialOutput: params.initialOutput } : {}),
 			}),
 		// The owner is bound here, so a tool can offer its own waiting command and
