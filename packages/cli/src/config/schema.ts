@@ -189,9 +189,8 @@ export interface TurnLimitsConfig {
 	 */
 	readonly maxReasoningTokens?: number
 	/**
-	 * `false` turns off the one reminder a turn gets when it tries to end after
-	 * changing files without running a test, lint or typecheck. On by default.
-	 * `--no-done-gate` turns it off for one launch.
+	 * `true` asks a turn that tries to end after changing files without running a
+	 * test, lint or typecheck to check first, once. Off by default.
 	 */
 	readonly doneGate?: boolean
 	/**

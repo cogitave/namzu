@@ -122,6 +122,15 @@ The query executor pins the directory checked for each prepared builtin bash cal
 
 Protected-path writes require per-call human review in `bypass` and `classify` as well as other modes; without a reviewer they are refused. A classifier or remembered broad allowance is not approval to plant a hook or change tool configuration.
 
+## A printed file counts as read
+
+A file a successful `bash` call printed is on the session's read ledger, so `edit` accepts it without a separate `read`. A line counts only when every segment is a plain file printer (`cat`, `nl`, `tac`, `less`, `more`, `rev`, `bat`, `head`, `tail`, `sed -n` with a print-only script), a command that changes nothing (`echo`, `printf`, `true`, `pwd`, `ls`, `wc`, `stat`, `file`) or `cd <dir>` joined to what follows by `&&`, and the line has no redirection into a file. File operands must be plain words: a glob, a variable, a substitution or `~` earns nothing for that operand. Operands resolve against the call's working directory, plus any `cd` in the line.
+
+- `cat` and `nl` with no range, and `sed -n p`, record the whole body. `head`, `tail`, a `sed -n` range, a ranged `bat`, and any printer whose output feeds a pipe record a window: enough for `edit`, never taken as the whole file, and it does not replace a whole body already held.
+- A pipe is allowed only into another printer (`cat f | head -20`). Piped into anything else (`cat f | grep x`) the line earns nothing, since the model saw a filtered view.
+- A failed command earns nothing. A file that changes after it was printed is refused by `edit` as stale, as after a `read`.
+- A sandboxed turn earns nothing, because the ledger's keys there are sandbox paths.
+
 ## Long sleeps
 
 Where the host has background jobs, a call that opens with `sleep` for 25 seconds or more (alone, or followed by `&&`, `;`, `||` or a pipe) is refused before it runs, and the result says to use `monitor` with an until-loop, or `run_in_background` with `wait_for_job`. The guard recognizes a first sub-command exactly shaped as `sleep <numeric seconds>`; it is a waiting-workflow hint, not a shell security parser. A suffixed operand such as `sleep 30s`, a variable operand, a sleep later in a chain, a shorter one, and any call with `run_in_background` are not affected, nor is a host without background jobs or with them switched off.

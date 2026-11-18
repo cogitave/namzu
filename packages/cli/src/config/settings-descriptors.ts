@@ -393,13 +393,9 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'limits.doneGate',
 		'agent',
 		'Check before finishing',
-		'Namzu checks its own work once before it ends a turn.',
+		'When a turn changed files, Namzu is asked once to check its work before it ends.',
 		on,
-		{
-			defaultText: 'on',
-			confirm: 'Namzu will end a turn without checking its own work first.',
-			confirmWhen: 'off',
-		},
+		{ defaultText: 'off' },
 	),
 	d(
 		'limits.maxHookRefusals',

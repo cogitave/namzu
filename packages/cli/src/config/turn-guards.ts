@@ -12,7 +12,7 @@ export type TurnGuards = { -readonly [K in TurnGuardKey]: number } & {
 	maxResponseTokens?: number
 	/** Most reasoning, in tokens, one model call may stream before acting; 0 removes the cap, absent keeps the kernel's default. */
 	maxReasoningTokens?: number
-	/** `false` turns the check-your-edits reminder off; absent leaves it on. */
+	/** `true` turns the check-your-edits reminder on; absent or `false` leaves it off. */
 	doneGate?: boolean
 	/** Hook refusals in a row honoured before a turn ends anyway; 0 removes the cap, absent means {@link DEFAULT_MAX_HOOK_REFUSALS}. */
 	maxHookRefusals?: number
@@ -75,7 +75,7 @@ export function turnConfigFields(
 			? { reasoning: { maxTokens: guards.maxReasoningTokens } }
 			: {}),
 		maxHookRefusals: guards.maxHookRefusals ?? DEFAULT_MAX_HOOK_REFUSALS,
-		...(options.completionAudit === true && guards.doneGate !== false
+		...(options.completionAudit === true && guards.doneGate === true
 			? { completionAudit: true }
 			: {}),
 		...(options.detectChanges || options.beforeEnd
