@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createWorld, dispose, expect, launch, relaunch, send } from "./harness.mjs";
+import { createWorld, dispose, expect, launch, send } from "./harness.mjs";
 
 const T = 60000;
 const SHOTS = process.env.HOOKS_SHOTS;
@@ -258,11 +258,11 @@ flow(
 );
 
 // The switch is not only a picture: with a hook that leaves a mark each time it runs, a message sent
-// with hooks on leaves one, and once the switch is off and the app has connected to the project again
-// a message leaves none. (A project that is already connected keeps the settings it started with, so
-// the page says the change reaches a project when it next connects.)
+// with hooks on leaves one, and once the switch is off a message in a NEW conversation leaves none,
+// with no relaunch. (A conversation that is already open keeps the settings it started with, so the
+// page says the change reaches new conversations.)
 flow(
-	"Run hooks decides whether a hook really starts, once the project connects again",
+	"Run hooks decides whether a hook really starts, in the next new conversation",
 	{
 		rules: [{ match: /hello/, steps: [{ text: "Scripted hello back." }] }],
 		seed: (w) => {
@@ -296,13 +296,13 @@ flow(
 		await run.click();
 		await expect(run).not.toBeChecked({ timeout: T });
 		assert.match(readFileSync(join(w.home, "config.yaml"), "utf8"), /disableHooks: true/);
-		await relaunch(w);
+		await w.page.getByRole("button", { name: "New conversation tab" }).click();
 		await expect(w.page.getByRole("textbox", { name: "Message Namzu" })).toBeVisible({ timeout: T });
 		await send(w, "hello two");
 		// The hook fires before the model is asked, so once the second request is in it has had its chance.
 		await expect.poll(() => w.model.requests.length, { timeout: T }).toBeGreaterThanOrEqual(2);
 		await expect(w.page.getByText("Scripted hello back.")).toHaveCount(2, { timeout: T });
-		assert.equal(marks(), 1, "no hook ran after the switch was off and the project connected again");
+		assert.equal(marks(), 1, "no hook ran in a new conversation after the switch was off");
 		console.log(`fake model requests: ${w.model.requests.length}`);
 	},
 );

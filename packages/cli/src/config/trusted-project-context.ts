@@ -48,3 +48,28 @@ export function resolveTrustedProjectContext<T extends object>(bootstrap: T, cwd
 export function pinTrustedProjectPath(bootstrap: object, cwd: string): string {
 	return trustedResolvers.has(bootstrap) ? canonicalProjectPath(cwd) : cwd
 }
+
+/**
+ * Re-reads one project's context and keeps it in `cache`. When the files no longer load
+ * (half-written, or invalid) the cache is left as it was, the last good context is returned,
+ * and `onError` is told why, so a new conversation never runs on stale settings in silence.
+ * A project with nothing cached yet loads through `first`, whose errors are the caller's.
+ */
+export function refreshCachedContext<T>(
+	cache: Map<string, T>,
+	target: string,
+	first: () => T,
+	load: () => T,
+	onError: (error: unknown) => void,
+): T {
+	const cached = cache.get(target)
+	if (cached === undefined) return first()
+	try {
+		const fresh = load()
+		cache.set(target, fresh)
+		return fresh
+	} catch (error) {
+		onError(error)
+		return cached
+	}
+}

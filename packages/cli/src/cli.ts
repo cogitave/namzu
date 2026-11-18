@@ -56,6 +56,7 @@ import { positiveTokenCount, readModelLaunchEnvironment } from './config/model-e
 import type { NamzuCliConfig } from './config/schema.js'
 import {
 	bindTrustedProjectContext,
+	refreshCachedContext,
 	resolveTrustedProjectContext,
 } from './config/trusted-project-context.js'
 import { debugRequested } from './debug-requested.js'
@@ -520,17 +521,19 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 	 */
 	const refreshTrustedContext = (cwd: string): ResolvedCommandContext => {
 		const target = resolve(cwd)
-		const cached = trustedContexts.get(target)
-		if (!cached) return getTrustedContext(cwd)
-		try {
-			const fresh = buildContext(() =>
-				runtime().loadConfigWithProvenance(selectedConfigOpts(target)),
-			)
-			trustedContexts.set(target, fresh)
-			return fresh
-		} catch {
-			return cached
-		}
+		return refreshCachedContext(
+			trustedContexts,
+			target,
+			() => getTrustedContext(cwd),
+			() => buildContext(() => runtime().loadConfigWithProvenance(selectedConfigOpts(target))),
+			(error) =>
+				runtime()
+					.cliLogger()
+					.warn('Settings could not be read again; this project keeps its last good settings', {
+						'namzu.project.cwd': target,
+						'exception.message': error instanceof Error ? error.message : String(error),
+					}),
+		)
 	}
 	const getBootstrapContext = (): ResolvedCommandContext => {
 		if (bootstrapCtx) return bootstrapCtx
