@@ -1008,6 +1008,8 @@ export class Operator {
 	 * Tells the windows when the engine's config file changes on disk, so Settings shows an edit
 	 * made elsewhere. It watches the file's folder (an editor that replaces the file keeps working),
 	 * waits for the burst of writes to settle, and holds nothing open on the process's behalf.
+	 * Only the user file Settings writes is watched; an edit to a project's own config file shows
+	 * when the window next takes focus, which reads the settings again.
 	 */
 	private watchConfigFile(file: string): void {
 		if (!file || this.configWatch?.file === file) return
@@ -6394,6 +6396,8 @@ export class Operator {
 		for (const item of this.conversations.values())
 			if (item.running && !item.view.palId) item.view.closedWhileRunning = true
 		this.backgroundWork.close()
+		this.configWatch?.close()
+		this.configWatch = undefined
 		for (const id of this.computerViewers.keys()) this.closePalComputerStream(id)
 		const closing = await Promise.allSettled(
 			[...this.ownedClients].map((client) => this.closeClient(client)),
