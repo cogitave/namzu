@@ -118,7 +118,7 @@
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.terminal-badge[data-activity="working"] {
+	:root:not([data-motion="full"]) .terminal-badge[data-activity="working"] {
 		animation: none;
 	}
 }

@@ -47,8 +47,8 @@ try {
 	var stack
 	if (response === 'app') stack = 'var(--font-sans-app)'
 	else if (response === 'system') stack = 'var(--font-sans-system)'
-	else if (response !== 'match' && safeFont(response))
-		stack = '"' + response.trim() + '", var(--font-sans)'
+	else if (typeof response === 'string' && response.indexOf('family:') === 0 && safeFont(response.slice(7)))
+		stack = '"' + response.slice(7).trim() + '", var(--font-sans)'
 	if (stack) {
 		html.setAttribute('data-response-font', 'on')
 		html.style.setProperty('--font-response', stack)

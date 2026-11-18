@@ -748,17 +748,17 @@
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.settings-page-content {
+	:root:not([data-motion="full"]) .settings-page-content {
 		animation: none;
 	}
-	.settings-switch,
-	.settings-switch::after,
-	.settings-sidebar-navigation button,
-	.settings-nav-search {
+	:root:not([data-motion="full"]) .settings-switch,
+	:root:not([data-motion="full"]) .settings-switch::after,
+	:root:not([data-motion="full"]) .settings-sidebar-navigation button,
+	:root:not([data-motion="full"]) .settings-nav-search {
 		transition: none;
 	}
-	.settings-dialog,
-	.settings-dialog-scrim {
+	:root:not([data-motion="full"]) .settings-dialog,
+	:root:not([data-motion="full"]) .settings-dialog-scrim {
 		animation: none;
 	}
 }
@@ -1197,6 +1197,10 @@ input.settings-config-number {
 	font: inherit;
 	font-size: var(--text-small);
 	cursor: pointer;
+}
+.settings-font-note {
+	font-size: var(--text-small);
+	color: var(--muted-foreground);
 }
 .settings-font-find:disabled {
 	opacity: 0.5;

@@ -86,7 +86,7 @@
 	color: var(--foreground);
 }
 @media (prefers-reduced-motion: reduce) {
-	.plan-spinner {
+	:root:not([data-motion="full"]) .plan-spinner {
 		animation: none;
 	}
 }
@@ -189,7 +189,7 @@
 	padding: 0;
 }
 @media (prefers-reduced-motion: reduce) {
-	.plan-box-arc-head {
+	:root:not([data-motion="full"]) .plan-box-arc-head {
 		animation: none;
 	}
 }

@@ -11,6 +11,11 @@ export interface NotifyOptions {
 	tooltip?: string
 	/** How long the toast stays before it leaves; 0 keeps it until it is dismissed. */
 	timeoutMs?: number
+	/**
+	 * The time is part of what the notice says (an undo or countdown window), so turning off
+	 * auto-dismiss does not remove it.
+	 */
+	bound?: boolean
 	/** Called once when the toast has gone, for any reason (timeout, dismissal, action, replaced). */
 	onClose?: () => void
 }
@@ -45,6 +50,8 @@ interface Pending {
 	id: string
 	text: string
 	options: NotifyOptions
+	/** Auto-dismiss was off when it was sent: it stays until closed, but a newer notice may replace it. */
+	persist?: boolean
 }
 
 /**
@@ -62,7 +69,8 @@ export function createToastHub() {
 	// What is on screen now, and what waits for it to leave. An error the person has not seen
 	// for its full time is never closed by a newer notice: the newer one waits its turn. Errors
 	// wait ahead of everything else; of the others only the newest waits.
-	// Off, a notice with no time of its own stays until it is closed.
+	// Off, a notice stays until it is closed (unless its time is part of its meaning), yet a newer
+	// notice still replaces it: only errors and explicit holds queue.
 	let autoDismiss = true
 	let active:
 		| { id: string; text: string; tone: ToastTone; held: boolean; sink: ToastSink }
@@ -105,7 +113,7 @@ export function createToastHub() {
 			type: tone,
 			// Base UI announces `high` through an assertive live region.
 			priority: tone === 'error' ? 'high' : 'low',
-			timeout: options.timeoutMs ?? defaultTimeoutMs(tone, Boolean(action)),
+			timeout: item.persist ? 0 : (options.timeoutMs ?? defaultTimeoutMs(tone, Boolean(action))),
 			onClose: () => {
 				shownBy.delete(id)
 				options.onClose?.()
@@ -156,8 +164,8 @@ export function createToastHub() {
 			const item = {
 				id,
 				text,
-				options:
-					autoDismiss || options.timeoutMs !== undefined ? options : { ...options, timeoutMs: 0 },
+				options,
+				...(autoDismiss || options.bound || options.timeoutMs === 0 ? {} : { persist: true }),
 			}
 			const sink = target()
 			if (sink) return deliver(sink, item)

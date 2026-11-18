@@ -269,11 +269,11 @@
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.pal-communication-popup,
-	.pal-communication-backdrop {
+	:root:not([data-motion="full"]) .pal-communication-popup,
+	:root:not([data-motion="full"]) .pal-communication-backdrop {
 		transition: none;
 	}
-	.pal-communication-loading svg {
+	:root:not([data-motion="full"]) .pal-communication-loading svg {
 		animation: none;
 	}
 }

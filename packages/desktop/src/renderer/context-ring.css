@@ -45,8 +45,8 @@
 	stroke: currentColor;
 }
 @media (prefers-reduced-motion: reduce) {
-	.context-ring,
-	.context-ring-fill {
+	:root:not([data-motion="full"]) .context-ring,
+	:root:not([data-motion="full"]) .context-ring-fill {
 		transition: none;
 	}
 }
@@ -93,7 +93,7 @@
 	fill: currentColor;
 }
 @media (prefers-reduced-motion: reduce) {
-	.context-readout {
+	:root:not([data-motion="full"]) .context-readout {
 		transition: none;
 	}
 }

@@ -2453,6 +2453,8 @@ existed loads with the default. Each is one attribute on the root element, set b
 `renderer/appearance-prefs.ts` in every window when the saved value changes, so a change repaints all
 windows at once. The window keeps a copy in its storage (`namzu.appearance-prefs`) and
 `public/theme-boot.js` sets the same attributes before the first paint, so a restart shows no flash.
+The copy is written once settings have loaded, so the first launch after an upgrade (or after the
+storage was cleared) shows today's values for one paint, then the saved ones.
 No attribute is the value Namzu has always had. The rules are in `renderer/appearance-prefs.css`.
 
 | Row | Key and default | What it changes |
@@ -2460,26 +2462,19 @@ No attribute is the value Namzu has always had. The rules are in `renderer/appea
 | Response font | `responseFont`: `match` | `data-response-font` and `--font-response` set the font of `.chat-markdown` (replies only; `pre` and `code` keep the code font). Choices: Match interface, Namzu's own, Your device's, or an installed font. |
 | Transcript text size | `transcriptTextSize`: `medium` | `data-transcript-size` re-points `--text-reading` and `--leading-reading` inside `.transcript`: small 14 / 20 px, medium 15 / 22 px (as before), large 17 / 26 px. The composer, sidebar and dialogs keep theirs. |
 | Transcript width | `transcriptWidth`: `narrow` | `data-transcript-width` sets `--frame-column-width` (the composer's column and the home block) and `--turn-column-width` (the conversation): narrow 768 / 736 px (as before), medium 896 / 864 px, wide 1024 / 992 px. Settings keeps 768 px. |
-| Motion | `motion`: `system` | `reduce` sets `data-motion="reduce"`: `animation`, `transition` and smooth scrolling are off everywhere, and the script-timed motion (`renderer/motion-setting.ts`, used by the sidebar, transcript, computer chat, Pal and effort-shader code) is skipped. `system` follows the device's flag. `full` ignores the flag in script and in the one global `prefers-reduced-motion` rule in `style.css`; the few per-component reduced-motion rules still follow the device. |
-| Close popups by themselves | `autoDismissPopups`: on | Off, `notify` gives each notice with no time of its own a timeout of 0, so it stays until closed (each waits its turn behind the one on screen). A notice that names its own time keeps it. |
-| Skip drawing what is off screen | `virtualizeConversations`: on | The transcript does not remove far messages (every message stays in the page) but it does leave far turns undrawn with `content-visibility: auto`, as does the conversation list. Off sets `data-virtualize="off"` and draws all of them. |
+| Motion | `motion`: `system` | `reduce` sets `data-motion="reduce"`: `animation`, `transition` and smooth scrolling are off everywhere, and the script-timed motion (`renderer/motion-setting.ts`, used by the sidebar, transcript, computer chat, Pal and effort-shader code) is skipped. `system` follows the device's flag. `full` ignores the flag in script and in the one global `prefers-reduced-motion` rule in `style.css`; every component stylesheet's own `@media (prefers-reduced-motion: reduce)` rule is gated on `:root:not([data-motion="full"])` too, and the diff view's shadow root asks its host with `:host-context`. Two things still follow the device under `full`: the `no-preference` blocks that switch an animation on, and the separate working-pill window. |
+| Close popups by themselves | `autoDismissPopups`: on | Off, `notify` gives each notice a timeout of 0, so it stays until closed; a newer notice still replaces it, and only errors and explicit holds queue behind the one on screen. A notice whose time is part of its meaning (an undo or countdown window, `bound: true`) keeps it. |
+| Skip drawing what is off screen | `virtualizeConversations`: on | This is not virtualization: every message stays in the page. It switches `content-visibility: auto` on far turns and conversation rows (the browser skips painting them). Off sets `data-virtualize="off"` and paints all of them. The plan said to leave the row out where the transcript does not virtualize; it is kept because the switch changes real paint cost, and that deviation is for the owner to confirm. |
 | Light code colours, Dark code colours | `lightCodeTheme`, `darkCodeTheme`: `default` | A select each, with a sample of code under the row drawn in that set (the light sample keeps its light background in a dark window). Diffs, file views and the approval card's diff take the set of the window's current appearance. See the table below. |
 | Code font | `codeFont`: empty (Namzu's own) | A text box (saved on Enter or when it loses the focus; a name with anything but letters, digits, spaces and `. _ ( ) + & -` is refused with a line under the box). Sets `--font-mono` and `--font-terminal` on the root to `"<name>", var(--font-mono-app)`, so code blocks, diffs, file views, tool output and the terminal use it. |
 | Code font size | `codeFontSize`: 13 | A list from 11 to 18 px. Sets `--font-size-code` on the root, which `--diffs-font-size` and every code block already read, and the terminal's text size. |
 
-**Code colours.** The labels are ours; the ids are themes the diff highlighter already ships
-(`shared/code-themes.ts`), so nothing is downloaded. `default` is what Namzu has always drawn.
+**Code colours.** The five labels are ours: Default (what Namzu has always drawn), Soft, Vivid, High
+contrast and Warm. Each is a pair of bundled highlighter themes, one for light and one for dark, kept
+in `shared/code-themes.ts`, so nothing is downloaded.
 
-| Label | Light | Dark |
-| --- | --- | --- |
-| Default | `pierre-light` | `pierre-dark` |
-| Soft | `pierre-light-soft` | `pierre-dark-soft` |
-| Vivid | `pierre-light-vibrant` | `pierre-dark-vibrant` |
-| High contrast | `github-light-high-contrast` | `github-dark-high-contrast` |
-| Warm | `gruvbox-light-medium` | `gruvbox-dark-medium` |
-
-A code block in a conversation is drawn plain, not highlighted, so the colour rows change diffs and
-file views, not those blocks. The highlighter themes are not CSS, so `renderer/code-prefs.ts` holds
+**Gap against the plan:** a code block in a conversation is drawn plain, not highlighted, so the
+colour rows change diffs and file views, not those blocks (the code font and size do reach them). The highlighter themes are not CSS, so `renderer/code-prefs.ts` holds
 them: it starts from the mirror (`namzu.appearance-prefs`) and `useAppearancePrefs` updates it after
 it sets the root's tokens. The font and size are in the same mirror and `public/theme-boot.js` sets the
 two tokens before the first paint. **Open terminals:** `terminal-registry.ts` subscribes to
@@ -2492,7 +2487,7 @@ The interface font's list of installed fonts comes from the window's own font-li
 (`queryLocalFonts`, in `renderer/installed-fonts.ts`): the names only, nothing is downloaded, and it
 runs when the person presses **Find installed fonts** because the engine needs a click. Where the call
 is missing or refused, the two built-in choices remain. A chosen font is stored as `family:<name>` for
-the interface and as the name for replies; a name holding anything but letters, digits, spaces and
+the interface and for replies (`family:<name>`, so a font called `System` is never read as the built-in choice); a name holding anything but letters, digits, spaces and
 `. _ ( ) + & -` is refused so it cannot end a quoted CSS string.
 
 Text that is measured once waits for the faces. A terminal opens its emulator after the mono face is

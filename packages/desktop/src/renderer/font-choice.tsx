@@ -48,6 +48,13 @@ export function FontChoice({
 					</optgroup>
 				)}
 			</SelectControl>
+			<output
+				aria-live="polite"
+				className={state.status === 'failed' ? 'settings-font-note' : 'sr-only'}
+			>
+				{state.status === 'failed' && 'Couldn’t list the fonts on this computer.'}
+				{state.status === 'ready' && `${families.length} installed fonts found.`}
+			</output>
 			{(state.status === 'idle' || state.status === 'loading') && (
 				<button
 					type="button"

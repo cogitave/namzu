@@ -98,10 +98,10 @@
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.update-dialog-bar::-webkit-progress-value {
+	:root:not([data-motion="full"]) .update-dialog-bar::-webkit-progress-value {
 		transition: none;
 	}
-	.update-dialog-bar:indeterminate {
+	:root:not([data-motion="full"]) .update-dialog-bar:indeterminate {
 		animation: none;
 		background-position: 30% 0;
 	}

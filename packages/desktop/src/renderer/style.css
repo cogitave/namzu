@@ -368,7 +368,7 @@ pre {
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.brand-dither {
+	:root:not([data-motion="full"]) .brand-dither {
 		animation: none;
 	}
 }
@@ -742,7 +742,7 @@ pre {
 	background: color-mix(in srgb, var(--background) 94%, transparent);
 }
 @media (prefers-reduced-motion: reduce) {
-	.transcript-latest {
+	:root:not([data-motion="full"]) .transcript-latest {
 		animation: none;
 	}
 }
@@ -1273,11 +1273,11 @@ pre {
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.job-stop,
-	.job-chevron {
+	:root:not([data-motion="full"]) .job-stop,
+	:root:not([data-motion="full"]) .job-chevron {
 		transition: none;
 	}
-	.job-spinner {
+	:root:not([data-motion="full"]) .job-spinner {
 		animation: none;
 	}
 }
@@ -1755,10 +1755,10 @@ pre {
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.rail-button:active {
+	:root:not([data-motion="full"]) .rail-button:active {
 		transform: none;
 	}
-	.rail-button svg[data-filled] {
+	:root:not([data-motion="full"]) .rail-button svg[data-filled] {
 		animation: none;
 	}
 }

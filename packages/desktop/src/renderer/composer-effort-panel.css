@@ -224,13 +224,13 @@
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.composer-effort-model,
-	.composer-effort-fill,
-	.composer-effort-fill::before,
-	.composer-effort-thumb {
+	:root:not([data-motion="full"]) .composer-effort-model,
+	:root:not([data-motion="full"]) .composer-effort-fill,
+	:root:not([data-motion="full"]) .composer-effort-fill::before,
+	:root:not([data-motion="full"]) .composer-effort-thumb {
 		transition: none;
 	}
-	.composer-effort-spinner {
+	:root:not([data-motion="full"]) .composer-effort-spinner {
 		animation: none;
 	}
 }

@@ -55,7 +55,7 @@
 	transition: height var(--dur-quick) var(--ease-out), width var(--dur-quick) var(--ease-out);
 }
 @media (prefers-reduced-motion: reduce) {
-	.model-picker-resize {
+	:root:not([data-motion="full"]) .model-picker-resize {
 		transition: none;
 	}
 }
@@ -482,13 +482,13 @@
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.model-picker-back,
-	.model-picker-more,
-	.model-picker-row {
+	:root:not([data-motion="full"]) .model-picker-back,
+	:root:not([data-motion="full"]) .model-picker-more,
+	:root:not([data-motion="full"]) .model-picker-row {
 		transition: none;
 	}
-	.model-picker-loading,
-	.model-picker-trigger-skeleton {
+	:root:not([data-motion="full"]) .model-picker-loading,
+	:root:not([data-motion="full"]) .model-picker-trigger-skeleton {
 		animation: var(--placeholder-reveal-still) !important;
 	}
 }
@@ -502,10 +502,10 @@
 	transform: scale(0.98);
 }
 @media (prefers-reduced-motion: reduce) {
-	.model-picker-trigger [data-composer-control-chevron] {
+	:root:not([data-motion="full"]) .model-picker-trigger [data-composer-control-chevron] {
 		transition: none;
 	}
-	.model-picker-trigger:active {
+	:root:not([data-motion="full"]) .model-picker-trigger:active {
 		transform: none;
 	}
 }
@@ -562,8 +562,8 @@
 	transform: rotate(90deg);
 }
 @media (prefers-reduced-motion: reduce) {
-	.model-picker-fold,
-	.model-picker-fold svg {
+	:root:not([data-motion="full"]) .model-picker-fold,
+	:root:not([data-motion="full"]) .model-picker-fold svg {
 		transition: none;
 	}
 }
@@ -611,8 +611,8 @@
 	transform: rotate(90deg);
 }
 @media (prefers-reduced-motion: reduce) {
-	.model-picker-fold,
-	.model-picker-fold svg {
+	:root:not([data-motion="full"]) .model-picker-fold,
+	:root:not([data-motion="full"]) .model-picker-fold svg {
 		transition: none;
 	}
 }

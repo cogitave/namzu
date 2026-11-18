@@ -150,7 +150,7 @@
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.thread-running-indicator {
+	:root:not([data-motion="full"]) .thread-running-indicator {
 		animation: none;
 	}
 }

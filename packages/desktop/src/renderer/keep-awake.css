@@ -40,8 +40,8 @@
 	transform: translateX(12px);
 }
 @media (prefers-reduced-motion: reduce) {
-	.keep-awake-switch,
-	.keep-awake-switch::after {
+	:root:not([data-motion="full"]) .keep-awake-switch,
+	:root:not([data-motion="full"]) .keep-awake-switch::after {
 		transition: none;
 	}
 }

@@ -3755,6 +3755,7 @@ export function App({
 			tone: 'success',
 			// A notice rebuilt after a restore keeps the time that was left, not a fresh window.
 			timeoutMs: Math.max(batch.until - Date.now(), 1000),
+			bound: true,
 			// Once it has gone (timed out, closed, or taken over by another notice) a later restore
 			// has nothing to update, and must not bring it back.
 			onClose: () => {

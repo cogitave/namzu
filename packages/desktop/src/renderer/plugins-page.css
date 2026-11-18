@@ -449,14 +449,14 @@ output.plugins-page-notice {
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.plugins-page-content {
+	:root:not([data-motion="full"]) .plugins-page-content {
 		animation: none;
 	}
-	.plugins-page-search,
-	.plugins-page-tab,
-	.plugins-page-row-action,
-	.plugins-page-row-icon,
-	.plugins-sidebar-installed li button {
+	:root:not([data-motion="full"]) .plugins-page-search,
+	:root:not([data-motion="full"]) .plugins-page-tab,
+	:root:not([data-motion="full"]) .plugins-page-row-action,
+	:root:not([data-motion="full"]) .plugins-page-row-icon,
+	:root:not([data-motion="full"]) .plugins-sidebar-installed li button {
 		transition: none;
 	}
 }

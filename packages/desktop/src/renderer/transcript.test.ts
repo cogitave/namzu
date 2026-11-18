@@ -377,7 +377,7 @@ describe('single live transcript status', () => {
 		const css = readFileSync(new URL('./transcript-motion.css', import.meta.url), 'utf8')
 		const reduced = css.slice(
 			css.indexOf(
-				'@media (prefers-reduced-motion: reduce) {\n\t.normal-transcript .message.commentary',
+				'@media (prefers-reduced-motion: reduce) {\n\t:root:not([data-motion="full"]) .normal-transcript .message.commentary',
 			),
 		)
 		expect(reduced).toContain('[data-streaming] .message-text > :last-child')
@@ -386,7 +386,7 @@ describe('single live transcript status', () => {
 		const rhythm = readFileSync(new URL('./transcript-rhythm.css', import.meta.url), 'utf8')
 		const mark = rhythm.slice(
 			rhythm.indexOf(
-				'@media (prefers-reduced-motion: reduce) {\n\t.normal-transcript .working-mark > i',
+				'@media (prefers-reduced-motion: reduce) {\n\t:root:not([data-motion="full"]) .normal-transcript .working-mark > i',
 			),
 		)
 		expect(mark).toContain('animation: none')

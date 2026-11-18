@@ -15,7 +15,13 @@ const ROWS: {
 	other: unknown
 	bad: unknown
 }[] = [
-	{ key: 'responseFont', id: 'response-font', fallback: 'match', other: 'Georgia', bad: 'a"b;c' },
+	{
+		key: 'responseFont',
+		id: 'response-font',
+		fallback: 'match',
+		other: 'family:Georgia',
+		bad: 'Georgia',
+	},
 	{
 		key: 'transcriptTextSize',
 		id: 'transcript-text-size',

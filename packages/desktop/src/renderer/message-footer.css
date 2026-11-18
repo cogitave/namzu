@@ -70,13 +70,13 @@
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	/* No fade and no wait: the row is simply there or not. */
+	:root:not([data-motion="full"]) /* No fade and no wait: the row is simply there or not. */
 	.message-footer,
-	.message:hover > .message-footer,
-	.pal-chat-message:hover > .message-footer,
-	.message:focus-within > .message-footer,
-	.pal-chat-message:focus-within > .message-footer,
-	:is(.message, .pal-chat-message)
+	:root:not([data-motion="full"]) .message:hover > .message-footer,
+	:root:not([data-motion="full"]) .pal-chat-message:hover > .message-footer,
+	:root:not([data-motion="full"]) .message:focus-within > .message-footer,
+	:root:not([data-motion="full"]) .pal-chat-message:focus-within > .message-footer,
+	:root:not([data-motion="full"]) :is(.message, .pal-chat-message)
 		.message-footer:has(
 			[aria-pressed="true"],
 			[data-copy-state="pending"],

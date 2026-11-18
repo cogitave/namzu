@@ -187,8 +187,8 @@
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.computer-workspace-tab,
-	.computer-workspace-tab-close {
+	:root:not([data-motion="full"]) .computer-workspace-tab,
+	:root:not([data-motion="full"]) .computer-workspace-tab-close {
 		transition: none;
 	}
 }

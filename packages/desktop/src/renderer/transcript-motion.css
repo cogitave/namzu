@@ -303,9 +303,9 @@
 	opacity: 0;
 }
 @media (prefers-reduced-motion: reduce) {
-	.normal-transcript [data-slot="collapsible-panel"],
-	.normal-transcript .disclosure-chevron,
-	.normal-transcript .message-time {
+	:root:not([data-motion="full"]) .normal-transcript [data-slot="collapsible-panel"],
+	:root:not([data-motion="full"]) .normal-transcript .disclosure-chevron,
+	:root:not([data-motion="full"]) .normal-transcript .message-time {
 		transition: none;
 	}
 }
@@ -346,7 +346,7 @@
 	animation: working-shine 2.2s linear infinite;
 }
 @media (prefers-reduced-motion: reduce) {
-	.normal-transcript .message.commentary[data-streaming] .message-text > :last-child:is(p, ul, ol) {
+	:root:not([data-motion="full"]) .normal-transcript .message.commentary[data-streaming] .message-text > :last-child:is(p, ul, ol) {
 		background: none;
 		color: var(--foreground);
 		animation: none;

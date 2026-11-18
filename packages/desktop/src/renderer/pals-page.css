@@ -504,7 +504,7 @@
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.sidebar-skeleton {
+	:root:not([data-motion="full"]) .sidebar-skeleton {
 		animation: var(--placeholder-reveal-still) !important;
 	}
 }
@@ -591,23 +591,23 @@
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.pal-welcome,
-	.pal-customize-character {
+	:root:not([data-motion="full"]) .pal-welcome,
+	:root:not([data-motion="full"]) .pal-customize-character {
 		animation: none;
 	}
-	.pal-loading,
-	.pal-model-skeleton {
+	:root:not([data-motion="full"]) .pal-loading,
+	:root:not([data-motion="full"]) .pal-model-skeleton {
 		animation: var(--placeholder-reveal-still) !important;
 	}
-	.pal-customize-backdrop,
-	.pal-customize-popup,
-	.pal-color-choice,
-	.pal-character-choice-option,
-	.sidebar-pal-row {
+	:root:not([data-motion="full"]) .pal-customize-backdrop,
+	:root:not([data-motion="full"]) .pal-customize-popup,
+	:root:not([data-motion="full"]) .pal-color-choice,
+	:root:not([data-motion="full"]) .pal-character-choice-option,
+	:root:not([data-motion="full"]) .sidebar-pal-row {
 		transition: none;
 	}
-	.pal-color-choice:hover,
-	.pal-character-choice-option:hover {
+	:root:not([data-motion="full"]) .pal-color-choice:hover,
+	:root:not([data-motion="full"]) .pal-character-choice-option:hover {
 		transform: none;
 	}
 }

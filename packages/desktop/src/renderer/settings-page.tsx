@@ -7,10 +7,12 @@ import type { ProjectView } from '../shared/protocol.js'
 import {
 	type CatalogueEntry,
 	type CatalogueOption,
+	FONT_FAMILY_PREFIX,
 	RESPONSE_FONT_MATCH,
 	appliesText,
 	catalogueEntry,
 	isSafeFontName,
+	storedFamily,
 } from '../shared/settings-catalogue.js'
 import type {
 	DataFolderKind,
@@ -788,6 +790,7 @@ export function CodeFontInput({
 	useEffect(() => setDraft(value), [value])
 	const text = draft.trim()
 	const invalid = text !== '' && !isSafeFontName(text)
+	const messageId = useId()
 	const commit = () => {
 		if (invalid) return
 		if (text !== value) onCommit(text)
@@ -800,6 +803,7 @@ export function CodeFontInput({
 				className="settings-config-input"
 				aria-label="Code font"
 				aria-invalid={invalid || undefined}
+				aria-describedby={invalid ? messageId : undefined}
 				placeholder="Namzu’s own"
 				maxLength={80}
 				spellCheck={false}
@@ -809,11 +813,14 @@ export function CodeFontInput({
 				onBlur={commit}
 				onKeyDown={(event) => {
 					if (event.key === 'Enter') commit()
+					if (event.key === 'Escape') setDraft(value)
 				}}
 			/>
 			{invalid && (
-				<span data-invalid role="alert">
-					Use letters, numbers, spaces and . _ ( ) + & - only.
+				<span id={messageId} data-invalid role="alert">
+					{draft.includes(',')
+						? 'Enter one font name, without commas. Escape goes back to the saved one.'
+						: 'Use letters, numbers, spaces and . _ ( ) + & - only. Escape goes back to the saved one.'}
 				</span>
 			)}
 		</div>
@@ -983,12 +990,8 @@ function AppearanceSection({ appearance, onAppearanceChange, settings }: Setting
 						{ value: 'app', label: 'Namzu’s own' },
 						{ value: 'system', label: 'Your device’s' },
 					]}
-					familyValue={(family) => family}
-					familyOf={(value) =>
-						value === RESPONSE_FONT_MATCH || value === 'app' || value === 'system'
-							? undefined
-							: value
-					}
+					familyValue={(family) => `${FONT_FAMILY_PREFIX}${family}`}
+					familyOf={storedFamily}
 					onChange={(value) => void settings.change({ responseFont: value })}
 				/>
 			</CatalogueRow>

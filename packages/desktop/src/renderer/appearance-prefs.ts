@@ -1,5 +1,5 @@
 import { CODE_FONT_SIZE_DEFAULT } from '../shared/code-themes.js'
-import { RESPONSE_FONT_MATCH, isSafeFontName } from '../shared/settings-catalogue.js'
+import { RESPONSE_FONT_MATCH, isSafeFontName, storedFamily } from '../shared/settings-catalogue.js'
 import type { DesktopSettings } from '../shared/settings-protocol.js'
 
 /**
@@ -58,7 +58,8 @@ export function responseFontStack(value: string): string | undefined {
 	if (value === RESPONSE_FONT_MATCH || value === '') return undefined
 	if (value === 'app') return 'var(--font-sans-app)'
 	if (value === 'system') return 'var(--font-sans-system)'
-	return isSafeFontName(value) ? familyStack(value, 'var(--font-sans)') : undefined
+	const family = storedFamily(value)
+	return family === undefined ? undefined : familyStack(family, 'var(--font-sans)')
 }
 
 function toggleAttribute(root: PrefsRoot, name: string, value: string | undefined) {

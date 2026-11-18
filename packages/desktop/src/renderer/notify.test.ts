@@ -364,24 +364,26 @@ describe('auto-dismiss popups', () => {
 		expect(added.at(-1)?.timeout).toBe(4000)
 	})
 
-	it('lets a notice that names its own time keep it', () => {
+	it('keeps a notice with a plain own time until closed, but a countdown keeps its time', () => {
 		const hub = createToastHub()
 		const { sink, added } = recordingSink()
 		hub.register(sink)
 		hub.setAutoDismiss(false)
-		hub.notify('Undo?', { timeoutMs: 8000 })
-		expect(added[0]?.timeout).toBe(8000)
+		hub.notify('Plain.', { timeoutMs: 8000 })
+		expect(added[0]?.timeout).toBe(0)
+		hub.notify('Undo?', { timeoutMs: 8000, bound: true })
+		expect(added[1]?.timeout).toBe(8000)
 	})
 
-	it('holds each notice for the person: a second waits behind the first', () => {
+	it('shows the newest notice at once: only errors and explicit holds queue', () => {
 		const hub = createToastHub()
-		const { sink, added, leave } = recordingSink()
+		const { sink, added } = recordingSink()
 		hub.register(sink)
 		hub.setAutoDismiss(false)
 		hub.notify('First.')
 		hub.notify('Second.')
-		expect(added.map((item) => item.title)).toEqual(['First.'])
-		leave(added[0]?.id ?? '')
-		expect(added.map((item) => item.title)).toEqual(['First.', 'Second.'])
+		hub.notify('Third.')
+		expect(added.map((item) => item.title)).toEqual(['First.', 'Second.', 'Third.'])
+		expect(added.every((item) => item.timeout === 0)).toBe(true)
 	})
 })

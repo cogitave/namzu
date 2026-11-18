@@ -26,7 +26,7 @@
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.composer-list-menu {
+	:root:not([data-motion="full"]) .composer-list-menu {
 		animation: none;
 	}
 }
@@ -198,8 +198,8 @@
 	transform: translateX(14px);
 }
 @media (prefers-reduced-motion: reduce) {
-	.composer-switch,
-	.composer-switch::after {
+	:root:not([data-motion="full"]) .composer-switch,
+	:root:not([data-motion="full"]) .composer-switch::after {
 		transition: none;
 	}
 }

@@ -31,6 +31,8 @@ export type InstalledFontsState =
 	| { status: 'loading' }
 	| { status: 'ready'; families: readonly string[] }
 	| { status: 'unavailable' }
+	/** The list was asked for and the engine refused or failed. */
+	| { status: 'failed' }
 
 let cached: readonly string[] | undefined
 
@@ -60,7 +62,7 @@ export function useInstalledFonts(): [InstalledFontsState, () => void] {
 		setState({ status: 'loading' })
 		listInstalledFonts(view)
 			.then((families) => setState({ status: 'ready', families }))
-			.catch(() => setState({ status: 'unavailable' }))
+			.catch(() => setState({ status: 'failed' }))
 	}, [view])
 	return [state, load]
 }

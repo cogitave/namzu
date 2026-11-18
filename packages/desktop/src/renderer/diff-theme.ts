@@ -303,9 +303,10 @@ export const DIFF_VIEW_UNSAFE_CSS = `${DIFF_SURFACE_THEME_UNSAFE_CSS}
   }
 }
 
+/* A shadow root is not reached by a rule on the page's root, so it asks its host's ancestors. */
 @media (prefers-reduced-motion: reduce) {
-  [data-diff],
-  [data-file] {
+  :host-context(:root:not([data-motion="full"])) [data-diff],
+  :host-context(:root:not([data-motion="full"])) [data-file] {
     transition: none;
   }
 }

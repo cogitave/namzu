@@ -149,9 +149,9 @@
 	height: var(--menu-icon-size);
 }
 @media (prefers-reduced-motion: reduce) {
-	.harness-picker-row,
-	.engine-chip,
-	.engine-panel-back {
+	:root:not([data-motion="full"]) .harness-picker-row,
+	:root:not([data-motion="full"]) .engine-chip,
+	:root:not([data-motion="full"]) .engine-panel-back {
 		transition: none;
 	}
 }

@@ -184,12 +184,12 @@
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.attachment-item,
-	.attachment-card-pending svg {
+	:root:not([data-motion="full"]) .attachment-item,
+	:root:not([data-motion="full"]) .attachment-card-pending svg {
 		animation: none;
 	}
-	.attachment-preview,
-	.attachment-preview-backdrop {
+	:root:not([data-motion="full"]) .attachment-preview,
+	:root:not([data-motion="full"]) .attachment-preview-backdrop {
 		transition: none;
 	}
 }

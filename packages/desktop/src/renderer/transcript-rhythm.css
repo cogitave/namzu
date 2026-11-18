@@ -98,7 +98,7 @@
 	transform: rotate(90deg);
 }
 @media (prefers-reduced-motion: reduce) {
-	.normal-transcript .fold-chevron {
+	:root:not([data-motion="full"]) .normal-transcript .fold-chevron {
 		transition: none;
 	}
 }
@@ -145,7 +145,7 @@
 	opacity: 0.6;
 }
 @media (prefers-reduced-motion: reduce) {
-	.normal-transcript .working-mark > i {
+	:root:not([data-motion="full"]) .normal-transcript .working-mark > i {
 		animation: none;
 		opacity: 0.6;
 	}

@@ -58,8 +58,8 @@
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.voice-mic[data-phase="hearing"] .voice-mic-dot,
-	.voice-mic[data-phase="transcribing"] svg {
+	:root:not([data-motion="full"]) .voice-mic[data-phase="hearing"] .voice-mic-dot,
+	:root:not([data-motion="full"]) .voice-mic[data-phase="transcribing"] svg {
 		animation: none;
 	}
 }

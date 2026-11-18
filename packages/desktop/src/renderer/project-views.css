@@ -32,7 +32,7 @@
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.project-connecting-spinner {
+	:root:not([data-motion="full"]) .project-connecting-spinner {
 		animation-duration: 3s;
 	}
 }

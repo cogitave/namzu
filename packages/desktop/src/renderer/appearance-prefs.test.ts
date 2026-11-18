@@ -1,4 +1,6 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_DESKTOP_SETTINGS } from '../shared/settings-protocol.js'
@@ -61,7 +63,7 @@ describe('applying the appearance choices', () => {
 
 	it('draws replies in a chosen font and stops when it is back on match', () => {
 		const element = root()
-		applyAppearancePrefs(element, { ...defaults, responseFont: 'Georgia' })
+		applyAppearancePrefs(element, { ...defaults, responseFont: 'family:Georgia' })
 		expect(element.attributes.get(PREF_ATTRIBUTES.responseFont)).toBe('on')
 		expect(element.properties.get(RESPONSE_FONT_PROPERTY)).toBe('"Georgia", var(--font-sans)')
 		applyAppearancePrefs(element, defaults)
@@ -73,6 +75,10 @@ describe('applying the appearance choices', () => {
 		expect(responseFontStack('app')).toBe('var(--font-sans-app)')
 		expect(responseFontStack('system')).toBe('var(--font-sans-system)')
 		expect(responseFontStack('a";}body{x:y')).toBeUndefined()
+		expect(responseFontStack('family:a";}body{x:y')).toBeUndefined()
+		// A font named like a built-in choice is stored under its prefix, so it stays distinct.
+		expect(responseFontStack('family:System')).toBe('"System", var(--font-sans)')
+		expect(responseFontStack('Georgia')).toBeUndefined()
 	})
 
 	it('keeps a copy for the first paint, without the choice that needs no first paint', () => {
@@ -111,7 +117,7 @@ describe('the first paint (public/theme-boot.js)', () => {
 		transcriptWidth: 'medium',
 		motion: 'full',
 		virtualizeConversations: false,
-		responseFont: 'IBM Plex Sans',
+		responseFont: 'family:IBM Plex Sans',
 	}
 
 	it('sets exactly what applyAppearancePrefs sets from the mirror', () => {
@@ -282,6 +288,21 @@ describe('the stylesheet', () => {
 		expect(style).toMatch(
 			/prefers-reduced-motion: reduce\) \{\s*:root:not\(\[data-motion="full"\]\)/,
 		)
+	})
+
+	it('gates every component-level reduced-motion rule on Motion not being Full', () => {
+		const dir = dirname(fileURLToPath(import.meta.url))
+		const ungated: string[] = []
+		for (const name of readdirSync(dir).filter((n) => n.endsWith('.css'))) {
+			const css = readFileSync(join(dir, name), 'utf8')
+			for (const m of css.matchAll(/@media \(prefers-reduced-motion: reduce\) \{/g)) {
+				const rest = css.slice((m.index ?? 0) + m[0].length)
+				if (!/^\s*:root:not\(\[data-motion="full"\]\)/.test(rest)) ungated.push(name)
+			}
+		}
+		expect(ungated).toEqual([])
+		const diff = readFileSync(join(dir, 'diff-theme.ts'), 'utf8')
+		expect(diff).toContain(':host-context(:root:not([data-motion="full"])) [data-diff]')
 	})
 
 	it('draws off-screen turns and conversation rows when virtualizing is off', () => {

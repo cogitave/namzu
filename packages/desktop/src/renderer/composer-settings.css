@@ -109,7 +109,7 @@
 	color: var(--warning-foreground);
 }
 @media (prefers-reduced-motion: reduce) {
-	.composer-permission-option {
+	:root:not([data-motion="full"]) .composer-permission-option {
 		transition: none;
 	}
 }

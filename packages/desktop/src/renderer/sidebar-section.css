@@ -60,10 +60,10 @@
 	animation: var(--placeholder-reveal);
 }
 @media (prefers-reduced-motion: reduce) {
-	.sidebar-section-skeleton {
+	:root:not([data-motion="full"]) .sidebar-section-skeleton {
 		animation: var(--placeholder-reveal-still) !important;
 	}
-	.sidebar-section-chevron {
+	:root:not([data-motion="full"]) .sidebar-section-chevron {
 		transition: none;
 	}
 }

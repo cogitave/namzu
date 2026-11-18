@@ -12,8 +12,8 @@
 		var(--ease-out), box-shadow var(--dur-quick) var(--ease-out);
 }
 @media (prefers-reduced-motion: reduce) {
-	.message-actions > button,
-	.message-copy-button {
+	:root:not([data-motion="full"]) .message-actions > button,
+	:root:not([data-motion="full"]) .message-copy-button {
 		transition: none;
 	}
 }

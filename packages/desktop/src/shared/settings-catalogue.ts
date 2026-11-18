@@ -25,6 +25,16 @@ import { SHELL_CHOICES, SHELL_CHOICE_LABELS } from './terminal-tabs.js'
 /** The response font's value when it follows the interface font. */
 export const RESPONSE_FONT_MATCH = 'match'
 
+/** What an installed font's name is stored under, so it can never be read as `match`, `app` or `system`. */
+export const FONT_FAMILY_PREFIX = 'family:'
+
+/** The font name inside a stored `family:<name>` value, if it holds a safe one. */
+export function storedFamily(value: unknown): string | undefined {
+	if (typeof value !== 'string' || !value.startsWith(FONT_FAMILY_PREFIX)) return undefined
+	const name = value.slice(FONT_FAMILY_PREFIX.length)
+	return isSafeFontName(name) ? name : undefined
+}
+
 /**
  * What a font name may hold. Letters, digits, spaces and a few marks: nothing that could close a
  * quoted CSS string or start another declaration. `public/theme-boot.js` keeps the same test.
@@ -407,7 +417,7 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		section: 'appearance',
 		label: 'Interface font',
 		description:
-			'The typeface for text and code in Namzu: its own, your device’s, or a font installed on this computer. The terminal keeps its own font.',
+			'The typeface of the interface: Namzu’s own, your device’s, or a font installed on this computer. Code and the terminal use the Code font below.',
 		control: {
 			kind: 'select',
 			options: [
@@ -459,7 +469,7 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		label: 'Response font',
 		description:
 			'The typeface of the replies in a conversation. Match interface follows the interface font. Code keeps the code font.',
-		control: { kind: 'text', maxLength: 80, placeholder: 'Match interface' },
+		control: { kind: 'text', maxLength: 90, placeholder: 'Match interface' },
 		default: RESPONSE_FONT_MATCH,
 		appliesWhen: 'now',
 		keywords: ['font', 'typeface', 'reply', 'replies', 'answer', 'chat font', 'serif', 'reading'],
@@ -617,17 +627,7 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		control: { kind: 'text', maxLength: 80, placeholder: 'Namzu’s own' },
 		default: '',
 		appliesWhen: 'now',
-		keywords: [
-			'font',
-			'monospace',
-			'mono',
-			'typeface',
-			'terminal',
-			'diff',
-			'code',
-			'fira',
-			'ligature',
-		],
+		keywords: ['font', 'monospace', 'mono', 'typeface', 'terminal', 'diff', 'code', 'ligature'],
 	},
 	{
 		id: 'code-font-size',
@@ -787,6 +787,13 @@ export function catalogueAccepts(entry: CatalogueEntry, value: unknown): boolean
 		)
 	if (entry.control.kind === 'text') {
 		if (typeof value !== 'string' || value.length > entry.control.maxLength) return false
+		if (entry.key === 'responseFont')
+			return (
+				value === RESPONSE_FONT_MATCH ||
+				value === 'app' ||
+				value === 'system' ||
+				storedFamily(value) !== undefined
+			)
 		return value === '' || isSafeFontName(value)
 	}
 	return false
