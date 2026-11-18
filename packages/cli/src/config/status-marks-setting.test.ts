@@ -29,6 +29,6 @@ describe('statusMarks', () => {
 		const found = SETTING_DESCRIPTORS.find((d) => d.path === 'statusMarks')
 		expect(found?.default).toBe(true)
 		expect(found?.appliesWhen).toBe('now')
-		expect(found?.description).toMatch(/none of your model usage/u)
+		expect(found?.description).toMatch(/needs you, is working or has a new reply/u)
 	})
 })

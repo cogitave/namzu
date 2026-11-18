@@ -132,6 +132,22 @@ describe('a default is read from its typed value', () => {
 		const short: ConfigSettingDescriptor = { ...sentence, defaultText: 'unlimited' }
 		expect(defaultHelper(short)).toBe('')
 	})
+
+	it('says no default under a text box with its own placeholder or under a list that is empty by default', () => {
+		const text: ConfigSettingDescriptor = {
+			...toggle({}),
+			control: { kind: 'text', placeholder: 'Inside the project' },
+			default: undefined,
+			defaultText: "inside the project's own folder",
+		}
+		expect(defaultHelper(text)).toBe('')
+		const list: ConfigSettingDescriptor = {
+			...toggle({}),
+			control: { kind: 'list', itemLabel: 'folder' },
+			default: [],
+		}
+		expect(defaultHelper(list)).toBe('')
+	})
 })
 
 describe('a row says its default, its choice help and when a change applies', () => {

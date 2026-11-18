@@ -840,7 +840,7 @@ const DECLARED: readonly SettingDescriptor[] = [
 		'worktrees.sparseFolders',
 		'projects',
 		'Worktree folders',
-		'A new worktree holds only these folders of the project, as written from its top, such as src/app. The files at the top of the project stay. Leave it empty to get everything.',
+		'When set, a new worktree holds only these folders, such as src/app, and the files at the top of the project.',
 		{ kind: 'list', itemLabel: 'folder', placeholder: 'src/app' },
 		{
 			group: 'worktrees',
@@ -852,7 +852,7 @@ const DECLARED: readonly SettingDescriptor[] = [
 		'statusMarks',
 		'appearance',
 		'Label conversations by status',
-		'Marks a conversation in the sidebar by its status, using none of your model usage.',
+		'Shows in the sidebar when a conversation needs you, is working or has a new reply.',
 		on,
 		{
 			appliesWhen: 'now',

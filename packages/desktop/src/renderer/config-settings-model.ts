@@ -133,6 +133,10 @@ export function defaultHelper(
 ): string {
 	const own: readonly string[] = ['toggle', 'toggle-list', 'toggle-checks', 'select', 'key']
 	if (own.includes(descriptor.control.kind)) return ''
+	// A text box with its own placeholder already says what an empty box means.
+	if (descriptor.control.kind === 'text' && descriptor.control.placeholder) return ''
+	// An empty list by default says so itself ("No extra folders."), so a line under it repeats it.
+	if (Array.isArray(descriptor.default) && descriptor.default.length === 0) return ''
 	// A number or text box shows a short default as its placeholder. A default that is a sentence
 	// does not fit there (the placeholder falls back to the word 'default'), so say it under the row.
 	if (descriptor.control.kind === 'number' || descriptor.control.kind === 'text') {

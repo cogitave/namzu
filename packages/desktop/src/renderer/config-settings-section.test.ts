@@ -686,7 +686,8 @@ describe('the extra folders and the turned-off skills, drawn from the real engin
 		async () => {
 			const withPicker = row(await drawReal('projects', { tools }), 'additionalDirectories')
 			expect(withPicker).toContain('No extra folders.')
-			expect(withPicker).toContain('Default · None')
+			// The empty list says it is empty; no default line repeats that under it.
+			expect(withPicker).not.toContain('Default · None')
 			const typed = row(await drawReal('projects', { tools: {} }), 'additionalDirectories')
 			expect(typed).toContain('aria-label="Add folder"')
 			expect(typed).not.toContain('>Add folder<')

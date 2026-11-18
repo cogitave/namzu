@@ -2,6 +2,7 @@
 
 ## 2026-11-18
 
+- **Update** [Desktop](cli/desktop.md): a list that is empty by default and a text box with its own placeholder no longer repeat their default in a line under the row; the worktree folders and status marks rows read as one sentence.
 - **Update** [Session storage](cli/session-storage.md): the conversation list names the conversations it just archived for being idle only when the app asks for them (`idleArchivedRows: true`), so an older app never draws an empty row for one.
 - **Creation** [Status marks in the sidebar](cli/desktop.md#status-marks-in-the-sidebar): the config key `statusMarks` (default on) switches the sidebar's per-conversation marks off; they are worked out from app state and cost no model call. The transcript has one view in Desktop, so no default-view setting was added.
 - **Creation** [Managed Git worktrees](cli/worktrees.md#settings-for-worktrees): `worktrees.branchPrefix` (a new worktree's branch is `<prefix>/<name>`, default `namzu`), `worktrees.location` (the folder new worktrees are made in, with a folder picker in Desktop Settings) and `worktrees.sparseFolders` (a new worktree holds only those folders, through `git sparse-checkout`), read from the user and managed files only. The SDK's `GitWorktreeDriver` takes a `branchPrefix` and still owns a worktree made under another prefix.
