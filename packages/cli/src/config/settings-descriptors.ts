@@ -816,7 +816,7 @@ const DECLARED: readonly SettingDescriptor[] = [
 		'worktrees.branchPrefix',
 		'projects',
 		'Branch prefix',
-		'Added to the start of every branch name Namzu makes for a new worktree, as prefix/name. Worktrees you already have keep the branch they were made with.',
+		'Added to the start of every branch name Namzu makes for a new worktree.',
 		{ kind: 'text', placeholder: 'namzu' },
 		{
 			group: 'worktrees',
@@ -828,7 +828,7 @@ const DECLARED: readonly SettingDescriptor[] = [
 		'worktrees.location',
 		'projects',
 		'Worktree location',
-		'The folder where Namzu stores Git worktrees for isolated coding conversations on this computer. Each project gets its own folder inside it. The folder has to exist and be one Namzu can write to. Worktrees you already have stay where they are.',
+		'Where Namzu stores Git worktrees for isolated coding conversations on this computer.',
 		{ kind: 'text', placeholder: 'Inside the project', picker: 'folder' },
 		{
 			group: 'worktrees',
@@ -852,7 +852,7 @@ const DECLARED: readonly SettingDescriptor[] = [
 		'statusMarks',
 		'appearance',
 		'Label conversations by status',
-		'Marks a conversation in the sidebar when it needs your answer, is running, hit an error or has a new reply. The marks come from what Namzu already knows, so they use none of your model usage.',
+		'Marks a conversation in the sidebar by its status, using none of your model usage.',
 		on,
 		{
 			appliesWhen: 'now',
@@ -865,7 +865,7 @@ const DECLARED: readonly SettingDescriptor[] = [
 		'archiveInactive',
 		'projects',
 		'Archive inactive conversations',
-		'Moves a conversation to the archive after it has had no activity for this long. A conversation that is running or has background work is never archived, and nothing is deleted: a worktree with uncommitted changes stays on disk, and you can restore the conversation.',
+		'Moves a conversation to the archive after it has had no activity for this long.',
 		pick(
 			['never', 'Never', 'Conversations stay where they are.'],
 			['1d', 'After 1 day', 'Archived once idle for a day.'],

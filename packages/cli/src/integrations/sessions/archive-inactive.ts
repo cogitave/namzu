@@ -33,23 +33,41 @@ export interface IdleCandidate {
  * throws for a conversation that is running or has background work, and that one is simply left
  * for a later sweep. Returns the ids archived.
  */
+/** At most this many conversations are archived by one listing, so a first listing stays quick. */
+export const ARCHIVE_PER_SWEEP = 5
+/** A conversation that was refused is not tried again for this long. */
+export const ARCHIVE_RETRY_MS = 10 * 60 * 1000
+
 export async function archiveIdleConversations(options: {
 	readonly candidates: readonly IdleCandidate[]
 	readonly afterMs: number | undefined
 	readonly now: number
 	readonly archive: (id: string) => Promise<{ readonly archived?: boolean } | undefined>
+	/** Most to archive in this call; the rest wait for the next listing. */
+	readonly limit?: number
+	/** Ids refused earlier, with when; kept by the host between listings. */
+	readonly refused?: Map<string, number>
 }): Promise<string[]> {
 	const { afterMs } = options
 	if (afterMs === undefined) return []
+	const limit = options.limit ?? ARCHIVE_PER_SWEEP
 	const archived: string[] = []
-	for (const candidate of options.candidates) {
-		const idleSince = Date.parse(candidate.updatedAt)
-		if (!Number.isFinite(idleSince) || options.now - idleSince < afterMs) continue
+	// Longest idle first: those are the ones the setting is for.
+	const idle = options.candidates
+		.map((candidate) => ({ id: candidate.id, since: Date.parse(candidate.updatedAt) }))
+		.filter((entry) => Number.isFinite(entry.since) && options.now - entry.since >= afterMs)
+		.sort((a, b) => a.since - b.since)
+	for (const entry of idle) {
+		if (archived.length >= limit) break
+		const refusedAt = options.refused?.get(entry.id)
+		if (refusedAt !== undefined && options.now - refusedAt < ARCHIVE_RETRY_MS) continue
 		try {
-			const result = await options.archive(candidate.id)
-			if (result?.archived === true) archived.push(candidate.id)
+			const result = await options.archive(entry.id)
+			if (result?.archived === true) archived.push(entry.id)
+			else options.refused?.set(entry.id, options.now)
 		} catch {
 			// Running, background work, or an untrusted folder: not idle, so not archived.
+			options.refused?.set(entry.id, options.now)
 		}
 	}
 	return archived

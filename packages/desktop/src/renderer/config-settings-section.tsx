@@ -578,6 +578,7 @@ function TextInput({
 			<Button
 				variant="outline"
 				size="sm"
+				aria-label={`Choose folder for ${descriptor.label}`}
 				onClick={() => {
 					setPickError('')
 					pick().then(

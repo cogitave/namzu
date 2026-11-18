@@ -337,7 +337,16 @@ export class ManagedWorktrees {
 						: `Git reported a worktree at ${ref.meta.worktreePath}, but it is not registered.`,
 				)
 			}
-			if (ref.meta.hookOwned !== true) await this.keepOnlyChosenFolders(ref.meta.worktreePath)
+			if (ref.meta.hookOwned !== true) {
+				try {
+					await this.keepOnlyChosenFolders(ref.meta.worktreePath)
+				} catch (cause) {
+					// The checkout exists and works in full; refusing here would leave it and its
+					// branch behind with no conversation in it. Say so and carry on.
+					const line = cause instanceof Error ? cause.message : String(cause)
+					if (this.options.onNotice) this.options.onNotice(line)
+				}
+			}
 			return {
 				label: name,
 				path: ref.meta.worktreePath,

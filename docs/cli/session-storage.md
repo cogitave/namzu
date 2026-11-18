@@ -157,7 +157,9 @@ or `30d`. The desktop host reads it from your own file and the managed file each
 conversations, and archives each one whose last activity is at least that old, through the same
 `namzu/conversations/archive` route and the same gates: a conversation with an open turn, one with running
 background work, and one in a folder that is not trusted are never archived (they are tried again on a later
-listing). Archiving only moves a conversation to the archive, where it stays readable and can be restored; it
+listing, but not within ten minutes of a refusal). A listing looks at up to 2000 conversations, archives the
+longest idle first, and archives at most five each time, so a project with a long backlog catches up over a few
+listings while the list shown stays at the 100 newest. Archiving only moves a conversation to the archive, where it stays readable and can be restored; it
 never deletes a conversation and it never touches a worktree, so a worktree with uncommitted changes stays on
 disk. The terminal app has no sweep of its own: the setting is applied where the conversation list is drawn by
 the desktop app.

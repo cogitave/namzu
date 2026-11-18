@@ -216,4 +216,19 @@ describe('CLI managed Git worktrees', () => {
 		expect(existsSync(join(created.path, 'tracked.txt'))).toBe(true)
 		expect(existsSync(join(created.path, 'leave'))).toBe(false)
 	})
+
+	it('keeps a new worktree in full, and says so, when the sparse folders cannot be applied', async () => {
+		const { repo, stateRoot } = fixture()
+		const notices: string[] = []
+		const manager = await openManagedWorktrees(repo, {
+			stateRoot,
+			settings: { sparseFolders: ['../outside'] },
+			onNotice: (line) => notices.push(line),
+		})
+		const created = await manager.create('whole')
+		expect(existsSync(join(created.path, 'tracked.txt'))).toBe(true)
+		expect(notices).toHaveLength(1)
+		expect(notices[0]).toContain('kept in full')
+		await expect(manager.create('whole')).rejects.toThrow('already exists')
+	})
 })

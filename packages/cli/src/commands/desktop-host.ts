@@ -91,6 +91,10 @@ import { projectPr } from './desktop-host-pr.js'
 import { LIMITS_REFRESH_METHOD, type LimitsFeed } from './desktop-limits-feed.js'
 import { type SavedTurnOutcome, savedTurnOutcome } from './desktop-outcome-feed.js'
 
+/** How many conversations the idle-archive sweep looks at; the list shown stays at 100. */
+const IDLE_SWEEP_POOL = 2000
+/** Conversations the sweep was refused, and when, so a listing does not retry them each time. */
+const refusedIdleArchives = new Map<string, number>()
 const SEARCH_QUERY_MIN = 2
 const SEARCH_QUERY_MAX = 200
 /** The index returns many parts per conversation; a window this size still finds one hit for each of many. */
@@ -1375,17 +1379,18 @@ export function createDesktopHostExtensions(
 			withState(async (state) => {
 				const currentPal = pal()
 				if (currentPal) return listPalConversations(cwd, currentPal.id)
-				const rows = await listRecent(state, 100)
+				const afterMs = archiveAfterMs(readArchiveInactive())
+				// The sweep looks past the 100 shown rows: the longest idle are the oldest.
+				const pool = await listRecent(state, afterMs === undefined ? 100 : IDLE_SWEEP_POOL)
 				const archived = await archiveIdleConversations({
-					candidates: rows,
-					afterMs: archiveAfterMs(readArchiveInactive()),
+					candidates: pool,
+					afterMs,
 					now: Date.now(),
 					archive: archiveConversationById,
+					refused: refusedIdleArchives,
 				})
-				return conversationRows(
-					state,
-					archived.length === 0 ? rows : rows.filter((row) => !archived.includes(row.id)),
-				)
+				const kept = archived.length === 0 ? pool : pool.filter((row) => !archived.includes(row.id))
+				return conversationRows(state, kept.slice(0, 100))
 			}),
 		/**
 		 * Full-text search over what a conversation said and did (replies and tool output), through
