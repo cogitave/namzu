@@ -288,7 +288,7 @@ fails, is slow or is unsure is the same as none, and with no advisor the tool ha
   Refused with no snapshot taken, with no control offering the action, and for `set_value` without `value`.
 
 The advisor sees control refs, kinds and names (cut), never a screenshot. The CLI builds one from its
-[`pick` decision point](../cli/decision-points.md#pick).
+[`pick` decision point](../cli/decision-points.md#pick), which is on by default once a decision model is configured (`decision.points.pick: off` removes `ui_do`). Without a decision model the tool has no advisor, and the model acts by ref with `ui_act`.
 
 ### What an action reports about itself
 

@@ -114,11 +114,15 @@ const detected = [
 	},
 ] as unknown as DetectedProvider[]
 
-async function sessionWith(codeAnalysis?: { enabled?: boolean }) {
+async function sessionWith(
+	codeAnalysis?: { enabled?: boolean },
+	toolLoading?: 'eager' | 'deferred',
+) {
 	const { createAgentSession } = await import('../agent.js')
 	const session = await createAgentSession(prefs, detected, {
 		cwd: workDir,
 		stateRoot,
+		...(toolLoading ? { toolLoading } : {}),
 		...(codeAnalysis ? { codeAnalysis } : {}),
 	})
 	open.push(session)
@@ -180,7 +184,7 @@ describe('code_analysis reaches the session', () => {
 	it('is absent when the config switched it off', async () => {
 		// The monitor tool is deferred too wherever background work is on.
 		vi.stubEnv('NAMZU_DISABLE_BACKGROUND_TASKS', '1')
-		const session = await sessionWith({ enabled: false })
+		const session = await sessionWith({ enabled: false }, 'eager')
 		expect(session.toolNames()).not.toContain('code_analysis')
 		expect(queryToolNames).not.toContain('code_analysis')
 		// Nothing is deferred, so the guidance for loading a deferred tool is not sent.

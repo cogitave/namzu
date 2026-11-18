@@ -17,6 +17,8 @@ export interface StyledSpan {
 	readonly italic?: boolean
 	readonly underline?: boolean
 	readonly inverse?: boolean
+	/** Where a terminal that takes links sends a click on this run (OSC 8). */
+	readonly href?: string
 	/** The quiet background behind the text; a selection's inverse is drawn over it. */
 	readonly background?: string
 }

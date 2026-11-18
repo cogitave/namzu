@@ -21,6 +21,12 @@ import { WEB_FETCH_TOOL_NAME, WEB_SEARCH_TOOL_NAME } from './web.js'
  * capability rather than by editing the prompt builder.
  */
 
+/**
+ * @deprecated The same rules now ride in the `web_search` and `web_fetch` tool
+ * descriptions, so a host no longer needs to register this contribution, and
+ * the Namzu CLI no longer does. Still exported and unchanged for hosts that
+ * register it; removed in the next major.
+ */
 export const WEB_GUIDANCE_CONTRIBUTION_ID = 'namzu.web.citations'
 
 /**

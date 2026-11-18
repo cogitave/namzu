@@ -1174,3 +1174,11 @@ describe('reaching the element', () => {
 		)
 	})
 })
+
+describe('loading', () => {
+	it('declares each browser tool as the other one companion, so one search loads both', () => {
+		const [browser, act] = createBrowserTools(fakeHost())
+		expect(browser.loadsWith).toEqual(['browser_act'])
+		expect(act.loadsWith).toEqual(['browser'])
+	})
+})

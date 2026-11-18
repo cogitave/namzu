@@ -96,7 +96,7 @@ A step that streams more reasoning than the cap before it has made a call is cut
 
 ## Done-gate
 
-A turn that changed files and tries to end without running a test, lint, format check, typecheck or build after the last change is asked once to check its work first ([Completion audit](../sdk/completion-audit.md)). It is on for the interactive session and for `namzu exec`. `limits.doneGate: false` in the config turns it off, and `--no-done-gate` does the same for one interactive launch (`namzu exec` takes the config key). Delegated children are not audited.
+A turn that changed files and tries to end without running a test, lint, format check, typecheck or build after the last change is asked once to check its work first ([Completion audit](../sdk/completion-audit.md)). It is off by default, because models routinely check their work in ways the gate cannot see and it cost extra requests after finished work. `limits.doneGate: true` in the config turns it on for the interactive session, `namzu exec` and the Desktop host; `--no-done-gate` turns it off again for one interactive launch. Delegated children are not audited.
 
 ## Hook refusals
 
@@ -105,6 +105,8 @@ A `turn_end` or `subagent_stop` hook can refuse to let a turn end ([Hooks](../sd
 ## What a turn says it changed
 
 A turn that changed something, or ran a check that failed, ends with one quiet line in the conversation, in plain words, from the kernel's record of the turn's own tool calls ([Turn outcome](../sdk/turn-outcome.md)). A turn that changed nothing prints nothing. The line works the same in fullscreen mode.
+
+A command in the line is cut after a whole word, never in the middle of a word or inside a quoted string; one that does not fit ends with ` …` (`ran node bin/sales.js; node -e …, but the command line hides whether it passed`), and a leading `cd <the working folder> &&` is left out of it.
 
 | The record says | The line |
 |---|---|

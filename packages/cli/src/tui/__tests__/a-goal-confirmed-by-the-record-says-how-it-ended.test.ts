@@ -92,6 +92,7 @@ async function roundWith(options: {
 	vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
 	const { createAgentSession } = await import('../agent.js')
 	const session = await createAgentSession(prefs, detectedAnthropic(), {
+		toolLoading: 'eager',
 		cwd,
 		scope: { sessionId: durableSession.id, topicId, projectId: project.id, tenantId },
 		sessionGoals: goals,

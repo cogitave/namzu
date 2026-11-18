@@ -97,7 +97,11 @@ function detectedAnthropic(): DetectedProvider[] {
 
 async function openSessionIn(cwd: string) {
 	const { createAgentSession } = await import('../tui/agent.js')
-	return createAgentSession(prefs, detectedAnthropic(), { cwd, web: { search: 'off' } })
+	return createAgentSession(prefs, detectedAnthropic(), {
+		toolLoading: 'eager',
+		cwd,
+		web: { search: 'off' },
+	})
 }
 
 async function drive(cwd: string): Promise<Record<string, unknown>> {
@@ -122,9 +126,10 @@ function commit(cwd: string, subject: string): void {
  * heading alone would survive the doctrine being reduced to its heading.
  */
 const DOCTRINE_SENTENCES = [
-	'The requested scope is the deliverable,',
+	'Do the whole task. Ending your turn stops all work',
+	'the requested scope is the deliverable,',
 	'Report outcomes faithfully:',
-	'Before editing, use file content you already read or wrote',
+	'A plain question (what, why, how, where, how much) gets the answer first',
 	'Never push, force-push, reset, rebase, clean',
 	'For work that takes several calls, say one short line before the first call',
 ]

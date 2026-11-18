@@ -5,7 +5,12 @@ import { useEffect, useRef, useState } from 'react'
 import { ContentWidth } from './Markdown.js'
 import { ScreenMessageRow } from './Transcript.js'
 import { theme } from './theme.js'
-import { screenDivider, screenFooter, screenWindow } from './transcript-screen.js'
+import {
+	TRANSCRIPT_SCREEN_WHOLE,
+	screenDivider,
+	screenFooter,
+	screenWindow,
+} from './transcript-screen.js'
 import type { TranscriptMessage } from './types.js'
 
 export interface TranscriptScreenProps {
@@ -45,7 +50,11 @@ export function TranscriptScreen({
 	hyperlinks = false,
 	onClose,
 }: TranscriptScreenProps) {
-	const [showAll, setShowAll] = useState(false)
+	// The whole conversation, unless it is long enough that drawing all of it costs: then the tail,
+	// and ctrl+e for the rest.
+	const [showAll, setShowAll] = useState(
+		() => (pending ? messages.length + 1 : messages.length) <= TRANSCRIPT_SCREEN_WHOLE,
+	)
 	// Rows scrolled up from the newest; 0 follows the stream.
 	const [offset, setOffset] = useState(0)
 	const [contentRows, setContentRows] = useState(0)

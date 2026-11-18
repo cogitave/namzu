@@ -179,6 +179,7 @@ async function fixture(
 				},
 			],
 			{
+				toolLoading: 'eager',
 				cwd: pal.workspace,
 				onSessionEvent,
 				scope,

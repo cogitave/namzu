@@ -5,12 +5,17 @@ import { fullscreenFromEnv, resolveFullscreen } from './mode.js'
 const world = { env: {}, interactive: true, hosted: false }
 
 describe('whether the screen is fullscreen', () => {
-	it('is off unless asked for', () => {
-		expect(resolveFullscreen(world)).toBe(false)
+	it('is on unless turned off', () => {
+		expect(resolveFullscreen(world)).toBe(true)
 	})
 
 	it('follows the setting', () => {
 		expect(resolveFullscreen({ ...world, setting: true })).toBe(true)
+		expect(resolveFullscreen({ ...world, setting: false })).toBe(false)
+	})
+
+	it('is turned off by NAMZU_FULLSCREEN=0 and by the setting set to false', () => {
+		expect(resolveFullscreen({ ...world, env: { NAMZU_FULLSCREEN: '0' } })).toBe(false)
 		expect(resolveFullscreen({ ...world, setting: false })).toBe(false)
 	})
 

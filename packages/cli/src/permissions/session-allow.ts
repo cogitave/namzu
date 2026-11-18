@@ -28,6 +28,7 @@ import {
 } from '@namzu/sdk'
 
 import { cliLogger } from '../logging.js'
+import { withoutCdToCwd } from '../tui/shell-display.js'
 import {
 	LOCAL_CONFIG_FILE,
 	ensureLocalConfigIgnored,
@@ -277,8 +278,18 @@ function shorten(text: string): string {
 }
 
 /** The phrase after "don't ask again for", short enough for one line. */
-export function describeAllows(allows: readonly SessionAllow[]): string {
-	const parts = allows.map((allow) => {
+export function describeAllows(allows: readonly SessionAllow[], cwd?: string): string {
+	// The `cd <the working folder>` a line starts with is remembered too, since the rules cover a
+	// line only together, but it is not what the person is saying yes to: it is left out of the
+	// words while anything else remains.
+	const goesNowhere = (allow: SessionAllow): boolean =>
+		cwd !== undefined &&
+		allow.kind === 'command' &&
+		withoutCdToCwd(`${allow.command} && :`, cwd) !== `${allow.command} && :`
+	const shown = allows.some((allow) => !goesNowhere(allow))
+		? allows.filter((allow) => !goesNowhere(allow))
+		: allows
+	const parts = shown.map((allow) => {
 		switch (allow.kind) {
 			case 'command':
 				return `${shorten(allow.command)} commands`

@@ -3,13 +3,18 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node
 import { dirname, join } from 'node:path'
 import { parse as parseYaml } from 'yaml'
 
-import type { DecisionConfig, DecisionPointsConfig } from '../../config/schema.js'
+import {
+	DECISION_POINT_IDS,
+	type DecisionConfig,
+	type DecisionPointsConfig,
+} from '../../config/schema.js'
 import {
 	clearStoredApiKey,
 	readStoredApiKey,
 	writeStoredApiKey,
 } from '../providers/credential-store.js'
 import { resolveNamzuHome } from '../state/home.js'
+import { defaultPointMode } from './points.js'
 
 /**
  * The decision model a person connected from the terminal.
@@ -25,15 +30,15 @@ export const DECISION_KEY_ID = 'decision'
 
 /**
  * What the points start as when a person connects. A point that can only miss a chime
- * (`notify`) or withdraw a suggestion (`skill`) acts; a point that can keep a memory
- * out of the store (`memory`) or press a control (`pick`) only records until the person
- * has seen the log and turns it on.
+ * (`notify`), withdraw a suggestion (`skill`) or choose a control only when it is sure
+ * (`pick`) acts; a point that can keep a memory out of the store (`memory`) only records
+ * until the person has seen the log and turns it on.
  */
 export const DEFAULT_CONNECTED_POINTS: DecisionPointsConfig = {
 	notify: 'on',
 	memory: 'shadow',
 	skill: 'on',
-	pick: 'shadow',
+	pick: 'on',
 }
 
 /** One line saying which points act as soon as a model is connected and which only record. */
@@ -46,7 +51,10 @@ export function connectedPointsNotice(
 			.map(([name]) => name)
 	const on = names('on')
 	const shadow = names('shadow')
-	const join = (list: string[]) => list.join(' and ')
+	const join = (list: string[]) =>
+		list.length > 2
+			? `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`
+			: list.join(' and ')
 	if (on.length === 0 && shadow.length === 0) return 'No decision point is on.'
 	const parts: string[] = []
 	if (on.length > 0) parts.push(`${join(on)} ${on.length > 1 ? 'are' : 'is'} on`)
@@ -270,7 +278,9 @@ export function decisionStatusLine(input: {
 	if (input.env.NAMZU_NO_DECISION === '1') return 'Off (NAMZU_NO_DECISION)'
 	if (!input.config && !input.connected) return 'Not connected'
 	const points = input.config?.points ?? {}
-	const named = Object.entries(points)
+	const named = DECISION_POINT_IDS.map(
+		(name) => [name, points[name] ?? defaultPointMode(name)] as const,
+	)
 		.filter(([, mode]) => mode !== 'off')
 		.map(([name, mode]) => `${name} ${mode}`)
 	return `Connected${named.length > 0 ? ` · ${named.join(', ')}` : ' · no point is on'}`

@@ -65,8 +65,12 @@ rewritten.
 ```
 
 A temporary scratch directory per session lives outside the home, at
-`<temp base>/namzu-<user>/<slug>/<session-id>/scratchpad/`. On POSIX it is created
-with mode 0700 and refused if it is a symlink or owned by another user.
+`<temp base>/namzu-<user>/<slug>/<session-id>/scratchpad/`. Every session that runs
+commands on this machine has one, an ephemeral `exec` run included: it is created
+when the first turn starts, with mode 0700, and refused if it is a symlink or owned by
+another user. A sub-agent uses its parent's. Nothing removes it when the process ends; the
+operating system clears it with the rest of its temporary files. Background job output
+files are in its `jobs/` folder ([Where files go](where-files-go.md)).
 For a confirmed no-project script job, a separate private working directory
 is created beside `NAMZU_HOME`, under `<NAMZU_HOME>-schedule-workspaces/<job-id>/`.
 It is not a session or a filesystem sandbox.
