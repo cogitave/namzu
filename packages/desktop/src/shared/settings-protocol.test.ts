@@ -57,6 +57,12 @@ it('reads a stored file entry by entry and ignores what it does not know', () =>
 		notifyFinished: true,
 		notifySound: false,
 		showConversationTabs: false,
+		responseFont: 'match',
+		transcriptTextSize: 'medium',
+		transcriptWidth: 'narrow',
+		motion: 'system',
+		autoDismissPopups: true,
+		virtualizeConversations: true,
 		lastSettingsSection: 'general',
 	})
 })
@@ -77,6 +83,12 @@ it('documents the defaults the spec names', () => {
 		notifyFinished: true,
 		notifySound: false,
 		showConversationTabs: false,
+		responseFont: 'match',
+		transcriptTextSize: 'medium',
+		transcriptWidth: 'narrow',
+		motion: 'system',
+		autoDismissPopups: true,
+		virtualizeConversations: true,
 		lastSettingsSection: 'general',
 	})
 })

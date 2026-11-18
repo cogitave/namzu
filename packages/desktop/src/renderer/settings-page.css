@@ -1125,3 +1125,80 @@ input.settings-config-number {
 	gap: 4px;
 	font-size: var(--text-small);
 }
+
+/* Two to four choices as one connected control. The radio is the choice and is hidden; the chosen
+   segment is the row's active colour, so the state shows without colour alone (it is also bold). */
+.settings-segmented {
+	display: inline-flex;
+	margin: 0;
+	padding: 2px;
+	gap: 2px;
+	min-width: 0;
+	box-sizing: border-box;
+	height: var(--settings-control-height);
+	border: 1px solid var(--border);
+	border-radius: var(--settings-control-radius);
+	background: var(--background);
+}
+.settings-segmented:disabled {
+	opacity: 0.5;
+}
+.settings-segment {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	padding: 0 12px;
+	border-radius: calc(var(--settings-control-radius) - 2px);
+	color: var(--muted-foreground);
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	cursor: pointer;
+	white-space: nowrap;
+}
+.settings-segment:hover {
+	background: var(--sidebar-row-hover);
+	color: var(--foreground);
+}
+.settings-segment:has(input:checked) {
+	background: var(--sidebar-row-active);
+	color: var(--foreground);
+	font-weight: var(--weight-control);
+}
+.settings-segment:has(input:focus-visible) {
+	box-shadow: var(--focus-ring);
+}
+.settings-segment input {
+	position: absolute;
+	opacity: 0;
+	width: 0;
+	height: 0;
+	margin: 0;
+}
+.settings-segment svg {
+	width: 14px;
+	height: 14px;
+	flex: none;
+}
+.settings-select {
+	max-width: 260px;
+}
+.settings-font-choice {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+.settings-font-find {
+	flex: none;
+	padding: 0 10px;
+	border: 1px solid var(--border);
+	background: var(--background);
+	color: var(--foreground);
+	font: inherit;
+	font-size: var(--text-small);
+	cursor: pointer;
+}
+.settings-font-find:disabled {
+	opacity: 0.5;
+	cursor: default;
+}

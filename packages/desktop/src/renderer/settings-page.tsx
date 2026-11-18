@@ -6,6 +6,7 @@ import type { ProjectView } from '../shared/protocol.js'
 import {
 	type CatalogueEntry,
 	type CatalogueOption,
+	RESPONSE_FONT_MATCH,
 	appliesText,
 	catalogueEntry,
 } from '../shared/settings-catalogue.js'
@@ -13,8 +14,11 @@ import type {
 	DataFolderKind,
 	DesktopInfo,
 	DesktopSettings,
+	MotionChoice,
 	SettingsSection,
 	StartupBehavior,
+	TranscriptTextSize,
+	TranscriptWidth,
 } from '../shared/settings-protocol.js'
 import type { UpdateInfo, UpdateState } from '../shared/update-protocol.js'
 import { OWN_ROW_CONFIG_PATHS, configSearchEntries } from './config-settings-model.js'
@@ -22,6 +26,7 @@ import { ConfigSettingsGroup } from './config-settings-section.js'
 import { copyPlainText } from './copy-button.js'
 import { engineSourceText, engineStatusText, plainVersion } from './engine-delivery-model.js'
 import { EngineUpdateRows, type EngineUpdateTarget } from './engine-updates-section.js'
+import { FontChoice } from './font-choice.js'
 import { HooksRows } from './hooks-section.js'
 import {
 	DownloadIcon,
@@ -35,7 +40,13 @@ import {
 	SunIcon,
 	XIcon,
 } from './icons.js'
-import { INTERFACE_FONT_CHOICES, useInterfaceFont } from './interface-font.js'
+import {
+	FAMILY_PREFIX,
+	INTERFACE_FONT_CHOICES,
+	familyOf,
+	parseInterfaceFont,
+	useInterfaceFont,
+} from './interface-font.js'
 import { LocalListeningSettingsContent } from './local-listening-settings.js'
 import { LocalSpeechSettingsContent } from './local-speech-settings.js'
 import { McpServersRows } from './mcp-servers-section.js'
@@ -58,7 +69,7 @@ import {
 	updateStatusView,
 	visibleNavGroups,
 } from './settings-model.js'
-import { Row, Switch } from './settings-row.js'
+import { Row, SegmentedControl, Switch } from './settings-row.js'
 import type { Appearance } from './sidebar.js'
 import { Button } from './ui/button.js'
 import { useClock } from './use-clock.js'
@@ -583,7 +594,10 @@ function catalogueMeta(entry: CatalogueEntry): string {
 	const fallback = entry.default
 	let defaultLine = ''
 	if (typeof fallback === 'boolean') defaultLine = `Default: ${fallback ? 'On' : 'Off'}.`
-	else if (typeof fallback === 'string' && entry.control.kind === 'select') {
+	else if (typeof fallback === 'string' && entry.control.kind === 'text') {
+		const label = entry.control.placeholder
+		if (label) defaultLine = `Default: ${label}.`
+	} else if (typeof fallback === 'string' && entry.control.kind === 'select') {
 		const label = entry.control.options.find((option) => option.value === fallback)?.label
 		if (label) defaultLine = `Default: ${label}.`
 	}
@@ -833,61 +847,116 @@ function ProjectsSection({
 }
 
 const APPEARANCE_CHOICES = [
+	{ value: 'system', label: 'System', Icon: MonitorIcon },
 	{ value: 'light', label: 'Light', Icon: SunIcon },
 	{ value: 'dark', label: 'Dark', Icon: MoonIcon },
-	{ value: 'system', label: 'System', Icon: MonitorIcon },
 ] as const
 
+/** The options of a catalogue select, as a segmented control wants them. */
+function catalogueChoices<T extends string>(id: string): { value: T; label: string }[] {
+	return (catalogueEntry(id).control as { options: readonly CatalogueOption[] }).options.map(
+		(option) => ({ value: option.value as T, label: option.label }),
+	)
+}
+
+const TEXT_SIZE_CHOICES = catalogueChoices<TranscriptTextSize>('transcript-text-size')
+const WIDTH_CHOICES = catalogueChoices<TranscriptWidth>('transcript-width')
+const MOTION_CHOICES = catalogueChoices<MotionChoice>('motion')
+
 function AppearanceSection({ appearance, onAppearanceChange, settings }: SettingsPageProps) {
-	const group = useId()
-	const fontGroup = useId()
 	const [interfaceFont, setInterfaceFont] = useInterfaceFont()
+	const saved = settings.settings
+	const ready = saved !== undefined
 	return (
 		<>
-			<CatalogueRow id="theme" stacked>
-				<fieldset className="settings-choices settings-choices-inline">
-					<legend className="sr-only">Theme</legend>
-					{APPEARANCE_CHOICES.map(({ value, label, Icon }) => (
-						<label key={value} className="settings-choice settings-choice-tile">
-							<input
-								type="radio"
-								name={group}
-								value={value}
-								checked={appearance === value}
-								onChange={() => onAppearanceChange(value)}
-							/>
-							<Icon aria-hidden="true" />
-							<span className="settings-choice-label">{label}</span>
-						</label>
-					))}
-				</fieldset>
+			<CatalogueRow id="theme">
+				<SegmentedControl
+					label="Theme"
+					value={appearance}
+					options={APPEARANCE_CHOICES}
+					onChange={onAppearanceChange}
+				/>
 			</CatalogueRow>
-			<CatalogueRow id="interface-font" stacked>
-				<fieldset className="settings-choices">
-					<legend className="sr-only">Interface font</legend>
-					{INTERFACE_FONT_CHOICES.map((choice) => (
-						<label key={choice.value} className="settings-choice">
-							<input
-								type="radio"
-								name={fontGroup}
-								value={choice.value}
-								checked={interfaceFont === choice.value}
-								onChange={() => setInterfaceFont(choice.value)}
-							/>
-							<span>
-								<span className="settings-choice-label">{choice.label}</span>
-								<span className="settings-choice-hint">{choice.hint}</span>
-							</span>
-						</label>
-					))}
-				</fieldset>
+			<CatalogueRow id="interface-font">
+				<FontChoice
+					label="Interface font"
+					value={interfaceFont}
+					named={INTERFACE_FONT_CHOICES.map((choice) => ({
+						value: choice.value,
+						label: choice.label,
+					}))}
+					familyValue={(family) => `${FAMILY_PREFIX}${family}`}
+					familyOf={(value) => familyOf(parseInterfaceFont(value))}
+					onChange={(value) => setInterfaceFont(parseInterfaceFont(value))}
+				/>
 			</CatalogueRow>
 			<CatalogueRow id="conversation-tabs">
 				<Switch
 					label="Show conversation tabs"
-					checked={settings.settings?.showConversationTabs ?? false}
-					disabled={!settings.settings}
+					checked={saved?.showConversationTabs ?? false}
+					disabled={!ready}
 					onChange={(value) => void settings.change({ showConversationTabs: value })}
+				/>
+			</CatalogueRow>
+			<CatalogueRow id="response-font">
+				<FontChoice
+					label="Response font"
+					value={saved?.responseFont ?? RESPONSE_FONT_MATCH}
+					named={[
+						{ value: RESPONSE_FONT_MATCH, label: 'Match interface' },
+						{ value: 'app', label: 'Namzu’s own' },
+						{ value: 'system', label: 'Your device’s' },
+					]}
+					familyValue={(family) => family}
+					familyOf={(value) =>
+						value === RESPONSE_FONT_MATCH || value === 'app' || value === 'system'
+							? undefined
+							: value
+					}
+					onChange={(value) => void settings.change({ responseFont: value })}
+				/>
+			</CatalogueRow>
+			<CatalogueRow id="transcript-text-size">
+				<SegmentedControl
+					label="Transcript text size"
+					value={saved?.transcriptTextSize ?? 'medium'}
+					options={TEXT_SIZE_CHOICES}
+					disabled={!ready}
+					onChange={(value) => void settings.change({ transcriptTextSize: value })}
+				/>
+			</CatalogueRow>
+			<CatalogueRow id="transcript-width">
+				<SegmentedControl
+					label="Transcript width"
+					value={saved?.transcriptWidth ?? 'narrow'}
+					options={WIDTH_CHOICES}
+					disabled={!ready}
+					onChange={(value) => void settings.change({ transcriptWidth: value })}
+				/>
+			</CatalogueRow>
+			<CatalogueRow id="motion">
+				<SegmentedControl
+					label="Motion"
+					value={saved?.motion ?? 'system'}
+					options={MOTION_CHOICES}
+					disabled={!ready}
+					onChange={(value) => void settings.change({ motion: value })}
+				/>
+			</CatalogueRow>
+			<CatalogueRow id="auto-dismiss-popups">
+				<Switch
+					label="Close popups by themselves"
+					checked={saved?.autoDismissPopups ?? true}
+					disabled={!ready}
+					onChange={(value) => void settings.change({ autoDismissPopups: value })}
+				/>
+			</CatalogueRow>
+			<CatalogueRow id="virtualize-conversations">
+				<Switch
+					label="Skip drawing what is off screen"
+					checked={saved?.virtualizeConversations ?? true}
+					disabled={!ready}
+					onChange={(value) => void settings.change({ virtualizeConversations: value })}
 				/>
 			</CatalogueRow>
 		</>

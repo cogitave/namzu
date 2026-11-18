@@ -1,4 +1,5 @@
 @import "./theme.css";
+@import "./appearance-prefs.css";
 @import "./menu.css";
 @import "./dialog.css";
 
@@ -1380,16 +1381,18 @@ pre {
 		display: none;
 	}
 }
+/* Motion "Full" in Settings keeps these off even when the device asks for less. */
 @media (prefers-reduced-motion: reduce) {
-	*,
-	*::before,
-	*::after {
+	:root:not([data-motion="full"]),
+	:root:not([data-motion="full"]) *,
+	:root:not([data-motion="full"]) *::before,
+	:root:not([data-motion="full"]) *::after {
 		animation: none !important;
 		transition: none !important;
 		scroll-behavior: auto !important;
 	}
-	.tool.active > .tool-trigger .tool-label,
-	.working-label {
+	:root:not([data-motion="full"]) .tool.active > .tool-trigger .tool-label,
+	:root:not([data-motion="full"]) .working-label {
 		background: none;
 		color: var(--foreground);
 	}

@@ -1,9 +1,10 @@
 import { type AnimationEvent, useEffect, useState } from 'react'
+import { reducedMotion as motionReduced } from './motion-setting.js'
 
 const reducedMotion = () =>
 	typeof window !== 'undefined' &&
 	typeof window.matchMedia === 'function' &&
-	window.matchMedia('(prefers-reduced-motion: reduce)').matches
+	motionReduced(window)?.matches === true
 
 /** Longer than any exit animation here; the safety net for an `animationend` that never arrives. */
 const EXIT_LIMIT_MS = 600

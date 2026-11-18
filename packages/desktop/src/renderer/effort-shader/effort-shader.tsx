@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { type ReducedMotion, reducedMotion } from '../motion-setting.js'
 import {
 	EFFORT_PALETTE,
 	EFFORT_PARAMS,
@@ -252,7 +253,7 @@ export function EffortShader({
 		const el = document.createElement('canvas')
 		el.style.cssText = 'display:block;width:100%;height:100%'
 		mount.appendChild(el)
-		const reduced = window.matchMedia('(prefers-reduced-motion: reduce)')
+		const reduced = reducedMotion(window) as ReducedMotion
 		let renderer = createRenderer(el)
 		if (!renderer) {
 			el.remove()

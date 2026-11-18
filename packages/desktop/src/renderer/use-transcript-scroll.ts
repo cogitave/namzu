@@ -1,4 +1,5 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { reducedMotion } from './motion-setting.js'
 import {
 	createAutoScrollMark,
 	disclosureSettleMs,
@@ -152,7 +153,7 @@ export function useTranscriptScroll(
 		node.addEventListener('keydown', onDisclosure, true)
 		const toLatest = () => {
 			if (!current) return
-			const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+			const reduced = reducedMotion(window)?.matches === true
 			explicitJump = !reduced
 			follow.current = true
 			node.scrollTo({ top: bottom(), behavior: reduced ? 'instant' : 'smooth' })

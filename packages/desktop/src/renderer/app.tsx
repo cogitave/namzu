@@ -282,6 +282,7 @@ import { UndoDialog } from './undo-dialog.js'
 import { undoNotice } from './undo-model.js'
 import { createLimitsRefresher, readBudgets, writeBudgets } from './usage-limits-model.js'
 import type { UsageLimitsControl } from './usage-limits-popover.js'
+import { useAppearancePrefs } from './use-appearance-prefs.js'
 import { useArchivedConversations } from './use-archived-conversations.js'
 import { useAttachments } from './use-attachments.js'
 import { useClock } from './use-clock.js'
@@ -893,6 +894,7 @@ export function App({
 	const pageOpen = railSection === 'plugins'
 	// Read at all times: it decides whether the strip of tabs or the bar stands above the conversation.
 	const desktopSettings = useDesktopSettings(api, true)
+	useAppearancePrefs(desktopSettings.settings)
 	const tabsHint = useMemo(() => readShowTabsHint(localStorage), [])
 	const showTabs = desktopSettings.settings?.showConversationTabs ?? tabsHint
 	const showTabsRef = useRef(showTabs)

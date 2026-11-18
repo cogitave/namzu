@@ -62,6 +62,8 @@ export function createToastHub() {
 	// What is on screen now, and what waits for it to leave. An error the person has not seen
 	// for its full time is never closed by a newer notice: the newer one waits its turn. Errors
 	// wait ahead of everything else; of the others only the newest waits.
+	// Off, a notice with no time of its own stays until it is closed.
+	let autoDismiss = true
 	let active:
 		| { id: string; text: string; tone: ToastTone; held: boolean; sink: ToastSink }
 		| undefined
@@ -151,11 +153,20 @@ export function createToastHub() {
 	return {
 		notify(text: string, options: NotifyOptions = {}): string {
 			const id = `notice-${++counter}`
-			const item = { id, text, options }
+			const item = {
+				id,
+				text,
+				options:
+					autoDismiss || options.timeoutMs !== undefined ? options : { ...options, timeoutMs: 0 },
+			}
 			const sink = target()
 			if (sink) return deliver(sink, item)
 			pending = [...pending, item].slice(-PENDING_LIMIT)
 			return id
+		},
+		/** Whether a notice leaves by itself. Changes what is shown from now on, not what is on screen. */
+		setAutoDismiss(on: boolean) {
+			autoDismiss = on
 		},
 		dismiss(id: string) {
 			pending = pending.filter((item) => item.id !== id)
@@ -193,6 +204,7 @@ export function createToastHub() {
 export const toastHub = createToastHub()
 export const notify = toastHub.notify
 export const dismissNotice = toastHub.dismiss
+export const setNoticeAutoDismiss = toastHub.setAutoDismiss
 
 export function createPaneToastManager(): ToastManager {
 	return Toast.createToastManager()

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type * as Three from 'three'
 import type { RoundedBoxGeometry as RoundedBox } from 'three/addons/geometries/RoundedBoxGeometry.js'
+import { type ReducedMotion, reducedMotion } from './motion-setting.js'
 import {
 	PalCharacter,
 	type PalCharacterAppearance,
@@ -373,7 +374,7 @@ export function PalCharacter3D({
 		let active = true
 		let generation = 0
 		let lease: PalSceneLease<PalScene> | undefined
-		const media = matchMedia('(prefers-reduced-motion: reduce)')
+		const media = reducedMotion(window) as ReducedMotion
 		const release = (discard = false) => {
 			activeScene.current = undefined
 			lease?.release(discard)

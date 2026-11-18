@@ -347,3 +347,41 @@ describe('undoNotice', () => {
 		)
 	})
 })
+
+describe('auto-dismiss popups', () => {
+	it('keeps today’s time when on, and keeps a notice until it is closed when off', () => {
+		const hub = createToastHub()
+		const { sink, added, leave } = recordingSink()
+		hub.register(sink)
+		hub.notify('Copied.')
+		expect(added[0]?.timeout).toBe(4000)
+		hub.setAutoDismiss(false)
+		hub.notify('Saved.', { tone: 'success' })
+		expect(added.at(-1)?.timeout).toBe(0)
+		hub.setAutoDismiss(true)
+		leave(added.at(-1)?.id ?? '')
+		hub.notify('Again.')
+		expect(added.at(-1)?.timeout).toBe(4000)
+	})
+
+	it('lets a notice that names its own time keep it', () => {
+		const hub = createToastHub()
+		const { sink, added } = recordingSink()
+		hub.register(sink)
+		hub.setAutoDismiss(false)
+		hub.notify('Undo?', { timeoutMs: 8000 })
+		expect(added[0]?.timeout).toBe(8000)
+	})
+
+	it('holds each notice for the person: a second waits behind the first', () => {
+		const hub = createToastHub()
+		const { sink, added, leave } = recordingSink()
+		hub.register(sink)
+		hub.setAutoDismiss(false)
+		hub.notify('First.')
+		hub.notify('Second.')
+		expect(added.map((item) => item.title)).toEqual(['First.'])
+		leave(added[0]?.id ?? '')
+		expect(added.map((item) => item.title)).toEqual(['First.', 'Second.'])
+	})
+})

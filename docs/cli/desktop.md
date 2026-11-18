@@ -1000,10 +1000,11 @@ What it holds, and where each value lives (one source of truth per value):
 - **Projects** — every project (name, path shortened with `~` and the whole path on hover, trusted state) with **Remove…**; a project whose folder is gone reads "Folder not found" and also offers **Locate folder**, and *Ask again when a
   project's automatic settings change* (default on). See
   [Trust again when automatic settings change](#trust-again-when-automatic-settings-change).
-- **Appearance** — the theme (light, dark, system) and the interface font (Namzu's own, the default,
-  or your device's; see [Typefaces](#typefaces)). Both stay in the renderer's own storage
-  (`namzu.appearance`, `namzu.interface-font`) because only the renderer paints them; the theme moved
-  out of the profile menu.
+- **Appearance** — the theme (a three-part control: System, Light, Dark), the interface font (Namzu's
+  own, the default, your device's, or a font installed on this computer; see [Typefaces](#typefaces)),
+  *Show conversation tabs*, and the reading rows below. The theme and the interface font stay in the
+  renderer's own storage (`namzu.appearance`, `namzu.interface-font`) because only the renderer paints
+  them; the rest are `desktop-settings.json` keys. See [Appearance rows](#appearance-rows).
 - Every section opens with the same header, a title and one subtitle line, so the search box and
   the content start at the same height on every page (search results get the subtitle "Matches from
   every section.").
@@ -2442,6 +2443,32 @@ the platform stacks alone, and the shipped files are not used for text or code. 
 every window with no restart. It is kept in the renderer's own storage (`namzu.interface-font`) and
 `public/theme-boot.js` sets the attribute before the first paint, like the theme. The terminal reads
 its own token, `--font-terminal` (the shipped mono), so this setting leaves the terminal as it is.
+
+### Appearance rows
+
+Each row below is one key in `desktop-settings.json` (`DesktopSettings`, described once in
+`shared/settings-catalogue.ts`, so Settings search and deep links find it). A file saved before a key
+existed loads with the default. Each is one attribute on the root element, set by
+`renderer/appearance-prefs.ts` in every window when the saved value changes, so a change repaints all
+windows at once. The window keeps a copy in its storage (`namzu.appearance-prefs`) and
+`public/theme-boot.js` sets the same attributes before the first paint, so a restart shows no flash.
+No attribute is the value Namzu has always had. The rules are in `renderer/appearance-prefs.css`.
+
+| Row | Key and default | What it changes |
+| --- | --- | --- |
+| Response font | `responseFont`: `match` | `data-response-font` and `--font-response` set the font of `.chat-markdown` (replies only; `pre` and `code` keep the code font). Choices: Match interface, Namzu's own, Your device's, or an installed font. |
+| Transcript text size | `transcriptTextSize`: `medium` | `data-transcript-size` re-points `--text-reading` and `--leading-reading` inside `.transcript`: small 14 / 20 px, medium 15 / 22 px (as before), large 17 / 26 px. The composer, sidebar and dialogs keep theirs. |
+| Transcript width | `transcriptWidth`: `narrow` | `data-transcript-width` sets `--frame-column-width` (the composer's column and the home block) and `--turn-column-width` (the conversation): narrow 768 / 736 px (as before), medium 896 / 864 px, wide 1024 / 992 px. Settings keeps 768 px. |
+| Motion | `motion`: `system` | `reduce` sets `data-motion="reduce"`: `animation`, `transition` and smooth scrolling are off everywhere, and the script-timed motion (`renderer/motion-setting.ts`, used by the sidebar, transcript, computer chat, Pal and effort-shader code) is skipped. `system` follows the device's flag. `full` ignores the flag in script and in the one global `prefers-reduced-motion` rule in `style.css`; the few per-component reduced-motion rules still follow the device. |
+| Close popups by themselves | `autoDismissPopups`: on | Off, `notify` gives each notice with no time of its own a timeout of 0, so it stays until closed (each waits its turn behind the one on screen). A notice that names its own time keeps it. |
+| Skip drawing what is off screen | `virtualizeConversations`: on | The transcript does not remove far messages (every message stays in the page) but it does leave far turns undrawn with `content-visibility: auto`, as does the conversation list. Off sets `data-virtualize="off"` and draws all of them. |
+
+The interface font's list of installed fonts comes from the window's own font-listing call
+(`queryLocalFonts`, in `renderer/installed-fonts.ts`): the names only, nothing is downloaded, and it
+runs when the person presses **Find installed fonts** because the engine needs a click. Where the call
+is missing or refused, the two built-in choices remain. A chosen font is stored as `family:<name>` for
+the interface and as the name for replies; a name holding anything but letters, digits, spaces and
+`. _ ( ) + & -` is refused so it cannot end a quoted CSS string.
 
 Text that is measured once waits for the faces. A terminal opens its emulator after the mono face is
 ready (the emulator measures a character cell when it opens and keeps that size), and the tab and

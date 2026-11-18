@@ -1,6 +1,7 @@
 import { type RefObject, useLayoutEffect, useRef } from 'react'
 import { type ThreadState, type TimelineEntry, threadPhase } from '../shared/projection.js'
 import { COMPACTING_TEXT, compactedText } from './context-ring.js'
+import { reducedMotion } from './motion-setting.js'
 import { isTaskEntry, latestPlanTurn } from './plan-row.js'
 import { toolTranscriptPresentation } from './tool-transcript-presentation.js'
 import {
@@ -309,7 +310,7 @@ function motionOptions(node: HTMLElement, kind: keyof typeof transcriptMotion) {
 /** A mounted history is the baseline. Only an admitted live suffix can enter. */
 export function createTranscriptEntryMotion(node: HTMLElement) {
 	const view = node.ownerDocument.defaultView
-	const media = view?.matchMedia('(prefers-reduced-motion: reduce)')
+	const media = reducedMotion(view)
 	let previous:
 		| {
 				keys: string[]
@@ -394,7 +395,7 @@ export function createTranscriptEntryMotion(node: HTMLElement) {
 /** A single readable label brightens gently; phase changes never overlap old text. */
 export function createTranscriptPhaseMotion(node: HTMLElement, presence = false) {
 	const view = node.ownerDocument.defaultView
-	const media = view?.matchMedia('(prefers-reduced-motion: reduce)')
+	const media = reducedMotion(view)
 	let initialized = false
 	let previous: string | undefined
 	let previousHistory: string | undefined

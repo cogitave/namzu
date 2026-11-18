@@ -11,6 +11,9 @@ import { SETTINGS_SECTIONS, type SettingsSection, isSettingsSection } from './se
 import type { ShellChoice } from './terminal-tabs.js'
 
 export type StartupBehavior = 'continue' | 'home'
+export type TranscriptTextSize = 'small' | 'medium' | 'large'
+export type TranscriptWidth = 'narrow' | 'medium' | 'wide'
+export type MotionChoice = 'system' | 'reduce' | 'full'
 
 export interface DesktopSettings {
 	/** What the app shows when it starts. */
@@ -53,6 +56,21 @@ export interface DesktopSettings {
 	 * the one list of conversations, and the bar above the conversation carries its title.
 	 */
 	showConversationTabs: boolean
+	/**
+	 * The typeface of replies. `match` follows the interface font; `app` and `system` name the two
+	 * built-in stacks; anything else is the name of a font installed on this computer.
+	 */
+	responseFont: string
+	/** How large the words of a conversation are. `medium` is the size Namzu has always had. */
+	transcriptTextSize: TranscriptTextSize
+	/** How wide the conversation and the composer are. `narrow` is the width Namzu has always had. */
+	transcriptWidth: TranscriptWidth
+	/** `system` follows the device's reduce-motion flag; `reduce` and `full` decide on their own. */
+	motion: MotionChoice
+	/** Notices leave by themselves after a few seconds. Off, each stays until it is closed. */
+	autoDismissPopups: boolean
+	/** Conversations and the conversation list leave what is off screen undrawn. */
+	virtualizeConversations: boolean
 	/** The section the Settings dialog was last on; it opens there again, also after a restart. */
 	lastSettingsSection: SettingsSection
 }

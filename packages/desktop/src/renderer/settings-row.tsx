@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react'
+import { type ReactNode, useId } from 'react'
+import type { IconComponent } from './icons.js'
 
 /** One setting: its name and a line of help on the left, its control on the right. */
 export function Row({
@@ -52,5 +53,71 @@ export function Switch({
 			disabled={disabled}
 			onChange={(event) => onChange(event.target.checked)}
 		/>
+	)
+}
+
+/**
+ * Two to four choices side by side, one of them chosen: a radio group drawn as one connected
+ * control. The choice itself is the radio, so the keyboard and a screen reader work as for any
+ * radio group. Used by the rows that pick one of a few named values.
+ */
+export function SegmentedControl<T extends string>({
+	label,
+	value,
+	options,
+	disabled,
+	onChange,
+}: {
+	label: string
+	value: T
+	options: readonly { value: T; label: string; Icon?: IconComponent }[]
+	disabled?: boolean
+	onChange: (value: T) => void
+}) {
+	const group = useId()
+	return (
+		<fieldset className="settings-segmented" disabled={disabled}>
+			<legend className="sr-only">{label}</legend>
+			{options.map(({ value: choice, label: text, Icon }) => (
+				<label key={choice} className="settings-segment">
+					<input
+						type="radio"
+						name={group}
+						value={choice}
+						checked={value === choice}
+						onChange={() => onChange(choice)}
+					/>
+					{Icon && <Icon aria-hidden="true" />}
+					<span>{text}</span>
+				</label>
+			))}
+		</fieldset>
+	)
+}
+
+/** A drop-down in a row, one height with the other controls. */
+export function SelectControl({
+	label,
+	value,
+	disabled,
+	onChange,
+	children,
+}: {
+	label: string
+	value: string
+	disabled?: boolean
+	onChange: (value: string) => void
+	children: ReactNode
+}) {
+	return (
+		<select
+			className="settings-config-input settings-select"
+			aria-label={label}
+			value={value}
+			disabled={disabled}
+			onChange={(event) => onChange(event.target.value)}
+		>
+			{children}
+		</select>
 	)
 }

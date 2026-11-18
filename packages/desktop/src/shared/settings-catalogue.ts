@@ -16,6 +16,20 @@ import type { DesktopSettings } from './settings-protocol.js'
 import { SETTINGS_SECTIONS, type SettingsSection } from './settings-sections.js'
 import { SHELL_CHOICES, SHELL_CHOICE_LABELS } from './terminal-tabs.js'
 
+/** The response font's value when it follows the interface font. */
+export const RESPONSE_FONT_MATCH = 'match'
+
+/**
+ * What a font name may hold. Letters, digits, spaces and a few marks: nothing that could close a
+ * quoted CSS string or start another declaration. `public/theme-boot.js` keeps the same test.
+ */
+export const FONT_NAME_PATTERN = /^[\p{L}\p{N} ._()+&-]+$/u
+
+/** Whether `value` is a name a font-family declaration can carry safely. */
+export function isSafeFontName(value: unknown): value is string {
+	return typeof value === 'string' && value.length <= 80 && FONT_NAME_PATTERN.test(value)
+}
+
 /** The seconds a turn must run before a "finished" notice is worth showing. */
 export const FINISHED_NOTICE_AFTER_SECONDS = 30
 
@@ -44,6 +58,8 @@ export interface CatalogueOption {
 export type CatalogueControl =
 	| { kind: 'toggle' }
 	| { kind: 'select'; options: readonly CatalogueOption[] }
+	/** A short piece of text such as a font name. Letters, digits, spaces and `. _ ( ) + & -` only. */
+	| { kind: 'text'; maxLength: number; placeholder?: string }
 	/** A page of its own or a list: there is no single value to validate. */
 	| { kind: 'panel' }
 
@@ -356,9 +372,9 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		control: {
 			kind: 'select',
 			options: [
+				{ value: 'system', label: 'System', help: 'Follows your device’s light or dark setting.' },
 				{ value: 'light', label: 'Light' },
 				{ value: 'dark', label: 'Dark' },
-				{ value: 'system', label: 'System', help: 'Follows your device’s light or dark setting.' },
 			],
 		},
 		default: 'system',
@@ -370,7 +386,8 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		owner: 'renderer-mirror',
 		section: 'appearance',
 		label: 'Interface font',
-		description: 'The typeface for text and code in Namzu. The terminal keeps its own font.',
+		description:
+			'The typeface for text and code in Namzu: its own, your device’s, or a font installed on this computer. The terminal keeps its own font.',
 		control: {
 			kind: 'select',
 			options: [
@@ -397,6 +414,7 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 			'chat font',
 			'text size',
 			'size',
+			'installed',
 		],
 	},
 	{
@@ -411,6 +429,129 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		default: false,
 		appliesWhen: 'now',
 		keywords: ['tabs', 'strip', 'bar', 'conversations', 'window', 'layout'],
+	},
+
+	{
+		id: 'response-font',
+		key: 'responseFont',
+		owner: 'desktop',
+		section: 'appearance',
+		label: 'Response font',
+		description:
+			'The typeface of the replies in a conversation. Match interface follows the interface font. Code keeps the code font.',
+		control: { kind: 'text', maxLength: 80, placeholder: 'Match interface' },
+		default: RESPONSE_FONT_MATCH,
+		appliesWhen: 'now',
+		keywords: ['font', 'typeface', 'reply', 'replies', 'answer', 'chat font', 'serif', 'reading'],
+	},
+	{
+		id: 'transcript-text-size',
+		key: 'transcriptTextSize',
+		owner: 'desktop',
+		section: 'appearance',
+		label: 'Transcript text size',
+		description: 'How large the words of a conversation are, and the space between its lines.',
+		control: {
+			kind: 'select',
+			options: [
+				{ value: 'small', label: 'Small', help: '14 px text on a 20 px line.' },
+				{ value: 'medium', label: 'Medium', help: '15 px text on a 22 px line.' },
+				{ value: 'large', label: 'Large', help: '17 px text on a 26 px line.' },
+			],
+		},
+		default: 'medium',
+		appliesWhen: 'now',
+		keywords: ['font size', 'text size', 'zoom', 'bigger', 'smaller', 'reading', 'line height'],
+	},
+	{
+		id: 'transcript-width',
+		key: 'transcriptWidth',
+		owner: 'desktop',
+		section: 'appearance',
+		label: 'Transcript width',
+		description: 'How wide the conversation and the box you type in are.',
+		control: {
+			kind: 'select',
+			options: [
+				{ value: 'narrow', label: 'Narrow', help: 'The width Namzu has always had.' },
+				{ value: 'medium', label: 'Medium', help: '128 px wider.' },
+				{ value: 'wide', label: 'Wide', help: '256 px wider.' },
+			],
+		},
+		default: 'narrow',
+		appliesWhen: 'now',
+		keywords: ['column', 'wide', 'narrow', 'layout', 'width', 'measure'],
+	},
+	{
+		id: 'motion',
+		key: 'motion',
+		owner: 'desktop',
+		section: 'appearance',
+		label: 'Motion',
+		description:
+			'System follows your device’s reduce-motion setting. Reduce stops the streaming and panel animations. Full keeps them even when your device asks for less.',
+		control: {
+			kind: 'select',
+			options: [
+				{ value: 'system', label: 'System' },
+				{ value: 'reduce', label: 'Reduce' },
+				{ value: 'full', label: 'Full' },
+			],
+		},
+		default: 'system',
+		appliesWhen: 'now',
+		keywords: [
+			'animation',
+			'animations',
+			'reduce motion',
+			'reduced motion',
+			'accessibility',
+			'transition',
+		],
+	},
+	{
+		id: 'auto-dismiss-popups',
+		key: 'autoDismissPopups',
+		owner: 'desktop',
+		section: 'appearance',
+		label: 'Close popups by themselves',
+		description:
+			'The short notices at the bottom of a conversation leave after a few seconds. Off, each one stays until you close it.',
+		control: toggle,
+		default: true,
+		appliesWhen: 'now',
+		keywords: [
+			'toast',
+			'toasts',
+			'notice',
+			'notification',
+			'popup',
+			'dismiss',
+			'timeout',
+			'banner',
+		],
+	},
+	{
+		id: 'virtualize-conversations',
+		key: 'virtualizeConversations',
+		owner: 'desktop',
+		section: 'appearance',
+		label: 'Skip drawing what is off screen',
+		description:
+			'Long conversations and the conversation list leave the parts you cannot see undrawn until you scroll to them. Turn it off to draw everything, which can be slower in a long conversation.',
+		control: toggle,
+		default: true,
+		appliesWhen: 'now',
+		keywords: [
+			'virtualize',
+			'virtualise',
+			'performance',
+			'long conversation',
+			'scroll',
+			'lag',
+			'slow',
+			'render',
+		],
 	},
 
 	{
@@ -549,5 +690,9 @@ export function catalogueAccepts(entry: CatalogueEntry, value: unknown): boolean
 	if (entry.control.kind === 'toggle') return typeof value === 'boolean'
 	if (entry.control.kind === 'select')
 		return entry.control.options.some((option) => option.value === value)
+	if (entry.control.kind === 'text') {
+		if (typeof value !== 'string' || value.length > entry.control.maxLength) return false
+		return value === '' || isSafeFontName(value)
+	}
 	return false
 }

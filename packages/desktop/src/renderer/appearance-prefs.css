@@ -1,0 +1,64 @@
+/* Appearance choices (Settings > Appearance), kept apart from theme.css so the token tests see only the base values. Each is one attribute on the root, set by
+   renderer/appearance-prefs.ts and, before the first paint, by public/theme-boot.js. No attribute
+   is the value Namzu has always had, so nothing here moves for a person who changes nothing. */
+
+/* Transcript text size: the reading size and its line are re-pointed inside the transcript only,
+   so the box you type in, the sidebar and the dialogs keep theirs. Medium is the base values. */
+:root[data-transcript-size="small"] :is(.transcript, .pal-chat-transcript) {
+	--text-reading: 14px;
+	--leading-reading: 20px;
+}
+:root[data-transcript-size="large"] :is(.transcript, .pal-chat-transcript) {
+	--text-reading: 17px;
+	--leading-reading: 26px;
+}
+
+/* Transcript width: the conversation's column and the composer's share one step (+128 px, +256 px)
+   because both read the frame's column width. Settings keeps its own width. Narrow is the base. */
+:root[data-transcript-width="medium"] {
+	--frame-column-width: 896px;
+	--turn-column-width: 864px;
+	--settings-column-width: 768px;
+}
+:root[data-transcript-width="wide"] {
+	--frame-column-width: 1024px;
+	--turn-column-width: 992px;
+	--settings-column-width: 768px;
+}
+
+/* Response font: replies only. Code keeps the code font because `pre` and `code` set their own. */
+:root[data-response-font] .chat-markdown {
+	font-family: var(--font-response);
+}
+
+/* Motion: Reduce does what the device's reduce-motion flag does, whatever the flag says. System
+   leaves the choice to the flag (the @media rules in style.css and the component files). */
+:root[data-motion="reduce"],
+:root[data-motion="reduce"] *,
+:root[data-motion="reduce"] *::before,
+:root[data-motion="reduce"] *::after {
+	animation: none !important;
+	transition: none !important;
+	scroll-behavior: auto !important;
+}
+:root[data-motion="reduce"] .tool.active > .tool-trigger .tool-label,
+:root[data-motion="reduce"] .working-label {
+	background: none;
+	color: var(--foreground);
+}
+:root[data-motion="reduce"]
+	.normal-transcript
+	.message.commentary[data-streaming]
+	.message-text
+	> :last-child:is(p, ul, ol) {
+	background: none;
+	color: var(--foreground);
+}
+
+/* Virtualize off: every turn and every conversation row is drawn, not only the ones near the screen. */
+:root[data-virtualize="off"] .normal-transcript .transcript-turn[data-transcript-deferred],
+:root[data-virtualize="off"] .sidebar-thread-item {
+	content-visibility: visible;
+	contain-intrinsic-block-size: none;
+	overflow-clip-margin: 0;
+}

@@ -33,6 +33,12 @@ it('starts on the documented defaults without writing anything', () => {
 		notifyFinished: true,
 		notifySound: false,
 		showConversationTabs: false,
+		responseFont: 'match',
+		transcriptTextSize: 'medium',
+		transcriptWidth: 'narrow',
+		motion: 'system',
+		autoDismissPopups: true,
+		virtualizeConversations: true,
 		lastSettingsSection: 'general',
 	})
 	expect(onError).not.toHaveBeenCalled()
@@ -60,6 +66,12 @@ it('validates a change, saves it atomically, and survives a restart', () => {
 		notifyFinished: true,
 		notifySound: false,
 		showConversationTabs: false,
+		responseFont: 'match',
+		transcriptTextSize: 'medium',
+		transcriptWidth: 'narrow',
+		motion: 'system',
+		autoDismissPopups: true,
+		virtualizeConversations: true,
 		lastSettingsSection: 'general',
 	})
 	expect(changes).toHaveLength(1)
@@ -79,6 +91,12 @@ it('validates a change, saves it atomically, and survives a restart', () => {
 		notifyFinished: true,
 		notifySound: false,
 		showConversationTabs: false,
+		responseFont: 'match',
+		transcriptTextSize: 'medium',
+		transcriptWidth: 'narrow',
+		motion: 'system',
+		autoDismissPopups: true,
+		virtualizeConversations: true,
 		lastSettingsSection: 'general',
 	})
 	expect(new DesktopSettingsStore({ file }).get()).toMatchObject({
