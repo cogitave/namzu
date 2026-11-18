@@ -455,11 +455,12 @@ describe('the typed list and map rows, drawn from the real engine list', () => {
 	}
 
 	it(
-		'draws a switch with three event checks, and says what the idle one is',
+		'draws three event checks and no switch of its own, and says what the idle one is',
 		async () => {
 			const html = row(await drawReal('terminal'), 'tui.notifications')
-			expect(html).toContain('role="switch"')
-			expect(html.match(/type="checkbox"/g)?.length).toBe(4)
+			// None ticked is off, so a separate switch would only repeat the checks.
+			expect(html).not.toContain('role="switch"')
+			expect(html.match(/type="checkbox"/g)?.length).toBe(3)
 			expect(html).toContain('Waiting for you')
 			expect(html).toContain('minute of quiet')
 			expect(html).not.toContain('<textarea')

@@ -74,7 +74,10 @@ function OptionChecks({
 	)
 }
 
-/** A switch with event checks beside it: tick events, or flip the switch for the usual pair. */
+/**
+ * The events, one check each. None ticked is off, so the row needs no switch of its own: a switch
+ * would sit under the description, apart from every other switch on the page.
+ */
 export function EventSwitch({
 	descriptor,
 	control,
@@ -89,11 +92,6 @@ export function EventSwitch({
 	const ticked = eventSwitchTicked(value, control)
 	return (
 		<div className="settings-config-list">
-			<Switch
-				label={descriptor.label}
-				checked={ticked.length > 0}
-				onChange={(on) => void config.change(descriptor.path, on)}
-			/>
 			<OptionChecks
 				legend={descriptor.label}
 				options={control.options}
