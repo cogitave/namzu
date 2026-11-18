@@ -777,6 +777,11 @@ export function TerminalSettings({
 	)
 }
 
+/** Escape puts the saved name back while the box holds something else; otherwise it is left to close Settings. */
+export function escapeRevertsDraft(key: string, draft: string, saved: string): boolean {
+	return key === 'Escape' && draft !== saved
+}
+
 /**
  * A font name typed into a box. The value is saved when the box loses the focus or Enter is
  * pressed, and only if it is empty or a name a font-family can carry; otherwise the box says why.
@@ -813,7 +818,11 @@ export function CodeFontInput({
 				onBlur={commit}
 				onKeyDown={(event) => {
 					if (event.key === 'Enter') commit()
-					if (event.key === 'Escape') setDraft(value)
+					// Escape first puts the saved name back; with nothing to put back it closes Settings as usual.
+					if (escapeRevertsDraft(event.key, draft, value)) {
+						event.stopPropagation()
+						setDraft(value)
+					}
 				}}
 			/>
 			{invalid && (

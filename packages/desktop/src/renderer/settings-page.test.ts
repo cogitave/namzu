@@ -23,6 +23,7 @@ import {
 	type SettingsPageProps,
 	SettingsSidebar,
 	TerminalSettings,
+	escapeRevertsDraft,
 } from './settings-page.js'
 import { EngineDeliveryContext } from './use-engine-delivery.js'
 import { EngineUpdatesContext } from './use-engine-updates.js'
@@ -720,5 +721,14 @@ describe('the code rows', () => {
 		expect(
 			entryIsDrawn('terminal-code-link', { shells, hasAppUpdater: false, canFetchEngines: false }),
 		).toBe(true)
+	})
+})
+
+describe('the code font box and Escape', () => {
+	it('puts the saved name back first, and only then lets Escape close Settings', () => {
+		expect(escapeRevertsDraft('Escape', 'Bad,Font', 'FreeMono')).toBe(true)
+		expect(escapeRevertsDraft('Escape', '', 'FreeMono')).toBe(true)
+		expect(escapeRevertsDraft('Escape', 'FreeMono', 'FreeMono')).toBe(false)
+		expect(escapeRevertsDraft('Enter', 'Bad,Font', 'FreeMono')).toBe(false)
 	})
 })
