@@ -1521,6 +1521,32 @@ describe('/config theme', () => {
 	})
 })
 
+describe('/config <setting>', () => {
+	it('shows, sets and clears any described setting; subcommands still win', () => {
+		const ctx = context()
+		expect(runSlash('/config limits.maxIterations', ctx)).toEqual({
+			kind: 'config-setting',
+			key: 'limits.maxIterations',
+		})
+		expect(runSlash('/config limits.maxIterations 30', ctx)).toEqual({
+			kind: 'config-setting',
+			key: 'limits.maxIterations',
+			text: '30',
+		})
+		expect(runSlash('/config limits.timeoutMs 1h 30m', ctx)).toMatchObject({ text: '1h 30m' })
+		expect(runSlash('/config limits.maxIterations unset', ctx)).toEqual({
+			kind: 'config-setting',
+			key: 'limits.maxIterations',
+			clear: true,
+		})
+		expect(runSlash('/config limits 5', ctx)).not.toMatchObject({ kind: 'config-setting' })
+		expect(runSlash('/config limits.maxIteratons', ctx)).toMatchObject({
+			kind: 'message',
+			content: expect.stringContaining('limits.maxIterations'),
+		})
+	})
+})
+
 describe('/config entry', () => {
 	it('opens settings and exposes source details without a model turn', () => {
 		const ctx = context()

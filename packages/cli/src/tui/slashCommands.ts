@@ -1,5 +1,6 @@
 import { dirname } from 'node:path'
 import { type HookConfigProblem, hookConfigProblems, readPermissionLayers } from '../config/load.js'
+import { findSetting, unknownSettingMessage } from '../config/setting-cli.js'
 import { installationRows } from '../installation.js'
 import type { PluginHookProblem } from '../integrations/plugins/hook-entries.js'
 import type { PluginHookEntryView } from '../integrations/plugins/runtime.js'
@@ -170,6 +171,8 @@ export type SlashAction =
 	| { kind: 'recap-now' }
 	/** `/config tips on|off|list`: the spinner tips' switch, written to the user config. */
 	| { kind: 'spinner-tips'; on: boolean | 'list' }
+	/** `/config <key> [value]`: show or change any described setting, as `namzu config` does. */
+	| { kind: 'config-setting'; key: string; text?: string; clear?: boolean }
 	/** Open the finite good/bad chooser for one exact assistant message. */
 	| { kind: 'feedback-picker'; messageId: string }
 	| {
@@ -833,6 +836,9 @@ function commandHelp(ctx: SlashContext, args: readonly string[]): SlashAction {
  * the kernel can answer, which now arrives through the registry instead of
  * being restated in this file.
  */
+const CONFIG_USAGE =
+	'Usage: /config [sources|limits|triggers|theme|motion|recap|tips] or /config <setting> [value|unset]. List every setting with: namzu config list'
+
 export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'setup',
@@ -854,6 +860,9 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				'/config motion [on|off|list]',
 				'/config recap [on|off|list]',
 				'/config tips [on|off|list]',
+				'/config <setting>',
+				'/config <setting> <value>',
+				'/config <setting> unset',
 			],
 			details: [
 				'/config triggers off stops words in a message (hypermode, "save this as a skill") from acting for that message, in your user config; /config triggers on turns them back on; /config triggers lists what is in force.',
@@ -861,6 +870,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				'/config theme picks the colours with a preview, the same as /theme; /config theme light sets one by name.',
 				'/config motion on keeps the working line and the composer still, in your user config; /config motion off lets them move again.',
 				'/config tips off hides the tip under the working row, in your user config; /config tips on shows it again. The next task still shows.',
+				'/config limits.maxIterations shows any setting namzu config lists (its value, default, range and when a change applies); /config limits.maxIterations 30 changes it in your user config; /config limits.maxIterations unset puts the default back. A setting that widens what runs asks first. The same list and checks as namzu config and Desktop Settings.',
 			],
 		},
 		action: (ctx, args) => {
@@ -901,13 +911,22 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 					return { kind: 'recap-setting', setting }
 				return { kind: 'message', role: 'system', content: 'Usage: /config recap [on|off|list]' }
 			}
+			if (args.join(' ') === 'sources') {
+				return { kind: 'message', role: 'system', content: renderConfigDebug(ctx.configDebug) }
+			}
+			const key = args[0] as string
+			if (findSetting(key)) {
+				const text = args.slice(1).join(' ')
+				if (text === 'unset' || text === 'reset')
+					return { kind: 'config-setting', key, clear: true }
+				return { kind: 'config-setting', key, ...(text === '' ? {} : { text }) }
+			}
 			return {
 				kind: 'message',
 				role: 'system',
-				content:
-					args.join(' ') === 'sources'
-						? renderConfigDebug(ctx.configDebug)
-						: 'Usage: /config [sources|limits|triggers|theme|motion|recap|tips]',
+				content: key.includes('.')
+					? `${unknownSettingMessage(key)}\n${CONFIG_USAGE}`
+					: CONFIG_USAGE,
 			}
 		},
 	},

@@ -128,6 +128,7 @@ describe('the command manifest', () => {
 				'archive',
 				'browser',
 				'computer',
+				'config',
 				'cost',
 				'doctor',
 				'drain',

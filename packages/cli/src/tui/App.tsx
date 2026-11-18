@@ -1141,6 +1141,15 @@ type ChoicePickerState = {
 			readonly options: readonly ChoicePickerOption[]
 	  }
 	| {
+			/** `/config <key> <value>` for a setting that asks first: the same sentence Desktop asks. */
+			readonly kind: 'config-setting-change'
+			readonly title: string
+			readonly notice?: string
+			readonly values: readonly ('cancel' | 'change')[]
+			readonly options: readonly ChoicePickerOption[]
+			readonly change: { readonly key: string; readonly text?: string }
+	  }
+	| {
 			readonly kind: 'archive-conversation'
 			readonly title: string
 			readonly notice?: string
@@ -5726,6 +5735,25 @@ function AppBody({
 			}
 			if (picker.kind === 'archive-conversation') {
 				if (value === 'archive') archiveCurrentConversation()
+				return
+			}
+			if (picker.kind === 'config-setting-change') {
+				if (value === 'cancel') {
+					pushMessage('system', 'Not changed.')
+					return
+				}
+				void import('../config/setting-cli.js').then(({ planSettingChange }) => {
+					const plan = planSettingChange(picker.change.key, picker.change.text)
+					if (!plan.ok) {
+						pushMessage('system', plan.error)
+						return
+					}
+					try {
+						pushMessage('system', plan.apply())
+					} catch (error) {
+						pushMessage('system', (error as Error).message)
+					}
+				})
 				return
 			}
 			if (picker.kind === 'export-destination') {
@@ -14757,6 +14785,55 @@ function AppBody({
 								text === undefined ? 'warning' : 'notice',
 								text ?? "Couldn't generate a recap. Run with --debug for details.",
 							)
+						})
+						return
+					}
+					case 'config-setting': {
+						void import('../config/setting-cli.js').then((cli) => {
+							if (slash.text === undefined && slash.clear !== true) {
+								try {
+									pushMessage('system', cli.describeSetting(slash.key))
+								} catch (error) {
+									pushMessage('system', (error as Error).message)
+								}
+								return
+							}
+							const plan = cli.planSettingChange(slash.key, slash.clear ? undefined : slash.text)
+							if (!plan.ok) {
+								pushMessage('system', plan.error)
+								return
+							}
+							if (plan.confirm) {
+								setSelectedChoice(0)
+								setChoicePicker({
+									kind: 'config-setting-change',
+									title: `Change ${plan.entry.label}?`,
+									notice: plan.confirm,
+									values: ['cancel', 'change'],
+									options: [
+										{ label: 'No, leave it', description: 'Keep the setting as it is' },
+										{
+											label: 'Yes, change it',
+											description:
+												slash.clear === true || slash.text === undefined
+													? 'Put the default back in your user config'
+													: `Save ${slash.key} ${slash.text} in your user config`,
+										},
+									],
+									change: {
+										key: slash.key,
+										...(slash.clear === true || slash.text === undefined
+											? {}
+											: { text: slash.text }),
+									},
+								})
+								return
+							}
+							try {
+								pushMessage('system', plan.apply())
+							} catch (error) {
+								pushMessage('system', (error as Error).message)
+							}
 						})
 						return
 					}

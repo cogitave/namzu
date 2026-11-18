@@ -19,6 +19,7 @@ import {
 	archiveCommand,
 	browserCommand,
 	computerCommand,
+	configCommand,
 	costCommand,
 	createLazyPalCommand,
 	createLazyWorktreeCommand,
@@ -623,6 +624,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		evalCommand,
 		historyCommand,
 		hooksCommand,
+		configCommand,
 		pluginCommand,
 		skillsCommand,
 		skillsJSONCommand,
@@ -653,6 +655,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 								def === drainCommand ||
 								def === skillsCommand ||
 								def === hooksCommand ||
+								def === configCommand ||
 								def === pluginCommand ||
 								def === upgradeCommand ||
 								def === scheduleCommand ||

@@ -85,6 +85,7 @@ The operator application.
 
 * [Desktop application](desktop.md) - Native operator workspace using the existing CLI runtime and conversation logs, with terminal tabs and an engine's own command line beside the conversations.
 * [Desktop engine bundles](desktop-engine-bundles.md) - For maintainers: how the engine Desktop keeps current by itself is staged, packed, described, signed and published; the file formats, the publisher commands, the release workflow, and how keys are added, retired, lost or leaked.
+* [namzu config](config-command.md) - List, read, set and unset every described setting from the terminal or with /config <key>, reading the same description as Desktop Settings so values are accepted, refused and confirmed with the same words.
 * [Desktop settings for config keys](desktop-settings.md) - Every config key in Desktop Settings from one engine-owned list: sections, validated writes to the user file, confirmations, and what is never shown.
 * [Desktop voice input](desktop-listening.md) - Talking to Namzu Desktop in Turkish: the on-device recognition engine, microphone capture and consent, endpointing and stop words, read-aloud and barge-in, and what stays on the computer.
 * [Desktop engine updates](desktop-engine-updates.md) - How Namzu Desktop keeps its engine current by itself from a signed description and an archive, what it checks first, the screens and the setting, and what is and is not protected; on in a packaged app, off in an app that is not packaged unless it is given a feed address.
