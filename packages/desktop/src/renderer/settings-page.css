@@ -1235,12 +1235,15 @@ input.settings-config-number {
 	cursor: default;
 }
 
-/* A preview stacked under its row, one full-width line below the copy and the control. */
+/* A line or preview under its row: the copy and the control keep their line, and the extra content
+   takes a full-width line of its own. A wrapping row would push the control under a long copy. */
 .settings-row[data-below] {
-	flex-wrap: wrap;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: 12px 24px;
 }
 .settings-row-below {
-	flex: 1 1 100%;
+	grid-column: 1 / -1;
 	min-width: 0;
 }
 /* Sample code in a colour set. The set's own background and text colours come from the

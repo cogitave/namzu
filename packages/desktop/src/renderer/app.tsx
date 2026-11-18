@@ -238,6 +238,7 @@ import {
 import { projectStage } from './project-stage.js'
 import { ProjectConnecting, ProjectFolderMissing, ProjectOpenError } from './project-views.js'
 import { ProviderNameContext } from './provider-name-context.js'
+import { quickEntryReadyToSend } from './quick-entry-ready.js'
 import { RenameConversationDialog } from './rename-conversation-dialog.js'
 import { RestoreSkeleton } from './restore-skeleton.js'
 import { retryableReply } from './retry-reply.js'
@@ -343,6 +344,8 @@ const RECENT_PALETTE_CONVERSATIONS = 5
 /** How long the Undo toast after archiving stays: long enough to read where the conversation went. */
 const ARCHIVE_UNDO_MS = 20_000
 const VOICE_REQUEST_WAIT_MS = 10_000
+/** How long a Quick Entry line waits for a new conversation to be ready to send before it stays in the message box. */
+const QUICK_ENTRY_WAIT_MS = 10_000
 export function App({
 	group,
 	terminals: terminalGroup,
@@ -5620,11 +5623,43 @@ export function App({
 			setDrafts((all) => ({ ...all, [draftOwner]: quickEntry.text }))
 			setQuickEntry({ ...quickEntry, stage: 'send' })
 		} else if (draft === quickEntry.text) {
-			// A send that cannot go yet (no model connected, say) leaves the line in the box.
+			// A new conversation reads its saved choices and attachments for a moment; sending before
+			// that ends would do nothing. Wait for them. When they never come (no model connected, say),
+			// the timer below lets go and the line stays in the box.
+			if (
+				!quickEntryReadyToSend({
+					savedChoicesLoading: savedSettings.loading,
+					attachmentsLoaded: attached.loaded,
+					hasModel: Boolean(choice.provider),
+					modelReady: providerReady,
+				})
+			)
+				return
 			setQuickEntry(null)
 			void act(() => sendRef.current())
 		}
-	}, [quickEntry, loading, draft, draftOwner, act, newConversation, startNextQuickEntry])
+	}, [
+		quickEntry,
+		loading,
+		draft,
+		draftOwner,
+		act,
+		newConversation,
+		startNextQuickEntry,
+		savedSettings.loading,
+		attached.loaded,
+		choice.provider,
+		providerReady,
+	])
+	const quickEntryStage = quickEntry?.stage
+	useEffect(() => {
+		if (quickEntryStage !== 'send') return
+		const timer = window.setTimeout(
+			() => setQuickEntry((current) => (current?.stage === 'send' ? null : current)),
+			QUICK_ENTRY_WAIT_MS,
+		)
+		return () => window.clearTimeout(timer)
+	}, [quickEntryStage])
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a waiting voice request tries again when the conversation or the voice engine changes.
 	useEffect(() => {
 		if (voiceRequested.current) startVoiceRequest()

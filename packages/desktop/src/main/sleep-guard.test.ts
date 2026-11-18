@@ -40,6 +40,10 @@ function setup(initial: Partial<SleepWishes> = {}) {
 		guard,
 		live,
 		wishes,
+		/** The count changes with no look taken, as when a conversation ends after reporting it. */
+		quietly: (count: number) => {
+			working = count
+		},
 		work: (count: number) => {
 			working = count
 			guard.update()
@@ -115,6 +119,20 @@ describe('the sleep guard', () => {
 		run.guard.close()
 		expect(run.live.size).toBe(0)
 		run.unplug(true)
+		expect(run.live.size).toBe(0)
+	})
+
+	it('looks again after the span in which a conversation reported its end', async () => {
+		const run = setup({ whileWorking: true })
+		run.guard.start()
+		run.work(1)
+		expect(run.live.size).toBe(1)
+		// The report is made while the conversation still counts; the count drops right after it.
+		run.guard.update()
+		run.guard.updateSoon()
+		run.quietly(0)
+		expect(run.live.size).toBe(1)
+		await Promise.resolve()
 		expect(run.live.size).toBe(0)
 	})
 })

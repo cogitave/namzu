@@ -740,8 +740,10 @@ const operator = new Operator(
 			event.kind === 'state' ||
 			event.kind === 'turn-closed' ||
 			event.kind === 'conversation-removed'
-		)
+		) {
 			sleepGuard.update()
+			sleepGuard.updateSoon()
+		}
 		try {
 			working.pill?.observe(event)
 		} catch (error) {

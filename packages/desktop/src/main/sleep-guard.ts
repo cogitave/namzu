@@ -49,6 +49,15 @@ export class SleepGuard {
 		this.workBlocker = this.hold(this.workBlocker, working)
 	}
 
+	/**
+	 * Looks again once the current synchronous span is over. A conversation reports its end while it
+	 * still counts as working and stops counting a moment later in the same span, so a look taken
+	 * at the report alone would keep the computer awake after the work ended.
+	 */
+	updateSoon(): void {
+		queueMicrotask(() => this.update())
+	}
+
 	/** Which of the two reasons holds the computer awake right now. */
 	holding(): { appOpen: boolean; working: boolean } {
 		return {

@@ -99,4 +99,11 @@ describe('settings and search overlay tokens', () => {
 		)
 		expect(palette).toContain('.command-palette-item[data-highlighted] .command-palette-shortcut')
 	})
+
+	it('keeps the control on the first line of a row that has content under it', () => {
+		const rule = /\.settings-row\[data-below\]\s*\{([^}]*)\}/.exec(settings)?.[1] ?? ''
+		expect(rule).toContain('display: grid')
+		expect(rule).not.toContain('flex-wrap')
+		expect(/\.settings-row-below\s*\{[^}]*grid-column:\s*1 \/ -1/.test(settings)).toBe(true)
+	})
 })
