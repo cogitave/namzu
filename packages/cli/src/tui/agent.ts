@@ -8554,6 +8554,8 @@ interface TurnParams {
 	readonly projectInstructionContext: ProjectInstructionContext
 	/** What the host carries across a compaction: the plan file and the session goal. */
 	readonly postCompactionContext?: () => Promise<string | undefined>
+	/** Where the model that writes a compaction summary is reached; absent means by extraction. */
+	readonly compactionSummaryRoute?: CompactionSummaryRouter
 	readonly opts: SendOptions | undefined
 	readonly taskGateway: TaskScheduler | undefined
 	readonly completionInbox?: CompletionInbox
@@ -8631,6 +8633,7 @@ async function* runTurn({
 	messages,
 	projectInstructionContext,
 	postCompactionContext,
+	compactionSummaryRoute,
 	opts,
 	taskGateway,
 	completionInbox,
@@ -8764,6 +8767,7 @@ async function* runTurn({
 			...(systemPrompt ? { systemPrompt } : {}),
 			projectInstructionContext,
 			...(postCompactionContext ? { postCompactionContext } : {}),
+			...(compactionSummaryRoute ? { compactionSummaryRoute } : {}),
 			messages: [...messages],
 			...(reminders ? { reminders } : {}),
 			...(announceApprovalPolicyChange === false ? { announceApprovalPolicyChange } : {}),
