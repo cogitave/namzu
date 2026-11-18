@@ -119,6 +119,11 @@ describe('the typed setting description', () => {
 			).toBe(true)
 	})
 
+	it('starts every row description with a capital letter, a digit or a quote', () => {
+		for (const entry of SETTING_DESCRIPTORS)
+			expect(entry.description, entry.path).toMatch(/^[\p{Lu}\p{N}"'“‘]/u)
+	})
+
 	it('names when every change applies, in a way a screen can say', () => {
 		for (const entry of SETTING_DESCRIPTORS) {
 			expect(Object.keys(APPLIES_WHEN_TEXT), entry.path).toContain(entry.appliesWhen)

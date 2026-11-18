@@ -266,6 +266,12 @@ export function hooksListView(report: HooksReport): HooksListView {
 	for (const row of report.hooks) group(row.event).hooks.push(hookRowView(row))
 	const unplaced: ProblemView[] = []
 	for (const problem of report.problems) {
+		// The whole-file read failure is already said by `report.error`; do not list it again.
+		if (
+			report.error !== undefined &&
+			problem.message === `The configuration could not be read: ${report.error}`
+		)
+			continue
 		if (problem.event) group(problem.event).problems.push(problemView(problem))
 		else unplaced.push(problemView(problem))
 	}

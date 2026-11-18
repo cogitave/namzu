@@ -4966,6 +4966,7 @@ every folder, and the line under the heading says so). A host that does not list
 optional groups, which `src/main/rpc-client.ts` reads) gets the sentence "This version of Namzu cannot list hooks. Update
 Namzu to see what runs by itself here." and nothing else; the switch still works from the settings the engine describes.
 
+- **A broken config file** is said once per Settings page, in Desktop's words: the file, the line and column, and "Fix it and choose Try again." (`renderer/settings-file-error.ts` swaps the terminal's "start Namzu again" advice). Tool servers and Hooks show "Shown once your settings can be read." while the file cannot be read, and the hooks list leaves out the "Not loaded" row that would repeat the same failure. The window re-reads on Try again and on focus; a window opened on an already broken file does not watch the file until one read succeeds.
 - **Run hooks** is the user-level `disableHooks` setting turned the other way round, saved through the same
   `namzu/config/set` road as every engine setting (it is left out of the plain list of Tools settings, so it is not shown
   twice or found twice by search; turning it on puts the default back, which removes the key). Where `disableHooks` was set

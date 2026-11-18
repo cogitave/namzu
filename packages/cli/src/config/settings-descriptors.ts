@@ -988,7 +988,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'web.search',
 		'tools',
 		'Web search',
-		'off, cached results only, or live.',
+		'Off, cached results only, or live.',
 		pick(
 			['off', 'Off', 'Namzu cannot search the web.'],
 			[
@@ -1097,7 +1097,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'browser.signInDetection',
 		'tools',
 		'Sign-in pages',
-		'address stops on any /login-style address; page stops only for known sign-in sites and lets other pages load.',
+		'Address stops on any /login-style address; page stops only for known sign-in sites and lets other pages load.',
 		pick(
 			[
 				'address',
@@ -1174,7 +1174,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'plugins.allowedScopes',
 		'tools',
 		'Where plugins may come from',
-		'project, user, or both.',
+		'Project, user, or both.',
 		checks(['project', 'This project'], ['user', 'Your own folder']),
 		{
 			default: ['project', 'user'],
@@ -1204,7 +1204,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'telemetry.sessionExport.redactors',
 		'telemetry',
 		'Hide secrets when saving',
-		'secrets removes keys and tokens. An empty list saves everything as is.',
+		'"secrets" removes keys and tokens. An empty list saves everything as is.',
 		json('[ "secrets" ]'),
 		{
 			confirm: 'With nothing hidden, secrets in a conversation are saved as they are.',
@@ -1295,7 +1295,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'tui.mouse',
 		'terminal',
 		'Mouse',
-		'full, scroll only, or off.',
+		'Full, scroll only, or off.',
 		pick(
 			['full', 'Clicks and scrolling', 'The mouse clicks, selects and scrolls.'],
 			['scroll', 'Scrolling only', 'The mouse scrolls and nothing else.'],

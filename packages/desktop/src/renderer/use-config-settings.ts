@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ConfigSettingsView } from '../shared/config-settings-protocol.js'
 import type { DesktopApi } from '../shared/protocol.js'
-import { plainErrorText } from './plain-error.js'
+import { cleanErrorMessage, plainErrorText } from './plain-error.js'
+import { desktopSettingsFileError, isSettingsFileError } from './settings-file-error.js'
 
 export interface ConfigSettingConfirmation {
 	path: string
@@ -67,7 +68,14 @@ export function useConfigSettings(api: Api | undefined, active: boolean): Config
 			(failure) => {
 				if (!live.current || latest.current !== mine) return
 				// What was shown stays; the error says the list is no longer current.
-				setLoadError(plainErrorText(failure, 'read your settings'))
+				const said = cleanErrorMessage(
+					failure instanceof Error ? failure.message : String(failure ?? ''),
+				)
+				setLoadError(
+					isSettingsFileError(said)
+						? desktopSettingsFileError(said)
+						: plainErrorText(failure, 'read your settings'),
+				)
 				setLoading(false)
 			},
 		)

@@ -2,6 +2,7 @@
 
 ## 2026-11-18
 
+- **Update** [Desktop](cli/desktop.md): a broken config file is now stated once per Settings page (file, line, column and "Fix it and choose Try again."); Tool servers and Hooks show "Shown once your settings can be read.", and the hooks list drops the duplicate "Not loaded" row. Row descriptions all start with a capital. `.changeset/desktop-settings-file-error-once.md`.
 - **Update** [Desktop](cli/desktop.md): the Run hooks paragraph now says new conversations take the change and open ones keep theirs (it still described connecting again); a failed re-read of the config files is now logged at warn while the last good settings are kept.
 - **Update** [The setting description](cli/setting-description.md#when-a-change-applies): a setting saved in Desktop now reaches new conversations without a restart (the host re-reads the config files when it builds a conversation, keeping the last good read if a file does not load), and the apply time of every key read there is `next-conversation`. `.changeset/desktop-settings-shell-behaviour.md`.
 - **Update** [The setting description](cli/setting-description.md): clearing a select that names its risky values no longer asks when the default is a safe value (default permission mode); a clear still asks when the default itself is risky. `.changeset/desktop-settings-clear-safe-default.md`.

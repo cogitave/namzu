@@ -5,6 +5,7 @@ import {
 	mcpServersNote,
 	waitingServers,
 } from './mcp-servers-model.js'
+import { SHOWN_WHEN_READABLE, isSettingsFileError } from './settings-file-error.js'
 import { Row } from './settings-row.js'
 import { Button } from './ui/button.js'
 import type { McpServersControls } from './use-mcp-servers.js'
@@ -30,6 +31,8 @@ export function McpServersRows({
 			</Row>
 		)
 	const waiting = waitingServers(servers.view)
+	// A broken settings file is said once, at the top of the page; this list waits for it.
+	const fileBroken = isSettingsFileError(servers.error) || isSettingsFileError(servers.view?.error)
 	const rows = (servers.view?.servers ?? []).map(mcpServerRowView)
 	return (
 		<Row id="mcpServers" label="Tool servers" description={mcpServersNote(projectName)} stacked>
@@ -37,12 +40,13 @@ export function McpServersRows({
 				{servers.loading && !servers.view && (
 					<p className="settings-note">Reading the tool servers…</p>
 				)}
-				{servers.error && (
+				{fileBroken && <p className="settings-note">{SHOWN_WHEN_READABLE}</p>}
+				{servers.error && !fileBroken && (
 					<p role="alert" className="settings-error">
 						{servers.error}
 					</p>
 				)}
-				{servers.view?.error && (
+				{servers.view?.error && !fileBroken && (
 					<p role="alert" className="settings-error">
 						{servers.view.error}
 					</p>
@@ -65,9 +69,13 @@ export function McpServersRows({
 						</Button>
 					</div>
 				)}
-				{rows.length === 0 && !servers.loading && !servers.error && !servers.view?.error && (
-					<p className="settings-note">No tool servers are set up for this project.</p>
-				)}
+				{rows.length === 0 &&
+					!servers.loading &&
+					!servers.error &&
+					!servers.view?.error &&
+					!fileBroken && (
+						<p className="settings-note">No tool servers are set up for this project.</p>
+					)}
 				{rows.length > 0 && (
 					<ul className="mcp-server-list" aria-label="Tool server list">
 						{rows.map((row) => (

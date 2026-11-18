@@ -51,7 +51,16 @@ function descriptorFor(path: string): SettingDescriptor {
 function readUserDocument(opts: UserConfigWriteOptions): Record<string, unknown> {
 	const file = userConfigPath(opts)
 	if (!existsSync(file)) return {}
-	const parsed: unknown = yamlParse(readFileSync(file, 'utf8'))
+	let parsed: unknown
+	try {
+		parsed = yamlParse(readFileSync(file, 'utf8'))
+	} catch (cause) {
+		// Say which file and where, in one sentence; Desktop adds what to do, the terminal its own.
+		const at = (cause as { linePos?: ReadonlyArray<{ line: number; col: number }> } | null)
+			?.linePos?.[0]
+		const where = at === undefined ? '' : ` (line ${at.line}, column ${at.col})`
+		throw new Error(`${file} isn't valid YAML${where}.`)
+	}
 	if (parsed === null || parsed === undefined) return {}
 	if (typeof parsed !== 'object' || Array.isArray(parsed))
 		throw new Error(`${file} is not a mapping of settings; fix it first`)

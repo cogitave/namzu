@@ -180,6 +180,14 @@ describe('writing a Desktop setting', () => {
 		writeFileSync(userConfigPath(opts()), 'a: [unclosed\n')
 		expect(() => writeSetting({ path: 'quiet', value: true }, opts())).toThrow()
 	})
+
+	it('names the file, the line and the column of a file that is not valid YAML', () => {
+		mkdirSync(join(home, '.namzu'), { recursive: true })
+		writeFileSync(userConfigPath(opts()), 'limits: [unclosed\n  : : bad\n')
+		expect(() => writeSetting({ path: 'quiet', value: true }, opts())).toThrow(
+			/config\.yaml isn't valid YAML \(line 2, column 5\)\.$/,
+		)
+	})
 })
 
 describe('settings that depend on other settings', () => {
