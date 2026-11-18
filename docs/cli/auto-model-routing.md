@@ -33,6 +33,8 @@ routing:
 
 `model: auto` without `routing.default` is refused when the config loads.
 
+Desktop Settings, Models, edits this block as a form (default, fast and large model, how a task is sized, time to decide in seconds) and writes exactly the keys above; see [Desktop settings](desktop-settings.md#list-and-map-controls). `namzu config set routing '<JSON>'` takes the block itself. In a model field `provider/model` is split at the first slash, so a model that holds slashes of its own (`openrouter/meta-llama/llama-3`) keeps them.
+
 ## How a task is placed
 
 1. Local rules first, with no model call. A task in a conversation that has

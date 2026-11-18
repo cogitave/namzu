@@ -44,6 +44,21 @@ export interface SettingState {
 	 * Desktop already reads the field.
 	 */
 	readonly layer?: 'user' | 'project' | 'local' | 'profile' | 'managed'
+	/**
+	 * An environment variable set for this process that the loader uses in place of the saved value.
+	 * Only for a setting whose variable is described in `SETTING_ENVIRONMENT`; the value is a model
+	 * name, never a secret.
+	 */
+	readonly env?: { readonly variable: string; readonly value: string }
+}
+
+/** The settings a `NAMZU_*` variable replaces, by the variable the loader reads (`ENV_VARIABLE_NAMES`). */
+const SETTING_ENVIRONMENT: Readonly<Record<string, string>> = { smallModel: 'NAMZU_SMALL_MODEL' }
+
+function environmentFor(path: string, env: NodeJS.ProcessEnv): SettingState['env'] {
+	const variable = SETTING_ENVIRONMENT[path]
+	const value = variable === undefined ? undefined : env[variable]?.trim()
+	return variable !== undefined && value ? { variable, value } : undefined
 }
 
 export interface SettingsSnapshot {
@@ -130,9 +145,10 @@ export function readSettings(opts: UserConfigWriteOptions = {}): SettingsSnapsho
 		// The key from before the rename is read by the loader while the new one is absent.
 		if (value === undefined && entry.path === WORKSPACES_PREFIX)
 			value = lookup(doc, LEGACY_SPACES_PREFIX.split('.'))
-		if (value === undefined) return { path: entry.path, set: false }
+		const env = environmentFor(entry.path, opts.env ?? process.env)
+		if (value === undefined) return { path: entry.path, set: false, ...(env ? { env } : {}) }
 		if (entry.control.kind === 'file-only') return { path: entry.path, set: true }
-		return { path: entry.path, set: true, value }
+		return { path: entry.path, set: true, value, ...(env ? { env } : {}) }
 	})
 	return {
 		file: userConfigPath(opts),
@@ -259,6 +275,32 @@ function coerce(entry: SettingDescriptor, raw: unknown): unknown {
 				throw new Error('Enter between 1 and 2000 characters.')
 			return text
 		}
+		case 'model': {
+			if (typeof raw !== 'string') throw new Error('Enter a model.')
+			const name = raw.trim()
+			if (name.length === 0 || name.length > 2000)
+				throw new Error('Enter between 1 and 2000 characters.')
+			return name
+		}
+		case 'routing': {
+			const table = plainTable(raw, 'Fill in the routing form.')
+			// The loader reads provider and model out of each target; this only keeps the file tidy.
+			return table
+		}
+		case 'auto-mode': {
+			const table = plainTable(raw, 'Fill in the reviewer form.')
+			for (const list of control.lists) {
+				const items = table[list.value]
+				if (items === undefined) continue
+				if (!Array.isArray(items) || items.some((item) => typeof item !== 'string'))
+					throw new Error(`${list.label} must be a list of sentences.`)
+				if (items.some((item) => item.trim() === '' || item.length > 2000))
+					throw new Error(`Each entry of ${list.label} takes 1 to 2000 characters.`)
+				table[list.value] = items.map((item: string) => item.trim())
+			}
+			// A table with nothing in it is the same as no table: the built-in rules.
+			return Object.keys(table).length === 0 ? undefined : table
+		}
 		case 'json': {
 			if (typeof raw !== 'string') throw new Error('Enter JSON.')
 			if (raw.length > 100_000) throw new Error('That is too long.')
@@ -271,6 +313,12 @@ function coerce(entry: SettingDescriptor, raw: unknown): unknown {
 		case 'file-only':
 			throw new Error('Edit this one in the config file; Desktop does not show or change it.')
 	}
+}
+
+/** A table of settings, copied so tidying it never changes what the caller holds. */
+function plainTable(raw: unknown, wrong: string): Record<string, unknown> {
+	if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new Error(wrong)
+	return { ...(raw as Record<string, unknown>) }
 }
 
 /** The list as written, with a screen's tools trimmed and deduplicated and blank ones dropped. */

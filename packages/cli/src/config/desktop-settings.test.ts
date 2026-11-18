@@ -126,7 +126,9 @@ describe('writing a Desktop setting', () => {
 	})
 
 	it('shows the loader sentence for a block it rejects', () => {
-		expect(() => writeSetting({ path: 'routing', value: '"nonsense"' }, opts())).toThrow(/routing/)
+		expect(() => writeSetting({ path: 'routing', value: 'nonsense' }, opts())).toThrow(
+			/Fill in the routing form/,
+		)
 		expect(() => writeSetting({ path: 'permissionChecks', value: '{bad' }, opts())).toThrow(
 			/not valid JSON/,
 		)
@@ -208,7 +210,7 @@ describe('settings that depend on other settings', () => {
 
 	it('takes Automatic once routing has a default, and refuses to remove that default after', () => {
 		writeSetting(
-			{ path: 'routing', value: '{"default":{"provider":"anthropic","model":"x"}}' },
+			{ path: 'routing', value: { default: { provider: 'anthropic', model: 'x' } } },
 			opts(),
 		)
 		writeSetting({ path: 'model', value: 'auto' }, opts())

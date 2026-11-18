@@ -53,7 +53,7 @@ export interface PermissionSettings {
 /** How the auto mode's classifier is steered. Every list accepts the `"$defaults"` entry. */
 export interface AutoModeSettings {
 	/**
-	 * The classifier's model: `provider:model`, a bare model of the session's
+	 * The classifier's model: `provider/model`, a bare model of the session's
 	 * provider, or `smallModel` for the side model. Absent: the session's own model.
 	 */
 	readonly model?: string

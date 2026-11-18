@@ -46,6 +46,8 @@ overrides user config; managed config remains final. See
 smallModel: anthropic/claude-haiku-4-5
 ```
 
+Desktop Settings, Models, shows it as a text box that offers the models Desktop knows and accepts any other name; when `NAMZU_SMALL_MODEL` is set in the engine's environment the row says so and that the variable is used instead of the saved value (`namzu config get smallModel` says the same for the shell it runs in).
+
 ## What it runs
 
 | Side job | When | Request |

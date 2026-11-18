@@ -15,8 +15,10 @@ import {
 	writeSetting,
 } from './desktop-settings.js'
 import {
+	autoModeConfirmation,
 	defaultWords,
 	effectiveDefault,
+	environmentNote,
 	levelsHeld,
 	needsConfirmation,
 	numberFromText,
@@ -164,6 +166,8 @@ export interface SettingRow {
 	/** Which change asks first, in words. Present with `confirm`. */
 	readonly asksWhen?: string
 	readonly fileOnly: boolean
+	/** A variable in the environment that is used in place of the saved value. */
+	readonly env?: { readonly variable: string; readonly value: string }
 }
 
 function toRow(
@@ -194,6 +198,7 @@ function toRow(
 		appliesText: APPLIES_WHEN_TEXT[entry.appliesWhen],
 		...(entry.confirm ? { confirm: entry.confirm, asksWhen: asksWhenWords(entry) } : {}),
 		fileOnly,
+		...(state?.env ? { env: state.env } : {}),
 	}
 }
 
@@ -203,6 +208,8 @@ function asksWhenWords(entry: SettingDescriptor): string {
 	if (entry.confirmValue !== undefined) return `when set to ${entry.confirmValue}`
 	if (entry.confirmWhen === 'zero') return 'when set to 0'
 	if (entry.confirmWhen === 'widens') return 'when an entry is added'
+	if (entry.confirmWhen === 'loosens')
+		return 'when the model changes or a list lets more run without asking you'
 	if (entry.confirmWhen === 'on' || entry.confirmWhen === 'off')
 		return `when turned ${entry.confirmWhen}`
 	return 'on any change'
@@ -249,6 +256,7 @@ export function rowData(row: SettingRow): Record<string, unknown> {
 		appliesWhen: row.appliesWhen,
 		appliesText: row.appliesText,
 		...(row.confirm ? { confirm: row.confirm, asksWhen: row.asksWhen } : {}),
+		...(row.env ? { env: row.env } : {}),
 	}
 }
 
@@ -297,6 +305,7 @@ export function renderSetting(row: SettingRow, file: string): string {
 	lines.push(
 		`Value:    ${row.set ? row.valueText : `default (${row.defaultText})`}${row.set ? ' (set in the user file)' : ''}`,
 	)
+	if (row.env) lines.push(`Note:     ${environmentNote(row.env)}`)
 	// When a change applies follows the default, as on the Desktop row.
 	lines.push(`Default:  ${row.defaultText.replace(/\.$/, '')}. ${row.appliesText}`)
 	const control = row.control
@@ -342,7 +351,21 @@ export function renderSetting(row: SettingRow, file: string): string {
 		)
 	else if (control.kind === 'json') lines.push(`Takes:    JSON, such as ${control.example}`)
 	else if (control.kind === 'text') lines.push('Takes:    text')
-	else lines.push('Takes:    nothing here; edit this one in the config file')
+	else if (control.kind === 'model')
+		lines.push('Takes:    a model, as provider/model or just the model of your provider')
+	else if (control.kind === 'routing' || control.kind === 'auto-mode') {
+		lines.push(`Takes:    JSON, such as ${control.example}`)
+		if (control.kind === 'auto-mode') {
+			lines.push(
+				'Lists:    a list left out keeps the built-in rules; a list you give replaces them;',
+			)
+			lines.push('          the entry $defaults stands for the built-in rules at that place.')
+			lines.push(...optionLines(control.lists))
+			lines.push(
+				'Model:    provider/model, a bare model of your provider, or smallModel for the side model',
+			)
+		}
+	} else lines.push('Takes:    nothing here; edit this one in the config file')
 	if (row.confirm) lines.push(`Asks:     ${row.asksWhen}: ${row.confirm}`)
 	lines.push(`File:     ${file}`)
 	return lines.join('\n')
@@ -499,6 +522,14 @@ export function parseSettingText(
 		}
 		case 'text':
 			return { value: text }
+		case 'model':
+			return { value: text.trim() }
+		case 'routing':
+		case 'auto-mode': {
+			const asJson = jsonOrNothing(text)
+			if (asJson) return asJson
+			return { error: `Give JSON, such as ${control.example}` }
+		}
 		case 'json':
 			return { value: text }
 		case 'file-only':
@@ -571,7 +602,14 @@ export function planSettingChange(
 		!unchanged && needsConfirmation(entry, value, state?.set ? state.value : entry.default)
 			? entry.confirmWhen === 'widens' && entry.confirm
 				? widenedConfirmation(entry.confirm, state?.set ? state.value : entry.default, value)
-				: describeChange(key).confirm
+				: entry.confirmWhen === 'loosens' && entry.confirm && entry.control.kind === 'auto-mode'
+					? autoModeConfirmation(
+							entry.confirm,
+							state?.set ? state.value : entry.default,
+							value,
+							entry.control.lists,
+						)
+					: describeChange(key).confirm
 			: undefined
 	return {
 		ok: true,

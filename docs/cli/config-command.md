@@ -65,6 +65,9 @@ namzu config set additionalDirectories /data/a,/data/b      # asks when a folder
 namzu config set additionalDirectories none                 # removes the key
 namzu config set skills.disabled review-changes,browser-automation
 namzu config set skills.disabled '["a-skill-called-none"]'
+namzu config set smallModel anthropic/claude-haiku-4-5
+namzu config set routing '{"default":{"provider":"anthropic","model":"claude-sonnet-4-5"},"strategy":"score"}'
+namzu config set permissions.autoMode '{"model":"smallModel","hardDeny":["$defaults","Deleting a production database"]}'
 ```
 
 - A **list** is a comma list of values or labels, `none` for an empty one (a folder or a skill that is itself
@@ -76,6 +79,14 @@ namzu config set skills.disabled '["a-skill-called-none"]'
   its default is left out of the file and the key goes when none is left, as in Desktop.
 - A name that holds a comma (a folder such as `/data/a,b`) is split by the comma list; write it as a JSON list. When a
   list would add a folder (`additionalDirectories`), the question names what is added, so a wrong split shows.
+- **Models.** `smallModel` takes a model as text (`provider/model`, or just the model of your provider). `routing`
+  and `permissions.autoMode` take JSON, the table the loader reads, and refuse what the loader refuses
+  (a routing table with no `default`, a `strategy` other than `yesno` or `score`, a `timeoutMs` outside 1 to 10000, an
+  auto mode list that is not a list of sentences). In `autoMode`, a list left out keeps the built-in rules, a list you give
+  replaces them and the entry `$defaults` stands for them; the model is `provider/model`, a bare model, or `smallModel`
+  (`provider:model` is not read). `permissions.autoMode` asks first when its model changes, when an entry is added to
+  `allow` or `environment`, or when an entry is removed from `softDeny` or `hardDeny`, and names it; a change that only
+  restricts applies at once. `namzu config get smallModel` says so when `NAMZU_SMALL_MODEL` is set for the command.
 - `mcpServers` stays a file-only setting here; `namzu mcp add|remove` changes the user file's servers.
 - A value that means the same as no key (every event, the default screen alone) removes the key.
 - A key the loader refuses is refused in the loader's words: `tui.workspacesPrefix ctrl+c` says it must be

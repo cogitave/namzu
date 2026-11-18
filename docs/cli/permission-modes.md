@@ -85,7 +85,7 @@ With nobody to ask (`exec`, `exec --json`, a scheduled run), each of these is re
 
 The kernel owns the mechanism ([The auto-review classifier](../sdk/auto-review.md)): two passes, fail closed, tool results never shown. This application chooses the model and pays for it.
 
-**Which model.** `permissions.autoMode.model` names it. Left out, the session's own model and provider answer, and a model switch mid-session is followed: a check cheaper than the work it guards is easier to talk round, so quality is the default. The value is read like `smallModel`: `provider/model`, or a bare model id of the session's provider. The word `smallModel` means the side model (the cheapest priced model of the provider, or the one `smallModel` names). A name nobody can reach makes auto unavailable, with the reason, rather than quietly using another model.
+**Which model.** `permissions.autoMode.model` names it. Left out, the session's own model and provider answer, and a model switch mid-session is followed: a check cheaper than the work it guards is easier to talk round, so quality is the default. The value is read like `smallModel`: `provider/model`, or a bare model id of the session's provider. `provider:model` is not read: a colon is part of a model id (`gemma3:1b`). The word `smallModel` means the side model (the cheapest priced model of the provider, or the one `smallModel` names). A name nobody can reach makes auto unavailable, with the reason, rather than quietly using another model.
 
 **What it costs.** Each pass is charged to the turn that asked, on the same ledger as a conversation title or a `web_fetch` extraction, so `/cost` and the turn's token budget count it.
 
@@ -129,6 +129,8 @@ permissions:
 | `autoMode.*` | the user file and the managed file only: it chooses where the conversation goes and what the classifier lets through |
 
 `outsideRoot` decides what a file tool's path outside the working directory and the [added directories](add-dir.md) becomes. `ask` (the default, the same as leaving it out) is the approval request [described here](tool-boundary.md). `refuse` refuses the call without asking, before any mode is consulted, so `bypass` and `auto` do not lift it, with a message that names the setting and says `--add-dir` or `/add-dir` reaches a folder. It covers `read`, `write`, `edit`, `glob`, `grep`, `ls` and every other tool that declares a path argument (`view_image`, `lsp`, `code_analysis`, `browser`); the session's scratch folder and its retained tool output stay reachable. Shell command operands and redirections are still asked about as before, and a sandboxed session does not use it (its file tools work inside the sandbox). Desktop Settings lists it as "Paths outside the working folder"; changing it asks first only when the new value is `ask`, since `refuse` narrows what can happen.
+
+Desktop Settings, Models, edits `autoMode` as a model box and four lists and asks first when it lets more run without a person ([Desktop settings](desktop-settings.md#list-and-map-controls)).
 
 In `autoMode`, a list left out keeps the built-in rules; a list that is given replaces them; the entry `$defaults` stands for the built-ins at that position, and `[]` removes them. `allow` names ordinary work never to block, `softDeny` what is blocked unless your own messages name the action and its risky detail, `hardDeny` what is blocked whatever you said, and `environment` what is trusted here.
 

@@ -158,6 +158,26 @@ export type SettingControl =
 			readonly unit?: string
 	  }
 	| { readonly kind: 'text'; readonly placeholder?: string }
+	/**
+	 * A model named as `provider/model`, or just the model of the provider a conversation runs on.
+	 * A screen offers the models it knows and still takes a name it does not list.
+	 */
+	| { readonly kind: 'model'; readonly placeholder?: string }
+	/**
+	 * The routing table, as a form: a default model, a fast and a large one, how a task is sized
+	 * and how long that may take. Saved as the table the loader reads; thresholds kept as written.
+	 */
+	| { readonly kind: 'routing'; readonly example: string }
+	/**
+	 * The auto mode reviewer: a model and four lists of sentences (`lists`: the field is the option's
+	 * `value`). A list left out keeps the built-in rules, a list that is given replaces them, and the
+	 * entry `$defaults` stands for the built-ins at that place.
+	 */
+	| {
+			readonly kind: 'auto-mode'
+			readonly lists: readonly SettingOption[]
+			readonly example: string
+	  }
 	/** A list or table, edited as JSON and checked by the same reader the engine loads with. */
 	| { readonly kind: 'json'; readonly example: string }
 	/** Holds secrets or runs commands: Desktop shows whether it is set, never its value. */
@@ -199,10 +219,12 @@ export interface SettingDescriptor {
 	 * Which new value asks. `on` and `off` apply to a toggle (for a `toggle-list`, `off` is its `off`
 	 * list), `zero` to a number where 0 removes a cap, `drops-default` to a list of choices that
 	 * leaves out an entry the default holds, and `widens` to a list of things Namzu may reach, where
-	 * only a new list with an entry the list in force lacks asks (removing one never does). Absent means every change asks. Clearing a setting asks
+	 * only a new list with an entry the list in force lacks asks (removing one never does), and
+	 * `loosens` to the auto mode reviewer, which asks when its model changes or a list lets more
+	 * run without a person (see `autoModeLoosens`). Absent means every change asks. Clearing a setting asks
 	 * unless a select names its risky values and its default is none of them.
 	 */
-	readonly confirmWhen?: 'on' | 'off' | 'zero' | 'drops-default' | 'widens'
+	readonly confirmWhen?: 'on' | 'off' | 'zero' | 'drops-default' | 'widens' | 'loosens'
 	/**
 	 * For a select, the one new value that asks; choosing any other value applies at once. Clearing
 	 * asks only when the setting's default is that value. Absent means every change to a select asks.
@@ -415,8 +437,13 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'models',
 		'Automatic routing',
 		'Which model is the default, which are fast and large, and how a choice is made.',
-		json('{ "default": { "provider": "anthropic", "model": "..." }, "strategy": "yesno" }'),
 		{
+			kind: 'routing',
+			example:
+				'{"default":{"provider":"anthropic","model":"claude-sonnet-4-5"},"tiers":{"fast":{"provider":"anthropic","model":"claude-haiku-4-5"}},"strategy":"yesno","timeoutMs":1500}',
+		},
+		{
+			defaultText: 'not set: Automatic cannot be chosen until a default model is saved',
 			confirm: 'Routing sends task text to a model that decides which model answers.',
 		},
 	),
@@ -425,7 +452,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'models',
 		'Small model',
 		'The model for quick side jobs such as titles. Provider/model, or just the model.',
-		{ kind: 'text', placeholder: 'provider/model' },
+		{ kind: 'model', placeholder: 'provider/model' },
 		{
 			defaultText: 'the cheapest model with a known price',
 			confirm: 'Text from your conversations is sent to this model for side jobs.',
@@ -465,10 +492,38 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'permissions.autoMode',
 		'models',
 		'Auto mode reviewer',
-		'The model and rules that approve actions in auto mode.',
-		json('{ "model": "provider/model" }'),
+		'The model and rules that approve actions in auto mode. A list you leave alone keeps the built-in rules.',
 		{
+			kind: 'auto-mode',
+			lists: [
+				{
+					value: 'allow',
+					label: 'Always allowed',
+					help: 'Ordinary work the reviewer never blocks.',
+				},
+				{
+					value: 'softDeny',
+					label: 'Blocked unless you said so',
+					help: 'Blocked unless your own messages name the action and its risky detail.',
+				},
+				{
+					value: 'hardDeny',
+					label: 'Always blocked',
+					help: 'Blocked whatever you said.',
+				},
+				{
+					value: 'environment',
+					label: 'Trusted here',
+					help: 'Places and services the reviewer treats as yours.',
+				},
+			],
+			example:
+				'{"model":"anthropic/claude-haiku-4-5","hardDeny":["$defaults","Deleting a production database"]}',
+		},
+		{
+			defaultText: "the conversation's own model, with the built-in rules",
 			confirm: 'This decides which actions are approved without asking you.',
+			confirmWhen: 'loosens',
 		},
 	),
 
