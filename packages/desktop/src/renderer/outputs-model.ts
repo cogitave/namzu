@@ -57,6 +57,10 @@ export const opensByItself = (kind: PreviewKind): boolean =>
 /** Kinds the Browser pane shows: a page, and a picture the browser draws as it is. */
 export const opensInBrowser = (kind: PreviewKind): boolean => kind === 'html' || kind === 'image'
 
+/** An output the Outputs list sends to the Browser pane: a page, or anything a person calls a picture (an SVG reads as code but is drawn as a picture). */
+export const outputOpensInBrowser = (file: Pick<OutputFile, 'kind' | 'cardKind'>): boolean =>
+	opensInBrowser(file.kind) || file.cardKind === 'image'
+
 /**
  * The page or document output a link in a reply names. The link is written from the project's
  * folder and the output's path may be the whole path, so a whole-segment ending decides. Source

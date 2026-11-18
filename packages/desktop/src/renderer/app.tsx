@@ -183,6 +183,7 @@ import {
 	type OutputFile,
 	opensInBrowser,
 	outputFiles,
+	outputOpensInBrowser,
 	outputToOpen,
 } from './outputs-model.js'
 import { PalChatTranscript } from './pal-chat-transcript.js'
@@ -1312,7 +1313,7 @@ export function App({
 	// A page or a picture opens in the Browser pane; a document or code opens in Files.
 	const openOutput = useCallback(
 		(file: OutputFile) => {
-			if (opensInBrowser(file.kind) && browserActRef.current) {
+			if (outputOpensInBrowser(file) && browserActRef.current) {
 				browserActRef.current({ kind: 'open', path: file.path })
 				openPaneRef.current('browser')
 			} else openOutputBeside(file.path)

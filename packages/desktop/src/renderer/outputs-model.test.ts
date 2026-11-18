@@ -7,6 +7,7 @@ import {
 	opensInBrowser,
 	outputFiles,
 	outputForLink,
+	outputOpensInBrowser,
 	outputToOpen,
 	previewKind,
 } from './outputs-model.js'
@@ -193,5 +194,14 @@ describe('a link in a reply to a document the conversation wrote', () => {
 		expect(outputForLink(outputs, 'src/a.ts')).toBeUndefined()
 		expect(outputForLink(outputs, 'other.md')).toBeUndefined()
 		expect(outputForLink(outputs, '')).toBeUndefined()
+	})
+})
+
+describe('outputOpensInBrowser', () => {
+	it('sends a page and every picture, an SVG included, to the Browser pane and keeps code in Files', () => {
+		expect(outputOpensInBrowser({ kind: 'html', cardKind: 'page' })).toBe(true)
+		expect(outputOpensInBrowser({ kind: 'code', cardKind: 'image' })).toBe(true)
+		expect(outputOpensInBrowser({ kind: 'code', cardKind: 'code' })).toBe(false)
+		expect(outputOpensInBrowser({ kind: 'markdown', cardKind: 'document' })).toBe(false)
 	})
 })
