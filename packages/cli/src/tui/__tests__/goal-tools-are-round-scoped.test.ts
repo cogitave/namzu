@@ -83,6 +83,7 @@ it('withholds goal tools from a human turn and exposes them only to an admitted 
 
 	const { createAgentSession } = await import('../agent.js')
 	const session = await createAgentSession(prefs, detectedAnthropic(), {
+		toolLoading: 'eager',
 		cwd,
 		scope: {
 			sessionId: durableSession.id,

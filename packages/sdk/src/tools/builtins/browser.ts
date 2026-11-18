@@ -1102,6 +1102,9 @@ export function createBrowserTools(
 		destructive: false,
 		concurrencySafe: false,
 		urlArgument: 'url',
+		// A page is looked at to be acted on, and an action is read back by
+		// looking: the two load in one search.
+		loadsWith: [BROWSER_ACT_TOOL_NAME],
 		presentCall: (input) => ({
 			kind: 'generic',
 			label: observeLabel(host, input),
@@ -1155,6 +1158,7 @@ export function createBrowserTools(
 		destructive: (input: BrowserActToolInput) => DESTRUCTIVE_ACT_ACTIONS.has(input.action),
 		concurrencySafe: false,
 		pathArgument: 'path',
+		loadsWith: [BROWSER_TOOL_NAME],
 		presentCall: (input) => ({
 			kind: 'generic',
 			label: actLabel(host, input),

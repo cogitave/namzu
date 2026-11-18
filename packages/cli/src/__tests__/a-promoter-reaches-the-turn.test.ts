@@ -108,6 +108,7 @@ async function drive(
 ): Promise<(c: SessionMemoryCandidate) => void | Promise<void>> {
 	const { createAgentSession } = await import('../tui/agent.js')
 	const session = await createAgentSession(prefs, detectedAnthropic(), {
+		toolLoading: 'eager',
 		cwd,
 		memory: { curation },
 	})
@@ -176,6 +177,7 @@ describe('the turn memory promoter', () => {
 	it('keeps what it writes out of the index, so the next turn’s system prompt is unchanged', async () => {
 		const { createAgentSession } = await import('../tui/agent.js')
 		const session = await createAgentSession(prefs, detectedAnthropic(), {
+			toolLoading: 'eager',
 			cwd,
 			memory: { curation: 'off' },
 		})

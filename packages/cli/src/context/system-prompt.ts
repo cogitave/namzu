@@ -67,7 +67,15 @@ export const BROWSER_WEB_TASK_GUIDANCE = [
 ].join('\n')
 
 export const DEFERRED_TOOL_GUIDANCE =
-	'The deferred_tools catalogue is a discovery snapshot, not live availability status. The current runtime tool schemas are authoritative: call a tool directly when its schema is visible, even if the catalogue lists it as deferred. Only when a needed deferred tool schema is absent, call search_tools with its exact name to load it. Loading a tool does not change its permissions.'
+	'A tool listed under deferred_tools has no schema until it is loaded: call search_tools with its exact name first, then call the tool. A tool whose schema you can already see needs no search. Loading does not change its permissions.'
+
+// Said under a section that names tools a deferring session lists but does not send.
+const BROWSER_DEFERRED_NOTE =
+	'The browser tools (browser, browser_act) are deferred: load them with search_tools, by exact name, before the first call.'
+const CONVERSATION_DEFERRED_NOTE =
+	'search_conversation and read_conversation are deferred: load them with search_tools, by exact name, before the first call.'
+const MEMORY_DEFERRED_NOTE =
+	'The memory tools (save_memory, update_memory, search_memory, read_memory) are deferred: load the one you need with search_tools, by exact name, before the first call.'
 
 export interface SessionPromptInput {
 	/** Pre-rendered optional blocks, in the order they are read. */
@@ -145,18 +153,24 @@ export function sessionPromptInput(
 	facts: SessionPromptFacts,
 	turn: SessionPromptTurn,
 ): SessionPromptInput {
+	const toolsDeferred = facts.toolLoading === 'deferred' || facts.anyToolDeferred
+	const withNote = <T extends string | null | undefined>(section: T, note: string): T =>
+		section && toolsDeferred ? (`${section}\n${note}` as T) : section
 	return {
 		browserDesktopRouting: facts.browserDesktopRouting,
-		browserWebTask: facts.browserWebTask,
+		browserWebTask: withNote(facts.browserWebTask, BROWSER_DEFERRED_NOTE),
 		palBlock: facts.palBlock,
 		environment: facts.environment,
 		delegationAvailable: !facts.withheldTools?.includes(AGENT_LAUNCH_TOOL),
 		workflowOffered: turn.workflowOffered,
-		conversationEvidence: facts.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
-		memoryGuidance: facts.memoryGuidance,
+		conversationEvidence: withNote(
+			facts.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
+			CONVERSATION_DEFERRED_NOTE,
+		),
+		memoryGuidance: withNote(facts.memoryGuidance, MEMORY_DEFERRED_NOTE),
 		shellEscapeGuidance: facts.shellEscapeGuidance,
 		filePlacementGuidance: facts.filePlacementGuidance,
-		toolsDeferred: facts.toolLoading === 'deferred' || facts.anyToolDeferred,
+		toolsDeferred,
 		planInReminders: turn.planInReminders,
 		permissionMode: turn.permissionMode,
 		planPath: facts.planPath,

@@ -59,6 +59,7 @@ async function firstRequest(
 	options: AgentSessionOptions,
 ): Promise<{ tools: string[]; prompt: string }> {
 	const session = await createAgentSession(preferences, detected, {
+		toolLoading: 'eager',
 		cwd,
 		sandbox: { enabled: false },
 		plugins: { enabled: false },
