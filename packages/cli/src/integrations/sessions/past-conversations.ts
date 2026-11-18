@@ -12,8 +12,8 @@ export const PAST_CONVERSATION_SEARCH_TOOL = 'search_past_conversations'
 
 const QUERY_MIN = 2
 const QUERY_MAX = 200
-/** The index returns many parts per conversation; a window this size still finds one hit for each of many. */
-const EVIDENCE_WINDOW = 300
+/** The most of this project's conversations looked into for one search, newest first. */
+const MAX_SCANNED = 200
 const DEFAULT_LIMIT = 5
 const MAX_LIMIT = 10
 
@@ -56,26 +56,22 @@ export async function searchPastConversations(
 	)
 	if (allowed.size === 0) return []
 	signal?.throwIfAborted()
-	const found = await sessions.index.searchEvidence({
-		query,
-		caseSensitive: false,
-		limit: EVIDENCE_WINDOW,
-	})
-	const seen = new Set<string>()
+	// One narrow query per eligible conversation, newest first: a single window over the whole
+	// index is cut off in session-id order, so a long excluded chat could fill it and hide this
+	// project's own matches.
 	const out: PastConversationMatch[] = []
-	const hits = found
-		.filter((hit) => allowed.has(String(hit.sessionId)))
-		.sort((a, b) =>
-			(allowed.get(String(b.sessionId))?.updatedAt ?? '').localeCompare(
-				allowed.get(String(a.sessionId))?.updatedAt ?? '',
-			),
-		)
-	for (const hit of hits) {
-		const id = String(hit.sessionId)
-		if (seen.has(id)) continue
-		seen.add(id)
-		const row = allowed.get(id)
-		if (!row) continue
+	const candidates = [...allowed.values()]
+		.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+		.slice(0, MAX_SCANNED)
+	for (const row of candidates) {
+		signal?.throwIfAborted()
+		const [hit] = await sessions.index.searchEvidence({
+			query,
+			caseSensitive: false,
+			sessionId: row.id,
+			limit: 1,
+		})
+		if (!hit) continue
 		out.push({
 			title: row.title?.trim() || 'Untitled conversation',
 			updatedAt: row.updatedAt,

@@ -34,8 +34,9 @@ function sessionsOf(rows: Row[], hits: Hit[]): ConversationContext {
 						(options.includeArchived !== false || !row.archived),
 				)
 			},
-			async searchEvidence() {
-				return hits
+			async searchEvidence(options: { sessionId?: SessionId; limit?: number }) {
+				const own = hits.filter((hit) => !options.sessionId || hit.sessionId === options.sessionId)
+				return own.slice(0, options.limit ?? 100)
 			},
 		},
 	} as unknown as ConversationContext
@@ -106,5 +107,16 @@ describe('searching earlier conversations of this project', () => {
 	it('answers nothing for a query too short to mean anything', async () => {
 		const sessions = sessionsOf([row(1)], [reply(1, 'x')])
 		expect(await searchPastConversations(sessions, id(9), { query: 'x' })).toEqual([])
+	})
+
+	it('still finds an eligible conversation when an excluded one fills the index with matches', async () => {
+		const flood = Array.from({ length: 400 }, (_, i) => reply(1, `invoice mention ${i}`))
+		const sessions = sessionsOf(
+			[row(1), row(2, { updatedAt: '2026-11-02T10:00:00.000Z' })],
+			[...flood, reply(2, 'the invoice job runs nightly')],
+		)
+		// Conversation 1 is the current one and sorts first by id with 400 matching parts.
+		const found = await searchPastConversations(sessions, id(1), { query: 'invoice' })
+		expect(found.map((m) => m.title)).toEqual(['Chat 2'])
 	})
 })

@@ -5131,7 +5131,9 @@ export async function createAgentSession(
 		now: Date.now,
 	})
 	const curation =
-		options.memory?.curation === 'off' || options.compaction?.consolidate
+		options.memory?.curation === 'off' ||
+		options.compaction?.consolidate ||
+		options.memory?.fromConversations === false
 			? undefined
 			: new CurationRuntime({
 					inbox: memoryInbox,
