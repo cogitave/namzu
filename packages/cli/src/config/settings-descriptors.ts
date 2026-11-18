@@ -804,9 +804,9 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'browser.signInDetection',
 		'tools',
 		'Sign-in pages',
-		'address stops on any /login-style address; page stops only for known sign-in sites and lets other pages load.',
-		pick('address', 'page'),
-		{ defaultText: 'address' },
+		'page stops only for known sign-in sites, CAPTCHAs, bot blocks and HTTP sign-in prompts and lets other pages load, telling Namzu it cannot type a password; address stops on any /login-style address.',
+		pick('page', 'address'),
+		{ defaultText: 'page' },
 	),
 	d(
 		'codeAnalysis.enabled',

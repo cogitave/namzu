@@ -1,0 +1,8 @@
+<!doctype html><html><head><title>Prompts</title></head><body>
+<h1>Prompts</h1>
+<button onclick="document.getElementById('out').textContent = 'name=' + JSON.stringify(prompt('New name?', 'untitled'))">Rename</button>
+<button onclick="document.getElementById('out').textContent = 'secret=' + JSON.stringify(prompt('Enter your password to continue'))">Ask password</button>
+<button onclick="alert('Saved'); document.getElementById('out').textContent = 'alert closed'">Notify</button>
+<button onclick="document.getElementById('out').textContent = confirm('Proceed?') ? 'confirmed' : 'cancelled'">Proceed</button>
+<p id="out">nothing yet</p>
+</body></html>

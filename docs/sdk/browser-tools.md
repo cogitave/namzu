@@ -70,7 +70,11 @@ const tools = toolset('browser', createBrowserTools(host))
 | | `press` | `key`, `ref?` | no |
 | | `hover` | a target, as for `click` | no, and not destructive |
 | | `upload` | `ref`, `path` | no |
-| | `dialog` | `accept`, `promptText?` | no |
+| | `dialog` | `accept` (accept or dismiss a held alert, confirm or prompt), `promptText?` (the answer to a prompt, refused when the prompt asks for a password or code) | no |
+
+### Page dialogs
+
+A page's own alert, confirm or prompt pauses the page, and the result of the call that opened it says so. The model reads it in a snapshot, then answers with `browser_act dialog`: `accept: true` goes ahead (a prompt takes `promptText`, an empty answer when omitted), `accept: false` cancels. A prompt that asks for a password, passcode or one-time code is not answered with text; the call is refused, says nothing was typed, and the dialog stays open to be dismissed. A second dialog while one is held is dismissed. The answer is an ordinary `browser_act`, so the site levels apply to it as to any other action.
 
 ### Reaching the element
 

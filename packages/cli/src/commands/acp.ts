@@ -33,6 +33,7 @@ import { FileCheckpointStore, type TurnUndoStatus, type UndoPreview } from '../c
 import { flushCompileCacheWhenIdle } from '../compile-cache.js'
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { DESKTOP_CONTRACT } from '../desktop-contract.js'
+import { accountForProvider } from '../integrations/accounts/binding.js'
 import { type PluginInventoryView, readPluginInventory } from '../integrations/plugins/inventory.js'
 import { canSelectModel } from '../integrations/providers/access.js'
 import {
@@ -116,6 +117,15 @@ function readPackageVersion(): string {
 	} catch {
 		return '0.0.0'
 	}
+}
+
+/** The account the saved chain pins for a provider, as a member field: a model pick keeps it. */
+function accountPin(
+	preferences: Preferences | null | undefined,
+	provider: string,
+): { readonly account: string } | Record<string, never> {
+	const account = preferences ? accountForProvider(preferences, provider) : undefined
+	return account !== undefined ? { account } : {}
 }
 
 function defaultPrefs(detected: readonly DetectedProvider[]): Preferences | null {
@@ -1668,7 +1678,11 @@ export function createCliAcpRuntime(
 				{
 					...(preferences ?? { version: 3, subagents: { active: [] } }),
 					providers: [
-						{ id: detected.entry.id, model },
+						{
+							id: detected.entry.id,
+							model,
+							...accountPin(preferences, detected.entry.id),
+						},
 						...(preferences?.providers.slice(1).filter((item) => item.id !== provider) ?? []),
 					],
 				},
@@ -1920,7 +1934,11 @@ export function createCliAcpRuntime(
 				selections.set(sessionId, {
 					...(preferences ?? { version: 3, subagents: { active: [] } }),
 					providers: [
-						{ id: detected.entry.id, ...(model ? { model } : {}) },
+						{
+							id: detected.entry.id,
+							...(model ? { model } : {}),
+							...accountPin(preferences, detected.entry.id),
+						},
 						...(preferences?.providers.slice(1).filter((item) => item.id !== detected.entry.id) ??
 							[]),
 					],

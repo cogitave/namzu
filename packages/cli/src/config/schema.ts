@@ -362,11 +362,11 @@ export interface BrowserConfig {
 	/** Leave the browser running when the session ends. Default `false`. */
 	readonly keepOpen?: boolean
 	/**
-	 * What makes a page a sign-in page. `address` (default) stops the turn on
-	 * any address that looks like one (`/login`, `/signin`, `/sso`, …). `page`
-	 * stops it only for the known sign-in hosts, a challenge or an HTTP
-	 * authentication prompt; any other page that shows a password or code
-	 * field loads, and the model is told once that it cannot type one.
+	 * What makes a page a sign-in page. `page` (default) stops the turn only
+	 * for the known sign-in hosts, a challenge or an HTTP authentication
+	 * prompt; any other page that shows a password or code field loads, and
+	 * the model is told once that it cannot type one. `address` stops the turn
+	 * on any address that looks like a sign-in (`/login`, `/signin`, `/sso`, …).
 	 */
 	readonly signInDetection?: 'address' | 'page'
 }
@@ -906,9 +906,11 @@ export const LEGACY_DECISION_POINT_NAMES: Readonly<Record<string, DecisionPointI
 export type DecisionPointMode = 'off' | 'shadow' | 'on'
 
 /**
- * The decision points and their modes. Every point is `off` unless it is named
- * here, because a point's question carries text of the conversation to the
- * decision service.
+ * The decision points and their modes. A point not named here is `off`, because
+ * its question carries text of the conversation to the decision service, except
+ * `pick`: it is `on` once a decision model is configured, because it sends only
+ * the names of a window's controls and acts only when the model is sure. Name
+ * `pick: off` to turn it off.
  */
 export type DecisionPointsConfig = Readonly<Partial<Record<DecisionPointId, DecisionPointMode>>>
 
