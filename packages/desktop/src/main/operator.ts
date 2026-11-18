@@ -580,16 +580,6 @@ export class Operator {
 			 */
 			needsMainWindow?: (reason: 'approval' | 'question', sessionId: string) => void
 			/**
-			 * Names of this application's own windows, as the engine reports an application. The agent
-			 * is never allowed into them, so it cannot answer its own questions.
-			 */
-			ownAppNames?: () => readonly string[]
-			/**
-			 * A conversation needs the main window and the pill cannot answer it: bring the window
-			 * forward once if it is covered. `question` is a turn that ended asking something.
-			 */
-			needsMainWindow?: (reason: 'approval' | 'question', sessionId: string) => void
-			/**
 			 * What the system notifications need to know. Facts only (a conversation id, how a turn
 			 * ended); never a message, a file or a command.
 			 */

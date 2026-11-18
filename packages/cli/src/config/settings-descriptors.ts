@@ -1655,7 +1655,11 @@ const DECLARED: readonly SettingDescriptor[] = [
 		'agent',
 		'Quiet-stretch nudge',
 		'After a long stretch of work with nothing said, ask the model for one sentence on what it is doing. Auto: on the terminal and in Desktop only; On: also `namzu exec`; Off: never.',
-		pick('auto', 'on', 'off'),
+		pick(
+			['auto', 'Auto', 'On in the terminal app and in Desktop, off in `namzu exec`.'],
+			['on', 'On', 'Also in `namzu exec`.'],
+			['off', 'Off', 'Never.'],
+		),
 		{ group: 'while-working', keywords: ['progress nudge', 'quiet stretch'], default: 'auto' },
 	),
 	d(

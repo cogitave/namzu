@@ -93,6 +93,8 @@ export const SESSION_KEY_MAP: Readonly<Record<keyof NamzuCliConfig, string>> = {
 	modelCatalogueRefresh: 'excluded: read by the catalogue refresher at start, not by a session',
 	hypermode: 'excluded: a per-turn send option, see `turnOptionsFromConfig`',
 	refusalFallback: 'excluded: a per-turn send option, see `turnOptionsFromConfig`',
+	progressNudge:
+		'excluded: needs to know whether anyone watches, so each host resolves it with `resolveProgressNudge`',
 	learningObservations: 'learningObservations',
 	learningGenerator: 'excluded: the terminal app starts the generator, no session option reads it',
 	schedule: 'excluded: read by the scheduler daemon',
