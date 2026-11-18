@@ -18,7 +18,8 @@ const blockHighlighter = createBlockHighlighter(async (theme, lang) => {
 })
 
 interface Drawn {
-	key: string
+	text: string
+	fence: string
 	lines: HighlightToken[][]
 }
 
@@ -35,19 +36,19 @@ export function useHighlightedCode(
 	const prefs = useCodePrefs()
 	const dark = useWindowDark()
 	const theme = themeForMode(prefs, dark)
-	const key = `${theme}\u0000${fence}\u0000${text}`
 	const [drawn, setDrawn] = useState<Drawn | undefined>()
 	useEffect(() => {
 		if (!enabled || text === undefined) return
 		let current = true
 		void blockHighlighter.highlight(text, fence, theme).then((lines) => {
-			if (current) setDrawn(lines ? { key, lines } : undefined)
+			if (current) setDrawn(lines ? { text, fence, lines } : undefined)
 		})
 		return () => {
 			current = false
 		}
-	}, [enabled, text, fence, theme, key])
-	if (!enabled || !drawn || drawn.key !== key) return undefined
+	}, [enabled, text, fence, theme])
+	// A new theme keeps the old colours until the new ones arrive; only a changed text or fence drops them.
+	if (!enabled || !drawn || drawn.text !== text || drawn.fence !== fence) return undefined
 	return drawn.lines.map((line, row) => (
 		// biome-ignore lint/suspicious/noArrayIndexKey: the lines of a settled block never reorder.
 		<span key={row}>

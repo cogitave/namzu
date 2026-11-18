@@ -68,6 +68,14 @@ export function highlightLanguage(text: string, fence: string): string | undefin
 	return lang
 }
 
+function isUnknownLanguage(error: unknown): boolean {
+	const message = error instanceof Error ? error.message : String(error)
+	return (
+		/language/i.test(message) &&
+		/(not found|unknown|not (?:been )?(?:loaded|registered|supported))/i.test(message)
+	)
+}
+
 export interface BlockHighlighter {
 	/** Lines of coloured tokens, or undefined when the block stays plain. */
 	highlight(text: string, fence: string, theme: string): Promise<HighlightToken[][] | undefined>
@@ -85,7 +93,11 @@ export function createBlockHighlighter(load: EngineLoader): BlockHighlighter {
 			if (!engine) {
 				engine = load(theme, lang).then(
 					(loaded) => loaded,
-					() => undefined,
+					(error: unknown) => {
+						// Only an unknown language is remembered; a load that failed for another reason is tried again.
+						if (!isUnknownLanguage(error)) engines.delete(key)
+						return undefined
+					},
 				)
 				engines.set(key, engine)
 			}

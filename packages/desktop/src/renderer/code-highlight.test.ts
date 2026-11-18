@@ -94,6 +94,22 @@ describe('the block highlighter', () => {
 		expect(await failing.highlight('x', 'ts', 't')).toBeUndefined()
 	})
 
+	it('tries again after a load that failed for a reason other than the language', async () => {
+		const { load: realLoad } = fake()
+		let first = true
+		const load = vi.fn(async (theme: string, lang: string) => {
+			if (first) {
+				first = false
+				throw new Error('wasm did not load')
+			}
+			return realLoad(theme, lang)
+		})
+		const highlighter = createBlockHighlighter(load)
+		expect(await highlighter.highlight('a', 'ts', 'light')).toBeUndefined()
+		expect(await highlighter.highlight('a', 'ts', 'light')).toBeDefined()
+		expect(load).toHaveBeenCalledTimes(2)
+	})
+
 	it('loads each theme and language once, also a failure', async () => {
 		const { load } = fake()
 		const highlighter = createBlockHighlighter(load)
