@@ -94,7 +94,6 @@
 	display: flex;
 	align-items: baseline;
 	gap: 8px;
-	margin-bottom: 8px;
 	font-size: var(--text-interface);
 	font-variant-numeric: tabular-nums;
 	line-height: var(--leading-interface);
@@ -105,10 +104,18 @@
 .details-removed {
 	color: var(--details-removed);
 }
-.details-changes-button {
-	margin-top: 4px;
+/* The totals and the button share one row under the heading, as the reference draws it. */
+.details-section[aria-label="Changes"] {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
 }
-
+.details-section[aria-label="Changes"] > .details-heading {
+	flex: 0 0 100%;
+	margin-bottom: 0;
+}
 /* The column beside the conversation (a wide window only): its own 320 px between transcript and panel. */
 .details-column {
 	position: absolute;

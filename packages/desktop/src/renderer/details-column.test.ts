@@ -196,4 +196,12 @@ describe('the details body', () => {
 		])
 		expect(toolServerRows(undefined)).toEqual([])
 	})
+
+	it('puts the change totals and the button on one row under the heading', () => {
+		const css = readFileSync(new URL('./conversation-details.css', import.meta.url), 'utf8')
+		expect(css).toMatch(
+			/\.details-section\[aria-label="Changes"\] \{[^}]*display: flex;[^}]*justify-content: space-between;/,
+		)
+		expect(css).toMatch(/\[aria-label="Changes"\] > \.details-heading \{[^}]*flex: 0 0 100%;/)
+	})
 })

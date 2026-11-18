@@ -207,6 +207,8 @@ describe('the pane', () => {
 		expect(page).toMatch(/\.file-document\.document-page-sheet \{/)
 		// A 16 px mark keeps the row at 30 px, so the 32 px pitch holds.
 		expect(panel).toMatch(/\.output-row > svg \{[^}]*width: 1rem;[^}]*height: 1rem;/)
+		// The floating button hangs below the bar's top edge; centred in a zero-height bar it was half cut off.
+		expect(page).toMatch(/\.document-page-bar \{[^}]*align-items: flex-start;/)
 		// Square tables with a line on every cell edge.
 		expect(page).toContain('border-collapse: collapse')
 		expect(page).toMatch(/th,[^{]*td \{[^}]*border: 1px solid var\(--border-table\)/)
