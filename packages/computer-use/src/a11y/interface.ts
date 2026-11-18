@@ -188,6 +188,11 @@ export interface AccessibilityBackend {
 	readonly isReady: boolean
 	/** Starts the backend ahead of the first question. Does not wait; safe to repeat. */
 	warm(): void
+	/**
+	 * Ends the backend's process while nobody is using it; the next `warm()` or question starts it again
+	 * (a marker taken before is then stale). Optional: a backend that holds no process has nothing to end.
+	 */
+	release?(): void
 	/** Resolves true when the backend is up; false (never throws) when it cannot be. */
 	ready(): Promise<boolean>
 	/** The visible, un-cloaked, non-tool top-level windows, front to back. */

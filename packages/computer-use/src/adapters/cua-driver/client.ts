@@ -199,6 +199,33 @@ export class McpStdioClient {
 		}
 	}
 
+	/**
+	 * Stop the running process and keep the client: the next call starts a new one (the same path as
+	 * after a crash). For a client nobody is using, so it holds no process while it waits.
+	 */
+	async release(): Promise<boolean> {
+		if (this.inFlight > 0) return false
+		const running = this.running ?? (await this.starting?.catch(() => undefined))
+		if (!running) return true
+		if (running.exited) return true
+		if (this.inFlight > 0) return false
+		// A call that arrives while it winds down starts a new process; it never meets this one.
+		if (this.running === running) this.running = undefined
+		running.killedFor = 'dispose'
+		running.child.stdin.end()
+		let timer: NodeJS.Timeout | undefined
+		const late = new Promise<'late'>((resolve) => {
+			timer = setTimeout(() => resolve('late'), 2_000)
+		})
+		const outcome = await Promise.race([running.closed.then(() => 'closed' as const), late])
+		clearTimeout(timer)
+		if (outcome === 'late') {
+			running.child.kill('SIGKILL')
+			await running.closed
+		}
+		return true
+	}
+
 	private async ensureStarted(): Promise<Running> {
 		if (this.disposed) throw new Error(`${this.options.command}: the client was disposed.`)
 		if (this.running && !this.running.exited) return this.running

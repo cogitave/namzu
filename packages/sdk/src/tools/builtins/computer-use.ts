@@ -44,6 +44,7 @@ import {
 	fitPng,
 	pngSize,
 } from './computer-use-image.js'
+import { coerceWindowId, windowKey } from './computer-use-window-id.js'
 
 export {
 	HIGH_RES_SCREENSHOT_LIMITS,
@@ -279,6 +280,7 @@ const keySchema = z.object({
 	at: pointSchema.optional(),
 	delivery_mode: z.enum(['background', 'foreground']).optional(),
 })
+const windowIdSchema = z.preprocess(coerceWindowId, z.string().min(1))
 const waitSchema = z.object({
 	type: z.literal('wait'),
 	ms: z.number().int().nonnegative(),
@@ -286,7 +288,7 @@ const waitSchema = z.object({
 const listWindowsSchema = z.object({ type: z.literal('list_windows') })
 const focusWindowSchema = z.object({
 	type: z.literal('focus_window'),
-	window_id: z.string().min(1),
+	window_id: windowIdSchema,
 })
 const UI_ACTIONS = [
 	'invoke',
@@ -300,7 +302,7 @@ const UI_ACTIONS = [
 ] as const satisfies readonly UiElementAction[]
 const uiSnapshotSchema = z.object({
 	type: z.literal('ui_snapshot'),
-	window_id: z.string().min(1).optional(),
+	window_id: windowIdSchema.optional(),
 	/** A ref shown by an earlier ui_snapshot: read only that region or control. */
 	root: z.string().min(1).optional(),
 	/** With root: skip this many of the region's children (the next page of a long region). */
@@ -323,7 +325,7 @@ const waitForSchema = z.object({
 	match: z.string().min(1),
 	/** Narrows element_* to controls of this role, such as Button. */
 	role: z.string().min(1).optional(),
-	window_id: z.string().min(1).optional(),
+	window_id: windowIdSchema.optional(),
 	timeout_ms: z.number().int().positive().optional(),
 })
 const uiActSchema = z.object({
@@ -340,7 +342,7 @@ const uiDoSchema = z.object({
 	target: z.string().min(1).max(200),
 	action: z.enum(UI_ACTIONS),
 	value: z.string().optional(),
-	window_id: z.string().min(1).optional(),
+	window_id: windowIdSchema.optional(),
 })
 
 /** What a batch may carry: everything but the image-returning actions and another batch. */
@@ -359,12 +361,23 @@ const batchItemSchema = z.discriminatedUnion('type', [
 	uiDoSchema,
 ])
 
+/** The actions that read a place or a window off the latest screenshot. */
+const NEEDS_FRAME: ReadonlySet<string> = new Set([
+	'cursor_position',
+	'mouse_move',
+	'mouse_click',
+	'mouse_drag',
+	'scroll',
+	'type_text',
+	'key',
+])
+
 const withFrame = { screenshot_id: screenshotIdSchema }
 
 const actionSchema = z.discriminatedUnion('type', [
 	z.object({
 		type: z.literal('screenshot'),
-		window_id: z.string().min(1).optional(),
+		window_id: windowIdSchema.optional(),
 	}),
 	z.object({ type: z.literal('zoom'), region: regionSchema, ...withFrame }),
 	cursorPositionSchema.extend(withFrame),
@@ -644,6 +657,10 @@ function buildDescription(
 				? `Offers the available computer controls on a ${caps.displayServer} host.`
 				: `Computer control is unavailable on this ${caps.displayServer} host; this tool reports the limitation.`
 	const lines = [intro, `Available actions: ${available.join('; ') || 'none'}.`]
+	if (available.length > 0)
+		lines.push(
+			'When the person asks you to use an application on the screen ("open the text editor and type …", "click …"), do it here, on the screen, so they watch it happen (start the program from the shell if it is not open, then work in its window with the actions below): a script that writes the file or runs the program is a different way of getting the result, and is fine only when the result is all they asked for. Say in your reply which way you did the work, and never say you typed or clicked in an application when you wrote a file or ran a command instead.',
+		)
 	if (unavailable.length > 0) {
 		lines.push(
 			caps.unavailableReason
@@ -1521,7 +1538,7 @@ export function createComputerUseTool(
 		windowId: string | undefined,
 		action?: UiElementAction,
 	): ComputerUseAdvisorCandidate[] => {
-		const shown = shownRefs.get(windowId ?? '')
+		const shown = shownRefs.get(windowKey(windowId))
 		const out: ComputerUseAdvisorCandidate[] = []
 		if (!shown) return out
 		for (const ref of shown) {
@@ -2056,11 +2073,12 @@ export function createComputerUseTool(
 		}
 		uiSnapshotWindowId = snapshot.windowId ?? requestedWindowId
 		{
-			const key = uiSnapshotWindowId ?? ''
+			const key = windowKey(uiSnapshotWindowId)
 			const now = new Set(refs.keys())
 			shownRefs.set(key, snapshot.region ? new Set([...(shownRefs.get(key) ?? []), ...now]) : now)
 		}
-		if (uiSnapshotWindowId !== undefined) treeUsable.set(uiSnapshotWindowId, refs.size > 0)
+		if (uiSnapshotWindowId !== undefined)
+			treeUsable.set(windowKey(uiSnapshotWindowId), refs.size > 0)
 		uiSnapshotFrame = frames.latest()
 		const window =
 			snapshot.windowId && /^[\w.:-]{1,64}$/.test(snapshot.windowId) ? snapshot.windowId : undefined
@@ -2257,7 +2275,7 @@ export function createComputerUseTool(
 	/** Said once per window, after its first coordinate click: the tree is the surer way in. */
 	const coordinateNudge = (frame: ScreenshotFrame): string | undefined => {
 		if (!frame.window || !available.has('ui_snapshot')) return undefined
-		const id = frame.window.window.id
+		const id = windowKey(frame.window.window.id)
 		if (nudgedWindows.has(id)) return undefined
 		const usable = treeUsable.get(id)
 		if (usable === false) return undefined
@@ -2517,6 +2535,18 @@ export function createComputerUseTool(
 		// the screenshot in step 5 should not arrive after steps 1–4 changed
 		// the desktop.
 		const planned: PlannedStep[] = []
+		// An input that reads its place off a screenshot, when none was ever taken: it is not sent. The
+		// tool takes the display screenshot and returns it, so the model chooses its target on a frame it
+		// has seen. Actions before that input still run; it and everything after it do not.
+		const blockedAt =
+			frameId === undefined &&
+			!frames.latest() &&
+			available.has('screenshot') &&
+			hostActionAvailable(caps, 'screenshot')
+				? items.findIndex((item) => NEEDS_FRAME.has(item.type))
+				: -1
+		const unsent: readonly BatchItem[] = blockedAt >= 0 ? items.slice(blockedAt) : []
+		const toPlan: readonly BatchItem[] = blockedAt >= 0 ? items.slice(0, blockedAt) : items
 		const actionFrame = frameId ? frames.get(frameId) : frames.latest()
 		const explicitDisplayFrame =
 			frameId !== undefined && actionFrame !== undefined && !actionFrame.window
@@ -2541,7 +2571,7 @@ export function createComputerUseTool(
 		let postWindowId =
 			actionFrame?.window?.window.id ??
 			(!hostActionAvailable(caps, 'screenshot') ? uiSnapshotWindowId : undefined)
-		for (const [index, item] of items.entries()) {
+		for (const [index, item] of toPlan.entries()) {
 			try {
 				planned.push(plan(item, frameId))
 			} catch (error) {
@@ -2629,6 +2659,33 @@ export function createComputerUseTool(
 		}
 		for (const step of planned.slice(records.length))
 			records.push({ label: step.label, status: 'not run' })
+		for (const item of unsent) records.push({ label: label(item), status: 'not run' })
+		const total = planned.length + unsent.length
+
+		// The frame the unsent input needed, taken after the actions that did run.
+		let framePrelude: string | undefined
+		let frameShot: Capture | undefined
+		if (unsent.length > 0 && !failure && !signal?.aborted) {
+			try {
+				if (changed) await settleAfterActions(host, undefined, settings.settleMs, signal)
+				frameShot = await capture()
+				const before = single
+					? ''
+					: planned.length === 0
+						? ' Nothing in the batch ran.'
+						: ` Actions 1-${planned.length} ran; action ${planned.length + 1}${unsent.length > 1 ? ' and the ones after it' : ''} did not.`
+				framePrelude = `No screenshot had been taken yet, so nothing was clicked or typed: the ${single ? 'action' : 'input'} was not sent.${before} The display screenshot follows (${frameShot.frame.id}, ${frameShot.frame.imageWidth}x${frameShot.frame.imageHeight}); choose the target on it and send the action again.`
+			} catch (error) {
+				const why = signal?.aborted ? 'cancelled' : errorText(error)
+				const reason = `no screenshot has been taken yet, so nothing was clicked or typed, and the display screenshot could not be taken: ${why}`
+				failure = { index: planned.length, error: reason }
+				records[planned.length] = {
+					label: records[planned.length]?.label ?? '',
+					status: 'failed',
+					error: reason,
+				}
+			}
+		}
 
 		// The screen after the batch: after anything that may have changed it,
 		// and after a wait, whose whole point is to look again.
@@ -2637,8 +2694,9 @@ export function createComputerUseTool(
 			available.has('screenshot') &&
 			(hostActionAvailable(caps, 'screenshot') || postWindowId !== undefined) &&
 			(changed || planned.some((step) => step.item.type === 'wait')) &&
+			unsent.length === 0 &&
 			!signal?.aborted
-		let shot: Capture | undefined
+		let shot: Capture | undefined = frameShot
 		let shotError: string | undefined
 		if (looks) {
 			try {
@@ -2660,13 +2718,18 @@ export function createComputerUseTool(
 					return `${n}${record.label}: not run`
 			}
 		}
-		const header = single
-			? []
-			: failure
-				? [
-						`Batch stopped at action ${failure.index + 1} of ${planned.length}; ${planned.length - failure.index - 1} not run.`,
-					]
-				: [`Batch: all ${planned.length} actions done.`]
+		const header = [
+			...(framePrelude ? [framePrelude] : []),
+			...(single
+				? []
+				: failure
+					? [
+							`Batch stopped at action ${failure.index + 1} of ${total}; ${total - failure.index - 1} not run.`,
+						]
+					: unsent.length > 0
+						? []
+						: [`Batch: all ${total} actions done.`]),
+		]
 		const stepLines = records.map(summary)
 		const shotLines = shot
 			? [describeFrame(shot.frame)]
@@ -2728,7 +2791,7 @@ export function createComputerUseTool(
 				? failure.unknown.message
 				: single
 					? `computer_use failed: ${failure.error}`
-					: `Batch stopped at action ${failure.index + 1} of ${planned.length} (${planned[failure.index]?.label}): ${failure.error}`
+					: `Batch stopped at action ${failure.index + 1} of ${total} (${planned[failure.index]?.label}): ${failure.error}`
 		return result
 	}
 

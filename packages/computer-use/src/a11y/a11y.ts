@@ -153,6 +153,17 @@ export class WindowsA11yHost implements AccessibilityBackend {
 		if (!this.dead && !this.closed) void this.start()
 	}
 
+	release(): void {
+		const proc = this.proc
+		if (!proc) return
+		// Replaced, not ended: its exit is not a crash (see the exit handler).
+		this.proc = undefined
+		this.starting = undefined
+		this.up = false
+		this.failAll(new A11yError('helper_exited', 'the accessibility host was released'))
+		proc.kill()
+	}
+
 	ready(): Promise<boolean> {
 		if (this.dead || this.closed) return Promise.resolve(false)
 		return this.start()

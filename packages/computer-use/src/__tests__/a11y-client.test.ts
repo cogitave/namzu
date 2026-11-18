@@ -154,6 +154,28 @@ describe('WindowsA11yHost: starting', () => {
 	})
 })
 
+describe('WindowsA11yHost: letting go of the helper', () => {
+	it('ends the helper on release, fails what was waiting, and starts a new one for the next question', async () => {
+		const { client, helpers } = host()
+		await ready(client, helpers)
+		const waiting = client.listWindows().catch((e: unknown) => e)
+		await flush()
+		client.release()
+		expect(helpers[0]?.killed).toBe(true)
+		expect(await waiting).toMatchObject({ code: 'helper_exited' })
+		expect(client.isReady).toBe(false)
+		// The helper's exit is not a crash: nothing is counted against it.
+		helpers[0]?.exits()
+		await flush()
+		client.warm()
+		await flush()
+		expect(helpers).toHaveLength(2)
+		helpers[1]?.greet()
+		await flush()
+		expect(client.isReady).toBe(true)
+	})
+})
+
 describe('WindowsA11yHost: asking', () => {
 	it('answers each request from the reply that carries its id, in whatever order they come', async () => {
 		const { client, helpers } = host()
