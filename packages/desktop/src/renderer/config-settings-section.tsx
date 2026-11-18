@@ -395,6 +395,7 @@ function Control({
 				<TextInput
 					descriptor={descriptor}
 					placeholder={control.placeholder}
+					folderPicker={control.picker === 'folder'}
 					value={value}
 					config={config}
 				/>
@@ -535,22 +536,27 @@ function NumberInput({
 function TextInput({
 	descriptor,
 	placeholder,
+	folderPicker,
 	value,
 	config,
 }: {
 	descriptor: ConfigSettingDescriptor
 	placeholder?: string
+	/** A button beside the box chooses a folder with the system picker. */
+	folderPicker?: boolean
 	value: unknown
 	config: ConfigSettingsControls
 }) {
 	const saved = typeof value === 'string' ? value : ''
 	const [draft, setDraft] = useState<string>()
+	const [pickError, setPickError] = useState('')
+	const pick = folderPicker ? config.tools?.pickFolder : undefined
 	const commit = async () => {
 		if (draft === undefined || draft === saved) return setDraft(undefined)
 		const ok = await config.change(descriptor.path, draft.trim() === '' ? undefined : draft)
 		if (ok) setDraft(undefined)
 	}
-	return (
+	const box = (
 		<input
 			type="text"
 			className="settings-config-input settings-config-wide"
@@ -564,6 +570,32 @@ function TextInput({
 				if (event.key === 'Enter') void commit()
 			}}
 		/>
+	)
+	if (!pick) return box
+	return (
+		<>
+			{box}
+			<Button
+				variant="outline"
+				size="sm"
+				onClick={() => {
+					setPickError('')
+					pick().then(
+						(picked) => {
+							if (picked) void config.change(descriptor.path, picked)
+						},
+						() => setPickError('The folder picker did not open.'),
+					)
+				}}
+			>
+				Choose folder
+			</Button>
+			{pickError && (
+				<p role="alert" className="settings-error settings-config-error">
+					{pickError}
+				</p>
+			)}
+		</>
 	)
 }
 

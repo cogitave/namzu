@@ -82,7 +82,7 @@ export type ConfigSettingControl =
 			source?: 'skills'
 	  }
 	| { kind: 'number'; min?: number; max?: number; unit?: string }
-	| { kind: 'text'; placeholder?: string }
+	| { kind: 'text'; placeholder?: string; picker?: 'folder' }
 	| { kind: 'model'; placeholder?: string }
 	| { kind: 'routing'; example: string }
 	| { kind: 'auto-mode'; lists: ConfigSettingOption[]; example: string }
@@ -285,6 +285,7 @@ function control(value: unknown): ConfigSettingControl | undefined {
 			return {
 				kind: 'text',
 				...(typeof c.placeholder === 'string' ? { placeholder: c.placeholder } : {}),
+				...(c.picker === 'folder' ? { picker: 'folder' as const } : {}),
 			}
 		case 'model':
 			return {
