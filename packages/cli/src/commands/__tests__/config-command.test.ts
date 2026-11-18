@@ -1,10 +1,20 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { configCommand, parseConfigArgs } from '../config.js'
+import { readSettings } from '../../config/desktop-settings.js'
+import { SETTING_DESCRIPTORS, type SettingDescriptor } from '../../config/settings-descriptors.js'
+import { configCommand, parseConfigArgs, shellWord } from '../config.js'
 import type { CommandContext } from '../types.js'
+
+const typed = vi.hoisted(() => ({ answer: 'n' }))
+vi.mock('node:readline', () => ({
+	createInterface: () => ({
+		question: (_q: string, done: (a: string) => void) => done(typed.answer),
+		close: () => {},
+	}),
+}))
 
 let home: string
 let out: string
@@ -73,5 +83,81 @@ describe('namzu config', () => {
 		expect(await run()).toBe(2)
 		expect(await run('set', 'limits.maxIterations')).toBe(2)
 		expect(await run('list', '--section', 'nope')).toBe(2)
+	})
+
+	it('quotes a value in the retry hint so the line can be pasted', async () => {
+		expect(shellWord('20')).toBe('20')
+		expect(shellWord('{"a":"b c"}')).toBe(`'{"a":"b c"}'`)
+		expect(shellWord("it's")).toBe(`'it'\\''s'`)
+		expect(shellWord('')).toBe("''")
+		expect(await run('set', 'permissions.defaultMode', 'bypass')).toBe(1)
+		expect(err).toContain('namzu config set permissions.defaultMode bypass --yes')
+		err = ''
+		expect(await run('set', 'permissions', '{"bash":"allow"}')).toBe(1)
+		expect(err).toContain(`namzu config set permissions '{"bash":"allow"}' --yes`)
+	})
+
+	it('lists and gets exactly the described settings, including one added to the description', async () => {
+		const fake: SettingDescriptor = {
+			path: 'limits.fakeAddedForCommandTest',
+			label: 'A fake row',
+			description: 'Only the test has this.',
+			section: 'agent',
+			control: { kind: 'number', min: 2, max: 9 },
+			default: 4,
+			appliesWhen: 'next-turn',
+		}
+		const descriptors = SETTING_DESCRIPTORS as SettingDescriptor[]
+		descriptors.push(fake)
+		try {
+			expect(await run('list', '--json')).toBe(0)
+			const listed = JSON.parse(out) as {
+				settings: { key: string; default?: unknown; control: unknown }[]
+			}
+			const desktop = readSettings({ home, env: {} as NodeJS.ProcessEnv })
+			expect(listed.settings.map((s) => s.key)).toEqual(descriptors.map((d) => d.path))
+			for (const row of listed.settings) {
+				const seen = desktop.descriptors.find((d) => d.path === row.key)
+				expect(row.default, row.key).toEqual(seen?.default)
+				expect(row.control, row.key).toEqual(seen?.control)
+			}
+			for (const descriptor of descriptors) {
+				out = ''
+				expect(await run('get', descriptor.path, '--json'), descriptor.path).toBe(0)
+				expect(JSON.parse(out).key).toBe(descriptor.path)
+			}
+		} finally {
+			descriptors.pop()
+		}
+		expect(await run('get', 'limits.fakeAddedForCommandTest')).toBe(1)
+	})
+
+	describe('on a terminal', () => {
+		const setTty = (value: boolean) => {
+			for (const stream of [process.stdin, process.stderr]) {
+				Object.defineProperty(stream, 'isTTY', { value, configurable: true, writable: true })
+			}
+		}
+		afterEach(() => {
+			for (const stream of [process.stdin, process.stderr]) Reflect.deleteProperty(stream, 'isTTY')
+		})
+		const answer = (text: string) => {
+			typed.answer = text
+		}
+
+		it('asks and changes on y', async () => {
+			setTty(true)
+			answer('y')
+			expect(await run('set', 'permissions.defaultMode', 'bypass')).toBe(0)
+			expect(readFileSync(join(home, 'config.yaml'), 'utf8')).toContain('defaultMode: bypass')
+		})
+
+		it('asks and leaves the file alone on n', async () => {
+			setTty(true)
+			answer('n')
+			expect(await run('set', 'permissions.defaultMode', 'bypass')).toBe(1)
+			expect(err).toContain('Not changed.')
+			expect(existsSync(join(home, 'config.yaml'))).toBe(false)
+		})
 	})
 })

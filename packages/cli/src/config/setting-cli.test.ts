@@ -185,6 +185,10 @@ describe('changing a setting', () => {
 
 	it('suggests the closest names for an unknown key', () => {
 		expect(closestSettings('limits.maxIteratons')[0]).toBe('limits.maxIterations')
+		// An abbreviation of the last part, and a key that exists under another name.
+		expect(closestSettings('limits.maxItr')[0]).toBe('limits.maxIterations')
+		expect(closestSettings('limits.helpersAtOnce')).toContain('workflow.maxConcurrency')
+		expect(closestSettings('helpers at once')).toContain('workflow.maxConcurrency')
 		const plan = planSettingChange('limits.maxIteratons', '3', opts())
 		expect(plan.ok).toBe(false)
 		if (!plan.ok) expect(plan.error).toContain('limits.maxIterations')

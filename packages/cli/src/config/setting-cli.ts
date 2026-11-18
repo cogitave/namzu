@@ -77,9 +77,23 @@ function editDistance(a: string, b: string): number {
 	return row[b.length] as number
 }
 
+/** True when the letters of `short` appear in `long` in order, as in an abbreviation. */
+function isSubsequence(short: string, long: string): boolean {
+	let at = 0
+	for (const letter of long) if (letter === short[at]) at++
+	return at === short.length
+}
+
 /** The closest setting names to a key that is not one: a shared part first, then spelling. */
 export function closestSettings(key: string, count = 3): string[] {
 	const needle = key.toLowerCase()
+	// Words of the typed text, with camelCase split, so "helpersAtOnce" and "helpers at once" both match a label.
+	const words = key
+		.slice(key.indexOf('.') + 1)
+		.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+		.toLowerCase()
+		.split(/[^a-z0-9]+/)
+		.filter((word) => word.length >= 3)
 	const scored = SETTING_DESCRIPTORS.map((entry) => {
 		const path = entry.path.toLowerCase()
 		const label = entry.label.toLowerCase()
@@ -88,11 +102,24 @@ export function closestSettings(key: string, count = 3): string[] {
 			(path.includes(needle) || needle.includes(path) || label.includes(needle))
 		const last = path.split('.').pop() as string
 		const tail = needle.split('.').pop() as string
+		const prefix =
+			tail.length >= 2 &&
+			needle.includes('.') &&
+			path.split('.').slice(0, -1).join('.') === needle.split('.').slice(0, -1).join('.') &&
+			isSubsequence(tail, last)
+		const wordsHit = words.length > 0 && words.every((word) => label.includes(word))
 		const distance = Math.min(
 			editDistance(needle, path),
 			tail.length >= 3 ? editDistance(tail, last) + 1 : Number.POSITIVE_INFINITY,
 		)
-		return { path: entry.path, score: shares ? distance - 100 : distance }
+		const score = prefix
+			? distance - 300
+			: wordsHit
+				? distance - 200
+				: shares
+					? distance - 100
+					: distance
+		return { path: entry.path, score }
 	})
 	scored.sort((a, b) => a.score - b.score || a.path.localeCompare(b.path))
 	const limit = Math.max(3, Math.ceil(needle.length / 2))

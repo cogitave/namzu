@@ -93,6 +93,11 @@ function askYesNo(question: string): Promise<boolean> {
 	})
 }
 
+/** A value that a shell would split or expand is single-quoted, so the hint can be pasted. */
+export function shellWord(text: string): string {
+	return /^[A-Za-z0-9._-]+$/.test(text) ? text : `'${text.replace(/'/g, `'\\''`)}'`
+}
+
 async function change(key: string, text: string | undefined, yes: boolean): Promise<number> {
 	const plan = planSettingChange(key, text)
 	if (!plan.ok) {
@@ -108,7 +113,7 @@ async function change(key: string, text: string | undefined, yes: boolean): Prom
 		} else {
 			complain(plan.confirm)
 			complain(
-				`Not changed. There is no terminal to ask on; to make this change, run it again with --yes: namzu config ${text === undefined ? 'unset' : 'set'} ${key}${text === undefined ? '' : ` ${text}`} --yes`,
+				`Not changed. There is no terminal to ask on; to make this change, run it again with --yes: namzu config ${text === undefined ? 'unset' : 'set'} ${key}${text === undefined ? '' : ` ${shellWord(text)}`} --yes`,
 			)
 			return EXIT_REFUSED
 		}
