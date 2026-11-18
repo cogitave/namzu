@@ -92,3 +92,18 @@ describe('a group', () => {
 		expect(out.match(/data-output-card=/g)).toHaveLength(4)
 	})
 })
+
+describe('the tile and its extension badge', () => {
+	it('keeps the glyph above the badge, which sits on the tile’s lower edge', async () => {
+		const { readFileSync } = await import('node:fs')
+		const css = readFileSync(new URL('./output-card.css', import.meta.url), 'utf8')
+		const tile = /\.output-card-tile \{([^}]*)\}/.exec(css)?.[1] ?? ''
+		expect(tile).toMatch(/padding-bottom:\s*0\.875rem/)
+	})
+	it('lays the actions over the card, so a narrow card keeps its whole kind line', async () => {
+		const { readFileSync } = await import('node:fs')
+		const css = readFileSync(new URL('./output-card.css', import.meta.url), 'utf8')
+		const actions = /\.output-card-actions \{([^}]*)\}/.exec(css)?.[1] ?? ''
+		expect(actions).toMatch(/position:\s*absolute/)
+	})
+})

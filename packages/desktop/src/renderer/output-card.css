@@ -99,6 +99,8 @@ div.output-card-main {
 	justify-content: center;
 	width: 3rem;
 	height: 3rem;
+	/* The extension badge sits on the tile's lower edge: the glyph sits above it, never under it. */
+	padding-bottom: 0.875rem;
 	border-radius: var(--radius-md);
 	background: var(--accent);
 	color: var(--muted-foreground);
@@ -117,8 +119,8 @@ div.output-card-main {
 	letter-spacing: 0.02em;
 }
 .output-card-tile svg {
-	width: 1.5rem;
-	height: 1.5rem;
+	width: 1.375rem;
+	height: 1.375rem;
 }
 .output-card[data-large] .output-card-tile {
 	width: 4.5rem;
@@ -204,21 +206,36 @@ div.output-card-main {
 	-webkit-box-orient: vertical;
 }
 .output-card-actions {
+	/* Over the end of the card, not beside the text: a narrow card keeps its whole kind line until the
+	   pointer or focus arrives. A touch screen has no hover, so there they sit in the row. */
+	position: absolute;
+	top: 50%;
+	right: var(--space-2, 8px);
 	display: flex;
-	flex: none;
 	align-items: center;
 	gap: 2px;
-	padding-right: var(--space-2, 8px);
+	padding-left: var(--space-2, 8px);
+	border-radius: var(--radius-chip);
+	background: var(--card);
+	transform: translateY(-50%);
 	opacity: 0;
+	pointer-events: none;
 	transition: opacity 120ms ease-out;
 }
 .output-card:hover .output-card-actions,
 .output-card:focus-within .output-card-actions {
 	opacity: 1;
+	pointer-events: auto;
 }
 @media (pointer: coarse), (forced-colors: active) {
 	.output-card-actions {
+		position: static;
+		flex: none;
+		padding: 0 var(--space-2, 8px) 0 0;
+		background: none;
+		transform: none;
 		opacity: 1;
+		pointer-events: auto;
 	}
 }
 .output-card-action {

@@ -113,6 +113,29 @@ describe('the cards for a reply', () => {
 		declined = send(declined, call('d', 'failed', { declined: {} }))
 		expect(cardsOf(declined)).toMatchObject([{ state: 'declined', kindLine: 'You declined this' }])
 	})
+	it('names a write from its diff and its failure, as a real call carries them', () => {
+		const diff = (status: 'pending' | 'failed'): AcpSessionUpdate =>
+			({
+				kind: 'tool_call',
+				toolCallId: 'r',
+				title: 'write',
+				status,
+				view: { kind: 'diff', path: 'blocked/report.md', before: '', after: '# Report\n' },
+			}) as AcpSessionUpdate
+		let thread = send(start(emptyThread()), diff('pending'))
+		expect(cardsOf(thread)).toMatchObject([{ name: 'report.md', state: 'writing' }])
+		thread = send(thread, {
+			...diff('failed'),
+			facts: { kind: 'failure', reason: 'not_a_file', subject: 'blocked/report.md' },
+		} as AcpSessionUpdate)
+		expect(cardsOf(thread)).toMatchObject([
+			{
+				name: 'report.md',
+				state: 'failed',
+				reason: 'A file is in the way of the folder.',
+			},
+		])
+	})
 	it('says a file is gone when the host cannot find it any more', () => {
 		let thread = start(emptyThread())
 		thread = wrote(thread, 'a', 'plan.md', '', '# x\n')

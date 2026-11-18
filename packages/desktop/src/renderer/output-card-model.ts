@@ -52,6 +52,9 @@ const WRITE_FAILURES: Record<string, string> = {
 	not_found: 'The folder wasn’t found.',
 	needs_administrator: 'It needs administrator rights.',
 	timed_out: 'It took too long.',
+	not_a_file: 'A file is in the way of the folder.',
+	invalid_input: 'Namzu couldn’t read its own request.',
+	invalid_arguments: 'Namzu couldn’t read its own request.',
 }
 
 function writtenPath(tool: ThreadState['tools'][string]): string | undefined {
@@ -60,6 +63,12 @@ function writtenPath(tool: ThreadState['tools'][string]): string | undefined {
 		if (facts?.kind === 'write') return facts.path
 		if (facts?.kind === 'failure' && call?.kind === 'write') return call.path
 	}
+	// A real write call is drawn as a diff before it runs and carries no facts until it ends, and a
+	// failed one reports the file as the failure's subject: both name the file the call meant to make.
+	if (tool.title.toLowerCase() !== 'write') return undefined
+	if (tool.facts?.kind === 'failure' && tool.facts.subject) return tool.facts.subject
+	for (const view of [tool.callView, tool.view])
+		if (view?.kind === 'diff' && view.path) return view.path
 	return undefined
 }
 
