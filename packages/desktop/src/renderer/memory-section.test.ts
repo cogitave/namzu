@@ -38,8 +38,10 @@ it('draws the instructions box with the saved text and says clearing removes it'
 	const html = draw()
 	expect(html).toContain('id="setting-standingInstructions"')
 	expect(html).toContain('Keep it short.')
-	expect(html).toContain('Leave it empty to remove it')
-	expect(html).toContain('Up to 32,000 characters')
+	// The description says clearing removes them; the note under the box says only the cost.
+	expect(html).toContain('Clear the box to remove them.')
+	expect(html).toContain('It is sent with every message, so keep it short.')
+	expect(html).toContain('settings-config-prose')
 	expect(html).toContain('Showing what is saved for App.')
 })
 

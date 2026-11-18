@@ -59,7 +59,7 @@ it('saves instructions only when they changed, and removes blank ones', () => {
 })
 
 it('says the cost under the instructions and that a long text was cut', () => {
-	expect(instructionsNote(10, 100)).toContain('sent with every message')
+	expect(instructionsNote(10, 100)).toBe('It is sent with every message, so keep it short.')
 	expect(instructionsNote(100, 100)).toMatch(/rest was left out/)
 	expect(instructionsNote(99, 100)).not.toMatch(/left out/)
 })

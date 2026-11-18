@@ -837,6 +837,12 @@ input.settings-config-number {
 	line-height: var(--leading-caption);
 	resize: vertical;
 }
+/* Prose a person writes reads in the interface font, not the code font of a JSON box. */
+.settings-config-area.settings-config-prose {
+	font-family: inherit;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+}
 .settings-config-json {
 	display: flex;
 	flex-direction: column;

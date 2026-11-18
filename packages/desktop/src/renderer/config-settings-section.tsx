@@ -583,7 +583,7 @@ function TextInput({
 		const text = draft ?? saved
 		return (
 			<textarea
-				className="settings-config-input settings-config-area"
+				className="settings-config-input settings-config-area settings-config-prose"
 				aria-label={descriptor.label}
 				value={text}
 				rows={Math.min(8, Math.max(3, text.split('\n').length))}

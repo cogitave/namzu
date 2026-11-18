@@ -76,7 +76,7 @@ function InstructionsRow({ instructions }: { instructions: InstructionsControls 
 		<Row id={entry.id} label={entry.label} description={entry.description} stacked>
 			<div className="settings-config-control">
 				<textarea
-					className="settings-config-input settings-config-area"
+					className="settings-config-input settings-config-area settings-config-prose"
 					aria-label={entry.label}
 					value={text}
 					rows={Math.min(10, Math.max(4, text.split('\n').length))}

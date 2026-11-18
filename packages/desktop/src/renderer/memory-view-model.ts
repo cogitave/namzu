@@ -56,7 +56,8 @@ export function instructionsToSave(draft: string, saved: string): string | undef
 /** What sits under the instructions box: the limit, or that a longer text was cut at it. */
 export function instructionsNote(length: number, limit: number): string {
 	if (length >= limit) return 'That is the most Namzu can follow; the rest was left out.'
-	return `Up to ${limit.toLocaleString()} characters. It is sent with every message, so keep it short. Leave it empty to remove it. The terminal app follows the same text.`
+	// The row's description already says where it applies and how to remove it; this says only the cost.
+	return 'It is sent with every message, so keep it short.'
 }
 
 export const INSTRUCTIONS_CHANGED =
