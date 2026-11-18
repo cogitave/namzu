@@ -1,6 +1,7 @@
 import { type ReactNode, useContext, useState } from 'react'
 import type { ThreadState } from '../shared/projection.js'
 import { ActivityActionsContext, fullPath, openAction, openTarget } from './activity-actions.js'
+import { ComputerFrameThumb } from './computer-frame-thumb.js'
 import {
 	ChevronRightIcon,
 	FileTextIcon,
@@ -96,6 +97,9 @@ export function ToolTranscriptRow({
 	const tool = thread.tools[id]
 	const presentation = toolTranscriptPresentation(thread, id)
 	if (!tool || !presentation) return null
+	// What the model saw after this call, when the host sent it and it is among the newest few.
+	const frame = thread.computerFrames?.find((item) => item.toolCallId === tool.toolCallId)
+	const thumb = frame ? <ComputerFrameThumb frame={frame} /> : null
 	const {
 		label,
 		state,
@@ -229,6 +233,7 @@ export function ToolTranscriptRow({
 					{text}
 					{trailing}
 				</button>
+				{thumb}
 			</div>
 		)
 	if (!expandable)
@@ -245,6 +250,7 @@ export function ToolTranscriptRow({
 					{text}
 					{trailing}
 				</div>
+				{thumb}
 				{shell && <ShellCell cell={shell} />}
 				{reason && (
 					<p className="tool-reason" title={reasonDetail}>
@@ -261,6 +267,7 @@ export function ToolTranscriptRow({
 				<ChevronRightIcon className="disclosure-chevron" aria-hidden="true" />
 				{trailing}
 			</CollapsibleTrigger>
+			{thumb}
 			<CollapsiblePanel>
 				{callDetail && <ToolView view={callDetail} state={state} />}
 				{body ? <ToolBodyView body={body} /> : null}

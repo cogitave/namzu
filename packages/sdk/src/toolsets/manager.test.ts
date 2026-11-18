@@ -544,7 +544,8 @@ describe('ToolManager — toLLMTools / toPromptSection / toTierGuidance', () => 
 		expect(m.toLLMTools().map((schema) => schema.function.name)).not.toContain('hidden')
 		expect(await m.execute('hidden', {}, makeContext())).toMatchObject({
 			success: false,
-			error: 'Tool "hidden" is deferred and cannot be executed',
+			error:
+				'Tool "hidden" is not loaded yet. Call search_tools with its exact name, then call it again.',
 		})
 	})
 
@@ -686,7 +687,7 @@ describe('ToolManager — execute (pipeline moved from ToolRegistry)', () => {
 		const m = manager([deferred(toolset('a', [makeTool('a1')]))])
 		const result = await m.execute('a1', {}, makeContext())
 		expect(result.success).toBe(false)
-		expect(result.error).toMatch(/deferred and cannot be executed/)
+		expect(result.error).toMatch(/not loaded yet.*search_tools/)
 	})
 
 	it('refuses a tool off the step list and names only what the step could run', async () => {

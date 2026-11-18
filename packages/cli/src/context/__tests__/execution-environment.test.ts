@@ -52,6 +52,24 @@ describe('observed execution environment', () => {
 		expect(prompt).toContain('host shell above applies only to host execution')
 	})
 
+	it('says what Git Bash on Windows means for PowerShell and for text files, and only there', async () => {
+		const facts = await readEnvironmentFacts('/repo', now, {
+			...probe([null, null, null, null]),
+			executionShell: () => ({
+				path: 'C:\\Program Files\\Git\\bin\\bash.exe',
+				dialect: 'bash',
+				source: 'bash',
+				windows: true,
+			}),
+		})
+		const prompt = composeEnvironmentPrompt(facts, { stable: true })
+		expect(prompt).toContain('This is Git Bash on Windows.')
+		expect(prompt).toContain('never double quotes')
+		expect(prompt).toContain('UTF-8 without a BOM')
+		const elsewhere = await readEnvironmentFacts('/repo', now, probe([null, null, null, null]))
+		expect(composeEnvironmentPrompt(elsewhere, { stable: true })).not.toContain('Git Bash')
+	})
+
 	it('names the platform shell without inventing an executable path', async () => {
 		const facts = await readEnvironmentFacts('/repo', now, {
 			...probe([null, null, null, null]),

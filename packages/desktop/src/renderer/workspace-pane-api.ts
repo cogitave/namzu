@@ -70,6 +70,8 @@ export function createWorkspacePaneApi(
 		listProjectDirectory,
 		projectFileIndex,
 		readProjectFile,
+		readSessionOutput,
+		openSessionOutput,
 		resolveProjectLinks,
 		openProjectPath,
 		projectEditors,
@@ -387,6 +389,16 @@ export function createWorkspacePaneApi(
 			: {}),
 		respondPermission: (owner, request, response) =>
 			invoke(() => base.respondPermission(owner, request, response), [owner]),
+		...(base.revokeComputerApp
+			? {
+					revokeComputerApp: (owner: string, app: string) =>
+						invoke(
+							() =>
+								base.revokeComputerApp?.(owner, app) ?? Promise.reject(new Error('Unavailable.')),
+							[owner],
+						),
+				}
+			: {}),
 		stopJob: (owner, jobId) => invoke(() => base.stopJob(owner, jobId), [owner]),
 		createPal: (input) => invoke(() => base.createPal(input), [], { global: true }),
 		updatePal: (id, revision, changes) =>
@@ -466,6 +478,17 @@ export function createWorkspacePaneApi(
 		...(readProjectFile
 			? {
 					readProjectFile: (id, path) => invoke(() => readProjectFile(id, path), []),
+				}
+			: {}),
+		...(readSessionOutput
+			? {
+					readSessionOutput: (owner, path) => invoke(() => readSessionOutput(owner, path), [owner]),
+				}
+			: {}),
+		...(openSessionOutput
+			? {
+					openSessionOutput: (owner, path, target) =>
+						invoke(() => openSessionOutput(owner, path, target), [owner]),
 				}
 			: {}),
 		...(resolveProjectLinks

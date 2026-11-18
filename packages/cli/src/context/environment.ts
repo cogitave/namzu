@@ -43,7 +43,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { type as osType, release } from 'node:os'
 import { resolve } from 'node:path'
 import { promisify } from 'node:util'
-import { type CommandShell, hostCommandShell } from '@namzu/sdk'
+import { type CommandShell, hostCommandShell, isWindowsBash } from '@namzu/sdk'
 
 import type { PermissionMode } from '../permissions/mode.js'
 
@@ -224,6 +224,8 @@ export interface EnvironmentFacts {
 	readonly boundary?: ExecutionBoundary
 	/** Present when this is WSL. */
 	readonly wsl?: WslFacts
+	/** The application the session runs in, when it is the desktop one: it shows files in a preview. */
+	readonly host?: 'desktop'
 	/**
 	 * `branch` when on one, `null` when the working directory is not a
 	 * repository, `'detached'` when it is one with no branch checked out.
@@ -343,6 +345,10 @@ export function environmentFactLines(
 	return lines
 }
 
+/** What the desktop application does with a file a turn writes: one line, the same every turn. */
+export const DESKTOP_PREVIEW_FACT =
+	'Desktop shows the .html, .md and image files you write in its preview pane: to show a page or document, write the file and name it. Start a server only when the project has its own dev or start script and the person asked to run the app.'
+
 const FACTS_FRAMING =
 	'These are facts about right now. Prefer them over any date or branch you would otherwise assume.'
 
@@ -370,6 +376,11 @@ export function composeEnvironmentPrompt(
 		lines.push(
 			`Host execution shell: ${shell.path ? `\`${shell.path}\`` : 'the platform command shell'} (${shell.dialect} dialect).`,
 		)
+		if (isWindowsBash(shell) && !facts.boundary?.sandbox) {
+			lines.push(
+				'This is Git Bash on Windows. Start PowerShell as a program and keep bash from reading its script: single quotes, or a quoted heredoc into `powershell -NoProfile -Command -`, never double quotes, where bash expands `$name` first. The bash tool description has the details. Write text files as UTF-8 without a BOM (`[System.IO.File]::WriteAllText($path, $text)`).',
+			)
+		}
 		if (facts.boundary?.sandbox) {
 			lines.push(
 				'Inside the sandbox, commands use bash if the guest has it, otherwise /bin/sh; the host shell above applies only to host execution.',
@@ -378,6 +389,7 @@ export function composeEnvironmentPrompt(
 	}
 	if (facts.boundary) lines.push(...boundaryLines(facts.boundary, stable))
 	if (facts.wsl) lines.push(...wslLines(facts.wsl, facts.boundary))
+	if (facts.host === 'desktop') lines.push(DESKTOP_PREVIEW_FACT)
 	return `## Environment\n\n${lines.join('\n')}`
 }
 

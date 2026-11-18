@@ -62,6 +62,7 @@ import {
 	permissionLayersOf,
 	warnLegacyMcpPermissionNames,
 } from '../permissions/rules.js'
+import { resolveProgressNudge } from '../reminders/progress-nudge.js'
 import { refusedByLayers } from '../schedule/policy.js'
 import { useSkillHooksByName } from '../skills/use-hooks.js'
 import {
@@ -76,7 +77,7 @@ import { describeTurnInterruption, retryAfterMs } from '../tui/turn-interruption
 import { expandHeadlessCommand } from '../user-commands/store.js'
 import {
 	type ExecFlags,
-	applyProviderFlags,
+	applyLaunchFlags,
 	buildGate,
 	launchMcpServers,
 	loadSkillsContext,
@@ -310,7 +311,12 @@ async function execPrint(
 		})
 		return 1
 	}
-	prefs = applyProviderFlags(prefs, flags)
+	const launched = applyLaunchFlags(prefs, flags)
+	if ('error' in launched) {
+		ctx.formatter.error({ message: launched.error })
+		return EXIT_USAGE
+	}
+	prefs = launched
 	// The appended instructions, the tool lists and the fallback chain: read
 	// before anything is opened, so a typo costs nothing.
 	const run = resolveRunFlags(flags, prefs)
@@ -498,6 +504,11 @@ async function execPrint(
 		...(ctx.config.workflow ? { workflow: ctx.config.workflow } : {}),
 		...(flags.handBack || ctx.config.handBack?.enabled === true ? { handBack: true } : {}),
 		...(ctx.config.sandbox ? { sandbox: ctx.config.sandbox } : {}),
+		// Nobody is known to watch an exec run: the nudge only with `progressNudge.mode: on`.
+		...(() => {
+			const nudge = resolveProgressNudge(ctx.config.progressNudge, { watched: false })
+			return nudge ? { progressNudge: nudge } : {}
+		})(),
 		...(ctx.config.decision ? { decision: ctx.config.decision } : {}),
 		// `!== undefined`, not truthiness: an empty list is the operator
 		// turning the default screen OFF, and a falsy check would drop it.
@@ -986,6 +997,7 @@ export const execCommand: CommandDef = {
 		'  --cwd <path>          Directory the agent works in (default: this one)',
 		'  --provider <id>       Provider to answer with',
 		'  --model <id>          Model to answer with',
+		'  --account <label>     Account to run under: a label from /auth, or provider:label',
 		'  --skills <a,b,c>      Load these skills as context for the turn',
 		'  --continue, -c        Resume the most recent conversation here',
 		'  --resume <id>         Resume that conversation, and no other',

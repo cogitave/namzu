@@ -321,14 +321,14 @@ describe('an edit against a file that moved is refused, not applied', () => {
 		expect(result.success).toBe(true)
 	})
 
-	it('refuses a file the session never read', async () => {
+	it('refuses a file the session never read when the text does not match', async () => {
 		const dir = mkdtempSync(join(tmpdir(), 'namzu-stale-'))
 		writeFileSync(join(dir, 'doc.md'), 'alpha\nbeta\n')
 
 		const result = await EditTool.execute(
 			{
 				path: 'doc.md',
-				old_string: 'beta',
+				old_string: 'betta',
 				new_string: 'gamma',
 				replace_all: false,
 			},
@@ -345,9 +345,10 @@ describe('an edit against a file that moved is refused, not applied', () => {
 		const dir = mkdtempSync(join(tmpdir(), 'namzu-stale-'))
 		writeFileSync(join(dir, 'doc.md'), 'alpha\nbeta\n')
 		const context = contextWith(dir, trackerOver(new Map()))
-		const input = { path: 'doc.md', old_string: 'beta', new_string: 'gamma', replace_all: false }
+		const miss = { path: 'doc.md', old_string: 'betta', new_string: 'gamma', replace_all: false }
+		const input = { ...miss, old_string: 'beta' }
 
-		const first = await EditTool.execute(input, context)
+		const first = await EditTool.execute(miss, context)
 		expect(first.success).toBe(false)
 		expect(first.error).toContain('1\talpha')
 		expect(first.error).toContain('2\tbeta')
@@ -361,7 +362,7 @@ describe('an edit against a file that moved is refused, not applied', () => {
 		const dir = mkdtempSync(join(tmpdir(), 'namzu-stale-'))
 		writeFileSync(join(dir, 'big.md'), `${'x'.repeat(30_000)}\nbeta\n`)
 		const context = contextWith(dir, trackerOver(new Map()))
-		const input = { path: 'big.md', old_string: 'beta', new_string: 'gamma', replace_all: false }
+		const input = { path: 'big.md', old_string: 'betta', new_string: 'gamma', replace_all: false }
 
 		const first = await EditTool.execute(input, context)
 		expect(first.success).toBe(false)
@@ -370,10 +371,10 @@ describe('an edit against a file that moved is refused, not applied', () => {
 		expect((await EditTool.execute(input, context)).success).toBe(false)
 	})
 
-	it('refuses an unread sandbox file too', async () => {
+	it('refuses an unread sandbox file too when the text does not match', async () => {
 		const backend = sandboxOver('alpha\nbeta\n')
 		const result = await EditTool.execute(
-			{ path: 'doc.md', old_string: 'beta', new_string: 'gamma' },
+			{ path: 'doc.md', old_string: 'betta', new_string: 'gamma' },
 			contextWith('/sandbox', trackerOver(new Map()), backend.sandbox),
 		)
 		expect(result.success).toBe(false)

@@ -44,6 +44,7 @@ import {
 	fitPng,
 	pngSize,
 } from './computer-use-image.js'
+import { coerceWindowId, windowKey } from './computer-use-window-id.js'
 
 export {
 	HIGH_RES_SCREENSHOT_LIMITS,
@@ -188,7 +189,36 @@ export interface ComputerUseToolOptions {
 	 * touching the host.
 	 */
 	readonly unavailableReason?: string
+	/**
+	 * Told after each call that returned a screenshot: the picture the model
+	 * received (made small), the application it shows, and where a click
+	 * landed. For a host that shows a person what the model saw; it never
+	 * changes what the model is given. A throw in it is ignored.
+	 */
+	readonly onObservation?: (observation: ComputerUseObservation) => void
 }
+
+/** What {@link ComputerUseToolOptions.onObservation} is told. */
+export interface ComputerUseObservation {
+	/** The tool call this belongs to, when the runtime named it. */
+	readonly toolUseId?: string
+	/** The screenshot's id as the model knows it (`s3`). */
+	readonly frameId: string
+	/** What the model did that produced this picture, as the call row says it. */
+	readonly action: string
+	/** The application the call worked on, when it could be told. */
+	readonly app?: string
+	/** The picture, a PNG made small enough to keep a few of. */
+	readonly mimeType: 'image/png'
+	readonly data: string
+	readonly width: number
+	readonly height: number
+	/** Where a click landed, as fractions of the picture (0 to 1), when the call clicked. */
+	readonly point?: { readonly x: number; readonly y: number }
+}
+
+/** The longest edge, in pixels, of the picture {@link ComputerUseToolOptions.onObservation} gets. */
+export const OBSERVATION_LONG_EDGE = 720
 
 /**
  * Why `provider` cannot drive `computer_use`, or undefined when it can.
@@ -279,6 +309,7 @@ const keySchema = z.object({
 	at: pointSchema.optional(),
 	delivery_mode: z.enum(['background', 'foreground']).optional(),
 })
+const windowIdSchema = z.preprocess(coerceWindowId, z.string().min(1))
 const waitSchema = z.object({
 	type: z.literal('wait'),
 	ms: z.number().int().nonnegative(),
@@ -286,7 +317,7 @@ const waitSchema = z.object({
 const listWindowsSchema = z.object({ type: z.literal('list_windows') })
 const focusWindowSchema = z.object({
 	type: z.literal('focus_window'),
-	window_id: z.string().min(1),
+	window_id: windowIdSchema,
 })
 const UI_ACTIONS = [
 	'invoke',
@@ -300,7 +331,7 @@ const UI_ACTIONS = [
 ] as const satisfies readonly UiElementAction[]
 const uiSnapshotSchema = z.object({
 	type: z.literal('ui_snapshot'),
-	window_id: z.string().min(1).optional(),
+	window_id: windowIdSchema.optional(),
 	/** A ref shown by an earlier ui_snapshot: read only that region or control. */
 	root: z.string().min(1).optional(),
 	/** With root: skip this many of the region's children (the next page of a long region). */
@@ -323,7 +354,7 @@ const waitForSchema = z.object({
 	match: z.string().min(1),
 	/** Narrows element_* to controls of this role, such as Button. */
 	role: z.string().min(1).optional(),
-	window_id: z.string().min(1).optional(),
+	window_id: windowIdSchema.optional(),
 	timeout_ms: z.number().int().positive().optional(),
 })
 const uiActSchema = z.object({
@@ -340,7 +371,7 @@ const uiDoSchema = z.object({
 	target: z.string().min(1).max(200),
 	action: z.enum(UI_ACTIONS),
 	value: z.string().optional(),
-	window_id: z.string().min(1).optional(),
+	window_id: windowIdSchema.optional(),
 })
 
 /** What a batch may carry: everything but the image-returning actions and another batch. */
@@ -359,12 +390,23 @@ const batchItemSchema = z.discriminatedUnion('type', [
 	uiDoSchema,
 ])
 
+/** The actions that read a place or a window off the latest screenshot. */
+const NEEDS_FRAME: ReadonlySet<string> = new Set([
+	'cursor_position',
+	'mouse_move',
+	'mouse_click',
+	'mouse_drag',
+	'scroll',
+	'type_text',
+	'key',
+])
+
 const withFrame = { screenshot_id: screenshotIdSchema }
 
 const actionSchema = z.discriminatedUnion('type', [
 	z.object({
 		type: z.literal('screenshot'),
-		window_id: z.string().min(1).optional(),
+		window_id: windowIdSchema.optional(),
 	}),
 	z.object({ type: z.literal('zoom'), region: regionSchema, ...withFrame }),
 	cursorPositionSchema.extend(withFrame),
@@ -644,6 +686,10 @@ function buildDescription(
 				? `Offers the available computer controls on a ${caps.displayServer} host.`
 				: `Computer control is unavailable on this ${caps.displayServer} host; this tool reports the limitation.`
 	const lines = [intro, `Available actions: ${available.join('; ') || 'none'}.`]
+	if (available.length > 0)
+		lines.push(
+			'When the person asks you to use an application on the screen ("open the text editor and type …", "click …"), do it here, on the screen, so they watch it happen (start the program from the shell if it is not open, then work in its window with the actions below): a script that writes the file or runs the program is a different way of getting the result, and is fine only when the result is all they asked for. Say in your reply which way you did the work, and never say you typed or clicked in an application when you wrote a file or ran a command instead.',
+		)
 	if (unavailable.length > 0) {
 		lines.push(
 			caps.unavailableReason
@@ -1387,6 +1433,41 @@ export interface ComputerUseTool extends ToolDefinition<ActionInput> {
 	 * @experimental Follows the UI-tree surface; see `ComputerUseCapabilities.uiTree`.
 	 */
 	describeUiRef(ref: string): string | undefined
+	/**
+	 * The application a call works on, as far as it can be told before the
+	 * call runs: the window a window screenshot is bound to, or the window
+	 * under a click on the display. Undefined when it cannot be told.
+	 */
+	appOf(input: unknown): Promise<string | undefined>
+	/**
+	 * Every application a call works on, in the order it reaches them: a batch
+	 * can act in more than one. Empty when it cannot be told.
+	 */
+	appsOf(input: unknown): Promise<string[]>
+	/**
+	 * Why a call should be put to a person even where its application was
+	 * allowed: it closes, deletes, sends or submits. Undefined for an
+	 * ordinary action. A reading of the call's own words, not of the screen.
+	 */
+	consequence(input: unknown): string | undefined
+}
+
+const CONSEQUENTIAL_KEYS =
+	/(^|\+)(alt\+f4|ctrl\+q|cmd\+q|super\+q|ctrl\+w|ctrl\+shift\+delete|shift\+delete|ctrl\+enter|cmd\+enter|delete)$/i
+const CONSEQUENTIAL_WORDS =
+	/(?<!\p{L})(delete|remove|erase|discard|don'?t save|do not save|close|quit|exit|send|submit|pay|purchase|buy|order|sign out|log ?out|empty|format|uninstall|kaydetme|sil|gönder|kapat|çık|çıkış|satın al|öde)(?!\p{L})/iu
+
+/** An application as a person reads it: no `.exe`, and a lowercase process name starts with a capital. */
+function applicationName(name: string): string {
+	const bare = name.trim().replace(/\.exe$/i, '')
+	return bare && bare === bare.toLowerCase()
+		? `${bare.charAt(0).toUpperCase()}${bare.slice(1)}`
+		: bare
+}
+
+/** Words that make a control's name or an intent one a person should answer for. */
+function consequentialWords(text: string | undefined): boolean {
+	return text !== undefined && CONSEQUENTIAL_WORDS.test(text)
 }
 
 /** Whether a call sends the screen to the provider (see `ToolDefinition.capturesScreen`). */
@@ -1521,7 +1602,7 @@ export function createComputerUseTool(
 		windowId: string | undefined,
 		action?: UiElementAction,
 	): ComputerUseAdvisorCandidate[] => {
-		const shown = shownRefs.get(windowId ?? '')
+		const shown = shownRefs.get(windowKey(windowId))
 		const out: ComputerUseAdvisorCandidate[] = []
 		if (!shown) return out
 		for (const ref of shown) {
@@ -2056,11 +2137,12 @@ export function createComputerUseTool(
 		}
 		uiSnapshotWindowId = snapshot.windowId ?? requestedWindowId
 		{
-			const key = uiSnapshotWindowId ?? ''
+			const key = windowKey(uiSnapshotWindowId)
 			const now = new Set(refs.keys())
 			shownRefs.set(key, snapshot.region ? new Set([...(shownRefs.get(key) ?? []), ...now]) : now)
 		}
-		if (uiSnapshotWindowId !== undefined) treeUsable.set(uiSnapshotWindowId, refs.size > 0)
+		if (uiSnapshotWindowId !== undefined)
+			treeUsable.set(windowKey(uiSnapshotWindowId), refs.size > 0)
 		uiSnapshotFrame = frames.latest()
 		const window =
 			snapshot.windowId && /^[\w.:-]{1,64}$/.test(snapshot.windowId) ? snapshot.windowId : undefined
@@ -2208,8 +2290,8 @@ export function createComputerUseTool(
 			if (signal?.aborted) throw new StepFailure('cancelled')
 			try {
 				if (windowCondition) {
-					const windows = await (host.listWindows as NonNullable<ComputerUseHost['listWindows']>)(
-						callSignal,
+					const windows = rememberWindows(
+						await (host.listWindows as NonNullable<ComputerUseHost['listWindows']>)(callSignal),
 					)
 					const open = windows.some((window) => window.title.toLowerCase().includes(needle))
 					if (open === input.until.endsWith('appears')) {
@@ -2257,7 +2339,7 @@ export function createComputerUseTool(
 	/** Said once per window, after its first coordinate click: the tree is the surer way in. */
 	const coordinateNudge = (frame: ScreenshotFrame): string | undefined => {
 		if (!frame.window || !available.has('ui_snapshot')) return undefined
-		const id = frame.window.window.id
+		const id = windowKey(frame.window.window.id)
 		if (nudgedWindows.has(id)) return undefined
 		const usable = treeUsable.get(id)
 		if (usable === false) return undefined
@@ -2280,7 +2362,9 @@ export function createComputerUseTool(
 		if (!available.has('list_windows')) return
 		let windows: readonly WindowInfo[]
 		try {
-			windows = await (host.listWindows as NonNullable<ComputerUseHost['listWindows']>)(callSignal)
+			windows = rememberWindows(
+				await (host.listWindows as NonNullable<ComputerUseHost['listWindows']>)(callSignal),
+			)
 		} catch (error) {
 			throw new StepFailure(
 				`the window in front could not be read, so nothing was typed: ${errorText(error)}`,
@@ -2296,7 +2380,9 @@ export function createComputerUseTool(
 	const listWindows = async (): Promise<string> => {
 		let windows: readonly WindowInfo[]
 		try {
-			windows = await (host.listWindows as NonNullable<ComputerUseHost['listWindows']>)(callSignal)
+			windows = rememberWindows(
+				await (host.listWindows as NonNullable<ComputerUseHost['listWindows']>)(callSignal),
+			)
 		} catch (error) {
 			throw new StepFailure(errorText(error))
 		}
@@ -2517,6 +2603,18 @@ export function createComputerUseTool(
 		// the screenshot in step 5 should not arrive after steps 1–4 changed
 		// the desktop.
 		const planned: PlannedStep[] = []
+		// An input that reads its place off a screenshot, when none was ever taken: it is not sent. The
+		// tool takes the display screenshot and returns it, so the model chooses its target on a frame it
+		// has seen. Actions before that input still run; it and everything after it do not.
+		const blockedAt =
+			frameId === undefined &&
+			!frames.latest() &&
+			available.has('screenshot') &&
+			hostActionAvailable(caps, 'screenshot')
+				? items.findIndex((item) => NEEDS_FRAME.has(item.type))
+				: -1
+		const unsent: readonly BatchItem[] = blockedAt >= 0 ? items.slice(blockedAt) : []
+		const toPlan: readonly BatchItem[] = blockedAt >= 0 ? items.slice(0, blockedAt) : items
 		const actionFrame = frameId ? frames.get(frameId) : frames.latest()
 		const explicitDisplayFrame =
 			frameId !== undefined && actionFrame !== undefined && !actionFrame.window
@@ -2541,7 +2639,7 @@ export function createComputerUseTool(
 		let postWindowId =
 			actionFrame?.window?.window.id ??
 			(!hostActionAvailable(caps, 'screenshot') ? uiSnapshotWindowId : undefined)
-		for (const [index, item] of items.entries()) {
+		for (const [index, item] of toPlan.entries()) {
 			try {
 				planned.push(plan(item, frameId))
 			} catch (error) {
@@ -2629,6 +2727,33 @@ export function createComputerUseTool(
 		}
 		for (const step of planned.slice(records.length))
 			records.push({ label: step.label, status: 'not run' })
+		for (const item of unsent) records.push({ label: label(item), status: 'not run' })
+		const total = planned.length + unsent.length
+
+		// The frame the unsent input needed, taken after the actions that did run.
+		let framePrelude: string | undefined
+		let frameShot: Capture | undefined
+		if (unsent.length > 0 && !failure && !signal?.aborted) {
+			try {
+				if (changed) await settleAfterActions(host, undefined, settings.settleMs, signal)
+				frameShot = await capture()
+				const before = single
+					? ''
+					: planned.length === 0
+						? ' Nothing in the batch ran.'
+						: ` Actions 1-${planned.length} ran; action ${planned.length + 1}${unsent.length > 1 ? ' and the ones after it' : ''} did not.`
+				framePrelude = `No screenshot had been taken yet, so nothing was clicked or typed: the ${single ? 'action' : 'input'} was not sent.${before} The display screenshot follows (${frameShot.frame.id}, ${frameShot.frame.imageWidth}x${frameShot.frame.imageHeight}); choose the target on it and send the action again.`
+			} catch (error) {
+				const why = signal?.aborted ? 'cancelled' : errorText(error)
+				const reason = `no screenshot has been taken yet, so nothing was clicked or typed, and the display screenshot could not be taken: ${why}`
+				failure = { index: planned.length, error: reason }
+				records[planned.length] = {
+					label: records[planned.length]?.label ?? '',
+					status: 'failed',
+					error: reason,
+				}
+			}
+		}
 
 		// The screen after the batch: after anything that may have changed it,
 		// and after a wait, whose whole point is to look again.
@@ -2637,8 +2762,9 @@ export function createComputerUseTool(
 			available.has('screenshot') &&
 			(hostActionAvailable(caps, 'screenshot') || postWindowId !== undefined) &&
 			(changed || planned.some((step) => step.item.type === 'wait')) &&
+			unsent.length === 0 &&
 			!signal?.aborted
-		let shot: Capture | undefined
+		let shot: Capture | undefined = frameShot
 		let shotError: string | undefined
 		if (looks) {
 			try {
@@ -2660,13 +2786,18 @@ export function createComputerUseTool(
 					return `${n}${record.label}: not run`
 			}
 		}
-		const header = single
-			? []
-			: failure
-				? [
-						`Batch stopped at action ${failure.index + 1} of ${planned.length}; ${planned.length - failure.index - 1} not run.`,
-					]
-				: [`Batch: all ${planned.length} actions done.`]
+		const header = [
+			...(framePrelude ? [framePrelude] : []),
+			...(single
+				? []
+				: failure
+					? [
+							`Batch stopped at action ${failure.index + 1} of ${total}; ${total - failure.index - 1} not run.`,
+						]
+					: unsent.length > 0
+						? []
+						: [`Batch: all ${total} actions done.`]),
+		]
 		const stepLines = records.map(summary)
 		const shotLines = shot
 			? [describeFrame(shot.frame)]
@@ -2728,7 +2859,7 @@ export function createComputerUseTool(
 				? failure.unknown.message
 				: single
 					? `computer_use failed: ${failure.error}`
-					: `Batch stopped at action ${failure.index + 1} of ${planned.length} (${planned[failure.index]?.label}): ${failure.error}`
+					: `Batch stopped at action ${failure.index + 1} of ${total} (${planned[failure.index]?.label}): ${failure.error}`
 		return result
 	}
 
@@ -2739,6 +2870,205 @@ export function createComputerUseTool(
 		available.has('screenshot') || available.has('list_windows') || available.has('ui_snapshot')
 	const capturesScreen = (input: ActionInput): boolean =>
 		observes && capturesScreenInput(input, settings.screenshotAfterActions)
+
+	/** The newest window list this tool read, so naming an application costs the host no call of its own. */
+	let knownWindows: readonly WindowInfo[] = []
+	function rememberWindows(listed: readonly WindowInfo[]): readonly WindowInfo[] {
+		knownWindows = listed
+		return listed
+	}
+
+	/**
+	 * The application a call works on, from what is already known: the window a call names, the
+	 * window a window screenshot is bound to, and on a display screenshot the window under the
+	 * click or the one in front, as the newest list this tool read has them.
+	 */
+	const appsKnown = (input: unknown): string[] => {
+		const found: string[] = []
+		const add = (app: string | undefined): void => {
+			if (app && !found.includes(app)) found.push(app)
+		}
+		const items = batchActions(input) ?? [input]
+		for (const item of items) {
+			if (!isRecord(item)) continue
+			if (typeof item.window_id === 'string') {
+				add(knownWindows.find((window) => window.id === item.window_id)?.app)
+				continue
+			}
+			const shotId =
+				typeof item.screenshot_id === 'string'
+					? item.screenshot_id
+					: isRecord(input) && typeof input.screenshot_id === 'string'
+						? input.screenshot_id
+						: undefined
+			const frame = shotId ? frames.get(shotId) : frames.latest()
+			if (frame?.window) {
+				add(frame.window.window.app)
+				continue
+			}
+			const listed = knownWindows.filter((window) => !window.minimized)
+			const at = isRecord(item.at) ? item.at : undefined
+			if (frame && at && typeof at.x === 'number' && typeof at.y === 'number') {
+				const point = toDisplayPoint(frame, { x: at.x, y: at.y })
+				const x = frame.display.x + point.x
+				const y = frame.display.y + point.y
+				const hit = listed.filter(
+					(window) =>
+						x >= window.bounds.x &&
+						y >= window.bounds.y &&
+						x < window.bounds.x + window.bounds.width &&
+						y < window.bounds.y + window.bounds.height,
+				)
+				const best = hit.find((window) => window.focused) ?? hit[0]
+				if (best) {
+					add(best.app)
+					continue
+				}
+			}
+			add(listed.find((window) => window.focused)?.app)
+		}
+		return found
+	}
+	/** The first application a call works on; see {@link appsKnown} for every one. */
+	const appKnown = (input: unknown): string | undefined => appsKnown(input)[0]
+
+	/**
+	 * The application a call works on, before it runs. It reads the windows afresh when the host can
+	 * list them, so a review screen names the application as it is now.
+	 */
+	const appsOf = async (input: unknown): Promise<string[]> => {
+		if (typeof host.listWindows === 'function') {
+			try {
+				rememberWindows(await host.listWindows(callSignal))
+			} catch {
+				/* The application is a nicety; a host that cannot list windows says nothing. */
+			}
+		}
+		return appsKnown(input)
+	}
+	const appOf = async (input: unknown): Promise<string | undefined> => (await appsOf(input))[0]
+
+	/** Why one call must be answered for even in an allowed application; see {@link ComputerUseTool.consequence}. */
+	const consequence = (input: unknown): string | undefined => {
+		const items = batchActions(input) ?? [input]
+		for (const item of items) {
+			if (!isRecord(item)) continue
+			if (
+				item.type === 'key' &&
+				typeof item.keys === 'string' &&
+				CONSEQUENTIAL_KEYS.test(item.keys.trim())
+			)
+				return `presses ${item.keys}`
+			if (item.type === 'ui_act' || item.type === 'ui_do') {
+				const named =
+					typeof item.ref === 'string'
+						? describeUiRef(item.ref)
+						: typeof item.target === 'string'
+							? item.target
+							: undefined
+				const intent = typeof item.intent === 'string' ? item.intent : undefined
+				if (consequentialWords(named) || consequentialWords(intent))
+					return `acts on ${named ?? intent}`
+			}
+		}
+		return undefined
+	}
+
+	// The applications this conversation's calls have worked on, so the first use of each is listed.
+	const appsUsed = new Set<string>()
+
+	/** What the person gets of the picture the model received: small, with where a click landed. */
+	const observe = async (
+		input: ActionInput,
+		before: ScreenshotFrame | undefined,
+		result: ToolResult,
+		toolUseId: string | undefined,
+		app: string | undefined,
+	): Promise<void> => {
+		if (!options.onObservation) return
+		try {
+			const data = result.data as { screenshot?: { id?: string } } | undefined
+			const image = Array.isArray(result.content)
+				? result.content.find((block) => block.type === 'image')
+				: undefined
+			const frameId = data?.screenshot?.id
+			if (!image || image.type !== 'image' || typeof frameId !== 'string') return
+			const small = await fitPng(Buffer.from(image.data, 'base64'), {
+				maxLongEdge: OBSERVATION_LONG_EDGE,
+				maxTiles: 600,
+			})
+			const items = batchActions(input) ?? [input]
+			const click = [...items]
+				.reverse()
+				.find((item) => isRecord(item) && item.type === 'mouse_click' && isRecord(item.at))
+			const at = isRecord(click) && isRecord(click.at) ? click.at : undefined
+			const point =
+				before && at && typeof at.x === 'number' && typeof at.y === 'number'
+					? {
+							x: Math.min(1, Math.max(0, at.x / Math.max(1, before.imageWidth))),
+							y: Math.min(1, Math.max(0, at.y / Math.max(1, before.imageHeight))),
+						}
+					: undefined
+			options.onObservation({
+				...(toolUseId ? { toolUseId } : {}),
+				frameId,
+				action: label(input),
+				...(app ? { app } : {}),
+				mimeType: 'image/png',
+				data: small.data.toString('base64'),
+				width: small.width,
+				height: small.height,
+				...(point ? { point } : {}),
+			})
+		} catch {
+			/* What the person is shown never changes what the model gets. */
+		}
+	}
+
+	const runAction = async (input: ActionInput, context: ToolContext): Promise<ToolResult> => {
+		const denied = refusal(input.type)
+		if (denied) return { success: false, output: '', error: denied }
+		// The host keeps per-turn state (an Escape stop, refused permissions); it
+		// is told which turn this is and released when the turn is cut short.
+		host.beginTurn?.(context.turnId)
+		callSignal = context.abortSignal
+		if (host.endTurn) {
+			const release = () => void Promise.resolve(host.endTurn?.()).catch(() => undefined)
+			if (context.abortSignal.aborted) release()
+			else
+				context.abortSignal.addEventListener('abort', release, {
+					once: true,
+				})
+		}
+		try {
+			switch (input.type) {
+				case 'screenshot':
+					return screenshotResult(await capture(input.window_id))
+				case 'zoom':
+					return await zoom(input)
+				case 'ui_snapshot':
+					return await uiSnapshot(input)
+				case 'wait_for':
+					return await waitFor(input, context)
+				case 'batch':
+					return await runSteps(input.actions, input.screenshot_id, context, false)
+				default: {
+					const { screenshot_id: frameId, ...item } = input
+					return await runSteps([item as BatchItem], frameId, context, true)
+				}
+			}
+		} catch (error) {
+			if (error instanceof StepFailure)
+				return {
+					success: false,
+					output: '',
+					error: `computer_use failed: ${error.message}`,
+				}
+			throw error
+		} finally {
+			callSignal = undefined
+		}
+	}
 
 	const tool = defineTool({
 		name: COMPUTER_USE_TOOL_NAME,
@@ -2761,55 +3091,34 @@ export function createComputerUseTool(
 		// without its input (the CLI passes `{}`). An action that only reports
 		// "done" — and the screenshot that followed it, which is for the model —
 		// adds nothing to the call row; observations, batches and failures do.
-		presentResult: (_input, result) =>
-			result.success && ACKNOWLEDGEMENT.test(result.output)
+		presentResult: (_input, result) => {
+			// The first call to work on an application says so, so a person reading the
+			// conversation can see which applications this conversation has used.
+			const first = isRecord(result.data) ? result.data.firstUseOf : undefined
+			if (result.success && typeof first === 'string')
+				return {
+					kind: 'generic',
+					label: `Using ${applicationName(first)}`,
+					presentation: 'activity',
+				}
+			return result.success && ACKNOWLEDGEMENT.test(result.output)
 				? { kind: 'generic', label: result.output, visibility: 'hidden' }
-				: undefined,
+				: undefined
+		},
 
 		async execute(input, context): Promise<ToolResult> {
-			const denied = refusal(input.type)
-			if (denied) return { success: false, output: '', error: denied }
-			// The host keeps per-turn state (an Escape stop, refused permissions); it
-			// is told which turn this is and released when the turn is cut short.
-			host.beginTurn?.(context.turnId)
-			callSignal = context.abortSignal
-			if (host.endTurn) {
-				const release = () => void Promise.resolve(host.endTurn?.()).catch(() => undefined)
-				if (context.abortSignal.aborted) release()
-				else
-					context.abortSignal.addEventListener('abort', release, {
-						once: true,
-					})
+			const shotId = 'screenshot_id' in input ? input.screenshot_id : undefined
+			const before = shotId ? frames.get(shotId) : frames.latest()
+			// Only what is already known: acting must not cost the host a call it would not make.
+			const app = appKnown(input)
+			const result = await runAction(input, context)
+			if (app && result.success !== false && !appsUsed.has(app) && !isReadOnlyInput(input)) {
+				appsUsed.add(app)
+				result.data = { ...(isRecord(result.data) ? result.data : {}), firstUseOf: app }
 			}
-			try {
-				switch (input.type) {
-					case 'screenshot':
-						return screenshotResult(await capture(input.window_id))
-					case 'zoom':
-						return await zoom(input)
-					case 'ui_snapshot':
-						return await uiSnapshot(input)
-					case 'wait_for':
-						return await waitFor(input, context)
-					case 'batch':
-						return await runSteps(input.actions, input.screenshot_id, context, false)
-					default: {
-						const { screenshot_id: frameId, ...item } = input
-						return await runSteps([item as BatchItem], frameId, context, true)
-					}
-				}
-			} catch (error) {
-				if (error instanceof StepFailure)
-					return {
-						success: false,
-						output: '',
-						error: `computer_use failed: ${error.message}`,
-					}
-				throw error
-			} finally {
-				callSignal = undefined
-			}
+			await observe(input, before, result, context.toolUseId, app)
+			return result
 		},
 	})
-	return Object.assign(tool, { describeUiRef })
+	return Object.assign(tool, { describeUiRef, appOf, appsOf, consequence })
 }

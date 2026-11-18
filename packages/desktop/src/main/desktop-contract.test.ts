@@ -2,9 +2,11 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { COMPUTER_FRAME_NOTIFICATION } from '../shared/computer-protocol.js'
 import { OUTCOME_NOTIFICATION } from '../shared/outcome-protocol.js'
 import { TERMINAL_NOTIFICATIONS } from '../shared/terminal-protocol.js'
 import { buildEngineLaunch, namzuPermissionArgument } from '../shared/terminal-tabs.js'
+import { TITLE_NOTIFICATION } from '../shared/title-protocol.js'
 import { USAGE_NOTIFICATION } from '../shared/usage-protocol.js'
 import { OPTIONAL_EXTENSION_GROUPS } from './extension-groups.js'
 import { KERNEL_CONTRACT_RANGE } from './kernel/keys.js'
@@ -148,6 +150,8 @@ describe('the app against the desktop contract inventory', () => {
 		const consumed = new Set<string>([
 			USAGE_NOTIFICATION,
 			OUTCOME_NOTIFICATION,
+			COMPUTER_FRAME_NOTIFICATION,
+			TITLE_NOTIFICATION,
 			TERMINAL_NOTIFICATIONS.data,
 			TERMINAL_NOTIFICATIONS.exit,
 		])

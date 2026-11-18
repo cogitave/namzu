@@ -24,7 +24,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { DetectedProvider, Preferences } from '../../integrations/providers/index.js'
-import { WORKFLOW_DOCTRINE } from '../../integrations/workflows/doctrine.js'
 import { hypermodeReminders } from '../../reminders/hypermode.js'
 import type { SendOptions } from '../agent.js'
 
@@ -113,11 +112,14 @@ function offered(call: { toolsets: readonly Toolset[] }): ToolDefinition | undef
 }
 
 describe('when the model is offered the workflow tool', () => {
-	it('lists it on an ordinary request, with the opt-in rule in the system prompt', async () => {
+	it('lists it on an ordinary request, with the opt-in rule and the size guideline in its description, not in the system prompt', async () => {
 		const call = await sendWith('fix the failing test in cart.ts')
 		expect(offered(call)?.name).toBe('workflow')
 		expect(offered(call)?.description).toContain('Call it only after an explicit opt-in')
-		expect(call.systemPrompt ?? '').toContain(WORKFLOW_DOCTRINE)
+		expect(offered(call)?.description).toContain('standing opt-in for every substantive task')
+		expect(offered(call)?.description).toContain('workflow size guideline')
+		expect(call.systemPrompt ?? '').not.toContain('`workflow` tool')
+		expect(call.systemPrompt ?? '').not.toContain('workflow size guideline')
 	})
 
 	it('keeps the system prompt identical whether hypermode is on or off', async () => {
@@ -313,7 +315,7 @@ describe('when the model is offered the workflow tool', () => {
 			systemPrompt?: string
 		}[]
 		expect(call && offered(call)).toBeUndefined()
-		expect(call?.systemPrompt ?? '').not.toContain(WORKFLOW_DOCTRINE)
+		expect(call?.systemPrompt ?? '').not.toContain('`workflow` tool')
 	})
 })
 

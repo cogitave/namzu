@@ -96,6 +96,8 @@ await import(${JSON.stringify(`file://${BIN}`)})
 			// CI markers in the child's environment must not stop the screen drawing live.
 			CI: 'true',
 			GITHUB_ACTIONS: 'true',
+			// These suites are about the scrollback screen; fullscreen is the default and is opted out of.
+			NAMZU_FULLSCREEN: '0',
 			NAMZU_HOME: home,
 			HOME: root,
 			OPENAI_API_KEY: 'not-a-secret',

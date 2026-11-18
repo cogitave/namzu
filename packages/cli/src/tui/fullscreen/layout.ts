@@ -18,6 +18,7 @@ import { RESULT_GUTTER_INDENT, RESULT_GUTTER_WIDTH } from '../system-rows.js'
 import { wrapChoiceText } from '../terminal-choice-text.js'
 import { shownTheme } from '../theme-store.js'
 import { theme as palette } from '../theme.js'
+import { replyStamp } from '../transcript-screen.js'
 import {
 	messageScrollRows,
 	scrollBodyText,
@@ -53,6 +54,7 @@ interface Cached {
 	readonly theme: string
 	readonly click: boolean
 	readonly open: boolean
+	readonly detailed: boolean
 	readonly block: FsMessageRows
 }
 
@@ -80,6 +82,12 @@ function rendersMarkdown(message: TranscriptMessage): boolean {
 export interface RowMode {
 	readonly click: boolean
 	readonly open: boolean
+	/**
+	 * The detailed transcript: every body whole, what the model reasoned above a row, and when and
+	 * by which model a reply was written under it. A row that carries the hint is open here and a
+	 * click folds it.
+	 */
+	readonly detailed?: boolean
 }
 
 const PLAIN: RowMode = { click: false, open: false }
@@ -186,11 +194,61 @@ export function fullscreenMessageRows(
 	streams?: Map<string, StreamedReply>,
 	later = false,
 ): FsMessageRows {
-	const message = withLiveHint(asked)
+	const block = messageRowsOf(asked, hasPrev, width, mode, streams, later)
+	return mode.detailed ? withDetails(block, asked, width) : block
+}
+
+/** What the detailed transcript adds around a message's rows: its reasoning above, its stamp below. */
+function withDetails(
+	block: FsMessageRows,
+	message: TranscriptMessage,
+	width: number,
+): FsMessageRows {
+	const thinking =
+		message.thinking !== undefined && message.thinking.trim() !== ''
+			? wrapChoiceText(message.thinking.trim(), Math.max(4, width - 2)).map((text, i) =>
+					plainRow(
+						{
+							glyph: i === 0 ? '✻' : ' ',
+							glyphColor: palette.text.muted,
+							text,
+							color: palette.text.muted,
+						},
+						null,
+					),
+				)
+			: []
+	const stamp = replyStamp(message)
+	const stamped =
+		stamp === null
+			? []
+			: [
+					plainRow({
+						glyph: ' ',
+						glyphColor: palette.text.muted,
+						text: stamp,
+						color: palette.text.muted,
+					}),
+				]
+	if (thinking.length === 0 && stamped.length === 0) return block
+	return { gap: block.gap, rows: [...thinking, ...block.rows, ...stamped] }
+}
+
+function messageRowsOf(
+	asked: TranscriptMessage,
+	hasPrev: boolean,
+	width: number,
+	mode: RowMode,
+	streams: Map<string, StreamedReply> | undefined,
+	later: boolean,
+): FsMessageRows {
+	const live = withLiveHint(asked)
 	if (mode.click) {
-		const clickable = clickableRows(message, hasPrev, width, mode.open)
+		const clickable = clickableRows(live, hasPrev, width, mode.open)
 		if (clickable) return clickable
 	}
+	// The detailed transcript draws what the old screen drew: the whole retained body.
+	const message = mode.detailed ? screenMessage(live) : live
 	const hung = hangsResult(message)
 	const fit = hung ? Math.max(4, width - RESULT_HANG) : width
 	const markdown = rendersMarkdown(message)
@@ -268,6 +326,8 @@ export function createLayoutCache(): LayoutCache {
 export interface ClickView {
 	readonly click: boolean
 	readonly open: ReadonlySet<string>
+	/** The detailed transcript: bodies are open unless their id is in `open` (a click folded them). */
+	readonly detailed?: boolean
 }
 
 /** The rule drawn above the first reply the reader has not seen. */
@@ -319,7 +379,13 @@ export function layoutTranscript(
 			})
 			blocks.push({ id: MARK_ID, rows: 1, tail: '' })
 		}
-		const mode: RowMode = { click: view.click, open: view.click && view.open.has(message.id) }
+		const detailed = view.detailed === true
+		// Detailed, `open` lists the rows a click folded; otherwise the rows a click opened.
+		const mode: RowMode = {
+			click: view.click,
+			open: view.click && (detailed ? !view.open.has(message.id) : view.open.has(message.id)),
+			detailed,
+		}
 		let hit = cache.kept.get(message)
 		if (
 			!hit ||
@@ -328,7 +394,8 @@ export function layoutTranscript(
 			hit.later !== later ||
 			hit.theme !== theme ||
 			hit.click !== mode.click ||
-			hit.open !== mode.open
+			hit.open !== mode.open ||
+			hit.detailed !== detailed
 		) {
 			hit = {
 				width,
@@ -337,6 +404,7 @@ export function layoutTranscript(
 				theme,
 				click: mode.click,
 				open: mode.open,
+				detailed,
 				block: fullscreenMessageRows(message, hasPrev, width, mode, cache.streams, later),
 			}
 			cache.kept.set(message, hit)

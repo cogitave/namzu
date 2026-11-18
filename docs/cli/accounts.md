@@ -67,6 +67,20 @@ with `--provider` for another one. `ProviderChoice.account` in `preferences.json
 (`<provider>:<name>`) pins an account for a plain launch; absent means the usual
 sign-in, so older files read as before.
 
+`namzu exec` takes `--account` too, and keeps the saved account when it is told
+a model or a provider:
+
+```sh
+namzu exec --account work "summarise the diff"
+namzu exec --model vendor/other "summarise the diff"   # stays on the saved account
+```
+
+`--model` alone re-models the saved primary and keeps its account. `--provider X`
+keeps the account the saved chain pins for X, when it pins one. A provider with no
+saved account runs on its usual sign-in. `--account` names the provider itself, so
+`--account` with a `--provider` of another provider, or a name no account has, is
+refused with a usage error (`exec --json` reports the same refusal).
+
 ## When an account runs out
 
 When the provider says the allowance is spent (not that it is briefly busy), the

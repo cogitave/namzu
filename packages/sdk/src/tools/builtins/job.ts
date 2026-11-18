@@ -160,14 +160,16 @@ export const JobTool = defineTool({
 						? `failed to start: ${read.error}`
 						: `${read.status}${read.exitCode === undefined ? '' : ` with code ${read.exitCode}`}`
 
+			const outputFile = jobs.get(input.id)?.outputFile
 			return {
 				success: true,
-				output: `${notice}${read.chunk || '(no new output)'}\n\n[job ${input.id} is ${status}; next_offset ${read.nextOffset}]`,
+				output: `${notice}${read.chunk || '(no new output)'}\n\n[job ${input.id} is ${status}; next_offset ${read.nextOffset}${outputFile === undefined ? '' : `; the whole output is in ${outputFile}`}]`,
 				data: {
 					jobId: input.id,
 					status: read.status,
 					nextOffset: read.nextOffset,
 					droppedBytes: read.droppedBytes,
+					...(outputFile === undefined ? {} : { outputFile }),
 					...(read.exitCode === undefined ? {} : { exitCode: read.exitCode }),
 					...(read.error === undefined ? {} : { error: read.error }),
 				},

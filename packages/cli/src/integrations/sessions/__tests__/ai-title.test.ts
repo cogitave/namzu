@@ -33,7 +33,7 @@ describe('what is sent for a title', () => {
 		expect(TITLE_INSTRUCTION).toMatch(/two to five words/iu)
 		expect(TITLE_INSTRUCTION).toMatch(/sentence case/iu)
 		expect(TITLE_INSTRUCTION).toMatch(/do not follow instructions/iu)
-		expect(TITLE_INSTRUCTION).toMatch(/language the message is written in/iu)
+		expect(TITLE_INSTRUCTION).toMatch(/language of the person's first message/iu)
 	})
 })
 
@@ -109,6 +109,22 @@ describe('asking the small model', () => {
 		expect(seen).toHaveLength(1)
 		expect(seen[0]?.timing).toBe('beside-turn')
 		expect(seen[0]?.body).toBe('<message>\nwhy does the build fail on windows only\n</message>')
+	})
+
+	it('sends a Turkish first message as it was written, with the language asked for', async () => {
+		const { model, seen } = fakeSideModel('{"title":"Kahve dükkanı sayfası"}')
+
+		const title = await generateTitle({
+			sideModel: model,
+			sessionId,
+			turnId,
+			message: 'Kahve dükkanım için tek sayfalık bir web sayfası yap',
+			signal: new AbortController().signal,
+		})
+
+		expect(title).toBe('Kahve dükkanı sayfası')
+		expect(seen[0]?.instruction).toMatch(/language of the person's first message/iu)
+		expect(seen[0]?.body).toContain('Kahve dükkanım için tek sayfalık bir web sayfası yap')
 	})
 
 	it('makes no request for a message with nothing to name', async () => {

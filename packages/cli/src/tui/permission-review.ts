@@ -4,7 +4,9 @@ import { readFileSync, statSync } from 'node:fs'
 import { WorkflowScriptError, parseWorkflowMeta, resolveWorkflowLimits } from '@namzu/sdk'
 
 import { type ResumeReview, resumeReviewLines } from '../integrations/workflows/resume.js'
+import { displayPath } from './display-path.js'
 import { formatSpan } from './person-terms.js'
+import { withoutCdToCwd } from './shell-display.js'
 import { terminalDisplayText } from './terminal-display.js'
 
 /**
@@ -548,6 +550,12 @@ export function buildPermissionReview(
 /** What the screen can learn, beyond the envelope, to make a call readable. */
 export interface PermissionSummaryContext {
 	/**
+	 * The working folder. With it, a path inside it is named relative to it and a command's leading
+	 * `cd <this folder> &&` is left out: both say what the box already says. The exact view
+	 * (`d`) is unchanged.
+	 */
+	readonly cwd?: string
+	/**
 	 * The control a `computer_use` `ui_act` ref names in the latest UI
 	 * snapshot (`Button "Beş" (e30)`), from the session's tool. Absent, the
 	 * ref alone is shown.
@@ -638,7 +646,10 @@ export function buildPermissionSummary(
 		) {
 			readable = {
 				...readable,
-				lines: [`${call.input.path} · ${readable.lines[0]}`, ...readable.lines.slice(1)],
+				lines: [
+					`${shownPath(context, call.input.path)} · ${readable.lines[0]}`,
+					...readable.lines.slice(1),
+				],
 			}
 		}
 		complete &&= readable.complete
@@ -718,6 +729,11 @@ export function buildPermissionSummary(
 	}
 }
 
+/** A path as the box names it: relative to the working folder when it is inside it. */
+function shownPath(context: PermissionSummaryContext, path: string): string {
+	return context.cwd === undefined ? path : displayPath(path, context.cwd)
+}
+
 function fileExistsSafely(context: PermissionSummaryContext, path: string): boolean | undefined {
 	try {
 		return context.fileExists?.(path)
@@ -765,7 +781,7 @@ function summarizeKnownCall(
 		if (shapeIsKnown) {
 			return {
 				lines: [
-					...commandLines(input.command as string),
+					...commandLines(withoutCdToCwd(input.command as string, context.cwd)),
 					...(input.timeout !== undefined
 						? [
 								`timeout: ${typeof input.timeout === 'number' ? formatSpan(input.timeout) : String(input.timeout)}`,
@@ -1435,7 +1451,7 @@ function summarizeEdit(
 	if (input.edits !== undefined) {
 		if (!Array.isArray(input.edits) || oldText.value !== null || newText.value !== null) return null
 		const lines: string[] = [
-			`${path} · ${input.edits.length} replacement${input.edits.length === 1 ? '' : 's'}`,
+			`${shownPath(context, path)} · ${input.edits.length} replacement${input.edits.length === 1 ? '' : 's'}`,
 		]
 		let disk = diskTextOf(context, path)
 		for (const [index, edit] of input.edits.entries()) {
@@ -1469,7 +1485,7 @@ function summarizeEdit(
 		if (oldText.value !== null || newText.value === null) return null
 		return {
 			lines: [
-				`${path} · insert at ${at === 'end' ? 'end' : `line ${String(at)}`}`,
+				`${shownPath(context, path)} · insert at ${at === 'end' ? 'end' : `line ${String(at)}`}`,
 				...diffLines('+', newText.value.split('\n')),
 			],
 			complete: true,
@@ -1486,7 +1502,7 @@ function summarizeEdit(
 	)
 	return {
 		lines: [
-			`${path}${replaceAll ? ' · every occurrence' : ''}`,
+			`${shownPath(context, path)}${replaceAll ? ' · every occurrence' : ''}`,
 			...shown.notes,
 			...diffLines('-', shown.before),
 			...diffLines('+', shown.after),

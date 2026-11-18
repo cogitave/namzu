@@ -156,6 +156,12 @@ lines.on('line', (line) => {
 		if (params.prompt === 'Break connection') { process.exit(0); return }
 		const requestId = `review-${params.sessionId}-${id}`
 		pending.set(requestId, { id, sessionId: params.sessionId })
+		if (process.env.FIXTURE_COMPUTER_CALLS) {
+			// Computer actions as the agent sends them: the application and, when there is one, why it is still asked about.
+			const calls = JSON.parse(process.env.FIXTURE_COMPUTER_CALLS).map((call, index) => ({ id: `${requestId}-${index}`, name: 'computer_use', input: { type: 'mouse_click', at: { x: 10, y: 10 } }, isDestructive: true, ...call }))
+			send({ id: requestId, method: 'session/request_permission', params: { sessionId: params.sessionId, toolCalls: calls } })
+			return
+		}
 		send({ id: requestId, method: 'session/request_permission', params: { sessionId: params.sessionId, toolCalls: [{ id: requestId, name: 'fixture-tool', input: { prompt: params.prompt, ...(process.env.FIXTURE_ENFORCE_PROVIDER_BINDING ? { engine: harnesses.get(params.sessionId) ?? 'namzu', model: models.get(params.sessionId) } : {}), ...(params.attachments?.length ? { attachments: params.attachments } : {}) }, isDestructive: false, ...(process.env.FIXTURE_ALWAYS_ASK ? { alwaysAsk: true } : {}), ...(process.env.FIXTURE_PREVIEW ? { preview: JSON.parse(process.env.FIXTURE_PREVIEW) } : {}) }] } })
 	} else if (method === 'session/cancel') {
 		const scope = liveScopes.get(params.sessionId)

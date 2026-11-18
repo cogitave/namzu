@@ -20,6 +20,7 @@ import type {
 	MemoryCliConfig,
 	NamzuCliConfig,
 	PluginConfig,
+	ProgressNudgeConfig,
 	RoutingConfig,
 	SandboxConfig,
 	SkillsConfig,
@@ -90,6 +91,10 @@ export interface TranscriptMessage {
 	/** The `/context` grid and lists; `content` carries the same as plain text. */
 	readonly contextView?: ContextView
 	readonly pending?: boolean
+	/** When a reply began (epoch milliseconds); only the detailed transcript shows it. */
+	readonly at?: number
+	/** The model that wrote a reply, as the footer names it; only the detailed transcript shows it. */
+	readonly model?: string
 	/** A streaming reply's frozen part: printed into the transcript already, in order. */
 	readonly printed?: readonly PrintedChunk[]
 	/**
@@ -263,6 +268,8 @@ export interface TuiContext {
 	readonly browser?: BrowserConfig
 	/** See `NamzuCliConfig.codeAnalysis`. */
 	readonly codeAnalysis?: CodeAnalysisConfig
+	/** See `NamzuCliConfig.progressNudge`. */
+	readonly progressNudge?: ProgressNudgeConfig
 	/** See `NamzuCliConfig.hooks`. */
 	readonly hooks?: HooksConfig
 	/** Set when a switch left hooks out of `hooks`; `/hooks` says so. See `hookSwitch`. */

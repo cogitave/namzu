@@ -80,3 +80,14 @@ describe('the session flags parse into the shared exec input', () => {
 		})
 	})
 })
+
+describe('--account', () => {
+	it('parses into the exec input and is absent by default', () => {
+		expect(parseExecFlags(['--account', 'work', 'go'])).toMatchObject({
+			account: 'work',
+			unknown: [],
+			rest: ['go'],
+		})
+		expect(parseExecFlags(['go']).account).toBeNull()
+	})
+})

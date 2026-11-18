@@ -51,7 +51,7 @@ export function unreadEditShownError(path: string, content: string): string | un
 	if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop()
 	if (lines.length > UNREAD_EDIT_SHOWN_MAX_LINES) return undefined
 	const numbered = lines.map((line, i) => `${i + 1}\t${line}`).join('\n')
-	return `${path} had not been read in this session, so this edit was not applied. It has now been read for you; its current contents follow. Repeat the edit against them. Nothing was written.\n\n${numbered}`
+	return `${path} had not been read in this session, so this edit was not applied. It has now been read for you; its current contents follow. Repeat the edit against them, without reading the file again. Nothing was written.\n\n${numbered}`
 }
 
 /** What `edit` tells the agent when the file was never read and is too large to hand over. */
@@ -78,3 +78,10 @@ export function movedSinceRead(
 	const seen = tracker.fingerprint?.(key)
 	return seen !== undefined && seen !== fingerprintContent(current)
 }
+
+/**
+ * Said after a write or an edit went through. A model that is told only "done"
+ * reads the file back to be sure, which costs a request and shows it what it
+ * just wrote; the result already is the proof.
+ */
+export const CURRENT_ON_DISK = 'The file on disk is now exactly this; no need to read it back.'

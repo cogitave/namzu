@@ -32,4 +32,12 @@ describe('the text a token target may come from', () => {
 		expect(typed).toBeUndefined()
 		expect(parseTokenTarget(typed ?? '')).toBeUndefined()
 	})
+
+	it('does not read a paste for a token target', () => {
+		const text = 'audit this: LOG +900k'
+		expect(typedInputOf({ kind: 'human', text, pasted: [{ start: 12, end: 21 }] })).not.toContain(
+			'+900k',
+		)
+		expect(typedInputOf({ kind: 'human', text })).toContain('+900k')
+	})
 })

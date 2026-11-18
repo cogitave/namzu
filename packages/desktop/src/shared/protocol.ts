@@ -8,6 +8,7 @@ import type {
 	ReviewMode,
 } from '@namzu/sdk'
 import type { BackgroundWorkStatus, BackgroundWorkStatusEvent } from './background-work-protocol.js'
+import type { ComputerAppsView, ComputerFrameView } from './computer-protocol.js'
 import type {
 	ConfigSettingChange,
 	ConfigSettingResult,
@@ -128,6 +129,11 @@ export interface AttachmentInput {
 }
 export interface DesktopSendOptions {
 	attachmentIds?: string[]
+	/**
+	 * Which stretches of the message were pasted, `[start, end)` in the text. The engine sets
+	 * them apart from what the person typed; what the person sees does not change.
+	 */
+	pasted?: { start: number; end: number }[]
 	effort?: ReasoningEffort
 	permissionMode?: ReviewMode
 }
@@ -557,7 +563,19 @@ export interface PermissionView {
 		 * look at the screen. Absent on an ordinary call and from an agent that sends none.
 		 */
 		alwaysAsk?: true
+		/**
+		 * For a `computer_use` call, when the agent could tell: the application it works on, and
+		 * why it should be asked about even where that application was allowed (it closes, deletes,
+		 * sends or submits).
+		 */
+		computer?: { app?: string; apps?: string[]; consequence?: string }
 	}[]
+	/**
+	 * Set by this application on a request that asks whether Namzu may use these applications in
+	 * this conversation, instead of asking about one action. "Allow" (`approve_all`) allows them for
+	 * the conversation, "Allow once" (`approve`) answers this action only, and No refuses.
+	 */
+	appRequest?: { apps: string[] }
 }
 /**
  * Reject carries the person's note to the model (`feedback`) and, apart from any wrapper, as they wrote it (`note`) for the record; approve carries nothing.
@@ -683,6 +701,10 @@ export type DesktopEvent = (
 	| ({ kind: 'usage' } & UsageNotice)
 	/** What a finished turn changed and what checked it; see `OutcomeNotice`. */
 	| ({ kind: 'outcome' } & OutcomeNotice)
+	/** What the model saw after a computer action, small, with where a click landed. */
+	| { kind: 'computer-frame'; sessionId: string; frame: ComputerFrameView }
+	/** The applications this conversation has allowed and the ones it has used. */
+	| ({ kind: 'computer-apps'; sessionId: string } & ComputerAppsView)
 	| { kind: 'tasks'; sessionId: string; tasks?: AcpTask[]; notice?: string }
 	| { kind: 'permission-cleared'; sessionId: string; requestId?: string }
 	/** Display-only retirement; admitted, queued and retry file bytes are unchanged. */
@@ -845,6 +867,17 @@ export interface DesktopApi {
 	projectFileIndex?(projectId: string): Promise<{ paths: string[]; truncated: boolean }>
 	/** A project file as text, image or a size/binary verdict. */
 	readProjectFile?(projectId: string, path: string): Promise<ProjectFileContent>
+	/**
+	 * A file this conversation's turns wrote, or one inside its work folder, for the preview pane.
+	 * The host decides what may be read; any other path is refused in plain words.
+	 */
+	readSessionOutput?(sessionId: string, path: string): Promise<ProjectFileContent>
+	/** Opens such a file in the default browser (a web page only) or shows it in its folder. */
+	openSessionOutput?(
+		sessionId: string,
+		path: string,
+		target: 'browser' | 'file-manager',
+	): Promise<void>
 	/** Working-tree changes; null when not a git repository, untrusted or unavailable. */
 	projectChanges?(projectId: string): Promise<ProjectChangesView | null>
 	/** Before and after text of one changed file. */
@@ -1146,6 +1179,8 @@ export interface DesktopApi {
 		requestId: string,
 		response: PermissionResponse,
 	): Promise<void>
+	/** Take an application back from the conversation: the next action in it asks again. Absent in an older shell. */
+	revokeComputerApp?(sessionId: string, app: string): Promise<ComputerAppsView>
 	jobs(sessionId: string): Promise<JobView[]>
 	/** Metadata for already observed ordinary work; never admission or a job-output read. */
 	backgroundWorkStatuses?(): Promise<Record<string, BackgroundWorkStatus>>

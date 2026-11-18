@@ -50,6 +50,7 @@ export class RuntimeClient extends EventEmitter {
 	}
 	private promptAttachments = false
 	private promptOptions = false
+	private promptPasted = false
 	private turnRetry = false
 	private turnUndo = false
 	private abandonPaused = false
@@ -121,6 +122,10 @@ export class RuntimeClient extends EventEmitter {
 	}
 	supportsPromptOptions(): boolean {
 		return this.promptOptions
+	}
+	/** The engine sets pasted stretches of a prompt apart from the person's own words. */
+	supportsPromptPasted(): boolean {
+		return this.promptPasted
 	}
 	supportsPromptAttachments(): boolean {
 		return this.promptAttachments
@@ -313,6 +318,7 @@ export class RuntimeClient extends EventEmitter {
 		)) as AcpInitializeResult
 		this.promptAttachments = result.promptAttachments === true
 		this.promptOptions = result.promptOptions === true
+		this.promptPasted = result.promptPasted === true
 		const offers = (group: OptionalExtensionGroup): boolean =>
 			OPTIONAL_EXTENSION_GROUPS[group].every((method) => result.extensions?.includes(method))
 		this.tasks = offers('tasks')

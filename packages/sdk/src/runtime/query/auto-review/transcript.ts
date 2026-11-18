@@ -13,6 +13,7 @@
 
 import type { ToolManager } from '../../../toolsets/manager.js'
 import type { Message } from '../../../types/message/index.js'
+import { PASTED_MARKER, typedTextOf } from '../pasted-frames.js'
 
 /** One entry of the projected transcript, before it is rendered. */
 export type TranscriptEntry =
@@ -115,7 +116,11 @@ export function projectTranscript(
 			// round) is not the person speaking.
 			if (message.source !== undefined) continue
 			if (typeof message.content === 'string') {
-				const spoken = message.content.replace(INLINED_FILE_BLOCK, ' ').trim()
+				// Text the person pasted is material, not their authorisation: unless
+				// the paste is the whole message, only what they typed is read.
+				const typed = typedTextOf(message, PASTED_MARKER)
+				const own = typed.replaceAll(PASTED_MARKER, ' ').trim() === '' ? message.content : typed
+				const spoken = own.replace(INLINED_FILE_BLOCK, ' ').trim()
 				if (spoken !== '') entries.push({ kind: 'user', text: clip(spoken, limit) })
 			}
 			continue

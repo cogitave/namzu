@@ -353,3 +353,39 @@
 	line-height: var(--leading-caption);
 	color: var(--muted-foreground);
 }
+
+/* The step's own clock sits beside the step, the turn's total after it. */
+.normal-transcript .turn-activity-step,
+.normal-transcript .working-step {
+	font-size: var(--text-reading);
+	line-height: var(--leading-reading);
+	font-variant-numeric: tabular-nums;
+	color: var(--muted-foreground);
+}
+.normal-transcript .working-elapsed::before {
+	content: "· ";
+}
+/* The last two actions of a live turn stay in view under its line; the rest wait behind a button. */
+.normal-transcript .live-steps {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 2px;
+	margin: 2px 0 6px;
+	min-width: 0;
+}
+.normal-transcript .live-steps-more {
+	appearance: none;
+	background: none;
+	border: 0;
+	padding: 2px 0;
+	cursor: pointer;
+	font: inherit;
+	font-size: var(--text-reading);
+	line-height: var(--leading-reading);
+	color: var(--muted-foreground);
+}
+.normal-transcript .live-steps-more:hover,
+.normal-transcript .live-steps-more:focus-visible {
+	color: var(--foreground);
+}

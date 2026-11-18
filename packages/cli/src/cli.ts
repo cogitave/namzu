@@ -119,7 +119,7 @@ function addLaunchOptions(command: Command): Command {
 		)
 		.option(
 			'--no-done-gate',
-			'Do not ask once for a check of edits (tests, lint) before a turn that changed files ends; also limits.doneGate: false.',
+			'Keep the check of edits (tests, lint) before a turn ends off for this launch; it is off unless limits.doneGate is true.',
 		)
 		.addOption(
 			new Option(
@@ -941,6 +941,9 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					...(resolvedCtx.config.decision ? { decision: resolvedCtx.config.decision } : {}),
 					...(resolvedCtx.config.codeAnalysis
 						? { codeAnalysis: resolvedCtx.config.codeAnalysis }
+						: {}),
+					...(resolvedCtx.config.progressNudge
+						? { progressNudge: resolvedCtx.config.progressNudge }
 						: {}),
 					// A configured `routing` block makes Auto an available choice;
 					// `model: auto` makes it the default, and only when nothing pins a

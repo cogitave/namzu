@@ -127,6 +127,7 @@ import {
 	emptyPanelTabs,
 	ensurePanelTab,
 	openFileTab,
+	outputsTab,
 	panelKindOf,
 	readPanelTabs,
 	readPanelWidth,
@@ -189,6 +190,8 @@ import {
 import { normalConversationProject } from './normal-conversation.js'
 import { noticeClickAction } from './notice-target.js'
 import { dismissNotice, notify } from './notify.js'
+import { outputFiles, outputToOpen } from './outputs-model.js'
+import { OutputsPanel } from './outputs-panel.js'
 import { PalChatTranscript } from './pal-chat-transcript.js'
 import { PalCommunicationDialog, type PalSettingsTab } from './pal-communication-dialog.js'
 import {
@@ -220,6 +223,7 @@ import { palMarker, palStartCard, palWaitingLine } from './pal-start-model.js'
 import { closableStaleTabs, stalePalTabs } from './pal-tab-siblings.js'
 import { unreadAfterOpen, unreadAfterSends } from './pal-unread.js'
 import { PalCustomizeDialog, type PalOpening, PalSidebarSection, PalsPage } from './pals-page.js'
+import { type PasteRange, addPaste, confirmedRanges, trackEdit } from './paste-ranges.js'
 import { pendingMessages } from './pending-messages.js'
 import { plainError, plainErrorText } from './plain-error.js'
 import { PluginsPage, PluginsSidebar } from './plugins-page.js'
@@ -1184,9 +1188,12 @@ export function App({
 		[sessionId],
 	)
 	// A conversation that cannot show files never lists file tabs, though it keeps them stored.
+	// What a conversation wrote can be shown for any conversation that has a folder of its own to read from.
+	const outputsEnabled = Boolean(api.readSessionOutput && !palConversation && sessionId)
 	const panelAllows = useCallback(
-		(tab: PanelTab) => filesEnabled || tab.kind !== 'file',
-		[filesEnabled],
+		(tab: PanelTab) =>
+			tab.kind === 'outputs' ? outputsEnabled : filesEnabled || tab.kind !== 'file',
+		[filesEnabled, outputsEnabled],
 	)
 	const listedTabs = useMemo(
 		() => panelTabs.tabs.filter(panelAllows),
@@ -1196,6 +1203,33 @@ export function App({
 	const panelView: PanelView =
 		filesEnabled && panelTabs.browsing ? 'browse' : (shownPanelTab?.kind ?? 'empty')
 	const changesPaneOpen = detailsOpen && panelView === 'changes'
+	// What the conversation wrote, from the receipts the Changes panel reads.
+	const outputs = useMemo(
+		() => (outputsEnabled ? outputFiles(thread) : []),
+		[outputsEnabled, thread],
+	)
+	const [outputPick, setOutputPick] = useState<{ sessionId: string; path?: string }>()
+	const pickedOutput = outputPick?.sessionId === sessionId ? outputPick.path : undefined
+	const pickOutput = useCallback(
+		(path: string | undefined) => setOutputPick({ sessionId, path }),
+		[sessionId],
+	)
+	// The versions of each output already known, so only a write made after this is news.
+	const outputsSeen = useRef(new Map<string, Map<string, number>>())
+	// biome-ignore lint/correctness/useExhaustiveDependencies: only a change to the outputs or a turn starting or ending decides.
+	useEffect(() => {
+		if (!sessionId || historyPending) return
+		const seen = outputsSeen.current.get(sessionId) ?? new Map<string, number>()
+		outputsSeen.current.set(sessionId, seen)
+		const news = thread.running ? outputToOpen(outputs, seen) : undefined
+		for (const file of outputs) seen.set(file.path, file.version)
+		// A page or a document a turn just wrote opens by itself, in the pane, with the page drawn.
+		if (news) {
+			setOutputPick({ sessionId, path: news.path })
+			updatePanelTabs((state) => ensurePanelTab(state, outputsTab))
+			setJobsOpen(true)
+		}
+	}, [sessionId, outputs, thread.running, historyPending])
 	const sideCollapsedNow = useRef(sideCollapsed)
 	sideCollapsedNow.current = sideCollapsed
 	// biome-ignore lint/correctness/useExhaustiveDependencies: only the pane opening or closing decides.
@@ -1220,9 +1254,12 @@ export function App({
 		panelView === 'file' ? activeFilePath({ ...panelTabs, active: shownPanelTab }) : undefined
 	/** Makes sure Changes or Activity is a tab, and shows it. */
 	const showPanelTab = useCallback(
-		(tab: 'activity' | 'changes') =>
+		(tab: 'activity' | 'changes' | 'outputs') =>
 			updatePanelTabs((state) =>
-				ensurePanelTab(state, tab === 'changes' ? changesTab : activityTab),
+				ensurePanelTab(
+					state,
+					tab === 'changes' ? changesTab : tab === 'outputs' ? outputsTab : activityTab,
+				),
 			),
 		[updatePanelTabs],
 	)
@@ -5086,8 +5123,22 @@ export function App({
 				: undefined,
 		[focused, engineUpdates?.registerOpenUpdates],
 	)
+	// Where a paste into the box landed, until the change it causes arrives.
+	const pendingPaste = useRef<{ owner: string; start: number; text: string } | undefined>(undefined)
+	const pasteRanges = useRef(new Map<string, readonly PasteRange[]>())
 	const changeDraft = (target: string, value: string) => {
 		if (editingQueue.current.has(target)) return
+		// What was pasted stays known while the person edits around it.
+		const pending = pendingPaste.current
+		pendingPaste.current = undefined
+		let tracked = trackEdit(
+			pasteRanges.current.get(target) ?? [],
+			draftsRef.current[target] ?? '',
+			value,
+		)
+		if (pending?.owner === target) tracked = addPaste(tracked, value, pending.start, pending.text)
+		if (tracked.length) pasteRanges.current.set(target, tracked)
+		else pasteRanges.current.delete(target)
 		draftEditRevisions.current.set(target, (draftEditRevisions.current.get(target) ?? 0) + 1)
 		draftsRef.current[target] = value
 		setDrafts((all) => ({ ...all, [target]: value }))
@@ -5205,10 +5256,12 @@ export function App({
 		const owner = draftOwner
 		const prompt = draft
 		const attachmentIds = attached.get(owner).map((file) => file.id)
+		const pastedRanges = confirmedRanges(pasteRanges.current.get(owner), prompt)
 		const options = {
 			...settings,
 			effort: effortToSend(capabilities, settings.effort),
 			attachmentIds,
+			...(pastedRanges.length ? { pasted: pastedRanges } : {}),
 		}
 		const originalSettings = savedSettings.get(owner)
 		const route = { ...choice }
@@ -5290,6 +5343,7 @@ export function App({
 				if (result === 'queued') draftAdmissions.current.delete(target)
 			} else await api.send(target, prompt, options)
 			submitted = true
+			pasteRanges.current.delete(owner)
 			attached.consume(target, attachmentIds)
 			// A fast failure may settle before this admission reply arrives. Read main's
 			// draft after consumption as well as on settlement, so retry files stay visible.
@@ -6021,6 +6075,13 @@ export function App({
 					onOpenArchived={
 						project && !project.isChat && api.archivedConversations
 							? showArchivedConversations
+							: undefined
+					}
+					apps={thread.computerApps}
+					onRevokeApp={
+						api.revokeComputerApp && sessionId
+							? (app) =>
+									void act(() => api.revokeComputerApp?.(sessionId, app) ?? Promise.resolve())
 							: undefined
 					}
 					onAttach={() => {
@@ -6793,6 +6854,16 @@ export function App({
 							added={totals.added}
 							removed={totals.removed}
 							disabled={loading || harnessBusy || frozen}
+							outputs={outputs.length}
+							outputsOpen={detailsOpen && panelView === 'outputs'}
+							onOutputs={
+								outputsEnabled && !activeTerminal
+									? () => {
+											showPanelTab('outputs')
+											setJobsOpen(true)
+										}
+									: undefined
+							}
 							changesOpen={detailsOpen && panelView === 'changes'}
 							filesOpen={detailsOpen && (panelView === 'file' || panelView === 'browse')}
 							onChanges={
@@ -7488,6 +7559,9 @@ export function App({
 								empty={!pal && !historyPending && thread.messages.length === 0}
 								draft={draft}
 								onDraftChange={(value) => changeDraft(draftOwner, value)}
+								onMaterialPaste={(paste) => {
+									pendingPaste.current = { owner: draftOwner, ...paste }
+								}}
 								providers={activeProviders}
 								modelSelectionReady={
 									project.status === 'ready' &&
@@ -7668,9 +7742,11 @@ export function App({
 								? 'Activity'
 								: panelView === 'changes'
 									? 'Changes'
-									: panelView === 'empty'
-										? 'Side panel'
-										: 'Project files'
+									: panelView === 'outputs'
+										? 'Outputs'
+										: panelView === 'empty'
+											? 'Side panel'
+											: 'Project files'
 						}
 					>
 						<PanelResizeHandle
@@ -7726,6 +7802,7 @@ export function App({
 									active={shownPanelTab}
 									browsing={panelView === 'browse'}
 									canBrowse={filesEnabled}
+									canOutputs={outputsEnabled}
 									running={detailsWork.state === 'known' ? detailsWork.running : 0}
 									attention={needsAttention}
 									expanded={panelExpanded}
@@ -7736,7 +7813,13 @@ export function App({
 									onClose={(tab) => updatePanelTabs((state) => closePanelTab(state, tab))}
 									onOpenTab={(tab) => {
 										if (tab.kind === 'changes') setChangesFilter(undefined)
-										showPanelTab(tab.kind === 'changes' ? 'changes' : 'activity')
+										showPanelTab(
+											tab.kind === 'changes'
+												? 'changes'
+												: tab.kind === 'outputs'
+													? 'outputs'
+													: 'activity',
+										)
 									}}
 									onBrowse={() => updatePanelTabs(browsePanelTabs)}
 									onToggleExpanded={() => setPanelExpanded((value) => !value)}
@@ -7753,9 +7836,11 @@ export function App({
 									? 'Activity'
 									: panelView === 'changes'
 										? 'Changes'
-										: panelView === 'empty'
-											? 'Side panel'
-											: 'Project files'
+										: panelView === 'outputs'
+											? 'Outputs'
+											: panelView === 'empty'
+												? 'Side panel'
+												: 'Project files'
 							}
 							style={{ display: 'contents' }}
 						>
@@ -7777,6 +7862,21 @@ export function App({
 									onOpenPath={openProjectFile}
 									onNotice={announce}
 									refreshToken={filesRefresh}
+								/>
+							) : panelView === 'outputs' ? (
+								<OutputsPanel
+									api={api}
+									sessionId={sessionId}
+									outputs={outputs}
+									selected={pickedOutput}
+									onSelect={pickOutput}
+									onNotice={announce}
+									workFolder={project?.path}
+									dark={
+										appearance === 'dark' ||
+										(appearance === 'system' &&
+											window.matchMedia('(prefers-color-scheme: dark)').matches)
+									}
 								/>
 							) : panelView === 'empty' ? (
 								<div className="panel-empty">

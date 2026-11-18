@@ -72,7 +72,11 @@ it('settles an accepted switch without another inference and preserves its recei
 	const cwd = mkdtempSync(join(tmpdir(), 'namzu-model-switch-session-'))
 	roots.push(cwd)
 	const { createAgentSession } = await import('../agent.js')
-	const session = await createAgentSession(preferences, detected, { cwd, allowModelSwitch: true })
+	const session = await createAgentSession(preferences, detected, {
+		toolLoading: 'eager',
+		cwd,
+		allowModelSwitch: true,
+	})
 	const switchModel = vi.fn<NonNullable<SendOptions['onModelSwitch']>>(async () => ({
 		kind: 'pending',
 		selection: { id: 'codex', model: 'gpt-5.6-luna' },
@@ -189,7 +193,11 @@ it('returns a rejected selection to the model so a corrected request can settle 
 	const cwd = mkdtempSync(join(tmpdir(), 'namzu-model-switch-recovery-'))
 	roots.push(cwd)
 	const { createAgentSession } = await import('../agent.js')
-	const session = await createAgentSession(preferences, detected, { cwd, allowModelSwitch: true })
+	const session = await createAgentSession(preferences, detected, {
+		toolLoading: 'eager',
+		cwd,
+		allowModelSwitch: true,
+	})
 	const switchModel = vi.fn<NonNullable<SendOptions['onModelSwitch']>>(async (request) =>
 		request.model === 'unknown-model'
 			? { kind: 'rejected', reason: 'Unknown model. Use gpt-5.6-luna.' }
@@ -244,7 +252,7 @@ it('does not advertise model switching to a headless session', async () => {
 	const cwd = mkdtempSync(join(tmpdir(), 'namzu-model-switch-headless-'))
 	roots.push(cwd)
 	const { createAgentSession } = await import('../agent.js')
-	const session = await createAgentSession(preferences, detected, { cwd })
+	const session = await createAgentSession(preferences, detected, { toolLoading: 'eager', cwd })
 	try {
 		for await (const _event of session.send([createUserMessage('Hello')])) {
 		}

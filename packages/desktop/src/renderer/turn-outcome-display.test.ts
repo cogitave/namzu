@@ -10,7 +10,7 @@ import { toolTranscriptPresentation } from './tool-transcript-presentation.js'
 import { actionRunLabel } from './transcript-layout.js'
 import { Transcript } from './transcript.js'
 import { attentionFlags, turnAttention } from './turn-attention.js'
-import { outcomeTone, visibleOutcome } from './turn-outcome-line.js'
+import { outcomeSpeaks, outcomeTone, visibleOutcome } from './turn-outcome-line.js'
 
 /** What a finished turn says about itself: counts in the header, output and reasons on rows, one line under it. */
 
@@ -337,14 +337,22 @@ describe('the line under a finished turn', () => {
 		const html = render(lineFor('failing', 'Changed 2 files · npm test failed', 2))
 		expect(html).toContain('data-tone="error" data-check="error"')
 	})
-	it('adds nothing about changes when the record could not tell, and keeps its own sentence', () => {
-		const html = render(
+	it('says nothing when the record could not tell, or when nothing was checked', () => {
+		const unknown = render(
 			lineFor('unknown', 'A command ran that may have changed files · cannot tell', 2),
 		)
-		expect(html).not.toContain('turn-result')
-		expect(html).toContain('turn-outcome-line')
-		expect(html).toContain('A command ran that may have changed files · cannot tell')
-		expect(outcomeTone('unknown')).toBe('warn')
+		expect(unknown).not.toContain('turn-result')
+		expect(unknown).not.toContain('turn-outcome-line')
+		expect(unknown).not.toContain('cannot tell')
+		expect(unknown).not.toContain('may have changed files')
+		const unchecked = render(lineFor('unchecked', 'Changed 1 file · not checked', 1))
+		expect(unchecked).not.toContain('turn-outcome-line')
+		expect(unchecked).not.toContain('not checked')
+		expect(outcomeSpeaks('unknown')).toBe(false)
+		expect(outcomeSpeaks('unchecked')).toBe(false)
+		expect(outcomeSpeaks('failing')).toBe(true)
+		expect(outcomeSpeaks('stale')).toBe(true)
+		expect(outcomeSpeaks('inconclusive')).toBe(true)
 	})
 	it('says nothing for an unchanged turn, and nothing before the kernel has said', () => {
 		expect(render(lineFor('unchanged', undefined, 0))).not.toContain('turn-result')

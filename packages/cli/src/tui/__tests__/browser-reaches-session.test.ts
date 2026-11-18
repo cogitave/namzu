@@ -149,6 +149,7 @@ const detected = [
 async function createSession(withBrowser: boolean) {
 	const { createAgentSession } = await import('../agent.js')
 	const session = await createAgentSession(prefs, detected, {
+		toolLoading: 'eager',
 		cwd: workDir,
 		...(withBrowser
 			? {

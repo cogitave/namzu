@@ -417,7 +417,7 @@ describe('single live transcript status', () => {
 		})
 		const html = render(thread)
 		// One amber line names what is waited on; the live region keeps the words for assistive technology.
-		expect(phaseLabels(html)).toEqual(['Waiting for your decision', 'Waiting for your decision'])
+		expect(phaseLabels(html)).toEqual(['Waiting for you', 'Waiting for you'])
 		expect(html).toContain('class="working-mark live-mark" data-state="waiting"')
 		expect(html).toContain('data-transcript-phase="waiting"')
 		expect(html).not.toContain('stage-line')

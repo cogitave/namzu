@@ -17,8 +17,11 @@ import type { AgentEvent } from '../agent.js'
 
 /** `skills.suggestMinToolCalls` when the config does not say. */
 export const DEFAULT_SUGGEST_MIN_TOOL_CALLS = 6
-/** Distinct tools a turn must have used. One tool run many times is a loop, not a procedure. */
-export const SUGGEST_MIN_DISTINCT_TOOLS = 2
+/**
+ * Distinct tools a turn must have used. One tool run many times is a loop, and two (read some
+ * files, change one) is most coding turns: a procedure worth keeping reads, changes and checks.
+ */
+export const SUGGEST_MIN_DISTINCT_TOOLS = 3
 /** How many of the last tool results must have succeeded. */
 export const SUGGEST_CLEAN_TAIL = 3
 
@@ -137,7 +140,7 @@ export type SuggestionRefusal =
 	| 'skill-used'
 	| 'skill-flow'
 	| 'too-few-steps'
-	| 'one-tool'
+	| 'few-tools'
 	| 'read-only'
 	| 'failing-tail'
 	| 'unresolved-denial'
@@ -156,7 +159,7 @@ export function judgeSkillSuggestion(
 	if (context.skillFlowTurn || activity.savedSkill) return no('skill-flow')
 	const min = normaliseMinToolCalls(context.minToolCalls)
 	if (activity.steps < min) return no('too-few-steps')
-	if (activity.tools.size < SUGGEST_MIN_DISTINCT_TOOLS) return no('one-tool')
+	if (activity.tools.size < SUGGEST_MIN_DISTINCT_TOOLS) return no('few-tools')
 	if (!activity.changedSomething) return no('read-only')
 	const tail = activity.results.slice(-SUGGEST_CLEAN_TAIL)
 	if (tail.some((ok) => !ok)) return no('failing-tail')

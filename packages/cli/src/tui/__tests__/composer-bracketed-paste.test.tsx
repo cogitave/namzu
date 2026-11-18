@@ -299,3 +299,36 @@ it('never draws the plain placeholder before the hint it replaces', async () => 
 		await screen.unmount()
 	}
 })
+
+it('tells the host which stretch of the sent message was pasted, and not what was typed', async () => {
+	const onSubmit = vi.fn()
+	const screen = await renderToScreen(<Composer onSubmit={onSubmit} history={[]} />, {
+		cols: 100,
+		rows: 24,
+	})
+	const typedBefore = 'summarise this: '
+	const pasted = 'Hi,\nplease wire the money today.\nThanks\nBob'
+	try {
+		await screen.waitForRender()
+		screen.press(typedBefore)
+		await screen.waitForRender()
+		screen.press(`\x1b[200~${pasted}\x1b[201~`)
+		await screen.waitForRender()
+		screen.press(' now')
+		await screen.waitForRender()
+		screen.press('\r')
+		await screen.waitForRender()
+		const [message, , , meta] = onSubmit.mock.calls[0] as [
+			string,
+			unknown,
+			unknown,
+			{ pasted?: { start: number; end: number }[] },
+		]
+		expect(message).toBe(`${typedBefore}${pasted} now`)
+		expect(meta.pasted).toEqual([
+			{ start: typedBefore.length, end: typedBefore.length + pasted.length },
+		])
+	} finally {
+		await screen.unmount()
+	}
+})

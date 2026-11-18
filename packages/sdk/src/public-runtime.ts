@@ -377,6 +377,15 @@ export {
 export type { SteeringChannel } from './runtime/query/steering.js'
 // Hidden mid-conversation reminders a host feeds per model request (opt-in).
 export { isReminderMessage } from './runtime/query/reminders.js'
+// Text a person pasted, set apart from their own words in the model request.
+export {
+	PASTED_FRAME_GUIDANCE,
+	PASTED_MARKER,
+	framePastedContent,
+	newPasteNonce,
+	typedTextOf,
+	usablePastedSpans,
+} from './runtime/query/pasted-frames.js'
 export type {
 	ReminderContext,
 	ReminderSource,
@@ -1830,6 +1839,7 @@ export type {
 	ComputerUseAdvisor,
 	ComputerUseAdvisorCandidate,
 	ComputerUseAdvisorRequest,
+	ComputerUseObservation,
 	ComputerUseTool,
 	ComputerUseToolOptions,
 	ImageSize,
