@@ -5,7 +5,7 @@
 // Run: pnpm --filter @namzu/desktop build && cd packages/desktop && xvfb-run -a node --test e2e/pill-computer.test.mjs
 // Pictures go to $NAMZU_E2E_SHOTS when set.
 import assert from "node:assert/strict";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { computerStub } from "./computer-stub.mjs";
@@ -32,6 +32,8 @@ function flow(name, options, body) {
 			messagesRules: rules,
 			pathPrefix: bin,
 		});
+		// Computer use is off until the person's own settings turn it on.
+		writeFileSync(join(world.home, "config.yaml"), "computerUse:\n  enabled: true\n");
 		let failed = true;
 		try {
 			await launch(world);
