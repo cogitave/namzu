@@ -535,7 +535,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 	d(
 		'updates.auto',
 		'updates',
-		'Install new versions by itself',
+		'Install new versions automatically',
 		'The command line updates itself in the background. The Desktop app updates on its own.',
 		on,
 		{
@@ -1243,7 +1243,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 			'tui.theme',
 			'terminal',
 			'Theme',
-			'Colours.',
+			"The terminal app's colours. This window's own colours are under Appearance.",
 			pick(
 				['auto', 'Match the terminal', 'Dark or light, whichever the terminal uses.'],
 				['dark', 'Dark', 'Colours for a dark background.'],

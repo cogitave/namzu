@@ -41,13 +41,14 @@ const APPLIES_SHORT: Readonly<Record<AppliesWhen, string>> = {
 	'next-launch': 'next app launch',
 }
 
+/** In the order of the Desktop Settings nav, so the list reads the same in both places. */
 export const SETTING_SECTIONS: readonly SettingSection[] = [
-	'general',
 	'models',
-	'projects',
+	'general',
 	'appearance',
 	'agent',
 	'tools',
+	'projects',
 	'terminal',
 	'telemetry',
 	'updates',
