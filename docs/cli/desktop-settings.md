@@ -55,7 +55,8 @@ or `updates.check` set to true, `disableHooks` set to true, and a sandbox, code 
 composer-trigger value that would loosen what is below it (`projectLayerHolds` in `config/load.ts`, shared with
 the merges). `NAMZU_FULLSCREEN` is read before any file, the managed one included, and `updates.auto` reports
 `NAMZU_UPDATE_CHECK` while that switch is off, since the update policy then installs nothing. The project files are read
-from the host's working folder; whether that folder is trusted is not checked here, so a row can say
+from the working folder of the engine that answers: Settings asks the open project's engine, and the engine
+that serves no project when none is open. Whether that folder is trusted is not checked here, so a row can say
 "Set by this project" for a folder whose file the loader would not yet read.
 
 The row shows the value in force in its control, turned off, and one sentence: "Set by an environment

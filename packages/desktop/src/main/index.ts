@@ -1570,11 +1570,11 @@ function register(): void {
 		settingsConfirmation.change(id, patch, token),
 	)
 	const configSettings = new ConfigSettings({
-		read: () => operator.configSettings(),
+		read: (projectId) => operator.configSettings(projectId),
 		write: (path, value) => operator.setConfigSetting(path, value),
 		validate: (path, value) => operator.validateConfigSetting(path, value),
 	})
-	handle('configSettings', () => configSettings.read())
+	handle('configSettings', (projectId?: string) => configSettings.read(projectId))
 	handleWindow('setConfigSetting', ({ id }, change: unknown, token: unknown) =>
 		configSettings.change(id, change, token),
 	)

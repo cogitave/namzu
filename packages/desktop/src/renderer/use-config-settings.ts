@@ -141,7 +141,7 @@ export function useConfigSettings(
 		if (!active || !api?.configSettings) return
 		const mine = ++latest.current
 		setLoading(true)
-		void api.configSettings().then(
+		void api.configSettings(projectId).then(
 			(value) => {
 				if (!live.current || latest.current !== mine) return
 				setView(value)
@@ -162,7 +162,7 @@ export function useConfigSettings(
 				setLoading(false)
 			},
 		)
-	}, [api, active])
+	}, [api, active, projectId])
 	// Read when the page opens, when the window comes back into focus, and when main says the
 	// config file changed elsewhere. Nothing polls.
 	useEffect(() => {
@@ -199,6 +199,8 @@ export function useConfigSettings(
 				setView(result.view)
 				setLoadError('')
 				if (value === undefined) reset(path)
+				// The saved view comes from the user's engine; read again for the layers of this project.
+				if (projectId) reload()
 				return true
 			} catch (failure) {
 				if (live.current)
@@ -209,7 +211,7 @@ export function useConfigSettings(
 				return false
 			}
 		},
-		[api, reset],
+		[api, reset, projectId, reload],
 	)
 	const confirm = useCallback(async () => {
 		if (!confirmation || !api?.setConfigSetting) return
@@ -226,6 +228,7 @@ export function useConfigSettings(
 				setView(result.view)
 				setLoadError('')
 				reset(path)
+				if (projectId) reload()
 			}
 		} catch (failure) {
 			// An expired confirmation or a refused value lands under the setting, not as a crash.
@@ -236,7 +239,7 @@ export function useConfigSettings(
 				}))
 		}
 		if (live.current) setConfirmation(undefined)
-	}, [api, confirmation, reset])
+	}, [api, confirmation, reset, projectId, reload])
 	const dismiss = useCallback(() => {
 		// A cancelled question puts the typed value back to the saved one.
 		if (confirmation) reset(confirmation.path)

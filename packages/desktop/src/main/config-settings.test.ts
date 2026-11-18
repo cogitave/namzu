@@ -640,3 +640,17 @@ describe('permission rules, self-checks and browser sites ask only when more wou
 			expect((await run('browser.sites', undefined, next)).result.status).toBe('saved')
 	})
 })
+
+describe('reading for a project', () => {
+	it('passes the open project to the engine read, so its own config layer is reported', async () => {
+		const read = vi.fn(async (_projectId?: string) => view)
+		const settings = new ConfigSettings({
+			read,
+			write: vi.fn(async () => view),
+			validate: vi.fn(async () => undefined),
+		})
+		await settings.read('project-1')
+		await settings.read()
+		expect(read.mock.calls).toEqual([['project-1'], [undefined]])
+	})
+})

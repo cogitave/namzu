@@ -15,7 +15,7 @@ import {
 import { FolderAccessTokens } from './folder-access.js'
 
 export interface ConfigSettingsDeps {
-	read(): Promise<ConfigSettingsView>
+	read(projectId?: string): Promise<ConfigSettingsView>
 	write(path: string, value: unknown): Promise<ConfigSettingsView>
 	/** Asks the engine whether it would accept the change, without applying it. */
 	validate(path: string, value: unknown): Promise<void>
@@ -115,8 +115,8 @@ export class ConfigSettings {
 		this.tokens = deps.tokens ?? new FolderAccessTokens()
 	}
 
-	read(): Promise<ConfigSettingsView> {
-		return this.deps.read()
+	read(projectId?: string): Promise<ConfigSettingsView> {
+		return this.deps.read(projectId)
 	}
 
 	async change(windowId: string, raw: unknown, token?: unknown): Promise<ConfigSettingResult> {

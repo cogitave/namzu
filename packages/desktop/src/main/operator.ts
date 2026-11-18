@@ -1025,9 +1025,24 @@ export class Operator {
 		return this.providersChanged(client)
 	}
 	/** The engine's own list of settings and their saved values. Secrets never come back. */
-	async configSettings(): Promise<ConfigSettingsView> {
-		const client = await this.providerHost()
-		const view = readConfigSettingsView(await client.request('namzu/config/get'))
+	async configSettings(projectId?: unknown): Promise<ConfigSettingsView> {
+		// The engine reads the project's own config file from its working folder, so the question
+		// goes to the open project's engine; with none open, the registry engine answers.
+		let project: Project | undefined
+		try {
+			if (projectId !== undefined && projectId !== null) project = this.project(projectId)
+		} catch {
+			// A project that is gone or not connected leaves the settings readable without it.
+		}
+		const registry = await this.providerHost()
+		const client = project && !project.view.palId ? project.client : registry
+		let view: ConfigSettingsView
+		try {
+			view = readConfigSettingsView(await client.request('namzu/config/get'))
+		} catch (failure) {
+			if (client === registry) throw failure
+			view = readConfigSettingsView(await registry.request('namzu/config/get'))
+		}
 		this.watchConfigFile(view.file)
 		return view
 	}

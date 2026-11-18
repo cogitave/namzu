@@ -1014,7 +1014,7 @@ export interface DesktopApi {
 	settings?(): Promise<DesktopSettings>
 	setSettings?(patch: Partial<DesktopSettings>, token?: string): Promise<SettingsChangeResult>
 	/** Settings the engine owns (limits, tools, sandbox, ...); the engine describes and validates them. */
-	configSettings?(): Promise<ConfigSettingsView>
+	configSettings?(projectId?: string): Promise<ConfigSettingsView>
 	setConfigSetting?(change: ConfigSettingChange, token?: string): Promise<ConfigSettingResult>
 	/** The system folder picker; the chosen folder's path, or null when the person cancels. */
 	pickFolder?(): Promise<string | null>
