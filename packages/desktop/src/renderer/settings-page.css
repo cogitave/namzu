@@ -660,8 +660,8 @@
 .settings-nav-group + .settings-nav-group {
 	margin-top: 12px;
 	padding-top: 12px;
-	background: linear-gradient(var(--sidebar-border), var(--sidebar-border)) top / calc(100% - 24px) 1px
-		no-repeat;
+	background: linear-gradient(var(--sidebar-border), var(--sidebar-border)) top / calc(100% - 24px)
+		1px no-repeat;
 	background-position: center top;
 }
 .settings-nav-empty {
