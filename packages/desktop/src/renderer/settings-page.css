@@ -112,7 +112,7 @@
 	border-radius: 999px;
 	color: var(--muted-foreground);
 	font-size: var(--text-small);
-	font-weight: normal;
+	font-weight: var(--weight-text);
 	white-space: nowrap;
 	vertical-align: baseline;
 }
