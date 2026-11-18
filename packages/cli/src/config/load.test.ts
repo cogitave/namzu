@@ -204,6 +204,19 @@ describe('workflow config', () => {
 		expect(loadConfig({ home: top, cwd: tmpdir(), env: {} }).workflow).toEqual({ maxAgents: 1000 })
 		expect(loadConfig({ home: userConfig(''), cwd: tmpdir(), env: {} }).workflow).toBeUndefined()
 	})
+	it('reads the keyword switch, and rejects a value that is not true or false', () => {
+		const home = userConfig('workflow:\n  enabled: true\n  keywordTrigger: false\n')
+		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).workflow).toEqual({
+			enabled: true,
+			keywordTrigger: false,
+		})
+		const bad = userConfig('workflow:\n  keywordTrigger: sometimes\n')
+		expect(() => loadConfig({ home: bad, cwd: tmpdir(), env: {} })).toThrow(ConfigValueError)
+	})
+	it('still reads the saved hypermode key, which is no Settings row', () => {
+		const home = userConfig('hypermode: true\n')
+		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).hypermode).toBe(true)
+	})
 	it('reads the size guideline', () => {
 		const home = userConfig('workflow:\n  sizeGuideline: large\n')
 		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).workflow).toEqual({

@@ -270,6 +270,12 @@ export interface WorkflowCliConfig {
 	 * every conversation started afterwards, and hypermode then delegates with the `Agent` tool.
 	 */
 	readonly enabled?: boolean
+	/**
+	 * Whether typing the mode's keyword (`hypermode`, `workflow`) in a message opts that message in.
+	 * Default true. `false` leaves those words as plain words; the `/effort hypermode` option and the
+	 * `workflow` tool itself are unaffected.
+	 */
+	readonly keywordTrigger?: boolean
 	/** Agents one workflow runs at once. Default `min(16, CPUs - 2)`, at least 2; at most 16. */
 	readonly maxConcurrency?: number
 	/** Agents one workflow run may start. Default 1000; at most 1000. */

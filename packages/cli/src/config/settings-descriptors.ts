@@ -376,6 +376,14 @@ export interface SettingDescriptor {
 		readonly is: string
 		readonly note: string
 	}
+	/**
+	 * The row is shown only while another setting is `is` (its saved value, or its default when
+	 * unsaved); a screen leaves it out otherwise. The saved value is untouched.
+	 */
+	readonly shownWhen?: {
+		readonly path: string
+		readonly is: string
+	}
 	/** Search words beyond the label. */
 	readonly keywords?: readonly string[]
 }
@@ -386,6 +394,8 @@ export interface SettingExclusion {
 }
 
 const on = { kind: 'toggle' } as const
+/** A row of the workflow group that only means something while dynamic workflows are on. */
+const WORKFLOWS_ON = { path: 'workflow.enabled', is: 'true' } as const
 const num = (min?: number, max?: number, unit?: string): SettingControl => ({
 	kind: 'number',
 	...(min !== undefined ? { min } : {}),
@@ -484,6 +494,7 @@ export function appliesWhenFor(path: string): AppliesWhen {
 		'schedule.',
 		'plugins.',
 		'composerTriggers.',
+		'workflow.keywordTrigger',
 		'learningGenerator.',
 		// The modes a host offers and Auto's availability are read once when the host starts.
 		'permissions.autoMode',
@@ -1121,20 +1132,6 @@ const DECLARED: readonly SettingDescriptor[] = [
 
 	// Agent
 	d(
-		'hypermode',
-		'agent',
-		'Hypermode',
-		'Let Namzu run longer, larger jobs without stopping to check in with you. A job can take more time and tokens.',
-		on,
-		{
-			group: 'while-working',
-			keywords: [],
-			default: false,
-			confirm: 'Namzu will run longer jobs without stopping to check in with you.',
-			confirmWhen: 'on',
-		},
-	),
-	d(
 		'closingSummary',
 		'agent',
 		'Summary and next steps',
@@ -1288,6 +1285,18 @@ const DECLARED: readonly SettingDescriptor[] = [
 		},
 	),
 	d(
+		'workflow.keywordTrigger',
+		'agent',
+		'Keyword trigger',
+		"Typing the mode's keyword in a message turns workflows on for that message.",
+		on,
+		{
+			group: 'helpers-workflows',
+			keywords: ['hypermode', 'keyword', 'trigger word', 'workflow word'],
+			default: true,
+		},
+	),
+	d(
 		'workflow.maxConcurrency',
 		'agent',
 		'Helpers working at once',
@@ -1297,6 +1306,7 @@ const DECLARED: readonly SettingDescriptor[] = [
 			group: 'helpers-workflows',
 			keywords: ['concurrency', 'parallel agents'],
 			defaultText: 'processors minus 2, at most 16',
+			shownWhen: WORKFLOWS_ON,
 		},
 	),
 	d(
@@ -1305,12 +1315,17 @@ const DECLARED: readonly SettingDescriptor[] = [
 		'Most helpers per workflow',
 		'The most helper agents one workflow may start.',
 		num(1, 1000),
-		{ group: 'helpers-workflows', keywords: ['max agents'], default: 1000 },
+		{
+			group: 'helpers-workflows',
+			keywords: ['max agents'],
+			default: 1000,
+			shownWhen: WORKFLOWS_ON,
+		},
 	),
 	d(
 		'workflow.sizeGuideline',
 		'agent',
-		'Preferred workflow size',
+		'Dynamic workflow size',
 		'How large a workflow Namzu aims for.',
 		pick(
 			['unrestricted', 'No advice', 'Namzu is not told how large a workflow to aim for.'],
@@ -1320,8 +1335,9 @@ const DECLARED: readonly SettingDescriptor[] = [
 		),
 		{
 			group: 'helpers-workflows',
-			keywords: ['Workflow size', 'size guideline'],
+			keywords: ['Workflow size', 'Preferred workflow size', 'size guideline'],
 			default: 'medium',
+			shownWhen: WORKFLOWS_ON,
 		},
 	),
 	d(
@@ -2409,6 +2425,11 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = byHeading(DECLA
 
 /** Top-level keys with no control, and why. */
 export const SETTING_EXCLUSIONS: readonly SettingExclusion[] = [
+	{
+		key: 'hypermode',
+		reason:
+			'Not a setting row: the standing mode is an option of the effort command and picker, for one conversation. Only this file value starts new conversations in it.',
+	},
 	{
 		key: 'permissionLayers',
 		reason: 'Worked out by the loader from the permission rules; it is not a setting.',

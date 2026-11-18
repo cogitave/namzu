@@ -1928,7 +1928,7 @@ const CONFIG_READERS: ConfigReaders = {
 		const caps = { maxConcurrency: 16, maxAgents: 1000 } as const
 		for (const key of Object.keys(v)) {
 			const value = (v as Record<string, unknown>)[key]
-			if (key === 'enabled') {
+			if (key === 'enabled' || key === 'keywordTrigger') {
 				if (typeof value !== 'boolean')
 					return invalidConfigValue(context, [key], 'must be true or false')
 				continue
@@ -1946,7 +1946,7 @@ const CONFIG_READERS: ConfigReaders = {
 				return invalidConfigValue(
 					context,
 					[key],
-					'is not a workflow setting (enabled, maxConcurrency, maxAgents, sizeGuideline)',
+					'is not a workflow setting (enabled, keywordTrigger, maxConcurrency, maxAgents, sizeGuideline)',
 				)
 			if (
 				typeof value !== 'number' ||

@@ -38,6 +38,7 @@ import {
 	advertisedPromptModes,
 	bypassOptedIn,
 	computerUseEnabled,
+	hypermodeRefusal,
 	sessionOptionsFromConfig,
 	turnOptionsFromConfig,
 } from '../config/session-options.js'
@@ -375,6 +376,8 @@ interface AcpRuntimeRecord {
 	readonly provider: string
 	/** What the configuration decides about every turn of this conversation (hypermode, refusal fallback). */
 	readonly turnOptions: ReturnType<typeof turnOptionsFromConfig>
+	/** `workflow.enabled: false`: a hypermode asked for in the composer is refused, not sent. */
+	readonly workflowsOff?: true
 	/** Tracks the prompt cache across turns, to shed old tool results once it has lapsed. */
 	readonly staleResults: IdleCompactor
 	/** The skills settings this conversation started with, for the context panel's skill list. */
@@ -1198,6 +1201,7 @@ export function createCliAcpRuntime(
 						? { permissionSettings: projectCtx.config.permissionSettings }
 						: {}),
 					turnOptions: turnOptionsFromConfig(projectCtx.config),
+					...(hypermodeRefusal(projectCtx.config) ? { workflowsOff: true as const } : {}),
 					staleResults: new IdleCompactor(staleResultsDeps(sessionId)),
 					model:
 						primary.model ??
@@ -1416,6 +1420,13 @@ export function createCliAcpRuntime(
 					...settings,
 					// The configuration's per-turn choices: hypermode, refusal fallback.
 					...record.turnOptions,
+					// The composer's own choice for this conversation wins over the saved one, and is
+					// never sent while dynamic workflows are off.
+					...(record.workflowsOff
+						? { hypermode: undefined }
+						: settings.hypermode !== undefined
+							? { hypermode: settings.hypermode }
+							: {}),
 					...(staleResults ? { clearStaleToolResults: staleResults } : {}),
 					// The words the person sent: a target such as +500k is read from these only.
 					typedInput: prompt,
@@ -1919,11 +1930,19 @@ export function createCliAcpRuntime(
 			if (!detected) throw new Error('This provider is not configured. Set it up in Namzu first.')
 			const preferences = await preferencesFor(sessionId, probe)
 			const record = sessionId ? records.get(sessionId) : undefined
+			const workflowsOff = hypermodeRefusal(
+				record
+					? { workflow: record.workflowsOff ? { enabled: false } : undefined }
+					: bootstrapCtx.config,
+			)
+				? { workflowsOff: true as const }
+				: {}
 			// The running session answers only for the model it runs on, which can lag its Pal's.
 			if (record && record.provider === provider && record.model === model) {
 				return {
 					effortLevels: record.session.reasoningEffortLevels,
 					effortDefault: record.session.reasoningEffortDefault,
+					...workflowsOff,
 				}
 			}
 			const result = await (deps.describeReasoning ?? describeProviderReasoning)(
@@ -1945,6 +1964,7 @@ export function createCliAcpRuntime(
 			return {
 				effortLevels: result.effortLevels,
 				effortDefault: result.effortDefault,
+				...workflowsOff,
 				...(result.notice
 					? {
 							notice: 'Reasoning choices could not be fully established for this model.',

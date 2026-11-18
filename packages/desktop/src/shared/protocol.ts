@@ -154,6 +154,11 @@ export interface DesktopSendOptions {
 	pasted?: { start: number; end: number }[]
 	effort?: ReasoningEffort
 	permissionMode?: ReviewMode
+	/**
+	 * Hypermode for this conversation, from the effort panel: `true`/`false` is the person's choice,
+	 * absent follows the engine's saved setting. Never saved to the settings file.
+	 */
+	hypermode?: boolean
 }
 export interface DraftSettings {
 	/** `preset: 'default'` follows the engine's own default model as its catalogue changes. */
@@ -176,6 +181,8 @@ export interface DraftSettings {
 export interface ComposerModelSettings {
 	effortLevels?: readonly ReasoningEffort[]
 	effortDefault?: ReasoningEffort
+	/** Dynamic workflows are off in Settings, so the effort panel cannot turn hypermode on. */
+	workflowsOff?: boolean
 	notice?: string
 }
 export interface PluginInventoryView {

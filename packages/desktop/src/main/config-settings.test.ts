@@ -204,7 +204,7 @@ describe('changing an engine setting', () => {
 		const wide: ConfigSettingsView = {
 			file: '/f',
 			descriptors: [
-				toggle('hypermode', 'on', false),
+				toggle('closingSummary', 'on', false),
 				toggle('limits.doneGate', 'off', true),
 				toggle('sandbox.enabled', 'off', false),
 			],
@@ -212,7 +212,7 @@ describe('changing an engine setting', () => {
 		}
 		const write = vi.fn(async () => wide)
 		const settings = new ConfigSettings({ read: async () => wide, write, validate: async () => {} })
-		expect((await settings.change('w1', { path: 'hypermode' })).status).toBe('saved')
+		expect((await settings.change('w1', { path: 'closingSummary' })).status).toBe('saved')
 		expect((await settings.change('w1', { path: 'limits.doneGate' })).status).toBe('saved')
 		// Its default is the side that asks, so the clear asks too.
 		expect((await settings.change('w1', { path: 'sandbox.enabled' })).status).toBe('confirm')

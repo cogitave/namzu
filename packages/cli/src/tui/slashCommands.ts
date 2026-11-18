@@ -142,7 +142,12 @@ export type SlashAction =
 	/** Open the finite permission-mode chooser. */
 	| { kind: 'permission-mode-picker' }
 	/** Select model-specific reasoning effort for future main-query turns. */
-	| { kind: 'reasoning-effort'; effort: ReasoningEffort | null }
+	| {
+			kind: 'reasoning-effort'
+			effort: ReasoningEffort | null
+			/** `/effort <level> hypermode on|off`: the mode asked for along with the level. */
+			hypermode?: boolean
+	  }
 	/** Open the current model's finite reasoning-effort chooser. */
 	| { kind: 'reasoning-effort-picker' }
 	/**
@@ -1830,12 +1835,14 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		name: 'effort',
 		immediate: true,
 		help: {
-			usage: ['/effort [level|default]'],
+			usage: ['/effort [level|default] [hypermode on|off]'],
 			details: [
 				'Run /effort to see the levels supported by the selected model and usable fallbacks. Changes affect future replies in this conversation.',
+				'Hypermode is an option of the effort, for any level and for this conversation only: /effort high hypermode on, or /effort hypermode off to leave the level as it is. It is never saved by this command; the hypermode value in the config file is what starts new conversations in it. It needs dynamic workflows to be on in Settings.',
 			],
 		},
-		description: 'Choose reasoning effort for future replies: /effort [level|default].',
+		description:
+			'Choose reasoning effort for future replies: /effort [level|default] [hypermode on|off].',
 		action: (ctx, args) => {
 			if (args.length === 0) {
 				if (!ctx.providerSummary) {
@@ -1854,6 +1861,21 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				}
 				return { kind: 'reasoning-effort-picker' }
 			}
+			const words = args.map((word) => word.toLowerCase())
+			// The mode is the last two words: `hypermode on|off`.
+			const modeAt = words.length >= 2 ? words.length - 2 : -1
+			let hypermode: boolean | undefined
+			let levelWords = words
+			if (modeAt >= 0 && words[modeAt] === 'hypermode') {
+				const choice = words[modeAt + 1]
+				if (choice !== 'on' && choice !== 'off') {
+					return { kind: 'message', role: 'system', content: effortUsage(ctx) }
+				}
+				hypermode = choice === 'on'
+				levelWords = words.slice(0, modeAt)
+				// Only the mode: the level stays where it is.
+				if (levelWords.length === 0) return { kind: 'hypermode', enabled: hypermode }
+			}
 			if (!ctx.providerSummary) {
 				return {
 					kind: 'message',
@@ -1861,8 +1883,13 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 					content: 'No provider is active yet. Pick one with /model before changing reasoning.',
 				}
 			}
-			const token = args.length === 1 ? args[0]?.toLowerCase() : undefined
-			if (token === 'default') return { kind: 'reasoning-effort', effort: null }
+			const token = levelWords.length === 1 ? levelWords[0] : undefined
+			if (token === 'default')
+				return {
+					kind: 'reasoning-effort',
+					effort: null,
+					...(hypermode !== undefined ? { hypermode } : {}),
+				}
 			const offered = ctx.reasoningEffort.levels
 			if (offered === undefined) {
 				return {
@@ -1872,13 +1899,13 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				}
 			}
 			const effort = offered.find((level) => level === token)
-			if (effort) return { kind: 'reasoning-effort', effort }
-			const levels = offered.length > 0 ? offered.join('|') : '<none>'
-			return {
-				kind: 'message',
-				role: 'system',
-				content: `Usage: /effort [${levels}|default]`,
-			}
+			if (effort)
+				return {
+					kind: 'reasoning-effort',
+					effort,
+					...(hypermode !== undefined ? { hypermode } : {}),
+				}
+			return { kind: 'message', role: 'system', content: effortUsage(ctx) }
 		},
 	},
 	{
@@ -2002,6 +2029,14 @@ function fastAction(args: readonly string[]): SlashAction {
 }
 
 /** `/hypermode [on|off]`, and its deprecated `/orchestrate` alias. */
+function effortUsage(ctx: {
+	readonly reasoningEffort: { readonly levels?: readonly string[] }
+}): string {
+	const offered = ctx.reasoningEffort.levels
+	const levels = offered === undefined ? '' : offered.length > 0 ? offered.join('|') : '<none>'
+	return `Usage: /effort [${levels ? `${levels}|default` : 'default'}] [hypermode on|off]`
+}
+
 function hypermodeAction(args: readonly string[], via?: 'orchestrate'): SlashAction {
 	const choice = args.join(' ').trim().toLowerCase()
 	const alias = via ? { via } : {}

@@ -96,6 +96,10 @@ const LOAD_FAILED = 'Couldn’t load the model list. Check your connection, then
 /** The Auto row's radio value; a model's is a two-item array, so the two never collide. */
 const AUTO_KEY = JSON.stringify(['auto'])
 
+/** The one sentence said where hypermode cannot be turned on. */
+export const HYPERMODE_BLOCKED =
+	'Hypermode needs dynamic workflows, and they are off. Turn them on in Settings (Dynamic workflows) first.'
+
 export function ModelPicker({
 	providers,
 	choice,
@@ -111,6 +115,7 @@ export function ModelPicker({
 	settings,
 	effort,
 	onEffortChange,
+	hypermode,
 	engineControl,
 	unchosen,
 	pending = false,
@@ -143,6 +148,8 @@ export function ModelPicker({
 	settings?: ComposerModelSettings | null
 	effort?: ReasoningEffort
 	onEffortChange?: (effort: ReasoningEffort | undefined) => void
+	/** Hypermode for this conversation: the choice in force, and the way to change it. Absent where none is offered. */
+	hypermode?: { on: boolean; onChange: (on: boolean) => void }
 	/** Absent where engines are not offered, such as the Pal composer. */
 	engineControl?: EngineControl
 	/** Nothing was ever chosen: settle on the source's recommended model once its list is known. */
@@ -310,7 +317,7 @@ export function ModelPicker({
 			: engineUnavailable
 				? `Model, ${engineUnavailableText}`
 				: label
-					? `Model: ${label}${shownEffort?.value ? `, effort: ${effortLabel(shownEffort.value)}` : ''}`
+					? `Model: ${label}${shownEffort?.value ? `, effort: ${effortLabel(shownEffort.value)}` : ''}${hypermode?.on && !settings?.workflowsOff ? ', hypermode' : ''}`
 					: triggerPending && startFailed
 						? `Model, not available. ${unavailableReason}`
 						: triggerPending
@@ -399,9 +406,14 @@ export function ModelPicker({
 				) : (
 					<span className="model-picker-trigger-model truncate">{label || 'Select model'}</span>
 				)}
-				{shownEffort?.value && (
+				{(shownEffort?.value || (hypermode?.on && !settings?.workflowsOff)) && (
 					<span className="model-picker-trigger-effort" aria-hidden="true">
-						{effortLabel(shownEffort.value)}
+						{[
+							shownEffort?.value ? effortLabel(shownEffort.value) : undefined,
+							hypermode?.on && !settings?.workflowsOff ? 'Hypermode' : undefined,
+						]
+							.filter(Boolean)
+							.join(' · ')}
 					</span>
 				)}
 				<ComposerControlChevron />
@@ -489,6 +501,14 @@ export function ModelPicker({
 											loading={settings === null}
 											disabled={disabled}
 											onChange={onEffortChange}
+											{...(hypermode
+												? {
+														hypermode: {
+															...hypermode,
+															...(settings?.workflowsOff ? { blocked: HYPERMODE_BLOCKED } : {}),
+														},
+													}
+												: {})}
 										/>
 									)}
 								{hasMore && (

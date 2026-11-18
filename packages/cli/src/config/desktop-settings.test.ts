@@ -59,7 +59,6 @@ describe('Desktop settings descriptors', () => {
 			'limits.costLimitUsd': 'zero',
 			'sandbox.enabled': 'off',
 			'web.fetch': 'on',
-			hypermode: 'on',
 		}
 		for (const [path, when] of Object.entries(expected)) {
 			const entry = SETTING_DESCRIPTORS.find((e) => e.path === path)

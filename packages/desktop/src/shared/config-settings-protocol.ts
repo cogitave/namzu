@@ -130,6 +130,8 @@ export interface ConfigSettingDescriptor {
 	confirmValues?: string[]
 	/** Another setting this one does nothing without; the page warns while it is not `is`. */
 	requires?: { path: string; is: string; note: string }
+	/** Drawn only while the setting at `path` is `is` (saved, or its default when unsaved). */
+	shownWhen?: { path: string; is: string }
 	keywords?: string[]
 }
 
@@ -417,6 +419,16 @@ export function readConfigSettingsView(value: unknown): ConfigSettingsView {
 							path: record(d.requires)?.path as string,
 							is: record(d.requires)?.is as string,
 							note: record(d.requires)?.note as string,
+						},
+					}
+				: {}),
+			...(record(d.shownWhen) &&
+			typeof record(d.shownWhen)?.path === 'string' &&
+			typeof record(d.shownWhen)?.is === 'string'
+				? {
+						shownWhen: {
+							path: record(d.shownWhen)?.path as string,
+							is: record(d.shownWhen)?.is as string,
 						},
 					}
 				: {}),

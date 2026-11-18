@@ -96,3 +96,23 @@ it('names the ends and the stop in force on a long scale, never the end next to 
 		['High', 100],
 	])
 })
+
+it('offers hypermode as a switch under the slider, at any level, only where the composer offers it', () => {
+	expect(render()).not.toContain('Hypermode')
+	const on = render({ hypermode: { on: true, onChange: vi.fn() } })
+	expect(on).toContain('Hypermode')
+	expect(on).toMatch(
+		/role="switch"[^>]*aria-label="Hypermode"[^>]*checked=""|checked=""[^>]*role="switch"/,
+	)
+	const off = render({ value: 'low', hypermode: { on: false, onChange: vi.fn() } })
+	expect(off).toContain('role="switch"')
+	expect(off).toContain('aria-checked="false"')
+})
+
+it('says why the switch cannot be turned on while dynamic workflows are off', () => {
+	const sentence =
+		'Hypermode needs dynamic workflows, and they are off. Turn them on in Settings (Dynamic workflows) first.'
+	const html = render({ hypermode: { on: false, onChange: vi.fn(), blocked: sentence } })
+	expect(html).toContain('Turn them on in Settings')
+	expect(html.match(/<input[^>]*aria-label="Hypermode"[^>]*>/)?.[0]).toContain('disabled')
+})

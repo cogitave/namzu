@@ -2769,6 +2769,7 @@ export class Operator {
 				this.attachments(session.view.id).length ||
 				session.draftSettings?.choice ||
 				session.draftSettings?.options?.effort !== undefined ||
+				session.draftSettings?.options?.hypermode !== undefined ||
 				session.draftSettings?.options?.permissionMode !== undefined
 			)
 				views.unshift({ ...session.view })
@@ -5020,6 +5021,8 @@ export class Operator {
 			throw new Error('Invalid reasoning effort.')
 		if (options?.permissionMode !== undefined && !isReviewModeId(options.permissionMode))
 			throw new Error('Invalid permission mode.')
+		if (options?.hypermode !== undefined && typeof options.hypermode !== 'boolean')
+			throw new Error('Invalid hypermode choice.')
 		if (
 			options?.attachmentIds !== undefined &&
 			(!Array.isArray(options.attachmentIds) ||
@@ -5262,8 +5265,11 @@ export class Operator {
 			throw new Error('Invalid reasoning effort.')
 		if (options?.permissionMode !== undefined && !isReviewModeId(options.permissionMode))
 			throw new Error('Invalid permission mode.')
+		if (options?.hypermode !== undefined && typeof options.hypermode !== 'boolean')
+			throw new Error('Invalid hypermode choice.')
 		if (
 			(options?.effort !== undefined ||
+				options?.hypermode !== undefined ||
 				(options?.permissionMode !== undefined && options.permissionMode !== 'prompt')) &&
 			!session.client.supportsPromptOptions()
 		)
@@ -5964,9 +5970,13 @@ export class Operator {
 				!options ||
 				typeof options !== 'object' ||
 				Array.isArray(options) ||
-				Object.keys(options).some((key) => key !== 'effort' && key !== 'permissionMode')
+				Object.keys(options).some(
+					(key) => key !== 'effort' && key !== 'permissionMode' && key !== 'hypermode',
+				)
 			)
 				throw new Error('Invalid draft message settings.')
+			if (options.hypermode !== undefined && typeof options.hypermode !== 'boolean')
+				throw new Error('Invalid hypermode choice.')
 			if (
 				options.effort !== undefined &&
 				(typeof options.effort !== 'string' ||
@@ -5979,6 +5989,7 @@ export class Operator {
 				throw new Error('Invalid permission mode.')
 			next.options = {
 				...(options.effort !== undefined ? { effort: options.effort } : {}),
+				...(options.hypermode !== undefined ? { hypermode: options.hypermode } : {}),
 				...(options.permissionMode !== undefined ? { permissionMode: options.permissionMode } : {}),
 			}
 		}

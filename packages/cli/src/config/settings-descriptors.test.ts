@@ -325,8 +325,36 @@ describe('where each setting sits', () => {
 	})
 
 	it('moves how-the-agent-works keys out of General, which the engine no longer fills', () => {
-		expect(sectionOf('hypermode')?.section).toBe('agent')
+		expect(sectionOf('closingSummary')?.section).toBe('agent')
 		expect(inSection('general')).toEqual([])
+	})
+
+	it('has no row for hypermode: it is an option of the effort command, not a setting', () => {
+		expect(sectionOf('hypermode')).toBeUndefined()
+		expect(SETTING_EXCLUSIONS.find((entry) => entry.key === 'hypermode')?.reason).toMatch(
+			/effort command/,
+		)
+	})
+
+	it('lists the workflow rows in order: the capability, its keyword switch, then the size', () => {
+		const paths = SETTING_DESCRIPTORS.filter((e) => e.group === 'helpers-workflows').map(
+			(e) => e.path,
+		)
+		expect(paths.slice(0, 2)).toEqual(['workflow.enabled', 'workflow.keywordTrigger'])
+		expect(paths).toContain('workflow.sizeGuideline')
+		const keyword = sectionOf('workflow.keywordTrigger')
+		expect(keyword?.default).toBe(true)
+		expect(keyword?.description).toBe(
+			"Typing the mode's keyword in a message turns workflows on for that message.",
+		)
+		expect(sectionOf('workflow.sizeGuideline')?.label).toBe('Dynamic workflow size')
+	})
+
+	it('shows the size rows only while dynamic workflows are on', () => {
+		for (const path of ['workflow.sizeGuideline', 'workflow.maxConcurrency', 'workflow.maxAgents'])
+			expect(sectionOf(path)?.shownWhen, path).toEqual({ path: 'workflow.enabled', is: 'true' })
+		expect(sectionOf('workflow.enabled')?.shownWhen).toBeUndefined()
+		expect(sectionOf('workflow.keywordTrigger')?.shownWhen).toBeUndefined()
 	})
 
 	it('keeps a section together and each group in the one declared order, so a list can print headings', () => {

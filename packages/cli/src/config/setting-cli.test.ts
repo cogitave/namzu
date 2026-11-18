@@ -238,10 +238,10 @@ describe('the list names the group a row sits under', () => {
 		const updates = renderSettingList(listSettings(opts(), 'updates').rows, 'f')
 		expect(updates).toContain('[updates]\n  Command line\n')
 		// Every engine row sits under a heading the Settings page shows.
-		const hyper = listSettings(opts(), 'agent').rows.find((row) => row.key === 'hypermode')
-		expect(rowData(hyper as (typeof rows)[number])).toMatchObject({
-			group: 'while-working',
-			groupLabel: 'While Namzu works',
+		const flows = listSettings(opts(), 'agent').rows.find((row) => row.key === 'workflow.enabled')
+		expect(rowData(flows as (typeof rows)[number])).toMatchObject({
+			group: 'helpers-workflows',
+			groupLabel: 'Helpers and workflows',
 		})
 	})
 })

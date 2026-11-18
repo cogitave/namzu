@@ -471,7 +471,7 @@ describe('the real engine list, section by section', () => {
 			check('tui.theme', 'terminal', 'terminal-look')
 			check('composerTriggers.enabled', 'terminal', 'terminal-message-box')
 			check('statusLine', 'terminal', 'terminal-message-box')
-			check('hypermode', 'agent', 'while-working')
+			check('workflow.keywordTrigger', 'agent', 'helpers-workflows')
 			// The browser switch leads the browser rows.
 			const tools = draw(view, 'tools')
 			expect(tools.indexOf('id="setting-cfg-browser-enabled"')).toBeLessThan(
@@ -1122,6 +1122,70 @@ describe('the generic heading over the engine rows', () => {
 			)
 			expect(out).not.toContain('Namzu settings')
 			expect(out).toContain('>Choosing models</h2>')
+		},
+		SLOW_IMPORT_MS,
+	)
+})
+
+describe('the workflow rows, drawn from the real engine list', () => {
+	const drawAgent = async (settings: ConfigSettingsView['settings']) => {
+		const { SETTING_DESCRIPTORS } = (await import(/* @vite-ignore */ CLI_DESCRIPTORS)) as {
+			SETTING_DESCRIPTORS: readonly { path: string }[]
+		}
+		const { withDefaultText } = (await import(/* @vite-ignore */ CLI_SETTINGS)) as {
+			withDefaultText: (entry: unknown) => unknown
+		}
+		const view = readConfigSettingsView(
+			JSON.parse(
+				JSON.stringify({
+					file: '/x/config.yaml',
+					settings,
+					descriptors: SETTING_DESCRIPTORS.map(withDefaultText),
+				}),
+			),
+		)
+		return {
+			view,
+			page: renderToStaticMarkup(
+				createElement(ConfigSettingsGroup, { section: 'agent', config: controls({ view }) }),
+			),
+		}
+	}
+	const id = (path: string) => `id="setting-${configSettingId(path)}"`
+
+	it(
+		'draws the capability, its keyword switch and then the size, in that order, while workflows are on',
+		async () => {
+			const { page } = await drawAgent([])
+			const at = ['workflow.enabled', 'workflow.keywordTrigger', 'workflow.sizeGuideline'].map(
+				(path) => page.indexOf(id(path)),
+			)
+			expect(at.every((n) => n > -1)).toBe(true)
+			expect(at).toEqual([...at].sort((a, b) => a - b))
+			expect(page).toContain('Dynamic workflow size')
+			expect(page).not.toContain('Hypermode')
+		},
+		SLOW_IMPORT_MS,
+	)
+
+	it(
+		'leaves the size rows out while workflows are off, and keeps the capability and the keyword switch',
+		async () => {
+			const { page, view } = await drawAgent([
+				{ path: 'workflow.enabled', set: true, value: false },
+			])
+			expect(page).toContain(id('workflow.enabled'))
+			expect(page).toContain(id('workflow.keywordTrigger'))
+			for (const path of [
+				'workflow.sizeGuideline',
+				'workflow.maxConcurrency',
+				'workflow.maxAgents',
+			])
+				expect(page, path).not.toContain(id(path))
+			// Search offers no row the page does not draw.
+			const ids = configSearchEntries(view).map((entry) => entry.id)
+			expect(ids).not.toContain(configSettingId('workflow.sizeGuideline'))
+			expect(ids).toContain(configSettingId('workflow.keywordTrigger'))
 		},
 		SLOW_IMPORT_MS,
 	)

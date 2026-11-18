@@ -69,6 +69,19 @@ export function resolveComposerTriggers(
 }
 
 /**
+ * The workflow words follow the workflow settings. `workflow.keywordTrigger: false` makes the
+ * words `hypermode` and `workflow` plain words; so does `workflow.enabled: false`, since there is
+ * no workflow for a message to opt into. The rest of the triggers are not touched.
+ */
+export function withWorkflowKeywordSwitch(
+	settings: ResolvedComposerTriggers,
+	workflow: { readonly enabled?: boolean; readonly keywordTrigger?: boolean } | undefined,
+): ResolvedComposerTriggers {
+	if (workflow?.keywordTrigger !== false && workflow?.enabled !== false) return settings
+	return { ...settings, arming: { ...settings.arming, hypermode: 'off', workflow: 'off' } }
+}
+
+/**
  * `composerTriggers` from one more layer, over what the layers below said.
  * `projectControlled` is true for the project file and the profiles it
  * declares: those lower values and never raise them.

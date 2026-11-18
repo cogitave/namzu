@@ -172,14 +172,30 @@ export function computerUseEnabled(config: Pick<NamzuCliConfig, 'computerUse'>):
 	return config.computerUse?.enabled === true
 }
 
+/**
+ * The one plain sentence said when hypermode is asked for while dynamic workflows are off: by the
+ * `/effort` option, the picker, or the saved `hypermode` key. Absent when workflows are on.
+ */
+export const HYPERMODE_NEEDS_WORKFLOWS =
+	'Hypermode needs dynamic workflows, and they are off. Turn them on in Settings (Dynamic workflows) first.'
+
+export function hypermodeRefusal(
+	config: Pick<NamzuCliConfig, 'workflow'> | undefined,
+): string | undefined {
+	return config?.workflow?.enabled === false ? HYPERMODE_NEEDS_WORKFLOWS : undefined
+}
+
 /** What a configuration decides about each turn, rather than the session. */
 export function turnOptionsFromConfig(config: NamzuCliConfig): {
 	readonly hypermode?: true
 	readonly refusalFallback?: NonNullable<NamzuCliConfig['refusalFallback']>
 } {
 	return {
-		// The standing hypermode: on for every turn, as the terminal starts it.
-		...(config.hypermode === true ? { hypermode: true as const } : {}),
+		// The standing hypermode: on for every turn, as the terminal starts it. Not while dynamic
+		// workflows are off: the mode is a way of using them (see `hypermodeRefusal`).
+		...(config.hypermode === true && config.workflow?.enabled !== false
+			? { hypermode: true as const }
+			: {}),
 		...(config.refusalFallback ? { refusalFallback: config.refusalFallback } : {}),
 	}
 }

@@ -102,8 +102,9 @@ import {
 } from '../pals/tui-session.js'
 import type { PlanApprovalAnswer, PlanApprovalFn, PlanApprovalRequest } from '../plan/approval.js'
 
-import { resolveComposerTriggers } from '../config/composer-triggers.js'
+import { resolveComposerTriggers, withWorkflowKeywordSwitch } from '../config/composer-triggers.js'
 import type { DecisionConfig } from '../config/schema.js'
+import { hypermodeRefusal } from '../config/session-options.js'
 import { setUserConfigValue } from '../config/user-config.js'
 import { messageTimeNote, previousSentAt } from '../context/message-time.js'
 import {
@@ -1992,8 +1993,11 @@ function AppBody({
 	// per-session like reasoningEffort above; no preferences file involved.
 	// Starts on when the `hypermode` config key says so; `/hypermode off` ends it
 	// for this conversation only.
-	const [hypermode, setHypermodeState] = useState(initialCtx.hypermode === true)
-	const hypermodeRef = useRef(initialCtx.hypermode === true)
+	// Never starts on while dynamic workflows are off; the reason is said once at start.
+	const startsInHypermode =
+		initialCtx.hypermode === true && hypermodeRefusal(initialCtx) === undefined
+	const [hypermode, setHypermodeState] = useState(startsInHypermode)
+	const hypermodeRef = useRef(startsInHypermode)
 	const [hypermodeActivation, setHypermodeActivation] = useState(0)
 	const setHypermode = useCallback((next: boolean) => {
 		hypermodeRef.current = next
@@ -4325,8 +4329,8 @@ function AppBody({
 	/** `/config triggers on|off` in this session, over whatever the config files say. */
 	const [composerTriggersOverride, setComposerTriggersOverride] = useState<boolean | undefined>()
 	const composerTriggerSettings = useMemo(
-		() => resolveComposerTriggers(ctx.composerTriggers),
-		[ctx.composerTriggers],
+		() => withWorkflowKeywordSwitch(resolveComposerTriggers(ctx.composerTriggers), ctx.workflow),
+		[ctx.composerTriggers, ctx.workflow],
 	)
 	const composerTriggerRegistry = useMemo(
 		() =>
@@ -4911,6 +4915,11 @@ function AppBody({
 	 */
 	const applyHypermode = useCallback(
 		(enabled: boolean, selectedSession?: AgentSession): void => {
+			const refusal = enabled ? hypermodeRefusal(ctx) : undefined
+			if (refusal) {
+				pushMessage('system', refusal)
+				return
+			}
 			if (!session?.hasProvider) {
 				pushMessage(
 					'system',
@@ -4941,8 +4950,17 @@ function AppBody({
 				replyRunning ? `${said} It applies from your next message.` : said,
 			)
 		},
-		[hasUnsettledTurn, pushMessage, session, setHypermode, state],
+		[ctx, hasUnsettledTurn, pushMessage, session, setHypermode, state],
 	)
+
+	// The saved `hypermode: true` could not start the mode because workflows are off: say so once.
+	const hypermodeStartNoteRef = useRef(false)
+	useEffect(() => {
+		if (hypermodeStartNoteRef.current) return
+		hypermodeStartNoteRef.current = true
+		const note = initialCtx.hypermode === true ? hypermodeRefusal(initialCtx) : undefined
+		if (note) pushMessage('system', note)
+	}, [initialCtx, pushMessage])
 
 	/**
 	 * Turn fast inference on or off for this conversation. Turning it on is
@@ -6639,7 +6657,15 @@ function AppBody({
 					// Own input before publishing ready or releasing a paused queue. The
 					// menu closes only after choosing an effort or keeping the new default.
 					setSelectedChoice(0)
-					setChoicePicker(reasoningEffortPicker(s, undefined, true) ?? null)
+					setChoicePicker(
+						reasoningEffortPicker(
+							s,
+							undefined,
+							true,
+							hypermodeRef.current,
+							hypermodeRefusal(ctxRef.current) !== undefined,
+						) ?? null,
+					)
 				}
 			}
 			if (s.reasoningSettled === undefined) settleEffort()
@@ -13908,6 +13934,7 @@ function AppBody({
 					}
 					case 'reasoning-effort': {
 						applyReasoningEffort(slash.effort ?? undefined)
+						if (slash.hypermode !== undefined) applyHypermode(slash.hypermode)
 						return
 					}
 					case 'reasoning-effort-picker': {
@@ -13932,6 +13959,7 @@ function AppBody({
 							current,
 							false,
 							hypermodeRef.current,
+							hypermodeRefusal(ctx) !== undefined,
 						)
 						if (effortChooser) chooserDraftRef.current = keybindingDraftRef.current
 						setChoicePicker(effortChooser ?? null)
@@ -18339,6 +18367,7 @@ function AppBody({
 								session?.account?.label,
 							)}
 							effort={reasoningEffort}
+							hypermode={hypermode}
 							fast={fastMode}
 							goal={statusGoal}
 							state={state}
@@ -19027,6 +19056,7 @@ function reasoningEffortPicker(
 	current: ReasoningEffort | undefined,
 	afterModelSelection = false,
 	hypermodeOn = false,
+	workflowsOff = false,
 ): Extract<ChoicePickerState, { kind: 'reasoning-effort' }> | undefined {
 	const levels = session.reasoningEffortLevels
 	if (!session.hasProvider || levels === undefined) return undefined
@@ -19057,7 +19087,9 @@ function reasoningEffortPicker(
 				// setting, not a sixth level the provider published. The label
 				// names the level it pins, then the mode.
 				label: HYPERMODE_ROW_LABEL,
-				description: `${hypermodeOn ? 'On' : 'Off'} · ${HYPERMODE_SUMMARY}`,
+				description: workflowsOff
+					? 'Off in Settings: dynamic workflows are off'
+					: `${hypermodeOn ? 'On' : 'Off'} · ${HYPERMODE_SUMMARY}`,
 				current: hypermodeOn,
 				ruleBefore: true,
 			},

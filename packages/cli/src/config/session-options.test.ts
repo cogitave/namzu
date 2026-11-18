@@ -4,9 +4,11 @@ import { describe, expect, it } from 'vitest'
 
 import type { NamzuCliConfig } from './schema.js'
 import {
+	HYPERMODE_NEEDS_WORKFLOWS,
 	SESSION_KEY_MAP,
 	advertisedPromptModes,
 	computerUseEnabled,
+	hypermodeRefusal,
 	sessionOptionsFromConfig,
 	turnOptionsFromConfig,
 } from './session-options.js'
@@ -103,6 +105,19 @@ describe('every configuration key reaches a session, or says why not', () => {
 		})
 		expect(turnOptionsFromConfig({})).toEqual({})
 		expect(turnOptionsFromConfig({ hypermode: false })).toEqual({})
+	})
+
+	it('does not start the standing hypermode while dynamic workflows are off', () => {
+		expect(turnOptionsFromConfig({ hypermode: true, workflow: { enabled: false } })).toEqual({})
+		expect(turnOptionsFromConfig({ hypermode: true, workflow: { enabled: true } })).toEqual({
+			hypermode: true,
+		})
+		expect(hypermodeRefusal({ workflow: { enabled: false } })).toBe(HYPERMODE_NEEDS_WORKFLOWS)
+		expect(hypermodeRefusal({ workflow: { keywordTrigger: false } })).toBeUndefined()
+		expect(hypermodeRefusal({})).toBeUndefined()
+		expect(HYPERMODE_NEEDS_WORKFLOWS).toBe(
+			'Hypermode needs dynamic workflows, and they are off. Turn them on in Settings (Dynamic workflows) first.',
+		)
 	})
 })
 

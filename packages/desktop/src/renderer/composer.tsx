@@ -380,6 +380,10 @@ export function Composer({
 			? automaticChoiceNote(providers, choice, choiceUnchosen === true)
 			: undefined
 	const cliLabel = engineLabel(harnessView, permissionEngine ?? harnessView?.selected ?? 'namzu')
+	// Hypermode is Namzu's own mode, for any level of effort; another engine has no such switch, and
+	// a Pal keeps its own settings.
+	const hypermodeOffered =
+		!compact && (permissionEngine ?? harnessView?.selected ?? 'namzu') === 'namzu'
 	// The commands this box can run: the window's own (from the caller) and the ones it owns itself.
 	const handlers = useMemo<SlashHandlers>(() => {
 		if (!commandsEnabled) return {}
@@ -388,7 +392,48 @@ export function Composer({
 		if (modelSelectionReady && !running && !sending && !harnessBusy && !noProvider)
 			own.model = () => setModelRequest((count) => count + 1)
 		const levels = capabilities?.effortLevels
-		if (levels?.length && !running && !sending && connected) {
+		if (hypermodeOffered && !running && !sending && connected) {
+			// `/effort hypermode on|off` changes only the mode; `/effort high hypermode on` the level too.
+			own.effort = (argument) => {
+				const words = argument.trim().toLowerCase().split(/\s+/).filter(Boolean)
+				const modeAt = words.length >= 2 ? words.length - 2 : -1
+				let mode: boolean | undefined
+				let rest = words
+				if (modeAt >= 0 && words[modeAt] === 'hypermode') {
+					const choice = words[modeAt + 1]
+					if (choice !== 'on' && choice !== 'off') return `/effort ${argument}`
+					mode = choice === 'on'
+					rest = words.slice(0, modeAt)
+				}
+				const next: DesktopSendOptions = { ...settings }
+				if (mode !== undefined) {
+					if (mode && capabilities?.workflowsOff) return `/effort ${argument}`
+					next.hypermode = mode
+				}
+				if (rest.length === 0) {
+					if (mode === undefined) {
+						setModelRequest((count) => count + 1)
+						return undefined
+					}
+					onSettingsChange(next)
+					return undefined
+				}
+				const word = rest.join(' ')
+				if (word === 'default' || word === 'auto') {
+					onSettingsChange({ ...next, effort: undefined })
+					return undefined
+				}
+				const level = levels?.find(
+					(item) =>
+						item === word ||
+						effortLabel(item).toLowerCase() === word ||
+						(word === 'extra' && item === 'xhigh'),
+				)
+				if (!level) return `/effort ${argument}`
+				onSettingsChange({ ...next, effort: level })
+				return undefined
+			}
+		} else if (levels?.length && !running && !sending && connected) {
 			own.effort = (argument) => {
 				const word = argument.trim().toLowerCase()
 				if (!word) {
@@ -430,6 +475,8 @@ export function Composer({
 		harnessBusy,
 		noProvider,
 		capabilities?.effortLevels,
+		capabilities?.workflowsOff,
+		hypermodeOffered,
 		settings,
 		onSettingsChange,
 		reviewModes,
@@ -619,6 +666,14 @@ export function Composer({
 			settings={capabilities}
 			effort={settings.effort}
 			onEffortChange={(effort) => onSettingsChange({ ...settings, effort })}
+			{...(hypermodeOffered
+				? {
+						hypermode: {
+							on: settings.hypermode === true,
+							onChange: (on: boolean) => onSettingsChange({ ...settings, hypermode: on }),
+						},
+					}
+				: {})}
 			engineControl={
 				compact
 					? undefined

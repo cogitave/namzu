@@ -121,3 +121,19 @@ describe('the pointer to the agents', () => {
 		expect(tight.agents).toBeNull()
 	})
 })
+
+describe('the footer names hypermode after the effort', () => {
+	const base = { columns: 200, provider: null, model: 'm', modeLabel: 'default' } as const
+	it('says it after the effort, in the same item', () => {
+		expect(fitStatusLine({ ...base, effort: 'high', hypermode: true }).effort).toBe(
+			'effort high · hypermode',
+		)
+	})
+	it('says it alone when the effort is the model default', () => {
+		expect(fitStatusLine({ ...base, hypermode: true }).effort).toBe('hypermode')
+	})
+	it('says nothing when it is off', () => {
+		expect(fitStatusLine({ ...base, effort: 'high', hypermode: false }).effort).toBe('effort high')
+		expect(fitStatusLine({ ...base }).effort).toBeNull()
+	})
+})

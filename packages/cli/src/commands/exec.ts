@@ -23,7 +23,11 @@
 
 import { relative, resolve } from 'node:path'
 import { withModelLaunchEnvironment } from '../config/model-environment.js'
-import { sessionOptionsFromConfig, turnOptionsFromConfig } from '../config/session-options.js'
+import {
+	hypermodeRefusal,
+	sessionOptionsFromConfig,
+	turnOptionsFromConfig,
+} from '../config/session-options.js'
 
 import {
 	BOOT_EVENT_NAMES,
@@ -550,6 +554,9 @@ async function execPrint(
 	ctx.formatter.info(
 		`namzu · ${session.providerSummary}${session.modelSummary ? ` · ${session.modelSummary}` : ''}`,
 	)
+	// The saved `hypermode: true` is dropped while dynamic workflows are off; say why once.
+	const hypermodeNote = ctx.config.hypermode === true ? hypermodeRefusal(ctx.config) : undefined
+	if (hypermodeNote) ctx.formatter.info(hypermodeNote)
 	// stderr like every other status line, so a caller piping the answer is
 	// unaffected and a person watching can still tell which instructions the
 	// turn is bound by. A script that reads AGENTS.md aloud is not a script

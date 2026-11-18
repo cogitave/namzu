@@ -212,6 +212,10 @@ composerTriggers:
     max-effort: off
 ```
 
+The two workflow words also follow the workflow settings: with `workflow.keywordTrigger: false`
+(Settings > Agent > *Keyword trigger*) or `workflow.enabled: false`, `hypermode` and `workflow`
+in a message are plain words whatever `builtin` says. The other triggers are not touched.
+
 **A repository cannot turn triggers back on.** The layers combine key by key,
 and the project file (`namzu.config.json`), or a profile it declares, can
 only turn things down: switch the feature off, lower a trigger from `arm` to

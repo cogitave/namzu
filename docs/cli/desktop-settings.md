@@ -111,11 +111,12 @@ when the switch goes to its `off` list; `confirmWhen: 'loosens'` is the rule of 
 
 Model fields offer the models Desktop already lists for its composer and Pal pages (the providers that can answer, `namzu/providers/status`, and each one's list, `namzu/providers/models`), read the first time a model field is used and again after a key is saved or removed; a name that is not in the list is kept as typed. The terminal takes the same value as text (`smallModel`) or JSON (`routing`, `permissions.autoMode`, `permissions`, `permissionChecks`, `browser.sites`); `namzu config get` prints what each takes.
 
+A row may carry `shownWhen: { path, is }`: the page draws it only while that other setting is `is` (its saved value, or its default). The three workflow size rows use it with `workflow.enabled`, so they leave the page, and its search, while *Dynamic workflows* is off; the saved values stay in the file. `hypermode` has no row: it is an option of the effort command and of Desktop's effort panel (a *Hypermode* switch under the slider, this conversation only, never written to the config file), and only the file value starts new conversations in it.
+
 ## Sections
 
 General, Models and Projects keep their own rows and add the engine's below them under
-**Namzu settings**. **Agent** (limits, workflows, compaction, memory, learning, skills, schedule,
-hypermode), **Tools** (web, browser and its switch, code analysis, servers, hooks, plugins),
+**Namzu settings**. **Agent** (limits, workflows, compaction, memory, learning, skills, schedule), **Tools** (web, browser and its switch, code analysis, servers, hooks, plugins),
 and **Telemetry** are made of the engine's rows. **Terminal** and **Updates** draw the app's own rows first and the engine's after, under headings the engine names. **Desktop app** holds only the app's own.
 
 A row sits where its effect is, so the engine can name a heading inside a section. A descriptor's

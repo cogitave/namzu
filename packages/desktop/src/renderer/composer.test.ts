@@ -365,7 +365,10 @@ it('shows the wordmark once and only offers installed conversation engines', () 
 	expect(html).not.toContain('composer-harness-mark')
 	expect(html).toContain('More<small>: engine</small>')
 	expect(html).not.toContain('Worktree')
-	expect(html).not.toContain('type="checkbox"')
+	// The only switch in the popover is the effort panel's hypermode one.
+	expect(html.replace(/<input[^>]*aria-label="Hypermode"[^>]*>/, '')).not.toContain(
+		'type="checkbox"',
+	)
 	const supplied = render({
 		connected: true,
 		harnessView: {

@@ -900,6 +900,39 @@ describe('/effort', () => {
 		if (invalid?.kind === 'message') expect(invalid.content).toContain('none|low|medium|high|xhigh')
 	})
 
+	it('takes hypermode as an option of any level, for this conversation', () => {
+		const ctx = context({
+			providerSummary: 'openai (openai)',
+			modelSummary: 'gpt-5.2',
+			reasoningEffort: {
+				current: () => undefined,
+				levels: ['none', 'low', 'medium', 'high', 'xhigh'],
+			},
+		})
+		for (const level of ['none', 'low', 'high', 'xhigh'])
+			expect(runSlash(`/effort ${level} hypermode on`, ctx)).toEqual({
+				kind: 'reasoning-effort',
+				effort: level,
+				hypermode: true,
+			})
+		expect(runSlash('/effort high hypermode off', ctx)).toEqual({
+			kind: 'reasoning-effort',
+			effort: 'high',
+			hypermode: false,
+		})
+		expect(runSlash('/effort default hypermode on', ctx)).toEqual({
+			kind: 'reasoning-effort',
+			effort: null,
+			hypermode: true,
+		})
+		// Only the mode: the level is left where it is.
+		expect(runSlash('/effort hypermode on', ctx)).toEqual({ kind: 'hypermode', enabled: true })
+		expect(runSlash('/effort hypermode off', ctx)).toEqual({ kind: 'hypermode', enabled: false })
+		const bad = runSlash('/effort high hypermode maybe', ctx)
+		expect(bad?.kind).toBe('message')
+		if (bad?.kind === 'message') expect(bad.content).toContain('[hypermode on|off]')
+	})
+
 	it('never resolves the hypermode name, or its old name, as an effort token', () => {
 		// The mode is a session setting layered above effort, not a level the
 		// provider published — /effort must refuse it exactly like any other

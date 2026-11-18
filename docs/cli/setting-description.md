@@ -50,7 +50,8 @@ The apply time is found from the code that reads the key, not guessed.
 - **Next conversation**: the host re-reads the user and project files each time it builds a
   conversation (`ensureSession` in `commands/acp.ts`, through `refreshTrustedProjectContext`), so
   `limits.*`, `workflow.*`, `handBack.*`, `sandbox.*`, `compaction.*`, `memory.*`, `skills.*`, `web.*`,
-  `browser.*`, `permissions.*` (except the three above), `codeAnalysis.*`, `hypermode`,
+  `browser.*`, `permissions.*` (except the three above), `codeAnalysis.*`, the saved `hypermode`
+  (a file value; Settings has no row for it),
   `refusalFallback`, `smallModel`, `decision`, `learningObservations`, `toolResultScreens`,
   `additionalDirectories`, `mcpServers`, `hooks` and `disableHooks` reach the next conversation. An
   open conversation keeps the value it began with. A file that no longer loads leaves the last good

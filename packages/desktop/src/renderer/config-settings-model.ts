@@ -17,7 +17,28 @@ export function configSettingsFor(
 	view: ConfigSettingsView | undefined,
 	section: SettingsSection,
 ): ConfigSettingDescriptor[] {
-	return view ? view.descriptors.filter((d) => d.section === section) : []
+	return view ? view.descriptors.filter((d) => d.section === section && isShown(d, view)) : []
+}
+
+/**
+ * Whether a row is drawn: a row with `shownWhen` waits for the setting it names to be in that
+ * state (its saved value, or its default when unsaved). A layer other than the user's file counts
+ * as the value in force.
+ */
+export function isShown(descriptor: ConfigSettingDescriptor, view: ConfigSettingsView): boolean {
+	const need = descriptor.shownWhen
+	if (!need) return true
+	const state = stateFor(view, need.path)
+	const other = view.descriptors.find((d) => d.path === need.path)
+	const current =
+		state?.effective !== undefined
+			? state.effective
+			: state?.set
+				? state.value
+				: other
+					? effectiveDefault(other, view)
+					: undefined
+	return String(current) === need.is
 }
 
 /**
@@ -340,7 +361,10 @@ export function configSearchEntries(view: ConfigSettingsView | undefined): Setti
 	if (!view) return []
 	return view.descriptors
 		.filter(
-			(d) => CONFIG_GROUP_SECTIONS.includes(d.section) && !OWN_ROW_CONFIG_PATHS.includes(d.path),
+			(d) =>
+				CONFIG_GROUP_SECTIONS.includes(d.section) &&
+				!OWN_ROW_CONFIG_PATHS.includes(d.path) &&
+				isShown(d, view),
 		)
 		.map((d) => ({
 			id: configSettingId(d.path),
