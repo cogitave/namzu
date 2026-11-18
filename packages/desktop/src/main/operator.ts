@@ -15,6 +15,11 @@ import {
 	type ConfigSettingsView,
 	readConfigSettingsView,
 } from '../shared/config-settings-protocol.js'
+import {
+	CONTEXT_REQUEST,
+	type ContextReport,
+	readContextReport,
+} from '../shared/context-protocol.js'
 import { type HistoryWorkSnapshot, restoreHistoryWork } from '../shared/history-work.js'
 import { readHooksReport } from '../shared/hooks-report.js'
 import { OUTCOME_NOTIFICATION, readOutcomeNotice } from '../shared/outcome-protocol.js'
@@ -6234,6 +6239,28 @@ export class Operator {
 		return await session.client.request('namzu/jobs/list', {
 			sessionId: session.runtimeSessionId,
 		})
+	}
+	/**
+	 * Where a conversation's window goes, from the engine that serves it. Null when the engine has
+	 * not counted yet or cannot say; the ring still shows the total from the usage notices.
+	 */
+	async contextUsage(sessionId: string, detail?: unknown): Promise<ContextReport | null> {
+		const session = this.session(sessionId)
+		if (!session.client.supportsContextPanel()) return null
+		if (session.view.palId || (session.view.harness && session.view.harness !== 'namzu'))
+			return null
+		if (detail !== undefined && detail !== 'summary' && detail !== 'full')
+			throw new Error('Invalid context request.')
+		const client = session.client
+		const runtimeSessionId = session.runtimeSessionId
+		const result = await client.request(
+			CONTEXT_REQUEST,
+			{ sessionId: runtimeSessionId, detail: detail ?? 'summary' },
+			8_000,
+		)
+		if (this.session(sessionId) !== session || session.runtimeSessionId !== runtimeSessionId)
+			return null
+		return readContextReport(result)
 	}
 	async readJob(sessionId: string, jobId: string): Promise<unknown> {
 		const session = this.session(sessionId)

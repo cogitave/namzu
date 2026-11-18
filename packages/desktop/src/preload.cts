@@ -209,6 +209,7 @@ const api: DesktopApi = {
 	backgroundWorkStatuses: () => invoke('backgroundWorkStatuses'),
 	refreshTasks: (id) => invoke('refreshTasks', id),
 	readJob: (id, job) => invoke('readJob', id, job),
+	contextUsage: (id, detail) => invoke('contextUsage', id, detail),
 	stopJob: (id, job) => invoke('stopJob', id, job),
 	updateState: () => invoke('updateState'),
 	updateInfo: () => invoke('updateInfo'),

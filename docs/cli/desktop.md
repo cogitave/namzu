@@ -3261,7 +3261,35 @@ Desktop receives the host's [usage and compaction notices](#usage-and-compaction
 - **Context ring.** A small ring at the right end of the row under the composer box (`renderer/context-ring-view.tsx`, model in `context-ring.ts`) fills with the share of the window the conversation holds. It is a focusable control named "6% of this conversation’s memory used, 12.4k of 200k." and its tooltip says the same in words, adds "about" before the figures when the host did not get a count from the provider, adds "Cost so far: $0.42" only when the engine priced every token, and from 75% (amber) and 90% (red) adds that older messages may be summarised to make room. It is **not drawn at all** until the engine has reported both a context size and a window (a custom model with no known window, or an engine that reports nothing); there is no placeholder. A figure the engine stops reporting disappears at the next notice.
 - **Compacting line.** From the moment a pass starts the live status line reads "Shortening the conversation…" (shimmering, still under reduced motion), and when it finishes it reads "Conversation shortened · from 150k to 40k" without a shimmer until the turn goes on, when the next streamed update replaces it. A pass that changed nothing, the end of the turn and the next prompt clear it at once. A decision wait still takes the line first.
 
+- **Context panel.** Pressing the ring (or the readout in the conversation bar) opens [the panel](#context-panel). An engine that does not offer `namzu/session/context` keeps the tooltip alone.
+
 The ring and the line use the design tokens (`--radius-pill`, `--dur-quick`, `--dur-base`, `--focus-ring`, `--warning`, `--error`) and no animation under `prefers-reduced-motion`.
+
+### Context panel
+
+A popover above the composer (340 px wide, at most 70% of the window high, scrolling inside) that says where the window goes (`renderer/context-panel.tsx`, `context-panel-model.ts`, `context-panel-reader.ts`). It opens from the ring and closes with Escape or a click outside. Top to bottom: a collapsible "Context" header (collapsing hides everything under the bar); "8% used" and "77.7k of 1M" with a small tag, "Exact total" (the AI service counted it) or "Estimate" (Namzu counted it, and the figures read "about"); one sentence ("About 889.3k left before Namzu shortens this conversation.", "Namzu will shorten this conversation soon." from 90% or when the shortening line is crossed, "Namzu is shortening this conversation…" while it runs); a thin stacked bar (8 px, one segment per used row in a fixed colour, then the kept-free reserve hatched, the rest the empty track; a segment under 2 px keeps 2 px; each has a hover title); then the rows. Each row has a colour square, a plain name, a size ("19.6k", "889.3k") and a share (one decimal under 10%, whole above, "<0.1%" for a sliver), biggest first: Messages, Built-in tools, Tool server tools, Namzu’s instructions, Skills, Project notes, Custom agents, Tool server notes. Skills, custom agents and project notes open in place to their entries (8, then "Show N more"). "Loaded only when needed" lists the tool definitions that are not in the conversation yet, with a dash instead of a share and the note "These aren’t in the conversation yet. Namzu loads them if it needs them." "Kept in reserve" holds "Kept free for the next answer" (the room Namzu keeps so it can answer and shorten, drawn whenever automatic shortening is on) and "Free space". A folded "Tool servers" row (with its tool count) opens to each server (tool count and size), each openable to its tools. The last line says how the numbers were counted: the total comes from the AI service and the rows are Namzu’s own estimates (about 4 characters to a token) that add up to it; or, for an estimate, that sizes may be off by a few percent until the next message; or, after a shortening, that they are out of date until the next message. "Token" appears only in that line and in hover text, never in a label. Colours are eight categorical hues (`--context-c1` to `--context-c8`), lighter in dark mode; colour is never the only cue, since every row carries its name and size.
+
+The panel asks, it is not pushed. The renderer's reader (`ContextReader`) sends `contextUsage(conversationId, 'full')` when the panel opens and `'summary'` after each usage notice while it stays open, at most once every 400 ms; the newest answer wins, an answer that fails keeps what is on screen, and the lists from the last full answer are kept while a summary refreshes the figures. A Pal conversation, an external engine, an older engine and a conversation the engine has not counted yet get no panel data: the panel then says "Namzu hasn’t counted this conversation yet. Send a message and look again." and repeats the ring's line.
+
+The request and answer are `namzu/session/context` (`shared/context-protocol.ts` reads the answer; the host side is `packages/cli/src/commands/desktop-context.ts`):
+
+| Request field | Meaning |
+| --- | --- |
+| `sessionId` | the conversation |
+| `detail` | `summary` (the last figures; no lists) or `full` (also the lists, which may read skill, agent and note files; the host keeps those reads until a turn or a shortening ends). Default `summary`; anything else, and any other field, is refused |
+
+| Answer field | Meaning |
+| --- | --- |
+| `measuredBy` | `provider` or `estimate`; absent when the engine did not say |
+| `windowTokens`, `windowSource` | the window and where it came from (`config`, `provider`, `model-table`, `default`) |
+| `totalTokens`, `percentage` | what is in use, and its whole percent |
+| `autoCompact` | `{ enabled, bufferTokens, thresholdTokens? }`; the reserve and the size at which shortening starts |
+| `categories` | `[{ id, name, tokens, kind }]` with `kind` `used`, `deferred`, `buffer` or `free`; `id` one of `system-prompt`, `system-tools`, `mcp-tools`, `mcp-instructions`, `agents`, `memory`, `skills`, `messages`, `deferred-tools`, `deferred-mcp-tools`, `buffer`, `free` (the panel words each itself; `name` is the engine's) |
+| `lists` | on `full`: `mcpTools`, `deferredTools`, `skills`, `agents`, `memoryFiles`, each at most 500 entries, biggest first, with a name (a note file is its short label) and tokens; never contents |
+| `sizeOutOfDate` | a shortening rewrote the history since the last count from the AI service |
+| `approximate` | true unless the AI service counted the total and nothing has changed since |
+
+An answer is `null` before the engine has reported a window. The host does not read the conversation's history for this; it uses the engine's own figure and the kernel's estimate rules (an estimate covers the messages and the tool catalogue, and the other parts are added on top).
 
 ### Action rows
 
@@ -4817,6 +4845,7 @@ ACP methods and are not automatically installed in embedded SDK servers.
 | `namzu/plugins/list` | optional `sessionId` | bounded installed or live plugin inventory and whether it can be changed |
 | `namzu/plugins/set_enabled` | `sessionId`, `name`, `enabled` | changes one loaded plugin in an idle conversation and returns its inventory |
 | `namzu/turns/undo-status`, `namzu/turns/undo-preview`, `namzu/turns/undo` | see [Turn undo](turn-undo.md#acp-methods) | per-reply file undo, used by [Undoing a reply](#undoing-a-reply) |
+| `namzu/session/context` | `sessionId`, optional `detail` (`summary` or `full`) | where the conversation's context window goes: the [context panel](#context-panel)'s answer, or `null` before the engine has reported a window. Optional group `contextPanel` |
 | `namzu/jobs/list` | `sessionId` | this session's jobs |
 | `namzu/jobs/read` | `sessionId`, `jobId` | retained chunk, offsets and dropped-byte count |
 | `namzu/jobs/stop` | `sessionId`, `jobId` | stopped job |

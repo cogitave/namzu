@@ -942,6 +942,7 @@ function register(): void {
 		['attachments', 0],
 		['jobs', 0],
 		['readJob', 0],
+		['contextUsage', 0],
 		['harnesses', 1],
 		['providers', 1],
 		['readyConversation', 1],
@@ -1767,6 +1768,9 @@ function register(): void {
 	handle('backgroundWorkStatuses', () => operator.backgroundWorkStatuses())
 	handle('refreshTasks', (id: string) => operator.refreshTasks(id))
 	handle('readJob', (id: string, job: string) => operator.readJob(id, job))
+	handle('contextUsage', (id: string, detail?: 'summary' | 'full') =>
+		operator.contextUsage(id, detail),
+	)
 	handle('stopJob', (id: string, job: string) => operator.stopJob(id, job))
 }
 // The development and unpacked app have no embedded executable icon; an installed build does, and

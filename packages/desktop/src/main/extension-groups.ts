@@ -1,3 +1,4 @@
+import { CONTEXT_REQUEST } from '../shared/context-protocol.js'
 import { TERMINAL_METHODS } from '../shared/terminal-protocol.js'
 import { PAL_COMMUNICATION_METHODS } from './pal-communication.js'
 
@@ -28,6 +29,7 @@ export const OPTIONAL_EXTENSION_GROUPS = {
 	projectPr: ['namzu/project/pr'],
 	mcpServers: ['namzu/mcp/servers', 'namzu/mcp/approve'],
 	hooksView: ['namzu/hooks/list'],
+	contextPanel: [CONTEXT_REQUEST],
 	conversationSearch: ['namzu/conversations/search'],
 	projectUntrust: ['namzu/project/untrust'],
 	projectChanges: ['namzu/project/changes', 'namzu/project/diff'],

@@ -93,6 +93,11 @@ export class RuntimeClient extends EventEmitter {
 	supportsHooksView(): boolean {
 		return this.hooksView
 	}
+	private contextPanel = false
+	/** A host that predates the context panel does not list `namzu/session/context`. */
+	supportsContextPanel(): boolean {
+		return this.contextPanel
+	}
 	private conversationSearch = false
 	supportsConversationSearch(): boolean {
 		return this.conversationSearch
@@ -331,6 +336,7 @@ export class RuntimeClient extends EventEmitter {
 		this.projectPr = offers('projectPr')
 		this.mcpServers = offers('mcpServers')
 		this.hooksView = offers('hooksView')
+		this.contextPanel = offers('contextPanel')
 		this.conversationSearch = offers('conversationSearch')
 		this.projectUntrust = offers('projectUntrust')
 		this.projectChanges = offers('projectChanges')

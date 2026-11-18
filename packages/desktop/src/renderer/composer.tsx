@@ -70,6 +70,7 @@ import { Textarea } from './ui/textarea.js'
 import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
 import './composer.css'
 import type { ThreadUsage } from '../shared/projection.js'
+import type { ContextPanelSource } from './context-panel.js'
 import { ContextReadout, ContextRing } from './context-ring-view.js'
 
 /**
@@ -126,6 +127,7 @@ export function Composer({
 	trayActions,
 	shells,
 	usage,
+	contextPanel,
 	pullRequest,
 	onSend,
 	onQueue,
@@ -225,6 +227,8 @@ export function Composer({
 	shells?: { count: number; onOpen: () => void }
 	/** How full the conversation is, as the engine last said; the ring is drawn only when it is complete. */
 	usage?: ThreadUsage
+	/** Lets the ring open the context panel; absent when the engine cannot say where the window goes. */
+	contextPanel?: ContextPanelSource
 	/** The branch's pull request; absent when there is none to show. */
 	pullRequest?: { pr: ProjectPrView; onOpen: () => void }
 	onSend: () => void
@@ -783,7 +787,12 @@ export function Composer({
 								>
 									{!compact && <div className="composer-footer-options">{plusControl}</div>}
 									<div className="pal-composer-send-actions flex shrink-0 flex-nowrap items-center justify-end gap-2">
-										{compact && !waiting && <ContextRing usage={usage} />}
+										{compact && !waiting && (
+											<ContextRing
+												usage={usage}
+												{...(contextPanel ? { panel: contextPanel } : {})}
+											/>
+										)}
 										{running &&
 											liveInputSupported &&
 											onQueue &&
@@ -988,7 +997,10 @@ export function Composer({
 								</div>
 								<div className="composer-row-end">
 									<div className="composer-selected-model">{modelControl}</div>
-									<ContextReadout usage={usage} />
+									<ContextReadout
+										usage={usage}
+										{...(contextPanel ? { panel: contextPanel } : {})}
+									/>
 								</div>
 							</div>
 						</div>

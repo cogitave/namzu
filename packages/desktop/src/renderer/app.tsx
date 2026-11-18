@@ -7681,6 +7681,15 @@ export function App({
 								liveInputSupported={thread.liveInputSupported && !palConversation}
 								sending={sending[draftOwner] ?? false}
 								usage={palConversation ? undefined : thread.usage}
+								contextPanel={
+									palConversation || !sessionId || !api.contextUsage
+										? undefined
+										: {
+												ask: (detail) =>
+													api.contextUsage?.(sessionId, detail) ?? Promise.resolve(null),
+												compacting: thread.compaction?.state === 'running',
+											}
+								}
 								shells={
 									// The open Activity panel's own list is the freshest count; otherwise the observer's.
 									detailsWork.state === 'known' && detailsWork.running > 0

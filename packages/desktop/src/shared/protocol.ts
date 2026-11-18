@@ -14,6 +14,7 @@ import type {
 	ConfigSettingResult,
 	ConfigSettingsView,
 } from './config-settings-protocol.js'
+import type { ContextReport } from './context-protocol.js'
 import type { EngineDeliveryView } from './engine-delivery-protocol.js'
 import type {
 	EngineUpdateAnnouncement,
@@ -1186,6 +1187,11 @@ export interface DesktopApi {
 	backgroundWorkStatuses?(): Promise<Record<string, BackgroundWorkStatus>>
 	/** Refresh the existing planning projection without starting a turn. */
 	refreshTasks?(sessionId: string): Promise<void>
+	/**
+	 * Where the conversation's context window goes. Null when the engine has not counted yet or
+	 * cannot say. Absent in an older shell.
+	 */
+	contextUsage?(sessionId: string, detail?: 'summary' | 'full'): Promise<ContextReport | null>
 	readJob(sessionId: string, jobId: string): Promise<{ output: string; truncated?: boolean }>
 	stopJob(sessionId: string, jobId: string): Promise<void>
 	/** App updates. Absent in a preview that has no updater. */
