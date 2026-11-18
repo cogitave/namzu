@@ -497,9 +497,9 @@ describe('CLI explicit provider retry composition', () => {
 		try {
 			expect(await f.runtime.providerRetryStatus!(f.sessionId, root)).toEqual({
 				closable: true,
-				notice: expect.stringContaining('original approval settings'),
+				notice: expect.stringContaining('approval settings'),
 			})
-			await expect(f.retry()).rejects.toThrow('explicit permission mode')
+			await expect(f.retry()).rejects.toThrow('how much Namzu may do')
 			await f.retry({ permissionMode: 'strict', effort: 'low' })
 			expect(f.resume.mock.calls[0]?.[0]).toMatchObject({
 				permissionMode: 'strict',

@@ -115,6 +115,15 @@ import { withPreviews } from './permission-preview.js'
 import type { CommandContext, CommandDef } from './types.js'
 
 /** Same read as `cli.ts`'s `--version`: the manifest, never a second copy. */
+/**
+ * A failure a person reads, with a stable code a front end can map to its own wording. The
+ * sentence is plain on its own, for front ends that show it as is; the code travels as the
+ * JSON-RPC error's `data.code`.
+ */
+function engineFailure(code: string, message: string): Error {
+	return Object.assign(new Error(message), { data: { code } })
+}
+
 function readPackageVersion(): string {
 	try {
 		const here = dirname(fileURLToPath(import.meta.url))
@@ -549,7 +558,7 @@ class LivePromptInbox {
 	}
 	accept(input: { scopeId: string; inputId: string; prompt: string }) {
 		if (!this.available || input.scopeId !== this.scopeId)
-			throw new Error('This live prompt is no longer available. Your message was not admitted.')
+			throw engineFailure('message-not-sent', 'Your message wasn’t sent. Send it again.')
 		if (
 			typeof input.inputId !== 'string' ||
 			!input.inputId.trim() ||
@@ -564,7 +573,10 @@ class LivePromptInbox {
 			throw new Error('This live input id already belongs to a different message.')
 		if (!previous) {
 			if (this.entries.size >= 20 || this.chars + input.prompt.length > 1_000_000)
-				throw new Error('The live input mailbox is full. Your message was not admitted.')
+				throw engineFailure(
+					'too-many-messages',
+					'Namzu is busy with too many messages. Wait a moment, then send again.',
+				)
 			this.entries.set(input.inputId, {
 				prompt: input.prompt,
 				status: 'pending',
@@ -842,12 +854,20 @@ export function createCliAcpRuntime(
 		signal: AbortSignal,
 	): Promise<AcpRuntimeRecord> => {
 		signal.throwIfAborted()
-		if (closed) throw new Error('The ACP connection has closed.')
+		if (closed)
+			throw engineFailure(
+				'connection-closed',
+				'Namzu lost its connection to this conversation. Try again, or restart Namzu if it keeps happening.',
+			)
 
 		// This is the first project-aware operation. Session creation and the
 		// protocol handshake remain credential-free and do not read the target.
 		const trust = deps.decideTrust({ cwd: requestedCwd, trustFlag: false })
-		if (!trust.allowed) throw new Error(trust.message ?? 'folder not trusted')
+		if (!trust.allowed)
+			throw engineFailure(
+				'folder-not-trusted',
+				trust.message ?? 'Trust this folder first, then send again.',
+			)
 		const cwd = trust.cwd
 		const palBinding = await deps.palBinding?.(cwd, sessionId)
 		if (palBinding?.pal.paused) throw new Error('This Pal is paused.')
@@ -859,14 +879,18 @@ export function createCliAcpRuntime(
 		const existing = records.get(sessionId)
 		if (existing) {
 			if (existing.cwd !== cwd) {
-				throw new Error(
-					`ACP session "${sessionId}" already owns ${existing.cwd}; refusing to reuse it for ${cwd}.`,
+				throw engineFailure(
+					'conversation-in-other-folder',
+					'This conversation is already open in another folder. Open it again from the sidebar.',
 				)
 			}
 			return existing
 		}
 		if (constructing.has(sessionId)) {
-			throw new Error(`ACP session "${sessionId}" is already being constructed.`)
+			throw engineFailure(
+				'conversation-opening',
+				'This conversation is still opening. Wait a moment, then try again.',
+			)
 		}
 		constructing.set(sessionId, cwd)
 		const carriedRetry = retryCarry.get(sessionId)
@@ -906,18 +930,27 @@ export function createCliAcpRuntime(
 
 				const probe = await sharedProbe()
 				signal.throwIfAborted()
-				if (closed) throw new Error('The ACP connection closed while its session was starting.')
+				if (closed)
+					throw engineFailure(
+						'connection-closed',
+						'Namzu lost its connection while this conversation was opening. Try again.',
+					)
 				const prefs = await preferencesFor(sessionId, probe, cwd)
 				const primary = prefs?.providers[0]
 				if (!prefs || !primary) {
-					throw new Error(
-						'No LLM provider is available on this machine: set a credential in the environment, or run `namzu` interactively to pick one. The protocol handshake succeeded; there is nothing to run a prompt with.',
+					throw engineFailure(
+						'no-provider',
+						'Namzu has no AI service set up on this computer yet. Add a key or sign in to one in Settings, then send again.',
 					)
 				}
 
 				const target = await deps.resolveSession(sessionId)
 				signal.throwIfAborted()
-				if (closed) throw new Error('The ACP connection closed while its session was starting.')
+				if (closed)
+					throw engineFailure(
+						'connection-closed',
+						'Namzu lost its connection while this conversation was opening. Try again.',
+					)
 				conversationState = await deps.openSessions?.(cwd)
 				const palRuntime = palBinding ? await deps.palRuntime?.() : undefined
 				if (palBinding && !palRuntime) throw new Error('This Pal runtime is unavailable.')
@@ -1025,10 +1058,13 @@ export function createCliAcpRuntime(
 				if (signal.aborted || closed) {
 					await closeCandidate()
 					signal.throwIfAborted()
-					throw new Error('The ACP connection closed while its session was starting.')
+					throw engineFailure(
+						'connection-closed',
+						'Namzu lost its connection while this conversation was opening. Try again.',
+					)
 				}
 				if (!candidate.hasProvider) {
-					const hint = candidate.errorHint ?? 'agent is not ready'
+					const hint = candidate.errorHint ?? 'Namzu isn’t ready yet. Try again in a moment.'
 					await closeCandidate()
 					throw new Error(hint)
 				}
@@ -1042,7 +1078,7 @@ export function createCliAcpRuntime(
 						})),
 					)
 					const failure = candidate.mcpFailed
-						.map((entry) => `tool server "${entry.name}" is not available: ${entry.reason}`)
+						.map((entry) => `The connected tool “${entry.name}” isn’t available: ${entry.reason}`)
 						.join('\n')
 					await closeCandidate()
 					throw new Error(failure)
@@ -1349,14 +1385,16 @@ export function createCliAcpRuntime(
 			)
 			if (status.retry?.turnId !== turnId || status.retry.checkpointId !== checkpointId)
 				throw new Error(
-					status.notice ?? 'The paused turn or checkpoint has changed. Refresh this conversation.',
+					status.notice ??
+						'This paused reply has changed. Reopen the conversation to see its latest state.',
 				)
 			const original = record.retrySettings?.turnId === turnId ? record.retrySettings : undefined
 			assertRetryComputer(record, original)
 			const previous = original?.settings
 			if (!previous && options?.permissionMode === undefined)
-				throw new Error(
-					'The original approval settings are unavailable after reconnection. An explicit permission mode is required to retry this retained turn.',
+				throw engineFailure(
+					'permission-mode-needed',
+					'Namzu can’t restore the approval settings for this reply. Choose how much Namzu may do, then try again.',
 				)
 			const settings = validateComposerSendSettings(
 				{ ...previous, ...options },
@@ -1368,8 +1406,13 @@ export function createCliAcpRuntime(
 			const started = facts?.startedTurn(turnId)
 			const pause = facts?.latestPause(turnId)
 			if (!started?.model || !pause?.providerError)
-				throw new Error('The original provider and model cannot be verified for this retry.')
-			if (!record.model) throw new Error('The selected model cannot be verified for this retry.')
+				throw new Error(
+					'Namzu can’t confirm which AI service and model this reply used, so it can’t try it again here.',
+				)
+			if (!record.model)
+				throw new Error(
+					'Namzu can’t confirm which model this reply used, so it can’t try it again here.',
+				)
 			const routedEvent = (event: SessionEvent): void => {
 				const outer = activeRecord
 				activeRecord = record
@@ -1473,7 +1516,9 @@ export function createCliAcpRuntime(
 					authenticated.projectId !== record.conversations.projectId ||
 					authenticated.tenantId !== record.conversations.tenantId))
 		)
-			throw new Error('This conversation belongs to another project or application home.')
+			throw new Error(
+				'This conversation belongs to a different project or to another Namzu data folder.',
+			)
 		const target = await deps.resolveSession(sessionId)
 		const binding = await deps.palBinding?.(trust.cwd, target.sessionId, authenticated)
 		return { record, cwd: trust.cwd, sessionId: target.sessionId, binding }
@@ -1643,7 +1688,9 @@ export function createCliAcpRuntime(
 							authenticatedScope.projectId !== record.conversations.projectId ||
 							authenticatedScope.tenantId !== record.conversations.tenantId))
 				)
-					throw new Error('This conversation belongs to another project or application home.')
+					throw new Error(
+						'This conversation belongs to a different project or to another Namzu data folder.',
+					)
 			}
 			const target = await deps.resolveSession(sessionId)
 			const reading =
@@ -1695,12 +1742,14 @@ export function createCliAcpRuntime(
 					)
 				if ((record?.retrySettings ?? retryCarry.get(sessionId))?.turnId !== status.retry.turnId)
 					return blocked(
-						'The original approval settings are unavailable after reconnection. An explicit permission mode is required to retry this retained turn.',
+						'Namzu can’t restore the approval settings for this reply. Choose how much Namzu may do, then try again.',
 					)
 				const facts = await readConversationFacts(state, target.sessionId)
 				const pause = status.retry?.turnId ? facts?.latestPause(status.retry.turnId) : undefined
 				if (!pause?.providerError)
-					return blocked('The original provider cannot be verified for this retry.')
+					return blocked(
+						'Namzu can’t confirm which AI service this reply used, so it can’t try it again here.',
+					)
 				// A turn already retried stopped again on the model it was retried on.
 				const lastRun = retriedOn.get(status.retry.turnId)
 				return lastRun && !status.retry.original

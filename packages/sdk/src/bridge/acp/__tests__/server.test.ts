@@ -2107,3 +2107,56 @@ describe('pasted ranges of a prompt', () => {
 		expect(received).toEqual([undefined])
 	})
 })
+
+describe('a failure the host gives a stable code', () => {
+	const prompt = (fixture: ReturnType<typeof build>) =>
+		fixture.deliver({
+			jsonrpc: '2.0',
+			id: 3,
+			method: 'session/prompt',
+			params: {
+				sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af',
+				prompt: 'hello',
+			},
+		})
+
+	it('sends the code as the error data and keeps the sentence as the message', async () => {
+		const fixture = build({
+			gateway: {
+				prompt: async () => {
+					throw Object.assign(new Error('Namzu has no AI service set up yet.'), {
+						data: { code: 'no-provider' },
+					})
+				},
+			},
+		})
+		await handshake(fixture)
+		prompt(fixture)
+		await settle()
+		expect(fixture.sent.find((frame) => frame.id === 3)?.error).toEqual({
+			code: ACP_ERROR_CODES.INTERNAL_ERROR,
+			message: 'Namzu has no AI service set up yet.',
+			data: { code: 'no-provider' },
+		})
+	})
+
+	it('sends no data for a plain error or a code that is not a stable name', async () => {
+		for (const thrown of [
+			new Error('plain'),
+			Object.assign(new Error('odd'), { data: { code: 'Not A Code' } }),
+			Object.assign(new Error('other'), { data: { secret: 'x' } }),
+		]) {
+			const fixture = build({
+				gateway: {
+					prompt: async () => {
+						throw thrown
+					},
+				},
+			})
+			await handshake(fixture)
+			prompt(fixture)
+			await settle()
+			expect(fixture.sent.find((frame) => frame.id === 3)?.error).not.toHaveProperty('data')
+		}
+	})
+})

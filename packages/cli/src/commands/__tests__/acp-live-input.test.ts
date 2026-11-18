@@ -278,7 +278,7 @@ it('keeps pending receipts after cancellation, drains once, and refuses idle, fo
 			],
 		})
 		await expect(owner.runtime.liveInput?.(id, { ...input, inputId: 'too late' })).rejects.toThrow(
-			'no longer available',
+			'wasn’t sent',
 		)
 		expect(options.inboundMessages?.()).toEqual([])
 		releases[0]!.resolve()
@@ -291,12 +291,12 @@ it('keeps pending receipts after cancellation, drains once, and refuses idle, fo
 				{ id: 'pending', status: 'pending' },
 			],
 		})
-		await expect(owner.runtime.liveInput?.(id, input)).rejects.toThrow('no longer available')
+		await expect(owner.runtime.liveInput?.(id, input)).rejects.toThrow('wasn’t sent')
 		const second = owner.run(id)
 		const next = await starts[1]!.promise
 		expect(next.inboundMessages?.()).toEqual([])
 		await expect(owner.runtime.liveInputStatus?.(id, input.scopeId)).rejects.toThrow('scope')
-		await expect(owner.runtime.liveInput?.(id, input)).rejects.toThrow('no longer available')
+		await expect(owner.runtime.liveInput?.(id, input)).rejects.toThrow('wasn’t sent')
 		releases[1]!.resolve()
 		await second
 	} finally {
@@ -334,7 +334,7 @@ it('bounds all accepted entries and characters, and removes cancelled wake liste
 				inputId: 'oversize',
 				prompt: 'x'.repeat(1_000_001),
 			}),
-		).rejects.toThrow('full')
+		).rejects.toThrow('too many messages')
 		expect((await owner.runtime.liveInputStatus?.(id))?.inputs).toEqual([])
 		for (let index = 0; index < 20; index++)
 			await owner.runtime.liveInput?.(id, {
@@ -345,7 +345,7 @@ it('bounds all accepted entries and characters, and removes cancelled wake liste
 		await wake
 		await expect(
 			owner.runtime.liveInput?.(id, { scopeId: status.scopeId, inputId: 'extra', prompt: 'x' }),
-		).rejects.toThrow('full')
+		).rejects.toThrow('too many messages')
 		await owner.runtime.liveInput?.(id, {
 			scopeId: status.scopeId,
 			inputId: '0',
@@ -359,7 +359,7 @@ it('bounds all accepted entries and characters, and removes cancelled wake liste
 				inputId: 'after drain',
 				prompt: 'x',
 			}),
-		).rejects.toThrow('full')
+		).rejects.toThrow('too many messages')
 	} finally {
 		release.resolve()
 		await run
@@ -452,7 +452,7 @@ it.each<Extract<AgentEvent, { kind: 'done' | 'error' | 'paused' }>>([
 				scopeId: status.scopeId,
 				inputs: [{ id: input.inputId, status: 'pending' }],
 			})
-			await expect(owner.runtime.liveInput?.(id, input)).rejects.toThrow('no longer available')
+			await expect(owner.runtime.liveInput?.(id, input)).rejects.toThrow('wasn’t sent')
 			expect(options.inboundMessages?.()).toEqual([])
 		} finally {
 			publishTerminal.resolve()

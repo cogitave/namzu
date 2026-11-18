@@ -224,6 +224,19 @@ class AcpError extends Error {
 	}
 }
 
+/**
+ * A stable machine code a host may attach to a failure it throws (`data: { code }` on the error).
+ * It goes out as the JSON-RPC error's `data`, so a client can pick its own wording by code and
+ * keep the sentence as the fallback. Anything else on the error is not sent.
+ */
+function stableErrorData(err: unknown): { code: string } | undefined {
+	if (!err || typeof err !== 'object') return undefined
+	const data = (err as { data?: unknown }).data
+	if (!data || typeof data !== 'object') return undefined
+	const code = (data as { code?: unknown }).code
+	return typeof code === 'string' && /^[a-z][a-z0-9-]{0,63}$/.test(code) ? { code } : undefined
+}
+
 export class ACPServer {
 	private readonly log: Logger
 	private readonly sessions = new Map<string, Session>()
@@ -423,7 +436,12 @@ export class ACPServer {
 			}
 		} catch (err) {
 			const code = err instanceof AcpError ? err.code : ACP_ERROR_CODES.INTERNAL_ERROR
-			await this.respondError(message.id, code, err instanceof Error ? err.message : String(err))
+			await this.respondError(
+				message.id,
+				code,
+				err instanceof Error ? err.message : String(err),
+				stableErrorData(err),
+			)
 		}
 	}
 
@@ -431,6 +449,7 @@ export class ACPServer {
 		id: MCPJsonRpcMessage['id'],
 		code: number,
 		message: string,
+		data?: { code: string },
 	): Promise<void> {
 		// A notification (no id) that failed has nowhere to send an error, so
 		// it is logged instead of dropped silently — on stderr, where it does
@@ -442,7 +461,7 @@ export class ACPServer {
 			})
 			return
 		}
-		await this.send({ jsonrpc: '2.0', id, error: { code, message } })
+		await this.send({ jsonrpc: '2.0', id, error: { code, message, ...(data ? { data } : {}) } })
 	}
 
 	private async send(message: MCPJsonRpcMessage, requireDelivery = false): Promise<void> {
