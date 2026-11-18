@@ -837,6 +837,10 @@ input.settings-config-number {
 	display: flex;
 	gap: 6px;
 }
+.settings-config-input:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
 .settings-config-input:focus-visible {
 	outline: 2px solid transparent;
 	box-shadow: var(--focus-ring);
