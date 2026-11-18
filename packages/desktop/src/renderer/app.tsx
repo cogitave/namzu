@@ -191,7 +191,7 @@ import { normalConversationProject } from './normal-conversation.js'
 import { noticeClickAction } from './notice-target.js'
 import { dismissNotice, notify } from './notify.js'
 import { OutputCardsContext, type OutputCardsContextValue } from './output-card.js'
-import { type MadeOutput, outputFiles, outputToOpen } from './outputs-model.js'
+import { type MadeOutput, outputFiles, outputForLink, outputToOpen } from './outputs-model.js'
 import { OutputsPanel } from './outputs-panel.js'
 import { PalChatTranscript } from './pal-chat-transcript.js'
 import { PalCommunicationDialog, type PalSettingsTab } from './pal-communication-dialog.js'
@@ -1310,10 +1310,16 @@ export function App({
 	}, [showPanelTab])
 	const openProjectFile = useCallback(
 		(path: string, line?: number) => {
+			// A document or page this conversation wrote opens as a page beside it, not as source.
+			const written = line === undefined ? outputForLink(outputs, path) : undefined
+			if (written) {
+				openOutputBeside(written.path)
+				return
+			}
 			updatePanelTabs((state) => openFileTab(state, path, line))
 			setJobsOpen(true)
 		},
-		[updatePanelTabs],
+		[updatePanelTabs, outputs, openOutputBeside],
 	)
 	const editors = useEditors(api, filesEnabled)
 	const linkCache = useMemo(

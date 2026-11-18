@@ -89,6 +89,8 @@
 		monospace;
 	--font-sans-app: "Geist", var(--font-sans-system);
 	--font-mono-app: "Geist Mono", var(--font-mono-system);
+	/* The headings of a document page: a serif the machine already has, so nothing is shipped for it. */
+	--font-document: Georgia, "Iowan Old Style", "Palatino Linotype", "Times New Roman", serif;
 	--font-sans: var(--font-sans-app);
 	--font-mono: var(--font-mono-app);
 	--font-terminal: var(--font-mono-app);

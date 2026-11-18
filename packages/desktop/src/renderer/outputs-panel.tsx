@@ -1,10 +1,12 @@
+import { ExternalLink } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { mayOpenWithSystem } from '../shared/output-files.js'
 import type { DesktopApi, ProjectFileContent } from '../shared/protocol.js'
 import { CopyButton } from './copy-button.js'
+import { DocumentPage } from './document-page.js'
 import { FileTypeIcon } from './file-panel/file-icons.js'
 import { SourceView } from './file-panel/file-view.js'
 import { AppWindowIcon, ArrowLeftIcon, DownloadIcon, FolderOpenIcon } from './icons.js'
-import { MarkdownContent } from './message.js'
 import { cardKindLine } from './output-card-model.js'
 import { OUTPUT_FRAME_SANDBOX, outputFrameDocument } from './output-frame.js'
 import { type OutputFile, outputAddress } from './outputs-model.js'
@@ -62,7 +64,16 @@ export function OutputPreview({
 	file,
 	content,
 	dark,
-}: { file: OutputFile; content: ProjectFileContent; dark: boolean }) {
+	sessionId,
+	read,
+}: {
+	file: OutputFile
+	content: ProjectFileContent
+	dark: boolean
+	/** Lets a document read the pictures it holds. */
+	sessionId?: string
+	read?: NonNullable<DesktopApi['readSessionOutput']>
+}) {
 	if (content.kind === 'image' && content.image)
 		return (
 			<div className="file-image" data-output-preview="image">
@@ -83,19 +94,12 @@ export function OutputPreview({
 			)
 		if (file.kind === 'markdown')
 			return (
-				<article className="file-document" data-output-preview="markdown">
-					<MarkdownContent
-						text={content.markdown ?? content.text}
-						document={{
-							// A page of a document that points at another file or a web address does not leave the pane.
-							link: (href, children) =>
-								href && /^https?:/i.test(href) ? undefined : (
-									<span className="document-inert-link">{children}</span>
-								),
-							image: (_src, alt) => <span className="notice">{alt || 'Image'}</span>,
-						}}
-					/>
-				</article>
+				<DocumentPage
+					text={content.markdown ?? content.text}
+					path={file.path}
+					sessionId={sessionId ?? ''}
+					read={read}
+				/>
 			)
 		return (
 			<div data-output-preview="code">
@@ -208,13 +212,22 @@ export function OutputsPanel({
 				)}
 			</div>
 		)
-	const open = (target: 'browser' | 'file-manager') =>
+	const open = (target: 'browser' | 'file-manager' | 'system') =>
 		void (
 			api.openSessionOutput
 				? api.openSessionOutput(sessionId, file.path, target)
 				: Promise.reject(new Error('Opening is not available.'))
 		).catch((failure) =>
-			onNotice(plainErrorText(failure, target === 'browser' ? 'open the page' : 'show the file')),
+			onNotice(
+				plainErrorText(
+					failure,
+					target === 'browser'
+						? 'open the page'
+						: target === 'system'
+							? 'open the file'
+							: 'show the file',
+				),
+			),
 		)
 	return (
 		<div className="outputs-panel" data-outputs-preview={file.path}>
@@ -237,6 +250,18 @@ export function OutputsPanel({
 						<Button type="button" size="xs" variant="ghost-muted" onClick={() => open('browser')}>
 							<AppWindowIcon aria-hidden="true" />
 							Open in browser
+						</Button>
+					)}
+					{mayOpenWithSystem(file.path) && (
+						<Button
+							type="button"
+							size="xs"
+							variant="ghost-muted"
+							title="Open with the app for this kind of file"
+							onClick={() => open('system')}
+						>
+							<ExternalLink aria-hidden="true" />
+							Open in app
 						</Button>
 					)}
 					<Button
@@ -288,7 +313,13 @@ export function OutputsPanel({
 						{load.message}
 					</p>
 				) : (
-					<OutputPreview file={file} content={load.content} dark={dark} />
+					<OutputPreview
+						file={file}
+						content={load.content}
+						dark={dark}
+						sessionId={sessionId}
+						read={api.readSessionOutput}
+					/>
 				)}
 			</div>
 		</div>

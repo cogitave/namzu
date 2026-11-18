@@ -2,7 +2,14 @@ import type { AcpSessionUpdate } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 import { outputCardKind } from '../shared/output-files.js'
 import { type ThreadState, applyEvent, emptyThread } from '../shared/projection.js'
-import { outputAddress, outputFiles, outputToOpen, previewKind } from './outputs-model.js'
+import {
+	type OutputFile,
+	outputAddress,
+	outputFiles,
+	outputForLink,
+	outputToOpen,
+	previewKind,
+} from './outputs-model.js'
 
 function turn(thread: ThreadState, prompt: string): ThreadState {
 	return applyEvent(applyEvent(thread, { kind: 'prompt', sessionId: 's', prompt, at: 1000 }), {
@@ -151,5 +158,36 @@ describe('files a command made', () => {
 		const chart = list.find((item) => item.name === 'chart.png')
 		expect(chart).toMatchObject({ made: true, cardKind: 'image', created: true })
 		expect(list.find((item) => item.name === 'index.html')?.made).toBeUndefined()
+	})
+})
+
+describe('a link in a reply to a document the conversation wrote', () => {
+	const entry = (path: string): OutputFile => ({
+		path,
+		name: path.split('/').pop() ?? path,
+		folder: '',
+		kind: previewKind(path),
+		turn: 1,
+		version: 1,
+		created: true,
+		cardKind: outputCardKind(path),
+	})
+	const outputs = [
+		entry('/work/docs/Kickoff.md'),
+		entry('/work/src/a.ts'),
+		entry('/work/page.html'),
+	]
+	it('finds the document from the folder the link is written from', () => {
+		expect(outputForLink(outputs, 'docs/Kickoff.md')?.path).toBe('/work/docs/Kickoff.md')
+		expect(outputForLink(outputs, './docs/Kickoff.md')?.path).toBe('/work/docs/Kickoff.md')
+		expect(outputForLink(outputs, '/work/docs/Kickoff.md')?.path).toBe('/work/docs/Kickoff.md')
+		expect(outputForLink(outputs, 'page.html')?.path).toBe('/work/page.html')
+	})
+	it('does not match a part of a name, source code, or a file nobody wrote', () => {
+		expect(outputForLink(outputs, 'Kickoff.md')?.path).toBe('/work/docs/Kickoff.md')
+		expect(outputForLink(outputs, 'off.md')).toBeUndefined()
+		expect(outputForLink(outputs, 'src/a.ts')).toBeUndefined()
+		expect(outputForLink(outputs, 'other.md')).toBeUndefined()
+		expect(outputForLink(outputs, '')).toBeUndefined()
 	})
 })

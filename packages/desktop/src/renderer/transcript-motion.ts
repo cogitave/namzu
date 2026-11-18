@@ -6,6 +6,7 @@ import { toolTranscriptPresentation } from './tool-transcript-presentation.js'
 import {
 	actionRunLabel,
 	elapsedLabel,
+	runActionOf,
 	transcriptOutcome,
 	turnDurationMs,
 } from './transcript-layout.js'
@@ -247,15 +248,7 @@ export function foldParts(
 			if (entry.turn !== turn || entry.kind !== 'tool' || isTaskEntry(thread, entry)) return []
 			const presentation = toolTranscriptPresentation(thread, entry.id)
 			if (!presentation || presentation.state === 'declined') return []
-			return [
-				{
-					kind: presentation.kind,
-					subject: presentation.file?.path,
-					state: presentation.state,
-					created: presentation.operation === 'created',
-					background: presentation.shell?.background === true,
-				},
-			]
+			return [runActionOf(presentation)]
 		})
 		const text = actions.length ? actionRunLabel(actions, false) : ''
 		if (text) {

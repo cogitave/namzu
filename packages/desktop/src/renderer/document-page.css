@@ -1,0 +1,96 @@
+/* A Markdown document drawn as a page in the Outputs pane. Serif is for the page's headings only. */
+.document-page {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+.document-page-bar {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	padding: 4px 0;
+	background: var(--background);
+}
+.document-page-sheet {
+	width: 100%;
+	/* A line of about seventy letters reads easily; the sheet never grows past it. */
+	max-width: 46rem;
+	box-sizing: border-box;
+	padding: 8px 24px 48px;
+}
+.document-page-sheet .document-markdown {
+	font-size: var(--text-reading);
+	line-height: var(--leading-reading);
+}
+.document-page-sheet .document-markdown h1,
+.document-page-sheet .document-markdown h2,
+.document-page-sheet .document-markdown h3,
+.document-page-sheet .document-markdown h4 {
+	font-family: var(--font-document);
+	font-weight: 600;
+	scroll-margin-top: 2.5rem;
+	text-wrap: balance;
+}
+.document-page-sheet .document-markdown > h1:first-child {
+	margin-top: 0.4em;
+}
+.document-page-sheet .document-markdown ul,
+.document-page-sheet .document-markdown ol {
+	padding-inline-start: 1.5rem;
+}
+.document-page-sheet .document-markdown li > input[type="checkbox"] {
+	margin-inline-end: 0.4em;
+}
+/* A wide table scrolls inside its own frame, with the bar showing, never the whole page. */
+.document-page-sheet .table-scroll {
+	max-width: 100%;
+	overflow-x: auto;
+	scrollbar-width: thin;
+	scrollbar-color: var(--muted-foreground) transparent;
+}
+.document-page-sheet .document-image {
+	max-width: 100%;
+	height: auto;
+}
+
+.document-outline-popup {
+	width: 18rem;
+	max-width: calc(100vw - 2rem);
+}
+.document-outline {
+	max-height: 60vh;
+	overflow-y: auto;
+	width: 100%;
+}
+.document-outline ol {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+.document-outline-item {
+	display: block;
+	width: 100%;
+	padding-block: 5px;
+	padding-inline-end: 0.5rem;
+	border-radius: var(--radius-control);
+	color: var(--popover-foreground, var(--foreground));
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	text-align: start;
+	cursor: pointer;
+	overflow-wrap: anywhere;
+}
+.document-outline-item[data-depth="0"] {
+	font-weight: 600;
+}
+.document-outline-item:hover,
+.document-outline-item:focus-visible {
+	background: var(--accent);
+	outline: none;
+}
+.document-outline-item:focus-visible {
+	box-shadow: var(--focus-ring);
+}

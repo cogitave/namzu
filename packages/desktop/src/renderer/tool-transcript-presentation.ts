@@ -16,7 +16,15 @@ export type ToolTranscriptState =
 	| 'declined'
 
 /** What an action row is about; picks its icon, its label and what a click does. */
-export type ActionKind = 'command' | 'edit' | 'read' | 'search' | 'web' | 'lookup' | 'other'
+export type ActionKind =
+	| 'command'
+	| 'edit'
+	| 'read'
+	| 'search'
+	| 'web'
+	| 'lookup'
+	| 'skill'
+	| 'other'
 
 export interface ActionFile {
 	/** The base name drawn in the row. */
@@ -50,6 +58,8 @@ export type ToolBody =
 export interface ToolTranscriptPresentation {
 	label: string
 	kind: ActionKind
+	/** The skill a skill row is about, as a person reads its name. */
+	skill?: string
 	/** Text before the file name; the row draws `lead` and then the name, so `label` is both. */
 	lead?: string
 	file?: ActionFile
@@ -666,6 +676,33 @@ function writeLead(
 }
 
 const PAL_MESSAGE_TOOL = 'send_pal_message'
+const SKILL_TOOL = 'skill'
+
+/**
+ * The skill a load call names, or undefined for the call that lists skills. A skill that came
+ * with a plugin is named `plugin__skill`; the row says the part a person knows.
+ */
+export function skillNameOf(tool: ProjectedToolCall): string | undefined {
+	if (tool.title !== SKILL_TOOL) return undefined
+	const named = tool.callView ?? tool.view
+	const label = named.kind === 'generic' ? firstLine(named.label) : ''
+	const name = /^Read skill (.+?)(?: \(continued\))?$/.exec(label)?.[1]?.trim()
+	return name ? (name.split('__').pop() ?? name) : undefined
+}
+
+function skillLabel(name: string, state: ToolTranscriptState): string {
+	const labels: Record<ToolTranscriptState, string> = {
+		waiting: `Waiting to use the ${name} skill`,
+		running: `Using the ${name} skill`,
+		completed: `Used the ${name} skill`,
+		failed: `Couldn’t use the ${name} skill`,
+		cancelled: `Cancelled the ${name} skill`,
+		interrupted: `Interrupted the ${name} skill`,
+		skipped: `Skipped the ${name} skill`,
+		declined: `Declined the ${name} skill`,
+	}
+	return labels[state]
+}
 
 /**
  * Who a message to a Pal was for. The tool authors "Message to <name>" for the call and
@@ -773,17 +810,22 @@ export function toolTranscriptPresentation(
 	const observed = observedActionLabel(tool, state)
 	const explored = exploration(tool)
 	const palName = palMessageName(tool)
+	const skill = skillNameOf(tool)
 	// What the tool reported as fields; before it finished, what the call was about.
 	const call = callFactsOf(tool)
 	const facts = tool.facts ?? call
 	const typed =
-		!palName && !observed && view.kind !== 'diff' && facts
+		!palName && !skill && !observed && view.kind !== 'diff' && facts
 			? factsRow(tool, state, facts, call)
 			: undefined
 	if (palName) {
 		// The row names the Pal and says the message reached its inbox, never that it was read.
 		label = palMessageLabel(palName, state)
 		if (state === 'completed') tooltip = 'Sent to inbox'
+		detailView = undefined
+	} else if (skill) {
+		label = skillLabel(skill, state)
+		kind = 'skill'
 		detailView = undefined
 	} else if (observed) {
 		label = observed
@@ -881,6 +923,7 @@ export function toolTranscriptPresentation(
 	return {
 		label,
 		kind,
+		...(skill ? { skill } : {}),
 		...(lead ? { lead } : {}),
 		...(file ? { file } : {}),
 		...(main !== undefined && tail ? { main } : {}),

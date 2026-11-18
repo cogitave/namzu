@@ -2432,7 +2432,7 @@ The stacks are tokens in `theme.css`. `--font-sans-app` is `"Geist"` followed by
 (`-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif`), and `--font-mono-app` is
 `"Geist Mono"` followed by `--font-mono-system` (`ui-monospace, "SF Mono", SFMono-Regular, Menlo,
 Consolas, "Liberation Mono", monospace`). `--font-sans` and `--font-mono` point at the first two, so a
-machine where a file cannot load falls back to its own fonts.
+machine where a file cannot load falls back to its own fonts. `--font-document` is the stack for the headings of a document page (`Georgia, "Iowan Old Style", "Palatino Linotype", "Times New Roman", serif`): a serif the machine already has, with no file shipped for it, used nowhere else.
 
 **Settings > Appearance > Interface font** chooses *Namzu's own* (the default) or *Your device's*. With
 the device's, the root carries `data-interface-font="system"`, `--font-sans` and `--font-mono` point at
@@ -3554,6 +3554,21 @@ The side panel has an **Outputs** tab, after Changes, that lists the files the c
 - **Buttons.** "Open in browser" (a web page only) hands the real file to the default program for web pages; "Show in folder" shows it in the file manager; copy copies its text. A failure says so in a notice.
 - **The host decides what may be read.** The renderer sends the conversation's id and a path; main reads it only if the file is inside the conversation's own work folder or is one that its turns wrote (its receipts name it), after symbolic links are resolved, never inside `.git`, with the project reader's limits (`session-output.ts`, `readSessionOutput`, `openSessionOutput`). Any other path is refused with a sentence that names no path, and the renderer never receives a `file:` path.
 - **Width.** Outputs is a reading panel (60 percent of the main area, 360 px at least); with less than that to give it lies over the conversation with **Back to conversation** and **Hide panel**, as the other panels do.
+
+### Documents as pages
+
+A Markdown file the conversation wrote opens in the Outputs pane as a page, not as source (`document-page.tsx`, `document-page.css`, `document-outline.ts`). The built-in `document` skill ([Built-in skills](skills.md#built-in-skills)) is what makes such a file from a request like "a project kickoff document for my team".
+
+- **The page.** Headings are set in a serif (the `--font-document` token: Georgia, then Iowan Old Style, Palatino, Times New Roman, then the system's serif; no file ships for it) and nothing else in the app is serif. The sheet is at most 46rem wide, so a line is about seventy letters. Lists, task lists, quotes and code are drawn as in a reply.
+- **Tables** sit in a frame that scrolls sideways with its thin bar showing, so a wide table never widens the page.
+- **Pictures** the document names by a relative path are read through the host from beside the document, with the same check as the document itself (`readSessionOutput`); a path outside the conversation's folder, a web address or a missing file leaves a small note with the picture's text. Links to other files and the web stay inert in the page.
+- **Outline.** An Outline button at the top of the page lists the document's headings, down to the fourth level, indented from the shallowest one; pressing one scrolls the page to it (smoothly unless the system asks for less motion). The list is read from the text, skipping front matter and code, and a repeated heading is told apart by its count.
+- **Copy, Open in app and the place.** The bar above the page has Copy (the file's text), Open in app (the system's program for pages and documents; not offered for source code) and Show in folder; the address line under it is the file's place, relative to the work folder when it is inside.
+- **Live.** The page is the file as it is now: when a turn writes the file again the page reads it again and keeps its scroll place.
+- **A link in the reply.** A link in a reply to a page or document the conversation wrote (written from the project's folder, with the file icon) opens the page in the Outputs pane instead of the file as source (`outputForLink`); a link to anything else opens the file as before.
+- **A skill in the activity rows.** A run that loads a skill reads "Used the document skill, wrote 1 file" (live: "Using the document skill, writing 1 file"); a skill row says "Used the X skill", and next to a skill the files a run made or changed count as one number. A skill that came with a plugin is named by the part after the double underscore. Several loads of one skill count once, and two different skills read "Used 2 skills".
+
+Not there yet: Word (`.docx`), PDF, slide and spreadsheet files are not made or drawn as pages; they wait for a decision on which libraries may be added. Editing the page, comments and sharing are not there either. A conversation with no project does not resolve file links in a reply, so there the card or the Outputs list opens the page.
 
 ### Cards under a reply
 

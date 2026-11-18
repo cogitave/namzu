@@ -30,6 +30,7 @@ import {
 	dateSeparatorLabel,
 	elapsedLabel,
 	replyClock,
+	runActionOf,
 	runDefaultOpen,
 	splitActivity,
 	stoppedWorkSummary,
@@ -283,13 +284,7 @@ function ToolRun({
 	const active = presentations.some((item) => item.state === 'running' || item.state === 'waiting')
 	const live = active || (turnLive && last)
 	const states = presentations.map((item) => item.state)
-	const actions = presentations.map((item) => ({
-		kind: item.kind,
-		subject: item.file?.path,
-		state: item.state,
-		created: item.operation === 'created',
-		background: item.shell?.background === true,
-	}))
+	const actions = presentations.map(runActionOf)
 	const attention = turnAttention(thread, entries)
 	const lookups = presentations.length > 0 && presentations.every((item) => item.kind === 'lookup')
 	const label = lookups

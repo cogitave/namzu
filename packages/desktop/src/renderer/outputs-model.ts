@@ -53,6 +53,24 @@ export function previewKind(path: string): PreviewKind {
 /** Kinds a person is shown without asking: a page or a document the turn wrote or changed. */
 export const opensByItself = (kind: PreviewKind): boolean => kind === 'html' || kind === 'markdown'
 
+/**
+ * The page or document output a link in a reply names. The link is written from the project's
+ * folder and the output's path may be the whole path, so a whole-segment ending decides. Source
+ * and other files are not found here: they keep opening as files.
+ */
+export function outputForLink(
+	outputs: readonly OutputFile[],
+	linkPath: string,
+): OutputFile | undefined {
+	const wanted = linkPath.replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\/+/, '')
+	if (!wanted) return undefined
+	return outputs.find((output) => {
+		if (!opensByItself(output.kind)) return false
+		const path = output.path.replace(/\\/g, '/')
+		return path === wanted || path.endsWith(`/${wanted}`)
+	})
+}
+
 function folderOf(path: string): string {
 	const parts = path.split(/[\\/]/).filter(Boolean)
 	parts.pop()

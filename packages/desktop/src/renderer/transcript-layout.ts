@@ -72,17 +72,29 @@ export interface RunAction {
 	state: ToolTranscriptState
 	/** The action made a file that did not exist. */
 	created?: boolean
+	/** A skill row, so the run's sentence can name it. */
+	skill?: string
 	/** A command handed to a background job: it ended its turn's wait, not its own work. */
 	background?: boolean
 }
 
-type RunCategory = ActionKind | 'create'
+type RunCategory = ActionKind | 'create' | 'write'
 
 function counted(count: number, one: string, many: (count: number) => string): string {
 	return count === 1 ? one : many(count)
 }
 
-function categoryPhrase(category: RunCategory, count: number, live: boolean): string {
+function categoryPhrase(
+	category: RunCategory,
+	count: number,
+	live: boolean,
+	skills?: ReadonlySet<string>,
+): string {
+	// One skill is named; a few are counted.
+	if (category === 'skill' && skills?.size === 1) {
+		const [name] = skills
+		return live ? `using the ${name} skill` : `used the ${name} skill`
+	}
 	const phrase: Record<
 		RunCategory,
 		[string, string, (count: number) => string, (count: number) => string]
@@ -93,6 +105,13 @@ function categoryPhrase(category: RunCategory, count: number, live: boolean): st
 			(n) => `created ${n} files`,
 			(n) => `creating ${n} files`,
 		],
+		write: [
+			'wrote 1 file',
+			'writing 1 file',
+			(n) => `wrote ${n} files`,
+			(n) => `writing ${n} files`,
+		],
+		skill: ['used a skill', 'using a skill', (n) => `used ${n} skills`, (n) => `using ${n} skills`],
 		edit: [
 			'edited a file',
 			'editing a file',
@@ -138,22 +157,43 @@ export function actionRunLabel(
 	const subjects = new Map<RunCategory, Set<string>>()
 	const counts = new Map<RunCategory, number>()
 	let declined = 0
+	const skillNames = new Set<string>()
+	const withSkill = actions.some((action) => action.kind === 'skill' && action.state !== 'declined')
 	for (const action of actions) {
 		// A declined action did not happen, so it is not counted as an edit or a command.
 		if (action.state === 'declined') {
 			declined += 1
 			continue
 		}
-		const category: RunCategory = action.kind === 'edit' && action.created ? 'create' : action.kind
-		// Files are counted once each; the other kinds count every action.
-		if ((category === 'edit' || category === 'create' || category === 'read') && action.subject) {
+		// Beside a skill, files it made and changed are one count: "wrote 1 file".
+		const category: RunCategory =
+			action.kind === 'edit'
+				? withSkill
+					? 'write'
+					: action.created
+						? 'create'
+						: 'edit'
+				: action.kind
+		if (category === 'skill' && action.skill) {
+			const names = skillNames
+			names.add(action.skill)
+			counts.set(category, names.size)
+		} else if (
+			(category === 'edit' ||
+				category === 'create' ||
+				category === 'write' ||
+				category === 'read') &&
+			action.subject
+		) {
 			const seen = subjects.get(category) ?? new Set<string>()
 			seen.add(action.subject)
 			subjects.set(category, seen)
 			counts.set(category, seen.size)
 		} else counts.set(category, (counts.get(category) ?? 0) + 1)
 	}
-	let phrases = [...counts].map(([category, count]) => categoryPhrase(category, count, live))
+	let phrases = [...counts].map(([category, count]) =>
+		categoryPhrase(category, count, live, skillNames),
+	)
 	// Many kinds of step stay one short line: the first two, then how many more. `full` lists them all.
 	if (!full && phrases.length > 3)
 		phrases = [...phrases.slice(0, 2), `and ${phrases.length - 2} more`]
@@ -505,4 +545,23 @@ export function replyClock(
 		if (knownTime(time) && (!last || time.at > last.at)) last = time
 	}
 	return last ? { at: 'turn', time: last } : undefined
+}
+
+/** What a run's summary row reads from one action's presentation. */
+export function runActionOf(presentation: {
+	kind: ActionKind
+	file?: { path: string }
+	skill?: string
+	state: ToolTranscriptState
+	operation?: string
+	shell?: { background?: boolean }
+}): RunAction {
+	return {
+		kind: presentation.kind,
+		subject: presentation.file?.path,
+		...(presentation.skill ? { skill: presentation.skill } : {}),
+		state: presentation.state,
+		created: presentation.operation === 'created',
+		background: presentation.shell?.background === true,
+	}
 }
