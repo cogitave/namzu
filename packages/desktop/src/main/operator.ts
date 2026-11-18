@@ -530,7 +530,34 @@ export class Operator {
 	private readonly archivingConversations = new Set<string>()
 	private readonly pendingConversationRemovals = new Set<string>()
 	private readonly removedConversations = new Map<string, boolean>()
-	private readonly projectFiles = new ProjectFiles()
+	/**
+	 * `respectGitignore` as the engine holds it. Asked at each listing and kept a few seconds, so a
+	 * change in Settings reaches the next listing without a request per folder. Any failure keeps
+	 * the safe answer: ignored files stay hidden.
+	 */
+	private respectGitignoreCache: { at: number; value: Promise<boolean> } | undefined
+	private respectGitignore(): Promise<boolean> {
+		const now = Date.now()
+		if (this.respectGitignoreCache && now - this.respectGitignoreCache.at < 3_000)
+			return this.respectGitignoreCache.value
+		const value = (async () => {
+			try {
+				const view = readConfigSettingsView(
+					await (await this.providerHost()).request('namzu/config/get'),
+				)
+				const state = view.settings.find((entry) => entry.path === 'respectGitignore')
+				const effective = state?.effective ?? (state?.set ? state.value : undefined)
+				return effective !== false
+			} catch {
+				return true
+			}
+		})()
+		this.respectGitignoreCache = { at: now, value }
+		return value
+	}
+	private readonly projectFiles = new ProjectFiles({
+		respectGitignore: () => this.respectGitignore(),
+	})
 	/** Archived rows last shown per project, so a restore knows which project owns the id. */
 	private readonly archivedOwners = new Map<string, string>()
 	private readonly projects = new Map<string, Project>()
@@ -1188,7 +1215,12 @@ export class Operator {
 	}
 	async setConfigSetting(path: string, value: unknown): Promise<ConfigSettingsView> {
 		const client = await this.providerHost()
-		return readConfigSettingsView(await client.request('namzu/config/set', { path, value }))
+		const view = readConfigSettingsView(await client.request('namzu/config/set', { path, value }))
+		if (path === 'respectGitignore') {
+			this.respectGitignoreCache = undefined
+			this.projectFiles.invalidate()
+		}
+		return view
 	}
 	async validateConfigSetting(path: string, value: unknown): Promise<void> {
 		const client = await this.providerHost()
