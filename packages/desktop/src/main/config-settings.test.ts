@@ -46,6 +46,38 @@ const view: ConfigSettingsView = {
 			confirmValue: 'ask',
 		},
 		{
+			path: 'permissions.defaultMode',
+			label: 'Mode',
+			description: 'x',
+			section: 'projects',
+			control: {
+				kind: 'select',
+				options: [
+					{ value: 'prompt', label: 'Prompt' },
+					{ value: 'bypass', label: 'Bypass' },
+				],
+			},
+			default: 'prompt',
+			confirm: 'Bypass runs everything.',
+			confirmValues: ['bypass'],
+		},
+		{
+			path: 'web.search',
+			label: 'Search',
+			description: 'x',
+			section: 'projects',
+			control: {
+				kind: 'select',
+				options: [
+					{ value: 'live', label: 'Live' },
+					{ value: 'off', label: 'Off' },
+				],
+			},
+			default: 'live',
+			confirm: 'Live search sends queries out.',
+			confirmValues: ['live'],
+		},
+		{
 			path: 'permissions',
 			label: 'Rules',
 			description: 'x',
@@ -139,6 +171,13 @@ describe('changing an engine setting', () => {
 			'saved',
 		)
 		expect(write).toHaveBeenCalledWith('sandbox.enabled', undefined)
+	})
+
+	it('does not ask on a clear that returns to a safe default, and asks when the default is risky', async () => {
+		const { settings, write } = build()
+		expect((await settings.change('w1', { path: 'permissions.defaultMode' })).status).toBe('saved')
+		expect(write).toHaveBeenCalledWith('permissions.defaultMode', undefined)
+		expect((await settings.change('w1', { path: 'web.search' })).status).toBe('confirm')
 	})
 
 	it('refuses a bad value before it shows a dialog', async () => {

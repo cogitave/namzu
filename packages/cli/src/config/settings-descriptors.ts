@@ -101,18 +101,18 @@ export interface SettingDescriptor {
 	readonly confirm?: string
 	/**
 	 * Which new value asks. `on` and `off` apply to a toggle, `zero` to a number where 0 removes a
-	 * cap. Absent means every change asks. Clearing a setting always asks, because the default it
-	 * returns to is not known to the one asking.
+	 * cap. Absent means every change asks. Clearing a setting asks unless a select names its risky
+	 * values and its default is none of them.
 	 */
 	readonly confirmWhen?: 'on' | 'off' | 'zero'
 	/**
 	 * For a select, the one new value that asks; choosing any other value applies at once. Clearing
-	 * still asks. Absent means every change to a select asks.
+	 * asks only when the setting's default is that value. Absent means every change to a select asks.
 	 */
 	readonly confirmValue?: string
 	/**
 	 * For a select where more than one value is the risky direction, every value that asks.
-	 * Choosing any other value applies at once. Clearing still asks.
+	 * Choosing any other value applies at once. Clearing asks only when the default is one of them.
 	 */
 	readonly confirmValues?: readonly string[]
 	/**

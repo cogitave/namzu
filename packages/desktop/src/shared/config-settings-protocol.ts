@@ -87,7 +87,7 @@ export interface ConfigSettingDescriptor {
 	confirmWhen?: 'on' | 'off' | 'zero'
 	/** For a select, the one new value that asks. Absent: every change asks. */
 	confirmValue?: string
-	/** For a select with several risky values, each one that asks. */
+	/** For a select with several risky values, each one that asks. A clear asks only if the default is one of them. */
 	confirmValues?: string[]
 	/** Another setting this one does nothing without; the page warns while it is not `is`. */
 	requires?: { path: string; is: string; note: string }

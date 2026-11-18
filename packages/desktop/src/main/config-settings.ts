@@ -20,19 +20,30 @@ function changeKey(path: string, value: unknown): string {
 }
 
 /**
- * Whether a change needs the person's yes. Clearing a setting always asks, because it puts the
- * default back and the default can be the wider one. Otherwise the descriptor says which new value
- * asks, so turning a sandbox on or a guard back on is not put behind a warning about the opposite.
+ * Whether a change needs the person's yes. Clearing a setting puts the default back, so it asks
+ * unless the descriptor names the risky values and the default is not one of them (clearing the
+ * default permission mode returns to the safe one and asks nothing). Otherwise the descriptor says
+ * which new value asks, so turning a sandbox on or a guard back on is not put behind a warning
+ * about the opposite.
  */
 function needsConfirmation(entry: ConfigSettingDescriptor, value: unknown): boolean {
 	if (!entry.confirm) return false
-	if (value === undefined) return true
+	if (value === undefined) return clearReachesRiskyDefault(entry)
 	if (entry.confirmValues !== undefined) return entry.confirmValues.includes(value as string)
 	if (entry.confirmValue !== undefined) return value === entry.confirmValue
 	if (!entry.confirmWhen) return true
 	if (entry.confirmWhen === 'zero') return value === 0
 	if (typeof value !== 'boolean') return true
 	return value === (entry.confirmWhen === 'on')
+}
+
+/** A clear asks unless the risky values are named and the plain default is none of them. */
+function clearReachesRiskyDefault(entry: ConfigSettingDescriptor): boolean {
+	const risky =
+		entry.confirmValues ?? (entry.confirmValue !== undefined ? [entry.confirmValue] : undefined)
+	if (risky === undefined || entry.defaultWhen?.length) return true
+	if (typeof entry.default !== 'string') return true
+	return risky.includes(entry.default)
 }
 
 function sameValue(a: unknown, b: unknown): boolean {
