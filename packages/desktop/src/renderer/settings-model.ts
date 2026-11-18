@@ -143,8 +143,17 @@ export interface DrawnFacts {
  * Whether the page draws the row a search entry names. Search offers a row only where it is drawn
  * (every hit lands on and focuses a row), so the page and the search both ask this one function.
  */
+/**
+ * Whether a conversation in this app can ask the person a question with choices. It cannot yet (the
+ * question tool is the terminal app's), so the Questions notification row would change nothing and
+ * is not drawn; its saved level stays for the day it can.
+ */
+export const DESKTOP_ASKS_QUESTIONS = false
+
 export function entryIsDrawn(id: string, facts: DrawnFacts): boolean {
 	switch (id) {
+		case 'notify-question':
+			return DESKTOP_ASKS_QUESTIONS
 		// Windows only: elsewhere the shell is the person's login shell and nothing is read.
 		case 'terminal-shell':
 			return (facts.shells?.length ?? 0) > 1

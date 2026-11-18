@@ -1318,3 +1318,19 @@ input.settings-config-number {
 .settings-section-note {
 	margin-bottom: 24px;
 }
+
+/* A number of seconds: a short box with its unit beside it; a refusal line goes under both. */
+.settings-seconds {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 8px;
+}
+.settings-seconds .settings-config-input {
+	width: 88px;
+}
+.settings-seconds [data-invalid] {
+	flex-basis: 100%;
+	text-align: right;
+}

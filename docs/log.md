@@ -2,6 +2,7 @@
 
 ## 2026-11-18
 
+- **Update** [Desktop](cli/desktop.md): the Notifications section does not draw *Questions* while a conversation in the app cannot ask one (the level stays saved), the long-response seconds box is short with its unit beside it, and *Response errors* says when it notifies.
 - **Update** [Desktop](cli/desktop.md#a-system-notification-when-you-are-elsewhere): Settings gets a Notifications section after Appearance, with one *On this computer* heading. *Permission requests* and *Questions* are separate levels (Off, Badge only, Banner), *Task complete* is Off or Banner with a *Long response time* in seconds (default 30, a shorter reply never notifies), *Response errors* keeps its own Off or Banner row, and *Notification sound* is System sound or None. A file saved with the four old switches loads as before (on is Banner, off is Off; a switched-off banner keeps its icon count as Badge only), and a file with none of the keys loads today's behaviour. Badge only is greyed while Draw attention is off.
 - **Update** [Desktop](cli/desktop.md#desktop-app-rows): the Quick Entry keyboard shortcut defaults to Ctrl+Alt+N. In the Windows sandbox Ctrl+Alt+Space was already held by another desktop assistant, so the box started unregistered.
 - **Update** [Desktop](cli/desktop.md#appearance-rows): a side-by-side choice (theme, text size, width, motion, the startup choice) carries no "Default ·" mark; only a drop-down list marks its default, as the reference page does. The terminal app's theme choices are spelled "colors" like the rest of the page.

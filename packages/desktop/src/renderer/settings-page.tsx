@@ -75,6 +75,7 @@ import { middleEllipsis, tildePath } from './path-display.js'
 import { SettingsConfirmDialog } from './settings-confirm-dialog.js'
 import {
 	DATA_FOLDER_NOTES,
+	DESKTOP_ASKS_QUESTIONS,
 	SETTINGS_ENTRIES,
 	SETTINGS_SEARCH_SUBTITLE,
 	SETTINGS_SECTION_APPLY_NOTE,
@@ -790,13 +791,15 @@ export function NotificationsSection({ settings }: { settings: DesktopSettingsCo
 				undefined,
 				true,
 			)}
-			{levelRow(
-				'notify-question',
-				saved?.notifyQuestion ?? 'banner',
-				(value) => void settings.change({ notifyQuestion: value as NoticeLevel }),
-				undefined,
-				true,
-			)}
+			{/* Questions: kept in the settings, drawn once a conversation in this app can ask one. */}
+			{DESKTOP_ASKS_QUESTIONS &&
+				levelRow(
+					'notify-question',
+					saved?.notifyQuestion ?? 'banner',
+					(value) => void settings.change({ notifyQuestion: value as NoticeLevel }),
+					undefined,
+					true,
+				)}
 			{levelRow(
 				'notify-task-complete',
 				saved?.notifyTaskComplete ?? 'banner',
@@ -848,7 +851,7 @@ export function SecondsInput({
 		setDraft(parsed === FINISHED_NOTICE_AFTER_SECONDS ? '' : String(parsed))
 	}
 	return (
-		<div className="settings-code-font">
+		<div className="settings-seconds">
 			<input
 				type="text"
 				inputMode="numeric"

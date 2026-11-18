@@ -730,7 +730,6 @@ describe('the code rows', () => {
 		const order = [
 			'Draw attention when a conversation needs you',
 			'Permission requests',
-			'Questions',
 			'Task complete',
 			'Long response time',
 			'Response errors',
@@ -744,6 +743,8 @@ describe('the code rows', () => {
 		expect(markup).toContain('>System sound</option>')
 		expect(markup).toContain('placeholder="30"')
 		expect(markup).not.toContain('Default:')
+		// A conversation here cannot ask a question with choices yet, so that row is not drawn.
+		expect(markup).not.toContain('>Questions<')
 	})
 
 	it('leaves the long-response time alone while Task complete is Off', () => {

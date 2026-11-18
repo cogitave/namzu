@@ -287,7 +287,7 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		section: 'notifications',
 		label: 'Response errors',
 		description:
-			'A response stopped with an error while Namzu was in the background, however long it ran.',
+			'When a response stops with an error while Namzu is in the background, however long it ran.',
 		control: { kind: 'select', options: BANNER_LEVEL_OPTIONS },
 		default: 'banner',
 		appliesWhen: 'now',
