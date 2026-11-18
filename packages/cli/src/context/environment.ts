@@ -347,10 +347,10 @@ export function environmentFactLines(
 
 /** What the desktop application does with a file a turn writes: one line, the same every turn. */
 export const DESKTOP_PREVIEW_FACT =
-	'Desktop shows the .html, .md and image files you write in its preview pane: to show a page or document, write the file and name it. Start a server only when the project has its own dev or start script and the person asked to run the app.'
+	'Desktop shows the .html, .md and image files you write in its preview pane: to show a page or document, write the file and say in a line what it is. Start a server only when the project has its own dev or start script and the person asked to run the app.'
 
 const FACTS_FRAMING =
-	'These are facts about right now. Prefer them over any date or branch you would otherwise assume.'
+	'These are facts about right now. Prefer them over any date or branch you would otherwise assume. Do not narrate them unless asked or relevant.'
 
 export function composeEnvironmentPrompt(
 	facts: EnvironmentFacts,

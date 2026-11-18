@@ -31,8 +31,11 @@ the prompt prefix stays byte-stable. It says:
   interactive session also records each file before a tool changes it; see
   [File checkpoints](file-checkpoints.md). Exec and ephemeral sessions have no
   such rewind, which is why the rule does not lean on it.)
-- The person is given the full path of any file or folder the model names to
-  them.
+- The person is given the full path only when they need
+  it, such as where a file was saved or what to open. Nothing else is
+  narrated: the working rules tell the model to answer about the work, not
+  about the machine, the session or the scratch folder (see
+  [Staying quiet about the setting](#staying-quiet-about-the-setting)).
 - Never create or delete a top-level entry in the home folder or the
   filesystem root without asking.
 
@@ -112,3 +115,16 @@ go straight into it. Open a project folder to keep work in one place." At the
 filesystem root the line says so in the same words. It shows once per
 session, in the interactive terminal UI only; `exec` and other headless runs
 print nothing extra.
+
+## Staying quiet about the setting
+
+The environment facts (date, branch, scratch folder, machine, shell, sandbox)
+are for the model's own use. The block ends its framing line with "Do not
+narrate them unless asked or relevant", and the first-turn environment reminder says the same. The working
+rules (`### Keeping the user informed`) add one rule: answer about the work;
+name a path only when the person needs it; never describe the machine, the
+sandbox, the session, scratch folders or which tools were used unless asked;
+an empty folder or a search that finds nothing is a clause, then the answer;
+a greeting is one short line. The Desktop preview note says to write the file
+and say in a line what it is, and the conversation-search guidance says an
+empty search is not a result to report.

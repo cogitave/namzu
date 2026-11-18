@@ -59,3 +59,20 @@ describe('the environment block opens with its framing line', () => {
 		expect(composeEnvironmentPrompt(facts as never, { stable: true })).not.toContain(FRAMING)
 	})
 })
+
+describe('the environment block is background, not something to recite', () => {
+	it('says so in the block and in the first-turn reminder', async () => {
+		const { environmentReminders } = await import('../../reminders/environment.js')
+		const facts = { today: '2026-10-27', isRepository: true, branch: 'main', cwd: '/w' }
+		expect(composeEnvironmentPrompt(facts as never)).toContain(
+			'Do not narrate them unless asked or relevant',
+		)
+		expect(environmentReminders({ messages: [], facts: facts as never })[0]).toContain(
+			'Do not narrate them unless asked or relevant',
+		)
+	})
+
+	it('tells the working rules to answer about the work and keep the setting quiet', () => {
+		expect(NAMZU_WORKING_DOCTRINE).toContain('Answer about the work, not about the setting.')
+	})
+})

@@ -3581,7 +3581,7 @@ Each reply that made a result ends with a group of cards under its text, caption
 - **Host calls.** `describeSessionOutputs(sessionId, paths)` answers size and a one-line start for files the conversation owns (anything else reads as gone), `madeSessionFiles(sessionId)`, `saveSessionOutput(sessionId, path)`, and `openSessionOutput` gained the target `system`. All go through the same check as `readSessionOutput`.
 - **The pane's rows** read "Document · Markdown" in place of a bare word and show a Save a copy button on hover; the preview bar has Save a copy.
 
-The model is told so in one line of its environment facts, in a Desktop conversation only (not a Pal's): "Desktop shows the .html, .md and image files you write in its preview pane: to show a page or document, write the file and name it. Start a server only when the project has its own dev or start script and the person asked to run the app" (`DESKTOP_PREVIEW_FACT` in `packages/cli/src/context/environment.ts`).
+The model is told so in one line of its environment facts, in a Desktop conversation only (not a Pal's): "Desktop shows the .html, .md and image files you write in its preview pane: to show a page or document, write the file and say in a line what it is. Start a server only when the project has its own dev or start script and the person asked to run the app" (`DESKTOP_PREVIEW_FACT` in `packages/cli/src/context/environment.ts`).
 
 ## One band at the top
 
