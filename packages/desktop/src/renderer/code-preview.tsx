@@ -10,8 +10,7 @@ export function total(files: File[]): number {
     if (!file.path.endsWith('.md')) lines += file.added + 1
   }
   return lines
-}
-`
+}`
 
 const LANGUAGE = 'typescript'
 

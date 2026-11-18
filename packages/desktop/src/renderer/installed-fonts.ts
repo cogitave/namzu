@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useSyncExternalStore } from 'react'
 import { isSafeFontName } from '../shared/settings-catalogue.js'
 
 /**
@@ -48,21 +48,62 @@ export async function listInstalledFonts(view: FontWindow | undefined): Promise<
 	return cached
 }
 
-/** The list, loaded when the person asks for it (the engine needs that click). */
-export function useInstalledFonts(): [InstalledFontsState, () => void] {
-	const view = typeof window === 'undefined' ? undefined : (window as FontWindow)
-	const [state, setState] = useState<InstalledFontsState>(() =>
-		cached
-			? { status: 'ready', families: cached }
-			: canListInstalledFonts(view)
-				? { status: 'idle' }
-				: { status: 'unavailable' },
+const IDLE: InstalledFontsState = { status: 'idle' }
+const UNAVAILABLE: InstalledFontsState = { status: 'unavailable' }
+
+// One list for the whole window: loading it in one font row fills every row, and a failure shows in all.
+let shared: InstalledFontsState | undefined
+const listeners = new Set<() => void>()
+
+function windowView(): FontWindow | undefined {
+	return typeof window === 'undefined' ? undefined : (window as FontWindow)
+}
+
+export function getInstalledFontsState(
+	view: FontWindow | undefined = windowView(),
+): InstalledFontsState {
+	if (shared) return shared
+	if (cached) {
+		shared = { status: 'ready', families: cached }
+		return shared
+	}
+	return canListInstalledFonts(view) ? IDLE : UNAVAILABLE
+}
+
+function publish(next: InstalledFontsState): void {
+	shared = next
+	for (const listener of [...listeners]) listener()
+}
+
+export function subscribeInstalledFonts(listener: () => void): () => void {
+	listeners.add(listener)
+	return () => void listeners.delete(listener)
+}
+
+/** Asks for the list (the engine needs a click for it); a second ask while one is running does nothing. */
+export function loadInstalledFonts(view: FontWindow | undefined = windowView()): void {
+	if (getInstalledFontsState(view).status === 'loading') return
+	publish({ status: 'loading' })
+	listInstalledFonts(view).then(
+		(families) => publish({ status: 'ready', families }),
+		() => publish({ status: 'failed' }),
 	)
-	const load = useCallback(() => {
-		setState({ status: 'loading' })
-		listInstalledFonts(view)
-			.then((families) => setState({ status: 'ready', families }))
-			.catch(() => setState({ status: 'failed' }))
-	}, [view])
+}
+
+/** For tests: forget the list and the state. */
+export function resetInstalledFonts(): void {
+	cached = undefined
+	shared = undefined
+	for (const listener of [...listeners]) listener()
+}
+
+/** The shared list and the call that loads it; every font row sees the same state. */
+export function useInstalledFonts(): [InstalledFontsState, () => void] {
+	const state = useSyncExternalStore(
+		subscribeInstalledFonts,
+		getInstalledFontsState,
+		() => UNAVAILABLE,
+	)
+	const load = useCallback(() => loadInstalledFonts(), [])
 	return [state, load]
 }

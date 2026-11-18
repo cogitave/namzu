@@ -766,7 +766,7 @@ export function TerminalSettings({
 				<CatalogueRow id="terminal-code-link">
 					<button
 						type="button"
-						className="settings-link"
+						className="settings-row-button"
 						onClick={() => onSection('appearance', 'code-theme-light')}
 					>
 						Open Appearance

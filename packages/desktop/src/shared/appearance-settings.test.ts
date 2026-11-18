@@ -139,3 +139,27 @@ describe('the Appearance settings', () => {
 		expect(catalogueAccepts(catalogueEntry('code-font'), 'Fira Code')).toBe(true)
 	})
 })
+
+describe('the order of the Appearance rows', () => {
+	it('lists the look first, then the code rows, then the window behaviour rows', async () => {
+		const { SETTINGS_CATALOGUE } = await import('./settings-catalogue.js')
+		const shown = SETTINGS_CATALOGUE.filter(
+			(entry) => entry.section === 'appearance' && !entry.hidden,
+		).map((entry) => entry.id)
+		expect(shown).toEqual([
+			'theme',
+			'interface-font',
+			'response-font',
+			'transcript-text-size',
+			'transcript-width',
+			'motion',
+			'code-theme-light',
+			'code-theme-dark',
+			'code-font',
+			'code-font-size',
+			'conversation-tabs',
+			'auto-dismiss-popups',
+			'virtualize-conversations',
+		])
+	})
+})

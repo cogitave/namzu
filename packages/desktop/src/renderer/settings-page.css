@@ -886,9 +886,32 @@ input.settings-config-number {
 	flex: none;
 	width: 120px;
 }
-.settings-config-items .settings-config-field {
+.settings-config-items .settings-config-field,
+.settings-config-add .settings-config-field {
 	flex: none;
 	flex-wrap: nowrap;
+}
+/* The add line of the permission rules is a row like the ones above it: two boxes where a rule's
+   name sits, and the answer and button where its answer and Remove sit, in the same widths. */
+.settings-config-add {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+}
+.settings-config-add-name {
+	display: flex;
+	flex: 1 1 0;
+	min-width: 0;
+	gap: 6px;
+}
+.settings-config-add-name .settings-config-input {
+	flex: 1 1 0;
+	width: 0;
+}
+.settings-config-items li .settings-config-field button,
+.settings-config-add .settings-config-field button {
+	min-width: 4.5rem;
 }
 /* A form's Save and Discard sit at the start under its lines, like a JSON box's. */
 .settings-config-actions {
@@ -1188,7 +1211,8 @@ input.settings-config-number {
 	align-items: center;
 	gap: 8px;
 }
-.settings-font-find {
+.settings-font-find,
+.settings-row-button {
 	flex: none;
 	padding: 0 10px;
 	border: 1px solid var(--border);
@@ -1202,7 +1226,8 @@ input.settings-config-number {
 	font-size: var(--text-small);
 	color: var(--muted-foreground);
 }
-.settings-font-find:disabled {
+.settings-font-find:disabled,
+.settings-row-button:disabled {
 	opacity: 0.5;
 	cursor: default;
 }
@@ -1250,13 +1275,4 @@ input.settings-config-number {
 .settings-code-font [data-invalid] {
 	color: var(--destructive, #c10007);
 	font-size: var(--text-caption);
-}
-.settings-link {
-	padding: 0;
-	border: 0;
-	background: none;
-	color: var(--primary);
-	font: inherit;
-	text-decoration: underline;
-	cursor: pointer;
 }
