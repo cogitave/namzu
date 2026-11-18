@@ -49,7 +49,7 @@
 .output-card:hover {
 	background: var(--accent);
 }
-.output-card:focus-within {
+.output-card:has(:focus-visible) {
 	outline: 2px solid var(--ring);
 	outline-offset: 1px;
 }
@@ -152,14 +152,14 @@ div.output-card-main {
 	transition: opacity 120ms ease-out;
 }
 .output-card:hover .output-card-actions,
-.output-card:focus-within .output-card-actions {
+.output-card:has(:focus-visible) .output-card-actions {
 	opacity: 1;
 	pointer-events: auto;
 }
 .output-card:hover .output-card-state,
 .output-card:hover .output-card-chevron,
-.output-card:focus-within .output-card-state,
-.output-card:focus-within .output-card-chevron {
+.output-card:has(:focus-visible) .output-card-state,
+.output-card:has(:focus-visible) .output-card-chevron {
 	opacity: 0;
 }
 @media (pointer: coarse), (forced-colors: active) {

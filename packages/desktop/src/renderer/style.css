@@ -651,8 +651,9 @@ pre {
 		var(--panel-tool-max)
 	);
 }
-/* The turn's totals are in the details body's Changes block while it is open. */
-.workspace[data-details-shown] .turn-result {
+/* The turn's counts are in the details body's Changes block while it is open; the line keeps its Undo, its
+   menu, its Open changes and the check status, which are per reply and live nowhere else. */
+.workspace[data-details-shown] :is(.turn-result-size, .turn-result-counts) {
 	display: none;
 }
 .topbar {

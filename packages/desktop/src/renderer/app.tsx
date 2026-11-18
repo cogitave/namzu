@@ -107,6 +107,7 @@ import { useConversationUnread } from './conversation-unread-store.js'
 import { copyPlainText } from './copy-button.js'
 import {
 	DETAILS_COLUMN_QUERY,
+	detailsColumnFits,
 	detailsToggleAction,
 	readDetailsColumn,
 	writeDetailsColumn,
@@ -1163,7 +1164,21 @@ export function App({
 		return () => media.removeEventListener('change', update)
 	}, [])
 	const [detailsColumnPref, setDetailsColumnPref] = useState(() => readDetailsColumn(localStorage))
-	const detailsColumnOn = wideWindow && detailsColumnPref && !palConversation
+	// The workspace must also have room for the column beside a reading panel (a narrow split, a wide sidebar).
+	const [workspaceRoom, setWorkspaceRoom] = useState(true)
+	useEffect(() => {
+		const node = paneRoot.current
+		if (!node || typeof ResizeObserver === 'undefined') return
+		const watch = new ResizeObserver(
+			([entry]) => entry && setWorkspaceRoom(detailsColumnFits(entry.contentRect.width)),
+		)
+		watch.observe(node)
+		return () => watch.disconnect()
+	}, [])
+	const columnCapable = wideWindow && workspaceRoom
+	// Like the toggle that closes it, the column belongs to a conversation, not a blank page or a terminal.
+	const detailsColumnOn =
+		columnCapable && detailsColumnPref && !palConversation && Boolean(sessionId) && !activeTerminal
 	// Files belong to a trusted, ready project the person opened; never a chat or a Pal's workspace.
 	const filesEnabled = Boolean(
 		project?.trusted &&
@@ -1595,7 +1610,11 @@ export function App({
 	const detailsPaneShown = detailsOpen && panelView === 'details'
 	const detailsBodyShown = detailsColumnOn || detailsPaneShown
 	const toggleDetails = () => {
-		const action = detailsToggleAction({ wide: wideWindow, pane: detailsPaneShown })
+		const action = detailsToggleAction({
+			wide: columnCapable,
+			column: detailsColumnOn,
+			pane: detailsPaneShown,
+		})
 		if (action === 'column') {
 			setDetailsColumnPref(!detailsColumnPref)
 			writeDetailsColumn(localStorage, !detailsColumnPref)
@@ -6169,7 +6188,7 @@ export function App({
 					variant="ghost-muted"
 					size="icon-sm"
 					className="conversation-header-button"
-					aria-label={detailsBodyShown ? 'Hide details' : 'Show details'}
+					aria-label="Details"
 					aria-pressed={detailsBodyShown}
 					title={detailsBodyShown ? 'Hide details' : 'Show details'}
 					data-details-toggle
@@ -7947,6 +7966,7 @@ export function App({
 									browsing={panelView === 'browse'}
 									canBrowse={filesEnabled}
 									canOutputs={outputsEnabled}
+									canDetails={!detailsColumnOn}
 									running={detailsWork.state === 'known' ? detailsWork.running : 0}
 									attention={needsAttention}
 									expanded={panelExpanded}

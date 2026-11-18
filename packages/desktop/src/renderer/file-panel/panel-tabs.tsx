@@ -102,6 +102,7 @@ export function PanelTabStrip({
 	browsing,
 	canBrowse,
 	canOutputs,
+	canDetails = true,
 	running,
 	attention,
 	expanded,
@@ -122,6 +123,8 @@ export function PanelTabStrip({
 	canBrowse: boolean
 	/** The conversation can show what it wrote, so Outputs may be added when it was closed. */
 	canOutputs?: boolean
+	/** False while the details column shows the same body, so the tab would not appear. */
+	canDetails?: boolean
 	/** Background work running now; shown on the Activity tab. */
 	running: number
 	/** Background work that needs a decision; the count turns to the warning colour. */
@@ -201,7 +204,7 @@ export function PanelTabStrip({
 	const stop = (tab: PanelTab, index: number) =>
 		sameTab(tab, shown) || (!shown && index === 0) ? 0 : -1
 	const addable: PanelTab[] = [
-		...(tabs.some((tab) => tab.kind === 'details') ? [] : [detailsTab]),
+		...(!canDetails || tabs.some((tab) => tab.kind === 'details') ? [] : [detailsTab]),
 		...(tabs.some((tab) => tab.kind === 'changes') ? [] : [changesTab]),
 		...(canOutputs && !tabs.some((tab) => tab.kind === 'outputs') ? [outputsTab] : []),
 		...(tabs.some((tab) => tab.kind === 'activity') ? [] : [activityTab]),

@@ -5,7 +5,9 @@ import { describe, expect, it } from 'vitest'
 import { ConversationDetailsBody, toolServerRows } from './conversation-details.js'
 import {
 	DETAILS_COLUMN_MIN_WINDOW,
+	DETAILS_COLUMN_MIN_WORKSPACE,
 	DETAILS_COLUMN_QUERY,
+	detailsColumnFits,
 	detailsToggleAction,
 	readDetailsColumn,
 	writeDetailsColumn,
@@ -30,13 +32,36 @@ const memory = () => {
 }
 
 describe('the details column', () => {
+	it('needs a workspace where a reading panel still leaves the conversation 360 px', () => {
+		// The panel is 60 percent of what the column leaves; the conversation keeps the other 40 percent.
+		expect((DETAILS_COLUMN_MIN_WORKSPACE - 320) * 0.4).toBe(360)
+		expect(detailsColumnFits(1219)).toBe(false)
+		expect(detailsColumnFits(1220)).toBe(true)
+	})
+
+	it("keeps a reply's Undo and menu while the details show, hiding only the counts", () => {
+		const css = readFileSync(new URL('./style.css', import.meta.url), 'utf8')
+		expect(css).toContain(
+			'.workspace[data-details-shown] :is(.turn-result-size, .turn-result-counts)',
+		)
+		expect(css).not.toMatch(/\[data-details-shown\] \.turn-result \{/)
+	})
+
+	it("shows a card's hover state for keyboard focus only, not after a press", () => {
+		const css = readFileSync(new URL('./output-card.css', import.meta.url), 'utf8')
+		expect(css).not.toContain(':focus-within')
+		expect(css).toContain('.output-card:has(:focus-visible)')
+	})
+
 	it('is a column from 1500 px wide and a pane tab below', () => {
 		expect(DETAILS_COLUMN_MIN_WINDOW).toBe(1500)
 		expect(DETAILS_COLUMN_QUERY).toBe('(min-width: 1500px)')
-		expect(detailsToggleAction({ wide: true, pane: false })).toBe('column')
-		expect(detailsToggleAction({ wide: true, pane: true })).toBe('column')
-		expect(detailsToggleAction({ wide: false, pane: false })).toBe('pane-open')
-		expect(detailsToggleAction({ wide: false, pane: true })).toBe('pane-close')
+		expect(detailsToggleAction({ wide: true, column: false, pane: false })).toBe('column')
+		expect(detailsToggleAction({ wide: true, column: true, pane: false })).toBe('column')
+		// A pane tab left open while the window grew is closed, not swapped for the column.
+		expect(detailsToggleAction({ wide: true, column: false, pane: true })).toBe('pane-close')
+		expect(detailsToggleAction({ wide: false, column: false, pane: false })).toBe('pane-open')
+		expect(detailsToggleAction({ wide: false, column: false, pane: true })).toBe('pane-close')
 	})
 
 	it('remembers whether it was open, and survives blocked storage', () => {
@@ -81,7 +106,7 @@ describe('the details column', () => {
 		expect(css).toMatch(/\.details-row \{[^}]*height: 32px/)
 		// The transcript gives up the column's width, and so does what the panel may take.
 		expect(style).toContain('.workspace[data-details-column]')
-		expect(style).toContain('.workspace[data-details-shown] .turn-result')
+		expect(style).toContain('.workspace[data-details-shown] :is(.turn-result-size')
 	})
 })
 
