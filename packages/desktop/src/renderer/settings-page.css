@@ -84,6 +84,9 @@
 	align-items: stretch;
 	gap: 12px;
 }
+.settings-row[data-child] .settings-row-copy {
+	padding-inline-start: 20px;
+}
 .settings-row-copy {
 	min-width: 0;
 }

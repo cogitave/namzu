@@ -9,6 +9,7 @@ import {
 	BrowserWindow,
 	Menu,
 	Notification,
+	Tray,
 	WebContentsView,
 	app,
 	clipboard,
@@ -26,6 +27,7 @@ import { type BrowserPaneRequest, readBrowserRequest } from '../shared/browser-p
 import type { CommitRequestView } from '../shared/commit-protocol.js'
 import { UNAVAILABLE_ENGINE_VIEW } from '../shared/engine-delivery-protocol.js'
 import { readEngineUpdateRequest } from '../shared/engine-update-protocol.js'
+import { type OsState, trayName } from '../shared/os-state.js'
 import type {
 	PalPermissionChange,
 	PalSubscriptionCreate,
@@ -45,7 +47,7 @@ import type {
 	WindowAppearance,
 	WorkspaceAction,
 } from '../shared/protocol.js'
-import type { DataFolderKind, DesktopInfo } from '../shared/settings-protocol.js'
+import type { DataFolderKind, DesktopInfo, DesktopSettings } from '../shared/settings-protocol.js'
 import { SHELL_CHOICE_LABELS, availableShells, isTerminalTabId } from '../shared/terminal-tabs.js'
 import {
 	type TerminalEvent,
@@ -99,7 +101,9 @@ import {
 } from './local-listening.js'
 import { LocalSpeechRouting } from './local-speech-routing.js'
 import { LocalSpeechService } from './local-speech.js'
+import { applyLoginItem, loginItemAvailable, readLoginItem } from './login-item.js'
 import { installMediaPermissions } from './media-permissions.js'
+import { MeteredWatch, windowsCostQuery } from './metered-network.js'
 import { createNewProject } from './new-project.js'
 import { OpenIn, systemOpenInHost } from './open-in.js'
 import { Operator } from './operator.js'
@@ -137,6 +141,7 @@ import { readRuntimeVersions } from './runtime-versions.js'
 import { SettingsConfirmation } from './settings-confirmation.js'
 import { runShutdown } from './shutdown-sequence.js'
 import { SidebarSnapshotStore } from './sidebar-snapshot-store.js'
+import { SleepGuard } from './sleep-guard.js'
 import { installStreamRendererPolicy, withStreamRendererPort } from './stream-renderer-policy.js'
 import { SupersededConversationSettingsError } from './superseded-settings.js'
 import { SystemNotices } from './system-notices.js'
@@ -145,6 +150,7 @@ import { TerminalHostClient } from './terminal-client.js'
 import { engineHost, findProgram, shellEnvironment } from './terminal-env.js'
 import { TerminalHub } from './terminal-hub.js'
 import { TerminalTabStore } from './terminal-tab-store.js'
+import { TrayController } from './tray-controller.js'
 import { TrustedFolderStore, createFolderTrustGuard } from './trusted-folders.js'
 import { clearInstalledPending } from './updater-cache.js'
 import {
@@ -394,7 +400,7 @@ function finishWindowClose(id: string, window: BrowserWindow): void {
 		.find(
 			([otherId, candidate]) => otherId !== id && !pending.has(otherId) && !candidate.isDestroyed(),
 		)
-	if (target || process.platform === 'darwin') {
+	if (target || staysRunningWithoutWindows()) {
 		workspace.closeWindow(id, target?.[0])
 		windows.remove(id)
 		discardAbortedWindows()
@@ -473,7 +479,7 @@ const engineDelivery = createEngineDelivery({
 			return () => clearInterval(timer)
 		},
 	},
-	enabled: () => settingsStore.get().keepEngineUpToDate,
+	enabled: () => settingsStore.get().keepEngineUpToDate && !downloadsPaused(),
 	nodeFlags: () => desktopRuntimeNodeFlags(),
 	publish: (view) => {
 		sendToWindow(undefined, 'namzu:engine-delivery', view)
@@ -703,6 +709,12 @@ const operator = new Operator(
 					discardAbortedWindows()
 				})
 				.catch((error) => diagnostics.record('ipc_failed', { operation: 'closeTerminals', error }))
+		if (
+			event.kind === 'state' ||
+			event.kind === 'turn-closed' ||
+			event.kind === 'conversation-removed'
+		)
+			sleepGuard.update()
 		try {
 			working.pill?.observe(event)
 		} catch (error) {
@@ -804,6 +816,7 @@ const settingsStore = new DesktopSettingsStore({
 		if (settings.autoDownloadUpdates !== previous.autoDownloadUpdates) updates.autoDownloadChanged()
 		if (settings.keepEngineUpToDate !== previous.keepEngineUpToDate)
 			engineDelivery?.settingChanged()
+		osRowsChanged(settings, previous)
 		if (settings.retrustOnConfigChange && !previous.retrustOnConfigChange)
 			void operator
 				.rebaselineTrusted()
@@ -818,6 +831,139 @@ const settingsStore = new DesktopSettingsStore({
 })
 // Read before the app is ready, the only time Electron lets the graphics card be turned off.
 if (!settingsStore.get().hardwareAcceleration) app.disableHardwareAcceleration()
+// The rows the operating system applies: start at sign-in, the tray, staying awake, metered data.
+const loginItemApi = {
+	get: () => app.getLoginItemSettings(),
+	set: (value: { openAtLogin: boolean }) => app.setLoginItemSettings(value),
+}
+const canStartAtLogin = loginItemAvailable(process.platform, app.isPackaged)
+let loginItemProblem: string | undefined
+const trayController = new TrayController({
+	// The installed app has no loose icon file; the system can hand back the executable's own.
+	loadIcon: async () => {
+		if (windowIcon) {
+			const image = nativeImage.createFromPath(windowIcon)
+			if (!image.isEmpty()) return image
+		}
+		const image = await app.getFileIcon(process.execPath, { size: 'small' })
+		return image.isEmpty() ? undefined : image
+	},
+	makeTray: (icon) => new Tray(icon as Electron.NativeImage),
+	menu: (template) => Menu.buildFromTemplate(template),
+	open: () => showMainWindow(),
+	quit: () => app.quit(),
+	record: (error) => diagnostics.record('ipc_failed', { operation: 'tray', error }),
+})
+/** The app stays running with no window: always on macOS, and on the others while the tray icon is up. */
+const staysRunningWithoutWindows = () => process.platform === 'darwin' || trayController.shown()
+const sleepGuard = new SleepGuard(
+	{
+		start: (type) => powerSaveBlocker.start(type),
+		stop: (id) => powerSaveBlocker.stop(id),
+		isStarted: (id) => powerSaveBlocker.isStarted(id),
+	},
+	{
+		onBattery: () => powerMonitor.isOnBatteryPower(),
+		subscribe: (listener) => {
+			powerMonitor.on('on-battery', listener)
+			powerMonitor.on('on-ac', listener)
+			return () => {
+				powerMonitor.off('on-battery', listener)
+				powerMonitor.off('on-ac', listener)
+			}
+		},
+	},
+	() => operator.runningReplies(),
+	() => {
+		const settings = settingsStore.get()
+		return {
+			appOpen: settings.keepAwakeAppOpen,
+			whileWorking: settings.keepAwakeWhileWorking,
+			onBattery: settings.keepAwakeOnBattery,
+		}
+	},
+)
+const meteredWatch = new MeteredWatch({
+	...(process.platform === 'win32' ? { query: windowsCostQuery(process.env.SystemRoot) } : {}),
+	every: (ms, run) => {
+		const timer = setInterval(run, ms)
+		timer.unref()
+		return () => clearInterval(timer)
+	},
+	// A connection that stops being metered lets a waiting update start.
+	onChange: () => {
+		updates.autoDownloadChanged()
+		engineDelivery?.settingChanged()
+	},
+})
+/** Whether downloads Namzu starts by itself wait now: the person asked, and the connection is metered. */
+function downloadsPaused(): boolean {
+	return settingsStore.get().pauseOnMetered && meteredWatch.state() === 'metered'
+}
+function osRowsChanged(settings: DesktopSettings, previous: DesktopSettings): void {
+	if (settings.runOnStartup !== previous.runOnStartup && canStartAtLogin) {
+		const result = applyLoginItem(loginItemApi, settings.runOnStartup, process.platform)
+		loginItemProblem = result.problem
+		// The system's answer is the truth: a refused change puts the saved wish back.
+		if (result.enabled !== settings.runOnStartup)
+			queueMicrotask(() => {
+				try {
+					settingsStore.set({ runOnStartup: result.enabled })
+				} catch (error) {
+					diagnostics.record('ipc_failed', { operation: 'loginItem', error })
+				}
+			})
+	}
+	if (settings.systemTray !== previous.systemTray)
+		void trayController.sync(settings.systemTray, trayName(process.platform))
+	sleepGuard.update()
+	if (settings.pauseOnMetered !== previous.pauseOnMetered) {
+		updates.autoDownloadChanged()
+		engineDelivery?.settingChanged()
+	}
+}
+/** A window to the front: the first open one, or a new one from the saved layout when none is open. */
+function showMainWindow(): void {
+	const target = windows
+		.entries()
+		.map(([, window]) => window)
+		.find((window) => !window.isDestroyed())
+	if (target) {
+		if (target.isMinimized()) target.restore()
+		target.show()
+		target.focus()
+		return
+	}
+	const saved = workspace.snapshot().windows[0]
+	void createWindow(saved?.id, saved?.bounds).catch((error) =>
+		diagnostics.record('startup_failed', { error }),
+	)
+}
+async function osState(): Promise<OsState> {
+	await trayController.settled()
+	// The system's answer is the truth: a startup entry changed outside Namzu is adopted as the wish.
+	const startupNow = canStartAtLogin ? readLoginItem(loginItemApi) : undefined
+	if (startupNow !== undefined && startupNow !== settingsStore.get().runOnStartup)
+		try {
+			settingsStore.set({ runOnStartup: startupNow })
+		} catch (error) {
+			diagnostics.record('ipc_failed', { operation: 'loginItem', error })
+		}
+	const tray = trayController.problem()
+	return {
+		platform: process.platform,
+		...(canStartAtLogin
+			? {
+					loginItem: {
+						enabled: readLoginItem(loginItemApi),
+						...(loginItemProblem ? { problem: loginItemProblem } : {}),
+					},
+				}
+			: {}),
+		tray: { shown: trayController.shown(), ...(tray ? { problem: tray } : {}) },
+		...(meteredWatch.available() ? { metered: { state: meteredWatch.state() } } : {}),
+	}
+}
 const voiceInput = new VoiceInputManager({
 	conversation: {
 		activity: (sessionId) => operator.voiceActivity(sessionId),
@@ -1188,6 +1334,7 @@ function register(): void {
 	})
 	handle('terminals', () => terminals.list())
 	handle('terminalAvailability', (projectId: string) => terminals.availability(projectId))
+	handle('osState', () => osState())
 	handle('terminalShells', () =>
 		availableShells(shellEnvironment()).map((value) => ({
 			value,
@@ -2016,9 +2163,10 @@ async function createWindow(
 	window.on('close', (event) => {
 		if (stopped || quitting || allowNativeClose.delete(windowId)) return
 		event.preventDefault()
-		// The last window ends the app on Windows and Linux; ask first when a reply would be cut off.
+		// The last window ends the app on Windows and Linux unless the tray keeps it running; ask first
+		// when a reply would be cut off.
 		if (
-			process.platform !== 'darwin' &&
+			!staysRunningWithoutWindows() &&
 			windows.entries().length <= 1 &&
 			!replyGuard.approved &&
 			operator.runningReplies() > 0
@@ -2080,15 +2228,10 @@ async function createWindow(
 	}
 }
 app.on('activate', () => {
-	if (!windows.entries().length) {
-		const saved = workspace.snapshot().windows[0]
-		void createWindow(saved?.id, saved?.bounds).catch((error) =>
-			diagnostics.record('startup_failed', { error }),
-		)
-	}
+	if (!windows.entries().length) showMainWindow()
 })
 app.on('window-all-closed', () => {
-	if (process.platform !== 'darwin') app.quit()
+	if (!staysRunningWithoutWindows()) app.quit()
 })
 const updateFeed = updateFeedFromEnv(process.env, { packaged: app.isPackaged })
 function bakedUpdateConfig(): string | undefined {
@@ -2108,7 +2251,7 @@ const updates = new UpdateController({
 	// Nothing is checked unless a feed was named (environment) or the build itself declares one.
 	enabled: appCanUpdate,
 	feed: updateFeed,
-	autoDownload: () => settingsStore.get().autoDownloadUpdates,
+	autoDownload: () => settingsStore.get().autoDownloadUpdates && !downloadsPaused(),
 	currentVersion: app.getVersion(),
 	// electron-updater leaves each installed update's installer (about 500 MB) in its cache.
 	onUpToDate: () => {
@@ -2271,6 +2414,9 @@ function shutdown(): Promise<void> {
 	recordOnce('quit_requested')
 	if (shutdownRun) return shutdownRun
 	quitting = true
+	sleepGuard.close()
+	meteredWatch.close()
+	trayController.dispose()
 	working.pill?.close()
 	sidebarSnapshot.flush()
 	// A check that runs is stopped and the engine log reaches its file; a stuck one is not waited for.
@@ -2347,6 +2493,15 @@ void app
 			page: () => page,
 			accepted: () => settingsStore.get().voiceInputAccepted,
 		})
+		// What the system says wins over what was saved: a startup entry removed in the system's own
+		// list is not turned back on, and the saved wish follows it.
+		if (canStartAtLogin) {
+			const actual = readLoginItem(loginItemApi)
+			if (actual !== settingsStore.get().runOnStartup) settingsStore.set({ runOnStartup: actual })
+		}
+		void trayController.sync(settingsStore.get().systemTray, trayName(process.platform))
+		sleepGuard.start()
+		meteredWatch.start()
 		// Listening never survives the computer going to sleep or being locked.
 		powerMonitor.on('suspend', () => void voiceInput.stopAll('sleep'))
 		powerMonitor.on('lock-screen', () => void voiceInput.stopAll('sleep'))

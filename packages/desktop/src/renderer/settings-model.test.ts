@@ -39,7 +39,11 @@ describe('search', () => {
 	it('finds a setting by its label, a description word or a keyword', () => {
 		expect(searchSettings('theme')[0]?.id).toBe('theme')
 		expect(searchSettings('dark').map((e) => e.id)).toContain('theme')
-		expect(searchSettings('startup').map((e) => e.id)).toEqual(['startup'])
+		expect(
+			searchSettings('startup')
+				.map((e) => e.id)
+				.sort(),
+		).toEqual(['run-on-startup', 'startup'])
 		expect(searchSettings('restore').map((e) => e.id)).toContain('startup')
 	})
 

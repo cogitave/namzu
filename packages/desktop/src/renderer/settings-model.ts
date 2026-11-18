@@ -1,5 +1,6 @@
 import type { EngineDeliveryView } from '../shared/engine-delivery-protocol.js'
 import type { KernelNewer } from '../shared/engine-update-protocol.js'
+import type { OsState } from '../shared/os-state.js'
 import type { ProjectView } from '../shared/protocol.js'
 import { SETTINGS_CATALOGUE } from '../shared/settings-catalogue.js'
 import {
@@ -117,6 +118,8 @@ export interface DrawnFacts {
 	hasAppUpdater: boolean
 	/** This build can fetch engines. */
 	canFetchEngines: boolean
+	/** What the system says about the rows it applies; `null` with no host to ask, `undefined` until it answers. */
+	os?: OsState | null | undefined
 }
 
 /**
@@ -133,6 +136,13 @@ export function entryIsDrawn(id: string, facts: DrawnFacts): boolean {
 			return facts.shells !== null
 		case 'auto-download':
 			return facts.hasAppUpdater
+		// The rows the system applies are drawn only where it can: the answer says which.
+		case 'run-on-startup':
+			return facts.os?.loginItem !== undefined
+		case 'system-tray':
+			return facts.os !== null && facts.os !== undefined
+		case 'pause-on-metered':
+			return facts.os?.metered !== undefined
 		case 'engine-delivery':
 		case 'keep-engine':
 			return facts.canFetchEngines

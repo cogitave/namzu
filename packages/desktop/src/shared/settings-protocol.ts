@@ -80,6 +80,18 @@ export interface DesktopSettings {
 	codeFont: string
 	/** The size in px of code and terminal text; 13 is what Namzu has always drawn. */
 	codeFontSize: number
+	/** Open Namzu when the person signs in to the computer (Windows and macOS). The OS keeps the real state. */
+	runOnStartup: boolean
+	/** Keep a tray icon (menu bar on macOS) and keep running when the last window closes. */
+	systemTray: boolean
+	/** Block idle system sleep while Namzu is open. The display may still sleep. */
+	keepAwakeAppOpen: boolean
+	/** Block idle system sleep while at least one conversation is working. */
+	keepAwakeWhileWorking: boolean
+	/** Also block it while the computer runs on battery. Only read when `keepAwakeWhileWorking` is on. */
+	keepAwakeOnBattery: boolean
+	/** Wait with downloads Namzu starts by itself while the connection is metered. */
+	pauseOnMetered: boolean
 	/** The section the Settings dialog was last on; it opens there again, also after a restart. */
 	lastSettingsSection: SettingsSection
 }

@@ -67,6 +67,12 @@ it('reads a stored file entry by entry and ignores what it does not know', () =>
 		codeFont: '',
 		codeFontSize: 13,
 		virtualizeConversations: true,
+		runOnStartup: false,
+		systemTray: true,
+		keepAwakeAppOpen: false,
+		keepAwakeWhileWorking: false,
+		keepAwakeOnBattery: false,
+		pauseOnMetered: true,
 		lastSettingsSection: 'general',
 	})
 })
@@ -97,6 +103,12 @@ it('documents the defaults the spec names', () => {
 		codeFont: '',
 		codeFontSize: 13,
 		virtualizeConversations: true,
+		runOnStartup: false,
+		systemTray: true,
+		keepAwakeAppOpen: false,
+		keepAwakeWhileWorking: false,
+		keepAwakeOnBattery: false,
+		pauseOnMetered: true,
 		lastSettingsSection: 'general',
 	})
 })
@@ -163,4 +175,25 @@ it('remembers the section Settings was last on, and ignores anything that is not
 		lastSettingsSection: 'desktop',
 	})
 	expect(storedDesktopSettings({ lastSettingsSection: 'nope' }).lastSettingsSection).toBe('general')
+})
+
+it('the system rows default as documented and load as the default from a file saved before they existed', () => {
+	expect(DEFAULT_DESKTOP_SETTINGS).toMatchObject({
+		runOnStartup: false,
+		systemTray: true,
+		keepAwakeAppOpen: false,
+		keepAwakeWhileWorking: false,
+		keepAwakeOnBattery: false,
+		pauseOnMetered: true,
+	})
+	const older = storedDesktopSettings({ startup: 'home', hardwareAcceleration: false })
+	expect(older.systemTray).toBe(true)
+	expect(older.runOnStartup).toBe(false)
+	expect(older.pauseOnMetered).toBe(true)
+	expect(storedDesktopSettings({ systemTray: 'yes', keepAwakeAppOpen: 1 }).systemTray).toBe(true)
+	expect(desktopSettingsPatch({ runOnStartup: true, keepAwakeOnBattery: true })).toEqual({
+		runOnStartup: true,
+		keepAwakeOnBattery: true,
+	})
+	expect(() => desktopSettingsPatch({ systemTray: 'on' })).toThrow()
 })

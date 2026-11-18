@@ -280,6 +280,67 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		keywords: ['gpu', 'graphics', 'acceleration', 'flicker', 'blank', 'crash', 'rendering'],
 	},
 	{
+		id: 'run-on-startup',
+		key: 'runOnStartup',
+		owner: 'desktop',
+		section: 'desktop',
+		label: 'Run on startup',
+		description:
+			'Open Namzu by itself when you sign in to this computer. Available on Windows and macOS.',
+		control: toggle,
+		default: false,
+		appliesWhen: 'now',
+		appliesNote: 'Applies at once. The row shows what your system says.',
+		keywords: ['login', 'sign in', 'boot', 'autostart', 'launch', 'startup items', 'open at login'],
+	},
+	{
+		id: 'system-tray',
+		key: 'systemTray',
+		owner: 'desktop',
+		section: 'desktop',
+		label: 'System tray',
+		description:
+			'Show a Namzu icon beside the clock. Closing the window then leaves Namzu running, so conversations keep working. Choose Quit from the icon to close it. Off, closing the last window quits Namzu.',
+		control: toggle,
+		default: true,
+		appliesWhen: 'now',
+		keywords: [
+			'tray',
+			'menu bar',
+			'notification area',
+			'background',
+			'keep running',
+			'close',
+			'quit',
+		],
+	},
+	{
+		id: 'keep-awake',
+		key: 'keepAwakeAppOpen',
+		owner: 'desktop',
+		section: 'desktop',
+		label: 'Keep computer awake',
+		description:
+			'Stop the computer from going to sleep on its own while Namzu is open. The screen can still turn off, and closing a laptop lid still puts it to sleep.',
+		control: toggle,
+		default: false,
+		appliesWhen: 'now',
+		keywords: ['sleep', 'suspend', 'idle', 'power', 'awake', 'scheduled', 'caffeine'],
+	},
+	{
+		id: 'pause-on-metered',
+		key: 'pauseOnMetered',
+		owner: 'desktop',
+		section: 'desktop',
+		label: 'Pause downloads on low data',
+		description:
+			'While this connection is metered, wait with the downloads Namzu starts by itself, such as a new version of the app or its engine. Downloads you start yourself still go. Available on Windows.',
+		control: toggle,
+		default: true,
+		appliesWhen: 'now',
+		keywords: ['metered', 'data', 'cellular', 'hotspot', 'bandwidth', 'download', 'low data'],
+	},
+	{
 		id: 'voice-consent',
 		key: 'voiceInputAccepted',
 		owner: 'desktop',
@@ -290,6 +351,34 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		default: false,
 		appliesWhen: 'now',
 		hidden: true,
+	},
+
+	// Agent
+	{
+		id: 'keep-awake-working',
+		key: 'keepAwakeWhileWorking',
+		owner: 'desktop',
+		section: 'agent',
+		label: 'Keep computer awake while working',
+		description:
+			'Stop the computer from going to sleep on its own while a conversation is working. It ends when none is.',
+		control: toggle,
+		default: false,
+		appliesWhen: 'now',
+		keywords: ['sleep', 'suspend', 'idle', 'power', 'awake', 'running', 'turn'],
+	},
+	{
+		id: 'keep-awake-battery',
+		key: 'keepAwakeOnBattery',
+		owner: 'desktop',
+		section: 'agent',
+		label: 'Keep awake on battery power',
+		description:
+			'Also keep the computer awake while it runs on battery. Off, Namzu lets it sleep whenever it is unplugged.',
+		control: toggle,
+		default: false,
+		appliesWhen: 'now',
+		keywords: ['sleep', 'battery', 'unplugged', 'laptop', 'power'],
 	},
 
 	// Models

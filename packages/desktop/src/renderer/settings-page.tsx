@@ -3,6 +3,7 @@ import { Activity, Bot, KeyRound, Monitor, SquareTerminal, Volume2, Wrench } fro
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { CODE_FONT_SIZE_DEFAULT, type CodeThemeKey } from '../shared/code-themes.js'
 import { newerKernelText } from '../shared/engine-update-protocol.js'
+import { type OsState, meteredLine, trayName } from '../shared/os-state.js'
 import type { ProjectView } from '../shared/protocol.js'
 import {
 	type CatalogueEntry,
@@ -86,6 +87,7 @@ import { useHooksView } from './use-hooks-view.js'
 import type { LocalListeningControls } from './use-local-listening.js'
 import type { LocalSpeechControls } from './use-local-speech.js'
 import { useMcpServers } from './use-mcp-servers.js'
+import { useOsState } from './use-os-state.js'
 import { useProviderConnections } from './use-provider-connections.js'
 import { useUserMcpServers } from './use-user-mcp-servers.js'
 import './settings-page.css'
@@ -241,6 +243,7 @@ interface SettingsSearch {
 	shells: ShellChoice[] | null | undefined
 	config: ConfigSettingsControls
 	hasAppUpdater: boolean
+	os: OsState | null | undefined
 }
 
 function useSettingsSearch(
@@ -249,6 +252,7 @@ function useSettingsSearch(
 	projectId?: string,
 ): SettingsSearch {
 	const shells = useTerminalShells()
+	const os = useOsState(typeof window === 'undefined' ? undefined : window.namzu)
 	const config = useConfigSettings(
 		typeof window === 'undefined' ? undefined : window.namzu,
 		true,
@@ -261,6 +265,7 @@ function useSettingsSearch(
 		shells,
 		hasAppUpdater,
 		canFetchEngines: delivery !== undefined,
+		os,
 	}
 	const results = searchSettings(
 		query,
@@ -268,7 +273,7 @@ function useSettingsSearch(
 			entryIsDrawn(entry.id, facts),
 		),
 	)
-	return { query, results, shells, config, hasAppUpdater }
+	return { query, results, shells, config, hasAppUpdater, os }
 }
 
 /** The page's content on its own: the search is typed elsewhere and passed in as `query`. */
@@ -281,7 +286,7 @@ function SettingsContent(
 	props: SettingsPageProps & { search: SettingsSearch; onQuery?: (query: string) => void },
 ) {
 	const { section, focusId, search } = props
-	const { query, results, shells, config, hasAppUpdater } = search
+	const { query, results, shells, config, hasAppUpdater, os } = search
 	const searching = query.trim().length > 0
 	const page = useRef<HTMLElement>(null)
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a new target or section is the trigger.
@@ -399,7 +404,13 @@ function SettingsContent(
 						</ul>
 					</section>
 				) : (
-					<SectionBody {...props} shells={shells} hasAppUpdater={hasAppUpdater} config={config} />
+					<SectionBody
+						{...props}
+						shells={shells}
+						hasAppUpdater={hasAppUpdater}
+						config={config}
+						os={os}
+					/>
 				)}
 			</div>
 		</section>
@@ -505,6 +516,7 @@ interface SectionProps extends SettingsPageProps {
 	shells: ShellChoice[] | null | undefined
 	hasAppUpdater: boolean
 	config: ConfigSettingsControls
+	os: OsState | null | undefined
 }
 
 /** The page heading above is the section's name, so the body does not repeat it. */
@@ -513,6 +525,7 @@ function SectionBody(props: SectionProps) {
 		<div className="settings-section" data-section={props.section}>
 			{props.section === 'general' && <GeneralSection {...props} />}
 			{props.section === 'models' && <ModelsContainer />}
+			{props.section === 'agent' && <AgentSleepRows {...props} />}
 			{props.section === 'tools' && <McpServersContainer {...props} />}
 			{props.section === 'tools' && <HooksContainer {...props} />}
 			{props.section === 'projects' && <ProjectsSection {...props} />}
@@ -617,12 +630,23 @@ function CatalogueRow({
 	stacked,
 	below,
 	children,
-}: { id: string; stacked?: boolean; below?: ReactNode; children?: ReactNode }) {
+	label,
+	child,
+}: {
+	id: string
+	stacked?: boolean
+	below?: ReactNode
+	children?: ReactNode
+	/** The name this system calls it, when it differs from the catalogue's. */
+	label?: string
+	child?: boolean
+}) {
 	const entry = catalogueEntry(id)
 	return (
 		<Row
 			id={id}
-			label={entry.label}
+			label={label ?? entry.label}
+			child={child}
 			description={entry.description}
 			meta={catalogueMeta(entry)}
 			stacked={stacked}
@@ -836,17 +860,108 @@ export function CodeFontInput({
 	)
 }
 
-/** How the app itself runs on this computer, as against what happens inside a conversation. */
-function DesktopSection({ settings }: SectionProps) {
+/** A quiet line under a row: what the system did or said about it. */
+function RowLine({ children }: { children: ReactNode }) {
 	return (
-		<CatalogueRow id="hardware-acceleration">
-			<Switch
-				label="Use the graphics card"
-				checked={settings.settings?.hardwareAcceleration ?? true}
-				disabled={!settings.settings}
-				onChange={(value) => void settings.change({ hardwareAcceleration: value })}
-			/>
-		</CatalogueRow>
+		<p className="settings-note" aria-live="polite">
+			{children}
+		</p>
+	)
+}
+
+/** How the app itself runs on this computer, as against what happens inside a conversation. */
+export function DesktopSection({ settings, os }: Pick<SectionProps, 'settings' | 'os'>) {
+	const saved = settings.settings
+	const off = !saved
+	return (
+		<>
+			<CatalogueRow id="hardware-acceleration">
+				<Switch
+					label="Use the graphics card"
+					checked={saved?.hardwareAcceleration ?? true}
+					disabled={off}
+					onChange={(value) => void settings.change({ hardwareAcceleration: value })}
+				/>
+			</CatalogueRow>
+			{os?.loginItem && (
+				<CatalogueRow
+					id="run-on-startup"
+					below={os.loginItem.problem ? <RowLine>{os.loginItem.problem}</RowLine> : undefined}
+				>
+					<Switch
+						label="Run on startup"
+						checked={os.loginItem.enabled}
+						disabled={off}
+						onChange={(value) => void settings.change({ runOnStartup: value })}
+					/>
+				</CatalogueRow>
+			)}
+			{os && (
+				<CatalogueRow
+					id="system-tray"
+					label={trayName(os.platform)}
+					below={
+						os.tray.problem && saved?.systemTray ? <RowLine>{os.tray.problem}</RowLine> : undefined
+					}
+				>
+					<Switch
+						label={trayName(os.platform)}
+						checked={saved?.systemTray ?? true}
+						disabled={off}
+						onChange={(value) => void settings.change({ systemTray: value })}
+					/>
+				</CatalogueRow>
+			)}
+			<CatalogueRow id="keep-awake">
+				<Switch
+					label="Keep computer awake"
+					checked={saved?.keepAwakeAppOpen ?? false}
+					disabled={off}
+					onChange={(value) => void settings.change({ keepAwakeAppOpen: value })}
+				/>
+			</CatalogueRow>
+			{os?.metered && (
+				<CatalogueRow
+					id="pause-on-metered"
+					below={<RowLine>{meteredLine(os.metered.state)}</RowLine>}
+				>
+					<Switch
+						label="Pause downloads on low data"
+						checked={saved?.pauseOnMetered ?? true}
+						disabled={off}
+						onChange={(value) => void settings.change({ pauseOnMetered: value })}
+					/>
+				</CatalogueRow>
+			)}
+		</>
+	)
+}
+
+/**
+ * Staying awake while a conversation works lives with the agent, not with the app: it follows the
+ * work, and the app's own "keep computer awake" (Desktop app) follows the window being open.
+ */
+export function AgentSleepRows({ settings }: Pick<SectionProps, 'settings'>) {
+	const saved = settings.settings
+	return (
+		<>
+			<CatalogueRow id="keep-awake-working">
+				<Switch
+					label="Keep computer awake while working"
+					checked={saved?.keepAwakeWhileWorking ?? false}
+					disabled={!saved}
+					onChange={(value) => void settings.change({ keepAwakeWhileWorking: value })}
+				/>
+			</CatalogueRow>
+			<CatalogueRow id="keep-awake-battery" child>
+				<Switch
+					label="Keep awake on battery power"
+					checked={saved?.keepAwakeOnBattery ?? false}
+					disabled={!saved || !saved.keepAwakeWhileWorking}
+					onChange={(value) => void settings.change({ keepAwakeOnBattery: value })}
+				/>
+			</CatalogueRow>
+		</>
 	)
 }
 

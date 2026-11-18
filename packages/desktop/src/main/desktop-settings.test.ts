@@ -43,6 +43,12 @@ it('starts on the documented defaults without writing anything', () => {
 		codeFont: '',
 		codeFontSize: 13,
 		virtualizeConversations: true,
+		runOnStartup: false,
+		systemTray: true,
+		keepAwakeAppOpen: false,
+		keepAwakeWhileWorking: false,
+		keepAwakeOnBattery: false,
+		pauseOnMetered: true,
 		lastSettingsSection: 'general',
 	})
 	expect(onError).not.toHaveBeenCalled()
@@ -80,6 +86,12 @@ it('validates a change, saves it atomically, and survives a restart', () => {
 		codeFont: '',
 		codeFontSize: 13,
 		virtualizeConversations: true,
+		runOnStartup: false,
+		systemTray: true,
+		keepAwakeAppOpen: false,
+		keepAwakeWhileWorking: false,
+		keepAwakeOnBattery: false,
+		pauseOnMetered: true,
 		lastSettingsSection: 'general',
 	})
 	expect(changes).toHaveLength(1)
@@ -109,6 +121,12 @@ it('validates a change, saves it atomically, and survives a restart', () => {
 		codeFont: '',
 		codeFontSize: 13,
 		virtualizeConversations: true,
+		runOnStartup: false,
+		systemTray: true,
+		keepAwakeAppOpen: false,
+		keepAwakeWhileWorking: false,
+		keepAwakeOnBattery: false,
+		pauseOnMetered: true,
 		lastSettingsSection: 'general',
 	})
 	expect(new DesktopSettingsStore({ file }).get()).toMatchObject({

@@ -1301,6 +1301,8 @@ export interface DesktopApi {
 	terminals?(): Promise<TerminalTabView[]>
 	terminalAvailability?(projectId: string): Promise<TerminalAvailability>
 	/** The shells a plain terminal tab can open on this machine, for the setting. */
+	/** What the system says about the rows it applies (start at sign-in, tray, metered connection). */
+	osState?(): Promise<import('./os-state.js').OsState>
 	terminalShells?(): Promise<TerminalShellChoice[]>
 	/** Start a terminal in a project and open it as a tab in the given pane. */
 	openTerminal?(request: TerminalOpenRequest): Promise<TerminalOpenResult>

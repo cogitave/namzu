@@ -238,6 +238,7 @@ const api: DesktopApi = {
 	reportUiBusy: (busy) => invoke('reportUiBusy', busy),
 	terminals: () => invoke('terminals'),
 	terminalAvailability: (projectId) => invoke('terminalAvailability', projectId),
+	osState: () => invoke('osState'),
 	terminalShells: () => invoke('terminalShells'),
 	openTerminal: (request) => invoke('openTerminal', request),
 	attachTerminal: (tabId, viewerId, options) => invoke('attachTerminal', tabId, viewerId, options),

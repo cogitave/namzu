@@ -973,7 +973,7 @@ Rows that hold a list or a small map are typed controls rather than JSON boxes (
 
 **The section map.** A row sits where its effect is. The nav has four groups: Models; General, Appearance, Speech; Agent, Tools, Projects, Terminal; Desktop app, Telemetry, Updates, About. Where the app and the engine both have rows in a section, the app's come first, then the engine's under a heading the engine names (`group` and `groupLabel` on the descriptor):
 
-- **Desktop app** (`desktop`) holds the rows about the app's own process: *Use the graphics card* today. It holds no engine rows.
+- **Desktop app** (`desktop`) holds the rows about the app's own process: *Use the graphics card*, and the rows the system applies (see [Desktop app rows](#desktop-app-rows)). It holds no engine rows. *Keep computer awake while working* and its battery child sit in Agent.
 - **Terminal** reads, top to bottom: **Terminal tabs** (the app's own terminal pane: *Default terminal shell*, *Bring terminal tabs back*; the heading goes with the rows where there are no terminals), **Terminal app** (`tui.*`, `statusLine` and `composerTriggers.*`, which only the namzu terminal app reads: the Desktop composer has no triggers) and **Command line** (*Output format* and *Quiet output*, which shape the output of one-shot commands such as `namzu exec`, and *Profiles*, which only `--profile` on the command line selects).
 - **Updates** shows the app's own rows (version, check, download, engine) and then **Command line**: *Release channel*, *Install new versions automatically*, *Look for new versions* (`updates.channel`, `updates.auto`, `updates.check`).
 - **Tools** holds *Browser* (`browser.enabled`, first among the browser rows) and *Code analysis* (`codeAnalysis.enabled`). A Desktop conversation reads both (browser tools only in a conversation that uses this computer, not in a Pal's): the engine host builds the browser tools from `browser.enabled` and the code analysis tool from `codeAnalysis`, so neither says "terminal app".
@@ -2512,6 +2512,36 @@ app which font was used for a reply paragraph, a code block and a sidebar row, t
 changes it, that the home heading's
 project name is drawn in the display face and nowhere else, that the setting turns it off, and that a
 name the face cannot draw whole stays in Geist.
+
+### Desktop app rows
+
+The rows the operating system applies. Each is a key in `desktop-settings.json` (`DesktopSettings`,
+described once in `shared/settings-catalogue.ts`), and a file saved before a key existed loads with the
+default. What the system says is read back by the main process (`osState` on the bridge, type `OsState`
+in `shared/os-state.ts`) and the page draws from that, so a change the system refused shows as it is,
+with one plain line under the row. The page asks again whenever any window saves a setting and when the
+window gets the focus.
+
+| Row | Key and default | Where | What the main process does |
+| --- | --- | --- | --- |
+| Run on startup | `runOnStartup`: off | Desktop app; Windows and macOS, installed app only | `app.setLoginItemSettings`, then reads `app.getLoginItemSettings` back. The switch shows the system's answer. A refused change puts the saved wish back and says so under the row; a startup entry changed outside Namzu is adopted as the wish the next time it is read. Linux has no installer and no autostart file, so the row is not drawn there. An app run from source never registers itself (it would register the development runtime). |
+| System tray (Menu bar on macOS) | `systemTray`: on | Desktop app | A tray icon with **Open Namzu** and **Quit Namzu**; a click opens a window (`tray-controller.ts`). While the icon is up, closing the last window leaves Namzu running, no longer asks about a running reply (it keeps going) and a closed window comes back from the saved layout, as on macOS. Off, or when the icon could not be drawn (the row says so), closing the last window quits as before. The icon is the build's own file, or the executable's icon. |
+| Keep computer awake | `keepAwakeAppOpen`: off | Desktop app | `powerSaveBlocker` `prevent-app-suspension` for as long as Namzu runs: the computer does not sleep on its own, the screen still can. The per-conversation *Keep computer awake* in a conversation (display sleep) is separate and unchanged. |
+| Keep computer awake while working | `keepAwakeWhileWorking`: off | Agent | The same blocker, held while at least one conversation has a reply running or waiting for an answer (`operator.runningReplies()`, looked at on every conversation state change), released when none has. Its own blocker, so it never lets go of the one above. It sits in Agent because it follows the work, not the window. |
+| Keep awake on battery power | `keepAwakeOnBattery`: off | Agent, indented under the one above, disabled while that is off | While working and on battery (`powerMonitor.isOnBatteryPower`, and the `on-battery` and `on-ac` events), no block unless this is on. |
+| Pause downloads on low data | `pauseOnMetered`: on | Desktop app; Windows only | Windows PowerShell asks for the internet connection's cost (`NetworkCostType`; `Fixed` and `Variable` are metered), at start and every five minutes (`metered-network.ts`). While metered the app does not start a download by itself: updates are found but not downloaded (the **Download** button still works) and the engine feed is not asked. A failed question reads as unknown and nothing waits on a guess. The row says what the system answered. The query was written from the Windows Runtime's documented API and has not been run on Windows in this lane. |
+
+Closing the window and the tray: `window-all-closed`, the close handler of a window and
+`finishWindowClose` all ask one function, `staysRunningWithoutWindows` (macOS, or the tray icon is up).
+Quitting from the tray runs the same quit as the menu: the reply guard asks first when a reply would be cut
+off, then the graceful shutdown.
+
+**Not added.**
+
+- *Release channel* (`SET-225`): one channel exists. The baked feed is the rolling release `desktop-latest`
+  (`electron-builder.yml`, `desktop-release.yml` uploads only there). `NAMZU_UPDATE_FEED_URL` still
+  decides the feed for a development run and for a loopback test.
+- *Quick access shortcut* (`SET-213`): macOS only, and there is no macOS to check it on.
 
 ### The display face
 

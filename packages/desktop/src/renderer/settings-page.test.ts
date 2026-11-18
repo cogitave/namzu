@@ -5,10 +5,12 @@ import type { EngineDeliveryView } from '../shared/engine-delivery-protocol.js'
 import type { KernelNewer } from '../shared/engine-update-protocol.js'
 import type { LocalListeningState } from '../shared/local-listening-protocol.js'
 import type { LocalSpeechState } from '../shared/local-speech-protocol.js'
+import type { OsState } from '../shared/os-state.js'
 import type { ProjectView } from '../shared/protocol.js'
 import {
 	DEFAULT_DESKTOP_SETTINGS,
 	type DesktopInfo,
+	type DesktopSettings,
 	SETTINGS_SECTIONS,
 	type SettingsSection,
 } from '../shared/settings-protocol.js'
@@ -19,6 +21,8 @@ import {
 	entryIsDrawn,
 } from './settings-model.js'
 import {
+	AgentSleepRows,
+	DesktopSection,
 	SettingsPage,
 	type SettingsPageProps,
 	SettingsSidebar,
@@ -753,5 +757,114 @@ describe('the code font box and Escape', () => {
 		expect(escapeRevertsDraft('Escape', '', 'FreeMono')).toBe(true)
 		expect(escapeRevertsDraft('Escape', 'FreeMono', 'FreeMono')).toBe(false)
 		expect(escapeRevertsDraft('Enter', 'Bad,Font', 'FreeMono')).toBe(false)
+	})
+})
+
+describe('the rows the system applies', () => {
+	const controls = (change = vi.fn(async () => {}), over: Partial<DesktopSettings> = {}) => ({
+		settings: { ...DEFAULT_DESKTOP_SETTINGS, ...over },
+		error: '',
+		change,
+		confirmation: undefined,
+		confirm: async () => {},
+		dismiss: () => {},
+	})
+	const windows: OsState = {
+		platform: 'win32',
+		loginItem: { enabled: true },
+		tray: { shown: true },
+		metered: { state: 'metered' },
+	}
+
+	it('draws the switch from what the system says, not from the saved wish', () => {
+		const markup = renderToStaticMarkup(
+			createElement(DesktopSection, { settings: controls(), os: windows }),
+		)
+		// Saved: off. System: on.
+		expect(markup).toMatch(/aria-label="Run on startup"[^>]*aria-checked="true"/)
+		expect(markup).toContain('id="setting-run-on-startup"')
+		expect(markup).toContain('System tray')
+		expect(markup).toContain('id="setting-keep-awake"')
+		expect(markup).toContain('This connection is metered right now')
+	})
+
+	it('says plainly what the system refused, under the row', () => {
+		const markup = renderToStaticMarkup(
+			createElement(DesktopSection, {
+				settings: controls(),
+				os: {
+					...windows,
+					loginItem: {
+						enabled: false,
+						problem: 'Windows did not allow Namzu to start at sign-in, so it stays off.',
+					},
+					tray: {
+						shown: false,
+						problem:
+							'Namzu could not find its icon for the system tray, so closing the window still quits.',
+					},
+				},
+			}),
+		)
+		expect(markup).toContain('Windows did not allow Namzu to start at sign-in')
+		expect(markup).toContain('so closing the window still quits')
+	})
+
+	it('names the tray the menu bar on macOS and draws no row the system cannot apply', () => {
+		const mac = renderToStaticMarkup(
+			createElement(DesktopSection, {
+				settings: controls(),
+				os: { platform: 'darwin', loginItem: { enabled: false }, tray: { shown: true } },
+			}),
+		)
+		expect(mac).toContain('Menu bar')
+		expect(mac).not.toContain('Pause downloads on low data')
+		const linux = renderToStaticMarkup(
+			createElement(DesktopSection, {
+				settings: controls(),
+				os: { platform: 'linux', tray: { shown: true } },
+			}),
+		)
+		expect(linux).not.toContain('Run on startup')
+		expect(linux).toContain('System tray')
+		const unknown = renderToStaticMarkup(
+			createElement(DesktopSection, { settings: controls(), os: undefined }),
+		)
+		expect(unknown).not.toContain('System tray')
+		expect(unknown).toContain('Keep computer awake')
+	})
+
+	it('keeps awake on battery under the working switch, off until that is on', () => {
+		const off = renderToStaticMarkup(createElement(AgentSleepRows, { settings: controls() }))
+		expect(off).toContain('Keep computer awake while working')
+		expect(off).toMatch(/aria-label="Keep awake on battery power"[^>]*disabled/)
+		expect(off).toContain('data-child="true"')
+		const on = renderToStaticMarkup(
+			createElement(AgentSleepRows, {
+				settings: controls(undefined, { keepAwakeWhileWorking: true }),
+			}),
+		)
+		expect(on).not.toMatch(/aria-label="Keep awake on battery power"[^>]*disabled/)
+	})
+
+	it('decides which rows search offers from what the system answered', () => {
+		const base = { shells: null, hasAppUpdater: true, canFetchEngines: true }
+		expect(entryIsDrawn('run-on-startup', { ...base, os: windows })).toBe(true)
+		expect(
+			entryIsDrawn('run-on-startup', { ...base, os: { platform: 'linux', tray: { shown: true } } }),
+		).toBe(false)
+		expect(entryIsDrawn('run-on-startup', base)).toBe(false)
+		expect(entryIsDrawn('pause-on-metered', { ...base, os: windows })).toBe(true)
+		expect(
+			entryIsDrawn('pause-on-metered', {
+				...base,
+				os: { platform: 'darwin', tray: { shown: true } },
+			}),
+		).toBe(false)
+		expect(entryIsDrawn('system-tray', { ...base, os: null })).toBe(false)
+		expect(
+			entryIsDrawn('system-tray', { ...base, os: { platform: 'linux', tray: { shown: false } } }),
+		).toBe(true)
+		expect(entryIsDrawn('keep-awake', base)).toBe(true)
 	})
 })

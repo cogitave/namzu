@@ -10,6 +10,7 @@ export function Row({
 	children,
 	stacked,
 	below,
+	child,
 }: {
 	id: string
 	label: string
@@ -20,6 +21,8 @@ export function Row({
 	stacked?: boolean
 	/** Full width under the row: a preview of what the control does. */
 	below?: ReactNode
+	/** A setting that only means something under the one above it: drawn indented. */
+	child?: boolean
 }) {
 	const labelId = `setting-${id}-label`
 	return (
@@ -28,6 +31,7 @@ export function Row({
 			className="settings-row"
 			data-stacked={stacked || undefined}
 			data-below={below ? '' : undefined}
+			data-child={child || undefined}
 		>
 			<div className="settings-row-copy">
 				<h3 id={labelId}>{label}</h3>
