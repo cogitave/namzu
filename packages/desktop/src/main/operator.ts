@@ -1196,10 +1196,20 @@ export class Operator {
 		if (!client.supportsStandingInstructions()) return null
 		return readStandingInstructions(await client.request('namzu/instructions/get', {}))
 	}
-	async saveStandingInstructions(text: unknown): Promise<StandingInstructionsView> {
+	async saveStandingInstructions(
+		text: unknown,
+		revision?: unknown,
+	): Promise<StandingInstructionsView> {
 		if (typeof text !== 'string' || text.length > 100_000) throw new Error('Invalid text.')
+		if (revision !== undefined && (typeof revision !== 'string' || revision.length > 200))
+			throw new Error('Invalid revision.')
 		const client = await this.instructionsHost()
-		return readStandingInstructions(await client.request('namzu/instructions/set', { text }))
+		return readStandingInstructions(
+			await client.request('namzu/instructions/set', {
+				text,
+				...(revision === undefined ? {} : { revision }),
+			}),
+		)
 	}
 	/** The engine that serves one project's folder, when it can show saved memory. */
 	private memoryHost(projectId: unknown): RuntimeClient | undefined {

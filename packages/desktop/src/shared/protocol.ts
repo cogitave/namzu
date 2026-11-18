@@ -1056,7 +1056,7 @@ export interface DesktopApi {
 	/** The person's own instructions every conversation starts from; null where the engine cannot say. */
 	standingInstructions?(): Promise<StandingInstructionsView | null>
 	/** Saves them; empty text removes them. */
-	saveStandingInstructions?(text: string): Promise<StandingInstructionsView>
+	saveStandingInstructions?(text: string, revision?: string): Promise<StandingInstructionsView>
 	/** The memories saved for a project; null where the engine cannot show them. */
 	savedMemories?(projectId: string): Promise<SavedMemoriesView | null>
 	readSavedMemory?(projectId: string, id: string): Promise<SavedMemoryDetail>

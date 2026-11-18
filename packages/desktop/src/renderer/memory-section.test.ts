@@ -8,7 +8,7 @@ const instructions = (over: Partial<InstructionsControls> = {}): InstructionsCon
 	supported: true,
 	loading: false,
 	view: { text: 'Keep it short.', limit: 32_000, locked: false },
-	save: vi.fn(async () => true),
+	save: vi.fn(async () => 'saved' as const),
 	...over,
 })
 const memory = (over: Partial<SavedMemoryControls> = {}) => ({

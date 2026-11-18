@@ -7,6 +7,7 @@
  * these methods: they act on the person's Namzu home only.
  */
 
+import { createHash } from 'node:crypto'
 import {
 	existsSync,
 	lstatSync,
@@ -41,9 +42,15 @@ export interface StandingInstructionsAnswer {
 	readonly text: string
 	/** How many characters are followed; more is cut when a conversation reads the file. */
 	readonly limit: number
+	/** A fingerprint of the text read; saving names it, and is refused when the file moved on. */
+	readonly revision: string
+	/** Set when a save was refused because the file changed since it was read: the text is the current one. */
+	readonly changed?: true
 	/** The file cannot be edited here (a link, or a folder in its place); the person edits it by hand. */
 	readonly locked?: true
 }
+
+const revisionOf = (text: string): string => createHash('sha256').update(text).digest('hex')
 
 function instructionsPath(): string {
 	return join(resolveNamzuHome(), INSTRUCTIONS_FILENAME)
@@ -56,31 +63,50 @@ export function readStandingInstructions(): StandingInstructionsAnswer {
 	try {
 		stat = lstatSync(file)
 	} catch {
-		return { text: '', limit: MAX_CHARS_PER_FILE }
+		return { text: '', limit: MAX_CHARS_PER_FILE, revision: revisionOf('') }
 	}
 	if (!stat.isFile() || stat.size > MAX_BYTES_TO_READ)
-		return { text: '', limit: MAX_CHARS_PER_FILE, locked: true }
-	return { text: readFileSync(file, 'utf8'), limit: MAX_CHARS_PER_FILE }
+		return { text: '', limit: MAX_CHARS_PER_FILE, revision: revisionOf(''), locked: true }
+	const text = readFileSync(file, 'utf8')
+	return { text, limit: MAX_CHARS_PER_FILE, revision: revisionOf(text) }
 }
 
-/** Saves the text as the person's instructions; empty text removes the file. */
-export function writeStandingInstructions(text: unknown): StandingInstructionsAnswer {
+/**
+ * Saves the text as the person's instructions; empty text removes the file. When `revision` is
+ * given and the file is no longer the version it names, nothing is written and the current text
+ * comes back marked `changed`, so an edit made elsewhere is never overwritten unseen.
+ */
+export function writeStandingInstructions(
+	text: unknown,
+	revision?: unknown,
+): StandingInstructionsAnswer {
 	if (typeof text !== 'string') throw new Error('Invalid text.')
+	if (revision !== undefined && (typeof revision !== 'string' || revision.length > 200))
+		throw new Error('Invalid revision.')
 	if (text.length > MAX_CHARS_PER_FILE)
 		throw new Error(`Standing instructions can hold ${MAX_CHARS_PER_FILE} characters.`)
 	const file = instructionsPath()
 	if (lstatSafe(file) && !lstatSync(file).isFile())
 		throw new Error('This file is a link or a folder; edit it by hand.')
+	if (revision !== undefined) {
+		const now = readStandingInstructions()
+		if (now.revision !== revision) return { ...now, changed: true }
+	}
 	if (text.trim() === '') {
 		if (lstatSafe(file)) unlinkSync(file)
-		return { text: '', limit: MAX_CHARS_PER_FILE }
+		return { text: '', limit: MAX_CHARS_PER_FILE, revision: revisionOf('') }
 	}
 	mkdirSync(resolveNamzuHome(), { recursive: true })
 	// Written beside the file and moved into place, so a reader never sees half of it.
 	const staging = `${file}.${process.pid}.tmp`
-	writeFileSync(staging, text, { encoding: 'utf8', mode: 0o600 })
-	renameSync(staging, file)
-	return { text, limit: MAX_CHARS_PER_FILE }
+	try {
+		writeFileSync(staging, text, { encoding: 'utf8', mode: 0o600 })
+		renameSync(staging, file)
+	} catch (error) {
+		if (lstatSafe(staging)) unlinkSync(staging)
+		throw error
+	}
+	return { text, limit: MAX_CHARS_PER_FILE, revision: revisionOf(text) }
 }
 
 function lstatSafe(file: string): boolean {
@@ -173,8 +199,8 @@ export function createMemoryHost(cwd: string, pal: () => unknown) {
 		},
 		'namzu/instructions/set': (params: Record<string, unknown>) => {
 			refusePal()
-			only(params, ['text'], 'instructions')
-			return writeStandingInstructions(params.text)
+			only(params, ['text', 'revision'], 'instructions')
+			return writeStandingInstructions(params.text, params.revision)
 		},
 		'namzu/memory/list': async (
 			params: Record<string, unknown> = {},
@@ -237,6 +263,8 @@ export function createMemoryHost(cwd: string, pal: () => unknown) {
 				content: text,
 				...(title === undefined ? {} : { title: title.trim() }),
 				summary: flat(text, MEMORY_SUMMARY_MAX),
+				// The index line every later prompt carries must not keep the wording that was replaced.
+				description: flat(text, MEMORY_SUMMARY_MAX),
 			})
 			return { outcome }
 		},

@@ -1598,7 +1598,9 @@ function register(): void {
 	handle('installedSkills', (projectId?: string) => operator.installedSkills(projectId))
 	handle('engineBrowser', () => operator.engineBrowser())
 	handle('standingInstructions', () => operator.standingInstructions())
-	handle('saveStandingInstructions', (text: unknown) => operator.saveStandingInstructions(text))
+	handle('saveStandingInstructions', (text: unknown, revision: unknown) =>
+		operator.saveStandingInstructions(text, revision),
+	)
 	handle('savedMemories', (projectId: unknown) => operator.savedMemories(projectId))
 	handle('readSavedMemory', (projectId: unknown, id: unknown) =>
 		operator.readSavedMemory(projectId, id),

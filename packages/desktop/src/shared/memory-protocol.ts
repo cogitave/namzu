@@ -8,6 +8,10 @@
 export interface StandingInstructionsView {
 	readonly text: string
 	readonly limit: number
+	/** The version read; a save names it and is refused when the file changed since. */
+	readonly revision?: string
+	/** A save was refused because the file changed since it was read; `text` is the current one. */
+	readonly changed?: true
 	/** The file cannot be edited here; the person edits it by hand. */
 	readonly locked: boolean
 }
@@ -65,7 +69,14 @@ export function readStandingInstructions(value: unknown): StandingInstructionsVi
 	const limit = value.limit
 	if (text === undefined || typeof limit !== 'number' || !Number.isFinite(limit) || limit <= 0)
 		throw new Error('Namzu answered in a way this app cannot read.')
-	return { text, limit, locked: value.locked === true }
+	const revision = str(value.revision, 200)
+	return {
+		text,
+		limit,
+		locked: value.locked === true,
+		...(revision ? { revision } : {}),
+		...(value.changed === true ? { changed: true as const } : {}),
+	}
 }
 
 export function readSavedMemories(value: unknown): SavedMemoriesView {

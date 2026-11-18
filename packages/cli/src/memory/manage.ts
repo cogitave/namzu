@@ -318,7 +318,13 @@ export type UpdateOutcome = 'updated' | 'changed' | 'gone'
 export async function updateManagedMemory(
 	store: MarkdownMemoryStore,
 	item: Pick<ManagedMemory, 'id' | 'revision'>,
-	edit: { readonly content: string; readonly title?: string; readonly summary?: string },
+	edit: {
+		readonly content: string
+		readonly title?: string
+		readonly summary?: string
+		/** The one line the prompt index carries; must be a single line. */
+		readonly description?: string
+	},
 ): Promise<UpdateOutcome> {
 	try {
 		await store.updateIfRevision(
@@ -327,6 +333,7 @@ export async function updateManagedMemory(
 				content: edit.content,
 				...(edit.title === undefined ? {} : { title: edit.title }),
 				...(edit.summary === undefined ? {} : { summary: edit.summary }),
+				...(edit.description === undefined ? {} : { description: edit.description }),
 			},
 			item.revision,
 		)

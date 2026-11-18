@@ -20,7 +20,8 @@ export interface InstructionsControls {
 	loading: boolean
 	view?: StandingInstructionsView
 	error?: string
-	save(text: string): Promise<boolean>
+	/** `changed`: the file moved on since it was read, nothing was written and the current text is shown. */
+	save(text: string): Promise<'saved' | 'changed' | 'failed'>
 }
 
 /** The person's standing instructions, read when the page opens and again when the window regains focus. */
@@ -53,19 +54,20 @@ export function useStandingInstructions(api: InstructionsBridge | undefined): In
 			window.removeEventListener('focus', load)
 		}
 	}, [read])
+	const revision = state.view?.revision
 	const save = useCallback(
 		async (text: string) => {
-			if (!write) return false
+			if (!write) return 'failed' as const
 			try {
-				const view = await write(text)
+				const view = await write(text, revision)
 				setState({ loading: false, view })
-				return true
+				return view.changed ? ('changed' as const) : ('saved' as const)
 			} catch (failure) {
 				setState((was) => ({ ...was, error: plainErrorText(failure, 'save your instructions') }))
-				return false
+				return 'failed' as const
 			}
 		},
-		[write],
+		[write, revision],
 	)
 	return {
 		supported: Boolean(read && write) && state.view !== null,

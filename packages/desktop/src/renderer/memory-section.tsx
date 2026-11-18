@@ -1,10 +1,12 @@
 import { Dialog } from '@base-ui/react/dialog'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { SavedMemory } from '../shared/memory-protocol.js'
 import { catalogueEntry } from '../shared/settings-catalogue.js'
 import {
 	DELETE_COPY,
+	INSTRUCTIONS_CHANGED,
 	filterMemories,
+	instructionsNote,
 	instructionsToSave,
 	originText,
 	outcomeProblem,
@@ -49,14 +51,23 @@ function InstructionsRow({ instructions }: { instructions: InstructionsControls 
 	const locked = instructions.view?.locked === true
 	const [draft, setDraft] = useState<string>()
 	const [failure, setFailure] = useState<string>()
+	const [status, setStatus] = useState<string>()
 	const text = draft ?? saved
 	const commit = async () => {
 		if (draft === undefined) return
 		const next = instructionsToSave(draft, saved)
 		if (next === undefined) return setDraft(undefined)
 		setFailure(undefined)
+		setStatus(undefined)
 		try {
-			if (await instructions.save(next)) setDraft(undefined)
+			const result = await instructions.save(next)
+			if (result === 'saved') {
+				setDraft(undefined)
+				setStatus('Saved')
+			} else if (result === 'changed') {
+				setDraft(undefined)
+				setFailure(INSTRUCTIONS_CHANGED)
+			}
 		} catch (error) {
 			setFailure(plainErrorText(error, 'save your instructions'))
 		}
@@ -72,7 +83,10 @@ function InstructionsRow({ instructions }: { instructions: InstructionsControls 
 					maxLength={limit}
 					disabled={locked || instructions.loading}
 					placeholder="For example: keep explanations brief and to the point"
-					onChange={(event) => setDraft(event.target.value)}
+					onChange={(event) => {
+						setStatus(undefined)
+						setDraft(event.target.value)
+					}}
 					onBlur={() => void commit()}
 					onKeyDown={(event) => {
 						if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) void commit()
@@ -81,8 +95,11 @@ function InstructionsRow({ instructions }: { instructions: InstructionsControls 
 				<p className="settings-note">
 					{locked
 						? 'Your instructions file is a link or a folder, so it can only be changed by hand.'
-						: `Up to ${limit.toLocaleString()} characters. Leave it empty to remove it. The terminal app follows the same text.`}
+						: instructionsNote(text.length, limit)}
 				</p>
+				<output aria-live="polite" className="settings-note">
+					{status}
+				</output>
 				{(failure ?? instructions.error) && (
 					<p role="alert" className="settings-error settings-config-error">
 						{failure ?? instructions.error}
@@ -141,6 +158,17 @@ function MemoryDialog({
 	const memories = memory.view?.memories ?? []
 	const shown = filterMemories(memories, query)
 	const current = memories.find((item) => item.id === openId)
+	const items = useRef(new Map<string, HTMLButtonElement>())
+	const search = useRef<HTMLInputElement>(null)
+	const lastOpened = useRef<string | undefined>(undefined)
+	if (openId) lastOpened.current = openId
+	// Back to the list puts focus on the memory that was open, or on the search box.
+	useEffect(() => {
+		if (current) return
+		const id = lastOpened.current
+		const target = (id ? items.current.get(id) : undefined) ?? search.current
+		target?.focus()
+	}, [current])
 	return (
 		<Dialog.Root open onOpenChange={(open) => !open && memory.setOpen(false)}>
 			<Dialog.Portal>
@@ -148,7 +176,7 @@ function MemoryDialog({
 				<Dialog.Viewport className="dialog-viewport">
 					<Dialog.Popup className="dialog-popup memory-dialog" data-memory-dialog>
 						<Dialog.Title className="dialog-title">
-							{projectName ? `Memory for ${projectName}` : 'Memory'}
+							{catalogueEntry('savedMemory').label}
 						</Dialog.Title>
 						{current ? (
 							<MemoryEditor
@@ -160,11 +188,15 @@ function MemoryDialog({
 						) : (
 							<>
 								<Dialog.Description className="dialog-body">
-									What Namzu has saved for this project. Open one to edit it or delete it.
+									{projectName
+										? `What Namzu has saved for ${projectName}.`
+										: 'What Namzu has saved for this project.'}{' '}
+									Open one to edit it or delete it.
 								</Dialog.Description>
 								<input
 									type="search"
 									className="settings-config-input memory-search"
+									ref={search}
 									aria-label="Search memory"
 									placeholder="Search"
 									value={query}
@@ -188,6 +220,10 @@ function MemoryDialog({
 											<button
 												type="button"
 												className="memory-item"
+												ref={(node) => {
+													if (node) items.current.set(item.id, node)
+													else items.current.delete(item.id)
+												}}
 												onClick={() => setOpenId(item.id)}
 											>
 												<span className="memory-item-title">{item.title}</span>
@@ -235,6 +271,10 @@ function MemoryEditor({
 	const [busy, setBusy] = useState(false)
 	const [asking, setAsking] = useState(false)
 	const [original, setOriginal] = useState<string>()
+	const titleInput = useRef<HTMLInputElement>(null)
+	useEffect(() => {
+		titleInput.current?.focus()
+	}, [])
 	// The whole text is read when it opens: the list carries only the start of it.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: read once for this memory and version
 	useEffect(() => {
@@ -290,11 +330,15 @@ function MemoryEditor({
 	}
 	return (
 		<div className="memory-editor">
+			<Dialog.Description className="dialog-body">
+				Change the title or text, or delete this memory.
+			</Dialog.Description>
 			<p className="settings-note">
 				{[originText(item.origin), stateText(item.state)].filter(Boolean).join(' · ')}
 			</p>
 			<input
 				type="text"
+				ref={titleInput}
 				className="settings-config-input memory-title"
 				aria-label="Title"
 				value={title}

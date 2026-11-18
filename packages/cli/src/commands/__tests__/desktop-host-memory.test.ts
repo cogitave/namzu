@@ -3,6 +3,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	readdirSync,
 	realpathSync,
 	symlinkSync,
 	writeFileSync,
@@ -77,7 +78,7 @@ it('offers exactly the methods Desktop probes for', () => {
 
 it('reads, saves and clears the person’s own instructions file, the one every conversation loads', () => {
 	const h = host()
-	expect(h['namzu/instructions/get']({})).toEqual({ text: '', limit: 32_000 })
+	expect(h['namzu/instructions/get']({})).toMatchObject({ text: '', limit: 32_000 })
 	h['namzu/instructions/set']({ text: 'Keep answers short.' })
 	expect(readFileSync(join(home, 'AGENTS.md'), 'utf8')).toBe('Keep answers short.')
 	expect(h['namzu/instructions/get']({}).text).toBe('Keep answers short.')
@@ -95,6 +96,29 @@ it('reads, saves and clears the person’s own instructions file, the one every 
 	expect(h['namzu/instructions/get']({}).text).toBe('')
 })
 
+it('refuses to overwrite instructions that changed since they were read, and leaves no staging file', () => {
+	const h = host()
+	h['namzu/instructions/set']({ text: 'First.' })
+	const read = h['namzu/instructions/get']({})
+	// Edited elsewhere after Desktop loaded it.
+	writeFileSync(join(home, 'AGENTS.md'), 'Edited in the terminal app.')
+	const refused = h['namzu/instructions/set']({ text: 'Stale draft.', revision: read.revision })
+	expect(refused).toMatchObject({ changed: true, text: 'Edited in the terminal app.' })
+	expect(readFileSync(join(home, 'AGENTS.md'), 'utf8')).toBe('Edited in the terminal app.')
+	// The same refusal covers a clear.
+	expect(h['namzu/instructions/set']({ text: '', revision: read.revision })).toMatchObject({
+		changed: true,
+	})
+	expect(existsSync(join(home, 'AGENTS.md'))).toBe(true)
+	// Naming the current version saves.
+	const current = h['namzu/instructions/get']({})
+	const saved = h['namzu/instructions/set']({ text: 'Fresh.', revision: current.revision })
+	expect(saved).toMatchObject({ text: 'Fresh.' })
+	expect(saved.changed).toBeUndefined()
+	expect(readdirSync(home).filter((name) => name.endsWith('.tmp'))).toEqual([])
+	expect(() => h['namzu/instructions/set']({ text: 'a', revision: 5 })).toThrow('Invalid revision')
+})
+
 it('refuses instructions past the limit, a link in the file’s place, and unknown fields', () => {
 	const h = host()
 	expect(() => h['namzu/instructions/set']({ text: 'x'.repeat(32_001) })).toThrow('32000')
@@ -102,7 +126,7 @@ it('refuses instructions past the limit, a link in the file’s place, and unkno
 	expect(() => h['namzu/instructions/set']({ text: 'a', path: '/x' })).toThrow('Invalid')
 	writeFileSync(join(root, 'other.md'), 'elsewhere')
 	symlinkSync(join(root, 'other.md'), join(home, 'AGENTS.md'))
-	expect(h['namzu/instructions/get']({})).toEqual({ text: '', limit: 32_000, locked: true })
+	expect(h['namzu/instructions/get']({})).toMatchObject({ text: '', limit: 32_000, locked: true })
 	expect(() => h['namzu/instructions/set']({ text: 'a' })).toThrow('edit it by hand')
 	expect(readFileSync(join(root, 'other.md'), 'utf8')).toBe('elsewhere')
 })
@@ -129,6 +153,7 @@ it('lists, opens, edits and deletes a memory by the version that was shown', asy
 	}
 	expect(opened.text).toBe('The person prefers tabs over spaces.')
 
+	expect((await store.readIndex()).text).toContain('Tabs not spaces')
 	expect(
 		await h['namzu/memory/update']({
 			id: tabs.id,
@@ -141,6 +166,10 @@ it('lists, opens, edits and deletes a memory by the version that was shown', asy
 	expect(after?.content.content).toBe('The person prefers spaces.')
 	expect(after?.entry.title).toBe('Prefers spaces')
 	expect(after?.entry.summary).toBe('The person prefers spaces.')
+	// The line every later prompt carries holds the new wording, not the replaced one.
+	const index = (await store.readIndex()).text
+	expect(index).toContain('The person prefers spaces.')
+	expect(index).not.toContain('Tabs not spaces')
 
 	// The old version is refused: the memory moved on since it was shown.
 	expect(
