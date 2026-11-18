@@ -182,8 +182,9 @@ export function ContextPanelView({ model }: { model: PanelModel }) {
 									<span className="context-panel-square" aria-hidden="true" />
 									<span className="context-panel-name">{row.name}</span>
 									<span className="context-panel-size">{row.size}</span>
-									<span className="context-panel-share" aria-label="Not counted">
-										-
+									<span className="context-panel-share">
+										<span className="sr-only">Not counted</span>
+										<span aria-hidden="true">-</span>
 									</span>
 								</div>
 							))}

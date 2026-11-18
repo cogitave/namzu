@@ -20,7 +20,7 @@ import {
 	useRef,
 	useState,
 } from 'react'
-import type { OutputCardKind } from '../shared/output-files.js'
+import { type OutputCardKind, extensionOf } from '../shared/output-files.js'
 import type { ThreadState } from '../shared/projection.js'
 import type { DesktopApi, SessionOutputDetail } from '../shared/protocol.js'
 import { copyPlainText } from './copy-button.js'
@@ -93,6 +93,7 @@ function Thumb({
 	ctx,
 }: { card: OutputCard; large: boolean; ctx: OutputCardsContextValue }) {
 	const Glyph = GLYPHS[card.kind]
+	const badge = extensionOf(card.path).slice(0, 4).toUpperCase()
 	const wantsImage = card.kind === 'image' && card.state === 'done'
 	const wantsPage = card.kind === 'page' && card.state === 'done' && large
 	const load = useSessionOutput(ctx.api, ctx.sessionId, wantsImage || wantsPage ? card.path : '', 0)
@@ -125,6 +126,11 @@ function Thumb({
 			data-sheet={large && card.kind === 'document' ? '' : undefined}
 		>
 			{card.state === 'failed' ? <TriangleAlert aria-hidden /> : <Glyph aria-hidden />}
+			{badge ? (
+				<span className="output-card-badge" aria-hidden="true">
+					{badge}
+				</span>
+			) : null}
 		</span>
 	)
 }
@@ -217,7 +223,9 @@ export function OutputCardView({
 		<>
 			<Thumb card={card} large={large} ctx={ctx} />
 			<span className="output-card-text">
-				<span className="output-card-name">{card.name}</span>
+				<span className="output-card-name" title={card.name}>
+					{card.name}
+				</span>
 				<span className="output-card-kind">{card.kindLine}</span>
 				{card.reason && <span className="output-card-reason">{card.reason}</span>}
 				{card.preview && <span className="output-card-preview">{card.preview}</span>}
@@ -230,7 +238,6 @@ export function OutputCardView({
 			data-output-card={card.path}
 			data-state={card.state}
 			data-large={large ? '' : undefined}
-			title={card.path}
 		>
 			{card.canOpen ? (
 				<button

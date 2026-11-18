@@ -111,7 +111,7 @@ import {
 	type SavedLastModel,
 } from './desktop-conversation-store.js'
 import type { DesktopDiagnosticSink } from './diagnostics.js'
-import { type FolderSnapshot, type MadeFile, madeBetween, snapshotFolder } from './made-files.js'
+import { type MadeFile, madeSince, scanFolder } from './made-files.js'
 import { ModelListStore, type StoredModelList, modelListKey } from './model-list-store.js'
 import { isNormalChatWorkspace, normalChatWorkspace } from './normal-chat-workspace.js'
 import type { OpenIn, OpenTarget } from './open-in.js'
@@ -901,7 +901,7 @@ export class Operator {
 	private readonly madeScans = new Map<
 		string,
 		{
-			before?: Promise<FolderSnapshot | undefined>
+			startedAt?: number
 			settled?: Promise<void>
 			made: (MadeFile & { turn: number })[]
 		}
@@ -3276,25 +3276,25 @@ export class Operator {
 		return project.view.path
 	}
 	private beginMadeScan(session: Conversation): void {
-		const folder = this.madeFolder(session)
-		if (!folder) return
+		if (!this.madeFolder(session)) return
 		const entry = this.madeScans.get(session.view.id) ?? { made: [] }
-		entry.before = snapshotFolder(folder).catch(() => undefined)
+		// Files are told apart by their own time, not by a listing taken now: a listing taken while
+		// the turn already runs can miss a file the turn wrote first.
+		entry.startedAt = Date.now()
 		this.madeScans.set(session.view.id, entry)
 	}
 	private endMadeScan(session: Conversation): void {
 		const entry = this.madeScans.get(session.view.id)
 		const folder = this.madeFolder(session)
-		const before = entry?.before
-		if (!entry || !before || !folder) return
-		entry.before = undefined
+		const startedAt = entry?.startedAt
+		if (!entry || startedAt === undefined || !folder) return
+		entry.startedAt = undefined
 		const turn = session.projection.turn
 		entry.settled = (async () => {
-			const first = await before
-			if (!first) return
-			const after = await snapshotFolder(folder).catch(() => undefined)
-			if (!after) return
-			for (const file of madeBetween(first, after))
+			const scan = await scanFolder(folder).catch(() => undefined)
+			// A walk cut short may miss files or cut at a different place than another; say nothing.
+			if (!scan?.complete) return
+			for (const file of madeSince(scan.files, startedAt))
 				entry.made = [...entry.made.filter((old) => old.path !== file.path), { ...file, turn }]
 		})().catch(() => undefined)
 	}

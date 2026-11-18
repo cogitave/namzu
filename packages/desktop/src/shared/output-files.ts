@@ -113,11 +113,15 @@ export function isMadeFileKind(path: string): boolean {
 	)
 }
 
+/** Older Office formats can carry macros, so a card never starts their program on its own. */
+const MACRO_CAPABLE = new Set(['doc', 'dot', 'xls', 'xlt', 'ppt', 'pps', 'pot', 'rtf'])
+
 /**
  * Whether the system's own program may open the file. Only the result kinds above: a program, a
  * script or a shortcut is never started from a card.
  */
-export const mayOpenWithSystem = (path: string): boolean => isMadeFileKind(path)
+export const mayOpenWithSystem = (path: string): boolean =>
+	isMadeFileKind(path) && !MACRO_CAPABLE.has(extensionOf(path))
 
 /** Kinds whose text a person can copy from a card. */
 export function isTextOutput(path: string): boolean {

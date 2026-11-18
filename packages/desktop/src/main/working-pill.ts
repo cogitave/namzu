@@ -287,18 +287,17 @@ export class WorkingPill {
 
 	/** Stops the conversation's turn; when the engine cannot, the pill says so instead of looking stopped. */
 	private stop(sessionId: string): void {
-		const failed = (error: unknown) => {
+		const failed = () => {
 			const entry = this.active.get(sessionId)
 			if (!entry) return
-			entry.step = stepWords(
-				`Could not stop: ${error instanceof Error ? error.message : String(error)}`,
-			)
+			// The engine's own sentence is technical; the pill says it plainly.
+			entry.step = stepWords('Couldn’t stop this reply')
 			this.render()
 		}
 		try {
 			void Promise.resolve(this.host.stop(sessionId)).catch(failed)
-		} catch (error) {
-			failed(error)
+		} catch {
+			failed()
 		}
 	}
 

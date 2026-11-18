@@ -36,6 +36,9 @@ describe('output kinds', () => {
 		expect(mayOpenWithSystem('run.sh')).toBe(false)
 		expect(mayOpenWithSystem('link.lnk')).toBe(false)
 		expect(mayOpenWithSystem('report.docx')).toBe(true)
+		// Older formats can carry macros: a card keeps them as cards with Save a copy.
+		for (const old of ['a.doc', 'a.xls', 'a.ppt', 'a.rtf', 'A.DOC'])
+			expect(mayOpenWithSystem(old)).toBe(false)
 		expect(isTextOutput('a.csv')).toBe(true)
 		expect(isTextOutput('a.png')).toBe(false)
 	})

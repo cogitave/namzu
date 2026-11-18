@@ -92,6 +92,7 @@ div.output-card-main {
 	cursor: default;
 }
 .output-card-tile {
+	position: relative;
 	display: inline-flex;
 	flex: none;
 	align-items: center;
@@ -101,6 +102,19 @@ div.output-card-main {
 	border-radius: var(--radius-md);
 	background: var(--accent);
 	color: var(--muted-foreground);
+}
+.output-card-badge {
+	position: absolute;
+	right: 0.1875rem;
+	bottom: 0.1875rem;
+	padding: 0 0.25rem;
+	border-radius: var(--radius-sm);
+	background: var(--background);
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+	font-weight: 600;
+	line-height: 1.1;
+	letter-spacing: 0.02em;
 }
 .output-card-tile svg {
 	width: 1.5rem;
@@ -151,9 +165,6 @@ div.output-card-main {
 	transform: scale(0.125);
 	transform-origin: 0 0;
 	pointer-events: none;
-}
-.output-card[data-large] .output-card-thumb-page iframe {
-	transform: scale(0.2);
 }
 .output-card-text {
 	display: flex;

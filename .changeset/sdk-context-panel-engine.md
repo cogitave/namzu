@@ -1,5 +1,5 @@
 ---
-'@namzu/sdk': minor
+'@namzu/sdk': major
 ---
 
 `analyzeContextUsage` now draws the compaction reserve whenever `autoCompact` is on, for every `windowSource`. Before, a window the provider or the model table declares (`windowSource: 'auto'`) had no reserve, so `categories` had no `buffer` entry and `Free space` was larger by the reserve (up to 33,000 tokens). A host that draws these categories shows the reserve, and a smaller free space, on those windows; to keep the old numbers, drop the `buffer` category before drawing. `windowSource` stays in the input and no longer changes the result.

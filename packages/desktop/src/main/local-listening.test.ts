@@ -192,6 +192,18 @@ it('turns a failed install into a plain error and allows another attempt', async
 	expect((await service.install()).installation).toBe('ready')
 })
 
+it('shows a plain sentence for a download that failed on the network or the disk', async () => {
+	const service = new LocalListeningService({
+		directory: '/p',
+		readInstallation: async () => undefined,
+		install: vi.fn().mockRejectedValue(new Error('getaddrinfo ENOTFOUND example.invalid')),
+	})
+	const failed = await service.install()
+	expect(failed.installation).toBe('failed')
+	expect(failed.error).toBeTruthy()
+	expect(failed.error).not.toMatch(/ENOTFOUND|getaddrinfo/)
+})
+
 it('cancel returns to missing without an error', async () => {
 	const service = new LocalListeningService({
 		directory: '/p',

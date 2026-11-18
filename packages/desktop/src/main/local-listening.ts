@@ -5,6 +5,7 @@ import {
 	type LocalListeningInstallProgress,
 	type LocalListeningState,
 } from '../shared/local-listening-protocol.js'
+import { plainErrorText } from '../shared/plain-error.js'
 import { LISTENING_DOWNLOAD_BYTES } from './local-listening-assets.js'
 import {
 	type ListeningEngine,
@@ -163,8 +164,7 @@ export class LocalListeningService {
 					this.current.error = undefined
 				} else {
 					this.current.installation = 'failed'
-					this.current.error =
-						error instanceof Error ? error.message : 'Listening couldn’t be downloaded.'
+					this.current.error = plainErrorText(error, 'download voice input')
 				}
 			} finally {
 				this.installController = undefined
