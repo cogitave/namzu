@@ -2,6 +2,7 @@
 
 ## 2026-11-18
 
+- **Update** [Desktop](cli/desktop.md): the context section's "not counted yet" line reads in the muted note style instead of the warning colour, since it is a normal state after a restart.
 - **Update** [The session panel](cli/desktop.md#the-session-panel-the-plan-card-and-commit-changes): Context shows the whole breakdown inline (bar, rows, deferred and reserve, folded tool servers), a new Outputs section lists what the conversation made (a page or picture opens in the Browser pane, a document or code in the Files pane), and the Files pane draws a Markdown file as the document page with a Rendered / Source switch in its header. The unmounted Outputs panel and the path line helper it used are removed. The pane already docks as a 320 px column beside the conversation while the conversation keeps 560 px.
 - **Update** [Desktop](cli/desktop.md#cards-under-a-reply): the document cards, the context panel and the plain words for errors sit beside the pane grid; the details column and the Outputs-pane page are not part of it, so a card or a link to a document opens it in the Files pane, and the usage-limits popover also says where the context goes.
 - **Update** [Desktop settings](cli/desktop-settings.md#which-layer-decides-a-value): Settings reads the engine's settings from the open project's engine, so a value the project's own config sets shows as "Set by this project" (it asked the engine that serves no project before, which never saw the project file).

@@ -273,7 +273,8 @@ export function ContextInline({
 	return (
 		<div className="context-panel">
 			<div className="context-panel-header-static">Context</div>
-			<p className="context-panel-sentence">
+			{/* Not counted yet is a normal state, not a warning: it reads in the muted note style. */}
+			<p className="context-panel-small">
 				{read.loading
 					? 'Reading…'
 					: read.error
