@@ -919,17 +919,22 @@ const meteredWatch = new MeteredWatch({
 function downloadsPaused(): boolean {
 	return settingsStore.get().pauseOnMetered && meteredWatch.state() === 'metered'
 }
+let revertingLoginItem = false
 function osRowsChanged(settings: DesktopSettings, previous: DesktopSettings): void {
-	if (settings.runOnStartup !== previous.runOnStartup && canStartAtLogin) {
+	// The put-back after a refusal is not a new request: it must not wipe the refusal line.
+	if (settings.runOnStartup !== previous.runOnStartup && canStartAtLogin && !revertingLoginItem) {
 		const result = applyLoginItem(loginItemApi, settings.runOnStartup, process.platform)
 		loginItemProblem = result.problem
 		// The system's answer is the truth: a refused change puts the saved wish back.
 		if (result.enabled !== settings.runOnStartup)
 			queueMicrotask(() => {
+				revertingLoginItem = true
 				try {
 					settingsStore.set({ runOnStartup: result.enabled })
 				} catch (error) {
 					diagnostics.record('ipc_failed', { operation: 'loginItem', error })
+				} finally {
+					revertingLoginItem = false
 				}
 			})
 	}

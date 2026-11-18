@@ -342,6 +342,7 @@ const NO_UPDATER: UpdateState = { status: 'disabled' }
 const RECENT_PALETTE_CONVERSATIONS = 5
 /** How long the Undo toast after archiving stays: long enough to read where the conversation went. */
 const ARCHIVE_UNDO_MS = 20_000
+const VOICE_REQUEST_WAIT_MS = 10_000
 export function App({
 	group,
 	terminals: terminalGroup,
@@ -5568,18 +5569,28 @@ export function App({
 	}, [quickEntry])
 	const startVoiceRequest = useCallback(() => {
 		if (!voiceRequested.current) return
-		voiceRequested.current = false
 		input.current?.focus()
 		const { voice: controls, listening: engine, hasConversation } = voiceRef.current
-		if (controls.phase === 'off' && micAvailable({ voice: controls, engine, hasConversation }))
+		// Not ready yet (window still opening, engine loading): keep the request for the retry below.
+		if (controls.phase !== 'off') {
+			voiceRequested.current = false
+		} else if (micAvailable({ voice: controls, engine, hasConversation })) {
+			voiceRequested.current = false
 			controls.toggle()
+		}
 	}, [])
 	pullPendingRef.current = () => {
 		void api?.takePendingEntries?.().then(
 			(pending) => {
 				if (!pending || !mounted.current) return
 				quickQueue.current.push(...pending.quickEntries)
-				if (pending.voice) voiceRequested.current = true
+				if (pending.voice) {
+					voiceRequested.current = true
+					// A request that never becomes possible is dropped, so it cannot start the microphone much later.
+					window.setTimeout(() => {
+						voiceRequested.current = false
+					}, VOICE_REQUEST_WAIT_MS)
+				}
 				startNextQuickEntry()
 				startVoiceRequest()
 			},

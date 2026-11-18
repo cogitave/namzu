@@ -55,3 +55,15 @@ it('refuses the same keys for both slots and keys that are not a shortcut', () =
 	controller.dispose()
 	expect(held.size).toBe(0)
 })
+
+it('a key one slot gives up in a sync can be claimed by the other slot in the same sync', () => {
+	const { held, controller } = setup()
+	controller.sync({ quickEntry: 'Ctrl+Alt+Q', voice: 'Ctrl+Alt+V' })
+	controller.sync({ quickEntry: 'Ctrl+Alt+V', voice: 'Ctrl+Alt+Q' })
+	expect(controller.state('quickEntry')).toEqual({ registered: true })
+	expect(controller.state('voice')).toEqual({ registered: true })
+	expect(held.size).toBe(2)
+	controller.sync({ quickEntry: 'Ctrl+Alt+V', voice: '' })
+	controller.sync({ quickEntry: '', voice: 'Ctrl+Alt+V' })
+	expect(controller.state('voice')).toEqual({ registered: true })
+})

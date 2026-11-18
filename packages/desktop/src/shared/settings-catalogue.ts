@@ -303,7 +303,7 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		section: 'desktop',
 		label: 'System tray',
 		description:
-			'Show a Namzu icon beside the clock. Closing the window then leaves Namzu running, so conversations keep working. Choose Quit from the icon to close it. Off, closing the last window quits Namzu.',
+			'Show a Namzu icon in the system tray (the menu bar on macOS). Closing the window then leaves Namzu running, so conversations keep working. Choose Quit from the icon to close it. Off, closing the last window quits Namzu.',
 		control: toggle,
 		default: true,
 		appliesWhen: 'now',

@@ -28,17 +28,21 @@ export class ShortcutController {
 
 	/** Bring the held shortcuts to `wanted`. An empty string removes that slot's shortcut at once. */
 	sync(wanted: Record<ShortcutSlot, string>): void {
-		for (const slot of SLOTS) {
-			const next = wanted[slot]
+		// Release every slot that changes first, so keys one slot gives up can be claimed by the other.
+		const changing = SLOTS.filter(
+			(slot) => this.held.get(slot) !== wanted[slot] || !this.states.get(slot)?.registered,
+		)
+		for (const slot of changing) {
 			const current = this.held.get(slot)
-			if (current === next && this.states.get(slot)?.registered) continue
 			if (current !== undefined) {
 				this.system.unregister(current)
 				this.held.delete(slot)
 			}
 			this.states.delete(slot)
-			if (!next) continue
-			this.states.set(slot, this.claim(slot, next))
+		}
+		for (const slot of changing) {
+			const next = wanted[slot]
+			if (next) this.states.set(slot, this.claim(slot, next))
 		}
 	}
 
