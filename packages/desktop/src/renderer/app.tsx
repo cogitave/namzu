@@ -880,6 +880,9 @@ export function App({
 	const [railSection, setRailSection] = useState<'spaces' | 'plugins' | null>(null)
 	const [settingsSection, setSettingsSection] = useState<SettingsSection>('general')
 	const [settingsFocus, setSettingsFocus] = useState<string>()
+	// Counts every ask to open Settings, so a repeated ask for the same row still reaches the dialog.
+	const [settingsRequest, setSettingsRequest] = useState(0)
+	const settingsSectionPending = useRef(false)
 	/** Settings is a dialog over whatever is showing; nothing behind it changes. */
 	const [settingsOpen, setSettingsOpen] = useState(false)
 	const settingsOpenRef = useRef(settingsOpen)
@@ -5193,8 +5196,14 @@ export function App({
 			settingsOpener.current =
 				active instanceof HTMLElement && active !== document.body ? active : null
 			setSettingsSection(section ?? desktopSettings.settings?.lastSettingsSection ?? 'general')
-		} else if (section) setSettingsSection(section)
+			// Before the settings file has loaded the stored section is unknown: settle on it once it is.
+			settingsSectionPending.current = !section && !desktopSettings.settings
+		} else if (section) {
+			setSettingsSection(section)
+			settingsSectionPending.current = false
+		}
 		setSettingsFocus(focusId)
+		setSettingsRequest((count) => count + 1)
 		setSettingsOpen(true)
 		setSideOpen(false)
 	}
@@ -5209,9 +5218,18 @@ export function App({
 	const changeDesktopSettings = desktopSettings.change
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a visit is the trigger; the stored value is read through its ref
 	useEffect(() => {
-		if (settingsOpen && storedSettingsSection.current !== settingsSection)
+		if (!settingsOpen || !desktopSettings.settings) return
+		if (settingsSectionPending.current) {
+			settingsSectionPending.current = false
+			const stored = desktopSettings.settings.lastSettingsSection
+			if (stored !== settingsSection) {
+				setSettingsSection(stored)
+				return
+			}
+		}
+		if (storedSettingsSection.current !== settingsSection)
 			void changeDesktopSettings({ lastSettingsSection: settingsSection })
-	}, [settingsOpen, settingsSection])
+	}, [settingsOpen, settingsSection, desktopSettings.settings])
 	/** Home, from the rail or from the foot of a sidebar with no "New conversation" row: a new conversation. */
 	const goHome = () => {
 		if (!loading) void act(newConversation)
@@ -7302,10 +7320,12 @@ export function App({
 						stacked={projectRemovalDialog}
 						section={settingsSection}
 						onSection={(section, focusId) => {
+							settingsSectionPending.current = false
 							setSettingsSection(section)
 							setSettingsFocus(focusId)
 						}}
 						focusId={settingsFocus}
+						request={settingsRequest}
 						engineTarget={{
 							groupId: group.id,
 							...(projectId ? { projectId } : {}),

@@ -166,6 +166,8 @@ export interface SettingsPageProps {
 	onSection: (section: SettingsSection, focusId?: string) => void
 	/** A setting the page should scroll to and focus after it renders, from a search result. */
 	focusId?: string
+	/** Changes with every ask to open Settings, so a search typed earlier gives way to the one asked for. */
+	request?: number
 	settings: DesktopSettingsControls
 	appearance: Appearance
 	onAppearanceChange: (value: Appearance) => void
@@ -285,7 +287,7 @@ function SettingsContent(
 		})
 		watch.observe(content, { childList: true, subtree: true })
 		return () => watch.disconnect()
-	}, [focusId, section, searching, config.view !== undefined])
+	}, [focusId, section, searching, props.request, config.view !== undefined])
 	return (
 		<section
 			ref={page}
@@ -414,6 +416,8 @@ function SettingsDialogLayout({
 	const [query, setQuery] = useState('')
 	const search = useSettingsSearch(query, props.update)
 	const searching = query.trim().length > 0
+	// biome-ignore lint/correctness/useExhaustiveDependencies: an ask from outside is the trigger
+	useEffect(() => setQuery(''), [props.section, props.focusId, props.request])
 	clearSearch.current = () => {
 		if (!query) return false
 		setQuery('')
