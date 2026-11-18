@@ -279,10 +279,6 @@
 	white-space: nowrap;
 	font-weight: var(--weight-strong);
 }
-.file-source-toggle[aria-pressed="true"] {
-	background: var(--accent);
-	color: var(--foreground);
-}
 .open-in {
 	display: inline-flex;
 	align-items: center;
@@ -685,4 +681,13 @@
 	.file-crumb-gap {
 		display: inline;
 	}
+}
+/* The rendered/source switch of a Markdown file, in the file's header row. */
+.file-view-toggle {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	padding: 2px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-control);
 }

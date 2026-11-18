@@ -1,56 +1,10 @@
 import { List } from 'lucide-react'
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
-import type { DesktopApi, ProjectFileContent } from '../shared/protocol.js'
+import { type ReactNode, useMemo, useRef, useState } from 'react'
 import { documentOutline, drawnHeadingIndex, outlineDepths } from './document-outline.js'
-import { relativeProjectPath } from './file-panel/project-refs.js'
-import { MarkdownContent } from './message.js'
+import { type DocumentOptions, MarkdownContent } from './message.js'
 import { Button } from './ui/button.js'
 import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
 import './document-page.css'
-
-type ReadOutput = NonNullable<DesktopApi['readSessionOutput']>
-
-/** A picture the document names by a relative path, read through the host like the document itself. */
-function DocumentImage({
-	read,
-	sessionId,
-	path,
-	alt,
-}: { read: ReadOutput | undefined; sessionId: string; path: string; alt?: string }) {
-	const [state, setState] = useState<
-		{ status: 'loading' } | { status: 'failed' } | { status: 'ready'; src: string }
-	>({ status: 'loading' })
-	useEffect(() => {
-		let current = true
-		setState({ status: 'loading' })
-		if (!read) {
-			setState({ status: 'failed' })
-			return
-		}
-		read(sessionId, path).then(
-			(content: ProjectFileContent) => {
-				if (!current) return
-				setState(
-					content.kind === 'image' && content.image
-						? { status: 'ready', src: content.image }
-						: { status: 'failed' },
-				)
-			},
-			() => current && setState({ status: 'failed' }),
-		)
-		return () => {
-			current = false
-		}
-	}, [read, sessionId, path])
-	if (state.status === 'ready')
-		return <img className="document-image" src={state.src} alt={alt ?? ''} />
-	const name = alt || path.split('/').pop() || 'Picture'
-	return (
-		<span className="notice" data-document-image={state.status}>
-			{state.status === 'loading' ? `${name}…` : `${name} (not available)`}
-		</span>
-	)
-}
 
 const HEADINGS = 'h1, h2, h3, h4'
 
@@ -119,45 +73,28 @@ function Outline({ text, page }: { text: string; page: React.RefObject<HTMLEleme
 
 /**
  * A Markdown document drawn as a page: serif headings, a readable line length, tables that scroll
- * sideways, pictures the document holds, and an outline of its headings. The page is the file as
- * it is now: when the file is written again the text changes and the page follows, in the same
- * scroll place. Links to other files and the web stay inert here, as in the rest of the pane.
+ * sideways, and an outline of its headings. The page is the file as it is now: when the file is written
+ * again the text changes and the page follows, in the same scroll place. How links and pictures draw is
+ * the caller's (`options`), so the Files pane keeps its own file links and project pictures.
  */
 export function DocumentPage({
 	text,
-	path,
-	sessionId,
-	read,
+	options,
+	lead,
 }: {
 	text: string
-	path: string
-	sessionId: string
-	read: ReadOutput | undefined
+	options: DocumentOptions
+	/** Drawn above the text inside the sheet, such as a file's metadata. */
+	lead?: ReactNode
 }) {
 	const page = useRef<HTMLElement | null>(null)
-	const options = useMemo(
-		() => ({
-			link: (href: string | undefined, children: ReactNode) =>
-				href && /^https?:/i.test(href) ? undefined : (
-					<span className="document-inert-link">{children}</span>
-				),
-			image: (src: string | undefined, alt: string | undefined) => {
-				const target = src ? relativeProjectPath(path, src) : undefined
-				return target ? (
-					<DocumentImage read={read} sessionId={sessionId} path={target} alt={alt} />
-				) : (
-					<span className="notice">{alt || 'Picture'}</span>
-				)
-			},
-		}),
-		[path, read, sessionId],
-	)
 	return (
 		<div className="document-page" data-output-preview="markdown">
 			<div className="document-page-bar">
 				<Outline text={text} page={page} />
 			</div>
 			<article className="file-document document-page-sheet" ref={page}>
+				{lead}
 				<MarkdownContent text={text} document={options} />
 			</article>
 		</div>

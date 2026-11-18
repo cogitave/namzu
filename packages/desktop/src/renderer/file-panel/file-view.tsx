@@ -5,8 +5,9 @@ import type { DesktopApi, ProjectFileContent } from '../../shared/protocol.js'
 import { type CodePrefs, useCodePrefs } from '../code-prefs.js'
 import { CopyButton } from '../copy-button.js'
 import { DIFF_VIEW_UNSAFE_CSS } from '../diff-theme.js'
+import { DocumentPage } from '../document-page.js'
 import { ChevronRightIcon } from '../icons.js'
-import { type DocumentOptions, MarkdownContent } from '../message.js'
+import type { DocumentOptions } from '../message.js'
 import { plainErrorText } from '../plain-error.js'
 import { Button } from '../ui/button.js'
 import { baseNameOf, isMarkdownPath, relativeProjectPath } from './project-refs.js'
@@ -134,13 +135,18 @@ function DocumentView({
 	)
 	const copyText = content.text ?? content.markdown ?? ''
 	return (
-		<article className="file-document">
-			<CopyButton text={copyText} label="Copy file contents" className="file-document-copy" />
-			{content.frontmatter && content.frontmatter.length > 0 && (
-				<Metadata rows={content.frontmatter} />
-			)}
-			<MarkdownContent text={content.markdown ?? content.text ?? ''} document={options} />
-		</article>
+		<DocumentPage
+			text={content.markdown ?? content.text ?? ''}
+			options={options}
+			lead={
+				<>
+					<CopyButton text={copyText} label="Copy file contents" className="file-document-copy" />
+					{content.frontmatter && content.frontmatter.length > 0 && (
+						<Metadata rows={content.frontmatter} />
+					)}
+				</>
+			}
+		/>
 	)
 }
 
