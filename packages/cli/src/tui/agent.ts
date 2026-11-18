@@ -2862,6 +2862,10 @@ export interface AgentSessionOptions {
 	 * verified, what is left) out of the working rules. Absent keeps them whole.
 	 */
 	readonly closingSummary?: boolean
+	/** See `NamzuCliConfig.outputStyle`: a reply-style note after the working rules. */
+	readonly outputStyle?: string
+	/** See `NamzuCliConfig.attribution`: text commits and pull request descriptions end with. */
+	readonly attribution?: string
 	/**
 	 * Mount host desktop control for a surface that owns an interactive
 	 * permission callback. False by default: `exec`, `exec --json` and `drain`
@@ -5843,6 +5847,8 @@ export async function createAgentSession(
 						toolLoading: resolveToolLoading(options.toolLoading),
 						anyToolDeferred: anyDeferred(sessionToolsets),
 						closingSummary: options.closingSummary,
+						outputStyle: options.outputStyle,
+						attribution: options.attribution,
 						planPath: resumePlanPath,
 						skillsOverflowNote: turnSkills.overflowNote,
 					},
@@ -7232,6 +7238,8 @@ export async function createAgentSession(
 									toolLoading: resolveToolLoading(options.toolLoading),
 									anyToolDeferred: anyDeferred(runToolsets),
 									closingSummary: options.closingSummary,
+									outputStyle: options.outputStyle,
+									attribution: options.attribution,
 									planPath,
 									// The reminders carry the skill list, overflow included.
 									skillsOverflowNote: null,

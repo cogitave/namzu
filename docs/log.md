@@ -2,6 +2,8 @@
 
 ## 2026-11-18
 
+- **Creation** [Reply style and commit text](cli/turn-notes.md#reply-style-and-commit-text): `outputStyle` (your own words on how replies read) and `attribution` (text commits and pull request descriptions end with) each add one note to the working rules when set, from the user and managed files only; the default prompt is unchanged. Named output styles are not offered until their wording is tested on small models; a switch for the git section as a whole is not offered because the section also holds the push and history-rewrite rules; the advisor model is the decision model that already exists, so no second setting was added.
+- **Creation** [Prompt suggestions](cli/turn-notes.md#prompt-suggestions): `promptSuggestions` (default on) shows a suggested next message from the small model in the terminal app's empty composer after a reply, taken with Tab; one small request per reply, none when off. Desktop does not draw it yet. Routing an unrelated task to a new conversation is not built: it needs a relatedness decision on every send, and none has a measured accuracy.
 - **Creation** [Turning workflows off](cli/workflows.md#turning-workflows-off): `workflow.enabled` (default on) leaves the `workflow` tool out of conversations started after the change; hypermode then delegates with the `Agent` tool.
 - **Creation** [The closing note](cli/turn-notes.md#the-closing-note): `closingSummary` (default on) leaves the working rules' one closing rule out of new conversations; the default prompt is unchanged.
 - **Update** [Launch flags](cli/launch-flags.md#how-they-combine-with-what-is-saved): saved `effort` and `fast` settings sit below `--effort` / `NAMZU_EFFORT_LEVEL` and `--fast`; a project file cannot set them.

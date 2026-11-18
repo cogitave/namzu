@@ -109,6 +109,11 @@ export interface ComposerProps {
 	/** A bounded text editor for a child conversation, without host commands or image attachments. */
 	readonly plainText?: boolean
 	readonly placeholder?: string
+	/**
+	 * A suggested next message, shown in place of the placeholder while the composer is empty;
+	 * Tab puts it in the draft. Typing anything else leaves it unused.
+	 */
+	readonly promptSuggestion?: string
 	/** Keep an operator draft when the host changes which child it displays. */
 	readonly onDraftChange?: (draft: Omit<ComposerDraft, 'token'>) => void
 	readonly reasoningEffortLevels?: readonly string[]
@@ -672,6 +677,7 @@ export function Composer({
 	plainText = false,
 	mayReadImage,
 	placeholder = 'Type a message… (/help for commands)',
+	promptSuggestion,
 	onDraftChange,
 	reasoningEffortLevels,
 	onSubmit,
@@ -938,6 +944,9 @@ export function Composer({
 		},
 		[],
 	)
+
+	const promptSuggestionRef = useRef(promptSuggestion)
+	promptSuggestionRef.current = promptSuggestion
 
 	const setHistoryIndex = useCallback((next: number) => {
 		historyIndexRef.current = next
@@ -1694,6 +1703,16 @@ export function Composer({
 					return
 				}
 				if (acceptSuggestion()) return
+				// An empty composer with a suggested next message: Tab takes it.
+				const suggested = promptSuggestionRef.current
+				if (
+					suggested !== undefined &&
+					valueRef.current.length === 0 &&
+					attachmentsRef.current.length === 0
+				) {
+					setBuffer(suggested, undefined, 'typed')
+					return
+				}
 				submit('queue')
 				return
 			}
@@ -2131,7 +2150,11 @@ export function Composer({
 				<Box flexGrow={1}>
 					{showPlaceholder ? (
 						<Text color={theme.text.muted}>
-							{settledEpisode.active && settledEpisode.show ? QUEUED_HINT : placeholder}
+							{settledEpisode.active && settledEpisode.show
+								? QUEUED_HINT
+								: promptSuggestion !== undefined
+									? `${promptSuggestion} · Tab to use`
+									: placeholder}
 						</Text>
 					) : (
 						<Text color={disabled ? theme.text.muted : theme.text.primary} wrap="wrap">

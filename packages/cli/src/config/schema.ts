@@ -620,6 +620,25 @@ export interface NamzuCliConfig {
 	 */
 	readonly closingSummary?: boolean
 	/**
+	 * How replies should read, in the person's own words (for example "short, plain sentences,
+	 * no lists"). Added to the working rules of new conversations as a reply-style note that
+	 * never overrides them; absent or empty adds nothing. Read from the user and managed files
+	 * only.
+	 */
+	readonly outputStyle?: string
+	/**
+	 * Text the agent ends its commit messages and pull request descriptions with. Added to the
+	 * working rules of new conversations; absent or empty adds nothing. The model follows it, it
+	 * is not enforced by a hook. Read from the user and managed files only.
+	 */
+	readonly attribution?: string
+	/**
+	 * Whether the terminal app offers a suggested next message after a reply, written by the
+	 * small model (one extra small request per reply). Absent means true; `false` sends no
+	 * request. Read from the user and managed files only.
+	 */
+	readonly promptSuggestions?: boolean
+	/**
 	 * Isolation for the commands this CLI runs.
 	 *
 	 * Absent means ON. That is a change from every version before this one,

@@ -969,6 +969,13 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					...(resolvedCtx.config.handBack ? { handBack: resolvedCtx.config.handBack } : {}),
 					...(resolvedCtx.config.effort ? { savedEffort: resolvedCtx.config.effort } : {}),
 					...(resolvedCtx.config.closingSummary === false ? { closingSummary: false } : {}),
+					...(resolvedCtx.config.outputStyle
+						? { outputStyle: resolvedCtx.config.outputStyle }
+						: {}),
+					...(resolvedCtx.config.attribution
+						? { attribution: resolvedCtx.config.attribution }
+						: {}),
+					...(resolvedCtx.config.promptSuggestions === false ? { promptSuggestions: false } : {}),
 					...(resolvedCtx.config.respectGitignore === false ? { respectGitignore: false } : {}),
 					...(resolvedCtx.config.sandbox ? { sandbox: resolvedCtx.config.sandbox } : {}),
 					...(resolvedCtx.config.decision ? { decision: resolvedCtx.config.decision } : {}),

@@ -147,7 +147,8 @@ export function appliesTextFor(entry: Pick<SettingDescriptor, 'path' | 'appliesW
 		(entry.path.startsWith('tui.') ||
 			entry.path.startsWith('composerTriggers.') ||
 			entry.path === 'statusLine' ||
-			entry.path === 'fast')
+			entry.path === 'fast' ||
+			entry.path === 'promptSuggestions')
 	)
 		return 'Applies the next time the terminal app starts.'
 	return APPLIES_WHEN_TEXT[entry.appliesWhen]
@@ -498,6 +499,8 @@ export function appliesWhenFor(path: string): AppliesWhen {
 	const conversationKeys = new Set([
 		'hypermode',
 		'closingSummary',
+		'outputStyle',
+		'attribution',
 		'effort',
 		'respectGitignore',
 		'refusalFallback',
@@ -866,6 +869,24 @@ const DECLARED: readonly SettingDescriptor[] = [
 		},
 	),
 	d(
+		'attribution',
+		'projects',
+		'Commit and pull request text',
+		'Text Namzu ends the commit messages and pull request descriptions it writes with. Leave it empty to add nothing.',
+		{ kind: 'text', placeholder: 'Nothing added' },
+		{
+			group: 'worktrees',
+			keywords: [
+				'attribution',
+				'co-author',
+				'trailer',
+				'signature',
+				'commit message',
+				'pull request',
+			],
+		},
+	),
+	d(
 		'worktrees.branchPrefix',
 		'projects',
 		'Branch prefix',
@@ -1096,6 +1117,29 @@ const DECLARED: readonly SettingDescriptor[] = [
 		{
 			group: 'while-working',
 			keywords: ['closing note', 'summary', 'next steps', 'what is left', 'wrap up'],
+			default: true,
+		},
+	),
+	d(
+		'outputStyle',
+		'agent',
+		'Output style',
+		'Say how replies should read, in your own words. Namzu follows it in new conversations, and it never overrides its working rules.',
+		{ kind: 'text', placeholder: 'For example: short, plain sentences with no lists' },
+		{
+			group: 'while-working',
+			keywords: ['style', 'tone', 'reply style', 'verbosity', 'concise', 'formatting'],
+		},
+	),
+	d(
+		'promptSuggestions',
+		'agent',
+		'Prompt suggestions',
+		'Suggest a next message after Namzu replies, in the terminal app; Tab uses it. Adds one small request to your usage per reply.',
+		on,
+		{
+			group: 'while-working',
+			keywords: ['suggestion', 'next prompt', 'next message', 'autocomplete', 'ghost text'],
 			default: true,
 		},
 	),

@@ -51,6 +51,8 @@ const FULL = {
 	handBack: { enabled: true },
 	effort: 'low',
 	closingSummary: false,
+	outputStyle: 'plain sentences',
+	attribution: 'Signed-off-by: A Person',
 	sandbox: { enabled: true },
 	decision: { enabled: true },
 	codeAnalysis: { enabled: true },

@@ -328,6 +328,9 @@ function resolveConfigWithProvenance(
 				'effort',
 				'fast',
 				'respectGitignore',
+				'outputStyle',
+				'attribution',
+				'promptSuggestions',
 				'memory.select',
 				'profiles.*.memory.select',
 				'memory.curation',
@@ -935,6 +938,25 @@ function pluginVariablesOf(entry: HookEntry): string[] {
 	return referencedVariables([entry.command, ...(entry.args ?? [])]).filter(
 		(name) => isPluginFolderVariable(name) && env[name] === undefined,
 	)
+}
+
+/** The longest prose a setting may add to the model's rules, in characters. */
+export const PROSE_SETTING_MAX_CHARS = 500
+
+/** Text a person writes for the model (`outputStyle`, `attribution`): trimmed; empty means none. */
+function proseSetting(v: unknown, context: ConfigReaderContext): string {
+	if (typeof v !== 'string') return invalidConfigValue(context, [], 'must be text')
+	const text = v.trim()
+	if (text.length > PROSE_SETTING_MAX_CHARS)
+		return invalidConfigValue(
+			context,
+			[],
+			`is ${text.length} characters; keep it to ${PROSE_SETTING_MAX_CHARS} or fewer`,
+		)
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what is refused
+	if (/[\u0000-\u0008\u000b-\u001f\u007f]/u.test(text))
+		return invalidConfigValue(context, [], 'must be plain text')
+	return text
 }
 
 const CONFIG_READERS: ConfigReaders = {
@@ -1869,6 +1891,12 @@ const CONFIG_READERS: ConfigReaders = {
 		if (typeof v === 'boolean') return v
 		return invalidConfigValue(context, [], 'must be true or false')
 	},
+	outputStyle: (v, context) => proseSetting(v, context),
+	attribution: (v, context) => proseSetting(v, context),
+	promptSuggestions: (v, context) => {
+		if (typeof v === 'boolean') return v
+		return invalidConfigValue(context, [], 'must be true or false')
+	},
 	archiveInactive: (v, context) => {
 		if (v === 'never' || v === '1d' || v === '7d' || v === '30d') return v
 		return invalidConfigValue(context, [], 'must be never, 1d, 7d or 30d')
@@ -2611,6 +2639,11 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	respectGitignore: undefined,
 	// How the working rules close is a file decision, not a shell's.
 	closingSummary: undefined,
+	// Text that enters the model's rules is the person's file decision, never a shell's.
+	outputStyle: undefined,
+	attribution: undefined,
+	// An extra request after every reply is a file decision, never a shell's.
+	promptSuggestions: undefined,
 	// Outbound reach is opted into in the file, never from the environment.
 	web: undefined,
 	// A browser signed in to the operator's sites, and which of them it may

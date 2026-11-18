@@ -222,6 +222,7 @@ import {
 import { generateTitle } from '../integrations/sessions/ai-title.js'
 import { displayConversationTitle, typedTextOf } from '../integrations/sessions/display-title.js'
 import { journalOf } from '../integrations/sessions/journal-trail.js'
+import { generatePromptSuggestion } from '../integrations/sessions/prompt-suggestion.js'
 import { generateRecap } from '../integrations/sessions/recap.js'
 import { askSideQuestion } from '../integrations/sessions/side-question.js'
 import {
@@ -6485,6 +6486,8 @@ function AppBody({
 							...(activeCtx.handBack?.enabled === true ? { handBack: true } : {}),
 							...(activeCtx.savedEffort ? { savedEffort: activeCtx.savedEffort } : {}),
 							...(activeCtx.closingSummary === false ? { closingSummary: false } : {}),
+							...(activeCtx.outputStyle ? { outputStyle: activeCtx.outputStyle } : {}),
+							...(activeCtx.attribution ? { attribution: activeCtx.attribution } : {}),
 							...(activeCtx.mcpServers ? { mcpServers: activeCtx.mcpServers } : {}),
 							// The composer is ready at once; each server's tools join as it connects.
 							toolServers: 'background',
@@ -15260,6 +15263,56 @@ function AppBody({
 		awayRecapRef.current?.refresh()
 	}, [recapOn])
 	useEffect(() => () => awayRecapRef.current?.dispose(), [])
+	// A suggested next message (`promptSuggestions`): when a reply has just ended and the
+	// composer is empty, the small model proposes one short message, shown in the empty composer
+	// and taken with Tab. A side job like the recap: no small model, a failed request or an
+	// unusable reply shows nothing, and anything the person does first (typing, sending, a new
+	// turn) drops it.
+	const [promptSuggestion, setPromptSuggestion] = useState<string | undefined>(undefined)
+	const suggestionControllerRef = useRef<AbortController | null>(null)
+	const suggestionPrevStateRef = useRef(state)
+	useEffect(() => {
+		const was = suggestionPrevStateRef.current
+		suggestionPrevStateRef.current = state
+		if (state !== 'idle') {
+			suggestionControllerRef.current?.abort()
+			suggestionControllerRef.current = null
+			setPromptSuggestion(undefined)
+			return
+		}
+		if (was === 'idle' || initialCtx.promptSuggestions === false) return
+		if (composerHasDraftRef.current) return
+		// Only after a finished reply: a failure or a notice is not something to follow up.
+		const last = messagesLiveRef.current[messagesLiveRef.current.length - 1]
+		if (last?.role !== 'assistant' || last.pending || last.content.trim().length === 0) return
+		const sideModel = idleStateRef.current.session?.sideModel
+		const sessionId = scopeRef.current?.sessionId
+		if (!sideModel || !sessionId) return
+		const controller = new AbortController()
+		suggestionControllerRef.current = controller
+		const generation = conversationGenRef.current
+		const turn = recapTurnRef.current
+		void generatePromptSuggestion({
+			sideModel,
+			sessionId,
+			turnId: turn?.sessionId === sessionId ? turn.turnId : generateTurnId(),
+			turns: recapTurns(messagesLiveRef.current),
+			signal: controller.signal,
+		})
+			.catch(() => undefined)
+			.then((text) => {
+				if (suggestionControllerRef.current === controller) suggestionControllerRef.current = null
+				if (
+					text === undefined ||
+					controller.signal.aborted ||
+					conversationGenRef.current !== generation ||
+					composerHasDraftRef.current
+				)
+					return
+				setPromptSuggestion(text)
+			})
+	}, [state, initialCtx.promptSuggestions])
+	useEffect(() => () => suggestionControllerRef.current?.abort(), [])
 	// Compacting a large conversation nobody is using before its one-hour prompt
 	// cache lapses (`compaction.idleCompaction`). The decision lives in
 	// `IdleCompactor`; this supplies what the screen knows and shows the result.
@@ -18154,7 +18207,9 @@ function AppBody({
 											? {
 													placeholder: examplePlaceholder(exampleFile, exampleSeedRef.current),
 												}
-											: {})}
+											: promptSuggestion !== undefined
+												? { promptSuggestion }
+												: {})}
 									mayReadImage={imageReadPolicy}
 									reasoningEffortLevels={session?.reasoningEffortLevels}
 									onCycleMode={cyclePermissionMode}

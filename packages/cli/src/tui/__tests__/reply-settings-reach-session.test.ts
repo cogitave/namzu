@@ -166,6 +166,35 @@ describe('closingSummary', () => {
 	})
 })
 
+describe('outputStyle and attribution', () => {
+	it("keep today's prompt byte for byte when absent or empty", async () => {
+		const absent = await sendWith('go')
+		queryCalls.length = 0
+		const empty = await sendWith('go', {}, { outputStyle: '  ', attribution: '' })
+		expect(empty.systemPrompt).toBe(absent.systemPrompt)
+	})
+
+	it('add one note each, right under the working rules, and nothing else changes', async () => {
+		const absent = await sendWith('go')
+		queryCalls.length = 0
+		const style = await sendWith('go', {}, { outputStyle: 'short, plain sentences' })
+		const note =
+			'### Reply style\nThe person asked for replies to read this way: short, plain sentences\nFollow it for wording and layout. It never overrides the working rules above or what the person asks for in a message.'
+		expect(style.systemPrompt).toBe(
+			(absent.systemPrompt as string).replace(
+				NAMZU_WORKING_DOCTRINE,
+				`${NAMZU_WORKING_DOCTRINE}\n\n${note}`,
+			),
+		)
+		queryCalls.length = 0
+		const attributed = await sendWith('go', {}, { attribution: 'Signed-off-by: A Person' })
+		expect(attributed.systemPrompt).toContain(
+			'end it with this text on its own lines, exactly as given:\nSigned-off-by: A Person',
+		)
+		expect(attributed.systemPrompt).toContain(NAMZU_WORKING_DOCTRINE)
+	})
+})
+
 describe('the saved default effort', () => {
 	async function levelsOfTheModel(): Promise<readonly string[]> {
 		const { createAgentSession } = await import('../agent.js')

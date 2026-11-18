@@ -290,6 +290,12 @@ export interface TuiContext {
 	readonly savedEffort?: import('@namzu/sdk').ReasoningEffort
 	/** See `NamzuCliConfig.closingSummary`. Only `false` is ever set. */
 	readonly closingSummary?: boolean
+	/** See `NamzuCliConfig.outputStyle`. */
+	readonly outputStyle?: string
+	/** See `NamzuCliConfig.attribution`. */
+	readonly attribution?: string
+	/** See `NamzuCliConfig.promptSuggestions`. Only `false` is ever set. */
+	readonly promptSuggestions?: boolean
 	/** See `NamzuCliConfig.respectGitignore`. Only `false` is ever set. */
 	readonly respectGitignore?: boolean
 	/** See `NamzuCliConfig.decision`. */

@@ -47,6 +47,8 @@ export type ConfigSessionOptions = Pick<
 	| 'handBack'
 	| 'savedEffort'
 	| 'closingSummary'
+	| 'outputStyle'
+	| 'attribution'
 	| 'sandbox'
 	| 'decision'
 	| 'toolResultScreens'
@@ -81,6 +83,10 @@ export const SESSION_KEY_MAP: Readonly<Record<keyof NamzuCliConfig, string>> = {
 	respectGitignore:
 		'excluded: read by the terminal app and the desktop app for their file pickers, not by the session',
 	closingSummary: 'closingSummary',
+	outputStyle: 'outputStyle',
+	attribution: 'attribution',
+	promptSuggestions:
+		'excluded: read by the terminal app after a reply, not by the session; no other host draws a suggestion',
 	archiveInactive:
 		'excluded: read by the desktop host when it lists conversations, not by the session',
 	sandbox: 'sandbox',
@@ -141,6 +147,8 @@ export function sessionOptionsFromConfig(
 		...(extras.handBackFlag || config.handBack?.enabled === true ? { handBack: true } : {}),
 		...(config.effort ? { savedEffort: config.effort } : {}),
 		...(config.closingSummary === false ? { closingSummary: false } : {}),
+		...(config.outputStyle ? { outputStyle: config.outputStyle } : {}),
+		...(config.attribution ? { attribution: config.attribution } : {}),
 		...(config.sandbox ? { sandbox: config.sandbox } : {}),
 		...(config.decision ? { decision: config.decision } : {}),
 		...(config.codeAnalysis ? { codeAnalysis: config.codeAnalysis } : {}),
