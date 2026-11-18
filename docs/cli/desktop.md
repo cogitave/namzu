@@ -269,8 +269,9 @@ accepts any `http(s)` feed.
 A build with neither an environment feed nor a provider in `app-update.yml` has no updater and
 shows nothing (`disabled`); Settings ▸ Updates then says "This copy can't update itself. Install the
 latest version once to turn updates on." That is every installer built before the feed was baked in:
-it needs one manual reinstall, after which updates arrive on their own. Settings reads "Up to date."
-or "Update available: version X." for a build with a feed.
+it needs one manual reinstall, after which updates arrive on their own. Settings reads "Not checked yet."
+until a check has run, then "Up to date." or "Update available: version X." for a build with a feed; the
+"Last checked" line keeps counting while the section is open.
 
 A feed that answers 404 for `latest.yml` (the rolling release has no installer yet, or does not
 exist) means "no Desktop release published yet": the state stays `idle`, nothing is shown, and only a

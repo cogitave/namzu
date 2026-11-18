@@ -110,6 +110,20 @@ export interface SettingDescriptor {
 	 * still asks. Absent means every change to a select asks.
 	 */
 	readonly confirmValue?: string
+	/**
+	 * For a select where more than one value is the risky direction, every value that asks.
+	 * Choosing any other value applies at once. Clearing still asks.
+	 */
+	readonly confirmValues?: readonly string[]
+	/**
+	 * Another setting this one does nothing without. Screens warn while that setting is not `is`
+	 * (its saved value, or its default when unsaved); the control stays usable.
+	 */
+	readonly requires?: {
+		readonly path: string
+		readonly is: string
+		readonly note: string
+	}
 	/** Search words beyond the label. */
 	readonly keywords?: readonly string[]
 }
@@ -228,7 +242,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'profiles',
 		'general',
 		'Profiles',
-		'Named bundles of settings you switch between. Edit them in the config file.',
+		'Named bundles of settings you switch between with --profile name on the command line. Add a profiles section to the config file shown here; this window does not edit it.',
 		fileOnly,
 	),
 
@@ -237,7 +251,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'model',
 		'models',
 		'Choose the model automatically',
-		'Pick a model for each task. Needs routing below.',
+		'Pick a model for each task. Needs the routing default below: a configuration that chooses Automatic without one cannot be saved.',
 		pick([
 			'auto',
 			'Automatic',
@@ -281,6 +295,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		{
 			default: 'auto',
 			confirm: 'The request will be sent to a different model after a refusal.',
+			confirmValue: 'auto',
 		},
 	),
 	d(
@@ -295,7 +310,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'decision',
 		'models',
 		'Decision model',
-		'A second model that helps with notifications, memory, skills and picks. Set it up from the terminal; it keeps no secret in this file.',
+		'A second model that helps with notifications, memory, skills and picks. Add a decision section to the config file shown here (see the decision points page in the docs). The file names the variable that holds the key, never the key.',
 		fileOnly,
 	),
 	d(
@@ -342,6 +357,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		{
 			default: 'prompt',
 			confirm: 'Some modes let Namzu act without asking. Only choose one you are comfortable with.',
+			confirmValues: ['accept-edits', 'bypass', 'auto'],
 		},
 	),
 	d(
@@ -508,8 +524,8 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 	d(
 		'updates.channel',
 		'updates',
-		'Update channel',
-		'latest gets new versions first, stable waits longer.',
+		'Command line update channel',
+		'Which releases the command line (the terminal app) updates to: latest gets new versions first, stable waits longer. The Desktop app has its own releases.',
 		pick(
 			['latest', 'Newest', 'New versions arrive as soon as they are released.'],
 			['stable', 'Stable', 'New versions arrive later, after they have had more use.'],
@@ -560,13 +576,20 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Hook refusals before a turn ends',
 		'How many times in a row a hook may refuse to let a turn end before Namzu ends it anyway. 0 means no limit.',
 		num(0),
-		{ default: 8, defaultNote: '0 means no limit.' },
+		{ default: 8 },
 	),
-	d('limits.maxIterations', 'agent', 'Most steps per task', '0 means no limit.', num(0), {
-		defaultText: 'no limit',
-		confirm: 'With no limit, a task can keep taking steps until it ends on its own.',
-		confirmWhen: 'zero',
-	}),
+	d(
+		'limits.maxIterations',
+		'agent',
+		'Most steps per turn',
+		'The most steps one reply may take before it stops. A turn is one message you send; a step is one round of the model answering or running tools.',
+		num(0),
+		{
+			defaultText: 'no limit',
+			confirm: 'With no limit, a turn can keep taking steps until it ends on its own.',
+			confirmWhen: 'zero',
+		},
+	),
 	d(
 		'limits.tokenBudget',
 		'agent',
@@ -582,9 +605,9 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 	d(
 		'limits.timeoutMs',
 		'agent',
-		'Longest task time',
-		'0 means no limit.',
-		num(0, undefined, 'ms'),
+		'Longest turn time',
+		'How long one reply may run before it is stopped. Type minutes and seconds, for example 5m or 90s. 0 means no limit.',
+		num(0, 2147483647, 'ms'),
 		{ defaultText: 'no limit' },
 	),
 	d(
@@ -601,19 +624,19 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 	),
 	d(
 		'limits.waitForProviderMs',
-		'terminal',
+		'agent',
 		'Wait for a busy provider',
-		'How long a one-shot run waits when a provider is busy.',
-		num(0, undefined, 'ms'),
-		{ default: 0 },
+		'How long a one-shot run (namzu exec) or a scheduled run keeps waiting while a provider is busy or limiting requests, before it stops. Type minutes and seconds, for example 10m.',
+		num(1, undefined, 'ms'),
+		{ defaultText: 'a one-shot run does not wait; a scheduled run waits 10 minutes' },
 	),
 	d(
 		'workflow.maxConcurrency',
 		'agent',
 		'Helpers working at once',
 		'How many helper agents may run side by side.',
-		num(2, 16),
-		{ defaultText: 'your processor count minus 2, at most 16' },
+		num(1, 16),
+		{ defaultText: 'processors minus 2, at most 16' },
 	),
 	d(
 		'workflow.maxAgents',
@@ -700,8 +723,9 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'compaction.autoCompactWindowTokens',
 		'agent',
 		'Shorten at this size',
-		'Shorten the conversation when it reaches this many tokens.',
-		num(1, undefined, 'tokens'),
+		'Shorten the conversation when it reaches this many tokens. Type a number or a short form such as 200k or 1m. Sizes under 100k or over 1m are treated as those limits. NAMZU_AUTO_COMPACT_WINDOW in the environment overrides it.',
+		num(100000, 1000000, 'tokens'),
+		{ defaultText: "the model's own window" },
 	),
 	d(
 		'compaction.contextWindowTokens',
@@ -709,12 +733,13 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Assumed model window',
 		'Override the model window size Namzu assumes. Advanced.',
 		num(1, undefined, 'tokens'),
+		{ defaultText: 'the window Namzu knows for the model, or 128000 for one it does not know' },
 	),
 	d(
 		'compaction.modelSummary',
 		'agent',
 		'Summarise with a model',
-		'Use a model to write the summary when shortening.',
+		'Use the small model to write the summary when shortening. With no small model set up, or with this off, the summary is built from the conversation without a model.',
 		on,
 		{ default: true },
 	),
@@ -754,7 +779,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'compaction.consolidate',
 		'agent',
 		'Merge notes when shortening',
-		'Merge related notes into one.',
+		'Merge related notes into one when shortening. Turning it on turns off the memory curation writer (Tidy memory with a model).',
 		on,
 		{ default: false },
 	),
@@ -762,9 +787,16 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'compaction.idleCompaction',
 		'agent',
 		'Shorten while idle',
-		'Shorten a large conversation while you are away.',
+		'Shorten a large conversation while you are away. It does nothing while the cache lifetime below is 5 minutes.',
 		on,
-		{ default: false },
+		{
+			default: false,
+			requires: {
+				path: 'compaction.promptCacheTtl',
+				is: '1h',
+				note: 'Needs the cache lifetime set to 1 hour; with 5 minutes it does nothing.',
+			},
+		},
 	),
 	d(
 		'compaction.clearStaleResultsAfterIdle',
@@ -778,8 +810,8 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'compaction.idleCompactionMinTokens',
 		'agent',
 		'Idle shortening starts at',
-		'The smallest conversation worth shortening while idle. At least 100000.',
-		num(100000, undefined, 'tokens'),
+		'The smallest conversation worth shortening while idle. Anything under 100000 is raised to 100000. NAMZU_IDLE_COMPACT_MIN_TOKENS in the environment overrides it.',
+		num(1, undefined, 'tokens'),
 		{ default: 200000 },
 	),
 	d(
@@ -820,6 +852,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		{
 			default: 'on',
 			confirm: 'Memory titles are sent to a model to choose from.',
+			confirmValue: 'on',
 		},
 	),
 	d(
@@ -834,6 +867,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		{
 			default: 'on',
 			confirm: 'Memory content is sent to a model to tidy it.',
+			confirmValue: 'on',
 		},
 	),
 	d(
@@ -865,7 +899,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'agent',
 		'Tokens per learning cycle',
 		'The most one learning pass may use.',
-		num(1000, undefined, 'tokens'),
+		num(1000, 10000000, 'tokens'),
 		{ default: 120000 },
 	),
 	d(
@@ -873,7 +907,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'agent',
 		'Tokens per day for learning',
 		'The most learning may use in a day.',
-		num(1000, undefined, 'tokens'),
+		num(1000, 10000000, 'tokens'),
 		{ default: 300000 },
 	),
 	d('skills.builtin', 'agent', 'Built-in skills', 'Offer the skills that ship with Namzu.', on, {
@@ -907,7 +941,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'agent',
 		'Scheduled runs at once',
 		'How many scheduled tasks may run side by side.',
-		num(1),
+		num(1, 16),
 		{ default: 2 },
 	),
 	d(
@@ -937,6 +971,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		{
 			default: 'live',
 			confirm: 'Namzu will search the web and send queries out.',
+			confirmValue: 'live',
 		},
 	),
 	d(
@@ -956,6 +991,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		{
 			default: 'auto',
 			confirm: 'The native option has no local review of what is searched.',
+			confirmValue: 'native',
 		},
 	),
 	d('web.fetch', 'tools', 'Fetch web pages', 'Let Namzu read the web pages it is pointed to.', on, {
@@ -970,7 +1006,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'browser.defaultProfile',
 		'tools',
 		'Browser profile',
-		'The browser profile Namzu uses. Sign-ins live in it.',
+		'The browser profile Namzu uses. Sign-ins live in it. Use lowercase letters and digits with single dashes between them, up to 64 characters.',
 		{ kind: 'text', placeholder: 'default' },
 		{
 			default: 'default',
@@ -993,11 +1029,19 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'browser.headless',
 		'tools',
 		'Show the browser window',
-		'auto decides, always hides it, never shows it.',
+		'Whether the browser Namzu drives has a window you can see.',
 		pick(
-			['auto', 'Let Namzu decide', 'Hidden unless a page needs you to see it.'],
-			['never', 'Always show it', 'The browser window stays visible.'],
-			['always', 'Always hide it', 'The browser runs without a window.'],
+			[
+				'auto',
+				'Let Namzu decide',
+				'Shown when you are in a live session on a computer with a screen; hidden otherwise.',
+			],
+			[
+				'never',
+				'Show it',
+				'The window is always shown. With no screen on this computer the browser cannot start.',
+			],
+			['always', 'Hide it', 'The browser runs without a window.'],
 		),
 		{ default: 'auto' },
 	),
@@ -1068,11 +1112,18 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		on,
 		{ default: false, keywords: ['hooks'] },
 	),
-	d('plugins.enabled', 'tools', 'Plugins', 'Allow plugins to run code.', on, {
-		default: false,
-		confirm: 'Plugins run code on this computer.',
-		confirmWhen: 'on',
-	}),
+	d(
+		'plugins.enabled',
+		'tools',
+		'Plugins',
+		'Allow plugins to run code. A folder of plugins can also be loaded for one run with --plugin-dir on the command line; it is not saved here.',
+		on,
+		{
+			default: false,
+			confirm: 'Plugins run code on this computer.',
+			confirmWhen: 'on',
+		},
+	),
 	d(
 		'plugins.autoDiscovery',
 		'tools',
@@ -1085,8 +1136,8 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'plugins.hookTimeoutMs',
 		'tools',
 		'Plugin hook time limit',
-		'How long a plugin hook may run before it is cut off.',
-		num(1, undefined, 'ms'),
+		'How long a plugin hook may run before it is cut off. Type minutes and seconds, for example 10m.',
+		num(1, 2147483647, 'ms'),
 		{ default: 600000 },
 	),
 	d(
@@ -1100,23 +1151,13 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 			confirm: 'Plugins from a project run code that came with that project.',
 		},
 	),
-	d(
-		'plugins.launchDirs',
-		'tools',
-		'Plugin folders',
-		'Extra folders to load plugins from.',
-		json('[ "/path/to/plugins" ]'),
-		{
-			confirm: 'Plugins in these folders run code on this computer.',
-		},
-	),
 
 	// Telemetry
 	d(
 		'telemetry.sessionExport.destination',
 		'telemetry',
 		'Save conversations to a file',
-		'Write each conversation to this file.',
+		'Write each conversation to this file. Clearing it stops the saving and also forgets the two choices below.',
 		{ kind: 'text', placeholder: '/path/to/file' },
 		{
 			confirm: 'Your conversations will be copied to this file.',
@@ -1143,7 +1184,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'telemetry.otlp.endpoint',
 		'telemetry',
 		'Send traces to',
-		'An OpenTelemetry address. Do not put a password in it; the address is shown here as written.',
+		'An OpenTelemetry address, such as https://collector.example.com:4318. Setting it turns trace export on; clearing it turns it off. Do not put a password in it; the address is shown here as written.',
 		{ kind: 'text', placeholder: 'https://' },
 		{
 			confirm: 'Traces of your work will be sent to this address.',
@@ -1153,7 +1194,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'telemetry.otlp.headers',
 		'telemetry',
 		'Trace sign-in headers',
-		'Headers sent with traces. They hold a token, so edit them in the config file.',
+		'Headers sent with traces. They hold a token, so add telemetry.otlp.headers to the config file shown here; this window does not show or change them.',
 		fileOnly,
 	),
 
@@ -1228,7 +1269,11 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		pick(
 			['full', 'Clicks and scrolling', 'The mouse clicks, selects and scrolls.'],
 			['scroll', 'Scrolling only', 'The mouse scrolls and nothing else.'],
-			['off', 'Off', 'The terminal handles the mouse itself.'],
+			[
+				'off',
+				'Off',
+				'Namzu asks for no mouse reports, so the terminal handles the mouse itself. Scroll with the keyboard.',
+			],
 		),
 		{
 			default: 'full',
@@ -1324,7 +1369,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'statusLine',
 		'terminal',
 		'Status line',
-		'A command whose output fills the terminal status line. It runs a command, so edit it in the config file.',
+		'A command whose output fills the terminal status line. It runs a command, so add a statusLine section to the config file shown here; this window does not edit it.',
 		fileOnly,
 	),
 ]
@@ -1349,4 +1394,9 @@ export const SETTING_EXCLUSIONS: readonly SettingExclusion[] = [
 /** Sub-keys left out on purpose. */
 export const SETTING_SUBKEY_EXCLUSIONS: readonly SettingExclusion[] = [
 	{ key: 'tui.spacesPrefix', reason: 'A deprecated alias of tui.workspacesPrefix; read only.' },
+	{
+		key: 'plugins.launchDirs',
+		reason:
+			'Set for one run by --plugin-dir; the loader never reads it from a file, so a saved value would do nothing.',
+	},
 ]

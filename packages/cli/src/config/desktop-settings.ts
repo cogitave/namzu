@@ -10,7 +10,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { parse as yamlParse } from 'yaml'
 
-import { ConfigValueError, readConfigKey } from './load.js'
+import { BROWSER_PROFILE_NAME, ConfigValueError, readConfigKey } from './load.js'
 import {
 	SETTING_DESCRIPTORS,
 	type SettingDescriptor,
@@ -152,6 +152,73 @@ function coerce(entry: SettingDescriptor, raw: unknown): unknown {
 	}
 }
 
+/**
+ * Checks the loader makes across keys, which a per-key reader cannot see. Today there is one:
+ * `model: auto` needs `routing.default` to fall back to, and the loader refuses the whole file
+ * without it. Desktop must never write a file the terminal app then refuses to load, whether the
+ * change sets the model or removes the routing it depends on.
+ */
+export function checkAcrossKeys(
+	doc: Record<string, unknown>,
+	path: readonly string[],
+	value: unknown | undefined,
+): void {
+	const root = path[0]
+	if (root !== 'model' && root !== 'routing') return
+	const after: Record<string, unknown> = { ...doc }
+	if (path.length === 1) {
+		if (value === undefined) delete after[root]
+		else after[root] = value
+	}
+	if (after.model !== 'auto') return
+	const routing = after.routing
+	const hasDefault =
+		routing !== null &&
+		typeof routing === 'object' &&
+		!Array.isArray(routing) &&
+		(routing as Record<string, unknown>).default !== undefined
+	if (hasDefault) return
+	throw new Error(
+		root === 'model'
+			? 'Choose Automatic only after the routing setting below has a default model. Without one, Namzu cannot start.'
+			: 'The model is set to Automatic, which needs a default model in routing. Choose another model first, or keep a default here.',
+	)
+}
+
+/** Checks on one value that its control alone does not make. Each says its rule in plain words. */
+const VALUE_CHECKS: Readonly<Record<string, (value: unknown) => void>> = {
+	'browser.defaultProfile': (value) => {
+		const name = String(value)
+		if (name.length > 64 || !BROWSER_PROFILE_NAME.test(name))
+			throw new Error(
+				'Use lowercase letters and digits, with single dashes between them, up to 64 characters.',
+			)
+	},
+	'telemetry.otlp.endpoint': (value) => {
+		let url: URL
+		try {
+			url = new URL(String(value))
+		} catch {
+			throw new Error('Enter a full web address that starts with http or https.')
+		}
+		if (url.protocol !== 'http:' && url.protocol !== 'https:')
+			throw new Error('The address must start with http or https.')
+		if (url.username !== '' || url.password !== '')
+			throw new Error('Do not put a user name or password in the address.')
+	},
+}
+
+/**
+ * `learningGenerator` may be written as a plain true or false. Writing one of its numbers next to
+ * that keeps the choice: the switch becomes `enabled` inside a mapping, rather than the write
+ * failing or the switch being lost.
+ */
+function expandLearningSwitch(doc: Record<string, unknown>, path: readonly string[]): void {
+	if (path[0] !== 'learningGenerator' || path.length < 2) return
+	if (typeof doc.learningGenerator === 'boolean')
+		doc.learningGenerator = { enabled: doc.learningGenerator }
+}
+
 /** Validate against the loader as it would read the file after the change. */
 function checkWhole(
 	doc: Record<string, unknown>,
@@ -207,25 +274,45 @@ export function checkSetting(change: SettingChange, opts: UserConfigWriteOptions
 	prepare(change, opts)
 }
 
+/**
+ * The save-to-file destination cannot be removed alone: the loader refuses a `sessionExport`
+ * block that has no destination. Clearing it removes the whole block, which is what stopping the
+ * saving means; the choices beside it were only meaningful with a destination.
+ */
+const SESSION_EXPORT_DESTINATION = 'telemetry.sessionExport.destination'
+
 function prepare(
 	change: SettingChange,
 	opts: UserConfigWriteOptions,
 ): { path: string[]; value: unknown | undefined } {
 	const entry = descriptorFor(change.path)
-	const path = entry.path.split('.')
+	let path = entry.path.split('.')
 	const file = userConfigPath(opts)
+	const doc = readUserDocument(opts)
 	if (change.value === undefined || change.value === null) {
 		if (entry.control.kind === 'file-only') throw new Error('Edit this one in the config file.')
-		checkWhole(readUserDocument(opts), path, undefined, file)
+		if (entry.path === SESSION_EXPORT_DESTINATION) path = ['telemetry', 'sessionExport']
+		expandLearningSwitch(doc, path)
+		checkAcrossKeys(doc, path, undefined)
+		checkWhole(doc, path, undefined, file)
 		return { path, value: undefined }
 	}
 	const value = coerce(entry, change.value)
-	checkWhole(readUserDocument(opts), path, value, file)
+	VALUE_CHECKS[entry.path]?.(value)
+	expandLearningSwitch(doc, path)
+	checkAcrossKeys(doc, path, value)
+	checkWhole(doc, path, value, file)
 	return { path, value }
 }
 
 export function writeSetting(change: SettingChange, opts: UserConfigWriteOptions = {}): void {
 	const { path, value } = prepare(change, opts)
+	// Make a plain `learningGenerator: true|false` a mapping first, so the number goes beside it.
+	if (path[0] === 'learningGenerator' && path.length > 1) {
+		const doc = readUserDocument(opts)
+		if (typeof doc.learningGenerator === 'boolean')
+			setUserConfigValue(['learningGenerator'], { enabled: doc.learningGenerator }, opts)
+	}
 	if (value === undefined) deleteUserConfigValue(path, opts)
 	else setUserConfigValue(path, value, opts)
 }

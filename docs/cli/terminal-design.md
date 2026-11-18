@@ -1311,9 +1311,11 @@ is `new-output.ts`, shared with the default screen's scroll-back view.
 
 #### Selecting and copying
 
-With the pointer at `full` (the default; `tui.mouse: scroll` or `off`, and
-`NAMZU_DISABLE_MOUSE` / `NAMZU_DISABLE_MOUSE_CLICKS`, keep the terminal's own
-selection and leave only the wheel), the terminal reports drags, so a drag
+With the pointer at `full` (the default; `tui.mouse: scroll`, or
+`NAMZU_DISABLE_MOUSE_CLICKS`, keep the terminal's own selection and leave only
+the wheel; `tui.mouse: off` or `NAMZU_DISABLE_MOUSE` asks the terminal for no
+pointer reports at all, so the wheel is the terminal's too and the transcript
+scrolls from the keyboard), the terminal reports drags, so a drag
 selects text in the window, drawn inverted. A double click selects a word, a
 triple click the line; dragging past the top or bottom edge scrolls. The
 selection is on rows and cells of the text, not on the screen, so it stays on

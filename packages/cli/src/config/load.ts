@@ -3258,7 +3258,7 @@ const BROWSER_KEYS = new Set([
 	'signInDetection',
 ])
 /** `@namzu/browser`'s profile names, restated so reading config does not load Playwright. */
-const BROWSER_PROFILE_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+export const BROWSER_PROFILE_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 function readBrowserConfig(v: unknown, context: ConfigReaderContext): BrowserConfig {
 	if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')

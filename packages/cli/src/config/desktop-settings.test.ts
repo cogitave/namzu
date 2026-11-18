@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { checkSetting, describeChange, readSettings, writeSetting } from './desktop-settings.js'
@@ -84,7 +84,6 @@ describe('Desktop settings descriptors', () => {
 			'quiet',
 			'browser.enabled',
 			'codeAnalysis.enabled',
-			'limits.waitForProviderMs',
 			'updates.auto',
 			'updates.check',
 		])
@@ -180,5 +179,94 @@ describe('writing a Desktop setting', () => {
 		mkdirSync(join(home, '.namzu'), { recursive: true })
 		writeFileSync(userConfigPath(opts()), 'a: [unclosed\n')
 		expect(() => writeSetting({ path: 'quiet', value: true }, opts())).toThrow()
+	})
+})
+
+describe('settings that depend on other settings', () => {
+	let home: string
+	beforeEach(() => {
+		home = mkdtempSync(join(tmpdir(), 'namzu-settings-cross-'))
+	})
+	afterEach(() => rmSync(home, { recursive: true, force: true }))
+	const opts = () => ({ home, env: {} as NodeJS.ProcessEnv })
+	const seed = (text: string) => {
+		mkdirSync(dirname(userConfigPath(opts())), { recursive: true })
+		writeFileSync(userConfigPath(opts()), text)
+	}
+	const file = () => readFileSync(userConfigPath(opts()), 'utf8')
+
+	it('refuses Automatic without a routing default, so the file always loads', () => {
+		expect(() => writeSetting({ path: 'model', value: 'auto' }, opts())).toThrow(
+			/Automatic only after the routing setting/,
+		)
+		expect(existsSync(userConfigPath(opts()))).toBe(false)
+		expect(() => checkSetting({ path: 'model', value: 'auto' }, opts())).toThrow(/routing/)
+	})
+
+	it('takes Automatic once routing has a default, and refuses to remove that default after', () => {
+		writeSetting(
+			{ path: 'routing', value: '{"default":{"provider":"anthropic","model":"x"}}' },
+			opts(),
+		)
+		writeSetting({ path: 'model', value: 'auto' }, opts())
+		expect(file()).toContain('model: auto')
+		expect(() => writeSetting({ path: 'routing' }, opts())).toThrow(/needs a default model/)
+		expect(file()).toContain('routing')
+	})
+
+	it('keeps a plain learningGenerator switch when a token number is written next to it', () => {
+		seed('learningGenerator: false\n')
+		writeSetting({ path: 'learningGenerator.cycleTokens', value: 50000 }, opts())
+		const text = file()
+		expect(text).toContain('enabled: false')
+		expect(text).toContain('cycleTokens: 50000')
+		// and the whole file still loads
+		expect(() =>
+			checkSetting({ path: 'learningGenerator.dailyTokens', value: 60000 }, opts()),
+		).not.toThrow()
+	})
+
+	it('refuses a learning number above the engine maximum', () => {
+		expect(() =>
+			writeSetting({ path: 'learningGenerator.cycleTokens', value: 10_000_001 }, opts()),
+		).toThrow(/10000000 or less/)
+	})
+
+	it('clears the save-to-file destination by removing the whole block', () => {
+		writeSetting({ path: 'telemetry.sessionExport.destination', value: '/tmp/out.jsonl' }, opts())
+		writeSetting({ path: 'telemetry.sessionExport.eventTypes', value: '["message"]' }, opts())
+		writeSetting({ path: 'telemetry.sessionExport.destination' }, opts())
+		expect(file()).not.toContain('sessionExport')
+		expect(file()).not.toContain('destination')
+	})
+
+	it('checks the trace address as a web address with no password in it', () => {
+		for (const bad of ['not a url', 'ftp://host/x', 'https://user:pw@host:4318'])
+			expect(
+				() => writeSetting({ path: 'telemetry.otlp.endpoint', value: bad }, opts()),
+				bad,
+			).toThrow()
+		writeSetting(
+			{ path: 'telemetry.otlp.endpoint', value: 'https://collector.example.com:4318' },
+			opts(),
+		)
+		expect(file()).toContain('collector.example.com')
+	})
+
+	it('accepts one helper at once, as the loader does, and no longer describes plugin folders', () => {
+		writeSetting({ path: 'workflow.maxConcurrency', value: 1 }, opts())
+		expect(file()).toContain('maxConcurrency: 1')
+		expect(SETTING_DESCRIPTORS.map((d) => d.path)).not.toContain('plugins.launchDirs')
+	})
+
+	it('shows each busy-provider and idle number with the range the loader enforces', () => {
+		const by = (path: string) => SETTING_DESCRIPTORS.find((d) => d.path === path)?.control
+		expect(by('limits.waitForProviderMs')).toMatchObject({ min: 1 })
+		expect(by('schedule.maxConcurrentRuns')).toMatchObject({ min: 1, max: 16 })
+		expect(by('limits.timeoutMs')).toMatchObject({ max: 2147483647 })
+		expect(by('learningGenerator.dailyTokens')).toMatchObject({ max: 10000000 })
+		expect(() => writeSetting({ path: 'limits.waitForProviderMs', value: 0 }, opts())).toThrow(
+			/1 or more/,
+		)
 	})
 })

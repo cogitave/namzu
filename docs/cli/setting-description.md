@@ -32,6 +32,8 @@ Two files hold descriptions, written in the same shape:
 | `defaultNote` | A caveat beside the default, such as "Off in automated runs such as CI". |
 | `defaultWhen` | Cases where the default is not `default`: `sandbox.enabled` is off unless isolation is required or the workspace is a throwaway copy, and then it is on. |
 | `appliesWhen` | `now`, `next-turn`, `next-conversation`, `next-start` or `next-launch`. Every setting has one. |
+| `confirm`, `confirmWhen`, `confirmValue`, `confirmValues` | The sentence asked before a change, and which new value asks: `on`/`off` for a switch, `zero` for a cap, one option, or each of several options (`permissions.defaultMode` asks only for `accept-edits`, `bypass` and `auto`). Saving the value a setting already holds never asks; clearing a setting always asks. |
+| `requires` | Another setting this one does nothing without. The screen warns while that setting is not in the needed state: `compaction.idleCompaction` needs `compaction.promptCacheTtl` at `1h`. |
 | options | Each choice is `{ value, label, help }`. The saved `value` never changes; the label is plain words and `help` is one line saying what choosing it does. |
 
 `defaultText` is still sent for an older Desktop that reads only words: the engine fills it from the typed
@@ -51,6 +53,27 @@ The apply time is found from the code that reads the key, not guessed.
   conversation keeps the value it began with.
 - **Now / next launch**: Desktop's own switches take effect at once; the graphics card, the start-up
   screen and the terminal restore are read when the app opens.
+
+## What a write checks
+
+Desktop writes only the user file, and every write is checked as the loader would read the file after it.
+Beyond each key's own reader there are checks across keys and on one value:
+
+- `model: auto` is refused, in plain words, while `routing` has no `default`, and removing that default is
+  refused while the model is `auto`, so Desktop never leaves a file the terminal app refuses to load.
+- A plain `learningGenerator: true|false` becomes `{ enabled }` when one of its token numbers is written
+  beside it, so the switch is kept.
+- Clearing `telemetry.sessionExport.destination` removes the whole `sessionExport` block (the loader
+  refuses a block with no destination); the two choices beside it go with it.
+- `telemetry.otlp.endpoint` must be an `http` or `https` address with no user name or password, and
+  `browser.defaultProfile` must be a profile name (lowercase letters and digits, single dashes, 64 at most).
+
+Number boxes take the engine's range (`workflow.maxConcurrency` 1 to 16, `schedule.maxConcurrentRuns` 1
+to 16, learning tokens 1000 to 10000000, `limits.timeoutMs` up to 2147483647). A box in milliseconds takes
+minutes and seconds (`5m`, `90s`) and stores milliseconds; a token box takes `786k` or `1m`.
+`plugins.launchDirs` has no control: the loader never reads it from a file, and `--plugin-dir` sets it for
+one run. A file-only row (profiles, decision model, status line, trace headers, connected servers, hooks)
+names the config file it lives in.
 
 ## The guard
 
