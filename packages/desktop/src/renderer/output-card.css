@@ -50,8 +50,8 @@
 	background: var(--accent);
 }
 .output-card:has(:focus-visible) {
-	outline: 2px solid var(--ring);
-	outline-offset: 1px;
+	outline: none;
+	box-shadow: var(--focus-ring);
 }
 .output-card[data-state="failed"] {
 	border-color: color-mix(in srgb, var(--error) 40%, transparent);
@@ -224,12 +224,12 @@ div.output-card-main {
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.output-card,
-	.output-card-actions {
+	:root:not([data-motion="full"]) .output-card,
+	:root:not([data-motion="full"]) .output-card-actions {
 		animation: none;
 		transition: none;
 	}
-	.output-card-progress::after {
+	:root:not([data-motion="full"]) .output-card-progress::after {
 		animation: none;
 		width: 100%;
 	}
