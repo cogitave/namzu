@@ -1375,8 +1375,9 @@ export function SitesEditor({
 					/>
 				))}
 				<li>
-					<span className="settings-config-item">Every other site</span>
-					<span className="settings-config-field">
+					<span className="settings-config-item settings-config-name">Every other site</span>
+					{/* No Remove on this line: its answer still sits in the answer column above. */}
+					<span className="settings-config-field settings-config-field-fixed">
 						<select
 							className="settings-config-input settings-config-answer"
 							aria-label="Level for every other site"

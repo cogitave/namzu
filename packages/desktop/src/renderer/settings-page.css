@@ -909,6 +909,10 @@ input.settings-config-number {
 .settings-config-add .settings-config-field button {
 	min-width: 4.5rem;
 }
+/* A line that cannot be removed keeps its answer in the answer column: the Remove width and gap. */
+.settings-config-items li .settings-config-field-fixed {
+	margin-right: calc(4.5rem + 6px);
+}
 /* A form's Save and Discard sit at the start under its lines, like a JSON box's. */
 .settings-config-actions {
 	display: flex;
