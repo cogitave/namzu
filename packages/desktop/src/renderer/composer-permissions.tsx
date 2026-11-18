@@ -166,6 +166,30 @@ export function offeredPermissionModes(
 }
 
 /**
+ * A saved Full access or Auto the engine no longer offers (its settings closed it since the
+ * conversation last had it). Returns the mode to show and send instead, and the one line that
+ * says so; `undefined` when nothing needs to change. `fallback` is the mode a conversation
+ * starts in. Only Namzu's own engine advertises these two, so no other engine is touched.
+ */
+export function closedModeFallback<Mode extends string>(
+	engine: ComposerPermissionEngine,
+	saved: string,
+	advertised: readonly ('bypass' | 'classify')[] | undefined,
+	fallback: Mode,
+): { mode: Mode; note: string } | undefined {
+	if (engine !== 'namzu' || advertised === undefined) return undefined
+	if ((saved !== 'bypass' && saved !== 'classify') || advertised.includes(saved)) return undefined
+	const closed = rowCopy[saved].namzu?.label ?? saved
+	const now = rowCopy[fallback as ComposerPermissionMode]?.namzu?.label ?? 'Ask first'
+	return {
+		mode: fallback,
+		note: `${closed} is off in Settings, so this conversation ${
+			fallback === 'prompt' ? 'asks first again' : `uses ${now} instead`
+		}.`,
+	}
+}
+
+/**
  * Rows for one engine. Support comes from `supportedModes` (the engine's capabilities);
  * a saved mode the engine no longer supports stays visible but cannot be picked again.
  */

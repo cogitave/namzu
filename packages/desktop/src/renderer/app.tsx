@@ -60,7 +60,7 @@ import { CommitDialog } from './commit-dialog.js'
 import { changedPaths, commitButtonState } from './commit-model.js'
 import type { AddMenuToolServers } from './composer-add-menu.js'
 import { historyEntries } from './composer-history.js'
-import { offeredPermissionModes } from './composer-permissions.js'
+import { closedModeFallback, offeredPermissionModes } from './composer-permissions.js'
 import {
 	type ComposerPlugin,
 	type ComposerPluginInventory,
@@ -1765,7 +1765,25 @@ export function App({
 		api,
 		reconnects,
 	)
-	const settings = resolveComposerSendOptions(savedSettings.value.options, pal?.id)
+	const savedOptions = resolveComposerSendOptions(savedSettings.value.options, pal?.id)
+	// A saved Full access or Auto the engine's settings have since closed shows and sends the
+	// conversation's starting mode instead; the effect below saves it so the note is said once.
+	const closedMode = closedModeFallback(
+		permissionEngine,
+		savedOptions.permissionMode ?? 'prompt',
+		project?.permissionModes,
+		resolveComposerSendOptions(undefined, pal?.id).permissionMode ?? 'prompt',
+	)
+	const settings = closedMode ? { ...savedOptions, permissionMode: closedMode.mode } : savedOptions
+	const [closedModeNote, setClosedModeNote] = useState<{ owner: string; text: string } | null>(null)
+	const closedModeText = closedMode?.note
+	const closedModeReady = !savedSettings.loading && !savedSettings.error
+	// biome-ignore lint/correctness/useExhaustiveDependencies: only a closed mode may save
+	useEffect(() => {
+		if (!closedModeText || !closedModeReady) return
+		setClosedModeNote({ owner: draftOwner, text: closedModeText })
+		void act(() => savedSettings.save(draftOwner, keepAuto({ choice, options: { ...settings } })))
+	}, [closedModeText, closedModeReady, draftOwner])
 	const choice = resolveComposerModelChoice({
 		providers: activeProviders,
 		draftChoice: savedSettings.value.choice,
@@ -8237,11 +8255,13 @@ export function App({
 								onRemoveAttachment={(id) => void act(() => attached.remove(id))}
 								settings={settings}
 								capabilities={capabilities}
-								onSettingsChange={(value) =>
+								notice={closedModeNote?.owner === draftOwner ? closedModeNote.text : undefined}
+								onSettingsChange={(value) => {
+									setClosedModeNote(null)
 									void act(() =>
 										savedSettings.save(draftOwner, keepAuto({ choice, options: value })),
 									)
-								}
+								}}
 								plugins={pluginStates[pluginsKey]?.value}
 								pluginsLoading={pluginStates[pluginsKey]?.loading ?? false}
 								onOpenPlugins={() => void loadPlugins()}

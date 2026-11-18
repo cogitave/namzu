@@ -179,6 +179,7 @@ export function Composer({
 	onRecheckEngines,
 	attachmentsSupported = true,
 	reviewModes,
+	notice,
 	permissionEngine,
 	permissionScope,
 	onLeaveProject,
@@ -294,6 +295,8 @@ export function Composer({
 	onRecheckEngines?: () => Promise<unknown>
 	attachmentsSupported?: boolean
 	reviewModes?: readonly ComposerPermissionMode[]
+	/** One line the app wants said under the box, such as a mode that was closed since last time. */
+	notice?: string
 	permissionEngine?: HarnessView['selected']
 	permissionScope?: string
 	onLeaveProject?: () => void
@@ -1021,6 +1024,9 @@ export function Composer({
 										<output className="block pb-2 text-xs text-muted-foreground">
 											{UNSUPPORTED_ATTACHMENTS_HINT}
 										</output>
+									)}
+									{notice && (
+										<output className="block pb-2 text-xs text-muted-foreground">{notice}</output>
 									)}
 									{pasteNotice && (
 										<output className="block pb-2 text-xs text-muted-foreground">

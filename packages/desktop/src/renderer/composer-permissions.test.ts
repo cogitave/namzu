@@ -3,6 +3,7 @@ import { beforeEach, expect, it, vi } from 'vitest'
 import {
 	type ComposerPermissionMode,
 	ComposerPermissions,
+	closedModeFallback,
 	numberedRow,
 	offeredPermissionModes,
 	permissionMenuTitle,
@@ -343,4 +344,37 @@ it('offers only the modes the engine advertises, and keeps the whole list for an
 	// Another engine's list is its own: the advertised Namzu modes never touch it.
 	expect(offeredPermissionModes('codex-cli', [])).toContain('bypass')
 	expect(offeredPermissionModes('claude-code', [])).toEqual(['prompt', 'plan'])
+})
+
+it('shows Ask first and says so once when a saved Full access is no longer offered', () => {
+	const note = 'Full access is off in Settings, so this conversation asks first again.'
+	expect(closedModeFallback('namzu', 'bypass', [], 'prompt')).toEqual({ mode: 'prompt', note })
+	expect(closedModeFallback('namzu', 'bypass', ['classify'], 'prompt')).toEqual({
+		mode: 'prompt',
+		note,
+	})
+	// Offered, or an engine that sends no list: nothing changes.
+	expect(closedModeFallback('namzu', 'bypass', ['bypass'], 'prompt')).toBeUndefined()
+	expect(closedModeFallback('namzu', 'bypass', undefined, 'prompt')).toBeUndefined()
+})
+
+it('names the fallback mode by its menu name when the default is not Ask first', () => {
+	expect(closedModeFallback('namzu', 'bypass', [], 'accept-edits')?.note).toBe(
+		'Full access is off in Settings, so this conversation uses Edit automatically instead.',
+	)
+})
+
+it('treats a saved Auto that is no longer offered the same way', () => {
+	expect(closedModeFallback('namzu', 'classify', ['bypass'], 'prompt')).toEqual({
+		mode: 'prompt',
+		note: 'Auto is off in Settings, so this conversation asks first again.',
+	})
+	expect(closedModeFallback('namzu', 'classify', ['classify'], 'prompt')).toBeUndefined()
+})
+
+it('leaves other modes and other engines alone', () => {
+	expect(closedModeFallback('namzu', 'plan', [], 'prompt')).toBeUndefined()
+	expect(closedModeFallback('namzu', 'strict', [], 'prompt')).toBeUndefined()
+	expect(closedModeFallback('codex-cli', 'bypass', [], 'prompt')).toBeUndefined()
+	expect(closedModeFallback('claude-code', 'bypass', [], 'prompt')).toBeUndefined()
 })
