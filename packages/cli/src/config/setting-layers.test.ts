@@ -215,4 +215,24 @@ describe('readSettings says which layer decides a value', () => {
 		})
 		expect(state('updates.auto', { NAMZU_UPDATE_CHECK: '1' })?.layer).toBeUndefined()
 	})
+	it('does not call a dropped project value the one in force for the bypass opt-in or computer use', () => {
+		writeFileSync(
+			join(project, 'namzu.config.json'),
+			JSON.stringify({
+				permissions: { allowBypassMode: true, disableBypassMode: true },
+				computerUse: { enabled: true, deniedApps: ['Banking'] },
+			}),
+		)
+		// The project cannot turn either on, and its denied apps add to the user's own list.
+		expect(state('permissions.allowBypassMode')?.layer).toBeUndefined()
+		expect(state('computerUse.enabled')?.layer).toBeUndefined()
+		expect(state('computerUse.deniedApps')?.layer).toBeUndefined()
+		// What a project may do still shows: it can forbid bypass and close computer use.
+		expect(state('permissions.disableBypassMode')).toMatchObject({ layer: 'project' })
+		writeFileSync(
+			join(project, 'namzu.config.json'),
+			JSON.stringify({ computerUse: { enabled: false } }),
+		)
+		expect(state('computerUse.enabled')).toMatchObject({ layer: 'project', effective: false })
+	})
 })

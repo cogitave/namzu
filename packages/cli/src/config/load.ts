@@ -3597,6 +3597,12 @@ export function projectLayerHolds(path: string, value: unknown): boolean {
 			return tail === 'enabled' ? value === false : false
 		case 'composerTriggers':
 			return (tail === 'enabled' || tail === 'suggest') && value === false
+		case 'permissions':
+			// A project's opt-in to bypass is dropped whatever it says, so it decides nothing.
+			return tail !== 'allowBypassMode'
+		case 'computerUse':
+			// A project can only close computer use, and its denied apps add to the user's own list.
+			return tail === 'enabled' && value === false
 		case 'sandbox':
 			switch (tail) {
 				case 'enabled':
