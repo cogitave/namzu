@@ -445,7 +445,7 @@ export function SkillSwitchesView({
 			<ul className="settings-config-items" aria-label={label}>
 				{rows.installed.map((skill) => (
 					<li key={skill.name} data-off={!skill.on || undefined}>
-						<span className="settings-config-item">
+						<span className="settings-config-item settings-config-name">
 							{skill.name}
 							<span className="settings-config-help">
 								{skill.on ? skill.where : `${skill.where} · Off`}
@@ -460,7 +460,7 @@ export function SkillSwitchesView({
 				))}
 				{rows.unknown.map((name) => (
 					<li key={`unknown:${name}`} data-off>
-						<span className="settings-config-item">
+						<span className="settings-config-item settings-config-name">
 							{name}
 							<span className="settings-config-help">Off. No installed skill has this name.</span>
 						</span>

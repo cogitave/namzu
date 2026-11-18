@@ -875,6 +875,12 @@ input.settings-config-number {
 	font-family: var(--font-mono, ui-monospace, monospace);
 	font-size: var(--text-caption);
 }
+/* A name, not a path: it reads in the row's own type, with its tier under it. */
+.settings-config-name {
+	font-family: inherit;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+}
 .settings-config-sub {
 	display: flex;
 	flex-direction: column;
