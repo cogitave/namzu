@@ -780,3 +780,17 @@ it('names the slash list in the empty box of an open conversation, not on the ho
 		'placeholder="Send a message"',
 	)
 })
+
+it('reads the saved hypermode key as the mode in force until the person chooses', () => {
+	const saved = render({
+		connected: true,
+		capabilities: { effortLevels: ['low', 'high'], hypermodeDefault: true },
+	})
+	expect(saved).toContain('Model: space-bunny-free, hypermode')
+	const chosenOff = render({
+		connected: true,
+		settings: { hypermode: false },
+		capabilities: { effortLevels: ['low', 'high'], hypermodeDefault: true },
+	})
+	expect(chosenOff).not.toContain(', hypermode')
+})

@@ -1936,7 +1936,9 @@ export function createCliAcpRuntime(
 					: bootstrapCtx.config,
 			)
 				? { workflowsOff: true as const }
-				: {}
+				: bootstrapCtx.config.hypermode === true
+					? { hypermodeDefault: true as const }
+					: {}
 			// The running session answers only for the model it runs on, which can lag its Pal's.
 			if (record && record.provider === provider && record.model === model) {
 				return {

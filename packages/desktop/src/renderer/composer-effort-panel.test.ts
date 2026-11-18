@@ -116,3 +116,29 @@ it('says why the switch cannot be turned on while dynamic workflows are off', ()
 	expect(html).toContain('Turn them on in Settings')
 	expect(html.match(/<input[^>]*aria-label="Hypermode"[^>]*>/)?.[0]).toContain('disabled')
 })
+
+it('ties the help sentence to the switch for assistive technology', () => {
+	const html = render({ hypermode: { on: false, onChange: vi.fn(), blocked: 'Because.' } })
+	const id = html.match(/aria-describedby="([^"]+)"/)?.[1]
+	expect(id).toBeTruthy()
+	expect(html).toContain(`id="${id}">Because.`)
+})
+
+it('shows a stored yes as off while blocked, and a click clears it', () => {
+	const onChange = vi.fn()
+	const html = render({ hypermode: { on: true, onChange, blocked: 'No.' } })
+	const input = html.match(/<input[^>]*aria-label="Hypermode"[^>]*>/)?.[0] ?? ''
+	expect(input).toContain('aria-checked="false"')
+	expect(input).not.toContain('disabled')
+})
+
+it('offers the mode on a model with no choice of effort', () => {
+	const html = render({
+		variant: 'inline',
+		levels: ['medium'],
+		hypermode: { on: false, onChange: vi.fn() },
+	})
+	expect(html).toContain('role="switch"')
+	expect(html).not.toContain('type="range"')
+	expect(render({ variant: 'inline', levels: ['medium'] })).toBe('')
+})

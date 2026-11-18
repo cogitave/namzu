@@ -183,6 +183,8 @@ export interface ComposerModelSettings {
 	effortDefault?: ReasoningEffort
 	/** Dynamic workflows are off in Settings, so the effort panel cannot turn hypermode on. */
 	workflowsOff?: boolean
+	/** The saved `hypermode` setting starts conversations in the mode (and workflows are on). */
+	hypermodeDefault?: boolean
 	notice?: string
 }
 export interface PluginInventoryView {

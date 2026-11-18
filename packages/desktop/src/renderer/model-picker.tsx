@@ -488,9 +488,9 @@ export function ModelPicker({
 									auto={auto && { active: auto.active, onSelect: chooseAuto }}
 								/>
 								{/* The control belongs to the model in use; beside another provider's list it would read as theirs, so it is left out. */}
-								{onEffortChange &&
+								{(onEffortChange || hypermode) &&
 									browseProvider === choice.provider &&
-									(settings === null || effortChoices >= 2) && (
+									(settings === null || effortChoices >= 2 || hypermode) && (
 										<ComposerEffortPanel
 											variant="inline"
 											scope={JSON.stringify([projectId, sessionId, choice.provider, modelId])}
@@ -500,7 +500,7 @@ export function ModelPicker({
 											defaultValue={settings?.effortDefault}
 											loading={settings === null}
 											disabled={disabled}
-											onChange={onEffortChange}
+											onChange={onEffortChange ?? (() => {})}
 											{...(hypermode
 												? {
 														hypermode: {

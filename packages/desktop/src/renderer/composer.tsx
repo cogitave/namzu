@@ -89,7 +89,7 @@ import {
 } from './icons.js'
 import { cn } from './lib/utils.js'
 import { effortLabel } from './model-choice.js'
-import { type ModelChoice, ModelPicker } from './model-picker.js'
+import { HYPERMODE_BLOCKED, type ModelChoice, ModelPicker } from './model-picker.js'
 import { isMaterialPaste } from './paste-ranges.js'
 import type { PendingMessages } from './pending-messages.js'
 import { usePresence } from './presence.js'
@@ -407,8 +407,9 @@ export function Composer({
 				}
 				const next: DesktopSendOptions = { ...settings }
 				if (mode !== undefined) {
-					if (mode && capabilities?.workflowsOff) return `/effort ${argument}`
-					next.hypermode = mode
+					// Refused with the one sentence; a level typed with it is still applied.
+					if (mode && capabilities?.workflowsOff) setPasteNotice(HYPERMODE_BLOCKED)
+					else next.hypermode = mode
 				}
 				if (rest.length === 0) {
 					if (mode === undefined) {
@@ -669,7 +670,7 @@ export function Composer({
 			{...(hypermodeOffered
 				? {
 						hypermode: {
-							on: settings.hypermode === true,
+							on: settings.hypermode ?? capabilities?.hypermodeDefault === true,
 							onChange: (on: boolean) => onSettingsChange({ ...settings, hypermode: on }),
 						},
 					}

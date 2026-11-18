@@ -9,6 +9,8 @@ export interface ComposerModelSettings {
 	readonly notice?: string
 	/** Dynamic workflows are off in Settings, so hypermode cannot be turned on. */
 	readonly workflowsOff?: true
+	/** The saved `hypermode` setting starts conversations in the mode (and workflows are on). */
+	readonly hypermodeDefault?: true
 	/**
 	 * Set only on a `catalogue: 'skip'` answer: at least one member would have
 	 * been asked for its model listing, so the levels above are what the provider

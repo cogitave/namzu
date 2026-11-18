@@ -1,7 +1,7 @@
 import { Slider } from '@base-ui/react/slider'
 import type { ReasoningEffort } from '@namzu/sdk'
 import { ChevronRight } from 'lucide-react'
-import { useEffect, useRef } from 'react'
+import { useEffect, useId, useRef } from 'react'
 import type { HarnessView } from '../shared/protocol.js'
 import {
 	EngineChip,
@@ -141,7 +141,34 @@ export function ComposerEffortPanel({
 	const index = value ? Math.max(0, levels.indexOf(value)) : 0
 	const label = value ? effortLabel(value) : 'Model default'
 	const defaultIndex = defaultStop(levels, defaultValue)
-	if (inline && unavailable) return null
+	const helpId = `${useId()}-mode-help`
+	const modeRow = hypermode && (
+		<div className="composer-effort-mode">
+			<span className="composer-effort-mode-text">
+				<span className="composer-effort-mode-name">Hypermode</span>
+				<span className="composer-effort-mode-help" id={helpId}>
+					{hypermode.blocked ??
+						'Namzu uses dynamic workflows on every substantial task in this conversation.'}
+				</span>
+			</span>
+			<Switch
+				label="Hypermode"
+				checked={hypermode.on && !hypermode.blocked}
+				disabled={disabled || (hypermode.blocked !== undefined && !hypermode.on)}
+				describedBy={helpId}
+				// While blocked the switch reads off, so a click can only clear a stored yes.
+				onChange={(value) => hypermode.onChange(hypermode.blocked ? false : value)}
+			/>
+		</div>
+	)
+	// A model with no choice of effort has no slider, but the mode is still offered.
+	if (inline && unavailable) {
+		return modeRow ? (
+			<div className="composer-effort-panel" data-variant="inline" data-scope={scope}>
+				{modeRow}
+			</div>
+		) : null
+	}
 	return (
 		<div
 			className="composer-effort-panel"
@@ -267,23 +294,7 @@ export function ComposerEffortPanel({
 					)}
 				</>
 			)}
-			{hypermode && (
-				<div className="composer-effort-mode">
-					<span className="composer-effort-mode-text">
-						<span className="composer-effort-mode-name">Hypermode</span>
-						<span className="composer-effort-mode-help">
-							{hypermode.blocked ??
-								'Namzu uses dynamic workflows on every substantial task in this conversation.'}
-						</span>
-					</span>
-					<Switch
-						label="Hypermode"
-						checked={hypermode.on && !hypermode.blocked}
-						disabled={disabled || (hypermode.blocked !== undefined && !hypermode.on)}
-						onChange={hypermode.onChange}
-					/>
-				</div>
-			)}
+			{modeRow}
 		</div>
 	)
 }

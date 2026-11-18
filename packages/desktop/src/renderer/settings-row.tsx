@@ -66,11 +66,14 @@ export function Switch({
 	label,
 	checked,
 	disabled,
+	describedBy,
 	onChange,
 }: {
 	label: string
 	checked: boolean
 	disabled?: boolean
+	/** The id of the element that explains the switch (read after its name by a screen reader). */
+	describedBy?: string
 	onChange: (value: boolean) => void
 }) {
 	return (
@@ -80,6 +83,7 @@ export function Switch({
 			className="settings-switch"
 			aria-label={label}
 			aria-checked={checked}
+			aria-describedby={describedBy}
 			checked={checked}
 			disabled={disabled}
 			onChange={(event) => onChange(event.target.checked)}
