@@ -63,7 +63,10 @@ Reserved in this version and refused by name: `os.windowTitle`, `os.browserDomai
 sign-in is the `background` block below.
 
 Each data kind in `produces[]` is `{ id, from[], description, grain, fields[],
-retentionDays (1 to 365), leavesMachine: false }`. A field named like content (`key`,
+retentionDays (1 to 365, or `"keep"`), leavesMachine: false }`. `"keep"` means the data is kept
+until the organisation deletes it: the notice and What is collected say so in those words, Namzu
+never deletes it on a timer, and moving from a number of days to `"keep"` asks the person again.
+The extension may compact its own old records (for example once a week) but not drop them. A field named like content (`key`,
 `title`, `url`, `path`, `x`, `y`, `image`, `pixels`, `clipboard` and the like) is refused,
 which is how "never which key" and "no window title" are held at the declaration.
 

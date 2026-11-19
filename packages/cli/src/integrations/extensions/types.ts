@@ -31,7 +31,8 @@ export interface ManifestDataKind {
 	readonly description: Localized
 	readonly grain: 'minute' | 'event'
 	readonly fields: readonly ManifestField[]
-	readonly retentionDays: number
+	/** Days the data is kept, or `keep`: kept until the organisation deletes it. */
+	readonly retentionDays: number | 'keep'
 	readonly leavesMachine: false
 }
 

@@ -128,7 +128,7 @@ function walkProduces(w: Walk, v: unknown): void {
 					w.add(`${fp}.type`, 'must be integer, text or timestamp')
 				w.text(`${fp}.description`, f.description, 1, 200)
 			})
-		w.int(`${path}.retentionDays`, d.retentionDays, 1, 365)
+		if (d.retentionDays !== 'keep') w.int(`${path}.retentionDays`, d.retentionDays, 1, 365)
 		if (d.leavesMachine !== false)
 			w.add(`${path}.leavesMachine`, 'phase 1: data never leaves the machine (must be false)')
 	})

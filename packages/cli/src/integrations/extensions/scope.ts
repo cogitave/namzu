@@ -12,7 +12,7 @@ export interface Scope {
 		id: string
 		from: string[]
 		fields: string[]
-		retentionDays: number
+		retentionDays: number | 'keep'
 		leavesMachine: boolean
 	}[]
 	files: { path: string; access: string }[]
@@ -30,6 +30,10 @@ export interface Scope {
 	adminCanRead: boolean
 	runsAtLogin: boolean
 }
+
+/** True when `a` keeps the data longer than `b`: `keep` outlasts every number of days. */
+const keptLonger = (a: number | 'keep', b: number | 'keep'): boolean =>
+	a === 'keep' ? b !== 'keep' : b === 'keep' ? false : a > b
 
 const byId = <T extends { id: string }>(a: T, b: T): number => a.id.localeCompare(b.id)
 
@@ -127,7 +131,7 @@ export function widerReasons(o: Scope, n: Scope): string[] {
 		}
 		for (const f of d.fields) if (!q.fields.includes(f)) r.push(`new field ${f} in ${d.id}`)
 		for (const f of d.from) if (!q.from.includes(f)) r.push(`${d.id} now also reads ${f}`)
-		if (d.retentionDays > q.retentionDays)
+		if (keptLonger(d.retentionDays, q.retentionDays))
 			r.push(`longer retention for ${d.id}: ${q.retentionDays} -> ${d.retentionDays}`)
 		if (d.leavesMachine && !q.leavesMachine) r.push(`${d.id} now leaves the machine`)
 	}

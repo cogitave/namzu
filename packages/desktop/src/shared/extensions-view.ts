@@ -121,7 +121,7 @@ export interface ExtensionDisclosure {
 		id: string
 		description: string
 		fields: { name: string; description: string }[]
-		retentionDays: number
+		retentionDays: number | 'keep'
 	}[]
 	doesNotCollect: string[]
 	doesNotDo: string[]
@@ -353,7 +353,7 @@ export function readDisclosure(value: unknown): ExtensionDisclosure | undefined 
 							? [{ name: str(g.name, 40) as string, description: str(g.description, 300) ?? '' }]
 							: []
 					}),
-					retentionDays: num(q.retentionDays) ?? 0,
+					retentionDays: q.retentionDays === 'keep' ? 'keep' : (num(q.retentionDays) ?? 0),
 				},
 			]
 		}),

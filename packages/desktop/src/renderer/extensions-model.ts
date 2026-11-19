@@ -92,7 +92,8 @@ export function chipTone(state: ExtensionState, degraded: boolean): ChipTone {
 }
 
 /** One line for "kept N days". */
-export function keptWords(days: number): string {
+export function keptWords(days: number | 'keep'): string {
+	if (days === 'keep') return 'Kept until your organisation deletes it.'
 	return days === 1 ? 'Kept 1 day.' : `Kept ${days} days.`
 }
 

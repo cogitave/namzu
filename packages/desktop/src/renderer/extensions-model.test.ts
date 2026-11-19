@@ -156,6 +156,7 @@ describe('what is collected', () => {
 	it('words the retention', () => {
 		expect(keptWords(1)).toBe('Kept 1 day.')
 		expect(keptWords(7)).toBe('Kept 7 days.')
+		expect(keptWords('keep')).toBe('Kept until your organisation deletes it.')
 	})
 	it('turns any counts answer into plain lines, with no markup', () => {
 		expect(

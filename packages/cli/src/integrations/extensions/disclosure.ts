@@ -29,7 +29,7 @@ export interface Disclosure {
 		id: string
 		description: string
 		fields: { name: string; description: string }[]
-		retentionDays: number
+		retentionDays: number | 'keep'
 	}[]
 	doesNotCollect: string[]
 	doesNotDo: string[]
@@ -202,7 +202,9 @@ export function disclosureText(d: Disclosure): string {
 	if (d.pages) out.push('', d.pages)
 	out.push('', 'It keeps:')
 	for (const k of d.dataKinds) {
-		out.push(`  ${k.id}: ${k.description} Kept ${k.retentionDays} days.`)
+		out.push(
+			`  ${k.id}: ${k.description} ${k.retentionDays === 'keep' ? 'Kept until your organisation deletes it.' : `Kept ${k.retentionDays} days.`}`,
+		)
 		out.push(`    Fields: ${k.fields.map((f) => f.name).join(', ')}`)
 	}
 	if (d.doesNotCollect.length)
