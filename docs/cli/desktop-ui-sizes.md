@@ -71,6 +71,31 @@ stays for days, or more than one accent fill in a view. A waiting update is ther
 28 px ghost rail button as its neighbours, a 16 px download glyph in the muted colour, with a 6 px
 accent dot at the top right as the only colour.
 
+## Layout rules found by looking at the window
+
+These came from a sweep of the running app at 1280 and 900 px wide, dark and light, and are kept by
+`renderer/layout-rules.test.ts` (each is a check on a stylesheet, with no browser and no clock).
+
+- **A title is never squeezed for a label.** In the conversation bar the project label has no minimum width and
+  shrinks first, it is hidden while the bar is under 480 px, and the title keeps at least 96 px.
+- **One rhythm in the Session panel.** Headings are one 24 px control in full ink at 13 px, weight 500; rows are 32 px
+  with no gap; a hairline between sections is inset 16 px on both sides and there is none after the last; the folder
+  path is cut at its end; the close button is the 28 px control the other panels use. A heading draws a chevron only
+  while it is folded.
+- **A legend row fits its name.** The context breakdown's column gap is 10 px, so a built-in label is never cut at 900 px;
+  the free-space marker is an outline and the bar's track is a visible tone, so neither disappears on the panel ground.
+- **A menu is sized by its rows.** A permission row is a title and one line (about 34 characters of description), which
+  makes it 46 px; the model menu is at most 340 px; the plus menu is as wide as its widest row and sits 6 px
+  (`MENU_OFFSET`) above the box; the Hypermode row sits on the same inset as the model rows; the context popover is
+  320 px.
+- **Panes open at the reference shares.** A single column opening with Changes, Files or Browser takes three fifths of the
+  workspace and a terminal a third.
+- **The collapsed rail keeps Search** under Home.
+
+Not rules: the 10 px step between the Session rail (320 px) and a pane (a share of the workspace) is as in the reference;
+the 123 px to the right of the title bar's buttons in a test window is the room the system's own window buttons need
+(`--frame-controls-inset`); a nested conversation row's highlight starts at the nesting indent.
+
 ## What keeps it
 
 `renderer/ui-sizes.test.ts` fails on: a `text-ui-*` class or any text size class `theme.css` does not

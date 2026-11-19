@@ -2,6 +2,7 @@
 
 ## 2026-11-19
 
+- **Update** [Desktop sizes standard](cli/desktop-ui-sizes.md#layout-rules-found-by-looking-at-the-window), [Desktop](cli/desktop.md): the layout sweep: the conversation title keeps its room (the project label gives way first), the Session panel follows one rhythm (24 px headings, 32 px rows, inset hairlines, a 28 px close, a legend that fits), composer menus are sized by their rows (one-line permission rows, a model menu of at most 340 px, a 6 px gap above the plus menu), a Changes, Files or Browser pane opens at three fifths of the workspace, and the collapsed rail keeps Search. `.changeset/desktop-layout-sweep.md`.
 - **Update** `cli/desktop.md`: the working line shows one clock while the first step is the whole turn, instead of the same seconds twice.
 
 - **Update** [Desktop](cli/desktop.md#while-a-reply-is-running): waiting messages are drawn in a Pal conversation too (they were missing there, so a message sent to a Pal while it replied had no Send now, Edit or Remove and no Paused line). `.changeset/desktop-waiting-messages-in-pal.md`.
