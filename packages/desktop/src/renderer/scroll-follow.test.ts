@@ -105,6 +105,14 @@ describe('whose scroll it is', () => {
 		vi.advanceTimersByTime(301)
 		expect(input.recent()).toBe(false)
 	})
+	it('stays the reader through a fling after the finger lifts, then stops', () => {
+		const input = createReaderInput()
+		input.touch(1_500)
+		vi.advanceTimersByTime(1_700)
+		expect(input.recent()).toBe(true)
+		vi.advanceTimersByTime(200)
+		expect(input.recent()).toBe(false)
+	})
 	it('keeps following and pins again when the browser moved the view', () => {
 		expect(
 			readScroll({ following: true, atLatest: false, movedUp: true, fromReader: false }),

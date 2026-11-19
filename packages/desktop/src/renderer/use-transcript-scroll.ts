@@ -11,6 +11,9 @@ import {
 } from './scroll-follow.js'
 
 /** Keep reading position independent of streaming; follow only after reaching the end. */
+/** How long a fling keeps scrolling after the finger lifts and still reads as the reader's. */
+const touchCoastMs = 1_500
+
 export function useTranscriptScroll(
 	owner: string,
 	transcript: { current: HTMLDivElement | null },
@@ -96,6 +99,9 @@ export function useTranscriptScroll(
 			reader.touch()
 			if (explicitJump || event.deltaY < 0) cancelJump()
 		}
+		// A drag keeps the reader's mark fresh, and a lifted finger leaves a fling that scrolls on.
+		const onTouchMove = () => reader.touch()
+		const onTouchEnd = () => reader.touch(touchCoastMs)
 		const onTouch = () => {
 			reader.touch()
 			if (disclosure !== undefined) disclosureMoved = true
@@ -110,11 +116,16 @@ export function useTranscriptScroll(
 		const onPointerDown = (event: PointerEvent) => {
 			if (
 				event.target === node &&
-				event.clientX >= node.getBoundingClientRect().left + node.clientWidth
+				event.clientX >= node.getBoundingClientRect().left + node.clientLeft + node.clientWidth
 			)
 				reader.hold()
 		}
 		const onPointerUp = () => reader.release()
+		// A release on the scrollbar, or outside the window, may send no pointerup: a move with no
+		// button down says the press is over.
+		const onPointerMove = (event: PointerEvent) => {
+			if (event.buttons === 0) reader.release()
+		}
 		const onScrollEnd = () => {
 			if (!current) return
 			rest.current?.()
@@ -185,9 +196,12 @@ export function useTranscriptScroll(
 		window.addEventListener('pagehide', onPageHide)
 		node.addEventListener('wheel', onWheel, { passive: true })
 		node.addEventListener('touchstart', onTouch, { passive: true })
+		node.addEventListener('touchmove', onTouchMove, { passive: true })
+		node.addEventListener('touchend', onTouchEnd, { passive: true })
 		node.addEventListener('keydown', onKey)
 		node.addEventListener('pointerdown', onPointerDown, { passive: true })
 		window.addEventListener('pointerup', onPointerUp, true)
+		window.addEventListener('pointermove', onPointerMove, true)
 		window.addEventListener('pointercancel', onPointerUp, true)
 		node.addEventListener('click', onDisclosure, true)
 		node.addEventListener('keydown', onDisclosure, true)
@@ -218,9 +232,12 @@ export function useTranscriptScroll(
 			window.removeEventListener('pagehide', onPageHide)
 			node.removeEventListener('wheel', onWheel)
 			node.removeEventListener('touchstart', onTouch)
+			node.removeEventListener('touchmove', onTouchMove)
+			node.removeEventListener('touchend', onTouchEnd)
 			node.removeEventListener('keydown', onKey)
 			node.removeEventListener('pointerdown', onPointerDown)
 			window.removeEventListener('pointerup', onPointerUp, true)
+			window.removeEventListener('pointermove', onPointerMove, true)
 			window.removeEventListener('pointercancel', onPointerUp, true)
 			node.removeEventListener('click', onDisclosure, true)
 			node.removeEventListener('keydown', onDisclosure, true)

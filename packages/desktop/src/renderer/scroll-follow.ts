@@ -42,7 +42,7 @@ export function createAutoScrollMark(ttl = 250, now: () => number = Date.now): A
 
 export interface ReaderInput {
 	/** A wheel, touch or key was used on the transcript just now. */
-	touch(): void
+	touch(coastMs?: number): void
 	/** A pointer went down on the transcript's scrollbar and has not come up yet. */
 	hold(): void
 	release(): void
@@ -60,8 +60,9 @@ export function createReaderInput(ttl = 300, now: () => number = Date.now): Read
 	let last = Number.NEGATIVE_INFINITY
 	let held = false
 	return {
-		touch() {
-			last = now()
+		// `coastMs` extends the window past the call: a finger lifted from a fling keeps scrolling.
+		touch(coastMs = 0) {
+			last = now() + coastMs
 		},
 		hold() {
 			held = true
