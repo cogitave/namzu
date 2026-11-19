@@ -11,6 +11,7 @@ function setup(over: Partial<TrayHost> = {}) {
 				destroyed: false,
 				menu: undefined as unknown,
 				setToolTip: vi.fn(),
+				setImage: vi.fn(),
 				setContextMenu(menu: unknown) {
 					tray.menu = menu
 				},
@@ -78,6 +79,33 @@ describe('the tray', () => {
 		)
 		await controller.sync(false, 'Menu bar')
 		expect(controller.problem()).toBeUndefined()
+	})
+
+	it('draws the icon again for a theme change, and never before the tray is up', async () => {
+		let n = 0
+		const { host, trays, controller } = setup({ loadIcon: vi.fn(async () => `icon-${++n}`) })
+		await controller.refreshIcon()
+		expect(host.loadIcon).not.toHaveBeenCalled()
+		await controller.sync(true, 'System tray')
+		await controller.refreshIcon()
+		expect(trays[0]?.setImage).toHaveBeenCalledWith('icon-2')
+		expect(trays).toHaveLength(1)
+	})
+
+	it('keeps the old icon when the new one cannot be found, and shows no extension state', async () => {
+		let first = true
+		const { trays, controller } = setup({
+			loadIcon: async () => {
+				const was = first
+				first = false
+				return was ? 'icon' : undefined
+			},
+		})
+		await controller.sync(true, 'System tray')
+		await controller.refreshIcon()
+		expect(trays[0]?.setImage).not.toHaveBeenCalled()
+		const items = trays[0]?.menu as { label?: string }[]
+		expect(items.map((i) => i.label)).toEqual(['Open Namzu', undefined, 'Quit Namzu'])
 	})
 
 	it('records a tray the system refused and keeps quitting on close', async () => {

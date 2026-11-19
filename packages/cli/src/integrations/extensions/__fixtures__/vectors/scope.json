@@ -1,0 +1,153 @@
+{
+  "v": 1,
+  "id": "com.cogitave.activity",
+  "noticeVersion": "1.0",
+  "permissions": [
+    {
+      "id": "background.signin",
+      "optional": false,
+      "purposes": [
+        "record-from-signin"
+      ]
+    },
+    {
+      "id": "os.foregroundWindow",
+      "optional": false,
+      "purposes": [
+        "time-per-app"
+      ]
+    },
+    {
+      "id": "os.inputCounts",
+      "optional": false,
+      "purposes": [
+        "input-source",
+        "input-volume"
+      ]
+    },
+    {
+      "id": "os.lastInputTime",
+      "optional": false,
+      "purposes": [
+        "active-or-idle"
+      ]
+    },
+    {
+      "id": "os.screenChange",
+      "optional": false,
+      "purposes": [
+        "screen-activity"
+      ]
+    },
+    {
+      "id": "os.sessionEvents",
+      "optional": false,
+      "purposes": [
+        "day-boundaries"
+      ]
+    }
+  ],
+  "produces": [
+    {
+      "id": "activity.app.minute",
+      "from": [
+        "os.foregroundWindow"
+      ],
+      "fields": [
+        "category",
+        "exe",
+        "minute",
+        "product",
+        "seconds"
+      ],
+      "retentionDays": 7,
+      "leavesMachine": false
+    },
+    {
+      "id": "activity.input.minute",
+      "from": [
+        "os.inputCounts"
+      ],
+      "fields": [
+        "clicks",
+        "injectedKeys",
+        "injectedMouse",
+        "keys",
+        "minute",
+        "mouseDistancePx",
+        "moveOnlyPermille",
+        "moves",
+        "repeatMax",
+        "stepIntervalCvPermille",
+        "stepSizeCvPermille",
+        "wheel"
+      ],
+      "retentionDays": 7,
+      "leavesMachine": false
+    },
+    {
+      "id": "activity.screen.minute",
+      "from": [
+        "os.screenChange"
+      ],
+      "fields": [
+        "changedCellsPermille",
+        "maxScore",
+        "meanScore",
+        "minute",
+        "noDataSamples",
+        "samples"
+      ],
+      "retentionDays": 7,
+      "leavesMachine": false
+    },
+    {
+      "id": "activity.session.event",
+      "from": [
+        "os.sessionEvents"
+      ],
+      "fields": [
+        "at",
+        "kind"
+      ],
+      "retentionDays": 7,
+      "leavesMachine": false
+    },
+    {
+      "id": "activity.state.minute",
+      "from": [
+        "os.lastInputTime",
+        "os.sessionEvents"
+      ],
+      "fields": [
+        "activeS",
+        "asleepS",
+        "idleS",
+        "lockedS",
+        "minute"
+      ],
+      "retentionDays": 7,
+      "leavesMachine": false
+    }
+  ],
+  "files": [
+    {
+      "path": "${dataDir}",
+      "access": "readWrite"
+    }
+  ],
+  "network": "none",
+  "hosts": [],
+  "licence": {
+    "kind": "key"
+  },
+  "background": {
+    "runAt": "signin",
+    "indicator": "tray"
+  },
+  "pagesUseNetwork": false,
+  "leavesTheMachine": "nothing",
+  "monitoringKind": "employee-activity",
+  "adminCanRead": true,
+  "runsAtLogin": true
+}

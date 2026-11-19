@@ -405,6 +405,7 @@ import {
 import { ComposerFrame } from './ComposerFrame.js'
 import { CopyPicker } from './CopyPicker.js'
 import { EffortSlider, effortSliderLayout } from './EffortSlider.js'
+import { ExtensionIndicatorRow } from './ExtensionIndicatorRow.js'
 import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
 import { PendingInputPanel, pendingInputPanelRows } from './PendingInputPanel.js'
 import {
@@ -744,6 +745,7 @@ import { codeFlowHooks, grammarVersion, subscribeGrammars } from './code-highlig
 import type { QueuedHintCount } from './composer-hints.js'
 import type { ProposedChange } from './diff-rows.js'
 import { EXIT_HINT_MS } from './exit-hint.js'
+import { useExtensionIndicators } from './extension-indicators.js'
 import { mergeGroupRows } from './group-rows.js'
 import { type MentionSources, NO_MENTION_SOURCES, loadMentionSources } from './mention-sources.js'
 import {
@@ -7310,6 +7312,7 @@ function AppBody({
 	// on a real terminal and only past the trust screen, which is where a
 	// project-defined command first becomes reachable.
 	const statusLineStartedAt = useRef(Date.now())
+	const extensionMarks = useExtensionIndicators()
 	const statusLineText = useStatusLine({
 		config: ctx.statusLine,
 		enabled: stdout.isTTY === true && phase !== 'trust',
@@ -18359,6 +18362,9 @@ function AppBody({
 					statusLineText === undefined ? null : (
 						<StatusLineRows text={statusLineText} padding={ctx.statusLine?.padding ?? 0} />
 					)}
+					{/* The always-visible mark of a running extension: no setting hides it, and it is
+				    drawn whatever panel is open, except on the trust screen that precedes any run. */}
+					{phase === 'trust' ? null : <ExtensionIndicatorRow marks={extensionMarks} />}
 					{/* The detailed transcript carries its own key line; the mode footer above
 				    its box was a stale row from the composer it replaced. */}
 					{/* The workflow detail (the cockpit) carries its own key line as well. */}

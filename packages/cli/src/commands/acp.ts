@@ -142,6 +142,12 @@ import {
 	buildContextReport,
 	createContextTracker,
 } from './desktop-context.js'
+import {
+	createExtensionsRpc,
+	sharedExtensionHost,
+	startDesktopExtensions,
+	stopDesktopExtensions,
+} from './desktop-extensions.js'
 import { createDesktopHostExtensions } from './desktop-host.js'
 import { desktopModelCatalogue } from './desktop-model-catalogue.js'
 import { announceOutcome } from './desktop-outcome-feed.js'
@@ -2413,6 +2419,7 @@ export function desktopServerExtensions(
 	palInboxStart?: CliPalInboxStarter,
 	terminals?: Pick<TerminalHost, 'extensions'>,
 	limits?: Pick<LimitsFeed, 'refresh'>,
+	extensions?: Readonly<Record<string, (params: Record<string, unknown>) => unknown>>,
 ): Readonly<Record<string, (params: Record<string, unknown>) => unknown>> {
 	return {
 		...createDesktopHostExtensions(
@@ -2426,6 +2433,7 @@ export function desktopServerExtensions(
 			limits,
 		),
 		...terminals?.extensions,
+		...(extensions ?? createExtensionsRpc(() => sharedExtensionHost('desktop'))),
 	}
 }
 
@@ -2545,6 +2553,11 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 	})
 
 	await server.start()
+	if (desktop) {
+		startDesktopExtensions((method, params) => {
+			if (announcing) void transport.send({ jsonrpc: '2.0', method, params })
+		})
+	}
 	// Bootstrap context deliberately does not activate the project yet, so it
 	// cannot emit the project-aware boot narrative. Still make the live protocol
 	// owner observable on stderr; stdout remains exclusively JSON-RPC frames.
@@ -2570,6 +2583,7 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 		announcingUsage = false
 		usageFeed?.close()
 		try {
+			if (desktop) await stopDesktopExtensions()
 			await terminals?.close()
 			await palInboxStart?.close()
 		} finally {

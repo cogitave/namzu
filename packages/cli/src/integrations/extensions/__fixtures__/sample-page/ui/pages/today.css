@@ -1,0 +1,3 @@
+body { margin: 0; font-family: var(--ns-font, system-ui); color: var(--ns-fg, #111); background: var(--ns-bg, #fff); }
+main { padding: 16px; }
+h1 { font-size: 16px; border-left: 4px solid var(--ns-accent, #2F6F4F); padding-left: 8px; }

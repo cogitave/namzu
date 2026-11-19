@@ -4,6 +4,7 @@ export const SETTINGS_SECTIONS = [
 	'models',
 	'agent',
 	'tools',
+	'extensions',
 	'projects',
 	'appearance',
 	'notifications',

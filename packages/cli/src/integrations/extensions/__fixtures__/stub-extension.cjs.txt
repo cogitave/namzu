@@ -1,0 +1,54 @@
+const fs = require('node:fs')
+const net = require('node:net')
+const env = process.env
+const data = env.NAMZU_EXT_DATA
+const mark = (name, text) => { try { fs.appendFileSync(`${data}/${name}`, `${text}\n`) } catch {} }
+if (process.argv[2] === 'purge') { mark('maintenance.log', `purge ${Date.now()}`); process.exit(0) }
+let sc = {}
+try { sc = JSON.parse(fs.readFileSync(`${data}/scenario.json`, 'utf8')) } catch {}
+try { fs.writeFileSync(`${data}/env.json`, JSON.stringify(env)) } catch {}
+fs.writeFileSync(`${data}/pid.txt`, String(process.pid))
+const send = (o) => process.stdout.write(`${JSON.stringify(o)}\n`)
+if (sc.mode === 'exit1') process.exit(1)
+if (sc.mode === 'nohello') { setInterval(() => {}, 1000); return }
+const status = () => send({ t: 'status', state: sc.state || 'collecting', signals: sc.signals || { 'os.foregroundWindow': 'ok' } })
+send({ t: 'hello', api: 1, version: '0.1.0', uses: sc.uses || ['os.foregroundWindow'] })
+if (sc.mode === 'exit0') { setTimeout(() => process.exit(0), 20) }
+if (sc.mode === 'silent-after-hello') { /* says hello, never reports again */ } else { status(); setInterval(status, 30000) }
+if (sc.mode === 'junk') { send({ t: 'banana' }); send({ t: 'banana' }); send({ t: 'banana' }) }
+let buf = ''
+process.stdin.setEncoding('utf8')
+process.stdin.on('data', (d) => {
+  buf += d
+  for (const line of buf.split('\n')) {
+    if (line.includes('"shutdown"')) { mark('events.log', 'shutdown'); if (sc.mode !== 'ignore-shutdown') process.exit(0) }
+    if (line.includes('"hello-ack"')) mark('events.log', `ack ${line}`)
+  }
+  buf = buf.slice(buf.lastIndexOf('\n') + 1)
+})
+process.stdin.on('end', () => {
+  fs.writeFileSync(`${data}/stdin-closed`, '1')
+  if (sc.mode !== 'ignore-shutdown') process.exit(0)
+})
+const defaults = {
+  status: { signals: { 'os.foregroundWindow': 'ok' } },
+  counts: { kind: 'stub.app.minute', count: 3 },
+  rows: { kind: 'stub.app.minute', columns: ['minute', 'exe', 'seconds'], rows: [['2026-01-01T00:00:00Z', 'a.exe', 60]] },
+}
+if (env.NAMZU_EXT_QUERY_ADDR) {
+  try { fs.rmSync(env.NAMZU_EXT_QUERY_ADDR, { force: true }) } catch {}
+  net.createServer((s) => {
+    let b = Buffer.alloc(0)
+    s.on('data', (c) => {
+      b = Buffer.concat([b, c])
+      if (b.length < 4 || b.length < 4 + b.readUInt32BE(0)) return
+      const req = JSON.parse(b.subarray(4, 4 + b.readUInt32BE(0)).toString())
+      let live = {}
+      try { live = JSON.parse(fs.readFileSync(`${data}/scenario.json`, 'utf8')) } catch {}
+      const result = (live.answers && live.answers[req.query]) || defaults[req.query]
+      const body = Buffer.from(JSON.stringify({ v: 1, id: req.id, ok: true, result }))
+      const head = Buffer.alloc(4); head.writeUInt32BE(body.length)
+      s.end(Buffer.concat([head, body]))
+    })
+  }).listen(env.NAMZU_EXT_QUERY_ADDR)
+}

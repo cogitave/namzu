@@ -1,0 +1,6 @@
+{
+  "keyId": "dev-publisher-1",
+  "algorithm": "ed25519",
+  "publicKey": "rcVWO3pFJgLjWLyJtuPJ41c/8riye9v1OPo/rdm7sHw=",
+  "purpose": "DEV ONLY: tests; a release build never trusts it"
+}

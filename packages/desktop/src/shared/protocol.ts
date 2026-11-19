@@ -33,6 +33,8 @@ import type {
 	EngineUpdateResult,
 	EngineUpdatesState,
 } from './engine-update-protocol.js'
+import type { ExtensionPageEvent, PageBounds } from './extension-ui.js'
+import type { ExtensionStateEvent } from './extensions-view.js'
 import type { HooksReport } from './hooks-report.js'
 import type { LimitsNotification } from './limits-protocol.js'
 import type {
@@ -799,6 +801,10 @@ export type DesktopEvent = (
 	| { kind: 'project-removed'; projectId: string; sessionIds: string[] }
 	/** A stored model list was refreshed and its rows differ; the next read returns the new rows. */
 	| { kind: 'model-catalogue-updated'; engine: string; provider: string }
+	/** An extension's state or its always-visible mark changed (from the engine that runs it). */
+	| ({ kind: 'extensions-state' } & ExtensionStateEvent)
+	/** An extension's page stopped, or asked Namzu to open one of Namzu's own screens about it. */
+	| ({ kind: 'extension-page' } & ExtensionPageEvent)
 	/** A key was saved or removed: every window re-reads which providers can answer. */
 	| { kind: 'providers-changed' }
 	/** The engine's config file changed on disk (an edit elsewhere or a save here): Settings reads it again. */
@@ -1268,6 +1274,28 @@ export interface DesktopApi {
 	 * null where the engine cannot say.
 	 */
 	hooksView?(projectId?: string): Promise<HooksView | null>
+	/**
+	 * One call of the engine's `namzu/extensions/*` group, for the Extensions page. Only the methods in
+	 * `EXTENSION_BRIDGE_METHODS` go through; a refusal the person can read comes back as `{ error }`.
+	 * Absent or answering null where the engine does not offer extensions.
+	 */
+	extensionsCall?(method: string, params?: Record<string, unknown>): Promise<unknown>
+	/**
+	 * Show an extension's page in the rectangle the renderer measured, or move it. The main process loads the
+	 * page from the extension's own origin in its own view; the renderer never loads it. Absent where the
+	 * engine offers no pages.
+	 */
+	extensionPageShow?(
+		extensionId: string,
+		pageId: string,
+		bounds: PageBounds,
+	): Promise<{ ok: boolean; reason?: string }>
+	extensionPageBounds?(extensionId: string, pageId: string, bounds: PageBounds): Promise<void>
+	extensionPageClose?(extensionId: string, pageId: string): Promise<void>
+	/** The tokens the pages may use, measured from the app's own page; sent again on every theme change. */
+	extensionPageTheme?(theme: { dark: boolean; tokens: Record<string, string> }): Promise<void>
+	/** Opens the file dialog for a `.nzx` package and adds the chosen file; null when cancelled or unsupported. */
+	extensionsAddFromFile?(locale?: string): Promise<unknown>
 	/** Approves the project's waiting tool servers, as listed; returns the list afterwards. */
 	approveMcpServers?(
 		projectId: string,
