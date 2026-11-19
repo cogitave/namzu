@@ -301,6 +301,8 @@ interface Conversation {
 	sendNowRelease?: boolean
 	/** Waiting messages being handed to the running reply by Send now, so a second press does nothing. */
 	takingIn?: Set<string>
+	/** The hand-over of waiting messages to the running reply, so the reply's settlement waits for it. */
+	takingInCall?: Promise<boolean>
 	liveInputs?: Map<string, LiveInputReceipt>
 	liveInputCalls?: Set<Promise<unknown>>
 	liveInputRead?: Promise<LiveInputStatus | undefined>
@@ -5110,7 +5112,8 @@ export class Operator {
 			options?.attachmentIds?.length ||
 			!session.client.supportsLiveInput()
 		) {
-			await this.send(sessionId, prompt, options)
+			// A waiting message the caller still owns stays where it is; only a fresh one is queued here.
+			if (fixedInputId === undefined) await this.send(sessionId, prompt, options)
 			return 'queued'
 		}
 		const client = session.client
@@ -5137,16 +5140,17 @@ export class Operator {
 		}
 		const operation = (async (): Promise<'accepted' | 'queued'> => {
 			assertCurrent()
-			if (session.queue.length + (session.liveInputs?.size ?? 0) >= 20)
+			const waiting = session.queue.filter((item) => item.id !== fixedInputId)
+			if (waiting.length + (session.liveInputs?.size ?? 0) >= 20)
 				throw new Error('The message queue is full.')
 			const predecessors = [
-				...session.queue.map((item) => item.id),
+				...waiting.map((item) => item.id),
 				...[...(session.liveInputs?.values() ?? [])].map((item) => item.id),
 			]
 			const status = await this.liveInputStatus(session, client, runtimeId)
 			assertCurrent()
 			if (!status.available || !status.scopeId) {
-				await this.send(sessionId, prompt, options)
+				if (fixedInputId === undefined) await this.send(sessionId, prompt, options)
 				return 'queued'
 			}
 			const scopeId = status.scopeId
@@ -5182,6 +5186,12 @@ export class Operator {
 			}
 			if (!session.liveInputs) session.liveInputs = new Map()
 			session.liveInputs.set(inputId, receipt)
+			if (fixedInputId !== undefined) {
+				// The waiting row leaves the queue in the same step it becomes a receipt, never before.
+				const waitingIndex = session.queue.findIndex((item) => item.id === fixedInputId)
+				if (waitingIndex >= 0) session.queue.splice(waitingIndex, 1)
+				this.state(session)
+			}
 			// Anchor the authored input before dispatch. A provider update can overtake
 			// its ACK or the later delivery-status read.
 			this.emit({
@@ -6267,7 +6277,10 @@ export class Operator {
 			}
 			// Let an admitted current-turn submission finish its exact-scope ACK
 			// reconciliation before deciding whether its text was delivered.
-			await Promise.allSettled([...(session.liveInputCalls ?? [])])
+			await Promise.allSettled([
+				...(session.liveInputCalls ?? []),
+				...(session.takingInCall ? [session.takingInCall] : []),
+			])
 			let liveStatusUnknown = false
 			let liveRestoredDraft: string | undefined
 			let finalLiveStatus: LiveInputStatus | undefined
@@ -6431,7 +6444,15 @@ export class Operator {
 			if (index < 0 && !session.liveInputs?.has(itemId))
 				throw new Error('This message has already started or was removed.')
 		}
-		if (session.running && (await this.takeIntoReply(session, itemId))) return
+		if (session.running) {
+			const taking = this.takeIntoReply(session, itemId)
+			session.takingInCall = taking
+			try {
+				if (await taking) return
+			} finally {
+				if (session.takingInCall === taking) session.takingInCall = undefined
+			}
+		}
 		if (itemId !== undefined) {
 			const index = session.queue.findIndex((item) => item.id === itemId)
 			if (index > 0) {
@@ -6485,17 +6506,15 @@ export class Operator {
 		for (const item of carried) session.takingIn.add(item.id)
 		try {
 			for (const item of carried) {
-				const index = session.queue.findIndex((queued) => queued.id === item.id)
-				if (index < 0) continue
-				session.queue.splice(index, 1)
-				this.state(session)
+				if (!session.queue.some((queued) => queued.id === item.id)) continue
 				let result: 'accepted' | 'queued'
 				try {
 					result = await this.sendCurrent(session.view.id, item.prompt, item.options, item.id)
 				} catch (error) {
-					// Put it back where it was; nothing was handed over.
-					session.queue.splice(Math.min(index, session.queue.length), 0, item)
-					this.state(session)
+					// A message the reply never received is still waiting in its place, so the failure
+					// is only reported; the reply ending meanwhile is not a failure of the message.
+					if (!session.running && session.queue.some((queued) => queued.id === item.id))
+						return false
 					throw error
 				}
 				if (result === 'queued') return false

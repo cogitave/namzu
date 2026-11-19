@@ -183,6 +183,19 @@ lines.on('line', (line) => {
 		if (params.scopeId && (!scope || params.scopeId !== scope.scopeId)) { send({ id, error: { code: -32602, message: 'Unknown live input scope.' } }); return }
 		if (scope?.inputs.size && process.env.FIXTURE_LIVE_INPUT_MODE_FILE && existsSync(process.env.FIXTURE_LIVE_INPUT_MODE_FILE) && readFileSync(process.env.FIXTURE_LIVE_INPUT_MODE_FILE, 'utf8') === 'lost-ack-and-status') { send({ id, error: { code: -32603, message: 'Status unavailable in isolated fixture.' } }); return }
 		const closed = process.env.FIXTURE_LIVE_INPUT_MODE_FILE && existsSync(process.env.FIXTURE_LIVE_INPUT_MODE_FILE) && readFileSync(process.env.FIXTURE_LIVE_INPUT_MODE_FILE, 'utf8') === 'closed'
+		const mode = process.env.FIXTURE_LIVE_INPUT_MODE_FILE && existsSync(process.env.FIXTURE_LIVE_INPUT_MODE_FILE) ? readFileSync(process.env.FIXTURE_LIVE_INPUT_MODE_FILE, 'utf8') : ''
+		// The first read sees an open scope; the engine closes it before the second.
+		const closesAfterFirst = mode === 'closes-after-first-status' && scope && (scope.reads = (scope.reads ?? 0) + 1) > 1
+		if (closesAfterFirst) scope.available = false
+		// The reply ends in the same moment the first read is answered.
+		if (mode === 'settles-on-status' && scope && !scope.settled) {
+			scope.settled = true
+			for (const [requestId, prompt] of pending) {
+				if (prompt.sessionId !== params.sessionId) continue
+				pending.delete(requestId)
+				reply(prompt.id, { stopReason: 'end_turn' })
+			}
+		}
 		reply(id, scope ? { available: scope.available && !closed, scopeId: scope.scopeId, inputs: [...scope.inputs.values()] } : { available: false, inputs: [] })
 	} else if (method === 'namzu/conversations/input') {
 		const scope = liveScopes.get(params.sessionId)

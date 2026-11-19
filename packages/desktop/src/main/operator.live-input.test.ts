@@ -323,6 +323,67 @@ it('send now stops the reply and runs the message when the live input scope is c
 	).toEqual(['Original request', 'Held'])
 })
 
+const promptsOf = (recorded: DesktopEvent[], sessionId: string) =>
+	recorded
+		.filter((event) => event.kind === 'prompt' && event.sessionId === sessionId)
+		.map((event) => (event.kind === 'prompt' ? event.prompt : ''))
+
+it('send now keeps every waiting message, under its own id and in order, when the engine closes the scope half way', async () => {
+	const { owner, recorded, permission, directory } = harness()
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const first = permission()
+	owner.send(session.id, 'Original request')
+	await first
+	owner.send(session.id, 'A waiting')
+	owner.send(session.id, 'B waiting')
+	owner.send(session.id, 'C waiting')
+	const before = (await owner.openConversation(project.id, session.id)).thread?.queuedItems ?? []
+	// The first read of the scope finds it open; the engine closes it before the next.
+	writeFileSync(join(directory, 'mode'), 'closes-after-first-status')
+	const next = permission()
+	await owner.sendNow(session.id, before[1]?.id)
+	await next
+	// The message started once, nothing was copied to the end, and what was behind it still waits in order.
+	expect(promptsOf(recorded, session.id)).toEqual(['Original request', 'B waiting'])
+	const thread = (await owner.openConversation(project.id, session.id)).thread
+	expect(thread?.queuedItems.map((item) => [item.id, item.prompt])).toEqual([
+		[before[0]?.id, 'A waiting'],
+		[before[2]?.id, 'C waiting'],
+	])
+	expect(thread?.liveInputs).toEqual([])
+})
+
+it('send now never lets a message behind the chosen one start first when the reply ends during the hand-over', async () => {
+	const { owner, recorded, permission, directory } = harness()
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const first = permission()
+	owner.send(session.id, 'Original request')
+	await first
+	owner.send(session.id, 'A waiting')
+	owner.send(session.id, 'B waiting')
+	owner.send(session.id, 'C waiting')
+	const before = (await owner.openConversation(project.id, session.id)).thread?.queuedItems ?? []
+	// The reply ends in the moment the engine answers the first read of the scope.
+	writeFileSync(join(directory, 'mode'), 'settles-on-status')
+	const next = permission()
+	await owner.sendNow(session.id, before[1]?.id)
+	await next
+	const prompts = promptsOf(recorded, session.id)
+	expect(prompts[0]).toBe('Original request')
+	// One message starts, it is not the one that waited behind the chosen one, and none ran twice.
+	expect(prompts[1]).not.toBe('C waiting')
+	expect(new Set(prompts).size).toBe(prompts.length)
+	const thread = (await owner.openConversation(project.id, session.id)).thread
+	const everything = [
+		...prompts.slice(1),
+		...(thread?.queuedItems.map((item) => item.prompt) ?? []),
+		...(thread?.liveInputs.map((item) => item.prompt) ?? []),
+	].sort()
+	expect(everything).toEqual(['A waiting', 'B waiting', 'C waiting'])
+})
+
 it('send now after a stopped reply starts the waiting message without a new turn first', async () => {
 	const { owner, recorded, wait, permission } = harness()
 	const project = await owner.openProject(process.cwd())
