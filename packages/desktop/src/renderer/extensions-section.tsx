@@ -273,7 +273,7 @@ function ExtensionScreen({
 								? 'Only the administrator can turn it off, remove it or change its licence.'
 								: 'Turning it on asks for an administrator password. After that only the administrator can turn it off.',
 							row.management.waitSeconds
-								? `A wrong password was just refused. Try again in ${row.management.waitSeconds} seconds.`
+								? `A wrong password was just refused. Try again in ${row.management.waitSeconds} ${row.management.waitSeconds === 1 ? 'second' : 'seconds'}.`
 								: '',
 						]
 							.filter(Boolean)

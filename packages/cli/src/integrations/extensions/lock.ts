@@ -64,6 +64,12 @@ const derive = (password: string, salt: Buffer, p: Pick<LockRecord, 'N' | 'r' | 
 export const waitAfter = (fails: number): number =>
 	Math.min(WAIT_MAX_MS, WAIT_BASE_MS * 2 ** Math.max(0, fails - 1))
 
+/** "1 second", "2 seconds": the wait in words a person reads. */
+export function secondsWord(ms: number): string {
+	const n = Math.max(1, Math.ceil(ms / 1000))
+	return n === 1 ? '1 second' : `${n} seconds`
+}
+
 export class AdminLock {
 	constructor(
 		private readonly store: ExtensionStore,
@@ -145,7 +151,7 @@ export class AdminLock {
 		throw new ExtensionError(
 			'admin-wrong',
 			'lock',
-			`That is not the administrator password. Wait ${Math.ceil(waitAfter(fails) / 1000)} seconds to try again.`,
+			`That is not the administrator password. Wait ${secondsWord(waitAfter(fails))} to try again.`,
 		)
 	}
 
@@ -200,7 +206,7 @@ export class AdminLock {
 				throw new ExtensionError(
 					'admin-wait',
 					'lock',
-					`Wait ${Math.ceil(left / 1000)} seconds before trying the administrator password again.`,
+					`Wait ${secondsWord(left)} before trying the administrator password again.`,
 				)
 			const fails = cur.fails + 1
 			this.store.writeJson(

@@ -13,7 +13,7 @@ import {
 import { disclose, disclosureText } from './disclosure.js'
 import { ExtensionError } from './errors.js'
 import { ExtensionHost, type HostOptions } from './host.js'
-import { LOCK_FILE, waitAfter } from './lock.js'
+import { LOCK_FILE, secondsWord, waitAfter } from './lock.js'
 import { parseManifest } from './manifest.js'
 import { scopeOf, widerReasons } from './scope.js'
 
@@ -264,6 +264,10 @@ describe('while locked, every way off needs the password', () => {
 describe('a wrong password makes the next try wait, and the wait grows', () => {
 	it('1 s, 2 s, 4 s ... up to a minute', () => {
 		expect([1, 2, 3, 4, 7, 20].map(waitAfter)).toEqual([1000, 2000, 4000, 8000, 60000, 60000])
+	})
+	it('says the wait in words: 1 second, 2 seconds', () => {
+		expect([1, 900, 1000].map(secondsWord)).toEqual(['1 second', '1 second', '1 second'])
+		expect([1001, 2000, 60000].map(secondsWord)).toEqual(['2 seconds', '2 seconds', '60 seconds'])
 	})
 	it('inside the wait even the right password is not looked at; after it the right one works and resets', async () => {
 		const h = newHost()
