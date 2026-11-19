@@ -45,6 +45,7 @@ import {
 	storedAssistantPhase,
 	unarchiveConversation,
 } from '../integrations/sessions/store.js'
+import { lastTurnStatus, storedContext } from '../integrations/sessions/stored-context.js'
 import { conversationMarkdown } from '../integrations/sessions/transcript-export.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
 import {
@@ -92,6 +93,7 @@ import { createMemoryHost } from './desktop-host-memory.js'
 import { projectPr } from './desktop-host-pr.js'
 import { LIMITS_REFRESH_METHOD, type LimitsFeed } from './desktop-limits-feed.js'
 import { type SavedTurnOutcome, savedTurnOutcome } from './desktop-outcome-feed.js'
+import { storedContextReport } from './desktop-stored-context.js'
 
 /** How many conversations the idle-archive sweep looks at; the list shown stays at 100. */
 const IDLE_SWEEP_POOL = 2000
@@ -1572,10 +1574,26 @@ export function createDesktopHostExtensions(
 						...(message.stopReason ? { stopReason: message.stopReason } : {}),
 					})
 				}
+				const stored = ownedPal ? null : storedContext(snapshot.records, messages)
+				const lastTurn = lastTurnStatus(snapshot.records)
+				const started = snapshot.records.find((record) => record.type === 'session_started')
 				return {
 					messages: rows,
 					partial: partial || rows.length < shown.length || remaining <= 0,
 					...(!ownedPal ? { work: historyWork(snapshot.records, retained) } : {}),
+					// Display reads from the log: no engine is started to answer them.
+					...(stored
+						? {
+								usage: {
+									contextTokens: stored.tokens,
+									contextWindowTokens: stored.windowTokens,
+									measuredBy: stored.measuredBy,
+									fromRecord: stored.fromRecord,
+								},
+							}
+						: {}),
+					...(lastTurn ? { lastTurn } : {}),
+					...(started?.type === 'session_started' ? { environment: { cwd: started.cwd } } : {}),
 				}
 			})
 		},
@@ -1999,9 +2017,24 @@ export function createDesktopHostExtensions(
 		/** Where this conversation's context window goes; null until the engine has reported one. */
 		'namzu/session/context': async (params: Record<string, unknown>) => {
 			const request = readContextRequest(params)
-			if (!runtime.contextUsage) return null
 			const id = await ownedReadSession({ sessionId: request.sessionId })
-			return runtime.contextUsage(id, request.detail)
+			const live = runtime.contextUsage ? await runtime.contextUsage(id, request.detail) : null
+			if (live || pal()) return live
+			// No engine holds this conversation (it was reopened, not resumed): the log's last
+			// count answers, read without starting one.
+			return withReadScope(async (state) => {
+				try {
+					const snapshot = await loadConversationSnapshot(state, asSessionId(id))
+					return await storedContextReport({
+						sessionId: id,
+						detail: request.detail,
+						records: snapshot.records,
+						messages: snapshot.messages,
+					})
+				} catch {
+					return null
+				}
+			})
 		},
 		'namzu/jobs/list': async (params: Record<string, unknown>) =>
 			runtime.jobs(await ownedReadSession(params)),
