@@ -85,6 +85,11 @@ async function openSession(askUser: boolean) {
 	})
 }
 
+async function openQuestionSession() {
+	const { createAgentSession } = await import('../tui/agent.js')
+	return createAgentSession(prefs, detectedAnthropic(), { cwd: root, questions: true })
+}
+
 async function sendOnce(
 	session: Awaited<ReturnType<typeof openSession>>,
 	onQuestion?: QuestionFn,
@@ -119,6 +124,47 @@ function toolContext(): ToolContext {
 		abortSignal: new AbortController().signal,
 	} as unknown as ToolContext
 }
+
+describe('ask_user_question for a host that draws it as a card (`questions`)', () => {
+	it('is mounted without the terminal-only things `askUser` brings', async () => {
+		const session = await openQuestionSession()
+		expect(session.toolNames()).toContain('ask_user_question')
+		// The narration tool is what `askUser` adds beside the question; a card host gets neither.
+		expect(session.toolNames()).not.toContain('narrate_work')
+		expect((await openSession(true)).toolNames()).toContain('narrate_work')
+	})
+
+	it('tells the model to ask with the tool, and never through the shell, only where it is mounted', async () => {
+		const withTool = await openQuestionSession()
+		await sendOnce(withTool, async () => ({ kind: 'skip' }))
+		const asking = String(queryCalls.at(-1)?.systemPrompt)
+		expect(asking).toContain('ask_user_question')
+		expect(asking).toContain('the shell has no keyboard')
+		// The terminal's `!` line is not part of a card host's prompt.
+		expect(asking).not.toContain('typing `!` before it')
+
+		queryCalls.length = 0
+		await sendOnce(await openSession(false))
+		expect(String(queryCalls.at(-1)?.systemPrompt)).not.toContain('ask_user_question')
+		queryCalls.length = 0
+		await sendOnce(await openSession(true))
+		// The terminal keeps the prompt it had: its tool is mounted, and the card rule is not added.
+		expect(String(queryCalls.at(-1)?.systemPrompt)).not.toContain('the shell has no keyboard')
+	})
+
+	it("returns the answer of the turn's answerer, own words included", async () => {
+		const session = await openQuestionSession()
+		let asked: UserQuestion | undefined
+		const tool = await sendOnce(session, async (question) => {
+			asked = question
+			return { kind: 'answer', selectedOptionIds: [], freeText: 'the sales team' }
+		})
+		if (!tool) throw new Error('the question tool was not in the registry the turn ran with')
+		const result = await tool.execute(askInput, toolContext())
+		expect(asked?.options.map((o) => o.label)).toEqual(['Board', 'Engineers'])
+		expect(result.output).toContain('in their own words: "the sales team"')
+	})
+})
 
 describe('ask_user_question', () => {
 	it('is mounted only for a session that said somebody can answer', async () => {

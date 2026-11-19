@@ -273,6 +273,7 @@ const api: DesktopApi = {
 	sendNow: (id, itemId) => invoke('sendNow', id, itemId),
 	updateQueued: (id, itemId, prompt) => invoke('updateQueued', id, itemId, prompt),
 	respondPermission: (id, request, response) => invoke('respondPermission', id, request, response),
+	answerQuestion: (id, request, response) => invoke('answerQuestion', id, request, response),
 	revokeComputerApp: (id, app) => invoke('revokeComputerApp', id, app),
 	jobs: (id) => invoke('jobs', id),
 	backgroundWorkStatuses: () => invoke('backgroundWorkStatuses'),

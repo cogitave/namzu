@@ -123,6 +123,7 @@ import {
 	verifyCredential,
 } from '../tui/agent.js'
 import { displayPath } from '../tui/display-path.js'
+import { createQuestionRelay, routeQuestions } from './acp-desktop-question.js'
 import { withCliHarnesses } from './acp-harness.js'
 import {
 	type ProviderRetryStatus,
@@ -615,6 +616,11 @@ export interface CliAcpRuntime {
 		sessionId: string,
 		mode: PermissionMode,
 	): Promise<{ mode: PermissionMode; applied: 'now' | 'next-message' }>
+	/**
+	 * The person's answer to a question the agent put to them, from the desktop. Throws when the
+	 * question is no longer open (the turn stopped, it was answered, it is another conversation's).
+	 */
+	answerQuestion?(sessionId: string, requestId: string, answer: unknown): void
 	jobs(sessionId: string): readonly import('@namzu/sdk').BackgroundJob[]
 	readJob(sessionId: string, jobId: string): unknown
 	stopJob(sessionId: string, jobId: string): Promise<unknown>
@@ -864,6 +870,24 @@ export function createCliAcpRuntime(
 	// Cold undo stores of one conversation run one at a time: two stores over one
 	// directory would each sweep and write from a stale picture of the other.
 	const undoTails = new Map<string, Promise<void>>()
+	// The questions the agent puts to the person, for the desktop only: said to the app as a
+	// notification, answered by an extension call (`answerQuestion`), closed when the turn stops.
+	const questionRelay = runtimeOptions.announce
+		? createQuestionRelay(runtimeOptions.announce)
+		: undefined
+	const onQuestionOf = (
+		sessionId: string,
+		ask: Parameters<typeof questionsOverPermission>[1],
+		signal: AbortSignal,
+	) => {
+		const onQuestion = routeQuestions(
+			runtimeOptions.computerUse === true
+				? questionsOverPermission(sessionId, ask, signal)
+				: undefined,
+			questionRelay?.forTurn(sessionId, signal),
+		)
+		return onQuestion ? { onQuestion } : {}
+	}
 	const titleFeed = runtimeOptions.announce
 		? createTitleFeed({
 				notify: runtimeOptions.announce,
@@ -1127,6 +1151,10 @@ export function createCliAcpRuntime(
 						: {}),
 					// The desktop shows what a turn writes in its Browser and Files panes; the model is told so.
 					...(runtimeOptions.announce && !palEnvironment ? { desktop: true } : {}),
+					// The agent may ask the person a question, and the app draws it as a card. Only the
+					// question tool, its guidance and a tool server's request for input: none of what the
+					// terminal's "somebody is typing" brings with it.
+					...(questionRelay && !palEnvironment ? { questions: true } : {}),
 					// The model may read the safe settings and change one when the person says yes on
 					// the card; the desktop's own preferences join when the app said where they are.
 					...(runtimeOptions.announce &&
@@ -1487,11 +1515,9 @@ export function createCliAcpRuntime(
 						: {}),
 					signal,
 					onPermission,
-					// The one question a Desktop conversation can raise itself: the screen is
-					// needed for a moment. It reaches the person as a card, never as a standing yes.
-					...(runtimeOptions.computerUse === true
-						? { onQuestion: questionsOverPermission(sessionId, ask, signal) }
-						: {}),
+					// The screen question is the person's yes on its own card, never a standing one;
+					// every other question goes to the app as a card of its own.
+					...onQuestionOf(sessionId, ask, signal),
 					...(monitorSnapshot.text ? { hostContext: () => [monitorSnapshot.text as string] } : {}),
 					...(inputInbox
 						? {
@@ -1606,6 +1632,7 @@ export function createCliAcpRuntime(
 						model: record.model,
 						...(settings.effort ? { effort: settings.effort } : {}),
 					},
+					...onQuestionOf(sessionId, ask, signal),
 					onPermission: async (request) => {
 						const outcome = await ask({
 							sessionId,
@@ -1822,6 +1849,13 @@ export function createCliAcpRuntime(
 				signal,
 				timing: 'beside-turn',
 			})
+		},
+		answerQuestion: (sessionId, requestId, answer) => {
+			if (closed) throw new Error('The connection is closed.')
+			if (!questionRelay || !records.has(sessionId))
+				throw new Error('This question is no longer open.')
+			if (!questionRelay.answer(sessionId, requestId, answer))
+				throw new Error('This question is no longer open.')
 		},
 		setPermissionMode: async (sessionId, mode) => {
 			if (closed) throw new Error('The connection is closed.')

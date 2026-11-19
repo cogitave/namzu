@@ -81,6 +81,7 @@ import { palPublicAssistantText } from '../pals/public-transcript.js'
 import { createPal, deletePal, getPal, listPals, palAtWorkspace, updatePal } from '../pals/store.js'
 import { canonicalProjectPath } from '../permissions/canonical-project.js'
 import { isPermissionMode } from '../permissions/mode.js'
+import { ANSWER_QUESTION_METHOD } from './acp-desktop-question.js'
 import type { CliHarnessRuntime } from './acp-harness.js'
 import type { CliAcpRuntime } from './acp.js'
 /** Scoped operator methods; ACP owns prompts, cancellation and review. */
@@ -2047,6 +2048,24 @@ export function createDesktopHostExtensions(
 							await ownedSession(params),
 							mode,
 						)
+					},
+				}
+			: {}),
+		/** The person's answer to a question the agent asked; see `acp-desktop-question.ts`. */
+		...(runtime.answerQuestion
+			? {
+					[ANSWER_QUESTION_METHOD]: async (params: Record<string, unknown>) => {
+						if (
+							Object.keys(params).some((key) => !['sessionId', 'requestId', 'answer'].includes(key))
+						)
+							throw new Error('Answering a question accepts only sessionId, requestId and answer.')
+						const sessionId = await ownedSession(params)
+						;(runtime.answerQuestion as NonNullable<CliAcpRuntime['answerQuestion']>)(
+							sessionId,
+							text(params, 'requestId'),
+							params.answer,
+						)
+						return { answered: true }
 					},
 				}
 			: {}),

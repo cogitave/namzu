@@ -1,4 +1,5 @@
 import type { ToolCallView, ToolFacts, ToolFailureReason } from '@namzu/sdk'
+import { QUESTION_TOOL } from '../shared/conversation-status.js'
 import type { ProjectedToolCall, ThreadState } from '../shared/projection.js'
 import { receiptCounts, receiptOf } from './changes-totals.js'
 import type { ShellCellData } from './shell-cell.js'
@@ -733,6 +734,21 @@ function palMessageLabel(name: string, state: ToolTranscriptState): string {
 	return labels[state]
 }
 
+/** What the row of a question the agent put to the person says, in plain words. */
+function questionRowLabel(state: ToolTranscriptState): string {
+	const labels: Record<ToolTranscriptState, string> = {
+		waiting: 'Waiting to ask you a question',
+		running: 'Asking you a question',
+		completed: 'Asked you a question',
+		failed: 'Couldn’t ask you a question',
+		cancelled: 'Stopped before you answered',
+		interrupted: 'Stopped before you answered',
+		skipped: 'Skipped the question',
+		declined: 'Skipped the question',
+	}
+	return labels[state]
+}
+
 const FILE_TOOLS = new Set(['edit', 'write', 'multiedit'])
 const COMMAND_TOOLS = new Set(['bash', 'shell', 'run_command', 'exec'])
 
@@ -811,11 +827,12 @@ export function toolTranscriptPresentation(
 	const explored = exploration(tool)
 	const palName = palMessageName(tool)
 	const skill = skillNameOf(tool)
+	const asked = tool.title === QUESTION_TOOL
 	// What the tool reported as fields; before it finished, what the call was about.
 	const call = callFactsOf(tool)
 	const facts = tool.facts ?? call
 	const typed =
-		!palName && !skill && !observed && view.kind !== 'diff' && facts
+		!palName && !skill && !asked && !observed && view.kind !== 'diff' && facts
 			? factsRow(tool, state, facts, call)
 			: undefined
 	if (palName) {
@@ -826,6 +843,10 @@ export function toolTranscriptPresentation(
 	} else if (skill) {
 		label = skillLabel(skill, state)
 		kind = 'skill'
+		detailView = undefined
+	} else if (asked) {
+		// The question is on the card; the row says it was asked, never the raw call.
+		label = questionRowLabel(state)
 		detailView = undefined
 	} else if (observed) {
 		label = observed

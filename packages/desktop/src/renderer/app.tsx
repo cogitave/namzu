@@ -8215,6 +8215,17 @@ export function App({
 									})
 									return delivered
 								}}
+								onAnswerQuestion={async (permission, response) => {
+									// The card stays open when the answer did not get through.
+									let delivered = false
+									await act(async () => {
+										if (!api.answerQuestion)
+											throw new Error('This window cannot answer a question.')
+										await api.answerQuestion(permission.sessionId, permission.id, response)
+										delivered = true
+									})
+									return delivered
+								}}
 								projectName={project.name}
 								starters={homeStarters(project)}
 								emptyHeading={projectHomeHeading(project)}

@@ -1364,6 +1364,7 @@ function register(): void {
 		['updateQueued', 0],
 		['sendNow', 0],
 		['respondPermission', 0],
+		['answerQuestion', 0],
 		['revokeComputerApp', 0],
 		['stopJob', 0],
 		['renameConversation', 0],
@@ -2373,6 +2374,9 @@ function register(): void {
 	handle('removeQueued', (id: string, itemId: string) => operator.removeQueued(id, itemId))
 	handle('respondPermission', (id: string, request: string, response: PermissionResponse) =>
 		operator.respondPermission(id, request, response),
+	)
+	handle('answerQuestion', (id: string, request: string, response: unknown) =>
+		operator.answerQuestion(id, request, response),
 	)
 	handle('revokeComputerApp', (id: string, app: string) => operator.revokeComputerApp(id, app))
 	handle('jobs', (id: string) => operator.jobs(id))

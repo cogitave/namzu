@@ -52,6 +52,7 @@ import type {
 	PalSubscriptionDisable,
 } from './pal-communication-protocol.js'
 import type { PalComputerSetupState } from './pal-computer-setup.js'
+import type { QuestionItem, QuestionResponse } from './question-protocol.js'
 import type {
 	DataFolderKind,
 	DesktopInfo,
@@ -626,6 +627,12 @@ export interface PermissionView {
 	 * the conversation, "Allow once" (`approve`) answers this action only, and No refuses.
 	 */
 	appRequest?: { apps: string[] }
+	/**
+	 * Set by this application on a request that is a question the agent put to the person: the
+	 * card offers the choices and answers with `answerQuestion`, never with `respondPermission`.
+	 * Its one call is named for the question tool, so the status mark reads it as "Question waiting".
+	 */
+	question?: { questions: QuestionItem[] }
 }
 /**
  * Reject carries the person's note to the model (`feedback`) and, apart from any wrapper, as they wrote it (`note`) for the record; approve carries nothing.
@@ -1386,6 +1393,8 @@ export interface DesktopApi {
 		requestId: string,
 		response: PermissionResponse,
 	): Promise<void>
+	/** Answer a question the agent put to the person, or decline it. Absent in an older shell. */
+	answerQuestion?(sessionId: string, requestId: string, response: QuestionResponse): Promise<void>
 	/** Take an application back from the conversation: the next action in it asks again. Absent in an older shell. */
 	revokeComputerApp?(sessionId: string, app: string): Promise<ComputerAppsView>
 	jobs(sessionId: string): Promise<JobView[]>

@@ -126,6 +126,15 @@ import type {
 	ProviderView,
 } from '../shared/protocol.js'
 import { readProviderConnections } from '../shared/provider-connections.js'
+import {
+	ANSWER_QUESTION_METHOD,
+	QUESTION_CLOSED_NOTIFICATION,
+	QUESTION_NOTIFICATION,
+	type QuestionNotice,
+	readQuestionClosedNotice,
+	readQuestionNotice,
+	readQuestionResponse,
+} from '../shared/question-protocol.js'
 import { ReconnectRetries } from '../shared/reconnect-retry.js'
 import { lastReplyText } from '../shared/reply.js'
 import { isReviewModeId } from '../shared/review-modes.js'
@@ -1008,6 +1017,12 @@ export class Operator {
 	>()
 	/** The requests that ask whether to allow applications, by request id. */
 	private readonly appRequests = new Map<string, { sessionId: string; apps: string[] }>()
+	/**
+	 * The questions the agent put to the person, by the id of the waiting request that shows each:
+	 * which conversation asked, and the engine's own id for it. Entries of a turn that ended are
+	 * dropped when the next question opens, and a request that is no longer waiting is never answered.
+	 */
+	private readonly questionRequests = new Map<string, { sessionId: string; requestId: string }>()
 	private grantsFor(sessionId: string): ComputerGrants {
 		let grants = this.computerGrants.get(sessionId)
 		if (!grants) {
@@ -6730,10 +6745,94 @@ export class Operator {
 		session.queue.splice(index, 1)
 		this.state(session)
 	}
+	/**
+	 * A question the agent put to the person becomes a waiting request of its conversation, shown
+	 * as a card. One this window cannot show (no such conversation, a Pal's, not running) is told
+	 * unanswered at once, so the turn is not held for a card nobody will see.
+	 */
+	private openQuestion(project: Project, notice: QuestionNotice | undefined): void {
+		if (!notice) return
+		const session = this.runtimeSession(project, notice.sessionId)
+		if (
+			!session ||
+			session.view.projectId !== project.view.id ||
+			!session.running ||
+			session.view.palId ||
+			(session.view.harness && session.view.harness !== 'namzu') ||
+			!project.client.supportsQuestionAnswer()
+		) {
+			void project.client
+				.request(
+					ANSWER_QUESTION_METHOD,
+					{ sessionId: notice.sessionId, requestId: notice.requestId, answer: { kind: 'skip' } },
+					8_000,
+				)
+				.catch(() => {})
+			return
+		}
+		for (const [id, question] of this.questionRequests)
+			if (!this.conversations.get(question.sessionId)?.permissions.has(id))
+				this.questionRequests.delete(id)
+		const id = randomUUID()
+		session.permissions.set(id, `question:${notice.requestId}`)
+		this.questionRequests.set(id, { sessionId: session.view.id, requestId: notice.requestId })
+		const request: PermissionView = {
+			id,
+			sessionId: session.view.id,
+			projectId: project.view.id,
+			calls: [
+				{
+					id,
+					name: QUESTION_TOOL,
+					input: { questions: notice.questions },
+					isDestructive: false,
+					alwaysAsk: true,
+				},
+			],
+			question: { questions: notice.questions },
+		}
+		this.emit({ kind: 'permission', request })
+	}
+	/**
+	 * The person's answer to a question card. It reaches the engine before the card goes away, so an
+	 * answer that did not get through leaves the card up to be sent again.
+	 */
+	async answerQuestion(sessionId: string, requestId: string, response: unknown): Promise<void> {
+		const session = this.session(sessionId)
+		this.assertPalAdmission(session.view.palId, true)
+		const answer = readQuestionResponse(response)
+		const question = this.questionRequests.get(requestId)
+		if (
+			!question ||
+			question.sessionId !== sessionId ||
+			!session.permissions.has(requestId) ||
+			!session.running
+		)
+			throw new Error('This question is no longer open.')
+		await session.client.request(
+			ANSWER_QUESTION_METHOD,
+			{
+				sessionId: session.runtimeSessionId,
+				requestId: question.requestId,
+				answer:
+					answer.kind === 'answer'
+						? { kind: 'answer', selectedOptionIds: [], answers: answer.answers }
+						: answer,
+			},
+			8_000,
+		)
+		this.questionRequests.delete(requestId)
+		if (session.permissions.delete(requestId))
+			this.emit({ kind: 'permission-cleared', sessionId, requestId })
+	}
 	respondPermission(sessionId: string, requestId: string, response: PermissionResponse): void {
 		const session = this.session(sessionId)
 		this.assertPalAdmission(session.view.palId, true)
 		const answer = readPermissionResponse(response)
+		// A question has its own answer; a yes or a no from a card, the pill or a mode change
+		// is never an answer to it.
+		if (this.questionRequests.has(requestId))
+			throw new Error('This is a question; answer it with its own card.')
 		const wireId = session.permissions.get(requestId)
 		if (wireId === undefined || !session.running)
 			throw new Error('This approval is no longer pending.')
@@ -6870,6 +6969,20 @@ export class Operator {
 			const session = notice ? this.runtimeSession(project, notice.sessionId) : undefined
 			if (notice && session && (!session.view.harness || session.view.harness === 'namzu'))
 				this.emit({ ...notice, kind: 'outcome', sessionId: session.view.id })
+		} else if (frame.method === QUESTION_NOTIFICATION) {
+			this.openQuestion(project, readQuestionNotice(frame.params))
+		} else if (frame.method === QUESTION_CLOSED_NOTIFICATION) {
+			const closed = readQuestionClosedNotice(frame.params)
+			const session = closed ? this.runtimeSession(project, closed.sessionId) : undefined
+			if (closed && session) {
+				for (const [id, question] of this.questionRequests) {
+					if (question.sessionId !== session.view.id || question.requestId !== closed.requestId)
+						continue
+					this.questionRequests.delete(id)
+					if (session.permissions.delete(id))
+						this.emit({ kind: 'permission-cleared', sessionId: session.view.id, requestId: id })
+				}
+			}
 		} else if (frame.method === 'session/update') {
 			const params = frame.params as AcpSessionUpdateNotification
 			const session = this.runtimeSession(project, params?.sessionId)

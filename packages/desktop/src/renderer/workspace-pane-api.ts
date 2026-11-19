@@ -1,4 +1,5 @@
 import type { DesktopApi, DesktopSendOptions } from '../shared/protocol.js'
+import type { QuestionResponse } from '../shared/question-protocol.js'
 
 export interface WorkspacePaneApiOptions {
 	owns: (target: string) => boolean
@@ -393,6 +394,15 @@ export function createWorkspacePaneApi(
 			: {}),
 		respondPermission: (owner, request, response) =>
 			invoke(() => base.respondPermission(owner, request, response), [owner]),
+		...(base.answerQuestion
+			? {
+					answerQuestion: (owner: string, request: string, response: QuestionResponse) =>
+						invoke(
+							() => base.answerQuestion?.(owner, request, response) ?? Promise.resolve(),
+							[owner],
+						),
+				}
+			: {}),
 		...(base.revokeComputerApp
 			? {
 					revokeComputerApp: (owner: string, app: string) =>
