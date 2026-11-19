@@ -759,7 +759,8 @@
 	/* A lone switch or button stays beside its label: stacking it only adds a line. */
 	.settings-row:not([data-stacked]):not(
 			:has(> .settings-row-control > :is(.settings-switch, button):only-child)
-		) {
+		)
+		:not(:has(> .settings-row-control > .settings-config-control .settings-switch)) {
 		flex-direction: column;
 		align-items: stretch;
 		gap: 8px;
@@ -767,6 +768,7 @@
 	.settings-row:not([data-stacked]):not(
 			:has(> .settings-row-control > :is(.settings-switch, button):only-child)
 		)
+		:not(:has(> .settings-row-control > .settings-config-control .settings-switch))
 		> .settings-row-control {
 		max-width: 100%;
 	}

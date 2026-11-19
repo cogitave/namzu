@@ -69,6 +69,8 @@ describe('Settings layout rules', () => {
 		expect(block.slice(0, block.indexOf('@container', 10))).toMatch(
 			/:not\(\s*:has\(> \.settings-row-control > :is\(\.settings-switch, button\):only-child\)/,
 		)
+		// Rows drawn from the engine's config put the switch inside .settings-config-control.
+		expect(block).toMatch(/\.settings-config-control \.settings-switch/)
 	})
 
 	it('lets a number field shrink beside its unit in the 640-760 px band', () => {
