@@ -7,6 +7,7 @@ import {
 	type RegisterResult,
 	type SigninRegistrar,
 	type SigninSpec,
+	type SigninStatus,
 	TASK_NAME,
 } from './registrar.js'
 
@@ -92,6 +93,9 @@ export const createTaskArgs = (xmlFile: string): string[] => [
 ]
 export const deleteTaskArgs = (): string[] => ['/Delete', '/TN', TASK_NAME, '/F']
 export const queryTaskArgs = (): string[] => ['/Query', '/TN', TASK_NAME, '/XML']
+/** The command line the Run key holds. */
+export const runValue = (launcher: string, hidden?: string): string =>
+	hidden ? `wscript.exe //B //Nologo "${hidden}"` : `"${launcher}"`
 export const addRunArgs = (launcher: string, hidden?: string): string[] => [
 	'add',
 	RUN_KEY,
@@ -100,12 +104,44 @@ export const addRunArgs = (launcher: string, hidden?: string): string[] => [
 	'/t',
 	'REG_SZ',
 	'/d',
-	hidden ? `wscript.exe //B //Nologo "${hidden}"` : `"${launcher}"`,
+	runValue(launcher, hidden),
 	'/f',
 ]
 export const deleteRunArgs = (): string[] => ['delete', RUN_KEY, '/v', RUN_VALUE, '/f']
 export const queryRunArgs = (): string[] => ['query', RUN_KEY, '/v', RUN_VALUE]
 export const queryApprovedArgs = (): string[] => ['query', APPROVED_KEY, '/v', RUN_VALUE]
+
+const unxml = (s: string): string =>
+	s
+		.replace(/&quot;/g, '"')
+		.replace(/&apos;/g, "'")
+		.replace(/&lt;/g, '<')
+		.replace(/&gt;/g, '>')
+		.replace(/&amp;/g, '&')
+
+/** Paths on Windows ignore case, and a stray space around a value is not a different command. */
+const sameCommand = (a: string, b: string): boolean =>
+	a.trim().toLowerCase() === b.trim().toLowerCase()
+
+/**
+ * Whether a task, as `schtasks /Query /XML` prints it, runs a command other than the one this spec
+ * wants. `undefined` when the XML has no command to read, so an unreadable answer never loops a repair.
+ */
+export function taskIsStale(queried: string, spec: SigninSpec): boolean | undefined {
+	const exec = /<Exec>([\s\S]*?)<\/Exec>/i.exec(queried)?.[1]
+	const command = exec && /<Command>([\s\S]*?)<\/Command>/i.exec(exec)?.[1]
+	if (command === undefined || command === '') return undefined
+	const args = /<Arguments>([\s\S]*?)<\/Arguments>/i.exec(exec as string)?.[1] ?? ''
+	const want = entryCommand(spec)
+	return !(sameCommand(unxml(command), want.command) && sameCommand(unxml(args), want.args ?? ''))
+}
+
+/** Whether the Run value, as `reg query` prints it, holds a command other than the one this spec wants. */
+export function runIsStale(queried: string, spec: SigninSpec): boolean | undefined {
+	const data = new RegExp(`${RUN_VALUE}\\s+REG_(?:EXPAND_)?SZ\\s+(.*)$`, 'm').exec(queried)?.[1]
+	if (data === undefined) return undefined
+	return !sameCommand(data, runValue(spec.launcher, spec.hiddenLauncher))
+}
 
 /** StartupApproved holds a binary value: first byte 02 or 06 is enabled, 03 (or 07) is switched off. */
 export function approvedDisabled(stdout: string): boolean {
@@ -123,17 +159,29 @@ export class WindowsRegistrar implements SigninRegistrar {
 		private readonly user: string,
 	) {}
 
-	async status() {
+	async status(spec?: SigninSpec): Promise<SigninStatus> {
 		const t = await this.exec('schtasks', queryTaskArgs()).catch(() => undefined)
 		if (t && t.code === 0) {
 			const off = /<Settings>[\s\S]*?<Enabled>\s*false\s*<\/Enabled>/i.test(t.stdout)
-			return { registered: true, kind: 'task' as const, ...(off ? { disabledByOs: true } : {}) }
+			const stale = spec ? taskIsStale(t.stdout, spec) === true : false
+			return {
+				registered: true,
+				kind: 'task' as const,
+				...(off ? { disabledByOs: true } : {}),
+				...(stale ? { stale: true } : {}),
+			}
 		}
 		const r = await this.exec('reg', queryRunArgs()).catch(() => undefined)
 		if (r && r.code === 0 && r.stdout.includes(RUN_VALUE)) {
 			const a = await this.exec('reg', queryApprovedArgs()).catch(() => undefined)
 			const off = a && a.code === 0 ? approvedDisabled(a.stdout) : false
-			return { registered: true, kind: 'run' as const, ...(off ? { disabledByOs: true } : {}) }
+			const stale = spec ? runIsStale(r.stdout, spec) === true : false
+			return {
+				registered: true,
+				kind: 'run' as const,
+				...(off ? { disabledByOs: true } : {}),
+				...(stale ? { stale: true } : {}),
+			}
 		}
 		return { registered: false }
 	}
