@@ -17,6 +17,7 @@ export const SETTINGS_SECTION_TITLES: Record<SettingsSection, string> = {
 	models: 'Models',
 	agent: 'Agent',
 	tools: 'Tools',
+	extensions: 'Extensions',
 	projects: 'Projects',
 	appearance: 'Appearance',
 	notifications: 'Notifications',
@@ -34,6 +35,7 @@ export const SETTINGS_SECTION_SUBTITLES: Record<SettingsSection, string> = {
 	models: 'The providers and models Namzu can use.',
 	agent: 'How long Namzu works, how it remembers, and what it learns.',
 	tools: 'The web, the browser, connected servers, hooks and plugins.',
+	extensions: 'Programs you add from a file. Each one shows what it asks for before it runs.',
 	projects: 'The folders Namzu knows, what it may do in them, and when it asks you.',
 	appearance: 'Choose how Namzu looks.',
 	notifications: 'When Namzu tells you something while you are in another window.',
@@ -74,7 +76,7 @@ export const SETTINGS_SEARCH_SUBTITLE = 'Matches from every section.'
 export const SETTINGS_NAV_GROUPS: readonly (readonly SettingsSection[])[] = [
 	['models'],
 	['general', 'appearance', 'notifications', 'speech'],
-	['agent', 'tools', 'projects', 'terminal'],
+	['agent', 'tools', 'extensions', 'projects', 'terminal'],
 	['desktop', 'telemetry', 'updates', 'about'],
 ]
 

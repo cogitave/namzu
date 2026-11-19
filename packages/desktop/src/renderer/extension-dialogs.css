@@ -1,0 +1,226 @@
+.extension-notice-screen {
+	/* A popup that fills the window: its own margins, border and size limits are reset. */
+	margin: 0;
+	padding: 0;
+	border: 0;
+	width: 100%;
+	height: 100%;
+	max-width: none;
+	max-height: none;
+}
+.extension-meta {
+	margin: 2px 0 0;
+	color: var(--muted-foreground);
+	font-size: var(--text-small);
+}
+.extension-failure {
+	margin: 10px 0 0;
+	font-size: var(--text-small);
+	color: #c0392b;
+}
+.extension-dialog {
+	width: min(640px, 100%);
+}
+.extension-dialog[data-wide] {
+	width: min(820px, 100%);
+}
+.extension-dialog-scroll {
+	max-height: min(60vh, 560px);
+	overflow-y: auto;
+	margin-top: 12px;
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
+}
+.extension-dialog-scroll h3,
+.extension-disclosure h3 {
+	margin: 16px 0 6px;
+	font-size: var(--text-interface);
+	font-weight: var(--weight-strong);
+}
+/* The plain sentences between the lists (network, sign-in, pages, storage) read as separate lines. */
+.extension-disclosure > p {
+	margin: 8px 0;
+}
+.extension-permissions {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: grid;
+	gap: 10px;
+}
+.extension-permission-head {
+	margin: 0;
+}
+.extension-optional,
+.extension-fields,
+.extension-folder,
+.extension-footnote {
+	color: var(--muted-foreground);
+	font-size: var(--text-small);
+}
+.extension-purpose {
+	margin: 2px 0 0 4px;
+	color: var(--muted-foreground);
+}
+.extension-publisher,
+.extension-language-note {
+	margin: 0 0 6px;
+	color: var(--muted-foreground);
+	font-size: var(--text-small);
+}
+.extension-notice-screen {
+	position: fixed;
+	inset: 0;
+	z-index: calc(var(--z-dialog, 50) + 2);
+	background: var(--background);
+	overflow-y: auto;
+}
+.extension-notice-inner {
+	max-width: 760px;
+	margin: 0 auto;
+	padding: 48px 24px 40px;
+	/* The text takes the height that is left, so the buttons under it are always on screen. */
+	height: 100%;
+	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+.extension-notice-inner > * {
+	flex: none;
+}
+.extension-notice-inner h1 {
+	margin: 0;
+	font-size: var(--text-title);
+	font-weight: var(--weight-strong);
+}
+.extension-notice-sub {
+	margin: 0;
+	color: var(--muted-foreground);
+}
+.extension-notice-inner > .extension-notice-text {
+	flex: 1 1 auto;
+	min-height: 160px;
+}
+.extension-notice-text {
+	overflow-y: auto;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-card);
+	padding: 16px 18px;
+	line-height: 1.55;
+}
+.extension-notice-text h2 {
+	font-size: var(--text-reading);
+	margin: 16px 0 6px;
+}
+.extension-notice-li {
+	margin: 2px 0 2px 8px;
+}
+.extension-notice-hint {
+	margin: 0;
+	color: var(--muted-foreground);
+	font-size: var(--text-small);
+}
+.extension-notice-actions,
+.extension-inline-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+}
+.extension-diff {
+	border: 1px solid var(--border);
+	border-radius: var(--radius-card);
+	padding: 10px 14px;
+}
+.extension-input,
+.extension-textarea {
+	width: 100%;
+	box-sizing: border-box;
+	padding: 6px 10px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-control);
+	background: var(--background);
+	color: var(--foreground);
+	font: inherit;
+}
+.extension-label {
+	display: grid;
+	gap: 4px;
+	margin: 10px 0;
+}
+.extension-check {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin: 12px 0;
+}
+.extension-rows-scroll {
+	max-height: 260px;
+	overflow: auto;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-control);
+}
+.extension-rows table {
+	border-collapse: collapse;
+	width: 100%;
+	font-size: var(--text-small);
+}
+.extension-rows th,
+.extension-rows td {
+	text-align: left;
+	padding: 4px 10px;
+	border-bottom: 1px solid var(--border);
+	white-space: nowrap;
+}
+.extension-log {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: grid;
+	gap: 4px;
+	font-size: var(--text-small);
+}
+.extension-log time {
+	color: var(--muted-foreground);
+	margin-right: 6px;
+}
+.extension-kind {
+	margin-bottom: 10px;
+}
+.extension-field-list {
+	margin: 2px 0 6px 18px;
+	padding: 0;
+	font-size: var(--text-small);
+}
+/* Start when I sign in: a Namzu-drawn row in the notice. */
+.extension-signin-switch {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	padding: 10px 12px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-control);
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+}
+.extension-signin-switch > span {
+	display: grid;
+	gap: 2px;
+}
+.extension-signin-switch > span > span {
+	color: var(--muted-foreground);
+}
+.extension-licence-lines {
+	margin: 10px 0 0;
+	padding-left: 18px;
+	color: var(--muted-foreground);
+	font-size: var(--text-small);
+}
+
+.extension-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+	margin-top: 14px;
+}

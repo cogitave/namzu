@@ -107,6 +107,7 @@ import { copyPlainText } from './copy-button.js'
 import { holdsDiscardableDraft } from './discard-draft.js'
 import { signInHelpFor } from './engine-setup.js'
 import { setEngineSignedOut } from './engine-sign-in.js'
+import { ExtensionsLayer } from './extensions-layer.js'
 import { createFailingPoll } from './failing-poll.js'
 import { FolderTreeIcon } from './file-panel/file-icons.js'
 import { FilePanelBody } from './file-panel/file-panel.js'
@@ -2535,6 +2536,10 @@ export function App({
 				setLimitsView(event.limits)
 				return
 			}
+			// The Extensions page and the window mark listen for their own event.
+			if (event.kind === 'extensions-state') return
+			// A page of an extension speaks to its own host, not to a conversation.
+			if (event.kind === 'extension-page') return
 			if (event.kind === 'providers-changed') {
 				// A key was saved or removed. Forget what each pane remembered about providers
 				// and read them again; the send button follows the new answer.
@@ -6948,6 +6953,12 @@ export function App({
 				shell &&
 				createPortal(
 					<>
+						<ExtensionsLayer
+							api={api}
+							pane={paneRoot}
+							openSettings={() => openSettings('extensions')}
+							closeSettings={closeSettings}
+						/>
 						{communicationOwner &&
 							pal?.id === communicationOwner.palId &&
 							sessionId === communicationOwner.sessionId && (

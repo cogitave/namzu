@@ -41,6 +41,7 @@ import {
 	readContextReport,
 } from '../shared/context-protocol.js'
 import { QUESTION_TOOL } from '../shared/conversation-status.js'
+import { EXTENSION_BRIDGE_METHODS, readStateEvent } from '../shared/extensions-view.js'
 import { type HistoryWorkSnapshot, restoreHistoryWork } from '../shared/history-work.js'
 import { readHooksReport } from '../shared/hooks-report.js'
 import {
@@ -876,6 +877,14 @@ export class Operator {
 			this.ownedClients.add(client)
 			client.on('closed', () => {
 				if (this.registryClient === client) this.registryClient = undefined
+			})
+			// The engine that runs an extension tells the app each time its mark changes.
+			client.on('frame', (frame: { method?: string; params?: unknown }) => {
+				if (this.closing) return
+				if (frame.method === 'namzu/extensions/state') {
+					const event = readStateEvent(frame.params)
+					if (event) this.emit({ kind: 'extensions-state', ...event })
+				}
 			})
 			try {
 				await client.start()
@@ -2103,6 +2112,8 @@ export class Operator {
 			event.kind !== 'providers-changed' &&
 			event.kind !== 'config-file-changed' &&
 			event.kind !== 'limits' &&
+			event.kind !== 'extensions-state' &&
+			event.kind !== 'extension-page' &&
 			event.kind !== 'unread'
 		) {
 			const id = event.kind === 'permission' ? event.request.sessionId : event.sessionId
@@ -3430,6 +3441,44 @@ export class Operator {
 	 * own settings when no project is given (or the project is a Pal's). Read-only: the engine reads
 	 * files and runs nothing. Null where the engine does not know the question.
 	 */
+	/**
+	 * One call of the engine's extensions group on behalf of the Extensions page. The person's own
+	 * engine answers (the one that is not tied to a project), only the methods of the page go through,
+	 * and an engine that does not offer the group is answered with null rather than an error.
+	 */
+	async extensions(method: unknown, params?: unknown): Promise<unknown> {
+		if (
+			typeof method !== 'string' ||
+			(!EXTENSION_BRIDGE_METHODS.includes(method) && method !== 'namzu/extensions/add')
+		)
+			throw new Error('That is not an extensions method.')
+		if (
+			params !== undefined &&
+			(typeof params !== 'object' || params === null || Array.isArray(params))
+		)
+			throw new Error('Invalid extensions parameters.')
+		const client = await this.registry(false)
+		if (!client.supportsExtensions()) return null
+		return client.request(method, (params ?? {}) as Record<string, unknown>)
+	}
+	/**
+	 * The three engine methods an extension's page is served by: what to draw, a declared query, a declared
+	 * action. They are not part of the Extensions page's own list: only the page host in the main process
+	 * calls them, on behalf of one page, after the bridge gate has allowed the call.
+	 */
+	async extensionsForPages(method: unknown, params: unknown): Promise<unknown> {
+		if (
+			method !== 'namzu/extensions/ui' &&
+			method !== 'namzu/extensions/query' &&
+			method !== 'namzu/extensions/action'
+		)
+			throw new Error('That is not an extension page method.')
+		if (typeof params !== 'object' || params === null || Array.isArray(params))
+			throw new Error('Invalid extension page parameters.')
+		const client = await this.registry(false)
+		if (!client.supportsExtensions()) return null
+		return client.request(method, params as Record<string, unknown>)
+	}
 	async hooksView(projectId?: unknown): Promise<HooksView | null> {
 		let client: RuntimeClient
 		let own = true

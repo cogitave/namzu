@@ -28,6 +28,8 @@ import { type BrowserPaneRequest, readBrowserRequest } from '../shared/browser-p
 import type { CommitRequestView } from '../shared/commit-protocol.js'
 import { UNAVAILABLE_ENGINE_VIEW } from '../shared/engine-delivery-protocol.js'
 import { readEngineUpdateRequest } from '../shared/engine-update-protocol.js'
+import { readBounds, readExtensionId, readPageId, readTheme } from '../shared/extension-ui.js'
+import { EXTENSION_BRIDGE_METHODS } from '../shared/extensions-view.js'
 import { type OsState, trayName } from '../shared/os-state.js'
 import type {
 	PalPermissionChange,
@@ -88,6 +90,7 @@ import {
 } from './engine-updates-system.js'
 import { EngineUpdates } from './engine-updates.js'
 import { existingFolders } from './existing-folders.js'
+import { ExtensionUiService, registerExtensionScheme } from './extension-ui/electron.js'
 import { externalSourceUrl } from './external-url.js'
 import { FolderAccessTokens, canonicalFolder } from './folder-access.js'
 import { FolderAccess } from './folder-access.js'
@@ -162,6 +165,7 @@ import { engineHost, findProgram, shellEnvironment } from './terminal-env.js'
 import { TerminalHub } from './terminal-hub.js'
 import { TerminalTabStore } from './terminal-tab-store.js'
 import { TrayController } from './tray-controller.js'
+import { trayRepresentations, trayTheme } from './tray-icons.js'
 import { EngineTrustList } from './trust-list.js'
 import { TrustedFolderStore, createFolderTrustGuard } from './trusted-folders.js'
 import { clearInstalledPending } from './updater-cache.js'
@@ -195,6 +199,9 @@ import {
 if (!app.requestSingleInstanceLock()) app.exit(0)
 
 const here = dirname(fileURLToPath(import.meta.url))
+// The scheme an extension's page is served from has to be known before the app is ready.
+registerExtensionScheme()
+let extensionUi: ExtensionUiService | undefined
 // The Pal computer's engine and image are decided before anything reads the environment, so the
 // runtime, the setup commands and the diagnostics all see the same ones.
 Object.assign(
@@ -767,6 +774,8 @@ const operator = new Operator(
 		} catch (error) {
 			diagnostics.record('ipc_failed', { operation: 'workingPill', error })
 		}
+		// A page is told when its extension's state changes, so it can adapt; it cannot change it.
+		if (event.kind === 'extensions-state') extensionUi?.stateChanged(event.id, event.state)
 		windows.fanout(event, (error) => diagnostics.record('renderer_failed', { error }))
 	},
 	app.getPath('userData'),
@@ -898,12 +907,21 @@ let loginItemProblem: string | undefined
 const trayController = new TrayController({
 	// The installed app has no loose icon file; the system can hand back the executable's own.
 	loadIcon: async () => {
-		if (windowIcon) {
-			const image = nativeImage.createFromPath(windowIcon)
-			if (!image.isEmpty()) return image
-		}
-		const image = await app.getFileIcon(process.execPath, { size: 'small' })
-		return image.isEmpty() ? undefined : image
+		// Namzu's own mark in the tile that reads against the system's bar; never any extension state.
+		const image = nativeImage.createEmpty()
+		for (const rep of trayRepresentations(
+			process.platform,
+			trayTheme(nativeTheme.shouldUseDarkColorsForSystemIntegratedUI),
+		))
+			image.addRepresentation({
+				scaleFactor: rep.scaleFactor,
+				width: rep.size,
+				height: rep.size,
+				buffer: rep.png,
+			})
+		if (!image.isEmpty()) return image
+		const fallback = await app.getFileIcon(process.execPath, { size: 'small' })
+		return fallback.isEmpty() ? undefined : fallback
 	},
 	makeTray: (icon) => new Tray(icon as Electron.NativeImage),
 	menu: (template) => Menu.buildFromTemplate(template),
@@ -911,6 +929,8 @@ const trayController = new TrayController({
 	quit: () => app.quit(),
 	record: (error) => diagnostics.record('ipc_failed', { operation: 'tray', error }),
 })
+// The tray follows the system's bar, not the app's own appearance choice.
+nativeTheme.on('updated', () => void trayController.refreshIcon())
 /** The app stays running with no window: always on macOS, and on the others while the tray icon is up. */
 const staysRunningWithoutWindows = () => process.platform === 'darwin' || trayController.shown()
 const sleepGuard = new SleepGuard(
@@ -1822,6 +1842,73 @@ function register(): void {
 	handle('commit', (id: string, request: CommitRequestView) => operator.commit(id, request))
 	handle('mcpServers', (id: string) => operator.mcpServers(id))
 	handle('hooksView', (id?: string) => operator.hooksView(id))
+	// The Extensions page: only the methods the page uses go through, and adding a package is only ever
+	// the file the person picked in the native dialog, never a path the page names.
+	handle('extensionsCall', (method: string, params?: Record<string, unknown>) => {
+		if (!EXTENSION_BRIDGE_METHODS.includes(method))
+			throw new Error('That is not an extensions method.')
+		const done = operator.extensions(method, params)
+		// A page goes with the extension it belongs to.
+		if (method === 'namzu/extensions/remove' || method === 'namzu/extensions/disable') {
+			const id = readExtensionId(params?.id)
+			if (id) extensionUi?.closeExtension(id)
+		}
+		return done
+	})
+	// Extension pages: the renderer reports a rectangle and the main process draws the page there, in its own
+	// view and its own session. Every value from the renderer is read defensively before it is used.
+	extensionUi ??= new ExtensionUiService({
+		preloadPath: join(here, '../extension-page-preload.cjs'),
+		engine: (method, params) => operator.extensionsForPages(method, params),
+		locale: () => app.getLocale(),
+		emit: (event) =>
+			windows.fanout({ kind: 'extension-page', ...event }, (error) =>
+				diagnostics.record('renderer_failed', { error }),
+			),
+		audit: (id, event, detail) =>
+			diagnostics.record('ipc_failed', {
+				operation: `extension-page ${event}`,
+				error: `${id}: ${detail}`,
+			}),
+	})
+	handleWindow(
+		'extensionPageShow',
+		async ({ window }, extensionId: unknown, pageId: unknown, bounds: unknown) => {
+			const id = readExtensionId(extensionId)
+			const page = readPageId(pageId)
+			const b = readBounds(bounds)
+			if (!window || !id || !page || !b || !extensionUi) return { ok: false, reason: 'refused' }
+			return extensionUi.show(window, id, page, b)
+		},
+	)
+	handle('extensionPageBounds', (extensionId: unknown, pageId: unknown, bounds: unknown) => {
+		const id = readExtensionId(extensionId)
+		const page = readPageId(pageId)
+		const b = readBounds(bounds)
+		if (id && page && b) extensionUi?.setBounds(id, page, b)
+	})
+	handle('extensionPageClose', (extensionId: unknown, pageId: unknown) => {
+		const id = readExtensionId(extensionId)
+		const page = readPageId(pageId)
+		if (id && page) extensionUi?.close(id, page)
+	})
+	handle('extensionPageTheme', (theme: unknown) => {
+		const t = readTheme(theme)
+		if (t) extensionUi?.setTheme(t.dark, t.tokens)
+	})
+	handleWindow('extensionsAddFromFile', async ({ window }, locale?: string) => {
+		if (!window) return null
+		const picked = await dialog.showOpenDialog(window, {
+			title: 'Add an extension',
+			properties: ['openFile'],
+			filters: [{ name: 'Namzu extension', extensions: ['nzx'] }],
+		})
+		if (picked.canceled || !picked.filePaths[0]) return null
+		return operator.extensions('namzu/extensions/add', {
+			path: picked.filePaths[0],
+			...(typeof locale === 'string' && locale.length <= 35 ? { locale } : {}),
+		})
+	})
 	handle('approveMcpServers', (id: string, servers: unknown) =>
 		operator.approveMcpServers(id, servers),
 	)
