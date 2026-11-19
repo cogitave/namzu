@@ -56,7 +56,7 @@
    the column's right edge. The label column is 196px plus a 40px gap (the bar starts 236px in); the percent box is 56px. */
 .usage-rows .limits-row[data-row="window"] {
 	display: grid;
-	grid-template-columns: 196px minmax(0, 1fr) 56px;
+	grid-template-columns: 196px minmax(0, 1fr) minmax(56px, max-content);
 	grid-template-areas: "label bar percent" "note bar percent";
 	column-gap: 40px;
 	row-gap: 0;
@@ -88,9 +88,12 @@
 @container settings-dialog (max-width: 720px) {
 	.usage-rows .limits-row[data-row="window"] {
 		grid-template-columns: minmax(0, 1fr) auto;
-		grid-template-areas: "label percent" "note note" "bar bar";
+		grid-template-areas: "label percent" "bar bar";
 		column-gap: 12px;
 		row-gap: 6px;
+	}
+	.usage-rows .limits-row[data-row="window"]:has(.limits-note) {
+		grid-template-areas: "label percent" "note note" "bar bar";
 	}
 	.usage-rows .limits-row[data-row="window"] .limits-note {
 		margin-top: 0;

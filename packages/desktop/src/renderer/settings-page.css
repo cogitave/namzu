@@ -746,6 +746,14 @@
 		flex: 0 1 auto;
 		max-width: 45%;
 	}
+	/* A number field shrinks before its unit wraps. */
+	.settings-row-control .settings-config-field {
+		flex-wrap: nowrap;
+	}
+	.settings-row-control input.settings-config-number {
+		flex: 0 1 220px;
+		min-width: 80px;
+	}
 }
 @container settings-dialog (max-width: 640px) {
 	.settings-row:not([data-stacked]) {
