@@ -43,6 +43,17 @@ it('hides the ring unless the engine gave both a context size and a window', () 
 	)
 })
 
+it('draws an out-of-date stored figure as about, with the reason in the tooltip', () => {
+	const model = contextRingModel({
+		contextTokens: 5_000,
+		contextWindowTokens: 200_000,
+		measuredBy: 'provider',
+		sizeOutOfDate: true,
+	})
+	expect(model?.lines[0]).toContain('about ')
+	expect(model?.lines.join(' ')).toContain('out of date until your next message')
+})
+
 it('says used of window, a share, and the cost only when the engine priced it', () => {
 	const model = contextRingModel({
 		contextTokens: 12_400,

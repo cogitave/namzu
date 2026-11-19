@@ -1,6 +1,6 @@
 import type { Message, SessionRecord } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
-import { lastStoredModel, lastTurnStatus, storedContext } from '../stored-context.js'
+import { historyUsage, lastStoredModel, lastTurnStatus, storedContext } from '../stored-context.js'
 
 const rec = (value: Record<string, unknown>) => value as unknown as SessionRecord
 const usage = (over: Record<string, unknown> = {}) =>
@@ -47,6 +47,24 @@ describe('the context a log remembers', () => {
 			sizeOutOfDate: true,
 			fromRecord: true,
 		})
+	})
+
+	it('carries the out-of-date flag into what a history read hands the ring', () => {
+		const stale = storedContext(
+			[
+				usage(),
+				rec({ type: 'compaction_completed', tokensAfter: 5_000, contextWindowTokens: 200_000 }),
+			],
+			[],
+		)
+		expect(stale && historyUsage(stale)).toMatchObject({
+			contextTokens: 5_000,
+			measuredBy: 'estimate',
+			fromRecord: true,
+			sizeOutOfDate: true,
+		})
+		const fresh = storedContext([usage()], [])
+		expect(fresh && historyUsage(fresh)).not.toHaveProperty('sizeOutOfDate')
 	})
 
 	it('estimates from the stored messages only where the model window is known', () => {

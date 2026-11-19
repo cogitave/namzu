@@ -55,7 +55,8 @@ the time it was written.
   unknown key is refused on write and dropped on load; a value over its cap is refused, never cut.
 - **Writes** are atomic (a temporary file, then a rename, so an interrupted write leaves the old
   file whole), debounced by 500 ms, and flushed on quit, when a window closes and when a renderer
-  process dies. A family past its entry cap drops the entry written longest ago.
+  process dies. A family past its entry cap drops the entry written longest ago. The page cannot
+  write `window.mode:*`; only the main process does.
 - **Reading.** The preload reads the snapshot synchronously before the first paint, so a restored
   window is never drawn with defaults first. `public/theme-boot.js` reads the same snapshot for the
   theme and fonts. The page sees a `Storage`-shaped object (`renderer/view-state.ts`), so existing
@@ -75,7 +76,9 @@ the time it was written.
 ## How it was closed
 
 `cleanShutdown` is written false when the app starts and true as the last step of a quit, after
-everything is flushed.
+everything is flushed. A window that is still alive may write after that (a resize, a late
+renderer message): the write is kept, but the file keeps saying the run ended cleanly, so the next
+start is not mistaken for a crash.
 
 | Kind of key | Quit, update restart, reboot | Close to the tray | Crash or kill |
 |---|---|---|---|

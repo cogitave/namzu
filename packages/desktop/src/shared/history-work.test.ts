@@ -507,6 +507,10 @@ describe('the figure read back from the log', () => {
 			{ contextTokens: Number.NaN, contextWindowTokens: 10 },
 		])
 			expect(seedStoredUsage(emptyThread(), bad).usage).toBeUndefined()
+		expect(readStoredUsage({ ...stored, sizeOutOfDate: 'yes' })).not.toHaveProperty('sizeOutOfDate')
+		expect(readStoredUsage({ ...stored, sizeOutOfDate: true })).toMatchObject({
+			sizeOutOfDate: true,
+		})
 		expect(readStoredUsage({ ...stored, measuredBy: 'who' })).not.toHaveProperty('measuredBy')
 	})
 })

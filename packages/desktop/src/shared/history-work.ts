@@ -463,7 +463,7 @@ export function restoreHistoryWork(
  */
 export function readStoredUsage(value: unknown): ThreadUsage | undefined {
 	if (!record(value)) return undefined
-	const { contextTokens, contextWindowTokens, measuredBy } = value
+	const { contextTokens, contextWindowTokens, measuredBy, sizeOutOfDate } = value
 	if (
 		typeof contextTokens !== 'number' ||
 		typeof contextWindowTokens !== 'number' ||
@@ -477,6 +477,7 @@ export function readStoredUsage(value: unknown): ThreadUsage | undefined {
 		contextTokens,
 		contextWindowTokens,
 		...(measuredBy === 'provider' || measuredBy === 'estimate' ? { measuredBy } : {}),
+		...(sizeOutOfDate === true ? { sizeOutOfDate: true } : {}),
 	}
 }
 

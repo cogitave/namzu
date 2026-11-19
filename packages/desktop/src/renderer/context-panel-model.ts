@@ -300,14 +300,18 @@ export function contextPanelModel(input: PanelInput): PanelModel {
 	else sentence = 'This conversation is past what Namzu can read at once.'
 
 	let footnote: string
-	if (report.stored === 'record')
-		footnote =
-			'From the last reply. Namzu counts again, with the full breakdown, after your next message.'
-	else if (report.stored === 'estimate')
-		footnote = 'Estimated from this conversation. Namzu counts it exactly after your next message.'
-	else if (report.sizeOutOfDate)
+	// An out-of-date size is said first: it is the most important thing the footnote can say.
+	if (report.sizeOutOfDate)
 		footnote =
 			'Namzu shortened this conversation, so these sizes are out of date until your next message. Sizes are Namzu’s own count (about 4 characters to a token).'
+	else if (report.stored === 'record' && report.measuredBy === 'provider')
+		footnote =
+			'From the last reply. Namzu counts again, with the full breakdown, after your next message.'
+	else if (report.stored === 'record')
+		footnote =
+			'Namzu’s own estimate at the last reply. Namzu counts again, with the full breakdown, after your next message.'
+	else if (report.stored === 'estimate')
+		footnote = 'Estimated from this conversation. Namzu counts it exactly after your next message.'
 	else if (report.measuredBy === 'provider')
 		footnote =
 			'The total comes from your AI service. The rows are Namzu’s own estimates (about 4 characters to a token) and add up to it.'

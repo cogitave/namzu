@@ -31,6 +31,17 @@ export interface StoredContext {
 	readonly sizeOutOfDate?: boolean
 }
 
+/** The figure a history read carries so the context ring can be drawn before any reply. */
+export function historyUsage(stored: StoredContext) {
+	return {
+		contextTokens: stored.tokens,
+		contextWindowTokens: stored.windowTokens,
+		measuredBy: stored.measuredBy,
+		fromRecord: stored.fromRecord,
+		...(stored.sizeOutOfDate ? { sizeOutOfDate: true } : {}),
+	}
+}
+
 /** The model the log last started a turn with, if any. */
 export function lastStoredModel(records: readonly SessionRecord[]): string | undefined {
 	for (let index = records.length - 1; index >= 0; index--) {

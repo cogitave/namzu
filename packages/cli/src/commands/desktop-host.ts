@@ -45,7 +45,11 @@ import {
 	storedAssistantPhase,
 	unarchiveConversation,
 } from '../integrations/sessions/store.js'
-import { lastTurnStatus, storedContext } from '../integrations/sessions/stored-context.js'
+import {
+	historyUsage,
+	lastTurnStatus,
+	storedContext,
+} from '../integrations/sessions/stored-context.js'
 import { conversationMarkdown } from '../integrations/sessions/transcript-export.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
 import {
@@ -1582,16 +1586,7 @@ export function createDesktopHostExtensions(
 					partial: partial || rows.length < shown.length || remaining <= 0,
 					...(!ownedPal ? { work: historyWork(snapshot.records, retained) } : {}),
 					// Display reads from the log: no engine is started to answer them.
-					...(stored
-						? {
-								usage: {
-									contextTokens: stored.tokens,
-									contextWindowTokens: stored.windowTokens,
-									measuredBy: stored.measuredBy,
-									fromRecord: stored.fromRecord,
-								},
-							}
-						: {}),
+					...(stored ? { usage: historyUsage(stored) } : {}),
 					...(lastTurn ? { lastTurn } : {}),
 					...(started?.type === 'session_started' ? { environment: { cwd: started.cwd } } : {}),
 				}
