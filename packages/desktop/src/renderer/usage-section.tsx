@@ -78,6 +78,12 @@ export function UsageSection({ control }: { control: UsageLimitsControl | undefi
 		: undefined
 	return (
 		<div id="setting-usage-limits" className="usage-section">
+			{/* A page with nothing on it reads as broken: say plainly that nothing has come in yet. */}
+			{model && model.sections.length === 0 && (
+				<p className="settings-note">
+					Nothing to show yet. Limits appear here after a reply from an account that shares them.
+				</p>
+			)}
 			{model?.sections.map((section) => (
 				<section key={section.provider} className="usage-provider" aria-label={section.label}>
 					<h2 className="settings-section-title">

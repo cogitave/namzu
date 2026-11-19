@@ -68,6 +68,9 @@ describe('Settings, Usage', () => {
 		expect(empty).not.toContain('Silent')
 		expect(empty.toLowerCase()).not.toContain('not reported')
 		expect(empty).not.toContain('settings-row')
+		// The page is never blank: one plain line says nothing has come in yet.
+		expect(empty).toContain('Nothing to show yet.')
+		expect(out).not.toContain('Nothing to show yet.')
 		expect(render(undefined)).toContain('id="setting-usage-limits"')
 	})
 
