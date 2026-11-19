@@ -209,9 +209,7 @@ export function contextPanelModel(input: PanelInput): PanelModel {
 	// "Messages" would say the instructions and tools are not in it.
 	const wholeCount = report.stored === 'record'
 	const nameOf = (category: ContextCategory) =>
-		wholeCount && category.id === 'messages'
-			? 'Used so far'
-			: (NAME[category.id] ?? category.name)
+		wholeCount && category.id === 'messages' ? 'Used so far' : (NAME[category.id] ?? category.name)
 	const byTokens = (a: ContextCategory, b: ContextCategory) => b.tokens - a.tokens
 	const rowOf = (category: ContextCategory, deferred: boolean): PanelRow => {
 		const name = nameOf(category)
