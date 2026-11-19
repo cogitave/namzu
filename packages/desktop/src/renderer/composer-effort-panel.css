@@ -84,7 +84,7 @@
 	display: flex;
 	align-items: center;
 	height: 22px;
-	padding-inline: 13px;
+	padding-inline: calc(var(--frame-row-action) / 2);
 	border-radius: var(--radius-pill);
 	background: color-mix(in srgb, var(--foreground) 9%, var(--popover));
 	cursor: pointer;
@@ -138,8 +138,8 @@
 	opacity: 0.8;
 }
 .composer-effort-thumb {
-	width: 26px;
-	height: 26px;
+	width: var(--frame-row-action);
+	height: var(--frame-row-action);
 	border-radius: 50%;
 	background: #fff;
 	box-shadow: 0 1px 3px rgb(0 0 0 / 28%), 0 0 0 1.5px rgb(0 0 0 / 38%);
