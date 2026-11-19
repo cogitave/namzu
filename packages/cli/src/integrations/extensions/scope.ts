@@ -29,6 +29,8 @@ export interface Scope {
 	monitoringKind: string
 	adminCanRead: boolean
 	runsAtLogin: boolean
+	/** Present only for an extension that declares the administrator lock, so older scopes keep their hash. */
+	management?: { lock: string }
 }
 
 /** True when `a` keeps the data longer than `b`: `keep` outlasts every number of days. */
@@ -77,6 +79,7 @@ export function scopeOf(m: Manifest): Scope {
 		monitoringKind: m.privacy.monitoringKind,
 		adminCanRead: m.privacy.storage.adminCanRead,
 		runsAtLogin: m.background !== undefined,
+		...(m.management ? { management: { lock: m.management.lock } } : {}),
 	}
 }
 
@@ -161,6 +164,10 @@ export function widerReasons(o: Scope, n: Scope): string[] {
 		n.background.indicator !== 'tray'
 	)
 		r.push('its own indicator while Namzu is closed was removed')
+	if (!o.management && n.management)
+		r.push(
+			'now asks for an administrator password, and while it is set you cannot turn it off without it',
+		)
 	if (o.leavesTheMachine !== n.leavesTheMachine) r.push('what leaves the machine changed')
 	if (o.monitoringKind !== n.monitoringKind) r.push('kind of monitoring changed')
 	if (!o.adminCanRead && n.adminCanRead) r.push('an administrator can now read the data')

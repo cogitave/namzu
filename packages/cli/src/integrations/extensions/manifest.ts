@@ -5,6 +5,7 @@ import {
 	walkActions,
 	walkBackground,
 	walkLicensing,
+	walkManagement,
 	walkNetwork,
 	walkUi,
 	wordingTexts2,
@@ -429,6 +430,7 @@ export function localizedTexts(m: Manifest): [string, Localized][] {
 	}
 	add('name', m.name)
 	add('description', m.description)
+	add('management.purpose', m.management?.purpose)
 	m.permissions.forEach((p, i) => {
 		add(`permissions[${i}].summary`, p.summary)
 		add(`permissions[${i}].prompt`, p.prompt)
@@ -619,7 +621,7 @@ export function parseManifest(bytes: Uint8Array | string): ParsedManifest {
 			'updates',
 			'signing',
 		],
-		['$schema', 'ui', 'background'],
+		['$schema', 'ui', 'background', 'management'],
 		RESERVED_TOP,
 	)
 	if (raw.manifestVersion !== 1) w.add('manifestVersion', 'must be 1')
@@ -641,6 +643,7 @@ export function parseManifest(bytes: Uint8Array | string): ParsedManifest {
 	w.str('license', raw.license, undefined, 1, 80)
 	if (raw.ui !== undefined) walkUi(w, raw.ui)
 	if (raw.background !== undefined) walkBackground(w, raw.background)
+	if (raw.management !== undefined) walkManagement(w, raw.management)
 	walkEntry(w, raw.entry)
 	walkContributes(w, raw.contributes)
 	walkPermissions(w, raw.permissions)

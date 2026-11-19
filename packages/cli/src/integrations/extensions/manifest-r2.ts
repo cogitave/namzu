@@ -165,6 +165,14 @@ export function walkBackground(w: Walk, v: unknown): void {
 	} else w.add('background.indicator.kind', 'must be tray or none')
 }
 
+export function walkManagement(w: Walk, v: unknown): void {
+	if (!w.isObj('management', v)) return
+	w.keys('management', v, ['lock', 'purpose'])
+	if (v.lock !== 'administrator-password')
+		w.add('management.lock', 'must be administrator-password')
+	w.text('management.purpose', v.purpose, 3, 300)
+}
+
 export function walkActions(w: Walk, e: Rec): void {
 	if (e.actions === undefined) return
 	if (!w.arr('contributes.endpoint.actions', e.actions, 0, 12)) return

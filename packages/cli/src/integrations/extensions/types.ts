@@ -160,6 +160,16 @@ export interface ManifestBackground {
 	readonly indicator: BackgroundIndicator
 }
 
+/**
+ * An extension that an administrator or IT turns on for a person declares that it may be locked: turning
+ * it on sets an administrator password, and while it is set the person cannot turn it off or remove it
+ * without that password. `purpose` is the sentence the person reads about why, in the default language.
+ */
+export interface ManifestManagement {
+	readonly lock: 'administrator-password'
+	readonly purpose: Localized
+}
+
 export type UiSlot = 'sidebar' | 'settings' | 'panel'
 export type HostBridgeMethod = 'theme' | 'locale' | 'state' | 'openNamzu'
 
@@ -254,6 +264,7 @@ export interface Manifest {
 	readonly permissions: readonly ManifestPermission[]
 	readonly network: ManifestNetwork
 	readonly background?: ManifestBackground
+	readonly management?: ManifestManagement
 	readonly ui?: ManifestUi
 	readonly files: readonly {
 		readonly path: '${dataDir}'

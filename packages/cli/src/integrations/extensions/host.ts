@@ -33,6 +33,7 @@ import {
 	type Transport,
 	nodeTransport,
 } from './license/service.js'
+import { AdminLock, LOCK_FILE } from './lock.js'
 import { uiFiles } from './manifest-r2.js'
 import { pickLocale, resolveLocale, satisfiesRange } from './manifest.js'
 import { type PackageFile, openPackage } from './package.js'
@@ -127,6 +128,23 @@ export interface ExtensionView {
 	running: boolean
 	why?: string
 	grants: string[]
+	/** Present when the extension declares the administrator lock: whether it is on, and why it exists. */
+	management?: ManagementView
+}
+
+export interface ManagementView {
+	lock: 'administrator-password'
+	/** An administrator password is set: turning it off or removing it needs that password. */
+	locked: boolean
+	/** The sentence the extension gives for the lock, in the person's language. */
+	purpose: string
+	/** Seconds until the next password is looked at, after a wrong one. */
+	waitSeconds?: number
+}
+
+/** The administrator password a caller offers for an operation the lock guards. */
+export interface AdminOption {
+	readonly admin?: string
 }
 
 export interface BackgroundView {
@@ -198,6 +216,7 @@ export class ExtensionHost {
 	private readonly maintenanceDay = new Map<string, number>()
 	private timer: ReturnType<typeof setInterval> | undefined
 	private userHashCache: string | undefined
+	private readonly adminLock: AdminLock
 
 	constructor(private readonly o: HostOptions) {
 		this.env = o.env ?? process.env
@@ -206,6 +225,35 @@ export class ExtensionHost {
 		this.now = o.now ?? Date.now
 		this.store = new ExtensionStore(o.home, this.now)
 		this.consent = new ConsentStore(this.store)
+		this.adminLock = new AdminLock(this.store, this.now)
+	}
+
+	/** Refuse unless the lock is off or the password is right; a wrong or missing one is audited. */
+	private guard(id: string, admin: string | undefined, what: string): void {
+		try {
+			this.adminLock.require(id, admin)
+		} catch (e) {
+			if (e instanceof ExtensionError && e.code !== 'admin-wait')
+				this.store.audit(id, 'unlock-failed', undefined, `${what}: ${e.code}`)
+			throw e
+		}
+	}
+
+	/** Whether an administrator password is set (the file, not the manifest, decides). */
+	isLocked(id: string): boolean {
+		return this.adminLock.state(id).locked
+	}
+
+	/** Take the lock off. Needs the password; the extension stays as it is. */
+	unlock(id: string, opts: AdminOption = {}): ExtensionView {
+		this.state(id)
+		if (!this.adminLock.state(id).locked)
+			throw new ExtensionError('not-locked', 'lock', 'This extension is not locked.')
+		this.guard(id, opts.admin, 'unlock')
+		this.adminLock.clear(id)
+		this.store.audit(id, 'lock-released')
+		this.emit(id)
+		return this.view(id)
 	}
 
 	// --- small helpers -------------------------------------------------------------------------
@@ -656,6 +704,18 @@ export class ExtensionHost {
 			running: snap?.state === 'collecting' || snap?.state === 'degraded',
 			...(why ? { why } : {}),
 			grants: Object.keys(record?.grants ?? {}),
+			...(m.management
+				? {
+						management: {
+							lock: m.management.lock,
+							...(({ locked, waitSeconds }) => ({
+								locked,
+								...(waitSeconds !== undefined ? { waitSeconds } : {}),
+							}))(this.adminLock.state(id)),
+							purpose: this.text(m, m.management.purpose),
+						},
+					}
+				: {}),
 		}
 	}
 
@@ -954,8 +1014,13 @@ export class ExtensionHost {
 
 	// --- licence -------------------------------------------------------------------------------
 
-	setLicense(id: string, text: string): { customer: string; seats: number; expires: string } {
+	setLicense(
+		id: string,
+		text: string,
+		opts: AdminOption = {},
+	): { customer: string; seats: number; expires: string } {
 		const { manifest, verified } = this.active(id)
+		this.guard(id, opts.admin, 'licence')
 		if (manifest.licensing.kind !== 'key')
 			throw new ExtensionError(
 				'license-kind',
@@ -1018,7 +1083,8 @@ export class ExtensionHost {
 	}
 
 	/** Activate a service licence with the key the person typed. The key is kept by Namzu and never returned. */
-	async setLicenseKey(id: string, key: string): Promise<ActivateOutcome> {
+	async setLicenseKey(id: string, key: string, opts: AdminOption = {}): Promise<ActivateOutcome> {
+		this.guard(id, opts.admin, 'licence')
 		const sl = this.serviceLicence(id)
 		if (!sl)
 			throw new ExtensionError(
@@ -1037,7 +1103,9 @@ export class ExtensionHost {
 	async licenseAction(
 		id: string,
 		action: 'check' | 'release',
+		opts: AdminOption = {},
 	): Promise<{ done: boolean; error?: string; view: ExtensionView }> {
+		if (action === 'release') this.guard(id, opts.admin, 'licence')
 		const sl = this.serviceLicence(id)
 		if (!sl)
 			throw new ExtensionError(
@@ -1109,8 +1177,9 @@ export class ExtensionHost {
 	}
 
 	/** The "Start when I sign in" switch. Turning it off removes the entry when no other extension needs it. */
-	async setBackground(id: string, on: boolean): Promise<ExtensionView> {
+	async setBackground(id: string, on: boolean, opts: AdminOption = {}): Promise<ExtensionView> {
 		const st = this.state(id)
+		if (!on && st.background?.enabled === true) this.guard(id, opts.admin, 'background')
 		const { manifest: m } = this.active(id)
 		if (!m.background)
 			throw new ExtensionError(
@@ -1146,7 +1215,7 @@ export class ExtensionHost {
 
 	// --- enable, disable, remove, grants -------------------------------------------------------
 
-	enable(id: string): ExtensionView {
+	enable(id: string, opts: AdminOption = {}): ExtensionView {
 		const st = this.state(id)
 		const { manifest: m } = this.active(id)
 		if (licenceRequired(m)) {
@@ -1161,6 +1230,17 @@ export class ExtensionHost {
 				'notice',
 				'Read the notice and acknowledge it first.',
 			)
+		// An extension that declares the lock is turned on with an administrator password, once.
+		if (m.management && !this.adminLock.state(id).locked) {
+			if (!opts.admin)
+				throw new ExtensionError(
+					'admin-needed',
+					'lock',
+					'Set an administrator password to turn this on. Only the administrator will be able to turn it off.',
+				)
+			this.adminLock.set(id, opts.admin)
+			this.store.audit(id, 'lock-set', m.version)
+		}
 		this.store.writeState({ ...st, enabled: true, failed: undefined })
 		this.store.audit(id, 'enabled', m.version)
 		this.saveSeen(id)
@@ -1171,8 +1251,14 @@ export class ExtensionHost {
 		return this.view(id)
 	}
 
-	async disable(id: string): Promise<ExtensionView> {
+	async disable(id: string, opts: AdminOption = {}): Promise<ExtensionView> {
 		const st = this.state(id)
+		this.guard(id, opts.admin, 'disable')
+		return this.stopExtension(id, st)
+	}
+
+	/** The stop itself, after the lock has been passed. */
+	private async stopExtension(id: string, st: ExtensionState): Promise<ExtensionView> {
 		this.store.writeState({ ...st, enabled: false })
 		this.store.audit(id, 'disabled')
 		const sup = this.supervisors.get(id)
@@ -1188,7 +1274,8 @@ export class ExtensionHost {
 		return this.view(id)
 	}
 
-	async remove(id: string, deleteData: boolean): Promise<void> {
+	async remove(id: string, deleteData: boolean, opts: AdminOption = {}): Promise<void> {
+		this.guard(id, opts.admin, 'remove')
 		// A removal never needs a verified install: a tampered, key-rotated or dev-key one must go too.
 		let retainDays = 3650
 		try {
@@ -1197,7 +1284,7 @@ export class ExtensionHost {
 			// keep the evidence for the longest period a manifest may declare
 		}
 		try {
-			await this.disable(id)
+			await this.stopExtension(id, this.state(id))
 		} catch {
 			// the stop and the state change come before the view that cannot be read
 		}
@@ -1219,6 +1306,7 @@ export class ExtensionHost {
 				'keys.json',
 				'settings.json',
 				'state.json',
+				LOCK_FILE,
 			])
 				rmSync(this.store.file(id, name), { force: true })
 			if (deleteData) removeTree(this.store.dataDir(id))
@@ -1282,7 +1370,8 @@ export class ExtensionHost {
 		return this.view(id)
 	}
 
-	revoke(id: string, permission: string): ExtensionView {
+	revoke(id: string, permission: string, opts: AdminOption = {}): ExtensionView {
+		this.guard(id, opts.admin, 'revoke')
 		const { manifest: m } = this.active(id)
 		const p = m.permissions.find((x) => x.id === permission)
 		if (!p)
@@ -1336,7 +1425,9 @@ export class ExtensionHost {
 		provider: string,
 		value: string | null,
 		settingKey = 'modelKey',
+		opts: AdminOption = {},
 	): { hasValue: boolean; masked?: string } {
+		this.guard(id, opts.admin, 'key')
 		const { manifest: m } = this.active(id)
 		const s = this.secretSetting(m, settingKey)
 		if (s.type !== 'secret')
@@ -1380,13 +1471,14 @@ export class ExtensionHost {
 		key: string,
 		value: unknown,
 		provider?: string,
+		opts: AdminOption = {},
 	): { value?: unknown; hasValue?: boolean; masked?: string } {
 		const { manifest: m } = this.active(id)
 		const s = this.secretSetting(m, key)
 		if (s.type === 'secret') {
 			if (typeof value !== 'string' && value !== null)
 				throw new ExtensionError('usage', 'value', 'A key is text.')
-			return this.setKey(id, provider ?? 'default', value as string | null, key)
+			return this.setKey(id, provider ?? 'default', value as string | null, key, opts)
 		}
 		const cur = this.store.readJson<Record<string, unknown>>(id, 'settings.json') ?? {}
 		cur[key] = value

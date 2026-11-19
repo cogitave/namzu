@@ -43,6 +43,8 @@ export interface Disclosure {
 	background?: { line: string; whileClosed: string; defaultOn: boolean }
 	/** The pages the extension draws inside Namzu and what they may reach. */
 	pages?: string
+	/** An extension an administrator locks: who can turn it off, and why it is built that way. */
+	management?: { line: string; purpose: string }
 	noticeVersion: string
 }
 
@@ -180,6 +182,14 @@ export function disclose(m: Manifest, wanted: string | undefined, dataFolder: st
 					pages: `This extension draws pages inside Namzu: ${(m.ui.pages ?? []).map((p) => `${t(p.title)} (${p.slot})`).join(', ')}. ${(m.ui.pages ?? []).some((p) => p.usesNetwork) ? 'Some of them can reach the network.' : 'They cannot use the network.'}`,
 				}
 			: {}),
+		...(m.management
+			? {
+					management: {
+						line: 'Only the administrator can turn this off or remove it. It is turned on with an administrator password, and without that password nobody can turn it off, remove it, change its licence or take its permissions back in Namzu.',
+						purpose: endSentence(t(m.management.purpose)),
+					},
+				}
+			: {}),
 		noticeVersion: m.legal.noticeVersion,
 	}
 }
@@ -200,6 +210,7 @@ export function disclosureText(d: Disclosure): string {
 	out.push('', d.network, `Data folder: ${d.dataFolder}`)
 	if (d.background) out.push('', d.background.line, d.background.whileClosed)
 	if (d.pages) out.push('', d.pages)
+	if (d.management) out.push('', d.management.line, d.management.purpose)
 	out.push('', 'It keeps:')
 	for (const k of d.dataKinds) {
 		out.push(

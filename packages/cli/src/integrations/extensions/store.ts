@@ -90,6 +90,9 @@ export const AUDIT_EVENTS = [
 	'indicator-missing',
 	'ui-closed',
 	'ui-file-changed',
+	'lock-set',
+	'lock-released',
+	'unlock-failed',
 ] as const
 
 const AUDIT_ROTATE_BYTES = 2 * 1024 * 1024
