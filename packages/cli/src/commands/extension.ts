@@ -623,6 +623,10 @@ export async function runExtension(raw: readonly string[], d: ExtensionDeps): Pr
 					return usage('usage: namzu extension daemon start|run|stop|status')
 				const b = d.background
 				if (sub === 'start') {
+					// The sign-in entry is what starts the runner on Windows: mend one an earlier version left
+					// (it opened a console window) before asking it, as the app does. Only while something wants
+					// it, so a start with nothing to run never removes the entry as a side effect.
+					if (d.host.backgroundIds().length > 0) await d.host.reconcile()
 					const up = await b.ensureRunner()
 					emit({ ok: up }, up ? 'The runner is running.' : 'The runner could not be started.')
 					return EXIT_OK

@@ -1,9 +1,11 @@
+import { writeFileSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FitResult } from './image-fit.js'
 import {
 	CLIPBOARD_SCRIPT,
 	type CommandResult,
 	type CommandRunner,
+	MAC_FILE_SCRIPT,
 	parsePowershellOutput,
 	powershellCandidates,
 	readClipboardImage,
@@ -278,5 +280,59 @@ describe('readClipboardImage under NAMZU_NO_CLIPBOARD', () => {
 			const read = await readClipboardImage({ platform, env: {}, readText: () => undefined })
 			expect(read.kind).toBe('unavailable')
 		}
+	})
+})
+
+describe('readClipboardImage on macOS', () => {
+	/** Answers the PNG script (writing the file it names, or failing) and the file script. */
+	function macRunner(options: { png: Buffer | null; file: CommandResult }) {
+		const scripts: string[][] = []
+		const run: CommandRunner = async (file, args) => {
+			scripts.push([file, ...args])
+			if (args.includes(MAC_FILE_SCRIPT)) return options.file
+			if (options.png === null) return exit(1)
+			const target = /POSIX file "([^"]+)"/.exec(args.join('\n'))?.[1]
+			if (target) writeFileSync(target, options.png)
+			return ok('')
+		}
+		return { run, scripts }
+	}
+	const mac = (run: CommandRunner) => readImage({ platform: 'darwin', env: {}, run })
+
+	it('reads the PNG first and never asks for a file when there is one', async () => {
+		const { run, scripts } = macRunner({ png: PNG, file: ok('/Users/a/b.png\n') })
+		const read = await mac(run)
+		expect(read.kind).toBe('image')
+		expect(scripts).toHaveLength(1)
+	})
+
+	it('falls back to the file a Finder copy left, as a files result', async () => {
+		const { run, scripts } = macRunner({ png: null, file: ok('/Users/a/My Shot.png\n') })
+		const read = await mac(run)
+		expect(read).toEqual({ kind: 'files', paths: ['/Users/a/My Shot.png'] })
+		// The second script is the fixed text and nothing from the clipboard is in a command line.
+		expect(scripts[1]).toEqual(['osascript', '-e', MAC_FILE_SCRIPT])
+		expect(MAC_FILE_SCRIPT).toBe('get POSIX path of (the clipboard as «class furl»)')
+	})
+
+	it('also falls back when the PNG script succeeds but wrote something that is not a PNG', async () => {
+		const { run } = macRunner({ png: Buffer.from('not a png at all'), file: ok('/x/y.JPG') })
+		expect(await mac(run)).toEqual({ kind: 'files', paths: ['/x/y.JPG'] })
+	})
+
+	it('reports empty for a copied file that is not an image, and when the clipboard holds neither', async () => {
+		expect(await mac(macRunner({ png: null, file: ok('/x/notes.txt\n') }).run)).toEqual({
+			kind: 'empty',
+		})
+		expect(await mac(macRunner({ png: null, file: exit(1) }).run)).toEqual({ kind: 'empty' })
+		expect(await mac(macRunner({ png: null, file: ok('') }).run)).toEqual({ kind: 'empty' })
+	})
+
+	it('reports a file read that timed out, and a missing osascript', async () => {
+		expect(await mac(macRunner({ png: null, file: TIMED_OUT }).run)).toEqual({
+			kind: 'failed',
+			detail: 'timed out',
+		})
+		expect((await mac(macRunner({ png: null, file: MISSING }).run)).kind).toBe('unavailable')
 	})
 })
