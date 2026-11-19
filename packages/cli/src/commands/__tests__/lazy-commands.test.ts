@@ -134,6 +134,7 @@ describe('the command manifest', () => {
 				'drain',
 				'eval',
 				'exec',
+				'extension',
 				'github',
 				'history',
 				'hooks',
