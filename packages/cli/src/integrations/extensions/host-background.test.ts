@@ -12,6 +12,7 @@ import {
 } from './__fixtures__/package-builder.js'
 import { ExtensionError } from './errors.js'
 import { ExtensionHost, type HostOptions, startToken } from './host.js'
+import { createStartTokens } from './proc-start.js'
 import { FakeRegistrar } from './signin/fake.js'
 import { reconcileSignin } from './signin/reconcile.js'
 import type { SpawnSpec } from './spawn.js'
@@ -360,6 +361,47 @@ describe('who supervises: the runner for switch-on extensions, the app for the r
 		expect(h.view(ID).background?.hostedBy).toBe('runner')
 		expect(h.view(ID).running).toBe(true)
 		expect(rec.runs().filter((c) => c.spec?.env.NAMZU_EXT_ID === ID)).toHaveLength(0)
+	})
+	it("a foreign host's start time is probed once however many views ask, and list does not wait for it", async () => {
+		const rec = recordingSpawn()
+		let probes = 0
+		let answer: (token: string) => void = () => {}
+		const answered = new Promise<string>((resolve) => {
+			answer = resolve
+		})
+		const startTokens = createStartTokens({
+			slow: true,
+			read: () => {
+				throw new Error('the blocking read must not run on a view')
+			},
+			readAsync: () => {
+				probes++
+				return answered
+			},
+		})
+		const h = await two({ spawn: rec.spawn, ensureRunner: async () => true, startTokens })
+		h.enable(ID)
+		const ppid = process.ppid
+		mkdirSync(join(home, 'extensions', ID, 'run'), { recursive: true })
+		writeFileSync(
+			join(home, 'extensions', ID, 'run', 'state.json'),
+			JSON.stringify({
+				hostPid: ppid,
+				token: 'T-foreign',
+				addr: 'x',
+				kind: 'daemon',
+				snapshot: { state: 'collecting', restartsLastHour: 0, since: T0 },
+			}),
+		)
+		// The probe is pending: the views answer at once, with "not hosted by anyone yet".
+		expect(h.view(ID).background?.hostedBy).toBe('none')
+		expect(h.view(ID).background?.hostedBy).toBe('none')
+		expect(h.list().length).toBeGreaterThan(0)
+		expect(probes).toBe(1)
+		answer('T-foreign')
+		await settle()
+		expect(h.view(ID).background?.hostedBy).toBe('runner')
+		expect(probes).toBe(1)
 	})
 	it('a runner that stopped the extension and left its file behind is not "running" it', async () => {
 		const rec = recordingSpawn()

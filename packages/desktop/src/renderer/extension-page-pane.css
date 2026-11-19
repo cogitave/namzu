@@ -64,6 +64,12 @@
 	flex: 1;
 	min-height: 0;
 }
+.extension-page-loading {
+	display: block;
+	margin: 0;
+	padding: 16px 24px;
+	color: var(--muted-foreground);
+}
 .extension-page-stopped {
 	display: grid;
 	justify-items: start;

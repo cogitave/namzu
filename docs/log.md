@@ -2,6 +2,7 @@
 
 ## 2026-11-20
 
+- **Update** [Extensions](cli/extensions.md#reading-another-processs-state-without-waiting): the engine no longer freezes while an extension view is drawn. The start time of another process is read once and kept, asked for without blocking on Windows, and not asked at all when a page opens; the extension list is no longer re-read every 4 seconds while a page is open, state events are batched, the page slot shows a loading line until the page is drawn, and page opens, page-info calls and queries are logged with their duration. `.changeset/extensions-no-blocking-probe.md`.
 - **Update** [Terminal design](cli/terminal-design.md#keypad-keys): the keypad Enter sends a message and every other keypad key acts as the key it stands for (digits and operators type, arrows, Home, End, Page Up and Down, Insert and Delete move and edit); the terminal reports them as codes of their own under the keyboard protocol the message box turns on, and they were not understood. `.changeset/cli-keypad-keys.md`.
 - **Update** [Pasting images](cli/clipboard-and-images.md): on macOS a file copied in Finder attaches (second fixed read, `«class furl»`), a paste of a screenshot-preview path whose file is gone reads the clipboard picture instead, and the page says the macOS key is Ctrl+V. `.changeset/cli-keypad-keys.md`.
 

@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process'
+import { execFile, spawnSync } from 'node:child_process'
 import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { uptime } from 'node:os'
 
@@ -52,6 +52,120 @@ export function startTokenOf(pid: number, platform: NodeJS.Platform = process.pl
 			`(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToFileTimeUtc()`,
 		])
 	return ''
+}
+
+const WIN_ARGS = (pid: number): string[] => [
+	'-NoProfile',
+	'-NonInteractive',
+	'-Command',
+	`(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToFileTimeUtc()`,
+]
+
+/** The same question as `startTokenOf` on Windows, asked without blocking the event loop. */
+export function startTokenOfAsync(
+	pid: number,
+	platform: NodeJS.Platform = process.platform,
+): Promise<string> {
+	if (platform !== 'win32') return Promise.resolve(startTokenOf(pid, platform))
+	if (!Number.isInteger(pid) || pid <= 0) return Promise.resolve('')
+	return new Promise((resolve) => {
+		try {
+			execFile(
+				'powershell.exe',
+				WIN_ARGS(pid),
+				{ encoding: 'utf8', timeout: 5000, windowsHide: true },
+				(err, stdout) => resolve(err ? '' : String(stdout).trim()),
+			)
+		} catch {
+			resolve('')
+		}
+	})
+}
+
+export interface StartTokenDeps {
+	readonly alive?: (pid: number) => boolean
+	/** The blocking read (cheap on Linux, a spawn elsewhere). */
+	readonly read?: (pid: number) => string
+	/** The non-blocking read; used by `peek` where the blocking one is a process spawn. */
+	readonly readAsync?: (pid: number) => Promise<string>
+	/** Whether `read` blocks on a spawn, so `peek` must not call it. Defaults to win32. */
+	readonly slow?: boolean
+	/** Called when a probe that `peek` started has answered, so a caller can look again. */
+	readonly onResolved?: (pid: number, token: string) => void
+}
+
+export interface StartTokens {
+	/**
+	 * The token, from the cache or read now (blocking). Correct but may block for a process spawn on
+	 * Windows: only for a pid that must be judged now (the host's own, a lock takeover's).
+	 */
+	strict(pid: number): string
+	/**
+	 * The token if known; otherwise `undefined` and, where reading blocks, an asynchronous probe has been
+	 * started (one per pid however many callers ask). Never blocks on a spawn. Callers treat `undefined`
+	 * as "not known yet".
+	 */
+	peek(pid: number): string | undefined
+	/** Forget one pid, or all. */
+	evict(pid?: number): void
+	readonly size: number
+}
+
+/**
+ * A pid's start time cannot change while the process lives, so it is read once per pid and kept. A pid
+ * whose process is gone is dropped (the next owner of that pid gets a fresh read), and so is one whose
+ * probe found nothing alive.
+ */
+export function createStartTokens(deps: StartTokenDeps = {}): StartTokens {
+	const alive = deps.alive ?? pidAlive
+	const read = deps.read ?? ((pid: number) => startTokenOf(pid))
+	const slow = deps.slow ?? process.platform === 'win32'
+	const readAsync = deps.readAsync ?? ((pid: number) => startTokenOfAsync(pid))
+	const known = new Map<number, string>()
+	const pending = new Map<number, Promise<void>>()
+	const cached = (pid: number): string | undefined => {
+		const t = known.get(pid)
+		if (t === undefined) return undefined
+		if (alive(pid)) return t
+		known.delete(pid)
+		return undefined
+	}
+	return {
+		strict(pid) {
+			const hit = cached(pid)
+			if (hit !== undefined) return hit
+			const t = read(pid)
+			if (alive(pid)) known.set(pid, t)
+			return t
+		},
+		peek(pid) {
+			const hit = cached(pid)
+			if (hit !== undefined) return hit
+			if (!slow) {
+				const t = read(pid)
+				if (alive(pid)) known.set(pid, t)
+				return t
+			}
+			if (!pending.has(pid)) {
+				const probe = readAsync(pid)
+					.then((t) => {
+						if (alive(pid)) known.set(pid, t)
+						deps.onResolved?.(pid, t)
+					})
+					.catch(() => undefined)
+					.finally(() => pending.delete(pid))
+				pending.set(pid, probe)
+			}
+			return undefined
+		},
+		evict(pid) {
+			if (pid === undefined) known.clear()
+			else known.delete(pid)
+		},
+		get size() {
+			return known.size
+		},
+	}
 }
 
 /** True when a lock written at `since` is older than the last start of the computer (so its pid was reused). */
