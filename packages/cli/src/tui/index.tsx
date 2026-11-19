@@ -27,7 +27,6 @@ import {
 	installMouseWheel,
 } from './fullscreen/mouse-wheel.js'
 import { fileQueuedHintCount } from './hint-counts.js'
-import { installKeypadEnter } from './keypad-enter.js'
 import { installTuiLogSink } from './log-pane.js'
 import { watchOutputSize } from './output-size-watch.js'
 import {
@@ -117,8 +116,6 @@ export async function launchTui(
 	// A paste marker split across two reads is held until it is whole, innermost so every
 	// later filter and Ink see it as the terminal sent it (see `paste-marker-guard.ts`).
 	const stopPasteMarkerGuard = installPasteMarkerGuard(inputStream)
-	// The number pad's Enter reaches the screen as Enter (see `keypad-enter.ts`).
-	const stopKeypadEnter = installKeypadEnter(inputStream)
 	const stopFocusReporting = installFocusReporting(inputStream, process.stdout, (focused) =>
 		terminalFocus.set(focused),
 	)
@@ -336,7 +333,6 @@ export async function launchTui(
 		stopSizeWatch?.()
 		stopFocusReporting()
 		stopWheel?.()
-		stopKeypadEnter()
 		stopPasteMarkerGuard()
 		if (panicReset) process.off('exit', panicReset)
 		consoleInput?.release()
