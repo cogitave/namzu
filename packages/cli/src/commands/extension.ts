@@ -452,6 +452,7 @@ export async function runExtension(raw: readonly string[], d: ExtensionDeps): Pr
 						staged: pending.staged,
 						via: 'cli',
 						...(startAtSignin === undefined ? {} : { startAtSignin }),
+						...(await adminOpt()),
 					})
 				}
 				const v = d.host.enable(id, await adminOpt())

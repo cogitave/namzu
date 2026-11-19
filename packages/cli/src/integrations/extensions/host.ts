@@ -935,6 +935,8 @@ export class ExtensionHost {
 			via?: 'cli' | 'desktop'
 			/** The "Start when I sign in" switch as the person left it; the manifest's default when absent. */
 			startAtSignin?: boolean
+			/** The administrator password to set, when this update adds the lock to an extension that is already on. */
+			admin?: string
 		},
 	): ConsentRecord {
 		const st = this.state(id)
@@ -949,6 +951,22 @@ export class ExtensionHost {
 				'echo',
 				'The notice you were shown is not the one that applies now. Read it again.',
 			)
+		// An update that adds the lock to an extension that is already running must set the password now:
+		// otherwise it would keep running with the lock declared and nobody holding the key.
+		const addsLock =
+			input.staged === true &&
+			m.management !== undefined &&
+			st.enabled &&
+			!this.adminLock.state(id).locked
+		if (addsLock) {
+			if (!input.admin)
+				throw new ExtensionError(
+					'admin-needed',
+					'lock',
+					'This update adds an administrator lock to an extension that is on. Set an administrator password to accept it. Only the administrator will be able to turn it off.',
+				)
+			AdminLock.checkNew(input.admin)
+		}
 		const noticeLocale = m.legal.notices[input.locale ?? '']
 			? (input.locale as string)
 			: m.defaultLocale
@@ -991,6 +1009,10 @@ export class ExtensionHost {
 		}
 		this.consent.write(record)
 		this.store.audit(id, 'acknowledged', m.version, `notice ${m.legal.noticeVersion}`)
+		if (addsLock && input.admin) {
+			this.adminLock.set(id, input.admin)
+			this.store.audit(id, 'lock-set', m.version)
+		}
 		if (input.staged)
 			this.swap(id, undefined, m, loaded.verified.dev, loaded.verified.keyId, record, scope)
 		// The switch is the person's action; the scope is the person's acknowledgement. Both are recorded.

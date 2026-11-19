@@ -136,6 +136,7 @@ export function createExtensionsRpc(
 				staged: p.staged === true,
 				via: 'desktop',
 				...(typeof p.startAtSignin === 'boolean' ? { startAtSignin: p.startAtSignin } : {}),
+				...adminOf(p),
 			})
 			return { ok: true }
 		}),

@@ -545,7 +545,7 @@ export function ExtensionsSection({ api }: { api?: Api | undefined }) {
 						api={bridge}
 						id={panel.id}
 						staged={panel.staged}
-						setPassword={selected.management !== undefined && !selected.management.locked}
+						setPassword={selected.management?.locked !== true}
 						onClose={() => close()}
 					/>
 				)}

@@ -303,3 +303,66 @@ describe('unlock removes the lock and needs the password', () => {
 		expect(await code(() => h.enable(ID))).toBe('admin-needed')
 	})
 })
+
+describe('an update that adds the lock to an extension that is already on', () => {
+	const plainOn = (h: ExtensionHost): void => {
+		ready(h, () => {})
+		h.enable(ID)
+	}
+	const addLock: Mut = (m) => {
+		managed(m)
+		m.legal.noticeVersion = '2.0'
+	}
+	const stage = (h: ExtensionHost): { noticeVersion: string; scopeHash: string } => {
+		const r = h.add(pkg(addLock, '1.1.0'))
+		expect(r.update?.waiting).toBe(true)
+		const n = h.notice(ID, { staged: true })
+		return { noticeVersion: n.noticeVersion, scopeHash: n.scopeHash }
+	}
+
+	it('is refused without a password, and nothing changes', () => {
+		const h = newHost()
+		plainOn(h)
+		const n = stage(h)
+		let c = ''
+		try {
+			h.acknowledge(ID, { ...n, staged: true })
+		} catch (e) {
+			c = (e as ExtensionError).code
+		}
+		expect(c).toBe('admin-needed')
+		expect(h.view(ID).version).toBe('1.0.0')
+		expect(h.isLocked(ID)).toBe(false)
+	})
+
+	it('refuses a password that is too short', () => {
+		const h = newHost()
+		plainOn(h)
+		const n = stage(h)
+		expect(() => h.acknowledge(ID, { ...n, staged: true, admin: 'short' })).toThrow(
+			/at least 8 characters/,
+		)
+		expect(h.view(ID).version).toBe('1.0.0')
+	})
+
+	it('sets the password with the acknowledgement, writes it to the history, and then turning it off asks', async () => {
+		const h = newHost()
+		plainOn(h)
+		const n = stage(h)
+		h.acknowledge(ID, { ...n, staged: true, admin: PW })
+		expect(h.isLocked(ID)).toBe(true)
+		expect(h.view(ID).version).toBe('1.1.0')
+		expect(h.view(ID).enabled).toBe(true)
+		expect(h.audit(ID).map((l) => l.event)).toContain('lock-set')
+		expect(await code(() => h.disable(ID))).toBe('admin-locked')
+		expect(await code(() => h.disable(ID, { admin: PW }))).toBe('ok')
+	})
+
+	it('needs no password when the extension is off: turning it on sets it', () => {
+		const h = newHost()
+		ready(h, () => {})
+		const n = stage(h)
+		h.acknowledge(ID, { ...n, staged: true })
+		expect(h.isLocked(ID)).toBe(false)
+	})
+})

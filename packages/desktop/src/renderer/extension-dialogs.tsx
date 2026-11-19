@@ -382,6 +382,7 @@ export function NoticeScreen({
 			locale: notice.locale,
 			staged,
 			...(notice.disclosure.background && startAtSignin !== undefined ? { startAtSignin } : {}),
+			...(needsPassword ? { admin } : {}),
 		})
 		if (!r.ok) {
 			setFailure(r.failure)
