@@ -142,6 +142,10 @@
 .panel-tab:not([data-active]) .panel-tab-name {
 	padding-right: 8px;
 }
+/* A tab with no close button (a fixed pane tab) keeps the same room after its name as before it. */
+.panel-tab-name:last-child {
+	padding-right: 8px;
+}
 .panel-tab-close:hover {
 	background: var(--secondary);
 }
