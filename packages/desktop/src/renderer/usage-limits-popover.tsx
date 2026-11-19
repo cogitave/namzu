@@ -38,14 +38,24 @@ export function Bar({ fraction, tone }: { fraction: number; tone: LimitTone }) {
 }
 
 /** One limit row: a window with its percent, reset or start line and bar, or a credit or spend line. */
-export function LimitRowView({ row }: { row: LimitRow }) {
+export function LimitRowView({
+	row,
+	variant = 'popover',
+}: {
+	row: LimitRow
+	/** `settings` reads "30% used" and is laid out as one line by the Settings page's CSS. */
+	variant?: 'popover' | 'settings'
+}) {
 	if (row.shape === 'window') {
 		const note = [row.reset, row.state, row.asOf].filter(Boolean).join(' · ')
 		return (
-			<div className="limits-row" data-row="window" data-tone={row.tone}>
+			<div className="limits-row" data-row="window" data-tone={row.tone} data-variant={variant}>
 				<div className="limits-line">
 					<span className="limits-label">{row.label}</span>
-					<span className="limits-percent">{row.percent}</span>
+					<span className="limits-percent">
+						{row.percent}
+						{variant === 'settings' ? ' used' : ''}
+					</span>
 				</div>
 				{note && (
 					<span className="limits-note" data-tone={row.tone}>

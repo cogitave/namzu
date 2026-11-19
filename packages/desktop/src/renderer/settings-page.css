@@ -84,6 +84,15 @@
 	align-items: stretch;
 	gap: 12px;
 }
+/* A stacked row's control is as wide as the column, not as wide as its content. */
+.settings-row[data-stacked] > .settings-row-control {
+	display: block;
+	width: 100%;
+	box-sizing: border-box;
+}
+.settings-row[data-stacked] .settings-choices {
+	width: 100%;
+}
 .settings-row[data-child] .settings-row-copy {
 	padding-inline-start: 20px;
 }
@@ -345,6 +354,14 @@
 }
 .settings-update-status {
 	padding: 4px 0 16px;
+}
+.settings-update-status .settings-actions {
+	justify-content: flex-end;
+}
+.settings-update-status pre,
+.settings-update-status code {
+	max-width: 100%;
+	box-sizing: border-box;
 }
 .settings-update-status p {
 	margin: 0 0 10px;
@@ -719,6 +736,27 @@
 	flex: none;
 	color: var(--sidebar-muted-foreground);
 }
+/* A narrower dialog gives the label the wider share, and a very narrow column stacks the control
+   under it, start-aligned. */
+@container settings-dialog (max-width: 760px) {
+	.settings-row:not([data-stacked]) > .settings-row-copy {
+		flex: 1 1 55%;
+	}
+	.settings-row:not([data-stacked]) > .settings-row-control {
+		flex: 0 1 auto;
+		max-width: 45%;
+	}
+}
+@container settings-dialog (max-width: 640px) {
+	.settings-row:not([data-stacked]) {
+		flex-direction: column;
+		align-items: stretch;
+		gap: 8px;
+	}
+	.settings-row:not([data-stacked]) > .settings-row-control {
+		max-width: 100%;
+	}
+}
 /* A narrow dialog keeps the column but drops the labels, so the nav never overlaps the content. */
 @container settings-dialog (max-width: 520px) {
 	.settings-dialog-nav {
@@ -828,6 +866,15 @@ input.settings-config-number {
 	width: 140px;
 	font-variant-numeric: tabular-nums;
 }
+/* A number in a row: a 220px field flush with the column's right edge, its unit before it. */
+.settings-row-control input.settings-config-number {
+	width: 220px;
+	max-width: 100%;
+}
+.settings-row-control .settings-config-unit {
+	order: -1;
+	margin-inline-end: 8px;
+}
 .settings-config-wide {
 	width: min(320px, 100%);
 }
@@ -871,8 +918,9 @@ input.settings-config-number {
 	width: 100%;
 }
 .settings-config-checks[data-scroll] {
-	max-height: 240px;
-	overflow-y: auto;
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+	gap: 6px 12px;
 }
 .settings-config-help {
 	display: block;

@@ -20,7 +20,6 @@
 	display: flex;
 	flex-direction: column;
 	gap: 16px;
-	max-width: 480px;
 	margin-bottom: 8px;
 	font-size: var(--text-small);
 	line-height: var(--leading-small);
@@ -51,4 +50,49 @@
 }
 .usage-budget input[aria-invalid="true"] {
 	color: var(--error-foreground);
+}
+
+/* One line per window, as wide as the column: name and reset line, a long thin bar, the percent at
+   the column's right edge. The label column is 196px plus a 40px gap (the bar starts 236px in); the percent box is 56px. */
+.usage-rows .limits-row[data-row="window"] {
+	display: grid;
+	grid-template-columns: 196px minmax(0, 1fr) 56px;
+	grid-template-areas: "label bar percent" "note bar percent";
+	column-gap: 40px;
+	row-gap: 0;
+	align-items: center;
+}
+.usage-rows .limits-row[data-row="window"] .limits-bar {
+	grid-area: bar;
+}
+.usage-rows .limits-row[data-row="window"] .limits-line {
+	display: contents;
+}
+.usage-rows .limits-row[data-row="window"] .limits-label {
+	grid-area: label;
+}
+.usage-rows .limits-row[data-row="window"] .limits-percent {
+	grid-area: percent;
+	min-width: 0;
+	white-space: nowrap;
+}
+.usage-rows .limits-row[data-row="window"] .limits-note {
+	grid-area: note;
+	margin-top: 8px;
+}
+/* A credit or spend line spans the column too: text left, bar under it. */
+.usage-rows .limits-row:not([data-row="window"]) {
+	width: 100%;
+}
+/* A narrow dialog stacks the name above the bar. */
+@container settings-dialog (max-width: 720px) {
+	.usage-rows .limits-row[data-row="window"] {
+		grid-template-columns: minmax(0, 1fr) auto;
+		grid-template-areas: "label percent" "note note" "bar bar";
+		column-gap: 12px;
+		row-gap: 6px;
+	}
+	.usage-rows .limits-row[data-row="window"] .limits-note {
+		margin-top: 0;
+	}
 }

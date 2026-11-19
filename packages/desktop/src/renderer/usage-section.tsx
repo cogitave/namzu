@@ -86,7 +86,7 @@ export function UsageSection({ control }: { control: UsageLimitsControl | undefi
 					</h2>
 					<div className="usage-rows">
 						{section.rows.map((row) => (
-							<LimitRowView key={row.key} row={row} />
+							<LimitRowView key={row.key} row={row} variant="settings" />
 						))}
 					</div>
 					{section.budget && control && (
