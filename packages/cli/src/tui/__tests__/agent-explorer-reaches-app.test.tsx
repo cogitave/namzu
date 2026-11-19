@@ -34,6 +34,7 @@ import {
 	agentTranscriptRows,
 	agentWorkflows,
 	maxAgentTranscriptTailOffset,
+	workflowDetailHeight,
 } from '../AgentExplorer.js'
 import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import { type AgentEvent, type AgentSession, type SessionScope, toAgentEvent } from '../agent.js'
@@ -289,6 +290,18 @@ const { App } = await import('../App.js')
 const ctx: TuiContext = { cwd: '/w', version: '0.0.0-test' }
 let mounted: Screen | null = null
 
+/** The agents overview: `↓` into the rows, on to `main` when there is one (`↑`), then Enter. */
+async function openCockpit(screen: Screen): Promise<void> {
+	screen.press('\x1b[B')
+	await screen.waitForRender()
+	if (screen.viewport().some((row) => /^(?:❯ | {2})[●◯] main\b/u.test(row))) {
+		screen.press('\x1b[A')
+		await screen.waitForRender()
+	}
+	screen.press('\r')
+	await screen.waitForRender()
+}
+
 function agent(
 	input: Partial<SubagentActivity> & Pick<SubagentActivity, 'viewId'>,
 ): SubagentActivity {
@@ -428,7 +441,7 @@ describe('the agents cockpit', () => {
 		mounted = screen
 		await ready
 		await screen.waitForRender()
-		screen.press('\x1b[D')
+		screen.press('\x1b[B')
 		await screen.waitForRender()
 		screen.press('\r')
 		await screen.waitForRender()
@@ -524,9 +537,7 @@ describe('the agents cockpit', () => {
 		await screen.waitForRender()
 		await submit(screen, 'start parent')
 		await running
-		screen.press('\x1b[D')
-		await screen.waitForRender()
-		screen.press('\r')
+		screen.press('\x1b[B')
 		await screen.waitForRender()
 		screen.press('\r')
 		await screen.waitForRender()
@@ -583,9 +594,7 @@ describe('the agents cockpit', () => {
 		mounted = screen
 		await ready
 		await screen.waitForRender()
-		screen.press('\x1b[D')
-		await screen.waitForRender()
-		screen.press('\r')
+		screen.press('\x1b[B')
 		await screen.waitForRender()
 		screen.press('\r')
 		await screen.waitForRender()
@@ -642,7 +651,7 @@ describe('the agents cockpit', () => {
 		mounted = screen
 		await ready
 		await screen.waitForRender()
-		screen.press('\x1b[D')
+		screen.press('\x1b[B')
 		await screen.waitForRender()
 		screen.press('\r')
 		await screen.waitForRender()
@@ -681,9 +690,7 @@ describe('the agents cockpit', () => {
 		mounted = screen
 		await ready
 		await screen.waitForRender()
-		screen.press('\x1b[D')
-		await screen.waitForRender()
-		screen.press('\r')
+		screen.press('\x1b[B')
 		await screen.waitForRender()
 		screen.press('\r')
 		await screen.waitForRender()
@@ -715,7 +722,7 @@ describe('the agents cockpit', () => {
 		mounted = screen
 		await ready
 		await screen.waitForRender()
-		screen.press('\x1b[D')
+		screen.press('\x1b[B')
 		await screen.waitForRender()
 		screen.press('\r')
 		await screen.waitForRender()
@@ -1091,7 +1098,7 @@ describe('the agents cockpit', () => {
 			'automatic agent panel missing',
 		)
 
-		screen.press('\x1b[D')
+		await openCockpit(screen)
 		await waitUntil(
 			screen,
 			() => screen.viewport().join('\n').includes('Agents · 2 agents'),
@@ -1136,43 +1143,43 @@ describe('the agents cockpit', () => {
 		})
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
-		expect(screen.viewport().join('\n')).not.toContain('enter to view')
+		expect(screen.viewport().join('\n')).not.toContain('enter view')
 		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
-			() => /^ *❯ (?:\S+ +)?Down-select child/mu.test(screen.viewport().join('\n')),
+			() => /^ *❯ [●◯] (?:\S+ +)?Down-select child/mu.test(screen.viewport().join('\n')),
 			'down did not focus the first agent',
 		)
 		// The same press must not also step to the second row.
-		expect(screen.viewport().join('\n')).not.toMatch(/^ *❯ (?:\S+ +)?Second child/mu)
+		expect(screen.viewport().join('\n')).not.toMatch(/^ *❯ [●◯] (?:\S+ +)?Second child/mu)
 		// The key line takes the mode line's place; two agents run, so the stop-all chord is offered.
 		expect(screen.viewport().join('\n')).toContain(
-			'enter to view · x to stop · ctrl+x ctrl+k to stop all agents',
+			'↑↓ select · enter view · x stop · ctrl+x ctrl+k stop all agents',
 		)
 		expect(screen.viewport().join('\n')).not.toContain('esc to go back')
 		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
-			() => /^ *❯ (?:\S+ +)?Second child/mu.test(screen.viewport().join('\n')),
+			() => /^ *❯ [●◯] (?:\S+ +)?Second child/mu.test(screen.viewport().join('\n')),
 			'down did not move to the second agent',
 		)
 		screen.press('\x1b[A')
 		screen.press('\x1b[A')
 		await waitUntil(
 			screen,
-			() => /^ *❯ main/mu.test(screen.viewport().join('\n')),
+			() => /^ *❯ [●◯] main/mu.test(screen.viewport().join('\n')),
 			'up did not reach the main row',
 		)
 		screen.press('\x1b')
 		await waitUntil(
 			screen,
-			() => !screen.viewport().join('\n').includes('enter to view'),
+			() => !screen.viewport().join('\n').includes('enter view'),
 			'escape did not hand the keyboard back',
 		)
 		expect(screen.viewport().join('\n')).toContain('Type a message')
 	})
 
-	it('offers the running agents on the footer and opens them with left from an empty composer', async () => {
+	it('offers the rows with down on the footer, and never opens the agents overview with left', async () => {
 		activity.set([
 			agent({ viewId: 'agent-left-1', description: 'First child' }),
 			agent({ viewId: 'agent-left-2', description: 'Second child' }),
@@ -1180,24 +1187,29 @@ describe('the agents cockpit', () => {
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
-		expect(screen.viewport().join('\n')).toContain('← 2 agents · ↓ to manage')
+		expect(screen.viewport().join('\n')).toContain('↓ to manage')
+		// Idle, `←` has nothing to offer: no overview opens and nothing is asked.
 		screen.press('\x1b[D')
+		await screen.waitForRender()
+		expect(screen.viewport().join('\n')).not.toContain('Agents · 2 agents')
+		expect(screen.viewport().join('\n')).not.toContain('Press ← again')
+		// The overview is `main`'s Enter, from the rows.
+		await openCockpit(screen)
 		await waitUntil(
 			screen,
 			() => screen.viewport().join('\n').includes('Agents · 2 agents'),
-			'left did not open the agents',
+			'main did not open the agents',
 		)
 	})
 
-	it('keeps left as cursor movement once anything is typed, and stops advertising it', async () => {
+	it('keeps left as cursor movement once anything is typed, and stops advertising the rows', async () => {
 		activity.set([agent({ viewId: 'agent-typed', description: 'Typed child' })])
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
-		expect(screen.viewport().join('\n')).toContain('← 1 agent · ↓ to manage')
+		expect(screen.viewport().join('\n')).toContain('↓ to manage')
 		screen.press('hi')
 		await screen.waitForRender()
-		expect(screen.viewport().join('\n')).not.toContain('← 1 agent')
 		expect(screen.viewport().join('\n')).not.toContain('↓ to manage')
 		screen.press('\x1b[D')
 		await screen.waitForRender()
@@ -1222,19 +1234,19 @@ describe('the agents cockpit', () => {
 		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
-			() => screen.viewport().join('\n').includes('x to stop'),
+			() => screen.viewport().join('\n').includes('x stop'),
 			'rail not focused',
 		)
 		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
-			() => /^ *❯ (?:\S+ +)?Second child/mu.test(screen.viewport().join('\n')),
+			() => /^ *❯ [●◯] (?:\S+ +)?Second child/mu.test(screen.viewport().join('\n')),
 			'second row not selected',
 		)
 		screen.press('x')
 		await waitUntil(screen, () => stoppedChildren.length === 1, 'x did not stop the agent')
 		expect(stoppedChildren).toEqual(['agent-stop-2'])
-		expect(screen.viewport().join('\n')).toContain('x to stop')
+		expect(screen.viewport().join('\n')).toContain('x stop')
 	})
 
 	it('stops background agents with ctrl+x ctrl+k from the composer: arm, then stop, then say how many', async () => {
@@ -1314,7 +1326,7 @@ describe('the agents cockpit', () => {
 		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
-			() => screen.viewport().join('\n').includes('x to stop'),
+			() => screen.viewport().join('\n').includes('x stop'),
 			'rail not focused',
 		)
 		const frame = screen.viewport().join('\n')
@@ -1401,13 +1413,13 @@ describe('the agents cockpit', () => {
 		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
-			() => screen.viewport().join('\n').includes('x to stop'),
+			() => screen.viewport().join('\n').includes('x stop'),
 			'rail not focused',
 		)
 		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
-			() => screen.viewport().join('\n').includes('x to clear'),
+			() => screen.viewport().join('\n').includes('x clear'),
 			'finished row not selected',
 		)
 		screen.press('x')
@@ -1435,13 +1447,13 @@ describe('the agents cockpit', () => {
 		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
-			() => screen.viewport().join('\n').includes('x to stop'),
+			() => screen.viewport().join('\n').includes('x stop'),
 			'rail not focused',
 		)
 		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
-			() => /^ *❯ (?:\S+ +)?Second child/mu.test(screen.viewport().join('\n')),
+			() => /^ *❯ [●◯] (?:\S+ +)?Second child/mu.test(screen.viewport().join('\n')),
 			'second row not selected',
 		)
 		screen.press('\r')
@@ -1454,7 +1466,7 @@ describe('the agents cockpit', () => {
 		screen.press('\x1b')
 		await waitUntil(
 			screen,
-			() => /^ *❯ (?:\S+ +)?Second child/mu.test(screen.viewport().join('\n')),
+			() => /^ *❯ [●◯] (?:\S+ +)?Second child/mu.test(screen.viewport().join('\n')),
 			'escape did not return to the rail row',
 		)
 	})
@@ -1477,7 +1489,7 @@ describe('the agents cockpit', () => {
 			}
 			await waitUntil(
 				screen,
-				() => /^ *❯ Release audit/mu.test(screen.viewport().join('\n')),
+				() => /^ *❯ ◯ Release audit/mu.test(screen.viewport().join('\n')),
 				'the workflow row did not take the pointer',
 			)
 		}
@@ -1505,7 +1517,7 @@ describe('the agents cockpit', () => {
 			// workflow is the only row, one down from the composer.
 			await focusWorkflow(screen, 1)
 			expect(screen.viewport().join('\n')).not.toMatch(/Step wf-|main/u)
-			expect(screen.viewport().join('\n')).toContain('enter to view · x to stop')
+			expect(screen.viewport().join('\n')).toContain('↑↓ select · enter view · x stop')
 			screen.press('x')
 			await waitUntil(screen, () => stoppedChildren.length === 2, 'x did not stop the workflow')
 			expect([...stoppedChildren].sort()).toEqual(['wf-a', 'wf-c'])
@@ -1532,8 +1544,133 @@ describe('the agents cockpit', () => {
 			screen.press('\x1b')
 			await waitUntil(
 				screen,
-				() => /^ *❯ Release audit/mu.test(screen.viewport().join('\n')),
+				() => /^ *❯ ◯ Release audit/mu.test(screen.viewport().join('\n')),
 				'escape did not return to the workflow row',
+			)
+		})
+
+		it('draws the detail above the message box, with the status line still under it', async () => {
+			activity.set([
+				flow('wf-a', { startedAt: Date.now() - 9_000 }),
+				flow('wf-c', { startedAt: Date.now() - 8_000 }),
+			])
+			const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 40 })
+			mounted = screen
+			await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+			await focusWorkflow(screen, 1)
+			screen.press('\r')
+			await waitUntil(
+				screen,
+				() => /Survey/u.test(screen.viewport().join('\n')),
+				'enter did not open the workflow phases',
+			)
+			const rows = screen.viewport()
+			const at = (pattern: RegExp) => rows.findIndex((row) => pattern.test(row))
+			const rules = rows.flatMap((row, index) => (/^─{20,}$/u.test(row) ? [index] : []))
+			const detail = at(/ Phases /u)
+			// The detail's own rule, then the message box's two rules (the box itself reads `…` while the
+			// detail has the keys), then the status line: the box is not replaced, the line is not hidden.
+			expect(rules.length, rows.join('\n')).toBeGreaterThanOrEqual(3)
+			const [first, boxTop, boxBottom] = [
+				rules[0] as number,
+				rules.at(-2) as number,
+				rules.at(-1) as number,
+			]
+			expect(detail).toBeGreaterThan(first)
+			expect(boxTop).toBeGreaterThan(detail)
+			expect(at(/model/u)).toBeGreaterThan(boxBottom)
+			// The detail is one block of the height the rule gives, never the whole screen, and the
+			// conversation's header stays readable above it.
+			expect(boxTop - first).toBeLessThanOrEqual(workflowDetailHeight(40, false) + 1)
+			expect(first).toBeGreaterThan(2)
+			expect(rows.join('\n')).toContain('Namzu')
+		})
+
+		it('moves with j and k, goes deeper with right and back with left, and closes with left at the top or with space', async () => {
+			activity.set([
+				flow('wf-a', { startedAt: Date.now() - 9_000 }),
+				flow('wf-c', { startedAt: Date.now() - 8_000 }),
+			])
+			const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 40 })
+			mounted = screen
+			await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+			await focusWorkflow(screen, 1)
+			screen.press('\r')
+			await waitUntil(screen, () => / Phases /u.test(screen.viewport().join('\n')), 'not open')
+			// j moves to the second phase, k back.
+			screen.press('j')
+			await waitUntil(
+				screen,
+				() => /❯.*Verify/u.test(screen.viewport().join('\n')),
+				'j did not move down',
+			)
+			screen.press('k')
+			await waitUntil(
+				screen,
+				() => /❯.*Survey/u.test(screen.viewport().join('\n')),
+				'k did not move up',
+			)
+			// Right goes one level deeper, to the phase's agents; left comes back up.
+			screen.press('\x1b[C')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('Survey · 1 agent'),
+				'right did not go deeper',
+			)
+			screen.press('\x1b[D')
+			await waitUntil(
+				screen,
+				() => / Phases /u.test(screen.viewport().join('\n')),
+				'left did not go back',
+			)
+			// Left at the top closes the view and gives the row its keys back.
+			screen.press('\x1b[D')
+			await waitUntil(
+				screen,
+				() => /^ *❯ ◯ Release audit/mu.test(screen.viewport().join('\n')),
+				'left at the top did not close',
+			)
+			expect(screen.viewport().join('\n')).not.toMatch(/ Phases /u)
+			// Space closes it from anywhere.
+			screen.press('\r')
+			await waitUntil(screen, () => / Phases /u.test(screen.viewport().join('\n')), 'not reopened')
+			screen.press(' ')
+			await waitUntil(
+				screen,
+				() => !/ Phases /u.test(screen.viewport().join('\n')),
+				'space did not close',
+			)
+		})
+
+		it('moves between the tasks and the workflows with right and left, and stays on the rows', async () => {
+			activity.set([
+				agent({ viewId: 'plain-a', description: 'Plain child' }),
+				flow('wf-a', { startedAt: Date.now() - 9_000 }),
+			])
+			const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 30 })
+			mounted = screen
+			await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+			screen.press('\x1b[B')
+			await waitUntil(
+				screen,
+				() => /^ *❯ [●◯] (?:\S+ +)?Plain child/mu.test(screen.viewport().join('\n')),
+				'the task row did not take the pointer',
+			)
+			screen.press('\x1b[C')
+			await waitUntil(
+				screen,
+				() => /^ *❯ ◯ Release audit/mu.test(screen.viewport().join('\n')),
+				'right did not reach the workflows',
+			)
+			screen.press('\x1b[C')
+			await screen.waitForRender()
+			expect(screen.viewport().join('\n')).toMatch(/^ *❯ ◯ Release audit/mu)
+			// `←` goes back to the first task, which is `main` while agents are listed.
+			screen.press('\x1b[D')
+			await waitUntil(
+				screen,
+				() => /^ *❯ [●◯] main\b/mu.test(screen.viewport().join('\n')),
+				'left did not go back to the tasks',
 			)
 		})
 
@@ -1631,7 +1768,7 @@ describe('the agents cockpit', () => {
 			mounted = screen
 			await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 			await focusWorkflow(screen, 1)
-			expect(screen.viewport().join('\n')).toContain('enter to view · x to clear')
+			expect(screen.viewport().join('\n')).toContain('↑↓ select · enter view · x clear')
 			screen.press('x')
 			await waitUntil(
 				screen,
@@ -1720,7 +1857,7 @@ describe('the agents cockpit', () => {
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
-		screen.press('\x1b[D')
+		await openCockpit(screen)
 		await waitUntil(
 			screen,
 			() => screen.viewport().join('\n').includes('Phases'),
@@ -1745,7 +1882,7 @@ describe('the agents cockpit', () => {
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 60, rows: 14 })
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
-		screen.press('\x1b[D')
+		await openCockpit(screen)
 		await waitUntil(
 			screen,
 			() => screen.viewport().join('\n').includes('Agents · 1 agent'),
@@ -1780,7 +1917,7 @@ describe('the agents cockpit', () => {
 
 		await submit(screen, 'start parent')
 		await waitUntil(screen, () => railRows(screen).length === 2, 'live child rows missing')
-		screen.press('\x1b[D')
+		await openCockpit(screen)
 		await waitUntil(
 			screen,
 			() => screen.viewport().join('\n').includes('Alpha audit'),
@@ -1810,7 +1947,7 @@ describe('the agents cockpit', () => {
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 
-		screen.press('\x1b[D')
+		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
 			() => screen.viewport().join('\n').includes('Contract critic'),
@@ -1917,7 +2054,7 @@ describe('the agents cockpit', () => {
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 
-		screen.press('\x1b[D')
+		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
 			() => screen.viewport().join('\n').includes('Child session'),
@@ -1951,7 +2088,7 @@ describe('the agents cockpit', () => {
 		})
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
-		screen.press('\x1b[D')
+		screen.press('\x1b[B')
 		await screen.waitForRender()
 		await waitUntil(screen, () => screen.viewport().join('\n').includes('Alpha'), 'picker missing')
 
@@ -1982,7 +2119,7 @@ describe('the agents cockpit', () => {
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 
-		screen.press('\x1b[D')
+		await openCockpit(screen)
 		await screen.waitForRender()
 		await waitUntil(
 			screen,
@@ -2042,14 +2179,13 @@ describe('the agents cockpit', () => {
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 
-		screen.press('\x1b[D')
+		await openCockpit(screen)
 		await screen.waitForRender()
 		await waitUntil(
 			screen,
 			() => screen.viewport().join('\n').includes('Phases'),
 			'phase rail missing',
 		)
-		screen.press('\x1b[D')
 		screen.press('\x1b[B')
 		screen.press('\x1b[C')
 		screen.press('\r')
@@ -2107,7 +2243,7 @@ describe('the agents cockpit', () => {
 			const screen = await renderToScreen(<App ctx={ctx} />, { cols, rows })
 			mounted = screen
 			await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
-			screen.press('\x1b[D')
+			screen.press('\x1b[B')
 			await waitUntil(
 				screen,
 				() => screen.viewport().join('\n').includes('Workflows · 2/2'),
@@ -2179,7 +2315,8 @@ describe('the agents cockpit', () => {
 				() => screen.viewport().join('\n').includes('Type a message'),
 				'composer not restored',
 			)
-			screen.press('\x1b[D')
+			// With no row left on the rail, `↓` from the empty box opens what is retained.
+			screen.press('\x1b[B')
 			await waitUntil(
 				screen,
 				() => screen.viewport().join('\n').includes('Workflows · 2/2'),
@@ -2203,7 +2340,7 @@ describe('the agents cockpit', () => {
 		})
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
-		screen.press('\x1b[D')
+		await openCockpit(screen)
 		await screen.waitForRender()
 		await waitUntil(screen, () => screen.viewport().join('\n').includes('Alpha'), 'cockpit missing')
 
@@ -2234,7 +2371,7 @@ describe('the agents cockpit', () => {
 		})
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
-		screen.press('\x1b[D')
+		await openCockpit(screen)
 		await screen.waitForRender()
 		await waitUntil(
 			screen,
@@ -2298,7 +2435,7 @@ describe('the agents cockpit', () => {
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 		await submit(screen, 'start parent')
-		screen.press('\x1b[D')
+		await openCockpit(screen)
 		await screen.waitForRender()
 		screen.press('\r')
 		await waitUntil(
@@ -2415,7 +2552,7 @@ describe('the agents cockpit', () => {
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 
 		await submit(screen, 'start parent')
-		screen.press('\x1b[D')
+		screen.press('\x1b[B')
 		await screen.waitForRender()
 		screen.press('\r')
 		await waitUntil(
@@ -3426,7 +3563,7 @@ describe('render order below the message frame', () => {
 		)
 		const viewport = screen.viewport()
 		const border = frameBottomBorder(screen)
-		expect(viewport[border + 1]).toContain('← 1 agent · 1 workflow · ↓ to manage')
+		expect(viewport[border + 1]).toContain('↓ to manage')
 		// Under the footer, not the transcript/composer: one blank row, then the
 		// `main` row, then one row per agent.
 		expect((viewport[border + 2] ?? '').trim()).toBe('')
@@ -3464,9 +3601,11 @@ function railRows(screen: Screen): string[] {
 	// Rows start in the first column now, like the composer's prompt and a notice's dot,
 	// so the rail is the rows under its `main` row.
 	const rows = screen.viewport()
-	const main = rows.findIndex((row) => /^[●◯❯] main\b/u.test(row))
+	const main = rows.findIndex((row) => /^(?:❯ | {2})[●◯] main\b/u.test(row))
 	if (main < 0) return []
-	return rows.slice(main + 1).filter((row) => /^[●◯❯] \S/u.test(row) && !/[▰▱]/u.test(row))
+	return rows
+		.slice(main + 1)
+		.filter((row) => /^(?:❯ | {2})[●◯] \S/u.test(row) && !/[▰▱]/u.test(row))
 }
 
 describe('parent narration', () => {
@@ -3495,7 +3634,10 @@ describe('parent narration', () => {
 		expect(top, 'rail header not on screen').toBeGreaterThan(below)
 		// The `main` row, then every agent row and the `↓ N more` line, if any.
 		let bottom = top
-		while (bottom + 1 < rows.length && /^[●◯❯] \S|^↓ \d+ more$/u.test(rows[bottom + 1] ?? ''))
+		while (
+			bottom + 1 < rows.length &&
+			/^(?:❯ | {2})[●◯] \S|^↓ \d+ more$/u.test(rows[bottom + 1] ?? '')
+		)
 			bottom += 1
 		return rows.slice(top, bottom + 1)
 	}
@@ -3535,7 +3677,7 @@ describe('parent narration', () => {
 		// The footer stays directly under the frame; narration follows it, and
 		// the rail's header follows the narration — commentary above the tree,
 		// never inside it and never between the frame and its footer.
-		expect(viewport[border + 1]).toContain('← 2 agents · ↓ to manage')
+		expect(viewport[border + 1]).toContain('↓ to manage')
 		expect(viewport[border + 2]).toContain('map returned five lenses')
 		expect(viewport[border + 3]).toContain('verifying the storage claim')
 		expect((viewport[border + 4] ?? '').trim()).toBe('')
@@ -3637,7 +3779,7 @@ describe('parent narration', () => {
 		expect(railBlock(screen)).toEqual(quiet)
 		const viewport = screen.viewport()
 		const border = frameBottom(screen)
-		expect(viewport[border + 1]).toContain('← 2 agents · ↓ to manage')
+		expect(viewport[border + 1]).toContain('↓ to manage')
 		expect(viewport[border + 2]).toContain('map returned five lenses')
 		expect(viewport[border + 3]).toContain('verifying the storage claim')
 		expect((viewport[border + 4] ?? '').trim()).toBe('')
@@ -3842,11 +3984,11 @@ describe('viewing an agent', () => {
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 		screen.press('\x1b[B')
-		await waitUntil(screen, () => screen.viewport().join('\n').includes('enter to view'), 'no rail')
+		await waitUntil(screen, () => screen.viewport().join('\n').includes('enter view'), 'no rail')
 		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
-			() => /^ *❯ a-very-long-agent-name/mu.test(screen.viewport().join('\n')),
+			() => /^ *❯ [●◯] a-very-long-agent-name/mu.test(screen.viewport().join('\n')),
 			'second row not selected',
 		)
 		screen.press('\r')
@@ -4057,14 +4199,14 @@ describe('viewing an agent', () => {
 		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
-			() => screen.viewport().join('\n').includes('↑/↓ to select'),
+			() => screen.viewport().join('\n').includes('↑↓ select'),
 			'rail not focused from the view',
 		)
 		screen.press('\x1b[A')
 		screen.press('\x1b[A')
 		await waitUntil(
 			screen,
-			() => /^ *❯ main/mu.test(screen.viewport().join('\n')),
+			() => /^ *❯ [●◯] main/mu.test(screen.viewport().join('\n')),
 			'main row not selected',
 		)
 		screen.press('\r')
@@ -4478,7 +4620,7 @@ describe('Up and Down between the box and the task rows', () => {
 		}
 	}
 	const text = (screen: Screen) => screen.viewport().join('\n')
-	const railLive = (screen: Screen) => text(screen).includes('enter to view')
+	const railLive = (screen: Screen) => text(screen).includes('enter view')
 
 	async function mount(): Promise<Screen> {
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
@@ -4497,9 +4639,9 @@ describe('Up and Down between the box and the task rows', () => {
 		twoRows()
 		const screen = await mount()
 		screen.press('\x1b[B')
-		await until(screen, () => /^ *❯ (?:\S+ +)?First child/mu.test(text(screen)))
+		await until(screen, () => /^ *❯ [●◯] (?:\S+ +)?First child/mu.test(text(screen)))
 		screen.press('\x1b[A')
-		await until(screen, () => /^ *❯ main/mu.test(text(screen)))
+		await until(screen, () => /^ *❯ [●◯] main/mu.test(text(screen)))
 		screen.press('\x1b[A')
 		await until(screen, () => !railLive(screen))
 		expect(text(screen)).toContain('Type a message')
@@ -4512,13 +4654,13 @@ describe('Up and Down between the box and the task rows', () => {
 		twoRows()
 		const screen = await mount()
 		screen.press('\x1b[B')
-		await until(screen, () => /^ *❯ (?:\S+ +)?First child/mu.test(text(screen)))
+		await until(screen, () => /^ *❯ [●◯] (?:\S+ +)?First child/mu.test(text(screen)))
 		screen.press('\x0e')
-		await until(screen, () => /^ *❯ (?:\S+ +)?Second child/mu.test(text(screen)))
+		await until(screen, () => /^ *❯ [●◯] (?:\S+ +)?Second child/mu.test(text(screen)))
 		screen.press('\x10')
-		await until(screen, () => /^ *❯ (?:\S+ +)?First child/mu.test(text(screen)))
+		await until(screen, () => /^ *❯ [●◯] (?:\S+ +)?First child/mu.test(text(screen)))
 		screen.press('\x10')
-		await until(screen, () => /^ *❯ main/mu.test(text(screen)))
+		await until(screen, () => /^ *❯ [●◯] main/mu.test(text(screen)))
 		screen.press('\x10')
 		await until(screen, () => !railLive(screen))
 	})
@@ -4530,7 +4672,7 @@ describe('Up and Down between the box and the task rows', () => {
 		])
 		const screen = await mount()
 		screen.press('\x1b[B')
-		await until(screen, () => /^ *❯ Release audit/mu.test(text(screen)))
+		await until(screen, () => /^ *❯ ◯ Release audit/mu.test(text(screen)))
 		screen.press('\x1b[A')
 		await until(screen, () => !railLive(screen))
 		expect(text(screen)).toContain('Type a message')
@@ -4542,7 +4684,7 @@ describe('Up and Down between the box and the task rows', () => {
 		screen.press('half a thought')
 		await until(screen, () => text(screen).includes('half a thought'))
 		screen.press('\x1b[B')
-		await until(screen, () => /^ *❯ (?:\S+ +)?First child/mu.test(text(screen)))
+		await until(screen, () => /^ *❯ [●◯] (?:\S+ +)?First child/mu.test(text(screen)))
 		expect(text(screen)).toContain('half a thought')
 		screen.press('\x1b[A')
 		screen.press('\x1b[A')

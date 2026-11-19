@@ -1,5 +1,5 @@
-import { Box, Text } from 'ink'
-import { Fragment, type ReactNode, useEffect, useState } from 'react'
+import { Box, type DOMElement, Text } from 'ink'
+import { Fragment, type ReactNode, useContext, useEffect, useRef, useState } from 'react'
 import stringWidth from 'string-width'
 
 import {
@@ -23,6 +23,8 @@ import {
 } from '../integrations/workflows/view.js'
 import { agentUsageText, wroteBy, wroteOf, wroteRailText } from './agent-tokens.js'
 import { fitHints } from './key-hints.js'
+import { PointerRegionsContext } from './pointer/context.js'
+import { elementRect } from './pointer/regions.js'
 import { selectionWindow } from './selection-window.js'
 import { END_WORDS, endWord } from './system-rows.js'
 import { truncateChoiceText } from './terminal-choice-text.js'
@@ -72,16 +74,25 @@ const PHASE_DETAIL_LINE_BUDGET = 3
 export const REPLAYED_TRANSCRIPT_NOTICE =
 	'Replayed from the saved record. This agent has finished and cannot be continued.'
 /**
- * Rows outside the cockpit's own box: the one-line brand header, printed once
- * above it, and the one-line composer footer, which now renders directly
- * above the cockpit rather than below it (see StatusBar.tsx). The total is
- * unchanged by that reordering — both rows still sit outside this box exactly
- * once — so a box shorter than `terminalRows` minus this still leaves an
- * unclaimed row that does not belong to anything, and an unclaimed row does
- * not stay blank: it shows whatever transcript history was next in line to
- * scroll off.
+ * Rows outside the workflow list's own box when it is drawn without a height of its own: the
+ * one-line brand header, printed once above it, and the one-line composer footer.
  */
 const COCKPIT_CHROME_ROWS = 2
+
+/** Rows the detail's own furniture takes besides its two lists: rule, title, description, a blank row, the list borders, the key line and the gap above. */
+const DETAIL_CHROME_ROWS = 8
+
+/**
+ * The height of the workflow detail drawn above the message box, in rows of a terminal that is
+ * `rows` tall: half of it in the full screen view, else `max(12, rows - 9)` so the message box
+ * and the status line stay under it. Never less than 12 rows (8 on a terminal under 18 rows)
+ * and never the whole screen, so the conversation above it stays readable.
+ */
+export function workflowDetailHeight(rows: number, fullscreen: boolean): number {
+	const wanted = fullscreen ? Math.floor(rows / 2) : Math.max(12, rows - 9)
+	const least = rows < 18 ? 8 : 12
+	return Math.max(least, Math.min(wanted, Math.max(least, rows - 1)))
+}
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 
 export interface AgentNarrationBandProps {
@@ -116,9 +127,9 @@ export interface AgentNarrationBandProps {
 export function AgentNarrationBand({ lines }: AgentNarrationBandProps) {
 	if (lines.length === 0) return null
 	return (
-		// paddingLeft 2 lands the text where the rail's `main` label starts,
-		// past its bullet cell, so the two columns line up.
-		<Box flexDirection="column" paddingLeft={2} paddingRight={4}>
+		// paddingLeft 4 lands the text where the rail's `main` label starts,
+		// past its pointer and bullet cells, so the two columns line up.
+		<Box flexDirection="column" paddingLeft={4} paddingRight={4}>
 			{lines.map((line) => (
 				<Box key={line.id}>
 					<Text color={theme.text.muted} wrap="truncate-end">
@@ -611,8 +622,8 @@ export function workflowRowVariants(
 	return sharedVariants([workflowFacts(workflow, now)]).map((tier) => tier[0] as WorkflowRowVariant)
 }
 
-/** Cells of the bullet column in front of every rail row. */
-const RAIL_PREFIX_CELLS = 2
+/** Cells in front of every rail row: the pointer column (`❯ ` on the row the keys are on), then the glyph column. */
+const RAIL_PREFIX_CELLS = 4
 /** Gap between the name and the bar. */
 const WORKFLOW_ROW_GAP = 2
 
@@ -695,6 +706,46 @@ export interface AgentTaskPanelProps {
 	readonly viewingId?: string | null
 	/** Clock for tests; the panel otherwise ticks once a second. */
 	readonly now?: number
+	/**
+	 * A click on a row, by its id (`main`, an agent's `viewId`, a workflow's `focusId`): where the
+	 * pointer is reported, each row is a click region that opens what Enter on it would, and is
+	 * drawn as selected while the pointer is on it. Absent, the rows answer no pointer.
+	 */
+	readonly onActivateRow?: (id: string) => void
+}
+
+/** One row of the panel as a click region; draws nothing of its own. */
+function RailRowBox({
+	id,
+	onActivate,
+	onHover,
+	children,
+}: {
+	readonly id: string
+	readonly onActivate: ((id: string) => void) | undefined
+	readonly onHover: (id: string, on: boolean) => void
+	readonly children: ReactNode
+}) {
+	const regions = useContext(PointerRegionsContext)
+	const ref = useRef<DOMElement>(null)
+	const activate = useRef(onActivate)
+	activate.current = onActivate
+	const hover = useRef(onHover)
+	hover.current = onHover
+	const clickable = onActivate !== undefined
+	useEffect(() => {
+		if (!regions || !clickable) return undefined
+		const off = regions.register({
+			rect: () => elementRect(ref.current),
+			onClick: () => activate.current?.(id),
+			onHover: (on) => hover.current(id, on),
+		})
+		return () => {
+			off()
+			hover.current(id, false)
+		}
+	}, [regions, clickable, id])
+	return <Box ref={ref}>{children}</Box>
 }
 
 /** What an agent row says in its description column: what it was asked to do. */
@@ -749,11 +800,16 @@ export function AgentTaskPanel({
 	selectedIndex,
 	viewingId,
 	now: nowOverride,
+	onActivateRow,
 }: AgentTaskPanelProps) {
 	const ticked = useLiveNow(nowOverride === undefined)
+	const [hoveredId, setHoveredId] = useState<string | null>(null)
+	const hoverRow = (id: string, on: boolean) =>
+		setHoveredId((now) => (on ? id : now === id ? null : now))
 	const now = nowOverride ?? ticked
 	const focused = selectedIndex !== undefined
 	const mainViewed = viewingId === undefined || viewingId === null
+	const mainRowBright = mainViewed || (focused && selectedIndex === 0) || hoveredId === 'main'
 	const narrow = terminalColumns < 64
 	const hasMain = railShowsMain(agents.length, viewingId, compact)
 	// Rows before the first agent: 1 with `main` drawn, else 0.
@@ -813,22 +869,19 @@ export function AgentTaskPanel({
 		// keeps them off the right edge.
 		<Box flexDirection="column" marginTop={1} marginRight={-1} paddingRight={2}>
 			{hasMain ? (
-				<Box>
+				<RailRowBox id="main" onActivate={onActivateRow} onHover={hoverRow}>
 					<Box width={2} flexShrink={0}>
-						<Text
-							bold={mainViewed || (focused && selectedIndex === 0)}
-							color={theme.text.primary}
-							dimColor={!mainViewed && !(focused && selectedIndex === 0)}
-						>
-							{focused && selectedIndex === 0 ? '❯' : mainViewed ? '●' : '◯'}
+						<Text bold color={theme.text.primary}>
+							{focused && selectedIndex === 0 ? '❯ ' : '  '}
+						</Text>
+					</Box>
+					<Box width={2} flexShrink={0}>
+						<Text bold={mainRowBright} color={theme.text.primary} dimColor={!mainRowBright}>
+							{mainViewed ? '●' : '◯'}
 						</Text>
 					</Box>
 					<Box flexGrow={1} flexShrink={1} minWidth={0}>
-						<Text
-							bold={mainViewed || (focused && selectedIndex === 0)}
-							dimColor={!mainViewed && !(focused && selectedIndex === 0)}
-							color={theme.text.primary}
-						>
+						<Text bold={mainRowBright} dimColor={!mainRowBright} color={theme.text.primary}>
 							main
 						</Text>
 					</Box>
@@ -837,7 +890,7 @@ export function AgentTaskPanel({
 							<Text color={theme.text.muted}>{mainRight}</Text>
 						</Box>
 					) : null}
-				</Box>
+				</RailRowBox>
 			) : null}
 			{compact
 				? null
@@ -847,16 +900,26 @@ export function AgentTaskPanel({
 						const viewed = viewingId === agent.viewId
 						const finished = isTerminalStatus(agent.status)
 						const status = railStatusBlock(agent, now, narrow)
-						const bright = viewed || selected
+						const bright = viewed || selected || hoveredId === agent.viewId
 						return (
-							<Box key={agent.viewId}>
+							<RailRowBox
+								key={agent.viewId}
+								id={agent.viewId}
+								onActivate={onActivateRow}
+								onHover={hoverRow}
+							>
+								<Box width={2} flexShrink={0}>
+									<Text bold color={theme.text.primary}>
+										{selected ? '❯ ' : '  '}
+									</Text>
+								</Box>
 								<Box width={2} flexShrink={0}>
 									<Text
-										bold={viewed || selected}
+										bold={bright}
 										color={railBulletColor(agent.status) ?? theme.text.primary}
 										dimColor={!bright && railBulletColor(agent.status) === undefined}
 									>
-										{selected ? '❯' : viewed ? '●' : '◯'}
+										{viewed ? '●' : '◯'}
 									</Text>
 								</Box>
 								<Box width={nameWidth} flexShrink={0}>
@@ -887,7 +950,7 @@ export function AgentTaskPanel({
 										) : null}
 									</Text>
 								</Box>
-							</Box>
+							</RailRowBox>
 						)
 					})}
 			{!compact && below > 0 ? (
@@ -907,35 +970,46 @@ export function AgentTaskPanel({
 							offset
 						] as WorkflowRowLayout
 						const [filled, empty] = railProgressBar(workflow.done, workflow.total, variant.barWidth)
+						const bright = selected || hoveredId === workflow.focusId
 						return (
-							<Box key={workflow.focusId}>
+							<RailRowBox
+								key={workflow.focusId}
+								id={workflow.focusId}
+								onActivate={onActivateRow}
+								onHover={hoverRow}
+							>
+								<Box width={2} flexShrink={0}>
+									<Text bold color={theme.text.primary}>
+										{selected ? '❯ ' : '  '}
+									</Text>
+								</Box>
 								<Box width={2} flexShrink={0}>
 									<Text
-										bold={selected}
+										bold={bright}
 										color={railWorkflowBulletColor(workflow) ?? theme.text.primary}
-										dimColor={!selected && railWorkflowBulletColor(workflow) === undefined}
+										dimColor={!bright && railWorkflowBulletColor(workflow) === undefined}
 									>
-										{selected ? '❯' : '◯'}
+										◯
 									</Text>
 								</Box>
 								<Box width={workflowNameWidth} flexShrink={0}>
 									<Text
-										bold={selected}
+										bold={bright}
 										color={theme.text.primary}
-										dimColor={!selected}
+										dimColor={!bright}
 										wrap="truncate-end"
 									>
 										{terminalDisplayText(oneLine(workflow.name))}
 									</Text>
 								</Box>
 								<Box flexShrink={0} paddingLeft={WORKFLOW_ROW_GAP}>
-									<Text bold={selected} color={theme.text.primary} dimColor={!selected}>
+									<Text bold={bright} color={theme.text.primary} dimColor={!bright}>
 										{filled}
 										<Text dimColor>{empty}</Text>
 										{variant.text ? `  ${variant.text}` : ''}
 									</Text>
 								</Box>
-							</Box>
+							</RailRowBox>
 						)
 					})}
 		</Box>
@@ -1033,10 +1107,10 @@ const RAIL_HINT_CHORD_COLUMNS = 90
  * mode line while the rail has the keyboard (the rows stay where they are),
  * and says only what the row can do:
  *
- * - an agent or workflow row: `enter to view · x to stop` (`x to clear` once
- *   it has finished), plus `ctrl+x ctrl+k to stop all agents` when more than
+ * - an agent or workflow row: `↑↓ select · enter view · x stop` (`x clear` once
+ *   it has finished), plus `ctrl+x ctrl+k stop all agents` when more than
  *   one agent runs and the line is at least 90 columns wide;
- * - `main`, or nothing selected: `↑/↓ to select · enter to view`.
+ * - `main`, or nothing selected: `↑↓ select · enter view`.
  *
  * Esc leaves the rail but is not advertised here.
  */
@@ -1046,14 +1120,14 @@ export function railHint(
 	runningAgents = 0,
 	viewedId?: string,
 ): string {
-	if (!selected) return '↑/↓ to select · enter to view'
+	if (!selected) return '↑↓ select · enter view'
 	// The row on screen already is the view: only moving off it is left to say.
 	if (viewedId !== undefined && !('focusId' in selected) && selected.viewId === viewedId)
-		return '↑/↓ to select'
+		return '↑↓ select'
 	const action = 'focusId' in selected ? railWorkflowActionFor(selected) : railActionFor(selected)
-	const items = ['enter to view', `x to ${action}`]
+	const items = ['↑↓ select', 'enter view', `x ${action}`]
 	if (runningAgents > 1 && columns >= RAIL_HINT_CHORD_COLUMNS)
-		items.push(`${RAIL_STOP_ALL_CHORD} to stop all agents`)
+		items.push(`${RAIL_STOP_ALL_CHORD} stop all agents`)
 	return items.join(' · ')
 }
 
@@ -1097,6 +1171,8 @@ export interface AgentCockpitProps {
 	readonly focus: AgentCockpitFocus
 	readonly terminalRows: number
 	readonly terminalColumns: number
+	/** Rows this view may take (see {@link workflowDetailHeight}); absent, it sizes itself from the terminal. */
+	readonly height?: number
 }
 
 /**
@@ -1111,6 +1187,7 @@ export function AgentCockpit({
 	focus,
 	terminalRows,
 	terminalColumns,
+	height,
 }: AgentCockpitProps) {
 	const workflows = agentWorkflows(agents, runs)
 	const workflowIndex = Math.max(
@@ -1138,7 +1215,7 @@ export function AgentCockpit({
 		return (
 			<Box
 				flexDirection="column"
-				height={Math.max(8, terminalRows - COCKPIT_CHROME_ROWS)}
+				height={height ?? Math.max(8, terminalRows - COCKPIT_CHROME_ROWS)}
 				borderStyle="single"
 				borderColor={theme.border.default}
 				paddingX={1}
@@ -1205,6 +1282,7 @@ export function AgentCockpit({
 			level={focus === 'agents' ? 2 : 1}
 			terminalRows={terminalRows}
 			terminalColumns={terminalColumns}
+			{...(height !== undefined ? { height } : {})}
 			now={now}
 		/>
 	)
@@ -1319,6 +1397,8 @@ interface WorkflowDetailProps {
 	readonly level: 1 | 2
 	readonly terminalRows: number
 	readonly terminalColumns: number
+	/** Rows the whole detail may take; absent, the lists take what the terminal's height allows. */
+	readonly height?: number
 	readonly now: number
 }
 
@@ -1429,10 +1509,19 @@ export function WorkflowDetail({
 	level,
 	terminalRows,
 	terminalColumns,
+	height,
 	now,
 }: WorkflowDetailProps) {
 	const columns = Math.max(20, terminalColumns)
-	const pageSize = workflowDetailPageSize(terminalRows)
+	// The script's last log() line sits under the header; a short detail has fewer of them.
+	const logLines =
+		height === undefined
+			? detailLogLineCount(terminalRows)
+			: Math.min(detailLogLineCount(terminalRows), Math.max(0, height - 12))
+	const pageSize =
+		height === undefined
+			? workflowDetailPageSize(terminalRows)
+			: Math.max(2, height - DETAIL_CHROME_ROWS - logLines)
 	const phase = phases[selectedPhaseIndex]
 	const isRun = workflow.runId !== undefined
 	// Only an agent that completed counts as done; a failed or stopped one does not.
@@ -1466,14 +1555,17 @@ export function WorkflowDetail({
 		level === 1
 			? [
 					{ text: '↑↓ select', rank: 4 },
+					{ text: 'enter open', rank: 3 },
 					...(canStop ? [{ text: 'x stop workflow', rank: 2 }] : []),
 					{ text: 'esc back', rank: 5 },
+					{ text: 'space close', rank: 1 },
 				]
 			: [
 					{ text: '↑↓ select', rank: 4 },
 					{ text: 'enter view', rank: 3 },
 					...(canStop ? [{ text: `x ${isRun ? 'skip' : 'stop'}`, rank: 2 }] : []),
 					{ text: 'esc back', rank: 5 },
+					{ text: 'space close', rank: 1 },
 				],
 		Math.max(1, columns - 2),
 	)
@@ -1534,10 +1626,8 @@ export function WorkflowDetail({
 	const rightInner = boxWidth - 3 - leftInner
 	const sideBySide = columns >= DETAIL_WIDE_COLUMNS && rightInner >= 24
 
-	// The script's last log() line sits under the header, the two before it dim.
-	// `slice(-0)` is the whole array, so a terminal too short for any line must
-	// ask for none instead of for a count of zero.
-	const logLines = detailLogLineCount(terminalRows)
+	// The two lines before the last one are dim. `slice(-0)` is the whole array, so a
+	// terminal too short for any line must ask for none instead of for a count of zero.
 	const recentLogs = (logLines === 0 ? [] : (workflow.logs ?? []).slice(-logLines)).map((line) =>
 		terminalDisplayText(oneLine(line)),
 	)
