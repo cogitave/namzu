@@ -5294,6 +5294,7 @@ ACP methods and are not automatically installed in embedded SDK servers.
 | `namzu/plugins/set_enabled` | `sessionId`, `name`, `enabled` | changes one loaded plugin in an idle conversation and returns its inventory |
 | `namzu/turns/undo-status`, `namzu/turns/undo-preview`, `namzu/turns/undo` | see [Turn undo](turn-undo.md#acp-methods) | per-reply file undo, used by [Undoing a reply](#undoing-a-reply) |
 | `namzu/session/context` | `sessionId`, optional `detail` (`summary` or `full`) | where the conversation's context window goes: the [context panel](#context-panel)'s answer, or `null` before the engine has reported a window. Optional group `contextPanel` |
+| `namzu/session/set-permission-mode` | `sessionId`, `mode` | sets the mode of the reply running now, so its next call is decided under it, and records the change; `{ mode, applied: 'now' }`, or `applied: 'next-message'` when no reply runs. Refused with the reason when the settings close the mode. See [changing the mode while Namzu is working](permission-modes.md#changing-the-mode-while-namzu-is-working). Optional group `livePermissionMode` |
 | `namzu/jobs/list` | `sessionId` | this session's jobs |
 | `namzu/jobs/read` | `sessionId`, `jobId` | retained chunk, offsets and dropped-byte count |
 | `namzu/jobs/stop` | `sessionId`, `jobId` | stopped job |

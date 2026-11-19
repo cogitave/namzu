@@ -2,6 +2,7 @@
 
 ## 2026-11-19
 
+- **Update** [Permission modes](cli/permission-modes.md#changing-the-mode-while-namzu-is-working): a mode chosen while a reply is running or a card is open now reaches that turn at once (`namzu/session/set-permission-mode`), approves an open card Full access would never have shown, carries the messages waiting in the queue, and is not shown when the engine refuses it, with the reason. Before, only the next message used it, so Ask first then Full access kept asking. `.changeset/cli-live-permission-mode.md`, `.changeset/desktop-live-permission-mode.md`. The method is in the [Desktop](cli/desktop.md) request table.
 - **Update** `cli/desktop.md`: the working line shows one clock while the first step is the whole turn, instead of the same seconds twice.
 
 - **Update** [Desktop](cli/desktop.md#while-a-reply-is-running): waiting messages are drawn in a Pal conversation too (they were missing there, so a message sent to a Pal while it replied had no Send now, Edit or Remove and no Paused line). `.changeset/desktop-waiting-messages-in-pal.md`.

@@ -80,6 +80,7 @@ import type { CliPalInboxStarter } from '../pals/inbox-start.js'
 import { palPublicAssistantText } from '../pals/public-transcript.js'
 import { createPal, deletePal, getPal, listPals, palAtWorkspace, updatePal } from '../pals/store.js'
 import { canonicalProjectPath } from '../permissions/canonical-project.js'
+import { isPermissionMode } from '../permissions/mode.js'
 import type { CliHarnessRuntime } from './acp-harness.js'
 import type { CliAcpRuntime } from './acp.js'
 /** Scoped operator methods; ACP owns prompts, cancellation and review. */
@@ -2031,6 +2032,24 @@ export function createDesktopHostExtensions(
 				}
 			})
 		},
+		/**
+		 * The mode of the conversation's running turn, changed now: the next call it makes is
+		 * decided under the new mode. A mode the settings close is refused with its reason.
+		 */
+		...(runtime.setPermissionMode
+			? {
+					'namzu/session/set-permission-mode': async (params: Record<string, unknown>) => {
+						if (Object.keys(params).some((key) => !['sessionId', 'mode'].includes(key)))
+							throw new Error('Setting the mode accepts only sessionId and mode.')
+						const mode = text(params, 'mode')
+						if (!isPermissionMode(mode)) throw new Error('Invalid permission mode.')
+						return (runtime.setPermissionMode as NonNullable<CliAcpRuntime['setPermissionMode']>)(
+							await ownedSession(params),
+							mode,
+						)
+					},
+				}
+			: {}),
 		'namzu/jobs/list': async (params: Record<string, unknown>) =>
 			runtime.jobs(await ownedReadSession(params)),
 		'namzu/jobs/read': async (params: Record<string, unknown>) =>
