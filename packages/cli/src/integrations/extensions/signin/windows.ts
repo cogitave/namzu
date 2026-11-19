@@ -119,28 +119,59 @@ const unxml = (s: string): string =>
 		.replace(/&gt;/g, '>')
 		.replace(/&amp;/g, '&')
 
-/** Paths on Windows ignore case, and a stray space around a value is not a different command. */
-const sameCommand = (a: string, b: string): boolean =>
-	a.trim().toLowerCase() === b.trim().toLowerCase()
+/**
+ * What decides whether the entry opens a console window: the program it starts and the script it hands
+ * that program, by file name. Full paths are not compared: `schtasks` and `reg` print in the console's
+ * code page, so a profile folder with letters outside ASCII would never read back equal and the entry
+ * would be registered again on every check. A moved folder changes the launcher files, which already
+ * registers the entry again.
+ */
+interface EntryParts {
+	readonly program: string
+	readonly script: string
+}
+
+const fileName = (path: string): string =>
+	(path.trim().replace(/^"|"$/g, '').split(/[\\/]/).pop() ?? '').toLowerCase()
+
+/** The last quoted value of an argument string, or its last word. */
+const lastValue = (args: string): string =>
+	/"([^"]*)"\s*$/.exec(args)?.[1] ?? args.trim().split(/\s+/).pop() ?? ''
+
+/** A whole command line: its first value (quoted or not) is the program. */
+function lineParts(line: string): EntryParts {
+	const text = line.trim()
+	const program = text.startsWith('"')
+		? (/^"([^"]*)"/.exec(text)?.[1] ?? '')
+		: (text.split(/\s+/)[0] ?? '')
+	return { program: fileName(program), script: fileName(lastValue(text)) }
+}
+
+const sameParts = (a: EntryParts, b: EntryParts): boolean =>
+	a.program === b.program && a.script === b.script
 
 /**
- * Whether a task, as `schtasks /Query /XML` prints it, runs a command other than the one this spec
- * wants. `undefined` when the XML has no command to read, so an unreadable answer never loops a repair.
+ * Whether a task, as `schtasks /Query /XML` prints it, runs a program or script other than the one this
+ * spec wants. `undefined` when the XML has no command to read, so an unreadable answer never loops a repair.
  */
 export function taskIsStale(queried: string, spec: SigninSpec): boolean | undefined {
 	const exec = /<Exec>([\s\S]*?)<\/Exec>/i.exec(queried)?.[1]
 	const command = exec && /<Command>([\s\S]*?)<\/Command>/i.exec(exec)?.[1]
-	if (command === undefined || command === '') return undefined
+	if (command === undefined || command.trim() === '') return undefined
 	const args = /<Arguments>([\s\S]*?)<\/Arguments>/i.exec(exec as string)?.[1] ?? ''
+	const parts = (c: string, a: string): EntryParts => ({
+		program: fileName(c),
+		script: fileName(a.trim() ? lastValue(a) : c),
+	})
 	const want = entryCommand(spec)
-	return !(sameCommand(unxml(command), want.command) && sameCommand(unxml(args), want.args ?? ''))
+	return !sameParts(parts(unxml(command), unxml(args)), parts(want.command, want.args ?? ''))
 }
 
-/** Whether the Run value, as `reg query` prints it, holds a command other than the one this spec wants. */
+/** Whether the Run value, as `reg query` prints it, starts a program or script other than this spec's. */
 export function runIsStale(queried: string, spec: SigninSpec): boolean | undefined {
 	const data = new RegExp(`${RUN_VALUE}\\s+REG_(?:EXPAND_)?SZ\\s+(.*)$`, 'm').exec(queried)?.[1]
-	if (data === undefined) return undefined
-	return !sameCommand(data, runValue(spec.launcher, spec.hiddenLauncher))
+	if (data === undefined || data.trim() === '') return undefined
+	return !sameParts(lineParts(data), lineParts(runValue(spec.launcher, spec.hiddenLauncher)))
 }
 
 /** StartupApproved holds a binary value: first byte 02 or 06 is enabled, 03 (or 07) is switched off. */

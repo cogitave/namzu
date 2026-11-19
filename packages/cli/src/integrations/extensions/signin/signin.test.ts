@@ -23,6 +23,7 @@ import {
 	addRunArgs,
 	approvedDisabled,
 	createTaskArgs,
+	runIsStale,
 	taskIsStale,
 	taskXml,
 	utf16Bom,
@@ -296,6 +297,15 @@ describe('Windows: command lines, checked without running anything', () => {
 			kind: 'task',
 		})
 		expect(taskIsStale('<Task><Settings/></Task>', spec)).toBeUndefined()
+		// schtasks and reg print in the console code page, so a profile folder outside ASCII reads back
+		// mangled: the program and the script it is handed still match, and nothing is registered again.
+		const turkish = {
+			launcher: 'C:\\Users\\Ayşe\\r\\start.cmd',
+			hiddenLauncher: 'C:\\Users\\Ayşe\\r\\start.vbs',
+		}
+		const mangled = taskXml(turkish, 'PC\\me').replace(/Ayşe/g, 'Ay\uFFFDe')
+		expect(taskIsStale(mangled, turkish)).toBe(false)
+		expect(taskIsStale(earlier.replace('C:\\r', 'C:\\Users\\Ay\uFFFDe\\r'), turkish)).toBe(true)
 		const runEarlier = mk(
 			{ 'schtasks /Query': 1 },
 			{ 'reg query': `    ${RUN_VALUE}    REG_SZ    "C:\\r\\start.cmd"\r\n` },
@@ -308,6 +318,12 @@ describe('Windows: command lines, checked without running anything', () => {
 			},
 		)
 		expect(await runCurrent.status(spec)).toEqual({ registered: true, kind: 'run' })
+		expect(
+			runIsStale(
+				`${RUN_VALUE}    REG_SZ    wscript.exe //B //Nologo "C:\\Users\\Ay\uFFFDe\\r\\start.vbs"`,
+				turkish,
+			),
+		).toBe(false)
 	})
 })
 
