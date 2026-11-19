@@ -116,7 +116,7 @@ describe('namzu extension: the administrator password', () => {
 		// a wrong try makes the next wait: the right one is not looked at yet
 		stdin = `${PW}\n`
 		expect(await run('disable', ID, '--admin-password-stdin')).toBe(1)
-		expect(err.join('\n')).toMatch(/Wait \d+ seconds/)
+		expect(err.join('\n')).toMatch(/Wait \d+ seconds?/)
 	})
 	it('--json refusals carry the code and the hint', async () => {
 		stdin = `${PW}\n`
