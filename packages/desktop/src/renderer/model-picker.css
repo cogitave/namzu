@@ -41,6 +41,7 @@
 /* One width per engine for both views, so switching between them only changes the height. */
 .model-picker-popup {
 	width: fit-content;
+	min-width: 224px;
 	max-width: min(400px, var(--available-width), calc(100vw - 16px));
 	max-height: var(--available-height);
 	border-radius: var(--menu-radius);
@@ -662,6 +663,15 @@
 	inset-inline: var(--menu-separator-inset);
 	height: 1px;
 	background: var(--border);
+}
+.model-picker-more > span:first-child {
+	/* The words after "More" are cut short instead of setting the menu's width. */
+	flex: 1 1 0;
+	min-width: 0;
+	overflow: hidden;
+	contain: inline-size;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 .model-picker-more small {
 	font-size: var(--text-interface);

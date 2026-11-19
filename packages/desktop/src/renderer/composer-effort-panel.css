@@ -242,7 +242,8 @@
 /* Under the model list the control is a quiet row: its name, the level in force, then the slider. */
 .composer-effort-panel[data-variant="inline"] {
 	gap: 6px;
-	padding: 8px 12px 6px;
+	/* The panel's own 10 px inset plus the menu's 5 puts its words and its switch on the rows' columns. */
+	padding: 8px var(--menu-padding) 6px;
 	border-top: 1px solid var(--border);
 }
 .composer-effort-panel[data-variant="inline"] .composer-effort-header {

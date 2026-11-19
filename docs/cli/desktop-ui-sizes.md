@@ -71,6 +71,31 @@ stays for days, or more than one accent fill in a view. A waiting update is ther
 28 px ghost rail button as its neighbours, a 16 px download glyph in the muted colour, with a 6 px
 accent dot at the top right as the only colour.
 
+## Layout rules found by looking at the window
+
+These came from a sweep of the running app at 1280 and 900 px wide, dark and light, and are kept by
+`renderer/layout-rules.test.ts` (each is a check on a stylesheet, with no browser and no clock).
+
+- **A title is never squeezed for a label.** In the conversation bar the project label has no minimum width and
+  shrinks first, it is hidden while the bar is under 480 px, and the title keeps at least 96 px.
+- **One rhythm in the Session panel.** Headings are one 24 px control in full ink at 13 px, weight 500; rows are 32 px
+  with no gap; a hairline between sections is inset 16 px on both sides and there is none after the last; the folder
+  path is cut at its end; the close button is the 28 px control the other panels use. A heading draws a chevron only
+  while it is folded.
+- **A legend row fits its name.** The context breakdown's column gap is 10 px, so a built-in label is never cut at 900 px;
+  the free-space marker is an outline and the bar's track is a visible tone, so neither disappears on the panel ground.
+- **A menu is sized by its rows.** A permission row is a title and one line (about 34 characters of description), which
+  makes it 46 px; the model menu is at most 340 px; the plus menu is as wide as its widest row and sits 6 px
+  (`MENU_OFFSET`) above the box; the Hypermode row sits on the same inset as the model rows; the context popover is
+  320 px.
+- **Panes open at the reference shares.** A single column opening with Changes, Files or Browser takes three fifths of the
+  workspace and a terminal a third.
+- **The collapsed rail keeps Search** under Home.
+
+Not rules: the 10 px step between the Session rail (320 px) and a pane (a share of the workspace) is as in the reference;
+the 123 px to the right of the title bar's buttons in a test window is the room the system's own window buttons need
+(`--frame-controls-inset`); a nested conversation row's highlight starts at the nesting indent.
+
 ## Settings layout
 
 The Settings column is 768 px wide and every block in it spans that width; nothing is capped narrower
@@ -90,9 +115,13 @@ except a small control, and a control ends at the column's right edge.
 - Narrow: under a 760 px dialog the label keeps the wider share of a row and a number field shrinks
   (to 80 px at least) so its unit stays beside it; under 640 px a control goes under the label
   except a lone switch or button, which stays beside it, and a Usage row puts the name above its
-  bar. A stacked Usage row has a note track only when the row has a note.
+  bar. A stacked Usage row has a note track only when the row has a note. The 760 px cap on a
+  control (`calc(100% - 196px)`) is for flex rows only: a row with a preview under it
+  (`data-below`) is a grid whose control has a column of its own, where 100% is that column and the
+  cap left the code theme menu 18 px wide.
 - Check a Settings change in a render, not only in CSS text: a "100% used" row, a number row at a
-  700 px window, and every section at 1280 and 900 px, dark and light.
+  700 px window, and every section at 1280 and 900 px, dark and light, scrolled down to its last
+  row, since a picture of the window shows only the first screen of a section.
 
 `renderer/settings-layout.test.ts` checks the Usage row structure and these shared rules.
 

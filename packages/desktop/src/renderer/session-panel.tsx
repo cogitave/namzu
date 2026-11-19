@@ -223,6 +223,7 @@ export function SessionPanel({
 				<Button
 					variant="ghost-muted"
 					size="icon-xs"
+					className="pane-control"
 					aria-label="Close the session panel"
 					title="Close"
 					onClick={onClose}

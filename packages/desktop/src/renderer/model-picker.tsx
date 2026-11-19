@@ -438,7 +438,7 @@ export function ModelPicker({
 						// One width for every step of the popup and for every engine, so the popup never
 						// jumps sideways as a person moves between them. Without an engine choice the width
 						// follows the provider list.
-						width: `min(${engineControl ? 388 : 340}px, calc(100vw - 16px))`,
+						width: `min(${engineControl ? 340 : 320}px, calc(100vw - 16px))`,
 					}}
 				>
 					<div className="model-picker-body" ref={measured}>

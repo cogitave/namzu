@@ -4,7 +4,14 @@ import type { UpdateState } from '../shared/update-protocol.js'
 import { engineAnnouncement, engineBadge } from './engine-updates-model.js'
 import { pageEntries } from './extensions-model.js'
 import { openExtensionPage, openExtensionsPage, useExtensionsSnapshot } from './extensions-store.js'
-import { DownloadIcon, HomeFilledIcon, HomeIcon, PuzzleIcon, SettingsIcon } from './icons.js'
+import {
+	DownloadIcon,
+	HomeFilledIcon,
+	HomeIcon,
+	PuzzleIcon,
+	SearchIcon,
+	SettingsIcon,
+} from './icons.js'
 import { Button } from './ui/button.js'
 import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
 import { updateAnnouncement, updateBadge } from './update-model.js'
@@ -15,12 +22,15 @@ import './navigation-rail.css'
 export function NavigationRail({
 	section,
 	onHome,
+	onSearch,
 	onSettings,
 	update,
 	onOpenUpdates,
 }: {
 	section: 'home' | 'spaces' | 'plugins' | 'settings'
 	onHome: () => void
+	/** Opens the search the sidebar's magnifier opens; the collapsed rail keeps it one click away. */
+	onSearch?: () => void
 	onSettings: () => void
 	/** Absent in a window that has no updater. */
 	update?: { state: UpdateState; onOpen: () => void; onCheck: () => void }
@@ -35,6 +45,18 @@ export function NavigationRail({
 					{section === 'home' ? <HomeFilledIcon /> : <HomeIcon />}
 				</RailButton>
 			</div>
+			{onSearch && (
+				<div className="rail-stack rail-stack-top">
+					<RailButton
+						control="search"
+						label="Search conversations"
+						tooltip="Search conversations"
+						onClick={onSearch}
+					>
+						<SearchIcon />
+					</RailButton>
+				</div>
+			)}
 			<div className="rail-spacer" />
 			{/* The collapsed rail is one button wide: everything above the foot's line stacks in one column. */}
 			<div className="rail-stack">
@@ -224,7 +246,7 @@ function RailButton({
 	children,
 }: {
 	/** Names the control for the hand-over of focus when the rail and the foot swap places. */
-	control: 'home' | 'settings' | 'extensions' | 'extension-page'
+	control: 'home' | 'search' | 'settings' | 'extensions' | 'extension-page'
 	label: string
 	tooltip?: string
 	side?: 'right' | 'top'

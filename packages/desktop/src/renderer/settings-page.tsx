@@ -792,7 +792,9 @@ function labelOf(id: string): string {
 
 /** A drop-down choice's text with its default mark: the default reads "Default · X". */
 export function defaultMarked(id: string, value: string, text: string): string {
-	return String(catalogueEntry(id).default) === value ? `Default · ${text}` : text
+	if (String(catalogueEntry(id).default) !== value) return text
+	// A choice already called Default (the code colours) is not marked twice: "Default · Default".
+	return /^default$/i.test(text.trim()) ? text : `Default · ${text}`
 }
 
 /** A row whose label, help, default and apply time all come from the settings catalogue. */

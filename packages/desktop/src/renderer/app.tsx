@@ -7323,6 +7323,7 @@ export function App({
 							<NavigationRail
 								section={railSection ?? 'home'}
 								onHome={goHome}
+								onSearch={openCommands}
 								onSettings={() => openSettings()}
 								update={update}
 								onOpenUpdates={() => openSettings('updates')}
