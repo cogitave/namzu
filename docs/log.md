@@ -2,6 +2,8 @@
 
 ## 2026-11-19
 
+- **Update** [Desktop](cli/desktop.md#while-a-reply-is-running): a waiting message stays in the queue, in its place and under its own id, until the running reply has it, and the reply ending or the engine closing live input during Send now no longer reorders or copies a message. A message already in the reply no longer shows a Send now that does nothing. `.changeset/desktop-send-now-steady-queue.md`.
+- **Update** [Desktop](cli/desktop.md#while-a-reply-is-running): Send now on a waiting message hands it, and everything held ahead of it, to the running reply at its next step instead of stopping the reply; it stops and runs the message only where live input is not available (a Pal, another engine, files on the message). Pressing it on a message already in the reply does nothing. `.changeset/desktop-send-now-into-reply.md`.
 - **Update** [Permission modes](cli/permission-modes.md#changing-the-mode-while-namzu-is-working): a mode chosen while a reply is running or a card is open now reaches that turn at once (`namzu/session/set-permission-mode`), approves an open card Full access would never have shown, carries the messages waiting in the queue, and is not shown when the engine refuses it, with the reason. Before, only the next message used it, so Ask first then Full access kept asking. `.changeset/cli-live-permission-mode.md`, `.changeset/desktop-live-permission-mode.md`. The method is in the [Desktop](cli/desktop.md) request table.
 - **Update** `cli/desktop.md`: the working line shows one clock while the first step is the whole turn, instead of the same seconds twice.
 

@@ -134,10 +134,11 @@ it('draws nothing when no message is waiting', () => {
 	).toBe('')
 })
 
-it('offers Send now on every row, but Edit and Remove only where the message can still be taken back', () => {
+it('offers Send now only on a message still waiting, and Edit and Remove only where it can still be taken back', () => {
 	const rows = render().split('data-pending-message-id=').slice(1)
 	expect(rows).toHaveLength(2)
-	expect(rows[0]).toContain('Send now')
+	// A message already in the reply has nothing left for Send now to do.
+	expect(rows[0]).not.toContain('Send now')
 	expect(rows[0]).not.toContain('Edit')
 	expect(rows[0]).not.toContain('Remove')
 	expect(rows[1]).toContain('Send now')
@@ -160,4 +161,27 @@ it('disables every action while the conversation is not ready, and hides Send no
 			/\bdisabled=/,
 		)
 	expect(render({ canSendNow: false })).not.toContain('Send now')
+})
+
+it('keeps the same rows, in the same order and under the same ids, when Send now takes waiting messages into the reply', () => {
+	const before = pendingMessages(thread({ queuedItems: [item('a'), item('b'), item('c')] }))
+	// Send now on b: a and b move into the reply, c still waits.
+	const taken = pendingMessages(
+		thread({ liveInputs: [live('a'), live('b')], queuedItems: [item('c')] }),
+	)
+	expect(before.rows.map((row) => row.id)).toEqual(['a', 'b', 'c'])
+	expect(taken.rows.map((row) => [row.id, row.kind, row.note, row.editable])).toEqual([
+		['a', 'steer', 'Sending to this reply', false],
+		['b', 'steer', 'Sending to this reply', false],
+		['c', 'queued', 'After this reply', true],
+	])
+	// Once the model has read them they are messages, not rows.
+	expect(
+		pendingMessages(
+			thread({
+				liveInputs: [live('a', 'delivered'), live('b', 'delivered')],
+				queuedItems: [item('c')],
+			}),
+		).rows.map((row) => row.id),
+	).toEqual(['c'])
 })
