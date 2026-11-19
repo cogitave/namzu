@@ -145,8 +145,9 @@
 
 /* The plus menu: a row's shortcut or state word, and a switch. */
 .composer-add-popup {
-	width: 240px;
-	min-width: 240px;
+	width: max-content;
+	min-width: 176px;
+	max-width: var(--menu-max-width);
 }
 .composer-add-sub {
 	min-width: 224px;

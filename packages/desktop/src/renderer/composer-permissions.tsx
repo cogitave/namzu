@@ -56,20 +56,20 @@ const rowCopy: Record<
 	Record<ComposerPermissionEngine, RowCopy | undefined>
 > = {
 	prompt: {
-		namzu: { label: 'Ask first', description: 'Asks before changing files or running commands.' },
+		namzu: { label: 'Ask first', description: 'Asks before edits and commands.' },
 		'codex-cli': {
 			label: 'Ask first',
 			description: 'Starts read-only and asks before commands or file changes.',
 		},
 		'claude-code': {
 			label: 'Ask first',
-			description: 'Asks before editing files or running commands.',
+			description: 'Asks before edits and commands.',
 		},
 	},
 	'accept-edits': {
 		namzu: {
 			label: 'Edit automatically',
-			description: 'Edits files on its own and asks before commands.',
+			description: 'Edits files; asks for commands.',
 		},
 		'codex-cli': {
 			label: 'Edit automatically',
@@ -80,7 +80,7 @@ const rowCopy: Record<
 	classify: {
 		namzu: {
 			label: 'Auto',
-			description: 'Checks each step with a second model and stops the risky ones.',
+			description: 'A second model checks each step.',
 		},
 		'codex-cli': undefined,
 		'claude-code': undefined,
