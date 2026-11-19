@@ -3,7 +3,7 @@ type: Reference
 title: Pasting images into the composer
 description: Which key pastes an image on each platform, how it reaches the Windows clipboard from WSL, what a paste of file paths does, and what each message means.
 resource: packages/cli/src/integrations/clipboard/image.ts
-tags: [cli, composer, clipboard, images, wsl]
+tags: [cli, composer, clipboard, images, wsl, macos]
 status: stable
 generated: { by: human:bahadirarda, at: 2026-11-02T00:00:00Z }
 ---
@@ -34,13 +34,15 @@ The copy lives in `<NAMZU_HOME>/projects/<project>/<session-id>/attachments/`, i
 
 `alt+v` is always bound, because some terminals keep `ctrl+v` for themselves. Both keys are rebindable as the `chat:imagePaste` action. The message shown when nothing was pasted names the key that works on your platform.
 
+On macOS the key is Ctrl+V, not Cmd+V: Cmd+V is the terminal's own text paste, and only some terminals send an empty paste when the clipboard holds an image.
+
 On macOS and WSL a terminal also sends an empty paste when the clipboard holds only an image (Windows Terminal does this for a screenshot). Namzu treats that empty paste as the same request, so pasting with the terminal's own shortcut works without a key.
 
 A second press while a read is running is ignored. Enter pressed meanwhile waits for the read to end, so a message is never sent before its image exists. A read that takes longer than a moment shows "Reading the clipboard...".
 
 ## How the image is read
 
-- macOS asks the system for the clipboard's PNG.
+- macOS asks the system for the clipboard's PNG. When there is none, it runs a second fixed script, `get POSIX path of (the clipboard as «class furl»)`, which answers with the path of a file copied in Finder. A path to a `.png`, `.jpg`, `.jpeg`, `.gif` or `.webp` file is attached like a dropped file; any other file, or nothing, is "no image".
 - Linux asks `xclip` and `wl-paste` what the clipboard holds, then reads PNG from either and, failing that, BMP (converted to PNG).
 - Windows runs a fixed PowerShell script.
 - WSL tries the Linux tools, then runs the same PowerShell script through Windows interop. It looks for `powershell.exe` on the `PATH`, then at its fixed place under the Windows drive mount (`/mnt/c/...`, or the `[automount] root` of `/etc/wsl.conf`). The script prints the image on standard output, so nothing is written to a Windows temp file. An image taller or wider than 2000 pixels is shrunk first. If the clipboard holds image files copied in Explorer, those files are attached.
@@ -56,6 +58,8 @@ A paste made only of paths to `.png`, `.jpg`, `.jpeg`, `.gif` or `.webp` files, 
 A path is read wherever it lives, because you pasted it yourself: a screenshot on the Windows desktop (`C:\Users\...\Desktop\shot.png`, reached as `/mnt/c/...`) attaches like one in the project, and the folders added with `/add-dir` do not matter. One thing refuses it: a `read` permission rule that denies the path, or the file a link at that path leads to. Any deny wins, even when an allow rule for a narrower path sits beside it, and the rules are asked before the file is looked at, so a denied path is refused even if it does not exist. A rule that only asks does not refuse it. A refused path is not read, and is left in the draft as text with a message. A path no deny rule names that does not exist or cannot be read is not an image to refuse; it stays in the draft as text.
 
 If any piece of the paste is not a readable image, the whole paste is inserted as ordinary text.
+
+On macOS the floating preview of a fresh screenshot keeps its file in a temporary folder (`.../TemporaryItems/...screencaptureui.../Screenshot ....png`) and removes it when the preview goes away, which is often before a paste of that path lands. A paste of that one path whose file cannot be read reads the clipboard's picture instead (the same read the paste key makes, without its text fallback), rather than leaving the path in the draft. A readable file there attaches like any other path.
 
 ## Messages
 

@@ -27,6 +27,7 @@ import {
 	installMouseWheel,
 } from './fullscreen/mouse-wheel.js'
 import { fileQueuedHintCount } from './hint-counts.js'
+import { installKeypadKeys } from './keypad-keys.js'
 import { installTuiLogSink } from './log-pane.js'
 import { watchOutputSize } from './output-size-watch.js'
 import {
@@ -116,6 +117,8 @@ export async function launchTui(
 	// A paste marker split across two reads is held until it is whole, innermost so every
 	// later filter and Ink see it as the terminal sent it (see `paste-marker-guard.ts`).
 	const stopPasteMarkerGuard = installPasteMarkerGuard(inputStream)
+	// Keypad keys (a code of their own under the kitty protocol) are read as the keys they stand for.
+	const stopKeypadKeys = installKeypadKeys(inputStream)
 	const stopFocusReporting = installFocusReporting(inputStream, process.stdout, (focused) =>
 		terminalFocus.set(focused),
 	)
@@ -333,6 +336,7 @@ export async function launchTui(
 		stopSizeWatch?.()
 		stopFocusReporting()
 		stopWheel?.()
+		stopKeypadKeys()
 		stopPasteMarkerGuard()
 		if (panicReset) process.off('exit', panicReset)
 		consoleInput?.release()

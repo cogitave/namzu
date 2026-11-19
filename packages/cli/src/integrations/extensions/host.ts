@@ -1857,6 +1857,8 @@ export class ExtensionHost {
 	}
 
 	private runnerPending: Promise<void> | undefined
+	/** The one repair of the sign-in entry this host makes before it first starts the runner. */
+	private signinRepaired: Promise<void> | undefined
 	private runnerFailedAt = Number.NEGATIVE_INFINITY
 	/** After the runner could not be reached, this host runs such extensions itself for ten minutes. */
 	private runnerGivenUp(): boolean {
@@ -1873,14 +1875,21 @@ export class ExtensionHost {
 				void this.o.notifyRunner?.()
 			})
 		}
-		if (this.runnerPending || !this.o.ensureRunner) return
+		const ensure = this.o.ensureRunner
+		if (this.runnerPending || !ensure) return
 		const fail = (): void => {
 			this.runnerFailedAt = this.now()
 			this.tick()
 		}
-		this.runnerPending = this.o.ensureRunner().then((ok) => {
-			if (!ok) fail()
-		}, fail)
+		// On Windows the sign-in entry is what starts the runner, and an entry an earlier version made can
+		// still run a console file, whose window would stay open as long as the runner runs. So the entry
+		// is repaired once, before this host first asks it to start anything.
+		this.signinRepaired ??= this.reconcile()
+		this.runnerPending = this.signinRepaired
+			.then(() => ensure())
+			.then((ok) => {
+				if (!ok) fail()
+			}, fail)
 		void this.runnerPending.finally(() => {
 			this.runnerPending = undefined
 		})
