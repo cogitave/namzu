@@ -9,7 +9,7 @@ import { PANEL_FOR_TARGET } from './extension-page-pane.js'
 
 const row = {
 	id: 'com.example.record',
-	name: 'Namzu Activity',
+	name: 'Activity Tracker',
 	version: '0.2.0',
 	publisher: 'Cogitave',
 	state: 'running',
@@ -45,7 +45,7 @@ describe("an extension's page in the main pane", () => {
 	it("has Namzu's thin strip: a way back, the name, who drew it, and the links to permissions and licence", () => {
 		const markup = frame()
 		expect(markup).toContain('aria-label="Back"')
-		expect(markup).toContain('<strong>Namzu Activity</strong>')
+		expect(markup).toContain('<strong>Activity Tracker</strong>')
 		expect(markup).toContain('Page drawn by Cogitave')
 		expect(markup).toContain('Permissions and notice')
 		expect(markup).toContain('>Licence<')

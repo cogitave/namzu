@@ -27,7 +27,7 @@ One convention names an extension everywhere, so a person (and a script) can tel
 | Manifest `id` | the reverse DNS name of the publisher's domain, then the extension name: lowercase letters, digits and hyphens in each part, at least three parts separated by dots | `com.cogitave.activity` |
 | Package file | `<id>-<version>-<platform>.nzx` | `com.cogitave.activity-0.2.0-win32-x64.nzx` |
 | Process (executable) | `namzu-<name>` (`.exe` on Windows) | `namzu-activity.exe` |
-| Display name | `Namzu <Name>` in English, the product's own words in other languages | `Namzu Activity`, `Namzu Etkinlik` |
+| Display name | the product's own words, in every language, and **never `Namzu`**: the extension runs in Namzu, so the name does not repeat it | `Activity Tracker` |
 
 Why:
 
@@ -35,6 +35,7 @@ Why:
 - The id is refused when it does not have that form, with a sentence that shows a correct one (`com.example.activity`). Hyphens are allowed inside a part (`io.example-corp.notes`), not at its ends, and the dot is the only separator between parts.
 - The **package file** name carries the three things a person asks before opening it: which extension, which version, for which platform. `namzu extension validate <file>` prints a warning, never a refusal, when a package file is not named that way (a package for several platforms may carry any one of them), because the file name is not part of what is signed.
 - The **process** name starts with `namzu-` so it is recognisable in a task list and in an endpoint-protection rule, and carries the short name, not the id, so it stays readable.
+- The **display name** is what a person reads in the Extensions list, so it never repeats Namzu (a row under Settings in Namzu already says where it is). `namzu extension validate` prints a warning, not a refusal, for a name in any language that starts with Namzu. The id and the process keep `activity` and `namzu-activity.exe`: an IT team allow-lists those, so a display rename never changes them.
 - The **project** name starts with `namzu-extension-` so a search for extensions finds them and a customer's build is told apart from the product's.
 
 ## Permissions, purposes, data, retention

@@ -4,7 +4,7 @@ import { ExtensionError } from './errors.js'
 import type { TrustedKey } from './keys.js'
 import { parseManifest } from './manifest.js'
 import { type PackageFile, openPackage } from './package.js'
-import type { ManifestIssue } from './types.js'
+import type { Localized, ManifestIssue } from './types.js'
 import { checkHashes, checkPackageFiles, verifyPackage } from './verify.js'
 
 /** `namzu extension validate`: the developer's check. Runs nothing from the target and installs nothing. */
@@ -31,6 +31,19 @@ export function packageNameWarning(
 	if (platforms.some((p) => base === `${id}-${version}-${p}.nzx`)) return undefined
 	const example = `${id}-${version}-${platforms[0] ?? 'win32-x64'}.nzx`
 	return `the package file is named ${base}; name it <id>-<version>-<platform>.nzx, for example ${example}, so a person can tell which extension, version and platform it is`
+}
+
+/**
+ * The display name never repeats Namzu: the extension runs in Namzu, so the person already knows where
+ * it is. A sentence for each language whose name starts with "Namzu", or none.
+ */
+export function displayNameWarnings(name: Localized): string[] {
+	return Object.entries(name)
+		.filter(([, v]) => /^\s*namzu\b/i.test(v))
+		.map(
+			([tag, v]) =>
+				`the ${tag} name "${v}" starts with Namzu; leave it out ("${v.replace(/^\s*namzu\s+/i, '')}"), since the extension already runs in Namzu`,
+		)
 }
 
 const fromError = (e: unknown): ManifestIssue => {
@@ -73,6 +86,7 @@ export function validateFolder(dir: string): ValidationReport {
 	} catch (e) {
 		issues.push(fromError(e))
 	}
+	const warnings = displayNameWarnings(parsed.manifest.name)
 	return {
 		kind: 'folder',
 		ok: issues.length === 0,
@@ -80,6 +94,7 @@ export function validateFolder(dir: string): ValidationReport {
 		signature: 'not checked (a folder is not signed)',
 		id: parsed.manifest.id,
 		version: parsed.manifest.version,
+		...(warnings.length ? { warnings } : {}),
 	}
 }
 
@@ -91,15 +106,20 @@ export function validatePackage(
 	const r = validatePackageBytes(bytes, trusted)
 	if (fileName === undefined || !r.id || !r.version) return r
 	let platforms: readonly string[] = []
+	let nameWarnings: string[] = []
 	try {
 		const m = openPackage(bytes).get('namzu-extension.json')?.bytes
 		const parsed = m ? parseManifest(m) : undefined
-		if (parsed?.ok) platforms = parsed.manifest.platforms
+		if (parsed?.ok) {
+			platforms = parsed.manifest.platforms
+			nameWarnings = displayNameWarnings(parsed.manifest.name)
+		}
 	} catch {
 		// a package that cannot be opened has already been refused above
 	}
 	const w = packageNameWarning(fileName, r.id, r.version, platforms)
-	return w ? { ...r, warnings: [w] } : r
+	const all = [...(w ? [w] : []), ...nameWarnings]
+	return all.length ? { ...r, warnings: all } : r
 }
 
 function validatePackageBytes(bytes: Buffer, trusted: readonly TrustedKey[]): ValidationReport {

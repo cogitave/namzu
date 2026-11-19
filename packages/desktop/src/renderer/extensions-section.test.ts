@@ -7,7 +7,7 @@ import { refreshExtensions, selectExtension, snapshotForTest } from './extension
 
 const ROW = {
 	id: 'com.example.record',
-	name: 'Namzu Activity',
+	name: 'Activity Tracker',
 	version: '0.2.0',
 	publisher: 'Cogitave',
 	state: 'running',
@@ -35,7 +35,7 @@ const ROW = {
 		pages: [{ id: 'today', title: "Today's record", slot: 'settings', usesNetwork: false }],
 		chips: [{ id: 'rec', state: 'collecting', label: 'Recording', tone: 'ok' }],
 	},
-	indicator: { level: 'ok', label: 'Namzu Activity is recording.' },
+	indicator: { level: 'ok', label: 'Activity Tracker is recording.' },
 }
 const OFF = {
 	...ROW,
@@ -115,7 +115,7 @@ describe("Settings, Extensions: an extension's own screen", () => {
 		expect(snapshotForTest().selected).toBe(ROW.id)
 		const markup = renderToStaticMarkup(createElement(ExtensionsSection, {}))
 		expect(markup).toContain('aria-label="Back to Extensions"')
-		expect(markup).toContain('Namzu Activity')
+		expect(markup).toContain('Activity Tracker')
 		expect(markup).toContain('Cogitave · 0.2.0')
 		expect(markup).toContain('Dev key')
 		expect(markup).not.toContain('Add from file')
@@ -139,7 +139,7 @@ describe("Settings, Extensions: an extension's own screen", () => {
 			'Remove',
 		])
 		expect(markup).toContain('class="settings-row"')
-		expect(markup).toMatch(/<input[^>]*role="switch"[^>]*aria-label="Namzu Activity"/)
+		expect(markup).toMatch(/<input[^>]*role="switch"[^>]*aria-label="Activity Tracker"/)
 		expect(markup).toMatch(/<input[^>]*role="switch"[^>]*aria-label="Start when I sign in"/)
 		expect(markup).toContain('Open today&#x27;s record')
 		expect(markup).toContain('Example Co')
