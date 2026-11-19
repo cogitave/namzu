@@ -9,19 +9,26 @@ import {
 	BrowserWindow,
 	Menu,
 	Notification,
+	Tray,
+	WebContentsView,
 	app,
 	clipboard,
 	dialog,
+	globalShortcut,
 	ipcMain,
 	nativeImage,
 	nativeTheme,
 	powerMonitor,
+	powerSaveBlocker,
 	screen,
 	session,
 	shell,
 } from 'electron'
+import { type BrowserPaneRequest, readBrowserRequest } from '../shared/browser-pane.js'
+import type { CommitRequestView } from '../shared/commit-protocol.js'
 import { UNAVAILABLE_ENGINE_VIEW } from '../shared/engine-delivery-protocol.js'
 import { readEngineUpdateRequest } from '../shared/engine-update-protocol.js'
+import { type OsState, trayName } from '../shared/os-state.js'
 import type {
 	PalPermissionChange,
 	PalSubscriptionCreate,
@@ -41,7 +48,7 @@ import type {
 	WindowAppearance,
 	WorkspaceAction,
 } from '../shared/protocol.js'
-import type { DataFolderKind, DesktopInfo } from '../shared/settings-protocol.js'
+import type { DataFolderKind, DesktopInfo, DesktopSettings } from '../shared/settings-protocol.js'
 import { SHELL_CHOICE_LABELS, availableShells, isTerminalTabId } from '../shared/terminal-tabs.js'
 import {
 	type TerminalEvent,
@@ -57,6 +64,7 @@ import {
 import { OVERLAY_SIZE, overlayBitmap } from './attention-overlay.js'
 import { AttentionSignals } from './attention-signals.js'
 import { BringBack } from './bring-back.js'
+import { BrowserPaneHost, partitionOf } from './browser-pane.js'
 import { bundledCliEntry } from './bundled-runtime.js'
 import { ClipboardTextWriter } from './clipboard-text.js'
 import { ConfigSettings } from './config-settings.js'
@@ -79,6 +87,7 @@ import {
 	versionRunner,
 } from './engine-updates-system.js'
 import { EngineUpdates } from './engine-updates.js'
+import { existingFolders } from './existing-folders.js'
 import { externalSourceUrl } from './external-url.js'
 import { FolderAccessTokens, canonicalFolder } from './folder-access.js'
 import { FolderAccess } from './folder-access.js'
@@ -93,7 +102,10 @@ import {
 } from './local-listening.js'
 import { LocalSpeechRouting } from './local-speech-routing.js'
 import { LocalSpeechService } from './local-speech.js'
+import { applyLoginItem, loginItemAvailable, readLoginItem } from './login-item.js'
 import { installMediaPermissions } from './media-permissions.js'
+import { MeteredWatch, windowsCostQuery } from './metered-network.js'
+import { nativeFailureBody } from './native-failure.js'
 import { createNewProject } from './new-project.js'
 import { OpenIn, systemOpenInHost } from './open-in.js'
 import { Operator } from './operator.js'
@@ -114,9 +126,16 @@ import {
 import { IdleStopper } from './pal-computer-idle.js'
 import { PalComputerSetupService } from './pal-computer-setup.js'
 import { PalStreamProxy } from './pal-stream-proxy.js'
+import { PendingQueue } from './pending-entries.js'
 import { projectDraftOwner } from './project-draft-owner.js'
 import { setFileSortLocale } from './project-files.js'
 import { ProjectNameStore } from './project-names.js'
+import {
+	QUICK_ENTRY_CANCEL,
+	QUICK_ENTRY_SIZE,
+	QUICK_ENTRY_SUBMIT,
+	quickEntryUrl,
+} from './quick-entry-page.js'
 import { recoveryCardPage, recoveryCardUrl } from './recovery-card.js'
 import { selectRendererPage } from './renderer-page.js'
 import { restoreProjects } from './restore-projects.js'
@@ -129,8 +148,11 @@ import {
 } from './runtime-node-args.js'
 import { readRuntimeVersions } from './runtime-versions.js'
 import { SettingsConfirmation } from './settings-confirmation.js'
+import { ShortcutController } from './shortcut-controller.js'
 import { runShutdown } from './shutdown-sequence.js'
 import { SidebarSnapshotStore } from './sidebar-snapshot-store.js'
+import { SleepGuard } from './sleep-guard.js'
+import { type StorageLayout, clearStorage, measureStorage } from './storage-usage.js'
 import { installStreamRendererPolicy, withStreamRendererPort } from './stream-renderer-policy.js'
 import { SupersededConversationSettingsError } from './superseded-settings.js'
 import { SystemNotices } from './system-notices.js'
@@ -139,6 +161,8 @@ import { TerminalHostClient } from './terminal-client.js'
 import { engineHost, findProgram, shellEnvironment } from './terminal-env.js'
 import { TerminalHub } from './terminal-hub.js'
 import { TerminalTabStore } from './terminal-tab-store.js'
+import { TrayController } from './tray-controller.js'
+import { EngineTrustList } from './trust-list.js'
 import { TrustedFolderStore, createFolderTrustGuard } from './trusted-folders.js'
 import { clearInstalledPending } from './updater-cache.js'
 import {
@@ -147,6 +171,7 @@ import {
 	bakedFeedDeclared,
 	updateFeedFromEnv,
 } from './updater.js'
+import { UserMcpServers } from './user-mcp-servers.js'
 import { viewedTabs, windowsHoldingTab } from './viewed-conversations.js'
 import { VoiceInputManager } from './voice-input.js'
 import {
@@ -224,6 +249,21 @@ const streamProxy = new PalStreamProxy(() =>
 	diagnostics.record('computer_stream_failed', { severity: 'error' }),
 )
 const windows = new WorkspaceWindowRegistry<BrowserWindow>()
+/** Each window's Browser pane pages; see browser-pane.ts for how a page is kept apart from the app. */
+const browserPanes = new Map<string, BrowserPaneHost>()
+/**
+ * "Keep computer awake" for one conversation: a power-save blocker held while it is on. It is
+ * released when the person turns it off, when the window that asked closes, and when the
+ * conversation is removed, so it never outlives the session it was asked for.
+ */
+const awakeHolds = new Map<string, { blocker: number; windowId: string }>()
+function releaseAwake(match: (sessionId: string, hold: { windowId: string }) => boolean): void {
+	for (const [sessionId, hold] of [...awakeHolds]) {
+		if (!match(sessionId, hold)) continue
+		if (powerSaveBlocker.isStarted(hold.blocker)) powerSaveBlocker.stop(hold.blocker)
+		awakeHolds.delete(sessionId)
+	}
+}
 const workspaceFile = join(app.getPath('userData'), 'workspace-layout.json')
 /** Saved files this start could not read and set aside; told to the person once, in the window. */
 const damagedNotices = new DamagedFilesNotices()
@@ -372,7 +412,7 @@ function finishWindowClose(id: string, window: BrowserWindow): void {
 		.find(
 			([otherId, candidate]) => otherId !== id && !pending.has(otherId) && !candidate.isDestroyed(),
 		)
-	if (target || process.platform === 'darwin') {
+	if (target || staysRunningWithoutWindows()) {
 		workspace.closeWindow(id, target?.[0])
 		windows.remove(id)
 		discardAbortedWindows()
@@ -451,7 +491,7 @@ const engineDelivery = createEngineDelivery({
 			return () => clearInterval(timer)
 		},
 	},
-	enabled: () => settingsStore.get().keepEngineUpToDate,
+	enabled: () => settingsStore.get().keepEngineUpToDate && !downloadsPaused(),
 	nodeFlags: () => desktopRuntimeNodeFlags(),
 	publish: (view) => {
 		sendToWindow(undefined, 'namzu:engine-delivery', view)
@@ -468,6 +508,9 @@ const engineDelivery = createEngineDelivery({
 // The host is told which app it serves; the number is the app's own, read at run time.
 const command: RuntimeCommand = {
 	...hostCommand,
+	// Where the engine can read the app's own preferences, for the settings tools. Read only: a
+	// change is asked of the app by notification.
+	extraEnv: { NAMZU_DESKTOP_SETTINGS_FILE: join(app.getPath('userData'), 'desktop-settings.json') },
 	clientVersion: app.getVersion(),
 	...(engineDelivery ? { launcher: engineDelivery.launcher() } : {}),
 }
@@ -525,6 +568,16 @@ const palComputerIdle = new IdleStopper({
 	},
 })
 // Built before the operator that reports to it; `enabled` reads the settings store only when called.
+/** What waits on the person, by kind, as the operator last reported it. */
+let waitingByKind: { permission: string[]; question: string[] } = { permission: [], question: [] }
+/** The conversations the icon counts: a kind set to Off adds none; Badge only and Banner both do. */
+function countedForAttention(): string[] {
+	const settings = settingsStore.get()
+	const ids = new Set<string>()
+	if (settings.notifyPermission !== 'off') for (const id of waitingByKind.permission) ids.add(id)
+	if (settings.notifyQuestion !== 'off') for (const id of waitingByKind.question) ids.add(id)
+	return [...ids]
+}
 const attention = new AttentionSignals({
 	platform: process.platform,
 	windows: () => windows.entries().map(([, window]) => window),
@@ -616,6 +669,9 @@ const notices = new SystemNotices({
 	// A run that records instead of showing cannot wait half a minute for a turn to count as long,
 	// nor three seconds for events to fold.
 	...(noticeHook ? { finishedAfterMs: () => 1, foldMs: () => 50 } : {}),
+	...(noticeHook
+		? {}
+		: { finishedAfterMs: () => settingsStore.get().notifyLongReplySeconds * 1000 }),
 	schedule: (ms, run) => {
 		const timer = setTimeout(run, ms)
 		timer.unref()
@@ -624,14 +680,31 @@ const notices = new SystemNotices({
 	settings: () => {
 		const settings = settingsStore.get()
 		return {
-			needsYou: settings.notifyNeedsYou,
-			failed: settings.notifyFailed,
-			finished: settings.notifyFinished,
-			sound: settings.notifySound,
+			permission: settings.notifyPermission,
+			question: settings.notifyQuestion,
+			failed: settings.notifyError,
+			finished: settings.notifyTaskComplete,
+			sound: settings.notificationSound === 'system',
 		}
 	},
 	projectName: (id): string | undefined => operator.projectNameOf(id),
 	open: (id) => showConversationFromNotice(id),
+})
+const folderTrustGuard = createFolderTrustGuard({
+	store: new TrustedFolderStore(join(app.getPath('userData'), 'trusted-folders.json'), {
+		onError: (error, operation) =>
+			diagnostics.record('ipc_failed', { operation: `trustedFolders.${operation}`, error }),
+	}),
+	// Read on each check: the setting can change while the app runs.
+	enabled: () => settingsStore.get().retrustOnConfigChange,
+	canonical: canonicalFolder,
+})
+const engineTrustList = new EngineTrustList(namzuHome(), (error, operation) =>
+	diagnostics.record('ipc_failed', { operation: `trustList.${operation}`, error }),
+)
+const storageLayout = (): StorageLayout => ({
+	userData: app.getPath('userData'),
+	namzuHome: namzuHome(),
 })
 const operator = new Operator(
 	command,
@@ -681,6 +754,14 @@ const operator = new Operator(
 					discardAbortedWindows()
 				})
 				.catch((error) => diagnostics.record('ipc_failed', { operation: 'closeTerminals', error }))
+		if (
+			event.kind === 'state' ||
+			event.kind === 'turn-closed' ||
+			event.kind === 'conversation-removed'
+		) {
+			sleepGuard.update()
+			sleepGuard.updateSoon()
+		}
 		try {
 			working.pill?.observe(event)
 		} catch (error) {
@@ -697,24 +778,22 @@ const operator = new Operator(
 			openPath: (path) => shell.openPath(path),
 		}),
 	),
-	createFolderTrustGuard({
-		store: new TrustedFolderStore(join(app.getPath('userData'), 'trusted-folders.json'), {
-			onError: (error, operation) =>
-				diagnostics.record('ipc_failed', { operation: `trustedFolders.${operation}`, error }),
-		}),
-		// Read on each check: the setting can change while the app runs.
-		enabled: () => settingsStore.get().retrustOnConfigChange,
-		canonical: canonicalFolder,
-	}),
+	folderTrustGuard,
 	// A host that drops under an open conversation is reopened once, without a click.
 	{
 		autoReconnect: true,
 		projectNames: new ProjectNameStore(join(app.getPath('userData'), 'project-names.json')),
 		viewedConversations,
-		attentionChanged: (ids) => attention.update(ids),
+		attentionChanged: (_ids, byKind) => {
+			waitingByKind = byKind
+			attention.update(countedForAttention())
+		},
 		notices,
 		// The agent is never allowed into Namzu's own windows: it could answer its own questions.
 		ownAppNames: () => [app.getName(), 'Namzu', basename(process.execPath), 'Electron'],
+		applyPreferences: (patch) => {
+			settingsStore.set(patch)
+		},
 		needsMainWindow: () => {
 			bringBack.needed()
 		},
@@ -772,7 +851,12 @@ const settingsStore = new DesktopSettingsStore({
 		windows.fanout({ kind: 'settings', settings }, (error) =>
 			diagnostics.record('renderer_failed', { error }),
 		)
-		if (settings.attentionSignals !== previous.attentionSignals) attention.refresh()
+		if (
+			settings.notifyPermission !== previous.notifyPermission ||
+			settings.notifyQuestion !== previous.notifyQuestion
+		)
+			attention.update(countedForAttention())
+		else if (settings.attentionSignals !== previous.attentionSignals) attention.refresh()
 		// Settings can change the tab strip's switch; the View menu's checkbox follows it.
 		if (settings.showConversationTabs !== previous.showConversationTabs) {
 			const item = Menu.getApplicationMenu()?.getMenuItemById(SHOW_TABS_MENU_ID)
@@ -782,6 +866,14 @@ const settingsStore = new DesktopSettingsStore({
 		if (settings.autoDownloadUpdates !== previous.autoDownloadUpdates) updates.autoDownloadChanged()
 		if (settings.keepEngineUpToDate !== previous.keepEngineUpToDate)
 			engineDelivery?.settingChanged()
+		if (previous.browserCookies === 'restarts' && settings.browserCookies !== 'restarts')
+			void session
+				.fromPartition(partitionOf('restarts', ''))
+				.clearStorageData()
+				.catch((error) =>
+					diagnostics.record('ipc_failed', { operation: 'clearBrowserSignIns', error }),
+				)
+		osRowsChanged(settings, previous)
 		if (settings.retrustOnConfigChange && !previous.retrustOnConfigChange)
 			void operator
 				.rebaselineTrusted()
@@ -796,6 +888,249 @@ const settingsStore = new DesktopSettingsStore({
 })
 // Read before the app is ready, the only time Electron lets the graphics card be turned off.
 if (!settingsStore.get().hardwareAcceleration) app.disableHardwareAcceleration()
+// The rows the operating system applies: start at sign-in, the tray, staying awake, metered data.
+const loginItemApi = {
+	get: () => app.getLoginItemSettings(),
+	set: (value: { openAtLogin: boolean }) => app.setLoginItemSettings(value),
+}
+const canStartAtLogin = loginItemAvailable(process.platform, app.isPackaged)
+let loginItemProblem: string | undefined
+const trayController = new TrayController({
+	// The installed app has no loose icon file; the system can hand back the executable's own.
+	loadIcon: async () => {
+		if (windowIcon) {
+			const image = nativeImage.createFromPath(windowIcon)
+			if (!image.isEmpty()) return image
+		}
+		const image = await app.getFileIcon(process.execPath, { size: 'small' })
+		return image.isEmpty() ? undefined : image
+	},
+	makeTray: (icon) => new Tray(icon as Electron.NativeImage),
+	menu: (template) => Menu.buildFromTemplate(template),
+	open: () => showMainWindow(),
+	quit: () => app.quit(),
+	record: (error) => diagnostics.record('ipc_failed', { operation: 'tray', error }),
+})
+/** The app stays running with no window: always on macOS, and on the others while the tray icon is up. */
+const staysRunningWithoutWindows = () => process.platform === 'darwin' || trayController.shown()
+const sleepGuard = new SleepGuard(
+	{
+		start: (type) => powerSaveBlocker.start(type),
+		stop: (id) => powerSaveBlocker.stop(id),
+		isStarted: (id) => powerSaveBlocker.isStarted(id),
+	},
+	{
+		onBattery: () => powerMonitor.isOnBatteryPower(),
+		subscribe: (listener) => {
+			powerMonitor.on('on-battery', listener)
+			powerMonitor.on('on-ac', listener)
+			return () => {
+				powerMonitor.off('on-battery', listener)
+				powerMonitor.off('on-ac', listener)
+			}
+		},
+	},
+	() => operator.runningReplies(),
+	() => {
+		const settings = settingsStore.get()
+		return {
+			appOpen: settings.keepAwakeAppOpen,
+			whileWorking: settings.keepAwakeWhileWorking,
+			onBattery: settings.keepAwakeOnBattery,
+		}
+	},
+)
+const meteredWatch = new MeteredWatch({
+	...(process.platform === 'win32' ? { query: windowsCostQuery(process.env.SystemRoot) } : {}),
+	every: (ms, run) => {
+		const timer = setInterval(run, ms)
+		timer.unref()
+		return () => clearInterval(timer)
+	},
+	// A connection that stops being metered lets a waiting update start.
+	onChange: () => {
+		updates.autoDownloadChanged()
+		engineDelivery?.settingChanged()
+	},
+})
+/** Whether downloads Namzu starts by itself wait now: the person asked, and the connection is metered. */
+function downloadsPaused(): boolean {
+	return settingsStore.get().pauseOnMetered && meteredWatch.state() === 'metered'
+}
+let revertingLoginItem = false
+function osRowsChanged(settings: DesktopSettings, previous: DesktopSettings): void {
+	// The put-back after a refusal is not a new request: it must not wipe the refusal line.
+	if (settings.runOnStartup !== previous.runOnStartup && canStartAtLogin && !revertingLoginItem) {
+		const result = applyLoginItem(loginItemApi, settings.runOnStartup, process.platform)
+		loginItemProblem = result.problem
+		// The system's answer is the truth: a refused change puts the saved wish back.
+		if (result.enabled !== settings.runOnStartup)
+			queueMicrotask(() => {
+				revertingLoginItem = true
+				try {
+					settingsStore.set({ runOnStartup: result.enabled })
+				} catch (error) {
+					diagnostics.record('ipc_failed', { operation: 'loginItem', error })
+				} finally {
+					revertingLoginItem = false
+				}
+			})
+	}
+	if (settings.systemTray !== previous.systemTray)
+		void trayController.sync(settings.systemTray, trayName(process.platform))
+	if (
+		settings.quickEntryShortcut !== previous.quickEntryShortcut ||
+		settings.voiceShortcut !== previous.voiceShortcut
+	)
+		syncShortcuts()
+	sleepGuard.update()
+	if (settings.pauseOnMetered !== previous.pauseOnMetered) {
+		updates.autoDownloadChanged()
+		engineDelivery?.settingChanged()
+	}
+}
+const pendingEntries = new PendingQueue()
+let quickEntryWindow: BrowserWindow | undefined
+function closeQuickEntry(): void {
+	const window = quickEntryWindow
+	quickEntryWindow = undefined
+	if (window && !window.isDestroyed()) window.close()
+}
+/** The app's own face as a data address (a data page cannot reach the app's files); undefined when it is missing. */
+function quickEntryFont(): string | undefined {
+	try {
+		const bytes = readFileSync(join(here, '../renderer/fonts/Geist-wght.woff2'))
+		return `data:font/woff2;base64,${bytes.toString('base64')}`
+	} catch {
+		return undefined
+	}
+}
+/** The small box a global shortcut opens: one line, closed by Enter, Escape or losing focus. */
+function openQuickEntry(): void {
+	if (quickEntryWindow && !quickEntryWindow.isDestroyed()) {
+		closeQuickEntry()
+		return
+	}
+	const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+	const { width, height } = QUICK_ENTRY_SIZE
+	const window = new BrowserWindow({
+		width,
+		height,
+		x: Math.round(display.workArea.x + (display.workArea.width - width) / 2),
+		y: Math.round(display.workArea.y + display.workArea.height * 0.25),
+		frame: false,
+		resizable: false,
+		minimizable: false,
+		maximizable: false,
+		skipTaskbar: true,
+		alwaysOnTop: true,
+		transparent: false,
+		show: false,
+		title: 'Namzu Quick Entry',
+		webPreferences: {
+			preload: join(here, '../quick-entry-preload.cjs'),
+			contextIsolation: true,
+			nodeIntegration: false,
+			sandbox: true,
+			webSecurity: true,
+		},
+	})
+	quickEntryWindow = window
+	window.setMenuBarVisibility(false)
+	window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+	window.webContents.on('will-navigate', (event) => event.preventDefault())
+	window.once('ready-to-show', () => {
+		if (window.isDestroyed()) return
+		window.show()
+		window.focus()
+	})
+	window.on('blur', () => {
+		if (quickEntryWindow === window) closeQuickEntry()
+	})
+	window.on('closed', () => {
+		if (quickEntryWindow === window) quickEntryWindow = undefined
+	})
+	void window
+		.loadURL(quickEntryUrl({ appearance: heardAppearance, fontData: quickEntryFont() }))
+		.catch((error) => {
+			diagnostics.record('renderer_load_failed', { error })
+			if (quickEntryWindow === window) closeQuickEntry()
+		})
+}
+/** Bring an app window forward and tell it something is waiting; a window not open yet asks on its own. */
+function deliverPending(): void {
+	const target = windows
+		.entries()
+		.map(([, window]) => window)
+		.find((window) => !window.isDestroyed())
+	showMainWindow()
+	if (!target) return
+	try {
+		target.webContents.send('namzu:event', { kind: 'pending-entry' })
+	} catch (error) {
+		diagnostics.record('renderer_failed', { error })
+	}
+}
+const shortcuts = new ShortcutController(
+	{
+		register: (accelerator, run) => globalShortcut.register(accelerator, run),
+		unregister: (accelerator) => globalShortcut.unregister(accelerator),
+	},
+	{
+		quickEntry: openQuickEntry,
+		voice: () => {
+			pendingEntries.addVoice()
+			deliverPending()
+		},
+	},
+)
+function syncShortcuts(): void {
+	const settings = settingsStore.get()
+	shortcuts.sync({ quickEntry: settings.quickEntryShortcut, voice: settings.voiceShortcut })
+}
+/** A window to the front: the first open one, or a new one from the saved layout when none is open. */
+function showMainWindow(): void {
+	const target = windows
+		.entries()
+		.map(([, window]) => window)
+		.find((window) => !window.isDestroyed())
+	if (target) {
+		if (target.isMinimized()) target.restore()
+		target.show()
+		target.focus()
+		return
+	}
+	const saved = workspace.snapshot().windows[0]
+	void createWindow(saved?.id, saved?.bounds).catch((error) =>
+		diagnostics.record('startup_failed', { error }),
+	)
+}
+async function osState(): Promise<OsState> {
+	await trayController.settled()
+	// The system's answer is the truth: a startup entry changed outside Namzu is adopted as the wish.
+	const startupNow = canStartAtLogin ? readLoginItem(loginItemApi) : undefined
+	if (startupNow !== undefined && startupNow !== settingsStore.get().runOnStartup)
+		try {
+			settingsStore.set({ runOnStartup: startupNow })
+		} catch (error) {
+			diagnostics.record('ipc_failed', { operation: 'loginItem', error })
+		}
+	const tray = trayController.problem()
+	return {
+		platform: process.platform,
+		...(canStartAtLogin
+			? {
+					loginItem: {
+						enabled: readLoginItem(loginItemApi),
+						...(loginItemProblem ? { problem: loginItemProblem } : {}),
+					},
+				}
+			: {}),
+		tray: { shown: trayController.shown(), ...(tray ? { problem: tray } : {}) },
+		shortcuts: { quickEntry: shortcuts.state('quickEntry'), voice: shortcuts.state('voice') },
+		...(meteredWatch.available() ? { metered: { state: meteredWatch.state() } } : {}),
+	}
+}
 const voiceInput = new VoiceInputManager({
 	conversation: {
 		activity: (sessionId) => operator.voiceActivity(sessionId),
@@ -893,7 +1228,7 @@ const dataFolders = (): Record<DataFolderKind, string> => ({
 })
 const FOLDER_LABELS: Record<DataFolderKind, string> = {
 	app: 'Desktop app data',
-	namzu: 'Namzu home (conversations and trust list)',
+	namzu: 'Namzu home (conversations and trusted folders)',
 	diagnostics: 'Diagnostic logs',
 	speech: 'Downloaded voice',
 }
@@ -940,7 +1275,9 @@ function register(): void {
 		['draftSettings', 0],
 		['attachments', 0],
 		['jobs', 0],
+		['browserPane', 0],
 		['readJob', 0],
+		['contextUsage', 0],
 		['harnesses', 1],
 		['providers', 1],
 		['readyConversation', 1],
@@ -1165,6 +1502,30 @@ function register(): void {
 	})
 	handle('terminals', () => terminals.list())
 	handle('terminalAvailability', (projectId: string) => terminals.availability(projectId))
+	handle('osState', () => osState())
+	handle('storageUsage', () => measureStorage(storageLayout()))
+	handle('clearStorage', (id: unknown) => clearStorage(storageLayout(), id))
+	handle('trustedFolders', () => engineTrustList.view())
+	handle('removeTrustedFolder', (path: unknown) => {
+		const view = engineTrustList.remove(path)
+		// Desktop's fingerprint of the folder goes too, so adding it back is a first trust again.
+		try {
+			folderTrustGuard.forget(path as string)
+		} catch (error) {
+			diagnostics.record('ipc_failed', { operation: 'forgetFolderRecord', error })
+		}
+		return view
+	})
+	handle('takePendingEntries', () => pendingEntries.take())
+	ipcMain.on(QUICK_ENTRY_SUBMIT, (event, text: unknown) => {
+		if (!quickEntryWindow || event.sender !== quickEntryWindow.webContents) return
+		const kept = typeof text === 'string' && pendingEntries.addLine(text)
+		closeQuickEntry()
+		if (kept) deliverPending()
+	})
+	ipcMain.on(QUICK_ENTRY_CANCEL, (event) => {
+		if (quickEntryWindow && event.sender === quickEntryWindow.webContents) closeQuickEntry()
+	})
 	handle('terminalShells', () =>
 		availableShells(shellEnvironment()).map((value) => ({
 			value,
@@ -1217,14 +1578,51 @@ function register(): void {
 		settingsConfirmation.change(id, patch, token),
 	)
 	const configSettings = new ConfigSettings({
-		read: () => operator.configSettings(),
+		read: (projectId) => operator.configSettings(projectId),
 		write: (path, value) => operator.setConfigSetting(path, value),
 		validate: (path, value) => operator.validateConfigSetting(path, value),
 	})
-	handle('configSettings', () => configSettings.read())
+	handle('configSettings', (projectId?: string) => configSettings.read(projectId))
 	handleWindow('setConfigSetting', ({ id }, change: unknown, token: unknown) =>
 		configSettings.change(id, change, token),
 	)
+	const userMcpServers = new UserMcpServers({
+		read: () => operator.userMcpServers(),
+		readOne: (name) => operator.userMcpServer(name),
+		save: (change, dryRun) => operator.saveUserMcpServer(change, dryRun),
+		remove: (name) => operator.removeUserMcpServer(name),
+	})
+	handleWindow('pickFolder', async ({ window }) => {
+		if (!window) return null
+		const picked = await dialog.showOpenDialog(window, {
+			title: 'Add a folder',
+			properties: ['openDirectory'],
+		})
+		return picked.canceled || !picked.filePaths[0] ? null : picked.filePaths[0]
+	})
+	handle('existingFolders', (paths: unknown) => existingFolders(paths))
+	handle('installedSkills', (projectId?: string) => operator.installedSkills(projectId))
+	handle('engineBrowser', () => operator.engineBrowser())
+	handle('standingInstructions', () => operator.standingInstructions())
+	handle('saveStandingInstructions', (text: unknown, revision: unknown) =>
+		operator.saveStandingInstructions(text, revision),
+	)
+	handle('savedMemories', (projectId: unknown) => operator.savedMemories(projectId))
+	handle('readSavedMemory', (projectId: unknown, id: unknown) =>
+		operator.readSavedMemory(projectId, id),
+	)
+	handle('updateSavedMemory', (projectId: unknown, change: unknown) =>
+		operator.updateSavedMemory(projectId, (change ?? {}) as Record<string, unknown>),
+	)
+	handle('deleteSavedMemory', (projectId: unknown, change: unknown) =>
+		operator.deleteSavedMemory(projectId, (change ?? {}) as Record<string, unknown>),
+	)
+	handle('userMcpServers', () => userMcpServers.read())
+	handle('userMcpServer', (name: unknown) => userMcpServers.readOne(name))
+	handleWindow('saveUserMcpServer', ({ id }, change: unknown, token: unknown) =>
+		userMcpServers.save(id, change, token),
+	)
+	handle('removeUserMcpServer', (name: unknown) => userMcpServers.remove(name))
 	handle('desktopInfo', () => desktopInfo())
 	handle('openDataFolder', (kind: unknown) => openDataFolder(kind))
 	handle('openPalFolder', async (id: unknown) => {
@@ -1381,7 +1779,10 @@ function register(): void {
 		operator.updatePal(id, revision, changes),
 	)
 	handle('deletePal', (id: string, revision: number) => operator.deletePal(id, revision))
-	handle('removeConversation', (id: string) => operator.removeConversation(id))
+	handle('removeConversation', (id: string) => {
+		releaseAwake((sessionId) => sessionId === id)
+		return operator.removeConversation(id)
+	})
 	// A removal can be taken back for a few minutes. The proof is main's own, bound to this
 	// window and the exact folder, and it goes through the same pick checks as a new folder.
 	const readdTokens = new FolderAccessTokens()
@@ -1416,6 +1817,9 @@ function register(): void {
 	handle('forkConversation', (id: string) => operator.forkConversation(id))
 	handle('conversationMarkdown', (id: string) => operator.conversationMarkdown(id))
 	handle('projectGit', (id: string) => operator.projectGit(id))
+	handle('refreshLimits', (id: string) => operator.refreshLimits(id))
+	handle('commitPreview', (id: string, paths: string[]) => operator.commitPreview(id, paths))
+	handle('commit', (id: string, request: CommitRequestView) => operator.commit(id, request))
 	handle('mcpServers', (id: string) => operator.mcpServers(id))
 	handle('hooksView', (id?: string) => operator.hooksView(id))
 	handle('approveMcpServers', (id: string, servers: unknown) =>
@@ -1425,14 +1829,49 @@ function register(): void {
 	handle('projectPr', (id: string) => operator.projectPr(id))
 	handle('projectChanges', (id: string) => operator.projectChanges(id))
 	handle('projectDiff', (id: string, path: string) => operator.projectDiff(id, path))
+	handle('projectCompare', (id: string, request: unknown) => operator.projectCompare(id, request))
 	handle('listProjectDirectory', (id: string, dir: string) =>
 		operator.listProjectDirectory(id, dir),
 	)
 	handle('projectFileIndex', (id: string) => operator.projectFileIndex(id))
 	handle('readProjectFile', (id: string, path: string) => operator.readProjectFile(id, path))
 	handle('readSessionOutput', (id: string, path: string) => operator.readSessionOutput(id, path))
-	handle('openSessionOutput', (id: string, path: string, target: 'browser' | 'file-manager') =>
-		operator.openSessionOutput(id, path, target),
+	handleWindow('browserPane', ({ id }, sessionId: string, request: BrowserPaneRequest) => {
+		const host = browserPanes.get(id)
+		if (!host) throw new Error('The browser is not available here.')
+		return host.handle(sessionId, readBrowserRequest(request))
+	})
+	handleWindow('keepAwake', ({ id }, sessionId: string, on?: boolean) => {
+		if (typeof sessionId !== 'string' || !sessionId || sessionId.length > 400)
+			throw new Error('Invalid conversation.')
+		if (on === undefined) return awakeHolds.has(sessionId)
+		if (on && !awakeHolds.has(sessionId))
+			awakeHolds.set(sessionId, {
+				blocker: powerSaveBlocker.start('prevent-display-sleep'),
+				windowId: id,
+			})
+		else if (!on) releaseAwake((held) => held === sessionId)
+		return awakeHolds.has(sessionId)
+	})
+	handle(
+		'openSessionOutput',
+		(id: string, path: string, target: 'browser' | 'file-manager' | 'system') =>
+			operator.openSessionOutput(id, path, target),
+	)
+	handle('describeSessionOutputs', (id: string, paths: string[]) =>
+		operator.describeSessionOutputs(id, paths),
+	)
+	handle('madeSessionFiles', (id: string) => operator.madeSessionFiles(id))
+	// The dialog is the only place a destination is chosen; the window never names a path to write.
+	handleWindow('saveSessionOutput', ({ window }, id: string, path: string) =>
+		operator.saveSessionOutput(id, path, async (defaultName) => {
+			if (!window) return undefined
+			const picked = await dialog.showSaveDialog(window, {
+				title: 'Save a copy',
+				defaultPath: join(app.getPath('downloads'), defaultName),
+			})
+			return picked.canceled ? undefined : picked.filePath
+		}),
 	)
 	handle('resolveProjectLinks', (id: string, refs: string[]) =>
 		operator.resolveProjectLinks(id, refs),
@@ -1766,6 +2205,9 @@ function register(): void {
 	handle('backgroundWorkStatuses', () => operator.backgroundWorkStatuses())
 	handle('refreshTasks', (id: string) => operator.refreshTasks(id))
 	handle('readJob', (id: string, job: string) => operator.readJob(id, job))
+	handle('contextUsage', (id: string, detail?: 'summary' | 'full') =>
+		operator.contextUsage(id, detail),
+	)
 	handle('stopJob', (id: string, job: string) => operator.stopJob(id, job))
 }
 // The development and unpacked app have no embedded executable icon; an installed build does, and
@@ -1803,6 +2245,31 @@ async function createWindow(
 		},
 	})
 	windows.register(windowId, window)
+	browserPanes.set(
+		windowId,
+		new BrowserPaneHost({
+			window,
+			createView: (partition) =>
+				new WebContentsView({
+					webPreferences: {
+						partition,
+						nodeIntegration: false,
+						contextIsolation: true,
+						sandbox: true,
+						webSecurity: true,
+						allowRunningInsecureContent: false,
+						safeDialogs: true,
+					},
+				}),
+			sessionOf: (partition) => session.fromPartition(partition),
+			workFolder: (sessionId) => operator.browserWorkFolder(sessionId),
+			caseless: process.platform === 'win32',
+			cookieScope: () => settingsStore.get().browserCookies,
+			send: (state) => {
+				if (!window.isDestroyed()) window.webContents.send('namzu:browser-event', state)
+			},
+		}),
+	)
 	// The header's menu button stands in for the menu bar; keep the native accelerators without
 	// adding the operating system's menu row on Windows and Linux.
 	if (process.platform !== 'darwin') window.setMenuBarVisibility(false)
@@ -1892,6 +2359,7 @@ async function createWindow(
 			voiceInput.stopWindow(windowId)
 			// The old document's views are gone; the new one attaches afresh and may take the keyboard.
 			terminals.releaseWindow(windowId)
+			browserPanes.get(windowId)?.hide()
 		}
 	})
 	window.once('ready-to-show', () => {
@@ -1922,9 +2390,10 @@ async function createWindow(
 	window.on('close', (event) => {
 		if (stopped || quitting || allowNativeClose.delete(windowId)) return
 		event.preventDefault()
-		// The last window ends the app on Windows and Linux; ask first when a reply would be cut off.
+		// The last window ends the app on Windows and Linux unless the tray keeps it running; ask first
+		// when a reply would be cut off.
 		if (
-			process.platform !== 'darwin' &&
+			!staysRunningWithoutWindows() &&
 			windows.entries().length <= 1 &&
 			!replyGuard.approved &&
 			operator.runningReplies() > 0
@@ -1966,6 +2435,9 @@ async function createWindow(
 		localSpeechRouting.cancelWindow(windowId)
 		voiceInput.stopWindow(windowId)
 		terminals.releaseWindow(windowId)
+		browserPanes.get(windowId)?.dispose()
+		browserPanes.delete(windowId)
+		releaseAwake((_sessionId, hold) => hold.windowId === windowId)
 		windows.remove(windowId)
 		const timer = closeTimers.get(windowId)
 		if (timer) clearTimeout(timer)
@@ -1983,15 +2455,10 @@ async function createWindow(
 	}
 }
 app.on('activate', () => {
-	if (!windows.entries().length) {
-		const saved = workspace.snapshot().windows[0]
-		void createWindow(saved?.id, saved?.bounds).catch((error) =>
-			diagnostics.record('startup_failed', { error }),
-		)
-	}
+	if (!windows.entries().length) showMainWindow()
 })
 app.on('window-all-closed', () => {
-	if (process.platform !== 'darwin') app.quit()
+	if (!staysRunningWithoutWindows()) app.quit()
 })
 const updateFeed = updateFeedFromEnv(process.env, { packaged: app.isPackaged })
 function bakedUpdateConfig(): string | undefined {
@@ -2011,7 +2478,7 @@ const updates = new UpdateController({
 	// Nothing is checked unless a feed was named (environment) or the build itself declares one.
 	enabled: appCanUpdate,
 	feed: updateFeed,
-	autoDownload: () => settingsStore.get().autoDownloadUpdates,
+	autoDownload: () => settingsStore.get().autoDownloadUpdates && !downloadsPaused(),
 	currentVersion: app.getVersion(),
 	// electron-updater leaves each installed update's installer (about 500 MB) in its cache.
 	onUpToDate: () => {
@@ -2174,6 +2641,11 @@ function shutdown(): Promise<void> {
 	recordOnce('quit_requested')
 	if (shutdownRun) return shutdownRun
 	quitting = true
+	sleepGuard.close()
+	meteredWatch.close()
+	trayController.dispose()
+	closeQuickEntry()
+	shortcuts.dispose()
 	working.pill?.close()
 	sidebarSnapshot.flush()
 	// A check that runs is stopped and the engine log reaches its file; a stuck one is not waited for.
@@ -2227,10 +2699,7 @@ app.on('before-quit', (event) => {
 		.then(() => app.quit())
 		.catch((error: unknown) => {
 			diagnostics.record('shutdown_failed', { error })
-			dialog.showErrorBox(
-				'Namzu could not stop',
-				error instanceof Error ? error.message : String(error),
-			)
+			dialog.showErrorBox('Namzu couldn’t close cleanly', nativeFailureBody(error, 'stop'))
 		})
 })
 // Keep module loading independent of Electron's ready event.
@@ -2250,6 +2719,16 @@ void app
 			page: () => page,
 			accepted: () => settingsStore.get().voiceInputAccepted,
 		})
+		// What the system says wins over what was saved: a startup entry removed in the system's own
+		// list is not turned back on, and the saved wish follows it.
+		if (canStartAtLogin) {
+			const actual = readLoginItem(loginItemApi)
+			if (actual !== settingsStore.get().runOnStartup) settingsStore.set({ runOnStartup: actual })
+		}
+		void trayController.sync(settingsStore.get().systemTray, trayName(process.platform))
+		sleepGuard.start()
+		meteredWatch.start()
+		syncShortcuts()
 		// Listening never survives the computer going to sleep or being locked.
 		powerMonitor.on('suspend', () => void voiceInput.stopAll('sleep'))
 		powerMonitor.on('lock-screen', () => void voiceInput.stopAll('sleep'))
@@ -2346,7 +2825,7 @@ void app
 					label: 'Help',
 					submenu: [
 						{
-							label: 'Open diagnostic logs',
+							label: 'Open support logs',
 							accelerator: 'CmdOrCtrl+Shift+L',
 							click: () => {
 								void observeDesktopIpc(
@@ -2359,8 +2838,8 @@ void app
 									0,
 								).catch(() =>
 									dialog.showErrorBox(
-										'Diagnostic logs unavailable',
-										diagnostics.view().notice ?? 'Could not open the diagnostic folder.',
+										'Couldn’t open the support folder',
+										'Try again. If it keeps failing, restart Namzu.',
 									),
 								)
 							},
@@ -2436,9 +2915,6 @@ void app
 	})
 	.catch((error: unknown) => {
 		diagnostics.record('startup_failed', { error })
-		dialog.showErrorBox(
-			'Namzu could not start',
-			error instanceof Error ? error.message : String(error),
-		)
+		dialog.showErrorBox('Namzu couldn’t start', nativeFailureBody(error, 'start'))
 		app.quit()
 	})

@@ -19,21 +19,44 @@ import {
 	asTurnId,
 	createUserMessage,
 	generateSessionId,
+	generateTurnId,
 	genericLabel,
 	isEntityId,
 	newPasteNonce,
 	openSessionIndex,
 } from '@namzu/sdk'
+import { limitsSources } from '../integrations/limits/sources.js'
+import { type LimitsFeed, createLimitsFeed } from './desktop-limits-feed.js'
+import { localSpendEstimate } from './desktop-limits-spend.js'
 
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { hookSwitch } from '../config/hook-layers.js'
+import {
+	advertisedPromptModes,
+	bypassOptedIn,
+	computerUseEnabled,
+	hypermodeRefusal,
+	sessionOptionsFromConfig,
+	turnOptionsFromConfig,
+} from '../config/session-options.js'
+import {
+	IdleCompactor,
+	type IdleCompactorDeps,
+} from '../integrations/compaction/idle-compaction.js'
 
 import { FileCheckpointStore, type TurnUndoStatus, type UndoPreview } from '../checkpoints/store.js'
 import { flushCompileCacheWhenIdle } from '../compile-cache.js'
-import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
+import { SET_SETTING_TOOL } from '../config/agent-settings-tools.js'
+import type { AgentSettingsContext, DesktopPreferences } from '../config/agent-settings.js'
+import { describeAgentChange } from '../config/agent-settings.js'
+import type { SkillsConfig } from '../config/schema.js'
+import {
+	refreshTrustedProjectContext,
+	resolveTrustedProjectContext,
+} from '../config/trusted-project-context.js'
 import { messageTimeNote, previousSentAt } from '../context/message-time.js'
 import { DESKTOP_CONTRACT } from '../desktop-contract.js'
 import { accountForProvider } from '../integrations/accounts/binding.js'
@@ -57,6 +80,7 @@ import {
 } from '../integrations/providers/discover.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 import { isOfferableModel } from '../integrations/providers/zen-catalogue.js'
+import { discoverContextLists, gatherContext } from '../integrations/sessions/context-gather.js'
 import {
 	type CliSessionScope,
 	closeSessions,
@@ -98,6 +122,7 @@ import {
 	probeAgentSession,
 	verifyCredential,
 } from '../tui/agent.js'
+import { displayPath } from '../tui/display-path.js'
 import { withCliHarnesses } from './acp-harness.js'
 import {
 	type ProviderRetryStatus,
@@ -105,16 +130,37 @@ import {
 	settleTurnOfGoneHost,
 } from './acp-provider-retry.js'
 import { questionsOverPermission } from './acp-screen-question.js'
+import {
+	COMMIT_MESSAGE_INSTRUCTION,
+	type CommitMessageRequest,
+	commitMessageBody,
+} from './desktop-commit.js'
 import { COMPUTER_FRAME_NOTIFICATION } from './desktop-computer-feed.js'
+import {
+	type ContextDetail,
+	type ContextReport,
+	buildContextReport,
+	createContextTracker,
+} from './desktop-context.js'
 import { createDesktopHostExtensions } from './desktop-host.js'
 import { desktopModelCatalogue } from './desktop-model-catalogue.js'
 import { announceOutcome } from './desktop-outcome-feed.js'
+import { desktopPreferencesBridge } from './desktop-preferences.js'
 import { createTitleFeed } from './desktop-title-feed.js'
 import { type UsageFeed, createUsageFeed } from './desktop-usage-feed.js'
 import { withPreviews } from './permission-preview.js'
 import type { CommandContext, CommandDef } from './types.js'
 
 /** Same read as `cli.ts`'s `--version`: the manifest, never a second copy. */
+/**
+ * A failure a person reads, with a stable code a front end can map to its own wording. The
+ * sentence is plain on its own, for front ends that show it as is; the code travels as the
+ * JSON-RPC error's `data.code`.
+ */
+function engineFailure(code: string, message: string): Error {
+	return Object.assign(new Error(message), { data: { code } })
+}
+
 function readPackageVersion(): string {
 	try {
 		const here = dirname(fileURLToPath(import.meta.url))
@@ -263,10 +309,14 @@ type AcpLiveSession = Pick<
 	| 'markFilesChanged'
 	| 'autoMode'
 	| 'sideModel'
+	| 'clearStaleResultsAfterIdle'
 > & {
 	readonly resumePaused?: AgentSession['resumePaused']
 	readonly abandonTurn?: AgentSession['abandonTurn']
 	readonly describeComputerUseCall?: AgentSession['describeComputerUseCall']
+	/** What the context panel sizes; a fake session may leave them out. */
+	readonly contextInventory?: AgentSession['contextInventory']
+	readonly instructionFiles?: AgentSession['instructionFiles']
 }
 
 export interface AcpRuntimeDependencies {
@@ -284,6 +334,8 @@ export interface AcpRuntimeDependencies {
 	) => Promise<AcpLiveSession>
 	readonly decideTrust: typeof decideHeadlessTrust
 	readonly resolveProjectContext: typeof resolveTrustedProjectContext
+	/** The project's context with its files read again: a new conversation takes the saved settings. */
+	readonly refreshProjectContext?: typeof refreshTrustedProjectContext
 	/** Which namzu session a wire session id stands for; see {@link resolveAcpSession}. */
 	readonly resolveSession: (wireSessionId: string) => Promise<AcpSessionTarget>
 	/** Durable CLI catalog owned for the lifetime of one runtime session. */
@@ -291,6 +343,30 @@ export interface AcpRuntimeDependencies {
 	/** Direct journal reads; legacy injected openSessions remains the fallback when absent. */
 	readonly openSessionScope?: typeof openSessionScope
 	readonly readRetryStatus?: typeof readProviderRetryStatus
+}
+
+/**
+ * The prompt-cache clock of one conversation, used only to shed old tool
+ * results after a long break (`compaction.clearStaleResultsAfterIdle`). The
+ * idle compaction timer is the terminal's; nothing here ever arms it.
+ */
+function staleResultsDeps(sessionId: string): IdleCompactorDeps {
+	return {
+		now: Date.now,
+		setTimer: () => undefined,
+		clearTimer: () => undefined,
+		isEnabled: () => false,
+		conversationKey: () => sessionId,
+		minTokens: () => Number.POSITIVE_INFINITY,
+		contextTokens: () => undefined,
+		isNearLimit: () => false,
+		lastInteractionAt: () => 0,
+		isTurnRunning: () => false,
+		isDialogOpen: () => false,
+		hasPendingWake: () => false,
+		hasBackgroundWork: () => false,
+		compact: async () => false,
+	}
 }
 
 interface AcpRuntimeRecord {
@@ -302,6 +378,14 @@ interface AcpRuntimeRecord {
 	readonly palId?: string
 	readonly readyComputer?: () => PalEnvironmentLease | undefined
 	readonly provider: string
+	/** What the configuration decides about every turn of this conversation (hypermode, refusal fallback). */
+	readonly turnOptions: ReturnType<typeof turnOptionsFromConfig>
+	/** `workflow.enabled: false`: a hypermode asked for in the composer is refused, not sent. */
+	readonly workflowsOff?: true
+	/** Tracks the prompt cache across turns, to shed old tool results once it has lapsed. */
+	readonly staleResults: IdleCompactor
+	/** The skills settings this conversation started with, for the context panel's skill list. */
+	readonly skillsConfig?: SkillsConfig
 	/** `permissions.disableBypassMode` and friends, which the host cannot be talked out of. */
 	readonly permissionSettings?: PermissionSettings
 	/** The model this connection runs on now; a retry repeats the paused turn on it, not on the failed one. */
@@ -323,6 +407,11 @@ interface AcpRuntimeRecord {
 function assertModeAllowed(record: AcpRuntimeRecord, mode: PermissionMode): void {
 	const refusal = launchRefusal(mode, { settings: record.permissionSettings })
 	if (refusal) throw new Error(refusal)
+	if (mode === 'bypass' && !bypassOptedIn(record.permissionSettings)) {
+		throw new Error(
+			'The mode that skips every question is off. Turn on Allow bypass permissions mode in Settings first.',
+		)
+	}
 	if (mode === 'classify' && record.session.autoMode?.available === false) {
 		throw new Error(record.session.autoMode.reason ?? 'Auto mode is not available here.')
 	}
@@ -409,6 +498,15 @@ export interface CliTurnUndo {
 
 export interface CliAcpRuntime {
 	readonly gateway: AcpAgentGateway
+	/**
+	 * The small model's commit message for a conversation's changed files, or undefined when it has
+	 * none or cannot answer. Counted like any side request; never asked without a person's click.
+	 */
+	suggestCommitMessage?(
+		sessionId: string,
+		request: CommitMessageRequest,
+		signal: AbortSignal,
+	): Promise<string | undefined>
 	/** Per-reply file undo; absent on a runtime that keeps no file history. */
 	readonly turnUndo?: CliTurnUndo
 	/** Live operator text for this connection's current ordinary Namzu prompt only. */
@@ -490,6 +588,11 @@ export interface CliAcpRuntime {
 	 * active work. Absent on a runtime that cannot route.
 	 */
 	selectAuto?(sessionId: string): Promise<void>
+	/**
+	 * Where this conversation's context window goes (the desktop's context panel). Null before the
+	 * engine has reported a window. `full` also lists the tool server tools, skills, agents and notes.
+	 */
+	contextUsage?(sessionId: string, detail: ContextDetail): Promise<ContextReport | null>
 	jobs(sessionId: string): readonly import('@namzu/sdk').BackgroundJob[]
 	readJob(sessionId: string, jobId: string): unknown
 	stopJob(sessionId: string, jobId: string): Promise<unknown>
@@ -549,7 +652,7 @@ class LivePromptInbox {
 	}
 	accept(input: { scopeId: string; inputId: string; prompt: string }) {
 		if (!this.available || input.scopeId !== this.scopeId)
-			throw new Error('This live prompt is no longer available. Your message was not admitted.')
+			throw engineFailure('message-not-sent', 'Your message wasn’t sent. Send it again.')
 		if (
 			typeof input.inputId !== 'string' ||
 			!input.inputId.trim() ||
@@ -564,7 +667,10 @@ class LivePromptInbox {
 			throw new Error('This live input id already belongs to a different message.')
 		if (!previous) {
 			if (this.entries.size >= 20 || this.chars + input.prompt.length > 1_000_000)
-				throw new Error('The live input mailbox is full. Your message was not admitted.')
+				throw engineFailure(
+					'too-many-messages',
+					'Namzu is busy with too many messages. Wait a moment, then send again.',
+				)
 			this.entries.set(input.inputId, {
 				prompt: input.prompt,
 				status: 'pending',
@@ -631,6 +737,7 @@ const DEFAULT_RUNTIME_DEPS: AcpRuntimeDependencies = {
 	createSession: createAgentSession,
 	decideTrust: decideHeadlessTrust,
 	resolveProjectContext: resolveTrustedProjectContext,
+	refreshProjectContext: refreshTrustedProjectContext,
 	resolveSession: (wireSessionId) => resolveAcpSession(wireSessionId, lookupInIndex),
 }
 
@@ -665,6 +772,8 @@ export interface CliAcpRuntimeOptions {
 	 * with the small model, beside its first turn, and tells the desktop the name.
 	 */
 	readonly announce?: (method: string, params: Record<string, unknown>) => void
+	/** How the desktop app's own preferences are reached; absent when the app did not say. */
+	readonly desktopPreferences?: DesktopPreferences
 }
 
 export function createCliAcpRuntime(
@@ -673,6 +782,16 @@ export function createCliAcpRuntime(
 	runtimeOptions: CliAcpRuntimeOptions = {},
 ): CliAcpRuntime {
 	const records = new Map<string, AcpRuntimeRecord>()
+	const contextTracker = createContextTracker()
+	// What was read from disk for the context panel, until the next turn or shortening ends.
+	const contextReads = new Map<
+		string,
+		{
+			version: number
+			lists: Awaited<ReturnType<typeof discoverContextLists>>
+			files: Map<string, string>
+		}
+	>()
 	// The tool servers that stopped the last conversation from starting in a folder. A session whose
 	// server failed never exists, so this is the only place the reason survives for a settings page.
 	const mcpFailures = new Map<string, readonly { name: string; reason: string; config: string }[]>()
@@ -683,6 +802,11 @@ export function createCliAcpRuntime(
 			return dir
 		}
 	}
+	/** What the settings tools read and write for a conversation in `cwd`. */
+	const settingsContext = (cwd: string): AgentSettingsContext => ({
+		cwd,
+		...(runtimeOptions.desktopPreferences ? { desktop: runtimeOptions.desktopPreferences } : {}),
+	})
 	const liveInputs = new Map<string, LivePromptInbox>()
 	const constructing = new Map<string, string>()
 	const selections = new Map<string, Preferences>()
@@ -842,12 +966,20 @@ export function createCliAcpRuntime(
 		signal: AbortSignal,
 	): Promise<AcpRuntimeRecord> => {
 		signal.throwIfAborted()
-		if (closed) throw new Error('The ACP connection has closed.')
+		if (closed)
+			throw engineFailure(
+				'connection-closed',
+				'Namzu lost its connection to this conversation. Try again, or restart Namzu if it keeps happening.',
+			)
 
 		// This is the first project-aware operation. Session creation and the
 		// protocol handshake remain credential-free and do not read the target.
 		const trust = deps.decideTrust({ cwd: requestedCwd, trustFlag: false })
-		if (!trust.allowed) throw new Error(trust.message ?? 'folder not trusted')
+		if (!trust.allowed)
+			throw engineFailure(
+				'folder-not-trusted',
+				trust.message ?? 'Trust this folder first, then send again.',
+			)
 		const cwd = trust.cwd
 		const palBinding = await deps.palBinding?.(cwd, sessionId)
 		if (palBinding?.pal.paused) throw new Error('This Pal is paused.')
@@ -859,14 +991,18 @@ export function createCliAcpRuntime(
 		const existing = records.get(sessionId)
 		if (existing) {
 			if (existing.cwd !== cwd) {
-				throw new Error(
-					`ACP session "${sessionId}" already owns ${existing.cwd}; refusing to reuse it for ${cwd}.`,
+				throw engineFailure(
+					'conversation-in-other-folder',
+					'This conversation is already open in another folder. Open it again from the sidebar.',
 				)
 			}
 			return existing
 		}
 		if (constructing.has(sessionId)) {
-			throw new Error(`ACP session "${sessionId}" is already being constructed.`)
+			throw engineFailure(
+				'conversation-opening',
+				'This conversation is still opening. Wait a moment, then try again.',
+			)
 		}
 		constructing.set(sessionId, cwd)
 		const carriedRetry = retryCarry.get(sessionId)
@@ -885,7 +1021,10 @@ export function createCliAcpRuntime(
 				}
 			}
 			try {
-				const projectCtx = deps.resolveProjectContext(bootstrapCtx, cwd)
+				const projectCtx = (deps.refreshProjectContext ?? deps.resolveProjectContext)(
+					bootstrapCtx,
+					cwd,
+				)
 				warnLegacyMcpPermissionNames(projectCtx.config.permissions)
 				const permissions = compilePermissionLayers(
 					permissionLayersOf(projectCtx.config),
@@ -906,18 +1045,27 @@ export function createCliAcpRuntime(
 
 				const probe = await sharedProbe()
 				signal.throwIfAborted()
-				if (closed) throw new Error('The ACP connection closed while its session was starting.')
+				if (closed)
+					throw engineFailure(
+						'connection-closed',
+						'Namzu lost its connection while this conversation was opening. Try again.',
+					)
 				const prefs = await preferencesFor(sessionId, probe, cwd)
 				const primary = prefs?.providers[0]
 				if (!prefs || !primary) {
-					throw new Error(
-						'No LLM provider is available on this machine: set a credential in the environment, or run `namzu` interactively to pick one. The protocol handshake succeeded; there is nothing to run a prompt with.',
+					throw engineFailure(
+						'no-provider',
+						'Namzu has no AI service set up on this computer yet. Add a key or sign in to one in Settings, then send again.',
 					)
 				}
 
 				const target = await deps.resolveSession(sessionId)
 				signal.throwIfAborted()
-				if (closed) throw new Error('The ACP connection closed while its session was starting.')
+				if (closed)
+					throw engineFailure(
+						'connection-closed',
+						'Namzu lost its connection while this conversation was opening. Try again.',
+					)
 				conversationState = await deps.openSessions?.(cwd)
 				const palRuntime = palBinding ? await deps.palRuntime?.() : undefined
 				if (palBinding && !palRuntime) throw new Error('This Pal runtime is unavailable.')
@@ -935,11 +1083,16 @@ export function createCliAcpRuntime(
 					runtimeOptions.computerUse === true && !palEnvironment && browserConfig?.enabled !== false
 						? compileBrowserSites(browserConfig?.sites)
 						: undefined
+				// The computer tools are off until the user's own settings turn them on.
+				const computerOn =
+					runtimeOptions.computerUse === true &&
+					!palEnvironment &&
+					computerUseEnabled(projectCtx.config)
 				candidate = await deps.createSession(prefs, probe.detected, {
 					...(palEnvironment ? { palEnvironment } : {}),
 					// The host PC, for the desktop only. A Pal conversation has its own
 					// computer behind the same tool name, so it never gets both.
-					...(runtimeOptions.computerUse === true && !palEnvironment
+					...(computerOn
 						? {
 								enableComputerUse: true,
 								...(runtimeOptions.observeComputer
@@ -950,8 +1103,15 @@ export function createCliAcpRuntime(
 									: {}),
 							}
 						: {}),
-					// The desktop shows what a turn writes in a preview pane; the model is told so.
+					// The desktop shows what a turn writes in its Browser and Files panes; the model is told so.
 					...(runtimeOptions.announce && !palEnvironment ? { desktop: true } : {}),
+					// The model may read the safe settings and change one when the person says yes on
+					// the card; the desktop's own preferences join when the app said where they are.
+					...(runtimeOptions.announce &&
+					!palEnvironment &&
+					projectCtx.config.agentSettings !== false
+						? { settingsTools: settingsContext(cwd) }
+						: {}),
 					cwd,
 					sessionId: target.sessionId,
 					...(conversationState
@@ -986,20 +1146,9 @@ export function createCliAcpRuntime(
 								},
 							}
 						: {}),
-					...(projectCtx.config.permissionSettings
-						? { permissionSettings: projectCtx.config.permissionSettings }
-						: {}),
-					...(projectCtx.config.mcpServers ? { mcpServers: projectCtx.config.mcpServers } : {}),
-					...(projectCtx.config.plugins ? { plugins: projectCtx.config.plugins } : {}),
-					...(projectCtx.config.skills ? { skills: projectCtx.config.skills } : {}),
-					...(projectCtx.config.web ? { web: projectCtx.config.web } : {}),
-					...(projectCtx.config.smallModel ? { smallModel: projectCtx.config.smallModel } : {}),
-					...(projectCtx.config.hooks ? { hooks: projectCtx.config.hooks } : {}),
-					...(hookSwitch(projectCtx.config) ? { hooksSwitch: hookSwitch(projectCtx.config) } : {}),
-					...(projectCtx.config.compaction ? { compaction: projectCtx.config.compaction } : {}),
-					...(projectCtx.config.memory ? { memory: projectCtx.config.memory } : {}),
-					...(projectCtx.config.sandbox ? { sandbox: projectCtx.config.sandbox } : {}),
-					...(projectCtx.config.decision ? { decision: projectCtx.config.decision } : {}),
+					// Every key the configuration sets for a session, through the one function
+					// `exec` reads them with: this host cannot miss one the terminal honours.
+					...sessionOptionsFromConfig(projectCtx.config, { cwd }),
 					// The desktop application is watched live; a Pal and any other client are not.
 					...(() => {
 						const nudge = palEnvironment
@@ -1015,20 +1164,18 @@ export function createCliAcpRuntime(
 					autoIsActive(sessionId, projectCtx.config, palBinding != null)
 						? { routing: projectCtx.config.routing }
 						: {}),
-					// `!== undefined`, not truthiness: an empty list is the
-					// operator turning the default screen OFF.
-					...(projectCtx.config.toolResultScreens !== undefined
-						? { toolResultScreens: projectCtx.config.toolResultScreens }
-						: {}),
 					onSessionEvent: (event: SessionEvent) => routeOwner.current?.route?.(event),
 				})
 				if (signal.aborted || closed) {
 					await closeCandidate()
 					signal.throwIfAborted()
-					throw new Error('The ACP connection closed while its session was starting.')
+					throw engineFailure(
+						'connection-closed',
+						'Namzu lost its connection while this conversation was opening. Try again.',
+					)
 				}
 				if (!candidate.hasProvider) {
-					const hint = candidate.errorHint ?? 'agent is not ready'
+					const hint = candidate.errorHint ?? 'Namzu isn’t ready yet. Try again in a moment.'
 					await closeCandidate()
 					throw new Error(hint)
 				}
@@ -1042,7 +1189,7 @@ export function createCliAcpRuntime(
 						})),
 					)
 					const failure = candidate.mcpFailed
-						.map((entry) => `tool server "${entry.name}" is not available: ${entry.reason}`)
+						.map((entry) => `The connected tool “${entry.name}” isn’t available: ${entry.reason}`)
 						.join('\n')
 					await closeCandidate()
 					throw new Error(failure)
@@ -1067,9 +1214,13 @@ export function createCliAcpRuntime(
 						? { palId: palBinding.pal.id, readyComputer: palEnvironment?.readyComputer }
 						: {}),
 					provider: primary.id,
+					...(projectCtx.config.skills ? { skillsConfig: projectCtx.config.skills } : {}),
 					...(projectCtx.config.permissionSettings
 						? { permissionSettings: projectCtx.config.permissionSettings }
 						: {}),
+					turnOptions: turnOptionsFromConfig(projectCtx.config),
+					...(hypermodeRefusal(projectCtx.config) ? { workflowsOff: true as const } : {}),
+					staleResults: new IdleCompactor(staleResultsDeps(sessionId)),
 					model:
 						primary.model ??
 						probe.detected.find(({ entry }) => entry.id === primary.id)?.entry.defaultModel ??
@@ -1176,6 +1327,7 @@ export function createCliAcpRuntime(
 					activeRecord = outer
 				}
 				try {
+					contextTracker.observe(sessionId, event)
 					runtimeOptions.observeEvent?.(sessionId, event)
 					titleFeed?.observe(sessionId, event)
 				} catch {
@@ -1203,6 +1355,10 @@ export function createCliAcpRuntime(
 							computer: (call) =>
 								record.session.describeComputerUseCall?.(call.name, call.input) ??
 								Promise.resolve(undefined),
+							settingChange: (call) =>
+								call.name === SET_SETTING_TOOL
+									? describeAgentChange(settingsContext(record.cwd), call.input)
+									: undefined,
 						}),
 					})
 					switch (outcome.kind) {
@@ -1277,8 +1433,23 @@ export function createCliAcpRuntime(
 				undoNotes.delete(sessionId)
 				// A conversation's name being saved holds its log for a moment; the turn goes after it.
 				await titleFeed?.saved(sessionId)
+				// A conversation picked up after its prompt cache lapsed is re-read at full
+				// price anyway: old tool results can go now. Read before this turn's calls.
+				const staleResults = record.session.clearStaleResultsAfterIdle
+					? record.staleResults.staleResultsRequest()
+					: undefined
 				for await (const event of record.session.send(messages, {
 					...settings,
+					// The configuration's per-turn choices: hypermode, refusal fallback.
+					...record.turnOptions,
+					// The composer's own choice for this conversation wins over the saved one, and is
+					// never sent while dynamic workflows are off.
+					...(record.workflowsOff
+						? { hypermode: undefined }
+						: settings.hypermode !== undefined
+							? { hypermode: settings.hypermode }
+							: {}),
+					...(staleResults ? { clearStaleToolResults: staleResults } : {}),
 					// The words the person sent: a target such as +500k is read from these only.
 					typedInput: prompt,
 					currentPermissionMode: () => turnMode,
@@ -1310,6 +1481,7 @@ export function createCliAcpRuntime(
 						settledHistory = [...messages]
 					},
 				})) {
+					if (event.kind === 'usage') record.staleResults.recordCall(event.cache)
 					if (event.kind === 'done' || event.kind === 'error' || event.kind === 'paused')
 						liveInbox?.close()
 					if (event.kind === 'done') stopReason = event.stopReason
@@ -1349,14 +1521,16 @@ export function createCliAcpRuntime(
 			)
 			if (status.retry?.turnId !== turnId || status.retry.checkpointId !== checkpointId)
 				throw new Error(
-					status.notice ?? 'The paused turn or checkpoint has changed. Refresh this conversation.',
+					status.notice ??
+						'This paused reply has changed. Reopen the conversation to see its latest state.',
 				)
 			const original = record.retrySettings?.turnId === turnId ? record.retrySettings : undefined
 			assertRetryComputer(record, original)
 			const previous = original?.settings
 			if (!previous && options?.permissionMode === undefined)
-				throw new Error(
-					'The original approval settings are unavailable after reconnection. An explicit permission mode is required to retry this retained turn.',
+				throw engineFailure(
+					'permission-mode-needed',
+					'Namzu can’t restore the approval settings for this reply. Choose how much Namzu may do, then try again.',
 				)
 			const settings = validateComposerSendSettings(
 				{ ...previous, ...options },
@@ -1368,8 +1542,13 @@ export function createCliAcpRuntime(
 			const started = facts?.startedTurn(turnId)
 			const pause = facts?.latestPause(turnId)
 			if (!started?.model || !pause?.providerError)
-				throw new Error('The original provider and model cannot be verified for this retry.')
-			if (!record.model) throw new Error('The selected model cannot be verified for this retry.')
+				throw new Error(
+					'Namzu can’t confirm which AI service and model this reply used, so it can’t try it again here.',
+				)
+			if (!record.model)
+				throw new Error(
+					'Namzu can’t confirm which model this reply used, so it can’t try it again here.',
+				)
 			const routedEvent = (event: SessionEvent): void => {
 				const outer = activeRecord
 				activeRecord = record
@@ -1409,6 +1588,10 @@ export function createCliAcpRuntime(
 								computer: (call) =>
 									record.session.describeComputerUseCall?.(call.name, call.input) ??
 									Promise.resolve(undefined),
+								settingChange: (call) =>
+									call.name === SET_SETTING_TOOL
+										? describeAgentChange(settingsContext(record.cwd), call.input)
+										: undefined,
 							}),
 						})
 						if (outcome.kind === 'approve_all') return { kind: 'approve-all' }
@@ -1473,7 +1656,9 @@ export function createCliAcpRuntime(
 					authenticated.projectId !== record.conversations.projectId ||
 					authenticated.tenantId !== record.conversations.tenantId))
 		)
-			throw new Error('This conversation belongs to another project or application home.')
+			throw new Error(
+				'This conversation belongs to a different project or to another Namzu data folder.',
+			)
 		const target = await deps.resolveSession(sessionId)
 		const binding = await deps.palBinding?.(trust.cwd, target.sessionId, authenticated)
 		return { record, cwd: trust.cwd, sessionId: target.sessionId, binding }
@@ -1599,6 +1784,19 @@ export function createCliAcpRuntime(
 		gateway,
 		presenter,
 		turnUndo,
+		suggestCommitMessage: async (sessionId, request, signal) => {
+			const side = records.get(sessionId)?.session.sideModel
+			if (!side) return undefined
+			return side.ask({
+				sessionId: sessionId as SessionId,
+				turnId: generateTurnId(),
+				instruction: COMMIT_MESSAGE_INSTRUCTION,
+				body: commitMessageBody(request),
+				maxTokens: 300,
+				signal,
+				timing: 'beside-turn',
+			})
+		},
 		liveInputStatus: async (sessionId, scopeId, scope) => {
 			if (closed) throw new Error('The connection is closed.')
 			const inbox = liveInputs.get(sessionId)
@@ -1643,7 +1841,9 @@ export function createCliAcpRuntime(
 							authenticatedScope.projectId !== record.conversations.projectId ||
 							authenticatedScope.tenantId !== record.conversations.tenantId))
 				)
-					throw new Error('This conversation belongs to another project or application home.')
+					throw new Error(
+						'This conversation belongs to a different project or to another Namzu data folder.',
+					)
 			}
 			const target = await deps.resolveSession(sessionId)
 			const reading =
@@ -1695,12 +1895,14 @@ export function createCliAcpRuntime(
 					)
 				if ((record?.retrySettings ?? retryCarry.get(sessionId))?.turnId !== status.retry.turnId)
 					return blocked(
-						'The original approval settings are unavailable after reconnection. An explicit permission mode is required to retry this retained turn.',
+						'Namzu can’t restore the approval settings for this reply. Choose how much Namzu may do, then try again.',
 					)
 				const facts = await readConversationFacts(state, target.sessionId)
 				const pause = status.retry?.turnId ? facts?.latestPause(status.retry.turnId) : undefined
 				if (!pause?.providerError)
-					return blocked('The original provider cannot be verified for this retry.')
+					return blocked(
+						'Namzu can’t confirm which AI service this reply used, so it can’t try it again here.',
+					)
 				// A turn already retried stopped again on the model it was retried on.
 				const lastRun = retriedOn.get(status.retry.turnId)
 				return lastRun && !status.retry.original
@@ -1754,11 +1956,21 @@ export function createCliAcpRuntime(
 			if (!detected) throw new Error('This provider is not configured. Set it up in Namzu first.')
 			const preferences = await preferencesFor(sessionId, probe)
 			const record = sessionId ? records.get(sessionId) : undefined
+			const workflowsOff = hypermodeRefusal(
+				record
+					? { workflow: record.workflowsOff ? { enabled: false } : undefined }
+					: bootstrapCtx.config,
+			)
+				? { workflowsOff: true as const }
+				: bootstrapCtx.config.hypermode === true
+					? { hypermodeDefault: true as const }
+					: {}
 			// The running session answers only for the model it runs on, which can lag its Pal's.
 			if (record && record.provider === provider && record.model === model) {
 				return {
 					effortLevels: record.session.reasoningEffortLevels,
 					effortDefault: record.session.reasoningEffortDefault,
+					...workflowsOff,
 				}
 			}
 			const result = await (deps.describeReasoning ?? describeProviderReasoning)(
@@ -1780,6 +1992,7 @@ export function createCliAcpRuntime(
 			return {
 				effortLevels: result.effortLevels,
 				effortDefault: result.effortDefault,
+				...workflowsOff,
 				...(result.notice
 					? {
 							notice: 'Reasoning choices could not be fully established for this model.',
@@ -2004,6 +2217,8 @@ export function createCliAcpRuntime(
 				if (existing) {
 					if (existing.retrySettings) retryCarry.set(sessionId, existing.retrySettings)
 					records.delete(sessionId)
+					contextReads.delete(sessionId)
+					contextTracker.forget(sessionId)
 					try {
 						await existing.session.close()
 					} finally {
@@ -2055,6 +2270,8 @@ export function createCliAcpRuntime(
 				if (existing) {
 					if (existing.retrySettings) retryCarry.set(sessionId, existing.retrySettings)
 					records.delete(sessionId)
+					contextReads.delete(sessionId)
+					contextTracker.forget(sessionId)
 					try {
 						await existing.session.close()
 					} finally {
@@ -2065,6 +2282,60 @@ export function createCliAcpRuntime(
 			} finally {
 				selecting.delete(sessionId)
 			}
+		},
+		contextUsage: async (sessionId, detail) => {
+			const record = records.get(sessionId)
+			const figures = contextTracker.figures(sessionId)
+			if (!record || !figures?.windowTokens || figures.windowTokens <= 0) return null
+			let reads = contextReads.get(sessionId)
+			if (!reads || reads.version !== figures.version) {
+				reads = {
+					version: figures.version,
+					lists: await discoverContextLists({
+						cwd: record.cwd,
+						skillsConfig: record.skillsConfig,
+					}),
+					files: new Map(),
+				}
+				contextReads.set(sessionId, reads)
+			}
+			const files = reads.files
+			const inventory = record.session.contextInventory?.()
+			const gathering = await gatherContext({
+				context: {
+					tokens: figures.tokens ?? 0,
+					windowTokens: figures.windowTokens,
+					measured: figures.measuredBy === 'provider',
+					...(figures.windowSource ? { windowSource: figures.windowSource } : {}),
+				},
+				autoCompact: true,
+				...(inventory?.systemPrompt ? { systemPrompt: inventory.systemPrompt } : {}),
+				tools: inventory?.tools ?? [],
+				...(inventory?.deferredTools ? { deferredTools: inventory.deferredTools } : {}),
+				// The history is not read here: the kernel's own figure already covers it.
+				messages: [],
+				instructionFiles: record.session.instructionFiles ?? [],
+				mcpInstructions: (record.session.mcpStatus?.().connected ?? []).flatMap((server) =>
+					server.instructions ? [server.instructions] : [],
+				),
+				skills: reads.lists.skills,
+				agents: reads.lists.agents,
+				displayPath: (path) => displayPath(path, record.cwd),
+				readText: async (path) => {
+					const known = files.get(path)
+					if (known !== undefined) return known
+					const text = await readFile(path, 'utf8')
+					files.set(path, text)
+					return text
+				},
+			})
+			return buildContextReport({
+				sessionId,
+				detail,
+				figures,
+				autoCompact: true,
+				gathering,
+			})
 		},
 		jobs: (sessionId) => records.get(sessionId)?.session.jobs?.() ?? [],
 		readJob: (sessionId, jobId) => {
@@ -2141,6 +2412,7 @@ export function desktopServerExtensions(
 	server: Pick<ACPServer, 'getSessionCwd' | 'retrySession'>,
 	palInboxStart?: CliPalInboxStarter,
 	terminals?: Pick<TerminalHost, 'extensions'>,
+	limits?: Pick<LimitsFeed, 'refresh'>,
 ): Readonly<Record<string, (params: Record<string, unknown>) => unknown>> {
 	return {
 		...createDesktopHostExtensions(
@@ -2151,6 +2423,7 @@ export function desktopServerExtensions(
 			undefined,
 			undefined,
 			palInboxStart,
+			limits,
 		),
 		...terminals?.extensions,
 	}
@@ -2175,6 +2448,16 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 				},
 			})
 		: undefined
+	// Desktop only: what each provider in use says about its account. Read from responses already
+	// made, or asked at most once a minute; held in memory and never logged.
+	const limitsFeed: LimitsFeed | undefined = desktop
+		? createLimitsFeed({
+				sources: limitsSources,
+				spend: localSpendEstimate,
+				notify: announce,
+				now: () => Date.now(),
+			})
+		: undefined
 	const runtime = withCliHarnesses(
 		createCliAcpRuntime(ctx, DEFAULT_RUNTIME_DEPS, {
 			computerUse: desktop,
@@ -2185,10 +2468,18 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 					}
 				: {}),
 			...(desktop ? { announce } : {}),
+			...(desktop
+				? (() => {
+						const bridge = desktopPreferencesBridge(process.env, announce)
+						return bridge ? { desktopPreferences: bridge } : {}
+					})()
+				: {}),
 			...(usageFeed
 				? {
 						observeEvent: (id, event) => {
 							usageFeed.observe(id, event)
+							if (event.type === 'turn_completed' || event.type === 'turn_failed')
+								void limitsFeed?.noteTurnEnd()
 							announceOutcome(id, event, announce)
 						},
 					}
@@ -2211,12 +2502,22 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 	const palInboxStart = desktop
 		? createPalInboxStarter(() => resolveTrustedProjectContext(ctx, process.cwd()))
 		: undefined
+	const hostConfig = (() => {
+		try {
+			return resolveTrustedProjectContext(ctx, process.cwd()).config
+		} catch {
+			return ctx.config
+		}
+	})()
 	const server: ACPServer = new ACPServer({
 		supportsPromptAttachments: true,
 		supportsPromptOptions: true,
 		supportsPromptPasted: true,
-		// `assertModeAllowed` below applies the settings that shut either door.
-		promptPermissionModes: ['bypass', 'classify'],
+		// Only the modes the configuration leaves open, so a client does not offer one
+		// the engine then refuses. `assertModeAllowed` below still holds the line.
+		// The list follows the folder this host was started in: Desktop starts one host per
+		// project, in the project's folder, so that is the project's own configuration.
+		promptPermissionModes: advertisedPromptModes(hostConfig),
 		supportsTaskNotifications: desktop,
 		transport,
 		gateway: runtime.gateway,
@@ -2237,6 +2538,7 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 						},
 						palInboxStart,
 						terminals,
+						limitsFeed,
 					),
 				}
 			: {}),

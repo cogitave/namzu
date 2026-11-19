@@ -210,7 +210,8 @@ provider explicitly declares that media unsupported. Transport attachment
 support alone does not establish model capability.
 
 `AcpSessionPromptParams.options` optionally accepts `AcpPromptOptions` with
-`effort?: ReasoningEffort` and `permissionMode?: ReviewMode`. The host opts in with
+`effort?: ReasoningEffort`, `permissionMode?: ReviewMode` and `hypermode?: boolean` (the
+standing orchestration mode for that turn; the host decides whether it may run). The host opts in with
 `supportsPromptOptions: true`, advertised as `promptOptions: true` at
 initialization. Unknown fields, invalid modes and unsupported explicit options
 are refused before execution. The CLI validates effort against the selected
@@ -218,7 +219,7 @@ session's actual provider menu, including its configured fallbacks, and applies
 the captured review mode to that message's turn. These options do not rewrite
 saved global preferences or change a currently running turn.
 
-Of the review modes, `bypass` and `classify` are accepted in prompt options only when the host lists them in `AcpServerOptions.promptPermissionModes`, advertised at initialization as `promptPermissionModes`. Without that, a prompt that asks for either fails with `INVALID_PARAMS` (`This agent does not accept the "bypass" permission mode in prompt settings.`) before a turn starts. The CLI declares both and then applies `permissions.disableBypassMode`, the root guard and the auto-mode model check to the turn.
+Of the review modes, `bypass` and `classify` are accepted in prompt options only when the host lists them in `AcpServerOptions.promptPermissionModes`, advertised at initialization as `promptPermissionModes`. Without that, a prompt that asks for either fails with `INVALID_PARAMS` (`This agent does not accept the "bypass" permission mode in prompt settings.`) before a turn starts. The empty list is advertised as `[]` (the host closes both), which a client tells apart from an older host that sends no list. The CLI declares only the modes its configuration leaves open (`permissions.disableAutoMode` drops `classify`, `permissions.disableBypassMode` or the root guard drops `bypass`) and then applies `permissions.disableBypassMode`, the root guard and the auto-mode model check to the turn. The list is read from the configuration of the folder the host was started in (Desktop starts one host per project, in the project's folder, so each project advertises its own); a session opened in a different folder is still checked against that folder's configuration when a turn starts.
 
 `AcpSessionPromptParams.pasted` optionally lists the stretches of `prompt` the person pasted, as `{ start, end }` in UTF-16 units. The host opts in with `supportsPromptPasted: true`, advertised as `promptPasted: true`. A list that is not in order, overlaps, is empty, reaches past the prompt or holds more than 64 entries fails with `INVALID_PARAMS`, and a host that did not opt in refuses the field. The gateway sets those stretches apart in the model request ([Pasted text](pasted-text.md)); a prompt that arrives as plain text, with no ranges, stays as it is. The CLI opts in.
 
@@ -298,6 +299,10 @@ never accepted as proof of the original one. That tuple is not currently durable
 so a cold or originally offline Pal checkpoint remains blocked even when an
 explicit permission mode is supplied. Another active Pal conversation blocks
 admission.
+
+## A stable code on a failure
+
+A gateway (the host behind the server) may throw an error that carries `data: { code }`, a lower-case name such as `no-provider`, `connection-closed` or `folder-not-trusted`. The server sends it as the JSON-RPC error's `data` (`{ code, message, data: { code } }`) and keeps the sentence as `message`. A client words the failure by the code and falls back to the sentence; anything else on the error, and a code that is not a short lower-case name, is not sent. The CLI host's sentences are plain English for a person, so a client that shows `message` as it is stays readable.
 
 Stdout is reserved for JSON-RPC lines. Human logs go to stderr. Disconnect cancels
 owned prompts and rejects pending permission requests.

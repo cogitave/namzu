@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { resolveComposerTriggers } from './composer-triggers.js'
+import { resolveComposerTriggers, withWorkflowKeywordSwitch } from './composer-triggers.js'
 import { ConfigValueError, loadConfig, loadConfigWithProvenance } from './load.js'
 
 function layers(options: {
@@ -163,5 +163,25 @@ describe('a repository turns triggers down, never up', () => {
 			layers({ managed: { composerTriggers: { enabled: false } } }),
 		)
 		expect(provenance.composerTriggers?.kind).toBe('managed')
+	})
+})
+
+describe('the workflow words follow the workflow settings', () => {
+	const settings = resolveComposerTriggers(undefined)
+	it('leave the words armed by default', () => {
+		expect(withWorkflowKeywordSwitch(settings, undefined)).toBe(settings)
+		expect(withWorkflowKeywordSwitch(settings, { keywordTrigger: true })).toBe(settings)
+	})
+	it('make hypermode and workflow plain words when the keyword switch is off', () => {
+		const off = withWorkflowKeywordSwitch(settings, { keywordTrigger: false })
+		expect(off.arming.hypermode).toBe('off')
+		expect(off.arming.workflow).toBe('off')
+		expect(off.arming['save-skill']).toBe(settings.arming['save-skill'])
+		expect(off.arming.schedule).toBe(settings.arming.schedule)
+	})
+	it('make them plain words while dynamic workflows are off', () => {
+		const off = withWorkflowKeywordSwitch(settings, { enabled: false })
+		expect(off.arming.hypermode).toBe('off')
+		expect(off.arming.workflow).toBe('off')
 	})
 })

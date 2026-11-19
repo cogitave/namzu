@@ -483,6 +483,27 @@ whole numbers, and are never read from the environment. The review shows the val
 in force ("Agents: up to 4 at a time, 300 in all"). The turn's token budget
 ([Turn limits](turn-limits.md)) also stops a run from starting agents once it is spent.
 
+### Turning workflows off
+
+`workflow.enabled` (default `true`; Desktop Settings > Agent > *Dynamic workflows*) is the one
+switch. With `false` the `workflow` tool is not in the tool list of any conversation started after the
+change, whoever asks for it (the keyword, hypermode, the slash command). Hypermode is then refused
+(`/effort … hypermode on` and the picker say so in one sentence, and the saved `hypermode: true`
+no longer starts a conversation in it), the words `hypermode` and `workflow` in a message are plain
+words, and the size rows below leave Settings. A host that cannot run a workflow at all (a scheduled
+run) still reads the hypermode text that delegates with the `Agent` tool. The list stays the same for
+the whole conversation, so the cached prefix does not change mid-way, and an open conversation keeps
+what it began with. `enabled` is separate from the caps above, which still apply when it is on, and
+turning it off leaves `/workflows` listing the runs already made.
+
+Directly under that row, *Keyword trigger* (`workflow.keywordTrigger`, default `true`, read when
+the terminal app starts) decides whether typing `hypermode` or `workflow` in a message opts that message
+in. With `false`, `hypermode` and `workflow` in a message are plain words; `/effort hypermode`
+and the `workflow` tool itself are unaffected. The other [composer triggers](composer-triggers.md)
+keep their own per-word levels. *Dynamic workflow size* (`workflow.sizeGuideline`) and the two
+caps follow it, in that order (*Helpers working at once*, then *Most helpers per workflow*), and are shown in Desktop Settings only while *Dynamic workflows* is on; the saved values are kept. A workflow uses more of your limit
+than a plain reply, which is why the row says so.
+
 ### Size guideline and the large-run warning
 
 `sizeGuideline` is `small` (fewer than 5 agents), `medium` (fewer than 10, the

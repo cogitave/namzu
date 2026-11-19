@@ -37,6 +37,7 @@ import {
 	NAMZU_PLAN_FILE_DOCTRINE,
 	NAMZU_PLAN_MODE_DOCTRINE,
 	NAMZU_WORKING_DOCTRINE,
+	NAMZU_WORKING_DOCTRINE_WITHOUT_CLOSING,
 } from './doctrine.js'
 import { AGENT_LAUNCH_TOOL, NAMZU_IDENTITY } from './identity.js'
 
@@ -99,6 +100,12 @@ export interface SessionPromptInput {
 	readonly extraSystem?: string | undefined
 	readonly systemNote?: string | undefined
 	readonly skillsOverflowNote?: string | null | undefined
+	/** See {@link SessionPromptFacts.closingSummary}. */
+	readonly closingSummary?: boolean | undefined
+	/** See {@link SessionPromptFacts.outputStyle}. */
+	readonly outputStyle?: string | undefined
+	/** See {@link SessionPromptFacts.attribution}. */
+	readonly attribution?: string | undefined
 }
 
 /** What a session knows when it builds a turn's prompt, whichever path builds it. */
@@ -120,6 +127,12 @@ export interface SessionPromptFacts {
 	readonly anyToolDeferred: boolean
 	readonly planPath?: string | undefined
 	readonly skillsOverflowNote?: string | null | undefined
+	/** `false` leaves the closing rule out of the working rules; absent keeps them whole. */
+	readonly closingSummary?: boolean | undefined
+	/** A reply-style note the person wrote; absent or empty adds nothing. */
+	readonly outputStyle?: string | undefined
+	/** Text commits and pull request descriptions end with; absent or empty adds nothing. */
+	readonly attribution?: string | undefined
 }
 
 /** What differs between one turn and another that holds the same facts. */
@@ -166,13 +179,34 @@ export function sessionPromptInput(
 		extraSystem: turn.extraSystem,
 		systemNote: turn.systemNote,
 		skillsOverflowNote: facts.skillsOverflowNote,
+		closingSummary: facts.closingSummary,
+		outputStyle: facts.outputStyle,
+		attribution: facts.attribution,
 	}
+}
+
+/** The person's reply style, as a note that sits under the working rules. */
+export function replyStyleNote(style: string | undefined): string | undefined {
+	const text = style?.trim()
+	if (!text) return undefined
+	return `### Reply style\nThe person asked for replies to read this way: ${text}\nFollow it for wording and layout. It never overrides the working rules above or what the person asks for in a message.`
+}
+
+/** The text commits and pull request descriptions end with. */
+export function attributionNote(text: string | undefined): string | undefined {
+	const line = text?.trim()
+	if (!line) return undefined
+	return `### Commit and pull request text\n- When you write a commit message or a pull request description at the person's request, end it with this text on its own lines, exactly as given:\n${line}`
 }
 
 export function composeSessionSystemPrompt(input: SessionPromptInput): string | undefined {
 	const sections: (string | null | undefined)[] = [
 		NAMZU_IDENTITY,
-		NAMZU_WORKING_DOCTRINE,
+		input.closingSummary === false
+			? NAMZU_WORKING_DOCTRINE_WITHOUT_CLOSING
+			: NAMZU_WORKING_DOCTRINE,
+		replyStyleNote(input.outputStyle),
+		attributionNote(input.attribution),
 		input.browserDesktopRouting,
 		input.browserWebTask,
 		// Advice on delegating, for a turn that has the Agent tool: a run whose

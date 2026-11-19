@@ -298,11 +298,46 @@ export async function readMemoryBody(
 /** Delete exactly the version that was listed; a record that changed meanwhile stays. */
 export async function deleteManagedMemory(
 	store: MarkdownMemoryStore,
-	item: ManagedMemory,
+	item: Pick<ManagedMemory, 'id' | 'revision'>,
 ): Promise<DeleteOutcome> {
 	try {
 		await store.deleteIfRevision(item.id, item.revision)
 		return 'deleted'
+	} catch (error) {
+		if (!(error instanceof MemoryRevisionConflictError)) throw error
+		return (await store.getRecord(item.id)) ? 'changed' : 'gone'
+	}
+}
+
+export type UpdateOutcome = 'updated' | 'changed' | 'gone'
+
+/**
+ * Rewrite the text (and, when given, the title) of exactly the version that was listed. A record
+ * changed since it was listed is left as it is.
+ */
+export async function updateManagedMemory(
+	store: MarkdownMemoryStore,
+	item: Pick<ManagedMemory, 'id' | 'revision'>,
+	edit: {
+		readonly content: string
+		readonly title?: string
+		readonly summary?: string
+		/** The one line the prompt index carries; must be a single line. */
+		readonly description?: string
+	},
+): Promise<UpdateOutcome> {
+	try {
+		await store.updateIfRevision(
+			item.id,
+			{
+				content: edit.content,
+				...(edit.title === undefined ? {} : { title: edit.title }),
+				...(edit.summary === undefined ? {} : { summary: edit.summary }),
+				...(edit.description === undefined ? {} : { description: edit.description }),
+			},
+			item.revision,
+		)
+		return 'updated'
 	} catch (error) {
 		if (!(error instanceof MemoryRevisionConflictError)) throw error
 		return (await store.getRecord(item.id)) ? 'changed' : 'gone'

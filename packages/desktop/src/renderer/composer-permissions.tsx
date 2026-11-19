@@ -103,9 +103,18 @@ const rowCopy: Record<
 		'claude-code': { label: 'Plan only', description: 'Reads and plans; changes nothing.' },
 	},
 	strict: {
-		namzu: { label: 'Preapproved only', description: 'Uses only tools your rules allow.' },
-		'codex-cli': { label: 'Preapproved only', description: 'Uses only tools your rules allow.' },
-		'claude-code': { label: 'Preapproved only', description: 'Uses only tools your rules allow.' },
+		namzu: {
+			label: 'Only actions you already allowed',
+			description: 'Namzu uses only what your rules already allow.',
+		},
+		'codex-cli': {
+			label: 'Only actions you already allowed',
+			description: 'Namzu uses only what your rules already allow.',
+		},
+		'claude-code': {
+			label: 'Only actions you already allowed',
+			description: 'Namzu uses only what your rules already allow.',
+		},
 	},
 }
 
@@ -137,6 +146,47 @@ export function defaultPermissionModes(
 	return engine === 'codex-cli'
 		? ['prompt', 'accept-edits', 'bypass', 'strict', 'plan']
 		: ['prompt', 'accept-edits', 'classify', 'bypass', 'strict', 'plan']
+}
+
+/**
+ * The modes the composer offers for this conversation. Namzu's own engine says which of
+ * Auto and Full access its settings leave open (`advertised`); the others stay as they are.
+ * No list (an older engine) keeps the whole default list.
+ */
+export function offeredPermissionModes(
+	engine: ComposerPermissionEngine,
+	advertised: readonly ('bypass' | 'classify')[] | undefined,
+): readonly ComposerPermissionMode[] {
+	if (engine === 'claude-code') return ['prompt', 'plan']
+	const modes = defaultPermissionModes(engine)
+	if (engine !== 'namzu' || advertised === undefined) return modes
+	return modes.filter(
+		(mode) => (mode !== 'classify' && mode !== 'bypass') || advertised.includes(mode),
+	)
+}
+
+/**
+ * A saved Full access or Auto the engine no longer offers (its settings closed it since the
+ * conversation last had it). Returns the mode to show and send instead, and the one line that
+ * says so; `undefined` when nothing needs to change. `fallback` is the mode a conversation
+ * starts in. Only Namzu's own engine advertises these two, so no other engine is touched.
+ */
+export function closedModeFallback<Mode extends string>(
+	engine: ComposerPermissionEngine,
+	saved: string,
+	advertised: readonly ('bypass' | 'classify')[] | undefined,
+	fallback: Mode,
+): { mode: Mode; note: string } | undefined {
+	if (engine !== 'namzu' || advertised === undefined) return undefined
+	if ((saved !== 'bypass' && saved !== 'classify') || advertised.includes(saved)) return undefined
+	const closed = rowCopy[saved].namzu?.label ?? saved
+	const now = rowCopy[fallback as ComposerPermissionMode]?.namzu?.label ?? 'Ask first'
+	return {
+		mode: fallback,
+		note: `${closed} is off in Settings, so this conversation ${
+			fallback === 'prompt' ? 'asks first again' : `uses ${now} instead`
+		}.`,
+	}
 }
 
 /**
@@ -205,6 +255,16 @@ function moveHighlight(event: KeyboardEvent<HTMLElement>) {
 	items[next]?.focus()
 }
 
+/** The row a plain number key names: 1 to 9, counted down the list as the rows show them. */
+export function numberedRow<T>(
+	event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>,
+	rows: readonly T[],
+): T | undefined {
+	if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return undefined
+	if (!/^[1-9]$/.test(event.key)) return undefined
+	return rows[Number(event.key) - 1]
+}
+
 /** Permission chip and its menu. Shared by the footer and the Pal's "+" popover. */
 export function ComposerPermissions({
 	reviewModes,
@@ -213,11 +273,14 @@ export function ComposerPermissions({
 	onChange,
 	engine = 'namzu',
 	permissionScope,
+	openRequest = 0,
 }: {
 	reviewModes?: readonly ComposerPermissionMode[]
 	permissionMode: ComposerPermissionMode
 	disabled: boolean
 	onChange: (mode: ComposerPermissionMode) => void
+	/** A counter: each rise opens the list, so "/permissions" can ask for it from outside. */
+	openRequest?: number
 	engine?: ComposerPermissionEngine
 	permissionScope?: string
 }) {
@@ -225,6 +288,12 @@ export function ComposerPermissions({
 	const cancel = useRef<HTMLButtonElement>(null)
 	const menu = useRef<HTMLDivElement>(null)
 	const [open, setOpen] = useState(false)
+	const seenRequest = useRef(openRequest)
+	useEffect(() => {
+		if (seenRequest.current === openRequest) return
+		seenRequest.current = openRequest
+		if (!disabled) setOpen(true)
+	}, [openRequest, disabled])
 	const [confirmation, setConfirmation] = useState<PermissionConfirmation | null>(null)
 	const pendingConfirmation = useRef<PermissionConfirmation | null>(null)
 	const supportedModes = reviewModes ?? defaultPermissionModes(engine)
@@ -302,9 +371,17 @@ export function ComposerPermissions({
 							ref={menu}
 							role="menu"
 							aria-label={permissionMenuTitle(engine)}
-							onKeyDown={moveHighlight}
+							onKeyDown={(event) => {
+								moveHighlight(event)
+								// A number picks the row that shows it, as a click would.
+								const row = numberedRow(event, rows)
+								if (!row) return
+								event.preventDefault()
+								event.stopPropagation()
+								choose(row)
+							}}
 						>
-							{rows.map((row) => {
+							{rows.map((row, index) => {
 								const Icon = row.icon
 								return (
 									<button
@@ -325,6 +402,11 @@ export function ComposerPermissions({
 										<span className="composer-permission-check" aria-hidden="true">
 											{row.value === permissionMode && <CheckIcon />}
 										</span>
+										{index < 9 && (
+											<span className="composer-permission-number" aria-hidden="true">
+												{index + 1}
+											</span>
+										)}
 									</button>
 								)
 							})}

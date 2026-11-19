@@ -154,8 +154,8 @@ it('gives a row a second line from what its source published, and none from what
 		available: [{ id: 'zen', label: 'Zen', defaultModel: 'free' }],
 		selected: { id: 'zen', model: 'free' },
 	})
-	expect(html).toContain('<small>128k window · Free</small>')
-	expect(html).toContain('<small>200k window · $3 in · $15 out per 1M</small>')
+	expect(html).toContain('<small>Reads up to 128k at once · Free</small>')
+	expect(html).toContain('<small>Reads up to 200k at once · $3 in · $15 out per 1M</small>')
 	expect(html.match(/<small>/g)).toHaveLength(2)
 })
 
@@ -403,7 +403,7 @@ it('holds the engine, where it runs and the way back behind More', () => {
 		}),
 	)
 	expect(html).toContain('aria-label="Engine: Namzu"')
-	expect(html).toContain('aria-label="Where this engine runs"')
+	expect(html).toContain('aria-label="Where it runs"')
 	expect(html).toContain('Desktop: you chat with this engine in this window.')
 	expect(html).toContain('Models')
 	// With fewer than two providers there is no filter to draw.

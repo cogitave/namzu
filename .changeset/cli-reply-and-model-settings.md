@@ -1,0 +1,5 @@
+---
+'@namzu/cli': minor
+---
+
+New settings, each changing nothing until you set it: `workflow.enabled: false` removes the `workflow` tool from conversations started afterwards (hypermode then delegates with the `Agent` tool); `closingSummary: false` drops the working rules' closing rule ("close with what changed, what was verified and what is left") from new conversations, and the prompt is byte for byte unchanged while it is absent or `true`; `effort` saves a default reasoning effort below `--effort`, `NAMZU_EFFORT_LEVEL` and the level picked in a conversation, ignored where the model does not offer it; `fast: true` starts the terminal app in fast mode like `--fast` (billed at twice the standard rate, off by default); `respectGitignore: false` lets the terminal app's `@` file list and Desktop's file list, search and reads include files that `.gitignore` names (`.git` and `node_modules` stay hidden; a model's own `glob` and `grep` still skip ignored files). A project's `namzu.config.json` cannot set `effort`, `fast` or `respectGitignore`. Each has a row in Desktop Settings.

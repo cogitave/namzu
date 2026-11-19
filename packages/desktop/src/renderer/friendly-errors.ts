@@ -5,6 +5,8 @@
  * it can be tested without a window.
  */
 
+import { ENGINE_CODE_SENTENCES, engineCodeFromText, isPlainMessage } from '../shared/plain-error.js'
+
 export type FailureAction =
 	| 'try-again'
 	| 'settings'
@@ -262,9 +264,41 @@ function withDetails(failure: Omit<FriendlyFailure, 'details'>, raw: string): Fr
 	return details ? { ...failure, details } : failure
 }
 
+/** The engine's own coded failures: the same sentence for a current and an older engine. */
+const ENGINE_CODE_ACTIONS: Record<
+	string,
+	{ kind: FriendlyFailure['kind']; actions: FailureAction[] }
+> = {
+	'no-provider': { kind: 'missing-key', actions: ['settings'] },
+	'connection-closed': { kind: 'lost-connection', actions: ['try-again'] },
+	'folder-not-trusted': { kind: 'other', actions: [] },
+	'conversation-in-other-folder': { kind: 'other', actions: [] },
+	'conversation-opening': { kind: 'busy', actions: [] },
+	'message-not-sent': { kind: 'other', actions: ['try-again'] },
+	'too-many-messages': { kind: 'busy', actions: [] },
+	'permission-mode-needed': { kind: 'cannot-repeat', actions: ['continue'] },
+}
+
+function describeEngineCode(message: string): FriendlyFailure | undefined {
+	const code =
+		engineCodeFromText(message) ??
+		Object.entries(ENGINE_CODE_SENTENCES).find(([, sentence]) => sentence === message)?.[0]
+	const how = code ? ENGINE_CODE_ACTIONS[code] : undefined
+	const text = code ? ENGINE_CODE_SENTENCES[code] : undefined
+	if (!how || !text) return undefined
+	return {
+		kind: how.kind,
+		text,
+		actions: how.actions,
+		...(message !== text ? { details: sanitizeDetails(message) } : {}),
+	}
+}
+
 /** One failed reply, as the runtime worded it. */
 export function describeFailure(raw: string, providerLabel?: string): FriendlyFailure {
 	const message = raw.trim()
+	const engine = describeEngineCode(message)
+	if (engine) return engine
 	const matched = PROVIDER_FAILURE.exec(message)
 	if (matched) {
 		const name = providerName(matched[1]?.toLowerCase(), providerLabel)
@@ -419,6 +453,8 @@ export function describeFailure(raw: string, providerLabel?: string): FriendlyFa
 			},
 			message,
 		)
+	// A sentence the product wrote for a person (an engine or Desktop refusal) is shown as written.
+	if (isPlainMessage(message)) return { kind: 'other', text: message, actions: ['try-again'] }
 	return withDetails(
 		{
 			kind: 'other',

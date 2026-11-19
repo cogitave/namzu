@@ -1,14 +1,10 @@
-import { Menu } from '@base-ui/react/menu'
 import { MultiFileDiff } from '@pierre/diffs/react'
-import { type ComponentProps, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { CUT_NOTE, formatLineCount } from '../changes-totals.js'
+import { useCodePrefs } from '../code-prefs.js'
 import { DIFF_VIEW_UNSAFE_CSS } from '../diff-theme.js'
-import { CodeIcon, ExternalLinkIcon, FileIcon } from '../file-panel/file-icons.js'
-import { isMarkdownPath } from '../file-panel/project-refs.js'
-import { CopyIcon, MoreHorizontalIcon } from '../icons.js'
 import { gateNotice, richDiffVerdict } from './diff-gate.js'
 import { type ReviewFile, unifiedDiff } from './model.js'
-import { ToolButton } from './tool-button.js'
 
 export type DiffBody =
 	| { state: 'loading' }
@@ -21,14 +17,8 @@ export type DiffBody =
 			truncated: boolean
 	  }
 
-export interface DiffActions {
-	onOpenFile?: (path: string) => void
-	onOpenInEditor?: (path: string) => void
-	onCopy: (text: string, done: string) => void
-}
-
 /** The patch text of a file: one block per edit when it was edited more than once. */
-function patchOf(file: ReviewFile, before: string, after: string): string {
+export function patchOf(file: ReviewFile, before: string, after: string): string {
 	if (file.edits && file.edits.length > 1)
 		return file.edits.map((edit) => unifiedDiff(file.path, edit.before, edit.after)).join('')
 	return unifiedDiff(file.path, before, after, file.oldPath)
@@ -38,129 +28,42 @@ function PaneMessage({ children }: { children: string }) {
 	return <p className="changes-message">{children}</p>
 }
 
-function DiffHeader({
-	file,
-	body,
-	actions,
-}: { file: ReviewFile; body: DiffBody; actions: DiffActions }) {
-	const copyDiff = () => {
-		if (body.state !== 'ready') return
-		actions.onCopy(patchOf(file, body.before ?? '', body.after ?? ''), 'Diff copied.')
-	}
-	return (
-		<div className="changes-diff-head">
-			{isMarkdownPath(file.path) ? (
-				<span className="changes-tree-badge" aria-hidden="true">
-					M↓
-				</span>
-			) : (
-				<FileIcon className="changes-tree-file-icon" />
-			)}
-			{/* The tail of a path names the file, so the head is what gets cut. */}
-			<span className="changes-diff-path" title={file.path}>
-				<bdi>{file.path}</bdi>
-			</span>
-			{file.status !== 'binary' && !file.binary && (file.added > 0 || file.removed > 0) && (
-				<span className="changes-diff-counts">
-					{file.added > 0 && <span className="changes-added">+{formatLineCount(file.added)}</span>}
-					{file.removed > 0 && (
-						<span className="changes-removed">−{formatLineCount(file.removed)}</span>
-					)}
-				</span>
-			)}
-			{actions.onOpenFile && (
-				<ToolButton
-					label="Open file"
-					tooltip="Open the file in a tab"
-					disabled={file.status === 'deleted'}
-					onClick={() => actions.onOpenFile?.(file.path)}
-				>
-					<FileIcon />
-				</ToolButton>
-			)}
-			{actions.onOpenInEditor && (
-				<ToolButton
-					label="Open in editor"
-					disabled={file.status === 'deleted'}
-					onClick={() => actions.onOpenInEditor?.(file.path)}
-				>
-					<ExternalLinkIcon />
-				</ToolButton>
-			)}
-			<Menu.Root>
-				<Menu.Trigger
-					className="changes-menu-trigger"
-					aria-label="More file actions"
-					render={<ToolButtonLike />}
-				/>
-				<Menu.Portal>
-					<Menu.Positioner className="conversation-actions-positioner" align="end" sideOffset={6}>
-						<Menu.Popup className="conversation-actions-popup" aria-label="File actions">
-							<Menu.Item
-								className="conversation-actions-item"
-								onClick={() => actions.onCopy(file.path, 'Path copied.')}
-							>
-								<CopyIcon aria-hidden="true" />
-								<span className="conversation-actions-label">Copy path</span>
-							</Menu.Item>
-							<Menu.Item
-								className="conversation-actions-item"
-								disabled={body.state !== 'ready' || body.binary}
-								onClick={copyDiff}
-							>
-								<CodeIcon aria-hidden="true" />
-								<span className="conversation-actions-label">Copy diff</span>
-							</Menu.Item>
-						</Menu.Popup>
-					</Menu.Positioner>
-				</Menu.Portal>
-			</Menu.Root>
-		</div>
-	)
-}
-
-/** The menu trigger styled like the toolbar's icon buttons. */
-function ToolButtonLike(props: ComponentProps<'button'>) {
-	return (
-		<button type="button" {...props} className="changes-icon-button">
-			<MoreHorizontalIcon aria-hidden="true" />
-		</button>
-	)
-}
-
-/** One file's diff: a header with its actions above the pierre view. */
-export function DiffPane({
+/** One file's diff body: the pierre view, or the note that says why there is none. */
+export function FileBody({
 	file,
 	body,
 	split,
 	wrap,
+	highlight,
 	dark,
 	fullContext,
-	actions,
 }: {
 	file: ReviewFile
 	body: DiffBody
 	split: boolean
 	wrap: boolean
+	/** Changed words inside a changed line are marked. */
+	highlight: boolean
 	dark: boolean
 	/** A working-tree file shows every line; a receipt shows its hunks. */
 	fullContext: boolean
-	actions: DiffActions
 }) {
+	const themes = useCodePrefs()
 	const options = useMemo(
 		() => ({
-			theme: { light: 'pierre-light', dark: 'pierre-dark' } as const,
+			theme: { light: themes.light, dark: themes.dark },
 			themeType: dark ? ('dark' as const) : ('light' as const),
 			preferredHighlighter: 'shiki-wasm' as const,
 			diffStyle: split ? ('split' as const) : ('unified' as const),
 			diffIndicators: 'bars' as const,
 			overflow: wrap ? ('wrap' as const) : ('scroll' as const),
+			lineDiffType: highlight ? ('word-alt' as const) : ('none' as const),
 			hunkSeparators: 'line-info' as const,
 			disableFileHeader: true,
 			expandUnchanged: fullContext,
 			unsafeCSS: DIFF_VIEW_UNSAFE_CSS,
 		}),
-		[dark, split, wrap, fullContext],
+		[dark, split, wrap, highlight, fullContext, themes],
 	)
 	// Which file the person asked to see in full; a different file is gated again.
 	const [forcedPath, setForcedPath] = useState<string | null>(null)
@@ -184,81 +87,80 @@ export function DiffPane({
 		[gated, body, file],
 	)
 	return (
-		<section className="changes-diff" aria-label={`Changes to ${file.path}`}>
-			<DiffHeader file={file} body={body} actions={actions} />
-			<div className="changes-diff-body">
-				{body.state === 'loading' ? (
-					<PaneMessage>Reading the file…</PaneMessage>
-				) : body.state === 'error' ? (
-					<p className="changes-message" role="alert">
-						{body.message}
-					</p>
-				) : body.binary || file.status === 'binary' ? (
-					<PaneMessage>This file is binary, so there is no text to compare.</PaneMessage>
-				) : (
-					<>
-						{body.truncated && (
-							<PaneMessage>
-								This file is too large to show in full; only part of it is compared.
-							</PaneMessage>
-						)}
-						{file.cut && <p className="changes-note changes-cut-note">{CUT_NOTE}</p>}
-						{file.partial && (
-							<p className="changes-note">Some edits to this file have no diff to show.</p>
-						)}
-						{file.noDiff ? (
-							<PaneMessage>No diff is available for this change.</PaneMessage>
-						) : gated && !verdict.rich ? (
-							<>
-								<p className="changes-note changes-gate-note">
-									<span>{gateNotice(verdict)}</span>
-									<button
-										type="button"
-										className="changes-gate-button"
-										onClick={() => setForcedPath(file.path)}
-									>
-										Show full diff anyway
-									</button>
+		<div className="changes-diff-body">
+			{body.state === 'loading' ? (
+				<PaneMessage>Reading the file…</PaneMessage>
+			) : body.state === 'error' ? (
+				<p className="changes-message" role="alert">
+					{body.message}
+				</p>
+			) : body.binary || file.status === 'binary' ? (
+				<PaneMessage>This file is binary, so there is no text to compare.</PaneMessage>
+			) : file.whitespaceOnly ? (
+				<PaneMessage>Only whitespace changed in this file.</PaneMessage>
+			) : (
+				<>
+					{body.truncated && (
+						<PaneMessage>
+							This file is too large to show in full; only part of it is compared.
+						</PaneMessage>
+					)}
+					{file.cut && <p className="changes-note changes-cut-note">{CUT_NOTE}</p>}
+					{file.partial && (
+						<p className="changes-note">Some edits to this file have no diff to show.</p>
+					)}
+					{file.noDiff ? (
+						<PaneMessage>No diff is available for this change.</PaneMessage>
+					) : gated && !verdict.rich ? (
+						<>
+							<p className="changes-note changes-gate-note">
+								<span>{gateNotice(verdict)}</span>
+								<button
+									type="button"
+									className="changes-gate-button"
+									onClick={() => setForcedPath(file.path)}
+								>
+									Show full diff anyway
+								</button>
+							</p>
+							<pre className="changes-plain-patch" data-wrap={wrap || undefined}>
+								{patch}
+							</pre>
+						</>
+					) : file.edits && file.edits.length > 1 ? (
+						file.edits.map((edit, index) => (
+							// biome-ignore lint/suspicious/noArrayIndexKey: edits have no id and keep their order
+							<section key={index} className="changes-edit" data-edit={index + 1}>
+								<p className="changes-edit-head">
+									<span>
+										Edit {index + 1} of {file.edits?.length}
+									</span>
+									<span className="changes-added">+{formatLineCount(edit.added)}</span>
+									<span className="changes-removed">−{formatLineCount(edit.removed)}</span>
+									{edit.cut && <span className="changes-cut-note">{CUT_NOTE}</span>}
 								</p>
-								<pre className="changes-plain-patch" data-wrap={wrap || undefined}>
-									{patch}
-								</pre>
-							</>
-						) : file.edits && file.edits.length > 1 ? (
-							file.edits.map((edit, index) => (
-								// biome-ignore lint/suspicious/noArrayIndexKey: edits have no id and keep their order
-								<section key={index} className="changes-edit" data-edit={index + 1}>
-									<p className="changes-edit-head">
-										<span>
-											Edit {index + 1} of {file.edits?.length}
-										</span>
-										<span className="changes-added">+{formatLineCount(edit.added)}</span>
-										<span className="changes-removed">−{formatLineCount(edit.removed)}</span>
-										{edit.cut && <span className="changes-cut-note">{CUT_NOTE}</span>}
-									</p>
-									<MultiFileDiff
-										className="diff-code-view"
-										oldFile={{ name: file.path, contents: edit.before }}
-										newFile={{ name: file.path, contents: edit.after }}
-										options={options}
-									/>
-								</section>
-							))
-						) : (
-							<MultiFileDiff
-								key={file.path}
-								className="diff-code-view"
-								oldFile={{
-									name: file.oldPath ?? file.path,
-									contents: body.before ?? '',
-								}}
-								newFile={{ name: file.path, contents: body.after ?? '' }}
-								options={options}
-							/>
-						)}
-					</>
-				)}
-			</div>
-		</section>
+								<MultiFileDiff
+									className="diff-code-view"
+									oldFile={{ name: file.path, contents: edit.before }}
+									newFile={{ name: file.path, contents: edit.after }}
+									options={options}
+								/>
+							</section>
+						))
+					) : (
+						<MultiFileDiff
+							key={file.path}
+							className="diff-code-view"
+							oldFile={{
+								name: file.oldPath ?? file.path,
+								contents: body.before ?? '',
+							}}
+							newFile={{ name: file.path, contents: body.after ?? '' }}
+							options={options}
+						/>
+					)}
+				</>
+			)}
+		</div>
 	)
 }

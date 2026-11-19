@@ -13,6 +13,13 @@ import {
 	generateWorkspaceId,
 } from '@namzu/sdk'
 import type { WorkspaceBackendDriver, WorkspaceRef, WorktreeHookHost } from '@namzu/sdk'
+import {
+	DEFAULT_BRANCH_PREFIX,
+	type WorktreeSettings,
+	sparseFolderPath,
+	sparseFolderProblem,
+	worktreeLocationProblem,
+} from '../../config/worktree-settings.js'
 import { cliLogger } from '../../logging.js'
 import {
 	activeConversationTurn,
@@ -22,6 +29,7 @@ import {
 	loadResumableConversation,
 	openSessions,
 } from '../sessions/store.js'
+import { readWorktreeSettings } from './settings.js'
 
 const runFile = promisify(execFile)
 
@@ -62,6 +70,11 @@ export interface ManagedWorktreesOptions {
 	 * logic does the work, as it always did.
 	 */
 	readonly hooks?: () => WorktreeHookHost | undefined
+	/**
+	 * Where new worktrees go, what their branches are called and which folders they hold. Absent,
+	 * the user's own settings are read; an embedding that wants the defaults passes `{}`.
+	 */
+	readonly settings?: WorktreeSettings
 	/** A line for the person: a folder a hook made and nothing removed, a second answer ignored. */
 	readonly onNotice?: (line: string) => void
 }
@@ -126,9 +139,23 @@ export async function openManagedWorktrees(
 		sourceRoot = directory
 		repoRoot = directory
 	}
+	const settings = options.settings ?? readWorktreeSettings()
 	const sessions = await openSessions(repoRoot, options)
-	const worktreesDir = sessions.paths.worktrees()
+	const standardDir = sessions.paths.worktrees()
+	const slug = sessions.slug
 	closeSessions(sessions)
+	// A chosen folder holds one folder per project, so two projects with the same worktree name
+	// never meet. It is looked at again here: it may have gone since it was saved.
+	let worktreesDir = standardDir
+	if (settings.location !== undefined) {
+		const problem = worktreeLocationProblem(settings.location)
+		if (problem) {
+			throw new Error(
+				`The worktree location setting points at ${settings.location}. ${problem} Change it in Settings, or clear it to keep worktrees inside the project.`,
+			)
+		}
+		worktreesDir = join(await realpath(settings.location), slug)
+	}
 	try {
 		const node = await lstat(worktreesDir)
 		if (!node.isDirectory()) throw new Error('The managed worktree path is not a directory.')
@@ -137,7 +164,12 @@ export async function openManagedWorktrees(
 	}
 	const kernel: WorkspaceBackendDriver =
 		notGit === undefined
-			? new GitWorktreeDriver({ repoRoot, worktreesDir, logger: cliLogger() })
+			? new GitWorktreeDriver({
+					repoRoot,
+					worktreesDir,
+					logger: cliLogger(),
+					branchPrefix: settings.branchPrefix ?? DEFAULT_BRANCH_PREFIX,
+				})
 			: withoutGit(notGit)
 	return new ManagedWorktrees(
 		repoRoot,
@@ -152,6 +184,7 @@ export async function openManagedWorktrees(
 		}),
 		options,
 		notGit === undefined,
+		settings,
 	)
 }
 
@@ -178,6 +211,7 @@ export class ManagedWorktrees {
 		private readonly options: ManagedWorktreesOptions,
 		/** False when this folder is not a Git checkout and only a hook can make worktrees. */
 		readonly isGit = true,
+		private readonly settings: WorktreeSettings = {},
 	) {}
 
 	/** The driver that makes and removes worktrees: hooks first, the kernel's Git logic otherwise. */
@@ -185,14 +219,41 @@ export class ManagedWorktrees {
 		return this.driver
 	}
 
-	private ref(label: string): WorkspaceRef {
+	/**
+	 * The branch a worktree carries. A checkout Git already lists under this path keeps the branch
+	 * it was made with, so changing the prefix never strands the worktrees made before it.
+	 */
+	private async branchOf(label: string, path: string): Promise<string> {
+		if (this.isGit) {
+			try {
+				const listing = await git(this.repoRoot, 'worktree', 'list', '--porcelain', '-z')
+				for (const record of listing.split('\0\0')) {
+					const fields = record.split('\0')
+					const at = fields.find((f) => f.startsWith('worktree '))?.slice('worktree '.length)
+					const branch = fields.find((f) => f.startsWith('branch refs/heads/'))
+					if (at === undefined || branch === undefined) continue
+					if ((await realpath(at).catch(() => at)) !== (await realpath(path).catch(() => path)))
+						continue
+					// Only a branch named for this label is Namzu's; any other is somebody else's checkout.
+					const name = branch.slice('branch refs/heads/'.length)
+					if (name.endsWith(`/${label}`)) return name
+				}
+			} catch {
+				// Git's own answer decides below; a prefix from the settings is the fallback.
+			}
+		}
+		return `${this.settings.branchPrefix ?? DEFAULT_BRANCH_PREFIX}/${label}`
+	}
+
+	private async ref(label: string): Promise<WorkspaceRef> {
 		const checked = checkedLabel(label)
+		const path = join(this.worktreesDir, checked)
 		return {
 			id: generateWorkspaceId(),
 			meta: {
 				backend: 'git-worktree',
 				repoRoot: this.repoRoot,
-				branch: `namzu/${checked}`,
+				branch: await this.branchOf(checked, path),
 				worktreePath: join(this.worktreesDir, checked),
 			},
 			createdAt: new Date(),
@@ -227,7 +288,7 @@ export class ManagedWorktrees {
 
 	/** An exact label must still pass the SDK driver's ownership and Git registration checks. */
 	async inspect(label: string): Promise<ManagedWorktree | null> {
-		const ref = this.ref(label)
+		const ref = await this.ref(label)
 		const inspection = await this.driver.inspect(ref)
 		return inspection.exists
 			? {
@@ -276,6 +337,16 @@ export class ManagedWorktrees {
 						: `Git reported a worktree at ${ref.meta.worktreePath}, but it is not registered.`,
 				)
 			}
+			if (ref.meta.hookOwned !== true) {
+				try {
+					await this.keepOnlyChosenFolders(ref.meta.worktreePath)
+				} catch (cause) {
+					// The checkout exists and works in full; refusing here would leave it and its
+					// branch behind with no conversation in it. Say so and carry on.
+					const line = cause instanceof Error ? cause.message : String(cause)
+					if (this.options.onNotice) this.options.onNotice(line)
+				}
+			}
 			return {
 				label: name,
 				path: ref.meta.worktreePath,
@@ -286,6 +357,27 @@ export class ManagedWorktrees {
 			}
 		} finally {
 			await rmdir(lockPath)
+		}
+	}
+
+	/**
+	 * Narrow a new checkout to the folders the settings name, with Git's own sparse checkout: the
+	 * files at the top of the project and those folders stay, everything else leaves the folder
+	 * (it is still in the branch, and a later `git sparse-checkout disable` brings it back).
+	 */
+	private async keepOnlyChosenFolders(path: string): Promise<void> {
+		const folders = (this.settings.sparseFolders ?? []).map(sparseFolderPath)
+		if (folders.length === 0) return
+		for (const folder of folders) {
+			const problem = sparseFolderProblem(folder)
+			if (problem) throw new Error(`${problem} The worktree at ${path} was kept in full.`)
+		}
+		try {
+			await git(path, 'sparse-checkout', 'set', '--cone', '--', ...folders)
+		} catch (cause) {
+			throw new Error(
+				`The worktree was made at ${path}, but Git could not limit it to ${folders.join(', ')}: ${cause instanceof Error ? cause.message.split('\n')[0] : String(cause)}. It was kept in full.`,
+			)
 		}
 	}
 

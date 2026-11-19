@@ -23,26 +23,35 @@ const changes = (files: number, added = 32, removed = 1): TurnChanges => ({
 const outcome = (verdict: TurnOutcomeSummary['verdict'], line?: string, changed = 4) =>
 	({ verdict, ...(line ? { line } : {}), changed }) as TurnOutcomeSummary
 
-describe('the check segment is only the kernel record sentence', () => {
-	it('keeps what follows the lead and never rewrites a command', () => {
+describe('the check segment is a few plain words, with the record sentence as its tooltip', () => {
+	it('says tests or checks passed, failed or did not finish, and keeps the command out of the line', () => {
 		expect(
 			checkSegment(
 				outcome('checked', 'Changed 4 files · checked: pnpm test passed, nothing changed since'),
 			),
 		).toEqual({
-			text: 'Checked: pnpm test passed, nothing changed since',
+			text: 'Tests passed',
+			title: 'Checked: pnpm test passed, nothing changed since',
 			tone: 'ok',
 		})
 		expect(checkSegment(outcome('failing', 'Changed 4 files · pnpm test failed'))).toEqual({
-			text: 'pnpm test failed',
+			text: 'Tests failed',
+			title: 'pnpm test failed',
 			tone: 'error',
 		})
+		expect(
+			checkSegment(outcome('failing', 'Changed 4 files · pnpm typecheck failed')),
+		).toMatchObject({ text: 'Checks failed' })
+		expect(
+			checkSegment(outcome('failing', 'Changed 4 files · pnpm test failed (and 2 more)')),
+		).toMatchObject({ text: 'Some checks failed' })
 		expect(
 			checkSegment(
 				outcome('stale', 'Changed 4 files · pnpm test passed, then files changed again'),
 			),
 		).toEqual({
-			text: 'pnpm test passed, then files changed again',
+			text: 'Tests passed, then files changed again',
+			title: 'pnpm test passed, then files changed again',
 			tone: 'warn',
 		})
 		expect(
@@ -53,9 +62,15 @@ describe('the check segment is only the kernel record sentence', () => {
 				),
 			),
 		).toEqual({
-			text: 'Ran npm test | tail, but the pipe hides whether it passed',
+			text: 'Couldn’t tell if the checks passed',
+			title: 'Ran npm test | tail, but the pipe hides whether it passed',
 			tone: 'warn',
 		})
+		expect(
+			checkSegment(
+				outcome('inconclusive', 'Changed 4 files · ran npm test, but its result was not seen'),
+			),
+		).toMatchObject({ text: 'Checks didn’t finish' })
 	})
 	it('has no segment for unchecked, unknown, unchanged or a missing sentence', () => {
 		expect(checkSegment(outcome('unchecked', 'Changed 4 files · not checked'))).toBeUndefined()
@@ -79,13 +94,9 @@ describe('the result line model', () => {
 				'Changed 4 files · checked: pnpm test passed, nothing changed since',
 			),
 		})
-		expect(model?.label).toBe(
-			'Done in 3s, 4 files changed, 32 added, 1 removed, Checked: pnpm test passed, nothing changed since',
-		)
+		expect(model?.label).toBe('Done in 3s, 4 files changed, 32 added, 1 removed, Tests passed')
 		expect(model?.tone).toBe('ok')
-		expect(model?.summary.split('\n')[0]).toBe(
-			'Done in 3s · 4 files +32 −1 · Checked: pnpm test passed, nothing changed since',
-		)
+		expect(model?.summary.split('\n')[0]).toBe('Done in 3s · 4 files +32 −1 · Tests passed')
 		expect(model?.summary).toContain('src/f3.ts')
 	})
 	it('shows a failed check in the error tone even on a turn that otherwise ended well', () => {
@@ -103,7 +114,7 @@ describe('the result line model', () => {
 			outcome: outcome('failing', 'No files changed · pnpm test failed', 0),
 		})
 		expect(failing?.files).toBe(0)
-		expect(failing?.check?.text).toBe('pnpm test failed')
+		expect(failing?.check?.text).toBe('Tests failed')
 		expect(
 			turnResultModel({
 				reason: 'end_turn',
@@ -164,13 +175,15 @@ describe('the result line model', () => {
 			outcome: outcome('failing', 'Changed 2 files · node --test failed'),
 			undo: { kind: 'partial', kept: 1 },
 		})
-		expect(model?.check).toEqual({ text: 'node --test failed', tone: 'error' })
+		expect(model?.check).toEqual({
+			text: 'Tests failed',
+			title: 'node --test failed',
+			tone: 'error',
+		})
 		expect(model?.undo).toBe('Partly undone, 1 file kept')
 		expect(model?.tone).toBe('error')
-		expect(model?.label).toContain('node --test failed, Partly undone, 1 file kept')
-		expect(model?.summary.split('\n')[0]).toContain(
-			'node --test failed · Partly undone, 1 file kept',
-		)
+		expect(model?.label).toContain('Tests failed, Partly undone, 1 file kept')
+		expect(model?.summary.split('\n')[0]).toContain('Tests failed · Partly undone, 1 file kept')
 	})
 	it('lets a full undo replace the check, as before', () => {
 		const model = turnResultModel({
@@ -191,7 +204,7 @@ describe('the result line model', () => {
 				changes: changes(2),
 				outcome: failing,
 			})?.label,
-		).toMatch(/^Finished in 1s, 2 files changed.*node --test failed$/)
+		).toMatch(/^Finished in 1s, 2 files changed.*Tests failed$/)
 		expect(
 			turnResultModel({
 				reason: 'cancelled',

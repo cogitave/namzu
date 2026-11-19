@@ -5,11 +5,11 @@
 import { createServer } from "node:http";
 import { failureHeaders } from "./fake-failure.mjs";
 
-/** @typedef {{ text: string } | { tool: string, args: object }} Step */
+/** @typedef {{ text: string } | { tool: string, args: object | ((messages: object[]) => object) }} Step */
 
 export async function startFakeModel(rules = [], options = {}) {
 	const requests = [];
-	/** The small side requests the host made: `{ kind: "history" | "title", request }`. */
+	/** The small side requests the host made: `{ kind: "history" | "title" | "commit", request }`. */
 	const sideRequests = [];
 	/** The kernel's once-only check before a turn that changed files ends: the requests that carried it. */
 	const auditRequests = [];
@@ -54,7 +54,7 @@ export async function startFakeModel(rules = [], options = {}) {
 			const side = sideKind(parsed.messages ?? []);
 			// The history lookup is answered apart only for a flow that asks (`answerHistory`): older flows
 			// count and index the requests they saw, and keep seeing it as before.
-			if (side && (side === "title" || options.answerHistory)) {
+			if (side && (side === "title" || side === "commit" || options.answerHistory)) {
 				sideRequests.push({ kind: side, request: parsed });
 				const answer = sideAnswer(side, options);
 				if (answer.status) {
@@ -160,10 +160,14 @@ function sideKind(messages) {
 	const all = messages.map((m) => textOf(m.content)).join("\n");
 	if (all.includes("Resolve a conversation-history search query")) return "history";
 	if (all.includes("You name a conversation so a person can pick it out")) return "title";
+	if (all.includes("You write a Git commit message")) return "commit";
 	return undefined;
 }
 
 function sideAnswer(kind, options) {
+	// A flow that does not script a commit message gets a refusal, so the plain message is the one shown.
+	if (kind === "commit")
+		return options.commitMessage === undefined ? { status: 400, message: "No commit message is scripted." } : { text: options.commitMessage };
 	if (kind === "history")
 		return { text: '{"mode":"direct","time":"unspecified","termIds":[],"basis":[]}' };
 	// A flow that does not script a title gets a refusal, so the first words of the prompt stay the title.
@@ -192,8 +196,12 @@ function pick(rules, messages) {
 			.slice(i + 1)
 			.filter((m) => m.role === "tool").length;
 		for (const rule of rules) {
-			if (rule.match.test(prompt))
-				return rule.steps[Math.min(toolResults, rule.steps.length - 1)];
+			if (rule.match.test(prompt)) {
+				const step = rule.steps[Math.min(toolResults, rule.steps.length - 1)];
+				// A step's arguments may be a function of the conversation so far, for a call that needs
+				// something an earlier answer made (the id a task tool returned).
+				return typeof step.args === "function" ? { ...step, args: step.args(messages) } : step;
+			}
 		}
 	}
 	return { text: "Scripted default reply." };
@@ -227,7 +235,17 @@ function respond(res, request, step) {
 			}
 		: { role: "assistant", content: step.text };
 	const finish = step.tool ? "tool_calls" : "stop";
-	const usage = { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 };
+	// A step may report its own usage (`usage: { prompt_tokens, completion_tokens }`) or none (`usage: null`),
+	// so a flow can show an exact total and an estimate.
+	const usage =
+		step.usage === null
+			? undefined
+			: step.usage
+				? {
+						...step.usage,
+						total_tokens: step.usage.prompt_tokens + (step.usage.completion_tokens ?? 0),
+					}
+				: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 };
 	if (!request.stream) {
 		res.setHeader("content-type", "application/json");
 		res.end(
@@ -269,7 +287,7 @@ function respond(res, request, step) {
 		);
 	} else res.write(chunk({ role: "assistant", content: step.text }, null));
 	res.write(chunk({}, finish));
-	if (request.stream_options?.include_usage)
+	if (usage && request.stream_options?.include_usage)
 		res.write(
 			`data: ${JSON.stringify({ id, object: "chat.completion.chunk", created: 1, model: request.model, choices: [], usage })}\n\n`,
 		);

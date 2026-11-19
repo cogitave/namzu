@@ -147,14 +147,14 @@
 	background: var(--border);
 }
 @media (prefers-reduced-motion: reduce) {
-	.menu-popup,
-	.conversation-actions-popup,
-	.plugin-actions-menu,
-	.computer-workspace-menu,
-	.menu-item,
-	.conversation-actions-item,
-	.plugin-actions-menu-item,
-	.computer-workspace-menu-item {
+	:root:not([data-motion="full"]) .menu-popup,
+	:root:not([data-motion="full"]) .conversation-actions-popup,
+	:root:not([data-motion="full"]) .plugin-actions-menu,
+	:root:not([data-motion="full"]) .computer-workspace-menu,
+	:root:not([data-motion="full"]) .menu-item,
+	:root:not([data-motion="full"]) .conversation-actions-item,
+	:root:not([data-motion="full"]) .plugin-actions-menu-item,
+	:root:not([data-motion="full"]) .computer-workspace-menu-item {
 		transition: none;
 	}
 }

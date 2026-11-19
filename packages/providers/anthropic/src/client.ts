@@ -7,6 +7,7 @@ import type {
 	LLMProvider,
 	ModelInfo,
 	ProviderCapabilities,
+	ProviderLimits,
 	ProviderRoute,
 	ReasoningBlock,
 	ReasoningEffort,
@@ -28,6 +29,7 @@ import {
 } from '@namzu/sdk'
 import { attributionHeaders } from '@namzu/sdk'
 import { assertFastModeAccepted, fastModeBeta } from './fast-mode.js'
+import { parseUnifiedLimits } from './limits.js'
 import { refusalFallbackFromList } from './refusal-fallback.js'
 import { SearchBlocks, restoreSearch } from './search-replay.js'
 import {
@@ -1148,6 +1150,8 @@ export class AnthropicProvider implements LLMProvider {
 
 	private client: Anthropic
 	private config: AnthropicConfig
+	/** The newest usage windows a response carried. Account data: kept in memory, never logged. */
+	private lastLimits: ProviderLimits | undefined
 
 	constructor(config: AnthropicConfig) {
 		if (!config.apiKey && !config.authToken) {
@@ -1419,10 +1423,27 @@ export class AnthropicProvider implements LLMProvider {
 		// Pass the caller AbortSignal as the SDK's per-request RequestOptions so
 		// aborting it tears down the in-flight HTTP/2 SSE request (rejects with
 		// APIUserAbortError). A non-aborted signal is identical to omitting it.
-		return create.call(this.client.messages, body, {
+		const pending = create.call(this.client.messages, body, {
 			signal: opts?.signal,
 			...(beta ? { headers: { 'anthropic-beta': beta } } : {}),
+		}) as Promise<unknown> & {
+			withResponse?: () => Promise<{ data: unknown; response: { headers: Headers } }>
+		}
+		// The usage windows ride on the response headers of the request already being made.
+		if (typeof pending.withResponse !== 'function') return pending
+		return pending.withResponse().then(({ data, response }) => {
+			const seen = parseUnifiedLimits(response.headers, Date.now())
+			if (seen) this.lastLimits = seen
+			return data
 		})
+	}
+
+	/**
+	 * The subscription windows the last response carried, with no request of its own. `undefined`
+	 * until a response has reported them, which is the case for an API key.
+	 */
+	async readLimits(): Promise<ProviderLimits | undefined> {
+		return this.lastLimits
 	}
 
 	/**

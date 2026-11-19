@@ -19,7 +19,7 @@ different endpoint.
 | --- | --- |
 | `NAMZU_PROVIDER` | Primary provider, unless `--provider` is given. |
 | `NAMZU_MODEL` | Exact primary model id, unless `--model` is given. |
-| `NAMZU_EFFORT_LEVEL` | Default reasoning effort, unless `--effort` is given. Case-insensitive; `med` is `medium`; `auto` and `unset` mean no override (the model's own default). On DeepSeek, `max` is carried as the vendor's `reasoning_effort`; a level the model does not offer is mapped to the nearest one it does. Ordinary children also receive this default; their explicit or file-defined effort wins. |
+| `NAMZU_EFFORT_LEVEL` | Default reasoning effort, unless `--effort` is given; it wins over the saved `effort` setting ([launch flags](launch-flags.md#how-they-combine-with-what-is-saved)). Case-insensitive; `med` is `medium`; `auto` and `unset` mean no override (the model's own default). On DeepSeek, `max` is carried as the vendor's `reasoning_effort`; a level the model does not offer is mapped to the nearest one it does. Ordinary children also receive this default; their explicit or file-defined effort wins. |
 | `NAMZU_SMALL_MODEL` | Side-job model, replacing `smallModel` for this process. Accepts a bare id or `provider/model`. |
 | `NAMZU_SUBAGENT_MODEL` | Default model for ordinary delegated agents, as a bare id on the parent's provider or `provider/model`. Explicit child choices and pinned agent files win; a fork retains its parent model. |
 | `NAMZU_MAX_OUTPUT_TOKENS` | Positive safe-integer output allowance per call, including reasoning. `--max-output-tokens` wins. |

@@ -4,6 +4,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	realpathSync,
 	symlinkSync,
 	writeFileSync,
 } from 'node:fs'
@@ -153,5 +154,81 @@ describe('CLI managed Git worktrees', () => {
 		await expect(manager.fork(empty, 'empty')).rejects.toThrow(/no messages/i)
 		expect(await manager.list()).toEqual([])
 		closeSessions(source)
+	})
+
+	it('names the branch with the chosen prefix and still finds worktrees made under another', async () => {
+		const { repo, stateRoot } = fixture()
+		const before = await openManagedWorktrees(repo, { stateRoot, settings: {} })
+		const old = await before.create('first')
+		expect(old.branch).toBe('namzu/first')
+		const after = await openManagedWorktrees(repo, { stateRoot, settings: { branchPrefix: 'ada' } })
+		const made = await after.create('second')
+		expect(made.branch).toBe('ada/second')
+		expect(git(made.path, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('ada/second')
+		expect((await after.list()).map((w) => `${w.label}:${w.branch}`)).toEqual([
+			'first:namzu/first',
+			'second:ada/second',
+		])
+	})
+
+	it('makes the next worktree in the chosen folder, one folder per project', async () => {
+		const { repo, stateRoot } = fixture()
+		const chosen = mkdtempSync(join(tmpdir(), 'namzu-worktree-place-'))
+		dirs.push(chosen)
+		const manager = await openManagedWorktrees(repo, { stateRoot, settings: { location: chosen } })
+		const created = await manager.create('here')
+		expect(created.path.startsWith(realpathSync(chosen))).toBe(true)
+		expect(existsSync(join(created.path, 'tracked.txt'))).toBe(true)
+		expect(await manager.list()).toHaveLength(1)
+	})
+
+	it('refuses a chosen folder that is gone, saying why', async () => {
+		const { repo, stateRoot } = fixture()
+		const missing = join(stateRoot, 'nowhere')
+		await expect(
+			openManagedWorktrees(repo, { stateRoot, settings: { location: missing } }),
+		).rejects.toThrow(/does not exist/)
+	})
+
+	it('holds only the chosen folders in a new worktree', async () => {
+		const { repo, stateRoot } = fixture()
+		mkdirSync(join(repo, 'keep'))
+		mkdirSync(join(repo, 'leave'))
+		writeFileSync(join(repo, 'keep', 'a.txt'), 'a\n')
+		writeFileSync(join(repo, 'leave', 'b.txt'), 'b\n')
+		git(repo, 'add', 'keep', 'leave')
+		git(
+			repo,
+			'-c',
+			'user.name=Namzu Test',
+			'-c',
+			'user.email=test@example.com',
+			'commit',
+			'-qm',
+			'more',
+		)
+		const manager = await openManagedWorktrees(repo, {
+			stateRoot,
+			settings: { sparseFolders: ['./keep/'] },
+		})
+		const created = await manager.create('narrow')
+		expect(existsSync(join(created.path, 'keep', 'a.txt'))).toBe(true)
+		expect(existsSync(join(created.path, 'tracked.txt'))).toBe(true)
+		expect(existsSync(join(created.path, 'leave'))).toBe(false)
+	})
+
+	it('keeps a new worktree in full, and says so, when the sparse folders cannot be applied', async () => {
+		const { repo, stateRoot } = fixture()
+		const notices: string[] = []
+		const manager = await openManagedWorktrees(repo, {
+			stateRoot,
+			settings: { sparseFolders: ['../outside'] },
+			onNotice: (line) => notices.push(line),
+		})
+		const created = await manager.create('whole')
+		expect(existsSync(join(created.path, 'tracked.txt'))).toBe(true)
+		expect(notices).toHaveLength(1)
+		expect(notices[0]).toContain('kept in full')
+		await expect(manager.create('whole')).rejects.toThrow('already exists')
 	})
 })

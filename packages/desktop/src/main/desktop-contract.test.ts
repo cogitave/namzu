@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { COMPUTER_FRAME_NOTIFICATION } from '../shared/computer-protocol.js'
+import { LIMITS_NOTIFICATION } from '../shared/limits-protocol.js'
 import { OUTCOME_NOTIFICATION } from '../shared/outcome-protocol.js'
 import { TERMINAL_NOTIFICATIONS } from '../shared/terminal-protocol.js'
 import { buildEngineLaunch, namzuPermissionArgument } from '../shared/terminal-tabs.js'
@@ -152,6 +153,7 @@ describe('the app against the desktop contract inventory', () => {
 			OUTCOME_NOTIFICATION,
 			COMPUTER_FRAME_NOTIFICATION,
 			TITLE_NOTIFICATION,
+			LIMITS_NOTIFICATION,
 			TERMINAL_NOTIFICATIONS.data,
 			TERMINAL_NOTIFICATIONS.exit,
 		])

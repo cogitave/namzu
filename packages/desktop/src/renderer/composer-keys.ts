@@ -1,4 +1,5 @@
 import { caretAtEdge } from './composer-history.js'
+import { menuKeyStep } from './composer-menu-model.js'
 
 /** What a key press in the message box means. */
 export type ComposerKey =
@@ -7,6 +8,10 @@ export type ComposerKey =
 	| { action: 'recall'; direction: 'older' | 'newer' }
 	| { action: 'queue' }
 	| { action: 'send' }
+	/** A list above the box ("/" or "@") is open and owns this key. */
+	| { action: 'menu'; step: 'up' | 'down' | 'page-up' | 'page-down' | 'pick' | 'close' }
+	/** The add-files chord. */
+	| { action: 'attach' }
 
 export interface ComposerKeyInput {
 	key: string
@@ -29,6 +34,11 @@ export interface ComposerKeyInput {
 	walking: boolean
 	/** A reply is running and the engine takes a new message into it, so a message can be held. */
 	canHold: boolean
+	/** Which list is open above the box, if any. It takes its keys before anything else. */
+	menu?: 'slash' | 'mention' | null
+	/** Files can be added from here, so Ctrl+U (Cmd+U on a Mac) opens the picker. */
+	canAttach?: boolean
+	mac?: boolean
 }
 
 /**
@@ -58,6 +68,18 @@ const plain = (input: ComposerKeyInput) =>
  */
 export function decideComposerKey(input: ComposerKeyInput): ComposerKey {
 	if (input.composing) return { action: 'none' }
+	if (input.menu) {
+		const step = menuKeyStep(input.key, input)
+		if (step) return { action: 'menu', step }
+	}
+	if (
+		input.canAttach &&
+		input.key.toLowerCase() === 'u' &&
+		!input.shiftKey &&
+		!input.altKey &&
+		(input.mac ? input.metaKey && !input.ctrlKey : input.ctrlKey && !input.metaKey)
+	)
+		return { action: 'attach' }
 	if (input.key === 'ArrowUp' && plain(input)) {
 		// An empty box takes the newest waiting message back first; the history comes after.
 		if (!input.hasDraft && input.editableQueued && !input.trayEditing)

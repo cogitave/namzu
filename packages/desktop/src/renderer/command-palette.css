@@ -308,9 +308,9 @@
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.command-palette-backdrop,
-	.command-palette-popup,
-	.command-palette-item {
+	:root:not([data-motion="full"]) .command-palette-backdrop,
+	:root:not([data-motion="full"]) .command-palette-popup,
+	:root:not([data-motion="full"]) .command-palette-item {
 		animation: none;
 		transition: none;
 	}

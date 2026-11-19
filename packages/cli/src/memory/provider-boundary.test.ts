@@ -382,7 +382,11 @@ it('carries file and stored memory after actual compaction', async () => {
 		// path in the environment block tipped it into a threshold compaction
 		// before the scripted overflow, leaving the overflow nothing to shed.
 		// Only the overflow may start compaction here.
-		compaction: { strategy: 'structured', contextWindowTokens: 200_000 },
+		// The summary is built without a model here: with one, the small model's summary request
+		// would reach this scripted provider as a third request. This test is about the memory
+		// carried across the compaction; the summary route has its own test
+		// (tui/__tests__/compaction-summary-route-reaches-turn.test.ts).
+		compaction: { strategy: 'structured', contextWindowTokens: 200_000, modelSummary: false },
 		onSessionEvent: (event) => sessionEvents.push(event.type),
 	})
 	await seedPlan(state, scope.sessionId, 'TASK_AFTER_COMPACTION')

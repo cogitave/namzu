@@ -35,3 +35,4 @@ export {
 } from './client.js'
 export type { DeepSeekEffortResolution } from './client.js'
 export type { DeepSeekConfig, DeepSeekProviderConfig } from './types.js'
+export { parseBalance } from './limits.js'

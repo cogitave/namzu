@@ -93,8 +93,11 @@ export function LocalListeningSettingsContent({
 					{onAcceptedChange && (
 						<label className="local-speech-toggle">
 							<span>
-								Let Namzu use the microphone
-								<small>Turn off to ask again the next time you press the microphone.</small>
+								Microphone access
+								<small>
+									Namzu’s own windows may open the microphone. Turn off to be asked again the next
+									time you press it.
+								</small>
 							</span>
 							<input
 								type="checkbox"

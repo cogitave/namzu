@@ -195,6 +195,8 @@ export interface AcpFsWriteParams {
 export interface AcpPromptOptions {
 	readonly effort?: ReasoningEffort
 	readonly permissionMode?: ReviewMode
+	/** The standing orchestration mode for this turn onward; the host decides whether it may run. */
+	readonly hypermode?: boolean
 }
 export interface AcpSessionPromptParams {
 	readonly sessionId: string

@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import type { ProjectView } from '../shared/protocol.js'
-import { FINISHED_NOTICE_AFTER_MS, SETTINGS_SECTIONS } from '../shared/settings-protocol.js'
+import { SETTINGS_CATALOGUE } from '../shared/settings-catalogue.js'
+import {
+	FINISHED_NOTICE_AFTER_MS,
+	SETTINGS_SECTIONS,
+	isSettingsSection,
+} from '../shared/settings-protocol.js'
 import {
 	ENGINE_ONLY_SECTIONS,
 	SETTINGS_ENTRIES,
+	SETTINGS_NAV_GROUPS,
 	SETTINGS_SECTION_TITLES,
 	aboutDetailsText,
+	entryIsDrawn,
 	lastCheckedText,
 	parseSettingsRoute,
 	platformText,
@@ -15,6 +22,7 @@ import {
 	searchSettings,
 	settingsRoute,
 	updateStatusView,
+	visibleNavGroups,
 } from './settings-model.js'
 
 describe('deep links', () => {
@@ -30,9 +38,13 @@ describe('deep links', () => {
 
 describe('search', () => {
 	it('finds a setting by its label, a description word or a keyword', () => {
-		expect(searchSettings('theme')[0]?.id).toBe('theme')
+		expect(searchSettings('theme').map((e) => e.id)).toContain('theme')
 		expect(searchSettings('dark').map((e) => e.id)).toContain('theme')
-		expect(searchSettings('startup').map((e) => e.id)).toEqual(['startup'])
+		expect(
+			searchSettings('startup')
+				.map((e) => e.id)
+				.sort(),
+		).toEqual(['run-on-startup', 'startup'])
 		expect(searchSettings('restore').map((e) => e.id)).toContain('startup')
 	})
 
@@ -47,7 +59,13 @@ describe('search', () => {
 	it('is empty for a blank query and ignores case and punctuation', () => {
 		expect(searchSettings('')).toEqual([])
 		expect(searchSettings('   ')).toEqual([])
-		expect(searchSettings('  THEME!! ').map((e) => e.id)).toEqual(['theme'])
+		// Every row with "theme" in its label ranks together, in the registry's order.
+		expect(searchSettings('  THEME!! ').map((e) => e.id)).toEqual([
+			'terminal-code-link',
+			'theme',
+			'code-theme-light',
+			'code-theme-dark',
+		])
 	})
 
 	it('finds a Turkish word typed with a capital İ or a dotless ı, and a lone İ is not a word', () => {
@@ -61,6 +79,17 @@ describe('search', () => {
 		expect(searchSettings('ŞEKİL', entries).map((e) => e.id)).toEqual(['a'])
 	})
 
+	it('finds rows by the reference words as well as Namzu\u2019s own', () => {
+		expect(searchSettings('chat font')[0]?.id).toBe('interface-font')
+		expect(searchSettings('ui font')[0]?.id).toBe('interface-font')
+		expect(searchSettings('text size').map((e) => e.id)).toContain('interface-font')
+		expect(searchSettings('startup').map((e) => e.id)).toContain('startup')
+		expect(searchSettings('tray').map((e) => e.id)).toContain('attention-signals')
+		expect(searchSettings('graphics card').map((e) => e.id)).toContain('hardware-acceleration')
+		expect(searchSettings('graphics card')[0]?.section).toBe('desktop')
+		expect(searchSettings('keep the engine').map((e) => e.id)).toContain('keep-engine')
+	})
+
 	it('has a unique id for every entry and a real section for each', () => {
 		const ids = SETTINGS_ENTRIES.map((e) => e.id)
 		expect(new Set(ids).size).toBe(ids.length)
@@ -68,6 +97,66 @@ describe('search', () => {
 			expect(SETTINGS_SECTION_TITLES[entry.section]).toBeTruthy()
 		for (const section of SETTINGS_SECTIONS.filter((s) => !ENGINE_ONLY_SECTIONS.includes(s)))
 			expect(SETTINGS_ENTRIES.some((e) => e.section === section)).toBe(true)
+	})
+})
+
+describe('where the Desktop rows sit', () => {
+	const sectionOf = (id: string) => SETTINGS_ENTRIES.find((entry) => entry.id === id)?.section
+	it('keeps each moved row in its new section, and a search hit names that section', () => {
+		expect(sectionOf('hardware-acceleration')).toBe('desktop')
+		expect(sectionOf('terminal-shell')).toBe('terminal')
+		expect(sectionOf('terminal-restore')).toBe('terminal')
+		expect(searchSettings('shell')[0]?.section).toBe('terminal')
+		expect(searchSettings('bring terminal tabs back')[0]?.section).toBe('terminal')
+		for (const id of [
+			'attention-signals',
+			'notify-permission',
+			'notify-question',
+			'notify-task-complete',
+			'notify-long-reply',
+			'notify-error',
+			'notify-sound',
+		])
+			expect(sectionOf(id)).toBe('notifications')
+	})
+
+	it('lists Notifications after Appearance in the second group', () => {
+		expect(SETTINGS_NAV_GROUPS[1]).toEqual(['general', 'appearance', 'notifications', 'speech'])
+		expect(SETTINGS_SECTION_TITLES.notifications).toBe('Notifications')
+		expect(parseSettingsRoute('settings/notifications')).toBe('notifications')
+	})
+
+	it('has a Desktop app section in the fourth group, first, and it is a valid stored section', () => {
+		expect(SETTINGS_NAV_GROUPS[3]).toEqual(['desktop', 'telemetry', 'updates', 'about'])
+		expect(SETTINGS_SECTION_TITLES.desktop).toBe('Desktop app')
+		expect(isSettingsSection('desktop')).toBe(true)
+		expect(parseSettingsRoute('settings/desktop')).toBe('desktop')
+		// A section stored before the move still opens.
+		for (const old of ['general', 'models', 'agent', 'tools', 'projects', 'appearance', 'terminal'])
+			expect(isSettingsSection(old)).toBe(true)
+	})
+
+	it('draws the shell row only where main offers a choice, which is Windows, and search follows', () => {
+		const facts = { hasAppUpdater: true, canFetchEngines: true }
+		// Linux and macOS: main answers with the login shell alone.
+		expect(entryIsDrawn('terminal-shell', { ...facts, shells: [{ value: 'auto' }] })).toBe(false)
+		// Still being asked.
+		expect(entryIsDrawn('terminal-shell', { ...facts, shells: undefined })).toBe(false)
+		// No terminals at all.
+		expect(entryIsDrawn('terminal-shell', { ...facts, shells: null })).toBe(false)
+		expect(entryIsDrawn('terminal-restore', { ...facts, shells: null })).toBe(false)
+		// Windows: Automatic and at least Command Prompt.
+		const windows = { ...facts, shells: [{ value: 'auto' }, { value: 'cmd' }] }
+		expect(entryIsDrawn('terminal-shell', windows)).toBe(true)
+		expect(entryIsDrawn('terminal-restore', { ...facts, shells: [{ value: 'auto' }] })).toBe(true)
+		expect(entryIsDrawn('auto-download', { ...windows, hasAppUpdater: false })).toBe(false)
+		expect(entryIsDrawn('keep-engine', { ...windows, canFetchEngines: false })).toBe(false)
+		expect(entryIsDrawn('cfg-disableHooks', windows)).toBe(false)
+		expect(entryIsDrawn('theme', windows)).toBe(true)
+		// The row's own words say where it works.
+		expect(SETTINGS_ENTRIES.find((entry) => entry.id === 'terminal-shell')?.description).toMatch(
+			/^Windows only\./,
+		)
 	})
 })
 
@@ -171,6 +260,7 @@ describe('projects', () => {
 		expect(copy.title).toBe('Remove \u201cApp\u201d from Namzu?')
 		expect(copy.description).toContain('\u201cApp\u201d')
 		expect(copy.description).toContain('off Namzu\u2019s trusted list')
+		expect(copy.description).toContain('forgets what this app recorded about it')
 		expect(copy.description).toContain('asks again if you add it back')
 		expect(copy.description).toContain(
 			'Files on your computer and existing conversations won\u2019t be deleted',
@@ -205,25 +295,44 @@ describe('attention setting search', () => {
 })
 
 describe('notification setting search', () => {
-	it('finds each notification switch by plain words', () => {
+	it('finds each notification row by plain words, and by the names it had before', () => {
 		const find = (word: string) => searchSettings(word).map((entry) => entry.id)
 		expect(find('notification')).toEqual(
 			expect.arrayContaining([
-				'notify-needs-you',
-				'notify-failed',
-				'notify-finished',
+				'notify-permission',
+				'notify-question',
+				'notify-task-complete',
+				'notify-error',
 				'notify-sound',
 			]),
 		)
-		expect(find('banner')).toContain('notify-needs-you')
+		expect(find('banner')).toContain('notify-permission')
 		expect(find('chime')).toContain('notify-sound')
-		expect(find('done')).toContain('notify-finished')
+		expect(find('done')).toContain('notify-task-complete')
+		expect(find('Permission requests and questions')).toContain('notify-permission')
+		expect(find('Finished long responses')).toContain('notify-long-reply')
 	})
 })
 
-describe('finished notification wording', () => {
-	it('names the same threshold the main process uses, and says "or more"', () => {
-		const entry = searchSettings('done').find((item) => item.id === 'notify-finished')
-		expect(entry?.description).toContain(`${FINISHED_NOTICE_AFTER_MS / 1000} seconds or more`)
+describe('long response time', () => {
+	it('defaults to the threshold the main process used before it could be set', () => {
+		const entry = SETTINGS_CATALOGUE.find((item) => item.id === 'notify-long-reply')
+		expect(entry?.default).toBe(FINISHED_NOTICE_AFTER_MS / 1000)
+	})
+})
+
+describe('the left column groups', () => {
+	it('lists every section exactly once, in four groups', () => {
+		expect(SETTINGS_NAV_GROUPS).toHaveLength(4)
+		expect([...SETTINGS_NAV_GROUPS.flat()].sort()).toEqual([...SETTINGS_SECTIONS].sort())
+	})
+
+	it('keeps whole groups with no search and only the matching sections with one', () => {
+		expect(visibleNavGroups(undefined)).toEqual(SETTINGS_NAV_GROUPS)
+		expect(visibleNavGroups([{ section: 'speech' }, { section: 'models' }])).toEqual([
+			['models'],
+			['speech'],
+		])
+		expect(visibleNavGroups([])).toEqual([])
 	})
 })

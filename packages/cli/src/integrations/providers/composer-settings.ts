@@ -7,6 +7,10 @@ export interface ComposerModelSettings {
 	readonly effortLevels?: readonly ReasoningEffort[]
 	readonly effortDefault?: ReasoningEffort
 	readonly notice?: string
+	/** Dynamic workflows are off in Settings, so hypermode cannot be turned on. */
+	readonly workflowsOff?: true
+	/** The saved `hypermode` setting starts conversations in the mode (and workflows are on). */
+	readonly hypermodeDefault?: true
 	/**
 	 * Set only on a `catalogue: 'skip'` answer: at least one member would have
 	 * been asked for its model listing, so the levels above are what the provider
@@ -101,6 +105,11 @@ export async function resolveProviderReasoning(
 export interface ComposerSendSettings {
 	readonly effort?: ReasoningEffort
 	readonly permissionMode: PermissionMode
+	/**
+	 * Hypermode for this conversation, as the composer's effort option left it: `true` and `false`
+	 * are the person's choice, absent follows the saved `hypermode` setting.
+	 */
+	readonly hypermode?: boolean
 }
 
 /** Validate after opening the exact session; a saved menu cannot authorize a different route. */
@@ -116,12 +125,19 @@ export function validateComposerSendSettings(
 		throw new Error('Invalid message settings.')
 	}
 	const settings = value as
-		| { readonly effort?: unknown; readonly permissionMode?: unknown }
+		| {
+				readonly effort?: unknown
+				readonly permissionMode?: unknown
+				readonly hypermode?: unknown
+		  }
 		| undefined
 	const permissionMode = settings?.permissionMode ?? defaultPermissionMode
 	if (!isPermissionMode(permissionMode)) throw new Error('Invalid permission mode.')
+	if (settings?.hypermode !== undefined && typeof settings.hypermode !== 'boolean')
+		throw new Error('Invalid message settings.')
+	const hypermode = settings?.hypermode === undefined ? {} : { hypermode: settings.hypermode }
 	const effort = settings?.effort
-	if (effort === undefined) return { permissionMode }
+	if (effort === undefined) return { permissionMode, ...hypermode }
 	if (
 		typeof effort !== 'string' ||
 		!session.reasoningEffortLevels?.includes(effort as ReasoningEffort)
@@ -130,7 +146,7 @@ export function validateComposerSendSettings(
 			'This reasoning effort is not available for the selected model. Choose it again.',
 		)
 	}
-	return { effort: effort as ReasoningEffort, permissionMode }
+	return { effort: effort as ReasoningEffort, permissionMode, ...hypermode }
 }
 
 function describeError(error: unknown): string {

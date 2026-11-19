@@ -102,8 +102,8 @@
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.pal-chat-message,
-	.pal-chat-typing > span {
+	:root:not([data-motion="full"]) .pal-chat-message,
+	:root:not([data-motion="full"]) .pal-chat-typing > span {
 		animation: none;
 	}
 }

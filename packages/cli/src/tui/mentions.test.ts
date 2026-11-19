@@ -226,4 +226,37 @@ describe('file mention completion', () => {
 		expect(files).toContain('özet.md')
 		expect(files).not.toContain('ignored/secret.ts')
 	})
+
+	it('lists ignored files after the others when respectGitignore is off', async () => {
+		const root = mkdtempSync(join(tmpdir(), 'namzu-mention-files-'))
+		tempDirs.push(root)
+		execFileSync('git', ['init', '--quiet'], { cwd: root })
+		mkdirSync(join(root, 'ignored'))
+		writeFileSync(join(root, '.gitignore'), 'ignored/\n')
+		writeFileSync(join(root, 'app.ts'), 'export {}')
+		writeFileSync(join(root, 'ignored', 'secret.ts'), 'ignored')
+
+		const on = await listMentionableFiles(root, undefined, { respectGitignore: true })
+		expect(on).not.toContain('ignored/secret.ts')
+		const off = await listMentionableFiles(root, undefined, { respectGitignore: false })
+		expect(off).toContain('app.ts')
+		expect(off).toContain('ignored/secret.ts')
+		expect(off.indexOf('app.ts')).toBeLessThan(off.indexOf('ignored/secret.ts'))
+		expect(new Set(off).size).toBe(off.length)
+	})
+
+	it('keeps installed packages out of the ignored listing so later ignored files still show', async () => {
+		const root = mkdtempSync(join(tmpdir(), 'namzu-mention-files-'))
+		tempDirs.push(root)
+		execFileSync('git', ['init', '--quiet'], { cwd: root })
+		mkdirSync(join(root, 'node_modules', 'pkg'), { recursive: true })
+		mkdirSync(join(root, 'packages', 'a', 'dist'), { recursive: true })
+		writeFileSync(join(root, '.gitignore'), 'node_modules/\ndist/\n')
+		writeFileSync(join(root, 'node_modules', 'pkg', 'index.js'), 'x')
+		writeFileSync(join(root, 'packages', 'a', 'dist', 'out.js'), 'x')
+
+		const off = await listMentionableFiles(root, undefined, { respectGitignore: false })
+		expect(off).toContain('packages/a/dist/out.js')
+		expect(off.some((path) => path.includes('node_modules'))).toBe(false)
+	})
 })

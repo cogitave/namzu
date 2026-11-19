@@ -32,11 +32,7 @@ function PaneViewport({ pane }: { pane: RefObject<HTMLElement | null> }) {
 	const [lane, setLane] = useState<Element | null>(null)
 	// The lane comes and goes with the page, so look again after every render.
 	useLayoutEffect(() => {
-		// The Settings page hides the conversation lane, so its notices use the pane itself.
-		const found =
-			pane.current?.dataset.page === 'settings'
-				? null
-				: (pane.current?.querySelector('.conversation-lane') ?? null)
+		const found = pane.current?.querySelector('.conversation-lane') ?? null
 		const next = found ?? pane.current ?? null
 		setHost((current) => (current === next ? current : next))
 		setLane((current) => (current === found ? current : found))

@@ -25,3 +25,4 @@ export function registerOpenRouter(options?: RegisterOptions): void {
 
 export { OPENROUTER_CAPABILITIES, OpenRouterProvider } from './client.js'
 export type { OpenRouterConfig, OpenRouterProviderConfig } from './types.js'
+export { parseKeyLimits } from './limits.js'

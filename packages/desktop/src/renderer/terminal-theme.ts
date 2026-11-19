@@ -93,3 +93,9 @@ export function terminalFontFamily(read: (name: string) => string): string {
 		'"Geist Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace'
 	)
 }
+
+/** The terminal's text size in px from the code size token (13 with nothing set). */
+export function terminalFontSize(read: (name: string) => string): number {
+	const size = Number.parseInt(read('--font-size-code'), 10)
+	return Number.isFinite(size) && size >= 8 && size <= 32 ? size : 13
+}

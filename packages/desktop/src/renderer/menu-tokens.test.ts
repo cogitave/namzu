@@ -128,12 +128,6 @@ describe('menu tokens', () => {
 				'--menu-check-inset',
 			],
 			'composer-effort-panel.css': ['--menu-padding'],
-			'conversation-details-popover.css': [
-				'--menu-radius',
-				'--menu-padding',
-				'--menu-row-height',
-				'--menu-highlight',
-			],
 			'composer.css': ['--menu-radius', '--menu-padding', '--menu-highlight', '--menu-check-inset'],
 		}
 		for (const [file, tokens] of Object.entries(reads))
@@ -173,7 +167,12 @@ describe('menu tokens', () => {
 	it('has every positioner sit MENU_OFFSET from its control', () => {
 		// Files whose menus another piece of work owns keep their own number until it lands: the strip at
 		// the top of the window and the approval card's menu.
-		const others = new Set(['window-titlebar.tsx', 'composer-approval.tsx'])
+		// The add menu sits flush on the composer box (offset 0) and its submenu beside its parent row (2).
+		const others = new Set([
+			'window-titlebar.tsx',
+			'composer-approval.tsx',
+			'composer-add-menu.tsx',
+		])
 		const offenders: string[] = []
 		for (const file of walk(dir, /\.tsx$/)) {
 			const name = file.slice(dir.length)

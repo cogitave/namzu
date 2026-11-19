@@ -13,9 +13,10 @@ function setup(initial: Partial<NoticeSettings> = {}, finishedAfterMs?: number, 
 	let focused = false
 	let supported = true
 	const settings: NoticeSettings = {
-		needsYou: true,
-		failed: true,
-		finished: true,
+		permission: 'banner',
+		question: 'banner',
+		failed: 'banner',
+		finished: 'banner',
 		sound: false,
 		...initial,
 	}
@@ -251,7 +252,7 @@ describe('system notices', () => {
 	})
 
 	it('follows each switch, read on every event', () => {
-		const t = setup({ needsYou: false, failed: false, finished: false })
+		const t = setup({ permission: 'off', question: 'badge', failed: 'off', finished: 'off' })
 		t.notices.needsYou(['a'])
 		t.notices.turnStarted('b')
 		t.advance(LONG)
@@ -260,7 +261,7 @@ describe('system notices', () => {
 		t.notices.turnEnded('c', 'failed', false)
 		t.advance(FOLD_MS)
 		expect(t.shown).toHaveLength(0)
-		t.settings.finished = true
+		t.settings.finished = 'banner'
 		t.notices.turnStarted('b')
 		t.advance(LONG)
 		t.notices.turnEnded('b', 'finished', false)
@@ -307,5 +308,56 @@ describe('system notices', () => {
 			expect(sentences).toContain(payload.body)
 			expect(['Alpha', 'Beta', 'Gamma']).toContain(payload.title)
 		}
+	})
+})
+
+describe('levels per kind', () => {
+	it('shows a banner only at the Banner level; Badge only is the icon count, which is not here', () => {
+		const t = setup({ permission: 'badge', question: 'banner' })
+		t.notices.needsYou(['a'], ['b'])
+		t.advance(FOLD_MS)
+		expect(t.shown).toHaveLength(1)
+		expect(t.shown[0]?.payload.title).toBe('Beta')
+	})
+
+	it('treats a permission and a question as separate events for one conversation', () => {
+		const t = setup()
+		t.notices.needsYou(['a'], [])
+		t.advance(FOLD_MS)
+		expect(t.shown).toHaveLength(1)
+		// The same conversation is already shown once until the person comes back.
+		t.notices.needsYou(['a'], ['a'])
+		t.advance(FOLD_MS)
+		expect(t.shown).toHaveLength(1)
+	})
+
+	it('reads each level on every event', () => {
+		const t = setup({ question: 'off' })
+		t.notices.needsYou([], ['a'])
+		t.advance(FOLD_MS)
+		expect(t.shown).toHaveLength(0)
+		t.settings.question = 'banner'
+		t.notices.needsYou([], [])
+		t.notices.needsYou([], ['a'])
+		t.advance(FOLD_MS)
+		expect(t.shown).toHaveLength(1)
+	})
+
+	it('keeps errors apart from Task complete, and a short reply never notifies', () => {
+		const t = setup({ finished: 'off' }, 10_000)
+		t.notices.turnStarted('a')
+		t.advance(20_000)
+		t.notices.turnEnded('a', 'finished', false)
+		t.notices.turnStarted('b')
+		t.advance(1_000)
+		t.notices.turnEnded('b', 'failed', false)
+		t.advance(FOLD_MS)
+		expect(t.shown.map((item) => item.payload.body)).toEqual([NOTICE_SENTENCES.failed])
+		t.settings.finished = 'banner'
+		t.notices.turnStarted('c')
+		t.advance(9_999)
+		t.notices.turnEnded('c', 'finished', false)
+		t.advance(FOLD_MS)
+		expect(t.shown).toHaveLength(1)
 	})
 })

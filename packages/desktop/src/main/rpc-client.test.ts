@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { ENGINE_CODE_SENTENCES, engineFailureText } from '../shared/plain-error.js'
 import { type DesktopDiagnosticSink, DesktopDiagnostics, observeDesktopIpc } from './diagnostics.js'
 import { ExpectedRuntimeCloseError } from './expected-close.js'
 import type { HostLauncher, SpawnSpec } from './host-launcher.js'
@@ -44,6 +45,14 @@ it('decodes a response split within UTF-8 and correlates actual process replies'
 	await runtime.start()
 	expect(await runtime.request('test/echo')).toBe('Türkçe 🧪')
 })
+it('carries the stable code an engine attached to a failure, and nothing else of its data', async () => {
+	const runtime = client()
+	await runtime.start()
+	const failure = await runtime.request('test/coded').catch((error: unknown) => error)
+	expect(failure).toBeInstanceOf(Error)
+	expect(engineFailureText(failure)).toBe(ENGINE_CODE_SENTENCES['no-provider'])
+	expect((failure as { engineCode?: string }).engineCode).toBe('no-provider')
+})
 it('reassembles frames from arbitrary chunks, several to a chunk, and keeps an unfinished tail', () => {
 	const runtime = client()
 	const frames: unknown[] = []
@@ -81,6 +90,17 @@ it('reports malformed protocol output and rejects a pending prompt', async () =>
 	await runtime.start()
 	await expect(runtime.request('test/malformed')).rejects.toThrow()
 	await expect(runtime.request('test/echo')).rejects.toThrow('not connected')
+})
+it('keeps the review modes the engine advertises, and tells "none" from "no list"', async () => {
+	const older = client()
+	await older.start()
+	expect(older.promptPermissionModes()).toBeUndefined()
+	const only = client({ ...process.env, FIXTURE_PERMISSION_MODES: '["bypass"]' })
+	await only.start()
+	expect(only.promptPermissionModes()).toEqual(['bypass'])
+	const closed = client({ ...process.env, FIXTURE_PERMISSION_MODES: '[]' })
+	await closed.start()
+	expect(closed.promptPermissionModes()).toEqual([])
 })
 it('fails initialization before exposing an incompatible runtime', async () => {
 	await expect(client({ ...process.env, FIXTURE_INCOMPATIBLE: '1' }).start()).rejects.toThrow(

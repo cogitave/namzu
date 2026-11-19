@@ -33,6 +33,7 @@ import { type ApprovalPreview, commandChip, diffPreview, textPreview } from './a
 import { richDiffVerdict } from './changes-review/diff-gate.js'
 import { unifiedDiff } from './changes-review/model.js'
 import { formatLineCount } from './changes-totals.js'
+import { useCodePrefs } from './code-prefs.js'
 import { copyPlainText } from './copy-button.js'
 import { DIFF_VIEW_UNSAFE_CSS } from './diff-theme.js'
 import {
@@ -158,9 +159,10 @@ function FullDiff({
 	patch: string
 }) {
 	const dark = useDocumentDark()
+	const themes = useCodePrefs()
 	const options = useMemo(
 		() => ({
-			theme: { light: 'pierre-light', dark: 'pierre-dark' } as const,
+			theme: { light: themes.light, dark: themes.dark },
 			themeType: dark ? ('dark' as const) : ('light' as const),
 			preferredHighlighter: 'shiki-wasm' as const,
 			diffStyle: 'unified' as const,
@@ -170,7 +172,7 @@ function FullDiff({
 			disableFileHeader: true,
 			unsafeCSS: DIFF_VIEW_UNSAFE_CSS,
 		}),
-		[dark, wrap],
+		[dark, wrap, themes],
 	)
 	// The diff element draws on the render after it mounts, not on the one that mounts it, and
 	// nothing else re-renders a card that waits for an answer; one extra render makes it draw.
@@ -394,6 +396,7 @@ export function ComposerApproval({
 	const screenMoment = model.screenMoment
 	const showDetails =
 		!appAccess &&
+		!model.settingChange &&
 		((!screenMoment && !(model.diff && !model.diff.fragment)) || permission.calls.length > 1)
 	const diff = model.diff
 	const verdict = useMemo(
@@ -535,7 +538,11 @@ export function ComposerApproval({
 		<section
 			className="approval-surface"
 			aria-label={
-				appAccess ? 'Application access' : screenMoment ? 'Screen question' : 'Tool approval'
+				appAccess
+					? 'Use of an app'
+					: screenMoment
+						? 'A question about the screen'
+						: 'Permission to act'
 			}
 			onKeyDown={onKeyDown}
 		>

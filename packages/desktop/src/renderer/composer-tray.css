@@ -92,7 +92,7 @@
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.composer-tray-actions {
+	:root:not([data-motion="full"]) .composer-tray-actions {
 		transition: none;
 	}
 }

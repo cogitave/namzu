@@ -2,6 +2,7 @@ import type { DoctorCheckResult } from '../doctor/index.js'
 
 import type { ChatCompletionParams } from './chat.js'
 import type { ProviderCapabilities } from './config.js'
+import type { ProviderLimits } from './limits.js'
 import type { ModelInfo } from './model.js'
 import type { StreamChunk } from './stream.js'
 
@@ -105,6 +106,18 @@ export interface LLMProvider {
 	 * credential that is fine.
 	 */
 	probeCredential?(signal?: AbortSignal): Promise<void>
+
+	/**
+	 * What the vendor says about the account behind this credential: usage windows, or credit left.
+	 *
+	 * Optional, and absent means "not reported" for this driver, which a host shows as exactly that
+	 * and never as zero. A driver whose vendor sends the numbers on responses it already makes
+	 * answers from the last one with no request of its own; one that must ask makes at most one
+	 * small request per call, so a host decides how often to call. Resolve `undefined` when the
+	 * vendor said nothing usable. The result is account data: a host keeps it in memory and does
+	 * not log its values, store it or put it in a prompt.
+	 */
+	readLimits?(signal?: AbortSignal): Promise<ProviderLimits | undefined>
 
 	/**
 	 * Is this driver able to serve traffic? A summary bit; `doctorCheck` is

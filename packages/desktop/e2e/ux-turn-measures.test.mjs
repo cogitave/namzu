@@ -398,7 +398,7 @@ flow(
 			assert.equal(row.kind, "pending");
 			assert.equal(row.color, m.text, "a task that has not started is full text");
 		}
-		near(m.planBox.h, 2 + 32 + 56, "a box of two rows: edge, padding and 2 x 28");
+		near(m.planBox.h, 2 + 32 + 24 + 56, "a box of two rows: edge, padding, the 24 high title and 2 x 28");
 		// A task that has not started shows a dashed ring (the done disc and the spinning arc are in plan-row-view.test.ts).
 		const kinds = await w.page.evaluate(() => [...document.querySelectorAll(".plan-box-steps > li")].map((e) => (e.querySelector(".plan-box-ring") ? "ring" : "other")));
 		assert.deepEqual(kinds, ["ring", "ring"]);

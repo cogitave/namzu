@@ -89,6 +89,8 @@
 		monospace;
 	--font-sans-app: "Geist", var(--font-sans-system);
 	--font-mono-app: "Geist Mono", var(--font-mono-system);
+	/* The headings of a document page: a serif the machine already has, so nothing is shipped for it. */
+	--font-document: Georgia, "Iowan Old Style", "Palatino Linotype", "Times New Roman", serif;
 	--font-sans: var(--font-sans-app);
 	--font-mono: var(--font-mono-app);
 	--font-terminal: var(--font-mono-app);
@@ -243,7 +245,7 @@
 	/* The open block of steps. */
 	--turn-block-gap: 8px;
 	--turn-block-radius: 8px;
-	--turn-block-row: 35px;
+	--turn-block-row: 36px;
 	--turn-block-inset: 12px;
 	--turn-block-after: 20px;
 	--turn-edge: color-mix(in srgb, var(--foreground) 6%, transparent);
@@ -349,6 +351,22 @@
 	   28 px control make 52, a label over one line of description makes 68 (the copy block carries 1 px
 	   above and below its two lines, the one pixel that brings 42 to 44). */
 	--settings-column-width: var(--frame-column-width);
+	/* The Settings dialog: 1024 x 761 in a 1280 x 833 window (128 at the sides, 36 above and below), never
+	   larger, the nav column 211 wide, the title band 44, the close button 28 at 8 from the corner. */
+	--settings-dialog-width: 1024px;
+	--settings-dialog-height: 761px;
+	--settings-dialog-margin-x: 128px;
+	--settings-dialog-margin-y: 36px;
+	--settings-dialog-radius: 12px;
+	--settings-dialog-title-height: 44px;
+	--settings-dialog-close-size: 28px;
+	--settings-dialog-close-inset: 8px;
+	--settings-nav-width: 211px;
+	--settings-nav-min-width: 168px;
+	--settings-nav-icon-width: 56px;
+	--settings-nav-pad: 16px;
+	--settings-nav-row-radius: 8px;
+	--settings-scrim: color-mix(in srgb, black 52%, transparent);
 	--settings-search-height: 28px;
 	--settings-search-radius: 8px;
 	--settings-group-before: 40px;
@@ -359,6 +377,7 @@
 	--settings-copy-gap: 4px;
 	--settings-control-height: 28px;
 	--settings-control-radius: 8px;
+	--settings-segment-radius: calc(var(--settings-control-radius) - 2px);
 	--settings-switch-width: 36px;
 	--settings-switch-height: 20px;
 	--settings-switch-knob: 16px;
@@ -389,17 +408,9 @@
 	--palette-footer-height: 42px;
 	--palette-key-height: 18px;
 	--palette-key-radius: 4px;
-	/* The side panels. A reading panel (changes, a file, a preview) takes 60 percent of the main area and
-	   no less than 360; a tool panel (tasks) takes 40 percent, between 320 and 560. The conversation keeps the
-	   rest, and when that would be under 360 the panel lies over its right side. A 1px seam divides them, and
-	   a 7px zone on it takes the pointer. A panel's header is 44 high; its title starts 20 in; its controls
-	   are 28 square, 4 apart and the last 8 from the edge. */
-	--panel-reading-share: 60%;
-	--panel-reading-min: 360px;
-	--panel-tool-share: 40%;
-	--panel-tool-min: 320px;
-	--panel-tool-max: 560px;
-	--panel-conversation-min: 360px;
+	/* The panes beside a conversation (the numbers that place them are in pane-grid.ts). A 1px line divides
+	   a pane from its neighbour and a 7px zone on it takes the pointer. A pane's header is 44 high; its title
+	   starts 20 in; its controls are 28 square, 4 apart and the last 8 from the edge. */
 	--panel-seam: 1px;
 	--panel-grab-zone: 7px;
 	--panel-grab-line: 2px;
@@ -407,11 +418,8 @@
 	--panel-title-inset: 20px;
 	--panel-control-gap: 4px;
 	--panel-control-inset: 8px;
-	--panel-files-width: 240px;
 	--panel-file-row: 28px;
 	--panel-open-fill: 8%;
-	--panel-reading-width: max(var(--panel-reading-min), var(--panel-reading-share));
-	--panel-tool-width: clamp(var(--panel-tool-min), var(--panel-tool-share), var(--panel-tool-max));
 	--workspace-topbar-height: var(--frame-header-height);
 	--workspace-gutter: var(--frame-title-inset);
 	--workspace-gutter-start: var(--workspace-gutter);

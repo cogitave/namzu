@@ -54,3 +54,20 @@ The terminal and Desktop messages carry it. Sub-agents' prompts, goal rounds, pe
 ## Tool results that name the next move
 
 Some results say what to do next because a wrong next move was common in the benchmark runs: a read-back after a write, a re-read of a file a refusal had just handed over, a guessed second path after "no such file", a write over a file nobody read, a search re-asked with an inline flag. The wording and the counts are in [File tools](../sdk/file-tool-limits.md#edit-and-write). They are clauses on results, not on tool descriptions, so they cost nothing until the moment they apply.
+
+## The closing note
+
+The working rules end with one rule: when the model changed something, it closes with what changed, what was verified and what is left, and for a question the reply is the answer. The config key `closingSummary` (default `true`; Desktop Settings > Agent > *Summary and next steps*) leaves that one rule out of the working rules of conversations started after the change, and nothing else in them changes; with the key absent or `true` the prompt is byte for byte what it was. It is a rule the model follows, not a block the app draws, so a small model may still write one, and the setting adds no model request. A delegated agent reads its own final-report rule and is unaffected, and so are the other places a reply is shaped (the done gate, the turn-end reminders).
+
+## Reply style and commit text
+
+Two config keys add one note each to the working rules of conversations started after the change. Both are read from your own file and the managed file only, because a project file that could write into the model's rules could redirect it; a project file that tries is ignored. Each is at most 500 characters of plain text, and an empty value adds nothing, so with both absent the prompt is byte for byte what it was.
+
+- `outputStyle` (Desktop Settings > Agent > *Output style*): how replies should read, in your own words. It becomes a `Reply style` note under the working rules that says it never overrides them or what you ask for in a message. Only your own text is offered; named styles with fixed wording are not, because their wording has not been tested on small models.
+- `attribution` (Desktop Settings > Projects > *Commit and pull request text*): text the agent ends commit messages and pull request descriptions with, when you ask it to write one. The model follows it; nothing enforces it, so a small model can forget it, and a commit made by hand or by a hook does not carry it. It stays empty by default, so a repository that forbids co-author trailers is never touched. Delegated agents do not read either note.
+
+There is no switch for the git section of the working rules as a whole: the same section holds the rules that stop the agent from pushing or rewriting history without being asked.
+
+## Prompt suggestions
+
+After a reply ends, the terminal app asks the small model for one short message you might type next and shows it in the empty composer in place of the placeholder; Tab puts it in the draft, and Enter sends it. The config key `promptSuggestions` (default `true`; Desktop Settings > Agent > *Prompt suggestions*, applied the next time the terminal app starts) switches it off, and off sends no request. Each suggestion is one small request with no tools, on the route every side job takes ([small model](small-model.md)), counted on the turn it follows; it sends the same bounded digest the [away recap](small-model.md#the-away-recap) sends, with the newest prompt always in it. A failed request, no small model, a reply that is empty, `NONE` or longer than 120 characters, or anything you do first (typing, a new turn, another conversation) shows nothing, and a suggestion never blocks a turn. Desktop does not draw suggestions yet, so the key changes nothing there.

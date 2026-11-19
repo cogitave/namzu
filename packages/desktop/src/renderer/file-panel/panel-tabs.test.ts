@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { activityTab, changesTab, fileTab } from './file-tabs.js'
+import { activityTab, changesTab, detailsTab, fileTab } from './file-tabs.js'
 import { PanelTabStrip, closesTab, overflowEdges, tabLabel } from './panel-tabs.js'
 
 const noop = () => {}
@@ -69,7 +69,11 @@ describe('panel tab strip', () => {
 	})
 	it('offers the add menu while there is something to add', () => {
 		expect(strip()).toContain('aria-label="Add a tab"')
-		expect(strip({ canBrowse: false })).not.toContain('aria-label="Add a tab"')
+		// Details is offered like the others, so with it open too there is nothing left to add.
+		expect(strip({ canBrowse: false })).toContain('aria-label="Add a tab"')
+		expect(strip({ canBrowse: false, tabs: [detailsTab, changesTab, activityTab] })).not.toContain(
+			'aria-label="Add a tab"',
+		)
 		expect(strip({ canBrowse: false, tabs: [changesTab] })).toContain('aria-label="Add a tab"')
 	})
 	it('labels files by name', () => {

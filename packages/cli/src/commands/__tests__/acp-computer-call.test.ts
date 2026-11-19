@@ -47,7 +47,10 @@ async function run(options: {
 		})(),
 	) as unknown as AgentSession['send']
 	const runtime = createCliAcpRuntime(
-		{ config: {}, formatter: { name: 'text', print() {}, info() {}, error() {} } },
+		{
+			config: { computerUse: { enabled: true } },
+			formatter: { name: 'text', print() {}, info() {}, error() {} },
+		},
 		{
 			probe: async () => ({
 				preferences: { version: 3, providers: [{ id: 'mock' }], subagents: { active: [] } },

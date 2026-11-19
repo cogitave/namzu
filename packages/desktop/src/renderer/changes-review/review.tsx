@@ -1,155 +1,254 @@
-import { Menu } from '@base-ui/react/menu'
 import type { AcpSessionUpdate } from '@namzu/sdk'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ThreadState } from '../../shared/projection.js'
-import type { ProjectChangesView, ProjectDiffView } from '../../shared/protocol.js'
-import { formatLineCount } from '../changes-totals.js'
-import {
-	CheckIcon,
-	ChevronDownIcon,
-	CollapseAllIcon,
-	Columns2Icon,
-	CopyIcon,
-	FilterIcon,
-	Maximize2Icon,
-	Minimize2Icon,
-	RefreshIcon,
-	Rows3Icon,
-	SearchIcon,
-	TextWrapIcon,
-	XIcon,
-} from '../icons.js'
-import { type DiffBody, DiffPane } from './diff-pane.js'
-import { FlatFileList } from './flat-list.js'
-import {
-	FLAT_LIST_LIMIT,
-	type ReviewFile,
-	type ReviewScope,
-	buildTree,
-	cutNoteFor,
-	emptyMessageFor,
-	filterFiles,
-	keyStep,
-	largestFile,
-	receiptsOf,
-	scopeFiles,
-	stepFile,
-	totalsOf,
-} from './model.js'
-import { ReviewTreeView } from './tree.js'
-import '../conversation-actions-menu.css'
-import './review.css'
+import type {
+	ProjectChangesView,
+	ProjectCompareReply,
+	ProjectCompareRequest,
+	ProjectDiffView,
+} from '../../shared/protocol.js'
+import { ListTreeIcon } from '../icons.js'
 import { plainErrorText } from '../plain-error.js'
+import { BaseMenu, type BranchesReply, type CommitsReply } from './base-menu.js'
+import {
+	type BaseContext,
+	type BaseSource,
+	type ChangesBase,
+	DEFAULT_BASE,
+	effectiveBase,
+	sourceOf,
+} from './base.js'
+import { richDiffVerdict } from './diff-gate.js'
+import type { DiffBody } from './diff-pane.js'
+import { groupByKind } from './file-kind.js'
+import { FileSection } from './file-section.js'
+import { FlatFileList } from './flat-list.js'
+import { GoToFile } from './go-to-file-popover.js'
+import { ChangesHeaderSlot, publishChangesHeader } from './header-store.js'
+import { createLimiter } from './limiter.js'
+import {
+	type ReviewFile,
+	buildTree,
+	conversationFiles,
+	keyStep,
+	receiptsOf,
+	stepFile,
+} from './model.js'
+import {
+	type ChangesDisplay,
+	LIST_FIT_WIDTH,
+	SPLIT_FIT_WIDTH,
+	clampListWidth,
+	listSide,
+	loadDisplay,
+	saveDisplay,
+} from './settings.js'
+import { ToolButton } from './tool-button.js'
+import { ReviewTreeView } from './tree.js'
+import { ViewMenu } from './view-menu.js'
+import { type ViewedState, fingerprintOf, viewedState } from './viewed.js'
+import './review.css'
 
 type Tool = Extract<AcpSessionUpdate, { kind: 'tool_call' }>
 
-/** What the working-tree scope reads; supplied only for a trusted, ready project. */
+/** What the Changes pane reads; supplied only for a trusted, ready project. */
 export interface WorkingTreeSource {
 	projectId: string
+	/** The working tree against HEAD, through the host. */
 	changes(): Promise<ProjectChangesView | null>
 	diff(path: string): Promise<ProjectDiffView>
+	/** Branches, commits, and changes against a branch's fork point or a commit. */
+	compare?(request: ProjectCompareRequest): Promise<ProjectCompareReply | null>
 }
 
-const SCOPE_LABEL: Record<ReviewScope, string> = {
-	reply: 'This reply',
-	conversation: 'All changes',
-	uncommitted: 'Uncommitted changes',
-}
-const MAX_FILES_NOTE = 'Only the first files are listed.'
-
+type Load<T> = { state: 'loading' } | { state: 'error' } | { state: 'ready'; value: T }
 type Remote =
-	| { state: 'loading' }
-	| { state: 'error'; message: string }
-	| { state: 'ready'; view: ProjectChangesView | null }
+	| { key: string; state: 'error'; message: string }
+	| { key: string; state: 'ready'; view: ProjectChangesView | null }
 
+const OPEN_ALL_UP_TO = 12
+const OPEN_FIRST_OTHERWISE = 3
+const LARGE_FILE_COUNT = 200
+const READ_AT_ONCE = 3
+
+const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform)
+const SHORTCUT_GO = isMac ? '⌘P' : 'Ctrl+P'
+const SHORTCUT_LIST = isMac ? '⌘⇧Y' : 'Ctrl+Shift+Y'
+
+const keyOfBody = (viaKey: string, seq: string, path: string) => `${viaKey}:${seq}:${path}`
 const failure = (error: unknown, context: string) => plainErrorText(error, context)
+const storageKey = (scopeKey: string, base: string) => `namzu.changes.viewed.${scopeKey}.${base}`
+
+function readMarks(key: string): Record<string, string> {
+	try {
+		const raw = localStorage.getItem(key)
+		const value = raw ? JSON.parse(raw) : {}
+		if (!value || typeof value !== 'object') return {}
+		return Object.fromEntries(
+			Object.entries(value as Record<string, unknown>).filter(
+				(entry): entry is [string, string] => typeof entry[1] === 'string',
+			),
+		)
+	} catch {
+		return {}
+	}
+}
+function writeMarks(key: string, marks: Record<string, string>) {
+	try {
+		localStorage.setItem(key, JSON.stringify(marks))
+	} catch {
+		// A mark is a convenience; without storage it lasts for this window.
+	}
+}
 
 export function ChangesReview({
 	tools,
 	timeline,
 	dark,
-	receiptIds,
 	focus,
-	onShowAll,
 	source,
 	refreshToken,
+	scopeKey = 'default',
+	projectRoot,
 	onOpenFile,
 	onOpenInEditor,
 	onOpenWorkingFile,
 	onOpenWorkingInEditor,
+	onShowInFolder,
 	onCopy,
-	onClose,
-	expanded: paneExpanded,
-	onToggleExpanded,
 }: {
 	tools: Record<string, Tool>
 	timeline?: ThreadState['timeline']
 	dark: boolean
-	/** One reply's receipts, as when the person came from that reply's View changes. */
-	receiptIds?: readonly string[]
-	/** The file to select first; a new object selects it again. */
+	/** The file to scroll to first; a new object scrolls to it again. */
 	focus?: { path: string }
-	onShowAll?: () => void
 	source?: WorkingTreeSource
 	/** Changes when a turn settles, so the working tree is read again. */
 	refreshToken?: number
+	/** What marks as viewed are kept under: the conversation. */
+	scopeKey?: string
+	projectRoot?: string
 	onOpenFile?: (path: string) => void
 	onOpenInEditor?: (path: string) => void
 	/** Open a working-tree path directly: the host already vouched for it. */
 	onOpenWorkingFile?: (path: string) => void
 	onOpenWorkingInEditor?: (path: string) => void
+	onShowInFolder?: (path: string) => void
 	onCopy?: (text: string, done: string) => void
-	/** Closes the pane; the header's one close button. */
-	onClose?: () => void
-	/** The pane covers more of the window; the View menu offers the way back. */
-	expanded?: boolean
-	onToggleExpanded?: () => void
 }) {
-	const replyKey = receiptIds?.join('|')
-	// All changes is where the pane opens; "This reply" is one click away, and a choice stays.
-	const [scope, setScope] = useState<ReviewScope>('conversation')
-	const [selected, setSelected] = useState<string | undefined>(focus?.path)
-	const [seenFocus, setSeenFocus] = useState(focus)
-	if (seenFocus !== focus) {
-		setSeenFocus(focus)
-		if (focus) setSelected(focus.path)
-	}
-	const [split, setSplit] = useState(false)
-	const [wrap, setWrap] = useState(false)
-	const [query, setQuery] = useState('')
-	const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
-	const [filesOpen, setFilesOpen] = useState(false)
+	const [display, setDisplayState] = useState<ChangesDisplay>(loadDisplay)
+	const setDisplay = useCallback((patch: Partial<ChangesDisplay>) => {
+		setDisplayState((value) => {
+			const next = { ...value, ...patch }
+			saveDisplay(next)
+			return next
+		})
+	}, [])
+	const [base, setBase] = useState<ChangesBase>(DEFAULT_BASE)
 	const [version, setVersion] = useState(0)
+	const [goOpen, setGoOpen] = useState(false)
+	const root = useRef<HTMLDivElement>(null)
+	const stack = useRef<HTMLDivElement>(null)
 
-	// Working tree: read on mount to learn whether this is a repository, then on every refresh.
-	const [remote, setRemote] = useState<Remote>({ state: 'loading' })
-	const probed = useRef(false)
-	const uncommittedOpen = scope === 'uncommitted'
+	// How much room the pane has decides what it can offer.
+	const [width, setWidth] = useState(0)
+	useEffect(() => {
+		const el = root.current
+		if (!el || typeof ResizeObserver === 'undefined') return
+		const observer = new ResizeObserver((entries) => {
+			const box = entries[0]?.contentRect
+			if (box) setWidth(Math.round(box.width))
+		})
+		observer.observe(el)
+		return () => observer.disconnect()
+	}, [])
+	const listFits = width >= LIST_FIT_WIDTH
+	const listShown = display.showFiles && listFits
+	const stackWidth = width - (listShown ? display.listWidth : 0)
+	const splitFits = stackWidth >= SPLIT_FIT_WIDTH
+
+	// What the folder is: a repository, and which branch counts as the usual one.
+	const [probe, setProbe] = useState<
+		{ state: 'loading' } | { state: 'ready'; repository: boolean; branches: BranchesReply | null }
+	>(source ? { state: 'loading' } : { state: 'ready', repository: false, branches: null })
+	const [branches, setBranches] = useState<Load<BranchesReply>>({ state: 'loading' })
+	const [commits, setCommits] = useState<Load<CommitsReply>>({ state: 'loading' })
+	const loadBranches = useCallback(() => {
+		if (!source?.compare) return Promise.resolve(null)
+		return source.compare({ op: 'branches' }).then((reply) => {
+			if (reply?.op === 'branches') {
+				setBranches({ state: 'ready', value: reply })
+				return reply
+			}
+			return null
+		})
+	}, [source])
+	// biome-ignore lint/correctness/useExhaustiveDependencies: asked once per source.
+	useEffect(() => {
+		if (!source) {
+			setProbe({ state: 'ready', repository: false, branches: null })
+			return
+		}
+		let live = true
+		const done = (repository: boolean, found: BranchesReply | null) =>
+			live && setProbe({ state: 'ready', repository, branches: found })
+		if (source.compare) {
+			loadBranches().then(
+				(reply) => done(reply !== null, reply),
+				() => {
+					setBranches({ state: 'error' })
+					done(true, null)
+				},
+			)
+		} else {
+			source.changes().then(
+				(view) => done(view !== null, null),
+				() => done(true, null),
+			)
+		}
+		return () => {
+			live = false
+		}
+	}, [source])
+	const context: BaseContext = {
+		repository: probe.state === 'ready' ? probe.repository : true,
+		defaultBranch: probe.state === 'ready' ? (probe.branches?.defaultBranch ?? null) : null,
+	}
+	const used = effectiveBase(base, context)
+	const baseSource: BaseSource = sourceOf(base, context)
+	// Hiding whitespace needs git's own comparison, so the host's read gives way to it.
+	const canHideWhitespace = baseSource.via !== 'receipts' && Boolean(source?.compare)
+	const via: BaseSource =
+		baseSource.via === 'host' && display.hideWhitespace && source?.compare
+			? { via: 'compare', base: { kind: 'head' } }
+			: baseSource
+	const hideWhitespace = display.hideWhitespace && canHideWhitespace
+	const viaKey = `${JSON.stringify(via)}|${hideWhitespace}`
+
+	// The changed files from git, for the base in effect.
+	const [remote, setRemote] = useState<Remote>()
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a new token or version asks again.
 	useEffect(() => {
-		if (!source || (probed.current && !uncommittedOpen)) return
-		probed.current = true
-		let current = true
-		source.changes().then(
-			(view) => current && setRemote({ state: 'ready', view }),
+		if (!source || via.via === 'receipts' || probe.state !== 'ready') return
+		let live = true
+		const request =
+			via.via === 'host'
+				? source.changes()
+				: (
+						source.compare?.({ op: 'changes', base: via.base, hideWhitespace }) ??
+						Promise.resolve(null)
+					).then((reply) => (reply?.op === 'changes' ? reply : null))
+		request.then(
+			(view) => live && setRemote({ key: viaKey, state: 'ready', view }),
 			(error) =>
-				current &&
-				setRemote({
-					state: 'error',
-					message: failure(error, 'read the changes'),
-				}),
+				live &&
+				setRemote({ key: viaKey, state: 'error', message: failure(error, 'read the changes') }),
 		)
 		return () => {
-			current = false
+			live = false
 		}
-	}, [source, uncommittedOpen, version, refreshToken])
-	const repository = !source || remote.state !== 'ready' || remote.view !== null
-	const scopes: ReviewScope[] = [
-		...(timeline || receiptIds ? (['reply'] as const) : []),
-		'conversation',
-		...(source && repository ? (['uncommitted'] as const) : []),
-	]
-	const activeScope = scopes.includes(scope) ? scope : 'conversation'
+	}, [source, viaKey, probe.state, version, refreshToken])
+	const remoteNow = remote?.key === viaKey ? remote : undefined
 
 	// Receipts change on every streamed update; the merged files only when one finishes.
 	const signature = receiptsOf(tools, timeline)
@@ -157,356 +256,450 @@ export function ChangesReview({
 		.join('|')
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the signature stands for the receipts.
 	const receiptFiles = useMemo(
-		() =>
-			activeScope === 'uncommitted' ? [] : scopeFiles(activeScope, { tools, timeline, receiptIds }),
-		[activeScope, signature, replyKey],
+		() => (via.via === 'receipts' ? conversationFiles({ tools, timeline }) : []),
+		[via.via, signature],
 	)
 	const files: ReviewFile[] = useMemo(() => {
-		if (activeScope !== 'uncommitted') return receiptFiles
-		return remote.state === 'ready' && remote.view
-			? remote.view.files.map((file) => ({ ...file }))
+		if (via.via === 'receipts') return receiptFiles
+		return remoteNow?.state === 'ready' && remoteNow.view
+			? remoteNow.view.files.map((file) => ({ ...file }))
 			: []
-	}, [activeScope, receiptFiles, remote])
+	}, [via.via, receiptFiles, remoteNow])
+	const loading = probe.state === 'loading' || (via.via !== 'receipts' && !remoteNow)
+	const failed = remoteNow?.state === 'error' ? remoteNow.message : undefined
 
-	const visible = useMemo(() => filterFiles(files, query), [files, query])
-	const tree = useMemo(() => buildTree(visible), [visible])
-	const filtering = query.trim().length > 0
-	const expanded = useMemo(
-		() => (filtering ? tree.folders : tree.folders.filter((id) => !collapsed.has(id))),
-		[filtering, tree, collapsed],
+	// Display order: grouped by kind when asked; the stack and the list read the same order.
+	const groups = useMemo(
+		() => groupByKind(files, display.separateKinds),
+		[files, display.separateKinds],
 	)
-	const flat = !filtering && visible.length <= FLAT_LIST_LIMIT
-	const order = flat ? visible.map((item) => item.path) : tree.order
-	// With nothing chosen the pane opens on the file that changed most, not the first one.
-	const current =
-		selected && visible.some((file) => file.path === selected)
-			? selected
-			: largestFile(visible)?.path
-	const file = visible.find((item) => item.path === current)
-	const totals = totalsOf(files)
-	// The open file says its own cut beside its diff; the bar names only the others.
-	const barCutNote = cutNoteFor(files, file?.path)
+	const ordered = useMemo(() => groups.flatMap((group) => group.files), [groups])
+	const tree = useMemo(() => buildTree(ordered), [ordered])
+	const [collapsedFolders, setCollapsedFolders] = useState<ReadonlySet<string>>(new Set())
+	const expandedFolders = useMemo(
+		() => tree.folders.filter((id) => !collapsedFolders.has(id)),
+		[tree, collapsedFolders],
+	)
+	const [selected, setSelected] = useState<string>()
 
-	const choose = (path: string | undefined) => {
-		if (!path) return
-		setSelected(path)
-		setFilesOpen(false)
-		// A folder closed earlier must not hide the file the keyboard just moved to.
-		setCollapsed((all) => {
-			const hidden = tree.folders.filter((id) => path.startsWith(`${id}/`) && all.has(id))
-			if (hidden.length === 0) return all
-			const next = new Set(all)
-			for (const id of hidden) next.delete(id)
-			return next
+	// Which sections are open: the person's own choices over the default rule.
+	const [overrides, setOverrides] = useState<{ key: string; open: Record<string, boolean> }>({
+		key: viaKey,
+		open: {},
+	})
+	const openMap = overrides.key === viaKey ? overrides.open : {}
+	const defaultOpen = (index: number) =>
+		ordered.length <= OPEN_ALL_UP_TO || index < OPEN_FIRST_OTHERWISE
+	const isOpen = (file: ReviewFile, index: number) => openMap[file.path] ?? defaultOpen(index)
+	const setOpen = (path: string, open: boolean) =>
+		setOverrides({ key: viaKey, open: { ...openMap, [path]: open } })
+
+	// The text of each file, read when its section comes near and is open.
+	const [bodies, setBodies] = useState<Record<string, DiffBody>>({})
+	const requested = useRef(new Set<string>())
+	const limit = useMemo(() => createLimiter(READ_AT_ONCE), [])
+	const seq = `${version}:${refreshToken ?? 0}`
+	const bodyKey = (path: string) => keyOfBody(viaKey, seq, path)
+	const request = useCallback(
+		(file: ReviewFile) => {
+			if (!source || via.via === 'receipts' || file.status === 'binary') return
+			const key = keyOfBody(viaKey, seq, file.path)
+			if (requested.current.has(key)) return
+			requested.current.add(key)
+			limit(() =>
+				via.via === 'host'
+					? source.diff(file.path)
+					: (
+							source.compare?.({ op: 'diff', base: via.base, path: file.path }) ??
+							Promise.reject(new Error('Unavailable.'))
+						).then((reply) => {
+							if (reply?.op !== 'diff') throw new Error('Unavailable.')
+							return reply
+						}),
+			).then(
+				(view) => setBodies((all) => ({ ...all, [key]: { state: 'ready', ...view } })),
+				(error) =>
+					setBodies((all) => ({
+						...all,
+						[key]: { state: 'error', message: failure(error, 'read this file') },
+					})),
+			)
+		},
+		[source, via, viaKey, seq, limit],
+	)
+	const bodyOf = (file: ReviewFile): DiffBody => {
+		if (via.via === 'receipts')
+			return {
+				state: 'ready',
+				before: file.content?.before ?? '',
+				after: file.content?.after ?? '',
+				binary: false,
+				truncated: false,
+			}
+		if (file.status === 'binary')
+			return { state: 'ready', before: null, after: null, binary: true, truncated: false }
+		return bodies[bodyKey(file.path)] ?? { state: 'loading' }
+	}
+	// A diff is too large to open all at once when any loaded file trips the rich-diff gate.
+	const tooLargeToExpand =
+		ordered.length > LARGE_FILE_COUNT ||
+		ordered.some((file) => {
+			const body = bodies[bodyKey(file.path)]
+			return (
+				body?.state === 'ready' &&
+				!body.binary &&
+				!richDiffVerdict({
+					before: body.before,
+					after: body.after,
+					added: file.added,
+					removed: file.removed,
+				}).rich
+			)
 		})
+
+	// Marks as viewed, kept on this machine by conversation and base.
+	const marksKey = storageKey(scopeKey, viaKey)
+	const [marksState, setMarksState] = useState<{ key: string; marks: Record<string, string> }>(
+		() => ({
+			key: marksKey,
+			marks: readMarks(marksKey),
+		}),
+	)
+	if (marksState.key !== marksKey) setMarksState({ key: marksKey, marks: readMarks(marksKey) })
+	const marks = marksState.key === marksKey ? marksState.marks : {}
+	const fingerprint = (file: ReviewFile) => {
+		const body = bodyOf(file)
+		return fingerprintOf(file, body.state === 'ready' ? body.after : undefined)
+	}
+	const viewedOf = (file: ReviewFile): ViewedState =>
+		viewedState(marks[file.path], fingerprint(file))
+	const toggleViewed = (file: ReviewFile) => {
+		const next = { ...marks }
+		if (viewedOf(file) === 'viewed') delete next[file.path]
+		else next[file.path] = fingerprint(file)
+		setMarksState({ key: marksKey, marks: next })
+		writeMarks(marksKey, next)
 	}
 
-	// The text of the selected working-tree file, read when it is shown.
-	const [loaded, setLoaded] = useState<{ key: string; body: DiffBody }>()
-	const bodyKey = `${version}:${refreshToken ?? 0}:${file?.path}`
-	// biome-ignore lint/correctness/useExhaustiveDependencies: bodyKey carries the refresh state.
+	// Jumping: open the section and bring it to the top of the stack.
+	const [jump, setJump] = useState<{ path: string; n: number }>()
+	const jumpTo = useCallback(
+		(path: string) => {
+			setSelected(path)
+			setOverrides((all) => ({
+				...all,
+				open: { ...(all.key === viaKey ? all.open : {}), [path]: true },
+				key: viaKey,
+			}))
+			setJump((previous) => ({ path, n: (previous?.n ?? 0) + 1 }))
+		},
+		[viaKey],
+	)
+	useLayoutEffect(() => {
+		if (!jump) return
+		const el = [
+			...(stack.current?.querySelectorAll<HTMLElement>('[data-file-section]') ?? []),
+		].find((node) => node.dataset.path === jump.path)
+		if (!el || !stack.current) return
+		stack.current.scrollTo({ top: el.offsetTop })
+	}, [jump])
+
+	// A click on a reply's change row names one file: open the pane there. The file may only be
+	// in the wider list, so the base widens once before giving up.
+	const [pending, setPending] = useState<string>()
+	const [seenFocus, setSeenFocus] = useState(focus)
+	if (seenFocus !== focus) {
+		setSeenFocus(focus)
+		if (focus) setPending(focus.path)
+	}
+	// biome-ignore lint/correctness/useExhaustiveDependencies: runs when the list settles.
 	useEffect(() => {
-		if (!source || activeScope !== 'uncommitted' || !file || file.status === 'binary') return
-		let live = true
-		source.diff(file.path).then(
-			(view) => live && setLoaded({ key: bodyKey, body: { state: 'ready', ...view } }),
-			(error) =>
-				live &&
-				setLoaded({
-					key: bodyKey,
-					body: {
-						state: 'error',
-						message: failure(error, 'read this file'),
-					},
-				}),
-		)
-		return () => {
-			live = false
+		if (!pending || loading) return
+		if (files.some((file) => file.path === pending)) {
+			jumpTo(pending)
+			setPending(undefined)
+		} else if (used !== 'conversation' && used.kind === 'uncommitted' && context.defaultBranch) {
+			setBase({ kind: 'all' })
+		} else {
+			setPending(undefined)
 		}
-	}, [source, activeScope, file?.path, bodyKey])
-	const body: DiffBody | undefined = !file
-		? undefined
-		: activeScope !== 'uncommitted'
-			? {
-					state: 'ready',
-					before: file.content?.before ?? '',
-					after: file.content?.after ?? '',
-					binary: false,
-					truncated: false,
-				}
-			: file.status === 'binary'
-				? {
-						state: 'ready',
-						before: null,
-						after: null,
-						binary: true,
-						truncated: false,
-					}
-				: loaded?.key === bodyKey
-					? loaded.body
-					: { state: 'loading' }
+	}, [pending, loading, files, used, context.defaultBranch])
 
 	const copy = (text: string, done: string) => onCopy?.(text, done)
+	const fromWorking = via.via !== 'receipts'
+	const actions = {
+		onOpenFile: fromWorking && onOpenWorkingFile ? onOpenWorkingFile : onOpenFile,
+		onOpenInEditor: fromWorking && onOpenWorkingInEditor ? onOpenWorkingInEditor : onOpenInEditor,
+		onShowInFolder: fromWorking ? onShowInFolder : undefined,
+		projectRoot,
+		onCopy: copy,
+	}
+
+	const order = display.groupByFolder ? tree.order : ordered.map((file) => file.path)
 	const onKeyDown = (event: React.KeyboardEvent) => {
 		const target = event.target as HTMLElement
+		const key = event.key.toLowerCase()
+		if ((event.ctrlKey || event.metaKey) && !event.shiftKey && key === 'p') {
+			event.preventDefault()
+			setGoOpen(true)
+			return
+		}
+		if ((event.ctrlKey || event.metaKey) && event.shiftKey && key === 'y' && listFits) {
+			event.preventDefault()
+			setDisplay({ showFiles: !display.showFiles })
+			return
+		}
 		// Menus render in a portal but their key events still bubble here through React.
 		if (!event.currentTarget.contains(target) || target.closest('input, textarea, [role="menu"]'))
 			return
 		const step = keyStep(event)
 		if (!step) return
 		event.preventDefault()
-		choose(stepFile(order, current, step))
+		const next = stepFile(order, selected, step)
+		if (next) jumpTo(next)
 	}
 
-	const empty = files.length === 0
-	const remoteNote =
-		activeScope === 'uncommitted' && remote.state === 'loading'
-			? 'Reading the working tree…'
-			: activeScope === 'uncommitted' && remote.state === 'error'
-				? remote.message
-				: undefined
+	// Go to file opens from anywhere in this pane (a click on the diff's text leaves focus on the page
+	// itself, so the pane's own handler never hears the chord) and from the conversation beside it,
+	// unless the message box has a selection. A terminal keeps its own Ctrl+P.
+	useEffect(() => {
+		const onChord = (event: KeyboardEvent) => {
+			if (event.defaultPrevented || event.shiftKey || event.altKey) return
+			if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'p') return
+			const target = event.target as HTMLElement | null
+			if (!target || target.closest('.changes-review')) return // the pane's handler has it
+			if (target.closest('.xterm, [role="menu"], [role="dialog"]')) return
+			const inPage = target === document.body || target === document.documentElement
+			if (!inPage && !target.closest('.chat-stage')) return
+			if (target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement) {
+				if (target.selectionStart !== target.selectionEnd) return
+			}
+			event.preventDefault()
+			setGoOpen(true)
+		}
+		document.addEventListener('keydown', onChord)
+		return () => document.removeEventListener('keydown', onChord)
+	}, [])
 
-	return (
-		<div className="changes-review" onKeyDown={onKeyDown} data-scope={activeScope}>
-			<div className="changes-bar">
-				<h2 className="changes-title">Changes</h2>
-				{/* biome-ignore lint/a11y/useSemanticElements: a fieldset would bring its own box and legend. */}
-				<div className="changes-switch" role="group" aria-label="Which changes to show">
-					{(['reply', 'conversation'] as const)
-						.filter((item) => scopes.includes(item))
-						.map((item) => (
-							<button
-								key={item}
-								type="button"
-								className="changes-switch-button"
-								aria-pressed={activeScope === item}
-								onClick={() => {
-									setScope(item)
-									if (item !== 'reply') onShowAll?.()
-								}}
-							>
-								{SCOPE_LABEL[item]}
-							</button>
-						))}
-				</div>
-				<span className="changes-totals">
-					<span className="changes-count-files">
-						{formatLineCount(files.length)} {files.length === 1 ? 'file' : 'files'}
-					</span>
-					<span className="changes-added">
-						<span className="sr-only">Added </span>+{formatLineCount(totals.added)}
-					</span>
-					<span className="changes-removed">
-						<span className="sr-only">Removed </span>−{formatLineCount(totals.removed)}
-					</span>
-				</span>
-				<div className="changes-controls">
-					<Menu.Root>
-						<Menu.Trigger className="changes-view" aria-label="View options">
-							<span>View</span>
-							<ChevronDownIcon aria-hidden="true" />
-						</Menu.Trigger>
-						<Menu.Portal>
-							<Menu.Positioner
-								className="conversation-actions-positioner"
-								align="end"
-								sideOffset={6}
-							>
-								<Menu.Popup className="conversation-actions-popup" aria-label="View">
-									<Menu.RadioGroup
-										value={split ? 'split' : 'unified'}
-										onValueChange={(value) => setSplit(value === 'split')}
-									>
-										<Menu.RadioItem
-											value="unified"
-											className="conversation-actions-item"
-											closeOnClick
-										>
-											<Rows3Icon aria-hidden="true" />
-											<span className="conversation-actions-label">Unified diff</span>
-											<Menu.RadioItemIndicator>
-												<CheckIcon aria-hidden="true" />
-											</Menu.RadioItemIndicator>
-										</Menu.RadioItem>
-										<Menu.RadioItem
-											value="split"
-											className="conversation-actions-item"
-											closeOnClick
-										>
-											<Columns2Icon aria-hidden="true" />
-											<span className="conversation-actions-label">Split diff</span>
-											<Menu.RadioItemIndicator>
-												<CheckIcon aria-hidden="true" />
-											</Menu.RadioItemIndicator>
-										</Menu.RadioItem>
-									</Menu.RadioGroup>
-									<Menu.CheckboxItem
-										className="conversation-actions-item"
-										checked={wrap}
-										onCheckedChange={setWrap}
-										closeOnClick
-									>
-										<TextWrapIcon aria-hidden="true" />
-										<span className="conversation-actions-label">Wrap diff lines</span>
-										<Menu.CheckboxItemIndicator>
-											<CheckIcon aria-hidden="true" />
-										</Menu.CheckboxItemIndicator>
-									</Menu.CheckboxItem>
-									<Menu.Item
-										className="conversation-actions-item"
-										disabled={tree.folders.length === 0}
-										onClick={() => setCollapsed(new Set(tree.folders))}
-									>
-										<CollapseAllIcon aria-hidden="true" />
-										<span className="conversation-actions-label">Collapse folders</span>
-									</Menu.Item>
-									<Menu.Separator className="conversation-actions-separator" />
-									{scopes.includes('uncommitted') && (
-										<Menu.CheckboxItem
-											className="conversation-actions-item"
-											checked={activeScope === 'uncommitted'}
-											onCheckedChange={(on) => {
-												setScope(on ? 'uncommitted' : 'conversation')
-												onShowAll?.()
-											}}
-											closeOnClick
-										>
-											<span className="conversation-actions-label">Uncommitted changes (git)</span>
-											<Menu.CheckboxItemIndicator>
-												<CheckIcon aria-hidden="true" />
-											</Menu.CheckboxItemIndicator>
-										</Menu.CheckboxItem>
-									)}
-									{activeScope === 'uncommitted' && (
-										<Menu.Item
-											className="conversation-actions-item"
-											onClick={() => setVersion(version + 1)}
-										>
-											<RefreshIcon aria-hidden="true" />
-											<span className="conversation-actions-label">Refresh changes</span>
-										</Menu.Item>
-									)}
-									<Menu.Item
-										className="conversation-actions-item"
-										disabled={empty}
-										onClick={() =>
-											copy(files.map((item) => item.path).join('\n'), 'Changed paths copied.')
-										}
-									>
-										<CopyIcon aria-hidden="true" />
-										<span className="conversation-actions-label">Copy changed paths</span>
-									</Menu.Item>
-									{onToggleExpanded && (
-										<Menu.Item className="conversation-actions-item" onClick={onToggleExpanded}>
-											{paneExpanded ? (
-												<Minimize2Icon aria-hidden="true" />
-											) : (
-												<Maximize2Icon aria-hidden="true" />
-											)}
-											<span className="conversation-actions-label">
-												{paneExpanded ? 'Restore pane size' : 'Expand pane'}
-											</span>
-										</Menu.Item>
-									)}
-								</Menu.Popup>
-							</Menu.Positioner>
-						</Menu.Portal>
-					</Menu.Root>
-					{onClose && (
-						<button
-							type="button"
-							className="changes-icon-button changes-close"
-							aria-label="Close changes"
-							title="Close changes"
-							onClick={onClose}
+	// The header the pane draws: the base chip, then search, the file list and the "..." menu.
+	const hasFiles = ordered.length > 0
+	useLayoutEffect(() => {
+		publishChangesHeader({
+			title: (
+				<BaseMenu
+					base={base}
+					context={context}
+					branches={branches}
+					commits={commits}
+					onChoose={(next) => setBase(next)}
+					onOpenCompare={() => {
+						void loadBranches()?.catch(() => setBranches({ state: 'error' }))
+						if (source?.compare)
+							source.compare({ op: 'commits' }).then(
+								(reply) =>
+									setCommits(
+										reply?.op === 'commits' ? { state: 'ready', value: reply } : { state: 'error' },
+									),
+								() => setCommits({ state: 'error' }),
+							)
+					}}
+				/>
+			),
+			actions: (
+				<>
+					{hasFiles && (
+						<GoToFile
+							files={ordered}
+							open={goOpen}
+							onOpenChange={setGoOpen}
+							onPick={jumpTo}
+							shortcut={SHORTCUT_GO}
+						/>
+					)}
+					{hasFiles && listFits && (
+						<ToolButton
+							label={display.showFiles ? 'Hide files' : 'Show files'}
+							tooltip={`${display.showFiles ? 'Hide files' : 'Show files'} (${SHORTCUT_LIST})`}
+							pressed={display.showFiles}
+							className="pane-control"
+							onClick={() => setDisplay({ showFiles: !display.showFiles })}
 						>
-							<XIcon aria-hidden="true" />
-						</button>
+							<ListTreeIcon />
+						</ToolButton>
+					)}
+					<ViewMenu
+						display={display}
+						onDisplay={setDisplay}
+						listFits={listFits}
+						splitFits={splitFits}
+						canHideWhitespace={canHideWhitespace}
+						hasFiles={hasFiles}
+						tooLargeToExpand={tooLargeToExpand}
+						shortcut={SHORTCUT_LIST}
+						onCollapseAll={() =>
+							setOverrides({
+								key: viaKey,
+								open: Object.fromEntries(ordered.map((file) => [file.path, false])),
+							})
+						}
+						onExpandAll={() =>
+							setOverrides({
+								key: viaKey,
+								open: Object.fromEntries(ordered.map((file) => [file.path, true])),
+							})
+						}
+						onRefresh={() => {
+							requested.current.clear()
+							setBodies({})
+							setVersion((value) => value + 1)
+						}}
+					/>
+				</>
+			),
+		})
+	})
+	useEffect(() => () => publishChangesHeader({ title: null, actions: null }), [])
+
+	const dragList = (event: React.PointerEvent<HTMLDivElement>) => {
+		event.preventDefault()
+		const el = event.currentTarget
+		el.setPointerCapture(event.pointerId)
+		const side = listSide(display.listPosition)
+		const bounds = root.current?.getBoundingClientRect()
+		if (!bounds) return
+		const move = (e: PointerEvent) =>
+			setDisplay({
+				listWidth: clampListWidth(
+					side === 'right' ? bounds.right - e.clientX : e.clientX - bounds.left,
+				),
+			})
+		const stop = () => {
+			el.removeEventListener('pointermove', move)
+			el.removeEventListener('pointerup', stop)
+			el.removeEventListener('pointercancel', stop)
+		}
+		el.addEventListener('pointermove', move)
+		el.addEventListener('pointerup', stop)
+		el.addEventListener('pointercancel', stop)
+	}
+
+	const empty = ordered.length === 0
+	const emptyText = loading
+		? 'Loading changes'
+		: failed
+			? 'Couldn’t load the changes'
+			: used !== 'conversation' && used.kind === 'uncommitted'
+				? 'No uncommitted changes'
+				: 'No changes to show'
+	const side = listSide(display.listPosition)
+	return (
+		<div
+			ref={root}
+			className="changes-review"
+			data-list={listShown ? side : undefined}
+			style={{ '--changes-list-width': `min(${display.listWidth}px, 38%)` } as React.CSSProperties}
+			onKeyDown={onKeyDown}
+		>
+			{empty ? (
+				<div className="changes-state" role={failed ? 'alert' : 'status'}>
+					<p className="changes-state-title">{emptyText}</p>
+					{failed && (
+						<>
+							<p className="changes-state-body">{failed}</p>
+							<button
+								type="button"
+								className="changes-gate-button"
+								onClick={() => setVersion((value) => value + 1)}
+							>
+								Try again
+							</button>
+						</>
 					)}
 				</div>
-			</div>
-			{!empty && barCutNote && <p className="changes-note changes-cut-note">{barCutNote}</p>}
-			{empty ? (
-				<p
-					className="changes-message changes-empty"
-					role={remote.state === 'error' ? 'alert' : undefined}
-				>
-					{remoteNote ?? emptyMessageFor(activeScope, repository)}
-				</p>
 			) : (
-				<div className="changes-body" data-files-open={filesOpen}>
-					<aside className="changes-files" aria-label="Changed files">
-						{flat ? (
-							<FlatFileList files={visible} selected={current} onSelect={choose} />
-						) : (
+				<>
+					{remoteNow?.state === 'ready' && remoteNow.view?.truncated && (
+						<p className="changes-note changes-cut-note">Only the first changed files are shown.</p>
+					)}
+					<div className="changes-body">
+						<div className="changes-stack" ref={stack}>
+							{groups.map((group) => (
+								<div key={group.kind} className="changes-group">
+									{group.heading && <h3 className="changes-group-heading">{group.heading}</h3>}
+									{group.files.map((file) => {
+										const index = ordered.indexOf(file)
+										const open = isOpen(file, index)
+										return (
+											<FileSection
+												key={file.path}
+												file={file}
+												body={open ? bodyOf(file) : undefined}
+												open={open}
+												viewed={viewedOf(file)}
+												display={{
+													split: display.sideBySide && splitFits,
+													wrap: display.wordWrap,
+													highlight: display.highlightWords,
+												}}
+												dark={dark}
+												fullContext={via.via !== 'receipts'}
+												actions={actions}
+												onToggle={() => setOpen(file.path, !open)}
+												onToggleViewed={
+													via.via === 'receipts' ? undefined : () => toggleViewed(file)
+												}
+												onRead={() => request(file)}
+											/>
+										)
+									})}
+								</div>
+							))}
+						</div>
+						{listShown && (
 							<>
-								<label className="changes-filter">
-									<SearchIcon aria-hidden="true" />
-									<input
-										type="text"
-										value={query}
-										placeholder="Filter files…"
-										aria-label="Filter changed files"
-										spellCheck={false}
-										autoComplete="off"
-										onChange={(event) => setQuery(event.target.value)}
-										onKeyDown={(event) => event.key === 'Escape' && setQuery('')}
-									/>
-									<FilterIcon aria-hidden="true" className="changes-filter-icon" />
-								</label>
-								{visible.length === 0 ? (
-									<p className="changes-message">No changed files match.</p>
-								) : (
-									<ReviewTreeView
-										tree={tree}
-										expanded={expanded}
-										onExpandedChange={(next) => {
-											if (filtering) return
-											setCollapsed(new Set(tree.folders.filter((id) => !next.includes(id))))
-										}}
-										selected={current}
-										onSelect={choose}
-									/>
-								)}
+								<div
+									className="changes-list-handle"
+									role="separator"
+									aria-orientation="vertical"
+									aria-label="Resize file list"
+									tabIndex={0}
+									onPointerDown={dragList}
+									onKeyDown={(event) => {
+										const step =
+											event.key === 'ArrowLeft' ? -16 : event.key === 'ArrowRight' ? 16 : 0
+										if (!step) return
+										event.preventDefault()
+										setDisplay({
+											listWidth: clampListWidth(
+												display.listWidth + (side === 'right' ? -step : step),
+											),
+										})
+									}}
+								/>
+								<aside className="changes-files" aria-label="Changed files">
+									{display.groupByFolder ? (
+										<ReviewTreeView
+											tree={tree}
+											expanded={expandedFolders}
+											onExpandedChange={(next) =>
+												setCollapsedFolders(
+													new Set(tree.folders.filter((id) => !next.includes(id))),
+												)
+											}
+											selected={selected}
+											onSelect={jumpTo}
+										/>
+									) : (
+										<FlatFileList files={ordered} selected={selected} onSelect={jumpTo} />
+									)}
+								</aside>
 							</>
 						)}
-						{activeScope === 'uncommitted' &&
-							remote.state === 'ready' &&
-							remote.view?.truncated && <p className="changes-note">{MAX_FILES_NOTE}</p>}
-					</aside>
-					<button
-						type="button"
-						className="changes-files-toggle"
-						aria-expanded={filesOpen}
-						onClick={() => setFilesOpen(!filesOpen)}
-					>
-						{filesOpen ? 'Hide files' : `Files (${formatLineCount(visible.length)})`}
-					</button>
-					{file && body ? (
-						<DiffPane
-							file={file}
-							body={body}
-							split={split}
-							wrap={wrap}
-							dark={dark}
-							fullContext={activeScope === 'uncommitted'}
-							actions={{
-								onOpenFile:
-									activeScope === 'uncommitted' && onOpenWorkingFile
-										? onOpenWorkingFile
-										: onOpenFile,
-								onOpenInEditor:
-									activeScope === 'uncommitted' && onOpenWorkingInEditor
-										? onOpenWorkingInEditor
-										: onOpenInEditor,
-								onCopy: copy,
-							}}
-						/>
-					) : (
-						<p className="changes-message">Choose a file to see its changes.</p>
-					)}
-				</div>
+					</div>
+				</>
 			)}
 		</div>
 	)
 }
+
+export { ChangesHeaderSlot }

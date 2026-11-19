@@ -118,12 +118,15 @@ function settings(input: unknown): DraftSettings {
 		}
 	}
 	if (value.options !== undefined) {
-		const options = record(value.options, ['effort', 'permissionMode'])
+		const options = record(value.options, ['effort', 'permissionMode', 'hypermode'])
 		if (options.effort !== undefined && !EFFORTS.includes(string(options.effort, 20)))
 			throw new Error('Invalid saved reasoning effort.')
 		if (options.permissionMode !== undefined && !isReviewModeId(string(options.permissionMode, 20)))
 			throw new Error('Invalid saved permission mode.')
+		if (options.hypermode !== undefined && typeof options.hypermode !== 'boolean')
+			throw new Error('Invalid saved hypermode choice.')
 		result.options = {
+			...(options.hypermode === undefined ? {} : { hypermode: options.hypermode }),
 			...(options.effort === undefined
 				? {}
 				: {

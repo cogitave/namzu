@@ -44,6 +44,7 @@ it('treats a trusted folder whose settings changed as untrusted until trust is c
 			recorded.push(folder)
 			changes = []
 		},
+		forget: () => {},
 	})
 	const project = await owner.openProject(path)
 	expect(project).toMatchObject({ trusted: false, settingsChanged: ['hooks changed'] })
@@ -59,7 +60,7 @@ it('treats a trusted folder whose settings changed as untrusted until trust is c
 it('tells every window a folder is trusted, after anything it said about the folder before', async () => {
 	const events: DesktopEvent[] = []
 	const { owner, path } = await setup(
-		{ check: async () => ['hooks changed'], record: async () => {} },
+		{ check: async () => ['hooks changed'], record: async () => {}, forget: () => {} },
 		events,
 	)
 	const project = await owner.openProject(path)
@@ -72,7 +73,11 @@ it('tells every window a folder is trusted, after anything it said about the fol
 })
 
 it('leaves an unchanged folder trusted', async () => {
-	const { owner, path } = await setup({ check: async () => [], record: async () => {} })
+	const { owner, path } = await setup({
+		check: async () => [],
+		record: async () => {},
+		forget: () => {},
+	})
 	expect(await owner.openProject(path)).toMatchObject({ trusted: true })
 })
 
@@ -82,13 +87,18 @@ it('fails open, with a record, when the fingerprint cannot be read', async () =>
 			throw new Error('disk')
 		},
 		record: async () => {},
+		forget: () => {},
 	})
 	expect(await owner.openProject(path)).toMatchObject({ trusted: true })
 })
 
 it('looks again before a new conversation: a change after connect untrusts the folder and refuses the work', async () => {
 	let changes: string[] = []
-	const { owner, path } = await setup({ check: async () => changes, record: async () => {} })
+	const { owner, path } = await setup({
+		check: async () => changes,
+		record: async () => {},
+		forget: () => {},
+	})
 	const project = await owner.openProject(path)
 	expect(project.trusted).toBe(true)
 	changes = ['plugin a.js added']
@@ -105,6 +115,7 @@ it('records every connected trusted project again when asked', async () => {
 		record: async (folder) => {
 			recorded.push(folder)
 		},
+		forget: () => {},
 	})
 	await owner.openProject(path)
 	await owner.rebaselineTrusted()
@@ -113,7 +124,11 @@ it('records every connected trusted project again when asked', async () => {
 
 it('looks again before a terminal: a change after connect refuses it and untrusts the folder', async () => {
 	let changes: string[] = []
-	const { owner, path } = await setup({ check: async () => changes, record: async () => {} })
+	const { owner, path } = await setup({
+		check: async () => changes,
+		record: async () => {},
+		forget: () => {},
+	})
 	const project = await owner.openProject(path)
 	await expect(owner.terminalHost(project.id)).resolves.toMatchObject({ project: { path } })
 	changes = ['hooks changed']

@@ -7,7 +7,12 @@
  * validation decision whenever that list grows.
  */
 
-import type { ShellHookEvent, ShellHookHandler, ShellHooksConfig } from '@namzu/sdk'
+import type {
+	ReasoningEffort,
+	ShellHookEvent,
+	ShellHookHandler,
+	ShellHooksConfig,
+} from '@namzu/sdk'
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import type { FormatName } from '../output/index.js'
 import type { BrowserSitesConfig } from '../permissions/browser-sites.js'
@@ -245,8 +250,32 @@ export interface HandBackCliConfig {
 	readonly enabled?: boolean
 }
 
+/** See `NamzuCliConfig.worktrees`. */
+export interface WorktreesCliConfig {
+	/** A new worktree's branch is `<branchPrefix>/<name>`. Default `namzu`. */
+	readonly branchPrefix?: string
+	/** The folder new worktrees are made in. Absent means inside the project's Namzu folder. */
+	readonly location?: string
+	/** Folders of the project a new worktree holds; the rest is left out of its files. */
+	readonly sparseFolders?: readonly string[]
+}
+
+/** How long a conversation sits idle before it is archived. */
+export type ArchiveInactiveAfter = 'never' | '1d' | '7d' | '30d'
+
 /** See `NamzuCliConfig.workflow`. */
 export interface WorkflowCliConfig {
+	/**
+	 * Whether the `workflow` tool is offered to the model. Default true. `false` leaves it out of
+	 * every conversation started afterwards, and hypermode then delegates with the `Agent` tool.
+	 */
+	readonly enabled?: boolean
+	/**
+	 * Whether typing the mode's keyword (`hypermode`, `workflow`) in a message opts that message in.
+	 * Default true. `false` leaves those words as plain words; the `/effort hypermode` option and the
+	 * `workflow` tool itself are unaffected.
+	 */
+	readonly keywordTrigger?: boolean
 	/** Agents one workflow runs at once. Default `min(16, CPUs - 2)`, at least 2; at most 16. */
 	readonly maxConcurrency?: number
 	/** Agents one workflow run may start. Default 1000; at most 1000. */
@@ -339,6 +368,23 @@ export interface CompactionCliConfig {
 	 * extracts without a model. `false` always uses the extracted summary.
 	 */
 	readonly modelSummary?: boolean
+}
+
+/** See `NamzuCliConfig.computerUse`. */
+export interface ComputerUseConfig {
+	/**
+	 * Offer the computer tools (screen, mouse, keyboard on this computer) in the
+	 * terminal app and in Desktop conversations that use this computer. Default
+	 * `false`: nothing in a conversation can reach the screen until a person
+	 * turns it on. Only the user's file and the managed file can turn it on.
+	 */
+	readonly enabled?: boolean
+	/**
+	 * Applications computer use never acts in, as the window list names them
+	 * (case and a trailing `.exe` do not matter). Every file may add to the
+	 * list; none can take another file's entry out.
+	 */
+	readonly deniedApps?: readonly string[]
 }
 
 /** See `NamzuCliConfig.browser`. */
@@ -444,6 +490,23 @@ export interface MemoryCliConfig {
 	 * profile in one, cannot set it.
 	 */
 	readonly retireAfterDays?: number
+	/**
+	 * Write memory from conversations. Default true. `false`: nothing a
+	 * conversation learned is saved as memory (no claim is promoted at the end
+	 * of a turn or at compaction, and none is consolidated); memory you save
+	 * yourself, `/memory add` and recall are unchanged. Your own config and
+	 * managed config only; a project file, or a profile in one, cannot set it.
+	 */
+	readonly fromConversations?: boolean
+	/**
+	 * Offer the model a tool that searches this project's earlier
+	 * conversations (deferred: one name line in the tool listing until it is
+	 * loaded). Default true. `false` removes the tool. Excerpts of past
+	 * conversations are sent to the model when it searches. Your own config
+	 * and managed config only; a project file, or a profile in one, cannot
+	 * set it.
+	 */
+	readonly searchPastConversations?: boolean
 }
 
 /**
@@ -555,6 +618,74 @@ export interface NamzuCliConfig {
 	/** Whether the model may hand a task back to a person; see {@link HandBackCliConfig}. */
 	readonly handBack?: HandBackCliConfig
 	/**
+	 * Where and how a new worktree is made; see {@link WorktreesCliConfig}. Read from the user
+	 * file and the managed file only: a project cannot choose where Namzu writes.
+	 */
+	readonly worktrees?: WorktreesCliConfig
+	/**
+	 * Archive a conversation left idle this long (the desktop app does the sweeping). Absent
+	 * means `never`. An archived conversation is moved, never deleted, and can be restored.
+	 */
+	readonly archiveInactive?: ArchiveInactiveAfter
+	/**
+	 * Whether the desktop app marks a conversation in its sidebar when it needs the person, is
+	 * running, failed or has a new reply. Absent means on. The marks come from state the app
+	 * already holds, never from a model call, so turning them off saves nothing but screen space.
+	 */
+	readonly statusMarks?: boolean
+	/**
+	 * The reasoning effort a conversation starts with when nothing else chose one: `--effort` and
+	 * `NAMZU_EFFORT_LEVEL` win, and so does the level picked inside a conversation. A level the
+	 * model does not offer is ignored and the model's own default stands. Absent means the
+	 * model's own default. Read from the user and managed files only.
+	 */
+	readonly effort?: ReasoningEffort
+	/**
+	 * Start the terminal app with fast inference on, for a model that offers it (it bills at
+	 * twice the standard rate). `--fast` and `/fast` still work; a model that cannot take it
+	 * leaves fast mode off, with a message. Absent means off. Read from the user and managed
+	 * files only.
+	 */
+	readonly fast?: boolean
+	/**
+	 * Whether the file pickers and file search of the terminal app and the desktop app leave out
+	 * what `.gitignore` ignores. Absent means true. A model's own `glob` and `grep` keep skipping
+	 * ignored files unless a call asks for them. Read from the user and managed files only.
+	 */
+	readonly respectGitignore?: boolean
+	/**
+	 * Whether the model closes finished work with what changed, what was verified and what is
+	 * left. Absent means true; `false` leaves that one rule out of the working rules of new
+	 * conversations. Delegated agents are unaffected.
+	 */
+	readonly closingSummary?: boolean
+	/**
+	 * Whether the model may read the safe settings and, with the person's yes on a card, change
+	 * one (`get_settings`, `set_setting`; see `config/agent-settings.ts`). Absent means true;
+	 * `false` leaves both tools out of new conversations. Read from the user and managed files
+	 * only: a project file cannot turn it on.
+	 */
+	readonly agentSettings?: boolean
+	/**
+	 * How replies should read, in the person's own words (for example "short, plain sentences,
+	 * no lists"). Added to the working rules of new conversations as a reply-style note that
+	 * never overrides them; absent or empty adds nothing. Read from the user and managed files
+	 * only.
+	 */
+	readonly outputStyle?: string
+	/**
+	 * Text the agent ends its commit messages and pull request descriptions with. Added to the
+	 * working rules of new conversations; absent or empty adds nothing. The model follows it, it
+	 * is not enforced by a hook. Read from the user and managed files only.
+	 */
+	readonly attribution?: string
+	/**
+	 * Whether the terminal app offers a suggested next message after a reply, written by the
+	 * small model (one extra small request per reply). Absent means true; `false` sends no
+	 * request. Read from the user and managed files only.
+	 */
+	readonly promptSuggestions?: boolean
+	/**
 	 * Isolation for the commands this CLI runs.
 	 *
 	 * Absent means ON. That is a change from every version before this one,
@@ -588,6 +719,14 @@ export interface NamzuCliConfig {
 	 * file above it switched it off. Not settable from the environment.
 	 */
 	readonly browser?: BrowserConfig
+	/**
+	 * The computer tools: whether they are offered at all and which
+	 * applications they never act in. Off unless the user's file or the managed
+	 * file turns it on: a project file can only close it. `deniedApps` is merged
+	 * across files, so a project can add an application and never remove one.
+	 * Not settable from the environment.
+	 */
+	readonly computerUse?: ComputerUseConfig
 	/**
 	 * The `code_analysis` tool in the interactive terminal: cited, paged
 	 * lookups over an index of the project's JavaScript and TypeScript (a

@@ -375,18 +375,19 @@ describe('single live transcript status', () => {
 
 	it('keeps motion off for reduced-motion readers', () => {
 		const css = readFileSync(new URL('./transcript-motion.css', import.meta.url), 'utf8')
-		const reduced = css.slice(
-			css.indexOf(
-				'@media (prefers-reduced-motion: reduce) {\n\t.normal-transcript .message.commentary',
-			),
+		// The formatter may break a long selector over lines, so find the rule by its words.
+		const start = css.search(
+			/@media \(prefers-reduced-motion: reduce\) \{\n\t:root:not\(\[data-motion="full"\]\)\s+\.normal-transcript\s+\.message\.commentary/,
 		)
-		expect(reduced).toContain('[data-streaming] .message-text > :last-child')
+		expect(start).toBeGreaterThanOrEqual(0)
+		const reduced = css.slice(start)
+		expect(reduced.replace(/\s+/g, ' ')).toContain('[data-streaming] .message-text > :last-child')
 		expect(reduced.slice(0, reduced.indexOf('\n}\n') + 3)).toContain('animation: none')
 		// The working mark's dots stop too: they hold still.
 		const rhythm = readFileSync(new URL('./transcript-rhythm.css', import.meta.url), 'utf8')
 		const mark = rhythm.slice(
 			rhythm.indexOf(
-				'@media (prefers-reduced-motion: reduce) {\n\t.normal-transcript .working-mark > i',
+				'@media (prefers-reduced-motion: reduce) {\n\t:root:not([data-motion="full"]) .normal-transcript .working-mark > i',
 			),
 		)
 		expect(mark).toContain('animation: none')

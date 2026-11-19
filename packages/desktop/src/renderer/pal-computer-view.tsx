@@ -100,9 +100,7 @@ export function PalComputerView({
 		if (action)
 			void releaseKeyboardCallback.current?.(action.keyboardId).catch((error) => {
 				if (!(error instanceof ComputerInputRetiredError))
-					setInputNotice(
-						'Keyboard release could not be confirmed. Return control before continuing.',
-					)
+					setInputNotice('Couldn’t let go of the keyboard. Take back control before continuing.')
 			})
 	}, [])
 	const keyboardFocusCallback = useRef(onKeyboardFocus)

@@ -33,7 +33,12 @@ function bodies(css: string, selector: string): string[] {
 		})
 	}
 	return found
-		.filter((r) => r.selector.split(/,\s*/).includes(selector))
+		.filter((r) =>
+			r.selector
+				.split(/,\s*/)
+				.map((part) => part.replace(':root:not([data-motion="full"]) ', ''))
+				.includes(selector),
+		)
 		.map((r) => `${r.reduced ? 'reduced' : 'normal'}:${r.body}`)
 }
 

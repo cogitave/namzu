@@ -20,7 +20,8 @@ namzu worktree list
 namzu worktree resume review
 ```
 
-`create [name]` starts a branch named `namzu/<name>` at the **committed HEAD of
+`create [name]` starts a branch named `<prefix>/<name>` (the prefix is `namzu` unless
+you set it, see [Settings for worktrees](#settings-for-worktrees)) at the **committed HEAD of
 the checkout where you run it**. A name uses lowercase letters, digits and
 hyphens. When omitted, Namzu generates one. If the source checkout has
 uncommitted files, they stay there; the new checkout starts from committed
@@ -30,6 +31,22 @@ files, and the command says that explicitly.
 managed root. It marks a checkout with uncommitted files. A Git worktree made
 elsewhere, or an unrelated directory placed under the managed root, is not
 offered as a target.
+
+## Settings for worktrees
+
+Four rows in Settings (Projects, under *Worktrees* and *Conversations*), and the same keys in
+`~/.namzu/config.yaml` or through `namzu config set`, shape new worktrees. They are read from your own
+file and the managed file only: a project file cannot set `worktrees`, so a repository cannot choose
+where Namzu writes checkouts or what their branches are called (a project file that tries is ignored,
+with a notice). A change reaches the next worktree made; none that exists is moved or renamed.
+
+| Key | What it does |
+| --- | --- |
+| `worktrees.branchPrefix` | The start of a new worktree's branch, as `<prefix>/<name>`. Default `namzu`. One to 40 letters, digits, dots, underscores or hyphens, not starting with a dot or hyphen, not ending in a dot or `.lock`, no `..`, and not `main`, `master` or `HEAD`; a refused prefix says which rule it broke. A worktree made under an earlier prefix keeps its branch and is still found, because Git, not the prefix, vouches for the branch. |
+| `worktrees.location` | An absolute folder where new worktrees are made, one folder per project inside it. Absent means the project's own folder under the Namzu state directory (today's place). The folder must exist and be writable: it is checked when saved and again when a worktree is made, and a folder that has gone is refused by name, never replaced silently by the default. Worktrees already made stay where they are, and `namzu worktree list` shows only those under the folder in force. |
+| `worktrees.sparseFolders` | Folders of the project, written from its top (`src/app`), that a new worktree holds. Namzu runs `git sparse-checkout set --cone` in the new checkout: the files at the top of the project and those folders stay, everything else leaves the folder though it stays in the branch. A folder that is absolute, leaves the project (`..`) or holds a wildcard is refused. If Git cannot narrow the checkout (an old Git, for instance), the worktree is still made and kept in full, and a notice says so. A worktree a `worktree_create` hook made is not narrowed. |
+| `attribution` | Not a worktree setting but listed here with the Git rows of Settings: text the agent ends commit messages and pull request descriptions with. Empty by default. See [Reply style and commit text](turn-notes.md#reply-style-and-commit-text). |
+| `archiveInactive` | `never` (default), `1d`, `7d` or `30d`. See [Archiving idle conversations](session-storage.md#archiving-idle-conversations). |
 
 ## Continue a conversation in a separate checkout
 

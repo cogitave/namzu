@@ -1,7 +1,12 @@
 import { Cpu, Download, Volume2 } from 'lucide-react'
 import { useId, useState } from 'react'
 import { formatSize } from '../shared/format-size.js'
-import { LOCAL_SPEECH_MAX_TEXT, type LocalSpeechState } from '../shared/local-speech-protocol.js'
+import {
+	LOCAL_SPEECH_IDLE_UNLOAD_SECONDS,
+	LOCAL_SPEECH_MAX_TEXT,
+	type LocalSpeechIdleUnloadSeconds,
+	type LocalSpeechState,
+} from '../shared/local-speech-protocol.js'
 import { ChevronDownIcon, SquareIcon } from './icons.js'
 import { Button } from './ui/button.js'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsible.js'
@@ -37,6 +42,14 @@ function voiceStatus(state: LocalSpeechState): string {
 	return 'Ready'
 }
 
+const IDLE_UNLOAD_LABELS: Record<LocalSpeechIdleUnloadSeconds, string> = {
+	60: '1 minute',
+	300: '5 minutes',
+	900: '15 minutes',
+	0: 'Never',
+}
+const IDLE_UNLOAD_DEFAULT: LocalSpeechIdleUnloadSeconds = 300
+
 /** Pure content is also used by real-renderer browser checks. No measurement is guessed. */
 export function LocalSpeechSettingsContent({
 	speech,
@@ -46,7 +59,7 @@ export function LocalSpeechSettingsContent({
 	/** Inside the Settings page, which supplies the section heading. */
 	embedded?: boolean
 }) {
-	const languageLabelId = useId()
+	const memoryLabelId = useId()
 	const [confirmingRemoval, setConfirmingRemoval] = useState(false)
 	const Heading = embedded ? 'h3' : 'h2'
 	const { state } = speech
@@ -58,7 +71,7 @@ export function LocalSpeechSettingsContent({
 	return (
 		<div className="local-speech-settings">
 			<header className="local-speech-heading">
-				<Heading>Voice</Heading>
+				<Heading>Read replies aloud</Heading>
 				<span className="local-speech-badge">On this device</span>
 			</header>
 			<p className="local-speech-help">
@@ -87,21 +100,9 @@ export function LocalSpeechSettingsContent({
 						/>
 					</label>
 					<div className="local-speech-field">
-						<span id={languageLabelId}>Speech language</span>
-						<Select
-							value={state?.settings.language ?? 'tr'}
-							disabled={disabled}
-							onValueChange={(value) => {
-								if (value === 'tr') void speech.configure({ language: value })
-							}}
-						>
-							<SelectTrigger aria-labelledby={languageLabelId} size="compact">
-								Türkçe
-							</SelectTrigger>
-							<SelectPopup>
-								<SelectItem value="tr">Türkçe · Turkish</SelectItem>
-							</SelectPopup>
-						</Select>
+						<span>Speech language</span>
+						{/* One language ships today, so this reads as text: a control must change something. */}
+						<span className="local-speech-value">Turkish</span>
 					</div>
 				</>
 			)}
@@ -136,23 +137,42 @@ export function LocalSpeechSettingsContent({
 					<p className="local-speech-help local-speech-location">
 						Stored on this device. Its folder is listed under About, Data folders.
 					</p>
-					<label className="local-speech-toggle local-speech-memory">
-						<span>
+					<div className="local-speech-field local-speech-memory">
+						<span id={memoryLabelId}>
 							Free memory when idle
-							<small>After 5 minutes. The next playback reloads the voice.</small>
+							<small>
+								Unloads the voice after this long without playback. The next playback loads it
+								again.
+							</small>
 						</span>
-						<input
-							type="checkbox"
-							role="switch"
-							className="settings-switch"
-							aria-checked={!!state && state.settings.idleUnloadSeconds !== 0}
-							checked={!!state && state.settings.idleUnloadSeconds !== 0}
+						<Select
+							value={String(state?.settings.idleUnloadSeconds ?? IDLE_UNLOAD_DEFAULT)}
 							disabled={disabled}
-							onChange={(event) =>
-								void speech.configure({ idleUnloadSeconds: event.target.checked ? 300 : 0 })
-							}
-						/>
-					</label>
+							onValueChange={(value) => {
+								const seconds = Number(value)
+								if ((LOCAL_SPEECH_IDLE_UNLOAD_SECONDS as readonly number[]).includes(seconds))
+									void speech.configure({
+										idleUnloadSeconds: seconds as LocalSpeechIdleUnloadSeconds,
+									})
+							}}
+						>
+							<SelectTrigger aria-labelledby={memoryLabelId} size="compact">
+								{
+									IDLE_UNLOAD_LABELS[
+										(state?.settings.idleUnloadSeconds ??
+											IDLE_UNLOAD_DEFAULT) as LocalSpeechIdleUnloadSeconds
+									]
+								}
+							</SelectTrigger>
+							<SelectPopup>
+								{LOCAL_SPEECH_IDLE_UNLOAD_SECONDS.map((seconds) => (
+									<SelectItem key={seconds} value={String(seconds)}>
+										{IDLE_UNLOAD_LABELS[seconds]}
+									</SelectItem>
+								))}
+							</SelectPopup>
+						</Select>
+					</div>
 				</>
 			)}
 			{error && (

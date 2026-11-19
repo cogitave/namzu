@@ -162,7 +162,7 @@ it('does not let a delayed cold snapshot resurrect a deleted task and performs a
 	try {
 		await owner.openConversation(project.id, 'cold-session')
 		const readiness = owner.readyConversation(project.id, 'cold-session')
-		const refused = expect(readiness).rejects.toThrow('turn changed')
+		const refused = expect(readiness).rejects.toThrow('changed while it was loading')
 		await entered.promise
 		const stopped = wait(settled)
 		await owner.send('cold-session', 'Finish')

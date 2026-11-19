@@ -14,7 +14,7 @@ export interface Editor {
 	label: string
 	executable: string
 }
-export type OpenTarget = 'editor' | 'file-manager' | 'terminal' | 'browser'
+export type OpenTarget = 'editor' | 'file-manager' | 'terminal' | 'browser' | 'system'
 
 export interface OpenInHost {
 	platform: NodeJS.Platform
@@ -112,6 +112,13 @@ export class OpenIn {
 				throw new Error('Only a web page opens in the browser.')
 			const failure = await this.host.openPath(absolute)
 			if (failure) throw new Error('The browser could not open this page.')
+			return
+		}
+		if (target === 'system') {
+			// The caller has already limited this to result kinds; a folder is never opened this way.
+			if (kind !== 'file') throw new Error('Only a file opens this way.')
+			const failure = await this.host.openPath(absolute)
+			if (failure) throw new Error('No program on this computer could open this file.')
 			return
 		}
 		if (target === 'terminal') {

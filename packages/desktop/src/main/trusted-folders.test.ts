@@ -39,6 +39,18 @@ describe('TrustedFolderStore', () => {
 		await writeFile(path, JSON.stringify({ folders: { '/a': { digest: 1 }, '/b': null } }))
 		expect(new TrustedFolderStore(path).get('/a')).toBeUndefined()
 	})
+	it('forgets a folder, and the forgotten state survives a reopen', async () => {
+		const path = await file()
+		const store = new TrustedFolderStore(path)
+		store.set('/a', print({ x: '1' }))
+		store.set('/b', print({ x: '2' }))
+		store.delete('/a')
+		store.delete('/never-listed')
+		expect(store.get('/a')).toBeUndefined()
+		const reopened = new TrustedFolderStore(path)
+		expect(reopened.get('/a')).toBeUndefined()
+		expect(reopened.get('/b')).toBeDefined()
+	})
 	it('writes atomically with no leftover temporary file', async () => {
 		const path = await file()
 		new TrustedFolderStore(path).set('/a', print({}))
@@ -68,6 +80,14 @@ describe('folder trust guard', () => {
 			},
 		}
 	}
+	it('forget drops the record, so the folder is baselined again as a first trust', async () => {
+		const { guard, store, change } = await setup()
+		await guard.check('/a')
+		guard.forget('/a')
+		expect(store.get('/a')).toBeUndefined()
+		change({ 'config:hooks': '9' })
+		expect(await guard.check('/a')).toEqual([])
+	})
 	it('baselines a folder with no record and reports nothing (trust on first use)', async () => {
 		const { guard, store } = await setup()
 		expect(await guard.check('/a')).toEqual([])

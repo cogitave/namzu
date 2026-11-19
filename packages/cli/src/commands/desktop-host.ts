@@ -1,4 +1,3 @@
-/** Scoped operator methods; ACP owns prompts, cancellation and review. */
 import { lstat } from 'node:fs/promises'
 import {
 	type AcpSessionPromptParams,
@@ -14,7 +13,21 @@ import {
 	isEntityId,
 } from '@namzu/sdk'
 import { checkSetting, readSettings, writeSetting } from '../config/desktop-settings.js'
+import { userConfigPath } from '../config/user-config.js'
 import { approveListedMcpServers, listMcpServers } from '../integrations/mcp/server-listing.js'
+import {
+	checkUserMcpServerSave,
+	listEntryForUserMcpServer,
+	readUserMcpServerForms,
+	removeUserMcpServer,
+	saveUserMcpServer,
+} from '../integrations/mcp/user-config.js'
+import {
+	archiveAfterMs,
+	archiveIdleConversations,
+	readArchiveInactive,
+} from '../integrations/sessions/archive-inactive.js'
+import { searchExcerpt, searchHitExcerpt } from '../integrations/sessions/search-excerpt.js'
 import {
 	type CliSessionScope,
 	archiveConversation,
@@ -64,45 +77,45 @@ import { createPal, deletePal, getPal, listPals, palAtWorkspace, updatePal } fro
 import { canonicalProjectPath } from '../permissions/canonical-project.js'
 import type { CliHarnessRuntime } from './acp-harness.js'
 import type { CliAcpRuntime } from './acp.js'
+/** Scoped operator methods; ACP owns prompts, cancellation and review. */
+import {
+	COMMIT_METHOD,
+	COMMIT_PREVIEW_METHOD,
+	CommitRefused,
+	type ProjectCommit,
+	createProjectCommit,
+} from './desktop-commit.js'
+import { readContextRequest } from './desktop-context.js'
 import { createProjectChanges } from './desktop-host-changes.js'
 import { type ProjectGitState, capMarkdown, createProjectGit } from './desktop-host-header.js'
+import { createMemoryHost } from './desktop-host-memory.js'
 import { projectPr } from './desktop-host-pr.js'
+import { LIMITS_REFRESH_METHOD, type LimitsFeed } from './desktop-limits-feed.js'
 import { type SavedTurnOutcome, savedTurnOutcome } from './desktop-outcome-feed.js'
 
+/** How many conversations the idle-archive sweep looks at; the list shown stays at 100. */
+const IDLE_SWEEP_POOL = 2000
+/** Conversations the sweep was refused, and when, so a listing does not retry them each time. */
+const refusedIdleArchives = new Map<string, number>()
 const SEARCH_QUERY_MIN = 2
 const SEARCH_QUERY_MAX = 200
 /** The index returns many parts per conversation; a window this size still finds one hit for each of many. */
 const SEARCH_EVIDENCE_LIMIT = 300
 
-/** A short single-line window of `excerpt` around the first place `query` appears in it. */
-export function searchExcerpt(excerpt: string, query: string): string {
-	const flat = excerpt.replace(/\s+/g, ' ').trim()
-	const at = flat.toLowerCase().indexOf(query.toLowerCase())
-	if (at < 0) return flat.length > 140 ? `${flat.slice(0, 139)}…` : flat
-	let start = Math.max(0, at - 40)
-	// Begin on a whole word when the window opens mid-word.
-	if (start > 0) {
-		const space = flat.indexOf(' ', start)
-		if (space !== -1 && space < at) start = space + 1
-	}
-	const end = Math.min(flat.length, at + query.length + 80)
-	return `${start > 0 ? '…' : ''}${flat.slice(start, end)}${end < flat.length ? '…' : ''}`
-}
+export { searchExcerpt, searchHitExcerpt }
 
-/**
- * What the search list shows for one hit. A reply is shown as its text around the match. What a tool
- * returned can hold anything it read (a settings file, a key), and the list is always one keystroke
- * away, so a match inside tool output says only that it was found there.
- */
-export function searchHitExcerpt(
-	hit: { readonly source: string; readonly toolName?: string; readonly excerpt: string },
-	query: string,
-): string {
-	if (hit.source === 'tool_completed' || hit.source.endsWith(':tool'))
-		return hit.toolName
-			? `Found in what “${hit.toolName}” returned`
-			: 'Found in what a tool returned'
-	return searchExcerpt(hit.excerpt, query)
+/** The user file's tool servers as the Settings form reads them: the file and the entries, no secrets. */
+function userServersAnswer(name?: string) {
+	const forms = readUserMcpServerForms()
+	return {
+		file: userConfigPath(),
+		// The list carries no arguments and no address path (either may hold a key); the one entry
+		// being edited is read whole, by name.
+		servers:
+			name === undefined
+				? forms.map(listEntryForUserMcpServer)
+				: forms.filter((f) => f.name === name),
+	}
 }
 
 function text(params: Record<string, unknown>, key: string, max = 400): string {
@@ -884,6 +897,14 @@ export function createDesktopHostExtensions(
 	projectGit: (cwd: string) => Promise<ProjectGitState | null> = createProjectGit(),
 	projectChanges: ReturnType<typeof createProjectChanges> = createProjectChanges(),
 	palInboxStart?: CliPalInboxStarter,
+	limits?: Pick<LimitsFeed, 'refresh'>,
+	commit: ProjectCommit = createProjectCommit({
+		isTrusted,
+		suggest: (request, signal, sessionId) =>
+			sessionId
+				? (runtime.suggestCommitMessage?.(sessionId, request, signal) ?? Promise.resolve(undefined))
+				: Promise.resolve(undefined),
+	}),
 ) {
 	const cwd = canonicalProjectPath(directory)
 	const pal = () => palAtWorkspace(cwd)
@@ -979,7 +1000,83 @@ export function createDesktopHostExtensions(
 			throw new Error('Live input requires this connection’s owned ordinary conversation.')
 		return id
 	}
+	/** The archive every route shares: the sweep for idle conversations goes through the same gates. */
+	const archiveConversationById = async (requestedId: string) => {
+		const home = resolveNamzuHome()
+		const assertTrust = () => {
+			if (!isTrustedAtStateRoot(cwd, home))
+				throw new Error('Trust this folder before archiving its conversations.')
+		}
+		assertTrust()
+		const state = await openSessions(cwd, { stateRoot: home })
+		try {
+			assertTrust()
+			const id = asSessionId(requestedId)
+			const facts = await readConversationFacts(state, id)
+			const assertJobsIdle = () => {
+				const jobs = runtime.jobs(id)
+				if (
+					!Array.isArray(jobs) ||
+					jobs.some((job) => job.status === 'running' || job.recoveryRequired)
+				)
+					throw new Error('Stop this conversation’s background work before archiving it.')
+			}
+			if (!facts) {
+				let absent = false
+				try {
+					await lstat(state.paths.sessionLog({ sessionId: id }))
+				} catch (error) {
+					if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+					absent = true
+				}
+				if (!absent) throw new Error('This conversation’s journal has no verified session header.')
+				const publishedCwd = publishedSessionCwd?.(id)
+				if (publishedCwd !== undefined && canonicalProjectPath(publishedCwd) !== cwd)
+					throw new Error('This conversation does not belong to this project.')
+				assertJobsIdle()
+				assertTrust()
+				// Absence is an observation, never an archive or execution admission.
+				return {
+					sessionId: id,
+					archived: false as const,
+					missing: true as const,
+				}
+			}
+			if (facts.started.tenantId !== undefined && facts.started.tenantId !== state.tenantId)
+				throw new Error(DIFFERENT_IDENTITY_MESSAGE)
+			await ownedSessionIn({ sessionId: requestedId }, state)
+			if (facts.activeTurn)
+				throw new Error('Resolve this conversation’s open turn before archiving it.')
+			assertJobsIdle()
+			assertTrust()
+			const archive = async () => {
+				assertJobsIdle()
+				assertTrust()
+				try {
+					await archiveConversation(state, id)
+				} catch (error) {
+					// An idempotent retry still passes the real writer/scope gate.
+					if (
+						!(error instanceof Error) ||
+						error.message !== `Conversation ${id} is already archived.`
+					)
+						throw error
+					const current = await readConversationFacts(state, id)
+					if (!current?.archived || current.activeTurn) throw error
+				}
+				return { sessionId: id, archived: true as const }
+			}
+			const harness = runtime as Partial<CliHarnessRuntime>
+			return !palAtWorkspace(cwd, state.root) &&
+				typeof harness.withIdleConversationForArchive === 'function'
+				? await harness.withIdleConversationForArchive(id, state, archive)
+				: await archive()
+		} finally {
+			closeSessions(state)
+		}
+	}
 	return {
+		...createMemoryHost(cwd, pal),
 		...(liveInputStatus && liveInput && publishedSessionCwd
 			? {
 					'namzu/conversations/input/status': async (params: Record<string, unknown>) => {
@@ -1252,11 +1349,27 @@ export function createDesktopHostExtensions(
 			const result = untrustDir(cwd)
 			return { cwd, ...result, trusted: isTrusted(cwd) }
 		},
-		'namzu/conversations/list': () =>
+		'namzu/conversations/list': (params: Record<string, unknown> = {}) =>
 			withState(async (state) => {
 				const currentPal = pal()
 				if (currentPal) return listPalConversations(cwd, currentPal.id)
-				return conversationRows(state, await listRecent(state, 100))
+				const afterMs = archiveAfterMs(readArchiveInactive())
+				// The sweep looks past the 100 shown rows: the longest idle are the oldest.
+				const pool = await listRecent(state, afterMs === undefined ? 100 : IDLE_SWEEP_POOL)
+				const archived = await archiveIdleConversations({
+					candidates: pool,
+					afterMs,
+					now: Date.now(),
+					archive: archiveConversationById,
+					refused: refusedIdleArchives,
+				})
+				const kept = archived.length === 0 ? pool : pool.filter((row) => !archived.includes(row.id))
+				const rows = await conversationRows(state, kept.slice(0, 100))
+				// The app may still hold a row it drew earlier for a conversation just archived: naming it
+				// lets the app drop that row the way it drops one the person archived. Only an app that asks
+				// for these names gets them; an older one would draw each as an empty row.
+				if (params?.idleArchivedRows !== true || archived.length === 0) return rows
+				return [...rows, ...archived.map((id) => ({ id, idleArchived: true as const }))]
 			}),
 		/**
 		 * Full-text search over what a conversation said and did (replies and tool output), through
@@ -1474,80 +1587,7 @@ export function createDesktopHostExtensions(
 				Object.keys(params).some((key) => key !== 'sessionId')
 			)
 				throw new Error('Invalid conversation archive request.')
-			const requestedId = session(params)
-			const home = resolveNamzuHome()
-			const assertTrust = () => {
-				if (!isTrustedAtStateRoot(cwd, home))
-					throw new Error('Trust this folder before archiving its conversations.')
-			}
-			assertTrust()
-			const state = await openSessions(cwd, { stateRoot: home })
-			try {
-				assertTrust()
-				const id = asSessionId(requestedId)
-				const facts = await readConversationFacts(state, id)
-				const assertJobsIdle = () => {
-					const jobs = runtime.jobs(id)
-					if (
-						!Array.isArray(jobs) ||
-						jobs.some((job) => job.status === 'running' || job.recoveryRequired)
-					)
-						throw new Error('Stop this conversation’s background work before archiving it.')
-				}
-				if (!facts) {
-					let absent = false
-					try {
-						await lstat(state.paths.sessionLog({ sessionId: id }))
-					} catch (error) {
-						if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-						absent = true
-					}
-					if (!absent)
-						throw new Error('This conversation’s journal has no verified session header.')
-					const publishedCwd = publishedSessionCwd?.(id)
-					if (publishedCwd !== undefined && canonicalProjectPath(publishedCwd) !== cwd)
-						throw new Error('This conversation does not belong to this project.')
-					assertJobsIdle()
-					assertTrust()
-					// Absence is an observation, never an archive or execution admission.
-					return {
-						sessionId: id,
-						archived: false as const,
-						missing: true as const,
-					}
-				}
-				if (facts.started.tenantId !== undefined && facts.started.tenantId !== state.tenantId)
-					throw new Error(DIFFERENT_IDENTITY_MESSAGE)
-				await ownedSessionIn({ sessionId: requestedId }, state)
-				if (facts.activeTurn)
-					throw new Error('Resolve this conversation’s open turn before archiving it.')
-				assertJobsIdle()
-				assertTrust()
-				const archive = async () => {
-					assertJobsIdle()
-					assertTrust()
-					try {
-						await archiveConversation(state, id)
-					} catch (error) {
-						// An idempotent retry still passes the real writer/scope gate.
-						if (
-							!(error instanceof Error) ||
-							error.message !== `Conversation ${id} is already archived.`
-						)
-							throw error
-						const current = await readConversationFacts(state, id)
-						if (!current?.archived || current.activeTurn) throw error
-					}
-					return { sessionId: id, archived: true as const }
-				}
-				const harness = runtime as Partial<CliHarnessRuntime>
-				return !palAtWorkspace(cwd, state.root) &&
-					typeof harness.withIdleConversationForArchive === 'function'
-					? await harness.withIdleConversationForArchive(id, state, archive)
-					: await archive()
-			} finally {
-				closeSessions(state)
-			}
+			return archiveConversationById(session(params))
 		},
 		'namzu/conversations/rename': async (params: Record<string, unknown>) => {
 			if (
@@ -1599,6 +1639,54 @@ export function createDesktopHostExtensions(
 				return capMarkdown((await conversationMarkdown(state, id)).markdown)
 			})
 		},
+		/** What each provider in use says about its account, read again (a request at most once a minute). */
+		...(limits
+			? {
+					[LIMITS_REFRESH_METHOD]: async (params: Record<string, unknown> = {}) => {
+						if (
+							!params ||
+							typeof params !== 'object' ||
+							Array.isArray(params) ||
+							Object.keys(params).length > 0
+						)
+							throw new Error('Invalid usage limits request.')
+						return limits.refresh()
+					},
+				}
+			: {}),
+		/** What one conversation's changes would commit, and a suggested message; reads, writes nothing. */
+		[COMMIT_PREVIEW_METHOD]: async (params: Record<string, unknown> = {}) => {
+			const sessionId = params?.sessionId
+			if (
+				!params ||
+				typeof params !== 'object' ||
+				Array.isArray(params) ||
+				!Array.isArray(params.paths) ||
+				typeof sessionId !== 'string' ||
+				params.paths.length > 5000
+			)
+				throw new Error('Invalid commit preview request.')
+			return commit.preview(cwd, params.paths, sessionId)
+		},
+		/** Commits the confirmed files of one conversation, never pushing. */
+		[COMMIT_METHOD]: async (params: Record<string, unknown> = {}) => {
+			if (!params || typeof params !== 'object' || Array.isArray(params))
+				throw new Error('Invalid commit request.')
+			try {
+				return {
+					ok: true,
+					...(await commit.commit(cwd, {
+						paths: Array.isArray(params.paths) ? params.paths : [],
+						message: params.message,
+						fingerprints: params.fingerprints,
+					})),
+				}
+			} catch (failure) {
+				// A refusal (an untrusted folder, a failing hook, no identity) is an answer with its words.
+				if (failure instanceof CommitRefused) return { ok: false, reason: failure.message }
+				throw failure
+			}
+		},
 		'namzu/project/git': async (params: Record<string, unknown> = {}) => {
 			if (
 				!params ||
@@ -1626,6 +1714,97 @@ export function createDesktopHostExtensions(
 				cwd,
 				live: runtime.mcpStatus?.(cwd) ?? { connected: [], failed: [] },
 			})
+		},
+		/** Which browser the engine would drive here, for the Connected browsers table; launches nothing. */
+		'namzu/browser/status': async (params: Record<string, unknown> = {}) => {
+			if (
+				!params ||
+				typeof params !== 'object' ||
+				Array.isArray(params) ||
+				Object.keys(params).length > 0
+			)
+				throw new Error('Invalid browser status request.')
+			if (pal()) throw new Error('Pals do not read the host settings.')
+			const saved = new Map(readSettings().settings.map((item) => [item.path, item.value]))
+			const choice = <T extends string>(path: string, allowed: readonly T[]): T | undefined =>
+				allowed.find((item) => item === saved.get(path))
+			const engine = choice('browser.engine', ['auto', 'windows', 'local'] as const)
+			const headless = choice('browser.headless', ['auto', 'always', 'never'] as const)
+			const { browserStatus } = await import('../browser/status.js')
+			return browserStatus({
+				enabled: saved.get('browser.enabled') !== false,
+				...(engine ? { engine } : {}),
+				...(headless ? { headless } : {}),
+			})
+		},
+		/** The skills this folder's engine finds, names and tiers only; reads files, runs nothing. */
+		'namzu/skills/list': async (params: Record<string, unknown> = {}) => {
+			if (
+				!params ||
+				typeof params !== 'object' ||
+				Array.isArray(params) ||
+				Object.keys(params).length > 0
+			)
+				throw new Error('Invalid skills request.')
+			const { listInstalledSkills } = await import('../skills/installed-list.js')
+			return { skills: listInstalledSkills({ cwd, includeProject: isTrusted(cwd) && !pal() }) }
+		},
+		/** The tool servers in the user's own config file, as the Settings form edits them. */
+		'namzu/mcp/user-servers': async (params: Record<string, unknown> = {}) => {
+			if (
+				!params ||
+				typeof params !== 'object' ||
+				Array.isArray(params) ||
+				Object.keys(params).some((key) => key !== 'name') ||
+				(params.name !== undefined &&
+					(typeof params.name !== 'string' || params.name.length === 0 || params.name.length > 64))
+			)
+				throw new Error('Invalid tool servers request.')
+			if (pal()) throw new Error('Pals do not read the host settings.')
+			return userServersAnswer(params.name as string | undefined)
+		},
+		/** Adds a server to the user's file, or changes the command or address of one in it. */
+		'namzu/mcp/save-user-server': async (params: Record<string, unknown>) => {
+			if (pal()) throw new Error('Pals do not change the host settings.')
+			if (
+				!params ||
+				typeof params !== 'object' ||
+				Object.keys(params).some(
+					(key) => !['mode', 'name', 'command', 'args', 'url', 'dryRun'].includes(key),
+				)
+			)
+				throw new Error('Saving a tool server names only the server and what it runs or reaches.')
+			if (params.mode !== 'add' && params.mode !== 'edit')
+				throw new Error('Choose to add or to edit a tool server.')
+			const args = params.args
+			if (
+				args !== undefined &&
+				(!Array.isArray(args) || args.length > 200 || args.some((arg) => typeof arg !== 'string'))
+			)
+				throw new Error('The arguments are a list of words.')
+			if (params.dryRun !== undefined && typeof params.dryRun !== 'boolean')
+				throw new Error('dryRun is true or false.')
+			const input = {
+				...(typeof params.command === 'string' ? { command: params.command } : {}),
+				...(args ? { args: args as string[] } : {}),
+				...(typeof params.url === 'string' ? { url: params.url } : {}),
+			}
+			const name = text(params, 'name', 64)
+			// A dry run says whether the change would be taken, and writes nothing.
+			if (params.dryRun === true) checkUserMcpServerSave(params.mode, name, input)
+			else saveUserMcpServer(params.mode, name, input)
+			return userServersAnswer()
+		},
+		'namzu/mcp/remove-user-server': async (params: Record<string, unknown>) => {
+			if (pal()) throw new Error('Pals do not change the host settings.')
+			if (
+				!params ||
+				typeof params !== 'object' ||
+				Object.keys(params).some((key) => key !== 'name')
+			)
+				throw new Error('Removing a tool server names only the server.')
+			removeUserMcpServer(text(params, 'name', 64))
+			return userServersAnswer()
 		},
 		/**
 		 * What runs by itself in this folder: every hook from the config files, plugins, skills and
@@ -1817,6 +1996,13 @@ export function createDesktopHostExtensions(
 			runtime.removeProviderKey(text(params, 'provider')),
 		'namzu/providers/test': async (params: Record<string, unknown>) =>
 			runtime.testProvider(text(params, 'provider')),
+		/** Where this conversation's context window goes; null until the engine has reported one. */
+		'namzu/session/context': async (params: Record<string, unknown>) => {
+			const request = readContextRequest(params)
+			if (!runtime.contextUsage) return null
+			const id = await ownedReadSession({ sessionId: request.sessionId })
+			return runtime.contextUsage(id, request.detail)
+		},
 		'namzu/jobs/list': async (params: Record<string, unknown>) =>
 			runtime.jobs(await ownedReadSession(params)),
 		'namzu/jobs/read': async (params: Record<string, unknown>) =>

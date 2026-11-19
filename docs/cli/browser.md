@@ -18,7 +18,7 @@ The tools are the SDK's [browser tools](../sdk/browser-tools.md) over the [`@nam
 
 ## Which browser runs where
 
-`namzu browser status` and `namzu doctor` (`browser.installed`, `browser.engine`) say which one this machine would use. Nothing is launched to find out.
+`namzu browser status` and `namzu doctor` (`browser.installed`, `browser.engine`) say which one this machine would use. Nothing is launched to find out. Desktop's *Connected browsers* row asks the same question through `namzu/browser/status` and shows the answer in words.
 
 | Where namzu runs | Browser | Window |
 | --- | --- | --- |

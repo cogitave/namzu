@@ -70,7 +70,7 @@ function rowView(item: EngineUpdateItem): EngineRowView {
 		return {
 			title,
 			versions: item.installed,
-			status: 'A newer one exists',
+			status: 'A newer version is available',
 			tone: 'attention',
 			note: item.selfUpdates
 				? `Running ${item.installed}. The newest known is ${item.newerThanBundled}. It arrives by itself, or with an update of this app.`
@@ -168,7 +168,7 @@ export function engineBadge(state: EngineUpdatesState | undefined): EngineBadge 
 	const names = joinNames(behind.map((item) => item.name))
 	return {
 		visible: true,
-		label: `Updates available. Open Settings to update ${names}`,
+		label: `Updates available for ${names}. Open Settings to update.`,
 		tooltip: `Update available for ${names}`,
 	}
 }

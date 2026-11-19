@@ -7,9 +7,7 @@
  * there is one, replaces the guess for the conversation as a whole.
  */
 
-import { readFile } from 'node:fs/promises'
-
-import { type AgentFileDefinition, analyzeContextUsage, estimateTextTokens } from '@namzu/sdk'
+import type { AgentFileDefinition } from '@namzu/sdk'
 import type { Message } from '@namzu/sdk'
 
 import type { SkillsConfig } from '../config/schema.js'
@@ -18,8 +16,8 @@ import {
 	promptCacheTtl,
 	providerOffersCacheLifetime,
 } from '../integrations/providers/prompt-cache-ttl.js'
-import { discoverAgentDefinitions } from '../integrations/subagents/definitions.js'
-import { type SkillInfo, discoverSkills } from '../skills/store.js'
+import { discoverContextLists, gatherContext } from '../integrations/sessions/context-gather.js'
+import type { SkillInfo } from '../skills/store.js'
 import type { AgentSession } from './agent.js'
 import {
 	type ContextListGroup,
@@ -93,6 +91,8 @@ export interface ContextSources {
 	readonly cacheLifetime?: string
 	readonly systemPrompt?: string
 	readonly tools: readonly { name: string; tokens: number; server?: string }[]
+	/** Tools that load only when needed. */
+	readonly deferredTools?: readonly { name: string; tokens: number; server?: string }[]
 	readonly messages: readonly Message[]
 	/** Absolute paths of the instruction files in force. */
 	readonly instructionFiles: readonly string[]
@@ -147,57 +147,16 @@ function mcpLabel(name: string, server: string): string {
 }
 
 export async function collectContextView(sources: ContextSources): Promise<ContextView> {
-	const read = sources.readText ?? ((path: string) => readFile(path, 'utf8'))
-	const builtIn = sources.tools.filter((tool) => tool.server === undefined)
-	const mcp = sources.tools.filter((tool) => tool.server !== undefined)
-
-	const memory: { label: string; tokens: number }[] = []
-	for (const path of sources.instructionFiles) {
-		let text = ''
-		try {
-			text = await read(path)
-		} catch {
-			// A file that vanished since it was loaded costs nothing now.
-		}
-		memory.push({ label: sources.displayPath(path), tokens: estimateTextTokens(text) })
-	}
-
-	const listedSkills = sources.skills.filter(
-		(skill) => !skill.problem && !skill.disabled && skill.invocation !== 'operator',
-	)
-	const skillSizes = listedSkills.map((skill) => ({
-		skill,
-		tokens: estimateTextTokens(`${skill.name}: ${skill.description}`),
-	}))
-	const agentSizes = sources.agents.map((agent) => ({
-		agent,
-		tokens: estimateTextTokens(`${agent.name} ${agent.description}`),
-	}))
-	const sum = (values: readonly { tokens: number }[]) => values.reduce((n, v) => n + v.tokens, 0)
-
-	const source =
-		sources.context.windowSource === 'config'
-			? 'config'
-			: sources.context.windowSource === 'default'
-				? 'default'
-				: 'auto'
-	const breakdown = analyzeContextUsage({
-		windowTokens: sources.context.windowTokens,
-		windowSource: source,
-		autoCompact: sources.autoCompact,
-		...(sources.sizeOutOfDate ? {} : { contextTokens: sources.context.tokens }),
-		systemPromptTokens: sources.systemPrompt ? estimateTextTokens(sources.systemPrompt) : 0,
-		systemToolTokens: sum(builtIn),
-		mcpToolTokens: sum(mcp),
-		mcpInstructionTokens: sources.mcpInstructions.reduce(
-			(n, text) => n + estimateTextTokens(text),
-			0,
-		),
-		agentTokens: sum(agentSizes),
-		memoryTokens: sum(memory),
-		skillTokens: sum(skillSizes),
-		messages: sources.messages,
+	const { breakdown, windowSource, mcp, memory, skillSizes, agentSizes } = await gatherContext({
+		...sources,
+		context: {
+			tokens: sources.context.tokens,
+			windowTokens: sources.context.windowTokens,
+			measured: sources.context.measured,
+			...(sources.context.windowSource ? { windowSource: sources.context.windowSource } : {}),
+		},
 	})
+	const source = windowSource
 
 	const sections: ContextSection[] = []
 	if (mcp.length > 0) {
@@ -301,21 +260,10 @@ export interface ContextRowInput {
 export async function buildContextRow(input: ContextRowInput): Promise<ContextView | string> {
 	const context = input.usage?.context
 	if (!context || context.windowTokens <= 0) return renderContext(input.usage, input.compaction)
-	let agents: readonly AgentFileDefinition[] = []
-	try {
-		agents = (await discoverAgentDefinitions({ cwd: input.cwd })).definitions
-	} catch {
-		// An unreadable agents folder leaves the list out; the rest still answers.
-	}
-	let skills: readonly SkillInfo[] = []
-	try {
-		skills = discoverSkills({
-			cwd: input.cwd,
-			...(input.skillsConfig ? { config: input.skillsConfig } : {}),
-		})
-	} catch {
-		// Same: skills are one list among several.
-	}
+	const { agents, skills } = await discoverContextLists({
+		cwd: input.cwd,
+		skillsConfig: input.skillsConfig,
+	})
 	const inventory = input.session?.contextInventory?.()
 	const view = await collectContextView({
 		context,
@@ -328,6 +276,7 @@ export async function buildContextRow(input: ContextRowInput): Promise<ContextVi
 			: {}),
 		...(inventory?.systemPrompt ? { systemPrompt: inventory.systemPrompt } : {}),
 		tools: inventory?.tools ?? [],
+		...(inventory?.deferredTools ? { deferredTools: inventory.deferredTools } : {}),
 		messages: input.messages,
 		instructionFiles: input.session?.instructionFiles ?? [],
 		mcpInstructions: (input.mcp?.connected ?? []).flatMap((server) =>

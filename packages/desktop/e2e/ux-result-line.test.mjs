@@ -225,7 +225,7 @@ test("the pane opens 60 percent wide on the largest file, files at the diff's ri
 
 		// Wrap, collapse and split live in one View menu; This reply narrows the list.
 		await bar.getByRole("button", { name: "View options" }).click();
-		for (const name of ["Unified diff", "Split diff", "Wrap diff lines", "Collapse folders"])
+		for (const name of ["Unified diff", "Split diff", "Word wrap", "Collapse folders"])
 			await expect(w.page.getByRole("menuitem", { name: new RegExp(name) }).or(w.page.getByRole("menuitemradio", { name: new RegExp(name) })).or(w.page.getByRole("menuitemcheckbox", { name: new RegExp(name) })).first()).toBeVisible();
 		await w.page.keyboard.press("Escape");
 		await bar.getByRole("button", { name: "This reply" }).click();

@@ -63,6 +63,10 @@ remain constrained by any finite ancestor allowance. File-defined specialist
 agents retain their own iteration configuration. Context size is separate and
 is governed by [compaction](context-and-compaction.md).
 
+## One reader for every host
+
+`namzu exec`, `exec --json` and the host Desktop runs (`namzu acp`) turn the loaded configuration into session options through one function, `sessionOptionsFromConfig` (`packages/cli/src/config/session-options.ts`). Every `limits` key above, the `workflow` caps, `handBack`, `compaction`, `memory`, `hooks`, `permissionSettings`, `additionalDirectories` and the other session keys therefore apply the same way in all three; a flag still beats the file for the limit it names. `hypermode` and `refusalFallback` are read per turn (`turnOptionsFromConfig`), so a Desktop conversation starts every turn with hypermode when the key is on and dynamic workflows are not off; the effort panel's own choice for a conversation wins over the key. `compaction.clearStaleResultsAfterIdle` is honoured in a Desktop conversation too: the first prompt after the provider's cache lifetime has lapsed sheds old tool results. The Desktop composer offers Auto and Full access only when the engine advertises them, so `permissions.disableAutoMode` and `permissions.disableBypassMode` remove those rows instead of refusing after the pick. A guard test fails when a key is added to the configuration schema without being mapped or excluded with a reason.
+
 ## Per-call output allowance
 
 `limits.maxResponseTokens` sets the output allowance for each model call in

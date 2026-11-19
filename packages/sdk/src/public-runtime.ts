@@ -1793,6 +1793,7 @@ export {
 	analyzeContextUsage,
 	describeToolCatalogTokens,
 	CONTEXT_CATEGORY_ORDER,
+	DEFERRED_CATEGORY_ORDER,
 } from './compaction/context-breakdown.js'
 export type {
 	ContextBreakdown,

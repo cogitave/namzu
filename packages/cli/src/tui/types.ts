@@ -13,6 +13,7 @@ import type {
 	CodeAnalysisConfig,
 	CompactionCliConfig,
 	ComposerTriggersConfig,
+	ComputerUseConfig,
 	DecisionConfig,
 	GoalCliConfig,
 	HandBackCliConfig,
@@ -266,6 +267,8 @@ export interface TuiContext {
 	 * embed did not ask). Its site rules are already in `rules`.
 	 */
 	readonly browser?: BrowserConfig
+	/** See `NamzuCliConfig.computerUse`. */
+	readonly computerUse?: ComputerUseConfig
 	/** See `NamzuCliConfig.codeAnalysis`. */
 	readonly codeAnalysis?: CodeAnalysisConfig
 	/** See `NamzuCliConfig.progressNudge`. */
@@ -286,6 +289,20 @@ export interface TuiContext {
 	readonly goal?: GoalCliConfig
 	/** See `NamzuCliConfig.handBack`. */
 	readonly handBack?: HandBackCliConfig
+	/** See `NamzuCliConfig.effort`. */
+	readonly savedEffort?: import('@namzu/sdk').ReasoningEffort
+	/** See `NamzuCliConfig.closingSummary`. Only `false` is ever set. */
+	readonly closingSummary?: boolean
+	/** See `NamzuCliConfig.agentSettings`. Only `false` is ever set. */
+	readonly agentSettings?: boolean
+	/** See `NamzuCliConfig.outputStyle`. */
+	readonly outputStyle?: string
+	/** See `NamzuCliConfig.attribution`. */
+	readonly attribution?: string
+	/** See `NamzuCliConfig.promptSuggestions`. Only `false` is ever set. */
+	readonly promptSuggestions?: boolean
+	/** See `NamzuCliConfig.respectGitignore`. Only `false` is ever set. */
+	readonly respectGitignore?: boolean
 	/** See `NamzuCliConfig.decision`. */
 	readonly decision?: DecisionConfig
 	/**

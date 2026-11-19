@@ -165,3 +165,54 @@ describe('ArrowDown', () => {
 		expect(decideComposerKey(down).action).toBe('none')
 	})
 })
+
+describe('a list above the box', () => {
+	it('takes the arrows, Enter, Tab and Esc while it is open, and nothing while it is closed', () => {
+		expect(decideComposerKey(input({ key: 'ArrowDown', menu: 'slash' }))).toEqual({
+			action: 'menu',
+			step: 'down',
+		})
+		expect(decideComposerKey(input({ key: 'Enter', menu: 'mention' }))).toEqual({
+			action: 'menu',
+			step: 'pick',
+		})
+		expect(decideComposerKey(input({ key: 'Tab', menu: 'slash', canHold: true }))).toEqual({
+			action: 'menu',
+			step: 'pick',
+		})
+		expect(decideComposerKey(input({ key: 'Escape', menu: 'slash' }))).toEqual({
+			action: 'menu',
+			step: 'close',
+		})
+		expect(decideComposerKey(input({ key: 'Enter', menu: null })).action).toBe('send')
+	})
+
+	it('leaves Ctrl+Enter and typing to the box, and lets an input method keep its keys', () => {
+		expect(
+			decideComposerKey(input({ key: 'Enter', ctrlKey: true, menu: 'slash', canHold: true }))
+				.action,
+		).toBe('queue')
+		expect(decideComposerKey(input({ key: 'a', menu: 'slash' })).action).toBe('none')
+		expect(decideComposerKey(input({ key: 'Enter', menu: 'slash', composing: true })).action).toBe(
+			'none',
+		)
+	})
+})
+
+describe('the add-files chord', () => {
+	it('is Ctrl+U, or Cmd+U on a Mac, and only where files can be added', () => {
+		expect(decideComposerKey(input({ key: 'u', ctrlKey: true, canAttach: true })).action).toBe(
+			'attach',
+		)
+		expect(decideComposerKey(input({ key: 'u', ctrlKey: true, canAttach: false })).action).toBe(
+			'none',
+		)
+		expect(
+			decideComposerKey(input({ key: 'u', metaKey: true, canAttach: true, mac: true })).action,
+		).toBe('attach')
+		expect(
+			decideComposerKey(input({ key: 'u', ctrlKey: true, canAttach: true, mac: true })).action,
+		).toBe('none')
+		expect(decideComposerKey(input({ key: 'u', canAttach: true })).action).toBe('none')
+	})
+})

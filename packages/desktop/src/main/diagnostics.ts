@@ -241,6 +241,7 @@ const OPERATIONS = new Set([
 	'jobs',
 	'backgroundWorkStatuses',
 	'readJob',
+	'contextUsage',
 	'stopJob',
 	'refreshTasks',
 	'initialize',

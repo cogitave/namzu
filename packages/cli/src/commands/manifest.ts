@@ -183,6 +183,15 @@ export const hooksCommand = lazyCommand(
 	async () => (await import('./hooks.js')).hooksCommand,
 )
 
+export const configCommand = lazyCommand(
+	{
+		name: 'config',
+		description: 'List, read and change the settings Desktop shows, in your user config file',
+		passThrough: true,
+	},
+	async () => (await import('./config.js')).configCommand,
+)
+
 export const skillsCommand = lazyCommand(
 	{
 		name: 'skills',

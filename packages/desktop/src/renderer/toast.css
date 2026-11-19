@@ -166,8 +166,8 @@
 	box-shadow: var(--focus-ring);
 }
 @media (prefers-reduced-motion: reduce) {
-	.toast-root,
-	.toast-content {
+	:root:not([data-motion="full"]) .toast-root,
+	:root:not([data-motion="full"]) .toast-content {
 		transition: none;
 	}
 }

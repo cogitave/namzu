@@ -86,7 +86,8 @@ button.turn-result-main:focus-visible,
 }
 .turn-result-lead {
 	flex: none;
-	font-weight: var(--weight-strong);
+	color: var(--muted-foreground);
+	font-weight: var(--weight-control);
 	white-space: nowrap;
 }
 .turn-result-size {
@@ -166,7 +167,7 @@ button.turn-result-main:focus-visible,
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.turn-result-actions {
+	:root:not([data-motion="full"]) .turn-result-actions {
 		transition: none;
 	}
 }
@@ -215,7 +216,7 @@ button.turn-result-main:focus-visible,
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.turn-result-more {
+	:root:not([data-motion="full"]) .turn-result-more {
 		transition: none;
 	}
 }

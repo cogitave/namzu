@@ -7,7 +7,9 @@ import {
 	FileJson,
 	FileText,
 	FolderTree,
+	Globe,
 	Image,
+	Table,
 } from 'lucide-react'
 import type { SVGProps } from 'react'
 
@@ -17,17 +19,22 @@ export const FileIcon = (props: IconProps) => <File aria-hidden="true" {...props
 /** A file's mark by its kind, so tabs of different files tell apart before their names are read. */
 export function FileTypeIcon({ path, ...props }: IconProps & { path: string }) {
 	const extension = path.slice(path.lastIndexOf('.') + 1).toLowerCase()
-	const Mark = /^(md|mdx|txt|rst)$/.test(extension)
-		? FileText
-		: extension === 'json'
-			? FileJson
-			: /^(png|jpe?g|gif|webp|svg|avif)$/.test(extension)
-				? Image
-				: /^(ts|tsx|js|jsx|mjs|cjs|css|html|py|rs|go|java|c|cc|cpp|h|sh|yml|yaml|toml)$/.test(
-							extension,
-						)
-					? FileCode
-					: File
+	// A page reads as the web, a table of data as a table: the kind is told before the name is read.
+	const Mark = /^(html?|xhtml)$/.test(extension)
+		? Globe
+		: /^(csv|tsv|xlsx?|ods)$/.test(extension)
+			? Table
+			: /^(md|mdx|txt|rst)$/.test(extension)
+				? FileText
+				: extension === 'json'
+					? FileJson
+					: /^(png|jpe?g|gif|webp|svg|avif)$/.test(extension)
+						? Image
+						: /^(ts|tsx|js|jsx|mjs|cjs|css|py|rs|go|java|c|cc|cpp|h|sh|yml|yaml|toml)$/.test(
+									extension,
+								)
+							? FileCode
+							: File
 	return <Mark aria-hidden="true" {...props} />
 }
 export const FolderTreeIcon = (props: IconProps) => <FolderTree aria-hidden="true" {...props} />

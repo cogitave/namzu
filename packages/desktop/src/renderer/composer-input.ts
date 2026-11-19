@@ -91,7 +91,10 @@ export function queueModifierName(mac: boolean): string {
 	return mac ? 'Cmd' : 'Ctrl'
 }
 
-/** The empty message box's hint. While a reply runs it teaches what Enter and the queue chord do. */
+/**
+ * The empty message box's hint. It is one short line that never wraps, so the box stays one line
+ * high; while a reply runs it names the queue chord, and `composerPlaceholderTitle` has the rest.
+ */
 export function composerPlaceholder(input: {
 	compact: boolean
 	cliMode: boolean
@@ -105,13 +108,34 @@ export function composerPlaceholder(input: {
 	/** Enter reaches the running reply instead of waiting behind it. */
 	liveInputSupported: boolean
 	mac: boolean
+	/** The "/" list is offered here, so the empty box says how to reach it. */
+	slashMenu?: boolean
 }): string {
 	if (input.cliMode) return `Optional first message for ${input.cliLabel} in a terminal`
 	if (input.editableQueued && !input.hasDraft) return 'Press ↑ to edit queued messages'
 	if (input.waitingOnPerson && !input.hasDraft) return 'Waiting for you. Type to message Namzu.'
 	if (input.running)
 		return input.liveInputSupported
-			? `Enter sends now · ${queueModifierName(input.mac)}+Enter or Tab sends after this reply`
+			? `${queueModifierName(input.mac)}+Enter to queue`
 			: 'Enter sends after this reply'
+	if (input.slashMenu) return 'Type / for commands'
 	return input.compact ? 'Send a message' : 'Ask Namzu anything'
+}
+
+/** The full hint, for the box's tooltip, when the short one leaves something out. */
+export function composerPlaceholderTitle(input: {
+	cliMode: boolean
+	editableQueued: boolean
+	hasDraft: boolean
+	waitingOnPerson?: boolean
+	running: boolean
+	liveInputSupported: boolean
+	mac: boolean
+}): string | undefined {
+	if (input.cliMode || !input.running) return undefined
+	if (input.editableQueued && !input.hasDraft) return undefined
+	if (input.waitingOnPerson && !input.hasDraft) return undefined
+	return input.liveInputSupported
+		? `Enter sends now · ${queueModifierName(input.mac)}+Enter or Tab sends after this reply`
+		: undefined
 }

@@ -212,7 +212,7 @@
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.composer-row-project[data-leaving] {
+	:root:not([data-motion="full"]) .composer-row-project[data-leaving] {
 		animation: none;
 	}
 }
@@ -244,14 +244,18 @@
 	flex: none;
 	white-space: pre;
 }
-/* The page edge under the composer is solid, so a long reply never shows through the gap below the card. */
-.composer-wrap::after {
+/* Everything under and around the box is the page's own colour, at every width, so a long reply never
+   shows through the row or the gap below it; the colour starts as a soft fade 24px above the box. */
+.composer-wrap [data-composer-dock] {
+	position: relative;
+	isolation: isolate;
+}
+.composer-wrap [data-composer-dock]::before {
 	content: "";
 	position: absolute;
-	inset: auto 0 0;
+	inset: -24px 0 0;
 	z-index: -1;
-	height: 24px;
-	background: var(--background);
+	background: linear-gradient(to bottom, transparent, var(--background) 24px);
 	pointer-events: none;
 }
 .composer-harness-mark .namzu-wordmark {
@@ -669,14 +673,14 @@
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.composer-control,
-	.composer-control [data-composer-control-chevron],
-	.composer-control [data-slot="select-icon"],
-	.composer-project-row,
-	.composer-project-actions button {
+	:root:not([data-motion="full"]) .composer-control,
+	:root:not([data-motion="full"]) .composer-control [data-composer-control-chevron],
+	:root:not([data-motion="full"]) .composer-control [data-slot="select-icon"],
+	:root:not([data-motion="full"]) .composer-project-row,
+	:root:not([data-motion="full"]) .composer-project-actions button {
 		transition: none;
 	}
-	.composer-control:active {
+	:root:not([data-motion="full"]) .composer-control:active {
 		scale: 1;
 		transform: none;
 	}

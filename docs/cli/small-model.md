@@ -46,12 +46,15 @@ overrides user config; managed config remains final. See
 smallModel: anthropic/claude-haiku-4-5
 ```
 
+Desktop Settings, Models, shows it as a text box that offers the models Desktop knows and accepts any other name; when `NAMZU_SMALL_MODEL` is set in the engine's environment the row says so and that the variable is used instead of the saved value (`namzu config get smallModel` says the same for the shell it runs in).
+
 ## What it runs
 
 | Side job | When | Request |
 | --- | --- | --- |
 | [Conversation title](#conversation-titles) | After the first message of a conversation | No tools, 60 tokens |
 | [The away recap](#the-away-recap) | After a conversation was left alone for a few minutes with the window out of focus, or on `/recap` | No tools, 120 tokens |
+| [A suggested next message](turn-notes.md#prompt-suggestions) | After a reply ends in the terminal app, unless `promptSuggestions` is off | No tools, 60 tokens |
 | [Which memories go with a message](memory.md#how-a-memory-is-chosen-for-a-message) | Once per message, when recall found candidates; skipped on the conversation's own model | No tools, 200 tokens, 2 seconds |
 | [Curating what turns learn](memory.md#how-what-turns-learn-is-curated) | After a turn ends (idle), when the next turn starts, and when the session closes, for up to eight claim sets at a time; skipped on the conversation's own model | No tools, 1,200 tokens, 25 seconds |
 | The answer `web_fetch` extracts ([web tools](../sdk/web-tools.md)) | When a page is fetched with a `prompt` | No tools, 8192 tokens |

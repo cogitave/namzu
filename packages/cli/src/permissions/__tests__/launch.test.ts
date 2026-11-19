@@ -53,6 +53,22 @@ describe('the flags and the mode they start in', () => {
 	})
 })
 
+describe('the bypass opt-in', () => {
+	it('makes bypass reachable without starting in it', () => {
+		expect(plan({ settings: { allowBypassMode: true } })).toEqual({
+			mode: 'prompt',
+			source: 'default',
+			bypassAvailable: true,
+		})
+	})
+
+	it('is overruled by the forbid key', () => {
+		expect(
+			plan({ settings: { allowBypassMode: true, disableBypassMode: true } }).bypassAvailable,
+		).toBe(false)
+	})
+})
+
 describe('the configured default', () => {
 	it('starts a session in the mode the settings name, and says it was the configuration', () => {
 		expect(plan({ settings: { defaultMode: 'accept-edits' } })).toEqual({

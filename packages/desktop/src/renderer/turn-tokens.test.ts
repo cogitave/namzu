@@ -89,7 +89,7 @@ const EXPECTED: Record<string, string> = {
 	'--turn-chevron-height': '8px',
 	'--turn-block-gap': '8px',
 	'--turn-block-radius': '8px',
-	'--turn-block-row': '35px',
+	'--turn-block-row': '36px',
 	'--turn-block-inset': '12px',
 	'--turn-block-after': '20px',
 	// The working row's mark.

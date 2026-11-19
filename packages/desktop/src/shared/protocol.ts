@@ -8,12 +8,23 @@ import type {
 	ReviewMode,
 } from '@namzu/sdk'
 import type { BackgroundWorkStatus, BackgroundWorkStatusEvent } from './background-work-protocol.js'
+import type { BrowserPaneRequest, BrowserPaneState } from './browser-pane.js'
+import type { CommitOutcomeView, CommitPreviewView, CommitRequestView } from './commit-protocol.js'
 import type { ComputerAppsView, ComputerFrameView } from './computer-protocol.js'
+import type {
+	EngineBrowserView,
+	InstalledSkillsView,
+	UserMcpServerChange,
+	UserMcpServerResult,
+	UserMcpServerView,
+	UserMcpServersView,
+} from './config-lists-protocol.js'
 import type {
 	ConfigSettingChange,
 	ConfigSettingResult,
 	ConfigSettingsView,
 } from './config-settings-protocol.js'
+import type { ContextReport } from './context-protocol.js'
 import type { EngineDeliveryView } from './engine-delivery-protocol.js'
 import type {
 	EngineUpdateAnnouncement,
@@ -23,6 +34,13 @@ import type {
 	EngineUpdatesState,
 } from './engine-update-protocol.js'
 import type { HooksReport } from './hooks-report.js'
+import type { LimitsNotification } from './limits-protocol.js'
+import type {
+	SavedMemoriesView,
+	SavedMemoryDetail,
+	SavedMemoryOutcome,
+	StandingInstructionsView,
+} from './memory-protocol.js'
 import type { OutcomeNotice } from './outcome-protocol.js'
 import type {
 	PalCommunicationView,
@@ -136,6 +154,11 @@ export interface DesktopSendOptions {
 	pasted?: { start: number; end: number }[]
 	effort?: ReasoningEffort
 	permissionMode?: ReviewMode
+	/**
+	 * Hypermode for this conversation, from the effort panel: `true`/`false` is the person's choice,
+	 * absent follows the engine's saved setting. Never saved to the settings file.
+	 */
+	hypermode?: boolean
 }
 export interface DraftSettings {
 	/** `preset: 'default'` follows the engine's own default model as its catalogue changes. */
@@ -158,6 +181,10 @@ export interface DraftSettings {
 export interface ComposerModelSettings {
 	effortLevels?: readonly ReasoningEffort[]
 	effortDefault?: ReasoningEffort
+	/** Dynamic workflows are off in Settings, so the effort panel cannot turn hypermode on. */
+	workflowsOff?: boolean
+	/** The saved `hypermode` setting starts conversations in the mode (and workflows are on). */
+	hypermodeDefault?: boolean
 	notice?: string
 }
 export interface PluginInventoryView {
@@ -211,6 +238,12 @@ export interface ProjectView {
 	status: 'connecting' | 'ready' | 'error'
 	error?: string
 	palId?: string
+	/**
+	 * Auto (`classify`) and Full access (`bypass`), whichever of them this project's engine
+	 * lets a conversation use (its settings can close either). Absent: an older engine that
+	 * did not say, so the composer keeps offering both. An empty list: it closes both.
+	 */
+	permissionModes?: ('bypass' | 'classify')[]
 	/** App-created ordinary chat context, not a user project or Pal workspace. */
 	isChat?: boolean
 	/**
@@ -569,6 +602,11 @@ export interface PermissionView {
 		 * sends or submits).
 		 */
 		computer?: { app?: string; apps?: string[]; consequence?: string }
+		/**
+		 * For a call that changes one of the person's settings: the setting's name and the old and
+		 * new value in the words Settings uses. The card shows these instead of the call's input.
+		 */
+		settingChange?: { setting: string; from: string; to: string }
 	}[]
 	/**
 	 * Set by this application on a request that asks whether Namzu may use these applications in
@@ -699,6 +737,8 @@ export type DesktopEvent = (
 	| { kind: 'task'; sessionId: string; task: AcpTask; deleted?: true }
 	/** How full the conversation is and whether it is being compacted; see `UsageNotice`. */
 	| ({ kind: 'usage' } & UsageNotice)
+	/** What each provider in use says about its account; see `LimitsNotification`. Account data, kept in memory. */
+	| { kind: 'limits'; limits: LimitsNotification }
 	/** What a finished turn changed and what checked it; see `OutcomeNotice`. */
 	| ({ kind: 'outcome' } & OutcomeNotice)
 	/** What the model saw after a computer action, small, with where a click landed. */
@@ -754,11 +794,15 @@ export type DesktopEvent = (
 	| { kind: 'tab-command'; command: TabCommand }
 	/** A system notification was clicked: show this conversation; only the focused window gets it. */
 	| { kind: 'show-conversation'; sessionId: string }
+	/** A global shortcut left something for the window to pick up (`takePendingEntries`). */
+	| { kind: 'pending-entry' }
 	| { kind: 'project-removed'; projectId: string; sessionIds: string[] }
 	/** A stored model list was refreshed and its rows differ; the next read returns the new rows. */
 	| { kind: 'model-catalogue-updated'; engine: string; provider: string }
 	/** A key was saved or removed: every window re-reads which providers can answer. */
 	| { kind: 'providers-changed' }
+	/** The engine's config file changed on disk (an edit elsewhere or a save here): Settings reads it again. */
+	| { kind: 'config-file-changed' }
 	| {
 			kind: 'pal-deleted'
 			palId: string
@@ -788,6 +832,8 @@ export interface ProjectChangeFile {
 	oldPath?: string
 	/** Set on a renamed file whose content is not text. */
 	binary?: true
+	/** With whitespace hidden, a file whose only changes were whitespace. */
+	whitespaceOnly?: true
 }
 
 /** The working-tree changes of a project; `truncated` when a cap was hit. */
@@ -803,6 +849,34 @@ export interface ProjectDiffView {
 	binary: boolean
 	truncated: boolean
 }
+
+/** What a Changes pane compares the working tree with, or looks at. */
+export type ProjectCompareBase =
+	| { kind: 'head' }
+	| { kind: 'branch'; ref: string }
+	| { kind: 'commit'; sha: string }
+
+export type ProjectCompareRequest =
+	| { op: 'branches' }
+	| { op: 'commits' }
+	| { op: 'changes'; base: ProjectCompareBase; hideWhitespace?: boolean }
+	| { op: 'diff'; base: ProjectCompareBase; path: string }
+
+export type ProjectCompareReply =
+	| {
+			op: 'branches'
+			current: string | null
+			defaultBranch: string | null
+			branches: { name: string; remote: boolean }[]
+	  }
+	| {
+			op: 'commits'
+			commits: { sha: string; short: string; subject: string }[]
+			/** All commits behind HEAD, for "n older commits not shown". */
+			total: number
+	  }
+	| ({ op: 'changes' } & ProjectChangesView)
+	| ({ op: 'diff' } & ProjectDiffView)
 
 /** One entry of a project directory listing. */
 export interface ProjectFileEntry {
@@ -854,6 +928,14 @@ export interface DesktopBoot {
 	notice?: { id: string; text: string }
 }
 
+/** What a card shows about a made file besides its name. */
+export interface SessionOutputDetail {
+	path: string
+	size?: number
+	missing?: true
+	preview?: string
+}
+
 export interface DesktopApi {
 	/** The pre-paint snapshot; absent when main did not answer. */
 	readonly boot?: DesktopBoot
@@ -872,16 +954,39 @@ export interface DesktopApi {
 	 * The host decides what may be read; any other path is refused in plain words.
 	 */
 	readSessionOutput?(sessionId: string, path: string): Promise<ProjectFileContent>
+	/**
+	 * The Browser pane's pages for a conversation. The host owns the pages; this asks it to open,
+	 * navigate, go back, place the active page in a rectangle of the window, and so on, and
+	 * answers with the pages as they now are.
+	 */
+	browserPane?(sessionId: string, request: BrowserPaneRequest): Promise<BrowserPaneState>
+	onBrowserEvent?(listener: (state: BrowserPaneState) => void): () => void
+	/** Holds the computer awake for one conversation while on; with no `on`, only reads. */
+	keepAwake?(sessionId: string, on?: boolean): Promise<boolean>
 	/** Opens such a file in the default browser (a web page only) or shows it in its folder. */
 	openSessionOutput?(
 		sessionId: string,
 		path: string,
-		target: 'browser' | 'file-manager',
+		target: 'browser' | 'file-manager' | 'system',
 	): Promise<void>
+	/** Size and a one-line start for each file a conversation made, for its cards. */
+	describeSessionOutputs?(sessionId: string, paths: string[]): Promise<SessionOutputDetail[]>
+	/** Result files a turn made by running something, with the turn; empty when none were found. */
+	madeSessionFiles?(sessionId: string): Promise<{ path: string; turn: number }[]>
+	/**
+	 * Saves a copy of such a file where the person chooses, in the system's save dialog. `saved` is
+	 * false when they closed the dialog.
+	 */
+	saveSessionOutput?(sessionId: string, path: string): Promise<{ saved: boolean }>
 	/** Working-tree changes; null when not a git repository, untrusted or unavailable. */
 	projectChanges?(projectId: string): Promise<ProjectChangesView | null>
 	/** Before and after text of one changed file. */
 	projectDiff?(projectId: string, path: string): Promise<ProjectDiffView>
+	/** Branches, commits and changes against a branch's fork point or a commit; null without a repository. */
+	projectCompare?(
+		projectId: string,
+		request: ProjectCompareRequest,
+	): Promise<ProjectCompareReply | null>
 	/** Which reply references name real project files, and at which line. */
 	resolveProjectLinks?(projectId: string, refs: string[]): Promise<ProjectLinkResolution[]>
 	/** Open a project path in an editor, the file manager or a terminal. */
@@ -952,8 +1057,40 @@ export interface DesktopApi {
 	settings?(): Promise<DesktopSettings>
 	setSettings?(patch: Partial<DesktopSettings>, token?: string): Promise<SettingsChangeResult>
 	/** Settings the engine owns (limits, tools, sandbox, ...); the engine describes and validates them. */
-	configSettings?(): Promise<ConfigSettingsView>
+	configSettings?(projectId?: string): Promise<ConfigSettingsView>
 	setConfigSetting?(change: ConfigSettingChange, token?: string): Promise<ConfigSettingResult>
+	/** The system folder picker; the chosen folder's path, or null when the person cancels. */
+	pickFolder?(): Promise<string | null>
+	/** Which of these folders exist (a folder, not a file), asked with absolute paths only. */
+	existingFolders?(paths: string[]): Promise<string[]>
+	/** The installed skills (names and where they live), for a project or the person's own; null where the engine cannot say. */
+	installedSkills?(projectId?: string): Promise<InstalledSkillsView | null>
+	/** Which browser the engine would drive on this computer, read without launching it; null where the engine cannot say. */
+	engineBrowser?(): Promise<EngineBrowserView | null>
+	/** The person's own instructions every conversation starts from; null where the engine cannot say. */
+	standingInstructions?(): Promise<StandingInstructionsView | null>
+	/** Saves them; empty text removes them. */
+	saveStandingInstructions?(text: string, revision?: string): Promise<StandingInstructionsView>
+	/** The memories saved for a project; null where the engine cannot show them. */
+	savedMemories?(projectId: string): Promise<SavedMemoriesView | null>
+	readSavedMemory?(projectId: string, id: string): Promise<SavedMemoryDetail>
+	/** Changes one memory, naming the version that was shown; 'changed' means it moved on since. */
+	updateSavedMemory?(
+		projectId: string,
+		change: { id: string; revision: string; text: string; title?: string },
+	): Promise<SavedMemoryOutcome>
+	/** Deletes one memory for good, naming the version that was shown. */
+	deleteSavedMemory?(
+		projectId: string,
+		change: { id: string; revision: string },
+	): Promise<SavedMemoryOutcome>
+	/** The tool servers in the person's own config file, as the Settings form edits them. */
+	userMcpServers?(): Promise<UserMcpServersView>
+	/** One tool server whole, for its edit form; the list carries no arguments or address path. */
+	userMcpServer?(name: string): Promise<UserMcpServerView | undefined>
+	/** Adds or edits one; a server that runs a command is answered with a question first. */
+	saveUserMcpServer?(change: UserMcpServerChange, token?: string): Promise<UserMcpServerResult>
+	removeUserMcpServer?(name: string): Promise<UserMcpServersView>
 	desktopInfo?(): Promise<DesktopInfo>
 	/** Opens one of the app's own data folders in the file manager. */
 	openDataFolder?(kind: DataFolderKind): Promise<void>
@@ -1092,6 +1229,18 @@ export interface DesktopApi {
 	conversationMarkdown?(sessionId: string): Promise<{ markdown: string; truncated: boolean }>
 	/** Branch and last commit subject, or null when not a repository, untrusted or unavailable. */
 	projectGit?(projectId: string): Promise<ProjectGitView | null>
+	/**
+	 * What each provider in use says about its account, read again. The host asks a vendor at most once
+	 * a minute; null where the engine cannot say. Account data: never stored or logged.
+	 */
+	refreshLimits?(projectId: string): Promise<LimitsNotification | null>
+	/**
+	 * Which of the conversation's changed files would be committed, with a suggested message; null
+	 * where the engine cannot say. Reads only. `paths` are the files the conversation changed.
+	 */
+	commitPreview?(sessionId: string, paths: string[]): Promise<CommitPreviewView | null>
+	/** Commits the confirmed files of one conversation. Never pushes; a refusal carries git's own words. */
+	commit?(sessionId: string, request: CommitRequestView): Promise<CommitOutcomeView>
 	/** The project's tool servers and where each stands; null where the engine cannot say. */
 	mcpServers?(projectId: string): Promise<McpServersView | null>
 	/**
@@ -1186,6 +1335,11 @@ export interface DesktopApi {
 	backgroundWorkStatuses?(): Promise<Record<string, BackgroundWorkStatus>>
 	/** Refresh the existing planning projection without starting a turn. */
 	refreshTasks?(sessionId: string): Promise<void>
+	/**
+	 * Where the conversation's context window goes. Null when the engine has not counted yet or
+	 * cannot say. Absent in an older shell.
+	 */
+	contextUsage?(sessionId: string, detail?: 'summary' | 'full'): Promise<ContextReport | null>
 	readJob(sessionId: string, jobId: string): Promise<{ output: string; truncated?: boolean }>
 	stopJob(sessionId: string, jobId: string): Promise<void>
 	/** App updates. Absent in a preview that has no updater. */
@@ -1217,6 +1371,20 @@ export interface DesktopApi {
 	terminals?(): Promise<TerminalTabView[]>
 	terminalAvailability?(projectId: string): Promise<TerminalAvailability>
 	/** The shells a plain terminal tab can open on this machine, for the setting. */
+	/** What the system says about the rows it applies (start at sign-in, tray, metered connection). */
+	osState?(): Promise<import('./os-state.js').OsState>
+	/** How much space Namzu uses on this computer, by part. */
+	storageUsage?(): Promise<import('./storage-protocol.js').StorageReport>
+	/** Empties one part that is safe to clear (logs, caches) and answers the new sizes. */
+	clearStorage?(
+		id: import('./storage-protocol.js').StoragePartId,
+	): Promise<import('./storage-protocol.js').StorageReport>
+	/** The folders the engine trusts: the list that decides trust. */
+	trustedFolders?(): Promise<import('./storage-protocol.js').TrustedFoldersView>
+	/** Takes one folder off that list (and forgets Desktop's fingerprint of it); it asks again next time. */
+	removeTrustedFolder?(path: string): Promise<import('./storage-protocol.js').TrustedFoldersView>
+	/** What global shortcuts left for a window: Quick Entry lines and a voice request. Each is handed out once. */
+	takePendingEntries?(): Promise<{ quickEntries: string[]; voice: boolean }>
 	terminalShells?(): Promise<TerminalShellChoice[]>
 	/** Start a terminal in a project and open it as a tab in the given pane. */
 	openTerminal?(request: TerminalOpenRequest): Promise<TerminalOpenResult>

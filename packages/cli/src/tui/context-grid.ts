@@ -32,6 +32,8 @@ export const CONTEXT_COLORS: Readonly<Record<ContextCategoryId, string>> = {
 	'system-prompt': tokenColor('context.systemPrompt'),
 	'system-tools': tokenColor('context.systemTools'),
 	'mcp-tools': tokenColor('context.mcpTools'),
+	'deferred-tools': tokenColor('context.systemTools'),
+	'deferred-mcp-tools': tokenColor('context.mcpTools'),
 	'mcp-instructions': tokenColor('context.mcpInstructions'),
 	agents: tokenColor('context.agents'),
 	memory: tokenColor('context.memory'),
@@ -140,7 +142,8 @@ export function buildGridCells(
 	const cells: GridCell[] = []
 	let bufferSquares = 0
 	for (const category of categories) {
-		if (category.tokens <= 0 || category.kind === 'free') continue
+		// Deferred tools are not in the request, so they take no squares.
+		if (category.tokens <= 0 || category.kind === 'free' || category.kind === 'deferred') continue
 		const exact = (category.tokens / windowTokens) * total
 		if (category.kind === 'buffer') {
 			bufferSquares = Math.max(1, Math.round(exact))
@@ -179,6 +182,7 @@ export function buildLegend(breakdown: ContextBreakdown): LegendLine[] {
 		// The automatic buffer has its own glyph and a dim name, below free space;
 		// the manual-compaction room is an ordinary line.
 		if (category.kind === 'buffer' && breakdown.autoCompact) continue
+		if (category.kind === 'deferred') continue
 		lines.push({
 			glyph: GLYPH_FULL,
 			color: CONTEXT_COLORS[category.id],
@@ -207,6 +211,17 @@ export function buildLegend(breakdown: ContextBreakdown): LegendLine[] {
 			dimGlyph: false,
 			name: buffer.name,
 			value: `${formatTokens(buffer.tokens)} tokens (${pct(buffer.tokens)}%)`,
+			dimName: true,
+		})
+	}
+	for (const category of breakdown.categories) {
+		if (category.kind !== 'deferred' || category.tokens <= 0) continue
+		lines.push({
+			glyph: GLYPH_FULL,
+			color: CONTEXT_COLORS[category.id],
+			dimGlyph: true,
+			name: category.name,
+			value: `${formatTokens(category.tokens)} tokens, loaded only when needed`,
 			dimName: true,
 		})
 	}

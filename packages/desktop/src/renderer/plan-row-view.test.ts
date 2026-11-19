@@ -59,3 +59,34 @@ it('draws the live plan as one box: a disc for done, an arc for the current task
 	// A plan that has no task yet draws no box.
 	expect(renderToStaticMarkup(createElement(PlanBox, { tasks: [] }))).toBe('')
 })
+
+it('titles the live plan by its current step, with the count, and keeps every state mark', () => {
+	const html = renderToStaticMarkup(createElement(PlanBox, { tasks: tasks.slice(0, 4) }))
+	expect(html).toContain('plan-box-title')
+	expect(html).toContain('Step 2')
+	expect(html).toContain('2 of 4')
+	expect(html).toContain('plan-box-ring')
+	expect(html).toContain('plan-box-arc')
+	expect(html).toContain('plan-box-disc')
+})
+
+it('titles a plan with nothing running as Plan', () => {
+	const html = renderToStaticMarkup(
+		createElement(PlanBox, {
+			tasks: tasks.slice(0, 2).map((t) => ({ ...t, status: 'pending' as const })),
+		}),
+	)
+	expect(html).toContain('>Plan<')
+})
+
+it('leaves a plan with steps left open in the folded work, and a finished one folded', () => {
+	const open = renderToStaticMarkup(createElement(PlanRow, { tasks, turnLive: false }))
+	expect(open).toContain('aria-expanded="true"')
+	const done = renderToStaticMarkup(
+		createElement(PlanRow, {
+			tasks: tasks.map((task) => ({ ...task, status: 'completed' as const })),
+			turnLive: false,
+		}),
+	)
+	expect(done).toContain('aria-expanded="false"')
+})

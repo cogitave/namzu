@@ -1,3 +1,4 @@
+import { CONTEXT_REQUEST } from '../shared/context-protocol.js'
 import { TERMINAL_METHODS } from '../shared/terminal-protocol.js'
 import { PAL_COMMUNICATION_METHODS } from './pal-communication.js'
 
@@ -25,9 +26,26 @@ export const OPTIONAL_EXTENSION_GROUPS = {
 		'namzu/providers/refresh',
 	],
 	projectGit: ['namzu/project/git'],
+	limits: ['namzu/limits/refresh'],
+	projectCommit: ['namzu/project/commit-preview', 'namzu/project/commit'],
 	projectPr: ['namzu/project/pr'],
 	mcpServers: ['namzu/mcp/servers', 'namzu/mcp/approve'],
+	userMcpServers: [
+		'namzu/mcp/user-servers',
+		'namzu/mcp/save-user-server',
+		'namzu/mcp/remove-user-server',
+	],
+	skillsList: ['namzu/skills/list'],
+	browserStatus: ['namzu/browser/status'],
 	hooksView: ['namzu/hooks/list'],
+	standingInstructions: ['namzu/instructions/get', 'namzu/instructions/set'],
+	savedMemory: [
+		'namzu/memory/list',
+		'namzu/memory/read',
+		'namzu/memory/update',
+		'namzu/memory/delete',
+	],
+	contextPanel: [CONTEXT_REQUEST],
 	conversationSearch: ['namzu/conversations/search'],
 	projectUntrust: ['namzu/project/untrust'],
 	projectChanges: ['namzu/project/changes', 'namzu/project/diff'],

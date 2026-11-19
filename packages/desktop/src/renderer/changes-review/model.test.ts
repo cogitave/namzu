@@ -3,13 +3,11 @@ import {
 	type ReviewFile,
 	TREE_ROOT,
 	buildTree,
-	emptyMessageFor,
+	conversationFiles,
 	filterFiles,
 	keyStep,
-	latestReplyReceiptIds,
 	mergeReceipts,
 	receiptsOf,
-	scopeFiles,
 	stepFile,
 	unifiedDiff,
 } from './model.js'
@@ -64,29 +62,13 @@ describe('merging receipts per path', () => {
 	})
 })
 
-describe('scope selection', () => {
-	it('uses the latest reply that changed files, or the reply that was opened', () => {
-		const thread = { tools, timeline }
-		expect(latestReplyReceiptIds(thread)).toEqual(['c', 'd'])
-		expect(scopeFiles('reply', { tools, timeline }).map((item) => item.path)).toEqual([
-			'docs/new.md',
-			'src/gone.ts',
-		])
-		expect(
-			scopeFiles('reply', { tools, timeline, receiptIds: ['a', 'b'] }).map((item) => item.path),
-		).toEqual(['src/one.css'])
-		expect(scopeFiles('conversation', { tools, timeline })).toHaveLength(3)
+describe('conversation files', () => {
+	it('lists every file the conversation changed, once each', () => {
+		expect(conversationFiles({ tools, timeline })).toHaveLength(3)
 	})
 
-	it('has no latest reply without a timeline', () => {
-		expect(scopeFiles('reply', { tools })).toEqual([])
-	})
-
-	it('words each empty state', () => {
-		expect(emptyMessageFor('reply', true)).toBe('No changes in the last reply.')
-		expect(emptyMessageFor('conversation', true)).toContain('hasn’t changed files')
-		expect(emptyMessageFor('uncommitted', true)).toBe('No uncommitted changes.')
-		expect(emptyMessageFor('uncommitted', false)).toBe('This project is not a git repository.')
+	it('reads the tool table in order without a timeline', () => {
+		expect(conversationFiles({ tools }).length).toBeGreaterThan(0)
 	})
 })
 

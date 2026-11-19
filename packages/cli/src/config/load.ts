@@ -28,6 +28,7 @@ import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import {
 	RENAMED_PLUGIN_HOOK_EVENTS,
+	type ReasoningEffort,
 	SHELL_HOOK_EVENTS,
 	isPluginFolderVariable,
 	referencedVariables,
@@ -39,6 +40,7 @@ import { parsePrefix } from '../workspaces/prefix.js'
 
 import { parse as yamlParse } from 'yaml'
 
+import { REASONING_EFFORT_LEVELS } from '../commands/effort-levels.js'
 import { splitProjectMcpServers } from '../integrations/mcp/project-approval.js'
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import {
@@ -99,6 +101,7 @@ import type {
 	ComposerTriggerArming,
 	ComposerTriggerId,
 	ComposerTriggerLanguage,
+	ComputerUseConfig,
 	DecisionPointId,
 	DecisionPointMode,
 	DecisionPointsConfig,
@@ -118,6 +121,7 @@ import type {
 	UpdateChannel,
 	UpdatesConfig,
 	WorkflowCliConfig,
+	WorktreesCliConfig,
 } from './schema.js'
 import {
 	DECISION_POINT_IDS,
@@ -134,6 +138,11 @@ import {
 	type ToolResultScreenConfig,
 	isToolResultScreenName,
 } from './tool-result-screens.js'
+import {
+	branchPrefixProblem,
+	sparseFolderProblem,
+	worktreeLocationShapeProblem,
+} from './worktree-settings.js'
 
 export interface LoadConfigOptions {
 	/** Override the user's home dir (testing). */
@@ -317,12 +326,22 @@ function resolveConfigWithProvenance(
 				'model',
 				'routing',
 				'smallModel',
+				'effort',
+				'fast',
+				'respectGitignore',
+				'outputStyle',
+				'attribution',
+				'promptSuggestions',
 				'memory.select',
 				'profiles.*.memory.select',
 				'memory.curation',
 				'profiles.*.memory.curation',
 				'memory.retireAfterDays',
 				'profiles.*.memory.retireAfterDays',
+				'memory.fromConversations',
+				'profiles.*.memory.fromConversations',
+				'memory.searchPastConversations',
+				'profiles.*.memory.searchPastConversations',
 			])
 		: {}
 	// `.mcp.json`: the project's shared tool servers. Read under the same trust
@@ -355,6 +374,10 @@ function resolveConfigWithProvenance(
 				'profiles.*.memory.curation',
 				'memory.retireAfterDays',
 				'profiles.*.memory.retireAfterDays',
+				'memory.fromConversations',
+				'profiles.*.memory.fromConversations',
+				'memory.searchPastConversations',
+				'profiles.*.memory.searchPastConversations',
 			])
 		: {}
 	const managedCfg = readJsonIfExists(managedPath, shortHomePath(managedPath))
@@ -926,6 +949,25 @@ function pluginVariablesOf(entry: HookEntry): string[] {
 	)
 }
 
+/** The longest prose a setting may add to the model's rules, in characters. */
+export const PROSE_SETTING_MAX_CHARS = 500
+
+/** Text a person writes for the model (`outputStyle`, `attribution`): trimmed; empty means none. */
+function proseSetting(v: unknown, context: ConfigReaderContext): string {
+	if (typeof v !== 'string') return invalidConfigValue(context, [], 'must be text')
+	const text = v.trim()
+	if (text.length > PROSE_SETTING_MAX_CHARS)
+		return invalidConfigValue(
+			context,
+			[],
+			`is ${text.length} characters; keep it to ${PROSE_SETTING_MAX_CHARS} or fewer`,
+		)
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what is refused
+	if (/[\u0000-\u0008\u000b-\u001f\u007f]/u.test(text))
+		return invalidConfigValue(context, [], 'must be plain text')
+	return text
+}
+
 const CONFIG_READERS: ConfigReaders = {
 	format: (v, context) => {
 		if (typeof v === 'string' && isFormatName(v)) return v
@@ -1100,7 +1142,9 @@ const CONFIG_READERS: ConfigReaders = {
 				key !== 'identifierGrounding' &&
 				key !== 'select' &&
 				key !== 'curation' &&
-				key !== 'retireAfterDays'
+				key !== 'retireAfterDays' &&
+				key !== 'fromConversations' &&
+				key !== 'searchPastConversations'
 			)
 				return invalidConfigValue(context, [key], 'is not a memory key')
 		}
@@ -1128,7 +1172,17 @@ const CONFIG_READERS: ConfigReaders = {
 				'must be a whole number of days, or 0 to keep records active for ever',
 			)
 		}
+		for (const key of ['fromConversations', 'searchPastConversations'] as const) {
+			if (v[key] !== undefined && typeof v[key] !== 'boolean')
+				return invalidConfigValue(context, [key], 'must be true or false')
+		}
 		return {
+			...(v.fromConversations === undefined
+				? {}
+				: { fromConversations: v.fromConversations as boolean }),
+			...(v.searchPastConversations === undefined
+				? {}
+				: { searchPastConversations: v.searchPastConversations as boolean }),
 			...(v.retireAfterDays === undefined ? {} : { retireAfterDays: v.retireAfterDays as number }),
 			...(v.select === undefined ? {} : { select: v.select as 'on' | 'off' }),
 			...(v.curation === undefined ? {} : { curation: v.curation as 'on' | 'off' }),
@@ -1669,6 +1723,7 @@ const CONFIG_READERS: ConfigReaders = {
 		}
 	},
 	browser: (v, context) => readBrowserConfig(v, context),
+	computerUse: (v, context) => readComputerUseConfig(v, context),
 	progressNudge: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		for (const key of Object.keys(v)) {
@@ -1801,11 +1856,87 @@ const CONFIG_READERS: ConfigReaders = {
 		}
 		return v as HandBackCliConfig
 	},
+	worktrees: (v, context) => {
+		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
+		const raw = v as Record<string, unknown>
+		for (const key of Object.keys(raw))
+			if (key !== 'branchPrefix' && key !== 'location' && key !== 'sparseFolders')
+				return invalidConfigValue(
+					context,
+					[key],
+					'is not a worktrees setting (branchPrefix, location, sparseFolders)',
+				)
+		if (raw.branchPrefix !== undefined) {
+			const problem =
+				typeof raw.branchPrefix === 'string' ? branchPrefixProblem(raw.branchPrefix) : 'Write text.'
+			if (problem) return invalidConfigValue(context, ['branchPrefix'], problem)
+		}
+		if (raw.location !== undefined) {
+			const problem =
+				typeof raw.location === 'string'
+					? worktreeLocationShapeProblem(raw.location)
+					: 'Write text.'
+			if (problem) return invalidConfigValue(context, ['location'], problem)
+		}
+		if (raw.sparseFolders !== undefined) {
+			if (!Array.isArray(raw.sparseFolders))
+				return invalidConfigValue(context, ['sparseFolders'], 'must be a list of folders')
+			for (const [index, entry] of raw.sparseFolders.entries()) {
+				const problem = typeof entry === 'string' ? sparseFolderProblem(entry) : 'Write text.'
+				if (problem) return invalidConfigValue(context, ['sparseFolders', index], problem)
+			}
+		}
+		return raw as WorktreesCliConfig
+	},
+	statusMarks: (v, context) => {
+		if (typeof v === 'boolean') return v
+		return invalidConfigValue(context, [], 'must be a boolean')
+	},
+	effort: (v, context) => {
+		if (typeof v === 'string' && (REASONING_EFFORT_LEVELS as readonly string[]).includes(v))
+			return v as ReasoningEffort
+		return invalidConfigValue(
+			context,
+			[],
+			`must be one of ${REASONING_EFFORT_LEVELS.join(', ')}; leave it out for the model's own default`,
+		)
+	},
+	fast: (v, context) => {
+		if (typeof v === 'boolean') return v
+		return invalidConfigValue(context, [], 'must be true or false')
+	},
+	respectGitignore: (v, context) => {
+		if (typeof v === 'boolean') return v
+		return invalidConfigValue(context, [], 'must be true or false')
+	},
+	closingSummary: (v, context) => {
+		if (typeof v === 'boolean') return v
+		return invalidConfigValue(context, [], 'must be true or false')
+	},
+	agentSettings: (v, context) => {
+		if (typeof v === 'boolean') return v
+		return invalidConfigValue(context, [], 'must be true or false')
+	},
+	outputStyle: (v, context) => proseSetting(v, context),
+	attribution: (v, context) => proseSetting(v, context),
+	promptSuggestions: (v, context) => {
+		if (typeof v === 'boolean') return v
+		return invalidConfigValue(context, [], 'must be true or false')
+	},
+	archiveInactive: (v, context) => {
+		if (v === 'never' || v === '1d' || v === '7d' || v === '30d') return v
+		return invalidConfigValue(context, [], 'must be never, 1d, 7d or 30d')
+	},
 	workflow: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		const caps = { maxConcurrency: 16, maxAgents: 1000 } as const
 		for (const key of Object.keys(v)) {
 			const value = (v as Record<string, unknown>)[key]
+			if (key === 'enabled' || key === 'keywordTrigger') {
+				if (typeof value !== 'boolean')
+					return invalidConfigValue(context, [key], 'must be true or false')
+				continue
+			}
 			if (key === 'sizeGuideline') {
 				if (!isWorkflowSizeGuideline(value))
 					return invalidConfigValue(
@@ -1819,7 +1950,7 @@ const CONFIG_READERS: ConfigReaders = {
 				return invalidConfigValue(
 					context,
 					[key],
-					'is not a workflow setting (maxConcurrency, maxAgents, sizeGuideline)',
+					'is not a workflow setting (enabled, keywordTrigger, maxConcurrency, maxAgents, sizeGuideline)',
 				)
 			if (
 				typeof value !== 'number' ||
@@ -2519,11 +2650,36 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	goal: undefined,
 	// Whether the model may hand a task back is a decision in the file, not a shell's.
 	handBack: undefined,
+	// Where Namzu writes checkouts, and what a branch is called, is the operator's own call.
+	worktrees: undefined,
+	// Archiving is a standing decision about the person's history, never a variable's.
+	archiveInactive: undefined,
+	// A display choice for the desktop app's sidebar, made in its settings.
+	statusMarks: undefined,
+	// The effort has its own variable (NAMZU_EFFORT_LEVEL), read where a launch is made and
+	// winning over this saved default; this key is the file's.
+	effort: undefined,
+	// What a conversation costs per token is a file decision, never a shell's.
+	fast: undefined,
+	// What the pickers show of an ignored file is a file decision, never a shell's.
+	respectGitignore: undefined,
+	// How the working rules close is a file decision, not a shell's.
+	closingSummary: undefined,
+	// Whether the model may touch the person's settings is a file decision, never a shell's.
+	agentSettings: undefined,
+	// Text that enters the model's rules is the person's file decision, never a shell's.
+	outputStyle: undefined,
+	attribution: undefined,
+	// An extra request after every reply is a file decision, never a shell's.
+	promptSuggestions: undefined,
 	// Outbound reach is opted into in the file, never from the environment.
 	web: undefined,
 	// A browser signed in to the operator's sites, and which of them it may
 	// change: a file decision, never a shell's.
 	browser: undefined,
+	// Whether the machine's screen can be driven, and which applications are
+	// off limits: a file decision, never a variable a shell profile could carry.
+	computerUse: undefined,
 	// Reads project files into an index kept under the Namzu home; a file
 	// decision, never a variable a shell profile could carry invisibly.
 	codeAnalysis: undefined,
@@ -3046,6 +3202,25 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 				// Once on, no later layer turns it off.
 				continue
 			}
+			if (key === 'agentSettings' && isProjectSource(layer.sourceFor(key))) {
+				// A repository cannot decide whether the model may change the person's settings.
+				configWarnings.add(
+					`agentSettings in ${describeSource(layer.sourceFor(key))} is ignored: only your own config file or the managed file can set it.`,
+				)
+				continue
+			}
+			if (key === 'worktrees' && layer.config.worktrees !== undefined) {
+				// A project cannot choose where Namzu writes checkouts, nor what they are called.
+				if (isProjectSource(layer.sourceFor(key))) {
+					configWarnings.add(
+						`worktrees in ${describeSource(layer.sourceFor(key))} is ignored: only your own config file or the managed file can set it.`,
+					)
+					continue
+				}
+				out.worktrees = { ...out.worktrees, ...layer.config.worktrees }
+				provenance[key] = layer.sourceFor(key)
+				continue
+			}
 			if (key === 'permissions' && layer.config.permissions) {
 				// Joined, not replaced: a project's table must not erase a user's
 				// deny, nor a managed table the rules below it. See
@@ -3075,6 +3250,16 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 			if (key === 'browser' && layer.config.browser) {
 				// Merged, not replaced: see `mergeBrowserConfig`.
 				out.browser = mergeBrowserConfig(out.browser, layer.config.browser, layer.sourceFor(key))
+				provenance[key] = layer.sourceFor(key)
+				continue
+			}
+			if (key === 'computerUse' && layer.config.computerUse) {
+				// Merged, not replaced: see `mergeComputerUseConfig`.
+				out.computerUse = mergeComputerUseConfig(
+					out.computerUse,
+					layer.config.computerUse,
+					layer.sourceFor(key),
+				)
 				provenance[key] = layer.sourceFor(key)
 				continue
 			}
@@ -3294,7 +3479,7 @@ const BROWSER_KEYS = new Set([
 	'signInDetection',
 ])
 /** `@namzu/browser`'s profile names, restated so reading config does not load Playwright. */
-const BROWSER_PROFILE_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+export const BROWSER_PROFILE_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 function readBrowserConfig(v: unknown, context: ConfigReaderContext): BrowserConfig {
 	if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
@@ -3382,18 +3567,72 @@ export function mergeTuiConfig(
 	layer: TuiConfig,
 	fromProject: boolean,
 ): TuiConfig {
-	const {
-		theme: _theme,
-		reducedMotion: _motion,
-		showExpandedTodos: _todos,
-		agentCalls: _agentCalls,
-		fullscreen: _fullscreen,
-		syntaxHighlight: _syntax,
-		wheelRows: _wheelRows,
-		wheelAccel: _wheelAccel,
-		...rest
-	} = layer
-	return { ...below, ...(fromProject ? rest : layer) }
+	if (!fromProject) return { ...below, ...layer }
+	const rest = Object.fromEntries(
+		Object.entries(layer).filter(([key]) => !PROJECT_DROPPED_TUI_KEYS.includes(key)),
+	) as TuiConfig
+	return { ...below, ...rest }
+}
+
+/** The `tui` keys a project layer may not set (the operator's taste). Read by `mergeTuiConfig` and by Desktop's layer report. */
+export const PROJECT_DROPPED_TUI_KEYS: readonly string[] = [
+	'theme',
+	'reducedMotion',
+	'showExpandedTodos',
+	'agentCalls',
+	'fullscreen',
+	'syntaxHighlight',
+	'wheelRows',
+	'wheelAccel',
+]
+
+/**
+ * Whether a value a project (or local) file holds for `path` is one the loader keeps. The merges
+ * above drop or ignore some keys for a project source (taste, updates, hooks off, and anything
+ * that would loosen the sandbox or other tighten-only blocks); a value they drop is not in force.
+ * Keys with no special rule hold. Where the answer depends on what a lower layer says (a lower
+ * token budget, a trigger arming), the value is treated as not held.
+ */
+export function projectLayerHolds(path: string, value: unknown): boolean {
+	const [head, tail] = path.split('.')
+	switch (head) {
+		case 'tui':
+			return tail === undefined || !PROJECT_DROPPED_TUI_KEYS.includes(tail)
+		case 'updates':
+			return tail === 'auto' || tail === 'check' ? value === false : false
+		case 'disableHooks':
+			return value === false
+		case 'worktrees':
+			return false
+		case 'codeAnalysis':
+			return tail === 'enabled' ? value === false : true
+		case 'learningGenerator':
+			return tail === 'enabled' ? value === false : false
+		case 'composerTriggers':
+			return (tail === 'enabled' || tail === 'suggest') && value === false
+		case 'permissions':
+			// A project's opt-in to bypass is dropped whatever it says, so it decides nothing.
+			return tail !== 'allowBypassMode'
+		case 'computerUse':
+			// A project can only close computer use, and its denied apps add to the user's own list.
+			return tail === 'enabled' && value === false
+		case 'sandbox':
+			switch (tail) {
+				case 'enabled':
+					return value === true
+				case 'allowEscape':
+				case 'allowUnattendedEscape':
+					return value === false
+				case 'requireIsolation':
+					return Array.isArray(value) && value.length > 0
+				case 'workspace':
+					return value === 'ephemeral'
+				default:
+					return false
+			}
+		default:
+			return true
+	}
 }
 
 /**
@@ -3531,6 +3770,76 @@ export function mergeBrowserConfig(
 		...layer,
 		...(enabled !== undefined ? { enabled } : {}),
 		...(sites !== undefined ? { sites } : {}),
+	}
+}
+
+// ---------------------------------------------------------------------------
+// computerUse
+// ---------------------------------------------------------------------------
+
+const COMPUTER_USE_KEYS = new Set(['enabled', 'deniedApps'])
+
+function readComputerUseConfig(v: unknown, context: ConfigReaderContext): ComputerUseConfig {
+	if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
+	for (const key of Object.keys(v)) {
+		if (!COMPUTER_USE_KEYS.has(key)) {
+			return invalidConfigValue(
+				context,
+				[key],
+				'is not a computer use setting (enabled, deniedApps)',
+			)
+		}
+	}
+	const raw = v as Record<string, unknown>
+	if (raw.enabled !== undefined && typeof raw.enabled !== 'boolean')
+		return invalidConfigValue(context, ['enabled'], 'must be true or false')
+	let deniedApps: string[] | undefined
+	if (raw.deniedApps !== undefined) {
+		if (!Array.isArray(raw.deniedApps) || raw.deniedApps.some((app) => typeof app !== 'string'))
+			return invalidConfigValue(context, ['deniedApps'], 'must be a list of application names')
+		deniedApps = []
+		for (const app of raw.deniedApps as string[]) {
+			const name = app.trim()
+			if (name === '' || name.length > 200)
+				return invalidConfigValue(
+					context,
+					['deniedApps'],
+					'each application name takes 1 to 200 characters',
+				)
+			if (!deniedApps.some((held) => held.toLowerCase() === name.toLowerCase()))
+				deniedApps.push(name)
+		}
+	}
+	return {
+		...(raw.enabled !== undefined ? { enabled: raw.enabled as boolean } : {}),
+		...(deniedApps !== undefined ? { deniedApps } : {}),
+	}
+}
+
+/**
+ * `computerUse` from one more layer, over what the layers below it said.
+ *
+ * - `enabled`: the user's file and the managed file open and close it, the
+ *   later one winning. A project file (or a repository's profile) can only
+ *   close it: its `true` is dropped, so a repository cannot make a clone of
+ *   itself drive the screen.
+ * - `deniedApps` adds up across files; no file removes another's entry.
+ */
+export function mergeComputerUseConfig(
+	below: ComputerUseConfig | undefined,
+	layer: ComputerUseConfig,
+	source: ConfigSource,
+): ComputerUseConfig {
+	const enabled =
+		layer.enabled === true && isProjectSource(source)
+			? below?.enabled
+			: (layer.enabled ?? below?.enabled)
+	const denied = [...(below?.deniedApps ?? [])]
+	for (const app of layer.deniedApps ?? [])
+		if (!denied.some((held) => held.toLowerCase() === app.toLowerCase())) denied.push(app)
+	return {
+		...(enabled !== undefined ? { enabled } : {}),
+		...(denied.length > 0 ? { deniedApps: denied } : {}),
 	}
 }
 

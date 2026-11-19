@@ -16,9 +16,9 @@ import CLI code or create a second agent execution loop.
 ## Local Turkish speech
 
 **Settings ▸ Speech** (see [Settings](#settings)) offers Turkish playback through EMA Lightning
-1.0.1 on this device, and **Read aloud** on a reply stays where it was. **Speech language** selects the
-synthesis language; it does not change the model's chat language. This engine supplies one Turkish voice and
-runs on CPU. It only speaks: it does not listen. Listening is a separate feature, **Voice input**
+1.0.1 on this device, and **Read aloud** on a reply stays where it was. **Speech language** reads
+"Turkish" as plain text until a second language exists. This engine supplies one Turkish voice and
+runs on CPU, with no speed or speaker setting, so Settings offers no voice style or speed row. It only speaks: it does not listen. Listening is a separate feature, **Voice input**
 (**Settings ▸ Speech ▸ Voice input**, [Desktop voice input](desktop-listening.md)): once its on-device
 recognition model is downloaded and consent is given, the composer shows a microphone, and what is said is
 transcribed on the computer and sent as an ordinary message. The microphone is not drawn before that.
@@ -58,7 +58,7 @@ latency appear only after measurement; unavailable values say **Not measured**.
 GPU memory is inapplicable to this CPU implementation. CPU percentage refers to
 one core, so multithreaded work may exceed 100%. Measurements exclude Desktop
 itself and are not an estimate for another device. **Free memory when idle**
-unloads the model after five minutes; disabling that option retains it until
+unloads the model after 1, 5 (default) or 15 minutes without playback; **Never** retains it until
 explicit cancellation or application shutdown. Reloading after an unload adds
 latency to the next playback.
 
@@ -269,8 +269,9 @@ accepts any `http(s)` feed.
 A build with neither an environment feed nor a provider in `app-update.yml` has no updater and
 shows nothing (`disabled`); Settings ▸ Updates then says "This copy can't update itself. Install the
 latest version once to turn updates on." That is every installer built before the feed was baked in:
-it needs one manual reinstall, after which updates arrive on their own. Settings reads "Up to date."
-or "Update available: version X." for a build with a feed.
+it needs one manual reinstall, after which updates arrive on their own. Settings reads "Not checked yet."
+until a check has run, then "Up to date." or "Update available: version X." for a build with a feed; the
+"Last checked" line keeps counting while the section is open.
 
 A feed that answers 404 for `latest.yml` (the rolling release has no installer yet, or does not
 exist) means "no Desktop release published yet": the state stays `idle`, nothing is shown, and only a
@@ -901,7 +902,9 @@ A restored tab whose project folder is gone shows that project's own page (its n
 
 ## Errors that reach the screen
 
-Every error a person reads goes through one function, `plainError(error, context)` in `renderer/plain-error.ts`: Electron's "Error invoking remote method '…':" prefix, class names such as `TypeError:`, stack lines and operating-system codes never appear. A sentence the product wrote for a person passes through; a known failure becomes one plain sentence with a next step ("That file or folder no longer exists. Choose another one."); anything else becomes "Couldn’t *the action that failed*. Try again." and the cleaned original is reachable only behind **Details** in the banner. The banner (`ChatErrorBanner`) applies the same cleaning to any message it is handed, so a raw error cannot reach it by mistake. Developer sentences thrown in the main process (the runtime connection, terminals, voice installation and cleanup) are written for a person at their source.
+Every error a person reads goes through one function, `plainError(error, context)` in `shared/plain-error.ts` (`renderer/plain-error.ts` re-exports it, so the main process uses the same mapper): Electron's "Error invoking remote method '…':" prefix, class names such as `TypeError:`, stack lines and operating-system codes never appear. A sentence the product wrote for a person passes through; a known failure becomes one plain sentence with a next step ("That file or folder no longer exists. Choose another one."); anything else becomes "Couldn’t *the action that failed*. Try again." and the cleaned original is reachable only behind **Details** in the banner. The banner (`ChatErrorBanner`) applies the same cleaning to any message it is handed, so a raw error cannot reach it by mistake. Developer sentences thrown in the main process (the runtime connection, terminals, voice installation and cleanup) are written for a person at their source.
+
+**Engine failures carry a code.** The engine words its own refusals in plain sentences and attaches a stable code as the JSON-RPC error's `data.code` (`no-provider`, `connection-closed`, `folder-not-trusted`, `conversation-in-other-folder`, `conversation-opening`, `message-not-sent`, `too-many-messages`, `permission-mode-needed`). `RuntimeClient` keeps it on the error (`engineCode`), and `engineFailureText` words the failure by the code first; an older engine that sends only its old sentence is matched by that sentence and reads the same. A code this Desktop does not know falls back to the engine's sentence. The native boxes for a failed start or stop (`main/native-failure.ts`) say "Namzu couldn’t start" or "Namzu couldn’t close cleanly" with a sentence first and the original under "Details:", and the support-folder box says "Couldn’t open the support folder". A static test (`shared/plain-words.test.ts`) fails when a sentence in the files that own on-screen wording carries a word a person should not read (session, ACP, protocol, LLM, credential, exit code, token, MCP, admitted, mailbox).
 
 Picking a folder that is gone says "That folder no longer exists. Choose another folder." and opens no tab; a folder Namzu cannot read says so with the next step.
 
@@ -915,7 +918,11 @@ While no Namzu window is focused and a conversation is running with an approval 
 
 The logic has two parts. `src/shared/attention-state.ts` is pure: given each conversation's running flag and number of waiting asks it returns the ids that need the person. The operator in main computes it from the same projection the transcript uses and reports it whenever a conversation starts or stops running, gains or loses a waiting ask, or goes away; `src/main/attention-signals.ts` applies it. It flashes only on the change from nothing needing the person to something, not on every event or every added count, and lets go of the badge, the overlay and the flash as soon as a window gains focus, nothing needs the person, or the setting is turned off. Losing focus with something still waiting signals again. The count and flash are the quiet path; the system notification below is a separate one with its own settings. There is no keep-awake.
 
-**Settings > General > Show when a conversation needs you** turns the badge and flash off (`attentionSignals` in `desktop-settings.json`, default on). Only the pure state, the controller with a fake window and app, the overlay pixels and the settings round trip are covered by tests; no real taskbar or dock was driven.
+**Settings > Notifications > On this computer > Draw attention when a conversation needs you** turns the badge and flash off (`attentionSignals` in `desktop-settings.json`, default on). The count follows the two levels below: a conversation waiting on an approval counts unless *Permission requests* is Off, one waiting on a question counts unless *Questions* is Off, so *Badge only* and *Banner* both draw it and *Off* does not (`countedForAttention` in `main/index.ts`; the operator reports the waiting ids split by the `ask_user_question` call, `attentionChanged(ids, { permission, question })`). Only the pure state, the controller with a fake window and app, the overlay pixels and the settings round trip are covered by tests; no real taskbar or dock was driven.
+
+### Status marks in the sidebar
+
+Each conversation row carries at most one mark: a question or an approval waiting, a running turn, an error, or a new reply nobody has read (`conversationGlyph` in `src/shared/conversation-status.ts`). The mark is worked out from state the app already holds and never from a model call, so it uses none of your model usage. The config key `statusMarks` (default on, Settings > Appearance > Label conversations by status) turns the marks off: with it off the row shows no mark and no status words, and nothing else about the row changes. The window reads the key at start, when it takes focus and when the config file changes, so a change applies at once. The system notification and the taskbar count above are separate and do not follow it.
 
 ### A system notification when you are elsewhere
 
@@ -923,9 +930,23 @@ The icon count does not say that a conversation finished or stopped, so while no
 
 A notification holds the project's name as its title and one fixed sentence as its body: "A conversation needs your answer", "Finished" or "Stopped with an error". It never holds conversation text, a file name, a command or anything a model wrote; `src/main/system-notices.ts` builds the payload from the project name and those three sentences only, and a test asserts the payload's fields. There is no sound unless the sound switch is on. A conversation is announced at most once per event until you come back to a window (focusing one clears the memory and closes what is still showing), and events that arrive within three seconds of the first are folded per kind into one notification titled "Namzu" ("3 conversations finished", "2 conversations need your answer"). A second event of the same kind for a conversation that has already been announced is dropped without a word until you focus a window: a conversation that fails, is retried by someone else (a Pal or a scripted run) and fails again while you are away gets one notification, not two. Clicking a notification focuses the window that already has that conversation open (one showing it first, then one with it in a background tab), or else the focused window, or else the first, and opens the conversation (the first of a folded group); the main process sends that window a `show-conversation` event and the renderer opens the tab as a click on the sidebar row would. The renderer waits for the conversation list to load (and for a move in progress to finish) if the click arrives first, and if the conversation is not in the list it opens Home instead of doing nothing.
 
-"Finished" is announced only for a turn that ran 30 seconds or more (`FINISHED_NOTICE_AFTER_MS`, measured by main from the turn starting to its ending; the words in Settings read the same constant); a turn you just watched end needs no banner. Every end that is not an error counts as finished, including a reply cut short by its length limit, a refusal or a forced finish; only a turn the person stopped is never announced. A failure is announced at any length. A Pal's conversation is background work: it follows the same rule only for "needs your answer" (unlike the icon count, which leaves Pals out), never for finished or failed. A conversation that was already waiting when the window lost focus is not announced again.
+"Finished" is announced only for a turn that ran *Long response time* seconds or more (30 by default; measured by main from the turn starting to its ending); a turn you just watched end needs no banner. Every end that is not an error counts as finished, including a reply cut short by its length limit, a refusal or a forced finish; only a turn the person stopped is never announced. A failure is announced at any length. A Pal's conversation is background work: it follows the same rule only for "needs your answer" (unlike the icon count, which leaves Pals out), never for finished or failed. A conversation that was already waiting when the window lost focus is not announced again.
 
-**Settings > General** has four switches next to the icon setting, each searchable by plain words (notification, banner, alert, chime): "Notify me when a conversation needs my answer" (`notifyNeedsYou`, default on), "Notify me when a conversation stops with an error" (`notifyFailed`, on), "Notify me when a long reply finishes" (`notifyFinished`, on) and "Play a sound with notifications" (`notifySound`, off), all in `desktop-settings.json` and read on every event. The 30-second threshold is fixed, not a setting; its words in Settings come from the same constant as the check.
+**Settings > Notifications** is its own section (second nav group, after Appearance) with one heading, *On this computer*, because every row is about this computer. Its rows, in order, all in `desktop-settings.json`, read on every event and applied at once:
+
+| Row | Key | Choices (default) |
+|---|---|---|
+| *Draw attention when a conversation needs you* | `attentionSignals` | switch (on) |
+| *Permission requests* | `notifyPermission` | Off, Badge only, Banner (Banner) |
+| *Questions* (not drawn yet) | `notifyQuestion` | Off, Badge only, Banner (Banner) |
+| *Task complete* | `notifyTaskComplete` | Off, Banner (Banner) |
+| *Long response time* (under Task complete) | `notifyLongReplySeconds` | whole seconds, 5 to 3600 (30; shown as the placeholder, an empty box is the default) |
+| *Response errors* | `notifyError` | Off, Banner (Banner) |
+| *Notification sound* | `notificationSound` | System sound, None (None) |
+
+*Questions* is kept in the settings but not drawn: a conversation in this app cannot ask a question with choices yet (that tool is the terminal app's), so the row would change nothing; it is drawn again once it can (`DESKTOP_ASKS_QUESTIONS` in `renderer/settings-model.ts`). *Badge only* is the count on the icon without a system notification; *Banner* is the system notification and, as before, the count too; *Off* is neither. A banner needs no Draw attention; the count does, so the page greys *Badge only* in the Permission requests and Questions lists while Draw attention is off (a value already saved stays shown). A banner shows only the project's name, your system's do-not-disturb setting applies to it, and the terminal app has its own sound switch under Terminal. Task complete has no *Badge only* because the icon count means "needs you", and a finished reply does not; the finished-but-unread mark is the separate sidebar marker. *Response errors* keeps its own row rather than joining Task complete: an error is not "finished and waiting for you", it is announced at any length, and joining them would turn errors off for a person who only wanted fewer long-reply banners. *Long response time* is the old fixed 30 seconds as a setting: a reply that finishes in fewer seconds never notifies; one that ran exactly that long does. It is greyed while Task complete is Off. The old row names stay as search words (*Permission requests and questions*, *Finished long responses*). The default of *Notification sound* stays None, as the old switch was off, though the system sound is the usual default elsewhere.
+
+Saved before these rows: `storedDesktopSettings` reads the four old switches (`notifyNeedsYou`, `notifyFailed`, `notifyFinished`, `notifySound`) when the new key is missing. On becomes Banner and off becomes Off, except that a permission request or question switched off keeps *Badge only* while the icon count was still on, since the old banner switch never touched the count (it reads Off when the count was off too). A sound switch on becomes System sound. A file with none of these keys loads the old defaults exactly; a saved new key wins over an old switch, and the old keys are dropped at the next write. `SystemNotices.needsYou(permission, question)` takes the two waiting sets and raises a banner for each only at its Banner level; the 30-second constant (`FINISHED_NOTICE_AFTER_SECONDS`) is now only the default, and main passes the saved seconds to `finishedAfterMs`.
 
 The logic is pure (`SystemNotices` takes an injected notifier, clock, timer and focus check; its tests use fakes and drive the clock by hand). The operator reports facts only: which conversations wait, a turn starting, a turn ending as finished, failed or other. An end-to-end run sets `NAMZU_E2E_NOTICES=1` (ignored by a packaged app) to have main record each notification into `globalThis.__namzuNotices` instead of showing it, with `globalThis.__namzuNoticeClick(index)` to click one, to count any turn of a millisecond or more as long and to fold events for 50 ms instead of three seconds; `e2e/notices.test.mjs` drives the real app that way. A real notification on Windows, macOS and Linux was not shown by a test. Not verified: on Windows a toast needs an application identity. The packaged installer is expected to carry one (electron-builder sets the shortcut's identity from the `appId`; no installed build was checked), but the code never calls `app.setAppUserModelId`, so an unpackaged or development run on Windows may show no toast, and `Notification.isSupported()` does not detect that.
 
@@ -935,7 +956,7 @@ A conversation window spends 36 px on one bar (the same height as the strip of t
 
 **The read-out** is not in the bar: it sits at the right end of the row under the composer box (see the composer section below), from the same figures (`contextRingModel`, so the two cannot disagree) and with the same rule for when it shows: nothing is drawn until the engine has reported both a context size and a window.
 
-**The buttons** are 28 px, each with a tooltip and an accessible name: **Changes** (opens the Changes panel; with changes it widens to show the lines added and removed, "+35 −3", read from the same `changeTotals` as the result line and the pane, and its accessible name says the file count too, "Changes, 4 changed files, 35 added, 3 removed"), **New terminal** (a menu of the open terminals, the conversation and **New terminal** once one is open), **Project files**, **Conversation details** and **Conversation actions**. Changes and Project files open the panels the details popover and the panel's own tab strip already open; they are a shorter way there, not new panels. At 960 px the title gives way first, the project's name shrinks next and goes only below 300 px of bar; the buttons stay.
+**The buttons** are the pane grid's: Session, a thin divider, Terminal, Changes, Browser, Files and "…" (View options), then the window buttons ([the top bar](#the-pane-grid)). The Changes button's accessible name says the file count ("Changes, 4 changed files, 35 added, 3 removed"), read from the same `changeTotals` as the result line and the pane. The title takes the room its text needs, with the "∨" right after it and the project's name after that; when the bar is too narrow the project's name shrinks first (and goes below 300 px of bar), then the title is cut with an ellipsis, and the buttons stay. The title is text until it is clicked: then it is a field (Enter saves, Esc puts the old name back, leaving the field saves, an empty name asks for the automatic title), and a "∨" button right after it, "More options for <title>", opens the conversation's menu (Open in, Rename, Fork, Copy, Pin, Mark as unread, Move to right pane, Move to new window, Archive: the sidebar's items in the sidebar's order).
 
 **Conversation tabs** are hidden by default. **View > Show conversation tabs** (a checkbox), **Settings > Appearance > Show conversation tabs** and the command palette's **Show conversation tabs** / **Hide conversation tabs** switch them; the choice is `showConversationTabs` in `desktop-settings.json`, shared by the windows and by the menu's checkbox, and the window remembers the last answer for the first paint. With the switch on, the top of the window is as it was: the strip, in the same 36 px. The context read-out stays in the composer's row either way. A Pal's conversation always keeps the strip, because the Pal's computer is a tab in it.
 
@@ -954,30 +975,48 @@ With the strip hidden, every way of moving still works:
 
 ## Settings
 
-**Settings** is a page of its own in the main area, like Plugins: the gear (in the foot of the sidebar, or in the rail while it is collapsed), the
-command palette's **Settings**, the File menu's **Settings…**
-(`Ctrl+,` or `⌘,`) all open it. The left column lists the sections and the right side shows
-one, under one heading, the section's name (the column's "Settings" is the only other one). A section is addressed as `settings/<section>` (`general`, `models`, `projects`, `appearance`,
-`updates`, `speech`, `about`); the search field at the top matches setting labels,
-descriptions and keywords (`src/renderer/settings-model.ts`, case and accents folded so a Turkish
-capital İ or a dotless ı finds the plain letters) and a result opens its section
-and focuses that setting. Every control is a real input with a label, groups are
-fieldsets, the section list is a `nav`, and the page works at the 560px minimum window.
-Screenshots of every section in both themes, narrow, the search, and both removal
-surfaces are in [`research/settings-20261008/`](../../research/settings-20261008/).
+**Settings** is a dialog over the app, not a page: the gear (in the foot of the sidebar, or in the rail while it is collapsed), the
+command palette's **Settings**, the File menu's **Settings…** (`Ctrl+,` or `⌘,`) and the slash commands `/config`, `/mcp`, `/hooks`, `/theme`, `/login` and `/release-notes` all open it. Nothing behind it changes: the conversation, its draft, the panes and the scroll stay as they were, the app is dimmed (a 52 percent black layer, also over the title row) and inert while the dialog is open, and closing puts the focus back on the control that opened it.
 
-Sections `agent`, `tools`, `terminal` and `telemetry` and a **Namzu settings** group in General, Models, Projects and Updates hold the keys of the user config file, drawn from the engine's own list; see [Desktop settings for config keys](desktop-settings.md).
+The panel is 1024 by 761 pixels in a 1280 by 833 window (128 pixels at the sides, 36 above and below), never larger, with a 12 pixel corner, a hairline edge and no shadow; in a smaller window it keeps at least 16 pixels of the app around it, and below 520 pixels wide the left column shows only icons. The sizes are the `--settings-dialog-*` tokens in `theme.css`. A title band ("Settings", and a close button at the top right) sits over two columns: the left column (it never scrolls) holds the search field and the sections in four groups separated by hairlines (Models; General, Appearance, Speech; Agent, Tools, Projects, Terminal; Desktop app, Telemetry, Updates, About, `SETTINGS_NAV_GROUPS` in `settings-model.ts`); the right column shows one section under one heading and scrolls on its own.
+
+It closes by the X button, **Esc** and a click on the dimmed area. **Esc** in a search that has text clears it first. A confirmation asked from inside Settings (a risky value, **Remove project**) stacks above the dialog and **Esc** closes only it. Settings opens on the section visited last, also after a restart (`lastSettingsSection` in `desktop-settings.json`); a command or link that names a section wins. Asking for Settings while it is open (the menu entry, a slash command's link, the update notice) moves it to the section asked for and clears a search typed earlier, so the section and row are the ones shown; one asked before the settings file has loaded settles on the stored section once it has. A section is addressed as `settings/<section>` (`general`, `models`, `projects`, `appearance`,
+`updates`, `speech`, `about`); the search field at the top of the left column matches setting labels,
+descriptions and keywords (`src/renderer/settings-model.ts`, case and accents folded so a Turkish
+capital İ or a dotless ı finds the plain letters), lists only the sections with a match, and a result opens its section
+and focuses that setting. Every control is a real input with a label, groups are
+fieldsets, the section list is a `nav`, and the dialog works at the 560px minimum window.
+Screenshots of every section in both themes, narrow, the search, and both removal
+surfaces are in [`research/settings-20261008/`](../../research/settings-20261008/) (taken when Settings was a page).
+
+Rows that hold a list or a small map are typed controls rather than JSON boxes (notification events, the workspaces key, each composer trigger, tool-result screens, the events and the secret-hiding of a saved conversation file, the extra folders with the system folder picker, the turned-off skills as a switch for each installed skill, the small model with the models Desktop knows, Models for automatic choice as a form, the auto mode model and rules as a model box and four lists, the permission rules and self-checks as lines you add and remove (a rule's add line is the next row of the table: its boxes where a rule's name sits, its answer and **Add** in the columns of the answer and **Remove**), and the browser sites as a site list with a line for every other site; see [Desktop settings for config keys](desktop-settings.md#list-and-map-controls)). Sections `agent`, `tools` and `telemetry`, the engine rows under the app's own in `terminal` and `updates`, and a **Namzu settings** group in General, Models and Projects hold the keys of the user config file, drawn from the engine's own list; see [Desktop settings for config keys](desktop-settings.md).
+
+**How an engine row reads.** Engine rows are named for a person, not for the config file: *Model for quick tasks* (`smallModel`), *Models for automatic choice* (`routing`), *Model for background decisions* (`decision`), *Spending limit per task* (`limits.costLimitUsd`), *Site permissions* (`browser.sites`), *Terminal notification sound* (`tui.sound`). A renamed row keeps its old label and old phrases as search words, and a key, an id, a stored value or a default never changes with a name. Under a row there is no "Default: X." line and no fixed apply line. A choice marks its default inside the list (*Default · Ask*), a number or a text box shows its default as the placeholder, and a switch shows none; the control that cannot show it inside (a model box, a list, a table) says *Default · X* in one muted line, except a list that is empty by default, which says so itself (*No extra folders.*), and a text box with its own placeholder (*Inside the project*). Models, Agent, Tools and Projects carry one note under the title: most changes apply to new conversations, open ones keep what they have, and a row that waits for a restart says so. That row carries an *After restart* badge whose tooltip and accessible name are the engine's full sentence ("Applies the next time Namzu starts.", or "Applies the next time the terminal app starts." for the terminal app's own rows). A range, a requirement, an environment variable that overrides the row and the config file of a file-only row stay as one short muted line. When a layer other than the user's file decides the value (an environment variable, the project's file or the administrator's file), the row shows that value, turned off, with the line "Set by an environment variable (NAMZU_X)", "Set by this project" or "Set by your administrator"; see [Desktop settings](desktop-settings.md#which-layer-decides-a-value). In Models, a provider with a key in the environment and a key saved in Settings says the environment key is used and the saved one is not.
+
+**How an app row reads.** The app's own rows follow the same naming rules as the engine's, with the reference name where the function matches (*Run on startup*, *Quick Entry keyboard shortcut*, *System tray*, *Keep computer awake*, *Storage*, *Trusted folders*, *Extensions*) and Namzu for the product. A drop-down list (a choice, a font list) marks its default (*Default · Namzu's own*), side-by-side choices (theme, text size, width, motion, the startup choice) show every option at once and carry no mark, a text box shows it as the placeholder, a switch shows none, and there is no "Default: X." line. A row that waits for a restart (*When Namzu starts*, *Use hardware acceleration*, *Restore terminal tabs*) carries the *After restart* badge; a row whose apply differs from its section says so in one short line (*Default terminal shell*, *Ask again when a trusted project changes*, *Download updates automatically*, *Keep the engine up to date*), and the rest say nothing. Sub-headings: General has **Notifications**; Models has **Providers**; Tools has **Tool servers and hooks**; Projects has **Your projects**; Appearance has **Code** and **Accessibility**; Updates has **Namzu Desktop** and **Programs Namzu works with**. In Agent and Tools the app's rows sit first under the engine's heading of the same name, so that heading is drawn once. The Trusted folders row says what removing does; the panel under it only names the list. The Quick Entry box follows the main window's light or dark look and uses the app's own font.
+
+**The section map.** A row sits where its effect is. The nav has four groups: Models; General, Appearance, Notifications, Speech; Agent, Tools, Projects, Terminal; Desktop app, Telemetry, Updates, About. Where the app and the engine both have rows in a section, the app's come first, then the engine's under a heading the engine names (`group` and `groupLabel` on the descriptor):
+
+- **Desktop app** (`desktop`) holds the rows about the app's own process: *Use hardware acceleration*, and the rows the system applies (see [Desktop app rows](#desktop-app-rows)). It holds no engine rows. *Keep computer awake while Namzu works* and its battery child sit in Agent.
+- **Terminal** reads, top to bottom: **Terminal tabs** (the app's own terminal pane: *Default terminal shell*, *Restore terminal tabs*; the heading goes with the rows where there are no terminals), four **Terminal app** headings (*look*, *mouse and scrolling*, *notifications*, *message box*: `tui.*`, `statusLine` and `composerTriggers.*`, which only the namzu terminal app reads: the Desktop composer has no triggers) and **Command line** (*Output format* and *Quiet output*, which shape the output of one-shot commands such as `namzu exec`, and *Profiles*, which only `--profile` on the command line selects).
+- **Updates** shows the app's own rows (version, check, download, engine) and then **Command line**: *Release channel*, *Install command line updates automatically*, *Check for command line updates* (`updates.channel`, `updates.auto`, `updates.check`).
+- **Tools** holds *Computer use* (*Enable computer use* and *Denied apps*, see [Computer use settings](computer-use-settings.md); a Desktop conversation offers the computer tools only once the switch is on), *Browser* (`browser.enabled`, first among the browser rows) and *Code analysis* (`codeAnalysis.enabled`). A Desktop conversation reads both (browser tools only in a conversation that uses this computer, not in a Pal's): the engine host builds the browser tools from `browser.enabled` and the code analysis tool from `codeAnalysis`, so neither says "terminal app".
+- *Hypermode* is in Agent, not General. The notification rows have a section of their own, Notifications ([A system notification when you are elsewhere](#a-system-notification-when-you-are-elsewhere)).
+- *Default terminal shell* is **Windows only**: main offers a choice of shells only on Windows (`availableShells`), elsewhere a terminal tab runs the login shell and the setting is never read. The row and its search entry are drawn only where main offers more than one shell (`entryIsDrawn` in `settings-model.ts`, asked by the page and by search alike), so search never offers a row that is not drawn.
+- A section stored before the move still opens, and `desktop` is a valid stored section (`lastSettingsSection`). `/mcp`, `/hooks`, `/theme`, `/login`, `/release-notes`, Ctrl+, and the menu item land on the same sections and rows as before.
 
 What it holds, and where each value lives (one source of truth per value):
 
 - **General** — *When Namzu starts*: `Continue where I left off` (default) or `Start on the home
-  screen` (see [Starting the app](#starting-the-app)); *Default terminal shell* (drawn only where
-  there is more than one shell to choose, in practice Windows, and left out of search where it is
-  not) and *Bring terminal tabs back* (see [Terminal tabs](#terminal-tabs)), and *Use the graphics
-  card* (default on; `hardwareAcceleration` in `desktop-settings.json`). Turn it off when windows
-  flicker, go blank or stop working soon after they open. It is read once, before the app is ready,
-  and applied with `app.disableHardwareAcceleration()`, so a change takes effect the next time
-  Namzu starts; the running windows are unchanged.
+  screen` (see [Starting the app](#starting-the-app)).
+- **Terminal tabs** (in Terminal) — *Default terminal shell* (Windows only; drawn only where there
+  is more than one shell to choose, and left out of search where it is not) and *Restore terminal
+  tabs* (see [Terminal tabs](#terminal-tabs)).
+- **Desktop app** — *Use hardware acceleration* (default on; `hardwareAcceleration` in
+  `desktop-settings.json`). Turn it off when windows flicker, go blank or stop working soon after
+  they open. It is read once, before the app is ready, and applied with
+  `app.disableHardwareAcceleration()`, so a change takes effect the next time Namzu starts; the
+  running windows are unchanged.
 - **Models** — which providers Namzu can answer with and how each is connected: a key in the
   environment (the variable's name, never its value), a key saved here, an existing `claude-code` or
   Codex sign-in, an OpenCode key, a local server, or the keyless free tier (listed as free, and
@@ -985,10 +1024,13 @@ What it holds, and where each value lives (one source of truth per value):
 - **Projects** — every project (name, path shortened with `~` and the whole path on hover, trusted state) with **Remove…**; a project whose folder is gone reads "Folder not found" and also offers **Locate folder**, and *Ask again when a
   project's automatic settings change* (default on). See
   [Trust again when automatic settings change](#trust-again-when-automatic-settings-change).
-- **Appearance** — the theme (light, dark, system) and the interface font (Namzu's own, the default,
-  or your device's; see [Typefaces](#typefaces)). Both stay in the renderer's own storage
-  (`namzu.appearance`, `namzu.interface-font`) because only the renderer paints them; the theme moved
-  out of the profile menu.
+- **Appearance** — the theme (a three-part control: System, Light, Dark), the interface font (Namzu's
+  own, the default, your device's, or a font installed on this computer; see [Typefaces](#typefaces)),
+  the response font, the reading rows, *Show conversation tabs*, the code rows under **Code**, then
+  *Auto-dismiss popups* and *Virtualize conversations* under **Accessibility**, in that order. The theme and the interface font stay in the
+  renderer's own storage (`namzu.appearance`, `namzu.interface-font`) because only the renderer paints
+  them; the rest are `desktop-settings.json` keys, among them the code colours, font and size that
+  diffs, file views and the terminal draw with. See [Appearance rows](#appearance-rows).
 - Every section opens with the same header, a title and one subtitle line, so the search box and
   the content start at the same height on every page (search results get the subtitle "Matches from
   every section.").
@@ -2176,8 +2218,8 @@ waits until it is sent or removed. The "delivered" strip for live input disappea
 once the turn settles (pending and unconfirmed receipts stay), and queued messages
 left behind by a stopped or failed turn are labelled "paused" because they only start
 after the next message finishes.
-The right side of an ordinary conversation's header holds two icon buttons:
-Conversation actions ("…") and Conversation details. Returning to a blank project
+The right side of an ordinary conversation's header holds the pane buttons and "…" (View options); the
+conversation's actions are under the "∨" after the title. Returning to a blank project
 also closes the conversation detail pane. Pal conversations keep their own header.
 The actions menu offers Rename… (Ctrl+Alt+R), Pin or Unpin (Ctrl+Alt+P), New side
 chat (Ctrl+Alt+S), Fork, Copy, Move to right pane, Move to new window and Archive…
@@ -2218,18 +2260,7 @@ composer (the lane's `--composer-height`), so the side panel stays clear; `notif
 to the pane focused last. Pin and Unpin offer Undo, Archive offers Undo when the host
 can restore the conversation, and an undone reply offers Show, which opens the Changes
 tab.
-Conversation details is a 320px popover. It shows the project name with a "…"
-menu holding Copy path (absent for a conversation without a project), Changes with
-`+added −removed` line totals for this conversation's completed file edits (a path
-counts once, from its first before to its last after; "No file changes yet" when
-empty; click opens the Changes pane), the repository row (branch and last commit
-subject, read when the popover opens, hidden when the project is not a repository),
-Background work with "N running", "Needs attention" or "None" (click opens the
-Activity pane), and Sources, the files and images sent in the conversation, newest
-first, three shown with View all and a "+" that opens the attach flow. The icon
-carries a dot while background work runs and a warning-coloured dot when it needs
-attention, with the count in its accessible name. Pending or failed shell reads
-remain unconfirmed rather than showing a stale count from another conversation.
+The conversation-details popover is gone; its rows live in the Session pane (see [the session panel](#the-session-panel-the-plan-card-and-commit-changes)).
 Opening a detail pane returns the transcript to the available width. Unsupported
 artifact and child-session inventories are absent. No floating card sits beside the
 conversation at any width.
@@ -2363,10 +2394,10 @@ while the conversation keeps at least 360 px, which is a main area of 680 px or 
 panel take the whole pane (the conversation is not squeezed into a
 clipped sliver; a **Back to conversation** button at its top-left, and **Hide panel**, bring it back). See
 [The side panels](#the-side-panels). The project and computer chips above an empty composer are one
-flat row on the composer's own edges, and the page edge under the composer is solid, so a long reply never shows
+flat row on the composer's own edges, and everything under and around the box (the row and the gap below it) is the page's own colour, with a soft 24 px fade above the box, at every width, so a long reply never shows
 through below it. The panel and conversation widths animate together, and the
 details control remains mounted during the transition. Closing the panel or
-pressing Escape returns focus to the Conversation details button; automatic
+pressing Escape returns focus to the pane's button; automatic
 navigation does not move focus back to an old panel. Reduced motion disables
 these transitions. The composer and navigation remain inside the available width.
 
@@ -2430,7 +2461,7 @@ The stacks are tokens in `theme.css`. `--font-sans-app` is `"Geist"` followed by
 (`-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif`), and `--font-mono-app` is
 `"Geist Mono"` followed by `--font-mono-system` (`ui-monospace, "SF Mono", SFMono-Regular, Menlo,
 Consolas, "Liberation Mono", monospace`). `--font-sans` and `--font-mono` point at the first two, so a
-machine where a file cannot load falls back to its own fonts.
+machine where a file cannot load falls back to its own fonts. `--font-document` is the stack for the headings of a document page (`Georgia, "Iowan Old Style", "Palatino Linotype", "Times New Roman", serif`): a serif the machine already has, with no file shipped for it, used nowhere else.
 
 **Settings > Appearance > Interface font** chooses *Namzu's own* (the default) or *Your device's*. With
 the device's, the root carries `data-interface-font="system"`, `--font-sans` and `--font-mono` point at
@@ -2438,6 +2469,63 @@ the platform stacks alone, and the shipped files are not used for text or code. 
 every window with no restart. It is kept in the renderer's own storage (`namzu.interface-font`) and
 `public/theme-boot.js` sets the attribute before the first paint, like the theme. The terminal reads
 its own token, `--font-terminal` (the shipped mono), so this setting leaves the terminal as it is.
+
+### Appearance rows
+
+Each row below is one key in `desktop-settings.json` (`DesktopSettings`, described once in
+`shared/settings-catalogue.ts`, so Settings search and deep links find it). A file saved before a key
+existed loads with the default. Each is one attribute on the root element, set by
+`renderer/appearance-prefs.ts` in every window when the saved value changes, so a change repaints all
+windows at once. The window keeps a copy in its storage (`namzu.appearance-prefs`) and
+`public/theme-boot.js` sets the same attributes before the first paint, so a restart shows no flash.
+The copy is written once settings have loaded, so the first launch after an upgrade (or after the
+storage was cleared) shows today's values for one paint, then the saved ones.
+No attribute is the value Namzu has always had. The rules are in `renderer/appearance-prefs.css`.
+
+| Row | Key and default | What it changes |
+| --- | --- | --- |
+| Response font | `responseFont`: `match` | `data-response-font` and `--font-response` set the font of `.chat-markdown` (replies only; `pre` and `code` keep the code font). Choices: Match interface, Namzu's own, Your device's, or an installed font. |
+| Transcript text size | `transcriptTextSize`: `medium` | `data-transcript-size` re-points `--text-reading` and `--leading-reading` inside `.transcript`: small 14 / 20 px, medium 15 / 22 px (as before), large 17 / 26 px. The composer, sidebar and dialogs keep theirs. |
+| Transcript width | `transcriptWidth`: `narrow` | `data-transcript-width` sets `--frame-column-width` (the composer's column and the home block) and `--turn-column-width` (the conversation): narrow 768 / 736 px (as before), medium 896 / 864 px, wide 1024 / 992 px. Settings keeps 768 px. |
+| Motion | `motion`: `system` | `reduce` sets `data-motion="reduce"`: `animation`, `transition` and smooth scrolling are off everywhere, and the script-timed motion (`renderer/motion-setting.ts`, used by the sidebar, transcript, computer chat, Pal and effort-shader code) is skipped. `system` follows the device's flag. `full` ignores the flag in script and in the one global `prefers-reduced-motion` rule in `style.css`; every component stylesheet's own `@media (prefers-reduced-motion: reduce)` rule is gated on `:root:not([data-motion="full"])` too, and the diff view's shadow root asks its host with `:host-context`. Two things still follow the device under `full`: the `no-preference` blocks that switch an animation on, and the separate working-pill window. |
+| Auto-dismiss popups | `autoDismissPopups`: on | Off, `notify` gives each notice a timeout of 0, so it stays until closed; a newer notice still replaces it, and only errors and explicit holds queue behind the one on screen. A notice whose time is part of its meaning (an undo or countdown window, `bound: true`) keeps it. |
+| Virtualize conversations | `virtualizeConversations`: on | This is not virtualization: every message stays in the page. It switches `content-visibility: auto` on far turns and conversation rows (the browser skips painting them). Off sets `data-virtualize="off"` and paints all of them. The plan said to leave the row out where the transcript does not virtualize; it is kept because the switch changes real paint cost, and that deviation is for the owner to confirm. |
+| Light code theme, Dark code theme | `lightCodeTheme`, `darkCodeTheme`: `default` | A select each, with a sample of code under the row drawn in that set (the light sample keeps its light background in a dark window). Diffs, file views, the approval card's diff and the code blocks of a reply take the set of the window's current appearance. The sample has no blank last row. See the table below. |
+| Code font | `codeFont`: empty (Namzu's own) | A text box (saved on Enter or when it loses the focus; a name with anything but letters, digits, spaces and `. _ ( ) + & -` is refused with a line under the box; Escape puts the saved name back and leaves Settings open, and a second Escape closes it). Sets `--font-mono` and `--font-terminal` on the root to `"<name>", var(--font-mono-app)`, so code blocks, diffs, file views, tool output and the terminal use it. |
+| Code font size | `codeFontSize`: 13 | A list from 11 to 18 px. Sets `--font-size-code` on the root, which `--diffs-font-size` and every code block already read, and the terminal's text size. |
+
+**Code colours.** The five labels are ours: Default (what Namzu has always drawn), Soft, Vivid, High
+contrast and Warm. Each is a pair of bundled highlighter themes, one for light and one for dark, kept
+in `shared/code-themes.ts`, so nothing is downloaded.
+
+A fenced code block in a reply is drawn in the same colours (`renderer/chat-code.tsx`, rules in
+`renderer/code-highlight.ts`). It uses the shared highlighter the preview card uses, with the set for the
+window's current appearance (the root's `dark` class, watched, so a switch recolours without a reload). It is
+coloured only once settled: every block before the tail of a streaming reply, and every block once the reply is
+done; the tail shows plain text until then, so a growing reply is not highlighted on each update. The language
+is the fence's own name (the highlighter resolves `ts`, `sh`, `py` and the rest itself, each loaded once on
+demand). A block with no or an unknown language, one over 20,000 characters or 500 lines, and a highlighter that
+cannot load stay plain. The coloured spans spell exactly the original text, so selecting, copying by hand and
+the copy button are unchanged, and the header is unchanged. Every fenced block sits on `--code-background`, as diffs
+and file views do, so the Default set looks the same everywhere, and a plain block (the open end of a streaming
+reply, an unknown language) uses the same surface, so nothing jumps when its colours arrive. Inline code is not
+coloured. The highlighter themes are not CSS, so `renderer/code-prefs.ts` holds
+them: it starts from the mirror (`namzu.appearance-prefs`) and `useAppearancePrefs` updates it after
+it sets the root's tokens. The font and size are in the same mirror and `public/theme-boot.js` sets the
+two tokens before the first paint. **Open terminals:** `terminal-registry.ts` subscribes to
+`code-prefs.ts` and, on every change, reads `--font-terminal` and `--font-size-code` again and calls
+`TerminalSession.setFont`, which sets the emulator's `fontFamily` and `fontSize` and fits the terminal
+to its pane again, so no restart is needed. A new terminal reads the same tokens when it is created.
+**Terminal > Code theme and font** (**Open Appearance**, drawn as the same quiet button as **Find installed fonts**) opens Appearance at the first code row.
+
+The interface font's list of installed fonts comes from the window's own font-listing call
+(`queryLocalFonts`, in `renderer/installed-fonts.ts`): the names only, nothing is downloaded, and it
+runs when the person presses **Find installed fonts** because the engine needs a click. The list is one
+store for the window, so loading it in either font row fills both rows' lists, hides both buttons and shows
+a failure in both. Where the call
+is missing or refused, the two built-in choices remain. A chosen font is stored as `family:<name>` for
+the interface and for replies (`family:<name>`, so a font called `System` is never read as the built-in choice); a name holding anything but letters, digits, spaces and
+`. _ ( ) + & -` is refused so it cannot end a quoted CSS string.
 
 Text that is measured once waits for the faces. A terminal opens its emulator after the mono face is
 ready (the emulator measures a character cell when it opens and keeps that size), and the tab and
@@ -2448,6 +2536,58 @@ app which font was used for a reply paragraph, a code block and a sidebar row, t
 changes it, that the home heading's
 project name is drawn in the display face and nowhere else, that the setting turns it off, and that a
 name the face cannot draw whole stays in Geist.
+
+### Desktop app rows
+
+The rows the operating system applies. Each is a key in `desktop-settings.json` (`DesktopSettings`,
+described once in `shared/settings-catalogue.ts`), and a file saved before a key existed loads with the
+default. What the system says is read back by the main process (`osState` on the bridge, type `OsState`
+in `shared/os-state.ts`) and the page draws from that, so a change the system refused shows as it is,
+with one plain line under the row. The page asks again whenever any window saves a setting and when the
+window gets the focus.
+
+| Row | Key and default | Where | What the main process does |
+| --- | --- | --- | --- |
+| Run on startup | `runOnStartup`: off | Desktop app; Windows and macOS, installed app only | `app.setLoginItemSettings`, then reads `app.getLoginItemSettings` back. The switch shows the system's answer. A refused change puts the saved wish back and says so under the row; a startup entry changed outside Namzu is adopted as the wish the next time it is read. Linux has no installer and no autostart file, so the row is not drawn there. An app run from source never registers itself (it would register the development runtime). |
+| System tray (Menu bar on macOS) | `systemTray`: on | Desktop app | A tray icon with **Open Namzu** and **Quit Namzu**; a click opens a window (`tray-controller.ts`). While the icon is up, closing the last window leaves Namzu running, no longer asks about a running reply (it keeps going) and a closed window comes back from the saved layout, as on macOS. Off, or when the icon could not be drawn (the row says so), closing the last window quits as before. The icon is the build's own file, or the executable's icon. |
+| Keep computer awake | `keepAwakeAppOpen`: off | Desktop app | `powerSaveBlocker` `prevent-app-suspension` for as long as Namzu runs: the computer does not sleep on its own, the screen still can. The per-conversation *Keep computer awake* in a conversation (display sleep) is separate and unchanged. |
+| Keep computer awake while Namzu works | `keepAwakeWhileWorking`: off | Agent | The same blocker, held while at least one conversation has a reply running or waiting for an answer (`operator.runningReplies()`, looked at on every conversation state change and again right after it, because a conversation reports its end while it still counts as running), released when none has. Its own blocker, so it never lets go of the one above. It sits in Agent because it follows the work, not the window. |
+| Keep awake on battery power | `keepAwakeOnBattery`: off | Agent, indented under the one above, disabled while that is off | While working and on battery (`powerMonitor.isOnBatteryPower`, and the `on-battery` and `on-ac` events), no block unless this is on. |
+| Pause downloads on metered connections | `pauseOnMetered`: on | Desktop app; Windows only | Windows PowerShell asks for the internet connection's cost (`NetworkCostType`; `Fixed` and `Variable` are metered), at start and every five minutes (`metered-network.ts`). While metered the app does not start a download by itself: updates are found but not downloaded (the **Download** button still works) and the engine feed is not asked. A failed question reads as unknown and nothing waits on a guess. The row says what the system answered. The query was written from the Windows Runtime's documented API and has not been run on Windows in this lane. |
+| Quick Entry keyboard shortcut | `quickEntryShortcut`: `Ctrl+Alt+N` (empty is off; not Ctrl+Alt+Space, which another desktop assistant often holds on Windows) | Desktop app; every system | A global shortcut (`globalShortcut`, held by `shortcut-controller.ts`). Pressing it opens a small frameless box near the top of the screen with one line to type in (`quick-entry-page.ts`, a page with its own two-call preload, `quick-entry-preload.cts`). Enter keeps the line and brings an app window forward; the window starts a new conversation with it in the project the last conversation used, or on Home, and sends it. Escape, losing focus or pressing the shortcut again closes the box. If no window is open (the tray keeps Namzu running) one is opened and asks for the waiting line when it is up (`takePendingEntries`). Keys another program holds are not registered and the row says so; clearing removes the shortcut at once. A new conversation reads its saved choices for a moment, so the line waits for them (up to 10 seconds). If the message cannot be sent by then (no model connected), the line stays in the message box. |
+| Dictation shortcut | `dictationShortcut`: `ctrl-d` (`ctrl-shift-d` or `off`) | Desktop app | A key handler in the window, only while typing in the message box: it starts and stops voice input the way the microphone button does, and only when that button would work (voice input set up, a conversation open). The composer had no voice key before, so Ctrl+D is the default for lack of an existing key. |
+| Voice shortcut | `voiceShortcut`: off | Desktop app; every system | A global shortcut. Pressing it brings an app window forward, focuses the message box and starts voice input when the microphone button would work. With no conversation open nothing starts (voice input needs one). |
+| Storage | none (a view) | Desktop app, **Manage** | Opens a view under the row (`storageUsage` on the bridge, `main/storage-usage.ts`). It lists the space by part: *Conversations and work* (the Namzu home: conversations, Pals, the trusted folders list, scheduled tasks), *Engine* (`<app data>/kernel`), *Voice models* (`local-speech`, `local-listening`), *Logs*, *Caches* (Chromium's cache folders) and *Other* (the rest of the app's data). Files are counted, links are never followed, and a tree over 200,000 entries is counted up to there and shown as "more than". **Clear** is offered only on Logs and Caches, asks first (the button turns into "Clear logs?"), and the main process refuses any other part by name, so a request cannot reach conversations, settings or keys. The log being written stays. A file in use stays and the new size says so. |
+| Trusted folders | none (a view) | Desktop app, **Manage** | Lists the folders in the engine's trust list, `trust.json` in the Namzu home, and names the list in one short line (it is the list the command line reads on every check; what removing does is said once, in the row's own text). **Remove** asks first, takes exactly that entry off (a parent entry that covers the folder is never touched) and also forgets Desktop's own fingerprint of the folder in `trusted-folders.json`, so adding it back is a first trust again. Desktop cannot import the command line, so `main/trust-list.ts` reads and writes the same file shape (`{ version, trusted }`) with a temporary file and a rename. A file that cannot be read is shown as unreadable and is never rewritten. A project already open keeps its trusted mark until the app starts again. |
+| Extensions | none (a button) | Desktop app, **Manage** | Closes Settings and opens the Plugins page. |
+
+Closing the window and the tray: `window-all-closed`, the close handler of a window and
+`finishWindowClose` all ask one function, `staysRunningWithoutWindows` (macOS, or the tray icon is up).
+Quitting from the tray runs the same quit as the menu: the reply guard asks first when a reply would be cut
+off, then the graceful shutdown.
+
+**Not added.**
+
+- *Release channel* (`SET-225`): one channel exists. The baked feed is the rolling release `desktop-latest`
+  (`electron-builder.yml`, `desktop-release.yml` uploads only there). `NAMZU_UPDATE_FEED_URL` still
+  decides the feed for a development run and for a loopback test.
+- *Quick access shortcut* (`SET-213`): macOS only, and there is no macOS to check it on.
+- *Storage folder, Change and Use recommended* (`SET-220`): Namzu has no movable artifacts or scheduled-task
+  folder of its own. Scheduled tasks live in `schedule/` inside the Namzu home, which the command line
+  shares and which `NAMZU_HOME` sets for both; there is no artifacts store. Moving it from Desktop alone
+  would split the app from the command line's conversations, trust list and schedules. The place is shown
+  and can be opened and copied under About, Data folders.
+- *Only on this computer* (`SET-243`): Desktop has no scheduled-task feature and starts no scheduler. The
+  scheduler is the command line's (`schedule install` makes an operating system service that runs without
+  any window), so a switch here would describe nothing the app does. No row, no read-only line.
+
+**Data folders** (About, `SET-170`). Open and Copy path were already there; what was wrong were the notes.
+The Namzu home note now names `trust.json` (the engine's trust list) and scheduled tasks, and the app data
+note names `trusted-folders.json` (what Desktop remembers about each trusted folder) and the project list.
+The Namzu home is labelled "conversations and trusted folders".
+
+
+Shortcuts are stored as `Ctrl+Alt+Space` text: modifiers in the order Ctrl, Alt, Shift, Super, then one key (a letter, a digit, F1 to F24, Space, Tab, an arrow, Home, End, PageUp, PageDown, Insert or Delete), with at least one of Ctrl, Alt or Super (`shared/shortcuts.ts`). The shortcut box records a press by the physical key; Escape cancels; **Clear** removes it. A saved value that is not a shortcut loads as the default. The two global shortcuts cannot be the same keys. None of this has been run in Electron in this lane: the registration, the box and the hand-off to the window are tested with fakes only.
 
 ### The display face
 
@@ -2967,8 +3107,7 @@ read it. When the engine carried only the first 400 lines of an edit (`hunksTrun
 number stays the true one and "First 400 lines shown" is said beside it; an approval preview
 the engine cut says "Only part of the file is shown" beside its count, and a preview that
 carries the engine's own `added` and `removed` shows those, so the figure on the approval is the
-one on the card after the edit. With several files, the bar over the Changes panel names a cut
-file only when it is not the one open, since the open file says it beside its own diff. A reply with no counted
+one on the card after the edit. With several files, a cut file says so beside its own diff in the Changes pane. A reply with no counted
 change and no failing check has no result line. The
 line appears when the turn settles, groups by the turn each receipt belongs to, and
 works the same for history restored from the journal. Pal
@@ -2987,16 +3126,16 @@ else: never from the model's words and never from a guess. It is the record's ow
 
 | Verdict | What the row shows |
 |---|---|
-| `checked` | the passing check, "Checked: pnpm test passed, nothing changed since", with a green mark |
-| `failing` | the failing check ("pnpm test failed"), in bold red, with a red mark and no box; this is drawn even when no file changed ("No files changed" is then the record's lead and the row shows no counts) |
-| `stale`, `inconclusive` | the record's sentence ("pnpm test passed, then files changed again", "Ran npm test | tail, but the pipe hides whether it passed"), amber |
+| `checked` | "Tests passed" ("Checks passed" when the command is not a test run), with a green mark; the record's own sentence and the command are in the tooltip |
+| `failing` | "Tests failed" ("Checks failed", or "Some checks failed" when several did), in bold red, with a red mark and no box; this is drawn even when no file changed ("No files changed" is then the record's lead and the row shows no counts) |
+| `stale`, `inconclusive` | "Tests passed, then files changed again", "Couldn’t tell if the checks passed", "Checks didn’t finish" or "Checks passed, but files may have changed after", amber; the record's sentence is in the tooltip |
 | `unchecked` | the counts and no check segment at all; it says nothing about checking |
 | `unknown` | no file counted: nothing about changes, and the old quiet foot, which is the record's own sentence. Files counted from the edit tools: only the counts, no check segment, so the counts read as the whole change. The caveat stays reachable and is never dropped: the counts' tooltip, the row's accessible name and **Copy summary** say "These are the edits made with the edit tools." followed by the record's own sentence ("A command ran that may have changed files · cannot tell here …") |
 | `unchanged` | nothing about changes; a turn with no changed files keeps the old quiet foot |
 
-The chevron sits directly after the text. The row draws nothing round it at rest: on hover and on keyboard focus the whole row takes a soft fill with 8 px corners, and the "..." at its end is drawn only while the pointer is over the row, focus is inside it or its menu is open (always drawn where there is no hover, `@media (hover: none)`). **View changes** and **Undo** are also named at the end of the row, drawn together with the "..." (on hover, in focus, always where there is no hover). View changes does what the row does. Undo shows only while the reply can still be undone and runs the menu's own Undo, so it opens the same confirmation (`TurnResultLine`, `turn-result-line.tsx`). The whole row is one button that opens the changes pane, filtered to that reply's receipts and on the file of that
+The chevron sits directly after the text. The row draws nothing round it at rest: on hover and on keyboard focus the whole row takes a soft fill with 8 px corners, and the "..." at its end is drawn only while the pointer is over the row, focus is inside it or its menu is open (always drawn where there is no hover, `@media (hover: none)`). **View changes** and **Undo** are also named at the end of the row, drawn together with the "..." (on hover, in focus, always where there is no hover). View changes does what the row does. Undo shows only while the reply can still be undone and runs the menu's own Undo, so it opens the same confirmation (`TurnResultLine`, `turn-result-line.tsx`). The whole row is one button that opens the changes pane (it never narrows the pane to the reply) and scrolls to the file of that
 reply that changed most; its accessible name reads the same facts ("Done in 3s, 4 files changed, 35
-added, 3 removed, Checked: pnpm test passed. Open changes"). A "..." at its end holds what the old card
+added, 3 removed, Tests passed. Open changes"). A "..." at its end holds what the old card
 offered: **Undo** (see [Undoing a reply](#undoing-a-reply)), **Open file** (one item per changed file,
 largest change first, the order the pane uses to choose what to open, at most eight, "Open file" when
 there is one), and **Copy summary** (the row's words and the changed paths). A turn that is undone
@@ -3056,46 +3195,89 @@ under the writes, validates its arguments and the CLI's answer, and releases the
 
 ### Changes review view
 
-The Changes pane is the diff first. It opens 60 percent of the main area wide (at least 360 px; a width the
-person dragged is kept, see [The side panels](#the-side-panels)) on the file that changed most, and the list of
-changed files (240 px, rows 28 high, a 1 px line between it and the diff) sits at the diff's right, so the diff
-has the full height and the left. The header is one
-44 px row with a 1 px line under it: the title "Changes", a two-way switch **This reply | All changes** (All changes is the default
-whichever reply opened the pane; This reply is that reply, or the latest one that changed files, when the
-pane was opened from the top bar), the counts ("4 files +35 −3"), one **View** menu and a close button.
-All changes merges every completed edit per path, so a file edited twice is one
-row whose numbers are the sum of its edits; an edit receipt carries only the
-changed fragment, a `write` receipt the hunks it changed, and a file edited more than once
-shows one block per edit, "Edit 1 of 2" with that edit's own counts, never one edit's removed
-lines beside another's added ones. The **View** menu holds Unified or Split diff, Wrap diff lines, Collapse
-folders, **Uncommitted changes (git)** (in a trusted ordinary project
-that is a git repository: the working tree against HEAD, whole
-files, read through [`projectChanges` and `projectDiff`](#working-tree-changes) when
-the scope opens, on Refresh changes and when a turn settles), Copy changed paths and Expand pane / Restore
-pane size. The tab strip is not drawn above the Changes pane: Activity is reached from the conversation
-details popover (Background work), files from the bar's Project files button, and both bring the strip back.
-Empty scopes say so: "No changes in the last reply.",
-"This conversation hasn’t changed files yet.", "No uncommitted changes." and "This
-project is not a git repository."
+The Changes pane is every changed file in one scroll, measured against a base the person picks. It has no
+scope switch and no totals bar (the counts are on the top bar's Changes button, on the reply's result line and in the
+Session pane). Its controls are in the pane's own 44 px header row, where a title would be: the **base chip**
+("main → working tree ∨"), then **Go to file**, **Show files** (when the pane body is 400 px or wider), one "…" menu,
+maximise and close. The pane has no second "…": the pane's own rows (Move left, Right, Up, Down and Close other
+panes) are the last rows of this menu, under a rule (`pane-menu-context.tsx` hands them to the menu; the tile
+draws its own "…" only for a pane that does not). A narrow pane shortens the chip (the working-tree side first); the icons
+never shrink.
 
-Up to 12 files are listed flat, by name (the folder is added only where two share a name), each with
+**The base.** The chip's menu has **All changes** (hint "vs main": the working tree against the point where this
+branch left the usual branch), **Uncommitted changes** (against HEAD) and **Compare against** (a list of branches, the
+usual and current ones first, and the newest 50 commits; a commit shows that commit's own change). After a pick the chip reads the base ("master → working tree", or the
+commit's short hash), "Compare against" names the picked branch or short hash at its right with a check, and
+picking the usual branch is the same as All changes, which stays the checked row. A new conversation starts on All changes; the choice is kept for as long as the pane
+shows that conversation. The usual branch is `origin/HEAD`, else the first of `main`, `master`, `trunk`, `develop`
+that exists; with none, All changes is not offered and the pane reads Uncommitted changes. Uncommitted changes read the
+host's [`projectChanges` and `projectDiff`](#working-tree-changes). Every other base is read by Desktop's own
+read-only git calls in the main process (`main/project-compare.ts`, one bridge call `projectCompare` with the
+requests `branches`, `commits`, `changes` and `diff`): only for a trusted, ordinary project, in the folder the operator
+holds, with no shell and no repository hook, a timeout and an output cap; a branch or commit from the renderer is
+checked before it reaches git (a name of letters, digits, `.`, `_`, `/` and `-`, never starting with `-` or
+holding `..`; a hash of 7 to 40 hex characters), and a path is confined to the project folder and refused if it
+reaches `.git`. There is no engine or SDK change. A folder that is not a repository (or a conversation without a
+project) shows the conversation's own edits under the chip "Conversation edits", and the menu has that one row.
+Where the app has no `projectCompare` (the browser preview), the pane keeps to the host's Uncommitted changes.
+
+**Search is Go to file** (Ctrl+P, Cmd+P on a Mac, from anywhere in the pane, the diff included, and from the conversation while the pane is open, unless the message box has text selected; a terminal keeps its own Ctrl+P), not a filter: a popover with
+"Search changed files", the changed files with the matching letters marked and their counts, at most 100 rows
+("n more files. Keep typing to narrow."), "No matching files"; Enter takes the first row, the arrows move, and a
+pick scrolls the stack to that file and opens it.
+
+**The file list** is off until it is turned on (the list button, or Ctrl+Shift+Y), and it exists only while the pane
+is at least 400 px wide (240 px for the list and 160 for the diffs); below that the button and the two menu rows are
+gone, not greyed. It is 160 to 640 px wide, 240 by default, resizable by its edge (also with the arrow keys), and sits
+on the right or the left (**File list position**: Automatic, which is the side away from the conversation, Left or
+Right). Selecting a row scrolls the stack to that file.
+
+**The "…" menu** (the checks keep it open; it opens below or above the button, whichever has room, keeps 8 px from the
+window edge and scrolls inside itself when neither fits; in a pane under 400 px the file list rows are left out and a
+muted first line says the list needs a pane that wide): **Show files** (Ctrl+Shift+Y), **File list position**, **Group files by folder**
+(off by default: the tree view), **Separate test, build, and generated files** (off: files are listed source first,
+then "Test files", "Build files", "Generated files"; the rules are `changes-review/file-kind.ts`, and a path
+that matches several takes generated, then build, then test), **Collapse all files**, **Expand all files** (disabled
+with "This diff is too large to expand at once. Select a file to expand it." when more than 200 files or a loaded file trips the
+rich-diff gate), **Side by side** (off; disabled with "Needs a wider pane" under 560 px of diff width, and the
+pane then reads unified without changing the saved choice), **Word wrap** (on), **Highlight changed words** (on),
+**Hide whitespace changes** (off; only where git reads the files: the counts then ignore whitespace and a file with
+nothing else shows "Whitespace only" in place of its diff), **Refresh**, and the pane's own rows after a rule. The switches are kept in this window's local
+storage (`namzu.changes.display`); without storage they hold for the session.
+
+**The stack.** Each file is a section: a sticky 32 px row (chevron, file icon, path cut from the left, a note, `+N −M`,
+the viewed mark, Open file, "…") over its diff. Notes: "New file", "Deleted file", "Binary file", "Renamed from
+<path>", "Whitespace only". With 12 files or fewer every section is open; with more, the first three are. A section reads
+its text when it is open and within 400 px of the scroll, at most three reads at a time, and says "Reading the file…" until then.
+The **viewed mark** (a circle that becomes a check) is a review aid kept on this machine by conversation and base; it
+changes nothing in git. A viewed file whose counts or text change shows "Changed since you viewed it". The file's "…" menu
+holds Open in editor, Show in file manager, Copy path, Copy relative path, Copy file name and Copy diff. An edit of one
+file more than once in the conversation's own edits keeps its "Edit 1 of 2" blocks. A gated file shows its note and
+"Show full diff anyway".
+
+**States:** "Loading changes", "Couldn’t load the changes" with the plain reason and **Try again**, "No uncommitted changes" and
+"No changes to show". A list cut at 2,000 files says "Only the first changed files are shown."
+
+**A reply's change row** (the result line, a row of its card, a path in the transcript) opens the pane if it is
+closed and scrolls to that file, opening its section; it does not change the base and there is no reply filter. If the
+file is only in All changes while the pane is on Uncommitted changes (the reply was probably committed), the pane
+widens to All changes once to find it. Undo stays on the reply. The
+files are `changes-review/{review,base,base-menu,view-menu,go-to-file,go-to-file-popover,file-section,file-kind,viewed,settings,header-store}`;
+the chip and buttons are published to the pane's header through `header-store.tsx`.
+
+Up to 12 files are listed flat in the file list, by name (the folder is added only where two share a name), each with
 `+N −M` ("binary" for a binary one, a struck-through name for a deleted one, and "old → new" in the tooltip of a
-renamed one). More files, or a filter, show the tree: it compresses chains of single-child folders
-(`.work/sessions`), lists folders first, marks Markdown files and has a fuzzy "Filter files…" box. Arrow
-keys, Home and End move, Right and Left open and close folders, and Enter
-or a click shows the file. `[` and `]`, or Alt+Up and Alt+Down, step to the previous
-and next file. Where the pane is under 440 px wide the list sits above the diff and folds away behind a
-"Files" button.
+renamed one). With **Group files by folder** the list is a tree: it compresses chains of single-child folders
+(`.work/sessions`), lists folders first and marks Markdown files. Arrow keys, Home and End move, Right and Left open
+and close folders, and Enter or a click scrolls to the file. `[` and `]`, or Alt+Up and Alt+Down, step to the
+previous and next file.
 
 With the pane open in a window narrower than 1281 px the sidebar folds to its rail, and comes back when the pane
 closes (the fold is not saved, so another window and the next launch see the person's own state). If the person opens
 or closes the sidebar while the pane is open that choice stays when the pane closes, and a sidebar they had already
 folded is left folded. Wider windows keep the sidebar as it is.
 
-The diff header shows the path truncated from the left (the full path
-in a tooltip), its `+N −M`, Open file (a file tab), Open in editor and a menu with
-Copy path and Copy diff. A binary or oversized file shows a plain message instead of
-a diff.
+A binary or oversized file shows a plain message instead of a diff.
 
 A diff past 180,000 characters (both sides together) or 1,200 changed lines (added plus removed)
 is not drawn in the rich view, which would freeze the pane on a very large file. The pane
@@ -3256,10 +3438,48 @@ and focus in four viewport and motion settings, with the [source-bound receipt](
 
 Desktop receives the host's [usage and compaction notices](#usage-and-compaction-notices) (`shared/usage-protocol.ts` reads them; anything that does not read, or that names a conversation this connection does not own or a Pal conversation, is dropped) and keeps the last picture per conversation in the thread (`ThreadState.usage`, `ThreadState.compaction`). Usage outlives a closed tab, so the ring is right when the conversation is opened again.
 
-- **Context ring.** A small ring at the right end of the row under the composer box (`renderer/context-ring-view.tsx`, model in `context-ring.ts`) fills with the share of the window the conversation holds. It is a focusable control named "Context 6% full. 12.4k of 200k tokens." and its tooltip says the same in words, adds "estimated" when the host did not get a count from the provider, adds "Cost so far: $0.42" only when the engine priced every token, and from 75% (amber) and 90% (red) adds that older messages may be summarised to make room. It is **not drawn at all** until the engine has reported both a context size and a window (a custom model with no known window, or an engine that reports nothing); there is no placeholder. A figure the engine stops reporting disappears at the next notice.
-- **Compacting line.** From the moment a pass starts the live status line reads "Compacting the conversation…" (shimmering, still under reduced motion), and when it finishes it reads "Conversation compacted · 150k to 40k tokens" without a shimmer until the turn goes on, when the next streamed update replaces it. A pass that changed nothing, the end of the turn and the next prompt clear it at once. A decision wait still takes the line first.
+- **Context ring.** A small ring at the right end of the row under the composer box (`renderer/context-ring-view.tsx`, model in `context-ring.ts`) fills with the share of the window the conversation holds. It is a focusable control named "6% of this conversation’s memory used, 12.4k of 200k." and its tooltip says the same in words, adds "about" before the figures when the host did not get a count from the provider, adds "Cost so far: $0.42" only when the engine priced every token, and from 75% (amber) and 90% (red) adds that older messages may be summarised to make room. It is **not drawn at all** until the engine has reported both a context size and a window (a custom model with no known window, or an engine that reports nothing); there is no placeholder. A figure the engine stops reporting disappears at the next notice.
+- **Compacting line.** From the moment a pass starts the live status line reads "Shortening the conversation…" (shimmering, still under reduced motion), and when it finishes it reads "Conversation shortened · from 150k to 40k" without a shimmer until the turn goes on, when the next streamed update replaces it. A pass that changed nothing, the end of the turn and the next prompt clear it at once. A decision wait still takes the line first.
+
+- **Context panel.** Pressing the ring (or the readout in the conversation bar) opens [the panel](#context-panel). An engine that does not offer `namzu/session/context` keeps the tooltip alone.
 
 The ring and the line use the design tokens (`--radius-pill`, `--dur-quick`, `--dur-base`, `--focus-ring`, `--warning`, `--error`) and no animation under `prefers-reduced-motion`.
+
+### Context panel
+
+The panel's body (`ContextInline`) has no frame of its own and fills the width it is given. The popover above the composer wraps it in a frame (340 px wide, at most 70% of the window high, scrolling inside); the same body is also drawn inline in a panel that has room, with no frame (`renderer/context-panel.tsx`, `context-panel-model.ts`, `context-panel-reader.ts`). The popover opens from the ring and closes with Escape or a click outside. Top to bottom, at the measured sizes:
+
+- A "Context" header (13/18, semibold) with its chevron right beside the word; collapsing hides everything under the bar. The note about how the numbers were counted ("The total comes from your AI service. The rows are Namzu’s own estimates (about 4 characters to a token)...") is the header's hover text, not a line on screen.
+- One line: "8% used" at 14/20 on the left and "77.7k / 1M" at 13 in muted tabular numbers on the right. When Namzu counted the total itself the figure starts with a "~" (dotted underline, hover text "Estimated by Namzu") and the percent reads "about"; there is no tag.
+- The sentence ("About 889.3k left before Namzu shortens this conversation.") is drawn only from 80% used, in the warning colour (the error colour from 90%), and while the shortening runs. Below 80% it is the bar's hover text. This is `showSentence` in the model.
+- A 4 px bar with rounded ends and 1 px between segments: one segment per used row in a fixed colour, the kept-free reserve a flat grey (the hatch survives nowhere at this height), the rest the empty track; a segment under 2 px keeps 2 px; each has a hover title. 11 px under it, the rows.
+- Rows are 24 px apart: a 10 px colour square, a plain name (14 px after the square), a size and a share in two right-hand columns (the share's column is 40 px wide, brighter than the label and the size; 13 px, tabular numbers), biggest first: Messages, Built-in tools, Tool server tools, Namzu’s instructions, Skills, Project notes, Custom agents, Tool server notes. Skills, custom agents and project notes open in place to their entries (8, then "Show N more").
+- The groups under the used rows have no label and no paragraph. The tools that load only when needed come after a gap of 30 px, each name with "(deferred)" after it and a dash for its share; "Kept free for the next answer" and "Free space" (the room Namzu keeps so it can answer and shorten, drawn whenever automatic shortening is on) come after a gap of 24 px. Reserve and deferred squares are one grey, free space the lighter one. What each group is sits in the hover text of its first row ("Not in the conversation yet. Namzu loads them when it needs them.").
+- A folded "Tool servers" row (chevron, label, the tool count at the right) opens to each server (tool count and size), each openable to its tools.
+
+"Token" appears only in hover text, never in a label. Colours are eight categorical hues (`--context-c1` to `--context-c8`), lighter in dark mode; colour is never the only cue, since every row carries its name and size.
+
+The panel asks, it is not pushed. The renderer's reader (`ContextReader`) sends `contextUsage(conversationId, 'full')` when the panel opens and `'summary'` after each usage notice while it stays open, at most once every 400 ms; the newest answer wins, an answer that fails keeps what is on screen, and the lists from the last full answer are kept while a summary refreshes the figures. A Pal conversation, an external engine, an older engine and a conversation the engine has not counted yet get no panel data: the panel then says "Namzu hasn’t counted this conversation yet. Send a message and look again." and repeats the ring's line.
+
+The request and answer are `namzu/session/context` (`shared/context-protocol.ts` reads the answer; the host side is `packages/cli/src/commands/desktop-context.ts`):
+
+| Request field | Meaning |
+| --- | --- |
+| `sessionId` | the conversation |
+| `detail` | `summary` (the last figures; no lists) or `full` (also the lists, which may read skill, agent and note files; the host keeps those reads until a turn or a shortening ends). Default `summary`; anything else, and any other field, is refused |
+
+| Answer field | Meaning |
+| --- | --- |
+| `measuredBy` | `provider` or `estimate`; absent when the engine did not say |
+| `windowTokens`, `windowSource` | the window and where it came from (`config`, `provider`, `model-table`, `default`) |
+| `totalTokens`, `percentage` | what is in use, and its whole percent |
+| `autoCompact` | `{ enabled, bufferTokens, thresholdTokens? }`; the reserve and the size at which shortening starts |
+| `categories` | `[{ id, name, tokens, kind }]` with `kind` `used`, `deferred`, `buffer` or `free`; `id` one of `system-prompt`, `system-tools`, `mcp-tools`, `mcp-instructions`, `agents`, `memory`, `skills`, `messages`, `deferred-tools`, `deferred-mcp-tools`, `buffer`, `free` (the panel words each itself; `name` is the engine's) |
+| `lists` | on `full`: `mcpTools`, `deferredTools`, `skills`, `agents`, `memoryFiles`, each at most 500 entries, biggest first, with a name (a note file is its short label) and tokens; never contents |
+| `sizeOutOfDate` | a shortening rewrote the history since the last count from the AI service |
+| `approximate` | true unless the AI service counted the total and nothing has changed since |
+
+An answer is `null` before the engine has reported a window. The host does not read the conversation's history for this; it uses the engine's own figure and the kernel's estimate rules (an estimate covers the messages and the tool catalogue, and the other parts are added on top).
 
 ### Action rows
 
@@ -3512,20 +3732,72 @@ Every file call is confined to the folder of a trusted, ordinary project that th
 
 The same visibility rules apply to listing, searching, reading and linking. `.git`, `node_modules` and anything matched by `.gitignore` files (root to the folder) or `.git/info/exclude` is neither listed, indexed, linked nor readable by exact path, so a secrets file the project keeps out of version control cannot be fetched by naming it. A link inside the project that points at such a file is judged by where it lands. Reads open the file without following a final link and without blocking on a named pipe, and check after opening that the path still resolves to the opened file; a folder swapped for a link in the instant between the check and the open can still not be ruled out, because Node has no `openat`-style descent.
 
+The config key `respectGitignore` (default on; Settings > Projects > *Respect .gitignore*) decides the `.gitignore` half of this. With it off, files that `.gitignore` files and `.git/info/exclude` name are listed, indexed and readable like any other file, and the app asks first because a local secrets file or a build folder then shows in every file list; `.git` and `node_modules` stay hidden either way. The key is read from the user and managed files only, the app asks the engine for it at each listing (kept for a few seconds), and a failed read keeps the files hidden. The terminal app's `@` file list follows the same key by adding ignored files after the tracked and unignored ones, and a model's own `glob` and `grep` still skip ignored files unless a call asks for them.
+
 The project index is a bounded walk (50,000 paths, depth 24, a 3 s budget checked inside each folder too) cached for 30 s, and it reports `truncated` when a cap was hit. "Open in" finds VS Code and Cursor in the per-user install folder, under Program Files and on `PATH`, and starts the first one found with separate arguments and no shell.
 
 ## Outputs beside a conversation
 
-The side panel has an **Outputs** tab, after Changes, that lists the files the conversation's turns wrote and shows the one chosen (`outputs-model.ts`, `outputs-panel.tsx`). The list is the Changes panel's own edit receipts (`turnChanges`), one row per file, newest turn first, each with its folder and a word for its kind; a file whose turn was undone is no longer listed. The top bar has an Outputs button with the count, and the tab joins the strip when it is opened (by the button, by "+" or by itself) so a conversation that wrote nothing keeps its two tabs.
+The Outputs tab described here was replaced by the pane grid (see [The pane grid](#the-pane-grid)): a page a turn writes opens in the Browser pane and other files in the Files pane. What follows about reading and previewing a file still holds for those panes.
+
+The side panel has an **Outputs** tab, after Changes, that lists the files the conversation's turns wrote and shows the one chosen (`outputs-model.ts`; the tab itself was removed with the pane grid, and the list now lives in the Session pane, below). The list is the Changes panel's own edit receipts (`turnChanges`), one row per file, newest turn first, each with its folder and a word for its kind; a file whose turn was undone is no longer listed. The top bar has an Outputs button with the count, and the tab joins the strip when it is opened (by the button, by "+" or by itself) so a conversation that wrote nothing keeps its two tabs.
 
 - **A page or a document opens by itself.** When a running turn creates or edits an `.html` or `.md` file, the panel opens on Outputs with that file; a file whose version the window already knew (a conversation opened from history) never opens on its own, and code, text and images wait to be chosen. The file is read again when it is written again, and when its turn ends.
 - **A page** is drawn in a frame with no permission at all: `sandbox=""` (so no scripts, no same-origin access, no top navigation, no forms, no popups), `referrerpolicy="no-referrer"`, no address (the page is the frame's `srcdoc`, never a `file:` URL), and its own policy placed first in its head (`default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; media-src data:`), so it can fetch nothing from the network and draws only what its file embeds (`output-frame.ts`). **A document** is formatted text, its links and images inert; **code and text** show with line numbers, syntax colours and a copy button; **an image** shows as itself. A file that is not text, or over 2 MiB (4 MiB for an image), says so.
-- **Address line.** Under the header the preview shows the file's path in a read-only field the person can select and copy, as a browser shows its address: relative to the conversation's work folder when the file is inside it, the whole path otherwise (`outputAddress`, `src/renderer/outputs-model.ts`).
-- **Buttons.** "Open in browser" (a web page only) hands the real file to the default program for web pages; "Show in folder" shows it in the file manager; copy copies its text. A failure says so in a notice.
+- **Header.** The file's header row lives in the Files pane now (name, Rendered/Source switch for Markdown, copy, Open in). The old Outputs panel's own menu (Open in app, Show in folder, Save a copy) and its `outputAddress` helper were removed with the panel.
+- **Rows.** The Session panel's Outputs rows are 32 px apart, with a file-type icon and the name, newest first.
+- **Beside the conversation.** Pressing an output (on a card or in a reply's link) shows it beside the conversation: a page in its sandboxed frame and a picture as itself (a vector `.svg` file too, drawn through an image element so its scripts never run; there is no separate browser pane in Desktop, so the pane is where they open), a Markdown file or a document as the page, code as the file view's source with line numbers. A later setting that opens written pages and pictures by themselves has its hook in `outputToOpen` and is not added here.
 - **The host decides what may be read.** The renderer sends the conversation's id and a path; main reads it only if the file is inside the conversation's own work folder or is one that its turns wrote (its receipts name it), after symbolic links are resolved, never inside `.git`, with the project reader's limits (`session-output.ts`, `readSessionOutput`, `openSessionOutput`). Any other path is refused with a sentence that names no path, and the renderer never receives a `file:` path.
 - **Width.** Outputs is a reading panel (60 percent of the main area, 360 px at least); with less than that to give it lies over the conversation with **Back to conversation** and **Hide panel**, as the other panels do.
 
-The model is told so in one line of its environment facts, in a Desktop conversation only (not a Pal's): "Desktop shows the .html, .md and image files you write in its preview pane: to show a page or document, write the file and name it. Start a server only when the project has its own dev or start script and the person asked to run the app" (`DESKTOP_PREVIEW_FACT` in `packages/cli/src/context/environment.ts`).
+The model is told so in one line of its environment facts, in a Desktop conversation only (not a Pal's): "Desktop shows the .html page you write in its Browser pane, and the .md and image files you write in its Files pane: to show a page or document, write the file and name it. Start a server only when the project has its own dev or start script and the person asked to run the app" (`DESKTOP_PREVIEW_FACT` in `packages/cli/src/context/environment.ts`).
+
+## The session panel, the plan card and Commit changes
+
+**The session panel** is the Session pane of [the pane grid](#the-pane-grid) (a 320 px column or a 280 px card), opened by the Session button in the top bar (`session-panel.tsx`; the choice is remembered in this window and starts closed, so the conversation keeps its full width until it is asked for). It reads one summary (`sessionSummary` in `session-summary-model.ts`). The conversation-details popover is gone: everything it showed is in this pane. Its sections, in this order:
+
+- **Environment**: "This computer", the folder (a click copies its path; its "…" menu holds Copy path and Archived conversations, and is absent for a conversation without a folder) and the branch with the first line of its last commit under it (a commit mark and "Detached" for a detached head); in a folder that is not trusted the branch row says so instead of being missing.
+- **Context**: the whole breakdown inline, with no frame (`ContextInline`, the same body as the usage popover): the 4 px bar, 24 px rows with a 10 px square, size and share, the deferred and reserve rows, and the tool servers folded under their own line. It is read while the pane is open and again after each usage notice. Where the engine cannot give the breakdown the section keeps the thin bar and the share ("7%", "about 7%" when estimated; "Not measured yet" before the engine has said, never zero).
+- **Tool servers**: the project's tool servers with the count of connected ones ("2 connected", "None", "Checking…"), a warning line for ones that wait for approval or failed, and the list on a click. The section keeps Namzu's own word for them.
+- **Outputs**: the files this conversation made (the Changes panel's edit receipts plus the result files the host found; `outputFiles`), newest first, one row 32 px apart with the file's kind mark and its name. Pressing one opens it where its kind belongs: a page or a picture in the Browser pane, a document or code in the Files pane. Not drawn while there are none.
+- **Applications**: the applications computer use has been allowed or has used in this conversation, each with Take back; drawn only once there is one.
+- **Sources**: the files and images sent in this conversation, newest first, three shown with "View all", and a "+" that opens the attach flow (it says why when it cannot); "Nothing attached yet" when empty.
+- **Changes**: "+312 −0", counted from this conversation's edits (the tooltip says so), and **Commit changes** (below).
+- **Background tasks**: one row per running job with its own running time (the live step's words, ticking once a second only while the panel is open and a job runs), a stop square, and "N finished" that opens the finished ones with their end (Done, Failed, Stopped). "None" when there are none; "Not known" when the host cannot say, with no count.
+
+**The Files pane draws a Markdown file as a document page** (`DocumentPage`, `document-page.tsx`): a 42rem sheet, serif headings, square tables that scroll sideways, the file's pictures and links as the Files pane draws them, and a floating outline button (hidden for a file with no headings). The file's header row holds a Rendered / Source switch; the choice does not carry to the next file. Other files draw as before.
+
+It is not drawn for a Pal, a conversation without a folder shows only Context and Background tasks, and below the width where it no longer docks it is a card over the conversation. When the Activity or Changes panel is open as well it sits to its right.
+
+**The plan card** is the box under the person's message while the agent works (`PlanBox`). In an ordinary project conversation (not only a Pal's) it lists every step with its mark (a check, a spinning arc, a dashed ring, a cross), is titled by the step in hand with "N of M", and stays in the flow until every step is done, also while the reply is written. When the turn ends with a step left the plan row in the work block is open; once all are done it folds to "Plan · N/N done". The Activity panel's list uses the same marks. A conversation with no plan has no card.
+
+**Commit changes** (`commit-dialog.tsx`, `commit-model.ts`; host side `desktop-commit.ts`) commits what one conversation changed and nothing else:
+
+- The files are the ones the conversation's edits name that git still sees as changed. Changes made by hand or by something else are counted ("1 other change will not be included") and never committed. A file whose name suggests a secret (`.env`, keys, certificates) is left out of the commit and out of the message request.
+- Only in a trusted folder; the button says why it is off ("Nothing to commit", "Trust this folder to commit in it", "Commit needs a Git repository", "Wait for the reply to finish"). A merge, rebase, cherry-pick or revert in progress blocks it with a sentence.
+- A dialog shows the branch ("Not on a branch" on a detached head), the files with a checkbox each, an editable message and "Namzu will not push." Nothing is committed until Commit is pressed. The message is the small model's suggestion from the file list and a capped (6 KiB) diff of those files only, asked once when the dialog opens and never on its own; with no small model, an error or more than 8 seconds it is a plain line ("Update a.ts, b.ts", "Add a.ts", "Update 4 files"), and the dialog says which one it is.
+- The host runs `git add -- <new files>` and `git commit -m <message> -- <files>` with an argument list and no shell. It never uses `add -A`, never skips hooks (a failing hook's words are shown and nothing is committed), never pushes, amends or switches branch, and never sets a name or email (git's own answer shows if none is set). A file that changed after the dialog opened is refused ("changed since you looked") and the dialog checks again.
+- The totals count this conversation's edits, so they do not drop after a commit; the dialog says so.
+
+`e2e/ux-session-panel.test.mjs`, `e2e/ux-task-card.test.mjs` and `e2e/ux-commit.test.mjs` drive the real app with a scripted model.
+
+## Usage limits
+
+The indicator beside the model opens **Your usage limits**: for each provider in use, only what is honestly known, in three row shapes (a window with its reset and percent, a spend estimate or credit, and one quiet "not reported" line). It turns amber at 75 percent and red at 90 of the worst of the context and the account's windows; a rejected window reads full; nothing is ever blocked by Desktop. What is shown per provider, where it comes from and what is kept is on [Usage limits](usage-limits.md).
+
+### Cards under a reply
+
+Only a document gets a card. Ordinary files (code, data, pages, pictures, and plain Markdown the agent wrote with the file tools) have no card list: they show as steps in the activity line, as the reply's own links. A document is a file the built-in `document` skill wrote in this reply (`isDocumentFile` in `output-card-model.ts`, found by the reply's skill row); Word, PDF, slides and spreadsheets made by a document service join it later. The card is one compact row (`output-card-model.ts`, `output-card.tsx`, `output-card.css`); the turn-end line stays below it. The card and the reply's receipts read one source, `outputFiles(thread, made)`.
+
+- **Which files.** A Markdown or text file the document skill created or changed in the reply, and a document write that is running, failed or was declined. A file a shell command or a tool made counts as an output (the host notes when a turn starts, lists the work folder when it ends and reports result-kind files written during the turn, by their own time: `made-files.ts`; at most 4,000 result files, 2,000 folders and 6 levels, skipping dot folders and build and dependency folders; when a limit cuts the walk short the turn reports none rather than a partial list; not kept across a restart); it gets a card only when it is a document of that reply. The system's own program is never started on older Word, Excel, PowerPoint or rich-text files, which can carry macros. The window asks `madeSessionFiles` when a turn ends.
+- **The row.** 320 wide and 36 tall, flat (the page's own fill, a 1 px border, no lift): a 16 px document icon, the file's name cut with an ellipsis, one state word (Created, Edited, Opened once pressed, Writing, Failed, Declined, Missing), and a chevron. The kind and size ("Document · Markdown · 6 KB") are in the tooltip, not drawn. Hover shows the soft fill only. A group has no caption up to three cards; more fold behind "Show N more", failures first. A reply with one document, like most, shows one row with 12 px above and below.
+- **States.** "Writing" with a moving line under the row while the call runs; a failed write keeps a compact red row (a red icon and "Failed") with one plain reason in a second line (no permission, not allowed, already exists, too long); "Declined"; "Missing" when the host cannot find the file any more.
+- **Actions** show on hover and on keyboard focus, in the place of the state word and the chevron, so the row never changes size: open in the browser (pages), open with the system's own program, copy the text, and Save a copy (24 px buttons). On a touch screen they are not drawn and pressing the row opens the document. Pressing the row opens the document in the Files pane. Save a copy opens the system's save dialog in the main process; the window names only the conversation and the source file, and the destination is what the dialog returns (`saveSessionOutput`). Opening with the system's program is limited to result kinds, never a program, a script or a shortcut (`mayOpenWithSystem`).
+- **Host calls.** `describeSessionOutputs(sessionId, paths)` answers size for files the conversation owns (anything else reads as gone), `madeSessionFiles(sessionId)`, `saveSessionOutput(sessionId, path)`, and `openSessionOutput` gained the target `system`. All go through the same check as `readSessionOutput`.
+
+#### The activity line
+
+A finished reply's activity line is one quiet sentence at 14 px, muted, with the steps behind it: "Ran 3 commands, created 5 files", then the lines the reply added in green ("+124") and the failure flag when something failed. The time it took is no longer on the line for a reply under a minute; it is in the line's tooltip ("Took 8s") and in its accessible name, and a reply of a minute or more says it on the line. Pressing the line opens a box of steps, one row per step: the verb, the file, its added lines ("Created kickoff.md +39") and the word Failed in red when it failed (`foldParts` in `transcript-motion.ts` returns `took`, `duration` and `added`). The turn-end line ("Done in 6s, 3 files +34 -0") stays but is quieter: its lead is muted and medium weight, only the counts are coloured.
 
 ## One band at the top
 
@@ -3573,35 +3845,200 @@ them in the running app at 1280 by 820.
   in a conversation, with the side panel open, in Settings, in fullscreen and with each platform's frame
   rules.
 
-## The side panels
+## The pane grid
 
-Every side panel is one of two kinds, and each kind has its own share of the main area (the `.workspace`
-element, the part right of the sidebar), so a diff has room while a conversation keeps the rest. The numbers
-are `--panel-*` tokens in `theme.css`; `src/renderer/panel-tokens.test.ts` pins them and
-`e2e/ux-side-panels.test.mjs` reads them from the running app at 1280 by 820 and 1440 by 900.
+The panes beside a conversation are a grid, not one tabbed panel. The model is `src/renderer/pane-grid.ts`
+(pure arithmetic, tested in `pane-grid.test.ts`); `pane-grid-view.tsx` draws what `fit(layout, width, height)`
+returns, and `pane-grid-state.ts` keeps the layout. What a person built (the stored layout) is kept apart from
+what is drawn, so a window that shrinks folds panes together for a while and one that grows unfolds them again,
+and no resize rewrites the layout.
 
-- **A reading panel** (Changes, Outputs, an open file, the file browser) is 60 percent of the main area and never
-  under 360 px. **A tool panel** (Activity, the background work) is 40 percent, at least 320 and at most 560 px.
-  A terminal opens as a tab of the conversation strip, not as a side panel, so it has no share of its own.
-- **The conversation keeps the rest.** When that would be under 360 px, the panel lies over the conversation's
-  right side as before: it takes the whole pane, and **Back to conversation** or **Hide panel** bring the chat
-  back. For a reading panel that is any main area under 900 px; for a tool panel, under 680 px (its 320 floor
-  and the conversation's 360). The two container queries in `style.css` and `file-panel.css` spell those edges
-  out, since a query cannot read a token; the test keeps them equal to the sums.
-- **A 1 px seam** divides the panel from the conversation. A 7 px zone centred on it (`.panel-resize-handle`)
-  can be dragged: while it is hovered, focused or held, a 2 px line in the primary colour shows on it. A double
-  click puts the share back and forgets the dragged width; the arrow keys move it by 24 px (80 with Shift) when
-  it has focus, Left making the panel wider. A dragged width is kept for each kind of panel apart, per pane
-  (`namzu.workspace.panel-width:<pane>:<kind>`), within the kind's floor and what leaves the conversation 360 px;
-  an older width saved without a kind is no longer read. There is no seam to move while a panel lies over the
-  pane.
-- **A panel's header is 44 px high** with a 1 px line under it. The Changes header's title is 14/20 at weight 500,
-  20 px in from the panel's edge; the tab strip of the other panels starts its first tab at the same 20. Its
-  controls are 28 by 28, 4 apart, the last one 8 px from the right edge.
-- **The header's tools** (Changes, Project files) are 28 px high, 4 apart; a tool whose panel is open carries a fill
-  of 8 percent of the text colour and `aria-pressed`.
-- **The list of changed files** is at the right of the diff, 240 px wide. In a short list a file's name is never
-  cut before its folder is: the folder, shown only where two files share a name, shrinks first, and a name cut at last is cut at its start so its end stays readable.
+- **The kinds** are Terminal, Changes, Browser and Files, plus the Session pane. There is no Outputs pane and no
+  Activity pane: a page a turn writes opens in the Browser, any other file in Files, and the Session pane lists the
+  work that is running.
+- **Placement.** At most two columns, each holding at most two panes. The second pane goes below the first (the
+  opening order reads top to bottom, and only when the height gives each at least 160 px), the third opens the
+  second column, the fourth goes below it. Closing the fourth gives the second column back its full height;
+  closing the third drops the column and the first widens again.
+- **Widths.** The workspace (`W`) is the area right of the sidebar. One column takes a third of `W`, and a width a
+  person dragged is kept; with two columns the conversation takes half and the columns split the rest equally. A
+  column is never under 280 px, a stacked pane never under 160 px, and the conversation is never under 360 px and
+  never unmounted. Two columns need `W` of 920 or more, one column 640 or more.
+- **Folding and the overlay.** Under 920 px every pane stacks in the one column, in the opening order. Under 640 px
+  no column fits, so one pane at a time lies over the conversation under a **Back to conversation** row; the
+  conversation stays mounted with its scroll and its composer. This is the only state where the conversation is
+  covered.
+- **Dividers** are a 1 px line with a 7 px zone: conversation to first column, column to column, pane to pane. They
+  drag, double click puts the equal share back, and the arrow keys move them 16 px.
+- **Maximise** makes one pane fill the workspace (the conversation is hidden, not removed); the pane's header then
+  carries Restore, and Esc steps back. The top bar stays, and the pane's own button stays pressed.
+- **The Session pane** docks as a 320 px column at the right edge when the conversation would keep 560 px beside it,
+  otherwise (with three or four panes at most widths) it is a 280 px card over the conversation, 8 px from the first column. The choice is kept even while
+  there is no room, and the pane docks by itself when room appears. Esc inside the card and the button close it.
+- **The top bar** reads, at the right, Session, a thin divider, Terminal, Changes, Browser, Files, "…" and then the
+  window buttons. Each pane button toggles its pane; open is a filled rounded square behind the icon,
+  `aria-pressed` is always a boolean. The tooltip ("Show terminal (Ctrl+')", "Hide terminal (Ctrl+')") is drawn to
+  the left of the button, in the bar, so it never lies over a pane's header; a press hides it and it does not come
+  back until the pointer has left the button and returned. Terminal is Ctrl+' (Cmd on a Mac), Browser Ctrl+Shift+B
+  and Files Ctrl+Shift+F; Changes and the Session pane have no key. Plain Ctrl+B is still the sidebar's, and the
+  three chords leave a terminal for the window instead of reaching its program. The line totals that used to sit in
+  the bar are in the Session pane's Changes row and in the Changes pane.
+- **"…" (View options)** opens a small card: *Side chat* (Ctrl+;, Cmd+; on a Mac, as well as the existing
+  Ctrl+Alt+S) and, after a rule, *Keep computer awake* with "Only for this session" under it.
+- **The title** is text; a click turns it into a field. Enter saves, Esc cancels, leaving the field saves. The "∨"
+  right after it, "More options for <title>", holds the conversation's actions (Open in, Rename, Fork, Copy, Pin,
+  Mark as unread, Move to right pane, Move to new window, Archive). A terminal's title is not editable and has no
+  such menu.
+- **Tabs in a pane's header** (Terminal, Files, Browser) keep the room their names need, up to the tab's own cap; in a
+  narrow pane the strip scrolls instead of squeezing a name to a few letters, and the shown tab is scrolled into
+  view when it changes, when a tab is added and when the pane is resized (`PaneTabs` in `pane-bodies.tsx`). A tab
+  is never wider than the strip: one whose name does not fit ends it with an ellipsis rather than being cut at the
+  strip's edge, and a soft edge shows on a side that has tabs out of sight. The "+" sits right after the last tab,
+  however long that tab's name is.
+- **A terminal** started from the Terminal pane or button opens in the conversation's project folder, and in the
+  home folder for a conversation that has no project (its own folder would be Namzu's chats folder, which is nobody's
+  work; `terminalFolder` in `src/main/terminal-env.ts`). The pane lists only the terminals of this conversation's
+  project, so a terminal restored from an earlier run shows beside its own project and no other; opening the pane
+  with no running terminal for the project starts a fresh one, and an ended one stays for its Close and Restart.
+  Closing the pane only hides it: its shells keep running, and pressing the button again shows the one that was in
+  front (`chooseTerminalForPane` in `terminal-pane-choice.ts`). Only the pane's "+" starts another shell; a second
+  press before the first shell is listed does not start one either.
+  In a narrow pane the ended note's words wrap above its two buttons.
+- **Long lines** wrap by default in the Changes pane's diff ("Word wrap" is checked in its View menu, and can be
+  turned off) and in the Files pane's code preview, with each line number beside the first row of its line; a file
+  long enough to be drawn as a virtual list keeps one row per line.
+- **Each pane** has a 44 px header (a title or tabs, then "...", maximise, close). "..." moves the pane left, right,
+  up or down and closes the other panes. Terminal shows the group's terminals as tabs; Browser is a real browser
+  page (see [The Browser pane](#the-browser-pane)); Files is a tree of the work folder with U (not in git yet)
+  and M (modified) marks, a filter, and a file opens in a preview tab inside the pane (Markdown as a document, code
+  with line numbers, an image).
+- **Remembered** per conversation group in `namzu.panes.1.<group>`: the panes, their columns, dragged sizes, the
+  maximised pane and the Session flag. Bad or foreign data reads as no layout.
+- **The sidebar** no longer folds when a pane opens; it folds only by its own breakpoint.
+
+## The Browser pane
+
+The Browser pane shows a page for real: its own scripts, styles and images run, and a person can type an
+`http` or `https` address as in any browser. Its header is a tab strip (the page title, a close on each tab,
+and **+**); under it are Back, Forward, Reload and an address bar that can be edited. For a file the bar shows
+the whole local path (`C:/Users/me/work/site/index.html`, or `/home/me/work/site/index.html`), and for a web
+page its address; Enter opens what was typed, Esc puts back what was there. A bare host such as `example.com`
+gets `https://`. A page or a picture (`.png`, `.jpg`, `.gif`, `.webp`) a turn writes opens here by itself while the turn runs
+(unless **Auto-open files Namzu writes** is off), in the tab that has no page yet or in a new tab, and writing
+it again reloads its tab.
+
+**How it is kept apart from the app.** A page is untrusted web content, so it gets the same distance from the
+app as a page in another browser.
+
+- Each page is a `WebContentsView` the host (`src/main/browser-pane.ts`) lays into the pane's rectangle, never a
+  `<webview>`: the main window still refuses those. The renderer only reports where the rectangle is
+  (`BrowserPaneRequest`, read and checked in `src/shared/browser-pane.ts` because the renderer is not trusted).
+- The view has no preload, no Node, context isolation and the sandbox on. A page can see neither `require`
+  nor `process`.
+- Its session is a partition of its own, and none of the app's cookies or storage is in it. How long a sign-in
+  in it lasts is the **Keep cookies** setting (see [Browser rows in Settings](#browser-rows-in-settings)): one
+  partition shared by every conversation and gone when the app closes, a `persist:` partition kept across
+  restarts, or a partition for each conversation. The choice is read when a tab is made, so a change reaches
+  new tabs and open ones keep what they have.
+- Every permission a page can ask for (camera, microphone, notifications, location, a device) is denied, and a
+  download is refused.
+- `window.open` and links that ask for a new window open a tab in this pane, never a window.
+- A `file:` address is allowed only inside the conversation's work folder (`src/main/browser-address.ts`, tested
+  in `browser-address.test.ts`). The rule holds for an address typed, a link, a redirect, and a script, style or
+  image the page asks for. Dots in a path are resolved first and a drive's case is ignored on Windows, so
+  `work/../secret.html` is refused. The work folder comes from the host's record of the conversation, never from
+  the renderer's word. A path that leaves it, an address of any other kind (`javascript:`, `data:`, `ftp:`) and
+  a conversation with no work folder (a Pal's) are refused with a plain sentence under the address bar.
+- A native view sits above the app's own page, so a menu or dialog that reaches the page's rectangle, and a
+  divider being dragged, make the page step aside until they are gone. The host takes a picture of the page first
+  (`freeze`, answered through the pane's state as `still`) and the pane shows it in the page's place, so the area
+  never goes blank under a menu; placing the page again takes the picture away.
+
+Known limits: a page that holds the keyboard does not pass the app's chords (Ctrl+Shift+B and the rest) back
+until focus returns to the app, and a symbolic link inside the work folder that points outside it is followed
+for subresources (a navigation is checked against the real path).
+
+## The top-bar menu, the composer and the reply rows
+
+- **"…" in the conversation's top bar** is the View options card (see [the pane grid](#the-pane-grid)). *Side chat*
+  (Ctrl+;, and Ctrl+Alt+S in the conversation's menu) is the side conversation: a copy of this conversation that
+  opens in a pane to the right. *Keep computer awake*, with "Only for this session" under it, is a switch: while on,
+  the host holds a power-save blocker that keeps the display and the computer from sleeping. It is released when the
+  switch goes off, when the window that turned it on closes, and when the conversation is removed. It is per
+  conversation and is not remembered across a restart. The rest of the conversation's actions are under the "∨"
+  after the title.
+- **The message box** shows a hint that is one short line and never wraps, so the empty box is one line high
+  (44 px) at any width. While a reply runs it reads "Ctrl+Enter to queue" (Cmd on a Mac) and the full sentence
+  ("Enter sends now · Ctrl+Enter or Tab sends after this reply") is its tooltip. After a message is sent the
+  box goes back to one line.
+- **Reply rows.** The time and the reply's buttons share one 24 px row; the time's digits sit 1.5 px below the
+  buttons' centre line and the buttons are 24 px apart. What a command printed starts under its words (the row's
+  own 12 px inset, not a further icon's width in). In an opened group the header's words start 5 px from the box
+  edge, the rows' words 13 px, the box is 8 px under the header, and a row is 36 px high with a hairline, so
+  rows are 37 px apart.
+
+## The composer's menus
+
+Three menus open from the message box. None of them takes the keyboard from it: the caret stays in the box and
+the box's own key handler moves the highlight.
+
+- **"/" lists commands.** It opens when the box's first character is "/" and no space lies between it and the
+  caret (a "/" anywhere else is text), is read from the changed text and the caret, never from the key, so the
+  Turkish layout (Shift+7) works, and is off in a Pal's box and in CLI mode. The list sits flush on the box's top
+  edge, 240 px wide, up to 384 px high (it scrolls inside), its left 16 px before the text. A row is 28 px and
+  shows a name without the slash; what the highlighted row does is a black tooltip beside the list, level with the
+  row, 2 px away, up to 208 px wide (it flips to the left when the window has no room). The empty box says "Type /
+  for commands" in an open conversation (the new-conversation screen keeps "Ask Namzu anything"), and a ghost "Type
+  to filter" follows a lone "/".
+  - **Filtering** ranks an exact name, then a name that starts with the text, then one that contains it, then a
+    row whose alias or tooltip does; inside a tier the list's own order stays. Case and accents are folded. When
+    nothing matches the list closes and the text stays; Enter then sends it as an ordinary message, so
+    "/usr/bin/foo is missing" is sent. A line that starts with a command that takes no text but carries some
+    ("/new feature ideas") is also a message.
+  - **Keys.** Up and Down move (no wrap), PageUp and PageDown move seven rows, Enter and Tab choose, Esc closes
+    and leaves the "/" in the box (the list stays closed until the text it was asked about changes), Backspace
+    over the "/" closes it. Ctrl, Alt, Shift and an input method that is composing keep their keys.
+  - **Choosing** a row that takes text (`effort`, `plan`, `rename`) leaves "/name " in the box with a grey hint
+    after it ("[what to plan]"); the next Enter runs it with what was typed. A row without text runs at once and
+    empties the box. No row starts a reply. The leading "/name" is drawn in the accent colour by a layer behind the
+    box that has the box's own type and padding.
+  - **Rows** are things this window already does: btw (a side chat), fork, mcp, model, effort, plan, permissions,
+    rename, export, diff, terminal, browser, files, tasks, config, theme, hooks, resume, login, copy, new, archive
+    and release-notes. A row that cannot run in this conversation is not listed (never greyed): effort needs a
+    model with levels, resume another conversation, the pane rows an open conversation, mcp and hooks the Namzu
+    engine. On the new-conversation screen only the rows that need no conversation show, with a muted line that
+    more appear once it starts. Commands that need the engine (goal, skills, compact, memory, rewind) are not
+    here: no call carries them yet.
+- **"+" opens a menu** flush on the box's top edge, left edge level with the button, 240 px wide. Rows: *Add files
+  or photos* (Ctrl+U, Cmd+U on a Mac, from anywhere in the box), *Slash commands* (puts "/" in an empty box and
+  opens the list), *Tool servers* and *Plugins*, each opening a menu to its right, 2 px away and level with the
+  row's bottom. Tool servers lists *Manage tool servers* and each server with a state word (Connected, Needs
+  approval, Failed, Not started); a row opens Settings > Tools, because an approval is decided where it is
+  explained. Plugins lists each plugin with a switch that changes it through the same call the conversation uses,
+  and is held while work runs or a question waits. One Esc closes the side menu, another the menu, and the keyboard
+  goes back to the box. A click on Tool servers or Plugins opens its side menu and keeps it open (the hover that
+  comes first does not toggle it shut, and a pointer drifting off the row does not close what was asked for);
+  hovering still opens it. Add folder is not offered: no call gives a running conversation another folder. A Pal's
+  box keeps its older popover.
+- **"@" lists files.** It opens at the start of the box or after white space (an address such as a@b is not one)
+  and runs to the caret; `@"name with spaces"` is allowed. The list is the project's files, read the first time
+  "@" is typed and kept for the project; an empty query shows the first eight, a query ranks by letters and draws
+  the matched letters of the name strong, with the folder after it in grey. It is 420 px wide, its left at the "@"
+  and its bottom on the top of the line that holds it. Enter or Tab writes `@path ` (a path with a space is
+  quoted) and the caret goes after it; a file picked this way is drawn in the accent colour in the box, by the same
+  layer that draws a chosen "/name" (only a picked token that stands whole is painted, an "@name" typed by hand is
+  not). If the list cannot be read, nothing opens.
+- **A resting pointer does not move the highlight.** A row takes the highlight only from a pointer that moved
+  (`movementX` or `movementY` is not zero); the move the browser sends when a list appears or scrolls under a
+  pointer at rest has no distance and is ignored, so Down starts from the first row.
+- **Number keys in the model and mode popups.** Each row of the model popup (Auto first, then the models as drawn) and
+  of the permission popup shows its number, 1 to 9, in muted small type at the row's right edge, after the check.
+  A plain number key picks that row, as a click does; never with Ctrl, Alt, Shift or Meta, never while an input
+  (the model search) has the keys. The pure helper is `numberedRow` in `composer-permissions.tsx`; the model popup
+  reads `data-number` from the row it drew.
+
+The pure parts (the filter and its order, the argument hint, the "@" grammar and list) are
+`src/renderer/composer-menu-model.ts` and `composer-mention-list.ts`; the rows are `slash-actions.ts`.
 
 ## The frame's numbers
 
@@ -3699,6 +4136,24 @@ and at the right. Behind it the window is covered, sidebar and header included, 
 the dark theme and 40 in the light one (`--dialog-scrim`). The dialogs that are not confirmations (rename,
 the folder's access, undo, the update dialog, a Pal's settings and customize, an attachment preview) keep
 their own widths and take the same padding, corners, scrim and button height.
+
+### Browser rows in Settings
+
+Settings, Tools, has a **Built-in browser** heading right after the engine's **Browser** rows. The engine's
+*Site permissions* (`browser.sites`) govern the browser Namzu drives, not this pane. The rows are the app's
+own (`desktop-settings.json`), and each applies at once except where it says so:
+
+| Row | Key | Default | Control | What main does |
+| --- | --- | --- | --- | --- |
+| *Auto-open files Namzu writes* | `autoOpenFiles` | on | switch | Nothing in main: the window reads it. On, a page or picture a turn writes opens in the Browser pane (`opensInBrowser`: `html`, `png`, `jpg`, `gif`, `webp`). Off, the file is still noted as seen, so turning the switch on later never opens old files, but nothing opens by itself. Documents (`.md`) have no auto-open path today, and a PDF has no preview kind, so neither is covered. |
+| *Keep cookies* | `browserCookies` | *Per conversation* | drop-down | `BrowserPaneHost` reads it when a tab is made (`cookieScope`) and picks the partition (`partitionOf`): *Until you quit* is `namzu-browser-shared` (no `persist:`), *Across restarts* is `persist:namzu-browser`, *Per conversation* is one partition per conversation id, as before, and is the default so an upgrade changes nothing. A change applies to new tabs; the row says so. Leaving *Across restarts* clears the saved partition (`clearStorageData`), so its sign-ins do not come back later. A partition several conversations share judges a `file:` request by the work folder of the conversation whose tab asked (`webContentsId`), and a request from no known tab may load no file. |
+| *Open links in built-in browser* | `openLinksInBrowser` | on | switch | A link in a reply (`MessageLink`, and the open button of its preview card) asks the window's `LinkRouteContext`. On, the window opens a new Browser tab at the address and shows the pane, unless the pane already holds `MAX_BROWSER_TABS` tabs, when the link goes to the system browser; the system browser is not touched. Off, or when the window has no pane, the link goes to `openExternal` and the system's default browser, as before. Only `http` and `https` links reach this path. |
+| *Connected browsers* | none | | table, **Recheck** | Two lines. *Built-in browser* is ready when the window has a pane. *Browser Namzu uses* is the engine's answer to `namzu/browser/status` (a plain sentence from `browserStatus`: which browser, on Windows or this computer, with or without a window; the id, path and bridge stay in `namzu browser status`), read from the user file's `browser.enabled`, `browser.engine` and `browser.headless`, and launches nothing, like `namzu browser status`. States: ready, ready with a note, not available (with the reason), switched off, not installed. An engine without the method reads *Not known*. Recheck asks again. |
+
+*Allowed sites for the built-in browser* is not a row. The pane has no per-site gate: an `http` or `https`
+address is open to the whole web (`resolveAddress`), and the only address rule is the work-folder rule for
+`file:`. A list would have to be enforced in `will-navigate`, `will-redirect` and the request filter, which
+nothing does today, so a row that looked like a gate would not be one.
 
 ## Settings and the search overlay
 
@@ -3972,7 +4427,7 @@ nothing and keeps the scrollback; reloading the window rebuilds the screen from 
 shell** chooses `Automatic`, `PowerShell 7`, `Windows PowerShell`, `Command Prompt` or `WSL` (only
 what is installed is offered; a missing choice falls back to `Automatic`). `Automatic` is PowerShell 7
 when `pwsh.exe` is found and otherwise Command Prompt switched to UTF-8 (`cmd.exe /d /k chcp 65001>nul`),
-never Windows PowerShell 5.1, which silently drops a typed `İ`. **Bring terminal tabs back** (default
+never Windows PowerShell 5.1, which silently drops a typed `İ`. **Restore terminal tabs** (default
 on) decides whether tabs return after a restart; while it is off no screen is kept at all: nothing is
 written to `terminal-tabs.json`, and turning it off removes what an earlier run left there, because a
 saved screen can hold what a program printed or what was typed into it, a token included. A program's
@@ -4726,12 +5181,30 @@ project's name is in the line under the heading). Each row shows the server's na
 state: Connected, Waiting for your approval, Failed (with the engine's reason) or Not connected right now (no open conversation in the project holds it: none
 has started, or the ones that did are closed). The list is read again when the window regains focus, and a list
 read for one project is never shown under another project's name. A failure is remembered with the server's settings
-as they were; once those settings change it is no longer shown. The list is read-only. When servers from `.mcp.json` wait, a box above the list
+as they were; once those settings change it is no longer shown. The servers in the person's own settings (the user config file) can be changed here, the project's cannot. When servers from `.mcp.json` wait, a box above the list
 says they have not started and that approving lets them run the listed programs, with one button, **Approve this
 server** or **Approve these N servers**. It sends the names and fingerprints it was shown to `namzu/mcp/approve`,
 the same record `namzu mcp approve` writes, and reads the list again. The engine takes a project's servers instead of the
 user's whole table once the project has any approved, so the list shows what would start. A folder nobody
 trusted shows nothing; a `.mcp.json` that cannot be read shows its error. The old "Not set" row for this setting is gone.
+
+**Add, change and remove.** A server that the user file holds shows **Edit** and **Remove** on its line, and **Add server**
+sits under the list (with no project open the row lists the user file's own servers and the same buttons). The form asks
+for a name (letters, digits, `_` and `-`, starting with a letter, up to 64: the rule `namzu mcp add` applies), then either a
+program to run (a command and its arguments, one per line) or a web address (http or https, no user name or password in it,
+and a query only on https or this computer). The name is fixed while editing. The row says "Variables and headers are
+edited in the file" with the config file's path: an entry's `env`, `inheritEnv`, `headers`, `cwd` and every other field are
+never read into the window and are kept exactly as written on an edit (the edit sets only `command` and `args`, or only `url`,
+in one write that keeps the file's comments and order; switching between a command and an address drops only the other
+kind's command, arguments or address). Adding a command, or editing one so the command or its arguments change, asks
+first ("This server starts &lt;command line&gt; when a conversation starts.", the whole line: a command line over 1000 characters is refused rather than cut): main answers the save with a one-time
+token bound to the window and the exact change and saves only when that change returns with it, after the engine has
+checked the change without writing it (`dryRun`). An address, or an edit that leaves the command as it is, asks nothing.
+Remove asks one inline question and drops the whole entry, variables included. An entry that is neither a command nor an
+address can be removed here and edited in the file. The host methods are the optional group `userMcpServers`:
+`namzu/mcp/user-servers` (the user file's servers, never variables or headers; the list carries the program, how many arguments it has, and only the origin of an address, because an argument or an address path can hold a key; `{ name }` returns that one entry whole, read when its Edit form opens),
+`namzu/mcp/save-user-server` (`mode` add or edit, `name`, then `command` and `args` or `url`, and `dryRun`) and
+`namzu/mcp/remove-user-server`; each refuses a Pal. A host without them shows the list with no buttons.
 
 ### Hooks in Settings and the trust dialog
 
@@ -4742,12 +5215,13 @@ every folder, and the line under the heading says so). A host that does not list
 optional groups, which `src/main/rpc-client.ts` reads) gets the sentence "This version of Namzu cannot list hooks. Update
 Namzu to see what runs by itself here." and nothing else; the switch still works from the settings the engine describes.
 
+- **A broken config file** is said once per Settings page, in Desktop's words: the file, the line and column, and "Fix it and choose Try again." (`renderer/settings-file-error.ts` swaps the terminal's "start Namzu again" advice). Tool servers and Hooks show "Shown once your settings can be read." while the file cannot be read, and the hooks list leaves out the "Not loaded" row that would repeat the same failure. The window re-reads on Try again and on focus; a window opened on an already broken file does not watch the file until one read succeeds.
 - **Run hooks** is the user-level `disableHooks` setting turned the other way round, saved through the same
   `namzu/config/set` road as every engine setting (it is left out of the plain list of Tools settings, so it is not shown
   twice or found twice by search; turning it on puts the default back, which removes the key). Where `disableHooks` was set
   by the environment (`NAMZU_DISABLE_HOOKS`), the managed file or a profile, or `hooksManagedOnly` is on, the switch is
   disabled and one line says which and where; the line reads the answer's `switches`, so it names a variable or a file
-  and never invents one. Until the answer is in, the switch is left alone. The engine reads the setting when a project connects, so a project that is already open keeps what it started with and the change reaches it when Namzu next connects to it (the row says so, and so does a line that appears under the switch as soon as it is saved); `e2e/ux-hooks-view.test.mjs` shows a hook that leaves a mark stop leaving one after the switch is turned off and the app connects again.
+  and never invents one. Until the answer is in, the switch is left alone. The engine reads the setting again when a conversation starts, so new conversations take the change and a conversation that is already open keeps what it started with (the row says so, and so does a line that appears under the switch as soon as it is saved); `e2e/ux-hooks-view.test.mjs` shows a hook that leaves a mark stop leaving one in a new conversation after the switch is turned off, without restarting the app.
 - **Hooks** lists every hook grouped by when it runs (for example "Before a tool runs", with the event name beside it),
   each as what it starts, its matcher, `if`, `once`, background and deadline options, where it comes from ("This
   folder's settings", "Your own settings", "Plugin review-bot", "Skill careful", "Agent file runner"), where to change it
@@ -4801,6 +5275,9 @@ ACP methods and are not automatically installed in embedded SDK servers.
 | `namzu/mcp/servers` | `{}` | `{servers: [{name, origin, state, detail?, reason?, fingerprint?}], error?}`: the project's tool servers. `origin` is `your-config`, `this-project` (`namzu.config.json`) or `project-file` (`.mcp.json`); `state` is `connected` (a conversation of this project has it), `waiting` (in `.mcp.json`, not approved), `failed` (`reason` says why; the last conversation start in this folder was refused for it) or `idle` (approved and not started yet). `detail` is a command name or a web origin, never arguments, headers or environment. `fingerprint` is on `waiting` rows only. Reads files; starts nothing; empty for an untrusted folder or a Pal |
 | `namzu/mcp/approve` | `servers: [{name, fingerprint}]` | `{approved: [name]}`: records the approval the way `namzu mcp approve` does, bound to the entry as listed (an entry that changed since stays waiting) |
 | `namzu/project/git` | `{}` | `{branch, subject}` for the host folder, or `null` when untrusted, not a repository, git is missing or slower than 3 s. `branch` is `null` on a detached HEAD, `subject` is the last commit's first line (200 characters). Runs `git -c core.fsmonitor=false --no-optional-locks` with no shell, `GIT_OPTIONAL_LOCKS=0`, a 64 KiB output cap and a 15 s cache per folder |
+| `namzu/limits/refresh` | `{}` | `{providers: [{provider, label, kind, plan?, windows?, credit?, spend?, asOf?}]}`: what each provider in use says about its account ([Usage limits](usage-limits.md)); optional group `limits`. A provider that has to be asked is asked at most once a minute; one whose numbers ride on responses already made costs no request. The same shape is sent as the host-level notification `namzu/limits` after a turn when it changed |
+| `namzu/project/commit-preview` | `sessionId`, `paths` (the files the conversation changed) | `{files: [{path, state, fingerprint}], otherDirty, skippedSecrets, branch, detached, suggestedMessage, messageSource, blocker?}`; optional group `projectCommit`. Reads git; asks the small model once for the message; nothing is written |
+| `namzu/project/commit` | `paths`, `message`, `fingerprints` | `{ok: true, hash, subject}`, or `{ok: false, reason}` with git's own words (a hook, no identity, a changed file, an untrusted folder). Commits only the named files, never pushes or skips a hook |
 | `namzu/project/changes` | `{}` | `{files, truncated}` of the working tree against HEAD, or `null` when untrusted or not a repository (a timeout is an error, never an empty list). Each file is `{path, status, added, removed, oldPath?, binary?}` (a renamed binary file stays `renamed` and carries `binary: true`) with `status` one of `modified`, `added`, `deleted`, `renamed`, `untracked`, `binary`, paths relative to the host folder. At most 2,000 files, then `truncated: true` |
 | `namzu/project/diff` | exact `path` | `{before, after, binary, truncated}`: the file in HEAD and in the working tree, `null` for a side that does not exist, `binary: true` for NUL bytes or invalid UTF-8, `truncated: true` over 2 MiB. Requires folder trust; the path is confined as the file panel's are |
 | `namzu/conversations/input/status` | exact `sessionId`, optional `scopeId` | current or retained closed prompt scope, `available`, and input IDs classified as `pending` or `delivered` |
@@ -4815,6 +5292,7 @@ ACP methods and are not automatically installed in embedded SDK servers.
 | `namzu/plugins/list` | optional `sessionId` | bounded installed or live plugin inventory and whether it can be changed |
 | `namzu/plugins/set_enabled` | `sessionId`, `name`, `enabled` | changes one loaded plugin in an idle conversation and returns its inventory |
 | `namzu/turns/undo-status`, `namzu/turns/undo-preview`, `namzu/turns/undo` | see [Turn undo](turn-undo.md#acp-methods) | per-reply file undo, used by [Undoing a reply](#undoing-a-reply) |
+| `namzu/session/context` | `sessionId`, optional `detail` (`summary` or `full`) | where the conversation's context window goes: the [context panel](#context-panel)'s answer, or `null` before the engine has reported a window. Optional group `contextPanel` |
 | `namzu/jobs/list` | `sessionId` | this session's jobs |
 | `namzu/jobs/read` | `sessionId`, `jobId` | retained chunk, offsets and dropped-byte count |
 | `namzu/jobs/stop` | `sessionId`, `jobId` | stopped job |
@@ -4961,7 +5439,7 @@ reply to end. `withCliHarnesses` now asks the turn itself.
 
 **Shell commands.** A command is one row with its output under it (`shell-cell.ts`, `shell-cell-view.tsx`):
 the first three lines (ten for a failed command), then "+N lines" to open the rest, stderr in the error
-colour, how it ended once ("Exit code 3", "Timed out", "Stopped before it finished") instead of repeating it
+colour, how it ended once ("Didn’t finish (code 3)", "Timed out", "Stopped before it finished") instead of repeating it
 beside the command, and "(No output)". A command handed to a background job reads "Running in the background"
 with **See it**, which opens the activity panel. The run's header counts it: "Ran 4 commands, 1 failed, 1 in
 the background".

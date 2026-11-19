@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react'
+import { reducedMotion } from './motion-setting.js'
 
 export type ComputerChatLayout = 'hidden' | 'split' | 'floating'
 
@@ -44,7 +45,7 @@ const pinProperties = [
 /** Own only visual effects on the persistent chat; never clone or replace authored content. */
 export function createComputerChatMotion(stage: HTMLElement, onHidden: () => void) {
 	const view = stage.ownerDocument.defaultView
-	const media = view?.matchMedia('(prefers-reduced-motion: reduce)')
+	const media = reducedMotion(view)
 	let prepared: Capture | null = null
 	let target: MotionTarget | null = null
 	let frameAnimation: Animation | null = null

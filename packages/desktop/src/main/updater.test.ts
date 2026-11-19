@@ -534,7 +534,7 @@ describe('ordering', () => {
 		failShutdown(new Error('could not confirm that all runtime processes stopped'))
 		expect(await controller.install()).toEqual({
 			ok: false,
-			error: 'Shutdown failed.',
+			error: 'Namzu couldn’t stop, so the update wasn’t installed.',
 		})
 		expect(log).toEqual(['shutdown:start'])
 		expect(controller.state).toMatchObject({

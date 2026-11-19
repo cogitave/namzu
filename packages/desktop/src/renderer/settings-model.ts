@@ -1,7 +1,8 @@
 import type { EngineDeliveryView } from '../shared/engine-delivery-protocol.js'
 import type { KernelNewer } from '../shared/engine-update-protocol.js'
+import type { OsState } from '../shared/os-state.js'
 import type { ProjectView } from '../shared/protocol.js'
-import { FINISHED_NOTICE_AFTER_SECONDS } from '../shared/settings-protocol.js'
+import { SETTINGS_CATALOGUE } from '../shared/settings-catalogue.js'
 import {
 	type DataFolderKind,
 	type SettingsSection,
@@ -18,7 +19,9 @@ export const SETTINGS_SECTION_TITLES: Record<SettingsSection, string> = {
 	tools: 'Tools',
 	projects: 'Projects',
 	appearance: 'Appearance',
+	notifications: 'Notifications',
 	terminal: 'Terminal',
+	desktop: 'Desktop app',
 	telemetry: 'Telemetry',
 	updates: 'Updates',
 	speech: 'Speech',
@@ -33,23 +36,57 @@ export const SETTINGS_SECTION_SUBTITLES: Record<SettingsSection, string> = {
 	tools: 'The web, the browser, connected servers, hooks and plugins.',
 	projects: 'The folders Namzu knows, what it may do in them, and when it asks you.',
 	appearance: 'Choose how Namzu looks.',
-	terminal: 'Applies to the namzu terminal app, not to this window.',
+	notifications: 'When Namzu tells you something while you are in another window.',
+	terminal: 'The terminals in this window, the terminal app, and the command line.',
+	desktop: 'How this app itself runs on your computer.',
 	telemetry: 'Where records of your work may be sent. Off unless you set a place.',
 	updates: 'Keep Namzu and the programs it works with up to date.',
 	speech: 'Talk to Namzu and have replies read aloud, with voices that stay on this computer.',
 	about: 'Versions, your system, and where Namzu keeps its files.',
 }
 
+/**
+ * One line under the title of the sections whose rows mostly apply to new conversations, so no row
+ * has to repeat it. A row that waits for a restart carries its own badge.
+ */
+export const SETTINGS_SECTION_APPLY_NOTE: Partial<Record<SettingsSection, string>> = {
+	models:
+		'Most changes here apply to new conversations. Open ones keep what they have. A row that waits for a restart says so.',
+	agent:
+		'Most changes here apply to new conversations. Open ones keep what they have. A row that waits for a restart says so.',
+	tools:
+		'Most changes here apply to new conversations. Open ones keep what they have. A row that waits for a restart says so.',
+	projects:
+		'Most changes here apply to new conversations. Open ones keep what they have. A row that waits for a restart says so.',
+}
+
 /** Sections whose rows all come from the engine's own description, so none is listed here. */
-export const ENGINE_ONLY_SECTIONS: readonly SettingsSection[] = [
-	'agent',
-	'tools',
-	'terminal',
-	'telemetry',
-]
+export const ENGINE_ONLY_SECTIONS: readonly SettingsSection[] = ['agent', 'tools', 'telemetry']
 
 /** The line under the heading while a search is showing results. */
 export const SETTINGS_SEARCH_SUBTITLE = 'Matches from every section.'
+
+/**
+ * The left column's groups, top to bottom, with a hairline between them. Models comes first on its
+ * own because nothing else works without a provider; what the app looks like and says comes next;
+ * what the agent may do follows; the facts about this install end the list.
+ */
+export const SETTINGS_NAV_GROUPS: readonly (readonly SettingsSection[])[] = [
+	['models'],
+	['general', 'appearance', 'notifications', 'speech'],
+	['agent', 'tools', 'projects', 'terminal'],
+	['desktop', 'telemetry', 'updates', 'about'],
+]
+
+/** The groups with only the sections that have a match; with no search, every group whole. */
+export function visibleNavGroups(
+	matches: readonly { section: SettingsSection }[] | undefined,
+): SettingsSection[][] {
+	const shown = matches ? new Set(matches.map((entry) => entry.section)) : undefined
+	return SETTINGS_NAV_GROUPS.map((group) =>
+		group.filter((section) => !shown || shown.has(section)),
+	).filter((group) => group.length > 0)
+}
 
 /** `settings/<section>`; a bare `settings` means the first section. */
 export function settingsRoute(section: SettingsSection): string {
@@ -72,197 +109,76 @@ export interface SettingsEntry {
 	keywords?: readonly string[]
 }
 
-export const SETTINGS_ENTRIES: readonly SettingsEntry[] = [
-	{
-		id: 'startup',
-		section: 'general',
-		label: 'When Namzu starts',
-		description: 'Continue where you left off, or start on the home screen.',
-		keywords: ['startup', 'launch', 'open', 'restore', 'tabs', 'home', 'restart'],
-	},
-	{
-		id: 'terminal-shell',
-		section: 'general',
-		label: 'Default terminal shell',
-		description:
-			'The shell a new terminal tab opens: PowerShell, Command Prompt or WSL on Windows.',
-		keywords: ['terminal', 'shell', 'powershell', 'cmd', 'command prompt', 'wsl', 'console'],
-	},
-	{
-		id: 'terminal-restore',
-		section: 'general',
-		label: 'Bring terminal tabs back',
-		description:
-			'After a restart, terminal tabs return as ended terminals showing their last screen.',
-		keywords: ['terminal', 'restore', 'restart', 'tabs'],
-	},
-	{
-		id: 'attention-signals',
-		section: 'general',
-		label: 'Show when a conversation needs you',
-		description:
-			'A count on the app icon and one taskbar or dock flash while a conversation waits for you.',
-		keywords: ['badge', 'flash', 'taskbar', 'dock', 'attention', 'approval', 'notify', 'icon'],
-	},
-	{
-		id: 'notify-needs-you',
-		section: 'general',
-		label: 'Notify me when a conversation needs my answer',
-		description:
-			'A system notification when an approval or a question is waiting and Namzu is in the background.',
-		keywords: ['notification', 'notify', 'banner', 'alert', 'approval', 'question', 'background'],
-	},
-	{
-		id: 'notify-failed',
-		section: 'general',
-		label: 'Notify me when a conversation stops with an error',
-		description:
-			'A system notification when a reply stops with an error and Namzu is in the background.',
-		keywords: ['notification', 'notify', 'banner', 'alert', 'error', 'failed', 'background'],
-	},
-	{
-		id: 'notify-finished',
-		section: 'general',
-		label: 'Notify me when a long reply finishes',
-		description: `A system notification when a reply that took ${FINISHED_NOTICE_AFTER_SECONDS} seconds or more is done and Namzu is in the background.`,
-		keywords: [
-			'notification',
-			'notify',
-			'banner',
-			'alert',
-			'finished',
-			'done',
-			'complete',
-			'background',
-		],
-	},
-	{
-		id: 'notify-sound',
-		section: 'general',
-		label: 'Play a sound with notifications',
-		description:
-			'Off by default. The system decides the sound, and its do-not-disturb setting still applies.',
-		keywords: ['notification', 'sound', 'chime', 'audio', 'silent'],
-	},
-	{
-		id: 'models',
-		section: 'models',
-		label: 'Models and API keys',
-		description:
-			'Connect a provider: paste an API key, or use a Claude or ChatGPT sign-in Namzu finds. Check or remove a key.',
-		keywords: [
-			'provider',
-			'api key',
-			'key',
-			'anthropic',
-			'claude',
-			'openai',
-			'chatgpt',
-			'codex',
-			'gemini',
-			'google',
-			'sign in',
-			'connect',
-			'login',
-			'zen',
-			'free',
-		],
-	},
-	{
-		id: 'runHooks',
-		section: 'tools',
-		label: 'Run hooks',
-		description:
-			'Switch off the commands your settings, plugins, skills and agent files start by themselves at set moments.',
-		keywords: ['hooks', 'disable', 'turn off', 'automatic', 'commands', 'disableHooks'],
-	},
-	{
-		id: 'hooks',
-		section: 'tools',
-		label: 'Hooks',
-		description:
-			'What runs by itself in the open project: each hook, when it runs, where it comes from and whether it is on.',
-		keywords: ['hooks', 'automatic', 'commands', 'plugin', 'skill', 'agent', 'pre_tool_use'],
-	},
-	{
-		id: 'projects',
-		section: 'projects',
-		label: 'Projects',
-		description: 'The folders Namzu knows. Remove one from Namzu without deleting any files.',
-		keywords: ['remove', 'folder', 'trusted', 'forget'],
-	},
-	{
-		id: 'retrust',
-		section: 'projects',
-		label: 'Ask again when a project’s automatic settings change',
-		description:
-			'Ask before a trusted project loads automatic settings that changed since you trusted it.',
-		keywords: ['trust', 'hooks', 'mcp', 'config', 'security'],
-	},
-	{
-		id: 'theme',
-		section: 'appearance',
-		label: 'Theme',
-		description: 'Light, dark, or follow your system.',
-		keywords: ['dark', 'light', 'system', 'color', 'colour', 'mode'],
-	},
-	{
-		id: 'interface-font',
-		section: 'appearance',
-		label: 'Interface font',
-		description: 'Namzu’s own typeface or the one your device uses, for text and code.',
-		keywords: ['font', 'typeface', 'type', 'geist', 'system', 'text', 'mono', 'code'],
-	},
-	{
-		id: 'conversation-tabs',
-		section: 'appearance',
-		label: 'Show conversation tabs',
-		description: 'A strip of tabs above the conversation. Off, the sidebar is the one list.',
-		keywords: ['tabs', 'strip', 'bar', 'conversations', 'window', 'layout'],
-	},
-	{
-		id: 'version',
-		section: 'updates',
-		label: 'Check for updates',
-		description: 'The version you have, when Namzu last checked, and a button to check now.',
-		keywords: ['version', 'upgrade', 'download', 'restart', 'latest'],
-	},
-	{
-		id: 'auto-download',
-		section: 'updates',
-		label: 'Download updates automatically',
-		description: 'When off, a new version is only offered and you choose when to download it.',
-		keywords: ['update', 'background', 'badge'],
-	},
-	{
-		id: 'voice',
-		section: 'speech',
-		label: 'Voice',
-		description: 'Turkish speech that runs on this device: download, remove and options.',
-		keywords: ['speech', 'tts', 'read aloud', 'install', 'remove', 'turkish', 'language'],
-	},
-	{
-		id: 'voice-input',
-		section: 'speech',
-		label: 'Voice input',
-		description: 'Talk to Namzu in Turkish: download, remove and microphone permission.',
-		keywords: ['microphone', 'mic', 'speech to text', 'dictation', 'talk', 'listen', 'turkish'],
-	},
-	{
-		id: 'about',
-		section: 'about',
-		label: 'About Namzu',
-		description: 'Versions of the app and its command line.',
-		keywords: ['version', 'cli', 'sdk', 'build'],
-	},
-	{
-		id: 'folders',
-		section: 'about',
-		label: 'Data folders',
-		description: 'Where Namzu keeps its files, and a way to open them.',
-		keywords: ['explorer', 'finder', 'logs', 'diagnostics', 'storage', 'open'],
-	},
-]
+/**
+ * The Desktop-owned rows, from the catalogue (`shared/settings-catalogue.ts`). The engine's rows are
+ * added by `configSearchEntries`, so this file keeps no list of its own.
+ */
+export const SETTINGS_ENTRIES: readonly SettingsEntry[] = SETTINGS_CATALOGUE.filter(
+	(entry) => !entry.hidden,
+).map((entry) => ({
+	id: entry.id,
+	section: entry.section,
+	label: entry.label,
+	description: entry.description,
+	...(entry.keywords ? { keywords: entry.keywords } : {}),
+}))
+
+/** What decides whether a row is drawn on this machine: facts only the running app knows. */
+export interface DrawnFacts {
+	/**
+	 * The shells a new terminal tab can open: `undefined` until main answers, `null` where there
+	 * are no terminals. Main offers a choice only on Windows, the one platform whose terminals read
+	 * the setting, so more than one shell means Windows.
+	 */
+	shells: readonly unknown[] | null | undefined
+	/** This copy can update itself, so its own update rows mean something. */
+	hasAppUpdater: boolean
+	/** This build can fetch engines. */
+	canFetchEngines: boolean
+	/** What the system says about the rows it applies; `null` with no host to ask, `undefined` until it answers. */
+	os?: OsState | null | undefined
+}
+
+/**
+ * Whether the page draws the row a search entry names. Search offers a row only where it is drawn
+ * (every hit lands on and focuses a row), so the page and the search both ask this one function.
+ */
+/**
+ * Whether a conversation in this app can ask the person a question with choices. It cannot yet (the
+ * question tool is the terminal app's), so the Questions notification row would change nothing and
+ * is not drawn; its saved level stays for the day it can.
+ */
+export const DESKTOP_ASKS_QUESTIONS = false
+
+export function entryIsDrawn(id: string, facts: DrawnFacts): boolean {
+	switch (id) {
+		case 'notify-question':
+			return DESKTOP_ASKS_QUESTIONS
+		// Windows only: elsewhere the shell is the person's login shell and nothing is read.
+		case 'terminal-shell':
+			return (facts.shells?.length ?? 0) > 1
+		case 'terminal-restore':
+		case 'terminal-code-link':
+			return facts.shells !== null
+		case 'auto-download':
+			return facts.hasAppUpdater
+		// The rows the system applies are drawn only where it can: the answer says which.
+		case 'run-on-startup':
+			return facts.os?.loginItem !== undefined
+		case 'system-tray':
+			return facts.os !== null && facts.os !== undefined
+		case 'pause-on-metered':
+			return facts.os?.metered !== undefined
+		case 'engine-delivery':
+		case 'keep-engine':
+			return facts.canFetchEngines
+		// Shown as “Run hooks” in its own place, so the plain setting is not a second result.
+		case 'cfg-disableHooks':
+			return false
+		default:
+			return true
+	}
+}
 
 function words(value: string): string[] {
 	return foldSearchText(value)
@@ -320,7 +236,11 @@ export interface UpdateStatusView {
 	canCheck: boolean
 }
 
-export function updateStatusView(state: UpdateState): UpdateStatusView {
+/**
+ * `checked` is whether this copy has made a check since it started. Before one, "up to date" would
+ * be a claim nothing backs, so the idle state says it has not looked.
+ */
+export function updateStatusView(state: UpdateState, checked = true): UpdateStatusView {
 	switch (state.status) {
 		case 'disabled':
 			return {
@@ -328,7 +248,11 @@ export function updateStatusView(state: UpdateState): UpdateStatusView {
 				canCheck: false,
 			}
 		case 'idle':
-			return { text: 'Up to date.', action: 'check', canCheck: true }
+			return {
+				text: checked ? 'Up to date.' : 'Not checked yet.',
+				action: 'check',
+				canCheck: true,
+			}
 		case 'checking':
 			return { text: 'Checking for updates…', canCheck: false }
 		case 'available':
@@ -424,7 +348,7 @@ export function projectRemovalCopy(project: Pick<ProjectView, 'name' | 'missing'
 		title: `Remove ${quoted} from Namzu?`,
 		description: project.missing
 			? `Namzu can\u2019t find the folder for ${quoted}. This only removes the project from Namzu. Nothing on your computer is deleted.`
-			: `This removes ${quoted} from Namzu and takes the folder off Namzu\u2019s trusted list, so Namzu asks again if you add it back. Its open tabs close. Files on your computer and existing conversations won\u2019t be deleted.`,
+			: `This removes ${quoted} from Namzu and takes the folder off Namzu\u2019s trusted list and forgets what this app recorded about it, so Namzu asks again if you add it back. Its open tabs close. Files on your computer and existing conversations won\u2019t be deleted.`,
 		actionLabel: 'Remove project',
 		pendingLabel: 'Removing\u2026',
 	}
@@ -448,10 +372,13 @@ export function removalNotice(
 
 /** What deleting each data folder does, so a person knows which are safe to clear. */
 export const DATA_FOLDER_NOTES: Record<DataFolderKind, { safe: boolean; text: string }> = {
-	app: { safe: false, text: 'Your settings, open tabs and drafts. Deleting it resets the app.' },
+	app: {
+		safe: false,
+		text: 'Your settings, open tabs, drafts, project list and trusted-folders.json (what the app remembers about each trusted folder). Deleting it resets the app.',
+	},
 	namzu: {
 		safe: false,
-		text: 'Your conversations, Pals and projects. Keep this folder.',
+		text: 'Your conversations, Pals, scheduled tasks and trust.json (the folders you trusted). Keep this folder.',
 	},
 	diagnostics: { safe: true, text: 'Logs for support. Safe to delete.' },
 	speech: {

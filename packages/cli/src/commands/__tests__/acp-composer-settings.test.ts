@@ -21,6 +21,7 @@ function fixture(
 	extras: {
 		readonly permissionSettings?: PermissionSettings
 		readonly autoMode?: { readonly available: boolean; readonly reason?: string }
+		readonly refreshed?: { readonly config: Record<string, unknown> }
 	} = {},
 ) {
 	const sessionId = asSessionId(fixtureUuid('desktop-settings-owner'))
@@ -106,6 +107,7 @@ function fixture(
 	)
 	const decideTrust = vi.fn(({ cwd }: { cwd: string }) => ({ allowed: true, cwd }))
 	const resolveProjectContext = vi.fn((ctx: unknown) => ctx)
+	const refreshProjectContext = extras.refreshed ? vi.fn(() => extras.refreshed) : undefined
 	const pal = {
 		id: 'owned-pal',
 		workspace: '/project',
@@ -147,6 +149,7 @@ function fixture(
 			readPlugins,
 			decideTrust,
 			resolveProjectContext,
+			...(refreshProjectContext ? { refreshProjectContext } : {}),
 			resolveSession: async (wire: string) => ({ sessionId: asSessionId(wire) }),
 		} as unknown as AcpRuntimeDependencies,
 	)
@@ -174,6 +177,7 @@ function fixture(
 		readPlugins,
 		decideTrust,
 		resolveProjectContext,
+		refreshProjectContext,
 		send,
 		sessions,
 		prompt,
@@ -185,6 +189,22 @@ function fixture(
 		},
 	}
 }
+
+describe('a new conversation takes the saved settings', () => {
+	it('builds the session from a fresh read of the files when the host can re-read them', async () => {
+		const f = fixture(false, { refreshed: { config: { limits: { maxResponseTokens: 777 } } } })
+		try {
+			await f.prompt()
+			expect(f.refreshProjectContext).toHaveBeenCalledOnce()
+			expect(f.resolveProjectContext).not.toHaveBeenCalled()
+			expect((f.createSession.mock.calls[0] as unknown[] | undefined)?.[2]).toMatchObject({
+				limits: { maxResponseTokens: 777 },
+			})
+		} finally {
+			await f.runtime.close()
+		}
+	})
+})
 
 describe('ACP composer settings use the exact owned session', () => {
 	it('reads a model menu without creating a session and preserves the selected fallback chain', async () => {
@@ -262,7 +282,7 @@ describe('ACP composer settings use the exact owned session', () => {
 
 describe('ACP carries the two modes that stop asking', () => {
 	it('passes bypass and auto to the session as chosen, and hands it the settings', async () => {
-		const settings: PermissionSettings = { autoMode: { model: 'cheap' } }
+		const settings: PermissionSettings = { autoMode: { model: 'cheap' }, allowBypassMode: true }
 		const f = fixture(false, { permissionSettings: settings })
 		try {
 			await f.prompt({ permissionMode: 'bypass' })
@@ -289,6 +309,18 @@ describe('ACP carries the two modes that stop asking', () => {
 			expect(f.send).not.toHaveBeenCalled()
 			await f.prompt({ permissionMode: 'prompt' })
 			expect(f.send).toHaveBeenCalledOnce()
+		} finally {
+			await f.runtime.close()
+		}
+	})
+
+	it('refuses bypass before any send until the person opted in', async () => {
+		const f = fixture(false, { permissionSettings: { autoMode: { model: 'cheap' } } })
+		try {
+			await expect(f.prompt({ permissionMode: 'bypass' })).rejects.toThrow(
+				'Allow bypass permissions mode',
+			)
+			expect(f.send).not.toHaveBeenCalled()
 		} finally {
 			await f.runtime.close()
 		}

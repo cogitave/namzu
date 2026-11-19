@@ -7,6 +7,7 @@ export function resolveComposerSendOptions(
 ): Omit<DesktopSendOptions, 'attachmentIds'> {
 	return {
 		...(options?.effort ? { effort: options.effort } : {}),
+		...(typeof options?.hypermode === 'boolean' ? { hypermode: options.hypermode } : {}),
 		permissionMode: options?.permissionMode ?? (palId ? 'auto' : 'prompt'),
 	}
 }

@@ -12,10 +12,7 @@
 	min-height: 0;
 	overflow: clip;
 }
-.workspace-host[data-page="plugins"] .workspace-shell > .sidebar:not(.plugins-navigation-sidebar),
-.workspace-host[data-page="settings"]
-	.workspace-shell
-	> .sidebar:not(.settings-navigation-sidebar) {
+.workspace-host[data-page="plugins"] .workspace-shell > .sidebar:not(.plugins-navigation-sidebar) {
 	display: none;
 }
 .workspace-stage > .workspace-canvas {

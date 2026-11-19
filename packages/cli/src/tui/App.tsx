@@ -102,8 +102,9 @@ import {
 } from '../pals/tui-session.js'
 import type { PlanApprovalAnswer, PlanApprovalFn, PlanApprovalRequest } from '../plan/approval.js'
 
-import { resolveComposerTriggers } from '../config/composer-triggers.js'
+import { resolveComposerTriggers, withWorkflowKeywordSwitch } from '../config/composer-triggers.js'
 import type { DecisionConfig } from '../config/schema.js'
+import { hypermodeRefusal } from '../config/session-options.js'
 import { setUserConfigValue } from '../config/user-config.js'
 import { messageTimeNote, previousSentAt } from '../context/message-time.js'
 import {
@@ -222,6 +223,7 @@ import {
 import { generateTitle } from '../integrations/sessions/ai-title.js'
 import { displayConversationTitle, typedTextOf } from '../integrations/sessions/display-title.js'
 import { journalOf } from '../integrations/sessions/journal-trail.js'
+import { generatePromptSuggestion } from '../integrations/sessions/prompt-suggestion.js'
 import { generateRecap } from '../integrations/sessions/recap.js'
 import { askSideQuestion } from '../integrations/sessions/side-question.js'
 import {
@@ -1152,6 +1154,15 @@ type ChoicePickerState = {
 			readonly options: readonly ChoicePickerOption[]
 	  }
 	| {
+			/** `/config <key> <value>` for a setting that asks first: the same sentence Desktop asks. */
+			readonly kind: 'config-setting-change'
+			readonly title: string
+			readonly notice?: string
+			readonly values: readonly ('cancel' | 'change')[]
+			readonly options: readonly ChoicePickerOption[]
+			readonly change: { readonly key: string; readonly text?: string }
+	  }
+	| {
 			readonly kind: 'archive-conversation'
 			readonly title: string
 			readonly notice?: string
@@ -1881,6 +1892,9 @@ function AppBody({
 	const autoActiveRef = useRef(initialCtx.routing !== undefined && initialCtx.autoDefault === true)
 	const [autoActive, setAutoActive] = useState(autoActiveRef.current)
 	const launchEffortPendingRef = useRef(initialCtx.launchSettings?.effort)
+	// The saved default effort (`effort` in the config file): applied once the model's levels are
+	// known, below `--effort`, and quietly dropped when the model does not offer it.
+	const savedEffortPendingRef = useRef(initialCtx.launchSettings?.savedEffort)
 	/**
 	 * Why the picker is open, drawn ON the picker.
 	 *
@@ -1979,8 +1993,11 @@ function AppBody({
 	// per-session like reasoningEffort above; no preferences file involved.
 	// Starts on when the `hypermode` config key says so; `/hypermode off` ends it
 	// for this conversation only.
-	const [hypermode, setHypermodeState] = useState(initialCtx.hypermode === true)
-	const hypermodeRef = useRef(initialCtx.hypermode === true)
+	// Never starts on while dynamic workflows are off; the reason is said once at start.
+	const startsInHypermode =
+		initialCtx.hypermode === true && hypermodeRefusal(initialCtx) === undefined
+	const [hypermode, setHypermodeState] = useState(startsInHypermode)
+	const hypermodeRef = useRef(startsInHypermode)
 	const [hypermodeActivation, setHypermodeActivation] = useState(0)
 	const setHypermode = useCallback((next: boolean) => {
 		hypermodeRef.current = next
@@ -1991,7 +2008,14 @@ function AppBody({
 	// that cannot keep it.
 	const [fastMode, setFastModeState] = useState(false)
 	const fastModeRef = useRef(false)
-	const launchFastPendingRef = useRef(initialCtx.launchSettings?.fast === true)
+	// Where a pending fast start came from, so a refusal names the right thing.
+	const launchFastPendingRef = useRef<'flag' | 'saved' | undefined>(
+		initialCtx.launchSettings?.fast === true
+			? 'flag'
+			: initialCtx.launchSettings?.savedFast === true
+				? 'saved'
+				: undefined,
+	)
 	const setFastMode = useCallback((next: boolean) => {
 		fastModeRef.current = next
 		setFastModeState(next)
@@ -4305,8 +4329,8 @@ function AppBody({
 	/** `/config triggers on|off` in this session, over whatever the config files say. */
 	const [composerTriggersOverride, setComposerTriggersOverride] = useState<boolean | undefined>()
 	const composerTriggerSettings = useMemo(
-		() => resolveComposerTriggers(ctx.composerTriggers),
-		[ctx.composerTriggers],
+		() => withWorkflowKeywordSwitch(resolveComposerTriggers(ctx.composerTriggers), ctx.workflow),
+		[ctx.composerTriggers, ctx.workflow],
 	)
 	const composerTriggerRegistry = useMemo(
 		() =>
@@ -4891,6 +4915,11 @@ function AppBody({
 	 */
 	const applyHypermode = useCallback(
 		(enabled: boolean, selectedSession?: AgentSession): void => {
+			const refusal = enabled ? hypermodeRefusal(ctx) : undefined
+			if (refusal) {
+				pushMessage('system', refusal)
+				return
+			}
 			if (!session?.hasProvider) {
 				pushMessage(
 					'system',
@@ -4921,8 +4950,17 @@ function AppBody({
 				replyRunning ? `${said} It applies from your next message.` : said,
 			)
 		},
-		[hasUnsettledTurn, pushMessage, session, setHypermode, state],
+		[ctx, hasUnsettledTurn, pushMessage, session, setHypermode, state],
 	)
+
+	// The saved `hypermode: true` could not start the mode because workflows are off: say so once.
+	const hypermodeStartNoteRef = useRef(false)
+	useEffect(() => {
+		if (hypermodeStartNoteRef.current) return
+		hypermodeStartNoteRef.current = true
+		const note = initialCtx.hypermode === true ? hypermodeRefusal(initialCtx) : undefined
+		if (note) pushMessage('system', note)
+	}, [initialCtx, pushMessage])
 
 	/**
 	 * Turn fast inference on or off for this conversation. Turning it on is
@@ -5776,6 +5814,25 @@ function AppBody({
 				if (value === 'archive') archiveCurrentConversation()
 				return
 			}
+			if (picker.kind === 'config-setting-change') {
+				if (value === 'cancel') {
+					pushMessage('system', 'Not changed.')
+					return
+				}
+				void import('../config/setting-cli.js').then(({ planSettingChange }) => {
+					const plan = planSettingChange(picker.change.key, picker.change.text)
+					if (!plan.ok) {
+						pushMessage('system', plan.error)
+						return
+					}
+					try {
+						pushMessage('system', plan.apply())
+					} catch (error) {
+						pushMessage('system', (error as Error).message)
+					}
+				})
+				return
+			}
 			if (picker.kind === 'export-destination') {
 				if (value === 'clipboard') {
 					runConversationExport({ kind: 'clipboard' })
@@ -6419,7 +6476,11 @@ function AppBody({
 									flushLearnedRef.current()
 								},
 							},
-							enableComputerUse: true,
+							// Off until the user's own settings turn it on (`computerUse.enabled`).
+							enableComputerUse: activeCtx.computerUse?.enabled === true,
+							...(activeCtx.computerUse?.deniedApps?.length
+								? { deniedComputerApps: activeCtx.computerUse.deniedApps }
+								: {}),
 							// The terminal is watched live: the quiet-stretch nudge, unless the
 							// config turned it off.
 							...(() => {
@@ -6445,6 +6506,15 @@ function AppBody({
 									}
 								: {}),
 							...(activeCtx.handBack?.enabled === true ? { handBack: true } : {}),
+							...(activeCtx.savedEffort ? { savedEffort: activeCtx.savedEffort } : {}),
+							...(activeCtx.closingSummary === false ? { closingSummary: false } : {}),
+							// Read and change the safe settings, each change asked on a prompt. On unless
+							// the config turned it off.
+							...(activeCtx.agentSettings === false
+								? {}
+								: { settingsTools: { cwd: activeCtx.cwd } }),
+							...(activeCtx.outputStyle ? { outputStyle: activeCtx.outputStyle } : {}),
+							...(activeCtx.attribution ? { attribution: activeCtx.attribution } : {}),
 							...(activeCtx.mcpServers ? { mcpServers: activeCtx.mcpServers } : {}),
 							// The composer is ready at once; each server's tools join as it connects.
 							toolServers: 'background',
@@ -6551,10 +6621,11 @@ function AppBody({
 			// Fast mode follows the model: a launch `--fast` is applied once the
 			// session exists, and a model change that cannot take it ends it.
 			if (launchFastPendingRef.current && s.hasProvider) {
-				launchFastPendingRef.current = false
+				const fastSource = launchFastPendingRef.current
+				launchFastPendingRef.current = undefined
 				void fastModeBlocker(s.providerId, s.modelSummary).then((blocker) => {
 					if (blocker === undefined) setFastMode(true)
-					else pushMessage('system', fastLaunchRefusal(blocker))
+					else pushMessage('system', fastLaunchRefusal(blocker, fastSource))
 				})
 			} else if (fastModeRef.current) {
 				void fastModeBlocker(s.providerId, s.modelSummary).then((blocker) => {
@@ -6577,6 +6648,12 @@ function AppBody({
 							`--effort ${launchEffort} is not offered by ${primaryProvider(prefs).model ?? primaryProvider(prefs).id}; using the provider default.`,
 						)
 				}
+				const savedEffort = savedEffortPendingRef.current
+				if (savedEffort && s.hasProvider) {
+					savedEffortPendingRef.current = undefined
+					if (!launchEffort && s.reasoningEffortLevels?.includes(savedEffort))
+						setReasoningEffort(savedEffort)
+				}
 				// Hypermode is independent of effort, so the picker a model change
 				// asks for opens whether or not it is on.
 				// A model was picked: the decision-model offer follows once the menus are closed.
@@ -6585,7 +6662,15 @@ function AppBody({
 					// Own input before publishing ready or releasing a paused queue. The
 					// menu closes only after choosing an effort or keeping the new default.
 					setSelectedChoice(0)
-					setChoicePicker(reasoningEffortPicker(s, undefined, true) ?? null)
+					setChoicePicker(
+						reasoningEffortPicker(
+							s,
+							undefined,
+							true,
+							hypermodeRef.current,
+							hypermodeRefusal(ctxRef.current) !== undefined,
+						) ?? null,
+					)
 				}
 			}
 			if (s.reasoningSettled === undefined) settleEffort()
@@ -6604,7 +6689,11 @@ function AppBody({
 			const mentionLoadOwner = {}
 			mentionLoadOwnerRef.current = mentionLoadOwner
 			void (
-				definition ? Promise.resolve([]) : listMentionableFiles(activeCtx.cwd, appLifetime.signal)
+				definition
+					? Promise.resolve([])
+					: listMentionableFiles(activeCtx.cwd, appLifetime.signal, {
+							respectGitignore: activeCtx.respectGitignore !== false,
+						})
 			).then((files) => {
 				if (!appLifetime.signal.aborted && mentionLoadOwnerRef.current === mentionLoadOwner)
 					setMentionCandidates(files)
@@ -13850,6 +13939,7 @@ function AppBody({
 					}
 					case 'reasoning-effort': {
 						applyReasoningEffort(slash.effort ?? undefined)
+						if (slash.hypermode !== undefined) applyHypermode(slash.hypermode)
 						return
 					}
 					case 'reasoning-effort-picker': {
@@ -13874,6 +13964,7 @@ function AppBody({
 							current,
 							false,
 							hypermodeRef.current,
+							hypermodeRefusal(ctx) !== undefined,
 						)
 						if (effortChooser) chooserDraftRef.current = keybindingDraftRef.current
 						setChoicePicker(effortChooser ?? null)
@@ -14846,6 +14937,55 @@ function AppBody({
 						})
 						return
 					}
+					case 'config-setting': {
+						void import('../config/setting-cli.js').then((cli) => {
+							if (slash.text === undefined && slash.clear !== true) {
+								try {
+									pushMessage('system', cli.describeSetting(slash.key))
+								} catch (error) {
+									pushMessage('system', (error as Error).message)
+								}
+								return
+							}
+							const plan = cli.planSettingChange(slash.key, slash.clear ? undefined : slash.text)
+							if (!plan.ok) {
+								pushMessage('system', plan.error)
+								return
+							}
+							if (plan.confirm) {
+								setSelectedChoice(0)
+								setChoicePicker({
+									kind: 'config-setting-change',
+									title: `Change ${plan.entry.label}?`,
+									notice: plan.confirm,
+									values: ['cancel', 'change'],
+									options: [
+										{ label: 'No, leave it', description: 'Keep the setting as it is' },
+										{
+											label: 'Yes, change it',
+											description:
+												slash.clear === true || slash.text === undefined
+													? 'Put the default back in your user config'
+													: `Save ${slash.key} ${slash.text} in your user config`,
+										},
+									],
+									change: {
+										key: slash.key,
+										...(slash.clear === true || slash.text === undefined
+											? {}
+											: { text: slash.text }),
+									},
+								})
+								return
+							}
+							try {
+								pushMessage('system', plan.apply())
+							} catch (error) {
+								pushMessage('system', (error as Error).message)
+							}
+						})
+						return
+					}
 					case 'spinner-tips': {
 						if (slash.on === 'list') {
 							pushMessage(
@@ -15160,6 +15300,56 @@ function AppBody({
 		awayRecapRef.current?.refresh()
 	}, [recapOn])
 	useEffect(() => () => awayRecapRef.current?.dispose(), [])
+	// A suggested next message (`promptSuggestions`): when a reply has just ended and the
+	// composer is empty, the small model proposes one short message, shown in the empty composer
+	// and taken with Tab. A side job like the recap: no small model, a failed request or an
+	// unusable reply shows nothing, and anything the person does first (typing, sending, a new
+	// turn) drops it.
+	const [promptSuggestion, setPromptSuggestion] = useState<string | undefined>(undefined)
+	const suggestionControllerRef = useRef<AbortController | null>(null)
+	const suggestionPrevStateRef = useRef(state)
+	useEffect(() => {
+		const was = suggestionPrevStateRef.current
+		suggestionPrevStateRef.current = state
+		if (state !== 'idle') {
+			suggestionControllerRef.current?.abort()
+			suggestionControllerRef.current = null
+			setPromptSuggestion(undefined)
+			return
+		}
+		if (was === 'idle' || initialCtx.promptSuggestions === false) return
+		if (composerHasDraftRef.current) return
+		// Only after a finished reply: a failure or a notice is not something to follow up.
+		const last = messagesLiveRef.current[messagesLiveRef.current.length - 1]
+		if (last?.role !== 'assistant' || last.pending || last.content.trim().length === 0) return
+		const sideModel = idleStateRef.current.session?.sideModel
+		const sessionId = scopeRef.current?.sessionId
+		if (!sideModel || !sessionId) return
+		const controller = new AbortController()
+		suggestionControllerRef.current = controller
+		const generation = conversationGenRef.current
+		const turn = recapTurnRef.current
+		void generatePromptSuggestion({
+			sideModel,
+			sessionId,
+			turnId: turn?.sessionId === sessionId ? turn.turnId : generateTurnId(),
+			turns: recapTurns(messagesLiveRef.current),
+			signal: controller.signal,
+		})
+			.catch(() => undefined)
+			.then((text) => {
+				if (suggestionControllerRef.current === controller) suggestionControllerRef.current = null
+				if (
+					text === undefined ||
+					controller.signal.aborted ||
+					conversationGenRef.current !== generation ||
+					composerHasDraftRef.current
+				)
+					return
+				setPromptSuggestion(text)
+			})
+	}, [state, initialCtx.promptSuggestions])
+	useEffect(() => () => suggestionControllerRef.current?.abort(), [])
 	// Compacting a large conversation nobody is using before its one-hour prompt
 	// cache lapses (`compaction.idleCompaction`). The decision lives in
 	// `IdleCompactor`; this supplies what the screen knows and shows the result.
@@ -18054,7 +18244,9 @@ function AppBody({
 											? {
 													placeholder: examplePlaceholder(exampleFile, exampleSeedRef.current),
 												}
-											: {})}
+											: promptSuggestion !== undefined
+												? { promptSuggestion }
+												: {})}
 									mayReadImage={imageReadPolicy}
 									reasoningEffortLevels={session?.reasoningEffortLevels}
 									onCycleMode={cyclePermissionMode}
@@ -18180,6 +18372,7 @@ function AppBody({
 								session?.account?.label,
 							)}
 							effort={reasoningEffort}
+							hypermode={hypermode}
 							fast={fastMode}
 							goal={statusGoal}
 							state={state}
@@ -18771,7 +18964,7 @@ function pluginActionPicker(owner: AgentSession, name: string): ChoicePickerStat
 
 /** Why bypass cannot be entered, in the words a person can act on. */
 const BYPASS_UNAVAILABLE_NOTICE =
-	'Bypass mode is not available in this session. Start Namzu with --allow-dangerously-skip-permissions (or --yolo) to use it, unless permissions.disableBypassMode is set.'
+	'Bypass mode is not available in this session. Start Namzu with --allow-dangerously-skip-permissions (or --yolo), or set permissions.allowBypassMode to true in your own config file, to use it, unless permissions.disableBypassMode is set.'
 const AUTO_UNAVAILABLE_NOTICE = 'Auto mode is not available in this session.'
 
 export function permissionPicker(
@@ -18868,6 +19061,7 @@ function reasoningEffortPicker(
 	current: ReasoningEffort | undefined,
 	afterModelSelection = false,
 	hypermodeOn = false,
+	workflowsOff = false,
 ): Extract<ChoicePickerState, { kind: 'reasoning-effort' }> | undefined {
 	const levels = session.reasoningEffortLevels
 	if (!session.hasProvider || levels === undefined) return undefined
@@ -18898,7 +19092,9 @@ function reasoningEffortPicker(
 				// setting, not a sixth level the provider published. The label
 				// names the level it pins, then the mode.
 				label: HYPERMODE_ROW_LABEL,
-				description: `${hypermodeOn ? 'On' : 'Off'} · ${HYPERMODE_SUMMARY}`,
+				description: workflowsOff
+					? 'Off in Settings: dynamic workflows are off'
+					: `${hypermodeOn ? 'On' : 'Off'} · ${HYPERMODE_SUMMARY}`,
 				current: hypermodeOn,
 				ruleBefore: true,
 			},

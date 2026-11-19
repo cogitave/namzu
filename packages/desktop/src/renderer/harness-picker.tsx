@@ -71,7 +71,7 @@ export function CopyableCommand({ command, label }: { command: string; label: st
 				<Button
 					size="xs"
 					variant="outline"
-					aria-label={`Copy: ${command}`}
+					aria-label="Copy the command"
 					onClick={() => {
 						void copyPlainText(command)
 							.then(() => setCopied(true))
@@ -222,7 +222,7 @@ export function EnginePanel({
 			</header>
 			<RadioGroup
 				className="harness-picker-list"
-				aria-label="Available engines"
+				aria-label="Assistants you can use here"
 				value={selected}
 				// Arrow keys only move focus; a choice is committed by click, Enter or Space (a native click).
 				onValueChange={() => {}}
@@ -331,7 +331,7 @@ export function SurfaceSwitch({
 	return (
 		<RadioGroup
 			className="surface-switch"
-			aria-label="Where this engine runs"
+			aria-label="Where it runs"
 			title={reason}
 			value={value}
 			disabled={disabled}

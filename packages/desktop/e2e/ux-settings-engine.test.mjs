@@ -37,19 +37,19 @@ test("engine settings: save a number, confirm a risky switch, never show a secre
 		const page = w.page.locator("#settings-content");
 
 		await openSettings(w, "Agent");
-		const steps = page.getByRole("spinbutton", { name: "Most steps per task" });
+		const steps = page.getByRole("spinbutton", { name: "Most steps per turn" });
 		await expect(steps).toBeVisible({ timeout: T });
 		await steps.fill("9");
 		await steps.press("Enter");
-		await expect(page.getByRole("button", { name: "Use the default for Most steps per task" })).toBeVisible({ timeout: T });
+		await expect(page.getByRole("button", { name: "Use the default for Most steps per turn" })).toBeVisible({ timeout: T });
 		const file = readFileSync(join(w.home, "config.yaml"), "utf8");
 		assert.match(file, /maxIterations: 9/);
 
 		// The engine's own check refuses a value out of range, and the sentence shows.
 		const concurrency = page.getByRole("spinbutton", { name: "Helpers working at once" });
-		await concurrency.fill("1");
+		await concurrency.fill("0");
 		await concurrency.press("Enter");
-		await expect(page.getByText("Enter 2 or more.")).toBeVisible();
+		await expect(page.getByText("Enter 1 or more.")).toBeVisible();
 		await shot(w, "agent");
 
 		await openSettings(w, "Tools");

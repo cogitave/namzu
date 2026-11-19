@@ -279,6 +279,11 @@ and are never listed or deleted here; `/memory show` still prints them with
 their paths. A note that begins with the word `delete` is saved with
 `/memory add delete ...`.
 
+Desktop shows the same list: Settings, Agent, Memory, **Your memory**, Manage (see
+[Rows over files, not keys](desktop-settings.md#rows-over-files-not-keys)). It adds editing a
+memory's title and text, refused with a sentence when the memory changed since it was opened, and a delete that
+asks first.
+
 ### Memory that names files
 
 A memory such as "the cache lives in `src/cache.ts`" goes stale silently when the
@@ -404,6 +409,23 @@ that the pass is done; a failed pass leaves it out and the next session tries
 again. To restore an archived record, open its file in the memory directory and
 change `status: archived` to `status: active`; to run the pass again, delete the
 marker.
+
+### Turning off memory from conversations
+
+`memory.fromConversations` (default `true`) is the switch for everything above. Set it
+to `false` in your own config, or turn off **Generate memory from conversations**
+under Settings, Agent, Memory, and a turn's claims are neither promoted when the turn
+ends nor at compaction, and `compaction.consolidate` writes no turn record. What you
+save yourself (`save_memory` on your request, `/memory add`, `--user add`, the Desktop
+editor), recall and every memory already saved are unchanged. The key is read when a
+conversation starts. A project's `namzu.config.json` or local file, including a
+profile in one, cannot set it; only your own config and a managed config can.
+
+```yaml
+# ~/.namzu/config.yaml
+memory:
+  fromConversations: false   # default: true
+```
 
 ### How what turns learn is curated
 

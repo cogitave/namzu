@@ -19,7 +19,7 @@ export function modelFacts(
 ): string | undefined {
 	const parts: string[] = []
 	if (row.contextWindow !== undefined && row.contextWindow > 0)
-		parts.push(`${formatTokens(row.contextWindow)} window`)
+		parts.push(`Reads up to ${formatTokens(row.contextWindow)} at once`)
 	const { inputPrice, outputPrice } = row
 	if (inputPrice === 0 && outputPrice === 0) parts.push('Free')
 	else if (inputPrice !== undefined && outputPrice !== undefined)

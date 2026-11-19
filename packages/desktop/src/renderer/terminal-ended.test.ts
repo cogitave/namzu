@@ -18,7 +18,7 @@ describe('an ended terminal', () => {
 	it('uses one term, "terminal", and tells a stop from an exit', () => {
 		expect(endedNotice(shell(), 0)).toBe('This terminal has ended.')
 		expect(endedNotice(shell(), undefined)).toBe('This terminal has ended.')
-		expect(endedNotice(shell(), 3)).toBe('This terminal has ended with code 3.')
+		expect(endedNotice(shell(), 3)).toBe('This terminal closed with an error.')
 		expect(endedNotice(shell(), undefined, 15)).toBe('The terminal was stopped.')
 		expect(endedNotice(shell({ status: 'restored' }), undefined)).toContain('this terminal ended')
 	})

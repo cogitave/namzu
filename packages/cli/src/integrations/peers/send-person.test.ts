@@ -364,7 +364,9 @@ describe('namzu send: a person at another terminal says something to a running s
 			peer: (await (async () => {
 				const { readPeerRecords } = await import('@namzu/sdk')
 				return readPeerRecords(resolvePeerRuntime(w.h.home, {}).sessionsDir).find(
-					(p) => p.kind === 'tui',
+					// The runtime folder can be shared with other tests when the scratch path is too long for a
+					// socket, so pick this terminal by its conversation, not the first one listed.
+					(p) => p.kind === 'tui' && p.conversationId === w.id,
 				)
 			})()) as never,
 			message: 'hi',

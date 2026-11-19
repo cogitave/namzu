@@ -95,16 +95,26 @@ export function FilePanelBody({
 				)}
 				<div className="file-toolbar-actions">
 					{markdown && (
-						<Button
-							type="button"
-							size="xs"
-							variant="ghost-muted"
-							className="file-source-toggle"
-							aria-pressed={showSource}
-							onClick={() => setShowSource((value) => !value)}
-						>
-							{showSource ? 'View document' : 'View source'}
-						</Button>
+						<div className="file-view-toggle">
+							<Button
+								type="button"
+								size="xs"
+								variant={showSource ? 'ghost-muted' : 'secondary'}
+								aria-pressed={!showSource}
+								onClick={() => setShowSource(false)}
+							>
+								Rendered
+							</Button>
+							<Button
+								type="button"
+								size="xs"
+								variant={showSource ? 'secondary' : 'ghost-muted'}
+								aria-pressed={showSource}
+								onClick={() => setShowSource(true)}
+							>
+								Source
+							</Button>
+						</div>
 					)}
 					<Button
 						type="button"

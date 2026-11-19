@@ -96,6 +96,10 @@ const LOAD_FAILED = 'Couldn’t load the model list. Check your connection, then
 /** The Auto row's radio value; a model's is a two-item array, so the two never collide. */
 const AUTO_KEY = JSON.stringify(['auto'])
 
+/** The one sentence said where hypermode cannot be turned on. */
+export const HYPERMODE_BLOCKED =
+	'Hypermode needs dynamic workflows, and they are off. Turn them on in Settings (Dynamic workflows) first.'
+
 export function ModelPicker({
 	providers,
 	choice,
@@ -111,13 +115,17 @@ export function ModelPicker({
 	settings,
 	effort,
 	onEffortChange,
+	hypermode,
 	engineControl,
 	unchosen,
 	pending = false,
 	startingEngine,
 	startFailed,
 	unconnected = false,
+	openRequest = 0,
 }: {
+	/** A counter: each rise opens the list, so "/model" can ask for it from outside. */
+	openRequest?: number
 	providers: ProviderView
 	choice: ModelChoice
 	disabled: boolean
@@ -140,6 +148,8 @@ export function ModelPicker({
 	settings?: ComposerModelSettings | null
 	effort?: ReasoningEffort
 	onEffortChange?: (effort: ReasoningEffort | undefined) => void
+	/** Hypermode for this conversation: the choice in force, and the way to change it. Absent where none is offered. */
+	hypermode?: { on: boolean; onChange: (on: boolean) => void }
 	/** Absent where engines are not offered, such as the Pal composer. */
 	engineControl?: EngineControl
 	/** Nothing was ever chosen: settle on the source's recommended model once its list is known. */
@@ -154,6 +164,15 @@ export function ModelPicker({
 	unconnected?: boolean
 }) {
 	const [open, setOpen] = useState(false)
+	const seenRequest = useRef(openRequest)
+	useEffect(() => {
+		if (seenRequest.current === openRequest) return
+		seenRequest.current = openRequest
+		if (!disabled) {
+			setView('models')
+			setOpen(true)
+		}
+	}, [openRequest, disabled])
 	const [view, setView] = useState<View>('models')
 	// Set when the person steps back from More, so focus lands on the "More" row they came from.
 	const returnToMore = useRef(false)
@@ -298,7 +317,7 @@ export function ModelPicker({
 			: engineUnavailable
 				? `Model, ${engineUnavailableText}`
 				: label
-					? `Model: ${label}${shownEffort?.value ? `, effort: ${effortLabel(shownEffort.value)}` : ''}`
+					? `Model: ${label}${shownEffort?.value ? `, effort: ${effortLabel(shownEffort.value)}` : ''}${hypermode?.on && !settings?.workflowsOff ? ', hypermode' : ''}`
 					: triggerPending && startFailed
 						? `Model, not available. ${unavailableReason}`
 						: triggerPending
@@ -387,9 +406,14 @@ export function ModelPicker({
 				) : (
 					<span className="model-picker-trigger-model truncate">{label || 'Select model'}</span>
 				)}
-				{shownEffort?.value && (
+				{(shownEffort?.value || (hypermode?.on && !settings?.workflowsOff)) && (
 					<span className="model-picker-trigger-effort" aria-hidden="true">
-						{effortLabel(shownEffort.value)}
+						{[
+							shownEffort?.value ? effortLabel(shownEffort.value) : undefined,
+							hypermode?.on && !settings?.workflowsOff ? 'Hypermode' : undefined,
+						]
+							.filter(Boolean)
+							.join(' · ')}
 					</span>
 				)}
 				<ComposerControlChevron />
@@ -464,9 +488,9 @@ export function ModelPicker({
 									auto={auto && { active: auto.active, onSelect: chooseAuto }}
 								/>
 								{/* The control belongs to the model in use; beside another provider's list it would read as theirs, so it is left out. */}
-								{onEffortChange &&
+								{(onEffortChange || hypermode) &&
 									browseProvider === choice.provider &&
-									(settings === null || effortChoices >= 2) && (
+									(settings === null || effortChoices >= 2 || hypermode) && (
 										<ComposerEffortPanel
 											variant="inline"
 											scope={JSON.stringify([projectId, sessionId, choice.provider, modelId])}
@@ -476,7 +500,15 @@ export function ModelPicker({
 											defaultValue={settings?.effortDefault}
 											loading={settings === null}
 											disabled={disabled}
-											onChange={onEffortChange}
+											onChange={onEffortChange ?? (() => {})}
+											{...(hypermode
+												? {
+														hypermode: {
+															...hypermode,
+															...(settings?.workflowsOff ? { blocked: HYPERMODE_BLOCKED } : {}),
+														},
+													}
+												: {})}
 										/>
 									)}
 								{hasMore && (
@@ -850,6 +882,8 @@ function ModelBrowser({
 		const frame = requestAnimationFrame(place)
 		return () => cancelAnimationFrame(frame)
 	}, [settled])
+	// Rows are numbered 1 to 9 in the order they are drawn: Auto first, then each model.
+	let rowNumber = 0
 	const lineUp = (
 		<div className="model-lineup">
 			<header className="model-picker-heading">
@@ -927,6 +961,7 @@ function ModelBrowser({
 				>
 					{auto && foldedIncludes(`${AUTO_LABEL} ${AUTO_NOTE}`, query.trim()) && (
 						<Radio.Root
+							data-number={++rowNumber <= 9 ? rowNumber : undefined}
 							value={AUTO_KEY}
 							nativeButton
 							render={<button type="button" />}
@@ -952,6 +987,11 @@ function ModelBrowser({
 									<CheckIcon aria-hidden="true" />
 								</Radio.Indicator>
 							</span>
+							{rowNumber <= 9 && (
+								<span className="model-picker-number" aria-hidden="true">
+									{rowNumber}
+								</span>
+							)}
 						</Radio.Root>
 					)}
 					{groups.map(({ provider, top, rest, sections }) => {
@@ -975,6 +1015,7 @@ function ModelBrowser({
 									? model.note
 									: undefined
 							const second = facts ?? note
+							const number = ++rowNumber
 							return (
 								<Fragment key={modelKey(model.provider.id, model.id)}>
 									{heading && (
@@ -983,6 +1024,7 @@ function ModelBrowser({
 										</div>
 									)}
 									<Radio.Root
+										data-number={number <= 9 ? number : undefined}
 										value={modelKey(model.provider.id, model.id)}
 										nativeButton
 										render={<button type="button" />}
@@ -1028,6 +1070,11 @@ function ModelBrowser({
 												<CheckIcon aria-hidden="true" />
 											</Radio.Indicator>
 										</span>
+										{number <= 9 && (
+											<span className="model-picker-number" aria-hidden="true">
+												{number}
+											</span>
+										)}
 									</Radio.Root>
 								</Fragment>
 							)
@@ -1103,7 +1150,7 @@ function ModelBrowser({
 				)}
 			</div>
 			{(errors.length > 0 || notices.length > 0 || sharedNotes.size > 0 || settingsNotice) && (
-				<div className="model-picker-feedback" aria-label="Model catalogue information">
+				<div className="model-picker-feedback" aria-label="About these models">
 					{settingsNotice && <p className="model-picker-settings-notice">{settingsNotice}</p>}
 					{errors.length > 0 && (
 						<div className="model-picker-notice">
@@ -1152,6 +1199,22 @@ function ModelBrowser({
 		</div>
 	)
 	const searchShortcut = (event: KeyboardEvent) => {
+		// A number picks the row that shows it; never while a field has the keys.
+		if (
+			/^[1-9]$/.test(event.key) &&
+			!(event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) &&
+			!event.nativeEvent.isComposing &&
+			!(event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement)
+		) {
+			const row = results.current?.querySelector<HTMLElement>(
+				`[role="radio"][data-number="${event.key}"]`,
+			)
+			if (row) {
+				event.preventDefault()
+				row.click()
+				return
+			}
+		}
 		if (showTools && event.key === '/' && !(event.target instanceof HTMLInputElement)) {
 			event.preventDefault()
 			setSearching(true)

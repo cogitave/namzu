@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import { existsSync, realpathSync } from 'node:fs'
-import { lstat, mkdir, readdir, realpath, stat } from 'node:fs/promises'
-import { basename, isAbsolute, resolve } from 'node:path'
+import { existsSync, realpathSync, watch } from 'node:fs'
+import { copyFile, lstat, mkdir, open as openFile, readdir, realpath, stat } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { basename, dirname, isAbsolute, resolve } from 'node:path'
 import type {
 	AcpRequestPermissionParams,
 	AcpSessionPromptResult,
@@ -9,15 +10,57 @@ import type {
 } from '@namzu/sdk'
 import { needsYouIds } from '../shared/attention-state.js'
 import type { BackgroundWorkStatus } from '../shared/background-work-protocol.js'
+import {
+	COMMIT_METHOD,
+	COMMIT_PREVIEW_METHOD,
+	type CommitOutcomeView,
+	type CommitPreviewView,
+	type CommitRequestView,
+	readCommitOutcome,
+	readCommitPreview,
+} from '../shared/commit-protocol.js'
 import { resolveComposerSendOptions } from '../shared/composer-send-options.js'
 import { COMPUTER_FRAME_NOTIFICATION, readComputerFrame } from '../shared/computer-protocol.js'
+import {
+	type EngineBrowserView,
+	type InstalledSkillsView,
+	type UserMcpServerChange,
+	type UserMcpServerView,
+	type UserMcpServersView,
+	readEngineBrowser,
+	readInstalledSkills,
+	readUserMcpServersView,
+} from '../shared/config-lists-protocol.js'
 import {
 	type ConfigSettingsView,
 	readConfigSettingsView,
 } from '../shared/config-settings-protocol.js'
+import {
+	CONTEXT_REQUEST,
+	type ContextReport,
+	readContextReport,
+} from '../shared/context-protocol.js'
+import { QUESTION_TOOL } from '../shared/conversation-status.js'
 import { type HistoryWorkSnapshot, restoreHistoryWork } from '../shared/history-work.js'
 import { readHooksReport } from '../shared/hooks-report.js'
+import {
+	LIMITS_NOTIFICATION,
+	LIMITS_REFRESH_METHOD,
+	type LimitsNotification,
+	readLimitsNotice,
+} from '../shared/limits-protocol.js'
+import {
+	type SavedMemoriesView,
+	type SavedMemoryDetail,
+	type SavedMemoryOutcome,
+	type StandingInstructionsView,
+	readSavedMemories,
+	readSavedMemoryDetail,
+	readSavedMemoryOutcome,
+	readStandingInstructions,
+} from '../shared/memory-protocol.js'
 import { OUTCOME_NOTIFICATION, readOutcomeNotice } from '../shared/outcome-protocol.js'
+import { mayOpenWithSystem } from '../shared/output-files.js'
 import type {
 	PalPermissionChange,
 	PalSubscriptionCreate,
@@ -25,6 +68,8 @@ import type {
 } from '../shared/pal-communication-protocol.js'
 import { duplicatePalNameMessage, isDuplicatePalName } from '../shared/pal-name.js'
 import { readPermissionCalls, readPermissionResponse } from '../shared/permission-protocol.js'
+import { engineFailureText } from '../shared/plain-error.js'
+import { PREFERENCE_NOTIFICATION, readPreferenceRequest } from '../shared/preference-protocol.js'
 import { type ThreadState, applyEvent, emptyThread, threadPhase } from '../shared/projection.js'
 import type {
 	AttachmentInput,
@@ -60,6 +105,7 @@ import type {
 	PluginInventoryView,
 	ProjectChangeFile,
 	ProjectChangesView,
+	ProjectCompareReply,
 	ProjectDiffView,
 	ProjectFileContent,
 	ProjectFileEntry,
@@ -77,6 +123,7 @@ import { readProviderConnections } from '../shared/provider-connections.js'
 import { ReconnectRetries } from '../shared/reconnect-retry.js'
 import { lastReplyText } from '../shared/reply.js'
 import { isReviewModeId } from '../shared/review-modes.js'
+import type { DesktopSettings } from '../shared/settings-protocol.js'
 import {
 	type SidebarSectionId,
 	collapsedSectionsFrom,
@@ -104,23 +151,33 @@ import {
 	type SavedLastModel,
 } from './desktop-conversation-store.js'
 import type { DesktopDiagnosticSink } from './diagnostics.js'
+import { type MadeFile, madeSince, scanFolder } from './made-files.js'
 import { ModelListStore, type StoredModelList, modelListKey } from './model-list-store.js'
 import { isNormalChatWorkspace, normalChatWorkspace } from './normal-chat-workspace.js'
 import type { OpenIn, OpenTarget } from './open-in.js'
 import { PalCommunicationManager } from './pal-communication.js'
 import { palFolderToReveal } from './pal-folder.js'
 import type { PalStreamProxy } from './pal-stream-proxy.js'
+import { createProjectCompare } from './project-compare.js'
 import { projectDraftOwner } from './project-draft-owner.js'
 import { ProjectFiles, confineProjectPath, resolveProjectLinks } from './project-files.js'
 import { type ProjectNameStore, projectNameProblem } from './project-names.js'
 import { parseUntrust, projectBusyReason, withoutProject } from './project-removal.js'
 import { RuntimeClient, type RuntimeCommand } from './rpc-client.js'
-import { type OutputAccess, readOutput, resolveOutput } from './session-output.js'
+import {
+	type OutputAccess,
+	type OutputDetail,
+	describeOutputs,
+	readOutput,
+	resolveOutput,
+	saveOutputCopy,
+} from './session-output.js'
 import {
 	ConversationHostChangedError,
 	SupersededConversationSettingsError,
 	readCurrent,
 } from './superseded-settings.js'
+import { terminalFolder } from './terminal-env.js'
 import type { FolderTrustGuard } from './trusted-folders.js'
 import { readUnreadFile, writeUnreadFile } from './unread-file.js'
 
@@ -485,7 +542,34 @@ export class Operator {
 	private readonly archivingConversations = new Set<string>()
 	private readonly pendingConversationRemovals = new Set<string>()
 	private readonly removedConversations = new Map<string, boolean>()
-	private readonly projectFiles = new ProjectFiles()
+	/**
+	 * `respectGitignore` as the engine holds it. Asked at each listing and kept a few seconds, so a
+	 * change in Settings reaches the next listing without a request per folder. Any failure keeps
+	 * the safe answer: ignored files stay hidden.
+	 */
+	private respectGitignoreCache: { at: number; value: Promise<boolean> } | undefined
+	private respectGitignore(): Promise<boolean> {
+		const now = Date.now()
+		if (this.respectGitignoreCache && now - this.respectGitignoreCache.at < 3_000)
+			return this.respectGitignoreCache.value
+		const value = (async () => {
+			try {
+				const view = readConfigSettingsView(
+					await (await this.providerHost()).request('namzu/config/get'),
+				)
+				const state = view.settings.find((entry) => entry.path === 'respectGitignore')
+				const effective = state?.effective ?? (state?.set ? state.value : undefined)
+				return effective !== false
+			} catch {
+				return true
+			}
+		})()
+		this.respectGitignoreCache = { at: now, value }
+		return value
+	}
+	private readonly projectFiles = new ProjectFiles({
+		respectGitignore: () => this.respectGitignore(),
+	})
 	/** Archived rows last shown per project, so a restore knows which project owns the id. */
 	private readonly archivedOwners = new Map<string, string>()
 	private readonly projects = new Map<string, Project>()
@@ -534,12 +618,18 @@ export class Operator {
 			/** The conversations some open window is showing right now. */
 			viewedConversations?: () => ReadonlySet<string>
 			/** The conversations that need the person changed; called with every one that does. */
-			attentionChanged?: (ids: string[]) => void
+			attentionChanged?: (
+				ids: string[],
+				/** The same ids split by what is waiting: an approval or a question. */
+				byKind: { permission: string[]; question: string[] },
+			) => void
 			/**
 			 * Names of this application's own windows, as the engine reports an application. The agent
 			 * is never allowed into them, so it cannot answer its own questions.
 			 */
 			ownAppNames?: () => readonly string[]
+			/** Saves preferences the agent changed with the person's yes; the engine has checked, the caller checks again. */
+			applyPreferences?: (patch: Partial<DesktopSettings>) => void
 			/**
 			 * A conversation needs the main window and the pill cannot answer it: bring the window
 			 * forward once if it is covered. `question` is a turn that ended asking something.
@@ -550,8 +640,8 @@ export class Operator {
 			 * ended); never a message, a file or a command.
 			 */
 			notices?: {
-				/** Every conversation waiting on the person, Pals included. */
-				needsYou(ids: string[]): void
+				/** Every conversation waiting on the person, Pals included, split by an approval or a question. */
+				needsYou(permission: string[], question: string[]): void
 				turnStarted(id: string): void
 				turnEnded(id: string, outcome: 'finished' | 'failed' | 'other', pal: boolean): void
 			}
@@ -864,13 +954,20 @@ export class Operator {
 		return this.needsYouRows(false)
 	}
 	/** One rule for "waiting on the person"; a Pal's conversation counts only when `includePals`. */
-	private needsYouRows(includePals: boolean): string[] {
+	private needsYouRows(includePals: boolean, kind?: 'permission' | 'question'): string[] {
 		return needsYouIds(
 			[...this.conversations.entries()].map(([id, session]) => ({
 				id,
 				running: session.projection.running,
 				waiting:
-					threadPhase(session.projection) === 'waiting' ? session.projection.permissions.length : 0,
+					threadPhase(session.projection) === 'waiting'
+						? session.projection.permissions.filter(
+								(request) =>
+									kind === undefined ||
+									request.calls.some((call) => call.name === QUESTION_TOOL) ===
+										(kind === 'question'),
+							).length
+						: 0,
 				...(includePals ? {} : { pal: Boolean(session.view.palId) }),
 			})),
 		)
@@ -879,6 +976,18 @@ export class Operator {
 	private readonly computerGrants = new Map<string, ComputerGrants>()
 	/** Conversations whose running turn has driven the computer: only these may raise Namzu over other applications. */
 	private readonly computerTurns = new Set<string>()
+	/**
+	 * Per conversation: the work folder as it stood when the running turn began, and the result
+	 * files earlier turns made by running something. Never stored; a restored conversation has none.
+	 */
+	private readonly madeScans = new Map<
+		string,
+		{
+			startedAt?: number
+			settled?: Promise<void>
+			made: (MadeFile & { turn: number })[]
+		}
+	>()
 	/** The requests that ask whether to allow applications, by request id. */
 	private readonly appRequests = new Map<string, { sessionId: string; apps: string[] }>()
 	private grantsFor(sessionId: string): ComputerGrants {
@@ -909,9 +1018,15 @@ export class Operator {
 	private attentionChanged(): void {
 		if (this.options.attentionChanged || this.options.notices) {
 			try {
-				this.options.attentionChanged?.(this.needsYou())
+				this.options.attentionChanged?.(this.needsYou(), {
+					permission: this.needsYouRows(false, 'permission'),
+					question: this.needsYouRows(false, 'question'),
+				})
 				// A Pal that asks is still blocked on the person, so the notice counts it; the badge does not.
-				this.options.notices?.needsYou(this.needsYouRows(true))
+				this.options.notices?.needsYou(
+					this.needsYouRows(true, 'permission'),
+					this.needsYouRows(true, 'question'),
+				)
 			} catch (error) {
 				this.diagnostics?.record('ipc_failed', { operation: 'attention', error })
 			}
@@ -1003,13 +1118,192 @@ export class Operator {
 		return this.providersChanged(client)
 	}
 	/** The engine's own list of settings and their saved values. Secrets never come back. */
-	async configSettings(): Promise<ConfigSettingsView> {
-		const client = await this.providerHost()
-		return readConfigSettingsView(await client.request('namzu/config/get'))
+	async configSettings(projectId?: unknown): Promise<ConfigSettingsView> {
+		// The engine reads the project's own config file from its working folder, so the question
+		// goes to the open project's engine; with none open, the registry engine answers.
+		let project: Project | undefined
+		try {
+			if (projectId !== undefined && projectId !== null) project = this.project(projectId)
+		} catch {
+			// A project that is gone or not connected leaves the settings readable without it.
+		}
+		const registry = await this.providerHost()
+		const client = project && !project.view.palId ? project.client : registry
+		let view: ConfigSettingsView
+		try {
+			view = readConfigSettingsView(await client.request('namzu/config/get'))
+		} catch (failure) {
+			if (client === registry) throw failure
+			view = readConfigSettingsView(await registry.request('namzu/config/get'))
+		}
+		this.watchConfigFile(view.file)
+		return view
+	}
+	private configWatch: { file: string; close: () => void } | undefined
+	/**
+	 * Tells the windows when the engine's config file changes on disk, so Settings shows an edit
+	 * made elsewhere. It watches the file's folder (an editor that replaces the file keeps working),
+	 * waits for the burst of writes to settle, and holds nothing open on the process's behalf.
+	 * Only the user file Settings writes is watched; an edit to a project's own config file shows
+	 * when the window next takes focus, which reads the settings again.
+	 */
+	private watchConfigFile(file: string): void {
+		if (!file || this.configWatch?.file === file) return
+		this.configWatch?.close()
+		this.configWatch = undefined
+		try {
+			const name = basename(file)
+			let timer: ReturnType<typeof setTimeout> | undefined
+			const watcher = watch(dirname(file), { persistent: false }, (_kind, changed) => {
+				if (changed && String(changed) !== name) return
+				if (timer) clearTimeout(timer)
+				timer = setTimeout(() => this.emit({ kind: 'config-file-changed' }), 150)
+			})
+			watcher.on('error', () => undefined)
+			this.configWatch = {
+				file,
+				close: () => {
+					if (timer) clearTimeout(timer)
+					watcher.close()
+				},
+			}
+		} catch {
+			// A folder that cannot be watched only costs the refresh on focus.
+		}
+	}
+	/**
+	 * The skills the engine finds: for a project, as that project's engine sees them (built-in, the
+	 * person's and the project's); with no project, the person's own. Names and tiers only. Null
+	 * where the engine does not know the question.
+	 */
+	async installedSkills(projectId?: unknown): Promise<InstalledSkillsView | null> {
+		let client: RuntimeClient
+		const project =
+			projectId === undefined || projectId === null ? undefined : this.project(projectId)
+		if (project && !project.view.palId) client = project.client
+		else client = await this.registry(false)
+		if (!client.supportsSkillsList()) return null
+		const result = await client.request('namzu/skills/list', {})
+		if (project && !project.view.palId && this.projects.get(project.view.id) !== project)
+			return null
+		return readInstalledSkills(result)
+	}
+	private async instructionsHost(): Promise<RuntimeClient> {
+		const client = await this.registry(false)
+		if (!client.supportsStandingInstructions())
+			throw new Error('Update Namzu to a version that can change standing instructions here.')
+		return client
+	}
+	/** The person's own instructions every conversation starts from; null where the engine cannot say. */
+	async standingInstructions(): Promise<StandingInstructionsView | null> {
+		const client = await this.registry(false)
+		if (!client.supportsStandingInstructions()) return null
+		return readStandingInstructions(await client.request('namzu/instructions/get', {}))
+	}
+	async saveStandingInstructions(
+		text: unknown,
+		revision?: unknown,
+	): Promise<StandingInstructionsView> {
+		if (typeof text !== 'string' || text.length > 100_000) throw new Error('Invalid text.')
+		if (revision !== undefined && (typeof revision !== 'string' || revision.length > 200))
+			throw new Error('Invalid revision.')
+		const client = await this.instructionsHost()
+		return readStandingInstructions(
+			await client.request('namzu/instructions/set', {
+				text,
+				...(revision === undefined ? {} : { revision }),
+			}),
+		)
+	}
+	/** The engine that serves one project's folder, when it can show saved memory. */
+	private memoryHost(projectId: unknown): RuntimeClient | undefined {
+		const project = this.project(projectId)
+		if (project.view.palId || !project.client.supportsSavedMemory()) return undefined
+		return project.client
+	}
+	/** The memories saved for a project; null where the engine cannot show them. */
+	async savedMemories(projectId: unknown): Promise<SavedMemoriesView | null> {
+		const client = this.memoryHost(projectId)
+		if (!client) return null
+		return readSavedMemories(await client.request('namzu/memory/list', {}))
+	}
+	async readSavedMemory(projectId: unknown, id: unknown): Promise<SavedMemoryDetail> {
+		const client = this.memoryHost(projectId)
+		if (!client || typeof id !== 'string') throw new Error('This memory cannot be read here.')
+		return readSavedMemoryDetail(await client.request('namzu/memory/read', { id }))
+	}
+	async updateSavedMemory(
+		projectId: unknown,
+		change: { id?: unknown; revision?: unknown; text?: unknown; title?: unknown },
+	): Promise<SavedMemoryOutcome> {
+		const client = this.memoryHost(projectId)
+		if (!client) throw new Error('This memory cannot be changed here.')
+		return readSavedMemoryOutcome(
+			await client.request('namzu/memory/update', {
+				id: change.id,
+				revision: change.revision,
+				text: change.text,
+				...(change.title === undefined ? {} : { title: change.title }),
+			}),
+		)
+	}
+	async deleteSavedMemory(
+		projectId: unknown,
+		change: { id?: unknown; revision?: unknown },
+	): Promise<SavedMemoryOutcome> {
+		const client = this.memoryHost(projectId)
+		if (!client) throw new Error('This memory cannot be deleted here.')
+		return readSavedMemoryOutcome(
+			await client.request('namzu/memory/delete', { id: change.id, revision: change.revision }),
+		)
+	}
+	/** Which browser the engine would drive on this computer; null where the engine does not know the question. */
+	async engineBrowser(): Promise<EngineBrowserView | null> {
+		const client = await this.registry(false)
+		if (!client.supportsBrowserStatus()) return null
+		return readEngineBrowser(await client.request('namzu/browser/status', {}))
+	}
+	private async userServersHost(): Promise<RuntimeClient> {
+		const client = await this.registry(false)
+		if (!client.supportsUserMcpServers())
+			throw new Error('Update Namzu to a version that can change tool servers here.')
+		return client
+	}
+	/** The tool servers in the person's own config file, as the form edits them. */
+	async userMcpServers(): Promise<UserMcpServersView> {
+		const client = await this.userServersHost()
+		return readUserMcpServersView(await client.request('namzu/mcp/user-servers', {}))
+	}
+	/** One server of the user's file, whole, for its edit form. */
+	async userMcpServer(name: string): Promise<UserMcpServerView | undefined> {
+		const client = await this.userServersHost()
+		const view = readUserMcpServersView(await client.request('namzu/mcp/user-servers', { name }))
+		return view.servers.find((server) => server.name === name)
+	}
+	async saveUserMcpServer(
+		change: UserMcpServerChange,
+		dryRun: boolean,
+	): Promise<UserMcpServersView> {
+		const client = await this.userServersHost()
+		return readUserMcpServersView(
+			await client.request('namzu/mcp/save-user-server', {
+				...change,
+				...(dryRun ? { dryRun } : {}),
+			}),
+		)
+	}
+	async removeUserMcpServer(name: string): Promise<UserMcpServersView> {
+		const client = await this.userServersHost()
+		return readUserMcpServersView(await client.request('namzu/mcp/remove-user-server', { name }))
 	}
 	async setConfigSetting(path: string, value: unknown): Promise<ConfigSettingsView> {
 		const client = await this.providerHost()
-		return readConfigSettingsView(await client.request('namzu/config/set', { path, value }))
+		const view = readConfigSettingsView(await client.request('namzu/config/set', { path, value }))
+		if (path === 'respectGitignore') {
+			this.respectGitignoreCache = undefined
+			this.projectFiles.invalidate()
+		}
+		return view
 	}
 	async validateConfigSetting(path: string, value: unknown): Promise<void> {
 		const client = await this.providerHost()
@@ -1060,7 +1354,7 @@ export class Operator {
 	}
 	async palModels(provider: string): Promise<ModelCatalogueView> {
 		if (typeof provider !== 'string' || !provider.trim() || provider.length > 400)
-			throw new Error('Invalid provider.')
+			throw new Error('That AI service isn’t available.')
 		return (await (
 			await this.registry()
 		).request('namzu/providers/models', {
@@ -1441,7 +1735,7 @@ export class Operator {
 			throw new Error('Invalid Pal computer generation.')
 		const client = await this.controlClient(id, reuseReady)
 		if (!client.supportsPalComputerControl())
-			throw new Error('This computer provider does not support operator control.')
+			throw new Error('This computer can’t be controlled from Namzu.')
 		const current = await this.computerStatus(client, id)
 		if (
 			current.status !== 'ready' ||
@@ -1464,7 +1758,7 @@ export class Operator {
 			for (const item of owned) {
 				if (item.running) {
 					const settled = item.runSettled
-					if (!settled) throw new Error('This Pal turn has no confirmed completion boundary.')
+					if (!settled) throw new Error('Namzu couldn’t confirm that this Pal finished its reply.')
 					await this.cancel(item.view.id)
 					await settled
 				}
@@ -1804,8 +2098,11 @@ export class Operator {
 			event.kind !== 'open-settings' &&
 			event.kind !== 'tab-command' &&
 			event.kind !== 'show-conversation' &&
+			event.kind !== 'pending-entry' &&
 			event.kind !== 'model-catalogue-updated' &&
 			event.kind !== 'providers-changed' &&
+			event.kind !== 'config-file-changed' &&
+			event.kind !== 'limits' &&
 			event.kind !== 'unread'
 		) {
 			const id = event.kind === 'permission' ? event.request.sessionId : event.sessionId
@@ -1829,8 +2126,12 @@ export class Operator {
 				if (!wasRunning && session.projection.running) {
 					this.computerTurns.delete(id)
 					this.options.notices?.turnStarted(id)
+					this.beginMadeScan(session)
 				}
-				if (wasRunning && !session.projection.running) this.noticeTurnEnded(session)
+				if (wasRunning && !session.projection.running) {
+					this.noticeTurnEnded(session)
+					this.endMadeScan(session)
+				}
 				if (
 					wasRunning &&
 					!session.projection.running &&
@@ -2003,6 +2304,7 @@ export class Operator {
 			this.attachmentPreviews.forget(id)
 		}
 		this.attentionChanged()
+		this.forgetFolderRecord(missing.path)
 		this.missingProjects.delete(projectId)
 		this.unopenedProjects.delete(projectId)
 		for (const [path, id] of this.relocations) if (id === projectId) this.relocations.delete(path)
@@ -2229,7 +2531,7 @@ export class Operator {
 			// A connection that was working and dropped is not an unopenable folder: the
 			// conversation stays on screen and Namzu reconnects by itself.
 			const lost = view.status === 'ready' && !view.missing
-			const failure = view.status === 'error' && view.error ? view.error : error.message
+			const failure = view.status === 'error' && view.error ? view.error : engineFailureText(error)
 			view.status = 'error'
 			view.error = failure
 			if (lost) view.lost = true
@@ -2268,10 +2570,13 @@ export class Operator {
 				view.name = status.pal.name
 				this.palRecords.set(status.pal.id, status.pal)
 			}
+			// The review modes the engine lets this project use: the composer offers no others.
+			const permissionModes = client.promptPermissionModes?.()
+			if (permissionModes) view.permissionModes = [...permissionModes]
 			view.status = 'ready'
 		} catch (error) {
 			view.status = 'error'
-			view.error = error instanceof Error ? error.message : String(error)
+			view.error = engineFailureText(error)
 			await this.closeClient(client)
 			if (this.closing) throw error
 		}
@@ -2312,7 +2617,11 @@ export class Operator {
 		// The shell, and the `namzu` typed into it, would read folder settings that changed since the last look.
 		await this.assertSettingsUnchanged(project)
 		return {
-			project: { id: project.view.id, name: project.view.name, path: project.view.path },
+			project: {
+				id: project.view.id,
+				name: project.view.name,
+				path: terminalFolder(project.view, homedir()),
+			},
 			connection: project.client,
 		}
 	}
@@ -2393,7 +2702,7 @@ export class Operator {
 		const assertCurrent = this.metadataRead(project)
 		const rows = (await project.client.request(
 			project.view.palId ? 'namzu/pals/conversations/list' : 'namzu/conversations/list',
-			project.view.palId ? { palId: project.view.palId } : {},
+			project.view.palId ? { palId: project.view.palId } : { idleArchivedRows: true },
 		)) as {
 			id: string
 			title: string
@@ -2404,8 +2713,22 @@ export class Operator {
 		}[]
 		assertCurrent()
 		if (!Array.isArray(rows)) throw new Error('Namzu returned an invalid conversation list.')
+		// Conversations the engine archived for being idle: dropped the way a person's archive is, so a
+		// row this window still holds goes with it and no one is left on an archived conversation.
+		const swept = rows.filter((row) => (row as { idleArchived?: unknown }).idleArchived === true)
+		for (const row of swept) {
+			try {
+				await this.removeConversation(row.id)
+			} catch {
+				// Not a row this window knew, or one that has since become busy: nothing to drop.
+			}
+		}
 		const views = rows
-			.filter((row) => !this.removedConversations.has(row.id))
+			.filter(
+				(row) =>
+					!this.removedConversations.has(row.id) &&
+					(row as { idleArchived?: unknown }).idleArchived !== true,
+			)
 			.map((row) => ({
 				id: this.runtimeSession(project, row.id)?.view.id ?? row.id,
 				title: row.title,
@@ -2450,6 +2773,7 @@ export class Operator {
 				this.attachments(session.view.id).length ||
 				session.draftSettings?.choice ||
 				session.draftSettings?.options?.effort !== undefined ||
+				session.draftSettings?.options?.hypermode !== undefined ||
 				session.draftSettings?.options?.permissionMode !== undefined
 			)
 				views.unshift({ ...session.view })
@@ -2654,6 +2978,14 @@ export class Operator {
 	 * the folder and the conversation journals stay, so opening the folder again lists its
 	 * conversations. Refused while any work in the project is still running.
 	 */
+	/** Drops Desktop's own record of a folder's automatic settings; a failure here never blocks a removal. */
+	private forgetFolderRecord(path: string): void {
+		try {
+			this.folderGuard?.forget(path)
+		} catch (error) {
+			this.diagnostics?.record('ipc_failed', { operation: 'forgetFolderRecord', error })
+		}
+	}
 	async removeProject(projectId: unknown): Promise<ProjectRemovalResult> {
 		if (this.closing) throw new Error('Namzu is closing.')
 		if (typeof projectId !== 'string' || !projectId.trim() || projectId.length > 400)
@@ -2742,6 +3074,7 @@ export class Operator {
 			}
 			// Leave the map first so the connection's own close is not reported as a failure.
 			this.projects.delete(projectId)
+			this.forgetFolderRecord(view.path)
 			this.undoRetries.drop(projectId)
 			this.backgroundWork.invalidateProject(projectId)
 			try {
@@ -2858,7 +3191,7 @@ export class Operator {
 		const session = this.session(sessionId)
 		if (session.view.palId) throw new Error(`A Pal conversation cannot ${action}.`)
 		if (session.view.harness && session.view.harness !== 'namzu')
-			throw new Error(`This engine’s conversation cannot ${action} from Namzu.`)
+			throw new Error(`This conversation can’t ${action} from Namzu.`)
 		return session
 	}
 	private archivedClient(project: Project): RuntimeClient {
@@ -2982,6 +3315,70 @@ export class Operator {
 			throw new Error('Namzu returned an invalid conversation export.')
 		this.assertConversationAvailable(sessionId)
 		return { markdown: result.markdown, truncated: result.truncated }
+	}
+	/**
+	 * What each provider in use says about its account. The host makes any request itself and at most
+	 * once a minute per vendor; the answer is read strictly, kept nowhere and logged never.
+	 */
+	async refreshLimits(projectId: string): Promise<LimitsNotification | null> {
+		const project = this.project(projectId)
+		if (!project.view.trusted || project.view.palId || !project.client.supportsLimits()) return null
+		const client = project.client
+		let result: unknown
+		try {
+			result = await client.request(LIMITS_REFRESH_METHOD, {})
+		} catch {
+			return null
+		}
+		if (this.projects.get(projectId) !== project || project.client !== client) return null
+		return readLimitsNotice(result) ?? null
+	}
+	/** What this conversation's changes would commit. Reads only; the host asks the small model once. */
+	async commitPreview(sessionId: string, paths: string[]): Promise<CommitPreviewView | null> {
+		const session = this.namzuConversation(sessionId, 'be committed')
+		const project = this.project(session.view.projectId)
+		if (!project.view.trusted || project.view.palId || !project.client.supportsProjectCommit())
+			return null
+		if (!Array.isArray(paths) || paths.length > 5000) throw new Error('Invalid commit request.')
+		const client = project.client
+		const result = await client.request(COMMIT_PREVIEW_METHOD, {
+			sessionId: session.runtimeSessionId,
+			paths: paths.filter((path) => typeof path === 'string'),
+		})
+		this.assertConversationAvailable(sessionId)
+		if (project.client !== client) return null
+		return readCommitPreview(result) ?? null
+	}
+	/** Commits the files the person confirmed. The host never pushes and never skips a hook. */
+	async commit(sessionId: string, request: CommitRequestView): Promise<CommitOutcomeView> {
+		const session = this.namzuConversation(sessionId, 'be committed')
+		const project = this.project(session.view.projectId)
+		if (!project.view.trusted || project.view.palId)
+			throw new Error('Trust this folder to commit in it.')
+		if (!project.client.supportsProjectCommit())
+			throw new Error('Update Namzu to a version that can commit from here.')
+		if (
+			!request ||
+			typeof request.message !== 'string' ||
+			!Array.isArray(request.paths) ||
+			request.paths.length > 200 ||
+			request.paths.some((path) => typeof path !== 'string') ||
+			typeof request.fingerprints !== 'object' ||
+			request.fingerprints === null
+		)
+			throw new Error('Invalid commit request.')
+		const result = await project.client.request(
+			COMMIT_METHOD,
+			{
+				paths: request.paths,
+				message: request.message,
+				fingerprints: request.fingerprints,
+			},
+			120_000,
+		)
+		const read = readCommitOutcome(result)
+		if (!read) throw new Error('Namzu returned an unreadable answer to the commit.')
+		return read
 	}
 	async projectGit(projectId: string): Promise<ProjectGitView | null> {
 		const project = this.project(projectId)
@@ -3152,6 +3549,16 @@ export class Operator {
 		if (!view) throw new Error('Namzu returned invalid changes.')
 		return view
 	}
+	/**
+	 * Branches, commits and changes against a base other than HEAD, read by Desktop's own git calls.
+	 * The folder is the operator's record of a trusted project, never the renderer's word.
+	 */
+	async projectCompare(projectId: string, request: unknown): Promise<ProjectCompareReply | null> {
+		const project = this.project(projectId)
+		if (!project.view.trusted || project.view.isChat || project.view.palId) return null
+		return this.compareProject(project.view.path, request)
+	}
+	private compareProject = createProjectCompare()
 	async projectDiff(projectId: string, path: string): Promise<ProjectDiffView> {
 		if (typeof path !== 'string' || path.length === 0 || path.length > 1_024)
 			throw new Error('That path is not inside this project.')
@@ -3234,7 +3641,87 @@ export class Operator {
 			if (path && isAbsolute(path)) written.push(path)
 			else if (path) written.push(resolve(project.view.path, path))
 		}
+		for (const made of this.madeScans.get(sessionId)?.made ?? []) written.push(made.path)
 		return { root: project.view.path, written }
+	}
+	/** The folder a conversation's Browser pane may open local files from; none for a Pal. */
+	browserWorkFolder(sessionId: unknown): string | undefined {
+		try {
+			const session = this.session(sessionId)
+			return session.view.palId ? undefined : this.project(session.view.projectId).view.path
+		} catch {
+			return undefined
+		}
+	}
+	/** The folder a conversation's made files are looked for in, or nothing when it has none to scan. */
+	private madeFolder(session: Conversation): string | undefined {
+		if (session.view.palId) return undefined
+		const project = this.projects.get(session.view.projectId)
+		if (!project?.view.trusted || project.view.palId) return undefined
+		return project.view.path
+	}
+	private beginMadeScan(session: Conversation): void {
+		if (!this.madeFolder(session)) return
+		const entry = this.madeScans.get(session.view.id) ?? { made: [] }
+		// Files are told apart by their own time, not by a listing taken now: a listing taken while
+		// the turn already runs can miss a file the turn wrote first.
+		entry.startedAt = Date.now()
+		this.madeScans.set(session.view.id, entry)
+	}
+	private endMadeScan(session: Conversation): void {
+		const entry = this.madeScans.get(session.view.id)
+		const folder = this.madeFolder(session)
+		const startedAt = entry?.startedAt
+		if (!entry || startedAt === undefined || !folder) return
+		entry.startedAt = undefined
+		const turn = session.projection.turn
+		entry.settled = (async () => {
+			const scan = await scanFolder(folder).catch(() => undefined)
+			// A walk cut short may miss files or cut at a different place than another; say nothing.
+			if (!scan?.complete) return
+			for (const file of madeSince(scan.files, startedAt))
+				entry.made = [...entry.made.filter((old) => old.path !== file.path), { ...file, turn }]
+		})().catch(() => undefined)
+	}
+	/** Result files the conversation's turns made by running something, with the turn that made each. */
+	async madeSessionFiles(sessionId: string): Promise<{ path: string; turn: number }[]> {
+		this.outputAccess(sessionId)
+		// A turn still ending has its scan under way; wait for it, so a pull right after sees it.
+		await this.madeScans.get(sessionId)?.settled
+		return (this.madeScans.get(sessionId)?.made ?? []).map(({ path, turn }) => ({ path, turn }))
+	}
+	async describeSessionOutputs(sessionId: string, paths: string[]): Promise<OutputDetail[]> {
+		return describeOutputs(this.outputAccess(sessionId), paths, {
+			stat: async (path) => {
+				try {
+					const info = await stat(path)
+					return info.isFile() ? { size: info.size } : undefined
+				} catch {
+					return undefined
+				}
+			},
+			head: async (path, bytes) => {
+				const handle = await openFile(path, 'r')
+				try {
+					const buffer = Buffer.alloc(bytes)
+					const { bytesRead } = await handle.read(buffer, 0, bytes, 0)
+					return buffer.subarray(0, bytesRead).toString('utf8')
+				} finally {
+					await handle.close()
+				}
+			},
+		})
+	}
+	/** Saves a copy of a made file where the person chooses; `choose` is the system save dialog. */
+	async saveSessionOutput(
+		sessionId: string,
+		path: string,
+		choose: (defaultName: string) => Promise<string | undefined>,
+	): Promise<{ saved: boolean }> {
+		return saveOutputCopy(this.outputAccess(sessionId), path, {
+			choose,
+			copy: (from, to) => copyFile(from, to),
+		})
 	}
 	async readSessionOutput(sessionId: string, path: string): Promise<ProjectFileContent> {
 		return readOutput(this.outputAccess(sessionId), path, this.projectFiles)
@@ -3242,12 +3729,15 @@ export class Operator {
 	async openSessionOutput(
 		sessionId: string,
 		path: string,
-		target: 'browser' | 'file-manager',
+		target: 'browser' | 'file-manager' | 'system',
 	): Promise<void> {
 		if (!this.openIn) throw new Error('Opening files is not available here.')
-		if (target !== 'browser' && target !== 'file-manager')
+		if (target !== 'browser' && target !== 'file-manager' && target !== 'system')
 			throw new Error('That way of opening is not supported.')
 		const found = await resolveOutput(this.outputAccess(sessionId), path)
+		// The system's own program opens results only, never something that could run.
+		if (target === 'system' && !mayOpenWithSystem(found.absolute))
+			throw new Error('Namzu only opens pages, documents, pictures, sheets and slides this way.')
 		await this.openIn.open(found.absolute, 'file', target)
 	}
 	async resolveProjectLinks(projectId: string, refs: string[]): Promise<ProjectLinkResolution[]> {
@@ -3452,14 +3942,14 @@ export class Operator {
 		if (session.view.palId)
 			throw new Error('External engines are available in normal conversations only.')
 		if (!['namzu', 'codex-cli', 'claude-code'].includes(engine))
-			throw new Error('Unknown execution engine.')
+			throw new Error('Namzu doesn’t know that assistant. Choose another one.')
 		if (
 			session.running ||
 			session.admitting ||
 			session.queue.length ||
 			this.changingPlugins.has(sessionId)
 		)
-			throw new Error('Stop this conversation before changing its engine.')
+			throw new Error('Stop this reply before switching the assistant.')
 		this.changingPlugins.add(sessionId)
 		session.selectionRevision = (session.selectionRevision ?? 0) + 1
 		session.selectionPending = true
@@ -3499,7 +3989,7 @@ export class Operator {
 					assertCurrent()
 					// The engine ACK remains authoritative when follow-up metadata is unavailable.
 					session.providerSetupFailure =
-						'The selected engine’s model settings could not be read. Retry model discovery or choose a model. Your draft is retained.'
+						'Namzu couldn’t load the models for this assistant. Try again, or choose a model. Your draft is kept.'
 				}
 			}
 			this.persistDesktop()
@@ -3562,7 +4052,7 @@ export class Operator {
 			engine !== 'namzu' &&
 			(providers.selected?.id !== engine || !providers.selected.model)
 		)
-			throw new Error('This engine did not report its selected model. Choose a model again.')
+			throw new Error('This assistant didn’t report which model it uses. Choose a model again.')
 		if (providers.selected)
 			session.providerSelection = {
 				provider: providers.selected.id,
@@ -3735,7 +4225,7 @@ export class Operator {
 			() => {
 				assertCurrent()
 				if ((session.executionRevision ?? 0) !== executionRevision || session.running)
-					throw new Error('This turn changed while loading. Open it again.')
+					throw new Error('This reply changed while it was loading. Open the conversation again.')
 			},
 		)
 		const reading = {
@@ -3834,7 +4324,7 @@ export class Operator {
 					})) as HarnessView
 					stillOwned()
 					if (restored.selected !== engine)
-						throw new Error('The selected engine could not be restored. Your draft is retained.')
+						throw new Error('Namzu couldn’t reopen this assistant. Your draft is kept.')
 					if (choice?.provider === engine && choice.model) {
 						await client.request('namzu/providers/select', {
 							sessionId: session.runtimeSessionId,
@@ -3865,7 +4355,7 @@ export class Operator {
 					})) as HarnessView
 					stillOwned()
 					if (restored.selected !== requested.engine)
-						throw new Error('The selected engine could not be restored. Your draft is retained.')
+						throw new Error('Namzu couldn’t reopen this assistant. Your draft is kept.')
 					session.view.harness = requested.engine
 					this.backgroundWork.invalidate(session.view.id)
 				}
@@ -4020,7 +4510,7 @@ export class Operator {
 	async models(id: string, provider: string, sessionId?: string): Promise<ModelCatalogueView> {
 		const project = this.project(id)
 		if (typeof provider !== 'string' || !provider.trim() || provider.length > 400)
-			throw new Error('Invalid provider.')
+			throw new Error('That AI service isn’t available.')
 		const session = sessionId === undefined ? undefined : this.session(sessionId)
 		if (session && session.view.projectId !== id)
 			throw new Error('This conversation belongs to another project.')
@@ -4344,7 +4834,7 @@ export class Operator {
 		if (session.view.palId)
 			throw new Error('Auto is not available in a Pal conversation. A Pal keeps its own model.')
 		if (session.view.harness !== undefined && session.view.harness !== 'namzu')
-			throw new Error('Auto is only available with the Namzu engine.')
+			throw new Error('Auto works only with Namzu’s own assistant.')
 		this.changingPlugins.add(sessionId)
 		session.selectionRevision = (session.selectionRevision ?? 0) + 1
 		session.selectionPending = true
@@ -4535,6 +5025,8 @@ export class Operator {
 			throw new Error('Invalid reasoning effort.')
 		if (options?.permissionMode !== undefined && !isReviewModeId(options.permissionMode))
 			throw new Error('Invalid permission mode.')
+		if (options?.hypermode !== undefined && typeof options.hypermode !== 'boolean')
+			throw new Error('Invalid hypermode choice.')
 		if (
 			options?.attachmentIds !== undefined &&
 			(!Array.isArray(options.attachmentIds) ||
@@ -4736,9 +5228,7 @@ export class Operator {
 		const ids = options?.attachmentIds ?? []
 		if (session.view.harness && session.view.harness !== 'namzu') {
 			if (ids.length)
-				throw new Error(
-					'This engine connection does not support attachments yet. Your draft is retained.',
-				)
+				throw new Error('This assistant can’t take attachments yet. Your draft is kept.')
 			const supportedReviewModes =
 				session.view.harness === 'codex-cli'
 					? ['prompt', 'plan', 'accept-edits', 'auto', 'bypass', 'strict']
@@ -4746,8 +5236,8 @@ export class Operator {
 			if (options?.permissionMode && !supportedReviewModes.includes(options.permissionMode))
 				throw new Error(
 					session.view.harness === 'claude-code'
-						? 'This engine supports Ask first and Plan only.'
-						: 'This engine does not support the selected permission mode.',
+						? 'This assistant only supports Ask first and Plan only. Pick one of those.'
+						: 'This assistant doesn’t support that approval choice. Pick another one.',
 				)
 		}
 		if (
@@ -4779,8 +5269,11 @@ export class Operator {
 			throw new Error('Invalid reasoning effort.')
 		if (options?.permissionMode !== undefined && !isReviewModeId(options.permissionMode))
 			throw new Error('Invalid permission mode.')
+		if (options?.hypermode !== undefined && typeof options.hypermode !== 'boolean')
+			throw new Error('Invalid hypermode choice.')
 		if (
 			(options?.effort !== undefined ||
+				options?.hypermode !== undefined ||
 				(options?.permissionMode !== undefined && options.permissionMode !== 'prompt')) &&
 			!session.client.supportsPromptOptions()
 		)
@@ -4855,7 +5348,7 @@ export class Operator {
 				} else if (status.retry || status.notice || session.projection.reason === 'paused')
 					throw new Error(
 						status.notice ??
-							'This conversation has a paused turn. Retry it before sending a new message. Your draft is retained.',
+							'This conversation has a paused reply. Try it again before you send a new message. Your draft is kept.',
 					)
 				this.assertPalAdmission(session.view.palId)
 				this.admitMessage(session, captured)
@@ -4864,9 +5357,7 @@ export class Operator {
 			})
 		}
 		if (session.projection.reason === 'paused')
-			throw new Error(
-				'This conversation has a paused turn. Your draft is retained; update Namzu to retry it.',
-			)
+			throw new Error('This reply is paused. Your draft is kept. Update Namzu to try it again.')
 		this.admitMessage(session, captured)
 	}
 	private admitMessage(session: Conversation, captured: PendingMessage): void {
@@ -4896,9 +5387,13 @@ export class Operator {
 			session.client !== client ||
 			session.runtimeSessionId !== runtimeId
 		)
-			throw new Error('The connection changed while reading this turn’s retry status.')
+			throw new Error(
+				'Namzu couldn’t check whether this reply can be tried again. Try again in a moment.',
+			)
 		if (!result || typeof result !== 'object' || Array.isArray(result))
-			throw new Error('Namzu returned an invalid turn retry status.')
+			throw new Error(
+				'Namzu couldn’t check whether this reply can be tried again. Try again in a moment.',
+			)
 		const { retry, notice, unknownUsage, closable } = result as DesktopRetryStatus
 		if (
 			(retry !== undefined &&
@@ -4922,16 +5417,18 @@ export class Operator {
 			(unknownUsage !== undefined &&
 				(!Number.isSafeInteger(unknownUsage) || unknownUsage < 1 || unknownUsage > 100_000))
 		)
-			throw new Error('Namzu returned an invalid turn retry status.')
+			throw new Error(
+				'Namzu couldn’t check whether this reply can be tried again. Try again in a moment.',
+			)
 		if ((session.executionRevision ?? 0) !== executionRevision || session.running)
-			throw new Error('This turn changed while reading its retry status. Open it again.')
+			throw new Error('This reply changed while Namzu checked it. Open the conversation again.')
 		if (
 			(session.selectionRevision ?? 0) !== selectionRevision ||
 			session.selectionPending ||
 			this.changingPlugins.has(session.view.id)
 		)
 			throw new Error(
-				'This conversation’s settings changed while reading retry status. Open it again.',
+				'This conversation’s settings changed while Namzu checked it. Open the conversation again.',
 			)
 		if (
 			JSON.stringify(session.projection.retry) !== JSON.stringify(retry) ||
@@ -5320,7 +5817,7 @@ export class Operator {
 			if (result.stopReason === 'error' && !session.projection.error)
 				this.state(
 					session,
-					'Namzu could not retry this turn. Your conversation and draft are retained.',
+					'Namzu couldn’t try this reply again. Your conversation and draft are kept.',
 				)
 		} catch (error) {
 			if (!session.projection.stopReason)
@@ -5335,7 +5832,7 @@ export class Operator {
 						reason: 'paused',
 					},
 				})
-			this.state(session, error instanceof Error ? error.message : String(error))
+			this.state(session, engineFailureText(error))
 		} finally {
 			const settlement = Symbol('retry settlement')
 			session.admitting = settlement
@@ -5477,9 +5974,13 @@ export class Operator {
 				!options ||
 				typeof options !== 'object' ||
 				Array.isArray(options) ||
-				Object.keys(options).some((key) => key !== 'effort' && key !== 'permissionMode')
+				Object.keys(options).some(
+					(key) => key !== 'effort' && key !== 'permissionMode' && key !== 'hypermode',
+				)
 			)
 				throw new Error('Invalid draft message settings.')
+			if (options.hypermode !== undefined && typeof options.hypermode !== 'boolean')
+				throw new Error('Invalid hypermode choice.')
 			if (
 				options.effort !== undefined &&
 				(typeof options.effort !== 'string' ||
@@ -5492,6 +5993,7 @@ export class Operator {
 				throw new Error('Invalid permission mode.')
 			next.options = {
 				...(options.effort !== undefined ? { effort: options.effort } : {}),
+				...(options.hypermode !== undefined ? { hypermode: options.hypermode } : {}),
 				...(options.permissionMode !== undefined ? { permissionMode: options.permissionMode } : {}),
 			}
 		}
@@ -5637,7 +6139,7 @@ export class Operator {
 			if (result.stopReason === 'error' && !session.projection.error)
 				this.state(
 					session,
-					'Namzu could not finish this turn. Your conversation is retained; check the provider or tool error before retrying.',
+					'Namzu couldn’t finish this reply. Your conversation is saved. Try again.',
 				)
 		} catch (error) {
 			failed = true
@@ -5648,7 +6150,7 @@ export class Operator {
 					sessionId: session.view.id,
 					update: { kind: 'turn_ended', stopReason: 'error' },
 				})
-			this.state(session, error instanceof Error ? error.message : String(error))
+			this.state(session, engineFailureText(error))
 		} finally {
 			if (
 				!hadPrompted &&
@@ -6106,6 +6608,10 @@ export class Operator {
 				if (seen.app && this.grantsFor(session.view.id).markUsed(seen.app))
 					this.announceComputerApps(session.view.id)
 			}
+		} else if (frame.method === LIMITS_NOTIFICATION) {
+			// What the providers say about the account. A notice that does not read is dropped.
+			const limits = readLimitsNotice(frame.params)
+			if (limits) this.emit({ kind: 'limits', limits })
 		} else if (frame.method === TITLE_NOTIFICATION) {
 			// The name the model gave a conversation. It replaces the words of the first message only
 			// while the title is still those words: a name the person typed is never overwritten.
@@ -6122,6 +6628,17 @@ export class Operator {
 				session.view.title = notice.title
 				session.promptTitle = undefined
 				this.commitConversationView(session, project)
+			}
+		} else if (frame.method === PREFERENCE_NOTIFICATION) {
+			// The person said yes on a card to a change of one of the app's own preferences. Only the
+			// listed keys with a value that reads are applied; anything else is dropped.
+			const patch = readPreferenceRequest(frame.params)
+			if (patch) {
+				try {
+					this.options.applyPreferences?.(patch)
+				} catch (error) {
+					this.diagnostics?.record('ipc_failed', { operation: 'agentPreference', error })
+				}
 			}
 		} else if (frame.method === OUTCOME_NOTIFICATION) {
 			// What a finished turn changed and what checked it. A notice that does not read, or names a
@@ -6232,6 +6749,28 @@ export class Operator {
 			sessionId: session.runtimeSessionId,
 		})
 	}
+	/**
+	 * Where a conversation's window goes, from the engine that serves it. Null when the engine has
+	 * not counted yet or cannot say; the ring still shows the total from the usage notices.
+	 */
+	async contextUsage(sessionId: string, detail?: unknown): Promise<ContextReport | null> {
+		const session = this.session(sessionId)
+		if (!session.client.supportsContextPanel()) return null
+		if (session.view.palId || (session.view.harness && session.view.harness !== 'namzu'))
+			return null
+		if (detail !== undefined && detail !== 'summary' && detail !== 'full')
+			throw new Error('Invalid context request.')
+		const client = session.client
+		const runtimeSessionId = session.runtimeSessionId
+		const result = await client.request(
+			CONTEXT_REQUEST,
+			{ sessionId: runtimeSessionId, detail: detail ?? 'summary' },
+			8_000,
+		)
+		if (this.session(sessionId) !== session || session.runtimeSessionId !== runtimeSessionId)
+			return null
+		return readContextReport(result)
+	}
 	async readJob(sessionId: string, jobId: string): Promise<unknown> {
 		const session = this.session(sessionId)
 		if (typeof jobId !== 'string' || jobId.length > 400) throw new Error('Invalid job.')
@@ -6266,6 +6805,8 @@ export class Operator {
 		for (const item of this.conversations.values())
 			if (item.running && !item.view.palId) item.view.closedWhileRunning = true
 		this.backgroundWork.close()
+		this.configWatch?.close()
+		this.configWatch = undefined
 		for (const id of this.computerViewers.keys()) this.closePalComputerStream(id)
 		const closing = await Promise.allSettled(
 			[...this.ownedClients].map((client) => this.closeClient(client)),
@@ -6279,7 +6820,7 @@ export class Operator {
 				[...closing, ...starting]
 					.filter((result) => result.status === 'rejected')
 					.map((result) => result.reason),
-				'Namzu could not confirm that all runtime processes stopped. Retry closing Namzu.',
+				'Namzu couldn’t confirm that everything stopped. Try closing Namzu again.',
 			)
 		}
 		this.registryClient = undefined

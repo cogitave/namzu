@@ -64,8 +64,27 @@ export interface GitWorktreeDriverConfig {
 	 */
 	worktreesDir?: string
 	logger: Logger
+	/**
+	 * The first part of every branch this driver makes: `<branchPrefix>/<label>`.
+	 * One safe component (letters, digits, `.`, `_`, `-`; at most 40 characters).
+	 * Defaults to `namzu`. A worktree made under another prefix is still owned
+	 * and still found, because Git, not the prefix, vouches for the branch.
+	 */
+	branchPrefix?: string
 	/** Test-seam: inject a stub `execFile` implementation. */
 	execFile?: ExecFile
+}
+
+const DEFAULT_BRANCH_PREFIX = 'namzu'
+
+/** One safe branch component: no slash, no leading dot or hyphen, no Git syntax. */
+function isBranchPrefix(value: string): boolean {
+	return (
+		/^[A-Za-z0-9_][A-Za-z0-9._-]{0,39}$/.test(value) &&
+		!value.endsWith('.') &&
+		!value.includes('..') &&
+		!value.endsWith('.lock')
+	)
 }
 
 export class GitWorktreeDriver implements WorkspaceBackendDriver {
@@ -75,12 +94,20 @@ export class GitWorktreeDriver implements WorkspaceBackendDriver {
 	private readonly worktreesDir: string
 	private readonly log: Logger
 	private readonly exec: ExecFile
+	private readonly branchPrefix: string
 
 	constructor(config: GitWorktreeDriverConfig) {
 		this.repoRoot = resolve(config.repoRoot)
 		this.worktreesDir = resolve(config.worktreesDir ?? defaultWorktreesDir(config.repoRoot))
 		this.log = config.logger.child({ [SCOPE_ATTRIBUTE]: 'session/workspace/git-worktree' })
 		this.exec = config.execFile ?? defaultExecFile
+		const prefix = config.branchPrefix ?? DEFAULT_BRANCH_PREFIX
+		if (!isBranchPrefix(prefix)) {
+			throw new Error(
+				'A worktree branch prefix must be 1 to 40 letters, digits, dots, underscores or hyphens, and must not start with a dot or hyphen.',
+			)
+		}
+		this.branchPrefix = prefix
 	}
 
 	async create(params: CreateWorkspaceParams): Promise<WorkspaceRef> {
@@ -112,7 +139,7 @@ export class GitWorktreeDriver implements WorkspaceBackendDriver {
 		}
 
 		const relativePath = relative(worktreesDir, worktreePath).split(sep).join('/')
-		const branch = `namzu/${relativePath}`
+		const branch = `${this.branchPrefix}/${relativePath}`
 
 		// `--` belongs before caller-controlled positional arguments. Without it,
 		// a base ref such as `--no-checkout` is accepted as a Git option and the
@@ -349,8 +376,12 @@ export class GitWorktreeDriver implements WorkspaceBackendDriver {
 			}
 
 			const label = relative(worktreesDir, worktreePath).split(sep).join('/')
-			const branch = `namzu/${label}`
-			if (ref.meta.branch !== branch) {
+			// The prefix is whatever the host chose when the worktree was made, so
+			// it may differ from the one set now. Ownership rests on the path and
+			// on Git registering exactly this branch there, not on the prefix.
+			const branch = ref.meta.branch
+			const suffix = `/${label}`
+			if (!branch.endsWith(suffix) || !isBranchPrefix(branch.slice(0, -suffix.length))) {
 				throw new Error('Workspace reference branch does not match its managed path')
 			}
 

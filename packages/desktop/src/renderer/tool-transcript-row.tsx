@@ -24,7 +24,7 @@ export function actionIcon(kind: ActionKind) {
 		? TerminalIcon
 		: kind === 'edit'
 			? PencilIcon
-			: kind === 'read'
+			: kind === 'read' || kind === 'skill'
 				? FileTextIcon
 				: kind === 'search' || kind === 'web' || kind === 'lookup'
 					? SearchIcon

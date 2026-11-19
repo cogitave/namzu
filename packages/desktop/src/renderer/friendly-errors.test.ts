@@ -483,3 +483,31 @@ describe('the provider wait line', () => {
 		)
 	})
 })
+
+describe('the engine’s own coded failures', () => {
+	it('reads the same for a current engine and for an older engine’s wording', () => {
+		const current = describeFailure(
+			'Namzu has no AI service set up on this computer yet. Add a key or sign in to one in Settings, then send again.',
+		)
+		const older = describeFailure(
+			'No LLM provider is available on this machine: set a credential in the environment, or run `namzu` interactively to pick one. The protocol handshake succeeded; there is nothing to run a prompt with.',
+		)
+		expect(older.text).toBe(current.text)
+		expect(older).toMatchObject({ kind: 'missing-key', actions: ['settings'] })
+		expect(older.text).not.toMatch(/LLM|credential|protocol/)
+	})
+	it('shows a sentence the app wrote as it is', () => {
+		expect(
+			describeFailure('This reply is paused. Your draft is kept. Update Namzu to try it again.'),
+		).toMatchObject({
+			text: 'This reply is paused. Your draft is kept. Update Namzu to try it again.',
+			actions: ['try-again'],
+		})
+	})
+	it('keeps the busy and connection codes out of the "something went wrong" fallback', () => {
+		expect(
+			describeFailure('The live input mailbox is full. Your message was not admitted.').text,
+		).toBe('Namzu is busy with too many messages. Wait a moment, then send again.')
+		expect(describeFailure('The ACP connection has closed.').kind).toBe('lost-connection')
+	})
+})

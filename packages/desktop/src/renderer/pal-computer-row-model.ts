@@ -76,7 +76,7 @@ export function progressLabel(
 
 const BLOCK_SENTENCE: Record<PalComputerBlock, (palName: string) => string> = {
 	'virtualization-off': (name) =>
-		`${name}’s computer needs virtualization, and it is switched off on this PC. Turn it on in the PC’s startup settings, then come back.`,
+		`${name}’s computer needs a PC setting turned on: hardware support for virtual machines. Turn it on in the PC’s setup screen, then come back.`,
 	'organisation-policy': (name) =>
 		`Your organisation does not allow what ${name}’s computer needs on this PC. Ask your IT team to allow it.`,
 	'windows-version': (name) => `This version of Windows cannot run ${name}’s computer.`,
@@ -93,16 +93,16 @@ export function windowsHelp(
 ): { paragraphs: string[] } {
 	const paragraphs = [
 		`${palName}’s computer is a small Linux machine that Namzu runs on this PC. Namzu adds Linux support to Windows once, then prepares the computer from the copy that came with Namzu.`,
-		'Windows asks for your permission once while Linux support is added. Some PCs need a restart afterwards; Namzu continues by itself when you sign in again.',
+		'Windows asks for your permission once while Namzu finishes setting up. Some PCs need a restart; Namzu continues by itself after you sign in again.',
 		'The machine shuts itself down after a while when no Pal is using it.',
 	]
 	if (blocked === 'virtualization-off')
 		paragraphs.push(
-			'To turn virtualization on, restart the PC into its startup settings (often by pressing F2, F10 or Delete while it starts). Look for Intel Virtualization Technology, VT-x, AMD-V or SVM Mode, turn it on, and save.',
+			'Restart the PC and open its setup screen (often F2, F10 or Delete while it starts). Find the setting called virtualization (on many PCs it is named Intel VT-x or AMD SVM), turn it on, and save.',
 		)
 	if (blocked === 'organisation-policy')
 		paragraphs.push(
-			'A rule set by your organisation turns Linux support off on this PC. Only your IT team can change it.',
+			'Your organisation has turned off a part of Windows that Namzu needs. Only your IT team can change it.',
 		)
 	return { paragraphs }
 }

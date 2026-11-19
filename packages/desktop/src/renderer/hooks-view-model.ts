@@ -266,6 +266,12 @@ export function hooksListView(report: HooksReport): HooksListView {
 	for (const row of report.hooks) group(row.event).hooks.push(hookRowView(row))
 	const unplaced: ProblemView[] = []
 	for (const problem of report.problems) {
+		// The whole-file read failure is already said by `report.error`; do not list it again.
+		if (
+			report.error !== undefined &&
+			problem.message === `The configuration could not be read: ${report.error}`
+		)
+			continue
 		if (problem.event) group(problem.event).problems.push(problemView(problem))
 		else unplaced.push(problemView(problem))
 	}
@@ -386,6 +392,6 @@ export function disableHooksValue(runHooks: boolean): true | undefined {
  */
 export function savedHooksNote(runHooks: boolean): string {
 	return runHooks
-		? 'Saved. A project that is already open keeps running without hooks until Namzu connects to it again.'
-		: 'Saved, but a project that is already open keeps running its hooks until Namzu connects to it again. Close and reopen the project to stop them now.'
+		? 'Saved. New conversations run hooks. A conversation that is already open keeps running without them.'
+		: 'Saved. New conversations do not run hooks. A conversation that is already open keeps running its hooks; start a new one to stop them.'
 }

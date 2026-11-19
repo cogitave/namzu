@@ -1,8 +1,8 @@
 /**
  * Fast mode in the terminal: the `/fast` toggle and the `--fast` launch flag.
  *
- * Off by default and never saved: like `--effort`, it chooses how this
- * conversation runs and the next plain `namzu` starts at standard speed again.
+ * Off by default. `/fast` and `--fast` choose how this conversation runs and are
+ * never saved; the `fast` setting is the saved way to start with it on.
  * Fast mode bills at a multiple of the standard rate, so nothing here turns it
  * on by itself, and a model change that cannot keep it turns it off, loudly.
  */
@@ -46,8 +46,9 @@ export function fastOffMessage(): string {
 }
 
 /** `--fast` named a model that cannot take it; the launch continues at standard speed. */
-export function fastLaunchRefusal(reason: string): string {
-	return `--fast was not applied: ${reason} Continuing at standard speed.`
+export function fastLaunchRefusal(reason: string, source: 'flag' | 'saved' = 'flag'): string {
+	const what = source === 'saved' ? 'The saved fast mode setting' : '--fast'
+	return `${what} was not applied: ${reason} Continuing at standard speed.`
 }
 
 /** The model changed under fast mode and the new one cannot take it. */

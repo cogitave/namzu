@@ -8,7 +8,7 @@
 }
 .restore-skeleton-lane {
 	width: 100%;
-	max-width: 768px;
+	max-width: var(--frame-column-width, 768px);
 	display: flex;
 	flex-direction: column;
 	gap: 12px;
@@ -31,7 +31,7 @@
 	border: 1px solid color-mix(in srgb, currentColor 12%, transparent);
 }
 @media (prefers-reduced-motion: reduce) {
-	.restore-skeleton {
+	:root:not([data-motion="full"]) .restore-skeleton {
 		animation: var(--placeholder-reveal-still) !important;
 	}
 }

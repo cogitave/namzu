@@ -18,3 +18,16 @@ it('retains asking for ordinary conversations and every explicit operator mode',
 	for (const permissionMode of ['prompt', 'accept-edits', 'auto', 'strict', 'plan'] as const)
 		expect(resolveComposerSendOptions({ permissionMode }, 'owned-pal')).toEqual({ permissionMode })
 })
+
+it('carries the effort panel’s hypermode choice, on or off, and nothing when it was not chosen', () => {
+	expect(resolveComposerSendOptions({ effort: 'high', hypermode: true })).toEqual({
+		effort: 'high',
+		hypermode: true,
+		permissionMode: 'prompt',
+	})
+	expect(resolveComposerSendOptions({ hypermode: false })).toEqual({
+		hypermode: false,
+		permissionMode: 'prompt',
+	})
+	expect(resolveComposerSendOptions({ effort: 'low' })).not.toHaveProperty('hypermode')
+})

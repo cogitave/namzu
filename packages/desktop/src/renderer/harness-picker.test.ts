@@ -108,7 +108,7 @@ describe('EngineInstallHelp', () => {
 		expect(windows).toContain('irm https://claude.ai/install.ps1 | iex')
 		expect(windows).not.toContain('install.sh')
 		expect(windows).toContain('npm install -g @anthropic-ai/claude-code')
-		expect(windows.match(/Copy: /g)).toHaveLength(2)
+		expect(windows.match(/Copy the command/g)).toHaveLength(2)
 		expect(windows).toContain('Check again')
 		const mac = render('claude-code', 'mac')
 		expect(mac).toContain('curl -fsSL https://claude.ai/install.sh | bash')

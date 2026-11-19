@@ -352,6 +352,24 @@ it('releases the worker after the configured idle interval and retains it when e
 	expect(retained.kill).toHaveBeenCalledOnce()
 })
 
+it('unloads after the chosen idle time and accepts only the offered choices', async () => {
+	vi.useFakeTimers()
+	const fixture = await setup({ installed: true, enabled: true })
+	await fixture.service.configure({ idleUnloadSeconds: 60 })
+	await expect(fixture.service.configure({ idleUnloadSeconds: 120 as 60 })).rejects.toThrow(
+		'Invalid local speech memory preference',
+	)
+	await fixture.service.speak({ requestId: 'short', text: 'Merhaba.' })
+	const child = fixture.children[0]!
+	child.frame({ type: 'end', requestId: 'short' })
+	await vi.advanceTimersByTimeAsync(59_999)
+	expect(child.kill).not.toHaveBeenCalled()
+	await vi.advanceTimersByTimeAsync(1)
+	expect(child.kill).toHaveBeenCalledOnce()
+	await fixture.service.configure({ idleUnloadSeconds: 900 })
+	expect((await fixture.service.state()).settings.idleUnloadSeconds).toBe(900)
+})
+
 it('structurally streams PCM with consumption backpressure and finishes with one final frame', async () => {
 	const fixture = await setup({ installed: true, enabled: true })
 	const synthesizer = new LocalSpeechSynthesizer(fixture.service)
@@ -405,7 +423,7 @@ it('removes the downloaded engine, keeps the saved preferences and refuses while
 	expect((await readdir(fixture.directory)).sort()).toEqual(['settings.json'])
 	await expect(
 		fixture.service.speak({ requestId: 'after-removal', text: 'Merhaba.' }),
-	).rejects.toThrow('Install the local speech engine')
+	).rejects.toThrow('Download the voice first')
 	const gate = deferred<LocalSpeechInstallation>()
 	fixture.install.mockReturnValueOnce(gate.promise)
 	const installing = fixture.service.install()

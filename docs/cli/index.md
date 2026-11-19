@@ -17,6 +17,7 @@
 * [The scheduler service](scheduler-service.md) - Installing the scheduler under systemd, launchd, Windows Task Scheduler and WSL; single owner, upgrades, status, uninstall.
 * [Web search](web-search.md) - Explicit provider-hosted search, source links, and shell-independent activity.
 * [Opening a page in your browser](open-url.md) - The open_url tool: which sessions have it, how it reaches the browser on each platform (the Windows browser under WSL), its review, and what its result claims.
+* [Computer use settings](computer-use-settings.md) - `computerUse.enabled` (off by default, user and managed files only) and `computerUse.deniedApps`, where each is checked, and what the Settings rows do.
 * [The browser](browser.md) - The browser the interactive terminal drives: which browser runs where, profiles and `namzu browser login`, the `browser.sites` rules, the review screen, the pause when a page needs you, and what the controls do not stop.
 * [Startup time](startup.md) - What loads before the first screen or request, the lazy command list, the compile cache, how `exec` treats piped input, and `scripts/bench-startup.mjs` with reference numbers.
 
@@ -71,6 +72,7 @@ The operator application.
 * [Tool servers](mcp-servers.md) - The mcpServers config key: a server by command or by URL, the environment its child gets, how long each has to connect, and what happens when one does not.
 * [Exit codes of namzu exec](exec-exit-codes.md) - What $? says after namzu exec, including 75 for a turn the provider paused with a checkpoint kept or a session whose turn is still active, and what a wrapper should do with each code.
 * [namzu exec --json](exec-json.md) - The headless one-shot as a stream for host UIs: NDJSON events, the session and turn ids they carry, --session history and exit codes.
+* [Usage limits in Desktop](usage-limits.md) - What the usage limits popover shows per provider, where each number comes from, how often a vendor is asked, and what is kept (nothing).
 * [Spend by day and model](cost.md) - What conversations on this machine cost by local day, model, project and kind of work, from the session logs: /cost days, namzu cost and its JSON shape, how unknown prices are shown, and the rebuildable summary it reads through.
 * [namzu drain](drain.md) - One bounded pass that continues parked turns another process left behind, through the session index and each session's lease.
 * [Session task context](task-context.md) - Bounded reminders of a session's open tasks and those closed in the current turn, scope and research boundaries.
@@ -85,6 +87,7 @@ The operator application.
 
 * [Desktop application](desktop.md) - Native operator workspace using the existing CLI runtime and conversation logs, with terminal tabs and an engine's own command line beside the conversations.
 * [Desktop engine bundles](desktop-engine-bundles.md) - For maintainers: how the engine Desktop keeps current by itself is staged, packed, described, signed and published; the file formats, the publisher commands, the release workflow, and how keys are added, retired, lost or leaked.
+* [namzu config](config-command.md) - List, read, set and unset every described setting from the terminal or with /config <key>, reading the same description as Desktop Settings so values are accepted, refused and confirmed with the same words.
 * [Desktop settings for config keys](desktop-settings.md) - Every config key in Desktop Settings from one engine-owned list: sections, validated writes to the user file, confirmations, and what is never shown.
 * [Desktop voice input](desktop-listening.md) - Talking to Namzu Desktop in Turkish: the on-device recognition engine, microphone capture and consent, endpointing and stop words, read-aloud and barge-in, and what stays on the computer.
 * [Desktop engine updates](desktop-engine-updates.md) - How Namzu Desktop keeps its engine current by itself from a signed description and an archive, what it checks first, the screens and the setting, and what is and is not protected; on in a packaged app, off in an app that is not packaged unless it is given a feed address.
@@ -92,3 +95,5 @@ The operator application.
 * [namzu workspaces (preview)](workspaces.md) - Workspaces (project folders) with tabs and tiled panes of live sessions in one terminal, opened with `←` from a conversation or by the command: status dots, panes and tabs, keys, mouse, the tab bar, theme colours, starting a session on an account, the remembered layout, the navigate-key setting, a session that stops, and the plain fallback.
 * [Pasting images into the composer](clipboard-and-images.md) - Which key pastes an image on each platform, how WSL reaches the Windows clipboard, what a paste of file paths does, and what each message means.
 * [Goals](goals.md) - `/goal`: how a goal continues, how it ends, and ending it by the record of the work (confirmed, stated and not checked, not confirmed), with the `goal.confirmedBy` setting, `--confirmed-by`, the refusal bound and whose record counts.
+* [The setting description](setting-description.md) - The one typed description every setting has: its default, plain-worded choices and when a change applies; who reads it and the guard that keeps it complete.
+* [Settings tools for the model](agent-settings-tools.md) - get_settings and set_setting, the deferred tools that let the model read the safe settings and change one with your yes on a card: the allow-list, what is refused, who decides a value, and the Let Namzu change settings switch.

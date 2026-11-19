@@ -19,6 +19,7 @@ import {
 	archiveCommand,
 	browserCommand,
 	computerCommand,
+	configCommand,
 	costCommand,
 	createLazyPalCommand,
 	createLazyWorktreeCommand,
@@ -56,6 +57,7 @@ import { positiveTokenCount, readModelLaunchEnvironment } from './config/model-e
 import type { NamzuCliConfig } from './config/schema.js'
 import {
 	bindTrustedProjectContext,
+	refreshCachedContext,
 	resolveTrustedProjectContext,
 } from './config/trusted-project-context.js'
 import { debugRequested } from './debug-requested.js'
@@ -513,6 +515,27 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		trustedContexts.set(target, trusted)
 		return trusted
 	}
+	/**
+	 * Reads the user and project files again, for a host that starts a conversation after the
+	 * process has been running. A file that no longer loads (half-written, or invalid) leaves the
+	 * last good context in place; the Settings page reads the same files and says why.
+	 */
+	const refreshTrustedContext = (cwd: string): ResolvedCommandContext => {
+		const target = resolve(cwd)
+		return refreshCachedContext(
+			trustedContexts,
+			target,
+			() => getTrustedContext(cwd),
+			() => buildContext(() => runtime().loadConfigWithProvenance(selectedConfigOpts(target))),
+			(error) =>
+				runtime()
+					.cliLogger()
+					.warn('Settings could not be read again; this project keeps its last good settings', {
+						'namzu.project.cwd': target,
+						'exception.message': error instanceof Error ? error.message : String(error),
+					}),
+		)
+	}
 	const getBootstrapContext = (): ResolvedCommandContext => {
 		if (bootstrapCtx) return bootstrapCtx
 		const loaded = runtime().loadBootstrapConfigWithProvenance(selectedConfigOpts())
@@ -524,7 +547,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			runtime().createStderrSink(bootstrap.logging.format),
 			bootstrap.logging.level,
 		)
-		bootstrapCtx = bindTrustedProjectContext(bootstrap, getTrustedContext)
+		bootstrapCtx = bindTrustedProjectContext(bootstrap, getTrustedContext, refreshTrustedContext)
 		return bootstrapCtx
 	}
 	const getContext = (): ResolvedCommandContext => {
@@ -601,6 +624,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		evalCommand,
 		historyCommand,
 		hooksCommand,
+		configCommand,
 		pluginCommand,
 		skillsCommand,
 		skillsJSONCommand,
@@ -631,6 +655,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 								def === drainCommand ||
 								def === skillsCommand ||
 								def === hooksCommand ||
+								def === configCommand ||
 								def === pluginCommand ||
 								def === upgradeCommand ||
 								def === scheduleCommand ||
@@ -818,12 +843,17 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			}
 			const model = (launchOpts.model ?? modelEnvironment.model)?.trim()
 			const effort = launchOpts.effort ?? modelEnvironment.effort
+			// Saved defaults sit below the flag and the variable: the person's `fast` and `effort`
+			// settings start a conversation the way `--fast` and `--effort` would.
+			const savedConfig = getBootstrapContext().config
 			const launchSettings = {
 				...(provider ? { provider } : {}),
 				...(launchAccount ? { account: launchAccount } : {}),
 				...(model ? { model } : {}),
 				...(effort ? { effort } : {}),
 				...(launchOpts.fast === true ? { fast: true } : {}),
+				...(launchOpts.fast !== true && savedConfig.fast === true ? { savedFast: true } : {}),
+				...(!effort && savedConfig.effort ? { savedEffort: savedConfig.effort } : {}),
 				...(launchPlan.source === 'launch-flag' || launchPlan.source === 'config-default'
 					? { permissionMode: launchPlan.mode }
 					: {}),
@@ -937,10 +967,24 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					...(resolvedCtx.config.workflow ? { workflow: resolvedCtx.config.workflow } : {}),
 					...(resolvedCtx.config.goal ? { goal: resolvedCtx.config.goal } : {}),
 					...(resolvedCtx.config.handBack ? { handBack: resolvedCtx.config.handBack } : {}),
+					...(resolvedCtx.config.effort ? { savedEffort: resolvedCtx.config.effort } : {}),
+					...(resolvedCtx.config.closingSummary === false ? { closingSummary: false } : {}),
+					...(resolvedCtx.config.agentSettings === false ? { agentSettings: false } : {}),
+					...(resolvedCtx.config.outputStyle
+						? { outputStyle: resolvedCtx.config.outputStyle }
+						: {}),
+					...(resolvedCtx.config.attribution
+						? { attribution: resolvedCtx.config.attribution }
+						: {}),
+					...(resolvedCtx.config.promptSuggestions === false ? { promptSuggestions: false } : {}),
+					...(resolvedCtx.config.respectGitignore === false ? { respectGitignore: false } : {}),
 					...(resolvedCtx.config.sandbox ? { sandbox: resolvedCtx.config.sandbox } : {}),
 					...(resolvedCtx.config.decision ? { decision: resolvedCtx.config.decision } : {}),
 					...(resolvedCtx.config.codeAnalysis
 						? { codeAnalysis: resolvedCtx.config.codeAnalysis }
+						: {}),
+					...(resolvedCtx.config.computerUse
+						? { computerUse: resolvedCtx.config.computerUse }
 						: {}),
 					...(resolvedCtx.config.progressNudge
 						? { progressNudge: resolvedCtx.config.progressNudge }

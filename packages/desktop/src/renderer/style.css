@@ -1,4 +1,5 @@
 @import "./theme.css";
+@import "./appearance-prefs.css";
 @import "./menu.css";
 @import "./dialog.css";
 
@@ -132,14 +133,8 @@ pre {
 	visibility: hidden;
 }
 .app[data-page="plugins"] > .sidebar:not(.plugins-navigation-sidebar),
-.app[data-page="settings"] > .sidebar:not(.settings-navigation-sidebar),
-.workspace[data-page="settings"] > :not(.settings-page):not(.toast-viewport),
 .workspace[data-page="plugins"] > :not(.plugins-page) {
 	display: none;
-}
-/* The Settings page has no composer to ride above, so notices sit near the bottom edge. */
-.workspace[data-page="settings"] > .toast-viewport {
-	bottom: 24px;
 }
 .plugins-sidebar-close {
 	position: absolute;
@@ -373,7 +368,7 @@ pre {
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.brand-dither {
+	:root:not([data-motion="full"]) .brand-dither {
 		animation: none;
 	}
 }
@@ -615,22 +610,15 @@ pre {
 	margin: 0;
 	background: var(--background);
 	overflow: clip;
-	--panel-width: var(--panel-tool-width);
 	position: relative;
 	display: flex;
 	flex-direction: column;
 	min-width: 0;
 	min-height: 0;
 }
-.workspace[data-panel-kind="reading"] {
-	--panel-width: var(--panel-reading-width);
-}
 .workspace > :is(.connection-error, .welcome, .chat-stage) {
 	width: 100%;
 	transition: width var(--dur-base) var(--ease-out);
-}
-.workspace.jobs-open > :is(.connection-error, .welcome, .chat-stage) {
-	width: calc(100% - var(--panel-width));
 }
 .topbar {
 	/* The title starts after the left cluster; the controls at the right edge sit one bar inset from it,
@@ -644,9 +632,9 @@ pre {
 .workspace:has([data-composer-home]) > .topbar {
 	box-shadow: none;
 }
-/* Settings, Plugins and the Pals page have no top bar of their own; the same line is drawn across the
+/* Plugins and the Pals page have no top bar of their own; the same line is drawn across the
    pane at the same y, inside the band, over the page. */
-.workspace:is([data-page="settings"], [data-page="plugins"], [data-page="pals"])::before {
+.workspace:is([data-page="plugins"], [data-page="pals"])::before {
 	content: "";
 	position: absolute;
 	inset: 0 0 auto;
@@ -754,7 +742,7 @@ pre {
 	background: color-mix(in srgb, var(--background) 94%, transparent);
 }
 @media (prefers-reduced-motion: reduce) {
-	.transcript-latest {
+	:root:not([data-motion="full"]) .transcript-latest {
 		animation: none;
 	}
 }
@@ -784,6 +772,11 @@ pre {
 }
 .composer-input textarea::placeholder {
 	color: var(--placeholder);
+	/* The hint is one line at any width: it is cut with an ellipsis rather than wrapped, because a
+	   wrapped hint makes the empty box two lines high. */
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 .composer-input textarea:focus {
 	outline: none;
@@ -1103,29 +1096,6 @@ pre {
 	flex: none;
 	padding: 12px 20px 4px;
 }
-.jobs-panel {
-	position: absolute;
-	/* Under the header band, which runs the whole width of the window, so nothing of the panel sits under
-	   the window's own buttons. */
-	inset: var(--frame-header-height) 0 0 auto;
-	width: var(--panel-width);
-	display: flex;
-	flex-direction: column;
-	border-left: 1px solid var(--border);
-	background: var(--background);
-	z-index: var(--z-panel-raised);
-	transform: translateX(100%);
-	visibility: hidden;
-	transition: transform var(--dur-base) var(--ease-out), visibility var(--dur-base);
-}
-.panel-back-row {
-	display: none;
-	padding: 6px 8px 0;
-}
-.jobs-panel[data-open="true"] {
-	visibility: visible;
-	transform: translateX(0);
-}
 .section-heading {
 	display: flex;
 	align-items: center;
@@ -1303,11 +1273,11 @@ pre {
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.job-stop,
-	.job-chevron {
+	:root:not([data-motion="full"]) .job-stop,
+	:root:not([data-motion="full"]) .job-chevron {
 		transition: none;
 	}
-	.job-spinner {
+	:root:not([data-motion="full"]) .job-spinner {
 		animation: none;
 	}
 }
@@ -1356,38 +1326,6 @@ pre {
 	}
 	to {
 		background-position: -40% 0;
-	}
-}
-/* Where the conversation would keep less than --panel-conversation-min, the panel takes the pane instead of
-   a sliver of clipped transcript. A reading panel has its 60 percent (360 at least), so that is any pane under
-   900; a tool panel, under 680 (its floor of 320 and the conversation's 360). The edges are written out
-   because a container query cannot read a token; panel-tokens.test.ts keeps them equal to the sums. */
-@container workspace (max-width: 899px) {
-	.workspace[data-panel-kind="reading"].jobs-open
-		> :is(.topbar, .connection-error, .welcome, .chat-stage) {
-		width: 100%;
-	}
-	.workspace[data-panel-kind="reading"] .jobs-panel {
-		width: 100%;
-		box-shadow: none;
-		z-index: var(--z-panel);
-	}
-	.workspace[data-panel-kind="reading"] .panel-back-row {
-		display: flex;
-	}
-}
-@container workspace (max-width: 679px) {
-	.workspace[data-panel-kind="tool"].jobs-open
-		> :is(.topbar, .connection-error, .welcome, .chat-stage) {
-		width: 100%;
-	}
-	.workspace[data-panel-kind="tool"] .jobs-panel {
-		width: 100%;
-		box-shadow: none;
-		z-index: var(--z-panel);
-	}
-	.workspace[data-panel-kind="tool"] .panel-back-row {
-		display: flex;
 	}
 }
 @media (max-width: 767px) {
@@ -1443,16 +1381,18 @@ pre {
 		display: none;
 	}
 }
+/* Motion "Full" in Settings keeps these off even when the device asks for less. */
 @media (prefers-reduced-motion: reduce) {
-	*,
-	*::before,
-	*::after {
+	:root:not([data-motion="full"]),
+	:root:not([data-motion="full"]) *,
+	:root:not([data-motion="full"]) *::before,
+	:root:not([data-motion="full"]) *::after {
 		animation: none !important;
 		transition: none !important;
 		scroll-behavior: auto !important;
 	}
-	.tool.active > .tool-trigger .tool-label,
-	.working-label {
+	:root:not([data-motion="full"]) .tool.active > .tool-trigger .tool-label,
+	:root:not([data-motion="full"]) .working-label {
 		background: none;
 		color: var(--foreground);
 	}
@@ -1687,8 +1627,15 @@ pre {
 	overflow: hidden;
 	border: 1px solid var(--border);
 	border-radius: var(--radius-card);
-	background: var(--muted);
+	background: var(--code-background);
 }
+/* Every block sits on the surface of diffs and file views, whose colours are chosen for it in either
+   window mode. A block still plain (the open end of a streaming reply, an unknown language) uses the
+   same surface, so nothing jumps when its colours arrive. */
+.chat-markdown .chat-markdown-codeblock pre {
+	color: var(--code-foreground);
+}
+
 .chat-markdown .chat-markdown-codeblock-language {
 	min-width: 0;
 	overflow: hidden;
@@ -1815,10 +1762,10 @@ pre {
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.rail-button:active {
+	:root:not([data-motion="full"]) .rail-button:active {
 		transform: none;
 	}
-	.rail-button svg[data-filled] {
+	:root:not([data-motion="full"]) .rail-button svg[data-filled] {
 		animation: none;
 	}
 }

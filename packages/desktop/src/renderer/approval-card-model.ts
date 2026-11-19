@@ -40,6 +40,8 @@ export interface ApprovalCardModel {
 	screenMoment?: { app: string }
 	/** The question whether Namzu may use these applications in this conversation. */
 	appAccess?: { apps: string[] }
+	/** A change to one of the person's settings: its name and the old and new value in Settings' words. */
+	settingChange?: { setting: string; from: string; to: string }
 	/** Titles of the other calls of the same batch, which one answer covers. */
 	others: string[]
 }
@@ -72,9 +74,49 @@ export function baseName(path: string): string {
 	return trimmed.split(/[\\/]/).pop() || trimmed || path
 }
 
-/** "web_fetch" reads as "web fetch" in a sentence. */
+/** What each tool does, as a verb phrase that completes "Waiting to ...". */
+const TOOL_VERBS: Readonly<Record<string, string>> = {
+	web_fetch: 'read a web page',
+	web_search: 'search the web',
+	read: 'read a file',
+	glob: 'find files',
+	grep: 'search the files',
+	ls: 'list a folder',
+	view_image: 'look at an image',
+	save_memory: 'save a note',
+	update_memory: 'change a note',
+	delete_memory: 'delete a note',
+	read_memory: 'look through notes',
+	search_memory: 'look through notes',
+	search_docs: 'search the documentation',
+	search_tools: 'look for a tool',
+	create_task: 'add a task',
+	task_create: 'add a task',
+	update_task: 'change a task',
+	task_update: 'change a task',
+	approve_plan: 'approve the plan',
+	consult_advisor: 'ask an advisor',
+	update_goal: 'change the goal',
+	browser: 'use the browser',
+	computer_use: 'use your computer',
+}
+
+/**
+ * The action a tool stands for, in words a person uses: "read a web page", not "web fetch". A tool
+ * from a connected tool server ("mcp__name__tool") is "use a connected tool"; any other name
+ * reads as its own words.
+ */
 function plainName(name: string): string {
-	return name.replace(/[_-]+/g, ' ').trim() || 'this action'
+	const key = name.trim().toLowerCase()
+	const known = TOOL_VERBS[key]
+	if (known) return known
+	if (/^mcp[_-]/.test(key)) return 'use a connected tool'
+	return name.replace(/[_-]+/g, ' ').trim() || 'do this'
+}
+
+/** An argument's name as words: "max_results" reads as "max results". */
+function plainKey(name: string): string {
+	return name.replace(/[_-]+/g, ' ').trim() || 'value'
 }
 
 function sentenceCase(value: string): string {
@@ -93,7 +135,7 @@ export function summarizeInput(input: unknown): { label: string; value: string }
 	return Object.entries(input)
 		.slice(0, 8)
 		.map(([key, value]) => ({
-			label: sentenceCase(plainName(key.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase())),
+			label: sentenceCase(plainKey(key.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase())),
 			value:
 				typeof value === 'string'
 					? clip(value)
@@ -281,6 +323,22 @@ export function buildApprovalCard(
 		}
 	}
 
+	if (first.settingChange) {
+		const change = first.settingChange
+		return {
+			kind: 'other',
+			title: `Change ${change.setting}?`,
+			settingChange: change,
+			previewMissing: false,
+			entries: [
+				{ label: 'Now', value: change.from },
+				{ label: 'Change to', value: change.to },
+			],
+			destructive: false,
+			others,
+		}
+	}
+
 	if (name === SCREEN_MOMENT_TOOL) {
 		const app = screenApp(first)
 		return {
@@ -323,7 +381,7 @@ export function buildApprovalCard(
 
 	return {
 		kind: 'other',
-		title: `Allow ${plainName(first.name)}?`,
+		title: `Allow Namzu to ${plainName(first.name)}?`,
 		previewMissing: false,
 		entries: summarizeInput(first.input),
 		destructive,
@@ -335,6 +393,7 @@ export function buildApprovalCard(
 function cardTitle(call: Call, palNames?: ReadonlyMap<string, string>): string {
 	const name = call.name.toLowerCase()
 	if (name === PAL_MESSAGE_TOOL) return palMessageTitle(call, palNames)
+	if (call.settingChange) return `Change ${call.settingChange.setting}`
 	const path = pathOf(call)
 	if (FILE_TOOLS.has(name) && path)
 		return `${name === 'write' ? 'Write' : 'Edit'} ${baseName(path)}`
@@ -496,7 +555,8 @@ export function waitingLabel(permission: PermissionView | undefined): string {
 	const first = permission?.calls[0]
 	if (!permission || !first) return 'Waiting for your decision'
 	const model = buildApprovalCard(permission)
-	if (model.screenMoment || model.appAccess) return 'Waiting for your decision'
+	if (model.screenMoment || model.appAccess || model.settingChange)
+		return 'Waiting for your decision'
 	switch (model.kind) {
 		case 'command':
 			return 'Waiting to run command'
@@ -585,7 +645,7 @@ export function approvalFlags(
 	else if (model.kind === 'edit' && !model.unchanged && (model.overwrites || model.write))
 		flags.push(approvalWarning(model))
 	else if (model.kind === 'command' && model.command !== undefined) {
-		if (elevatedCommand(model.command)) flags.push('Runs with elevated rights.')
+		if (elevatedCommand(model.command)) flags.push('Runs as administrator.')
 		if (riskyCommand(model.command)) flags.push('Looks like it deletes or overwrites files.')
 		else if (model.destructive) flags.push(approvalWarning(model))
 	} else if (model.kind === 'other' && model.destructive) flags.push(approvalWarning(model))
@@ -594,8 +654,8 @@ export function approvalFlags(
 	for (const call of permission.calls) {
 		const command = record(call.input) ? call.input.command : undefined
 		if (typeof command !== 'string' || command === model.command) continue
-		if (elevatedCommand(command) && !flags.includes('Runs with elevated rights.'))
-			flags.push('Runs with elevated rights.')
+		if (elevatedCommand(command) && !flags.includes('Runs as administrator.'))
+			flags.push('Runs as administrator.')
 		if (
 			riskyCommand(command) &&
 			!flags.includes('Looks like it deletes or overwrites files.') &&
@@ -648,9 +708,13 @@ export function approvalDetails(
 	return calls.map((call) => {
 		const entries: ApprovalDetailGroup['entries'] = []
 		const input = call.input
+		// A settings change is already said in full on the card; its input holds a key, not words.
+		if (call.settingChange) {
+			return calls.length > 1 ? { title: cardTitle(call, palNames), entries } : { entries }
+		}
 		if (record(input)) {
 			for (const [key, value] of Object.entries(input).slice(0, 12)) {
-				const label = sentenceCase(plainName(key.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase()))
+				const label = sentenceCase(plainKey(key.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase()))
 				if (key === 'palId' && typeof value === 'string') {
 					const name = palNames?.get(value)
 					if (name) entries.push({ label: 'To', value: name })

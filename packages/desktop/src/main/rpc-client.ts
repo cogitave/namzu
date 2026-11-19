@@ -22,6 +22,8 @@ export interface RuntimeCommand {
 	program: string
 	args: string[]
 	env?: NodeJS.ProcessEnv
+	/** Variables added to the host's environment whichever engine the launcher chooses. */
+	extraEnv?: Readonly<Record<string, string>>
 	/** The app's own version, told to the host at initialize. Read from the app, never written here. */
 	clientVersion?: string
 	/**
@@ -79,6 +81,16 @@ export class RuntimeClient extends EventEmitter {
 	supportsProjectPr(): boolean {
 		return this.projectPr
 	}
+	private projectCommit = false
+	/** A host that predates commit from the desktop does not list its two methods. */
+	supportsProjectCommit(): boolean {
+		return this.projectCommit
+	}
+	private limits = false
+	/** A host that predates the usage limits feed does not list `namzu/limits/refresh`. */
+	supportsLimits(): boolean {
+		return this.limits
+	}
 	private projectGit = false
 	supportsProjectGit(): boolean {
 		return this.projectGit
@@ -88,10 +100,38 @@ export class RuntimeClient extends EventEmitter {
 	supportsMcpServers(): boolean {
 		return this.mcpServers
 	}
+	private userMcpServers = false
+	/** A host that predates the Settings form for tool servers lacks its three methods. */
+	supportsUserMcpServers(): boolean {
+		return this.userMcpServers
+	}
+	private skillsList = false
+	/** A host that predates the skills list does not list `namzu/skills/list`. */
+	supportsSkillsList(): boolean {
+		return this.skillsList
+	}
+	private browserStatus = false
+	/** A host that predates the browser status does not list `namzu/browser/status`. */
+	supportsBrowserStatus(): boolean {
+		return this.browserStatus
+	}
 	private hooksView = false
 	/** A host that predates the hooks view does not list `namzu/hooks/list`. */
 	supportsHooksView(): boolean {
 		return this.hooksView
+	}
+	private standingInstructions = false
+	supportsStandingInstructions(): boolean {
+		return this.standingInstructions
+	}
+	private savedMemory = false
+	supportsSavedMemory(): boolean {
+		return this.savedMemory
+	}
+	private contextPanel = false
+	/** A host that predates the context panel does not list `namzu/session/context`. */
+	supportsContextPanel(): boolean {
+		return this.contextPanel
 	}
 	private conversationSearch = false
 	supportsConversationSearch(): boolean {
@@ -122,6 +162,15 @@ export class RuntimeClient extends EventEmitter {
 	}
 	supportsPromptOptions(): boolean {
 		return this.promptOptions
+	}
+	private permissionModes: readonly ('bypass' | 'classify')[] | undefined
+	/**
+	 * The newer review modes this engine applies per prompt, as it advertised them.
+	 * `undefined` is an engine that sends no list (an older one): the app keeps its
+	 * own list; an empty list means the engine's settings close both.
+	 */
+	promptPermissionModes(): readonly ('bypass' | 'classify')[] | undefined {
+		return this.permissionModes
 	}
 	/** The engine sets pasted stretches of a prompt apart from the person's own words. */
 	supportsPromptPasted(): boolean {
@@ -275,7 +324,9 @@ export class RuntimeClient extends EventEmitter {
 		const generation = ++this.generation
 		const child = spawn(command.program, command.args, {
 			cwd: this.cwd,
-			env: command.env ?? process.env,
+			env: command.extraEnv
+				? { ...(command.env ?? process.env), ...command.extraEnv }
+				: (command.env ?? process.env),
 			stdio: 'pipe',
 			shell: false,
 			windowsHide: true,
@@ -318,6 +369,9 @@ export class RuntimeClient extends EventEmitter {
 		)) as AcpInitializeResult
 		this.promptAttachments = result.promptAttachments === true
 		this.promptOptions = result.promptOptions === true
+		this.permissionModes = Array.isArray(result.promptPermissionModes)
+			? result.promptPermissionModes.filter((mode) => mode === 'bypass' || mode === 'classify')
+			: undefined
 		this.promptPasted = result.promptPasted === true
 		const offers = (group: OptionalExtensionGroup): boolean =>
 			OPTIONAL_EXTENSION_GROUPS[group].every((method) => result.extensions?.includes(method))
@@ -328,9 +382,17 @@ export class RuntimeClient extends EventEmitter {
 		this.terminals = offers('terminals')
 		this.providerSetup = offers('providerSetup')
 		this.projectGit = offers('projectGit')
+		this.limits = offers('limits')
+		this.projectCommit = offers('projectCommit')
 		this.projectPr = offers('projectPr')
 		this.mcpServers = offers('mcpServers')
+		this.userMcpServers = offers('userMcpServers')
+		this.skillsList = offers('skillsList')
+		this.browserStatus = offers('browserStatus')
 		this.hooksView = offers('hooksView')
+		this.standingInstructions = offers('standingInstructions')
+		this.savedMemory = offers('savedMemory')
+		this.contextPanel = offers('contextPanel')
 		this.conversationSearch = offers('conversationSearch')
 		this.projectUntrust = offers('projectUntrust')
 		this.projectChanges = offers('projectChanges')
@@ -431,6 +493,9 @@ export class RuntimeClient extends EventEmitter {
 								const error = new Error(
 									String((frame.error as { message?: unknown }).message ?? 'Namzu request failed.'),
 								)
+								// A stable code the engine attached; Desktop words the failure by it.
+								const engineCode = (frame.error as { data?: { code?: unknown } }).data?.code
+								if (typeof engineCode === 'string') Object.assign(error, { engineCode })
 								this.report('cli_request_failed', {
 									operation: entry.method,
 									request: frame.id,

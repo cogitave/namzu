@@ -1,24 +1,39 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
+import type { ConfigSettingSection } from '../shared/config-settings-protocol.js'
 import type { EngineDeliveryView } from '../shared/engine-delivery-protocol.js'
 import type { KernelNewer } from '../shared/engine-update-protocol.js'
 import type { LocalListeningState } from '../shared/local-listening-protocol.js'
 import type { LocalSpeechState } from '../shared/local-speech-protocol.js'
+import type { OsState } from '../shared/os-state.js'
 import type { ProjectView } from '../shared/protocol.js'
 import {
 	DEFAULT_DESKTOP_SETTINGS,
 	type DesktopInfo,
+	type DesktopSettings,
 	SETTINGS_SECTIONS,
 	type SettingsSection,
 } from '../shared/settings-protocol.js'
-import { SETTINGS_SECTION_TITLES, aboutDetailsText } from './settings-model.js'
+import type { StorageReport } from '../shared/storage-protocol.js'
 import {
+	DATA_FOLDER_NOTES,
+	SETTINGS_ENTRIES,
+	SETTINGS_SECTION_TITLES,
+	aboutDetailsText,
+	entryIsDrawn,
+} from './settings-model.js'
+import {
+	AgentSleepRows,
+	DesktopSection,
+	ENGINE_ROW_SECTIONS,
 	SettingsPage,
 	type SettingsPageProps,
 	SettingsSidebar,
 	TerminalSettings,
+	escapeRevertsDraft,
 } from './settings-page.js'
+import { StoragePanel, TrustedFoldersPanel } from './settings-storage.js'
 import { EngineDeliveryContext } from './use-engine-delivery.js'
 import { EngineUpdatesContext } from './use-engine-updates.js'
 import type { LocalListeningControls } from './use-local-listening.js'
@@ -163,6 +178,26 @@ function page(
 	)
 }
 
+describe('the engine rows on the settings page', () => {
+	it('are drawn in every section the engine files a row under', () => {
+		// Written as a record so a section added to the protocol fails to compile until it is listed.
+		const filed: Record<ConfigSettingSection, true> = {
+			general: true,
+			models: true,
+			projects: true,
+			appearance: true,
+			updates: true,
+			agent: true,
+			tools: true,
+			telemetry: true,
+			terminal: true,
+		}
+		for (const section of Object.keys(filed)) {
+			expect(ENGINE_ROW_SECTIONS).toContain(section)
+		}
+	})
+})
+
 describe('the settings page', () => {
 	it('is a labelled region whose one h1 is the section, never a second "Settings" heading', () => {
 		for (const section of SETTINGS_SECTIONS) {
@@ -171,8 +206,10 @@ describe('the settings page', () => {
 			expect(markup.match(/<h1>/g)).toHaveLength(1)
 			expect(markup).toContain(`<h1>${SETTINGS_SECTION_TITLES[section]}</h1>`)
 			expect(markup).not.toContain('<h1>Settings</h1>')
-			expect(markup).toContain('aria-label="Search settings"')
-			expect(markup).not.toContain('<h2 class="settings-section-title">')
+			// The search lives in the dialog's left column, not in the page header.
+			expect(markup).not.toContain('aria-label="Search settings"')
+			// Sub-headings are h2; the page heading is the h1, so none is named Settings.
+			expect(markup).not.toContain('<h2 class="settings-section-title">Settings</h2>')
 		}
 	})
 
@@ -206,7 +243,7 @@ describe('the settings page', () => {
 		expect(markup).toContain('aria-label="Remove Docs…"')
 		expect(markup).toMatch(/<input[^>]*role="switch"[^>]*>/)
 		expect((markup.match(/<input[^>]*role="switch"[^>]*>/) ?? [''])[0]).toContain('checked=""')
-		expect(markup).toContain('Ask again when a project’s automatic settings change')
+		expect(markup).toContain('Ask again when a trusted project changes')
 		expect(page('projects', { onRemoveProject: undefined })).not.toContain('Remove App')
 		expect(page('projects', { projects: [] })).toContain('No projects yet')
 	})
@@ -270,7 +307,9 @@ describe('the settings page', () => {
 			},
 		})
 		expect(disabled).not.toContain('Download updates automatically')
-		expect(disabled).toContain('Namzu Desktop version')
+		expect(disabled).toContain('Desktop app version')
+		// The generic heading is gone: the engine's rows sit under their own group heading.
+		expect(disabled).not.toContain('Namzu settings')
 		expect(page('updates', { update: undefined })).not.toContain('Download updates automatically')
 	})
 
@@ -296,7 +335,60 @@ describe('the settings page', () => {
 		])
 		expect(windows).toContain('Default terminal shell')
 		expect(windows).toContain('Command Prompt')
-		expect(windows).toContain('Bring terminal tabs back')
+		expect(windows).toContain('Restore terminal tabs')
+		// The row says where it works, and Desktop's own process rows are not here any more.
+		expect(windows).toContain('Windows only.')
+		expect(windows).not.toContain('Use hardware acceleration')
+		// Under its own heading, above the engine's terminal rows.
+		expect(windows.indexOf('<h2 class="settings-section-title">Terminal tabs</h2>')).toBe(0)
+		expect(windows.indexOf('Default terminal shell')).toBeLessThan(
+			windows.indexOf('Restore terminal tabs'),
+		)
+	})
+
+	it('General no longer holds the terminal rows or the graphics card; Desktop app holds the card', () => {
+		const general = page('general')
+		for (const gone of [
+			'Default terminal shell',
+			'Restore terminal tabs',
+			'Use hardware acceleration',
+		])
+			expect(general).not.toContain(gone)
+		expect(general).not.toContain('Notification sound')
+		expect(page('notifications')).toContain('Notification sound')
+		const desktop = page('desktop')
+		expect(desktop).toContain('id="setting-hardware-acceleration"')
+		expect(desktop).toContain('Use hardware acceleration')
+		expect(desktop).toContain('<h1>Desktop app</h1>')
+	})
+
+	it('the Terminal section draws no tab rows and no heading where there are no terminals', () => {
+		const terminal = page('terminal')
+		expect(terminal).not.toContain('Terminal tabs')
+		expect(terminal).not.toContain('Restore terminal tabs')
+	})
+
+	it('every row search can offer is drawn on the page of the section it names', () => {
+		// No bridge here, so there are no terminals: the shell and restore rows are not drawn, and
+		// search must not offer them. Everything else must land on a drawn row.
+		const facts = { shells: null, hasAppUpdater: true, canFetchEngines: false }
+		const drawn = SETTINGS_ENTRIES.filter((entry) => entryIsDrawn(entry.id, facts))
+		expect(drawn.map((entry) => entry.id)).not.toContain('terminal-shell')
+		expect(drawn.map((entry) => entry.id)).not.toContain('terminal-restore')
+		expect(drawn.map((entry) => entry.id)).not.toContain('keep-engine')
+		const sections = new Map<string, string>()
+		for (const entry of drawn) {
+			if (!sections.has(entry.section)) sections.set(entry.section, page(entry.section))
+			// Some panels draw their rows from a live connection, which a static render has none of.
+			if (['models', 'runHooks', 'hooks', 'standingInstructions', 'savedMemory'].includes(entry.id))
+				continue
+			expect(sections.get(entry.section), `${entry.id} in ${entry.section}`).toContain(
+				`id="setting-${entry.id}"`,
+			)
+		}
+		// The moved rows are among them, in their new sections.
+		const byId = new Map(drawn.map((entry) => [entry.id, entry.section]))
+		expect(byId.get('hardware-acceleration')).toBe('desktop')
 	})
 
 	it('Updates offers Download for an offered update and disables Check while busy', () => {
@@ -386,12 +478,44 @@ describe('the settings page', () => {
 })
 
 describe('the settings sidebar', () => {
+	it('puts the search on top and the sections in four groups', () => {
+		const markup = renderToStaticMarkup(
+			createElement(SettingsSidebar, { section: 'general', onSection: () => {} }),
+		)
+		expect(markup.indexOf('aria-label="Search settings"')).toBeLessThan(
+			markup.indexOf('aria-label="Settings sections"'),
+		)
+		expect(markup.match(/settings-nav-group/g)).toHaveLength(4)
+	})
+
+	it('lists only the sections with a match while a search is typed', () => {
+		const markup = renderToStaticMarkup(
+			createElement(SettingsSidebar, {
+				section: 'general',
+				onSection: () => {},
+				query: 'theme',
+				matches: [{ id: 'theme', section: 'appearance', label: 'Theme', description: '' }],
+			}),
+		)
+		expect(markup).toContain('<span>Appearance</span>')
+		expect(markup).not.toContain('<span>About</span>')
+		expect(markup.match(/settings-nav-group/g)).toHaveLength(1)
+	})
+
 	it('lists every section as a button and marks the current one', () => {
 		const markup = renderToStaticMarkup(
 			createElement(SettingsSidebar, { section: 'updates', onSection: () => {} }),
 		)
 		expect(markup).toContain('aria-label="Settings sections"')
-		for (const title of ['General', 'Projects', 'Appearance', 'Updates', 'Speech', 'About'])
+		for (const title of [
+			'General',
+			'Projects',
+			'Appearance',
+			'Desktop app',
+			'Updates',
+			'Speech',
+			'About',
+		])
 			expect(markup).toContain(`<span>${title}</span>`)
 		expect(markup.match(/aria-current="page"/g)).toHaveLength(1)
 		expect(markup).toMatch(/aria-current="page"[^>]*>(?:(?!<\/button>).)*Updates/s)
@@ -426,7 +550,7 @@ describe('settings words and paths', () => {
 
 	describe('About, when the registry knows a newer kernel than the one bundled', () => {
 		it('is quiet without a kernel fact', () => {
-			expect(page('about')).not.toContain('A newer one exists')
+			expect(page('about')).not.toContain('A newer version is available')
 		})
 		it('says it once under each version', () => {
 			const markup = page('about', {}, { cli: '51.0.1', engine: '62.12.0' })
@@ -505,7 +629,9 @@ describe('the engine the app keeps current', () => {
 		)
 		expect(
 			say({ kind: 'went-back', version: '26.0.0', problem: 'did-not-start', to: '25.3.0' }),
-		).toContain('Could not use engine 26.0.0 (it did not start) and went back to 25.3.0.')
+		).toContain(
+			'Couldn’t use the newer version 26.0.0 (it did not start). Namzu went back to 25.3.0.',
+		)
 		expect(say({ kind: 'needs-newer-app' })).toContain(
 			'A newer engine is out, but it needs a newer version of this app.',
 		)
@@ -585,5 +711,389 @@ describe('the engine the app keeps current', () => {
 		expect(text).not.toMatch(/kernel|managed|manifest|bundle\b/iu)
 		// Where no engine is fetched, the text is what it was.
 		expect(aboutDetailsText(info, {})).not.toContain('Engine source')
+	})
+})
+
+describe('the code rows', () => {
+	it('Appearance draws the two code colour rows with a sample each, the font and the size', () => {
+		const markup = page('appearance')
+		for (const label of ['Light code theme', 'Dark code theme', 'Code font', 'Code font size'])
+			expect(markup, label).toContain(label)
+		expect(markup).toContain('data-mode="light"')
+		expect(markup).toContain('data-mode="dark"')
+		expect(markup).toContain('High contrast')
+		expect(markup).toContain('placeholder="Default · Namzu’s own"')
+		expect(markup).toContain('>Default · 13 px</option>')
+		expect(markup).toContain('<option value="18">18 px</option>')
+	})
+
+	it('marks the default inside a drop-down only, and draws no default or apply line under a row', () => {
+		const markup = page('appearance')
+		expect(markup).toContain('Default · Namzu’s own')
+		expect(markup).toContain('>Default · 13 px</option>')
+		// Side-by-side choices show every option at once, so they carry no mark.
+		expect(markup).not.toContain('Default · System')
+		expect(markup).not.toContain('Default · Medium')
+		expect(markup).not.toContain('Default · Narrow')
+		expect(markup).not.toContain('Default:')
+		expect(markup).not.toContain('Applies at once.')
+	})
+
+	it('groups Appearance under Code and Accessibility, and Notifications under On this computer', () => {
+		const appearance = page('appearance')
+		expect(appearance).toContain('<h2 class="settings-section-title">Code</h2>')
+		expect(appearance).toContain('<h2 class="settings-section-title">Accessibility</h2>')
+		expect(appearance.indexOf('>Code</h2>')).toBeLessThan(appearance.indexOf('Light code theme'))
+		expect(page('general')).not.toContain('>Notifications</h2>')
+		expect(page('notifications')).toContain(
+			'<h2 class="settings-section-title">On this computer</h2>',
+		)
+	})
+
+	it('draws the notification rows in the reference order, each level marking its default', () => {
+		const markup = page('notifications')
+		const order = [
+			'Draw attention when a conversation needs you',
+			'Permission requests',
+			'Task complete',
+			'Long response time',
+			'Response errors',
+			'Notification sound',
+		].map((label) => markup.indexOf(`>${label}`))
+		expect(order.every((at) => at >= 0)).toBe(true)
+		expect([...order].sort((a, b) => a - b)).toEqual(order)
+		expect(markup).toContain('>Default · Banner</option>')
+		expect(markup).toContain('>Badge only</option>')
+		expect(markup).toContain('>Default · None</option>')
+		expect(markup).toContain('>System sound</option>')
+		expect(markup).toContain('placeholder="30"')
+		expect(markup).not.toContain('Default:')
+		// A conversation here cannot ask a question with choices yet, so that row is not drawn.
+		expect(markup).not.toContain('>Questions<')
+	})
+
+	it('leaves the long-response time alone while Task complete is Off', () => {
+		const off = page('notifications', {
+			settings: {
+				settings: { ...DEFAULT_DESKTOP_SETTINGS, notifyTaskComplete: 'off' },
+				error: '',
+				change: async () => {},
+				confirmation: undefined,
+				confirm: async () => {},
+				dismiss: () => {},
+			},
+		})
+		const tag = (off.match(/<input[^>]*aria-label="Long response time"[^>]*>/) ?? [''])[0]
+		expect(tag).toContain('disabled')
+	})
+
+	it('shows After restart only on the rows that wait for one', () => {
+		const general = page('general')
+		expect(general).toContain('settings-row-badge')
+		expect(general).toContain('Applies the next time the app opens.')
+		expect(page('appearance')).not.toContain('settings-row-badge')
+	})
+
+	it('Appearance draws its rows in the order the catalogue lists them', () => {
+		const markup = page('appearance')
+		const drawn = [...markup.matchAll(/ id="setting-([a-z-]+?)(?:-label)?"/g)].map(
+			(match) => match[1],
+		)
+		const rows = [...new Set(drawn)]
+		expect(rows).toEqual([
+			'theme',
+			'interface-font',
+			'response-font',
+			'transcript-text-size',
+			'transcript-width',
+			'motion',
+			'conversation-tabs',
+			'code-theme-light',
+			'code-theme-dark',
+			'code-font',
+			'code-font-size',
+			'auto-dismiss-popups',
+			'virtualize-conversations',
+		])
+	})
+
+	it('the Terminal section links to the code rows in Appearance, and only where it can open them', () => {
+		const settings = {
+			settings: { ...DEFAULT_DESKTOP_SETTINGS },
+			error: '',
+			change: async () => {},
+			confirmation: undefined,
+			confirm: async () => {},
+			dismiss: () => {},
+		}
+		const shells = [{ value: 'auto', label: 'Automatic' }]
+		const withLink = renderToStaticMarkup(
+			createElement(TerminalSettings, { settings, shells, onSection: () => {} }),
+		)
+		expect(withLink).toContain('Code theme and font')
+		expect(withLink).toContain('Open Appearance')
+		expect(
+			renderToStaticMarkup(createElement(TerminalSettings, { settings, shells })),
+		).not.toContain('Open Appearance')
+		expect(
+			entryIsDrawn('terminal-code-link', {
+				shells: null,
+				hasAppUpdater: false,
+				canFetchEngines: false,
+			}),
+		).toBe(false)
+		expect(
+			entryIsDrawn('terminal-code-link', { shells, hasAppUpdater: false, canFetchEngines: false }),
+		).toBe(true)
+	})
+})
+
+describe('the code font box and Escape', () => {
+	it('puts the saved name back first, and only then lets Escape close Settings', () => {
+		expect(escapeRevertsDraft('Escape', 'Bad,Font', 'FreeMono')).toBe(true)
+		expect(escapeRevertsDraft('Escape', '', 'FreeMono')).toBe(true)
+		expect(escapeRevertsDraft('Escape', 'FreeMono', 'FreeMono')).toBe(false)
+		expect(escapeRevertsDraft('Enter', 'Bad,Font', 'FreeMono')).toBe(false)
+	})
+})
+
+describe('the rows the system applies', () => {
+	const controls = (change = vi.fn(async () => {}), over: Partial<DesktopSettings> = {}) => ({
+		settings: { ...DEFAULT_DESKTOP_SETTINGS, ...over },
+		error: '',
+		change,
+		confirmation: undefined,
+		confirm: async () => {},
+		dismiss: () => {},
+	})
+	const windows: OsState = {
+		platform: 'win32',
+		loginItem: { enabled: true },
+		tray: { shown: true },
+		metered: { state: 'metered' },
+	}
+
+	it('draws the switch from what the system says, not from the saved wish', () => {
+		const markup = renderToStaticMarkup(
+			createElement(DesktopSection, { settings: controls(), os: windows }),
+		)
+		// Saved: off. System: on.
+		expect(markup).toMatch(/aria-label="Run on startup"[^>]*aria-checked="true"/)
+		expect(markup).toContain('id="setting-run-on-startup"')
+		expect(markup).toContain('System tray')
+		expect(markup).toContain('id="setting-keep-awake"')
+		expect(markup).toContain('This connection is metered right now')
+	})
+
+	it('says plainly what the system refused, under the row', () => {
+		const markup = renderToStaticMarkup(
+			createElement(DesktopSection, {
+				settings: controls(),
+				os: {
+					...windows,
+					loginItem: {
+						enabled: false,
+						problem: 'Windows did not allow Namzu to start at sign-in, so it stays off.',
+					},
+					tray: {
+						shown: false,
+						problem:
+							'Namzu could not find its icon for the system tray, so closing the window still quits.',
+					},
+				},
+			}),
+		)
+		expect(markup).toContain('Windows did not allow Namzu to start at sign-in')
+		expect(markup).toContain('so closing the window still quits')
+	})
+
+	it('names the tray the menu bar on macOS and draws no row the system cannot apply', () => {
+		const mac = renderToStaticMarkup(
+			createElement(DesktopSection, {
+				settings: controls(),
+				os: { platform: 'darwin', loginItem: { enabled: false }, tray: { shown: true } },
+			}),
+		)
+		expect(mac).toContain('Menu bar')
+		expect(mac).not.toContain('Pause downloads on low data')
+		const linux = renderToStaticMarkup(
+			createElement(DesktopSection, {
+				settings: controls(),
+				os: { platform: 'linux', tray: { shown: true } },
+			}),
+		)
+		expect(linux).not.toContain('Run on startup')
+		expect(linux).toContain('System tray')
+		const unknown = renderToStaticMarkup(
+			createElement(DesktopSection, { settings: controls(), os: undefined }),
+		)
+		expect(unknown).not.toContain('System tray')
+		expect(unknown).toContain('Keep computer awake')
+	})
+
+	it('draws the three shortcut rows and says under a row when the system did not give the keys', () => {
+		const ok = renderToStaticMarkup(
+			createElement(DesktopSection, { settings: controls(), os: windows }),
+		)
+		expect(ok).toContain('id="setting-quick-entry-shortcut"')
+		expect(ok).toContain('Ctrl+Alt+N')
+		expect(ok).toContain('id="setting-dictation-shortcut"')
+		expect(ok).toContain('Ctrl+Shift+D')
+		expect(ok).toContain('id="setting-voice-shortcut"')
+		const taken = renderToStaticMarkup(
+			createElement(DesktopSection, {
+				settings: controls(undefined, { voiceShortcut: 'Ctrl+Alt+V' }),
+				os: {
+					...windows,
+					shortcuts: {
+						quickEntry: {
+							registered: false,
+							problem: 'Ctrl+Alt+Space is taken, so it is not registered.',
+						},
+						voice: { registered: false, problem: 'Ctrl+Alt+V is taken, so it is not registered.' },
+					},
+				},
+			}),
+		)
+		expect(taken).toContain('Ctrl+Alt+Space is taken')
+		expect(taken).toContain('Ctrl+Alt+V is taken')
+		// A cleared shortcut has nothing to complain about.
+		const cleared = renderToStaticMarkup(
+			createElement(DesktopSection, {
+				settings: controls(undefined, { quickEntryShortcut: '' }),
+				os: {
+					...windows,
+					shortcuts: { quickEntry: { registered: false }, voice: { registered: false } },
+				},
+			}),
+		)
+		expect(cleared).not.toContain('is taken')
+	})
+
+	it('keeps awake on battery under the working switch, off until that is on', () => {
+		const off = renderToStaticMarkup(createElement(AgentSleepRows, { settings: controls() }))
+		expect(off).toContain('Keep computer awake while Namzu works')
+		expect(off).toMatch(/aria-label="Keep awake on battery power"[^>]*disabled/)
+		expect(off).toContain('data-child="true"')
+		const on = renderToStaticMarkup(
+			createElement(AgentSleepRows, {
+				settings: controls(undefined, { keepAwakeWhileWorking: true }),
+			}),
+		)
+		expect(on).not.toMatch(/aria-label="Keep awake on battery power"[^>]*disabled/)
+	})
+
+	it('decides which rows search offers from what the system answered', () => {
+		const base = { shells: null, hasAppUpdater: true, canFetchEngines: true }
+		expect(entryIsDrawn('run-on-startup', { ...base, os: windows })).toBe(true)
+		expect(
+			entryIsDrawn('run-on-startup', { ...base, os: { platform: 'linux', tray: { shown: true } } }),
+		).toBe(false)
+		expect(entryIsDrawn('run-on-startup', base)).toBe(false)
+		expect(entryIsDrawn('pause-on-metered', { ...base, os: windows })).toBe(true)
+		expect(
+			entryIsDrawn('pause-on-metered', {
+				...base,
+				os: { platform: 'darwin', tray: { shown: true } },
+			}),
+		).toBe(false)
+		expect(entryIsDrawn('system-tray', { ...base, os: null })).toBe(false)
+		expect(
+			entryIsDrawn('system-tray', { ...base, os: { platform: 'linux', tray: { shown: false } } }),
+		).toBe(true)
+		expect(entryIsDrawn('keep-awake', base)).toBe(true)
+	})
+})
+
+describe('the storage and data rows', () => {
+	const controls = () => ({
+		settings: { ...DEFAULT_DESKTOP_SETTINGS },
+		error: '',
+		change: vi.fn(async () => {}),
+		confirmation: undefined,
+		confirm: async () => {},
+		dismiss: () => {},
+	})
+	const report: StorageReport = {
+		parts: [
+			{
+				id: 'conversations',
+				label: 'Conversations and work',
+				note: 'n',
+				bytes: 2048,
+				clearable: false,
+			},
+			{ id: 'logs', label: 'Logs', note: 'n', bytes: 1024, clearable: true },
+			{ id: 'caches', label: 'Caches', note: 'n', bytes: 0, clearable: true, approximate: true },
+		],
+		totalBytes: 3072,
+	}
+
+	it('draws Manage for storage and trusted folders, and Extensions that opens the Plugins page', () => {
+		const markup = renderToStaticMarkup(
+			createElement(DesktopSection, {
+				settings: controls(),
+				os: undefined,
+				onOpenPlugins: () => {},
+			}),
+		)
+		expect(markup).toContain('id="setting-storage"')
+		expect(markup).toContain('id="setting-trusted-folders"')
+		expect(markup).toContain('id="setting-extensions-manage"')
+		expect(markup).toMatch(/aria-label="Manage extensions"(?![^>]*disabled)/)
+	})
+
+	it('disables Extensions where there is no Plugins page to open', () => {
+		const markup = renderToStaticMarkup(
+			createElement(DesktopSection, { settings: controls(), os: undefined }),
+		)
+		expect(markup).toMatch(/aria-label="Manage extensions"[^>]*disabled/)
+	})
+
+	it('lists the sizes and offers Clear only on the parts that are safe to clear', () => {
+		const markup = renderToStaticMarkup(
+			createElement(StoragePanel, {
+				storage: { report, busy: false, clear: async () => {} },
+			}),
+		)
+		expect(markup).toContain('2.0 KB')
+		expect(markup).toContain('aria-label="Clear logs"')
+		expect(markup).not.toContain('Clear conversations')
+		// Nothing to clear in an empty part.
+		expect(markup).toMatch(/disabled=""[^>]*aria-label="Clear caches"/)
+		expect(markup).toContain('more than 0 B')
+		expect(markup).toContain('never cleared from here')
+	})
+
+	it('says which trust list it shows, lists each folder with Remove, and says when it is empty', () => {
+		const markup = renderToStaticMarkup(
+			createElement(TrustedFoldersPanel, {
+				trusted: {
+					view: { file: '/home/me/.namzu/trust.json', folders: ['/work/app', '/work/lib'] },
+					busy: false,
+					remove: async () => {},
+				},
+			}),
+		)
+		expect(markup).toContain('Namzu’s own list, kept in')
+		expect(markup).toContain('trust.json')
+		expect(markup).toContain('aria-label="Remove /work/app"')
+		expect(markup).toContain('aria-label="Remove /work/lib"')
+		const empty = renderToStaticMarkup(
+			createElement(TrustedFoldersPanel, {
+				trusted: {
+					view: { file: '/x/trust.json', folders: [] },
+					busy: false,
+					remove: async () => {},
+				},
+			}),
+		)
+		expect(empty).toContain('No folder is trusted')
+	})
+
+	it('names the trust files correctly in the data folder notes', () => {
+		expect(DATA_FOLDER_NOTES.namzu.text).toContain('trust.json')
+		expect(DATA_FOLDER_NOTES.app.text).toContain('trusted-folders.json')
+		expect(page('about')).not.toContain('conversations and trust list')
 	})
 })

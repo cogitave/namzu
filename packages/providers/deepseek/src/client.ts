@@ -6,6 +6,7 @@ import type {
 	ModelInfo,
 	ModelInputModality,
 	ProviderCapabilities,
+	ProviderLimits,
 	ProviderRoute,
 	ReasoningBlock,
 	ReasoningEffort,
@@ -29,6 +30,7 @@ import type {
 	ChatCompletionTool,
 	ChatCompletionToolChoiceOption,
 } from 'openai/resources/chat/completions'
+import { parseBalance } from './limits.js'
 import type { DeepSeekConfig } from './types.js'
 
 /**
@@ -701,6 +703,8 @@ export class DeepSeekProvider implements LLMProvider {
 	readonly capabilities = DEEPSEEK_CAPABILITIES
 
 	private client: OpenAI
+	private readonly apiKey: string
+	private readonly baseURL: string | undefined
 	private defaultModel?: string
 	private samplingMode: 'refuse' | 'ignore'
 	private vendorLimits: Promise<Map<string, VendorLimits>> | undefined
@@ -722,6 +726,8 @@ export class DeepSeekProvider implements LLMProvider {
 		}
 
 		this.client = new OpenAI(clientOptions)
+		this.apiKey = config.apiKey
+		this.baseURL = config.baseURL
 		this.defaultModel = config.model
 		this.documentedLimits = isVendorBaseUrl(config.baseURL)
 		this.samplingMode = config.samplingInThinkingMode ?? 'refuse'
@@ -1018,6 +1024,25 @@ export class DeepSeekProvider implements LLMProvider {
 		return (
 			reported ?? (this.documentedLimits && isKnownModel(model) ? CONTEXT_WINDOW_TOKENS : undefined)
 		)
+	}
+
+	/**
+	 * The account balance, from one GET of the vendor's balance endpoint. Asked only of the vendor's
+	 * own host (the key is never sent elsewhere), and any failure or unexpected body is "not
+	 * reported", never a zero.
+	 */
+	async readLimits(signal?: AbortSignal): Promise<ProviderLimits | undefined> {
+		if (!isVendorBaseUrl(this.baseURL)) return undefined
+		try {
+			const response = await fetch(new URL('/user/balance', this.baseURL ?? DEFAULT_BASE_URL), {
+				headers: { Authorization: `Bearer ${this.apiKey}`, Accept: 'application/json' },
+				...(signal ? { signal } : {}),
+			})
+			if (!response.ok) return undefined
+			return parseBalance(await response.json(), Date.now())
+		} catch {
+			return undefined
+		}
 	}
 
 	async probeCredential(signal?: AbortSignal): Promise<void> {

@@ -143,6 +143,22 @@ describe('composer send settings validate the session at admission', () => {
 			})
 	})
 
+	it('carries the composer’s hypermode choice with any level, or none', () => {
+		expect(validateComposerSendSettings({ hypermode: true }, {})).toEqual({
+			permissionMode: 'prompt',
+			hypermode: true,
+		})
+		expect(
+			validateComposerSendSettings(
+				{ effort: 'high', hypermode: false },
+				{ reasoningEffortLevels: ['high'] },
+			),
+		).toEqual({ permissionMode: 'prompt', effort: 'high', hypermode: false })
+		expect(() => validateComposerSendSettings({ hypermode: 'yes' }, {})).toThrow(
+			'Invalid message settings.',
+		)
+	})
+
 	it('rejects unsupported effort on a changed, unknown or unsupported route', () => {
 		for (const session of [
 			{},

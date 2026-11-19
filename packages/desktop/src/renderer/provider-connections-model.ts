@@ -33,6 +33,17 @@ export function connectionSource(row: ProviderConnectionView): string | undefine
 		: undefined
 }
 
+/**
+ * Said when a key from the environment and a key saved here both exist: the environment one wins,
+ * so the saved one is kept but not used. Never says a key's value.
+ */
+export function savedKeyIgnoredNote(row: ProviderConnectionView): string | undefined {
+	if (row.how !== 'environment' || !row.hasSavedKey) return undefined
+	return row.envName
+		? `The key from ${row.envName} on this computer is used. The key you saved here is not used while it is set.`
+		: 'The key from this computer’s settings is used. The key you saved here is not used while it is set.'
+}
+
 /** What an unconnected row tells the person to do. */
 export function unconnectedHint(row: ProviderConnectionView): string | undefined {
 	if (row.state !== 'not-connected') return undefined

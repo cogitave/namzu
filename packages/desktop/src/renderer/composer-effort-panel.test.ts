@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it, vi } from 'vitest'
@@ -95,4 +96,58 @@ it('names the ends and the stop in force on a long scale, never the end next to 
 		['Low', 0],
 		['High', 100],
 	])
+})
+
+it('offers hypermode as a switch under the slider, at any level, only where the composer offers it', () => {
+	expect(render()).not.toContain('Hypermode')
+	const on = render({ hypermode: { on: true, onChange: vi.fn() } })
+	expect(on).toContain('Hypermode')
+	expect(on).toMatch(
+		/role="switch"[^>]*aria-label="Hypermode"[^>]*checked=""|checked=""[^>]*role="switch"/,
+	)
+	const off = render({ value: 'low', hypermode: { on: false, onChange: vi.fn() } })
+	expect(off).toContain('role="switch"')
+	expect(off).toContain('aria-checked="false"')
+	// The name is enough: no line under it unless the switch cannot be turned on.
+	expect(off).not.toContain('composer-effort-mode-help')
+	expect(off).not.toContain('aria-describedby')
+})
+
+it('keeps the switch at its own width in a tight row', () => {
+	const css = readFileSync(new URL('./settings-page.css', import.meta.url), 'utf8')
+	expect(css).toMatch(/\.settings-switch \{[^}]*flex: none;/)
+})
+
+it('says why the switch cannot be turned on while dynamic workflows are off', () => {
+	const sentence =
+		'Hypermode needs dynamic workflows, and they are off. Turn them on in Settings (Dynamic workflows) first.'
+	const html = render({ hypermode: { on: false, onChange: vi.fn(), blocked: sentence } })
+	expect(html).toContain('Turn them on in Settings')
+	expect(html.match(/<input[^>]*aria-label="Hypermode"[^>]*>/)?.[0]).toContain('disabled')
+})
+
+it('ties the help sentence to the switch for assistive technology', () => {
+	const html = render({ hypermode: { on: false, onChange: vi.fn(), blocked: 'Because.' } })
+	const id = html.match(/aria-describedby="([^"]+)"/)?.[1]
+	expect(id).toBeTruthy()
+	expect(html).toContain(`id="${id}">Because.`)
+})
+
+it('shows a stored yes as off while blocked, and a click clears it', () => {
+	const onChange = vi.fn()
+	const html = render({ hypermode: { on: true, onChange, blocked: 'No.' } })
+	const input = html.match(/<input[^>]*aria-label="Hypermode"[^>]*>/)?.[0] ?? ''
+	expect(input).toContain('aria-checked="false"')
+	expect(input).not.toContain('disabled')
+})
+
+it('offers the mode on a model with no choice of effort', () => {
+	const html = render({
+		variant: 'inline',
+		levels: ['medium'],
+		hypermode: { on: false, onChange: vi.fn() },
+	})
+	expect(html).toContain('role="switch"')
+	expect(html).not.toContain('type="range"')
+	expect(render({ variant: 'inline', levels: ['medium'] })).toBe('')
 })

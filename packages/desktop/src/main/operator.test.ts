@@ -67,8 +67,8 @@ it('loads models through the owned project and rejects a foreign conversation or
 	await expect(owner.models(otherProject.id, 'fixture', session.id)).rejects.toThrow(
 		'belongs to another project',
 	)
-	await expect(owner.models(project.id, '')).rejects.toThrow('Invalid provider')
-	await expect(owner.models(project.id, 'x'.repeat(401))).rejects.toThrow('Invalid provider')
+	await expect(owner.models(project.id, '')).rejects.toThrow('isn’t available')
+	await expect(owner.models(project.id, 'x'.repeat(401))).rejects.toThrow('isn’t available')
 })
 it('keeps review ownership, queued text and the live projection across UI reattachment', async () => {
 	const { owner, permission, wait } = harness()
@@ -266,7 +266,7 @@ it('retains a streamed provider pause explanation through settlement and UI reat
 		messages: [{ role: 'user', text: 'Provider pause with fixture' }],
 	})
 	expect((await owner.openConversation(project.id, session.id)).thread?.error).toBe(message)
-	expect(() => owner.send(session.id, 'Next authored prompt')).toThrow('paused turn')
+	expect(() => owner.send(session.id, 'Next authored prompt')).toThrow('reply is paused')
 	expect((await owner.openConversation(project.id, session.id)).thread?.error).toBe(message)
 	expect(recorded.filter((event) => event.kind === 'prompt')).toHaveLength(1)
 })

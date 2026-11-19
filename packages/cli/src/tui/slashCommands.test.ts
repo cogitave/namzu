@@ -900,6 +900,39 @@ describe('/effort', () => {
 		if (invalid?.kind === 'message') expect(invalid.content).toContain('none|low|medium|high|xhigh')
 	})
 
+	it('takes hypermode as an option of any level, for this conversation', () => {
+		const ctx = context({
+			providerSummary: 'openai (openai)',
+			modelSummary: 'gpt-5.2',
+			reasoningEffort: {
+				current: () => undefined,
+				levels: ['none', 'low', 'medium', 'high', 'xhigh'],
+			},
+		})
+		for (const level of ['none', 'low', 'high', 'xhigh'])
+			expect(runSlash(`/effort ${level} hypermode on`, ctx)).toEqual({
+				kind: 'reasoning-effort',
+				effort: level,
+				hypermode: true,
+			})
+		expect(runSlash('/effort high hypermode off', ctx)).toEqual({
+			kind: 'reasoning-effort',
+			effort: 'high',
+			hypermode: false,
+		})
+		expect(runSlash('/effort default hypermode on', ctx)).toEqual({
+			kind: 'reasoning-effort',
+			effort: null,
+			hypermode: true,
+		})
+		// Only the mode: the level is left where it is.
+		expect(runSlash('/effort hypermode on', ctx)).toEqual({ kind: 'hypermode', enabled: true })
+		expect(runSlash('/effort hypermode off', ctx)).toEqual({ kind: 'hypermode', enabled: false })
+		const bad = runSlash('/effort high hypermode maybe', ctx)
+		expect(bad?.kind).toBe('message')
+		if (bad?.kind === 'message') expect(bad.content).toContain('[hypermode on|off]')
+	})
+
 	it('never resolves the hypermode name, or its old name, as an effort token', () => {
 		// The mode is a session setting layered above effort, not a level the
 		// provider published — /effort must refuse it exactly like any other
@@ -1518,6 +1551,32 @@ describe('/config theme', () => {
 		expect(runSlash('/config theme', context())).toEqual({ kind: 'theme-picker' })
 		expect(runSlash('/config theme light', context())).toEqual({ kind: 'theme', setting: 'light' })
 		expect(runSlash('/config theme nope', context())).toEqual(runSlash('/theme nope', context()))
+	})
+})
+
+describe('/config <setting>', () => {
+	it('shows, sets and clears any described setting; subcommands still win', () => {
+		const ctx = context()
+		expect(runSlash('/config limits.maxIterations', ctx)).toEqual({
+			kind: 'config-setting',
+			key: 'limits.maxIterations',
+		})
+		expect(runSlash('/config limits.maxIterations 30', ctx)).toEqual({
+			kind: 'config-setting',
+			key: 'limits.maxIterations',
+			text: '30',
+		})
+		expect(runSlash('/config limits.timeoutMs 1h 30m', ctx)).toMatchObject({ text: '1h 30m' })
+		expect(runSlash('/config limits.maxIterations unset', ctx)).toEqual({
+			kind: 'config-setting',
+			key: 'limits.maxIterations',
+			clear: true,
+		})
+		expect(runSlash('/config limits 5', ctx)).not.toMatchObject({ kind: 'config-setting' })
+		expect(runSlash('/config limits.maxIteratons', ctx)).toMatchObject({
+			kind: 'message',
+			content: expect.stringContaining('limits.maxIterations'),
+		})
 	})
 })
 

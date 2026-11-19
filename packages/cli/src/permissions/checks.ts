@@ -100,22 +100,9 @@ export function verifyPermissionChecks(
 	for (const [index, check] of checks.entries()) {
 		const where = `permissionChecks[${index}]`
 
-		if (typeof check?.tool !== 'string' || check.tool === '') {
-			diagnostics.push({ tool: where, message: 'expected a "tool" naming the tool to evaluate' })
-			continue
-		}
-		if (typeof check.input !== 'object' || check.input === null || Array.isArray(check.input)) {
-			diagnostics.push({
-				tool: where,
-				message: `expected an "input" object for ${check.tool}; got ${describe(check.input)}`,
-			})
-			continue
-		}
-		if (!isPermissionEffect(check.expect)) {
-			diagnostics.push({
-				tool: where,
-				message: `expected "expect" to be "allow", "ask" or "deny"; got ${JSON.stringify(check.expect)}`,
-			})
+		const problem = permissionCheckProblem(check, index)
+		if (problem) {
+			diagnostics.push(problem)
 			continue
 		}
 
@@ -143,6 +130,33 @@ export function verifyPermissionChecks(
 	}
 
 	return diagnostics
+}
+
+/**
+ * What is wrong with the shape of one check, in the loader's words, or undefined. The same
+ * sentences are said at start-up and when a person saves a check in Settings.
+ */
+export function permissionCheckProblem(
+	check: PermissionCheck,
+	index: number,
+): CompileDiagnostic | undefined {
+	const where = `permissionChecks[${index}]`
+	if (typeof check?.tool !== 'string' || check.tool.trim() === '') {
+		return { tool: where, message: 'expected a "tool" naming the tool to evaluate' }
+	}
+	if (typeof check.input !== 'object' || check.input === null || Array.isArray(check.input)) {
+		return {
+			tool: where,
+			message: `expected an "input" object for ${check.tool}; got ${describe(check.input)}`,
+		}
+	}
+	if (!isPermissionEffect(check.expect)) {
+		return {
+			tool: where,
+			message: `expected "expect" to be "allow", "ask" or "deny"; got ${JSON.stringify(check.expect)}`,
+		}
+	}
+	return undefined
 }
 
 function describe(value: unknown): string {

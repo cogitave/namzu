@@ -32,6 +32,6 @@ describe('handBack.enabled', () => {
 
 	it('is a described setting with default off', () => {
 		const found = SETTING_DESCRIPTORS.find((d) => d.path === 'handBack.enabled')
-		expect(found?.defaultText).toBe('off')
+		expect(found?.default).toBe(false)
 	})
 })

@@ -1,7 +1,11 @@
 import {
 	AppWindow,
 	Archive,
+	ArrowUpRight,
+	Blocks,
 	ChevronsDownUp,
+	CircleCheck,
+	Circle as CircleStroke,
 	Clock,
 	Copy,
 	Download,
@@ -13,12 +17,14 @@ import {
 	GitBranch,
 	GitCommitHorizontal,
 	GitFork,
+	Globe,
 	Hand,
 	Hash,
 	House,
 	Image,
 	ListChecks,
 	ListFilter,
+	ListTree,
 	type LucideIcon,
 	Maximize2,
 	Menu as MenuLines,
@@ -30,10 +36,12 @@ import {
 	Pencil,
 	Pin,
 	PinOff,
+	Plug,
 	RefreshCw,
 	Settings,
 	ShieldCheck,
 	SquarePen,
+	SquareSlash,
 	SquareSplitHorizontal,
 	SquareSplitVertical,
 	Trash2,
@@ -104,6 +112,9 @@ export const SearchIcon = createIcon([
 	'M18.031 16.6168L22.3137 20.8995L20.8995 22.3137L16.6168 18.031C15.0769 19.263 13.124 20 11 20C6.032 20 2 15.968 2 11C2 6.032 6.032 2 11 2C15.968 2 20 6.032 20 11C20 13.124 19.263 15.0769 18.031 16.6168ZM16.0247 15.8748C17.2475 14.6146 18 12.8956 18 11C18 7.1325 14.8675 4 11 4C7.1325 4 4 7.1325 4 11C4 14.8675 7.1325 18 11 18C12.8956 18 14.6146 17.2475 15.8748 16.0247L16.0247 15.8748Z',
 ])
 export const FolderIcon = createOutlineIcon(FolderClosed)
+export const PlugIcon = createOutlineIcon(Plug)
+export const SquareSlashIcon = createOutlineIcon(SquareSlash)
+export const BlocksIcon = createOutlineIcon(Blocks)
 export const MessagesSquareIcon = createOutlineIcon(MessagesSquare)
 export const SettingsIcon = createOutlineIcon(Settings)
 export const PencilIcon = createOutlineIcon(Pencil)
@@ -276,3 +287,8 @@ export const AppWindowIcon = createOutlineIcon(AppWindow)
 export const SideChatIcon = createOutlineIcon(MessageSquarePlus)
 export const SplitRightIcon = createOutlineIcon(SquareSplitHorizontal)
 export const SplitDownIcon = createOutlineIcon(SquareSplitVertical)
+export const GlobeIcon = createOutlineIcon(Globe)
+export const ArrowUpRightIcon = createOutlineIcon(ArrowUpRight)
+export const CircleCheckIcon = createOutlineIcon(CircleCheck)
+export const CircleOutlineIcon = createOutlineIcon(CircleStroke)
+export const ListTreeIcon = createOutlineIcon(ListTree)

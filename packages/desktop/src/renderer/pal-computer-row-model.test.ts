@@ -193,7 +193,7 @@ describe('palComputerRowView', () => {
 			expect(view?.details).toBe('Plain detail.')
 			return view?.note
 		})
-		expect(notes[0]).toContain('virtualization')
+		expect(notes[0]).toContain('virtual machines')
 		expect(notes[1]).toContain('organisation')
 		expect(notes[2]).toContain('version of Windows')
 		expect(notes[4]).toBe('Namzu needs an update to work with this version of Windows.')

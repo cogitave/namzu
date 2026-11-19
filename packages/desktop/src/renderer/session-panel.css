@@ -1,0 +1,306 @@
+/*
+ * The session panel's own look. Where it sits (a docked column or a card over the conversation) is the pane
+ * grid's: see pane-grid.css.
+ */
+.session-panel {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	flex: 1;
+	color: var(--foreground);
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+}
+.session-panel-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	height: var(--panel-header-height);
+	flex: none;
+	padding: 0 8px 0 16px;
+	border-bottom: 1px solid var(--border);
+}
+.session-panel-head h2 {
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
+	font-weight: var(--weight-control);
+}
+.session-panel-body {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	padding: 4px 0 16px;
+}
+.session-section {
+	padding: 10px 8px 8px;
+	border-bottom: 1px solid var(--border);
+}
+.session-section:last-child {
+	border-bottom: 0;
+}
+.session-section-head h3 {
+	margin: 0 8px 4px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	font-weight: var(--weight-control);
+	color: var(--muted-foreground);
+}
+.session-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	min-width: 0;
+	min-height: 28px;
+	padding: 2px 8px;
+	border: 0;
+	border-radius: var(--control-radius);
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+}
+.session-row svg {
+	flex: none;
+	width: 16px;
+	height: 16px;
+	color: var(--muted-foreground);
+}
+.session-row-button {
+	cursor: pointer;
+}
+.session-row-button:hover:not(:disabled) {
+	background: var(--accent);
+}
+.session-row-button:disabled {
+	cursor: default;
+}
+.session-row-button:focus-visible,
+.session-changes-open:focus-visible {
+	outline: none;
+	box-shadow: var(--focus-ring);
+}
+.session-label {
+	min-width: 0;
+	flex: 0 1 auto;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.session-value {
+	margin-inline-start: auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--muted-foreground);
+	font-variant-numeric: tabular-nums;
+}
+.session-value[data-attention],
+.session-label[data-attention] {
+	color: var(--warning);
+}
+.session-path {
+	direction: rtl;
+	text-align: right;
+	flex: 1 1 0;
+}
+.session-note {
+	margin: 0;
+	padding: 2px 8px 4px;
+	color: var(--muted-foreground);
+}
+.session-note[data-tone="warning"] {
+	color: var(--warning);
+}
+.session-bar {
+	flex: 1 1 48px;
+	min-width: 24px;
+	height: 4px;
+	border-radius: 2px;
+	background: var(--border);
+	overflow: hidden;
+}
+.session-bar > span {
+	display: block;
+	height: 100%;
+	background: var(--foreground);
+	border-radius: 2px;
+}
+.session-bar[data-tone="high"] > span {
+	background: var(--warning);
+}
+.session-bar[data-tone="full"] > span {
+	background: var(--error-foreground);
+}
+.session-bar:not([data-measured]) > span {
+	width: 0 !important;
+}
+.session-row svg.session-chevron {
+	margin-inline-start: auto;
+	width: 14px;
+	height: 14px;
+	transition: transform var(--dur-base) var(--ease-out);
+}
+.session-chevron[data-open] {
+	transform: rotate(90deg);
+}
+.session-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+.session-list > li {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-height: 28px;
+	padding: 2px 8px;
+	min-width: 0;
+}
+.session-list > li svg {
+	flex: none;
+	width: 16px;
+	height: 16px;
+	color: var(--muted-foreground);
+}
+.session-list > li[data-state="failed"] .session-value {
+	color: var(--error-foreground);
+}
+.session-list > li[data-state="waiting"] .session-value {
+	color: var(--warning);
+}
+.session-changes {
+	padding: 0;
+	justify-content: space-between;
+	gap: 6px;
+}
+.session-changes-open {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex: 1 1 auto;
+	min-width: 0;
+	min-height: 28px;
+	padding: 2px 8px;
+	border: 0;
+	border-radius: var(--control-radius);
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	cursor: pointer;
+}
+.session-changes-open:hover {
+	background: var(--accent);
+}
+.session-totals {
+	display: inline-flex;
+	gap: 6px;
+	font-variant-numeric: tabular-nums;
+}
+.session-added {
+	color: var(--details-added, #15803d);
+}
+.dark .session-added {
+	--details-added: #4ade80;
+}
+.session-removed {
+	color: var(--error-foreground);
+}
+.session-job-stop {
+	flex: none;
+}
+/* The folder row, with its "…" at the end. */
+.session-folder {
+	display: flex;
+	align-items: center;
+	min-width: 0;
+}
+.session-folder > .session-row-button {
+	flex: 1 1 auto;
+	width: auto;
+}
+.session-folder-more {
+	flex: none;
+	margin-inline-end: 2px;
+}
+.session-branch {
+	align-items: flex-start;
+	padding-block: 4px;
+}
+.session-branch svg {
+	margin-top: 2px;
+}
+.session-branch-text {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+.session-subject {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	color: var(--muted-foreground);
+}
+.session-section-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding-inline-end: 4px;
+}
+.session-link {
+	margin-inline-start: 8px;
+	padding: 0 4px;
+	border: 0;
+	border-radius: var(--control-radius);
+	background: transparent;
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	cursor: pointer;
+}
+.session-link:hover {
+	color: var(--foreground);
+	background: var(--accent);
+}
+.session-link:focus-visible {
+	outline: none;
+	box-shadow: var(--focus-ring);
+}
+.session-more {
+	margin-block: 2px;
+}
+/* The context breakdown has its own header and rows; the section only gives it the column's sides. */
+.session-context-section {
+	padding: 10px 16px 12px;
+}
+/* Outputs: one row per file, 32 px apart, the kind's mark and the name. */
+.session-outputs > li {
+	padding: 0;
+	min-height: 32px;
+}
+.session-output {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex: 1 1 auto;
+	min-width: 0;
+	min-height: 32px;
+	padding: 0 8px;
+	border: 0;
+	border-radius: var(--control-radius);
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+.session-output:hover {
+	background: var(--accent);
+}
+.session-output:focus-visible {
+	outline: none;
+	box-shadow: var(--focus-ring);
+}

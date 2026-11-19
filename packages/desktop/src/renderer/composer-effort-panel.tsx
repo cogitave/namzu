@@ -1,7 +1,7 @@
 import { Slider } from '@base-ui/react/slider'
 import type { ReasoningEffort } from '@namzu/sdk'
 import { ChevronRight } from 'lucide-react'
-import { useEffect, useRef } from 'react'
+import { useEffect, useId, useRef } from 'react'
 import type { HarnessView } from '../shared/protocol.js'
 import {
 	EngineChip,
@@ -11,6 +11,7 @@ import {
 } from './harness-picker.js'
 import { LoaderCircleIcon } from './icons.js'
 import { effortLabel } from './model-choice.js'
+import { Switch } from './settings-row.js'
 import './composer-effort-panel.css'
 
 /** The stop that is the model's own default, or -1 when it has none among the offered levels. */
@@ -83,6 +84,7 @@ export function ComposerEffortPanel({
 	onShowModels,
 	onUnavailable,
 	engine,
+	hypermode,
 }: {
 	/**
 	 * `inline` is the control under the model list: a name, the level in force and the slider, with
@@ -104,6 +106,11 @@ export function ComposerEffortPanel({
 	onShowModels?: () => void
 	/** The model turned out to offer no choice of effort. */
 	onUnavailable?: () => void
+	/**
+	 * Hypermode, for this conversation and at any level. Absent where the composer offers none.
+	 * `blocked` says why the switch cannot be turned on (dynamic workflows are off in Settings).
+	 */
+	hypermode?: { on: boolean; onChange: (on: boolean) => void; blocked?: string }
 	/** The engine in force and the way into the engine view; absent where engines are not offered. */
 	engine?: {
 		id: HarnessView['selected']
@@ -134,7 +141,36 @@ export function ComposerEffortPanel({
 	const index = value ? Math.max(0, levels.indexOf(value)) : 0
 	const label = value ? effortLabel(value) : 'Model default'
 	const defaultIndex = defaultStop(levels, defaultValue)
-	if (inline && unavailable) return null
+	const helpId = `${useId()}-mode-help`
+	const modeRow = hypermode && (
+		<div className="composer-effort-mode">
+			<span className="composer-effort-mode-text">
+				<span className="composer-effort-mode-name">Hypermode</span>
+				{/* The name says enough; a line under it appears only when the switch cannot be turned on. */}
+				{hypermode.blocked && (
+					<span className="composer-effort-mode-help" id={helpId}>
+						{hypermode.blocked}
+					</span>
+				)}
+			</span>
+			<Switch
+				label="Hypermode"
+				checked={hypermode.on && !hypermode.blocked}
+				disabled={disabled || (hypermode.blocked !== undefined && !hypermode.on)}
+				describedBy={hypermode.blocked ? helpId : undefined}
+				// While blocked the switch reads off, so a click can only clear a stored yes.
+				onChange={(value) => hypermode.onChange(hypermode.blocked ? false : value)}
+			/>
+		</div>
+	)
+	// A model with no choice of effort has no slider, but the mode is still offered.
+	if (inline && unavailable) {
+		return modeRow ? (
+			<div className="composer-effort-panel" data-variant="inline" data-scope={scope}>
+				{modeRow}
+			</div>
+		) : null
+	}
 	return (
 		<div
 			className="composer-effort-panel"
@@ -260,6 +296,7 @@ export function ComposerEffortPanel({
 					)}
 				</>
 			)}
+			{modeRow}
 		</div>
 	)
 }

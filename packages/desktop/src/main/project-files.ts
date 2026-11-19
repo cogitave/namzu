@@ -104,13 +104,20 @@ async function readIgnoreFile(absolute: string): Promise<string | undefined> {
 	}
 }
 
-async function ignoreRule(root: string, base: string): Promise<IgnoreRule | undefined> {
+async function ignoreRule(
+	root: string,
+	base: string,
+	respect = true,
+): Promise<IgnoreRule | undefined> {
+	// `respectGitignore` off: no ignore file is read, so nothing it names is hidden.
+	if (!respect) return undefined
 	const text = await readIgnoreFile(join(root, ...(base ? base.split('/') : []), '.gitignore'))
 	return text === undefined ? undefined : { base, ig: ignore().add(text) }
 }
 
-async function rootRules(root: string): Promise<IgnoreRule[]> {
+async function rootRules(root: string, respect = true): Promise<IgnoreRule[]> {
 	const rules: IgnoreRule[] = []
+	if (!respect) return rules
 	// Lowest precedence first: a later rule overrides an earlier one, as in git.
 	const exclude = await readIgnoreFile(join(root, '.git', 'info', 'exclude'))
 	if (exclude !== undefined) rules.push({ base: '', ig: ignore().add(exclude) })
@@ -132,14 +139,18 @@ function isIgnored(rules: readonly IgnoreRule[], path: string, directory: boolea
 	return ignored
 }
 
-async function rulesAlong(root: string, segments: readonly string[]): Promise<IgnoreRule[]> {
-	const rules = await rootRules(root)
+async function rulesAlong(
+	root: string,
+	segments: readonly string[],
+	respect = true,
+): Promise<IgnoreRule[]> {
+	const rules = await rootRules(root, respect)
 	let base = ''
 	for (const segment of segments) {
 		const path = base ? `${base}/${segment}` : segment
 		if (isHiddenName(segment) || isIgnored(rules, path, true)) throw hiddenFolder()
 		base = path
-		const next = await ignoreRule(root, base)
+		const next = await ignoreRule(root, base, respect)
 		if (next) rules.push(next)
 	}
 	return rules
@@ -151,9 +162,9 @@ async function rulesAlong(root: string, segments: readonly string[]): Promise<Ig
  * readable by exact path either, so a model or the renderer cannot reach a secrets file the
  * project keeps out of version control.
  */
-async function assertVisible(root: string, relative: string): Promise<void> {
+async function assertVisible(root: string, relative: string, respect = true): Promise<void> {
 	const segments = relative ? relative.split('/') : []
-	const rules = await rulesAlong(root, segments.slice(0, -1))
+	const rules = await rulesAlong(root, segments.slice(0, -1), respect)
 	const name = segments[segments.length - 1]
 	if (name !== undefined && (isHiddenName(name) || isIgnored(rules, relative, false)))
 		throw new ProjectPathError('That file is hidden by this project’s ignore rules.')
@@ -220,6 +231,12 @@ export interface ProjectFilesOptions {
 	budgetMs?: number
 	maxPaths?: number
 	maxDepth?: number
+	/**
+	 * Whether `.gitignore` and `.git/info/exclude` hide files, asked at each call so a change to
+	 * the setting reaches the next listing. Default: they do. `.git` and `node_modules` stay
+	 * hidden either way.
+	 */
+	respectGitignore?: () => boolean | Promise<boolean>
 }
 
 interface CachedIndex {
@@ -227,16 +244,22 @@ interface CachedIndex {
 	value: { paths: string[]; truncated: boolean }
 }
 
+const cacheKey = (root: string, respect: boolean) => `${respect ? 'ignore' : 'all'}:${root}`
+
 export class ProjectFiles {
 	private readonly now: () => number
 	private readonly budgetMs: number
 	private readonly maxPaths: number
 	private readonly maxDepth: number
+	private readonly respectGitignore: () => boolean | Promise<boolean>
 	private readonly cache = new Map<string, CachedIndex>()
 	/** Forget a project's cached index, for after the agent has written files. */
 	invalidate(root?: string): void {
 		if (root === undefined) this.cache.clear()
-		else this.cache.delete(root)
+		else {
+			this.cache.delete(cacheKey(root, true))
+			this.cache.delete(cacheKey(root, false))
+		}
 	}
 
 	private readonly walking = new Map<string, Promise<CachedIndex['value']>>()
@@ -246,6 +269,7 @@ export class ProjectFiles {
 		this.budgetMs = options.budgetMs ?? INDEX_BUDGET_MS
 		this.maxPaths = options.maxPaths ?? INDEX_MAX_PATHS
 		this.maxDepth = options.maxDepth ?? INDEX_MAX_DEPTH
+		this.respectGitignore = options.respectGitignore ?? (() => true)
 	}
 
 	async list(root: string, dir: unknown): Promise<ProjectFileEntry[]> {
@@ -253,7 +277,8 @@ export class ProjectFiles {
 		const info = await stat(absolute)
 		if (!info.isDirectory()) throw new ProjectPathError('That path is not a folder.')
 		const segments = relative ? relative.split('/') : []
-		const rules = await rulesAlong(root, segments)
+		const respect = await this.respectGitignore()
+		const rules = await rulesAlong(root, segments, respect)
 		const entries = (
 			await scan(root, absolute, relative, rules, { maxEntries: LIST_MAX_ENTRIES })
 		).map(
@@ -269,33 +294,39 @@ export class ProjectFiles {
 	}
 
 	async index(root: string): Promise<{ paths: string[]; truncated: boolean }> {
-		const cached = this.cache.get(root)
+		// The setting is part of the key: a listing made under the other choice is never reused.
+		const respect = await this.respectGitignore()
+		const key = cacheKey(root, respect)
+		const cached = this.cache.get(key)
 		if (cached && this.now() - cached.at < INDEX_CACHE_MS) return cached.value
-		const running = this.walking.get(root)
+		const running = this.walking.get(key)
 		if (running) return running
-		const walk = this.walk(root).then(
+		const walk = this.walk(root, respect).then(
 			(value) => {
-				this.cache.set(root, { at: this.now(), value })
+				this.cache.set(key, { at: this.now(), value })
 				// Projects are few; this only stops a long session from collecting stale roots.
 				if (this.cache.size > 16) this.cache.delete(this.cache.keys().next().value as string)
-				this.walking.delete(root)
+				this.walking.delete(key)
 				return value
 			},
 			(error) => {
-				this.walking.delete(root)
+				this.walking.delete(key)
 				throw error
 			},
 		)
-		this.walking.set(root, walk)
+		this.walking.set(key, walk)
 		return walk
 	}
 
-	private async walk(root: string): Promise<{ paths: string[]; truncated: boolean }> {
+	private async walk(
+		root: string,
+		respect: boolean,
+	): Promise<{ paths: string[]; truncated: boolean }> {
 		const started = this.now()
 		const paths: string[] = []
 		let truncated = false
 		const queue: { base: string; depth: number; rules: IgnoreRule[] }[] = [
-			{ base: '', depth: 0, rules: await rootRules(root) },
+			{ base: '', depth: 0, rules: await rootRules(root, respect) },
 		]
 		for (let next = 0; next < queue.length && !truncated; next++) {
 			if (this.now() - started > this.budgetMs) {
@@ -325,7 +356,7 @@ export class ProjectFiles {
 						truncated = true
 						continue
 					}
-					const nested = await ignoreRule(root, path)
+					const nested = await ignoreRule(root, path, respect)
 					queue.push({ base: path, depth: depth + 1, rules: nested ? [...rules, nested] : rules })
 					continue
 				}
@@ -341,7 +372,8 @@ export class ProjectFiles {
 
 	async read(root: string, path: unknown): Promise<ProjectFileContent> {
 		const { absolute, relative } = await confineProjectPath(root, path)
-		await assertVisible(root, relative)
+		const respect = await this.respectGitignore()
+		await assertVisible(root, relative, respect)
 		// O_NONBLOCK keeps a named pipe from parking the open (and a thread-pool thread) until a
 		// writer shows up; O_NOFOLLOW refuses a link swapped in for the file itself.
 		const handle = await open(
@@ -357,7 +389,7 @@ export class ProjectFiles {
 			const now = await stat(again.absolute)
 			if (now.ino !== info.ino || now.dev !== info.dev) throw outside()
 			// A link inside the project can point at an ignored file; judge where it really lives.
-			await assertVisible(root, relativePath(root, again.absolute).split(sep).join('/'))
+			await assertVisible(root, relativePath(root, again.absolute).split(sep).join('/'), respect)
 			const size = info.size
 			const head = Buffer.alloc(Math.min(size, 16))
 			await handle.read(head, 0, head.length, 0)

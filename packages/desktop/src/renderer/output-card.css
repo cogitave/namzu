@@ -1,0 +1,236 @@
+/* The cards under a reply: one for each result it made. Quiet; the transcript column stays calm. */
+.output-group {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2, 8px);
+	margin: var(--space-3, 12px) 0;
+	max-width: 100%;
+}
+.output-group-caption {
+	margin: 0;
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+}
+.output-group-more {
+	appearance: none;
+	align-self: flex-start;
+	border: 0;
+	background: none;
+	padding: 0;
+	color: var(--muted-foreground);
+	font: inherit;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	cursor: pointer;
+}
+.output-group-more:hover,
+.output-group-more:focus-visible {
+	color: var(--foreground);
+	text-decoration: underline;
+}
+
+.output-card {
+	position: relative;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	width: min(100%, 20rem);
+	min-width: 0;
+	min-height: 36px;
+	overflow: hidden;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-md);
+	background: var(--background);
+	color: var(--foreground);
+	animation: output-card-in 200ms ease-out;
+	transition: background-color 120ms ease-out;
+}
+.output-card:hover {
+	background: var(--accent);
+}
+.output-card:has(:focus-visible) {
+	outline: none;
+	box-shadow: var(--focus-ring);
+}
+.output-card[data-state="failed"] {
+	border-color: color-mix(in srgb, var(--error) 40%, transparent);
+}
+.output-card[data-state="gone"] {
+	opacity: 0.75;
+}
+.output-card-main {
+	appearance: none;
+	display: flex;
+	flex: 1 1 100%;
+	align-items: center;
+	gap: var(--space-2, 8px);
+	min-width: 0;
+	height: 34px;
+	padding: 0 12px;
+	border: 0;
+	background: none;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+.output-card-main:focus-visible {
+	outline: none;
+}
+div.output-card-main {
+	cursor: default;
+}
+.output-card-icon {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	justify-content: center;
+	width: 16px;
+	height: 16px;
+	color: var(--muted-foreground);
+}
+.output-card-icon svg {
+	width: 16px;
+	height: 16px;
+}
+.output-card[data-state="failed"] .output-card-icon {
+	color: var(--error);
+}
+.output-card-name {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
+	font-weight: 400;
+}
+.output-card-state {
+	flex: none;
+	color: var(--muted-foreground);
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	transition: opacity 120ms ease-out;
+}
+.output-card[data-state="failed"] .output-card-state {
+	color: var(--error);
+}
+.output-card-chevron {
+	flex: none;
+	width: 14px;
+	height: 14px;
+	color: var(--muted-foreground);
+	transition: opacity 120ms ease-out;
+}
+.output-card-reason {
+	flex: 1 1 100%;
+	padding: 0 12px 6px 36px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--error);
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+}
+/* The actions take the state word's slot at the row's right: the word and the chevron fade out as
+   they arrive, so the row never widens or grows taller. A touch screen has no hover, so there the
+   actions stay out of the row and the card opens on a press. */
+.output-card-actions {
+	position: absolute;
+	top: 5px;
+	right: 6px;
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	padding-left: var(--space-2, 8px);
+	border-radius: var(--radius-chip);
+	background: var(--accent);
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity 120ms ease-out;
+}
+.output-card:hover .output-card-actions,
+.output-card:has(:focus-visible) .output-card-actions {
+	opacity: 1;
+	pointer-events: auto;
+}
+.output-card:hover .output-card-state,
+.output-card:hover .output-card-chevron,
+.output-card:has(:focus-visible) .output-card-state,
+.output-card:has(:focus-visible) .output-card-chevron {
+	opacity: 0;
+}
+@media (pointer: coarse), (forced-colors: active) {
+	.output-card-actions {
+		display: none;
+	}
+	.output-card:hover .output-card-state,
+	.output-card:hover .output-card-chevron {
+		opacity: 1;
+	}
+}
+.output-card-action {
+	appearance: none;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	border: 0;
+	border-radius: var(--radius-chip);
+	background: none;
+	color: var(--muted-foreground);
+	cursor: pointer;
+}
+.output-card-action svg {
+	width: 16px;
+	height: 16px;
+}
+.output-card-action:hover,
+.output-card-action:focus-visible {
+	background: var(--background);
+	color: var(--foreground);
+}
+.output-card-progress {
+	position: absolute;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	height: 2px;
+	overflow: hidden;
+	background: var(--border);
+}
+.output-card-progress::after {
+	content: "";
+	display: block;
+	width: 40%;
+	height: 100%;
+	background: var(--primary);
+	animation: output-card-slide 1.2s ease-in-out infinite;
+}
+@keyframes output-card-in {
+	from {
+		opacity: 0;
+	}
+}
+@keyframes output-card-slide {
+	from {
+		transform: translateX(-100%);
+	}
+	to {
+		transform: translateX(250%);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	:root:not([data-motion="full"]) .output-card,
+	:root:not([data-motion="full"]) .output-card-actions {
+		animation: none;
+		transition: none;
+	}
+	:root:not([data-motion="full"]) .output-card-progress::after {
+		animation: none;
+		width: 100%;
+	}
+}

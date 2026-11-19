@@ -21,6 +21,10 @@ export interface TuiLaunchSettings {
 	readonly effort?: ReasoningEffort
 	/** `--fast`: start with fast inference on, if the model takes it. */
 	readonly fast?: boolean
+	/** The saved `fast` setting: the same start as `--fast`, worded as a saved choice when refused. */
+	readonly savedFast?: boolean
+	/** The saved `effort` setting, below `--effort` and `NAMZU_EFFORT_LEVEL`. */
+	readonly savedEffort?: ReasoningEffort
 	readonly permissionMode?: PermissionMode
 	/** `--fallback-model`: models to fall over to, in order, for this launch. */
 	readonly fallbackModels?: readonly string[]

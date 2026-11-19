@@ -170,7 +170,7 @@ it('shows a command in a box and any other tool as readable pairs', () => {
 			}),
 		]),
 	)
-	expect(other.title).toBe('Allow web fetch?')
+	expect(other.title).toBe('Allow Namzu to read a web page?')
 	expect(other.entries).toEqual([
 		{ label: 'Url', value: 'https://x.dev' },
 		{ label: 'Max bytes', value: '5' },
@@ -454,8 +454,40 @@ it('turns a request that asks about applications into one question, not one abou
 	expect(appAccessNote(['Notepad'])).toContain(
 		'still asks before it closes, deletes, sends or submits',
 	)
-	// A plain computer action keeps its ordinary card.
-	expect(
-		buildApprovalCard(request([call('computer_use', { type: 'key', keys: 'A' })])).appAccess,
-	).toBeUndefined()
+	// A plain computer action keeps its ordinary card, titled in words a person uses.
+	const plainCard = buildApprovalCard(request([call('computer_use', { type: 'key', keys: 'A' })]))
+	expect(plainCard.appAccess).toBeUndefined()
+	expect(plainCard.title).toBe('Allow Namzu to use your computer?')
+})
+
+describe('a change to one of the settings', () => {
+	const change = { setting: 'Notification sound', from: 'None', to: 'System sound' }
+	const settingCall = () =>
+		call(
+			'set_setting',
+			{ setting: 'notification_sound', value: 'system' },
+			{
+				alwaysAsk: true,
+				settingChange: change,
+			},
+		)
+
+	it('is drawn with the setting name and the old and new value, never a key', () => {
+		const card = buildApprovalCard(request([settingCall()]))
+		expect(card).toMatchObject({
+			kind: 'other',
+			title: 'Change Notification sound?',
+			settingChange: change,
+			entries: [
+				{ label: 'Now', value: 'None' },
+				{ label: 'Change to', value: 'System sound' },
+			],
+		})
+		expect(JSON.stringify(card)).not.toContain('notification_sound')
+	})
+
+	it('hides the raw input in the details and never offers a standing yes', () => {
+		expect(approvalDetails([settingCall()])).toEqual([{ entries: [] }])
+		expect(offersConversationAllowance(request([settingCall()]))).toBe(false)
+	})
 })

@@ -47,7 +47,7 @@ export function TurnResultLine({
 	model: ResultLineModel
 	/** Absent when no receipt carried the edits: there is no pane to open. */
 	changes?: TurnChanges
-	onOpen?: (receiptIds: string[], path?: string) => void
+	onOpen?: (path?: string) => void
 	/** Shows the file itself, not its diff; absent where the project's files are not available. */
 	onOpenFile?: (path: string) => void
 	/** Absent hides Undo: still streaming, nothing covered, or an older CLI. */
@@ -85,7 +85,7 @@ export function TurnResultLine({
 				<span
 					className="turn-result-check"
 					data-tone={model.check.tone}
-					title={model.check.text}
+					title={model.check.title ?? model.check.text}
 					aria-hidden="true"
 				>
 					{model.check.text}
@@ -119,7 +119,7 @@ export function TurnResultLine({
 					type="button"
 					className="turn-result-main"
 					aria-label={`${model.label}. Open changes`}
-					onClick={() => onOpen(changes.receiptIds, largestFile(changes.files)?.path)}
+					onClick={() => onOpen(largestFile(changes.files)?.path)}
 				>
 					{body}
 				</button>
@@ -136,7 +136,7 @@ export function TurnResultLine({
 							type="button"
 							className="turn-result-action"
 							data-turn-action="view-changes"
-							onClick={() => onOpen(changes.receiptIds, largestFile(changes.files)?.path)}
+							onClick={() => onOpen(largestFile(changes.files)?.path)}
 						>
 							View changes
 						</button>

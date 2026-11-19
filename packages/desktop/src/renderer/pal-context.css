@@ -577,18 +577,18 @@
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.pal-context-card,
-	.pal-context-loading {
+	:root:not([data-motion="full"]) .pal-context-card,
+	:root:not([data-motion="full"]) .pal-context-loading {
 		animation: none;
 	}
-	.pal-context-row,
-	.pal-computer-open,
-	.pal-computer-thumbnail,
-	.pal-context-compact-chevron,
-	.pal-plan-chevron {
+	:root:not([data-motion="full"]) .pal-context-row,
+	:root:not([data-motion="full"]) .pal-computer-open,
+	:root:not([data-motion="full"]) .pal-computer-thumbnail,
+	:root:not([data-motion="full"]) .pal-context-compact-chevron,
+	:root:not([data-motion="full"]) .pal-plan-chevron {
 		transition: none;
 	}
-	.pal-computer-open:not(:disabled):hover .pal-computer-thumbnail {
+	:root:not([data-motion="full"]) .pal-computer-open:not(:disabled):hover .pal-computer-thumbnail {
 		transform: none;
 	}
 }

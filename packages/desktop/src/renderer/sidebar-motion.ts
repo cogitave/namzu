@@ -1,3 +1,4 @@
+import { reducedMotion as motionReduced } from './motion-setting.js'
 const motionTiming = { duration: 150, easing: 'ease-out' }
 // Rows normally ride their displaced neighbour's travel. Absent a moving
 // neighbour, a row still travels on its own, clamped so a tall card does not
@@ -23,9 +24,7 @@ function progress(animation: Animation) {
 export function createSidebarListMotion(parent: HTMLUListElement) {
 	let positions: Map<HTMLElement, RowPosition> | null = null
 	let disposed = false
-	const reducedMotion = parent.ownerDocument.defaultView?.matchMedia(
-		'(prefers-reduced-motion: reduce)',
-	)
+	const reducedMotion = motionReduced(parent.ownerDocument.defaultView)
 	const running = new Map<HTMLElement, { animation: Animation; offset: number }>()
 	const entering = new Map<HTMLElement, { animation: Animation; travel: number }>()
 	const exiting = new Map<HTMLElement, Animation>()

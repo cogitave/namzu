@@ -10,7 +10,14 @@ export interface JobOutput {
 	truncated?: boolean
 }
 
-function jobStatus(job: JobView): { label: string; tone: string } {
+/** A monitor is named for what it watches; a shell, by the command it runs. */
+export function jobLabel(job: JobView): string {
+	return job.kind === 'monitor'
+		? `Monitoring: ${job.description || job.command || 'a command'}`
+		: job.command || 'Background terminal'
+}
+
+export function jobStatusOf(job: JobView): { label: string; tone: string } {
 	if (job.status === 'running') {
 		return {
 			label: job.kind === 'monitor' ? 'Watching' : 'Running',
@@ -56,12 +63,9 @@ export function JobRow({
 		}
 	}, [])
 	const recovery = job.status === 'running' && job.recoveryRequired === true
-	const status = jobStatus(job)
+	const status = jobStatusOf(job)
 	// A monitor is named for what it watches; a shell, by the command it runs.
-	const command =
-		job.kind === 'monitor'
-			? `Monitoring: ${job.description || job.command || 'a command'}`
-			: job.command || 'Background terminal'
+	const command = jobLabel(job)
 	const read = async () => {
 		if (disabled || readPending.current) return
 		readPending.current = true

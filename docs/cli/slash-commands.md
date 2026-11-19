@@ -26,7 +26,7 @@ clause, so no line ends mid-sentence.
 | --- | --- |
 | `/help [command]` | Search commands and choose an action, or read one command's usage without running it. |
 | `/setup` | Check optional Codex, Claude Code and OpenCode installations separately from credential availability. Confirm an npm installation, cancel it, recheck, or open provider connection. |
-| `/config`, `/settings` | View and edit model, reasoning effort, permission mode and turn limits; inspect configuration sources. `/config triggers on\|off` switches [composer triggers](composer-triggers.md) in your user config; `/config triggers` lists what is in force. `/config theme [name]` picks the [theme](themes.md) (the same as `/theme`). `/config motion on\|off\|list` switches [reduced motion](themes.md). `/config recap on\|off\|list` switches the [away recap](terminal-design.md#focus-and-the-away-recap) in your user config (`tui.recap`). `/config tips on\|off\|list` shows or hides the [tip under the working row](terminal-design.md#tips-and-the-next-task-under-the-working-row). |
+| `/config`, `/settings` | View and edit model, reasoning effort, permission mode and turn limits; inspect configuration sources. `/config triggers on\|off` switches [composer triggers](composer-triggers.md) in your user config; `/config triggers` lists what is in force. `/config theme [name]` picks the [theme](themes.md) (the same as `/theme`). `/config motion on\|off\|list` switches [reduced motion](themes.md). `/config recap on\|off\|list` switches the [away recap](terminal-design.md#focus-and-the-away-recap) in your user config (`tui.recap`). `/config tips on\|off\|list` shows or hides the [tip under the working row](terminal-design.md#tips-and-the-next-task-under-the-working-row). `/config <setting>` shows any setting [`namzu config`](config-command.md) lists, `/config <setting> <value>` changes it in your user config and `/config <setting> unset` puts the default back; a risky change asks y/N first. |
 | `/feedback` | Rate the last answer; choose good/bad or add an optional note. |
 | `/clear` | Clear the terminal and start a fresh conversation. [Hooks](../sdk/hooks.md#session-start-and-end) are told: `session_end` (reason `clear`) for the conversation left, then `session_start` (source `clear`) for the new one, and the left conversation's session-start context is dropped. |
 | `/new` | Start a fresh conversation without clearing the terminal. Tells hooks the same as `/clear`. |
@@ -68,7 +68,7 @@ clause, so no line ends mid-sentence.
 | `/doctor` | Run the health checks (providers and sign-ins, sandbox, scheduler, browser, code index, folders and the rest) and show them in plain words: a row per check with a mark (a newer version shows as `✓ Updates: Namzu 9.9.9 is available` with the command to get it), and for each one that needs attention a short reason and what to try. The later lines of a long reason are behind `ctrl+o`. `namzu doctor` prints the full technical report, with `--json` and exit codes. |
 | `/permissions` | Choose Ask before changes, Auto-approve edits or Plan (read-only). More options contains Auto-approve tools, Preapproved tools only and View rules. |
 | `/theme` | Change the colors: `/theme [name]`. Opens a picker with a live preview, or applies `auto`, `dark`, `light`, `dark-daltonized`, `light-daltonized`, `dark-ansi` or `light-ansi` directly. See [Themes](themes.md). |
-| `/effort` | Choose reasoning effort for future replies: /effort [level\|default]. |
+| `/effort` | Choose reasoning effort for future replies: /effort [level\|default] [hypermode on\|off]. Hypermode is an option of the effort, for any level and this conversation only; see [Hypermode](#hypermode). |
 | `/hypermode` | Toggle hypermode for this conversation: /hypermode [on\|off]. An independent on/off, shown beside effort and never changing it: while on, the model is told to use the `workflow` tool for every substantial task. |
 | `/fast` | Toggle fast inference for this conversation: /fast [on\|off]. Faster replies at twice the standard rate, on the Anthropic models that offer it (Opus 5.5, Fable 5.2, Mythos 5.2, and Opus 5 in preview); any other model, and any custom or compatible `ANTHROPIC_BASE_URL`, is refused with the reason. Off by default, never saved, shown as `fast` in the footer, and it never changes reasoning effort. A model change that cannot keep it turns it off and says so. |
 | `/orchestrate` | Deprecated alias of `/hypermode`, from before the mode was renamed. It prints a line saying so, then does what `/hypermode` does. It will be removed in a later major version. |
@@ -220,18 +220,33 @@ different API and subscription menus.
 
 ### Hypermode
 
-`/hypermode` (`/hypermode on`, `/hypermode off`, or no argument to toggle)
-turns a session setting on or off, layered above effort rather than inside it —
-it is never a `ReasoningEffort` value, so `/effort hypermode` reports
-`unavailable for this model`, the same refusal any other mode name gets, because
-neither name is an effort level a provider publishes. When the `/effort`
-picker can open (an exact menu, even an explicitly empty one, is known), the
-mode also appears there as its own stop, visually apart from the levels.
+Hypermode is an option of the effort, not a setting row. `/effort hypermode on`
+and `/effort hypermode off` change only the mode and leave the level where it
+is; `/effort high hypermode on` sets both, at any level the model offers.
+`/hypermode [on|off]` does the same as the first form. It lasts for this
+conversation and is never saved by a command or the picker: the only way
+new conversations start in it is `hypermode: true` in the config file. It is
+never a `ReasoningEffort` value, so `/effort hypermode` alone reports the same
+refusal any other mode name gets, because it is not a level a provider
+publishes. When the `/effort` picker can open (an exact menu, even an
+explicitly empty one, is known), the mode also appears there as its own stop,
+visually apart from the levels.
+
+Hypermode needs dynamic workflows (`workflow.enabled`, Settings > Agent >
+*Dynamic workflows*). While they are off, the command, the picker stop and Tab
+refuse with one sentence, `Hypermode needs dynamic workflows, and they are off.
+Turn them on in Settings (Dynamic workflows) first.`, and the picker row reads
+`Off in Settings: dynamic workflows are off`. A saved `hypermode: true` with
+workflows off does not start the conversation in the mode; the same sentence is
+said once at the start (a one-shot `namzu exec` prints it on stderr, and a
+scheduled run or a Desktop turn simply does not carry the mode).
 
 For one message only, start or end that message with the word `hypermode`
 (`hypermode fix the flaky test`): that turn is opted into the `workflow` tool
 and the effort is left as it is, the next message is not, and the session
-setting is not touched. See [Composer triggers](composer-triggers.md).
+setting is not touched. The keyword works only while `workflow.keywordTrigger`
+(Settings > Agent > *Keyword trigger*, default on) and dynamic workflows are on.
+See [Composer triggers](composer-triggers.md).
 
 Hypermode never changes the reasoning effort, turning it on or off, with the
 keyword or without. Choosing an effort
@@ -293,8 +308,9 @@ row, gets the vertical list, with the same label and description as its own
 row below a rule (Tab works there too). There is no separate key for "this
 session only": the setting already lasts only for the session.
 
-While the mode is on, the composer's upper rule names `hypermode`; the footer
-does not repeat it, and its effort item reads just `effort high`. Like effort,
+While the mode is on, the composer's upper rule names `hypermode` and the
+footer says it after the effort: `effort high · hypermode`, or just `hypermode`
+when the effort is the model default. Like effort,
 the mode is in-memory and per-session; it is not saved to preferences. A model switch
 resets an explicit effort override to the new model's default as it always has;
 hypermode stays on across it, and the interactive effort chooser that follows a

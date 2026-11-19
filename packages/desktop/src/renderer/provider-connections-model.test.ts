@@ -4,6 +4,7 @@ import {
 	connectedCount,
 	connectionStatus,
 	keyProblem,
+	savedKeyIgnoredNote,
 	testOutcome,
 } from './provider-connections-model.js'
 
@@ -60,4 +61,19 @@ describe('keyProblem', () => {
 
 it('counts only connected providers', () => {
 	expect(connectedCount([row({}), row({ state: 'free' }), row({ state: 'not-connected' })])).toBe(1)
+})
+
+describe('savedKeyIgnoredNote', () => {
+	it('says the environment key is used when a saved one exists too, and names no key', () => {
+		const note = savedKeyIgnoredNote(
+			row({ how: 'environment', envName: 'OPENAI_API_KEY', hasSavedKey: true }),
+		)
+		expect(note).toContain('OPENAI_API_KEY')
+		expect(note).toContain('is used')
+		expect(note).toContain('saved here is not used')
+	})
+	it('says nothing without both, or when something else supplies the key', () => {
+		expect(savedKeyIgnoredNote(row({ how: 'environment', hasSavedKey: false }))).toBeUndefined()
+		expect(savedKeyIgnoredNote(row({ how: 'saved-key', hasSavedKey: true }))).toBeUndefined()
+	})
 })

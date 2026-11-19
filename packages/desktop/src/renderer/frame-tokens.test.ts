@@ -259,7 +259,7 @@ const READS: ReadonlyArray<readonly [string, string, string, string]> = [
 	['sidebar-navigation.css', '.sidebar-day-heading', 'height', '--frame-day-band'],
 	['sidebar-navigation.css', '.sidebar-day-heading', 'margin-block', '--frame-day-before'],
 	['sidebar-navigation.css', '.sidebar-day-heading', 'margin-block', '--frame-day-after'],
-	['settings-page.css', '.settings-sidebar-navigation', 'gap', '--frame-row-space'],
+	['settings-page.css', '.settings-nav-group', 'gap', '--frame-row-space'],
 	['plugins-page.css', '.plugins-sidebar-installed ul', 'gap', '--frame-row-space'],
 	// The row's end control: 24 by 24, 4 from the end of the row.
 	[
@@ -363,7 +363,7 @@ const READS: ReadonlyArray<readonly [string, string, string, string]> = [
 		'settings-page.css',
 		'.settings-sidebar-navigation button',
 		'border-radius',
-		'--frame-row-radius',
+		'--settings-nav-row-radius',
 	],
 	['pals-page.css', '.sidebar-pals .sidebar-pal-row', 'height', '--frame-row-height'],
 	['pals-page.css', '.sidebar-pals .sidebar-pal-row', 'border-radius', '--frame-row-radius'],
@@ -407,8 +407,7 @@ describe('the rules that place the frame', () => {
 		// Home (a new conversation with nothing in it) has nothing to separate.
 		expect(get('style.css', '.workspace:has([data-composer-home]) > .topbar')).toBe('none')
 		// Settings, Plugins and Pals have no top bar: the same line, at the same y, inside the same band.
-		const page =
-			'.workspace:is([data-page="settings"], [data-page="plugins"], [data-page="pals"])::before'
+		const page = '.workspace:is([data-page="plugins"], [data-page="pals"])::before'
 		expect(get('style.css', page)).toBe('inset 0 -1px 0 var(--border)')
 		expect(get('style.css', page, 'height')).toBe('var(--frame-header-height)')
 		expect(get('style.css', page, 'top') ?? get('style.css', page, 'inset')).toBeDefined()

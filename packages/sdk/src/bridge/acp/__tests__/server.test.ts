@@ -1910,6 +1910,37 @@ describe('per-message prompt settings', () => {
 		expect(received?.options).toEqual({ effort: 'high', permissionMode: 'strict' })
 		await fixture.server.stop()
 	})
+	it('forwards the standing orchestration choice, and rejects one that is not a boolean', async () => {
+		const seen: unknown[] = []
+		const fixture = build({
+			supportsPromptOptions: true,
+			gateway: {
+				prompt: async (request) => {
+					seen.push(request.options)
+					return { stopReason: 'end_turn' }
+				},
+			},
+		})
+		await handshake(fixture)
+		for (const [index, options] of [
+			{ hypermode: true },
+			{ hypermode: false },
+			{ hypermode: 'on' },
+		].entries()) {
+			fixture.deliver({
+				jsonrpc: '2.0',
+				id: 3 + index,
+				method: 'session/prompt',
+				params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'Go', options },
+			})
+			await settle()
+		}
+		expect(seen).toEqual([{ hypermode: true }, { hypermode: false }])
+		expect(fixture.sent.find((frame) => frame.id === 5)?.error?.code).toBe(
+			ACP_ERROR_CODES.INVALID_PARAMS,
+		)
+		await fixture.server.stop()
+	})
 	it('rejects invalid or unsupported settings before the gateway and leaves the session usable', async () => {
 		let calls = 0
 		for (const supports of [false, true]) {
@@ -1954,6 +1985,15 @@ describe('per-message prompt settings', () => {
 			await fixture.server.stop()
 		}
 		expect(calls).toBe(2)
+	})
+
+	it('advertises an empty promptPermissionModes list, so a client can tell "none" from an older host', async () => {
+		const closed = build({ supportsPromptOptions: true, promptPermissionModes: [] })
+		await handshake(closed)
+		expect(closed.sent.find((frame) => frame.id === 1)?.result).toMatchObject({
+			promptPermissionModes: [],
+		})
+		await closed.server.stop()
 	})
 
 	it('accepts bypass and classify per prompt only when the host says it applies them', async () => {
@@ -2105,5 +2145,58 @@ describe('pasted ranges of a prompt', () => {
 	it('passes a plain prompt through with no ranges', async () => {
 		const { received } = await ask({ supportsPromptPasted: true }, { prompt: 'plain' })
 		expect(received).toEqual([undefined])
+	})
+})
+
+describe('a failure the host gives a stable code', () => {
+	const prompt = (fixture: ReturnType<typeof build>) =>
+		fixture.deliver({
+			jsonrpc: '2.0',
+			id: 3,
+			method: 'session/prompt',
+			params: {
+				sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af',
+				prompt: 'hello',
+			},
+		})
+
+	it('sends the code as the error data and keeps the sentence as the message', async () => {
+		const fixture = build({
+			gateway: {
+				prompt: async () => {
+					throw Object.assign(new Error('Namzu has no AI service set up yet.'), {
+						data: { code: 'no-provider' },
+					})
+				},
+			},
+		})
+		await handshake(fixture)
+		prompt(fixture)
+		await settle()
+		expect(fixture.sent.find((frame) => frame.id === 3)?.error).toEqual({
+			code: ACP_ERROR_CODES.INTERNAL_ERROR,
+			message: 'Namzu has no AI service set up yet.',
+			data: { code: 'no-provider' },
+		})
+	})
+
+	it('sends no data for a plain error or a code that is not a stable name', async () => {
+		for (const thrown of [
+			new Error('plain'),
+			Object.assign(new Error('odd'), { data: { code: 'Not A Code' } }),
+			Object.assign(new Error('other'), { data: { secret: 'x' } }),
+		]) {
+			const fixture = build({
+				gateway: {
+					prompt: async () => {
+						throw thrown
+					},
+				},
+			})
+			await handshake(fixture)
+			prompt(fixture)
+			await settle()
+			expect(fixture.sent.find((frame) => frame.id === 3)?.error).not.toHaveProperty('data')
+		}
 	})
 })

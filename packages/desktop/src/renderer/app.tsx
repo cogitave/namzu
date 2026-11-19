@@ -1,19 +1,13 @@
 import { ArrowDown, MessageSquare, Minus } from 'lucide-react'
-import {
-	type CSSProperties,
-	useCallback,
-	useEffect,
-	useLayoutEffect,
-	useMemo,
-	useRef,
-	useState,
-} from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal, flushSync } from 'react-dom'
 import {
 	type BackgroundWorkStatus,
 	freshBackgroundWorkStatus,
 } from '../shared/background-work-protocol.js'
+import { MAX_BROWSER_TABS } from '../shared/browser-pane.js'
 import { resolveComposerSendOptions } from '../shared/composer-send-options.js'
+import type { LimitsNotification } from '../shared/limits-protocol.js'
 import { duplicatePalNameMessage, isDuplicatePalName } from '../shared/pal-name.js'
 import { type ThreadState, applyEvent, emptyThread, restoreMessages } from '../shared/projection.js'
 import type {
@@ -30,6 +24,7 @@ import type {
 	PalCreateInput,
 	PalScreenView,
 	PalView,
+	ProjectCompareRequest,
 	ProjectGitView,
 	ProjectView,
 	ProviderView,
@@ -37,6 +32,7 @@ import type {
 import { usableProviders } from '../shared/provider-connections.js'
 import { ReconnectRetry } from '../shared/reconnect-retry.js'
 import type { DataFolderKind, SettingsSection } from '../shared/settings-protocol.js'
+import { dictationPressed } from '../shared/shortcuts.js'
 import type { SidebarSnapshot } from '../shared/sidebar-snapshot.js'
 import { PROMPT_NOT_PASSED, TERMINAL_ENGINE_LABELS } from '../shared/terminal-tabs.js'
 import type { UpdateState } from '../shared/update-protocol.js'
@@ -55,11 +51,16 @@ import {
 } from './archive-notice.js'
 import { applyCachedAttachmentPreviewEviction } from './attachment-preview-events.js'
 import { ChangesPanel } from './changes-panel.js'
+import { ChangesHeaderSlot } from './changes-review/header-store.js'
 import { type ChangeTotals, changeTotals, receiptOf } from './changes-totals.js'
 import { ChatErrorBanner } from './chat-error-banner.js'
 import { applyClosedTabEvent } from './closed-tab.js'
 import { CommandPalette, type CommandPaletteItem } from './command-palette.js'
+import { CommitDialog } from './commit-dialog.js'
+import { changedPaths, commitButtonState } from './commit-model.js'
+import type { AddMenuToolServers } from './composer-add-menu.js'
 import { historyEntries } from './composer-history.js'
+import { closedModeFallback, offeredPermissionModes } from './composer-permissions.js'
 import {
 	type ComposerPlugin,
 	type ComposerPluginInventory,
@@ -76,8 +77,10 @@ import { ComputerKeyboardOwners } from './computer-keyboard-owner.js'
 import { createComputerReadScheduler } from './computer-read-pace.js'
 import { computerWorkspaceIds } from './computer-workspace-toolbar.js'
 import { ConfirmRemovalDialog } from './confirm-removal-dialog.js'
+import type { ContextPanelSource } from './context-panel.js'
 import { ConversationActionsMenu } from './conversation-actions-menu.js'
 import {
+	type ConversationActionEntry,
 	type ConversationActionId,
 	type ConversationActionInput,
 	conversationActionGroups,
@@ -85,8 +88,7 @@ import {
 	conversationSources,
 	lastReplyText,
 } from './conversation-actions.js'
-import { ConversationBar } from './conversation-bar.js'
-import { ConversationDetailsPopover, type DetailsWork } from './conversation-details-popover.js'
+import { ConversationBar, PaneButtons, ViewOptionsMenu } from './conversation-bar.js'
 import { compareConversationRecency } from './conversation-order.js'
 import {
 	blankConversationTabs,
@@ -100,43 +102,28 @@ import {
 	type ConversationTabActions,
 	ConversationTabs,
 } from './conversation-tabs.js'
-import { ConversationTasks } from './conversation-tasks.js'
 import { useConversationUnread } from './conversation-unread-store.js'
 import { copyPlainText } from './copy-button.js'
 import { holdsDiscardableDraft } from './discard-draft.js'
 import { signInHelpFor } from './engine-setup.js'
 import { setEngineSignedOut } from './engine-sign-in.js'
 import { createFailingPoll } from './failing-poll.js'
+import { FolderTreeIcon } from './file-panel/file-icons.js'
 import { FilePanelBody } from './file-panel/file-panel.js'
 import {
-	CONVERSATION_MIN,
-	MIN_PANEL_WIDTH,
-	type PanelKind,
-	type PanelTab,
 	type PanelTabsState,
-	READING_PANEL_MIN,
-	SIDEBAR_FOLD_BELOW,
 	activatePanelTab,
 	activeFilePath,
-	activityTab,
-	browsePanelTabs,
-	changesTab,
-	clampPanelWidth,
-	clearPanelWidth,
 	closePanelTab,
 	emptyPanelTabs,
-	ensurePanelTab,
+	filePaths,
+	fileTab,
 	openFileTab,
-	outputsTab,
-	panelKindOf,
 	readPanelTabs,
-	readPanelWidth,
-	shownTab,
 	writePanelTabs,
-	writePanelWidth,
 } from './file-panel/file-tabs.js'
+import { type FileMark, FileTree } from './file-panel/file-tree.js'
 import { useEditors } from './file-panel/open-in.js'
-import { PanelResizeHandle, PanelTabStrip, type PanelView } from './file-panel/panel-tabs.js'
 import { ProjectFilesContext } from './file-panel/project-files.js'
 import { createLinkCache } from './file-panel/project-refs.js'
 import { FolderAccessDialog } from './folder-access-dialog.js'
@@ -151,10 +138,9 @@ import {
 import { type EngineSurface, type EngineSurfaceControl, engineLabel } from './harness-picker.js'
 import {
 	ArchiveIcon,
-	ArrowLeftIcon,
 	ArrowUpIcon,
+	ChevronDownIcon,
 	FolderIcon,
-	MoreHorizontalIcon,
 	PanelLeftIcon,
 	PlusIcon,
 	SearchIcon,
@@ -166,7 +152,8 @@ import {
 	TerminalIcon,
 	XIcon,
 } from './icons.js'
-import { JobRow } from './job-row.js'
+import { KeepAwakeItem } from './keep-awake.js'
+import { LinkRoutedToasts } from './link-route.js'
 import { LocalSpeechReadAloud } from './local-speech-settings.js'
 import { MessageActions } from './message-actions.js'
 import {
@@ -190,8 +177,15 @@ import {
 import { normalConversationProject } from './normal-conversation.js'
 import { noticeClickAction } from './notice-target.js'
 import { dismissNotice, notify } from './notify.js'
-import { outputFiles, outputToOpen } from './outputs-model.js'
-import { OutputsPanel } from './outputs-panel.js'
+import { OutputCardsContext, type OutputCardsContextValue } from './output-card.js'
+import {
+	type MadeOutput,
+	type OutputFile,
+	opensInBrowser,
+	outputFiles,
+	outputOpensInBrowser,
+	outputToOpen,
+} from './outputs-model.js'
 import { PalChatTranscript } from './pal-chat-transcript.js'
 import { PalCommunicationDialog, type PalSettingsTab } from './pal-communication-dialog.js'
 import {
@@ -223,6 +217,20 @@ import { palMarker, palStartCard, palWaitingLine } from './pal-start-model.js'
 import { closableStaleTabs, stalePalTabs } from './pal-tab-siblings.js'
 import { unreadAfterOpen, unreadAfterSends } from './pal-unread.js'
 import { PalCustomizeDialog, type PalOpening, PalSidebarSection, PalsPage } from './pals-page.js'
+import { BrowserBody, BrowserTabs, PaneTabs, fileTabItem, useBrowserPane } from './pane-bodies.js'
+import { readLayout, writeLayout } from './pane-grid-state.js'
+import { type PaneContent, PaneGrid } from './pane-grid-view.js'
+import {
+	type GridKind,
+	type PaneKind,
+	type Layout as PaneLayout,
+	closePane,
+	hasPane,
+	placePane,
+	setMaximised,
+	setSessionWanted,
+} from './pane-grid.js'
+import { paneChord } from './pane-keys.js'
 import { type PasteRange, addPaste, confirmedRanges, trackEdit } from './paste-ranges.js'
 import { pendingMessages } from './pending-messages.js'
 import { plainError, plainErrorText } from './plain-error.js'
@@ -242,11 +250,15 @@ import {
 import { projectStage } from './project-stage.js'
 import { ProjectConnecting, ProjectFolderMissing, ProjectOpenError } from './project-views.js'
 import { ProviderNameContext } from './provider-name-context.js'
+import { quickEntryReadyToSend } from './quick-entry-ready.js'
 import { RenameConversationDialog } from './rename-conversation-dialog.js'
 import { RestoreSkeleton } from './restore-skeleton.js'
 import { retryableReply } from './retry-reply.js'
+import { readSessionPanelOpen, writeSessionPanelOpen } from './session-panel-state.js'
+import { SessionPanel } from './session-panel.js'
+import { type SessionServers, type SessionWork, sessionSummary } from './session-summary-model.js'
 import { projectRemovalCopy, removalNotice, settingsRoute } from './settings-model.js'
-import { SettingsPage, SettingsSidebar } from './settings-page.js'
+import { SettingsDialog } from './settings-page.js'
 import type { ArchiveView } from './sidebar-archive.js'
 import {
 	type ListOutcome,
@@ -258,6 +270,7 @@ import {
 } from './sidebar-catalogue.js'
 import { useSidebarSections } from './sidebar-section.js'
 import { type ConversationCollection, Sidebar } from './sidebar.js'
+import type { SlashHandlers } from './slash-actions.js'
 import {
 	launchSeed,
 	rememberSidebar,
@@ -265,14 +278,15 @@ import {
 	settleLaunchSeed,
 	sidebarSeed,
 } from './startup-restore.js'
+import { useStatusMarksSetting } from './status-marks.js'
 import { type StopRequests, clearStop, isStopping, requestStop } from './stop-request.js'
 import { createSubmitGuard } from './submit-guard.js'
 import { type TabChord, movedTabIndex, selectedTabIndex, tabChord } from './tab-keys.js'
-import { TerminalPane } from './terminal-pane.js'
+import { chooseTerminalForPane } from './terminal-pane-choice.js'
+import { TerminalMark, TerminalPane } from './terminal-pane.js'
 import { openTerminalFind, terminalApi, terminalSessions } from './terminal-registry.js'
 import { engineTerminalRequest, shellTerminalRequest } from './terminal-request.js'
 import type { ThreadRowActions } from './thread-card.js'
-import { PaneToasts } from './toast.js'
 import { CONTINUE_STOPPED_PROMPT, turnEndTime } from './transcript-layout.js'
 import { Transcript } from './transcript.js'
 import { TurnRecovery, recoveryKey } from './turn-recovery.js'
@@ -280,14 +294,19 @@ import { Button } from './ui/button.js'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from './ui/empty.js'
 import { UndoDialog } from './undo-dialog.js'
 import { undoNotice } from './undo-model.js'
+import { createLimitsRefresher, readBudgets, writeBudgets } from './usage-limits-model.js'
+import type { UsageLimitsControl } from './usage-limits-popover.js'
+import { useAppearancePrefs } from './use-appearance-prefs.js'
 import { useArchivedConversations } from './use-archived-conversations.js'
 import { useAttachments } from './use-attachments.js'
+import { useClock } from './use-clock.js'
 import { useConversationSearch } from './use-conversation-search.js'
 import { useDesktopInfo, useDesktopSettings, useUpdateInfo } from './use-desktop-settings.js'
 import { useDraftSettings } from './use-draft-settings.js'
 import { useEngineUpdates } from './use-engine-updates.js'
 import { useLocalListening } from './use-local-listening.js'
 import { useLocalSpeech } from './use-local-speech.js'
+import { useMcpServers } from './use-mcp-servers.js'
 import { usePalComputerSetup } from './use-pal-computer-setup.js'
 import { usePalOperatorMessages } from './use-pal-operator-messages.js'
 import { usePalStarts } from './use-pal-starts.js'
@@ -295,7 +314,7 @@ import { usePullRequest } from './use-pull-request.js'
 import { useTranscriptScroll } from './use-transcript-scroll.js'
 import { useUndoKept } from './use-undo-kept.js'
 import { useBargeIn, useSpokenReplies, useVoiceInput } from './use-voice-input.js'
-import { VoiceInputStatus, VoiceMicButton } from './voice-input-ui.js'
+import { VoiceInputStatus, VoiceMicButton, micAvailable } from './voice-input-ui.js'
 import { WindowTitlebar } from './window-titlebar.js'
 import {
 	WorkspaceBreadcrumb,
@@ -336,6 +355,9 @@ const NO_UPDATER: UpdateState = { status: 'disabled' }
 const RECENT_PALETTE_CONVERSATIONS = 5
 /** How long the Undo toast after archiving stays: long enough to read where the conversation went. */
 const ARCHIVE_UNDO_MS = 20_000
+const VOICE_REQUEST_WAIT_MS = 10_000
+/** How long a Quick Entry line waits for a new conversation to be ready to send before it stays in the message box. */
+const QUICK_ENTRY_WAIT_MS = 10_000
 export function App({
 	group,
 	terminals: terminalGroup,
@@ -402,6 +424,7 @@ export function App({
 			},
 		})
 	const api = facade.current.api
+	useStatusMarksSetting(api)
 	const [projectsLoaded, setProjectsLoaded] = useState(false)
 	// A clicked notification's conversation, until the window can open it.
 	const [noticeConversation, setNoticeConversation] = useState<string | null>(null)
@@ -831,12 +854,7 @@ export function App({
 				?.focus({ preventScroll: true })
 	}, [sideOpen, mobile])
 	const setSideCollapsed = onSideCollapsedChange
-	// The sidebar folds to its rail while the Changes pane is open in a narrow window, and comes
-	// back when the pane closes; a choice the person makes meanwhile is theirs and is kept.
-	const foldedByPane = useRef(false)
-	const quietFold = useRef(false)
 	const toggleSidebar = useCallback(() => {
-		foldedByPane.current = false
 		if (window.matchMedia('(max-width: 767px)').matches) setSideOpen((value) => !value)
 		else
 			setSideCollapsed((value) => {
@@ -848,11 +866,6 @@ export function App({
 	useEffect(() => {
 		if (previousCollapsed.current === sideCollapsed) return
 		previousCollapsed.current = sideCollapsed
-		// A fold the pane made is not the person reaching for the sidebar: the focus stays where it is.
-		if (quietFold.current) {
-			quietFold.current = false
-			return
-		}
 		if (window.matchMedia('(max-width: 767px)').matches) return
 		const control = document.querySelector<HTMLButtonElement>('button[aria-label="Toggle sidebar"]')
 		control?.focus({ preventScroll: true })
@@ -867,8 +880,14 @@ export function App({
 				event.defaultPrevented
 			)
 				return
-			if (commandOpen) return
-			if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'b' && !event.altKey) {
+			if (commandOpen || settingsOpenRef.current) return
+			// Ctrl+Shift+B is the Browser pane's.
+			if (
+				(event.ctrlKey || event.metaKey) &&
+				event.key.toLowerCase() === 'b' &&
+				!event.altKey &&
+				!event.shiftKey
+			) {
 				event.preventDefault()
 				toggleSidebar()
 			}
@@ -877,14 +896,23 @@ export function App({
 		return () => window.removeEventListener('keydown', key)
 	}, [toggleSidebar, commandOpen])
 	const setAppearance = onAppearanceChange
-	const [railSection, setRailSection] = useState<'spaces' | 'plugins' | 'settings' | null>(null)
+	const [railSection, setRailSection] = useState<'spaces' | 'plugins' | null>(null)
 	const [settingsSection, setSettingsSection] = useState<SettingsSection>('general')
 	const [settingsFocus, setSettingsFocus] = useState<string>()
-	/** Plugins and Settings replace the conversation with a page of their own. */
-	const pageOpen = railSection === 'plugins' || railSection === 'settings'
-	const settingsOpen = railSection === 'settings'
+	// Counts every ask to open Settings, so a repeated ask for the same row still reaches the dialog.
+	const [settingsRequest, setSettingsRequest] = useState(0)
+	const settingsSectionPending = useRef(false)
+	/** Settings is a dialog over whatever is showing; nothing behind it changes. */
+	const [settingsOpen, setSettingsOpen] = useState(false)
+	const settingsOpenRef = useRef(settingsOpen)
+	settingsOpenRef.current = settingsOpen
+	/** The control that had the focus when Settings opened, so closing puts it back. */
+	const settingsOpener = useRef<HTMLElement | null>(null)
+	/** Plugins replaces the conversation with a page of its own. */
+	const pageOpen = railSection === 'plugins'
 	// Read at all times: it decides whether the strip of tabs or the bar stands above the conversation.
 	const desktopSettings = useDesktopSettings(api, true)
+	useAppearancePrefs(desktopSettings.settings)
 	const tabsHint = useMemo(() => readShowTabsHint(localStorage), [])
 	const showTabs = desktopSettings.settings?.showConversationTabs ?? tabsHint
 	const showTabsRef = useRef(showTabs)
@@ -901,32 +929,61 @@ export function App({
 	useEffect(() => {
 		const previous = previousRailSection.current
 		previousRailSection.current = railSection
-		if ((previous === 'plugins' || previous === 'settings') && railSection === null)
+		if (previous === 'plugins' && railSection === null)
 			input.current?.focus({ preventScroll: true })
 	}, [railSection])
+	// The panes beside the conversation are showing. What they hold is the layout below; this flag is
+	// what a conversation switch or a new conversation clears, so a pane is never carried across.
 	const [jobsOpen, setJobsOpen] = useState(false)
-	// Expanded, the panel takes the whole pane and the conversation is hidden; kept per pane.
-	const [panelExpanded, setPanelExpanded] = useState(false)
-	// One reply's receipts while the drawer shows just that reply; undefined shows everything.
-	const [changesFilterState, setChangesFilterState] = useState<{
+	// Which panes are open, where, and how big, remembered per conversation group.
+	const [paneLayout, setPaneLayout] = useState<PaneLayout>(() =>
+		readLayout(localStorage, group.id, readSessionPanelOpen(localStorage)),
+	)
+	const paneLayoutGroup = useRef(group.id)
+	if (paneLayoutGroup.current !== group.id) {
+		paneLayoutGroup.current = group.id
+		setPaneLayout(readLayout(localStorage, group.id, readSessionPanelOpen(localStorage)))
+	}
+	const updatePaneLayout = useCallback(
+		(change: (layout: PaneLayout) => PaneLayout) =>
+			setPaneLayout((value) => {
+				const next = change(value)
+				if (next !== value) writeLayout(localStorage, paneLayoutGroup.current, next)
+				return next
+			}),
+		[],
+	)
+	// The pane the narrow overlay shows, and the page the Browser pane shows: not remembered.
+	const [overlayPane, setOverlayPane] = useState<GridKind>()
+	const [terminalShown, setTerminalShown] = useState('')
+	// The file a clicked reply row names; a fresh object each click, so the same row can be chosen again.
+	// Tied to its conversation, so a switch never shows another conversation's file for a frame.
+	const [changesFocusState, setChangesFocusState] = useState<{
 		sessionId: string
-		ids: string[]
-		focus?: { path: string }
+		focus: { path: string }
 	}>()
-	// Tied to its conversation, so a switch never shows another conversation's receipt ids for a frame.
-	const changesFilter =
-		changesFilterState?.sessionId === sessionId ? changesFilterState.ids : undefined
-	// The file a clicked card row names; a fresh object each click, so the same row can be chosen again.
 	const changesFocus =
-		changesFilterState?.sessionId === sessionId ? changesFilterState.focus : undefined
-	const setChangesFilter = useCallback(
-		(ids: string[] | undefined, path?: string) =>
-			setChangesFilterState(ids && { sessionId, ids, focus: path ? { path } : undefined }),
+		changesFocusState?.sessionId === sessionId ? changesFocusState.focus : undefined
+	const focusChangesFile = useCallback(
+		(path: string | undefined) =>
+			setChangesFocusState(path ? { sessionId, focus: { path } } : undefined),
 		[sessionId],
 	)
 	// The drawer opens from the details popover, so closing it returns focus to the popover's icon.
-	const detailsTrigger = useRef<HTMLButtonElement>(null)
-	const [detailsPopoverOpen, setDetailsPopoverOpen] = useState(false)
+	const [limitsView, setLimitsView] = useState<LimitsNotification>()
+	// The conversation and files the dialog was opened for: what it shows does not move under the person.
+	const [commitFor, setCommitFor] = useState<{ sessionId: string; paths: string[] }>()
+	const commitTrigger = useRef<HTMLElement | null>(null)
+	const [budgets, setBudgets] = useState(() => readBudgets(localStorage))
+	const sessionPanelOpen = paneLayout.sessionWanted
+	const setSessionPanelOpen = useCallback(
+		(open: boolean) => {
+			updatePaneLayout((value) => setSessionWanted(value, open))
+			// The last choice is what a conversation group with no layout of its own starts from.
+			writeSessionPanelOpen(localStorage, open)
+		},
+		[updatePaneLayout],
+	)
 	const [renamingConversation, setRenamingConversation] = useState<ConversationView>()
 	const [undoingTurn, setUndoingTurn] = useState<{ sessionId: string; turnId: string }>()
 	// The sidebar's Recents section shows its archived conversations for this window only.
@@ -947,7 +1004,14 @@ export function App({
 	const [git, setGit] = useState<{ projectId: string; value: ProjectGitView | null }>()
 	const closeDetails = useCallback(() => {
 		setJobsOpen(false)
-		detailsTrigger.current?.focus({ preventScroll: true })
+	}, [])
+	// A pane's close hands the keyboard back to the button that opened it.
+	const focusPaneButton = useCallback((kind: PaneKind) => {
+		requestAnimationFrame(() =>
+			document
+				.querySelector<HTMLButtonElement>(`[data-pane-button="${kind}"]`)
+				?.focus({ preventScroll: true }),
+		)
 	}, [])
 	const [jobs, setJobs] = useState<JobView[]>([])
 	const [backgroundWork, setBackgroundWork] = useState<Record<string, BackgroundWorkStatus>>({})
@@ -970,6 +1034,8 @@ export function App({
 	const [sending, setSending] = useState<Record<string, boolean>>({})
 	const sendingRef = useRef(new Set<string>())
 	const input = useRef<HTMLTextAreaElement>(null)
+	// Reads what a global shortcut left for this window (Quick Entry lines, a voice request).
+	const pullPendingRef = useRef<() => void>(() => undefined)
 	const transcript = useRef<HTMLDivElement>(null)
 	const follow = useRef(true)
 	// Where the reader stopped is kept with the rest of the conversation's view, so a restart
@@ -1188,92 +1254,126 @@ export function App({
 		[sessionId],
 	)
 	// A conversation that cannot show files never lists file tabs, though it keeps them stored.
-	// What a conversation wrote can be shown for any conversation that has a folder of its own to read from.
-	const outputsEnabled = Boolean(api.readSessionOutput && !palConversation && sessionId)
-	const panelAllows = useCallback(
-		(tab: PanelTab) =>
-			tab.kind === 'outputs' ? outputsEnabled : filesEnabled || tab.kind !== 'file',
-		[filesEnabled, outputsEnabled],
-	)
-	const listedTabs = useMemo(
-		() => panelTabs.tabs.filter(panelAllows),
-		[panelTabs.tabs, panelAllows],
-	)
-	const shownPanelTab = shownTab(panelTabs, panelAllows)
-	const panelView: PanelView =
-		filesEnabled && panelTabs.browsing ? 'browse' : (shownPanelTab?.kind ?? 'empty')
-	const changesPaneOpen = detailsOpen && panelView === 'changes'
+	const filesTabs = filesEnabled ? filePaths(panelTabs) : []
+	const activePath = filesEnabled ? activeFilePath(panelTabs) : undefined
 	// What the conversation wrote, from the receipts the Changes panel reads.
+	const outputsEnabled = Boolean(api.readSessionOutput && !palConversation && sessionId)
+	// Result files a command or a tool made, found by the host when a turn ends.
+	const [madeFiles, setMadeFiles] = useState<{ sessionId: string; files: MadeOutput[] }>()
+	// biome-ignore lint/correctness/useExhaustiveDependencies: only a turn ending or another conversation decides.
+	useEffect(() => {
+		const ask = api.madeSessionFiles
+		if (!ask || !outputsEnabled || !sessionId || thread.running || historyPending) return
+		let current = true
+		ask(sessionId).then(
+			(files) => current && setMadeFiles({ sessionId, files }),
+			() => undefined,
+		)
+		return () => {
+			current = false
+		}
+	}, [sessionId, thread.running, historyPending, outputsEnabled])
 	const outputs = useMemo(
-		() => (outputsEnabled ? outputFiles(thread) : []),
-		[outputsEnabled, thread],
+		() =>
+			outputsEnabled
+				? outputFiles(thread, madeFiles?.sessionId === sessionId ? madeFiles.files : [])
+				: [],
+		[outputsEnabled, thread, madeFiles, sessionId],
 	)
-	const [outputPick, setOutputPick] = useState<{ sessionId: string; path?: string }>()
-	const pickedOutput = outputPick?.sessionId === sessionId ? outputPick.path : undefined
-	const pickOutput = useCallback(
-		(path: string | undefined) => setOutputPick({ sessionId, path }),
-		[sessionId],
+	// The conversation's browser pages; a page a turn writes is opened in them by the effect below.
+	const browserPane = useBrowserPane(api, sessionId)
+	const browserActRef = useRef(browserPane?.act)
+	browserActRef.current = browserPane?.act
+	const browserTabCountRef = useRef(browserPane?.state?.tabs.length)
+	browserTabCountRef.current = browserPane?.state?.tabs.length
+	// Off, what a turn writes is remembered as seen but never opened by itself.
+	const autoOpenRef = useRef(true)
+	autoOpenRef.current = desktopSettings.settings?.autoOpenFiles ?? true
+	// A link in a reply opens in the Browser pane while the setting is on and the pane can take it.
+	const openLinksInBrowser = desktopSettings.settings?.openLinksInBrowser ?? true
+	const routeLink = useCallback(
+		(url: string): boolean => {
+			const act = browserActRef.current
+			if (!openLinksInBrowser || !act) return false
+			// A pane that is full refuses a new tab, so the link goes to the system browser instead.
+			if ((browserTabCountRef.current ?? 0) >= MAX_BROWSER_TABS) return false
+			act({ kind: 'new', address: url })
+			openPaneRef.current('browser')
+			return true
+		},
+		[openLinksInBrowser],
+	)
+	const madeOutputs = useMemo(() => outputs.filter((file) => file.made), [outputs])
+	// A document a card or a link names opens in the Files pane, which reads Markdown as a page.
+	const openOutputBeside = useCallback(
+		(path: string) => {
+			updatePanelTabs((state) => openFileTab(state, path))
+			openPaneRef.current('files')
+		},
+		[updatePanelTabs],
+	)
+	// A page or a picture opens in the Browser pane; a document or code opens in Files.
+	const openOutput = useCallback(
+		(file: OutputFile) => {
+			if (outputOpensInBrowser(file) && browserActRef.current) {
+				browserActRef.current({ kind: 'open', path: file.path })
+				openPaneRef.current('browser')
+			} else openOutputBeside(file.path)
+		},
+		[openOutputBeside],
+	)
+	const outputCardsValue = useMemo<OutputCardsContextValue | undefined>(
+		() =>
+			outputsEnabled && sessionId
+				? {
+						api,
+						sessionId,
+						made: madeOutputs,
+						onOpen: openOutputBeside,
+						onNotice: announce,
+					}
+				: undefined,
+		[outputsEnabled, api, sessionId, madeOutputs, openOutputBeside, announce],
 	)
 	// The versions of each output already known, so only a write made after this is news.
 	const outputsSeen = useRef(new Map<string, Map<string, number>>())
+	// Opens a pane for the kind of file a turn wrote: a page in the Browser, a document in Files.
+	const openPaneRef = useRef<(kind: GridKind) => void>(() => undefined)
+	const openChangedFileRef = useRef<(path: string) => void>(() => undefined)
 	// biome-ignore lint/correctness/useExhaustiveDependencies: only a change to the outputs or a turn starting or ending decides.
 	useEffect(() => {
 		if (!sessionId || historyPending) return
 		const seen = outputsSeen.current.get(sessionId) ?? new Map<string, number>()
 		outputsSeen.current.set(sessionId, seen)
-		const news = thread.running ? outputToOpen(outputs, seen) : undefined
+		const news = thread.running && autoOpenRef.current ? outputToOpen(outputs, seen) : undefined
 		for (const file of outputs) seen.set(file.path, file.version)
-		// A page or a document a turn just wrote opens by itself, in the pane, with the page drawn.
-		if (news) {
-			setOutputPick({ sessionId, path: news.path })
-			updatePanelTabs((state) => ensurePanelTab(state, outputsTab))
-			setJobsOpen(true)
-		}
+		if (!news) return
+		if (opensInBrowser(news.kind)) {
+			browserActRef.current?.({ kind: 'open', path: news.path })
+			openPaneRef.current('browser')
+		} else openChangedFileRef.current(news.path)
 	}, [sessionId, outputs, thread.running, historyPending])
-	const sideCollapsedNow = useRef(sideCollapsed)
-	sideCollapsedNow.current = sideCollapsed
-	// biome-ignore lint/correctness/useExhaustiveDependencies: only the pane opening or closing decides.
-	useEffect(() => {
-		if (changesPaneOpen) {
-			if (
-				window.innerWidth < SIDEBAR_FOLD_BELOW &&
-				!window.matchMedia('(max-width: 767px)').matches &&
-				!sideCollapsedNow.current
-			) {
-				foldedByPane.current = true
-				quietFold.current = true
-				setSideCollapsed(true)
-			}
-		} else if (foldedByPane.current) {
-			foldedByPane.current = false
-			quietFold.current = true
-			setSideCollapsed(false)
-		}
-	}, [changesPaneOpen])
-	const activePath =
-		panelView === 'file' ? activeFilePath({ ...panelTabs, active: shownPanelTab }) : undefined
-	/** Makes sure Changes or Activity is a tab, and shows it. */
-	const showPanelTab = useCallback(
-		(tab: 'activity' | 'changes' | 'outputs') =>
-			updatePanelTabs((state) =>
-				ensurePanelTab(
-					state,
-					tab === 'changes' ? changesTab : tab === 'outputs' ? outputsTab : activityTab,
-				),
-			),
-		[updatePanelTabs],
+	/** Opens a pane (the panes are showing from here on) where the layout puts it. */
+	const openPane = useCallback(
+		(kind: GridKind) => {
+			setJobsOpen(true)
+			const height = paneRoot.current?.clientHeight ?? window.innerHeight
+			updatePaneLayout((value) => placePane(value, kind, height))
+		},
+		[updatePaneLayout],
 	)
-	const openBackgroundWork = useCallback(() => {
-		showPanelTab('activity')
-		setJobsOpen(true)
-	}, [showPanelTab])
+	openPaneRef.current = openPane
+	/** Opens one file in the Files pane, as a tab. */
 	const openProjectFile = useCallback(
 		(path: string, line?: number) => {
 			updatePanelTabs((state) => openFileTab(state, path, line))
-			setJobsOpen(true)
+			openPane('files')
 		},
-		[updatePanelTabs],
+		[updatePanelTabs, openPane],
 	)
+	// Opens the Session pane: its list holds what the work in this conversation is doing.
+	const openSessionPane = useCallback(() => setSessionPanelOpen(true), [setSessionPanelOpen])
+	const openBackgroundWork = openSessionPane
 	const editors = useEditors(api, filesEnabled)
 	const linkCache = useMemo(
 		() =>
@@ -1303,30 +1403,14 @@ export function App({
 						changes: () => api.projectChanges?.(filesProjectId) ?? Promise.resolve(null),
 						diff: (path: string) =>
 							api.projectDiff?.(filesProjectId, path) ?? Promise.reject(new Error('Unavailable.')),
+						compare: api.projectCompare
+							? (request: ProjectCompareRequest) =>
+									api.projectCompare?.(filesProjectId, request) ?? Promise.resolve(null)
+							: undefined,
 					}
 				: undefined,
 		[filesEnabled, filesProjectId, api],
 	)
-	// The panel keeps the width a person dragged it to, per pane.
-	// A reading panel and a tool panel each keep their own.
-	const [panelWidths, setPanelWidths] = useState<Partial<Record<PanelKind, number>>>(() => ({
-		reading: readPanelWidth(localStorage, group.id, 'reading'),
-		tool: readPanelWidth(localStorage, group.id, 'tool'),
-	}))
-	const panelKind = panelKindOf(panelView)
-	const panelWidth = panelWidths[panelKind]
-	const setPanelWidth = (width: number | undefined) =>
-		setPanelWidths((all) => ({ ...all, [panelKind]: width }))
-	const [panelResizing, setPanelResizing] = useState(false)
-	const panelAside = useRef<HTMLElement>(null)
-	const [panelPx, setPanelPx] = useState(0)
-	useEffect(() => {
-		const node = panelAside.current
-		if (!node || typeof ResizeObserver === 'undefined') return
-		const watch = new ResizeObserver(([entry]) => entry && setPanelPx(entry.contentRect.width))
-		watch.observe(node)
-		return () => watch.disconnect()
-	}, [])
 	useLayoutEffect(() => {
 		const pending = pendingPresentationScroll.current
 		if (
@@ -1451,7 +1535,6 @@ export function App({
 	const changes = Object.values(thread.tools).filter(
 		(tool) => tool.status === 'completed' && tool.view.kind === 'diff',
 	).length
-	const detailsActive = detailsPopoverOpen && !palConversation
 	// Line totals compare whole files, so they are read only while someone is looking.
 	// Also read for the top bar's changes button, so it follows the count of finished edits (a
 	// finished edit is never revised) and not every streamed update.
@@ -1466,8 +1549,8 @@ export function App({
 		return changeTotals(receipts)
 	}, [sessionId, changes])
 	const sources = useMemo(
-		() => (detailsActive ? conversationSources(thread.messages) : []),
-		[detailsActive, thread.messages],
+		() => (sessionPanelOpen && !palConversation ? conversationSources(thread.messages) : []),
+		[sessionPanelOpen, palConversation, thread.messages],
 	)
 	const providerReady = providerOwner === providerKey
 	const activeProviders: ProviderView = providerReady
@@ -1486,12 +1569,20 @@ export function App({
 		enabled: Boolean(project?.trusted) && project?.status === 'ready',
 		running: thread.running,
 	})
-	const detailsWork: DetailsWork = externalHarness
+	const contextPanelSource: ContextPanelSource | undefined =
+		palConversation || !sessionId || !api.contextUsage
+			? undefined
+			: {
+					ask: (detail) => api.contextUsage?.(sessionId, detail) ?? Promise.resolve(null),
+					compacting: thread.compaction?.state === 'running',
+				}
+	const detailsWork: SessionWork = externalHarness
 		? { state: 'unavailable' }
 		: jobsSessionId === sessionId && !jobsLoading && !jobsError
 			? {
 					state: 'known',
 					running: visibleJobs.filter((job) => job.status === 'running').length,
+					finished: visibleJobs.filter((job) => job.status !== 'running').length,
 					needsAttention,
 				}
 			: sessionWork.state === 'known'
@@ -1503,10 +1594,114 @@ export function App({
 		project && !palConversation && !project.isChat && project.trusted && project.status === 'ready'
 			? project.id
 			: undefined
+	// The session panel reads the project's tool servers only while it is open.
+	const sessionPanelActive = sessionPanelOpen && !palConversation && Boolean(sessionId)
+	const mcp = useMcpServers(api, sessionPanelActive ? gitProjectId : undefined)
+	const sessionServers: SessionServers =
+		!project || project.isChat || externalHarness || !api.mcpServers
+			? { state: 'hidden' }
+			: !project.trusted
+				? { state: 'untrusted' }
+				: mcp.view
+					? { state: 'known', view: mcp.view }
+					: mcp.error
+						? { state: 'hidden' }
+						: { state: 'checking' }
+	const jobsRunning = visibleJobs.some((job) => job.status === 'running')
+	const clock = useClock(sessionPanelActive && jobsRunning)
+	const sessionPanelSummary = sessionPanelActive
+		? sessionSummary({
+				...(project && !project.isChat
+					? { project: { name: project.name, path: project.path, trusted: project.trusted } }
+					: {}),
+				git: git && git.projectId === gitProjectId ? git.value : null,
+				usage: thread.usage,
+				servers: sessionServers,
+				totals,
+				work: detailsWork,
+			})
+		: undefined
+	// The vendor is asked when the usage popover opens, and at most once a minute.
+	const limitsRefresher = useMemo(
+		() =>
+			api.refreshLimits && projectId
+				? createLimitsRefresher({
+						request: () => api.refreshLimits?.(projectId) ?? Promise.resolve(null),
+						now: Date.now,
+					})
+				: undefined,
+		[api, projectId],
+	)
+	const usageLimits = useMemo<UsageLimitsControl | undefined>(
+		() =>
+			palConversation
+				? undefined
+				: {
+						view: limitsView,
+						currentProvider: activeProviders.selected?.id,
+						budgets,
+						onBudget: (provider, usd) =>
+							setBudgets((all) => {
+								const next = { ...all }
+								if (usd === undefined) delete next[provider]
+								else next[provider] = usd
+								writeBudgets(localStorage, next)
+								return next
+							}),
+						onOpen: () =>
+							void limitsRefresher?.refresh()?.then(
+								(view) => {
+									if (view) setLimitsView(view)
+								},
+								() => {},
+							),
+						now: Date.now,
+					},
+		[palConversation, limitsView, activeProviders.selected?.id, budgets, limitsRefresher],
+	)
+	const commitPaths = useMemo(() => {
+		if (!sessionPanelActive) return []
+		const receipts = []
+		for (const tool of Object.values(thread.tools)) {
+			const receipt = tool.status === 'completed' ? receiptOf(tool) : undefined
+			if (receipt) receipts.push(receipt)
+		}
+		return changedPaths(receipts)
+	}, [sessionPanelActive, thread.tools])
+	const commitState = commitButtonState({
+		hasChanges: commitPaths.length > 0,
+		trusted: Boolean(project?.trusted),
+		repository: Boolean(git && git.projectId === gitProjectId && git.value),
+		running: thread.running,
+	})
 	const turnRunning = thread.running
 	const undoKept = useUndoKept(api.undoPreview, sessionId, thread.undo)
 	// A settled turn may have written files; the open file and the tree read the disk again.
 	const [filesRefresh, setFilesRefresh] = useState(0)
+	// What a change in the working tree shows beside the file in the Files pane: U for a file git has not
+	// seen yet, M for one it has. Read when that pane is open, and again after each turn settles.
+	const [fileMarks, setFileMarks] = useState<{ projectId: string; marks: Map<string, FileMark> }>()
+	const filesPaneOpen = detailsOpen && hasPane(paneLayout, 'files')
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a settled turn (filesRefresh) reads the tree again.
+	useEffect(() => {
+		if (!filesPaneOpen || !workingTree) return
+		let current = true
+		void workingTree
+			.changes()
+			.then((view) => {
+				if (!current || !view) return
+				const marks = new Map<string, FileMark>()
+				for (const file of view.files) {
+					if (file.status === 'deleted') continue
+					marks.set(file.path, file.status === 'untracked' || file.status === 'added' ? 'U' : 'M')
+				}
+				setFileMarks({ projectId: workingTree.projectId, marks })
+			})
+			.catch(() => current && setFileMarks(undefined))
+		return () => {
+			current = false
+		}
+	}, [filesPaneOpen, workingTree, filesRefresh])
 	const wasRunning = useRef(false)
 	useEffect(() => {
 		if (wasRunning.current && !turnRunning) setFilesRefresh((value) => value + 1)
@@ -1515,7 +1710,7 @@ export function App({
 	// Read when the popover opens, and again if a turn ends while it is open. The host caches briefly.
 	useEffect(() => {
 		void turnRunning
-		if (!detailsPopoverOpen || !gitProjectId || !api.projectGit) return
+		if (!sessionPanelOpen || !gitProjectId || !api.projectGit) return
 		let current = true
 		void api.projectGit(gitProjectId).then(
 			(value) => {
@@ -1528,7 +1723,7 @@ export function App({
 		return () => {
 			current = false
 		}
-	}, [detailsPopoverOpen, gitProjectId, turnRunning, api])
+	}, [sessionPanelOpen, gitProjectId, turnRunning, api])
 	const normalTabs = group.tabs.map(
 		(id): ConversationView =>
 			conversations.find((item) => item.id === id) ??
@@ -1570,7 +1765,25 @@ export function App({
 		api,
 		reconnects,
 	)
-	const settings = resolveComposerSendOptions(savedSettings.value.options, pal?.id)
+	const savedOptions = resolveComposerSendOptions(savedSettings.value.options, pal?.id)
+	// A saved Full access or Auto the engine's settings have since closed shows and sends the
+	// conversation's starting mode instead; the effect below saves it so the note is said once.
+	const closedMode = closedModeFallback(
+		permissionEngine,
+		savedOptions.permissionMode ?? 'prompt',
+		project?.permissionModes,
+		resolveComposerSendOptions(undefined, pal?.id).permissionMode ?? 'prompt',
+	)
+	const settings = closedMode ? { ...savedOptions, permissionMode: closedMode.mode } : savedOptions
+	const [closedModeNote, setClosedModeNote] = useState<{ owner: string; text: string } | null>(null)
+	const closedModeText = closedMode?.note
+	const closedModeReady = !savedSettings.loading && !savedSettings.error
+	// biome-ignore lint/correctness/useExhaustiveDependencies: only a closed mode may save
+	useEffect(() => {
+		if (!closedModeText || !closedModeReady) return
+		setClosedModeNote({ owner: draftOwner, text: closedModeText })
+		void act(() => savedSettings.save(draftOwner, keepAuto({ choice, options: { ...settings } })))
+	}, [closedModeText, closedModeReady, draftOwner])
 	const choice = resolveComposerModelChoice({
 		providers: activeProviders,
 		draftChoice: savedSettings.value.choice,
@@ -1645,7 +1858,7 @@ export function App({
 	})
 	const surfaceEngine = permissionEngine ?? harnessView?.selected ?? 'namzu'
 	const surfaceReason = !terminalReady
-		? 'Open a trusted project to use the engine’s command line.'
+		? 'Open a trusted project to run this in a terminal.'
 		: thread.messages.length > 0 || thread.running
 			? 'Start a new conversation to open this engine’s command line.'
 			: undefined
@@ -1715,6 +1928,46 @@ export function App({
 	}
 	const openShellRef = useRef(openShellTerminal)
 	openShellRef.current = openShellTerminal
+	// A terminal for the Terminal pane. Opening one makes it the front tab of the group, which would
+	// cover the conversation with a page: the conversation is put back in front, the pane shows it.
+	const openTerminalInPane = async () => {
+		if (context.current.frozen || !project || !terminalReady || !window.namzu.openTerminal) return
+		const before = frontTabNow()
+		const opened = await window.namzu.openTerminal(shellTerminalRequest(project.id, group.id))
+		setTerminalShown(opened.terminal.id)
+		if (before && before !== opened.terminal.id)
+			await onAction({ kind: 'activate', groupId: group.id, tabId: before })
+	}
+	const terminalStarting = useRef(false)
+	/** A pane button: opens its pane, or closes it when it is open. */
+	const togglePaneKind = (kind: PaneKind) => {
+		if (kind === 'session') {
+			setSessionPanelOpen(!paneLayout.sessionWanted)
+			return
+		}
+		if (detailsOpen && hasPane(paneLayout, kind)) {
+			updatePaneLayout((value) => closePane(value, kind))
+			focusPaneButton(kind)
+			return
+		}
+		openPane(kind)
+		// The pane only hides: a live terminal of this project is shown again, and a fresh one starts
+		// only when there is none (an ended one stays for its Restart).
+		if (kind === 'terminal' && terminalReady) {
+			const choice = chooseTerminalForPane(stripTerminals, project?.id, terminalShown)
+			if ('reuse' in choice) setTerminalShown(choice.reuse)
+			else if (!terminalStarting.current) {
+				// A press before the first shell is listed must not start a second one.
+				terminalStarting.current = true
+				void act(() => openTerminalInPane()).finally(() => {
+					terminalStarting.current = false
+				})
+			}
+		}
+	}
+	const togglePaneRef = useRef(togglePaneKind)
+	togglePaneRef.current = togglePaneKind
+	const headerActionsVisibleRef = useRef(false)
 	const openEngineTerminal = async () => {
 		if (context.current.frozen || !project || !terminalReady || !window.namzu.openTerminal) return
 		const engine = surfaceEngine
@@ -1757,7 +2010,7 @@ export function App({
 				tab.exitCode !== 0 &&
 				terminalGroup?.order.includes(tab.id)
 			)
-				notify(`${tab.title} exited with code ${tab.exitCode}.`, { tone: 'warning' })
+				notify(`${tab.title} closed with an error.`, { tone: 'warning' })
 		}
 	}, [terminalGroup?.tabs, terminalGroup?.order])
 	const pluginOwner = useRef({ key: pluginsKey, generation: 0 })
@@ -2068,6 +2321,10 @@ export function App({
 		}
 		return api.onEvent((event: DesktopEvent) => {
 			if (event.kind === 'workspace') return
+			if (event.kind === 'pending-entry') {
+				pullPendingRef.current()
+				return
+			}
 			if (event.kind === 'background-work-status') {
 				if (
 					removedConversations.current.has(event.sessionId) ||
@@ -2271,6 +2528,13 @@ export function App({
 			}
 			// The unread store listens for its own event; nothing here belongs to a conversation.
 			if (event.kind === 'unread') return
+			// Settings listens for this one itself.
+			if (event.kind === 'config-file-changed') return
+			// What the providers say about the account: held in memory for the popover and the ring.
+			if (event.kind === 'limits') {
+				setLimitsView(event.limits)
+				return
+			}
 			if (event.kind === 'providers-changed') {
 				// A key was saved or removed. Forget what each pane remembered about providers
 				// and read them again; the send button follows the new answer.
@@ -2440,7 +2704,7 @@ export function App({
 			palConversation ||
 			historyPending ||
 			restoringTabs ||
-			!((detailsOpen && panelView === 'activity') || detailsPopoverOpen)
+			!sessionPanelOpen
 		) {
 			setJobs([])
 			setJobsSessionId('')
@@ -2497,16 +2761,7 @@ export function App({
 			window.removeEventListener('focus', back)
 			poll.stop()
 		}
-	}, [
-		sessionId,
-		palConversation,
-		api,
-		historyPending,
-		restoringTabs,
-		detailsOpen,
-		panelView,
-		detailsPopoverOpen,
-	])
+	}, [sessionId, palConversation, api, historyPending, restoringTabs, sessionPanelOpen])
 	const palTasksVisible = Boolean(
 		pal &&
 			(palScreen?.palId === pal.id && palScreen.activeTab === 'computer'
@@ -2519,7 +2774,7 @@ export function App({
 			!api?.refreshTasks ||
 			historyPending ||
 			restoringTabs ||
-			(!palTasksVisible && (!detailsOpen || panelView !== 'activity'))
+			(!palTasksVisible && !sessionPanelOpen)
 		)
 			return
 		let current = true
@@ -2529,16 +2784,7 @@ export function App({
 		return () => {
 			current = false
 		}
-	}, [
-		sessionId,
-		detailsOpen,
-		panelView,
-		palTasksVisible,
-		api,
-		historyPending,
-		restoringTabs,
-		showError,
-	])
+	}, [sessionId, sessionPanelOpen, palTasksVisible, api, historyPending, restoringTabs, showError])
 	useEffect(() => {
 		if (
 			!pal &&
@@ -3130,7 +3376,6 @@ export function App({
 						setPalProfileOpen(presentation.palProfileOpen)
 						setComputerProfileOpen(presentation.computerProfileOpen)
 						setJobsOpen(presentation.jobsOpen)
-						setPanelExpanded(presentation.panelExpanded ?? false)
 						follow.current = presentation.follow
 						pendingPresentationScroll.current = {
 							generation,
@@ -3140,7 +3385,6 @@ export function App({
 						}
 					} else {
 						setJobsOpen(false)
-						setPanelExpanded(false)
 						follow.current = true
 						pendingPresentationScroll.current = null
 					}
@@ -3229,9 +3473,7 @@ export function App({
 								modelSettings: new Map(),
 							})
 						)
-							throw new Error(
-								'This conversation’s connection or pane changed while opening. Try again.',
-							)
+							throw new Error('This conversation changed while it was opening. Try again.')
 					}
 					if (!status) return
 					hydratedSession.current = view.id
@@ -3629,6 +3871,7 @@ export function App({
 			tone: 'success',
 			// A notice rebuilt after a restore keeps the time that was left, not a fresh window.
 			timeoutMs: Math.max(batch.until - Date.now(), 1000),
+			bound: true,
 			// Once it has gone (timed out, closed, or taken over by another notice) a later restore
 			// has nothing to update, and must not bring it back.
 			onClose: () => {
@@ -3824,6 +4067,10 @@ export function App({
 		if (!filesProjectId || !api.openProjectPath) return
 		void act(() => api.openProjectPath?.(filesProjectId, path, 'editor') ?? Promise.resolve())
 	}
+	const showWorkingTreeFileInFolder = (path: string) => {
+		if (!filesProjectId || !api.openProjectPath) return
+		void act(() => api.openProjectPath?.(filesProjectId, path, 'file-manager') ?? Promise.resolve())
+	}
 	const openChangedFileInEditor = (path: string) => {
 		if (!projectFiles || !api.openProjectPath) return
 		void projectFiles.resolve([path]).then((found) => {
@@ -3916,15 +4163,16 @@ export function App({
 						throw new Error(
 							'This conversation is too large to copy. The limit is 4 MB, so nothing was copied.',
 						)
-					await copyToClipboard(result.markdown, 'Conversation copied as Markdown.')
+					await copyToClipboard(result.markdown, 'Conversation copied as text.')
 				})
 				return
 			case 'copy-id':
-				void act(() => copyToClipboard(view.id, 'Conversation ID copied.'))
+				void act(() => copyToClipboard(view.id, 'Copied to clipboard.'))
 				return
 			case 'copy-path': {
 				const owner = projects.find((item) => item.id === view.projectId)
-				if (owner?.path) void act(() => copyToClipboard(owner.path, 'Project path copied.'))
+				if (owner?.path)
+					void act(() => copyToClipboard(owner.path, 'Folder location copied to clipboard.'))
 				return
 			}
 			case 'open-editor':
@@ -4106,7 +4354,7 @@ export function App({
 					palId: saved.id,
 					name: saved.name,
 					startedAt: Date.now(),
-					failure: failure instanceof Error ? failure.message : String(failure),
+					failure: plainErrorText(failure, 'open this Pal'),
 				})
 			return
 		}
@@ -4519,7 +4767,7 @@ export function App({
 		if (focused)
 			onShellState({
 				page:
-					railSection === 'plugins' || railSection === 'settings'
+					railSection === 'plugins'
 						? railSection
 						: palsPage
 							? 'pals'
@@ -4551,8 +4799,7 @@ export function App({
 			palProfileOpen,
 			computerProfileOpen,
 			jobsOpen: detailsOpen,
-			panelTab: shownPanelTab?.kind === 'changes' ? 'changes' : 'jobs',
-			panelExpanded,
+			panelTab: hasPane(paneLayout, 'changes') ? 'changes' : 'jobs',
 			follow: position?.follow ?? kept?.follow ?? follow.current,
 			scrollTop:
 				position?.scrollTop ?? (measured ? (node?.scrollTop ?? 0) : (kept?.scrollTop ?? 0)),
@@ -4566,8 +4813,7 @@ export function App({
 		palProfileOpen,
 		computerProfileOpen,
 		detailsOpen,
-		shownPanelTab?.kind,
-		panelExpanded,
+		paneLayout,
 		palConversation,
 	])
 	writePresentation.current = savePresentation
@@ -5044,7 +5290,6 @@ export function App({
 		revealSidebar('[data-archive-list]')
 	}
 	const revealSidebar = (selector: string) => {
-		foldedByPane.current = false
 		setSideOpen(window.matchMedia('(max-width: 767px)').matches)
 		setSideCollapsed(false)
 		localStorage.setItem('namzu.sidebar-collapsed', 'false')
@@ -5060,23 +5305,82 @@ export function App({
 		setRailSection('spaces')
 		revealSidebar('[data-project-group] .project-row')
 	}
-	/** Settings is a page like Plugins; `settings/<section>` is its route and a search result adds a target. */
+	/**
+	 * Settings is a dialog over the app; `settings/<section>` is its route and a search result adds a
+	 * target row. A section asked for wins; with none, it opens on the one visited last, and an open
+	 * dialog stays where it is. Nothing behind it changes.
+	 */
 	const openSettings = (section?: SettingsSection, focusId?: string) => {
+		if (!settingsOpenRef.current) {
+			const active = document.activeElement
+			settingsOpener.current =
+				active instanceof HTMLElement && active !== document.body ? active : null
+			setSettingsSection(section ?? desktopSettings.settings?.lastSettingsSection ?? 'general')
+			// Before the settings file has loaded the stored section is unknown: settle on it once it is.
+			settingsSectionPending.current = !section && !desktopSettings.settings
+		} else if (section) {
+			setSettingsSection(section)
+			settingsSectionPending.current = false
+		}
+		setSettingsFocus(focusId)
+		setSettingsRequest((count) => count + 1)
+		setSettingsOpen(true)
+		setSideOpen(false)
+	}
+	const closeSettings = () => setSettingsOpen(false)
+	/** Settings' Extensions row: the dialog closes and the Plugins page opens in its place. */
+	const showPluginsFromSettings = () => {
 		abandonTabRestore()
 		navigation.current += 1
 		setPalScreen(undefined)
-		setPluginSelection(undefined)
 		setPalsPage(false)
-		if (section) setSettingsSection(section)
-		setSettingsFocus(focusId)
-		setRailSection('settings')
-		setJobsOpen(false)
-		setSideOpen(false)
+		setRailSection('plugins')
+		setSettingsOpen(false)
 	}
+	const settingsReturnFocus = () =>
+		settingsOpener.current?.isConnected && settingsOpener.current.getClientRects().length > 0
+			? settingsOpener.current
+			: input.current
+	// The section shown is the one reopened next time, also after a restart.
+	const storedSettingsSection = useRef(desktopSettings.settings?.lastSettingsSection)
+	storedSettingsSection.current = desktopSettings.settings?.lastSettingsSection
+	const changeDesktopSettings = desktopSettings.change
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a visit is the trigger; the stored value is read through its ref
+	useEffect(() => {
+		if (!settingsOpen || !desktopSettings.settings) return
+		if (settingsSectionPending.current) {
+			settingsSectionPending.current = false
+			const stored = desktopSettings.settings.lastSettingsSection
+			if (stored !== settingsSection) {
+				setSettingsSection(stored)
+				return
+			}
+		}
+		if (storedSettingsSection.current !== settingsSection)
+			void changeDesktopSettings({ lastSettingsSection: settingsSection })
+	}, [settingsOpen, settingsSection, desktopSettings.settings])
 	/** Home, from the rail or from the foot of a sidebar with no "New conversation" row: a new conversation. */
 	const goHome = () => {
 		if (!loading) void act(newConversation)
 	}
+	/** The confirmation for removing a project; while Settings is open it stacks inside that dialog. */
+	const projectRemovalDialog = removingProject
+		? (() => {
+				const copy = projectRemovalCopy(removingProject)
+				return (
+					<ConfirmRemovalDialog
+						key={`remove-project:${removingProject.id}`}
+						title={copy.title}
+						description={copy.description}
+						actionLabel={copy.actionLabel}
+						pendingLabel={copy.pendingLabel}
+						onClose={() => setRemovingProject(undefined)}
+						returnFocus={projectRemovalReturnFocus}
+						onConfirm={() => confirmedRemoval(() => removeProject(removingProject))}
+					/>
+				)
+			})()
+		: null
 	// While the sidebar is open its foot holds the rail's controls, and the rail is drawn only when the
 	// sidebar is collapsed (or an overlay, in a narrow window). A control with the focus moves with it.
 	const railDrawn = mobile || sideCollapsed
@@ -5372,6 +5676,134 @@ export function App({
 		}
 	}
 
+	// Quick Entry: a line typed into the global box starts a new conversation with that text, in the
+	// project the last conversation used, or on Home. The steps wait for each render in between.
+	const [quickEntry, setQuickEntry] = useState<{
+		text: string
+		stage: 'new' | 'creating' | 'fill' | 'send'
+	} | null>(null)
+	const quickQueue = useRef<string[]>([])
+	const voiceRequested = useRef(false)
+	const sendRef = useRef(send)
+	sendRef.current = send
+	const voiceRef = useRef({ voice, listening, hasConversation: Boolean(sessionId) })
+	voiceRef.current = { voice, listening, hasConversation: Boolean(sessionId) }
+	const startNextQuickEntry = useCallback(() => {
+		if (quickEntry) return
+		const text = quickQueue.current.shift()
+		if (text !== undefined) setQuickEntry({ text, stage: 'new' })
+	}, [quickEntry])
+	const startVoiceRequest = useCallback(() => {
+		if (!voiceRequested.current) return
+		input.current?.focus()
+		const { voice: controls, listening: engine, hasConversation } = voiceRef.current
+		// Not ready yet (window still opening, engine loading): keep the request for the retry below.
+		if (controls.phase !== 'off') {
+			voiceRequested.current = false
+		} else if (micAvailable({ voice: controls, engine, hasConversation })) {
+			voiceRequested.current = false
+			controls.toggle()
+		}
+	}, [])
+	pullPendingRef.current = () => {
+		void api?.takePendingEntries?.().then(
+			(pending) => {
+				if (!pending || !mounted.current) return
+				quickQueue.current.push(...pending.quickEntries)
+				if (pending.voice) {
+					voiceRequested.current = true
+					// A request that never becomes possible is dropped, so it cannot start the microphone much later.
+					window.setTimeout(() => {
+						voiceRequested.current = false
+					}, VOICE_REQUEST_WAIT_MS)
+				}
+				startNextQuickEntry()
+				startVoiceRequest()
+			},
+			() => undefined,
+		)
+	}
+	// A window opened by a shortcut asks once it is up; one already open is told by an event.
+	useEffect(() => {
+		pullPendingRef.current()
+	}, [])
+	useEffect(() => {
+		if (!quickEntry) {
+			if (quickQueue.current.length > 0 && !loading && !context.current.frozen)
+				startNextQuickEntry()
+			return
+		}
+		if (quickEntry.stage !== 'creating' && (loading || context.current.frozen)) return
+		if (quickEntry.stage === 'new') {
+			setQuickEntry({ ...quickEntry, stage: 'creating' })
+			void act(newConversation).then(() =>
+				setQuickEntry((current) => (current ? { ...current, stage: 'fill' } : current)),
+			)
+		} else if (quickEntry.stage === 'creating') {
+			return
+		} else if (quickEntry.stage === 'fill') {
+			draftsRef.current[draftOwner] = quickEntry.text
+			setDrafts((all) => ({ ...all, [draftOwner]: quickEntry.text }))
+			setQuickEntry({ ...quickEntry, stage: 'send' })
+		} else if (draft === quickEntry.text) {
+			// A new conversation reads its saved choices and attachments for a moment; sending before
+			// that ends would do nothing. Wait for them. When they never come (no model connected, say),
+			// the timer below lets go and the line stays in the box.
+			if (
+				!quickEntryReadyToSend({
+					savedChoicesLoading: savedSettings.loading,
+					attachmentsLoaded: attached.loaded,
+					hasModel: Boolean(choice.provider),
+					modelReady: providerReady,
+				})
+			)
+				return
+			setQuickEntry(null)
+			void act(() => sendRef.current())
+		}
+	}, [
+		quickEntry,
+		loading,
+		draft,
+		draftOwner,
+		act,
+		newConversation,
+		startNextQuickEntry,
+		savedSettings.loading,
+		attached.loaded,
+		choice.provider,
+		providerReady,
+	])
+	const quickEntryStage = quickEntry?.stage
+	useEffect(() => {
+		if (quickEntryStage !== 'send') return
+		const timer = window.setTimeout(
+			() => setQuickEntry((current) => (current?.stage === 'send' ? null : current)),
+			QUICK_ENTRY_WAIT_MS,
+		)
+		return () => window.clearTimeout(timer)
+	}, [quickEntryStage])
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a waiting voice request tries again when the conversation or the voice engine changes.
+	useEffect(() => {
+		if (voiceRequested.current) startVoiceRequest()
+	}, [startVoiceRequest, sessionId, listening.state])
+	// Dictation: the chosen keys start and stop voice input while typing in the message box.
+	const dictationChoice = desktopSettings.settings?.dictationShortcut ?? 'ctrl-d'
+	useEffect(() => {
+		if (dictationChoice === 'off') return
+		const onKey = (event: KeyboardEvent) => {
+			if (event.defaultPrevented || event.isComposing || !dictationPressed(dictationChoice, event))
+				return
+			if (!(event.target instanceof Element) || !event.target.closest('.composer-input')) return
+			event.preventDefault()
+			const { voice: controls, listening: engine, hasConversation } = voiceRef.current
+			if (controls.phase !== 'off' || micAvailable({ voice: controls, engine, hasConversation }))
+				controls.toggle()
+		}
+		window.addEventListener('keydown', onKey)
+		return () => window.removeEventListener('keydown', onKey)
+	}, [dictationChoice])
+
 	/** Asks the newest reply's question again, exactly as it was typed. */
 	const retryable = retryableReply(thread)
 	const retryReply = async (prompt: string) => {
@@ -5519,6 +5951,8 @@ export function App({
 			)
 				return
 			if (event.defaultPrevented) return
+			// The dialog owns the keyboard while it is open: nothing behind it reacts.
+			if (settingsOpenRef.current) return
 			if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 'k') {
 				event.preventDefault()
 				if (commandOpen) setCommandOpen(false)
@@ -5527,6 +5961,12 @@ export function App({
 			}
 			// Modal dismissal must never become a cancellation of the underlying turn.
 			if (commandOpen || creatingPal || editingPal) return
+			const pane = paneChord(event, macPlatform)
+			if (pane && headerActionsVisibleRef.current) {
+				event.preventDefault()
+				togglePaneRef.current(pane)
+				return
+			}
 			if (
 				(event.metaKey || event.ctrlKey) &&
 				event.shiftKey &&
@@ -5557,12 +5997,11 @@ export function App({
 					showPalChat()
 					return
 				}
-				// An expanded panel is left with its own buttons, not by a key aimed at something else.
-				if (detailsOpen && panelExpanded) return
-				if (sideOpen || detailsOpen) {
-					setSideOpen(false)
-					if (detailsOpen) closeDetails()
-				} else if (thread.running && !loading && !restoringTabs && !pageOpen)
+				// The panes stay open: they hold a terminal, a page, a diff. A maximised one steps back first.
+				if (sideOpen) setSideOpen(false)
+				else if (detailsOpen && paneLayout.maximised)
+					updatePaneLayout((value) => setMaximised(value, undefined))
+				else if (thread.running && !loading && !restoringTabs && !pageOpen)
 					void act(() => api.cancel(sessionId))
 				return
 			}
@@ -5603,7 +6042,8 @@ export function App({
 	}, [
 		sideOpen,
 		detailsOpen,
-		panelExpanded,
+		paneLayout.maximised,
+		updatePaneLayout,
 		sessionId,
 		thread.running,
 		restoringTabs,
@@ -5616,7 +6056,6 @@ export function App({
 		editingPal,
 		openCommands,
 		loading,
-		closeDetails,
 		pageOpen,
 		computerPage,
 		showPalChat,
@@ -6023,71 +6462,302 @@ export function App({
 		})
 	const headerActionsVisible =
 		!palConversation && Boolean(sessionId && conversation && !activeTerminal)
+	headerActionsVisibleRef.current = headerActionsVisible
+	// What the message box's "/" list can run in this conversation. A command that cannot run here has
+	// no handler, so it is not listed; none of them starts a reply.
+	const slashHandlers: SlashHandlers = {}
+	if (!palConversation && !frozen) {
+		const offered = new Set<ConversationActionId>()
+		if (conversation) {
+			const walk = (entries: readonly ConversationActionEntry[]) => {
+				for (const entry of entries) {
+					if (!entry.reason) offered.add(entry.id)
+					if (entry.children) walk(entry.children)
+				}
+			}
+			for (const group of conversationActionGroups(conversationActionInput(conversation)))
+				walk(group)
+		}
+		const runAction = (id: ConversationActionId) => () => {
+			if (conversation) runConversationAction(id, conversation, null)
+		}
+		if (offered.has('side-chat')) slashHandlers.btw = runAction('side-chat')
+		if (offered.has('fork')) slashHandlers.fork = runAction('fork')
+		if (offered.has('rename'))
+			slashHandlers.rename = (argument) => {
+				const title = argument.trim()
+				if (title && conversation && api.renameConversation) {
+					const target = conversation.id
+					void act(async () => {
+						const next = await api.renameConversation?.(target, title)
+						if (next) upsertConversation(next)
+					})
+				} else runAction('rename')()
+			}
+		if (offered.has('copy-markdown')) slashHandlers.export = runAction('copy-markdown')
+		if (offered.has('copy-reply')) slashHandlers.copy = runAction('copy-reply')
+		if (offered.has('archive')) slashHandlers.archive = runAction('archive')
+		if (headerActionsVisible) {
+			if (project?.trusted && project.status === 'ready' && !project.isChat)
+				slashHandlers.diff = () => togglePaneKind('changes')
+			if (terminalReady || stripTerminals.length > 0)
+				slashHandlers.terminal = () => togglePaneKind('terminal')
+			slashHandlers.browser = () => togglePaneKind('browser')
+			if (filesEnabled) slashHandlers.files = () => togglePaneKind('files')
+			slashHandlers.tasks = () => openSessionPane()
+		}
+		if (project?.trusted && !project.isChat && !externalHarness && api.mcpServers)
+			slashHandlers.mcp = () => openSettings('tools', 'mcpServers')
+		if (!externalHarness) slashHandlers.hooks = () => openSettings('tools', 'hooks')
+		slashHandlers.config = () => openSettings()
+		slashHandlers.theme = () => openSettings('appearance')
+		slashHandlers.login = () => openSettings('models', 'models')
+		slashHandlers['release-notes'] = () => openSettings('updates')
+		if (conversations.length > 1) slashHandlers.resume = () => setCommandOpen(true)
+		slashHandlers.new = () => {
+			if (!loading) void act(newConversation)
+		}
+	}
+	// The plus menu lists a project's tool servers; they are read the first time that menu opens.
+	const [toolServersWanted, setToolServersWanted] = useState(false)
+	const composerServers = useMcpServers(
+		api,
+		toolServersWanted && !sessionPanelActive ? gitProjectId : undefined,
+	)
+	const plusServers: AddMenuToolServers | undefined =
+		palConversation || !gitProjectId || externalHarness || !api.mcpServers
+			? undefined
+			: {
+					view: (sessionPanelActive ? mcp.view : composerServers.view) ?? undefined,
+					onOpen: () => setToolServersWanted(true),
+					onManage: () => openSettings('tools', 'mcpServers'),
+				}
+
+	// A pane is open while the panes are showing and the layout holds it; the Session pane is its own flag.
+	const paneOpen: Record<PaneKind, boolean> = {
+		session: paneLayout.sessionWanted,
+		terminal: detailsOpen && hasPane(paneLayout, 'terminal'),
+		changes: detailsOpen && hasPane(paneLayout, 'changes'),
+		browser: detailsOpen && hasPane(paneLayout, 'browser'),
+		files: detailsOpen && hasPane(paneLayout, 'files'),
+	}
+	// What the grid draws: with the panes hidden (a conversation switch clears them) nothing of the layout shows.
+	const shownPaneLayout = useMemo<PaneLayout>(
+		() => (detailsOpen ? paneLayout : { ...paneLayout, columns: [], maximised: undefined }),
+		[detailsOpen, paneLayout],
+	)
+	const darkTheme =
+		appearance === 'dark' ||
+		(appearance === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+	// The Terminal pane lists this project's terminals only: one restored from an earlier run belongs to
+	// the folder it was opened in, and is not shown beside another conversation.
+	const paneTerminals = stripTerminals.filter((tab) => tab.projectId === project?.id)
+	const shownTerminal = paneTerminals.find((tab) => tab.id === terminalShown) ?? paneTerminals[0]
+	const closeTerminalTab = (id: string) =>
+		void onAction({ kind: 'close', groupId: group.id, tabId: id }).catch((failure) =>
+			showError(failure, 'close the terminal'),
+		)
+	/** What each pane puts in its tile: the header's left side, its own controls, and the body. */
+	const renderPane = (kind: GridKind): PaneContent => {
+		if (kind === 'terminal')
+			return {
+				title: (
+					<PaneTabs
+						label="Terminals"
+						tabs={paneTerminals.map((tab) => ({
+							id: tab.id,
+							label: tab.title,
+							icon: <TerminalMark tab={tab} />,
+						}))}
+						active={shownTerminal?.id}
+						onSelect={setTerminalShown}
+						onClose={closeTerminalTab}
+						onNew={terminalReady ? () => void act(() => openTerminalInPane()) : undefined}
+						newLabel="New terminal"
+					/>
+				),
+				body:
+					shownTerminal && terminalSessionsHere ? (
+						<TerminalPane
+							key={shownTerminal.id}
+							tab={shownTerminal}
+							session={terminalSessionsHere.get(shownTerminal.id)}
+							focused={false}
+							onClose={() => closeTerminalTab(shownTerminal.id)}
+							onRestart={
+								shownTerminal.kind === 'shell' && terminalReady
+									? () =>
+											void (async () => {
+												await openTerminalInPane()
+												await onAction({
+													kind: 'close',
+													groupId: group.id,
+													tabId: shownTerminal.id,
+												})
+											})().catch((failure) => showError(failure, 'restart the terminal'))
+									: undefined
+							}
+						/>
+					) : (
+						<div className="pane-empty">
+							<p>
+								{terminalReady
+									? 'No terminal is open.'
+									: (terminalUnavailableReason({ bridge: Boolean(terminalBridge), project }) ??
+										'Terminals are not available here.')}
+							</p>
+							{terminalReady && (
+								<Button
+									type="button"
+									size="xs"
+									variant="ghost-muted"
+									onClick={() => void act(() => openTerminalInPane())}
+								>
+									New terminal
+								</Button>
+							)}
+						</div>
+					),
+			}
+		if (kind === 'changes')
+			return {
+				title: <ChangesHeaderSlot part="title" />,
+				actions: <ChangesHeaderSlot part="actions" />,
+				ownMenu: true,
+				body: (
+					<ChangesPanel
+						key={sessionId}
+						tools={thread.tools}
+						timeline={thread.timeline}
+						focus={changesFocus}
+						scopeKey={sessionId}
+						projectRoot={project?.path}
+						source={workingTree}
+						refreshToken={filesRefresh}
+						onOpenFile={projectFiles ? openChangedFile : undefined}
+						onOpenInEditor={
+							projectFiles && api.openProjectPath ? openChangedFileInEditor : undefined
+						}
+						onOpenWorkingFile={projectFiles ? openWorkingTreeFile : undefined}
+						onOpenWorkingInEditor={
+							projectFiles && api.openProjectPath ? openWorkingTreeFileInEditor : undefined
+						}
+						onShowInFolder={
+							filesProjectId && api.openProjectPath ? showWorkingTreeFileInFolder : undefined
+						}
+						onCopy={(text, done) =>
+							void copyToClipboard(text, done).catch(() =>
+								notify('Copy is unavailable.', { tone: 'error' }),
+							)
+						}
+						dark={darkTheme}
+					/>
+				),
+			}
+		if (kind === 'browser')
+			return {
+				title: <BrowserTabs browser={browserPane} />,
+				body: <BrowserBody browser={browserPane} />,
+			}
+		const homeId = 'files:home'
+		return {
+			title: (
+				<PaneTabs
+					label="Files"
+					tabs={[
+						{
+							id: homeId,
+							label: 'Files',
+							fixed: true,
+							icon: <FolderTreeIcon className="size-4" />,
+						},
+						...filesTabs.map(fileTabItem),
+					]}
+					active={activePath ? `file:${activePath}` : homeId}
+					onSelect={(id) =>
+						updatePanelTabs((state) =>
+							id === homeId
+								? { ...state, active: undefined, browsing: false, line: undefined }
+								: activatePanelTab(state, fileTab(id.slice('file:'.length))),
+						)
+					}
+					onClose={(id) =>
+						updatePanelTabs((state) => closePanelTab(state, fileTab(id.slice('file:'.length))))
+					}
+				/>
+			),
+			body:
+				project && filesEnabled ? (
+					activePath ? (
+						<FilePanelBody
+							api={api}
+							projectId={project.id}
+							projectName={project.name}
+							activePath={activePath}
+							line={panelTabs.line}
+							editors={editors}
+							dark={darkTheme}
+							wide={false}
+							browsing={false}
+							onOpenPath={openProjectFile}
+							onNotice={announce}
+							refreshToken={filesRefresh}
+						/>
+					) : (
+						<div className="file-panel" data-wide data-files-home>
+							<FileTree
+								api={api}
+								projectId={project.id}
+								home
+								onOpen={(path) => openProjectFile(path)}
+								refreshToken={filesRefresh}
+								marks={fileMarks?.projectId === project.id ? fileMarks.marks : undefined}
+							/>
+						</div>
+					)
+				) : (
+					<div className="pane-empty">
+						<p>Files are shown for a project folder.</p>
+					</div>
+				),
+		}
+	}
 	const headerActions =
 		headerActionsVisible && conversation ? (
 			<div className="conversation-header-actions">
-				<ConversationActionsMenu
-					input={conversationActionInput(conversation)}
+				<PaneButtons
+					open={paneOpen}
+					onToggle={togglePaneKind}
+					unavailable={{
+						...(filesEnabled ? {} : { files: 'Files are shown for a project folder.' }),
+						...(terminalReady || stripTerminals.length > 0
+							? {}
+							: {
+									terminal:
+										terminalUnavailableReason({ bridge: Boolean(terminalBridge), project }) ??
+										'Terminals are not available here.',
+								}),
+					}}
+					changes={{ files: totals.files, added: totals.added, removed: totals.removed }}
 					mac={macPlatform}
-					busy={loading || harnessBusy || frozen}
-					label="Conversation actions"
-					trigger={
-						<Button
-							type="button"
-							variant="ghost-muted"
-							size="icon-sm"
-							className="conversation-header-button"
-							aria-label="Conversation actions"
-							title="Conversation actions"
+					disabled={loading || harnessBusy || frozen}
+					more={
+						<ViewOptionsMenu
+							mac={macPlatform}
+							onSideChat={
+								api.forkConversation && !palConversation
+									? () => runConversationAction('side-chat', conversation, null)
+									: undefined
+							}
+							sideChatReason={
+								loading || harnessBusy || frozen ? 'Wait for the reply to finish.' : undefined
+							}
 						>
-							<MoreHorizontalIcon className="size-4" aria-hidden="true" />
-						</Button>
+							{sessionId && api.keepAwake && !palConversation ? (
+								<KeepAwakeItem api={api} sessionId={sessionId} />
+							) : null}
+						</ViewOptionsMenu>
 					}
-					onAction={(id, trigger) => runConversationAction(id, conversation, trigger)}
-				/>
-				<ConversationDetailsPopover
-					open={detailsPopoverOpen}
-					onOpenChange={setDetailsPopoverOpen}
-					triggerRef={detailsTrigger}
-					project={project && !project.isChat ? project : undefined}
-					totals={totals}
-					git={git && git.projectId === gitProjectId ? git.value : null}
-					work={detailsWork}
-					sources={sources}
-					attachReason={
-						externalHarness
-							? 'This engine does not take attachments.'
-							: loading || restoringTabs || frozen
-								? 'Wait for the conversation to finish loading.'
-								: undefined
-					}
-					onOpenChanges={() => {
-						setDetailsPopoverOpen(false)
-						setChangesFilter(undefined)
-						showPanelTab('changes')
-						setJobsOpen(true)
-					}}
-					onOpenWork={() => {
-						setDetailsPopoverOpen(false)
-						showPanelTab('activity')
-						setJobsOpen(true)
-					}}
-					onOpenArchived={
-						project && !project.isChat && api.archivedConversations
-							? showArchivedConversations
-							: undefined
-					}
-					apps={thread.computerApps}
-					onRevokeApp={
-						api.revokeComputerApp && sessionId
-							? (app) =>
-									void act(() => api.revokeComputerApp?.(sessionId, app) ?? Promise.resolve())
-							: undefined
-					}
-					onAttach={() => {
-						setDetailsPopoverOpen(false)
-						void act(attached.pick)
-					}}
 				/>
 			</div>
 		) : null
@@ -6273,7 +6943,7 @@ export function App({
 		if (live) void act(() => openPalRef.current(live))
 	}, [palsLoading, pals, act, navigationSuperseded])
 	return (
-		<PaneToasts focused={focused} pane={paneRoot}>
+		<LinkRoutedToasts route={routeLink} focused={focused} pane={paneRoot}>
 			{focused &&
 				shell &&
 				createPortal(
@@ -6460,9 +7130,7 @@ export function App({
 											action: {
 												label: 'Show',
 												onClick: () => {
-													setChangesFilter(undefined)
-													showPanelTab('changes')
-													setJobsOpen(true)
+													openPane('changes')
 												},
 											},
 										})
@@ -6554,22 +7222,7 @@ export function App({
 								}}
 							/>
 						)}
-						{removingProject &&
-							(() => {
-								const copy = projectRemovalCopy(removingProject)
-								return (
-									<ConfirmRemovalDialog
-										key={`remove-project:${removingProject.id}`}
-										title={copy.title}
-										description={copy.description}
-										actionLabel={copy.actionLabel}
-										pendingLabel={copy.pendingLabel}
-										onClose={() => setRemovingProject(undefined)}
-										returnFocus={projectRemovalReturnFocus}
-										onConfirm={() => confirmedRemoval(() => removeProject(removingProject))}
-									/>
-								)
-							})()}
+						{!settingsOpen && projectRemovalDialog}
 						<CommandPalette
 							open={commandOpen}
 							onOpenChange={setCommandOpen}
@@ -6714,51 +7367,6 @@ export function App({
 									: undefined
 							}
 						/>
-						{railSection === 'settings' && (
-							<>
-								{sideOpen && (
-									<button
-										type="button"
-										className="scrim"
-										aria-label="Close sidebar"
-										onClick={() => setSideOpen(false)}
-									/>
-								)}
-								<aside
-									id="namzu-settings-sidebar"
-									className={`sidebar plugins-navigation-sidebar settings-navigation-sidebar ${sideOpen ? 'open' : ''}`}
-									inert={sideCollapsed && !sideOpen}
-									aria-hidden={sideCollapsed && !sideOpen}
-									aria-label="Settings"
-								>
-									<SettingsSidebar
-										section={settingsSection}
-										onSection={(section) => {
-											setSettingsSection(section)
-											setSettingsFocus(undefined)
-											// A narrow window shows the list as an overlay; choosing a section closes it.
-											setSideOpen(false)
-										}}
-									/>
-									<Button
-										variant="ghost-muted"
-										size="icon-xs"
-										className="sidebar-close plugins-sidebar-close"
-										aria-label="Close sidebar"
-										onClick={() => setSideOpen(false)}
-									>
-										<XIcon />
-									</Button>
-									<SidebarFoot
-										section={railSection ?? 'home'}
-										onHome={goHome}
-										onSettings={() => openSettings()}
-										update={update}
-										onOpenUpdates={() => openSettings('updates')}
-									/>
-								</aside>
-							</>
-						)}
 						{railSection === 'plugins' && (
 							<>
 								{sideOpen && (
@@ -6814,24 +7422,13 @@ export function App({
 				inert={frozen}
 				data-pane-id={group.id}
 				data-moving={frozen}
-				className={`workspace ${detailsOpen ? 'jobs-open' : ''}`}
-				data-panel-resizing={panelResizing || undefined}
-				data-panel-expanded={(detailsOpen && panelExpanded) || undefined}
-				data-panel-kind={panelKind}
-				style={
-					panelWidth !== undefined
-						? ({
-								// What a person dragged it to, within its floor and what leaves the conversation its minimum.
-								'--panel-width': `max(var(--panel-${panelKind}-min), min(${panelWidth}px, calc(100% - var(--panel-conversation-min))))`,
-							} as CSSProperties)
-						: undefined
-				}
+				className="workspace"
 				data-conversation-bar={!stripVisible || undefined}
 				data-pal-workspace={palWorkspace}
 				data-computer-chat={computerPage ? chatMotion.renderedLayout : undefined}
 				data-chat-minimized={computerPage && floatingChatMinimized}
 				data-page={
-					railSection === 'plugins' || railSection === 'settings'
+					railSection === 'plugins'
 						? railSection
 						: palsPage
 							? 'pals'
@@ -6850,59 +7447,45 @@ export function App({
 						<ConversationBar
 							title={barTitle}
 							project={project?.isChat ? undefined : project?.name}
-							changes={totals.files}
-							added={totals.added}
-							removed={totals.removed}
 							disabled={loading || harnessBusy || frozen}
-							outputs={outputs.length}
-							outputsOpen={detailsOpen && panelView === 'outputs'}
-							onOutputs={
-								outputsEnabled && !activeTerminal
-									? () => {
-											showPanelTab('outputs')
-											setJobsOpen(true)
-										}
-									: undefined
-							}
-							changesOpen={detailsOpen && panelView === 'changes'}
-							filesOpen={detailsOpen && (panelView === 'file' || panelView === 'browse')}
-							onChanges={
-								activeTerminal
-									? undefined
-									: () => {
-											setChangesFilter(undefined)
-											showPanelTab('changes')
-											setJobsOpen(true)
-										}
-							}
-							onFiles={
-								filesEnabled && !activeTerminal
-									? () => {
-											updatePanelTabs(browsePanelTabs)
-											setJobsOpen(true)
-										}
-									: undefined
-							}
 							drafts={keptDrafts}
 							onSelectDraft={showTab}
-							terminals={{
-								open: stripTerminals.map((tab) => ({
-									id: tab.id,
-									title: tab.title,
-									active: tab.id === activeTerminal?.id,
-								})),
-								conversation:
-									conversation && stripTerminals.length > 0
-										? {
-												title: conversation.title,
-												active: !activeTerminal,
-												onSelect: () => showTab(conversation.id),
+							onRename={
+								conversation && !activeTerminal && api.renameConversation
+									? async (name) => {
+											try {
+												upsertConversation(
+													(await api.renameConversation?.(conversation.id, name)) ?? conversation,
+												)
+											} catch (failure) {
+												showError(failure, 'rename the conversation')
 											}
-										: undefined,
-								reason: terminalUnavailableReason({ bridge: Boolean(terminalBridge), project }),
-								onNew: terminalReady ? () => void act(() => openShellTerminal()) : undefined,
-								onSelect: showTab,
-							}}
+										}
+									: undefined
+							}
+							actions={
+								conversation && !activeTerminal ? (
+									<ConversationActionsMenu
+										input={conversationActionInput(conversation)}
+										mac={macPlatform}
+										busy={loading || harnessBusy || frozen}
+										label={`More options for ${barTitle}`}
+										align="start"
+										trigger={
+											<Button
+												type="button"
+												variant="ghost-muted"
+												size="icon-xs"
+												className="conversation-bar-chevron"
+												aria-label={`More options for ${barTitle}`}
+											>
+												<ChevronDownIcon className="size-4" aria-hidden="true" />
+											</Button>
+										}
+										onAction={(id, trigger) => runConversationAction(id, conversation, trigger)}
+									/>
+								) : undefined
+							}
 						>
 							{headerActions}
 						</ConversationBar>
@@ -7004,27 +7587,32 @@ export function App({
 						<PalContextCard {...palContextProps} />
 					</div>
 				)}
-				{railSection === 'settings' && (
-					<SettingsPage
+				{settingsOpen && (
+					<SettingsDialog
+						onClose={closeSettings}
+						returnFocus={settingsReturnFocus}
+						stacked={projectRemovalDialog}
 						section={settingsSection}
 						onSection={(section, focusId) => {
+							settingsSectionPending.current = false
 							setSettingsSection(section)
 							setSettingsFocus(focusId)
 						}}
 						focusId={settingsFocus}
+						request={settingsRequest}
 						engineTarget={{
 							groupId: group.id,
 							...(projectId ? { projectId } : {}),
 							...(terminalReady
 								? {
 										onOpenTerminal: () => {
-											setRailSection(null)
+											closeSettings()
 											void act(() => openShellTerminal())
 										},
 									}
 								: {}),
 							onShowOutput: (tabId) => {
-								setRailSection(null)
+								closeSettings()
 								void onAction({ kind: 'activate', groupId: group.id, tabId }).catch((failure) =>
 									showError(failure, 'switch tabs'),
 								)
@@ -7056,6 +7644,7 @@ export function App({
 						listening={listening}
 						info={desktopInfo.info}
 						infoError={desktopInfo.error}
+						onOpenPlugins={showPluginsFromSettings}
 						onOpenFolder={
 							api.openDataFolder
 								? (kind: DataFolderKind) =>
@@ -7388,73 +7977,73 @@ export function App({
 											<ProjectFilesContext.Provider value={projectFiles}>
 												<BackgroundWorkContext.Provider value={openBackgroundWork}>
 													<PalStartContext.Provider value={palStartControls}>
-														<Transcript
-															key={sessionId || 'blank'}
-															thread={thread}
-															animate={!historyPending && !restoringTabs}
-															workDisclosures={
-																workDisclosureView.sessionId === sessionId
-																	? workDisclosureView.choices
-																	: undefined
-															}
-															onWorkDisclosureChange={(key, open) =>
-																onWorkDisclosureChange(sessionId, key, open)
-															}
-															onOpenTurnChanges={(receiptIds, path) => {
-																setChangesFilter(receiptIds, path)
-																showPanelTab('changes')
-																setJobsOpen(true)
-															}}
-															onOpenChangedFile={projectFiles ? openChangedFile : undefined}
-															onOpenPalInbox={openPalInbox}
-															onCopySummary={(text) =>
-																void copyToClipboard(text, 'Summary copied.').catch(() =>
-																	notify('Copy is unavailable.', { tone: 'error' }),
-																)
-															}
-															onOpenTasks={() => {
-																showPanelTab('activity')
-																setJobsOpen(true)
-															}}
-															onUndoTurn={
-																api.undoPreview && api.undoTurn
-																	? (turnId) => setUndoingTurn({ sessionId, turnId })
-																	: undefined
-															}
-															undoKept={undoKept}
-															projectRoot={project?.path}
-															closedWhileRunning={conversation?.closedWhileRunning === true}
-															onContinueStopped={
-																conversation?.closedWhileRunning === true &&
-																!thread.running &&
-																!loading &&
-																!restoringTabs &&
-																!frozen &&
-																project?.trusted &&
-																project.status === 'ready' &&
-																choice.provider &&
-																providerReady
-																	? () => void act(() => retryReply(CONTINUE_STOPPED_PROMPT))
-																	: undefined
-															}
-															stopShownBelow={stopShownBelow}
-															renderMessageAction={(message, key) => (
-																<MessageActions
-																	text={message.text}
-																	onRetry={
-																		retryable && retryable.reply === message
-																			? () => void act(() => retryReply(retryable.prompt))
-																			: undefined
-																	}
-																>
-																	<LocalSpeechReadAloud
-																		speech={speech}
-																		messageId={key}
+														<OutputCardsContext.Provider value={outputCardsValue}>
+															<Transcript
+																key={sessionId || 'blank'}
+																thread={thread}
+																animate={!historyPending && !restoringTabs}
+																workDisclosures={
+																	workDisclosureView.sessionId === sessionId
+																		? workDisclosureView.choices
+																		: undefined
+																}
+																onWorkDisclosureChange={(key, open) =>
+																	onWorkDisclosureChange(sessionId, key, open)
+																}
+																onOpenTurnChanges={(path) => {
+																	focusChangesFile(path)
+																	openPane('changes')
+																}}
+																onOpenChangedFile={projectFiles ? openChangedFile : undefined}
+																onOpenPalInbox={openPalInbox}
+																onCopySummary={(text) =>
+																	void copyToClipboard(text, 'Summary copied.').catch(() =>
+																		notify('Copy is unavailable.', { tone: 'error' }),
+																	)
+																}
+																onOpenTasks={() => {
+																	openSessionPane()
+																}}
+																onUndoTurn={
+																	api.undoPreview && api.undoTurn
+																		? (turnId) => setUndoingTurn({ sessionId, turnId })
+																		: undefined
+																}
+																undoKept={undoKept}
+																projectRoot={project?.path}
+																closedWhileRunning={conversation?.closedWhileRunning === true}
+																onContinueStopped={
+																	conversation?.closedWhileRunning === true &&
+																	!thread.running &&
+																	!loading &&
+																	!restoringTabs &&
+																	!frozen &&
+																	project?.trusted &&
+																	project.status === 'ready' &&
+																	choice.provider &&
+																	providerReady
+																		? () => void act(() => retryReply(CONTINUE_STOPPED_PROMPT))
+																		: undefined
+																}
+																stopShownBelow={stopShownBelow}
+																renderMessageAction={(message, key) => (
+																	<MessageActions
 																		text={message.text}
-																	/>
-																</MessageActions>
-															)}
-														/>
+																		onRetry={
+																			retryable && retryable.reply === message
+																				? () => void act(() => retryReply(retryable.prompt))
+																				: undefined
+																		}
+																	>
+																		<LocalSpeechReadAloud
+																			speech={speech}
+																			messageId={key}
+																			text={message.text}
+																		/>
+																	</MessageActions>
+																)}
+															/>
+														</OutputCardsContext.Provider>
 													</PalStartContext.Provider>
 												</BackgroundWorkContext.Provider>
 											</ProjectFilesContext.Provider>
@@ -7510,6 +8099,14 @@ export function App({
 								</Button>
 							)}
 							<Composer
+								slashHandlers={slashHandlers}
+								loadProjectFiles={
+									filesEnabled && api.projectFileIndex
+										? (id) =>
+												api.projectFileIndex?.(id) ?? Promise.reject(new Error('no file list'))
+										: undefined
+								}
+								toolServers={plusServers}
 								variant={pal ? 'pal' : 'default'}
 								surface={surfaceControl}
 								pluginsSupported={!pal}
@@ -7549,7 +8146,7 @@ export function App({
 								onHarnessChange={(engine) => void act(() => selectHarness(engine))}
 								onRecheckEngines={() => act(retryConversationSetup)}
 								attachmentsSupported={!externalHarness}
-								reviewModes={permissionEngine === 'claude-code' ? ['prompt', 'plan'] : undefined}
+								reviewModes={offeredPermissionModes(permissionEngine, project.permissionModes)}
 								permissionScope={draftOwner}
 								onLeaveProject={() => void act(leaveProject)}
 								projects={projects.filter((item) => !item.palId)}
@@ -7658,11 +8255,13 @@ export function App({
 								onRemoveAttachment={(id) => void act(() => attached.remove(id))}
 								settings={settings}
 								capabilities={capabilities}
-								onSettingsChange={(value) =>
+								notice={closedModeNote?.owner === draftOwner ? closedModeNote.text : undefined}
+								onSettingsChange={(value) => {
+									setClosedModeNote(null)
 									void act(() =>
 										savedSettings.save(draftOwner, keepAuto({ choice, options: value })),
 									)
-								}
+								}}
 								plugins={pluginStates[pluginsKey]?.value}
 								pluginsLoading={pluginStates[pluginsKey]?.loading ?? false}
 								onOpenPlugins={() => void loadPlugins()}
@@ -7682,6 +8281,8 @@ export function App({
 								liveInputSupported={thread.liveInputSupported && !palConversation}
 								sending={sending[draftOwner] ?? false}
 								usage={palConversation ? undefined : thread.usage}
+								limits={usageLimits}
+								contextPanel={contextPanelSource}
 								shells={
 									// The open Activity panel's own list is the freshest count; otherwise the observer's.
 									detailsWork.state === 'known' && detailsWork.running > 0
@@ -7730,276 +8331,122 @@ export function App({
 						</div>
 					</div>
 				)}
-				{!palConversation && (
-					<aside
-						ref={panelAside}
-						className="jobs-panel"
-						data-open={jobsOpen}
-						inert={!jobsOpen}
-						aria-hidden={!jobsOpen}
-						aria-label={
-							panelView === 'activity'
-								? 'Activity'
-								: panelView === 'changes'
-									? 'Changes'
-									: panelView === 'outputs'
-										? 'Outputs'
-										: panelView === 'empty'
-											? 'Side panel'
-											: 'Project files'
+				{commitFor && commitFor.sessionId === sessionId && api.commitPreview && api.commit && (
+					<CommitDialog
+						load={() =>
+							api.commitPreview?.(commitFor.sessionId, commitFor.paths) ?? Promise.resolve(null)
 						}
-					>
-						<PanelResizeHandle
-							now={panelPx || panelWidth || MIN_PANEL_WIDTH}
-							min={panelKind === 'reading' ? READING_PANEL_MIN : MIN_PANEL_WIDTH}
-							max={() =>
-								Math.max(
-									panelKind === 'reading' ? READING_PANEL_MIN : MIN_PANEL_WIDTH,
-									(paneRoot.current?.getBoundingClientRect().width ?? 0) - CONVERSATION_MIN,
-								)
-							}
-							width={() => panelAside.current?.getBoundingClientRect().width ?? MIN_PANEL_WIDTH}
-							onDragging={setPanelResizing}
-							onResize={(width) =>
-								setPanelWidth(
-									clampPanelWidth(
-										width,
-										paneRoot.current?.getBoundingClientRect().width ?? 0,
-										panelKind,
-									),
-								)
-							}
-							onCommit={(width) =>
-								writePanelWidth(
-									localStorage,
-									group.id,
-									clampPanelWidth(
-										width,
-										paneRoot.current?.getBoundingClientRect().width ?? 0,
-										panelKind,
-									),
-									panelKind,
-								)
-							}
-							onReset={() => {
-								setPanelWidth(undefined)
-								clearPanelWidth(localStorage, group.id, panelKind)
-							}}
-						/>
-						{/* Shown only when the panel covers the pane (see style.css): the way back is a word. */}
-						<div className="panel-back-row">
-							<Button type="button" size="sm" variant="ghost-muted" onClick={closeDetails}>
-								<ArrowLeftIcon aria-hidden="true" />
-								Back to conversation
-							</Button>
-						</div>
-						{/* Changes draws its own one-row header: title, scope, counts, View and close. */}
-						{panelView !== 'changes' && (
-							<div className="section-heading panel-heading">
-								<PanelTabStrip
-									panelId="side-panel-body"
-									tabs={listedTabs}
-									active={shownPanelTab}
-									browsing={panelView === 'browse'}
-									canBrowse={filesEnabled}
-									canOutputs={outputsEnabled}
-									running={detailsWork.state === 'known' ? detailsWork.running : 0}
-									attention={needsAttention}
-									expanded={panelExpanded}
-									onActivate={(tab) => {
-										if (tab.kind === 'changes') setChangesFilter(undefined)
-										updatePanelTabs((state) => activatePanelTab(state, tab))
-									}}
-									onClose={(tab) => updatePanelTabs((state) => closePanelTab(state, tab))}
-									onOpenTab={(tab) => {
-										if (tab.kind === 'changes') setChangesFilter(undefined)
-										showPanelTab(
-											tab.kind === 'changes'
-												? 'changes'
-												: tab.kind === 'outputs'
-													? 'outputs'
-													: 'activity',
-										)
-									}}
-									onBrowse={() => updatePanelTabs(browsePanelTabs)}
-									onToggleExpanded={() => setPanelExpanded((value) => !value)}
-									onHide={closeDetails}
-								/>
-							</div>
-						)}
-						{/* The body is a tab panel; contents keeps the aside's own layout. */}
-						<div
-							id="side-panel-body"
-							role="tabpanel"
-							aria-label={
-								panelView === 'activity'
-									? 'Activity'
-									: panelView === 'changes'
-										? 'Changes'
-										: panelView === 'outputs'
-											? 'Outputs'
-											: panelView === 'empty'
-												? 'Side panel'
-												: 'Project files'
-							}
-							style={{ display: 'contents' }}
-						>
-							{(panelView === 'file' || panelView === 'browse') && project ? (
-								<FilePanelBody
-									api={api}
-									projectId={project.id}
-									projectName={project.name}
-									activePath={activePath}
-									line={panelTabs.line}
-									editors={editors}
-									dark={
-										appearance === 'dark' ||
-										(appearance === 'system' &&
-											window.matchMedia('(prefers-color-scheme: dark)').matches)
+						run={(request) => {
+							const owner = commitFor.sessionId
+							return (
+								api.commit?.(owner, request) ??
+								Promise.reject(new Error('This engine cannot commit from here.'))
+							)
+						}}
+						onClose={() => setCommitFor(undefined)}
+						returnFocus={() => commitTrigger.current}
+					/>
+				)}
+				{headerActionsVisible && (
+					<PaneGrid
+						layout={shownPaneLayout}
+						update={updatePaneLayout}
+						host={paneRoot}
+						render={renderPane}
+						shown={overlayPane}
+						onShow={setOverlayPane}
+						onHide={closeDetails}
+						onClosed={focusPaneButton}
+						onCloseSession={() => setSessionPanelOpen(false)}
+						session={
+							sessionPanelActive && sessionPanelSummary ? (
+								<SessionPanel
+									summary={sessionPanelSummary}
+									chatOnly={!project || Boolean(project.isChat)}
+									jobs={visibleJobs}
+									jobsKnown={jobsSessionId === sessionId && !jobsLoading && !jobsError}
+									now={clock}
+									onClose={() => setSessionPanelOpen(false)}
+									onCopyPath={
+										project
+											? () => void act(() => copyToClipboard(project.path, 'Path copied.'))
+											: undefined
 									}
-									wide={panelPx >= 560}
-									browsing={panelView === 'browse'}
-									onOpenPath={openProjectFile}
-									onNotice={announce}
-									refreshToken={filesRefresh}
-								/>
-							) : panelView === 'outputs' ? (
-								<OutputsPanel
-									api={api}
-									sessionId={sessionId}
+									contextPanel={contextPanelSource}
+									usage={thread.usage}
 									outputs={outputs}
-									selected={pickedOutput}
-									onSelect={pickOutput}
-									onNotice={announce}
-									workFolder={project?.path}
-									dark={
-										appearance === 'dark' ||
-										(appearance === 'system' &&
-											window.matchMedia('(prefers-color-scheme: dark)').matches)
+									onOpenOutput={openOutput}
+									onOpenChanges={() => {
+										openPane('changes')
+									}}
+									onOpenWork={() => {
+										openSessionPane()
+									}}
+									detached={git?.projectId === gitProjectId && git?.value?.branch === null}
+									sources={sources}
+									attachReason={
+										externalHarness
+											? 'This engine does not take attachments.'
+											: loading || restoringTabs || frozen
+												? 'Wait for the conversation to finish loading.'
+												: undefined
 									}
-								/>
-							) : panelView === 'empty' ? (
-								<div className="panel-empty">
-									<p>Nothing is open in this panel.</p>
-									<div className="panel-empty-actions">
-										<Button
-											type="button"
-											size="xs"
-											variant="ghost-muted"
-											onClick={() => {
-												setChangesFilter(undefined)
-												showPanelTab('changes')
-											}}
-										>
-											Changes
-										</Button>
-										<Button
-											type="button"
-											size="xs"
-											variant="ghost-muted"
-											onClick={() => showPanelTab('activity')}
-										>
-											Activity
-										</Button>
-										{filesEnabled && (
+									onAttach={() => void act(attached.pick)}
+									onOpenArchived={
+										project && !project.isChat && api.archivedConversations
+											? showArchivedConversations
+											: undefined
+									}
+									apps={thread.computerApps}
+									onRevokeApp={
+										api.revokeComputerApp && sessionId
+											? (app) =>
+													void act(
+														() => api.revokeComputerApp?.(sessionId, app) ?? Promise.resolve(),
+													)
+											: undefined
+									}
+									commit={
+										api.commitPreview && api.commit && !externalHarness ? (
 											<Button
 												type="button"
-												size="xs"
 												variant="ghost-muted"
-												onClick={() => updatePanelTabs(browsePanelTabs)}
+												size="xs"
+												className="session-commit"
+												data-testid="session-commit"
+												disabled={!commitState.enabled}
+												title={commitState.reason}
+												aria-label={
+													commitState.reason
+														? `Commit changes. ${commitState.reason}.`
+														: 'Commit changes'
+												}
+												onClick={(event) => {
+													commitTrigger.current = event.currentTarget
+													setCommitFor({ sessionId, paths: commitPaths })
+												}}
 											>
-												Open a file
+												Commit changes
 											</Button>
-										)}
-									</div>
-								</div>
-							) : panelView === 'changes' ? (
-								<ChangesPanel
-									tools={thread.tools}
-									timeline={thread.timeline}
-									receiptIds={changesFilter}
-									focus={changesFocus}
-									onShowAll={() => setChangesFilter(undefined)}
-									onClose={closeDetails}
-									expanded={panelExpanded}
-									onToggleExpanded={() => setPanelExpanded((value) => !value)}
-									source={workingTree}
-									refreshToken={filesRefresh}
-									onOpenFile={projectFiles ? openChangedFile : undefined}
-									onOpenInEditor={
-										projectFiles && api.openProjectPath ? openChangedFileInEditor : undefined
+										) : undefined
 									}
-									onOpenWorkingFile={projectFiles ? openWorkingTreeFile : undefined}
-									onOpenWorkingInEditor={
-										projectFiles && api.openProjectPath ? openWorkingTreeFileInEditor : undefined
-									}
-									onCopy={(text, done) =>
-										void copyToClipboard(text, done).catch(() =>
-											notify('Copy is unavailable.', { tone: 'error' }),
+									onStopJob={(job) => {
+										const owner = sessionId
+										const generation = navigation.current
+										const refresh = refreshJobs.current
+										return act(() =>
+											runJobAction(owner, generation, async () => {
+												await api.stopJob(owner, job.id)
+												await refresh?.()
+											}),
 										)
-									}
-									dark={
-										appearance === 'dark' ||
-										(appearance === 'system' &&
-											window.matchMedia('(prefers-color-scheme: dark)').matches)
-									}
+									}}
 								/>
-							) : (
-								<div className="panel-scroll">
-									<ConversationTasks thread={thread} />
-									<section className="background-processes" aria-label="Background processes">
-										<div className="background-processes-heading">
-											<h3>Background processes</h3>
-											{!jobsError && !jobsLoading && jobsSessionId === sessionId && (
-												<kbd
-													aria-label={`${visibleJobs.filter((job) => job.status === 'running').length} running`}
-												>
-													{visibleJobs.filter((job) => job.status === 'running').length}
-												</kbd>
-											)}
-										</div>
-										{jobsError ? (
-											<p role="alert" className="jobs-error">
-												{jobsError}
-											</p>
-										) : jobsLoading || jobsSessionId !== sessionId ? (
-											<p className="quiet">Loading background work…</p>
-										) : visibleJobs.length === 0 ? (
-											<p className="quiet">No background processes in this conversation.</p>
-										) : (
-											[...visibleJobs]
-												.sort(
-													(a, b) => Number(b.status === 'running') - Number(a.status === 'running'),
-												)
-												.map((job) => {
-													const owner = sessionId
-													const generation = navigation.current
-													const refresh = refreshJobs.current
-													return (
-														<JobRow
-															key={`${owner}:${generation}:${job.id}:${job.startedAt}`}
-															job={job}
-															disabled={frozen}
-															onRead={() =>
-																runJobAction(owner, generation, () => api.readJob(owner, job.id))
-															}
-															onStop={() =>
-																runJobAction(owner, generation, async () => {
-																	await api.stopJob(owner, job.id)
-																	await refresh?.()
-																})
-															}
-														/>
-													)
-												})
-										)}
-									</section>
-								</div>
-							)}
-						</div>
-					</aside>
+							) : undefined
+						}
+					/>
 				)}
 			</main>
-		</PaneToasts>
+		</LinkRoutedToasts>
 	)
 }

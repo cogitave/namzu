@@ -9,9 +9,12 @@
 	container: conversation-bar / inline-size;
 }
 .conversation-bar-title {
-	flex: 0 4 auto;
+	/* The title takes the room its text needs; only a bar too narrow for it makes it give way. */
+	flex: 0 1 auto;
 	min-width: 0;
-	margin: 0;
+	/* 6px of padding on each side is the room the hover shape needs; the margin gives it back. */
+	margin: 0 -6px;
+	padding: 0 6px;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -20,8 +23,67 @@
 	line-height: var(--leading-interface);
 	color: var(--foreground);
 }
+.conversation-bar-title-text {
+	position: relative;
+	isolation: isolate;
+	display: block;
+	max-width: 100%;
+	margin: 0;
+	padding: 0;
+	overflow: hidden;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	cursor: text;
+	-webkit-app-region: no-drag;
+}
+/* The hover and focus shape reach 6px past the text on each side without adding to its width. */
+.conversation-bar-title-text::before {
+	content: "";
+	position: absolute;
+	inset: 0 -6px;
+	z-index: -1;
+	border-radius: var(--control-radius);
+	pointer-events: none;
+}
+.conversation-bar-title-text:hover::before {
+	background: var(--accent);
+}
+.conversation-bar-title-text:focus-visible {
+	outline: none;
+}
+.conversation-bar-title-text:focus-visible::before {
+	box-shadow: var(--focus-ring);
+}
+.conversation-bar-title[data-editing] {
+	flex: 0 1 280px;
+	overflow: visible;
+}
+.conversation-bar-rename {
+	width: 100%;
+	min-width: 120px;
+	height: 24px;
+	padding: 0 6px;
+	border: 1px solid var(--ring, var(--primary));
+	border-radius: var(--control-radius);
+	background: var(--background);
+	color: var(--foreground);
+	font: inherit;
+	outline: none;
+	-webkit-app-region: no-drag;
+}
+.conversation-bar-title ~ .conversation-actions-trigger,
+.conversation-bar-chevron {
+	flex: none;
+	-webkit-app-region: no-drag;
+}
 .conversation-bar-project {
-	flex: 0 1 auto;
+	/* The folder name gives way before the title does. */
+	flex: 0 100 auto;
 	min-width: 56px;
 	max-width: 180px;
 	overflow: hidden;
@@ -56,46 +118,33 @@
 	position: relative;
 	-webkit-app-region: no-drag;
 }
-/* A tool whose panel is open carries a fill of 8 percent of the text colour. */
-.conversation-bar-button[data-open] {
+/* The pane buttons: 24 square, 30 apart, and a thin divider after Session (4 more). Open is a filled
+   rounded square behind the icon. */
+.pane-buttons {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	flex: none;
+	-webkit-app-region: no-drag;
+}
+.pane-buttons > button,
+.pane-buttons > .conversation-header-button,
+.pane-buttons > [data-slot="button"] {
+	width: 24px;
+	height: 24px;
+	border-radius: var(--radius-chip);
+	padding: 0;
+	-webkit-app-region: no-drag;
+}
+.pane-button[data-open] {
 	background: color-mix(in srgb, var(--foreground) var(--panel-open-fill), transparent);
 	color: var(--foreground);
 }
-/* With changes the button grows to show the lines added and removed beside its icon. */
-.conversation-bar-buttons > .conversation-bar-changes[data-has-changes] {
-	width: auto;
-	gap: 6px;
-	padding-inline: 8px;
-}
-/* Outputs shows how many files the conversation wrote beside its icon. */
-.conversation-bar-buttons > .conversation-bar-outputs {
-	width: auto;
-	gap: 6px;
-	padding-inline: 8px;
-}
-.conversation-bar-outputs-count {
-	font-size: var(--text-caption);
-	line-height: var(--leading-caption);
-	font-weight: var(--weight-control);
-	font-variant-numeric: tabular-nums;
-}
-.conversation-bar-lines {
-	display: inline-flex;
-	gap: 5px;
-	font-size: var(--text-caption);
-	line-height: var(--leading-caption);
-	font-weight: var(--weight-control);
-	font-variant-numeric: tabular-nums;
-}
-.conversation-bar-added {
-	color: var(--bar-added, #15803d);
-}
-.conversation-bar-removed {
-	color: var(--bar-removed, var(--error-foreground));
-}
-.dark .conversation-bar {
-	--bar-added: #4ade80;
-	--bar-removed: #ff8a8a;
+.pane-buttons-divider {
+	width: 1px;
+	height: 16px;
+	margin-inline: -1px;
+	background: var(--border);
 }
 /* A small figure on the corner of a button: how many changes, how many terminals. */
 .conversation-bar-count {

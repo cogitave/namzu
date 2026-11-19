@@ -7,6 +7,8 @@ import { probeOptionalPackage } from '../../context/capabilities.js'
 
 import type { SessionExportConfig } from '../../config/schema.js'
 
+export { SESSION_EXPORT_EVENT_TYPES } from './session-export-events.js'
+
 /**
  * Turning `telemetry.sessionExport` in a config file into a live listener.
  *

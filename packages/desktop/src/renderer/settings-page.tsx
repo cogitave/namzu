@@ -1,22 +1,54 @@
-import { Activity, Bot, KeyRound, SquareTerminal, Volume2, Wrench } from 'lucide-react'
-import { useEffect, useId, useRef, useState } from 'react'
-import { newerKernelText } from '../shared/engine-update-protocol.js'
-import type { ProjectView } from '../shared/protocol.js'
-import { FINISHED_NOTICE_AFTER_SECONDS } from '../shared/settings-protocol.js'
+import { Dialog } from '@base-ui/react/dialog'
 import {
-	type DataFolderKind,
-	type DesktopInfo,
-	type DesktopSettings,
-	SETTINGS_SECTIONS,
-	type SettingsSection,
-	type StartupBehavior,
+	Activity,
+	Bell,
+	Bot,
+	KeyRound,
+	Monitor,
+	SquareTerminal,
+	Volume2,
+	Wrench,
+} from 'lucide-react'
+import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
+import { CODE_FONT_SIZE_DEFAULT, type CodeThemeKey } from '../shared/code-themes.js'
+import { newerKernelText } from '../shared/engine-update-protocol.js'
+import { type OsState, meteredLine, trayName } from '../shared/os-state.js'
+import type { DesktopApi, ProjectView } from '../shared/protocol.js'
+import {
+	type CatalogueEntry,
+	type CatalogueOption,
+	FINISHED_NOTICE_AFTER_SECONDS,
+	FONT_FAMILY_PREFIX,
+	RESPONSE_FONT_MATCH,
+	appliesText,
+	catalogueEntry,
+	isSafeFontName,
+	storedFamily,
+} from '../shared/settings-catalogue.js'
+import type {
+	BannerLevel,
+	BrowserCookieScope,
+	DataFolderKind,
+	DesktopInfo,
+	DesktopSettings,
+	MotionChoice,
+	NoticeLevel,
+	NoticeSound,
+	SettingsSection,
+	StartupBehavior,
+	TranscriptTextSize,
+	TranscriptWidth,
 } from '../shared/settings-protocol.js'
+import { DICTATION_CHOICES } from '../shared/shortcuts.js'
 import type { UpdateInfo, UpdateState } from '../shared/update-protocol.js'
-import { configSearchEntries } from './config-settings-model.js'
+import { CodePreview } from './code-preview.js'
+import { OWN_ROW_CONFIG_PATHS, configSearchEntries } from './config-settings-model.js'
 import { ConfigSettingsGroup } from './config-settings-section.js'
+import { ConnectedBrowsersRow } from './connected-browsers.js'
 import { copyPlainText } from './copy-button.js'
 import { engineSourceText, engineStatusText, plainVersion } from './engine-delivery-model.js'
 import { EngineUpdateRows, type EngineUpdateTarget } from './engine-updates-section.js'
+import { FontChoice } from './font-choice.js'
 import { HooksRows } from './hooks-section.js'
 import {
 	DownloadIcon,
@@ -30,29 +62,44 @@ import {
 	SunIcon,
 	XIcon,
 } from './icons.js'
-import { INTERFACE_FONT_CHOICES, useInterfaceFont } from './interface-font.js'
+import {
+	FAMILY_PREFIX,
+	INTERFACE_FONT_CHOICES,
+	familyOf,
+	parseInterfaceFont,
+	useInterfaceFont,
+} from './interface-font.js'
 import { LocalListeningSettingsContent } from './local-listening-settings.js'
 import { LocalSpeechSettingsContent } from './local-speech-settings.js'
 import { McpServersRows } from './mcp-servers-section.js'
+import { MemoryRows } from './memory-section.js'
 import { ModelsSection } from './models-section.js'
 import { middleEllipsis, tildePath } from './path-display.js'
 import { SettingsConfirmDialog } from './settings-confirm-dialog.js'
 import {
 	DATA_FOLDER_NOTES,
+	DESKTOP_ASKS_QUESTIONS,
 	SETTINGS_ENTRIES,
 	SETTINGS_SEARCH_SUBTITLE,
+	SETTINGS_SECTION_APPLY_NOTE,
 	SETTINGS_SECTION_SUBTITLES,
 	SETTINGS_SECTION_TITLES,
+	type SettingsEntry,
 	aboutDetailsText,
+	entryIsDrawn,
 	lastCheckedText,
 	platformText,
 	projectTrustText,
 	searchSettings,
 	updateStatusView,
+	visibleNavGroups,
 } from './settings-model.js'
-import { Row, Switch } from './settings-row.js'
+import { Row, SegmentedControl, SelectControl, Switch } from './settings-row.js'
+import { ShortcutBox } from './settings-shortcut.js'
+import { StoragePanel, TrustedFoldersPanel } from './settings-storage.js'
 import type { Appearance } from './sidebar.js'
 import { Button } from './ui/button.js'
+import { useClock } from './use-clock.js'
 import { type ConfigSettingsControls, useConfigSettings } from './use-config-settings.js'
 import type { DesktopSettingsControls } from './use-desktop-settings.js'
 import { useEngineDelivery } from './use-engine-delivery.js'
@@ -61,7 +108,11 @@ import { useHooksView } from './use-hooks-view.js'
 import type { LocalListeningControls } from './use-local-listening.js'
 import type { LocalSpeechControls } from './use-local-speech.js'
 import { useMcpServers } from './use-mcp-servers.js'
+import { useSavedMemories, useStandingInstructions } from './use-memory-controls.js'
+import { useOsState } from './use-os-state.js'
 import { useProviderConnections } from './use-provider-connections.js'
+import { useStorageUsage, useTrustedFolders } from './use-storage-views.js'
+import { useUserMcpServers } from './use-user-mcp-servers.js'
 import './settings-page.css'
 
 const SECTION_ICONS: Record<SettingsSection, IconComponent> = {
@@ -71,41 +122,85 @@ const SECTION_ICONS: Record<SettingsSection, IconComponent> = {
 	tools: Wrench as IconComponent,
 	projects: FoldersIcon,
 	appearance: SunIcon,
+	notifications: Bell as IconComponent,
 	terminal: SquareTerminal as IconComponent,
+	desktop: Monitor as IconComponent,
 	telemetry: Activity as IconComponent,
 	updates: DownloadIcon,
 	speech: Volume2 as IconComponent,
 	about: InfoIcon,
 }
 
-/** The left column: the sections, as a list of buttons in the Plugins page's style. */
+/**
+ * The left column: the search field on top, then the sections in groups with a hairline between
+ * them. While a search is typed only the sections with a match are listed. It never scrolls.
+ */
 export function SettingsSidebar({
 	section,
 	onSection,
+	query = '',
+	onQuery = () => undefined,
+	matches,
+	searchRef,
 }: {
 	section: SettingsSection
 	onSection: (section: SettingsSection) => void
+	query?: string
+	onQuery?: (query: string) => void
+	/** The search results; their sections are the ones listed. Absent: every section. */
+	matches?: readonly SettingsEntry[]
+	searchRef?: React.RefObject<HTMLInputElement | null>
 }) {
+	const groups = visibleNavGroups(matches)
 	return (
-		<div className="plugins-sidebar-content settings-sidebar-content">
-			<header className="plugins-sidebar-header">
-				<span>Settings</span>
-			</header>
+		<div className="settings-sidebar-content">
+			<div className="settings-nav-search">
+				<SearchIcon aria-hidden="true" />
+				<input
+					ref={searchRef}
+					type="search"
+					aria-label="Search settings"
+					placeholder="Search"
+					value={query}
+					autoComplete="off"
+					spellCheck={false}
+					onChange={(event) => onQuery(event.target.value)}
+				/>
+				{query && (
+					<Button
+						variant="ghost-muted"
+						size="icon-xs"
+						aria-label="Clear settings search"
+						onClick={() => {
+							onQuery('')
+							searchRef?.current?.focus()
+						}}
+					>
+						<XIcon aria-hidden="true" />
+					</Button>
+				)}
+			</div>
 			<nav className="settings-sidebar-navigation" aria-label="Settings sections">
-				{SETTINGS_SECTIONS.map((id) => {
-					const Icon = SECTION_ICONS[id]
-					return (
-						<button
-							key={id}
-							type="button"
-							aria-current={section === id ? 'page' : undefined}
-							onClick={() => onSection(id)}
-						>
-							<Icon aria-hidden="true" />
-							<span>{SETTINGS_SECTION_TITLES[id]}</span>
-						</button>
-					)
-				})}
+				{groups.map((group, index) => (
+					// biome-ignore lint/suspicious/noArrayIndexKey: the groups are a fixed list
+					<div key={index} className="settings-nav-group">
+						{group.map((id) => {
+							const Icon = SECTION_ICONS[id]
+							return (
+								<button
+									key={id}
+									type="button"
+									aria-current={section === id ? 'page' : undefined}
+									onClick={() => onSection(id)}
+								>
+									<Icon aria-hidden="true" />
+									<span>{SETTINGS_SECTION_TITLES[id]}</span>
+								</button>
+							)
+						})}
+					</div>
+				))}
+				{groups.length === 0 && <p className="settings-nav-empty">No section matches.</p>}
 			</nav>
 		</div>
 	)
@@ -116,6 +211,8 @@ export interface SettingsPageProps {
 	onSection: (section: SettingsSection, focusId?: string) => void
 	/** A setting the page should scroll to and focus after it renders, from a search result. */
 	focusId?: string
+	/** Changes with every ask to open Settings, so a search typed earlier gives way to the one asked for. */
+	request?: number
 	settings: DesktopSettingsControls
 	appearance: Appearance
 	onAppearanceChange: (value: Appearance) => void
@@ -140,6 +237,8 @@ export interface SettingsPageProps {
 	info?: DesktopInfo
 	infoError?: string
 	onOpenFolder?: (kind: DataFolderKind) => void
+	/** Closes Settings and shows the Plugins page; absent where there is no such page. */
+	onOpenPlugins?: () => void
 	/** The clock is passed in so relative times are deterministic in tests. */
 	now: number
 }
@@ -163,38 +262,121 @@ function useTerminalShells(): ShellChoice[] | null | undefined {
 	return bridge?.terminalShells ? shells : null
 }
 
-export function SettingsPage(props: SettingsPageProps) {
-	const { section, focusId } = props
-	const [query, setQuery] = useState('')
-	const searchId = useId()
+/** What the dialog's search needs from the engine's rows and the machine, and what it found. */
+interface SettingsSearch {
+	query: string
+	results: SettingsEntry[]
+	shells: ShellChoice[] | null | undefined
+	config: ConfigSettingsControls
+	hasAppUpdater: boolean
+	os: OsState | null | undefined
+}
+
+function useSettingsSearch(
+	query: string,
+	update: SettingsPageProps['update'],
+	projectId?: string,
+): SettingsSearch {
 	const shells = useTerminalShells()
-	const config = useConfigSettings(typeof window === 'undefined' ? undefined : window.namzu, true)
+	const os = useOsState(typeof window === 'undefined' ? undefined : window.namzu)
+	const config = useConfigSettings(
+		typeof window === 'undefined' ? undefined : window.namzu,
+		true,
+		projectId,
+	)
+	const delivery = useEngineDelivery()
 	// A row that does nothing here is neither shown nor found by search.
-	const hasShellChoice = (shells?.length ?? 0) > 1
-	const hasAppUpdater = props.update !== undefined && props.update.state.status !== 'disabled'
+	const hasAppUpdater = update !== undefined && update.state.status !== 'disabled'
+	const facts = {
+		shells,
+		hasAppUpdater,
+		canFetchEngines: delivery !== undefined,
+		os,
+	}
 	const results = searchSettings(
 		query,
-		[...SETTINGS_ENTRIES, ...configSearchEntries(config.view)].filter(
-			(entry) =>
-				// Shown as “Run hooks” in its own place, so the plain setting is not a second result.
-				entry.id !== 'cfg-disableHooks' &&
-				(entry.id !== 'terminal-shell' || hasShellChoice) &&
-				(entry.id !== 'terminal-restore' || shells !== null) &&
-				(entry.id !== 'auto-download' || hasAppUpdater),
+		[...SETTINGS_ENTRIES, ...configSearchEntries(config.view)].filter((entry) =>
+			entryIsDrawn(entry.id, facts),
 		),
 	)
+	return { query, results, shells, config, hasAppUpdater, os }
+}
+
+/** The page's content on its own: the search is typed elsewhere and passed in as `query`. */
+export function SettingsPage(props: SettingsPageProps & { query?: string }) {
+	const search = useSettingsSearch(props.query ?? '', props.update, props.engineTarget?.projectId)
+	return <SettingsContent {...props} search={search} />
+}
+
+function SettingsContent(
+	props: SettingsPageProps & { search: SettingsSearch; onQuery?: (query: string) => void },
+) {
+	const { section, focusId, search } = props
+	const { query, results, shells, config, hasAppUpdater, os } = search
 	const searching = query.trim().length > 0
 	const page = useRef<HTMLElement>(null)
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a new target or section is the trigger.
 	useEffect(() => {
 		if (!focusId || searching) return
-		const row = document.getElementById(`setting-${focusId}`)
-		if (!row) return
-		row.scrollIntoView?.({ block: 'center' })
-		row.querySelector<HTMLElement>('input, button, summary, [tabindex]')?.focus({
-			preventScroll: true,
+		const land = (): boolean => {
+			const row = document.getElementById(`setting-${focusId}`)
+			if (!row) return false
+			// Only the content column scrolls. scrollIntoView would also move the dialog's own frame
+			// when the row sits near the end and the column cannot centre it, cutting off the title.
+			const column = page.current
+			if (column) {
+				const box = column.getBoundingClientRect()
+				const at = row.getBoundingClientRect()
+				column.scrollTop += at.top - box.top - Math.max(0, (box.height - at.height) / 2)
+			}
+			const control = row.querySelector<HTMLElement>(
+				'input:not(:disabled), select:not(:disabled), textarea:not(:disabled), button:not(:disabled), summary, [tabindex]',
+			)
+			if (control) control.focus({ preventScroll: true })
+			else {
+				// A row with nothing to press (a list) takes the focus itself.
+				row.tabIndex = -1
+				row.focus({ preventScroll: true })
+			}
+			return true
+		}
+		// A row can lose the focus to the dialog a moment after it took it (About does, as the dialog
+		// settles): look again shortly, and take it back only when it fell to the dialog itself, never
+		// from a control the person chose.
+		const lostToDialog = (): boolean => {
+			const at = document.activeElement
+			return !at || at === document.body || at.classList.contains('settings-dialog')
+		}
+		const timers: number[] = []
+		const settle = () => {
+			for (const delay of [60, 200, 600])
+				timers.push(
+					window.setTimeout(() => {
+						if (lostToDialog()) land()
+					}, delay),
+				)
+		}
+		const clear = () => {
+			for (const timer of timers) window.clearTimeout(timer)
+		}
+		if (land()) {
+			settle()
+			return clear
+		}
+		// Some rows are drawn once their facts arrive (About, the engine's list): land when it is there.
+		const content = page.current
+		if (!content || typeof MutationObserver === 'undefined') return
+		const watch = new MutationObserver(() => {
+			if (!land()) return
+			watch.disconnect()
+			settle()
 		})
-	}, [focusId, section, searching])
+		watch.observe(content, { childList: true, subtree: true })
+		return () => {
+			watch.disconnect()
+			clear()
+		}
+	}, [focusId, section, searching, props.request, config.view !== undefined])
 	return (
 		<section
 			ref={page}
@@ -209,34 +391,12 @@ export function SettingsPage(props: SettingsPageProps) {
 						<h1>{searching ? 'Search results' : SETTINGS_SECTION_TITLES[section]}</h1>
 						<p>{searching ? SETTINGS_SEARCH_SUBTITLE : SETTINGS_SECTION_SUBTITLES[section]}</p>
 					</div>
-					<div className="settings-page-search">
-						<SearchIcon aria-hidden="true" />
-						<input
-							id={searchId}
-							type="search"
-							aria-label="Search settings"
-							placeholder="Search settings"
-							value={query}
-							onChange={(event) => setQuery(event.target.value)}
-							onKeyDown={(event) => {
-								if (event.key === 'Escape' && query) {
-									event.stopPropagation()
-									setQuery('')
-								}
-							}}
-						/>
-						{query && (
-							<Button
-								variant="ghost-muted"
-								size="icon-xs"
-								aria-label="Clear settings search"
-								onClick={() => setQuery('')}
-							>
-								<XIcon aria-hidden="true" />
-							</Button>
-						)}
-					</div>
 				</header>
+				{!searching && SETTINGS_SECTION_APPLY_NOTE[section] && (
+					<p className="settings-note settings-section-note">
+						{SETTINGS_SECTION_APPLY_NOTE[section]}
+					</p>
+				)}
 				{props.settings.error && (
 					<p role="alert" className="settings-error">
 						{props.settings.error}
@@ -260,7 +420,7 @@ export function SettingsPage(props: SettingsPageProps) {
 									<button
 										type="button"
 										onClick={() => {
-											setQuery('')
+											props.onQuery?.('')
 											props.onSection(entry.section, entry.id)
 										}}
 									>
@@ -275,17 +435,135 @@ export function SettingsPage(props: SettingsPageProps) {
 						</ul>
 					</section>
 				) : (
-					<SectionBody {...props} shells={shells} hasAppUpdater={hasAppUpdater} config={config} />
+					<SectionBody
+						{...props}
+						shells={shells}
+						hasAppUpdater={hasAppUpdater}
+						config={config}
+						os={os}
+					/>
 				)}
 			</div>
 		</section>
 	)
 }
 
+export interface SettingsDialogProps extends SettingsPageProps {
+	onClose: () => void
+	/** Where the focus goes when the dialog closes: the control that opened it. */
+	returnFocus?: () => HTMLElement | null
+	/** A confirmation another part of the app asks while Settings is open; it stacks above this dialog. */
+	stacked?: ReactNode
+}
+
+/**
+ * Settings as a dialog over the app: a title band, the sections and their search on the left, the
+ * chosen section on the right. The app behind is inert and dimmed. Esc clears a typed search first
+ * and then closes; so do the X button and a click on the dimmed area.
+ */
+export function SettingsDialog({ onClose, returnFocus, stacked, ...props }: SettingsDialogProps) {
+	// Set by the layout while it is mounted: clears a typed search and says whether there was one.
+	const clearSearch = useRef<() => boolean>(() => false)
+	const search = useRef<HTMLInputElement>(null)
+	return (
+		<Dialog.Root
+			open
+			onOpenChange={(open, details) => {
+				if (open) return
+				if (details.reason === 'escape-key' && clearSearch.current()) {
+					details.cancel()
+					return
+				}
+				onClose()
+			}}
+		>
+			<Dialog.Portal>
+				<Dialog.Backdrop className="settings-dialog-scrim" />
+				<Dialog.Viewport className="settings-dialog-viewport">
+					<Dialog.Popup
+						className="settings-dialog"
+						aria-modal="true"
+						initialFocus={() => (props.focusId ? false : search.current)}
+						finalFocus={returnFocus}
+					>
+						<header className="settings-dialog-title">
+							<Dialog.Title>Settings</Dialog.Title>
+							<Dialog.Close
+								className="settings-dialog-close"
+								aria-label="Close settings"
+								render={<Button variant="ghost-muted" size="icon-xs" />}
+							>
+								<XIcon aria-hidden="true" />
+							</Dialog.Close>
+						</header>
+						<SettingsDialogLayout {...props} clearSearch={clearSearch} searchRef={search} />
+						{stacked}
+					</Dialog.Popup>
+				</Dialog.Viewport>
+			</Dialog.Portal>
+		</Dialog.Root>
+	)
+}
+
+function SettingsDialogLayout({
+	clearSearch,
+	searchRef,
+	...props
+}: SettingsPageProps & {
+	clearSearch: React.RefObject<() => boolean>
+	searchRef: React.RefObject<HTMLInputElement | null>
+}) {
+	const [query, setQuery] = useState('')
+	const search = useSettingsSearch(query, props.update, props.engineTarget?.projectId)
+	const searching = query.trim().length > 0
+	// biome-ignore lint/correctness/useExhaustiveDependencies: an ask from outside is the trigger
+	useEffect(() => setQuery(''), [props.section, props.focusId, props.request])
+	clearSearch.current = () => {
+		if (!query) return false
+		setQuery('')
+		return true
+	}
+	return (
+		<div className="settings-dialog-body">
+			<aside className="settings-dialog-nav" aria-label="Settings navigation">
+				<SettingsSidebar
+					section={props.section}
+					onSection={(section) => {
+						setQuery('')
+						props.onSection(section)
+					}}
+					query={query}
+					onQuery={setQuery}
+					matches={searching ? search.results : undefined}
+					searchRef={searchRef}
+				/>
+			</aside>
+			<SettingsContent {...props} search={search} onQuery={setQuery} />
+		</div>
+	)
+}
+
+/**
+ * The sections that draw the engine's own rows under the app's. A section the engine files a row
+ * under but that is missing here shows nothing: the row exists and no one can reach it.
+ */
+export const ENGINE_ROW_SECTIONS: readonly SettingsSection[] = [
+	'general',
+	'models',
+	'agent',
+	'tools',
+	'projects',
+	'appearance',
+	'terminal',
+	'telemetry',
+	'updates',
+]
+
 interface SectionProps extends SettingsPageProps {
 	shells: ShellChoice[] | null | undefined
 	hasAppUpdater: boolean
 	config: ConfigSettingsControls
+	os: OsState | null | undefined
 }
 
 /** The page heading above is the section's name, so the body does not repeat it. */
@@ -293,29 +571,51 @@ function SectionBody(props: SectionProps) {
 	return (
 		<div className="settings-section" data-section={props.section}>
 			{props.section === 'general' && <GeneralSection {...props} />}
-			{props.section === 'models' && <ModelsContainer />}
-			{props.section === 'tools' && <McpServersContainer {...props} />}
-			{props.section === 'tools' && <HooksContainer {...props} />}
+			{props.section === 'models' && (
+				<>
+					<h2 className="settings-section-title">Providers</h2>
+					<ModelsContainer />
+				</>
+			)}
+			{props.section === 'tools' && (
+				<>
+					<h2 className="settings-section-title">Tool servers and hooks</h2>
+					<McpServersContainer {...props} />
+					<HooksContainer {...props} />
+				</>
+			)}
 			{props.section === 'projects' && <ProjectsSection {...props} />}
 			{props.section === 'appearance' && <AppearanceSection {...props} />}
+			{props.section === 'notifications' && <NotificationsSection {...props} />}
 			{props.section === 'updates' && <UpdatesSection {...props} />}
-			{(props.section === 'general' ||
-				props.section === 'models' ||
-				props.section === 'agent' ||
-				props.section === 'tools' ||
-				props.section === 'projects' ||
-				props.section === 'terminal' ||
-				props.section === 'telemetry' ||
-				props.section === 'updates') && (
+			{props.section === 'desktop' && <DesktopSection {...props} />}
+			{props.section === 'terminal' && <TerminalSettings {...props} />}
+			{props.section === 'agent' && <AgentRows {...props} />}
+			{props.section !== 'agent' && ENGINE_ROW_SECTIONS.includes(props.section) && (
 				<ConfigSettingsGroup
 					section={props.section}
 					config={props.config}
-					omit={props.section === 'tools' ? ['mcpServers', 'disableHooks'] : undefined}
+					omit={props.section === 'tools' ? OWN_ROW_CONFIG_PATHS : undefined}
+					after={
+						props.section === 'tools'
+							? {
+									heading: 'Browser',
+									title: 'Built-in browser',
+									rows: <BuiltInBrowserRows {...props} />,
+								}
+							: undefined
+					}
+					fallbackHeading={
+						props.section === 'terminal'
+							? 'Terminal app'
+							: props.section === 'updates'
+								? 'Command line'
+								: undefined
+					}
 					heading={
 						props.section === 'general' ||
 						props.section === 'models' ||
-						props.section === 'projects' ||
-						props.section === 'updates'
+						props.section === 'projects'
 							? 'Namzu settings'
 							: undefined
 					}
@@ -327,13 +627,66 @@ function SectionBody(props: SectionProps) {
 	)
 }
 
+/**
+ * The browser beside a conversation: what opens in it, how long its sign-ins last, where a link in a
+ * reply goes, and the table of the browsers Namzu can use. They sit in Tools after the engine's own
+ * Browser rows, because they are about the same thing from the app's side; the engine's Site
+ * permissions do not govern this pane, which opens any web address a person or a link gives it.
+ */
+function BuiltInBrowserRows({ settings }: SectionProps) {
+	const saved = settings.settings
+	const cookies = catalogueEntry('browser-cookies').control as {
+		options: readonly CatalogueOption[]
+	}
+	const bridge = typeof window === 'undefined' ? undefined : window.namzu
+	return (
+		<>
+			<CatalogueRow id="browser-auto-open">
+				<Switch
+					label={labelOf('browser-auto-open')}
+					checked={saved?.autoOpenFiles ?? true}
+					disabled={!saved}
+					onChange={(value) => void settings.change({ autoOpenFiles: value })}
+				/>
+			</CatalogueRow>
+			<CatalogueRow id="browser-cookies">
+				<SelectControl
+					label={labelOf('browser-cookies')}
+					value={saved?.browserCookies ?? 'conversation'}
+					disabled={!saved}
+					onChange={(value) =>
+						void settings.change({ browserCookies: value as BrowserCookieScope })
+					}
+				>
+					{cookies.options.map((option) => (
+						<option key={option.value} value={option.value}>
+							{defaultMarked('browser-cookies', option.value, option.label)}
+						</option>
+					))}
+				</SelectControl>
+			</CatalogueRow>
+			<CatalogueRow id="open-links-in-browser">
+				<Switch
+					label={labelOf('open-links-in-browser')}
+					checked={saved?.openLinksInBrowser ?? true}
+					disabled={!saved}
+					onChange={(value) => void settings.change({ openLinksInBrowser: value })}
+				/>
+			</CatalogueRow>
+			<ConnectedBrowsersRow bridge={bridge} />
+		</>
+	)
+}
+
 function McpServersContainer({ engineTarget, projects }: SectionProps) {
 	const bridge = typeof window === 'undefined' ? undefined : window.namzu
 	const projectId = engineTarget?.projectId
 	const servers = useMcpServers(bridge, projectId)
+	const own = useUserMcpServers(bridge, servers.reload)
 	return (
 		<McpServersRows
 			servers={servers}
+			own={own}
 			projectName={projects.find((project) => project.id === projectId)?.name}
 		/>
 	)
@@ -352,28 +705,123 @@ function HooksContainer({ engineTarget, projects, config }: SectionProps) {
 	)
 }
 
+/** Agent: the engine's rows, with the app's own sleep rows and the memory rows drawn under their headings. */
+function AgentRows(props: SectionProps) {
+	const { engineTarget, projects, config } = props
+	const bridge = typeof window === 'undefined' ? undefined : window.namzu
+	const projectId = engineTarget?.projectId
+	const [open, setOpen] = useState(false)
+	const instructions = useStandingInstructions(bridge)
+	const memory = useSavedMemories(bridge, projectId, open)
+	// The Memory heading is drawn only when there is a row to put under it.
+	const memoryRows = instructions.supported || memory.supported
+	return (
+		<ConfigSettingsGroup
+			section="agent"
+			config={config}
+			lead={[
+				{ heading: 'While Namzu works', rows: <AgentSleepRows {...props} /> },
+				...(memoryRows
+					? [
+							{
+								heading: 'Memory',
+								rows: (
+									<MemoryRows
+										instructions={instructions}
+										memory={{ ...memory, open, setOpen }}
+										hasProject={projectId !== undefined}
+										projectName={projects.find((project) => project.id === projectId)?.name}
+									/>
+								),
+							},
+						]
+					: []),
+			]}
+		/>
+	)
+}
+
 function ModelsContainer() {
 	const bridge = typeof window === 'undefined' ? undefined : window.namzu
 	return <ModelsSection connections={useProviderConnections(bridge, true)} />
 }
 
-const STARTUP_CHOICES: { value: StartupBehavior; label: string; hint: string }[] = [
-	{
-		value: 'continue',
-		label: 'Continue where I left off',
-		hint: 'Your windows, tabs and drafts come back.',
-	},
-	{ value: 'home', label: 'Start on the home screen', hint: 'Your tabs are kept but not opened.' },
-]
+const STARTUP_CHOICES = (
+	catalogueEntry('startup').control as { options: readonly CatalogueOption[] }
+).options.map((option) => ({
+	value: option.value as StartupBehavior,
+	label: option.label,
+	hint: option.help ?? '',
+}))
 
-function GeneralSection({ settings, shells }: SectionProps) {
+/** Whether a change to this row waits for a restart, which the row's badge says. */
+function waitsForRestart(entry: CatalogueEntry): boolean {
+	return entry.appliesWhen === 'next-start' || entry.appliesWhen === 'next-launch'
+}
+
+/**
+ * The short line under a row's description. The default is marked inside the control and the
+ * section note covers the common apply time, so only a row whose apply differs from its section
+ * says so here; a row that waits for a restart carries a badge instead.
+ */
+function catalogueMeta(entry: CatalogueEntry): string {
+	return waitsForRestart(entry) ? '' : (entry.appliesNote ?? '')
+}
+
+/** A catalogue row's name, so a control's accessible name is the row's label. */
+function labelOf(id: string): string {
+	return catalogueEntry(id).label
+}
+
+/** A drop-down choice's text with its default mark: the default reads "Default · X". */
+export function defaultMarked(id: string, value: string, text: string): string {
+	return String(catalogueEntry(id).default) === value ? `Default · ${text}` : text
+}
+
+/** A row whose label, help, default and apply time all come from the settings catalogue. */
+function CatalogueRow({
+	id,
+	stacked,
+	below,
+	children,
+	label,
+	child,
+}: {
+	id: string
+	stacked?: boolean
+	below?: ReactNode
+	children?: ReactNode
+	/** The name this system calls it, when it differs from the catalogue's. */
+	label?: string
+	child?: boolean
+}) {
+	const entry = catalogueEntry(id)
+	return (
+		<Row
+			id={id}
+			label={label ?? entry.label}
+			child={child}
+			description={entry.description}
+			meta={catalogueMeta(entry)}
+			badge={
+				waitsForRestart(entry) ? { text: 'After restart', sentence: appliesText(entry) } : undefined
+			}
+			stacked={stacked}
+			below={below}
+		>
+			{children}
+		</Row>
+	)
+}
+
+function GeneralSection({ settings }: SectionProps) {
 	const group = useId()
 	const value = settings.settings?.startup
 	return (
 		<>
-			<Row id="startup" label="When Namzu starts" stacked>
+			<CatalogueRow id="startup" stacked>
 				<fieldset className="settings-choices" disabled={!settings.settings}>
-					<legend className="sr-only">When Namzu starts</legend>
+					<legend className="sr-only">{labelOf('startup')}</legend>
 					{STARTUP_CHOICES.map((choice) => (
 						<label key={choice.value} className="settings-choice">
 							<input
@@ -390,95 +838,182 @@ function GeneralSection({ settings, shells }: SectionProps) {
 						</label>
 					))}
 				</fieldset>
-			</Row>
-			<Row
-				id="attention-signals"
-				label="Show when a conversation needs you"
-				description="While Namzu is in the background and a conversation is waiting for an answer, show a count on its icon and flash the taskbar or dock once. It clears when you come back."
-			>
-				<Switch
-					label="Show when a conversation needs you"
-					checked={settings.settings?.attentionSignals ?? true}
-					disabled={!settings.settings}
-					onChange={(value) => void settings.change({ attentionSignals: value })}
-				/>
-			</Row>
-			<Row
-				id="notify-needs-you"
-				label="Notify me when a conversation needs my answer"
-				description="A system notification when an approval or a question is waiting and Namzu is in the background. It shows the project's name and nothing from the conversation."
-			>
-				<Switch
-					label="Notify me when a conversation needs my answer"
-					checked={settings.settings?.notifyNeedsYou ?? true}
-					disabled={!settings.settings}
-					onChange={(value) => void settings.change({ notifyNeedsYou: value })}
-				/>
-			</Row>
-			<Row
-				id="notify-failed"
-				label="Notify me when a conversation stops with an error"
-				description="A system notification when a reply stops with an error and Namzu is in the background."
-			>
-				<Switch
-					label="Notify me when a conversation stops with an error"
-					checked={settings.settings?.notifyFailed ?? true}
-					disabled={!settings.settings}
-					onChange={(value) => void settings.change({ notifyFailed: value })}
-				/>
-			</Row>
-			<Row
-				id="notify-finished"
-				label="Notify me when a long reply finishes"
-				description={`A system notification when a reply that took ${FINISHED_NOTICE_AFTER_SECONDS} seconds or more is done and Namzu is in the background. A reply you watched end needs none.`}
-			>
-				<Switch
-					label="Notify me when a long reply finishes"
-					checked={settings.settings?.notifyFinished ?? true}
-					disabled={!settings.settings}
-					onChange={(value) => void settings.change({ notifyFinished: value })}
-				/>
-			</Row>
-			<Row
-				id="notify-sound"
-				label="Play a sound with notifications"
-				description="Off by default. Your system's do-not-disturb setting still applies."
-			>
-				<Switch
-					label="Play a sound with notifications"
-					checked={settings.settings?.notifySound ?? false}
-					disabled={!settings.settings}
-					onChange={(value) => void settings.change({ notifySound: value })}
-				/>
-			</Row>
-			<TerminalSettings settings={settings} shells={shells} />
+			</CatalogueRow>
 		</>
 	)
 }
 
+/** What each notification level lists, from the catalogue so the page and the validator agree. */
+const NOTICE_LEVEL_OPTIONS = (id: string) =>
+	(catalogueEntry(id).control as { options: readonly CatalogueOption[] }).options
+
+/** Every row here is about this computer: the icon count, the banners and their sound. */
+export function NotificationsSection({ settings }: { settings: DesktopSettingsControls }) {
+	const saved = settings.settings
+	const ready = saved !== undefined
+	const levelRow = (
+		id: string,
+		value: string,
+		onChange: (value: string) => void,
+		child?: boolean,
+		badgeNeedsAttention?: boolean,
+	) => (
+		<CatalogueRow id={id} child={child}>
+			<SelectControl label={labelOf(id)} value={value} disabled={!ready} onChange={onChange}>
+				{NOTICE_LEVEL_OPTIONS(id).map((option) => (
+					<option
+						key={option.value}
+						value={option.value}
+						// The icon count belongs to Draw attention, so Badge only does nothing while that is off.
+						disabled={
+							badgeNeedsAttention === true &&
+							option.value === 'badge' &&
+							value !== 'badge' &&
+							saved?.attentionSignals === false
+						}
+					>
+						{defaultMarked(id, option.value, option.label)}
+					</option>
+				))}
+			</SelectControl>
+		</CatalogueRow>
+	)
+	return (
+		<>
+			<h2 className="settings-section-title">On this computer</h2>
+			<CatalogueRow id="attention-signals">
+				<Switch
+					label={labelOf('attention-signals')}
+					checked={saved?.attentionSignals ?? true}
+					disabled={!ready}
+					onChange={(value) => void settings.change({ attentionSignals: value })}
+				/>
+			</CatalogueRow>
+			{levelRow(
+				'notify-permission',
+				saved?.notifyPermission ?? 'banner',
+				(value) => void settings.change({ notifyPermission: value as NoticeLevel }),
+				undefined,
+				true,
+			)}
+			{/* Questions: kept in the settings, drawn once a conversation in this app can ask one. */}
+			{DESKTOP_ASKS_QUESTIONS &&
+				levelRow(
+					'notify-question',
+					saved?.notifyQuestion ?? 'banner',
+					(value) => void settings.change({ notifyQuestion: value as NoticeLevel }),
+					undefined,
+					true,
+				)}
+			{levelRow(
+				'notify-task-complete',
+				saved?.notifyTaskComplete ?? 'banner',
+				(value) => void settings.change({ notifyTaskComplete: value as BannerLevel }),
+			)}
+			<CatalogueRow id="notify-long-reply" child>
+				<SecondsInput
+					value={saved?.notifyLongReplySeconds ?? FINISHED_NOTICE_AFTER_SECONDS}
+					disabled={!ready || saved?.notifyTaskComplete === 'off'}
+					onCommit={(value) => void settings.change({ notifyLongReplySeconds: value })}
+				/>
+			</CatalogueRow>
+			{levelRow(
+				'notify-error',
+				saved?.notifyError ?? 'banner',
+				(value) => void settings.change({ notifyError: value as BannerLevel }),
+			)}
+			{levelRow(
+				'notify-sound',
+				saved?.notificationSound ?? 'none',
+				(value) => void settings.change({ notificationSound: value as NoticeSound }),
+			)}
+		</>
+	)
+}
+
+/** The seconds a reply must take before its end notifies. An empty box is the default. */
+export function SecondsInput({
+	value,
+	disabled,
+	onCommit,
+}: { value: number; disabled?: boolean; onCommit: (value: number) => void }) {
+	const control = catalogueEntry('notify-long-reply').control as {
+		min: number
+		max: number
+		unit: string
+	}
+	const shown = value === FINISHED_NOTICE_AFTER_SECONDS ? '' : String(value)
+	const [draft, setDraft] = useState(shown)
+	useEffect(() => setDraft(shown), [shown])
+	const text = draft.trim()
+	const parsed = text === '' ? FINISHED_NOTICE_AFTER_SECONDS : Number(text)
+	const invalid =
+		!Number.isInteger(parsed) || /\D/.test(text) || parsed < control.min || parsed > control.max
+	const messageId = useId()
+	const commit = () => {
+		if (invalid) return
+		if (parsed !== value) onCommit(parsed)
+		setDraft(parsed === FINISHED_NOTICE_AFTER_SECONDS ? '' : String(parsed))
+	}
+	return (
+		<div className="settings-seconds">
+			<input
+				type="text"
+				inputMode="numeric"
+				className="settings-config-input"
+				aria-label={labelOf('notify-long-reply')}
+				aria-invalid={invalid || undefined}
+				aria-describedby={invalid ? messageId : undefined}
+				placeholder={String(FINISHED_NOTICE_AFTER_SECONDS)}
+				maxLength={4}
+				value={draft}
+				disabled={disabled}
+				onChange={(event) => setDraft(event.target.value)}
+				onBlur={commit}
+				onKeyDown={(event) => {
+					if (event.key === 'Enter') commit()
+					if (escapeRevertsDraft(event.key, draft, shown)) {
+						event.stopPropagation()
+						setDraft(shown)
+					}
+				}}
+			/>
+			<span className="settings-note">{control.unit}</span>
+			{invalid && (
+				<span id={messageId} data-invalid role="alert">
+					{`Enter a whole number from ${control.min} to ${control.max}. Escape goes back to the saved one.`}
+				</span>
+			)}
+		</div>
+	)
+}
+
 /**
- * The shell a plain terminal tab opens, and whether terminal tabs come back after a restart. The
- * shell row appears only where there is a real choice; with one shell it would have nothing to click.
+ * The terminal tabs in this window: the shell a plain tab opens and whether tabs come back after a
+ * restart. The rows that follow in the section (the terminal app, the command line) are the
+ * engine's own. The shell row appears only where there is a real choice, which is Windows; with one
+ * shell it would have nothing to click. Where there are no terminals the heading goes too.
  */
 export function TerminalSettings({
 	settings,
 	shells,
-}: { settings: DesktopSettingsControls; shells: ShellChoice[] | null | undefined }) {
+	onSection,
+}: {
+	settings: DesktopSettingsControls
+	shells: ShellChoice[] | null | undefined
+	onSection?: SettingsPageProps['onSection']
+}) {
 	const group = useId()
 	if (shells === null) return null
 	const current = settings.settings?.terminalShell
 	const choices = shells ?? []
 	return (
 		<>
+			<h2 className="settings-section-title">Terminal tabs</h2>
 			{choices.length > 1 && (
-				<Row
-					id="terminal-shell"
-					label="Default terminal shell"
-					description="Automatic uses PowerShell 7 when it is installed and otherwise Command Prompt, which is set to UTF-8. Windows PowerShell can drop some typed Turkish capitals."
-					stacked
-				>
+				<CatalogueRow id="terminal-shell" stacked>
 					<fieldset className="settings-choices" disabled={!settings.settings}>
-						<legend className="sr-only">Default terminal shell</legend>
+						<legend className="sr-only">{labelOf('terminal-shell')}</legend>
 						{choices.map((choice) => (
 							<label key={choice.value} className="settings-choice">
 								<input
@@ -493,7 +1028,9 @@ export function TerminalSettings({
 									}
 								/>
 								<span>
-									<span className="settings-choice-label">{choice.label}</span>
+									<span className="settings-choice-label">
+										{defaultMarked('terminal-shell', choice.value, choice.label)}
+									</span>
 									{choice.value === 'powershell' ? (
 										<span className="settings-choice-hint">
 											Can drop some typed Turkish capitals.
@@ -503,32 +1040,312 @@ export function TerminalSettings({
 							</label>
 						))}
 					</fieldset>
-				</Row>
+				</CatalogueRow>
 			)}
-			<Row
-				id="terminal-restore"
-				label="Bring terminal tabs back"
-				description="After a restart, terminal tabs return as ended terminals with their last screen. Their programs do not keep running while Namzu is closed."
-			>
+			<CatalogueRow id="terminal-restore">
 				<Switch
-					label="Bring terminal tabs back"
+					label={labelOf('terminal-restore')}
 					checked={settings.settings?.restoreTerminals ?? true}
 					disabled={!settings.settings}
 					onChange={(value) => void settings.change({ restoreTerminals: value })}
 				/>
-			</Row>
-			<Row
-				id="hardware-acceleration"
-				label="Use the graphics card"
-				description="Turn this off if Namzu’s windows flicker, go blank or stop working soon after they open. Takes effect the next time Namzu starts."
-			>
+			</CatalogueRow>
+			{onSection && (
+				<CatalogueRow id="terminal-code-link">
+					<button
+						type="button"
+						className="settings-row-button"
+						onClick={() => onSection('appearance', 'code-theme-light')}
+					>
+						Open Appearance
+					</button>
+				</CatalogueRow>
+			)}
+		</>
+	)
+}
+
+/** Escape puts the saved name back while the box holds something else; otherwise it is left to close Settings. */
+export function escapeRevertsDraft(key: string, draft: string, saved: string): boolean {
+	return key === 'Escape' && draft !== saved
+}
+
+/**
+ * A font name typed into a box. The value is saved when the box loses the focus or Enter is
+ * pressed, and only if it is empty or a name a font-family can carry; otherwise the box says why.
+ */
+const codeFontPlaceholder = (catalogueEntry('code-font').control as { placeholder?: string })
+	.placeholder
+
+export function CodeFontInput({
+	value,
+	disabled,
+	onCommit,
+}: { value: string; disabled?: boolean; onCommit: (value: string) => void }) {
+	const [draft, setDraft] = useState(value)
+	useEffect(() => setDraft(value), [value])
+	const text = draft.trim()
+	const invalid = text !== '' && !isSafeFontName(text)
+	const messageId = useId()
+	const commit = () => {
+		if (invalid) return
+		if (text !== value) onCommit(text)
+		setDraft(text)
+	}
+	return (
+		<div className="settings-code-font">
+			<input
+				type="text"
+				className="settings-config-input"
+				aria-label={labelOf('code-font')}
+				aria-invalid={invalid || undefined}
+				aria-describedby={invalid ? messageId : undefined}
+				placeholder={codeFontPlaceholder}
+				maxLength={80}
+				spellCheck={false}
+				value={draft}
+				disabled={disabled}
+				onChange={(event) => setDraft(event.target.value)}
+				onBlur={commit}
+				onKeyDown={(event) => {
+					if (event.key === 'Enter') commit()
+					// Escape first puts the saved name back; with nothing to put back it closes Settings as usual.
+					if (escapeRevertsDraft(event.key, draft, value)) {
+						event.stopPropagation()
+						setDraft(value)
+					}
+				}}
+			/>
+			{invalid && (
+				<span id={messageId} data-invalid role="alert">
+					{draft.includes(',')
+						? 'Enter one font name, without commas. Escape goes back to the saved one.'
+						: 'Use letters, numbers, spaces and . _ ( ) + & - only. Escape goes back to the saved one.'}
+				</span>
+			)}
+		</div>
+	)
+}
+
+/** A quiet line under a row: what the system did or said about it. */
+function RowLine({ children }: { children: ReactNode }) {
+	return (
+		<p className="settings-note" aria-live="polite">
+			{children}
+		</p>
+	)
+}
+
+/** How the app itself runs on this computer, as against what happens inside a conversation. */
+export function DesktopSection({
+	settings,
+	os,
+	onOpenPlugins,
+}: Pick<SectionProps, 'settings' | 'os' | 'onOpenPlugins'>) {
+	const saved = settings.settings
+	const off = !saved
+	return (
+		<>
+			<CatalogueRow id="hardware-acceleration">
 				<Switch
-					label="Use the graphics card"
-					checked={settings.settings?.hardwareAcceleration ?? true}
-					disabled={!settings.settings}
+					label={labelOf('hardware-acceleration')}
+					checked={saved?.hardwareAcceleration ?? true}
+					disabled={off}
 					onChange={(value) => void settings.change({ hardwareAcceleration: value })}
 				/>
-			</Row>
+			</CatalogueRow>
+			{os?.loginItem && (
+				<CatalogueRow
+					id="run-on-startup"
+					below={os.loginItem.problem ? <RowLine>{os.loginItem.problem}</RowLine> : undefined}
+				>
+					<Switch
+						label={labelOf('run-on-startup')}
+						checked={os.loginItem.enabled}
+						disabled={off}
+						onChange={(value) => void settings.change({ runOnStartup: value })}
+					/>
+				</CatalogueRow>
+			)}
+			<CatalogueRow
+				id="quick-entry-shortcut"
+				below={
+					saved?.quickEntryShortcut && os?.shortcuts?.quickEntry.problem ? (
+						<RowLine>{os.shortcuts.quickEntry.problem}</RowLine>
+					) : undefined
+				}
+			>
+				<ShortcutBox
+					label={labelOf('quick-entry-shortcut')}
+					value={saved?.quickEntryShortcut ?? ''}
+					emptyText="Off"
+					disabled={off}
+					onChange={(value) => void settings.change({ quickEntryShortcut: value })}
+				/>
+			</CatalogueRow>
+			<CatalogueRow id="dictation-shortcut">
+				<SelectControl
+					label={labelOf('dictation-shortcut')}
+					value={saved?.dictationShortcut ?? 'ctrl-d'}
+					disabled={off}
+					onChange={(value) => void settings.change({ dictationShortcut: value })}
+				>
+					{DICTATION_CHOICES.map((choice) => (
+						<option key={choice.value} value={choice.value}>
+							{defaultMarked('dictation-shortcut', choice.value, choice.label)}
+						</option>
+					))}
+				</SelectControl>
+			</CatalogueRow>
+			<CatalogueRow
+				id="voice-shortcut"
+				below={
+					saved?.voiceShortcut && os?.shortcuts?.voice.problem ? (
+						<RowLine>{os.shortcuts.voice.problem}</RowLine>
+					) : undefined
+				}
+			>
+				<ShortcutBox
+					label={labelOf('voice-shortcut')}
+					value={saved?.voiceShortcut ?? ''}
+					emptyText="Off"
+					disabled={off}
+					onChange={(value) => void settings.change({ voiceShortcut: value })}
+				/>
+			</CatalogueRow>
+			{os && (
+				<CatalogueRow
+					id="system-tray"
+					label={trayName(os.platform)}
+					below={
+						os.tray.problem && saved?.systemTray ? <RowLine>{os.tray.problem}</RowLine> : undefined
+					}
+				>
+					<Switch
+						label={trayName(os.platform)}
+						checked={saved?.systemTray ?? true}
+						disabled={off}
+						onChange={(value) => void settings.change({ systemTray: value })}
+					/>
+				</CatalogueRow>
+			)}
+			<CatalogueRow id="keep-awake">
+				<Switch
+					label={labelOf('keep-awake')}
+					checked={saved?.keepAwakeAppOpen ?? false}
+					disabled={off}
+					onChange={(value) => void settings.change({ keepAwakeAppOpen: value })}
+				/>
+			</CatalogueRow>
+			{os?.metered && (
+				<CatalogueRow
+					id="pause-on-metered"
+					below={<RowLine>{meteredLine(os.metered.state)}</RowLine>}
+				>
+					<Switch
+						label={labelOf('pause-on-metered')}
+						checked={saved?.pauseOnMetered ?? true}
+						disabled={off}
+						onChange={(value) => void settings.change({ pauseOnMetered: value })}
+					/>
+				</CatalogueRow>
+			)}
+			<StorageRow />
+			<TrustedFoldersRow />
+			<CatalogueRow id="extensions-manage">
+				<Button
+					variant="outline"
+					size="sm"
+					aria-label={`Manage ${labelOf('extensions-manage').toLowerCase()}`}
+					disabled={!onOpenPlugins}
+					onClick={() => onOpenPlugins?.()}
+				>
+					Manage
+				</Button>
+			</CatalogueRow>
+		</>
+	)
+}
+
+/** A button that opens a view under its row. The view measures or reads only while it is open. */
+function ManageRow({
+	id,
+	label,
+	available,
+	children,
+}: {
+	id: string
+	label: string
+	available: boolean
+	children: ReactNode
+}) {
+	const [open, setOpen] = useState(false)
+	return (
+		<CatalogueRow id={id} below={open && available ? children : undefined}>
+			<Button
+				variant="outline"
+				size="sm"
+				aria-label={`${open ? 'Hide' : 'Manage'} ${label}`}
+				aria-expanded={open}
+				disabled={!available}
+				onClick={() => setOpen((value) => !value)}
+			>
+				{open ? 'Hide' : 'Manage'}
+			</Button>
+		</CatalogueRow>
+	)
+}
+
+function StorageRow() {
+	const bridge = typeof window === 'undefined' ? undefined : window.namzu
+	return (
+		<ManageRow id="storage" label="storage" available={!!bridge?.storageUsage}>
+			<StoragePanelContainer bridge={bridge} />
+		</ManageRow>
+	)
+}
+
+function StoragePanelContainer({ bridge }: { bridge: DesktopApi | undefined }) {
+	return <StoragePanel storage={useStorageUsage(bridge, true)} />
+}
+
+function TrustedFoldersRow() {
+	const bridge = typeof window === 'undefined' ? undefined : window.namzu
+	return (
+		<ManageRow id="trusted-folders" label="trusted folders" available={!!bridge?.trustedFolders}>
+			<TrustedFoldersContainer bridge={bridge} />
+		</ManageRow>
+	)
+}
+
+function TrustedFoldersContainer({ bridge }: { bridge: DesktopApi | undefined }) {
+	return <TrustedFoldersPanel trusted={useTrustedFolders(bridge, true)} />
+}
+
+/**
+ * Staying awake while a conversation works lives with the agent, not with the app: it follows the
+ * work, and the app's own "keep computer awake" (Desktop app) follows the window being open.
+ */
+export function AgentSleepRows({ settings }: Pick<SectionProps, 'settings'>) {
+	const saved = settings.settings
+	return (
+		<>
+			<CatalogueRow id="keep-awake-working">
+				<Switch
+					label={labelOf('keep-awake-working')}
+					checked={saved?.keepAwakeWhileWorking ?? false}
+					disabled={!saved}
+					onChange={(value) => void settings.change({ keepAwakeWhileWorking: value })}
+				/>
+			</CatalogueRow>
+			<CatalogueRow id="keep-awake-battery" child>
+				<Switch
+					label={labelOf('keep-awake-battery')}
+					checked={saved?.keepAwakeOnBattery ?? false}
+					disabled={!saved || !saved.keepAwakeWhileWorking}
+					onChange={(value) => void settings.change({ keepAwakeOnBattery: value })}
+				/>
+			</CatalogueRow>
 		</>
 	)
 }
@@ -551,26 +1368,21 @@ function ProjectsSection({
 					}
 				/>
 			)}
-			<Row
-				id="retrust"
-				label="Ask again when a project’s automatic settings change"
-				description="Before a trusted project loads hooks, servers or plugins that changed since you trusted it, Namzu asks again."
-			>
+			<h2 className="settings-section-title">Your projects</h2>
+			<CatalogueRow id="retrust">
 				<div ref={switchRow}>
 					<Switch
-						label="Ask again when a project’s automatic settings change"
+						label={labelOf('retrust')}
 						checked={settings.settings?.retrustOnConfigChange ?? true}
 						disabled={!settings.settings}
 						onChange={(value) => void settings.change({ retrustOnConfigChange: value })}
 					/>
 				</div>
-			</Row>
+			</CatalogueRow>
 			<div id="setting-projects" className="settings-projects">
-				<h3 className="settings-subtitle">Your projects</h3>
-				<p className="settings-help">
-					Removing a project only takes it out of Namzu. Your files and existing conversations stay
-					where they are.
-				</p>
+				{/* The sub-heading above already says "Your projects"; the panel keeps its name for assistive technology. */}
+				<h3 className="settings-subtitle sr-only">{labelOf('projects')}</h3>
+				<p className="settings-help">{catalogueEntry('projects').description}</p>
 				{projects.length === 0 ? (
 					<p className="settings-empty">No projects yet. Open a folder to add one.</p>
 				) : (
@@ -617,98 +1429,225 @@ function ProjectsSection({
 }
 
 const APPEARANCE_CHOICES = [
+	{ value: 'system', label: 'System', Icon: MonitorIcon },
 	{ value: 'light', label: 'Light', Icon: SunIcon },
 	{ value: 'dark', label: 'Dark', Icon: MoonIcon },
-	{ value: 'system', label: 'System', Icon: MonitorIcon },
 ] as const
 
+/**
+ * The options of a catalogue select, as a segmented control wants them. A segmented control shows
+ * every choice side by side, so it carries no default mark; only a drop-down list does.
+ */
+function catalogueChoices<T extends string>(id: string): { value: T; label: string }[] {
+	return (catalogueEntry(id).control as { options: readonly CatalogueOption[] }).options.map(
+		(option) => ({ value: option.value as T, label: option.label }),
+	)
+}
+
+const CODE_THEME_CHOICES = (
+	catalogueEntry('code-theme-light').control as { options: readonly CatalogueOption[] }
+).options
+const CODE_SIZE_CHOICES = (() => {
+	const control = catalogueEntry('code-font-size').control as { min: number; max: number }
+	return Array.from({ length: control.max - control.min + 1 }, (_, index) => control.min + index)
+})()
+
+const TEXT_SIZE_CHOICES = catalogueChoices<TranscriptTextSize>('transcript-text-size')
+const WIDTH_CHOICES = catalogueChoices<TranscriptWidth>('transcript-width')
+const MOTION_CHOICES = catalogueChoices<MotionChoice>('motion')
+
 function AppearanceSection({ appearance, onAppearanceChange, settings }: SettingsPageProps) {
-	const group = useId()
-	const fontGroup = useId()
 	const [interfaceFont, setInterfaceFont] = useInterfaceFont()
+	const saved = settings.settings
+	const ready = saved !== undefined
 	return (
 		<>
-			<Row
-				id="theme"
-				label="Theme"
-				description="System follows your device’s light or dark setting."
-				stacked
-			>
-				<fieldset className="settings-choices settings-choices-inline">
-					<legend className="sr-only">Theme</legend>
-					{APPEARANCE_CHOICES.map(({ value, label, Icon }) => (
-						<label key={value} className="settings-choice settings-choice-tile">
-							<input
-								type="radio"
-								name={group}
-								value={value}
-								checked={appearance === value}
-								onChange={() => onAppearanceChange(value)}
-							/>
-							<Icon aria-hidden="true" />
-							<span className="settings-choice-label">{label}</span>
-						</label>
-					))}
-				</fieldset>
-			</Row>
-			<Row
-				id="interface-font"
-				label="Interface font"
-				description="The typeface for text and code in Namzu. The terminal keeps its own font. A change applies at once."
-				stacked
-			>
-				<fieldset className="settings-choices">
-					<legend className="sr-only">Interface font</legend>
-					{INTERFACE_FONT_CHOICES.map((choice) => (
-						<label key={choice.value} className="settings-choice">
-							<input
-								type="radio"
-								name={fontGroup}
-								value={choice.value}
-								checked={interfaceFont === choice.value}
-								onChange={() => setInterfaceFont(choice.value)}
-							/>
-							<span>
-								<span className="settings-choice-label">{choice.label}</span>
-								<span className="settings-choice-hint">{choice.hint}</span>
-							</span>
-						</label>
-					))}
-				</fieldset>
-			</Row>
-			<Row
-				id="conversation-tabs"
-				label="Show conversation tabs"
-				description="A strip of tabs above the conversation, one for each open conversation. Off, the sidebar lists your conversations and the bar above shows the one you are in. Also in the View menu."
-			>
+			<CatalogueRow id="theme">
+				<SegmentedControl
+					label={labelOf('theme')}
+					value={appearance}
+					options={APPEARANCE_CHOICES}
+					onChange={onAppearanceChange}
+				/>
+			</CatalogueRow>
+			<CatalogueRow id="interface-font">
+				<FontChoice
+					label={labelOf('interface-font')}
+					value={interfaceFont}
+					named={INTERFACE_FONT_CHOICES.map((choice) => ({
+						value: choice.value,
+						label: defaultMarked('interface-font', choice.value, choice.label),
+					}))}
+					familyValue={(family) => `${FAMILY_PREFIX}${family}`}
+					familyOf={(value) => familyOf(parseInterfaceFont(value))}
+					onChange={(value) => setInterfaceFont(parseInterfaceFont(value))}
+				/>
+			</CatalogueRow>
+			<CatalogueRow id="response-font">
+				<FontChoice
+					label={labelOf('response-font')}
+					value={saved?.responseFont ?? RESPONSE_FONT_MATCH}
+					named={[
+						{
+							value: RESPONSE_FONT_MATCH,
+							label: defaultMarked('response-font', RESPONSE_FONT_MATCH, 'Match interface'),
+						},
+						{ value: 'app', label: 'Namzu’s own' },
+						{ value: 'system', label: 'Your device’s' },
+					]}
+					familyValue={(family) => `${FONT_FAMILY_PREFIX}${family}`}
+					familyOf={storedFamily}
+					onChange={(value) => void settings.change({ responseFont: value })}
+				/>
+			</CatalogueRow>
+			<CatalogueRow id="transcript-text-size">
+				<SegmentedControl
+					label={labelOf('transcript-text-size')}
+					value={saved?.transcriptTextSize ?? 'medium'}
+					options={TEXT_SIZE_CHOICES}
+					disabled={!ready}
+					onChange={(value) => void settings.change({ transcriptTextSize: value })}
+				/>
+			</CatalogueRow>
+			<CatalogueRow id="transcript-width">
+				<SegmentedControl
+					label={labelOf('transcript-width')}
+					value={saved?.transcriptWidth ?? 'narrow'}
+					options={WIDTH_CHOICES}
+					disabled={!ready}
+					onChange={(value) => void settings.change({ transcriptWidth: value })}
+				/>
+			</CatalogueRow>
+			<CatalogueRow id="motion">
+				<SegmentedControl
+					label={labelOf('motion')}
+					value={saved?.motion ?? 'system'}
+					options={MOTION_CHOICES}
+					disabled={!ready}
+					onChange={(value) => void settings.change({ motion: value })}
+				/>
+			</CatalogueRow>
+			<CatalogueRow id="conversation-tabs">
 				<Switch
-					label="Show conversation tabs"
-					checked={settings.settings?.showConversationTabs ?? false}
-					disabled={!settings.settings}
+					label={labelOf('conversation-tabs')}
+					checked={saved?.showConversationTabs ?? false}
+					disabled={!ready}
 					onChange={(value) => void settings.change({ showConversationTabs: value })}
 				/>
-			</Row>
+			</CatalogueRow>
+			<h2 className="settings-section-title">Code</h2>
+			<CatalogueRow
+				id="code-theme-light"
+				below={<CodePreview mode="light" value={saved?.lightCodeTheme ?? 'default'} />}
+			>
+				<SelectControl
+					label={labelOf('code-theme-light')}
+					value={saved?.lightCodeTheme ?? 'default'}
+					disabled={!ready}
+					onChange={(value) => void settings.change({ lightCodeTheme: value as CodeThemeKey })}
+				>
+					{CODE_THEME_CHOICES.map((option) => (
+						<option key={option.value} value={option.value}>
+							{defaultMarked('code-theme-light', option.value, option.label)}
+						</option>
+					))}
+				</SelectControl>
+			</CatalogueRow>
+			<CatalogueRow
+				id="code-theme-dark"
+				below={<CodePreview mode="dark" value={saved?.darkCodeTheme ?? 'default'} />}
+			>
+				<SelectControl
+					label={labelOf('code-theme-dark')}
+					value={saved?.darkCodeTheme ?? 'default'}
+					disabled={!ready}
+					onChange={(value) => void settings.change({ darkCodeTheme: value as CodeThemeKey })}
+				>
+					{CODE_THEME_CHOICES.map((option) => (
+						<option key={option.value} value={option.value}>
+							{defaultMarked('code-theme-dark', option.value, option.label)}
+						</option>
+					))}
+				</SelectControl>
+			</CatalogueRow>
+			<CatalogueRow id="code-font">
+				<CodeFontInput
+					value={saved?.codeFont ?? ''}
+					disabled={!ready}
+					onCommit={(value) => void settings.change({ codeFont: value })}
+				/>
+			</CatalogueRow>
+			<CatalogueRow id="code-font-size">
+				<SelectControl
+					label={labelOf('code-font-size')}
+					value={String(saved?.codeFontSize ?? CODE_FONT_SIZE_DEFAULT)}
+					disabled={!ready}
+					onChange={(value) => void settings.change({ codeFontSize: Number(value) })}
+				>
+					{CODE_SIZE_CHOICES.map((size) => (
+						<option key={size} value={size}>
+							{defaultMarked('code-font-size', String(size), `${size} px`)}
+						</option>
+					))}
+				</SelectControl>
+			</CatalogueRow>
+			<h2 className="settings-section-title">Accessibility</h2>
+			<CatalogueRow id="auto-dismiss-popups">
+				<Switch
+					label={labelOf('auto-dismiss-popups')}
+					checked={saved?.autoDismissPopups ?? true}
+					disabled={!ready}
+					onChange={(value) => void settings.change({ autoDismissPopups: value })}
+				/>
+			</CatalogueRow>
+			<CatalogueRow id="virtualize-conversations">
+				<Switch
+					label={labelOf('virtualize-conversations')}
+					checked={saved?.virtualizeConversations ?? true}
+					disabled={!ready}
+					onChange={(value) => void settings.change({ virtualizeConversations: value })}
+				/>
+			</CatalogueRow>
 		</>
 	)
 }
 
-function UpdatesSection({ update, settings, now, engineTarget, hasAppUpdater }: SectionProps) {
+function UpdatesSection({
+	update,
+	settings,
+	now: renderedAt,
+	engineTarget,
+	hasAppUpdater,
+}: SectionProps) {
 	const engines = useEngineUpdates()
+	// The page's own clock, so "Last checked" moves while the section stays open.
+	const ticked = useClock(true)
+	const opened = useRef({ page: renderedAt, clock: ticked })
+	// The time the page gave when this section opened, moved on by the clock since, so it keeps
+	// moving while nothing else re-renders the page.
+	const now = Math.max(renderedAt, opened.current.page + (ticked - opened.current.clock))
 	if (!update && !engines)
-		return <p className="settings-empty">Updates are managed outside this window in this build.</p>
-	const view = update ? updateStatusView(update.state) : undefined
+		return (
+			<p className="settings-empty">
+				This app's own updates are managed outside this window in this build.
+			</p>
+		)
+	const checkedAt = Math.max(update?.info?.lastCheckedAt ?? 0, engines?.state.checkedAt ?? 0)
+	const view = update
+		? updateStatusView(update.state, (update.info?.lastCheckedAt ?? 0) > 0)
+		: undefined
 	const checking = engines?.state.checking === true
 	const canCheck = (view?.canCheck ?? false) || (engines !== undefined && !checking)
-	const checkedAt = Math.max(update?.info?.lastCheckedAt ?? 0, engines?.state.checkedAt ?? 0)
 	const check = () => {
 		if (view?.canCheck) update?.onCheck()
 		engines?.check()
 	}
 	return (
 		<>
+			<h2 className="settings-section-title">Namzu Desktop</h2>
 			<Row
 				id="version"
-				label="Namzu Desktop version"
+				label={labelOf('version')}
 				// A copy that cannot update itself made no check of its own, so it claims none.
 				description={
 					hasAppUpdater
@@ -737,22 +1676,18 @@ function UpdatesSection({ update, settings, now, engineTarget, hasAppUpdater }: 
 					</Button>
 				</div>
 			</div>
-			<EngineUpdateRows target={engineTarget} />
-			<EngineDeliveryRows settings={settings} now={now} />
 			{hasAppUpdater && (
-				<Row
-					id="auto-download"
-					label="Download updates automatically"
-					description="When off, a new version is only offered with a badge, and nothing is downloaded until you ask."
-				>
+				<CatalogueRow id="auto-download">
 					<Switch
-						label="Download updates automatically"
+						label={labelOf('auto-download')}
 						checked={settings.settings?.autoDownloadUpdates ?? true}
 						disabled={!settings.settings}
 						onChange={(value) => void settings.change({ autoDownloadUpdates: value })}
 					/>
-				</Row>
+				</CatalogueRow>
 			)}
+			<EngineUpdateRows target={engineTarget} />
+			<EngineDeliveryRows settings={settings} now={now} />
 		</>
 	)
 }
@@ -773,7 +1708,7 @@ function EngineDeliveryRows({ settings, now }: { settings: DesktopSettingsContro
 		<>
 			<Row
 				id="engine-delivery"
-				label="Namzu engine"
+				label={labelOf('engine-delivery')}
 				description={`${
 					view.runs.commandLine ? `Running ${plainVersion(view.runs.commandLine)}. ` : ''
 				}${engineSourceText(view.runs, now)}`}
@@ -802,18 +1737,14 @@ function EngineDeliveryRows({ settings, now }: { settings: DesktopSettingsContro
 					</p>
 				)}
 			</div>
-			<Row
-				id="keep-engine"
-				label="Keep the engine up to date"
-				description="Namzu fetches a newer engine in the background and starts it the next time a project opens. Off, only the engine this app was installed with runs."
-			>
+			<CatalogueRow id="keep-engine">
 				<Switch
-					label="Keep the engine up to date"
+					label={labelOf('keep-engine')}
 					checked={enabled}
 					disabled={!settings.settings}
 					onChange={(value) => void settings.change({ keepEngineUpToDate: value })}
 				/>
-			</Row>
+			</CatalogueRow>
 		</>
 	)
 }
@@ -956,11 +1887,8 @@ function AboutSection({ info, infoError, onOpenFolder, now }: SettingsPageProps)
 				</div>
 			</div>
 			<div id="setting-folders" className="settings-folders">
-				<h3 className="settings-subtitle">Data folders</h3>
-				<p className="settings-help">
-					Logs and the downloaded voice are safe to delete. The Namzu home folder holds your work,
-					so keep it.
-				</p>
+				<h3 className="settings-subtitle">{labelOf('folders')}</h3>
+				<p className="settings-help">{catalogueEntry('folders').description}</p>
 				<ul>
 					{info.folders.map((folder) => (
 						<li key={folder.kind}>

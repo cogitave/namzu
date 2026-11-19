@@ -35,6 +35,8 @@ export interface StatusBarProps {
 	readonly effort?: string | null
 	/** Fast inference is on for this conversation: shown as `fast`, never when off. */
 	readonly fast?: boolean
+	/** Hypermode is on for this conversation: shown as `· hypermode` after the effort, never when off. */
+	readonly hypermode?: boolean
 	/** Ambient durable goal status; interaction hints take precedence. */
 	readonly goal?: string | null
 	readonly state: 'idle' | 'thinking' | 'tool' | 'awaiting-permission'
@@ -193,6 +195,7 @@ export function StatusBar({
 	provider,
 	model,
 	effort,
+	hypermode = false,
 	fast = false,
 	goal,
 	state,
@@ -267,6 +270,7 @@ export function StatusBar({
 		model,
 		provider,
 		effort: effort ?? null,
+		hypermode,
 		fast,
 		hint,
 		notice: notice?.text ?? null,
@@ -542,6 +546,7 @@ export function fitStatusLine(input: {
 	readonly provider: string | null
 	readonly model: string | null
 	readonly effort?: string | null
+	readonly hypermode?: boolean
 	readonly fast?: boolean
 	readonly hint?: string | undefined
 	/** The notice that is up; ahead of the goal, behind a hint. */
@@ -588,7 +593,9 @@ export function fitStatusLine(input: {
 	let manage: string | null = input.manage ?? null
 	let tasks: string | null = input.tasks ?? null
 	let pr = input.pr ?? null
+	// Hypermode is said right after the effort, in the same item, so a click on either opens the picker.
 	let effort: string | null = input.effort ? `effort ${input.effort}` : null
+	if (input.hypermode === true) effort = effort ? `${effort} · hypermode` : 'hypermode'
 	let fast: string | null = input.fast === true ? 'fast' : null
 
 	const parts = (): string[] =>

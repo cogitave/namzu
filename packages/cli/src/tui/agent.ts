@@ -2,6 +2,7 @@ import { childScratchpadFact } from '../context/subagent-scratchpad-fact.js'
 import { debugRequested } from '../debug-requested.js'
 import { isDefaultAccountId } from '../integrations/accounts/binding.js'
 import { resolveIdleCompactionMinTokens } from '../integrations/compaction/idle-compaction.js'
+import { type LimitsKind, rememberLimitsSource } from '../integrations/limits/sources.js'
 import { changeDetectorFor } from '../integrations/outcome/change-detector.js'
 import { createCurrentCredentialReader } from '../integrations/providers/current-credential.js'
 import { TextOnlyModels } from '../integrations/providers/image-input.js'
@@ -247,6 +248,7 @@ import {
 	withCheckpoints,
 	withShellNote,
 } from '../checkpoints/wrap.js'
+import { createAgentSettingsTools } from '../config/agent-settings-tools.js'
 import type { HooksSwitch } from '../config/hook-layers.js'
 import { takeConfigWarnings } from '../config/load.js'
 import { readModelLaunchEnvironment } from '../config/model-environment.js'
@@ -422,6 +424,7 @@ import {
 	releaseConversationEvidence,
 } from '../integrations/sessions/conversation-search.js'
 import { createConversationEvidenceRecall } from '../integrations/sessions/evidence-recall.js'
+import { buildPastConversationSearchTool } from '../integrations/sessions/past-conversations.js'
 import {
 	type ConversationContext,
 	conversationLogPath,
@@ -1582,6 +1585,15 @@ export interface AgentSession {
 			/** The connected tool server it came from; absent for a built-in tool. */
 			readonly server?: string
 		}[]
+		/**
+		 * Definitions that load only when the model asks for them (tool search),
+		 * sized the way they will be once loaded. They are not in the request yet.
+		 */
+		readonly deferredTools?: readonly {
+			readonly name: string
+			readonly tokens: number
+			readonly server?: string
+		}[]
 	}
 	/**
 	 * This session's real tool-call/result presenter (`createToolPresenter`
@@ -2674,7 +2686,7 @@ export interface AgentSessionOptions {
 	 * `--session`), whose history arrives with each call.
 	 */
 	readonly ephemeral?: boolean
-	/** The session runs inside the desktop application, which shows written files in a preview pane. */
+	/** The session runs inside the desktop application, which shows written files in its Browser and Files panes. */
 	readonly desktop?: boolean
 	/**
 	 * Keep this conversation's failures and unrecovered stops as learning
@@ -2842,12 +2854,32 @@ export interface AgentSessionOptions {
 	 */
 	readonly handBack?: boolean
 	/**
+	 * See `NamzuCliConfig.effort`: the reasoning effort a turn uses when the caller chose none and
+	 * `NAMZU_EFFORT_LEVEL` is unset. Used only when the model offers it; otherwise the model's own
+	 * default stands.
+	 */
+	readonly savedEffort?: ReasoningEffort
+	/**
+	 * See `NamzuCliConfig.closingSummary`: `false` leaves the closing rule (what changed, what was
+	 * verified, what is left) out of the working rules. Absent keeps them whole.
+	 */
+	readonly closingSummary?: boolean
+	/** See `NamzuCliConfig.outputStyle`: a reply-style note after the working rules. */
+	readonly outputStyle?: string
+	/** See `NamzuCliConfig.attribution`: text commits and pull request descriptions end with. */
+	readonly attribution?: string
+	/**
 	 * Mount host desktop control for a surface that owns an interactive
 	 * permission callback. False by default: `exec`, `exec --json` and `drain`
 	 * have no human prompt to guard pointer/keyboard input and must not inherit
 	 * this capability merely because the package is installed.
 	 */
 	readonly enableComputerUse?: boolean
+	/**
+	 * Applications the computer tool never acts in (`computerUse.deniedApps`), enforced by the
+	 * tool before any call reaches the host. Only read when `enableComputerUse` is true.
+	 */
+	readonly deniedComputerApps?: readonly string[]
 	/**
 	 * Told what the model saw after a `computer_use` call that returned a screenshot,
 	 * made small. The desktop shows it beside the call; it never changes what the
@@ -2896,6 +2928,13 @@ export interface AgentSessionOptions {
 	 *  passes false: the close would stop the watch before it reported.
 	 */
 	readonly monitorTool?: boolean
+	/**
+	 * Offer `get_settings` and `set_setting` (deferred): the model reads the safe settings and,
+	 * with the person's yes on a card, changes one. Present only for a host that can ask a person
+	 * (the terminal app, the desktop host); the host leaves it out when `agentSettings` is off.
+	 * `desktop` is how the Desktop app's own preferences are reached. See `config/agent-settings.ts`.
+	 */
+	readonly settingsTools?: import('../config/agent-settings.js').AgentSettingsContext
 	/**
 	 * Tools this session's rules refuse whatever their input, left out of its
 	 * registry so their schemas are not sent with every model call. A
@@ -3830,6 +3869,7 @@ export async function createAgentSession(
 			const advisor = createPickAdvisor(decisionPoints)
 			computerUseTool = createComputerUseTool(candidate, {
 				...(advisor ? { advisor } : {}),
+				...(options.deniedComputerApps?.length ? { deniedApps: options.deniedComputerApps } : {}),
 				...(options.onComputerObservation
 					? { onObservation: (seen) => options.onComputerObservation?.(seen) }
 					: {}),
@@ -4167,6 +4207,30 @@ export async function createAgentSession(
 					}),
 				),
 			),
+		)
+	}
+	// Earlier conversations of this project, searched through the session index.
+	// Deferred like any tool outside the eager list, so the listing gains one name
+	// line until the model loads it. A Pal never gets it: its conversations are its own.
+	if (
+		options.conversationSessions &&
+		!options.palEnvironment &&
+		options.memory?.searchPastConversations !== false
+	) {
+		const sessions = options.conversationSessions
+		toolsets.push(
+			toolset('past-conversations', [
+				buildPastConversationSearchTool((context) => {
+					const owner = delegationScopes.get(context.turnId)
+					if (
+						!owner ||
+						owner.projectId !== sessions.projectId ||
+						owner.tenantId !== sessions.tenantId
+					)
+						throw new Error('The requesting turn does not own this conversation.')
+					return { sessions, sessionId: owner.sessionId }
+				}),
+			]),
 		)
 	}
 	// `session_cost`: what this conversation has cost, read from its own log with
@@ -4708,7 +4772,7 @@ export async function createAgentSession(
 			limitsFor: (turnId) => {
 				const budget = delegationLimits.get(turnId)?.tokenBudget
 				const ceiling = workflowTokenCeiling(budget, workflowTokenTargets.get(turnId))
-				const { sizeGuideline: _advice, ...caps } = options.workflow ?? {}
+				const { sizeGuideline: _advice, enabled: _enabled, ...caps } = options.workflow ?? {}
 				return {
 					...(ceiling !== undefined ? { tokenBudget: ceiling } : {}),
 					...caps,
@@ -4967,6 +5031,15 @@ export async function createAgentSession(
 		)
 		toolsets.push(options.toolLoading === 'eager' ? monitorToolset : deferred(monitorToolset))
 	}
+	// The settings tools: deferred, so the listing gains two names and nothing else. Parent session
+	// only, and only where the host said it can put a change to a person.
+	if (options.settingsTools && !options.ephemeral) {
+		const settingsToolset = toolset(
+			'agent-settings',
+			createAgentSettingsTools(options.settingsTools),
+		)
+		toolsets.push(options.toolLoading === 'eager' ? settingsToolset : deferred(settingsToolset))
+	}
 	// The owner's Pals, reachable from an ordinary conversation of the Namzu engine.
 	// Mounted whether or not any Pal exists yet so one created mid-conversation is
 	// usable at once (the roster never changes, so the cached prefix does not); the
@@ -5081,7 +5154,9 @@ export async function createAgentSession(
 		now: Date.now,
 	})
 	const curation =
-		options.memory?.curation === 'off' || options.compaction?.consolidate
+		options.memory?.curation === 'off' ||
+		options.compaction?.consolidate ||
+		options.memory?.fromConversations === false
 			? undefined
 			: new CurationRuntime({
 					inbox: memoryInbox,
@@ -5821,6 +5896,9 @@ export async function createAgentSession(
 						conversationSessions: options.conversationSessions,
 						toolLoading: resolveToolLoading(options.toolLoading),
 						anyToolDeferred: anyDeferred(sessionToolsets),
+						closingSummary: options.closingSummary,
+						outputStyle: options.outputStyle,
+						attribution: options.attribution,
 						planPath: resumePlanPath,
 						skillsOverflowNote: turnSkills.overflowNote,
 					},
@@ -5963,9 +6041,11 @@ export async function createAgentSession(
 						...evidenceRecallFor(entry.sessionId),
 						...memoryContextSteps(curatedMemoryPrompt, storedMemory.prompt),
 					],
-					...(options.compaction?.consolidate
-						? { consolidateInto: memoryStore, consolidationScreen }
-						: { promoteMemory }),
+					...(options.memory?.fromConversations === false
+						? {}
+						: options.compaction?.consolidate
+							? { consolidateInto: memoryStore, consolidationScreen }
+							: { promoteMemory }),
 					projectInstructionContext: projectInstructions.createTurnContext(),
 					postCompactionContext: () =>
 						carriedAcrossCompaction({
@@ -6367,10 +6447,8 @@ export async function createAgentSession(
 				.filter((name) => !goalToolNames.has(name)),
 		contextInventory: () => {
 			const live = liveManager()
-			const sized = describeToolCatalogTokens(live.toLLMTools())
-			return {
-				systemPrompt: lastSystemPromptText,
-				tools: sized
+			const withServer = (sized: readonly { name: string; tokens: number }[]) =>
+				sized
 					.filter((tool) => !goalToolNames.has(tool.name))
 					.map((tool) => {
 						let server: string | undefined
@@ -6380,7 +6458,17 @@ export async function createAgentSession(
 							// A tool that left the registry between the two reads is a built-in's size.
 						}
 						return server === undefined ? tool : { ...tool, server }
-					}),
+					})
+			let deferred: ReturnType<typeof withServer> = []
+			try {
+				deferred = withServer(describeToolCatalogTokens(live.toDeferredLLMTools()))
+			} catch {
+				// A registry that cannot render its deferred tools leaves that block out.
+			}
+			return {
+				systemPrompt: lastSystemPromptText,
+				tools: withServer(describeToolCatalogTokens(live.toLLMTools())),
+				deferredTools: deferred,
 			}
 		},
 		presenter: sessionPresenter,
@@ -6917,7 +7005,21 @@ export async function createAgentSession(
 				(async function* () {
 					const selectTaskStore = beginTaskStoreReadout()
 					const turnLimits = resolveTurnGuards(options.limits, opts?.limits)
-					const turnOpts: SendOptions = { ...opts, signal }
+					// A saved default effort stands only where nothing chose one: the caller's
+					// pick (a flag or the picker) and `NAMZU_EFFORT_LEVEL` come first, and a
+					// level the current model does not offer leaves the model's own default.
+					const savedEffort =
+						opts?.effort === undefined &&
+						modelEnvironment.effort === undefined &&
+						options.savedEffort !== undefined &&
+						reasoningEffortLevels?.includes(options.savedEffort)
+							? options.savedEffort
+							: undefined
+					const turnOpts: SendOptions = {
+						...opts,
+						signal,
+						...(savedEffort !== undefined ? { effort: savedEffort } : {}),
+					}
 					// The time between turns is nobody's work; the clock starts here.
 					quietStretch?.turnStarted()
 					// Per-send membership: neither another send nor delegated sessions
@@ -7131,7 +7233,12 @@ export async function createAgentSession(
 						// it may be called (the operator's keyword, hypermode on, their own
 						// words). A tool list that changes with the message would also change
 						// the cached prefix.
-						const workflowOffer = workflowHost !== undefined && opts?.workflowReview !== undefined
+						// `workflow.enabled: false` keeps it out of every turn of the session, so the
+						// list never changes mid-conversation and hypermode reads the no-tool text.
+						const workflowOffer =
+							workflowHost !== undefined &&
+							opts?.workflowReview !== undefined &&
+							options.workflow?.enabled !== false
 						if (workflowOffer && workflowHost) {
 							const workflowToolset = toolset('workflow', [workflowHost.tool])
 							// Its schema is the largest of any tool and most turns never run a
@@ -7182,6 +7289,9 @@ export async function createAgentSession(
 									conversationSessions: options.conversationSessions,
 									toolLoading: resolveToolLoading(options.toolLoading),
 									anyToolDeferred: anyDeferred(runToolsets),
+									closingSummary: options.closingSummary,
+									outputStyle: options.outputStyle,
+									attribution: options.attribution,
 									planPath,
 									// The reminders carry the skill list, overflow included.
 									skillsOverflowNote: null,
@@ -7428,7 +7538,7 @@ export async function createAgentSession(
 								retainedToolPreviewChars: options.conversationSessions
 									? (options.compaction?.retainedToolPreviewChars ?? 4_000)
 									: undefined,
-								...(options.compaction?.consolidate
+								...(options.compaction?.consolidate && options.memory?.fromConversations !== false
 									? { consolidateInto: memoryStore, consolidationScreen }
 									: {}),
 								...(jobRegistry
@@ -7483,7 +7593,10 @@ export async function createAgentSession(
 								structuredOutput: options.structuredOutput,
 								reviewAnswer: options.reviewAnswer,
 								maxAnswerReviews: options.maxAnswerReviews,
-								promoteMemory: options.compaction?.consolidate ? undefined : promoteMemory,
+								promoteMemory:
+									options.compaction?.consolidate || options.memory?.fromConversations === false
+										? undefined
+										: promoteMemory,
 								...(options.memory?.recall === false ? {} : { memoryLifecycle }),
 								prepareStep: [
 									createTaskContextStep(turnTaskStore, turnScope.tenantId),
@@ -7805,9 +7918,25 @@ export function constructProvider(
 	model: string,
 	context: { readonly sessionId?: string } = {},
 ): LLMProvider {
-	return withModelWindowSuffixStripped(
+	const provider = withModelWindowSuffixStripped(
 		constructBareProvider(id, det, stripModelWindowSuffix(model), context),
 	)
+	const kind = limitsKindOf(id, det)
+	if (kind) rememberLimitsSource({ id, label: PROVIDER_REGISTRY[id]?.label ?? id, kind }, provider)
+	return provider
+}
+
+/** How the credential behind a provider was obtained, or undefined where nothing about limits can be said. */
+function limitsKindOf(id: ProviderId, det: DetectedProvider | null): LimitsKind | undefined {
+	if (id === 'ollama' || id === 'lmstudio') return 'local'
+	if (id === 'codex') return 'sign-in'
+	if (id === 'anthropic') {
+		const endpoint = resolveAnthropicEndpoint().endpoint
+		if (endpoint && !endpoint.vendor) return undefined
+		const token = det?.apiKey ?? ''
+		return token.length > 0 && isAnthropicOAuthToken(token) ? 'sign-in' : 'key'
+	}
+	return 'key'
 }
 
 function constructBareProvider(
@@ -8578,6 +8707,8 @@ interface TurnParams {
 	readonly projectInstructionContext: ProjectInstructionContext
 	/** What the host carries across a compaction: the plan file and the session goal. */
 	readonly postCompactionContext?: () => Promise<string | undefined>
+	/** Where the model that writes a compaction summary is reached; absent means by extraction. */
+	readonly compactionSummaryRoute?: CompactionSummaryRouter
 	readonly opts: SendOptions | undefined
 	readonly taskGateway: TaskScheduler | undefined
 	readonly completionInbox?: CompletionInbox
@@ -8656,6 +8787,7 @@ async function* runTurn({
 	messages,
 	projectInstructionContext,
 	postCompactionContext,
+	compactionSummaryRoute,
 	opts,
 	taskGateway,
 	completionInbox,
@@ -8790,6 +8922,7 @@ async function* runTurn({
 			...(systemPrompt ? { systemPrompt } : {}),
 			projectInstructionContext,
 			...(postCompactionContext ? { postCompactionContext } : {}),
+			...(compactionSummaryRoute ? { compactionSummaryRoute } : {}),
 			messages: [...messages],
 			...(reminders ? { reminders } : {}),
 			...(announceApprovalPolicyChange === false ? { announceApprovalPolicyChange } : {}),

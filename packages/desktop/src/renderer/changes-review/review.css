@@ -13,105 +13,8 @@
 	--changes-added: #4ade80;
 	--changes-removed: #ff8a8a;
 }
-.changes-bar {
-	display: flex;
-	flex: none;
-	align-items: center;
-	gap: 12px;
-	height: var(--panel-header-height);
-	padding: 0 var(--panel-control-inset) 0 var(--panel-title-inset);
-	border-bottom: 1px solid var(--border);
-}
-.changes-title {
-	flex: none;
-	margin: 0;
-	font-size: var(--text-interface);
-	line-height: var(--leading-interface);
-	font-weight: var(--weight-control);
-}
-/* The header's controls: 28 square, 4 apart, the last one 8 from the panel's edge. */
-.changes-controls {
-	display: flex;
-	flex: none;
-	align-items: center;
-	gap: var(--panel-control-gap);
-}
-.changes-switch {
-	display: inline-flex;
-	flex: none;
-	padding: 2px;
-	border-radius: var(--radius-pill);
-	background: var(--accent);
-}
-.changes-switch-button {
-	height: 24px;
-	padding: 0 10px;
-	border-radius: var(--radius-pill);
-	/* Foreground, softened: the muted grey on this pill is under 4.5:1 in the light theme. */
-	color: color-mix(in srgb, var(--foreground) 78%, var(--accent));
-	font-size: var(--text-caption);
-	line-height: var(--leading-caption);
-	white-space: nowrap;
-	cursor: pointer;
-}
-.changes-switch-button[aria-pressed="true"] {
-	background: var(--background);
-	color: var(--foreground);
-	box-shadow: 0 0 0 1px var(--border);
-}
-.changes-switch-button:focus-visible,
-.changes-view:focus-visible,
-.changes-icon-button:focus-visible,
-.changes-files-toggle:focus-visible,
-.changes-flat-row:focus-visible {
-	outline: 2px solid transparent;
-	outline-offset: 1px;
-	box-shadow: var(--focus-ring);
-}
-.changes-view {
-	display: inline-flex;
-	flex: none;
-	align-items: center;
-	gap: 4px;
-	height: var(--frame-control-size);
-	padding: 0 8px;
-	border-radius: var(--radius-control);
-	color: var(--muted-foreground);
-	font-size: var(--text-small);
-	line-height: var(--leading-small);
-	cursor: pointer;
-}
-.changes-view:hover,
-.changes-view[data-popup-open] {
-	background: var(--accent);
-	color: var(--foreground);
-}
-.changes-view svg {
-	width: 12px;
-	height: 12px;
-}
-.changes-count-files {
-	color: var(--muted-foreground);
-}
-.changes-totals,
-.changes-diff-counts,
-.changes-tree-counts {
-	display: inline-flex;
-	flex: none;
-	align-items: center;
-	gap: 6px;
-	font-family: var(--font-mono);
-	font-size: var(--text-caption);
-	line-height: var(--leading-caption);
-	font-variant-numeric: tabular-nums;
-}
 .changes-added {
 	color: var(--changes-added);
-}
-.changes-bar > .changes-totals {
-	margin-inline-start: auto;
-	gap: 8px;
-	white-space: nowrap;
 }
 .changes-removed {
 	color: var(--changes-removed);
@@ -133,71 +36,6 @@
 .changes-icon-button svg {
 	width: 14px;
 	height: 14px;
-}
-.changes-body {
-	display: grid;
-	flex: 1;
-	min-height: 0;
-	grid-template-columns: minmax(0, 1fr);
-	grid-template-rows: auto auto minmax(0, 1fr);
-}
-/* Narrow: the files sit above the diff and fold away. */
-.changes-files {
-	grid-row: 1;
-	display: none;
-	flex-direction: column;
-	min-height: 0;
-	max-height: 40vh;
-	padding: 8px;
-	border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
-}
-.changes-body[data-files-open="true"] .changes-files {
-	display: flex;
-}
-.changes-files-toggle {
-	grid-row: 2;
-	justify-self: start;
-	margin: 4px 12px;
-	padding: 3px 10px;
-	border: 1px solid var(--border);
-	border-radius: var(--radius-control);
-	color: var(--foreground);
-	font-size: var(--text-caption);
-	line-height: var(--leading-caption);
-	cursor: pointer;
-}
-.changes-files-toggle:hover {
-	background: var(--accent);
-}
-.changes-diff {
-	grid-row: 3;
-	display: flex;
-	flex-direction: column;
-	min-height: 0;
-	min-width: 0;
-}
-/* Wide enough, the files sit at the right of the diff: 240 wide, a 1px line between, the diff taking the rest. */
-@container changes (min-width: 440px) {
-	.changes-body {
-		grid-template-columns: minmax(0, 1fr) var(--panel-files-width);
-		grid-template-rows: minmax(0, 1fr);
-	}
-	.changes-files {
-		grid-row: 1;
-		grid-column: 2;
-		display: flex;
-		max-height: none;
-		padding: 6px;
-		border-bottom: 0;
-		border-inline-start: 1px solid var(--border);
-	}
-	.changes-files-toggle {
-		display: none;
-	}
-	.changes-diff {
-		grid-row: 1;
-		grid-column: 1;
-	}
 }
 .changes-flat {
 	display: flex;
@@ -256,36 +94,6 @@
 .changes-flat-name + .changes-tree-counts,
 .changes-flat-name + .changes-tree-note {
 	margin-inline-start: auto;
-}
-.changes-filter {
-	display: flex;
-	flex: none;
-	align-items: center;
-	gap: 8px;
-	height: 32px;
-	margin-bottom: 6px;
-	padding: 0 10px;
-	border: 1px solid var(--border);
-	border-radius: var(--radius-control);
-	color: var(--muted-foreground);
-}
-.changes-filter:focus-within {
-	border-color: var(--ring);
-}
-.changes-filter svg {
-	flex: none;
-	width: 14px;
-	height: 14px;
-}
-.changes-filter input {
-	flex: 1;
-	min-width: 0;
-	border: 0;
-	outline: 0;
-	background: transparent;
-	color: var(--foreground);
-	font-size: var(--text-small);
-	line-height: var(--leading-small);
 }
 .changes-tree-scroll {
 	flex: 1;
@@ -360,30 +168,8 @@
 	font-size: var(--text-caption);
 	line-height: var(--leading-caption);
 }
-.changes-diff-head {
-	display: flex;
-	flex: none;
-	align-items: center;
-	gap: 8px;
-	height: 36px;
-	padding: 0 10px;
-	border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
-	font-size: var(--text-caption);
-	line-height: var(--leading-caption);
-}
-.changes-diff-path {
-	flex: 1;
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	direction: rtl;
-	text-align: left;
-}
 .changes-diff-body {
-	flex: 1;
-	min-height: 0;
-	overflow: auto;
+	min-width: 0;
 }
 .changes-message,
 .changes-note {
@@ -464,18 +250,422 @@
 	border-bottom: 1px solid var(--border);
 }
 
-/* A narrow pane (half of a small window): the file count gives way so the close button stays in view. */
-@container changes (max-width: 480px) {
-	.changes-count-files {
-		display: none;
-	}
-	.changes-bar {
-		gap: 8px;
-	}
+/* The Changes pane: a header row of controls (drawn by the pane), then every changed file in one scroll. */
+.changes-diff-counts,
+.changes-tree-counts {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	gap: 6px;
+	font-family: var(--font-mono);
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	font-variant-numeric: tabular-nums;
 }
-.changes-bar > * {
+.changes-icon-button:focus-visible,
+.changes-flat-row:focus-visible,
+.changes-file-toggle:focus-visible,
+.changes-chip:focus-visible,
+.changes-goto-row:focus-visible {
+	outline: 2px solid transparent;
+	outline-offset: 1px;
+	box-shadow: var(--focus-ring);
+}
+.changes-icon-button[data-popup-open] {
+	background: var(--accent);
+	color: var(--foreground);
+}
+/* The base chip sits where a title would: base, an arrow, working tree, a chevron. */
+.changes-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+	max-width: 100%;
+	height: var(--frame-control-size);
+	padding: 0 8px;
+	border-radius: var(--radius-chip);
+	color: var(--foreground);
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
+	font-weight: var(--weight-control);
+	cursor: pointer;
+}
+.changes-chip:hover,
+.changes-chip[data-popup-open] {
+	background: var(--accent);
+}
+.changes-chip-side {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.changes-chip-from {
+	flex: 0 1 auto;
+	min-width: 3ch;
+}
+/* In a narrow pane the working-tree side gives way first. */
+.changes-chip-to {
+	flex: 0 99999 auto;
+	min-width: min(8rem, 40%);
+}
+.changes-chip-arrow,
+.changes-chip-chevron {
+	flex: none;
+	width: 12px;
+	height: 12px;
+	color: var(--muted-foreground);
+}
+.changes-chip[data-popup-open] .changes-chip-chevron {
+	color: var(--foreground);
+}
+/* Menu rows: the hint ends the label. The check is a row's last span, and an unchecked row has none, so
+   the label says it is not that check. */
+.conversation-actions-item[role="menuitemradio"] > span.changes-menu-label:last-child,
+.conversation-actions-item[role="menuitemcheckbox"] > span.changes-menu-label:last-child {
+	position: static;
+	inset: auto;
+	display: flex;
+	place-items: initial;
+	align-items: baseline;
+	width: auto;
+	height: auto;
+	color: inherit;
+}
+.changes-menu-label {
+	display: flex;
+	flex: 1;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 16px;
 	min-width: 0;
 }
-.changes-close {
+.changes-menu-text {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.changes-menu-hint {
 	flex: none;
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+	letter-spacing: 0.01em;
+}
+.changes-base-popup {
+	min-width: 193px;
+}
+.changes-more-popup {
+	min-width: 316px;
+	max-width: 22rem;
+}
+.changes-compare-popup {
+	display: flex;
+	flex-direction: column;
+	width: 300px;
+	max-height: min(420px, var(--available-height));
+	padding: 0;
+	overflow: hidden;
+}
+.changes-menu-search,
+.changes-goto-field input {
+	width: 100%;
+	height: 32px;
+	padding: 0 12px;
+	border: 0;
+	outline: 0;
+	background: transparent;
+	color: var(--foreground);
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
+}
+.changes-compare-popup .changes-menu-search {
+	flex: none;
+	border-bottom: 1px solid var(--border);
+}
+.changes-compare-list {
+	flex: 1;
+	min-height: 0;
+	padding: var(--menu-padding);
+	overflow-y: auto;
+}
+.changes-menu-caption {
+	margin: 0;
+	padding: 4px var(--menu-text-inset);
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+}
+.changes-menu-note {
+	margin: 0;
+	padding: 6px var(--menu-text-inset);
+	color: var(--muted-foreground);
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+}
+/* "Go to file" */
+.changes-goto {
+	display: flex;
+	flex-direction: column;
+	width: 360px;
+	max-height: min(420px, var(--available-height));
+	padding: 0;
+	overflow: hidden;
+}
+.changes-goto-field {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 4px;
+	padding-inline-start: 12px;
+	border-bottom: 1px solid var(--border);
+	color: var(--muted-foreground);
+}
+.changes-goto-field > svg {
+	flex: none;
+	width: 14px;
+	height: 14px;
+}
+.changes-goto-field input {
+	padding-inline-start: 4px;
+}
+.changes-goto-list {
+	flex: 1;
+	min-height: 0;
+	padding: var(--menu-padding);
+	overflow-y: auto;
+}
+.changes-goto-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	min-height: var(--menu-row-height);
+	padding: 0 var(--menu-text-inset);
+	border-radius: var(--menu-row-radius);
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
+	text-align: left;
+	cursor: pointer;
+}
+.changes-goto-row[data-active] {
+	background: var(--menu-highlight);
+}
+.changes-goto-path {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	direction: rtl;
+	text-align: left;
+}
+.changes-goto-path mark {
+	background: transparent;
+	color: var(--foreground);
+	font-weight: var(--weight-strong);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+/* The body: the stack of files, and the file list beside it when it is on. */
+.changes-body {
+	position: relative;
+	display: grid;
+	flex: 1;
+	min-height: 0;
+	grid-template-columns: minmax(0, 1fr);
+}
+.changes-review[data-list="right"] .changes-body {
+	grid-template-columns: minmax(0, 1fr) 0 var(--changes-list-width);
+}
+.changes-review[data-list="left"] .changes-body {
+	grid-template-columns: var(--changes-list-width) 0 minmax(0, 1fr);
+}
+.changes-stack {
+	container: changes-stack / inline-size;
+	position: relative;
+	min-width: 0;
+	min-height: 0;
+	overflow: auto;
+	overflow-anchor: auto;
+}
+.changes-review[data-list="left"] .changes-stack {
+	grid-column: 3;
+	grid-row: 1;
+}
+.changes-files {
+	min-height: 0;
+	padding: 6px;
+	overflow: auto;
+}
+.changes-review[data-list="right"] .changes-files {
+	grid-column: 3;
+	grid-row: 1;
+	border-inline-start: 1px solid var(--border);
+}
+.changes-review[data-list="left"] .changes-files {
+	grid-column: 1;
+	grid-row: 1;
+	border-inline-end: 1px solid var(--border);
+}
+/* A 7px grab zone centred on the line between the list and the stack. */
+.changes-list-handle {
+	position: relative;
+	z-index: 2;
+	grid-row: 1;
+	grid-column: 2;
+	width: 7px;
+	margin-inline-start: -3px;
+	cursor: col-resize;
+	touch-action: none;
+}
+.changes-list-handle:hover,
+.changes-list-handle:focus-visible {
+	background: color-mix(in srgb, var(--ring) 40%, transparent);
+	outline: none;
+}
+.changes-group-heading {
+	margin: 0;
+	padding: 10px 12px 4px;
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	font-weight: var(--weight-control);
+}
+.changes-file {
+	border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+/* A file's row stays at the top of the scroll while its code passes under it. */
+.changes-file-row {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	height: 32px;
+	padding: 0 8px 0 4px;
+	background: var(--background);
+}
+.changes-file[data-open] > .changes-file-row {
+	border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+.changes-file-toggle {
+	display: flex;
+	flex: 1;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+	height: 100%;
+	padding-inline-start: 4px;
+	/* The text spans shrink only inside the button, and what still does not fit never reaches the counts. */
+	overflow: hidden;
+	border-radius: var(--radius-control);
+	color: var(--foreground);
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	text-align: left;
+	cursor: pointer;
+}
+.changes-file-chevron {
+	flex: none;
+	width: 16px;
+	height: 16px;
+	color: var(--muted-foreground);
+	transform: rotate(-90deg);
+	transition: transform 120ms;
+}
+.changes-file-chevron[data-open] {
+	transform: none;
+}
+.changes-file-icon {
+	flex: none;
+	width: 14px;
+	height: 14px;
+	color: var(--muted-foreground);
+}
+.changes-file-dir {
+	flex: 0 100 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	direction: rtl;
+	text-align: left;
+	color: var(--muted-foreground);
+}
+.changes-file-name {
+	flex: 0 0.001 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.changes-file-note {
+	flex: 0 0.001 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+}
+.changes-file-note[data-tone="added"] {
+	color: var(--changes-added);
+}
+.changes-file-note[data-tone="removed"] {
+	color: var(--changes-removed);
+}
+.changes-file-actions {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 4px;
+}
+.changes-viewed svg[data-state="viewed"] {
+	color: var(--changes-added);
+}
+.changes-viewed svg[data-state="stale"] {
+	color: var(--warning, #b45309);
+}
+.changes-file-body .changes-diff-body {
+	overflow: visible;
+}
+/* Loading, failed and empty states. */
+.changes-state {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	padding: 24px 16px;
+	text-align: center;
+}
+.changes-state-title {
+	margin: 0;
+	color: var(--foreground);
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
+	font-weight: var(--weight-control);
+}
+.changes-state-body {
+	margin: 0;
+	max-width: 36ch;
+	color: var(--muted-foreground);
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+}
+/* A narrow pane: the open arrow and the note give way before the file's name does. */
+@container changes (max-width: 400px) {
+	.changes-file-note {
+		display: none;
+	}
+}
+/* With the file list open the stack can be narrow inside a wide pane: the note goes before the name is cut. */
+@container changes-stack (max-width: 360px) {
+	.changes-file-note {
+		display: none;
+	}
 }

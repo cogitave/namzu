@@ -122,6 +122,49 @@ describe('permissions.disableBypassMode and disableAutoMode', () => {
 	})
 })
 
+describe('permissions.allowBypassMode', () => {
+	it('is honoured from the user file and the managed file', () => {
+		expect(
+			load(layout({ user: { permissions: { allowBypassMode: true } } })).permissionSettings,
+		).toEqual({ allowBypassMode: true })
+		expect(
+			load(layout({ managed: { permissions: { allowBypassMode: true } } })).permissionSettings,
+		).toEqual({ allowBypassMode: true })
+	})
+
+	it('is dropped from a project file, with a note', () => {
+		const settings = load(
+			layout({
+				project: { permissions: { allowBypassMode: true } },
+				local: { permissions: { allowBypassMode: true } },
+			}),
+		).permissionSettings
+		expect(settings?.allowBypassMode).toBeUndefined()
+		expect(settings?.ignored?.join('\n')).toMatch(/allowBypassMode.*ignored/s)
+	})
+
+	it('lets the administrator lock it off over the user value', () => {
+		const config = load(
+			layout({
+				user: { permissions: { allowBypassMode: true } },
+				managed: { permissions: { allowBypassMode: false } },
+			}),
+		)
+		expect(config.permissionSettings?.allowBypassMode).toBe(false)
+	})
+
+	it('is never read as a tool name', () => {
+		const config = load(layout({ user: { permissions: { allowBypassMode: true } } }))
+		expect(config.permissions).toEqual({})
+	})
+
+	it('must be true or false', () => {
+		expect(() => load(layout({ user: { permissions: { allowBypassMode: 'yes' } } }))).toThrow(
+			/allowBypassMode.*true or false/s,
+		)
+	})
+})
+
 describe('permissions.autoMode', () => {
 	const autoMode = {
 		model: 'small-model',

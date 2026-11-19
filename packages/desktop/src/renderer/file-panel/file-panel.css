@@ -1,46 +1,3 @@
-/* The side panel: tab strip, resize edge, and the file view with its tree column. */
-.jobs-panel {
-	/* The handle sits on the panel's left border. */
-	min-width: 0;
-}
-.panel-resize-handle {
-	position: absolute;
-	/* The zone is centred on the seam, which is the panel's own first pixel. */
-	inset: 0 auto 0 calc(var(--panel-grab-zone) / -2 + var(--panel-seam) / 2);
-	z-index: 2;
-	width: var(--panel-grab-zone);
-	cursor: col-resize;
-	touch-action: none;
-}
-.panel-resize-handle::after {
-	content: "";
-	position: absolute;
-	inset: 0 auto 0
-		calc((var(--panel-grab-zone) - var(--panel-grab-line)) / 2 - var(--panel-seam) / 2);
-	width: var(--panel-grab-line);
-	background: transparent;
-	transition: background-color var(--dur-quick);
-}
-.panel-resize-handle:hover::after,
-.panel-resize-handle:focus-visible::after,
-.panel-resize-handle:active::after {
-	background: var(--primary);
-}
-.panel-resize-handle:focus-visible {
-	outline: none;
-}
-/* Where the panel covers the pane there is no seam to move. */
-@container workspace (max-width: 899px) {
-	.workspace[data-panel-kind="reading"] .panel-resize-handle {
-		display: none;
-	}
-}
-@container workspace (max-width: 679px) {
-	.workspace[data-panel-kind="tool"] .panel-resize-handle {
-		display: none;
-	}
-}
-
 /* A panel's header: 44 high with a 1px line under it, the title 20 in, controls 28 square and 4 apart,
    the last 8 from the edge. */
 .section-heading.panel-heading {
@@ -216,19 +173,6 @@
 	width: var(--frame-control-size);
 	height: var(--frame-control-size);
 }
-/* Expanded, the panel takes the pane and the conversation steps aside until it is restored. */
-.workspace.jobs-open[data-panel-expanded] > .jobs-panel {
-	width: 100%;
-	max-width: none;
-	box-shadow: none;
-}
-.workspace.jobs-open[data-panel-expanded] > :is(.topbar, .connection-error, .welcome, .chat-stage) {
-	visibility: hidden;
-}
-.workspace[data-panel-expanded] .panel-resize-handle {
-	display: none;
-}
-
 /* Every tab closed: three quiet ways back in. */
 .panel-empty {
 	display: flex;
@@ -334,10 +278,6 @@
 	text-overflow: ellipsis;
 	white-space: nowrap;
 	font-weight: var(--weight-strong);
-}
-.file-source-toggle[aria-pressed="true"] {
-	background: var(--accent);
-	color: var(--foreground);
 }
 .open-in {
 	display: inline-flex;
@@ -526,6 +466,29 @@
 	min-height: 0;
 	padding: 0 8px 8px 0;
 }
+.file-tree-column[data-home] {
+	flex: 1;
+	width: auto;
+	padding: 8px 8px 8px 12px;
+}
+.file-tree-mark {
+	flex: none;
+	margin-inline-start: auto;
+	padding-inline: 4px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	font-weight: var(--weight-strong);
+	color: var(--muted-foreground);
+}
+.file-tree-mark[data-mark="U"] {
+	color: var(--bar-added, #15803d);
+}
+.file-tree-mark[data-mark="M"] {
+	color: var(--warning-foreground, #b45309);
+}
+.dark .file-tree-mark[data-mark="U"] {
+	color: #4ade80;
+}
 .file-panel:not([data-wide]) .file-tree-column {
 	position: absolute;
 	inset: 0 0 0 auto;
@@ -704,15 +667,6 @@
 	border-radius: 3px;
 }
 
-/* Held edge: the document column follows the pointer without easing. */
-.workspace[data-panel-resizing] > * {
-	transition: none !important;
-}
-.workspace[data-panel-resizing] {
-	user-select: none;
-	cursor: col-resize;
-}
-
 /* A narrow panel: the breadcrumb takes a row of its own and drops its middle folders. */
 @container file-panel (max-width: 420px) {
 	.file-toolbar {
@@ -727,4 +681,13 @@
 	.file-crumb-gap {
 		display: inline;
 	}
+}
+/* The rendered/source switch of a Markdown file, in the file's header row. */
+.file-view-toggle {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	padding: 2px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-control);
 }

@@ -12,9 +12,15 @@ import {
 	untrustedLine,
 } from './hooks-view-model.js'
 import { plainErrorText } from './plain-error.js'
+import { SHOWN_WHEN_READABLE, isSettingsFileError } from './settings-file-error.js'
 import { Row, Switch } from './settings-row.js'
 import type { ConfigSettingsControls } from './use-config-settings.js'
 import type { HooksControls } from './use-hooks-view.js'
+
+/** Where the hooks are written, so the one Hooks row also says which file to edit. */
+function hooksFileLine(file: string | undefined): string | undefined {
+	return file ? `Edit the hooks in your config file: ${file}.` : undefined
+}
 
 function Problem({ problem }: { problem: ProblemView }) {
 	return (
@@ -76,6 +82,8 @@ export function HooksRows({
 			setSaving(false)
 		}
 	}
+	// A broken settings file is said once, at the top of the page; the list waits for it.
+	const fileBroken = isSettingsFileError(hooks.read?.error) || isSettingsFileError(report?.error)
 	const list = report ? hooksListView(report) : undefined
 	const trust = report && !view?.own ? untrustedLine(report) : undefined
 	return (
@@ -84,7 +92,7 @@ export function HooksRows({
 				<Row
 					id="runHooks"
 					label="Run hooks"
-					description="Hooks are commands your settings, plugins, skills and agent files start by themselves at set moments. Switched off, the ones from your own and a project’s files do not run; the ones in your administrator’s file still do. A project that is open keeps what it started with: a change reaches it when Namzu next connects to it."
+					description="Hooks are commands your settings, plugins, skills and agent files start by themselves at set moments. Switched off, the ones from your own and a project’s files do not run; ones from your administrator still do."
 				>
 					<div className="hooks-switch">
 						<Switch
@@ -116,18 +124,20 @@ export function HooksRows({
 					id="hooks"
 					label="Hooks"
 					description={hooksNote(view?.own ?? true, projectName)}
+					meta={hooksFileLine(config.view?.file)}
 					stacked
 				>
 					<div className="hooks-view">
 						{hooks.read?.loading && !view && <p className="settings-note">Reading the hooks…</p>}
-						{hooks.read?.error && (
+						{fileBroken && <p className="settings-note">{SHOWN_WHEN_READABLE}</p>}
+						{hooks.read?.error && !fileBroken && (
 							<p role="alert" className="settings-error">
 								{hooks.read.error}
 							</p>
 						)}
 						{hooks.read?.unsupported && <p className="settings-note">{OLD_ENGINE_HOOKS}</p>}
 						{trust && <p className="settings-note">{trust}</p>}
-						{report?.error ? (
+						{report?.error && !fileBroken ? (
 							<p role="alert" className="settings-error">
 								The configuration could not be read: {report.error}
 							</p>

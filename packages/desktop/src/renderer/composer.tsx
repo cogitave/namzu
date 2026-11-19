@@ -1,5 +1,13 @@
 import type { ReviewMode } from '@namzu/sdk'
-import { type ReactNode, type RefObject, useLayoutEffect, useRef, useState } from 'react'
+import {
+	type ReactNode,
+	type RefObject,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from 'react'
 import type {
 	AttachmentView,
 	ComposerModelSettings,
@@ -13,7 +21,9 @@ import type {
 import type { ProjectPrView } from '../shared/protocol.js'
 import { usableProviders } from '../shared/provider-connections.js'
 import { AttachmentList } from './attachment-list.js'
+import { type AddMenuToolServers, ComposerAddMenu } from './composer-add-menu.js'
 import { ComposerApproval } from './composer-approval.js'
+import { caretPoint, copyBoxText } from './composer-caret.js'
 import {
 	type HistoryWalk,
 	activeWalk,
@@ -25,12 +35,29 @@ import {
 	DRAFT_LIMIT,
 	UNSUPPORTED_ATTACHMENTS_HINT,
 	composerPlaceholder,
+	composerPlaceholderTitle,
 	decidePaste,
 	pasteOverflow,
 	pasteOverflowNotice,
 	stopTooltip,
 } from './composer-input.js'
 import { decideComposerKey, isComposing } from './composer-keys.js'
+import { placeListMenu } from './composer-list-menu.js'
+import { type MentionIndex, mentionList } from './composer-mention-list.js'
+import { ComposerMentionMenu, MENTION_MENU_ID } from './composer-mention-menu.js'
+import {
+	activeMention,
+	applyMention,
+	filterSlash,
+	mentionPieces,
+	mentionText,
+	mirrorParts,
+	moveHighlight,
+	pickSlash,
+	slashLine,
+	slashQuery,
+} from './composer-menu-model.js'
+import { defaultPermissionModes } from './composer-permissions.js'
 import {
 	type ComposerPlugin,
 	type ComposerPluginInventory,
@@ -42,8 +69,10 @@ import {
 	ComposerPermissions,
 	ComposerSettings,
 } from './composer-settings.js'
+import { ComposerSlashMenu, SLASH_MENU_ID } from './composer-slash-menu.js'
 import { ComposerSurface } from './composer-surface.js'
 import { ComposerTray, type ComposerTrayActions } from './composer-tray.js'
+import { prepareIndex } from './file-panel/file-search.js'
 import { automaticChoiceNote } from './first-open-note.js'
 import { type EngineSurfaceControl, engineLabel } from './harness-picker.js'
 import { HomeHeadingName } from './home-heading-name.js'
@@ -59,18 +88,22 @@ import {
 	TerminalIcon,
 } from './icons.js'
 import { cn } from './lib/utils.js'
-import { type ModelChoice, ModelPicker } from './model-picker.js'
+import { effortLabel } from './model-choice.js'
+import { HYPERMODE_BLOCKED, type ModelChoice, ModelPicker } from './model-picker.js'
 import { isMaterialPaste } from './paste-ranges.js'
 import type { PendingMessages } from './pending-messages.js'
 import { usePresence } from './presence.js'
 import { DEFAULT_HOME_HEADING } from './project-home.js'
+import { type SlashHandlers, type SlashRow, slashRows, slashRowsHeldBack } from './slash-actions.js'
 import { Button } from './ui/button.js'
 import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
 import { Textarea } from './ui/textarea.js'
 import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
 import './composer.css'
 import type { ThreadUsage } from '../shared/projection.js'
+import type { ContextPanelSource } from './context-panel.js'
 import { ContextReadout, ContextRing } from './context-ring-view.js'
+import { UsageIndicator, type UsageLimitsControl, indicatorState } from './usage-limits-popover.js'
 
 /**
  * The picker's modes are the ones this window offers. The kernel's old `auto`,
@@ -81,7 +114,7 @@ function composerPermissionMode(mode: ReviewMode | undefined): ComposerPermissio
 }
 
 const PROVIDER_EMPTY_HELP =
-	'Namzu needs a model provider to answer. Paste an API key, or sign in with Claude Code or Codex and Namzu will find that sign-in.'
+	'Namzu needs an AI service to reply. Add a key for one, or sign in to Claude Code or Codex and Namzu will use that.'
 
 /** The review state in plain words, for the pull request chip's tooltip and name. */
 const REVIEW_WORDS: Record<ProjectPrView['review'], string> = {
@@ -126,6 +159,8 @@ export function Composer({
 	trayActions,
 	shells,
 	usage,
+	limits,
+	contextPanel,
 	pullRequest,
 	onSend,
 	onQueue,
@@ -144,6 +179,7 @@ export function Composer({
 	onRecheckEngines,
 	attachmentsSupported = true,
 	reviewModes,
+	notice,
 	permissionEngine,
 	permissionScope,
 	onLeaveProject,
@@ -171,7 +207,16 @@ export function Composer({
 	speechControl,
 	speechStatus,
 	surface,
+	slashHandlers,
+	loadProjectFiles,
+	toolServers,
 }: {
+	/** What the "/" list can run here; a command without a handler is not listed. */
+	slashHandlers?: SlashHandlers
+	/** Reads the project's file list for the "@" list; absent where files cannot be named. */
+	loadProjectFiles?: (projectId: string) => Promise<{ paths: string[]; truncated: boolean }>
+	/** The plus menu's tool server list; absent where the project has none to show. */
+	toolServers?: AddMenuToolServers
 	speechControl?: ReactNode
 	/** Voice lines (the one-time agreement, "Listening…", what just happened), drawn right above the box. */
 	speechStatus?: ReactNode
@@ -225,6 +270,10 @@ export function Composer({
 	shells?: { count: number; onOpen: () => void }
 	/** How full the conversation is, as the engine last said; the ring is drawn only when it is complete. */
 	usage?: ThreadUsage
+	/** What the account behind the provider says about its limits; the indicator opens a popover with it. */
+	limits?: UsageLimitsControl
+	/** Lets the ring open the context panel; absent when the engine cannot say where the window goes. */
+	contextPanel?: ContextPanelSource
 	/** The branch's pull request; absent when there is none to show. */
 	pullRequest?: { pr: ProjectPrView; onOpen: () => void }
 	onSend: () => void
@@ -246,6 +295,8 @@ export function Composer({
 	onRecheckEngines?: () => Promise<unknown>
 	attachmentsSupported?: boolean
 	reviewModes?: readonly ComposerPermissionMode[]
+	/** One line the app wants said under the box, such as a mode that was closed since last time. */
+	notice?: string
 	permissionEngine?: HarnessView['selected']
 	permissionScope?: string
 	onLeaveProject?: () => void
@@ -306,7 +357,22 @@ export function Composer({
 		inputRef.current?.setSelectionRange(caret, caret)
 	}, [draft, inputRef])
 	const mac = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform)
+	const [caret, setCaret] = useState(0)
+	const [focused, setFocused] = useState(false)
+	useEffect(() => {
+		setFocused(document.activeElement === inputRef.current)
+	}, [inputRef])
+	// Esc closes a list and keeps the text; the list stays closed until what it was asked about changes.
+	const [dismissed, setDismissed] = useState<string | null>(null)
+	const [highlight, setHighlight] = useState({ key: '', index: 0 })
+	const [modelRequest, setModelRequest] = useState(0)
+	const [permissionRequest, setPermissionRequest] = useState(0)
+	const [, setViewport] = useState(0)
+	const hostRef = useRef<HTMLElement | null>(null)
+	const stackRef = useRef<HTMLDivElement>(null)
+	const mirrorRef = useRef<HTMLDivElement>(null)
 	const cliMode = !compact && surface?.value === 'cli'
+	const commandsEnabled = !compact && !cliMode && !draftDisabled
 	// Only a computer with nothing to answer with (not even the free models) shows the card.
 	const noProvider = !providersLoading && usableProviders(providers).length === 0 && !cliMode
 	// With nothing connected, Enter and the Send button lead to the card that fixes it.
@@ -317,6 +383,269 @@ export function Composer({
 			? automaticChoiceNote(providers, choice, choiceUnchosen === true)
 			: undefined
 	const cliLabel = engineLabel(harnessView, permissionEngine ?? harnessView?.selected ?? 'namzu')
+	// Hypermode is Namzu's own mode, for any level of effort; another engine has no such switch, and
+	// a Pal keeps its own settings.
+	const hypermodeOffered =
+		!compact && (permissionEngine ?? harnessView?.selected ?? 'namzu') === 'namzu'
+	// The commands this box can run: the window's own (from the caller) and the ones it owns itself.
+	const handlers = useMemo<SlashHandlers>(() => {
+		if (!commandsEnabled) return {}
+		const own: SlashHandlers = { ...slashHandlers }
+		const settingsReady = !sending && connected && toolsAvailable
+		if (modelSelectionReady && !running && !sending && !harnessBusy && !noProvider)
+			own.model = () => setModelRequest((count) => count + 1)
+		const levels = capabilities?.effortLevels
+		if (hypermodeOffered && !running && !sending && connected) {
+			// `/effort hypermode on|off` changes only the mode; `/effort high hypermode on` the level too.
+			own.effort = (argument) => {
+				const words = argument.trim().toLowerCase().split(/\s+/).filter(Boolean)
+				const modeAt = words.length >= 2 ? words.length - 2 : -1
+				let mode: boolean | undefined
+				let rest = words
+				if (modeAt >= 0 && words[modeAt] === 'hypermode') {
+					const choice = words[modeAt + 1]
+					if (choice !== 'on' && choice !== 'off') return `/effort ${argument}`
+					mode = choice === 'on'
+					rest = words.slice(0, modeAt)
+				}
+				const next: DesktopSendOptions = { ...settings }
+				if (mode !== undefined) {
+					// Refused with the one sentence; a level typed with it is still applied.
+					if (mode && capabilities?.workflowsOff) setPasteNotice(HYPERMODE_BLOCKED)
+					else next.hypermode = mode
+				}
+				if (rest.length === 0) {
+					if (mode === undefined) {
+						setModelRequest((count) => count + 1)
+						return undefined
+					}
+					onSettingsChange(next)
+					return undefined
+				}
+				const word = rest.join(' ')
+				if (word === 'default' || word === 'auto') {
+					onSettingsChange({ ...next, effort: undefined })
+					return undefined
+				}
+				const level = levels?.find(
+					(item) =>
+						item === word ||
+						effortLabel(item).toLowerCase() === word ||
+						(word === 'extra' && item === 'xhigh'),
+				)
+				if (!level) return `/effort ${argument}`
+				onSettingsChange({ ...next, effort: level })
+				return undefined
+			}
+		} else if (levels?.length && !running && !sending && connected) {
+			own.effort = (argument) => {
+				const word = argument.trim().toLowerCase()
+				if (!word) {
+					setModelRequest((count) => count + 1)
+					return undefined
+				}
+				if (word === 'default' || word === 'auto') {
+					onSettingsChange({ ...settings, effort: undefined })
+					return undefined
+				}
+				const level = levels.find(
+					(item) =>
+						item === word ||
+						effortLabel(item).toLowerCase() === word ||
+						(word === 'extra' && item === 'xhigh'),
+				)
+				if (!level) return `/effort ${argument}`
+				onSettingsChange({ ...settings, effort: level })
+				return undefined
+			}
+		}
+		const modes =
+			reviewModes ?? defaultPermissionModes(permissionEngine ?? harnessView?.selected ?? 'namzu')
+		if (settingsReady && modes.includes('plan'))
+			own.plan = (argument) => {
+				onSettingsChange({ ...settings, permissionMode: 'plan' })
+				return argument.trim() || undefined
+			}
+		if (settingsReady) own.permissions = () => setPermissionRequest((count) => count + 1)
+		return own
+	}, [
+		commandsEnabled,
+		slashHandlers,
+		sending,
+		connected,
+		toolsAvailable,
+		modelSelectionReady,
+		running,
+		harnessBusy,
+		noProvider,
+		capabilities?.effortLevels,
+		capabilities?.workflowsOff,
+		hypermodeOffered,
+		settings,
+		onSettingsChange,
+		reviewModes,
+		permissionEngine,
+		harnessView?.selected,
+	])
+	const rows = useMemo(
+		() => slashRows(handlers, { newConversation: centered }),
+		[handlers, centered],
+	)
+	const moreLater = slashRowsHeldBack(handlers, centered)
+	const query = commandsEnabled && focused ? slashQuery(draft, caret) : null
+	const matches = useMemo(() => (query === null ? [] : filterSlash(rows, query)), [rows, query])
+	const slashKey = `s:${query}`
+	const slashOpen = query !== null && matches.length > 0 && dismissed !== slashKey
+	const slashIndex = Math.min(highlight.key === slashKey ? highlight.index : 0, matches.length - 1)
+	const mention =
+		commandsEnabled && focused && loadProjectFiles && !slashOpen && query === null
+			? activeMention(draft, caret)
+			: null
+	const mentionKey = mention ? `m:${mention.start}:${mention.query}` : ''
+	// The file list is read the first time "@" is typed, then kept for this project.
+	const [files, setFiles] = useState<{ projectId: string; value: MentionIndex } | null>(null)
+	const wantFiles = mention !== null && files?.projectId !== projectId
+	// The project whose list was asked for last; an answer for another project is dropped.
+	const askedFiles = useRef<string | null>(null)
+	useEffect(() => {
+		if (!wantFiles || !loadProjectFiles) return
+		askedFiles.current = projectId
+		setFiles({ projectId, value: { state: 'loading' } })
+		loadProjectFiles(projectId).then(
+			(found) => {
+				if (askedFiles.current !== projectId) return
+				setFiles({
+					projectId,
+					value: { state: 'ready', index: prepareIndex(found.paths), truncated: found.truncated },
+				})
+			},
+			() => {
+				if (askedFiles.current === projectId) setFiles({ projectId, value: { state: 'failed' } })
+			},
+		)
+	}, [wantFiles, loadProjectFiles, projectId])
+	const mentionView = useMemo(
+		() =>
+			mention && files?.projectId === projectId
+				? mentionList(files.value, mention.query)
+				: ({ kind: 'closed' } as const),
+		[mention, files, projectId],
+	)
+	const shownMention =
+		mention !== null && mentionView.kind !== 'closed' && dismissed !== mentionKey
+			? mentionView
+			: null
+	const mentionOpen = shownMention !== null
+	const mentionRows = mentionView.kind === 'rows' ? mentionView.rows : []
+	const mentionIndex = Math.min(
+		highlight.key === mentionKey ? highlight.index : 0,
+		Math.max(0, mentionRows.length - 1),
+	)
+	const menuOpen = slashOpen ? 'slash' : mentionOpen ? 'mention' : null
+	// A list that was closed with Esc opens again once what it was asked about is something else.
+	useEffect(() => {
+		if (dismissed !== null && dismissed !== slashKey && dismissed !== mentionKey) setDismissed(null)
+	}, [dismissed, slashKey, mentionKey])
+	// Files picked from the "@" list stay coloured in the box, as a picked "/name" does.
+	const [pickedMentions, setPickedMentions] = useState<readonly string[]>([])
+	const livePicked = pickedMentions.filter((token) => draft.includes(token))
+	const mirror =
+		(commandsEnabled ? mirrorParts(rows, draft, slashOpen) : null) ??
+		(livePicked.length > 0 ? { command: '', rest: draft } : null)
+	// A window that changes size moves where a list belongs.
+	useEffect(() => {
+		if (!menuOpen) return
+		const again = () => setViewport((count) => count + 1)
+		window.addEventListener('resize', again)
+		return () => window.removeEventListener('resize', again)
+	}, [menuOpen])
+	// The box this one's lists and menus sit on.
+	useLayoutEffect(() => {
+		hostRef.current = inputRef.current?.closest<HTMLElement>('[data-slot="composer-host"]') ?? null
+	})
+	// The layer behind the box takes the box's type, padding and size, and follows its scroll.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: it is redrawn with every change of the text it paints.
+	useLayoutEffect(() => {
+		const box = inputRef.current
+		const layer = mirrorRef.current
+		const stack = stackRef.current
+		if (!box || !layer || !stack) return
+		copyBoxText(box, layer)
+		const boxRect = box.getBoundingClientRect()
+		const stackRect = stack.getBoundingClientRect()
+		layer.style.top = `${boxRect.top - stackRect.top + box.clientTop}px`
+		layer.style.left = `${boxRect.left - stackRect.left + box.clientLeft}px`
+		layer.style.width = `${box.clientWidth}px`
+		layer.style.height = `${box.clientHeight}px`
+		layer.scrollTop = box.scrollTop
+	}, [mirror?.command, mirror?.rest, mirror?.ghost, draft, inputRef, livePicked.length])
+	// Where the "/" list sits: flush on the box's top edge, its left 16 before the text.
+	const placeSlash = () => {
+		const box = inputRef.current
+		const host = hostRef.current
+		if (!box || !host) return placeListMenu({ left: 8, bottomEdge: 0, width: 240 })
+		const textLeft =
+			box.getBoundingClientRect().left + Number.parseFloat(getComputedStyle(box).paddingLeft || '0')
+		return placeListMenu({
+			left: textLeft - 16,
+			bottomEdge: host.getBoundingClientRect().top,
+			width: 240,
+		})
+	}
+	// Where the "@" list sits: its left at the "@", its bottom on the top of the line that holds it.
+	const placeMention = () => {
+		const box = inputRef.current
+		if (!box || !mention) return placeListMenu({ left: 8, bottomEdge: 0, width: 420 })
+		const point = caretPoint(box, mention.start)
+		return placeListMenu({ left: point.x, bottomEdge: point.lineTop, width: 420 })
+	}
+	const runRow = (row: SlashRow, argument: string) => {
+		const back = row.run(argument)
+		if (typeof back === 'string') {
+			caretAfterRecall.current = back.length
+			onDraftChange(back)
+			setCaret(back.length)
+		}
+	}
+	const pickRow = (row: SlashRow) => {
+		const pick = pickSlash(row)
+		setWalk(null)
+		setDismissed(null)
+		if (pick.run) {
+			onDraftChange('')
+			setCaret(0)
+			runRow(row, '')
+			return
+		}
+		caretAfterRecall.current = pick.text.length
+		onDraftChange(pick.text)
+		setCaret(pick.text.length)
+	}
+	const pickFile = (path: string) => {
+		if (!mention) return
+		const next = applyMention(draft, caret, mention, path)
+		const token = mentionText(path).trimEnd()
+		setPickedMentions((list) => (list.includes(token) ? list : [...list, token]))
+		caretAfterRecall.current = next.caret
+		setWalk(null)
+		onDraftChange(next.value)
+		setCaret(next.caret)
+	}
+	// Enter and the send button first ask whether the box holds a command; one runs and sends no reply.
+	const submit = () => {
+		if (commandsEnabled) {
+			const line = slashLine(rows, draft)
+			const row = line && rows.find((item) => item.name === line.entry.name)
+			if (row && line) {
+				setWalk(null)
+				onDraftChange('')
+				setCaret(0)
+				runRow(row, line.argument)
+				return
+			}
+		}
+		onSend()
+	}
 	const modelControl = (
 		<ModelPicker
 			projectId={projectId}
@@ -332,6 +661,7 @@ export function Composer({
 				// counts tab restore and loading, which must not hold the read back.
 				catalogueReady ?? (modelSelectionReady && !harnessBusy)
 			}
+			openRequest={modelRequest}
 			pending={modelPending}
 			startingEngine={startingEngine}
 			startFailed={startFailed}
@@ -340,6 +670,14 @@ export function Composer({
 			settings={capabilities}
 			effort={settings.effort}
 			onEffortChange={(effort) => onSettingsChange({ ...settings, effort })}
+			{...(hypermodeOffered
+				? {
+						hypermode: {
+							on: settings.hypermode ?? capabilities?.hypermodeDefault === true,
+							onChange: (on: boolean) => onSettingsChange({ ...settings, hypermode: on }),
+						},
+					}
+				: {})}
 			engineControl={
 				compact
 					? undefined
@@ -388,13 +726,14 @@ export function Composer({
 	const waitingOnPerson = permissions.length > 0
 	// While a question waits for the person the composer is a one-line bar: the question is above it.
 	const waiting = waitingOnPerson && !compact
+	const limitsCritical = limits ? indicatorState(usage, limits)?.limits?.critical : undefined
 	const [plusOpen, setPlusOpen] = useState(false)
 	// Send and Stop share one slot, so Stop can appear under a pointer that is already resting there. No
 	// pointer-enter reaches a button that was not there, so Stop's tooltip also opens on the first move.
 	const [stopTipOpen, setStopTipOpen] = useState(false)
 	const [trayEditing, setTrayEditing] = useState<string | null>(null)
 	const editableRows = pending.rows.filter((row) => row.editable)
-	const plusControl = (
+	const popoverPlus = (
 		<Popover open={plusOpen} onOpenChange={setPlusOpen}>
 			<PopoverTrigger
 				render={<Button variant="ghost-muted" size="icon-sm" />}
@@ -447,6 +786,53 @@ export function Composer({
 				{pluginsSupported && <div className="pal-composer-tool-section">{pluginControl}</div>}
 			</PopoverPopup>
 		</Popover>
+	)
+	const plusControl = compact ? (
+		popoverPlus
+	) : (
+		<ComposerAddMenu
+			open={plusOpen}
+			onOpenChange={(next) => {
+				setPlusOpen(next)
+				// Closing hands the keyboard back to the box, whichever way the menu was left.
+				if (!next) requestAnimationFrame(() => inputRef.current?.focus())
+			}}
+			inputRef={inputRef}
+			hostRef={hostRef}
+			mac={mac}
+			triggerClassName="composer-add"
+			attach={attachmentsSupported ? { disabled: importDisabled, onAttach } : null}
+			slash={
+				commandsEnabled && draft === '' && rows.length > 0
+					? {
+							onOpen: () => {
+								setDismissed(null)
+								caretAfterRecall.current = 1
+								onDraftChange('/')
+								setCaret(1)
+								setFocused(true)
+								requestAnimationFrame(() => inputRef.current?.focus())
+							},
+						}
+					: null
+			}
+			toolServers={toolServers ?? null}
+			plugins={
+				pluginsSupported
+					? {
+							scope: JSON.stringify([projectId, sessionId, choice.provider, choice.model]),
+							view: plugins && {
+								...plugins,
+								canChange: plugins.canChange && !running && permissions.length === 0,
+							},
+							loading: pluginsLoading,
+							disabled: sending || !connected,
+							onOpen: onOpenPlugins,
+							onSetEnabled: onSetPluginEnabled,
+						}
+					: null
+			}
+		/>
 	)
 	const overlay = useRef<HTMLDivElement>(null)
 	const dock = useRef<HTMLDivElement>(null)
@@ -581,6 +967,12 @@ export function Composer({
 							/>
 						</fieldset>
 					)}
+					{/* A note about the conversation itself sits above the box, never inside what you type in. */}
+					{notice && (
+						<output data-composer-note className="block px-3 pb-1.5 text-xs text-muted-foreground">
+							{notice}
+						</output>
+					)}
 					<ComposerSurface.Shell
 						className={cn(
 							compact ? 'pal-composer-shell' : 'normal-composer-shell',
@@ -667,115 +1059,215 @@ export function Composer({
 											{blockedNotice}
 										</output>
 									)}
-									<Textarea
-										unstyled
-										className="composer-input"
-										aria-label="Message Namzu"
-										ref={inputRef}
-										value={draft}
-										maxLength={DRAFT_LIMIT}
-										disabled={draftDisabled}
-										placeholder={composerPlaceholder({
-											compact,
-											cliMode,
-											cliLabel,
-											editableQueued: editableRows.length > 0,
-											waitingOnPerson: waiting,
-											hasDraft,
-											running,
-											liveInputSupported,
-											mac,
-										})}
-										onChange={(event) => {
-											if (keepPasteNotice.current) keepPasteNotice.current = false
-											else setPasteNotice(undefined)
-											setWalk(null)
-											onDraftChange(event.target.value)
-										}}
-										onPaste={(event) => {
-											const files = Array.from(event.clipboardData.files)
-											const text = event.clipboardData.getData('text/plain')
-											const decision = decidePaste({
-												text,
-												fileCount: files.length,
-												importDisabled,
-												attachmentsSupported,
-											})
-											if (decision.action === 'default') {
-												const target = event.currentTarget
-												if (isMaterialPaste(text))
-													onMaterialPaste?.({ start: target.selectionStart, text })
-												const left = pasteOverflow({
-													current: target.value,
-													selectionStart: target.selectionStart,
-													selectionEnd: target.selectionEnd,
-													pasted: text,
-												})
-												keepPasteNotice.current = left > 0
-												setPasteNotice(left > 0 ? pasteOverflowNotice(left) : undefined)
-												return
+									<div ref={stackRef} className="composer-input-stack">
+										<Textarea
+											unstyled
+											data-mirror={mirror ? '' : undefined}
+											role={menuOpen ? 'combobox' : undefined}
+											aria-expanded={menuOpen ? true : undefined}
+											aria-controls={
+												menuOpen === 'slash'
+													? SLASH_MENU_ID
+													: menuOpen === 'mention'
+														? MENTION_MENU_ID
+														: undefined
 											}
-											event.preventDefault()
-											if (decision.action === 'import') {
-												setPasteNotice(undefined)
-												onAddFiles(files)
-											} else setPasteNotice(decision.notice)
-										}}
-										onKeyDown={(event) => {
-											keepPasteNotice.current = false
-											const target = event.currentTarget
-											const key = decideComposerKey({
-												key: event.key,
-												shiftKey: event.shiftKey,
-												altKey: event.altKey,
-												ctrlKey: event.ctrlKey,
-												metaKey: event.metaKey,
-												composing: isComposing(event),
-												value: target.value,
-												selectionStart: target.selectionStart,
-												selectionEnd: target.selectionEnd,
-												hasDraft,
+											aria-activedescendant={
+												menuOpen === 'slash'
+													? `${SLASH_MENU_ID}-${slashIndex}`
+													: menuOpen === 'mention' && mentionRows.length > 0
+														? `${MENTION_MENU_ID}-${mentionIndex}`
+														: undefined
+											}
+											aria-autocomplete={menuOpen ? 'list' : undefined}
+											onFocus={() => setFocused(true)}
+											onBlur={() => setFocused(false)}
+											onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
+											onScroll={(event) => {
+												if (mirrorRef.current)
+													mirrorRef.current.scrollTop = event.currentTarget.scrollTop
+											}}
+											className="composer-input"
+											aria-label="Message Namzu"
+											ref={inputRef}
+											value={draft}
+											maxLength={DRAFT_LIMIT}
+											disabled={draftDisabled}
+											title={composerPlaceholderTitle({
+												cliMode,
 												editableQueued: editableRows.length > 0,
-												trayEditing: trayEditing !== null,
-												hasHistory: history.length > 0,
-												walking: walking !== null,
-												canHold:
-													running &&
-													liveInputSupported &&
-													Boolean(onQueue) &&
-													draft.trim().length > 0 &&
-													attachments.length === 0 &&
-													!sending &&
-													!attachmentsStranded,
-											})
-											switch (key.action) {
-												case 'edit-queued':
-													event.preventDefault()
-													setTrayEditing(editableRows[editableRows.length - 1]?.id ?? null)
-													return
-												case 'recall': {
-													const step = stepHistory(history, walking, draft, key.direction)
-													if (!step) return
-													event.preventDefault()
-													caretAfterRecall.current = caretAfterStep(step.text, key.direction)
-													setWalk(step.walk)
-													onDraftChange(step.text)
+												waitingOnPerson: waiting,
+												hasDraft,
+												running,
+												liveInputSupported,
+												mac,
+											})}
+											placeholder={composerPlaceholder({
+												compact,
+												cliMode,
+												cliLabel,
+												editableQueued: editableRows.length > 0,
+												waitingOnPerson: waiting,
+												hasDraft,
+												running,
+												liveInputSupported,
+												mac,
+												slashMenu: commandsEnabled && !centered,
+											})}
+											onChange={(event) => {
+												if (keepPasteNotice.current) keepPasteNotice.current = false
+												else setPasteNotice(undefined)
+												setWalk(null)
+												setCaret(event.target.selectionStart)
+												onDraftChange(event.target.value)
+											}}
+											onPaste={(event) => {
+												const files = Array.from(event.clipboardData.files)
+												const text = event.clipboardData.getData('text/plain')
+												const decision = decidePaste({
+													text,
+													fileCount: files.length,
+													importDisabled,
+													attachmentsSupported,
+												})
+												if (decision.action === 'default') {
+													const target = event.currentTarget
+													if (isMaterialPaste(text))
+														onMaterialPaste?.({ start: target.selectionStart, text })
+													const left = pasteOverflow({
+														current: target.value,
+														selectionStart: target.selectionStart,
+														selectionEnd: target.selectionEnd,
+														pasted: text,
+													})
+													keepPasteNotice.current = left > 0
+													setPasteNotice(left > 0 ? pasteOverflowNotice(left) : undefined)
 													return
 												}
-												case 'queue':
-													event.preventDefault()
-													onQueue?.()
-													return
-												case 'send':
-													event.preventDefault()
-													if (noProvider) focusConnectCard()
-													else if (!attachmentsStranded) onSend()
-													return
-												default:
-													return
-											}
-										}}
-									/>
+												event.preventDefault()
+												if (decision.action === 'import') {
+													setPasteNotice(undefined)
+													onAddFiles(files)
+												} else setPasteNotice(decision.notice)
+											}}
+											onKeyDown={(event) => {
+												keepPasteNotice.current = false
+												const target = event.currentTarget
+												const key = decideComposerKey({
+													key: event.key,
+													shiftKey: event.shiftKey,
+													altKey: event.altKey,
+													ctrlKey: event.ctrlKey,
+													metaKey: event.metaKey,
+													composing: isComposing(event),
+													value: target.value,
+													selectionStart: target.selectionStart,
+													selectionEnd: target.selectionEnd,
+													hasDraft,
+													editableQueued: editableRows.length > 0,
+													trayEditing: trayEditing !== null,
+													hasHistory: history.length > 0,
+													walking: walking !== null,
+													canHold:
+														running &&
+														liveInputSupported &&
+														Boolean(onQueue) &&
+														draft.trim().length > 0 &&
+														attachments.length === 0 &&
+														!sending &&
+														!attachmentsStranded,
+													menu: menuOpen,
+													canAttach: !importDisabled,
+													mac,
+												})
+												switch (key.action) {
+													case 'menu': {
+														event.preventDefault()
+														if (key.step === 'close') {
+															event.stopPropagation()
+															event.nativeEvent.stopImmediatePropagation()
+															setDismissed(menuOpen === 'slash' ? slashKey : mentionKey)
+															return
+														}
+														if (menuOpen === 'slash') {
+															if (key.step === 'pick') {
+																const row = matches[slashIndex]
+																if (row) pickRow(row)
+															} else
+																setHighlight({
+																	key: slashKey,
+																	index: moveHighlight(slashIndex, key.step, matches.length),
+																})
+														} else if (key.step === 'pick') {
+															const row = mentionRows[mentionIndex]
+															if (row) pickFile(row.path)
+														} else
+															setHighlight({
+																key: mentionKey,
+																index: moveHighlight(mentionIndex, key.step, mentionRows.length),
+															})
+														return
+													}
+													case 'attach':
+														event.preventDefault()
+														inputRef.current?.focus()
+														onAttach()
+														return
+													case 'edit-queued':
+														event.preventDefault()
+														setTrayEditing(editableRows[editableRows.length - 1]?.id ?? null)
+														return
+													case 'recall': {
+														const step = stepHistory(history, walking, draft, key.direction)
+														if (!step) return
+														event.preventDefault()
+														caretAfterRecall.current = caretAfterStep(step.text, key.direction)
+														setWalk(step.walk)
+														onDraftChange(step.text)
+														return
+													}
+													case 'queue':
+														event.preventDefault()
+														onQueue?.()
+														return
+													case 'send':
+														event.preventDefault()
+														if (commandsEnabled && slashLine(rows, draft)) submit()
+														else if (noProvider) focusConnectCard()
+														else if (!attachmentsStranded) onSend()
+														return
+													default:
+														return
+												}
+											}}
+										/>
+										<div
+											ref={mirrorRef}
+											className="composer-mirror"
+											aria-hidden="true"
+											hidden={!mirror}
+										>
+											{mirror && (
+												<>
+													{mirror.command && (
+														<span className="composer-mirror-command">{mirror.command}</span>
+													)}
+													{mentionPieces(mirror.rest, livePicked).map((piece, at) =>
+														piece.mention ? (
+															<span key={`${at}:${piece.text}`} className="composer-mirror-command">
+																{piece.text}
+															</span>
+														) : (
+															piece.text
+														),
+													)}
+													{mirror.ghost && (
+														<span className="composer-mirror-ghost">{mirror.ghost}</span>
+													)}
+												</>
+											)}
+										</div>
+									</div>
 								</div>
 								<div
 									data-chat-composer-footer
@@ -783,7 +1275,21 @@ export function Composer({
 								>
 									{!compact && <div className="composer-footer-options">{plusControl}</div>}
 									<div className="pal-composer-send-actions flex shrink-0 flex-nowrap items-center justify-end gap-2">
-										{compact && !waiting && <ContextRing usage={usage} />}
+										{compact &&
+											!waiting &&
+											(limits ? (
+												<UsageIndicator
+													usage={usage}
+													control={limits}
+													variant="ring"
+													{...(contextPanel ? { contextPanel } : {})}
+												/>
+											) : (
+												<ContextRing
+													usage={usage}
+													{...(contextPanel ? { panel: contextPanel } : {})}
+												/>
+											))}
 										{running &&
 											liveInputSupported &&
 											onQueue &&
@@ -891,7 +1397,7 @@ export function Composer({
 																}
 																// Sending disables the button, which would drop focus to the page.
 																const hadFocus = document.activeElement === event.currentTarget
-																onSend()
+																submit()
 																if (hadFocus) requestAnimationFrame(() => inputRef.current?.focus())
 															}}
 														/>
@@ -912,12 +1418,12 @@ export function Composer({
 													{cliMode
 														? `Open ${cliLabel} in a terminal · Enter`
 														: noProvider
-															? 'Connect a provider to send'
+															? 'Connect an AI service to send'
 															: sending
 																? 'Sending'
 																: running
 																	? liveInputSupported && attachments.length === 0
-																		? 'Send text to this running reply with its current model and review settings'
+																		? 'Add this to the reply in progress. It keeps the current model and approvals.'
 																		: 'Queue for the next reply'
 																	: 'Send message · Enter'}
 												</TooltipPopup>
@@ -952,6 +1458,7 @@ export function Composer({
 										</div>
 									)}
 									<ComposerPermissions
+										openRequest={permissionRequest}
 										engine={permissionEngine ?? harnessView?.selected}
 										permissionScope={permissionScope}
 										permissionMode={composerPermissionMode(settings.permissionMode)}
@@ -988,14 +1495,31 @@ export function Composer({
 								</div>
 								<div className="composer-row-end">
 									<div className="composer-selected-model">{modelControl}</div>
-									<ContextReadout usage={usage} />
+									{limits ? (
+										<UsageIndicator
+											usage={usage}
+											control={limits}
+											variant="readout"
+											{...(contextPanel ? { contextPanel } : {})}
+										/>
+									) : (
+										<ContextReadout
+											usage={usage}
+											{...(contextPanel ? { panel: contextPanel } : {})}
+										/>
+									)}
 								</div>
 							</div>
 						</div>
 					)}
+					{limitsCritical && (
+						<p className="composer-limit-note" data-usage-critical="">
+							{limitsCritical}
+						</p>
+					)}
 					{noProvider && (
 						<section className="provider-empty" aria-labelledby="provider-empty-title">
-							<h2 id="provider-empty-title">Add an API key or sign in to start</h2>
+							<h2 id="provider-empty-title">Add a key or sign in to start</h2>
 							<p>{PROVIDER_EMPTY_HELP}</p>
 							{onOpenModelSettings ? (
 								<Button id="provider-empty-connect" size="sm" onClick={onOpenModelSettings}>
@@ -1005,6 +1529,29 @@ export function Composer({
 								<p>Open Settings, then Models.</p>
 							)}
 						</section>
+					)}
+					{slashOpen && (
+						<ComposerSlashMenu
+							place={placeSlash()}
+							rows={matches}
+							highlight={slashIndex}
+							onHighlight={(index) => setHighlight({ key: slashKey, index })}
+							onPick={pickRow}
+							note={
+								moreLater && query === ''
+									? 'More commands appear once the conversation starts'
+									: undefined
+							}
+						/>
+					)}
+					{shownMention && (
+						<ComposerMentionMenu
+							place={placeMention()}
+							list={shownMention}
+							highlight={mentionIndex}
+							onHighlight={(index) => setHighlight({ key: mentionKey, index })}
+							onPick={(row) => pickFile(row.path)}
+						/>
 					)}
 					<div aria-hidden className="composer-dock-foot" />
 				</div>

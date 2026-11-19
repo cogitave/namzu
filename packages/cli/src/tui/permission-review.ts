@@ -3,6 +3,8 @@ import { readFileSync, statSync } from 'node:fs'
 
 import { WorkflowScriptError, parseWorkflowMeta, resolveWorkflowLimits } from '@namzu/sdk'
 
+import { SET_SETTING_TOOL } from '../config/agent-settings-tools.js'
+import { describeAgentChange } from '../config/agent-settings.js'
 import { type ResumeReview, resumeReviewLines } from '../integrations/workflows/resume.js'
 import { displayPath } from './display-path.js'
 import { formatSpan } from './person-terms.js'
@@ -923,6 +925,17 @@ function summarizeKnownCall(
 	if (name === 'browser' && isRecord(input)) {
 		const summary = summarizeBrowserOpen(input)
 		if (summary) return summary
+	}
+
+	if (name === SET_SETTING_TOOL && isRecord(input)) {
+		// The setting's own name and the old and new value in the words Settings uses, never the key.
+		const said = describeAgentChange(context.cwd ? { cwd: context.cwd } : {}, input)
+		if (said)
+			return {
+				lines: [`Change: ${said.setting}`, `From: ${said.from}`, `To: ${said.to}`],
+				complete: true,
+				label: `${said.setting}: ${said.from} to ${said.to}`,
+			}
 	}
 
 	if (name === 'computer_use' && isRecord(input)) {

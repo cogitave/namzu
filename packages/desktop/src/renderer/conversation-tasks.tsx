@@ -1,5 +1,6 @@
 import type { ThreadState } from '../shared/projection.js'
 import { CheckIcon, ChevronRightIcon, ListTodoIcon, LoaderCircleIcon, XIcon } from './icons.js'
+import { BoxMark } from './plan-row-view.js'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsible.js'
 import './conversation-tasks.css'
 
@@ -129,14 +130,15 @@ export function ConversationTasks({
 	const byId = new Map(thread.tasks.map((task) => [task.taskId, task]))
 	return (
 		<section aria-label="Conversation tasks" className="conversation-tasks">
-			<h3>Tasks</h3>
+			<h3>Plan</h3>
 			<p className="quiet">The agent’s plan for this conversation.</p>
 			{thread.tasksNotice && <output className="quiet">{thread.tasksNotice}</output>}
 			<ul>
 				{thread.tasks.map((task) => (
 					<li key={task.taskId} data-status={task.status}>
 						<div>
-							<span>{task.subject}</span>
+							<BoxMark status={task.status} />
+							<span className="task-subject">{task.subject}</span>
 							<span className="task-state">{labels[task.status]}</span>
 						</div>
 						{task.blockedBy.length > 0 && (

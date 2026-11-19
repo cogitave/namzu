@@ -141,6 +141,60 @@ describe('the turn memory promoter', () => {
 		await drive()
 	})
 
+	it('is not handed over, nor is consolidation, when memory from conversations is off', async () => {
+		const { createAgentSession } = await import('../tui/agent.js')
+		for (const consolidate of [false, true]) {
+			queryCalls.length = 0
+			const session = await createAgentSession(prefs, detectedAnthropic(), {
+				toolLoading: 'eager',
+				cwd,
+				memory: { curation: 'off', fromConversations: false },
+				...(consolidate ? { compaction: { consolidate: true } } : {}),
+			})
+			for await (const _ of session.send([{ role: 'user', content: 'hi', timestamp: 0 }])) {
+				// drain
+			}
+			expect(queryCalls.length).toBe(1)
+			expect(queryCalls[0]?.promoteMemory).toBeUndefined()
+			expect(queryCalls[0]?.consolidateInto).toBeUndefined()
+			await session.close()
+		}
+		expect((await sessionMemoryStore(cwd).list()).totalCount).toBe(0)
+	})
+
+	it('does not turn claims already queued into records when memory from conversations is off', async () => {
+		const { createAgentSession } = await import('../tui/agent.js')
+		const { MemoryInbox } = await import('../memory/inbox.js')
+		const { resolveNamzuHome } = await import('../integrations/state/home.js')
+		const { slugForCwd } = await import('@namzu/sdk')
+		const { cliProjectRoot } = await import('../integrations/state/project.js')
+		const { realpathSync } = await import('node:fs')
+		const file = join(
+			resolveNamzuHome(),
+			'memory-inbox',
+			`${slugForCwd(realpathSync(cliProjectRoot(realpathSync(cwd))))}.jsonl`,
+		)
+		// A claim queued while the switch was on, never curated.
+		await new MemoryInbox({ file, now: Date.now }).append(
+			candidate({ userRequirements: ['never email an invoice twice'] }),
+		)
+		const body = readFileSync(file, 'utf8')
+
+		const off = await createAgentSession(prefs, detectedAnthropic(), {
+			toolLoading: 'eager',
+			cwd,
+			memory: { curation: 'on', fromConversations: false },
+		})
+		for await (const _ of off.send([{ role: 'user', content: 'hi', timestamp: 0 }])) {
+			// drain
+		}
+		await off.close()
+
+		expect((await sessionMemoryStore(cwd).list()).totalCount).toBe(0)
+		// The queue is left alone, to be picked up if the switch is turned back on.
+		expect(readFileSync(file, 'utf8')).toBe(body)
+	})
+
 	it('writes into the SAME store `search_memory` reads', async () => {
 		const promote = await drive()
 

@@ -137,7 +137,9 @@
 	font-size: var(--text-reading);
 	line-height: var(--leading-reading);
 	gap: 0;
+	/* The header's words start 5 px in from the box edge below it, as the rows' words start 13 in. */
 	padding-block: 0;
+	padding-inline-start: 4px;
 	border-bottom: 0;
 	color: var(--muted-foreground);
 }
@@ -154,10 +156,21 @@
 .normal-transcript .activity-trigger[data-sentence] .turn-activity-elapsed {
 	color: color-mix(in srgb, var(--muted-foreground) 70%, transparent);
 }
+/* The lines the turn added, after the sentence: the reference's green count. */
+.normal-transcript .turn-activity-added {
+	margin-inline-start: 0.5em;
+	color: var(--changes-added, #15803d);
+	font-variant-numeric: tabular-nums;
+}
+.dark .normal-transcript .turn-activity-added {
+	color: var(--changes-added, #4ade80);
+}
 /* The sentence is a short label: its focus ring hugs the words, not the whole column. */
 .normal-transcript .activity-trigger[data-sentence] {
 	width: max-content;
 	max-width: 100%;
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
 }
 /* On a screen with no pointer there is no hover to show the time, so it is always drawn. */
 @media (hover: none) {
@@ -200,6 +213,10 @@
 .normal-transcript .activity-block .tool-icon {
 	display: none;
 }
+/* With no icon, what a command printed starts under its words: the row's own inset, not a further icon's width in. */
+.normal-transcript .activity-block .tool {
+	--tool-indent: var(--turn-block-inset);
+}
 .normal-transcript
 	.activity-block
 	:is(.tool-list, .tool-group, .reasoning, .message.commentary)
@@ -213,11 +230,15 @@
 .normal-transcript .activity-block .tool:not(.failed, .declined, .active) .tool-main {
 	color: var(--foreground);
 }
-.normal-transcript .activity-block > :is(.reasoning, .message.commentary) {
+/* Prose between steps, whether or not it is tagged as a progress update, sits at the same inset as the rows. */
+.normal-transcript .activity-block > :is(.reasoning, .message) {
 	margin: 0;
 	padding: 8px var(--turn-block-inset);
 }
-.normal-transcript .activity-block .message.commentary .message-text {
+.normal-transcript .activity-block > * + * {
+	border-top: 1px solid var(--turn-edge);
+}
+.normal-transcript .activity-block .message .message-text {
 	color: var(--foreground);
 }
 .normal-transcript .activity-block .reasoning {
@@ -293,9 +314,9 @@
 	opacity: 0;
 }
 @media (prefers-reduced-motion: reduce) {
-	.normal-transcript [data-slot="collapsible-panel"],
-	.normal-transcript .disclosure-chevron,
-	.normal-transcript .message-time {
+	:root:not([data-motion="full"]) .normal-transcript [data-slot="collapsible-panel"],
+	:root:not([data-motion="full"]) .normal-transcript .disclosure-chevron,
+	:root:not([data-motion="full"]) .normal-transcript .message-time {
 		transition: none;
 	}
 }
@@ -336,7 +357,11 @@
 	animation: working-shine 2.2s linear infinite;
 }
 @media (prefers-reduced-motion: reduce) {
-	.normal-transcript .message.commentary[data-streaming] .message-text > :last-child:is(p, ul, ol) {
+	:root:not([data-motion="full"])
+		.normal-transcript
+		.message.commentary[data-streaming]
+		.message-text
+		> :last-child:is(p, ul, ol) {
 		background: none;
 		color: var(--foreground);
 		animation: none;

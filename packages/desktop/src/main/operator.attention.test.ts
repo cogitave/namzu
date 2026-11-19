@@ -9,13 +9,15 @@ afterEach(async () => {
 	await Promise.all(owners.splice(0).map((owner) => owner.close()))
 })
 
-function harness() {
+function harness(env?: NodeJS.ProcessEnv) {
 	const events = new EventEmitter()
 	const reported: string[][] = []
+	const kinds: { permission: string[]; question: string[] }[] = []
 	const owner = new Operator(
 		{
 			program: process.execPath,
 			args: [fileURLToPath(new URL('./__fixtures__/rpc-process.mjs', import.meta.url))],
+			...(env ? { env: { ...process.env, ...env } } : {}),
 		},
 		(event) => events.emit('update', event),
 		undefined,
@@ -23,7 +25,12 @@ function harness() {
 		undefined,
 		undefined,
 		undefined,
-		{ attentionChanged: (ids) => reported.push(ids) },
+		{
+			attentionChanged: (ids, byKind) => {
+				reported.push(ids)
+				kinds.push(byKind)
+			},
+		},
 	)
 	owners.push(owner)
 	const wait = (predicate: (event: DesktopEvent) => boolean): Promise<DesktopEvent> =>
@@ -35,7 +42,7 @@ function harness() {
 			}
 			events.on('update', receive)
 		})
-	return { owner, reported, wait }
+	return { owner, reported, kinds, wait }
 }
 
 async function askPermission(h: ReturnType<typeof harness>, sessionId: string) {
@@ -95,4 +102,21 @@ it('reports once after a deletion, with the conversation that still waits', asyn
 	h.reported.length = 0
 	await h.owner.removeConversation(idle.id)
 	expect(h.reported).toEqual([[waiting.id]])
+})
+
+it('reports an approval as a permission and a question as a question', async () => {
+	const permission = harness()
+	const project = await permission.owner.openProject(process.cwd())
+	const a = await permission.owner.newConversation(project.id)
+	await askPermission(permission, a.id)
+	expect(permission.kinds.at(-1)).toEqual({ permission: [a.id], question: [] })
+
+	const question = harness({
+		FIXTURE_COMPUTER_CALLS: JSON.stringify([{ name: 'ask_user_question' }]),
+	})
+	const other = await question.owner.openProject(process.cwd())
+	const b = await question.owner.newConversation(other.id)
+	await askPermission(question, b.id)
+	expect(question.reported.at(-1)).toEqual([b.id])
+	expect(question.kinds.at(-1)).toEqual({ permission: [], question: [b.id] })
 })

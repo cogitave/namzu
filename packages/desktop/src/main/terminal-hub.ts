@@ -725,7 +725,7 @@ export class TerminalHub {
 		this.cancelMax ??= this.options.clock.after(SAVE_MAX_MS, () => this.saveNow())
 	}
 
-	/** "Bring terminal tabs back" changed: off removes what was kept, on starts keeping it. */
+	/** "Restore terminal tabs" changed: off removes what was kept, on starts keeping it. */
 	settingsChanged(): void {
 		if (this.closed) return
 		if (this.options.settings().restoreTerminals) this.saveNow()

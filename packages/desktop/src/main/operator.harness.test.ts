@@ -100,7 +100,7 @@ it('rejects cross-project engine reads and unknown engines before delegation', a
 	const otherProject = await owner.openProject(other)
 	await expect(owner.harnesses(otherProject.id, session.id)).rejects.toThrow('another project')
 	await expect(owner.selectHarness(session.id, 'other' as never)).rejects.toThrow(
-		'Unknown execution engine',
+		'doesn’t know that assistant',
 	)
 })
 it('retains unsupported external-engine attachments and permissions before prompt admission', async () => {
@@ -115,7 +115,7 @@ it('retains unsupported external-engine attachments and permissions before promp
 		owner.send(session.id, 'No send', {
 			attachmentIds: files.map((file) => file.id),
 		}),
-	).toThrow('does not support attachments')
+	).toThrow('can’t take attachments')
 	expect(() => owner.send(session.id, 'No send', { permissionMode: 'auto' })).toThrow(
 		'Ask first and Plan',
 	)
@@ -248,7 +248,7 @@ it('refuses to guess a model after reconnect when acknowledged selection metadat
 	await disconnect(f)
 	const before = await f.calls()
 	await expect(f.owner.providers(f.project.id, session.id)).rejects.toThrow(
-		'model settings could not be read',
+		'couldn’t load the models',
 	)
 	expect(f.owner.draft(session.id)).toBe('An unknown old model must not change silently')
 	expect(
@@ -269,7 +269,7 @@ it('keeps confirmed engine selection when malformed metadata omits its model, an
 	await writeFile(f.rejectedMetadata, 'empty')
 	expect((await f.owner.selectHarness(session.id, 'codex-cli')).selected).toBe('codex-cli')
 	await expect(f.owner.providers(f.project.id, session.id)).rejects.toThrow(
-		'did not report its selected model',
+		'didn’t report which model it uses',
 	)
 	await rm(f.rejectedMetadata)
 	expect((await f.owner.providers(f.project.id, session.id)).selected?.model).toBe(

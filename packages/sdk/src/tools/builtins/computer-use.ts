@@ -196,6 +196,25 @@ export interface ComputerUseToolOptions {
 	 * changes what the model is given. A throw in it is ignored.
 	 */
 	readonly onObservation?: (observation: ComputerUseObservation) => void
+	/**
+	 * Applications the tool never acts in, as the host's window list names them
+	 * (case and a trailing `.exe` do not matter). A call that works in one is
+	 * refused before it reaches the host: the window it names, a window
+	 * screenshot's window, and for a click or key the window under the point or
+	 * in front. A look at the whole display is not refused, since it is not
+	 * aimed at one application. When the host cannot list windows, an action is
+	 * refused outright while this list is not empty, because the tool cannot
+	 * tell where it would land. Absent or empty: no application is off limits.
+	 */
+	readonly deniedApps?: readonly string[]
+}
+
+/** How an application name is compared: trimmed, lower case, without a trailing `.exe`. */
+function deniedAppKey(app: string): string {
+	return app
+		.trim()
+		.toLowerCase()
+		.replace(/\.exe$/, '')
 }
 
 /** What {@link ComputerUseToolOptions.onObservation} is told. */
@@ -2883,7 +2902,19 @@ export function createComputerUseTool(
 	 * window a window screenshot is bound to, and on a display screenshot the window under the
 	 * click or the one in front, as the newest list this tool read has them.
 	 */
-	const appsKnown = (input: unknown): string[] => {
+	/** A tree read or a wait on a control or text with no window named: it reads a window the tool already bound, or else the one in front. */
+	const readsFrontWindow = (item: Record<string, unknown>): boolean =>
+		item.type === 'ui_snapshot' ||
+		(item.type === 'wait_for' && !String(item.until ?? '').startsWith('window_'))
+	/** The window such a call is bound to by a ref or an earlier tree read, when it names none. */
+	const boundWindowId = (item: Record<string, unknown>): string | undefined => {
+		if (typeof item.window_id === 'string') return item.window_id
+		if (item.type === 'ui_snapshot' && typeof item.root === 'string')
+			return uiRefs.get(item.root)?.windowId
+		if (item.type === 'wait_for' && readsFrontWindow(item)) return uiSnapshotWindowId
+		return undefined
+	}
+	const appsKnown = (input: unknown, namedOnly = false): string[] => {
 		const found: string[] = []
 		const add = (app: string | undefined): void => {
 			if (app && !found.includes(app)) found.push(app)
@@ -2893,6 +2924,15 @@ export function createComputerUseTool(
 			if (!isRecord(item)) continue
 			if (typeof item.window_id === 'string') {
 				add(knownWindows.find((window) => window.id === item.window_id)?.app)
+				continue
+			}
+			const bound = boundWindowId(item)
+			if (bound !== undefined) {
+				add(knownWindows.find((window) => window.id === bound)?.app)
+				continue
+			}
+			if (readsFrontWindow(item)) {
+				add(knownWindows.find((window) => window.focused && !window.minimized)?.app)
 				continue
 			}
 			const shotId =
@@ -2906,6 +2946,8 @@ export function createComputerUseTool(
 				add(frame.window.window.app)
 				continue
 			}
+			// A look at the whole display names no application.
+			if (namedOnly) continue
 			const listed = knownWindows.filter((window) => !window.minimized)
 			const at = isRecord(item.at) ? item.at : undefined
 			if (frame && at && typeof at.x === 'number' && typeof at.y === 'number') {
@@ -3025,6 +3067,45 @@ export function createComputerUseTool(
 		}
 	}
 
+	const deniedKeys = new Set(
+		(options.deniedApps ?? []).map(deniedAppKey).filter((key) => key !== ''),
+	)
+	/**
+	 * Why this call may not run because of the denied-application list, or undefined. Checked
+	 * before the host is touched, so no look, click or key reaches a window of a listed application.
+	 */
+	const deniedAppRefusal = async (
+		input: ActionInput,
+		context: ToolContext,
+	): Promise<string | undefined> => {
+		if (deniedKeys.size === 0) return undefined
+		const readOnly = isReadOnlyInput(input)
+		let refreshFailed = false
+		if (typeof host.listWindows === 'function') {
+			try {
+				rememberWindows(await host.listWindows(context.abortSignal))
+			} catch (error) {
+				refreshFailed = true
+				if (!readOnly)
+					return `computer_use could not read which application this would act in (${errorText(error)}), and some applications are off limits, so nothing was done.`
+			}
+		} else if (!readOnly) {
+			return 'computer_use cannot tell which application this would act in on this computer, and some applications are off limits, so nothing was done.'
+		}
+		// A window the list cannot place may belong to a listed application: refuse it.
+		const stale = refreshFailed
+		for (const item of batchActions(input) ?? [input]) {
+			if (!isRecord(item)) continue
+			const id = boundWindowId(item)
+			const placeable = id === undefined || knownWindows.some((window) => window.id === id)
+			if (!placeable || (stale && (id !== undefined || readsFrontWindow(item))))
+				return 'computer_use cannot tell which application that window belongs to, and some applications are off limits, so nothing was done.'
+		}
+		const app = appsKnown(input, readOnly).find((name) => deniedKeys.has(deniedAppKey(name)))
+		if (app === undefined) return undefined
+		return `computer_use does not act in ${applicationName(app)}: the person put it off limits. Nothing was done. Use another application, or tell the person you need it and let them change the list.`
+	}
+
 	const runAction = async (input: ActionInput, context: ToolContext): Promise<ToolResult> => {
 		const denied = refusal(input.type)
 		if (denied) return { success: false, output: '', error: denied }
@@ -3107,6 +3188,8 @@ export function createComputerUseTool(
 		},
 
 		async execute(input, context): Promise<ToolResult> {
+			const keptOut = await deniedAppRefusal(input, context)
+			if (keptOut) return { success: false, output: '', error: keptOut }
 			const shotId = 'screenshot_id' in input ? input.screenshot_id : undefined
 			const before = shotId ? frames.get(shotId) : frames.latest()
 			// Only what is already known: acting must not cost the host a call it would not make.

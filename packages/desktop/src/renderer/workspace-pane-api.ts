@@ -67,11 +67,15 @@ export function createWorkspacePaneApi(
 		projectPr,
 		projectChanges,
 		projectDiff,
+		projectCompare,
 		listProjectDirectory,
 		projectFileIndex,
 		readProjectFile,
 		readSessionOutput,
 		openSessionOutput,
+		describeSessionOutputs,
+		madeSessionFiles,
+		saveSessionOutput,
 		resolveProjectLinks,
 		openProjectPath,
 		projectEditors,
@@ -467,6 +471,9 @@ export function createWorkspacePaneApi(
 		...(projectPr ? { projectPr: (id) => invoke(() => projectPr(id), []) } : {}),
 		...(projectChanges ? { projectChanges: (id) => invoke(() => projectChanges(id), []) } : {}),
 		...(projectDiff ? { projectDiff: (id, path) => invoke(() => projectDiff(id, path), []) } : {}),
+		...(projectCompare
+			? { projectCompare: (id, request) => invoke(() => projectCompare(id, request), []) }
+			: {}),
 		...(listProjectDirectory
 			? {
 					listProjectDirectory: (id, dir) => invoke(() => listProjectDirectory(id, dir), []),
@@ -489,6 +496,20 @@ export function createWorkspacePaneApi(
 			? {
 					openSessionOutput: (owner, path, target) =>
 						invoke(() => openSessionOutput(owner, path, target), [owner]),
+				}
+			: {}),
+		...(describeSessionOutputs
+			? {
+					describeSessionOutputs: (owner, paths) =>
+						invoke(() => describeSessionOutputs(owner, paths), [owner]),
+				}
+			: {}),
+		...(madeSessionFiles
+			? { madeSessionFiles: (owner) => invoke(() => madeSessionFiles(owner), [owner]) }
+			: {}),
+		...(saveSessionOutput
+			? {
+					saveSessionOutput: (owner, path) => invoke(() => saveSessionOutput(owner, path), [owner]),
 				}
 			: {}),
 		...(resolveProjectLinks

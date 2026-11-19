@@ -374,6 +374,7 @@ describe('trusted runtime config reaches hydration', () => {
 			<App
 				ctx={{
 					...ctx,
+					computerUse: { enabled: true, deniedApps: ['Banking'] },
 					plugins: {
 						enabled: true,
 						allowedScopes: ['project'],
@@ -389,6 +390,7 @@ describe('trusted runtime config reaches hydration', () => {
 			expect.objectContaining({
 				cwd: '/w',
 				enableComputerUse: true,
+				deniedComputerApps: ['Banking'],
 				plugins: {
 					enabled: true,
 					allowedScopes: ['project'],
@@ -396,6 +398,20 @@ describe('trusted runtime config reaches hydration', () => {
 				},
 			}),
 		)
+	})
+
+	it('leaves the computer tools out until computer use is turned on', async () => {
+		let seen: Parameters<typeof createSession>[2]
+		createSession = async (_prefs, _detected, options) => {
+			seen = options
+			return sessionFixture()
+		}
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await vi.waitFor(() => expect(seen).toBeDefined())
+
+		expect(seen?.enableComputerUse).toBe(false)
+		expect(seen).not.toHaveProperty('deniedComputerApps')
 	})
 })
 

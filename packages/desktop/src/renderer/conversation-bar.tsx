@@ -1,37 +1,21 @@
 import { Menu } from '@base-ui/react/menu'
-import { Fragment, type ReactNode } from 'react'
+import { type ReactNode, cloneElement, useEffect, useRef, useState } from 'react'
 import { formatLineCount } from './changes-totals.js'
 import {
-	CheckIcon,
 	FileDiffIcon,
 	FileTextIcon,
-	ImageIcon,
+	GlobeIcon,
+	MoreHorizontalIcon,
+	PanelRightIcon,
 	PencilIcon,
+	SideChatIcon,
 	TerminalIcon,
 } from './icons.js'
+import type { PaneKind } from './pane-grid.js'
 import { Button } from './ui/button.js'
+import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
 import './conversation-bar.css'
 import { MENU_OFFSET } from './menu-metrics.js'
-
-/** One open terminal the bar's terminal button can bring forward. */
-export interface ConversationBarTerminalEntry {
-	id: string
-	title: string
-	active: boolean
-}
-
-export interface ConversationBarTerminals {
-	/** Every open terminal of the pane, in strip order. */
-	open: readonly ConversationBarTerminalEntry[]
-	/** The conversation the terminals sit beside; named in the menu so it can be brought back. */
-	conversation?: { title: string; active: boolean; onSelect: () => void }
-	/** Why a new terminal cannot be opened here, or undefined when it can. */
-	reason?: string
-	onNew?: () => void
-	onSelect: (id: string) => void
-}
-
-export const NEW_TERMINAL_TITLE = 'New terminal (Ctrl+Shift+`)'
 
 /** The name of the changes button: it says the count, so a number is never the only signal. */
 export function changesButtonLabel(count: number, added = 0, removed = 0): string {
@@ -56,24 +40,91 @@ export interface ConversationBarProps {
 	onSelectDraft?: (id: string) => void
 	title: string
 	project?: string
-	/** The completed edits in the conversation; the same number "N changed files" says elsewhere. */
-	changes: number
-	/** Lines added and removed across those files: the same numbers the result line and the pane show. */
-	added?: number
-	removed?: number
-	onChanges?: () => void
-	onFiles?: () => void
-	/** The files the conversation wrote; the button opens the Outputs tab. */
-	outputs?: number
-	onOutputs?: () => void
-	outputsOpen?: boolean
-	/** The panel that button opens is open now: the button carries a light fill. */
-	changesOpen?: boolean
-	filesOpen?: boolean
-	terminals?: ConversationBarTerminals
 	disabled?: boolean
-	/** The details and overflow buttons, which keep their own menus. */
+	/** Saves a new name; an empty one asks for the automatic title. Absent: the title is not editable. */
+	onRename?: (title: string) => Promise<void> | void
+	/** The "∨" menu right after the title: the conversation's actions. */
+	actions?: ReactNode
+	/** The pane buttons, drawn at the right edge. */
 	children?: ReactNode
+}
+
+/**
+ * The title as text; a click turns it into a field. Enter saves, Escape puts the old name back and
+ * leaving the field saves, so a name is never lost to a stray click.
+ */
+function EditableTitle({
+	title,
+	onRename,
+	disabled,
+}: {
+	title: string
+	onRename?: ((title: string) => Promise<void> | void) | undefined
+	disabled?: boolean | undefined
+}) {
+	const [editing, setEditing] = useState(false)
+	const [value, setValue] = useState(title)
+	const field = useRef<HTMLInputElement>(null)
+	// One edit ends once: Enter saves and the blur that follows the field's removal must not save again.
+	const ended = useRef(false)
+	useEffect(() => {
+		if (!editing) return
+		field.current?.focus()
+		field.current?.select()
+	}, [editing])
+	if (!onRename || disabled)
+		return (
+			<h2 className="conversation-bar-title" title={title} data-conversation-title>
+				{title}
+			</h2>
+		)
+	const finish = (save: boolean) => {
+		if (ended.current) return
+		ended.current = true
+		setEditing(false)
+		const next = value.trim()
+		if (save && next !== title.trim()) void onRename(next)
+	}
+	if (editing)
+		return (
+			<h2 className="conversation-bar-title" data-editing data-conversation-title>
+				<input
+					ref={field}
+					className="conversation-bar-rename"
+					aria-label="Conversation name"
+					maxLength={200}
+					value={value}
+					onChange={(event) => setValue(event.target.value)}
+					onBlur={() => finish(true)}
+					onKeyDown={(event) => {
+						if (event.key === 'Enter') {
+							event.preventDefault()
+							finish(true)
+						} else if (event.key === 'Escape') {
+							event.preventDefault()
+							event.stopPropagation()
+							finish(false)
+						}
+					}}
+				/>
+			</h2>
+		)
+	return (
+		<h2 className="conversation-bar-title" data-conversation-title>
+			<button
+				type="button"
+				className="conversation-bar-title-text"
+				title={title}
+				onClick={() => {
+					ended.current = false
+					setValue(title)
+					setEditing(true)
+				}}
+			>
+				{title}
+			</button>
+		</h2>
+	)
 }
 
 function DraftsControl({
@@ -131,103 +182,6 @@ function DraftsControl({
 	)
 }
 
-function TerminalControl({
-	terminals,
-	disabled,
-}: { terminals: ConversationBarTerminals; disabled?: boolean }) {
-	const { open, conversation } = terminals
-	const blocked = disabled || !!terminals.reason || !terminals.onNew
-	if (open.length === 0)
-		return (
-			<Button
-				type="button"
-				variant="ghost-muted"
-				size="icon-sm"
-				className="conversation-bar-button"
-				aria-label="New terminal"
-				title={terminals.reason ?? NEW_TERMINAL_TITLE}
-				disabled={blocked}
-				onClick={terminals.onNew}
-			>
-				<TerminalIcon aria-hidden="true" />
-			</Button>
-		)
-	return (
-		<Menu.Root>
-			<Menu.Trigger
-				render={
-					<Button
-						variant="ghost-muted"
-						size="icon-sm"
-						className="conversation-bar-button"
-						aria-label={`Terminals, ${open.length} open`}
-						title={`Terminals (${open.length})`}
-						disabled={disabled}
-					/>
-				}
-			>
-				<TerminalIcon aria-hidden="true" />
-				<span className="conversation-bar-count" aria-hidden="true">
-					{open.length}
-				</span>
-			</Menu.Trigger>
-			<Menu.Portal>
-				<Menu.Positioner
-					className="conversation-actions-positioner"
-					align="end"
-					sideOffset={MENU_OFFSET}
-				>
-					<Menu.Popup className="conversation-actions-popup" aria-label="Terminals">
-						{conversation && (
-							<Fragment>
-								<Menu.Item
-									className="conversation-actions-item"
-									aria-current={conversation.active ? 'true' : undefined}
-									onClick={conversation.onSelect}
-								>
-									<span className="conversation-actions-icon-slot" aria-hidden="true">
-										{conversation.active && <CheckIcon />}
-									</span>
-									<span className="conversation-actions-label" title={conversation.title}>
-										{conversation.title}
-									</span>
-								</Menu.Item>
-								<Menu.Separator className="conversation-actions-separator" />
-							</Fragment>
-						)}
-						{open.map((entry) => (
-							<Menu.Item
-								key={entry.id}
-								className="conversation-actions-item"
-								data-terminal-entry={entry.id}
-								aria-current={entry.active ? 'true' : undefined}
-								onClick={() => terminals.onSelect(entry.id)}
-							>
-								<span className="conversation-actions-icon-slot" aria-hidden="true">
-									{entry.active && <CheckIcon />}
-								</span>
-								<span className="conversation-actions-label" title={entry.title}>
-									{entry.title}
-								</span>
-							</Menu.Item>
-						))}
-						<Menu.Separator className="conversation-actions-separator" />
-						<Menu.Item
-							className="conversation-actions-item"
-							disabled={blocked}
-							title={terminals.reason}
-							onClick={terminals.onNew}
-						>
-							<TerminalIcon aria-hidden="true" />
-							<span className="conversation-actions-label">New terminal</span>
-						</Menu.Item>
-					</Menu.Popup>
-				</Menu.Positioner>
-			</Menu.Portal>
-		</Menu.Root>
-	)
-}
-
 /**
  * The one 40 px bar above a conversation: its title and project, and the buttons
  * for the panels beside it. It stands where the strip of tabs stood.
@@ -235,27 +189,17 @@ function TerminalControl({
 export function ConversationBar({
 	title,
 	project,
-	changes,
-	added = 0,
-	removed = 0,
-	onChanges,
-	onFiles,
-	outputs = 0,
-	onOutputs,
-	outputsOpen,
-	changesOpen,
-	filesOpen,
-	terminals,
 	drafts,
 	onSelectDraft,
 	disabled,
+	onRename,
+	actions,
 	children,
 }: ConversationBarProps) {
 	return (
 		<div className="conversation-bar">
-			<h2 className="conversation-bar-title" title={title} data-conversation-title>
-				{title}
-			</h2>
+			<EditableTitle title={title} onRename={onRename} disabled={disabled} />
+			{actions}
 			{project && (
 				<span className="conversation-bar-project" title={project} data-project-label>
 					{project}
@@ -263,67 +207,212 @@ export function ConversationBar({
 			)}
 			<div className="conversation-bar-spacer" aria-hidden="true" />
 			<div className="conversation-bar-buttons">
-				{onChanges && (
-					<Button
-						type="button"
-						variant="ghost-muted"
-						size="icon-sm"
-						className="conversation-bar-button conversation-bar-changes"
-						aria-label={changesButtonLabel(changes, added, removed)}
-						title={changesButtonLabel(changes, added, removed)}
-						data-has-changes={changes > 0 || undefined}
-						aria-pressed={changesOpen ? true : undefined}
-						data-open={changesOpen || undefined}
-						onClick={onChanges}
-					>
-						<FileDiffIcon aria-hidden="true" />
-						{changes > 0 && (
-							<span className="conversation-bar-lines" aria-hidden="true">
-								<span className="conversation-bar-added">+{formatLineCount(added)}</span>
-								<span className="conversation-bar-removed">−{formatLineCount(removed)}</span>
-							</span>
-						)}
-					</Button>
-				)}
-				{onOutputs && outputs > 0 && (
-					<Button
-						type="button"
-						variant="ghost-muted"
-						size="icon-sm"
-						className="conversation-bar-button conversation-bar-outputs"
-						aria-label={`Outputs, ${outputs} ${outputs === 1 ? 'file' : 'files'}`}
-						title="Outputs"
-						aria-pressed={outputsOpen ? true : undefined}
-						data-open={outputsOpen || undefined}
-						onClick={onOutputs}
-					>
-						<ImageIcon aria-hidden="true" />
-						<span className="conversation-bar-outputs-count" aria-hidden="true">
-							{outputs}
-						</span>
-					</Button>
-				)}
 				{drafts && drafts.length > 0 && onSelectDraft && (
 					<DraftsControl drafts={drafts} onSelect={onSelectDraft} disabled={disabled} />
-				)}
-				{terminals && <TerminalControl terminals={terminals} disabled={disabled} />}
-				{onFiles && (
-					<Button
-						type="button"
-						variant="ghost-muted"
-						size="icon-sm"
-						className="conversation-bar-button"
-						aria-label="Project files"
-						title="Project files"
-						aria-pressed={filesOpen ? true : undefined}
-						data-open={filesOpen || undefined}
-						onClick={onFiles}
-					>
-						<FileTextIcon aria-hidden="true" />
-					</Button>
 				)}
 				{children}
 			</div>
 		</div>
+	)
+}
+
+/** The keys that toggle a pane, as the tooltip says them; the window listens for the same chords. */
+export function paneShortcut(kind: PaneKind, mac: boolean): string | undefined {
+	const primary = mac ? 'Cmd' : 'Ctrl'
+	if (kind === 'terminal') return `${primary}+'`
+	if (kind === 'browser') return `${primary}+Shift+B`
+	if (kind === 'files') return `${primary}+Shift+F`
+	return undefined
+}
+
+const PANE_WORD: Record<PaneKind, string> = {
+	session: 'session panel',
+	terminal: 'terminal',
+	changes: 'changes',
+	browser: 'browser',
+	files: 'files',
+}
+
+/** "Show terminal (Ctrl+')" while it is closed, "Hide terminal (Ctrl+')" while it is open. */
+export function paneTooltip(kind: PaneKind, open: boolean, mac: boolean): string {
+	const keys = paneShortcut(kind, mac)
+	return `${open ? 'Hide' : 'Show'} ${PANE_WORD[kind]}${keys ? ` (${keys})` : ''}`
+}
+
+export interface PaneButtonsProps {
+	open: Record<PaneKind, boolean>
+	onToggle: (kind: PaneKind) => void
+	/** A pane that cannot open here, with the reason: its button is disabled and says why. */
+	unavailable?: Partial<Record<PaneKind, string>>
+	/** Changes shows how many files changed in its name, so a number is never the only signal. */
+	changes: { files: number; added: number; removed: number }
+	mac: boolean
+	disabled?: boolean
+	/** The conversation's own "…" menu, last in the row. */
+	more?: ReactNode
+}
+
+/**
+ * A top-bar button's tooltip. It sits to the left of the button, in the bar, so it never lies over a
+ * pane's header; a press hides it, and it stays hidden until the pointer has left and come back.
+ * A button that cannot be pressed keeps a plain title, which is also how its reason is said.
+ */
+function PaneButtonTip({
+	tip,
+	plain,
+	children,
+}: { tip: string; plain: boolean; children: React.ReactElement<Record<string, unknown>> }) {
+	const [open, setOpen] = useState(false)
+	const pressed = useRef(false)
+	if (plain) return cloneElement(children, { title: tip })
+	return (
+		<Tooltip
+			open={open}
+			onOpenChange={(next) => {
+				if (next && pressed.current) return
+				setOpen(next)
+			}}
+		>
+			<TooltipTrigger
+				render={cloneElement(children, {
+					onPointerDown: () => {
+						pressed.current = true
+						setOpen(false)
+					},
+					onPointerLeave: () => {
+						pressed.current = false
+					},
+				})}
+			/>
+			<TooltipPopup side="left" align="center" sideOffset={8}>
+				{tip}
+			</TooltipPopup>
+		</Tooltip>
+	)
+}
+
+const ICONS = {
+	session: PanelRightIcon,
+	terminal: TerminalIcon,
+	changes: FileDiffIcon,
+	browser: GlobeIcon,
+	files: FileTextIcon,
+} as const
+
+/**
+ * Session | Terminal, Changes, Browser, Files, "…". Each one toggles its pane: pressed is a filled
+ * rounded square behind the icon and means the pane is open; pressing again closes it.
+ */
+export function PaneButtons({
+	open,
+	onToggle,
+	unavailable,
+	changes,
+	mac,
+	disabled,
+	more,
+}: PaneButtonsProps) {
+	const button = (kind: PaneKind) => {
+		const Icon = ICONS[kind]
+		const reason = unavailable?.[kind]
+		const name =
+			kind === 'changes'
+				? changesButtonLabel(changes.files, changes.added, changes.removed)
+				: kind === 'session'
+					? 'Session'
+					: kind[0]?.toUpperCase() + kind.slice(1)
+		return (
+			<PaneButtonTip
+				key={kind}
+				tip={reason ?? paneTooltip(kind, open[kind], mac)}
+				plain={Boolean(reason) || Boolean(disabled)}
+			>
+				<Button
+					type="button"
+					variant="ghost-muted"
+					size="icon-sm"
+					className="pane-button"
+					aria-label={name}
+					aria-pressed={open[kind]}
+					disabled={disabled || Boolean(reason)}
+					data-pane-button={kind}
+					data-open={open[kind] || undefined}
+					data-testid={kind === 'session' ? 'session-panel-toggle' : undefined}
+					onClick={() => onToggle(kind)}
+				>
+					<Icon aria-hidden="true" />
+				</Button>
+			</PaneButtonTip>
+		)
+	}
+	return (
+		<div className="pane-buttons" role="toolbar" aria-label="Panes">
+			{button('session')}
+			<span className="pane-buttons-divider" aria-hidden="true" />
+			{button('terminal')}
+			{button('changes')}
+			{button('browser')}
+			{button('files')}
+			{more}
+		</div>
+	)
+}
+
+export interface ViewOptionsProps {
+	/** Opens a side chat; absent or disabled where the conversation cannot be forked. */
+	onSideChat?: (() => void) | undefined
+	sideChatReason?: string | undefined
+	mac: boolean
+	/** Items after Side chat, set off by a rule: "Keep computer awake". */
+	children?: ReactNode
+}
+
+/** "…" at the end of the pane buttons: a small card with Side chat and the switches for this session. */
+export function ViewOptionsMenu({ onSideChat, sideChatReason, mac, children }: ViewOptionsProps) {
+	return (
+		<Menu.Root>
+			<PaneButtonTip tip="View options" plain={false}>
+				<Menu.Trigger
+					render={
+						<Button
+							type="button"
+							variant="ghost-muted"
+							size="icon-sm"
+							className="pane-button"
+							aria-label="View options"
+						/>
+					}
+				>
+					<MoreHorizontalIcon aria-hidden="true" />
+				</Menu.Trigger>
+			</PaneButtonTip>
+			<Menu.Portal>
+				<Menu.Positioner
+					className="conversation-actions-positioner"
+					align="end"
+					sideOffset={MENU_OFFSET}
+				>
+					<Menu.Popup className="conversation-actions-popup" aria-label="View options">
+						{onSideChat && (
+							<Menu.Item
+								className="conversation-actions-item"
+								disabled={Boolean(sideChatReason)}
+								title={sideChatReason}
+								aria-keyshortcuts={mac ? 'Meta+;' : 'Control+;'}
+								onClick={onSideChat}
+							>
+								<SideChatIcon aria-hidden="true" />
+								<span className="conversation-actions-label">Side chat</span>
+								<kbd className="conversation-actions-keys">{mac ? '⌘;' : 'Ctrl+;'}</kbd>
+							</Menu.Item>
+						)}
+						{onSideChat && children && (
+							<Menu.Separator className="conversation-actions-separator" />
+						)}
+						{children}
+					</Menu.Popup>
+				</Menu.Positioner>
+			</Menu.Portal>
+		</Menu.Root>
 	)
 }

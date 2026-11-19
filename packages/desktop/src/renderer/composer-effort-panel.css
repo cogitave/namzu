@@ -224,13 +224,13 @@
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.composer-effort-model,
-	.composer-effort-fill,
-	.composer-effort-fill::before,
-	.composer-effort-thumb {
+	:root:not([data-motion="full"]) .composer-effort-model,
+	:root:not([data-motion="full"]) .composer-effort-fill,
+	:root:not([data-motion="full"]) .composer-effort-fill::before,
+	:root:not([data-motion="full"]) .composer-effort-thumb {
 		transition: none;
 	}
-	.composer-effort-spinner {
+	:root:not([data-motion="full"]) .composer-effort-spinner {
 		animation: none;
 	}
 }
@@ -269,6 +269,31 @@
 	font-weight: var(--weight-text);
 }
 .composer-effort-panel[data-variant="inline"] .composer-effort-scale {
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+}
+
+/* Hypermode: a switch under the slider, for this conversation, at any level. */
+.composer-effort-mode {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding-top: 8px;
+	border-top: 1px solid var(--border);
+}
+.composer-effort-mode-text {
+	display: grid;
+	gap: 0;
+	min-width: 0;
+}
+.composer-effort-mode-name {
+	color: var(--foreground);
+	font-size: var(--text-caption);
+	font-weight: 500;
+}
+.composer-effort-mode-help {
+	color: var(--muted-foreground);
 	font-size: var(--text-caption);
 	line-height: var(--leading-caption);
 }

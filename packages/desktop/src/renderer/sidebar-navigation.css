@@ -371,22 +371,22 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.sidebar-recents[data-swapped] .sidebar-recents-label,
-	.sidebar-recents[data-swapped] .sidebar-recents-body {
+	:root:not([data-motion="full"]) .sidebar-recents[data-swapped] .sidebar-recents-label,
+	:root:not([data-motion="full"]) .sidebar-recents[data-swapped] .sidebar-recents-body {
 		animation: none;
 	}
-	.sidebar-archive-placeholder::before {
+	:root:not([data-motion="full"]) .sidebar-archive-placeholder::before {
 		animation: var(--placeholder-reveal-still) !important;
 	}
-	.sidebar-project-heading,
-	.sidebar-project-list .sidebar-conversation-button,
-	.sidebar-project-list .conversation-age,
-	.sidebar-recent-list .sidebar-conversation-button,
-	.sidebar-recent-list .conversation-age,
-	.sidebar-list-disclosure > button,
-	.sidebar-project-heading .project-row,
-	.sidebar-project-folder > svg,
-	.sidebar-project-group > .sidebar-project-panel {
+	:root:not([data-motion="full"]) .sidebar-project-heading,
+	:root:not([data-motion="full"]) .sidebar-project-list .sidebar-conversation-button,
+	:root:not([data-motion="full"]) .sidebar-project-list .conversation-age,
+	:root:not([data-motion="full"]) .sidebar-recent-list .sidebar-conversation-button,
+	:root:not([data-motion="full"]) .sidebar-recent-list .conversation-age,
+	:root:not([data-motion="full"]) .sidebar-list-disclosure > button,
+	:root:not([data-motion="full"]) .sidebar-project-heading .project-row,
+	:root:not([data-motion="full"]) .sidebar-project-folder > svg,
+	:root:not([data-motion="full"]) .sidebar-project-group > .sidebar-project-panel {
 		transition: none;
 	}
 }

@@ -11,6 +11,11 @@ export interface NotifyOptions {
 	tooltip?: string
 	/** How long the toast stays before it leaves; 0 keeps it until it is dismissed. */
 	timeoutMs?: number
+	/**
+	 * The time is part of what the notice says (an undo or countdown window), so turning off
+	 * auto-dismiss does not remove it.
+	 */
+	bound?: boolean
 	/** Called once when the toast has gone, for any reason (timeout, dismissal, action, replaced). */
 	onClose?: () => void
 }
@@ -45,6 +50,8 @@ interface Pending {
 	id: string
 	text: string
 	options: NotifyOptions
+	/** Auto-dismiss was off when it was sent: it stays until closed, but a newer notice may replace it. */
+	persist?: boolean
 }
 
 /**
@@ -62,6 +69,9 @@ export function createToastHub() {
 	// What is on screen now, and what waits for it to leave. An error the person has not seen
 	// for its full time is never closed by a newer notice: the newer one waits its turn. Errors
 	// wait ahead of everything else; of the others only the newest waits.
+	// Off, a notice stays until it is closed (unless its time is part of its meaning), yet a newer
+	// notice still replaces it: only errors and explicit holds queue.
+	let autoDismiss = true
 	let active:
 		| { id: string; text: string; tone: ToastTone; held: boolean; sink: ToastSink }
 		| undefined
@@ -103,7 +113,7 @@ export function createToastHub() {
 			type: tone,
 			// Base UI announces `high` through an assertive live region.
 			priority: tone === 'error' ? 'high' : 'low',
-			timeout: options.timeoutMs ?? defaultTimeoutMs(tone, Boolean(action)),
+			timeout: item.persist ? 0 : (options.timeoutMs ?? defaultTimeoutMs(tone, Boolean(action))),
 			onClose: () => {
 				shownBy.delete(id)
 				options.onClose?.()
@@ -151,11 +161,20 @@ export function createToastHub() {
 	return {
 		notify(text: string, options: NotifyOptions = {}): string {
 			const id = `notice-${++counter}`
-			const item = { id, text, options }
+			const item = {
+				id,
+				text,
+				options,
+				...(autoDismiss || options.bound || options.timeoutMs === 0 ? {} : { persist: true }),
+			}
 			const sink = target()
 			if (sink) return deliver(sink, item)
 			pending = [...pending, item].slice(-PENDING_LIMIT)
 			return id
+		},
+		/** Whether a notice leaves by itself. Changes what is shown from now on, not what is on screen. */
+		setAutoDismiss(on: boolean) {
+			autoDismiss = on
 		},
 		dismiss(id: string) {
 			pending = pending.filter((item) => item.id !== id)
@@ -193,6 +212,7 @@ export function createToastHub() {
 export const toastHub = createToastHub()
 export const notify = toastHub.notify
 export const dismissNotice = toastHub.dismiss
+export const setNoticeAutoDismiss = toastHub.setAutoDismiss
 
 export function createPaneToastManager(): ToastManager {
 	return Toast.createToastManager()

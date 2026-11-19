@@ -51,14 +51,19 @@ it('says used of window, a share, and the cost only when the engine priced it', 
 		cost: 0.42,
 	})
 	expect(model).toMatchObject({ percent: 6, tone: 'normal' })
-	expect(model?.lines).toEqual(['Context: 12.4k of 200k tokens (6%)', 'Cost so far: $0.42'])
-	expect(model?.label).toBe('Context 6% full. 12.4k of 200k tokens. Cost so far $0.42.')
+	expect(model?.lines).toEqual([
+		'6% of this conversation’s memory used (12.4k of 200k)',
+		'Cost so far: $0.42',
+	])
+	expect(model?.label).toBe(
+		'6% of this conversation’s memory used, 12.4k of 200k. Cost so far $0.42.',
+	)
 	const unpriced = contextRingModel({
 		contextTokens: 12_400,
 		contextWindowTokens: 200_000,
 		measuredBy: 'estimate',
 	})
-	expect(unpriced?.lines).toEqual(['Context: 12.4k of 200k tokens (6%), estimated'])
+	expect(unpriced?.lines).toEqual(['6% of this conversation’s memory used (about 12.4k of 200k)'])
 	expect(unpriced?.label).not.toContain('Cost')
 })
 
@@ -79,7 +84,7 @@ it('draws a labelled, focusable ring with the share filled', () => {
 		createElement(ContextRing, { usage: { contextTokens: 100_000, contextWindowTokens: 200_000 } }),
 	)
 	expect(html).toContain('class="context-ring"')
-	expect(html).toContain('aria-label="Context 50% full. 100k of 200k tokens."')
+	expect(html).toContain('aria-label="50% of this conversation’s memory used, 100k of 200k."')
 	expect(html).toContain('data-context-ring="normal"')
 	expect(html).toContain('aria-hidden="true"')
 	const circumference = 2 * Math.PI * 7
@@ -120,7 +125,7 @@ it('stores usage per thread and keeps what the engine last said', () => {
 	expect(applyEvent(emptyThread(), { kind: 'usage', sessionId: 'a' }).usage).toBeUndefined()
 })
 
-it('shows "Compacting the conversation…" while a pass runs, then a done note, then nothing', () => {
+it('shows "Shortening the conversation…" while a pass runs, then a done note, then nothing', () => {
 	let thread = applyEvent(running(), { kind: 'usage', sessionId: 'a', compaction: 'started' })
 	expect(thread.compaction).toEqual({ state: 'running' })
 	expect(livePhaseLabel(thread)).toBe(COMPACTING_TEXT)
@@ -136,10 +141,10 @@ it('shows "Compacting the conversation…" while a pass runs, then a done note, 
 	})
 	expect(thread.compaction).toEqual({ state: 'done', tokensBefore: 150_000, tokensAfter: 40_000 })
 	expect(liveStatus(thread).stage).toEqual({
-		text: 'Conversation compacted · 150k to 40k tokens',
+		text: 'Conversation shortened · from 150k to 40k',
 		source: 'compacted',
 	})
-	expect(compactedText({})).toBe('Conversation compacted')
+	expect(compactedText({})).toBe('Conversation shortened')
 	// The turn going on replaces the note.
 	thread = applyEvent(thread, {
 		kind: 'update',
@@ -223,7 +228,9 @@ it('draws the read-out and the Pal ring from the same measured context, and noth
 	const usage = { contextTokens: 28_000, contextWindowTokens: 200_000, cost: 0.06 }
 	const readout = renderToStaticMarkup(createElement(ContextReadout, { usage }))
 	expect(readout).toContain('14% · $0.06')
-	expect(readout).toContain('aria-label="Context 14% full. 28k of 200k tokens. Cost so far $0.06."')
+	expect(readout).toContain(
+		'aria-label="14% of this conversation’s memory used, 28k of 200k. Cost so far $0.06."',
+	)
 	expect(renderToStaticMarkup(createElement(ContextReadout, { usage: undefined }))).toBe('')
 	expect(
 		renderToStaticMarkup(createElement(ContextReadout, { usage: { contextTokens: 10 } })),

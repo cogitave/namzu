@@ -1,0 +1,153 @@
+/* A Markdown document drawn as a page in the Files pane. Serif is for the page's headings only. */
+:root {
+	--border-table: #e7e3df;
+}
+.dark {
+	--border-table: rgb(255 255 255 / 10%);
+}
+.document-page {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+/* The outline is one 36 px icon button that floats at the sheet's left and stays when the page scrolls. */
+.document-page-bar {
+	position: sticky;
+	top: 0;
+	z-index: 2;
+	display: flex;
+	align-items: flex-start;
+	height: 0;
+	padding-inline-start: 12px;
+	overflow: visible;
+}
+.document-outline-trigger {
+	width: 36px;
+	height: 36px;
+	margin-top: 12px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-control);
+	background: var(--background);
+	color: var(--muted-foreground);
+}
+/*
+ * The sheet is 42rem of text with 52 px on each side, centred once the pane is wide. The type stays on the
+ * app's scale: a 15/24 body (the reference draws 16), and serif headings at the scale's display, title and
+ * heading sizes, regular to medium weight, lighter than the 600 they had.
+ */
+.file-document.document-page-sheet {
+	width: 100%;
+	max-width: calc(42rem + 104px);
+	box-sizing: border-box;
+	margin-inline: auto;
+	padding: 8px 52px 64px;
+}
+.document-page-sheet .document-markdown {
+	font-size: var(--text-reading);
+	line-height: 24px;
+}
+.document-page-sheet .document-markdown h1,
+.document-page-sheet .document-markdown h2,
+.document-page-sheet .document-markdown h3,
+.document-page-sheet .document-markdown h4 {
+	font-family: var(--font-document);
+	font-weight: var(--weight-control);
+	scroll-margin-top: 3.5rem;
+	text-wrap: balance;
+}
+.document-page-sheet .document-markdown h1 {
+	font-size: var(--text-display);
+	line-height: 38px;
+}
+.document-page-sheet .document-markdown h2 {
+	font-size: var(--text-title);
+	line-height: 30px;
+}
+.document-page-sheet .document-markdown h3 {
+	font-size: var(--text-heading);
+	line-height: 26px;
+}
+.document-page-sheet .document-markdown h4 {
+	font-size: var(--text-reading);
+	line-height: 24px;
+}
+.document-page-sheet .document-markdown > h1:first-child {
+	margin-top: 0.4em;
+}
+/* A bullet sits about 16 px in and its text 30 px in; items are 28 px apart with the 24 px line. */
+.document-page-sheet .document-markdown ul,
+.document-page-sheet .document-markdown ol {
+	padding-inline-start: 30px;
+}
+.document-page-sheet .document-markdown li {
+	margin-block: 4px;
+}
+/* Square tables with a line on every cell edge and a tinted header row; a wide one scrolls on its own. */
+.document-page-sheet .document-markdown table {
+	border-collapse: collapse;
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
+}
+.document-page-sheet .document-markdown th,
+.document-page-sheet .document-markdown td {
+	padding: 7px 11px;
+	border: 1px solid var(--border-table);
+	text-align: start;
+}
+.document-page-sheet .document-markdown th {
+	background: var(--muted);
+	font-weight: var(--weight-control);
+}
+.document-page-sheet .document-markdown li > input[type="checkbox"] {
+	margin-inline-end: 0.4em;
+}
+/* A wide table scrolls inside its own frame, with the bar showing, never the whole page. */
+.document-page-sheet .table-scroll {
+	max-width: 100%;
+	overflow-x: auto;
+	scrollbar-width: thin;
+	scrollbar-color: var(--muted-foreground) transparent;
+}
+.document-page-sheet .document-image {
+	max-width: 100%;
+	height: auto;
+}
+
+.document-outline-popup {
+	width: 18rem;
+	max-width: calc(100vw - 2rem);
+}
+.document-outline {
+	max-height: 60vh;
+	overflow-y: auto;
+	width: 100%;
+}
+.document-outline ol {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+.document-outline-item {
+	display: block;
+	width: 100%;
+	padding-block: 5px;
+	padding-inline-end: 0.5rem;
+	border-radius: var(--radius-control);
+	color: var(--popover-foreground, var(--foreground));
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	text-align: start;
+	cursor: pointer;
+	overflow-wrap: anywhere;
+}
+.document-outline-item[data-depth="0"] {
+	font-weight: 600;
+}
+.document-outline-item:hover,
+.document-outline-item:focus-visible {
+	background: var(--accent);
+	outline: none;
+}
+.document-outline-item:focus-visible {
+	box-shadow: var(--focus-ring);
+}

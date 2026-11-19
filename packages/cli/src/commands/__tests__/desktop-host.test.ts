@@ -618,6 +618,52 @@ it('reads fresh journal history without opening the installation index, while li
 	}
 })
 
+it('archives an idle conversation for an app that does not ask for names, without an empty row', async () => {
+	writeFileSync(join(root, 'state', 'config.yaml'), 'archiveInactive: 7d\n')
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	const { state, sessionId } = await seeded()
+	try {
+		vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 8 * 24 * 60 * 60 * 1000)
+		// An older app reads every row as a conversation to draw, so it gets none for the swept one.
+		expect(await host['namzu/conversations/list']()).toEqual([])
+		expect(
+			(await host['namzu/conversations/archived']()).map((row: { id: string }) => row.id),
+		).toContain(sessionId)
+	} finally {
+		closeSessions(state)
+		await owner.close()
+	}
+})
+
+it('archives an idle conversation when it lists, and names it so the app drops its row', async () => {
+	writeFileSync(join(root, 'state', 'config.yaml'), 'archiveInactive: 7d\n')
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	const { state, sessionId } = await seeded()
+	try {
+		// Three days on: not idle long enough, so the row is an ordinary row.
+		const now = Date.now()
+		const clock = vi.spyOn(Date, 'now')
+		clock.mockReturnValue(now + 3 * 24 * 60 * 60 * 1000)
+		expect(await host['namzu/conversations/list']()).toContainEqual(
+			expect.objectContaining({ id: sessionId, title: expect.any(String) }),
+		)
+		// Eight days on: archived, and listed only as a name with the mark for an app that asks.
+		clock.mockReturnValue(now + 8 * 24 * 60 * 60 * 1000)
+		const rows = await host['namzu/conversations/list']({ idleArchivedRows: true })
+		expect(rows).toEqual([{ id: sessionId, idleArchived: true }])
+		expect(
+			(await host['namzu/conversations/archived']()).map((row: { id: string }) => row.id),
+		).toContain(sessionId)
+	} finally {
+		closeSessions(state)
+		await owner.close()
+	}
+})
+
 it('omits tool-only assistant history without truncating text, media placeholders or model replay', async () => {
 	const owner = runtime()
 	const host = createDesktopHostExtensions(owner, cwd)
@@ -1198,11 +1244,11 @@ it('reads fresh retry eligibility without an index or a model runtime', async ()
 	try {
 		expect(await owner.providerRetryStatus!(f.sessionId, cwd)).toEqual({
 			closable: true,
-			notice: expect.stringContaining('original approval settings'),
+			notice: expect.stringContaining('restore the approval settings'),
 		})
 		expect(await host['namzu/sessions/retry-status']!({ sessionId: f.sessionId })).toEqual({
 			closable: true,
-			notice: expect.stringContaining('original approval settings'),
+			notice: expect.stringContaining('restore the approval settings'),
 		})
 		const lease = await f.log.claim({
 			holder: 'fresh-retry-read',
@@ -1257,7 +1303,7 @@ it('keeps retry authorization, trust and status in the captured application home
 	try {
 		expect(await host['namzu/sessions/retry-status']!({ sessionId: f.sessionId })).toEqual({
 			closable: true,
-			notice: expect.stringContaining('original approval settings'),
+			notice: expect.stringContaining('restore the approval settings'),
 		})
 		expect(opened).toHaveBeenCalledTimes(1)
 		expect(indexed).not.toHaveBeenCalled()
@@ -1280,7 +1326,7 @@ it('refuses a foreign authenticated retry scope and revoked captured trust', asy
 	const other = await sessionStorage.openSessionScope(foreign)
 	try {
 		await expect(owner.providerRetryStatus!(sessionId, cwd, other)).rejects.toThrow(
-			'another project',
+			'belongs to a different project',
 		)
 		const scope = await sessionStorage.openSessionScope(cwd)
 		writeFileSync(join(scope.root, 'trust.json'), JSON.stringify({ version: 1, trusted: [] }))
@@ -1320,7 +1366,7 @@ it.each(['load', 'retry'] as const)(
 			} else {
 				expect(await owner.providerRetryStatus!(f.sessionId, cwd)).toEqual({
 					closable: true,
-					notice: expect.stringContaining('original approval settings'),
+					notice: expect.stringContaining('restore the approval settings'),
 				})
 			}
 			expect(indexed).not.toHaveBeenCalled()

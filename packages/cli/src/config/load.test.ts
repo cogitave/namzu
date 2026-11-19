@@ -204,6 +204,19 @@ describe('workflow config', () => {
 		expect(loadConfig({ home: top, cwd: tmpdir(), env: {} }).workflow).toEqual({ maxAgents: 1000 })
 		expect(loadConfig({ home: userConfig(''), cwd: tmpdir(), env: {} }).workflow).toBeUndefined()
 	})
+	it('reads the keyword switch, and rejects a value that is not true or false', () => {
+		const home = userConfig('workflow:\n  enabled: true\n  keywordTrigger: false\n')
+		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).workflow).toEqual({
+			enabled: true,
+			keywordTrigger: false,
+		})
+		const bad = userConfig('workflow:\n  keywordTrigger: sometimes\n')
+		expect(() => loadConfig({ home: bad, cwd: tmpdir(), env: {} })).toThrow(ConfigValueError)
+	})
+	it('still reads the saved hypermode key, which is no Settings row', () => {
+		const home = userConfig('hypermode: true\n')
+		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).hypermode).toBe(true)
+	})
 	it('reads the size guideline', () => {
 		const home = userConfig('workflow:\n  sizeGuideline: large\n')
 		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).workflow).toEqual({
@@ -1581,3 +1594,46 @@ describe('memory.retireAfterDays config', () => {
 		).not.toHaveProperty('retireAfterDays')
 	})
 })
+
+describe.each(['fromConversations', 'searchPastConversations'] as const)(
+	'memory.%s config',
+	(key) => {
+		const noHome = () => mkdtempSync(join(tmpdir(), 'namzu-home-'))
+
+		it('reads true and false from the user file, and refuses anything else', () => {
+			expect(
+				loadConfig({
+					home: userConfig(`memory:\n  ${key}: false\n`),
+					cwd: tmpdir(),
+					env: {},
+				}).memory,
+			).toEqual({ [key]: false })
+			expect(() =>
+				loadConfig({ home: userConfig(`memory:\n  ${key}: maybe\n`), cwd: tmpdir(), env: {} }),
+			).toThrow(ConfigValueError)
+		})
+
+		it('ignores it in a project or local file and in their profiles, keeping the rest', () => {
+			const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+			writeFileSync(
+				join(cwd, 'namzu.config.json'),
+				JSON.stringify({ memory: { [key]: false, recall: false } }),
+			)
+			expect(loadConfig({ home: noHome(), cwd, env: {} }).memory).toEqual({ recall: false })
+			const profiles = { work: { memory: { [key]: false, recall: false } } }
+			const withProfile = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+			writeFileSync(join(withProfile, 'namzu.config.json'), JSON.stringify({ profiles }))
+			expect(
+				loadConfig({ home: noHome(), cwd: withProfile, env: {}, profile: 'work' }).memory,
+			).toEqual({ recall: false })
+			const local = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+			writeFileSync(
+				join(local, 'namzu.config.local.json'),
+				JSON.stringify({ memory: { [key]: false } }),
+			)
+			expect(loadConfig({ home: noHome(), cwd: local, env: {} }).memory ?? {}).not.toHaveProperty(
+				key,
+			)
+		})
+	},
+)

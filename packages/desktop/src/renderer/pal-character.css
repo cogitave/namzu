@@ -146,10 +146,10 @@
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.pal-character * {
+	:root:not([data-motion="full"]) .pal-character * {
 		animation: none;
 	}
-	.pal-character-scene > canvas {
+	:root:not([data-motion="full"]) .pal-character-scene > canvas {
 		transition: none;
 	}
 }

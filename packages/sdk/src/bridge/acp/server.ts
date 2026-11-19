@@ -154,7 +154,9 @@ export interface AcpServerOptions {
 	 * applies when a prompt asks for one in its options. Omitted, a prompt that
 	 * asks for either is refused with an error that says so, before any turn
 	 * starts, rather than reaching a gateway that cannot honour it. Advertised
-	 * as `promptPermissionModes` at initialization.
+	 * as `promptPermissionModes` at initialization. An empty list is advertised
+	 * as empty (the host closes both), which a client tells apart from an older
+	 * host that sends no list at all.
 	 */
 	readonly promptPermissionModes?: readonly ('bypass' | 'classify')[]
 	/** Emit planning notifications only to clients declaring namzu/tasks. */
@@ -222,6 +224,19 @@ class AcpError extends Error {
 		super(message)
 		this.name = 'AcpError'
 	}
+}
+
+/**
+ * A stable machine code a host may attach to a failure it throws (`data: { code }` on the error).
+ * It goes out as the JSON-RPC error's `data`, so a client can pick its own wording by code and
+ * keep the sentence as the fallback. Anything else on the error is not sent.
+ */
+function stableErrorData(err: unknown): { code: string } | undefined {
+	if (!err || typeof err !== 'object') return undefined
+	const data = (err as { data?: unknown }).data
+	if (!data || typeof data !== 'object') return undefined
+	const code = (data as { code?: unknown }).code
+	return typeof code === 'string' && /^[a-z][a-z0-9-]{0,63}$/.test(code) ? { code } : undefined
 }
 
 export class ACPServer {
@@ -423,7 +438,12 @@ export class ACPServer {
 			}
 		} catch (err) {
 			const code = err instanceof AcpError ? err.code : ACP_ERROR_CODES.INTERNAL_ERROR
-			await this.respondError(message.id, code, err instanceof Error ? err.message : String(err))
+			await this.respondError(
+				message.id,
+				code,
+				err instanceof Error ? err.message : String(err),
+				stableErrorData(err),
+			)
 		}
 	}
 
@@ -431,6 +451,7 @@ export class ACPServer {
 		id: MCPJsonRpcMessage['id'],
 		code: number,
 		message: string,
+		data?: { code: string },
 	): Promise<void> {
 		// A notification (no id) that failed has nowhere to send an error, so
 		// it is logged instead of dropped silently — on stderr, where it does
@@ -442,7 +463,7 @@ export class ACPServer {
 			})
 			return
 		}
-		await this.send({ jsonrpc: '2.0', id, error: { code, message } })
+		await this.send({ jsonrpc: '2.0', id, error: { code, message, ...(data ? { data } : {}) } })
 	}
 
 	private async send(message: MCPJsonRpcMessage, requireDelivery = false): Promise<void> {
@@ -498,7 +519,7 @@ export class ACPServer {
 			...(this.options.supportsPromptAttachments ? { promptAttachments: true } : {}),
 			...(this.options.supportsPromptOptions ? { promptOptions: true } : {}),
 			...(this.options.supportsPromptPasted ? { promptPasted: true } : {}),
-			...(this.options.supportsPromptOptions && this.options.promptPermissionModes?.length
+			...(this.options.supportsPromptOptions && this.options.promptPermissionModes !== undefined
 				? { promptPermissionModes: [...this.options.promptPermissionModes] }
 				: {}),
 			agentInfo: this.options.agentInfo,
@@ -911,9 +932,12 @@ export class ACPServer {
 			)
 		if (!value || typeof value !== 'object' || Array.isArray(value))
 			throw new AcpError(ACP_ERROR_CODES.INVALID_PARAMS, 'Invalid prompt settings.')
-		const { effort, permissionMode } = value as Record<string, unknown>
+		const { effort, permissionMode, hypermode } = value as Record<string, unknown>
 		if (
-			Object.keys(value).some((key) => key !== 'effort' && key !== 'permissionMode') ||
+			Object.keys(value).some(
+				(key) => key !== 'effort' && key !== 'permissionMode' && key !== 'hypermode',
+			) ||
+			(hypermode !== undefined && typeof hypermode !== 'boolean') ||
 			(effort !== undefined &&
 				(typeof effort !== 'string' ||
 					!['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'].includes(
@@ -942,6 +966,7 @@ export class ACPServer {
 						>['permissionMode'],
 					}
 				: {}),
+			...(typeof hypermode === 'boolean' ? { hypermode } : {}),
 		}
 	}
 	private readPromptAttachments(

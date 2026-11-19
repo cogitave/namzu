@@ -20,6 +20,9 @@ if (process.argv[2] === "hooks" && process.env.NAMZU_E2E_NO_HOOKS_COMMAND) {
 	process.exit(2);
 }
 createRequire(import.meta.url)("./redirect-fetch.cjs");
+// A flow about time (an idle conversation, an expiry) moves the engine's clock with a preload of its
+// own, named here, instead of waiting. Nothing else changes; without the variable the clock is real.
+if (process.env.NAMZU_E2E_CLOCK_PRELOAD) createRequire(import.meta.url)(process.env.NAMZU_E2E_CLOCK_PRELOAD);
 // A flow that needs a Pal computer on a machine with no container engine asks for a stand-in:
 // the optional sandbox package is answered by a small module whose guest is a recorder. Nothing
 // else about the CLI changes; without the variable the real package is used.

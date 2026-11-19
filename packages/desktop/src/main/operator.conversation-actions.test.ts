@@ -149,9 +149,9 @@ it('refuses to fork a conversation that was never prompted', async () => {
 it('refuses rename, fork and export for external engines', async () => {
 	const { owner } = await setup()
 	await owner.selectHarness('saved', 'codex-cli')
-	await expect(owner.renameConversation('saved', 'x')).rejects.toThrow('cannot be renamed')
-	await expect(owner.forkConversation('saved')).rejects.toThrow('cannot be forked')
-	await expect(owner.conversationMarkdown('saved')).rejects.toThrow('cannot be exported')
+	await expect(owner.renameConversation('saved', 'x')).rejects.toThrow('can’t be renamed')
+	await expect(owner.forkConversation('saved')).rejects.toThrow('can’t be forked')
+	await expect(owner.conversationMarkdown('saved')).rejects.toThrow('can’t be exported')
 	// Pinning is desktop-local, so every ordinary engine can do it.
 	await expect(owner.setConversationPinned('saved', true)).resolves.toMatchObject({ pinned: true })
 })
@@ -344,6 +344,34 @@ it('restores a conversation archived a moment ago, without the archived list bei
 	expect(await owner.removeConversation('just-archived')).toMatchObject({ archived: true })
 	const restored = await owner.restoreConversation('just-archived')
 	expect(restored).toMatchObject({ id: 'just-archived', projectId: project.id })
+})
+
+it('drops a row the engine archived for being idle, with the conversation events a person archive sends', async () => {
+	const first = [
+		{ id: 'idle', title: 'Idle chat', updatedAt: '2026-10-01T00:00:00.000Z' },
+		{ id: 'busy', title: 'Recent chat', updatedAt: '2026-10-05T00:00:00.000Z' },
+	]
+	// The next listing names the idle one as archived and no longer lists it as a row.
+	const later = [
+		{ id: 'busy', title: 'Recent chat', updatedAt: '2026-10-05T00:00:00.000Z' },
+		{ id: 'idle', idleArchived: true },
+	]
+	const { owner, project, events } = await setup({
+		FIXTURE_LIST_ROWS: JSON.stringify(first),
+		FIXTURE_LIST_ROWS_LATER: JSON.stringify(later),
+		FIXTURE_ARCHIVE: '1',
+	})
+	expect((await owner.listConversations(project.id)).map((row) => row.id)).toEqual(
+		expect.arrayContaining(['busy', 'idle']),
+	)
+	const second = (await owner.listConversations(project.id)).map((row) => row.id)
+	expect(second).toContain('busy')
+	expect(second).not.toContain('idle')
+	expect(events).toContainEqual(
+		expect.objectContaining({ kind: 'conversation-removed', sessionId: 'idle', archived: true }),
+	)
+	// A swept conversation the window never drew is simply left out.
+	expect((await owner.listConversations(project.id)).map((row) => row.id)).not.toContain('idle')
 })
 
 it('refuses an invalid archived row from the host', async () => {

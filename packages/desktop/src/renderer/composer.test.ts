@@ -178,7 +178,7 @@ it('admits Pal chat and model attachments without granting unavailable guest too
 	expect(button(html, 'Permissions')).toMatch(/\bdisabled=/)
 	expect(html).not.toContain('aria-label="Plugins"')
 	const standard = render({ connected: true })
-	expect(button(standard, 'Plugins')).not.toMatch(/\bdisabled=/)
+	expect(button(standard, 'Add')).not.toMatch(/\bdisabled=/)
 	const online = render({
 		variant: 'pal',
 		connected: true,
@@ -257,7 +257,7 @@ it('retains Pal attachments, queue editing and complete approval while composing
 	})
 	expect(html).toContain('notes.txt')
 	expect(button(html, 'Remove notes.txt')).not.toMatch(/\bdisabled=/)
-	expect(html).toContain('aria-label="Tool approval"')
+	expect(html).toContain('aria-label="Permission to act"')
 	expect(html).toContain('pwd')
 	expect(html).toContain('Accept')
 	expect(button(html, 'Stop reply')).not.toMatch(/\bdisabled=/)
@@ -296,7 +296,7 @@ it('holds only the text, Plus and Send in the box, and the settings in one row u
 	})
 	const editor = html.indexOf('<textarea')
 	const footer = html.indexOf('data-chat-composer-footer')
-	const plus = html.indexOf('aria-label="Attachments and message settings"', footer)
+	const plus = html.indexOf('aria-label="Add"', footer)
 	const submit = html.indexOf('aria-label="Send message"', footer)
 	const row = html.indexOf('data-composer-row')
 	const project = html.indexOf('This computer', row)
@@ -365,7 +365,10 @@ it('shows the wordmark once and only offers installed conversation engines', () 
 	expect(html).not.toContain('composer-harness-mark')
 	expect(html).toContain('More<small>: engine</small>')
 	expect(html).not.toContain('Worktree')
-	expect(html).not.toContain('type="checkbox"')
+	// The only switch in the popover is the effort panel's hypermode one.
+	expect(html.replace(/<input[^>]*aria-label="Hypermode"[^>]*>/, '')).not.toContain(
+		'type="checkbox"',
+	)
 	const supplied = render({
 		connected: true,
 		harnessView: {
@@ -376,7 +379,6 @@ it('shows the wordmark once and only offers installed conversation engines', () 
 		attachmentsSupported: false,
 		reviewModes: ['prompt', 'plan'],
 	})
-	expect(button(supplied, 'Attach files')).toMatch(/\bdisabled=/)
 	expect(supplied).not.toContain('composer-harness-mark')
 })
 
@@ -412,21 +414,20 @@ it('retains functional normal attachment, plugin, effort, queue and approval con
 			},
 		],
 	})
-	expect(button(html, 'Attach files')).not.toMatch(/\bdisabled=/)
+	expect(button(html, 'Add')).not.toMatch(/\bdisabled=/)
 	expect(button(html, 'Permissions')).not.toMatch(/\bdisabled=/)
-	expect(button(html, 'Plugins')).not.toMatch(/\bdisabled=/)
 	// The row keeps the model at its right while the card waits; it cannot change while a reply runs, so it is disabled.
 	expect(html).toContain('aria-label="Model: space-bunny-free')
 	expect(html).toContain('composer-waiting')
 	expect(button(html, 'Remove notes.txt')).not.toMatch(/\bdisabled=/)
-	expect(html).toContain('aria-label="Tool approval"')
+	expect(html).toContain('aria-label="Permission to act"')
 	expect(html).toContain('Accept')
 	// Saved as the old Full access id (`auto`), shown as Full access (`bypass`).
 	expect(html).toContain('data-composer-permission="bypass"')
 	expect(button(html, 'Stop reply')).not.toMatch(/\bdisabled=/)
 	expect(button(html, 'Queue message')).not.toMatch(/\bdisabled=/)
 	const offline = render()
-	for (const label of ['Attach files', 'Permissions', 'Plugins', 'Send message'])
+	for (const label of ['Permissions', 'Send message'])
 		expect(button(offline, label)).toMatch(/\bdisabled=/)
 	const idle = render({
 		connected: true,
@@ -595,7 +596,7 @@ it('is ready on first open with only the free Zen models: no card, Send enabled,
 		draft: 'make me a small website',
 		onOpenModelSettings: () => {},
 	})
-	expect(html).not.toContain('Add an API key or sign in to start')
+	expect(html).not.toContain('Add a key or sign in to start')
 	expect(html).not.toContain('Connect a provider')
 	expect(button(html, 'Send message')).not.toMatch(/\bdisabled=/)
 	expect(button(html, 'Send message')).not.toMatch(/aria-disabled=/)
@@ -611,7 +612,7 @@ it('shows the starter ideas on first open with only the free models and an empty
 		draft: '',
 	})
 	expect(html).toContain('Ideas to get started')
-	expect(html).not.toContain('Add an API key or sign in to start')
+	expect(html).not.toContain('Add a key or sign in to start')
 })
 
 it('still tells a first-timer to add a key or sign in when truly nothing is available', () => {
@@ -622,7 +623,7 @@ it('still tells a first-timer to add a key or sign in when truly nothing is avai
 		draft: 'make me a small website',
 		onOpenModelSettings: () => {},
 	})
-	expect(html).toContain('Add an API key or sign in to start')
+	expect(html).toContain('Add a key or sign in to start')
 	expect(html).toContain('Connect a provider')
 	expect(html).not.toContain('Ideas to get started')
 	expect(html).not.toContain('Namzu terminal app')
@@ -631,14 +632,14 @@ it('still tells a first-timer to add a key or sign in when truly nothing is avai
 
 it('keeps the empty state away once a provider is connected, and while providers still load', () => {
 	const connected = render({ connected: true, empty: true, draft: '' })
-	expect(connected).not.toContain('Add an API key or sign in to start')
+	expect(connected).not.toContain('Add a key or sign in to start')
 	expect(connected).toContain('Ideas to get started')
 	const loading = render({
 		providers: { available: [], selected: null },
 		providersLoading: true,
 		empty: true,
 	})
-	expect(loading).not.toContain('Add an API key or sign in to start')
+	expect(loading).not.toContain('Add a key or sign in to start')
 })
 
 it('names the shortcut that takes the newest waiting message back, only while one waits', () => {
@@ -692,8 +693,9 @@ it('shows how many shells run and the branch pull request, quietly, beside the m
 
 it('teaches the send and hold keys in the empty box while a reply runs', () => {
 	const live = render({ running: true, liveInputSupported: true, draft: '', onQueue: () => {} })
+	expect(live).toMatch(/placeholder="(?:Ctrl|Cmd)\+Enter to queue"/)
 	expect(live).toMatch(
-		/placeholder="Enter sends now · (?:Ctrl|Cmd)\+Enter or Tab sends after this reply"/,
+		/title="Enter sends now · (?:Ctrl|Cmd)\+Enter or Tab sends after this reply"/,
 	)
 	const plain = render({ running: true, draft: '' })
 	expect(plain).toContain('placeholder="Enter sends after this reply"')
@@ -760,4 +762,46 @@ it('keeps the row quiet and in its place: no fill or border at rest, the mode ne
 	expect(css).not.toMatch(/\[data-composer-control-chevron\] \{[^}]*opacity: 0;/)
 	expect(css).not.toContain('composer-context-above')
 	expect(css).not.toMatch(/#[0-9a-f]{3,8}\b/i)
+})
+
+it('opens the plus menu from one button named Add, and keeps the older popover only in the Pal box', () => {
+	const standard = render({ connected: true })
+	expect(button(standard, 'Add')).not.toMatch(/\bdisabled=/)
+	expect(standard).not.toContain('aria-label="Attachments and message settings"')
+	expect(render({ variant: 'pal', connected: true })).toContain(
+		'aria-label="Attachments and message settings"',
+	)
+})
+
+it('names the slash list in the empty box of an open conversation, not on the home screen', () => {
+	expect(render({ connected: true, empty: false })).toContain('placeholder="Type / for commands"')
+	expect(render({ connected: true, empty: true })).toContain('placeholder="Ask Namzu anything"')
+	expect(render({ variant: 'pal', connected: true, empty: false })).toContain(
+		'placeholder="Send a message"',
+	)
+})
+
+it('reads the saved hypermode key as the mode in force until the person chooses', () => {
+	const saved = render({
+		connected: true,
+		capabilities: { effortLevels: ['low', 'high'], hypermodeDefault: true },
+	})
+	expect(saved).toContain('Model: space-bunny-free, hypermode')
+	const chosenOff = render({
+		connected: true,
+		settings: { hypermode: false },
+		capabilities: { effortLevels: ['low', 'high'], hypermodeDefault: true },
+	})
+	expect(chosenOff).not.toContain(', hypermode')
+})
+
+it('draws a note about the conversation above the composer box, not inside it', () => {
+	const html = render({
+		notice: 'Full access is off in Settings, so this conversation asks first again.',
+	})
+	const note = html.indexOf('data-composer-note')
+	const shell = html.indexOf('normal-composer-shell')
+	expect(note).toBeGreaterThan(-1)
+	expect(shell).toBeGreaterThan(note)
+	expect(html.slice(shell)).not.toContain('Full access is off in Settings')
 })

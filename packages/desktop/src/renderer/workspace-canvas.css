@@ -83,8 +83,8 @@
 	box-shadow: var(--shadow-2);
 }
 @media (prefers-reduced-motion: reduce) {
-	.workspace-canvas-divider,
-	.workspace-canvas-drop-preview {
+	:root:not([data-motion="full"]) .workspace-canvas-divider,
+	:root:not([data-motion="full"]) .workspace-canvas-drop-preview {
 		transition: none;
 	}
 }

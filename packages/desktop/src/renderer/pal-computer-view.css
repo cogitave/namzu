@@ -252,16 +252,16 @@
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.pal-computer-view {
+	:root:not([data-motion="full"]) .pal-computer-view {
 		animation: none;
 	}
-	.pal-computer-loading {
+	:root:not([data-motion="full"]) .pal-computer-loading {
 		animation: none;
 	}
-	.pal-computer-screen {
+	:root:not([data-motion="full"]) .pal-computer-screen {
 		transition: none;
 	}
-	.pal-computer-control-bar .pal-computer-control-button {
+	:root:not([data-motion="full"]) .pal-computer-control-bar .pal-computer-control-button {
 		transition: none;
 	}
 }

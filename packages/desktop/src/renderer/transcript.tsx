@@ -15,9 +15,10 @@ import { AttachmentList } from './attachment-list.js'
 import { providerWaitAnnouncement, providerWaitText } from './friendly-errors.js'
 import { ChevronRightIcon } from './icons.js'
 import { Message, MessageContent, MessageFooter, timeDescription, timeRoleOf } from './message.js'
+import { TurnOutputs } from './output-card.js'
 import { PalMessageReceipts } from './pal-message-receipts.js'
 import { PlanBox, PlanRow, PlanTouched } from './plan-row-view.js'
-import { isTaskEntry, latestPlanTurn } from './plan-row.js'
+import { isTaskEntry, latestPlanTurn, planSummary } from './plan-row.js'
 import { ProviderNameContext } from './provider-name-context.js'
 import { renderedEqual } from './rendered-equal.js'
 import { toolTranscriptPresentation } from './tool-transcript-presentation.js'
@@ -29,6 +30,7 @@ import {
 	dateSeparatorLabel,
 	elapsedLabel,
 	replyClock,
+	runActionOf,
 	runDefaultOpen,
 	splitActivity,
 	stoppedWorkSummary,
@@ -115,7 +117,7 @@ function Entry({
 		return thought?.text.trim() ? (
 			<section
 				className="reasoning"
-				aria-label="Public reasoning"
+				aria-label="Thinking"
 				data-timeline-turn={entry.turn}
 				data-reasoning-id={entry.id}
 				data-transcript-entry-key={transcriptEntryKey(entry)}
@@ -282,13 +284,7 @@ function ToolRun({
 	const active = presentations.some((item) => item.state === 'running' || item.state === 'waiting')
 	const live = active || (turnLive && last)
 	const states = presentations.map((item) => item.state)
-	const actions = presentations.map((item) => ({
-		kind: item.kind,
-		subject: item.file?.path,
-		state: item.state,
-		created: item.operation === 'created',
-		background: item.shell?.background === true,
-	}))
+	const actions = presentations.map(runActionOf)
 	const attention = turnAttention(thread, entries)
 	const lookups = presentations.length > 0 && presentations.every((item) => item.kind === 'lookup')
 	const label = lookups
@@ -457,7 +453,14 @@ function TurnActivity({
 	// Only the block that owns the clock names the stage, and only until the answer starts.
 	const liveLine = live && ownsTurnSummary && !answered
 	const status = liveLine ? liveStatus(thread) : undefined
-	const planOutside = liveLine && planAt >= 0 && planTurn === turn && thread.tasks.length > 0
+	// It stays in the flow until every step is done, so a plan with steps left is not folded away by the reply.
+	const planOutside =
+		live &&
+		ownsTurnSummary &&
+		planAt >= 0 &&
+		planTurn === turn &&
+		thread.tasks.length > 0 &&
+		(!answered || !planSummary(thread.tasks).finished)
 	const stage = status?.stage
 	const streamingMessage = status ? narrationBeingWritten(thread) : undefined
 	// Open while the reply is written, folded once it ends; a choice the person made always wins.
@@ -529,19 +532,17 @@ function TurnActivity({
 				<CollapsibleTrigger
 					className="activity-trigger"
 					aria-label={[
-						elapsed
-							? `${label} for ${elapsed}`
-							: fold?.duration
-								? `${label} · ${fold.duration}`
-								: label,
+						elapsed ? `${label} for ${elapsed}` : fold?.took ? `${label} · ${fold.took}` : label,
 						...flags.map((flag) => flag.text),
 					].join('. ')}
 					title={
 						savedDuration
-							? 'Time reported for this saved work'
+							? 'How long this work took'
 							: live
 								? undefined
-								: timeDescription(savedTime)
+								: [timeDescription(savedTime), fold?.took ? `Took ${fold.took}` : undefined]
+										.filter(Boolean)
+										.join('. ') || undefined
 					}
 					data-duration-source={savedDuration ? 'recorded-runtime' : undefined}
 					data-live={live ? '' : undefined}
@@ -570,6 +571,11 @@ function TurnActivity({
 								· {fold.duration}
 							</span>
 						)}
+						{fold?.added ? (
+							<span className="turn-activity-added" data-tone="added">
+								+{fold.added}
+							</span>
+						) : null}
 						<AttentionFlags flags={flags} />
 					</span>
 					<FoldChevron />
@@ -761,7 +767,7 @@ interface TurnGroupProps {
 	undoKept?: Record<string, number>
 	/** Absent when the caller offers nothing to do; the same function for the life of the transcript. */
 	onWorkDisclosureChange?: (key: string, open: boolean) => void
-	onOpenTurnChanges?: (receiptIds: string[], path?: string) => void
+	onOpenTurnChanges?: (path?: string) => void
 	onOpenChangedFile?: (path: string) => void
 	/** Leads from a "sent to a Pal" line to that Pal's messages; the same function for the life of the transcript. */
 	onOpenPalInbox?: (palName: string) => void
@@ -806,7 +812,7 @@ function TurnFoot({
 	thread: ThreadState
 	turn: number
 	changes?: TurnChanges
-	onOpen?: (receiptIds: string[], path?: string) => void
+	onOpen?: (path?: string) => void
 	onOpenFile?: (path: string) => void
 	onCopy?: (text: string) => void
 	undo?: UndoCardView
@@ -949,6 +955,7 @@ const TurnGroupView = memo(function TurnGroupView({
 						<MessageFooter time={clock.time} focusable />
 					</Message>
 				)}
+				<TurnOutputs thread={thread} turn={group.turn} changes={changes} />
 				{!live && (
 					<TurnFoot
 						thread={thread}
@@ -1024,7 +1031,7 @@ export function Transcript({
 	workDisclosures?: WorkDisclosureChoices
 	onWorkDisclosureChange?: (key: string, open: boolean) => void
 	/** Receipt ids of the edits one reply made; without it no per-reply edit card shows. */
-	onOpenTurnChanges?: (receiptIds: string[], path?: string) => void
+	onOpenTurnChanges?: (path?: string) => void
 	/** Shows an edited file in the side panel; absent when the project's files are not available. */
 	onOpenChangedFile?: (path: string) => void
 	/** Opens a Pal's messages by its name, from the line that says a message was sent to it. */
@@ -1079,8 +1086,7 @@ export function Transcript({
 		() => ({
 			onWorkDisclosureChange: (key: string, open: boolean) =>
 				handlers.current.onWorkDisclosureChange?.(key, open),
-			onOpenTurnChanges: (ids: string[], path?: string) =>
-				handlers.current.onOpenTurnChanges?.(ids, path),
+			onOpenTurnChanges: (path?: string) => handlers.current.onOpenTurnChanges?.(path),
 			onOpenChangedFile: (path: string) => handlers.current.onOpenChangedFile?.(path),
 			onOpenPalInbox: (palName: string) => handlers.current.onOpenPalInbox?.(palName),
 			onUndoTurn: (turnId: string) => handlers.current.onUndoTurn?.(turnId),

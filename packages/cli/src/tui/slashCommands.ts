@@ -1,5 +1,6 @@
 import { dirname } from 'node:path'
 import { type HookConfigProblem, hookConfigProblems, readPermissionLayers } from '../config/load.js'
+import { findSetting, unknownSettingMessage } from '../config/setting-cli.js'
 import { installationRows } from '../installation.js'
 import type { PluginHookProblem } from '../integrations/plugins/hook-entries.js'
 import type { PluginHookEntryView } from '../integrations/plugins/runtime.js'
@@ -141,7 +142,12 @@ export type SlashAction =
 	/** Open the finite permission-mode chooser. */
 	| { kind: 'permission-mode-picker' }
 	/** Select model-specific reasoning effort for future main-query turns. */
-	| { kind: 'reasoning-effort'; effort: ReasoningEffort | null }
+	| {
+			kind: 'reasoning-effort'
+			effort: ReasoningEffort | null
+			/** `/effort <level> hypermode on|off`: the mode asked for along with the level. */
+			hypermode?: boolean
+	  }
 	/** Open the current model's finite reasoning-effort chooser. */
 	| { kind: 'reasoning-effort-picker' }
 	/**
@@ -170,6 +176,8 @@ export type SlashAction =
 	| { kind: 'recap-now' }
 	/** `/config tips on|off|list`: the spinner tips' switch, written to the user config. */
 	| { kind: 'spinner-tips'; on: boolean | 'list' }
+	/** `/config <key> [value]`: show or change any described setting, as `namzu config` does. */
+	| { kind: 'config-setting'; key: string; text?: string; clear?: boolean }
 	/** Open the finite good/bad chooser for one exact assistant message. */
 	| { kind: 'feedback-picker'; messageId: string }
 	| {
@@ -833,6 +841,9 @@ function commandHelp(ctx: SlashContext, args: readonly string[]): SlashAction {
  * the kernel can answer, which now arrives through the registry instead of
  * being restated in this file.
  */
+const CONFIG_USAGE =
+	'Usage: /config [sources|limits|triggers|theme|motion|recap|tips] or /config <setting> [value|unset]. List every setting with: namzu config list'
+
 export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'setup',
@@ -854,6 +865,9 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				'/config motion [on|off|list]',
 				'/config recap [on|off|list]',
 				'/config tips [on|off|list]',
+				'/config <setting>',
+				'/config <setting> <value>',
+				'/config <setting> unset',
 			],
 			details: [
 				'/config triggers off stops words in a message (hypermode, "save this as a skill") from acting for that message, in your user config; /config triggers on turns them back on; /config triggers lists what is in force.',
@@ -861,6 +875,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				'/config theme picks the colours with a preview, the same as /theme; /config theme light sets one by name.',
 				'/config motion on keeps the working line and the composer still, in your user config; /config motion off lets them move again.',
 				'/config tips off hides the tip under the working row, in your user config; /config tips on shows it again. The next task still shows.',
+				'/config limits.maxIterations shows any setting namzu config lists (its value, default, range and when a change applies); /config limits.maxIterations 30 changes it in your user config; /config limits.maxIterations unset puts the default back. A setting that widens what runs asks first. The same list and checks as namzu config and Desktop Settings.',
 			],
 		},
 		action: (ctx, args) => {
@@ -901,13 +916,22 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 					return { kind: 'recap-setting', setting }
 				return { kind: 'message', role: 'system', content: 'Usage: /config recap [on|off|list]' }
 			}
+			if (args.join(' ') === 'sources') {
+				return { kind: 'message', role: 'system', content: renderConfigDebug(ctx.configDebug) }
+			}
+			const key = args[0] as string
+			if (findSetting(key)) {
+				const text = args.slice(1).join(' ')
+				if (text === 'unset' || text === 'reset')
+					return { kind: 'config-setting', key, clear: true }
+				return { kind: 'config-setting', key, ...(text === '' ? {} : { text }) }
+			}
 			return {
 				kind: 'message',
 				role: 'system',
-				content:
-					args.join(' ') === 'sources'
-						? renderConfigDebug(ctx.configDebug)
-						: 'Usage: /config [sources|limits|triggers|theme|motion|recap|tips]',
+				content: key.includes('.')
+					? `${unknownSettingMessage(key)}\n${CONFIG_USAGE}`
+					: CONFIG_USAGE,
 			}
 		},
 	},
@@ -1811,12 +1835,14 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		name: 'effort',
 		immediate: true,
 		help: {
-			usage: ['/effort [level|default]'],
+			usage: ['/effort [level|default] [hypermode on|off]'],
 			details: [
 				'Run /effort to see the levels supported by the selected model and usable fallbacks. Changes affect future replies in this conversation.',
+				'Hypermode is an option of the effort, for any level and for this conversation only: /effort high hypermode on, or /effort hypermode off to leave the level as it is. It is never saved by this command; the hypermode value in the config file is what starts new conversations in it. It needs dynamic workflows to be on in Settings.',
 			],
 		},
-		description: 'Choose reasoning effort for future replies: /effort [level|default].',
+		description:
+			'Choose reasoning effort for future replies: /effort [level|default] [hypermode on|off].',
 		action: (ctx, args) => {
 			if (args.length === 0) {
 				if (!ctx.providerSummary) {
@@ -1835,6 +1861,21 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				}
 				return { kind: 'reasoning-effort-picker' }
 			}
+			const words = args.map((word) => word.toLowerCase())
+			// The mode is the last two words: `hypermode on|off`.
+			const modeAt = words.length >= 2 ? words.length - 2 : -1
+			let hypermode: boolean | undefined
+			let levelWords = words
+			if (modeAt >= 0 && words[modeAt] === 'hypermode') {
+				const choice = words[modeAt + 1]
+				if (choice !== 'on' && choice !== 'off') {
+					return { kind: 'message', role: 'system', content: effortUsage(ctx) }
+				}
+				hypermode = choice === 'on'
+				levelWords = words.slice(0, modeAt)
+				// Only the mode: the level stays where it is.
+				if (levelWords.length === 0) return { kind: 'hypermode', enabled: hypermode }
+			}
 			if (!ctx.providerSummary) {
 				return {
 					kind: 'message',
@@ -1842,8 +1883,13 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 					content: 'No provider is active yet. Pick one with /model before changing reasoning.',
 				}
 			}
-			const token = args.length === 1 ? args[0]?.toLowerCase() : undefined
-			if (token === 'default') return { kind: 'reasoning-effort', effort: null }
+			const token = levelWords.length === 1 ? levelWords[0] : undefined
+			if (token === 'default')
+				return {
+					kind: 'reasoning-effort',
+					effort: null,
+					...(hypermode !== undefined ? { hypermode } : {}),
+				}
 			const offered = ctx.reasoningEffort.levels
 			if (offered === undefined) {
 				return {
@@ -1853,13 +1899,13 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				}
 			}
 			const effort = offered.find((level) => level === token)
-			if (effort) return { kind: 'reasoning-effort', effort }
-			const levels = offered.length > 0 ? offered.join('|') : '<none>'
-			return {
-				kind: 'message',
-				role: 'system',
-				content: `Usage: /effort [${levels}|default]`,
-			}
+			if (effort)
+				return {
+					kind: 'reasoning-effort',
+					effort,
+					...(hypermode !== undefined ? { hypermode } : {}),
+				}
+			return { kind: 'message', role: 'system', content: effortUsage(ctx) }
 		},
 	},
 	{
@@ -1983,6 +2029,14 @@ function fastAction(args: readonly string[]): SlashAction {
 }
 
 /** `/hypermode [on|off]`, and its deprecated `/orchestrate` alias. */
+function effortUsage(ctx: {
+	readonly reasoningEffort: { readonly levels?: readonly string[] }
+}): string {
+	const offered = ctx.reasoningEffort.levels
+	const levels = offered === undefined ? '' : offered.length > 0 ? offered.join('|') : '<none>'
+	return `Usage: /effort [${levels ? `${levels}|default` : 'default'}] [hypermode on|off]`
+}
+
 function hypermodeAction(args: readonly string[], via?: 'orchestrate'): SlashAction {
 	const choice = args.join(' ').trim().toLowerCase()
 	const alias = via ? { via } : {}

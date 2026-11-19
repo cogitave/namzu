@@ -139,10 +139,10 @@
 	color: var(--warning-foreground);
 }
 @media (prefers-reduced-motion: reduce) {
-	.conversation-tab {
+	:root:not([data-motion="full"]) .conversation-tab {
 		transition: none;
 	}
-	.conversation-tab-more {
+	:root:not([data-motion="full"]) .conversation-tab-more {
 		transition: none;
 	}
 }

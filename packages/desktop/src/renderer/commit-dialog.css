@@ -1,0 +1,85 @@
+.dialog-popup.commit-dialog {
+	width: min(520px, 100%);
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+.commit-branch {
+	margin: 0;
+	color: var(--muted-foreground);
+	font-size: var(--text-small);
+}
+.commit-note {
+	margin: 0;
+	color: var(--muted-foreground);
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+}
+.commit-files {
+	list-style: none;
+	margin: 0;
+	padding: 4px 0;
+	max-height: 200px;
+	overflow-y: auto;
+	border: 1px solid var(--border);
+	border-radius: var(--control-radius);
+}
+.commit-files li label {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 4px 10px;
+	font-size: var(--text-small);
+	min-width: 0;
+}
+.commit-file-name {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.commit-file-state {
+	flex: none;
+	color: var(--muted-foreground);
+}
+.commit-message {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	font-size: var(--text-small);
+	color: var(--muted-foreground);
+}
+.commit-message textarea {
+	width: 100%;
+	resize: vertical;
+	padding: 8px 10px;
+	border: 1px solid var(--border);
+	border-radius: var(--control-radius);
+	background: var(--background);
+	color: var(--foreground);
+	font: inherit;
+}
+.commit-message textarea:focus-visible {
+	outline: none;
+	box-shadow: var(--focus-ring);
+}
+.commit-lines {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	color: var(--muted-foreground);
+	font-size: var(--text-small);
+}
+.commit-error {
+	margin: 0;
+	max-height: 140px;
+	overflow: auto;
+	padding: 8px 10px;
+	border-radius: var(--control-radius);
+	background: var(--muted);
+	color: var(--error-foreground);
+	font-size: var(--text-caption);
+	white-space: pre-wrap;
+	word-break: break-word;
+}

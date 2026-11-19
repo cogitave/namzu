@@ -238,7 +238,7 @@ describe('the desktop host', () => {
 	it('tells the model, in one line, how the desktop shows results', () => {
 		for (const stable of [true, false]) {
 			const text = composeEnvironmentPrompt({ ...base, host: 'desktop' }, { stable })
-			const lines = text.split('\n').filter((line) => line.includes('preview pane'))
+			const lines = text.split('\n').filter((line) => line.includes('Browser pane'))
 			expect(lines).toHaveLength(1)
 			expect(lines[0]).toBe(DESKTOP_PREVIEW_FACT)
 			expect(lines[0]).toMatch(
@@ -249,7 +249,7 @@ describe('the desktop host', () => {
 	})
 
 	it('says nothing about a preview anywhere else', () => {
-		expect(composeEnvironmentPrompt(base)).not.toContain('preview pane')
-		expect(composeEnvironmentPrompt(base, { stable: true })).not.toContain('preview pane')
+		expect(composeEnvironmentPrompt(base)).not.toContain('Browser pane')
+		expect(composeEnvironmentPrompt(base, { stable: true })).not.toContain('Browser pane')
 	})
 })

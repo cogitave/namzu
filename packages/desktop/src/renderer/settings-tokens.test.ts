@@ -17,6 +17,16 @@ const token = (name: string) => new RegExp(`${name}:\\s*([^;]+);`).exec(theme)?.
 describe('settings and search overlay tokens', () => {
 	it('holds the numbers they are measured by', () => {
 		const want: Record<string, string> = {
+			'--settings-dialog-width': '1024px',
+			'--settings-dialog-height': '761px',
+			'--settings-dialog-margin-x': '128px',
+			'--settings-dialog-margin-y': '36px',
+			'--settings-dialog-radius': '12px',
+			'--settings-dialog-title-height': '44px',
+			'--settings-dialog-close-size': '28px',
+			'--settings-dialog-close-inset': '8px',
+			'--settings-nav-width': '211px',
+			'--settings-scrim': 'color-mix(in srgb, black 52%, transparent)',
 			'--settings-search-height': '28px',
 			'--settings-search-radius': '8px',
 			'--settings-group-before': '40px',
@@ -55,6 +65,12 @@ describe('settings and search overlay tokens', () => {
 			'--settings-switch-width',
 			'--settings-control-height',
 			'--settings-search-height',
+			'--settings-dialog-width',
+			'--settings-dialog-height',
+			'--settings-dialog-radius',
+			'--settings-dialog-title-height',
+			'--settings-nav-width',
+			'--settings-scrim',
 		])
 			expect(settings, t).toContain(`var(${t})`)
 		for (const t of [
@@ -82,5 +98,12 @@ describe('settings and search overlay tokens', () => {
 			/\.command-palette-meta,\s*\.command-palette-shortcut \{\s*display: none/,
 		)
 		expect(palette).toContain('.command-palette-item[data-highlighted] .command-palette-shortcut')
+	})
+
+	it('keeps the control on the first line of a row that has content under it', () => {
+		const rule = /\.settings-row\[data-below\]\s*\{([^}]*)\}/.exec(settings)?.[1] ?? ''
+		expect(rule).toContain('display: grid')
+		expect(rule).not.toContain('flex-wrap')
+		expect(/\.settings-row-below\s*\{[^}]*grid-column:\s*1 \/ -1/.test(settings)).toBe(true)
 	})
 })

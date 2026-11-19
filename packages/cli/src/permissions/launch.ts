@@ -130,6 +130,7 @@ export function planLaunchMode(opts: {
 					flagged,
 					defaultMode: settings?.defaultMode,
 					disabled: settings?.disableBypassMode,
+					allowed: settings?.allowBypassMode,
 				}) && launchRefusal('bypass', opts) === undefined,
 		},
 	}

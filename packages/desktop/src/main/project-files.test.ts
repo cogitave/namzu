@@ -207,6 +207,31 @@ describe('file index', () => {
 		expect([...index.paths].sort()).toEqual(['.gitignore', 'src/a.ts', 'src/deep/b.ts'])
 	})
 
+	it('shows ignored files, lists them and reads them, when the setting is off, but never .git or node_modules', async () => {
+		put('.gitignore', 'dist/\nsecret.env\n')
+		put('dist/a.js', 'built')
+		put('secret.env', 'KEY=1')
+		put('node_modules/a.js')
+		put('src/a.ts')
+		let respect = false
+		const open = new ProjectFiles({ respectGitignore: () => respect })
+		const index = await open.index(root)
+		expect([...index.paths].sort()).toEqual(['.gitignore', 'dist/a.js', 'secret.env', 'src/a.ts'])
+		expect((await open.list(root, '')).map((entry) => entry.name)).toEqual([
+			'dist',
+			'src',
+			'.gitignore',
+			'secret.env',
+		])
+		expect(await open.read(root, 'dist/a.js')).toMatchObject({ kind: 'text', text: 'built' })
+		await expect(open.read(root, 'node_modules/a.js')).rejects.toThrow(/ignore rules/)
+		// The same object follows the setting back, and a listing made under the other
+		// choice is not reused.
+		respect = true
+		expect((await open.index(root)).paths.sort()).toEqual(['.gitignore', 'src/a.ts'])
+		await expect(open.read(root, 'dist/a.js')).rejects.toThrow(/ignore rules/)
+	})
+
 	it('stops at the path cap and says so', async () => {
 		put('a/1')
 		put('a/2')

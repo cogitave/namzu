@@ -206,7 +206,8 @@ export async function launchTui(
 	// Selecting text needs drags reported, which turns the terminal's own selection off:
 	// `tui.mouse` and the NAMZU_DISABLE_MOUSE variables keep it for whoever wants it.
 	const pointerListeners = new Set<(report: PointerReport) => void>()
-	const selectable = fullscreen && resolveMouseMode(process.env, ctx.tui?.mouse) === 'full'
+	const mouseMode = resolveMouseMode(process.env, ctx.tui?.mouse)
+	const selectable = fullscreen && mouseMode === 'full'
 	// What answers a click or a hover (permission answers, footer items): asked before the
 	// transcript window, which gets only the reports no region took.
 	const regions = createPointerRegions()
@@ -282,23 +283,26 @@ export async function launchTui(
 	// The wheel is asked of the terminal once Ink holds the alternate screen. If
 	// the process dies without the normal teardown, the exit hook still hands the
 	// pointer and the cursor back; Ink's own exit hook returns the main screen.
-	const stopWheel = fullscreen
-		? installMouseWheel(
-				inputStream,
-				process.stdout,
-				(direction) => {
-					for (const listener of wheelListeners) listener(direction)
-				},
-				selectable
-					? (report) => {
-							if (regions.handle(report)) return
-							for (const listener of pointerListeners) listener(report)
-						}
-					: undefined,
-				// Hover asks the terminal for motion with no button down.
-				{ hover: true },
-			)
-		: undefined
+	// `off` asks the terminal for no pointer reporting at all, so it keeps its own selection and
+	// scrolling; the wheel is then not read here either.
+	const stopWheel =
+		fullscreen && mouseMode !== 'off'
+			? installMouseWheel(
+					inputStream,
+					process.stdout,
+					(direction) => {
+						for (const listener of wheelListeners) listener(direction)
+					},
+					selectable
+						? (report) => {
+								if (regions.handle(report)) return
+								for (const listener of pointerListeners) listener(report)
+							}
+						: undefined,
+					// Hover asks the terminal for motion with no button down.
+					{ hover: true },
+				)
+			: undefined
 	const panicReset = fullscreen ? () => process.stdout.write(FULLSCREEN_PANIC_RESET) : undefined
 	if (panicReset) process.on('exit', panicReset)
 	termination.onTerminate(async (signal) => {

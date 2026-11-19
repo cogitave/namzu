@@ -1,9 +1,8 @@
 import type { DesktopApi } from '../shared/protocol.js'
+import { subscribeCodePrefs } from './code-prefs.js'
 import { monoFaceReady } from './font-faces.js'
 import { TerminalSession, type TerminalSessionApi, TerminalSessions } from './terminal-session.js'
-import { terminalFontFamily, terminalTheme } from './terminal-theme.js'
-
-const FONT_SIZE = 13
+import { terminalFontFamily, terminalFontSize, terminalTheme } from './terminal-theme.js'
 
 const read = (name: string): string =>
 	getComputedStyle(document.documentElement).getPropertyValue(name).trim()
@@ -56,7 +55,7 @@ export function terminalSessions(api: TerminalSessionApi): TerminalSessions {
 		return new TerminalSession(api, tabId, {
 			theme: terminalTheme(read, isDark()),
 			fontFamily: terminalFontFamily(read),
-			fontSize: FONT_SIZE,
+			fontSize: terminalFontSize(read),
 			fontReady: monoFaceReady(),
 			mac: isMac(),
 			onFind: () => findOpener?.(tabId),
@@ -70,6 +69,13 @@ export function terminalSessions(api: TerminalSessionApi): TerminalSessions {
 		created.each((session) => session.setTheme(theme))
 	})
 	observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+	// "Code font" and "Code font size" (Settings > Appearance): the root's tokens changed, so every
+	// open terminal takes the new font and size and fits itself again.
+	subscribeCodePrefs(() => {
+		const family = terminalFontFamily(read)
+		const size = terminalFontSize(read)
+		created.each((session) => session.setFont(family, size))
+	})
 	try {
 		if (localStorage.getItem('namzu.terminal.debug') === '1') {
 			window.__namzuTerminals = {

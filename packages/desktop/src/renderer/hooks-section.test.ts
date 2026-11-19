@@ -168,6 +168,10 @@ const configView = (disable?: boolean): ConfigSettingsView => ({
 const config = (over: Partial<ConfigSettingsControls> = {}): ConfigSettingsControls => ({
 	view: configView(),
 	loadError: '',
+	loading: false,
+	reload: () => {},
+	resets: {},
+	discard: () => {},
 	errors: {},
 	change: vi.fn(async () => true),
 	confirmation: undefined,
@@ -444,7 +448,7 @@ it('says once, for the list, what a switch is holding back instead of repeating 
 	expect(html.match(/>Off</g)?.length).toBe(2)
 })
 
-it('says, right after hooks are switched off, that an open project keeps running them', () => {
+it('says, right after hooks are switched off, that an open conversation keeps running them', () => {
 	const off = renderToStaticMarkup(
 		createElement(HooksRows, {
 			hooks: controls(answer()),
@@ -454,7 +458,7 @@ it('says, right after hooks are switched off, that an open project keeps running
 		}),
 	)
 	expect(off).toContain('data-pending-reconnect')
-	expect(off).toContain('keeps running its hooks until Namzu connects to it again')
+	expect(off).toContain('A conversation that is already open keeps running its hooks')
 	// Nothing is claimed before a change was saved.
 	expect(markup(controls(answer()))).not.toContain('data-pending-reconnect')
 })

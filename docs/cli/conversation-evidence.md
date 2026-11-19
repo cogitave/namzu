@@ -591,3 +591,27 @@ substituted current file values for historical ones; a third sample had an
 incomplete initial inspection. Its scripted control recovered the originals.
 These failures remain recorded: reliable source selection in natural dialogue
 is still open, despite working storage and exact-read contracts.
+
+## Searching earlier conversations
+
+`search_conversation` reaches only the current conversation. The tool
+`search_past_conversations` (`query`, optional `limit` of 1 to 10, default 5) looks
+across this project's earlier conversations through the session index, the index the
+sidebar search uses, and returns for each matching conversation its title, when it was
+last active and one excerpt around the match, newest first. It is a deferred tool: the
+tool listing carries one name line until the model loads it with `search_tools`.
+
+- Scope is this project's own root conversations. It never reaches another project,
+  a Pal's conversations or a conversation's child sessions.
+- The current conversation is left out (the conversation tools already reach it).
+- Archived conversations are left out, as in the sidebar search: archiving puts a
+  conversation away, and a model reading it back would undo that.
+- Results are excerpts only. A match inside tool output says only that it was found
+  there and quotes nothing, since a tool may have read a file or a key.
+- The search is local and makes no model call; the excerpts it returns are sent to the
+  model as the tool result.
+
+`memory.searchPastConversations` (default `true`) turns it off: the tool is then not
+offered and the tool listing and prompt are as they were without it. It is read when a
+conversation starts. A project file cannot set it. In Desktop the row is **Search and
+reference conversations**, under Settings, Agent, Memory.

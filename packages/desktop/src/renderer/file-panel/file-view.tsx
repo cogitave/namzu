@@ -2,10 +2,12 @@ import { getFiletypeFromFileName, getSharedHighlighter } from '@pierre/diffs'
 import { CodeView, File } from '@pierre/diffs/react'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import type { DesktopApi, ProjectFileContent } from '../../shared/protocol.js'
+import { type CodePrefs, useCodePrefs } from '../code-prefs.js'
 import { CopyButton } from '../copy-button.js'
 import { DIFF_VIEW_UNSAFE_CSS } from '../diff-theme.js'
+import { DocumentPage } from '../document-page.js'
 import { ChevronRightIcon } from '../icons.js'
-import { type DocumentOptions, MarkdownContent } from '../message.js'
+import type { DocumentOptions } from '../message.js'
 import { plainErrorText } from '../plain-error.js'
 import { Button } from '../ui/button.js'
 import { baseNameOf, isMarkdownPath, relativeProjectPath } from './project-refs.js'
@@ -133,13 +135,18 @@ function DocumentView({
 	)
 	const copyText = content.text ?? content.markdown ?? ''
 	return (
-		<article className="file-document">
-			<CopyButton text={copyText} label="Copy file contents" className="file-document-copy" />
-			{content.frontmatter && content.frontmatter.length > 0 && (
-				<Metadata rows={content.frontmatter} />
-			)}
-			<MarkdownContent text={content.markdown ?? content.text ?? ''} document={options} />
-		</article>
+		<DocumentPage
+			text={content.markdown ?? content.text ?? ''}
+			options={options}
+			lead={
+				<>
+					<CopyButton text={copyText} label="Copy file contents" className="file-document-copy" />
+					{content.frontmatter && content.frontmatter.length > 0 && (
+						<Metadata rows={content.frontmatter} />
+					)}
+				</>
+			}
+		/>
 	)
 }
 
@@ -147,13 +154,13 @@ function DocumentView({
  * The File component starts its own highlighter lazily and, on a page that has not drawn a diff
  * yet, never paints; loading the shared one first (with the file's language) avoids that.
  */
-function useHighlighterReady(path: string): boolean {
+function useHighlighterReady(path: string, themes: CodePrefs): boolean {
 	const [ready, setReady] = useState(false)
 	useEffect(() => {
 		let current = true
 		setReady(false)
 		getSharedHighlighter({
-			themes: ['pierre-light', 'pierre-dark'],
+			themes: [themes.light, themes.dark],
 			langs: [getFiletypeFromFileName(path) ?? 'text'],
 			preferredHighlighter: 'shiki-wasm',
 		}).then(
@@ -164,7 +171,7 @@ function useHighlighterReady(path: string): boolean {
 		return () => {
 			current = false
 		}
-	}, [path])
+	}, [path, themes])
 	return ready
 }
 
@@ -174,19 +181,22 @@ export function SourceView({
 	dark,
 	line,
 }: { path: string; text: string; dark: boolean; line?: number }) {
-	const ready = useHighlighterReady(path)
+	const themes = useCodePrefs()
+	const ready = useHighlighterReady(path, themes)
 	const lines = useMemo(() => text.split('\n').length, [text])
 	const file = useMemo(() => ({ name: path, contents: text }), [path, text])
 	// Stable objects: the highlighter restarts its work when its options change identity.
 	const options = useMemo(
 		() => ({
-			theme: { light: 'pierre-light', dark: 'pierre-dark' } as const,
+			theme: { light: themes.light, dark: themes.dark },
 			themeType: dark ? ('dark' as const) : ('light' as const),
 			preferredHighlighter: 'shiki-wasm' as const,
-			overflow: 'scroll' as const,
+			// Long lines wrap in a narrow pane, their line numbers kept beside the first row of each. A file
+			// long enough to be drawn in a virtual list keeps its lines on one row each, as it measures them so.
+			overflow: lines > CODE_VIEW_LINES ? ('scroll' as const) : ('wrap' as const),
 			unsafeCSS: DIFF_VIEW_UNSAFE_CSS,
 		}),
-		[dark],
+		[dark, lines, themes],
 	)
 	const fileOptions = useMemo(() => ({ ...options, disableFileHeader: true }), [options])
 	const viewOptions = useMemo(() => ({ ...options, stickyHeaders: false }), [options])

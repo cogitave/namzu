@@ -55,7 +55,7 @@ describe('a long name in the flat list', () => {
 		expect(rule('.changes-flat-name')).toMatch(/flex:\s*0 1 auto/)
 		// Cut at last, it is cut at its start, so the end of a long name stays readable.
 		expect(rule('.changes-flat-name')).toMatch(/direction:\s*rtl/)
-		expect(rule('.changes-diff-path')).toMatch(/direction:\s*rtl/)
+		expect(rule('.changes-file-dir')).toMatch(/direction:\s*rtl/)
 	})
 	it('shows the folder beside the name only where two files share a name', () => {
 		const html = renderToStaticMarkup(

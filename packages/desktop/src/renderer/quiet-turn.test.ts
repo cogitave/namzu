@@ -62,13 +62,31 @@ const render = (thread: ThreadState) => renderToStaticMarkup(createElement(Trans
 describe('the fold line of a finished turn', () => {
 	const two = () => finished(command(command(begin(), 'a', 3000), 'b', 4000))
 
-	it('says what the work was, and the time apart from it', () => {
-		expect(foldParts(two(), 1)).toEqual({ text: 'Ran 2 commands', duration: '8s', sentence: true })
+	it('says what the work was, and keeps a short turn’s time in the tooltip', () => {
+		expect(foldParts(two(), 1)).toEqual({ text: 'Ran 2 commands', took: '8s', sentence: true })
 		expect(foldLabel(two(), 1)).toBe('Ran 2 commands · 8s')
 		const html = render(two())
 		expect(html).toContain('class="transcript-phase-text">Ran 2 commands<')
-		expect(html).toMatch(/class="turn-activity-elapsed"[^>]*>· 8s</)
+		expect(html).not.toContain('turn-activity-elapsed')
+		expect(html).toMatch(/title="[^"]*Took 8s"/)
 		expect(html).toContain('data-sentence=""')
+	})
+	it('shows the time on the line only for a turn of a minute or more', () => {
+		const long = applyEvent(
+			update(
+				command(command(begin(), 'a', 3000), 'b', 4000),
+				{ kind: 'turn_ended', stopReason: 'end_turn' },
+				70_000,
+			),
+			{
+				kind: 'state',
+				sessionId: 's',
+				running: false,
+				queued: [],
+			},
+		)
+		const parts = foldParts(long, 1)
+		expect(parts).toMatchObject({ duration: '1m 9s', took: '1m 9s' })
 	})
 
 	it('draws the rows directly when its one group would say the same sentence again', () => {
