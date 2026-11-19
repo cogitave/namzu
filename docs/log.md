@@ -1,5 +1,10 @@
 # Documentation update log
 
+## 2026-11-20
+
+- **Update** [Terminal design](cli/terminal-design.md#keypad-keys): the keypad Enter sends a message and every other keypad key acts as the key it stands for (digits and operators type, arrows, Home, End, Page Up and Down, Insert and Delete move and edit); the terminal reports them as codes of their own under the keyboard protocol the message box turns on, and they were not understood. `.changeset/cli-keypad-keys.md`.
+- **Update** [Pasting images](cli/clipboard-and-images.md): on macOS a file copied in Finder attaches (second fixed read, `«class furl»`), a paste of a screenshot-preview path whose file is gone reads the clipboard picture instead, and the page says the macOS key is Ctrl+V. `.changeset/cli-keypad-keys.md`.
+
 ## 2026-11-19
 
 - **Update** [Desktop UI sizes](cli/desktop-ui-sizes.md#settings-layout): the narrow-window cap on a Settings control now applies to flex rows only. In a row with a preview under it, the cap was taken from the control's own grid column, which left the light and dark code theme menus 18 px wide at 900 px. A choice already called Default is no longer shown as "Default · Default".

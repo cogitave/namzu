@@ -2,7 +2,7 @@
  * Read an image off the system clipboard, for the composer's paste key.
  *
  * Terminals don't deliver pasted image bytes over stdin, so we ask the
- * platform. macOS uses `osascript` (`«class PNGf»`); Linux tries `xclip` then
+ * platform. macOS uses `osascript` (`«class PNGf»`, then `«class furl»` for a file copied in Finder); Linux tries `xclip` then
  * `wl-paste`; Windows, and WSL where neither Linux tool sees the Windows
  * clipboard, run one fixed PowerShell script that prints the image as base64
  * on stdout. Nothing is written to a Windows temp file and no user-controlled
@@ -328,6 +328,26 @@ async function readLinux(
 	return { kind: 'unavailable', detail: 'install xclip (X11) or wl-clipboard (Wayland)' }
 }
 
+/** The fixed script that asks for the file a Finder copy left on the clipboard. It names no user data. */
+export const MAC_FILE_SCRIPT = 'get POSIX path of (the clipboard as «class furl»)'
+
+const MAC_IMAGE_FILE = /\.(png|jpe?g|gif|webp)$/i
+
+/**
+ * A file copied in Finder holds no PNG, only the file's location. The same
+ * clipboard asked for that location answers with its path, one line, or with an
+ * error when it holds none. Only an image file counts; any other file is no image.
+ */
+async function readMacFile(run: CommandRunner): Promise<ClipboardRead> {
+	const result = await run('osascript', ['-e', MAC_FILE_SCRIPT], { timeoutMs: TOOL_TIMEOUT_MS })
+	if (result.spawnFailed) return { kind: 'unavailable', detail: 'osascript could not be started' }
+	if (result.timedOut) return { kind: 'failed', detail: 'timed out' }
+	if (result.code !== 0) return { kind: 'empty' }
+	const path = result.stdout.toString('utf8').split(/\r?\n/)[0]?.trim() ?? ''
+	if (!path.startsWith('/') || !MAC_IMAGE_FILE.test(path)) return { kind: 'empty' }
+	return { kind: 'files', paths: [path] }
+}
+
 async function readMac(
 	run: CommandRunner,
 	fit: (bytes: Buffer) => Promise<FitResult>,
@@ -351,10 +371,12 @@ async function readMac(
 		)
 		if (result.spawnFailed) return { kind: 'unavailable', detail: 'osascript could not be started' }
 		if (result.timedOut) return { kind: 'failed', detail: 'timed out' }
-		if (result.code !== 0) return { kind: 'empty' }
-		const buf = await readFile(file)
-		if (!isPng(buf)) return { kind: 'empty' }
-		return await finishImage(buf, fit)
+		if (result.code === 0) {
+			const buf = await readFile(file).catch(() => null)
+			if (buf !== null && isPng(buf)) return await finishImage(buf, fit)
+		}
+		// No pixels on the clipboard: a file copied in Finder is the other thing it can hold.
+		return await readMacFile(run)
 	} catch {
 		return { kind: 'empty' }
 	} finally {

@@ -29,6 +29,19 @@ function pieces(text: string): string[] {
 		.filter((piece) => piece.length > 0)
 }
 
+const MAC_SCREENSHOT_PREVIEW = /TemporaryItems\/.*screencaptureui.*\/Screenshot/i
+
+/**
+ * Whether a paste is one path into the folder macOS keeps a screenshot in while its
+ * floating preview is on screen. The system removes the file when the preview goes away
+ * or is clicked, often before the paste lands, so the path alone can name nothing.
+ */
+export function isMacScreenshotPreviewPath(text: string): boolean {
+	const piece = text.trim()
+	if (piece.length === 0 || piece.length > MAX_PIECE_LENGTH || /[\r\n]/.test(piece)) return false
+	return MAC_SCREENSHOT_PREVIEW.test(unquote(piece))
+}
+
 function unquote(piece: string): string {
 	const match = /^(["'])(.*)\1$/.exec(piece)
 	return match ? (match[2] ?? '') : piece
