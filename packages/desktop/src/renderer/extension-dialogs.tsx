@@ -9,8 +9,9 @@ import {
 } from '../shared/extensions-view.js'
 import type { DesktopApi } from '../shared/protocol.js'
 import {
+	EVENT_HISTORY_SENTENCE,
+	EVENT_HISTORY_TITLE,
 	auditWords,
-	countLines,
 	failureWords,
 	formatWhen,
 	keptWords,
@@ -19,7 +20,6 @@ import {
 	noticeBlocks,
 	plainReason,
 	reachedEnd,
-	rowsTable,
 } from './extensions-model.js'
 import { ask, refreshExtensions, useAudit } from './extensions-store.js'
 import { Button } from './ui/button.js'
@@ -38,10 +38,132 @@ export type Panel =
 	| { kind: 'notice'; id: string; staged: boolean }
 	| { kind: 'record'; id: string }
 	| { kind: 'collected'; id: string }
+	| { kind: 'admin'; id: string; action: AdminAction }
 	| { kind: 'licence'; id: string }
 	| { kind: 'key'; id: string }
 	| { kind: 'log'; id: string }
 	| { kind: 'remove'; id: string }
+
+/** What the administrator password is asked for: each is one way off, or the unlock itself. */
+export type AdminAction = 'enable' | 'disable' | 'unlock' | 'background-off'
+
+export const MIN_ADMIN_PASSWORD = 8
+
+/** One password box; the lock's own words, no technical word. */
+export function AdminField({
+	value,
+	onChange,
+	label = 'Administrator password',
+}: { value: string; onChange: (v: string) => void; label?: string }) {
+	return (
+		<label className="extension-label extension-admin-field">
+			{label}
+			<input
+				className="extension-input"
+				type="password"
+				value={value}
+				onChange={(e) => onChange(e.target.value)}
+				autoComplete="off"
+				spellCheck={false}
+			/>
+		</label>
+	)
+}
+
+const ADMIN_WORDS: Record<AdminAction, { title: (n: string) => string; body: string; go: string }> =
+	{
+		enable: {
+			title: (n) => `Turn on ${n}`,
+			body: 'Set an administrator password. Only the person who knows it can turn this off or remove it afterwards.',
+			go: 'Set the password and turn it on',
+		},
+		disable: {
+			title: (n) => `Turn off ${n}`,
+			body: 'Your administrator locked this. Enter the administrator password to turn it off.',
+			go: 'Turn it off',
+		},
+		unlock: {
+			title: () => 'Unlock',
+			body: 'Enter the administrator password to take the lock off. After that anyone can turn it off.',
+			go: 'Unlock',
+		},
+		'background-off': {
+			title: () => 'Stop starting at sign-in',
+			body: 'Your administrator locked this. Enter the administrator password to stop it starting when you sign in.',
+			go: 'Stop it starting',
+		},
+	}
+
+/** Asks for the administrator password (twice when it is being set) and runs the one operation with it. */
+export function AdminDialog({
+	api,
+	row,
+	action,
+	onClose,
+}: { api: Api; row: ExtensionRow; action: AdminAction; onClose: () => void }) {
+	const [first, setFirst] = useState('')
+	const [again, setAgain] = useState('')
+	const [busy, setBusy] = useState(false)
+	const [failure, setFailure] = useState<ExtensionFailure | string>()
+	const setting = action === 'enable'
+	const words = ADMIN_WORDS[action]
+	const problem = setting
+		? first.length < MIN_ADMIN_PASSWORD
+			? `Use at least ${MIN_ADMIN_PASSWORD} characters.`
+			: first !== again && again !== ''
+				? 'The two passwords are not the same.'
+				: undefined
+		: undefined
+	const ready = setting ? first.length >= MIN_ADMIN_PASSWORD && first === again : first.length > 0
+	const method = {
+		enable: 'namzu/extensions/enable',
+		disable: 'namzu/extensions/disable',
+		unlock: 'namzu/extensions/unlock',
+		'background-off': 'namzu/extensions/background/set',
+	}[action]
+	const go = async () => {
+		setBusy(true)
+		setFailure(undefined)
+		const r = await ask(api, method, {
+			id: row.id,
+			admin: first,
+			...(action === 'background-off' ? { on: false } : {}),
+		})
+		await refreshExtensions(api)
+		setBusy(false)
+		if (!r.ok) {
+			setFirst('')
+			setAgain('')
+			return setFailure(r.failure)
+		}
+		onClose()
+	}
+	return (
+		<Dialog.Root open onOpenChange={(open) => !open && !busy && onClose()}>
+			<Dialog.Portal>
+				<Dialog.Backdrop className="dialog-scrim" />
+				<Dialog.Viewport className="dialog-viewport">
+					<Dialog.Popup className="dialog-popup" data-dialog-size="confirm">
+						<Dialog.Title className="dialog-title">{words.title(row.name)}</Dialog.Title>
+						<Dialog.Description className="dialog-body">{words.body}</Dialog.Description>
+						<AdminField value={first} onChange={setFirst} />
+						{setting && <AdminField value={again} onChange={setAgain} label="Type it again" />}
+						{problem && first !== '' && <p className="extension-admin-note">{problem}</p>}
+						<Failure failure={failure} />
+						<div className="dialog-actions">
+							<Button variant="outline" disabled={busy} onClick={onClose}>
+								Cancel
+							</Button>
+							<Button disabled={busy || !ready} onClick={() => void go()}>
+								{words.go}
+							</Button>
+						</div>
+					</Dialog.Popup>
+				</Dialog.Viewport>
+			</Dialog.Portal>
+		</Dialog.Root>
+	)
+}
 
 export function Failure({ failure }: { failure: ExtensionFailure | string | undefined }) {
 	if (!failure) return null
@@ -90,6 +212,14 @@ function Disclosure({ d }: { d: ExtensionDisclosure }) {
 				</>
 			)}
 			{d.pages && <p>{d.pages}</p>}
+			{d.management && (
+				<>
+					<p>
+						<strong>{d.management.line}</strong>
+					</p>
+					{d.management.purpose && <p>{d.management.purpose}</p>}
+				</>
+			)}
 			<p>
 				It keeps data on this computer: {d.storage.where} {d.storage.encryption}{' '}
 				{d.storage.adminCanRead ? (
@@ -200,14 +330,26 @@ export function NoticeScreen({
 	api,
 	id,
 	staged,
+	setPassword,
 	onClose,
-}: { api: Api; id: string; staged: boolean; onClose: (enabled: boolean) => void }) {
+}: {
+	api: Api
+	id: string
+	staged: boolean
+	/** The extension is locked by an administrator and no password is set yet: this screen sets it. */
+	setPassword?: boolean
+	onClose: (enabled: boolean) => void
+}) {
 	const [notice, setNotice] = useState<ExtensionNotice>()
 	const [failure, setFailure] = useState<ExtensionFailure | string>()
 	const [atEnd, setAtEnd] = useState(false)
 	const [busy, setBusy] = useState(false)
 	// The switch the person sees before acknowledging; its start is the manifest's own default.
 	const [startAtSignin, setStartAtSignin] = useState<boolean>()
+	const [admin, setAdmin] = useState('')
+	const [adminAgain, setAdminAgain] = useState('')
+	const needsPassword = setPassword === true && notice?.disclosure.management !== undefined
+	const passwordOk = !needsPassword || (admin.length >= MIN_ADMIN_PASSWORD && admin === adminAgain)
 	const box = useRef<HTMLDivElement>(null)
 	useEffect(() => {
 		let live = true
@@ -246,7 +388,10 @@ export function NoticeScreen({
 			setBusy(false)
 			return
 		}
-		const enabled = await ask(api, 'namzu/extensions/enable', { id })
+		const enabled = await ask(api, 'namzu/extensions/enable', {
+			id,
+			...(needsPassword ? { admin } : {}),
+		})
 		await refreshExtensions(api)
 		setBusy(false)
 		if (!enabled.ok) setFailure(enabled.failure)
@@ -317,6 +462,23 @@ export function NoticeScreen({
 								</span>
 							</label>
 						)}
+						{needsPassword && (
+							<div className="extension-admin-set">
+								<p>
+									<strong>Set the administrator password.</strong> Only the person who knows it can
+									turn this off or remove it afterwards.
+								</p>
+								<AdminField value={admin} onChange={setAdmin} />
+								<AdminField value={adminAgain} onChange={setAdminAgain} label="Type it again" />
+								{admin !== '' && !passwordOk && (
+									<p className="extension-admin-note">
+										{admin.length < MIN_ADMIN_PASSWORD
+											? `Use at least ${MIN_ADMIN_PASSWORD} characters.`
+											: 'The two passwords are not the same.'}
+									</p>
+								)}
+							</div>
+						)}
 						<Failure failure={failure} />
 						<div className="extension-notice-actions">
 							<Button variant="outline" onClick={() => onClose(false)} disabled={busy}>
@@ -324,7 +486,7 @@ export function NoticeScreen({
 							</Button>
 							<Button
 								onClick={() => void acknowledge()}
-								disabled={!notice || !atEnd || busy}
+								disabled={!notice || !atEnd || busy || !passwordOk}
 								title={atEnd ? undefined : 'Read to the end first'}
 							>
 								I have read this
@@ -410,147 +572,21 @@ export function MyRecord({
 }
 
 /** Read-only: what is collected, drawn from the manifest and the live counts; nothing here changes anything. */
-export function Collected({
-	api,
-	row,
-	onClose,
-}: { api: Api; row: ExtensionRow; onClose: () => void }) {
-	const [notice, setNotice] = useState<ExtensionNotice>()
-	const [counts, setCounts] = useState<unknown>()
-	const [rows, setRows] = useState<{ kind: string; table: ReturnType<typeof rowsTable> }>()
-	const [error, setError] = useState<string>()
-	useEffect(() => {
-		let live = true
-		void (async () => {
-			const n = await ask(api, 'namzu/extensions/notice', { id: row.id })
-			if (live && n.ok) setNotice(readNotice(n.value) ?? undefined)
-			if (!row.running) return
-			const c = await ask(api, 'namzu/extensions/query', { id: row.id, query: 'counts' })
-			if (live) {
-				if (c.ok) setCounts(c.value ?? null)
-				else setError(c.failure ? failureWords(c.failure) : undefined)
-			}
-		})()
-		return () => {
-			live = false
-		}
-	}, [api, row.id, row.running])
-	const showRows = async (kind: string) => {
-		const r = await ask(api, 'namzu/extensions/query', {
-			id: row.id,
-			query: 'rows',
-			params: { kind },
-		})
-		if (r.ok) setRows({ kind, table: rowsTable(r.value) })
-		else setError(r.failure ? failureWords(r.failure) : undefined)
-	}
-	const d = notice?.disclosure
-	const describeKind = (id: string) => d?.dataKinds.find((k) => k.id === id)?.description
-	const describeField = (kind: string, name: string) =>
-		d?.dataKinds.find((k) => k.id === kind)?.fields.find((f) => f.name === name)?.description
-	const countList = counts === undefined ? undefined : countLines(counts, describeKind)
-	return (
-		<Shell title={`What is collected: ${row.name}`} onClose={onClose} wide>
-			{!d ? (
-				<p>Reading…</p>
-			) : (
-				<>
-					{d.doesNotCollect.length > 0 && (
-						<>
-							<h3>It does not collect</h3>
-							<ul>
-								{d.doesNotCollect.map((t) => (
-									<li key={t}>{t}</li>
-								))}
-							</ul>
-						</>
-					)}
-					<h3>What it keeps</h3>
-					{d.dataKinds.map((k) => (
-						<div key={k.id} className="extension-kind">
-							<p>
-								<strong>{k.description}</strong> {keptWords(k.retentionDays)}
-							</p>
-							<ul className="extension-field-list">
-								{k.fields.map((f) => (
-									<li key={f.name}>
-										<span title={f.name}>{f.description}</span>
-									</li>
-								))}
-							</ul>
-							{row.running ? (
-								<Button variant="ghost-muted" size="sm" onClick={() => void showRows(k.id)}>
-									Show recent rows
-								</Button>
-							) : null}
-						</div>
-					))}
-					<h3>Today</h3>
-					{row.running ? (
-						countList && countList.length > 0 ? (
-							<ul>
-								{countList.map((c) => (
-									<li key={c}>{c}</li>
-								))}
-							</ul>
-						) : (
-							<p>No counts yet.</p>
-						)
-					) : (
-						<p>Counts appear while it is recording.</p>
-					)}
-					<Failure failure={error} />
-					{rows?.table && (
-						<div className="extension-rows">
-							<p>
-								<strong>{describeKind(rows.kind) ?? rows.kind}</strong>, newest first. Read only.
-							</p>
-							<div className="extension-rows-scroll">
-								<table>
-									<thead>
-										<tr>
-											{rows.table.columns.map((c) => (
-												<th key={c}>{describeField(rows.kind, c) ?? c}</th>
-											))}
-										</tr>
-									</thead>
-									<tbody>
-										{rows.table.rows.map((r, i) => (
-											// biome-ignore lint/suspicious/noArrayIndexKey: rows have no identity
-											<tr key={i}>
-												{r.map((v, j) => (
-													// biome-ignore lint/suspicious/noArrayIndexKey: cells have no identity
-													<td key={j}>{v}</td>
-												))}
-											</tr>
-										))}
-									</tbody>
-								</table>
-							</div>
-						</div>
-					)}
-					<p className="extension-footnote">
-						There is no edit, export or delete here. To delete what it kept, disable it and remove
-						it with its data.
-					</p>
-				</>
-			)}
-		</Shell>
-	)
-}
-
 export function LicenceDialog({
 	api,
 	row,
 	onClose,
 }: { api: Api; row: ExtensionRow; onClose: () => void }) {
 	const [token, setToken] = useState('')
+	const [admin, setAdmin] = useState('')
+	const locked = row.management?.locked === true
+	const adminPart = locked && admin ? { admin } : {}
 	const [failure, setFailure] = useState<ExtensionFailure | string>()
 	const [done, setDone] = useState<{ customer: string; seats: number; expires: string }>()
 	const service = row.licenceKind === 'service'
 	const act = async (action: 'check' | 'release') => {
 		setFailure(undefined)
-		const r = await ask(api, 'namzu/extensions/license', { id: row.id, action })
+		const r = await ask(api, 'namzu/extensions/license', { id: row.id, action, ...adminPart })
 		if (!r.ok) return setFailure(r.failure)
 		const v = r.value as { ok?: boolean; message?: string }
 		if (v.ok === false) setFailure(v.message ?? 'The licence service could not be reached.')
@@ -561,7 +597,9 @@ export function LicenceDialog({
 		const r = await ask(
 			api,
 			'namzu/extensions/license',
-			service ? { id: row.id, key: token.trim() } : { id: row.id, token: token.trim() },
+			service
+				? { id: row.id, key: token.trim(), ...adminPart }
+				: { id: row.id, token: token.trim(), ...adminPart },
 		)
 		if (!r.ok) return setFailure(r.failure)
 		if (service) {
@@ -610,8 +648,9 @@ export function LicenceDialog({
 						spellCheck={false}
 						aria-label="Licence key"
 					/>
+					{locked && <AdminField value={admin} onChange={setAdmin} />}
 					<Failure failure={failure} />
-					<Button disabled={!token.trim()} onClick={() => void save()}>
+					<Button disabled={!token.trim() || (locked && !admin)} onClick={() => void save()}>
 						Save the key
 					</Button>
 				</>
@@ -631,6 +670,7 @@ export function LicenceDialog({
 			)}
 			{service && row.licence && (
 				<div className="extension-actions">
+					{locked && <AdminField value={admin} onChange={setAdmin} />}
 					<Button variant="outline" onClick={() => void act('check')}>
 						Check now
 					</Button>
@@ -650,6 +690,8 @@ export function KeyDialog({
 }: { api: Api; row: ExtensionRow; onClose: () => void }) {
 	const [provider, setProvider] = useState('openai')
 	const [value, setValue] = useState('')
+	const [admin, setAdmin] = useState('')
+	const locked = row.management?.locked === true
 	const [state, setState] = useState<{ hasValue: boolean; masked?: string }>()
 	const [failure, setFailure] = useState<ExtensionFailure | string>()
 	useEffect(() => {
@@ -669,6 +711,7 @@ export function KeyDialog({
 			key: 'modelKey',
 			provider,
 			value: v,
+			...(locked && admin ? { admin } : {}),
 		})
 		if (!r.ok) return setFailure(r.failure)
 		setState(r.value as { hasValue: boolean; masked?: string })
@@ -701,9 +744,10 @@ export function KeyDialog({
 					autoComplete="off"
 				/>
 			</label>
+			{locked && <AdminField value={admin} onChange={setAdmin} />}
 			<Failure failure={failure} />
 			<div className="extension-inline-actions">
-				<Button disabled={!value} onClick={() => void save(value)}>
+				<Button disabled={!value || (locked && !admin)} onClick={() => void save(value)}>
 					Store the key
 				</Button>
 				{state?.hasValue && (
@@ -723,7 +767,8 @@ export function LogDialog({
 }: { api: Api; row: ExtensionRow; onClose: () => void }) {
 	const lines = useAudit(api, row.id)
 	return (
-		<Shell title={`Activity log: ${row.name}`} onClose={onClose} wide>
+		<Shell title={`${EVENT_HISTORY_TITLE}: ${row.name}`} onClose={onClose} wide>
+			<p className="extension-history-sentence">{EVENT_HISTORY_SENTENCE}</p>
 			{!lines ? (
 				<p>Reading…</p>
 			) : lines.length === 0 ? (
@@ -748,11 +793,17 @@ export function RemoveDialog({
 	onClose,
 }: { api: Api; row: ExtensionRow; onClose: () => void }) {
 	const [deleteData, setDeleteData] = useState(true)
+	const [admin, setAdmin] = useState('')
+	const locked = row.management?.locked === true
 	const [busy, setBusy] = useState(false)
 	const [failure, setFailure] = useState<ExtensionFailure | string>()
 	const go = async () => {
 		setBusy(true)
-		const r = await ask(api, 'namzu/extensions/remove', { id: row.id, deleteData })
+		const r = await ask(api, 'namzu/extensions/remove', {
+			id: row.id,
+			deleteData,
+			...(locked && admin ? { admin } : {}),
+		})
 		await refreshExtensions(api)
 		setBusy(false)
 		if (!r.ok) setFailure(r.failure)
@@ -778,12 +829,13 @@ export function RemoveDialog({
 							/>{' '}
 							Delete the data it collected too
 						</label>
+						{locked && <AdminField value={admin} onChange={setAdmin} />}
 						<Failure failure={failure} />
 						<div className="dialog-actions">
 							<Button variant="outline" disabled={busy} onClick={onClose}>
 								Cancel
 							</Button>
-							<Button disabled={busy} onClick={() => void go()}>
+							<Button disabled={busy || (locked && !admin)} onClick={() => void go()}>
 								Remove
 							</Button>
 						</div>

@@ -72,6 +72,14 @@ export interface ExtensionUi {
 	}[]
 }
 
+/** The administrator lock an extension declares: whether a password is set, and the extension's own reason. */
+export interface ExtensionManagement {
+	locked: boolean
+	purpose: string
+	/** Seconds before the next password is looked at, after a wrong one. */
+	waitSeconds?: number
+}
+
 export interface ExtensionRow {
 	id: string
 	name: string
@@ -98,6 +106,7 @@ export interface ExtensionRow {
 	running: boolean
 	why?: string
 	grants: string[]
+	management?: ExtensionManagement
 }
 
 export interface ExtensionDisclosure {
@@ -120,6 +129,8 @@ export interface ExtensionDisclosure {
 	dataKinds: {
 		id: string
 		description: string
+		title?: string
+		example?: string
 		fields: { name: string; description: string }[]
 		retentionDays: number | 'keep'
 	}[]
@@ -133,6 +144,8 @@ export interface ExtensionDisclosure {
 	licence: string
 	background?: { line: string; whileClosed: string; defaultOn: boolean }
 	pages?: string
+	/** An extension an administrator locks: who can turn it off, and the extension's reason. */
+	management?: { line: string; purpose: string }
 	noticeVersion: string
 }
 
@@ -238,6 +251,15 @@ export function readExtensionRow(value: unknown): ExtensionRow | undefined {
 			lastAt: num(chk.lastAt) as number,
 			...(str(chk.lastError, 60) ? { lastError: str(chk.lastError, 60) as string } : {}),
 		}
+	const mg = rec(r.management)
+	if (mg && mg.lock === 'administrator-password') {
+		const wait = num(mg.waitSeconds)
+		row.management = {
+			locked: bool(mg.locked),
+			purpose: str(mg.purpose, 300) ?? '',
+			...(wait !== undefined && wait > 0 ? { waitSeconds: Math.min(3600, Math.ceil(wait)) } : {}),
+		}
+	}
 	const bg = rec(r.background)
 	if (bg && (bg.indicator === 'tray' || bg.indicator === 'none')) {
 		const si = rec(bg.signin)
@@ -347,6 +369,8 @@ export function readDisclosure(value: unknown): ExtensionDisclosure | undefined 
 				{
 					id: str(q.id, 64) as string,
 					description: str(q.description, 900) ?? '',
+					...(str(q.title, 80) ? { title: str(q.title, 80) as string } : {}),
+					...(str(q.example, 160) ? { example: str(q.example, 160) as string } : {}),
 					fields: (Array.isArray(q.fields) ? q.fields : []).slice(0, 24).flatMap((f) => {
 						const g = rec(f)
 						return g && str(g.name, 40)
@@ -379,6 +403,9 @@ export function readDisclosure(value: unknown): ExtensionDisclosure | undefined 
 		}
 	const pg = str(r.pages, 600)
 	if (pg) out.pages = pg
+	const mgd = rec(r.management)
+	if (mgd && str(mgd.line, 500))
+		out.management = { line: str(mgd.line, 500) as string, purpose: str(mgd.purpose, 300) ?? '' }
 	const note = str(r.languageNote, 300)
 	if (note) out.languageNote = note
 	return out

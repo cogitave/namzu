@@ -1,15 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { ExtensionRow } from '../shared/extensions-view.js'
 import {
+	EVENT_HISTORY_SENTENCE,
+	EVENT_HISTORY_TITLE,
 	PAGE_STOPPED_WORDS,
 	auditWords,
 	backgroundLines,
 	chipTone,
-	clockWords,
 	countLines,
-	dayRange,
-	daySummary,
-	durationWords,
 	failureWords,
 	keptWords,
 	languageName,
@@ -24,10 +22,7 @@ import {
 	plainReasons,
 	publisherLine,
 	reachedEnd,
-	readDayRows,
-	ribbonLayout,
 	rowsTable,
-	stateKindOf,
 	stateWord,
 	stripWords,
 } from './extensions-model.js'
@@ -352,6 +347,21 @@ describe('plain words in the notice and the log', () => {
 		expect(auditWords('brand-new', 'x')).toBe('brand-new x')
 	})
 
+	it('says the lock events in words, never with the operation or a password', () => {
+		expect(auditWords('lock-set', undefined)).toBe('An administrator password was set')
+		expect(auditWords('lock-released', undefined)).toBe('The administrator lock was removed')
+		expect(auditWords('unlock-failed', 'disable: admin-wrong')).toBe(
+			'A wrong or missing administrator password was refused',
+		)
+	})
+
+	it('names the event history and says in one plain sentence what it is', () => {
+		expect(EVENT_HISTORY_TITLE).toBe('Event history')
+		expect(EVENT_HISTORY_SENTENCE).toMatch(/turned on.*notice was read.*licence.*update was held/)
+		expect(EVENT_HISTORY_SENTENCE).toMatch(/password was refused.*call was refused/)
+		expect(`${EVENT_HISTORY_TITLE} ${EVENT_HISTORY_SENTENCE}`).not.toMatch(/Activity log|audit/i)
+	})
+
 	it('names a language in words', () => {
 		expect(languageName('tr')).toBe('Turkish')
 		expect(languageName('')).toBe('the default language')
@@ -404,144 +414,5 @@ describe('the one state word of a row', () => {
 	})
 	it('words the line under the name', () => {
 		expect(publisherLine(row({ publisher: 'Cogitave', version: '0.2.0' }))).toBe('Cogitave · 0.2.0')
-	})
-})
-
-describe("today's record inside the extension's own screen", () => {
-	const today = new Date(2026, 10, 19, 17, 42)
-	const at = (h: number, m: number) => new Date(2026, 10, 19, h, m).toISOString()
-	const columns = ['ts', 'activeS', 'idleS', 'lockedS', 'asleepS']
-	it('words durations and clocks', () => {
-		expect(durationWords(320)).toBe('5 h 20 min')
-		expect(durationWords(28)).toBe('28 min')
-		expect(durationWords(60)).toBe('1 h 00 min')
-		expect(durationWords(-3)).toBe('0 min')
-		expect(clockWords(527)).toBe('08:47')
-	})
-	it("finds the per-minute state kind by what it holds, not by one extension's name", () => {
-		expect(
-			stateKindOf({
-				kinds: [
-					{ id: 'activity.app.minute', rows: 3 },
-					{ id: 'activity.state.minute', rows: 9 },
-				],
-			}),
-		).toBe('activity.state.minute')
-		expect(stateKindOf({ kinds: [{ id: 'x.y', rows: 1 }] })).toBeUndefined()
-		expect(stateKindOf(null)).toBeUndefined()
-	})
-	it('adds the day up, merges neighbours and leaves yesterday out', () => {
-		const answer = {
-			kind: 'activity.state.minute',
-			columns,
-			rows: [
-				[at(8, 55), 60, 0, 0, 0],
-				[at(8, 56), 50, 10, 0, 0],
-				[at(8, 57), 0, 60, 0, 0],
-				[at(9, 30), 0, 0, 30, 30],
-				[new Date(2026, 10, 18, 9, 0).toISOString(), 60, 0, 0, 0],
-			],
-		}
-		const d = daySummary(answer, today)
-		expect(d).toMatchObject({
-			atMinutes: 2,
-			idleMinutes: 1,
-			awayMinutes: 1,
-			firstMinute: 8 * 60 + 55,
-			lastMinute: 9 * 60 + 31,
-		})
-		expect(d?.parts).toEqual([
-			{ from: 535, to: 537, state: 'at' },
-			{ from: 537, to: 538, state: 'idle' },
-			{ from: 570, to: 571, state: 'away' },
-		])
-	})
-	it('reads times given as seconds or milliseconds', () => {
-		const t = new Date(2026, 10, 19, 10, 0).getTime()
-		const sec = daySummary({ columns, rows: [[t / 1000, 60, 0, 0, 0]] }, today)
-		const ms = daySummary({ columns, rows: [[t, 60, 0, 0, 0]] }, today)
-		expect(sec?.firstMinute).toBe(600)
-		expect(ms?.firstMinute).toBe(600)
-	})
-	it('gives totals without a ribbon when the rows carry no times, and nothing when it understands nothing', () => {
-		const noTimes = daySummary({ columns: ['activeS', 'idleS'], rows: [[120, 60]] }, today)
-		expect(noTimes).toMatchObject({ atMinutes: 2, idleMinutes: 1, parts: [] })
-		expect(noTimes?.firstMinute).toBeUndefined()
-		expect(daySummary({ columns: ['exe'], rows: [['a.exe']] }, today)).toBeUndefined()
-		expect(daySummary('nope', today)).toBeUndefined()
-		expect(daySummary({ columns, rows: 'x' }, today)).toBeUndefined()
-	})
-	it('lays the ribbon over whole hours, leaves gaps empty and marks now', () => {
-		const r = ribbonLayout(
-			[
-				{ from: 8 * 60 + 47, to: 10 * 60, state: 'at' },
-				{ from: 11 * 60, to: 12 * 60, state: 'idle' },
-			],
-			17 * 60 + 42 - 5 * 60,
-		)
-		expect(r?.segments.map((s) => s.state)).toEqual(['gap', 'at', 'gap', 'idle'])
-		expect(r?.ticks.map((t) => t.label)).toEqual(['08:00', '10:00', '12:00', '14:00'])
-		const total = r?.segments.reduce((n, s) => n + s.width, 0) ?? 0
-		expect(total).toBeGreaterThan(0)
-		expect(total).toBeLessThanOrEqual(100)
-		expect(r?.now).toBeCloseTo(78.33, 1)
-	})
-	it('makes a short day at least six hours wide, and draws nothing for no parts', () => {
-		const r = ribbonLayout([{ from: 600, to: 610, state: 'at' }], 605)
-		expect(r?.ticks.length).toBeGreaterThan(1)
-		expect(ribbonLayout([], 0)).toBeUndefined()
-	})
-})
-
-describe('reading the whole of today, not the first rows the extension keeps', () => {
-	const now = new Date(2026, 10, 19, 14, 30)
-	const cols = ['ts', 'activeS', 'idleS', 'lockedS', 'asleepS']
-	it('asks for local midnight to the next midnight as UTC text', () => {
-		const r = dayRange(now)
-		expect(r.from).toBe(new Date(2026, 10, 19).toISOString().replace('.000Z', 'Z'))
-		expect(r.to).toBe(new Date(2026, 10, 20).toISOString().replace('.000Z', 'Z'))
-		expect(r.from).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/)
-	})
-	it('follows next until it is null and joins the pages, with the bounds and the page size on every call', async () => {
-		const seen: Record<string, unknown>[] = []
-		const pages: Record<string, { rows: unknown[]; next: string | null }> = {
-			first: { rows: [[1, 60, 0, 0, 0]], next: 'o1' },
-			o1: { rows: [[2, 60, 0, 0, 0]], next: 'o2' },
-			o2: { rows: [[3, 30, 0, 0, 0]], next: null },
-		}
-		const all = await readDayRows('activity.state.minute', now, async (p) => {
-			seen.push(p)
-			const a = pages[(p.after as string | undefined) ?? 'first']
-			return { columns: cols, ...a }
-		})
-		expect(all?.rows).toHaveLength(3)
-		expect(seen.map((p) => p.after)).toEqual([undefined, 'o1', 'o2'])
-		for (const p of seen)
-			expect(p).toMatchObject({ kind: 'activity.state.minute', limit: 500, ...dayRange(now) })
-	})
-	it('counts today from rows that come after earlier days in the first page', async () => {
-		const early = Array.from({ length: 100 }, (_, i) => [
-			new Date(2026, 10, 18, 8, i % 60).toISOString(),
-			60,
-			0,
-			0,
-			0,
-		])
-		const todays = [[new Date(2026, 10, 19, 9, 0).toISOString(), 120, 0, 0, 0]]
-		// The extension honours the bounds: a page for today holds only today's rows.
-		const all = await readDayRows('k', now, async (p) => ({
-			columns: cols,
-			rows: (p.from as string) <= new Date(2026, 10, 18, 9).toISOString() ? early : todays,
-			next: null,
-		}))
-		expect(daySummary(all, now)).toMatchObject({ atMinutes: 2 })
-	})
-	it('says nothing when the first page cannot be read, and keeps what it has when a later one fails', async () => {
-		expect(await readDayRows('k', now, async () => undefined)).toBeUndefined()
-		let n = 0
-		const part = await readDayRows('k', now, async () =>
-			n++ === 0 ? { columns: cols, rows: [[1, 60, 0, 0, 0]], next: 'o1' } : undefined,
-		)
-		expect(part?.rows).toHaveLength(1)
 	})
 })

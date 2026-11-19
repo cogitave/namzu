@@ -129,30 +129,37 @@ describe("Settings, Extensions: an extension's own screen", () => {
 			(m) => m[1]?.replace('&#x27;', "'"),
 		)
 		expect(titles).toEqual([
-			"Today's record",
 			'Background',
-			'What is collected',
+			'Data',
 			'Settings',
 			'Licence',
 			'Notice and my record',
-			'Activity log',
+			'Event history',
 			'Remove',
 		])
 		expect(markup).toContain('class="settings-row"')
 		expect(markup).toMatch(/<input[^>]*role="switch"[^>]*aria-label="Activity Tracker"/)
 		expect(markup).toMatch(/<input[^>]*role="switch"[^>]*aria-label="Start when I sign in"/)
-		expect(markup).toContain('Open today&#x27;s record')
+		// The Today group is gone: one Records row opens the extension's own page, and nothing is per day.
+		expect(markup).toContain('>Records<')
+		expect(markup).toContain('Every record in time order')
+		expect(markup).not.toMatch(/Today|At the computer|extension-ribbon|extension-totals/)
+		expect(markup).toContain('>What is collected<')
+		expect(markup).not.toContain('Never collected')
 		expect(markup).toContain('Example Co')
 		expect(markup).toContain('Change licence…')
-		expect(markup).toContain('Open the activity log')
+		expect(markup).toContain('Open the event history')
+		expect(markup).toContain('when it was turned on, the notice was read')
+		expect(markup).not.toContain('Activity log')
 		expect(markup).toContain('Remove…')
 	})
 
-	it('has no Today group for an extension with no page, and no Background group for one that has none', async () => {
+	it('has no Records row for an extension with no page, and no Background group for one that has none', async () => {
 		await refreshExtensions(api([OFF]))
 		selectExtension(OFF.id)
 		const markup = renderToStaticMarkup(createElement(ExtensionsSection, {}))
-		expect(markup).not.toContain('Today&#x27;s record')
+		expect(markup).not.toContain('>Records<')
+		expect(markup).toContain('>What is collected<')
 		expect(markup).not.toContain('>Background<')
 		expect(markup).toContain('It is off. Turn it on to start it.')
 	})
@@ -164,5 +171,50 @@ describe("Settings, Extensions: an extension's own screen", () => {
 		expect(markup).toContain('Read what it collects and why before it can start.')
 		expect(markup).not.toMatch(/role="switch"[^>]*aria-label="Release Checks"/)
 		expect(markup).toContain('>Read the notice<')
+	})
+})
+
+describe('the administrator lock on the extension screen', () => {
+	const LOCKED = {
+		...ROW,
+		management: {
+			lock: 'administrator-password',
+			locked: true,
+			purpose: 'Your organisation keeps this on so its records stay complete.',
+		},
+	}
+	const FRESH = {
+		...OFF,
+		management: {
+			lock: 'administrator-password',
+			locked: false,
+			purpose: 'Your organisation keeps this on.',
+		},
+	}
+	it('says Locked by your administrator, gives the reason, and has an Unlock row', async () => {
+		await refreshExtensions(api([LOCKED]))
+		selectExtension(LOCKED.id)
+		const markup = renderToStaticMarkup(createElement(ExtensionsSection, {}))
+		expect(markup).toContain('Administrator lock')
+		expect(markup).toContain('Locked by your administrator')
+		expect(markup).toContain('Your organisation keeps this on so its records stay complete.')
+		expect(markup).toContain('Unlock…')
+		expect(markup).toContain('It is on. Only your administrator can turn it off.')
+		// the rows that need the password say so
+		expect(markup).toContain('Needs the administrator password.')
+	})
+	it('an extension that is not locked yet says turning it on asks for a password, with no Unlock row', async () => {
+		await refreshExtensions(api([FRESH]))
+		selectExtension(FRESH.id)
+		const markup = renderToStaticMarkup(createElement(ExtensionsSection, {}))
+		expect(markup).toContain('Not locked yet')
+		expect(markup).toContain('Turning it on asks for an administrator password.')
+		expect(markup).not.toContain('Unlock…')
+	})
+	it('an extension that declares no lock shows none of it', async () => {
+		await refreshExtensions(api([OFF]))
+		selectExtension(OFF.id)
+		const markup = renderToStaticMarkup(createElement(ExtensionsSection, {}))
+		expect(markup).not.toMatch(/Administrator lock|Locked by|Unlock/)
 	})
 })

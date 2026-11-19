@@ -1,16 +1,15 @@
 import { useEffect, useState } from 'react'
 import {
-	type ExtensionDisclosure,
 	type ExtensionFailure,
 	type ExtensionRow,
 	readDisclosure,
 	readExtensionRow,
 	readFailure,
-	readNotice,
 } from '../shared/extensions-view.js'
+import { CollectedPage } from './extension-collected.js'
 import {
+	AdminDialog,
 	type Api,
-	Collected,
 	Failure,
 	InstallDialog,
 	KeyDialog,
@@ -22,22 +21,16 @@ import {
 	RemoveDialog,
 } from './extension-dialogs.js'
 import {
+	EVENT_HISTORY_SENTENCE,
+	EVENT_HISTORY_TITLE,
 	EXTENSIONS_EMPTY,
 	EXTENSIONS_INTRO,
 	backgroundLines,
-	clockWords,
-	daySummary,
-	durationWords,
 	formatWhen,
-	keptWords,
 	licenceLines,
 	mainAction,
-	neverLine,
 	plainReasons,
 	publisherLine,
-	readDayRows,
-	ribbonLayout,
-	stateKindOf,
 	stateWord,
 } from './extensions-model.js'
 import {
@@ -123,100 +116,6 @@ function LinkRow({
 	)
 }
 
-/** What the extension recorded today, from its own counts, and drawn only as far as it is understood. */
-function useToday(api: Api, row: ExtensionRow) {
-	const [summary, setSummary] = useState<ReturnType<typeof daySummary>>()
-	useEffect(() => {
-		if (!row.running) return setSummary(undefined)
-		let live = true
-		const read = async () => {
-			const counts = await ask(api, 'namzu/extensions/query', { id: row.id, query: 'counts' })
-			const kind = counts.ok ? stateKindOf(counts.value) : undefined
-			if (!kind) return live && setSummary(undefined)
-			const all = await readDayRows(kind, new Date(), async (params) => {
-				const r = await ask(api, 'namzu/extensions/query', { id: row.id, query: 'rows', params })
-				return r.ok ? r.value : undefined
-			})
-			if (live && all) setSummary(daySummary(all, new Date()))
-		}
-		void read()
-		const timer = setInterval(() => void read(), 60_000)
-		return () => {
-			live = false
-			clearInterval(timer)
-		}
-	}, [api, row.id, row.running])
-	return summary
-}
-
-function TodayGroup({
-	api,
-	row,
-	pageId,
-	title,
-	onOpen,
-}: { api: Api; row: ExtensionRow; pageId: string; title: string; onOpen: () => void }) {
-	const day = useToday(api, row)
-	const now = new Date()
-	const ribbon = day ? ribbonLayout(day.parts, now.getHours() * 60 + now.getMinutes()) : undefined
-	const since =
-		day?.firstMinute !== undefined
-			? `${durationWords(day.atMinutes)} at the computer since ${clockWords(day.firstMinute)}.`
-			: undefined
-	return (
-		<>
-			<h2 className="settings-section-title">{title}</h2>
-			{day && (
-				<div className="extension-today" data-page={pageId}>
-					<dl className="extension-totals">
-						<div>
-							<dt>At the computer</dt>
-							<dd>{durationWords(day.atMinutes)}</dd>
-						</div>
-						<div>
-							<dt>Idle</dt>
-							<dd>{durationWords(day.idleMinutes)}</dd>
-						</div>
-						<div>
-							<dt>Away</dt>
-							<dd>{durationWords(day.awayMinutes)}</dd>
-						</div>
-					</dl>
-					{ribbon && (
-						<>
-							<div className="extension-ribbon-hold">
-								<div className="extension-ribbon" role="img" aria-label="The day so far">
-									{ribbon.segments.map((s) => (
-										<span
-											key={`${s.state}-${s.left}`}
-											data-state={s.state}
-											style={{ left: `${s.left}%`, width: `${s.width}%` }}
-										/>
-									))}
-								</div>
-								<div className="extension-ribbon-now" style={{ left: `${ribbon.now}%` }} />
-							</div>
-							<div className="extension-ribbon-axis" aria-hidden="true">
-								{ribbon.ticks.map((t) => (
-									<span key={t.label} style={{ left: `${t.left}%` }}>
-										{t.label}
-									</span>
-								))}
-							</div>
-						</>
-					)}
-				</div>
-			)}
-			<LinkRow
-				id={`extension-${row.id}-today`}
-				label={`Open ${title.toLowerCase()}`}
-				description={since ?? 'The full page, with every app and its time.'}
-				onOpen={onOpen}
-			/>
-		</>
-	)
-}
-
 /** The sentence under the state word, from the facts only. */
 function statusLine(row: ExtensionRow): string {
 	if (row.updateWaiting && row.state !== 'failed')
@@ -224,7 +123,9 @@ function statusLine(row: ExtensionRow): string {
 	switch (row.state) {
 		case 'running':
 		case 'license-grace':
-			return 'It is on. Turn it off to stop it.'
+			return row.management?.locked
+				? 'It is on. Only your administrator can turn it off.'
+				: 'It is on. Turn it off to stop it.'
 		case 'starting':
 			return 'It is starting.'
 		case 'not-responding':
@@ -243,20 +144,6 @@ function statusLine(row: ExtensionRow): string {
 	}
 }
 
-function useDisclosure(api: Api, id: string): ExtensionDisclosure | undefined {
-	const [d, setD] = useState<ExtensionDisclosure>()
-	useEffect(() => {
-		let live = true
-		void ask(api, 'namzu/extensions/notice', { id }).then((r) => {
-			if (live && r.ok) setD(readNotice(r.value)?.disclosure)
-		})
-		return () => {
-			live = false
-		}
-	}, [api, id])
-	return d
-}
-
 /** One extension's own screen: the same rows and switches as the rest of Settings. */
 function ExtensionScreen({
 	api,
@@ -270,7 +157,8 @@ function ExtensionScreen({
 	setPanel: (p: Panel | undefined) => void
 }) {
 	const [failure, setFailure] = useState<ExtensionFailure | string>()
-	const disclosure = useDisclosure(api, row.id)
+	const locked = row.management?.locked === true
+	const lockNote = locked ? ' Needs the administrator password.' : ''
 	const action = mainAction(row)
 	const bg = backgroundLines(row)
 	const page = row.ui?.pages.find((p) => p.slot === 'settings') ?? row.ui?.pages[0]
@@ -278,6 +166,12 @@ function ExtensionScreen({
 		action.kind === 'enable' || action.kind === 'disable' || action.kind === 'start-again'
 	const runAction = async () => {
 		setFailure(undefined)
+		// A locked extension is turned off with the administrator password; one that declares the lock
+		// and has none set yet asks for the password it is turned on with.
+		if (action.kind === 'disable' && locked)
+			return setPanel({ kind: 'admin', id: row.id, action: 'disable' })
+		if (action.kind === 'enable' && row.management && !locked)
+			return setPanel({ kind: 'admin', id: row.id, action: 'enable' })
 		switch (action.kind) {
 			case 'license':
 				return setPanel({ kind: 'licence', id: row.id })
@@ -300,6 +194,7 @@ function ExtensionScreen({
 	}
 	const toggleBackground = async (on: boolean) => {
 		setFailure(undefined)
+		if (!on && locked) return setPanel({ kind: 'admin', id: row.id, action: 'background-off' })
 		const r = await ask(api, 'namzu/extensions/background/set', { id: row.id, on })
 		if (!r.ok) {
 			// Not yet acknowledged: the notice is the place to say yes.
@@ -366,14 +261,40 @@ function ExtensionScreen({
 				) : null}
 			</div>
 			<Failure failure={failure} />
-			{page && (
-				<TodayGroup
-					api={api}
-					row={row}
-					pageId={page.id}
-					title={page.title}
-					onOpen={() => openExtensionPage(row.id, page.id, true)}
-				/>
+			{row.management && (
+				<>
+					<h2 className="settings-section-title">Administrator lock</h2>
+					<Row
+						id={`extension-${row.id}-lock`}
+						label={locked ? 'Locked by your administrator' : 'Not locked yet'}
+						description={[
+							row.management.purpose,
+							locked
+								? 'Only the administrator can turn it off, remove it or change its licence.'
+								: 'Turning it on asks for an administrator password. After that only the administrator can turn it off.',
+							row.management.waitSeconds
+								? `A wrong password was just refused. Try again in ${row.management.waitSeconds} seconds.`
+								: '',
+						]
+							.filter(Boolean)
+							.join(' ')}
+					/>
+					{locked && (
+						<Row
+							id={`extension-${row.id}-unlock`}
+							label="Unlock"
+							description="Take the lock off with the administrator password. After that anyone can turn it off."
+						>
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={() => setPanel({ kind: 'admin', id: row.id, action: 'unlock' })}
+							>
+								Unlock…
+							</Button>
+						</Row>
+					)}
+				</>
 			)}
 			{bg && (
 				<>
@@ -392,36 +313,26 @@ function ExtensionScreen({
 					</Row>
 				</>
 			)}
-			<h2 className="settings-section-title">What is collected</h2>
-			{disclosure?.dataKinds.map((k) => (
-				<Row
-					key={k.id}
-					id={`extension-${row.id}-kind-${k.id}`}
-					label={k.description.replace(/[.]+$/, '')}
-				>
-					<span className="settings-value extension-value">
-						{keptWords(k.retentionDays).replace(/[.]$/, '')}
-					</span>
-				</Row>
-			))}
-			{disclosure && disclosure.doesNotCollect.length > 0 && (
-				<Row
-					id={`extension-${row.id}-never`}
-					label="Never collected"
-					description={neverLine(disclosure.doesNotCollect)}
+			<h2 className="settings-section-title">Data</h2>
+			{page && (
+				<LinkRow
+					id={`extension-${row.id}-records`}
+					label="Records"
+					description="Every record in time order, newest first, with filters and search."
+					onOpen={() => openExtensionPage(row.id, page.id, true)}
 				/>
 			)}
 			<LinkRow
 				id={`extension-${row.id}-collected`}
-				label="Records on this computer"
-				description="See exactly what is stored."
+				label="What is collected"
+				description="What it records on this computer, and how long it keeps it."
 				onOpen={() => setPanel({ kind: 'collected', id: row.id })}
 			/>
 			<h2 className="settings-section-title">Settings</h2>
 			<Row
 				id={`extension-${row.id}-model-key`}
 				label="Model API key"
-				description="A key for a model, entered by hand. Nothing uses it in this version."
+				description={`A key for a model, entered by hand. Nothing uses it in this version.${lockNote}`}
 			>
 				<Button variant="outline" size="sm" onClick={() => setPanel({ kind: 'key', id: row.id })}>
 					Set…
@@ -450,6 +361,7 @@ function ExtensionScreen({
 							row.licence
 								? 'Paste a new key to replace this one.'
 								: 'Paste the key you were given.',
+							lockNote.trim(),
 							...lines.filter((l) => !l.includes(row.licence?.customer ?? '\u0000')),
 						].join(' ')}
 					>
@@ -485,18 +397,18 @@ function ExtensionScreen({
 					{row.record ? 'Read again' : 'Read the notice'}
 				</Button>
 			</Row>
-			<h2 className="settings-section-title">Activity log</h2>
+			<h2 className="settings-section-title">{EVENT_HISTORY_TITLE}</h2>
 			<LinkRow
 				id={`extension-${row.id}-log`}
-				label="Open the activity log"
-				description="What the extension did on this computer, and when."
+				label="Open the event history"
+				description={EVENT_HISTORY_SENTENCE}
 				onOpen={() => setPanel({ kind: 'log', id: row.id })}
 			/>
 			<h2 className="settings-section-title">Remove</h2>
 			<Row
 				id={`extension-${row.id}-remove`}
 				label={`Remove ${row.name}`}
-				description="Takes it off this computer. You are asked before anything is deleted."
+				description={`Takes it off this computer. You are asked before anything is deleted.${lockNote}`}
 			>
 				<Button
 					variant="destructive-outline"
@@ -514,8 +426,13 @@ function ExtensionScreen({
 					onReread={() => setPanel({ kind: 'notice', id: row.id, staged: false })}
 				/>
 			)}
-			{current?.kind === 'collected' && (
-				<Collected api={api} row={row} onClose={() => setPanel(undefined)} />
+			{current?.kind === 'admin' && (
+				<AdminDialog
+					api={api}
+					row={row}
+					action={current.action}
+					onClose={() => setPanel(undefined)}
+				/>
 			)}
 			{current?.kind === 'licence' && (
 				<LicenceDialog api={api} row={row} onClose={() => setPanel(undefined)} />
@@ -612,6 +529,8 @@ export function ExtensionsSection({ api }: { api?: Api | undefined }) {
 	useEffect(() => {
 		if (snap.loadedOnce && snap.selected && !selected) selectExtension(undefined)
 	}, [snap.loadedOnce, snap.selected, selected])
+	if (selected && panel?.kind === 'collected')
+		return <CollectedPage api={bridge} row={selected} onBack={() => setPanel(undefined)} />
 	if (selected)
 		return (
 			<>
@@ -622,7 +541,13 @@ export function ExtensionsSection({ api }: { api?: Api | undefined }) {
 					setPanel={setPanel}
 				/>
 				{panel?.kind === 'notice' && (
-					<NoticeScreen api={bridge} id={panel.id} staged={panel.staged} onClose={() => close()} />
+					<NoticeScreen
+						api={bridge}
+						id={panel.id}
+						staged={panel.staged}
+						setPassword={selected.management !== undefined && !selected.management.locked}
+						onClose={() => close()}
+					/>
 				)}
 				{panel?.kind === 'install' && (
 					<InstallDialog api={bridge} panel={panel} onClose={close} onNext={setPanel} />

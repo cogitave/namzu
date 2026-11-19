@@ -388,6 +388,51 @@ const AUDIT_WORDS: Record<string, string> = {
 	maintenance: 'Old records cleared',
 	granted: 'Optional access allowed',
 	revoked: 'Optional access taken back',
+	grant: 'Optional access allowed',
+	revoke: 'Optional access taken back',
+	'lock-set': 'An administrator password was set',
+	'lock-released': 'The administrator lock was removed',
+	'unlock-failed': 'A wrong or missing administrator password was refused',
+	'query-refused': 'A request it made was refused',
+	'message-refused': 'A message it sent was refused',
+	'license-activated': 'Licence activated',
+	'license-released': 'Licence released from this computer',
+	'background-on': 'Starts when you sign in',
+	'background-off': 'No longer starts when you sign in',
+}
+
+/** The name of the extension's own history of what it did on this computer, and the one sentence under it. */
+export const EVENT_HISTORY_TITLE = 'Event history'
+export const EVENT_HISTORY_SENTENCE =
+	'What happened to this extension on this computer: when it was turned on, the notice was read, a licence was entered, an update was held, a password was refused or a call was refused.'
+
+/** How many records of each kind the extension holds, from a counts answer; empty when it cannot be read. */
+export function kindCounts(counts: unknown): Map<string, number> {
+	const out = new Map<string, number>()
+	const kinds =
+		counts && typeof counts === 'object' ? (counts as { kinds?: unknown }).kinds : undefined
+	if (!Array.isArray(kinds)) return out
+	for (const k of kinds.slice(0, 50)) {
+		if (!k || typeof k !== 'object') continue
+		const { id, rows } = k as { id?: unknown; rows?: unknown }
+		if (typeof id === 'string' && typeof rows === 'number' && Number.isFinite(rows) && rows >= 0)
+			out.set(id, Math.floor(rows))
+	}
+	return out
+}
+
+/** "nothing yet", "1 record", "4 380 records": how many records there are, in words. */
+export function recordCountWords(n: number | undefined): string {
+	if (n === undefined) return 'Not counted yet'
+	if (n === 0) return 'Nothing yet'
+	return n === 1 ? '1 record' : `${n.toLocaleString('en-US').replace(/,/g, ' ')} records`
+}
+
+/** The group's title: the extension's own plain title, or the first words of what it records. */
+export function kindTitle(k: { title?: string; description: string }): string {
+	if (k.title) return k.title
+	const first = k.description.replace(/[.!?…。]+$/, '').trim()
+	return first.length > 48 ? `${first.slice(0, 45).trimEnd()}…` : first
 }
 
 export function auditWords(event: string, detail: string | undefined): string {
@@ -440,207 +485,4 @@ export function plainReason(reason: string, ctx: ReasonContext = {}): string {
 /** Every reason in plain words, each said once: five kinds kept longer read as one line when no kind is named. */
 export function plainReasons(reasons: readonly string[], ctx: ReasonContext = {}): string[] {
 	return [...new Set(reasons.map((r) => plainReason(r, ctx)))]
-}
-
-/** How long, in the words the record uses: "5 h 20 min", "28 min", "0 min". */
-export function durationWords(minutes: number): string {
-	const m = Math.max(0, Math.round(minutes))
-	const h = Math.floor(m / 60)
-	return h > 0 ? `${h} h ${String(m % 60).padStart(2, '0')} min` : `${m} min`
-}
-
-/** A minute of the day as a clock: 527 is "08:47". */
-export function clockWords(minuteOfDay: number): string {
-	const m = Math.max(0, Math.min(24 * 60, Math.round(minuteOfDay)))
-	return `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
-}
-
-export type DayState = 'at' | 'idle' | 'away'
-
-/** One stretch of the day in one state, in minutes since midnight. */
-export interface DayPart {
-	from: number
-	to: number
-	state: DayState
-}
-
-export interface DaySummary {
-	atMinutes: number
-	idleMinutes: number
-	awayMinutes: number
-	/** The first and last minute recorded today; undefined when the answer carries no times. */
-	firstMinute?: number
-	lastMinute?: number
-	parts: DayPart[]
-}
-
-/** The id of the per-minute state kind in a counts answer, whichever extension names it. */
-export function stateKindOf(counts: unknown): string | undefined {
-	if (!counts || typeof counts !== 'object') return undefined
-	const kinds = (counts as { kinds?: unknown }).kinds
-	if (!Array.isArray(kinds)) return undefined
-	for (const k of kinds) {
-		const id = k && typeof k === 'object' ? (k as { id?: unknown }).id : undefined
-		if (typeof id === 'string' && /state/i.test(id) && /minute/i.test(id)) return id
-	}
-	return undefined
-}
-
-/** The person's own day as two UTC instants: local midnight and the next local midnight. */
-export function dayRange(now: Date): { from: string; to: string } {
-	const iso = (d: Date): string => d.toISOString().replace(/\.\d{3}Z$/, 'Z')
-	return {
-		from: iso(new Date(now.getFullYear(), now.getMonth(), now.getDate())),
-		to: iso(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)),
-	}
-}
-
-/**
- * Every row of one kind for today, page after page until the extension says there is no next page.
- * The extension's defaults (oldest first, a hundred a page, a week kept) would show earlier days, so the
- * day is asked for by its bounds. `ask` gives one page's answer, or undefined when it could not be read.
- */
-export async function readDayRows(
-	kind: string,
-	now: Date,
-	ask: (params: Record<string, unknown>) => Promise<unknown>,
-): Promise<{ columns: unknown; rows: unknown[] } | undefined> {
-	const range = dayRange(now)
-	let columns: unknown
-	const rows: unknown[] = []
-	let after: string | undefined
-	// A day is at most 1440 minute rows; the bound only stops an extension that never ends its pages.
-	for (let page = 0; page < 40; page++) {
-		const a = (await ask({ kind, ...range, limit: 500, ...(after ? { after } : {}) })) as
-			| { columns?: unknown; rows?: unknown; next?: unknown }
-			| undefined
-		if (!a || typeof a !== 'object' || !Array.isArray(a.rows))
-			return page === 0 ? undefined : { columns, rows }
-		columns ??= a.columns
-		rows.push(...a.rows)
-		if (typeof a.next !== 'string' || a.next === '') break
-		after = a.next
-	}
-	return { columns, rows }
-}
-
-const TIME_COLUMNS = ['ts', 'time', 'minute', 'at', 'startedat', 'start', 't']
-
-function minuteOfToday(value: unknown, today: Date): number | undefined {
-	let ms: number | undefined
-	if (typeof value === 'number' && Number.isFinite(value)) ms = value < 1e11 ? value * 1000 : value
-	else if (typeof value === 'string' && value.trim() !== '') {
-		const n = Number(value)
-		ms = Number.isFinite(n) ? (n < 1e11 ? n * 1000 : n) : Date.parse(value)
-	}
-	if (ms === undefined || Number.isNaN(ms)) return undefined
-	const d = new Date(ms)
-	if (
-		d.getFullYear() !== today.getFullYear() ||
-		d.getMonth() !== today.getMonth() ||
-		d.getDate() !== today.getDate()
-	)
-		return -1
-	return d.getHours() * 60 + d.getMinutes()
-}
-
-/**
- * Today's totals and parts from the rows of a per-minute state kind (seconds active, idle, locked and
- * asleep for each minute). Only what is understood is used: a column that is missing means no times and
- * no ribbon, and an answer with none of the four columns means no summary, so the caller draws nothing
- * it cannot stand behind. `today` is passed in so the day is the person's own, and tests are fixed.
- */
-export function daySummary(answer: unknown, today: Date): DaySummary | undefined {
-	if (!answer || typeof answer !== 'object') return undefined
-	const r = answer as { columns?: unknown; rows?: unknown }
-	if (!Array.isArray(r.columns) || !Array.isArray(r.rows)) return undefined
-	const cols = r.columns.map((c) => (typeof c === 'string' ? c.toLowerCase() : ''))
-	const find = (re: RegExp) => cols.findIndex((c) => re.test(c))
-	const active = find(/^active/)
-	const idle = find(/^idle/)
-	const locked = find(/^locked/)
-	const asleep = find(/^asleep/)
-	if (active < 0 && idle < 0 && locked < 0 && asleep < 0) return undefined
-	let timeAt = -1
-	for (const name of TIME_COLUMNS) {
-		timeAt = cols.indexOf(name)
-		if (timeAt >= 0) break
-	}
-	const num = (row: unknown[], at: number): number => {
-		const v = at >= 0 ? Number(row[at]) : 0
-		return Number.isFinite(v) && v > 0 ? v : 0
-	}
-	let at = 0
-	let idleS = 0
-	let away = 0
-	const minutes: { minute: number; state: DayState }[] = []
-	for (const raw of r.rows.slice(0, 2000)) {
-		if (!Array.isArray(raw)) continue
-		let minute: number | undefined
-		if (timeAt >= 0) {
-			minute = minuteOfToday(raw[timeAt], today)
-			if (minute === undefined || minute < 0) continue
-		}
-		const a = num(raw, active)
-		const i = num(raw, idle)
-		const w = num(raw, locked) + num(raw, asleep)
-		at += a
-		idleS += i
-		away += w
-		if (minute !== undefined)
-			minutes.push({ minute, state: a >= i && a >= w ? 'at' : i >= w ? 'idle' : 'away' })
-	}
-	minutes.sort((x, y) => x.minute - y.minute)
-	const parts: DayPart[] = []
-	for (const m of minutes) {
-		const last = parts[parts.length - 1]
-		if (last && last.state === m.state && m.minute <= last.to) last.to = m.minute + 1
-		else parts.push({ from: m.minute, to: m.minute + 1, state: m.state })
-	}
-	const first = minutes[0]
-	const end = minutes[minutes.length - 1]
-	return {
-		atMinutes: Math.round(at / 60),
-		idleMinutes: Math.round(idleS / 60),
-		awayMinutes: Math.round(away / 60),
-		...(first && end ? { firstMinute: first.minute, lastMinute: end.minute + 1 } : {}),
-		parts,
-	}
-}
-
-export interface Ribbon {
-	segments: { state: DayState | 'gap'; left: number; width: number }[]
-	ticks: { label: string; left: number }[]
-	/** Where the moment now sits, in percent of the ribbon. */
-	now: number
-}
-
-/**
- * The day as a ribbon: whole hours around what was recorded (at least six hours wide), a tick every
- * second hour when it is narrow and every third when it is wide, and the gaps left empty.
- */
-export function ribbonLayout(parts: readonly DayPart[], nowMinute: number): Ribbon | undefined {
-	if (parts.length === 0) return undefined
-	const first = Math.min(...parts.map((p) => p.from))
-	const last = Math.max(nowMinute, ...parts.map((p) => p.to))
-	let start = Math.floor(first / 60) * 60
-	let end = Math.ceil(last / 60) * 60
-	if (end - start < 360) {
-		end = Math.min(24 * 60, start + 360)
-		start = Math.max(0, end - 360)
-	}
-	const span = end - start
-	const pct = (m: number) => ((m - start) / span) * 100
-	const segments: Ribbon['segments'] = []
-	let at = start
-	for (const p of parts) {
-		if (p.from > at) segments.push({ state: 'gap', left: pct(at), width: pct(p.from) - pct(at) })
-		segments.push({ state: p.state, left: pct(p.from), width: pct(p.to) - pct(p.from) })
-		at = p.to
-	}
-	const step = span > 600 ? 180 : 120
-	const ticks: Ribbon['ticks'] = []
-	for (let m = Math.ceil(start / step) * step; m <= end; m += step)
-		ticks.push({ label: clockWords(m), left: pct(m) })
-	return { segments, ticks, now: Math.max(0, Math.min(100, pct(nowMinute))) }
 }

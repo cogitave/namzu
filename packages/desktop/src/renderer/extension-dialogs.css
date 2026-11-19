@@ -224,3 +224,22 @@
 	gap: 6px;
 	margin-top: 14px;
 }
+/* The administrator password: the lock's own fields, in Namzu's words. */
+.extension-admin-field {
+	display: grid;
+	gap: 4px;
+	margin: 12px 0 0;
+}
+.extension-admin-note,
+.extension-history-sentence {
+	margin: 6px 0 0;
+	color: var(--muted-foreground);
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+}
+.extension-history-sentence {
+	margin: 0 0 10px;
+}
+.extension-admin-set {
+	margin-top: 12px;
+}

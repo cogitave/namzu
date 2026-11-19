@@ -27,6 +27,37 @@ const ROW = {
 	secret: 'never copied',
 }
 
+describe('the administrator lock in what is read', () => {
+	it('reads whether it is locked, the reason and the wait, and ignores another kind of lock', () => {
+		const [row] =
+			readExtensionList({
+				extensions: [
+					{
+						...ROW,
+						management: {
+							lock: 'administrator-password',
+							locked: true,
+							purpose: 'Your organisation keeps this on.',
+							waitSeconds: 4.2,
+						},
+					},
+				],
+			}) ?? []
+		expect(row?.management).toEqual({
+			locked: true,
+			purpose: 'Your organisation keeps this on.',
+			waitSeconds: 5,
+		})
+		const [other] =
+			readExtensionList({ extensions: [{ ...ROW, management: { lock: 'pin', locked: true } }] }) ??
+			[]
+		expect(other?.management).toBeUndefined()
+	})
+	it('keeps the unlock method away from an extension page: only Namzu screens call it', () => {
+		expect(EXTENSION_BRIDGE_METHODS).not.toContain('namzu/extensions/unlock')
+	})
+})
+
 describe('the extension readers', () => {
 	it('copy only the fields they know and drop the rest', () => {
 		const rows = readExtensionList({
