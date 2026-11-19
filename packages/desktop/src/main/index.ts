@@ -29,6 +29,7 @@ import type { CommitRequestView } from '../shared/commit-protocol.js'
 import { UNAVAILABLE_ENGINE_VIEW } from '../shared/engine-delivery-protocol.js'
 import { readEngineUpdateRequest } from '../shared/engine-update-protocol.js'
 import { type OsState, trayName } from '../shared/os-state.js'
+import { defineOf } from '../shared/state-registry.js'
 import type {
 	PalPermissionChange,
 	PalSubscriptionCreate,
@@ -1555,6 +1556,8 @@ function register(): void {
 	ipcMain.on('namzu:viewStateSet', (event, key: unknown, value: unknown) => {
 		const id = viewStateOwner(event)
 		if (!id || typeof key !== 'string' || typeof value !== 'string') return
+		// The window's own mode is written by the main process alone.
+		if (defineOf(key)?.id === 'window.mode') return
 		viewStateOrigin = id
 		try {
 			viewState.set(key, value)

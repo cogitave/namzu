@@ -56,6 +56,8 @@ export class StateStore {
 	private dirty = false
 	private cancel: (() => void) | undefined
 	private readOnly = false
+	/** True once a quit has recorded a clean end: a late write is kept, but never says otherwise. */
+	private closed = false
 	private writes = 0
 	private readonly listeners = new Set<(change: StateChange) => void>()
 	/** How the previous run ended. */
@@ -162,9 +164,8 @@ export class StateStore {
 	 */
 	importLegacy(raw: unknown): { imported: number; deletable: string[] } {
 		const found = legacyEntries(raw)
-		const deletable = Object.keys(found)
 		if (this.legacyImported || this.readOnly)
-			return { imported: 0, deletable: this.readOnly ? [] : deletable }
+			return { imported: 0, deletable: this.readOnly ? [] : Object.keys(found) }
 		let imported = 0
 		for (const [key, value] of Object.entries(found)) {
 			if (key in this.entries) continue
@@ -174,7 +175,8 @@ export class StateStore {
 		}
 		this.legacyImported = true
 		this.touch()
-		return { imported, deletable }
+		// A key dropped by its family's cap is left in `localStorage`, not deleted with the rest.
+		return { imported, deletable: Object.keys(found).filter((key) => key in this.entries) }
 	}
 
 	/** Drops every key that belongs to a conversation, when the conversation is removed. */
@@ -217,7 +219,7 @@ export class StateStore {
 			this.cancel = undefined
 		}
 		if (!this.dirty) return
-		this.write(false)
+		this.write(this.closed)
 	}
 
 	/** The last step of a quit: flush everything and record that the run ended cleanly. */
@@ -226,6 +228,7 @@ export class StateStore {
 			this.cancel()
 			this.cancel = undefined
 		}
+		this.closed = true
 		this.write(true)
 	}
 

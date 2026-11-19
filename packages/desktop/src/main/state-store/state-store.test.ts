@@ -180,6 +180,22 @@ describe('how the last run ended', () => {
 		expect(second.store.get('namzu.workspace.presentation:abc')).toBe('{"panelTab":"changes"}')
 	})
 
+	it('keeps the clean marker when a window writes after the quit has been recorded', () => {
+		const disk = fakeDisk()
+		const first = open(disk)
+		first.store.set('namzu.workspace.presentation:abc', '{"panelTab":"changes"}')
+		first.store.markCleanShutdown()
+		// A window still alive writes: a debounced flush must not undo the marker.
+		first.store.set('namzu.sidebar-collapsed', 'true')
+		first.store.remove('namzu.workspace.presentation:abc')
+		first.clock.fire()
+		first.store.flush()
+		expect(onDisk(disk).cleanShutdown).toBe(true)
+		const second = open(disk)
+		expect(second.store.closeState).toBe('clean')
+		expect(second.store.get('namzu.sidebar-collapsed')).toBe('true')
+	})
+
 	it('restores the last checkpoint after a crash, but starts soft keys over', () => {
 		const disk = fakeDisk()
 		const first = open(disk)
@@ -308,6 +324,18 @@ describe('importing what localStorage held', () => {
 		store.set('namzu.sidebar-collapsed', 'false')
 		store.importLegacy({ 'namzu.sidebar-collapsed': 'true' })
 		expect(store.get('namzu.sidebar-collapsed')).toBe('false')
+	})
+
+	it('leaves a key in localStorage when its family cap dropped it', () => {
+		const disk = fakeDisk()
+		const { store } = open(disk)
+		const cap = defineOf('namzu.workspace.files:x')?.maxEntries ?? 0
+		const many: Record<string, string> = {}
+		for (let i = 0; i < cap + 5; i++) many[`namzu.workspace.files:c${i}`] = '[]'
+		const result = store.importLegacy(many)
+		const kept = Object.keys(store.snapshot()).filter((k) => k.startsWith('namzu.workspace.files:'))
+		expect(kept).toHaveLength(cap)
+		expect(result.deletable.sort()).toEqual(kept.sort())
 	})
 
 	it('ignores a value that is not a string or is over its cap', () => {
