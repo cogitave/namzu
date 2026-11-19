@@ -2,7 +2,6 @@ import { useState } from 'react'
 import type { LimitsNotification } from '../shared/limits-protocol.js'
 import type { ThreadUsage } from '../shared/projection.js'
 import { type ContextRingModel, contextRingModel, piePath } from './context-ring.js'
-import { Button } from './ui/button.js'
 import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
 import {
 	type LimitRow,
@@ -24,11 +23,13 @@ export interface UsageLimitsControl {
 	onOpen: () => void
 	/** The clock the reset words are read against. */
 	now: () => number
+	/** Opens Settings at Usage, where every provider's limits are listed; the link is absent when it cannot. */
+	onSeeAll?: () => void
 	/** Opens the Session panel, where the full breakdown of the context is; absent when it cannot. */
 	onDetails?: () => void
 }
 
-function Bar({ fraction, tone }: { fraction: number; tone: LimitTone }) {
+export function Bar({ fraction, tone }: { fraction: number; tone: LimitTone }) {
 	return (
 		<span className="limits-bar" data-tone={tone} aria-hidden="true">
 			<span style={{ width: `${Math.round(Math.min(1, Math.max(0, fraction)) * 100)}%` }} />
@@ -36,52 +37,8 @@ function Bar({ fraction, tone }: { fraction: number; tone: LimitTone }) {
 	)
 }
 
-function BudgetField({
-	provider,
-	current,
-	onBudget,
-}: { provider: string; current: number | undefined; onBudget: UsageLimitsControl['onBudget'] }) {
-	const [editing, setEditing] = useState(false)
-	const [draft, setDraft] = useState(current === undefined ? '' : String(current))
-	if (!editing)
-		return (
-			<button type="button" className="limits-link" onClick={() => setEditing(true)}>
-				{current === undefined ? 'Set a budget' : 'Change budget'}
-			</button>
-		)
-	const save = () => {
-		const value = Number(draft)
-		if (draft.trim() === '') onBudget(provider, undefined)
-		else if (Number.isFinite(value) && value > 0) onBudget(provider, value)
-		else return
-		setEditing(false)
-	}
-	return (
-		<form
-			className="limits-budget"
-			onSubmit={(event) => {
-				event.preventDefault()
-				save()
-			}}
-		>
-			<label>
-				<span className="sr-only">Budget in US dollars</span>
-				<span aria-hidden="true">$</span>
-				<input
-					inputMode="decimal"
-					value={draft}
-					placeholder="No budget"
-					onChange={(event) => setDraft(event.target.value)}
-				/>
-			</label>
-			<Button type="submit" variant="ghost-muted" size="xs">
-				Save
-			</Button>
-		</form>
-	)
-}
-
-function Row({ row, control }: { row: LimitRow; control: UsageLimitsControl }) {
+/** One limit row: a window with its percent, reset or start line and bar, or a credit or spend line. */
+export function LimitRowView({ row }: { row: LimitRow }) {
 	if (row.shape === 'window') {
 		const note = [row.reset, row.state, row.asOf].filter(Boolean).join(' · ')
 		return (
@@ -105,9 +62,6 @@ function Row({ row, control }: { row: LimitRow; control: UsageLimitsControl }) {
 				<span className="limits-label">{row.text}</span>
 			</div>
 			{row.fraction !== undefined && <Bar fraction={row.fraction} tone={row.tone} />}
-			{row.shape === 'spend' && (
-				<BudgetField provider={row.provider} current={row.budgetUsd} onBudget={control.onBudget} />
-			)}
 		</div>
 	)
 }
@@ -127,15 +81,22 @@ export function UsageLimitsPanel({
 		<div className="limits-panel" data-testid="usage-limits">
 			{model.sections.length > 0 && (
 				<>
-					<h2 className="limits-title">
-						Your usage limits
-						{only?.plan ? <span className="limits-plan"> · {only.plan}</span> : null}
-					</h2>
+					<div className="limits-heading">
+						<h2 className="limits-title">
+							Your usage limits
+							{only?.plan ? <span className="limits-plan"> · {only.plan}</span> : null}
+						</h2>
+						{control.onSeeAll && (
+							<button type="button" className="limits-link" onClick={control.onSeeAll}>
+								See all <span aria-hidden="true">→</span>
+							</button>
+						)}
+					</div>
 					{model.sections.map((section) => (
 						<section key={section.provider} className="limits-section" aria-label={section.title}>
 							{model.sections.length > 1 && <h3 className="limits-provider">{section.title}</h3>}
 							{section.rows.map((row) => (
-								<Row key={row.key} row={row} control={control} />
+								<LimitRowView key={row.key} row={row} />
 							))}
 						</section>
 					))}
@@ -281,7 +242,22 @@ export function UsageIndicator({
 				// Opening it does not move focus onto the Details link, which would draw a ring nobody asked for.
 				initialFocus={false}
 			>
-				<UsageLimitsPanel model={model} context={state.context} control={control} />
+				<UsageLimitsPanel
+					model={model}
+					context={state.context}
+					control={{
+						...control,
+						// Following the link leaves the popover behind it.
+						...(control.onSeeAll
+							? {
+									onSeeAll: () => {
+										setOpen(false)
+										control.onSeeAll?.()
+									},
+								}
+							: {}),
+					}}
+				/>
 			</PopoverPopup>
 		</Popover>
 	)

@@ -6,22 +6,27 @@ import { usageLimitsModel } from './usage-limits-model.js'
 import { type UsageLimitsControl, UsageLimitsPanel } from './usage-limits-popover.js'
 
 const NOW = Date.UTC(2026, 10, 17, 12, 0, 0)
-const control = (onDetails?: () => void): UsageLimitsControl => ({
+const control = (onDetails?: () => void, onSeeAll?: () => void): UsageLimitsControl => ({
 	view: undefined,
 	budgets: {},
 	onBudget: () => {},
 	onOpen: () => {},
 	now: () => NOW,
 	...(onDetails ? { onDetails } : {}),
+	...(onSeeAll ? { onSeeAll } : {}),
 })
 const context = contextRingModel({ contextTokens: 701, contextWindowTokens: 1_000_000 } as never)
 
-const html = (view: Parameters<typeof usageLimitsModel>[0]['view'], onDetails?: () => void) =>
+const html = (
+	view: Parameters<typeof usageLimitsModel>[0]['view'],
+	onDetails?: () => void,
+	onSeeAll?: () => void,
+) =>
 	renderToStaticMarkup(
 		createElement(UsageLimitsPanel, {
 			model: usageLimitsModel({ view, now: NOW, timeZone: 'UTC' }),
 			context,
-			control: control(onDetails),
+			control: control(onDetails, onSeeAll),
 		}),
 	)
 
@@ -62,5 +67,36 @@ describe('the usage limits popover', () => {
 		expect(out.match(/data-row="window"/g)).toHaveLength(2)
 		expect(out.match(/data-row="context"/g)).toHaveLength(1)
 		expect(out).not.toContain('Details')
+	})
+
+	it('has See all at the right of the title, which opens Settings, and no budget field', () => {
+		const view = {
+			providers: [
+				{
+					provider: 'anthropic',
+					label: 'Anthropic',
+					kind: 'sign-in' as const,
+					asOf: NOW,
+					windows: [{ label: '5-hour limit', usedFraction: 0.2, resetsAt: NOW + 3600_000 }],
+				},
+				{
+					provider: 'openai',
+					label: 'OpenAI',
+					kind: 'key' as const,
+					spend: { usd: 3, days: 30, partial: false },
+				},
+			],
+		}
+		const out = html(view, undefined, () => {})
+		expect(out).toMatch(
+			/<div class="limits-heading"><h2 class="limits-title">[\s\S]*?<\/h2><button[^>]*>See all/,
+		)
+		expect(out).not.toContain('Set a budget')
+		expect(out).not.toContain('Change budget')
+		expect(html(view)).not.toContain('See all')
+	})
+
+	it('has no See all while no limit is known, since there is no title for it to sit beside', () => {
+		expect(html({ providers: [] }, undefined, () => {})).not.toContain('See all')
 	})
 })

@@ -26,7 +26,13 @@ The indicator beside the model in Namzu Desktop opens **Your usage limits**. It 
 
 One padded panel. With limits known it opens with **Your usage limits**, and the plan beside it ("Your usage limits · Team") when the vendor gave one. Each window is a row: its name and percent, a quiet line under the name, a thin bar. The quiet line is "Resets at 3:00 PM" within a day, "Resets Sat 2:00 PM" beyond it, and "Starts with your first message" for a window that has not begun (0 percent, no reset yet) or that reset since the last reading (the old number is never shown). A reading older than five minutes adds how old it is ("as of 12 min ago", then hours, then days, up to the 30 days a reading is kept); a window that has not begun carries no age. A provider with nothing to report has no row at all.
 
-Below the limits, with a line between, is one **Context** row: the share of the conversation's memory used, a thin bar and **Details**, which opens the Session panel where the full breakdown is. With no limits known the popover is that one row.
+At the right of the title is **See all →**, which closes the popover and opens Settings at **Usage**. Below the limits, with a line between, is one **Context** row: the share of the conversation's memory used, a thin bar and **Details**, which opens the Session panel where the full breakdown is. With no limits known the popover is that one row.
+
+## Settings, Usage
+
+**Usage** is the section after Models in Settings (`settings/usage`, found by searching usage, limits, quota, resets, credit, spend or budget). It lists every provider that reported something, the conversation's provider first, each under its name with the plan beside it ("Anthropic · Team") when the vendor gave one. Under a name are the same rows as the popover: a window's name and percent, the reset line or "Starts with your first message", a thin bar and the age of an old reading, and the credit or spend lines. The two are drawn from one reading, so they never disagree. A provider that reports nothing has no heading and no sentence, and with nothing reported the section is just its title. Opening the section asks a vendor that has to be asked, at most once a minute like the popover.
+
+A provider that has a spend estimate also has the optional **Spending budget** field, in US dollars: a positive number sets it, empty clears it, anything else is refused and the stored value stays. It used to sit under the spend row in the popover; it now lives only here, and a budget set before the move is read from the same place and kept.
 
 A **plan** name such as "Team" is shown only when the vendor gives one; it is never taken from an email address or an organisation.
 
@@ -44,7 +50,7 @@ Desktop never blocks a message or refuses a request because of these numbers. Th
 
 ## What is kept
 
-The host holds account data in memory and never writes it to a log, a prompt or telemetry. The window keeps the **last numbers the vendor gave** (windows, credit, plan and the time of the reading, never an estimate or a credential) in its interface state under the key `namzu.last-limits` (see [what Desktop keeps](desktop-state.md)), so the popover is not empty after a restart. They come back with their age, a window that has reset since is shown as a fresh one, a reading older than 30 days is dropped, and the first live reading of a provider replaces them. A **budget** the person sets for a provider is stored in the window's local storage and never sent anywhere.
+The host holds account data in memory and never writes it to a log, a prompt or telemetry. The window keeps the **last numbers the vendor gave** (windows, credit, plan and the time of the reading, never an estimate or a credential) in its interface state under the key `namzu.last-limits` (see [what Desktop keeps](desktop-state.md)), so the popover is not empty after a restart. They come back with their age, a window that has reset since is shown as a fresh one, a reading older than 30 days is dropped, and the first live reading of a provider replaces them. A **budget** the person sets for a provider (in Settings, Usage) is stored in the window's local storage under `namzu.limit-budgets` and never sent anywhere.
 
 ## For provider authors
 
