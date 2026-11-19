@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type { ExtensionDisclosure, ExtensionRow } from '../shared/extensions-view.js'
 import { CollectedView } from './extension-collected.js'
-import { kindCounts, kindTitle, recordCountWords } from './extensions-model.js'
+import { kindCounts, kindTitle, recordCountWords, titleSaysAll } from './extensions-model.js'
 
 const ROW = {
 	id: 'com.cogitave.activity',
@@ -153,5 +153,15 @@ describe('the words of that page', () => {
 			'Which program was in front',
 		)
 		expect(kindTitle({ description: 'A'.repeat(80) }).length).toBeLessThanOrEqual(46)
+	})
+})
+
+describe('a heading that already says the whole description', () => {
+	it('hides the repeated What it records row', () => {
+		expect(titleSaysAll({ description: 'Window titles.' })).toBe(true)
+		expect(titleSaysAll({ title: 'Applications', description: 'Seconds per application.' })).toBe(
+			false,
+		)
+		expect(titleSaysAll({ description: 'A'.repeat(80) })).toBe(false)
 	})
 })

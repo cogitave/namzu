@@ -14,6 +14,7 @@ import {
 	kindTitle,
 	recordCountWords,
 	rowsTable,
+	titleSaysAll,
 } from './extensions-model.js'
 import { ask } from './extensions-store.js'
 import { ArrowLeftIcon } from './icons.js'
@@ -123,7 +124,13 @@ export function CollectedView({
 			{d?.dataKinds.map((k) => (
 				<section key={k.id} data-kind={k.id}>
 					<h2 className="settings-section-title">{kindTitle(k)}</h2>
-					<Row id={`collected-${k.id}-what`} label="What it records" description={k.description} />
+					{!titleSaysAll(k) && (
+						<Row
+							id={`collected-${k.id}-what`}
+							label="What it records"
+							description={k.description}
+						/>
+					)}
 					{k.example && (
 						<Row id={`collected-${k.id}-example`} label="For example">
 							<span className="settings-value extension-value">{k.example}</span>

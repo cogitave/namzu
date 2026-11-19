@@ -435,6 +435,13 @@ export function kindTitle(k: { title?: string; description: string }): string {
 	return first.length > 48 ? `${first.slice(0, 45).trimEnd()}…` : first
 }
 
+/** True when the group's heading already says the whole description, so the "What it records" row would repeat it. */
+export function titleSaysAll(k: { title?: string; description: string }): boolean {
+	const t = kindTitle(k).replace(/…$/, '')
+	const d = k.description.replace(/[.!?…。]+$/, '').trim()
+	return k.title === undefined ? d === t : d === k.title.trim()
+}
+
 export function auditWords(event: string, detail: string | undefined): string {
 	const base = AUDIT_WORDS[event]
 	if (!base) return detail ? `${event} ${detail}` : event
