@@ -633,14 +633,17 @@
 	margin-inline-start: var(--settings-nav-pad);
 	padding-top: var(--settings-nav-pad);
 }
-/* The left column: search on top, then the groups of sections, the current one filled. It does not scroll. */
+/* The left column: search on top, then the groups of sections, the current one filled. It scrolls
+   only when the window is too short to show every section, so the last ones are never cut off. */
 .settings-sidebar-content {
 	display: flex;
 	flex-direction: column;
 	height: 100%;
 	padding: var(--settings-nav-pad) var(--settings-nav-pad) 0;
 	box-sizing: border-box;
-	overflow: hidden;
+	overflow-x: hidden;
+	overflow-y: auto;
+	scrollbar-width: none;
 }
 .settings-nav-search {
 	flex: none;
@@ -739,12 +742,15 @@
 /* A narrower dialog gives the label the wider share, and a very narrow column stacks the control
    under it, start-aligned. */
 @container settings-dialog (max-width: 760px) {
+	/* The control keeps the width it needs (a three-way choice, a font menu and its button); the label
+	   takes the rest and never less than 180 px. */
 	.settings-row:not([data-stacked]) > .settings-row-copy {
-		flex: 1 1 55%;
+		flex: 1 1 0;
+		min-width: 180px;
 	}
 	.settings-row:not([data-stacked]) > .settings-row-control {
-		flex: 0 1 auto;
-		max-width: 45%;
+		flex: 0 0 auto;
+		max-width: calc(100% - 196px);
 	}
 	/* A number field shrinks before its unit wraps. */
 	.settings-row-control .settings-config-field {
@@ -1311,8 +1317,10 @@ input.settings-config-number {
 }
 .settings-font-choice {
 	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
-	gap: 8px;
+	justify-content: flex-end;
+	gap: 6px 8px;
 }
 .settings-font-find,
 .settings-row-button {

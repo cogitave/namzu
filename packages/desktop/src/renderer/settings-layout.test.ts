@@ -74,6 +74,24 @@ describe('Settings layout rules', () => {
 		expect(block).not.toMatch(/\)\s+:not\(/)
 	})
 
+	it('keeps a narrow window from cutting off the last sections or pushing a control past the edge', () => {
+		const page = css('settings-page.css')
+		// A short window scrolls the section list instead of cutting off About.
+		expect(page).toMatch(/\.settings-sidebar-content \{[^}]*overflow-y: auto/)
+		const band = page.slice(page.indexOf('@container settings-dialog (max-width: 760px)'))
+		const block = band.slice(0, band.indexOf('@container settings-dialog (max-width: 640px)'))
+		// The control keeps the width it needs; the label gives way, down to 180 px.
+		expect(block).toMatch(/> \.settings-row-copy \{[^}]*flex: 1 1 0;[^}]*min-width: 180px/)
+		expect(block).toMatch(
+			/> \.settings-row-control \{[^}]*flex: 0 0 auto;[^}]*max-width: calc\(100% - 196px\)/,
+		)
+		expect(block).not.toMatch(/max-width: 45%/)
+		// A font menu and its button wrap inside the control rather than run out of it.
+		expect(page).toMatch(
+			/\.settings-font-choice \{[^}]*flex-wrap: wrap;[^}]*justify-content: flex-end/,
+		)
+	})
+
 	it('lets a number field shrink beside its unit in the 640-760 px band', () => {
 		const page = css('settings-page.css')
 		const band = page.slice(page.indexOf('@container settings-dialog (max-width: 760px)'))
