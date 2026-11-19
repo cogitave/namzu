@@ -1,5 +1,10 @@
 # Documentation update log
 
+## 2026-11-20
+
+- **Update** [Terminal design](cli/terminal-design.md#keypad-keys): the keypad Enter sends a message and every other keypad key acts as the key it stands for (digits and operators type, arrows, Home, End, Page Up and Down, Insert and Delete move and edit); the terminal reports them as codes of their own under the keyboard protocol the message box turns on, and they were not understood. `.changeset/cli-keypad-keys.md`.
+- **Update** [Pasting images](cli/clipboard-and-images.md): on macOS a file copied in Finder attaches (second fixed read, `«class furl»`), a paste of a screenshot-preview path whose file is gone reads the clipboard picture instead, and the page says the macOS key is Ctrl+V. `.changeset/cli-keypad-keys.md`.
+
 ## 2026-11-19
 
 - **Update** [Extensions](cli/extensions.md): on Windows, the first start after an update no longer opens a console window. The app repaired the sign-in entry only after it had started the runner through it, so an entry an earlier version left behind (one that ran `start.cmd`) ran once with its window. The app now repairs the entry before it first starts the runner. The repair also registers again an entry whose command is not the hidden launcher, even when no launcher file changed.
