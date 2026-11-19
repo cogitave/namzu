@@ -54,7 +54,9 @@ Settings' own. From the top:
   it, stopping its start at sign-in, changing the licence or the key then ask for it, and those rows
   say "Needs the administrator password." After a wrong password the next one waits (the row says how
   long). The notice says only the administrator can turn it off. See
-  [Extensions](extensions.md#the-administrator-lock).
+  [Extensions](extensions.md#the-administrator-lock). An update that adds the lock to an extension
+  that is already on asks for the password on its notice screen. Turning it off or removing it closes
+  the extension's open page only when it went through: a wrong password leaves the page open.
 - **Data**: two rows. **Records** opens the extension's own page for it, full size in the main pane
   (not a dialog, and nothing per day): it is meant for the company reading it, newest first, with
   filters and search, and the person can open it too. **What is collected** opens a read-only page of

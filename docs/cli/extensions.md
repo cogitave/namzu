@@ -231,6 +231,16 @@ app, the command line and the runner all honour it. A refused try is a line in t
 (`unlock-failed`, with the operation and never the password), as are setting and removing the lock.
 `enable` on an unlocked extension that declares the lock asks for a new password.
 
+A try is counted and its wait is written **before** the password is hashed, under a small guard file
+(`lock.json.guard`, taken exclusively, a left-behind one is taken over after ten seconds). Fifty
+`namzu extension disable` processes started at once therefore meet the wait the first one reserved
+instead of each being judged; a right password clears it again. An **update that adds the lock to an
+extension that is already on** asks for the administrator password when its notice is acknowledged
+(`--admin-password-stdin` on the command line, the password fields on the notice screen in Desktop);
+without it the acknowledgement is refused and the old version keeps running. **What the lock does not
+cover**: adding a newer package over a locked extension is not guarded (an update still goes through
+its notice), so an extension's own lock text must not promise control over its version.
+
 Only a slow salted hash is kept: Node's scrypt (N 32768, r 8, p 1) with a random salt for each
 extension, in `lock.json` in the extension's own folder, never in its data folder and never named to
 the extension. **What this is not**: it stops turning the extension off *in Namzu*. It is not a
