@@ -80,10 +80,11 @@ describe('Settings layout rules', () => {
 		expect(page).toMatch(/\.settings-sidebar-content \{[^}]*overflow-y: auto/)
 		const band = page.slice(page.indexOf('@container settings-dialog (max-width: 760px)'))
 		const block = band.slice(0, band.indexOf('@container settings-dialog (max-width: 640px)'))
-		// The control keeps the width it needs; the label gives way, down to 180 px.
+		// The control keeps the width it needs; the label gives way, down to 180 px, and past that the
+		// control shrinks (a font menu's button wraps under it) rather than run past the edge.
 		expect(block).toMatch(/> \.settings-row-copy \{[^}]*flex: 1 1 0;[^}]*min-width: 180px/)
 		expect(block).toMatch(
-			/> \.settings-row-control \{[^}]*flex: 0 0 auto;[^}]*max-width: calc\(100% - 196px\)/,
+			/> \.settings-row-control \{[^}]*flex: 0 1 auto;[^}]*min-width: 0;[^}]*max-width: calc\(100% - 196px\)/,
 		)
 		expect(block).not.toMatch(/max-width: 45%/)
 		// A font menu and its button wrap inside the control rather than run out of it.

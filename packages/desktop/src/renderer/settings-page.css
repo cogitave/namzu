@@ -643,7 +643,8 @@
 	box-sizing: border-box;
 	overflow-x: hidden;
 	overflow-y: auto;
-	scrollbar-width: none;
+	/* A thin thumb shows, like the content column's, that the list goes on. */
+	scrollbar-width: thin;
 }
 .settings-nav-search {
 	flex: none;
@@ -749,7 +750,8 @@
 		min-width: 180px;
 	}
 	.settings-row:not([data-stacked]) > .settings-row-control {
-		flex: 0 0 auto;
+		flex: 0 1 auto;
+		min-width: 0;
 		max-width: calc(100% - 196px);
 	}
 	/* A number field shrinks before its unit wraps. */
