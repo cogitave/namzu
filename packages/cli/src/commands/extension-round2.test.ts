@@ -29,6 +29,8 @@ let answers: string[]
 let stdin = ''
 let reg: FakeRegistrar
 let ensured = 0
+/** The launcher the sign-in entry named when the runner was last asked to start. */
+let entryAtEnsure: string | undefined
 let stopped = 0
 let signinRemoved = 0
 const rec = recordingSpawn()
@@ -38,6 +40,7 @@ const background = (): BackgroundDeps => ({
 	engine: { exe: process.execPath, args: ['/x/bin.js'], env: {} },
 	ensureRunner: async () => {
 		ensured++
+		entryAtEnsure = reg.entry?.launcher
 		return true
 	},
 	daemonRun: async () => ({
@@ -262,6 +265,15 @@ describe('start at sign-in from the command line', () => {
 		expect(await run('daemon', 'run')).toBe(0)
 		expect(out.join('\n')).toMatch(/already running/)
 		expect(await run('daemon', 'bogus')).toBe(64)
+	})
+	it('daemon start mends an entry an earlier version left before it asks it to start the runner', async () => {
+		await readyToEnable()
+		answers = ['y', 'y']
+		await run('enable', ID)
+		// What an earlier version registered: on Windows, the console file itself.
+		reg.entry = { launcher: join(dir, 'old', 'start.cmd'), kind: 'xdg' }
+		expect(await run('daemon', 'start')).toBe(0)
+		expect(entryAtEnsure).toMatch(/_runner[\\/]start\.sh$/)
 	})
 	it('signin remove --all removes the entry and nothing else', async () => {
 		await readyToEnable()

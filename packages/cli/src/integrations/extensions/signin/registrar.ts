@@ -19,12 +19,18 @@ export interface SigninStatus {
 	readonly kind?: SigninKind
 	/** The person (or the system) switched the entry off in the operating system. Namzu never re-enables it. */
 	readonly disabledByOs?: boolean
+	/**
+	 * The entry runs something other than the launcher it should, such as an earlier version's command.
+	 * Only said when the caller passed the launcher it expects and the entry's command could be read.
+	 */
+	readonly stale?: boolean
 }
 
 export type RegisterResult = { ok: true; kind: SigninKind } | { ok: false; reason: string }
 
 export interface SigninRegistrar {
-	status(): Promise<SigninStatus>
+	/** What exists now; given the launcher it should name, also whether the entry still names it. */
+	status(spec?: SigninSpec): Promise<SigninStatus>
 	register(spec: SigninSpec): Promise<RegisterResult>
 	unregister(): Promise<void>
 }
