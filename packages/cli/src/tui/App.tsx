@@ -2552,6 +2552,8 @@ function AppBody({
 	}, [])
 	const [composerDraft, setComposerDraft] = useState<ComposerDraft | null>(null)
 	const [composerHasDraft, setComposerHasDraft] = useState(false)
+	// The composer is in shell mode (a leading `!`): the frame turns green.
+	const [composerShell, setComposerShell] = useState(false)
 	// A history search in the box owns Ctrl+C: it backs out of the search only.
 	const composerSearchingRef = useRef(false)
 	const setComposerSearching = useCallback((searching: boolean) => {
@@ -18205,6 +18207,7 @@ function AppBody({
 								columns={Math.max(2, (terminal.columns ?? 80) - SCREEN_MARGIN)}
 								working={state === 'thinking' || state === 'tool' || visibleActiveTools.length > 0}
 								{...(hypermode ? { mode: HYPERMODE } : {})}
+								shell={composerShell}
 								activation={hypermodeActivation}
 								animate={externalEditorRequest === null}
 								focus={
@@ -18300,6 +18303,7 @@ function AppBody({
 										setComposerDraft((draft) => (draft?.token === token ? null : draft))
 									}
 									onDraftPresenceChange={setComposerHasDraft}
+									onShellModeChange={setComposerShell}
 									onHistorySearchChange={setComposerSearching}
 									onOpenAgentPanel={focusAgentRail}
 									onOpenAgents={() => void openAgentCockpit()}
