@@ -1529,10 +1529,13 @@ export function WorkflowDetail({
 }: WorkflowDetailProps) {
 	const columns = Math.max(20, terminalColumns)
 	// The script's last log() line sits under the header; a short detail has fewer of them.
+	// Only lines the script really logged take rows: with none, the list gets them, so a detail of a
+	// given height ends on its key line and leaves no blank rows above the message box.
+	const loggedLines = workflow.logs?.length ?? 0
 	const logLines =
 		height === undefined
 			? detailLogLineCount(terminalRows)
-			: Math.min(detailLogLineCount(terminalRows), Math.max(0, height - 12))
+			: Math.min(detailLogLineCount(terminalRows), Math.max(0, height - 12), loggedLines)
 	const pageSize =
 		height === undefined
 			? workflowDetailPageSize(terminalRows)

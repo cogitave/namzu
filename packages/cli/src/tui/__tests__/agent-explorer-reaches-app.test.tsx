@@ -1579,6 +1579,9 @@ describe('the agents cockpit', () => {
 			expect(detail).toBeGreaterThan(first)
 			expect(boxTop).toBeGreaterThan(detail)
 			expect(at(/model/u)).toBeGreaterThan(boxBottom)
+			// The detail ends on its key line right above the box (one spacing row), with no blank rows
+			// kept for log lines the workflow never wrote.
+			expect(boxTop - at(/esc back/u), rows.join('\n')).toBeLessThanOrEqual(2)
 			// The detail is one block of the height the rule gives, never the whole screen, and the
 			// conversation's header stays readable above it.
 			expect(boxTop - first).toBeLessThanOrEqual(workflowDetailHeight(40, false) + 1)
