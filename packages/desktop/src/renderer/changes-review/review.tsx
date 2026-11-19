@@ -48,6 +48,7 @@ import { ReviewTreeView } from './tree.js'
 import { ViewMenu } from './view-menu.js'
 import { type ViewedState, fingerprintOf, viewedState } from './viewed.js'
 import './review.css'
+import { viewState } from '../view-state.js'
 
 type Tool = Extract<AcpSessionUpdate, { kind: 'tool_call' }>
 
@@ -81,7 +82,7 @@ const storageKey = (scopeKey: string, base: string) => `namzu.changes.viewed.${s
 
 function readMarks(key: string): Record<string, string> {
 	try {
-		const raw = localStorage.getItem(key)
+		const raw = viewState.getItem(key)
 		const value = raw ? JSON.parse(raw) : {}
 		if (!value || typeof value !== 'object') return {}
 		return Object.fromEntries(
@@ -95,7 +96,7 @@ function readMarks(key: string): Record<string, string> {
 }
 function writeMarks(key: string, marks: Record<string, string>) {
 	try {
-		localStorage.setItem(key, JSON.stringify(marks))
+		viewState.setItem(key, JSON.stringify(marks))
 	} catch {
 		// A mark is a convenience; without storage it lasts for this window.
 	}

@@ -65,9 +65,13 @@ export function contextRingModel(usage: ThreadUsage | undefined): ContextRingMod
 	const percent = Math.round(fraction * 100)
 	const tone: ContextRingTone =
 		fraction >= RING_FULL ? 'full' : fraction >= RING_HIGH ? 'high' : 'normal'
-	const about = usage?.measuredBy === 'estimate' ? 'about ' : ''
+	const about = usage?.measuredBy === 'estimate' || usage?.sizeOutOfDate ? 'about ' : ''
 	const size = `${about}${formatTokens(used)} of ${formatTokens(window)}`
 	const lines = [`${percent}% of this conversation’s memory used (${size})`]
+	if (usage?.sizeOutOfDate)
+		lines.push(
+			'Namzu shortened this conversation, so this size is out of date until your next message.',
+		)
 	if (tone !== 'normal') lines.push('Older messages may be summarised to make room.')
 	if (usage?.cost !== undefined) lines.push(`Cost so far: ${formatCost(usage.cost)}`)
 	return {

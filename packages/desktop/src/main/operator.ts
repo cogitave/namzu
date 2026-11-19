@@ -41,7 +41,11 @@ import {
 	readContextReport,
 } from '../shared/context-protocol.js'
 import { QUESTION_TOOL } from '../shared/conversation-status.js'
-import { type HistoryWorkSnapshot, restoreHistoryWork } from '../shared/history-work.js'
+import {
+	type HistoryWorkSnapshot,
+	restoreHistoryWork,
+	seedStoredUsage,
+} from '../shared/history-work.js'
 import { readHooksReport } from '../shared/hooks-report.js'
 import {
 	LIMITS_NOTIFICATION,
@@ -4096,6 +4100,7 @@ export class Operator {
 				messages: ChatMessage[]
 				partial: boolean
 				work?: HistoryWorkSnapshot
+				usage?: unknown
 			}
 			assertCurrent()
 			this.assertConversationAvailable(sessionId)
@@ -4110,7 +4115,10 @@ export class Operator {
 				queue: [],
 				draft: '',
 				projection: {
-					...restoreHistoryWork(emptyThread(), history.messages, history.work),
+					...seedStoredUsage(
+						restoreHistoryWork(emptyThread(), history.messages, history.work),
+						history.usage,
+					),
 					partial: history.partial,
 				},
 				permissions: new Map(),
@@ -4163,6 +4171,7 @@ export class Operator {
 				messages: ChatMessage[]
 				partial: boolean
 				work?: HistoryWorkSnapshot
+				usage?: unknown
 			}
 			assertCurrent()
 			if (
@@ -4179,7 +4188,10 @@ export class Operator {
 					attachmentIds,
 				})
 			session.projection = {
-				...restoreHistoryWork(session.projection, history.messages, history.work),
+				...seedStoredUsage(
+					restoreHistoryWork(session.projection, history.messages, history.work),
+					history.usage,
+				),
 				partial: history.partial,
 			}
 			session.needsHistory = false

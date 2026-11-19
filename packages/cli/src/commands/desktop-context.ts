@@ -139,6 +139,12 @@ export interface ContextReport {
 	readonly sizeOutOfDate?: boolean
 	/** True when the total is the kernel's own count, or the history changed since the last count. */
 	readonly approximate: boolean
+	/**
+	 * Present when no engine answered and the figure was read back from the stored conversation:
+	 * `record` is the last count the log holds, `estimate` is a guess from the stored messages.
+	 * Either way the breakdown by part is not known, only the total.
+	 */
+	readonly stored?: 'record' | 'estimate'
 }
 
 /** A tool server's tool as a person names it: the part after the server's own prefix. */
@@ -157,6 +163,7 @@ export function buildContextReport(input: {
 	readonly figures: ContextFigures
 	readonly autoCompact: boolean
 	readonly gathering: ContextGathering
+	readonly stored?: 'record' | 'estimate'
 }): ContextReport {
 	const { breakdown, mcp, deferredBuiltIn, deferredMcp, memory, skillSizes, agentSizes } =
 		input.gathering
@@ -198,7 +205,10 @@ export function buildContextReport(input: {
 					memoryFiles: bySize(memory.map((file) => ({ label: file.label, tokens: file.tokens }))),
 				}
 			: undefined
-	const approximate = figures.measuredBy !== 'provider' || figures.sizeOutOfDate === true
+	const approximate =
+		input.stored !== undefined ||
+		figures.measuredBy !== 'provider' ||
+		figures.sizeOutOfDate === true
 	return {
 		sessionId: input.sessionId,
 		detail: input.detail,
@@ -221,5 +231,6 @@ export function buildContextReport(input: {
 		...(lists ? { lists } : {}),
 		...(figures.sizeOutOfDate ? { sizeOutOfDate: true } : {}),
 		approximate,
+		...(input.stored ? { stored: input.stored } : {}),
 	}
 }

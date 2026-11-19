@@ -205,10 +205,18 @@ export function contextPanelModel(input: PanelInput): PanelModel {
 	const percent = total > 0 && Math.round(rawPercent) === 0 ? '<1' : String(Math.round(rawPercent))
 	const tone = rawPercent >= 90 ? 'full' : rawPercent >= 75 ? 'high' : 'normal'
 
+	// A count read back from the log is one total: it is not split into parts, so calling it
+	// "Messages" would say the instructions and tools are not in it.
+	const wholeCount = report.stored === 'record'
+	const nameOf = (category: ContextCategory) =>
+		wholeCount && category.id === 'messages' ? 'Used so far' : (NAME[category.id] ?? category.name)
 	const byTokens = (a: ContextCategory, b: ContextCategory) => b.tokens - a.tokens
 	const rowOf = (category: ContextCategory, deferred: boolean): PanelRow => {
-		const name = NAME[category.id] ?? category.name
-		const hint = HINT[category.id]
+		const name = nameOf(category)
+		const hint =
+			wholeCount && category.id === 'messages'
+				? 'Everything in the conversation at the last count: messages, tool results and Namzu’s own instructions.'
+				: HINT[category.id]
 		const slot = deferred ? undefined : SLOT[category.id]
 		const items = deferred ? undefined : listItems(category.id, lists)
 		return {
@@ -265,11 +273,11 @@ export function contextPanelModel(input: PanelInput): PanelModel {
 		const slot = SLOT[category.id]
 		return {
 			id: category.id,
-			name: NAME[category.id] ?? category.name,
+			name: nameOf(category),
 			width: width(category.tokens),
 			...(slot === undefined ? {} : { slot }),
 			kind: 'used',
-			title: `${NAME[category.id] ?? category.name} · ${formatSize(category.tokens)} · ${formatShare(category.tokens, window)}`,
+			title: `${nameOf(category)} · ${formatSize(category.tokens)} · ${formatShare(category.tokens, window)}`,
 		}
 	})
 	if (buffer)
@@ -282,7 +290,7 @@ export function contextPanelModel(input: PanelInput): PanelModel {
 		})
 
 	const label = `${about}${percent}% used: ${used
-		.map((c) => `${(NAME[c.id] ?? c.name).toLowerCase()} ${formatShare(c.tokens, window)}`)
+		.map((c) => `${nameOf(c).toLowerCase()} ${formatShare(c.tokens, window)}`)
 		.join(', ')}`
 
 	let sentence: string
@@ -300,9 +308,18 @@ export function contextPanelModel(input: PanelInput): PanelModel {
 	else sentence = 'This conversation is past what Namzu can read at once.'
 
 	let footnote: string
+	// An out-of-date size is said first: it is the most important thing the footnote can say.
 	if (report.sizeOutOfDate)
 		footnote =
 			'Namzu shortened this conversation, so these sizes are out of date until your next message. Sizes are Namzu’s own count (about 4 characters to a token).'
+	else if (report.stored === 'record' && report.measuredBy === 'provider')
+		footnote =
+			'From the last reply. Namzu counts again, with the full breakdown, after your next message.'
+	else if (report.stored === 'record')
+		footnote =
+			'Namzu’s own estimate at the last reply. Namzu counts again, with the full breakdown, after your next message.'
+	else if (report.stored === 'estimate')
+		footnote = 'Estimated from this conversation. Namzu counts it exactly after your next message.'
 	else if (report.measuredBy === 'provider')
 		footnote =
 			'The total comes from your AI service. The rows are Namzu’s own estimates (about 4 characters to a token) and add up to it.'
@@ -311,14 +328,16 @@ export function contextPanelModel(input: PanelInput): PanelModel {
 			'Sizes are Namzu’s own count (about 4 characters to a token). They may be off by a few percent until your next message.'
 
 	const tag =
-		report.measuredBy === 'provider' && !report.sizeOutOfDate
-			? { text: 'Exact total', title: 'Your AI service counted this.' }
-			: report.measuredBy
-				? {
-						text: 'Estimate',
-						title: 'Namzu counted this itself. It may be off by a few percent.',
-					}
-				: undefined
+		report.stored === 'record' && report.measuredBy === 'provider' && !report.sizeOutOfDate
+			? { text: 'Last count', title: 'Your AI service counted this at the last reply.' }
+			: report.measuredBy === 'provider' && !report.sizeOutOfDate && !report.stored
+				? { text: 'Exact total', title: 'Your AI service counted this.' }
+				: report.measuredBy
+					? {
+							text: 'Estimate',
+							title: 'Namzu counted this itself. It may be off by a few percent.',
+						}
+					: undefined
 
 	const servers = toServers(lists)
 	return {

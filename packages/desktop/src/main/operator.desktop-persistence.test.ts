@@ -370,3 +370,37 @@ it('keeps a Pal marked unread across a restart until it is read, and refuses a b
 	owners.splice(owners.indexOf(after), 1)
 	expect(operator(root, log).palUnread()).toEqual(['pal-b'])
 })
+
+it('seeds the context ring of a reopened conversation from the figure the log holds', async () => {
+	vi.stubEnv(
+		'FIXTURE_HISTORY_USAGE',
+		JSON.stringify({ contextTokens: 12_000, contextWindowTokens: 200_000, measuredBy: 'provider' }),
+	)
+	const root = await directory()
+	const log = join(root, 'requests.ndjson')
+	const projectId = 'usage-project'
+	const view = {
+		id: 'usage-session',
+		projectId,
+		title: 'A measured conversation',
+		updatedAt: '2026-10-04T00:00:00.000Z',
+	}
+	new DesktopConversationStore(root).write({
+		version: 1,
+		projects: [{ id: projectId, path: process.cwd() }],
+		conversations: [{ view, runtimeSessionId: 'usage-runtime', hasPrompted: true, draft: '' }],
+		projectDrafts: [],
+		attachments: [],
+	})
+	const owner = operator(root, log)
+	await owner.openProject(process.cwd())
+	const opened = await owner.openConversation(projectId, view.id)
+	expect(opened.thread?.usage).toEqual({
+		contextTokens: 12_000,
+		contextWindowTokens: 200_000,
+		measuredBy: 'provider',
+	})
+	// Display only: nothing started an engine session to read it.
+	const calls = await requests(log)
+	expect(calls.some((item) => item.method === 'session/prompt')).toBe(false)
+})

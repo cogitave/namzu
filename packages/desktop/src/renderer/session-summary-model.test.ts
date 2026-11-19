@@ -148,7 +148,7 @@ it('says None, and Not known, instead of a count the panel cannot stand behind',
 	expect(unknown).not.toContain('finished')
 })
 
-it('draws a chat without a folder with only Context and Background tasks', () => {
+it('draws a chat with no project: This computer first, then Context and Background tasks, no repository rows', () => {
 	const html = renderToStaticMarkup(
 		createElement(SessionPanel, {
 			summary: sessionSummary({ ...base, project: undefined, servers: { state: 'hidden' } }),
@@ -161,8 +161,42 @@ it('draws a chat without a folder with only Context and Background tasks', () =>
 			onOpenWork: () => {},
 		}),
 	)
-	expect(html).toContain('aria-label="Context"')
+	expect(html).toContain('aria-label="Environment"')
+	expect(html.indexOf('aria-label="Environment"')).toBeLessThan(
+		html.indexOf('aria-label="Context"'),
+	)
+	expect(html).toContain('This computer')
 	expect(html).toContain('aria-label="Background tasks"')
-	expect(html).not.toContain('aria-label="Environment"')
 	expect(html).not.toContain('aria-label="Changes"')
+	expect(html).not.toContain('Remote')
+})
+
+it('names a chat’s own folder in plain words, with a shortened path and no branch', () => {
+	const path = '/home/someone/.namzu/chats/a-very-long-folder-name-that-goes-on-and-on-and-on'
+	const summary = sessionSummary({
+		...base,
+		project: { name: 'chats', path, trusted: true, kind: 'chat' },
+		git: { projectId: 'p', branch: 'main', subject: 'x' } as never,
+		servers: { state: 'hidden' },
+	})
+	expect(summary.environment.folder).toEqual({ name: 'Chat folder', path })
+	expect(summary.environment.branch).toBeUndefined()
+	expect(summary.environment.branchNote).toBeUndefined()
+	const html = renderToStaticMarkup(
+		createElement(SessionPanel, {
+			summary,
+			chatOnly: true,
+			jobs: [],
+			jobsKnown: true,
+			now: 0,
+			onClose: () => {},
+			onOpenChanges: () => {},
+			onOpenWork: () => {},
+		}),
+	)
+	expect(html).toContain('Chat folder')
+	expect(html).toContain('~/.namzu/chats/')
+	expect(html).toContain('…')
+	expect(html).toContain(path)
+	expect(html).not.toContain('session-branch')
 })

@@ -156,6 +156,68 @@ describe('an estimate', () => {
 		expect(model.tag?.text).toBe('Estimate')
 	})
 
+	it('says a figure read back from the log is from the last reply, with the provider count kept', () => {
+		const model = contextPanelModel({
+			report: report({ stored: 'record', measuredBy: 'provider', approximate: true }),
+		})
+		expect(model.footnote).toBe(
+			'From the last reply. Namzu counts again, with the full breakdown, after your next message.',
+		)
+		expect(model.tag?.text).toBe('Last count')
+	})
+
+	it('does not call a whole stored count "Messages"', () => {
+		const stored = contextPanelModel({
+			report: report({
+				stored: 'record',
+				measuredBy: 'provider',
+				approximate: true,
+				categories: [
+					{ id: 'messages', name: 'Messages', tokens: 14_000, kind: 'used' },
+					{ id: 'free', name: 'Free space', tokens: 86_000, kind: 'free' },
+				],
+			}),
+		})
+		expect(stored.used.map((row) => row.name)).toEqual(['Used so far'])
+		expect(stored.used[0]?.title).toContain('instructions')
+		expect(stored.bar.segments[0]?.name).toBe('Used so far')
+		// A live breakdown keeps the name.
+		expect(contextPanelModel({ report: report() }).used.map((row) => row.name)).toContain(
+			'Messages',
+		)
+	})
+
+	it('says an out-of-date stored count is out of date, not from the last reply', () => {
+		for (const measuredBy of ['provider', 'estimate'] as const) {
+			const model = contextPanelModel({
+				report: report({ stored: 'record', sizeOutOfDate: true, measuredBy, approximate: true }),
+			})
+			expect(model.footnote).toContain('out of date until your next message')
+			expect(model.footnote).not.toContain('From the last reply')
+			expect(model.tag?.text).toBe('Estimate')
+		}
+	})
+
+	it('does not call an estimate kept in the log a count from the AI service', () => {
+		const model = contextPanelModel({
+			report: report({ stored: 'record', measuredBy: 'estimate', approximate: true }),
+		})
+		expect(model.footnote).not.toBe(
+			'From the last reply. Namzu counts again, with the full breakdown, after your next message.',
+		)
+		expect(model.footnote).toContain('estimate')
+	})
+
+	it('says a figure guessed from the stored messages is estimated', () => {
+		const model = contextPanelModel({
+			report: report({ stored: 'estimate', measuredBy: 'estimate', approximate: true }),
+		})
+		expect(model.footnote).toBe(
+			'Estimated from this conversation. Namzu counts it exactly after your next message.',
+		)
+		expect(model.tag?.text).toBe('Estimate')
+	})
+
 	it('says it is shortening while it runs', () => {
 		expect(contextPanelModel({ report: report(), compacting: true }).sentence).toBe(
 			'Namzu is shortening this conversation…',
