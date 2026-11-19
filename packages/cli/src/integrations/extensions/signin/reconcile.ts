@@ -131,8 +131,8 @@ export async function reconcileSignin(i: ReconcileInput): Promise<RunnerState['s
 	}
 	if (!i.registrar)
 		return save({ registered: false, reason: 'no sign-in mechanism on this system' })
-	const cur = await i.registrar.status()
 	if (!i.wanted) {
+		const cur = await i.registrar.status()
 		if (cur.registered) {
 			await i.registrar.unregister()
 			i.log?.('signin-removed')
@@ -150,16 +150,20 @@ export async function reconcileSignin(i: ReconcileInput): Promise<RunnerState['s
 		return save({ registered: false })
 	}
 	const paths = writeLauncher(i.extensionsRoot, i.engine, i.platform)
+	const spec = {
+		launcher: paths.launcher,
+		...(paths.hidden ? { hiddenLauncher: paths.hidden } : {}),
+	}
+	// Asked with the launcher it should name: an entry an earlier version made (on Windows one that ran
+	// `start.cmd`, which opens a console window) is registered again even when no launcher file changed.
+	const cur = await i.registrar.status(spec)
 	if (cur.registered && cur.disabledByOs) {
 		i.log?.('signin-disabled-by-os')
 		return save({ registered: true, ...(cur.kind ? { kind: cur.kind } : {}), disabledByOs: true })
 	}
-	if (cur.registered && !paths.changed)
+	if (cur.registered && !paths.changed && !cur.stale)
 		return save({ registered: true, ...(cur.kind ? { kind: cur.kind } : {}) })
-	const r = await i.registrar.register({
-		launcher: paths.launcher,
-		...(paths.hidden ? { hiddenLauncher: paths.hidden } : {}),
-	})
+	const r = await i.registrar.register(spec)
 	if (!r.ok) return save({ registered: false, reason: r.reason })
 	i.log?.('signin-registered', r.kind)
 	return save({ registered: true, kind: r.kind })

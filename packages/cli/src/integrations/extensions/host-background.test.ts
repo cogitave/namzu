@@ -378,6 +378,39 @@ describe('who supervises: the runner for switch-on extensions, the app for the r
 		)
 		expect(h.view(ID).background?.hostedBy).toBe('none')
 	})
+	it('the app repairs the sign-in entry before it first asks it to start the runner, and only then', async () => {
+		const order: string[] = []
+		let release = (): void => {}
+		const repaired = new Promise<void>((resolve) => {
+			release = resolve
+		})
+		const h = await two({
+			spawn: recordingSpawn().spawn,
+			signin: async (wanted) => {
+				order.push(`signin ${wanted}`)
+				await repaired
+				order.push('signin done')
+				return { registered: wanted }
+			},
+			ensureRunner: async () => {
+				order.push('ensure')
+				return true
+			},
+		})
+		h.enable(ID)
+		await settle()
+		// An entry an earlier version made could still open a console window: nothing starts until it is mended.
+		expect(order[0]).toBe('signin true')
+		expect(order).not.toContain('ensure')
+		release()
+		await settle()
+		expect(order.indexOf('ensure')).toBeGreaterThan(order.indexOf('signin done'))
+		// Once per host: a later tick that hands the extension over again does not repair it again.
+		const repairs = order.filter((step) => step === 'signin true').length
+		h.tick()
+		await settle()
+		expect(order.filter((step) => step === 'signin true')).toHaveLength(repairs)
+	})
 	it('when no runner can be reached the app keeps the extension running itself while it is open', async () => {
 		const rec = recordingSpawn()
 		const h = await two({ spawn: rec.spawn, ensureRunner: async () => false })

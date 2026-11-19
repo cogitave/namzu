@@ -1965,6 +1965,16 @@ Off by default. `tui.notifications` in a config file turns on notices written to
 
 On by default, and separate from the notices above: it needs no `tui.notifications` and is not part of `true`. When a turn that ran for ten seconds or more finishes, a soft rising pair of notes plays; when a turn stops, fails or waits for approval, a double tap plays. A shorter finished turn is silent, because the person was watching it, and so is the `idle-prompt` reminder. The approval sound goes out with the approval notice, after its 6 s of quiet. Two sounds within 1.5 s are one. Both sounds are synthesised in code (`integrations/notifications/sound/chime.ts`), written once as WAV files to `<NAMZU_HOME>/cache/sound/`, and played by the first program that exists: PowerShell's `SoundPlayer` on Windows and, through interop, on WSL; `afplay` on macOS; `paplay`, `pw-play` or `aplay` on Linux. The sound plays on the machine Namzu runs on, so it is silent over SSH, and a missing player leaves everything as it was. `tui.sound: false` or `NAMZU_NO_SOUND=1` turns it off (`sound.ts`).
 
+## Keypad keys
+
+The message box asks the terminal for the kitty keyboard protocol (`disambiguateEscapeCodes`). Under it a terminal reports each keypad key as a code of its own (`ESC [ 57414 u` for the keypad Enter), which the input library names `kpenter`, `kp0` and so on and does not treat as the main key. The stream is therefore read first (`tui/keypad-keys.ts`, installed beside the paste-marker guard) and every keypad key is rewritten into what the main key sends, so the message box, the dialogs, the pickers, the question and permission prompts and the full-screen view all see the keys they already handle.
+
+- The keypad Enter is Enter and sends the message; with Shift it is Shift+Enter.
+- The keypad digits, `.`, `/`, `*`, `-`, `+`, `=` and `,` type that character.
+- The keypad arrows, Home, End, Page Up, Page Down, Insert and Delete are those keys.
+- The keypad's middle key with Num Lock off ("begin") has no main-keyboard twin and does nothing.
+- Held modifiers carry over (Ctrl+keypad Up is Ctrl+Up). Num Lock and Caps Lock change nothing. A repeat or release event is passed on in the main key's own form, so it is treated as that key's is.
+
 ## Paste and response boundaries
 
 The composer enables terminal bracketed paste while it owns input. A paste split
