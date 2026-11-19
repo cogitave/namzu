@@ -61,6 +61,14 @@ export interface SemanticColors {
 		 */
 		readonly hypermode: string
 		/**
+		 * The composer in shell mode (a leading `!`): both rules, the `!` mark and
+		 * the hint row. Namzu's green in the default palettes and the named
+		 * colour of the terminal's own scheme in the 16-colour ones; the two
+		 * daltonized palettes take their blue user accent, because green is the
+		 * hue they exist to avoid.
+		 */
+		readonly shellMode: string
+		/**
 		 * An armed composer trigger (sky): its words in the draft and its tag
 		 * row. Kept apart from the session mode's violet, which names what lasts
 		 * for the session; a trigger lasts one message.
@@ -165,6 +173,7 @@ const DARK: SemanticColors = {
 		system: 'ansi256(109)',
 		tool: 'ansi256(248)',
 		hypermode: 'ansi256(141)',
+		shellMode: 'ansi256(83)',
 		trigger: 'ansi256(117)',
 		plan: 'ansi256(73)',
 		shells: 'ansi256(37)',
@@ -229,6 +238,7 @@ const LIGHT: SemanticColors = {
 		system: 'ansi256(24)',
 		tool: 'ansi256(239)',
 		hypermode: 'ansi256(91)',
+		shellMode: 'ansi256(28)',
 		trigger: 'ansi256(25)',
 		plan: 'ansi256(30)',
 		shells: 'ansi256(30)',
@@ -287,7 +297,12 @@ const LIGHT: SemanticColors = {
 const DARK_DALTONIZED: SemanticColors = {
 	...DARK,
 	tint: { user: 'rgb(28,36,48)', queued: 'rgb(38,38,38)' },
-	accent: { ...DARK.accent, user: 'ansi256(81)', assistant: 'ansi256(81)' },
+	accent: {
+		...DARK.accent,
+		user: 'ansi256(81)',
+		assistant: 'ansi256(81)',
+		shellMode: 'ansi256(81)',
+	},
 	status: {
 		ok: 'ansi256(75)',
 		warn: 'ansi256(220)',
@@ -344,6 +359,7 @@ const LIGHT_DALTONIZED: SemanticColors = {
 		...LIGHT.accent,
 		user: 'ansi256(25)',
 		assistant: 'ansi256(25)',
+		shellMode: 'ansi256(25)',
 		trigger: 'ansi256(30)',
 	},
 	status: { ok: 'ansi256(25)', warn: 'ansi256(130)', error: 'ansi256(160)', merged: 'ansi256(91)' },
@@ -399,6 +415,7 @@ const DARK_ANSI: SemanticColors = {
 		system: 'cyan',
 		tool: 'white',
 		hypermode: 'magentaBright',
+		shellMode: 'greenBright',
 		trigger: 'cyanBright',
 		plan: 'cyan',
 		shells: 'blue',
@@ -443,6 +460,7 @@ const LIGHT_ANSI: SemanticColors = {
 		system: 'blue',
 		tool: 'blackBright',
 		hypermode: 'magenta',
+		shellMode: 'green',
 		trigger: 'blue',
 		plan: 'cyan',
 		shells: 'cyan',

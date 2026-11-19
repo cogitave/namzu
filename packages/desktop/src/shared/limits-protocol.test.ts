@@ -83,4 +83,22 @@ describe('readLimitsNotice', () => {
 		expect(out?.providers).toHaveLength(12)
 		expect(out?.providers[0]?.label).toBe('L 0')
 	})
+
+	it('keeps a reset time and a reading time given as epoch milliseconds', () => {
+		const resetsAt = Date.UTC(2026, 10, 21, 14, 0, 0)
+		const asOf = Date.UTC(2026, 10, 19, 9, 0, 0)
+		const out = readLimitsNotice({
+			providers: [
+				{
+					provider: 'anthropic',
+					label: 'Anthropic',
+					kind: 'sign-in',
+					windows: [{ label: 'Weekly · all models', usedFraction: 0.38, resetsAt }],
+					asOf,
+				},
+			],
+		})
+		expect(out?.providers[0]?.windows?.[0]?.resetsAt).toBe(resetsAt)
+		expect(out?.providers[0]?.asOf).toBe(asOf)
+	})
 })

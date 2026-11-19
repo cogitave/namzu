@@ -3784,7 +3784,7 @@ It is not drawn for a Pal, a chat has no Tool servers or Changes sections, and b
 
 ## Usage limits
 
-The indicator beside the model opens **Your usage limits**: for each provider in use, only what is honestly known, in three row shapes (a window with its reset and percent, a spend estimate or credit, and one quiet "not reported" line). It turns amber at 75 percent and red at 90 of the worst of the context and the account's windows; a rejected window reads full; nothing is ever blocked by Desktop. What is shown per provider, where it comes from and what is kept is on [Usage limits](usage-limits.md).
+The indicator beside the model opens **Your usage limits**: for each provider in use, only what is honestly known, in three row shapes (a window with its reset and percent, a spend estimate or credit); a provider that reports nothing has no row, and the popover ends with one Context row whose Details opens the Session panel. It turns amber at 75 percent and red at 90 of the worst of the context and the account's windows; a rejected window reads full; nothing is ever blocked by Desktop. What is shown per provider, where it comes from and what is kept is on [Usage limits](usage-limits.md).
 
 ### Cards under a reply
 

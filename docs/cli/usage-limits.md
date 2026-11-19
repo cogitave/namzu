@@ -20,9 +20,15 @@ The indicator beside the model in Namzu Desktop opens **Your usage limits**. It 
 | OpenRouter | Credit used of the key's limit, or use alone for a key without a cap; a budget the vendor names in dollars is preferred | One `GET /key`, read as `data.limit`, `data.limit_remaining`, `data.usage` and `data.effective_budget` (checked against the vendor's public API reference). |
 | DeepSeek | The account balance with its currency | One `GET /user/balance` to the vendor's own host, read as `balance_infos[].total_balance` (a decimal string) and `currency` (checked against the vendor's public API reference). The key is never sent to another host. |
 | Any provider with an API key not listed above | A spend estimate over the last 30 days at list prices, labelled as an estimate; "of $X budget" when the person set a budget | The local record of the conversations on this machine ([Spend by day and model](cost.md)). Nothing is requested. |
-| Everything else (a subscription that sends no numbers, Google, Bedrock, a local server) | One quiet line: "<Provider>: usage limits are not reported for this sign-in." | None. |
+| Everything else (a subscription that sends no numbers, Google, Bedrock, a local server) | Nothing: no row, no header and no sentence about what is missing | None. |
 
-A **plan** name such as "Team" is shown only when the vendor gives one; it is never taken from an email address or an organisation. A window that has reset since the last reading shows no percent ("Reset since the last reply"). A reading older than five minutes says how old it is ("as of 12 min ago").
+## What the popover looks like
+
+One padded panel. With limits known it opens with **Your usage limits**, and the plan beside it ("Your usage limits · Team") when the vendor gave one. Each window is a row: its name and percent, a quiet line under the name, a thin bar. The quiet line is "Resets at 3:00 PM" within a day, "Resets Sat 2:00 PM" beyond it, and "Starts with your first message" for a window that has not begun (0 percent, no reset yet) or that reset since the last reading (the old number is never shown). A reading older than five minutes adds how old it is ("as of 12 min ago", then hours, then days, up to the 30 days a reading is kept); a window that has not begun carries no age. A provider with nothing to report has no row at all.
+
+Below the limits, with a line between, is one **Context** row: the share of the conversation's memory used, a thin bar and **Details**, which opens the Session panel where the full breakdown is. With no limits known the popover is that one row.
+
+A **plan** name such as "Team" is shown only when the vendor gives one; it is never taken from an email address or an organisation.
 
 ## How often a vendor is asked
 
@@ -38,7 +44,7 @@ Desktop never blocks a message or refuses a request because of these numbers. Th
 
 ## What is kept
 
-Account data lives in memory in the Namzu host and the window. It is not written to a log (nothing logs a value), a file, a prompt or telemetry; a restart forgets it. A **budget** the person sets for a provider is stored in the window's local storage and never sent anywhere.
+The host holds account data in memory and never writes it to a log, a prompt or telemetry. The window keeps the **last numbers the vendor gave** (windows, credit, plan and the time of the reading, never an estimate or a credential) in its interface state under the key `namzu.last-limits` (see [what Desktop keeps](desktop-state.md)), so the popover is not empty after a restart. They come back with their age, a window that has reset since is shown as a fresh one, a reading older than 30 days is dropped, and the first live reading of a provider replaces them. A **budget** the person sets for a provider is stored in the window's local storage and never sent anywhere.
 
 ## For provider authors
 
