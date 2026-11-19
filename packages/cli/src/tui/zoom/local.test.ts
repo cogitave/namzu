@@ -64,6 +64,34 @@ function rig() {
 	return { real, stdin, proxy, session, calls }
 }
 
+describe('the local session in the fullscreen view', () => {
+	it('puts the alternate screen and the pointer back when the host lets go, before Ink is told the size', () => {
+		const real = new FakeStdout()
+		const proxy = createTerminalProxy(
+			real as unknown as NodeJS.WriteStream,
+			new FakeStdin() as unknown as NodeJS.ReadStream,
+		)
+		const order: string[] = []
+		const session = new LocalSession(
+			{
+				proxy,
+				realOut: { write: (data) => order.push(`write:${data}`) },
+				onKey: () => null,
+				requestExit: () => undefined,
+				repaint: () => undefined,
+				restoreScreen: '<alt-screen><pointer>',
+			},
+			{ cols: 100, rows: 30 },
+		)
+		proxy.stdout.on('resize', () => order.push('resize'))
+		session.attach(70, 20)
+		order.length = 0
+		session.detach()
+		expect(order.at(-2)).toContain('<alt-screen><pointer>')
+		expect(order.at(-1)).toBe('resize')
+	})
+})
+
 describe('the local session', () => {
 	it('shows what Ink writes in its mirror, at the pane’s size, and asks the App to repaint', async () => {
 		const { proxy, session, real, calls } = rig()

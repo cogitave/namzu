@@ -131,10 +131,11 @@ them. Its items are joined by a dim ` · `, left to right:
   in the right-hand slot for 800 ms; the same key again inside that window
   exits. Nothing is written to the transcript, so nothing stays in scrollback.
   Ctrl+D with anything typed remains delete-forward.
-- **`← N agent(s)`**, dim, when `←` from an empty composer would open the agents
-  (never where `←` opens the workspaces screen instead)
+- **`← N agent(s)`**, dim, only while a reply is running and `←` from an empty
+  composer would take you to the agents (never where `←` opens the workspaces
+  screen instead, and not with `tui.leftArrowOpensAgents: false`)
   and N of them are running (agents plus workflow runs; capped at `99+`). It
-  shows while a turn runs and while idle, and only with nothing typed, pasted
+  shows only with nothing typed, pasted
   or attached, no panel open and the rail not focused, so the row never names
   a key that does nothing.
 - **`↓ to manage`**, dim, when `↓` from an empty composer reaches something: a
@@ -164,14 +165,18 @@ The keys the hints name:
   keyboard back to the composer; with a turn running, that Esc only leaves the
   rows and the next one interrupts the turn.
 - **`←`** from an empty composer opens the [workspaces screen](workspaces.md#opening-it-from-a-conversation)
-  where there is one (a POSIX terminal with a pseudo-terminal component), and
-  the agents cockpit (`/agent`) everywhere else. With anything typed, pasted or
+  where there is one (a POSIX terminal with a pseudo-terminal component, in the
+  full screen view too). It never opens the workflow view. Where there is no
+  workspaces screen, `←` does nothing while the session is idle; while a reply is
+  running the first press says `Press ← again to open agents` and a second one
+  within 3 seconds moves the keys into the task rows (the same as `↓`).
+  `tui.leftArrowOpensAgents: false` (Settings > Terminal, **Left arrow opens
+  agents**) takes that off the key. With anything typed, pasted or
   attached, or with Shift/Ctrl/Alt held, it is cursor movement as always. A
   press right after the draft was emptied by editing only shows `Press ← again
   to open workspaces`; presses less than 150 ms apart (key repeat) or within a
   second of one that opened or armed are ignored. With the workspaces screen
-  available the cockpit is reached with `↓` or Enter on an agent row in `/tasks`, and the footer does
-  not offer `← N agents`.
+  available the footer does not offer `← N agents`.
 
 The footer is always exactly one row. On narrow screens it drops, in order: the
 model on the right, `↓ to manage`, `← N agents`, `esc to interrupt`, the cycle
@@ -187,7 +192,7 @@ composer's rules, above the input.
 
 Deliberate differences: the model identity (`Auto · fast ·
 model` while Auto routing is on) stays on the right while it fits; `← N agents`
-counts this session's running agents and workflows and `←` opens them, not other
+counts this session's running agents and workflows and `←` (pressed twice, while a reply runs) takes you to them, not other
 background sessions that wait for the person, and `←` never sends the session
 itself to the background;
 there is no resting `← for agents` hint; and `↓ to manage` is not offered
@@ -369,7 +374,7 @@ characters is accepted; anything else is dropped and the old label stays. The
 label goes when the agent ends, and agents inside a `workflow` run keep their
 own labels. The cost of that request is not charged to the run's token
 ledger (see the open questions). Rows follow launch order. Workflow and phase labels, model and
-tool counts are not on the rail; the cockpit (`←` or `↓` from an empty composer, or Enter on an agent row in `/tasks`) and the
+tool counts are not on the rail; the cockpit (Enter on `main` or on a workflow row, or on an agent row in `/tasks`) and the
 agent's own transcript carry them.
 
 At most five agents are drawn. A longer list scrolls with the selection:
@@ -389,17 +394,24 @@ Press ↓ in the composer to move into the rail (from an empty box with no rows 
 screen it still opens the cockpit for saved agents). While the rail has the keys the
 footer's mode line is **replaced** by a key line for the selected row, and the
 rows stay where they are. An agent or workflow row reads
-`enter to view · x to stop` (`x to clear` once it has finished), plus
-`ctrl+x ctrl+k to stop all agents` when more than one agent runs and the line
-is at least 90 columns wide; `main` reads `↑/↓ to select · enter to view`, and
-the row already on screen reads `↑/↓ to select`. Esc is not advertised but
+`↑↓ select · enter view · x stop` (`x clear` once it has finished), plus
+`ctrl+x ctrl+k stop all agents` when more than one agent runs and the line
+is at least 90 columns wide; `main` reads `↑↓ select · enter view`, and
+the row already on screen reads `↑↓ select`. Esc is not advertised but
 still hands the keyboard back to the composer, as does any other key, and so
 does ↑ on the first row. ↑/↓ (or Ctrl+P/Ctrl+N)
-moves between `main`, the agents and the workflows (a `❯` marks the row), Enter
-on an agent views it (see below) and on `main` goes back to the conversation,
+moves between `main`, the agents and the workflows. A row is a pointer column
+(`❯ ` on the row the keys are on, two blanks otherwise), then its glyph (`◯`, or
+`●` for the transcript on screen), then the name. `→` jumps from the tasks (the
+shell pill, `main` and the agents) to the first workflow and `←` back to the first
+task; neither leaves the rows. Enter on an agent views it (see below), on a
+workflow opens its detail, and on `main` goes back to the conversation from a
+viewed agent or, from the conversation itself, opens the overview of its agents.
+Where the pointer is reported (the full screen view) every row is a click target
+that does what Enter does, and the row under the pointer is drawn as selected,
 `x` stops a running agent (the parent turn and the other agents keep going) or,
 on a finished one, clears its row, and `ctrl+x` then `ctrl+k` stops every
-running background agent. The composer stays on screen, dim, while the rail has the keys. `←` or `↓` from an empty composer opens the cockpit. While an
+running background agent. The composer stays on screen, dim, while the rail has the keys. `↓` from an empty composer, with no rows and no shells, opens the cockpit for saved agents. While an
 approval dialog is open the rail shrinks to the `main` row with a count
 (`2 agents`) and names no key, since the dialog owns the keyboard.
 
@@ -1181,9 +1193,12 @@ file cannot change it) or start with `NAMZU_FULLSCREEN=0`; `NAMZU_FULLSCREEN=1`
 turns it on whatever the config says. Before cli 54 the default was the
 scrollback and fullscreen was opt-in. It is off when output or input is not a
 terminal and inside a `namzu workspaces` host, which owns the alternate screen
-there. The `←` key that opens the workspaces screen from a session works on the
-scrollback screen only; with fullscreen it opens the agents cockpit, as it did
-for everyone who had fullscreen on.
+there. The `←` key that opens the workspaces screen from a session works in the
+full screen view as well: while the screen is up it takes the pointer and the
+wheel from the view, and when you come back to the conversation the alternate
+screen and the pointer are switched on again before it redraws. (Before this, a
+session in the default full screen view had no workspaces screen and `←` opened
+the workflow cockpit instead.)
 
 The screen is laid out in three parts: the header on the first rows, the
 conversation filling the room between, and the composer and footer pinned to
@@ -1280,6 +1295,7 @@ Two settings, in your own config files only (a project file's are ignored):
 tui:
   wheelAccel: true   # false: every notch is the plain step, however fast
   wheelRows: 3       # rows per notch, 1 to 20; lower it where a terminal sends several reports per notch
+  leftArrowOpensAgents: true  # false: ← on an empty message box never offers the agents (see Workspaces)
 ```
 
 Both are rows in `/config` (**Wheel speed-up**, **Rows per wheel notch**). With
@@ -1454,7 +1470,7 @@ the previous, round the ends; `PgUp` and `PgDn` still scroll. `Esc` closes the
 field and returns the window to where it was, or to the latest if you were
 following.
 
-While it is on, the `←` workspaces screen is not offered, the terminal's own
+While it is on, the terminal's own
 scrollback is not available inside the app, and the agent views draw in the live area
 as before. It is the default (`NAMZU_FULLSCREEN=0` turns it off). Code:
 `packages/cli/src/tui/fullscreen/` (`viewport.ts` the scroll arithmetic,
@@ -1597,8 +1613,21 @@ Pending admissions show `Queued` until the child session starts. Completed Agent
 and `wait_for_task` outputs name the actual `task_id` and terminal status before
 the child result, so identifiers inside that result remain clearly separate.
 
-The agent cockpit (`←` or `↓` from an empty composer, or Enter on an agent row in `/tasks`) is the workflow detail view described
-under the rail: a header with the workflow's name and
+The agent cockpit (Enter on `main` or on a workflow row, or on an agent row in `/tasks`) is the workflow detail view described
+under the rail. It is drawn above the message box, never in place of it: the
+conversation stays above, and the message box (waiting while the detail has the
+keys) and the status line stay below. Its height is half of the terminal in the
+full screen view, and elsewhere every row above the message box as it is drawn now
+(its margin, rules, update row and draft lines), the status line, an extension row and
+four rows of the conversation (`rows − 9` for a one-line box). It is never under 12
+rows (8 when the terminal is under 18 rows) while those fit, and gives way to them
+down to 4 rows on a short terminal, so the stack never passes the screen. In the full
+screen view a click on the `hypermode` word on the composer frame opens the effort
+picker, like the effort item in the status line. Keys: `↑↓` or `j`/`k` move,
+Enter or `→` goes one level deeper (phases, agents, the agent), `←` or Esc goes one
+level back and closes the view at the top, Space closes it, and `x` stops the
+workflow on its phases or skips the agent on its agents. It has no pause, restart,
+filter or save, because the workflow runtime has none. Its parts: a header with the workflow's name and
 `<done>/<total> agents · <elapsed>`, then `Phases` or one phase's agents, one
 list at a time. It opens on the phase whose agents are still working, and on
 its first working agent; with nothing live, on the first phase. Unlabelled
