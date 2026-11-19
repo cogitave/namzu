@@ -36,16 +36,19 @@ export function NavigationRail({
 				</RailButton>
 			</div>
 			<div className="rail-spacer" />
-			{(update || (engines && onOpenUpdates)) && (
-				<UpdateRailButton
-					state={update?.state ?? { status: 'disabled' }}
-					onOpen={update?.onOpen ?? (() => {})}
-					engines={engines?.state}
-					onOpenEngines={onOpenUpdates}
-				/>
-			)}
-			<div className="rail-foot">
+			{/* The collapsed rail is one button wide: everything above the foot's line stacks in one column. */}
+			<div className="rail-stack">
+				{(update || (engines && onOpenUpdates)) && (
+					<UpdateRailButton
+						state={update?.state ?? { status: 'disabled' }}
+						onOpen={update?.onOpen ?? (() => {})}
+						engines={engines?.state}
+						onOpenEngines={onOpenUpdates}
+					/>
+				)}
 				<ExtensionsRailButton />
+			</div>
+			<div className="rail-foot">
 				<RailButton
 					control="settings"
 					label="Settings"
