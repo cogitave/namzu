@@ -130,10 +130,18 @@ describe('icon sizes in bars', () => {
 		expect(hits).toEqual([])
 	})
 
-	it('gives a button icon one size, 16 px, with no 18 px step for a narrow window', () => {
+	it('gives every control icon one size, 16 px, with no 18 px step for a narrow window', () => {
 		const button = readFileSync(join(dir, 'ui/button.tsx'), 'utf8')
-		expect(button).not.toMatch(/size-4\.5/)
 		expect(button).toContain("[&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none")
+		const walk = (d: string): string[] =>
+			readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+				e.isDirectory() ? walk(join(d, e.name)) : e.name.endsWith('.tsx') ? [join(d, e.name)] : [],
+			)
+		// ui/empty.tsx draws a 36 px feature tile whose glyph is deliberately 18 px.
+		const hits = walk(dir)
+			.filter((f) => !f.endsWith(join('ui', 'empty.tsx')))
+			.filter((f) => /size-4\.5|size-5 sm:/.test(readFileSync(f, 'utf8')))
+		expect(hits).toEqual([])
 	})
 })
 

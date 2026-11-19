@@ -50,7 +50,7 @@ inherited size; use the Tailwind aliases above.
 | an empty state or a hero | 20 to 24 |
 
 One size per bar, and never above 16 px in a toolbar, rail, row or the composer row. A button's own
-icon is 16 px at every window width; there is no 18 px step for a narrow window. A drawn character (a
+icon, a select chevron and a composer control are 16 px at every window width; there is no 18 px step for a narrow window (only the empty-state tile, a 36 px feature tile, draws 18). A drawn character (a
 Pal's mark) is not a glyph and may be 18 high.
 
 ## Control heights
