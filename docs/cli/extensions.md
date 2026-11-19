@@ -81,12 +81,13 @@ wrong, `66` a file is missing.
 | `notice <id> [--staged] [--locale <tag>]` | Print the notice and the record. Changes nothing. |
 | `license <id> [--file <path>\|--key-stdin\|--refresh\|--release]` | Enter a licence: a key file, or for a licence service a key from standard input or a prompt, never as an argument. `--refresh` checks again now, `--release` frees this computer's seat. |
 | `enable <id>` | Check the licence, show the notice and ask once if nothing covers it, then enable. There is no `--yes`. |
+| `unlock <id>` | Take the administrator lock off. Needs the administrator password. |
 | `disable <id>` | Turn it off. Data and your record stay; enabling again asks nothing. |
 | `remove <id> [--delete-data]` | Remove it. Your record is kept for the time the notice states, so adding it back with the same scope asks nothing; after that it asks once. |
 | `grant` / `revoke <id> <permission>` | An optional permission. |
 | `key <id> <provider> [--stdin\|--remove]` | The model API key row, stored apart from your own keys and used by nothing in this version. |
 | `background <id> on\|off\|status` | The Start when I sign in switch. Each flip is an audit line. |
-| `daemon start\|run\|stop\|status` | The background runner (one per person). `start` starts it if none runs; `run` is the foreground form the sign-in entry reaches (on Windows the task runs `start.cmd`, whose last line is `extension daemon run`, because the task is already the runner's parent and `start` would only ask the same task to run again); `stop` shuts down what it runs cleanly first. |
+| `daemon start\|run\|stop\|status` | The background runner (one per person). `start` starts it if none runs; `run` is the foreground form the sign-in entry reaches (on Windows the task runs `start.vbs`, which runs `start.cmd` hidden, whose last line is `extension daemon run`, because the task is already the runner's parent and `start` would only ask the same task to run again); `stop` shuts down what it runs cleanly first. |
 | `signin remove --all` | Remove the sign-in entry and its launcher (for an uninstaller). Never data. |
 | `run` | A headless host: supervise every enabled extension until interrupted, printing the mark to standard error. |
 | `validate <folder\|file>` | The developer's check: the manifest and its rules, and for a package the hashes and, when a trusted key is available, the signature. |
@@ -210,6 +211,34 @@ file's own fields, so editing `license.json` (a later date, `active` in place of
 nothing, and a file whose envelope does not verify counts as no licence. Removing the extension
 tells the service to free the seat, as a best effort that never blocks.
 
+## The administrator lock
+
+An extension that declares `management.lock` in its manifest (see
+[the manifest](extension-manifest.md#the-administrator-lock-management)) is turned on with an
+administrator password. The person or the IT team who turns it on sets it: in Desktop, a password
+typed twice on the notice screen (or in a dialog when the notice was already read); on the command
+line, `namzu extension enable <id> --admin-password-stdin`.
+
+While it is set, these need the password: `disable`, `remove` (also with `--delete-data`), `background
+<id> off`, `license` (a new key, a file, `--release`), `revoke`, `key`, `unlock`, and `daemon stop`
+while a locked extension runs in the runner. Turning things on, granting a permission and reading
+are not ways off and ask nothing. The password is never an argument: it is the **first line of
+standard input** with `--admin-password-stdin`, and a licence or key you pipe in follows on the next
+lines. Desktop asks in a dialog, and the extension's screen says "Locked by your administrator"
+with an **Unlock** row. A wrong password is refused and the next try waits 1 second, then 2, 4 and so
+on up to a minute (a try inside the wait is not even looked at); the wait is kept on disk, so the
+app, the command line and the runner all honour it. A refused try is a line in the event history
+(`unlock-failed`, with the operation and never the password), as are setting and removing the lock.
+`enable` on an unlocked extension that declares the lock asks for a new password.
+
+Only a slow salted hash is kept: Node's scrypt (N 32768, r 8, p 1) with a random salt for each
+extension, in `lock.json` in the extension's own folder, never in its data folder and never named to
+the extension. **What this is not**: it stops turning the extension off *in Namzu*. It is not a
+protection against someone who is an administrator of the computer and deletes files, ends processes
+or removes the sign-in entry from the system; the file can be read by the same OS user, which is why
+only a hash is kept. That needs a managed policy, which is phase 2. The lock never hides the
+extension: the tray mark, the notice and What is collected stay.
+
 ## Start at sign-in and keep running when Namzu is closed
 
 An extension may declare `background` and the permission `background.signin`, with a purpose
@@ -231,7 +260,7 @@ one extension is enabled with its switch on, and is removed with the last one.
 
 | System | The entry |
 |---|---|
-| Windows | a Task Scheduler task `\Namzu\Extension Runner` at log on for the current user (least privilege, visible in Task Scheduler, restarts on failure); `HKCU\...\Run` if a task cannot be created without elevation. Which one worked is shown. No administrator rights are requested and `HKLM` is never touched. |
+| Windows | a Task Scheduler task `\Namzu\Extension Runner` at log on for the current user (least privilege, visible in Task Scheduler, restarts on failure); `HKCU\...\Run` if a task cannot be created without elevation. Which one worked is shown. No administrator rights are requested and `HKLM` is never touched. Both start `wscript.exe //B //Nologo _runner\start.vbs` and not `start.cmd`, so **no console window** appears: a `.cmd` file always gets one, and the task's `Hidden` setting only hides the task from the list. `start.vbs` runs `start.cmd` with window style 0 and waits for it, so the task stays the runner's parent. It was chosen over `conhost.exe --headless` because that switch is undocumented and needs a recent Windows 10; the script host is on every supported Windows and needs no administrator rights. A computer whose policy turns the script host off cannot start the runner at sign-in (the app still starts it). The `cmd start` fallback is hidden too, and every child Namzu starts uses `windowsHide`. |
 | Linux | an XDG autostart file `namzu-extension-runner.desktop` under `$XDG_CONFIG_HOME/autostart`. It runs in a desktop session; a server or an ssh login does not start it. |
 | macOS | a LaunchAgent for the current user, loaded for the person's own session. |
 

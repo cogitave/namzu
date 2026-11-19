@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Extensions in Desktop
-description: Settings, Extensions in the Desktop app (one row for each extension, Add from file, an extension's own screen with its switch, Today's record, background start, what is collected, settings, licence, notice and record, activity log and Remove), the pages an extension draws in the main pane and the rules they run under, where an extension's own tray mark belongs, and the namzu/extensions methods behind them.
+description: Settings, Extensions in the Desktop app (one row for each extension, Add from file, an extension's own screen with its switch, the administrator lock, background start, Records and What is collected, settings, licence, notice and record, event history and Remove), the pages an extension draws in the main pane and the rules they run under, where an extension's own tray mark belongs, and the namzu/extensions methods behind them.
 resource: packages/desktop/src/renderer/extensions-section.tsx
 tags: [desktop, extensions, consent, jsonrpc]
 status: stable
@@ -46,25 +46,33 @@ Settings' own. From the top:
   notice in your language, what it asks for, and **I have read this**, which stays off until the
   text has been read to the end. **Not now** writes nothing. The page echoes the notice version and
   the scope hash it showed; the engine refuses an acknowledgement of anything else.
-- **Today's record** (the title is the extension's own settings-slot page): three totals (at the
-  computer, idle, away) and the day as a ribbon, drawn from the extension's counts while it runs,
-  and an **Open today's record** row that opens the page. The rows are asked for by the person's own
-  day (local midnight to the next midnight, 500 a page, following the extension's `next` until it is
-  null), never by the extension's defaults, which would hand back the oldest days kept. Totals and ribbon are drawn only as far
-  as the answer is understood: with no times there is no ribbon, with nothing understood there is
-  only the row. There is no score, goal or colour for good or bad.
 - **Background**: the **Start when I sign in** switch, with what is true now ("Running in the
   background. It keeps running when Namzu is closed."). Only for an extension that can start then.
-- **What is collected**: each kind of data with how long it is kept, a "Never collected" row (the items separated by semicolons), and
-  **Records on this computer**, which opens the read-only dialog (each kind with its fields and
-  retention, today's counts, and **Show recent rows**).
+- **Administrator lock** (only for an extension that declares it): "Locked by your administrator"
+  with the extension's own reason, and an **Unlock** row (a password dialog). Turning the extension
+  on sets the password (typed twice, on the notice screen or in a dialog); turning it off, removing
+  it, stopping its start at sign-in, changing the licence or the key then ask for it, and those rows
+  say "Needs the administrator password." After a wrong password the next one waits (the row says how
+  long). The notice says only the administrator can turn it off. See
+  [Extensions](extensions.md#the-administrator-lock).
+- **Data**: two rows. **Records** opens the extension's own page for it, full size in the main pane
+  (not a dialog, and nothing per day): it is meant for the company reading it, newest first, with
+  filters and search, and the person can open it too. **What is collected** opens a read-only page of
+  Settings: one sentence at the top ("This is what Activity Tracker records on this computer, and how
+  long it keeps it."), a group for each kind of data (a plain title, what it records, an example in
+  plain words, how long it is kept, how many records there are, and **Show recent records**), then
+  **Never recorded**, then **Where it is kept**. No field name and no raw row appear until the person asks for
+  the recent records; an extension that collects nothing says only that it records nothing. A kind
+  kept with `retentionDays: "keep"` says "Kept until your organisation deletes it."
 - **Settings**: the extension's settings rows (the model API key, which nothing uses in this version).
 - **Licence**: holder, seats, valid until, and **Change licence** (or **Add a licence**). The dialog
   depends on the kind: a paste box for a key file; for a publisher's service the host the key is
   sent to, the key (kept by Namzu, never shown again), when it was last checked, **Check now** and
   **Release this computer**. An extension with no licence has no such group.
 - **Notice and my record**: the notice version, when you read it, and **Read again**.
-- **Activity log**: opens the log of what the extension did on this computer.
+- **Event history**: the extension's own history on this computer, in one plain sentence (when it
+  was turned on, the notice was read, a licence was entered, an update was held, a password was
+  refused or a call was refused), as a list of lines with their times.
 - **Remove**, last: opens the confirmation, with the choice to delete what it collected.
 
 An update that asks for more shows "An update asks for more. Review it." with the reasons and the
@@ -85,11 +93,13 @@ again when the theme changes.
 The page turns on only when the engine lists every method of the group `extensions`:
 `namzu/extensions/list`, `add`, `license`, `notice`, `acknowledge`, `enable`, `disable`,
 `remove`, `grant`, `revoke`, `query`, `settings/get`, `settings/set`, `audit`, `background/get`,
-`background/set`, `ui`, `action` and `runner`, plus the
+`background/set`, `ui`, `action`, `runner` and `unlock`, plus the
 notification `namzu/extensions/state` (`{ id, state, indicator, since }`) on every change, which keeps the list and the extension's screen current. A
 refusal the person can read is answered as `{ error: { code, check, message } }`. A secret is
 never returned, only whether one is stored and its last four characters. The main process
 lets the page call everything except `add`, and `add` only with the file chosen in the dialog.
+An extension's own page can call none of `add` and `unlock`. A method that the lock guards takes the
+password as `admin`; it is never stored or sent back.
 
 ## The Start when I sign in switch and the licence group
 

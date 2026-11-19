@@ -162,6 +162,22 @@ a page, chip or icon names is in the package and signed, an SVG holds no script,
 attribute, no `foreignObject` and no external reference. Titles and chip labels are the
 extension's look and never count as wording: renaming a page never asks you again.
 
+## The administrator lock (`management`)
+
+`management` is `{ lock: "administrator-password", purpose }`, optional, with `purpose` the sentence
+the person reads about why, in the default language. An extension that declares it is turned on
+with an **administrator password**, set once by whoever turns it on. While it is set, nobody can
+turn the extension off, remove it, turn off its start at sign-in, change or release its licence, take
+a permission back or change its keys without that password. The notice says so ("Only the
+administrator can turn this off or remove it"), and the field is part of the scope: adding it to an
+installed extension asks the person again. `purpose` counts as wording. It does not hide the
+extension: its tray mark, its notice and What is collected stay as they are. See
+[Extensions](extensions.md#the-administrator-lock).
+
+A data kind may also carry `title` (a plain title, up to 60 characters) and `example` (one record in
+plain words, up to 120, for example `Microsoft Excel · 1 h 20 min`), both localised, which the What is
+collected page in Desktop shows. Without a title the start of `description` is used.
+
 ## Starting at sign-in (`background`)
 
 `background` is `{ runAt: "signin", permission: "background.signin", defaultOn, indicator }` and
