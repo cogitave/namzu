@@ -44,6 +44,7 @@ const HELP = [
 	"                                 check it again now, or release this computer's seat",
 	'  enable <id>                    Turn it on (asks you to read the notice once, the first time)',
 	'  disable <id>                   Turn it off (keeps its data and your record)',
+	'  unlock <id>                    Take the administrator lock off (needs the administrator password)',
 	'  remove <id> [--delete-data]    Remove it (keeps its data unless --delete-data)',
 	'  grant <id> <permission>        Allow an optional permission it asked for',
 	'  revoke <id> <permission>       Take an optional permission back',
@@ -54,6 +55,11 @@ const HELP = [
 	'  signin remove --all            Remove the sign-in entry and its launcher (for an uninstaller; never data)',
 	'  run                            Supervise every enabled extension until interrupted',
 	'  validate <folder|file>         Developer check: the manifest, its rules, and a package',
+	'',
+	'An extension an administrator has locked asks for the administrator password on every way off:',
+	'enable (to set it the first time), disable, remove, license, revoke, key, background off, unlock',
+	'and daemon stop. Give it as the first line of standard input with --admin-password-stdin; a',
+	'licence or key you pipe in follows on the next lines. It is never an argument.',
 	'',
 	'Every command takes --json. Exit status: 0 done, 1 refused, 75 needs you (the notice',
 	'has to be read by a person at a terminal), 64 the command line is wrong.',
@@ -89,6 +95,7 @@ function row(v: ExtensionView): string {
 	const parts = [v.id, oneLine(v.name), v.version, v.chip]
 	if (v.indicator && v.state === 'running') parts.push(`(${oneLine(v.indicator.label)})`)
 	if (v.dev) parts.push('DEV KEY')
+	if (v.management?.locked) parts.push('LOCKED BY ADMINISTRATOR')
 	return parts.join('  ')
 }
 
@@ -112,6 +119,7 @@ const BOOL_FLAGS = new Set([
 	'--key-stdin',
 	'--refresh',
 	'--release',
+	'--admin-password-stdin',
 ])
 
 export function parseExtensionArgs(raw: readonly string[]): Parsed {
@@ -145,9 +153,21 @@ export async function runExtension(raw: readonly string[], d: ExtensionDeps): Pr
 	const emit = (value: unknown, text: string) => d.out(json ? JSON.stringify(value) : text)
 	const refuse = (e: unknown): number => {
 		if (e instanceof ExtensionError) {
+			const hint =
+				(e.code === 'admin-locked' || e.code === 'admin-needed') &&
+				!p.flags.has('--admin-password-stdin')
+					? ' Give it as the first line of standard input with --admin-password-stdin.'
+					: ''
 			if (json)
-				d.out(JSON.stringify({ ok: false, code: e.code, check: e.check, message: e.message }))
-			else d.err(`${e.message}`)
+				d.out(
+					JSON.stringify({
+						ok: false,
+						code: e.code,
+						check: e.check,
+						message: `${e.message}${hint}`,
+					}),
+				)
+			else d.err(`${e.message}${hint}`)
 			return e.code === 'needs-person' ? EXIT_NEEDS_CONSENT : EXIT_FAIL
 		}
 		throw e
@@ -158,6 +178,25 @@ export async function runExtension(raw: readonly string[], d: ExtensionDeps): Pr
 	}
 	if (p.error) return usage(p.error)
 	const id = p.positional[0] ?? ''
+	// The administrator password is the first line of standard input; what follows is the licence or key.
+	let adminRead = false
+	let admin: string | undefined
+	let stdinRest = ''
+	const adminOpt = async (): Promise<{ admin?: string }> => {
+		if (!p.flags.has('--admin-password-stdin')) return {}
+		if (!adminRead) {
+			const all = await d.readStdin()
+			const nl = all.indexOf('\n')
+			admin = (nl < 0 ? all : all.slice(0, nl)).replace(/\r$/, '')
+			stdinRest = nl < 0 ? '' : all.slice(nl + 1)
+			adminRead = true
+		}
+		return admin ? { admin } : {}
+	}
+	const payload = async (): Promise<string> => {
+		await adminOpt()
+		return adminRead ? stdinRest : d.readStdin()
+	}
 	try {
 		switch (p.sub) {
 			case 'add': {
@@ -245,6 +284,12 @@ export async function runExtension(raw: readonly string[], d: ExtensionDeps): Pr
 						)
 					else if (b.signin?.reason) lines.push(`Sign-in entry: ${b.signin.reason}`)
 				}
+				if (s.view.management)
+					lines.push(
+						s.view.management.locked
+							? `Locked by your administrator: ${oneLine(s.view.management.purpose)}`
+							: 'Not locked: turning it on sets an administrator password.',
+					)
 				if (s.view.ui?.pages.length)
 					lines.push(
 						`Pages: ${s.view.ui.pages.map((x) => `${oneLine(x.title)} (${x.slot})`).join(', ')}. Open them in Desktop.`,
@@ -287,7 +332,11 @@ export async function runExtension(raw: readonly string[], d: ExtensionDeps): Pr
 				const view = d.host.view(id)
 				if (view.licenceKind === 'service') {
 					if (p.flags.has('--refresh') || p.flags.has('--release')) {
-						const r = await d.host.licenseAction(id, p.flags.has('--release') ? 'release' : 'check')
+						const r = await d.host.licenseAction(
+							id,
+							p.flags.has('--release') ? 'release' : 'check',
+							await adminOpt(),
+						)
 						const v = r.view
 						emit(
 							{ ok: r.done, error: r.error ?? null, view: v },
@@ -300,14 +349,14 @@ export async function runExtension(raw: readonly string[], d: ExtensionDeps): Pr
 						return r.done ? EXIT_OK : EXIT_FAIL
 					}
 					let key: string
-					if (p.flags.has('--key-stdin')) key = (await d.readStdin()).trim()
+					if (p.flags.has('--key-stdin')) key = (await payload()).trim()
 					else if (d.isTTY) key = (await d.ask('Licence key: ')).trim()
 					else
 						return usage(
 							'Give the key with --key-stdin or at the prompt; never as an argument, where it would land in your shell history.',
 						)
 					if (!key) return usage('No key given.')
-					const out = await d.host.setLicenseKey(id, key)
+					const out = await d.host.setLicenseKey(id, key, await adminOpt())
 					if (!out.ok) {
 						emit({ ok: false, code: out.code, message: out.message }, out.message)
 						return EXIT_FAIL
@@ -332,9 +381,9 @@ export async function runExtension(raw: readonly string[], d: ExtensionDeps): Pr
 						return usage(
 							'Give the key with --file <path> or on standard input (`namzu extension license <id> < key.nzlic`); never as an argument, where it would land in your shell history.',
 						)
-					text = await d.readStdin()
+					text = await payload()
 				}
-				const l = d.host.setLicense(id, text.trim())
+				const l = d.host.setLicense(id, text.trim(), await adminOpt())
 				emit(
 					{ ok: true, ...l },
 					`Licence accepted: ${oneLine(l.customer)}, ${l.seats} seats, expires ${l.expires}.`,
@@ -405,7 +454,7 @@ export async function runExtension(raw: readonly string[], d: ExtensionDeps): Pr
 						...(startAtSignin === undefined ? {} : { startAtSignin }),
 					})
 				}
-				const v = d.host.enable(id)
+				const v = d.host.enable(id, await adminOpt())
 				if (v.background?.enabled && d.background) {
 					await d.host.reconcile()
 					const up = await d.background.ensureRunner()
@@ -426,8 +475,18 @@ export async function runExtension(raw: readonly string[], d: ExtensionDeps): Pr
 			case 'disable': {
 				const e = need(p, 1, 'disable <id>')
 				if (e) return usage(e)
-				const v = await d.host.disable(id)
+				const v = await d.host.disable(id, await adminOpt())
 				emit({ ok: true, view: v }, 'Disabled. Its data and your record are kept.')
+				return EXIT_OK
+			}
+			case 'unlock': {
+				const e = need(p, 1, 'unlock <id> [--admin-password-stdin]')
+				if (e) return usage(e)
+				const v = d.host.unlock(id, await adminOpt())
+				emit(
+					{ ok: true, view: v },
+					'The administrator lock is off. Anyone can turn it off now; turning it on again sets a new password.',
+				)
 				return EXIT_OK
 			}
 			case 'remove': {
@@ -438,7 +497,7 @@ export async function runExtension(raw: readonly string[], d: ExtensionDeps): Pr
 					const a = (await d.ask('Delete the data it collected too? [Y/n] ')).trim().toLowerCase()
 					del = a !== 'n' && a !== 'no'
 				} else if (!p.flags.has('--keep-data') && !d.isTTY) del = p.flags.has('--delete-data')
-				await d.host.remove(id, del)
+				await d.host.remove(id, del, await adminOpt())
 				emit(
 					{ ok: true, dataDeleted: del },
 					`Removed.${del ? ' Its data was deleted.' : ' Its data was kept.'} Nothing was ever sent anywhere in this version, so there is nothing to take back from elsewhere.`,
@@ -488,7 +547,10 @@ export async function runExtension(raw: readonly string[], d: ExtensionDeps): Pr
 						return EXIT_FAIL
 					}
 				}
-				const v = p.sub === 'grant' ? d.host.grant(id, perm, 'cli') : d.host.revoke(id, perm)
+				const v =
+					p.sub === 'grant'
+						? d.host.grant(id, perm, 'cli')
+						: d.host.revoke(id, perm, await adminOpt())
 				emit({ ok: true, view: v }, p.sub === 'grant' ? `Granted ${perm}.` : `Revoked ${perm}.`)
 				return EXIT_OK
 			}
@@ -497,11 +559,14 @@ export async function runExtension(raw: readonly string[], d: ExtensionDeps): Pr
 				if (e) return usage(e)
 				const provider = p.positional[1] as string
 				if (p.flags.has('--remove')) {
-					emit({ ok: true, ...d.host.setKey(id, provider, null) }, 'Key removed.')
+					emit(
+						{ ok: true, ...d.host.setKey(id, provider, null, 'modelKey', await adminOpt()) },
+						'Key removed.',
+					)
 					return EXIT_OK
 				}
 				let value: string
-				if (p.flags.has('--stdin')) value = (await d.readStdin()).trim()
+				if (p.flags.has('--stdin')) value = (await payload()).trim()
 				else if (d.isTTY)
 					value = (
 						await d.ask(
@@ -510,7 +575,7 @@ export async function runExtension(raw: readonly string[], d: ExtensionDeps): Pr
 					).trim()
 				else return usage('Give the key with --stdin; never as an argument.')
 				if (!value) return usage('No key given.')
-				const r = d.host.setKey(id, provider, value)
+				const r = d.host.setKey(id, provider, value, 'modelKey', await adminOpt())
 				emit(
 					{ ok: true, ...r },
 					`Stored (${r.masked}). It is not shown again and nothing uses it in this version.`,
@@ -524,7 +589,7 @@ export async function runExtension(raw: readonly string[], d: ExtensionDeps): Pr
 				if (what !== 'on' && what !== 'off' && what !== 'status')
 					return usage('usage: namzu extension background <id> on|off|status')
 				if (what !== 'status') {
-					const v = await d.host.setBackground(id, what === 'on')
+					const v = await d.host.setBackground(id, what === 'on', await adminOpt())
 					if (what === 'on' && v.enabled && d.background) await d.background.ensureRunner()
 					emit(
 						{ ok: true, view: v },
@@ -562,6 +627,11 @@ export async function runExtension(raw: readonly string[], d: ExtensionDeps): Pr
 					return EXIT_OK
 				}
 				if (sub === 'stop') {
+					// Stopping the runner stops every extension it runs: a locked one needs its password too.
+					const opt = await adminOpt()
+					for (const v of d.host.list())
+						if (v.management?.locked && v.enabled && v.background?.enabled)
+							d.host.checkAdmin(v.id, opt)
 					const stopped = await b.stopRunner()
 					emit(
 						{ ok: stopped },

@@ -74,6 +74,7 @@ export const OPTIONAL_EXTENSION_GROUPS = {
 		'namzu/extensions/acknowledge',
 		'namzu/extensions/enable',
 		'namzu/extensions/disable',
+		'namzu/extensions/unlock',
 		'namzu/extensions/remove',
 		'namzu/extensions/grant',
 		'namzu/extensions/revoke',

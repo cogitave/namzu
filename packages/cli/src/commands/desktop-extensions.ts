@@ -30,6 +30,7 @@ export const EXTENSIONS_METHODS = [
 	'namzu/extensions/acknowledge',
 	'namzu/extensions/enable',
 	'namzu/extensions/disable',
+	'namzu/extensions/unlock',
 	'namzu/extensions/remove',
 	'namzu/extensions/grant',
 	'namzu/extensions/revoke',
@@ -55,6 +56,12 @@ const text = (p: Params, key: string, max = 300): string => {
 }
 const optText = (p: Params, key: string, max = 300): string | undefined =>
 	p[key] === undefined ? undefined : text(p, key, max)
+
+/** The administrator password, when the person typed one: it is never stored or echoed back. */
+const adminOf = (p: Params): { admin?: string } => {
+	const a = optText(p, 'admin', 256)
+	return a === undefined ? {} : { admin: a }
+}
 
 export function createExtensionsRpc(
 	getHost: () => ExtensionHost,
@@ -96,12 +103,12 @@ export function createExtensionsRpc(
 			const id = text(p, 'id')
 			// The key of a service licence goes in and is never returned; only a state comes back.
 			if (p.action === 'check' || p.action === 'release') {
-				const r = await h.licenseAction(id, p.action)
+				const r = await h.licenseAction(id, p.action, adminOf(p))
 				return { ok: r.done, ...(r.error ? { message: r.error } : {}), view: r.view }
 			}
 			const key = optText(p, 'key', 512)
 			if (key !== undefined) {
-				const out = await h.setLicenseKey(id, key)
+				const out = await h.setLicenseKey(id, key, adminOf(p))
 				return out.ok
 					? { ok: true, view: h.view(id) }
 					: { ok: false, code: out.code, message: out.message }
@@ -112,7 +119,7 @@ export function createExtensionsRpc(
 				throw new Error('Give the licence as text or as a file, not both.')
 			return {
 				ok: true,
-				...h.setLicense(id, (token ?? readFileSync(path as string, 'utf8')).trim()),
+				...h.setLicense(id, (token ?? readFileSync(path as string, 'utf8')).trim(), adminOf(p)),
 			}
 		}),
 		'namzu/extensions/notice': wrap((h, p) => {
@@ -132,17 +139,20 @@ export function createExtensionsRpc(
 			})
 			return { ok: true }
 		}),
-		'namzu/extensions/enable': wrap((h, p) => ({ view: h.enable(text(p, 'id')) })),
-		'namzu/extensions/disable': wrap(async (h, p) => ({ view: await h.disable(text(p, 'id')) })),
+		'namzu/extensions/enable': wrap((h, p) => ({ view: h.enable(text(p, 'id'), adminOf(p)) })),
+		'namzu/extensions/disable': wrap(async (h, p) => ({
+			view: await h.disable(text(p, 'id'), adminOf(p)),
+		})),
+		'namzu/extensions/unlock': wrap((h, p) => ({ view: h.unlock(text(p, 'id'), adminOf(p)) })),
 		'namzu/extensions/remove': wrap(async (h, p) => {
-			await h.remove(text(p, 'id'), p.deleteData === true)
+			await h.remove(text(p, 'id'), p.deleteData === true, adminOf(p))
 			return { ok: true }
 		}),
 		'namzu/extensions/grant': wrap((h, p) => ({
 			view: h.grant(text(p, 'id'), text(p, 'permission', 64), 'desktop'),
 		})),
 		'namzu/extensions/revoke': wrap((h, p) => ({
-			view: h.revoke(text(p, 'id'), text(p, 'permission', 64)),
+			view: h.revoke(text(p, 'id'), text(p, 'permission', 64), adminOf(p)),
 		})),
 		'namzu/extensions/query': wrap((h, p) =>
 			h.query(text(p, 'id'), text(p, 'query', 48), p.params ?? {}),
@@ -151,13 +161,19 @@ export function createExtensionsRpc(
 			h.getSetting(text(p, 'id'), text(p, 'key', 32), optText(p, 'provider', 63)),
 		),
 		'namzu/extensions/settings/set': wrap((h, p) =>
-			h.setSetting(text(p, 'id'), text(p, 'key', 32), p.value, optText(p, 'provider', 63)),
+			h.setSetting(
+				text(p, 'id'),
+				text(p, 'key', 32),
+				p.value,
+				optText(p, 'provider', 63),
+				adminOf(p),
+			),
 		),
 		'namzu/extensions/background/get': wrap((h, p) => ({
 			background: h.view(text(p, 'id')).background ?? null,
 		})),
 		'namzu/extensions/background/set': wrap(async (h, p) => ({
-			view: await h.setBackground(text(p, 'id'), p.on === true),
+			view: await h.setBackground(text(p, 'id'), p.on === true, adminOf(p)),
 		})),
 		'namzu/extensions/ui': wrap((h, p) => ({ ui: h.uiInfo(text(p, 'id')) })),
 		'namzu/extensions/action': wrap((h, p) =>

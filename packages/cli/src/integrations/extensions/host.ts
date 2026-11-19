@@ -244,6 +244,11 @@ export class ExtensionHost {
 		return this.adminLock.state(id).locked
 	}
 
+	/** Refuse unless the lock is off or the password is right (for a command that stops the runner). */
+	checkAdmin(id: string, opts: AdminOption = {}): void {
+		this.guard(id, opts.admin, 'stop')
+	}
+
 	/** Take the lock off. Needs the password; the extension stays as it is. */
 	unlock(id: string, opts: AdminOption = {}): ExtensionView {
 		this.state(id)
