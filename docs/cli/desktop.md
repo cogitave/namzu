@@ -5425,7 +5425,7 @@ the model, holds it for after the reply instead. Both wait **at the end of the c
 (`pending-tail.tsx`, mounted by `Transcript` after the last message and above the working row): one bubble per
 message in the order it will be used, the messages sent into the reply first and then the held ones. Nothing
 is drawn in or above the message box. Under each bubble are quiet, always visible **Send now**, **Edit** and
-**Remove** actions; a message sent into the reply offers only Send now, because it cannot be taken back. The
+**Remove** actions; a message already sent into the reply offers none of them, because it cannot be taken back and Send now has nothing left to do. The
 "Sending to this reply" and "After this reply" notes are the bubble's tooltip and read by a screen reader; a
 "Waiting" or "Delivery not confirmed" note is shown as text. Send now hands that message to the running reply
 at its next step without stopping it (`operator.sendNow` sends it through `namzu/conversations/input` under

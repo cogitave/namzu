@@ -134,10 +134,11 @@ it('draws nothing when no message is waiting', () => {
 	).toBe('')
 })
 
-it('offers Send now on every row, but Edit and Remove only where the message can still be taken back', () => {
+it('offers Send now only on a message still waiting, and Edit and Remove only where it can still be taken back', () => {
 	const rows = render().split('data-pending-message-id=').slice(1)
 	expect(rows).toHaveLength(2)
-	expect(rows[0]).toContain('Send now')
+	// A message already in the reply has nothing left for Send now to do.
+	expect(rows[0]).not.toContain('Send now')
 	expect(rows[0]).not.toContain('Edit')
 	expect(rows[0]).not.toContain('Remove')
 	expect(rows[1]).toContain('Send now')

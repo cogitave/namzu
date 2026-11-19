@@ -122,7 +122,7 @@ export function PendingTail({
 						{!editingRow && (
 							<div className="pending-actions">
 								<span className={showsNote(row) ? 'pending-note' : 'sr-only'}>{row.note}</span>
-								{actions.canSendNow && (
+								{actions.canSendNow && row.kind !== 'steer' && (
 									<Button
 										variant="ghost-muted"
 										size="xs"

@@ -2,7 +2,7 @@
 
 ## 2026-11-19
 
-- **Update** [Desktop](cli/desktop.md#while-a-reply-is-running): a waiting message stays in the queue, in its place and under its own id, until the running reply has it, and the reply ending or the engine closing live input during Send now no longer reorders or copies a message. `.changeset/desktop-send-now-steady-queue.md`.
+- **Update** [Desktop](cli/desktop.md#while-a-reply-is-running): a waiting message stays in the queue, in its place and under its own id, until the running reply has it, and the reply ending or the engine closing live input during Send now no longer reorders or copies a message. A message already in the reply no longer shows a Send now that does nothing. `.changeset/desktop-send-now-steady-queue.md`.
 - **Update** [Desktop](cli/desktop.md#while-a-reply-is-running): Send now on a waiting message hands it, and everything held ahead of it, to the running reply at its next step instead of stopping the reply; it stops and runs the message only where live input is not available (a Pal, another engine, files on the message). Pressing it on a message already in the reply does nothing. `.changeset/desktop-send-now-into-reply.md`.
 - **Update** `cli/desktop.md`: the working line shows one clock while the first step is the whole turn, instead of the same seconds twice.
 
