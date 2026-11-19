@@ -2,6 +2,7 @@
 
 ## 2026-11-19
 
+- **Update** [Desktop](cli/desktop.md): in Conversation edits a file row keeps its line counts and buttons in place when the path is long; a Windows path splits at backslashes, the head of the folder is cut, and a file outside the project shows with `~` for the home folder.
 - **Update** [Desktop](cli/desktop.md): Hypermode in the effort panel is its name and a switch, with a line under it only when it cannot be turned on; a settings switch keeps its width in a tight row instead of letting the knob run past the track.
 ## 2026-11-18
 

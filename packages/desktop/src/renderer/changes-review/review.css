@@ -559,6 +559,8 @@
 	min-width: 0;
 	height: 100%;
 	padding-inline-start: 4px;
+	/* The text spans shrink only inside the button, and what still does not fit never reaches the counts. */
+	overflow: hidden;
 	border-radius: var(--radius-control);
 	color: var(--foreground);
 	font-size: var(--text-small);

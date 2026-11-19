@@ -13,6 +13,7 @@ import {
 } from '../icons.js'
 import { Tooltip, TooltipPopup, TooltipTrigger } from '../ui/tooltip.js'
 import { type DiffBody, FileBody, patchOf } from './diff-pane.js'
+import { filePathParts } from './file-path-parts.js'
 import type { ReviewFile } from './model.js'
 import { ToolButton } from './tool-button.js'
 import type { ViewedState } from './viewed.js'
@@ -51,7 +52,7 @@ function FileMenu({
 	actions,
 }: { file: ReviewFile; body: DiffBody | undefined; actions: FileActions }) {
 	const deleted = file.status === 'deleted'
-	const name = file.path.split('/').pop() || file.path
+	const { name } = filePathParts(file.path, actions.projectRoot)
 	const copyDiff = () => {
 		if (body?.state !== 'ready') return
 		actions.onCopy(patchOf(file, body.before ?? '', body.after ?? ''), 'Diff copied.')
@@ -194,8 +195,7 @@ export function FileSection({
 		return () => observer.disconnect()
 	}, [])
 	const note = fileNote(file)
-	const name = file.path.split('/').pop() || file.path
-	const folder = file.path.slice(0, file.path.length - name.length)
+	const { name, folder } = filePathParts(file.path, actions.projectRoot)
 	const counted = file.status !== 'binary' && !file.binary && (file.added > 0 || file.removed > 0)
 	return (
 		<section
