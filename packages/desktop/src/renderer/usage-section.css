@@ -53,10 +53,10 @@
 }
 
 /* One line per window, as wide as the column: name and reset line, a long thin bar, the percent at
-   the column's right edge. The label column is 196px plus a 40px gap (the bar starts 236px in); the percent box is 56px. */
+   the column's right edge. The label column is 196px plus a 40px gap (the bar starts 236px in); the percent box is 72px, wide enough for "100% used" so every bar ends at the same place. */
 .usage-rows .limits-row[data-row="window"] {
 	display: grid;
-	grid-template-columns: 196px minmax(0, 1fr) minmax(56px, max-content);
+	grid-template-columns: 196px minmax(0, 1fr) 72px;
 	grid-template-areas: "label bar percent" "note bar percent";
 	column-gap: 40px;
 	row-gap: 0;

@@ -47,9 +47,7 @@ describe('Settings layout rules', () => {
 	it('lays the Settings usage row out as three columns without a width cap', () => {
 		const usage = css('usage-section.css')
 		expect(usage).not.toMatch(/max-width:\s*480px/)
-		expect(usage).toMatch(
-			/grid-template-columns:\s*196px minmax\(0, 1fr\) minmax\(56px, max-content\)/,
-		)
+		expect(usage).toMatch(/grid-template-columns:\s*196px minmax\(0, 1fr\) 72px/)
 		expect(usage).toMatch(/column-gap:\s*40px/)
 		expect(usage).toMatch(/@container settings-dialog/)
 		// The popover keeps its stacked rows: the grid is only under .usage-rows.
@@ -59,9 +57,18 @@ describe('Settings layout rules', () => {
 	it('keeps a "100% used" percent inside its column and a note-less stacked row free of a blank track', () => {
 		const usage = css('usage-section.css')
 		expect(usage).not.toMatch(/grid-template-columns:\s*196px minmax\(0, 1fr\) 56px;/)
+		expect(usage).not.toMatch(/max-content/)
 		const narrow = usage.slice(usage.indexOf('@container settings-dialog'))
 		expect(narrow).toMatch(/grid-template-areas:\s*"label percent" "bar bar";/)
 		expect(narrow).toMatch(/:has\(\.limits-note\)\s*\{[^}]*"label percent" "note note" "bar bar"/)
+	})
+
+	it('keeps a lone switch or button beside its label under 640 px', () => {
+		const page = css('settings-page.css')
+		const block = page.slice(page.indexOf('@container settings-dialog (max-width: 640px)'))
+		expect(block.slice(0, block.indexOf('@container', 10))).toMatch(
+			/:not\(\s*:has\(> \.settings-row-control > :is\(\.settings-switch, button\):only-child\)/,
+		)
 	})
 
 	it('lets a number field shrink beside its unit in the 640-760 px band', () => {

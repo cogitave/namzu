@@ -756,12 +756,18 @@
 	}
 }
 @container settings-dialog (max-width: 640px) {
-	.settings-row:not([data-stacked]) {
+	/* A lone switch or button stays beside its label: stacking it only adds a line. */
+	.settings-row:not([data-stacked]):not(
+			:has(> .settings-row-control > :is(.settings-switch, button):only-child)
+		) {
 		flex-direction: column;
 		align-items: stretch;
 		gap: 8px;
 	}
-	.settings-row:not([data-stacked]) > .settings-row-control {
+	.settings-row:not([data-stacked]):not(
+			:has(> .settings-row-control > :is(.settings-switch, button):only-child)
+		)
+		> .settings-row-control {
 		max-width: 100%;
 	}
 }
