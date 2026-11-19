@@ -90,6 +90,7 @@ import {
 } from './engine-updates-system.js'
 import { EngineUpdates } from './engine-updates.js'
 import { existingFolders } from './existing-folders.js'
+import { closePageAfter } from './extension-page-close.js'
 import { ExtensionUiService, registerExtensionScheme } from './extension-ui/electron.js'
 import { externalSourceUrl } from './external-url.js'
 import { FolderAccessTokens, canonicalFolder } from './folder-access.js'
@@ -1847,13 +1848,13 @@ function register(): void {
 	handle('extensionsCall', (method: string, params?: Record<string, unknown>) => {
 		if (!EXTENSION_BRIDGE_METHODS.includes(method))
 			throw new Error('That is not an extensions method.')
-		const done = operator.extensions(method, params)
-		// A page goes with the extension it belongs to.
-		if (method === 'namzu/extensions/remove' || method === 'namzu/extensions/disable') {
-			const id = readExtensionId(params?.id)
-			if (id) extensionUi?.closeExtension(id)
-		}
-		return done
+		// A page goes with the extension it belongs to, once the turn off or removal went through.
+		return closePageAfter(
+			method,
+			readExtensionId(params?.id),
+			Promise.resolve(operator.extensions(method, params)),
+			(id) => extensionUi?.closeExtension(id),
+		)
 	})
 	// Extension pages: the renderer reports a rectangle and the main process draws the page there, in its own
 	// view and its own session. Every value from the renderer is read defensively before it is used.
