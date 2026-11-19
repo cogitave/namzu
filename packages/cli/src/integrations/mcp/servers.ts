@@ -186,6 +186,14 @@ export interface McpServerSpec {
 	readonly readOnlyHintTrusted?: boolean
 	/** Include the server's own initialize instructions as untrusted turn context. Default false. */
 	readonly instructions?: boolean
+	/**
+	 * Send this server's tools to the model in full on every request. Default
+	 * `false`: the model sees each tool's name and loads the full definition
+	 * with `search_tools` before it calls one, so a server costs nothing until
+	 * it is used. Set `true` for a small server whose tools are used in nearly
+	 * every turn.
+	 */
+	readonly alwaysLoad?: boolean
 }
 
 export type McpServersConfig = Readonly<Record<string, McpServerSpec>>
@@ -737,6 +745,9 @@ function toolsetOptionsFor(spec: McpServerSpec, name: string): MCPToolsetOptions
 	if (spec.instructions !== undefined && typeof spec.instructions !== 'boolean') {
 		return 'instructions must be true or false'
 	}
+	if (spec.alwaysLoad !== undefined && typeof spec.alwaysLoad !== 'boolean') {
+		return 'alwaysLoad must be true or false'
+	}
 	return {
 		id: `mcp:${name}`,
 		allow: spec.allow,
@@ -872,6 +883,11 @@ function placeholderToolsets(
 			await mounted()?.[0]?.close?.()
 		},
 	}
+	// A server's tools are offered by name and loaded through `search_tools`
+	// when the model needs one, unless the server is marked `alwaysLoad`.
+	// Decided here, not per turn: the roster does not change when the model
+	// or its window does, and a tool already loaded stays loaded.
+	const mainOffered = spec.alwaysLoad === true ? main : deferred(main)
 	const resources = deferred({
 		source,
 		tools: () => mounted()?.[1]?.tools() ?? [],
@@ -880,7 +896,7 @@ function placeholderToolsets(
 			await mounted()?.[1]?.close?.()
 		},
 	})
-	return [main, resources]
+	return [mainOffered, resources]
 }
 
 /**
@@ -1069,9 +1085,18 @@ export function startMcpServers(
 					return
 				}
 				const bounded = discovered.map(boundedMcpToolset)
-				const ready = spec.requireApproval
+				const approved = spec.requireApproval
 					? bounded.map((entry) => requireApproval(entry))
 					: bounded
+				// The tools are offered by name only unless the server is `alwaysLoad`
+				// (the resource entry is deferred already). The placeholder in the
+				// roster says the same while the server is still connecting.
+				const ready =
+					spec.alwaysLoad === true
+						? approved
+						: approved.map((entry) =>
+								(entry.availability ?? 'active') === 'active' ? deferred(entry) : entry,
+							)
 				// The real entries' own changes (a server adding a tool later) reach the
 				// roster through the same slots.
 				for (const entry of ready) {

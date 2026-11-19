@@ -112,6 +112,7 @@ For one run, `namzu exec --mcp-config <file>` (also with `--json`) adds the serv
 | `maxRetries` | both | Nonnegative integer retry budget for calls the SDK classifies as safe to repeat. Unset leaves the SDK default. |
 | `requireApproval` | both | `true` asks for approval on every tool this server contributes, including prompts and resources. Default `false`. |
 | `readOnlyHintTrusted` | both | `true` lets this server's read-only annotations count as trusted for review exemptions. Default `false`. Set only for a server whose claims the operator trusts. |
+| `alwaysLoad` | both | `true` sends this server's tools to the model in full on every request. Default `false`: the model sees each tool's name and loads the full definition with `search_tools` before it calls one (see below). Set it for a small server whose tools nearly every turn uses. Anything but `true` or `false` fails this server by name. |
 | `instructions` | both | `true` includes this server's initialization instructions as labelled, untrusted request context for the model. Default `false`. They never become operator or system instructions. |
 
 An entry names a command or a URL, never both. One that names both is refused rather than guessed at, because picking either would run something the operator did not mean to run.
@@ -166,17 +167,23 @@ Before it offers the legacy `initialize` handshake, `connect()` asks the server 
 
 ## Writing and connecting servers
 
-If you write a server, put what a tool is for in the first sentence of its description: when the tool definitions are large, the model sees each tool's name and the first sentence of its description (see below), and decides from that alone whether to load the rest. Report progress during long work, and set `resetTimeoutOnProgress` for the server so work that is visibly advancing is not cut off by a deadline sized for a silent one.
+If you write a server, put what a tool is for in the first sentence of its description: the model sees each tool's name and the first sentence of its description (see Tool search), and decides from that alone whether to load the rest. Report progress during long work, and set `resetTimeoutOnProgress` for the server so work that is visibly advancing is not cut off by a deadline sized for a silent one.
 
 If you connect a server, its own instructions (for example the order to call its tools in) are read only when `instructions: true` is set for it. They are server-authored text and untrusted, so they are off by default; see `instructions` in the table above.
 
-## Large servers and tool search
+## Tool search
 
-Each turn, the CLI adds up the size of every connected server's tool definitions (name, description and input schema) and compares the total with the context window of that turn's model. When the definitions come to 10% of the window or more, they are not sent in full. The model sees each tool's name and the first sentence of its description, and loads a tool's full definition with `search_tools` before it calls it. Below 10% every tool stays loaded, as before.
+A server's tools are not sent to the model in full. The model sees each tool's name (and, as labelled untrusted text, the first sentence of its description) and loads the full definition with `search_tools` before it calls one. A server therefore costs the context nothing until the model uses it, however many tools it has. The case this exists for is a server with 207 tools, which come to about 792,000 characters: more than a 200,000-token window holds, so before tool search the first message failed with "This conversation is too long for the model", which no compaction could fix.
 
-Size is measured in characters at 2.5 characters per token, so the cut-off is `window × 10% × 2.5` characters: 50,000 for a 200,000-token model and 32,000 for an unknown model, which is assumed to have 128,000 tokens. Servers are added up, not judged one by one: two servers that each fit can still be deferred together. The decision is made per turn because the window belongs to the model, so switching to a smaller model can defer tools that a larger one carried. Once the model has loaded a tool, it stays loaded for the rest of the conversation. A server's resource tools (`list_resources`, `read_resource`) are always deferred.
+Two ways to keep a server's tools inline instead: set `alwaysLoad: true` on its entry (above), which suits a small server the model uses in nearly every turn; or start the session with `toolLoading: 'eager'` for the built-in tools, which does not change MCP servers.
 
-The case this exists for is a server with 207 tools, which come to about 792,000 characters. That is more than a 200,000-token window holds, so before tool search the first message failed with "This conversation is too long for the model", which no compaction could fix.
+The model loads tools with `search_tools` in three forms: `select:name1,name2` loads exactly those tools (an MCP tool by its full name `mcp__server__tool` or by its short name `tool`, which loads that tool from every server that has one), plain keywords rank the tools whose *name* has the word far above those whose description has it, and `+word` requires a word in the result. A query that is exactly one tool's name loads that tool alone.
+
+Once the model has loaded a tool, it stays loaded for the rest of the conversation, **including after compaction**: the compaction summary carries the list of loaded tools (`revealedTools`), and the message after it names them. A server's resource tools (`list_resources`, `read_resource`) are deferred in the same way.
+
+A server that connects, or adds tools, after a turn has begun is announced in the conversation by name: one entry, `Recorded context ... tools-changed`, lists the new tools and how to load them, and names a tool that went away. Its descriptions are not repeated there.
+
+> **Upgrading.** Before this, a server's tools were deferred only when all servers' definitions together reached 10% of the turn's context window, and sent in full otherwise. That size rule is gone. To keep the old behaviour for a server, set `alwaysLoad: true` on it.
 
 ## When servers connect
 
