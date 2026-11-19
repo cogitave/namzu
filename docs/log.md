@@ -2,6 +2,8 @@
 
 ## 2026-11-19
 
+- **Update** `cli/desktop.md`: the working line shows one clock while the first step is the whole turn, instead of the same seconds twice.
+
 - **Update** [Desktop](cli/desktop.md#while-a-reply-is-running): waiting messages are drawn in a Pal conversation too (they were missing there, so a message sent to a Pal while it replied had no Send now, Edit or Remove and no Paused line). `.changeset/desktop-waiting-messages-in-pal.md`.
 - **Update** [Desktop](cli/desktop.md#while-a-reply-is-running): a message sent while a reply runs is drawn as an ordinary message bubble at the end of the conversation, above the working row, with Send now, Edit and Remove under it, instead of in a tray above the message box; the Paused line sits under the last one, and no operating-system notification is raised for a queued message. `.changeset/desktop-waiting-messages-in-conversation.md`.
 - **Update** [Extensions in Desktop](cli/desktop-extensions.md): the wait after a wrong administrator password is said as "1 second" or "2 seconds", and a group on What is collected whose heading already says the whole description no longer repeats it in a What it records row. `.changeset/extension-wait-words.md`, `.changeset/desktop-collected-no-repeat.md`.

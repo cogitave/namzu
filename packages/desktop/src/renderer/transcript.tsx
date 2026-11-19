@@ -558,7 +558,7 @@ function TurnActivity({
 							/>
 						)}
 						<PhaseLabel label={label} animate={animate} />
-						{stepMs !== undefined && (
+						{stepMs !== undefined && elapsedLabel(stepMs) !== elapsed && (
 							<span className="turn-activity-step" data-live-step-clock="">
 								{elapsedLabel(stepMs)}
 							</span>
@@ -707,6 +707,11 @@ function LiveStatus({
 	}, [label])
 	const total = turnActiveMs(thread, thread.turn, now)
 	const stepMs = liveStepMs(thread, now)
+	// While the first step is the whole turn so far, its clock is the total's twin: show one.
+	const stepClock =
+		stepMs === undefined || (total !== undefined && elapsedLabel(stepMs) === elapsedLabel(total))
+			? undefined
+			: elapsedLabel(stepMs)
 	if (wait)
 		return (
 			<output className="working working-wait" aria-live="polite" data-transcript-phase="working">
@@ -734,9 +739,9 @@ function LiveStatus({
 			<span className="working-label transcript-phase-label" aria-hidden="true">
 				<span className="transcript-phase-text">{label ?? retained.current}</span>
 			</span>
-			{stepMs !== undefined && !visuallyHidden && (
+			{stepClock !== undefined && !visuallyHidden && (
 				<span className="working-step" aria-hidden="true" data-live-step-clock="">
-					{elapsedLabel(stepMs)}
+					{stepClock}
 				</span>
 			)}
 			{total !== undefined && showElapsed && !visuallyHidden && (

@@ -66,6 +66,15 @@ describe('the step clock', () => {
 		expect(html).toContain('class="turn-activity-elapsed">· 32s<')
 	})
 
+	it('is left out while the first step is the whole turn, so the same seconds are not said twice', () => {
+		const thread = command(started(), 'a', 'pending', START)
+		vi.setSystemTime(START + 6_000)
+		const html = render(thread)
+		expect(plain(html)).toContain('Running run a')
+		expect(html).not.toContain('data-live-step-clock')
+		expect(plain(html).match(/6s/g)?.length).toBe(1)
+	})
+
 	it('counts thinking from where the reasoning began', () => {
 		const thread = update(
 			started(),
