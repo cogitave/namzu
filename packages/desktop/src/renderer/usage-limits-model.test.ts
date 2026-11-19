@@ -2,13 +2,17 @@ import { describe, expect, it } from 'vitest'
 import type { LimitsNotification } from '../shared/limits-protocol.js'
 import {
 	LIMITS_REFRESH_MS,
+	STORED_LIMITS_MAX_AGE_MS,
 	asOfText,
 	createLimitsRefresher,
 	limitTone,
+	mergeLimits,
 	readBudgets,
+	readStoredLimits,
 	resetText,
 	usageLimitsModel,
 	writeBudgets,
+	writeStoredLimits,
 } from './usage-limits-model.js'
 
 // 2026-11-17 12:00 UTC, read in a fixed zone so the words do not depend on the machine.
@@ -43,6 +47,9 @@ describe('how old a reading is', () => {
 		expect(asOfText(NOW - 60_000, NOW)).toBeUndefined()
 		expect(asOfText(NOW - 12 * 60_000, NOW)).toBe('as of 12 min ago')
 		expect(asOfText(NOW - 3 * 3600_000, NOW)).toBe('as of 3 hours ago')
+		expect(asOfText(NOW - 24 * 3600_000, NOW)).toBe('as of 1 day ago')
+		expect(asOfText(NOW - 48 * 3600_000, NOW)).toBe('as of 2 days ago')
+		expect(asOfText(NOW - 30 * 24 * 3600_000, NOW)).toBe('as of 30 days ago')
 		expect(asOfText(undefined, NOW)).toBeUndefined()
 	})
 })
@@ -119,7 +126,7 @@ describe('the rows', () => {
 		expect(rejected.tone).toBe('full')
 	})
 
-	it('does not stand behind a number for a window that has reset since the reading', () => {
+	it('shows a window that has reset since the reading as a fresh one, never the old number', () => {
 		const old: LimitsNotification = {
 			providers: [
 				{
@@ -131,11 +138,41 @@ describe('the rows', () => {
 			],
 		}
 		const model = usageLimitsModel({ view: old, now: NOW, timeZone: ZONE })
-		const row = model.sections[0]?.rows[0]
-		expect(row).toMatchObject({ stale: true, fraction: 0 })
-		expect(row).not.toHaveProperty('percent')
+		expect(model.sections[0]?.rows[0]).toMatchObject({
+			stale: true,
+			fraction: 0,
+			percent: '0%',
+			reset: 'Starts with your first message',
+			tone: 'normal',
+		})
 		expect(model.tone).toBe('normal')
 		expect(model.critical).toBeUndefined()
+	})
+
+	it('words a window that has not begun, and one that resets later, as the reference does', () => {
+		const view: LimitsNotification = {
+			providers: [
+				{
+					provider: 'anthropic',
+					label: 'Anthropic',
+					kind: 'sign-in',
+					plan: 'Team',
+					windows: [
+						{ label: '5-hour limit', usedFraction: 0 },
+						{ label: 'Weekly · all models', usedFraction: 0.38, resetsAt: NOW + 3 * 24 * 3600_000 },
+					],
+				},
+			],
+		}
+		const section = usageLimitsModel({ view, now: NOW, timeZone: ZONE }).sections[0]
+		expect(section?.plan).toBe('Team')
+		expect(section?.rows[0]).toMatchObject({
+			label: '5-hour limit',
+			percent: '0%',
+			reset: 'Starts with your first message',
+		})
+		expect(section?.rows[1]).toMatchObject({ label: 'Weekly · all models', percent: '38%' })
+		expect((section?.rows[1] as { reset?: string }).reset).toMatch(/^Resets \w{3} /)
 	})
 
 	it('says how old an old reading is', () => {
@@ -153,6 +190,23 @@ describe('the rows', () => {
 		expect(usageLimitsModel({ view: old, now: NOW }).sections[0]?.rows[0]).toMatchObject({
 			asOf: 'as of 20 min ago',
 		})
+	})
+
+	it('gives no age to a window that has not begun', () => {
+		const old: LimitsNotification = {
+			providers: [
+				{
+					provider: 'anthropic',
+					label: 'Anthropic',
+					kind: 'sign-in',
+					asOf: NOW - 2 * 86_400_000,
+					windows: [{ label: '5-hour limit', usedFraction: 0 }],
+				},
+			],
+		}
+		const row = usageLimitsModel({ view: old, now: NOW }).sections[0]?.rows[0]
+		expect(row).toMatchObject({ reset: 'Starts with your first message' })
+		expect((row as { asOf?: string }).asOf).toBeUndefined()
 	})
 
 	it('draws a spend row as an estimate, with "of budget" only when one is set', () => {
@@ -208,18 +262,15 @@ describe('the rows', () => {
 		expect(rows({ currency: 'credits', used: 1.5 })).toMatchObject({ text: 'Used 1.5 credits' })
 	})
 
-	it('says one quiet line, never a bar or a zero, for a provider that reports nothing', () => {
+	it('has no section, and no sentence, for a provider that reports nothing', () => {
 		const view: LimitsNotification = {
-			providers: [{ provider: 'google', label: 'Google', kind: 'key' }],
+			providers: [
+				{ provider: 'google', label: 'Google', kind: 'key' },
+				{ provider: 'anthropic', label: 'Anthropic', kind: 'sign-in' },
+			],
 		}
 		const model = usageLimitsModel({ view, now: NOW })
-		expect(model.sections[0]?.rows).toEqual([
-			{
-				shape: 'none',
-				key: 'google:none',
-				text: 'Google: usage limits are not reported for this sign-in.',
-			},
-		])
+		expect(model.sections).toEqual([])
 		expect(model.worst).toBeUndefined()
 		expect(model.tone).toBe('normal')
 	})
@@ -227,8 +278,8 @@ describe('the rows', () => {
 	it('lists the conversation’s own provider first', () => {
 		const view: LimitsNotification = {
 			providers: [
-				{ provider: 'a', label: 'A', kind: 'key' },
-				{ provider: 'b', label: 'B', kind: 'key' },
+				{ provider: 'a', label: 'A', kind: 'key', credit: { currency: 'USD', remaining: 1 } },
+				{ provider: 'b', label: 'B', kind: 'key', credit: { currency: 'USD', remaining: 2 } },
 			],
 		}
 		expect(
@@ -276,5 +327,79 @@ describe('budgets', () => {
 		}
 		expect(readBudgets(blocked)).toEqual({})
 		expect(() => writeBudgets(blocked, { a: 1 })).not.toThrow()
+	})
+})
+
+describe('the last known limits', () => {
+	const stored = (asOf: number): LimitsNotification => ({
+		providers: [
+			{
+				provider: 'anthropic',
+				label: 'Anthropic',
+				kind: 'sign-in',
+				plan: 'Team',
+				asOf,
+				windows: [
+					{ label: 'Weekly · all models', usedFraction: 0.38, resetsAt: NOW + 86_400_000 * 2 },
+				],
+			},
+		],
+	})
+	const memory = () => {
+		const data = new Map<string, string>()
+		return {
+			getItem: (key: string) => data.get(key) ?? null,
+			setItem: (key: string, value: string) => void data.set(key, value),
+		}
+	}
+
+	it('comes back after a restart with its age', () => {
+		const storage = memory()
+		writeStoredLimits(storage, stored(NOW - 20 * 60_000))
+		const back = readStoredLimits(storage, NOW)
+		expect(back).toBeDefined()
+		const row = usageLimitsModel({ view: back, now: NOW, timeZone: ZONE }).sections[0]?.rows[0]
+		expect(row).toMatchObject({ percent: '38%', asOf: 'as of 20 min ago' })
+	})
+
+	it('keeps only the vendor numbers: no estimate, no provider without a reading', () => {
+		const storage = memory()
+		writeStoredLimits(storage, {
+			providers: [
+				{
+					provider: 'google',
+					label: 'Google',
+					kind: 'key',
+					asOf: NOW,
+					spend: { usd: 3, days: 30, partial: false },
+				},
+			],
+		})
+		expect(readStoredLimits(storage, NOW)).toBeUndefined()
+	})
+
+	it('forgets a reading from months ago, and a damaged one', () => {
+		const storage = memory()
+		writeStoredLimits(storage, stored(NOW - STORED_LIMITS_MAX_AGE_MS - 1))
+		expect(readStoredLimits(storage, NOW)).toBeUndefined()
+		storage.setItem('namzu.last-limits', 'not json')
+		expect(readStoredLimits(storage, NOW)).toBeUndefined()
+	})
+
+	it('lets a provider that says nothing yet keep what it last said, and a new reading replace it', () => {
+		const before = stored(NOW - 3_600_000)
+		const quiet: LimitsNotification = {
+			providers: [{ provider: 'anthropic', label: 'Anthropic', kind: 'sign-in' }],
+		}
+		const kept = mergeLimits(before, quiet).providers[0]
+		expect(kept?.plan).toBe('Team')
+		expect(kept?.asOf).toBe(NOW - 3_600_000)
+		expect(kept?.windows).toHaveLength(1)
+		const fresh = stored(NOW)
+		expect(mergeLimits(before, fresh)).toEqual(fresh)
+		expect(
+			usageLimitsModel({ view: mergeLimits(before, quiet), now: NOW, timeZone: ZONE }).sections[0]
+				?.rows[0],
+		).toMatchObject({ asOf: 'as of 1 hour ago' })
 	})
 })
