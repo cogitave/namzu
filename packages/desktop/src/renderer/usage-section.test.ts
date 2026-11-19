@@ -24,8 +24,8 @@ const render = (c: UsageLimitsControl | undefined) =>
 const view: LimitsNotification = {
 	providers: [
 		{
-			provider: 'anthropic',
-			label: 'Anthropic',
+			provider: 'signed',
+			label: 'Sign-in provider',
 			kind: 'sign-in',
 			plan: 'Team',
 			asOf: NOW - 20 * 60_000,
@@ -35,8 +35,8 @@ const view: LimitsNotification = {
 			],
 		},
 		{
-			provider: 'openai',
-			label: 'OpenAI',
+			provider: 'keyed',
+			label: 'Key provider',
 			kind: 'key',
 			spend: { usd: 3, days: 30, partial: false },
 		},
@@ -47,7 +47,7 @@ const view: LimitsNotification = {
 describe('Settings, Usage', () => {
 	it('lists each provider with the popover rows, its plan, and the age of an old reading', () => {
 		const out = render(control(view))
-		expect(out).toContain('Anthropic')
+		expect(out).toContain('Sign-in provider')
 		expect(out).toContain('· Team')
 		expect(out).toContain('5-hour limit')
 		expect(out).toContain('Starts with your first message')
@@ -55,7 +55,7 @@ describe('Settings, Usage', () => {
 		expect(out).toContain('as of 20 min ago')
 		expect(out.match(/data-row="window"/g)).toHaveLength(2)
 		expect(out.match(/class="limits-bar"/g)?.length).toBeGreaterThanOrEqual(2)
-		expect(out).toContain('OpenAI')
+		expect(out).toContain('Key provider')
 	})
 
 	it('says nothing for a provider that reports nothing, and no "not reported" sentence', () => {
@@ -75,7 +75,7 @@ describe('Settings, Usage', () => {
 	})
 
 	it('keeps the stored budget in the field, only beside a spend estimate', () => {
-		const out = render(control(view, { openai: 25 }))
+		const out = render(control(view, { keyed: 25 }))
 		expect(out).toContain('Spending budget')
 		expect(out).toMatch(/<input[^>]*value="25"/)
 		expect(out).toContain('of $25.00 budget')

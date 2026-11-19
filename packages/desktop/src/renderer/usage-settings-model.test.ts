@@ -9,14 +9,14 @@ const view: LimitsNotification = {
 	providers: [
 		{ provider: 'silent', label: 'Silent', kind: 'sign-in' },
 		{
-			provider: 'openai',
-			label: 'OpenAI',
+			provider: 'keyed',
+			label: 'Key provider',
 			kind: 'key',
 			spend: { usd: 3, days: 30, partial: false },
 		},
 		{
-			provider: 'anthropic',
-			label: 'Anthropic',
+			provider: 'signed',
+			label: 'Sign-in provider',
 			kind: 'sign-in',
 			plan: 'Team',
 			asOf: NOW - 20 * 60_000,
@@ -32,34 +32,32 @@ describe('the Usage section model', () => {
 	it('lists every provider that reported, the conversation provider first, and none that did not', () => {
 		const model = usageSettingsModel({
 			view,
-			currentProvider: 'anthropic',
+			currentProvider: 'signed',
 			now: NOW,
 			timeZone: 'UTC',
 		})
-		expect(model.sections.map((section) => section.provider)).toEqual(['anthropic', 'openai'])
+		expect(model.sections.map((section) => section.provider)).toEqual(['signed', 'keyed'])
 	})
 
 	it('gives a provider the same rows as the popover, with its plan and the age of an old reading', () => {
 		const model = usageSettingsModel({ view, now: NOW, timeZone: 'UTC' })
-		const anthropic = model.sections.find((section) => section.provider === 'anthropic')
-		expect(anthropic?.plan).toBe('Team')
-		expect(anthropic?.rows).toEqual(
-			model.limits.sections.find((s) => s.provider === 'anthropic')?.rows,
-		)
-		const first = anthropic?.rows[0]
+		const signed = model.sections.find((section) => section.provider === 'signed')
+		expect(signed?.plan).toBe('Team')
+		expect(signed?.rows).toEqual(model.limits.sections.find((s) => s.provider === 'signed')?.rows)
+		const first = signed?.rows[0]
 		expect(first).toMatchObject({ shape: 'window', percent: '40%', reset: 'Resets at 1:00 PM' })
 		expect(first?.shape === 'window' && first.asOf).toBe('as of 20 min ago')
-		expect(anthropic?.budget).toBeUndefined()
+		expect(signed?.budget).toBeUndefined()
 	})
 
 	it('offers a budget only beside a spend estimate, and carries the stored value', () => {
 		const none = usageSettingsModel({ view, now: NOW })
-		expect(none.sections.find((s) => s.provider === 'openai')?.budget).toEqual({
-			provider: 'openai',
+		expect(none.sections.find((s) => s.provider === 'keyed')?.budget).toEqual({
+			provider: 'keyed',
 		})
-		const set = usageSettingsModel({ view, now: NOW, budgets: { openai: 25 } })
-		expect(set.sections.find((s) => s.provider === 'openai')?.budget).toEqual({
-			provider: 'openai',
+		const set = usageSettingsModel({ view, now: NOW, budgets: { keyed: 25 } })
+		expect(set.sections.find((s) => s.provider === 'keyed')?.budget).toEqual({
+			provider: 'keyed',
 			usd: 25,
 		})
 	})
@@ -90,9 +88,9 @@ describe('a typed budget', () => {
 			setItem: (key: string, value: string) => void store.set(key, value),
 		}
 		// What the popover wrote before the budget moved to Settings.
-		store.set('namzu.limit-budgets', JSON.stringify({ openai: 40 }))
-		expect(readBudgets(storage)).toEqual({ openai: 40 })
-		writeBudgets(storage, { openai: 40, deepseek: 5 })
-		expect(JSON.parse(store.get('namzu.limit-budgets') ?? '')).toEqual({ openai: 40, deepseek: 5 })
+		store.set('namzu.limit-budgets', JSON.stringify({ keyed: 40 }))
+		expect(readBudgets(storage)).toEqual({ keyed: 40 })
+		writeBudgets(storage, { keyed: 40, other: 5 })
+		expect(JSON.parse(store.get('namzu.limit-budgets') ?? '')).toEqual({ keyed: 40, other: 5 })
 	})
 })
