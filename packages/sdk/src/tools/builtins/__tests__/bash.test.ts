@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { BashTool } from '../bash.js'
+import { BashTool, COMMAND_HAS_NO_INPUT, movedToBackgroundMessage } from '../bash.js'
 
 /**
  * What `bash` promises before it runs anything.
@@ -94,5 +94,17 @@ describe('a dangerous command that is refused', () => {
 			subject: 'bash',
 			note: 'It pipes a download into a shell',
 		})
+	})
+})
+
+describe('the model is told the shell has no keyboard', () => {
+	it('says so in the tool description', () => {
+		expect(BashTool.description).toContain(COMMAND_HAS_NO_INPUT)
+		expect(COMMAND_HAS_NO_INPUT).toContain('stdin is closed')
+		expect(COMMAND_HAS_NO_INPUT).toContain('ask the person')
+	})
+
+	it('says so when a command is moved to the background', () => {
+		expect(movedToBackgroundMessage('job-1', 5000)).toContain(COMMAND_HAS_NO_INPUT)
 	})
 })
