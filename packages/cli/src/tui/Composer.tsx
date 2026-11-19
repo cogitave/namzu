@@ -15,7 +15,11 @@ import type { MessageAttachment } from '@namzu/sdk'
 import { Box, type Key, Text, useInput, usePaste, useWindowSize } from 'ink'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
-import { loadImageFiles, parsePastedImagePaths } from '../integrations/clipboard/image-paths.js'
+import {
+	isMacScreenshotPreviewPath,
+	loadImageFiles,
+	parsePastedImagePaths,
+} from '../integrations/clipboard/image-paths.js'
 import {
 	type ClipboardImage,
 	imageFitsProvider,
@@ -1379,11 +1383,31 @@ export function Composer({
 			if (paths) {
 				// Enter pressed while the files load waits, like a clipboard read.
 				imageReadRef.current = true
+				// A macOS screenshot preview's file is gone once the preview closes. The path then
+				// names nothing, but the picture is still on the clipboard, so that is read instead.
+				let readClipboard = false
 				void loadImageFiles(paths, imageFileDeps)
 					.then((loaded) => {
-						if (!attachLoaded(loaded)) insertPastedText(normalized)
+						if (attachLoaded(loaded)) return
+						if (
+							loaded.kind === 'text' &&
+							process.platform === 'darwin' &&
+							isMacScreenshotPreviewPath(normalized)
+						) {
+							readClipboard = true
+							return
+						}
+						insertPastedText(normalized)
 					})
-					.finally(finishImageRead)
+					.finally(() => {
+						if (readClipboard) {
+							// Keep a waiting Enter: the clipboard read's own finally releases it.
+							imageReadRef.current = false
+							pasteImageFromClipboard(false)
+						} else {
+							finishImageRead()
+						}
+					})
 				return
 			}
 			insertPastedText(normalized)
