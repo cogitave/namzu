@@ -23,6 +23,8 @@ import {
 	addRunArgs,
 	approvedDisabled,
 	createTaskArgs,
+	runIsStale,
+	taskIsStale,
 	taskXml,
 	utf16Bom,
 } from './windows.js'
@@ -269,6 +271,60 @@ describe('Windows: command lines, checked without running anything', () => {
 			false,
 		)
 	})
+	it('status says when the task or the Run key still runs an earlier command, such as start.cmd and its console', async () => {
+		const spec = { launcher: 'C:\\r\\start.cmd', hiddenLauncher: 'C:\\r\\start.vbs' }
+		const earlier =
+			'<Task><Actions Context="Author"><Exec><Command>C:\\r\\start.cmd</Command></Exec></Actions></Task>'
+		const current = taskXml(spec, 'PC\\me')
+		expect(await mk({}, { 'schtasks /Query': earlier }).status(spec)).toEqual({
+			registered: true,
+			kind: 'task',
+			stale: true,
+		})
+		expect(await mk({}, { 'schtasks /Query': current }).status(spec)).toEqual({
+			registered: true,
+			kind: 'task',
+		})
+		// Case and the quotes the XML escapes are not a different command.
+		expect(
+			await mk({}, { 'schtasks /Query': current.replace('wscript.exe', 'WScript.exe') }).status(
+				spec,
+			),
+		).toEqual({ registered: true, kind: 'task' })
+		// Without the launcher to compare, or with no command to read, nothing is called stale.
+		expect(await mk({}, { 'schtasks /Query': earlier }).status()).toEqual({
+			registered: true,
+			kind: 'task',
+		})
+		expect(taskIsStale('<Task><Settings/></Task>', spec)).toBeUndefined()
+		// schtasks and reg print in the console code page, so a profile folder outside ASCII reads back
+		// mangled: the program and the script it is handed still match, and nothing is registered again.
+		const turkish = {
+			launcher: 'C:\\Users\\Ayşe\\r\\start.cmd',
+			hiddenLauncher: 'C:\\Users\\Ayşe\\r\\start.vbs',
+		}
+		const mangled = taskXml(turkish, 'PC\\me').replace(/Ayşe/g, 'Ay\uFFFDe')
+		expect(taskIsStale(mangled, turkish)).toBe(false)
+		expect(taskIsStale(earlier.replace('C:\\r', 'C:\\Users\\Ay\uFFFDe\\r'), turkish)).toBe(true)
+		const runEarlier = mk(
+			{ 'schtasks /Query': 1 },
+			{ 'reg query': `    ${RUN_VALUE}    REG_SZ    "C:\\r\\start.cmd"\r\n` },
+		)
+		expect(await runEarlier.status(spec)).toMatchObject({ kind: 'run', stale: true })
+		const runCurrent = mk(
+			{ 'schtasks /Query': 1 },
+			{
+				'reg query': `    ${RUN_VALUE}    REG_SZ    wscript.exe //B //Nologo "C:\\r\\start.vbs"\r\n`,
+			},
+		)
+		expect(await runCurrent.status(spec)).toEqual({ registered: true, kind: 'run' })
+		expect(
+			runIsStale(
+				`${RUN_VALUE}    REG_SZ    wscript.exe //B //Nologo "C:\\Users\\Ay\uFFFDe\\r\\start.vbs"`,
+				turkish,
+			),
+		).toBe(false)
+	})
 })
 
 describe('macOS: a LaunchAgent for this user only', () => {
@@ -336,6 +392,25 @@ describe('reconcile: the entry exists exactly while a background extension is en
 		expect(JSON.parse(readFileSync(join(root(), '_runner', 'engine.json'), 'utf8')).args).toEqual([
 			'/elsewhere/bin.js',
 		])
+	})
+	it('an entry an earlier version made is registered again, even when no launcher file changed', async () => {
+		const reg = new FakeRegistrar('task')
+		const win = { ...input(reg, true), platform: 'win32' as const }
+		const vbs = join(root(), '_runner', 'start.vbs')
+		await reconcileSignin(win)
+		expect(reg.entry?.hiddenLauncher).toBe(vbs)
+		// What an earlier version registered: the console file itself.
+		reg.entry = { launcher: join(root(), '_runner', 'start.cmd'), kind: 'task' }
+		await reconcileSignin(win)
+		expect(reg.calls.filter((c) => c === 'register')).toHaveLength(2)
+		expect(reg.entry?.hiddenLauncher).toBe(vbs)
+		await reconcileSignin(win)
+		expect(reg.calls.filter((c) => c === 'register')).toHaveLength(2)
+		// One the person switched off stays off, stale or not.
+		reg.entry = { launcher: join(root(), '_runner', 'start.cmd'), kind: 'task' }
+		reg.disabledByOs = true
+		expect(await reconcileSignin(win)).toMatchObject({ disabledByOs: true })
+		expect(reg.calls.filter((c) => c === 'register')).toHaveLength(2)
 	})
 	it('never re-enables an entry the person switched off in the operating system, and says so', async () => {
 		const reg = new FakeRegistrar()
