@@ -21,6 +21,13 @@ import {
 const xml = (s: string): string =>
 	s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
+/** The program the sign-in entry runs: the script host with the hidden launcher, or the launcher itself. */
+export function entryCommand(spec: SigninSpec): { command: string; args?: string } {
+	return spec.hiddenLauncher
+		? { command: 'wscript.exe', args: `//B //Nologo "${spec.hiddenLauncher}"` }
+		: { command: spec.launcher }
+}
+
 export function taskXml(spec: SigninSpec, user: string): string {
 	return `<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
@@ -59,7 +66,12 @@ export function taskXml(spec: SigninSpec, user: string): string {
   </Settings>
   <Actions Context="Author">
     <Exec>
-      <Command>${xml(spec.launcher)}</Command>
+      <Command>${xml(entryCommand(spec).command)}</Command>${
+				entryCommand(spec).args
+					? `
+      <Arguments>${xml(entryCommand(spec).args as string)}</Arguments>`
+					: ''
+			}
     </Exec>
   </Actions>
 </Task>
@@ -80,7 +92,7 @@ export const createTaskArgs = (xmlFile: string): string[] => [
 ]
 export const deleteTaskArgs = (): string[] => ['/Delete', '/TN', TASK_NAME, '/F']
 export const queryTaskArgs = (): string[] => ['/Query', '/TN', TASK_NAME, '/XML']
-export const addRunArgs = (launcher: string): string[] => [
+export const addRunArgs = (launcher: string, hidden?: string): string[] => [
 	'add',
 	RUN_KEY,
 	'/v',
@@ -88,7 +100,7 @@ export const addRunArgs = (launcher: string): string[] => [
 	'/t',
 	'REG_SZ',
 	'/d',
-	`"${launcher}"`,
+	hidden ? `wscript.exe //B //Nologo "${hidden}"` : `"${launcher}"`,
 	'/f',
 ]
 export const deleteRunArgs = (): string[] => ['delete', RUN_KEY, '/v', RUN_VALUE, '/f']
@@ -135,7 +147,7 @@ export class WindowsRegistrar implements SigninRegistrar {
 				await this.exec('reg', deleteRunArgs()).catch(() => undefined)
 				return { ok: true, kind: 'task' }
 			}
-			const r = await this.exec('reg', addRunArgs(spec.launcher))
+			const r = await this.exec('reg', addRunArgs(spec.launcher, spec.hiddenLauncher))
 			return r.code === 0
 				? { ok: true, kind: 'run' }
 				: { ok: false, reason: `${t.stderr || t.stdout} ${r.stderr}`.trim() }

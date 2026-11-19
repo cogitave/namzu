@@ -138,7 +138,14 @@ export async function reconcileSignin(i: ReconcileInput): Promise<RunnerState['s
 			i.log?.('signin-removed')
 		}
 		// The launcher goes with the entry: nothing of Namzu's stays behind once no extension needs it.
-		for (const n of ['start.cmd', 'start.sh', 'engine.cmd', 'engine.sh', 'engine.json'])
+		for (const n of [
+			'start.cmd',
+			'start.vbs',
+			'start.sh',
+			'engine.cmd',
+			'engine.sh',
+			'engine.json',
+		])
 			rmSync(join(runnerDir(i.extensionsRoot), n), { force: true })
 		return save({ registered: false })
 	}
@@ -149,7 +156,10 @@ export async function reconcileSignin(i: ReconcileInput): Promise<RunnerState['s
 	}
 	if (cur.registered && !paths.changed)
 		return save({ registered: true, ...(cur.kind ? { kind: cur.kind } : {}) })
-	const r = await i.registrar.register({ launcher: paths.launcher })
+	const r = await i.registrar.register({
+		launcher: paths.launcher,
+		...(paths.hidden ? { hiddenLauncher: paths.hidden } : {}),
+	})
 	if (!r.ok) return save({ registered: false, reason: r.reason })
 	i.log?.('signin-registered', r.kind)
 	return save({ registered: true, kind: r.kind })
@@ -161,7 +171,7 @@ export async function removeSigninEverywhere(
 ): Promise<void> {
 	const reg = createRegistrar(o)
 	await reg?.unregister()
-	for (const n of ['start.cmd', 'start.sh', 'engine.cmd', 'engine.sh', 'engine.json'])
+	for (const n of ['start.cmd', 'start.vbs', 'start.sh', 'engine.cmd', 'engine.sh', 'engine.json'])
 		if (existsSync(join(runnerDir(o.extensionsRoot), n)))
 			rmSync(join(runnerDir(o.extensionsRoot), n), { force: true })
 }

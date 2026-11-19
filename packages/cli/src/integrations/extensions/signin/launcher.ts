@@ -67,8 +67,32 @@ call "%D%engine.cmd"\r
 "%NAMZU_ENGINE_EXE%" %NAMZU_ENGINE_ARGS% extension daemon run\r
 `
 
+/**
+ * On Windows the task and the Run key start `start.vbs`, not `start.cmd`, so nothing shows on screen. A
+ * `.cmd` file always gets a console window, and the task's own `Hidden` setting only hides the task from
+ * the Task Scheduler list. `wscript.exe` is a program with no console: it runs `start.cmd` with window
+ * style 0 (hidden) and waits for it, so the task is still the runner's parent (restart on failure and
+ * the ignored second instance keep working). Chosen over `conhost.exe --headless` because that switch
+ * is undocumented and needs a recent Windows 10; the script host is on every supported Windows and
+ * needs no administrator rights. A computer whose policy turns the script host off cannot start the
+ * runner at sign-in; the Namzu app still starts it when it opens.
+ */
+export const START_VBS = [
+	"' Namzu extension runner, started with no window. Generated; Namzu rewrites it when the engine moves.",
+	'Option Explicit',
+	'Dim sh, fso, here, rc',
+	'Set sh = CreateObject("WScript.Shell")',
+	'Set fso = CreateObject("Scripting.FileSystemObject")',
+	'here = fso.GetParentFolderName(WScript.ScriptFullName)',
+	'rc = sh.Run("cmd.exe /d /c " & Chr(34) & Chr(34) & here & "\\start.cmd" & Chr(34) & Chr(34), 0, True)',
+	'WScript.Quit rc',
+	'',
+].join('\r\n')
+
 export interface LauncherPaths {
 	readonly launcher: string
+	/** Windows: the script that runs the launcher with no window; the sign-in entry names this one. */
+	readonly hidden?: string
 	readonly engineJson: string
 }
 
@@ -93,6 +117,8 @@ export function writeLauncher(
 		[derived, win ? engineCmd(engine) : engineSh(engine), 0o600],
 		[launcher, win ? START_CMD : START_SH, 0o700],
 	]
+	const hidden = win ? join(dir, 'start.vbs') : undefined
+	if (hidden) want.push([hidden, START_VBS, 0o600])
 	let changed = false
 	for (const [file, text, mode] of want) {
 		let cur: string | undefined
@@ -106,5 +132,5 @@ export function writeLauncher(
 		if (!win) chmodSync(file, mode)
 		changed = true
 	}
-	return { launcher, engineJson, changed }
+	return { launcher, ...(hidden ? { hidden } : {}), engineJson, changed }
 }

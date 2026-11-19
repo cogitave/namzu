@@ -106,6 +106,18 @@ describe('ensureRunner on Windows, with nothing really run', () => {
 		expect(seen[0]?.file).toBe('cmd.exe')
 	})
 
+	it('never shows a window: the cmd start is hidden and shares no console of its own', () => {
+		const plan = planRunnerStart({ ...base, platform: 'win32', taskExists: false })
+		if (plan?.kind !== 'detached') throw new Error('expected a detached plan')
+		expect(plan.options.windowsHide).toBe(true)
+		expect(plan.options.stdio).toBe('ignore')
+		expect(plan.args[3]).toContain('start "" /b ')
+		// the other platforms hide too
+		const posix = planRunnerStart({ ...base, platform: 'linux', taskExists: false })
+		if (posix?.kind !== 'detached') throw new Error('expected a detached plan')
+		expect(posix.options.windowsHide).toBe(true)
+	})
+
 	it('falls back to the cmd start when the task exists but cannot be run', async () => {
 		const seen: string[] = []
 		await ensureRunner({

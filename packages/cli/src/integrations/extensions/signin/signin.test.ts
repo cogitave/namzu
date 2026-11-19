@@ -9,6 +9,7 @@ import {
 	type EngineLocation,
 	START_CMD,
 	START_SH,
+	START_VBS,
 	engineCmd,
 	engineSh,
 	writeLauncher,
@@ -161,6 +162,36 @@ describe('Windows: command lines, checked without running anything', () => {
 		expect(x).toContain('<Command>C:\\Users\\me\\.namzu\\extensions\\_runner\\start.cmd</Command>')
 		expect(x).not.toContain('Highest')
 		expect(taskXml({ launcher: 'C:\\a&b<c>.cmd' }, 'x')).toContain('C:\\a&amp;b&lt;c&gt;.cmd')
+	})
+	it('the task and the Run key start the hidden launcher through the script host, never a console file', () => {
+		const spec = {
+			launcher: 'C:\\Users\\me\\.namzu\\extensions\\_runner\\start.cmd',
+			hiddenLauncher: 'C:\\Users\\me\\.namzu\\extensions\\_runner\\start.vbs',
+		}
+		const x = taskXml(spec, 'PC\\me')
+		expect(x).toContain('<Command>wscript.exe</Command>')
+		expect(x).toContain(
+			'<Arguments>//B //Nologo &quot;C:\\Users\\me\\.namzu\\extensions\\_runner\\start.vbs&quot;</Arguments>',
+		)
+		expect(x).not.toContain('start.cmd')
+		expect(addRunArgs(spec.launcher, spec.hiddenLauncher).at(-2)).toBe(
+			'wscript.exe //B //Nologo "C:\\Users\\me\\.namzu\\extensions\\_runner\\start.vbs"',
+		)
+	})
+	it('the hidden launcher runs start.cmd with window style 0 and waits, so the task stays the runner parent', () => {
+		expect(START_VBS).toContain('start.cmd')
+		expect(START_VBS).toMatch(/, 0, True\)/)
+		expect(START_VBS).toContain('WScript.Quit rc')
+		expect(START_VBS).not.toContain('\n\n\r')
+		expect(START_VBS.split('\r\n').every((l) => !l.includes('\n'))).toBe(true)
+	})
+	it('on Windows the launcher writes start.vbs beside start.cmd, and changing nothing writes nothing', () => {
+		const root = join(home, 'extensions')
+		const a = writeLauncher(root, engine(), 'win32')
+		expect(a.hidden).toBe(join(root, '_runner', 'start.vbs'))
+		expect(readFileSync(a.hidden as string, 'utf8')).toBe(START_VBS)
+		expect(writeLauncher(root, engine(), 'win32').changed).toBe(false)
+		expect(writeLauncher(root, engine(), 'linux').hidden).toBeUndefined()
 	})
 	it('the task file is UTF-16 with a byte-order mark', () => {
 		const b = utf16Bom('ab')

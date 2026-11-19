@@ -10,6 +10,8 @@ export type SigninKind = 'task' | 'run' | 'xdg' | 'launchagent'
 export interface SigninSpec {
 	/** Absolute path of the generated launcher (`start.cmd` or `start.sh`). */
 	readonly launcher: string
+	/** Windows: the script that runs the launcher with no window. The entry names it when present. */
+	readonly hiddenLauncher?: string
 }
 
 export interface SigninStatus {

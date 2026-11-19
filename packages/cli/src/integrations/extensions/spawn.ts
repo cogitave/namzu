@@ -155,7 +155,8 @@ export function spawnChild(
 			if (pid === undefined) return
 			try {
 				if (platform === 'win32') {
-					if (force) execFile('taskkill', ['/PID', String(pid), '/T', '/F'], () => {})
+					if (force)
+						execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true }, () => {})
 					else child.kill()
 				} else process.kill(-pid, force ? 'SIGKILL' : 'SIGTERM')
 			} catch {
