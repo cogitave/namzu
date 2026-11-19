@@ -1,0 +1,5 @@
+---
+'@namzu/desktop': patch
+---
+
+Extensions moved into Settings. Settings has an Extensions section after Tools with one row for each extension and an Add from file button; a row opens the extension's own screen with its switch, its record for today, background start, what it collects, its settings, licence and notice, and Remove, in the same rows Settings uses everywhere. The rail's Extensions button now opens Settings there, and the full-window Extensions page is gone. An extension's own page opens as a page of the window, with a thin strip on top and Back or Escape to return where you were, instead of a dialog. The recording marks that sat in the title bar are gone: what an extension is doing is written in its row, and recording belongs to the extension's own tray icon, never Namzu's. Namzu's own tray icon has a new look in a light and a dark version that follows your system, and never carries anything from an extension. The Settings row that opened the Plugins page is now called Plugins.
