@@ -5426,10 +5426,15 @@ the model, holds it for after the reply instead. Both wait **at the end of the c
 (`pending-tail.tsx`, mounted by `Transcript` after the last message and above the working row): one bubble per
 message in the order it will be used, the messages sent into the reply first and then the held ones. Nothing
 is drawn in or above the message box. Under each bubble are quiet, always visible **Send now**, **Edit** and
-**Remove** actions; a message sent into the reply offers only Send now, because it cannot be taken back. The
+**Remove** actions; a message already sent into the reply offers none of them, because it cannot be taken back and Send now has nothing left to do. The
 "Sending to this reply" and "After this reply" notes are the bubble's tooltip and read by a screen reader; a
-"Waiting" or "Delivery not confirmed" note is shown as text. Send now stops the reply and runs that message at
-once (`operator.sendNow`; a message sent into the reply that had not arrived becomes the next one). Edit turns
+"Waiting" or "Delivery not confirmed" note is shown as text. Send now hands that message to the running reply
+at its next step without stopping it (`operator.sendNow` sends it through `namzu/conversations/input` under
+its own id, so the bubble keeps its place and its note becomes "Sending to this reply"). Every message held
+ahead of it goes along, in order; the ones behind it still wait. A message already in the reply is left
+alone. Where live input is not available (a Pal conversation, another engine, an engine that does not offer
+it, a closed live scope, or a held message with files) Send now stops the reply and runs that message at
+once instead, as it did before. Edit turns
 the bubble into an inline editor (`operator.updateQueued`): Enter saves, Shift+Enter adds a line, Esc cancels,
 and the message keeps its place. Up in an empty message box opens the newest held message the same way (Alt+Up
 still pulls it into the box). A waiting message is not part of the history (`thread.messages`, undo and the
