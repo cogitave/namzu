@@ -146,7 +146,7 @@
 	z-index: 3;
 	border: 1px solid var(--border);
 	border-radius: var(--radius-lg, 12px);
-	box-shadow: var(--shadow-2, 0 8px 24px rgb(0 0 0 / 0.18));
+	box-shadow: var(--shadow-2);
 	overflow: hidden;
 }
 /* The conversation gives up the width the panes and a docked Session pane take, and is hidden, not removed,

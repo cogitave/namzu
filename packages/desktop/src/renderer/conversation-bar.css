@@ -132,7 +132,7 @@
 .pane-buttons > [data-slot="button"] {
 	width: 24px;
 	height: 24px;
-	border-radius: 6px;
+	border-radius: var(--radius-chip);
 	padding: 0;
 	-webkit-app-region: no-drag;
 }

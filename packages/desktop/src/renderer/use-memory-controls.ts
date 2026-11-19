@@ -107,6 +107,7 @@ export function useSavedMemories(
 		error?: string
 	}>({ loading: false })
 	const [tick, setTick] = useState(0)
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `tick` is the reload trigger; bumping it re-reads the list
 	useEffect(() => {
 		if (!list || !projectId || !enabled) return
 		let live = true

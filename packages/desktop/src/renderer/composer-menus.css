@@ -100,7 +100,7 @@
 	width: max-content;
 	max-width: 13rem;
 	padding: 6px 8px;
-	border-radius: 6px;
+	border-radius: var(--radius-chip);
 	background: #000;
 	color: #fff;
 	font-size: var(--text-caption);
@@ -176,7 +176,7 @@
 	margin-inline-start: auto;
 	width: 30px;
 	height: 16px;
-	border-radius: 8px;
+	border-radius: var(--radius-pill);
 	background: color-mix(in srgb, var(--foreground) 22%, transparent);
 	transition: background-color 150ms var(--motion-ease);
 }

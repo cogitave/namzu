@@ -18,7 +18,7 @@
 	flex: none;
 	width: 28px;
 	height: 16px;
-	border-radius: 999px;
+	border-radius: var(--radius-pill);
 	background: var(--border);
 	transition: background-color var(--dur-quick) var(--ease-out);
 }

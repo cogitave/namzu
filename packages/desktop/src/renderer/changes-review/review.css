@@ -284,7 +284,7 @@
 	max-width: 100%;
 	height: var(--frame-control-size);
 	padding: 0 8px;
-	border-radius: 6px;
+	border-radius: var(--radius-chip);
 	color: var(--foreground);
 	font-size: var(--text-interface);
 	line-height: var(--leading-interface);

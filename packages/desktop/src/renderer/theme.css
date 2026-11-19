@@ -377,6 +377,7 @@
 	--settings-copy-gap: 4px;
 	--settings-control-height: 28px;
 	--settings-control-radius: 8px;
+	--settings-segment-radius: calc(var(--settings-control-radius) - 2px);
 	--settings-switch-width: 36px;
 	--settings-switch-height: 20px;
 	--settings-switch-knob: 16px;
@@ -417,7 +418,6 @@
 	--panel-title-inset: 20px;
 	--panel-control-gap: 4px;
 	--panel-control-inset: 8px;
-	--panel-files-width: 240px;
 	--panel-file-row: 28px;
 	--panel-open-fill: 8%;
 	--workspace-topbar-height: var(--frame-header-height);

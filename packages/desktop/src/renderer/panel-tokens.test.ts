@@ -30,7 +30,6 @@ describe('the panel tokens', () => {
 			'--panel-title-inset': '20px',
 			'--panel-control-gap': '4px',
 			'--panel-control-inset': '8px',
-			'--panel-files-width': '240px',
 			'--panel-file-row': '28px',
 			'--panel-open-fill': '8%',
 		}
@@ -45,14 +44,12 @@ describe('the panel tokens', () => {
 		expect(defined.sort()).toEqual(Object.keys(expected).sort())
 	})
 
-	it('reads the header, the files column, the row, the fill and the seam from the tokens', () => {
+	it('reads the header, the row, the fill and the seam from the tokens', () => {
 		const all = css(dir).map((path) => [path, readFileSync(path, 'utf8')] as const)
 		const body = (file: string) => all.find(([path]) => path.endsWith(file))?.[1] ?? ''
 		expect(body('style.css')).toMatch(
 			/\.section-heading \{[^}]*height: var\(--panel-header-height\)/,
 		)
-		expect(body('review.css')).toMatch(/\.changes-bar \{[^}]*height: var\(--panel-header-height\)/)
-		expect(body('review.css')).toContain('minmax(0, 1fr) var(--panel-files-width)')
 		expect(body('review.css')).toMatch(/\.changes-flat-row \{[^}]*height: var\(--panel-file-row\)/)
 		expect(body('pane-grid.css')).toContain('width: var(--panel-grab-zone)')
 		expect(body('pane-grid.css')).toContain('width: var(--panel-grab-line)')
