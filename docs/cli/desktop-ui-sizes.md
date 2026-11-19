@@ -115,9 +115,13 @@ except a small control, and a control ends at the column's right edge.
 - Narrow: under a 760 px dialog the label keeps the wider share of a row and a number field shrinks
   (to 80 px at least) so its unit stays beside it; under 640 px a control goes under the label
   except a lone switch or button, which stays beside it, and a Usage row puts the name above its
-  bar. A stacked Usage row has a note track only when the row has a note.
+  bar. A stacked Usage row has a note track only when the row has a note. The 760 px cap on a
+  control (`calc(100% - 196px)`) is for flex rows only: a row with a preview under it
+  (`data-below`) is a grid whose control has a column of its own, where 100% is that column and the
+  cap left the code theme menu 18 px wide.
 - Check a Settings change in a render, not only in CSS text: a "100% used" row, a number row at a
-  700 px window, and every section at 1280 and 900 px, dark and light.
+  700 px window, and every section at 1280 and 900 px, dark and light, scrolled down to its last
+  row, since a picture of the window shows only the first screen of a section.
 
 `renderer/settings-layout.test.ts` checks the Usage row structure and these shared rules.
 

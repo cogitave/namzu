@@ -749,7 +749,9 @@
 		flex: 1 1 0;
 		min-width: 180px;
 	}
-	.settings-row:not([data-stacked]) > .settings-row-control {
+	/* Flex rows only: in a row with a line under it (a grid), 100% is the control's own column, so the
+	   cap would leave a select 18 px wide. That row's copy column already gives way on its own. */
+	.settings-row:not([data-stacked], [data-below]) > .settings-row-control {
 		flex: 0 1 auto;
 		min-width: 0;
 		max-width: calc(100% - 196px);
