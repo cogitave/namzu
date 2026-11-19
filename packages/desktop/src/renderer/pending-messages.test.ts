@@ -161,3 +161,26 @@ it('disables every action while the conversation is not ready, and hides Send no
 		)
 	expect(render({ canSendNow: false })).not.toContain('Send now')
 })
+
+it('keeps the same rows, in the same order and under the same ids, when Send now takes waiting messages into the reply', () => {
+	const before = pendingMessages(thread({ queuedItems: [item('a'), item('b'), item('c')] }))
+	// Send now on b: a and b move into the reply, c still waits.
+	const taken = pendingMessages(
+		thread({ liveInputs: [live('a'), live('b')], queuedItems: [item('c')] }),
+	)
+	expect(before.rows.map((row) => row.id)).toEqual(['a', 'b', 'c'])
+	expect(taken.rows.map((row) => [row.id, row.kind, row.note, row.editable])).toEqual([
+		['a', 'steer', 'Sending to this reply', false],
+		['b', 'steer', 'Sending to this reply', false],
+		['c', 'queued', 'After this reply', true],
+	])
+	// Once the model has read them they are messages, not rows.
+	expect(
+		pendingMessages(
+			thread({
+				liveInputs: [live('a', 'delivered'), live('b', 'delivered')],
+				queuedItems: [item('c')],
+			}),
+		).rows.map((row) => row.id),
+	).toEqual(['c'])
+})

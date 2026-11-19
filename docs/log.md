@@ -2,6 +2,7 @@
 
 ## 2026-11-19
 
+- **Update** [Desktop](cli/desktop.md#while-a-reply-is-running): Send now on a waiting message hands it, and everything held ahead of it, to the running reply at its next step instead of stopping the reply; it stops and runs the message only where live input is not available (a Pal, another engine, files on the message). Pressing it on a message already in the reply does nothing. `.changeset/desktop-send-now-into-reply.md`.
 - **Update** `cli/desktop.md`: the working line shows one clock while the first step is the whole turn, instead of the same seconds twice.
 
 - **Update** [Desktop](cli/desktop.md#while-a-reply-is-running): waiting messages are drawn in a Pal conversation too (they were missing there, so a message sent to a Pal while it replied had no Send now, Edit or Remove and no Paused line). `.changeset/desktop-waiting-messages-in-pal.md`.

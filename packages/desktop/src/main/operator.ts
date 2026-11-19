@@ -299,6 +299,8 @@ interface Conversation {
 	queue: PendingMessage[]
 	/** "Send now" stopped this reply on purpose, so its settlement hands the next message on at once. */
 	sendNowRelease?: boolean
+	/** Waiting messages being handed to the running reply by Send now, so a second press does nothing. */
+	takingIn?: Set<string>
 	liveInputs?: Map<string, LiveInputReceipt>
 	liveInputCalls?: Set<Promise<unknown>>
 	liveInputRead?: Promise<LiveInputStatus | undefined>
@@ -5065,6 +5067,8 @@ export class Operator {
 		sessionId: string,
 		prompt: string,
 		options?: DesktopSendOptions,
+		/** The id the message already has as a waiting row, so it keeps its place on screen once taken in. */
+		fixedInputId?: string,
 	): Promise<'accepted' | 'queued'> {
 		const session = this.session(sessionId)
 		this.assertFolderPresent(session.view.projectId)
@@ -5156,7 +5160,7 @@ export class Operator {
 				previous.draftRevision === draftRevision &&
 				previous.prompt === prompt
 					? previous.id
-					: randomUUID()
+					: (fixedInputId ?? randomUUID())
 			session.liveInputRetry = {
 				id: inputId,
 				prompt,
@@ -6420,9 +6424,16 @@ export class Operator {
 		const session = this.session(sessionId)
 		if (session.admitting) throw new Error('Wait for this conversation’s admission to finish.')
 		if (itemId !== undefined) {
+			// A message the reply already has, or is being handed, has nothing left to do.
+			if ((session.liveInputs?.has(itemId) || session.takingIn?.has(itemId)) && session.running)
+				return
 			const index = session.queue.findIndex((item) => item.id === itemId)
 			if (index < 0 && !session.liveInputs?.has(itemId))
 				throw new Error('This message has already started or was removed.')
+		}
+		if (session.running && (await this.takeIntoReply(session, itemId))) return
+		if (itemId !== undefined) {
+			const index = session.queue.findIndex((item) => item.id === itemId)
 			if (index > 0) {
 				const [item] = session.queue.splice(index, 1)
 				if (item) session.queue.unshift(item)
@@ -6445,6 +6456,53 @@ export class Operator {
 		} catch (error) {
 			session.sendNowRelease = undefined
 			throw error
+		}
+	}
+	/**
+	 * Hands a waiting message, and every one queued ahead of it, to the running reply at its next step
+	 * without stopping it. False when the engine cannot take messages into a running reply, or a message
+	 * carries files: the caller then stops the reply and runs the message instead.
+	 */
+	private async takeIntoReply(session: Conversation, itemId?: string): Promise<boolean> {
+		if (
+			!session.running ||
+			session.projection.stopReason ||
+			session.view.palId ||
+			(session.view.harness && session.view.harness !== 'namzu') ||
+			!session.client.supportsLiveInput()
+		)
+			return false
+		const last =
+			itemId === undefined
+				? session.queue.length - 1
+				: session.queue.findIndex((item) => item.id === itemId)
+		if (last < 0) return false
+		const carried = session.queue.slice(0, last + 1)
+		if (carried.some((item) => item.files.length > 0 || item.uncertainLiveInput)) return false
+		const status = await this.liveInputStatus(session, session.client, session.runtimeSessionId)
+		if (!status.available || !status.scopeId || !session.running) return false
+		if (!session.takingIn) session.takingIn = new Set()
+		for (const item of carried) session.takingIn.add(item.id)
+		try {
+			for (const item of carried) {
+				const index = session.queue.findIndex((queued) => queued.id === item.id)
+				if (index < 0) continue
+				session.queue.splice(index, 1)
+				this.state(session)
+				let result: 'accepted' | 'queued'
+				try {
+					result = await this.sendCurrent(session.view.id, item.prompt, item.options, item.id)
+				} catch (error) {
+					// Put it back where it was; nothing was handed over.
+					session.queue.splice(Math.min(index, session.queue.length), 0, item)
+					this.state(session)
+					throw error
+				}
+				if (result === 'queued') return false
+			}
+			return true
+		} finally {
+			for (const item of carried) session.takingIn.delete(item.id)
 		}
 	}
 	takeQueued(sessionId: string, itemId?: string): string | null {

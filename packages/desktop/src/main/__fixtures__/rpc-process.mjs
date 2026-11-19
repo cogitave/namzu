@@ -182,7 +182,8 @@ lines.on('line', (line) => {
 		const scope = liveScopes.get(params.sessionId)
 		if (params.scopeId && (!scope || params.scopeId !== scope.scopeId)) { send({ id, error: { code: -32602, message: 'Unknown live input scope.' } }); return }
 		if (scope?.inputs.size && process.env.FIXTURE_LIVE_INPUT_MODE_FILE && existsSync(process.env.FIXTURE_LIVE_INPUT_MODE_FILE) && readFileSync(process.env.FIXTURE_LIVE_INPUT_MODE_FILE, 'utf8') === 'lost-ack-and-status') { send({ id, error: { code: -32603, message: 'Status unavailable in isolated fixture.' } }); return }
-		reply(id, scope ? { available: scope.available, scopeId: scope.scopeId, inputs: [...scope.inputs.values()] } : { available: false, inputs: [] })
+		const closed = process.env.FIXTURE_LIVE_INPUT_MODE_FILE && existsSync(process.env.FIXTURE_LIVE_INPUT_MODE_FILE) && readFileSync(process.env.FIXTURE_LIVE_INPUT_MODE_FILE, 'utf8') === 'closed'
+		reply(id, scope ? { available: scope.available && !closed, scopeId: scope.scopeId, inputs: [...scope.inputs.values()] } : { available: false, inputs: [] })
 	} else if (method === 'namzu/conversations/input') {
 		const scope = liveScopes.get(params.sessionId)
 		if (!scope?.available || scope.scopeId !== params.scopeId) { send({ id, error: { code: -32602, message: 'Live input scope is closed.' } }); return }
