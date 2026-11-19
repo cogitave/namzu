@@ -189,6 +189,35 @@ describe('a mode changed while a turn runs', () => {
 		expect(await asked).toMatchObject({ action: 'reject_tools' })
 	})
 
+	it('stops asking at the next call after Ask first becomes Full access, but keeps the few questions no mode settles', async () => {
+		const ui = dialogs()
+		const { control, set } = setup('prompt', ui.prompt)
+		// Asking first: the call opens a card.
+		const first = control.handler(review(BASH))
+		await Promise.resolve()
+		await Promise.resolve()
+		expect(ui.open, 'Ask first puts the command in front of the person').toHaveLength(1)
+		ui.open[0]?.({ kind: 'approve' })
+		expect(await first).toEqual({ action: 'approve_tools' })
+
+		// Full access, chosen while the turn goes on: the next call is let through with no card.
+		set('bypass')
+		expect(await control.handler(review(BASH))).toEqual({ action: 'approve_tools' })
+		expect(ui.open, 'no second card for an ordinary command').toHaveLength(1)
+
+		// A rule of the person's that asks still asks, and so does a protected path.
+		const ruled = call('bash', {
+			input: { command: 'git push' },
+			authorization: { decision: 'review', reason: 'rule', askRule: true },
+		})
+		const asked = control.handler(review(ruled))
+		await Promise.resolve()
+		await Promise.resolve()
+		expect(ui.open, 'a rule that asks is still a question').toHaveLength(2)
+		ui.open[1]?.({ kind: 'reject' })
+		expect(await asked).toMatchObject({ action: 'reject_tools' })
+	})
+
 	it('without a reader, keeps the mode the turn began with', async () => {
 		const control = createLiveModeControl({
 			initial: 'plan',
