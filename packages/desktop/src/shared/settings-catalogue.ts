@@ -634,6 +634,35 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		],
 	},
 
+	// Usage. One panel: the limits of every provider, and the optional spending budget under them.
+	{
+		id: 'usage-limits',
+		owner: 'view',
+		section: 'usage',
+		label: 'Usage limits',
+		description:
+			'The limit windows each provider reports, how much of each is used, and when it starts over. Set a spending budget for a provider that has no limit of its own.',
+		control: panel,
+		appliesWhen: 'now',
+		keywords: [
+			'usage',
+			'limits',
+			'limit',
+			'quota',
+			'plan',
+			'5-hour',
+			'weekly',
+			'resets',
+			'credit',
+			'balance',
+			'spend',
+			'spending',
+			'budget',
+			'cost',
+			'percent',
+		],
+	},
+
 	// Agent
 	{
 		id: 'standingInstructions',

@@ -144,7 +144,8 @@ function windowRow(
 				? { reset: resetText(reset, now, timeZone) }
 				: {}),
 		tone,
-		...(window.rejected
+		// A window used up is reached whether or not the vendor has refused a request yet.
+		...(window.rejected || (fraction >= 1 && !stale)
 			? { state: 'Limit reached' }
 			: tone !== 'normal' && !stale
 				? { state: 'Getting close' }

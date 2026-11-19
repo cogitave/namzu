@@ -71,6 +71,31 @@ stays for days, or more than one accent fill in a view. A waiting update is ther
 28 px ghost rail button as its neighbours, a 16 px download glyph in the muted colour, with a 6 px
 accent dot at the top right as the only colour.
 
+## Settings layout
+
+The Settings column is 768 px wide and every block in it spans that width; nothing is capped narrower
+except a small control, and a control ends at the column's right edge.
+
+- A row is label left, control right. A stacked row's control (`data-stacked`) is as wide as the
+  column, so a choice group is a set of full-width choices.
+- A number field in a row is 220 px, flush right, with its unit before it.
+- A Usage window is one line: a 196 px name column and a 40 px gap (the bar starts 236 px in), a
+  thin bar that takes the rest, and a 72 px right-aligned "30% used" after another 40 px (the box
+  is wide enough for "100% used", and the same for every row so the bars end together). Rows are
+  16 px apart with no hairline. A credit or spend line spans the column. The composer popover keeps
+  its stacked rows; the grid is scoped to `.usage-rows`.
+- A list row (Extensions) has no side padding, so its tile starts at the column's left edge and its
+  chevron ends at the right edge.
+- A long list of checkboxes is a grid that fills the column, not a nested scroll box.
+- Narrow: under a 760 px dialog the label keeps the wider share of a row and a number field shrinks
+  (to 80 px at least) so its unit stays beside it; under 640 px a control goes under the label
+  except a lone switch or button, which stays beside it, and a Usage row puts the name above its
+  bar. A stacked Usage row has a note track only when the row has a note.
+- Check a Settings change in a render, not only in CSS text: a "100% used" row, a number row at a
+  700 px window, and every section at 1280 and 900 px, dark and light.
+
+`renderer/settings-layout.test.ts` checks the Usage row structure and these shared rules.
+
 ## What keeps it
 
 `renderer/ui-sizes.test.ts` fails on: a `text-ui-*` class or any text size class `theme.css` does not

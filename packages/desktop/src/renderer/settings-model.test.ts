@@ -129,6 +129,15 @@ describe('where the Desktop rows sit', () => {
 		expect(searchSettings('add from file')[0]?.section).toBe('extensions')
 	})
 
+	it('has a Usage section right after Models, found by limit, quota and budget words', () => {
+		expect(SETTINGS_NAV_GROUPS[0]).toEqual(['models', 'usage'])
+		expect(SETTINGS_SECTION_TITLES.usage).toBe('Usage')
+		expect(parseSettingsRoute('settings/usage')).toBe('usage')
+		expect(isSettingsSection('usage')).toBe(true)
+		for (const query of ['usage limits', 'budget', 'quota', 'resets', 'spending'])
+			expect(searchSettings(query).map((entry) => entry.section)).toContain('usage')
+	})
+
 	it('lists Notifications after Appearance in the second group', () => {
 		expect(SETTINGS_NAV_GROUPS[1]).toEqual(['general', 'appearance', 'notifications', 'speech'])
 		expect(SETTINGS_SECTION_TITLES.notifications).toBe('Notifications')
@@ -342,6 +351,7 @@ describe('the left column groups', () => {
 			['models'],
 			['speech'],
 		])
+		expect(visibleNavGroups([{ section: 'usage' }])).toEqual([['usage']])
 		expect(visibleNavGroups([])).toEqual([])
 	})
 })
