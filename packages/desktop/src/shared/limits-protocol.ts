@@ -48,6 +48,13 @@ const MAX_AMOUNT = 1e12
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	value !== null && typeof value === 'object' && !Array.isArray(value)
 
+/** A moment in milliseconds since the epoch: today's is about 1.8e12, so it has its own bound. */
+function instant(value: unknown): number | undefined {
+	return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1e14
+		? value
+		: undefined
+}
+
 function amount(value: unknown): number | undefined {
 	return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= MAX_AMOUNT
 		? value
@@ -68,7 +75,7 @@ function readWindow(value: unknown): LimitsWindowNotice | undefined {
 	const label = text(value.label, 80)
 	const used = value.usedFraction
 	if (label === undefined || typeof used !== 'number' || !Number.isFinite(used)) return undefined
-	const resetsAt = amount(value.resetsAt)
+	const resetsAt = instant(value.resetsAt)
 	return {
 		label,
 		usedFraction: Math.min(1, Math.max(0, used)),
@@ -115,7 +122,7 @@ function readProvider(value: unknown): LimitsProviderNotice | undefined {
 			spend = { usd, days, partial: value.spend.partial === true }
 	}
 	const plan = text(value.plan, 40)
-	const asOf = amount(value.asOf)
+	const asOf = instant(value.asOf)
 	return {
 		provider,
 		label,

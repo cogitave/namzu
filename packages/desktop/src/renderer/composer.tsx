@@ -1278,12 +1278,7 @@ export function Composer({
 										{compact &&
 											!waiting &&
 											(limits ? (
-												<UsageIndicator
-													usage={usage}
-													control={limits}
-													variant="ring"
-													{...(contextPanel ? { contextPanel } : {})}
-												/>
+												<UsageIndicator usage={usage} control={limits} variant="ring" />
 											) : (
 												<ContextRing
 													usage={usage}
@@ -1496,12 +1491,7 @@ export function Composer({
 								<div className="composer-row-end">
 									<div className="composer-selected-model">{modelControl}</div>
 									{limits ? (
-										<UsageIndicator
-											usage={usage}
-											control={limits}
-											variant="readout"
-											{...(contextPanel ? { contextPanel } : {})}
-										/>
+										<UsageIndicator usage={usage} control={limits} variant="readout" />
 									) : (
 										<ContextReadout
 											usage={usage}

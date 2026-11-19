@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import type { LimitsNotification } from '../shared/limits-protocol.js'
 import type { ThreadUsage } from '../shared/projection.js'
-import { ContextInline, type ContextPanelSource, useContextPanel } from './context-panel.js'
 import { type ContextRingModel, contextRingModel, piePath } from './context-ring.js'
 import { Button } from './ui/button.js'
 import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
@@ -25,6 +24,8 @@ export interface UsageLimitsControl {
 	onOpen: () => void
 	/** The clock the reset words are read against. */
 	now: () => number
+	/** Opens the Session panel, where the full breakdown of the context is; absent when it cannot. */
+	onDetails?: () => void
 }
 
 function Bar({ fraction, tone }: { fraction: number; tone: LimitTone }) {
@@ -81,33 +82,23 @@ function BudgetField({
 }
 
 function Row({ row, control }: { row: LimitRow; control: UsageLimitsControl }) {
-	if (row.shape === 'none')
+	if (row.shape === 'window') {
+		const note = [row.reset, row.state, row.asOf].filter(Boolean).join(' · ')
 		return (
-			<p className="limits-quiet" data-row="none">
-				{row.text}
-			</p>
-		)
-	if (row.shape === 'window')
-		return (
-			<div
-				className="limits-row"
-				data-row="window"
-				data-tone={row.tone}
-				data-stale={row.stale || undefined}
-			>
+			<div className="limits-row" data-row="window" data-tone={row.tone}>
 				<div className="limits-line">
 					<span className="limits-label">{row.label}</span>
-					{row.reset && <span className="limits-meta">{row.reset}</span>}
-					{row.percent && <span className="limits-percent">{row.percent}</span>}
+					<span className="limits-percent">{row.percent}</span>
 				</div>
-				<Bar fraction={row.fraction} tone={row.tone} />
-				{(row.state || row.asOf) && (
+				{note && (
 					<span className="limits-note" data-tone={row.tone}>
-						{[row.state, row.asOf].filter(Boolean).join(' · ')}
+						{note}
 					</span>
 				)}
+				<Bar fraction={row.fraction} tone={row.tone} />
 			</div>
 		)
+	}
 	return (
 		<div className="limits-row" data-row={row.shape} data-tone={row.tone}>
 			<div className="limits-line">
@@ -130,28 +121,41 @@ export function UsageLimitsPanel({
 	context: ContextRingModel | undefined
 	control: UsageLimitsControl
 }) {
+	// One provider: its plan goes in the title, as "Your usage limits · Team". Several: each is named.
+	const only = model.sections.length === 1 ? model.sections[0] : undefined
 	return (
 		<div className="limits-panel" data-testid="usage-limits">
-			<h2 className="limits-title">Your usage limits</h2>
-			{model.sections.length === 0 && (
-				<p className="limits-quiet">Usage limits are not reported yet.</p>
-			)}
-			{model.sections.map((section) => (
-				<section key={section.provider} className="limits-section" aria-label={section.title}>
-					{(model.sections.length > 1 || section.title.includes('·')) && (
-						<h3 className="limits-provider">{section.title}</h3>
-					)}
-					{section.rows.map((row) => (
-						<Row key={row.key} row={row} control={control} />
+			{model.sections.length > 0 && (
+				<>
+					<h2 className="limits-title">
+						Your usage limits
+						{only?.plan ? <span className="limits-plan"> · {only.plan}</span> : null}
+					</h2>
+					{model.sections.map((section) => (
+						<section key={section.provider} className="limits-section" aria-label={section.title}>
+							{model.sections.length > 1 && <h3 className="limits-provider">{section.title}</h3>}
+							{section.rows.map((row) => (
+								<Row key={row.key} row={row} control={control} />
+							))}
+						</section>
 					))}
-				</section>
-			))}
+				</>
+			)}
 			{context && (
-				<section className="limits-section" aria-label="Context">
-					<h3 className="limits-provider">Context</h3>
+				<section
+					className="limits-section"
+					data-divided={model.sections.length > 0 || undefined}
+					aria-label="Context"
+				>
 					<div className="limits-row" data-row="context" data-tone={context.tone}>
 						<div className="limits-line">
-							<span className="limits-label">{context.lines[0]}</span>
+							<span className="limits-label">Context</span>
+							<span className="limits-percent">{context.percent}%</span>
+							{control.onDetails && (
+								<button type="button" className="limits-link" onClick={control.onDetails}>
+									Details
+								</button>
+							)}
 						</div>
 						<Bar fraction={context.fraction} tone={context.tone} />
 					</div>
@@ -190,30 +194,14 @@ export function indicatorState(
  * The small indicator beside the model, as a ring or a pie, that opens the usage limits popover.
  * It turns amber at 75 percent of the context or of any account window, and red at 90.
  */
-/** Where the context goes, under the limits: read only while the popover is open (it mounts then). */
-function ContextSection({
-	source,
-	usage,
-}: { source: ContextPanelSource; usage: ThreadUsage | undefined }) {
-	const read = useContextPanel(source, usage, true)
-	return (
-		<div className="limits-context" data-testid="limits-context">
-			<ContextInline read={read} usage={usage} compacting={source.compacting} />
-		</div>
-	)
-}
-
 export function UsageIndicator({
 	usage,
 	control,
 	variant,
-	contextPanel,
 }: {
 	usage: ThreadUsage | undefined
 	control: UsageLimitsControl
 	variant: 'ring' | 'readout'
-	/** When given, the popover also says where the context goes. */
-	contextPanel?: ContextPanelSource
 }) {
 	const [open, setOpen] = useState(false)
 	const state = indicatorState(usage, control)
@@ -292,7 +280,6 @@ export function UsageIndicator({
 				className="limits-popup"
 			>
 				<UsageLimitsPanel model={model} context={state.context} control={control} />
-				{contextPanel ? <ContextSection source={contextPanel} usage={usage} /> : null}
 			</PopoverPopup>
 		</Popover>
 	)

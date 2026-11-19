@@ -1,7 +1,8 @@
-import type {
-	LimitsNotification,
-	LimitsProviderNotice,
-	LimitsWindowNotice,
+import {
+	type LimitsNotification,
+	type LimitsProviderNotice,
+	type LimitsWindowNotice,
+	readLimitsNotice,
 } from '../shared/limits-protocol.js'
 
 /** A window reads "getting close" from here, and "critical" from the next. A rejected window reads full. */
@@ -23,6 +24,9 @@ export function limitTone(fraction: number, rejected = false): LimitTone {
 const TONE_ORDER: Record<LimitTone, number> = { normal: 0, high: 1, full: 2 }
 export const worseTone = (a: LimitTone, b: LimitTone): LimitTone =>
 	TONE_ORDER[a] >= TONE_ORDER[b] ? a : b
+
+/** What a window that has not begun says: the reference's own wording for it. */
+export const FRESH_WINDOW = 'Starts with your first message'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -55,14 +59,15 @@ export interface WindowRow {
 	shape: 'window'
 	key: string
 	label: string
-	/** "27%"; absent when the window has reset since the reading, so no number is stood behind. */
-	percent?: string
+	/** "27%". A window that has reset since the reading reads 0%, the number of a window not yet begun. */
+	percent: string
 	fraction: number
+	/** "Resets Sat 2:00 PM", or "Starts with your first message" while the window has not begun. */
 	reset?: string
 	tone: LimitTone
 	/** "Getting close", "Limit reached"; absent when all is well. */
 	state?: string
-	/** The reading is older than the window itself. */
+	/** The window has reset since the reading: what is shown is a fresh window, not the old number. */
 	stale: boolean
 	asOf?: string
 }
@@ -84,15 +89,13 @@ export interface CreditRow {
 	fraction?: number
 	tone: LimitTone
 }
-export interface NoneRow {
-	shape: 'none'
-	key: string
-	text: string
-}
-export type LimitRow = WindowRow | SpendRow | CreditRow | NoneRow
+export type LimitRow = WindowRow | SpendRow | CreditRow
 
 export interface LimitSection {
 	provider: string
+	label: string
+	/** The plan the vendor named; absent when it named none. */
+	plan?: string
 	title: string
 	rows: LimitRow[]
 }
@@ -126,23 +129,26 @@ function windowRow(
 	const tone = stale ? 'normal' : limitTone(window.usedFraction, window.rejected)
 	const fraction = window.rejected ? 1 : window.usedFraction
 	const age = asOfText(asOf, now)
+	const fresh = stale || (fraction === 0 && reset === undefined)
 	return {
 		shape: 'window',
 		key: `${provider}:${window.label}`,
 		label: window.label,
-		...(stale ? {} : { percent: `${Math.round(fraction * 100)}%` }),
+		percent: `${Math.round((stale ? 0 : fraction) * 100)}%`,
 		fraction: stale ? 0 : fraction,
-		...(reset !== undefined && !stale ? { reset: resetText(reset, now, timeZone) } : {}),
+		...(fresh
+			? { reset: FRESH_WINDOW }
+			: reset !== undefined
+				? { reset: resetText(reset, now, timeZone) }
+				: {}),
 		tone,
-		...(stale
-			? { state: 'Reset since the last reply' }
-			: window.rejected
-				? { state: 'Limit reached' }
-				: tone !== 'normal'
-					? { state: 'Getting close' }
-					: {}),
+		...(window.rejected
+			? { state: 'Limit reached' }
+			: tone !== 'normal' && !stale
+				? { state: 'Getting close' }
+				: {}),
 		stale,
-		...(age ? { asOf: age } : {}),
+		...(age && !stale ? { asOf: age } : {}),
 	}
 }
 
@@ -208,12 +214,6 @@ function rowsFor(
 					},
 		)
 	}
-	if (rows.length === 0)
-		rows.push({
-			shape: 'none',
-			key: `${notice.provider}:none`,
-			text: `${notice.label}: usage limits are not reported for this sign-in.`,
-		})
 	return rows
 }
 
@@ -237,21 +237,26 @@ export function usageLimitsModel(input: UsageLimitsInput): UsageLimitsModel {
 	let tone: LimitTone = 'normal'
 	let worst: number | undefined
 	let critical: string | undefined
-	const sections = providers.map((notice): LimitSection => {
+	const sections = providers.flatMap((notice): LimitSection[] => {
 		const rows = rowsFor(notice, input.now, budgets, input.timeZone)
 		for (const row of rows) {
-			if (row.shape === 'none') continue
 			if (row.shape === 'window' && row.stale) continue
 			tone = worseTone(tone, row.tone)
 			if (row.fraction !== undefined) worst = Math.max(worst ?? 0, row.fraction)
 			if (row.shape === 'window' && row.tone === 'full' && !critical)
 				critical = `${row.label} is at ${row.percent ?? '100%'}${row.reset ? `, ${row.reset.charAt(0).toLowerCase()}${row.reset.slice(1)}` : ''}`
 		}
-		return {
-			provider: notice.provider,
-			title: notice.plan ? `${notice.label} · ${notice.plan}` : notice.label,
-			rows,
-		}
+		// A provider with nothing to say has no section: the popover never explains an absence.
+		if (rows.length === 0) return []
+		return [
+			{
+				provider: notice.provider,
+				label: notice.label,
+				...(notice.plan ? { plan: notice.plan } : {}),
+				title: notice.plan ? `${notice.label} · ${notice.plan}` : notice.label,
+				rows,
+			},
+		]
 	})
 	return {
 		sections,
@@ -306,5 +311,90 @@ export function writeBudgets(
 		storage?.setItem(BUDGET_KEY, JSON.stringify(budgets))
 	} catch {
 		// A blocked store only means the budget is not remembered.
+	}
+}
+
+const LAST_KEY = 'namzu.last-limits'
+
+/** A reading is worth showing again only while it is younger than this. */
+export const STORED_LIMITS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
+
+/**
+ * What the account last said, kept so the popover is not empty after a restart. Only the vendor's own
+ * numbers: no credential, no estimate. The reading carries its time, so it is shown with its age.
+ */
+export function readStoredLimits(
+	storage: Pick<Storage, 'getItem'> | undefined,
+	now: number,
+): LimitsNotification | undefined {
+	try {
+		const raw = storage?.getItem(LAST_KEY)
+		if (!raw) return undefined
+		const view = readLimitsNotice(JSON.parse(raw))
+		if (!view) return undefined
+		const providers = view.providers.filter(
+			(notice) => notice.asOf !== undefined && now - notice.asOf <= STORED_LIMITS_MAX_AGE_MS,
+		)
+		return providers.length > 0 ? { providers } : undefined
+	} catch {
+		return undefined
+	}
+}
+
+/** What is worth keeping of a reading: the vendor's numbers with their time, never an estimate. */
+export function storableLimits(view: LimitsNotification): LimitsNotification {
+	return {
+		providers: view.providers.flatMap((notice): LimitsProviderNotice[] =>
+			notice.asOf !== undefined && (notice.windows?.length || notice.credit)
+				? [
+						{
+							provider: notice.provider,
+							label: notice.label,
+							kind: notice.kind,
+							...(notice.plan ? { plan: notice.plan } : {}),
+							...(notice.windows?.length ? { windows: notice.windows } : {}),
+							...(notice.credit ? { credit: notice.credit } : {}),
+							asOf: notice.asOf,
+						},
+					]
+				: [],
+		),
+	}
+}
+
+export function writeStoredLimits(
+	storage: Pick<Storage, 'setItem'> | undefined,
+	view: LimitsNotification,
+): void {
+	try {
+		const keep = storableLimits(view)
+		if (keep.providers.length > 0) storage?.setItem(LAST_KEY, JSON.stringify(keep))
+	} catch {
+		// A blocked store only means the reading is not remembered.
+	}
+}
+
+/**
+ * A live reading laid over the one before it: a provider that says nothing yet (the first minute
+ * after a start, before any reply) keeps what it last said, with that reading's own time.
+ */
+export function mergeLimits(
+	before: LimitsNotification | undefined,
+	live: LimitsNotification,
+): LimitsNotification {
+	if (!before) return live
+	return {
+		providers: live.providers.map((notice) => {
+			if (notice.windows?.length || notice.credit) return notice
+			const old = before.providers.find((entry) => entry.provider === notice.provider)
+			if (!old || !(old.windows?.length || old.credit)) return notice
+			return {
+				...notice,
+				...(old.plan && !notice.plan ? { plan: old.plan } : {}),
+				...(old.windows ? { windows: old.windows } : {}),
+				...(old.credit ? { credit: old.credit } : {}),
+				...(old.asOf !== undefined ? { asOf: old.asOf } : {}),
+			}
+		}),
 	}
 }

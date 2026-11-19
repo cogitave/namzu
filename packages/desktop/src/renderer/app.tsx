@@ -294,7 +294,14 @@ import { Button } from './ui/button.js'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from './ui/empty.js'
 import { UndoDialog } from './undo-dialog.js'
 import { undoNotice } from './undo-model.js'
-import { createLimitsRefresher, readBudgets, writeBudgets } from './usage-limits-model.js'
+import {
+	createLimitsRefresher,
+	mergeLimits,
+	readBudgets,
+	readStoredLimits,
+	writeBudgets,
+	writeStoredLimits,
+} from './usage-limits-model.js'
 import type { UsageLimitsControl } from './usage-limits-popover.js'
 import { useAppearancePrefs } from './use-appearance-prefs.js'
 import { useArchivedConversations } from './use-archived-conversations.js'
@@ -971,7 +978,17 @@ export function App({
 		[sessionId],
 	)
 	// The drawer opens from the details popover, so closing it returns focus to the popover's icon.
-	const [limitsView, setLimitsView] = useState<LimitsNotification>()
+	const [limitsView, setLimitsViewState] = useState<LimitsNotification | undefined>(() =>
+		readStoredLimits(viewState, Date.now()),
+	)
+	// What the account says is laid over what it last said, and kept so a restart does not start empty.
+	const setLimitsView = useCallback((live: LimitsNotification) => {
+		setLimitsViewState((before) => {
+			const next = mergeLimits(before, live)
+			writeStoredLimits(viewState, next)
+			return next
+		})
+	}, [])
 	// The conversation and files the dialog was opened for: what it shows does not move under the person.
 	const [commitFor, setCommitFor] = useState<{ sessionId: string; paths: string[] }>()
 	const commitTrigger = useRef<HTMLElement | null>(null)
@@ -1664,8 +1681,17 @@ export function App({
 								() => {},
 							),
 						now: Date.now,
+						onDetails: () => setSessionPanelOpen(true),
 					},
-		[palConversation, limitsView, activeProviders.selected?.id, budgets, limitsRefresher],
+		[
+			palConversation,
+			limitsView,
+			activeProviders.selected?.id,
+			budgets,
+			limitsRefresher,
+			setLimitsView,
+			setSessionPanelOpen,
+		],
 	)
 	const commitPaths = useMemo(() => {
 		if (!sessionPanelActive) return []
@@ -2654,7 +2680,15 @@ export function App({
 					),
 				)
 		})
-	}, [updateProject, upsertConversation, attached.reload, api, invalidateComputerInput, showError])
+	}, [
+		updateProject,
+		upsertConversation,
+		attached.reload,
+		api,
+		invalidateComputerInput,
+		showError,
+		setLimitsView,
+	])
 	useEffect(() => {
 		// Choice settlement resumes metadata admission even for the same active ID.
 		void metadataEpoch

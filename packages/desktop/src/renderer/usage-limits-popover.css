@@ -74,9 +74,6 @@
 .limits-bar[data-tone="full"] > span {
 	background: var(--error-foreground);
 }
-.limits-row[data-stale] {
-	opacity: 0.6;
-}
 .limits-note {
 	color: var(--muted-foreground);
 	font-size: var(--text-caption);
@@ -136,6 +133,13 @@
 	text-align: right;
 }
 
-.limits-context {
+.limits-plan {
+	color: var(--muted-foreground);
+}
+.limits-section[data-divided] {
+	padding-top: 12px;
 	border-top: 1px solid var(--border);
+}
+.limits-row[data-row="context"] .limits-link {
+	align-self: baseline;
 }
