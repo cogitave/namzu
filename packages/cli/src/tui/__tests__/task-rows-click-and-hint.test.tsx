@@ -60,7 +60,7 @@ const worker = (viewId: string): SubagentActivity =>
 		transcript: [],
 	}) as SubagentActivity
 
-async function mount(selectedIndex?: number) {
+async function mount(selectedIndex?: number, clickable = true) {
 	const regions = createPointerRegions()
 	const opened: string[] = []
 	const screen = await renderToScreen(
@@ -72,7 +72,7 @@ async function mount(selectedIndex?: number) {
 					terminalRows={40}
 					terminalColumns={100}
 					now={NOW}
-					onActivateRow={(id) => opened.push(id)}
+					{...(clickable ? { onActivateRow: (id: string) => opened.push(id) } : {})}
 					{...(selectedIndex !== undefined ? { selectedIndex } : {})}
 				/>
 			</Box>
@@ -112,6 +112,14 @@ it('opens a row on a click, by the id Enter would use', async () => {
 	await m.click(m.row('Job b').x + 1, m.row('Job b').y)
 	await m.click(m.row('main').x, m.row('main').y)
 	expect(m.opened).toEqual(['workflow:wf-1', 'b', 'main'])
+})
+
+it('registers no click region on any row when no row handler is given (a permission dialog is up)', async () => {
+	const m = await mount(undefined, false)
+	await m.click(m.row('main').x, m.row('main').y)
+	await m.click(m.row('Release audit').x + 2, m.row('Release audit').y)
+	expect(m.opened).toEqual([])
+	expect(m.regions.handle({ kind: 'press', x: m.row('main').x, y: m.row('main').y })).toBe(false)
 })
 
 it('does nothing for a click that lands between the rows', async () => {

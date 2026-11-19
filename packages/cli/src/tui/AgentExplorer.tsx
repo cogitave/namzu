@@ -82,16 +82,31 @@ const COCKPIT_CHROME_ROWS = 2
 /** Rows the detail's own furniture takes besides its two lists: rule, title, description, a blank row, the list borders, the key line and the gap above. */
 const DETAIL_CHROME_ROWS = 8
 
+/** The least the detail is ever cut to, so a very small terminal still shows a title and a row. */
+const DETAIL_MIN_ROWS = 4
+
+/** Rows under the detail when the caller does not know them: a one-line box (margin, two rules, a line), the status line and some slack. */
+const DETAIL_BELOW_ROWS = 9
+
 /**
  * The height of the workflow detail drawn above the message box, in rows of a terminal that is
- * `rows` tall: half of it in the full screen view, else `max(12, rows - 9)` so the message box
- * and the status line stay under it. Never less than 12 rows (8 on a terminal under 18 rows)
- * and never the whole screen, so the conversation above it stays readable.
+ * `rows` tall, with `below` rows under it (the message box with its margin, rules and draft lines,
+ * the status line, an extension or update row, and one row of the conversation). The detail is
+ * half the screen in the full screen view, else everything above those rows. It is never less than
+ * 12 rows (8 on a terminal under 18 rows) while they fit, and never more than what is left
+ * above `below`, down to {@link DETAIL_MIN_ROWS}: on a short terminal it gives way, because rows
+ * past the screen are not clipped but make the whole screen repaint on every update.
  */
-export function workflowDetailHeight(rows: number, fullscreen: boolean): number {
-	const wanted = fullscreen ? Math.floor(rows / 2) : Math.max(12, rows - 9)
+export function workflowDetailHeight(
+	rows: number,
+	fullscreen: boolean,
+	below: number = DETAIL_BELOW_ROWS,
+): number {
+	const available = Math.max(1, rows - below)
+	const wanted = fullscreen ? Math.floor(rows / 2) : available
 	const least = rows < 18 ? 8 : 12
-	return Math.max(least, Math.min(wanted, Math.max(least, rows - 1)))
+	const height = Math.max(Math.min(wanted, available), Math.min(least, available))
+	return Math.max(DETAIL_MIN_ROWS, height)
 }
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 

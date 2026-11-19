@@ -1617,8 +1617,13 @@ The agent cockpit (Enter on `main` or on a workflow row, or on an agent row in `
 under the rail. It is drawn above the message box, never in place of it: the
 conversation stays above, and the message box (waiting while the detail has the
 keys) and the status line stay below. Its height is half of the terminal in the
-full screen view, and elsewhere `max(12, rows − 9)`, never under 12 rows (8 when the
-terminal is under 18 rows) and never the whole screen. Keys: `↑↓` or `j`/`k` move,
+full screen view, and elsewhere every row above the message box as it is drawn now
+(its margin, rules, update row and draft lines), the status line, an extension row and
+four rows of the conversation (`rows − 9` for a one-line box). It is never under 12
+rows (8 when the terminal is under 18 rows) while those fit, and gives way to them
+down to 4 rows on a short terminal, so the stack never passes the screen. In the full
+screen view a click on the `hypermode` word on the composer frame opens the effort
+picker, like the effort item in the status line. Keys: `↑↓` or `j`/`k` move,
 Enter or `→` goes one level deeper (phases, agents, the agent), `←` or Esc goes one
 level back and closes the view at the top, Space closes it, and `x` stops the
 workflow on its phases or skips the agent on its agents. It has no pause, restart,

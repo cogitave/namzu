@@ -1,7 +1,16 @@
-import { Box, Text, useAnimation, useIsScreenReaderEnabled, useStdout, useWindowSize } from 'ink'
+import {
+	Box,
+	type DOMElement,
+	Text,
+	useAnimation,
+	useIsScreenReaderEnabled,
+	useStdout,
+	useWindowSize,
+} from 'ink'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 
 import { motionAllowed, useReducedMotion } from './motion.js'
+import { usePointerRegion } from './pointer/context.js'
 import { theme } from './theme.js'
 
 const HYPERMODE_GLOW_MS = 880
@@ -24,6 +33,7 @@ export function ComposerFrame({
 	activation = 0,
 	animate = true,
 	above,
+	onModeClick,
 	children,
 }: {
 	/** Kept for the callers that say whether the input owns the keyboard; the rules look the same either way. */
@@ -49,9 +59,12 @@ export function ComposerFrame({
 	 * above itself (the update notice). Nothing when it renders nothing.
 	 */
 	readonly above?: ReactNode
+	/** A click on the mode word (full screen view): hypermode is an effort setting, so it opens that chooser. */
+	readonly onModeClick?: () => void
 	readonly children: ReactNode
 }) {
 	const terminal = useWindowSize()
+	const modeRef = useRef<DOMElement>(null)
 	const { stdout } = useStdout()
 	const screenReader = useIsScreenReaderEnabled()
 	useReducedMotion()
@@ -80,6 +93,10 @@ export function ComposerFrame({
 	}, [hidden, igniting, motion, time])
 	const glowTime =
 		igniting && motion && !hidden && !shell && time < HYPERMODE_GLOW_MS ? time : undefined
+	const modeHovered = usePointerRegion(modeRef, {
+		onClick: () => onModeClick?.(),
+		enabled: showMode && !hidden && onModeClick !== undefined,
+	})
 	const ruleColor = shell ? theme.accent.shellMode : theme.border.default
 	return (
 		<Box flexDirection="column" width={frameColumns} marginTop={hidden ? 0 : 1}>
@@ -92,10 +109,12 @@ export function ComposerFrame({
 				)}
 				{showMode ? (
 					<Box flexShrink={0}>
-						<Text color={theme.accent.hypermode} bold>
-							{' '}
-							{mode}{' '}
-						</Text>
+						<Box ref={modeRef} flexShrink={0}>
+							<Text color={theme.accent.hypermode} bold underline={modeHovered}>
+								{' '}
+								{mode}{' '}
+							</Text>
+						</Box>
 						<Text color={ruleColor}>─</Text>
 					</Box>
 				) : null}
