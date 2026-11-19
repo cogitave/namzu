@@ -1400,8 +1400,13 @@ export function Composer({
 						insertPastedText(normalized)
 					})
 					.finally(() => {
-						finishImageRead()
-						if (readClipboard) pasteImageFromClipboard(false)
+						if (readClipboard) {
+							// Keep a waiting Enter: the clipboard read's own finally releases it.
+							imageReadRef.current = false
+							pasteImageFromClipboard(false)
+						} else {
+							finishImageRead()
+						}
 					})
 				return
 			}

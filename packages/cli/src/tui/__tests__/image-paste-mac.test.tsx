@@ -120,6 +120,35 @@ describe('image paste on macOS', () => {
 		}
 	})
 
+	it('holds an Enter pressed during the preview-path fallback until the clipboard picture is attached', async () => {
+		const readsAtSubmit: number[] = []
+		const onSubmit = vi.fn(() => {
+			readsAtSubmit.push(state.reads)
+		})
+		const screen = await renderToScreen(<Composer history={[]} onSubmit={onSubmit} />, {
+			cols: 100,
+			rows: 24,
+		})
+		await screen.waitForRender()
+		try {
+			screen.press('hi')
+			await screen.waitForRender()
+			const done = nextCompletion()
+			screen.press(`\x1b[200~${PREVIEW}\x1b[201~`)
+			// Enter while the file load is still pending.
+			screen.press('\r')
+			await done
+			while (state.reads === 0) await nextCompletion()
+			await screen.waitForRender()
+			await screen.waitForRender()
+			expect(onSubmit).toHaveBeenCalledTimes(1)
+			// The send waited for the clipboard read instead of replaying before it began.
+			expect(readsAtSubmit).toEqual([1])
+		} finally {
+			await screen.unmount()
+		}
+	})
+
 	it('attaches a readable image path without reading the clipboard', async () => {
 		const { screen } = await open()
 		try {
