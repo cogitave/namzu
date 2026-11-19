@@ -936,9 +936,29 @@ export interface SessionOutputDetail {
 	preview?: string
 }
 
+/**
+ * The interface state main keeps for the window (layout, panes, collapsed sections). `snapshot` is
+ * read synchronously before the first paint; writes are fire and forget.
+ */
+export interface ViewStateBridge {
+	/** Everything stored, as plain strings; absent when main did not answer. */
+	readonly snapshot?: Record<string, string>
+	/** Hands over what `localStorage` held before this store existed; main answers what may be deleted. */
+	importLegacy(entries: Record<string, string>): {
+		snapshot: Record<string, string>
+		deletable: string[]
+	} | null
+	set(key: string, value: string): void
+	remove(key: string): void
+	/** Another window changed a key; `value` is null for a removal. Returns the way to stop listening. */
+	onChange(listener: (change: { key: string; value: string | null }) => void): () => void
+}
+
 export interface DesktopApi {
 	/** The pre-paint snapshot; absent when main did not answer. */
 	readonly boot?: DesktopBoot
+	/** The window's saved interface state. */
+	readonly viewState?: ViewStateBridge
 	/** Open a user-selected HTTP(S) source in the system browser. */
 	openExternal?(url: string): Promise<void>
 	/** Explicit plain-text copy; bounded to 4 MiB UTF-8 and never truncated. */

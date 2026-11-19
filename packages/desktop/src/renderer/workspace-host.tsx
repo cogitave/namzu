@@ -21,6 +21,7 @@ import './workspace-host.css'
 import { notify } from './notify.js'
 import { plainErrorText } from './plain-error.js'
 import { showStartupNotice } from './startup-notice.js'
+import { viewState } from './view-state.js'
 
 const api = window.namzu
 // Before anything renders, so the first render of every pane can seed from the snapshot.
@@ -51,11 +52,11 @@ export function WorkspaceHost() {
 		() => api?.boot?.launch === true && api.boot.settings.startup === 'home',
 	)
 	const [appearance, setAppearance] = useState<Appearance>(() => {
-		const saved = localStorage.getItem('namzu.appearance')
+		const saved = viewState.getItem('namzu.appearance')
 		return saved === 'light' || saved === 'system' ? saved : 'dark'
 	})
 	const [sideCollapsed, setSideCollapsed] = useState(
-		() => localStorage.getItem('namzu.sidebar-collapsed') === 'true',
+		() => viewState.getItem('namzu.sidebar-collapsed') === 'true',
 	)
 	const sideCollapsedRef = useRef(sideCollapsed)
 	sideCollapsedRef.current = sideCollapsed
@@ -140,7 +141,7 @@ export function WorkspaceHost() {
 				appearance === 'dark' || (appearance === 'system' && media.matches),
 			)
 		apply()
-		localStorage.setItem('namzu.appearance', appearance)
+		viewState.setItem('namzu.appearance', appearance)
 		media.addEventListener('change', apply)
 		return () => media.removeEventListener('change', apply)
 	}, [appearance])
@@ -366,7 +367,7 @@ export function WorkspaceHost() {
 			if (room === 'collapse-sidebar') {
 				setSideCollapsed(true)
 				try {
-					localStorage.setItem('namzu.sidebar-collapsed', 'true')
+					viewState.setItem('namzu.sidebar-collapsed', 'true')
 				} catch {
 					/* The sidebar stays closed for this window. */
 				}

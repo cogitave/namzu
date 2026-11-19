@@ -4,6 +4,7 @@ import { applyAppearancePrefs, writePrefsMirror } from './appearance-prefs.js'
 import { setCodePrefs } from './code-prefs.js'
 import { announceMotionChange } from './motion-setting.js'
 import { setNoticeAutoDismiss } from './notify.js'
+import { viewState } from './view-state.js'
 
 /**
  * Draw the saved appearance choices. Until main answers, the first paint's values (set by
@@ -48,7 +49,7 @@ export function useAppearancePrefs(settings: DesktopSettings | undefined): void 
 			codeFontSize: codeSize,
 		}
 		applyAppearancePrefs(document.documentElement, prefs)
-		writePrefsMirror(localStorage, prefs)
+		writePrefsMirror(viewState, prefs)
 		setNoticeAutoDismiss(dismiss)
 		announceMotionChange(window)
 		// After the root's tokens: open terminals and code views read them on this signal.

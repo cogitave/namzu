@@ -5,6 +5,7 @@ import {
 	isSafeFontName,
 } from '../shared/settings-catalogue.js'
 import { familyStack } from './appearance-prefs.js'
+import { viewState } from './view-state.js'
 
 /**
  * The interface font: Namzu's own typeface (the default) or the one the device draws with. It is a
@@ -83,7 +84,7 @@ export function setInterfaceFont(value: InterfaceFont): void {
 	const element = root()
 	if (element) applyInterfaceFont(element, value)
 	try {
-		localStorage.setItem(INTERFACE_FONT_KEY, value)
+		viewState.setItem(INTERFACE_FONT_KEY, value)
 	} catch {
 		/* Storage can be unavailable; the choice still holds until the window closes. */
 	}
@@ -99,7 +100,7 @@ export function startInterfaceFont(): void {
 	try {
 		const element = root()
 		if (element)
-			applyInterfaceFont(element, parseInterfaceFont(localStorage.getItem(INTERFACE_FONT_KEY)))
+			applyInterfaceFont(element, parseInterfaceFont(viewState.getItem(INTERFACE_FONT_KEY)))
 	} catch {
 		/* The boot script already applied what it could read. */
 	}

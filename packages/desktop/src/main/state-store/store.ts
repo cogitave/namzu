@@ -9,6 +9,7 @@
  * context figure, history, outputs) are not kept here: the session log owns those.
  */
 
+import { defineOf } from '../../shared/state-registry.js'
 import {
 	STATE_FILE_VERSION,
 	type StateEntry,
@@ -17,7 +18,6 @@ import {
 	legacyEntries,
 	parseStateFile,
 } from './migrate.js'
-import { defineOf } from './registry.js'
 
 /** The disk, as the store needs it. A test passes a fake that can fail between the two steps. */
 export interface StateFs {
@@ -177,20 +177,16 @@ export class StateStore {
 		return { imported, deletable }
 	}
 
-	/**
-	 * Drops the per-conversation keys of conversations that no longer exist. An id that is not a
-	 * plain session id (a blank pane's draft id carries colons) is never judged, so a live unsent tab
-	 * is not lost.
-	 */
-	prune(live: { conversations: ReadonlySet<string> }): number {
+	/** Drops every key that belongs to a conversation, when the conversation is removed. */
+	forgetConversation(conversationId: string): number {
+		if (!conversationId || this.readOnly) return 0
 		let dropped = 0
 		for (const key of Object.keys(this.entries)) {
 			const def = defineOf(key)
-			if (def?.scope !== 'conversation') continue
-			const owner = def.ownerOf?.(key)
-			if (!owner || owner.includes(':') || live.conversations.has(owner)) continue
+			if (def?.scope !== 'conversation' || def.ownerOf?.(key) !== conversationId) continue
 			delete this.entries[key]
 			dropped += 1
+			this.emit({ key, value: null })
 		}
 		if (dropped > 0) this.touch()
 		return dropped

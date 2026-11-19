@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { STATE_KEYS, defineOf } from '../../shared/state-registry.js'
 import { STATE_FILE_VERSION } from './migrate.js'
-import { STATE_KEYS, defineOf } from './registry.js'
 import { DEBOUNCE_MS, type StateFs, StateStore } from './store.js'
 import {
 	type ModeWindow,
@@ -323,22 +323,28 @@ describe('importing what localStorage held', () => {
 	})
 })
 
-describe('pruning', () => {
-	it('drops the keys of conversations that are gone and keeps the rest', () => {
+describe('removing a conversation', () => {
+	it('drops that conversation’s keys and keeps everything else', () => {
 		const disk = fakeDisk()
 		const { store } = open(disk)
-		store.set('namzu.workspace.presentation:live', '{}')
 		store.set('namzu.workspace.presentation:gone', '{}')
 		store.set('namzu.workspace.files:gone', '[]')
+		store.set('namzu.workspace.presentation:live', '{}')
 		store.set('namzu.sidebar-collapsed', 'true')
-		store.set('namzu.workspace.presentation:project:p1:workspace:w:home', '{}')
-		const dropped = store.prune({ conversations: new Set(['live']) })
-		expect(dropped).toBe(2)
+		expect(store.forgetConversation('gone')).toBe(2)
 		expect(Object.keys(store.snapshot()).sort()).toEqual([
 			'namzu.sidebar-collapsed',
 			'namzu.workspace.presentation:live',
-			'namzu.workspace.presentation:project:p1:workspace:w:home',
 		])
+		expect(store.forgetConversation('')).toBe(0)
+		expect(store.forgetConversation('never-had-keys')).toBe(0)
+	})
+
+	it('does not take a conversation whose id only starts the same way', () => {
+		const { store } = open(fakeDisk())
+		store.set('namzu.workspace.presentation:abc-2', '{}')
+		expect(store.forgetConversation('abc')).toBe(0)
+		expect(store.get('namzu.workspace.presentation:abc-2')).toBe('{}')
 	})
 })
 

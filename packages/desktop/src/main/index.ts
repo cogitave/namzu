@@ -152,6 +152,14 @@ import { ShortcutController } from './shortcut-controller.js'
 import { runShutdown } from './shutdown-sequence.js'
 import { SidebarSnapshotStore } from './sidebar-snapshot-store.js'
 import { SleepGuard } from './sleep-guard.js'
+import { nodeStateFs } from './state-store/node-fs.js'
+import { StateStore } from './state-store/store.js'
+import {
+	applyWindowMode,
+	captureWindowMode,
+	readWindowMode,
+	writeWindowMode,
+} from './state-store/window-mode.js'
 import { type StorageLayout, clearStorage, measureStorage } from './storage-usage.js'
 import { installStreamRendererPolicy, withStreamRendererPort } from './stream-renderer-policy.js'
 import { SupersededConversationSettingsError } from './superseded-settings.js'
@@ -843,6 +851,23 @@ const sidebarSnapshot = new SidebarSnapshotStore(
 			diagnostics.record('ipc_failed', { operation: 'setSidebarSnapshot', error }),
 	},
 )
+/**
+ * What each window should look like when it comes back: layout, panes, collapsed sections, and
+ * whether a window was maximized. Read once, synchronously, before a window's first paint.
+ */
+const viewState = new StateStore({
+	file: join(app.getPath('userData'), 'view-state.json'),
+	fs: nodeStateFs,
+	now: Date.now,
+	schedule: (run, ms) => {
+		const timer = setTimeout(run, ms)
+		timer.unref()
+		return () => clearTimeout(timer)
+	},
+	onError: (error) => diagnostics.record('ipc_failed', { operation: 'viewState', error }),
+})
+/** The window whose write is being applied, so its change is not sent back to it. */
+let viewStateOrigin: string | undefined
 /** Windows created by this app start that have not read their pre-paint snapshot yet. */
 const launchWindows = new Set<string>()
 const settingsStore = new DesktopSettingsStore({
@@ -1500,6 +1525,61 @@ function register(): void {
 			event.returnValue = null
 		}
 	})
+	// The interface state: one synchronous read before the first paint, then writes that are
+	// fire and forget. Each authenticates the exact owned main frame and answers a refusal quietly.
+	const viewStateOwner = (event: Electron.IpcMainEvent): string | undefined => {
+		try {
+			return windows.authenticate(event, page).id
+		} catch (error) {
+			diagnostics.record('ipc_failed', { operation: 'viewState', error })
+			return undefined
+		}
+	}
+	ipcMain.on('namzu:viewState', (event) => {
+		event.returnValue = viewStateOwner(event) ? viewState.snapshot() : null
+	})
+	ipcMain.on('namzu:viewStateImport', (event, legacy: unknown) => {
+		const id = viewStateOwner(event)
+		if (!id) {
+			event.returnValue = null
+			return
+		}
+		viewStateOrigin = id
+		try {
+			const result = viewState.importLegacy(legacy)
+			event.returnValue = { snapshot: viewState.snapshot(), deletable: result.deletable }
+		} finally {
+			viewStateOrigin = undefined
+		}
+	})
+	ipcMain.on('namzu:viewStateSet', (event, key: unknown, value: unknown) => {
+		const id = viewStateOwner(event)
+		if (!id || typeof key !== 'string' || typeof value !== 'string') return
+		viewStateOrigin = id
+		try {
+			viewState.set(key, value)
+		} finally {
+			viewStateOrigin = undefined
+		}
+	})
+	ipcMain.on('namzu:viewStateRemove', (event, key: unknown) => {
+		const id = viewStateOwner(event)
+		if (!id || typeof key !== 'string') return
+		viewStateOrigin = id
+		try {
+			viewState.remove(key)
+		} finally {
+			viewStateOrigin = undefined
+		}
+	})
+	// Another window sees a change as the storage event it already listens for.
+	viewState.onChange((change) => {
+		for (const [id, window] of windows.entries()) {
+			if (id === viewStateOrigin || window.isDestroyed() || window.webContents.isDestroyed())
+				continue
+			window.webContents.send('namzu:viewStateChanged', change)
+		}
+	})
 	handle('terminals', () => terminals.list())
 	handle('terminalAvailability', (projectId: string) => terminals.availability(projectId))
 	handle('osState', () => osState())
@@ -1779,9 +1859,12 @@ function register(): void {
 		operator.updatePal(id, revision, changes),
 	)
 	handle('deletePal', (id: string, revision: number) => operator.deletePal(id, revision))
-	handle('removeConversation', (id: string) => {
+	handle('removeConversation', async (id: string) => {
 		releaseAwake((sessionId) => sessionId === id)
-		return operator.removeConversation(id)
+		const result = await operator.removeConversation(id)
+		// What the window kept about it (panel tabs, presentation) goes with it.
+		if (typeof id === 'string') viewState.forgetConversation(id)
+		return result
 	})
 	// A removal can be taken back for a few minutes. The proof is main's own, bound to this
 	// window and the exact folder, and it goes through the same pick checks as a new folder.
@@ -2245,6 +2328,7 @@ async function createWindow(
 		},
 	})
 	windows.register(windowId, window)
+	applyWindowMode(window, readWindowMode(viewState, windowId))
 	browserPanes.set(
 		windowId,
 		new BrowserPaneHost({
@@ -2334,6 +2418,8 @@ async function createWindow(
 			exitCode: details.exitCode,
 		})
 		abortTransfers()
+		// What the page last wrote is on disk before anything reloads it.
+		viewState.flush()
 		terminals.releaseWindow(windowId)
 		recovery.processGone(details.reason, details.exitCode)
 	})
@@ -2387,6 +2473,12 @@ async function createWindow(
 	}
 	window.on('resized', saveBounds)
 	window.on('moved', saveBounds)
+	// Whether the window was maximized or full screen comes back with it.
+	const saveMode = () => writeWindowMode(viewState, windowId, captureWindowMode(window))
+	window.on('maximize', saveMode)
+	window.on('unmaximize', saveMode)
+	window.on('enter-full-screen', saveMode)
+	window.on('leave-full-screen', saveMode)
 	window.on('close', (event) => {
 		if (stopped || quitting || allowNativeClose.delete(windowId)) return
 		event.preventDefault()
@@ -2404,6 +2496,7 @@ async function createWindow(
 			return
 		}
 		saveBounds()
+		viewState.flush()
 		// A window showing the recovery card, or whose process is gone, has no page to acknowledge
 		// the close, so waiting for one would leave it open for half a minute.
 		if (recovery.cardShowing || window.webContents.isCrashed()) {
@@ -2648,6 +2741,7 @@ function shutdown(): Promise<void> {
 	shortcuts.dispose()
 	working.pill?.close()
 	sidebarSnapshot.flush()
+	viewState.flush()
 	// A check that runs is stopped and the engine log reaches its file; a stuck one is not waited for.
 	const engineStop = engineDelivery
 		? Promise.race([
@@ -2675,6 +2769,8 @@ function shutdown(): Promise<void> {
 	})
 		.then(() => {
 			stopped = true
+			// Last: the file now says this run ended by a quit, not by a crash.
+			viewState.markCleanShutdown()
 		})
 		.catch((error: unknown) => {
 			quitting = false

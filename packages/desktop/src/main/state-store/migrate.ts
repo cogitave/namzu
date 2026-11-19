@@ -6,7 +6,7 @@
  * so going back a version never clobbers what the newer one saved.
  */
 
-import { defineOf } from './registry.js'
+import { defineOf } from '../../shared/state-registry.js'
 
 export const STATE_FILE_VERSION = 1
 
