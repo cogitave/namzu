@@ -1,6 +1,12 @@
-import { expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { toolTranscriptPresentation } from '../renderer/tool-transcript-presentation.js'
-import { type HistoryWorkSnapshot, knownActionLabel, restoreHistoryWork } from './history-work.js'
+import {
+	type HistoryWorkSnapshot,
+	knownActionLabel,
+	readStoredUsage,
+	restoreHistoryWork,
+	seedStoredUsage,
+} from './history-work.js'
 import { applyEvent, emptyThread, restoreMessages } from './projection.js'
 import type { ChatMessage } from './protocol.js'
 
@@ -471,5 +477,40 @@ it('restores what a call did as fields, drops extra fields, and never keeps a co
 	expect(toolTranscriptPresentation(restored, '1:run')).toMatchObject({
 		label: 'Ran npm test',
 		state: 'failed',
+	})
+})
+
+describe('the figure read back from the log', () => {
+	const stored = { contextTokens: 8_000, contextWindowTokens: 100_000, measuredBy: 'provider' }
+
+	it('fills the ring of a reopened conversation', () => {
+		expect(seedStoredUsage(emptyThread(), stored).usage).toEqual({
+			contextTokens: 8_000,
+			contextWindowTokens: 100_000,
+			measuredBy: 'provider',
+		})
+	})
+
+	it('keeps a count the engine already reported in this run', () => {
+		const live = { ...emptyThread(), usage: { contextTokens: 1, contextWindowTokens: 2 } }
+		expect(seedStoredUsage(live, stored)).toBe(live)
+	})
+
+	it('takes no figure from a bad shape', () => {
+		for (const bad of [
+			undefined,
+			null,
+			'x',
+			{},
+			{ contextTokens: -1, contextWindowTokens: 10 },
+			{ contextTokens: 1, contextWindowTokens: 0 },
+			{ contextTokens: Number.NaN, contextWindowTokens: 10 },
+		])
+			expect(seedStoredUsage(emptyThread(), bad).usage).toBeUndefined()
+		expect(readStoredUsage({ ...stored, sizeOutOfDate: 'yes' })).not.toHaveProperty('sizeOutOfDate')
+		expect(readStoredUsage({ ...stored, sizeOutOfDate: true })).toMatchObject({
+			sizeOutOfDate: true,
+		})
+		expect(readStoredUsage({ ...stored, measuredBy: 'who' })).not.toHaveProperty('measuredBy')
 	})
 })

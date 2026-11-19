@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react'
 import { codeThemeIds } from '../shared/code-themes.js'
 import type { DesktopSettings } from '../shared/settings-protocol.js'
 import { APPEARANCE_PREFS_KEY } from './appearance-prefs.js'
+import { viewState } from './view-state.js'
 
 /**
  * What the code views (a diff, a file, an approval card) and the terminal need from the code
@@ -24,7 +25,7 @@ export function codePrefsOf(source: Partial<Source>): CodePrefs {
 
 function fromMirror(): CodePrefs {
 	try {
-		return codePrefsOf(JSON.parse(localStorage.getItem(APPEARANCE_PREFS_KEY) ?? '{}'))
+		return codePrefsOf(JSON.parse(viewState.getItem(APPEARANCE_PREFS_KEY) ?? '{}'))
 	} catch {
 		return codePrefsOf({})
 	}

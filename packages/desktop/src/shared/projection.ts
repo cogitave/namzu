@@ -142,6 +142,8 @@ export interface ThreadUsage {
 	contextTokens?: number
 	contextWindowTokens?: number
 	measuredBy?: 'provider' | 'estimate'
+	/** A shortening rewrote the history after this count, so the figure is older than the history. */
+	sizeOutOfDate?: boolean
 	/** Cost so far in US dollars, only when every token was priced. */
 	cost?: number
 }

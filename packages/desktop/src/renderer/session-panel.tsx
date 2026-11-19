@@ -26,6 +26,7 @@ import {
 import { jobLabel, jobStatusOf } from './job-row.js'
 import { MENU_OFFSET } from './menu-metrics.js'
 import type { OutputFile } from './outputs-model.js'
+import { middleEllipsis, tildePath } from './path-display.js'
 import { type SessionSummary, finishedText, jobElapsed } from './session-summary-model.js'
 import { Button } from './ui/button.js'
 import './session-panel.css'
@@ -230,45 +231,45 @@ export function SessionPanel({
 				</Button>
 			</div>
 			<div className="session-panel-body">
-				{!chatOnly && (
-					<Section title="Environment">
-						<div className="session-row">
-							<MonitorIcon aria-hidden="true" />
-							<span className="session-label">{environment.host}</span>
-						</div>
-						{environment.folder && (
-							<div className="session-folder">
-								<button
-									type="button"
-									className="session-row session-row-button"
-									title={`${environment.folder.path}\nCopy the path`}
-									onClick={onCopyPath}
-								>
-									<FolderIcon aria-hidden="true" />
-									<span className="session-label">{environment.folder.name}</span>
-									<span className="session-value session-path">{environment.folder.path}</span>
-								</button>
-								<FolderActions onCopyPath={onCopyPath} onOpenArchived={onOpenArchived} />
-							</div>
-						)}
-						{environment.branch && (
-							<div className="session-row session-branch" title={environment.branch.title}>
-								{detached ? (
-									<GitCommitIcon aria-hidden="true" />
-								) : (
-									<GitBranchIcon aria-hidden="true" />
-								)}
-								<span className="session-branch-text">
-									<span className="session-label">{environment.branch.text}</span>
-									{environment.branch.subject && (
-										<span className="session-subject">{environment.branch.subject}</span>
-									)}
+				<Section title="Environment">
+					<div className="session-row">
+						<MonitorIcon aria-hidden="true" />
+						<span className="session-label">{environment.host}</span>
+					</div>
+					{environment.folder && (
+						<div className="session-folder">
+							<button
+								type="button"
+								className="session-row session-row-button"
+								title={`${environment.folder.path}\nCopy the path`}
+								onClick={onCopyPath}
+							>
+								<FolderIcon aria-hidden="true" />
+								<span className="session-label">{environment.folder.name}</span>
+								<span className="session-value session-path">
+									{middleEllipsis(tildePath(environment.folder.path))}
 								</span>
-							</div>
-						)}
-						{environment.branchNote && <p className="session-note">{environment.branchNote}</p>}
-					</Section>
-				)}
+							</button>
+							<FolderActions onCopyPath={onCopyPath} onOpenArchived={onOpenArchived} />
+						</div>
+					)}
+					{environment.branch && (
+						<div className="session-row session-branch" title={environment.branch.title}>
+							{detached ? (
+								<GitCommitIcon aria-hidden="true" />
+							) : (
+								<GitBranchIcon aria-hidden="true" />
+							)}
+							<span className="session-branch-text">
+								<span className="session-label">{environment.branch.text}</span>
+								{environment.branch.subject && (
+									<span className="session-subject">{environment.branch.subject}</span>
+								)}
+							</span>
+						</div>
+					)}
+					{environment.branchNote && <p className="session-note">{environment.branchNote}</p>}
+				</Section>
 				{contextPanel ? (
 					<ContextBreakdown source={contextPanel} usage={usage} />
 				) : (

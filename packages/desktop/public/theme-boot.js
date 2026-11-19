@@ -1,7 +1,16 @@
-// Runs before the bundle so the first paint already has the saved theme. It only reads
-// localStorage keys the renderer itself writes; the app sets the same class again once it mounts.
+// Runs before the bundle so the first paint already has the saved theme. It reads the saved
+// interface state main handed to the preload (window.namzu.viewState.snapshot), and falls back to
+// localStorage for a first start after an update, before the app has moved those keys into main's
+// store. The app sets the same class again once it mounts.
+function readSaved(key) {
+	try {
+		var snapshot = window.namzu && window.namzu.viewState && window.namzu.viewState.snapshot
+		if (snapshot && typeof snapshot[key] === 'string') return snapshot[key]
+	} catch (error) {}
+	return localStorage.getItem(key)
+}
 try {
-	var saved = localStorage.getItem('namzu.appearance')
+	var saved = readSaved('namzu.appearance')
 	var dark =
 		saved === 'light'
 			? false
@@ -22,7 +31,7 @@ function safeFont(name) {
 // person picked. `app` (the default) leaves the attribute off; renderer/interface-font.ts owns the key.
 // A font installed on this computer is stored as `family:<name>`.
 try {
-	var face = localStorage.getItem('namzu.interface-font')
+	var face = readSaved('namzu.interface-font')
 	var root = document.documentElement
 	if (face === 'system') root.setAttribute('data-interface-font', 'system')
 	else if (typeof face === 'string' && face.indexOf('family:') === 0 && safeFont(face.slice(7))) {
@@ -34,7 +43,7 @@ try {
 // response font. renderer/appearance-prefs.ts writes the values here (namzu.appearance-prefs) and
 // sets the same attributes; absent or unreadable means the values Namzu has always had.
 try {
-	var prefs = JSON.parse(localStorage.getItem('namzu.appearance-prefs') || '{}')
+	var prefs = JSON.parse(readSaved('namzu.appearance-prefs') || '{}')
 	var html = document.documentElement
 	if (prefs.transcriptTextSize === 'small' || prefs.transcriptTextSize === 'large')
 		html.setAttribute('data-transcript-size', prefs.transcriptTextSize)

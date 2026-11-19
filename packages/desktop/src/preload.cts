@@ -31,8 +31,40 @@ function readBoot(): DesktopBoot | undefined {
 		return undefined
 	}
 }
+/** One synchronous read of the saved interface state, so the first paint is already restored. */
+function readViewState(): Record<string, string> | undefined {
+	if (location.protocol === 'data:') return undefined
+	try {
+		const value = ipcRenderer.sendSync('namzu:viewState') as Record<string, string> | null
+		return value && typeof value === 'object' && !Array.isArray(value) ? value : undefined
+	} catch {
+		return undefined
+	}
+}
 const api: DesktopApi = {
 	boot: readBoot(),
+	viewState: {
+		snapshot: readViewState(),
+		importLegacy: (entries) => {
+			try {
+				const value = ipcRenderer.sendSync('namzu:viewStateImport', entries) as {
+					snapshot: Record<string, string>
+					deletable: string[]
+				} | null
+				return value && typeof value === 'object' ? value : null
+			} catch {
+				return null
+			}
+		},
+		set: (key, value) => ipcRenderer.send('namzu:viewStateSet', key, value),
+		remove: (key) => ipcRenderer.send('namzu:viewStateRemove', key),
+		onChange: (listener) => {
+			const handler = (_event: unknown, data: { key: string; value: string | null }) =>
+				listener(data)
+			ipcRenderer.on('namzu:viewStateChanged', handler)
+			return () => ipcRenderer.removeListener('namzu:viewStateChanged', handler)
+		},
+	},
 	openExternal: (url) => invoke('openExternal', url),
 	copyText: (text) => invoke('copyText', text),
 	linkPreview: (url) => invoke('linkPreview', url),

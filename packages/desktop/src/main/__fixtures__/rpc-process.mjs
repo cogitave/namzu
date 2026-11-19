@@ -102,7 +102,7 @@ lines.on('line', (line) => {
 		else if (process.env.FIXTURE_HISTORY_MODE === 'foreign') send({ id, error: { code: -32603, message: `Conversation ${params.sessionId} does not belong to this workspace — load conversation history rejected` } })
 		else if (process.env.FIXTURE_HISTORY_MODE === 'unreadable') send({ id, error: { code: -32603, message: 'The fixture journal could not be read.' } })
 		else if (process.env.FIXTURE_HISTORY_MODE === 'wrong-session') send({ id, error: { code: -32603, message: 'Conversation other-session was not found — load conversation history rejected' } })
-		else reply(id, { messages: [], partial: process.env.FIXTURE_HISTORY_MODE === 'partial' })
+		else reply(id, { messages: [], partial: process.env.FIXTURE_HISTORY_MODE === 'partial', ...(process.env.FIXTURE_HISTORY_USAGE ? { usage: JSON.parse(process.env.FIXTURE_HISTORY_USAGE) } : {}) })
 	}
 	else if (method === 'namzu/providers/select_auto') {
 		if (process.env.FIXTURE_AUTO === 'refuse') { send({ id, error: { code: -32603, message: 'Auto is not set up. It needs a routing block in your user config.' } }); return }

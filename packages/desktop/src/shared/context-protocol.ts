@@ -36,6 +36,8 @@ export interface ContextReport {
 	lists?: ContextLists
 	sizeOutOfDate?: boolean
 	approximate: boolean
+	/** Set when no engine answered: `record` is the log's last count, `estimate` a guess from the stored messages. */
+	stored?: 'record' | 'estimate'
 }
 
 const MAX_COUNT = 1e12
@@ -156,5 +158,6 @@ export function readContextReport(value: unknown): ContextReport | null {
 		...(lists ? { lists } : {}),
 		...(raw.sizeOutOfDate === true ? { sizeOutOfDate: true } : {}),
 		approximate: raw.approximate !== false,
+		...(raw.stored === 'record' || raw.stored === 'estimate' ? { stored: raw.stored } : {}),
 	}
 }

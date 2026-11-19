@@ -59,6 +59,13 @@ describe('readContextReport', () => {
 		expect(readContextReport(rest)?.approximate).toBe(true)
 	})
 
+	it('keeps where a stored figure came from and drops anything else', () => {
+		expect(readContextReport({ ...good, stored: 'record' })?.stored).toBe('record')
+		expect(readContextReport({ ...good, stored: 'estimate' })?.stored).toBe('estimate')
+		expect(readContextReport({ ...good, stored: 'guess' })?.stored).toBeUndefined()
+		expect(readContextReport(good)?.stored).toBeUndefined()
+	})
+
 	it('leaves the lists out on a summary', () => {
 		const { lists: _gone, ...rest } = good
 		expect(readContextReport({ ...rest, detail: 'summary' })?.lists).toBeUndefined()

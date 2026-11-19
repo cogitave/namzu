@@ -2,6 +2,7 @@ import type { ToolCallView, ToolFacts } from '@namzu/sdk'
 import { type TurnOutcomeSummary, readOutcomeSummary } from './outcome-protocol.js'
 import {
 	type ThreadState,
+	type ThreadUsage,
 	type TimelineEntry,
 	type TurnState,
 	restoreMessages,
@@ -454,4 +455,35 @@ export function restoreHistoryWork(
 		partial: restored.partial,
 		historyWorkPartial: work.partial,
 	}
+}
+
+/**
+ * The figure the engine host read back from the conversation's log when it was reopened: what
+ * the context ring shows until the next reply brings a live count. A bad shape is no figure.
+ */
+export function readStoredUsage(value: unknown): ThreadUsage | undefined {
+	if (!record(value)) return undefined
+	const { contextTokens, contextWindowTokens, measuredBy, sizeOutOfDate } = value
+	if (
+		typeof contextTokens !== 'number' ||
+		typeof contextWindowTokens !== 'number' ||
+		!Number.isFinite(contextTokens) ||
+		!Number.isFinite(contextWindowTokens) ||
+		contextTokens < 0 ||
+		contextWindowTokens <= 0
+	)
+		return undefined
+	return {
+		contextTokens,
+		contextWindowTokens,
+		...(measuredBy === 'provider' || measuredBy === 'estimate' ? { measuredBy } : {}),
+		...(sizeOutOfDate === true ? { sizeOutOfDate: true } : {}),
+	}
+}
+
+/** Seeds the ring from a stored figure; a count the engine already reported this run is kept. */
+export function seedStoredUsage(thread: ThreadState, stored: unknown): ThreadState {
+	if (thread.usage) return thread
+	const usage = readStoredUsage(stored)
+	return usage ? { ...thread, usage } : thread
 }

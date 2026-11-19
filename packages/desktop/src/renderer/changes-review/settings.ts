@@ -1,3 +1,5 @@
+import { viewState } from '../view-state.js'
+
 /** The Changes pane's display switches, kept per viewer. Storage may be missing; defaults then hold. */
 export type ListPosition = 'auto' | 'left' | 'right'
 
@@ -61,7 +63,7 @@ export function parseDisplay(raw: string | null | undefined): ChangesDisplay {
 
 export function loadDisplay(): ChangesDisplay {
 	try {
-		return parseDisplay(localStorage.getItem(KEY))
+		return parseDisplay(viewState.getItem(KEY))
 	} catch {
 		return { ...DISPLAY_DEFAULTS }
 	}
@@ -69,7 +71,7 @@ export function loadDisplay(): ChangesDisplay {
 
 export function saveDisplay(display: ChangesDisplay): void {
 	try {
-		localStorage.setItem(KEY, JSON.stringify(display))
+		viewState.setItem(KEY, JSON.stringify(display))
 	} catch {
 		// Storage is a convenience: without it the switches last for this window only.
 	}

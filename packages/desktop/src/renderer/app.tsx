@@ -315,6 +315,7 @@ import { usePullRequest } from './use-pull-request.js'
 import { useTranscriptScroll } from './use-transcript-scroll.js'
 import { useUndoKept } from './use-undo-kept.js'
 import { useBargeIn, useSpokenReplies, useVoiceInput } from './use-voice-input.js'
+import { viewState } from './view-state.js'
 import { VoiceInputStatus, VoiceMicButton, micAvailable } from './voice-input-ui.js'
 import { WindowTitlebar } from './window-titlebar.js'
 import {
@@ -859,7 +860,7 @@ export function App({
 		if (window.matchMedia('(max-width: 767px)').matches) setSideOpen((value) => !value)
 		else
 			setSideCollapsed((value) => {
-				localStorage.setItem('namzu.sidebar-collapsed', String(!value))
+				viewState.setItem('namzu.sidebar-collapsed', String(!value))
 				return !value
 			})
 	}, [setSideCollapsed])
@@ -914,12 +915,12 @@ export function App({
 	// Read at all times: it decides whether the strip of tabs or the bar stands above the conversation.
 	const desktopSettings = useDesktopSettings(api, true)
 	useAppearancePrefs(desktopSettings.settings)
-	const tabsHint = useMemo(() => readShowTabsHint(localStorage), [])
+	const tabsHint = useMemo(() => readShowTabsHint(viewState), [])
 	const showTabs = desktopSettings.settings?.showConversationTabs ?? tabsHint
 	const showTabsRef = useRef(showTabs)
 	showTabsRef.current = showTabs
 	useEffect(() => {
-		if (desktopSettings.settings) writeShowTabsHint(localStorage, showTabs)
+		if (desktopSettings.settings) writeShowTabsHint(viewState, showTabs)
 	}, [desktopSettings.settings, showTabs])
 	const desktopInfo = useDesktopInfo(
 		api,
@@ -938,18 +939,18 @@ export function App({
 	const [jobsOpen, setJobsOpen] = useState(false)
 	// Which panes are open, where, and how big, remembered per conversation group.
 	const [paneLayout, setPaneLayout] = useState<PaneLayout>(() =>
-		readLayout(localStorage, group.id, readSessionPanelOpen(localStorage)),
+		readLayout(viewState, group.id, readSessionPanelOpen(viewState)),
 	)
 	const paneLayoutGroup = useRef(group.id)
 	if (paneLayoutGroup.current !== group.id) {
 		paneLayoutGroup.current = group.id
-		setPaneLayout(readLayout(localStorage, group.id, readSessionPanelOpen(localStorage)))
+		setPaneLayout(readLayout(viewState, group.id, readSessionPanelOpen(viewState)))
 	}
 	const updatePaneLayout = useCallback(
 		(change: (layout: PaneLayout) => PaneLayout) =>
 			setPaneLayout((value) => {
 				const next = change(value)
-				if (next !== value) writeLayout(localStorage, paneLayoutGroup.current, next)
+				if (next !== value) writeLayout(viewState, paneLayoutGroup.current, next)
 				return next
 			}),
 		[],
@@ -975,13 +976,13 @@ export function App({
 	// The conversation and files the dialog was opened for: what it shows does not move under the person.
 	const [commitFor, setCommitFor] = useState<{ sessionId: string; paths: string[] }>()
 	const commitTrigger = useRef<HTMLElement | null>(null)
-	const [budgets, setBudgets] = useState(() => readBudgets(localStorage))
+	const [budgets, setBudgets] = useState(() => readBudgets(viewState))
 	const sessionPanelOpen = paneLayout.sessionWanted
 	const setSessionPanelOpen = useCallback(
 		(open: boolean) => {
 			updatePaneLayout((value) => setSessionWanted(value, open))
 			// The last choice is what a conversation group with no layout of its own starts from.
-			writeSessionPanelOpen(localStorage, open)
+			writeSessionPanelOpen(viewState, open)
 		},
 		[updatePaneLayout],
 	)
@@ -1232,10 +1233,10 @@ export function App({
 						sessionId,
 						tabs: sessionId
 							? readPanelTabs(
-									localStorage,
+									viewState,
 									sessionId,
 									// Before tabs, the panel remembered which of the two it showed.
-									readWorkspacePresentation(localStorage, sessionId)?.panelTab === 'changes'
+									readWorkspacePresentation(viewState, sessionId)?.panelTab === 'changes'
 										? 'changes'
 										: 'activity',
 								)
@@ -1249,7 +1250,7 @@ export function App({
 			setPanelTabsState((value) => {
 				const base = value.sessionId === sessionId ? value.tabs : emptyPanelTabs
 				const tabs = change(base)
-				if (sessionId && tabs !== base) writePanelTabs(localStorage, sessionId, tabs)
+				if (sessionId && tabs !== base) writePanelTabs(viewState, sessionId, tabs)
 				return { sessionId, tabs }
 			}),
 		[sessionId],
@@ -1612,8 +1613,15 @@ export function App({
 	const clock = useClock(sessionPanelActive && jobsRunning)
 	const sessionPanelSummary = sessionPanelActive
 		? sessionSummary({
-				...(project && !project.isChat
-					? { project: { name: project.name, path: project.path, trusted: project.trusted } }
+				...(project
+					? {
+							project: {
+								name: project.name,
+								path: project.path,
+								trusted: project.trusted,
+								...(project.isChat ? { kind: 'chat' as const } : {}),
+							},
+						}
 					: {}),
 				git: git && git.projectId === gitProjectId ? git.value : null,
 				usage: thread.usage,
@@ -1646,7 +1654,7 @@ export function App({
 								const next = { ...all }
 								if (usd === undefined) delete next[provider]
 								else next[provider] = usd
-								writeBudgets(localStorage, next)
+								writeBudgets(viewState, next)
 								return next
 							}),
 						onOpen: () =>
@@ -1852,7 +1860,7 @@ export function App({
 	// "Desktop | CLI": the CLI side opens the chosen engine's own command line in a terminal tab.
 	const [surfacePref, setSurfacePref] = useState<EngineSurface>(() => {
 		try {
-			return localStorage.getItem('namzu.surface') === 'cli' ? 'cli' : 'desktop'
+			return viewState.getItem('namzu.surface') === 'cli' ? 'cli' : 'desktop'
 		} catch {
 			return 'desktop'
 		}
@@ -1871,7 +1879,7 @@ export function App({
 					onChange: (value) => {
 						setSurfacePref(value)
 						try {
-							localStorage.setItem('namzu.surface', value)
+							viewState.setItem('namzu.surface', value)
 						} catch {
 							/* The choice lasts for this window. */
 						}
@@ -3363,7 +3371,7 @@ export function App({
 					setSideOpen(false)
 					// This view record is scoped to the selected catalogue conversation;
 					// it never supplies history or write authority.
-					const presentation = readWorkspacePresentation(localStorage, view.id, view.palId)
+					const presentation = readWorkspacePresentation(viewState, view.id, view.palId)
 					const disclosureView = {
 						sessionId: view.id,
 						choices: presentation?.workDisclosures ?? {},
@@ -4796,8 +4804,8 @@ export function App({
 		// scrolled to the top; that is not where the reader was, so the saved position is kept.
 		const node = transcript.current
 		const measured = Boolean(node?.isConnected && node.clientHeight > 0)
-		const kept = measured ? null : readWorkspacePresentation(localStorage, sessionId)
-		writeWorkspacePresentation(localStorage, sessionId, {
+		const kept = measured ? null : readWorkspacePresentation(viewState, sessionId)
+		writeWorkspacePresentation(viewState, sessionId, {
 			palScreen,
 			computerChat,
 			floatingChatMinimized,
@@ -5297,7 +5305,7 @@ export function App({
 	const revealSidebar = (selector: string) => {
 		setSideOpen(window.matchMedia('(max-width: 767px)').matches)
 		setSideCollapsed(false)
-		localStorage.setItem('namzu.sidebar-collapsed', 'false')
+		viewState.setItem('namzu.sidebar-collapsed', 'false')
 		requestAnimationFrame(() =>
 			document.querySelector<HTMLElement>(selector)?.focus({ preventScroll: true }),
 		)
