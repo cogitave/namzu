@@ -324,8 +324,8 @@
 	border-radius: 50%;
 }
 .composer-add > svg {
-	width: 18px;
-	height: 18px;
+	width: 16px;
+	height: 16px;
 }
 .composer-row .composer-footer-chip {
 	font-size: var(--text-small);
