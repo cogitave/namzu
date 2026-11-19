@@ -173,6 +173,28 @@
     "projectCommit": [
       "namzu/project/commit-preview",
       "namzu/project/commit"
+    ],
+    "extensions": [
+      "namzu/extensions/list",
+      "namzu/extensions/add",
+      "namzu/extensions/license",
+      "namzu/extensions/notice",
+      "namzu/extensions/acknowledge",
+      "namzu/extensions/enable",
+      "namzu/extensions/disable",
+      "namzu/extensions/unlock",
+      "namzu/extensions/remove",
+      "namzu/extensions/grant",
+      "namzu/extensions/revoke",
+      "namzu/extensions/query",
+      "namzu/extensions/settings/get",
+      "namzu/extensions/settings/set",
+      "namzu/extensions/audit",
+      "namzu/extensions/background/get",
+      "namzu/extensions/background/set",
+      "namzu/extensions/ui",
+      "namzu/extensions/action",
+      "namzu/extensions/runner"
     ]
   },
   "otherMethods": {
@@ -231,6 +253,10 @@
       {
         "name": "namzu/limits",
         "from": "cli LIMITS_NOTIFICATION"
+      },
+      {
+        "name": "namzu/extensions/state",
+        "from": "cli EXTENSIONS_STATE_NOTIFICATION"
       }
     ],
     "requestsFromHost": [

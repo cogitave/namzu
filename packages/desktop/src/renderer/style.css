@@ -329,6 +329,26 @@ pre {
 .rail-spacer {
 	flex: 1;
 }
+/* Above the foot's line in the collapsed rail: the update and extension buttons, one per row, centred
+   like the foot's button and spaced like the sidebar's rows. */
+.rail-stack {
+	display: flex;
+	flex: none;
+	flex-direction: column;
+	align-items: center;
+	gap: 4px;
+	box-sizing: border-box;
+	width: 100%;
+	padding-block: 4px;
+	padding-inline-start: 1px;
+}
+.rail-stack:empty {
+	display: none;
+}
+.rail-stack > .rail-button {
+	width: var(--frame-foot-button);
+	height: var(--frame-foot-button);
+}
 /* The rail's controls while the sidebar is open: Settings, and the update button when there is one. */
 .sidebar-foot {
 	display: flex;

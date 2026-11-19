@@ -48,6 +48,7 @@ import { ConnectedBrowsersRow } from './connected-browsers.js'
 import { copyPlainText } from './copy-button.js'
 import { engineSourceText, engineStatusText, plainVersion } from './engine-delivery-model.js'
 import { EngineUpdateRows, type EngineUpdateTarget } from './engine-updates-section.js'
+import { ExtensionsSection } from './extensions-section.js'
 import { FontChoice } from './font-choice.js'
 import { HooksRows } from './hooks-section.js'
 import {
@@ -57,6 +58,7 @@ import {
 	InfoIcon,
 	MonitorIcon,
 	MoonIcon,
+	PuzzleIcon,
 	SearchIcon,
 	SettingsIcon,
 	SunIcon,
@@ -120,6 +122,7 @@ const SECTION_ICONS: Record<SettingsSection, IconComponent> = {
 	models: KeyRound as IconComponent,
 	agent: Bot as IconComponent,
 	tools: Wrench as IconComponent,
+	extensions: PuzzleIcon,
 	projects: FoldersIcon,
 	appearance: SunIcon,
 	notifications: Bell as IconComponent,
@@ -386,12 +389,16 @@ function SettingsContent(
 			tabIndex={-1}
 		>
 			<div className="settings-page-content">
-				<header className="settings-page-header">
-					<div>
-						<h1>{searching ? 'Search results' : SETTINGS_SECTION_TITLES[section]}</h1>
-						<p>{searching ? SETTINGS_SEARCH_SUBTITLE : SETTINGS_SECTION_SUBTITLES[section]}</p>
-					</div>
-				</header>
+				{/* The Extensions section draws its own header: it carries Add from file, and an extension's
+				    screen names the extension. */}
+				{(searching || section !== 'extensions') && (
+					<header className="settings-page-header">
+						<div>
+							<h1>{searching ? 'Search results' : SETTINGS_SECTION_TITLES[section]}</h1>
+							<p>{searching ? SETTINGS_SEARCH_SUBTITLE : SETTINGS_SECTION_SUBTITLES[section]}</p>
+						</div>
+					</header>
+				)}
 				{!searching && SETTINGS_SECTION_APPLY_NOTE[section] && (
 					<p className="settings-note settings-section-note">
 						{SETTINGS_SECTION_APPLY_NOTE[section]}
@@ -583,6 +590,9 @@ function SectionBody(props: SectionProps) {
 					<McpServersContainer {...props} />
 					<HooksContainer {...props} />
 				</>
+			)}
+			{props.section === 'extensions' && (
+				<ExtensionsSection api={typeof window === 'undefined' ? undefined : window.namzu} />
 			)}
 			{props.section === 'projects' && <ProjectsSection {...props} />}
 			{props.section === 'appearance' && <AppearanceSection {...props} />}

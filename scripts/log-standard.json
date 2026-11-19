@@ -144,6 +144,18 @@
 			"reason": "the refusal or question `namzu config` prints for a person (the same sentence Desktop shows, and the y/N prompt); it is the command's own message, not a log record."
 		},
 		{
+			"file": "packages/cli/src/commands/extension.ts",
+			"symbol": "process.stdout.write",
+			"count": 1,
+			"reason": "`namzu extension` prints its answer (words, or one JSON value with --json) on stdout: it is the command's output, not a log; stderr carries NDJSON log records and the refusals."
+		},
+		{
+			"file": "packages/cli/src/commands/extension.ts",
+			"symbol": "process.stderr.write",
+			"count": 1,
+			"reason": "`namzu extension` says why it refused, and `namzu extension run` prints the always-visible mark of each running extension, on stderr: both are the person's own messages from this command, not log records."
+		},
+		{
 			"file": "packages/cli/src/commands/hooks.ts",
 			"symbol": "process.stdout.write",
 			"count": 1,

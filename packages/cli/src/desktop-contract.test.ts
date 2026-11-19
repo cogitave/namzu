@@ -28,6 +28,7 @@ import {
 	parseAcpArgs,
 } from './commands/acp.js'
 import { COMPUTER_FRAME_NOTIFICATION } from './commands/desktop-computer-feed.js'
+import { EXTENSIONS_METHODS, EXTENSIONS_STATE_NOTIFICATION } from './commands/desktop-extensions.js'
 import { LIMITS_NOTIFICATION } from './commands/desktop-limits-feed.js'
 import { OUTCOME_NOTIFICATION } from './commands/desktop-outcome-feed.js'
 import { TITLE_NOTIFICATION } from './commands/desktop-title-feed.js'
@@ -278,6 +279,7 @@ describe('every recorded name still exists in what the host offers', () => {
 			'cli LIMITS_NOTIFICATION': LIMITS_NOTIFICATION,
 			'cli TERMINAL_NOTIFICATIONS.data': TERMINAL_NOTIFICATIONS.data,
 			'cli TERMINAL_NOTIFICATIONS.exit': TERMINAL_NOTIFICATIONS.exit,
+			'cli EXTENSIONS_STATE_NOTIFICATION': EXTENSIONS_STATE_NOTIFICATION,
 			'sdk ACP_CLIENT_REQUESTS.REQUEST_PERMISSION': ACP_CLIENT_REQUESTS.REQUEST_PERMISSION,
 		}
 		const recorded = [
@@ -288,6 +290,12 @@ describe('every recorded name still exists in what the host offers', () => {
 			.filter((entry) => sources[entry.from] !== entry.name)
 			.map((entry) => `${entry.name} (${entry.from} is ${sources[entry.from] ?? 'unknown'})`)
 		expect(wrong, `Notification names changed: ${wrong.join(', ')}\n${RULE}`).toEqual([])
+	})
+
+	it('keeps the extension methods the Extensions page probes as one group', () => {
+		expect([...EXTENSIONS_METHODS].sort()).toEqual(
+			[...(inventory.optionalGroups.extensions ?? [])].sort(),
+		)
 	})
 
 	it('keeps the terminal methods the application probes as a group', () => {

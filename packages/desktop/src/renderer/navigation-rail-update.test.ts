@@ -59,3 +59,24 @@ describe('the rail update badge', () => {
 		expect(rail({ status: 'idle' })).toContain('<output class="sr-only" aria-live="polite">')
 	})
 })
+
+describe('the collapsed rail', () => {
+	it('keeps one button in the foot and stacks the rest above its line, one per row', () => {
+		const markup = rail({ status: 'ready', version: '0.2.0' })
+		const foot = markup.slice(markup.indexOf('class="rail-foot"'))
+		expect(foot.match(/<button\b/g)?.length).toBe(1)
+		expect(foot).toContain('aria-label="Settings"')
+		const stack = markup.slice(
+			markup.indexOf('class="rail-stack"'),
+			markup.indexOf('class="rail-foot"'),
+		)
+		expect(stack).toContain('rail-update-button')
+	})
+
+	it('lays the stack out as a column of foot-sized buttons', async () => {
+		const { readFileSync } = await import('node:fs')
+		const css = readFileSync(new URL('./style.css', import.meta.url), 'utf8')
+		expect(css).toMatch(/\.rail-stack \{[^}]*flex-direction: column;/)
+		expect(css).toMatch(/\.rail-stack > \.rail-button \{[^}]*width: var\(--frame-foot-button\);/)
+	})
+})
