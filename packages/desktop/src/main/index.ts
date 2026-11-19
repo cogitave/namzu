@@ -29,7 +29,6 @@ import type { CommitRequestView } from '../shared/commit-protocol.js'
 import { UNAVAILABLE_ENGINE_VIEW } from '../shared/engine-delivery-protocol.js'
 import { readEngineUpdateRequest } from '../shared/engine-update-protocol.js'
 import { type OsState, trayName } from '../shared/os-state.js'
-import { defineOf } from '../shared/state-registry.js'
 import type {
 	PalPermissionChange,
 	PalSubscriptionCreate,
@@ -50,6 +49,7 @@ import type {
 	WorkspaceAction,
 } from '../shared/protocol.js'
 import type { DataFolderKind, DesktopInfo, DesktopSettings } from '../shared/settings-protocol.js'
+import { defineOf } from '../shared/state-registry.js'
 import { SHELL_CHOICE_LABELS, availableShells, isTerminalTabId } from '../shared/terminal-tabs.js'
 import {
 	type TerminalEvent,
