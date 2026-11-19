@@ -2,6 +2,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { type ThreadState, applyEvent, emptyThread } from '../shared/projection.js'
+import { PalChatTranscript } from './pal-chat-transcript.js'
 import { pendingMessages } from './pending-messages.js'
 import type { PendingActions } from './pending-tail.js'
 import { Transcript } from './transcript.js'
@@ -177,5 +178,42 @@ describe('waiting messages in the conversation', () => {
 			createElement(Transcript, { thread: queue(working(), [{ id: 'q', prompt: 'X-hidden' }]) }),
 		)
 		expect(plain).not.toContain('X-hidden')
+	})
+})
+
+describe('waiting messages in a Pal conversation', () => {
+	it('draws them after the last message with Send now, like any conversation', () => {
+		let thread = steer(working(), 'a', 'Selam')
+		thread = queue(thread, [{ id: 'q', prompt: 'Later one' }])
+		const html = renderToStaticMarkup(
+			createElement(PalChatTranscript, {
+				thread,
+				name: 'Pal',
+				pending: pendingMessages(thread),
+				pendingActions: actions,
+				pendingEditing: null,
+				onPendingEditingChange: () => {},
+			}),
+		)
+		expect(html).toContain('data-pending-tail')
+		expect(html.match(/data-pending-message-id=/g)).toHaveLength(2)
+		expect(html.match(/aria-label="Send now: /g)).toHaveLength(2)
+		expect(at(html, 'First message')).toBeLessThan(at(html, 'Selam'))
+		expect(at(html, 'Selam')).toBeLessThan(at(html, 'Later one'))
+	})
+
+	it('draws an editor for the waiting message being edited', () => {
+		const thread = queue(working(), [{ id: 'q', prompt: 'Later one' }])
+		const html = renderToStaticMarkup(
+			createElement(PalChatTranscript, {
+				thread,
+				name: 'Pal',
+				pending: pendingMessages(thread),
+				pendingActions: actions,
+				pendingEditing: 'q',
+				onPendingEditingChange: () => {},
+			}),
+		)
+		expect(html).toContain('data-editing')
 	})
 })
