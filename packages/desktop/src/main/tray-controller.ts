@@ -1,13 +1,14 @@
 /** The part of Electron's tray the controller drives. */
 export interface TrayLike {
 	setToolTip(text: string): void
+	setImage(icon: unknown): void
 	setContextMenu(menu: unknown): void
 	on(event: 'click', listener: () => void): unknown
 	destroy(): void
 }
 
 export interface TrayHost {
-	/** The icon to draw, or nothing when none could be found. Asked once. */
+	/** The icon to draw, or nothing when none could be found. Asked once until `refreshIcon`. */
 	loadIcon(): Promise<unknown | undefined>
 	makeTray(icon: unknown): TrayLike
 	menu(template: { label?: string; type?: 'separator'; click?: () => void }[]): unknown
@@ -43,6 +44,24 @@ export class TrayController {
 	/** Brings the tray in line with the wish. Calls run one after the other. */
 	sync(wanted: boolean, name: string): Promise<void> {
 		this.chain = this.chain.then(() => this.apply(wanted, name))
+		return this.chain
+	}
+
+	/**
+	 * Draws the icon again, for a system theme that changed. Namzu's icon carries no extension state, so
+	 * this is the only reason it ever changes.
+	 */
+	refreshIcon(): Promise<void> {
+		this.chain = this.chain.then(async () => {
+			if (!this.tray) return
+			this.icon = undefined
+			try {
+				const icon = await this.host.loadIcon()
+				if (icon !== undefined && this.tray) this.tray.setImage(icon)
+			} catch (error) {
+				this.host.record(error)
+			}
+		})
 		return this.chain
 	}
 

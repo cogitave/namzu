@@ -1,0 +1,90 @@
+/* An extension's page fills the main pane. Namzu's thin strip is on top; the page's own view fills the rest. */
+.extension-page-pane {
+	position: absolute;
+	inset: var(--workspace-topbar-height, 36px) 0 0 0;
+	z-index: 4;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	background: var(--background);
+	color: var(--foreground);
+}
+.extension-page-strip {
+	display: flex;
+	align-items: center;
+	gap: 6px 12px;
+	flex: none;
+	height: 28px;
+	padding: 0 16px 0 8px;
+	background: color-mix(in srgb, var(--foreground) 5%, transparent);
+	color: var(--muted-foreground);
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	white-space: nowrap;
+	overflow: hidden;
+}
+.extension-page-strip strong {
+	color: var(--foreground);
+	font-weight: var(--weight-control);
+}
+.extension-page-dot {
+	flex: none;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+}
+.extension-page-strip-links {
+	display: inline-flex;
+	gap: 14px;
+	margin-inline-start: auto;
+}
+.extension-page-strip-links button,
+.extension-page-info {
+	padding: 0;
+	border: 0;
+	background: none;
+	color: var(--muted-foreground);
+	font: inherit;
+	cursor: pointer;
+}
+.extension-page-strip-links button:hover,
+.extension-page-info:hover {
+	color: var(--foreground);
+}
+.extension-page-info {
+	display: inline-grid;
+	place-items: center;
+	flex: none;
+}
+.extension-page-info svg {
+	width: 14px;
+	height: 14px;
+}
+.extension-page-slot {
+	flex: 1;
+	min-height: 0;
+}
+.extension-page-stopped {
+	display: grid;
+	justify-items: start;
+	gap: 8px;
+	padding: 16px 24px;
+}
+/* The rail entry of an extension page: an initial and the accent dot. */
+.rail-extension-badge {
+	position: relative;
+	display: inline-grid;
+	place-items: center;
+	width: 20px;
+	height: 20px;
+	font-size: var(--text-small);
+	font-weight: var(--weight-strong);
+}
+.rail-extension-dot {
+	position: absolute;
+	right: -3px;
+	bottom: -2px;
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+}

@@ -1,0 +1,848 @@
+{
+  "$schema": "https://namzu.dev/schemas/extension/1.json",
+  "manifestVersion": 1,
+  "id": "com.cogitave.activity",
+  "defaultLocale": "tr",
+  "locales": [
+    "tr",
+    "en"
+  ],
+  "name": {
+    "tr": "Namzu Etkinlik",
+    "en": "Namzu Activity"
+  },
+  "description": {
+    "tr": "Çalışma gününün nasıl geçtiğini yalnızca bu bilgisayarda kaydeder: ön plandaki uygulama, aktif veya boşta süre ve girdi sayıları. Yalnızca toplar; hiçbir şey çözümlenmez ve hiçbir şey bu bilgisayardan çıkmaz.",
+    "en": "Records, on this computer only, how the working day is spent: the application in front, active or idle time, and input counts. It only collects; nothing is analysed and nothing leaves this computer."
+  },
+  "version": "0.1.0",
+  "publisher": {
+    "id": "cogitave",
+    "name": "Cogitave",
+    "homepage": "https://cogitave.example",
+    "contact": "privacy@cogitave.example"
+  },
+  "license": "Proprietary",
+  "engines": {
+    "namzu": ">=53.5.0 <54",
+    "desktop": ">=0.8.7 <1",
+    "extensionApi": "1"
+  },
+  "platforms": [
+    "win32-x64",
+    "win32-arm64"
+  ],
+  "entry": {
+    "process": {
+      "id": "collector",
+      "command": {
+        "win32-x64": {
+          "exe": "bin/win32-x64/activity-collector.exe",
+          "args": [
+            "run"
+          ]
+        },
+        "win32-arm64": {
+          "exe": "bin/win32-arm64/activity-collector.exe",
+          "args": [
+            "run"
+          ]
+        }
+      },
+      "cwd": "${extensionDir}",
+      "env": {
+        "ACTIVITY_DATA": "${dataDir}",
+        "ACTIVITY_LOCALE": "${locale}"
+      },
+      "scope": "per-user-session",
+      "start": "onEnable",
+      "restart": {
+        "policy": "onFailure",
+        "backoffMs": [
+          1000,
+          5000,
+          30000,
+          300000
+        ],
+        "maxPerHour": 10,
+        "stableAfterMs": 600000
+      },
+      "stopGraceMs": 5000
+    },
+    "maintenance": {
+      "command": {
+        "win32-x64": {
+          "exe": "bin/win32-x64/activity-collector.exe",
+          "args": [
+            "purge"
+          ]
+        },
+        "win32-arm64": {
+          "exe": "bin/win32-arm64/activity-collector.exe",
+          "args": [
+            "purge"
+          ]
+        }
+      },
+      "runWhen": [
+        "hostStart",
+        "daily",
+        "onDisable",
+        "onLicenseExpired"
+      ],
+      "timeoutMs": 30000
+    }
+  },
+  "contributes": {
+    "endpoint": {
+      "protocol": "namzu-ext-query/1",
+      "name": "activity",
+      "queries": [
+        {
+          "id": "status",
+          "returns": [],
+          "schema": "schemas/status.json",
+          "maxBytes": 8192,
+          "purpose": {
+            "tr": "Namzu'nun kaydedicinin çalışıp çalışmadığını ve sağlıklı olup olmadığını, her zaman görünen simgede ve Uzantılar sayfasında gösterebilmesi için.",
+            "en": "So Namzu can show whether the recorder is running and healthy, in the always-visible indicator and in Extensions."
+          }
+        },
+        {
+          "id": "counts",
+          "returns": [
+            "activity.app.minute",
+            "activity.state.minute",
+            "activity.session.event",
+            "activity.input.minute",
+            "activity.screen.minute"
+          ],
+          "schema": "schemas/counts.json",
+          "maxBytes": 16384,
+          "purpose": {
+            "tr": "“Neler toplanıyor” sayfasının her veri türü için bugünkü kayıt sayılarını gösterebilmesi için. Yalnızca sayılar, değerler değil.",
+            "en": "So the What is collected page can show today's row counts per kind of data. Counts only, no values."
+          }
+        },
+        {
+          "id": "rows",
+          "returns": [
+            "activity.app.minute",
+            "activity.state.minute",
+            "activity.session.event",
+            "activity.input.minute",
+            "activity.screen.minute"
+          ],
+          "schema": "schemas/rows.json",
+          "maxBytes": 1048576,
+          "purpose": {
+            "tr": "Kişinin (ve ileriki bir sürümün) saklanan verinin tam olarak ne olduğunu, bir veri türü ve bir zaman aralığı için, salt okunur olarak görebilmesi için.",
+            "en": "So the person (and a later release) can read exactly what is stored, for one kind of data and one time range, read-only."
+          }
+        }
+      ]
+    },
+    "settings": [
+      {
+        "key": "modelKey",
+        "type": "secret",
+        "perProvider": true,
+        "storage": "hostKeysFile",
+        "usedBy": "none",
+        "label": {
+          "tr": "Model API anahtarı (kendi Namzu hesabınızdan ayrı tutulur)",
+          "en": "Model API key (kept apart from your own Namzu account)"
+        },
+        "purpose": {
+          "tr": "Toplanan sayıları çözümleyecek ileriki bir sürüm için saklanır. Bu sürümde hiçbir şey onu kullanmaz ve hiçbir model çağrılmaz.",
+          "en": "Stored for a later release that will analyse the collected numbers. In this release nothing uses it and no model is called."
+        }
+      }
+    ],
+    "pages": [
+      {
+        "id": "what-is-collected",
+        "title": {
+          "tr": "Neler toplanıyor",
+          "en": "What is collected"
+        },
+        "location": "desktop.settings",
+        "view": "builtin:what-is-collected",
+        "source": {
+          "kind": "privacy",
+          "counts": "query:counts"
+        }
+      }
+    ],
+    "indicator": {
+      "id": "collecting",
+      "locations": [
+        "desktop.tray",
+        "desktop.titlebar",
+        "cli.statusline"
+      ],
+      "alwaysVisibleWhenRunning": true,
+      "states": {
+        "collecting": {
+          "label": {
+            "tr": "Bu bilgisayarda etkinlik kaydediliyor",
+            "en": "Activity is being recorded on this computer"
+          }
+        },
+        "degraded": {
+          "label": {
+            "tr": "Kayıt eksik: bir sinyal alınamıyor",
+            "en": "Recording with a gap: a signal is unavailable"
+          }
+        }
+      }
+    }
+  },
+  "ui": {
+    "icon": "ui/icon.svg",
+    "accent": "#2F6F4F",
+    "pages": [
+      {
+        "id": "today",
+        "title": {
+          "tr": "Bugünün kaydı",
+          "en": "Today's record"
+        },
+        "slot": "settings",
+        "entry": "ui/pages/today.html",
+        "icon": "ui/icon.svg",
+        "minHeight": 360,
+        "usesNetwork": false,
+        "bridge": {
+          "allow": [
+            "query:counts",
+            "query:rows"
+          ],
+          "host": [
+            "theme",
+            "locale",
+            "state",
+            "openNamzu"
+          ]
+        }
+      }
+    ],
+    "chips": [
+      {
+        "id": "recording",
+        "opens": "today",
+        "states": {
+          "recording": {
+            "label": {
+              "tr": "Kaydediliyor",
+              "en": "Recording"
+            },
+            "icon": "ui/icon.svg",
+            "tone": "ok"
+          },
+          "gap": {
+            "label": {
+              "tr": "Kayıt eksik",
+              "en": "Recording with a gap"
+            },
+            "icon": "ui/icon.svg",
+            "tone": "warn"
+          }
+        }
+      }
+    ]
+  },
+  "background": {
+    "runAt": "signin",
+    "permission": "background.signin",
+    "defaultOn": true,
+    "indicator": {
+      "kind": "tray",
+      "label": {
+        "tr": "Etkinlik kaydı çalışıyor. Ayrıntı için simgeye tıklayın.",
+        "en": "Activity recording is running. Click the icon for details."
+      }
+    }
+  },
+  "permissions": [
+    {
+      "id": "os.foregroundWindow",
+      "level": "medium",
+      "optional": false,
+      "summary": {
+        "tr": "Ön plandaki uygulamayı görür: program dosya adı ve ürün adı. Pencere başlığını asla görmez.",
+        "en": "Sees which application is in front: its program file name and product name. Never the window title."
+      },
+      "purposes": [
+        {
+          "id": "time-per-app",
+          "text": {
+            "tr": "Çalışma süresinin hangi uygulamaya ne kadar gittiğini kaydetmek; iş yükü ve araç kullanım örüntülerinin anlaşılabilmesi için.",
+            "en": "To record how much working time goes to each application, so workload and tooling patterns can be understood."
+          }
+        }
+      ],
+      "personalData": true
+    },
+    {
+      "id": "os.lastInputTime",
+      "level": "low",
+      "optional": false,
+      "summary": {
+        "tr": "Klavye veya fareden gelen son girdiden bu yana ne kadar geçtiğini okur. Ne yazıldığını veya farenin nerede olduğunu görmez.",
+        "en": "Reads how long it has been since the last keyboard or mouse input. It never sees what was typed or where the mouse is."
+      },
+      "purposes": [
+        {
+          "id": "active-or-idle",
+          "text": {
+            "tr": "Bilgisayar başında geçen süreyi (aktif) bilgisayardan uzakta geçen süreden (boşta) ayırmak.",
+            "en": "To tell time at the computer (active) from time away from it (idle)."
+          }
+        }
+      ],
+      "personalData": true
+    },
+    {
+      "id": "os.sessionEvents",
+      "level": "low",
+      "optional": false,
+      "summary": {
+        "tr": "Ekranın ne zaman kilitlendiğini veya açıldığını, bilgisayarın ne zaman uykuya geçtiğini veya uyandığını öğrenir.",
+        "en": "Is told when the screen locks or unlocks and when the computer goes to sleep or wakes up."
+      },
+      "purposes": [
+        {
+          "id": "day-boundaries",
+          "text": {
+            "tr": "Çalışma gününün ne zaman başlayıp bittiğini işaretlemek ve bilgisayardan uzakta geçen süreyi aktif süreden ayırmak.",
+            "en": "To mark when the working day starts and ends, and to keep time away from the computer out of active time."
+          }
+        }
+      ],
+      "personalData": true
+    },
+    {
+      "id": "os.inputCounts",
+      "level": "medium",
+      "optional": false,
+      "summary": {
+        "tr": "Her dakika için tuş basışlarını, tıklamaları, tekerlek adımlarını ve fare hareketlerini, farenin aldığı toplam yolu, girdinin kaçının bir cihazdan değil yazılımdan geldiğini ve fare hareketinin ne kadar düzenli olduğunu gösteren sayıları sayar. Hangi tuşa basıldığını asla öğrenmez, farenin nerede olduğunu asla saklamaz.",
+        "en": "Counts key presses, clicks, wheel ticks and mouse moves each minute, the total mouse distance, how many inputs came from software instead of a device, and plain numbers on how regular the mouse movement was. It never learns which key was pressed and never keeps where the mouse was."
+      },
+      "purposes": [
+        {
+          "id": "input-volume",
+          "text": {
+            "tr": "Ne kadar girdi olduğunu kaydetmek; bilgisayar başındaki süreyi yalnızca meşgul görünen bir bilgisayardan ayırabilmek için.",
+            "en": "To record how much input there was, so that time at the computer can be told apart from a computer that only looks busy."
+          }
+        },
+        {
+          "id": "input-source",
+          "text": {
+            "tr": "Girdinin bir cihazdan mı yazılımdan mı geldiğini ve fare hareketinin ne kadar düzenli olduğunu kaydetmek; ileride yapılacak bir inceleme gerçek kullanımı fare hareket ettiren bir yazılımdan ayırabilsin diye. Bu sürümde hiçbir şey değerlendirilmez veya işaretlenmez.",
+            "en": "To record whether input came from a device or from software, and how regular the mouse movement was, so a later review can tell real use from a mouse mover. In this release nothing is judged or flagged."
+          }
+        }
+      ],
+      "personalData": true
+    },
+    {
+      "id": "os.screenChange",
+      "level": "medium",
+      "optional": false,
+      "summary": {
+        "tr": "Her 30 saniyede bir ekranı bellekte çok küçük bir gri ızgaraya (32x18) indirger, öncekiyle karşılaştırır, tek bir sayı saklar ve iki ızgarayı da siler. Hiçbir görüntü saklanmaz veya gönderilmez.",
+        "en": "Every 30 seconds shrinks the screen into a tiny grey grid (32 by 18) in memory, compares it with the previous one, keeps one number and throws both grids away. No image is stored or sent."
+      },
+      "purposes": [
+        {
+          "id": "screen-activity",
+          "text": {
+            "tr": "Ekranın değişip değişmediğini kaydetmek; bilgisayarın kullanımda olduğunun ikinci bir işareti olarak. Sayı, ekranda ne olduğunu söyleyemez.",
+            "en": "To record whether the screen is changing, a second sign that the computer is in use. The number cannot tell what was on the screen."
+          }
+        }
+      ],
+      "personalData": true
+    },
+    {
+      "id": "background.signin",
+      "level": "high",
+      "optional": false,
+      "personalData": false,
+      "summary": {
+        "tr": "Oturum açtığınızda Namzu'nun kendi arka plan çalıştırıcısı bu uzantıyı başlatır ve Namzu kapalıyken de çalışmasını sürdürür.",
+        "en": "When you sign in, Namzu's own background runner starts this extension and keeps it running when Namzu is closed."
+      },
+      "purposes": [
+        {
+          "id": "record-from-signin",
+          "text": {
+            "tr": "Kaydın yalnızca Namzu açıkken değil, çalışma günü boyunca eksiksiz olması için. Namzu kapalıyken de kayıt sürer ve sistem tepsisinde bu uzantının kendi simgesi görünür.",
+            "en": "So the record covers the whole working day, not only the time Namzu is open. It keeps running when Namzu is closed and shows the extension's own icon in the system tray."
+          }
+        }
+      ]
+    }
+  ],
+  "network": {
+    "mode": "none"
+  },
+  "files": [
+    {
+      "path": "${dataDir}",
+      "access": "readWrite",
+      "purpose": {
+        "tr": "Yukarıdaki dakika toplamlarının kendi şifreli veritabanı. Bu bilgisayardaki başka hiçbir şey okunmaz veya yazılmaz.",
+        "en": "Its own encrypted database of the minute totals above. Nothing else on this computer is read or written."
+      }
+    }
+  ],
+  "produces": [
+    {
+      "id": "activity.app.minute",
+      "from": [
+        "os.foregroundWindow"
+      ],
+      "grain": "minute",
+      "description": {
+        "tr": "Her dakikada uygulama başına saniye.",
+        "en": "Seconds per application in each minute."
+      },
+      "fields": [
+        {
+          "name": "minute",
+          "type": "timestamp",
+          "description": {
+            "tr": "Dakika (UTC)",
+            "en": "The minute (UTC)"
+          }
+        },
+        {
+          "name": "exe",
+          "type": "text",
+          "description": {
+            "tr": "Program dosya adı, örneğin chrome.exe",
+            "en": "Program file name, for example chrome.exe"
+          }
+        },
+        {
+          "name": "product",
+          "type": "text",
+          "description": {
+            "tr": "Programın kendi dosya bilgisindeki ürün adı",
+            "en": "Product name from the program's own file information"
+          }
+        },
+        {
+          "name": "category",
+          "type": "text",
+          "description": {
+            "tr": "Sabit bir kategori (iş, iletişim, toplantı, tarama, diğer)",
+            "en": "A fixed category (work, communication, meeting, browsing, other)"
+          }
+        },
+        {
+          "name": "seconds",
+          "type": "integer",
+          "description": {
+            "tr": "Bu dakikada ön planda kalınan saniye",
+            "en": "Seconds in front during this minute"
+          }
+        }
+      ],
+      "retentionDays": 7,
+      "leavesMachine": false
+    },
+    {
+      "id": "activity.state.minute",
+      "from": [
+        "os.lastInputTime",
+        "os.sessionEvents"
+      ],
+      "grain": "minute",
+      "description": {
+        "tr": "Her dakikada aktif, boşta, kilitli ve uykuda geçen saniyeler.",
+        "en": "Seconds active, idle, locked and asleep in each minute."
+      },
+      "fields": [
+        {
+          "name": "minute",
+          "type": "timestamp",
+          "description": {
+            "tr": "Dakika (UTC)",
+            "en": "The minute (UTC)"
+          }
+        },
+        {
+          "name": "activeS",
+          "type": "integer",
+          "description": {
+            "tr": "Aktif saniye",
+            "en": "Seconds active"
+          }
+        },
+        {
+          "name": "idleS",
+          "type": "integer",
+          "description": {
+            "tr": "Boşta saniye",
+            "en": "Seconds idle"
+          }
+        },
+        {
+          "name": "lockedS",
+          "type": "integer",
+          "description": {
+            "tr": "Kilitli saniye",
+            "en": "Seconds locked"
+          }
+        },
+        {
+          "name": "asleepS",
+          "type": "integer",
+          "description": {
+            "tr": "Uykuda saniye",
+            "en": "Seconds asleep"
+          }
+        }
+      ],
+      "retentionDays": 7,
+      "leavesMachine": false
+    },
+    {
+      "id": "activity.session.event",
+      "from": [
+        "os.sessionEvents"
+      ],
+      "grain": "event",
+      "description": {
+        "tr": "Kilitleme, kilit açma, uyku ve uyanma zamanları.",
+        "en": "Lock, unlock, sleep and wake times."
+      },
+      "fields": [
+        {
+          "name": "at",
+          "type": "timestamp",
+          "description": {
+            "tr": "Ne zaman (UTC, saniye hassasiyetinde)",
+            "en": "When (UTC, to the second)"
+          }
+        },
+        {
+          "name": "kind",
+          "type": "text",
+          "description": {
+            "tr": "lock, unlock, sleep veya wake",
+            "en": "lock, unlock, sleep or wake"
+          }
+        }
+      ],
+      "retentionDays": 7,
+      "leavesMachine": false
+    },
+    {
+      "id": "activity.input.minute",
+      "from": [
+        "os.inputCounts"
+      ],
+      "grain": "minute",
+      "description": {
+        "tr": "Her dakika için girdi sayıları ve düzenlilik sayıları. Hangi tuş olduğu ve farenin nerede olduğu asla yok.",
+        "en": "Input counts and plain regularity numbers for each minute. Never which key, never where the mouse was."
+      },
+      "fields": [
+        {
+          "name": "minute",
+          "type": "timestamp",
+          "description": {
+            "tr": "Dakika (UTC)",
+            "en": "The minute (UTC)"
+          }
+        },
+        {
+          "name": "keys",
+          "type": "integer",
+          "description": {
+            "tr": "Tuş basışı (sayı)",
+            "en": "Key presses (a count)"
+          }
+        },
+        {
+          "name": "clicks",
+          "type": "integer",
+          "description": {
+            "tr": "Fare tıklaması",
+            "en": "Mouse clicks"
+          }
+        },
+        {
+          "name": "wheel",
+          "type": "integer",
+          "description": {
+            "tr": "Tekerlek adımı",
+            "en": "Wheel ticks"
+          }
+        },
+        {
+          "name": "moves",
+          "type": "integer",
+          "description": {
+            "tr": "Fare hareketi",
+            "en": "Mouse moves"
+          }
+        },
+        {
+          "name": "mouseDistancePx",
+          "type": "integer",
+          "description": {
+            "tr": "Farenin aldığı toplam yol, piksel",
+            "en": "Total distance the mouse travelled, in pixels"
+          }
+        },
+        {
+          "name": "injectedKeys",
+          "type": "integer",
+          "description": {
+            "tr": "Yazılımdan gelen tuş basışı",
+            "en": "Key presses that came from software"
+          }
+        },
+        {
+          "name": "injectedMouse",
+          "type": "integer",
+          "description": {
+            "tr": "Yazılımdan gelen fare girdisi",
+            "en": "Mouse inputs that came from software"
+          }
+        },
+        {
+          "name": "moveOnlyPermille",
+          "type": "integer",
+          "description": {
+            "tr": "Aynı dakikada tuş veya tıklama olmayan hareketlerin payı (binde)",
+            "en": "Share of moves (per thousand) with no key or click in the same minute"
+          }
+        },
+        {
+          "name": "stepIntervalCvPermille",
+          "type": "integer",
+          "description": {
+            "tr": "Fare hareketleri arasındaki sürenin ne kadar düzensiz olduğu (binde)",
+            "en": "How uneven the time between mouse moves was (per thousand)"
+          }
+        },
+        {
+          "name": "stepSizeCvPermille",
+          "type": "integer",
+          "description": {
+            "tr": "Fare adımlarının boyunun ne kadar düzensiz olduğu (binde)",
+            "en": "How uneven the size of mouse steps was (per thousand)"
+          }
+        },
+        {
+          "name": "repeatMax",
+          "type": "integer",
+          "description": {
+            "tr": "Aynı küçük hareketin en çok kaç kez tekrarlandığı",
+            "en": "The most times the same small move repeated"
+          }
+        }
+      ],
+      "retentionDays": 7,
+      "leavesMachine": false
+    },
+    {
+      "id": "activity.screen.minute",
+      "from": [
+        "os.screenChange"
+      ],
+      "grain": "minute",
+      "description": {
+        "tr": "Ekranın çok küçük gri ızgarasının dakika başına ne kadar değiştiği. Yalnızca bir sayı; görüntü yok.",
+        "en": "How much the tiny grey grid of the screen changed, per minute. A number only; no image."
+      },
+      "fields": [
+        {
+          "name": "minute",
+          "type": "timestamp",
+          "description": {
+            "tr": "Dakika (UTC)",
+            "en": "The minute (UTC)"
+          }
+        },
+        {
+          "name": "samples",
+          "type": "integer",
+          "description": {
+            "tr": "Bu dakikada yapılan karşılaştırma",
+            "en": "Comparisons made in this minute"
+          }
+        },
+        {
+          "name": "noDataSamples",
+          "type": "integer",
+          "description": {
+            "tr": "Ekran verisi alınamayan örnek (kilitli veya korumalı ekran)",
+            "en": "Samples with no screen data (locked or protected screen)"
+          }
+        },
+        {
+          "name": "meanScore",
+          "type": "integer",
+          "description": {
+            "tr": "Ortalama değişim, 0 ile 100",
+            "en": "Mean change, 0 to 100"
+          }
+        },
+        {
+          "name": "maxScore",
+          "type": "integer",
+          "description": {
+            "tr": "En büyük değişim, 0 ile 100",
+            "en": "Largest change, 0 to 100"
+          }
+        },
+        {
+          "name": "changedCellsPermille",
+          "type": "integer",
+          "description": {
+            "tr": "Değişen ızgara hücrelerinin payı (binde)",
+            "en": "Share of grid cells that changed (per thousand)"
+          }
+        }
+      ],
+      "retentionDays": 7,
+      "leavesMachine": false
+    }
+  ],
+  "privacy": {
+    "doesNotCollect": [
+      {
+        "tr": "Hangi tuşlara basıldığı veya yazılan herhangi bir şey",
+        "en": "Which keys were pressed, or anything typed"
+      },
+      {
+        "tr": "Saklanan veya gönderilen ekran görüntüsü ya da herhangi bir görüntü",
+        "en": "Screenshots or any image, stored or sent"
+      },
+      {
+        "tr": "Pencere başlıkları",
+        "en": "Window titles"
+      },
+      {
+        "tr": "Farenin nerede olduğu",
+        "en": "Where the mouse was"
+      },
+      {
+        "tr": "Dosya adları, web adresleri, mesaj, e-posta veya belge içeriği",
+        "en": "File names, web addresses, messages, mail or document content"
+      },
+      {
+        "tr": "Pano, ses, görüntü, kamera veya mikrofon durumu, konum",
+        "en": "Clipboard, audio, video, camera or microphone state, location"
+      }
+    ],
+    "doesNotDo": [
+      {
+        "tr": "Toplanan sayıları çözümlemez, sınıflandırmaz, puanlamaz veya işaretlemez",
+        "en": "Analyse, classify, score or flag the collected numbers"
+      },
+      {
+        "tr": "Hiçbir yapay zekâ modelini çağırmaz",
+        "en": "Call any AI model"
+      },
+      {
+        "tr": "Bu bilgisayardan dışarı hiçbir şey göndermez",
+        "en": "Send anything off this computer"
+      },
+      {
+        "tr": "Ajana bu veriyi okuyacak hiçbir araç vermez",
+        "en": "Give the agent any tool to read this data"
+      }
+    ],
+    "storage": {
+      "where": {
+        "tr": "Bu bilgisayar, uzantının kendi veri klasörü",
+        "en": "This computer, in the extension's own data folder"
+      },
+      "encryption": {
+        "tr": "Şifreli dosya; anahtar Windows kullanıcınıza bağlıdır. Bu bilgisayarın yöneticisi bu korumayı aşabilir.",
+        "en": "Encrypted file; the key is sealed to your Windows user. An administrator of this computer can get around this protection."
+      },
+      "adminCanRead": true
+    },
+    "leavesTheMachine": "nothing",
+    "controller": {
+      "tr": "İşvereniniz (bilgilendirmede adı geçer)",
+      "en": "Your employer (named in the notice)"
+    },
+    "rights": {
+      "view": true,
+      "delete": {
+        "tr": "Bilgilendirmede adı geçen iletişim kanalı üzerinden işverene başvurarak",
+        "en": "On request to your employer, through the contact named in the notice"
+      }
+    },
+    "monitoringKind": "employee-activity"
+  },
+  "legal": {
+    "noticeVersion": "1.0",
+    "notices": {
+      "tr": {
+        "file": "legal/notice.tr.md",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "en": {
+        "file": "legal/notice.en.md",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    "acknowledgement": {
+      "mode": "inform-and-acknowledge",
+      "retainDays": 1825
+    },
+    "jurisdictions": [
+      "TR"
+    ]
+  },
+  "licensing": {
+    "kind": "key",
+    "required": true,
+    "verifier": {
+      "type": "ed25519-offline",
+      "keyId": "cogitave-license-1",
+      "keyFile": "keys/license-pub.json"
+    },
+    "claims": [
+      "customer",
+      "seats",
+      "expires",
+      "features"
+    ],
+    "onInvalid": "disableAndExplain",
+    "graceDays": 0
+  },
+  "resources": {
+    "maxMemoryMB": 30,
+    "cpuSharePercent": 2,
+    "maxDiskMB": 25,
+    "onExceed": "report",
+    "enforcement": "report"
+  },
+  "updates": {
+    "channel": "stable",
+    "permissionChange": "askAgain",
+    "autoUpdate": "never"
+  },
+  "signing": {
+    "publisherKeyId": "cogitave-2026",
+    "manifestSignature": "signatures/manifest.sig",
+    "files": "files.sha256.json",
+    "platformSignatures": {
+      "win32": "authenticode"
+    }
+  }
+}

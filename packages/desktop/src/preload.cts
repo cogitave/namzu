@@ -207,6 +207,14 @@ const api: DesktopApi = {
 	commit: (id, request) => invoke('commit', id, request),
 	mcpServers: (id) => invoke('mcpServers', id),
 	hooksView: (id) => invoke('hooksView', id),
+	extensionsCall: (method, params) => invoke('extensionsCall', method, params),
+	extensionsAddFromFile: (locale) => invoke('extensionsAddFromFile', locale),
+	extensionPageShow: (extensionId, pageId, bounds) =>
+		invoke('extensionPageShow', extensionId, pageId, bounds),
+	extensionPageBounds: (extensionId, pageId, bounds) =>
+		invoke('extensionPageBounds', extensionId, pageId, bounds),
+	extensionPageClose: (extensionId, pageId) => invoke('extensionPageClose', extensionId, pageId),
+	extensionPageTheme: (theme) => invoke('extensionPageTheme', theme),
 	approveMcpServers: (id, servers) => invoke('approveMcpServers', id, servers),
 	searchConversations: (query) => invoke('searchConversations', query),
 	projectPr: (id) => invoke('projectPr', id),

@@ -174,6 +174,15 @@ export const pluginCommand = lazyCommand(
 	async () => (await import('./plugin.js')).pluginCommand,
 )
 
+export const extensionCommand = lazyCommand(
+	{
+		name: 'extension',
+		description: 'Add, read and control extensions: signed programs that list what they ask for',
+		passThrough: true,
+	},
+	async () => (await import('./extension.js')).extensionCommand,
+)
+
 export const hooksCommand = lazyCommand(
 	{
 		name: 'hooks',
