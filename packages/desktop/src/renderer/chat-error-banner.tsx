@@ -48,9 +48,7 @@ export function ChatErrorBanner({
 								>
 									Details
 								</button>
-								{open && (
-									<p className="mt-1 break-words text-xs text-muted-foreground">{more}</p>
-								)}
+								{open && <p className="mt-1 break-words text-xs text-muted-foreground">{more}</p>}
 							</div>
 						)}
 						{signIn && (

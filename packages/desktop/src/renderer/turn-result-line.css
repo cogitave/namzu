@@ -132,7 +132,7 @@ button.turn-result-main:focus-visible,
 }
 .turn-result-check[data-tone="error"] {
 	color: var(--error-foreground);
-	font-weight: var(--weight-strong);
+	font-weight: var(--weight-control);
 }
 .turn-result-undo {
 	flex: none;
