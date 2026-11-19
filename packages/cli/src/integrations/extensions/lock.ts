@@ -1,5 +1,5 @@
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
-import { existsSync, rmSync } from 'node:fs'
+import { closeSync, existsSync, openSync, rmSync, statSync } from 'node:fs'
 import { ExtensionError } from './errors.js'
 import type { ExtensionStore } from './store.js'
 
@@ -21,6 +21,15 @@ export const MIN_PASSWORD = 8
 export const MAX_PASSWORD = 256
 const WAIT_BASE_MS = 1000
 const WAIT_MAX_MS = 60_000
+/** The file that serialises attempts across processes, and how long one may be held before it is taken as left behind. */
+const GUARD_FILE = 'lock.json.guard'
+const GUARD_STALE_MS = 10_000
+const GUARD_TRIES = 400
+const GUARD_PAUSE_MS = 25
+
+const pause = (ms: number): void => {
+	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
 
 interface LockRecord {
 	schema: 1
@@ -119,13 +128,9 @@ export class AdminLock {
 				'lock',
 				'This extension is locked by your administrator. Enter the administrator password.',
 			)
-		const left = r.waitUntil - this.now()
-		if (left > 0)
-			throw new ExtensionError(
-				'admin-wait',
-				'lock',
-				`Wait ${Math.ceil(left / 1000)} seconds before trying the administrator password again.`,
-			)
+		// The attempt is counted and its wait is written before the password is hashed. Fifty processes that
+		// start at once each find the wait the one before reserved, so the hash is no longer the limit.
+		const fails = this.reserve(id)
 		const ok =
 			password.length <= MAX_PASSWORD &&
 			(() => {
@@ -134,22 +139,78 @@ export class AdminLock {
 				return want.length === got.length && timingSafeEqual(want, got)
 			})()
 		if (ok) {
-			if (r.fails > 0 || r.waitUntil > 0)
-				this.store.writeJson(id, LOCK_FILE, { ...r, fails: 0, waitUntil: 0 }, 0o600)
+			this.update(id, (cur) => ({ ...cur, fails: 0, waitUntil: 0 }))
 			return
 		}
-		const fails = r.fails + 1
-		this.store.writeJson(
-			id,
-			LOCK_FILE,
-			{ ...r, fails, waitUntil: this.now() + waitAfter(fails) },
-			0o600,
-		)
 		throw new ExtensionError(
 			'admin-wrong',
 			'lock',
 			`That is not the administrator password. Wait ${Math.ceil(waitAfter(fails) / 1000)} seconds to try again.`,
 		)
+	}
+
+	/** Run `fn` while this process alone holds the extension's guard file; a left-behind one is taken over. */
+	private exclusive<T>(id: string, fn: () => T): T {
+		const f = this.store.file(id, GUARD_FILE)
+		for (let i = 0; ; i++) {
+			try {
+				closeSync(openSync(f, 'wx', 0o600))
+				break
+			} catch (e) {
+				if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e
+				try {
+					if (Date.now() - statSync(f).mtimeMs > GUARD_STALE_MS) rmSync(f, { force: true })
+				} catch {
+					// it went away between the two calls
+				}
+				if (i >= GUARD_TRIES)
+					throw new ExtensionError(
+						'admin-wait',
+						'lock',
+						'Another attempt is being checked. Try again in a moment.',
+					)
+				pause(GUARD_PAUSE_MS)
+			}
+		}
+		try {
+			return fn()
+		} finally {
+			rmSync(f, { force: true })
+		}
+	}
+
+	/** Re-read the record under the guard and write the changed one. */
+	private update(id: string, change: (r: LockRecord) => LockRecord): void {
+		this.exclusive(id, () => {
+			const cur = this.read(id)
+			if (cur) this.store.writeJson(id, LOCK_FILE, change(cur), 0o600)
+		})
+	}
+
+	/**
+	 * Take the attempt: refuse while a wait runs, else count it and write the next wait now. Returns the
+	 * number of wrong passwords in a row this attempt stands for (the right one clears it).
+	 */
+	private reserve(id: string): number {
+		return this.exclusive(id, () => {
+			const cur = this.read(id)
+			if (!cur) return 0
+			const left = cur.waitUntil - this.now()
+			if (left > 0)
+				throw new ExtensionError(
+					'admin-wait',
+					'lock',
+					`Wait ${Math.ceil(left / 1000)} seconds before trying the administrator password again.`,
+				)
+			const fails = cur.fails + 1
+			this.store.writeJson(
+				id,
+				LOCK_FILE,
+				{ ...cur, fails, waitUntil: this.now() + waitAfter(fails) },
+				0o600,
+			)
+			return fails
+		})
 	}
 
 	/** Drop the lock. The caller has already made it pass `require`. */
