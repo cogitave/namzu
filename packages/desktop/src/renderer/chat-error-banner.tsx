@@ -33,24 +33,22 @@ export function ChatErrorBanner({
 	const [open, setOpen] = useState(false)
 	return (
 		<div className="flex w-full justify-center" role="alert">
-			<div className="error-banner flex w-full flex-wrap items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2 backdrop-blur-md">
-				<div className="flex min-w-0 flex-1 items-start gap-2 text-ui-base text-foreground">
+			<div className="error-banner flex w-full flex-wrap items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2">
+				<div className="flex min-w-0 flex-1 items-start gap-2 text-base text-foreground">
 					<InfoIcon aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-error-foreground" />
 					<div className="min-w-0">
-						<div className="whitespace-pre-wrap break-words font-medium">{shown}</div>
+						<div className="whitespace-pre-wrap break-words">{shown}</div>
 						{more && (
 							<div className="mt-1">
 								<button
 									type="button"
-									className="text-ui-sm text-muted-foreground underline-offset-2 hover:underline"
+									className="text-xs text-muted-foreground underline-offset-2 hover:underline"
 									aria-expanded={open}
 									onClick={() => setOpen((value) => !value)}
 								>
 									Details
 								</button>
-								{open && (
-									<p className="mt-1 break-words text-ui-sm text-muted-foreground">{more}</p>
-								)}
+								{open && <p className="mt-1 break-words text-xs text-muted-foreground">{more}</p>}
 							</div>
 						)}
 						{signIn && (
