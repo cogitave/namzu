@@ -3946,7 +3946,14 @@ export async function createAgentSession(
 	if (options.browser && browserPackage?.state === 'present') {
 		try {
 			const { PlaywrightBrowserHost } = await import('@namzu/browser')
-			const control = createBrowserControl(PlaywrightBrowserHost, options.browser)
+			// Asking the person to sign in names `ask_user_question`, so it is only said while
+			// that tool is mounted (decided further down, once the delegation gateway is up).
+			const control = createBrowserControl(PlaywrightBrowserHost, {
+				...options.browser,
+				...(options.browser.askPersonToSignIn
+					? { askPersonToSignIn: () => questionToolMounted }
+					: {}),
+			})
 			browserControl = control
 			// With no usable engine every browser call is refused, so the two
 			// schemas (about 940 tokens) are not sent. The host's capabilities

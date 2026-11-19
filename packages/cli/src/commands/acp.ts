@@ -1581,8 +1581,9 @@ export function createCliAcpRuntime(
 				record.conversations,
 				target.sessionId,
 			)
-			// A turn a tool paused for a person continues the same way, from its checkpoint, with the
-			// model it was on; a provider failure is repeated on the model selected now.
+			// A turn a tool paused for a person continues the same way, from its checkpoint. Both kinds
+			// run on the model selected now: the record keeps the model's name but not its service,
+			// so an earlier model cannot be put back safely when the person has changed services.
 			const handoff = status.retry ? undefined : status.handoff
 			const resumable = status.retry ?? handoff
 			if (resumable?.turnId !== turnId || resumable.checkpointId !== checkpointId)

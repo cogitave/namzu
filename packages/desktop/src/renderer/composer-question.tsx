@@ -162,6 +162,19 @@ export function ComposerQuestion({
 		if (event.nativeEvent.isComposing) return
 		const target = event.target as HTMLElement
 		const inWords = target === words.current
+		if (
+			event.key === 'Escape' &&
+			inWords &&
+			words.current?.value.trim() &&
+			rows.current[focusRow]
+		) {
+			// Esc in the box for words with something written only leaves it, so a half-written
+			// answer is not thrown away with the card; Esc anywhere else skips.
+			event.preventDefault()
+			event.stopPropagation()
+			rows.current[focusRow]?.focus()
+			return
+		}
 		if (event.key === 'Escape') {
 			// Esc skips this card and leaves the reply running; the window's own Esc, which stops
 			// the reply, never sees it.

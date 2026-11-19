@@ -133,6 +133,19 @@ export function readQuestionNotice(params: unknown): QuestionNotice | undefined 
 	return sessionId && requestId && questions ? { sessionId, requestId, questions } : undefined
 }
 
+/**
+ * Who asked, when the question itself does not read (too long, too many options). The host is
+ * holding a promise for it, so the app answers that it was skipped instead of saying nothing.
+ */
+export function readQuestionNoticeIds(
+	params: unknown,
+): { sessionId: string; requestId: string } | undefined {
+	if (!record(params)) return undefined
+	const sessionId = id(params.sessionId)
+	const requestId = id(params.requestId)
+	return sessionId && requestId ? { sessionId, requestId } : undefined
+}
+
 export function readQuestionClosedNotice(params: unknown): QuestionClosedNotice | undefined {
 	if (!record(params)) return undefined
 	const sessionId = id(params.sessionId)

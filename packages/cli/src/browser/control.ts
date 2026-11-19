@@ -54,7 +54,7 @@ export interface BrowserSessionOptions {
 	/** What makes a page a sign-in page; `address` when absent. */
 	readonly signInDetection?: 'address' | 'page'
 	/** A person is in the conversation: a sign-in page is put to them as a question, not a command. */
-	readonly askPersonToSignIn?: boolean
+	readonly askPersonToSignIn?: boolean | (() => boolean)
 	/** `NAMZU_HOME`. */
 	readonly home?: string
 	/** `unattended` for a scheduled run: nobody at the window. Default `interactive`. */
@@ -119,7 +119,7 @@ export function createBrowserControl(
 			...(options.headless ? { headless: options.headless } : {}),
 			...(options.keepOpen ? { keepOpen: true } : {}),
 			...(options.signInDetection ? { signInDetection: options.signInDetection } : {}),
-			...(options.askPersonToSignIn ? { askPersonToSignIn: true } : {}),
+			...(options.askPersonToSignIn ? { askPersonToSignIn: options.askPersonToSignIn } : {}),
 			...(options.home ? { home: options.home } : {}),
 		})
 	let current = build(options.profile ?? 'default')

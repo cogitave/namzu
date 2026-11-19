@@ -131,9 +131,9 @@ import {
 	ANSWER_QUESTION_METHOD,
 	QUESTION_CLOSED_NOTIFICATION,
 	QUESTION_NOTIFICATION,
-	type QuestionNotice,
 	readQuestionClosedNotice,
 	readQuestionNotice,
+	readQuestionNoticeIds,
 	readQuestionResponse,
 } from '../shared/question-protocol.js'
 import { ReconnectRetries } from '../shared/reconnect-retry.js'
@@ -6806,8 +6806,22 @@ export class Operator {
 	 * as a card. One this window cannot show (no such conversation, a Pal's, not running) is told
 	 * unanswered at once, so the turn is not held for a card nobody will see.
 	 */
-	private openQuestion(project: Project, notice: QuestionNotice | undefined): void {
-		if (!notice) return
+	private openQuestion(project: Project, params: unknown): void {
+		const notice = readQuestionNotice(params)
+		if (!notice) {
+			// A question that does not read (a very long text, too many options) is skipped, not left
+			// to wait: the turn is holding for an answer no card will ever give.
+			const ids = readQuestionNoticeIds(params)
+			if (ids)
+				void project.client
+					.request(
+						ANSWER_QUESTION_METHOD,
+						{ sessionId: ids.sessionId, requestId: ids.requestId, answer: { kind: 'skip' } },
+						8_000,
+					)
+					.catch(() => {})
+			return
+		}
 		const session = this.runtimeSession(project, notice.sessionId)
 		if (
 			!session ||
@@ -7026,7 +7040,7 @@ export class Operator {
 			if (notice && session && (!session.view.harness || session.view.harness === 'namzu'))
 				this.emit({ ...notice, kind: 'outcome', sessionId: session.view.id })
 		} else if (frame.method === QUESTION_NOTIFICATION) {
-			this.openQuestion(project, readQuestionNotice(frame.params))
+			this.openQuestion(project, frame.params)
 		} else if (frame.method === QUESTION_CLOSED_NOTIFICATION) {
 			const closed = readQuestionClosedNotice(frame.params)
 			const session = closed ? this.runtimeSession(project, closed.sessionId) : undefined

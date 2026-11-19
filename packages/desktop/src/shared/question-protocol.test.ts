@@ -4,6 +4,7 @@ import {
 	readQuestionClosedNotice,
 	readQuestionItems,
 	readQuestionNotice,
+	readQuestionNoticeIds,
 	readQuestionResponse,
 } from './question-protocol.js'
 
@@ -102,5 +103,26 @@ describe('reading an answer', () => {
 				],
 			}),
 		).toThrow('under 4,000')
+	})
+})
+
+describe('a question that does not read', () => {
+	const params = (question: unknown) => ({ sessionId: 's1', requestId: 'r1', question })
+
+	it('is refused whole, and the ids are still readable so the host can be told it was skipped', () => {
+		const tooLong = params({ ...single, question: 'x'.repeat(2_001) })
+		expect(readQuestionNotice(tooLong)).toBeUndefined()
+		expect(readQuestionNoticeIds(tooLong)).toEqual({ sessionId: 's1', requestId: 'r1' })
+		const tooMany = params({
+			...single,
+			options: Array.from({ length: 25 }, (_, i) => ({ id: `opt_${i}`, label: `Option ${i}` })),
+		})
+		expect(readQuestionNotice(tooMany)).toBeUndefined()
+		expect(readQuestionNoticeIds(tooMany)).toEqual({ sessionId: 's1', requestId: 'r1' })
+	})
+
+	it('has no ids to answer when the frame does not name them', () => {
+		expect(readQuestionNoticeIds({ sessionId: 's1' })).toBeUndefined()
+		expect(readQuestionNoticeIds(null)).toBeUndefined()
 	})
 })

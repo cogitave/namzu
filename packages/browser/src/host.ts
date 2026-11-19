@@ -149,7 +149,7 @@ export interface PlaywrightBrowserHostOptions {
 	 * window, the notice for a page with a password field tells the model to ask them to sign in
 	 * there and wait, instead of naming `namzu browser login`. Unattended runs leave it off.
 	 */
-	readonly askPersonToSignIn?: boolean
+	readonly askPersonToSignIn?: boolean | (() => boolean)
 	/** The command that opens a visible window for signing in. Default `namzu browser login <profile> <url>`. */
 	readonly loginCommand?: (profile: string, url: string) => string
 	/** Windows engine: how long starting and connecting to the browser may take. Default 60 000. */
@@ -816,6 +816,12 @@ export class PlaywrightBrowserHost implements BrowserHost {
 	// Human handoff
 	// -------------------------------------------------------------------------
 
+	/** Read when the notice is written, so a session can settle it after the host was built. */
+	private asksPersonToSignIn(): boolean {
+		const option = this.options.askPersonToSignIn
+		return typeof option === 'function' ? option() === true : option === true
+	}
+
 	private loginCommandFor(url: string): string {
 		const target = withoutQuery(url)
 		return this.options.loginCommand
@@ -876,7 +882,7 @@ export class PlaywrightBrowserHost implements BrowserHost {
 			signals,
 			classifier,
 			this.loginCommandFor(url),
-			this.options.askPersonToSignIn === true && !this.plan.headless,
+			this.asksPersonToSignIn() && !this.plan.headless,
 		)
 		if (notice && tab.signInNoticeFor !== withoutQuery(url)) {
 			tab.signInNoticeFor = withoutQuery(url)

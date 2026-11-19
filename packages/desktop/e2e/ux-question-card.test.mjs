@@ -264,3 +264,39 @@ flow(
 		await expect(card(w)).toBeVisible({ timeout: T });
 	},
 );
+
+flow(
+	"a question the app cannot read is skipped, so the turn is not left waiting",
+	{
+		rules: [
+			rule(/make the deck/i, [{ ...AUDIENCE, question: `Who is the audience? ${"Please say. ".repeat(200)}` }]),
+		],
+	},
+	async (w) => {
+		await send(w, "Please make the deck");
+		await expect(w.page.getByText("Noted, going on.").first()).toBeVisible({ timeout: T });
+		assert.equal(await card(w).count(), 0);
+		assert.match(toolResult(w), /did not answer/);
+	},
+);
+
+flow(
+	"Esc in the box for words only leaves it, and a second Esc skips the question",
+	{ rules: [rule(/make the deck/i, [AUDIENCE])] },
+	async (w) => {
+		await send(w, "Please make the deck");
+		await expect(card(w)).toBeVisible({ timeout: T });
+		await w.page.keyboard.press("3");
+		const words = card(w).getByRole("textbox", { name: "Your own answer" });
+		await expect(words).toBeFocused();
+		await w.page.keyboard.type("the sales team");
+		await w.page.keyboard.press("Escape");
+		await expect(card(w)).toBeVisible();
+		await expect(words).not.toBeFocused();
+		await expect(words).toHaveValue("the sales team");
+		await w.page.keyboard.press("Escape");
+		await expect(card(w)).toHaveCount(0, { timeout: T });
+		await expect(w.page.getByText("Noted, going on.").first()).toBeVisible({ timeout: T });
+		assert.match(toolResult(w), /did not answer/);
+	},
+);
