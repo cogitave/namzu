@@ -170,3 +170,100 @@ describe('search_tools receipts', () => {
 		})
 	})
 })
+
+describe('search_tools query forms', () => {
+	const roster = () =>
+		managerWith(
+			tool('web_search', 'Look things up on the internet.'),
+			tool('web_fetch', 'Fetch a page.'),
+			tool('save_memory', 'Save one memory.'),
+			tool('browser', 'Open pages.', ['browser_act']),
+			tool('browser_act', 'Act on a page.'),
+			tool('web_a', 'a'),
+			tool('web_b', 'b'),
+			tool('web_c', 'c'),
+			tool('web_d', 'd'),
+		)
+
+	it('select loads exactly the named tools, no more', async () => {
+		const { manager } = roster()
+		const result = await SearchToolsTool.execute(
+			{ query: 'select: save_memory , web_fetch ,' },
+			context(manager),
+		)
+		expect(result.reveals).toEqual(['save_memory', 'web_fetch'])
+		expect(result.output).toContain('Activated 2 tool(s):')
+		expect(result.output).not.toContain('web_search')
+	})
+
+	it('select does not pull in companions, and says they exist', async () => {
+		const { manager } = roster()
+		const result = await SearchToolsTool.execute({ query: 'select:browser' }, context(manager))
+		expect(result.reveals).toEqual(['browser'])
+		expect(result.output).toContain('Related tools that are not loaded: browser_act')
+	})
+
+	it('select reports loaded, unknown and refused names', async () => {
+		const { manager, messages } = roster()
+		const first = await SearchToolsTool.execute({ query: 'select:web_fetch' }, context(manager))
+		messages.push(
+			createToolMessage(
+				first.output,
+				'c1',
+				false,
+				first.reveals?.map((name) => manager.revealReceipt(name)),
+			),
+		)
+		const result = await SearchToolsTool.execute(
+			{ query: 'select:web_fetch,save_memory,nope,web_search' },
+			context(manager, ['web_fetch', 'save_memory']),
+		)
+		expect(result.reveals).toEqual(['save_memory'])
+		expect(result.output).toContain('Already loaded, call directly: web_fetch.')
+		expect(result.output).toContain('No tool named: nope, web_search.')
+	})
+
+	it('select with no names says so and loads nothing', async () => {
+		const { manager } = roster()
+		const result = await SearchToolsTool.execute({ query: 'select:  , ' }, context(manager))
+		expect(result.success).toBe(true)
+		expect(result.reveals).toBeUndefined()
+	})
+
+	it('select keeps to 64 names', async () => {
+		const many = Array.from({ length: 70 }, (_, i) => tool(`bulk_${String(i).padStart(2, '0')}`))
+		const { manager } = managerWith(...many)
+		const names = many.map((t) => t.name).join(',')
+		const result = await SearchToolsTool.execute({ query: `select:${names}` }, context(manager))
+		expect(result.reveals).toHaveLength(64)
+	})
+
+	it('an exact name loads that tool alone, with its companions', async () => {
+		const { manager } = roster()
+		const result = await SearchToolsTool.execute({ query: 'browser' }, context(manager))
+		expect(result.reveals).toEqual(['browser', 'browser_act'])
+	})
+
+	it('max_results bounds what a keyword search loads; the rest are suggestions', async () => {
+		const { manager } = roster()
+		const two = await SearchToolsTool.execute({ query: 'web', max_results: 2 }, context(manager))
+		expect(two.reveals).toHaveLength(2)
+		expect(two.output).toContain('Also matched but NOT loaded')
+		const def = await SearchToolsTool.execute({ query: 'web' }, context(manager))
+		expect(def.reveals).toHaveLength(5)
+		const bad = SearchToolsTool.inputSchema.safeParse({ query: 'web', max_results: 0 })
+		expect(bad.success).toBe(false)
+	})
+
+	it('a +term narrows the results', async () => {
+		const { manager } = roster()
+		const result = await SearchToolsTool.execute({ query: '+memory web' }, context(manager))
+		expect(result.reveals).toEqual(['save_memory'])
+	})
+
+	it('the description teaches the three forms', () => {
+		expect(SearchToolsTool.description).toContain('select:')
+		expect(SearchToolsTool.description).toContain('keywords')
+		expect(SearchToolsTool.description).toContain('"+slack send"')
+	})
+})

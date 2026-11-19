@@ -303,6 +303,14 @@ export interface SystemMessage extends BaseMessage {
 	content: string
 	/** Host provenance for a derived summary, independent of its textual heading. */
 	source?: { readonly type: 'compaction-summary' }
+	/**
+	 * On a compaction summary: the deferred tools the conversation had loaded
+	 * before the pass cut the messages that loaded them. `ToolManager.availability`
+	 * counts these like the receipts on tool messages, so a tool loaded before a
+	 * compaction is still callable after it. Cumulative: a later summary carries
+	 * what an earlier one did.
+	 */
+	revealedTools?: readonly ToolRevealReceipt[]
 }
 
 /**

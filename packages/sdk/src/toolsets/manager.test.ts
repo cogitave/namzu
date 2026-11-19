@@ -177,7 +177,7 @@ describe('ToolManager — availability (derived)', () => {
 		expect(m.availability('hidden')).toBe('deferred')
 	})
 
-	it('a reveal BEFORE the last compaction summary no longer counts', () => {
+	it('a reveal BEFORE a compaction summary that does not carry it no longer counts', () => {
 		const messages: Message[] = [
 			createToolMessage('ok', 'call-1', false, [hiddenReceipt]),
 			buildCompactionMessage('summary body'),
@@ -456,7 +456,7 @@ describe('ToolManager — live subscription lifetime', () => {
 })
 
 describe('ToolManager — view()', () => {
-	it('exposes only has / availability / searchDeferred', () => {
+	it('exposes only has / availability / searchDeferred / select', () => {
 		const m = manager([
 			deferred(toolset('a', [makeTool('hidden', { description: 'find the hidden thing' })])),
 		])
@@ -464,7 +464,7 @@ describe('ToolManager — view()', () => {
 		expect(view.has('hidden')).toBe(true)
 		expect(view.availability('hidden')).toBe('deferred')
 		expect(view.searchDeferred('hidden').map((t) => t.name)).toEqual(['hidden'])
-		expect(Object.keys(view).sort()).toEqual(['availability', 'has', 'searchDeferred'])
+		expect(Object.keys(view).sort()).toEqual(['availability', 'has', 'searchDeferred', 'select'])
 	})
 })
 

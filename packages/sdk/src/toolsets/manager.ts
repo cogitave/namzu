@@ -19,7 +19,7 @@ import { failureFactsFromError } from '../tools/failure-facts.js'
 import { isTrustedReadOnly } from '../tools/trusted-read-only.js'
 import { wrapUntrusted } from '../tools/untrusted-envelope.js'
 import type { ToolResultGuardrailSpec } from '../types/guardrail/index.js'
-import type { Message, ToolRevealReceipt } from '../types/message/index.js'
+import type { Message, SystemMessage, ToolRevealReceipt } from '../types/message/index.js'
 import { PLAN_MODE_REFUSAL } from '../types/permission/index.js'
 import type {
 	LLMToolSchema,
@@ -115,10 +115,18 @@ const SEARCH_STOP_TOKENS = new Set([
 	'search',
 ])
 
-const SEARCH_WEIGHT_NAME_EXACT = 12
-const SEARCH_WEIGHT_NAME_PARTIAL = 8
-const SEARCH_WEIGHT_DESCRIPTION = 5
-const SEARCH_WEIGHT_ARGUMENT = 3
+// A word of the tool's name sits far above a word of its description, so a
+// tool called `web_search` outranks one that merely mentions the web.
+const SEARCH_WEIGHT_NAME_WORD = 10
+const SEARCH_WEIGHT_NAME_WORD_MCP = 12
+const SEARCH_WEIGHT_NAME_PART = 5
+const SEARCH_WEIGHT_NAME_PART_MCP = 6
+const SEARCH_WEIGHT_NAME_ANY = 3
+const SEARCH_WEIGHT_DESCRIPTION = 2
+const SEARCH_WEIGHT_ARGUMENT = 2
+/** A query is clipped to this many characters and words before it is read. */
+const MAX_SEARCH_QUERY_CHARS = 16_384
+const MAX_SEARCH_QUERY_WORDS = 32
 const MAX_DEFERRED_MCP_HINT_CHARS = 4_000
 
 /**
@@ -387,6 +395,45 @@ export class ToolManager {
 		return { added, removed, drifted, refused }
 	}
 
+	/**
+	 * What to tell the model after {@link refresh} reported a change, or an
+	 * empty string when nothing it can act on changed. The catalogue in the
+	 * system prompt is written once, so a server that connects, or lists more
+	 * tools, after that would otherwise be invisible. Deferred names are
+	 * announced the way the catalogue lists them; a tool an MCP server wrote
+	 * is named without its description, which is the server's text and goes
+	 * through the provenance-labelled context instead.
+	 */
+	describeChange(report: ToolsetChangeReport): string {
+		const lines: string[] = []
+		const deferredNow = report.added.filter((name) => this.availability(name) === 'deferred')
+		const loadedNow = report.added.filter((name) => this.availability(name) === 'active')
+		const searchable = this.has('search_tools') && this.availability('search_tools') === 'active'
+		if (deferredNow.length > 0) {
+			const entries = deferredNow.map((name) => {
+				const tool = this.toolsByName.get(name)
+				const hint =
+					!tool || this.sourceKindOf(name) === 'mcp_server'
+						? ''
+						: toolDiscoveryHint(tool.description)
+				return hint.length > 0 ? `- ${name}: ${hint}` : `- ${name}`
+			})
+			lines.push(
+				searchable
+					? 'These tools are now available but deferred. Their schemas are not loaded; use search_tools with "select:<name>" (exact names, comma-separated) to load one before calling it:'
+					: 'These tools are now available but deferred; wait for runtime activation before calling them:',
+				...entries,
+			)
+		}
+		if (loadedNow.length > 0) {
+			lines.push(`These tools are now loaded and can be called: ${loadedNow.join(', ')}.`)
+		}
+		if (report.removed.length > 0) {
+			lines.push(`These tools are no longer available: ${report.removed.join(', ')}.`)
+		}
+		return lines.join('\n')
+	}
+
 	has(name: string): boolean {
 		return this.toolsByName.has(name)
 	}
@@ -426,13 +473,13 @@ export class ToolManager {
 	 * Nothing here is stored: this is a pure read of the toolset's own
 	 * declaration plus a scan of `messages()`, recomputed on every call — the
 	 * same "safe to call repeatedly, byte-identical between calls" property
-	 * `toLLMTools` already has. The scan is bounded to the window AFTER the
-	 * last compaction summary (`compaction/summary.ts`'s
-	 * `isCompactionMessage` — the one marker a compacted history carries, a
-	 * system message whose content starts with `COMPACTION_HEADER`):
-	 * compaction is the one deliberate "forget" boundary a derivation like
-	 * this one needs, the same way it is the one boundary namzu's own
-	 * summarisation treats as a reset. A tool message's own `revealedTools`
+	 * `toLLMTools` already has. The scan reads the last compaction summary
+	 * (`compaction/summary.ts`'s `isCompactionMessage` — the one marker a
+	 * compacted history carries, a system message whose content starts with
+	 * `COMPACTION_HEADER`) and the window AFTER it. The summary carries, as
+	 * its own `revealedTools`, the tools the pass found loaded in the
+	 * messages it cut, so a loaded tool stays loaded across a compaction
+	 * while the messages that loaded it are gone. A tool message's own `revealedTools`
 	 * (`types/message/index.ts`) is written by the executor from
 	 * `ToolResult.reveals`, persisted like any other message field — there is
 	 * no separate store to keep in sync, restore on resume, or lose across a
@@ -449,18 +496,16 @@ export class ToolManager {
 	private wasRevealed(name: string): boolean {
 		const owner = this.ownerToolsetByName.get(name)
 		if (!owner) return false
-		const window = postCompactionWindow(this.messagesAccessor())
+		const owns = (receipt: ToolRevealReceipt) =>
+			receipt.name === name &&
+			receipt.sourceId === owner.source.id &&
+			receipt.sourceKind === owner.source.kind
+		const { summary, window } = postCompactionWindow(this.messagesAccessor())
+		// What the last summary carries was loaded before the pass cut the
+		// messages that loaded it; it is still loaded.
+		if (summary?.revealedTools?.some(owns)) return true
 		for (const message of window) {
-			if (
-				message.role === 'tool' &&
-				!message.isError &&
-				message.revealedTools?.some(
-					(receipt) =>
-						receipt.name === name &&
-						receipt.sourceId === owner.source.id &&
-						receipt.sourceKind === owner.source.kind,
-				)
-			)
+			if (message.role === 'tool' && !message.isError && message.revealedTools?.some(owns))
 				return true
 		}
 		return false
@@ -496,32 +541,132 @@ export class ToolManager {
 		return limit === undefined ? results : results.slice(0, limit)
 	}
 
+	/**
+	 * Load exact tools by name, the `select:a,b` form of `search_tools`. A
+	 * name matches a tool exactly (case-insensitive); failing that, an MCP
+	 * tool by its short name, the part after the last `__`, which can name
+	 * more than one tool when two servers expose the same one. `available`
+	 * lists names that are already loaded, `missing` the ones nothing matched.
+	 * Nothing is searched by description here: a wrong name is reported, not
+	 * guessed at.
+	 */
+	select(names: readonly string[]): {
+		readonly found: readonly ToolDefinition[]
+		readonly available: readonly string[]
+		readonly missing: readonly string[]
+	} {
+		const found: ToolDefinition[] = []
+		const seen = new Set<string>()
+		const available: string[] = []
+		const missing: string[] = []
+		const byLowerName = new Map<string, ToolDefinition>()
+		const byShortName = new Map<string, ToolDefinition[]>()
+		for (const tool of this.toolsByName.values()) {
+			byLowerName.set(tool.name.toLowerCase(), tool)
+			if (this.sourceKindOf(tool.name) === 'mcp_server') {
+				const short = mcpShortName(tool.name)
+				if (short !== undefined) byShortName.set(short, [...(byShortName.get(short) ?? []), tool])
+			}
+		}
+		for (const raw of names) {
+			const wanted = raw.trim().toLowerCase()
+			if (wanted.length === 0) continue
+			const exact = byLowerName.get(wanted)
+			const matches = exact ? [exact] : (byShortName.get(wanted) ?? [])
+			if (matches.length === 0) {
+				if (!missing.includes(raw.trim())) missing.push(raw.trim())
+				continue
+			}
+			for (const tool of matches) {
+				if (seen.has(tool.name)) continue
+				seen.add(tool.name)
+				if (this.availability(tool.name) === 'deferred') found.push(tool)
+				else available.push(tool.name)
+			}
+		}
+		return { found, available, missing }
+	}
+
+	private sourceKindOf(name: string): ToolSourceRef['kind'] | undefined {
+		return this.ownerToolsetByName.get(name)?.source.kind
+	}
+
+	/**
+	 * Ranked lexical search. Rules, in order:
+	 *  - A query that is exactly one tool's name returns that tool alone.
+	 *  - A term written `+term` is required: a tool that does not carry it in
+	 *    its name, description or argument names is left out.
+	 *  - A term scores by where it sits. A whole word of the name is far above
+	 *    a piece of a word, which is far above a word of the description;
+	 *    an MCP tool's name counts a little more.
+	 *  - Generic words (`tool`, `list`, `read`, ...) are ignored. `search` is
+	 *    ignored too, unless a tool's name has it (`web_search`).
+	 */
 	private searchByAvailability(query: string, state: ToolsetAvailability): ToolDefinition[] {
-		const q = query.toLowerCase().trim()
+		const q = query.toLowerCase().trim().slice(0, MAX_SEARCH_QUERY_CHARS)
 		if (q.length === 0) return []
-		const terms = q.split(/\s+/).filter((tok) => tok.length >= 3 && !SEARCH_STOP_TOKENS.has(tok))
+		const candidates = [...this.toolsByName.values()].filter(
+			(tool) => this.availability(tool.name) === state,
+		)
+		const exact = candidates.find((tool) => tool.name.toLowerCase() === q)
+		if (exact) return [exact]
+
+		const profiles = candidates.map((tool) => ({
+			tool,
+			words: nameWords(tool.name),
+			name: tool.name.toLowerCase(),
+			mcp: this.sourceKindOf(tool.name) === 'mcp_server',
+		}))
+		const nameHasWord = (term: string) => profiles.some((p) => p.words.includes(term))
+		// `search` is generic in a request ("search the web") but is also the name of
+		// tools (`web_search`, `search_memory`); it counts when a tool's name has it.
+		// The other generic words stay ignored: they would reveal whole catalogues.
+
+		const required: string[] = []
+		const optional: string[] = []
+		for (const tok of q.split(/\s+/).slice(0, MAX_SEARCH_QUERY_WORDS)) {
+			if (tok.length > 1 && tok.startsWith('+')) {
+				required.push(tok.slice(1))
+			} else if (
+				tok.length >= 3 &&
+				(!SEARCH_STOP_TOKENS.has(tok) || (tok === 'search' && nameHasWord(tok)))
+			) {
+				optional.push(tok)
+			}
+		}
+		const terms = [...new Set([...required, ...optional])]
+		if (terms.length === 0) return []
+		const descriptionPatterns = new Map(
+			terms.map((term) => [term, new RegExp(`(?<![a-z0-9])${escapeRegExp(term)}(?![a-z0-9])`)]),
+		)
 
 		const scored: Array<{ tool: ToolDefinition; score: number }> = []
-		for (const tool of this.toolsByName.values()) {
-			if (this.availability(tool.name) !== state) continue
-			const name = tool.name.toLowerCase()
+		for (const { tool, words, name, mcp } of profiles) {
 			const description = tool.description.toLowerCase()
 			const argumentNames = listArgumentNames(tool)
-			let score = terms.length === 0 && name === q ? SEARCH_WEIGHT_NAME_EXACT : 0
+			let score = 0
+			let allRequired = true
 			for (const term of terms) {
-				if (name === term) {
-					score += SEARCH_WEIGHT_NAME_EXACT
+				let termScore = 0
+				const inDescription = descriptionPatterns.get(term)?.test(description) ?? false
+				const inArguments = argumentNames.some((arg) => arg.includes(term))
+				if (words.includes(term)) {
+					termScore += mcp ? SEARCH_WEIGHT_NAME_WORD_MCP : SEARCH_WEIGHT_NAME_WORD
+				} else if (words.some((word) => word.includes(term))) {
+					termScore += mcp ? SEARCH_WEIGHT_NAME_PART_MCP : SEARCH_WEIGHT_NAME_PART
 				} else if (name.includes(term)) {
-					score += SEARCH_WEIGHT_NAME_PARTIAL
+					termScore += SEARCH_WEIGHT_NAME_ANY
 				}
-				if (description.includes(term)) {
-					score += SEARCH_WEIGHT_DESCRIPTION
+				const inName = termScore > 0
+				if (inDescription) termScore += SEARCH_WEIGHT_DESCRIPTION
+				if (inArguments) termScore += SEARCH_WEIGHT_ARGUMENT
+				if (required.includes(term) && !inName && !inDescription && !inArguments) {
+					allRequired = false
+					break
 				}
-				if (argumentNames.some((arg) => arg.includes(term))) {
-					score += SEARCH_WEIGHT_ARGUMENT
-				}
+				score += termScore
 			}
-			if (score > 0) scored.push({ tool, score })
+			if (allRequired && score > 0) scored.push({ tool, score })
 		}
 
 		scored.sort((a, b) => b.score - a.score || a.tool.name.localeCompare(b.tool.name))
@@ -681,6 +826,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 			has: (name) => this.has(name),
 			availability: (name) => this.availability(name),
 			searchDeferred: (query, limit) => this.searchDeferred(query, limit),
+			select: (names) => this.select(names),
 		}
 	}
 
@@ -1083,14 +1229,37 @@ function sourceToProvenance(source: ToolSourceRef): ToolProvenance | undefined {
  * message means nothing has been compacted yet, so the whole history is the
  * window.
  */
-function postCompactionWindow(messages: readonly Message[]): readonly Message[] {
+function postCompactionWindow(messages: readonly Message[]): {
+	readonly summary?: SystemMessage
+	readonly window: readonly Message[]
+} {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const message = messages[i]
 		if (message?.role === 'system' && isCompactionMessage(message.content)) {
-			return messages.slice(i + 1)
+			return { summary: message, window: messages.slice(i + 1) }
 		}
 	}
-	return messages
+	return { window: messages }
+}
+
+/** The words of a tool name: `mcp__github__create_issue` is mcp, github, create, issue. */
+function nameWords(name: string): string[] {
+	return name
+		.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+		.toLowerCase()
+		.split(/[^a-z0-9]+/)
+		.filter((word) => word.length > 0)
+}
+
+/** The tool part of an `mcp__<server>__<tool>` name, lower-cased. */
+function mcpShortName(name: string): string | undefined {
+	const at = name.lastIndexOf('__')
+	if (!name.startsWith('mcp__') || at < 5 || at + 2 >= name.length) return undefined
+	return name.slice(at + 2).toLowerCase()
+}
+
+function escapeRegExp(text: string): string {
+	return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 /**

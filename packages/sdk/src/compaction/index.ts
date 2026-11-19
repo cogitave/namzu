@@ -81,6 +81,7 @@ export {
 	COMPACTION_RECOVERY_NOTE,
 	COMPACTION_RESUME_NOTE,
 	buildCompactionMessage,
+	collectRevealedTools,
 	isCompactionMessage,
 } from './summary.js'
 

@@ -29,6 +29,17 @@ export interface ToolsView {
 	has(name: string): boolean
 	availability(name: string): ToolAvailability
 	searchDeferred(query: string, limit?: number): readonly ToolDefinition[]
+	/**
+	 * Resolve exact names for `search_tools`' `select:` form: the deferred tools
+	 * they name (an MCP tool also by its short name), the names that are already
+	 * loaded, and the ones nothing matched. Optional so a structural view written
+	 * before it existed stays valid; `search_tools` falls back to a name search.
+	 */
+	select?(names: readonly string[]): {
+		readonly found: readonly ToolDefinition[]
+		readonly available: readonly string[]
+		readonly missing: readonly string[]
+	}
 }
 
 /**
