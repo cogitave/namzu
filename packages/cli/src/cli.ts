@@ -27,6 +27,7 @@ import {
 	drainCommand,
 	evalCommand,
 	execCommand,
+	extensionCommand,
 	githubCommand,
 	historyCommand,
 	hooksCommand,
@@ -625,6 +626,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		historyCommand,
 		hooksCommand,
 		configCommand,
+		extensionCommand,
 		pluginCommand,
 		skillsCommand,
 		skillsJSONCommand,
@@ -656,6 +658,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 								def === skillsCommand ||
 								def === hooksCommand ||
 								def === configCommand ||
+								def === extensionCommand ||
 								def === pluginCommand ||
 								def === upgradeCommand ||
 								def === scheduleCommand ||

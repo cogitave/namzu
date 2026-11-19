@@ -120,6 +120,15 @@ describe('where the Desktop rows sit', () => {
 			expect(sectionOf(id)).toBe('notifications')
 	})
 
+	it('lists Extensions right after Tools, and a stored or linked Extensions section opens', () => {
+		const group = SETTINGS_NAV_GROUPS.find((g) => g.includes('tools'))
+		expect(group?.indexOf('extensions')).toBe((group?.indexOf('tools') ?? -2) + 1)
+		expect(SETTINGS_SECTION_TITLES.extensions).toBe('Extensions')
+		expect(parseSettingsRoute('settings/extensions')).toBe('extensions')
+		expect(isSettingsSection('extensions')).toBe(true)
+		expect(searchSettings('add from file')[0]?.section).toBe('extensions')
+	})
+
 	it('lists Notifications after Appearance in the second group', () => {
 		expect(SETTINGS_NAV_GROUPS[1]).toEqual(['general', 'appearance', 'notifications', 'speech'])
 		expect(SETTINGS_SECTION_TITLES.notifications).toBe('Notifications')

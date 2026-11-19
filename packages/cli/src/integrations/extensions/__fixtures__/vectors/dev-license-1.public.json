@@ -1,0 +1,6 @@
+{
+  "keyId": "dev-license-1",
+  "algorithm": "ed25519",
+  "publicKey": "G0iadfWaUL1Ava+y/ybhuU5vhAzLA+WIOggP+uIVWMg=",
+  "purpose": "DEV ONLY: tests; a release build never trusts it"
+}

@@ -35,3 +35,7 @@ eval-report.json
 
 # Private per-checkout agent notes (see docs/cli/project-instructions.md)
 AGENTS.local.md
+
+# Extension signing keys: never tracked (tests make ephemeral ones)
+dev-keys/
+*.private.pem

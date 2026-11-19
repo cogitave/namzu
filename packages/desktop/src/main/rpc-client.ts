@@ -133,6 +133,11 @@ export class RuntimeClient extends EventEmitter {
 	supportsContextPanel(): boolean {
 		return this.contextPanel
 	}
+	private extensions = false
+	/** A host that predates extensions does not list their methods. */
+	supportsExtensions(): boolean {
+		return this.extensions
+	}
 	private conversationSearch = false
 	supportsConversationSearch(): boolean {
 		return this.conversationSearch
@@ -393,6 +398,7 @@ export class RuntimeClient extends EventEmitter {
 		this.standingInstructions = offers('standingInstructions')
 		this.savedMemory = offers('savedMemory')
 		this.contextPanel = offers('contextPanel')
+		this.extensions = offers('extensions')
 		this.conversationSearch = offers('conversationSearch')
 		this.projectUntrust = offers('projectUntrust')
 		this.projectChanges = offers('projectChanges')

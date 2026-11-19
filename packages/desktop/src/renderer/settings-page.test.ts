@@ -1029,7 +1029,7 @@ describe('the storage and data rows', () => {
 		totalBytes: 3072,
 	}
 
-	it('draws Manage for storage and trusted folders, and Extensions that opens the Plugins page', () => {
+	it('draws Manage for storage and trusted folders, and Plugins that opens the Plugins page', () => {
 		const markup = renderToStaticMarkup(
 			createElement(DesktopSection, {
 				settings: controls(),
@@ -1040,14 +1040,14 @@ describe('the storage and data rows', () => {
 		expect(markup).toContain('id="setting-storage"')
 		expect(markup).toContain('id="setting-trusted-folders"')
 		expect(markup).toContain('id="setting-extensions-manage"')
-		expect(markup).toMatch(/aria-label="Manage extensions"(?![^>]*disabled)/)
+		expect(markup).toMatch(/aria-label="Manage plugins"(?![^>]*disabled)/)
 	})
 
-	it('disables Extensions where there is no Plugins page to open', () => {
+	it('disables Plugins where there is no Plugins page to open', () => {
 		const markup = renderToStaticMarkup(
 			createElement(DesktopSection, { settings: controls(), os: undefined }),
 		)
-		expect(markup).toMatch(/aria-label="Manage extensions"[^>]*disabled/)
+		expect(markup).toMatch(/aria-label="Manage plugins"[^>]*disabled/)
 	})
 
 	it('lists the sizes and offers Clear only on the parts that are safe to clear', () => {

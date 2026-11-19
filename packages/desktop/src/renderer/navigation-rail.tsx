@@ -2,11 +2,14 @@ import { type ReactNode, useEffect, useRef, useState } from 'react'
 import type { EngineUpdatesState } from '../shared/engine-update-protocol.js'
 import type { UpdateState } from '../shared/update-protocol.js'
 import { engineAnnouncement, engineBadge } from './engine-updates-model.js'
-import { DownloadIcon, HomeFilledIcon, HomeIcon, SettingsIcon } from './icons.js'
+import { pageEntries } from './extensions-model.js'
+import { openExtensionPage, openExtensionsPage, useExtensionsSnapshot } from './extensions-store.js'
+import { DownloadIcon, HomeFilledIcon, HomeIcon, PuzzleIcon, SettingsIcon } from './icons.js'
 import { Button } from './ui/button.js'
 import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
 import { updateAnnouncement, updateBadge } from './update-model.js'
 import { useEngineUpdates } from './use-engine-updates.js'
+import './extension-page-pane.css'
 import './navigation-rail.css'
 
 export function NavigationRail({
@@ -33,14 +36,18 @@ export function NavigationRail({
 				</RailButton>
 			</div>
 			<div className="rail-spacer" />
-			{(update || (engines && onOpenUpdates)) && (
-				<UpdateRailButton
-					state={update?.state ?? { status: 'disabled' }}
-					onOpen={update?.onOpen ?? (() => {})}
-					engines={engines?.state}
-					onOpenEngines={onOpenUpdates}
-				/>
-			)}
+			{/* The collapsed rail is one button wide: everything above the foot's line stacks in one column. */}
+			<div className="rail-stack">
+				{(update || (engines && onOpenUpdates)) && (
+					<UpdateRailButton
+						state={update?.state ?? { status: 'disabled' }}
+						onOpen={update?.onOpen ?? (() => {})}
+						engines={engines?.state}
+						onOpenEngines={onOpenUpdates}
+					/>
+				)}
+				<ExtensionsRailButton />
+			</div>
 			<div className="rail-foot">
 				<RailButton
 					control="settings"
@@ -53,6 +60,40 @@ export function NavigationRail({
 				</RailButton>
 			</div>
 		</nav>
+	)
+}
+
+/** Opens the Extensions page; there only when the engine offers extensions or one is added. */
+function ExtensionsRailButton({ side }: { side?: 'right' | 'top' }) {
+	const { supported, rows } = useExtensionsSnapshot()
+	if (supported !== true && rows.length === 0) return null
+	return (
+		<>
+			{/* The sidebar entries the extensions drew: their name, an accent dot, and nothing else of theirs. */}
+			{pageEntries(rows, 'sidebar').map((p) => (
+				<RailButton
+					key={`${p.extensionId}/${p.pageId}`}
+					control="extension-page"
+					label={p.title}
+					tooltip={`${p.title} (${p.name})`}
+					{...(side ? { side } : {})}
+					onClick={() => openExtensionPage(p.extensionId, p.pageId)}
+				>
+					<span className="rail-extension-badge" aria-hidden="true">
+						{p.title.slice(0, 1).toUpperCase()}
+						<span className="rail-extension-dot" style={{ background: p.accent }} />
+					</span>
+				</RailButton>
+			))}
+			<RailButton
+				control="extensions"
+				label="Extensions"
+				{...(side ? { side } : {})}
+				onClick={openExtensionsPage}
+			>
+				<PuzzleIcon />
+			</RailButton>
+		</>
 	)
 }
 
@@ -87,6 +128,7 @@ export function SidebarFoot({
 					<HomeIcon />
 				</RailButton>
 			)}
+			<ExtensionsRailButton side="top" />
 			<RailButton
 				control="settings"
 				label="Settings"
@@ -182,7 +224,7 @@ function RailButton({
 	children,
 }: {
 	/** Names the control for the hand-over of focus when the rail and the foot swap places. */
-	control: 'home' | 'settings'
+	control: 'home' | 'settings' | 'extensions' | 'extension-page'
 	label: string
 	tooltip?: string
 	side?: 'right' | 'top'
