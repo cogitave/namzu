@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DiskSessionLog, MockLLMProvider, drainQuery } from '@namzu/sdk'
+import { CompactionConfigSchema, DiskSessionLog, MockLLMProvider, drainQuery } from '@namzu/sdk'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import {
@@ -64,7 +64,9 @@ async function turn(f: Awaited<ReturnType<typeof fixture>>, model: string, count
 		agentName: 'Stored',
 		messages: [{ role: 'user', content: 'Say something short.' }],
 		workingDirectory: cwd,
-		...(counted ? { compactionConfig: { strategy: 'sliding-window' as const } } : {}),
+		...(counted
+			? { compactionConfig: CompactionConfigSchema.parse({ strategy: 'sliding-window' }) }
+			: {}),
 		turnConfig: { model, tokenBudget: 100_000, timeoutMs: 5_000, maxIterations: 2 },
 		projectId: f.state.projectId,
 		sessionId: f.sessionId,
