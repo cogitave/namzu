@@ -67,7 +67,7 @@ const at = (html: string, needle: string) => html.indexOf(needle)
 
 describe('waiting messages in the conversation', () => {
 	it('draws one waiting message as a bubble after the last message and above the working row, with Send now', () => {
-		const html = render(steer(working(), 'a', 'Selam'))
+		const html = render(queue(working(), [{ id: 'q', prompt: 'Selam' }]))
 		expect(html).toContain('data-pending-tail')
 		expect(html).toContain('Selam')
 		expect(html).toContain('Send now')
@@ -98,8 +98,9 @@ describe('waiting messages in the conversation', () => {
 		expect(order.every((index) => index > 0)).toBe(true)
 		expect([...order].sort((x, y) => x - y)).toEqual(order)
 		expect(html.match(/data-pending-message-id=/g)).toHaveLength(4)
-		// Send now on every one, Edit and Remove only where the message can still be taken back.
-		expect(html.match(/aria-label="Send now: /g)).toHaveLength(4)
+		// Send now, Edit and Remove only where the message still waits: one already going into the
+		// reply has nothing to press.
+		expect(html.match(/aria-label="Send now: /g)).toHaveLength(2)
 		expect(html.match(/aria-label="Edit: /g)).toHaveLength(2)
 		expect(html.match(/aria-label="Remove: /g)).toHaveLength(2)
 	})
@@ -197,9 +198,18 @@ describe('waiting messages in a Pal conversation', () => {
 		)
 		expect(html).toContain('data-pending-tail')
 		expect(html.match(/data-pending-message-id=/g)).toHaveLength(2)
-		expect(html.match(/aria-label="Send now: /g)).toHaveLength(2)
+		expect(html.match(/aria-label="Send now: /g)).toHaveLength(1)
 		expect(at(html, 'First message')).toBeLessThan(at(html, 'Selam'))
 		expect(at(html, 'Selam')).toBeLessThan(at(html, 'Later one'))
+	})
+
+	it('draws a message already going into the reply as a plain bubble, with no empty row of actions under it', () => {
+		const html = render(steer(working(), 'a', 'Selam'))
+		expect(html).toContain('data-pending-message-id="a"')
+		expect(html).not.toContain('pending-actions')
+		expect(html).not.toContain('Send now')
+		// The note is still there for a screen reader.
+		expect(html).toMatch(/<span class="sr-only">[^<]+<\/span>/)
 	})
 
 	it('draws an editor for the waiting message being edited', () => {
