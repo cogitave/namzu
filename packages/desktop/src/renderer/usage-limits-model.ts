@@ -52,7 +52,9 @@ export function asOfText(asOf: number | undefined, now: number): string | undefi
 	const minutes = Math.floor((now - asOf) / 60000)
 	if (minutes < 60) return `as of ${minutes} min ago`
 	const hours = Math.floor(minutes / 60)
-	return `as of ${hours} ${hours === 1 ? 'hour' : 'hours'} ago`
+	if (hours < 24) return `as of ${hours} ${hours === 1 ? 'hour' : 'hours'} ago`
+	const days = Math.floor(hours / 24)
+	return `as of ${days} ${days === 1 ? 'day' : 'days'} ago`
 }
 
 export interface WindowRow {

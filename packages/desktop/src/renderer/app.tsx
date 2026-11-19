@@ -983,12 +983,12 @@ export function App({
 	)
 	// What the account says is laid over what it last said, and kept so a restart does not start empty.
 	const setLimitsView = useCallback((live: LimitsNotification) => {
-		setLimitsViewState((before) => {
-			const next = mergeLimits(before, live)
-			writeStoredLimits(viewState, next)
-			return next
-		})
+		setLimitsViewState((before) => mergeLimits(before, live))
 	}, [])
+	// The write follows the state, outside the updater, which React may run twice.
+	useEffect(() => {
+		if (limitsView) writeStoredLimits(viewState, limitsView)
+	}, [limitsView])
 	// The conversation and files the dialog was opened for: what it shows does not move under the person.
 	const [commitFor, setCommitFor] = useState<{ sessionId: string; paths: string[] }>()
 	const commitTrigger = useRef<HTMLElement | null>(null)
