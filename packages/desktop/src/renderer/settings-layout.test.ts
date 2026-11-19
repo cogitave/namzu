@@ -84,7 +84,13 @@ describe('Settings layout rules', () => {
 		// control shrinks (a font menu's button wraps under it) rather than run past the edge.
 		expect(block).toMatch(/> \.settings-row-copy \{[^}]*flex: 1 1 0;[^}]*min-width: 180px/)
 		expect(block).toMatch(
-			/> \.settings-row-control \{[^}]*flex: 0 1 auto;[^}]*min-width: 0;[^}]*max-width: calc\(100% - 196px\)/,
+			/\.settings-row:not\(\[data-stacked\], \[data-below\]\) > \.settings-row-control \{[^}]*flex: 0 1 auto;[^}]*min-width: 0;[^}]*max-width: calc\(100% - 196px\)/,
+		)
+		// A row with a preview under it is a grid whose control has a column of its own: a cap taken from
+		// 100% of that column left the code theme menu 18 px wide at 900 px.
+		expect(block).not.toMatch(/\.settings-row:not\(\[data-stacked\]\) > \.settings-row-control/)
+		expect(page).toMatch(
+			/\.settings-row\[data-below\] \{[^}]*grid-template-columns: minmax\(0, 1fr\) auto/,
 		)
 		expect(block).not.toMatch(/max-width: 45%/)
 		// A font menu and its button wrap inside the control rather than run out of it.

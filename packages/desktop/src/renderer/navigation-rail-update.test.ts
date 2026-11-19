@@ -80,3 +80,21 @@ describe('the collapsed rail', () => {
 		expect(css).toMatch(/\.rail-stack > \.rail-button \{[^}]*width: var\(--frame-foot-button\);/)
 	})
 })
+
+describe('the collapsed rail keeps search', () => {
+	it('draws Home, then Search, above everything else, so the two commonest actions stay one click away', () => {
+		const markup = renderToStaticMarkup(
+			createElement(NavigationRail, {
+				section: 'home',
+				onHome: () => {},
+				onSearch: () => {},
+				onSettings: () => {},
+			}),
+		)
+		expect(labels(markup).slice(0, 2)).toEqual(['Home', 'Search conversations'])
+		expect(labels(markup).at(-1)).toBe('Settings')
+	})
+	it('has no Search button in a window that cannot search', () => {
+		expect(labels(rail())).not.toContain('Search conversations')
+	})
+})

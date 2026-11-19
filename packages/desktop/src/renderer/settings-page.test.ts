@@ -31,6 +31,7 @@ import {
 	type SettingsPageProps,
 	SettingsSidebar,
 	TerminalSettings,
+	defaultMarked,
 	escapeRevertsDraft,
 } from './settings-page.js'
 import { StoragePanel, TrustedFoldersPanel } from './settings-storage.js'
@@ -815,6 +816,12 @@ describe('the code rows', () => {
 			'auto-dismiss-popups',
 			'virtualize-conversations',
 		])
+	})
+
+	it('marks the default choice once: a choice already called Default reads Default, not Default · Default', () => {
+		expect(defaultMarked('code-theme-light', 'default', 'Default')).toBe('Default')
+		expect(defaultMarked('code-theme-light', 'soft', 'Soft')).toBe('Soft')
+		expect(defaultMarked('theme', 'system', 'System')).toBe('Default · System')
 	})
 
 	it('the Terminal section links to the code rows in Appearance, and only where it can open them', () => {

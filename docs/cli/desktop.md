@@ -2054,7 +2054,7 @@ button with its badge and its announcement. Home is not repeated there, because 
 screen as the New conversation row; on the Settings and Plugins pages, whose own sidebars have no such
 row, the foot also carries Home, so the way back is never lost. While the sidebar is collapsed
 (by the header's panel control, Ctrl/Cmd+B, a narrow window, or the Changes pane at 1280 px and
-below) the 48 px rail is drawn with Home in its header band (36 px) at the top and Settings in its foot (45 px, with the same line above it as the sidebar's foot) at the bottom; a control that had the
+below) the 48 px rail is drawn with Home in its header band (36 px) at the top, Search under it (the sidebar's magnifier, one 28 px button) and Settings in its foot (45 px, with the same line above it as the sidebar's foot) at the bottom; a control that had the
 focus when the rail and the foot swap keeps it. Opening or closing the sidebar moves the conversation by
 exactly the width that changes (288 px open, 48 px collapsed). In a window of 767 px or less the sidebar is an
 overlay beside the rail (its left edge is the rail's right edge, 48 px from the window's, and it is placed over the whole grid so it never starts a rail's width further in) that starts under the 36 px header band, so the band's menu, toggle, back, forward and title stay in view and reachable while it is open (the scrim leaves the band undimmed), and the foot is not drawn. The sidebar's header and the top bar's hairline end on
@@ -3861,7 +3861,8 @@ and no resize rewrites the layout.
   opening order reads top to bottom, and only when the height gives each at least 160 px), the third opens the
   second column, the fourth goes below it. Closing the fourth gives the second column back its full height;
   closing the third drops the column and the first widens again.
-- **Widths.** The workspace (`W`) is the area right of the sidebar. One column takes a third of `W`, and a width a
+- **Widths.** The workspace (`W`) is the area right of the sidebar. One column takes three fifths of `W` when its first pane is
+  Changes, Files or Browser (the reading panes) and a third when it is the terminal, and a width a
   person dragged is kept; with two columns the conversation takes half and the columns split the rest equally. A
   column is never under 280 px, a stacked pane never under 160 px, and the conversation is never under 360 px and
   never unmounted. Two columns need `W` of 920 or more, one column 640 or more.

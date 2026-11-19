@@ -149,7 +149,8 @@ export function ContextPanelView({ model }: { model: PanelModel }) {
 				onClick={() => setDetails(!details)}
 			>
 				<span>Context</span>
-				{details ? <ChevronDownIcon aria-hidden="true" /> : <ChevronRightIcon aria-hidden="true" />}
+				{/* Like every heading of a panel: a chevron only while it is folded. */}
+				{!details && <ChevronRightIcon aria-hidden="true" />}
 			</button>
 			<div className="context-panel-figures">
 				<span className="context-panel-percent">{model.headline}</span>

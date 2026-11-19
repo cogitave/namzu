@@ -15,6 +15,7 @@ import {
 	PlusIcon,
 	SquareSlashIcon,
 } from './icons.js'
+import { MENU_OFFSET } from './menu-metrics.js'
 import './menu.css'
 import './composer-menus.css'
 import { Button } from './ui/button.js'
@@ -112,7 +113,7 @@ export function ComposerAddMenu({
 					side="top"
 					align="start"
 					anchor={hostRef}
-					sideOffset={0}
+					sideOffset={MENU_OFFSET}
 					alignOffset={trigger.offset}
 					collisionPadding={8}
 				>

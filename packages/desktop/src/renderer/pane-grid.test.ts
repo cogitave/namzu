@@ -124,6 +124,15 @@ describe('widths', () => {
 		expect(sizes(open(['terminal']), 1512)).toEqual({ conversation: 1008, columns: [504] })
 	})
 
+	it('gives a single column that opens with a reading pane three fifths, as a terminal keeps a third', () => {
+		expect(sizes(open(['changes']), 992)).toEqual({ conversation: 397, columns: [595] })
+		expect(sizes(open(['files']), 992)).toEqual({ conversation: 397, columns: [595] })
+		expect(sizes(open(['browser']), 992)).toEqual({ conversation: 397, columns: [595] })
+		expect(sizes(open(['terminal']), 992)).toEqual({ conversation: 661, columns: [331] })
+		// The conversation never drops under its minimum: a narrow workspace caps the reading pane.
+		expect(sizes(open(['changes']), 700).conversation).toBe(CHAT_MIN)
+	})
+
 	it('gives two columns half and splits it equally', () => {
 		expect(sizes(open(ORDER.slice(0, 3)), 1120)).toEqual({ conversation: 560, columns: [280, 280] })
 		expect(sizes(open(ORDER), 1136)).toEqual({ conversation: 568, columns: [284, 284] })

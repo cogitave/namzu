@@ -11,7 +11,8 @@
 .conversation-bar-title {
 	/* The title takes the room its text needs; only a bar too narrow for it makes it give way. */
 	flex: 0 1 auto;
-	min-width: 0;
+	/* A floor, so a squeeze never leaves "New c…": the project label is gone before this is reached. */
+	min-width: min(100%, 96px);
 	/* 6px of padding on each side is the room the hover shape needs; the margin gives it back. */
 	margin: 0 -6px;
 	padding: 0 6px;
@@ -84,7 +85,7 @@
 .conversation-bar-project {
 	/* The folder name gives way before the title does. */
 	flex: 0 100 auto;
-	min-width: 56px;
+	min-width: 0;
 	max-width: 180px;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -162,8 +163,9 @@
 	text-align: center;
 	font-variant-numeric: tabular-nums;
 }
-/* Narrow: the project gives way. */
-@container conversation-bar (max-width: 300px) {
+/* Narrow: the project gives way, well before the title is short of room (a title needs about 96 px, the chevron
+   and the buttons the rest). */
+@container conversation-bar (max-width: 480px) {
 	.conversation-bar-project {
 		display: none;
 	}
