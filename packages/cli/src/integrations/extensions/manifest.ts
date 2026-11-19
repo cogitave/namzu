@@ -104,15 +104,14 @@ function walkProduces(w: Walk, v: unknown): void {
 	v.forEach((d, i) => {
 		const path = `produces[${i}]`
 		if (!w.isObj(path, d)) return
-		w.keys(path, d, [
-			'id',
-			'from',
-			'description',
-			'grain',
-			'fields',
-			'retentionDays',
-			'leavesMachine',
-		])
+		w.keys(
+			path,
+			d,
+			['id', 'from', 'description', 'grain', 'fields', 'retentionDays', 'leavesMachine'],
+			['title', 'example'],
+		)
+		if (d.title !== undefined) w.text(`${path}.title`, d.title, 1, 60)
+		if (d.example !== undefined) w.text(`${path}.example`, d.example, 1, 120)
 		w.str(`${path}.id`, d.id, DATA_ID, 1, 64)
 		if (w.arr(`${path}.from`, d.from, 1, 24))
 			d.from.forEach((f, j) => permissionId(w, `${path}.from[${j}]`, f))
@@ -438,6 +437,8 @@ export function localizedTexts(m: Manifest): [string, Localized][] {
 	})
 	m.produces.forEach((d, i) => {
 		add(`produces[${i}].description`, d.description)
+		add(`produces[${i}].title`, d.title)
+		add(`produces[${i}].example`, d.example)
 		d.fields.forEach((f, j) => add(`produces[${i}].fields[${j}].description`, f.description))
 	})
 	const pr = m.privacy

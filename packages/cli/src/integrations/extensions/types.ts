@@ -29,6 +29,10 @@ export interface ManifestDataKind {
 	readonly id: string
 	readonly from: readonly string[]
 	readonly description: Localized
+	/** A plain title for the group in What is collected (optional; the description is used without it). */
+	readonly title?: Localized
+	/** One example of a record in plain words, for example `Microsoft Excel · 1 h 20 min` (optional). */
+	readonly example?: Localized
 	readonly grain: 'minute' | 'event'
 	readonly fields: readonly ManifestField[]
 	/** Days the data is kept, or `keep`: kept until the organisation deletes it. */

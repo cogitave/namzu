@@ -28,6 +28,9 @@ export interface Disclosure {
 	dataKinds: {
 		id: string
 		description: string
+		/** A plain title and an example record in words, when the extension gives them. */
+		title?: string
+		example?: string
 		fields: { name: string; description: string }[]
 		retentionDays: number | 'keep'
 	}[]
@@ -148,6 +151,8 @@ export function disclose(m: Manifest, wanted: string | undefined, dataFolder: st
 		dataKinds: m.produces.map((d) => ({
 			id: d.id,
 			description: t(d.description),
+			...(d.title ? { title: t(d.title) } : {}),
+			...(d.example ? { example: t(d.example) } : {}),
 			fields: d.fields.map((f) => ({
 				name: f.name,
 				description: t(f.description),
