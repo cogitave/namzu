@@ -2,6 +2,7 @@
 
 ## 2026-11-19
 
+- **Creation** [Desktop sizes standard](cli/desktop-ui-sizes.md): text roles, icon sizes per container, control heights and where an accent fill is allowed. Text with no size of its own now reads at 14 px (the body sets it) instead of the 16 px root; the error banner is body size, normal weight, no blur (its `text-ui-*` classes named nothing); a waiting update is a 28 px rail button with a 16 px glyph and a small accent dot instead of a filled green circle; the add buttons and every button icon are 16 px; the effort thumb is 24 px; conversation, panel and tab titles are weight 500. `renderer/ui-sizes.test.ts` keeps it. `.changeset/desktop-ui-sizes.md`.
 - **Update** [Desktop](cli/desktop.md): in Conversation edits a file row keeps its line counts and buttons in place when the path is long; a Windows path splits at backslashes, the head of the folder is cut, and a file outside the project shows with `~` for the home folder.
 - **Update** [Desktop](cli/desktop.md): Hypermode in the effort panel is its name and a switch, with a line under it only when it cannot be turned on; a settings switch keeps its width in a tight row instead of letting the knob run past the track.
 ## 2026-11-18
