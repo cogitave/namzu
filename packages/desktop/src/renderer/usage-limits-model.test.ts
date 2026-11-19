@@ -192,6 +192,23 @@ describe('the rows', () => {
 		})
 	})
 
+	it('gives no age to a window that has not begun', () => {
+		const old: LimitsNotification = {
+			providers: [
+				{
+					provider: 'anthropic',
+					label: 'Anthropic',
+					kind: 'sign-in',
+					asOf: NOW - 2 * 86_400_000,
+					windows: [{ label: '5-hour limit', usedFraction: 0 }],
+				},
+			],
+		}
+		const row = usageLimitsModel({ view: old, now: NOW }).sections[0]?.rows[0]
+		expect(row).toMatchObject({ reset: 'Starts with your first message' })
+		expect((row as { asOf?: string }).asOf).toBeUndefined()
+	})
+
 	it('draws a spend row as an estimate, with "of budget" only when one is set', () => {
 		const view: LimitsNotification = {
 			providers: [

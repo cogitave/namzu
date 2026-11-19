@@ -150,7 +150,8 @@ function windowRow(
 				? { state: 'Getting close' }
 				: {}),
 		stale,
-		...(age && !stale ? { asOf: age } : {}),
+		// A window that has not begun is a statement about now, so it carries no age.
+		...(age && !stale && !fresh ? { asOf: age } : {}),
 	}
 }
 

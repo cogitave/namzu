@@ -278,6 +278,8 @@ export function UsageIndicator({
 				side="top"
 				padding="none"
 				className="limits-popup"
+				// Opening it does not move focus onto the Details link, which would draw a ring nobody asked for.
+				initialFocus={false}
 			>
 				<UsageLimitsPanel model={model} context={state.context} control={control} />
 			</PopoverPopup>

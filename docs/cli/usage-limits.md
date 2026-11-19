@@ -24,7 +24,7 @@ The indicator beside the model in Namzu Desktop opens **Your usage limits**. It 
 
 ## What the popover looks like
 
-One padded panel. With limits known it opens with **Your usage limits**, and the plan beside it ("Your usage limits · Team") when the vendor gave one. Each window is a row: its name and percent, a quiet line under the name, a thin bar. The quiet line is "Resets at 3:00 PM" within a day, "Resets Sat 2:00 PM" beyond it, and "Starts with your first message" for a window that has not begun (0 percent, no reset yet) or that reset since the last reading (the old number is never shown). A reading older than five minutes adds how old it is ("as of 12 min ago"). A provider with nothing to report has no row at all.
+One padded panel. With limits known it opens with **Your usage limits**, and the plan beside it ("Your usage limits · Team") when the vendor gave one. Each window is a row: its name and percent, a quiet line under the name, a thin bar. The quiet line is "Resets at 3:00 PM" within a day, "Resets Sat 2:00 PM" beyond it, and "Starts with your first message" for a window that has not begun (0 percent, no reset yet) or that reset since the last reading (the old number is never shown). A reading older than five minutes adds how old it is ("as of 12 min ago", then hours, then days, up to the 30 days a reading is kept); a window that has not begun carries no age. A provider with nothing to report has no row at all.
 
 Below the limits, with a line between, is one **Context** row: the share of the conversation's memory used, a thin bar and **Details**, which opens the Session panel where the full breakdown is. With no limits known the popover is that one row.
 

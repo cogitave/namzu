@@ -2,6 +2,7 @@
 
 ## 2026-11-19
 
+- **Update** [Usage limits in Desktop](cli/usage-limits.md): an old reading says its age in days after a day, a window that has not begun carries no age, and opening the popover does not put a focus ring on Details.
 - **Update** [Usage limits in Desktop](cli/usage-limits.md): the popover is one padded panel, a title with the plan, a row per window ("Resets Sat 2:00 PM", or "Starts with your first message" for a window not begun or reset since the reading), and one Context row with Details; the "not reported for this sign-in" line and the second Context block are gone. The last numbers the vendor gave are kept across a restart (`namzu.last-limits`) and shown with their age. A reset time and a reading time were being dropped on the way in because they exceeded the amount bound; they now have their own. `.changeset/desktop-usage-popover.md`.
 - **Update** [Desktop](cli/desktop.md): a context count read back from the log is one total, so its row is named "Used so far" instead of "Messages" (the total includes Namzu's instructions and tools). The full breakdown returns after the next reply. `.changeset/desktop-stored-count-row-name.md`.
 - **Update** [What Desktop keeps across a restart](cli/desktop-state.md#how-it-was-closed): a write that arrives after a clean quit was recorded keeps the clean marker, so the next start is not read as a crash; the page can no longer write `window.mode:*`; a legacy key dropped by its family's entry cap is left in `localStorage` instead of deleted. `.changeset/desktop-state-late-write.md`.
