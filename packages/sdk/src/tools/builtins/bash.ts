@@ -1,8 +1,8 @@
 import { rm } from 'node:fs/promises'
 import { z } from 'zod'
+import { findDangerousCommand } from '../../authorization/dangerous-commands.js'
 import { isReadOnlyCommandLine } from '../../authorization/readonly-commands.js'
 import { SANDBOX_KILL_GRACE_MS } from '../../constants/sandbox/index.js'
-import { DANGEROUS_PATTERNS, dangerousCommandReason } from '../../constants/tools/index.js'
 import { killTree } from '../../process/kill-tree.js'
 import { genericLabel } from '../../registry/tool/presentation.js'
 import { cancelCauseOf } from '../../types/session/cancel-cause.js'
@@ -531,16 +531,20 @@ export function execHostShell(
 	})
 }
 
-export { dangerousCommandReason }
-
-/** A reason as a sentence a person reads under a row: first letter up. */
-function sentence(reason: string): string {
-	return reason ? `${reason.charAt(0).toUpperCase()}${reason.slice(1)}` : reason
+/**
+ * Why `command` is one this tool refuses to run, or `undefined`. Only the
+ * irreversible acts the gate refuses in every mode: a command the gate let
+ * through as a question (`sudo`, `ssh user@host`) was a person's call, and this
+ * check must not take it back.
+ */
+export function dangerousCommandReason(command: string): string | undefined {
+	const found = findDangerousCommand(command)
+	return found?.tier === 'stop' ? found.reason : undefined
 }
 
 /** The dangerous-pattern check `bash` applies, shared so the `monitor` tool refuses the same lines. */
 export function isDangerousCommand(command: string): boolean {
-	return DANGEROUS_PATTERNS.some((pattern) => pattern.test(command))
+	return dangerousCommandReason(command) !== undefined
 }
 
 /** The refusal when a sandbox cannot host a detached process; exported so the test states the same words. */
@@ -587,7 +591,7 @@ const BashToolBase = defineTool({
 	// `git diff`, ...) needs no prompt and may run beside other reads; see
 	// `authorization/readonly-commands.ts`. Anything else is not read-only.
 	readOnly: (input: BashInput) => bashInputIsReadOnly(input),
-	destructive: (input: BashInput) => isDangerousCommand(input.command),
+	destructive: (input: BashInput) => findDangerousCommand(input.command) !== undefined,
 	concurrencySafe: (input: BashInput) => bashInputIsReadOnly(input),
 	// Above the ceiling the input schema accepts, so the executor's deadline
 	// is a backstop rather than a second clock racing this tool's own. It used
@@ -609,16 +613,17 @@ const BashToolBase = defineTool({
 
 	async execute(input, context) {
 		const startDirectory = bashWorkingDirectoryForExecution(context)
-		if (isDangerousCommand(input.command)) {
+		const refused = dangerousCommandReason(input.command)
+		if (refused !== undefined) {
 			return {
 				success: false,
 				output: '',
-				error: `Dangerous command blocked: "${input.command}". Why: ${dangerousCommandReason(input.command)}. Nothing ran. Use a narrower command that avoids it, or ask the user to run this one.`,
+				error: `Dangerous command blocked: "${input.command}". Why: ${refused}. Nothing ran. Do not retry it or a reworded form; tell the user what you were trying to do and let them run it or decide.`,
 				facts: {
 					kind: 'failure',
 					reason: 'blocked',
 					subject: 'bash',
-					note: sentence(dangerousCommandReason(input.command)),
+					note: `This command ${refused.replace(/^it /, '')}.`,
 				},
 			}
 		}

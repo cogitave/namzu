@@ -23,7 +23,15 @@ export type AuthorizationRule =
 			type: 'allow_read_only'
 			excludeCategories?: string[]
 	  }
-	| { type: 'deny_dangerous_patterns' }
+	| {
+			type: 'deny_dangerous_patterns'
+			/**
+			 * Every entry of the raw-text list is a denial in every mode, as the
+			 * floor was before it read what a command runs. Absent or false, only
+			 * irreversible acts are refused and the rest are asked.
+			 */
+			strict?: boolean
+	  }
 	| { type: 'allow_by_category'; categories: string[] }
 	| { type: 'allow_by_name'; toolNames: string[] }
 	| { type: 'deny_by_name'; toolNames: string[] }
@@ -162,7 +170,10 @@ const AllowReadOnlySchema = z.object({
 	// and `[]` are read identically.
 	excludeCategories: z.array(z.string()).optional(),
 })
-const DenyDangerousPatternsSchema = z.object({ type: z.literal('deny_dangerous_patterns') })
+const DenyDangerousPatternsSchema = z.object({
+	type: z.literal('deny_dangerous_patterns'),
+	strict: z.boolean().optional(),
+})
 const AllowByCategorySchema = z.object({
 	type: z.literal('allow_by_category'),
 	categories: z.array(z.string()),
@@ -243,7 +254,13 @@ export const AuthorizationGateConfigSchema = z.object({
 	 * `.optional()` for the reason `AllowReadOnlySchema.excludeCategories` is.
 	 */
 	allowReadOnlyExcludeCategories: z.array(z.string()).optional(),
-	denyDangerousPatterns: z.boolean().default(false),
+	/**
+	 * The dangerous-command floor. `true`: irreversible commands are refused in
+	 * every mode and `sudo`, `su -`, `ssh user@host`, `eval` and a download piped
+	 * into a shell are asked about. `'strict'`: every one of those is refused in
+	 * every mode, which is what `true` did before the floor read what a command runs.
+	 */
+	denyDangerousPatterns: z.union([z.boolean(), z.literal('strict')]).default(false),
 	logDecisions: z.boolean().default(true),
 })
 

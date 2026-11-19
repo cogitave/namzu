@@ -119,19 +119,31 @@ describe('a --yolo session', () => {
 		expect(execute).toHaveBeenCalledTimes(1)
 	})
 
-	it('still asks before removing the home directory', async () => {
-		const { asked, execute } = await run('rm -rf ~', 'bypass')
+	it('still asks before removing a parent of the working folder', async () => {
+		const { asked, execute } = await run('rm -rf ..', 'bypass')
 
 		expect(asked).toHaveBeenCalledTimes(1)
 		expect(execute).not.toHaveBeenCalled()
 	})
 
-	it('refuses a dangerous command outright, without asking', async () => {
-		const { asked, execute, provider } = await run('sudo ls', 'bypass')
+	it.each(['rm -rf /', 'rm -rf ~', 'rm -rf /usr'])(
+		'refuses an irreversible command without asking, and tells the model what to do: %s',
+		async (command) => {
+			const { asked, execute, provider } = await run(command, 'bypass')
+
+			expect(asked).not.toHaveBeenCalled()
+			expect(execute).not.toHaveBeenCalled()
+			const told = JSON.stringify(provider.requests.at(-1)?.messages)
+			expect(told).toContain('Nothing ran. Do not retry it or a reworded form')
+			expect(told).not.toContain('outright')
+		},
+	)
+
+	it('runs sudo without asking, the way bypass lifts any other question', async () => {
+		const { asked, execute } = await run('sudo -n true', 'bypass')
 
 		expect(asked).not.toHaveBeenCalled()
-		expect(execute).not.toHaveBeenCalled()
-		expect(JSON.stringify(provider.requests.at(-1)?.messages)).toMatch(/blocked|denied|refused/i)
+		expect(execute).toHaveBeenCalledTimes(1)
 	})
 
 	it('would have asked about the first two under the old reading of the flag', async () => {

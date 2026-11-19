@@ -60,13 +60,13 @@ export interface RemovalContext {
 const TOP_LEVEL =
 	'bin|boot|dev|etc|home|lib|lib32|lib64|libx32|media|mnt|opt|proc|root|run|sbin|srv|sys|tmp|usr|var|snap|nix|lost\\+found|private|cores|Applications|Library|System|Users|Volumes|Windows|ProgramData|cygdrive'
 
-const VAR = '(?:\\{([A-Za-z_][A-Za-z0-9_]*)(?::?-[^}]*)?\\}|([A-Za-z_][A-Za-z0-9_]*))'
+export const VAR = '(?:\\{([A-Za-z_][A-Za-z0-9_]*)(?::?-[^}]*)?\\}|([A-Za-z_][A-Za-z0-9_]*))'
 /** `$VAR/` followed by something that cannot name a child: end, a glob, another expansion, a slash. */
-const EMPTY_VARIABLE_ROOT = new RegExp(`^\\$${VAR}/(?:[*?[{]|\\$|/|$)`)
-const EMPTY_VARIABLE_TOP = new RegExp(`^\\$${VAR}/(${TOP_LEVEL})(?:/+\\*+)*/?$`, 'i')
-const BARE_HOME = /^\$(?:\{HOME\}|HOME)(?:\/+\*?)?$/
+export const EMPTY_VARIABLE_ROOT = new RegExp(`^\\$${VAR}/(?:[*?[{]|\\$|/|$)`)
+export const EMPTY_VARIABLE_TOP = new RegExp(`^\\$${VAR}/(${TOP_LEVEL})(?:/+\\*+)*/?$`, 'i')
+export const BARE_HOME = /^\$(?:\{HOME\}|HOME)(?:\/+\*?)?$/
 
-function fold(name: string): string {
+export function fold(name: string): string {
 	return name.toLowerCase().replace(/ı/g, 'i').replace(/ſ/g, 's')
 }
 
@@ -90,7 +90,7 @@ function canonical(path: string): string {
 	}
 }
 
-function slashes(path: string): string {
+export function slashes(path: string): string {
 	return path.replace(/[\\/]+/g, '/')
 }
 
@@ -122,7 +122,7 @@ function isRecursive(args: readonly ShellWord[]): boolean {
 }
 
 /** Operands of `rm`/`rmdir`: everything after `--` and everything from the first non-flag on. */
-function targetsOf(args: readonly ShellWord[]): ShellWord[] {
+export function targetsOf(args: readonly ShellWord[]): ShellWord[] {
 	const out: ShellWord[] = []
 	let afterDashes = false
 	let started = false

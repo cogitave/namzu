@@ -165,3 +165,16 @@ selected POSIX interpreter. `NAMZU_BASH_SHELL` remains an explicit POSIX
 interpreter override; Windows `bash.exe` and `sh.exe` paths are recognized.
 There is no automatic PowerShell or WSL selection (a `powershell` tool for machines without Git Bash is not built). Sandboxed Linux guest
 commands continue to be read as `sh` even on a Windows operator device.
+
+## The dangerous-command floor
+
+A gate configured with `denyDangerousPatterns: true` carries a `deny_dangerous_patterns` rule first in its list, ahead of every operator rule. It reads the commands a shell line runs (`packages/sdk/src/authorization/dangerous-commands.ts`, on the shell lexer), not the raw text, so a word in quotes, an `echo` argument, a heredoc body or a comment is never a match, and a real `sudo` after `;`, `&&`, `|`, in a subshell, in `$( )` or in a `bash -c` payload still is. It has two tiers:
+
+- **Stop** (decision `deny`, every mode): a recursive removal of the file system root, the home folder, a top-level directory, or a variable that may be empty followed by one; `mkfs`; `dd` with `of=/dev/…` (not `/dev/null` and friends); a fork bomb; `chmod 777 /`. `rm -f /usr/local/.wtest` is not one.
+- **Ask** (decision `review`): `sudo`, `doas`, `pkexec`, `su -`, `ssh user@host`, `eval` of a dynamic string, a `curl` or `wget` piped into a shell. A mode that asks puts the question to the person, who can allow it once; `bypass` and `auto` approve it like any other review. It is not an ask rule (`explicitReview` and `askRule` are not set on the call).
+
+`denyDangerousPatterns: 'strict'` keeps the previous behaviour: every entry of the raw-text list (`DANGEROUS_PATTERNS`) is a `deny` in every mode, matched anywhere in the text. A rule `{ type: 'deny_dangerous_patterns', strict: true }` is the same thing written as a rule.
+
+A refusal's reason is the specific one: `Blocked by the authorization gate: this command removes the file system root.` followed by `Nothing ran. Do not retry it or a reworded form; tell the user what you were trying to do and let them run it or decide.` The first line is what a host shows the person (`ToolFacts` `failure.note`).
+
+The `bash` and `monitor` tools keep their own check as a second line. It stops only the first tier, so it never takes back a command the gate let through as a question.

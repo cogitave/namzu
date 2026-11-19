@@ -110,8 +110,20 @@ describe('a refusal says what the rule said', () => {
 		expect(reason).toContain('a different input will not change it')
 	})
 
-	it('says a dangerous-pattern refusal is not worth rewording', () => {
-		expect(describeRule({ type: 'deny_dangerous_patterns' })).toContain('will not help')
+	it('says what a dangerous-command refusal is about and what to do next', () => {
+		const reason = gate({ denyDangerousPatterns: true }).evaluate({
+			toolName: 'bash',
+			toolInput: { command: 'rm -rf /' },
+			toolDef: {
+				...toolDef('bash', false),
+				commandArgument: 'command',
+				category: 'shell',
+			} as unknown as ToolDefinition,
+		}).reason
+		expect(reason).toContain('this command removes the file system root')
+		expect(reason).toContain('Nothing ran. Do not retry it or a reworded form')
+		expect(reason).not.toContain('outright')
+		expect(describeRule({ type: 'deny_dangerous_patterns' })).not.toContain('outright')
 	})
 
 	it('reaches the model through the gate result, not just the helper', () => {

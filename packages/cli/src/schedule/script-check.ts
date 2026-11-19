@@ -69,7 +69,7 @@ function shown(text: string, max = MAX_SHOWN): string {
 /** A one-rule-set-only gate: only ever answers `deny` or the default "nothing matched". */
 function denyOnlyGate(
 	rules: ScriptCheckPolicy['floorRules'] | ScriptCheckPolicy['denyRules'],
-	denyDangerousPatterns: boolean,
+	denyDangerousPatterns: boolean | 'strict',
 ): AuthorizationGate {
 	return new AuthorizationGate(
 		{
@@ -134,7 +134,7 @@ export function verifyScheduledScript(
 	// line: both track state across commands (a `cd` earlier in the script,
 	// a pipeline's two sides for `curl … | sh`), which per-command text
 	// alone would lose.
-	const floorGate = denyOnlyGate(policy.floorRules, true)
+	const floorGate = denyOnlyGate(policy.floorRules, 'strict')
 	const floorResult = floorGate.evaluate({
 		toolName: 'bash',
 		toolInput: { command: body },
