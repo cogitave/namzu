@@ -156,6 +156,26 @@ describe('an estimate', () => {
 		expect(model.tag?.text).toBe('Estimate')
 	})
 
+	it('says a figure read back from the log is from the last reply, with the provider count kept', () => {
+		const model = contextPanelModel({
+			report: report({ stored: 'record', measuredBy: 'provider', approximate: true }),
+		})
+		expect(model.footnote).toBe(
+			'From the last reply. Namzu counts again, with the full breakdown, after your next message.',
+		)
+		expect(model.tag?.text).toBe('Last count')
+	})
+
+	it('says a figure guessed from the stored messages is estimated', () => {
+		const model = contextPanelModel({
+			report: report({ stored: 'estimate', measuredBy: 'estimate', approximate: true }),
+		})
+		expect(model.footnote).toBe(
+			'Estimated from this conversation. Namzu counts it exactly after your next message.',
+		)
+		expect(model.tag?.text).toBe('Estimate')
+	})
+
 	it('says it is shortening while it runs', () => {
 		expect(contextPanelModel({ report: report(), compacting: true }).sentence).toBe(
 			'Namzu is shortening this conversation…',

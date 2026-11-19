@@ -1611,8 +1611,15 @@ export function App({
 	const clock = useClock(sessionPanelActive && jobsRunning)
 	const sessionPanelSummary = sessionPanelActive
 		? sessionSummary({
-				...(project && !project.isChat
-					? { project: { name: project.name, path: project.path, trusted: project.trusted } }
+				...(project
+					? {
+							project: {
+								name: project.name,
+								path: project.path,
+								trusted: project.trusted,
+								...(project.isChat ? { kind: 'chat' as const } : {}),
+							},
+						}
 					: {}),
 				git: git && git.projectId === gitProjectId ? git.value : null,
 				usage: thread.usage,

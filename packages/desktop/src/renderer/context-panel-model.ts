@@ -300,7 +300,12 @@ export function contextPanelModel(input: PanelInput): PanelModel {
 	else sentence = 'This conversation is past what Namzu can read at once.'
 
 	let footnote: string
-	if (report.sizeOutOfDate)
+	if (report.stored === 'record')
+		footnote =
+			'From the last reply. Namzu counts again, with the full breakdown, after your next message.'
+	else if (report.stored === 'estimate')
+		footnote = 'Estimated from this conversation. Namzu counts it exactly after your next message.'
+	else if (report.sizeOutOfDate)
 		footnote =
 			'Namzu shortened this conversation, so these sizes are out of date until your next message. Sizes are Namzu’s own count (about 4 characters to a token).'
 	else if (report.measuredBy === 'provider')
@@ -311,14 +316,16 @@ export function contextPanelModel(input: PanelInput): PanelModel {
 			'Sizes are Namzu’s own count (about 4 characters to a token). They may be off by a few percent until your next message.'
 
 	const tag =
-		report.measuredBy === 'provider' && !report.sizeOutOfDate
-			? { text: 'Exact total', title: 'Your AI service counted this.' }
-			: report.measuredBy
-				? {
-						text: 'Estimate',
-						title: 'Namzu counted this itself. It may be off by a few percent.',
-					}
-				: undefined
+		report.stored === 'record' && report.measuredBy === 'provider' && !report.sizeOutOfDate
+			? { text: 'Last count', title: 'Your AI service counted this at the last reply.' }
+			: report.measuredBy === 'provider' && !report.sizeOutOfDate && !report.stored
+				? { text: 'Exact total', title: 'Your AI service counted this.' }
+				: report.measuredBy
+					? {
+							text: 'Estimate',
+							title: 'Namzu counted this itself. It may be off by a few percent.',
+						}
+					: undefined
 
 	const servers = toServers(lists)
 	return {

@@ -22,7 +22,8 @@ export type SessionServers =
 	| { state: 'known'; view: McpServersView }
 
 export interface SessionSummaryInput {
-	project?: { name: string; path: string; trusted: boolean }
+	/** `kind: 'chat'` is a conversation in Namzu's own chats folder: no repository, so no branch. */
+	project?: { name: string; path: string; trusted: boolean; kind?: 'chat' }
 	/** Null hides the branch row. */
 	git: ProjectGitView | null
 	usage?: ThreadUsage | undefined
@@ -75,6 +76,8 @@ export interface SessionSummary {
 }
 
 export const TOOL_SERVERS_LABEL = 'Tool servers'
+/** What a chat's own folder is called, in plain words. */
+export const CHAT_FOLDER_LABEL = 'Chat folder'
 const CHANGES_NOTE = 'Counted from this conversation’s edits.'
 
 function backgroundText(work: SessionWork): string {
@@ -115,8 +118,14 @@ export function sessionSummary(input: SessionSummaryInput): SessionSummary {
 	const git = input.git
 	const environment: SessionSummary['environment'] = { host: 'This computer' }
 	if (input.project) {
-		environment.folder = { name: input.project.name, path: input.project.path }
-		if (git) {
+		const chat = input.project.kind === 'chat'
+		environment.folder = {
+			name: chat ? CHAT_FOLDER_LABEL : input.project.name,
+			path: input.project.path,
+		}
+		if (chat) {
+			// A chat's folder is not a repository: no branch and no note about one.
+		} else if (git) {
 			const name = git.branch ?? 'Detached'
 			environment.branch = {
 				text: name,
