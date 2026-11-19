@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
 	createAutoScrollMark,
+	createReaderInput,
 	followAfterDisclosure,
 	latestThreshold,
 	panelPausesFollow,
+	readScroll,
 } from './scroll-follow.js'
 
 describe('createAutoScrollMark', () => {
@@ -74,5 +76,58 @@ describe('panelPausesFollow', () => {
 		expect(panelPausesFollow(300, 900)).toBe(false)
 		expect(panelPausesFollow(301, 900)).toBe(true)
 		expect(panelPausesFollow(undefined, 900)).toBe(false)
+	})
+})
+
+describe('whose scroll it is', () => {
+	beforeEach(() => {
+		vi.useFakeTimers()
+		vi.setSystemTime(1_000)
+	})
+	afterEach(() => vi.useRealTimers())
+
+	it('is the reader only for a moment after a wheel, touch or key', () => {
+		const input = createReaderInput()
+		expect(input.recent()).toBe(false)
+		input.touch()
+		expect(input.recent()).toBe(true)
+		vi.advanceTimersByTime(299)
+		expect(input.recent()).toBe(true)
+		vi.advanceTimersByTime(2)
+		expect(input.recent()).toBe(false)
+	})
+	it('stays the reader while a pointer is held on the scrollbar, and for a moment after', () => {
+		const input = createReaderInput()
+		input.hold()
+		vi.advanceTimersByTime(5_000)
+		expect(input.recent()).toBe(true)
+		input.release()
+		vi.advanceTimersByTime(301)
+		expect(input.recent()).toBe(false)
+	})
+	it('keeps following and pins again when the browser moved the view', () => {
+		expect(
+			readScroll({ following: true, atLatest: false, movedUp: true, fromReader: false }),
+		).toEqual({ follow: true, repin: true })
+	})
+	it('does not pin a view the reader already left', () => {
+		expect(
+			readScroll({ following: false, atLatest: false, movedUp: true, fromReader: false }),
+		).toEqual({ follow: false, repin: false })
+	})
+	it('stops following when the reader scrolls up', () => {
+		expect(
+			readScroll({ following: true, atLatest: false, movedUp: true, fromReader: true }),
+		).toEqual({ follow: false, repin: false })
+	})
+	it('leaves following alone when the reader scrolls down but not to the end', () => {
+		expect(
+			readScroll({ following: true, atLatest: false, movedUp: false, fromReader: true }),
+		).toEqual({ follow: true, repin: false })
+	})
+	it('follows when the scroll lands at the end', () => {
+		expect(
+			readScroll({ following: false, atLatest: true, movedUp: false, fromReader: true }),
+		).toEqual({ follow: true, repin: false })
 	})
 })
