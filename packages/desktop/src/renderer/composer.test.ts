@@ -31,7 +31,7 @@ function render(overrides: Partial<ComponentProps<typeof Composer>> = {}): strin
 			running: false,
 			sending: false,
 			pending: { rows: [] },
-			trayActions: { onSendNow() {}, onSave: async () => {}, onRemove() {}, canSendNow: true },
+			onEditPending() {},
 			onSend: () => {},
 			onStop: () => {},
 			projectName: 'An owned Pal',
@@ -661,15 +661,12 @@ it('queues with an icon, not a text button, while a reply takes live input', () 
 	expect(html).not.toMatch(/>\s*Queue message\s*</)
 })
 
-it('draws the waiting messages in a tray joined to the composer, with their actions', () => {
+it('draws no tray in the composer: waiting messages are in the conversation', () => {
 	const html = render({ running: true, pending: { rows: [waiting('First'), waiting('Second')] } })
-	expect(html).toContain('data-composer-tray')
-	expect(html).toContain('2 waiting')
-	expect(html).toContain('composer-with-tray')
-	expect(button(html, 'Send now: First')).not.toMatch(/\bdisabled=/)
-	expect(button(html, 'Edit: Second')).not.toMatch(/\bdisabled=/)
-	expect(button(html, 'Remove: Second')).not.toMatch(/\bdisabled=/)
-	expect(render({ pending: { rows: [] } })).not.toContain('data-composer-tray')
+	expect(html).not.toContain('data-composer-tray')
+	expect(html).not.toContain('composer-with-tray')
+	expect(html).not.toContain('2 waiting')
+	expect(html).not.toContain('Send now')
 })
 
 it('shows how many shells run and the branch pull request, quietly, beside the mode', () => {

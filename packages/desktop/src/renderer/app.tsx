@@ -5461,6 +5461,11 @@ export function App({
 		setDrafts((all) => ({ ...all, [target]: value }))
 		void api.saveDraft(target, value).catch((failure) => showError(failure, 'save your draft'))
 	}
+	// Which waiting message is open for editing in the conversation. It is only what the person is doing
+	// right now, like an open dialog: it is not kept, and it is not part of the conversation.
+	const [pendingEditing, setPendingEditing] = useState<{ sessionId: string; id: string } | null>(
+		null,
+	)
 	const editQueued = useCallback(
 		async (itemId?: string) => {
 			const target = sessionId
@@ -8000,6 +8005,28 @@ export function App({
 															<Transcript
 																key={sessionId || 'blank'}
 																thread={thread}
+																pending={pendingMessages(thread)}
+																pendingActions={{
+																	canSendNow: Boolean(api.sendNow),
+																	disabled: loading || restoringTabs || frozen,
+																	onSendNow: (id) =>
+																		void act(
+																			() => api.sendNow?.(sessionId, id) ?? Promise.resolve(),
+																		),
+																	onSave: (id, text) =>
+																		act(
+																			() =>
+																				api.updateQueued?.(sessionId, id, text) ??
+																				Promise.resolve(),
+																		),
+																	onRemove: (id) => void act(() => api.removeQueued(sessionId, id)),
+																}}
+																pendingEditing={
+																	pendingEditing?.sessionId === sessionId ? pendingEditing.id : null
+																}
+																onPendingEditingChange={(id) =>
+																	setPendingEditing(id === null ? null : { sessionId, id })
+																}
 																animate={!historyPending && !restoringTabs}
 																workDisclosures={
 																	workDisclosureView.sessionId === sessionId
@@ -8318,15 +8345,8 @@ export function App({
 										: undefined
 								}
 								pending={pendingMessages(thread)}
-								trayActions={{
-									canSendNow: Boolean(api.sendNow),
-									disabled: loading || restoringTabs || frozen,
-									onSendNow: (id) =>
-										void act(() => api.sendNow?.(sessionId, id) ?? Promise.resolve()),
-									onSave: (id, text) =>
-										act(() => api.updateQueued?.(sessionId, id, text) ?? Promise.resolve()),
-									onRemove: (id) => void act(() => api.removeQueued(sessionId, id)),
-								}}
+								onEditPending={(id) => setPendingEditing({ sessionId, id })}
+								editingPending={pendingEditing?.sessionId === sessionId}
 								onSend={() => void act(send)}
 								onQueue={() => void act(() => send('queue'))}
 								onStop={() => {

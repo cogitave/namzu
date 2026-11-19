@@ -1,0 +1,57 @@
+/* Waiting messages are bubbles at the end of the conversation, like any message the person sent. The
+   bubble keeps the usual look; the actions under it are small muted text, always visible, so a message
+   that has not been read yet can be sent now or taken back without hunting for the control. */
+.pending-tail {
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+}
+.normal-transcript .message.pending-message {
+	padding-bottom: var(--turn-message-gap);
+}
+.pending-actions {
+	display: inline-flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 2px;
+	min-height: 24px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	color: var(--muted-foreground);
+}
+.pending-note {
+	padding-right: 6px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	color: var(--muted-foreground);
+}
+.pending-editor-wrap {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 2px;
+	width: var(--turn-message-share, 80%);
+}
+.pending-editor {
+	display: block;
+	width: 100%;
+	resize: none;
+	margin: 0;
+	padding: var(--turn-message-pad-y) var(--turn-message-pad-x);
+	border-radius: var(--turn-message-radius);
+	background: color-mix(in srgb, var(--foreground) 6%, transparent);
+	color: var(--foreground);
+	font: inherit;
+	outline: none;
+}
+.pending-editor:focus-visible {
+	outline: 2px solid transparent;
+	box-shadow: var(--focus-ring);
+}
+.pending-hold {
+	margin: 0 0 var(--turn-message-gap);
+	text-align: right;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	color: var(--muted-foreground);
+}

@@ -17,6 +17,8 @@ import { ChevronRightIcon } from './icons.js'
 import { Message, MessageContent, MessageFooter, timeDescription, timeRoleOf } from './message.js'
 import { TurnOutputs } from './output-card.js'
 import { PalMessageReceipts } from './pal-message-receipts.js'
+import type { PendingMessages } from './pending-messages.js'
+import { type PendingActions, PendingTail } from './pending-tail.js'
 import { PlanBox, PlanRow, PlanTouched } from './plan-row-view.js'
 import { isTaskEntry, latestPlanTurn, planSummary } from './plan-row.js'
 import { ProviderNameContext } from './provider-name-context.js'
@@ -1024,6 +1026,10 @@ export function Transcript({
 	onContinueStopped,
 	stopShownBelow = false,
 	dateSeparators = true,
+	pending,
+	pendingActions,
+	pendingEditing = null,
+	onPendingEditingChange,
 }: {
 	thread: ThreadState
 	animate?: boolean
@@ -1059,6 +1065,15 @@ export function Transcript({
 	 */
 	stopShownBelow?: boolean
 	dateSeparators?: boolean
+	/**
+	 * Messages typed while a reply runs and not read yet, drawn after the last message and above the
+	 * working row. They are not part of the conversation's history until the model receives them.
+	 */
+	pending?: PendingMessages
+	pendingActions?: PendingActions
+	/** The waiting message being edited in place, if any. */
+	pendingEditing?: string | null
+	onPendingEditingChange?: (id: string | null) => void
 }) {
 	const ref = useRef<HTMLDivElement>(null)
 	useTranscriptEntryMotion(ref, thread, animate)
@@ -1195,6 +1210,14 @@ export function Transcript({
 					/>
 				)
 			})}
+			{pending && pendingActions && (
+				<PendingTail
+					pending={pending}
+					actions={pendingActions}
+					editing={pendingEditing}
+					onEditingChange={onPendingEditingChange ?? (() => {})}
+				/>
+			)}
 			<LiveStatus
 				thread={thread}
 				animate={animate}
