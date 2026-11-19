@@ -80,6 +80,9 @@ describe('Settings, Extensions: the list', () => {
 		// No row of buttons: a row is one button that opens the screen.
 		expect(markup).not.toContain('Disable')
 		expect(markup).not.toContain('Remove')
+		// Not every extension collects anything: the list says nothing about what one collects.
+		expect(markup).not.toContain('Open one to see')
+		expect(markup).not.toContain('extension-list-hint')
 	})
 
 	it('says plainly that there are none, with no technical word', async () => {

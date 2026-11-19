@@ -663,11 +663,6 @@ export function ExtensionsSection({ api }: { api?: Api | undefined }) {
 				)}
 				{snap.rows.length > 0 && <ExtensionList rows={snap.rows} />}
 			</div>
-			{snap.rows.length > 0 && (
-				<p className="settings-help extension-list-hint">
-					Open one to see what it collects, its settings and its licence.
-				</p>
-			)}
 			{panel?.kind === 'install' && (
 				<InstallDialog api={bridge} panel={panel} onClose={close} onNext={setPanel} />
 			)}

@@ -111,9 +111,6 @@
 	height: 16px;
 	color: var(--muted-foreground);
 }
-.extension-list-hint {
-	margin-top: 16px;
-}
 .extension-add {
 	flex: none;
 }
