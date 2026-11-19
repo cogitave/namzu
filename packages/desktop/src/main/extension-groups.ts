@@ -53,6 +53,7 @@ export const OPTIONAL_EXTENSION_GROUPS = {
 	abandonPaused: ['namzu/sessions/abandon-paused'],
 	turnUndo: ['namzu/turns/undo-status', 'namzu/turns/undo-preview', 'namzu/turns/undo'],
 	liveInput: ['namzu/conversations/input/status', 'namzu/conversations/input'],
+	livePermissionMode: ['namzu/session/set-permission-mode'],
 	pals: [
 		'namzu/pals/list',
 		'namzu/pals/get',

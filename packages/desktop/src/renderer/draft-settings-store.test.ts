@@ -413,3 +413,47 @@ describe('saved draft settings admission', () => {
 		expect(failed).toHaveBeenCalledOnce()
 	})
 })
+
+describe('a permission mode the engine refused', () => {
+	const REASON =
+		'The mode that skips every question is off. Turn on Allow bypass permissions mode in Settings first.'
+
+	it('goes back to the mode before it and says why, so the menu never shows what was not taken', async () => {
+		const failures: unknown[] = []
+		const store = new DraftSettingsStore(
+			async () => choice,
+			async () => ({ permissionModeRefused: REASON }),
+			() => {},
+			(_owner, error) => failures.push(error),
+		)
+		await store.load('session')
+
+		await store.save('session', {
+			...choice,
+			options: { ...choice.options, permissionMode: 'bypass' },
+		})
+
+		expect(store.get('session').options).toEqual({ permissionMode: 'prompt', effort: 'high' })
+		expect(store.snapshot('session').value?.options?.permissionMode).toBe('prompt')
+		expect(failures).toEqual([new Error(REASON)])
+	})
+
+	it('keeps the new mode when the engine took it', async () => {
+		const failures: unknown[] = []
+		const store = new DraftSettingsStore(
+			async () => choice,
+			async () => undefined,
+			() => {},
+			(_owner, error) => failures.push(error),
+		)
+		await store.load('session')
+
+		await store.save('session', {
+			...choice,
+			options: { ...choice.options, permissionMode: 'bypass' },
+		})
+
+		expect(store.get('session').options?.permissionMode).toBe('bypass')
+		expect(failures).toEqual([])
+	})
+})

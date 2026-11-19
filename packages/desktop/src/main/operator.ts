@@ -89,6 +89,7 @@ import type {
 	DesktopUndoOptions,
 	DesktopUndoPreview,
 	DesktopUndoResult,
+	DraftSaveResult,
 	DraftSettings,
 	EngineTimingReport,
 	HarnessView,
@@ -5983,7 +5984,15 @@ export class Operator {
 				}
 			: {}
 	}
-	saveDraftSettings(ownerId: string, value: DraftSettings): void {
+	/**
+	 * Saves the message settings of a conversation or project. A mode change on a conversation that
+	 * is working, or waiting on a card, also reaches its engine now (see `applyLiveMode`); when the
+	 * engine refuses the mode, the draft keeps the one before and the reply says why.
+	 */
+	saveDraftSettings(
+		ownerId: string,
+		value: DraftSettings,
+	): Promise<DraftSaveResult | undefined> | undefined {
 		const owner = this.draftOwner(ownerId)
 		if (
 			!value ||
@@ -6058,8 +6067,84 @@ export class Operator {
 				...(options.permissionMode !== undefined ? { permissionMode: options.permissionMode } : {}),
 			}
 		}
+		const wanted = next.options?.permissionMode
+		const conversation = this.conversations.get(ownerId)
+		const before = owner.draftSettings?.options?.permissionMode
+		if (
+			conversation &&
+			wanted !== undefined &&
+			wanted !== (before ?? 'prompt') &&
+			this.canApplyLiveMode(conversation)
+		) {
+			// Saved once the engine has answered: a mode it refuses must not be saved or shown.
+			return this.applyLiveMode(conversation, wanted).then((refusal) => {
+				if (refusal) {
+					const { permissionMode: _refused, ...kept } = next.options ?? {}
+					next.options = { ...kept, ...(before !== undefined ? { permissionMode: before } : {}) }
+				}
+				owner.draftSettings = next
+				this.persistDesktop()
+				return refusal ? { permissionModeRefused: refusal } : undefined
+			})
+		}
 		owner.draftSettings = next
 		this.persistDesktop()
+		return undefined
+	}
+	/** Whether the conversation has a reply running, or a card waiting, that an engine can be told about. */
+	private canApplyLiveMode(session: Conversation): boolean {
+		return (
+			(session.running || session.permissions.size > 0) &&
+			!session.view.palId &&
+			(!session.view.harness || session.view.harness === 'namzu') &&
+			session.client.supportsLivePermissionMode()
+		)
+	}
+	/**
+	 * Gives the running turn of a conversation a new mode at once, so its next call is decided under
+	 * it, and lets the new mode answer what is on screen: the cards that Full access would never have
+	 * shown. The few asks that no mode settles (a rule that asks, a protected path, the first look at
+	 * the screen) stay open. Messages waiting in the queue follow the new mode too.
+	 *
+	 * Returns the engine's reason, in plain words, when it refused the mode; nothing when the mode
+	 * was taken or there is nothing running to tell.
+	 */
+	private async applyLiveMode(
+		session: Conversation,
+		mode: NonNullable<DesktopSendOptions['permissionMode']>,
+	): Promise<string | undefined> {
+		try {
+			await session.client.request(
+				'namzu/session/set-permission-mode',
+				{ sessionId: session.runtimeSessionId, mode },
+				8_000,
+			)
+		} catch (error) {
+			return error instanceof Error && error.message.trim()
+				? error.message
+				: 'Namzu could not change the mode for this conversation.'
+		}
+		for (const item of session.queue)
+			item.options = { ...resolveComposerSendOptions(item.options), permissionMode: mode }
+		this.state(session)
+		if (mode === 'bypass') this.answerOpenAsks(session)
+		return undefined
+	}
+	/** Approves the open cards that need no person once Full access is on; the rest stay as they are. */
+	private answerOpenAsks(session: Conversation): void {
+		for (const request of [...session.projection.permissions]) {
+			if (
+				!session.permissions.has(request.id) ||
+				this.appRequests.has(request.id) ||
+				request.calls.some((call) => call.alwaysAsk === true)
+			)
+				continue
+			try {
+				this.respondPermission(session.view.id, request.id, { outcome: 'approve' })
+			} catch {
+				/* The card was answered while this ran; nothing is left to approve. */
+			}
+		}
 	}
 	saveDraft(sessionId: string, draft: string): void {
 		const session = this.draftOwner(sessionId)

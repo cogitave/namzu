@@ -143,6 +143,9 @@
       "namzu/conversations/input/status",
       "namzu/conversations/input"
     ],
+    "livePermissionMode": [
+      "namzu/session/set-permission-mode"
+    ],
     "pals": [
       "namzu/pals/list",
       "namzu/pals/get",
