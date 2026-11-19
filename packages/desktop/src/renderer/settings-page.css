@@ -146,6 +146,8 @@
 	appearance: none;
 	position: relative;
 	box-sizing: border-box;
+	/* Never narrower than its track: squeezed in a tight row the knob would ride past the end. */
+	flex: none;
 	width: var(--settings-switch-width);
 	height: var(--settings-switch-height);
 	margin: 0;

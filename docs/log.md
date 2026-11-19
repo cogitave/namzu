@@ -1,5 +1,8 @@
 # Documentation update log
 
+## 2026-11-19
+
+- **Update** [Desktop](cli/desktop.md): Hypermode in the effort panel is its name and a switch, with a line under it only when it cannot be turned on; a settings switch keeps its width in a tight row instead of letting the knob run past the track.
 ## 2026-11-18
 
 - **Update** [Permission modes](cli/permission-modes.md): the note that a closed Full access or Auto now asks first sits above the message box, not inside it.

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it, vi } from 'vitest'
@@ -107,6 +108,14 @@ it('offers hypermode as a switch under the slider, at any level, only where the 
 	const off = render({ value: 'low', hypermode: { on: false, onChange: vi.fn() } })
 	expect(off).toContain('role="switch"')
 	expect(off).toContain('aria-checked="false"')
+	// The name is enough: no line under it unless the switch cannot be turned on.
+	expect(off).not.toContain('composer-effort-mode-help')
+	expect(off).not.toContain('aria-describedby')
+})
+
+it('keeps the switch at its own width in a tight row', () => {
+	const css = readFileSync(new URL('./settings-page.css', import.meta.url), 'utf8')
+	expect(css).toMatch(/\.settings-switch \{[^}]*flex: none;/)
 })
 
 it('says why the switch cannot be turned on while dynamic workflows are off', () => {

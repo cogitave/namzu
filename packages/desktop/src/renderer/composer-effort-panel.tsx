@@ -146,16 +146,18 @@ export function ComposerEffortPanel({
 		<div className="composer-effort-mode">
 			<span className="composer-effort-mode-text">
 				<span className="composer-effort-mode-name">Hypermode</span>
-				<span className="composer-effort-mode-help" id={helpId}>
-					{hypermode.blocked ??
-						'Namzu uses dynamic workflows on every substantial task in this conversation.'}
-				</span>
+				{/* The name says enough; a line under it appears only when the switch cannot be turned on. */}
+				{hypermode.blocked && (
+					<span className="composer-effort-mode-help" id={helpId}>
+						{hypermode.blocked}
+					</span>
+				)}
 			</span>
 			<Switch
 				label="Hypermode"
 				checked={hypermode.on && !hypermode.blocked}
 				disabled={disabled || (hypermode.blocked !== undefined && !hypermode.on)}
-				describedBy={helpId}
+				describedBy={hypermode.blocked ? helpId : undefined}
 				// While blocked the switch reads off, so a click can only clear a stored yes.
 				onChange={(value) => hypermode.onChange(hypermode.blocked ? false : value)}
 			/>
