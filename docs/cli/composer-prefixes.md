@@ -19,6 +19,16 @@ anything ([The model's version](session-loops.md#the-models-version)).
 
 `!ls -la` runs `ls -la` on the host, in the session's working directory, with the operator's environment and authority. It is not the model's `bash` tool: no model call is made, the authorization gate is not consulted, and the command does not enter the sandbox. The operator typing a command is the operator, not a tool call, and the gate exists to review the model.
 
+### Shell mode: the box while you type it
+
+Typing `!` as the first character of an empty message box (or pasting text that begins with `!`) puts the box in shell mode before anything is sent. The `!` is not kept in the text; it becomes the mark at the start of the line, in bold, in place of `❯`. Both rules of the box take Namzu's green, the placeholder goes away, and a row under the lower rule reads `! runs a shell command · Backspace or Esc to leave`. A `!` typed anywhere else, or after other text, is an ordinary character. A plain text box (a message to a child conversation) has no shell mode.
+
+- **Leave.** Backspace on an empty shell line, or Esc (which keeps what was typed and makes it a prompt). Sending a line, or clearing the draft with Esc twice, also ends it.
+- **Send.** Enter sends the line as `!` plus the text, so the run described below is unchanged. An empty shell line sends nothing.
+- **Slash commands.** `/` at the start of a shell line is part of the command (a path), so the command menu and `/model` or `/effort` hints do not appear; `@path` completion still works.
+- **History.** A shell line is stored with its `!`, in the same history as prompts. Up on one brings it back in shell mode without the `!`; Up onto a prompt brings the box back to a prompt. Ctrl+R finds both kinds.
+- **Colour.** The shell colour is the theme's green (`accent.shellMode`): the same green in the default dark and light themes, the terminal's own green in the two 16-colour themes, and the blue accent in the two colour-blind themes, which avoid green. The bold `!` and the hint row say the same thing without colour.
+
 What the operator sees: their line, then a row `! ls -la · exit 0` with the output under it. While the command runs the row shows `…`; a non-zero exit or a kill shows `✗`.
 
 What the model sees: on its next turn, a user-role host observation naming every

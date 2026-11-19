@@ -6,6 +6,9 @@ import { theme } from './theme.js'
 
 const HYPERMODE_GLOW_MS = 880
 
+/** The row under the lower rule while the box is in shell mode. */
+export const SHELL_HINT = '! runs a shell command · Backspace or Esc to leave'
+
 /**
  * The composer's frame: a plain horizontal rule above and below the input and
  * nothing at the sides, no corners and no title.
@@ -16,6 +19,7 @@ const HYPERMODE_GLOW_MS = 880
 export function ComposerFrame({
 	hidden = false,
 	mode,
+	shell = false,
 	columns,
 	activation = 0,
 	animate = true,
@@ -31,6 +35,11 @@ export function ComposerFrame({
 	 * A session mode named on the frame's upper right — today only `hypermode`.
 	 */
 	readonly mode?: string
+	/**
+	 * The box is in shell mode: both rules take the shell colour and a hint row
+	 * under the lower rule says what Enter will do. The hypermode glow waits.
+	 */
+	readonly shell?: boolean
 	/** The frame's actual width, excluding a parent's horizontal padding. */
 	readonly columns?: number
 	/** Increment only when the operator successfully turns the session mode on. */
@@ -69,32 +78,45 @@ export function ComposerFrame({
 	useEffect(() => {
 		if (igniting && (time >= HYPERMODE_GLOW_MS || !motion || hidden)) setIgniting(false)
 	}, [hidden, igniting, motion, time])
-	const glowTime = igniting && motion && !hidden && time < HYPERMODE_GLOW_MS ? time : undefined
+	const glowTime =
+		igniting && motion && !hidden && !shell && time < HYPERMODE_GLOW_MS ? time : undefined
+	const ruleColor = shell ? theme.accent.shellMode : theme.border.default
 	return (
 		<Box flexDirection="column" width={frameColumns} marginTop={hidden ? 0 : 1}>
 			{hidden ? null : above}
 			<Box display={hidden ? 'none' : 'flex'} height={1} flexShrink={0}>
-				{glowTime !== undefined ? <GlowRule columns={ruleColumns} time={glowTime} /> : <Rule />}
+				{glowTime !== undefined ? (
+					<GlowRule columns={ruleColumns} time={glowTime} />
+				) : (
+					<Rule color={ruleColor} />
+				)}
 				{showMode ? (
 					<Box flexShrink={0}>
 						<Text color={theme.accent.hypermode} bold>
 							{' '}
 							{mode}{' '}
 						</Text>
-						<Text color={theme.border.default}>─</Text>
+						<Text color={ruleColor}>─</Text>
 					</Box>
 				) : null}
 			</Box>
 			<Box flexDirection="column">{children}</Box>
 			<Box display={hidden ? 'none' : 'flex'} height={1} flexShrink={0}>
-				<Rule />
+				<Rule color={ruleColor} />
 			</Box>
+			{shell && !hidden ? (
+				<Box height={1} flexShrink={0}>
+					<Text color={theme.accent.shellMode} wrap="truncate-end">
+						{SHELL_HINT}
+					</Text>
+				</Box>
+			) : null}
 		</Box>
 	)
 }
 
 /** Yoga sizes the rule; a repeated text string would truncate with an ellipsis. */
-function Rule() {
+function Rule({ color }: { readonly color: string }) {
 	return (
 		<Box
 			flexGrow={1}
@@ -104,7 +126,7 @@ function Rule() {
 			borderBottom={false}
 			borderLeft={false}
 			borderRight={false}
-			borderColor={theme.border.default}
+			borderColor={color}
 		/>
 	)
 }
