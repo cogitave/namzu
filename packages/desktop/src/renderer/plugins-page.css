@@ -100,7 +100,7 @@
 	background: transparent;
 	color: var(--muted-foreground);
 	font-size: var(--text-small);
-	font-weight: var(--weight-strong);
+	font-weight: var(--weight-control);
 	line-height: var(--leading-small);
 	cursor: pointer;
 	transition: background-color 150ms var(--motion-ease), color 150ms var(--motion-ease);

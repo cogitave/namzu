@@ -19,7 +19,7 @@
 	text-overflow: ellipsis;
 	white-space: nowrap;
 	font-size: var(--text-interface);
-	font-weight: var(--weight-strong);
+	font-weight: var(--weight-control);
 	line-height: var(--leading-interface);
 	color: var(--foreground);
 }
