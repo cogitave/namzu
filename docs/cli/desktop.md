@@ -2409,13 +2409,13 @@ is heavier than the strong weight (600), so bold in a reply is no heavier than t
 `renderer/type-scale.test.ts` reads every stylesheet and component and fails on a font size that is
 neither a token nor a value of the scale, on a weight above 600, and on a size inside the `font`
 shorthand. The pixel wordmark's sizes and the 16 px root (the rem base) are the only listed exceptions.
-The font stacks are not part of the scale; they are described under [Typefaces](#typefaces).
+The font stacks are not part of the scale; they are described under [Typefaces](#typefaces). The roles, icon sizes and accent rules that go with the scale are in [Desktop sizes standard](desktop-ui-sizes.md).
 
 | Token | Size / line | Where it is used |
 | --- | --- | --- |
 | `--text-caption` | 12 / 16 | tooltips, times, counts, badges, the sidebar's group headings (text weight), the counts on the result line |
 | `--text-small` | 13 / 18 | quiet rows (the fold line, the result line, the row under the message box, the waiting bar), sidebar rows, buttons, menus and popups |
-| `--text-interface` | 14 / 20 | the top bar's title (strong), a reply's table (header row in the control weight), tool rows |
+| `--text-interface` | 14 / 20 | the top bar's title (control weight), a reply's table (header row in the control weight), tool rows |
 | `--text-reading` | 15 / 22 | a reply's paragraphs and lists, the person's message, the text in the message box, a reply's `h3` and below |
 | `--text-heading` | 17 / 24 | a reply's `h2` |
 | `--text-title` | 20 / 28 | a reply's `h1` |

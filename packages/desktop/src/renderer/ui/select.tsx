@@ -12,7 +12,7 @@ import { MENU_OFFSET } from '../menu-metrics.js'
 const Select = SelectPrimitive.Root
 
 const selectTriggerVariants = cva(
-	"relative inline-flex cursor-pointer select-none items-center justify-between gap-2 border rounded-lg text-left text-base outline-none transition-[color,box-shadow,background-color] data-disabled:pointer-events-none data-disabled:opacity-64 sm:text-sm [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4.5 sm:[&_svg:not([class*='size-'])]:size-4",
+	"relative inline-flex cursor-pointer select-none items-center justify-between gap-2 border rounded-lg text-left text-base outline-none transition-[color,box-shadow,background-color] data-disabled:pointer-events-none data-disabled:opacity-64 sm:text-sm [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
 	{
 		defaultVariants: {
 			size: 'default',
@@ -142,7 +142,7 @@ function SelectPopup({
 						className="top-0 z-50 flex h-6 w-full cursor-default items-center justify-center before:pointer-events-none before:absolute before:inset-x-px before:top-px before:h-[200%] before:rounded-t-[calc(var(--radius-lg)-1px)] before:bg-linear-to-b before:from-50% before:from-popover"
 						data-slot="select-scroll-up-arrow"
 					>
-						<ChevronUpIcon className="relative size-4.5 sm:size-4" />
+						<ChevronUpIcon className="relative size-4" />
 					</SelectPrimitive.ScrollUpArrow>
 					<div
 						className={cn(
@@ -164,7 +164,7 @@ function SelectPopup({
 						className="bottom-0 z-50 flex h-6 w-full cursor-default items-center justify-center before:pointer-events-none before:absolute before:inset-x-px before:bottom-px before:h-[200%] before:rounded-b-[calc(var(--radius-lg)-1px)] before:bg-linear-to-t before:from-50% before:from-popover"
 						data-slot="select-scroll-down-arrow"
 					>
-						<ChevronDownIcon className="relative size-4.5 sm:size-4" />
+						<ChevronDownIcon className="relative size-4" />
 					</SelectPrimitive.ScrollDownArrow>
 				</SelectPrimitive.Popup>
 			</SelectPrimitive.Positioner>

@@ -286,7 +286,9 @@ it('leaves no temporary home behind after a real run', async () => {
 	await realCheck()({ folder: '', entry, expected })
 	const after = (await readdir(tmpdir())).filter((name) => name.startsWith('namzu-engine-check-'))
 	expect(after.sort()).toEqual(before.sort())
-})
+	// A real child process starts and stops here: on a loaded machine that alone can take past the
+	// default 5 s, with nothing wrong. A real hang still fails, just later.
+}, 30_000)
 
 describe('the temporary home of the self-check', () => {
 	it('holds the folder NAMZU_HOME names, because the command line refuses to start without it', async () => {

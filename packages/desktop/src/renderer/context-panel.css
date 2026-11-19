@@ -55,7 +55,7 @@
 	color: inherit;
 	font: inherit;
 	font-size: var(--text-small);
-	font-weight: var(--weight-strong);
+	font-weight: var(--weight-control);
 	line-height: var(--leading-small);
 	cursor: pointer;
 }
