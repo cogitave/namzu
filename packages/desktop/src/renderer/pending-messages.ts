@@ -23,9 +23,6 @@ export interface PendingMessages {
 	hold?: string
 }
 
-/** The tray grows with its rows up to this many, then scrolls. */
-export const TRAY_VISIBLE_ROWS = 4
-
 export const SENDING_NOTE = 'Sending to this reply'
 export const UNCONFIRMED_NOTE = 'Delivery not confirmed'
 export const AFTER_REPLY_NOTE = 'After this reply'

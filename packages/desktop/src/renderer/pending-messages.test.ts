@@ -2,8 +2,8 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it, vi } from 'vitest'
 import type { QueuedMessageView } from '../shared/protocol.js'
-import { ComposerTray } from './composer-tray.js'
 import { pendingMessages } from './pending-messages.js'
+import { PendingTail } from './pending-tail.js'
 
 const item = (id: string, prompt = id): QueuedMessageView => ({ id, prompt })
 const thread = (over: Partial<Parameters<typeof pendingMessages>[0]> = {}) => ({
@@ -57,11 +57,11 @@ it('says why waiting messages are held after a stopped or failed reply, and not 
 })
 
 function render(
-	actions: Partial<Parameters<typeof ComposerTray>[0]['actions']> = {},
+	actions: Partial<Parameters<typeof PendingTail>[0]['actions']> = {},
 	editing: string | null = null,
 ) {
 	return renderToStaticMarkup(
-		createElement(ComposerTray, {
+		createElement(PendingTail, {
 			pending: pendingMessages(thread({ liveInputs: [live('s')], queuedItems: [item('q')] })),
 			actions: {
 				onSendNow: vi.fn(),
@@ -76,10 +76,62 @@ function render(
 	)
 }
 
-it('counts what waits and numbers each row in the order it will be used', () => {
+it('draws each waiting message as a user bubble in the order it will be used, with no count header', () => {
 	const html = render()
-	expect(html).toContain('2 waiting')
-	expect(html.match(/composer-tray-order[^>]*>(\d)/g)).toHaveLength(2)
+	expect(html).not.toContain('waiting<')
+	expect(html).not.toContain('data-composer-tray')
+	const rows = html.split('data-pending-message-id=').slice(1)
+	expect(rows).toHaveLength(2)
+	expect(rows[0]).toContain('data-pending-kind="steer"')
+	expect(rows[1]).toContain('data-pending-kind="queued"')
+	for (const row of rows) {
+		expect(row).toContain('message-bubble')
+		expect(row).toContain('is-user')
+	}
+	expect(html.indexOf('data-pending-kind="steer"')).toBeLessThan(
+		html.indexOf('data-pending-kind="queued"'),
+	)
+})
+
+it('keeps the note readable to a screen reader, and visible only when delivery is unsure or the message is parked', () => {
+	const html = render()
+	expect(html).toContain('Sending to this reply')
+	expect(html).not.toMatch(/class="pending-note"[^>]*>Sending to this reply/)
+	const parked = renderToStaticMarkup(
+		createElement(PendingTail, {
+			pending: pendingMessages(
+				thread({ running: false, stopReason: 'cancelled', queuedItems: [item('q')] }),
+			),
+			actions: {
+				onSendNow: vi.fn(),
+				onSave: vi.fn(async () => {}),
+				onRemove: vi.fn(),
+				canSendNow: true,
+			},
+			editing: null,
+			onEditingChange: vi.fn(),
+		}),
+	)
+	expect(parked).toMatch(/class="pending-note">Waiting</)
+	expect(parked).toContain('Paused after the stopped reply')
+})
+
+it('draws nothing when no message is waiting', () => {
+	expect(
+		renderToStaticMarkup(
+			createElement(PendingTail, {
+				pending: { rows: [] },
+				actions: {
+					onSendNow: vi.fn(),
+					onSave: vi.fn(async () => {}),
+					onRemove: vi.fn(),
+					canSendNow: true,
+				},
+				editing: null,
+				onEditingChange: vi.fn(),
+			}),
+		),
+	).toBe('')
 })
 
 it('offers Send now on every row, but Edit and Remove only where the message can still be taken back', () => {

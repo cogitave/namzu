@@ -39,7 +39,7 @@ const RULES = [
 ];
 
 const box = (w) => w.page.getByRole("textbox", { name: "Message Namzu" });
-const rows = (w) => w.page.locator("[data-composer-tray] [data-pending-message-id]");
+const rows = (w) => w.page.locator("[data-pending-tail] [data-pending-message-id]");
 const counter = (w) => w.page.locator("[data-history-counter]");
 
 async function fullAccess(w) {

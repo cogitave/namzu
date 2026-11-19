@@ -234,6 +234,7 @@ import {
 import { paneChord } from './pane-keys.js'
 import { type PasteRange, addPaste, confirmedRanges, trackEdit } from './paste-ranges.js'
 import { pendingMessages } from './pending-messages.js'
+import type { PendingActions } from './pending-tail.js'
 import { plainError, plainErrorText } from './plain-error.js'
 import { PluginsPage, PluginsSidebar } from './plugins-page.js'
 import {
@@ -5495,6 +5496,20 @@ export function App({
 		setDrafts((all) => ({ ...all, [target]: value }))
 		void api.saveDraft(target, value).catch((failure) => showError(failure, 'save your draft'))
 	}
+	// Which waiting message is open for editing in the conversation. It is only what the person is doing
+	// right now, like an open dialog: it is not kept, and it is not part of the conversation.
+	const [pendingEditing, setPendingEditing] = useState<{ sessionId: string; id: string } | null>(
+		null,
+	)
+	const pendingActions: PendingActions = {
+		canSendNow: Boolean(api.sendNow),
+		disabled: loading || restoringTabs || frozen,
+		onSendNow: (id) => void act(() => api.sendNow?.(sessionId, id) ?? Promise.resolve()),
+		onSave: (id, text) => act(() => api.updateQueued?.(sessionId, id, text) ?? Promise.resolve()),
+		onRemove: (id) => void act(() => api.removeQueued(sessionId, id)),
+	}
+	const onPendingEditingChange = (id: string | null) =>
+		setPendingEditing(id === null ? null : { sessionId, id })
 	const editQueued = useCallback(
 		async (itemId?: string) => {
 			const target = sessionId
@@ -8013,6 +8028,12 @@ export function App({
 											providerName={providerName(choice.provider, failedProviderLabel)}
 											intro={conversation?.palGreeting}
 											received={palOperatorMessages}
+											pending={pendingMessages(thread)}
+											pendingActions={pendingActions}
+											pendingEditing={
+												pendingEditing?.sessionId === sessionId ? pendingEditing.id : null
+											}
+											onPendingEditingChange={onPendingEditingChange}
 											renderMessageAction={(message, key) => (
 												<MessageActions text={message.text}>
 													<LocalSpeechReadAloud
@@ -8034,6 +8055,12 @@ export function App({
 															<Transcript
 																key={sessionId || 'blank'}
 																thread={thread}
+																pending={pendingMessages(thread)}
+																pendingActions={pendingActions}
+																pendingEditing={
+																	pendingEditing?.sessionId === sessionId ? pendingEditing.id : null
+																}
+																onPendingEditingChange={onPendingEditingChange}
 																animate={!historyPending && !restoringTabs}
 																workDisclosures={
 																	workDisclosureView.sessionId === sessionId
@@ -8352,15 +8379,8 @@ export function App({
 										: undefined
 								}
 								pending={pendingMessages(thread)}
-								trayActions={{
-									canSendNow: Boolean(api.sendNow),
-									disabled: loading || restoringTabs || frozen,
-									onSendNow: (id) =>
-										void act(() => api.sendNow?.(sessionId, id) ?? Promise.resolve()),
-									onSave: (id, text) =>
-										act(() => api.updateQueued?.(sessionId, id, text) ?? Promise.resolve()),
-									onRemove: (id) => void act(() => api.removeQueued(sessionId, id)),
-								}}
+								onEditPending={(id) => setPendingEditing({ sessionId, id })}
+								editingPending={pendingEditing?.sessionId === sessionId}
 								onSend={() => void act(send)}
 								onQueue={() => void act(() => send('queue'))}
 								onStop={() => {

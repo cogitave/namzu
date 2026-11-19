@@ -6,6 +6,8 @@ import { providerWaitText } from './friendly-errors.js'
 import { Message, MessageContent, MessageFooter, MessageTime, timeRoleOf } from './message.js'
 import { messageStatus } from './pal-communication-dialog.js'
 import { type PalOperatorMessage, interleavePalChat } from './pal-operator-messages.js'
+import type { PendingMessages } from './pending-messages.js'
+import { type PendingActions, PendingTail } from './pending-tail.js'
 import { transcriptTurns, turnNotice } from './transcript-layout.js'
 import './pal-chat-transcript.css'
 
@@ -82,6 +84,10 @@ export function PalChatTranscript({
 	renderMessageAction,
 	received = [],
 	providerName = 'the provider',
+	pending,
+	pendingActions,
+	pendingEditing = null,
+	onPendingEditingChange,
 }: {
 	thread: ThreadState
 	name: string
@@ -91,6 +97,11 @@ export function PalChatTranscript({
 	/** What the person sent this Pal from their own conversations, with where each one stands. */
 	received?: readonly PalOperatorMessage[]
 	renderMessageAction?: (message: ChatMessage, key: string) => ReactNode
+	/** Messages sent while a reply runs, drawn after the last message like in any conversation. */
+	pending?: PendingMessages
+	pendingActions?: PendingActions
+	pendingEditing?: string | null
+	onPendingEditingChange?: (id: string | null) => void
 }) {
 	const waiting = thread.running && thread.stopReason === undefined && thread.providerWait
 	const [now, setNow] = useState(Date.now)
@@ -181,6 +192,14 @@ export function PalChatTranscript({
 					</Message>
 				)
 			})}
+			{pending && pendingActions && (
+				<PendingTail
+					pending={pending}
+					actions={pendingActions}
+					editing={pendingEditing}
+					onEditingChange={onPendingEditingChange ?? (() => {})}
+				/>
+			)}
 			{status && (
 				<output
 					className="pal-chat-status"
