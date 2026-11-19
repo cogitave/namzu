@@ -37,3 +37,45 @@ describe('the conversation bar', () => {
 		expect(Number(query?.[1])).toBeGreaterThanOrEqual(440)
 	})
 })
+
+describe('the session panel', () => {
+	const css = read('session-panel.css')
+	it('every heading is one 24 px control in full ink, 13 px at weight 500', () => {
+		const heading = rule(css, '.session-section-head h3')
+		expect(heading.height).toBe('24px')
+		expect(heading.color).toBe('var(--foreground)')
+		expect(heading['font-size']).toBe('var(--text-small)')
+		expect(heading['font-weight']).toBe('var(--weight-control)')
+	})
+	it('rows are 32 px apart with no gap, in every list', () => {
+		expect(rule(css, '.session-row')['min-height']).toBe('32px')
+		expect(rule(css, '.session-list > li')['min-height']).toBe('32px')
+		expect(rule(css, '.session-changes-open')['min-height']).toBe('32px')
+	})
+	it('the hairline between sections is inset 16 px and there is none after the last', () => {
+		expect(rule(css, '.session-section:not(:last-child)::after').inset).toBe('auto 16px 0')
+		expect(rule(css, '.session-section')['border-bottom']).toBeUndefined()
+	})
+	it('the folder path is cut at its end, not at its start', () => {
+		expect(rule(css, '.session-path').direction).toBeUndefined()
+	})
+	it('the close button is the 28 px control the other panels use', () => {
+		expect(rule(css, '.session-panel-head .pane-control').width).toBe('var(--frame-control-size)')
+	})
+})
+
+describe('the context breakdown', () => {
+	const css = read('context-panel.css')
+	it('its row gap leaves a built-in label its whole name at 900 px', () => {
+		expect(rule(css, '.context-panel-row')['column-gap']).toBe('10px')
+	})
+	it('the free-space marker is an outline, so it shows on the panel ground', () => {
+		expect(rule(css, '.context-panel-row[data-kind="free"] .context-panel-square').border).toContain(
+			'muted-foreground',
+		)
+	})
+	it('a heading draws its chevron only while it is folded', () => {
+		const source = readFileSync(fileURLToPath(new URL('./context-panel.tsx', import.meta.url)), 'utf8')
+		expect(source).toContain('{!details && <ChevronRightIcon')
+	})
+})
