@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-20
+
+- **Update** [Hypermode](cli/slash-commands.md#hypermode): the mode is named once, on the composer frame's upper right. The status line no longer appends `· hypermode` to the effort item (it says `effort high`, or nothing at the model default, and the item still opens the picker). `.changeset/cli-tui-footer-and-workflow-detail.md`.
+
 ## 2026-11-19
 
 - **Update** [Desktop UI sizes](cli/desktop-ui-sizes.md#settings-layout): the narrow-window cap on a Settings control now applies to flex rows only. In a row with a preview under it, the cap was taken from the control's own grid column, which left the light and dark code theme menus 18 px wide at 900 px. A choice already called Default is no longer shown as "Default · Default".

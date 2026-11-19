@@ -308,9 +308,10 @@ row, gets the vertical list, with the same label and description as its own
 row below a rule (Tab works there too). There is no separate key for "this
 session only": the setting already lasts only for the session.
 
-While the mode is on, the composer's upper rule names `hypermode` and the
-footer says it after the effort: `effort high · hypermode`, or just `hypermode`
-when the effort is the model default. Like effort,
+While the mode is on, the composer's upper rule names `hypermode` at its right
+end, once. The status line does not repeat it: it says only `effort high` (or
+nothing when the effort is the model default), and that item still opens the
+effort picker when clicked. Like effort,
 the mode is in-memory and per-session; it is not saved to preferences. A model switch
 resets an explicit effort override to the new model's default as it always has;
 hypermode stays on across it, and the interactive effort chooser that follows a

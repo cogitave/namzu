@@ -18382,7 +18382,6 @@ function AppBody({
 								session?.account?.label,
 							)}
 							effort={reasoningEffort}
-							hypermode={hypermode}
 							fast={fastMode}
 							goal={statusGoal}
 							state={state}
