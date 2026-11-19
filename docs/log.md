@@ -2,6 +2,8 @@
 
 ## 2026-11-19
 
+- **Creation** [What Desktop keeps across a restart](desktop-state.md): the interface state (layout, panes, collapsed sections, panel tabs, window mode) moves from the page's `localStorage` into one versioned file in the main process, declared key by key in a registry, written atomically and flushed on quit and when a renderer dies; the old keys are copied in once and then deleted. How the last run ended is recorded, so a crash restores the last checkpoint and starts soft keys over. `.changeset/desktop-session-panel-restart.md`.
+- **Update** [Desktop](cli/desktop.md#the-session-panel-the-plan-card-and-commit-changes): the Session panel's Environment section always leads, a chat shows "Chat folder" with no branch, and a reopened conversation shows the context figure its log last recorded (or an estimate) without starting an engine. `namzu/session/context` and `namzu/conversations/history` read the log for this; the history answer adds `usage`, `lastTurn` and `environment`. `.changeset/cli-stored-context-reads.md`.
 - **Update** [Desktop](cli/desktop.md): in Conversation edits a file row keeps its line counts and buttons in place when the path is long; a Windows path splits at backslashes, the head of the folder is cut, and a file outside the project shows with `~` for the home folder.
 - **Update** [Desktop](cli/desktop.md): Hypermode in the effort panel is its name and a switch, with a line under it only when it cannot be turned on; a settings switch keeps its width in a tight row instead of letting the knob run past the track.
 ## 2026-11-18
