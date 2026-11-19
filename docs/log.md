@@ -2,6 +2,7 @@
 
 ## 2026-11-19
 
+- **Update** [The composer prefixes](cli/composer-prefixes.md#shell-mode-the-box-while-you-type-it): typing `!` into an empty message box now puts the box in shell mode while you type: both rules and a bold `!` mark in Namzu's green (the theme's blue in the colour-blind themes), no placeholder, and a hint row under the box. Backspace on the empty line or Esc leaves it; shell lines return from history in shell mode. New theme colour `accent.shellMode`. `.changeset/cli-shell-mode-look.md`.
 - **Update** [Desktop](cli/desktop.md): a context count read back from the log is one total, so its row is named "Used so far" instead of "Messages" (the total includes Namzu's instructions and tools). The full breakdown returns after the next reply. `.changeset/desktop-stored-count-row-name.md`.
 - **Update** [What Desktop keeps across a restart](cli/desktop-state.md#how-it-was-closed): a write that arrives after a clean quit was recorded keeps the clean marker, so the next start is not read as a crash; the page can no longer write `window.mode:*`; a legacy key dropped by its family's entry cap is left in `localStorage` instead of deleted. `.changeset/desktop-state-late-write.md`.
 - **Update** [Desktop](cli/desktop.md): a stored context figure that a shortening has made out of date is shown as out of date in the panel footnote and the ring tooltip, not as "From the last reply"; `namzu/conversations/history` `usage` adds `sizeOutOfDate`. `.changeset/cli-history-usage-out-of-date.md`.
