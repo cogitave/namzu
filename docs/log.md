@@ -2,6 +2,7 @@
 
 ## 2026-11-19
 
+- **Update** [Desktop](cli/desktop.md): a context count read back from the log is one total, so its row is named "Used so far" instead of "Messages" (the total includes Namzu's instructions and tools). The full breakdown returns after the next reply. `.changeset/desktop-stored-count-row-name.md`.
 - **Update** [What Desktop keeps across a restart](cli/desktop-state.md#how-it-was-closed): a write that arrives after a clean quit was recorded keeps the clean marker, so the next start is not read as a crash; the page can no longer write `window.mode:*`; a legacy key dropped by its family's entry cap is left in `localStorage` instead of deleted. `.changeset/desktop-state-late-write.md`.
 - **Update** [Desktop](cli/desktop.md): a stored context figure that a shortening has made out of date is shown as out of date in the panel footnote and the ring tooltip, not as "From the last reply"; `namzu/conversations/history` `usage` adds `sizeOutOfDate`. `.changeset/cli-history-usage-out-of-date.md`.
 - **Creation** [What Desktop keeps across a restart](desktop-state.md): the interface state (layout, panes, collapsed sections, panel tabs, window mode) moves from the page's `localStorage` into one versioned file in the main process, declared key by key in a registry, written atomically and flushed on quit and when a renderer dies; the old keys are copied in once and then deleted. How the last run ended is recorded, so a crash restores the last checkpoint and starts soft keys over. `.changeset/desktop-session-panel-restart.md`.

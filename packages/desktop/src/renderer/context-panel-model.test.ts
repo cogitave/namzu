@@ -166,6 +166,27 @@ describe('an estimate', () => {
 		expect(model.tag?.text).toBe('Last count')
 	})
 
+	it('does not call a whole stored count "Messages"', () => {
+		const stored = contextPanelModel({
+			report: report({
+				stored: 'record',
+				measuredBy: 'provider',
+				approximate: true,
+				categories: [
+					{ id: 'messages', name: 'Messages', tokens: 14_000, kind: 'used' },
+					{ id: 'free', name: 'Free space', tokens: 86_000, kind: 'free' },
+				],
+			}),
+		})
+		expect(stored.used.map((row) => row.name)).toEqual(['Used so far'])
+		expect(stored.used[0]?.title).toContain('instructions')
+		expect(stored.bar.segments[0]?.name).toBe('Used so far')
+		// A live breakdown keeps the name.
+		expect(contextPanelModel({ report: report() }).used.map((row) => row.name)).toContain(
+			'Messages',
+		)
+	})
+
 	it('says an out-of-date stored count is out of date, not from the last reply', () => {
 		for (const measuredBy of ['provider', 'estimate'] as const) {
 			const model = contextPanelModel({

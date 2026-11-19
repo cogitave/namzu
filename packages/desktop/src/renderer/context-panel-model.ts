@@ -205,10 +205,20 @@ export function contextPanelModel(input: PanelInput): PanelModel {
 	const percent = total > 0 && Math.round(rawPercent) === 0 ? '<1' : String(Math.round(rawPercent))
 	const tone = rawPercent >= 90 ? 'full' : rawPercent >= 75 ? 'high' : 'normal'
 
+	// A count read back from the log is one total: it is not split into parts, so calling it
+	// "Messages" would say the instructions and tools are not in it.
+	const wholeCount = report.stored === 'record'
+	const nameOf = (category: ContextCategory) =>
+		wholeCount && category.id === 'messages'
+			? 'Used so far'
+			: (NAME[category.id] ?? category.name)
 	const byTokens = (a: ContextCategory, b: ContextCategory) => b.tokens - a.tokens
 	const rowOf = (category: ContextCategory, deferred: boolean): PanelRow => {
-		const name = NAME[category.id] ?? category.name
-		const hint = HINT[category.id]
+		const name = nameOf(category)
+		const hint =
+			wholeCount && category.id === 'messages'
+				? 'Everything in the conversation at the last count: messages, tool results and Namzu’s own instructions.'
+				: HINT[category.id]
 		const slot = deferred ? undefined : SLOT[category.id]
 		const items = deferred ? undefined : listItems(category.id, lists)
 		return {
@@ -265,11 +275,11 @@ export function contextPanelModel(input: PanelInput): PanelModel {
 		const slot = SLOT[category.id]
 		return {
 			id: category.id,
-			name: NAME[category.id] ?? category.name,
+			name: nameOf(category),
 			width: width(category.tokens),
 			...(slot === undefined ? {} : { slot }),
 			kind: 'used',
-			title: `${NAME[category.id] ?? category.name} · ${formatSize(category.tokens)} · ${formatShare(category.tokens, window)}`,
+			title: `${nameOf(category)} · ${formatSize(category.tokens)} · ${formatShare(category.tokens, window)}`,
 		}
 	})
 	if (buffer)
@@ -282,7 +292,7 @@ export function contextPanelModel(input: PanelInput): PanelModel {
 		})
 
 	const label = `${about}${percent}% used: ${used
-		.map((c) => `${(NAME[c.id] ?? c.name).toLowerCase()} ${formatShare(c.tokens, window)}`)
+		.map((c) => `${nameOf(c).toLowerCase()} ${formatShare(c.tokens, window)}`)
 		.join(', ')}`
 
 	let sentence: string
