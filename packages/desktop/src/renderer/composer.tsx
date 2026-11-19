@@ -71,7 +71,6 @@ import {
 } from './composer-settings.js'
 import { ComposerSlashMenu, SLASH_MENU_ID } from './composer-slash-menu.js'
 import { ComposerSurface } from './composer-surface.js'
-import { ComposerTray, type ComposerTrayActions } from './composer-tray.js'
 import { prepareIndex } from './file-panel/file-search.js'
 import { automaticChoiceNote } from './first-open-note.js'
 import { type EngineSurfaceControl, engineLabel } from './harness-picker.js'
@@ -87,7 +86,6 @@ import {
 	SearchIcon,
 	TerminalIcon,
 } from './icons.js'
-import { cn } from './lib/utils.js'
 import { effortLabel } from './model-choice.js'
 import { HYPERMODE_BLOCKED, type ModelChoice, ModelPicker } from './model-picker.js'
 import { isMaterialPaste } from './paste-ranges.js'
@@ -156,7 +154,8 @@ export function Composer({
 	liveInputSupported = false,
 	sending,
 	pending,
-	trayActions,
+	onEditPending,
+	editingPending = false,
 	shells,
 	usage,
 	limits,
@@ -263,9 +262,12 @@ export function Composer({
 	history?: readonly string[]
 	liveInputSupported?: boolean
 	sending: boolean
-	/** Messages typed while a reply runs, shown in the tray fused to the composer. */
+	/** Messages typed while a reply runs; they are drawn in the conversation, the up arrow edits the newest. */
 	pending: PendingMessages
-	trayActions: ComposerTrayActions
+	/** Opens a waiting message for editing in the conversation. */
+	onEditPending: (id: string) => void
+	/** A waiting message is open for editing, so the up arrow leaves the box alone. */
+	editingPending?: boolean
 	/** Background shell commands running for this conversation; absent when there are none. */
 	shells?: { count: number; onOpen: () => void }
 	/** How full the conversation is, as the engine last said; the ring is drawn only when it is complete. */
@@ -731,7 +733,6 @@ export function Composer({
 	// Send and Stop share one slot, so Stop can appear under a pointer that is already resting there. No
 	// pointer-enter reaches a button that was not there, so Stop's tooltip also opens on the first move.
 	const [stopTipOpen, setStopTipOpen] = useState(false)
-	const [trayEditing, setTrayEditing] = useState<string | null>(null)
 	const editableRows = pending.rows.filter((row) => row.editable)
 	const popoverPlus = (
 		<Popover open={plusOpen} onOpenChange={setPlusOpen}>
@@ -974,10 +975,7 @@ export function Composer({
 						</output>
 					)}
 					<ComposerSurface.Shell
-						className={cn(
-							compact ? 'pal-composer-shell' : 'normal-composer-shell',
-							pending.rows.length > 0 && 'composer-with-tray',
-						)}
+						className={compact ? 'pal-composer-shell' : 'normal-composer-shell'}
 						onDragEnter={(event) => {
 							if (!event.dataTransfer.types.includes('Files')) return
 							event.preventDefault()
@@ -1001,12 +999,6 @@ export function Composer({
 							if (!importDisabled) onAddFiles(Array.from(event.dataTransfer.files))
 						}}
 					>
-						<ComposerTray
-							pending={pending}
-							actions={trayActions}
-							editing={trayEditing}
-							onEditingChange={setTrayEditing}
-						/>
 						<ComposerSurface.Host>
 							<ComposerSurface.Main className={waiting ? 'composer-waiting' : undefined}>
 								{compact && plusControl}
@@ -1165,7 +1157,7 @@ export function Composer({
 													selectionEnd: target.selectionEnd,
 													hasDraft,
 													editableQueued: editableRows.length > 0,
-													trayEditing: trayEditing !== null,
+													editingPending,
 													hasHistory: history.length > 0,
 													walking: walking !== null,
 													canHold:
@@ -1213,10 +1205,12 @@ export function Composer({
 														inputRef.current?.focus()
 														onAttach()
 														return
-													case 'edit-queued':
+													case 'edit-queued': {
 														event.preventDefault()
-														setTrayEditing(editableRows[editableRows.length - 1]?.id ?? null)
+														const newest = editableRows[editableRows.length - 1]
+														if (newest) onEditPending(newest.id)
 														return
+													}
 													case 'recall': {
 														const step = stepHistory(history, walking, draft, key.direction)
 														if (!step) return
@@ -1278,12 +1272,7 @@ export function Composer({
 										{compact &&
 											!waiting &&
 											(limits ? (
-												<UsageIndicator
-													usage={usage}
-													control={limits}
-													variant="ring"
-													{...(contextPanel ? { contextPanel } : {})}
-												/>
+												<UsageIndicator usage={usage} control={limits} variant="ring" />
 											) : (
 												<ContextRing
 													usage={usage}
@@ -1496,12 +1485,7 @@ export function Composer({
 								<div className="composer-row-end">
 									<div className="composer-selected-model">{modelControl}</div>
 									{limits ? (
-										<UsageIndicator
-											usage={usage}
-											control={limits}
-											variant="readout"
-											{...(contextPanel ? { contextPanel } : {})}
-										/>
+										<UsageIndicator usage={usage} control={limits} variant="readout" />
 									) : (
 										<ContextReadout
 											usage={usage}

@@ -27,7 +27,7 @@ export interface ComposerKeyInput {
 	hasDraft: boolean
 	/** A waiting message can be taken back to edit. */
 	editableQueued: boolean
-	trayEditing: boolean
+	editingPending: boolean
 	/** Earlier messages exist to walk through. */
 	hasHistory: boolean
 	/** The box shows a message recalled from the history. */
@@ -82,7 +82,7 @@ export function decideComposerKey(input: ComposerKeyInput): ComposerKey {
 		return { action: 'attach' }
 	if (input.key === 'ArrowUp' && plain(input)) {
 		// An empty box takes the newest waiting message back first; the history comes after.
-		if (!input.hasDraft && input.editableQueued && !input.trayEditing)
+		if (!input.hasDraft && input.editableQueued && !input.editingPending)
 			return { action: 'edit-queued' }
 		if (
 			input.hasHistory &&

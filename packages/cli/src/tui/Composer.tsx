@@ -194,6 +194,13 @@ export interface ComposerProps {
 	/** True while a history search owns Ctrl+C (it cancels the search, not the turn). */
 	readonly onHistorySearchChange?: (searching: boolean) => void
 	/**
+	 * Told whenever the box enters or leaves shell mode: typing `!` into an empty
+	 * draft enters it (the `!` is not kept in the text), Backspace on the empty
+	 * draft or Esc leaves it. The host colours the frame; the line is still sent
+	 * as `!` plus the text.
+	 */
+	readonly onShellModeChange?: (on: boolean) => void
+	/**
 	 * Empty-composer ↓ opens the currently active delegated-work panel.
 	 *
 	 * The result is deliberately not read here. Opening may have to wait on a
@@ -436,6 +443,8 @@ interface SavedDraft {
 	readonly cursor: number
 	/** Which of its characters were not typed here (`./triggers/provenance.ts`). */
 	readonly spans: readonly Span[]
+	/** The box was in shell mode (a leading `!` taken out of the text). */
+	readonly shell?: boolean
 }
 
 interface HistorySearchState {
@@ -699,6 +708,7 @@ export function Composer({
 	draftToRestore = null,
 	onDraftRestored,
 	onDraftPresenceChange,
+	onShellModeChange,
 	onHistorySearchChange,
 	onOpenAgentPanel,
 	onOpenAgents,
@@ -724,6 +734,20 @@ export function Composer({
 	const [, setHistoryIndexState] = useState<number>(-1)
 	const historyIndexRef = useRef(-1)
 	const historyDraftRef = useRef<SavedDraft | null>(null)
+	// Shell mode: a leading `!` typed into an empty draft. The ref is what the key
+	// handler reads; the state is what renders.
+	const [shellMode, setShellModeState] = useState(false)
+	const shellRef = useRef(false)
+	const onShellModeChangeRef = useRef(onShellModeChange)
+	onShellModeChangeRef.current = onShellModeChange
+	const setShellMode = useCallback((on: boolean) => {
+		if (shellRef.current === on) return
+		shellRef.current = on
+		setShellModeState(on)
+		onShellModeChangeRef.current?.(on)
+	}, [])
+	// A composer that goes away takes its mode with it, so the frame never stays green.
+	useEffect(() => () => onShellModeChangeRef.current?.(false), [])
 	// Characters of the draft not typed here, and Alt+W decisions. Refs, so
 	// submit reads what the last key left; `triggerVersion` re-renders when
 	// only an Alt+W decision changed.
@@ -878,8 +902,8 @@ export function Composer({
 	// unreachable no matter how many times the operator pressed Down.
 	const menuClosed = menuClosedFor === value
 	const commandSuggestions =
-		plainText || menuClosed ? [] : matchSlashCommands(value, userCommands, builtins)
-	const argumentHint = plainText ? undefined : argumentHintFor(value, userCommands)
+		plainText || shellMode || menuClosed ? [] : matchSlashCommands(value, userCommands, builtins)
+	const argumentHint = plainText || shellMode ? undefined : argumentHintFor(value, userCommands)
 	const activeMention = activeFileMention(value, cursor)
 	const fileSuggestions =
 		activeMention && !menuClosed
@@ -966,7 +990,7 @@ export function Composer({
 
 	/** The triggers `draft` names, read with this draft's provenance and Alt+W decisions. */
 	const detect = (draft: string): Detection =>
-		triggers
+		triggers && !shellRef.current
 			? detectTriggers(draft, triggers.registry, triggers.context, {
 					nonTyped: spansRef.current,
 					overrides: overrideMap(overridesRef.current),
@@ -1083,6 +1107,7 @@ export function Composer({
 	)
 
 	const reset = useCallback(() => {
+		setShellMode(false)
 		undoRef.current.clear()
 		verticalColumnRef.current = null
 		historyDraftRef.current = null
@@ -1103,7 +1128,18 @@ export function Composer({
 		setHistoryIndex,
 		setHistorySearch,
 		setSelectedIndex,
+		setShellMode,
 	])
+
+	/**
+	 * Put a history line in the box. A shell line (stored with its `!`) comes back
+	 * in shell mode without it; any other line leaves shell mode.
+	 */
+	const recallEntry = (entry: string): void => {
+		const shellLine = !plainText && entry.length > 1 && entry.startsWith('!')
+		setShellMode(shellLine)
+		setBuffer(shellLine ? entry.slice(1) : entry, undefined, 'recalled')
+	}
 
 	const sendNowChordRef = useRef(false)
 	/** Restore synchronously when Alt+Up is pressed, before the next typed key. */
@@ -1182,7 +1218,20 @@ export function Composer({
 	}
 
 	/** Put pasted text in the draft at the cursor, holding a large paste as a chip. */
-	const insertPastedText = (normalized: string): void => {
+	const insertPastedText = (pasted: string): void => {
+		let normalized = pasted
+		// A leading `!` pasted into an empty draft enters shell mode, as typing it does.
+		if (
+			!plainText &&
+			!shellRef.current &&
+			valueRef.current.length === 0 &&
+			attachmentsRef.current.length === 0 &&
+			normalized.startsWith('!')
+		) {
+			setShellMode(true)
+			normalized = normalized.slice(1)
+			if (normalized.length === 0) return
+		}
 		const position = cursorRef.current
 		setSelectedIndex(0)
 		const inserted = isChipPaste(normalized, terminal.rows ?? 24)
@@ -1437,7 +1486,7 @@ export function Composer({
 			}
 			const liveMenuClosed = menuClosedForRef.current === valueRef.current
 			const liveCommandSuggestions =
-				plainText || liveMenuClosed
+				plainText || shellRef.current || liveMenuClosed
 					? []
 					: matchSlashCommands(valueRef.current, userCommands, builtins)
 			const liveMention = liveMenuClosed
@@ -1523,12 +1572,15 @@ export function Composer({
 				const pastes = pasteStoreRef.current
 				// A held paste becomes its text; an image's marker stays where it was put.
 				const toMessage = (draft: string) => expandChips(draft, pastes)
-				const message = toMessage(valueRef.current).trim()
+				const typedMessage = toMessage(valueRef.current).trim()
+				const shell = shellRef.current
+				// Shell mode sends the line the way it was always spelled, `!` first.
+				const message = shell ? `!${typedMessage}` : typedMessage
 				// An image whose chip was deleted from the text is not sent.
 				const currentAttachments = attachmentsRef.current.filter((attachment) =>
 					valueRef.current.includes(chipFor(attachment, idFor(attachment))),
 				)
-				if (message.length === 0 && currentAttachments.length === 0) return false
+				if (typedMessage.length === 0 && currentAttachments.length === 0) return false
 				const submittedAttachments = currentAttachments.length > 0 ? currentAttachments : undefined
 				for (const attachment of currentAttachments)
 					noteAttachmentNumber(attachment, idFor(attachment))
@@ -1538,7 +1590,8 @@ export function Composer({
 				const whole = toMessage(valueRef.current)
 				const lead = whole.length - whole.trimStart().length
 				const wholeRanges = expandChipsWithRanges(valueRef.current, pastes).ranges
-				const pastedRanges = shiftRanges(wholeRanges, lead, message.length)
+				// Ranges are offsets in the typed text; a `!` line is a command, not a prompt.
+				const pastedRanges = shell ? [] : shiftRanges(wholeRanges, lead, typedMessage.length)
 				const armed = detection.hits
 					.filter((hit) => hit.state === 'armed')
 					.map((hit) => ({
@@ -1658,6 +1711,7 @@ export function Composer({
 							value: query,
 							cursor: cursorRef.current,
 							spans: spansRef.current,
+							shell: shellRef.current,
 						},
 						query,
 						matches: [...history]
@@ -1671,8 +1725,10 @@ export function Composer({
 					: Math.max(search.position - 1, -1)
 				const next = { ...search, position }
 				setHistorySearch(next)
-				if (position < 0) setBuffer(next.draft.value, next.draft.cursor, 'typed', next.draft.spans)
-				else setBuffer(next.matches[position] ?? next.draft.value, undefined, 'recalled')
+				if (position < 0) {
+					setShellMode(next.draft.shell === true)
+					setBuffer(next.draft.value, next.draft.cursor, 'typed', next.draft.spans)
+				} else recallEntry(next.matches[position] ?? next.draft.value)
 				return
 			}
 			if (key.return) {
@@ -1720,6 +1776,7 @@ export function Composer({
 				// Ctrl+C backs out of the search to the draft that was there before.
 				const before = historySearchRef.current.draft
 				setHistorySearch(null)
+				setShellMode(before.shell === true)
 				setBuffer(before.value, before.cursor, 'typed', before.spans)
 				return
 			}
@@ -1737,6 +1794,11 @@ export function Composer({
 				// and the clear window is not armed.
 				if (hasLiveSuggestions) {
 					setMenuClosedFor(valueRef.current)
+					return
+				}
+				// Esc in shell mode goes back to a prompt and keeps what was typed.
+				if (shellRef.current) {
+					setShellMode(false)
 					return
 				}
 				const empty = valueRef.current.length === 0 && attachmentsRef.current.length === 0
@@ -1771,6 +1833,16 @@ export function Composer({
 					priority: 'immediate',
 					timeoutMs: ESC_CLEAR_NOTICE_MS,
 				})
+				return
+			}
+			// Backspace on an empty shell draft leaves shell mode and deletes nothing.
+			if (
+				key.backspace &&
+				shellRef.current &&
+				valueRef.current.length === 0 &&
+				attachmentsRef.current.length === 0
+			) {
+				setShellMode(false)
 				return
 			}
 			if (isAction('edit:deleteWordBack', input, key) && key.backspace) {
@@ -1910,11 +1982,12 @@ export function Composer({
 						value: valueRef.current,
 						cursor: cursorRef.current,
 						spans: spansRef.current,
+						shell: shellRef.current,
 					}
 				}
 				const next = Math.min(historyIndexRef.current + 1, history.length - 1)
 				setHistoryIndex(next)
-				setBuffer(history[history.length - 1 - next] ?? '', undefined, 'recalled')
+				recallEntry(history[history.length - 1 - next] ?? '')
 				return
 			}
 			if (isAction('edit:lineNext', input, key)) {
@@ -1947,12 +2020,13 @@ export function Composer({
 					const draft = historyDraftRef.current
 					historyDraftRef.current = null
 					setHistoryIndex(-1)
+					setShellMode(draft?.shell === true)
 					setBuffer(draft?.value ?? '', draft?.cursor ?? 0, 'typed', draft?.spans ?? [])
 					return
 				}
 				const next = historyIndexRef.current - 1
 				setHistoryIndex(next)
-				setBuffer(history[history.length - 1 - next] ?? '', undefined, 'recalled')
+				recallEntry(history[history.length - 1 - next] ?? '')
 				return
 			}
 			if (isAction('chat:externalEditor', input, key)) {
@@ -2045,6 +2119,18 @@ export function Composer({
 				)
 				return
 			}
+			// `!` as the first thing in an empty draft turns the box into a shell line;
+			// the character itself is not kept. Anywhere else it is just a character.
+			if (
+				input === '!' &&
+				!plainText &&
+				!shellRef.current &&
+				valueRef.current.length === 0 &&
+				attachmentsRef.current.length === 0
+			) {
+				setShellMode(true)
+				return
+			}
 			setSelectedIndex(0)
 			const position = cursorRef.current
 			// One grapheme is a key. More in one chunk is queued keys or a paste
@@ -2083,9 +2169,11 @@ export function Composer({
 	if (hidden) return null
 
 	const modelIntent =
-		!plainText && !attachments.length ? parseModelSelectionIntent(value) : undefined
+		!plainText && !shellMode && !attachments.length ? parseModelSelectionIntent(value) : undefined
 	const effortIntent =
-		!plainText && !attachments.length ? /^\/effort\s+([a-z]+)$/.exec(value.trim())?.[1] : undefined
+		!plainText && !shellMode && !attachments.length
+			? /^\/effort\s+([a-z]+)$/.exec(value.trim())?.[1]
+			: undefined
 	const effortAvailable =
 		effortIntent === 'default' ||
 		(effortIntent !== undefined && reasoningEffortLevels?.includes(effortIntent))
@@ -2110,8 +2198,10 @@ export function Composer({
 	].sort((a, b) => a.start - b.start)
 	const beforeSegments = displaySegments(value, displayValue.start, cursor, styledSpans)
 	const afterSegments = displaySegments(value, cursor, displayValue.end, styledSpans)
-	const promptGlyph = disabled && !railFocused ? '…' : '❯'
-	const showPlaceholder = (!disabled || railFocused) && value.length === 0
+	const shellGlyph = shellMode && !(disabled && !railFocused)
+	const promptGlyph = disabled && !railFocused ? '…' : shellGlyph ? '!' : '❯'
+	// Shell mode clears the placeholder: the `!` and the green rules already say what the line is.
+	const showPlaceholder = (!disabled || railFocused) && value.length === 0 && !shellMode
 	const historySearchQuery = historySearch
 		? composerDisplayValue(historySearch.query, historySearch.query.length)
 		: null
@@ -2145,7 +2235,9 @@ export function Composer({
 			) : null}
 			<Box>
 				<Box width={2} flexShrink={0}>
-					<Text color={theme.text.muted}>{promptGlyph}</Text>
+					<Text color={shellGlyph ? theme.accent.shellMode : theme.text.muted} bold={shellGlyph}>
+						{promptGlyph}
+					</Text>
 				</Box>
 				<Box flexGrow={1}>
 					{showPlaceholder ? (

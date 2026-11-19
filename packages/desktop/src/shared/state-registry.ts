@@ -102,6 +102,13 @@ export const STATE_KEYS: readonly StateKeyDef[] = [
 		restore: 'always',
 	},
 	{
+		id: 'usage.lastLimits',
+		scope: 'app',
+		match: { exact: 'namzu.last-limits' },
+		maxBytes: 16 * KIB,
+		restore: 'always',
+	},
+	{
 		id: 'ui.sessionPanel.open',
 		scope: 'app',
 		match: { exact: 'namzu.session-panel-open' },

@@ -234,6 +234,7 @@ import {
 import { paneChord } from './pane-keys.js'
 import { type PasteRange, addPaste, confirmedRanges, trackEdit } from './paste-ranges.js'
 import { pendingMessages } from './pending-messages.js'
+import type { PendingActions } from './pending-tail.js'
 import { plainError, plainErrorText } from './plain-error.js'
 import { PluginsPage, PluginsSidebar } from './plugins-page.js'
 import {
@@ -295,7 +296,14 @@ import { Button } from './ui/button.js'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from './ui/empty.js'
 import { UndoDialog } from './undo-dialog.js'
 import { undoNotice } from './undo-model.js'
-import { createLimitsRefresher, readBudgets, writeBudgets } from './usage-limits-model.js'
+import {
+	createLimitsRefresher,
+	mergeLimits,
+	readBudgets,
+	readStoredLimits,
+	writeBudgets,
+	writeStoredLimits,
+} from './usage-limits-model.js'
 import type { UsageLimitsControl } from './usage-limits-popover.js'
 import { useAppearancePrefs } from './use-appearance-prefs.js'
 import { useArchivedConversations } from './use-archived-conversations.js'
@@ -972,7 +980,17 @@ export function App({
 		[sessionId],
 	)
 	// The drawer opens from the details popover, so closing it returns focus to the popover's icon.
-	const [limitsView, setLimitsView] = useState<LimitsNotification>()
+	const [limitsView, setLimitsViewState] = useState<LimitsNotification | undefined>(() =>
+		readStoredLimits(viewState, Date.now()),
+	)
+	// What the account says is laid over what it last said, and kept so a restart does not start empty.
+	const setLimitsView = useCallback((live: LimitsNotification) => {
+		setLimitsViewState((before) => mergeLimits(before, live))
+	}, [])
+	// The write follows the state, outside the updater, which React may run twice.
+	useEffect(() => {
+		if (limitsView) writeStoredLimits(viewState, limitsView)
+	}, [limitsView])
 	// The conversation and files the dialog was opened for: what it shows does not move under the person.
 	const [commitFor, setCommitFor] = useState<{ sessionId: string; paths: string[] }>()
 	const commitTrigger = useRef<HTMLElement | null>(null)
@@ -1665,8 +1683,17 @@ export function App({
 								() => {},
 							),
 						now: Date.now,
+						onDetails: () => setSessionPanelOpen(true),
 					},
-		[palConversation, limitsView, activeProviders.selected?.id, budgets, limitsRefresher],
+		[
+			palConversation,
+			limitsView,
+			activeProviders.selected?.id,
+			budgets,
+			limitsRefresher,
+			setLimitsView,
+			setSessionPanelOpen,
+		],
 	)
 	const commitPaths = useMemo(() => {
 		if (!sessionPanelActive) return []
@@ -2659,7 +2686,15 @@ export function App({
 					),
 				)
 		})
-	}, [updateProject, upsertConversation, attached.reload, api, invalidateComputerInput, showError])
+	}, [
+		updateProject,
+		upsertConversation,
+		attached.reload,
+		api,
+		invalidateComputerInput,
+		showError,
+		setLimitsView,
+	])
 	useEffect(() => {
 		// Choice settlement resumes metadata admission even for the same active ID.
 		void metadataEpoch
@@ -5461,6 +5496,20 @@ export function App({
 		setDrafts((all) => ({ ...all, [target]: value }))
 		void api.saveDraft(target, value).catch((failure) => showError(failure, 'save your draft'))
 	}
+	// Which waiting message is open for editing in the conversation. It is only what the person is doing
+	// right now, like an open dialog: it is not kept, and it is not part of the conversation.
+	const [pendingEditing, setPendingEditing] = useState<{ sessionId: string; id: string } | null>(
+		null,
+	)
+	const pendingActions: PendingActions = {
+		canSendNow: Boolean(api.sendNow),
+		disabled: loading || restoringTabs || frozen,
+		onSendNow: (id) => void act(() => api.sendNow?.(sessionId, id) ?? Promise.resolve()),
+		onSave: (id, text) => act(() => api.updateQueued?.(sessionId, id, text) ?? Promise.resolve()),
+		onRemove: (id) => void act(() => api.removeQueued(sessionId, id)),
+	}
+	const onPendingEditingChange = (id: string | null) =>
+		setPendingEditing(id === null ? null : { sessionId, id })
 	const editQueued = useCallback(
 		async (itemId?: string) => {
 			const target = sessionId
@@ -7979,6 +8028,12 @@ export function App({
 											providerName={providerName(choice.provider, failedProviderLabel)}
 											intro={conversation?.palGreeting}
 											received={palOperatorMessages}
+											pending={pendingMessages(thread)}
+											pendingActions={pendingActions}
+											pendingEditing={
+												pendingEditing?.sessionId === sessionId ? pendingEditing.id : null
+											}
+											onPendingEditingChange={onPendingEditingChange}
 											renderMessageAction={(message, key) => (
 												<MessageActions text={message.text}>
 													<LocalSpeechReadAloud
@@ -8000,6 +8055,12 @@ export function App({
 															<Transcript
 																key={sessionId || 'blank'}
 																thread={thread}
+																pending={pendingMessages(thread)}
+																pendingActions={pendingActions}
+																pendingEditing={
+																	pendingEditing?.sessionId === sessionId ? pendingEditing.id : null
+																}
+																onPendingEditingChange={onPendingEditingChange}
 																animate={!historyPending && !restoringTabs}
 																workDisclosures={
 																	workDisclosureView.sessionId === sessionId
@@ -8318,15 +8379,8 @@ export function App({
 										: undefined
 								}
 								pending={pendingMessages(thread)}
-								trayActions={{
-									canSendNow: Boolean(api.sendNow),
-									disabled: loading || restoringTabs || frozen,
-									onSendNow: (id) =>
-										void act(() => api.sendNow?.(sessionId, id) ?? Promise.resolve()),
-									onSave: (id, text) =>
-										act(() => api.updateQueued?.(sessionId, id, text) ?? Promise.resolve()),
-									onRemove: (id) => void act(() => api.removeQueued(sessionId, id)),
-								}}
+								onEditPending={(id) => setPendingEditing({ sessionId, id })}
+								editingPending={pendingEditing?.sessionId === sessionId}
 								onSend={() => void act(send)}
 								onQueue={() => void act(() => send('queue'))}
 								onStop={() => {
