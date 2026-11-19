@@ -17,6 +17,8 @@ import { ChevronRightIcon } from './icons.js'
 import { Message, MessageContent, MessageFooter, timeDescription, timeRoleOf } from './message.js'
 import { TurnOutputs } from './output-card.js'
 import { PalMessageReceipts } from './pal-message-receipts.js'
+import type { PendingMessages } from './pending-messages.js'
+import { type PendingActions, PendingTail } from './pending-tail.js'
 import { PlanBox, PlanRow, PlanTouched } from './plan-row-view.js'
 import { isTaskEntry, latestPlanTurn, planSummary } from './plan-row.js'
 import { ProviderNameContext } from './provider-name-context.js'
@@ -556,7 +558,7 @@ function TurnActivity({
 							/>
 						)}
 						<PhaseLabel label={label} animate={animate} />
-						{stepMs !== undefined && (
+						{stepMs !== undefined && elapsedLabel(stepMs) !== elapsed && (
 							<span className="turn-activity-step" data-live-step-clock="">
 								{elapsedLabel(stepMs)}
 							</span>
@@ -705,6 +707,11 @@ function LiveStatus({
 	}, [label])
 	const total = turnActiveMs(thread, thread.turn, now)
 	const stepMs = liveStepMs(thread, now)
+	// While the first step is the whole turn so far, its clock is the total's twin: show one.
+	const stepClock =
+		stepMs === undefined || (total !== undefined && elapsedLabel(stepMs) === elapsedLabel(total))
+			? undefined
+			: elapsedLabel(stepMs)
 	if (wait)
 		return (
 			<output className="working working-wait" aria-live="polite" data-transcript-phase="working">
@@ -732,9 +739,9 @@ function LiveStatus({
 			<span className="working-label transcript-phase-label" aria-hidden="true">
 				<span className="transcript-phase-text">{label ?? retained.current}</span>
 			</span>
-			{stepMs !== undefined && !visuallyHidden && (
+			{stepClock !== undefined && !visuallyHidden && (
 				<span className="working-step" aria-hidden="true" data-live-step-clock="">
-					{elapsedLabel(stepMs)}
+					{stepClock}
 				</span>
 			)}
 			{total !== undefined && showElapsed && !visuallyHidden && (
@@ -1024,6 +1031,10 @@ export function Transcript({
 	onContinueStopped,
 	stopShownBelow = false,
 	dateSeparators = true,
+	pending,
+	pendingActions,
+	pendingEditing = null,
+	onPendingEditingChange,
 }: {
 	thread: ThreadState
 	animate?: boolean
@@ -1059,6 +1070,15 @@ export function Transcript({
 	 */
 	stopShownBelow?: boolean
 	dateSeparators?: boolean
+	/**
+	 * Messages typed while a reply runs and not read yet, drawn after the last message and above the
+	 * working row. They are not part of the conversation's history until the model receives them.
+	 */
+	pending?: PendingMessages
+	pendingActions?: PendingActions
+	/** The waiting message being edited in place, if any. */
+	pendingEditing?: string | null
+	onPendingEditingChange?: (id: string | null) => void
 }) {
 	const ref = useRef<HTMLDivElement>(null)
 	useTranscriptEntryMotion(ref, thread, animate)
@@ -1195,6 +1215,14 @@ export function Transcript({
 					/>
 				)
 			})}
+			{pending && pendingActions && (
+				<PendingTail
+					pending={pending}
+					actions={pendingActions}
+					editing={pendingEditing}
+					onEditingChange={onPendingEditingChange ?? (() => {})}
+				/>
+			)}
 			<LiveStatus
 				thread={thread}
 				animate={animate}

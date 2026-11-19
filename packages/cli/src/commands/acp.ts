@@ -317,6 +317,8 @@ type AcpLiveSession = Pick<
 	| 'sideModel'
 	| 'clearStaleResultsAfterIdle'
 > & {
+	/** Records a mode change on the turn running now (the log and the model's one-time notice). */
+	readonly setPermissionMode?: AgentSession['setPermissionMode']
 	readonly resumePaused?: AgentSession['resumePaused']
 	readonly abandonTurn?: AgentSession['abandonTurn']
 	readonly describeComputerUseCall?: AgentSession['describeComputerUseCall']
@@ -396,6 +398,11 @@ interface AcpRuntimeRecord {
 	readonly permissionSettings?: PermissionSettings
 	/** The model this connection runs on now; a retry repeats the paused turn on it, not on the failed one. */
 	readonly model: string
+	/**
+	 * The mode the turn running now decides its calls under, read at every decision. Set while a
+	 * turn runs and cleared when it ends; a change made meanwhile writes `mode`.
+	 */
+	liveMode?: { mode: PermissionMode }
 	retrySettings?: {
 		turnId: string
 		settings: ReturnType<typeof validateComposerSendSettings>
@@ -599,6 +606,15 @@ export interface CliAcpRuntime {
 	 * engine has reported a window. `full` also lists the tool server tools, skills, agents and notes.
 	 */
 	contextUsage?(sessionId: string, detail: ContextDetail): Promise<ContextReport | null>
+	/**
+	 * Changes the mode of the conversation's running turn now, so the next call it makes is decided
+	 * under `mode`. Refuses a mode the settings close, in plain words. With no turn running it only
+	 * checks the mode: the next message carries it.
+	 */
+	setPermissionMode?(
+		sessionId: string,
+		mode: PermissionMode,
+	): Promise<{ mode: PermissionMode; applied: 'now' | 'next-message' }>
 	jobs(sessionId: string): readonly import('@namzu/sdk').BackgroundJob[]
 	readJob(sessionId: string, jobId: string): unknown
 	stopJob(sessionId: string, jobId: string): Promise<unknown>
@@ -1316,6 +1332,7 @@ export function createCliAcpRuntime(
 			// `onEvent`, is what the `finally` below compares against, since
 			// `record.route` never holds `onEvent` itself anymore.
 			let liveInbox: LivePromptInbox | undefined
+			let liveTurn: { mode: PermissionMode } | undefined
 			// A conversation's first message is named once, beside its first turn.
 			if (history.length === 0 && prompt.trim().length > 0) titleFeed?.expect(sessionId, prompt)
 			const routedEvent = (event: SessionEvent): void => {
@@ -1404,7 +1421,9 @@ export function createCliAcpRuntime(
 				assertModeAllowed(record, settings.permissionMode)
 				// A classifier that stops being trusted drops the rest of this turn to
 				// asking, which the person sees as the approval prompts they now get.
-				let turnMode: PermissionMode = settings.permissionMode
+				const turn = { mode: settings.permissionMode }
+				liveTurn = turn
+				record.liveMode = turn
 				if (!record.ownedPal) {
 					liveInputs.get(sessionId)?.close()
 					liveInbox = new LivePromptInbox(
@@ -1458,9 +1477,9 @@ export function createCliAcpRuntime(
 					...(staleResults ? { clearStaleToolResults: staleResults } : {}),
 					// The words the person sent: a target such as +500k is read from these only.
 					typedInput: prompt,
-					currentPermissionMode: () => turnMode,
+					currentPermissionMode: () => turn.mode,
 					onAutoModeLimit: () => {
-						turnMode = 'prompt'
+						turn.mode = 'prompt'
 					},
 					...(undoNote ? { systemNote: undoNote } : {}),
 					...(computer
@@ -1509,6 +1528,7 @@ export function createCliAcpRuntime(
 				}
 			} finally {
 				liveInbox?.close()
+				if (liveTurn && record.liveMode === liveTurn) record.liveMode = undefined
 				if (record.route === routedEvent) record.route = undefined
 				void titleFeed?.flush(sessionId)
 			}
@@ -1802,6 +1822,19 @@ export function createCliAcpRuntime(
 				signal,
 				timing: 'beside-turn',
 			})
+		},
+		setPermissionMode: async (sessionId, mode) => {
+			if (closed) throw new Error('The connection is closed.')
+			const record = records.get(sessionId)
+			if (!record) return { mode, applied: 'next-message' }
+			assertModeAllowed(record, mode)
+			const turn = record.liveMode
+			if (!turn) return { mode, applied: 'next-message' }
+			// The turn reads its mode at every decision; the log and the model hear of the change
+			// before a call is decided under it.
+			turn.mode = mode
+			await record.session.setPermissionMode?.(mode)
+			return { mode, applied: 'now' }
 		},
 		liveInputStatus: async (sessionId, scopeId, scope) => {
 			if (closed) throw new Error('The connection is closed.')

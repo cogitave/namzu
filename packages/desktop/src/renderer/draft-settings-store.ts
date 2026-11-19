@@ -1,5 +1,5 @@
 import { NAMED_FAILURE_SENTENCES } from '../shared/named-failures.js'
-import type { DraftSettings } from '../shared/protocol.js'
+import type { DraftSaveAnswer, DraftSettings } from '../shared/protocol.js'
 import { ReconnectRetry } from '../shared/reconnect-retry.js'
 
 export interface DraftSettingsSnapshot {
@@ -27,7 +27,7 @@ export class DraftSettingsStore {
 	private readonly retries = new ReconnectRetry()
 	constructor(
 		private readonly read: (owner: string) => Promise<DraftSettings>,
-		private readonly write: (owner: string, value: DraftSettings) => Promise<void>,
+		private readonly write: (owner: string, value: DraftSettings) => Promise<DraftSaveAnswer>,
 		private readonly changed: (owner: string, snapshot: DraftSettingsSnapshot) => void,
 		private readonly failed: (owner: string, error: unknown) => void,
 	) {}
@@ -143,6 +143,7 @@ export class DraftSettingsStore {
 		const snapshot = structuredClone(value)
 		const revision = ++state.revision
 		this.cancelRead(owner)
+		const before = state.value
 		state.value = snapshot
 		state.unconfirmed = snapshot
 		state.error = undefined
@@ -152,12 +153,23 @@ export class DraftSettingsStore {
 			.catch(() => {})
 			.then(() => this.write(owner, snapshot))
 			.then(
-				() => {
+				(result) => {
 					if (state.revision !== revision) return
 					state.known = true
 					state.unconfirmed = undefined
 					state.error = undefined
+					const refusal = result ? result.permissionModeRefused : undefined
+					if (refusal) {
+						// The engine did not take the mode: the menu goes back to the one it holds.
+						const { permissionMode: _refused, ...kept } = snapshot.options ?? {}
+						const held = before?.options?.permissionMode
+						state.value = {
+							...snapshot,
+							options: { ...kept, ...(held !== undefined ? { permissionMode: held } : {}) },
+						}
+					}
 					this.publish(owner)
+					if (refusal) this.failed(owner, new Error(refusal))
 				},
 				(error) => {
 					if (state.revision === revision) {

@@ -88,6 +88,22 @@ describe('system notices', () => {
 		])
 	})
 
+	it('raises nothing for a message that waits while a reply runs, or for the next reply starting from it', () => {
+		const t = setup()
+		// Waiting messages have no notice of their own: the only calls are about permissions, questions and turns.
+		const methods = Object.getOwnPropertyNames(SystemNotices.prototype).filter(
+			(name) => name !== 'constructor',
+		)
+		expect(methods.filter((name) => /queue|waiting|pending|message/i.test(name))).toEqual([])
+		t.notices.turnStarted('a')
+		t.advance(1000)
+		// The first reply ends quickly and the queued message starts the next one at once.
+		t.notices.turnEnded('a', 'finished', false)
+		t.notices.turnStarted('a')
+		t.advance(FOLD_MS)
+		expect(t.shown).toHaveLength(0)
+	})
+
 	it('notifies a turn that ran past the threshold and stays quiet for one you watched end', () => {
 		const t = setup()
 		t.notices.turnStarted('a')

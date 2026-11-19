@@ -13,7 +13,7 @@ const input = (overrides: Partial<ComposerKeyInput> = {}): ComposerKeyInput => (
 	selectionEnd: 0,
 	hasDraft: false,
 	editableQueued: false,
-	trayEditing: false,
+	editingPending: false,
 	hasHistory: false,
 	walking: false,
 	canHold: false,
@@ -85,7 +85,7 @@ describe('ArrowUp', () => {
 		})
 		expect(
 			decideComposerKey(
-				input({ key: 'ArrowUp', editableQueued: true, trayEditing: true, hasHistory: true }),
+				input({ key: 'ArrowUp', editableQueued: true, editingPending: true, hasHistory: true }),
 			).action,
 		).toBe('recall')
 	})

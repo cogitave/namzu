@@ -5294,6 +5294,7 @@ ACP methods and are not automatically installed in embedded SDK servers.
 | `namzu/plugins/set_enabled` | `sessionId`, `name`, `enabled` | changes one loaded plugin in an idle conversation and returns its inventory |
 | `namzu/turns/undo-status`, `namzu/turns/undo-preview`, `namzu/turns/undo` | see [Turn undo](turn-undo.md#acp-methods) | per-reply file undo, used by [Undoing a reply](#undoing-a-reply) |
 | `namzu/session/context` | `sessionId`, optional `detail` (`summary` or `full`) | where the conversation's context window goes: the [context panel](#context-panel)'s answer, or `null` before the engine has reported a window. Optional group `contextPanel` |
+| `namzu/session/set-permission-mode` | `sessionId`, `mode` | sets the mode of the reply running now, so its next call is decided under it, and records the change; `{ mode, applied: 'now' }`, or `applied: 'next-message'` when no reply runs. Refused with the reason when the settings close the mode. See [changing the mode while Namzu is working](permission-modes.md#changing-the-mode-while-namzu-is-working). Optional group `livePermissionMode` |
 | `namzu/jobs/list` | `sessionId` | this session's jobs |
 | `namzu/jobs/read` | `sessionId`, `jobId` | retained chunk, offsets and dropped-byte count |
 | `namzu/jobs/stop` | `sessionId`, `jobId` | stopped job |
@@ -5421,18 +5422,24 @@ Desktop follows the terminal's working surface (see [Terminal design](terminal-d
 
 **Messages typed while Namzu replies.** Enter sends the text into the running reply: the CLI host
 (`namzu/conversations/input`) hands it to the turn at its next model request. Tab, or the queue icon beside
-the model, holds it for after the reply instead. Both wait in a **tray fused to the top of the composer**
-(`composer-tray.tsx`): same width and glass as the message box, one row per message in the order it will be
-used, the messages sent into the reply first ("Sending to this reply") and then the held ones ("After this
-reply"), under a "N waiting" line, four rows high before it scrolls. Each row has quiet **Send now**, **Edit**
-and **Remove**, shown on hover and focus. Send now stops the reply and runs that message at once
-(`operator.sendNow`; a message sent into the reply that had not arrived becomes the next one). Edit turns the
-row's text into an inline editor (`operator.updateQueued`): Enter saves, Shift+Enter adds a line, Esc
-cancels, and the message keeps its place. Up in an empty message box opens the newest held message the same
-way (Alt+Up still pulls it into the box). A message the model has received leaves the tray on the
-`live-input` event and appears as an ordinary message in the conversation; it is never editable, and a row
-sent into the reply offers only Send now. After a stopped or failed reply the tray says "Paused after the
-stopped reply · send a message to run them".
+the model, holds it for after the reply instead. Both wait **at the end of the conversation**, drawn as the ordinary right-aligned message bubble
+(`pending-tail.tsx`, mounted by `Transcript` after the last message and above the working row): one bubble per
+message in the order it will be used, the messages sent into the reply first and then the held ones. Nothing
+is drawn in or above the message box. Under each bubble are quiet, always visible **Send now**, **Edit** and
+**Remove** actions; a message sent into the reply offers only Send now, because it cannot be taken back. The
+"Sending to this reply" and "After this reply" notes are the bubble's tooltip and read by a screen reader; a
+"Waiting" or "Delivery not confirmed" note is shown as text. Send now stops the reply and runs that message at
+once (`operator.sendNow`; a message sent into the reply that had not arrived becomes the next one). Edit turns
+the bubble into an inline editor (`operator.updateQueued`): Enter saves, Shift+Enter adds a line, Esc cancels,
+and the message keeps its place. Up in an empty message box opens the newest held message the same way (Alt+Up
+still pulls it into the box). A waiting message is not part of the history (`thread.messages`, undo and the
+context never see it): the row list comes from `pendingMessages(thread)` over `thread.liveInputs` and
+`thread.queuedItems`, which the engine host's queue and log own. When the model receives a message (the
+`live-input` event) or its own turn starts, it appears as an ordinary message in the conversation and leaves
+the tail. After a stopped or failed reply a muted line under the last waiting bubble says "Paused after the
+stopped reply · send a message to run them". Which message is open in the editor is the view's own state, like
+an open dialog: it is not kept across a restart, and a waiting message itself comes back only as the host
+restores its queue. No operating-system notification is raised for a queued message.
 
 The host reported live input as unavailable for the whole of every Namzu turn (the engine wrapper kept the
 conversation reserved), so before this change every message typed while working silently waited for the
