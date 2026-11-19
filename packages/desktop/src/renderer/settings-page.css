@@ -756,19 +756,22 @@
 	}
 }
 @container settings-dialog (max-width: 640px) {
-	/* A lone switch or button stays beside its label: stacking it only adds a line. */
-	.settings-row:not([data-stacked]):not(
-			:has(> .settings-row-control > :is(.settings-switch, button):only-child)
-		)
-		:not(:has(> .settings-row-control > .settings-config-control .settings-switch)) {
+	/* A lone switch or button stays beside its label: stacking it only adds a line. One :not() list,
+	   so the conditions are not read as descendants of each other. */
+	.settings-row:not(
+			[data-stacked],
+			:has(> .settings-row-control > :is(.settings-switch, button):only-child),
+			:has(> .settings-row-control > .settings-config-control .settings-switch)
+		) {
 		flex-direction: column;
 		align-items: stretch;
 		gap: 8px;
 	}
-	.settings-row:not([data-stacked]):not(
-			:has(> .settings-row-control > :is(.settings-switch, button):only-child)
+	.settings-row:not(
+			[data-stacked],
+			:has(> .settings-row-control > :is(.settings-switch, button):only-child),
+			:has(> .settings-row-control > .settings-config-control .settings-switch)
 		)
-		:not(:has(> .settings-row-control > .settings-config-control .settings-switch))
 		> .settings-row-control {
 		max-width: 100%;
 	}

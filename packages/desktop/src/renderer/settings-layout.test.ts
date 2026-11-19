@@ -65,12 +65,13 @@ describe('Settings layout rules', () => {
 
 	it('keeps a lone switch or button beside its label under 640 px', () => {
 		const page = css('settings-page.css')
-		const block = page.slice(page.indexOf('@container settings-dialog (max-width: 640px)'))
-		expect(block.slice(0, block.indexOf('@container', 10))).toMatch(
-			/:not\(\s*:has\(> \.settings-row-control > :is\(\.settings-switch, button\):only-child\)/,
+		const from = page.indexOf('@container settings-dialog (max-width: 640px)')
+		const block = page.slice(from, page.indexOf('/* A narrow dialog keeps the column'))
+		// One :not() list: a second :not() after whitespace would be a descendant selector.
+		expect(block).toMatch(
+			/\.settings-row:not\(\s*\[data-stacked\],\s*:has\(> \.settings-row-control > :is\(\.settings-switch, button\):only-child\),\s*:has\(> \.settings-row-control > \.settings-config-control \.settings-switch\)\s*\) \{/,
 		)
-		// Rows drawn from the engine's config put the switch inside .settings-config-control.
-		expect(block).toMatch(/\.settings-config-control \.settings-switch/)
+		expect(block).not.toMatch(/\)\s+:not\(/)
 	})
 
 	it('lets a number field shrink beside its unit in the 640-760 px band', () => {
