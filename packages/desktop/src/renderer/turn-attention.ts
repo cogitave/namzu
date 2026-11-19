@@ -23,8 +23,15 @@ export function turnAttention(
 ): TurnAttention {
 	let failedCommands = 0
 	let notAllowed = 0
+	// The call that handed the turn to the person (a sign-in page) did not fail: the turn waits for
+	// them at it, so it is not counted as a failed command while the handoff is open.
+	let handedOff: TimelineEntry | undefined
+	if (thread.handoff)
+		for (const entry of entries)
+			if (entry.kind === 'tool' && entry.turn === thread.turn) handedOff = entry
 	for (const entry of entries) {
 		if (entry.kind !== 'tool') continue
+		if (entry === handedOff) continue
 		const tool = thread.tools[entry.id]
 		if (!tool) continue
 		const facts = tool.facts

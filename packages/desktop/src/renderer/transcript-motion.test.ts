@@ -279,6 +279,15 @@ describe('truthful turn labels', () => {
 		expect(turnActivityLabel(thread, 1)).toBe('Stopped · 1m 5s')
 		thread.turns[1].reason = 'paused'
 		expect(turnActivityLabel(thread, 1)).toBe('Paused · 1m 5s')
+		// Paused for the person (a sign-in): the turn waits for them, it is not just paused.
+		thread.handoff = {
+			turnId: 't1',
+			checkpointId: 'c1',
+			reason: 'Sign in to example.test',
+			tool: 'browser',
+		}
+		expect(turnActivityLabel(thread, 1)).toBe('Waiting for you · 1m 5s')
+		thread.handoff = undefined
 		thread.turns[1].reason = 'structured_output_failed'
 		expect(turnActivityLabel(thread, 1)).toBe('Work incomplete · 1m 5s')
 		thread.turns[1].reason = undefined

@@ -2,6 +2,7 @@
 
 ## 2026-11-20
 
+- **Update** [Desktop](cli/desktop.md#a-turn-that-needs-you): a turn waiting for the person (a sign-in) reads "Waiting for you" in its header, the call that handed it over is not shown as a failed command, no "Paused." line repeats the card, and Continue also answers Ctrl+Enter with its key shown, like Accept and Send.
 - **Update** [Terminal design](cli/terminal-design.md#keypad-keys): the keypad Enter sends a message and every other keypad key acts as the key it stands for (digits and operators type, arrows, Home, End, Page Up and Down, Insert and Delete move and edit); the terminal reports them as codes of their own under the keyboard protocol the message box turns on, and they were not understood. `.changeset/cli-keypad-keys.md`.
 - **Update** [Pasting images](cli/clipboard-and-images.md): on macOS a file copied in Finder attaches (second fixed read, `«class furl»`), a paste of a screenshot-preview path whose file is gone reads the clipboard picture instead, and the page says the macOS key is Ctrl+V. `.changeset/cli-keypad-keys.md`.
 

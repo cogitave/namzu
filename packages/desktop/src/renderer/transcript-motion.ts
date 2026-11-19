@@ -205,11 +205,15 @@ export function turnActivityLabel(thread: ThreadState, turn: number): string {
 	const duration =
 		milliseconds === undefined || milliseconds < 1000 ? undefined : elapsedLabel(milliseconds)
 	const outcome = transcriptOutcome(reason)
+	// A turn a tool paused for the person (a sign-in) waits for them; its card says what to do.
+	const waitsForPerson = turn === thread.turn && thread.handoff !== undefined
 	const label =
 		turn === thread.turn && thread.error
 			? 'Work incomplete'
 			: outcome === 'paused'
-				? 'Paused'
+				? waitsForPerson
+					? 'Waiting for you'
+					: 'Paused'
 				: outcome === 'stopped'
 					? 'Stopped'
 					: outcome === 'incomplete'

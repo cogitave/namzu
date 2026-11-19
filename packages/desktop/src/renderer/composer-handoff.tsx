@@ -5,6 +5,10 @@ import { ShieldAlertIcon } from './icons.js'
 import './composer-approval.css'
 import './composer-handoff.css'
 
+/** The key that continues, written the way this computer writes it. */
+const continueKey = () =>
+	typeof navigator !== 'undefined' && /Mac/.test(navigator.platform) ? '⌘↵' : 'Ctrl+Enter'
+
 /**
  * A turn a tool paused because it needs the person: a sign-in, a check on a page, a second factor.
  * It sits where an approval does and says in plain words what to do, with Continue (the turn goes
@@ -44,10 +48,15 @@ export function ComposerHandoff({
 			aria-label="Namzu is waiting for you"
 			data-testid="handoff-card"
 			onKeyDown={(event) => {
-				// Esc stops it, as in the terminal; Enter is the focused button's own.
-				if (event.key === 'Escape' && !event.defaultPrevented) {
+				// Esc stops it, as in the terminal; Ctrl+Enter (Cmd+Enter on a Mac) continues it, as Accept
+				// and Send do on the other cards; a plain Enter is the focused button's own.
+				if (event.defaultPrevented) return
+				if (event.key === 'Escape') {
 					event.preventDefault()
 					act(onStop)
+				} else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+					event.preventDefault()
+					act(onContinue)
 				}
 			}}
 		>
@@ -91,10 +100,14 @@ export function ComposerHandoff({
 							data-tone="accept"
 							aria-describedby={textId}
 							disabled={disabled || busy}
-							title="Continue the turn from where it stopped"
+							title={`Continue the turn from where it stopped · ${continueKey()}`}
+							aria-keyshortcuts="Control+Enter"
 							onClick={() => act(onContinue)}
 						>
 							Continue
+							<span className="approval-key" aria-hidden="true">
+								{continueKey()}
+							</span>
 						</button>
 					</div>
 				</footer>
