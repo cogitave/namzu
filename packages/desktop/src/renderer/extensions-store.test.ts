@@ -115,6 +115,17 @@ describe('debounced state-event refreshes', () => {
 		expect(fn).toHaveBeenCalledTimes(1)
 	})
 
+	it('still reads while events keep arriving closer together than the delay', () => {
+		vi.useFakeTimers()
+		const fn = vi.fn()
+		const d = debounced(fn, 400, 1000)
+		for (let i = 0; i < 20; i++) {
+			d.call()
+			vi.advanceTimersByTime(100)
+		}
+		expect(fn).toHaveBeenCalled()
+	})
+
 	it('reads nothing once cancelled', () => {
 		vi.useFakeTimers()
 		const fn = vi.fn()

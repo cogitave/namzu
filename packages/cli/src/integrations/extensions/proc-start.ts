@@ -88,9 +88,10 @@ export interface StartTokenDeps {
 	readonly read?: (pid: number) => string
 	/** The non-blocking read; used by `peek` where the blocking one is a process spawn. */
 	readonly readAsync?: (pid: number) => Promise<string>
-	/** Whether `read` blocks on a spawn, so `peek` must not call it. Defaults to win32. */
+	/** Whether `read` blocks on a spawn, so `peek` must not call it. Defaults to every platform but linux. */
 	readonly slow?: boolean
 	/** Called when a probe that `peek` started has answered, so a caller can look again. */
+	readonly now?: () => number
 	readonly onResolved?: (pid: number, token: string) => void
 }
 
@@ -106,6 +107,8 @@ export interface StartTokens {
 	 * as "not known yet".
 	 */
 	peek(pid: number): string | undefined
+	/** Resolves once every probe `peek` started has answered. */
+	settled(): Promise<void>
 	/** Forget one pid, or all. */
 	evict(pid?: number): void
 	readonly size: number
@@ -119,54 +122,84 @@ export interface StartTokens {
 export function createStartTokens(deps: StartTokenDeps = {}): StartTokens {
 	const alive = deps.alive ?? pidAlive
 	const read = deps.read ?? ((pid: number) => startTokenOf(pid))
-	const slow = deps.slow ?? process.platform === 'win32'
+	// Linux reads /proc (cheap, never cached: a reused pid is seen at once); everywhere else a read spawns.
+	const slow = deps.slow ?? process.platform !== 'linux'
 	const readAsync = deps.readAsync ?? ((pid: number) => startTokenOfAsync(pid))
-	const known = new Map<number, string>()
+	const now = deps.now ?? Date.now
+	const known = new Map<number, { token: string; at: number }>()
+	const failedAt = new Map<number, number>()
 	const pending = new Map<number, Promise<void>>()
 	const cached = (pid: number): string | undefined => {
-		const t = known.get(pid)
-		if (t === undefined) return undefined
-		if (alive(pid)) return t
+		const e = known.get(pid)
+		if (e === undefined) return undefined
+		if (alive(pid)) return e.token
 		known.delete(pid)
 		return undefined
 	}
+	const remember = (pid: number, t: string): void => {
+		// An empty answer is a failed read, not a start time: never kept as one.
+		if (t === '') failedAt.set(pid, now())
+		else {
+			failedAt.delete(pid)
+			if (alive(pid)) known.set(pid, { token: t, at: now() })
+		}
+	}
+	const probe = (pid: number): void => {
+		if (pending.has(pid)) return
+		const p = readAsync(pid)
+			.then((t) => {
+				remember(pid, t)
+				deps.onResolved?.(pid, t)
+			})
+			.catch(() => undefined)
+			.finally(() => pending.delete(pid))
+		pending.set(pid, p)
+	}
 	return {
 		strict(pid) {
+			if (!slow) return read(pid)
 			const hit = cached(pid)
 			if (hit !== undefined) return hit
 			const t = read(pid)
-			if (alive(pid)) known.set(pid, t)
+			remember(pid, t)
 			return t
 		},
 		peek(pid) {
+			if (!slow) return read(pid)
+			const e = known.get(pid)
 			const hit = cached(pid)
-			if (hit !== undefined) return hit
-			if (!slow) {
-				const t = read(pid)
-				if (alive(pid)) known.set(pid, t)
-				return t
+			if (hit !== undefined) {
+				// A pid can be reused by another process: after a while the answer is read again, and the
+				// next caller gets the new one.
+				if (e && now() - e.at > REVERIFY_MS) probe(pid)
+				return hit
 			}
-			if (!pending.has(pid)) {
-				const probe = readAsync(pid)
-					.then((t) => {
-						if (alive(pid)) known.set(pid, t)
-						deps.onResolved?.(pid, t)
-					})
-					.catch(() => undefined)
-					.finally(() => pending.delete(pid))
-				pending.set(pid, probe)
-			}
+			const f = failedAt.get(pid)
+			// A read that failed is not retried at once (every answer would start another probe).
+			if (f !== undefined && now() - f < FAILED_RETRY_MS) return ''
+			probe(pid)
 			return undefined
 		},
+		async settled() {
+			await Promise.all([...pending.values()])
+		},
 		evict(pid) {
-			if (pid === undefined) known.clear()
-			else known.delete(pid)
+			if (pid === undefined) {
+				known.clear()
+				failedAt.clear()
+			} else {
+				known.delete(pid)
+				failedAt.delete(pid)
+			}
 		},
 		get size() {
 			return known.size
 		},
 	}
 }
+
+const REVERIFY_MS = 30_000
+const FAILED_RETRY_MS = 10_000
 
 /** True when a lock written at `since` is older than the last start of the computer (so its pid was reused). */
 export function writtenBeforeBoot(

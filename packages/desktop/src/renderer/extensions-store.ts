@@ -143,10 +143,12 @@ export async function refreshExtensions(api: Api): Promise<void> {
 
 /** How long state events that arrive together wait before one list is read. */
 export const STATE_EVENT_DEBOUNCE_MS = 400
+/** A steady stream of events still refreshes this often. */
+export const STATE_EVENT_MAX_WAIT_MS = 3000
 
 /**
  * How often the list is re-read on a timer. While an extension's page is open the page is already live
- * and the engine says every state change, so it gets the slow beat, not a fast one: a fast poll there only
+ * and the engine says every change it makes itself (a runner in another process is seen on this beat), so it gets the slow beat, not a fast one: a fast poll there only
  * queues work in front of the page's own calls. The fast beat is for Settings' own extension screen.
  */
 export function listPollInterval(o: {
@@ -158,16 +160,24 @@ export function listPollInterval(o: {
 	return o.anyEnabled ? 15000 : 60000
 }
 
-/** Runs `fn` once, `ms` after the last `call`. */
-export function debounced(fn: () => void, ms: number): { call: () => void; cancel: () => void } {
+/** Runs `fn` once, `ms` after the last `call`, and at the latest `maxWaitMs` after the first of a burst. */
+export function debounced(
+	fn: () => void,
+	ms: number,
+	maxWaitMs = Number.POSITIVE_INFINITY,
+): { call: () => void; cancel: () => void } {
 	let timer: ReturnType<typeof setTimeout> | undefined
+	let first = 0
 	return {
 		call() {
-			if (timer !== undefined) clearTimeout(timer)
+			const t = Date.now()
+			if (timer === undefined) first = t
+			else clearTimeout(timer)
+			const wait = Math.max(0, Math.min(ms, first + maxWaitMs - t))
 			timer = setTimeout(() => {
 				timer = undefined
 				fn()
-			}, ms)
+			}, wait)
 		},
 		cancel() {
 			if (timer !== undefined) clearTimeout(timer)
@@ -189,7 +199,11 @@ export function useExtensionsSync(api: Api | undefined): void {
 		const a = apiRef.current
 		if (!a) return
 		void refreshExtensions(a)
-		const refreshSoon = debounced(() => void refreshExtensions(a), STATE_EVENT_DEBOUNCE_MS)
+		const refreshSoon = debounced(
+			() => void refreshExtensions(a),
+			STATE_EVENT_DEBOUNCE_MS,
+			STATE_EVENT_MAX_WAIT_MS,
+		)
 		const off = a.onEvent?.((event) => {
 			if (event.kind !== 'extensions-state') return
 			if (readStateEvent(event)) refreshSoon.call()

@@ -1597,10 +1597,10 @@ export class ExtensionHost {
 		const t0 = this.now()
 		try {
 			const r = await this.runQuery(id, queryId, params)
-			this.logCall(`query:${queryId}`, id, t0, 'ok')
+			this.logCall('query', id, t0, 'ok')
 			return r
 		} catch (e) {
-			this.logCall(`query:${queryId}`, id, t0, 'failed')
+			this.logCall('query', id, t0, 'failed')
 			throw e
 		}
 	}
@@ -1934,6 +1934,11 @@ export class ExtensionHost {
 	}
 
 	/** Resolves once every stop begun by a tick has finished and its lock is free. */
+	/** Resolves once the start-time probes that a read began have answered (a one-shot command waits, then reads again). */
+	async settleProbes(): Promise<void> {
+		await this.tokens.settled()
+	}
+
 	async settled(): Promise<void> {
 		await Promise.all([...this.stopping])
 	}

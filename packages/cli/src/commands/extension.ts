@@ -150,6 +150,14 @@ function need(p: Parsed, n: number, usage: string): string | undefined {
 export async function runExtension(raw: readonly string[], d: ExtensionDeps): Promise<number> {
 	const p = parseExtensionArgs(raw)
 	const json = p.flags.has('--json')
+	// A read that needs a process's start time may only start asking (never blocking); a one-shot command
+	// waits for the answer and reads again, so it does not report "not hosted" for a running runner.
+	const probed = async <T>(f: () => T): Promise<T> => {
+		const first = f()
+		if (typeof d.host.settleProbes !== 'function') return first
+		await d.host.settleProbes()
+		return f()
+	}
 	const emit = (value: unknown, text: string) => d.out(json ? JSON.stringify(value) : text)
 	const refuse = (e: unknown): number => {
 		if (e instanceof ExtensionError) {
@@ -235,7 +243,7 @@ export async function runExtension(raw: readonly string[], d: ExtensionDeps): Pr
 				return EXIT_OK
 			}
 			case 'list': {
-				const list = d.host.list()
+				const list = await probed(() => d.host.list())
 				emit(
 					{ extensions: list },
 					list.length === 0
@@ -247,7 +255,7 @@ export async function runExtension(raw: readonly string[], d: ExtensionDeps): Pr
 			case 'status': {
 				const e = need(p, 1, 'status <id>')
 				if (e) return usage(e)
-				const s = d.host.status(id)
+				const s = await probed(() => d.host.status(id))
 				const lines = [row(s.view)]
 				if (s.view.why) lines.push(`Why: ${s.view.why}`)
 				if (s.view.needs.length) lines.push(`Needs: ${s.view.needs.join(', ')}`)
@@ -329,7 +337,7 @@ export async function runExtension(raw: readonly string[], d: ExtensionDeps): Pr
 			case 'license': {
 				const e = need(p, 1, 'license <id> [--file <path>|--key-stdin|--refresh|--release]')
 				if (e) return usage(e)
-				const view = d.host.view(id)
+				const view = await probed(() => d.host.view(id))
 				if (view.licenceKind === 'service') {
 					if (p.flags.has('--refresh') || p.flags.has('--release')) {
 						const r = await d.host.licenseAction(
@@ -467,7 +475,7 @@ export async function runExtension(raw: readonly string[], d: ExtensionDeps): Pr
 					)
 					return EXIT_OK
 				}
-				const where = d.host.status(id).process
+				const where = (await probed(() => d.host.status(id))).process
 					? ''
 					: ' It starts the next time Namzu runs (`namzu extension run` runs it now).'
 				emit({ ok: true, view: v }, `Enabled.${v.running ? '' : where}`)
@@ -600,7 +608,7 @@ export async function runExtension(raw: readonly string[], d: ExtensionDeps): Pr
 					)
 					return EXIT_OK
 				}
-				const v = d.host.view(id)
+				const v = await probed(() => d.host.view(id))
 				if (!v.background) {
 					emit({ declared: false }, 'This extension does not start when you sign in.')
 					return EXIT_OK
