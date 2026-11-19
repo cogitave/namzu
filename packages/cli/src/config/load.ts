@@ -2474,6 +2474,7 @@ const CONFIG_READERS: ConfigReaders = {
 			fullscreen?: unknown
 			wheelRows?: unknown
 			wheelAccel?: unknown
+			leftArrowOpensAgents?: unknown
 			recap?: unknown
 			spinnerTips?: unknown
 			syntaxHighlight?: unknown
@@ -2544,6 +2545,9 @@ const CONFIG_READERS: ConfigReaders = {
 		if (raw.fullscreen !== undefined && typeof raw.fullscreen !== 'boolean') {
 			return invalidConfigValue(context, ['fullscreen'], 'must be true or false')
 		}
+		if (raw.leftArrowOpensAgents !== undefined && typeof raw.leftArrowOpensAgents !== 'boolean') {
+			return invalidConfigValue(context, ['leftArrowOpensAgents'], 'must be true or false')
+		}
 		if (raw.wheelAccel !== undefined && typeof raw.wheelAccel !== 'boolean') {
 			return invalidConfigValue(context, ['wheelAccel'], 'must be true or false')
 		}
@@ -2595,6 +2599,9 @@ const CONFIG_READERS: ConfigReaders = {
 			...(raw.fullscreen !== undefined ? { fullscreen: raw.fullscreen } : {}),
 			...(raw.wheelRows !== undefined ? { wheelRows: raw.wheelRows as number } : {}),
 			...(raw.wheelAccel !== undefined ? { wheelAccel: raw.wheelAccel } : {}),
+			...(raw.leftArrowOpensAgents !== undefined
+				? { leftArrowOpensAgents: raw.leftArrowOpensAgents }
+				: {}),
 			...(raw.recap !== undefined ? { recap: raw.recap } : {}),
 			...(raw.spinnerTips !== undefined ? { spinnerTips: raw.spinnerTips } : {}),
 			...(raw.syntaxHighlight !== undefined ? { syntaxHighlight: raw.syntaxHighlight } : {}),
@@ -3559,7 +3566,7 @@ export function mergeCodeAnalysisConfig(
 }
 
 /**
- * `tui` from one more layer: later keys win. `theme`, `reducedMotion`, `showExpandedTodos`, `agentCalls`, `fullscreen`, `syntaxHighlight`, `wheelRows` and `wheelAccel` are the
+ * `tui` from one more layer: later keys win. `theme`, `reducedMotion`, `showExpandedTodos`, `agentCalls`, `fullscreen`, `syntaxHighlight`, `wheelRows`, `wheelAccel` and `leftArrowOpensAgents` are the
  * operator's own taste, so a project layer's values for them are dropped.
  */
 export function mergeTuiConfig(
@@ -3584,6 +3591,7 @@ export const PROJECT_DROPPED_TUI_KEYS: readonly string[] = [
 	'syntaxHighlight',
 	'wheelRows',
 	'wheelAccel',
+	'leftArrowOpensAgents',
 ]
 
 /**

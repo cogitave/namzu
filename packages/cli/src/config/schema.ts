@@ -133,6 +133,13 @@ export interface TuiConfig {
 	 */
 	readonly wheelAccel?: boolean
 	/**
+	 * Whether `←` on an empty message box, while a reply is running and the workspaces
+	 * screen is not available, shows "Press ← again to open agents" and then opens the
+	 * agents list under the status line. Absent or `true` means it does; `false` leaves
+	 * the key alone. Your own config files only.
+	 */
+	readonly leftArrowOpensAgents?: boolean
+	/**
 	 * The one-line recap shown when a person returns to the terminal after a few
 	 * minutes away. Absent or `true` means on; only `false` turns it off. The
 	 * `NAMZU_RECAP` variable overrides this either way.

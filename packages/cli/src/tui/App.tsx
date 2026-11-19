@@ -2926,7 +2926,8 @@ function AppBody({
 	 * Empty-composer ↓: move into the agents rail when it has rows, otherwise
 	 * open the cockpit for the saved children it can still show.
 	 */
-	const focusAgentRail = useCallback(() => {
+	/** Moves the keyboard into the task rows under the status line; false when there is nothing to enter. */
+	const enterAgentRail = useCallback((): boolean => {
 		const first =
 			// Viewing an agent, ↓ lands on its own row: one more ↑ reaches `main`.
 			viewingAgentRef.current ??
@@ -2941,12 +2942,16 @@ function AppBody({
 				railJustFocusedRef.current = false
 			}, 0)
 			setRailFocus(first)
-			return
+			return true
 		}
+		return false
+	}, [setRailFocus])
+	const focusAgentRail = useCallback(() => {
+		if (enterAgentRail()) return
 		// A typed draft only ever goes into rows; the cockpit is for an empty box.
 		if (composerHasDraftRef.current) return
 		void openAgentCockpit()
-	}, [openAgentCockpit, setRailFocus])
+	}, [openAgentCockpit, enterAgentRail])
 	/** The Background dialog `/tasks` opens; the footer's pill reaches the same one. */
 	const openBackgroundTasks = useCallback(() => {
 		if (!session) return
@@ -18306,12 +18311,37 @@ function AppBody({
 									onShellModeChange={setComposerShell}
 									onHistorySearchChange={setComposerSearching}
 									onOpenAgentPanel={focusAgentRail}
-									onOpenAgents={() => void openAgentCockpit()}
+									// `←` never opens the workflow view: the agents are the task rows.
+									onOpenAgents={() => {
+										if (!enterAgentRail()) {
+											notices.add({
+												key: 'agents-none',
+												text: 'No agents or background tasks to open',
+												priority: 'immediate',
+												timeoutMs: 2000,
+											})
+										}
+									}}
+									replyRunning={
+										(!compacting &&
+											(state === 'thinking' ||
+												state === 'tool' ||
+												pendingModelSwitchRef.current !== null)) ||
+										(handoffPark !== null && state === 'idle')
+									}
+									leftArrowOpensAgents={ctx.tui?.leftArrowOpensAgents !== false}
 									onOpenWorkspaces={
 										onOpenWorkspaces
 											? () =>
 													void onOpenWorkspaces().then((opened) => {
-														if (!opened) void openAgentCockpit()
+														if (!opened) {
+															notices.add({
+																key: 'workspaces-unavailable',
+																text: 'Workspaces cannot open in this terminal',
+																priority: 'immediate',
+																timeoutMs: 3000,
+															})
+														}
 													})
 											: undefined
 									}

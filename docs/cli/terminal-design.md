@@ -1280,6 +1280,7 @@ Two settings, in your own config files only (a project file's are ignored):
 tui:
   wheelAccel: true   # false: every notch is the plain step, however fast
   wheelRows: 3       # rows per notch, 1 to 20; lower it where a terminal sends several reports per notch
+  leftArrowOpensAgents: true  # false: ← on an empty message box never offers the agents (see Workspaces)
 ```
 
 Both are rows in `/config` (**Wheel speed-up**, **Rows per wheel notch**). With

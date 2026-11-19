@@ -2,6 +2,7 @@
 
 ## 2026-11-20
 
+- **Update** [Workspaces](cli/workspaces.md), [Terminal design](cli/terminal-design.md#the-wheel): `←` on an empty message box opens the workspaces screen in the full screen view too (the default), which had none, so `←` used to open the workflow cockpit there. The screen takes the pointer while it is up and the full screen view's screen and pointer come back when you return. Where the screen cannot open, `←` never opens the cockpit: while a reply runs, a first press says "Press ← again to open agents" and a second moves into the task rows. New setting `tui.leftArrowOpensAgents` (default on, Settings > Terminal). `.changeset/cli-tui-footer-and-workflow-detail.md`.
 - **Update** [Hypermode](cli/slash-commands.md#hypermode): the mode is named once, on the composer frame's upper right. The status line no longer appends `· hypermode` to the effort item (it says `effort high`, or nothing at the model default, and the item still opens the picker). `.changeset/cli-tui-footer-and-workflow-detail.md`.
 
 ## 2026-11-19

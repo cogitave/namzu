@@ -127,7 +127,11 @@ export function installMouseWheel(
 	stdout: WheelOutput,
 	onWheel: (direction: WheelDirection) => void,
 	onPointer?: (report: PointerReport) => void,
-	options: { readonly hover?: boolean } = {},
+	options: {
+		readonly hover?: boolean
+		/** True while another screen owns the terminal (the workspaces screen): its pointer reports are not ours to take. */
+		readonly bypass?: () => boolean
+	} = {},
 ): () => void {
 	if (stdin.isTTY !== true || stdout.isTTY !== true) return () => undefined
 	const filter = createMouseFilter()
@@ -142,6 +146,7 @@ export function installMouseWheel(
 	stdin.read = function patchedRead(this: unknown, ...args: never[]): unknown {
 		const chunk = originalRead.apply(this, args)
 		if (typeof chunk !== 'string') return chunk
+		if (options.bypass?.() === true) return chunk
 		const filtered = filter.feed(chunk)
 		for (const direction of filtered.wheel) onWheel(direction)
 		if (onPointer) for (const report of filtered.pointer) onPointer(report)

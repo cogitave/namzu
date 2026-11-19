@@ -25,6 +25,12 @@ export interface LocalSessionDeps {
 	readonly requestExit: () => void
 	/** Has the App clear the screen and print its whole transcript again. */
 	readonly repaint: () => void
+	/**
+	 * What puts the terminal back as the conversation's own view wants it when the host lets go: the
+	 * fullscreen view's alternate screen and pointer reporting, which the host's own screen change
+	 * switched off. Absent on the default screen.
+	 */
+	readonly restoreScreen?: string
 }
 
 export class LocalSession implements LocalPaneSession {
@@ -90,7 +96,8 @@ export class LocalSession implements LocalPaneSession {
 		// The modes Ink asked for before the alternate screen, which the host changed, come back as they were.
 		realOut.write(
 			(proxy.bracketedPaste ? '\u001b[?2004h' : '\u001b[?2004l') +
-				(proxy.cursorHidden ? '\u001b[?25l' : '\u001b[?25h'),
+				(proxy.cursorHidden ? '\u001b[?25l' : '\u001b[?25h') +
+				(this.deps.restoreScreen ?? ''),
 		)
 		proxy.leaveZoomed()
 		this.deps.repaint()
