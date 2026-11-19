@@ -144,6 +144,12 @@ export interface PlaywrightBrowserHostOptions {
 	readonly signInAddresses?: BrowserHumanClassifierOptions['signInAddresses']
 	/** What makes a page a sign-in page: `page` (default) or `address`. See {@link BrowserHumanClassifierOptions.signInDetection}. */
 	readonly signInDetection?: BrowserHumanClassifierOptions['signInDetection']
+	/**
+	 * A person is present in the conversation and can answer a question. When the browser also has a
+	 * window, the notice for a page with a password field tells the model to ask them to sign in
+	 * there and wait, instead of naming `namzu browser login`. Unattended runs leave it off.
+	 */
+	readonly askPersonToSignIn?: boolean
 	/** The command that opens a visible window for signing in. Default `namzu browser login <profile> <url>`. */
 	readonly loginCommand?: (profile: string, url: string) => string
 	/** Windows engine: how long starting and connecting to the browser may take. Default 60 000. */
@@ -866,7 +872,12 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		if (reason) throw this.humanRequired(reason, tab)
 		// A page with a password field that did not stop the turn: say so once
 		// per address, so the model reports it instead of trying to type.
-		const notice = signInNotice(signals, classifier, this.loginCommandFor(url))
+		const notice = signInNotice(
+			signals,
+			classifier,
+			this.loginCommandFor(url),
+			this.options.askPersonToSignIn === true && !this.plan.headless,
+		)
 		if (notice && tab.signInNoticeFor !== withoutQuery(url)) {
 			tab.signInNoticeFor = withoutQuery(url)
 			this.notes.push(notice)

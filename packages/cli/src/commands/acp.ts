@@ -123,6 +123,7 @@ import {
 	verifyCredential,
 } from '../tui/agent.js'
 import { displayPath } from '../tui/display-path.js'
+import { handoffContinuationNote } from '../tui/turn-interruption.js'
 import { createQuestionRelay, routeQuestions } from './acp-desktop-question.js'
 import { withCliHarnesses } from './acp-harness.js'
 import {
@@ -322,6 +323,8 @@ type AcpLiveSession = Pick<
 	readonly setPermissionMode?: AgentSession['setPermissionMode']
 	readonly resumePaused?: AgentSession['resumePaused']
 	readonly abandonTurn?: AgentSession['abandonTurn']
+	/** The agent's browser, when this conversation has one; a fake session leaves it out. */
+	readonly browser?: AgentSession['browser']
 	readonly describeComputerUseCall?: AgentSession['describeComputerUseCall']
 	/** What the context panel sizes; a fake session may leave them out. */
 	readonly contextInventory?: AgentSession['contextInventory']
@@ -1192,6 +1195,8 @@ export function createCliAcpRuntime(
 									...(browserConfig?.signInDetection
 										? { signInDetection: browserConfig.signInDetection }
 										: {}),
+									// A person is here to answer: a sign-in page is put to them, not left to a command.
+									...(questionRelay && !palEnvironment ? { askPersonToSignIn: true } : {}),
 									...(conversationState ? { home: conversationState.root } : {}),
 								},
 							}
@@ -1539,8 +1544,13 @@ export function createCliAcpRuntime(
 					else if (event.kind === 'error' || event.kind === 'paused') {
 						stopReason = signal.aborted ? 'cancelled' : 'error'
 						if (event.kind === 'error' && !signal.aborted) failureMessage = event.message
-						if (event.kind === 'paused')
+						if (event.kind === 'paused') {
 							record.retrySettings = { ...original, turnId: event.turnId }
+							// A browser with no window is closed so `namzu browser login` can take its profile.
+							const browser = record.session.browser
+							if (event.handoff && browser?.status().headless)
+								void browser.release().catch(() => {})
+						}
 					}
 				}
 				if (signal.aborted) stopReason = 'cancelled'
@@ -1571,7 +1581,11 @@ export function createCliAcpRuntime(
 				record.conversations,
 				target.sessionId,
 			)
-			if (status.retry?.turnId !== turnId || status.retry.checkpointId !== checkpointId)
+			// A turn a tool paused for a person continues the same way, from its checkpoint, with the
+			// model it was on; a provider failure is repeated on the model selected now.
+			const handoff = status.retry ? undefined : status.handoff
+			const resumable = status.retry ?? handoff
+			if (resumable?.turnId !== turnId || resumable.checkpointId !== checkpointId)
 				throw new Error(
 					status.notice ??
 						'This paused reply has changed. Reopen the conversation to see its latest state.',
@@ -1593,7 +1607,7 @@ export function createCliAcpRuntime(
 			const facts = await readConversationFacts(record.conversations, target.sessionId)
 			const started = facts?.startedTurn(turnId)
 			const pause = facts?.latestPause(turnId)
-			if (!started?.model || !pause?.providerError)
+			if (!started?.model || (!handoff && !pause?.providerError))
 				throw new Error(
 					'Namzu can’t confirm which AI service and model this reply used, so it can’t try it again here.',
 				)
@@ -1611,16 +1625,20 @@ export function createCliAcpRuntime(
 				}
 			}
 			record.route = routedEvent
-			retriedOn.set(turnId, { provider: record.provider, model: record.model })
+			if (!handoff) retriedOn.set(turnId, { provider: record.provider, model: record.model })
 			try {
 				let stopReason: string | undefined
 				let failureMessage: string | undefined
 				const undoNote = undoNotes.get(sessionId)?.join('\n\n')
 				undoNotes.delete(sessionId)
+				// The turn's last result is the tool saying it needed someone; read alone it looks final.
+				const note = [undoNote, handoff ? handoffContinuationNote(handoff.reason) : undefined]
+					.filter(Boolean)
+					.join('\n\n')
 				for await (const event of record.session.resumePaused({
 					turnId,
 					checkpointId,
-					...(undoNote ? { systemNote: undoNote } : {}),
+					...(note ? { systemNote: note } : {}),
 					signal,
 					permissionMode: settings.permissionMode,
 					...(record.ownedPal
@@ -1944,7 +1962,18 @@ export function createCliAcpRuntime(
 					state,
 					target.sessionId,
 				)
-				if (!status.retry) return status
+				if (!status.retry) {
+					if (!status.handoff) return status
+					// The agent's browser has a window of its own only where a display is; say which, so the
+					// app says how to sign in.
+					const browser = record?.session.browser?.status()
+					return browser
+						? {
+								...status,
+								handoff: { ...status.handoff, window: browser.headless ? 'none' : 'visible' },
+							}
+						: status
+				}
 				const blocked = (notice: string): ProviderRetryStatus => ({
 					notice,
 					...(status.closable ? { closable: true as const } : {}),
@@ -1999,11 +2028,16 @@ export function createCliAcpRuntime(
 				throw new Error('This conversation has no paused turn to close. Open it again.')
 			const pausedTurn = active.turnId
 			const pause = facts?.latestPause(pausedTurn)
-			if (!pause || pause.handoff || !pause.providerError)
-				throw new Error('Only a turn that stopped on a provider error can be closed this way.')
+			const handoff = pause?.handoff !== undefined
+			if (!pause || (!handoff && !pause.providerError))
+				throw new Error(
+					'Only a turn that stopped on a provider error or waits for the person can be closed this way.',
+				)
 			if (facts?.pendingDecisions(pausedTurn).size)
 				throw new Error('This turn is waiting for a decision; answer it first.')
-			const reason = 'The person continued without the reply that stopped on a provider error.'
+			const reason = handoff
+				? 'The person stopped the turn a tool paused for them.'
+				: 'The person continued without the reply that stopped on a provider error.'
 			// Unless the person goes on with a different message, theirs goes back to the message
 			// box: the closed turn must not also reach the provider with it when they send it again.
 			const withdrawMessages = options?.withdrawMessages !== false

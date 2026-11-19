@@ -8215,6 +8215,25 @@ export function App({
 									})
 									return delivered
 								}}
+								handoff={thread.handoff}
+								onContinueHandoff={
+									api.retryTurn && thread.handoff
+										? async () => {
+												const waiting = thread.handoff
+												const resume = api.retryTurn
+												if (waiting && resume)
+													await act(() => resume(sessionId, waiting.turnId, waiting.checkpointId))
+											}
+										: undefined
+								}
+								onStopHandoff={
+									api.stopHandoff && thread.handoff
+										? async () => {
+												const stop = api.stopHandoff
+												if (stop) await act(() => stop(sessionId))
+											}
+										: undefined
+								}
 								onAnswerQuestion={async (permission, response) => {
 									// The card stays open when the answer did not get through.
 									let delivered = false

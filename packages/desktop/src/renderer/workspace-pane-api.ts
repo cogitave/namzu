@@ -45,6 +45,7 @@ export function createWorkspacePaneApi(
 		disablePalSubscription,
 		retryTurn,
 		continueWithoutReply,
+		stopHandoff,
 		reopenLastMessage,
 		undoStatus,
 		undoPreview,
@@ -575,6 +576,7 @@ export function createWorkspacePaneApi(
 						invoke(() => retryTurn(owner, turnId, checkpointId, settings), [owner]),
 				}
 			: {}),
+		...(stopHandoff ? { stopHandoff: (owner) => invoke(() => stopHandoff(owner), [owner]) } : {}),
 		...(continueWithoutReply
 			? {
 					continueWithoutReply: (owner) => invoke(() => continueWithoutReply(owner), [owner]),

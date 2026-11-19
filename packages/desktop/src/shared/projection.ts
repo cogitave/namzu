@@ -5,6 +5,7 @@ import type { TurnOutcomeSummary } from './outcome-protocol.js'
 import type {
 	ChatMessage,
 	DesktopEvent,
+	DesktopTurnHandoff,
 	DesktopTurnRetry,
 	DesktopTurnUndo,
 	PermissionView,
@@ -112,6 +113,8 @@ export interface ThreadState {
 	retryClosable?: true
 	/** The repeat is a new request; one earlier request's usage stays unknown. */
 	retryUnknownUsage?: number
+	/** A tool paused the turn for the person (a sign-in, a check); the card offers Continue and Stop. */
+	handoff?: DesktopTurnHandoff
 	/**
 	 * The provider asked to be tried again later. Held only until the next thing happens in the
 	 * turn, so a wait that is over never lingers on screen.
@@ -210,6 +213,7 @@ export function restoreMessages(thread: ThreadState, input: ChatMessage[]): Thre
 		retryNotice: undefined,
 		retryClosable: undefined,
 		retryUnknownUsage: undefined,
+		handoff: undefined,
 		undo: undefined,
 		historyWorkPartial: undefined,
 	}
@@ -307,6 +311,7 @@ function withdrawTurn(thread: ThreadState, turn: number): ThreadState {
 		retryNotice: undefined,
 		retryClosable: undefined,
 		retryUnknownUsage: undefined,
+		handoff: undefined,
 		running: false,
 	}
 }
@@ -589,6 +594,7 @@ function applyEventCore(previous: ThreadState, event: DesktopEvent): ThreadState
 			retryNotice: undefined,
 			retryClosable: undefined,
 			retryUnknownUsage: undefined,
+			handoff: undefined,
 			activeToolIds: [],
 			activeReasoningId: undefined,
 			responding: false,
@@ -659,6 +665,7 @@ function applyEventCore(previous: ThreadState, event: DesktopEvent): ThreadState
 			retryNotice: event.notice,
 			retryClosable: event.closable,
 			retryUnknownUsage: event.unknownUsage,
+			handoff: event.handoff,
 		}
 	if (event.kind === 'turn-closed' && event.withdrawn) return withdrawTurn(thread, thread.turn)
 	if (event.kind === 'turn-closed')
@@ -674,6 +681,7 @@ function applyEventCore(previous: ThreadState, event: DesktopEvent): ThreadState
 			retryNotice: undefined,
 			retryClosable: undefined,
 			retryUnknownUsage: undefined,
+			handoff: undefined,
 			running: false,
 		}
 	if (event.kind === 'retry') {
@@ -702,6 +710,7 @@ function applyEventCore(previous: ThreadState, event: DesktopEvent): ThreadState
 			retryNotice: undefined,
 			retryClosable: undefined,
 			retryUnknownUsage: undefined,
+			handoff: undefined,
 			activeToolIds: [],
 			activeReasoningId: undefined,
 			responding: false,

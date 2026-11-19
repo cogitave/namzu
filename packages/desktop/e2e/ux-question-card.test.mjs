@@ -203,6 +203,8 @@ flow(
 		await w.page.keyboard.press("Space");
 		await expect(row(w, /Local/)).toHaveAttribute("aria-checked", "false");
 		await shot(w, "question-multiple");
+		// A click this soon after a card appears is held (400 ms); wait for the hold to end, not for time.
+		await expect(send_(w)).not.toHaveAttribute("data-held", "true");
 		await w.page.keyboard.press("Control+Enter");
 		await expect(card(w)).toHaveCount(0, { timeout: T });
 		await expect(w.page.getByText("Noted, going on.").first()).toBeVisible({ timeout: T });
@@ -239,6 +241,7 @@ flow(
 		await expect(send_(w)).toBeFocused();
 		await expect(row(w, /Engineers/)).toHaveAttribute("aria-checked", "true");
 		await shot(w, "question-picked");
+		await expect(send_(w)).not.toHaveAttribute("data-held", "true");
 		await w.page.keyboard.press("NumpadEnter");
 		await expect(card(w)).toHaveCount(0, { timeout: T });
 		await expect(w.page.getByText("Noted, going on.").first()).toBeVisible({ timeout: T });

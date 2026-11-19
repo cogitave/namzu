@@ -19,12 +19,14 @@ import type {
 	ProviderView,
 } from '../shared/protocol.js'
 import type { ProjectPrView } from '../shared/protocol.js'
+import type { DesktopTurnHandoff } from '../shared/protocol.js'
 import { usableProviders } from '../shared/provider-connections.js'
 import type { QuestionResponse } from '../shared/question-protocol.js'
 import { AttachmentList } from './attachment-list.js'
 import { type AddMenuToolServers, ComposerAddMenu } from './composer-add-menu.js'
 import { ComposerApproval } from './composer-approval.js'
 import { caretPoint, copyBoxText } from './composer-caret.js'
+import { ComposerHandoff } from './composer-handoff.js'
 import {
 	type HistoryWalk,
 	activeWalk,
@@ -194,6 +196,9 @@ export function Composer({
 	palRunning,
 	onApproval,
 	onAnswerQuestion,
+	handoff,
+	onContinueHandoff,
+	onStopHandoff,
 	attachments,
 	attachmentsBusy,
 	onAttach,
@@ -321,6 +326,10 @@ export function Composer({
 	onAnswerQuestion?:
 		| ((permission: PermissionView, response: QuestionResponse) => unknown)
 		| undefined
+	/** A turn a tool paused for the person: the card offers Continue and Stop. */
+	handoff?: DesktopTurnHandoff | undefined
+	onContinueHandoff?: (() => unknown) | undefined
+	onStopHandoff?: (() => unknown) | undefined
 	attachments: AttachmentView[]
 	draftDisabled?: boolean
 	attachmentsBusy: boolean
@@ -985,6 +994,15 @@ export function Composer({
 								/>
 							)}
 						</fieldset>
+					)}
+					{!permissions[0] && handoff && onContinueHandoff && onStopHandoff && (
+						<ComposerHandoff
+							key={handoff.checkpointId}
+							handoff={handoff}
+							disabled={approvalDisabled}
+							onContinue={onContinueHandoff}
+							onStop={onStopHandoff}
+						/>
 					)}
 					{/* A note about the conversation itself sits above the box, never inside what you type in. */}
 					{notice && (

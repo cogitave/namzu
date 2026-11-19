@@ -223,6 +223,7 @@ const OPERATIONS = new Set([
 	'send',
 	'sendCurrent',
 	'retryTurn',
+	'stopHandoff',
 	'continueWithoutReply',
 	'reopenLastMessage',
 	'undoStatus',

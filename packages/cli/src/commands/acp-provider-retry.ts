@@ -14,6 +14,28 @@ import {
 import { sessionLogCheckpointView } from '../integrations/sessions/checkpoint-view.js'
 import { type CliSessionScope, readConversationFacts } from '../integrations/sessions/store.js'
 
+export interface TurnHandoff {
+	turnId: string
+	checkpointId: string
+	/** What the tool said the person has to do. */
+	reason: string
+	/** The tool that asked (`browser`), and why, where it said. */
+	tool?: string
+	cause?: string
+	origin?: string
+	profile?: string
+	/** What opens a window to do it when the browser has none. */
+	loginCommand?: string
+	window?: 'visible' | 'none'
+}
+
+const HANDOFF_FIELD_MAX = 400
+const handoffField = (value: unknown, max = HANDOFF_FIELD_MAX): string | undefined => {
+	if (typeof value !== 'string') return undefined
+	const flat = value.replace(/\s+/g, ' ').trim()
+	return flat ? flat.slice(0, max) : undefined
+}
+
 export interface ProviderRetryStatus {
 	/**
 	 * The paused turn a Retry would repeat. `original` is the provider and model that failed; Retry
@@ -26,9 +48,17 @@ export interface ProviderRetryStatus {
 	}
 	notice?: string
 	/**
+	 * The turn paused because a tool needs a person (a sign-in, a check on a page, a second factor)
+	 * and waits for nothing else. Continuing runs it from its checkpoint, as the terminal's Enter
+	 * does; stopping closes it. `window` says whether the browser the agent drives has a window the
+	 * person can use ('none' when it runs without one, so the login command is the way in).
+	 */
+	handoff?: TurnHandoff
+	/**
 	 * The turn stopped on a provider failure and waits for no human decision, so sending a new message
-	 * may close it first (the same durable close as "Continue without this reply"). Absent when the
-	 * turn is waiting for an approval or a handoff: those are the person's to answer, not to skip.
+	 * may close it first (the same durable close as "Continue without this reply"). Also set on a
+	 * tool handoff, where a message moves on without it. Absent when the turn is waiting for an
+	 * approval: that is the person's to answer, not to skip.
 	 */
 	closable?: true
 	/** How many earlier requests have a cost nobody reported; a retry is a new request. */
@@ -155,6 +185,46 @@ export async function readProviderRetryStatus(
 	const closable: Pick<ProviderRetryStatus, 'closable'> =
 		!pause.handoff && pause.providerError && pending.size === 0 ? { closable: true } : {}
 	const blocked = (notice: string): ProviderRetryStatus => ({ notice, ...closable })
+	if (pause.handoff && pending.size === 0) {
+		// Nothing needs approving: the person does a thing outside the window, then goes on or stops.
+		// A new message also closes it, as it does a provider failure, so nothing here is a dead end.
+		const checkpoint = await new DiskSessionCheckpointStore({
+			paths: state.paths,
+			log: sessionLogCheckpointView(DiskSessionLog.at(state.paths, { sessionId: id })),
+		}).restore(
+			{
+				tenantId: state.tenantId,
+				projectId: state.projectId,
+				sessionId: id,
+				turnId: asTurnId(active.turnId),
+			},
+			asCheckpointId(pause.checkpointId),
+		)
+		if (!checkpoint)
+			return {
+				notice: 'The paused turn’s checkpoint is unavailable. Its conversation is retained.',
+				closable: true,
+			}
+		const detail = pause.handoff.detail ?? {}
+		const tool = handoffField(detail.tool, 64)
+		const cause = handoffField(detail.cause, 64)
+		const origin = handoffField(detail.origin, 200)
+		const profile = handoffField(detail.profile, 64)
+		const loginCommand = handoffField(detail.loginCommand)
+		return {
+			handoff: {
+				turnId: active.turnId,
+				checkpointId: pause.checkpointId,
+				reason: handoffField(pause.handoff.reason) ?? 'This needs you.',
+				...(tool ? { tool } : {}),
+				...(cause ? { cause } : {}),
+				...(origin ? { origin } : {}),
+				...(profile ? { profile } : {}),
+				...(loginCommand ? { loginCommand } : {}),
+			},
+			closable: true,
+		}
+	}
 	if (
 		pause.handoff ||
 		pause.failure?.retryable !== true ||

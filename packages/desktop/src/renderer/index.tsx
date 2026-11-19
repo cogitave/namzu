@@ -1,11 +1,13 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { startInterfaceFont } from './interface-font.js'
+import { installKeypadEnter } from './keypad-enter.js'
 import { TooltipProvider } from './ui/tooltip.js'
 import { WorkspaceHost } from './workspace-host.js'
 import './style.css'
 
 startInterfaceFont()
+installKeypadEnter(document)
 
 createRoot(document.getElementById('root') as HTMLElement).render(
 	<React.StrictMode>

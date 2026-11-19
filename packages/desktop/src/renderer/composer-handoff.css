@@ -1,0 +1,36 @@
+/* A turn a tool paused for the person. It is the approval's card (same ring, band, footer and
+   buttons) with a sentence of what to do and, when the browser has no window, the one command that
+   opens one. */
+.handoff-text {
+	margin: 0;
+	color: var(--foreground);
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
+	overflow-wrap: anywhere;
+}
+.approval-card > .handoff-fallback {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin-top: 10px;
+}
+.handoff-fallback-lead {
+	margin: 0;
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	overflow-wrap: anywhere;
+}
+.handoff-command {
+	display: block;
+	min-width: 0;
+	padding: 8px 10px;
+	border-radius: var(--ask-path-radius);
+	background: var(--ask-fill);
+	color: var(--foreground);
+	font-family: var(--font-mono);
+	font-size: var(--font-size-code);
+	line-height: var(--leading-code);
+	overflow-wrap: anywhere;
+	user-select: all;
+}

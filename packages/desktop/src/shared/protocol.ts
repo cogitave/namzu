@@ -666,8 +666,27 @@ export interface DesktopTurnRetry {
 	/** The provider and model the turn stopped on; Try again runs on the model selected now. */
 	original?: { provider: string; model: string }
 }
+/**
+ * A turn a tool paused because it needs the person (a sign-in, a check on a page, a second factor).
+ * It waits for nothing else: Continue resumes it from its checkpoint, Stop closes it, and a new
+ * message moves on without it. `window` says whether the browser the agent drives has a window.
+ */
+export interface DesktopTurnHandoff {
+	turnId: string
+	checkpointId: string
+	/** What the tool said the person has to do. */
+	reason: string
+	tool?: string
+	cause?: string
+	origin?: string
+	profile?: string
+	/** What opens a window to do it when the browser has none. */
+	loginCommand?: string
+	window?: 'visible' | 'none'
+}
 export interface DesktopRetryStatus {
 	retry?: DesktopTurnRetry
+	handoff?: DesktopTurnHandoff
 	notice?: string
 	/**
 	 * The turn stopped on a provider failure and waits for no decision: sending a new message closes it
@@ -1357,6 +1376,11 @@ export interface DesktopApi {
 		checkpointId: string,
 		options?: Omit<DesktopSendOptions, 'attachmentIds'>,
 	): Promise<void>
+	/**
+	 * Close a turn a tool paused for the person (Stop on the card). Its message and what the tool
+	 * found stay in the conversation; nothing goes back to the composer. Absent when the runtime cannot.
+	 */
+	stopHandoff?(sessionId: string): Promise<void>
 	/**
 	 * Close a paused turn without repeating it and put its message back in the composer, not sent.
 	 * Absent when the runtime cannot.

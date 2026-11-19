@@ -86,6 +86,7 @@ import type {
 	DesktopEvent,
 	DesktopRetryStatus,
 	DesktopSendOptions,
+	DesktopTurnHandoff,
 	DesktopUndoOptions,
 	DesktopUndoPreview,
 	DesktopUndoResult,
@@ -473,6 +474,27 @@ function readMcpServers(value: unknown): McpServersView | null {
 	const failed =
 		typeof error === 'string' && error ? withoutControls(error).slice(0, 300) : undefined
 	return { servers: rows, ...(failed ? { error: failed } : {}) }
+}
+
+const HANDOFF_TEXT_KEYS = ['reason', 'tool', 'cause', 'origin', 'profile', 'loginCommand'] as const
+/** A handoff the host sent: every field a bounded string, so the card never draws a surprise. */
+function validHandoff(value: unknown): value is DesktopTurnHandoff {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+	const item = value as Record<string, unknown>
+	const ids = ['turnId', 'checkpointId'].every(
+		(key) =>
+			typeof item[key] === 'string' && item[key] !== '' && (item[key] as string).length <= 200,
+	)
+	return (
+		ids &&
+		typeof item.reason === 'string' &&
+		HANDOFF_TEXT_KEYS.every(
+			(key) =>
+				item[key] === undefined ||
+				(typeof item[key] === 'string' && (item[key] as string).length <= 600),
+		) &&
+		(item.window === undefined || item.window === 'visible' || item.window === 'none')
+	)
 }
 
 export class Operator {
@@ -5485,7 +5507,7 @@ export class Operator {
 			throw new Error(
 				'Namzu couldn’t check whether this reply can be tried again. Try again in a moment.',
 			)
-		const { retry, notice, unknownUsage, closable } = result as DesktopRetryStatus
+		const { retry, notice, unknownUsage, closable, handoff } = result as DesktopRetryStatus
 		if (
 			(retry !== undefined &&
 				(!retry ||
@@ -5503,6 +5525,7 @@ export class Operator {
 							typeof retry.original.model !== 'string' ||
 							retry.original.provider.length > 200 ||
 							retry.original.model.length > 400)))) ||
+			(handoff !== undefined && !validHandoff(handoff)) ||
 			(closable !== undefined && closable !== true) ||
 			(notice !== undefined && (typeof notice !== 'string' || notice.length > 2_000)) ||
 			(unknownUsage !== undefined &&
@@ -5523,6 +5546,7 @@ export class Operator {
 			)
 		if (
 			JSON.stringify(session.projection.retry) !== JSON.stringify(retry) ||
+			JSON.stringify(session.projection.handoff) !== JSON.stringify(handoff) ||
 			session.projection.retryNotice !== notice ||
 			session.projection.retryClosable !== closable ||
 			session.projection.retryUnknownUsage !== unknownUsage
@@ -5531,12 +5555,14 @@ export class Operator {
 				kind: 'retry-status',
 				sessionId: session.view.id,
 				retry,
+				...(handoff ? { handoff } : {}),
 				notice,
 				...(closable ? { closable } : {}),
 				...(unknownUsage ? { unknownUsage } : {}),
 			})
 		return {
 			...(retry ? { retry } : {}),
+			...(handoff ? { handoff } : {}),
 			...(notice ? { notice } : {}),
 			...(closable ? { closable } : {}),
 			...(unknownUsage ? { unknownUsage } : {}),
@@ -5648,7 +5674,9 @@ export class Operator {
 				this.changingPlugins.has(sessionId)
 			)
 				throw new Error('This conversation’s settings changed during retry admission.')
-			if (status.retry?.turnId !== turnId || status.retry.checkpointId !== checkpointId)
+			// A turn a tool paused for the person continues from the same checkpoint as a repeat does.
+			const resumable = status.retry ?? status.handoff
+			if (resumable?.turnId !== turnId || resumable.checkpointId !== checkpointId)
 				throw new Error(
 					status.notice ??
 						'This checkpoint is no longer available for retry. Open the conversation again.',
@@ -6690,6 +6718,34 @@ export class Operator {
 		for (const file of files) file.draft = true
 		this.persistDesktop()
 		return { text, attachments: this.attachments(sessionId) }
+	}
+	/**
+	 * Stop a turn a tool paused for the person. The turn closes durably; its message and what the tool
+	 * found stay, and nothing goes back to the composer.
+	 */
+	async stopHandoff(sessionId: string): Promise<void> {
+		const session = this.session(sessionId)
+		if (session.running || session.admitting || this.changingPlugins.has(sessionId))
+			throw new Error('Wait for this conversation’s active work to finish.')
+		if (!session.client.supportsAbandonPaused()) throw new Error('Update Namzu to stop this turn.')
+		this.assertPalAdmission(session.view.palId, true)
+		const admission = Symbol('stop admission')
+		session.admitting = admission
+		try {
+			await this.reattach(session)
+			const status = await this.refreshRetry(session)
+			if (!status.handoff) throw new Error('This conversation is not waiting for you any more.')
+			await session.client.request('namzu/sessions/abandon-paused', {
+				sessionId: session.runtimeSessionId,
+				turnId: status.handoff.turnId,
+				withdrawMessages: false,
+			})
+			this.emit({ kind: 'turn-closed', sessionId })
+			await this.refreshRetry(session).catch(() => undefined)
+			this.state(session)
+		} finally {
+			if (session.admitting === admission) session.admitting = undefined
+		}
 	}
 	/**
 	 * Close the paused turn without repeating it and put its message back in the composer. What the
