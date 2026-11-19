@@ -117,6 +117,9 @@ describe('the rows', () => {
 		const full = usageLimitsModel({ view: view(0.96), now: NOW, timeZone: ZONE })
 		expect(full.tone).toBe('full')
 		expect(full.critical).toBe('5-hour limit is at 96%, resets at 3:00 PM')
+		// At 100% the window is used up: it never reads "Getting close".
+		const used = usageLimitsModel({ view: view(1), now: NOW, timeZone: ZONE })
+		expect(used.sections[0]?.rows[0]).toMatchObject({ percent: '100%', state: 'Limit reached' })
 		const rejected = usageLimitsModel({ view: view(0.2, true), now: NOW, timeZone: ZONE })
 		expect(rejected.sections[0]?.rows[0]).toMatchObject({
 			percent: '100%',
