@@ -64,6 +64,11 @@ export class RuntimeClient extends EventEmitter {
 	supportsLiveInput(): boolean {
 		return this.liveInput
 	}
+	private livePermissionMode = false
+	/** The engine takes a mode change for a turn that is running (an older one only reads it per message). */
+	supportsLivePermissionMode(): boolean {
+		return this.livePermissionMode
+	}
 	private conversationActions = false
 	supportsConversationActions(): boolean {
 		return this.conversationActions
@@ -400,6 +405,7 @@ export class RuntimeClient extends EventEmitter {
 		this.abandonPaused = offers('abandonPaused')
 		this.turnUndo = offers('turnUndo')
 		this.liveInput = offers('liveInput')
+		this.livePermissionMode = offers('livePermissionMode')
 		this.pals = offers('pals')
 		this.palInboxStart = offers('palInboxStart')
 		this.palComputerControl = offers('palComputerControl')

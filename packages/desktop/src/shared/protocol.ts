@@ -160,6 +160,16 @@ export interface DesktopSendOptions {
 	 */
 	hypermode?: boolean
 }
+/** What saving message settings answers: set only when the engine refused a mode change. */
+export interface DraftSaveResult {
+	/** Why the engine did not take the permission mode the person chose; the draft kept the one before. */
+	permissionModeRefused?: string
+}
+
+/** A writer that has nothing to report resolves with nothing, as every one did before a mode could be refused. */
+// biome-ignore lint/suspicious/noConfusingVoidType: a writer that resolves with nothing stays valid
+export type DraftSaveAnswer = DraftSaveResult | void
+
 export interface DraftSettings {
 	/** `preset: 'default'` follows the engine's own default model as its catalogue changes. */
 	choice?: {
@@ -1335,7 +1345,7 @@ export interface DesktopApi {
 	draft(sessionId: string): Promise<string>
 	saveDraft(sessionId: string, draft: string): Promise<void>
 	draftSettings(ownerId: string): Promise<DraftSettings>
-	saveDraftSettings(ownerId: string, value: DraftSettings): Promise<void>
+	saveDraftSettings(ownerId: string, value: DraftSettings): Promise<DraftSaveAnswer>
 	cancel(sessionId: string): Promise<void>
 	takeQueued(sessionId: string, itemId?: string): Promise<string | null>
 	removeQueued(sessionId: string, itemId: string): Promise<void>
