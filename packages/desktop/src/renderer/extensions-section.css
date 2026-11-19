@@ -73,9 +73,9 @@
 	column-gap: 14px;
 	width: 100%;
 	margin: 0;
-	padding: 12px;
+	padding: 12px 0;
 	border: 0;
-	border-radius: var(--radius-control);
+	border-radius: 0;
 	background: transparent;
 	color: inherit;
 	font: inherit;

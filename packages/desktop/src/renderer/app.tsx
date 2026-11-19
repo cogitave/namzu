@@ -1659,41 +1659,41 @@ export function App({
 				: undefined,
 		[api, projectId],
 	)
+	// What Settings, Usage lists. A Pal conversation has no indicator but the account's numbers still exist.
+	const usageSettings = useMemo<UsageLimitsControl>(
+		() => ({
+			view: limitsView,
+			currentProvider: activeProviders.selected?.id,
+			budgets,
+			onBudget: (provider, usd) =>
+				setBudgets((all) => {
+					const next = { ...all }
+					if (usd === undefined) delete next[provider]
+					else next[provider] = usd
+					writeBudgets(viewState, next)
+					return next
+				}),
+			onOpen: () =>
+				void limitsRefresher?.refresh()?.then(
+					(view) => {
+						if (view) setLimitsView(view)
+					},
+					() => {},
+				),
+			now: Date.now,
+		}),
+		[limitsView, activeProviders.selected?.id, budgets, limitsRefresher, setLimitsView],
+	)
 	const usageLimits = useMemo<UsageLimitsControl | undefined>(
 		() =>
 			palConversation
 				? undefined
 				: {
-						view: limitsView,
-						currentProvider: activeProviders.selected?.id,
-						budgets,
-						onBudget: (provider, usd) =>
-							setBudgets((all) => {
-								const next = { ...all }
-								if (usd === undefined) delete next[provider]
-								else next[provider] = usd
-								writeBudgets(viewState, next)
-								return next
-							}),
-						onOpen: () =>
-							void limitsRefresher?.refresh()?.then(
-								(view) => {
-									if (view) setLimitsView(view)
-								},
-								() => {},
-							),
-						now: Date.now,
+						...usageSettings,
+						onSeeAll: () => openSettingsRef.current('usage'),
 						onDetails: () => setSessionPanelOpen(true),
 					},
-		[
-			palConversation,
-			limitsView,
-			activeProviders.selected?.id,
-			budgets,
-			limitsRefresher,
-			setLimitsView,
-			setSessionPanelOpen,
-		],
+		[palConversation, usageSettings, setSessionPanelOpen],
 	)
 	const commitPaths = useMemo(() => {
 		if (!sessionPanelActive) return []
@@ -7709,6 +7709,7 @@ export function App({
 									}
 								: undefined
 						}
+						usage={usageSettings}
 						speech={speech}
 						listening={listening}
 						info={desktopInfo.info}

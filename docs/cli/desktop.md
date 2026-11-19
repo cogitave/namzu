@@ -995,7 +995,7 @@ Rows that hold a list or a small map are typed controls rather than JSON boxes (
 
 **How an app row reads.** The app's own rows follow the same naming rules as the engine's, with the reference name where the function matches (*Run on startup*, *Quick Entry keyboard shortcut*, *System tray*, *Keep computer awake*, *Storage*, *Trusted folders*, *Plugins*) and Namzu for the product. A drop-down list (a choice, a font list) marks its default (*Default · Namzu's own*), side-by-side choices (theme, text size, width, motion, the startup choice) show every option at once and carry no mark, a text box shows it as the placeholder, a switch shows none, and there is no "Default: X." line. A row that waits for a restart (*When Namzu starts*, *Use hardware acceleration*, *Restore terminal tabs*) carries the *After restart* badge; a row whose apply differs from its section says so in one short line (*Default terminal shell*, *Ask again when a trusted project changes*, *Download updates automatically*, *Keep the engine up to date*), and the rest say nothing. Sub-headings: General has **Notifications**; Models has **Providers**; Tools has **Tool servers and hooks**; Projects has **Your projects**; Appearance has **Code** and **Accessibility**; Updates has **Namzu Desktop** and **Programs Namzu works with**. In Agent and Tools the app's rows sit first under the engine's heading of the same name, so that heading is drawn once. The Trusted folders row says what removing does; the panel under it only names the list. The Quick Entry box follows the main window's light or dark look and uses the app's own font.
 
-**The section map.** A row sits where its effect is. The nav has four groups: Models; General, Appearance, Notifications, Speech; Agent, Tools, Projects, Terminal; Desktop app, Telemetry, Updates, About. Where the app and the engine both have rows in a section, the app's come first, then the engine's under a heading the engine names (`group` and `groupLabel` on the descriptor):
+**The section map.** A row sits where its effect is. The nav has four groups: Models, Usage; General, Appearance, Notifications, Speech; Agent, Tools, Projects, Terminal; Desktop app, Telemetry, Updates, About. Where the app and the engine both have rows in a section, the app's come first, then the engine's under a heading the engine names (`group` and `groupLabel` on the descriptor):
 
 - **Desktop app** (`desktop`) holds the rows about the app's own process: *Use hardware acceleration*, and the rows the system applies (see [Desktop app rows](#desktop-app-rows)). It holds no engine rows. *Keep computer awake while Namzu works* and its battery child sit in Agent.
 - **Terminal** reads, top to bottom: **Terminal tabs** (the app's own terminal pane: *Default terminal shell*, *Restore terminal tabs*; the heading goes with the rows where there are no terminals), four **Terminal app** headings (*look*, *mouse and scrolling*, *notifications*, *message box*: `tui.*`, `statusLine` and `composerTriggers.*`, which only the namzu terminal app reads: the Desktop composer has no triggers) and **Command line** (*Output format* and *Quiet output*, which shape the output of one-shot commands such as `namzu exec`, and *Profiles*, which only `--profile` on the command line selects).
@@ -5427,10 +5427,15 @@ the model, holds it for after the reply instead. Both wait **at the end of the c
 (`pending-tail.tsx`, mounted by `Transcript` after the last message and above the working row): one bubble per
 message in the order it will be used, the messages sent into the reply first and then the held ones. Nothing
 is drawn in or above the message box. Under each bubble are quiet, always visible **Send now**, **Edit** and
-**Remove** actions; a message sent into the reply offers only Send now, because it cannot be taken back. The
+**Remove** actions; a message already sent into the reply offers none of them, because it cannot be taken back and Send now has nothing left to do. The
 "Sending to this reply" and "After this reply" notes are the bubble's tooltip and read by a screen reader; a
-"Waiting" or "Delivery not confirmed" note is shown as text. Send now stops the reply and runs that message at
-once (`operator.sendNow`; a message sent into the reply that had not arrived becomes the next one). Edit turns
+"Waiting" or "Delivery not confirmed" note is shown as text. Send now hands that message to the running reply
+at its next step without stopping it (`operator.sendNow` sends it through `namzu/conversations/input` under
+its own id, so the bubble keeps its place and its note becomes "Sending to this reply"). Every message held
+ahead of it goes along, in order; the ones behind it still wait. A message already in the reply is left
+alone. Where live input is not available (a Pal conversation, another engine, an engine that does not offer
+it, a closed live scope, or a held message with files) Send now stops the reply and runs that message at
+once instead, as it did before. Edit turns
 the bubble into an inline editor (`operator.updateQueued`): Enter saves, Shift+Enter adds a line, Esc cancels,
 and the message keeps its place. Up in an empty message box opens the newest held message the same way (Alt+Up
 still pulls it into the box). A waiting message is not part of the history (`thread.messages`, undo and the

@@ -93,10 +93,10 @@ flow("a message typed while working waits as a bubble at the end of the conversa
 	for (const text of ["dorduncu-mesaj", "besinci-mesaj", "altinci-mesaj"]) await hold(w, text);
 	await expect(rows(w)).toHaveCount(5);
 	await shot(w, "pending-5-messages");
-	// A message sent into the reply cannot be taken back; only Send now is offered on it.
+	// A message sent into the reply cannot be taken back; no action is offered on it, since Send now would have nothing left to do.
 	await expect(rows(w).first().getByRole("button", { name: /^Edit/ })).toHaveCount(0);
 	await expect(rows(w).first().getByRole("button", { name: /^Remove/ })).toHaveCount(0);
-	await expect(rows(w).first().getByRole("button", { name: /^Send now/ })).toHaveCount(1);
+	await expect(rows(w).first().getByRole("button", { name: /^Send now/ })).toHaveCount(0);
 });
 
 flow("up in an empty composer edits the newest waiting message in place, keeping its order", async (w) => {

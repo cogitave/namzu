@@ -104,27 +104,6 @@
 	outline: none;
 	box-shadow: var(--focus-ring);
 }
-.limits-budget {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-}
-.limits-budget label {
-	display: inline-flex;
-	align-items: center;
-	gap: 4px;
-	padding: 2px 8px;
-	border: 1px solid var(--border);
-	border-radius: var(--control-radius);
-}
-.limits-budget input {
-	width: 8ch;
-	border: 0;
-	outline: none;
-	background: transparent;
-	color: inherit;
-	font: inherit;
-}
 .composer-limit-note {
 	margin: 4px 0 0;
 	color: var(--error-foreground);
@@ -142,4 +121,19 @@
 }
 .limits-row[data-row="context"] .limits-link {
 	align-self: baseline;
+}
+
+.limits-heading {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 10px;
+}
+.limits-heading .limits-link {
+	flex: none;
+	align-self: baseline;
+	text-decoration: none;
+}
+.limits-heading .limits-link:hover {
+	color: var(--foreground);
 }

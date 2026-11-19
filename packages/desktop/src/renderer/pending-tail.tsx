@@ -91,6 +91,9 @@ export function PendingTail({
 		<section className="pending-tail" aria-label="Messages waiting to be read" data-pending-tail>
 			{rows.map((row) => {
 				const editingRow = editing === row.id && row.editable
+				const sendNow = actions.canSendNow && row.kind !== 'steer'
+				// A message already going into the reply has nothing to press: no empty row under it.
+				const actionRow = showsNote(row) || sendNow || row.editable
 				return (
 					<Message
 						key={row.id}
@@ -119,10 +122,11 @@ export function PendingTail({
 								<MessageContent className="message-bubble pending-bubble" text={row.text} />
 							)
 						)}
-						{!editingRow && (
+						{!editingRow && !actionRow && <span className="sr-only">{row.note}</span>}
+						{!editingRow && actionRow && (
 							<div className="pending-actions">
 								<span className={showsNote(row) ? 'pending-note' : 'sr-only'}>{row.note}</span>
-								{actions.canSendNow && (
+								{sendNow && (
 									<Button
 										variant="ghost-muted"
 										size="xs"

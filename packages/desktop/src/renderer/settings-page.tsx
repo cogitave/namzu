@@ -3,6 +3,7 @@ import {
 	Activity,
 	Bell,
 	Bot,
+	Gauge,
 	KeyRound,
 	Monitor,
 	SquareTerminal,
@@ -101,6 +102,8 @@ import { ShortcutBox } from './settings-shortcut.js'
 import { StoragePanel, TrustedFoldersPanel } from './settings-storage.js'
 import type { Appearance } from './sidebar.js'
 import { Button } from './ui/button.js'
+import type { UsageLimitsControl } from './usage-limits-popover.js'
+import { UsageSection } from './usage-section.js'
 import { useClock } from './use-clock.js'
 import { type ConfigSettingsControls, useConfigSettings } from './use-config-settings.js'
 import type { DesktopSettingsControls } from './use-desktop-settings.js'
@@ -120,6 +123,7 @@ import './settings-page.css'
 const SECTION_ICONS: Record<SettingsSection, IconComponent> = {
 	general: SettingsIcon,
 	models: KeyRound as IconComponent,
+	usage: Gauge as IconComponent,
 	agent: Bot as IconComponent,
 	tools: Wrench as IconComponent,
 	extensions: PuzzleIcon,
@@ -242,6 +246,8 @@ export interface SettingsPageProps {
 	onOpenFolder?: (kind: DataFolderKind) => void
 	/** Closes Settings and shows the Plugins page; absent where there is no such page. */
 	onOpenPlugins?: () => void
+	/** The usage limits the Usage section lists; absent where the window has none to show. */
+	usage?: UsageLimitsControl
 	/** The clock is passed in so relative times are deterministic in tests. */
 	now: number
 }
@@ -591,6 +597,7 @@ function SectionBody(props: SectionProps) {
 					<HooksContainer {...props} />
 				</>
 			)}
+			{props.section === 'usage' && <UsageSection control={props.usage} />}
 			{props.section === 'extensions' && (
 				<ExtensionsSection api={typeof window === 'undefined' ? undefined : window.namzu} />
 			)}

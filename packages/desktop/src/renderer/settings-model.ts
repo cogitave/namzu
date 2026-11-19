@@ -15,6 +15,7 @@ import { foldSearchText } from './text-fold.js'
 export const SETTINGS_SECTION_TITLES: Record<SettingsSection, string> = {
 	general: 'General',
 	models: 'Models',
+	usage: 'Usage',
 	agent: 'Agent',
 	tools: 'Tools',
 	extensions: 'Extensions',
@@ -33,6 +34,7 @@ export const SETTINGS_SECTION_TITLES: Record<SettingsSection, string> = {
 export const SETTINGS_SECTION_SUBTITLES: Record<SettingsSection, string> = {
 	general: 'How Namzu starts, looks and keeps your projects safe.',
 	models: 'The providers and models Namzu can use.',
+	usage: 'What each account allows, how much of it is used, and when it starts over.',
 	agent: 'How long Namzu works, how it remembers, and what it learns.',
 	tools: 'The web, the browser, connected servers, hooks and plugins.',
 	extensions: 'Programs you add from a file. Each one shows what it asks for before it runs.',
@@ -74,7 +76,7 @@ export const SETTINGS_SEARCH_SUBTITLE = 'Matches from every section.'
  * what the agent may do follows; the facts about this install end the list.
  */
 export const SETTINGS_NAV_GROUPS: readonly (readonly SettingsSection[])[] = [
-	['models'],
+	['models', 'usage'],
 	['general', 'appearance', 'notifications', 'speech'],
 	['agent', 'tools', 'extensions', 'projects', 'terminal'],
 	['desktop', 'telemetry', 'updates', 'about'],

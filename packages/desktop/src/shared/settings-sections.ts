@@ -2,6 +2,7 @@
 export const SETTINGS_SECTIONS = [
 	'general',
 	'models',
+	'usage',
 	'agent',
 	'tools',
 	'extensions',

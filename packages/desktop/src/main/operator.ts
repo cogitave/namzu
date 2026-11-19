@@ -300,6 +300,10 @@ interface Conversation {
 	queue: PendingMessage[]
 	/** "Send now" stopped this reply on purpose, so its settlement hands the next message on at once. */
 	sendNowRelease?: boolean
+	/** Waiting messages being handed to the running reply by Send now, so a second press does nothing. */
+	takingIn?: Set<string>
+	/** The hand-over of waiting messages to the running reply, so the reply's settlement waits for it. */
+	takingInCall?: Promise<boolean>
 	liveInputs?: Map<string, LiveInputReceipt>
 	liveInputCalls?: Set<Promise<unknown>>
 	liveInputRead?: Promise<LiveInputStatus | undefined>
@@ -5066,6 +5070,8 @@ export class Operator {
 		sessionId: string,
 		prompt: string,
 		options?: DesktopSendOptions,
+		/** The id the message already has as a waiting row, so it keeps its place on screen once taken in. */
+		fixedInputId?: string,
 	): Promise<'accepted' | 'queued'> {
 		const session = this.session(sessionId)
 		this.assertFolderPresent(session.view.projectId)
@@ -5107,7 +5113,8 @@ export class Operator {
 			options?.attachmentIds?.length ||
 			!session.client.supportsLiveInput()
 		) {
-			await this.send(sessionId, prompt, options)
+			// A waiting message the caller still owns stays where it is; only a fresh one is queued here.
+			if (fixedInputId === undefined) await this.send(sessionId, prompt, options)
 			return 'queued'
 		}
 		const client = session.client
@@ -5134,16 +5141,17 @@ export class Operator {
 		}
 		const operation = (async (): Promise<'accepted' | 'queued'> => {
 			assertCurrent()
-			if (session.queue.length + (session.liveInputs?.size ?? 0) >= 20)
+			const waiting = session.queue.filter((item) => item.id !== fixedInputId)
+			if (waiting.length + (session.liveInputs?.size ?? 0) >= 20)
 				throw new Error('The message queue is full.')
 			const predecessors = [
-				...session.queue.map((item) => item.id),
+				...waiting.map((item) => item.id),
 				...[...(session.liveInputs?.values() ?? [])].map((item) => item.id),
 			]
 			const status = await this.liveInputStatus(session, client, runtimeId)
 			assertCurrent()
 			if (!status.available || !status.scopeId) {
-				await this.send(sessionId, prompt, options)
+				if (fixedInputId === undefined) await this.send(sessionId, prompt, options)
 				return 'queued'
 			}
 			const scopeId = status.scopeId
@@ -5157,7 +5165,7 @@ export class Operator {
 				previous.draftRevision === draftRevision &&
 				previous.prompt === prompt
 					? previous.id
-					: randomUUID()
+					: (fixedInputId ?? randomUUID())
 			session.liveInputRetry = {
 				id: inputId,
 				prompt,
@@ -5179,6 +5187,12 @@ export class Operator {
 			}
 			if (!session.liveInputs) session.liveInputs = new Map()
 			session.liveInputs.set(inputId, receipt)
+			if (fixedInputId !== undefined) {
+				// The waiting row leaves the queue in the same step it becomes a receipt, never before.
+				const waitingIndex = session.queue.findIndex((item) => item.id === fixedInputId)
+				if (waitingIndex >= 0) session.queue.splice(waitingIndex, 1)
+				this.state(session)
+			}
 			// Anchor the authored input before dispatch. A provider update can overtake
 			// its ACK or the later delivery-status read.
 			this.emit({
@@ -6348,7 +6362,10 @@ export class Operator {
 			}
 			// Let an admitted current-turn submission finish its exact-scope ACK
 			// reconciliation before deciding whether its text was delivered.
-			await Promise.allSettled([...(session.liveInputCalls ?? [])])
+			await Promise.allSettled([
+				...(session.liveInputCalls ?? []),
+				...(session.takingInCall ? [session.takingInCall] : []),
+			])
 			let liveStatusUnknown = false
 			let liveRestoredDraft: string | undefined
 			let finalLiveStatus: LiveInputStatus | undefined
@@ -6505,9 +6522,24 @@ export class Operator {
 		const session = this.session(sessionId)
 		if (session.admitting) throw new Error('Wait for this conversation’s admission to finish.')
 		if (itemId !== undefined) {
+			// A message the reply already has, or is being handed, has nothing left to do.
+			if ((session.liveInputs?.has(itemId) || session.takingIn?.has(itemId)) && session.running)
+				return
 			const index = session.queue.findIndex((item) => item.id === itemId)
 			if (index < 0 && !session.liveInputs?.has(itemId))
 				throw new Error('This message has already started or was removed.')
+		}
+		if (session.running) {
+			const taking = this.takeIntoReply(session, itemId)
+			session.takingInCall = taking
+			try {
+				if (await taking) return
+			} finally {
+				if (session.takingInCall === taking) session.takingInCall = undefined
+			}
+		}
+		if (itemId !== undefined) {
+			const index = session.queue.findIndex((item) => item.id === itemId)
 			if (index > 0) {
 				const [item] = session.queue.splice(index, 1)
 				if (item) session.queue.unshift(item)
@@ -6530,6 +6562,51 @@ export class Operator {
 		} catch (error) {
 			session.sendNowRelease = undefined
 			throw error
+		}
+	}
+	/**
+	 * Hands a waiting message, and every one queued ahead of it, to the running reply at its next step
+	 * without stopping it. False when the engine cannot take messages into a running reply, or a message
+	 * carries files: the caller then stops the reply and runs the message instead.
+	 */
+	private async takeIntoReply(session: Conversation, itemId?: string): Promise<boolean> {
+		if (
+			!session.running ||
+			session.projection.stopReason ||
+			session.view.palId ||
+			(session.view.harness && session.view.harness !== 'namzu') ||
+			!session.client.supportsLiveInput()
+		)
+			return false
+		const last =
+			itemId === undefined
+				? session.queue.length - 1
+				: session.queue.findIndex((item) => item.id === itemId)
+		if (last < 0) return false
+		const carried = session.queue.slice(0, last + 1)
+		if (carried.some((item) => item.files.length > 0 || item.uncertainLiveInput)) return false
+		const status = await this.liveInputStatus(session, session.client, session.runtimeSessionId)
+		if (!status.available || !status.scopeId || !session.running) return false
+		if (!session.takingIn) session.takingIn = new Set()
+		for (const item of carried) session.takingIn.add(item.id)
+		try {
+			for (const item of carried) {
+				if (!session.queue.some((queued) => queued.id === item.id)) continue
+				let result: 'accepted' | 'queued'
+				try {
+					result = await this.sendCurrent(session.view.id, item.prompt, item.options, item.id)
+				} catch (error) {
+					// A message the reply never received is still waiting in its place, so the failure
+					// is only reported; the reply ending meanwhile is not a failure of the message.
+					if (!session.running && session.queue.some((queued) => queued.id === item.id))
+						return false
+					throw error
+				}
+				if (result === 'queued') return false
+			}
+			return true
+		} finally {
+			for (const item of carried) session.takingIn.delete(item.id)
 		}
 	}
 	takeQueued(sessionId: string, itemId?: string): string | null {
