@@ -16,7 +16,10 @@ body,
 	overflow: clip;
 }
 body {
+	/* Text that sets no size of its own reads at the interface size, never at the 16px root. */
 	font-family: var(--font-sans);
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
 	color: var(--foreground);
 	background: var(--chrome);
 }
