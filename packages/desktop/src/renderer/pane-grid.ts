@@ -32,6 +32,9 @@ export const SESSION_CARD = 280
 /** With two columns the conversation keeps half the width; with one column the panes take a third. */
 export const CHAT_SHARE_MULTI = 1 / 2
 export const SINGLE_SHARE = 1 / 3
+/** A single column that opens with a reading pane (changes, files, browser) takes three fifths; a terminal keeps the third. */
+export const READING_SHARE = 3 / 5
+const READING_KINDS: readonly GridKind[] = ['changes', 'files', 'browser']
 /** The most columns, and the most panes in one column. */
 export const MAX_COLUMNS = 2
 export const MAX_TILES = 2
@@ -296,10 +299,12 @@ const clamp = (value: number, low: number, high: number) =>
 	Math.min(Math.max(value, low), Math.max(low, high))
 
 /** The side area: what the columns together take at this width. */
-function sideWidth(layout: Layout, width: number, drawn: number): number {
+function sideWidth(layout: Layout, width: number, drawn: number, first?: GridKind): number {
 	if (drawn === 0) return 0
-	if (drawn === 1)
-		return Math.round(clamp(layout.oneWidth ?? width * SINGLE_SHARE, COL_MIN, width - CHAT_MIN))
+	if (drawn === 1) {
+		const share = first && READING_KINDS.includes(first) ? READING_SHARE : SINGLE_SHARE
+		return Math.round(clamp(layout.oneWidth ?? width * share, COL_MIN, width - CHAT_MIN))
+	}
 	const natural = Math.max(2 * COL_MIN, Math.min(width * CHAT_SHARE_MULTI, width - CHAT_MIN))
 	return Math.round(clamp(layout.twoWidth ?? natural, 2 * COL_MIN, width - CHAT_MIN))
 }
@@ -368,7 +373,7 @@ export function fit(layout: Layout, width: number, height: number, shown?: GridK
 				},
 			]
 		: layout.columns
-	const side = sideWidth(layout, width, drawn.length)
+	const side = sideWidth(layout, width, drawn.length, drawn[0]?.tiles[0]?.kind)
 	let widths: number[]
 	if (drawn.length === 1) widths = [side]
 	else {
