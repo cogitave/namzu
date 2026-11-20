@@ -22,6 +22,7 @@ The SDK decides **when** something is due. It does not store jobs, run them, or 
 | `validateTimeZone(tz)`, `hostTimeZone()`, `parseDuration(text)` | Helpers |
 | `evaluateJob(input)` | What to do about one job now |
 | `buildScheduleTools(host)`, `buildSessionLoopTools(host)` | The `schedule` and `session_loop` tools |
+| `buildSessionTimerTools(host)`, `buildWakeUpTool(host)`, `clampWakeUpDelay` | The `timer_set`, `timer_list`, `timer_cancel` and `wake_up` tools |
 | `scanSchedulePrompt(prompt)`, `revealHiddenCharacters(prompt)` | The prompt tripwire a confirmation screen shows |
 | `generateScheduleJobId()`, `generateScheduleRunId()` | UUIDv7 strings for a host's records |
 | `SCHEDULE_CATCH_UP_WINDOW_MS` (7 days), `SCHEDULE_LATE_GRACE_MS` (2 minutes) | Defaults |
@@ -118,7 +119,15 @@ Occurrences are counted, never enumerated, up to 100 000 (`capped` says when the
 
 Register it only where a person can confirm. The CLI registers it in the interactive TUI and never in `exec`, a scheduled run, a sub-agent or ACP.
 
-`buildSessionLoopTools(host: SessionLoopHost)` returns `session_loop` (`create`, `list`, `delete`): re-send a prompt to the same conversation on an interval while the session is open. `create` is an ordinary reviewed call, not review-exempt, so in `prompt` mode the operator sees it first. The CLI's host is described in [Session loops](../cli/session-loops.md).
+`buildSessionLoopTools(host: SessionLoopHost)` returns `session_loop` (`create`, `list`, `delete`): re-send a prompt to the same conversation on an interval while the session is open; with no `interval` the loop is self-paced (the model picks each next wake-up with `wake_up`). `create` is an ordinary reviewed call, not review-exempt, so in `prompt` mode the operator sees it first. The CLI's host is described in [Session loops](../cli/session-loops.md).
+
+### Timers and self-paced loops
+
+Two more builders, for work the model starts on its own while the session is open. Neither writes to the durable schedule store, and the reviewed `schedule` and `session_loop` tools are unchanged.
+
+- `buildSessionTimerTools(host: SessionTimerHost)` returns `timer_set` (`when`, `prompt`, `recurring`, default `true`), `timer_list` and `timer_cancel` (`id`). `when` is an interval (`10m`), `in 10m`, `at 14:30` or a five-field cron expression. A one-shot is `recurring: false` (or an `in`/`at` time). They carry no permission and no review, because a timer lives only in memory, fires only between turns and is shown to the person when it fires. The host owns the limits; the CLI's are 50 timers, 7 days for a recurring one, and a nudge on firing times (see [Session loops](../cli/session-loops.md#timers-the-model-sets)). The tools are offered deferred, so a session pays for them only when the model searches for them.
+- `buildWakeUpTool(host: SelfPacedHost)` returns `wake_up` (`delay_seconds`, `reason`, `quiet`, `stop`). `clampWakeUpDelay(n)` holds the delay between `WAKE_UP_MIN_SECONDS` (60) and `WAKE_UP_MAX_SECONDS` (3600): the number is rounded, not-a-number counts as 60, infinity as 3600. `quiet: true` says nothing changed this tick; `stop: true` ends the loop and ignores the other fields. A tick that ends without calling it ends the loop. A host keeps it ready (not deferred) so a tick can end by calling it.
+- `SessionLoop.paced` (`SessionLoopPace`: `dueAt`, `reason`, `quietTicks`, `awaitingWakeUp`) marks a self-paced loop; `SessionLoopHost.create` takes no `interval` for one.
 
 ## The directory loader's three objections
 

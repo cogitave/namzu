@@ -72,7 +72,7 @@ export function presentLoopCall(input: {
 }): ToolCallView {
 	switch (input.action) {
 		case 'create':
-			return activity(`Loop ${oneLine(input.interval)} · ${oneLine(input.prompt)}`)
+			return activity(`Loop ${oneLine(input.interval) || 'self-paced'} · ${oneLine(input.prompt)}`)
 		case 'list':
 			return activity('List loops')
 		case 'delete':

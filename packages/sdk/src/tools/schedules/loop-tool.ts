@@ -13,7 +13,9 @@ const inputSchema = z.object({
 	interval: z
 		.string()
 		.optional()
-		.describe('create: how often, e.g. "5m", "1h", or a five-field cron expression'),
+		.describe(
+			'create: how often, e.g. "5m", "1h", or a five-field cron expression; leave out to pace the loop yourself with wake_up',
+		),
 	prompt: z.string().min(1).max(4_000).optional().describe('create: the message to send each time'),
 	id: z.string().optional().describe('delete: the loop id, or "all"'),
 })
@@ -32,7 +34,7 @@ export function buildSessionLoopTools(host: SessionLoopHost): ToolDefinition[] {
 		defineTool({
 			name: SESSION_LOOP_TOOL_NAME,
 			description:
-				"Re-send a prompt to this conversation on an interval while the session stays open (between turns only; stops when the session closes; expires after 7 days). Use only when the user asks for something to repeat. Minimum interval one minute. Returns the new loop's id on create, this session's loops on list, and how many loops were stopped on delete.",
+				"Re-send a prompt to this conversation on an interval while the session stays open (between turns only; stops when the session closes; expires after 7 days). Use only when the user asks for something to repeat. Minimum interval one minute. Without an interval the loop is self-paced: you get the first tick at once and choose each next wake-up with wake_up. Returns the new loop's id on create, this session's loops on list, and how many loops were stopped on delete.",
 			inputSchema,
 			category: 'custom',
 			permissions: [],
@@ -60,18 +62,20 @@ export function buildSessionLoopTools(host: SessionLoopHost): ToolDefinition[] {
 						? { success: false, output: '', error: `No loop has id "${input.id}".` }
 						: { success: true, output: `Stopped ${stopped} loop${stopped === 1 ? '' : 's'}.` }
 				}
-				if (!input.interval || !input.prompt) {
-					return { success: false, output: '', error: 'create needs interval and prompt.' }
+				if (!input.prompt) {
+					return { success: false, output: '', error: 'create needs a prompt.' }
 				}
 				try {
 					const loop = await host.create({
-						interval: input.interval,
+						...(input.interval ? { interval: input.interval } : {}),
 						prompt: input.prompt,
 						createdBy: 'model',
 					})
 					return {
 						success: true,
-						output: `Loop ${loop.id} created: ${loop.schedule}. The operator can stop it with /loop stop ${loop.id}.`,
+						output: loop.paced
+							? `Loop ${loop.id} created, self-paced. The first tick arrives when this turn ends; each tick, call wake_up to choose the next one. The operator can stop it with /loop stop ${loop.id}.`
+							: `Loop ${loop.id} created: ${loop.schedule}. The operator can stop it with /loop stop ${loop.id}.`,
 						data: { id: loop.id },
 					}
 				} catch (error) {
