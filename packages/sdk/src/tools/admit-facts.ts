@@ -119,6 +119,8 @@ export function admitToolFacts(value: unknown): ToolFacts | undefined {
 						: undefined,
 				background: flag(value.background),
 				continued: flag(value.continued),
+				jobId: text(value.jobId),
+				timeLimitMs: count(value.timeLimitMs),
 			})
 		case 'read': {
 			const path = text(value.path)

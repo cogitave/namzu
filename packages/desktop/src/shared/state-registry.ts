@@ -158,6 +158,15 @@ export const STATE_KEYS: readonly StateKeyDef[] = [
 		ownerOf: after('namzu.workspace.files:'),
 	},
 	{
+		id: 'conv.backgroundTasks',
+		scope: 'conversation',
+		match: { prefix: 'namzu.background-tasks.1.' },
+		maxBytes: 4 * KIB,
+		maxEntries: 500,
+		restore: 'soft',
+		ownerOf: after('namzu.background-tasks.1.'),
+	},
+	{
 		id: 'ui.panelWidth',
 		scope: 'window',
 		match: { prefix: 'namzu.workspace.panel-width:' },

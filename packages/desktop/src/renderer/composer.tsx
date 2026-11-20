@@ -103,6 +103,7 @@ import { Textarea } from './ui/textarea.js'
 import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
 import './composer.css'
 import type { ThreadUsage } from '../shared/projection.js'
+import { tasksButtonText } from './background-tasks-model.js'
 import type { ContextPanelSource } from './context-panel.js'
 import { ContextReadout, ContextRing } from './context-ring-view.js'
 import { UsageIndicator, type UsageLimitsControl, indicatorState } from './usage-limits-popover.js'
@@ -160,7 +161,7 @@ export function Composer({
 	pending,
 	onEditPending,
 	editingPending = false,
-	shells,
+	tasks,
 	usage,
 	limits,
 	contextPanel,
@@ -276,8 +277,8 @@ export function Composer({
 	onEditPending: (id: string) => void
 	/** A waiting message is open for editing, so the up arrow leaves the box alone. */
 	editingPending?: boolean
-	/** Background shell commands running for this conversation; absent when there are none. */
-	shells?: { count: number; onOpen: () => void }
+	/** Background tasks of this conversation, for the button that opens their pane; absent when there are none. */
+	tasks?: { running: number; finished: number; open: boolean; onOpen: () => void }
 	/** How full the conversation is, as the engine last said; the ring is drawn only when it is complete. */
 	usage?: ThreadUsage
 	/** What the account behind the provider says about its limits; the indicator opens a popover with it. */
@@ -1491,16 +1492,17 @@ export function Composer({
 										disabled={sending || !connected}
 										onChange={(permissionMode) => onSettingsChange({ ...settings, permissionMode })}
 									/>
-									{!waiting && shells && shells.count > 0 && (
+									{!waiting && tasks && tasksButtonText(tasks.running, tasks.finished) && (
 										<Button
 											variant="ghost-muted"
 											size="xs"
 											className="composer-footer-chip"
-											data-composer-shells={shells.count}
-											aria-label={`${shells.count} background ${shells.count === 1 ? 'shell' : 'shells'} running. Show`}
-											onClick={shells.onOpen}
+											data-composer-tasks={tasks.running}
+											aria-pressed={tasks.open}
+											aria-label={`${tasksButtonText(tasks.running, tasks.finished)}. Show background tasks`}
+											onClick={tasks.onOpen}
 										>
-											{shells.count} {shells.count === 1 ? 'shell' : 'shells'}
+											{tasksButtonText(tasks.running, tasks.finished)}
 										</Button>
 									)}
 									{!waiting && pullRequest && (

@@ -402,6 +402,8 @@ function commandShell(facts: CommandFacts): ShellCellData {
 		...(stderr ? { stderr } : {}),
 		...(status ? { status } : {}),
 		...(facts.background ? { background: true as const } : {}),
+		...(facts.background && facts.jobId ? { jobId: facts.jobId } : {}),
+		...(facts.background && facts.timeLimitMs ? { timeLimitMs: facts.timeLimitMs } : {}),
 		...(facts.binary ? { notice: `Not text, ${humanBytes(facts.binary.bytes)}. Not shown.` } : {}),
 	}
 }
@@ -437,6 +439,13 @@ function failureLead(kind: ActionKind): string {
 function callFactsOf(tool: ProjectedToolCall): ToolFacts | undefined {
 	const call = tool.callView
 	return call?.kind === 'generic' ? call.facts : undefined
+}
+
+/** A call's own fields for a call that failed before it ran: it asked for the background, it never got there. */
+function notStarted(facts: ToolFacts | undefined): ToolFacts | undefined {
+	if (facts?.kind !== 'command' || !facts.background) return facts
+	const { background: _background, jobId: _jobId, timeLimitMs: _timeLimitMs, ...rest } = facts
+	return rest
 }
 
 function pathOfFacts(facts: ToolFacts | undefined): string | undefined {
@@ -828,9 +837,10 @@ export function toolTranscriptPresentation(
 	const palName = palMessageName(tool)
 	const skill = skillNameOf(tool)
 	const asked = tool.title === QUESTION_TOOL
-	// What the tool reported as fields; before it finished, what the call was about.
+	// What the tool reported as fields; before it finished, what the call was about. A call that
+	// failed without reporting anything never started, so it did not go to the background either.
 	const call = callFactsOf(tool)
-	const facts = tool.facts ?? call
+	const facts = tool.facts ?? (state === 'failed' ? notStarted(call) : call)
 	const typed =
 		!palName && !skill && !asked && !observed && view.kind !== 'diff' && facts
 			? factsRow(tool, state, facts, call)

@@ -562,6 +562,8 @@ export interface JobView {
 	command: string
 	status: string
 	startedAt: number
+	/** When the job ended (epoch milliseconds); absent while it runs, and from an older engine. */
+	completedAt?: number
 	exitCode?: number
 	/** Termination is unconfirmed; the job remains owned and running. */
 	recoveryRequired?: boolean
@@ -1431,7 +1433,11 @@ export interface DesktopApi {
 	 * cannot say. Absent in an older shell.
 	 */
 	contextUsage?(sessionId: string, detail?: 'summary' | 'full'): Promise<ContextReport | null>
-	readJob(sessionId: string, jobId: string): Promise<{ output: string; truncated?: boolean }>
+	/** The last 64 KB of the job's output; `size` is what the engine holds, so a large output is read less often. */
+	readJob(
+		sessionId: string,
+		jobId: string,
+	): Promise<{ output: string; truncated?: boolean; size?: number }>
 	stopJob(sessionId: string, jobId: string): Promise<void>
 	/** App updates. Absent in a preview that has no updater. */
 	updateState?(): Promise<UpdateState>

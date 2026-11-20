@@ -167,6 +167,7 @@ import {
 	type SavedLastModel,
 } from './desktop-conversation-store.js'
 import type { DesktopDiagnosticSink } from './diagnostics.js'
+import { jobRows, jobTail } from './job-view.js'
 import { type MadeFile, madeSince, scanFolder } from './made-files.js'
 import { ModelListStore, type StoredModelList, modelListKey } from './model-list-store.js'
 import { isNormalChatWorkspace, normalChatWorkspace } from './normal-chat-workspace.js'
@@ -7151,9 +7152,11 @@ export class Operator {
 	async jobs(sessionId: string): Promise<unknown> {
 		const session = this.session(sessionId)
 		if (session.projection.messages.length === 0 && !session.running) return []
-		return await session.client.request('namzu/jobs/list', {
-			sessionId: session.runtimeSessionId,
-		})
+		return jobRows(
+			await session.client.request('namzu/jobs/list', {
+				sessionId: session.runtimeSessionId,
+			}),
+		)
 	}
 	/**
 	 * Where a conversation's window goes, from the engine that serves it. Null when the engine has
@@ -7187,7 +7190,7 @@ export class Operator {
 			chunk: string
 			droppedBytes: number
 		}
-		return { output: result.chunk, truncated: result.droppedBytes > 0 }
+		return jobTail(result.chunk, result.droppedBytes)
 	}
 	async stopJob(sessionId: string, jobId: string): Promise<void> {
 		const session = this.session(sessionId)
