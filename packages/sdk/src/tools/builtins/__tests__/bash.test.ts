@@ -100,7 +100,7 @@ describe('a dangerous command that is refused', () => {
 describe('the model is told the shell has no keyboard', () => {
 	it('says so in the tool description', () => {
 		expect(BashTool.description).toContain(COMMAND_HAS_NO_INPUT)
-		expect(COMMAND_HAS_NO_INPUT).toContain('stdin is closed')
+		expect(COMMAND_HAS_NO_INPUT).toContain('Stdin is closed')
 		expect(COMMAND_HAS_NO_INPUT).toContain('ask the person')
 	})
 

@@ -99,7 +99,7 @@ function startsWithSleep(command: string): boolean {
  * states the same words.
  */
 export const COMMAND_HAS_NO_INPUT =
-	'The command has no input: stdin is closed and there is no terminal, so a question or password prompt cannot be answered here. Use a non-interactive flag, pass the answer in the command, or ask the person.'
+	'Stdin is closed and there is no terminal, so a prompt for input or a password cannot be answered: use a non-interactive flag, put the answer in the command, or ask the person.'
 
 export function movedToBackgroundMessage(jobId: string, timeoutMs: number): string {
 	const seconds = Math.max(1, Math.round(timeoutMs / 1000))
