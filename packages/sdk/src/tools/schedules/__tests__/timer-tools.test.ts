@@ -47,7 +47,7 @@ describe('timer tools', () => {
 		const tools = buildSessionTimerTools(fakeTimers())
 		expect(tools.map((t) => t.name)).toEqual(['timer_set', 'timer_list', 'timer_cancel'])
 		for (const t of tools) expect(t.permissions).toEqual([])
-		expect(tools.map((t) => t.isReadOnly({} as never))).toEqual([false, true, false])
+		expect(tools.map((t) => t.isReadOnly?.({} as never))).toEqual([false, true, false])
 	})
 
 	it('sets a recurring timer by default and says it is session-only', async () => {
