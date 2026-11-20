@@ -10,7 +10,7 @@ generated: { by: process:claude-code, at: 2026-10-22T00:00:00Z }
 
 # Permission modes
 
-A mode decides what happens to a call that no rule decided. The `[permissions]` table says what a tool may do; a mode governs the rest, for one conversation. A mode can never reopen what a rule closed: a `deny` rule and the dangerous-pattern floor (`sudo`, `curl | sh` and the like are refused, not asked about) hold in every mode. The floor checks the command a shell tool is about to run (the `bash` or `monitor` command, or the whole input of a shell tool from a plugin or server); it does not read an agent prompt, a file being written or an edit, so text that only mentions `sudo` is not refused, and a delegated agent's own shell calls are checked when they run, and an `ask` rule is asked in every mode.
+A mode decides what happens to a call that no rule decided. The `[permissions]` table says what a tool may do; a mode governs the rest, for one conversation. A mode can never reopen what a rule closed: a `deny` rule and the part of the dangerous-command floor that guards what cannot be undone hold in every mode (see [The dangerous-command floor](#the-dangerous-command-floor)), and an `ask` rule is asked in every mode. The floor checks the command a shell tool is about to run (the `bash` or `monitor` command, or the whole input of a shell tool from a plugin or server); it does not read an agent prompt, a file being written or an edit, and a delegated agent's own shell calls are checked when they run.
 
 | Word | Reads as | Runs without a question | Still asks (or is refused when nobody can be asked) |
 | --- | --- | --- | --- |
@@ -61,11 +61,31 @@ The question before the screen opens when bypass starts (the one-time "Run witho
 
 **Auto** is available unless `permissions.disableAutoMode: true` is set in any file, and only when a model can answer for it: the session's own model, or the one `permissions.autoMode.model` names, with a credential on this machine. Entering it by Shift+Tab adds one quiet line to the transcript, once.
 
+## The dangerous-command floor
+
+The floor reads what a shell line runs, not its text: the commands in it after `;`, `&&`, `|`, in a subshell, in `$( )` or backticks, in a `bash -c` payload, and behind a wrapper such as `env`, `nice` or `sudo`. A word inside quotes, an `echo` argument, a heredoc body or a comment never counts, so `echo "needs sudo"` is an ordinary command. It has two tiers.
+
+**Stopped in every mode** (the model is told what it tried and that nothing ran; you can run the line yourself):
+
+- `rm` or `rmdir` of the file system root (`/`, `/*`), your home folder (`~`, `$HOME`, its literal path), a top-level directory (`/usr`, `/etc`, `/var`, any single name under `/`), or a variable that may be empty followed by one (`"$PREFIX/usr"` when `PREFIX` is unset or empty, `"$DIR/"`). `rm -f /usr/local/.wtest` and `rm -rf /tmp/build` are not on it; the wider removal check below still asks about the working folder and its parents;
+- `mkfs` and `mkfs.*`;
+- `dd` with `of=/dev/…` (not `/dev/null`, `/dev/zero` and the like);
+- a fork bomb;
+- `chmod 777 /` (`/*` too).
+
+**Asked about** (in `default`, `plan` and `accept-edits` you get the normal question and can allow it once; `bypass` and `auto` lift it as they lift any other ask): `sudo`, `doas`, `pkexec`, `su -`, `ssh user@host`, `eval` of a quoted or expanded string, and a `curl` or `wget` piped straight into a shell.
+
+With nobody to ask (`exec`, a scheduled run) an asked command is refused like any other question. A scheduled script is checked in strict mode: every one of these is refused there.
+
+To keep the old strictness (every one of these refused in every mode, matched on the raw text), a host using the SDK sets `denyDangerousPatterns: 'strict'` on its gate. The CLI has no setting for it yet.
+
+This is not a security boundary: a command assembled at runtime is read as far as the shell can be read before it runs, and the OS sandbox is the boundary.
+
 ## What bypass and auto still ask
 
 In both modes these are never decided by the mode:
 
-- a `deny` rule, and the dangerous-pattern floor: refused;
+- a `deny` rule, and the irreversible commands of the dangerous-command floor (the file system root, the home folder or a top-level directory removed, a file system made on a device, a raw write to a device, a fork bomb, a world-writable root): refused. `sudo`, `su -`, `ssh user@host`, `eval` and a download piped into a shell are not on this list: they are asked about in the modes that ask, and bypass and auto lift them like any other ask;
 - an `ask` rule: asked;
 - a catastrophic removal (the file system root, a top-level or home directory, the working directory or a parent, a cross-directory glob, a target a variable may leave empty): asked;
 - a call that creates or deletes a top-level entry directly in your home folder or the filesystem root (`mkdir ~/newthing`, `git clone <url> ~/repo`, `rm -rf ~/thing`, a `write` creating `~/new.txt`, `mkdir /newthing`): asked, with the path named. Anything inside an existing top-level folder (`~/projects/x/new`, `/tmp/x`) and changes to a top-level entry that is already there are not asked about. Only what can be read before the line runs counts: a path built from a variable or command substitution, or a relative path after a `cd` in the same line, is not judged. See [Where files go](where-files-go.md#the-home-folder-and-the-root-are-asked-about);

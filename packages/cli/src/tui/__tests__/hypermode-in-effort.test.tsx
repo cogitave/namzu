@@ -126,11 +126,16 @@ async function run(harness: Awaited<ReturnType<typeof start>>, command: string) 
 	harness.stdin.write('\r')
 }
 
-it('turns hypermode on with a level, says it after the effort, and never saves it', async () => {
+it('turns hypermode on with a level, names it once on the frame, and never saves it', async () => {
 	const harness = await start({ cwd: '/w', version: '0.0.0-test' })
 	await run(harness, '/effort high hypermode on')
-	await vi.waitFor(() => expect(screen(harness)).toContain('effort high · hypermode'))
-	expect(screen(harness)).toContain('Hypermode is on for this conversation')
+	await vi.waitFor(() => expect(screen(harness)).toContain('Hypermode is on for this conversation'))
+	// The label is the frame's alone: no `· hypermode` after the effort in the status line.
+	const lines = (harness.lastFrame() ?? '').split('\n')
+	const framed = lines.filter((l) => /\bhypermode\b/.test(l) && /─/.test(l))
+	expect(framed).toHaveLength(1)
+	expect(screen(harness)).not.toContain('· hypermode')
+	expect(screen(harness)).toContain('effort high')
 })
 
 it('turns hypermode on and off by itself, leaving the level', async () => {
@@ -145,7 +150,7 @@ it('refuses the option, in one sentence, while dynamic workflows are off', async
 	const harness = await start({ cwd: '/w', version: '0.0.0-test', workflow: { enabled: false } })
 	await run(harness, '/effort high hypermode on')
 	await vi.waitFor(() => expect(screen(harness)).toContain(REFUSAL))
-	expect(screen(harness)).not.toContain('effort high · hypermode')
+	expect(screen(harness)).not.toContain('hypermode ─')
 	expect(screen(harness)).not.toContain('Hypermode is on')
 })
 

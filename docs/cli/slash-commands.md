@@ -308,9 +308,10 @@ row, gets the vertical list, with the same label and description as its own
 row below a rule (Tab works there too). There is no separate key for "this
 session only": the setting already lasts only for the session.
 
-While the mode is on, the composer's upper rule names `hypermode` and the
-footer says it after the effort: `effort high · hypermode`, or just `hypermode`
-when the effort is the model default. Like effort,
+While the mode is on, the composer's upper rule names `hypermode` at its right
+end, once. The status line does not repeat it: it says only `effort high` (or
+nothing when the effort is the model default), and that item still opens the
+effort picker when clicked. Like effort,
 the mode is in-memory and per-session; it is not saved to preferences. A model switch
 resets an explicit effort override to the new model's default as it always has;
 hypermode stays on across it, and the interactive effort chooser that follows a
@@ -432,7 +433,7 @@ to a row and neither sorts nor hides any. Under 70 columns the notes are rebuilt
 from a fixed vocabulary, and `(free)` joins `(default)` and `(image)` there
 rather than being dropped.
 
-In the agents cockpit (`←` on an empty composer, or `↓` from it, or Enter on an agent row in `/tasks`), Enter opens the selected child's live transcript as a separate
+In the agents cockpit (Enter on `main` or on a workflow row in the rows `↓` opens, or on an agent row in `/tasks`), Enter opens the selected child's live transcript as a separate
 framed screen. Esc returns to the agent list; `q` returns to the main
 conversation. Completed children remain available while retained in this
 session, even after their automatic activity rail disappears.
@@ -452,7 +453,7 @@ terminals place descriptions below labels.
 - **Up** on an empty composer chooses the newest queued message, **Up/Down** move, **Enter** loads it into the composer for editing and **Esc** leaves the choice. **Alt+Up** recalls the latest operator-composed queued message for editing, with its attachments and armed triggers. A queued slash command returns as the command the operator typed; its expanded model prompt remains queued until recalled. It leaves a nonempty draft alone; automatic goal and skill prompts cannot be recalled this way.
 - **Esc** while a turn runs interrupts it. An undelivered steer starts a fresh turn before Tab-queued messages after the old turn settles. Without a pending steer, queued messages remain held; a new Enter message runs before them, while Tab adds to the held queue. **Ctrl+X Ctrl+S** does the same as Esc with a pending steer and also releases queued messages Esc had held. **Ctrl+C** is reserved for exit. If a shell command is running, Esc moves it to a background job instead of stopping it ([Background jobs](background-jobs.md#moving-a-running-command-to-the-background)).
 - **Ctrl+B** while a shell command has run for two seconds or more moves it to the background. With no such command it moves the cursor left.
-- **Left** on an empty composer (nothing typed, pasted or attached) opens the agents cockpit; the footer's `← N agents` names it. **Down** on an empty composer focuses the footer: the shell pill first (Enter opens the `/tasks` dialog), then the agents rail; the footer's `↓ to manage` names it. With anything in the composer both keys move the cursor.
+- **Left** on an empty composer (nothing typed, pasted or attached) opens the workspaces screen where there is one. Where there is none, while a reply runs, a first press says `Press ← again to open agents` and the second moves into the task rows (`tui.leftArrowOpensAgents: false` turns that off); the footer's `← N agents` names it then. It never opens the workflow view. **Down** on an empty composer focuses the footer: the shell pill first (Enter opens the `/tasks` dialog), then the agents rail; the footer's `↓ to manage` names it. With anything in the composer both keys move the cursor.
 - **Shift+Tab** cycles the permission mode: `prompt`, `accept-edits`, `plan`, then `bypass` when the launch opened it (`--yolo`, `--allow-dangerously-skip-permissions`, `permissions.defaultMode: bypass`; see [Launch flags](launch-flags.md)), then `auto` unless `permissions.disableAutoMode` is set, then `prompt`. `strict` is not on the cycle and goes back to `prompt`; see [Permission modes](permission-modes.md). It works mid-turn, and the footer is its only reply: nothing is added to the transcript. Plan mode has its own way out: the model presents its plan and you approve it, which switches the mode to the one you choose ([Plan mode](plan-mode.md)).
 - **Ctrl+O** opens the detailed transcript: every row whole, the model's thinking, the last 30 rows (Ctrl+E for all). Ctrl+O, Esc, `q` or Ctrl+C returns to the composer. See [Terminal design](terminal-design.md).
 - **Ctrl+T** shows or hides the model's task checklist above the message box: every task, up to five rows (the rest counted as `… +N more`), instead of the one current step. While the model has tasks the footer reads `ctrl+t to hide tasks` or `ctrl+t to show tasks`. A task the model creates or changes opens the list for this run; while the transcript's own copy of the list is still the newest thing on screen the panel waits. Your own press is saved as `tui.showExpandedTodos` (user config only). No slash command prints the checklist. The agents cockpit is reached with `←` or `↓` on an empty composer, or Enter on an agent row in `/tasks`; Ctrl+T no longer opens it.

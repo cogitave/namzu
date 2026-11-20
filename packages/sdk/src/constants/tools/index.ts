@@ -1,17 +1,27 @@
-// Patterns the authorization gate's `deny_dangerous_patterns` rule
-// matches against the JSON-serialised tool input. The list is
-// intentionally short and high-signal: the goal is to catch the
-// canonical "I will brick the host" mistakes (filesystem wipes,
-// disk reformat, fork bomb) plus the most common shell-side
-// privilege/escape patterns (root sudo, world-writable chmod, the
-// classic curl|bash / wget|bash exfil-then-exec pipe, raw eval).
+/**
+ * A fork bomb: a function whose own name is on both sides of a pipe, is
+ * backgrounded, and is then invoked. Read by the dangerous-command floor
+ * (`authorization/dangerous-commands.ts`) over a command line with its quoted
+ * text and comments blanked, and by {@link DANGEROUS_PATTERNS}.
+ */
+export const FORK_BOMB =
+	/([\w.]{1,32}|:)[ \t]{0,8}\([ \t]{0,8}\)[ \t]{0,8}\{[ \t]{0,8}\1[ \t]{0,8}\|[ \t]{0,8}\1[ \t]{0,8}&[ \t]{0,8};?[ \t]{0,8}\}[ \t]{0,8};?[ \t]{0,8}\1/
+
+// The raw-text list behind the dangerous-command floor's STRICT mode
+// (`denyDangerousPatterns: 'strict'`): every entry is a hard denial, matched
+// against the text of the command wherever it appears, quoted or not.
 //
-// This is NOT a security boundary — Cursor learned the hard way
-// that bash denylists are bypassed via shell tricks like `e""cho`
-// (see Backslash Security 2025). Sandbox enforcement (FS isolation,
-// network egress proxy) is the real boundary; these patterns only
-// catch the most blatant attempts and turn them into an explicit
-// review prompt instead of a silent execute.
+// The default floor does not read this list. It reads what a command line
+// RUNS (`authorization/dangerous-commands.ts`): the irreversible acts in it
+// (a recursive removal of the root, the home folder or a top-level directory,
+// a file system created on a device, a raw write to a device, a fork bomb, a
+// world-writable root) are refused in every mode, and the rest (sudo, su -,
+// ssh user@, eval, a download piped into a shell) are a question the person
+// answers, which bypass and auto modes lift like any other.
+//
+// This is NOT a security boundary — bash denylists are bypassed via shell
+// tricks like `e""cho`. Sandbox enforcement (FS isolation, network egress
+// proxy) is the real boundary.
 export const DANGEROUS_PATTERNS = [
 	// Filesystem wipe / fork bomb / raw disk write.
 	/rm\s+-rf\s+\//,
@@ -44,7 +54,7 @@ export const DANGEROUS_PATTERNS = [
 	 * `[ \t]` rather than `\s`, because a shell function definition of this
 	 * shape lives on one line, and the bound is generous for real spacing.
 	 */
-	/([\w.]{1,32}|:)[ \t]{0,8}\([ \t]{0,8}\)[ \t]{0,8}\{[ \t]{0,8}\1[ \t]{0,8}\|[ \t]{0,8}\1[ \t]{0,8}&[ \t]{0,8};?[ \t]{0,8}\}[ \t]{0,8};?[ \t]{0,8}\1/,
+	FORK_BOMB,
 	// Privilege escalation + world-writable chmod on /.
 	/\bsudo\b/,
 	/\bsu\s+-/,
@@ -63,7 +73,7 @@ export const DANGEROUS_PATTERNS = [
  * can say what to avoid instead of leaving the model to guess. Kept in step with
  * the list above by position.
  */
-const DANGEROUS_REASONS: readonly string[] = [
+export const DANGEROUS_REASONS: readonly string[] = [
 	'it removes the file system root recursively',
 	'it creates a file system on a device',
 	'it writes raw data to a device or file with dd',
@@ -77,7 +87,11 @@ const DANGEROUS_REASONS: readonly string[] = [
 	'it evaluates a dynamic string with eval',
 ]
 
-/** The reason {@link DANGEROUS_PATTERNS} refuses `command`, or a general one when none is recorded. */
+/**
+ * The reason {@link DANGEROUS_PATTERNS} (the strict list) refuses `command`, or a general one when
+ * none is recorded. For the reason the default floor gives, read
+ * `findDangerousCommand` in `authorization/dangerous-commands.ts`.
+ */
 export function dangerousCommandReason(command: string): string {
 	const index = DANGEROUS_PATTERNS.findIndex((pattern) => pattern.test(command))
 	return (

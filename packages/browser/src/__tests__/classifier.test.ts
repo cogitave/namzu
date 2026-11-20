@@ -329,6 +329,27 @@ describe('signInDetection: page', () => {
 		).toBe('captcha')
 	})
 
+	it('with a person present, asks the model to put the sign-in to them and wait, never naming a command', () => {
+		const text = signInNotice(
+			{ ...demo, passwordFields: 1 },
+			page,
+			'namzu browser login work https://demo.example.test/login',
+			true,
+		)
+		expect(text).toContain('You cannot type one')
+		expect(text).toContain('ask_user_question')
+		expect(text).toContain('sign in in the browser window')
+		expect(text).toContain('I signed in')
+		expect(text).not.toContain('namzu browser login')
+		// A page with no credential field, or one that already stopped the turn, still says nothing.
+		expect(signInNotice(demo, page, undefined, true)).toBeUndefined()
+		expect(signInNotice({ ...demo, passwordFields: 1 }, address, undefined, true)).toBeUndefined()
+		// An unattended run is unchanged: it names the command.
+		expect(
+			signInNotice({ ...demo, passwordFields: 1 }, page, 'namzu browser login work x'),
+		).toContain('namzu browser login work x')
+	})
+
 	it('gives a notice, naming the command, only for a page that shows a credential field', () => {
 		const text = signInNotice(
 			{ ...demo, passwordFields: 1 },

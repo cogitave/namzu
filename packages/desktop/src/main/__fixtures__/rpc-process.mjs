@@ -24,9 +24,11 @@ const releaseDiscoveries = () => {
 	for (const { id, result } of delayedDiscoveries.splice(0)) reply(id, result)
 }
 let listCalls = 0
-const methods = ['namzu/harnesses/list', 'namzu/harnesses/select', 'namzu/project/status', 'namzu/project/trust', ...(process.env.FIXTURE_NO_UNTRUST ? [] : ['namzu/project/untrust']), 'namzu/conversations/list', 'namzu/conversations/history', 'namzu/providers/status', 'namzu/providers/models', 'namzu/providers/select', ...(process.env.FIXTURE_AUTO ? ['namzu/providers/select_auto'] : []), 'namzu/jobs/list', 'namzu/jobs/read', 'namzu/jobs/stop', ...(process.env.FIXTURE_LIVE_INPUT ? ['namzu/conversations/input/status', 'namzu/conversations/input'] : []), ...(process.env.FIXTURE_LIVE_MODE ? ['namzu/session/set-permission-mode'] : []), 'namzu/conversations/rename', 'namzu/conversations/fork', 'namzu/conversations/markdown', 'namzu/project/git', ...(process.env.FIXTURE_PR ? ['namzu/project/pr'] : []), ...(process.env.FIXTURE_MCP ? ['namzu/mcp/servers', 'namzu/mcp/approve'] : []), ...(process.env.FIXTURE_HOOKS ? ['namzu/hooks/list'] : []), ...(process.env.FIXTURE_EXTENSIONS ? ['list', 'add', 'license', 'notice', 'acknowledge', 'enable', 'disable', 'unlock', 'remove', 'grant', 'revoke', 'query', 'settings/get', 'settings/set', 'audit', 'background/get', 'background/set', 'ui', 'action', 'runner'].map((name) => `namzu/extensions/${name}`) : []), ...(process.env.FIXTURE_SEARCH ? ['namzu/conversations/search'] : []), ...(process.env.FIXTURE_NO_CHANGES ? [] : ['namzu/project/changes', 'namzu/project/diff']), 'namzu/conversations/archived', 'namzu/conversations/unarchive', ...(process.env.FIXTURE_ARCHIVE ? ['namzu/conversations/archive'] : []), ...(process.env.FIXTURE_PROVIDER_SETUP ? ['connections', 'save_key', 'remove_key', 'test', 'refresh'].map((name) => `namzu/providers/${name}`) : []), ...(process.env.FIXTURE_TERMINALS ? ['status', 'create', 'list', 'attach', 'detach', 'write', 'resize', 'ack', 'kill', 'close'].map((name) => `namzu/terminal/${name}`) : [])]
+const methods = ['namzu/harnesses/list', 'namzu/harnesses/select', 'namzu/project/status', 'namzu/project/trust', ...(process.env.FIXTURE_NO_UNTRUST ? [] : ['namzu/project/untrust']), 'namzu/conversations/list', 'namzu/conversations/history', 'namzu/providers/status', 'namzu/providers/models', 'namzu/providers/select', ...(process.env.FIXTURE_AUTO ? ['namzu/providers/select_auto'] : []), 'namzu/jobs/list', 'namzu/jobs/read', 'namzu/jobs/stop', ...(process.env.FIXTURE_LIVE_INPUT ? ['namzu/conversations/input/status', 'namzu/conversations/input'] : []), ...(process.env.FIXTURE_LIVE_MODE ? ['namzu/session/set-permission-mode'] : []), ...(process.env.FIXTURE_QUESTION ? ['namzu/session/answer-question'] : []), 'namzu/conversations/rename', 'namzu/conversations/fork', 'namzu/conversations/markdown', 'namzu/project/git', ...(process.env.FIXTURE_PR ? ['namzu/project/pr'] : []), ...(process.env.FIXTURE_MCP ? ['namzu/mcp/servers', 'namzu/mcp/approve'] : []), ...(process.env.FIXTURE_HOOKS ? ['namzu/hooks/list'] : []), ...(process.env.FIXTURE_EXTENSIONS ? ['list', 'add', 'license', 'notice', 'acknowledge', 'enable', 'disable', 'unlock', 'remove', 'grant', 'revoke', 'query', 'settings/get', 'settings/set', 'audit', 'background/get', 'background/set', 'ui', 'action', 'runner'].map((name) => `namzu/extensions/${name}`) : []), ...(process.env.FIXTURE_SEARCH ? ['namzu/conversations/search'] : []), ...(process.env.FIXTURE_NO_CHANGES ? [] : ['namzu/project/changes', 'namzu/project/diff']), 'namzu/conversations/archived', 'namzu/conversations/unarchive', ...(process.env.FIXTURE_ARCHIVE ? ['namzu/conversations/archive'] : []), ...(process.env.FIXTURE_PROVIDER_SETUP ? ['connections', 'save_key', 'remove_key', 'test', 'refresh'].map((name) => `namzu/providers/${name}`) : []), ...(process.env.FIXTURE_TERMINALS ? ['status', 'create', 'list', 'attach', 'detach', 'write', 'resize', 'ack', 'kill', 'close'].map((name) => `namzu/terminal/${name}`) : [])]
 // Sessions whose conversation runs on Auto; a model picked by hand removes it.
 const autoSessions = new Set()
+// Questions the agent put to the person and has not heard an answer to: engine id -> the prompt that waits.
+const questions = new Map()
 const lines = createInterface({ input: process.stdin })
 lines.on('close', () => process.exit(0))
 lines.on('line', (line) => {
@@ -164,6 +166,13 @@ lines.on('line', (line) => {
 			reply(id, { stopReason: 'cancelled', reason: 'paused' }); return
 		}
 		if (params.prompt === 'Break connection') { process.exit(0); return }
+		if (process.env.FIXTURE_QUESTION) {
+			// The agent asks the person (a notification, not a permission request) and waits for the answer call.
+			const requestId = `question-${params.sessionId}-${id}`
+			questions.set(requestId, { id, sessionId: params.sessionId })
+			send({ method: 'namzu/session/question', params: { sessionId: params.sessionId, requestId, question: JSON.parse(process.env.FIXTURE_QUESTION) } })
+			return
+		}
 		const requestId = `review-${params.sessionId}-${id}`
 		pending.set(requestId, { id, sessionId: params.sessionId })
 		if (process.env.FIXTURE_COMPUTER_CALLS) {
@@ -173,9 +182,24 @@ lines.on('line', (line) => {
 			return
 		}
 		send({ id: requestId, method: 'session/request_permission', params: { sessionId: params.sessionId, toolCalls: [{ id: requestId, name: 'fixture-tool', input: { prompt: params.prompt, ...(process.env.FIXTURE_ENFORCE_PROVIDER_BINDING ? { engine: harnesses.get(params.sessionId) ?? 'namzu', model: models.get(params.sessionId) } : {}), ...(params.attachments?.length ? { attachments: params.attachments } : {}) }, isDestructive: false, ...(process.env.FIXTURE_ALWAYS_ASK ? { alwaysAsk: true } : {}), ...(process.env.FIXTURE_PREVIEW ? { preview: JSON.parse(process.env.FIXTURE_PREVIEW) } : {}) }] } })
+	} else if (method === 'namzu/session/answer-question') {
+		const waiting = questions.get(params.requestId)
+		if (!waiting || waiting.sessionId !== params.sessionId) { send({ id, error: { code: -32603, message: 'This question is no longer open.' } }); return }
+		questions.delete(params.requestId)
+		reply(id, { answered: true })
+		// The fixture echoes the answer it was given as the assistant's reply, so the wire shape is what is checked.
+		send({ method: 'session/update', params: { sessionId: waiting.sessionId, update: { kind: 'agent_message_chunk', text: `Answer: ${JSON.stringify(params.answer)}` } } })
+		send({ method: 'session/update', params: { sessionId: waiting.sessionId, update: { kind: 'turn_ended', stopReason: 'end_turn' } } })
+		reply(waiting.id, { stopReason: 'end_turn' })
 	} else if (method === 'session/cancel') {
 		const scope = liveScopes.get(params.sessionId)
 		if (scope) scope.available = false
+		for (const [requestId, waiting] of questions) {
+			if (waiting.sessionId !== params.sessionId) continue
+			questions.delete(requestId)
+			send({ method: 'namzu/session/question-closed', params: { sessionId: params.sessionId, requestId } })
+			reply(waiting.id, { stopReason: 'cancelled' })
+		}
 		for (const [requestId, prompt] of pending) {
 			if (prompt.sessionId !== params.sessionId) continue
 			pending.delete(requestId)

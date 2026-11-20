@@ -55,6 +55,27 @@ async function run(
 	return (await BashTool.execute(parsed as never, context)) as never
 }
 
+describe('a command that reads input', () => {
+	// No timeout race: if stdin stayed open these would hang and Vitest's own
+	// per-test timeout would report it.
+	it.skipIf(process.platform === 'win32')('gets end-of-file from read and exits 0', async () => {
+		const result = await run({ command: 'read x; echo got:$x', timeout: 60_000 })
+
+		expect(result.success).toBe(true)
+		expect(result.output).toContain('got:')
+		expect(result.data?.exitCode).toBe(0)
+		expect(result.data?.timedOut).not.toBe(true)
+	})
+
+	it.skipIf(process.platform === 'win32')('returns at once from cat', async () => {
+		const result = await run({ command: 'cat', timeout: 60_000 })
+
+		expect(result.success).toBe(true)
+		expect(result.data?.exitCode).toBe(0)
+		expect(result.data?.timedOut).not.toBe(true)
+	})
+})
+
 describe('a command that succeeds', () => {
 	it('reports both streams while the process waits for the host to release it', async () => {
 		const context = ctx()

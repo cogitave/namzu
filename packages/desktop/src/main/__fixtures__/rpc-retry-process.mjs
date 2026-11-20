@@ -17,7 +17,8 @@ const update = (sessionId, update) => send({ method: 'session/update', params: {
 const fail = (id, message) => send({ id, error: { code: -32603, message } })
 const target = { turnId: 'original-turn', checkpointId: 'original-checkpoint' }
 const notice = 'This provider request has unresolved token usage. Its original turn is retained.'
-const status = (session) => !session?.paused ? {} : process.env.FIXTURE_RETRY_MODE === 'unsafe' ? { notice } : process.env.FIXTURE_RETRY_MODE === 'closable' ? { retry: { ...target, original: { provider: 'zen', model: 'first-model' } }, closable: true } : process.env.FIXTURE_RETRY_MODE === 'closable-unsafe' ? { notice, closable: true } : { retry: target }
+const handoff = { ...target, reason: 'The site asks you to sign in', tool: 'browser', cause: 'sign-in', origin: 'https://example.test', profile: 'default', window: 'visible' }
+const status = (session) => !session?.paused ? {} : process.env.FIXTURE_RETRY_MODE === 'handoff' ? { handoff, closable: true } : process.env.FIXTURE_RETRY_MODE === 'unsafe' ? { notice } : process.env.FIXTURE_RETRY_MODE === 'closable' ? { retry: { ...target, original: { provider: 'zen', model: 'first-model' } }, closable: true } : process.env.FIXTURE_RETRY_MODE === 'closable-unsafe' ? { notice, closable: true } : { retry: target }
 const pause = (id, sessionId) => {
 	const session = sessions.get(sessionId)
 	session.paused = true
@@ -61,7 +62,7 @@ lines.on('line', (line) => {
 		} else pause(id, params.sessionId)
 	} else if (method === 'namzu/sessions/retry') {
 		const session = sessions.get(params.sessionId)
-		if (!status(session).retry || params.turnId !== target.turnId || params.checkpointId !== target.checkpointId) { fail(id, notice); return }
+		if (!(status(session).retry ?? status(session).handoff) || params.turnId !== target.turnId || params.checkpointId !== target.checkpointId) { fail(id, notice); return }
 		const requestId = `review-${id}`
 		pending.set(requestId, { id, sessionId: params.sessionId, kind: 'retry' })
 		send({ id: requestId, method: 'session/request_permission', params: { sessionId: params.sessionId, toolCalls: [{ id: 'retry-call', name: 'guest-action', input: {}, isDestructive: false }] } })

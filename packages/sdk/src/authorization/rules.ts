@@ -1,10 +1,10 @@
-import { DANGEROUS_PATTERNS } from '../constants/tools/index.js'
 import { isTrustedReadOnly } from '../tools/trusted-read-only.js'
 import { matchesSourceIdGlob } from '../toolsets/source-glob.js'
 import type { ToolSourceRef } from '../toolsets/types.js'
 import type { AuthorizationRule, GateDecision } from '../types/authorization/index.js'
 import type { ToolDefinition } from '../types/tool/index.js'
 import { decodedCommands, decomposeCommandLine } from './command-line.js'
+import { type DangerousFinding, findDangerousCommand } from './dangerous-commands.js'
 import type { ShellDialect } from './shell-lexer.js'
 
 export interface EvaluateRuleOptions {
@@ -36,16 +36,41 @@ export interface EvaluateRuleOptions {
  *   running it, and a delegated child's own shell calls are floored when they
  *   run. A call with no definition to ask is read whole, as it always was.
  */
-function executedText(toolDef: ToolDefinition | undefined, toolInput: unknown): string | undefined {
-	if (toolDef === undefined) return JSON.stringify(toolInput) ?? ''
+function executedText(
+	toolDef: ToolDefinition | undefined,
+	toolInput: unknown,
+): { readonly text: string; readonly serialized: boolean } | undefined {
+	if (toolDef === undefined) return { text: JSON.stringify(toolInput) ?? '', serialized: true }
 	const argument = toolDef.commandArgument
 	if (argument !== undefined) {
 		const value = (toolInput as Record<string, unknown> | null | undefined)?.[argument]
 		if (value === undefined || value === null) return undefined
-		return typeof value === 'string' ? value : (JSON.stringify(value) ?? '')
+		return typeof value === 'string'
+			? { text: value, serialized: false }
+			: { text: JSON.stringify(value) ?? '', serialized: true }
 	}
-	if (toolDef.category === 'shell') return JSON.stringify(toolInput) ?? ''
+	if (toolDef.category === 'shell')
+		return { text: JSON.stringify(toolInput) ?? '', serialized: true }
 	return undefined
+}
+
+/**
+ * What the dangerous-command floor found in a call, or `undefined`: an act that
+ * cannot be undone (`stop`, a denial in every mode) or one that is a person's
+ * call (`ask`). `strict` keeps every entry of the raw list a `stop`.
+ */
+export function dangerousFindingFor(
+	toolDef: ToolDefinition | undefined,
+	toolInput: unknown,
+	options: { readonly commandDialect?: ShellDialect; readonly strict?: boolean } = {},
+): DangerousFinding | undefined {
+	const executed = executedText(toolDef, toolInput)
+	if (executed === undefined) return undefined
+	return findDangerousCommand(executed.text, {
+		dialect: options.commandDialect ?? 'sh',
+		serialized: executed.serialized,
+		...(options.strict === true ? { strict: true } : {}),
+	})
 }
 
 export function evaluateRule(
@@ -90,14 +115,15 @@ export function evaluateRule(
 		}
 
 		case 'deny_dangerous_patterns': {
-			const executed = executedText(toolDef, toolInput)
-			if (executed === undefined) return null
-			for (const pattern of DANGEROUS_PATTERNS) {
-				if (pattern.test(executed)) {
-					return 'deny'
-				}
-			}
-			return null
+			const finding = dangerousFindingFor(toolDef, toolInput, {
+				commandDialect: dialect,
+				strict: rule.strict === true,
+			})
+			if (finding === undefined) return null
+			// A `stop` is refused in every mode. An `ask` is a question: the gate
+			// answers `review`, which the modes that ask put to the person and
+			// bypass and auto lift like any other.
+			return finding.tier === 'stop' ? 'deny' : 'review'
 		}
 
 		case 'allow_by_category': {

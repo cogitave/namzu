@@ -19,11 +19,14 @@ import type {
 	ProviderView,
 } from '../shared/protocol.js'
 import type { ProjectPrView } from '../shared/protocol.js'
+import type { DesktopTurnHandoff } from '../shared/protocol.js'
 import { usableProviders } from '../shared/provider-connections.js'
+import type { QuestionResponse } from '../shared/question-protocol.js'
 import { AttachmentList } from './attachment-list.js'
 import { type AddMenuToolServers, ComposerAddMenu } from './composer-add-menu.js'
 import { ComposerApproval } from './composer-approval.js'
 import { caretPoint, copyBoxText } from './composer-caret.js'
+import { ComposerHandoff } from './composer-handoff.js'
 import {
 	type HistoryWalk,
 	activeWalk,
@@ -64,6 +67,7 @@ import {
 	ComposerPlugins,
 } from './composer-plugins.js'
 import { ComposerProjectPicker } from './composer-project-picker.js'
+import { ComposerQuestion } from './composer-question.js'
 import {
 	type ComposerPermissionMode,
 	ComposerPermissions,
@@ -191,6 +195,10 @@ export function Composer({
 	palNames,
 	palRunning,
 	onApproval,
+	onAnswerQuestion,
+	handoff,
+	onContinueHandoff,
+	onStopHandoff,
 	attachments,
 	attachmentsBusy,
 	onAttach,
@@ -314,6 +322,14 @@ export function Composer({
 	palNames?: ReadonlyMap<string, string>
 	palRunning?: ReadonlySet<string>
 	onApproval: (permission: PermissionView, response: PermissionResponse) => unknown
+	/** Answers a question the agent put to the person; absent in a shell that cannot carry one. */
+	onAnswerQuestion?:
+		| ((permission: PermissionView, response: QuestionResponse) => unknown)
+		| undefined
+	/** A turn a tool paused for the person: the card offers Continue and Stop. */
+	handoff?: DesktopTurnHandoff | undefined
+	onContinueHandoff?: (() => unknown) | undefined
+	onStopHandoff?: (() => unknown) | undefined
 	attachments: AttachmentView[]
 	draftDisabled?: boolean
 	attachmentsBusy: boolean
@@ -950,23 +966,43 @@ export function Composer({
 							disabled={approvalDisabled}
 							aria-label="Action approval controls"
 						>
-							<ComposerApproval
-								key={permissions[0].id}
-								permission={permissions[0]}
-								palNames={palNames}
-								palRunning={palRunning}
-								count={permissions.length}
-								folder={projectPath}
-								projectName={projectName}
-								// Only the Namzu engine keeps an "allow for this conversation" answer.
-								conversationAllowance={
-									(permissionEngine ?? harnessView?.selected ?? 'namzu') === 'namzu'
-								}
-								onRespond={(permission, response) =>
-									approvalDisabled ? false : onApproval(permission, response)
-								}
-							/>
+							{permissions[0].question && onAnswerQuestion ? (
+								<ComposerQuestion
+									key={permissions[0].id}
+									permission={permissions[0]}
+									count={permissions.length}
+									onAnswer={(permission, response) =>
+										approvalDisabled ? false : onAnswerQuestion(permission, response)
+									}
+								/>
+							) : (
+								<ComposerApproval
+									key={permissions[0].id}
+									permission={permissions[0]}
+									palNames={palNames}
+									palRunning={palRunning}
+									count={permissions.length}
+									folder={projectPath}
+									projectName={projectName}
+									// Only the Namzu engine keeps an "allow for this conversation" answer.
+									conversationAllowance={
+										(permissionEngine ?? harnessView?.selected ?? 'namzu') === 'namzu'
+									}
+									onRespond={(permission, response) =>
+										approvalDisabled ? false : onApproval(permission, response)
+									}
+								/>
+							)}
 						</fieldset>
+					)}
+					{!permissions[0] && handoff && onContinueHandoff && onStopHandoff && (
+						<ComposerHandoff
+							key={handoff.checkpointId}
+							handoff={handoff}
+							disabled={approvalDisabled}
+							onContinue={onContinueHandoff}
+							onStop={onStopHandoff}
+						/>
 					)}
 					{/* A note about the conversation itself sits above the box, never inside what you type in. */}
 					{notice && (

@@ -69,6 +69,11 @@ export class RuntimeClient extends EventEmitter {
 	supportsLivePermissionMode(): boolean {
 		return this.livePermissionMode
 	}
+	private questionAnswer = false
+	/** The engine takes the person's answer to a question it asked; without it no card is drawn for one. */
+	supportsQuestionAnswer(): boolean {
+		return this.questionAnswer
+	}
 	private conversationActions = false
 	supportsConversationActions(): boolean {
 		return this.conversationActions
@@ -412,6 +417,7 @@ export class RuntimeClient extends EventEmitter {
 		this.turnUndo = offers('turnUndo')
 		this.liveInput = offers('liveInput')
 		this.livePermissionMode = offers('livePermissionMode')
+		this.questionAnswer = offers('questionAnswer')
 		this.pals = offers('pals')
 		this.palInboxStart = offers('palInboxStart')
 		this.palComputerControl = offers('palComputerControl')

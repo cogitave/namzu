@@ -11,6 +11,7 @@ import {
 import { composeEnvironmentPrompt } from '../environment.js'
 import { AGENT_LAUNCH_TOOL } from '../identity.js'
 import {
+	ASK_USER_QUESTION_GUIDANCE,
 	BROWSER_WEB_TASK_GUIDANCE,
 	DEFERRED_TOOL_GUIDANCE,
 	SHELL_ESCAPE_GUIDANCE,
@@ -260,5 +261,30 @@ describe('the shell-escape guidance', () => {
 
 	it('warns that a prompt cannot be answered', () => {
 		expect(SHELL_ESCAPE_GUIDANCE).toContain('cannot answer a prompt')
+	})
+})
+
+describe('the question guidance', () => {
+	const base = {
+		delegationAvailable: false,
+		toolsDeferred: false,
+	}
+
+	it('is in the prompt once when the question tool is mounted for a card host', () => {
+		const prompt = composeSessionSystemPrompt({
+			...base,
+			questionGuidance: ASK_USER_QUESTION_GUIDANCE,
+		})
+		expect(prompt?.split(ASK_USER_QUESTION_GUIDANCE)).toHaveLength(2)
+	})
+
+	it('is left out where the tool is not mounted, so no prompt names a tool the model lacks', () => {
+		expect(composeSessionSystemPrompt({ ...base })).not.toContain('ask_user_question')
+	})
+
+	it('sends the model to the tool, never the shell, and never for a secret', () => {
+		expect(ASK_USER_QUESTION_GUIDANCE).toContain('`ask_user_question`')
+		expect(ASK_USER_QUESTION_GUIDANCE).toContain('the shell has no keyboard')
+		expect(ASK_USER_QUESTION_GUIDANCE).toContain('never ask for a password')
 	})
 })

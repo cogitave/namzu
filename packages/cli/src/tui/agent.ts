@@ -291,6 +291,7 @@ import {
 	sandboxResolvedSeverity,
 } from '../context/sandbox.js'
 import {
+	ASK_USER_QUESTION_GUIDANCE,
 	BROWSER_WEB_TASK_GUIDANCE,
 	DEFERRED_TOOL_GUIDANCE,
 	SHELL_ESCAPE_GUIDANCE,
@@ -1361,6 +1362,11 @@ export interface ResumePausedParams {
 	 * `reviewHold` is set, which parks them again instead.
 	 */
 	readonly onPermission?: PermissionFn
+	/**
+	 * Who answers `ask_user_question` in the resumed turn, as `SendOptions.onQuestion`
+	 * does for a new one. Absent: the answerer the last send left, as before.
+	 */
+	readonly onQuestion?: QuestionFn
 	/**
 	 * The rules the resumed turn is gated by, in place of the session's own.
 	 * A host resuming a turn another policy started (a scheduled job's) passes
@@ -2777,6 +2783,14 @@ export interface AgentSessionOptions {
 	 */
 	readonly askUser?: boolean
 	/**
+	 * Mount `ask_user_question`, its prompt guidance and the answerer for a tool
+	 * server's request for input, and nothing else `askUser` turns on (agents
+	 * running in the background by default, the narration tool, the `!` line).
+	 * A graphical host where a person is present and can answer in a card says
+	 * `true`; `askUser` already includes it, so the terminal sets only that.
+	 */
+	readonly questions?: boolean
+	/**
 	 * Ask the model for one sentence after a long quiet stretch (see
 	 * `QuietStretch`). Set only on a surface where a person watches live; absent
 	 * for a sub-agent, a scheduled run, a Pal and any non-interactive run.
@@ -3931,7 +3945,14 @@ export async function createAgentSession(
 	if (options.browser && browserPackage?.state === 'present') {
 		try {
 			const { PlaywrightBrowserHost } = await import('@namzu/browser')
-			const control = createBrowserControl(PlaywrightBrowserHost, options.browser)
+			// Asking the person to sign in names `ask_user_question`, so it is only said while
+			// that tool is mounted (decided further down, once the delegation gateway is up).
+			const control = createBrowserControl(PlaywrightBrowserHost, {
+				...options.browser,
+				...(options.browser.askPersonToSignIn
+					? { askPersonToSignIn: () => questionToolMounted }
+					: {}),
+			})
 			browserControl = control
 			// With no usable engine every browser call is refused, so the two
 			// schemas (about 940 tokens) are not sent. The host's capabilities
@@ -4032,7 +4053,9 @@ export async function createAgentSession(
 	// and a session where nobody can answer never tells servers they may ask.
 	const mcpStart = {
 		cwd,
-		...(options.askUser ? { elicit: elicitThroughQuestions(() => elicitationHost.ask) } : {}),
+		...(options.askUser || options.questions
+			? { elicit: elicitThroughQuestions(() => elicitationHost.ask) }
+			: {}),
 	}
 	const mcp =
 		options.toolServers === 'background'
@@ -4899,7 +4922,9 @@ export async function createAgentSession(
 	// gateway the tool builder requires; a session without one has no
 	// question tool either, and says nothing — it also has no `Agent`.
 	let currentOnQuestion: QuestionFn | undefined
-	if (options.askUser && subagentRuntime) {
+	let questionToolMounted = false
+	if ((options.askUser || options.questions) && subagentRuntime) {
+		questionToolMounted = true
 		const parkQuestion: ResumeHandler = async (request) => {
 			if (request.type !== 'user_question') return { action: 'continue' }
 			const ask = currentOnQuestion
@@ -5367,6 +5392,10 @@ export async function createAgentSession(
 	// A `!` line only exists where a person types at the session, which is where
 	// `askUser` is on; a headless run is never told of a prefix it cannot be given.
 	const shellEscapeGuidance = options.askUser ? SHELL_ESCAPE_GUIDANCE : undefined
+	// The ask rule is written only where a host that asked for the question card also
+	// mounted the tool it names; the terminal keeps the prompt it has.
+	const questionGuidance =
+		options.questions && questionToolMounted ? ASK_USER_QUESTION_GUIDANCE : undefined
 	// A function of the platform alone, written once, so the prefix stays byte-stable.
 	const filePlacementGuidance = composeFilePlacementGuidance()
 	// Built once for every host-side read this session needs (the presenter,
@@ -5891,6 +5920,7 @@ export async function createAgentSession(
 						withheldTools: options.withheldTools,
 						memoryGuidance,
 						shellEscapeGuidance,
+						questionGuidance,
 						filePlacementGuidance,
 						conversationSessions: options.conversationSessions,
 						toolLoading: resolveToolLoading(options.toolLoading),
@@ -6175,7 +6205,14 @@ export async function createAgentSession(
 		model: pinned,
 		systemNote,
 		extraSystem,
+		onQuestion,
 	}: ResumePausedParams): AsyncIterable<AgentEvent> => {
+		// The resumed turn is asked by this call's person, not the one a finished send left
+		// in the holder; absent, the holder is untouched (the terminal's way).
+		if (onQuestion) {
+			currentOnQuestion = onQuestion
+			elicitationHost.ask = onQuestion
+		}
 		const queue: SessionEvent[] = []
 		let wake: (() => void) | undefined
 		let settled = false
@@ -7263,6 +7300,7 @@ export async function createAgentSession(
 									withheldTools: options.withheldTools,
 									memoryGuidance,
 									shellEscapeGuidance,
+									questionGuidance,
 									filePlacementGuidance,
 									conversationSessions: options.conversationSessions,
 									toolLoading: resolveToolLoading(options.toolLoading),
@@ -7412,7 +7450,7 @@ export async function createAgentSession(
 										...(planPath
 											? {
 													planPath: () => planPath,
-													canAsk: Boolean(options.askUser && subagentRuntime),
+													canAsk: questionToolMounted,
 												}
 											: {}),
 									}
@@ -8482,13 +8520,15 @@ function mintScope(projectId: ProjectId, sessionId?: SessionId): SessionScope {
 	}
 }
 
-// Pre-execution safety gate: hard-deny catastrophic shell patterns
-// (`rm -rf /`, mkfs, `curl … | sh`, sudo, fork bombs — the SDK's narrow
-// DANGEROUS_PATTERNS list, which does NOT match e.g. `rm -rf node_modules`),
-// auto-allow read-only tools that reach nothing outside (a network tool is
-// asked about, see permissions/read-only-gate.ts), and send everything else to the permission
-// prompt (`review` → our resumeHandler). The deny rule applies even in
-// --yolo mode, so bypass never lets the model brick the machine.
+// Pre-execution safety gate: the dangerous-command floor reads what a shell
+// line RUNS. What cannot be undone (`rm -rf /`, the home folder or a top-level
+// directory, mkfs, a raw write to a device, a fork bomb, a world-writable root)
+// is refused in every mode, --yolo included. What is a person's call (sudo,
+// su -, ssh user@host, eval, a download piped into a shell) is a question in
+// the modes that ask, and runs in bypass and auto like any other ask. Read-only
+// tools that reach nothing outside are auto-allowed (a network tool is asked
+// about, see permissions/read-only-gate.ts), and everything else goes to the
+// permission prompt (`review` → our resumeHandler).
 
 /**
  * The gate for this session, with the operator's rules in it.

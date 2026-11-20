@@ -86,6 +86,7 @@ import type {
 	DesktopEvent,
 	DesktopRetryStatus,
 	DesktopSendOptions,
+	DesktopTurnHandoff,
 	DesktopUndoOptions,
 	DesktopUndoPreview,
 	DesktopUndoResult,
@@ -126,6 +127,15 @@ import type {
 	ProviderView,
 } from '../shared/protocol.js'
 import { readProviderConnections } from '../shared/provider-connections.js'
+import {
+	ANSWER_QUESTION_METHOD,
+	QUESTION_CLOSED_NOTIFICATION,
+	QUESTION_NOTIFICATION,
+	readQuestionClosedNotice,
+	readQuestionNotice,
+	readQuestionNoticeIds,
+	readQuestionResponse,
+} from '../shared/question-protocol.js'
 import { ReconnectRetries } from '../shared/reconnect-retry.js'
 import { lastReplyText } from '../shared/reply.js'
 import { isReviewModeId } from '../shared/review-modes.js'
@@ -464,6 +474,27 @@ function readMcpServers(value: unknown): McpServersView | null {
 	const failed =
 		typeof error === 'string' && error ? withoutControls(error).slice(0, 300) : undefined
 	return { servers: rows, ...(failed ? { error: failed } : {}) }
+}
+
+const HANDOFF_TEXT_KEYS = ['reason', 'tool', 'cause', 'origin', 'profile', 'loginCommand'] as const
+/** A handoff the host sent: every field a bounded string, so the card never draws a surprise. */
+function validHandoff(value: unknown): value is DesktopTurnHandoff {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+	const item = value as Record<string, unknown>
+	const ids = ['turnId', 'checkpointId'].every(
+		(key) =>
+			typeof item[key] === 'string' && item[key] !== '' && (item[key] as string).length <= 200,
+	)
+	return (
+		ids &&
+		typeof item.reason === 'string' &&
+		HANDOFF_TEXT_KEYS.every(
+			(key) =>
+				item[key] === undefined ||
+				(typeof item[key] === 'string' && (item[key] as string).length <= 600),
+		) &&
+		(item.window === undefined || item.window === 'visible' || item.window === 'none')
+	)
 }
 
 export class Operator {
@@ -1008,6 +1039,12 @@ export class Operator {
 	>()
 	/** The requests that ask whether to allow applications, by request id. */
 	private readonly appRequests = new Map<string, { sessionId: string; apps: string[] }>()
+	/**
+	 * The questions the agent put to the person, by the id of the waiting request that shows each:
+	 * which conversation asked, and the engine's own id for it. Entries of a turn that ended are
+	 * dropped when the next question opens, and a request that is no longer waiting is never answered.
+	 */
+	private readonly questionRequests = new Map<string, { sessionId: string; requestId: string }>()
 	private grantsFor(sessionId: string): ComputerGrants {
 		let grants = this.computerGrants.get(sessionId)
 		if (!grants) {
@@ -5470,7 +5507,7 @@ export class Operator {
 			throw new Error(
 				'Namzu couldn’t check whether this reply can be tried again. Try again in a moment.',
 			)
-		const { retry, notice, unknownUsage, closable } = result as DesktopRetryStatus
+		const { retry, notice, unknownUsage, closable, handoff } = result as DesktopRetryStatus
 		if (
 			(retry !== undefined &&
 				(!retry ||
@@ -5488,6 +5525,7 @@ export class Operator {
 							typeof retry.original.model !== 'string' ||
 							retry.original.provider.length > 200 ||
 							retry.original.model.length > 400)))) ||
+			(handoff !== undefined && !validHandoff(handoff)) ||
 			(closable !== undefined && closable !== true) ||
 			(notice !== undefined && (typeof notice !== 'string' || notice.length > 2_000)) ||
 			(unknownUsage !== undefined &&
@@ -5508,6 +5546,7 @@ export class Operator {
 			)
 		if (
 			JSON.stringify(session.projection.retry) !== JSON.stringify(retry) ||
+			JSON.stringify(session.projection.handoff) !== JSON.stringify(handoff) ||
 			session.projection.retryNotice !== notice ||
 			session.projection.retryClosable !== closable ||
 			session.projection.retryUnknownUsage !== unknownUsage
@@ -5516,12 +5555,14 @@ export class Operator {
 				kind: 'retry-status',
 				sessionId: session.view.id,
 				retry,
+				...(handoff ? { handoff } : {}),
 				notice,
 				...(closable ? { closable } : {}),
 				...(unknownUsage ? { unknownUsage } : {}),
 			})
 		return {
 			...(retry ? { retry } : {}),
+			...(handoff ? { handoff } : {}),
 			...(notice ? { notice } : {}),
 			...(closable ? { closable } : {}),
 			...(unknownUsage ? { unknownUsage } : {}),
@@ -5633,7 +5674,9 @@ export class Operator {
 				this.changingPlugins.has(sessionId)
 			)
 				throw new Error('This conversation’s settings changed during retry admission.')
-			if (status.retry?.turnId !== turnId || status.retry.checkpointId !== checkpointId)
+			// A turn a tool paused for the person continues from the same checkpoint as a repeat does.
+			const resumable = status.retry ?? status.handoff
+			if (resumable?.turnId !== turnId || resumable.checkpointId !== checkpointId)
 				throw new Error(
 					status.notice ??
 						'This checkpoint is no longer available for retry. Open the conversation again.',
@@ -6677,6 +6720,34 @@ export class Operator {
 		return { text, attachments: this.attachments(sessionId) }
 	}
 	/**
+	 * Stop a turn a tool paused for the person. The turn closes durably; its message and what the tool
+	 * found stay, and nothing goes back to the composer.
+	 */
+	async stopHandoff(sessionId: string): Promise<void> {
+		const session = this.session(sessionId)
+		if (session.running || session.admitting || this.changingPlugins.has(sessionId))
+			throw new Error('Wait for this conversation’s active work to finish.')
+		if (!session.client.supportsAbandonPaused()) throw new Error('Update Namzu to stop this turn.')
+		this.assertPalAdmission(session.view.palId, true)
+		const admission = Symbol('stop admission')
+		session.admitting = admission
+		try {
+			await this.reattach(session)
+			const status = await this.refreshRetry(session)
+			if (!status.handoff) throw new Error('This conversation is not waiting for you any more.')
+			await session.client.request('namzu/sessions/abandon-paused', {
+				sessionId: session.runtimeSessionId,
+				turnId: status.handoff.turnId,
+				withdrawMessages: false,
+			})
+			this.emit({ kind: 'turn-closed', sessionId })
+			await this.refreshRetry(session).catch(() => undefined)
+			this.state(session)
+		} finally {
+			if (session.admitting === admission) session.admitting = undefined
+		}
+	}
+	/**
 	 * Close the paused turn without repeating it and put its message back in the composer. What the
 	 * stopped request may have cost stays recorded as unknown by the runtime.
 	 */
@@ -6730,10 +6801,108 @@ export class Operator {
 		session.queue.splice(index, 1)
 		this.state(session)
 	}
+	/**
+	 * A question the agent put to the person becomes a waiting request of its conversation, shown
+	 * as a card. One this window cannot show (no such conversation, a Pal's, not running) is told
+	 * unanswered at once, so the turn is not held for a card nobody will see.
+	 */
+	private openQuestion(project: Project, params: unknown): void {
+		const notice = readQuestionNotice(params)
+		if (!notice) {
+			// A question that does not read (a very long text, too many options) is skipped, not left
+			// to wait: the turn is holding for an answer no card will ever give.
+			const ids = readQuestionNoticeIds(params)
+			if (ids)
+				void project.client
+					.request(
+						ANSWER_QUESTION_METHOD,
+						{ sessionId: ids.sessionId, requestId: ids.requestId, answer: { kind: 'skip' } },
+						8_000,
+					)
+					.catch(() => {})
+			return
+		}
+		const session = this.runtimeSession(project, notice.sessionId)
+		if (
+			!session ||
+			session.view.projectId !== project.view.id ||
+			!session.running ||
+			session.view.palId ||
+			(session.view.harness && session.view.harness !== 'namzu') ||
+			!project.client.supportsQuestionAnswer()
+		) {
+			void project.client
+				.request(
+					ANSWER_QUESTION_METHOD,
+					{ sessionId: notice.sessionId, requestId: notice.requestId, answer: { kind: 'skip' } },
+					8_000,
+				)
+				.catch(() => {})
+			return
+		}
+		for (const [id, question] of this.questionRequests)
+			if (!this.conversations.get(question.sessionId)?.permissions.has(id))
+				this.questionRequests.delete(id)
+		const id = randomUUID()
+		session.permissions.set(id, `question:${notice.requestId}`)
+		this.questionRequests.set(id, { sessionId: session.view.id, requestId: notice.requestId })
+		const request: PermissionView = {
+			id,
+			sessionId: session.view.id,
+			projectId: project.view.id,
+			calls: [
+				{
+					id,
+					name: QUESTION_TOOL,
+					input: { questions: notice.questions },
+					isDestructive: false,
+					alwaysAsk: true,
+				},
+			],
+			question: { questions: notice.questions },
+		}
+		this.emit({ kind: 'permission', request })
+	}
+	/**
+	 * The person's answer to a question card. It reaches the engine before the card goes away, so an
+	 * answer that did not get through leaves the card up to be sent again.
+	 */
+	async answerQuestion(sessionId: string, requestId: string, response: unknown): Promise<void> {
+		const session = this.session(sessionId)
+		this.assertPalAdmission(session.view.palId, true)
+		const answer = readQuestionResponse(response)
+		const question = this.questionRequests.get(requestId)
+		if (
+			!question ||
+			question.sessionId !== sessionId ||
+			!session.permissions.has(requestId) ||
+			!session.running
+		)
+			throw new Error('This question is no longer open.')
+		await session.client.request(
+			ANSWER_QUESTION_METHOD,
+			{
+				sessionId: session.runtimeSessionId,
+				requestId: question.requestId,
+				answer:
+					answer.kind === 'answer'
+						? { kind: 'answer', selectedOptionIds: [], answers: answer.answers }
+						: answer,
+			},
+			8_000,
+		)
+		this.questionRequests.delete(requestId)
+		if (session.permissions.delete(requestId))
+			this.emit({ kind: 'permission-cleared', sessionId, requestId })
+	}
 	respondPermission(sessionId: string, requestId: string, response: PermissionResponse): void {
 		const session = this.session(sessionId)
 		this.assertPalAdmission(session.view.palId, true)
 		const answer = readPermissionResponse(response)
+		// A question has its own answer; a yes or a no from a card, the pill or a mode change
+		// is never an answer to it.
+		if (this.questionRequests.has(requestId))
+			throw new Error('This is a question; answer it with its own card.')
 		const wireId = session.permissions.get(requestId)
 		if (wireId === undefined || !session.running)
 			throw new Error('This approval is no longer pending.')
@@ -6870,6 +7039,20 @@ export class Operator {
 			const session = notice ? this.runtimeSession(project, notice.sessionId) : undefined
 			if (notice && session && (!session.view.harness || session.view.harness === 'namzu'))
 				this.emit({ ...notice, kind: 'outcome', sessionId: session.view.id })
+		} else if (frame.method === QUESTION_NOTIFICATION) {
+			this.openQuestion(project, frame.params)
+		} else if (frame.method === QUESTION_CLOSED_NOTIFICATION) {
+			const closed = readQuestionClosedNotice(frame.params)
+			const session = closed ? this.runtimeSession(project, closed.sessionId) : undefined
+			if (closed && session) {
+				for (const [id, question] of this.questionRequests) {
+					if (question.sessionId !== session.view.id || question.requestId !== closed.requestId)
+						continue
+					this.questionRequests.delete(id)
+					if (session.permissions.delete(id))
+						this.emit({ kind: 'permission-cleared', sessionId: session.view.id, requestId: id })
+				}
+			}
 		} else if (frame.method === 'session/update') {
 			const params = frame.params as AcpSessionUpdateNotification
 			const session = this.runtimeSession(project, params?.sessionId)

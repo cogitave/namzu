@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { callExtensions } from './extensions-store.js'
+import { callExtensions, debounced, listPollInterval } from './extensions-store.js'
 
 describe('callExtensions: the language of a call', () => {
 	afterEach(() => vi.unstubAllGlobals())
@@ -70,5 +70,69 @@ describe('where an extension page and Settings send the person', () => {
 		expect(now.panelRequest).toEqual({ id: 'd.e.f', kind: 'licence' })
 		store.takePanelRequest()
 		expect(snapshotForTest().panelRequest).toBeUndefined()
+	})
+})
+
+describe('how often the extension list is re-read', () => {
+	it('uses the slow beat while a page is open, never the 4 s one', () => {
+		expect(listPollInterval({ pageOpen: true, settingsScreenOpen: false, anyEnabled: true })).toBe(
+			15000,
+		)
+		expect(listPollInterval({ pageOpen: true, settingsScreenOpen: true, anyEnabled: true })).toBe(
+			15000,
+		)
+		expect(listPollInterval({ pageOpen: true, settingsScreenOpen: false, anyEnabled: false })).toBe(
+			60000,
+		)
+	})
+
+	it("keeps the fast beat for Settings' own extension screen, and the slow ones otherwise", () => {
+		expect(listPollInterval({ pageOpen: false, settingsScreenOpen: true, anyEnabled: true })).toBe(
+			4000,
+		)
+		expect(listPollInterval({ pageOpen: false, settingsScreenOpen: false, anyEnabled: true })).toBe(
+			15000,
+		)
+		expect(
+			listPollInterval({ pageOpen: false, settingsScreenOpen: false, anyEnabled: false }),
+		).toBe(60000)
+	})
+})
+
+describe('debounced state-event refreshes', () => {
+	afterEach(() => vi.useRealTimers())
+
+	it('reads once for a burst of events, after the last one', () => {
+		vi.useFakeTimers()
+		const fn = vi.fn()
+		const d = debounced(fn, 400)
+		d.call()
+		vi.advanceTimersByTime(300)
+		d.call()
+		vi.advanceTimersByTime(300)
+		expect(fn).not.toHaveBeenCalled()
+		vi.advanceTimersByTime(100)
+		expect(fn).toHaveBeenCalledTimes(1)
+	})
+
+	it('still reads while events keep arriving closer together than the delay', () => {
+		vi.useFakeTimers()
+		const fn = vi.fn()
+		const d = debounced(fn, 400, 1000)
+		for (let i = 0; i < 20; i++) {
+			d.call()
+			vi.advanceTimersByTime(100)
+		}
+		expect(fn).toHaveBeenCalled()
+	})
+
+	it('reads nothing once cancelled', () => {
+		vi.useFakeTimers()
+		const fn = vi.fn()
+		const d = debounced(fn, 400)
+		d.call()
+		d.cancel()
+		vi.advanceTimersByTime(1000)
+		expect(fn).not.toHaveBeenCalled()
 	})
 })

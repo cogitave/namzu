@@ -190,3 +190,49 @@ describe('what Namzu closing leaves in the conversation', () => {
 		expect(ordinary).not.toContain('Ask Namzu to continue')
 	})
 })
+
+describe('a turn a tool handed to the person', () => {
+	it('has no "Paused." line and does not count the handing-off call as a failed command', async () => {
+		const { turnAttention } = await import('./turn-attention.js')
+		const at = (thread: ReturnType<typeof emptyThread>, update: unknown) =>
+			applyEvent(thread, {
+				kind: 'update',
+				sessionId: 's',
+				projectId: 'p',
+				update,
+				at: 2000,
+			} as Parameters<typeof applyEvent>[1])
+		let thread = applyEvent(
+			applyEvent(emptyThread(), { kind: 'prompt', sessionId: 's', prompt: 'Go', at: 1000 }),
+			{ kind: 'state', sessionId: 's', running: true, queued: [] },
+		)
+		const view = { kind: 'terminal', command: 'open the login page', output: '' }
+		thread = at(thread, {
+			kind: 'tool_call',
+			toolCallId: 'call',
+			title: 'bash',
+			status: 'pending',
+			view,
+		})
+		thread = at(thread, {
+			kind: 'tool_call',
+			toolCallId: 'call',
+			title: 'bash',
+			status: 'failed',
+			view,
+		})
+		thread = { ...thread, running: false, stopReason: 'paused' }
+		thread.turns[thread.turn] = { ...thread.turns[thread.turn], reason: 'paused' }
+		const entries = thread.timeline.filter((entry) => entry.kind === 'tool')
+		expect(turnNotice(thread)).toBe('Paused.')
+		expect(turnAttention(thread, entries).failedCommands).toBe(1)
+		thread.handoff = {
+			turnId: 't1',
+			checkpointId: 'c1',
+			reason: 'Sign in to example.test',
+			tool: 'bash',
+		}
+		expect(turnNotice(thread)).toBeUndefined()
+		expect(turnAttention(thread, entries).failedCommands).toBe(0)
+	})
+})

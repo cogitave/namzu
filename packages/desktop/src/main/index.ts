@@ -1351,6 +1351,7 @@ function register(): void {
 		['send', 0],
 		['sendCurrent', 0],
 		['retryTurn', 0],
+		['stopHandoff', 0],
 		['continueWithoutReply', 0],
 		['reopenLastMessage', 0],
 		['undoTurn', 0],
@@ -1364,6 +1365,7 @@ function register(): void {
 		['updateQueued', 0],
 		['sendNow', 0],
 		['respondPermission', 0],
+		['answerQuestion', 0],
 		['revokeComputerApp', 0],
 		['stopJob', 0],
 		['renameConversation', 0],
@@ -2345,6 +2347,7 @@ function register(): void {
 			options?: Omit<DesktopSendOptions, 'attachmentIds'>,
 		) => operator.retryTurn(id, turnId, checkpointId, options),
 	)
+	handle('stopHandoff', (id: string) => operator.stopHandoff(id))
 	handle('continueWithoutReply', (id: string) => operator.continueWithoutReply(id))
 	handle('reopenLastMessage', (id: string) => operator.reopenLastMessage(id))
 	handle('undoStatus', (id: string, turnIds?: string[]) =>
@@ -2373,6 +2376,9 @@ function register(): void {
 	handle('removeQueued', (id: string, itemId: string) => operator.removeQueued(id, itemId))
 	handle('respondPermission', (id: string, request: string, response: PermissionResponse) =>
 		operator.respondPermission(id, request, response),
+	)
+	handle('answerQuestion', (id: string, request: string, response: unknown) =>
+		operator.answerQuestion(id, request, response),
 	)
 	handle('revokeComputerApp', (id: string, app: string) => operator.revokeComputerApp(id, app))
 	handle('jobs', (id: string) => operator.jobs(id))

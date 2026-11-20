@@ -326,3 +326,16 @@ declared words. What stays Namzu's and can never be drawn by an extension: the i
 permission list, the notice and acknowledgement, the licence screens and state, Enable, Disable and
 Remove, the Start when I sign in switch, the consent record, and the running mark and its
 existence.
+
+### Reading another process's state without waiting
+
+When another process (the runner, or another Namzu window) hosts the extension, the host tells that it is still the
+owner by comparing the process's start time with the one in its state file. On Windows the system reports a start
+time only through a PowerShell call that takes over a second, so the host reads it **once per process and keeps
+it**, asks without blocking (a view that needs a start time not yet known is drawn as "not hosted by anyone yet" and
+refreshed with a state event when the answer arrives), and forgets it when the process is gone. Opening a page
+trusts the process check and the state the host last reported. The strict, blocking read stays where a wrong answer
+costs more than a wait: taking over a lock file (`acquireOwnedLock`, `ownerLive`).
+
+The host logs each page open, each page-info call (`ui`) and each query with its duration and outcome
+(`namzu.extension.id`, `.call`, `.outcome`, `.duration_ms`); a call over 250 ms is logged as a warning.

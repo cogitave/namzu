@@ -36,6 +36,40 @@ describe('spawnHostShell, for a command a session runs', () => {
 	)
 })
 
+describe('spawnHostShell, the input of a command', () => {
+	it.each(['linux', 'darwin', 'win32'] as const)(
+		'is the null device on %s unless the caller gives its own stdio',
+		(platform) => {
+			const shell = platform === 'win32' ? CMD : BASH
+			const env = { ComSpec: 'C:\\Windows\\System32\\cmd.exe' }
+			const defaulted = fakeSpawn()
+			spawnHostShell('read x', {
+				cwd: '/work',
+				env,
+				shell,
+				platform,
+				spawnImpl: defaulted as never,
+			})
+			expect(
+				(defaulted.mock.calls[0] as unknown as [string, string[], { stdio: unknown }])[2].stdio,
+			).toEqual(['ignore', 'pipe', 'pipe'])
+
+			const own = fakeSpawn()
+			spawnHostShell('read x', {
+				cwd: '/work',
+				env,
+				shell,
+				platform,
+				stdio: ['pipe', 'pipe', 'pipe'],
+				spawnImpl: own as never,
+			})
+			expect(
+				(own.mock.calls[0] as unknown as [string, string[], { stdio: unknown }])[2].stdio,
+			).toEqual(['pipe', 'pipe', 'pipe'])
+		},
+	)
+})
+
 describe('spawnHostShell', () => {
 	it('runs the line through cmd on Windows, hidden and not detached, with the command in the environment', () => {
 		const spawnImpl = fakeSpawn()
@@ -126,6 +160,7 @@ describe('spawnHostShell', () => {
 			},
 			detached: true,
 			windowsHide: true,
+			stdio: ['ignore', 'pipe', 'pipe'],
 		})
 	})
 
@@ -143,6 +178,7 @@ describe('spawnHostShell', () => {
 			env: { KEEP: '1', NAMZU_STARTED_BY_SESSION: '1' },
 			detached: true,
 			windowsHide: true,
+			stdio: ['ignore', 'pipe', 'pipe'],
 		})
 	})
 

@@ -9,7 +9,7 @@ import { render } from 'ink'
 import React from 'react'
 
 import { type TerminationSignal, handleTerminationSignals } from '../termination.js'
-import { resolveMouseMode, writeLaunchMouseReset } from '../workspaces/mouse.js'
+import { mouseOn, resolveMouseMode, writeLaunchMouseReset } from '../workspaces/mouse.js'
 import { hostedByHost, workspacesSignal } from '../workspaces/signal.js'
 import { App } from './App.js'
 import { openConsoleInput } from './console-input.js'
@@ -129,7 +129,6 @@ export async function launchTui(
 	const hosted = hostedByHost(process.env, process.ppid)
 	const proxy: TerminalProxy | null =
 		!hosted &&
-		!fullscreen &&
 		consoleInput === undefined &&
 		process.platform !== 'win32' &&
 		process.stdout.isTTY === true &&
@@ -157,6 +156,14 @@ export async function launchTui(
 				requestExit: () =>
 					terminationExit.current ? terminationExit.current() : instance.unmount(),
 				repaint: () => repaint.current?.(),
+				// The host's own screen change switched the fullscreen view's screen and pointer off.
+				...(fullscreen
+					? {
+							restoreScreen: `\u001b[?1049h${
+								mouseMode === 'off' ? '' : mouseOn(selectable ? 'full' : 'scroll', selectable)
+							}`,
+						}
+					: {}),
 			}),
 		)
 		return workspaces.current
@@ -303,7 +310,7 @@ export async function launchTui(
 							}
 						: undefined,
 					// Hover asks the terminal for motion with no button down.
-					{ hover: true },
+					{ hover: true, bypass: () => proxy?.mode === 'zoomed' },
 				)
 			: undefined
 	const panicReset = fullscreen ? () => process.stdout.write(FULLSCREEN_PANIC_RESET) : undefined

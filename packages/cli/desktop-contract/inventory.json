@@ -146,6 +146,9 @@
     "livePermissionMode": [
       "namzu/session/set-permission-mode"
     ],
+    "questionAnswer": [
+      "namzu/session/answer-question"
+    ],
     "pals": [
       "namzu/pals/list",
       "namzu/pals/get",
@@ -257,6 +260,14 @@
       {
         "name": "namzu/extensions/state",
         "from": "cli EXTENSIONS_STATE_NOTIFICATION"
+      },
+      {
+        "name": "namzu/session/question",
+        "from": "cli QUESTION_NOTIFICATION"
+      },
+      {
+        "name": "namzu/session/question-closed",
+        "from": "cli QUESTION_CLOSED_NOTIFICATION"
       }
     ],
     "requestsFromHost": [
@@ -473,6 +484,19 @@
           "LimitsNotification",
           "LimitsProviderNotice",
           "LimitsWindowNotice"
+        ]
+      },
+      "src/commands/acp-desktop-question.ts": {
+        "mirroredBy": "packages/desktop/src/shared/question-protocol.ts",
+        "digests": {
+          "QUESTION_NOTIFICATION": "eb954f6ec738cdd8",
+          "QUESTION_CLOSED_NOTIFICATION": "22412f45e64e401e",
+          "ANSWER_QUESTION_METHOD": "f59b057ec3398168"
+        },
+        "names": [
+          "QUESTION_NOTIFICATION",
+          "QUESTION_CLOSED_NOTIFICATION",
+          "ANSWER_QUESTION_METHOD"
         ]
       }
     }

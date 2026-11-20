@@ -54,6 +54,7 @@ export const OPTIONAL_EXTENSION_GROUPS = {
 	turnUndo: ['namzu/turns/undo-status', 'namzu/turns/undo-preview', 'namzu/turns/undo'],
 	liveInput: ['namzu/conversations/input/status', 'namzu/conversations/input'],
 	livePermissionMode: ['namzu/session/set-permission-mode'],
+	questionAnswer: ['namzu/session/answer-question'],
 	pals: [
 		'namzu/pals/list',
 		'namzu/pals/get',

@@ -148,11 +148,11 @@ export interface DrawnFacts {
  * (every hit lands on and focuses a row), so the page and the search both ask this one function.
  */
 /**
- * Whether a conversation in this app can ask the person a question with choices. It cannot yet (the
- * question tool is the terminal app's), so the Questions notification row would change nothing and
- * is not drawn; its saved level stays for the day it can.
+ * Whether a conversation in this app can ask the person a question with choices. It can: the agent's
+ * question tool is mounted for a conversation here and the question is drawn as a card, so the
+ * Questions notification row changes what happens and is drawn.
  */
-export const DESKTOP_ASKS_QUESTIONS = false
+export const DESKTOP_ASKS_QUESTIONS = true
 
 export function entryIsDrawn(id: string, facts: DrawnFacts): boolean {
 	switch (id) {

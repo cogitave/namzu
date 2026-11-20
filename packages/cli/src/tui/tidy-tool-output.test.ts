@@ -113,6 +113,22 @@ describe('a call the kernel refused or could not do', () => {
 		expect(failureFactsLine({ kind: 'failure', reason: 'blocked', subject: 'bash' })).toBe(
 			'Blocked: Namzu’s rules do not allow this here.',
 		)
+		expect(
+			failureFactsLine({
+				kind: 'failure',
+				reason: 'blocked',
+				subject: 'bash',
+				note: 'This command removes the file system root.',
+			}),
+		).toBe('Blocked: this command removes the file system root.')
+		expect(
+			failureFactsLine({
+				kind: 'failure',
+				reason: 'blocked',
+				subject: 'bash',
+				note: 'Denied by name (bash) — this tool is refused for this turn',
+			}),
+		).toBe('Blocked: Namzu’s rules do not allow this here.')
 		expect(failureFactsLine({ kind: 'failure', reason: 'not_found', subject: '/srv/x/a.ts' })).toBe(
 			'Couldn’t find /srv/x/a.ts.',
 		)
