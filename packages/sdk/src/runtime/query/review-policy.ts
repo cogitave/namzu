@@ -687,14 +687,59 @@ const SAFE_SED_COMMAND =
 	/^\s*(?:\d+(?:,\d+)?|\$|\/[^/]*\/)?\s*(?:s(.)(?:(?!\1)[^\\]|\\.)*\1(?:(?!\1)[^\\]|\\.)*\1[gpiI0-9]*|[dpP=])\s*$/
 
 /**
- * Whether a `sed` invocation can only edit text: its script is made of
- * substitutions and simple line commands. A script with the `e`, `w` or `r`
- * commands or flags can run a program or reach another file, and a script from
- * a file cannot be read here, so those are not edits this vouches for.
+ * What an in-place `sed` edit may be: one `s/old/new/` script, the `/`
+ * delimiter, plain flags. It leaves out everything that can reach past the
+ * file it was asked to edit: a backup suffix written onto the `-i` (a place
+ * for a second file), a second script, `-n`, `-s`, `-z`, a script read from a
+ * file, an `e` or `w` flag, an escape, a character class, a `;`, and `..`.
+ */
+const SED_IN_PLACE_SCRIPT = /^s\/[^/\\\n]*\/[^/\\\n]*\/[gpimIM]*[1-9]?[gpimIM]*$/
+
+/** Whether an argument is one `sed` takes as in-place: `-i`, `-ni`, `-i.bak`, `--in-place[=SUFFIX]`. */
+function isSedInPlaceFlag(text: string): boolean {
+	if (text.startsWith('--')) return text === '--in-place' || text.startsWith('--in-place=')
+	return /^-[A-Za-z]*i/.test(text)
+}
+
+/**
+ * The in-place form: `sed -i [-E|-r|--posix] 's/old/new/[flags]' file...`,
+ * written exactly so, on at least one file. Anything else (including every
+ * spelling that attaches a suffix to `-i`) is not a form this vouches for.
+ */
+function sedInPlaceEdits(
+	args: readonly { readonly value: string; readonly expands: boolean }[],
+): boolean {
+	let script: string | undefined
+	let files = 0
+	let inPlace = false
+	for (const arg of args) {
+		if (arg.expands) return false
+		const text = arg.value
+		if (text === '--') return false
+		if (text.startsWith('-') && text !== '-') {
+			if (text === '-i' || text === '--in-place' || /^-[Er]+i$/.test(text)) inPlace = true
+			else if (!['-E', '-r', '--regexp-extended', '--posix'].includes(text)) return false
+			continue
+		}
+		if (script === undefined) script = text
+		else files += 1
+	}
+	if (!inPlace || script === undefined || files === 0) return false
+	if (!SED_IN_PLACE_SCRIPT.test(script)) return false
+	return !/[;[{}#]|\.\.|[^\x20-\x7e]/.test(script)
+}
+
+/**
+ * Whether a `sed` invocation can only edit text: an in-place edit in the one
+ * form above, or a read whose script is made of substitutions and simple line
+ * commands. A script with the `e`, `w` or `r` commands or flags can run a
+ * program or reach another file, and a script from a file cannot be read here,
+ * so those are not edits this vouches for.
  */
 function sedOnlyEdits(
 	args: readonly { readonly value: string; readonly expands: boolean }[],
 ): boolean {
+	if (args.some((arg) => isSedInPlaceFlag(arg.value))) return sedInPlaceEdits(args)
 	const scripts: string[] = []
 	let positional = 0
 	for (let i = 0; i < args.length; i += 1) {
@@ -714,11 +759,7 @@ function sedOnlyEdits(
 		}
 		if (text === '-f' || text.startsWith('--file') || text === '--follow-symlinks') return false
 		if (text.startsWith('-')) {
-			if (
-				!/^-(?:[nErszi]+|i\S*|-in-place(?:=\S*)?|-quiet|-silent|-regexp-extended|-separate|-null-data)$/.test(
-					text,
-				)
-			) {
+			if (!/^-(?:[nErsz]+|-quiet|-silent|-regexp-extended|-separate|-null-data)$/.test(text)) {
 				return false
 			}
 			continue

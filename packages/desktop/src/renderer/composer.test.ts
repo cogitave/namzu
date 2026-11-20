@@ -669,23 +669,29 @@ it('draws no tray in the composer: waiting messages are in the conversation', ()
 	expect(html).not.toContain('Send now')
 })
 
-it('shows how many shells run and the branch pull request, quietly, beside the mode', () => {
+it('shows how many tasks run or finished and the branch pull request, quietly, beside the mode', () => {
 	const none = render({})
-	expect(none).not.toContain('data-composer-shells')
+	expect(none).not.toContain('data-composer-tasks')
 	expect(none).not.toContain('data-composer-pr')
 	const html = render({
-		shells: { count: 2, onOpen: () => {} },
+		tasks: { running: 2, finished: 1, open: true, onOpen: () => {} },
 		pullRequest: {
 			pr: { number: 607, url: 'https://github.com/o/r/pull/607', review: 'changes' },
 			onOpen: () => {},
 		},
 	})
-	expect(html).toContain('>2 shells<')
-	expect(html).toContain('2 background shells running. Show')
+	expect(html).toContain('>2 running tasks<')
+	expect(html).toContain('2 running tasks. Show background tasks')
+	expect(html).toContain('aria-pressed="true"')
 	expect(html).toContain('>PR #607<')
 	expect(html).toContain('data-review="changes"')
 	expect(html).toContain('Pull request 607, changes requested. Open in browser')
-	expect(render({ shells: { count: 1, onOpen: () => {} } })).toContain('>1 shell<')
+	expect(render({ tasks: { running: 1, finished: 0, open: false, onOpen: () => {} } })).toContain(
+		'>1 running task<',
+	)
+	expect(render({ tasks: { running: 0, finished: 3, open: false, onOpen: () => {} } })).toContain(
+		'>3 tasks finished<',
+	)
 })
 
 it('teaches the send and hold keys in the empty box while a reply runs', () => {

@@ -133,6 +133,21 @@ An answer never covers a call that is asked every time: a sandbox escape, a path
 
 `ls`, `cat`, `git status`, `git diff` and the other commands on the read-only list run without a prompt in `prompt` and `accept-edits`, and in `plan`. The list, the conditions and what is not ported are in [The bash tool](../sdk/bash-tool.md#read-only-lines). The path floor still applies: a read-only command that reads outside the working directory and added directories is asked about.
 
+## Allow rules that allow any program
+
+An allow rule can be wider than it reads. `Bash(python *)` lets Python run any code it is given, so it allows whatever a model can write in a line of Python. The same goes for a bare `Bash` or `Bash(*)`, an interpreter (`python`, `node`, `deno`, `tsx`, `ruby`, `perl`, `php`, `lua`), a launcher (`npx`, `bunx`, `npm run`, `yarn run`, `pnpm run`, `bun run`), `eval`, `exec`, `ssh`, a shell (`bash -c *`, `sh`, `zsh`, `cmd`, `pwsh`), a wrapper that runs the command after it (`env`, `xargs`, `sudo`, `timeout`, `nohup`) and the network tools `curl`, `wget`, `kubectl`, `aws`, `gcloud` and `gsutil` when the rule names no address or subcommand. With or without `:*`, a trailing ` *` or `*`.
+
+Such a rule keeps doing what it says. Nothing about matching changes. Namzu tells you about it, with the rule, the file it is in and a narrower rule to write instead (`Bash(python scripts/build.py *)`, `Bash(npm run build)`, `Bash(curl https://api.example.com/*)`, `Bash(kubectl get *)`):
+
+- `namzu doctor` and `/doctor` have a `runtime.permission-allow-rules` row that warns.
+- Once at the start of a conversation, `namzu exec` and `namzu drain`, a warning in the log names each one.
+
+A rule that names a script, a package, a host or a read-only subcommand is left alone, and so are `ask` and `deny` rules. `classify` mode already sends a call under such a rule to its reviewer. A "don't ask again" answer never offers one of these.
+
+## Edits in place under accept-edits
+
+`accept-edits` runs `sed` in place without asking only in one form: `sed -i [-E|-r|--posix] 's/old/new/[flags]' file...`, on literal paths inside the working folders. The script is one `s` with `/` as its delimiter and flags from `g p i m I M` and one digit. A backup suffix on `-i` (`-i.bak`, `--in-place=.bak`), `-e`, `-n`, a second script or `;`, another delimiter, a line command such as `3d`, an address, a `\`, a `[`, `..`, an `e` or `w` flag, a glob or a variable in a path, a path outside the folders, a protected path, a pipe to another program or a redirect outside the folders are asked about, as before. `sed` without `-i` (a read) and the other file commands (`mkdir`, `touch`, `rm`, `rmdir`, `mv`, `cp`) are as they were. The dangerous-command floor and the protected paths are unchanged.
+
 ## A command line that sends as the person
 
 One refusal is built in and cannot be turned off, loosened or overridden: a command line a model starts may not run `namzu send`. `namzu send` puts words in front of another session's model as the person's, so a session's agent (or a sub-agent, or a poisoned tool result steering one) must not be able to run it. The rule is a deny-only predicate placed first in every session's gate (`packages/cli/src/permissions/send-floor.ts`, wired in `cliGate`), so it holds in every permission mode, `bypass` and `auto` included, and a deny from any layer wins, so no allow rule, remembered answer or hook reopens it. The call does not run; the model is told, in plain words, that a message to another session must come from a person at their own terminal and that rewording will not help.

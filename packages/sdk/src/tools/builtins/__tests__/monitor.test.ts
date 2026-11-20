@@ -123,7 +123,12 @@ describe('starting a monitor', () => {
 			'Monitor started (job b00000001, expires in 90s unless the command ends first; you get one notice at expiry — start it again if you still need the watch). Each line the command prints to stdout reaches you as an event while you keep working; do not poll or sleep. Stop it with job {"action":"kill","id":"b00000001"}. An event may arrive while you are waiting for the user — it is not their reply.',
 		)
 		expect(result.data).toEqual({ jobId: 'b00000001', monitor: true, timeoutMs: 90_000 })
-		expect(result.facts).toEqual({ kind: 'command', command: 'tail -f app.log', background: true })
+		expect(result.facts).toEqual({
+			kind: 'command',
+			command: 'tail -f app.log',
+			background: true,
+			jobId: 'b00000001',
+		})
 	})
 
 	it('reports the clamped timeout, not the requested one', async () => {
