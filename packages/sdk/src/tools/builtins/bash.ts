@@ -98,9 +98,12 @@ function startsWithSleep(command: string): boolean {
  * moved to the background instead of being stopped. Exported so the test
  * states the same words.
  */
+export const COMMAND_HAS_NO_INPUT =
+	'Stdin is closed and there is no terminal, so a prompt for input or a password cannot be answered: use a non-interactive flag, put the answer in the command, or ask the person.'
+
 export function movedToBackgroundMessage(jobId: string, timeoutMs: number): string {
 	const seconds = Math.max(1, Math.round(timeoutMs / 1000))
-	return `Command did not complete within its ${seconds}s timeout and was moved to the background as job ${jobId}; it was not stopped. You will be told when it ends. Its output so far is above.`
+	return `Command did not complete within its ${seconds}s timeout and was moved to the background as job ${jobId}; it was not stopped. You will be told when it ends. Its output so far is above. ${COMMAND_HAS_NO_INPUT}`
 }
 
 /**
@@ -122,7 +125,7 @@ export function handedOffMessage(jobId: string, reason: 'user' | 'message' | 'in
 			: reason === 'message'
 				? 'so a message from the person could reach you'
 				: 'because the person interrupted the turn'
-	return `Command was moved to the background as job ${jobId} ${why}; it was not stopped. You will be told when it ends. Its output so far is above.`
+	return `Command was moved to the background as job ${jobId} ${why}; it was not stopped. You will be told when it ends. Its output so far is above. ${COMMAND_HAS_NO_INPUT}`
 }
 
 const inputSchema = z.object({
@@ -558,8 +561,7 @@ export const SANDBOX_CANNOT_DETACH =
 export const SANDBOX_ESCAPE_NOT_APPROVED =
 	'dangerously_disable_sandbox was not approved for this call, so the command did not run. Leaving the sandbox needs the user to confirm it each time, and this turn either cannot ask or does not allow it. Run the command inside the sandbox, or tell the user what it needs and let them run it.'
 
-const BASH_DESCRIPTION =
-	'Executes a command line using the execution shell disclosed in the system context and returns stdout/stderr output. The working directory persists between calls, but shell state does not. Command timeout is configurable. Read and search with `read`, `grep` and `glob`, not shell loops: a file read through the shell earns no read credit, so its next edit is refused once. Run a check on its own, not piped: its output is already trimmed, and a pipe hides the exit status. Output too long for the result and the output of a background job are saved to a file whose path you are given: do not redirect output into files of your own.'
+const BASH_DESCRIPTION = `Executes a command line using the execution shell disclosed in the system context and returns stdout/stderr output. The working directory persists between calls, but shell state does not. Command timeout is configurable. Read and search with \`read\`, \`grep\` and \`glob\`, not shell loops: a file read through the shell earns no read credit, so its next edit is refused once. Run a check on its own, not piped: its output is already trimmed, and a pipe hides the exit status. Output too long for the result and the output of a background job are saved to a file whose path you are given: do not redirect output into files of your own. ${COMMAND_HAS_NO_INPUT}`
 
 const BashToolBase = defineTool({
 	name: 'bash',

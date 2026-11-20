@@ -37,12 +37,27 @@ async function fixture({
 	ownedPal = false,
 	unresolved = false,
 	limit = 0,
+	pauseRecord,
+	browserHeadless,
 	sessionClosesTurns = true,
 	reviewRequest = {
 		toolCalls: [{ id: 'write', name: 'write', input: {}, isDestructive: true }],
 	} as Record<string, unknown>,
+}: {
+	ownedPal?: boolean
+	unresolved?: boolean
+	limit?: number
+	pauseRecord?: NonNullable<Parameters<typeof providerPaused>[1]>['pause']
+	/** Gives the session a browser, with or without a window. */
+	browserHeadless?: boolean
+	sessionClosesTurns?: boolean
+	reviewRequest?: Record<string, unknown>
 } = {}) {
-	const f = await providerPaused(state, { unresolved, limit })
+	const f = await providerPaused(state, {
+		unresolved,
+		limit,
+		...(pauseRecord ? { pause: pauseRecord } : {}),
+	})
 	let route: ((event: SessionEvent) => void) | undefined
 	let busy = false
 	let finish = false
@@ -53,6 +68,7 @@ async function fixture({
 	let operator = false
 	let duringSend: (() => void) | undefined
 	let duringResume: (() => void) | undefined
+	const release = vi.fn(async () => {})
 	const resume = vi.fn((params: ResumePausedParams) =>
 		(async function* () {
 			duringResume?.()
@@ -118,6 +134,7 @@ async function fixture({
 				turnId: f.turnId,
 				checkpointId: f.checkpointId,
 				reason: 'Provider temporarily unavailable',
+				...(pauseRecord?.handoff ? { handoff: pauseRecord.handoff } : {}),
 			} as const
 		})(),
 	)
@@ -134,6 +151,9 @@ async function fixture({
 				mcpFailed: [],
 				close: async () => {},
 				send,
+				...(browserHeadless === undefined
+					? {}
+					: { browser: { status: () => ({ headless: browserHeadless }), release } }),
 				resumePaused: resume,
 				...(sessionClosesTurns
 					? {
@@ -226,6 +246,7 @@ async function fixture({
 		...f,
 		runtime,
 		resume,
+		release,
 		send,
 		createSession,
 		ask,
@@ -259,6 +280,99 @@ async function fixture({
 		},
 	}
 }
+
+const SIGN_IN_PAUSE = {
+	failure: undefined,
+	providerError: undefined,
+	handoff: {
+		kind: 'human-required' as const,
+		reason: 'The site asks you to sign in',
+		detail: { tool: 'browser', cause: 'sign-in', origin: 'https://example.test' },
+	},
+}
+
+describe('a turn a tool paused for the person (a handoff)', () => {
+	it('is offered to the app with what to do, and continues from its checkpoint with a note, as the terminal does', async () => {
+		const f = await fixture({ pauseRecord: SIGN_IN_PAUSE })
+		try {
+			await f.pause({ permissionMode: 'plan' })
+			const status = await f.runtime.providerRetryStatus!(f.sessionId, root)
+			expect(status).toEqual({
+				handoff: {
+					turnId: f.turnId,
+					checkpointId: f.checkpointId,
+					reason: 'The site asks you to sign in',
+					tool: 'browser',
+					cause: 'sign-in',
+					origin: 'https://example.test',
+				},
+				closable: true,
+			})
+			f.finish()
+			const outcome = await f.retry()
+			// Resumed from the same checkpoint, never sent again as a new message.
+			expect(f.send).toHaveBeenCalledOnce()
+			expect(f.resume).toHaveBeenCalledOnce()
+			const params = f.resume.mock.calls[0]?.[0]
+			expect(params).toMatchObject({
+				turnId: f.turnId,
+				checkpointId: f.checkpointId,
+				permissionMode: 'plan',
+			})
+			// The model is told the person chose to go on, and to look at the page again once.
+			expect(params?.systemNote).toContain('The site asks you to sign in')
+			expect(params?.systemNote).toContain('never type a password or a code')
+			expect(outcome.stopReason).toBe('end_turn')
+			expect(await f.runtime.providerRetryStatus!(f.sessionId, root)).toEqual({})
+		} finally {
+			await f.runtime.close()
+		}
+	})
+	it.each([
+		{ headless: false, window: 'visible', released: false },
+		{ headless: true, window: 'none', released: true },
+	])(
+		'says whether the agent’s browser has a window, and frees a windowless one for the sign-in (headless=$headless)',
+		async ({ headless, window, released }) => {
+			const f = await fixture({ pauseRecord: SIGN_IN_PAUSE, browserHeadless: headless })
+			try {
+				await f.pause()
+				const status = await f.runtime.providerRetryStatus!(f.sessionId, root)
+				expect(status.handoff?.window).toBe(window)
+				expect(f.release).toHaveBeenCalledTimes(released ? 1 : 0)
+			} finally {
+				await f.runtime.close()
+			}
+		},
+	)
+	it('is closed by Stop without a provider error, keeping the messages', async () => {
+		const f = await fixture({ pauseRecord: SIGN_IN_PAUSE })
+		try {
+			await f.pause()
+			expect(
+				await f.runtime.abandonPausedTurn!(f.sessionId, root, f.turnId, {
+					withdrawMessages: false,
+				}),
+			).toEqual({ closed: true })
+			expect(f.resume).not.toHaveBeenCalled()
+			expect(await f.runtime.providerRetryStatus!(f.sessionId, root)).toEqual({})
+			// The person's message and what the tool found stay in what the model is shown.
+			expect(await loadConversation(state, f.sessionId)).toHaveLength(1)
+		} finally {
+			await f.runtime.close()
+		}
+	})
+	it('refuses a continue for a checkpoint it did not offer', async () => {
+		const f = await fixture({ pauseRecord: SIGN_IN_PAUSE })
+		try {
+			await f.pause()
+			await expect(f.retry(undefined, generateTurnId())).rejects.toThrow()
+			expect(f.resume).not.toHaveBeenCalled()
+		} finally {
+			await f.runtime.close()
+		}
+	})
+})
 
 describe('CLI explicit provider retry composition', () => {
 	it('marks every call of a resumed review that is the first look at the screen as always asked', async () => {

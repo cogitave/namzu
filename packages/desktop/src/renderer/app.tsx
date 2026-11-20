@@ -5729,7 +5729,10 @@ export function App({
 				draftsRef.current[target] = ''
 				setDrafts((all) => ({ ...all, [target]: '' }))
 			}
-			if (activeSession.current === target) follow.current = true
+			if (activeSession.current === target) {
+				follow.current = true
+				transcriptScroll.pinNow()
+			}
 		} finally {
 			if (!submitted) draftAdmissions.current.delete(target)
 			sendingRef.current.delete(owner)
@@ -5889,6 +5892,7 @@ export function App({
 			attachmentIds: [],
 		})
 		follow.current = true
+		transcriptScroll.pinNow()
 	}
 
 	// The pane's strip in order (terminals included) and the tab in front.
@@ -8211,6 +8215,36 @@ export function App({
 									let delivered = false
 									await act(async () => {
 										await api.respondPermission(permission.sessionId, permission.id, response)
+										delivered = true
+									})
+									return delivered
+								}}
+								handoff={thread.handoff}
+								onContinueHandoff={
+									api.retryTurn && thread.handoff
+										? async () => {
+												const waiting = thread.handoff
+												const resume = api.retryTurn
+												if (waiting && resume)
+													await act(() => resume(sessionId, waiting.turnId, waiting.checkpointId))
+											}
+										: undefined
+								}
+								onStopHandoff={
+									api.stopHandoff && thread.handoff
+										? async () => {
+												const stop = api.stopHandoff
+												if (stop) await act(() => stop(sessionId))
+											}
+										: undefined
+								}
+								onAnswerQuestion={async (permission, response) => {
+									// The card stays open when the answer did not get through.
+									let delivered = false
+									await act(async () => {
+										if (!api.answerQuestion)
+											throw new Error('This window cannot answer a question.')
+										await api.answerQuestion(permission.sessionId, permission.id, response)
 										delivered = true
 									})
 									return delivered

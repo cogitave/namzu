@@ -79,16 +79,66 @@ describe('durable provider retry eligibility', () => {
 			failure: { code: 'bad_request', message: 'Invalid request', retryable: true },
 			providerError: { kind: 'bad_request' as const, providerId: 'zen' },
 		},
-		{ handoff: { kind: 'human-required' as const, reason: 'Operator must finish this step' } },
 	])('does not retry decisions or nonrecoverable failures: %j', async (pause) => {
 		const f = await providerPaused(state, { pause })
 		const status = await readProviderRetryStatus(state, f.sessionId)
 		expect(status).toEqual({
 			notice: expect.stringContaining('paused'),
-			// A provider failure may be closed by sending on; a handoff or an unexplained pause may not.
+			// A provider failure may be closed by sending on; an unexplained pause may not.
 			...(pause.providerError ? { closable: true } : {}),
 		})
 		expect(status.retry).toBeUndefined()
+	})
+	it('offers a turn a tool paused for the person as a handoff, not as a retry or a refusal', async () => {
+		const f = await providerPaused(state, {
+			pause: {
+				failure: undefined,
+				providerError: undefined,
+				handoff: {
+					kind: 'human-required',
+					reason: 'The site asks you to sign in',
+					detail: {
+						tool: 'browser',
+						cause: 'sign-in',
+						origin: 'https://example.test',
+						profile: 'default',
+						loginCommand: 'namzu browser login default https://example.test/login',
+					},
+				},
+			},
+		})
+		const status = await readProviderRetryStatus(state, f.sessionId)
+		expect(status).toEqual({
+			handoff: {
+				turnId: f.turnId,
+				checkpointId: f.checkpointId,
+				reason: 'The site asks you to sign in',
+				tool: 'browser',
+				cause: 'sign-in',
+				origin: 'https://example.test',
+				profile: 'default',
+				loginCommand: 'namzu browser login default https://example.test/login',
+			},
+			// A new message moves on without it, so the conversation is never held.
+			closable: true,
+		})
+		// The old dead-end sentence is gone: nothing here says "recorded decision".
+		expect(status.notice).toBeUndefined()
+		expect(status.retry).toBeUndefined()
+	})
+	it('keeps a handoff whose checkpoint is gone closable, with a notice, and never offers Continue', async () => {
+		const f = await providerPaused(state, {
+			withCheckpoint: false,
+			pause: {
+				failure: undefined,
+				providerError: undefined,
+				handoff: { kind: 'human-required', reason: 'Finish the check' },
+			},
+		})
+		const status = await readProviderRetryStatus(state, f.sessionId)
+		expect(status.handoff).toBeUndefined()
+		expect(status.closable).toBe(true)
+		expect(status.notice).toContain('checkpoint is unavailable')
 	})
 	it('never treats a retained human review as a provider Retry', async () => {
 		const f = await providerPaused(state)

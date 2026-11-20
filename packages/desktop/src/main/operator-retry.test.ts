@@ -364,6 +364,85 @@ it('closes a reply that stopped on a provider failure and sends the new message 
 	expect(requests().filter((request) => request.method === 'namzu/sessions/retry')).toEqual([])
 })
 
+it('offers a turn a tool paused for the person as a handoff and continues it from its checkpoint', async () => {
+	const { owner, recorded, wait, requests } = harness('handoff')
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const stopped = wait(settled)
+	await owner.send(session.id, 'Open the login page')
+	await stopped
+	const paused = (await owner.openConversation(project.id, session.id)).thread
+	expect(paused?.handoff).toMatchObject({
+		turnId: 'original-turn',
+		checkpointId: 'original-checkpoint',
+		reason: 'The site asks you to sign in',
+		origin: 'https://example.test',
+		window: 'visible',
+	})
+	// Not a failure and not a retry: there is no "waiting for a decision" notice to show.
+	expect(paused?.retry).toBeUndefined()
+	expect(paused?.retryNotice).toBeUndefined()
+	const review = wait((event) => event.kind === 'permission')
+	await owner.retryTurn(session.id, 'original-turn', 'original-checkpoint')
+	const asked = await review
+	if (asked.kind !== 'permission') throw new Error('Missing approval')
+	const done = wait(settled)
+	owner.respondPermission(session.id, asked.request.id, { outcome: 'approve' })
+	await done
+	const after = (await owner.openConversation(project.id, session.id)).thread
+	expect(after?.handoff).toBeUndefined()
+	expect(after?.stopReason).toBe('end_turn')
+	// Resumed in place: one prompt in all, and the retry call named the handoff's own checkpoint.
+	expect(requests().filter((request) => request.method === 'session/prompt')).toHaveLength(1)
+	expect(requests().find((request) => request.method === 'namzu/sessions/retry')?.params).toEqual({
+		sessionId: session.id,
+		turnId: 'original-turn',
+		checkpointId: 'original-checkpoint',
+	})
+	expect(recorded.filter((event) => event.kind === 'prompt')).toHaveLength(1)
+})
+
+it('stops a handoff: the turn closes durably, the messages stay and the conversation is usable', async () => {
+	const { owner, wait, requests } = harness('handoff')
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const stopped = wait(settled)
+	await owner.send(session.id, 'Open the login page')
+	await stopped
+	const closed = wait((event) => event.kind === 'turn-closed')
+	await owner.stopHandoff(session.id)
+	await closed
+	const abandon = requests().find((request) => request.method === 'namzu/sessions/abandon-paused')
+	expect(abandon?.params).toMatchObject({ turnId: 'original-turn', withdrawMessages: false })
+	expect(requests().filter((request) => request.method === 'namzu/sessions/retry')).toEqual([])
+	const thread = (await owner.openConversation(project.id, session.id)).thread
+	expect(thread?.handoff).toBeUndefined()
+	expect(thread?.messages.filter((message) => message.role === 'user').map((m) => m.text)).toEqual([
+		'Open the login page',
+	])
+	// Stopping twice has nothing left to stop.
+	await expect(owner.stopHandoff(session.id)).rejects.toThrow('not waiting for you')
+})
+
+it('lets a message typed while a handoff waits move on without it, never the dead-end refusal', async () => {
+	const { owner, wait, requests } = harness('handoff')
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const stopped = wait(settled)
+	await owner.send(session.id, 'Open the login page')
+	await stopped
+	const closed = wait((event) => event.kind === 'turn-closed')
+	const again = wait(settled)
+	await owner.send(session.id, 'I signed in, go on')
+	await closed
+	await again
+	const methods = requests().map((request) => request.method)
+	const close = methods.indexOf('namzu/sessions/abandon-paused')
+	expect(close).toBeGreaterThan(-1)
+	expect(methods.indexOf('session/prompt', close)).toBeGreaterThan(close)
+	expect(requests()[close]?.params).toMatchObject({ withdrawMessages: false })
+})
+
 it('still refuses a new message over a paused turn that waits for the person', async () => {
 	// The runtime says nothing is closable here: an approval is the person's to answer.
 	const { owner, wait, requests } = harness('unsafe')

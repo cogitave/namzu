@@ -145,6 +145,12 @@ A foreground command can also be handed to the job registry by the person, where
 
 The call returns normally with what the command printed so far and a line saying why it moved (`handedOffMessage`); `data` carries `jobId`, `background: true`, `movedToBackground: true` and `backgroundedBy` (`user`, `message`, `interrupt` or `timeout`), without `timedOut` unless the deadline moved it; the typed `facts` carry `background: true` and `continued: true`, which a host draws as "continues in the background". If the owner is at its job limit or the host cannot take the process over, the command stays where it is, and an interrupt kills it as before. `NAMZU_DISABLE_BACKGROUND_TASKS` turns all of this off.
 
+## A command has no input
+
+A foreground command gets no keyboard. `spawnHostShell` starts it with stdin on the null device (`['ignore', 'pipe', 'pipe']`) on every platform, so `read`, `cat` or a Python `input()` meets end-of-file at once instead of waiting for the command's timeout. A caller that feeds a child, such as a shell hook writing its event JSON, passes its own `stdio` and keeps a pipe. Background jobs were already started this way. There is no terminal either, so a program that opens `/dev/tty` fails immediately.
+
+The model is told the same thing: the tool description and the message that says a command moved to the background both carry `COMMAND_HAS_NO_INPUT` (`bash.ts`), which says a question or password prompt cannot be answered there and to use a non-interactive flag, pass the answer in the command, or ask the person. The sandbox path hands the command to the backend's `exec`, which supplies stdin only when a call gives it text, so it is unchanged.
+
 ## Git Bash on Windows
 
 Reading cmd.exe lines is not possible for the permission rules, so with cmd every command line was "a program decided at runtime" and needed a person in every mode, and a model's POSIX syntax did not run. With Git Bash both go away. What differs from a POSIX host:

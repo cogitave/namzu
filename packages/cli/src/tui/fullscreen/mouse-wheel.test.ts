@@ -75,7 +75,7 @@ describe('installing the pointer', () => {
 		const chunks: unknown[] = [`${up}typed`]
 		const stdin = { isTTY, read: () => chunks.shift() ?? null }
 		const stdout = { isTTY, write: (text: string) => written.push(text) }
-		return { stdin, stdout, written }
+		return { stdin, stdout, written, chunks }
 	}
 
 	it('asks for wheel reports, filters the stream and gives the pointer back', () => {
@@ -89,6 +89,23 @@ describe('installing the pointer', () => {
 		expect(written.join('')).toContain('\u001b[?1000l')
 		stop()
 		expect(written.filter((w) => w.includes('?1000l'))).toHaveLength(1)
+	})
+
+	it('hands every report on untouched while another screen owns the terminal', () => {
+		const { stdin, stdout, written, chunks } = streams(true)
+		const seen: string[] = []
+		let other = true
+		const stop = installMouseWheel(stdin, stdout, (direction) => seen.push(direction), undefined, {
+			bypass: () => other,
+		})
+		expect(stdin.read()).toBe(`${up}typed`)
+		expect(seen).toEqual([])
+		other = false
+		chunks.push(`${up}more`)
+		expect(stdin.read()).toBe('more')
+		expect(seen).toEqual(['up'])
+		stop()
+		expect(written.join('')).toContain('?1000l')
 	})
 
 	it('asks for motion with no button only when hover is wanted', () => {

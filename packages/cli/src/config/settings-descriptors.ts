@@ -2188,6 +2188,14 @@ const DECLARED: readonly SettingDescriptor[] = [
 		{ group: 'terminal-look', keywords: ['fullscreen'], default: true },
 	),
 	d(
+		'tui.leftArrowOpensAgents',
+		'terminal',
+		'Left arrow opens agents',
+		'While a reply is running, press ← twice on an empty message box to open the agents list.',
+		on,
+		{ group: 'terminal-look', keywords: ['left arrow', 'agents', 'arrow'], default: true },
+	),
+	d(
 		'tui.wheelAccel',
 		'terminal',
 		'Accelerate wheel scrolling',

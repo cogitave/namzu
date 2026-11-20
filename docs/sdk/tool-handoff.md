@@ -80,6 +80,16 @@ can tell the operator.
 - The interactive terminal shows the reason and `press Enter to continue · Esc
   to stop`. Enter on an empty composer resumes the turn, and Esc abandons it,
   as `/abandon` does. `/resume` also continues it.
+- The Desktop application draws a card above the message box, "Namzu is
+  waiting for you", with what to do in plain words and **Continue** and
+  **Stop** (see [Desktop](../cli/desktop.md#a-turn-that-needs-you)). Continue
+  resumes the turn the way Enter does here, from the same checkpoint with the
+  same note to the model; Stop closes it as Esc does. A message typed while the
+  card waits closes the turn and goes on as a new one, as typing a message does
+  in the terminal, so a handoff is never a dead end. The host sends the facts
+  (`reason`, and for the browser the origin, why, the profile, the login
+  command, and whether the agent's browser has a window) on the retry status as
+  `handoff`.
 - `namzu exec` prints `Turn paused — needs you: <reason>` with the checkpoint;
   `--json` carries `handoff` on the `paused` event.
 - A scheduled run records `awaiting-approval` with the reason. See

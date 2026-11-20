@@ -182,12 +182,21 @@ export function liveStep(
 ): { label: string; state: 'waiting' | 'running' } | undefined {
 	// A request waiting for the person is the step the turn is on, whether or not its row exists yet.
 	if (threadPhase(thread) === 'waiting') return { label: WAITING_FOR_YOU, state: 'waiting' }
+	const entry = liveStepEntry(thread, entries)
+	const presentation =
+		entry?.kind === 'tool' ? toolTranscriptPresentation(thread, entry.id) : undefined
+	if (presentation?.state === 'waiting' || presentation?.state === 'running')
+		return { label: presentation.label, state: presentation.state }
+	return undefined
+}
+
+/** The action row the live header names: the newest one that is waiting or running. */
+function liveStepEntry(thread: ThreadState, entries: TimelineEntry[]): TimelineEntry | undefined {
 	for (let index = entries.length - 1; index >= 0; index--) {
 		const entry = entries[index]
 		if (entry?.kind !== 'tool') continue
-		const presentation = toolTranscriptPresentation(thread, entry.id)
-		if (presentation?.state === 'waiting' || presentation?.state === 'running')
-			return { label: presentation.label, state: presentation.state }
+		const state = toolTranscriptPresentation(thread, entry.id)?.state
+		if (state === 'waiting' || state === 'running') return entry
 	}
 	return undefined
 }
@@ -205,11 +214,15 @@ export function turnActivityLabel(thread: ThreadState, turn: number): string {
 	const duration =
 		milliseconds === undefined || milliseconds < 1000 ? undefined : elapsedLabel(milliseconds)
 	const outcome = transcriptOutcome(reason)
+	// A turn a tool paused for the person (a sign-in) waits for them; its card says what to do.
+	const waitsForPerson = turn === thread.turn && thread.handoff !== undefined
 	const label =
 		turn === thread.turn && thread.error
 			? 'Work incomplete'
 			: outcome === 'paused'
-				? 'Paused'
+				? waitsForPerson
+					? 'Waiting for you'
+					: 'Paused'
 				: outcome === 'stopped'
 					? 'Stopped'
 					: outcome === 'incomplete'
@@ -628,16 +641,24 @@ export function liveStepMs(thread: ThreadState, now: number): number | undefined
 	return Math.max(0, now - Math.max(began, timing?.resumedAt ?? 0))
 }
 
-/** The last actions of a live turn kept in view under the status line, and how many came before them. */
 export const LIVE_STEPS_SHOWN = 2
 
+/**
+ * The last actions of a live turn kept in view under the status line, and how many came before them.
+ * The action the header names is left out, so a running step is drawn once; with nothing finished
+ * there is no tail.
+ */
 export function liveRecentSteps(
 	thread: ThreadState,
 	entries: TimelineEntry[],
 ): { shown: TimelineEntry[]; more: number } {
+	const named = threadPhase(thread) === 'waiting' ? undefined : liveStepEntry(thread, entries)
 	const steps = entries.filter(
 		(entry) =>
-			entry.kind === 'tool' && Boolean(thread.tools[entry.id]) && !isTaskEntry(thread, entry),
+			entry !== named &&
+			entry.kind === 'tool' &&
+			Boolean(thread.tools[entry.id]) &&
+			!isTaskEntry(thread, entry),
 	)
 	return {
 		shown: steps.slice(-LIVE_STEPS_SHOWN),

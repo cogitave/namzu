@@ -474,10 +474,10 @@ flow(
 			assert.match(header, /\d+s/, "with its own seconds");
 			const steps = w.page.locator(".live-steps");
 			await expect(steps).toBeVisible();
-			await expect(steps.getByRole("button", { name: "3 more steps" })).toBeVisible();
+			await expect(steps.getByRole("button", { name: "2 more steps" })).toBeVisible();
 			assert.equal(await steps.locator('[data-transcript-entry-key], .tool, .tool-row').count() > 0, true);
 			await shot(w, "live-steps");
-			await steps.getByRole("button", { name: "3 more steps" }).click();
+			await steps.getByRole("button", { name: "2 more steps" }).click();
 			await expect(w.page.locator(".live-steps")).toHaveCount(0);
 		});
 		if (!after) await shot(w, "live-steps");
