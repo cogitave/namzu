@@ -110,9 +110,9 @@ describe('grounded query focus', () => {
 			basis: [],
 		})
 		const oldSubject = plan(current, ['DELTA'])
-		expect(() =>
-			validateEvidenceQueryResolution(JSON.stringify(oldSubject), current, history),
-		).toThrow('ungrounded token')
+		// A word from the old subject that the question does not carry grounds nothing.
+		const resolved = validateEvidenceQueryResolution(JSON.stringify(oldSubject), current, history)
+		expect(resolved && 'terms' in resolved ? resolved.terms : []).not.toContain('DELTA')
 	})
 	it('requires focus IDs to belong to the selected grounded terms', () => {
 		const raw = plan()
@@ -131,13 +131,15 @@ describe('grounded query focus', () => {
 		expect(validateEvidenceQueryResolution(JSON.stringify(raw), query, history)).toMatchObject({
 			focusTerms: ['DELTA'],
 		})
-		expect(() =>
+		// A quote the history does not hold is ignored, and a contextual plan left with
+		// no quote says nothing.
+		expect(
 			validateEvidenceQueryResolution(
 				JSON.stringify({ ...raw, basis: [{ message: 0, quote: 'DELTA invented fact' }] }),
 				query,
 				history,
 			),
-		).toThrow('outside')
+		).toBeUndefined()
 	})
 	it('does not use focus to revive ambiguous, no-search or present-state plans', () => {
 		for (const mode of ['ambiguous', 'none'])
@@ -188,9 +190,23 @@ describe('grounded query focus', () => {
 						}
 					: {}),
 			})
-			const result = await createEvidenceRecallStep({ scope, retrieve, resolveQuery: true })(
-				context(),
-			)
+			const shed = context()
+			const result = await createEvidenceRecallStep({
+				scope,
+				retrieve,
+				resolveQuery: true,
+			})({
+				...shed,
+				// Pointers to the history tools are given once content has been shed.
+				messages: [
+					{
+						role: 'system',
+						content: 'Earlier turns were summarized.',
+						source: { type: 'compaction-summary' },
+					},
+					...shed.messages,
+				],
+			})
 			expect(metadata(result?.context)).toMatchObject({
 				incomplete,
 				queryFocus: { terms: ['SIGMA'], matchedTerms: [] },

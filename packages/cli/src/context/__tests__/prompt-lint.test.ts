@@ -221,7 +221,8 @@ describe('the assembled prompts', () => {
 		const nevers =
 			(NAMZU_IDENTITY + NAMZU_WORKING_DOCTRINE).match(/\b[Nn]ever\b|\b[Dd]o not\b|\b[Dd]on't\b/g) ??
 			[]
-		expect(nevers.length).toBeLessThanOrEqual(10)
+		// The eleventh is the rule that a question about the model's own answer is answered from it.
+		expect(nevers.length).toBeLessThanOrEqual(11)
 		for (const gone of [
 			'Never say you ran',
 			'Never invent file paths',
@@ -292,7 +293,7 @@ describe('the assembled prompts', () => {
 		// A lean main prompt is part of how many requests a task costs. The pieces a
 		// default interactive session sends before the environment block (identity,
 		// working rules, delegation, where files go, memory, deferred-tool
-		// guidance) stay under about 10,400 characters (the placement rule for files that are not the work added about 450 to the earlier 9,600, and the rule to answer about the work and not recite the setting about 350 more); the environment block is measured
+		// guidance) stay under about 10,600 characters (the line that a question about your own answer is answered from it added about 130; the placement rule for files that are not the work added about 450 to the earlier 9,600, and the rule to answer about the work and not recite the setting about 350 more); the environment block is measured
 		// separately so the bound does not move with the host.
 		const pieces = [
 			NAMZU_IDENTITY,
@@ -302,13 +303,13 @@ describe('the assembled prompts', () => {
 			composeMemoryGuidance({ taskList: true }),
 			DEFERRED_TOOL_GUIDANCE,
 		]
-		expect(pieces.join('\n\n').length).toBeLessThan(10_400)
+		expect(pieces.join('\n\n').length).toBeLessThan(10_600)
 		expect(composeMemoryGuidance({ taskList: true }).length).toBeGreaterThan(600)
 		expect(composeMemoryGuidance({ taskList: true }).length).toBeLessThan(950)
 		for (const [name, text] of assembled()) {
 			if (name.startsWith('main')) expect(text.length, name).toBeLessThan(MAIN_CEILING)
 			if (name.startsWith('explore') || name.startsWith('planner'))
-				expect(text.length, name).toBeLessThan(9_000)
+				expect(text.length, name).toBeLessThan(9_200)
 		}
 	})
 

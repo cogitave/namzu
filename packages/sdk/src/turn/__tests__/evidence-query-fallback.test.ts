@@ -14,7 +14,7 @@ import {
 } from '../evidence-recall.js'
 import { PreparationContextError } from '../preparation-context-error.js'
 
-function fixture(maxChars = 6000) {
+function fixture(maxChars = 6000, shed = true) {
 	const scope = {
 		tenantId: generateTenantId(),
 		projectId: generateProjectId(),
@@ -32,6 +32,15 @@ function fixture(maxChars = 6000) {
 		prepared: {},
 		latestUserMessage: operator,
 		messages: [
+			...(shed
+				? [
+						{
+							role: 'system' as const,
+							content: 'Earlier turns were summarized.',
+							source: { type: 'compaction-summary' as const },
+						},
+					]
+				: []),
 			createUserMessage('Inspect OMEGA.'),
 			createAssistantMessage('OMEGA was inspected.'),
 			operator,
@@ -74,8 +83,9 @@ it('preserves literal discovery after failed optional planning without importing
 	expect(f.retrieve).toHaveBeenCalledOnce()
 	expect(f.retrieve.mock.calls[0]![0].terms).toEqual(['DELTA', 'code'])
 	expect(error.context).toContain('ORIGINAL-123')
-	expect(error.context).toContain('planning the search failed')
-	expect(error.context).toContain('used only the words of the current question')
+	// Passages were found, so nothing is said to be "not available".
+	expect(error.context).not.toContain('not available')
+	expect(error.context).toContain('found by its own words only')
 	expect(error.context).not.toContain('PRIVATE_INVALID_PLAN')
 	expect(error.context).not.toContain('OMEGA')
 	expect(error.context).not.toContain('This automatic pass supplied no evidence')
@@ -101,6 +111,8 @@ it('keeps empty fallback scan coverage distinct from a planning failure', async 
 	const f = fixture()
 	f.retrieve.mockResolvedValue({ candidates: [], scannedBytes: 100, incomplete: false })
 	const error = await failure(f.recall(f.context))
+	// Nothing was found, so the note still says the planning step did not run.
+	expect(error.context).toContain('planning the search failed')
 	expect(error.context).toContain('used only the words of the current question')
 	expect(error.context).toContain('"incomplete":false')
 })
@@ -115,6 +127,45 @@ it('retains explicit continuation from partial literal fallback', async () => {
 	const error = await failure(f.recall(f.context))
 	expect(error.context).toContain('owned-cursor')
 	expect(error.context).toContain('"incomplete":true')
+})
+
+it('reports why the plan was rejected in one structured line and keeps the reason from the model', async () => {
+	const f = fixture()
+	const info = vi.fn()
+	const log = {
+		debug: vi.fn(),
+		info,
+		warn: vi.fn(),
+		error: vi.fn(),
+		child: () => log,
+	}
+	const recall = createEvidenceRecallStep({
+		scope: f.scope,
+		resolveQuery: true,
+		retrieve: f.retrieve,
+		log,
+	})
+	const error = await failure(recall(f.context))
+	expect(info).toHaveBeenCalledTimes(1)
+	expect(info).toHaveBeenCalledWith('History lookup did not run', {
+		'namzu.evidence.stage': 'query_planning',
+		'namzu.evidence.reason': 'PRIVATE_INVALID_PLAN',
+	})
+	expect(error.context).not.toContain('PRIVATE_INVALID_PLAN')
+})
+
+it('gives no history-tool pointer while nothing has been shed', async () => {
+	const f = fixture(6000, false)
+	f.retrieve.mockResolvedValue({
+		...f.batch,
+		incomplete: true,
+		continuations: [{ toolName: 'search_conversation', input: { cursor: 'owned-cursor' } }],
+	})
+	const error = await failure(f.recall(f.context))
+	expect(error.context).not.toContain('owned-cursor')
+	expect(error.context).not.toContain('additionalEvidence"')
+	expect(error.context).toContain('visible now, answer from them')
+	expect(error.context).not.toContain('read-only conversation-history tools')
 })
 
 it('rejects a foreign fallback candidate before exposing any text', async () => {
@@ -161,7 +212,7 @@ it('reports failed fallback retrieval without exposing its cause or claiming a l
 })
 
 it('reserves the availability note within the same character allowance', async () => {
-	const f = fixture(1800)
+	const f = fixture(2600)
 	f.retrieve.mockResolvedValue({
 		...f.batch,
 		candidates: Array.from({ length: 8 }, (_, i) => ({
@@ -172,15 +223,16 @@ it('reserves the availability note within the same character allowance', async (
 	})
 	const error = await failure(f.recall(f.context))
 	expect(f.retrieve).toHaveBeenCalledOnce()
+	// None of the escaped passages fits, so none is shown and the note stays the status one.
 	expect(error.context).toContain('used only the words of the current question')
-	expect(error.context.length).toBeLessThanOrEqual(1800)
+	expect(error.context.length).toBeLessThanOrEqual(2600)
 })
 
 it('does not fetch when there is no room for status and bounded evidence framing', async () => {
-	const f = fixture(1100)
+	const f = fixture(1500)
 	const error = await failure(f.recall(f.context))
 	expect(error.context).toContain('planning the search failed')
 	expect(error.context).not.toContain('used only the words of the current question')
 	expect(f.retrieve).not.toHaveBeenCalled()
-	expect(error.context.length).toBeLessThanOrEqual(1100)
+	expect(error.context.length).toBeLessThanOrEqual(1500)
 })

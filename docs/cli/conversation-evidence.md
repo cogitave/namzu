@@ -458,6 +458,25 @@ the reader's chunk index does not carry a character index for every record, so a
 character position cannot be honoured without scanning from the start of the
 record on every page. `byteOffset` from search is the position to use.
 
+## When to search and when to answer
+
+One rule is told to the model everywhere it hears about history (the system
+prompt's conversation-evidence section, the header of a recalled-evidence entry,
+the notes about a lookup that did not run): *if the answer is in your own earlier
+messages or tool results that are visible now, answer from them; do not search.
+Use the history tools only for something no longer visible (after compaction or a
+restart).* A question about what the model said, or why, is answered from that
+message, quoted. After one empty or incomplete history search the model answers
+from what is in context and says what is unverified; it does not go on to search
+the disk.
+
+Pointers to the history tools are shown only once content was shed: a compaction
+summary is in the conversation, or a tool result was cleared. Before that, a
+recalled-evidence entry carries no `additionalEvidence` or `continuations`, its
+header names no tool, and a lookup note says only that the answer is in the
+visible messages. Where the tools are named they are named as deferred: load them
+with `search_tools` first if they are not loaded.
+
 ## Getting at a saved output
 
 When a tool result is over the output budget the model sees a preview and, under
@@ -532,10 +551,13 @@ blocks with current position and explicit retention flag. Positions are not
 durable addresses. It does not list an exhaustive archive or infer that a
 visible preview contains the original bytes.
 
-The inventory appears when visible tool text reaches 16,000 characters or
-estimated remaining context falls below one quarter of the window. It yields
-when fewer than 1,500 estimated tokens remain. Small ordinary turns receive no
-inventory. Non-text payloads are counted without treating base64 as text tokens.
+The inventory appears only under real window pressure (estimated remaining
+context below one quarter of the window) or after a compaction shed content (a
+summary stands in for messages, or a tool result was cleared). It yields
+when fewer than 1,500 estimated tokens remain. A turn with room to spare and
+everything still in view receives no inventory, however much tool output it
+holds. The text is worded as the model's own notes, not a request and not
+something to tell the user, and it does not point at `search_conversation`. Non-text payloads are counted without treating base64 as text tokens.
 No extra model call or filesystem scan is performed, and preceding memory
 guidance is preserved. The inventory uses SDK
 [`prepareStep.context`](../sdk/step-context.md), keeping it after history through

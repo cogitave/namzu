@@ -35,9 +35,21 @@ describe('reporting delegated work', () => {
 })
 
 describe('looking back before investigating again', () => {
-	it('sends the model to the conversation first when an error comes back', () => {
+	it('has the model look at what it can see before it searches, when an error comes back', () => {
 		expect(CONVERSATION_EVIDENCE_GUIDANCE).toContain(
-			'Before you investigate an error again, search this conversation for a short phrase from it',
+			'Before you investigate an error again, look at the earlier turns you can see; only when its output is no longer visible, search this conversation for a short phrase from it',
+		)
+	})
+
+	it('opens with the one rule about history, and says what to do after an empty search', () => {
+		expect(CONVERSATION_EVIDENCE_GUIDANCE).toContain(
+			'## Conversation evidence\nIf the answer is in your own earlier messages or tool results that are visible now, answer from them; do not search. Use the history tools only for something no longer visible (after compaction or a restart).',
+		)
+		expect(CONVERSATION_EVIDENCE_GUIDANCE).toContain(
+			'After one empty or incomplete history search, answer from what is in context and say what is unverified',
+		)
+		expect(CONVERSATION_EVIDENCE_GUIDANCE).not.toContain(
+			'This works before compaction as well as after',
 		)
 	})
 })

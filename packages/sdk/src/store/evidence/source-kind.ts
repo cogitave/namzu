@@ -33,4 +33,4 @@ export function classifyEvidenceSource(source: string): EvidenceRecordKind {
 
 /** Shared model-facing interpretation for hosts projecting recorded evidence. */
 export const EVIDENCE_RECORD_GUIDANCE =
-	'Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.'
+	'Producer kinds do not establish truth or independence. assistant_message is what the assistant itself said earlier in this conversation. For a question about what you said or why, it is the record: quote it and answer from it. For a question about what is true now, a prior claim is not proof of observed state or successful action; attribute it as a claim unless supported by the original observation, and re-check only the current state. Tool results may themselves quote claims.'

@@ -3,6 +3,7 @@ import type { Message } from '../types/message/index.js'
 import { escapeNoticeFrame, readOperatorNotice } from '../types/message/notice-frame.js'
 import type { PrepareStepContext } from '../types/session/prepare-step.js'
 import { evidenceTokenKey, evidenceTokens } from '../utils/evidence-tokens.js'
+import { historyContentShed } from './history-shed.js'
 
 const SYSTEM = `Resolve a conversation-history search query. Return only JSON:
 {"mode":"direct|contextual|ambiguous|none","time":"past|present|unspecified","termIds":[0,1],"focusIds":[],"basis":[{"message":0,"quote":"exact substring"}]}.
@@ -21,15 +22,13 @@ const planSchema = z
 	.object({
 		mode: z.enum(['direct', 'contextual', 'ambiguous', 'none']),
 		time: z.enum(['past', 'present', 'unspecified']),
-		termIds: z
-			.array(
-				z
-					.number()
-					.int()
-					.min(0)
-					.max(MAX_VOCABULARY - 1),
-			)
-			.max(16),
+		termIds: z.array(
+			z
+				.number()
+				.int()
+				.min(0)
+				.max(MAX_VOCABULARY - 1),
+		),
 		focusIds: z
 			.array(
 				z
@@ -38,17 +37,25 @@ const planSchema = z
 					.min(0)
 					.max(MAX_VOCABULARY - 1),
 			)
-			.max(4)
 			.optional(),
-		basis: z
-			.array(
-				z
-					.object({ message: z.number().int().min(0).max(5), quote: z.string().min(1).max(200) })
-					.strict(),
-			)
-			.max(3),
+		basis: z.array(
+			z
+				.object({
+					message: z.number().int().min(0).max(5),
+					quote: z.string().min(1).max(200),
+				})
+				.strict(),
+		),
 	})
 	.strict()
+
+/** The most word IDs, focus IDs and quotes a plan may carry; more are cut, not refused. */
+const MAX_TERMS = 16
+const MAX_FOCUS = 4
+const MAX_BASIS = 3
+/** The most characters of one message offered to the planner: its start and its end. */
+const HISTORY_TEXT_MAX = 900
+const HISTORY_HEAD = 300
 
 interface QueryMessage {
 	readonly position: number
@@ -87,7 +94,7 @@ export function buildEvidenceQueryInput(current: string, history: readonly Query
 	if (
 		current.length > 1000 ||
 		history.length > 6 ||
-		history.some((entry) => entry.text.length > 600)
+		history.some((entry) => entry.text.length > HISTORY_TEXT_MAX)
 	)
 		return undefined
 	const recent = [...history].reverse()
@@ -163,6 +170,20 @@ function isFramedCopyOf(message: Message, current: Message): boolean {
 	)
 }
 
+/**
+ * One message as the planner reads it: all of it when it fits, otherwise its
+ * start and its end around a gap mark. The end alone lost what a reply opened
+ * with, which is usually where its subject is named.
+ */
+function windowOf(content: string): string {
+	if (content.length <= HISTORY_TEXT_MAX) return content
+	let head = content.slice(0, HISTORY_HEAD)
+	if (/[\uD800-\uDBFF]$/.test(head)) head = head.slice(0, -1)
+	let tail = content.slice(-(HISTORY_TEXT_MAX - HISTORY_HEAD - 1))
+	if (/^[\uDC00-\uDFFF]/.test(tail)) tail = tail.slice(1)
+	return `${head}…${tail}`
+}
+
 /** Bounded visible references, including one labelled summary; no tools or policy. */
 function historyOf(messages: readonly Message[], query: string, current?: Message): QueryMessage[] {
 	const history: QueryMessage[] = []
@@ -217,8 +238,7 @@ function historyOf(messages: readonly Message[], query: string, current?: Messag
 		// request out of the bounded reference window. Keep five recent replies
 		// and that request if the six newest eligible messages are all replies.
 		if (history.length === 6 && !operator(message)) continue
-		let text = message.content.slice(-600)
-		if (/^[\uDC00-\uDFFF]/.test(text)) text = text.slice(1)
+		const text = windowOf(message.content)
 		if (history.length === 6) history.pop()
 		history.push({
 			position,
@@ -240,64 +260,156 @@ function historyOf(messages: readonly Message[], query: string, current?: Messag
 	return history.sort((a, b) => a.position - b.position)
 }
 
-/** Pure validation grounds the selected tokens in the supplied visible text. */
+/** The closing brackets a prefix of JSON still owes, outermost last; strings are skipped. */
+function closersFor(prefix: string): string {
+	const stack: string[] = []
+	let inString = false
+	for (let i = 0; i < prefix.length; i++) {
+		const char = prefix[i]
+		if (inString) {
+			if (char === '\\') i++
+			else if (char === '"') inString = false
+			continue
+		}
+		if (char === '"') inString = true
+		else if (char === '{') stack.push('}')
+		else if (char === '[') stack.push(']')
+		else if (char === '}' || char === ']') stack.pop()
+	}
+	return stack.reverse().join('')
+}
+
+/**
+ * The plan as written, or as far as it can be read: a code fence around it is
+ * dropped, and a key written twice (a second `"basis"` after an unfinished first)
+ * keeps what came before the repeat. A reply that is no JSON at all still fails.
+ */
+function parsePlan(raw: string): unknown {
+	const text = raw
+		.trim()
+		.replace(/^```[a-z]*\s*/i, '')
+		.replace(/\s*```$/, '')
+	try {
+		return JSON.parse(text)
+	} catch (error) {
+		const keys = [...text.matchAll(/"(\w+)"\s*:/g)]
+		const seen = new Set<string>()
+		for (const key of keys) {
+			const name = key[1] as string
+			if (seen.has(name) && key.index !== undefined) {
+				const prefix = text.slice(0, key.index).replace(/[\s,]+$/, '')
+				try {
+					return JSON.parse(prefix + closersFor(prefix))
+				} catch {
+					break
+				}
+			}
+			seen.add(name)
+		}
+		throw error
+	}
+}
+
+/**
+ * Pure validation grounds the selected tokens in the supplied visible text.
+ *
+ * A plan that is mostly usable is used: more words, focus words or quotes than
+ * allowed are cut to the allowance, a quote that is not in the history is
+ * ignored, and a word that no cited text or question supports is left out. A
+ * plan left with nothing to stand on (a contextual one without a quote or
+ * word) says nothing, and the search goes by the words of the question.
+ */
 export function validateEvidenceQueryResolution(
 	raw: string,
 	current: string,
 	history: readonly QueryMessage[],
 ): QueryPlan {
-	const plan = planSchema.parse(JSON.parse(raw))
-	const focusIds = [...new Set(plan.focusIds ?? [])]
+	const plan = planSchema.parse(parsePlan(raw))
+	const termIds = [...new Set(plan.termIds)].slice(0, MAX_TERMS)
+	const focusIds = [...new Set(plan.focusIds ?? [])].slice(0, MAX_FOCUS)
 	if (plan.mode === 'none') {
 		if (focusIds.length) throw new Error('A no-search plan cannot select focus terms.')
 		return null
 	}
 	const quotedBasis = () =>
-		plan.basis.map(({ message, quote }) => {
+		plan.basis.slice(0, MAX_BASIS).flatMap(({ message, quote }) => {
 			const source = history[message]
-			if (!source || !source.text.includes(quote))
-				throw new Error('Query resolution cited text outside its supplied history.')
-			return {
-				position: source.position,
-				role: source.role,
-				quote,
-				...(source.source ? { source: source.source } : {}),
-			}
+			// Text the history does not hold (often the question's own words) grounds nothing.
+			if (!source || !source.text.includes(quote)) return []
+			return [
+				{
+					position: source.position,
+					role: source.role,
+					quote,
+					...(source.source ? { source: source.source } : {}),
+				},
+			]
 		})
 	if (plan.mode === 'ambiguous') {
-		if (plan.termIds.length || focusIds.length || !plan.basis.length)
+		if (termIds.length || focusIds.length || !plan.basis.length)
 			throw new Error('An ambiguous query needs quoted references and no selected terms.')
-		return { kind: 'ambiguous', basis: quotedBasis() }
+		const basis = quotedBasis()
+		return basis.length ? { kind: 'ambiguous', basis } : undefined
 	}
 	if (plan.time === 'present' || (plan.mode === 'direct' && !focusIds.length)) return undefined
 	const input = buildEvidenceQueryInput(current, history)
 	if (!input) throw new Error('Query resolution input exceeds its planning allowance.')
-	const terms = [...new Set(plan.termIds)].map((id) => {
+	const selected = termIds.map((id) => {
 		const word = input.tokens[id]
 		if (word === undefined) throw new Error('Query resolution selected an unavailable token ID.')
-		return word
+		return { id, word }
 	})
-	if (plan.mode === 'contextual' && (!plan.basis.length || !terms.length))
-		throw new Error('Contextual query resolution needs grounded terms and references.')
 	if (plan.mode === 'direct' && plan.basis.length)
 		throw new Error('A direct query must not import historical references.')
-	if (focusIds.some((id) => !plan.termIds.includes(id)))
+	if (focusIds.some((id) => !termIds.includes(id)))
 		throw new Error('Query focus must be a subset of the grounded query terms.')
 	const basis = quotedBasis()
+	if (plan.mode === 'contextual' && (!basis.length || !selected.length)) return undefined
 	const allowed = new Set(
 		evidenceTokens([current, ...basis.map((b) => b.quote)].join('\n')).map((token) =>
 			evidenceTokenKey(token),
 		),
 	)
-	if (terms.some((term) => !allowed.has(evidenceTokenKey(term))))
-		throw new Error('Query resolution introduced an ungrounded token.')
+	const grounded = selected.filter(({ word }) => allowed.has(evidenceTokenKey(word)))
+	if (!grounded.length) return undefined
+	const terms = grounded.map(({ word }) => word)
+	const keptFocus = focusIds.filter((id) => grounded.some((entry) => entry.id === id))
 	return {
 		terms,
-		...(focusIds.length ? { focusTerms: focusIds.map((id) => input.tokens[id] as string) } : {}),
+		...(keptFocus.length ? { focusTerms: keptFocus.map((id) => input.tokens[id] as string) } : {}),
 		time: plan.time,
 		basis,
 		...(input.omittedTokens ? { omittedTokens: input.omittedTokens } : {}),
 	}
+}
+
+/** Words that say what kind of question it is, not what it is about. */
+const QUESTION_WORDS = new Set(
+	'about above again answer because before could earlier explain mention mentioned please question reason should there these thing those which while would where what that this with from have your were does them they said told'.split(
+		' ',
+	),
+)
+
+/**
+ * Whether what the question points at is already in front of the model: nothing
+ * has been shed, the newest earlier message is the model's own reply, it is shown
+ * whole, and the question shares a subject word with it. Then there is nothing to
+ * resolve, and a planning request would only add a call and a way to fail. The
+ * search by the question's own words still runs.
+ */
+export function referentIsInView(
+	current: string,
+	history: readonly QueryMessage[],
+	messages: readonly Message[],
+): boolean {
+	if (historyContentShed(messages)) return false
+	const last = history.at(-1)
+	if (!last || last.role !== 'assistant' || last.source || last.truncated) return false
+	const reply = new Set(evidenceTokens(last.text).map((token) => evidenceTokenKey(token)))
+	return evidenceTokens(current).some((token) => {
+		const key = evidenceTokenKey(token)
+		return key.length >= 4 && !QUESTION_WORDS.has(key) && reply.has(key)
+	})
 }
 
 /** One cached plan for the same operator input; evidence bytes are never cached. */
@@ -335,6 +447,7 @@ export function createEvidenceQueryResolver() {
 		)
 			return Promise.resolve(undefined)
 		const current = query.slice(-1000)
+		if (referentIsInView(current, history, context.messages)) return Promise.resolve(undefined)
 		const input = buildEvidenceQueryInput(current, history)
 		if (!input?.tokens.length) return Promise.resolve(undefined)
 		const plan = context
