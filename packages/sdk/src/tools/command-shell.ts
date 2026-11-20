@@ -473,13 +473,11 @@ export function spawnHostShell(
 		env: resolved.env,
 		detached: options.detached ?? (options.platform ?? process.platform) !== 'win32',
 		windowsHide: true,
-		// Git Bash reads no terminal: a command that asks for input gets
-		// end-of-file (the null device) instead of waiting for a timeout.
-		...(options.stdio === undefined
-			? resolved.file !== undefined && shell.windows === true
-				? { stdio: ['ignore', 'pipe', 'pipe'] as SpawnOptions['stdio'] }
-				: {}
-			: { stdio: options.stdio }),
+		// A command the agent runs has no keyboard: stdin is the null device on
+		// every platform, so a command that asks for input gets end-of-file at
+		// once instead of waiting for a timeout. A caller that feeds the child
+		// (a shell hook writing its event JSON) passes its own stdio.
+		stdio: options.stdio ?? (['ignore', 'pipe', 'pipe'] as SpawnOptions['stdio']),
 	}
 	if (resolved.file !== undefined) {
 		const child = spawnFn(resolved.file, [...resolved.args], common)

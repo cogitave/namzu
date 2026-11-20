@@ -1,8 +1,8 @@
 import { rm } from 'node:fs/promises'
 import { z } from 'zod'
+import { findDangerousCommand } from '../../authorization/dangerous-commands.js'
 import { isReadOnlyCommandLine } from '../../authorization/readonly-commands.js'
 import { SANDBOX_KILL_GRACE_MS } from '../../constants/sandbox/index.js'
-import { DANGEROUS_PATTERNS, dangerousCommandReason } from '../../constants/tools/index.js'
 import { killTree } from '../../process/kill-tree.js'
 import { genericLabel } from '../../registry/tool/presentation.js'
 import { cancelCauseOf } from '../../types/session/cancel-cause.js'
@@ -98,9 +98,12 @@ function startsWithSleep(command: string): boolean {
  * moved to the background instead of being stopped. Exported so the test
  * states the same words.
  */
+export const COMMAND_HAS_NO_INPUT =
+	'Stdin is closed and there is no terminal, so a prompt for input or a password cannot be answered: use a non-interactive flag, put the answer in the command, or ask the person.'
+
 export function movedToBackgroundMessage(jobId: string, timeoutMs: number): string {
 	const seconds = Math.max(1, Math.round(timeoutMs / 1000))
-	return `Command did not complete within its ${seconds}s timeout and was moved to the background as job ${jobId}; it was not stopped. You will be told when it ends. Its output so far is above.`
+	return `Command did not complete within its ${seconds}s timeout and was moved to the background as job ${jobId}; it was not stopped. You will be told when it ends. Its output so far is above. ${COMMAND_HAS_NO_INPUT}`
 }
 
 /**
@@ -122,7 +125,7 @@ export function handedOffMessage(jobId: string, reason: 'user' | 'message' | 'in
 			: reason === 'message'
 				? 'so a message from the person could reach you'
 				: 'because the person interrupted the turn'
-	return `Command was moved to the background as job ${jobId} ${why}; it was not stopped. You will be told when it ends. Its output so far is above.`
+	return `Command was moved to the background as job ${jobId} ${why}; it was not stopped. You will be told when it ends. Its output so far is above. ${COMMAND_HAS_NO_INPUT}`
 }
 
 const inputSchema = z.object({
@@ -531,16 +534,20 @@ export function execHostShell(
 	})
 }
 
-export { dangerousCommandReason }
-
-/** A reason as a sentence a person reads under a row: first letter up. */
-function sentence(reason: string): string {
-	return reason ? `${reason.charAt(0).toUpperCase()}${reason.slice(1)}` : reason
+/**
+ * Why `command` is one this tool refuses to run, or `undefined`. Only the
+ * irreversible acts the gate refuses in every mode: a command the gate let
+ * through as a question (`sudo`, `ssh user@host`) was a person's call, and this
+ * check must not take it back.
+ */
+export function dangerousCommandReason(command: string): string | undefined {
+	const found = findDangerousCommand(command)
+	return found?.tier === 'stop' ? found.reason : undefined
 }
 
 /** The dangerous-pattern check `bash` applies, shared so the `monitor` tool refuses the same lines. */
 export function isDangerousCommand(command: string): boolean {
-	return DANGEROUS_PATTERNS.some((pattern) => pattern.test(command))
+	return dangerousCommandReason(command) !== undefined
 }
 
 /** The refusal when a sandbox cannot host a detached process; exported so the test states the same words. */
@@ -554,8 +561,7 @@ export const SANDBOX_CANNOT_DETACH =
 export const SANDBOX_ESCAPE_NOT_APPROVED =
 	'dangerously_disable_sandbox was not approved for this call, so the command did not run. Leaving the sandbox needs the user to confirm it each time, and this turn either cannot ask or does not allow it. Run the command inside the sandbox, or tell the user what it needs and let them run it.'
 
-const BASH_DESCRIPTION =
-	'Executes a command line using the execution shell disclosed in the system context and returns stdout/stderr output. The working directory persists between calls, but shell state does not. Command timeout is configurable. Read and search with `read`, `grep` and `glob`, not shell loops: a file read through the shell earns no read credit, so its next edit is refused once. Run a check on its own, not piped: its output is already trimmed, and a pipe hides the exit status. Output too long for the result and the output of a background job are saved to a file whose path you are given: do not redirect output into files of your own.'
+const BASH_DESCRIPTION = `Executes a command line using the execution shell disclosed in the system context and returns stdout/stderr output. The working directory persists between calls, but shell state does not. Command timeout is configurable. Read and search with \`read\`, \`grep\` and \`glob\`, not shell loops: a file read through the shell earns no read credit, so its next edit is refused once. Run a check on its own, not piped: its output is already trimmed, and a pipe hides the exit status. Output too long for the result and the output of a background job are saved to a file whose path you are given: do not redirect output into files of your own. ${COMMAND_HAS_NO_INPUT}`
 
 const BashToolBase = defineTool({
 	name: 'bash',
@@ -587,7 +593,7 @@ const BashToolBase = defineTool({
 	// `git diff`, ...) needs no prompt and may run beside other reads; see
 	// `authorization/readonly-commands.ts`. Anything else is not read-only.
 	readOnly: (input: BashInput) => bashInputIsReadOnly(input),
-	destructive: (input: BashInput) => isDangerousCommand(input.command),
+	destructive: (input: BashInput) => findDangerousCommand(input.command) !== undefined,
 	concurrencySafe: (input: BashInput) => bashInputIsReadOnly(input),
 	// Above the ceiling the input schema accepts, so the executor's deadline
 	// is a backstop rather than a second clock racing this tool's own. It used
@@ -609,16 +615,17 @@ const BashToolBase = defineTool({
 
 	async execute(input, context) {
 		const startDirectory = bashWorkingDirectoryForExecution(context)
-		if (isDangerousCommand(input.command)) {
+		const refused = dangerousCommandReason(input.command)
+		if (refused !== undefined) {
 			return {
 				success: false,
 				output: '',
-				error: `Dangerous command blocked: "${input.command}". Why: ${dangerousCommandReason(input.command)}. Nothing ran. Use a narrower command that avoids it, or ask the user to run this one.`,
+				error: `Dangerous command blocked: "${input.command}". Why: ${refused}. Nothing ran. Do not retry it or a reworded form; tell the user what you were trying to do and let them run it or decide.`,
 				facts: {
 					kind: 'failure',
 					reason: 'blocked',
 					subject: 'bash',
-					note: sentence(dangerousCommandReason(input.command)),
+					note: `This command ${refused.replace(/^it /, '')}.`,
 				},
 			}
 		}

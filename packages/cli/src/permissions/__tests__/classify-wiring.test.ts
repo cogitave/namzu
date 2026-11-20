@@ -213,7 +213,7 @@ describe('the classifier is asked through the real handler', () => {
 		const asked = vi.fn<PermissionFn>(async () => ({ kind: 'reject', feedback: 'no' }))
 
 		const { execute } = await turn({
-			command: 'rm -rf ~',
+			command: 'rm -rf ..',
 			mode: 'classify',
 			extras: { classifier },
 			onPermission: asked,

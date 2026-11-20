@@ -1,4 +1,5 @@
 import type { DesktopApi, DesktopSendOptions } from '../shared/protocol.js'
+import type { QuestionResponse } from '../shared/question-protocol.js'
 
 export interface WorkspacePaneApiOptions {
 	owns: (target: string) => boolean
@@ -44,6 +45,7 @@ export function createWorkspacePaneApi(
 		disablePalSubscription,
 		retryTurn,
 		continueWithoutReply,
+		stopHandoff,
 		reopenLastMessage,
 		undoStatus,
 		undoPreview,
@@ -393,6 +395,15 @@ export function createWorkspacePaneApi(
 			: {}),
 		respondPermission: (owner, request, response) =>
 			invoke(() => base.respondPermission(owner, request, response), [owner]),
+		...(base.answerQuestion
+			? {
+					answerQuestion: (owner: string, request: string, response: QuestionResponse) =>
+						invoke(
+							() => base.answerQuestion?.(owner, request, response) ?? Promise.resolve(),
+							[owner],
+						),
+				}
+			: {}),
 		...(base.revokeComputerApp
 			? {
 					revokeComputerApp: (owner: string, app: string) =>
@@ -565,6 +576,7 @@ export function createWorkspacePaneApi(
 						invoke(() => retryTurn(owner, turnId, checkpointId, settings), [owner]),
 				}
 			: {}),
+		...(stopHandoff ? { stopHandoff: (owner) => invoke(() => stopHandoff(owner), [owner]) } : {}),
 		...(continueWithoutReply
 			? {
 					continueWithoutReply: (owner) => invoke(() => continueWithoutReply(owner), [owner]),

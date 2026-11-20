@@ -9,6 +9,8 @@ import {
 	writeFileSync,
 } from 'node:fs'
 import { join, sep } from 'node:path'
+import type { Logger } from '@namzu/sdk'
+import { cliLogger } from '../../logging.js'
 import { sha256Hex } from './canon.js'
 import { type ConsentRecord, ConsentStore, coverage, osUserHash } from './consent.js'
 import {
@@ -37,7 +39,13 @@ import { AdminLock, LOCK_FILE } from './lock.js'
 import { uiFiles } from './manifest-r2.js'
 import { pickLocale, resolveLocale, satisfiesRange } from './manifest.js'
 import { type PackageFile, openPackage } from './package.js'
-import { acquireOwnedLock, pidAlive, startTokenOf } from './proc-start.js'
+import {
+	type StartTokens,
+	acquireOwnedLock,
+	createStartTokens,
+	pidAlive,
+	startTokenOf,
+} from './proc-start.js'
 import { checkActionAnswer, checkAnswer, queryAddress, requestOnce } from './query.js'
 import { type Scope, scopeHash, scopeOf, widerReasons, wordingDigest } from './scope.js'
 import { readRunnerState } from './signin/reconcile.js'
@@ -85,6 +93,10 @@ export interface HostOptions {
 	readonly notifyRunner?: () => Promise<void>
 	readonly compiledKeys?: readonly TrustedKey[]
 	readonly onState?: (event: StateEvent) => void
+	/** Where diagnostics go; defaults to the process's CLI logger. */
+	readonly log?: Logger
+	/** Reads and remembers the start time of other processes; tests give one with a fake probe. */
+	readonly startTokens?: StartTokens
 }
 
 export interface StateEvent {
@@ -195,12 +207,41 @@ export function localeFromEnv(env: NodeJS.ProcessEnv): string | undefined {
 
 const alive = pidAlive
 
+/**
+ * The uncached, blocking read. Only for judging a lock's owner at the moment it matters (lock takeover in
+ * `acquireOwnedLock`, `ownerLive`): there the answer must be right now, even if it costs a process spawn.
+ */
 export const startToken = startTokenOf
+
+const SLOW_CALL_MS = 250
 
 interface Loaded {
 	manifest: Manifest
 	verified: VerifiedPackage
 	version: string
+}
+
+/** What Desktop needs to draw an extension's pages (see `ExtensionHost.uiInfo`). */
+export interface UiInfo {
+	version: string
+	dir: string
+	accent: string
+	icon: string
+	pages: {
+		id: string
+		title: string
+		slot: string
+		entry: string
+		minHeight?: number
+		usesNetwork: boolean
+		bridge: { allow: string[]; host: string[] }
+		hosts: string[]
+	}[]
+	chips: UiView['chips']
+	files: { path: string; sha256: string }[]
+	/** Every method a page may be allowed, with the size its answer may have. */
+	methods: { method: string; maxBytes: number }[]
+	actions: { id: string; needsGesture: boolean }[]
 }
 
 export class ExtensionHost {
@@ -217,6 +258,9 @@ export class ExtensionHost {
 	private timer: ReturnType<typeof setInterval> | undefined
 	private userHashCache: string | undefined
 	private readonly adminLock: AdminLock
+	private readonly tokens: StartTokens
+	/** Extensions whose view was drawn without a process's start time because it was not known yet. */
+	private readonly awaitingToken = new Set<string>()
 
 	constructor(private readonly o: HostOptions) {
 		this.env = o.env ?? process.env
@@ -226,6 +270,31 @@ export class ExtensionHost {
 		this.store = new ExtensionStore(o.home, this.now)
 		this.consent = new ConsentStore(this.store)
 		this.adminLock = new AdminLock(this.store, this.now)
+		this.tokens =
+			o.startTokens ??
+			createStartTokens({
+				onResolved: () => {
+					const ids = [...this.awaitingToken]
+					this.awaitingToken.clear()
+					for (const id of ids) this.emit(id)
+				},
+			})
+	}
+
+	private get logger(): Logger {
+		return this.o.log ?? cliLogger()
+	}
+
+	private logCall(what: string, id: string, t0: number, outcome: 'ok' | 'failed'): void {
+		const ms = this.now() - t0
+		const attrs = {
+			'namzu.extension.id': id,
+			'namzu.extension.call': what,
+			'namzu.extension.outcome': outcome,
+			'namzu.extension.duration_ms': ms,
+		}
+		if (ms >= SLOW_CALL_MS) this.logger.warn('Extension call was slow', attrs)
+		else this.logger.debug('Extension call', attrs)
 	}
 
 	/** Refuse unless the lock is off or the password is right; a wrong or missing one is audited. */
@@ -735,13 +804,11 @@ export class ExtensionHost {
 		let hostedBy: BackgroundView['hostedBy'] = 'none'
 		if (this.supervisors.has(id)) hostedBy = this.o.kind === 'daemon' ? 'runner' : 'app'
 		// A runner that has stopped the extension leaves its file behind: that is not "run by" anyone.
-		else if (
-			lock &&
-			lock.snapshot?.state !== 'stopped' &&
-			alive(lock.hostPid) &&
-			lock.token === startToken(lock.hostPid)
-		)
-			hostedBy = lock.kind === 'daemon' ? 'runner' : 'app'
+		else if (lock && lock.snapshot?.state !== 'stopped' && alive(lock.hostPid)) {
+			const tok = this.tokens.peek(lock.hostPid)
+			if (tok === undefined) this.awaitingToken.add(id)
+			else if (lock.token === tok) hostedBy = lock.kind === 'daemon' ? 'runner' : 'app'
+		}
 		const signin = readRunnerState(this.store.root)?.signin
 		return {
 			indicator: b.indicator.kind,
@@ -866,7 +933,13 @@ export class ExtensionHost {
 		return this.store.readAudit(id, Math.min(Math.max(limit, 1), 500))
 	}
 
-	private snapshotOf(id: string): Snapshot | undefined {
+	/**
+	 * What the process hosting `id` last reported. Never blocks on a process spawn: a foreign host's start
+	 * time is read once and kept, and while it is not known yet the answer is `undefined` (the view reads
+	 * as not running) and the view is refreshed with an event when the answer arrives. `cheap` trusts the
+	 * pid check alone (the page open path, which only needs the reported state).
+	 */
+	private snapshotOf(id: string, cheap = false): Snapshot | undefined {
 		const sup = this.supervisors.get(id)
 		if (sup) return sup.snapshot()
 		const f = this.store.readJson<{
@@ -874,9 +947,14 @@ export class ExtensionHost {
 			token: string
 			snapshot: Snapshot
 		}>(id, 'run/state.json')
-		if (f && alive(f.hostPid) && f.token === startToken(f.hostPid) && f.hostPid !== process.pid)
-			return f.snapshot
-		return undefined
+		if (!f || !alive(f.hostPid) || f.hostPid === process.pid) return undefined
+		if (cheap) return f.snapshot
+		const tok = this.tokens.peek(f.hostPid)
+		if (tok === undefined) {
+			this.awaitingToken.add(id)
+			return undefined
+		}
+		return f.token === tok ? f.snapshot : undefined
 	}
 
 	// --- notice, consent -----------------------------------------------------------------------
@@ -1516,6 +1594,18 @@ export class ExtensionHost {
 	// --- queries -------------------------------------------------------------------------------
 
 	async query(id: string, queryId: string, params: unknown = {}): Promise<unknown> {
+		const t0 = this.now()
+		try {
+			const r = await this.runQuery(id, queryId, params)
+			this.logCall('query', id, t0, 'ok')
+			return r
+		} catch (e) {
+			this.logCall('query', id, t0, 'failed')
+			throw e
+		}
+	}
+
+	private async runQuery(id: string, queryId: string, params: unknown): Promise<unknown> {
 		const { manifest: m, verified } = this.active(id)
 		const q = m.contributes.endpoint.queries.find((x) => x.id === queryId)
 		if (!q) {
@@ -1630,27 +1720,19 @@ export class ExtensionHost {
 	 * may load (every file under `ui/` and what the manifest names for icons, each with the hash it was
 	 * signed with) and the folder they are in. Read from a version verified just now.
 	 */
-	uiInfo(id: string): {
-		version: string
-		dir: string
-		accent: string
-		icon: string
-		pages: {
-			id: string
-			title: string
-			slot: string
-			entry: string
-			minHeight?: number
-			usesNetwork: boolean
-			bridge: { allow: string[]; host: string[] }
-			hosts: string[]
-		}[]
-		chips: UiView['chips']
-		files: { path: string; sha256: string }[]
-		/** Every method a page may be allowed, with the size its answer may have. */
-		methods: { method: string; maxBytes: number }[]
-		actions: { id: string; needsGesture: boolean }[]
-	} | null {
+	uiInfo(id: string): UiInfo | null {
+		const t0 = this.now()
+		try {
+			const r = this.buildUiInfo(id)
+			this.logCall('ui', id, t0, 'ok')
+			return r
+		} catch (e) {
+			this.logCall('ui', id, t0, 'failed')
+			throw e
+		}
+	}
+
+	private buildUiInfo(id: string): UiInfo | null {
 		const { manifest: m, verified } = this.active(id, true)
 		if (!m.ui) return null
 		const named = new Set(uiFiles(m))
@@ -1662,7 +1744,7 @@ export class ExtensionHost {
 			m.network.mode === 'declared'
 				? m.network.hosts.filter((h) => h.for.includes('ui')).map((h) => h.host)
 				: []
-		const view = this.uiView(m, this.snapshotOf(id))
+		const view = this.uiView(m, this.snapshotOf(id, true))
 		return {
 			version: m.version,
 			dir: this.store.versionDir(id, m.version),
@@ -1706,7 +1788,7 @@ export class ExtensionHost {
 		mkdirSync(this.store.runDir(id), { recursive: true, mode: 0o700 })
 		return acquireOwnedLock(this.lockPath(id), {
 			pid: process.pid,
-			token: startToken(process.pid),
+			token: this.tokens.strict(process.pid),
 			kind: this.o.kind,
 			since: Date.now(),
 		})
@@ -1787,7 +1869,7 @@ export class ExtensionHost {
 				join(this.store.runDir(id), 'state.json'),
 				JSON.stringify({
 					hostPid: process.pid,
-					token: startToken(process.pid),
+					token: this.tokens.strict(process.pid),
 					addr,
 					kind: this.o.kind,
 					snapshot,
@@ -1852,6 +1934,11 @@ export class ExtensionHost {
 	}
 
 	/** Resolves once every stop begun by a tick has finished and its lock is free. */
+	/** Resolves once the start-time probes that a read began have answered (a one-shot command waits, then reads again). */
+	async settleProbes(): Promise<void> {
+		await this.tokens.settled()
+	}
+
 	async settled(): Promise<void> {
 		await Promise.all([...this.stopping])
 	}

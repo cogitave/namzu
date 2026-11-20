@@ -63,3 +63,23 @@ describe('BrowserControl.runAs', () => {
 		await expect(control.runAs({ profile: 'Not Valid', sites: {} })).rejects.toThrow(/profile name/)
 	})
 })
+
+describe('askPersonToSignIn', () => {
+	it('reaches the host as a function the session settles later, kept across a profile switch', async () => {
+		built.length = 0
+		let mounted = false
+		const control = createBrowserControl(FakeHost as never, {
+			askPersonToSignIn: () => mounted,
+		})
+		const read = (): boolean => {
+			const option = built.at(-1)?.askPersonToSignIn
+			return typeof option === 'function' ? option() : option === true
+		}
+		expect(read()).toBe(false)
+		mounted = true
+		expect(read()).toBe(true)
+		await control.runAs({ profile: 'other', sites: { '*': 'ask' } })
+		mounted = false
+		expect(read()).toBe(false)
+	})
+})

@@ -908,6 +908,19 @@ export class IterationOrchestrator {
 					// Render request-only contributions once before preparation. Their
 					// estimated cost reduces every stage's headroom, and the same text
 					// reaches the provider even if a stage changes external state.
+					// A live toolset may have gained or lost tools since the catalogue was
+					// written at the start of the run (an MCP server that connected late).
+					// Say so in the conversation, once, instead of leaving them invisible.
+					const toolChange = this.ctx.tools.refresh?.()
+					if (toolChange) {
+						const change = this.ctx.tools.describeChange(toolChange)
+						if (change)
+							appendRecordedContext(
+								recorder,
+								[{ key: 'tools-changed', text: change }],
+								this.ctx.log,
+							)
+					}
 					const contextSections =
 						this.ctx.promptContributions?.render('context', { iteration: iterationNum }) ?? []
 					const deferredMcpHints =

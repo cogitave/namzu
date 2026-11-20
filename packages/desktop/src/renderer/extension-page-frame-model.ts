@@ -76,3 +76,6 @@ export function boundsOf(
 
 export const sameBounds = (a: PageBounds | undefined, b: PageBounds): boolean =>
 	a !== undefined && a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
+
+/** A frame is never reused for another page: its "opening" state belongs to one extension page. */
+export const pageFrameKey = (rowId: string, pageId: string): string => `${rowId}\u0000${pageId}`

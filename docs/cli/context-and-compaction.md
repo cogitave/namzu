@@ -26,6 +26,8 @@ installing or saving the summary. This includes user-provided details omitted
 from the summary. They remain searchable through `search_conversation` and
 readable through `read_conversation`, including after restart.
 
+Tools the model had loaded with `search_tools` stay loaded across any compaction, automatic or manual: the summary records them and ends with a line naming them (`Tools you loaded earlier with search_tools are still loaded: ...`), so the model calls them directly instead of searching again. See [tool discovery](../sdk/tool-discovery.md).
+
 A manual compaction runs between turns, never inside one: the host calls
 `compactSession`, which appends to the conversation's session log a
 `compaction` record with `trigger: 'manual'` and no turn id, beside one

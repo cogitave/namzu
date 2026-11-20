@@ -1324,7 +1324,11 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 		// would be a `ToolsetConflictError` naming both sources for a name
 		// query() itself introduced, not the caller's honest collision.
 		const callerHasDeferredToolset = params.toolsets.some(
-			(ts) => (ts.availability ?? 'active') === 'deferred' && ts.tools().length > 0,
+			// A live toolset that has no tools yet still counts: the ones it gains
+			// later (a server that connects after the turn began) arrive deferred.
+			(ts) =>
+				(ts.availability ?? 'active') === 'deferred' &&
+				(ts.tools().length > 0 || ts.onChange !== undefined),
 		)
 		const callerSearchToolset = params.toolsets.find((ts) =>
 			ts.tools().some((tool) => tool.name === SearchToolsTool.name),

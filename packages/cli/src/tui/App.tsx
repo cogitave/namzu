@@ -56,7 +56,16 @@ import {
 	turnContextEntries,
 	wakeBudgetFromEnv,
 } from '@namzu/sdk'
-import { Box, Text, useApp, useInput, useStdout, useWindowSize } from 'ink'
+import {
+	Box,
+	type DOMElement,
+	Text,
+	measureElement,
+	useApp,
+	useInput,
+	useStdout,
+	useWindowSize,
+} from 'ink'
 import {
 	useCallback,
 	useEffect,
@@ -390,6 +399,7 @@ import {
 	railWorkflows,
 	runRailWorkflow,
 	settledWorkflows,
+	workflowDetailHeight,
 } from './AgentExplorer.js'
 import { BackgroundAgentRows } from './BackgroundAgentRows.js'
 import { BrandHeader } from './BrandHeader.js'
@@ -2552,6 +2562,10 @@ function AppBody({
 	}, [])
 	const [composerDraft, setComposerDraft] = useState<ComposerDraft | null>(null)
 	const [composerHasDraft, setComposerHasDraft] = useState(false)
+	// The rows the message box takes now (its margin, rules, update row and draft lines), measured
+	// after each frame, so the workflow detail above it leaves them room on a short terminal.
+	const composerBoxRef = useRef<DOMElement>(null)
+	const [composerBoxRows, setComposerBoxRows] = useState(4)
 	// The composer is in shell mode (a leading `!`): the frame turns green.
 	const [composerShell, setComposerShell] = useState(false)
 	// A history search in the box owns Ctrl+C: it backs out of the search only.
@@ -2926,7 +2940,8 @@ function AppBody({
 	 * Empty-composer ↓: move into the agents rail when it has rows, otherwise
 	 * open the cockpit for the saved children it can still show.
 	 */
-	const focusAgentRail = useCallback(() => {
+	/** Moves the keyboard into the task rows under the status line; false when there is nothing to enter. */
+	const enterAgentRail = useCallback((): boolean => {
 		const first =
 			// Viewing an agent, ↓ lands on its own row: one more ↑ reaches `main`.
 			viewingAgentRef.current ??
@@ -2941,12 +2956,16 @@ function AppBody({
 				railJustFocusedRef.current = false
 			}, 0)
 			setRailFocus(first)
-			return
+			return true
 		}
+		return false
+	}, [setRailFocus])
+	const focusAgentRail = useCallback(() => {
+		if (enterAgentRail()) return
 		// A typed draft only ever goes into rows; the cockpit is for an empty box.
 		if (composerHasDraftRef.current) return
 		void openAgentCockpit()
-	}, [openAgentCockpit, setRailFocus])
+	}, [openAgentCockpit, enterAgentRail])
 	/** The Background dialog `/tasks` opens; the footer's pill reaches the same one. */
 	const openBackgroundTasks = useCallback(() => {
 		if (!session) return
@@ -2961,6 +2980,38 @@ function AppBody({
 			tailOffset: 0,
 		})
 	}, [session, setJobSurface])
+	/**
+	 * What Enter on a rail row, or a click on it, does: `main` is the way back to the conversation,
+	 * the shell pill opens the background tasks, a workflow opens its detail and an agent its
+	 * transcript. The keyboard goes back to the box.
+	 */
+	const activateRailRow = useCallback(
+		(target: string) => {
+			setRailFocus(null)
+			const flow = railWorkflowsRef.current.find((item) => item.focusId === target)
+			const agent = railRowsRef.current.find((item) => item.viewId === target)
+			if (target === 'main') {
+				// `main` is the way back from a viewed agent to the conversation, and from the
+				// conversation itself the overview of its agents.
+				if (viewingAgentRef.current !== null) setAgentSurface(null)
+				else void openAgentCockpit()
+			} else if (target === SHELLS_FOCUS) {
+				openBackgroundTasks()
+			} else if (flow) {
+				openWorkflowFromRail(flow.id, flow.focusId)
+			} else if (agent) {
+				setAgentSurface({
+					kind: 'transcript',
+					selectedPhaseId: agent.phaseId,
+					selectedId: agent.viewId,
+					returnFocus: 'agents',
+					tailOffset: 0,
+					fromRail: true,
+				})
+			}
+		},
+		[setRailFocus, setAgentSurface, openBackgroundTasks, openWorkflowFromRail, openAgentCockpit],
+	)
 	/** One git-backed review choice may be resolving while its visible picker remains authoritative. */
 	const reviewChoiceInFlightRef = useRef<object | null>(null)
 	const exitArmedRef = useRef<'Ctrl-C' | 'Ctrl-D' | null>(null)
@@ -7313,6 +7364,12 @@ function AppBody({
 	// project-defined command first becomes reachable.
 	const statusLineStartedAt = useRef(Date.now())
 	const extensionMarks = useExtensionIndicators()
+	useEffect(() => {
+		const node = composerBoxRef.current
+		if (!node) return
+		const { height } = measureElement(node)
+		if (height > 0 && height !== composerBoxRows) setComposerBoxRows(height)
+	})
 	const statusLineText = useStatusLine({
 		config: ctx.statusLine,
 		enabled: stdout.isTTY === true && phase !== 'trust',
@@ -16803,6 +16860,15 @@ function AppBody({
 					// Background agents only; workflows are stopped one at a time with `x`.
 					requestStopAllAgents()
 					return
+				} else if ((key.leftArrow || key.rightArrow) && !key.ctrl && !key.meta && !key.shift) {
+					// The footer's items are the tasks (the shell pill, `main` and the agents) and the
+					// workflows: → goes to the first workflow, ← back to the first task. Neither leaves
+					// the rows; Esc does.
+					const inWorkflows = flows.some((flow) => flow.focusId === railTarget)
+					if (key.rightArrow && !inWorkflows && flows[0]) setRailFocus(flows[0].focusId)
+					else if (key.leftArrow && inWorkflows && ids.length > flows.length)
+						setRailFocus(ids[0] ?? null)
+					return
 				} else if (railStep(input, key) !== undefined) {
 					const step = railStep(input, key)
 					if (step === -1 && at === 0) {
@@ -16821,24 +16887,7 @@ function AppBody({
 					setRailFocus(ids[Math.max(0, Math.min(ids.length - 1, index))] ?? ids[0] ?? null)
 					return
 				} else if (key.return) {
-					setRailFocus(null)
-					if (railTarget === 'main') {
-						// `main` is the way back from a viewed agent to the conversation.
-						if (viewingAgentRef.current !== null) setAgentSurface(null)
-					} else if (railTarget === SHELLS_FOCUS) {
-						openBackgroundTasks()
-					} else if (selectedWorkflow) {
-						openWorkflowFromRail(selectedWorkflow.id, selectedWorkflow.focusId)
-					} else if (selected) {
-						setAgentSurface({
-							kind: 'transcript',
-							selectedPhaseId: selected.phaseId,
-							selectedId: selected.viewId,
-							returnFocus: 'agents',
-							tailOffset: 0,
-							fromRail: true,
-						})
-					}
+					activateRailRow(railTarget)
 					return
 				} else if (input === 'x' && !key.ctrl && !key.meta) {
 					if (selectedWorkflow) {
@@ -16962,7 +17011,7 @@ function AppBody({
 						)
 						return
 					}
-					// Left walks one level up, as Esc does.
+					// Left walks one level up, as Esc does, and closes the view at the top.
 					if (key.leftArrow) {
 						if (agentView.focus === 'agents' && hasPhaseLevel) {
 							setAgentSurface({ ...agentView, focus: 'phases' })
@@ -16972,7 +17021,11 @@ function AppBody({
 								setRailFocus(agentView.railReturn)
 							} else if (workflows.length > 1) {
 								setAgentSurface({ ...agentView, focus: 'workflows' })
+							} else {
+								setAgentSurface(null)
 							}
+						} else {
+							setAgentSurface(null)
 						}
 						return
 					}
@@ -17019,7 +17072,23 @@ function AppBody({
 						})
 						return
 					}
-					if (key.home || key.end || key.pageUp || key.pageDown || key.upArrow || key.downArrow) {
+					// `j` and `k` move as Down and Up do; Space closes the view.
+					const plainJ = input === 'j' && !key.ctrl && !key.meta
+					const plainK = input === 'k' && !key.ctrl && !key.meta
+					if (input === ' ' && !key.ctrl && !key.meta) {
+						setAgentSurface(null)
+						return
+					}
+					if (
+						key.home ||
+						key.end ||
+						key.pageUp ||
+						key.pageDown ||
+						key.upArrow ||
+						key.downArrow ||
+						plainJ ||
+						plainK
+					) {
 						const movement = key.home
 							? 'first'
 							: key.end
@@ -17028,7 +17097,7 @@ function AppBody({
 									? 'previous-page'
 									: key.pageDown
 										? 'next-page'
-										: key.upArrow
+										: key.upArrow || plainK
 											? 'previous'
 											: 'next'
 						if (agentView.focus === 'workflows') {
@@ -17711,6 +17780,25 @@ function AppBody({
 		phase !== 'picker'
 	const childSurfaceOpen =
 		(agentSurface !== null && viewingAgent === undefined) || transcriptScreen || jobSurface !== null
+	const replyRunningNow =
+		(!compacting &&
+			(state === 'thinking' || state === 'tool' || pendingModelSwitchRef.current !== null)) ||
+		(handoffPark !== null && state === 'idle')
+	// The workflow detail is drawn above the message box, which stays on screen (waiting) under it.
+	const workflowDetailOpen =
+		showComposerSurface &&
+		permission === null &&
+		scheduleReviewPrompt === null &&
+		agentSurface?.kind === 'cockpit' &&
+		!transcriptScreen &&
+		jobSurface === null
+	// Under the detail: the box as measured, the status line, the extension row and rows of the
+	// conversation, so nothing below it is pushed past the bottom of the screen.
+	const detailRows = workflowDetailHeight(
+		terminal.rows,
+		fullscreen !== undefined,
+		composerBoxRows + 1 + (extensionMarks.length > 0 ? 1 : 0) + 4,
+	)
 	const viewRailRows =
 		liveSubagents.length > 0 || liveWorkflows.length > 0
 			? 1 +
@@ -17729,6 +17817,11 @@ function AppBody({
 		!composerHasDraft &&
 		permission === null &&
 		railFocus === null
+	const leftOffersAgents =
+		footerKeysLive &&
+		!onOpenWorkspaces &&
+		replyRunningNow &&
+		ctx.tui?.leftArrowOpensAgents !== false
 	const runningAgentCount = liveSubagents.filter((agent) => railActionFor(agent) === 'stop').length
 	// `/workflows`: `x to stop` is offered only on a run that is still going.
 	const workflowPickerCanStop = (() => {
@@ -18196,78 +18289,55 @@ function AppBody({
 									notice={viewNotice}
 								/>
 							) : null}
-							<ComposerFrame
-								above={
-									<UpdateNoticeRow
-										notice={updateNotice}
-										columns={Math.max(2, (terminal.columns ?? 80) - SCREEN_MARGIN)}
-										critical={noticeIsCritical}
+							{workflowDetailOpen && agentSurface?.kind === 'cockpit' ? (
+								// Above the message box, never in place of it: the conversation stays readable
+								// above, and the box and the status line stay under it.
+								<Box height={detailRows} flexShrink={0} flexDirection="column" overflowY="hidden">
+									<AgentCockpit
+										agents={subagents}
+										runs={workflowRuns}
+										selectedPhaseId={agentSurface.selectedPhaseId}
+										selectedId={agentSurface.selectedId}
+										focus={agentSurface.focus}
+										terminalRows={terminal.rows}
+										terminalColumns={terminal.columns}
+										height={detailRows}
 									/>
-								}
-								columns={Math.max(2, (terminal.columns ?? 80) - SCREEN_MARGIN)}
-								working={state === 'thinking' || state === 'tool' || visibleActiveTools.length > 0}
-								{...(hypermode ? { mode: HYPERMODE } : {})}
-								shell={composerShell}
-								activation={hypermodeActivation}
-								animate={externalEditorRequest === null}
-								focus={
-									phase === 'ready' &&
-									state !== 'awaiting-permission' &&
-									!compacting &&
-									externalEditorRequest === null &&
-									conversationMutation === null &&
-									textPrompt === null &&
-									choicePicker === null &&
-									copyPicker === null &&
-									saveSkillPrompt === null &&
-									planPrompt === null &&
-									questionDialog === null &&
-									scheduleReviewPrompt === null &&
-									!scrollOpen &&
-									!childSurfaceOpen
-								}
-								hidden={
-									permission !== null ||
-									saveSkillPrompt !== null ||
-									planPrompt !== null ||
-									questionDialog !== null ||
-									scheduleReviewPrompt !== null ||
-									textPrompt !== null ||
-									choicePicker !== null ||
-									copyPicker !== null ||
-									childSurfaceOpen
-								}
-							>
-								<Composer
-									attachmentFloor={attachmentFloor}
-									{...(viewingAgent
-										? {
-												placeholder: `Message @${[...viewingAgent.agentId].slice(0, 20).join('')}…`,
-											}
-										: examplePrompts &&
-												history.length === 0 &&
-												!messages.some((message) => message.role === 'user')
-											? {
-													placeholder: examplePlaceholder(exampleFile, exampleSeedRef.current),
-												}
-											: promptSuggestion !== undefined
-												? { promptSuggestion }
-												: {})}
-									mayReadImage={imageReadPolicy}
-									reasoningEffortLevels={session?.reasoningEffortLevels}
-									onCycleMode={cyclePermissionMode}
-									disabled={
-										transcriptScreen ||
-										fullscreenSearching ||
-										scrollOpen ||
-										jobSurface !== null ||
-										phase !== 'ready' ||
-										state === 'awaiting-permission' ||
-										compacting ||
-										conversationMutation !== null ||
-										externalEditorRequest !== null ||
-										railFocus !== null ||
-										childSurfaceOpen
+								</Box>
+							) : null}
+							<Box ref={composerBoxRef} flexDirection="column" flexShrink={0}>
+								<ComposerFrame
+									above={
+										<UpdateNoticeRow
+											notice={updateNotice}
+											columns={Math.max(2, (terminal.columns ?? 80) - SCREEN_MARGIN)}
+											critical={noticeIsCritical}
+										/>
+									}
+									columns={Math.max(2, (terminal.columns ?? 80) - SCREEN_MARGIN)}
+									working={
+										state === 'thinking' || state === 'tool' || visibleActiveTools.length > 0
+									}
+									{...(hypermode ? { mode: HYPERMODE } : {})}
+									{...(fullscreen?.regions ? { onModeClick: footerClicks.effort } : {})}
+									shell={composerShell}
+									activation={hypermodeActivation}
+									animate={externalEditorRequest === null}
+									focus={
+										phase === 'ready' &&
+										state !== 'awaiting-permission' &&
+										!compacting &&
+										externalEditorRequest === null &&
+										conversationMutation === null &&
+										textPrompt === null &&
+										choicePicker === null &&
+										copyPicker === null &&
+										saveSkillPrompt === null &&
+										planPrompt === null &&
+										questionDialog === null &&
+										scheduleReviewPrompt === null &&
+										!scrollOpen &&
+										!childSurfaceOpen
 									}
 									hidden={
 										permission !== null ||
@@ -18278,73 +18348,136 @@ function AppBody({
 										textPrompt !== null ||
 										choicePicker !== null ||
 										copyPicker !== null ||
-										childSurfaceOpen
+										(childSurfaceOpen && !workflowDetailOpen)
 									}
-									// A turn is running, so Esc is the interrupt and not
-									// the composer's clear.
-									escapeInterrupts={
-										(!compacting &&
-											(state === 'thinking' ||
-												state === 'tool' ||
-												pendingModelSwitchRef.current !== null)) ||
-										(handoffPark !== null && state === 'idle')
-									}
-									onSubmit={handleSubmit}
-									onNotice={(text) => pushMessage('system', text)}
-									onFooterNotice={notices.add}
-									onFooterNoticeRemove={notices.remove}
-									onClearedDraft={(text) => setHistory((prev) => [...prev, text])}
-									onStepReasoningEffort={stepReasoningEffort}
-									onExternalEdit={requestExternalEditor}
-									onToggleThinking={toggleThinking}
-									onEditPrevious={openPromptEditor}
-									draftToRestore={composerDraft}
-									onDraftRestored={(token) =>
-										setComposerDraft((draft) => (draft?.token === token ? null : draft))
-									}
-									onDraftPresenceChange={setComposerHasDraft}
-									onShellModeChange={setComposerShell}
-									onHistorySearchChange={setComposerSearching}
-									onOpenAgentPanel={focusAgentRail}
-									onOpenAgents={() => void openAgentCockpit()}
-									onOpenWorkspaces={
-										onOpenWorkspaces
-											? () =>
-													void onOpenWorkspaces().then((opened) => {
-														if (!opened) void openAgentCockpit()
-													})
-											: undefined
-									}
-									onScrollTranscript={() =>
-										fullscreenControl.current
-											? fullscreenControl.current.scroll('page-up')
-											: setScrollOpen(true)
-									}
-									onRecallQueued={recallQueuedPrompt}
-									queuedHintCount={queuedHintCount}
-									queuedEdit={{
-										available: queued.some(isRecallableHumanPrompt),
-										selected: queueSelection !== null,
-										onMove: moveQueueSelection,
-										onLoad: loadSelectedQueued,
-										onLeave: () => setQueueSelection(null),
-									}}
-									onSendNow={sendPendingNow}
-									onBackgroundCommand={backgroundRunningCommand}
-									onStopAllAgents={requestStopAllAgents}
-									railFocused={railFocus !== null}
-									userCommands={userCommands}
-									builtins={hostCommands.map((command) => ({
-										...command,
-										description: command.unavailable?.(slashCtx) ?? command.description,
-									}))}
-									mentionCandidates={mentionCandidates}
-									mentionExtras={mentionSources.extras}
-									history={history}
-									{...(composerTriggers ? { triggers: composerTriggers } : {})}
-									turnActive={!compacting && (state === 'thinking' || state === 'tool')}
-								/>
-							</ComposerFrame>
+								>
+									<Composer
+										attachmentFloor={attachmentFloor}
+										{...(viewingAgent
+											? {
+													placeholder: `Message @${[...viewingAgent.agentId].slice(0, 20).join('')}…`,
+												}
+											: examplePrompts &&
+													history.length === 0 &&
+													!messages.some((message) => message.role === 'user')
+												? {
+														placeholder: examplePlaceholder(exampleFile, exampleSeedRef.current),
+													}
+												: promptSuggestion !== undefined
+													? { promptSuggestion }
+													: {})}
+										mayReadImage={imageReadPolicy}
+										reasoningEffortLevels={session?.reasoningEffortLevels}
+										onCycleMode={cyclePermissionMode}
+										disabled={
+											transcriptScreen ||
+											fullscreenSearching ||
+											scrollOpen ||
+											jobSurface !== null ||
+											phase !== 'ready' ||
+											state === 'awaiting-permission' ||
+											compacting ||
+											conversationMutation !== null ||
+											externalEditorRequest !== null ||
+											railFocus !== null ||
+											childSurfaceOpen
+										}
+										hidden={
+											permission !== null ||
+											saveSkillPrompt !== null ||
+											planPrompt !== null ||
+											questionDialog !== null ||
+											scheduleReviewPrompt !== null ||
+											textPrompt !== null ||
+											choicePicker !== null ||
+											copyPicker !== null ||
+											(childSurfaceOpen && !workflowDetailOpen)
+										}
+										// A turn is running, so Esc is the interrupt and not
+										// the composer's clear.
+										escapeInterrupts={
+											(!compacting &&
+												(state === 'thinking' ||
+													state === 'tool' ||
+													pendingModelSwitchRef.current !== null)) ||
+											(handoffPark !== null && state === 'idle')
+										}
+										onSubmit={handleSubmit}
+										onNotice={(text) => pushMessage('system', text)}
+										onFooterNotice={notices.add}
+										onFooterNoticeRemove={notices.remove}
+										onClearedDraft={(text) => setHistory((prev) => [...prev, text])}
+										onStepReasoningEffort={stepReasoningEffort}
+										onExternalEdit={requestExternalEditor}
+										onToggleThinking={toggleThinking}
+										onEditPrevious={openPromptEditor}
+										draftToRestore={composerDraft}
+										onDraftRestored={(token) =>
+											setComposerDraft((draft) => (draft?.token === token ? null : draft))
+										}
+										onDraftPresenceChange={setComposerHasDraft}
+										onShellModeChange={setComposerShell}
+										onHistorySearchChange={setComposerSearching}
+										onOpenAgentPanel={focusAgentRail}
+										// `←` never opens the workflow view: the agents are the task rows.
+										onOpenAgents={() => {
+											if (!enterAgentRail()) {
+												notices.add({
+													key: 'agents-none',
+													text: 'No agents or background tasks to open',
+													priority: 'immediate',
+													timeoutMs: 2000,
+												})
+											}
+										}}
+										replyRunning={replyRunningNow}
+										leftArrowOpensAgents={ctx.tui?.leftArrowOpensAgents !== false}
+										onOpenWorkspaces={
+											onOpenWorkspaces
+												? () =>
+														void onOpenWorkspaces().then((opened) => {
+															if (!opened) {
+																notices.add({
+																	key: 'workspaces-unavailable',
+																	text: 'Workspaces cannot open in this terminal',
+																	priority: 'immediate',
+																	timeoutMs: 3000,
+																})
+															}
+														})
+												: undefined
+										}
+										onScrollTranscript={() =>
+											fullscreenControl.current
+												? fullscreenControl.current.scroll('page-up')
+												: setScrollOpen(true)
+										}
+										onRecallQueued={recallQueuedPrompt}
+										queuedHintCount={queuedHintCount}
+										queuedEdit={{
+											available: queued.some(isRecallableHumanPrompt),
+											selected: queueSelection !== null,
+											onMove: moveQueueSelection,
+											onLoad: loadSelectedQueued,
+											onLeave: () => setQueueSelection(null),
+										}}
+										onSendNow={sendPendingNow}
+										onBackgroundCommand={backgroundRunningCommand}
+										onStopAllAgents={requestStopAllAgents}
+										railFocused={railFocus !== null}
+										userCommands={userCommands}
+										builtins={hostCommands.map((command) => ({
+											...command,
+											description: command.unavailable?.(slashCtx) ?? command.description,
+										}))}
+										mentionCandidates={mentionCandidates}
+										mentionExtras={mentionSources.extras}
+										history={history}
+										{...(composerTriggers ? { triggers: composerTriggers } : {})}
+										turnActive={!compacting && (state === 'thinking' || state === 'tool')}
+									/>
+								</ComposerFrame>
+							</Box>
 						</>
 					)}
 					{/* Directly below the message frame's bottom border (or, when that
@@ -18367,10 +18500,8 @@ function AppBody({
 					{phase === 'trust' ? null : <ExtensionIndicatorRow marks={extensionMarks} />}
 					{/* The detailed transcript carries its own key line; the mode footer above
 				    its box was a stale row from the composer it replaced. */}
-					{/* The workflow detail (the cockpit) carries its own key line as well. */}
 					{phase === 'trust' ||
 					transcriptScreen ||
-					agentSurface?.kind === 'cockpit' ||
 					(dialogShowing && !exitHint && !noticeIsImmediate) ? null : (
 						<StatusBar
 							provider={session?.providerSummary ?? null}
@@ -18382,7 +18513,6 @@ function AppBody({
 								session?.account?.label,
 							)}
 							effort={reasoningEffort}
-							hypermode={hypermode}
 							fast={fastMode}
 							goal={statusGoal}
 							state={state}
@@ -18407,9 +18537,10 @@ function AppBody({
 							monitorCount={showComposerSurface && !childSurfaceOpen ? runningMonitorCount : 0}
 							pr={prStatus}
 							hyperlinks={hyperlinks}
-							// With a workspaces screen to open, `←` no longer opens the agents; `↓` still does.
-							agentCount={footerKeysLive && !onOpenWorkspaces ? runningAgentCount : 0}
-							workflowCount={footerKeysLive && !onOpenWorkspaces ? runningWorkflowCount : 0}
+							// `←` is offered only where it does something: no workspaces screen to open, and a reply
+							// running (its second press moves into the rows). `↓` always does.
+							agentCount={leftOffersAgents ? runningAgentCount : 0}
+							workflowCount={leftOffersAgents ? runningWorkflowCount : 0}
 							canManage={
 								footerKeysLive && railFocus === null && (runningShellCount > 0 || railHasRows)
 							}
@@ -18452,6 +18583,9 @@ function AppBody({
 							terminalColumns={terminal.columns}
 							compact={permission !== null}
 							viewingId={viewingAgent?.viewId ?? null}
+							// While a permission dialog owns the keys the rows are drawn compact and are not
+							// click targets: a click must not queue a view that opens once the dialog resolves.
+							{...(permission === null ? { onActivateRow: activateRailRow } : {})}
 							{...(railFocus !== null && railFocus !== SHELLS_FOCUS
 								? {
 										selectedIndex:
@@ -18468,19 +18602,6 @@ function AppBody({
 														(railShowsMain(liveSubagents.length, viewingAgent?.viewId) ? 1 : 0),
 									}
 								: {})}
-						/>
-					) : showComposerSurface &&
-						permission === null &&
-						scheduleReviewPrompt === null &&
-						agentSurface?.kind === 'cockpit' ? (
-						<AgentCockpit
-							agents={subagents}
-							runs={workflowRuns}
-							selectedPhaseId={agentSurface.selectedPhaseId}
-							selectedId={agentSurface.selectedId}
-							focus={agentSurface.focus}
-							terminalRows={terminal.rows}
-							terminalColumns={terminal.columns}
 						/>
 					) : showComposerSurface &&
 						permission === null &&

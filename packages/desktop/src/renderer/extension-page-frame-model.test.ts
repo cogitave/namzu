@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { boundsOf, sameBounds, themeTokens } from './extension-page-frame-model.js'
+import { boundsOf, pageFrameKey, sameBounds, themeTokens } from './extension-page-frame-model.js'
 
 describe('the frame of an extension page', () => {
 	it("copies the app's tokens to the names a page may use, and skips what is not defined", () => {
@@ -75,5 +75,13 @@ describe('the frame of an extension page', () => {
 			width: 400,
 			height: 360,
 		})
+	})
+})
+
+describe('the key of a page frame', () => {
+	it('differs for another page of the same extension and for the same page id of another extension', () => {
+		expect(pageFrameKey('a', 'p1')).not.toBe(pageFrameKey('a', 'p2'))
+		expect(pageFrameKey('a', 'p1')).not.toBe(pageFrameKey('b', 'p1'))
+		expect(pageFrameKey('a', 'p1')).toBe(pageFrameKey('a', 'p1'))
 	})
 })

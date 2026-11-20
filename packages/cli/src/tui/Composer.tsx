@@ -87,12 +87,13 @@ import {
 	shiftOverrides,
 } from './triggers/provenance.js'
 import type { TriggerId, TriggerRegistry } from './triggers/registry.js'
-import { ARM_MS, LeftGesture } from './zoom/gesture.js'
+import { ARM_MS, LeftGesture, REPEAT_MS } from './zoom/gesture.js'
 
 /** The footer notice that offers the second Esc. */
 const ESC_CLEAR_KEY = 'escape-again-to-clear'
 const STASH_KEY = 'draft-stash'
 const WORKSPACES_HINT_KEY = 'workspaces-arm'
+const AGENTS_HINT_KEY = 'agents-arm'
 const STASH_NOTICE_MS = 3000
 const STASH_RESTORED_NOTICE_MS = 5000
 /** The second Esc clears inside this window. */
@@ -213,14 +214,20 @@ export interface ComposerProps {
 	 */
 	readonly onOpenAgentPanel?: () => void
 	/**
-	 * `←` on an empty composer: open the agents. Anything typed, pasted or
-	 * attached keeps `←` as cursor movement, so editing is never taken over.
+	 * `←` on an empty composer, only while a reply is running and only where there is no
+	 * workspaces screen: the first press says "Press ← again to open agents", the second calls
+	 * this. Anything typed, pasted or attached keeps `←` as cursor movement, so editing is
+	 * never taken over. It never opens the workflow view.
 	 */
 	readonly onOpenAgents?: () => void
+	/** A reply is running: the only time `←` has the agents gesture. */
+	readonly replyRunning?: boolean
+	/** `tui.leftArrowOpensAgents`: false takes the agents gesture off `←`. On when absent. */
+	readonly leftArrowOpensAgents?: boolean
 	/**
-	 * `←` on an empty composer opens the workspaces screen instead of the agents
-	 * (see `zoom/gesture.ts` for when a press fires, only arms, or is ignored).
-	 * Absent where there is none, and `onOpenAgents` keeps the key.
+	 * `←` on an empty composer opens the workspaces screen (see `zoom/gesture.ts` for when a
+	 * press fires, only arms, or is ignored). Absent where there is none, and the agents
+	 * gesture (`onOpenAgents`) has the key while a reply runs.
 	 */
 	readonly onOpenWorkspaces?: () => void
 	/** Page up at the composer: open the scrollable transcript. */
@@ -716,6 +723,8 @@ export function Composer({
 	onHistorySearchChange,
 	onOpenAgentPanel,
 	onOpenAgents,
+	replyRunning = false,
+	leftArrowOpensAgents = true,
 	onOpenWorkspaces,
 	onScrollTranscript,
 	onRecallQueued,
@@ -732,6 +741,8 @@ export function Composer({
 	const terminal = useWindowSize()
 	const [value, setValueState] = useState<string>('')
 	const leftGestureRef = useRef(new LeftGesture())
+	/** When the first `←` of the agents gesture was pressed (see `onOpenAgents`). */
+	const agentsArmedAtRef = useRef<number | undefined>(undefined)
 	const valueRef = useRef('')
 	const [cursor, setCursorState] = useState(0)
 	const cursorRef = useRef(0)
@@ -1944,11 +1955,31 @@ export function Composer({
 			} else if (
 				key.leftArrow &&
 				!key.shift &&
+				!key.ctrl &&
+				!key.meta &&
 				onOpenAgents &&
+				replyRunning &&
+				leftArrowOpensAgents &&
 				valueRef.current.length === 0 &&
 				attachmentsRef.current.length === 0
 			) {
-				onOpenAgents()
+				// Two presses: the first says what the second does, so a stray arrow opens nothing.
+				const at = Date.now()
+				const armedAt = agentsArmedAtRef.current
+				if (armedAt !== undefined && at - armedAt <= ARM_MS) {
+					if (at - armedAt < REPEAT_MS) return
+					agentsArmedAtRef.current = undefined
+					onFooterNoticeRemove?.(AGENTS_HINT_KEY)
+					onOpenAgents()
+					return
+				}
+				agentsArmedAtRef.current = at
+				onFooterNotice?.({
+					key: AGENTS_HINT_KEY,
+					text: 'Press ← again to open agents',
+					priority: 'immediate',
+					timeoutMs: ARM_MS,
+				})
 				return
 			}
 			if (isAction('edit:charLeft', input, key)) {

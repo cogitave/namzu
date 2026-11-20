@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Tool discovery receipts
-description: Source-bound schema receipts, host readiness, and ranked deferred search.
+description: Source-bound schema receipts, host readiness, the select, keyword and required-word search forms, and loaded tools that survive compaction.
 resource: packages/sdk/src/toolsets/manager.ts
 tags: [sdk, tools, discovery]
 status: stable
@@ -18,9 +18,22 @@ post-compaction message history; the remaining tools are `'active'`.
 Use `readyWhen(toolset, check)` to attach a host-owned prerequisite such as
 a live connection. A failed or throwing check suspends the toolset.
 
-`search_tools` searches deferred tools by name, description and model-facing
-argument names. It reveals the five highest-ranked permitted matches and
-returns up to five further matches as explicitly unrevealed suggestions.
+`search_tools` takes three query forms. `select:a,b` (comma-separated, trimmed,
+up to 64 names) loads exactly those tools: an exact name, or, for an MCP tool
+(`mcp__<server>__<tool>`), its short name, which loads that tool from every
+server that has one. A name that is already loaded is answered
+`Already loaded, call directly`, one nothing matched is listed as not found,
+and a tool's companions (below) are named but not loaded. A query that is
+exactly one tool's name loads that tool and no other match, plus any companions it declares. Anything
+else is keywords: each word scores by where it sits, a whole word of the name
+(10; 12 for an MCP tool) far above a piece of a name word (5; 6), a word of the
+description on a word boundary (2) or an argument name (2); a word written
+`+term` is required, a result must carry it in its name, description or
+argument names. `max_results` (new, an integer 1 to 64, default 5) is how many
+a keyword search loads; up to five further matches are returned as explicitly
+unrevealed suggestions. The generic words `tool`, `list`, `read`, `get` and the
+like are ignored; `search` is ignored too unless a deferred tool's name has it
+(`web_search`, `search_memory`), so `web search` ranks `web_search` first.
 The system prompt lists the names of deferred MCP tools without repeating
 their server-authored descriptions. Those short descriptions reach the model
 as a labelled, untrusted `step-context` message after conversation history,
@@ -55,7 +68,7 @@ marks each `(loaded with <tool>)` in its result, lists them as
 `data.companions` and reveals them like any other match. A companion is
 loaded only if it is deferred and inside `ToolContext.allowedTools`; one that
 is already loaded is simply left out, and a companion's own `loadsWith` is not
-followed. Companions do not count against the five-tool limit. The shipped
+followed. Companions do not count against `max_results`. The shipped
 pairs are `browser` with `browser_act` (looking at a page and acting on it,
 both ways) and `task_create` with `task_update` (a task is made to be moved
 through its statuses). The deferred catalogue line of a tool with companions
@@ -65,7 +78,8 @@ not grouped: each is used alone as often as with another.
 When no permitted deferred tool matches, the receipt says so — plainly, with
 no active-tool echo. `ToolsView` (what a tool body reaches through
 `ToolContext.toolRegistry`) has no active-tool search, only `has`,
-`availability` and `searchDeferred`; a tool-body-facing search over the
+`availability`, `searchDeferred` and `select` (the exact-name lookup behind
+`select:`); a tool-body-facing search over the
 active catalogue does not exist in this model, since a tool cannot mutate
 anything by finding an active peer.
 
@@ -82,10 +96,25 @@ authoritative: when a tool's schema is visible there, call it directly, even
 if the boot-time catalogue lists it under `deferred_tools`. Do not search
 again merely because that older listing remains in the prompt. Only when a
 needed deferred schema is absent should the model call `search_tools` with
-its exact name. A successful reveal makes the schema available on the next
+its exact name (or `select:<name>`). A successful reveal makes the schema available on the next
 model request in the same turn and, with retained source-bound receipts,
-on later sends. Compaction resets receipts as described below; readiness,
+on later sends. A compaction summary carries the loaded tools forward, as described below; readiness,
 step allow-lists and authorization still apply independently of discovery.
+
+## What an empty search says
+
+When `search_tools` loads nothing, its answer says which of three states the
+asked-for name is in, because one sentence for all of them reads as "this
+tool does not exist", and a model that had just used the tool went looking
+for its own words elsewhere:
+
+- the query is a tool's exact name and that tool is already loaded:
+  "`<name>` is already loaded: call it directly.";
+- the query is a tool's exact name outside the turn's `allowedTools`:
+  "`<name>` is not available in this session. Carry on without it.";
+- anything else: `No deferred tools matching "<query>".`, followed by the
+  rule that a visible schema needs no search and that a name not listed
+  under `deferred_tools` does not exist in this session.
 
 ## A successful result can load deferred schemas
 
@@ -135,11 +164,26 @@ still live.
   its own history has no tool message carrying a reveal yet. A child that is
   handed the parent's history inherits the parent's revealed set, for the
   same reason a resumed turn does.
-- **Compaction resets schema receipts.** `ToolManager.availability`
-  scans only the window after the turn's last compaction summary
-  (`compaction/summary.ts`'s `isCompactionMessage` marker); a name revealed
-  before that point is forgotten, the same way namzu's own summarisation
-  treats everything before it as folded away.
+- **Compaction keeps loaded tools.** When a pass writes its summary it
+  records the receipts of every tool the cut messages had loaded, plus those
+  the earlier summaries carried, on the summary itself
+  (`SystemMessage.revealedTools`, `collectRevealedTools()` in
+  `compaction/summary.ts`). `ToolManager.availability` counts the last
+  summary's receipts and the receipts after it, so a tool loaded before a
+  compaction is still callable after it, and resume and fork keep it because
+  it lives in the history. The summary ends with
+  `Tools you loaded earlier with search_tools are still loaded: <names>`, so
+  the model knows without searching. A summary written without receipts (an
+  older session, or `buildCompactionMessage(body)` called with no third
+  argument) forgets them as before: only the window after it counts.
+- **A toolset that gains tools mid-turn is announced.** Each iteration calls
+  `ToolManager.refresh()`; when a live toolset (an MCP server that connected
+  after the turn began) added or removed tools, one recorded context entry
+  under the key `tools-changed` names them (`describeChange()`): deferred
+  names with the way to load them, tools that are now loaded, and tools no
+  longer available. An MCP tool's description is not repeated there.
+  `query()` also mounts `search_tools` for a deferred toolset that has no tools
+  yet but reports changes.
 
 ## Toolsets, not a shared mutable registry
 
@@ -171,7 +215,8 @@ delegation tool `Agent`, `ask_user_question` and `session_cost` (a cost
 question is short, and a search first would double it). Everything else,
 including web search and fetch, conversation search and read, the memory and
 task tools, the workflow and coordinator tools, `browser`,
-`browser_act`, `computer_use`, `code_analysis`, `monitor` and every MCP tool,
+`browser_act`, `computer_use`, `code_analysis`, `monitor` and every MCP tool
+(unless its server sets `alwaysLoad: true`, see [tool servers](../cli/mcp-servers.md#tool-search)),
 is listed in the system prompt under `<deferred_tools>` with its name and a
 one-line purpose, and its schema arrives through `search_tools`.
 
@@ -181,3 +226,5 @@ name, then call it again.`; the turn goes on. The memory, conversation-evidence
 and web-task sections of the prompt say the same where they name a tool that
 may be deferred. `toolLoading: 'eager'` brings back the old roster, every
 schema on every request.
+
+A `select:` list past 64 names loads the first 64 and names the rest in the result. A short MCP name that matches several tools loads all of them and says so. A view without its own `select` matches full names only. The tools-changed announcement and the loaded-tools line of a compaction summary are bounded and end in a count. `DATA_EPOCH` is unchanged on purpose: an older engine reading a summary with `revealedTools` ignores the field, so loaded tools go back to deferred after the resume.

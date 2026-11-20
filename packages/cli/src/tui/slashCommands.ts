@@ -2925,7 +2925,7 @@ function describeRule(rule: AuthorizationRule): string {
 		case 'allow_read_only':
 			return 'allow  any tool that only observes'
 		case 'deny_dangerous_patterns':
-			return 'deny   the built-in catastrophic-command patterns'
+			return 'refuse the commands that cannot be undone, ask about the other dangerous ones'
 		case 'argument_pattern': {
 			const verb = rule.decision === 'deny' ? 'deny  ' : 'allow '
 			return `${verb} ${rule.toolNames.join(', ')} when ${rule.argument} matches ${rule.pattern}`

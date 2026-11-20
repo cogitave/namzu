@@ -123,6 +123,8 @@ import {
 	verifyCredential,
 } from '../tui/agent.js'
 import { displayPath } from '../tui/display-path.js'
+import { handoffContinuationNote } from '../tui/turn-interruption.js'
+import { createQuestionRelay, routeQuestions } from './acp-desktop-question.js'
 import { withCliHarnesses } from './acp-harness.js'
 import {
 	type ProviderRetryStatus,
@@ -321,6 +323,8 @@ type AcpLiveSession = Pick<
 	readonly setPermissionMode?: AgentSession['setPermissionMode']
 	readonly resumePaused?: AgentSession['resumePaused']
 	readonly abandonTurn?: AgentSession['abandonTurn']
+	/** The agent's browser, when this conversation has one; a fake session leaves it out. */
+	readonly browser?: AgentSession['browser']
 	readonly describeComputerUseCall?: AgentSession['describeComputerUseCall']
 	/** What the context panel sizes; a fake session may leave them out. */
 	readonly contextInventory?: AgentSession['contextInventory']
@@ -615,6 +619,11 @@ export interface CliAcpRuntime {
 		sessionId: string,
 		mode: PermissionMode,
 	): Promise<{ mode: PermissionMode; applied: 'now' | 'next-message' }>
+	/**
+	 * The person's answer to a question the agent put to them, from the desktop. Throws when the
+	 * question is no longer open (the turn stopped, it was answered, it is another conversation's).
+	 */
+	answerQuestion?(sessionId: string, requestId: string, answer: unknown): void
 	jobs(sessionId: string): readonly import('@namzu/sdk').BackgroundJob[]
 	readJob(sessionId: string, jobId: string): unknown
 	stopJob(sessionId: string, jobId: string): Promise<unknown>
@@ -864,6 +873,24 @@ export function createCliAcpRuntime(
 	// Cold undo stores of one conversation run one at a time: two stores over one
 	// directory would each sweep and write from a stale picture of the other.
 	const undoTails = new Map<string, Promise<void>>()
+	// The questions the agent puts to the person, for the desktop only: said to the app as a
+	// notification, answered by an extension call (`answerQuestion`), closed when the turn stops.
+	const questionRelay = runtimeOptions.announce
+		? createQuestionRelay(runtimeOptions.announce)
+		: undefined
+	const onQuestionOf = (
+		sessionId: string,
+		ask: Parameters<typeof questionsOverPermission>[1],
+		signal: AbortSignal,
+	) => {
+		const onQuestion = routeQuestions(
+			runtimeOptions.computerUse === true
+				? questionsOverPermission(sessionId, ask, signal)
+				: undefined,
+			questionRelay?.forTurn(sessionId, signal),
+		)
+		return onQuestion ? { onQuestion } : {}
+	}
 	const titleFeed = runtimeOptions.announce
 		? createTitleFeed({
 				notify: runtimeOptions.announce,
@@ -1127,6 +1154,10 @@ export function createCliAcpRuntime(
 						: {}),
 					// The desktop shows what a turn writes in its Browser and Files panes; the model is told so.
 					...(runtimeOptions.announce && !palEnvironment ? { desktop: true } : {}),
+					// The agent may ask the person a question, and the app draws it as a card. Only the
+					// question tool, its guidance and a tool server's request for input: none of what the
+					// terminal's "somebody is typing" brings with it.
+					...(questionRelay && !palEnvironment ? { questions: true } : {}),
 					// The model may read the safe settings and change one when the person says yes on
 					// the card; the desktop's own preferences join when the app said where they are.
 					...(runtimeOptions.announce &&
@@ -1164,6 +1195,8 @@ export function createCliAcpRuntime(
 									...(browserConfig?.signInDetection
 										? { signInDetection: browserConfig.signInDetection }
 										: {}),
+									// A person is here to answer: a sign-in page is put to them, not left to a command.
+									...(questionRelay && !palEnvironment ? { askPersonToSignIn: true } : {}),
 									...(conversationState ? { home: conversationState.root } : {}),
 								},
 							}
@@ -1487,11 +1520,9 @@ export function createCliAcpRuntime(
 						: {}),
 					signal,
 					onPermission,
-					// The one question a Desktop conversation can raise itself: the screen is
-					// needed for a moment. It reaches the person as a card, never as a standing yes.
-					...(runtimeOptions.computerUse === true
-						? { onQuestion: questionsOverPermission(sessionId, ask, signal) }
-						: {}),
+					// The screen question is the person's yes on its own card, never a standing one;
+					// every other question goes to the app as a card of its own.
+					...onQuestionOf(sessionId, ask, signal),
 					...(monitorSnapshot.text ? { hostContext: () => [monitorSnapshot.text as string] } : {}),
 					...(inputInbox
 						? {
@@ -1513,8 +1544,13 @@ export function createCliAcpRuntime(
 					else if (event.kind === 'error' || event.kind === 'paused') {
 						stopReason = signal.aborted ? 'cancelled' : 'error'
 						if (event.kind === 'error' && !signal.aborted) failureMessage = event.message
-						if (event.kind === 'paused')
+						if (event.kind === 'paused') {
 							record.retrySettings = { ...original, turnId: event.turnId }
+							// A browser with no window is closed so `namzu browser login` can take its profile.
+							const browser = record.session.browser
+							if (event.handoff && browser?.status().headless)
+								void browser.release().catch(() => {})
+						}
 					}
 				}
 				if (signal.aborted) stopReason = 'cancelled'
@@ -1545,7 +1581,12 @@ export function createCliAcpRuntime(
 				record.conversations,
 				target.sessionId,
 			)
-			if (status.retry?.turnId !== turnId || status.retry.checkpointId !== checkpointId)
+			// A turn a tool paused for a person continues the same way, from its checkpoint. Both kinds
+			// run on the model selected now: the record keeps the model's name but not its service,
+			// so an earlier model cannot be put back safely when the person has changed services.
+			const handoff = status.retry ? undefined : status.handoff
+			const resumable = status.retry ?? handoff
+			if (resumable?.turnId !== turnId || resumable.checkpointId !== checkpointId)
 				throw new Error(
 					status.notice ??
 						'This paused reply has changed. Reopen the conversation to see its latest state.',
@@ -1567,7 +1608,7 @@ export function createCliAcpRuntime(
 			const facts = await readConversationFacts(record.conversations, target.sessionId)
 			const started = facts?.startedTurn(turnId)
 			const pause = facts?.latestPause(turnId)
-			if (!started?.model || !pause?.providerError)
+			if (!started?.model || (!handoff && !pause?.providerError))
 				throw new Error(
 					'Namzu can’t confirm which AI service and model this reply used, so it can’t try it again here.',
 				)
@@ -1585,16 +1626,20 @@ export function createCliAcpRuntime(
 				}
 			}
 			record.route = routedEvent
-			retriedOn.set(turnId, { provider: record.provider, model: record.model })
+			if (!handoff) retriedOn.set(turnId, { provider: record.provider, model: record.model })
 			try {
 				let stopReason: string | undefined
 				let failureMessage: string | undefined
 				const undoNote = undoNotes.get(sessionId)?.join('\n\n')
 				undoNotes.delete(sessionId)
+				// The turn's last result is the tool saying it needed someone; read alone it looks final.
+				const note = [undoNote, handoff ? handoffContinuationNote(handoff.reason) : undefined]
+					.filter(Boolean)
+					.join('\n\n')
 				for await (const event of record.session.resumePaused({
 					turnId,
 					checkpointId,
-					...(undoNote ? { systemNote: undoNote } : {}),
+					...(note ? { systemNote: note } : {}),
 					signal,
 					permissionMode: settings.permissionMode,
 					...(record.ownedPal
@@ -1606,6 +1651,7 @@ export function createCliAcpRuntime(
 						model: record.model,
 						...(settings.effort ? { effort: settings.effort } : {}),
 					},
+					...onQuestionOf(sessionId, ask, signal),
 					onPermission: async (request) => {
 						const outcome = await ask({
 							sessionId,
@@ -1823,6 +1869,13 @@ export function createCliAcpRuntime(
 				timing: 'beside-turn',
 			})
 		},
+		answerQuestion: (sessionId, requestId, answer) => {
+			if (closed) throw new Error('The connection is closed.')
+			if (!questionRelay || !records.has(sessionId))
+				throw new Error('This question is no longer open.')
+			if (!questionRelay.answer(sessionId, requestId, answer))
+				throw new Error('This question is no longer open.')
+		},
 		setPermissionMode: async (sessionId, mode) => {
 			if (closed) throw new Error('The connection is closed.')
 			const record = records.get(sessionId)
@@ -1910,7 +1963,18 @@ export function createCliAcpRuntime(
 					state,
 					target.sessionId,
 				)
-				if (!status.retry) return status
+				if (!status.retry) {
+					if (!status.handoff) return status
+					// The agent's browser has a window of its own only where a display is; say which, so the
+					// app says how to sign in.
+					const browser = record?.session.browser?.status()
+					return browser
+						? {
+								...status,
+								handoff: { ...status.handoff, window: browser.headless ? 'none' : 'visible' },
+							}
+						: status
+				}
 				const blocked = (notice: string): ProviderRetryStatus => ({
 					notice,
 					...(status.closable ? { closable: true as const } : {}),
@@ -1965,11 +2029,16 @@ export function createCliAcpRuntime(
 				throw new Error('This conversation has no paused turn to close. Open it again.')
 			const pausedTurn = active.turnId
 			const pause = facts?.latestPause(pausedTurn)
-			if (!pause || pause.handoff || !pause.providerError)
-				throw new Error('Only a turn that stopped on a provider error can be closed this way.')
+			const handoff = pause?.handoff !== undefined
+			if (!pause || (!handoff && !pause.providerError))
+				throw new Error(
+					'Only a turn that stopped on a provider error or waits for the person can be closed this way.',
+				)
 			if (facts?.pendingDecisions(pausedTurn).size)
 				throw new Error('This turn is waiting for a decision; answer it first.')
-			const reason = 'The person continued without the reply that stopped on a provider error.'
+			const reason = handoff
+				? 'The person stopped the turn a tool paused for them.'
+				: 'The person continued without the reply that stopped on a provider error.'
 			// Unless the person goes on with a different message, theirs goes back to the message
 			// box: the closed turn must not also reach the provider with it when they send it again.
 			const withdrawMessages = options?.withdrawMessages !== false

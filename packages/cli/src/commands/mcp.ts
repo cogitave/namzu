@@ -382,6 +382,7 @@ export function safeTestReason(reason: string, spec: McpServerSpec): string {
 		'requireApproval',
 		'readOnlyHintTrusted',
 		'instructions',
+		'alwaysLoad',
 	]) {
 		if (reason.startsWith(`${field} `)) return `invalid ${field} setting`
 	}

@@ -1,0 +1,206 @@
+/* A question the agent puts to the person. It is the approval's card (the same ring, band, footer and
+   button sizes, every number an --ask-* token) with a body of choices: one question at a time, each
+   choice a row of 36 to 52 high, the recommended one named in words, and a box for the person's own
+   answer. No filled accent: a chosen row has a stronger ring and a check, so no state is colour alone. */
+.question-head-icon {
+	color: var(--muted-foreground);
+}
+.question-pager {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	gap: 4px;
+}
+.question-step {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-chip);
+	background: transparent;
+	color: var(--muted-foreground);
+	cursor: pointer;
+}
+.question-step svg {
+	width: 14px;
+	height: 14px;
+}
+.question-step:hover:not(:disabled) {
+	background: var(--ask-quiet);
+	color: var(--foreground);
+}
+.question-step:disabled {
+	opacity: 0.4;
+	cursor: default;
+}
+.question-step:focus-visible {
+	outline: 2px solid transparent;
+	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
+}
+.question-step-count {
+	min-width: 40px;
+	color: var(--muted-foreground);
+	text-align: center;
+	font-variant-numeric: tabular-nums;
+}
+.question-text {
+	margin: 0;
+	color: var(--foreground);
+	font-size: var(--text-interface);
+	font-weight: var(--weight-control);
+	line-height: var(--leading-interface);
+	overflow-wrap: anywhere;
+}
+.approval-card > .question-options {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	margin-top: 8px;
+}
+.question-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	width: 100%;
+	min-width: 0;
+	min-height: 36px;
+	padding: 8px 12px 8px 10px;
+	border: 1px solid transparent;
+	border-radius: var(--ask-button-radius);
+	background: transparent;
+	color: var(--foreground);
+	font: inherit;
+	text-align: start;
+	cursor: pointer;
+	transition: background-color 120ms var(--motion-ease);
+}
+.question-row:hover {
+	background: var(--ask-fill);
+}
+.question-row:focus-visible {
+	outline: 2px solid transparent;
+	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
+}
+.question-row[data-selected] {
+	border-color: color-mix(in srgb, var(--foreground) 40%, transparent);
+	background: var(--ask-fill);
+}
+/* The number to press, or for a multiple choice the box it ticks. */
+.question-mark {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	justify-content: center;
+	width: 20px;
+	height: 20px;
+	margin-top: 0;
+	border-radius: var(--ask-chip-radius);
+	background: var(--ask-quiet);
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+	font-weight: var(--weight-control);
+	line-height: var(--leading-caption);
+	font-variant-numeric: tabular-nums;
+}
+.question-mark[data-multi] {
+	border: 1px solid color-mix(in srgb, var(--foreground) 40%, transparent);
+	background: transparent;
+	color: var(--foreground);
+}
+.question-mark svg {
+	width: 12px;
+	height: 12px;
+}
+.question-row[data-selected] .question-mark:not([data-multi]) {
+	color: var(--foreground);
+}
+.question-row-text {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+.question-row-label {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px 8px;
+	font-size: var(--text-interface);
+	font-weight: var(--weight-control);
+	line-height: var(--leading-interface);
+	overflow-wrap: anywhere;
+}
+.question-row-description {
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+	font-weight: var(--weight-text);
+	line-height: var(--leading-caption);
+	overflow-wrap: anywhere;
+}
+.question-badge {
+	display: inline-flex;
+	align-items: center;
+	height: var(--ask-chip-height);
+	padding: 0 6px;
+	border: 1px solid color-mix(in srgb, var(--foreground) 24%, transparent);
+	border-radius: var(--ask-chip-radius);
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+	font-weight: var(--weight-text);
+	line-height: var(--leading-caption);
+	white-space: nowrap;
+}
+.question-check {
+	flex: none;
+	width: 16px;
+	height: 16px;
+	margin-top: 2px;
+	color: var(--foreground);
+}
+.approval-card > .question-other {
+	display: block;
+	width: 100%;
+	min-height: 56px;
+	max-height: 140px;
+	margin-top: 8px;
+	padding: 8px 10px;
+	border: 1px solid var(--input);
+	border-radius: var(--radius-control);
+	background: transparent;
+	color: var(--foreground);
+	font: inherit;
+	resize: vertical;
+}
+.question-other::placeholder {
+	color: var(--placeholder);
+}
+.question-other:focus-visible {
+	outline: 2px solid transparent;
+	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
+}
+/* What the highlighted choice would look like, when the agent sent one. Text as written, never run. */
+.approval-card > .question-preview {
+	max-height: 120px;
+	margin: 8px 0 0;
+	padding: 8px 10px;
+	overflow: auto;
+	border-radius: var(--ask-preview-radius);
+	background: var(--ask-fill);
+	color: var(--foreground);
+	font-family: var(--font-mono);
+	font-size: var(--font-size-code);
+	line-height: var(--leading-code);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+/* The footer of a question has no consequence line, so its buttons sit at the end and wrap whole. */
+.question-card > .approval-footer {
+	margin-top: 16px;
+}

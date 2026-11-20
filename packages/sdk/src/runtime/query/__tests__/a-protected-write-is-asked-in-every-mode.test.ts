@@ -325,15 +325,8 @@ describe('a shell line that writes a protected path', () => {
 })
 
 describe('a shell line that removes something catastrophic', () => {
-	it.each([
-		'rm -fr /',
-		'rm -r -f /',
-		'rm --recursive --force /',
-		'rm -rf ~',
-		'rm -rf $HOME',
-		'rm -rf ..',
-	])(
-		'is refused with nobody to ask, in auto, where the old pattern let it by: %s',
+	it.each(['rm -fr /', 'rm -r -f /', 'rm --recursive --force /', 'rm -rf ~', 'rm -rf $HOME'])(
+		'is stopped by the floor in every spelling, in auto: %s',
 		async (command) => {
 			const { text } = await runCall({
 				tool: 'bash',
@@ -342,9 +335,21 @@ describe('a shell line that removes something catastrophic', () => {
 				denyDangerousPatterns: true,
 			})
 
-			expect(text).toContain(DANGEROUS_REMOVAL_UNATTENDED_REFUSAL)
+			expect(text).toContain('Blocked by the authorization gate: this command removes the')
+			expect(text).toContain('Nothing ran.')
 		},
 	)
+
+	it('is refused with nobody to ask when it is not one the floor stops: rm -rf ..', async () => {
+		const { text } = await runCall({
+			tool: 'bash',
+			args: { command: 'rm -rf ..' },
+			mode: 'auto',
+			denyDangerousPatterns: true,
+		})
+
+		expect(text).toContain(DANGEROUS_REMOVAL_UNATTENDED_REFUSAL)
+	})
 
 	it('is asked about, with the reason, when a person is there', async () => {
 		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'reject' }))
