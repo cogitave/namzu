@@ -1,3 +1,5 @@
+import type { JobView } from '../shared/protocol.js'
+import { backgroundNote, movedByLimitText } from './background-tasks-model.js'
 import type { StreamText } from './tool-transcript-presentation.js'
 
 /**
@@ -14,6 +16,10 @@ export interface ShellCellData {
 	status?: string
 	/** The command was handed to a background job. */
 	background?: true
+	/** That job, so the row can say what it is doing now. */
+	jobId?: string
+	/** The time limit that sent the command to the background, in milliseconds. */
+	timeLimitMs?: number
 	/** Output that is not text, in a sentence. */
 	notice?: string
 }
@@ -34,6 +40,8 @@ export interface ShellCellRows {
 	/** The words under the output: how it ended, "(No output)", or where it runs. */
 	note?: string
 	noteTone?: 'dim' | 'err'
+	/** A second line of the note: why the command went to the background. */
+	extraNote?: string
 }
 
 function split(text: string | undefined): string[] {
@@ -80,15 +88,28 @@ function streamLines(
 	return { lines: shown.map((text) => ({ text, tone })), hidden: Math.max(0, total - shown.length) }
 }
 
-export function shellCellRows(cell: ShellCellData, expanded: boolean): ShellCellRows {
+export function shellCellRows(
+	cell: ShellCellData,
+	expanded: boolean,
+	/** The command's background job as last read; absent while the jobs are unknown or the job is gone. */
+	job?: JobView,
+): ShellCellRows {
 	const limit = cell.failed ? SHELL_FAILURE_LINES : SHELL_PREVIEW_LINES
 	const out = streamLines(cell.stdout, 'out', limit, expanded, cell.failed)
 	const err = streamLines(cell.stderr, 'err', limit, expanded, cell.failed)
 	const lines = [...out.lines, ...err.lines]
 	const hidden = out.hidden + err.hidden
 	if (cell.notice) return { lines: [], hidden: 0, note: cell.notice, noteTone: 'dim' }
-	if (cell.background && lines.length === 0)
-		return { lines, hidden, note: 'Running in the background', noteTone: 'dim' }
+	if (cell.background) {
+		const state = backgroundNote(job)
+		return {
+			lines,
+			hidden,
+			note: state.text,
+			noteTone: state.tone,
+			...(cell.timeLimitMs ? { extraNote: movedByLimitText(cell.timeLimitMs) } : {}),
+		}
+	}
 	if (cell.status) return { lines, hidden, note: cell.status, noteTone: 'err' }
 	if (lines.length === 0) return { lines, hidden, note: '(No output)', noteTone: 'dim' }
 	return { lines, hidden }

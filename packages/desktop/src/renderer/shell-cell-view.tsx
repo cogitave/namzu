@@ -1,5 +1,5 @@
 import { useContext, useId, useState } from 'react'
-import { BackgroundWorkContext } from './activity-actions.js'
+import { BackgroundJobsContext, BackgroundWorkContext } from './activity-actions.js'
 import { type ShellCellData, shellCellRows } from './shell-cell.js'
 import { OutputText } from './tool-output-view.js'
 import { Button } from './ui/button.js'
@@ -10,7 +10,9 @@ export function ShellCell({ cell }: { cell: ShellCellData }) {
 	const [expanded, setExpanded] = useState(false)
 	const id = useId()
 	const openBackground = useContext(BackgroundWorkContext)
-	const rows = shellCellRows(cell, expanded)
+	const jobs = useContext(BackgroundJobsContext)
+	const job = cell.jobId && jobs?.known ? jobs.jobs.find((row) => row.id === cell.jobId) : undefined
+	const rows = shellCellRows(cell, expanded, job)
 	const canFold = rows.hidden > 0 || expanded
 	return (
 		<div className="shell-cell" data-shell-cell data-failed={cell.failed || undefined}>
@@ -34,6 +36,7 @@ export function ShellCell({ cell }: { cell: ShellCellData }) {
 						{rows.note}
 					</span>
 				)}
+				{rows.extraNote && <span className="shell-cell-note shell-cell-dim">{rows.extraNote}</span>}
 				{canFold && (
 					<button
 						type="button"
@@ -48,7 +51,11 @@ export function ShellCell({ cell }: { cell: ShellCellData }) {
 					</button>
 				)}
 				{cell.background && openBackground && (
-					<Button variant="ghost-muted" size="xs" onClick={openBackground}>
+					<Button
+						variant="ghost-muted"
+						size="xs"
+						onClick={() => openBackground(cell.jobId ? { id: cell.jobId } : undefined)}
+					>
 						See it
 					</Button>
 				)}

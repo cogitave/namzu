@@ -171,6 +171,17 @@
 	padding: 0 8px;
 	min-width: 0;
 }
+.session-list > li > .session-task-open {
+	flex: 1 1 auto;
+	width: auto;
+	padding-inline: 0;
+}
+.session-task-open .session-value {
+	flex: none;
+}
+.session-tasks-running {
+	padding-block: 0 2px;
+}
 .session-list > li svg {
 	flex: none;
 	width: 16px;
@@ -186,6 +197,7 @@
 .session-changes {
 	padding: 0;
 	justify-content: space-between;
+	flex-wrap: wrap;
 	gap: 6px;
 }
 .session-changes-open {
@@ -193,7 +205,8 @@
 	align-items: center;
 	gap: 8px;
 	flex: 1 1 auto;
-	min-width: 0;
+	/* The words stay whole; the commit button wraps under them when the panel is narrow. */
+	min-width: max-content;
 	min-height: 32px;
 	padding: 0 8px;
 	border: 0;

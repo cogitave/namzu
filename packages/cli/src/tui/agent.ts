@@ -2446,7 +2446,7 @@ const EXCLUDED_BUILTINS = new Set(['verify_outputs'])
  * `job` and `wait_for_job` stay because the bash tool's own description sends
  * the model to them; `ask_user_question` only exists where a person can answer.
  */
-const EAGER_TOOLS_WHEN_DEFERRED = [
+export const EAGER_TOOLS_WHEN_DEFERRED = [
 	'read',
 	'glob',
 	'grep',
@@ -2461,6 +2461,9 @@ const EAGER_TOOLS_WHEN_DEFERRED = [
 	// A question about what the conversation cost is common and short; a search
 	// first would double its requests for a schema of a few hundred characters.
 	'session_cost',
+	// The self-paced loop's pacing call: a tick has to be able to end by calling it,
+	// without a search first. Idle sessions pay for one short schema.
+	'wake_up',
 	// The skills manifest tells the model to load a skill through this tool;
 	// deferring it would make every skill a two-step search first.
 	'skill',

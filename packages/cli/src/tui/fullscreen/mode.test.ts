@@ -40,4 +40,15 @@ describe('whether the screen is fullscreen', () => {
 		expect(resolveFullscreen({ ...on, interactive: false, hosted: false })).toBe(false)
 		expect(resolveFullscreen({ ...on, interactive: true, hosted: true })).toBe(false)
 	})
+
+	it('goes to the normal screen after a failed start, unless the person set fullscreen on or in the environment', () => {
+		const base = { interactive: true, hosted: false, autoOff: true }
+		expect(resolveFullscreen({ ...base, env: {} })).toBe(false)
+		expect(resolveFullscreen({ ...base, env: {}, setting: false })).toBe(false)
+		expect(resolveFullscreen({ ...base, env: {}, setting: true })).toBe(true)
+		expect(resolveFullscreen({ ...base, env: { NAMZU_FULLSCREEN: '1' } })).toBe(true)
+		expect(resolveFullscreen({ ...base, env: { NAMZU_FULLSCREEN: '0' }, setting: true })).toBe(
+			false,
+		)
+	})
 })

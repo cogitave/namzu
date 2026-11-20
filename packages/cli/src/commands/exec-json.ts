@@ -87,6 +87,7 @@ import {
 	resolveConversation,
 } from '../integrations/sessions/store.js'
 import { cliLogger, contextLogging, installCliLogging } from '../logging.js'
+import { warnBroadAllowRules } from '../permissions/broad-allow.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { launchRefusal } from '../permissions/launch.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
@@ -417,6 +418,7 @@ export async function execJson(
 	if (modeRefusal) return fail(modeRefusal)
 
 	warnLegacyMcpPermissionNames(ctx.config.permissions)
+	warnBroadAllowRules(undefined, cliLogger())
 	const permissions = compilePermissionLayers(
 		[...permissionLayersOf(ctx.config), ...run.permissionLayers],
 		ctx.config.permissionChecks,

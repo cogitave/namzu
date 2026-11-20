@@ -52,9 +52,12 @@ it('removes recovery and stop controls after termination is confirmed', () => {
 })
 
 it('distinguishes confirmed success, failure and an exit without a success code', () => {
-	expect(render({ ...running, status: 'exited', exitCode: 0 })).toContain('>Done</span>')
-	expect(render({ ...running, status: 'exited', exitCode: 7 })).toContain('>Failed</span>')
-	expect(render({ ...running, status: 'exited' })).toContain('>Finished</span>')
+	// A task that simply finished says only how long it took; a failure and a stop say so in words.
+	const done = { ...running, status: 'exited', completedAt: 66_000 }
+	expect(render({ ...done, exitCode: 0 })).toContain('>1m 5s</span>')
+	expect(render({ ...done, exitCode: 0 })).not.toContain('task-words')
+	expect(render({ ...done, exitCode: 7 })).toContain('>Failed</span>')
+	expect(render({ ...done, status: 'killed' })).toContain('>Stopped</span>')
 	expect(render({ ...running, status: 'unrecognized' })).toContain('>Status unavailable</span>')
 })
 
@@ -63,7 +66,7 @@ it('keeps a full accessible command when the compact visible row truncates it', 
 	expect(html).toContain(
 		'aria-label="Output for node long-process --input &lt;untrusted&gt; &amp; arguments"',
 	)
-	expect(html).toContain('class="job-command"')
+	expect(html).toContain('class="task-title"')
 	expect(html).not.toContain('<untrusted>')
 })
 

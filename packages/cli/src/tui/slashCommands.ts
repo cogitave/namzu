@@ -85,6 +85,7 @@ import { SKILL_NAME_MAX_CHARS, SKILL_NAME_PATTERN } from '../skills/save.js'
 import { ARGUMENTS_TOKEN, type UserCommand, expandCommand } from '../user-commands/store.js'
 import { keysHelpText } from './keymap.js'
 import { isCompletionArgument } from './login-prompt.js'
+import { terminalSetupText, tuiCommandText } from './screen-command.js'
 import { THEME_USAGE, parseThemeArgument } from './theme-command.js'
 import type { ThemeSetting } from './theme-palettes.js'
 
@@ -1557,6 +1558,33 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				renderCost(ctx.usage, ctx.compaction, details),
 			)
 		},
+	},
+	{
+		name: 'tui',
+		immediate: true,
+		help: {
+			usage: ['/tui [default|fullscreen]'],
+			details: [
+				'Run /tui to see which screen Namzu is using. /tui fullscreen or /tui default saves your choice for the next start and forgets any failed fullscreen starts recorded on this machine. NAMZU_FULLSCREEN in the environment wins over it.',
+			],
+		},
+		description: 'Choose the screen: /tui [default|fullscreen].',
+		action: (_ctx, args) => ({ kind: 'message', role: 'system', content: tuiCommandText(args) }),
+	},
+	{
+		name: 'terminal-setup',
+		immediate: true,
+		help: {
+			usage: ['/terminal-setup'],
+			details: [
+				'Sets up Shift+Enter for a new line in the terminal Namzu runs in: VS Code, Cursor, Windsurf, Zed and Alacritty get a key binding (Terminal.app gets Option+Enter), and any file it changes is copied to a .bak file first. Other terminals are told what to do. It runs only when you type it.',
+			],
+		},
+		description: 'Set up Shift+Enter for new lines in this terminal.',
+		action: (_ctx, args) =>
+			args.length === 0
+				? { kind: 'message', role: 'system', content: terminalSetupText() }
+				: { kind: 'message', role: 'system', content: 'Usage: /terminal-setup' },
 	},
 	{
 		name: 'doctor',

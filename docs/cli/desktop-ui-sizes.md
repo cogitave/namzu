@@ -59,6 +59,10 @@ Pal's mark) is not a glyph and may be 18 high.
 32 px form field and large button, 36 px header band. A coarse pointer raises the hit area to 44 px
 through the button's `after:` rule; the icon does not grow.
 
+## The Background tasks pane
+
+A task row is 28 px high with a 16 px kind icon, the title at small (13/18), the state and the time at caption (12/16, the time in tabular figures) and a 24 px ghost Stop button with a 14 px icon. The pane's section headings are 13 at weight 500 with a 12 px caption count; its header is the pane header (14/20, weight 500) with a 24 px ghost "Clear finished tasks" button. The output under a row is in the code face at caption size, at most 200 px tall. The only colour is the error colour on the word "Failed"; no row or button has an accent fill. The empty state's icon is 24 px.
+
 ## Where an accent fill is allowed
 
 1. the one primary button of a surface;

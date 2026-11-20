@@ -31,6 +31,7 @@ export {
 export { compileBrowserSites, withBrowserSiteRules } from './permissions/browser-sites.js'
 export { hasAcknowledgedBypass, acknowledgeBypass } from './permissions/consent.js'
 export { askBypassConsent } from './permissions/consent-prompt.js'
+export { warnBroadAllowRules } from './permissions/broad-allow.js'
 export { planLaunchMode } from './permissions/launch.js'
 export { permissionModeFromName } from './permissions/mode.js'
 export { createLivePermissionRules } from './permissions/live-rules.js'

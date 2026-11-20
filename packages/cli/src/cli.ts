@@ -870,6 +870,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			beginCatalogueRefresh(commandCtx.config)
 			const buildTuiContext = (resolvedCtx: ResolvedCommandContext, cwd: string) => {
 				runtime().warnLegacyMcpPermissionNames(resolvedCtx.config.permissions)
+				runtime().warnBroadAllowRules(cwd, runtime().cliLogger())
 				const permissions = runtime().compilePermissionLayers(
 					[...runtime().permissionLayersOf(resolvedCtx.config), ...runFlags.permissionLayers],
 					resolvedCtx.config.permissionChecks,

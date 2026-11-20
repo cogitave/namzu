@@ -58,6 +58,7 @@ import {
 import { cliLogger, contextLogging, createStderrSink, installCliLogging } from '../logging.js'
 import { loadOutputSchema } from '../output-schema.js'
 import { createFormatter } from '../output/index.js'
+import { warnBroadAllowRules } from '../permissions/broad-allow.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { launchRefusal } from '../permissions/launch.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
@@ -355,6 +356,7 @@ async function execPrint(
 	}
 
 	warnLegacyMcpPermissionNames(ctx.config.permissions)
+	warnBroadAllowRules(undefined, cliLogger())
 	const permissionTables = [...permissionLayersOf(ctx.config), ...run.permissionLayers]
 	const permissions = compilePermissionLayers(permissionTables, ctx.config.permissionChecks)
 	// A tool a layer refuses by name is left out of the run: its rules are

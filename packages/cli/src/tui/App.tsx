@@ -15462,8 +15462,7 @@ function AppBody({
 			isTurnRunning: () => abortRef.current !== null,
 			isDialogOpen: () => idleStateRef.current.dialogOpen,
 			hasPendingWake: () =>
-				roundQueueRef.current.items().length > 0 ||
-				(scheduleRef.current?.loops.list().length ?? 0) > 0,
+				roundQueueRef.current.items().length > 0 || (scheduleRef.current?.hasPending() ?? false),
 			hasBackgroundWork: () => {
 				const live = idleStateRef.current.session
 				return (
@@ -15538,7 +15537,7 @@ function AppBody({
 				idleStateRef.current.session?.subagents
 					?.getSnapshot()
 					.some((agent) => ['starting', 'queued', 'working'].includes(agent.status)) ?? false,
-			loopScheduled: () => (scheduleRef.current?.loops.list().length ?? 0) > 0,
+			loopScheduled: () => scheduleRef.current?.hasPending() ?? false,
 			rows: () => recapRows(messagesLiveRef.current),
 			generate: (signal) => writeRecap(signal),
 			append: pushRecap,
@@ -15617,8 +15616,7 @@ function AppBody({
 		isTurnRunning: () => abortRef.current !== null || compactingRef.current,
 		isDialogOpen: () => idleStateRef.current.dialogOpen,
 		hasPendingWake: () =>
-			roundQueueRef.current.items().length > 0 ||
-			(scheduleRef.current?.loops.list().length ?? 0) > 0,
+			roundQueueRef.current.items().length > 0 || (scheduleRef.current?.hasPending() ?? false),
 		hasBackgroundWork: () => {
 			const live = idleStateRef.current.session
 			return (
@@ -15877,7 +15875,7 @@ function AppBody({
 	useEffect(() => {
 		if (state !== 'idle' || palDefinitionRef.current) return
 		try {
-			scheduleRef.current?.loops.tick()
+			scheduleRef.current?.tick({ turnEnded: true })
 		} catch {
 			// A loop that cannot be read never takes the screen down with it.
 		}
