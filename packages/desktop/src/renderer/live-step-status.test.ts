@@ -153,23 +153,40 @@ describe('the last two steps', () => {
 		}
 		return thread
 	}
-	it('keeps two in view and folds the rest behind a count', () => {
+	it('keeps two finished steps in view and folds the rest behind a count, the running one is in the header', () => {
 		const thread = run(5)
 		const entries = thread.timeline.filter((entry) => entry.turn === thread.turn)
 		const recent = liveRecentSteps(thread, entries)
 		expect(recent.shown).toHaveLength(2)
-		expect(recent.more).toBe(3)
+		expect(recent.more).toBe(2)
 		vi.setSystemTime(START + 9_000)
 		const html = render(thread)
 		expect(html).toContain('data-live-steps=""')
-		expect(html).toContain('3 more steps')
+		expect(html).toContain('2 more steps')
 		const live = html.slice(html.indexOf('data-live-steps'))
+		expect(plain(live)).toContain('run s3')
 		expect(plain(live)).toContain('run s4')
-		expect(plain(live)).toContain('run s5')
-		expect(plain(live)).not.toContain('run s3')
+		expect(plain(live)).not.toContain('run s5')
+		expect(plain(live)).not.toContain('run s2')
+	})
+	it('draws no tail when the only action is the running one', () => {
+		const thread = run(1)
+		const entries = thread.timeline.filter((entry) => entry.turn === thread.turn)
+		expect(liveRecentSteps(thread, entries)).toEqual({ shown: [], more: 0 })
+		vi.setSystemTime(START + 9_000)
+		expect(render(thread)).not.toContain('data-live-steps')
+	})
+	it('leaves out only the step the header names, so a parallel running step still shows', () => {
+		let thread = command(started(), 'a', 'pending', START + 1_000)
+		thread = command(thread, 'b', 'pending', START + 2_000)
+		const entries = thread.timeline.filter((entry) => entry.turn === thread.turn)
+		const { shown, more } = liveRecentSteps(thread, entries)
+		expect(more).toBe(0)
+		expect(shown).toHaveLength(1)
+		expect(shown[0]).toMatchObject({ kind: 'tool', id: '1:a' })
 	})
 	it('says nothing extra for two or fewer, and nothing once the turn has ended', () => {
-		expect(liveRecentSteps(run(2), run(2).timeline).more).toBe(0)
+		expect(liveRecentSteps(run(3), run(3).timeline).more).toBe(0)
 		let thread = run(5)
 		thread = update(
 			thread,
