@@ -102,19 +102,19 @@ describe('the elapsed time of a workflow row', () => {
 
 describe('three workflow rows under the status row', () => {
 	it.each([175, 100, 80])(
-		'start each with the bullet and fill columns at %i columns',
+		'start each with the pointer column and the bullet, and fill columns at %i columns',
 		async (cols) => {
 			const rows = await rowsAt(cols)
 			expect(rows).toHaveLength(3)
 			for (const row of rows) {
-				expect(row.startsWith('◯ ')).toBe(true)
+				expect(row.startsWith('  ◯ ')).toBe(true)
 				expect([...row].length).toBeLessThanOrEqual(cols - 2)
 			}
 			// Names are one column wide: the longest name sets it.
 			const longest = 'tui-open-on-a-clean-screen'.length
 			const barAt = rows.map((row) => at(row, /[▰▱]/u))
 			expect(new Set(barAt).size).toBe(1)
-			expect(barAt[0]).toBe(2 + longest + 2)
+			expect(barAt[0]).toBe(4 + longest + 2)
 			// The bars are the same width on every row.
 			const widths = rows.map((row) => (row.match(/[▰▱]/gu) ?? []).length)
 			expect(new Set(widths).size).toBe(1)
