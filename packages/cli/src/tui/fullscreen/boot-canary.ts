@@ -204,12 +204,19 @@ export function armBootCanary(
 	const key = String(world.ownPid)
 	let settled = false
 	let timer: ReturnType<typeof setTimeout> | undefined
-	const remove = (): void => {
+	const remove = (healthy = false): void => {
 		updateTerminalState((s) => {
-			if (s.fullscreenBootPending?.[key] === undefined) return s
+			// A launch that was seen to be healthy ends the run of failed starts: "two in a row".
+			let base = s
+			if (healthy) {
+				const { fullscreenBootStrikes, ...kept } = s
+				void fullscreenBootStrikes
+				base = kept
+			}
+			if (s.fullscreenBootPending?.[key] === undefined) return base
 			const { [key]: _own, ...others } = s.fullscreenBootPending
 			void _own
-			const { fullscreenBootPending, ...rest } = s
+			const { fullscreenBootPending, ...rest } = base
 			void fullscreenBootPending
 			return Object.keys(others).length > 0 ? { ...rest, fullscreenBootPending: others } : rest
 		}, opts.home)
@@ -237,7 +244,8 @@ export function armBootCanary(
 			return () => process.off('exit', handler)
 		})
 	const offExit = onExit(() => {
-		if (!settled && (process.exitCode === undefined || process.exitCode === 0)) remove()
+		if (!settled && (process.exitCode === undefined || process.exitCode === 0))
+			remove(timer !== undefined)
 	})
 	const settle = (): void => {
 		settled = true
@@ -251,7 +259,7 @@ export function armBootCanary(
 				if (settled) return
 				if (process.exitCode !== undefined && process.exitCode !== 0) return
 				settle()
-				remove()
+				remove(true)
 			}, opts.healthyAfterMs ?? HEALTHY_AFTER_MS)
 			timer.unref?.()
 		},
@@ -272,8 +280,9 @@ export function armBootCanary(
 		},
 		retire() {
 			if (settled) return
+			const drawn = timer !== undefined
 			settle()
-			remove()
+			remove(drawn)
 		},
 	}
 }

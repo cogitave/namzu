@@ -132,6 +132,24 @@ describe('the canary across launches', () => {
 		expect(next.decision.kind).toBe('strike')
 	})
 
+	it('a healthy launch between two failed starts resets the count', () => {
+		const noExit = () => () => undefined
+		armBootCanary({ home, world: world({ ownPid: 5 }), onExit: noExit })
+		expect(settleEarlierStarts({ home, world: world({ ownPid: 900 }) }).decision).toEqual({
+			kind: 'strike',
+			strikes: 1,
+		})
+		const healthy = armBootCanary({ home, world: world({ ownPid: 901 }), onExit: noExit })
+		healthy.firstFrame()
+		vi.advanceTimersByTime(HEALTHY_AFTER_MS)
+		expect(failedStartOnRecord(home, '1.0.0')).toBeUndefined()
+		armBootCanary({ home, world: world({ ownPid: 6 }), onExit: noExit })
+		expect(settleEarlierStarts({ home, world: world({ ownPid: 902 }) }).decision).toEqual({
+			kind: 'strike',
+			strikes: 1,
+		})
+	})
+
 	it('two failed starts turn it off, say so, and /tui forgets them', () => {
 		for (const pid of [5, 6]) {
 			armBootCanary({ home, world: world({ ownPid: pid }), onExit: () => () => undefined })

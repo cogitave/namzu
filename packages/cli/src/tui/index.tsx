@@ -90,8 +90,9 @@ export async function launchTui(
 	let autoOff = false
 	if (atTerminal && !hostedLaunch && envChoice === undefined) {
 		const earlier = settleEarlierStarts()
-		autoOff = earlier.autoOff
-		if (earlier.line !== undefined && ctx.tui?.fullscreen !== false)
+		// An explicit `tui.fullscreen: true` in the config is the person's word too.
+		autoOff = earlier.autoOff && ctx.tui?.fullscreen !== true
+		if (earlier.line !== undefined && autoOff && ctx.tui?.fullscreen !== false)
 			process.stderr.write(`${earlier.line}\n`)
 	}
 	const fullscreen = resolveFullscreen({

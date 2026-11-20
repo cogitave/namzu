@@ -402,6 +402,16 @@ function setUpAppleTerminal(world: SetupWorld): { lines: string[]; ok: boolean }
 			if (name !== '') profiles.add(name)
 		}
 		for (const profile of profiles) {
+			if (/[:\\]/.test(profile)) {
+				run('defaults', ['import', 'com.apple.Terminal', saved])
+				return {
+					lines: [
+						`Your Terminal.app profile "${profile}" has a ":" or a backslash in its name, so its settings were left unchanged.`,
+						'To set it up yourself, open Terminal > Settings > Profiles > Keyboard and check "Use Option as Meta key".',
+					],
+					ok: false,
+				}
+			}
 			for (const [setting, value] of [
 				['useOptionAsMetaKey', 'true'],
 				['Bell', 'false'],
@@ -412,6 +422,8 @@ function setUpAppleTerminal(world: SetupWorld): { lines: string[]; ok: boolean }
 				} catch {
 					run('/usr/libexec/PlistBuddy', ['-c', `Add ${path} bool ${value}`, plist])
 				}
+				const back = run('/usr/libexec/PlistBuddy', ['-c', `Print ${path}`, plist]).trim()
+				if (back !== value) throw new Error('the written value did not read back')
 			}
 		}
 		try {

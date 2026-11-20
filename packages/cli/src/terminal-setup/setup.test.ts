@@ -172,6 +172,9 @@ describe('/terminal-setup elsewhere', () => {
 			world({ TERM_PROGRAM: 'Apple_Terminal' }, 'darwin', {
 				run: (program, args) => {
 					calls.push([program, ...args].join(' '))
+					if (args[0] === '-c' && args[1]?.startsWith('Print ')) {
+						return args[1].endsWith('useOptionAsMetaKey') ? 'true\n' : 'false\n'
+					}
 					return args[0] === 'read' ? 'Basic\n' : ''
 				},
 			}),
@@ -193,6 +196,19 @@ describe('/terminal-setup elsewhere', () => {
 			}),
 		)
 		expect(failed).toContain('restored from the backup')
+		const odd: string[] = []
+		const refused = runTerminalSetup(
+			world({ TERM_PROGRAM: 'Apple_Terminal' }, 'darwin', {
+				stateHome: join(home, 'odd'),
+				run: (program, args) => {
+					odd.push([program, ...args].join(' '))
+					return args[0] === 'read' ? 'My:Profile\n' : ''
+				},
+			}),
+		)
+		expect(refused).toContain('left unchanged')
+		expect(odd.some((c) => c.includes('PlistBuddy'))).toBe(false)
+		expect(readTerminalState(join(home, 'odd')).optionAsMetaInstalled).toBeUndefined()
 		expect(calls2.some((c) => c.startsWith('defaults import'))).toBe(true)
 		expect(readTerminalState(join(home, 'other')).optionAsMetaInstalled).toBeUndefined()
 	})

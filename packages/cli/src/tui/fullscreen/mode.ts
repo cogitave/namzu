@@ -28,7 +28,7 @@ export interface FullscreenWorld {
 	 * alternate screen there; drawing on it twice would fight over it.
 	 */
 	readonly hosted: boolean
-	/** An earlier fullscreen start on this machine did not finish; it yields to the setting, not to the environment. */
+	/** An earlier fullscreen start on this machine did not finish; it yields to an explicit `tui.fullscreen: true` and to the environment. */
 	readonly autoOff?: boolean
 }
 
@@ -36,7 +36,7 @@ export function resolveFullscreen(world: FullscreenWorld): boolean {
 	if (!world.interactive || world.hosted) return false
 	const fromEnv = fullscreenFromEnv(world.env)
 	if (fromEnv !== undefined) return fromEnv
-	if (world.autoOff === true) return false
+	if (world.autoOff === true && world.setting !== true) return false
 	return world.setting ?? true
 }
 

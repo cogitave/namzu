@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 import { namzuHomePath } from '../integrations/state/home.js'
@@ -62,12 +62,72 @@ export function readTerminalState(home?: string): TerminalState {
 	}
 }
 
+const LOCK_STALE_MS = 5_000
+const LOCK_TRIES = 100
+
+function pause(ms: number): void {
+	try {
+		Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+	} catch {
+		// no way to wait here: the next try follows at once
+	}
+}
+
+/**
+ * Hold a short lock file while the state is read, changed and written, so two
+ * launches at the same moment do not overwrite each other's records. A lock
+ * left by a crashed launch is taken over after 5 seconds; if the lock cannot
+ * be had at all the update goes ahead without it.
+ */
+function withLock<T>(path: string, run: () => T): T {
+	const lock = `${path}.lock`
+	let held = false
+	try {
+		mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
+		for (let i = 0; i < LOCK_TRIES && !held; i++) {
+			try {
+				writeFileSync(lock, String(process.pid), { flag: 'wx', mode: FILE_MODE })
+				held = true
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code !== 'EEXIST') break
+				try {
+					if (Date.now() - statSync(lock).mtimeMs > LOCK_STALE_MS) rmSync(lock, { force: true })
+				} catch {
+					// it went away between the two calls
+				}
+				pause(5)
+			}
+		}
+	} catch {
+		// an unreachable folder fails the write below as well
+	}
+	try {
+		return run()
+	} finally {
+		if (held) {
+			try {
+				rmSync(lock, { force: true })
+			} catch {
+				// a stale lock is taken over later
+			}
+		}
+	}
+}
+
 /** Read, change and write the state. Returns what was written (or would have been). */
 export function updateTerminalState(
 	change: (state: TerminalState) => TerminalState,
 	home?: string,
 ): TerminalState {
 	const path = terminalStatePath(home)
+	return withLock(path, () => writeState(path, change, home))
+}
+
+function writeState(
+	path: string,
+	change: (state: TerminalState) => TerminalState,
+	home?: string,
+): TerminalState {
 	const next = change(readTerminalState(home))
 	const temp = `${path}.${randomUUID()}.tmp`
 	try {
