@@ -153,6 +153,10 @@ export type ToolFacts =
 			readonly background?: true
 			/** The command was already running when it was handed over (a key, a message, an interrupt or its timeout). */
 			readonly continued?: true
+			/** The background job this call started or took over, so a host can show what it is doing now. */
+			readonly jobId?: string
+			/** The time limit, in milliseconds, whose end moved the command to the background. */
+			readonly timeLimitMs?: number
 	  }
 	| {
 			readonly kind: 'read'

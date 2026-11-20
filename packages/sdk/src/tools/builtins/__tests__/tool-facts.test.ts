@@ -364,4 +364,25 @@ describe('admitToolFacts', () => {
 			}),
 		).toEqual({ kind: 'write', path: 'n.txt', operation: 'created', bytes: 4 })
 	})
+
+	it('reads a background command back with its job and the time limit that moved it', () => {
+		expect(
+			admitToolFacts({
+				kind: 'command',
+				command: 'make all',
+				background: true,
+				continued: true,
+				jobId: 'b00000001',
+				timeLimitMs: 120_000,
+				extra: 'dropped',
+			}),
+		).toEqual({
+			kind: 'command',
+			command: 'make all',
+			background: true,
+			continued: true,
+			jobId: 'b00000001',
+			timeLimitMs: 120_000,
+		})
+	})
 })

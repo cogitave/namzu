@@ -42,6 +42,8 @@ const panel = (
 			onClose: noop,
 			onOpenChanges: noop,
 			onOpenWork: noop,
+			onOpenTask: noop,
+			onOpenFinishedTasks: noop,
 			outputs,
 			onOpenOutput: noop,
 			contextPanel: source,

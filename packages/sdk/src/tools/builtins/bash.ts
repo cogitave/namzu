@@ -726,7 +726,7 @@ const BashToolBase = defineTool({
 						background: true,
 						...(job.outputFile === undefined ? {} : { outputFile: job.outputFile }),
 					},
-					facts: { kind: 'command', command: input.command, background: true },
+					facts: { kind: 'command', command: input.command, background: true, jobId: job.id },
 				}
 			} catch (err) {
 				// The per-owner cap, most likely. A refusal that names the limit
@@ -935,7 +935,14 @@ const BashToolBase = defineTool({
 						movedToBackground: true,
 						...(backgroundedBy ? { backgroundedBy } : {}),
 					},
-					facts: { kind: 'command', command: input.command, background: true, continued: true },
+					facts: {
+						kind: 'command',
+						command: input.command,
+						background: true,
+						continued: true,
+						jobId: backgroundedJobId,
+						...(timedOut || backgroundedBy === undefined ? { timeLimitMs: input.timeout } : {}),
+					},
 				}
 			}
 			const reset = await settle()

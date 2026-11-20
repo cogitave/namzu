@@ -3,12 +3,14 @@ import { type ReactNode, useState } from 'react'
 import type { ComputerAppsView } from '../shared/computer-protocol.js'
 import type { ThreadUsage } from '../shared/projection.js'
 import type { JobView } from '../shared/protocol.js'
+import { finishedLinkText, runningText } from './background-tasks-model.js'
 import { ContextInline, type ContextPanelSource, useContextPanel } from './context-panel.js'
 import type { ConversationSource } from './conversation-actions.js'
 import { FileTypeIcon } from './file-panel/file-icons.js'
 import {
 	ArchiveIcon,
 	ChevronRightIcon,
+	EyeIcon,
 	FileDiffIcon,
 	FileTextIcon,
 	FolderIcon,
@@ -23,11 +25,11 @@ import {
 	TerminalIcon,
 	XIcon,
 } from './icons.js'
-import { jobLabel, jobStatusOf } from './job-row.js'
+import { jobLabel } from './job-row.js'
 import { MENU_OFFSET } from './menu-metrics.js'
 import type { OutputFile } from './outputs-model.js'
 import { middleEllipsis, tildePath } from './path-display.js'
-import { type SessionSummary, finishedText, jobElapsed } from './session-summary-model.js'
+import { type SessionSummary, jobElapsed } from './session-summary-model.js'
 import { Button } from './ui/button.js'
 import './session-panel.css'
 
@@ -44,6 +46,10 @@ export interface SessionPanelProps {
 	onCopyPath?: () => void
 	onOpenChanges: () => void
 	onOpenWork: () => void
+	/** Opens the Background tasks pane at one task. */
+	onOpenTask: (job: JobView) => void
+	/** Opens the Background tasks pane on its Finished section. */
+	onOpenFinishedTasks: () => void
 	onStopJob?: (job: JobView) => Promise<unknown>
 	/** The commit action, drawn beside the totals. */
 	commit?: ReactNode
@@ -70,6 +76,8 @@ export interface SessionPanelProps {
 }
 
 const COLLAPSED_SOURCES = 3
+/** The short form lists at most this many running tasks; the pane has the rest. */
+const SESSION_TASK_ROWS = 4
 
 /** The folder row's "…": copy the path, or look at the archived conversations. */
 function FolderActions({
@@ -195,6 +203,8 @@ export function SessionPanel({
 	onCopyPath,
 	onOpenChanges,
 	onOpenWork,
+	onOpenTask,
+	onOpenFinishedTasks,
 	onStopJob,
 	commit,
 	detached,
@@ -211,11 +221,11 @@ export function SessionPanel({
 }: SessionPanelProps) {
 	const [serversOpen, setServersOpen] = useState(false)
 	const [showAllSources, setShowAllSources] = useState(false)
-	const [finishedOpen, setFinishedOpen] = useState(false)
 	const { environment, context, toolServers, changes, background } = summary
 	const running = jobs.filter((job) => job.status === 'running')
 	const finished = jobs.filter((job) => job.status !== 'running')
-	const finishedLine = finishedText(jobsKnown ? finished.length : background.finished)
+	const finishedCount = jobsKnown ? finished.length : background.finished
+	const finishedLine = finishedCount > 0 ? finishedLinkText(finishedCount) : undefined
 	return (
 		<div className="session-panel" data-testid="session-panel">
 			<div className="session-panel-head">
@@ -454,51 +464,60 @@ export function SessionPanel({
 					{jobsKnown && running.length === 0 && finished.length === 0 && (
 						<p className="session-note">None</p>
 					)}
-					{jobsKnown && (
-						<ul className="session-list" data-testid="session-jobs">
-							{running.map((job) => (
-								<li key={`${job.id}:${job.startedAt}`} data-state="running">
-									<TerminalIcon aria-hidden="true" />
-									<span className="session-label" title={jobLabel(job)}>
-										{jobLabel(job)}
-									</span>
-									<span className="session-value" data-testid="session-job-time">
-										{jobElapsed(job.startedAt, now)}
-									</span>
-									{onStopJob && <StopButton job={job} onStop={() => onStopJob(job)} />}
-								</li>
-							))}
-						</ul>
+					{jobsKnown && running.length > 0 && (
+						<>
+							<p className="session-note session-tasks-running" data-testid="session-jobs-running">
+								{runningText(running.length)}
+							</p>
+							<ul className="session-list" data-testid="session-jobs">
+								{running.slice(0, SESSION_TASK_ROWS).map((job) => (
+									<li key={`${job.id}:${job.startedAt}`} data-state="running">
+										<button
+											type="button"
+											className="session-row session-row-button session-task-open"
+											aria-label={`Show ${jobLabel(job)} in background tasks`}
+											onClick={() => onOpenTask(job)}
+										>
+											{job.kind === 'monitor' ? (
+												<EyeIcon aria-hidden="true" />
+											) : (
+												<TerminalIcon aria-hidden="true" />
+											)}
+											<span className="session-label" title={jobLabel(job)}>
+												{jobLabel(job)}
+											</span>
+											<span className="session-value" data-testid="session-job-time">
+												{jobElapsed(job.startedAt, now)}
+											</span>
+										</button>
+										{onStopJob && <StopButton job={job} onStop={() => onStopJob(job)} />}
+									</li>
+								))}
+							</ul>
+						</>
+					)}
+					{jobsKnown && running.length > SESSION_TASK_ROWS && (
+						<button
+							type="button"
+							className="session-row session-row-button"
+							onClick={() => onOpenTask(running[0] as JobView)}
+						>
+							<span className="session-label">
+								{`${running.length - SESSION_TASK_ROWS} more running`}
+							</span>
+						</button>
 					)}
 					{finishedLine && (
 						<button
 							type="button"
 							className="session-row session-row-button"
-							aria-expanded={finishedOpen}
 							disabled={!jobsKnown}
-							onClick={() => setFinishedOpen((value) => !value)}
+							data-testid="session-jobs-finished"
+							onClick={onOpenFinishedTasks}
 						>
 							<span className="session-label">{finishedLine}</span>
-							{jobsKnown && (
-								<ChevronRightIcon
-									className="session-chevron"
-									data-open={finishedOpen || undefined}
-									aria-hidden="true"
-								/>
-							)}
+							{jobsKnown && <ChevronRightIcon className="session-chevron" aria-hidden="true" />}
 						</button>
-					)}
-					{jobsKnown && finishedOpen && (
-						<ul className="session-list">
-							{finished.map((job) => (
-								<li key={`${job.id}:${job.startedAt}`} data-state="finished">
-									<span className="session-label" title={jobLabel(job)}>
-										{jobLabel(job)}
-									</span>
-									<span className="session-value">{jobStatusOf(job).label}</span>
-								</li>
-							))}
-						</ul>
 					)}
 				</Section>
 			</div>

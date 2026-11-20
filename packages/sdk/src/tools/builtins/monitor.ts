@@ -349,7 +349,12 @@ export function createMonitorTool(options: MonitorToolOptions = {}) {
 					success: true,
 					output: `Monitor started (job ${job.id}, expires in ${formatMonitorDuration(timeoutMs)} unless the command ends first; you get one notice at expiry — start it again if you still need the watch). Each line the command prints to stdout reaches you as an event while you keep working; do not poll or sleep. Stop it with job {"action":"kill","id":"${job.id}"}. An event may arrive while you are waiting for the user — it is not their reply.`,
 					data: { jobId: job.id, monitor: true, timeoutMs },
-					facts: { kind: 'command', command: input.command as string, background: true },
+					facts: {
+						kind: 'command',
+						command: input.command as string,
+						background: true,
+						jobId: job.id,
+					},
 				}
 			} catch (err) {
 				// The per-owner cap, most likely; naming the limit is actionable.

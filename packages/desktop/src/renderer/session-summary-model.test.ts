@@ -104,6 +104,8 @@ it('draws the model rows in the panel', () => {
 			onClose: () => {},
 			onOpenChanges: () => {},
 			onOpenWork: () => {},
+			onOpenTask: () => {},
+			onOpenFinishedTasks: () => {},
 		}),
 	)
 	for (const html of [panel]) {
@@ -130,6 +132,8 @@ it('says None, and Not known, instead of a count the panel cannot stand behind',
 			onClose: () => {},
 			onOpenChanges: () => {},
 			onOpenWork: () => {},
+			onOpenTask: () => {},
+			onOpenFinishedTasks: () => {},
 		}),
 	)
 	expect(empty).toContain('None')
@@ -142,6 +146,8 @@ it('says None, and Not known, instead of a count the panel cannot stand behind',
 			onClose: () => {},
 			onOpenChanges: () => {},
 			onOpenWork: () => {},
+			onOpenTask: () => {},
+			onOpenFinishedTasks: () => {},
 		}),
 	)
 	expect(unknown).toContain('Not known')
@@ -159,6 +165,8 @@ it('draws a chat with no project: This computer first, then Context and Backgrou
 			onClose: () => {},
 			onOpenChanges: () => {},
 			onOpenWork: () => {},
+			onOpenTask: () => {},
+			onOpenFinishedTasks: () => {},
 		}),
 	)
 	expect(html).toContain('aria-label="Environment"')
@@ -192,6 +200,8 @@ it('names a chat’s own folder in plain words, with a shortened path and no bra
 			onClose: () => {},
 			onOpenChanges: () => {},
 			onOpenWork: () => {},
+			onOpenTask: () => {},
+			onOpenFinishedTasks: () => {},
 		}),
 	)
 	expect(html).toContain('Chat folder')

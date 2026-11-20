@@ -40,6 +40,7 @@ export const PANE_LABEL: Record<GridKind, string> = {
 	changes: 'Changes',
 	browser: 'Browser',
 	files: 'Files',
+	tasks: 'Background tasks',
 }
 
 /** What a pane puts in its tile: the left of the header, its own actions, and the body. */
