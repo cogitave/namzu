@@ -19,7 +19,8 @@ import {
 	formatTuiExitSummary,
 } from './exit-summary.js'
 import { installFocusReporting } from './focus-reporting.js'
-import { resolveFullscreen } from './fullscreen/mode.js'
+import { armBootCanary, settleEarlierStarts } from './fullscreen/boot-canary.js'
+import { fullscreenFromEnv, resolveFullscreen, setScreenModeNow } from './fullscreen/mode.js'
 import {
 	FULLSCREEN_PANIC_RESET,
 	type PointerReport,
@@ -80,12 +81,32 @@ export async function launchTui(
 	writeLaunchMouseReset(process.stdout, hostedByHost(process.env, process.ppid))
 	// Fullscreen draws on the alternate screen, so the terminal's own screen and
 	// scrollback are left exactly as they were and come back when the app ends.
+	const atTerminal = process.stdout.isTTY === true && process.stdin.isTTY === true
+	const hostedLaunch = hostedByHost(process.env, process.ppid)
+	const envChoice = fullscreenFromEnv(process.env)
+	// A fullscreen start that never finished is remembered: the next launch on this machine
+	// uses the normal screen (and says so), and two in a row turn fullscreen off here until the
+	// next version or `/tui fullscreen`. `NAMZU_FULLSCREEN` is the person's word and skips this.
+	let autoOff = false
+	if (atTerminal && !hostedLaunch && envChoice === undefined) {
+		const earlier = settleEarlierStarts()
+		autoOff = earlier.autoOff
+		if (earlier.line !== undefined && ctx.tui?.fullscreen !== false)
+			process.stderr.write(`${earlier.line}\n`)
+	}
 	const fullscreen = resolveFullscreen({
 		env: process.env,
 		...(ctx.tui?.fullscreen !== undefined ? { setting: ctx.tui.fullscreen } : {}),
-		interactive: process.stdout.isTTY === true && process.stdin.isTTY === true,
-		hosted: hostedByHost(process.env, process.ppid),
+		interactive: atTerminal,
+		hosted: hostedLaunch,
+		autoOff,
 	})
+	setScreenModeNow({
+		fullscreen,
+		autoOff: autoOff && !fullscreen,
+		fromEnv: envChoice !== undefined,
+	})
+	const bootCanary = fullscreen && envChoice === undefined ? armBootCanary() : undefined
 	if (process.stdout.isTTY && !fullscreen) {
 		process.stdout.write(
 			hostedByHost(process.env, process.ppid)
@@ -317,6 +338,8 @@ export async function launchTui(
 	if (panicReset) process.on('exit', panicReset)
 	termination.onTerminate(async (signal) => {
 		terminatedBy = signal
+		// A signal is a deliberate leave, not a screen that failed to start.
+		bootCanary?.retire()
 		if (signal === 'SIGHUP') {
 			// The terminal is gone, so Ink's last frame and the terminal reset fail
 			// to write. That must not end the process ahead of the cleanup.
@@ -330,9 +353,15 @@ export async function launchTui(
 		// terminal back from the workspaces screen has to finish inside it.
 		if (workspaces.current !== null) await (await workspaces.current).shutdown()
 	})
+	// The first frame is drawn by now; the start counts as healthy 10 seconds later.
+	bootCanary?.firstFrame()
 	try {
 		await instance.waitUntilExit()
+	} catch (error) {
+		bootCanary?.failed()
+		throw error
 	} finally {
+		bootCanary?.retire()
 		// Leaving with the workspaces screen up hangs up the other sessions and hands the terminal back first.
 		if (workspaces.current !== null) await (await workspaces.current).shutdown()
 		termination.dispose()

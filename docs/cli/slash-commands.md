@@ -67,6 +67,8 @@ clause, so no line ends mid-sentence.
 | `/status` | Show model, permissions, files and latest cost, with the folder written from `~` or its last folders. The card leaves out the conversation id and the tool count; `/status details` adds the full conversation id, expands rules and isolation; `/status config` shows setting sources; `/status tools` lists callable tools. |
 | `/doctor` | Run the health checks (providers and sign-ins, sandbox, scheduler, browser, code index, folders and the rest) and show them in plain words: a row per check with a mark (a newer version shows as `✓ Updates: Namzu 9.9.9 is available` with the command to get it), and for each one that needs attention a short reason and what to try. The later lines of a long reason are behind `ctrl+o`. `namzu doctor` prints the full technical report, with `--json` and exit codes. |
 | `/permissions` | Choose Ask before changes, Auto-approve edits or Plan (read-only). More options contains Auto-approve tools, Preapproved tools only and View rules. |
+| `/terminal-setup` | Make Shift+Enter start a new line in the terminal Namzu runs in. VS Code, Cursor and Windsurf get a key binding (plus a faster scroll setting and GPU acceleration off), Zed and Alacritty get a key binding, and Terminal.app gets Option+Enter; every file it changes is copied to `<file>.<8 hex>.bak` first and the reply says what changed. Where it cannot write (a remote editor session, a file it cannot read) it prints the steps. iTerm2, WezTerm, Ghostty, Kitty, Warp and Windows Terminal need nothing and are told so. It runs only when you type it. See [Terminal setup](terminal-design.md#terminal-setup-and-the-fullscreen-fallback). |
+| `/tui` | `/tui` says which screen Namzu is using; `/tui fullscreen` or `/tui default` saves `tui.fullscreen` in your user config and forgets any failed fullscreen starts, for the next start. |
 | `/theme` | Change the colors: `/theme [name]`. Opens a picker with a live preview, or applies `auto`, `dark`, `light`, `dark-daltonized`, `light-daltonized`, `dark-ansi` or `light-ansi` directly. See [Themes](themes.md). |
 | `/effort` | Choose reasoning effort for future replies: /effort [level\|default] [hypermode on\|off]. Hypermode is an option of the effort, for any level and this conversation only; see [Hypermode](#hypermode). |
 | `/hypermode` | Toggle hypermode for this conversation: /hypermode [on\|off]. An independent on/off, shown beside effort and never changing it: while on, the model is told to use the `workflow` tool for every substantial task. |
@@ -108,7 +110,7 @@ every command either way.
   `/status`, `/cost`, `/tasks`, `/permissions`, `/hooks`, `/mcp` (reports only),
   `/btw`, `/exit`, `/rename`, `/skills` (the list), `/plugins`, `/goal`,
   `/workflows`, `/feedback`, `/help`, `/theme`, `/diff`, `/raw`, `/hypermode`,
-  `/doctor`, `/release-notes`, `/peers`, `/schedule`, `/loop`, `/abandon`,
+  `/doctor`, `/terminal-setup`, `/tui`, `/release-notes`, `/peers`, `/schedule`, `/loop`, `/abandon`,
   `/copy`, and `/skills save` and `/skills new`, which line themselves up behind
   the reply. `/clear`, `/new`, `/fork` and `/resume` also run at once: they take
   the conversation over and abandon the running reply on purpose.

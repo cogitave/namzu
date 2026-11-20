@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { type Tip, type TipContext, pickTip } from './spinner-tips.js'
+import { SPINNER_TIPS, type Tip, type TipContext, pickTip } from './spinner-tips.js'
 import { EMPTY_TIP_HISTORY, type TipHistory } from './tip-history.js'
 
 const ctx = (over: Partial<TipContext> = {}): TipContext => ({
@@ -75,5 +75,34 @@ describe('pickTip', () => {
 		expect(pickTip([broken, tip('ok')], ctx(), EMPTY_TIP_HISTORY, failed)?.id).toBe('ok')
 		expect(pickTip([broken, tip('ok')], ctx(), EMPTY_TIP_HISTORY, failed)?.id).toBe('ok')
 		expect(asked).toBe(1)
+	})
+})
+
+describe('the terminal tips', () => {
+	const ids = (over: Partial<TipContext>): string[] =>
+		SPINNER_TIPS.filter((tip) => tip.relevant(ctx({ platform: 'linux', launch: 6, ...over }))).map(
+			(tip) => tip.id,
+		)
+
+	it('suggests /terminal-setup only where it can set something up, and stops once it has', () => {
+		expect(ids({ env: { TERM_PROGRAM: 'vscode' } })).toContain('shift-enter-setup')
+		expect(ids({ env: { TERM_PROGRAM: 'ghostty' } })).not.toContain('shift-enter-setup')
+		expect(ids({ env: { TERM_PROGRAM: 'vscode' }, newlineKeyInstalled: true })).not.toContain(
+			'shift-enter-setup',
+		)
+		expect(ids({ env: { TERM_PROGRAM: 'vscode' }, newlineKeyInstalled: true })).toContain(
+			'shift-enter-reminder',
+		)
+	})
+
+	it('says Option+Enter in Terminal.app', () => {
+		expect(ids({ env: { TERM_PROGRAM: 'Apple_Terminal' }, platform: 'darwin' })).toContain(
+			'option-enter-setup',
+		)
+	})
+
+	it('offers the way back to fullscreen after a failed start', () => {
+		expect(ids({ fullscreenAutoOff: true })).toContain('fullscreen-off-here')
+		expect(ids({})).not.toContain('fullscreen-off-here')
 	})
 })

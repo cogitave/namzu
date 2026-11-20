@@ -1,3 +1,4 @@
+import { canSetUp, identifyTerminal } from '../terminal-setup/identify.js'
 import type { TipHistory } from './tip-history.js'
 
 /**
@@ -20,7 +21,17 @@ export interface TipContext {
 	readonly notificationsSet: boolean
 	/** Tool calls the last reply made. */
 	readonly lastTurnToolCalls: number
+	/** `/terminal-setup` has already put the newline key in for this terminal. */
+	readonly newlineKeyInstalled?: boolean
+	/** The operating system, for tips that depend on the terminal programs it has. */
+	readonly platform?: string
+	/** Fullscreen was left off for this launch because an earlier start on this machine failed. */
+	readonly fullscreenAutoOff?: boolean
 }
+
+const settable = (ctx: TipContext): boolean =>
+	canSetUp(identifyTerminal(ctx.env), ctx.platform ?? process.platform)
+const optionKey = (ctx: TipContext): boolean => identifyTerminal(ctx.env) === 'apple'
 
 export interface Tip {
 	readonly id: string
@@ -144,6 +155,45 @@ export const SPINNER_TIPS: readonly Tip[] = [
 		text: '/worktree gives a task its own checkout, so it leaves your files alone.',
 		cooldownLaunches: 15,
 		relevant: NEVER('worktree', 8),
+	},
+	{
+		id: 'shift-enter-setup',
+		text: 'Run /terminal-setup to use Shift+Enter for new lines',
+		cooldownLaunches: 10,
+		relevant: (ctx) => settable(ctx) && !optionKey(ctx) && ctx.newlineKeyInstalled !== true,
+	},
+	{
+		id: 'option-enter-setup',
+		text: 'Run /terminal-setup to use Option+Enter for new lines',
+		cooldownLaunches: 10,
+		relevant: (ctx) => settable(ctx) && optionKey(ctx) && ctx.newlineKeyInstalled !== true,
+	},
+	{
+		id: 'shift-enter-reminder',
+		text: 'Press Shift+Enter to send a multi-line message',
+		cooldownLaunches: 10,
+		relevant: (ctx) =>
+			settable(ctx) && !optionKey(ctx) && ctx.newlineKeyInstalled === true && ctx.launch > 3,
+	},
+	{
+		id: 'option-enter-reminder',
+		text: 'Press Option+Enter to send a multi-line message',
+		cooldownLaunches: 10,
+		relevant: (ctx) =>
+			settable(ctx) && optionKey(ctx) && ctx.newlineKeyInstalled === true && ctx.launch > 3,
+	},
+	{
+		id: 'editor-gpu-garbled',
+		text: 'Garbled characters? Turn off terminal GPU acceleration in the editor settings or run /terminal-setup',
+		cooldownLaunches: 8,
+		maxLifetimeShows: 5,
+		relevant: (ctx) => ['vscode', 'cursor', 'windsurf'].includes(identifyTerminal(ctx.env)),
+	},
+	{
+		id: 'fullscreen-off-here',
+		text: 'Fullscreen is off on this machine after a failed start · /tui fullscreen tries it again',
+		cooldownLaunches: 10,
+		relevant: (ctx) => ctx.fullscreenAutoOff === true,
 	},
 	{
 		id: 'status-line',
