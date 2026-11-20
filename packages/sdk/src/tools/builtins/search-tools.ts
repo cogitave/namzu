@@ -143,9 +143,23 @@ export const SearchToolsTool = defineTool({
 		const ranked = registry.searchDeferred(input.query).filter((tool) => permitted(tool.name))
 
 		if (ranked.length === 0) {
+			// One sentence for three different states read as "this tool does not exist", and a model
+			// that had just used the tool went looking for its own words on disk. Say which state it is.
+			const asked = input.query.trim()
+			if (registry.has(asked)) {
+				if (!permitted(asked)) {
+					return {
+						success: true,
+						output: `${asked} is not available in this session. Carry on without it.`,
+					}
+				}
+				if (registry.availability(asked) === 'active') {
+					return { success: true, output: `${asked} is already loaded: call it directly.` }
+				}
+			}
 			return {
 				success: true,
-				output: `No deferred tools matching "${input.query}".`,
+				output: `No deferred tools matching "${input.query}". A tool whose schema you can already see is loaded: call it directly. Only names listed under deferred_tools can be loaded; a tool that is not listed there does not exist in this session, so carry on without it.`,
 			}
 		}
 

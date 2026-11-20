@@ -101,6 +101,21 @@ model request in the same turn and, with retained source-bound receipts,
 on later sends. A compaction summary carries the loaded tools forward, as described below; readiness,
 step allow-lists and authorization still apply independently of discovery.
 
+## What an empty search says
+
+When `search_tools` loads nothing, its answer says which of three states the
+asked-for name is in, because one sentence for all of them reads as "this
+tool does not exist", and a model that had just used the tool went looking
+for its own words elsewhere:
+
+- the query is a tool's exact name and that tool is already loaded:
+  "`<name>` is already loaded: call it directly.";
+- the query is a tool's exact name outside the turn's `allowedTools`:
+  "`<name>` is not available in this session. Carry on without it.";
+- anything else: `No deferred tools matching "<query>".`, followed by the
+  rule that a visible schema needs no search and that a name not listed
+  under `deferred_tools` does not exist in this session.
+
 ## A successful result can load deferred schemas
 
 `search_tools` is one way to load a deferred schema; a tool's own

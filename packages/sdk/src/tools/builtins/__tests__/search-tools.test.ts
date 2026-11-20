@@ -77,6 +77,32 @@ describe('search_tools receipts', () => {
 		expect(second.output).toContain('No deferred tools matching')
 	})
 
+	it('says which of three states an empty search is: already loaded, not allowed, or not in this session', async () => {
+		const { manager, messages } = managerWith(tool('invoice_lookup'), tool('read_notes'))
+		const first = await SearchToolsTool.execute({ query: 'read_notes' }, context(manager))
+		messages.push(
+			createToolMessage(
+				first.output,
+				'search-notes',
+				false,
+				first.reveals?.map((name) => manager.revealReceipt(name)),
+			),
+		)
+		const loaded = await SearchToolsTool.execute({ query: 'read_notes' }, context(manager))
+		expect(loaded.output).toBe('read_notes is already loaded: call it directly.')
+		const refused = await SearchToolsTool.execute({ query: 'invoice_lookup' }, context(manager, []))
+		expect(refused.output).toBe(
+			'invoice_lookup is not available in this session. Carry on without it.',
+		)
+		expect(refused.reveals).toBeUndefined()
+		const unknown = await SearchToolsTool.execute(
+			{ query: 'search_past_conversations' },
+			context(manager),
+		)
+		expect(unknown.output).toContain('No deferred tools matching "search_past_conversations"')
+		expect(unknown.output).toContain('does not exist in this session, so carry on without it')
+	})
+
 	it('does not reveal a forbidden deferred tool', async () => {
 		const { manager } = managerWith(tool('invoice_lookup'))
 		const result = await SearchToolsTool.execute({ query: 'invoice' }, context(manager, []))
@@ -150,7 +176,7 @@ describe('search_tools receipts', () => {
 			)
 			expect(manager.availability('page_look')).toBe('active')
 			const again = await SearchToolsTool.execute({ query: 'page_look' }, context(manager))
-			expect(again.output).toContain('No deferred tools matching')
+			expect(again.output).toBe('page_look is already loaded: call it directly.')
 		})
 
 		it('does not load a companion outside the allow-list', async () => {
