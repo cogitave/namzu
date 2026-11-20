@@ -1257,6 +1257,30 @@ and drawn whole once the size has settled, so no old frame is left under the
 new one. The terminal is asked for button reports (wheel, presses and drags);
 they are taken off the input before the composer sees them.
 
+#### Terminal setup and the fullscreen fallback
+
+**`/terminal-setup`** sets up the newline key for the terminal Namzu runs in, and runs only when you type it. Namzu reads the terminal from the environment (`TERM_PROGRAM`, `TERM`, and the markers the editors and terminals set).
+
+| Terminal | What it does |
+|---|---|
+| VS Code, Cursor, Windsurf | Adds `{ "key": "shift+enter", "command": "workbench.action.terminal.sendSequence", "args": { "text": "\u001b\r" }, "when": "terminalFocus" }` to the editor's `keybindings.json`, sets `terminal.integrated.mouseWheelScrollSensitivity` to 3 when it is not set, and turns `terminal.integrated.gpuAcceleration` off. In a remote editor session it writes nothing and prints the three steps and the entry. |
+| Zed | Adds a `Terminal` entry binding `shift-enter` to `terminal::SendText` to `~/.config/zed/keymap.json`. |
+| Alacritty | Appends a `[[keyboard.bindings]]` block (`Return` with `Shift`) to `alacritty.toml`. |
+| Terminal.app (macOS) | Turns on "Use Option as Meta key" and turns off the bell in the default and startup profiles, so Option+Enter is a newline; the preferences are exported first and put back if a step fails. |
+| iTerm2, WezTerm, Ghostty, Kitty, Warp, Windows Terminal | Nothing to change; the reply says Shift+Enter works there (Windows Terminal from 1.25). |
+| tmux | Prints the two `~/.tmux.conf` lines tmux needs. |
+| Any other terminal | Says it cannot set that terminal up and lists the ones it can. Alt+Enter and Ctrl+J start a new line everywhere. |
+
+Before a file is changed it is copied to `<file>.<8 hex>.bak` next to it; comments and layout in the file are kept; a file Namzu cannot read as the shape it expects is left alone and the exact lines to add are printed. When it succeeds Namzu remembers that in `~/.namzu/terminal-state.json` (`shiftEnterInstalled`, or `optionAsMetaInstalled` for Terminal.app). The [tip under the working row](#tips-and-the-next-task-under-the-working-row) suggests `/terminal-setup` in a terminal it can set up until then (`Run /terminal-setup to use Shift+Enter for new lines`, cooldown 10 launches), reminds you of the key afterwards, and in an editor terminal also offers the garbled-text fix.
+
+**A fullscreen start that fails.** A launch that draws fullscreen writes a record under its process id in `terminal-state.json`, and removes it once the first frame has been drawn and the process is still healthy 10 seconds later, or when it ends cleanly or by a signal. A record left behind whose process is gone, or whose interface failed while starting, is one failed start for that version. After one, the next launch uses the normal screen and says so on stderr: `Namzu's fullscreen mode didn't finish starting last time on this machine, so this launch uses the normal screen. It will try fullscreen again next launch; /tui default keeps the normal screen.` A launch that stays healthy (10 seconds after its first frame, or ending cleanly after drawing) resets the count, so failures months apart never add up. After two in a row fullscreen is turned off on this machine for that version: `Namzu's fullscreen mode has repeatedly failed to start on this machine, so it has been turned off here. Run /tui fullscreen to try it again (this also resets after an update).` A newer version of Namzu tries again. Records from another machine are ignored for 30 days and a live one is dropped after 10 minutes. `NAMZU_FULLSCREEN` is never second-guessed: when it is set, no record is written and none is read, so `NAMZU_FULLSCREEN=1` forces fullscreen and `=0` forces the normal screen. With `tui.fullscreen: false` the line is not printed (the normal screen was asked for), though the records are still settled. An explicit `tui.fullscreen: true` in your config is also your word: it wins over a recorded failed start and the line is not printed. Only `/tui fullscreen`, `/tui default`, or an update clears the records. Several launches at the same moment share the state file through a short lock file; one left by a crash is taken over after 5 seconds.
+
+**Not covered yet.** `/tui` saves the setting and asks you to restart Namzu; it does not restart it for you. `/terminal-setup` is offered only by the spinner tips, not by a first-run prompt, and it is for the terminal UI: Desktop and `namzu exec` hosts do not offer it. Terminal.app is not skipped on macOS 27 or with a screen reader, and the Windows Terminal reply is fixed text (it works from Windows Terminal 1.25) with no check of the terminal. Terminal.app setup refuses a profile whose name contains `:` or a backslash and prints the manual steps, and it reads each value back after writing it, restoring the backup if one is wrong. The Terminal.app and Windows steps are tested only with a stand-in program runner, not on a real machine.
+
+**`/tui`** shows which screen is in use and, when a failed start is on record, says so. `/tui fullscreen` and `/tui default` save `tui.fullscreen` in your user config, forget the failed starts, and say the choice applies the next time Namzu starts (it does not restart for you). When `NAMZU_FULLSCREEN` is set, the reply says it wins over the saved choice.
+
+Code: `packages/cli/src/terminal-setup/` (`setup.ts`, `identify.ts`, `jsonc.ts`, `state.ts`), `tui/fullscreen/boot-canary.ts`, `tui/screen-command.ts`.
+
 #### The wheel
 
 A notch is not a jump. Every notch adds rows to a distance still to travel,

@@ -1,8 +1,9 @@
 /**
  * Whether the terminal UI draws fullscreen: on the alternate screen, with its
- * own scrolling and the pointer. On unless turned off: `NAMZU_FULLSCREEN=0` or
- * `tui.fullscreen: false`. The environment wins over the setting, and the mode
- * is only ever taken for a person at a real terminal.
+ * own scrolling and the pointer. On unless turned off: `NAMZU_FULLSCREEN=0`,
+ * `tui.fullscreen: false`, or a record that fullscreen failed to start on this
+ * machine (see `boot-canary.ts`). The environment wins over everything else,
+ * and the mode is only ever taken for a person at a real terminal.
  */
 
 const OFF = new Set(['', '0', 'false', 'no', 'off'])
@@ -27,9 +28,33 @@ export interface FullscreenWorld {
 	 * alternate screen there; drawing on it twice would fight over it.
 	 */
 	readonly hosted: boolean
+	/** An earlier fullscreen start on this machine did not finish; it yields to an explicit `tui.fullscreen: true` and to the environment. */
+	readonly autoOff?: boolean
 }
 
 export function resolveFullscreen(world: FullscreenWorld): boolean {
 	if (!world.interactive || world.hosted) return false
-	return fullscreenFromEnv(world.env) ?? world.setting ?? true
+	const fromEnv = fullscreenFromEnv(world.env)
+	if (fromEnv !== undefined) return fromEnv
+	if (world.autoOff === true && world.setting !== true) return false
+	return world.setting ?? true
+}
+
+/** What the launch resolved to, kept for `/tui` and the hints. Set once by the terminal entry. */
+export interface ScreenModeNow {
+	readonly fullscreen: boolean
+	/** Fullscreen was left off because an earlier start on this machine failed. */
+	readonly autoOff: boolean
+	/** `NAMZU_FULLSCREEN` is set and decided it. */
+	readonly fromEnv: boolean
+}
+
+let screenModeNow: ScreenModeNow | undefined
+
+export function setScreenModeNow(mode: ScreenModeNow | undefined): void {
+	screenModeNow = mode
+}
+
+export function getScreenModeNow(): ScreenModeNow | undefined {
+	return screenModeNow
 }

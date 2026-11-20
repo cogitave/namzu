@@ -193,6 +193,12 @@
 		},
 		{
 			"file": "packages/cli/src/tui/index.tsx",
+			"symbol": "process.stderr.write",
+			"count": 1,
+			"reason": "the one line said before the screen is drawn when an earlier fullscreen start failed and this launch uses the normal screen, with how to turn fullscreen back on; user-facing text for a person at a terminal, written before Ink owns stdout, not a log record."
+		},
+		{
+			"file": "packages/cli/src/tui/index.tsx",
 			"symbol": "process.stdout.write",
 			"count": 4,
 			"reason": "the TUI's four user-facing terminal writes: the clear/home control before Ink takes ownership, the terminal-escaped conversation/resume handoff after Ink and the buffered log sink have both settled, the private terminal message a session started by the workspaces host sends the host when its left-arrow gesture fires, and the fullscreen mode's last-resort reset that leaves the alternate screen and turns mouse reporting off when the process dies. None is a diagnostic record."

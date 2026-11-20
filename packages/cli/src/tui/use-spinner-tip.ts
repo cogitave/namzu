@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 
+import { identifyTerminal } from '../terminal-setup/identify.js'
+import { readTerminalState } from '../terminal-setup/state.js'
+import { getScreenModeNow } from './fullscreen/mode.js'
 import { SPINNER_TIPS, type Tip, type TipContext, pickTip } from './spinner-tips.js'
 import type { TipHistoryStore } from './tip-history.js'
 
@@ -15,6 +18,16 @@ export interface SpinnerTipInput {
 	readonly lastTurnToolCalls: () => number
 	readonly env?: Readonly<Record<string, string | undefined>>
 	readonly tips?: readonly Tip[]
+	/** Whether `/terminal-setup` has set up this terminal; read from the saved record when absent. */
+	readonly newlineKeyInstalled?: () => boolean
+}
+
+function terminalMemory(input: SpinnerTipInput): boolean {
+	if (input.newlineKeyInstalled) return input.newlineKeyInstalled()
+	const saved = readTerminalState()
+	return identifyTerminal(input.env ?? process.env) === 'apple'
+		? saved.optionAsMetaInstalled === true
+		: saved.shiftEnterInstalled === true
 }
 
 /**
@@ -48,6 +61,9 @@ export function useSpinnerTip(input: SpinnerTipInput): string | undefined {
 			statusLineSet: now.statusLineSet,
 			notificationsSet: now.notificationsSet,
 			lastTurnToolCalls: now.lastTurnToolCalls(),
+			newlineKeyInstalled: terminalMemory(now),
+			platform: process.platform,
+			fullscreenAutoOff: getScreenModeNow()?.autoOff === true,
 		}
 		const picked = pickTip(now.tips ?? SPINNER_TIPS, ctx, history, failed.current)
 		if (picked) store.recordShown(picked.id)
