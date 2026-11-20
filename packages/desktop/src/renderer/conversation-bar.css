@@ -29,6 +29,7 @@
 	isolation: isolate;
 	display: block;
 	max-width: 100%;
+	min-height: 24px;
 	margin: 0;
 	padding: 0;
 	overflow: hidden;
@@ -36,6 +37,7 @@
 	background: transparent;
 	color: inherit;
 	font: inherit;
+	line-height: 24px;
 	text-align: left;
 	text-overflow: ellipsis;
 	white-space: nowrap;

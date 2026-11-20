@@ -2843,6 +2843,26 @@ export function App({
 			poll.stop()
 		}
 	}, [sessionId, palConversation, api, historyPending, restoringTabs, jobsWanted])
+	// With nothing polling, one read when a conversation opens (after a restart too) is enough for the
+	// tasks button to know whether the conversation has any tasks.
+	useEffect(() => {
+		if (!sessionId || !api || palConversation || historyPending || restoringTabs || jobsWanted)
+			return
+		let current = true
+		api
+			.jobs(sessionId)
+			.then((rows) => {
+				if (!current) return
+				setJobs(rows)
+				setJobsSessionId(sessionId)
+			})
+			.catch(() => {
+				// No list only means the button stays hidden until a task shows up.
+			})
+		return () => {
+			current = false
+		}
+	}, [sessionId, palConversation, api, historyPending, restoringTabs, jobsWanted])
 	const palTasksVisible = Boolean(
 		pal &&
 			(palScreen?.palId === pal.id && palScreen.activeTab === 'computer'

@@ -210,3 +210,20 @@ it('shows a failed read as unavailable and tries again slowly', async () => {
 	await vi.advanceTimersByTimeAsync(60_000)
 	expect(calls).toBe(2)
 })
+
+it('keeps one long line that ends with a newline', () => {
+	expect(tailView('c', { output: `${'x'.repeat(9000)}\n` }).kind).toBe('text')
+})
+
+it('keeps the first line when the cut falls on a line start', () => {
+	const view = tailView('c', { output: `q\n${'b'.repeat(TAIL_CHARS)}` })
+	expect(view).toMatchObject({ kind: 'text', earlier: true })
+	if (view.kind === 'text') expect(view.text).toBe('b'.repeat(TAIL_CHARS))
+})
+
+it('words a monitor in the transcript like the pane does', () => {
+	expect(backgroundNote(job({ id: 'm', kind: 'monitor' })).text).toBe('Watching in background')
+	expect(
+		backgroundNote(job({ id: 'm', kind: 'monitor', status: 'killed', stopReason: 'expired' })).text,
+	).toBe('Ran out of time in background')
+})

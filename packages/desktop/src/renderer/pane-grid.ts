@@ -129,7 +129,11 @@ export function placePane(layout: Layout, kind: GridKind, height: number): Layou
 	// No free column: the column with the fewest panes takes it, the right one on a tie.
 	let target = columns[0] as Column
 	for (const column of columns) if (column.tiles.length <= target.tiles.length) target = column
-	target.tiles = equalise([...target.tiles, tile])
+	// A full grid holds MAX_COLUMNS x MAX_TILES panes (what a reload keeps), so the new pane takes the
+	// place of the bottom one in that column instead of being lost on the next load.
+	const kept =
+		target.tiles.length >= MAX_TILES ? target.tiles.slice(0, MAX_TILES - 1) : target.tiles
+	target.tiles = equalise([...kept, tile])
 	return next(columns)
 }
 

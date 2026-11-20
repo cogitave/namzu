@@ -149,10 +149,14 @@ export function tailView(command: string, result: TailResult | 'error' | undefin
 	let text = result.output
 	let earlier = result.truncated === true
 	if (text.length > TAIL_CHARS) {
+		const cutAtLineStart = text[text.length - TAIL_CHARS - 1] === '\n'
 		text = text.slice(-TAIL_CHARS)
-		// The cut most likely fell inside a line: that first piece is dropped.
-		const newline = text.indexOf('\n')
-		if (newline >= 0) text = text.slice(newline + 1)
+		// The cut most likely fell inside a line: that first piece is dropped, unless the cut fell on a
+		// line start or the piece is all there is to show.
+		if (!cutAtLineStart) {
+			const newline = text.indexOf('\n')
+			if (newline >= 0 && text.slice(newline + 1).trim() !== '') text = text.slice(newline + 1)
+		}
 		earlier = true
 	}
 	if (text.trim() === '') return { kind: 'empty', command }
@@ -257,6 +261,12 @@ export function writeChoices(
 /** What a background command's row says about its job, in the row's words. */
 export function backgroundNote(job: JobView | undefined): { text: string; tone: 'dim' | 'err' } {
 	if (!job) return { text: 'Started in background', tone: 'dim' }
+	if (job.kind === 'monitor') {
+		if (isRunning(job)) return { text: 'Watching in background', tone: 'dim' }
+		if (job.stopReason === 'expired') return { text: 'Ran out of time in background', tone: 'dim' }
+		if (job.stopReason === 'too_much_output')
+			return { text: 'Stopped for too much output', tone: 'dim' }
+	}
 	if (isRunning(job)) return { text: 'Running in background', tone: 'dim' }
 	if (job.status === 'killed') return { text: 'Stopped in background', tone: 'dim' }
 	if (job.exitCode !== undefined && job.exitCode !== 0)
