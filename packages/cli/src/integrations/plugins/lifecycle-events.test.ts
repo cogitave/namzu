@@ -4,7 +4,7 @@
  * instruction file and a command that expanded. Each hook is a small script
  * that records what it was sent and answers from what the test wrote.
  */
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { MCPElicitationRequest } from '@namzu/sdk'
@@ -285,10 +285,13 @@ describe('instructions_loaded', () => {
 		mkdirSync(join(cwd, '.git'))
 		writeFileSync(join(cwd, 'AGENTS.md'), 'Be kind. @notes.md\n')
 		writeFileSync(join(cwd, 'notes.md'), 'More.\n')
-		const log = join(cwd, 'seen.log')
+		// The two files' hooks run at the same time, so each run writes a file of its own:
+		// appending both to one file can interleave their lines.
+		const seen = join(cwd, 'seen')
+		mkdirSync(seen)
 		const runtime = await runtimeWith(cwd, {
 			instructions_loaded: [
-				{ command: `cat >> '${log}'; echo >> '${log}'`, matcher: 'session_start|include' },
+				{ command: `cat > "$(mktemp '${seen}/run.XXXXXX')"`, matcher: 'session_start|include' },
 			],
 		})
 		const running: Promise<void>[] = []
@@ -307,10 +310,9 @@ describe('instructions_loaded', () => {
 			memoryType: 'Project',
 			loadReason: 'compact',
 		})
-		const lines = readFileSync(log, 'utf8')
-			.split('\n')
-			.filter((line) => line.startsWith('{'))
-			.map((line) => JSON.parse(line))
+		const lines = readdirSync(seen).map((name) =>
+			JSON.parse(readFileSync(join(seen, name), 'utf8')),
+		)
 		const named = lines.map((line) => [line.load_reason, line.file_path.split('/').pop()])
 		expect(named).toEqual(
 			expect.arrayContaining([
