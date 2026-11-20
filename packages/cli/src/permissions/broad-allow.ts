@@ -93,6 +93,9 @@ const WRAPPERS: readonly string[] = [
 	'runuser',
 ]
 
+/** Wrappers a rule must name the program after, even behind flags. */
+const SHELL_WRAPPERS: readonly string[] = ['sh', 'bash', 'zsh', 'fish', 'env', 'xargs', 'sudo']
+
 /** Tools that reach other machines or accounts; their rule has to name what they do. */
 const NETWORK_TOOLS: readonly string[] = ['curl', 'wget', 'kubectl', 'aws', 'gcloud', 'gsutil']
 
@@ -147,7 +150,17 @@ function startsWithFlag(rest: string): boolean {
 function networkVerdict(name: string, rest: string): boolean {
 	if (/[$`]/.test(rest)) return true
 	const words = rest.split(/\s+/).filter((w) => w !== '' && w !== '*')
-	const firstPlain = words.find((w) => !w.startsWith('-'))
+	let firstPlain: string | undefined
+	for (let i = 0; i < words.length; i += 1) {
+		const word = words[i] as string
+		if (!word.startsWith('-')) {
+			firstPlain = word
+			break
+		}
+		// A flag without `=` takes the next word as its value when that is not a flag.
+		const next = words[i + 1]
+		if (!word.includes('=') && next !== undefined && !next.startsWith('-')) i += 1
+	}
 	if (firstPlain === undefined) return !(/^(?:curl|wget)$/.test(name) && rest.includes('://'))
 	if (/^(?:curl|wget)$/.test(name)) return false
 	if (name === 'kubectl') return KUBECTL_WRITES.has(firstPlain)
@@ -194,7 +207,7 @@ export function broadBashPattern(
 			}
 			continue
 		}
-		if (exact || startsWithFlag(rest)) {
+		if (exact || (SHELL_WRAPPERS.includes(name) && startsWithFlag(rest))) {
 			return {
 				why: `it lets \`${name}\` run any command after it`,
 				instead: `Bash(${name === 'sudo' ? 'sudo systemctl status *' : `${name} 30 git status *`})`,

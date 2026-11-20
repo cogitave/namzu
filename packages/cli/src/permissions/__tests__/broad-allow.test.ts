@@ -61,6 +61,12 @@ describe('which bash allow patterns allow any program', () => {
 		'gsutil *',
 		'curl -d $BODY *',
 		'DOCKER=1 bash *',
+		'curl -X POST *',
+		'curl -H x *',
+		'curl -o out.txt *',
+		'wget -O f *',
+		'kubectl -n ns exec *',
+		'kubectl --context prod delete *',
 	])('flags %s', (pattern) => {
 		const found = broadBashPattern(pattern)
 		expect(found, String(pattern)).toBeDefined()
@@ -83,6 +89,9 @@ describe('which bash allow patterns allow any program', () => {
 		'npx prettier *',
 		'bash scripts/deploy.sh *',
 		'timeout 30 git status *',
+		'timeout -k 5 30 git status *',
+		'nice -n 5 git log *',
+		'kubectl -n ns get pods *',
 		'env FOO=1 git log *',
 		'sudo systemctl status *',
 		'ssh deploy@host.example.com uptime',

@@ -101,6 +101,7 @@ import { palConversationBinding } from '../pals/conversations.js'
 import { closeCliPalRuntime, getCliPalRuntime } from '../pals/environment.js'
 import { type CliPalInboxStarter, createPalInboxStarter } from '../pals/inbox-start.js'
 import { palAtWorkspace } from '../pals/store.js'
+import { warnBroadAllowRules } from '../permissions/broad-allow.js'
 import { compileBrowserSites, withBrowserSiteRules } from '../permissions/browser-sites.js'
 import { canonicalProjectPath } from '../permissions/canonical-project.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
@@ -1075,6 +1076,7 @@ export function createCliAcpRuntime(
 					cwd,
 				)
 				warnLegacyMcpPermissionNames(projectCtx.config.permissions)
+				warnBroadAllowRules(cwd, cliLogger())
 				const permissions = compilePermissionLayers(
 					permissionLayersOf(projectCtx.config),
 					projectCtx.config.permissionChecks,
