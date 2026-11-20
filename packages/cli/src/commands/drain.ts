@@ -46,7 +46,8 @@ import { resolveTrustedProjectContext } from '../config/trusted-project-context.
 import { EXIT_FAIL, EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 import { readSessionStart } from '../integrations/sessions/session-start.js'
-import { contextLogging, createStderrSink, installCliLogging } from '../logging.js'
+import { cliLogger, contextLogging, createStderrSink, installCliLogging } from '../logging.js'
+import { warnBroadAllowRules } from '../permissions/broad-allow.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import {
 	compilePermissionLayers,
@@ -440,6 +441,7 @@ export const drainCommand: CommandDef = {
 		}
 		prefs = applyProviderFlags(prefs, flags)
 		warnLegacyMcpPermissionNames(ctx.config.permissions)
+		warnBroadAllowRules(undefined, cliLogger())
 		const permissions = compilePermissionLayers(
 			permissionLayersOf(ctx.config),
 			ctx.config.permissionChecks,
