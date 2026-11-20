@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { lstatSync, mkdirSync, mkdtempSync } from 'node:fs'
+import { lstatSync, mkdirSync, mkdtempSync, readlinkSync, symlinkSync, unlinkSync } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir, userInfo } from 'node:os'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
@@ -247,4 +247,39 @@ export function ensureScratchpadDirectory(
 		}
 	}
 	return target
+}
+
+/** The environment variable a shell command reads the session's scratch folder from. */
+export const NAMZU_SCRATCH_ENV = 'NAMZU_SCRATCH'
+
+/**
+ * A short path for a session's scratch folder: `<private root>/s-<8 hex>`, a
+ * symbolic link to the real folder, which keeps its long encoded path. The long
+ * path is easy to mistype (a dot for a dash, a dropped segment), and a command
+ * that fails on a mistyped path reads as "the write did not happen".
+ *
+ * The link lies directly under the private root, which only this user may
+ * enter, and is made only for a folder {@link ensureScratchpadDirectory} has
+ * accepted. When it cannot be made or is not ours to replace, the real folder
+ * is returned: the alias is a convenience, never a requirement.
+ */
+export function scratchpadAlias(directory: string, options: PrivateTempRootOptions = {}): string {
+	try {
+		const root = privateTempRoot(options)
+		const target = resolve(directory)
+		const alias = join(root, `s-${createHash('sha256').update(target).digest('hex').slice(0, 8)}`)
+		try {
+			if (readlinkSync(alias) === target) return alias
+			// Ours by name and kind, but pointing elsewhere (a collision or a moved folder).
+			unlinkSync(alias)
+		} catch (error) {
+			const code = (error as NodeJS.ErrnoException).code
+			// A path that exists and is not a link (EINVAL) is not ours to replace.
+			if (code !== 'ENOENT') return target
+		}
+		symlinkSync(target, alias, 'dir')
+		return alias
+	} catch {
+		return resolve(directory)
+	}
 }

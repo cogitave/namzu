@@ -206,7 +206,9 @@ describe('the session scratch folder', () => {
 	})
 
 	it('has its path among the facts that ride with the date and the branch', () => {
-		expect(environmentFactLines(facts)).toContain(`The session's scratch folder is \`${path}\`.`)
+		expect(environmentFactLines(facts)).toContain(
+			`The session's scratch folder is \`${path}\`. In shell commands, \`$NAMZU_SCRATCH\` is a short path to the same folder; use it rather than typing the long one.`,
+		)
 		expect(composeEnvironmentPrompt(facts)).toContain(`\`${path}\``)
 		expect(
 			environmentFactLines({ today: '2026-11-04', branch: 'main', isRepository: true }).join(' '),

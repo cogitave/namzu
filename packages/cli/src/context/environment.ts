@@ -340,7 +340,9 @@ export function environmentFactLines(
 		)
 	}
 	if (facts.scratchpadDirectory) {
-		lines.push(`The session's scratch folder is \`${facts.scratchpadDirectory}\`.`)
+		lines.push(
+			`The session's scratch folder is \`${facts.scratchpadDirectory}\`. In shell commands, \`$NAMZU_SCRATCH\` is a short path to the same folder; use it rather than typing the long one.`,
+		)
 	}
 	return lines
 }
@@ -367,7 +369,7 @@ export function composeEnvironmentPrompt(
 	if (facts.scratchpadDirectory && !facts.boundary?.sandbox) {
 		lines.push(
 			// No path here: it differs for every session, and this block is in the cached prefix. The path is one of the environment facts.
-			'This session has a private scratch folder, named in the environment facts, which the file tools can write to without asking. Keep temporary files there rather than in the shared temporary folder.',
+			'This session has a private scratch folder, named in the environment facts and available to shell commands as `$NAMZU_SCRATCH`, which the file tools can write to without asking. Keep temporary files there rather than in the shared temporary folder.',
 		)
 	}
 	if (facts.osVersion) lines.push(`Host OS version: ${facts.osVersion}.`)
