@@ -322,7 +322,22 @@ export interface ScheduleToolHost {
 	update?(preview: ScheduleJobPreview): Promise<{ readonly name: string; readonly note?: string }>
 }
 
-/** A prompt the session re-sends to itself on an interval. */
+/**
+ * Where a self-paced loop stands: no fixed interval, the model picks each
+ * next wake-up after every tick.
+ */
+export interface SessionLoopPace {
+	/** When the next tick is due; absent until the first tick has been answered. */
+	readonly dueAt?: string
+	/** The model's one-sentence reason for the delay it chose. */
+	readonly reason?: string
+	/** Consecutive ticks the model reported as quiet (nothing changed). */
+	readonly quietTicks: number
+	/** A tick was sent and the model has not yet said when to wake next. */
+	readonly awaitingWakeUp?: boolean
+}
+
+/** A prompt the session re-sends to itself on an interval, or at a pace the model picks. */
 export interface SessionLoop {
 	readonly id: string
 	/** The interval in words. */
@@ -332,16 +347,70 @@ export interface SessionLoop {
 	readonly expiresAt?: string
 	readonly lastFiredAt?: string
 	readonly createdBy: 'operator' | 'model'
+	/** Present on a self-paced loop. */
+	readonly paced?: SessionLoopPace
 }
 
 export interface SessionLoopHost {
-	/** Throws with a message when the interval is not usable or the loop limit is reached. */
+	/**
+	 * Throws with a message when the interval is not usable or the loop limit is reached.
+	 * Without an `interval` the loop is self-paced: the model chooses each next wake-up
+	 * with `wake_up`.
+	 */
 	create(request: {
-		readonly interval: string
+		readonly interval?: string
 		readonly prompt: string
 		readonly createdBy: 'model'
 	}): Promise<SessionLoop>
 	list(): readonly SessionLoop[]
 	/** Stop one loop by id, or every loop with `all`. Returns how many stopped. */
 	delete(id: string): Promise<number>
+}
+
+/** A prompt the model set to fire into this conversation once, or on a schedule, while the session is open. */
+export interface SessionTimer {
+	readonly id: string
+	/** When it fires, in words. */
+	readonly schedule: string
+	readonly prompt: string
+	readonly recurring: boolean
+	readonly createdAt: string
+	/** Recurring timers end seven days after they were made. */
+	readonly expiresAt?: string
+	readonly nextFireAt?: string
+	readonly lastFiredAt?: string
+}
+
+export interface SessionTimerHost {
+	/** Throws with a message when `when` is not usable or the timer limit is reached. */
+	create(request: {
+		readonly when: string
+		readonly prompt: string
+		readonly recurring: boolean
+	}): Promise<SessionTimer>
+	list(): readonly SessionTimer[]
+	/** Cancel one timer by id. Returns false when no timer has that id. */
+	cancel(id: string): Promise<boolean>
+}
+
+/** What a self-paced loop's host does with a wake-up the model asked for. */
+export interface SelfPacedHost {
+	/**
+	 * Schedule the next tick of the loop that is waiting for one. Throws with a
+	 * message when no self-paced loop is waiting or the loop has reached its
+	 * maximum duration.
+	 */
+	wakeUp(request: {
+		readonly delaySeconds: number
+		readonly reason: string
+		/** Nothing changed this tick. */
+		readonly quiet: boolean
+	}): {
+		/** ISO time of the next tick. */
+		readonly dueAt: string
+		readonly delaySeconds: number
+		readonly clamped: boolean
+	}
+	/** End the self-paced loop that is waiting for a wake-up. Returns how many ended. */
+	stop(): number
 }

@@ -33,6 +33,21 @@ is not added to the composer's history: Up brings back what you typed. No
 loop's prompt ever carries a [composer trigger](composer-triggers.md): only
 keys typed in the composer arm one.
 
+A loop without an interval is self-paced:
+
+```text
+/loop watch the deploy and tell me when it is healthy
+```
+
+The first tick runs as soon as the conversation is idle (a few seconds at most). If you mistype an interval (`/loop 10 minutes ...`), Namzu says so instead of starting a loop. `wake_up` with stop ends only a loop that is waiting for its wake-up, never one between ticks. Each tick the model does the
+task, then says when to wake next (a minute to an hour away, whatever it asked
+is held to that range), why, and whether anything changed. A tick that ends
+without naming a next wake-up ends the loop, and so does the model saying it is
+finished. When it wakes again is printed (`↻ Loop 3fa2c1 wakes again at 14:30
+(in 20 min): watching the deploy`) and `/loop list` shows the next wake-up and
+its reason. A run of quiet ticks (nothing changed) prints one line, then nothing
+until a tick finds something. The same seven-day limit applies.
+
 ## When it fires
 
 - Only between turns. The prompt arrives as the next turn, preceded by a line
@@ -57,10 +72,32 @@ jobs are for. A scheduled job can send a host-owned result notice back to the
 conversation that proposed it, but that does not run the job as a turn in this
 conversation and does not add a model message to it.
 
+## Timers the model sets
+
+For a reminder or a short check the model sets itself, it has `timer_set`,
+`timer_list` and `timer_cancel`, found through `search_tools` like other
+deferred tools. A timer fires a prompt into this conversation once (`recurring:
+false`, or an `in 10m` / `at 14:30` time) or on an interval or cron schedule.
+
+- No review is asked: a timer exists only in memory, never in the schedule
+  store, and is gone when the session closes or you switch conversations.
+- It fires only between turns. One that comes due during a turn waits and fires
+  once when the turn is over; one timer fires per idle moment.
+- You see what fired: `⏰ timer 3fa2c1 (set by the model, every 10 minutes): <prompt>`.
+  The prompt is plain text to the model, never a command.
+- At most 50 timers. A recurring timer ends after seven days.
+- A recurring timer may run late by up to half its interval and never more than
+  30 minutes; a one-time timer set for :00 or :30 may run up to 90 seconds early.
+  This spreads timers set for the same minute apart.
+
+`/loop list` is only for loops; the model lists its timers with `timer_list`.
+For work that must run while Namzu is closed use a
+[scheduled task](scheduled-tasks.md).
+
 ## The model's version
 
 The `session_loop` tool (`create`, `list`, `delete`) lets the model set up a
-loop when you ask for one. Creating a loop is an ordinary reviewed call: it is
+loop when you ask for one (leave out the interval for a self-paced one, which the model paces with `wake_up`). Creating a loop is an ordinary reviewed call: it is
 not exempt from review, so in `prompt` mode you see it before it exists. A loop
 the model made is shown as `(created by the model)` in `/loop list` and on each
 `↻` line. `list` and `delete` only read or remove loops.

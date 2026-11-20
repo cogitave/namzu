@@ -17,6 +17,9 @@ describe('public schedule surface', () => {
 			'evaluateJob',
 			'buildScheduleTools',
 			'buildSessionLoopTools',
+			'buildSessionTimerTools',
+			'buildWakeUpTool',
+			'clampWakeUpDelay',
 			'scanSchedulePrompt',
 			'revealHiddenCharacters',
 			'generateScheduleJobId',
@@ -26,6 +29,8 @@ describe('public schedule surface', () => {
 		}
 		expect(sdk.SCHEDULE_TOOL_NAME).toBe('schedule')
 		expect(sdk.SESSION_LOOP_TOOL_NAME).toBe('session_loop')
+		expect(sdk.WAKE_UP_TOOL_NAME).toBe('wake_up')
+		expect(sdk.TIMER_SET_TOOL_NAME).toBe('timer_set')
 		expect(sdk.SCHEDULE_CATCH_UP_WINDOW_MS).toBe(604_800_000)
 		expect(sdk.SCHEDULE_LATE_GRACE_MS).toBe(120_000)
 		expect(new sdk.ScheduleValidationError('x', 'y').token).toBe('y')

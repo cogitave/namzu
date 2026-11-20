@@ -238,10 +238,19 @@ export { buildAgentTool, type AgentToolOptions } from './tools/coordinator/agent
 export {
 	buildScheduleTools,
 	buildSessionLoopTools,
+	buildSessionTimerTools,
+	buildWakeUpTool,
+	clampWakeUpDelay,
 	revealHiddenCharacters,
 	scanSchedulePrompt,
 	SCHEDULE_TOOL_NAME,
 	SESSION_LOOP_TOOL_NAME,
+	TIMER_CANCEL_TOOL_NAME,
+	TIMER_LIST_TOOL_NAME,
+	TIMER_SET_TOOL_NAME,
+	WAKE_UP_MAX_SECONDS,
+	WAKE_UP_MIN_SECONDS,
+	WAKE_UP_TOOL_NAME,
 } from './tools/schedules/index.js'
 
 // ─── RAG tool builder ────────────────────────────────────────────────────
