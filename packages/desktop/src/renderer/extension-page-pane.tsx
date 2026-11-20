@@ -1,6 +1,7 @@
 import { type RefObject, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { DesktopApi } from '../shared/protocol.js'
+import { pageFrameKey } from './extension-page-frame-model.js'
 import { ExtensionPageFrame } from './extension-page-frame.js'
 import {
 	closeExtensionPage,
@@ -67,6 +68,7 @@ export function ExtensionPagePane({
 	return createPortal(
 		<section className="extension-page-pane" aria-label={row.name}>
 			<ExtensionPageFrame
+				key={pageFrameKey(row.id, page.pageId)}
 				api={api}
 				row={row}
 				pageId={page.pageId}

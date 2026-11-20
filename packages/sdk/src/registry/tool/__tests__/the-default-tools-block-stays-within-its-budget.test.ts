@@ -24,12 +24,13 @@ import { ToolManager } from '../../../toolsets/manager.js'
  * Deterministic: the schemas are rendered from the source, nothing here reads
  * a clock, a network or the host.
  */
-const CEILING_BYTES = 18_200
+const CEILING_BYTES = 18_500
 
 const REASONS: readonly string[] = [
 	'Initial ceiling: 16498 bytes measured when this gate landed (nine tools), plus about 3% headroom for wording fixes.',
 	'Raised to 18000 at 17466 bytes. grep and glob gained include_ignored and include_hidden, and their descriptions say which files a search skips and when a result is limited (+854). job says whether each running job is progressing, waiting or stalled (+114). About 3% headroom kept.',
 	"Raised to 18200 at 18156 bytes. bash says that long output and a background job's output are saved to a file whose path the model is given, so it does not redirect them into files in the working directory (+156). About 1% headroom kept.",
+	'Raised to 18500 at 18332 bytes. bash says its command has no input (stdin closed, no terminal) and what to do instead, so the model does not wait on, or loop around, a prompt nobody can answer (+176). About 1% headroom kept.',
 ]
 
 function defaultToolsBlock() {

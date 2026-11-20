@@ -51,6 +51,13 @@ describe("an extension's page in the main pane", () => {
 		expect(markup).toContain('>Licence<')
 	})
 
+	it('is never blank before the page view is shown: the slot holds a loading line', () => {
+		const markup = frame()
+		expect(markup).toContain('extension-page-loading')
+		expect(markup).toContain('<output')
+		expect(markup).toContain('Opening Today&#x27;s record')
+	})
+
 	it('has no Licence link for an extension that needs none', () => {
 		expect(frame({ licenceKind: 'none' })).not.toContain('>Licence<')
 	})

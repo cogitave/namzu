@@ -255,8 +255,8 @@ it('moves the slider with ←/→, clamps at both ends, and applies hypermode as
 	await shows(screen, 'Type a message')
 	const viewport = screen.viewport()
 	expect(viewport.find((row) => /^\s*─+ hypermode ─\s*$/u.test(row))).toBeDefined()
-	// The footer names the mode after the effort.
-	expect(viewport.find((row) => row.includes('shift+tab'))).toContain('hypermode')
+	// The mode is named once, on the frame's rule; the status line does not repeat it.
+	expect(viewport.find((row) => row.includes('shift+tab'))).not.toContain('hypermode')
 })
 
 it('flips hypermode with Tab from any stop and leaves the effort alone', async () => {
