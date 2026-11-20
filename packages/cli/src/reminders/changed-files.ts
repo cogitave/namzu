@@ -1,7 +1,7 @@
 import { open, stat } from 'node:fs/promises'
 import { basename, isAbsolute, relative } from 'node:path'
 
-import type { FileReadTracker } from '@namzu/sdk'
+import type { FileReadTracker, Message } from '@namzu/sdk'
 import { structuredPatch } from 'diff'
 
 import { frameReminder } from './frame.js'
@@ -105,11 +105,62 @@ function notice(shown: string, snippet: string): string {
 
 /** When each file was last compared, so a quiet file costs a stat and not a read. */
 const compared = new WeakMap<object, Map<string, number>>()
+/**
+ * The body of each file as last accounted for: said once in a notice, or written
+ * by this session's own shell. The same body is never said twice, whatever its
+ * modification time does.
+ */
+const acknowledged = new WeakMap<object, Map<string, string>>()
+/** The shell calls already weighed, so each is attributed to one pass only. */
+const weighed = new WeakMap<object, Set<string>>()
+
+/** The commands of shell calls in this conversation that no earlier pass has weighed. */
+function newShellCommands(tracker: object, messages: readonly Message[] | undefined): string[] {
+	if (!messages) return []
+	let done = weighed.get(tracker)
+	if (!done) {
+		done = new Set()
+		weighed.set(tracker, done)
+	}
+	const commands: string[] = []
+	for (const message of messages) {
+		if (message.role !== 'assistant') continue
+		for (const call of message.toolCalls ?? []) {
+			if (call.function?.name !== 'bash' || done.has(call.id)) continue
+			done.add(call.id)
+			try {
+				const input = JSON.parse(call.function.arguments) as {
+					command?: unknown
+				}
+				if (typeof input.command === 'string') commands.push(input.command)
+			} catch {
+				// An unreadable call names no file; it cannot claim one.
+			}
+		}
+	}
+	return commands
+}
+
+/** Whether a shell command names the file: by its path, its path from the working folder, or its name. */
+function namesFile(command: string, path: string, cwd: string): boolean {
+	const rel = relative(cwd, path)
+	return (
+		command.includes(path) ||
+		(rel !== '' && !rel.startsWith('..') && command.includes(rel)) ||
+		command.includes(basename(path))
+	)
+}
 
 export interface ChangedFilesInput {
 	readonly tracker: Pick<FileReadTracker, 'fullBody' | 'fullBodyPaths' | 'recordDriftObserved'>
 	/** Paths in the notice are shown relative to this directory when they lie under it. */
 	readonly cwd: string
+	/**
+	 * The conversation as this request will send it. A file a shell call of this
+	 * session named and that changed since the last pass was written by that call,
+	 * so it is the model's own change and no notice is owed.
+	 */
+	readonly messages?: readonly Message[]
 }
 
 /** One reminder per fully read file whose content is no longer what the model read; empty when nothing moved. */
@@ -121,6 +172,12 @@ export async function changedFileReminders(input: ChangedFilesInput): Promise<st
 		seen = new Map()
 		compared.set(tracker, seen)
 	}
+	let said = acknowledged.get(tracker)
+	if (!said) {
+		said = new Map()
+		acknowledged.set(tracker, said)
+	}
+	const commands = newShellCommands(tracker, input.messages)
 	const out: string[] = []
 	let shownChars = 0
 	for (const path of tracker.fullBodyPaths()) {
@@ -137,6 +194,14 @@ export async function changedFileReminders(input: ChangedFilesInput): Promise<st
 			continue
 		}
 		if (after === before) continue
+		if (after !== undefined && said.get(path) === after) continue
+		if (after !== undefined && commands.some((command) => namesFile(command, path, input.cwd))) {
+			// This session's own shell wrote it. The ledger still holds the old body,
+			// so the next edit is refused until a real read, as for any other change.
+			said.set(path, after)
+			tracker.recordDriftObserved?.(path)
+			continue
+		}
 		tracker.recordDriftObserved?.(path)
 		const rel = relative(input.cwd, path)
 		const shown = rel !== '' && !rel.startsWith('..') && !isAbsolute(rel) ? rel : path
@@ -156,6 +221,7 @@ export async function changedFileReminders(input: ChangedFilesInput): Promise<st
 		const text = snippet === '' ? plain : frameReminder('changed-file', notice(shown, snippet))
 		shownChars += separator + text.length
 		out.push(text)
+		if (after !== undefined) said.set(path, after)
 	}
 	return out
 }

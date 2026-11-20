@@ -81,6 +81,71 @@ describe('the changed-on-disk reminder', () => {
 		expect(again).toContain('three')
 	})
 
+	it("does not report a file this session's own shell call wrote", async () => {
+		const tracker = createFileReadTracker()
+		const path = await put('a.txt', 'one\n')
+		tracker.recordFullRead?.(path, 'one\n', 'call-1', 'x')
+		await put('a.txt', 'two\n')
+		const messages = [
+			{
+				role: 'assistant',
+				content: '',
+				toolCalls: [
+					{
+						id: 'bash-1',
+						type: 'function',
+						function: {
+							name: 'bash',
+							arguments: JSON.stringify({
+								command: "python3 -c \"open('a.txt','w')\"",
+							}),
+						},
+					},
+				],
+			},
+		] as never
+		expect(await changedFileReminders({ tracker, cwd: dir, messages })).toEqual([])
+		// Still stale for the next edit, as after any change under the ledger.
+		expect(tracker.driftObserved?.(path)).toBe(true)
+		// A later change nobody's shell call named is still reported.
+		await put('a.txt', 'by hand\n')
+		expect(await changedFileReminders({ tracker, cwd: dir, messages })).toHaveLength(1)
+	})
+
+	it('reports a change that a shell call did not name', async () => {
+		const tracker = createFileReadTracker()
+		const path = await put('a.txt', 'one\n')
+		tracker.recordFullRead?.(path, 'one\n', 'call-1', 'x')
+		await put('a.txt', 'two\n')
+		const messages = [
+			{
+				role: 'assistant',
+				content: '',
+				toolCalls: [
+					{
+						id: 'bash-1',
+						type: 'function',
+						function: {
+							name: 'bash',
+							arguments: JSON.stringify({ command: 'ls' }),
+						},
+					},
+				],
+			},
+		] as never
+		expect(await changedFileReminders({ tracker, cwd: dir, messages })).toHaveLength(1)
+	})
+
+	it('does not say the same body again when only the modification time moved', async () => {
+		const tracker = createFileReadTracker()
+		const path = await put('a.txt', 'one\n')
+		tracker.recordFullRead?.(path, 'one\n', 'call-1', 'x')
+		await put('a.txt', 'two\n')
+		expect(await changedFileReminders({ tracker, cwd: dir })).toHaveLength(1)
+		await put('a.txt', 'two\n')
+		expect(await changedFileReminders({ tracker, cwd: dir })).toEqual([])
+	})
+
 	it('frames each notice as a reminder of its own kind', async () => {
 		const tracker = createFileReadTracker()
 		const path = await put('a.txt', 'one\n')
