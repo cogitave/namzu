@@ -82,6 +82,41 @@ const modelText = (output: string): ToolCallView => ({
 	output,
 })
 
+describe('a background command that never started', () => {
+	it('does not say it is running in the background when the call failed before it ran', () => {
+		const asked: ToolCallView = {
+			kind: 'generic',
+			label: 'Watch the ticks',
+			facts: { kind: 'command', command: 'for i in 1 2 3; do echo tick; done', background: true },
+		}
+		const thread = call(
+			'monitor',
+			asked,
+			modelText('Error: the tool is not loaded yet.'),
+			undefined,
+			'failed',
+		)
+		const found = row(thread)
+		expect(found?.shell?.background).toBeUndefined()
+		expect(found?.shell?.jobId).toBeUndefined()
+	})
+
+	it('keeps the background note for a call that did start', () => {
+		const asked: ToolCallView = {
+			kind: 'generic',
+			label: 'Watch the ticks',
+			facts: { kind: 'command', command: 'sleep 9', background: true },
+		}
+		const thread = call('bash', asked, modelText('Started job b1.'), {
+			kind: 'command',
+			command: 'sleep 9',
+			background: true,
+			jobId: 'b1',
+		})
+		expect(row(thread)?.shell).toMatchObject({ background: true, jobId: 'b1' })
+	})
+})
+
 describe('reads, searches and listings', () => {
 	const read = (path: string): ToolCallView => ({
 		kind: 'generic',

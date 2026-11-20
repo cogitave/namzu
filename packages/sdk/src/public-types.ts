@@ -714,8 +714,12 @@ export type {
 	ScheduleRuleEffect,
 	ScheduleToolHost,
 	ScheduleUpdateRequest,
+	SelfPacedHost,
 	SessionLoop,
 	SessionLoopHost,
+	SessionLoopPace,
+	SessionTimer,
+	SessionTimerHost,
 } from './tools/schedules/index.js'
 
 // ─── system events + peer messaging (@experimental) ───────────────────────

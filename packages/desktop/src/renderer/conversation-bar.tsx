@@ -5,6 +5,7 @@ import {
 	FileDiffIcon,
 	FileTextIcon,
 	GlobeIcon,
+	ListTodoIcon,
 	MoreHorizontalIcon,
 	PanelRightIcon,
 	PencilIcon,
@@ -231,6 +232,7 @@ const PANE_WORD: Record<PaneKind, string> = {
 	changes: 'changes',
 	browser: 'browser',
 	files: 'files',
+	tasks: 'background tasks',
 }
 
 /** "Show terminal (Ctrl+')" while it is closed, "Hide terminal (Ctrl+')" while it is open. */
@@ -246,6 +248,11 @@ export interface PaneButtonsProps {
 	unavailable?: Partial<Record<PaneKind, string>>
 	/** Changes shows how many files changed in its name, so a number is never the only signal. */
 	changes: { files: number; added: number; removed: number }
+	/**
+	 * The Background tasks button: drawn only while the conversation has tasks or the pane is open, with
+	 * how many run. Absent where there is no such pane.
+	 */
+	tasks?: { show: boolean; running: number }
 	mac: boolean
 	disabled?: boolean
 	/** The conversation's own "…" menu, last in the row. */
@@ -297,6 +304,7 @@ const ICONS = {
 	changes: FileDiffIcon,
 	browser: GlobeIcon,
 	files: FileTextIcon,
+	tasks: ListTodoIcon,
 } as const
 
 /**
@@ -308,6 +316,7 @@ export function PaneButtons({
 	onToggle,
 	unavailable,
 	changes,
+	tasks,
 	mac,
 	disabled,
 	more,
@@ -320,7 +329,10 @@ export function PaneButtons({
 				? changesButtonLabel(changes.files, changes.added, changes.removed)
 				: kind === 'session'
 					? 'Session'
-					: kind[0]?.toUpperCase() + kind.slice(1)
+					: kind === 'tasks'
+						? 'Background tasks'
+						: kind[0]?.toUpperCase() + kind.slice(1)
+		const running = kind === 'tasks' ? (tasks?.running ?? 0) : 0
 		return (
 			<PaneButtonTip
 				key={kind}
@@ -332,7 +344,7 @@ export function PaneButtons({
 					variant="ghost-muted"
 					size="icon-sm"
 					className="pane-button"
-					aria-label={name}
+					aria-label={running > 0 ? `${name}, ${running} running` : name}
 					aria-pressed={open[kind]}
 					disabled={disabled || Boolean(reason)}
 					data-pane-button={kind}
@@ -341,6 +353,11 @@ export function PaneButtons({
 					onClick={() => onToggle(kind)}
 				>
 					<Icon aria-hidden="true" />
+					{running > 0 && (
+						<span className="conversation-bar-count" aria-hidden="true">
+							{running}
+						</span>
+					)}
 				</Button>
 			</PaneButtonTip>
 		)
@@ -353,6 +370,7 @@ export function PaneButtons({
 			{button('changes')}
 			{button('browser')}
 			{button('files')}
+			{tasks?.show && button('tasks')}
 			{more}
 		</div>
 	)

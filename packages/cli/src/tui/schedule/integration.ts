@@ -10,7 +10,13 @@ import { explainFailure } from '../plain-failure.js'
  * after this object is made.
  */
 
-import { type ToolDefinition, buildScheduleTools, buildSessionLoopTools } from '@namzu/sdk'
+import {
+	type ToolDefinition,
+	buildScheduleTools,
+	buildSessionLoopTools,
+	buildSessionTimerTools,
+	buildWakeUpTool,
+} from '@namzu/sdk'
 import type { NamzuCliConfig } from '../../config/schema.js'
 import type { PermissionMode } from '../../permissions/mode.js'
 import { settleAnsweredPark } from '../../schedule/commands/lifecycle.js'
@@ -20,7 +26,7 @@ import { readState } from '../../schedule/store/state.js'
 import type { ScheduleReviewAnswer, ScheduleReviewRequest } from '../ScheduleReviewOverlay.js'
 import type { QuestionFn, ScreenPermissionFn } from '../agent.js'
 import { runLoopCommand, runScheduleCommand } from './host-commands.js'
-import { SessionLoopScheduler } from './loop-host.js'
+import { SessionLoopScheduler, pacedLoopWasQuiet, pacedTickPrompt } from './loop-host.js'
 import {
 	type ResumeEnvironment,
 	type ScheduledResume,
@@ -28,6 +34,7 @@ import {
 	prepareScheduledResume,
 } from './resume.js'
 import { scheduleStartupLine } from './startup.js'
+import { SessionTimerScheduler } from './timer-host.js'
 import { createScheduleToolHost } from './tool-host.js'
 
 export interface ScheduleIntegrationDeps {
@@ -69,6 +76,12 @@ export interface ScheduleIntegrationDeps {
 
 export interface ScheduleIntegration {
 	readonly loops: SessionLoopScheduler
+	/** In-memory timers the model set; gone with the session. */
+	readonly timers: SessionTimerScheduler
+	/** Fire what is due in loops and timers, when idle; `turnEnded` after a turn. */
+	tick(options?: { readonly turnEnded?: boolean }): void
+	/** Whether a loop or timer will send something later. */
+	hasPending(): boolean
 	/** The tools a person-attended session offers. */
 	tools(): ToolDefinition[]
 	/** `/schedule` and `/loop`; false for any other name. */
@@ -106,21 +119,47 @@ export function createScheduleIntegration(deps: ScheduleIntegrationDeps): Schedu
 	const loops = new SessionLoopScheduler({
 		file: deps.loopsFile,
 		isIdle: deps.isIdle,
+		say: deps.say,
 		fire: (loop) => {
-			deps.say(`↻ loop ${loop.id}${loop.createdBy === 'model' ? ' (created by the model)' : ''}`)
+			// A quiet tick follows a quiet tick: the run prints nothing of its own.
+			if (!(loop.paced && pacedLoopWasQuiet(loop)))
+				deps.say(`↻ loop ${loop.id}${loop.createdBy === 'model' ? ' (created by the model)' : ''}`)
+			if (loop.paced) {
+				// The tick text is a plain prompt, whoever made the loop.
+				deps.submit(pacedTickPrompt(loop), 'model')
+				return
+			}
 			// Fails closed: a loop read back from disk that does not say it is
 			// the operator's is treated as the model's.
 			deps.submit(loop.prompt, loop.createdBy === 'operator' ? 'operator' : 'model')
 		},
 	})
+	const timers = new SessionTimerScheduler({
+		isIdle: deps.isIdle,
+		sessionId: deps.sessionId,
+		fire: (fired) => {
+			deps.say(
+				`⏰ timer ${fired.id} (set by the model, ${fired.schedule}${fired.recurring ? '' : ', once'}): ${fired.prompt.replace(/\s+/g, ' ').slice(0, 80)}`,
+			)
+			// Always a plain prompt: a timer the model set never runs a command.
+			deps.submit(fired.prompt, 'model')
+		},
+	})
+	const tick = (options?: { readonly turnEnded?: boolean }) => {
+		loops.tick(options)
+		timers.tick()
+	}
 	const timer = setInterval(() => {
 		try {
-			loops.tick()
+			tick()
 		} catch {}
 	}, LOOP_TICK_MS)
 	timer.unref?.()
 	return {
 		loops,
+		timers,
+		tick,
+		hasPending: () => loops.list().length > 0 || timers.list().length > 0,
 		tools: () => [
 			...buildScheduleTools(
 				createScheduleToolHost({
@@ -137,10 +176,16 @@ export function createScheduleIntegration(deps: ScheduleIntegrationDeps): Schedu
 				}),
 			),
 			...buildSessionLoopTools(loops),
+			...buildSessionTimerTools(timers),
+			buildWakeUpTool(loops),
 		],
 		handleSlash(name, args) {
 			if (name === 'loop') {
-				void runLoopCommand(args, loops, deps.say)
+				void runLoopCommand(args, loops, deps.say).then(() => {
+					try {
+						tick()
+					} catch {}
+				})
 				return true
 			}
 			if (name !== 'schedule') return false
@@ -215,6 +260,7 @@ export function createScheduleIntegration(deps: ScheduleIntegrationDeps): Schedu
 		},
 		dispose() {
 			clearInterval(timer)
+			timers.clear()
 		},
 	}
 }

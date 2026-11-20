@@ -48,7 +48,7 @@ it('says how a command ended once, and says so when it printed nothing', () => {
 	})
 	expect(shellCellRows({ failed: false }, false).note).toBe('(No output)')
 	expect(shellCellRows({ failed: false, background: true }, false).note).toBe(
-		'Running in the background',
+		'Started in background',
 	)
 	expect(shellCellRows({ failed: false, notice: 'Binary output, 3 KB' }, false).note).toBe(
 		'Binary output, 3 KB',
@@ -79,4 +79,31 @@ it('draws a cell with a fold button that names the hidden count', () => {
 	expect(renderToStaticMarkup(createElement(ShellCell, { cell: { failed: false } }))).toContain(
 		'(No output)',
 	)
+})
+
+it('says what a background command is doing by reading its job, and why it moved', () => {
+	const cell = { failed: false, background: true as const, jobId: 'b1' }
+	const job = { id: 'b1', command: 'make', status: 'running', startedAt: 1 }
+	expect(shellCellRows(cell, false, job).note).toBe('Running in background')
+	expect(shellCellRows(cell, false, { ...job, status: 'exited', exitCode: 0 }).note).toBe(
+		'Finished in background',
+	)
+	expect(shellCellRows(cell, false, { ...job, status: 'exited', exitCode: 2 })).toMatchObject({
+		note: 'Failed in background',
+		noteTone: 'err',
+	})
+	expect(shellCellRows(cell, false, { ...job, status: 'killed' }).note).toBe(
+		'Stopped in background',
+	)
+	expect(shellCellRows({ ...cell, timeLimitMs: 120_000 }, false, job).extraNote).toBe(
+		'Moved to the background after its time limit of 2m 0s',
+	)
+	// Output the command printed before it moved stays above the note.
+	const printed = shellCellRows(
+		{ ...cell, stdout: { head: 'compiling a', omitted: 0, total: 1 } },
+		false,
+		job,
+	)
+	expect(printed.lines).toHaveLength(1)
+	expect(printed.note).toBe('Running in background')
 })

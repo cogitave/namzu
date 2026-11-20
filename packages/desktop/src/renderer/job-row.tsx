@@ -1,13 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import type { JobView } from '../shared/protocol.js'
-import { ChevronRightIcon, LoaderCircleIcon, SquareIcon, TerminalIcon } from './icons.js'
+import { type TaskCaption, isRunning, taskCaption } from './background-tasks-model.js'
+import { ChevronRightIcon, EyeIcon, LoaderCircleIcon, SquareIcon, TerminalIcon } from './icons.js'
 import { plainErrorText } from './plain-error.js'
+import { TaskOutput } from './task-output.js'
 import { Button } from './ui/button.js'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsible.js'
 
 export interface JobOutput {
 	output: string
 	truncated?: boolean
+	/** Bytes the engine holds for this job; a large one is read less often. */
+	size?: number
 }
 
 /** A monitor is named for what it watches; a shell, by the command it runs. */
@@ -37,24 +41,31 @@ export function jobStatusOf(job: JobView): { label: string; tone: string } {
 	return { label: 'Status unavailable', tone: 'muted' }
 }
 
+/** One task in the Background tasks pane: what it is, how long, how it ended, Stop, and its output. */
 export function JobRow({
 	job,
 	disabled = false,
+	now = Date.now(),
+	open: openProp,
+	onOpenChange,
 	onRead,
 	onStop,
 }: {
 	job: JobView
 	disabled?: boolean
+	/** The clock the running time is read against. */
+	now?: number
+	/** The output is open. Without it the row keeps its own state. */
+	open?: boolean
+	onOpenChange?: (open: boolean) => void
 	onRead(): Promise<JobOutput | undefined>
 	onStop(): Promise<unknown>
 }) {
-	const [open, setOpen] = useState(false)
-	const [output, setOutput] = useState<JobOutput>()
-	const [reading, setReading] = useState(false)
+	const [ownOpen, setOwnOpen] = useState(false)
+	const open = openProp ?? ownOpen
 	const [stopping, setStopping] = useState(false)
 	const [error, setError] = useState('')
 	const mounted = useRef(false)
-	const readPending = useRef(false)
 	const stopPending = useRef(false)
 	useEffect(() => {
 		mounted.current = true
@@ -62,25 +73,16 @@ export function JobRow({
 			mounted.current = false
 		}
 	}, [])
-	const recovery = job.status === 'running' && job.recoveryRequired === true
-	const status = jobStatusOf(job)
+	const running = isRunning(job)
+	// A stop that was confirmed ends the wait; one that was not leaves Retry.
+	useEffect(() => {
+		if (!running) setStopping(false)
+	}, [running])
+	const recovery = running && job.recoveryRequired === true
 	// A monitor is named for what it watches; a shell, by the command it runs.
 	const command = jobLabel(job)
-	const read = async () => {
-		if (disabled || readPending.current) return
-		readPending.current = true
-		setReading(true)
-		setError('')
-		try {
-			const result = await onRead()
-			if (mounted.current && result !== undefined) setOutput(result)
-		} catch (failure) {
-			if (mounted.current) setError(plainErrorText(failure, 'update the scheduled task'))
-		} finally {
-			readPending.current = false
-			if (mounted.current) setReading(false)
-		}
-	}
+	const caption = taskCaption(job, now, stopping && !recovery)
+	const KindIcon = job.kind === 'monitor' ? EyeIcon : TerminalIcon
 	const stop = async () => {
 		if (disabled || stopPending.current) return
 		stopPending.current = true
@@ -89,87 +91,77 @@ export function JobRow({
 		try {
 			await onStop()
 		} catch (failure) {
-			if (mounted.current) setError(plainErrorText(failure, 'update the scheduled task'))
+			if (mounted.current) {
+				setStopping(false)
+				setError(plainErrorText(failure, 'stop the task'))
+			}
 		} finally {
 			stopPending.current = false
-			if (mounted.current) setStopping(false)
 		}
 	}
 	return (
 		<Collapsible
-			className="job"
+			className="task"
 			data-job-id={job.id}
 			data-job-status={job.status}
 			open={open}
 			onOpenChange={(next) => {
-				setOpen(next)
-				if (next) void read()
+				setOwnOpen(next)
+				onOpenChange?.(next)
 			}}
 		>
-			<div className="job-heading">
-				<CollapsibleTrigger className="job-trigger" aria-label={`Output for ${command}`}>
-					<TerminalIcon className="size-3.5" aria-hidden="true" />
-					<code className="job-command" title={command}>
+			<div className="task-heading">
+				<CollapsibleTrigger className="task-trigger" aria-label={`Output for ${command}`}>
+					<KindIcon className="task-kind" aria-hidden="true" />
+					<span className="task-title" title={command}>
 						{command}
-					</code>
-					<ChevronRightIcon className="job-chevron size-3" aria-hidden="true" />
+					</span>
+					<ChevronRightIcon className="task-chevron" aria-hidden="true" />
 				</CollapsibleTrigger>
-				<span className="job-status" data-tone={status.tone}>
-					{status.label}
-				</span>
-				{job.status === 'running' && (
+				<TaskCaptionView caption={caption} />
+				{!running && <span className="task-stop-slot" aria-hidden="true" />}
+				{running && (
 					<Button
-						variant="ghost-destructive"
+						variant="ghost-muted"
 						size="icon-xs"
-						className="job-stop"
-						disabled={disabled || stopping}
+						className="task-stop"
+						disabled={disabled || (stopping && !recovery)}
 						aria-label={`${recovery ? 'Retry stop' : 'Stop'} ${command}`}
-						title={stopping ? 'Stopping…' : recovery ? 'Retry stop' : 'Stop'}
+						title={stopping && !recovery ? 'Stopping…' : recovery ? 'Retry stop' : 'Stop'}
 						onClick={() => void stop()}
 					>
-						{stopping ? <LoaderCircleIcon className="job-spinner" /> : <SquareIcon />}
+						{stopping && !recovery ? <LoaderCircleIcon className="task-spinner" /> : <SquareIcon />}
 					</Button>
 				)}
 			</div>
 			{recovery && (
-				<output className="job-recovery">
+				<output className="task-note">
 					{job.stopError || 'Stopping this job has not been confirmed. Retry stop.'}
 				</output>
 			)}
 			{error && (
-				<p role="alert" className="job-error">
+				<p role="alert" className="task-note task-note-error">
 					{error}
 				</p>
 			)}
-			<CollapsiblePanel keepMounted rows>
-				<div className="job-details">
-					<div className="job-output-heading">
-						<span>Terminal output</span>
-						<Button
-							variant="ghost-muted"
-							size="micro"
-							disabled={disabled || reading}
-							onClick={() => void read()}
-						>
-							{reading ? 'Reading…' : 'Refresh'}
-						</Button>
-					</div>
-					{output !== undefined ? (
-						<>
-							{output.truncated && <p className="job-output-note">Earlier output omitted.</p>}
-							{output.output ? (
-								<pre className="job-output">{output.output}</pre>
-							) : (
-								<p className="job-output-note">No output yet.</p>
-							)}
-						</>
-					) : (
-						<p className="job-output-note">
-							{reading ? 'Reading output…' : 'Output has not been read.'}
-						</p>
-					)}
-				</div>
+			<CollapsiblePanel>
+				{open && <TaskOutput command={command} running={running} read={onRead} />}
 			</CollapsiblePanel>
 		</Collapsible>
+	)
+}
+
+/** The right side of a row: the state in words, then the time, in tabular figures. */
+function TaskCaptionView({ caption }: { caption: TaskCaption }) {
+	if (!caption.words && !caption.time) return null
+	return (
+		<span className="task-caption" data-tone={caption.tone}>
+			{caption.words && <span className="task-words">{caption.words}</span>}
+			{caption.time && (
+				<span className="task-time" data-testid="task-time">
+					{caption.time}
+				</span>
+			)}
+		</span>
 	)
 }

@@ -10,6 +10,7 @@ import {
 	Copy,
 	Download,
 	Ellipsis,
+	Eye,
 	FilePen,
 	FolderClosed,
 	FolderOpen,
@@ -272,6 +273,7 @@ export const DownloadIcon = createOutlineIcon(Download)
 export const HandIcon = createOutlineIcon(Hand)
 export const FilePenIcon = createOutlineIcon(FilePen)
 export const ListChecksIcon = createOutlineIcon(ListChecks)
+export const EyeIcon = createOutlineIcon(Eye)
 export const ShieldCheckIcon = createOutlineIcon(ShieldCheck)
 export const TriangleAlertIcon = createOutlineIcon(TriangleAlert)
 export const PinIcon = createOutlineIcon(Pin)

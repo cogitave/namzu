@@ -518,6 +518,9 @@ export async function runScheduleCommand(
 	}
 }
 
+/** `5m`, `2h`, `every 5m`, `in 10m`: the first word of an interval. */
+const LOOP_INTERVAL_WORD = /^(\d+\s*[a-z]+|every|in|at|@\w+)$/i
+
 export async function runLoopCommand(
 	args: readonly string[],
 	loops: SessionLoopScheduler,
@@ -544,17 +547,35 @@ export async function runLoopCommand(
 			)
 			return
 		}
-		// `/loop <interval> <prompt>`; a cron expression is five words.
+		// `/loop <interval> <prompt>`; a cron expression is five words. Without
+		// an interval the loop is self-paced: `/loop <prompt>`.
 		const cron = args.length >= 6 && args.slice(0, 5).every((w) => /^[\d*/,\-a-z]+$/i.test(w))
+		const hasInterval = cron || LOOP_INTERVAL_WORD.test(first)
 		const interval = cron ? args.slice(0, 5).join(' ') : first
-		const prompt = (cron ? args.slice(5) : rest).join(' ').trim()
-		if (!prompt) {
-			display('Usage: /loop <interval> <prompt or /command>   e.g. /loop 10m check the build')
+		// A bare number, or a number and its unit split by a space, is a mistyped
+		// interval, not the start of a prompt.
+		if (!hasInterval && /^\d+$/.test(first)) {
+			display(
+				'That interval is not usable. Write it as one word, e.g. /loop 10m check the build (or leave the interval out to let the model pace it).',
+			)
 			return
 		}
-		const loop = await loops.create({ interval, prompt, createdBy: 'operator' })
+		const prompt = (hasInterval ? (cron ? args.slice(5) : rest) : args).join(' ').trim()
+		if (!prompt) {
+			display(
+				'Usage: /loop <interval> <prompt or /command>   e.g. /loop 10m check the build\n       /loop <prompt>   (no interval: the model chooses each wake-up)',
+			)
+			return
+		}
+		const loop = await loops.create({
+			...(hasInterval ? { interval } : {}),
+			prompt,
+			createdBy: 'operator',
+		})
 		display(
-			`↻ Loop ${loop.id}: ${loop.schedule}, between replies, for 7 days. /loop stop ${loop.id} ends it.`,
+			loop.paced
+				? `↻ Loop ${loop.id}: self-paced. The first tick runs when this turn ends and the model chooses each wake-up after it; /loop stop ${loop.id} ends it.`
+				: `↻ Loop ${loop.id}: ${loop.schedule}, between replies, for 7 days. /loop stop ${loop.id} ends it.`,
 		)
 	} catch (error) {
 		display(explainFailure(error, 'Could not set up that loop.'))

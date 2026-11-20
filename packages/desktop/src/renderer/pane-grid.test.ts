@@ -363,3 +363,11 @@ describe('what is remembered', () => {
 		expect(layout.maximised).toBeUndefined()
 	})
 })
+
+it('keeps five opened panes at four so a reload shows what was drawn', () => {
+	const layout = open(['terminal', 'changes', 'browser', 'files', 'tasks'])
+	const count = layout.columns.reduce((n, c) => n + c.tiles.length, 0)
+	expect(count).toBe(4)
+	expect(layout.columns.every((c) => c.tiles.length <= 2)).toBe(true)
+	expect(layout.columns.some((c) => c.tiles.some((t) => t.kind === 'tasks'))).toBe(true)
+})

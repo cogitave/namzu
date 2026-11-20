@@ -13,7 +13,7 @@
 * [Auto model routing](auto-model-routing.md) - `model: auto` and the `routing` block: per-task fast, default or big model, sized by the decision model, failing open to `routing.default`.
 * [Decision points](decision-points.md) - `decision.points`: yes/no questions the CLI can ask the decision model beside its own rule, in `off`, `shadow` or `on` mode, starting with whether a finished reply is worth a chime.
 * [Scheduled tasks](scheduled-tasks.md) - Prompts that run later in a folder while namzu is closed: jobs, the required permission set, approvals, missed runs, notifications and history.
-* [Session loops](session-loops.md) - `/loop` and the session_loop tool: a prompt the open conversation re-sends to itself on an interval, between turns.
+* [Session loops](session-loops.md) - `/loop` and the session_loop tool: a prompt the open conversation re-sends to itself on an interval or at a pace the model picks, between turns, and the timers the model sets.
 * [The scheduler service](scheduler-service.md) - Installing the scheduler under systemd, launchd, Windows Task Scheduler and WSL; single owner, upgrades, status, uninstall.
 * [Web search](web-search.md) - Explicit provider-hosted search, source links, and shell-independent activity.
 * [Opening a page in your browser](open-url.md) - The open_url tool: which sessions have it, how it reaches the browser on each platform (the Windows browser under WSL), its review, and what its result claims.
