@@ -8542,13 +8542,15 @@ function mintScope(projectId: ProjectId, sessionId?: SessionId): SessionScope {
 	}
 }
 
-// Pre-execution safety gate: hard-deny catastrophic shell patterns
-// (`rm -rf /`, mkfs, `curl … | sh`, sudo, fork bombs — the SDK's narrow
-// DANGEROUS_PATTERNS list, which does NOT match e.g. `rm -rf node_modules`),
-// auto-allow read-only tools that reach nothing outside (a network tool is
-// asked about, see permissions/read-only-gate.ts), and send everything else to the permission
-// prompt (`review` → our resumeHandler). The deny rule applies even in
-// --yolo mode, so bypass never lets the model brick the machine.
+// Pre-execution safety gate: the dangerous-command floor reads what a shell
+// line RUNS. What cannot be undone (`rm -rf /`, the home folder or a top-level
+// directory, mkfs, a raw write to a device, a fork bomb, a world-writable root)
+// is refused in every mode, --yolo included. What is a person's call (sudo,
+// su -, ssh user@host, eval, a download piped into a shell) is a question in
+// the modes that ask, and runs in bypass and auto like any other ask. Read-only
+// tools that reach nothing outside are auto-allowed (a network tool is asked
+// about, see permissions/read-only-gate.ts), and everything else goes to the
+// permission prompt (`review` → our resumeHandler).
 
 /**
  * The gate for this session, with the operator's rules in it.

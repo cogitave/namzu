@@ -662,7 +662,13 @@ export async function* runToolReview(
 		for (const gr of gateResults) {
 			// Before the overrides below: only a rule that was WRITTEN to ask a
 			// person, not an allow demoted to a question, is an ask rule.
-			const ruleAsked = gr.gateResult.decision === 'review' && gr.gateResult.matchedRule !== null
+			// The dangerous-command floor's questions (`sudo`, `ssh user@host`, …)
+			// are not ask rules: nobody wrote one to be kept in every mode, so
+			// bypass and auto lift them like any other review.
+			const ruleAsked =
+				gr.gateResult.decision === 'review' &&
+				gr.gateResult.matchedRule !== null &&
+				gr.gateResult.matchedRule.type !== 'deny_dangerous_patterns'
 			// An `allow` rule was written about a tool, not about a path outside
 			// the working directory or a command outside the sandbox, which
 			// were refused outright when it was written. So an escalated call

@@ -260,7 +260,12 @@ export function failureFactsLine(
 		case 'already_exists':
 			return subject ? `${subject} already exists.` : 'That already exists.'
 		case 'blocked':
-			return 'Blocked: Namzu’s rules do not allow this here.'
+			// The dangerous-command floor writes its note as a plain sentence about the
+			// command ("This command removes the file system root."), which names what was
+			// refused. A note any other rule wrote is its own wording, not shown.
+			return facts.note?.startsWith('This command ')
+				? `Blocked: ${facts.note.charAt(0).toLowerCase()}${facts.note.slice(1)}`
+				: 'Blocked: Namzu’s rules do not allow this here.'
 		case 'needs_administrator':
 			return 'Blocked: this command needs administrator rights.'
 		case 'unknown_tool':

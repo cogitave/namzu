@@ -11,7 +11,8 @@ import { AuthorizationGateConfigSchema } from '../types/authorization/index.js'
 import type { ToolDefinition } from '../types/tool/index.js'
 import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import type { Logger } from '../utils/logger.js'
-import { evaluateRule } from './rules.js'
+import { describeDangerousFinding } from './dangerous-commands.js'
+import { dangerousFindingFor, evaluateRule } from './rules.js'
 import type { ShellDialect } from './shell-lexer.js'
 
 export interface ToolCallContext {
@@ -53,8 +54,18 @@ export interface ToolCallContext {
  */
 export function describeRule(rule: AuthorizationRule, call?: AuthorizationPredicateCall): string {
 	switch (rule.type) {
-		case 'deny_dangerous_patterns':
-			return 'this matches a pattern the operator refuses outright; rewording it will not help'
+		case 'deny_dangerous_patterns': {
+			if (call === undefined) {
+				return 'this command is one the dangerous-command floor refuses or asks about'
+			}
+			const finding = dangerousFindingFor(call.toolDef, call.toolInput, {
+				commandDialect: call.commandDialect,
+				strict: rule.strict === true,
+			})
+			return finding === undefined
+				? 'this command is one the dangerous-command floor refuses or asks about'
+				: describeDangerousFinding(finding)
+		}
 		case 'allow_read_only':
 			return 'allowed because this tool only observes'
 		case 'allow_by_name':
@@ -147,7 +158,10 @@ export class AuthorizationGate {
 		// nobody wrote a rule about, rather than an override of the rules they
 		// did write. The denial above still outranks both.
 		if (parsed.denyDangerousPatterns) {
-			expandedRules.push({ type: 'deny_dangerous_patterns' })
+			expandedRules.push({
+				type: 'deny_dangerous_patterns',
+				...(parsed.denyDangerousPatterns === 'strict' ? { strict: true } : {}),
+			})
 		}
 
 		expandedRules.push(...parsed.rules)
@@ -265,7 +279,7 @@ export class AuthorizationGate {
 					decision,
 					matchedRule: rule,
 					reason:
-						rule.type === 'predicate'
+						rule.type === 'predicate' || rule.type === 'deny_dangerous_patterns'
 							? describeRule(rule, {
 									toolName: ctx.toolName,
 									toolInput: ctx.toolInput,
