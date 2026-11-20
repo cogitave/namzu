@@ -30,6 +30,7 @@
 
 The operator application.
 
+* [Vim keys in the message box](composer-vim.md) - `/vim` and `tui.editorMode`: INSERT, NORMAL, VISUAL and VISUAL LINE in the message box, where the mode is shown, what Esc and Enter do in each, the motions, operators, text objects, register and dot repeat that are built, and what is left out.
 * [Themes and reduced motion](themes.md) - The seven theme choices, how auto decides, the /theme picker with preview, the tui.theme and tui.reducedMotion keys and what reduced motion turns off.
 * [Terminal design](terminal-design.md) - Namzu's visual identity, conversation hierarchy and terminal interaction boundaries.
 * [Command experience audit](command-experience-audit.md) - Verified command defects, comparison with Codex source, and proposed interaction improvements.

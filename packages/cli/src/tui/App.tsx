@@ -411,6 +411,7 @@ import {
 	type ComposerSubmitMode,
 	type ComposerTriggerSettings,
 	type SubmitMeta,
+	type VimIndicator,
 	suggestionWindowSize,
 } from './Composer.js'
 import { ComposerFrame } from './ComposerFrame.js'
@@ -540,6 +541,7 @@ import {
 } from './decision-setup-flow.js'
 import { isSessionPlanPath } from './display-path.js'
 import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
+import { type EditorMode, describeEditorMode, saveEditorMode } from './editor-mode.js'
 import type { TuiExitSummary } from './exit-summary.js'
 import { ExternalEditorError, editDraftInExternalEditor } from './external-editor.js'
 import {
@@ -2582,6 +2584,13 @@ function AppBody({
 	const [composerShell, setComposerShell] = useState(false)
 	// A history search in the box owns Ctrl+C: it backs out of the search only.
 	const composerSearchingRef = useRef(false)
+	// `tui.editorMode`: `/vim` flips it for this run; the box tells the footer which vim mode it is in.
+	const [editorMode, setEditorMode] = useState<EditorMode>(ctx.tui?.editorMode ?? 'normal')
+	const [vimIndicator, setVimIndicator] = useState<VimIndicator | null>(null)
+	// Esc is the box's while vim is in INSERT or VISUAL or a command is half typed. The ref follows
+	// the last render, so a key that the box changes the mode on still reads the mode it had.
+	const vimOwnsEscapeRef = useRef(false)
+	vimOwnsEscapeRef.current = vimIndicator?.ownsEscape === true
 	const setComposerSearching = useCallback((searching: boolean) => {
 		composerSearchingRef.current = searching
 	}, [])
@@ -13857,6 +13866,14 @@ function AppBody({
 									: 'Off · the working line and the composer move. Select to turn on.',
 							},
 							{
+								name: 'vim',
+								label: 'Editor mode',
+								description:
+									editorMode === 'vim'
+										? 'Vim · the message box uses vim keys. Select to switch to normal.'
+										: 'Normal · the message box uses the usual keys. Select to switch to vim.',
+							},
+							{
 								name: `config recap ${recapOn ? 'off' : 'on'}`,
 								label: 'Session recap',
 								description: recapOn
@@ -15123,6 +15140,17 @@ function AppBody({
 					}
 					case 'theme': {
 						applyThemeChoice(slash.setting)
+						return
+					}
+					case 'editor-mode': {
+						const next: EditorMode =
+							slash.mode === 'toggle' ? (editorMode === 'vim' ? 'normal' : 'vim') : slash.mode
+						if (next === editorMode) {
+							pushMessage('system', describeEditorMode(next))
+							return
+						}
+						setEditorMode(next)
+						pushMessage('system', saveEditorMode(next))
 						return
 					}
 					case 'reduced-motion': {
@@ -17663,7 +17691,8 @@ function AppBody({
 				phase === 'ready' &&
 				state === 'idle' &&
 				!abortRef.current &&
-				((key.return && !composerHasDraft) || key.escape)
+				// The Esc that leaves vim's INSERT or VISUAL mode is the message box's, not the turn's.
+				((key.return && !composerHasDraft) || (key.escape && !vimOwnsEscapeRef.current))
 			) {
 				const parked = handoffParkRef.current
 				setHandoffPark(null)
@@ -17687,7 +17716,11 @@ function AppBody({
 			}
 			// Esc interrupts the running turn. Its pending steer can start a fresh
 			// turn, while a next-turn queue remains visible for the operator.
-			if (key.escape && (abortRef.current || pendingModelSwitchRef.current)) {
+			if (
+				key.escape &&
+				!vimOwnsEscapeRef.current &&
+				(abortRef.current || pendingModelSwitchRef.current)
+			) {
 				interruptWithRow(true, { always: true })
 				return
 			}
@@ -18610,6 +18643,8 @@ function AppBody({
 										}
 										onDraftPresenceChange={setComposerHasDraft}
 										onShellModeChange={setComposerShell}
+										editorMode={editorMode}
+										onVimModeChange={setVimIndicator}
 										onHistorySearchChange={setComposerSearching}
 										onOpenAgentPanel={focusAgentRail}
 										// `←` never opens the workflow view: the agents are the task rows.
@@ -18720,6 +18755,9 @@ function AppBody({
 									: null
 							}
 							dialogOpen={boxOwnsKeys}
+							{...(vimIndicator && showComposerSurface && !boxOwnsKeys
+								? { vimMode: vimIndicator.mode }
+								: {})}
 							{...(fullscreen?.regions ? { onClickItem: footerClicks } : {})}
 							permissionMode={displayedPermissionMode}
 							canCycleMode

@@ -13,7 +13,15 @@
 
 import type { MessageAttachment } from '@namzu/sdk'
 import { Box, type Key, Text, useInput, usePaste, useWindowSize } from 'ink'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import {
+	Fragment,
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from 'react'
 
 import {
 	isMacScreenshotPreviewPath,
@@ -87,6 +95,16 @@ import {
 	shiftOverrides,
 } from './triggers/provenance.js'
 import type { TriggerId, TriggerRegistry } from './triggers/registry.js'
+import {
+	type VimMode,
+	type VimResult,
+	type VimState,
+	createVimState,
+	resetVim,
+	vimKeys,
+	vimOwnsEscape,
+	vimSelection,
+} from './vim/index.js'
 import { ARM_MS, LeftGesture, REPEAT_MS } from './zoom/gesture.js'
 
 /** The footer notice that offers the second Esc. */
@@ -102,6 +120,40 @@ export const ESC_CLEAR_WINDOW_MS = 800
 export const ESC_CLEAR_NOTICE_MS = 1000
 /** A second Esc on an empty composer within this long opens the rewind picker. */
 export const REWIND_DOUBLE_ESC_MS = 800
+
+/** What the box tells its host about vim mode: the mode, and whether Esc is the box's right now. */
+export interface VimIndicator {
+	readonly mode: VimMode
+	/**
+	 * Esc belongs to vim (INSERT, VISUAL, or a command half typed), so the host must not use it
+	 * to stop a running turn on this keypress.
+	 */
+	readonly ownsEscape: boolean
+}
+
+/** A key event with nothing pressed, for the keys vim hands back to the box's own handling. */
+const BARE_KEY: Key = {
+	upArrow: false,
+	downArrow: false,
+	leftArrow: false,
+	rightArrow: false,
+	pageDown: false,
+	pageUp: false,
+	home: false,
+	end: false,
+	return: false,
+	escape: false,
+	ctrl: false,
+	shift: false,
+	tab: false,
+	backspace: false,
+	delete: false,
+	meta: false,
+	super: false,
+	hyper: false,
+	capsLock: false,
+	numLock: false,
+}
 
 export interface ComposerProps {
 	/**
@@ -205,6 +257,13 @@ export interface ComposerProps {
 	 * as `!` plus the text.
 	 */
 	readonly onShellModeChange?: (on: boolean) => void
+	/**
+	 * `tui.editorMode`: `vim` puts vim's editing keys on the box (it starts in INSERT, Esc leaves
+	 * it). Absent or `normal` leaves every key as it was.
+	 */
+	readonly editorMode?: 'normal' | 'vim'
+	/** Told when vim's mode changes, and `null` when the box is not in vim mode. */
+	readonly onVimModeChange?: (indicator: VimIndicator | null) => void
 	/**
 	 * Empty-composer ↓ opens the currently active delegated-work panel.
 	 *
@@ -737,6 +796,8 @@ export function Composer({
 	onCycleMode,
 	triggers,
 	turnActive = false,
+	editorMode = 'normal',
+	onVimModeChange,
 }: ComposerProps) {
 	const terminal = useWindowSize()
 	const [value, setValueState] = useState<string>('')
@@ -763,6 +824,50 @@ export function Composer({
 	}, [])
 	// A composer that goes away takes its mode with it, so the frame never stays green.
 	useEffect(() => () => onShellModeChangeRef.current?.(false), [])
+	// Vim keys (`tui.editorMode`). The machine's state is a ref the key handler reads and writes;
+	// `vimTick` redraws the box when it moves, and the host hears of the mode through
+	// `onVimModeChange`.
+	const vimOn = editorMode === 'vim'
+	const vimOnRef = useRef(vimOn)
+	vimOnRef.current = vimOn
+	const vimRef = useRef<VimState>(createVimState())
+	const [, setVimTick] = useState(0)
+	/** The undo depth when an INSERT began, so the whole insert undoes as one step. */
+	const vimUndoBaseRef = useRef<number | null>(null)
+	const onVimModeChangeRef = useRef(onVimModeChange)
+	onVimModeChangeRef.current = onVimModeChange
+	const keysOwnedRef = useRef(false)
+	keysOwnedRef.current = !disabled && !hidden
+	const vimReportRef = useRef('')
+	const publishVim = useCallback(() => {
+		setVimTick((tick) => tick + 1)
+		const on = vimOnRef.current
+		const state = vimRef.current
+		const ownsEscape = on && keysOwnedRef.current && vimOwnsEscape(state)
+		const report = on ? `${state.mode}|${ownsEscape}` : 'off'
+		if (report === vimReportRef.current) return
+		vimReportRef.current = report
+		onVimModeChangeRef.current?.(on ? { mode: state.mode, ownsEscape } : null)
+	}, [])
+	useEffect(() => {
+		// Turning the setting on or off starts the machine over.
+		void vimOn
+		vimRef.current = createVimState()
+		vimUndoBaseRef.current = null
+		publishVim()
+	}, [vimOn, publishVim])
+	useEffect(() => {
+		void disabled
+		void hidden
+		publishVim()
+	}, [disabled, hidden, publishVim])
+	useEffect(
+		() => () => {
+			vimReportRef.current = 'gone'
+			onVimModeChangeRef.current?.(null)
+		},
+		[],
+	)
 	// Characters of the draft not typed here, and Alt+W decisions. Refs, so
 	// submit reads what the last key left; `triggerVersion` re-renders when
 	// only an Alt+W decision changed.
@@ -1124,6 +1229,12 @@ export function Composer({
 	const reset = useCallback(() => {
 		setShellMode(false)
 		undoRef.current.clear()
+		// A fresh prompt starts in INSERT.
+		if (vimOnRef.current && vimRef.current.mode !== 'INSERT') {
+			vimRef.current = resetVim(vimRef.current)
+			vimUndoBaseRef.current = null
+			publishVim()
+		} else vimRef.current = resetVim(vimRef.current)
 		verticalColumnRef.current = null
 		historyDraftRef.current = null
 		setHistorySearch(null)
@@ -1137,6 +1248,7 @@ export function Composer({
 		setEditPreviousArmed(false)
 	}, [
 		clearPastes,
+		publishVim,
 		replaceAttachments,
 		setBuffer,
 		setEditPreviousArmed,
@@ -1285,7 +1397,9 @@ export function Composer({
 	// behind as text is not sent before the image exists.
 	const imageReadRef = useRef(false)
 	const deferredEnterRef = useRef<{ input: string; key: Key } | null>(null)
-	const keyHandlerRef = useRef<((input: string, key: Key) => void) | null>(null)
+	const keyHandlerRef = useRef<((input: string, key: Key, vimBypass?: boolean) => void) | null>(
+		null,
+	)
 	const lastEmptyPasteRef = useRef(0)
 
 	const finishImageRead = (): void => {
@@ -1426,13 +1540,135 @@ export function Composer({
 		{ isActive: !disabled && !hidden },
 	)
 
-	const withKeyHandler = (handler: (input: string, key: Key) => void) => {
-		keyHandlerRef.current = handler
-		return handler
+	/**
+	 * In NORMAL and VISUAL the cursor rests on a character, never past the end of its line.
+	 * Keys and recalls that leave it there (End, history, undo, a paste) are brought back.
+	 */
+	const settleVimCursor = (): void => {
+		if (!vimOnRef.current || vimRef.current.mode === 'INSERT') return
+		const source = valueRef.current
+		const position = cursorRef.current
+		const start = lineStart(source, position)
+		const end = lineEnd(source, position)
+		if (end > start && position >= end) placeCursor(previousGraphemeBoundary(source, end), -1)
 	}
 
+	/** Undo one edit, as Ctrl+_ does. */
+	const undoDraft = (): void => {
+		const previous = undoRef.current.undo()
+		if (!previous) return
+		verticalColumnRef.current = null
+		historyDraftRef.current = null
+		setHistorySearch(null)
+		setHistoryIndex(-1)
+		setSelectedIndex(0)
+		// An image whose marker the edit took out comes back with it.
+		if (previous.attachments) replaceAttachments(previous.attachments)
+		setBuffer(previous.value, previous.cursor, 'typed', previous.spans)
+	}
+
+	/** Put what the vim machine decided into the box. */
+	const applyVim = (before: VimState, result: VimResult): void => {
+		const savedBefore = undoRef.current.saved
+		vimRef.current = result.state
+		if (result.text !== valueRef.current) {
+			undoRef.current.breakRun()
+			editBuffer(result.text, result.cursor, result.pasted ? 'yank' : 'typed')
+		} else {
+			verticalColumnRef.current = null
+			placeCursor(result.cursor, result.cursor >= cursorRef.current ? 1 : -1)
+		}
+		// Everything typed between `i` and Esc undoes as one step.
+		if (before.mode !== 'INSERT' && result.state.mode === 'INSERT') {
+			vimUndoBaseRef.current = savedBefore
+		} else if (before.mode === 'INSERT' && result.state.mode !== 'INSERT') {
+			const base = vimUndoBaseRef.current
+			vimUndoBaseRef.current = null
+			if (base !== null) undoRef.current.collapseSince(base)
+		}
+		publishVim()
+		for (const effect of result.effects) {
+			if (effect === 'undo') undoDraft()
+			else if (effect === 'history-up')
+				keyHandlerRef.current?.('', { ...BARE_KEY, upArrow: true }, true)
+			// Down on a live draft would open the agents panel; only a recalled line is stepped back from.
+			else if (effect === 'history-down' && historyIndexRef.current >= 0)
+				keyHandlerRef.current?.('', { ...BARE_KEY, downArrow: true }, true)
+			else if (effect === 'history-search')
+				keyHandlerRef.current?.('r', { ...BARE_KEY, ctrl: true }, true)
+		}
+	}
+
+	/** Offer one key to the vim machine; true when it took the key. */
+	const vimStep = (input: string, key: Key, hasLiveSuggestions: boolean): boolean => {
+		const state = vimRef.current
+		let keys: { key: string; ctrl?: boolean; meta?: boolean }[]
+		if (state.mode === 'INSERT') {
+			// Esc closes an open menu, or leaves shell mode, before it leaves INSERT.
+			if (!key.escape || hasLiveSuggestions || shellRef.current) return false
+			keys = [{ key: 'Escape' }]
+		} else if (key.escape) {
+			keys = [{ key: 'Escape' }]
+		} else if (key.ctrl || key.meta) {
+			keys = [
+				{
+					key: input || '?',
+					...(key.ctrl ? { ctrl: true } : {}),
+					...(key.meta ? { meta: true } : {}),
+				},
+			]
+		} else if (key.tab || key.pageUp || key.pageDown || key.home || key.end) {
+			return false
+		} else if (key.return) {
+			keys = [{ key: 'Enter' }]
+		} else if (key.upArrow || key.downArrow || key.leftArrow || key.rightArrow) {
+			// Shift+arrows step the effort; an open menu keeps its arrows.
+			if (key.shift || (hasLiveSuggestions && (key.upArrow || key.downArrow))) return false
+			keys = [
+				{ key: key.upArrow ? 'Up' : key.downArrow ? 'Down' : key.leftArrow ? 'Left' : 'Right' },
+			]
+		} else if (key.backspace) {
+			keys = [{ key: 'Backspace' }]
+		} else if (key.delete) {
+			keys = [{ key: 'Delete' }]
+		} else if (input.length > 0 && !input.includes('\n')) {
+			keys = Array.from(graphemeSegmenter.segment(input), (segment) => ({ key: segment.segment }))
+		} else {
+			return false
+		}
+		const result = vimKeys(state, valueRef.current, cursorRef.current, keys, chipsNow())
+		if (!result.handled) {
+			// A key the box does not take can still drop a half-typed command (Enter with nothing to send).
+			if (result.state.pending !== state.pending && result.state.pending.length === 0) {
+				vimRef.current = { ...state, pending: [] }
+				publishVim()
+			}
+			return false
+		}
+		applyVim(state, result)
+		// Image paste stays Ctrl+V in every mode: VISUAL lets go first, then the key goes on.
+		if ((key.ctrl || key.meta) && isAction('chat:imagePaste', input, key)) return false
+		return true
+	}
+
+	const withKeyHandler = (handler: (input: string, key: Key, vimBypass?: boolean) => void) => {
+		const wrapped = (input: string, key: Key, vimBypass = false): void => {
+			handler(input, key, vimBypass)
+			settleVimCursor()
+		}
+		keyHandlerRef.current = wrapped
+		return wrapped
+	}
+	// A recall, an undo or a paste can leave the cursor past the last character: settle after
+	// the draft changes however it changed.
+	useEffect(() => {
+		void value
+		void cursor
+		settleVimCursor()
+	})
+
 	useInput(
-		withKeyHandler((input, key) => {
+		withKeyHandler((input, key, vimBypass = false) => {
 			// Hidden means the screen belongs to something else, so a keypress
 			// aimed at that must not also land here.
 			if (disabled || hidden) return
@@ -1603,6 +1839,16 @@ export function Composer({
 				if (editPreviousTimerRef.current) setEditPreviousArmed(false)
 				disarmClear()
 			}
+			// Vim keys come first in NORMAL and VISUAL, and take Esc in INSERT. A history search,
+			// a chosen queued message and the keys vim hands back (`vimBypass`) skip them.
+			if (
+				vimOnRef.current &&
+				!vimBypass &&
+				historySearchRef.current === null &&
+				queuedEdit?.selected !== true &&
+				vimStep(input, key, hasLiveSuggestions)
+			)
+				return
 			const submit = (mode: ComposerSubmitMode): boolean => {
 				const pastes = pasteStoreRef.current
 				// A held paste becomes its text; an image's marker stays where it was put.
@@ -1659,22 +1905,13 @@ export function Composer({
 			if (isAction('chat:newline', input, key) || input === '\n') {
 				const position = cursorRef.current
 				editBuffer(
-					valueRef.current.slice(0, position) + '\n' + valueRef.current.slice(position),
+					`${valueRef.current.slice(0, position)}\n${valueRef.current.slice(position)}`,
 					position + 1,
 				)
 				return
 			}
 			if (isAction('chat:undo', input, key)) {
-				const previous = undoRef.current.undo()
-				if (!previous) return
-				verticalColumnRef.current = null
-				historyDraftRef.current = null
-				setHistorySearch(null)
-				setHistoryIndex(-1)
-				setSelectedIndex(0)
-				// An image whose marker the edit took out comes back with it.
-				if (previous.attachments) replaceAttachments(previous.attachments)
-				setBuffer(previous.value, previous.cursor, 'typed', previous.spans)
+				undoDraft()
 				return
 			}
 			// A key that opens a chooser keeps what was typed: the draft goes to the
@@ -2253,6 +2490,39 @@ export function Composer({
 	].sort((a, b) => a.start - b.start)
 	const beforeSegments = displaySegments(value, displayValue.start, cursor, styledSpans)
 	const afterSegments = displaySegments(value, cursor, displayValue.end, styledSpans)
+	// NORMAL and VISUAL draw the cursor as a block over a character, and VISUAL marks what is selected.
+	const vimNow = vimOn ? vimRef.current : null
+	const blockCursor = vimNow !== null && vimNow.mode !== 'INSERT' && !disabled
+	const blockLine = (): ReactNode[] => {
+		const from = displayValue.start
+		const to = displayValue.end
+		const charEnd =
+			cursor < value.length && value[cursor] !== '\n' ? nextGraphemeBoundary(value, cursor) : cursor
+		const picked = vimNow ? vimSelection(vimNow, value, cursor) : null
+		const lit: readonly [number, number] =
+			picked && picked[1] > picked[0]
+				? [Math.max(from, picked[0]), Math.min(to, picked[1])]
+				: [cursor, charEnd]
+		const lead = Math.max(from, Math.min(lit[0], to))
+		const trail = Math.max(lead, Math.min(lit[1], to))
+		return [
+			<Fragment key="vim-before">
+				{renderSegments(displaySegments(value, from, lead, styledSpans))}
+			</Fragment>,
+			trail > lead ? (
+				<Text key="vim-cursor" inverse>
+					{renderSegments(displaySegments(value, lead, trail, styledSpans))}
+				</Text>
+			) : (
+				<Text key="vim-cursor" inverse>
+					{' '}
+				</Text>
+			),
+			<Fragment key="vim-after">
+				{renderSegments(displaySegments(value, trail, to, styledSpans))}
+			</Fragment>,
+		]
+	}
 	const shellGlyph = shellMode && !(disabled && !railFocused)
 	const promptGlyph = disabled && !railFocused ? '…' : shellGlyph ? '!' : '❯'
 	// Shell mode clears the placeholder: the `!` and the green rules already say what the line is.
@@ -2306,9 +2576,15 @@ export function Composer({
 					) : (
 						<Text color={disabled ? theme.text.muted : theme.text.primary} wrap="wrap">
 							{displayValue.leadingEllipsis ? '… ' : ''}
-							{renderSegments(beforeSegments)}
-							{disabled ? null : <Text color={theme.border.focus}>▏</Text>}
-							{renderSegments(afterSegments)}
+							{blockCursor ? (
+								blockLine()
+							) : (
+								<>
+									{renderSegments(beforeSegments)}
+									{disabled ? null : <Text color={theme.border.focus}>▏</Text>}
+									{renderSegments(afterSegments)}
+								</>
+							)}
 							{argumentHint ? <Text color={theme.text.muted}>{argumentHint}</Text> : null}
 							{displayValue.trailingEllipsis ? ' …' : ''}
 						</Text>

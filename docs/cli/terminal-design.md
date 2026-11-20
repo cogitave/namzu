@@ -54,6 +54,10 @@ them. Its items are joined by a dim ` · `, left to right:
 ⏵⏵ bypass permissions on · PR #607 · 2 shells · 1 monitor · esc to interrupt · ← 1 agent · ↓ to manage   model
 ```
 
+- **The vim mode**, when [vim keys](composer-vim.md) are on and the box is in INSERT,
+  VISUAL or VISUAL LINE: `-- INSERT --`, `-- VISUAL --` or `-- VISUAL LINE --`, dim, first on
+  the row. NORMAL shows nothing. It is the last item to go on a narrow terminal, the hint on the
+  right is cut to leave it room, and a row too narrow for the words shows none.
 - **The mode**, as `<mark> <words> on` in the mode's color, then a dim
   `(shift+tab to cycle)` when Shift+Tab actually cycles it here and no
   background shell is running (a running task takes the
@@ -273,6 +277,7 @@ Esc means one thing at a time, and the thing is chosen by what the screen is doi
 | A reply is running | interrupts it | nothing more to stop |
 | A `/` or `@` suggestion menu is open | closes the menu; the draft stays and nothing says to clear | the next Esc is a first press on a plain draft, as in the next row |
 | A Ctrl+R history search | leaves the search with the match in the box (Ctrl+C goes back to the draft that was there before; the line says so) | as for a plain draft |
+| Vim keys on (`/vim`), the box in INSERT or VISUAL, or a command half typed | goes to NORMAL (or cancels the half-typed command); it does not stop a reply or clear the draft | in NORMAL the next Esc is the one of the rows around this one |
 | Idle, a draft typed | shows `Esc again to clear` for a second; the draft stays | within 800 ms clears the draft and adds it to the prompt history |
 | Idle, empty box, at least one message sent | arms, shows nothing | within 800 ms opens the [rewind dialog](file-checkpoints.md#rewind) |
 | The detailed transcript, the rewind dialog, a picker or a dialog | closes that screen, or goes back one step | closes the next one |

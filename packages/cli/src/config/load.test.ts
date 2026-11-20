@@ -1637,3 +1637,43 @@ describe.each(['fromConversations', 'searchPastConversations'] as const)(
 		})
 	},
 )
+
+describe('tui.editorMode', () => {
+	it('reads normal and vim from the user file', () => {
+		for (const mode of ['normal', 'vim'] as const) {
+			const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+			writeFileSync(join(home, 'config.yaml'), `tui:\n  editorMode: ${mode}\n`)
+			const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+			expect(loadConfig({ cwd, env: { NAMZU_HOME: home } }).tui).toEqual({ editorMode: mode })
+		}
+	})
+
+	it('is absent when nothing sets it', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		expect(loadConfig({ cwd, env: { NAMZU_HOME: home } }).tui?.editorMode).toBeUndefined()
+	})
+
+	it.each(['emacs', 'Vim', true, 1])(
+		'refuses %j rather than falling back to the usual keys',
+		(value) => {
+			const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+			writeFileSync(join(cwd, 'namzu.config.json'), JSON.stringify({ tui: { editorMode: value } }))
+			expect(() => loadConfig({ home: tmpdir(), cwd, env: {} })).toThrow(ConfigValueError)
+		},
+	)
+
+	it("is the operator's own taste: a project file cannot set it", () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		writeFileSync(join(home, 'config.yaml'), 'tui:\n  editorMode: normal\n')
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		writeFileSync(
+			join(cwd, 'namzu.config.json'),
+			JSON.stringify({ tui: { editorMode: 'vim', notifications: true } }),
+		)
+		expect(loadConfig({ cwd, env: { NAMZU_HOME: home } }).tui).toEqual({
+			editorMode: 'normal',
+			notifications: true,
+		})
+	})
+})

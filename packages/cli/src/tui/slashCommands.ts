@@ -83,6 +83,7 @@ import { sandboxRunsShellUnasked } from '../permissions/sandbox-shell.js'
 import { readChangelog, renderReleaseNotes } from '../release-notes.js'
 import { SKILL_NAME_MAX_CHARS, SKILL_NAME_PATTERN } from '../skills/save.js'
 import { ARGUMENTS_TOKEN, type UserCommand, expandCommand } from '../user-commands/store.js'
+import { VIM_USAGE, parseVimArgument } from './editor-mode.js'
 import { keysHelpText } from './keymap.js'
 import { isCompletionArgument } from './login-prompt.js'
 import { terminalSetupText, tuiCommandText } from './screen-command.js'
@@ -171,6 +172,8 @@ export type SlashAction =
 	| { kind: 'theme'; setting: ThemeSetting }
 	/** `/config motion on|off|list`: reduced motion, written to the user config. */
 	| { kind: 'reduced-motion'; setting: 'on' | 'off' | 'list' }
+	/** `/vim [on|off]`: the message box's editor mode, for this run and in the user config. */
+	| { kind: 'editor-mode'; mode: 'normal' | 'vim' | 'toggle' }
 	/** `/config recap on|off|list`: the away recap's switch, written to the user config. */
 	| { kind: 'recap-setting'; setting: 'on' | 'off' | 'list' }
 	/** `/recap`: write a recap of the conversation now. */
@@ -1557,6 +1560,23 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 			return reportCommand('cost', args, (details) =>
 				renderCost(ctx.usage, ctx.compaction, details),
 			)
+		},
+	},
+	{
+		name: 'vim',
+		immediate: true,
+		help: {
+			usage: ['/vim [on|off]'],
+			details: [
+				'Switches the message box between the usual keys and vim keys, and saves the choice in your user config (tui.editorMode). With vim on the box starts in insert mode; Esc goes to normal mode, i, a, o and the other insert keys come back, and v starts a selection. Enter still sends in insert and normal mode.',
+			],
+		},
+		description: 'Switch the message box between the usual keys and vim keys.',
+		action: (_ctx, args) => {
+			const mode = parseVimArgument(args)
+			return mode === undefined
+				? { kind: 'message', role: 'system', content: VIM_USAGE }
+				: { kind: 'editor-mode', mode }
 		},
 	},
 	{

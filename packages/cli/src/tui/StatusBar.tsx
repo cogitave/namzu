@@ -27,6 +27,7 @@ import { elementRect } from './pointer/regions.js'
 import type { PrFooterState, PrReview } from './pr-status.js'
 import { terminalWebHyperlink } from './terminal-hyperlinks.js'
 import { theme } from './theme.js'
+import type { VimMode } from './vim/index.js'
 
 export interface StatusBarProps {
 	readonly provider: string | null
@@ -54,6 +55,11 @@ export interface StatusBarProps {
 	 * `esc to interrupt` (Esc belongs to the dialog).
 	 */
 	readonly dialogOpen?: boolean
+	/**
+	 * The message box's vim mode. The footer says `-- INSERT --`, `-- VISUAL --` or `-- VISUAL LINE --`
+	 * at the left end of the row, and says nothing in NORMAL (nor when a dialog owns the keyboard).
+	 */
+	readonly vimMode?: VimMode
 	/** The mode governing undecided tool calls. Omitted or 'prompt' shows the quiet cycle reminder instead of a badge. */
 	readonly permissionMode?: PermissionMode
 	/**
@@ -179,6 +185,11 @@ function prColor(review: PrReview): string | null {
 	}
 }
 
+/** `-- INSERT --`: the footer's words for a vim mode. */
+export function vimLabel(mode: VimMode): string {
+	return `-- ${mode} --`
+}
+
 /** `2 shells` / `1 shell`: running background commands, named for what they are. */
 export function shellPill(count: number): string | null {
 	return count > 0 ? `${count} ${count === 1 ? 'shell' : 'shells'}` : null
@@ -199,6 +210,7 @@ export function StatusBar({
 	hint,
 	hintDim = false,
 	dialogOpen = false,
+	vimMode,
 	permissionMode,
 	canCycleMode,
 	sandboxShell = false,
@@ -264,6 +276,7 @@ export function StatusBar({
 		// here rather than letting its final character be clipped after fitting
 		// succeeds.
 		columns: Math.max(0, terminal.columns - 1),
+		vim: vimMode !== undefined && vimMode !== 'NORMAL' && !dialogOpen ? vimLabel(vimMode) : null,
 		model,
 		provider,
 		effort: effort ?? null,
@@ -309,6 +322,13 @@ export function StatusBar({
 	const sep = <Text color={theme.text.muted}> · </Text>
 	const parts: React.ReactElement[] = []
 	const lit = (item: ClickItem): boolean => hovered === item && onClickItem?.[item] !== undefined
+	if (layout.vim) {
+		parts.push(
+			<Text key="vim" color={theme.text.muted}>
+				{layout.vim}
+			</Text>,
+		)
+	}
 	if (layout.mode) {
 		parts.push(
 			<Text key="mode" underline={lit('mode')}>
@@ -399,6 +419,7 @@ export function StatusBar({
 	// Where the items stand, from the same strings the row is built of: the left items are joined
 	// by ` · `, then the gap, then the right end.
 	const leftTexts: [string, string | null][] = [
+		['vim', layout.vim ?? null],
 		['mode', layout.mode ? `${layout.mode}${layout.cycleSuffix ?? ''}` : null],
 		[
 			'pr',
@@ -500,6 +521,8 @@ function colorForState(state: StatusBarProps['state']): string {
 }
 
 export interface StatusLineLayout {
+	/** The vim mode's words (`-- INSERT --`); absent when none is shown. */
+	readonly vim?: string
 	readonly mode: string | null
 	readonly cycleSuffix: string | null
 	readonly interrupt: string | null
@@ -539,6 +562,8 @@ export interface StatusLineLayout {
  */
 export function fitStatusLine(input: {
 	readonly columns: number
+	/** The vim mode's words, kept at the left end of the row ahead of every other item. */
+	readonly vim?: string | null
 	readonly provider: string | null
 	readonly model: string | null
 	readonly effort?: string | null
@@ -570,8 +595,14 @@ export function fitStatusLine(input: {
 	// wired up) — `??` does not treat that as absent, and an empty string
 	// would otherwise win the slot a model needs to fall through to.
 	let rightText: string | null = input.hint || input.notice || input.goal || null
+	// The vim mode's words are the first thing on the row and are the last to go; a row too
+	// narrow to hold them says nothing of the mode rather than cutting it.
+	const vim = input.vim && input.vim.length <= columns ? input.vim : null
 	// A line too wide for its room loses whole hints, never half of one.
-	if (rightText !== null) rightText = fitHintText(rightText, columns)
+	if (rightText !== null) {
+		rightText = fitHintText(rightText, vim ? Math.max(0, columns - vim.length - 1) : columns)
+		if (vim && rightText.length === 0) rightText = null
+	}
 
 	let modelLabel: string | null = input.model ?? input.provider
 	const right = (): string => (rightText !== null ? rightText : (modelLabel ?? ''))
@@ -594,6 +625,7 @@ export function fitStatusLine(input: {
 
 	const parts = (): string[] =>
 		[
+			vim,
 			mode ? `${mode}${cycleSuffix ?? ''}` : null,
 			pr ? `${pr.prefix ? `${pr.prefix} ` : ''}${pr.label}` : null,
 			shells,
@@ -648,6 +680,7 @@ export function fitStatusLine(input: {
 	const gap = ' '.repeat(Math.max(visibleGap, columns - leftWidth - rightWidth))
 
 	return {
+		...(vim ? { vim } : {}),
 		mode,
 		cycleSuffix: mode ? cycleSuffix : null,
 		interrupt,
