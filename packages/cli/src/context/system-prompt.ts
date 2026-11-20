@@ -50,6 +50,13 @@ export const SHELL_ESCAPE_GUIDANCE =
 	'When the person has to run a command themselves, give it as one exact line they can paste and tell them they can run it here by typing `!` before it. A `!` line runs in this session, in the working directory, with their own authority, and its output comes back to you. It cannot answer a prompt: for a command that asks for a password or an interactive sign-in, tell them to run it in another terminal instead. Do not suggest it for a command you can run with your own tools.'
 
 /**
+ * Said only where `ask_user_question` is mounted for a host that draws it as a card.
+ * It names no other tool and never suggests the shell as a way to ask.
+ */
+export const ASK_USER_QUESTION_GUIDANCE =
+	"When a decision is the person's to make, or you need something only they know, ask with `ask_user_question` instead of guessing, and never through a shell command: the shell has no keyboard. Ask only when you are blocked on it, put the option you recommend first and mark it, and keep options short. The person can always answer in their own words. Anything they type goes to you and into the conversation record, so never ask for a password or a secret."
+
+/**
  * How to go about a task on a website. Said only where the browser tools are
  * mounted and can run, so a session without them never reads it.
  */
@@ -88,6 +95,8 @@ export interface SessionPromptInput {
 	/** The memory section, present only for a session that holds the tool it teaches. */
 	readonly memoryGuidance?: string | undefined
 	readonly shellEscapeGuidance?: string | undefined
+	/** {@link ASK_USER_QUESTION_GUIDANCE}, when the question tool is mounted for a card host. */
+	readonly questionGuidance?: string | undefined
 	/** The "Where files go" section; constant, so it never changes mid-session. */
 	readonly filePlacementGuidance?: string | undefined
 	/** True when a tool in this turn's roster is deferred behind `search_tools`. */
@@ -120,6 +129,8 @@ export interface SessionPromptFacts {
 	readonly memoryGuidance?: string | undefined
 	/** For a session with a person typing at it; see `SHELL_ESCAPE_GUIDANCE`. */
 	readonly shellEscapeGuidance?: string | undefined
+	/** See {@link SessionPromptInput.questionGuidance}. */
+	readonly questionGuidance?: string | undefined
 	/** See {@link SessionPromptInput.filePlacementGuidance}. */
 	readonly filePlacementGuidance?: string | undefined
 	readonly toolLoading?: 'eager' | 'deferred' | undefined
@@ -171,6 +182,7 @@ export function sessionPromptInput(
 		),
 		memoryGuidance: withNote(facts.memoryGuidance, MEMORY_DEFERRED_NOTE),
 		shellEscapeGuidance: facts.shellEscapeGuidance,
+		questionGuidance: facts.questionGuidance,
 		filePlacementGuidance: facts.filePlacementGuidance,
 		toolsDeferred,
 		planInReminders: turn.planInReminders,
@@ -217,6 +229,7 @@ export function composeSessionSystemPrompt(input: SessionPromptInput): string | 
 		input.filePlacementGuidance,
 		input.memoryGuidance,
 		input.shellEscapeGuidance,
+		input.questionGuidance,
 		// Whenever anything is deferred: a deferred tool the model was never
 		// told how to load is a tool it does not have.
 		input.toolsDeferred ? DEFERRED_TOOL_GUIDANCE : undefined,

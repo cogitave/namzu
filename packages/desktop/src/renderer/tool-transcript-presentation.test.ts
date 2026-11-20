@@ -439,6 +439,34 @@ describe('a skill row', () => {
 	})
 })
 
+describe('a question the agent put to the person', () => {
+	const call = (status: 'pending' | 'completed' | 'failed') => {
+		let thread = start(
+			{ kind: 'generic', label: '{"questions":[{"question":"Who?"}]}' },
+			'ask_user_question',
+		)
+		if (status !== 'pending')
+			thread = result(
+				thread,
+				{ kind: 'generic', label: 'User answered "Who?": "Board"' },
+				status,
+				'ask_user_question',
+			)
+		return thread
+	}
+	it('says it asked, in plain words, and never shows the raw call', () => {
+		const running = toolTranscriptPresentation(call('pending'), key)
+		expect(running?.label).toBe('Asking you a question')
+		expect(running?.detailView).toBeUndefined()
+		const done = toolTranscriptPresentation(call('completed'), key)
+		expect(done?.label).toBe('Asked you a question')
+		expect(done?.detailView).toBeUndefined()
+		expect(toolTranscriptPresentation(call('failed'), key)?.label).toBe(
+			'Couldn’t ask you a question',
+		)
+	})
+})
+
 describe('a message to a Pal from an ordinary conversation', () => {
 	const call = (status: 'pending' | 'completed' | 'failed', label: string, callLabel?: string) => {
 		let thread = start(

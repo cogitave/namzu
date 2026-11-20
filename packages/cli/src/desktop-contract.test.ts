@@ -22,6 +22,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { removeTempDir } from './__fixtures__/temp-dir.js'
 import { runCli } from './cli.js'
 import {
+	QUESTION_CLOSED_NOTIFICATION,
+	QUESTION_NOTIFICATION,
+} from './commands/acp-desktop-question.js'
+import {
 	acpCommand,
 	createCliAcpRuntime,
 	desktopServerExtensions,
@@ -276,6 +280,8 @@ describe('every recorded name still exists in what the host offers', () => {
 			'cli COMPUTER_FRAME_NOTIFICATION': COMPUTER_FRAME_NOTIFICATION,
 			'cli OUTCOME_NOTIFICATION': OUTCOME_NOTIFICATION,
 			'cli TITLE_NOTIFICATION': TITLE_NOTIFICATION,
+			'cli QUESTION_NOTIFICATION': QUESTION_NOTIFICATION,
+			'cli QUESTION_CLOSED_NOTIFICATION': QUESTION_CLOSED_NOTIFICATION,
 			'cli LIMITS_NOTIFICATION': LIMITS_NOTIFICATION,
 			'cli TERMINAL_NOTIFICATIONS.data': TERMINAL_NOTIFICATIONS.data,
 			'cli TERMINAL_NOTIFICATIONS.exit': TERMINAL_NOTIFICATIONS.exit,

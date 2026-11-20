@@ -19,6 +19,7 @@ const unreadByTurns: ReadonlySet<keyof ThreadState> = new Set([
 	'retryNotice',
 	'retryClosable',
 	'retryUnknownUsage',
+	'handoff',
 	'result',
 	'partial',
 	'historyWorkPartial',

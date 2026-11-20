@@ -915,7 +915,7 @@ export function NotificationsSection({ settings }: { settings: DesktopSettingsCo
 				undefined,
 				true,
 			)}
-			{/* Questions: kept in the settings, drawn once a conversation in this app can ask one. */}
+			{/* Questions: a conversation in this app can ask one, so the row is drawn. */}
 			{DESKTOP_ASKS_QUESTIONS &&
 				levelRow(
 					'notify-question',

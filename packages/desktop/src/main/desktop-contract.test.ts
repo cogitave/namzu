@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { COMPUTER_FRAME_NOTIFICATION } from '../shared/computer-protocol.js'
 import { LIMITS_NOTIFICATION } from '../shared/limits-protocol.js'
 import { OUTCOME_NOTIFICATION } from '../shared/outcome-protocol.js'
+import { QUESTION_CLOSED_NOTIFICATION, QUESTION_NOTIFICATION } from '../shared/question-protocol.js'
 import { TERMINAL_NOTIFICATIONS } from '../shared/terminal-protocol.js'
 import { buildEngineLaunch, namzuPermissionArgument } from '../shared/terminal-tabs.js'
 import { TITLE_NOTIFICATION } from '../shared/title-protocol.js'
@@ -154,6 +155,8 @@ describe('the app against the desktop contract inventory', () => {
 			COMPUTER_FRAME_NOTIFICATION,
 			TITLE_NOTIFICATION,
 			LIMITS_NOTIFICATION,
+			QUESTION_NOTIFICATION,
+			QUESTION_CLOSED_NOTIFICATION,
 			TERMINAL_NOTIFICATIONS.data,
 			TERMINAL_NOTIFICATIONS.exit,
 		])

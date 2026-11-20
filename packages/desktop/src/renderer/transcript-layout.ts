@@ -336,6 +336,9 @@ export function transcriptOutcome(
  */
 export function turnNotice(thread: ThreadState, closedWhileRunning = false): string | undefined {
 	const reason = thread.turns[thread.turn]?.reason ?? thread.stopReason
+	// A turn waiting for the person has its card above the box saying what to do; a "Paused." line
+	// under it would only repeat that less clearly.
+	if (thread.handoff && transcriptOutcome(reason) === 'paused') return undefined
 	const notice = terminalNotice(reason, Boolean(thread.error || thread.retryNotice))
 	if (!notice || transcriptOutcome(reason) !== 'stopped') return notice
 	// The window closed under a running reply: that, not the person, is why it stopped.
