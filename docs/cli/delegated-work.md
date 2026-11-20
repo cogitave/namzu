@@ -450,7 +450,7 @@ the layout. When every running call is a correlated wait, the rows fold into
 one `✻ Waiting for N agents to finish` line; a wait beside other work keeps its
 own `Waiting · <task name>` row. Its successful protocol response does not add
 a second report to the transcript. Unknown waits and tool errors remain
-visible. Press `←` or `↓` on an empty composer, or open `/tasks`, to inspect agent transcripts and results. Failed, cancelled
+visible. Press `↓` on an empty composer, or open `/tasks`, to inspect agent transcripts and results. Failed, cancelled
 and incomplete work keeps its reported status rather than appearing completed.
 
 The agents rail stays on screen while an approval dialog is open, reduced to
@@ -656,7 +656,7 @@ describe that selection. It uses the existing bounded activity monitor, not
 raw child journals or full tool-result bodies. Child text is marked as
 untrusted delegated output. No observed text does not mean no work is running.
 
-`←` or `↓` on an empty composer (or Enter on an agent row in `/tasks`) opens a dedicated agent browser using the terminal's available height.
+`↓` on an empty composer takes the keys into the task rows, and Enter on `main` or on a workflow row (or on an agent row in `/tasks`) opens a dedicated agent browser above the message box, half the terminal's height in the full screen view.
 The main composer is hidden there. Esc returns to
 chat; Enter inspects a child transcript, Esc goes back and `q` returns from the
 child to the parent. Workflows and phases remain navigation groups, not execution

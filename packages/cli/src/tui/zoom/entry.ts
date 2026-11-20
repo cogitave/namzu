@@ -26,6 +26,8 @@ export interface WorkspacesEntryDeps {
 	readonly requestExit: () => void
 	/** Has the App clear the screen and print its whole transcript again. */
 	readonly repaint: () => void
+	/** Written when the host lets the terminal go back to the fullscreen view (see `LocalSessionDeps`). */
+	readonly restoreScreen?: string
 }
 
 export interface WorkspacesEntry {
@@ -107,6 +109,7 @@ export function createWorkspacesEntry(deps: WorkspacesEntryDeps): WorkspacesEntr
 				},
 				requestExit: deps.requestExit,
 				repaint: deps.repaint,
+				...(deps.restoreScreen !== undefined ? { restoreScreen: deps.restoreScreen } : {}),
 			},
 			{ cols: deps.realOut.columns ?? 80, rows: deps.realOut.rows ?? 24 },
 		)
