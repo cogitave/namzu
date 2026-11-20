@@ -78,13 +78,121 @@ interface Layer {
 
 const MAX_LAYERS = 8
 
-function layersOf(command: ShellCommand): Layer[] {
+type Variables = ReadonlyMap<string, string>
+const NO_VARIABLES: Variables = new Map()
+
+function plainWord(value: string): ShellWord {
+	return { text: value, value, expands: false, quoted: false, substitutes: false }
+}
+
+/** `NAME=value` assignments of the whole line whose value is written out, for a head word that is a variable. */
+function variablesOf(commands: readonly ShellCommand[]): Variables {
+	const out = new Map<string, string>()
+	for (const command of commands) {
+		for (const word of command.words.slice(0, command.assignments)) {
+			const match = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s.exec(word.value)
+			if (match !== null && !word.expands) out.set(match[1] as string, match[2] as string)
+		}
+	}
+	return out
+}
+
+/**
+ * The program a head word that expands will run, when its text says so: a
+ * variable the line sets (`"$S" ls` after `S=sudo`), or a substitution that
+ * only prints a name (`$(echo sudo) ls`). `undefined` when it cannot be told.
+ */
+function resolveHead(head: ShellWord, vars: Variables): string | undefined {
+	const variable = /^"?\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))"?$/.exec(head.text)
+	if (variable !== null) {
+		const value = vars.get((variable[1] ?? variable[2]) as string)
+		return value === undefined || /\s/.test(value) ? undefined : basename(value)
+	}
+	const printed =
+		/^"?(?:\$\(|`)\s*(?:echo|printf)\s+(?:-[A-Za-z]+\s+)*(?:'([^'\s]+)'|"([^"\s]+)"|([^\s'"$`()]+))\s*(?:\)|`)"?$/.exec(
+			head.text,
+		)
+	if (printed !== null) {
+		const name = printed[1] ?? printed[2] ?? printed[3]
+		return name === undefined ? undefined : basename(name)
+	}
+	return undefined
+}
+
+/** `xargs`' own options that take the next word as their value. */
+const XARGS_VALUE_OPTIONS = new Set([
+	'-I',
+	'-n',
+	'-P',
+	'-L',
+	'-l',
+	'-s',
+	'-d',
+	'-E',
+	'-e',
+	'-a',
+	'-J',
+	'--arg-file',
+	'--delimiter',
+	'--max-args',
+	'--max-procs',
+	'--max-lines',
+	'--max-chars',
+	'--eof',
+	'--process-slot-var',
+])
+
+/** The command `xargs` runs, as a word list, or `undefined` when it has none. */
+function xargsCommand(args: readonly ShellWord[]): readonly ShellWord[] | undefined {
+	for (let i = 0; i < args.length; i += 1) {
+		const value = (args[i] as ShellWord).value
+		if (value === '--') return args.slice(i + 1)
+		if (!value.startsWith('-') || value === '-') return args.slice(i)
+		if (XARGS_VALUE_OPTIONS.has(value)) i += 1
+	}
+	return undefined
+}
+
+const FIND_EXEC = new Set(['-exec', '-execdir', '-ok', '-okdir'])
+
+/** The commands `find -exec … ;` (or `+`) runs, one word list each. */
+function findCommands(args: readonly ShellWord[]): readonly ShellWord[][] {
+	const out: ShellWord[][] = []
+	for (let i = 0; i < args.length; i += 1) {
+		if (!FIND_EXEC.has((args[i] as ShellWord).value)) continue
+		let end = i + 1
+		while (end < args.length && !['+', ';'].includes((args[end] as ShellWord).value)) end += 1
+		if (end > i + 1) out.push(args.slice(i + 1, end))
+		i = end
+	}
+	return out
+}
+
+function layersOfWords(start: readonly ShellWord[], vars: Variables, used: { n: number }): Layer[] {
 	const layers: Layer[] = []
-	let words: readonly ShellWord[] = command.words.slice(command.assignments)
-	for (let depth = 0; depth < MAX_LAYERS; depth += 1) {
-		const head = words[0]
-		if (head === undefined || head.expands) break
-		layers.push({ program: basename(head.value), args: words.slice(1) })
+	let words = start
+	while (used.n < MAX_LAYERS) {
+		used.n += 1
+		let head = words[0]
+		if (head === undefined) break
+		if (head.expands) {
+			const name = resolveHead(head, vars)
+			if (name === undefined) break
+			head = plainWord(name)
+			words = [head, ...words.slice(1)]
+		}
+		const program = basename(head.value)
+		const args = words.slice(1)
+		layers.push({ program, args })
+		if (program === 'xargs') {
+			const inner = xargsCommand(args)
+			if (inner !== undefined) layers.push(...layersOfWords(inner, vars, used))
+			break
+		}
+		if (program === 'find') {
+			for (const inner of findCommands(args)) layers.push(...layersOfWords(inner, vars, used))
+			break
+		}
 		const step = skipOneReexecWrapper(words)
 		if (step === null || !('rest' in step) || step.rest.length === 0) break
 		words = step.rest
@@ -92,9 +200,16 @@ function layersOf(command: ShellCommand): Layer[] {
 	return layers
 }
 
+function layersOf(command: ShellCommand, vars: Variables = NO_VARIABLES): Layer[] {
+	return layersOfWords(command.words.slice(command.assignments), vars, { n: 0 })
+}
+
 const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh'])
 const ELEVATORS = new Set(['sudo', 'sudoedit', 'doas', 'pkexec'])
-const HARMLESS_DEVICES = /^\/dev\/(?:null|zero|full|stdout|stderr|tty|fd\/)/
+const HARMLESS_DEVICES =
+	/^\/dev\/(?:null|zero|full|stdout|stderr|stdin|tty|fd\/|(?:shm|pts|tcp|udp)(?:\/|$))/
+const isDevice = (value: string): boolean =>
+	value.startsWith('/dev/') && !HARMLESS_DEVICES.test(value)
 
 /** Quoted text and comments blanked, so a word inside either never reads as a command. */
 function blankQuotedText(line: string): string {
@@ -141,13 +256,14 @@ function pipesDownloadIntoShell(
 	commands: readonly ShellCommand[],
 	index: number,
 	cursors: { at: number },
+	vars: Variables,
 ): boolean {
 	const command = commands[index]
 	if (command === undefined || command.origin !== 'line') return false
 	const found = line.indexOf(command.text, cursors.at)
 	if (found === -1) return false
 	cursors.at = found + command.text.length
-	const downloads = layersOf(command).some(
+	const downloads = layersOf(command, vars).some(
 		(layer) => layer.program === 'curl' || layer.program === 'wget',
 	)
 	if (!downloads) return false
@@ -155,16 +271,31 @@ function pipesDownloadIntoShell(
 	const piped = /^[ \t]*(?:\\\n[ \t]*)*\|(?!\|)&?\s*/.exec(rest)
 	if (piped === null) return false
 	const next = commands[index + 1]
-	return next !== undefined && layersOf(next).some((layer) => SHELLS.has(layer.program))
+	return next !== undefined && layersOf(next, vars).some((layer) => SHELLS.has(layer.program))
 }
 
 function hardStop(layer: Layer, options: FindDangerousOptions): string | undefined {
 	const { program, args } = layer
 	if (program === 'rm' || program === 'rmdir') return irreversibleRemoval(args, options)
-	if (/^mkfs(?:\.[A-Za-z0-9_]+)?$/.test(program)) return 'it creates a file system on a device'
+	if (/^mkfs(?:\.[A-Za-z0-9_]+)?$/.test(program)) {
+		return args.some((arg) => isDevice(arg.value))
+			? 'it creates a file system on a device'
+			: undefined
+	}
+	if (program === 'shred' && args.some((arg) => isDevice(arg.value))) {
+		return 'it overwrites a device with shred'
+	}
+	if (
+		program === 'wipefs' &&
+		args.some((arg) => ['-a', '--all', '-f', '--force'].includes(arg.value)) &&
+		args.some((arg) => isDevice(arg.value))
+	) {
+		return 'it erases the signatures of a device with wipefs'
+	}
+	if (program === 'find') return irreversibleFind(args, options)
 	if (program === 'dd') {
 		const target = args.find((arg) => arg.value.startsWith('of=/dev/'))
-		if (target !== undefined && !HARMLESS_DEVICES.test(target.value.slice(3))) {
+		if (target !== undefined && isDevice(target.value.slice(3))) {
 			return 'it writes raw data to a device with dd'
 		}
 		return undefined
@@ -175,6 +306,78 @@ function hardStop(layer: Layer, options: FindDangerousOptions): string | undefin
 		if (modes.length > 0 && onRoot) return 'it makes the root directory world-writable'
 	}
 	return undefined
+}
+
+/** A redirection that writes to a device: `cat image > /dev/sda`. */
+function deviceWrite(command: ShellCommand): string | undefined {
+	for (const redirection of command.redirections) {
+		if (!['>', '>>', '>|', '&>', '&>>'].includes(redirection.operator)) continue
+		if (isDevice(redirection.target.value))
+			return 'it writes raw data to a device with a redirection'
+	}
+	return undefined
+}
+
+const FIND_PLAIN = new Set([
+	'-delete',
+	'-depth',
+	'-d',
+	'-xdev',
+	'-mount',
+	'-print',
+	'-print0',
+	'-maxdepth',
+	'-mindepth',
+	'-P',
+	'-L',
+	'-H',
+	'-ignore_readdir_race',
+	'-noignore_readdir_race',
+	'-follow',
+])
+const REMOVERS = new Set(['rm', 'rmdir', 'unlink', 'shred'])
+
+/**
+ * `find / -delete` and `find ~ -exec rm {} +` remove what `rm -rf /` would,
+ * with the path named by `find` and not by the remover. It is a stop only when
+ * no test narrows the match (`-name`, `-type`, `-mtime`, …) and a remover
+ * runs; the path is then judged as `rm`'s own would be.
+ */
+function irreversibleFind(
+	args: readonly ShellWord[],
+	options: FindDangerousOptions,
+): string | undefined {
+	const spans = findCommands(args)
+	const execs = new Set(args.map((arg) => arg.value).filter((value) => FIND_EXEC.has(value)))
+	const removes =
+		args.some((arg) => arg.value === '-delete') ||
+		spans.some((span) =>
+			layersOfWords(span, NO_VARIABLES, { n: 0 }).some((layer) => REMOVERS.has(layer.program)),
+		)
+	if (!removes) return undefined
+	const paths: ShellWord[] = []
+	let i = 0
+	for (; i < args.length; i += 1) {
+		const value = (args[i] as ShellWord).value
+		if (['-H', '-L', '-P'].includes(value)) continue
+		if (value.startsWith('-') || value === '(' || value === '!') break
+		paths.push(args[i] as ShellWord)
+	}
+	let inExec = false
+	for (const arg of args.slice(i)) {
+		if (inExec) {
+			if (arg.value === ';' || arg.value === '+') inExec = false
+			continue
+		}
+		if (execs.has(arg.value)) {
+			inExec = true
+			continue
+		}
+		if (arg.value === '(' || arg.value === ')' || arg.value === '!') return undefined
+		if (arg.value.startsWith('-') && !FIND_PLAIN.has(arg.value)) return undefined
+	}
+	const reason = irreversibleRemoval(paths, options, true)
+	return reason === undefined ? undefined : reason.replace(/^it removes/, 'it deletes')
 }
 
 function askReason(layer: Layer): string | undefined {
@@ -188,6 +391,12 @@ function askReason(layer: Layer): string | undefined {
 		args.some((arg) => !arg.value.startsWith('-') && /^[^@\s]+@\S/.test(arg.value))
 	) {
 		return 'it opens a remote shell (ssh user@host)'
+	}
+	if (
+		/^mkfs(?:\.[A-Za-z0-9_]+)?$/.test(program) &&
+		args.some((arg) => arg.expands && !arg.value.startsWith('-'))
+	) {
+		return 'it creates a file system on a path that is only known when it runs'
 	}
 	if (program === 'eval' && args.some((arg) => arg.quoted || arg.expands)) {
 		return 'it evaluates a dynamic string with eval'
@@ -207,10 +416,11 @@ function askReason(layer: Layer): string | undefined {
 function irreversibleRemoval(
 	args: readonly ShellWord[],
 	options: FindDangerousOptions,
+	operands = false,
 ): string | undefined {
 	const home = slashes(options.home ?? homedir()).replace(/(?<=.)\/$/, '')
 	const env = options.env ?? process.env
-	for (const target of targetsOf(args)) {
+	for (const target of operands ? args : targetsOf(args)) {
 		const spelled = target.value
 		if (spelled === '') continue
 		if (/^\\+$/.test(spelled)) return 'it removes the drive root'
@@ -280,8 +490,11 @@ export function findDangerousCommand(
 	if (FORK_BOMB.test(masked)) return { tier: 'stop', reason: 'it defines a fork bomb' }
 
 	const cursors = { at: 0 }
+	const vars = variablesOf(lexed.commands)
 	for (const [index, each] of lexed.commands.entries()) {
-		const layers = layersOf(each)
+		const layers = layersOf(each, vars)
+		const written = deviceWrite(each)
+		if (written !== undefined) return { tier: 'stop', reason: written }
 		for (const layer of layers) {
 			const stop = hardStop(layer, options)
 			if (stop !== undefined) return { tier: 'stop', reason: stop }
@@ -295,7 +508,10 @@ export function findDangerousCommand(
 				}
 			}
 		}
-		if (asked === undefined && pipesDownloadIntoShell(command, lexed.commands, index, cursors)) {
+		if (
+			asked === undefined &&
+			pipesDownloadIntoShell(command, lexed.commands, index, cursors, vars)
+		) {
 			asked = { tier: 'ask', reason: 'it pipes a download into a shell' }
 		}
 	}

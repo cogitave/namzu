@@ -223,3 +223,82 @@ describe('the words of a refusal', () => {
 		)
 	})
 })
+
+describe('a program run through xargs or find -exec is read as run', () => {
+	it.each([
+		'echo x | xargs sudo rm -rf /tmp/y',
+		'xargs -I{} sudo {}',
+		'xargs -n 1 -P 4 sudo true',
+		'find . -exec sudo rm {} ;',
+		'find . -execdir sudo true {} +',
+	])('asks: %s', (command) => {
+		expect(find(command)?.tier).toBe('ask')
+	})
+
+	it.each([
+		'xargs rm -rf /',
+		'echo / | xargs -- rm -rf /usr',
+		'find / -exec rm -rf {} +',
+		'find / -delete',
+		'find ~ -delete',
+		'echo x | xargs dd of=/dev/sda',
+	])('stops: %s', (command) => {
+		expect(find(command)?.tier).toBe('stop')
+	})
+
+	it('leaves a narrowed or local find alone', () => {
+		expect(find('find / -name "*.o" -delete')).toBeUndefined()
+		expect(find('find . -delete')).toBeUndefined()
+		expect(find('find /tmp/build -exec rm {} +')).toBeUndefined()
+		expect(find('xargs rm -f')).toBeUndefined()
+	})
+})
+
+describe('devices written without dd', () => {
+	it.each([
+		'shred /dev/sda',
+		'shred -n 3 -z /dev/nvme0n1',
+		'wipefs -a /dev/sda',
+		'cat x > /dev/sda',
+		'echo x >> /dev/sdb',
+	])('stops: %s', (command) => {
+		expect(find(command)?.tier).toBe('stop')
+	})
+	it.each(['wipefs /dev/sda', 'shred secret.txt', 'echo x > /dev/null', 'echo x > /dev/pts/0'])(
+		'leaves alone: %s',
+		(command) => {
+			expect(find(command)).toBeUndefined()
+		},
+	)
+})
+
+describe('a program named by a substitution or a variable is read', () => {
+	it.each(['$(echo sudo) ls', '`echo sudo` ls', 'S=sudo; "$S" ls', 'S=sudo\n${S} ls'])(
+		'asks: %s',
+		(command) => {
+			expect(find(command)?.tier).toBe('ask')
+		},
+	)
+	it('stops a removal named by a substitution', () => {
+		expect(find('$(echo rm) -rf /')?.tier).toBe('stop')
+		expect(find('R=rm; "$R" -rf /usr')?.tier).toBe('stop')
+	})
+	it('does not read an unknown variable as a program', () => {
+		expect(find('"$X" ls')).toBeUndefined()
+	})
+})
+
+describe('harmless uses of device and file-system programs', () => {
+	it.each([
+		'dd of=/dev/shm/x',
+		'dd of=/dev/pts/0',
+		'mkfs.ext4 disk.img',
+		'mkfs --help',
+		'mkfs.ext4 -F ./disk.img',
+	])('is not a stop: %s', (command) => {
+		expect(find(command)).toBeUndefined()
+	})
+	it('asks about a file system made on a path only known at run time', () => {
+		expect(find('mkfs.ext4 "$IMG"')?.tier).toBe('ask')
+	})
+})
