@@ -279,6 +279,27 @@ function closersFor(prefix: string): string {
 	return stack.reverse().join('')
 }
 
+const PLAN_KEYS = new Set(['mode', 'time', 'termIds', 'focusIds', 'basis'])
+
+/**
+ * Where each plan key is written, in order. Only the plan's own keys count: the
+ * `message` and `quote` keys of separate basis entries repeat by design, and text
+ * inside a string is a value, not a key.
+ */
+function planKeys(text: string): { name: string; index: number }[] {
+	const keys: { name: string; index: number }[] = []
+	for (let i = 0; i < text.length; i++) {
+		if (text[i] !== '"') continue
+		let j = i + 1
+		while (j < text.length && text[j] !== '"') j += text[j] === '\\' ? 2 : 1
+		const name = text.slice(i + 1, j)
+		if (PLAN_KEYS.has(name) && /^\s*:/.test(text.slice(j + 1, j + 64)))
+			keys.push({ name, index: i })
+		i = j
+	}
+	return keys
+}
+
 /**
  * The plan as written, or as far as it can be read: a code fence around it is
  * dropped, and a key written twice (a second `"basis"` after an unfinished first)
@@ -292,11 +313,9 @@ function parsePlan(raw: string): unknown {
 	try {
 		return JSON.parse(text)
 	} catch (error) {
-		const keys = [...text.matchAll(/"(\w+)"\s*:/g)]
 		const seen = new Set<string>()
-		for (const key of keys) {
-			const name = key[1] as string
-			if (seen.has(name) && key.index !== undefined) {
+		for (const key of planKeys(text)) {
+			if (seen.has(key.name)) {
 				const prefix = text.slice(0, key.index).replace(/[\s,]+$/, '')
 				try {
 					return JSON.parse(prefix + closersFor(prefix))
@@ -304,7 +323,7 @@ function parsePlan(raw: string): unknown {
 					break
 				}
 			}
-			seen.add(name)
+			seen.add(key.name)
 		}
 		throw error
 	}
@@ -325,8 +344,12 @@ export function validateEvidenceQueryResolution(
 	history: readonly QueryMessage[],
 ): QueryPlan {
 	const plan = planSchema.parse(parsePlan(raw))
-	const termIds = [...new Set(plan.termIds)].slice(0, MAX_TERMS)
-	const focusIds = [...new Set(plan.focusIds ?? [])].slice(0, MAX_FOCUS)
+	const offeredIds = [...new Set(plan.termIds)]
+	const termIds = offeredIds.slice(0, MAX_TERMS)
+	const offeredFocus = [...new Set(plan.focusIds ?? [])].slice(0, MAX_FOCUS)
+	// A focus word that fell past the word allowance is dropped with its word; one
+	// the plan never selected is a plan that contradicts itself.
+	const focusIds = offeredFocus.filter((id) => termIds.includes(id) || !offeredIds.includes(id))
 	if (plan.mode === 'none') {
 		if (focusIds.length) throw new Error('A no-search plan cannot select focus terms.')
 		return null
@@ -390,6 +413,10 @@ const QUESTION_WORDS = new Set(
 	),
 )
 
+/** Words that point at an earlier turn than the newest one: the question may mean a different reply. */
+const DISTANT_REFERENCE =
+	/\b(first|second|third|initial|original|previous(ly)?|prior|ago|yesterday|last (time|week|session)|back when|at the start|in the beginning)\b/i
+
 /**
  * Whether what the question points at is already in front of the model: nothing
  * has been shed, the newest earlier message is the model's own reply, it is shown
@@ -403,6 +430,7 @@ export function referentIsInView(
 	messages: readonly Message[],
 ): boolean {
 	if (historyContentShed(messages)) return false
+	if (DISTANT_REFERENCE.test(current)) return false
 	const last = history.at(-1)
 	if (!last || last.role !== 'assistant' || last.source || last.truncated) return false
 	const reply = new Set(evidenceTokens(last.text).map((token) => evidenceTokenKey(token)))

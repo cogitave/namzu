@@ -32,6 +32,18 @@ describe('historyContentShed', () => {
 		).toBe(true)
 	})
 
+	it('is true once a tool result was cut at storage and points at the file holding the rest', () => {
+		expect(
+			historyContentShed([
+				{
+					role: 'tool',
+					toolCallId: 'c',
+					content: 'head\n[... omitted ...]\nThe full output was written to: /tmp/x/out.txt\ntail',
+				},
+			]),
+		).toBe(true)
+	})
+
 	it('has one rule about history, worded the same everywhere it is used', () => {
 		expect(ANSWER_FROM_VISIBLE_HISTORY).toBe(
 			'If the answer is in your own earlier messages or tool results that are visible now, answer from them; do not search. Use the history tools only for something no longer visible (after compaction or a restart).',

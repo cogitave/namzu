@@ -121,6 +121,24 @@ describe('grounded query focus', () => {
 			'subset',
 		)
 	})
+	it('drops a focus word that fell past the word allowance instead of rejecting the plan', () => {
+		const words = Array.from({ length: 20 }, (_, i) => `word${String.fromCharCode(97 + i)}`)
+		const query = `What is ${words.join(' ')}?`
+		const input = buildEvidenceQueryInput(query, history)
+		if (!input) throw new Error('Test input did not fit')
+		const ids = words.map((word) => input.tokens.indexOf(word))
+		expect(ids.every((id) => id >= 0)).toBe(true)
+		const raw = {
+			mode: 'direct',
+			time: 'past',
+			termIds: ids,
+			focusIds: [ids[0], ids[19]],
+			basis: [],
+		}
+		const resolved = validateEvidenceQueryResolution(JSON.stringify(raw), query, history)
+		expect(resolved && 'terms' in resolved ? resolved.terms : []).toHaveLength(16)
+		expect(resolved && 'terms' in resolved ? resolved.focusTerms : []).toEqual([words[0]])
+	})
 	it('still requires exact quotes for contextual focus', () => {
 		const query = 'What was its tracking code?'
 		const raw = {

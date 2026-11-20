@@ -1,3 +1,4 @@
+import { ZodError } from 'zod'
 import { isOperatorUserMessage } from '../runtime/query/steering.js'
 import {
 	EVIDENCE_RECORD_GUIDANCE,
@@ -563,6 +564,17 @@ function continuationHints(
 	return result
 }
 
+/** A fixed code for why a lookup stage was rejected; it never includes the error's own text. */
+function rejectionCode(stage: 'query_planning' | 'retrieval', error: unknown): string {
+	if (stage === 'retrieval') return 'retrieval_failed'
+	if (error instanceof SyntaxError) return 'unparseable_plan'
+	if (error instanceof ZodError) {
+		const fields = [...new Set(error.issues.map((issue) => String(issue.path[0] ?? 'plan')))]
+		return `invalid_plan:${fields.slice(0, 6).join(',')}`.slice(0, 80)
+	}
+	return 'rejected_plan'
+}
+
 /**
  * Recall scoped evidence into ephemeral trailing request context. No historical
  * messages or system guidance are changed. The turn's first call retrieves and
@@ -611,14 +623,16 @@ export function createScopedEvidenceRecallStep(
 	const sessionMaxChars = bounded(options.sessionMaxChars ?? 24_000, 1_000_000, 'sessionMaxChars')
 	const resolveQuery = createEvidenceQueryResolver()
 	const log = resolveLogger(options.log)
-	/** One structured line for the operator when a lookup stage did not run; the model reads only the fixed note. */
+	/**
+	 * One structured line for the operator when a lookup stage did not run; the
+	 * model reads only the fixed note. The line carries a reason code, never the
+	 * error's text: a parse error quotes the planner's reply and a retrieval error
+	 * can quote a record or a path, and both are the conversation's own words.
+	 */
 	const reportRejected = (stage: 'query_planning' | 'retrieval', error: unknown) =>
 		log.info('History lookup did not run', {
 			'namzu.evidence.stage': stage,
-			'namzu.evidence.reason': (error instanceof Error ? error.message : String(error)).slice(
-				0,
-				240,
-			),
+			'namzu.evidence.reason': rejectionCode(stage, error),
 		})
 	// What the first call of a turn found. The turn's later calls reuse it, so a
 	// tool result stored mid-turn cannot change the block and the request keeps

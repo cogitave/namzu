@@ -57,6 +57,9 @@ long (the project folder is encoded into it), so a command also gets
 `$NAMZU_SCRATCH`, a short link `<temp base>/namzu-<user>/s-<8 hex>` to the same
 folder; the prompt says to use it in shell commands. The long path stays the
 real one, and when the link cannot be made `$NAMZU_SCRATCH` is the long path.
+The link is put in place by an atomic rename, and a link whose folder is gone is
+removed the next time one is made, so they do not pile up. A sandboxed turn has
+no scratch folder and gets no link.
 
 A session that keeps nothing else on disk (`exec --no-session-persistence`,
 `exec --json` without a store) still gets the folder, under the same temporary

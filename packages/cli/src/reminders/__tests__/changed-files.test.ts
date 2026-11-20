@@ -112,6 +112,50 @@ describe('the changed-on-disk reminder', () => {
 		expect(await changedFileReminders({ tracker, cwd: dir, messages })).toHaveLength(1)
 	})
 
+	describe('which shell calls count as the session writing a file', () => {
+		async function reported(name: string, command: string): Promise<number> {
+			const tracker = createFileReadTracker()
+			const path = await put(name, 'one\n')
+			tracker.recordFullRead?.(path, 'one\n', 'call-1', 'x')
+			await put(name, 'edited by hand\n')
+			const messages = [
+				{
+					role: 'assistant',
+					content: '',
+					toolCalls: [
+						{
+							id: `bash-${name}`,
+							type: 'function',
+							function: {
+								name: 'bash',
+								arguments: JSON.stringify({ command }),
+							},
+						},
+					],
+				},
+			] as never
+			return (await changedFileReminders({ tracker, cwd: dir, messages })).length
+		}
+
+		it('reports an outside edit when the shell call only read the file', async () => {
+			expect(await reported('foo.ts', 'cat foo.ts')).toBe(1)
+			expect(await reported('bar.ts', 'git diff bar.ts | head -20')).toBe(1)
+			expect(await reported('baz.ts', 'grep -n x baz.ts 2>&1')).toBe(1)
+		})
+
+		it('does not take a short or common name inside another word for a mention', async () => {
+			expect(await reported('go', 'go test ./...')).toBe(1)
+			expect(await reported('index.ts', 'tsc -p tsconfig.json && echo reindex.tsx > log')).toBe(1)
+			expect(await reported('Makefile', 'cat Makefile.bak > copy')).toBe(1)
+		})
+
+		it('still treats a write-shaped call that names the file as the session own change', async () => {
+			expect(await reported('w1.txt', 'sed -i s/one/two/ w1.txt')).toBe(0)
+			expect(await reported('w2.txt', 'echo two > ./w2.txt')).toBe(0)
+			expect(await reported('w3.txt', 'cat w3.txt | tee w3.txt.new w3.txt')).toBe(0)
+		})
+	})
+
 	it('reports a change that a shell call did not name', async () => {
 		const tracker = createFileReadTracker()
 		const path = await put('a.txt', 'one\n')

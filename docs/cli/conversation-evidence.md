@@ -471,7 +471,7 @@ from what is in context and says what is unverified; it does not go on to search
 the disk.
 
 Pointers to the history tools are shown only once content was shed: a compaction
-summary is in the conversation, or a tool result was cleared. Before that, a
+summary is in the conversation, a tool result was cleared, or a tool result was cut at storage and points at the file holding the rest. Before that, a
 recalled-evidence entry carries no `additionalEvidence` or `continuations`, its
 header names no tool, and a lookup note says only that the answer is in the
 visible messages. Where the tools are named they are named as deferred: load them

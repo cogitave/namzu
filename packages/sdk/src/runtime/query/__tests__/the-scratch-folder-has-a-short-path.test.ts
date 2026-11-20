@@ -1,4 +1,4 @@
-import { lstat, mkdir, mkdtemp, readlink, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, readdir, readlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -66,6 +66,27 @@ describe('scratchpadAlias', () => {
 		await writeFile(alias, 'not a link')
 		expect(scratchpadAlias(real)).toBe(real)
 		expect((await lstat(alias)).isFile()).toBe(true)
+	})
+
+	it('removes links whose folder is gone, and leaves the ones that still lead somewhere', async () => {
+		const root = privateTempRootPath()
+		const gone = join(root, 'p', 'gone', 'scratchpad')
+		const alive = join(root, 'p', 'alive', 'scratchpad')
+		await mkdir(gone, { recursive: true, mode: 0o700 })
+		await mkdir(alive, { recursive: true, mode: 0o700 })
+		const goneAlias = scratchpadAlias(gone)
+		const aliveAlias = scratchpadAlias(alive)
+		const { rm } = await import('node:fs/promises')
+		await rm(gone, { recursive: true })
+		const fresh = join(root, 'p', 'fresh', 'scratchpad')
+		await mkdir(fresh, { recursive: true, mode: 0o700 })
+		const freshAlias = scratchpadAlias(fresh)
+		const names = await readdir(root)
+		expect(names).not.toContain(goneAlias.slice(root.length + 1))
+		expect(names).toContain(aliveAlias.slice(root.length + 1))
+		expect(names).toContain(freshAlias.slice(root.length + 1))
+		// No staging link is left behind by the swap.
+		expect(names.filter((name) => name.startsWith('.s-'))).toEqual([])
 	})
 
 	it('re-points a link of ours that leads somewhere else', async () => {

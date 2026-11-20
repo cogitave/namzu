@@ -1,18 +1,4 @@
-import type { Message, PrepareStep } from '@namzu/sdk'
-
-/** What a cleared tool result starts with. */
-const CLEARED_RESULT_PREFIX = '[tool output cleared]'
-
-/** Whether a compaction replaced messages with a summary or cleared a tool result. */
-function compacted(messages: readonly Message[]): boolean {
-	return messages.some(
-		(message) =>
-			(message.role === 'system' && message.source?.type === 'compaction-summary') ||
-			(message.role === 'tool' &&
-				typeof message.content === 'string' &&
-				message.content.startsWith(CLEARED_RESULT_PREFIX)),
-	)
-}
+import { type PrepareStep, historyContentShed } from '@namzu/sdk'
 
 /** A bounded, ephemeral map of the visible working set; no payload copies or inference. */
 export function createContextInventoryStep(): PrepareStep {
@@ -38,7 +24,7 @@ export function createContextInventoryStep(): PrepareStep {
 		const pressure = contextBudget && contextBudget.remainingTokens < contextBudget.windowTokens / 4
 		// A map of the working set earns its place only when room is short or content
 		// was already shed; before that everything is in view and it is only noise.
-		if (!pressure && !compacted(messages)) return undefined
+		if (!pressure && !historyContentShed(messages)) return undefined
 		// Under extreme pressure even a useful dashboard must yield to the actual task.
 		if (contextBudget && contextBudget.remainingTokens < 1_500) return undefined
 		const inventory = {

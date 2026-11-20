@@ -28,6 +28,17 @@ describe('the planner is skipped when the question points at the last reply', ()
 		expect(referentIsInView('Why did you mention Budgets?', history, messages)).toBe(true)
 	})
 
+	it('does not skip when the question points at a different, earlier reply by more than a topic word', () => {
+		const messages = [createUserMessage('x'), createAssistantMessage(reply)]
+		expect(
+			referentIsInView(
+				'Why did you pick option B in the first answer, about Budgets?',
+				history,
+				messages,
+			),
+		).toBe(false)
+	})
+
 	it('does not skip once content was shed', () => {
 		expect(referentIsInView('Why did you mention Budgets?', history, [summary])).toBe(false)
 	})

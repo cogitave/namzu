@@ -1,8 +1,18 @@
 import { createHash } from 'node:crypto'
-import { lstatSync, mkdirSync, mkdtempSync, readlinkSync, symlinkSync, unlinkSync } from 'node:fs'
+import {
+	existsSync,
+	lstatSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readlinkSync,
+	renameSync,
+	symlinkSync,
+	unlinkSync,
+} from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir, userInfo } from 'node:os'
-import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 /**
  * Namzu's own scratch space: the one place that decides where temporary files
@@ -249,6 +259,24 @@ export function ensureScratchpadDirectory(
 	return target
 }
 
+/** Scratch links whose folder is gone are removed, so they do not pile up across sessions. */
+function pruneDanglingAliases(root: string, keep: string): void {
+	try {
+		for (const name of readdirSync(root)) {
+			if (!/^s-[0-9a-f]{8}$/.test(name)) continue
+			const link = join(root, name)
+			if (link === keep) continue
+			try {
+				if (lstatSync(link).isSymbolicLink() && !existsSync(link)) unlinkSync(link)
+			} catch {
+				// Another process may have removed it first.
+			}
+		}
+	} catch {
+		// Pruning is housekeeping; the alias itself is already in place.
+	}
+}
+
 /** The environment variable a shell command reads the session's scratch folder from. */
 export const NAMZU_SCRATCH_ENV = 'NAMZU_SCRATCH'
 
@@ -270,14 +298,22 @@ export function scratchpadAlias(directory: string, options: PrivateTempRootOptio
 		const alias = join(root, `s-${createHash('sha256').update(target).digest('hex').slice(0, 8)}`)
 		try {
 			if (readlinkSync(alias) === target) return alias
-			// Ours by name and kind, but pointing elsewhere (a collision or a moved folder).
-			unlinkSync(alias)
 		} catch (error) {
 			const code = (error as NodeJS.ErrnoException).code
 			// A path that exists and is not a link (EINVAL) is not ours to replace.
 			if (code !== 'ENOENT') return target
 		}
-		symlinkSync(target, alias, 'dir')
+		// Link under a private name and rename it into place: the swap is atomic, so
+		// two processes racing on one name never leave it missing or half made.
+		const staging = join(root, `.${basename(alias)}-${process.pid}`)
+		try {
+			unlinkSync(staging)
+		} catch {
+			// Nothing left over from an earlier attempt.
+		}
+		symlinkSync(target, staging, 'dir')
+		renameSync(staging, alias)
+		pruneDanglingAliases(root, alias)
 		return alias
 	} catch {
 		return resolve(directory)

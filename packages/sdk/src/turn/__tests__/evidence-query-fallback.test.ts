@@ -7,6 +7,7 @@ import {
 	generateTenantId,
 	generateTurnId,
 } from '../../utils/id.js'
+import { validateEvidenceQueryResolution } from '../evidence-query.js'
 import {
 	type EvidenceRecallBatch,
 	type EvidenceRecallRequest,
@@ -149,9 +150,10 @@ it('reports why the plan was rejected in one structured line and keeps the reaso
 	expect(info).toHaveBeenCalledTimes(1)
 	expect(info).toHaveBeenCalledWith('History lookup did not run', {
 		'namzu.evidence.stage': 'query_planning',
-		'namzu.evidence.reason': 'PRIVATE_INVALID_PLAN',
+		'namzu.evidence.reason': 'rejected_plan',
 	})
 	expect(error.context).not.toContain('PRIVATE_INVALID_PLAN')
+	expect(JSON.stringify(info.mock.calls)).not.toContain('PRIVATE_INVALID_PLAN')
 })
 
 it('gives no history-tool pointer while nothing has been shed', async () => {
@@ -235,4 +237,34 @@ it('does not fetch when there is no room for status and bounded evidence framing
 	expect(error.context).not.toContain('used only the words of the current question')
 	expect(f.retrieve).not.toHaveBeenCalled()
 	expect(error.context.length).toBeLessThanOrEqual(1500)
+})
+
+it('does not read the keys of separate basis entries as a repeated key', () => {
+	const cut =
+		'{"mode":"ambiguous","time":"past","termIds":[],"basis":[{"message":0,"quote":"a"},{"message":1,"quote":"b"}'
+	// Not complete JSON and no plan key is written twice: the failure is the parse error, not a
+	// plan cut at the second "message".
+	expect(() => validateEvidenceQueryResolution(cut, 'q', [])).toThrow(SyntaxError)
+})
+
+it('logs a code, not the parse error, when the planner reply quotes the conversation', async () => {
+	const f = fixture()
+	f.generateText.mockResolvedValue({
+		text: 'SECRET_QUOTED_WORDS not json',
+		finishReason: 'stop',
+	} as never)
+	const info = vi.fn()
+	const log = { debug: vi.fn(), info, warn: vi.fn(), error: vi.fn(), child: () => log }
+	const recall = createEvidenceRecallStep({
+		scope: f.scope,
+		resolveQuery: true,
+		retrieve: f.retrieve,
+		log,
+	})
+	await failure(recall(f.context))
+	expect(info).toHaveBeenCalledWith('History lookup did not run', {
+		'namzu.evidence.stage': 'query_planning',
+		'namzu.evidence.reason': 'unparseable_plan',
+	})
+	expect(JSON.stringify(info.mock.calls)).not.toContain('SECRET_QUOTED_WORDS')
 })

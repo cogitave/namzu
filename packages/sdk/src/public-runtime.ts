@@ -508,6 +508,7 @@ export {
 	createEvidenceRecallStep,
 	refineEvidenceRecallTerms,
 } from './turn/evidence-recall.js'
+export { historyContentShed } from './turn/history-shed.js'
 export type {
 	EvidenceRecallOptions,
 	EvidenceRecallRequest,
