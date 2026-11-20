@@ -23,7 +23,7 @@ export const CONVERSATION_RETRIEVAL_TOOLS = ['read_conversation', 'search_conver
 
 /** Stable capability guidance; include only when this host mounts both tools. */
 export const CONVERSATION_EVIDENCE_GUIDANCE = `## Conversation evidence
-When a question asks about an earlier observation, use the evidence already in context. Before you investigate an error again, search this conversation for a short phrase from it, because an earlier turn may already hold the cause or the fix and finding it saves repeating the work. If the detail is missing or clipped, use search_conversation to locate the original recorded output, then read_conversation for exact text beyond an excerpt. Pass a supplied recall continuation's cursor to search_conversation to continue from the scan's existing position. This works before compaction as well as after compaction or restart, within this conversation only. New searches omit successful search_conversation/read_conversation outputs, which repeat earlier records. To inspect those outputs themselves, start a new search with includeRetrievalResults=true. excerptComplete=true means the entire full-retained text part is already shown: reading the same unchanged part adds no text or independent evidence. False or absent means partial or unknown. In recalled evidence, each \`visibleEvidence\` item holds a \`textQuote\` (a short exact match from text already in your context), the \`recordKind\` of the record it came from, the \`toolName\` that produced it and \`isError\` (whether that call failed); \`omittedVisibleEvidence\` counts quotes left out, and \`excerptGuidance\`, \`recordKindGuidance\` and \`visibleEvidenceGuidance\` are notes on reading these fields. This does not establish the truth of a prior claim or exhaust the conversation.
+If the answer is in your own earlier messages or tool results that are visible now, answer from them; do not search. Use the history tools only for something no longer visible (after compaction or a restart). A question about what you said or why is answered from that message. Before you investigate an error again, look at the earlier turns you can see; only when its output is no longer visible, search this conversation for a short phrase from it. Then use search_conversation to locate the original recorded output, and read_conversation for exact text beyond an excerpt. Pass a supplied recall continuation's cursor to search_conversation to continue from the scan's existing position. They search this conversation only. After one empty or incomplete history search, answer from what is in context and say what is unverified; do not go on to search the disk or other folders for it. New searches omit successful search_conversation/read_conversation outputs, which repeat earlier records. To inspect those outputs themselves, start a new search with includeRetrievalResults=true. excerptComplete=true means the entire full-retained text part is already shown: reading the same unchanged part adds no text or independent evidence. False or absent means partial or unknown. In recalled evidence, each \`visibleEvidence\` item holds a \`textQuote\` (a short exact match from text already in your context), the \`recordKind\` of the record it came from, the \`toolName\` that produced it and \`isError\` (whether that call failed); \`omittedVisibleEvidence\` counts quotes left out, and \`excerptGuidance\`, \`recordKindGuidance\` and \`visibleEvidenceGuidance\` are notes on reading these fields. This does not establish the truth of a prior claim or exhaust the conversation.
 A path following "The full output was written to:" is a file of this conversation's own retained output. Open it with the read tool when that tool is available (offset and limit page through it); for anything else from earlier, use search_conversation and read_conversation, which verify ownership and retained-byte integrity. Do not use bash or grep to get around a workspace-path refusal when recovering archived output.
 recordedAt is the event recorder’s wall-clock time in Unix milliseconds, not the time its text became true. For compaction_shed it dates the copy, not the original observation. compaction_shed:summary identifies derived summary text, not an independent observation. Missing stamps stay unknown; clocks can move backwards or differ. seq orders the records of this conversation's log; it is not a clock.
 For what a file contained earlier, recover its earlier observation; reading or searching the current file cannot establish its past contents. For what is true now, inspect the current source when freshness matters. Do not substitute one time for the other. Report unavailable historical evidence honestly. A search that finds nothing is not a result to report: carry on, and mention it only when the missing history changes the answer.`
@@ -283,7 +283,11 @@ async function openSource(
 		readonly maxReadBytes: number
 		readonly signal?: AbortSignal
 	},
-): Promise<{ source: SessionTextEvidenceSource; backend: Backend; owner: SessionEvidenceScope }> {
+): Promise<{
+	source: SessionTextEvidenceSource
+	backend: Backend
+	owner: SessionEvidenceScope
+}> {
 	const owner: SessionEvidenceScope = {
 		tenantId: sessions.tenantId,
 		projectId: sessions.projectId,
@@ -589,7 +593,10 @@ async function searchConversationCore(
 }
 
 export function buildConversationSearchTool(
-	resolveScope: (context: ToolContext) => { sessions: ConversationContext; sessionId: SessionId },
+	resolveScope: (context: ToolContext) => {
+		sessions: ConversationContext
+		sessionId: SessionId
+	},
 ): ToolDefinition {
 	return defineTool({
 		name: 'search_conversation',
@@ -725,7 +732,11 @@ async function newestSeq(
 async function explainMissingRecord(
 	sessions: ConversationContext,
 	sessionId: SessionId,
-	opened: { source: SessionTextEvidenceSource; backend: Backend; owner: SessionEvidenceScope },
+	opened: {
+		source: SessionTextEvidenceSource
+		backend: Backend
+		owner: SessionEvidenceScope
+	},
 	seq: number,
 	part: number,
 	remainingBytes: number,
@@ -1045,7 +1056,10 @@ export async function readConversationEvidence(
 }
 
 export function buildConversationReadTool(
-	resolveScope: (context: ToolContext) => { sessions: ConversationContext; sessionId: SessionId },
+	resolveScope: (context: ToolContext) => {
+		sessions: ConversationContext
+		sessionId: SessionId
+	},
 ): ToolDefinition {
 	return defineTool({
 		name: 'read_conversation',
@@ -1095,7 +1109,12 @@ export function buildConversationReadTool(
 						await readConversationEvidence(
 							sessions,
 							sessionId,
-							input as { seq: number; part?: number; cursor?: string; byteOffset?: number },
+							input as {
+								seq: number
+								part?: number
+								cursor?: string
+								byteOffset?: number
+							},
 							context.abortSignal,
 							context,
 						),

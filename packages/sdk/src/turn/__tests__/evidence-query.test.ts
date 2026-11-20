@@ -104,12 +104,12 @@ describe('grounded conversation query resolution', () => {
 			terms: ['sevkiyatlar', 'txt', 'DELTA'],
 		})
 	})
-	it('rejects a supplied word from history the plan did not cite', () => {
+	it('leaves out a supplied word from history the plan did not cite', () => {
 		const supplied = [
 			...history,
 			{ position: 8, role: 'assistant', text: 'FOREIGN', truncated: false },
 		]
-		expect(() =>
+		expect(
 			validateEvidenceQueryResolution(
 				JSON.stringify({
 					...plan,
@@ -118,7 +118,23 @@ describe('grounded conversation query resolution', () => {
 				question,
 				supplied,
 			),
-		).toThrow('ungrounded token')
+		).toBeUndefined()
+	})
+	it('keeps the grounded words of a plan and drops only the ungrounded one', () => {
+		const supplied = [
+			...history,
+			{ position: 8, role: 'assistant', text: 'FOREIGN', truncated: false },
+		]
+		expect(
+			validateEvidenceQueryResolution(
+				JSON.stringify({
+					...plan,
+					termIds: ids(question, supplied, ['DELTA', 'FOREIGN', 'depo']),
+				}),
+				question,
+				supplied,
+			),
+		).toMatchObject({ terms: ['DELTA', 'depo'] })
 	})
 	it('preserves Turkish spelling by resolving IDs back to source words', () => {
 		const current = 'iki kimliğini aynen yaz'
@@ -136,20 +152,82 @@ describe('grounded conversation query resolution', () => {
 		expect(buildEvidenceQueryInput(current, history)!.tokens).not.toContain('kimliği')
 	})
 	it.each([
-		{ ...plan, basis: [{ message: 0, quote: 'invented record' }] },
 		{ ...plan, termIds: [255] },
 		{ ...plan, termIds: ['kimliği'] },
-		{ ...plan, termIds: [] },
 		{ ...plan, termIds: [-1] },
 		{ ...plan, termIds: [1.5] },
-		{ ...plan, basis: [] },
-		{ ...plan, basis: [{ message: 5, quote: 'DELTA' }] },
-		{ ...plan, termIds: Array(17).fill(0) },
 		{ ...plan, unexpected: true },
-	])('rejects unsupported query plans (%j)', (invalid) => {
+	])('rejects malformed query plans (%j)', (invalid) => {
 		expect(() =>
 			validateEvidenceQueryResolution(JSON.stringify(invalid), question, history),
 		).toThrow()
+	})
+	it.each([
+		{ ...plan, basis: [{ message: 0, quote: 'invented record' }] },
+		{ ...plan, termIds: [] },
+		{ ...plan, basis: [] },
+		{ ...plan, basis: [{ message: 5, quote: 'DELTA' }] },
+	])('says nothing for a plan with nothing to stand on (%j)', (hollow) => {
+		expect(validateEvidenceQueryResolution(JSON.stringify(hollow), question, history)).toBe(
+			undefined,
+		)
+	})
+	it('ignores a quote the history does not hold and keeps the ones it does', () => {
+		const resolved = validateEvidenceQueryResolution(
+			JSON.stringify({
+				...plan,
+				basis: [
+					{ message: 0, quote: question.slice(0, 20) },
+					{ message: 0, quote: 'DELTA takip kodu ve hedef depo' },
+				],
+			}),
+			question,
+			history,
+		)
+		expect(resolved).toMatchObject({
+			basis: [{ position: 7, quote: 'DELTA takip kodu ve hedef depo' }],
+		})
+	})
+	it('cuts more word IDs than the allowance instead of refusing the plan', () => {
+		const many = Array.from({ length: 20 }, (_, i) => `DELTA${i}`)
+		const current = `${many.join(' ')} takip`
+		const supplied = [
+			{
+				position: 7,
+				role: 'user',
+				text: `${many.join(' ')} takip kodu`,
+				truncated: false,
+			},
+		]
+		const resolved = validateEvidenceQueryResolution(
+			JSON.stringify({
+				mode: 'contextual',
+				time: 'past',
+				termIds: ids(current, supplied, many),
+				basis: [{ message: 0, quote: `${many.join(' ')} takip kodu`.slice(0, 190) }],
+			}),
+			current,
+			supplied,
+		)
+		expect(resolved && 'terms' in resolved ? resolved.terms : []).toHaveLength(16)
+	})
+	it('reads a plan wrapped in a code fence', () => {
+		expect(
+			validateEvidenceQueryResolution(
+				`\`\`\`json\n${JSON.stringify(plan)}\n\`\`\``,
+				question,
+				history,
+			),
+		).toMatchObject({ terms: wantedTerms })
+	})
+	it('reads a plan that repeats its basis key after an unfinished first one', () => {
+		const text = `${JSON.stringify(plan).slice(0, -2)},"basis":[]}`
+		expect(text.match(/"basis"/g)).toHaveLength(2)
+		expect(() => JSON.parse(text)).toThrow()
+		expect(validateEvidenceQueryResolution(text, question, history)).toMatchObject({
+			terms: wantedTerms,
+			basis: [{ quote: 'DELTA takip kodu ve hedef depo' }],
+		})
 	})
 	it.each(['direct', 'none'])('does not carry old terms into %s queries', (mode) => {
 		expect(
@@ -224,7 +302,7 @@ describe('grounded conversation query resolution', () => {
 		expect(sent.history).toHaveLength(6)
 		expect(
 			sent.history.every(
-				(m: { text: string; truncated: boolean }) => m.text.length === 600 && m.truncated,
+				(m: { text: string; truncated: boolean }) => m.text.length === 900 && m.truncated,
 			),
 		).toBe(true)
 		expect(request.prompt.length + request.system.length).toBeLessThanOrEqual(12000)

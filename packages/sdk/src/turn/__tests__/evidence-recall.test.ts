@@ -42,12 +42,18 @@ const candidate = (
 	byteOffset: 1024,
 	...extra,
 })
-function context(query = 'DELTA tracking code'): PrepareStepContext {
+/** A conversation that has lost content to a compaction, so it is pointed at the history tools. */
+const shedSummary = (): Message => ({
+	role: 'system',
+	content: 'Earlier turns were summarized.',
+	source: { type: 'compaction-summary' },
+})
+function context(query = 'DELTA tracking code', shed = true): PrepareStepContext {
 	return {
 		sessionId: SESSION_ID,
 		turnId: generateTurnId(),
 		stepNumber: 1,
-		messages: [createUserMessage(query)],
+		messages: [...(shed ? [shedSummary()] : []), createUserMessage(query)],
 		steps: [],
 		prepared: {},
 	}
@@ -123,13 +129,7 @@ describe('ephemeral scoped evidence recall', () => {
 	it('names each key it mentions once, in code style, and keeps the header no longer than before', async () => {
 		const result = await fixture([candidate()]).recall(context())
 		const prose = result!.context!.split('\n')[0]!
-		for (const key of [
-			'seq',
-			'recordedAt',
-			'omittedPassages',
-			'omittedAddresses',
-			'additionalEvidence',
-		])
+		for (const key of ['seq', 'recordedAt', 'omittedPassages', 'additionalEvidence'])
 			expect(prose.split(`\`${key}\``)).toHaveLength(2)
 		for (const internal of ['compaction_shed', 'textQuote', 'excerptComplete', 'byteOffset'])
 			expect(prose).not.toContain(internal)
@@ -137,8 +137,59 @@ describe('ephemeral scoped evidence recall', () => {
 		expect(prose).toContain('not when the fact held')
 		expect(prose).toContain('cannot show absence')
 		expect(prose).toContain('pass `continuations` on unchanged')
-		// The header on the previous release was 765 characters.
-		expect(prose.length).toBeLessThanOrEqual(765)
+		// The header carries the one rule about history now (765 characters before it).
+		expect(prose.length).toBeLessThanOrEqual(1100)
+	})
+
+	it('states the one rule about history, and points at the history tools only once content was shed', async () => {
+		const withheld = [
+			...Array.from({ length: 5 }, (_, i) => candidate(`DELTA receipt code V${i}`, { seq: i + 2 })),
+		]
+		const unshed = await fixture(withheld, {
+			retrieve: async () => ({
+				...batch(...withheld),
+				incomplete: true,
+				continuations: [{ toolName: 'search_conversation', input: { cursor: 'c1' } }],
+			}),
+		}).recall(context('DELTA receipt code', false))
+		const rule =
+			'If the answer is in your own earlier messages or tool results that are visible now, answer from them; do not search. Use the history tools only for something no longer visible (after compaction or a restart).'
+		const prose = unshed!.context!.split('\n')[0]!
+		expect(prose).toContain(rule)
+		expect(prose).not.toContain('history tools (')
+		expect(prose).not.toContain('additionalEvidence')
+		expect(unshed!.context).not.toContain('search_conversation')
+		const meta = JSON.parse(unshed!.context!.split('\n')[1]!)
+		expect(meta.additionalEvidence).toBeUndefined()
+		expect(meta.continuations).toBeUndefined()
+		expect(rendered(unshed?.context)).toHaveLength(4)
+
+		const shed = await fixture(withheld, {
+			retrieve: async () => ({
+				...batch(...withheld),
+				incomplete: true,
+				continuations: [{ toolName: 'search_conversation', input: { cursor: 'c1' } }],
+			}),
+		}).recall(context('DELTA receipt code', true))
+		expect(shed!.context!.split('\n')[0]).toContain(rule)
+		expect(shed!.context!.split('\n')[0]).toContain(
+			'if deferred, load them with search_tools first',
+		)
+		const shedMeta = JSON.parse(shed!.context!.split('\n')[1]!)
+		expect(shedMeta.additionalEvidence).toHaveLength(1)
+		expect(shedMeta.continuations).toHaveLength(1)
+	})
+
+	it("reads the model's own earlier message as what it said, to be quoted for why-questions", async () => {
+		const own = candidate('I left Budgets out because the README says no code reads it.', {
+			source: 'message_completed',
+			toolName: undefined,
+		})
+		const result = await fixture([own]).recall(context('Why did you leave Budgets out?', false))
+		const guidance = JSON.parse(result!.context!.split('\n')[1]!).recordKindGuidance as string
+		expect(guidance).toContain('what the assistant itself said earlier')
+		expect(guidance).toContain('quote it and answer from it')
+		expect(guidance).not.toContain('is a prior model claim')
 	})
 
 	it('keeps an original tool record alongside repeated model claims without deciding which is true', async () => {
@@ -414,7 +465,7 @@ describe('ephemeral scoped evidence recall', () => {
 			messages: [createAssistantMessage('DELTA visible')],
 			latestUserMessage: createUserMessage('DELTA'),
 		})
-		expect(result!.context!.length).toBeLessThanOrEqual(1400)
+		expect(result!.context!.length).toBeLessThanOrEqual(1750)
 		const metadata = JSON.parse(result!.context!.split('\n')[1]!)
 		expect(metadata.omittedVisibleEvidence).toBeGreaterThan(0)
 		expect(metadata.visibleEvidence.length + metadata.omittedVisibleEvidence).toBe(24)
@@ -453,14 +504,14 @@ describe('ephemeral scoped evidence recall', () => {
 		const correction = 'DELTA '.repeat(50) + 'CORRECTED'
 		const copies = Array.from({ length: 12 }, (_, i) => candidate(old, { seq: i + 1 }))
 		const result = await fixture([...copies, candidate(correction, { seq: 20 })], {
-			maxChars: 2300,
+			maxChars: 2650,
 		}).recall({
 			...context(),
 			latestUserMessage: createUserMessage('DELTA'),
 			messages: [createAssistantMessage(`${old}\n${correction}`)],
 		})
 		const metadata = JSON.parse(result!.context!.split('\n')[1]!)
-		expect(result!.context!.length).toBeLessThanOrEqual(2300)
+		expect(result!.context!.length).toBeLessThanOrEqual(2650)
 		expect(
 			metadata.visibleEvidence.slice(0, 2).map((e: { textQuote: string }) => e.textQuote),
 		).toEqual([old, correction])
@@ -506,10 +557,12 @@ describe('ephemeral scoped evidence recall', () => {
 	})
 
 	it('keeps addresses and omission counts when no whole excerpt fits', async () => {
-		const { recall } = fixture([candidate(`DELTA ${'x'.repeat(490)}`)], { maxChars: 1150 })
+		const { recall } = fixture([candidate(`DELTA ${'x'.repeat(490)}`)], {
+			maxChars: 1500,
+		})
 		const result = await recall(context())
 		expect(rendered(result?.context)).toHaveLength(0)
-		expect(result!.context!.length).toBeLessThanOrEqual(1150)
+		expect(result!.context!.length).toBeLessThanOrEqual(1500)
 		const meta = JSON.parse(result!.context!.split('\n')[1]!)
 		expect(meta).toMatchObject({ incomplete: false, omittedPassages: 1, omittedAddresses: 0 })
 		expect(meta.additionalEvidence).toHaveLength(1)
@@ -534,9 +587,9 @@ describe('ephemeral scoped evidence recall', () => {
 
 	it('counts addresses that cannot fit without silently raising the character limit', async () => {
 		const entries = Array.from({ length: 24 }, (_, i) => candidate(`DELTA ${i}`, { seq: i + 2 }))
-		const { recall } = fixture(entries, { maxChars: 1150, maxPassages: 1 })
+		const { recall } = fixture(entries, { maxChars: 1500, maxPassages: 1 })
 		const result = await recall(context())
-		expect(result!.context!.length).toBeLessThanOrEqual(1150)
+		expect(result!.context!.length).toBeLessThanOrEqual(1500)
 		const meta = JSON.parse(result!.context!.split('\n')[1]!)
 		expect(meta.omittedPassages).toBe(23)
 		expect(meta.omittedAddresses).toBeGreaterThan(0)
@@ -574,11 +627,15 @@ describe('ephemeral scoped evidence recall', () => {
 			input: { cursor: '<'.repeat(100), page: i },
 		}))
 		const { recall } = fixture([], {
-			maxChars: 1400,
-			retrieve: async () => ({ ...batch(candidate()), incomplete: true, continuations: hints }),
+			maxChars: 1750,
+			retrieve: async () => ({
+				...batch(candidate()),
+				incomplete: true,
+				continuations: hints,
+			}),
 		})
 		const result = await recall(context())
-		expect(result!.context!.length).toBeLessThanOrEqual(1400)
+		expect(result!.context!.length).toBeLessThanOrEqual(1750)
 		expect(rendered(result?.context)).toHaveLength(1)
 		const meta = JSON.parse(result!.context!.split('\n')[1]!)
 		expect(meta.omittedContinuations).toBeGreaterThan(0)
@@ -742,7 +799,7 @@ describe('ephemeral scoped evidence recall', () => {
 			copies.map((item) => item.scope.turnId),
 		)
 		expect(repeated.omittedOccurrences).toBe(0)
-		expect(result?.context).toContain('does not confirm old output')
+		expect(result?.context).toContain('not by repeating an action')
 		expect(result?.context).toContain('orders events within one turn')
 	})
 
@@ -801,10 +858,10 @@ describe('ephemeral scoped evidence recall', () => {
 			candidate('DELTA tracking code: A17', { seq: i + 1 }),
 		)
 		const { recall } = fixture([...copies, candidate('DELTA tracking code: A18', { seq: 24 })], {
-			maxChars: 1400,
+			maxChars: 1750,
 		})
 		const result = await recall(context())
-		expect(result!.context!.length).toBeLessThanOrEqual(1400)
+		expect(result!.context!.length).toBeLessThanOrEqual(1750)
 		const selected = rendered(result?.context)
 		expect(selected).toHaveLength(2)
 		const repeated = selected.find((p) => p.excerpt.endsWith('A17'))

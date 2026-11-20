@@ -95,7 +95,7 @@ export function createCliReminderSource(options: CliReminderOptions): ReminderSo
 		}
 		if (options.memory) out.push(...memoryIndexReminders({ messages, sections: options.memory() }))
 		if (options.changedFiles)
-			out.push(...(await changedFileReminders(await options.changedFiles())))
+			out.push(...(await changedFileReminders({ ...(await options.changedFiles()), messages })))
 		if (options.skills) out.push(...skillListingReminders({ messages, ...options.skills() }))
 		if (options.mcpInstructions) {
 			out.push(...mcpInstructionsReminders({ messages, ...options.mcpInstructions() }))

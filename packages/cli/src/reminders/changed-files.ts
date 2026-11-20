@@ -1,7 +1,7 @@
 import { open, stat } from 'node:fs/promises'
 import { basename, isAbsolute, relative } from 'node:path'
 
-import type { FileReadTracker } from '@namzu/sdk'
+import type { FileReadTracker, Message } from '@namzu/sdk'
 import { structuredPatch } from 'diff'
 
 import { frameReminder } from './frame.js'
@@ -105,11 +105,130 @@ function notice(shown: string, snippet: string): string {
 
 /** When each file was last compared, so a quiet file costs a stat and not a read. */
 const compared = new WeakMap<object, Map<string, number>>()
+/**
+ * The body of each file as last accounted for: said once in a notice, or written
+ * by this session's own shell. The same body is never said twice, whatever its
+ * modification time does.
+ */
+const acknowledged = new WeakMap<object, Map<string, string>>()
+/** The shell calls already weighed, so each is attributed to one pass only. */
+const weighed = new WeakMap<object, Set<string>>()
+
+/** The commands of shell calls in this conversation that no earlier pass has weighed. */
+function newShellCommands(tracker: object, messages: readonly Message[] | undefined): string[] {
+	if (!messages) return []
+	let done = weighed.get(tracker)
+	if (!done) {
+		done = new Set()
+		weighed.set(tracker, done)
+	}
+	const commands: string[] = []
+	for (const message of messages) {
+		if (message.role !== 'assistant') continue
+		for (const call of message.toolCalls ?? []) {
+			if (call.function?.name !== 'bash' || done.has(call.id)) continue
+			done.add(call.id)
+			try {
+				const input = JSON.parse(call.function.arguments) as {
+					command?: unknown
+				}
+				if (typeof input.command === 'string') commands.push(input.command)
+			} catch {
+				// An unreadable call names no file; it cannot claim one.
+			}
+		}
+	}
+	return commands
+}
+
+/** Whether `name` stands in the command as a whole path token, not as a piece of another word or name. */
+function mentions(command: string, name: string): boolean {
+	if (name === '') return false
+	let from = 0
+	for (;;) {
+		const at = command.indexOf(name, from)
+		if (at < 0) return false
+		const before = command[at - 1]
+		const after = command[at + name.length]
+		// `a.ts` is not in `data.ts`, `a.tsx` or `a.ts.bak`; `src/a.ts` and `./a.ts` do hold it.
+		const startsToken = before === undefined || !/[\w.-]/.test(before) || name.startsWith('/')
+		const endsToken = after === undefined || !/[\w-]/.test(after)
+		const endsAtDot = after === '.' && /\w/.test(command[at + name.length + 1] ?? '')
+		if (startsToken && endsToken && !endsAtDot) return true
+		from = at + 1
+	}
+}
+
+/** Commands that only look: a file they name is read, not written. */
+const READ_ONLY_COMMANDS = new Set(
+	'cat head tail less more nl wc stat file ls ll du diff cmp grep egrep fgrep rg ag sort uniq cut tr echo printf test [ [[ true which type sha256sum sha1sum md5sum shasum xxd hexdump od strings'.split(
+		' ',
+	),
+)
+const READ_ONLY_GIT = new Set(
+	'diff log show status blame grep ls-files ls-tree cat-file rev-parse describe shortlog'.split(
+		' ',
+	),
+)
+
+/**
+ * Whether a command could have written a file it names. One that is made only of
+ * looking commands, with no redirect into a file, could not: a file it names was
+ * read, and a change to it came from somewhere else.
+ */
+function mayWrite(command: string): boolean {
+	// Redirects that discard or merge output are not writes to a file.
+	const bare = command.replace(/\d*>&\d+|&>\s*\/dev\/null|\d*>\s*\/dev\/null/g, '')
+	if (/>/.test(bare)) return true
+	for (const segment of bare.split(/\|\||&&|[|;&\n]/)) {
+		const words = segment
+			.trim()
+			.split(/\s+/)
+			.filter((word) => word !== '' && !/^\w+=/.test(word))
+		const verb = words[0]
+		if (verb === undefined) continue
+		if (verb === 'git') {
+			if (!READ_ONLY_GIT.has(words.find((w, i) => i > 0 && !w.startsWith('-')) ?? '')) return true
+			continue
+		}
+		if (verb === 'find' && /\s-(exec|execdir|delete|fprint\w*|ok)\b/.test(segment)) return true
+		if (verb === 'sed' && /\s-\w*i/.test(segment)) return true
+		if (!READ_ONLY_COMMANDS.has(verb.replace(/^.*\//, '')) && verb !== 'find' && verb !== 'sed')
+			return true
+	}
+	return false
+}
+
+/**
+ * Whether a shell command that may have written things names the file: by its
+ * path, its path from the working folder, or its name as a whole token.
+ */
+function namesFile(command: string, path: string, cwd: string): boolean {
+	if (!mayWrite(command)) return false
+	const rel = relative(cwd, path)
+	const arguments_ = withoutProgramNames(command)
+	return (
+		mentions(arguments_, path) ||
+		(rel !== '' && !rel.startsWith('..') && mentions(arguments_, rel)) ||
+		mentions(arguments_, basename(path))
+	)
+}
+
+/** The command with the program each part runs blanked out: a file named `go` is not `go test`. */
+function withoutProgramNames(command: string): string {
+	return command.replace(/(^|\|\||&&|[|;&\n])(\s*(?:\w+=\S*\s+)*)(\S+)/g, '$1$2 ')
+}
 
 export interface ChangedFilesInput {
 	readonly tracker: Pick<FileReadTracker, 'fullBody' | 'fullBodyPaths' | 'recordDriftObserved'>
 	/** Paths in the notice are shown relative to this directory when they lie under it. */
 	readonly cwd: string
+	/**
+	 * The conversation as this request will send it. A file a shell call of this
+	 * session named and that changed since the last pass was written by that call,
+	 * so it is the model's own change and no notice is owed.
+	 */
+	readonly messages?: readonly Message[]
 }
 
 /** One reminder per fully read file whose content is no longer what the model read; empty when nothing moved. */
@@ -121,6 +240,12 @@ export async function changedFileReminders(input: ChangedFilesInput): Promise<st
 		seen = new Map()
 		compared.set(tracker, seen)
 	}
+	let said = acknowledged.get(tracker)
+	if (!said) {
+		said = new Map()
+		acknowledged.set(tracker, said)
+	}
+	const commands = newShellCommands(tracker, input.messages)
 	const out: string[] = []
 	let shownChars = 0
 	for (const path of tracker.fullBodyPaths()) {
@@ -137,6 +262,14 @@ export async function changedFileReminders(input: ChangedFilesInput): Promise<st
 			continue
 		}
 		if (after === before) continue
+		if (after !== undefined && said.get(path) === after) continue
+		if (after !== undefined && commands.some((command) => namesFile(command, path, input.cwd))) {
+			// This session's own shell wrote it. The ledger still holds the old body,
+			// so the next edit is refused until a real read, as for any other change.
+			said.set(path, after)
+			tracker.recordDriftObserved?.(path)
+			continue
+		}
 		tracker.recordDriftObserved?.(path)
 		const rel = relative(input.cwd, path)
 		const shown = rel !== '' && !rel.startsWith('..') && !isAbsolute(rel) ? rel : path
@@ -156,6 +289,7 @@ export async function changedFileReminders(input: ChangedFilesInput): Promise<st
 		const text = snippet === '' ? plain : frameReminder('changed-file', notice(shown, snippet))
 		shownChars += separator + text.length
 		out.push(text)
+		if (after !== undefined) said.set(path, after)
 	}
 	return out
 }

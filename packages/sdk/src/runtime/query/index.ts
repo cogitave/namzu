@@ -110,7 +110,7 @@ import type { ModelPricing } from '../../utils/cost.js'
 import { toErrorMessage } from '../../utils/error.js'
 import { errorAttributes } from '../../utils/log/exception.js'
 import type { Logger } from '../../utils/logger.js'
-import { ensureScratchpadDirectory } from '../../utils/temp.js'
+import { NAMZU_SCRATCH_ENV, ensureScratchpadDirectory, scratchpadAlias } from '../../utils/temp.js'
 import { AwaitedJobs } from '../jobs/awaited-jobs.js'
 import type { BackgroundJobRegistry } from '../jobs/registry.js'
 import { catchUpFromCursor, settlePreStartCancellation } from './cancelled-before-start.js'
@@ -1654,7 +1654,13 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				...(params.outsideRootRefusal ? { outsideRootRefusal: params.outsideRootRefusal } : {}),
 				...(params.sandboxEscape ? { sandboxEscape: params.sandboxEscape } : {}),
 				permissionMode: () => ctx.permissionMode.current,
-				env: turnConfig.env ?? {},
+				env: {
+					// A short path for the scratch folder, so a command need not type the long one.
+					...(scratchpadDirectory
+						? { [NAMZU_SCRATCH_ENV]: scratchpadAlias(scratchpadDirectory) }
+						: {}),
+					...(turnConfig.env ?? {}),
+				},
 				abortSignal: ctx.abortController.signal,
 				allowedTools: effectiveAllowedTools,
 				invocationState: params.invocationState,

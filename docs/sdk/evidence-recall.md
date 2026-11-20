@@ -88,8 +88,9 @@ record two exact historical answers and one remaining current-answer spelling
 failure. This is not a guarantee that the model understands every reference.
 
 Planning receives only the current question (at most 1,000 UTF-16 units) and up
-to six visible reference excerpts. Operator/assistant messages use their last
-600 units. Within that same allowance, the latest nonempty system message marked
+to six visible reference excerpts. Operator/assistant messages use up to 900 units:
+the whole message when it fits, otherwise its first 300 and last 599 around a
+gap mark (`…`), so a reply's opening, where its subject is usually named, is not lost. Within that same allowance, the latest nonempty system message marked
 with `source.type: 'compaction-summary'` may supply its first 600 units, preserving
 task information near the beginning. This is explicitly derived reference data,
 not an original observation or a new instruction. Prose headers alone do not
@@ -100,7 +101,7 @@ boundary; tools, private reasoning, ordinary project/system policy and runtime t
 context are excluded. If the six newest eligible ordinary messages are all assistant
 updates, the same 64-entry scan continues looking for the nearest preceding
 operator request. When found, that request replaces the oldest selected update:
-the planner still receives at most six excerpts of at most 600 units each. If a
+the planner still receives at most six excerpts of at most 900 units each. If a
 summary occupies one slot, the nearest operator remains alongside up to four
 recent updates. This
 prevents progress commentary from disabling reference resolution while its
@@ -230,13 +231,19 @@ retrieval behavior remains.
 See the [focused-query experiment](../../research/conversation-evidence/query-focus-results.md)
 for the common-field failure, archived-history controls and live sample limits.
 
+The planner is not called at all when the question points at what is already in view: nothing was shed (no compaction summary, no cleared tool result, no tool result cut at storage that points at the file holding the rest; `historyContentShed` answers this and is exported), the newest earlier message is the model's own reply and is shown whole, and the question shares a subject word with it (a word of four or more letters that is not only a question word such as "explain" or "mention") and does not point at a different reply ("the first answer", "previously", "yesterday"; then the planner runs, and may ask which one is meant). There is nothing to resolve then, and the request would only add a call and a way to fail. The search by the question's own words still runs.
+
+A plan that is mostly usable is used. More word IDs than 16, focus IDs than 4 or quotes than 3 are cut to the allowance (a focus word that falls past the 16 words goes with its word; a focus ID the plan never selected still fails); a quote the history does not hold (often the question's own words) is ignored; a word that no cited text or the question supports is left out; a code fence around the plan is dropped; and a plan key (`mode`, `time`, `termIds`, `focusIds`, `basis`) written twice after an unfinished first one keeps what came before the repeat, while the repeated `message` and `quote` keys of separate basis entries are not a repeat. A contextual or ambiguous plan left with no usable quote or word says nothing, and the search goes by the question's words with no failure note. Only a plan that is not JSON at all, has an unknown field, or names a word ID outside the offered list still fails. A failed or rejected stage is reported once, for the operator, as `History lookup did not run` with `namzu.evidence.stage` and `namzu.evidence.reason`, a fixed code (`unparseable_plan`, `invalid_plan:<fields>`, `rejected_plan`, `retrieval_failed`) and never the error's text, which can quote the conversation (the model reads only the fixed note); a host passes its logger as `EvidenceRecallOptions.log`.
+
 A `none` plan skips optional recall without a note, and so does a planner reply that is empty or ended with finish reason `length` (a thinking model that spent its allowance before writing): the lookup adds nothing that turn and no note says evidence is unavailable. Malformed or ungrounded
 plans remain failed-stage diagnostics. With enough context room, retrieval still
 runs once using the unchanged current-query tokens and the same byte, candidate
 and deadline limits. No terms or references from the rejected plan are used.
 Temporary context says in two plain sentences that planning the search failed
 and that only the words of the question were used, alongside any fully validated
-retrieved records. The note does not claim a referent or temporal intent was
+retrieved records. When that search did find passages, the note does not say the
+evidence is "not available": it says earlier references were not resolved and the
+records were found by the question's own words only. The note does not claim a referent or temporal intent was
 resolved. No plan text, exception body or source data enters the note itself.
 The main task and explicit archive tools remain available. The previous operator
 query is never used just because literal retrieval was empty.
@@ -309,8 +316,10 @@ An assistant record establishes what the model said, not what a file contained
 or whether an action succeeded. Tool results can themselves quote claims or
 retrieved text. These labels identify the producer and confer no authority on
 content. When eligible assistant records exist, bounded `recordKindGuidance`
-asks the model to attribute unsupported prior statements as claims and check
-relevant original observations. This guidance is not a verifier or a guarantee
+says an assistant record is what the model itself said earlier: for a question
+about what it said or why, it is the record, to quote and answer from; for a
+question about what is true now, a prior statement is attributed as a claim and
+only the current state is checked. This guidance is not a verifier or a guarantee
 that a model will obey it. Host retrievers still own source integrity checks.
 
 The [source-origin CLI controls](../../research/conversation-evidence/record-origin-results.md)
@@ -457,7 +466,7 @@ turn ids do not establish chronology across sessions or when a fact became true.
 
 The metadata retains `incomplete` even when no passage was selected, including
 when all matches are already visible. An empty or bounded scan is not proof of
-absence. Available continuation calls appear as `continuations`, with
+absence. Once content was shed (a compaction summary in the conversation, a cleared tool result, or a tool result cut at storage), available continuation calls appear as `continuations` and omitted passages as `additionalEvidence`; before that neither is listed, and the header names no tool, with
 `omittedContinuations` counting hints that did not fit the character allowance.
 `omittedPassages` counts eligible distinct passage groups from this returned
 pool which were not selected, either because of `maxPassages` or the character

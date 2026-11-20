@@ -52,7 +52,8 @@ it.each(['query_planning', 'retrieval'] as const)(
 			agentName: 'Availability',
 			messages: [
 				createUserMessage('Inspect the DELTA record.'),
-				createAssistantMessage('It has an identifier.'),
+				// Shares no subject word with the question, so the planner is asked.
+				createAssistantMessage('It has a code.'),
 				operator,
 			],
 			turnConfig: { model: 'mock', maxIterations: 2, tokenBudget: 100_000, timeoutMs: 10_000 },
@@ -94,14 +95,16 @@ it.each(['query_planning', 'retrieval'] as const)(
 			.map((m) => m.content)
 			.join('\n')
 		expect(context).toContain('Earlier stage context.')
-		expect(context).toContain('evidence is not available for this request')
-		expect(context).toContain(
-			stage === 'query_planning' ? 'planning the search failed' : 'reading the records failed',
-		)
 		if (stage === 'query_planning') {
-			expect(context).toContain('used only the words of the current question')
+			// Passages were found by the question's own words, so nothing is "not available".
+			expect(context).not.toContain('evidence is not available')
+			expect(context).toContain('found by its own words only')
 			expect(context).toContain('VERIFIED-789')
-		} else expect(context).toContain('does not mean earlier records are absent')
+		} else {
+			expect(context).toContain('evidence is not available for this request')
+			expect(context).toContain('reading the records failed')
+			expect(context).toContain('does not mean earlier records are absent')
+		}
 		expect(JSON.stringify(request)).not.toContain(privateDetail)
 		expect(request.messages).toContainEqual(expect.objectContaining({ content: operator.content }))
 		expect(

@@ -6,6 +6,7 @@ import {
 	createEvidenceRecallStep,
 	refineEvidenceRecallTerms,
 } from '@namzu/sdk'
+import { cliLogger } from '../../logging.js'
 import {
 	type ActiveEvidence,
 	CONVERSATION_RETRIEVAL_TOOLS,
@@ -106,6 +107,8 @@ export function createConversationEvidenceRecall(
 		scope,
 		resolveQuery,
 		record,
+		// Why a lookup did not run goes to the operator's log; the model reads a fixed note.
+		log: cliLogger(),
 		async retrieve(request: ConversationRecallRequest): Promise<ConversationRecallBatch> {
 			const { turnId, terms, signal, maxReadBytes, maxCandidates, captureSessionEvidence } = request
 			assertOwner(turnId)

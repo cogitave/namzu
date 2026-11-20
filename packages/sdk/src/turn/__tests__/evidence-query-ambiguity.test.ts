@@ -47,13 +47,24 @@ describe('unresolved conversation references', () => {
 	it.each([
 		{ ...plan, termIds: [0] },
 		{ ...plan, basis: [] },
-		{ ...plan, basis: [{ message: 0, quote: 'An invented subject' }] },
 	])('rejects unsupported ambiguity claims (%j)', (invalid) => {
 		expect(() =>
 			validateEvidenceQueryResolution(JSON.stringify(invalid), question, [
 				{ position: 8, role: 'user', text: previous, truncated: false },
 			]),
 		).toThrow()
+	})
+	it("says nothing when none of an ambiguity claim's quotes is in the history", () => {
+		expect(
+			validateEvidenceQueryResolution(
+				JSON.stringify({
+					...plan,
+					basis: [{ message: 0, quote: 'An invented subject' }],
+				}),
+				question,
+				[{ position: 8, role: 'user', text: previous, truncated: false }],
+			),
+		).toBeUndefined()
 	})
 	it('carries a quoted interpretation into temporary context without searching or changing policy/history', async () => {
 		const { context, generateText, retrieve } = setup()

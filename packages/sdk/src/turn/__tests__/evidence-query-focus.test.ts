@@ -110,9 +110,9 @@ describe('grounded query focus', () => {
 			basis: [],
 		})
 		const oldSubject = plan(current, ['DELTA'])
-		expect(() =>
-			validateEvidenceQueryResolution(JSON.stringify(oldSubject), current, history),
-		).toThrow('ungrounded token')
+		// A word from the old subject that the question does not carry grounds nothing.
+		const resolved = validateEvidenceQueryResolution(JSON.stringify(oldSubject), current, history)
+		expect(resolved && 'terms' in resolved ? resolved.terms : []).not.toContain('DELTA')
 	})
 	it('requires focus IDs to belong to the selected grounded terms', () => {
 		const raw = plan()
@@ -120,6 +120,24 @@ describe('grounded query focus', () => {
 		expect(() => validateEvidenceQueryResolution(JSON.stringify(raw), current, history)).toThrow(
 			'subset',
 		)
+	})
+	it('drops a focus word that fell past the word allowance instead of rejecting the plan', () => {
+		const words = Array.from({ length: 20 }, (_, i) => `word${String.fromCharCode(97 + i)}`)
+		const query = `What is ${words.join(' ')}?`
+		const input = buildEvidenceQueryInput(query, history)
+		if (!input) throw new Error('Test input did not fit')
+		const ids = words.map((word) => input.tokens.indexOf(word))
+		expect(ids.every((id) => id >= 0)).toBe(true)
+		const raw = {
+			mode: 'direct',
+			time: 'past',
+			termIds: ids,
+			focusIds: [ids[0], ids[19]],
+			basis: [],
+		}
+		const resolved = validateEvidenceQueryResolution(JSON.stringify(raw), query, history)
+		expect(resolved && 'terms' in resolved ? resolved.terms : []).toHaveLength(16)
+		expect(resolved && 'terms' in resolved ? resolved.focusTerms : []).toEqual([words[0]])
 	})
 	it('still requires exact quotes for contextual focus', () => {
 		const query = 'What was its tracking code?'
@@ -131,13 +149,15 @@ describe('grounded query focus', () => {
 		expect(validateEvidenceQueryResolution(JSON.stringify(raw), query, history)).toMatchObject({
 			focusTerms: ['DELTA'],
 		})
-		expect(() =>
+		// A quote the history does not hold is ignored, and a contextual plan left with
+		// no quote says nothing.
+		expect(
 			validateEvidenceQueryResolution(
 				JSON.stringify({ ...raw, basis: [{ message: 0, quote: 'DELTA invented fact' }] }),
 				query,
 				history,
 			),
-		).toThrow('outside')
+		).toBeUndefined()
 	})
 	it('does not use focus to revive ambiguous, no-search or present-state plans', () => {
 		for (const mode of ['ambiguous', 'none'])
@@ -188,9 +208,23 @@ describe('grounded query focus', () => {
 						}
 					: {}),
 			})
-			const result = await createEvidenceRecallStep({ scope, retrieve, resolveQuery: true })(
-				context(),
-			)
+			const shed = context()
+			const result = await createEvidenceRecallStep({
+				scope,
+				retrieve,
+				resolveQuery: true,
+			})({
+				...shed,
+				// Pointers to the history tools are given once content has been shed.
+				messages: [
+					{
+						role: 'system',
+						content: 'Earlier turns were summarized.',
+						source: { type: 'compaction-summary' },
+					},
+					...shed.messages,
+				],
+			})
 			expect(metadata(result?.context)).toMatchObject({
 				incomplete,
 				queryFocus: { terms: ['SIGMA'], matchedTerms: [] },

@@ -1,4 +1,4 @@
-import type { PrepareStep } from '@namzu/sdk'
+import { type PrepareStep, historyContentShed } from '@namzu/sdk'
 
 /** A bounded, ephemeral map of the visible working set; no payload copies or inference. */
 export function createContextInventoryStep(): PrepareStep {
@@ -22,7 +22,9 @@ export function createContextInventoryStep(): PrepareStep {
 			blocks.push({ position, chars, images, pinned: message.retain === true })
 		}
 		const pressure = contextBudget && contextBudget.remainingTokens < contextBudget.windowTokens / 4
-		if (totalChars < 16_000 && !pressure) return undefined
+		// A map of the working set earns its place only when room is short or content
+		// was already shed; before that everything is in view and it is only noise.
+		if (!pressure && !historyContentShed(messages)) return undefined
 		// Under extreme pressure even a useful dashboard must yield to the actual task.
 		if (contextBudget && contextBudget.remainingTokens < 1_500) return undefined
 		const inventory = {
@@ -33,7 +35,7 @@ export function createContextInventoryStep(): PrepareStep {
 			largestToolBlocks: blocks.sort((a, b) => b.chars - a.chars).slice(0, 6),
 		}
 		const text =
-			'Context inventory (current request only). Positions are temporary, not archive IDs. Sizes are UTF-16 text characters; non-text payloads are counted, not estimated as base64 text tokens. For earlier evidence use search_conversation, then read_conversation(seq, part) for exact retained pages. Do not repeat a state-changing action to recover its output.\n' +
+			'Context inventory for your own planning: not a request, and not something to mention to the user. Positions are temporary. Sizes are UTF-16 text characters; non-text payloads are counted, not estimated as base64 text tokens. Do not repeat a state-changing action to recover its output.\n' +
 			JSON.stringify(inventory)
 		return { context: [prepared.context, text].filter(Boolean).join('\n\n') }
 	}
