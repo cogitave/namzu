@@ -48,6 +48,9 @@ export const COMPACTION_RESUME_NOTE =
 export const COMPACTION_LOADED_TOOLS_PREFIX =
 	'Tools you loaded earlier with search_tools are still loaded'
 
+/** Most tool names the loaded-tools line spells out. */
+export const MAX_LOADED_TOOLS_NOTE_NAMES = 40
+
 const LOADED_TOOLS_NOTE = new RegExp(`\\n\\n${COMPACTION_LOADED_TOOLS_PREFIX}[^\\n]*$`)
 
 /**
@@ -75,7 +78,12 @@ export function collectRevealedTools(messages: readonly Message[]): ToolRevealRe
 
 function loadedToolsNote(revealed: readonly ToolRevealReceipt[]): string {
 	const names = [...new Set(revealed.map((receipt) => receipt.name))]
-	return `${COMPACTION_LOADED_TOOLS_PREFIX}: ${names.join(', ')}. Call them directly; load any other deferred tool with search_tools first.`
+	// The receipts on the message carry the full list; the line the model reads
+	// is bounded so a session that loaded many tools does not re-send it all.
+	const shown = names.slice(0, MAX_LOADED_TOOLS_NOTE_NAMES)
+	const more = names.length - shown.length
+	const list = more > 0 ? `${shown.join(', ')} and ${more} more` : shown.join(', ')
+	return `${COMPACTION_LOADED_TOOLS_PREFIX}: ${list}. Call them directly; load any other deferred tool with search_tools first.`
 }
 
 /**

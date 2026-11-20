@@ -177,7 +177,7 @@ A server's tools are not sent to the model in full. The model sees each tool's n
 
 Two ways to keep a server's tools inline instead: set `alwaysLoad: true` on its entry (above), which suits a small server the model uses in nearly every turn; or start the session with `toolLoading: 'eager'` for the built-in tools, which does not change MCP servers.
 
-The model loads tools with `search_tools` in three forms: `select:name1,name2` loads exactly those tools (an MCP tool by its full name `mcp__server__tool` or by its short name `tool`, which loads that tool from every server that has one), plain keywords rank the tools whose *name* has the word far above those whose description has it, and `+word` requires a word in the result. A query that is exactly one tool's name loads that tool alone.
+The model loads tools with `search_tools` in three forms: `select:name1,name2` loads exactly those tools (an MCP tool by its full name `mcp__server__tool` or by its short name `tool`, which loads that tool from every server that has one), plain keywords rank the tools whose *name* has the word far above those whose description has it, and `+word` requires a word in the result. A query that is exactly one tool's name loads that tool and no other match, plus any companions it declares.
 
 Once the model has loaded a tool, it stays loaded for the rest of the conversation, **including after compaction**: the compaction summary carries the list of loaded tools (`revealedTools`), and the message after it names them. A server's resource tools (`list_resources`, `read_resource`) are deferred in the same way.
 

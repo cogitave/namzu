@@ -129,6 +129,9 @@ const MAX_SEARCH_QUERY_CHARS = 16_384
 const MAX_SEARCH_QUERY_WORDS = 32
 const MAX_DEFERRED_MCP_HINT_CHARS = 4_000
 
+/** Most characters of tool names one tools-changed announcement spells out; the rest is a count. */
+const MAX_TOOLS_CHANGED_CHARS = 1_500
+
 /**
  * The runtime-owned resolver of {@link Toolset}s.
  *
@@ -418,18 +421,26 @@ export class ToolManager {
 						: toolDiscoveryHint(tool.description)
 				return hint.length > 0 ? `- ${name}: ${hint}` : `- ${name}`
 			})
+			const { shown, more } = capEntries(entries)
 			lines.push(
 				searchable
 					? 'These tools are now available but deferred. Their schemas are not loaded; use search_tools with "select:<name>" (exact names, comma-separated) to load one before calling it:'
 					: 'These tools are now available but deferred; wait for runtime activation before calling them:',
-				...entries,
+				...shown,
 			)
+			if (more > 0) {
+				lines.push(
+					searchable
+						? `...and ${more} more deferred tools; find them with search_tools.`
+						: `...and ${more} more deferred tools.`,
+				)
+			}
 		}
 		if (loadedNow.length > 0) {
-			lines.push(`These tools are now loaded and can be called: ${loadedNow.join(', ')}.`)
+			lines.push(`These tools are now loaded and can be called: ${capNames(loadedNow)}.`)
 		}
 		if (report.removed.length > 0) {
-			lines.push(`These tools are no longer available: ${report.removed.join(', ')}.`)
+			lines.push(`These tools are no longer available: ${capNames(report.removed)}.`)
 		}
 		return lines.join('\n')
 	}
@@ -1332,4 +1343,21 @@ function describeRequiredInput(schema: { _def?: unknown }): string {
 function failureFactsField(err: unknown): { facts?: ToolFacts } {
 	const facts = failureFactsFromError(err)
 	return facts ? { facts } : {}
+}
+
+/** The leading entries that fit the announcement budget, and how many were left out. */
+function capEntries(entries: readonly string[]): { shown: string[]; more: number } {
+	const shown: string[] = []
+	let chars = 0
+	for (const entry of entries) {
+		if (shown.length > 0 && chars + entry.length + 1 > MAX_TOOLS_CHANGED_CHARS) break
+		shown.push(entry)
+		chars += entry.length + 1
+	}
+	return { shown, more: entries.length - shown.length }
+}
+
+function capNames(names: readonly string[]): string {
+	const { shown, more } = capEntries(names)
+	return more > 0 ? `${shown.join(', ')} and ${more} more` : shown.join(', ')
 }

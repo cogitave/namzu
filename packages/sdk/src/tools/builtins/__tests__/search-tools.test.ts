@@ -267,3 +267,30 @@ describe('search_tools query forms', () => {
 		expect(SearchToolsTool.description).toContain('"+slack send"')
 	})
 })
+
+describe('search_tools select reporting', () => {
+	it('names the entries past the cap instead of dropping them silently', async () => {
+		const names = Array.from({ length: 66 }, (_, i) => `tool_${String(i).padStart(2, '0')}`)
+		const { manager } = managerWith(...names.map((name) => tool(name)))
+		const result = await SearchToolsTool.execute(
+			{ query: `select:${names.join(',')}` },
+			context(manager),
+		)
+		expect(result.output).toContain('at most 64 names: tool_64, tool_65')
+		expect(result.reveals).toHaveLength(64)
+		expect(result.data).toMatchObject({ notSelected: ['tool_64', 'tool_65'] })
+	})
+
+	it('says when a short name loaded more than one tool', async () => {
+		const messages: Message[] = []
+		const mcp = (server: string) =>
+			deferred({
+				...testToolset(tool(`mcp__${server}__create_issue`)),
+				source: { id: `mcp:${server}`, kind: 'mcp_server', name: server },
+			})
+		const manager = new ToolManager({ toolsets: [mcp('a'), mcp('b')], messages: () => messages })
+		const result = await SearchToolsTool.execute({ query: 'select:create_issue' }, context(manager))
+		expect(result.reveals).toEqual(['mcp__a__create_issue', 'mcp__b__create_issue'])
+		expect(result.output).toContain('matched more than one tool, and all of them are loaded')
+	})
+})

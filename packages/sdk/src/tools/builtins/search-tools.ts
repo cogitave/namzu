@@ -45,7 +45,7 @@ export const SearchToolsTool = defineTool({
 		'- "select:read_memory,save_memory" loads exactly those tools by name. Use it when you know the names.\n' +
 		'- "notebook jupyter" searches by keywords. A word in a tool\'s name ranks far above a word in its description. Loads the best matches, up to max_results (default 5).\n' +
 		'- "+slack send" requires "slack" in the result and ranks by the rest.\n' +
-		"A query that is exactly one tool's name loads that tool alone.",
+		"A query that is exactly one tool's name loads that tool and no other match, plus any companions it declares.",
 	inputSchema,
 	category: 'analysis',
 	permissions: [],
@@ -67,11 +67,12 @@ export const SearchToolsTool = defineTool({
 
 		const select = SELECT_PREFIX.exec(input.query.trim())
 		if (select) {
-			const names = (select[1] ?? '')
+			const requested = (select[1] ?? '')
 				.split(',')
 				.map((name) => name.trim())
 				.filter((name) => name.length > 0)
-				.slice(0, MAX_SELECT_NAMES)
+			const names = requested.slice(0, MAX_SELECT_NAMES)
+			const dropped = requested.slice(MAX_SELECT_NAMES)
 			const picked = registry.select
 				? registry.select(names)
 				: selectByName(registry.searchDeferred.bind(registry), registry.has.bind(registry), names)
@@ -87,6 +88,27 @@ export const SearchToolsTool = defineTool({
 			if (companions.length > 0) {
 				sections.push(
 					`Related tools that are not loaded: ${[...new Set(companions)].join(', ')}. Select them too if you need them.`,
+				)
+			}
+			// A short MCP name that matched several tools loads all of them; say so,
+			// so the model is not surprised by tools it did not name in full.
+			const ambiguous = names.flatMap((name) => {
+				const suffix = `__${name.toLowerCase()}`
+				const hits = found.filter(
+					(tool) =>
+						tool.name.toLowerCase() !== name.toLowerCase() &&
+						tool.name.toLowerCase().endsWith(suffix),
+				)
+				return hits.length > 1 ? [`${name} (${hits.map((tool) => tool.name).join(', ')})`] : []
+			})
+			if (ambiguous.length > 0) {
+				sections.push(
+					`A short name matched more than one tool, and all of them are loaded: ${ambiguous.join('; ')}. Use the full name to load one.`,
+				)
+			}
+			if (dropped.length > 0) {
+				sections.push(
+					`Not loaded, because one select takes at most ${MAX_SELECT_NAMES} names: ${dropped.join(', ')}. Select them in another call.`,
 				)
 			}
 			if (picked.available.length > 0) {
@@ -110,6 +132,7 @@ export const SearchToolsTool = defineTool({
 					count: found.length,
 					...(picked.available.length > 0 ? { alreadyLoaded: picked.available } : {}),
 					...(missing.length > 0 ? { missing } : {}),
+					...(dropped.length > 0 ? { notSelected: dropped } : {}),
 				},
 			}
 		}
@@ -199,7 +222,11 @@ function describeLoaded(
 	return `Activated ${loaded.length} tool(s):\n${lines}`
 }
 
-/** `select:` against a view that has no `select` of its own: an exact-name match over the deferred search. */
+/**
+ * `select:` against a view that has no `select` of its own: an exact-name
+ * match over the deferred search. Only full names match here; the MCP
+ * short-name form needs the manager's own `select`.
+ */
 function selectByName(
 	search: (query: string) => readonly ToolDefinition[],
 	has: (name: string) => boolean,

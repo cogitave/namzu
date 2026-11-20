@@ -203,6 +203,14 @@ describe('loaded tools survive compaction', () => {
 		expect(m.toLLMTools().map((t) => t.function.name)).toEqual(['web_search'])
 	})
 
+	it('the loaded-tools line is bounded and ends in a count, the receipts keep every name', () => {
+		const many = Array.from({ length: 100 }, (_, i) => owner(`tool_${i}`))
+		const summary = buildCompactionMessage('body', undefined, many)
+		expect(String(summary.content)).toContain('and 60 more.')
+		expect(String(summary.content)).not.toContain('tool_99')
+		expect(collectRevealedTools([summary])).toHaveLength(100)
+	})
+
 	it('a later summary carries what the earlier one did', () => {
 		const first = buildCompactionMessage('one', undefined, collectRevealedTools(loadedHistory()))
 		const second = buildCompactionMessage('two', undefined, collectRevealedTools([first]))
@@ -269,6 +277,17 @@ describe('a toolset that gains tools later is announced', () => {
 		expect(text).toContain('select:<name>')
 		expect(m.availability('mcp__late__lookup')).toBe('deferred')
 		expect(m.refresh()).toBeUndefined()
+	})
+
+	it('bounds the announcement of a large late catalogue with a count', () => {
+		const { ts, connect } = live()
+		const m = managerOf([toolset('host', [makeTool('search_tools')]), ts])
+		m.refresh()
+		connect(Array.from({ length: 300 }, (_, i) => makeTool(`mcp__late__tool_number_${i}`)))
+		const report = m.refresh()
+		const text = m.describeChange(report as NonNullable<typeof report>)
+		expect(text.length).toBeLessThan(2_200)
+		expect(text).toMatch(/\.\.\.and \d+ more deferred tools; find them with search_tools/)
 	})
 
 	it('names a removed tool', () => {

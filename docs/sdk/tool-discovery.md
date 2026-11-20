@@ -24,7 +24,7 @@ up to 64 names) loads exactly those tools: an exact name, or, for an MCP tool
 server that has one. A name that is already loaded is answered
 `Already loaded, call directly`, one nothing matched is listed as not found,
 and a tool's companions (below) are named but not loaded. A query that is
-exactly one tool's name loads that tool alone (with its companions). Anything
+exactly one tool's name loads that tool and no other match, plus any companions it declares. Anything
 else is keywords: each word scores by where it sits, a whole word of the name
 (10; 12 for an MCP tool) far above a piece of a name word (5; 6), a word of the
 description on a word boundary (2) or an argument name (2); a word written
@@ -211,3 +211,5 @@ name, then call it again.`; the turn goes on. The memory, conversation-evidence
 and web-task sections of the prompt say the same where they name a tool that
 may be deferred. `toolLoading: 'eager'` brings back the old roster, every
 schema on every request.
+
+A `select:` list past 64 names loads the first 64 and names the rest in the result. A short MCP name that matches several tools loads all of them and says so. A view without its own `select` matches full names only. The tools-changed announcement and the loaded-tools line of a compaction summary are bounded and end in a count. `DATA_EPOCH` is unchanged on purpose: an older engine reading a summary with `revealedTools` ignores the field, so loaded tools go back to deferred after the resume.
