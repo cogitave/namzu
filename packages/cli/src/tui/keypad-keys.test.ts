@@ -81,6 +81,40 @@ describe('normalizeKeypadKeys', () => {
 		}
 	})
 
+	it('reads the keypad of a terminal in application keypad mode', () => {
+		const ss3 = (final: string, mod = '') => `${ESC}O${mod}${final}`
+		expect(normalizeKeypadKeys(ss3('M'))).toBe('\r')
+		'pqrstuvwxy'.split('').forEach((final, index) => {
+			expect(normalizeKeypadKeys(ss3(final))).toBe(String(index))
+		})
+		expect(normalizeKeypadKeys(ss3('j'))).toBe('*')
+		expect(normalizeKeypadKeys(ss3('k'))).toBe('+')
+		expect(normalizeKeypadKeys(ss3('l'))).toBe(',')
+		expect(normalizeKeypadKeys(ss3('m'))).toBe('-')
+		expect(normalizeKeypadKeys(ss3('n'))).toBe('.')
+		expect(normalizeKeypadKeys(ss3('o'))).toBe('/')
+		expect(normalizeKeypadKeys(ss3('X'))).toBe('=')
+		// A modifier digit before the letter is the held modifier: shift+KP_ENTER is shift+Enter.
+		expect(normalizeKeypadKeys(ss3('M', '2'))).toBe(`${ESC}[13;2u`)
+		expect(normalizeKeypadKeys(`hi${ss3('M')}`)).toBe('hi\r')
+	})
+
+	it('keeps the SS3 keys that are not keypad keys', () => {
+		for (const text of [
+			`${ESC}OA`,
+			`${ESC}OB`,
+			`${ESC}OC`,
+			`${ESC}OD`,
+			`${ESC}OH`,
+			`${ESC}OF`,
+			`${ESC}OP`,
+			`${ESC}OS`,
+			`${ESC}O`,
+		]) {
+			expect(normalizeKeypadKeys(text)).toBe(text)
+		}
+	})
+
 	it('rewrites several keys in one read', () => {
 		expect(normalizeKeypadKeys(`${kp(57400)}${kp(57401)}x${kp(57414)}`)).toBe('12x\r')
 	})
