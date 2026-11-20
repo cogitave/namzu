@@ -5729,7 +5729,10 @@ export function App({
 				draftsRef.current[target] = ''
 				setDrafts((all) => ({ ...all, [target]: '' }))
 			}
-			if (activeSession.current === target) follow.current = true
+			if (activeSession.current === target) {
+				follow.current = true
+				transcriptScroll.pinNow()
+			}
 		} finally {
 			if (!submitted) draftAdmissions.current.delete(target)
 			sendingRef.current.delete(owner)
@@ -5889,6 +5892,7 @@ export function App({
 			attachmentIds: [],
 		})
 		follow.current = true
+		transcriptScroll.pinNow()
 	}
 
 	// The pane's strip in order (terminals included) and the tab in front.

@@ -557,8 +557,9 @@ it('turning hypermode on leaves the effort alone and says so', async () => {
 	const frameBottom = lowerRuleRow(viewport)
 	expect(frameTop).toContain('hypermode')
 	expect(frameBottom).toBeGreaterThanOrEqual(0)
-	// The composer's rule names the mode, and the footer says it again right after the effort.
-	expect(viewport[frameBottom + 1]).toContain('effort low · hypermode')
+	// The composer's rule names the mode, and the footer does not say it again after the effort.
+	expect(viewport[frameBottom + 1]).toContain('effort low')
+	expect(viewport[frameBottom + 1]).not.toContain('hypermode')
 	expect(viewport.join('\n')).not.toContain('Hypermode on')
 	await submit(screen, 'go')
 	await until(screen, () => sent.length === 1, 'Turn was not sent')

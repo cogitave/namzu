@@ -3615,7 +3615,13 @@ again for a streamed delta, and a finished turn away from the end uses
 newest turns are never skipped. No virtualisation is used.
 
 The transcript follows the end while a reply grows. A scroll the code makes itself is not read
-as the reader leaving the end. Opening a disclosure stops following while it grows and follows
+as the reader leaving the end, and neither is a shift the browser makes itself: when a finished
+turn lays out again, Chromium's scroll anchoring moves the scroller, and a scroll event counts as
+the reader scrolling up only when it moved up within 300 ms of a wheel, touch or key on the
+transcript or while the pointer is held on its scrollbar. Any other scroll while following pins the
+view to the end again, and sending a message pins it at once, so the first message after a turn
+that ran tools is followed like any other. A reader who scrolled up keeps the browser's anchoring
+and so keeps their place. Opening a disclosure stops following while it grows and follows
 again only if the reader is still at the end. Each conversation remembers its scroll position and
 whether it was at the end.
 
@@ -3819,6 +3825,10 @@ It is not drawn for a Pal, a chat has no Tool servers or Changes sections, and b
 ## Usage limits
 
 The indicator beside the model opens **Your usage limits**: for each provider in use, only what is honestly known, in three row shapes (a window with its reset and percent, a spend estimate or credit); a provider that reports nothing has no row, and the popover ends with one Context row whose Details opens the Session panel. It turns amber at 75 percent and red at 90 of the worst of the context and the account's windows; a rejected window reads full; nothing is ever blocked by Desktop. What is shown per provider, where it comes from and what is kept is on [Usage limits](usage-limits.md).
+
+While a turn is live, the action its header names is not drawn again as a row under the header: the
+quiet rows there are the last two finished actions (and "N more steps" counts the finished ones
+before them), so a lone running command shows no tail.
 
 ### Cards under a reply
 

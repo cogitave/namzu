@@ -71,6 +71,7 @@ export function ExtensionPageFrame({
 	const slot = useRef<HTMLDivElement>(null)
 	const [stopped, setStopped] = useState<string>()
 	const [attempt, setAttempt] = useState(0)
+	const [shown, setShown] = useState(false)
 	const page = row.ui?.pages.find((p) => p.id === pageId)
 	const words = stripWords(row.publisher)
 
@@ -93,6 +94,7 @@ export function ExtensionPageFrame({
 				opened = true
 				void api.extensionPageShow?.(row.id, pageId, b).then((r) => {
 					if (!r.ok) setStopped(r.reason ?? 'closed')
+					else setShown(true)
 				})
 			} else void api.extensionPageBounds?.(row.id, pageId, b)
 		}
@@ -171,6 +173,7 @@ export function ExtensionPageFrame({
 						type="button"
 						onClick={() => {
 							setStopped(undefined)
+							setShown(false)
 							setAttempt((n) => n + 1)
 						}}
 					>
@@ -178,7 +181,12 @@ export function ExtensionPageFrame({
 					</button>
 				</div>
 			) : (
-				<div className="extension-page-slot" ref={slot} aria-label={page?.title ?? pageId} />
+				<div className="extension-page-slot" ref={slot} aria-label={page?.title ?? pageId}>
+					{/* Namzu's own view draws the page over this slot once it is shown; until then the slot is never empty. */}
+					{!shown && (
+						<output className="extension-page-loading">Opening {page?.title ?? row.name}…</output>
+					)}
+				</div>
 			)}
 		</>
 	)

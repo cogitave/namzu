@@ -96,7 +96,7 @@ describe('at 140 columns', () => {
 		expect(text).toMatch(/│\s+2 Summarize\s+0\/1 │/u)
 		expect(text).toMatch(/╰─+┴─+╯/u)
 		expect(screen.at(-1)?.trim()).toBe('')
-		expect(text).toContain('↑↓ select · x stop workflow · esc back')
+		expect(text).toContain('↑↓ select · enter open · x stop workflow · esc back · space close')
 		expect(text).not.toContain('enter view')
 	})
 
@@ -104,9 +104,9 @@ describe('at 140 columns', () => {
 		const screen = await open('agents', 140, 45)
 		const text = screen.join('\n')
 		expect(text).toMatch(/│\s+✔ Read\s+2\/2 │❯ ✔ label a1/u)
-		expect(text).toContain('↑↓ select · enter view · esc back')
+		expect(text).toContain('↑↓ select · enter view · esc back · space close')
 		const running = (await open('agents', 140, 45, 'a3')).join('\n')
-		expect(running).toContain('↑↓ select · enter view · x stop · esc back')
+		expect(running).toContain('↑↓ select · enter view · x stop · esc back · space close')
 	})
 
 	it('spells out what was sent and cached only where there is room', async () => {
