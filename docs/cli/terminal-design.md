@@ -2003,6 +2003,7 @@ The message box asks the terminal for the kitty keyboard protocol (`disambiguate
 - The keypad arrows, Home, End, Page Up, Page Down, Insert and Delete are those keys.
 - The keypad's middle key with Num Lock off ("begin") has no main-keyboard twin and does nothing.
 - Held modifiers carry over (Ctrl+keypad Up is Ctrl+Up). Num Lock and Caps Lock change nothing. A repeat or release event is passed on in the main key's own form, so it is treated as that key's is.
+- A terminal that does not take the protocol sends most keypad keys as the main key's byte already. In application keypad mode (set by another program, by a multiplexer or by the terminal's own settings) it sends each keypad key as an SS3 sequence of its own instead: `ESC O M` for the keypad Enter, `ESC O p` to `ESC O y` for the digits, `ESC O j` to `ESC O o` and `ESC O X` for the operators, with an optional modifier digit before the letter (`ESC O 2 M` is Shift+keypad Enter). Those are rewritten the same way. The cursor keys, Home, End and F1 to F4 in their SS3 form (`ESC O A`, `ESC O H`, `ESC O P` and the like) are other keys and are left as they are.
 
 ## Paste and response boundaries
 

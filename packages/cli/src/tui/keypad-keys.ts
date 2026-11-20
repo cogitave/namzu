@@ -13,6 +13,12 @@
  * and event field) when one is. Every component then receives the keys it already handles,
  * with nothing changed in any of them. The keypad's "begin" key (the middle of the keypad with
  * Num Lock off) has no main-keyboard twin and is dropped.
+ *
+ * A terminal without the protocol sends the main key's byte for most keypad keys, except when it
+ * is in application keypad mode: then each keypad key is an SS3 sequence of its own (`ESC O M` for
+ * the keypad Enter, `ESC O p` to `ESC O y` for the digits), with an optional modifier digit before
+ * the final letter. Those are rewritten the same way. The letters they use (`M`, `X`, `j` to `y`)
+ * name no other key, so the cursor keys, Home, End and F1 to F4 (`ESC O A` and the like) are kept.
  */
 
 const ESC = '\u001b'
@@ -70,6 +76,30 @@ const TARGETS: Readonly<Record<number, Target>> = {
 
 const KEYPAD_SEQUENCE = new RegExp(`${ESC}\\[(\\d+)(?:;(\\d*)(?::(\\d+))?(?:;[\\d:]*)?)?u`, 'g')
 
+/** The SS3 final letter each keypad key sends in application keypad mode, as its protocol code. */
+const APPLICATION_KEYPAD: Readonly<Record<string, number>> = {
+	M: 57414,
+	X: 57415,
+	j: 57411,
+	k: 57413,
+	l: 57416,
+	m: 57412,
+	n: 57409,
+	o: 57410,
+	p: 57399,
+	q: 57400,
+	r: 57401,
+	s: 57402,
+	t: 57403,
+	u: 57404,
+	v: 57405,
+	w: 57406,
+	x: 57407,
+	y: 57408,
+}
+
+const APPLICATION_KEYPAD_SEQUENCE = new RegExp(`${ESC}O(\\d*)([MXj-y])`, 'g')
+
 function rewrite(code: number, modifiers: number, eventType: number | undefined): string | null {
 	const target = TARGETS[code]
 	if (target === undefined) return null
@@ -93,8 +123,19 @@ function rewrite(code: number, modifiers: number, eventType: number | undefined)
 
 /** Rewrite every keypad sequence in `chunk`; anything else stays byte-identical. */
 export function normalizeKeypadKeys(chunk: string): string {
-	if (!chunk.includes(`${ESC}[57`)) return chunk
-	return chunk.replace(
+	const applicationMode = chunk.includes(`${ESC}O`)
+		? chunk.replace(
+				APPLICATION_KEYPAD_SEQUENCE,
+				(whole: string, modText: string, final: string) => {
+					const code = APPLICATION_KEYPAD[final]
+					if (code === undefined) return whole
+					const modifiers = modText === '' ? 1 : Number.parseInt(modText, 10)
+					return rewrite(code, modifiers, undefined) ?? whole
+				},
+			)
+		: chunk
+	if (!applicationMode.includes(`${ESC}[57`)) return applicationMode
+	return applicationMode.replace(
 		KEYPAD_SEQUENCE,
 		(whole: string, codeText: string, modText?: string, eventText?: string) => {
 			const code = Number.parseInt(codeText, 10)

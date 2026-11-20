@@ -51,6 +51,16 @@ describe('keypad keys in the message box', () => {
 		app.unmount()
 	})
 
+	it('sends the message on the keypad Enter of a terminal in application keypad mode', async () => {
+		const { app, sent } = mount()
+		await tick()
+		await press(app, 'h')
+		await press(app, '\x1bOr')
+		await press(app, '\x1bOM')
+		expect(sent).toEqual(['h2'])
+		app.unmount()
+	})
+
 	it('keeps shift+keypad Enter from sending, as shift+Enter does not', async () => {
 		const { app, sent } = mount()
 		await tick()
