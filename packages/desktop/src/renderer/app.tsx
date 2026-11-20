@@ -36,7 +36,7 @@ import { dictationPressed } from '../shared/shortcuts.js'
 import type { SidebarSnapshot } from '../shared/sidebar-snapshot.js'
 import { PROMPT_NOT_PASSED, TERMINAL_ENGINE_LABELS } from '../shared/terminal-tabs.js'
 import type { UpdateState } from '../shared/update-protocol.js'
-import { BackgroundWorkContext } from './activity-actions.js'
+import { BackgroundJobsContext, BackgroundWorkContext } from './activity-actions.js'
 import {
 	ADD_PROJECT_LABEL,
 	AddProjectMenu,
@@ -50,6 +50,13 @@ import {
 	removeFromArchiveBatch,
 } from './archive-notice.js'
 import { applyCachedAttachmentPreviewEviction } from './attachment-preview-events.js'
+import { showTasksButton } from './background-tasks-model.js'
+import {
+	BackgroundTasksPane,
+	ClearFinishedButton,
+	type TasksFocus,
+	useTaskChoices,
+} from './background-tasks-pane.js'
 import { ChangesPanel } from './changes-panel.js'
 import { ChangesHeaderSlot } from './changes-review/header-store.js'
 import { type ChangeTotals, changeTotals, receiptOf } from './changes-totals.js'
@@ -965,6 +972,7 @@ export function App({
 	)
 	// The pane the narrow overlay shows, and the page the Browser pane shows: not remembered.
 	const [overlayPane, setOverlayPane] = useState<GridKind>()
+	const [tasksFocus, setTasksFocus] = useState<TasksFocus>()
 	const [terminalShown, setTerminalShown] = useState('')
 	// The file a clicked reply row names; a fresh object each click, so the same row can be chosen again.
 	// Tied to its conversation, so a switch never shows another conversation's file for a frame.
@@ -1393,7 +1401,14 @@ export function App({
 	)
 	// Opens the Session pane: its list holds what the work in this conversation is doing.
 	const openSessionPane = useCallback(() => setSessionPanelOpen(true), [setSessionPanelOpen])
-	const openBackgroundWork = openSessionPane
+	/** Opens the Background tasks pane, at one task or at its Finished section. */
+	const openBackgroundWork = useCallback(
+		(target?: { id?: string; finished?: boolean }) => {
+			openPane('tasks')
+			if (target) setTasksFocus((value) => ({ ...target, nonce: (value?.nonce ?? 0) + 1 }))
+		},
+		[openPane],
+	)
 	const editors = useEditors(api, filesEnabled)
 	const linkCache = useMemo(
 		() =>
@@ -1628,7 +1643,32 @@ export function App({
 						? { state: 'hidden' }
 						: { state: 'checking' }
 	const jobsRunning = visibleJobs.some((job) => job.status === 'running')
-	const clock = useClock(sessionPanelActive && jobsRunning)
+	const tasksPaneOpen = detailsOpen && hasPane(paneLayout, 'tasks') && Boolean(sessionId)
+	const taskChoices = useTaskChoices(sessionId, visibleJobs)
+	// Cleared finished tasks stay out of the short list too, so it agrees with the pane.
+	const panelJobs = useMemo(
+		() => [...taskChoices.sections.running, ...taskChoices.sections.finished],
+		[taskChoices.sections],
+	)
+	const backgroundJobs = useMemo(
+		() => ({ known: jobsSessionId === sessionId && !jobsLoading && !jobsError, jobs: visibleJobs }),
+		[jobsSessionId, sessionId, jobsLoading, jobsError, visibleJobs],
+	)
+	// The jobs are read while something shows them (the Session panel, the tasks pane), while this
+	// conversation has started a background command, and while the engine says one runs.
+	const hasBackgroundCommand = useMemo(
+		() =>
+			Object.values(thread.tools).some(
+				(tool) => tool.facts?.kind === 'command' && tool.facts.background === true,
+			),
+		[thread.tools],
+	)
+	const jobsWanted =
+		sessionPanelOpen ||
+		tasksPaneOpen ||
+		hasBackgroundCommand ||
+		(sessionWork.state === 'known' && sessionWork.runningCount > 0)
+	const clock = useClock((sessionPanelActive || tasksPaneOpen) && jobsRunning)
 	const sessionPanelSummary = sessionPanelActive
 		? sessionSummary({
 				...(project
@@ -2746,14 +2786,7 @@ export function App({
 		}
 	}, [projectId, windowId, group.id, api, showError, draftReadable])
 	useEffect(() => {
-		if (
-			!sessionId ||
-			!api ||
-			palConversation ||
-			historyPending ||
-			restoringTabs ||
-			!sessionPanelOpen
-		) {
+		if (!sessionId || !api || palConversation || historyPending || restoringTabs || !jobsWanted) {
 			setJobs([])
 			setJobsSessionId('')
 			return
@@ -2809,7 +2842,7 @@ export function App({
 			window.removeEventListener('focus', back)
 			poll.stop()
 		}
-	}, [sessionId, palConversation, api, historyPending, restoringTabs, sessionPanelOpen])
+	}, [sessionId, palConversation, api, historyPending, restoringTabs, jobsWanted])
 	const palTasksVisible = Boolean(
 		pal &&
 			(palScreen?.palId === pal.id && palScreen.activeTab === 'computer'
@@ -6606,6 +6639,7 @@ export function App({
 		changes: detailsOpen && hasPane(paneLayout, 'changes'),
 		browser: detailsOpen && hasPane(paneLayout, 'browser'),
 		files: detailsOpen && hasPane(paneLayout, 'files'),
+		tasks: detailsOpen && hasPane(paneLayout, 'tasks'),
 	}
 	// What the grid draws: with the panes hidden (a conversation switch clears them) nothing of the layout shows.
 	const shownPaneLayout = useMemo<PaneLayout>(
@@ -6623,8 +6657,35 @@ export function App({
 		void onAction({ kind: 'close', groupId: group.id, tabId: id }).catch((failure) =>
 			showError(failure, 'close the terminal'),
 		)
+	const stopJob = (job: JobView) => {
+		const owner = sessionId
+		const generation = navigation.current
+		const refresh = refreshJobs.current
+		return act(() =>
+			runJobAction(owner, generation, async () => {
+				await api.stopJob(owner, job.id)
+				await refresh?.()
+			}),
+		)
+	}
 	/** What each pane puts in its tile: the header's left side, its own controls, and the body. */
 	const renderPane = (kind: GridKind): PaneContent => {
+		if (kind === 'tasks')
+			return {
+				title: <span>Background tasks</span>,
+				actions: <ClearFinishedButton choices={taskChoices} />,
+				body: (
+					<BackgroundTasksPane
+						key={sessionId}
+						choices={taskChoices}
+						known={jobsSessionId === sessionId && !jobsLoading && !jobsError}
+						now={clock}
+						focus={tasksFocus}
+						onRead={(job) => api.readJob(sessionId, job.id)}
+						onStop={stopJob}
+					/>
+				),
+			}
 		if (kind === 'terminal')
 			return {
 				title: (
@@ -6805,6 +6866,10 @@ export function App({
 								}),
 					}}
 					changes={{ files: totals.files, added: totals.added, removed: totals.removed }}
+					tasks={{
+						show: showTasksButton(visibleJobs.length, paneOpen.tasks),
+						running: visibleJobs.filter((job) => job.status === 'running').length,
+					}}
 					mac={macPlatform}
 					disabled={loading || harnessBusy || frozen}
 					more={
@@ -8056,81 +8121,85 @@ export function App({
 										>
 											<ProjectFilesContext.Provider value={projectFiles}>
 												<BackgroundWorkContext.Provider value={openBackgroundWork}>
-													<PalStartContext.Provider value={palStartControls}>
-														<OutputCardsContext.Provider value={outputCardsValue}>
-															<Transcript
-																key={sessionId || 'blank'}
-																thread={thread}
-																pending={pendingMessages(thread)}
-																pendingActions={pendingActions}
-																pendingEditing={
-																	pendingEditing?.sessionId === sessionId ? pendingEditing.id : null
-																}
-																onPendingEditingChange={onPendingEditingChange}
-																animate={!historyPending && !restoringTabs}
-																workDisclosures={
-																	workDisclosureView.sessionId === sessionId
-																		? workDisclosureView.choices
-																		: undefined
-																}
-																onWorkDisclosureChange={(key, open) =>
-																	onWorkDisclosureChange(sessionId, key, open)
-																}
-																onOpenTurnChanges={(path) => {
-																	focusChangesFile(path)
-																	openPane('changes')
-																}}
-																onOpenChangedFile={projectFiles ? openChangedFile : undefined}
-																onOpenPalInbox={openPalInbox}
-																onCopySummary={(text) =>
-																	void copyToClipboard(text, 'Summary copied.').catch(() =>
-																		notify('Copy is unavailable.', { tone: 'error' }),
-																	)
-																}
-																onOpenTasks={() => {
-																	openSessionPane()
-																}}
-																onUndoTurn={
-																	api.undoPreview && api.undoTurn
-																		? (turnId) => setUndoingTurn({ sessionId, turnId })
-																		: undefined
-																}
-																undoKept={undoKept}
-																projectRoot={project?.path}
-																closedWhileRunning={conversation?.closedWhileRunning === true}
-																onContinueStopped={
-																	conversation?.closedWhileRunning === true &&
-																	!thread.running &&
-																	!loading &&
-																	!restoringTabs &&
-																	!frozen &&
-																	project?.trusted &&
-																	project.status === 'ready' &&
-																	choice.provider &&
-																	providerReady
-																		? () => void act(() => retryReply(CONTINUE_STOPPED_PROMPT))
-																		: undefined
-																}
-																stopShownBelow={stopShownBelow}
-																renderMessageAction={(message, key) => (
-																	<MessageActions
-																		text={message.text}
-																		onRetry={
-																			retryable && retryable.reply === message
-																				? () => void act(() => retryReply(retryable.prompt))
-																				: undefined
-																		}
-																	>
-																		<LocalSpeechReadAloud
-																			speech={speech}
-																			messageId={key}
+													<BackgroundJobsContext.Provider value={backgroundJobs}>
+														<PalStartContext.Provider value={palStartControls}>
+															<OutputCardsContext.Provider value={outputCardsValue}>
+																<Transcript
+																	key={sessionId || 'blank'}
+																	thread={thread}
+																	pending={pendingMessages(thread)}
+																	pendingActions={pendingActions}
+																	pendingEditing={
+																		pendingEditing?.sessionId === sessionId
+																			? pendingEditing.id
+																			: null
+																	}
+																	onPendingEditingChange={onPendingEditingChange}
+																	animate={!historyPending && !restoringTabs}
+																	workDisclosures={
+																		workDisclosureView.sessionId === sessionId
+																			? workDisclosureView.choices
+																			: undefined
+																	}
+																	onWorkDisclosureChange={(key, open) =>
+																		onWorkDisclosureChange(sessionId, key, open)
+																	}
+																	onOpenTurnChanges={(path) => {
+																		focusChangesFile(path)
+																		openPane('changes')
+																	}}
+																	onOpenChangedFile={projectFiles ? openChangedFile : undefined}
+																	onOpenPalInbox={openPalInbox}
+																	onCopySummary={(text) =>
+																		void copyToClipboard(text, 'Summary copied.').catch(() =>
+																			notify('Copy is unavailable.', { tone: 'error' }),
+																		)
+																	}
+																	onOpenTasks={() => {
+																		openSessionPane()
+																	}}
+																	onUndoTurn={
+																		api.undoPreview && api.undoTurn
+																			? (turnId) => setUndoingTurn({ sessionId, turnId })
+																			: undefined
+																	}
+																	undoKept={undoKept}
+																	projectRoot={project?.path}
+																	closedWhileRunning={conversation?.closedWhileRunning === true}
+																	onContinueStopped={
+																		conversation?.closedWhileRunning === true &&
+																		!thread.running &&
+																		!loading &&
+																		!restoringTabs &&
+																		!frozen &&
+																		project?.trusted &&
+																		project.status === 'ready' &&
+																		choice.provider &&
+																		providerReady
+																			? () => void act(() => retryReply(CONTINUE_STOPPED_PROMPT))
+																			: undefined
+																	}
+																	stopShownBelow={stopShownBelow}
+																	renderMessageAction={(message, key) => (
+																		<MessageActions
 																			text={message.text}
-																		/>
-																	</MessageActions>
-																)}
-															/>
-														</OutputCardsContext.Provider>
-													</PalStartContext.Provider>
+																			onRetry={
+																				retryable && retryable.reply === message
+																					? () => void act(() => retryReply(retryable.prompt))
+																					: undefined
+																			}
+																		>
+																			<LocalSpeechReadAloud
+																				speech={speech}
+																				messageId={key}
+																				text={message.text}
+																			/>
+																		</MessageActions>
+																	)}
+																/>
+															</OutputCardsContext.Provider>
+														</PalStartContext.Provider>
+													</BackgroundJobsContext.Provider>
 												</BackgroundWorkContext.Provider>
 											</ProjectFilesContext.Provider>
 										</ProviderNameContext.Provider>
@@ -8399,10 +8468,16 @@ export function App({
 								usage={palConversation ? undefined : thread.usage}
 								limits={usageLimits}
 								contextPanel={contextPanelSource}
-								shells={
-									// The open Activity panel's own list is the freshest count; otherwise the observer's.
-									detailsWork.state === 'known' && detailsWork.running > 0
-										? { count: detailsWork.running, onOpen: openBackgroundWork }
+								tasks={
+									// The job list is the freshest count; before it is read, the observer's.
+									detailsWork.state === 'known' &&
+									(detailsWork.running > 0 || taskChoices.sections.finished.length > 0)
+										? {
+												running: detailsWork.running,
+												finished: taskChoices.sections.finished.length,
+												open: paneOpen.tasks,
+												onOpen: () => openBackgroundWork(),
+											}
 										: undefined
 								}
 								pullRequest={
@@ -8472,7 +8547,7 @@ export function App({
 								<SessionPanel
 									summary={sessionPanelSummary}
 									chatOnly={!project || Boolean(project.isChat)}
-									jobs={visibleJobs}
+									jobs={panelJobs}
 									jobsKnown={jobsSessionId === sessionId && !jobsLoading && !jobsError}
 									now={clock}
 									onClose={() => setSessionPanelOpen(false)}
@@ -8539,17 +8614,9 @@ export function App({
 											</Button>
 										) : undefined
 									}
-									onStopJob={(job) => {
-										const owner = sessionId
-										const generation = navigation.current
-										const refresh = refreshJobs.current
-										return act(() =>
-											runJobAction(owner, generation, async () => {
-												await api.stopJob(owner, job.id)
-												await refresh?.()
-											}),
-										)
-									}}
+									onStopJob={stopJob}
+									onOpenTask={(job) => openBackgroundWork({ id: job.id })}
+									onOpenFinishedTasks={() => openBackgroundWork({ finished: true })}
 								/>
 							) : undefined
 						}

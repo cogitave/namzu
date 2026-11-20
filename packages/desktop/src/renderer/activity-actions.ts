@@ -1,4 +1,5 @@
 import { createContext } from 'react'
+import type { JobView } from '../shared/protocol.js'
 import type { TurnChanges } from './turn-changes.js'
 
 /**
@@ -15,8 +16,23 @@ export interface ActivityActions {
 	onOpenChangedFile?: (path: string) => void
 }
 
-/** Opens where this conversation's background commands are listed; absent where there is no such place. */
-export const BackgroundWorkContext = createContext<(() => void) | null>(null)
+/** What to open in the Background tasks pane: one task by its id, or the Finished section. */
+export interface BackgroundTarget {
+	id?: string
+	finished?: boolean
+}
+
+/** Opens the pane where this conversation's background tasks are listed; absent where there is no such place. */
+export const BackgroundWorkContext = createContext<((target?: BackgroundTarget) => void) | null>(
+	null,
+)
+
+/** The conversation's background jobs as last read, so a command's row can say what its job is doing now. */
+export interface BackgroundJobs {
+	known: boolean
+	jobs: readonly JobView[]
+}
+export const BackgroundJobsContext = createContext<BackgroundJobs | null>(null)
 
 export const ActivityActionsContext = createContext<ActivityActions | null>(null)
 

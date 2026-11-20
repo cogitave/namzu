@@ -88,6 +88,14 @@ describe('a foreground command that outruns its timeout', () => {
 			background: true,
 			movedToBackground: true,
 		})
+		// The call's facts name the job and the limit, so a host can show what the job is doing now.
+		expect(result.facts).toMatchObject({
+			kind: 'command',
+			background: true,
+			continued: true,
+			jobId: job?.id,
+			timeLimitMs: 120_000,
+		})
 		// Moved, not stopped.
 		expect(stopTree).not.toHaveBeenCalled()
 

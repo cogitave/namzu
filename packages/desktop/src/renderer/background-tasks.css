@@ -1,0 +1,223 @@
+/*
+ * The Background tasks pane and its rows: flat, no accent fill, the sizes of desktop-ui-sizes.md.
+ * Row text is 13/18, captions and counts 12/16, the section heading 13 at weight 500; a row is
+ * 28 px, its icon 16 and its Stop button 24.
+ */
+.tasks-pane {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	padding: 4px 8px 12px;
+	color: var(--foreground);
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+}
+.tasks-section {
+	padding-top: 8px;
+}
+.tasks-heading {
+	display: flex;
+	align-items: center;
+	height: 24px;
+	margin: 0 0 2px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	font-weight: var(--weight-control);
+	color: var(--foreground);
+}
+.tasks-heading-text,
+.tasks-heading-button {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+	padding: 0 8px;
+	font: inherit;
+	color: inherit;
+}
+.tasks-heading-button {
+	height: 24px;
+	margin-inline: 0;
+	border: 0;
+	border-radius: var(--control-radius);
+	background: transparent;
+	cursor: pointer;
+}
+.tasks-heading-button:hover {
+	background: var(--accent);
+}
+.tasks-heading-chevron {
+	width: 12px;
+	height: 12px;
+	flex: none;
+	color: var(--muted-foreground);
+	transition: transform var(--dur-base) var(--ease-out);
+}
+.tasks-heading-chevron[data-open] {
+	transform: rotate(90deg);
+}
+.tasks-count {
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	font-weight: 400;
+	font-variant-numeric: tabular-nums;
+	color: var(--muted-foreground);
+}
+.tasks-list {
+	display: flex;
+	flex-direction: column;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.tasks-empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	min-height: 160px;
+	color: var(--muted-foreground);
+	text-align: center;
+}
+.tasks-empty p {
+	margin: 0;
+}
+.tasks-empty-icon {
+	width: 24px;
+	height: 24px;
+}
+
+/* A row. */
+.task {
+	border-radius: var(--control-radius);
+}
+.task-heading {
+	border-radius: var(--control-radius);
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-height: 28px;
+	padding-inline-end: 4px;
+}
+.task-trigger {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex: 1 1 auto;
+	min-width: 0;
+	min-height: 28px;
+	padding: 0 8px;
+	border: 0;
+	border-radius: var(--control-radius);
+	background: transparent;
+	color: var(--foreground);
+	font: inherit;
+	text-align: left;
+	outline: none;
+}
+.task-heading:hover {
+	background: var(--accent);
+}
+.task-heading:has(.task-trigger:focus-visible) {
+	box-shadow: var(--focus-ring);
+}
+.task-kind {
+	width: var(--frame-icon-slot);
+	height: var(--frame-icon-slot);
+	flex: none;
+	color: var(--muted-foreground);
+}
+.task-title {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.task-chevron {
+	width: 12px;
+	height: 12px;
+	flex: none;
+	color: var(--muted-foreground);
+	transition: transform var(--dur-base) var(--ease-out);
+}
+.task-trigger[data-panel-open] .task-chevron {
+	transform: rotate(90deg);
+}
+.task-caption {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 6px;
+	flex: none;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	color: var(--muted-foreground);
+	white-space: nowrap;
+}
+.task-caption[data-tone="danger"] .task-words {
+	color: var(--error-foreground);
+}
+.task-caption[data-tone="attention"] .task-words {
+	color: var(--foreground);
+}
+.task-time {
+	font-variant-numeric: tabular-nums;
+}
+.task-stop,
+.task-stop-slot {
+	flex: none;
+}
+/* A finished row keeps the room of the Stop button, so every time ends at the same edge. */
+.task-stop-slot {
+	width: 24px;
+	height: 24px;
+}
+.task-spinner {
+	animation: task-spin 1s linear infinite;
+}
+@keyframes task-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+.task-note {
+	display: block;
+	margin: 0 8px 6px 32px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	color: var(--muted-foreground);
+	overflow-wrap: anywhere;
+}
+.task-note-error {
+	color: var(--error-foreground);
+}
+/* The output: code size, at most 200 px tall, scrolling inside itself. */
+.task-output {
+	max-height: 200px;
+	margin: 2px 8px 8px 32px;
+	padding: 8px;
+	overflow: auto;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-chip);
+	font-family: var(--font-mono);
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+.task-output-command {
+	color: var(--muted-foreground);
+}
+.task-output-note {
+	color: var(--muted-foreground);
+	font-family: var(--font-sans);
+}
+@media (prefers-reduced-motion: reduce) {
+	:root:not([data-motion="full"]) .task-chevron,
+	:root:not([data-motion="full"]) .tasks-heading-chevron {
+		transition: none;
+	}
+	:root:not([data-motion="full"]) .task-spinner {
+		animation: none;
+	}
+}

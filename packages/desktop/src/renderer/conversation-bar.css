@@ -165,6 +165,12 @@
 }
 /* Narrow: the project gives way, well before the title is short of room (a title needs about 96 px, the chevron
    and the buttons the rest). */
+/* With the Background tasks button there are six buttons: below this the gaps close up a little so the title keeps its room. */
+@container conversation-bar (max-width: 640px) {
+	.pane-buttons {
+		gap: 3px;
+	}
+}
 @container conversation-bar (max-width: 480px) {
 	.conversation-bar-project {
 		display: none;

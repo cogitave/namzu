@@ -171,6 +171,17 @@
 	padding: 0 8px;
 	min-width: 0;
 }
+.session-list > li > .session-task-open {
+	flex: 1 1 auto;
+	width: auto;
+	padding-inline: 0;
+}
+.session-task-open .session-value {
+	flex: none;
+}
+.session-tasks-running {
+	padding-block: 0 2px;
+}
 .session-list > li svg {
 	flex: none;
 	width: 16px;

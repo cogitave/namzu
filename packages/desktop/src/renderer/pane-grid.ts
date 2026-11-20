@@ -12,10 +12,10 @@
  * as a docked column or, with no room, as a floating card.
  */
 
-export const PANE_KINDS = ['terminal', 'changes', 'browser', 'files'] as const
+export const PANE_KINDS = ['terminal', 'changes', 'browser', 'files', 'tasks'] as const
 /** A pane that lives in a column. */
 export type GridKind = (typeof PANE_KINDS)[number]
-/** Every pane the bar can toggle: the four above and the Session pane. */
+/** Every pane the bar can toggle: the five above and the Session pane. */
 export type PaneKind = GridKind | 'session'
 
 /** The narrowest a column goes. */

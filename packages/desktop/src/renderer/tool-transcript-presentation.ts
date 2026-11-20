@@ -402,6 +402,8 @@ function commandShell(facts: CommandFacts): ShellCellData {
 		...(stderr ? { stderr } : {}),
 		...(status ? { status } : {}),
 		...(facts.background ? { background: true as const } : {}),
+		...(facts.background && facts.jobId ? { jobId: facts.jobId } : {}),
+		...(facts.background && facts.timeLimitMs ? { timeLimitMs: facts.timeLimitMs } : {}),
 		...(facts.binary ? { notice: `Not text, ${humanBytes(facts.binary.bytes)}. Not shown.` } : {}),
 	}
 }
