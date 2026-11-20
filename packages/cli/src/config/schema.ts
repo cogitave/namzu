@@ -140,6 +140,12 @@ export interface TuiConfig {
 	 */
 	readonly leftArrowOpensAgents?: boolean
 	/**
+	 * How the message box is edited: `normal` (the usual keys) or `vim` (vim's modes
+	 * and keys; it starts in INSERT, Esc goes to NORMAL, `/vim` switches it for the
+	 * running session and saves it). Absent means `normal`. Your own config files only.
+	 */
+	readonly editorMode?: 'normal' | 'vim'
+	/**
 	 * The one-line recap shown when a person returns to the terminal after a few
 	 * minutes away. Absent or `true` means on; only `false` turns it off. The
 	 * `NAMZU_RECAP` variable overrides this either way.

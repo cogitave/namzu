@@ -2312,6 +2312,25 @@ const DECLARED: readonly SettingDescriptor[] = [
 		},
 	),
 	d(
+		'tui.editorMode',
+		'terminal',
+		'Editor mode',
+		'How the terminal app edits the message box: with the usual keys, or with vim keys (it starts in insert mode, Esc goes to normal mode). /vim switches it in a running terminal app.',
+		pick(
+			['normal', 'Normal', 'The usual keys.'],
+			[
+				'vim',
+				'Vim',
+				"Vim's insert, normal and visual modes, with its motions, operators and text objects.",
+			],
+		),
+		{
+			group: 'terminal-message-box',
+			keywords: ['vim', 'vi', 'modal', 'editor', 'keybindings', 'keys'],
+			default: 'normal',
+		},
+	),
+	d(
 		'tui.workspacesPrefix',
 		'terminal',
 		'Workspace shortcut key',

@@ -68,6 +68,7 @@ clause, so no line ends mid-sentence.
 | `/doctor` | Run the health checks (providers and sign-ins, sandbox, scheduler, browser, code index, folders and the rest) and show them in plain words: a row per check with a mark (a newer version shows as `✓ Updates: Namzu 9.9.9 is available` with the command to get it), and for each one that needs attention a short reason and what to try. The later lines of a long reason are behind `ctrl+o`. `namzu doctor` prints the full technical report, with `--json` and exit codes. |
 | `/permissions` | Choose Ask before changes, Auto-approve edits or Plan (read-only). More options contains Auto-approve tools, Preapproved tools only and View rules. |
 | `/terminal-setup` | Make Shift+Enter start a new line in the terminal Namzu runs in. VS Code, Cursor and Windsurf get a key binding (plus a faster scroll setting and GPU acceleration off), Zed and Alacritty get a key binding, and Terminal.app gets Option+Enter; every file it changes is copied to `<file>.<8 hex>.bak` first and the reply says what changed. Where it cannot write (a remote editor session, a file it cannot read) it prints the steps. iTerm2, WezTerm, Ghostty, Kitty, Warp and Windows Terminal need nothing and are told so. It runs only when you type it. See [Terminal setup](terminal-design.md#terminal-setup-and-the-fullscreen-fallback). |
+| `/vim` | Switch the message box between the usual keys and vim keys: `/vim` flips it, `/vim on` and `/vim off` name the mode. It applies at once, is saved as `tui.editorMode` in your user config, and says the new mode in one line. The box starts in INSERT; Esc goes to NORMAL. See [Vim keys in the message box](composer-vim.md). |
 | `/tui` | `/tui` says which screen Namzu is using; `/tui fullscreen` or `/tui default` saves `tui.fullscreen` in your user config and forgets any failed fullscreen starts, for the next start. |
 | `/theme` | Change the colors: `/theme [name]`. Opens a picker with a live preview, or applies `auto`, `dark`, `light`, `dark-daltonized`, `light-daltonized`, `dark-ansi` or `light-ansi` directly. See [Themes](themes.md). |
 | `/effort` | Choose reasoning effort for future replies: /effort [level\|default] [hypermode on\|off]. Hypermode is an option of the effort, for any level and this conversation only; see [Hypermode](#hypermode). |
@@ -110,7 +111,7 @@ every command either way.
   `/status`, `/cost`, `/tasks`, `/permissions`, `/hooks`, `/mcp` (reports only),
   `/btw`, `/exit`, `/rename`, `/skills` (the list), `/plugins`, `/goal`,
   `/workflows`, `/feedback`, `/help`, `/theme`, `/diff`, `/raw`, `/hypermode`,
-  `/doctor`, `/terminal-setup`, `/tui`, `/release-notes`, `/peers`, `/schedule`, `/loop`, `/abandon`,
+  `/doctor`, `/terminal-setup`, `/tui`, `/vim`, `/release-notes`, `/peers`, `/schedule`, `/loop`, `/abandon`,
   `/copy`, and `/skills save` and `/skills new`, which line themselves up behind
   the reply. `/clear`, `/new`, `/fork` and `/resume` also run at once: they take
   the conversation over and abandon the running reply on purpose.
@@ -465,7 +466,7 @@ terminals place descriptions below labels.
 - **Alt+P** opens the model chooser, as `/model` does, but adds nothing to the history, and the draft you had typed is back in the composer when the chooser closes (Esc or a choice). **Alt+T** switches thinking off and on for a model that offers a `none` effort level: the footer says "Thinking off" or "Thinking on", turning it on puts back the level you had, and nothing is written to the transcript. On a model without that level the footer says so; `/effort` stays the chooser, and Alt+, and Alt+. (or Shift+Down and Shift+Up) still step the level.
 - **Ctrl+X Ctrl+E** opens the draft in your editor, like **Ctrl+G**; when `VISUAL` and `EDITOR` are both unset the message names the key you pressed.
 - **Ctrl+L** clears the screen (the conversation is kept), not the draft you are typing; clear a draft with Ctrl+U or set it aside with Ctrl+S. **Ctrl+T** shows or hides the task checklist. Each key has one action in the registry, so neither collides with another.
-- `/help keys` lists every keyboard shortcut of the chat screen, grouped. The terminal answers each through one registry of actions (`packages/cli/src/tui/keymap.ts`); a keybindings file and vim mode are not built.
+- `/help keys` lists every keyboard shortcut of the chat screen, grouped. The terminal answers each through one registry of actions (`packages/cli/src/tui/keymap.ts`); a keybindings file is not built. Vim keys are an opt-in setting: `/vim` or `tui.editorMode: vim`, see [Vim keys in the message box](composer-vim.md).
 - **Alt+W** drops the [composer trigger](composer-triggers.md) nearest the cursor (`hypermode`, "bunu skill olarak kaydet"), restores a dropped one, or arms one the row only suggests. **Backspace** right after an armed `hypermode` drops it before it deletes anything.
 
 ### Resuming a conversation

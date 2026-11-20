@@ -1,0 +1,5 @@
+---
+'@namzu/cli': minor
+---
+
+The terminal message box can now edit with vim keys. It is off by default and nothing changes until you turn it on: type `/vim` (it flips the mode for the running terminal, saves `tui.editorMode` in your user config and says the new mode in one line), pick Editor mode in `/settings`, or set `tui.editorMode: vim` yourself (`normal` is the default; a project file cannot set it, and any other value is an error). With it on, the box starts in INSERT, where every key is the usual key, and Esc goes to NORMAL (it does not stop a running reply or clear the draft; in NORMAL with nothing half typed, Esc is the old Esc). NORMAL, VISUAL and VISUAL LINE have the common motions, operators, text objects, counts, one register, `.` and `u`; Enter still sends, history is `k` and `j` at the first and last line, and Ctrl+V and pasting still work. The footer shows `-- INSERT --`, `-- VISUAL --` or `-- VISUAL LINE --`. Redo, named registers, marks and the clipboard are not built. Anyone who does not turn it on sees no difference.

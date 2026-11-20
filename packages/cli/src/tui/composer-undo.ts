@@ -29,6 +29,10 @@ export interface UndoStack {
 	record(before: DraftSnapshot, after: string, typed: string | null): void
 	/** The draft before the latest edit, which is then forgotten; undefined when there is none. */
 	undo(): DraftSnapshot | undefined
+	/** End the run of typed letters, so the next edit is an edit of its own. */
+	breakRun(): void
+	/** Keep only the oldest `size` saved drafts: a whole insert undoes in one step. */
+	truncate(size: number): void
 	/** Forget everything, as after a send. */
 	clear(): void
 	readonly size: number
@@ -50,6 +54,13 @@ export function createUndoStack(limit: number = UNDO_LIMIT): UndoStack {
 		undo() {
 			runEnd = null
 			return items.pop()
+		},
+		breakRun() {
+			runEnd = null
+		},
+		truncate(size) {
+			if (items.length > size) items.length = Math.max(0, size)
+			runEnd = null
 		},
 		clear() {
 			items.length = 0

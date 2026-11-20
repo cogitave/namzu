@@ -2475,6 +2475,7 @@ const CONFIG_READERS: ConfigReaders = {
 			wheelRows?: unknown
 			wheelAccel?: unknown
 			leftArrowOpensAgents?: unknown
+			editorMode?: unknown
 			recap?: unknown
 			spinnerTips?: unknown
 			syntaxHighlight?: unknown
@@ -2548,6 +2549,10 @@ const CONFIG_READERS: ConfigReaders = {
 		if (raw.leftArrowOpensAgents !== undefined && typeof raw.leftArrowOpensAgents !== 'boolean') {
 			return invalidConfigValue(context, ['leftArrowOpensAgents'], 'must be true or false')
 		}
+		// An unknown mode is an error rather than a quiet fall back to the usual keys.
+		if (raw.editorMode !== undefined && raw.editorMode !== 'normal' && raw.editorMode !== 'vim') {
+			return invalidConfigValue(context, ['editorMode'], 'must be "normal" or "vim"')
+		}
 		if (raw.wheelAccel !== undefined && typeof raw.wheelAccel !== 'boolean') {
 			return invalidConfigValue(context, ['wheelAccel'], 'must be true or false')
 		}
@@ -2602,6 +2607,7 @@ const CONFIG_READERS: ConfigReaders = {
 			...(raw.leftArrowOpensAgents !== undefined
 				? { leftArrowOpensAgents: raw.leftArrowOpensAgents }
 				: {}),
+			...(raw.editorMode !== undefined ? { editorMode: raw.editorMode as 'normal' | 'vim' } : {}),
 			...(raw.recap !== undefined ? { recap: raw.recap } : {}),
 			...(raw.spinnerTips !== undefined ? { spinnerTips: raw.spinnerTips } : {}),
 			...(raw.syntaxHighlight !== undefined ? { syntaxHighlight: raw.syntaxHighlight } : {}),
@@ -3566,7 +3572,7 @@ export function mergeCodeAnalysisConfig(
 }
 
 /**
- * `tui` from one more layer: later keys win. `theme`, `reducedMotion`, `showExpandedTodos`, `agentCalls`, `fullscreen`, `syntaxHighlight`, `wheelRows`, `wheelAccel` and `leftArrowOpensAgents` are the
+ * `tui` from one more layer: later keys win. `theme`, `reducedMotion`, `showExpandedTodos`, `agentCalls`, `fullscreen`, `syntaxHighlight`, `wheelRows`, `wheelAccel`, `leftArrowOpensAgents` and `editorMode` are the
  * operator's own taste, so a project layer's values for them are dropped.
  */
 export function mergeTuiConfig(
@@ -3592,6 +3598,7 @@ export const PROJECT_DROPPED_TUI_KEYS: readonly string[] = [
 	'wheelRows',
 	'wheelAccel',
 	'leftArrowOpensAgents',
+	'editorMode',
 ]
 
 /**
