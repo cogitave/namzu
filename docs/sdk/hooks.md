@@ -36,6 +36,15 @@ A hook is a function an extension registers on the plugin lifecycle manager, or 
 | `cwd_changed` | by the host, when the folder the session's shell commands start in is a different folder from before | `oldCwd`, `newCwd` | the same as `file_changed` |
 | `worktree_create` | by the host, when a worktree is about to be made: a sub-agent that works in its own checkout, `namzu worktree create` and `fork`, `/worktree create` (see [Worktrees](#worktrees)) | `worktreeName` (the suggested name), `worktreeRoot` (where a relative path is placed), `worktreeBaseRef` when a start was asked for | the hook makes the worktree and answers its path; a failure, or no path, fails the creation |
 | `worktree_remove` | by the host, when a worktree is about to be removed | `worktreePath` | the hook does the removing; a failure is reported |
+| `pre_model_switch` | by the host, before the model changes: `/model`, the model picker, the model's own request to switch (see [Model switches](#model-switches)) | `modelSwitch`: `fromModel`, `toModel`, `requestedModel` (what was typed, or `null`), `source` (`command`, `picker`, `tool` or `auto`) | `skip` refuses the switch; `continue` with `permission: { decision: 'ask' }` has the person confirm it; `allow`, or no answer, lets it go ahead |
+| `post_model_switch` | by the host, after the model changed | `modelSwitch`, as above | `annotate` (or plain stdout from a shell hook) is text the model reads with its next request |
+| `elicitation` | by the host, when a tool server asks the person for input, before the question is shown (see [Tool-server questions](#tool-server-questions)) | `elicitation`: `serverName`, `message`, `mode`, `requestedSchema` | `continue` with `elicitation: { action, content }` answers for the person; `skip` declines |
+| `elicitation_result` | by the host, once the question is answered (by the person or by an `elicitation` hook), before the server reads it | `elicitation` with `action` and `content` | `continue` with `elicitation` replaces the answer; `skip` turns it into a decline |
+| `directory_added` | by the host, after `/add-dir` added a folder to the conversation | `directory` (absolute), `directorySource` (`slash_command`) | nothing |
+| `instructions_loaded` | by the host, the first time an instruction file (`AGENTS.md`, a rule, a file it includes) is read into the conversation | `instructions`: `filePath`, `memoryType` (`User`, `Project` or `Local`), `loadReason` (`session_start`, `nested_traversal` or `include`), `parentFilePath`, `triggerFilePath` | nothing |
+| `user_prompt_expansion` | by the host, when a command the person typed (`/name args`) expanded into a prompt, before that prompt goes on | `expansion`: `expansionType`, `commandName`, `commandArgs`, `commandSource`; `prompt`: what it expanded to | `skip` stops the command; `annotate` adds text the model reads beside the prompt |
+| `task_created` | by the kernel, before `task_create` runs and after `pre_tool_use` let the call through | `task`: `subject`, `description` (no `id` yet) | `skip` refuses the task and gives the model the reason |
+| `task_completed` | by the kernel, before a `task_update` that sets the status to `completed` runs | `task`: `id`, and `subject` or `description` when the call carries them | `skip` refuses and gives the model the reason |
 | `subagent_start` | once at the start of each child turn, before the child's `user_prompt_submit` | `parentSessionId`, `parentTurnId` (the parent turn whose tool call spawned it), `agentType` (the child's agent name: `reviewer` for an agent file called `reviewer`; a host that runs agents through `QueryAgent` names them with `QueryAgentConfig.agentType`, and without it `agentType` is the agent class's `type`) | `error` fails the child turn; `annotate` adds text to the child's context for its turn, as on `user_prompt_submit`; a root session never fires it |
 | `subagent_stop` | after a child session's own `turn_end` | `parentSessionId`, `parentTurnId` (the parent turn whose tool call spawned it), `agentType`, `stopHookActive`, `lastAssistantMessage` | `error` fails the child turn's finalization; `skip` keeps the child working, as on `turn_end` |
 
@@ -138,6 +147,10 @@ Before `@namzu/sdk` 44 the turn id was called the run id in both places, and `su
 | `turn_end`, `subagent_stop` | stderr is given to the model and the turn goes on |
 | `pre_compact` | a compaction the threshold asked for is cancelled, and one a person asked for is refused with the reason shown to them in one line |
 | `post_tool_use`, `post_tool_use_failure` | stderr is shown to the model beside that call's result |
+| `pre_model_switch` | the switch is refused, naming the reason |
+| `elicitation`, `elicitation_result` | the question is declined (an answer already given becomes a decline) |
+| `user_prompt_expansion` | the command is stopped, naming the reason |
+| `task_created`, `task_completed` | the task is refused and the model is told why |
 | every other event | logged and ignored |
 
 Any other exit, a timeout, or a command that could not start is logged and the turn goes on: a hook that could not answer has not answered no. JSON on stdout is read only on exit `0`.
@@ -577,6 +590,36 @@ A hook on either event may be shipped by a plugin: it is read as one in a config
 Neither event has a matcher: one is ignored (as on other events with no name to match), and so are `if`, `once` and `async`, because a hook that does the work cannot be filtered or skipped without the kernel acting in its place. The hook always runs, and `/hooks` says when one of those keys is set. A `prompt` entry cannot make or remove a worktree and fails with a line that says so; a `command` and an `http` hook are read alike (the HTTP body is the output). `onFailure` has no effect: a failure is always a failure.
 
 A project's hooks, as for every command, run only once the folder is trusted: `namzu worktree create` in a folder nobody trusted uses the hooks of the user and the managed file only. When that folder's own `namzu.config.json` or `namzu.config.local.json` declares a `worktree_create` hook, the command refuses (exit 64, nothing created) and says to trust the folder first, because a worktree the hook was written to replace must not be made by Git in its place; a file that cannot be parsed counts when it names the event.
+
+## Model switches, tool-server questions, folders, instruction files, commands and tasks
+
+These events are fired by the host (or, for the two task events, by the kernel) when it does the thing, and are read as shell hooks in both spellings: `PreModelSwitch`, `PostModelSwitch`, `Elicitation`, `ElicitationResult`, `DirectoryAdded`, `InstructionsLoaded`, `UserPromptExpansion`, `TaskCreated` and `TaskCompleted`. The shell fields are the snake_case spellings of the context fields.
+
+### Model switches
+
+`pre_model_switch` runs before anything changes, so a refusal leaves the conversation exactly as it was. A shell hook is sent `from_model`, `to_model` (both as `provider/model`, or `auto`), `requested_model` (what the person or the model asked for, `null` when nothing was typed) and `source`: `command` for `/model`, `picker` for the picker, `tool` for the model's own request to switch (and the switch a refusal fallback keeps) and `auto` for turning Auto on. It answers with exit `2` (refuse) or a JSON `hookSpecificOutput` with `permissionDecision` of `allow`, `deny` or `ask` and an optional `permissionDecisionReason`. `ask` puts a yes/no question to the person; a host with nobody to ask refuses. The matcher is ignored.
+
+`post_model_switch` runs on the session that now serves the conversation, with the same fields. What it prints (plain text, or `additionalContext`) is given to the model with the next request the new model answers, framed as a hook's words, once.
+
+The terminal app fires both. A turn that names its model per request (the Desktop host, `namzu exec --model`) is not a switch of the conversation's model, and fires neither.
+
+### Tool-server questions
+
+A tool server may ask the person for a form's worth of input. `elicitation` runs first, with `mcp_server_name`, `message`, `mode` (`form`) and `requested_schema`. A hook answers in the person's place with `hookSpecificOutput`: `{ "action": "accept", "content": { ... } }` (or `decline` or `cancel`); exit `2` declines. When one answers, nobody is asked. `elicitation_result` then runs with the answer that is about to go to the server (`action`, and `content` for an accept). A hook may change it: `action` and `content` again, or only `content` to replace the values; exit `2` turns it into a decline. A question the server withdrew is not reported. Both ignore their matcher. A run with nobody to ask (`namzu exec`) fires them too: an `elicitation` hook can still answer, and when none does the server is told the question was declined.
+
+### Working folders and instruction files
+
+`directory_added` runs after `/add-dir` added a folder, with `directory` (absolute, as stored) and `source` (`slash_command`). Its matcher is read against the source. A folder that was refused fires nothing.
+
+`instructions_loaded` runs the first time a file is part of what the conversation was given, once for each file: `file_path`, `memory_type`, `load_reason` and, when they apply, `parent_file_path` (the file that included it) and `trigger_file_path` (the file the session touched that led to a nested folder). `session_start` is for what was read when the conversation began, `nested_traversal` for a folder reached later, `include` for an `@path` include. The matcher is read against the load reason. It cannot refuse anything, and a script that fails is only reported.
+
+### Commands and tasks
+
+`user_prompt_expansion` runs when a command the person typed (a file command, or a skill) expanded into a prompt, before the prompt goes on: `expansion_type`, `command_name`, `command_args`, `command_source` and `prompt`. Exit `2` or `decision: "block"` stops the command and tells the person why; `additionalContext` is added to the prompt the model reads. The prompt is not sent to the `user_prompt_submit` hooks until this one has answered. Built-in commands that do not expand into a prompt fire nothing.
+
+`task_created` and `task_completed` run in the tool step, after `pre_tool_use` allowed `task_create` or a `task_update` with `status: "completed"`. Exit `2` refuses the call and the model reads the reason as the tool's refusal. `task_created` carries no `task_id`, because the task does not exist yet. Their matcher is ignored; a `pre_tool_use` hook on `TaskCreate` or `TaskUpdate` still sees the same calls.
+
+In a skill or an agent file, an entry on any of the first seven events is set aside with a note: they are fired for the conversation the host runs, never inside a delegated agent.
 
 ## Request context inventory
 

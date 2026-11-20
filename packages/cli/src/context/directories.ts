@@ -44,7 +44,12 @@ function isInside(root: string, candidate: string): boolean {
  * The list is shared rather than copied: the session reads it at every turn,
  * and `/add-dir` must be visible to the next one.
  */
-export function createSessionDirectories(cwd: string, directories: string[]): SessionDirectories {
+export function createSessionDirectories(
+	cwd: string,
+	directories: string[],
+	/** Told once a folder has been added, so hooks can hear of it. A failure here never undoes the add. */
+	onAdded?: (path: string) => Promise<void>,
+): SessionDirectories {
 	const root = resolve(cwd)
 	return {
 		list: () => [...directories],
@@ -94,6 +99,11 @@ export function createSessionDirectories(cwd: string, directories: string[]): Se
 			// `./link` would follow wherever the link points later, not where it
 			// pointed when the question was asked.
 			directories.push(real)
+			try {
+				await onAdded?.(real)
+			} catch {
+				// The folder is added; what a hook did about it is the hook's business.
+			}
 			return { added: true, path: real }
 		},
 	}

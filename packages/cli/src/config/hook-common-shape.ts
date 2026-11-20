@@ -37,6 +37,13 @@ const GUARD_EVENTS: ReadonlySet<ShellHookEvent> = new Set([
 	'turn_end',
 	'subagent_start',
 	'subagent_stop',
+	// Refused before they happen: a model switch, a tool server's question, a typed command, a task.
+	'pre_model_switch',
+	'elicitation',
+	'elicitation_result',
+	'user_prompt_expansion',
+	'task_created',
+	'task_completed',
 ])
 
 /** Whether a hook on this event can refuse, redirect or feed back into a turn: one lost here is a guard lost. */

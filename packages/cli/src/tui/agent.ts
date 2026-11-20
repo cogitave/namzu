@@ -365,6 +365,15 @@ import type { HookActivity, SessionHookActivity } from '../integrations/plugins/
 import type { PluginHookProblem } from '../integrations/plugins/hook-entries.js'
 import { hookSessionMode } from '../integrations/plugins/hook-host.js'
 import {
+	type SessionLifecycleHooks,
+	directoryAdded,
+	elicitationHooks,
+	instructionsLoaded,
+	postModelSwitch,
+	preModelSwitch,
+	userPromptExpansion,
+} from '../integrations/plugins/lifecycle-events.js'
+import {
 	type CliPluginRuntime,
 	type PluginHookEntryView,
 	createCliPluginRuntime,
@@ -1848,6 +1857,7 @@ export interface AgentSession {
 	 * wait on a slow hook does not await it: the new conversation never depends
 	 * on it, and `close` waits for it. Absent on a session with no hook runtime.
 	 */
+	readonly lifecycleHooks?: SessionLifecycleHooks
 	readonly changeConversation?: (change: {
 		readonly from: SessionId
 		readonly reason: Extract<PluginSessionEndReason, 'clear' | 'replaced'>
@@ -3562,7 +3572,26 @@ export async function createAgentSession(
 	// Session-owned discovery with one drain cursor per turn. A child shares the
 	// discovered scopes without being able to consume the parent's update, and
 	// an edit takes effect in this session rather than only after reconnecting.
-	const projectInstructions = new ProjectInstructionTracker(cwd)
+	// What `pluginRuntime` is by the time a hook event is announced; it is built
+	// further down, and a tool server may speak before that.
+	const hookManager = () => {
+		try {
+			return pluginRuntime?.manager
+		} catch {
+			return undefined
+		}
+	}
+	const projectInstructions = new ProjectInstructionTracker(cwd, {
+		onLoaded: (file) => {
+			void instructionsLoaded(hookManager(), String(scope.sessionId), {
+				filePath: file.filePath,
+				memoryType: file.memoryType,
+				loadReason: file.loadReason,
+				...(file.parentFilePath !== undefined ? { parentFilePath: file.parentFilePath } : {}),
+				...(file.triggerFilePath !== undefined ? { triggerFilePath: file.triggerFilePath } : {}),
+			}).catch(() => undefined)
+		},
+	})
 	// Before the registry, because a `requireIsolation` this machine cannot
 	// meet throws here — and failing before the session is built is the
 	// difference between "namzu refused to start" and a half-constructed
@@ -3695,7 +3724,11 @@ export async function createAgentSession(
 		const absolute = resolve(cwd, dir)
 		if (absolute !== resolve(cwd) && !directories.includes(absolute)) directories.push(absolute)
 	}
-	const sessionDirectories: SessionDirectories = createSessionDirectories(cwd, directories)
+	const sessionDirectories: SessionDirectories = createSessionDirectories(
+		cwd,
+		directories,
+		(path) => directoryAdded(hookManager(), String(scope.sessionId), path),
+	)
 	// `/restore` snapshots live with the conversation they belong to
 	// (`<session-id>/file-history/`), not in a tree of their own. Read per
 	// turn: `scope.sessionId` moves when the operator switches conversation.
@@ -4052,13 +4085,19 @@ export async function createAgentSession(
 	// the `/tools` list a user reads include what they configured. Connecting
 	// after the count would report a session smaller than the one that runs.
 	// A server may ask the person for a form's worth of input. The turn's
-	// answerer is read when it asks (it can arrive before any turn has set one),
-	// and a session where nobody can answer never tells servers they may ask.
+	// answerer is read when it asks (it can arrive before any turn has set one).
+	// A run with nobody to ask (exec) still installs the handler: an
+	// `elicitation` hook may answer in the person's place, and when none does the
+	// server is told "decline".
 	const mcpStart = {
 		cwd,
-		...(options.askUser || options.questions
-			? { elicit: elicitThroughQuestions(() => elicitationHost.ask) }
-			: {}),
+		elicit: elicitThroughQuestions(
+			() => elicitationHost.ask,
+			() =>
+				hookManager() === undefined
+					? undefined
+					: elicitationHooks(hookManager, () => String(scope.sessionId)),
+		),
 	}
 	const mcp =
 		options.toolServers === 'background'
@@ -5512,6 +5551,8 @@ export async function createAgentSession(
 	 * resumed conversation gets it from the hooks run again and not twice.
 	 */
 	let sessionHookContext: string | undefined
+	/** What `post_model_switch` hooks said, for the first request after the switch. */
+	let modelSwitchHookContext: string | undefined
 	/** Counts conversations this session has moved through, so a late answer for an old one is dropped. */
 	let conversationGeneration = 0
 	/** The source the next conversation's `session_start` carries when the host named one (a clear). */
@@ -6529,6 +6570,29 @@ export async function createAgentSession(
 		currentTaskStore,
 		resetTaskStore,
 		...(sessionPlugins ? { changeConversation } : {}),
+		...(sessionPlugins
+			? {
+					lifecycleHooks: {
+						preModelSwitch: (info, signal) =>
+							preModelSwitch(sessionPlugins.manager, String(scope.sessionId), info, signal),
+						postModelSwitch: async (info) => {
+							const text = await postModelSwitch(
+								sessionPlugins.manager,
+								String(scope.sessionId),
+								info,
+							)
+							if (text !== undefined) modelSwitchHookContext = text
+						},
+						userPromptExpansion: (expansion, prompt) =>
+							userPromptExpansion(
+								sessionPlugins.manager,
+								String(scope.sessionId),
+								expansion,
+								prompt,
+							),
+					} satisfies SessionLifecycleHooks,
+				}
+			: {}),
 		jobs: () => ownedJobs?.list() ?? [],
 		...(jobRegistry
 			? {
@@ -7352,6 +7416,15 @@ export async function createAgentSession(
 								id: 'namzu.hooks.session-start',
 								placement: 'context',
 								render: () => hookContext,
+							})
+						}
+						if (modelSwitchHookContext !== undefined) {
+							const switchContext = frameOperatorHookContext([modelSwitchHookContext])
+							modelSwitchHookContext = undefined
+							promptContributions.register({
+								id: 'namzu.hooks.model-switch',
+								placement: 'context',
+								render: () => switchContext,
 							})
 						}
 						checkpoints.beginTurn(lastPromptText(messages), turnId, {

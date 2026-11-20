@@ -182,6 +182,61 @@ export type PluginHookEvent =
 	 * does the removing; the host then removes nothing.
 	 */
 	| 'worktree_remove'
+	/**
+	 * The session's model is about to change (`/model`, the model picker, the
+	 * model's own switch request). Carries `modelSwitch` (the model left, the
+	 * model asked for, and what asked). A hook answers before anything changes:
+	 * `skip` refuses the switch, `continue` with `permission: { decision: 'ask' }`
+	 * has the person confirm it, and `allow` (or no answer) lets it go ahead.
+	 */
+	| 'pre_model_switch'
+	/**
+	 * The session's model changed, whatever the cause. Carries `modelSwitch`.
+	 * A hook may `annotate`: the text reaches the model with the first request
+	 * the new model serves.
+	 */
+	| 'post_model_switch'
+	/**
+	 * A tool server asked the person for input. Carries `elicitation`. A hook
+	 * may answer for the person (`elicitation: { action, content }`, with
+	 * `accept`, `decline` or `cancel`) and the question is not shown; `skip`
+	 * declines it.
+	 */
+	| 'elicitation'
+	/**
+	 * The person (or an `elicitation` hook) answered a tool server's question,
+	 * before the answer is sent. Carries `elicitation` with the `action` and
+	 * `content` about to go. A hook may replace either (`elicitation`); `skip`
+	 * turns the answer into a decline.
+	 */
+	| 'elicitation_result'
+	/**
+	 * A folder was added to the session's working folders (`/add-dir`). Carries
+	 * `directory` (absolute) and `directorySource`. Observational.
+	 */
+	| 'directory_added'
+	/**
+	 * An instruction file (AGENTS.md, a rule, a file it includes) was read into
+	 * the session. Carries `instructions`. Observational: it cannot be refused.
+	 */
+	| 'instructions_loaded'
+	/**
+	 * A command the person typed (`/name args`) expanded into a prompt, before
+	 * that prompt goes on. Carries `expansion` and, as `prompt`, what the
+	 * command expanded to. `skip` stops it, and `annotate` adds context.
+	 */
+	| 'user_prompt_expansion'
+	/**
+	 * A task is being created (`task_create`), before it is. Carries `task`.
+	 * `skip` refuses it, and the reason reaches the model.
+	 */
+	| 'task_created'
+	/**
+	 * A task is being marked completed (`task_update` with a status of
+	 * `completed`), before it is. Carries `task`. `skip` refuses it, and the
+	 * reason reaches the model.
+	 */
+	| 'task_completed'
 	| 'pre_llm_call'
 	| 'post_llm_call'
 	| 'iteration_start'
@@ -225,6 +280,15 @@ export function assertPluginHookEvent(event: PluginHookEvent): void {
 		case 'cwd_changed':
 		case 'worktree_create':
 		case 'worktree_remove':
+		case 'pre_model_switch':
+		case 'post_model_switch':
+		case 'elicitation':
+		case 'elicitation_result':
+		case 'directory_added':
+		case 'instructions_loaded':
+		case 'user_prompt_expansion':
+		case 'task_created':
+		case 'task_completed':
 		case 'pre_llm_call':
 		case 'post_llm_call':
 		case 'iteration_start':
@@ -347,6 +411,86 @@ export type PluginSessionSource = 'startup' | 'resume' | 'clear'
  */
 export type PluginSessionEndReason = 'exit' | 'replaced' | 'clear'
 
+/** What asked for a model change, on `pre_model_switch` and `post_model_switch`. */
+export type PluginModelSwitchSource = 'command' | 'picker' | 'tool' | 'auto'
+
+/** What a model-switch hook is shown. */
+export interface PluginModelSwitchInfo {
+	/** The model in use before the change, with its provider when known (`provider/model`). */
+	readonly fromModel: string
+	/** The model the session uses after the change. */
+	readonly toModel: string
+	/** What the person (or the model) typed, when it differs from `toModel`; `null` when nothing was typed. */
+	readonly requestedModel: string | null
+	/** `command` (`/model`), `picker`, `tool` (the model's own request) or `auto` (Auto on). */
+	readonly source: PluginModelSwitchSource
+}
+
+/** A tool server's question to the person, and the answer, on `elicitation` and `elicitation_result`. */
+export interface PluginElicitationInfo {
+	readonly serverName: string
+	readonly message: string
+	readonly mode?: 'form' | 'url'
+	readonly url?: string
+	readonly elicitationId?: string
+	/** The form the server wants filled in, as the server wrote it. */
+	readonly requestedSchema?: unknown
+	/** On `elicitation_result`: how the question was answered. */
+	readonly action?: PluginElicitationAction
+	/** On `elicitation_result`: the values given. */
+	readonly content?: Readonly<Record<string, unknown>>
+}
+
+export type PluginElicitationAction = 'accept' | 'decline' | 'cancel'
+
+/** What answers a tool server's question in place of the person. */
+export interface PluginElicitationAnswer {
+	readonly action: PluginElicitationAction
+	readonly content?: Readonly<Record<string, unknown>>
+}
+
+/** What added a working folder, on `directory_added`. */
+export type PluginDirectorySource = 'slash_command'
+
+export type PluginInstructionMemoryType = 'User' | 'Project' | 'Local'
+
+/** Why an instruction file was read, on `instructions_loaded`. */
+export type PluginInstructionLoadReason =
+	| 'session_start'
+	| 'nested_traversal'
+	| 'include'
+	| 'compact'
+
+/** What an `instructions_loaded` hook is shown. */
+export interface PluginInstructionsInfo {
+	readonly filePath: string
+	readonly memoryType: PluginInstructionMemoryType
+	readonly loadReason: PluginInstructionLoadReason
+	/** The file that was being read when this one was included, for `include`. */
+	readonly parentFilePath?: string
+	/** The file whose location led to this one, for `nested_traversal`. */
+	readonly triggerFilePath?: string
+}
+
+/** What a `user_prompt_expansion` hook is shown. */
+export interface PluginPromptExpansionInfo {
+	readonly expansionType: 'slash_command'
+	/** The command's name, without the slash. */
+	readonly commandName: string
+	/** What was typed after the name. */
+	readonly commandArgs: string
+	/** Where the command came from (`user`, `project`, `plugin`, `skill`), when known. */
+	readonly commandSource?: string
+}
+
+/** What a task hook is shown. */
+export interface PluginTaskInfo {
+	/** Absent on `task_created`: the task has no id yet. */
+	readonly id?: string
+	readonly subject?: string
+	readonly description?: string
+}
+
 export interface PluginHookContext {
 	/** The turn the hook fired in. Absent on `session_start` and `session_end`. */
 	readonly turnId?: TurnId
@@ -382,6 +526,20 @@ export interface PluginHookContext {
 	readonly worktreeBaseRef?: string
 	/** The worktree to remove, on `worktree_remove`. */
 	readonly worktreePath?: string
+	/** The model change, on `pre_model_switch` and `post_model_switch`. */
+	readonly modelSwitch?: PluginModelSwitchInfo
+	/** The tool server's question and the answer, on `elicitation` and `elicitation_result`. */
+	readonly elicitation?: PluginElicitationInfo
+	/** The folder added, absolute, on `directory_added`. */
+	readonly directory?: string
+	/** What added it, on `directory_added`. */
+	readonly directorySource?: PluginDirectorySource
+	/** The instruction file, on `instructions_loaded`. */
+	readonly instructions?: PluginInstructionsInfo
+	/** The command that expanded, on `user_prompt_expansion`. */
+	readonly expansion?: PluginPromptExpansionInfo
+	/** The task, on `task_created` and `task_completed`. */
+	readonly task?: PluginTaskInfo
 	/** The pass, on `pre_compact` and `post_compact`. */
 	readonly compaction?: PluginCompactionInfo
 	readonly toolName?: string
@@ -509,6 +667,11 @@ export interface PluginHookNotes {
 	 * worktree and creates none. Other events ignore it.
 	 */
 	readonly worktreePath?: string
+	/**
+	 * On `elicitation` and `elicitation_result`: the answer that stands in for
+	 * the person's, or replaces what they gave. Other events ignore it.
+	 */
+	readonly elicitation?: PluginElicitationAnswer
 }
 
 export type PluginHookResult =
@@ -596,32 +759,48 @@ export function assertPluginHookResult(result: PluginHookResult): asserts result
 /** Actions the query can interpret for a particular hook event. */
 export type PluginHookResultFor<E extends PluginHookEvent> = E extends 'user_prompt_submit'
 	? Extract<PluginHookResult, { action: 'continue' | 'annotate' | 'skip' | 'error' }>
-	: E extends 'subagent_start'
-		? Extract<PluginHookResult, { action: 'continue' | 'annotate' | 'error' }>
-		: E extends 'pre_tool_use'
-			? Extract<PluginHookResult, { action: 'continue' | 'skip' | 'modify' | 'error' }>
-			: E extends 'post_tool_use'
-				? Extract<PluginHookResult, { action: 'continue' | 'replace' | 'retry' | 'error' }>
-				: E extends 'post_tool_use_failure'
-					? Extract<PluginHookResult, { action: 'continue' | 'error' }>
-					: E extends 'permission_request'
-						? Extract<PluginHookResult, { action: 'continue' | 'skip' }>
-						: E extends 'pre_compact'
-							? Extract<PluginHookResult, { action: 'continue' | 'annotate' | 'skip' | 'error' }>
-							: E extends 'turn_end' | 'subagent_stop'
-								? Extract<PluginHookResult, { action: 'continue' | 'skip' | 'error' }>
-								: E extends 'session_start'
-									? Extract<PluginHookResult, { action: 'continue' | 'annotate' }>
-									: E extends
-												| 'turn_interrupt'
-												| 'session_end'
-												| 'notification'
-												| 'turn_failure'
-												| 'permission_denied'
-												| 'file_changed'
-												| 'cwd_changed'
-										? Extract<PluginHookResult, { action: 'continue' }>
-										: Extract<PluginHookResult, { action: 'continue' | 'error' }>
+	: E extends 'user_prompt_expansion'
+		? Extract<PluginHookResult, { action: 'continue' | 'annotate' | 'skip' | 'error' }>
+		: E extends
+					| 'pre_model_switch'
+					| 'elicitation'
+					| 'elicitation_result'
+					| 'task_created'
+					| 'task_completed'
+			? Extract<PluginHookResult, { action: 'continue' | 'skip' | 'error' }>
+			: E extends 'post_model_switch'
+				? Extract<PluginHookResult, { action: 'continue' | 'annotate' | 'error' }>
+				: E extends 'directory_added' | 'instructions_loaded'
+					? Extract<PluginHookResult, { action: 'continue' }>
+					: E extends 'subagent_start'
+						? Extract<PluginHookResult, { action: 'continue' | 'annotate' | 'error' }>
+						: E extends 'pre_tool_use'
+							? Extract<PluginHookResult, { action: 'continue' | 'skip' | 'modify' | 'error' }>
+							: E extends 'post_tool_use'
+								? Extract<PluginHookResult, { action: 'continue' | 'replace' | 'retry' | 'error' }>
+								: E extends 'post_tool_use_failure'
+									? Extract<PluginHookResult, { action: 'continue' | 'error' }>
+									: E extends 'permission_request'
+										? Extract<PluginHookResult, { action: 'continue' | 'skip' }>
+										: E extends 'pre_compact'
+											? Extract<
+													PluginHookResult,
+													{ action: 'continue' | 'annotate' | 'skip' | 'error' }
+												>
+											: E extends 'turn_end' | 'subagent_stop'
+												? Extract<PluginHookResult, { action: 'continue' | 'skip' | 'error' }>
+												: E extends 'session_start'
+													? Extract<PluginHookResult, { action: 'continue' | 'annotate' }>
+													: E extends
+																| 'turn_interrupt'
+																| 'session_end'
+																| 'notification'
+																| 'turn_failure'
+																| 'permission_denied'
+																| 'file_changed'
+																| 'cwd_changed'
+														? Extract<PluginHookResult, { action: 'continue' }>
+														: Extract<PluginHookResult, { action: 'continue' | 'error' }>
 
 /** The event and its handler verdict stay correlated, including in hook arrays. */
 export type PluginHookDefinition<E extends PluginHookEvent = PluginHookEvent> =

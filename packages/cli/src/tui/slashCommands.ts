@@ -308,6 +308,8 @@ export type SlashAction =
 			text: string
 			/** The command is a skill that carries hooks: attached when the person runs it. */
 			skillHooks?: { name: string; dirPath: string; hooksSource: string }
+			/** Set when a command the person typed expanded into `text`: what `user_prompt_expansion` hooks are told. */
+			expansion?: { commandName: string; commandArgs: string; commandSource: string }
 	  }
 	/**
 	 * Sign in to a subscription without leaving namzu.
@@ -3027,6 +3029,11 @@ export function runSlash(
 			? {
 					kind: 'prompt',
 					text: expanded.prompt,
+					expansion: {
+						commandName: user.name,
+						commandArgs: parsed.args.join(' '),
+						commandSource: user.source,
+					},
 					...(user.source === 'skill' && user.hooksSource !== undefined
 						? {
 								skillHooks: {

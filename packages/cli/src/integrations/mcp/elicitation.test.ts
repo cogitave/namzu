@@ -181,4 +181,28 @@ describe('elicitThroughQuestions', () => {
 		)
 		expect(shown[0]?.question).not.toContain('\u001b')
 	})
+
+	it('lets an elicitation hook answer when nobody can be asked, as in a headless run', async () => {
+		const handler = elicitThroughQuestions(
+			() => undefined,
+			() => ({
+				asked: async () => ({ action: 'accept', content: { a: 'from a hook' } }),
+				answered: async (_request, result) => result,
+			}),
+		)
+		expect(await handler(request({ a: { type: 'string' } }), { signal: live })).toEqual({
+			action: 'accept',
+			content: { a: 'from a hook' },
+		})
+	})
+
+	it('declines when nobody can be asked and no hook answers', async () => {
+		const handler = elicitThroughQuestions(
+			() => undefined,
+			() => ({ asked: async () => undefined, answered: async (_request, result) => result }),
+		)
+		expect(await handler(request({ a: { type: 'string' } }), { signal: live })).toEqual({
+			action: 'decline',
+		})
+	})
 })

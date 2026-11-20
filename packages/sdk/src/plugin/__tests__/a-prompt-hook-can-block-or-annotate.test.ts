@@ -68,6 +68,15 @@ describe('a shell hook on the prompt', () => {
 			'cwd_changed',
 			'worktree_create',
 			'worktree_remove',
+			'pre_model_switch',
+			'post_model_switch',
+			'elicitation',
+			'elicitation_result',
+			'directory_added',
+			'instructions_loaded',
+			'user_prompt_expansion',
+			'task_created',
+			'task_completed',
 		])
 	})
 })

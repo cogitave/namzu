@@ -119,13 +119,20 @@ import { spawnHostShell } from '../tools/command-shell.js'
 import type { PluginId } from '../types/ids/index.js'
 import type {
 	PluginCompactionInfo,
+	PluginDirectorySource,
+	PluginElicitationAnswer,
+	PluginElicitationInfo,
 	PluginFileChange,
 	PluginHookContext,
 	PluginHookDefinition,
 	PluginHookEvent,
 	PluginHookPermission,
 	PluginHookResult,
+	PluginInstructionsInfo,
+	PluginModelSwitchInfo,
 	PluginNotificationInfo,
+	PluginPromptExpansionInfo,
+	PluginTaskInfo,
 	PluginToolBatchCall,
 } from '../types/plugin/index.js'
 import { RENAMED_PLUGIN_HOOK_EVENTS } from '../types/plugin/index.js'
@@ -175,6 +182,15 @@ export type ShellHookEvent = Extract<
 	| 'cwd_changed'
 	| 'worktree_create'
 	| 'worktree_remove'
+	| 'pre_model_switch'
+	| 'post_model_switch'
+	| 'elicitation'
+	| 'elicitation_result'
+	| 'directory_added'
+	| 'instructions_loaded'
+	| 'user_prompt_expansion'
+	| 'task_created'
+	| 'task_completed'
 >
 
 export const SHELL_HOOK_EVENTS: readonly ShellHookEvent[] = [
@@ -199,6 +215,15 @@ export const SHELL_HOOK_EVENTS: readonly ShellHookEvent[] = [
 	'cwd_changed',
 	'worktree_create',
 	'worktree_remove',
+	'pre_model_switch',
+	'post_model_switch',
+	'elicitation',
+	'elicitation_result',
+	'directory_added',
+	'instructions_loaded',
+	'user_prompt_expansion',
+	'task_created',
+	'task_completed',
 ]
 
 /** What a failed hook does to the action it guards. */
@@ -717,6 +742,20 @@ export interface ShellHookInput {
 	readonly worktreeBaseRef?: string
 	/** On `worktree_remove`: the worktree. Sent as `worktree_path`. */
 	readonly worktreePath?: string
+	/** On `pre_model_switch` and `post_model_switch`. Sent as `from_model`, `to_model`, `requested_model` and `source`. */
+	readonly modelSwitch?: PluginModelSwitchInfo
+	/** On `elicitation` and `elicitation_result`. Sent as `mcp_server_name`, `message`, `mode`, `url`, `elicitation_id`, `requested_schema`, `action` and `content`. */
+	readonly elicitation?: PluginElicitationInfo
+	/** On `directory_added`: the folder, absolute. Sent as `directory`. */
+	readonly directory?: string
+	/** On `directory_added`: what added it. Sent as `source`. */
+	readonly directorySource?: PluginDirectorySource
+	/** On `instructions_loaded`. Sent as `file_path`, `memory_type`, `load_reason`, `parent_file_path` and `trigger_file_path`. */
+	readonly instructions?: PluginInstructionsInfo
+	/** On `user_prompt_expansion`. Sent as `expansion_type`, `command_name`, `command_args` and `command_source`. */
+	readonly expansion?: PluginPromptExpansionInfo
+	/** On `task_created` and `task_completed`. Sent as `task_id`, `task_subject` and `task_description`. */
+	readonly task?: PluginTaskInfo
 	/**
 	 * The file this hook may append `export NAME=value` lines to. Sent as
 	 * `NAMZU_ENV_FILE`; on every other event the variable is not set at all.
@@ -785,6 +824,66 @@ export function shellHookPayload(input: ShellHookInput): string {
 		...(input.worktreeRoot !== undefined ? { worktree_root: input.worktreeRoot } : {}),
 		...(input.worktreeBaseRef !== undefined ? { base_ref: input.worktreeBaseRef } : {}),
 		...(input.worktreePath !== undefined ? { worktree_path: input.worktreePath } : {}),
+		...(input.modelSwitch !== undefined
+			? {
+					from_model: input.modelSwitch.fromModel,
+					to_model: input.modelSwitch.toModel,
+					requested_model: input.modelSwitch.requestedModel,
+					source: input.modelSwitch.source,
+				}
+			: {}),
+		...(input.elicitation !== undefined
+			? {
+					mcp_server_name: input.elicitation.serverName,
+					message: input.elicitation.message,
+					...(input.elicitation.mode !== undefined ? { mode: input.elicitation.mode } : {}),
+					...(input.elicitation.url !== undefined ? { url: input.elicitation.url } : {}),
+					...(input.elicitation.elicitationId !== undefined
+						? { elicitation_id: input.elicitation.elicitationId }
+						: {}),
+					...(input.elicitation.requestedSchema !== undefined
+						? { requested_schema: input.elicitation.requestedSchema }
+						: {}),
+					...(input.elicitation.action !== undefined ? { action: input.elicitation.action } : {}),
+					...(input.elicitation.content !== undefined
+						? { content: input.elicitation.content }
+						: {}),
+				}
+			: {}),
+		...(input.directory !== undefined ? { directory: input.directory } : {}),
+		...(input.directorySource !== undefined ? { source: input.directorySource } : {}),
+		...(input.instructions !== undefined
+			? {
+					file_path: input.instructions.filePath,
+					memory_type: input.instructions.memoryType,
+					load_reason: input.instructions.loadReason,
+					...(input.instructions.parentFilePath !== undefined
+						? { parent_file_path: input.instructions.parentFilePath }
+						: {}),
+					...(input.instructions.triggerFilePath !== undefined
+						? { trigger_file_path: input.instructions.triggerFilePath }
+						: {}),
+				}
+			: {}),
+		...(input.expansion !== undefined
+			? {
+					expansion_type: input.expansion.expansionType,
+					command_name: input.expansion.commandName,
+					command_args: input.expansion.commandArgs,
+					...(input.expansion.commandSource !== undefined
+						? { command_source: input.expansion.commandSource }
+						: {}),
+				}
+			: {}),
+		...(input.task !== undefined
+			? {
+					...(input.task.id !== undefined ? { task_id: input.task.id } : {}),
+					...(input.task.subject !== undefined ? { task_subject: input.task.subject } : {}),
+					...(input.task.description !== undefined
+						? { task_description: input.task.description }
+						: {}),
+				}
+			: {}),
 		...(input.compaction !== undefined ? compactionFields(input.event, input.compaction) : {}),
 		...(input.toolName !== undefined
 			? { tool_name: shellHookToolName(input.toolName, input.toolNames) }
@@ -1154,6 +1253,15 @@ export const SHELL_HOOK_PASCAL_EVENT_NAMES: Readonly<Partial<Record<ShellHookEve
 	cwd_changed: 'CwdChanged',
 	worktree_create: 'WorktreeCreate',
 	worktree_remove: 'WorktreeRemove',
+	pre_model_switch: 'PreModelSwitch',
+	post_model_switch: 'PostModelSwitch',
+	elicitation: 'Elicitation',
+	elicitation_result: 'ElicitationResult',
+	directory_added: 'DirectoryAdded',
+	instructions_loaded: 'InstructionsLoaded',
+	user_prompt_expansion: 'UserPromptExpansion',
+	task_created: 'TaskCreated',
+	task_completed: 'TaskCompleted',
 }
 
 /** What a hook's stdout JSON said, before it is mapped to a verdict for an event. */
@@ -1171,6 +1279,8 @@ interface ShellHookReading {
 	suppressOutput?: boolean
 	/** On `session_start`, `file_changed` and `cwd_changed`: the files to watch from now on. */
 	watchPaths?: readonly string[]
+	/** On `elicitation` and `elicitation_result`: the answer the hook gave. */
+	elicitation?: PluginElicitationAnswer
 	/** Why the JSON was set aside, when it was. */
 	invalid?: string
 }
@@ -1344,7 +1454,27 @@ function readShellHookJson(
 	const additional = optionalString('additionalContext', specific)
 	if (additional && additional.trim().length > 0) reading.context = additional.trim()
 
-	if (event === 'pre_tool_use') {
+	if (event === 'elicitation' || event === 'elicitation_result') {
+		const action = specific.action
+		if (action !== undefined) {
+			if (action !== 'accept' && action !== 'decline' && action !== 'cancel') {
+				return { invalid: '`action` must be "accept", "decline" or "cancel"' }
+			}
+			if (specific.content !== undefined && !isRecord(specific.content)) {
+				return { invalid: '`content` must be an object' }
+			}
+			reading.elicitation = {
+				action,
+				...(isRecord(specific.content) ? { content: specific.content } : {}),
+			}
+		} else if (specific.content !== undefined) {
+			// Values with no action: on a result they replace what was given.
+			if (!isRecord(specific.content)) return { invalid: '`content` must be an object' }
+			if (event === 'elicitation') return { invalid: '`content` needs an `action` beside it' }
+			reading.elicitation = { action: 'accept', content: specific.content }
+		}
+	}
+	if (event === 'pre_tool_use' || event === 'pre_model_switch') {
 		const decision = specific.permissionDecision
 		const why = optionalString('permissionDecisionReason', specific)
 		if (decision !== undefined) {
@@ -1360,7 +1490,7 @@ function readShellHookJson(
 			// back to a separate permission service gets the ordinary rules, the
 			// same as a hook that said nothing.
 		}
-		if (specific.updatedInput !== undefined) {
+		if (event === 'pre_tool_use' && specific.updatedInput !== undefined) {
 			if (!isRecord(specific.updatedInput)) return { invalid: '`updatedInput` must be an object' }
 			const rewritten = readRewrittenInput(call.toolName, call.toolInput, specific.updatedInput)
 			if (rewritten === undefined) {
@@ -1474,6 +1604,13 @@ export function shellHookVerdict(
 			case 'turn_end':
 			case 'subagent_stop':
 			case 'pre_compact':
+			// Refused before they happen; a refused question is declined.
+			case 'pre_model_switch':
+			case 'elicitation':
+			case 'elicitation_result':
+			case 'user_prompt_expansion':
+			case 'task_created':
+			case 'task_completed':
 				return { action: 'skip', reason }
 			// The child is starting regardless; what the hook said is its context.
 			case 'subagent_start':
@@ -1533,6 +1670,8 @@ export function shellHookVerdict(
 			(event === 'user_prompt_submit' ||
 				event === 'subagent_start' ||
 				event === 'session_start' ||
+				event === 'user_prompt_expansion' ||
+				event === 'post_model_switch' ||
 				event === 'pre_compact') &&
 			text.length > 0
 		)
@@ -1588,6 +1727,46 @@ export function shellHookVerdict(
 			return reading.context !== undefined
 				? { action: 'annotate', text: reading.context }
 				: { action: 'continue' }
+		}
+		case 'user_prompt_expansion': {
+			const block = reading.block ?? reading.halt?.reason
+			if (block !== undefined) return { action: 'skip', reason: block }
+			return reading.context !== undefined
+				? { action: 'annotate', text: reading.context }
+				: { action: 'continue' }
+		}
+		case 'pre_model_switch': {
+			const block = reading.block ?? reading.halt?.reason
+			if (block !== undefined) return { action: 'skip', reason: block, ...notes }
+			return {
+				action: 'continue',
+				...(reading.permission ? { permission: reading.permission } : {}),
+				...notes,
+			}
+		}
+		case 'post_model_switch':
+			// The switch has happened. What the hook said is for the model's next request.
+			return reading.context !== undefined
+				? { action: 'annotate', text: reading.context }
+				: {
+						action: 'continue',
+						...(reading.notice ? { notice: reading.notice } : {}),
+					}
+		case 'elicitation':
+		case 'elicitation_result': {
+			const block = reading.block ?? reading.halt?.reason
+			if (block !== undefined) return { action: 'skip', reason: block }
+			return {
+				action: 'continue',
+				...(reading.elicitation !== undefined ? { elicitation: reading.elicitation } : {}),
+				...(reading.notice ? { notice: reading.notice } : {}),
+			}
+		}
+		case 'task_created':
+		case 'task_completed': {
+			const block = reading.block ?? reading.halt?.reason
+			if (block !== undefined) return { action: 'skip', reason: block }
+			return { action: 'continue', ...(reading.notice ? { notice: reading.notice } : {}) }
 		}
 		case 'subagent_start': {
 			// The child is already starting: a refusal cannot stop it, so its reason
@@ -1986,20 +2165,26 @@ export function createShellHook(
 				event === 'subagent_start' ||
 				event === 'subagent_stop' ||
 				event === 'session_start' ||
-				event === 'session_end'
+				event === 'session_end' ||
+				event === 'directory_added' ||
+				event === 'instructions_loaded'
 			)
 			const subject =
-				event === 'notification'
-					? context.notification?.type
-					: event === 'pre_compact' || event === 'post_compact'
-						? context.compaction?.trigger
-						: event === 'subagent_start' || event === 'subagent_stop'
-							? context.agentType
-							: event === 'session_start'
-								? context.source
-								: event === 'session_end'
-									? context.endReason
-									: context.toolName
+				event === 'directory_added'
+					? context.directorySource
+					: event === 'instructions_loaded'
+						? context.instructions?.loadReason
+						: event === 'notification'
+							? context.notification?.type
+							: event === 'pre_compact' || event === 'post_compact'
+								? context.compaction?.trigger
+								: event === 'subagent_start' || event === 'subagent_stop'
+									? context.agentType
+									: event === 'session_start'
+										? context.source
+										: event === 'session_end'
+											? context.endReason
+											: context.toolName
 			// An event that has no name to match (`turn_end`, `user_prompt_submit`,
 			// `turn_start`, `post_tool_batch`) ignores the matcher and the hook
 			// fires: a matcher cannot be read against a name that is not there, and
@@ -2050,6 +2235,15 @@ export function createShellHook(
 					? { worktreeBaseRef: context.worktreeBaseRef }
 					: {}),
 				...(context.worktreePath !== undefined ? { worktreePath: context.worktreePath } : {}),
+				...(context.modelSwitch !== undefined ? { modelSwitch: context.modelSwitch } : {}),
+				...(context.elicitation !== undefined ? { elicitation: context.elicitation } : {}),
+				...(context.directory !== undefined ? { directory: context.directory } : {}),
+				...(context.directorySource !== undefined
+					? { directorySource: context.directorySource }
+					: {}),
+				...(context.instructions !== undefined ? { instructions: context.instructions } : {}),
+				...(context.expansion !== undefined ? { expansion: context.expansion } : {}),
+				...(context.task !== undefined ? { task: context.task } : {}),
 				...(options.projectDir !== undefined ? { projectDir: options.projectDir } : {}),
 				...(options.plugin !== undefined ? { plugin: options.plugin } : {}),
 				sessionId: String(context.sessionId),

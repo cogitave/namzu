@@ -35,6 +35,15 @@ const WHEN: readonly [event: string, when: string][] = [
 	['cwd_changed', 'When the working folder changes'],
 	['worktree_create', 'When a worktree is made'],
 	['worktree_remove', 'When a worktree is removed'],
+	['pre_model_switch', 'Before the model changes'],
+	['post_model_switch', 'After the model changes'],
+	['elicitation', 'When a tool server asks you a question'],
+	['elicitation_result', 'After you answer a tool server'],
+	['directory_added', 'When a folder is added to the conversation'],
+	['instructions_loaded', 'When an instruction file is read'],
+	['user_prompt_expansion', 'When a command you typed expands'],
+	['task_created', 'When a task is created'],
+	['task_completed', 'When a task is completed'],
 	['session_end', 'When a conversation ends'],
 ]
 
@@ -57,6 +66,15 @@ const WRITTEN: Record<string, string> = {
 	StopFailure: 'turn_failure',
 	Stop: 'turn_end',
 	FileChanged: 'file_changed',
+	PreModelSwitch: 'pre_model_switch',
+	PostModelSwitch: 'post_model_switch',
+	Elicitation: 'elicitation',
+	ElicitationResult: 'elicitation_result',
+	DirectoryAdded: 'directory_added',
+	InstructionsLoaded: 'instructions_loaded',
+	UserPromptExpansion: 'user_prompt_expansion',
+	TaskCreated: 'task_created',
+	TaskCompleted: 'task_completed',
 }
 
 /** The kernel's name for an event written either way. */
