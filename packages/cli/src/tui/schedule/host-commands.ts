@@ -552,6 +552,14 @@ export async function runLoopCommand(
 		const cron = args.length >= 6 && args.slice(0, 5).every((w) => /^[\d*/,\-a-z]+$/i.test(w))
 		const hasInterval = cron || LOOP_INTERVAL_WORD.test(first)
 		const interval = cron ? args.slice(0, 5).join(' ') : first
+		// A bare number, or a number and its unit split by a space, is a mistyped
+		// interval, not the start of a prompt.
+		if (!hasInterval && /^\d+$/.test(first)) {
+			display(
+				'That interval is not usable. Write it as one word, e.g. /loop 10m check the build (or leave the interval out to let the model pace it).',
+			)
+			return
+		}
 		const prompt = (hasInterval ? (cron ? args.slice(5) : rest) : args).join(' ').trim()
 		if (!prompt) {
 			display(

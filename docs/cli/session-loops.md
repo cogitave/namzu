@@ -39,7 +39,7 @@ A loop without an interval is self-paced:
 /loop watch the deploy and tell me when it is healthy
 ```
 
-The first tick runs when the current turn ends. Each tick the model does the
+The first tick runs as soon as the conversation is idle (a few seconds at most). If you mistype an interval (`/loop 10 minutes ...`), Namzu says so instead of starting a loop. `wake_up` with stop ends only a loop that is waiting for its wake-up, never one between ticks. Each tick the model does the
 task, then says when to wake next (a minute to an hour away, whatever it asked
 is held to that range), why, and whether anything changed. A tick that ends
 without naming a next wake-up ends the loop, and so does the model saying it is

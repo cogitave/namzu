@@ -308,6 +308,16 @@ describe('self-paced loops', () => {
 		expect(said.join('\n')).toContain('the model stopped it')
 	})
 
+	it('stop leaves a paced loop that is between ticks alone', async () => {
+		const c = clock()
+		const { loops } = host(c)
+		await loops.create({ prompt: 'p', createdBy: 'operator' })
+		loops.tick()
+		loops.wakeUp({ delaySeconds: 600, reason: 'r', quiet: false })
+		expect(loops.stop()).toBe(0)
+		expect(loops.list()).toHaveLength(1)
+	})
+
 	it('refuses a wake-up when no loop is waiting for one', () => {
 		const { loops } = host(clock())
 		expect(() => loops.wakeUp({ delaySeconds: 60, reason: 'r', quiet: false })).toThrow(
@@ -381,6 +391,10 @@ describe('/loop without an interval', () => {
 		const said: string[] = []
 		await runLoopCommand(['watch', 'the', 'deploy'], loops, (t) => said.push(t))
 		await runLoopCommand(['10m', 'check', 'CI'], loops, (t) => said.push(t))
+		const before = loops.list().length
+		await runLoopCommand(['10', 'minutes', 'check', 'CI'], loops, (t) => said.push(t))
+		expect(loops.list()).toHaveLength(before)
+		expect(said.join('\n')).toContain('not usable')
 		const [paced, fixed] = loops.list()
 		expect(paced?.paced).toBeDefined()
 		expect(paced?.prompt).toBe('watch the deploy')
@@ -461,5 +475,22 @@ describe('the integration', () => {
 		expect(it.timers.list()).toEqual([])
 		await vi.advanceTimersByTimeAsync(10 * 60_000)
 		expect(submitted).toEqual([])
+	})
+})
+
+describe('the pacing tool in the tool list', () => {
+	it('is kept loaded under the name the tool has, and its schema stays small', async () => {
+		const { EAGER_TOOLS_WHEN_DEFERRED } = await import('../agent.js')
+		const { buildWakeUpTool } = await import('@namzu/sdk')
+		const tool = buildWakeUpTool({
+			wakeUp: () => ({ dueAt: '', delaySeconds: 60, clamped: false }),
+			stop: () => 0,
+		} as never)
+		expect((EAGER_TOOLS_WHEN_DEFERRED as readonly string[]).includes(tool.name)).toBe(true)
+		const size = JSON.stringify({ d: tool.description, p: tool.inputSchema }).length
+		expect(size).toBeLessThan(2500)
+		// The timer tools are not on the eager list: they load through search.
+		for (const name of ['timer_set', 'timer_list', 'timer_cancel'])
+			expect((EAGER_TOOLS_WHEN_DEFERRED as readonly string[]).includes(name)).toBe(false)
 	})
 })

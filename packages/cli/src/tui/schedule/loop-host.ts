@@ -262,7 +262,8 @@ export class SessionLoopScheduler implements SessionLoopHost, SelfPacedHost {
 	stop(): number {
 		this.#sync()
 		const waiting = this.#loops.filter((l) => l.paced?.awaitingWakeUp)
-		const ending = waiting.length > 0 ? waiting : this.#loops.filter((l) => l.paced)
+		// Only a loop awaiting its wake-up is the one the model is answering for.
+		const ending = waiting
 		if (ending.length === 0) return 0
 		this.#loops = this.#loops.filter((l) => !ending.includes(l))
 		this.#save()

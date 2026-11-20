@@ -181,7 +181,11 @@ export function createScheduleIntegration(deps: ScheduleIntegrationDeps): Schedu
 		],
 		handleSlash(name, args) {
 			if (name === 'loop') {
-				void runLoopCommand(args, loops, deps.say)
+				void runLoopCommand(args, loops, deps.say).then(() => {
+					try {
+						tick()
+					} catch {}
+				})
 				return true
 			}
 			if (name !== 'schedule') return false

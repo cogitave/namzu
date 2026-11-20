@@ -2436,7 +2436,7 @@ const EXCLUDED_BUILTINS = new Set(['verify_outputs'])
  * `job` and `wait_for_job` stay because the bash tool's own description sends
  * the model to them; `ask_user_question` only exists where a person can answer.
  */
-const EAGER_TOOLS_WHEN_DEFERRED = [
+export const EAGER_TOOLS_WHEN_DEFERRED = [
 	'read',
 	'glob',
 	'grep',
