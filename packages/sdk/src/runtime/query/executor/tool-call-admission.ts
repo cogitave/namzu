@@ -81,9 +81,10 @@ export async function runPreToolHook(
 	toolCallId?: string,
 ): Promise<PreToolHookOutcome> {
 	signal.throwIfAborted()
-	if (!host.config.pluginManager) return { kind: 'continue', input, modified: false }
+	const manager = host.config.pluginManager
+	if (!manager) return { kind: 'continue', input, modified: false }
 	const results = await awaitWithAbort(
-		host.config.pluginManager.executeHooks(
+		manager.executeHooks(
 			'pre_tool_use',
 			{
 				sessionId: host.config.sessionId,
@@ -98,7 +99,52 @@ export async function runPreToolHook(
 		signal,
 	)
 	signal.throwIfAborted()
-	return interpretPreToolResults(toolName, input, results, host.requestHalt)
+	const outcome = interpretPreToolResults(toolName, input, results, host.requestHalt)
+	if (outcome.kind !== 'continue') return outcome
+	// A task being made or completed is announced once the call itself is allowed.
+	const refusal = await runTaskHook(host, manager, toolName, outcome.input, signal)
+	if (refusal === undefined) return outcome
+	return { kind: 'skip', input: outcome.input, output: refusal }
+}
+
+/**
+ * `task_created` before `task_create` runs and `task_completed` before a
+ * `task_update` that completes a task. The text that refuses the call, or
+ * `undefined` when nothing did. The task's id is not known yet when one is
+ * created.
+ */
+async function runTaskHook(
+	host: ToolAdmissionHost,
+	manager: NonNullable<ToolAdmissionHost['config']['pluginManager']>,
+	toolName: string,
+	input: unknown,
+	signal: AbortSignal,
+): Promise<string | undefined> {
+	if (toolName !== 'task_create' && toolName !== 'task_update') return undefined
+	if (input === null || typeof input !== 'object') return undefined
+	const fields = input as Record<string, unknown>
+	if (toolName === 'task_update' && fields.status !== 'completed') return undefined
+	const text = (key: string): string | undefined =>
+		typeof fields[key] === 'string' && fields[key] !== '' ? (fields[key] as string) : undefined
+	const task = {
+		...(toolName === 'task_update' && text('id') !== undefined ? { id: text('id') as string } : {}),
+		...(text('subject') !== undefined ? { subject: text('subject') as string } : {}),
+		...(text('description') !== undefined ? { description: text('description') as string } : {}),
+	}
+	const event = toolName === 'task_create' ? 'task_created' : 'task_completed'
+	const results = await awaitWithAbort(
+		manager.executeHooks(
+			event,
+			{ sessionId: host.config.sessionId, turnId: host.config.turnId, task, signal },
+			host.emitEvent,
+		),
+		signal,
+	)
+	signal.throwIfAborted()
+	for (const result of results) {
+		if (result.action === 'skip') return skippedToolResultText(toolName, result.reason)
+	}
+	return undefined
 }
 
 export async function prepareDirectCall(

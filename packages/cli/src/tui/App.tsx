@@ -31,6 +31,7 @@ import {
 	type Message,
 	type MessageAttachment,
 	type MessageId,
+	type PluginModelSwitchInfo,
 	type ReasoningEffort,
 	type RuntimeContextMessageKind,
 	SKILL_TOOL_NAME,
@@ -1427,6 +1428,17 @@ type StreamState = {
 }
 
 /** Last non-empty assistant text in a durable conversation, newest first. */
+/** A model as a `pre_model_switch` or `post_model_switch` hook is told it: `provider/model`, or just `auto`. */
+function modelSwitchLabel(provider: string | undefined, model: string | null | undefined): string {
+	const name = model ?? 'unknown'
+	return provider === undefined || provider === name ? name : `${provider}/${name}`
+}
+
+/** A model as the person reads it in a line of words. */
+function modelSwitchWords(to: { readonly id: string; readonly model: string }): string {
+	return to.id === to.model ? to.model : `${to.id} · ${to.model}`
+}
+
 function latestAssistantOutput(messages: readonly Message[]): string | null {
 	for (let i = messages.length - 1; i >= 0; i -= 1) {
 		const message = messages[i]
@@ -3092,6 +3104,8 @@ function AppBody({
 		readonly model?: string
 		/** Picked while no refusal had happened in the running reply: the model it named was the one tried. */
 		readonly beforeRefusal?: boolean
+		/** The `pre_model_switch` hooks already answered when the pick was used live. */
+		readonly hooked?: boolean
 	} | null>(null)
 	/**
 	 * A refusal handed the running reply to a fallback model. The kernel's pin
@@ -12106,24 +12120,38 @@ function AppBody({
 					try {
 						await persistenceTailRef.current
 						beforePublish()
-						await hydrateSession(
-							selectPrimaryProvider(savedPrefsRef.current, selection),
-							detected,
-							{
-								signal: pending.signal,
-								persistSelection: false,
-								beforePublish,
-							},
+						const allowed = await askModelSwitchHooks(
+							pending.ownerSession,
+							selection,
+							'tool',
+							null,
+							pending.signal,
 						)
-						if (
-							pendingModelSwitchRef.current === pending &&
-							!pending.signal.aborted &&
-							previousSessionRef.current !== pending.ownerSession
-						) {
-							pushMessage(
-								'system',
-								`Switched to ${selection.id} · ${selection.model} for this conversation.`,
+						if (allowed) {
+							const left = {
+								provider: pending.ownerSession.providerId,
+								model: pending.ownerSession.modelSummary,
+							}
+							await hydrateSession(
+								selectPrimaryProvider(savedPrefsRef.current, selection),
+								detected,
+								{
+									signal: pending.signal,
+									persistSelection: false,
+									beforePublish,
+								},
 							)
+							if (
+								pendingModelSwitchRef.current === pending &&
+								!pending.signal.aborted &&
+								previousSessionRef.current !== pending.ownerSession
+							) {
+								announceModelSwitch(left, selection, 'tool', null)
+								pushMessage(
+									'system',
+									`Switched to ${selection.id} · ${selection.model} for this conversation.`,
+								)
+							}
 						}
 					} catch (error) {
 						if (ownsSwitch()) {
@@ -12169,6 +12197,90 @@ function AppBody({
 	)
 
 	/**
+	 * Ask the `pre_model_switch` hooks of the session being left whether the
+	 * model may change. A refusal, or an `ask` the person turns down, leaves the
+	 * model as it is and says so; the answer is whether to go on.
+	 */
+	const askModelSwitchHooks = useCallback(
+		async (
+			owner: AgentSession,
+			to: { readonly id: string; readonly model: string },
+			source: PluginModelSwitchInfo['source'],
+			requested: string | null,
+			signal?: AbortSignal,
+		): Promise<boolean> => {
+			const hooks = owner.lifecycleHooks
+			if (!hooks) return true
+			const info: PluginModelSwitchInfo = {
+				fromModel: modelSwitchLabel(owner.providerId, owner.modelSummary),
+				toModel: modelSwitchLabel(to.id, to.model),
+				requestedModel: requested,
+				source,
+			}
+			const verdict = await hooks.preModelSwitch(info, signal)
+			if (verdict.kind === 'allow') return true
+			if (verdict.kind === 'deny') {
+				pushMessage(
+					'system',
+					`A hook stopped the switch to ${modelSwitchWords(to)}: ${verdict.reason} The current model is unchanged.`,
+				)
+				return false
+			}
+			if (questionRef.current) {
+				pushMessage(
+					'system',
+					`A hook asks before switching to ${modelSwitchWords(to)}. Answer the open question first; the current model is unchanged.`,
+				)
+				return false
+			}
+			const answer = await askQuestion(
+				{
+					questionId: `model-switch:${to.id}/${to.model}`,
+					question: `Switch to ${modelSwitchWords(to)}?${verdict.reason ? ` ${verdict.reason}` : ''}`,
+					header: 'A hook asks first',
+					options: [
+						{
+							id: 'yes',
+							label: 'Yes, switch',
+							description: 'Change the model for this conversation',
+						},
+						{ id: 'no', label: 'No', description: 'Keep the current model' },
+					],
+					multiSelect: false,
+					allowFreeText: false,
+				},
+				signal,
+			)
+			if (answer.kind === 'answer' && answer.selectedOptionIds.includes('yes')) return true
+			pushMessage('system', 'The model is unchanged.')
+			return false
+		},
+		[askQuestion, pushMessage],
+	)
+
+	/** `post_model_switch`, run on the session that now serves the conversation. */
+	const announceModelSwitch = useCallback(
+		(
+			from: { readonly provider: string | undefined; readonly model: string | null | undefined },
+			to: { readonly id: string; readonly model: string },
+			source: PluginModelSwitchInfo['source'],
+			requested: string | null,
+		): void => {
+			const hooks = previousSessionRef.current?.lifecycleHooks
+			if (!hooks) return
+			void hooks
+				.postModelSwitch({
+					fromModel: modelSwitchLabel(from.provider, from.model),
+					toModel: modelSwitchLabel(to.id, to.model),
+					requestedModel: requested,
+					source,
+				})
+				.catch(() => undefined)
+		},
+		[],
+	)
+
+	/**
 	 * A model chosen while a reply is being written, or while anything else
 	 * holds the conversation, is never refused.
 	 *
@@ -12180,7 +12292,11 @@ function AppBody({
 	 * choice and the next reply agree with what was told here.
 	 */
 	const deferModelSelection = useCallback(
-		async (query: string, wantsAuto: boolean): Promise<void> => {
+		async (
+			query: string,
+			wantsAuto: boolean,
+			source: PluginModelSwitchInfo['source'] = 'command',
+		): Promise<void> => {
 			if (!session || !currentProvider) return
 			if (wantsAuto) {
 				deferredModelRef.current = { query, quiet: false }
@@ -12247,12 +12363,14 @@ function AppBody({
 						return
 					}
 				}
+				if (!(await askModelSwitchHooks(session, selection, source, query))) return
 				liveModelPickRef.current = { session, model: selection.model }
 				deferredModelRef.current = {
 					query: target,
 					quiet: true,
 					model: selection.model,
 					beforeRefusal: true,
+					hooked: true,
 				}
 				pushMessage(
 					'system',
@@ -12267,7 +12385,7 @@ function AppBody({
 				`Switching to ${selection.id} · ${selection.model} when this reply finishes.`,
 			)
 		},
-		[appLifetime.signal, currentProvider, detected, pushMessage, session],
+		[appLifetime.signal, currentProvider, detected, pushMessage, session, askModelSwitchHooks],
 	)
 
 	const selectModelIntent = useCallback(
@@ -12279,6 +12397,8 @@ function AppBody({
 				readonly atBoundary?: boolean
 				/** Already told when the pick was made; say nothing more on success. */
 				readonly quiet?: boolean
+				/** The `pre_model_switch` hooks answered when the pick was made. */
+				readonly hooksAsked?: boolean
 			} = {},
 		): Promise<void> => {
 			const wantsAuto = isAutoQuery(query)
@@ -12313,10 +12433,16 @@ function AppBody({
 					exportingRef.current ||
 					goalDriveInFlightRef.current)
 			) {
-				await deferModelSelection(query, wantsAuto)
+				await deferModelSelection(query, wantsAuto, options.fromPicker ? 'picker' : 'command')
 				return
 			}
 			const wasAuto = autoActiveRef.current
+			const left = { provider: session.providerId, model: session.modelSummary }
+			const source: PluginModelSwitchInfo['source'] = wantsAuto
+				? 'auto'
+				: options.fromPicker
+					? 'picker'
+					: 'command'
 			const controller = new AbortController()
 			const pending: PendingModelSwitch = {
 				turnToken: {},
@@ -12358,6 +12484,17 @@ function AppBody({
 				if (wantsAuto) {
 					const prefs = savedPrefsRef.current
 					if (!prefs) throw new Error('No model is connected yet.')
+					if (
+						!options.hooksAsked &&
+						!(await askModelSwitchHooks(
+							session,
+							{ id: 'auto', model: 'auto' },
+							source,
+							query,
+							pending.signal,
+						))
+					)
+						return
 					await persistenceTailRef.current
 					beforePublish()
 					await hydrateSession(prefs, detected, {
@@ -12371,6 +12508,7 @@ function AppBody({
 						!pending.signal.aborted &&
 						previousSessionRef.current !== session
 					) {
+						announceModelSwitch(left, { id: 'auto', model: 'auto' }, source, query)
 						if (!options.quiet) pushMessage('system', AUTO_ON_NOTICE)
 					}
 					return
@@ -12397,6 +12535,11 @@ function AppBody({
 					return
 				}
 				pending.selection = resolved.selection
+				if (
+					!options.hooksAsked &&
+					!(await askModelSwitchHooks(session, resolved.selection, source, query, pending.signal))
+				)
+					return
 				await persistenceTailRef.current
 				beforePublish()
 				await hydrateSession(
@@ -12414,6 +12557,7 @@ function AppBody({
 					!pending.signal.aborted &&
 					previousSessionRef.current !== session
 				) {
+					announceModelSwitch(left, resolved.selection, source, query)
 					if (!options.quiet)
 						pushMessage(
 							'system',
@@ -12439,6 +12583,8 @@ function AppBody({
 			}
 		},
 		[
+			askModelSwitchHooks,
+			announceModelSwitch,
 			deferModelSelection,
 			session,
 			currentProvider,
@@ -13162,6 +13308,19 @@ function AppBody({
 		[pushSystem],
 	)
 
+	/** A typed command whose `user_prompt_expansion` hooks have answered, until its line is submitted again. */
+	const expansionAnsweredRef = useRef<{ readonly line: string; readonly context?: string } | null>(
+		null,
+	)
+	const handleSubmitRef = useRef<
+		| ((
+				value: string,
+				attachments: readonly MessageAttachment[] | undefined,
+				mode: ComposerSubmitMode,
+				meta: SubmitMeta,
+		  ) => void)
+		| undefined
+	>(undefined)
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	const handleSubmit = useCallback(
 		(
@@ -14527,13 +14686,44 @@ function AppBody({
 						})()
 						return
 					}
-					case 'prompt':
-						// Deliberately does NOT return: the composed text falls
-						// through to the same queue-or-send below that a typed
-						// message takes.
-						outgoing = slash.text
+					case 'prompt': {
+						// `user_prompt_expansion` hooks hear of a command the person typed
+						// before its text goes on. The hooks are awaited, so the line is
+						// submitted again once they have answered; that second pass finds
+						// its answer in `expansionAnsweredRef` and carries on.
+						const hooks = session?.lifecycleHooks
+						const answered = expansionAnsweredRef.current
+						if (answered !== null && answered.line === dispatch) {
+							expansionAnsweredRef.current = null
+							outgoing = answered.context ? `${slash.text}\n\n${answered.context}` : slash.text
+						} else if (slash.expansion && hooks) {
+							const expansion = slash.expansion
+							const generation = conversationGenRef.current
+							void (async () => {
+								const verdict = await hooks
+									.userPromptExpansion({ expansionType: 'slash_command', ...expansion }, slash.text)
+									.catch(() => ({}) as { blocked?: string; context?: string })
+								if (conversationGenRef.current !== generation) return
+								if (verdict.blocked !== undefined) {
+									pushMessage(
+										'system',
+										`A hook stopped /${expansion.commandName}: ${verdict.blocked}`,
+									)
+									return
+								}
+								expansionAnsweredRef.current = {
+									line: dispatch,
+									...(verdict.context !== undefined ? { context: verdict.context } : {}),
+								}
+								handleSubmitRef.current?.(value, attachments, mode, meta)
+							})()
+							return
+						} else {
+							outgoing = slash.text
+						}
 						if (slash.skillHooks) attachSkillHooks(slash.skillHooks)
 						break
+					}
 					case 'none':
 						return
 					case 'host-command': {
@@ -15239,6 +15429,7 @@ function AppBody({
 			attachSkillHooks,
 		],
 	)
+	handleSubmitRef.current = handleSubmit
 	// The "waiting for your input" notice (`tui.notifications` with `idle-prompt`):
 	// a minute after a turn ends with nobody at the keyboard. The condition lives
 	// in `IdleNotifier`; this only tells it what the screen knows.
@@ -15893,6 +16084,7 @@ function AppBody({
 		void selectModelIntent(deferred.query, {
 			atBoundary: true,
 			quiet: deferred.quiet,
+			hooksAsked: deferred.hooked === true,
 		})
 	}, [
 		state,

@@ -51,6 +51,14 @@ const EVENTS_OF_THE_MAIN_CONVERSATION: ReadonlySet<ShellHookEvent> = new Set<She
 	'cwd_changed',
 	'worktree_create',
 	'worktree_remove',
+	// Fired by the host for the conversation it runs: models, working folders, instruction files, typed commands, tool-server questions.
+	'pre_model_switch',
+	'post_model_switch',
+	'elicitation',
+	'elicitation_result',
+	'directory_added',
+	'instructions_loaded',
+	'user_prompt_expansion',
 ])
 
 const MAX_NOTICE_CHARS = 600

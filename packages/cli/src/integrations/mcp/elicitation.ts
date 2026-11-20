@@ -11,7 +11,9 @@
  */
 
 import type { MCPElicitationRequest, MCPElicitationResult } from '@namzu/sdk'
+
 import type { QuestionAnswer, QuestionFn, UserQuestion } from '../../tui/agent.js'
+import type { ElicitationHooks } from '../plugins/lifecycle-events.js'
 
 type Item = NonNullable<UserQuestion['questions']>[number]
 type Value = string | number | boolean | readonly string[]
@@ -235,6 +237,26 @@ function collect(answer: Extract<QuestionAnswer, { kind: 'answer' }>) {
  * to ask (a headless run, or between turns) the server is told "decline".
  */
 export function elicitThroughQuestions(
+	ask: () => QuestionFn | undefined,
+	hooks?: () => ElicitationHooks | undefined,
+): (
+	request: MCPElicitationRequest,
+	context: { readonly signal: AbortSignal },
+) => Promise<MCPElicitationResult> {
+	const person = askThePerson(ask)
+	return async (request, context) => {
+		const active = hooks?.()
+		if (active === undefined) return person(request, context)
+		// A hook may answer in the person's place, and may change the answer
+		// before the server reads it. A withdrawn question is not announced.
+		const given = await active.asked(request, context.signal)
+		const result = given ?? (await person(request, context))
+		if (context.signal.aborted) return result
+		return active.answered(request, result, context.signal)
+	}
+}
+
+function askThePerson(
 	ask: () => QuestionFn | undefined,
 ): (
 	request: MCPElicitationRequest,

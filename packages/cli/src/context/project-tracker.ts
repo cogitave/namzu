@@ -43,9 +43,27 @@ interface Bundle {
 	readonly files: readonly ProjectInstructionFile[]
 }
 
+/** An instruction file that reached the session, for a host that wants to announce it. */
+export interface LoadedInstructionFile {
+	readonly filePath: string
+	readonly memoryType: 'User' | 'Project' | 'Local'
+	readonly loadReason: 'session_start' | 'nested_traversal' | 'include'
+	/** For an include: the file that named it. */
+	readonly parentFilePath?: string
+	/** For a file found later: the file the session touched that led to its folder. */
+	readonly triggerFilePath?: string
+}
+
 export interface ProjectInstructionTrackerOptions {
 	/** The Namzu home holding the person's own file; `null` loads none. */
 	readonly userHome?: string | null
+	/**
+	 * Called once for each file the first time it is part of what the session
+	 * is given: the files found at the start say `session_start`, an included
+	 * file `include`, and a folder reached by a file the session touched
+	 * `nested_traversal`. Not awaited, and a throw is ignored.
+	 */
+	readonly onLoaded?: (file: LoadedInstructionFile) => void
 }
 
 function emptyScope(directory: string): ScopeState {
@@ -131,11 +149,18 @@ export class ProjectInstructionTracker {
 	/** Real paths the session has read or changed; they switch conditional rules on. */
 	private readonly touched = new Set<string>()
 	private user: ScopeInstructions = { files: [], skipped: [] }
+	private readonly onLoaded: ProjectInstructionTrackerOptions['onLoaded']
+	/** The files already announced to `onLoaded`, by path. */
+	private readonly announced = new Set<string>()
+	private announcedStart = false
+	/** The last file the session touched, which is why a nested folder was looked at. */
+	private lastTouched: string | undefined
 
 	constructor(cwd: string, options: ProjectInstructionTrackerOptions = {}) {
 		this.cwd = canonicalRoot(cwd)
 		this.root = canonicalRoot(instructionSearchPath(this.cwd)[0] ?? this.cwd)
 		this.userHome = options.userHome === undefined ? userInstructionHome() : options.userHome
+		this.onLoaded = options.onLoaded
 		this.refreshDirectories(instructionSearchPath(this.cwd))
 	}
 
@@ -206,6 +231,7 @@ export class ProjectInstructionTracker {
 		}
 		if (!contained(this.root, target)) return
 		this.touched.add(target)
+		this.lastTouched = target
 		this.registerPath(dirname(target))
 		this.refreshDirectories(this.scopes.keys())
 	}
@@ -320,8 +346,39 @@ export class ProjectInstructionTracker {
 
 	private snapshot(): UserMessage | null {
 		const { files, sources } = this.view()
+		this.announce(files)
 		const prompt = composeLivePrompt(this.root, files)
 		return prompt ? createProjectInstructionMessage(prompt, sources) : null
+	}
+
+	/** Tell `onLoaded` of the files it has not heard of. */
+	private announce(files: readonly ProjectInstructionFile[]): void {
+		if (this.onLoaded === undefined) return
+		const atStart = !this.announcedStart
+		this.announcedStart = true
+		for (const file of files) {
+			if (this.announced.has(file.path)) continue
+			this.announced.add(file.path)
+			const kind = file.kind ?? 'project'
+			const memoryType = kind === 'user' ? 'User' : kind === 'local' ? 'Local' : 'Project'
+			const loadReason =
+				kind === 'import' ? 'include' : atStart ? 'session_start' : 'nested_traversal'
+			try {
+				this.onLoaded({
+					filePath: file.path,
+					memoryType,
+					loadReason,
+					...(kind === 'import' && file.importedBy !== undefined
+						? { parentFilePath: file.importedBy }
+						: {}),
+					...(loadReason === 'nested_traversal' && this.lastTouched !== undefined
+						? { triggerFilePath: this.lastTouched }
+						: {}),
+				})
+			} catch {
+				// Observation only.
+			}
+		}
 	}
 
 	private snapshotKey(snapshot: UserMessage | null): string {

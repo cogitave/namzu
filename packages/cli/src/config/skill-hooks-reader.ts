@@ -254,7 +254,17 @@ export function withoutSessionStart(read: SkillHooksRead): SkillHooksRead {
 export function withoutConversationEvents(read: SkillHooksRead): SkillHooksRead {
 	return withoutEvents(
 		read,
-		['file_changed', 'cwd_changed'],
+		[
+			'file_changed',
+			'cwd_changed',
+			'pre_model_switch',
+			'post_model_switch',
+			'elicitation',
+			'elicitation_result',
+			'directory_added',
+			'instructions_loaded',
+			'user_prompt_expansion',
+		],
 		'is fired for the conversation the host runs, never inside a delegated agent, so it will not run for a skill that runs as one.',
 	)
 }
