@@ -1569,7 +1569,7 @@ export function Composer({
 
 	/** Put what the vim machine decided into the box. */
 	const applyVim = (before: VimState, result: VimResult): void => {
-		const sizeBefore = undoRef.current.size
+		const savedBefore = undoRef.current.saved
 		vimRef.current = result.state
 		if (result.text !== valueRef.current) {
 			undoRef.current.breakRun()
@@ -1580,11 +1580,11 @@ export function Composer({
 		}
 		// Everything typed between `i` and Esc undoes as one step.
 		if (before.mode !== 'INSERT' && result.state.mode === 'INSERT') {
-			vimUndoBaseRef.current = sizeBefore
+			vimUndoBaseRef.current = savedBefore
 		} else if (before.mode === 'INSERT' && result.state.mode !== 'INSERT') {
 			const base = vimUndoBaseRef.current
 			vimUndoBaseRef.current = null
-			if (base !== null) undoRef.current.truncate(base + 1)
+			if (base !== null) undoRef.current.collapseSince(base)
 		}
 		publishVim()
 		for (const effect of result.effects) {
@@ -1636,8 +1636,15 @@ export function Composer({
 		} else {
 			return false
 		}
-		const result = vimKeys(state, valueRef.current, cursorRef.current, keys)
-		if (!result.handled) return false
+		const result = vimKeys(state, valueRef.current, cursorRef.current, keys, chipsNow())
+		if (!result.handled) {
+			// A key the box does not take can still drop a half-typed command (Enter with nothing to send).
+			if (result.state.pending !== state.pending && result.state.pending.length === 0) {
+				vimRef.current = { ...state, pending: [] }
+				publishVim()
+			}
+			return false
+		}
 		applyVim(state, result)
 		// Image paste stays Ctrl+V in every mode: VISUAL lets go first, then the key goes on.
 		if ((key.ctrl || key.meta) && isAction('chat:imagePaste', input, key)) return false

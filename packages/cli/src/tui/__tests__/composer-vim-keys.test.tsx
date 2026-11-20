@@ -310,3 +310,40 @@ describe('vim keys are off by default', () => {
 		expect(h.lastFrame()).toContain('typed')
 	})
 })
+
+describe('vim editing details', () => {
+	it('the column j aims for is forgotten once text was typed', async () => {
+		const h = open()
+		await h.keys('abc')
+		await h.send('\n')
+		await h.keys('abcdef')
+		await h.send(ESC)
+		await h.keys('gg0$ix')
+		await h.send(ESC)
+		await h.keys('jiY')
+		await h.send(ESC)
+		expect(h.lastFrame()).toContain('abYcdef')
+	})
+
+	it('one u undoes a whole insert even when the undo stack is full', async () => {
+		const h = open()
+		for (let i = 0; i < 60; i += 1) {
+			await h.keys('ix')
+			await h.send(ESC)
+		}
+		await h.keys('A one two three')
+		await h.send(ESC)
+		await h.keys('u')
+		expect(h.lastFrame()).not.toContain('one')
+	})
+
+	it('Enter with nothing to send does not leave a command half typed', async () => {
+		const h = open()
+		await h.send(ESC)
+		await h.keys('d')
+		await h.send('\r')
+		expect(h.onSubmit).not.toHaveBeenCalled()
+		await h.keys('i')
+		expect(h.mode()).toEqual({ mode: 'INSERT', ownsEscape: true })
+	})
+})

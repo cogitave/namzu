@@ -53,19 +53,33 @@ describe('composer undo', () => {
 		expect(stack.undo()).toBeUndefined()
 	})
 
-	it('truncate keeps only the oldest drafts, so an insert undoes in one step', () => {
+	it('collapseSince folds the drafts of one insert into the first, so it undoes in one step', () => {
 		const stack = createUndoStack()
 		const at = (value: string) => ({ value, cursor: value.length, spans: [] })
+		const mark = stack.saved
 		stack.record(at(''), 'a', 'a')
 		stack.record(at('a'), 'a b', ' ')
 		stack.record(at('a b'), 'a b c', 'c')
 		expect(stack.size).toBe(3)
-		stack.truncate(1)
+		stack.collapseSince(mark)
 		expect(stack.size).toBe(1)
 		expect(stack.undo()?.value).toBe('')
 		expect(stack.undo()).toBeUndefined()
-		stack.truncate(5)
-		expect(stack.size).toBe(0)
+	})
+
+	it('collapseSince still folds an insert once the stack is full and dropping its oldest', () => {
+		const stack = createUndoStack(3)
+		const at = (value: string) => ({ value, cursor: value.length, spans: [] })
+		for (const v of ['p', 'q', 'r', 's']) stack.record(at(v), `${v}!`, null)
+		expect(stack.size).toBe(3)
+		const mark = stack.saved
+		stack.record(at('0'), '1', 'a')
+		stack.record(at('1'), '2', ' ')
+		stack.record(at('2'), '3', 'c')
+		expect(stack.size).toBe(3)
+		stack.collapseSince(mark)
+		expect(stack.size).toBe(1)
+		expect(stack.undo()?.value).toBe('0')
 	})
 
 	it('breakRun makes the next typed letter an edit of its own', () => {

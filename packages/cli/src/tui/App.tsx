@@ -17691,7 +17691,8 @@ function AppBody({
 				phase === 'ready' &&
 				state === 'idle' &&
 				!abortRef.current &&
-				((key.return && !composerHasDraft) || key.escape)
+				// The Esc that leaves vim's INSERT or VISUAL mode is the message box's, not the turn's.
+				((key.return && !composerHasDraft) || (key.escape && !vimOwnsEscapeRef.current))
 			) {
 				const parked = handoffParkRef.current
 				setHandoffPark(null)

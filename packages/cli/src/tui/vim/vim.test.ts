@@ -6,6 +6,7 @@ import {
 	createVimState,
 	resetVim,
 	vimKey,
+	vimKeys,
 	vimOwnsEscape,
 	vimSelection,
 } from './index.js'
@@ -745,5 +746,44 @@ describe('multi-line drafts and edges', () => {
 	it('typing in INSERT and leaving remembers nothing about positions it did not see', () => {
 		const r = run('ab|c', 'iX<Esc>')
 		expect(r.out).toBe('ab|Xc')
+	})
+
+	it('d$, c$ and y$ on an empty line change nothing and leave the register alone', () => {
+		expect(out('a\n|\nb', 'd$')).toBe('a\n|\nb')
+		expect(out('a\n|\nb', 'c$')).toBe('a\n|\nb')
+		const yanked = run('a\n|\nb', 'y$')
+		expect(yanked.out).toBe('a\n|\nb')
+		expect(yanked.state.register.text).toBe('')
+		expect(out('a\n|\nb', 'y$p')).toBe('a\n|\nb')
+	})
+
+	it('a command that does nothing is not what . repeats', () => {
+		expect(out('|a b c d', 'dwdk.')).toBe('|c d')
+		expect(out('|a b c d', 'dwdfz.')).toBe('|c d')
+		// A replace past the end of the line does nothing; the one before it is still repeated.
+		expect(out('|abc', 'rxl5rq.')).toBe('x|xc')
+	})
+
+	it('a half-typed command is dropped when Enter is not taken', () => {
+		const r = vimKey({ ...createVimState(), mode: 'NORMAL', pending: ['d'] }, 'abc', 0, {
+			key: 'Enter',
+		})
+		expect(r.handled).toBe(false)
+		expect(r.state.pending).toEqual([])
+	})
+
+	it('a marker is one unit for a yank', () => {
+		const text = 'ab [Pasted text #1 +12 lines]cd'
+		const chips = [{ start: 3, end: 29 }]
+		let r = vimKeys(
+			{ ...createVimState(), mode: 'NORMAL' },
+			text,
+			3,
+			[{ key: 'y' }, { key: 'w' }],
+			chips,
+		)
+		expect(r.state.register.text.startsWith('[Pasted text #1 +12 lines]')).toBe(true)
+		r = vimKeys(r.state, text, 3, [{ key: 'l' }, { key: 'y' }, { key: 'l' }], chips)
+		expect(r.state.register.text).toBe('[Pasted text #1 +12 lines]')
 	})
 })

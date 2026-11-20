@@ -343,6 +343,12 @@ interface Moved {
 	readonly wanted?: number
 }
 
+/** A marker in the draft, as `[start, end)` offsets into the text. */
+export interface VimChip {
+	readonly start: number
+	readonly end: number
+}
+
 const cap = (n: number): number => Math.min(n, MAX_COUNT)
 
 class Machine {
@@ -362,8 +368,11 @@ class Machine {
 	/** The text is being replayed by `.`, with this typed text for any insert. */
 	private replay: string | null = null
 	private docCache: Doc | null = null
+	/** Pasted-text and image markers, as `[start, end)` offsets into the text: each is one unit. */
+	private readonly chips: readonly VimChip[]
 
-	constructor(state: VimState, text: string, cursor: number) {
+	constructor(state: VimState, text: string, cursor: number, chips: readonly VimChip[] = []) {
+		this.chips = chips
 		this.text = text
 		this.cursor = cursor
 		this.mode = state.mode
@@ -440,6 +449,7 @@ class Machine {
 		}
 		this.mode = 'INSERT'
 		this.pending = []
+		this.wanted = null
 		this.insert = {
 			baseText: this.text,
 			baseCursor: this.cursor,
@@ -457,6 +467,8 @@ class Machine {
 	}
 
 	exitInsert(): void {
+		// Text typed in INSERT moved the cursor: the column `j` and `k` aimed for is stale.
+		this.wanted = null
 		const session = this.insert
 		let typed = ''
 		if (session) {
@@ -571,6 +583,8 @@ class Machine {
 			case '^':
 				return { to: doc.firstNonBlank(ci), kind: 'excl' }
 			case '$':
+				// On an empty line there is nothing to take: an operator does nothing there.
+				if (le === ls && op !== null) return null
 				return { to: le > ls ? le - 1 : ls, kind: 'incl', wanted: Number.POSITIVE_INFINITY }
 			case 'w':
 			case 'W': {
@@ -725,13 +739,27 @@ class Machine {
 		this.at(fresh.firstNonBlank(fresh.startOfLine(l1)))
 	}
 
+	/** Characters `[a, b)` grown to take every marker they cut into whole. */
+	private wholeChips(a: number, b: number): [number, number] {
+		if (this.chips.length === 0) return [a, b]
+		const doc = this.doc
+		let from = doc.off(a)
+		let to = doc.off(b)
+		for (const chip of this.chips) {
+			if (from > chip.start && from < chip.end) from = chip.start
+			if (to > chip.start && to < chip.end) to = chip.end
+		}
+		return [doc.idx(from), doc.idx(to)]
+	}
+
 	/** An operator over characters `[a, b)`. */
-	opChars(op: Op, a: number, b: number): void {
+	opChars(op: Op, from: number, to: number): void {
 		const doc = this.doc
 		if (op === '<' || op === '>') {
-			this.indentLines(op, doc.lineOf(a), doc.lineOf(Math.max(a, b - 1)), 1)
+			this.indentLines(op, doc.lineOf(from), doc.lineOf(Math.max(from, to - 1)), 1)
 			return
 		}
+		const [a, b] = this.wholeChips(from, to)
 		const removed = doc.slice(a, b)
 		if (op === 'y') {
 			this.setRegister(removed, false)
@@ -945,6 +973,7 @@ class Machine {
 		const times = cmd.count ?? 1
 		if (ci + times > doc.lineEnd(ci)) return
 		this.splice(ci, ci + times, cmd.char.repeat(times))
+		this.replaced = true
 		this.at(ci + times - 1)
 	}
 
@@ -952,7 +981,29 @@ class Machine {
 
 	runNormal(cmd: Cmd): void {
 		this.currentCmd = cmd
+		const kept = this.lastChange
+		const text = this.text
+		const register = this.register
 		if (isChange(cmd)) this.remember(cmd)
+		this.runCommand(cmd)
+		// A command that changed nothing is not a change: `.` keeps repeating the one before it.
+		if (
+			this.replay === null &&
+			isChange(cmd) &&
+			this.mode === 'NORMAL' &&
+			this.text === text &&
+			this.register === register &&
+			!(cmd.t === 'replace' && this.replaced)
+		) {
+			this.lastChange = kept
+		}
+		this.replaced = false
+	}
+
+	/** Set by a replace that did change the line, which stays the thing `.` repeats. */
+	private replaced = false
+
+	private runCommand(cmd: Cmd): void {
 		switch (cmd.t) {
 			case 'motion':
 				this.moveBy(cmd.motion, cmd.count)
@@ -1159,6 +1210,8 @@ class Machine {
 		switch (name) {
 			case 'Enter':
 				if (!visual) {
+					// Nothing is sent, so nothing may stay half typed.
+					this.pending = []
 					this.handled = false
 					return
 				}
@@ -1207,8 +1260,14 @@ function toggleCase(ch: string): string {
 }
 
 /** Feed one key. */
-export function vimKey(state: VimState, text: string, cursor: number, key: VimKey): VimResult {
-	const machine = new Machine(state, text, cursor)
+export function vimKey(
+	state: VimState,
+	text: string,
+	cursor: number,
+	key: VimKey,
+	chips: readonly VimChip[] = [],
+): VimResult {
+	const machine = new Machine(state, text, cursor, chips)
 	machine.feed(key)
 	return machine.result()
 }
@@ -1219,6 +1278,7 @@ export function vimKeys(
 	text: string,
 	cursor: number,
 	keys: readonly VimKey[],
+	chips: readonly VimChip[] = [],
 ): VimResult {
 	let result: VimResult = {
 		handled: true,
@@ -1231,7 +1291,7 @@ export function vimKeys(
 	const effects: VimEffect[] = []
 	let pasted = false
 	for (const key of keys) {
-		result = vimKey(result.state, result.text, result.cursor, key)
+		result = vimKey(result.state, result.text, result.cursor, key, chips)
 		effects.push(...result.effects)
 		pasted = pasted || result.pasted
 		if (!result.handled) break

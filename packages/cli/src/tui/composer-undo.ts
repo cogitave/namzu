@@ -31,8 +31,14 @@ export interface UndoStack {
 	undo(): DraftSnapshot | undefined
 	/** End the run of typed letters, so the next edit is an edit of its own. */
 	breakRun(): void
-	/** Keep only the oldest `size` saved drafts: a whole insert undoes in one step. */
-	truncate(size: number): void
+	/** How many drafts were ever saved; unlike `size` it keeps counting once the stack is full. */
+	readonly saved: number
+	/**
+	 * Fold the drafts saved since `saved` was `mark` into the first of them, so a
+	 * whole insert undoes in one step, also when the stack was full and dropping
+	 * its oldest drafts as the insert went on.
+	 */
+	collapseSince(mark: number): void
 	/** Forget everything, as after a send. */
 	clear(): void
 	readonly size: number
@@ -42,11 +48,13 @@ export function createUndoStack(limit: number = UNDO_LIMIT): UndoStack {
 	const items: DraftSnapshot[] = []
 	/** The draft a still-open run of typed letters ended with. */
 	let runEnd: string | null = null
+	let saved = 0
 	return {
 		record(before, after, typed) {
 			const continuesRun = typed !== null && runEnd === before.value && !/\s/u.test(typed)
 			if (!continuesRun) {
 				items.push(before)
+				saved += 1
 				if (items.length > limit) items.shift()
 			}
 			runEnd = typed !== null && !/\s/u.test(typed) ? after : null
@@ -58,13 +66,17 @@ export function createUndoStack(limit: number = UNDO_LIMIT): UndoStack {
 		breakRun() {
 			runEnd = null
 		},
-		truncate(size) {
-			if (items.length > size) items.length = Math.max(0, size)
+		collapseSince(mark) {
+			const added = saved - mark
+			if (added > 1) items.length = Math.max(0, items.length - (added - 1))
 			runEnd = null
 		},
 		clear() {
 			items.length = 0
 			runEnd = null
+		},
+		get saved() {
+			return saved
 		},
 		get size() {
 			return items.length

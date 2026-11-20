@@ -6,6 +6,7 @@ export {
 	vimKeys,
 	vimOwnsEscape,
 	vimSelection,
+	type VimChip,
 	type VimEffect,
 	type VimKey,
 	type VimMode,

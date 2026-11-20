@@ -43,7 +43,7 @@ The mode is written at the left end of the footer line. It is the last item to g
 
 Counts go up to 10000 and multiply (`2d3w` is `6dw`). One unnamed register holds what `d c x s D C S y Y` took; it is not the system clipboard and not Ctrl+Y's kill ring. There are no named registers and no redo.
 
-**Motions.** `h l` and Left/Right (Left on an empty box is the workspaces key as before), `j k` and Down/Up, `Space` and Backspace across line ends, `w W b B e E`, `0 ^ $`, `gg G` (with a count, to that line), `f F t T` with `;` and `,`, `%` for `()[]{}` on the line, and `gj gk` (the same as `j k`, since the box does not know where the terminal wraps). `j` on the last line and `k` on the first line step through the prompt history, as Down and Up do; a recalled line replaces the draft. Word classes are letters, digits and `_`, then punctuation, then blanks; an empty line is a word of its own. `$` is sticky for `j` and `k` and ignores a count.
+**Motions.** `h l` and Left/Right (Left on an empty box is the workspaces key as before), `j k` and Down/Up, `Space` and Backspace across line ends, `w W b B e E`, `0 ^ $`, `gg G` (with a count, to that line), `f F t T` with `;` and `,`, `%` for `()[]{}` on the line, and `gj gk` (the same as `j k`, since the box does not know where the terminal wraps). `k` on the first line steps back through the prompt history, as Up does, and `j` on the last line steps forward again, but only while a recalled line is shown; a recalled line replaces the draft. Word classes are letters, digits and `_`, then punctuation, then blanks; an empty line is a word of its own. `$` is sticky for `j` and `k` and ignores a count.
 
 **Operators.** `d c y` with any motion above, doubled (`dd cc yy`), or with a text object; `>` and `<` shift lines by two spaces. `cw` changes to the end of the word. `dw` on the last word of a line stops at the line end and does not join the next line.
 
@@ -55,7 +55,7 @@ Counts go up to 10000 and multiply (`2d3w` is `6dw`). One unnamed register holds
 
 **Undo.** `u` steps back one change. Everything typed between an `i` (or `o`, `cw`, ...) and the Esc that ends it undoes as one step. Ctrl+_ is the same undo and the last 50 edits are kept.
 
-**Pasted text and images.** A pasted block and an image are one unit, like in INSERT: a motion steps over it, a delete takes all of it.
+**Pasted text and images.** A pasted block and an image are one unit, like in INSERT: a motion steps over it, a delete or a yank takes all of it.
 
 ## What is left out
 
