@@ -4082,21 +4082,19 @@ export async function createAgentSession(
 	// the `/tools` list a user reads include what they configured. Connecting
 	// after the count would report a session smaller than the one that runs.
 	// A server may ask the person for a form's worth of input. The turn's
-	// answerer is read when it asks (it can arrive before any turn has set one),
-	// and a session where nobody can answer never tells servers they may ask.
+	// answerer is read when it asks (it can arrive before any turn has set one).
+	// A run with nobody to ask (exec) still installs the handler: an
+	// `elicitation` hook may answer in the person's place, and when none does the
+	// server is told "decline".
 	const mcpStart = {
 		cwd,
-		...(options.askUser || options.questions
-			? {
-					elicit: elicitThroughQuestions(
-						() => elicitationHost.ask,
-						() =>
-							hookManager() === undefined
-								? undefined
-								: elicitationHooks(hookManager, () => String(scope.sessionId)),
-					),
-				}
-			: {}),
+		elicit: elicitThroughQuestions(
+			() => elicitationHost.ask,
+			() =>
+				hookManager() === undefined
+					? undefined
+					: elicitationHooks(hookManager, () => String(scope.sessionId)),
+		),
 	}
 	const mcp =
 		options.toolServers === 'background'

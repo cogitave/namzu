@@ -1427,7 +1427,6 @@ type StreamState = {
 	contextTexts?: string[]
 }
 
-/** Last non-empty assistant text in a durable conversation, newest first. */
 /** A model as a `pre_model_switch` or `post_model_switch` hook is told it: `provider/model`, or just `auto`. */
 function modelSwitchLabel(provider: string | undefined, model: string | null | undefined): string {
 	const name = model ?? 'unknown'
@@ -1439,6 +1438,7 @@ function modelSwitchWords(to: { readonly id: string; readonly model: string }): 
 	return to.id === to.model ? to.model : `${to.id} · ${to.model}`
 }
 
+/** Last non-empty assistant text in a durable conversation, newest first. */
 function latestAssistantOutput(messages: readonly Message[]): string | null {
 	for (let i = messages.length - 1; i >= 0; i -= 1) {
 		const message = messages[i]
@@ -13595,7 +13595,10 @@ function AppBody({
 			const slash = operatorText ? runSlash(dispatch, slashCtx, hostCommands) : null
 			if (slash) {
 				const commandName = /^\/([\w-]+)/u.exec(dispatch.trim())?.[1]
-				if (commandName) tipHistory?.recordUse(commandName.toLowerCase())
+				// The second pass of a line whose expansion hooks have answered is
+				// the same use, not another.
+				const secondPass = expansionAnsweredRef.current?.line === dispatch
+				if (commandName && !secondPass) tipHistory?.recordUse(commandName.toLowerCase())
 			}
 			if (slash) {
 				switch (slash.kind) {

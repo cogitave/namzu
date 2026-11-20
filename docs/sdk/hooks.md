@@ -605,7 +605,7 @@ The terminal app fires both. A turn that names its model per request (the Deskto
 
 ### Tool-server questions
 
-A tool server may ask the person for a form's worth of input. `elicitation` runs first, with `mcp_server_name`, `message`, `mode` (`form`) and `requested_schema`. A hook answers in the person's place with `hookSpecificOutput`: `{ "action": "accept", "content": { ... } }` (or `decline` or `cancel`); exit `2` declines. When one answers, nobody is asked. `elicitation_result` then runs with the answer that is about to go to the server (`action`, and `content` for an accept). A hook may change it: `action` and `content` again, or only `content` to replace the values; exit `2` turns it into a decline. A question the server withdrew is not reported. Both ignore their matcher.
+A tool server may ask the person for a form's worth of input. `elicitation` runs first, with `mcp_server_name`, `message`, `mode` (`form`) and `requested_schema`. A hook answers in the person's place with `hookSpecificOutput`: `{ "action": "accept", "content": { ... } }` (or `decline` or `cancel`); exit `2` declines. When one answers, nobody is asked. `elicitation_result` then runs with the answer that is about to go to the server (`action`, and `content` for an accept). A hook may change it: `action` and `content` again, or only `content` to replace the values; exit `2` turns it into a decline. A question the server withdrew is not reported. Both ignore their matcher. A run with nobody to ask (`namzu exec`) fires them too: an `elicitation` hook can still answer, and when none does the server is told the question was declined.
 
 ### Working folders and instruction files
 
