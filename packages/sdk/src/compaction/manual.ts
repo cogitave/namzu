@@ -32,7 +32,7 @@ import {
 import { planCompaction } from './plan.js'
 import { recordRestorable, renderRestoredContext } from './restore.js'
 import { findRetainedIndices } from './retention.js'
-import { buildCompactionMessage, isCompactionMessage } from './summary.js'
+import { buildCompactionMessage, collectRevealedTools, isCompactionMessage } from './summary.js'
 import { estimateMessagesTokens } from './token-estimate.js'
 import { type CompactionVerificationOptions, buildVerifiedSummary } from './verifier.js'
 
@@ -224,12 +224,18 @@ function splice(
 	retainedOlder: readonly Message[],
 	recentMessages: readonly Message[],
 	recoveryNote?: string,
+	cut: readonly Message[] = [],
 ): { messages: Message[]; summary: Message } {
 	// A host-triggered pass has no turn-scoped WorkingStateManager to carry the
 	// summary into a later query. Pin this summary itself: until a future turn
 	// has rebuilt equivalent state, this message is the only surviving record
 	// of what the pass removed.
-	const summary = { ...buildCompactionMessage(summaryBody, recoveryNote), retain: true }
+	// `cut` is every message the pass read: the tools it loaded are still loaded
+	// once the messages that loaded them are gone.
+	const summary = {
+		...buildCompactionMessage(summaryBody, recoveryNote, collectRevealedTools(cut)),
+		retain: true,
+	}
 	return { messages: [...preservedSystem, summary, ...retainedOlder, ...recentMessages], summary }
 }
 
@@ -391,6 +397,7 @@ export async function compactNow(input: CompactNowInput): Promise<CompactionResu
 		retainedOlder,
 		plan.recentMessages,
 		input.recoveryNote,
+		input.messages,
 	)
 	const published = await publishManualCompaction(input, {
 		messages,
@@ -508,6 +515,7 @@ export async function compactRegion(input: CompactRegionInput): Promise<Compacti
 				...messages.slice(end),
 			]),
 			input.recoveryNote,
+			collectRevealedTools(messages),
 		),
 		retain: true,
 	}

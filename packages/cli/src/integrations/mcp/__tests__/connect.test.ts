@@ -326,6 +326,32 @@ describe('a declared server', () => {
 		}
 	})
 
+	it('offers a server tools by name only, unless the server is marked alwaysLoad', async () => {
+		const server = writeServer('tickets.js', WORKING_SERVER)
+		const mcp = await connectMcpServers(
+			{
+				tickets: { command: process.execPath, args: [server] },
+				pinned: { command: process.execPath, args: [server], alwaysLoad: true },
+				explicit: { command: process.execPath, args: [server], alwaysLoad: false },
+			},
+			{ cwd: dir },
+		)
+		try {
+			expect(mcp.failed).toEqual([])
+			const main = (server: string) =>
+				mcp.toolsets.find((ts) => ts.source.id === `mcp:${server}` && ts.tools().length > 0)
+			expect(main('tickets')?.availability).toBe('deferred')
+			expect(main('explicit')?.availability).toBe('deferred')
+			expect(main('pinned')?.availability ?? 'active').toBe('active')
+			// Resource tools were always deferred; they still are.
+			for (const ts of mcp.toolsets.filter((t) => t.source.id === 'mcp:pinned')) {
+				if (ts !== main('pinned')) expect(ts.availability).toBe('deferred')
+			}
+		} finally {
+			await mcp.close()
+		}
+	})
+
 	it('surfaces server instructions without changing their content', async () => {
 		const server = writeServer(
 			'instructed.js',
@@ -352,6 +378,7 @@ describe('a declared server', () => {
 		[{ maxRetries: -1 }, /maxRetries must be a nonnegative integer/],
 		[{ requireApproval: 'yes' }, /requireApproval must be true or false/],
 		[{ readOnlyHintTrusted: 'yes' }, /readOnlyHintTrusted must be true or false/],
+		[{ alwaysLoad: 'yes' }, /alwaysLoad must be true or false/],
 	] as const)(
 		'names an invalid server tool policy instead of silently skipping it',
 		async (policy, reason) => {

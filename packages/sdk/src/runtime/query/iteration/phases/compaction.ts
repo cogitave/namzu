@@ -27,6 +27,7 @@ import { serializeState } from '../../../../compaction/serializer.js'
 import {
 	COMPACTION_RECOVERY_NOTE,
 	buildCompactionMessage,
+	collectRevealedTools,
 	isCompactionMessage,
 } from '../../../../compaction/summary.js'
 import { estimateMessagesTokens } from '../../../../compaction/token-estimate.js'
@@ -1282,6 +1283,9 @@ async function runCompactionCheckInner(
 		mounted.has('search_conversation') && mounted.has('read_conversation')
 			? COMPACTION_RECOVERY_NOTE
 			: undefined,
+		// The tools the model had loaded stay loaded: the messages that loaded
+		// them are what this pass cuts.
+		collectRevealedTools(messages),
 	)
 
 	const newMessages = [...preservedSystem, compactionMessage, ...retainedOlder, ...recentMessages]

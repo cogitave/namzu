@@ -348,7 +348,6 @@ import {
 	connectMcpServers,
 	startMcpServers,
 } from '../integrations/mcp/servers.js'
-import { deferLargeMcpToolsets } from '../integrations/mcp/tool-search.js'
 import { type MonitorInbox, createMonitorInbox } from '../integrations/monitors/inbox.js'
 import { MONITOR_WEB_ACCESS_HINT } from '../integrations/monitors/web-access-hint.js'
 import { createOutstandingFacts } from '../integrations/outstanding/facts.js'
@@ -7284,27 +7283,6 @@ export async function createAgentSession(
 								...runToolsets,
 								toolLoadingDeferred ? deferred(workflowToolset) : workflowToolset,
 							]
-							if (runManager !== manager) runManager.dispose()
-							runManager = new ToolManager({
-								toolsets: runToolsets,
-								...(screensConfig !== undefined ? { resultGuardrails: screensConfig } : {}),
-								messages: () => [],
-							})
-						}
-						// External servers whose tool definitions would take a tenth of
-						// this turn's window or more are offered by name only, loaded
-						// through `search_tools` — see `integrations/mcp/tool-search.ts`.
-						// After every other addition, because those rebuild from
-						// `sessionToolsets`.
-						const mcpDeferred = deferLargeMcpToolsets(
-							runToolsets,
-							resolveContextWindow(
-								options.compaction?.contextWindowTokens,
-								autoRoute?.model ?? model,
-							).tokens,
-						)
-						if (mcpDeferred) {
-							runToolsets = mcpDeferred
 							if (runManager !== manager) runManager.dispose()
 							runManager = new ToolManager({
 								toolsets: runToolsets,
