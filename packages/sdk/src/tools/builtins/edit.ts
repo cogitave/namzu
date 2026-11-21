@@ -538,16 +538,16 @@ async function refuseEditBeforeReview(
 					: `edits[${noOp}]: old_string and new_string are identical — no change needed. Nothing was written.`,
 		}
 	}
+	// In a sandbox only the moved-since-read check runs here, as before; the
+	// unread-file refusals are given when the call runs there, so a guest that is
+	// not admitted yet, or that holds a file the host has never seen, is not
+	// judged from a read made before anyone approved the call.
+	if (context.sandbox) return staleBeforeReview(context, parsed.data.path, 'edit')
 	let key: string
 	let content: string
 	try {
-		if (context.sandbox) {
-			key = parsed.data.path
-			content = (await context.sandbox.readFile(key)).toString('utf-8')
-		} else {
-			key = await resolveWithinAnyReal(toolRoots(context), parsed.data.path)
-			content = await readFile(key, 'utf-8')
-		}
+		key = await resolveWithinAnyReal(toolRoots(context), parsed.data.path)
+		content = await readFile(key, 'utf-8')
 	} catch {
 		return undefined
 	}

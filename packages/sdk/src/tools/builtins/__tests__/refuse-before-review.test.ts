@@ -103,4 +103,24 @@ describe('refuseBeforeReview', () => {
 			await BashTool.refuseBeforeReview?.({ command: 'sleep 2' } as never, withJobs),
 		).toBeUndefined()
 	})
+
+	it('leaves the unread-file refusals to the run in a sandbox', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'refuse-sandbox-'))
+		const sandbox = {
+			readFile: async () => Buffer.from('exists in the guest'),
+		} as unknown as NonNullable<ToolContext['sandbox']>
+		const context = ctx(dir, tracker(new Map()), { sandbox })
+		const write = await WriteFileTool.refuseBeforeReview?.(
+			{ path: 'new.txt', content: 'hello' } as never,
+			context,
+		)
+		const edit = await EditTool.refuseBeforeReview?.(
+			{ path: 'new.txt', old_string: 'a', new_string: 'b' } as never,
+			context,
+		)
+		// The guest holds new.txt and the session never read it: on the host this
+		// would be refused before review; in a sandbox the run answers it.
+		expect(write).toBeUndefined()
+		expect(edit).toBeUndefined()
+	})
 })

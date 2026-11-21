@@ -225,17 +225,17 @@ async function refuseWriteBeforeReview(
 	input: WriteInput,
 	context: ToolContext,
 ): Promise<{ readonly error: string; readonly facts: ToolFacts } | undefined> {
+	// In a sandbox only the moved-since-read check runs here, as before; the
+	// unread-file refusals are given when the call runs there, so a guest that is
+	// not admitted yet, or that holds a file the host has never seen, is not
+	// judged from a read made before anyone approved the call.
+	if (context.sandbox) return staleBeforeReview(context, input.path, 'write')
 	const tracker = context.fileReadTracker
 	if (!tracker) return undefined
 	let key: string
 	try {
-		if (context.sandbox) {
-			key = input.path
-			if ((await readSandboxFileIfPresent(context, key)) == null) return undefined
-		} else {
-			key = await resolveWithinAnyReal(toolRoots(context), input.path)
-			if ((await readHostFileIfPresent(key)) === undefined) return undefined
-		}
+		key = await resolveWithinAnyReal(toolRoots(context), input.path)
+		if ((await readHostFileIfPresent(key)) === undefined) return undefined
 	} catch {
 		return undefined
 	}
