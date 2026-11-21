@@ -14,12 +14,15 @@
  * the mock says what it waits for, and Vitest's own timeout catches a hang.
  */
 
-import { rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { render } from 'ink-testing-library'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { Preferences } from '../../integrations/providers/index.js'
+import { removeTempDir } from '../../__fixtures__/temp-dir.js'
+import type { DetectedProvider, Preferences } from '../../integrations/providers/index.js'
 import {
 	AUTO_MODE_DEFAULT_NOTICE_TITLE,
 	acknowledgementsPath,
@@ -55,6 +58,24 @@ let limitHandler:
 	| undefined
 let turnsSent = 0
 let sessionShown = false
+/** Sessions built so far; a model switch builds another. */
+let built = 0
+/** What the probe finds; a model switch needs the provider it names. */
+let detectedProviders: readonly DetectedProvider[] = []
+const DETECTED = {
+	entry: {
+		id: 'openai',
+		label: 'A Provider',
+		vendor: 'openai',
+		defaultModel: 'a-model',
+		requiresApiKey: true,
+		envVars: ['A_KEY'],
+		constructible: true,
+	},
+	source: { kind: 'env', envName: 'A_KEY' },
+	apiKey: 'not-a-real-key',
+	alternatives: [],
+} as unknown as DetectedProvider
 
 vi.mock('../agent.js', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('../agent.js')>()
@@ -63,9 +84,21 @@ vi.mock('../agent.js', async (importOriginal) => {
 		probeAgentSession: async () => ({
 			preferences: PREFS,
 			needsRepickReason: null,
-			detected: [],
+			detected: detectedProviders,
 		}),
+		describeProviderModels: async () => ({
+			kind: 'ok' as const,
+			models: [
+				{ id: 'a-model', name: 'a-model' },
+				{ id: 'b-model', name: 'b-model' },
+			],
+		}),
+		verifyCredential: async () => ({ kind: 'verified' as const }),
 		createAgentSession: async (): Promise<AgentSession> => ({
+			...(() => {
+				built += 1
+				return {}
+			})(),
 			hasProvider: true,
 			get providerSummary() {
 				// Read when the published session is drawn, which is after its mode was settled.
@@ -109,7 +142,12 @@ vi.mock('../agent.js', async (importOriginal) => {
 	}
 })
 
-const { App, AUTO_MODE_STOPPED_NOTICE } = await import('../App.js')
+const {
+	App,
+	AUTO_MODE_DEFAULT_LEFT_NOTICE,
+	AUTO_MODE_DEFAULT_STOPPED_NOTICE,
+	AUTO_MODE_STOPPED_NOTICE,
+} = await import('../App.js')
 
 const base: TuiContext = {
 	cwd: process.cwd(),
@@ -119,6 +157,19 @@ const base: TuiContext = {
 	permissionSource: 'auto-default',
 } as unknown as TuiContext
 
+// The acknowledgements file is removed before every test, so it must be this
+// file's own: a NAMZU_HOME inherited from the shell would be a person's.
+const inherited = process.env.NAMZU_HOME
+const home = mkdtempSync(join(tmpdir(), 'namzu-auto-default-'))
+beforeAll(() => {
+	process.env.NAMZU_HOME = home
+})
+afterAll(() => {
+	if (inherited === undefined) delete process.env.NAMZU_HOME
+	else process.env.NAMZU_HOME = inherited
+	removeTempDir(home)
+})
+
 const mounted: Array<{ unmount: () => void }> = []
 beforeEach(() => rmSync(acknowledgementsPath(), { force: true }))
 afterEach(() => {
@@ -127,6 +178,8 @@ afterEach(() => {
 	limitHandler = undefined
 	turnsSent = 0
 	sessionShown = false
+	built = 0
+	detectedProviders = []
 	for (const m of mounted.splice(0)) m.unmount()
 	vi.clearAllMocks()
 })
@@ -160,9 +213,11 @@ describe('a terminal nobody chose a mode for', () => {
 		await until(() => flat(harness).includes('auto mode on'))
 		await until(() => flat(harness).includes(AUTO_MODE_DEFAULT_NOTICE_TITLE))
 		const seen = flat(harness)
-		expect(seen).toContain('Press Shift+Tab to change the mode')
+		expect(seen).toContain('Shift+Tab changes the mode')
 		expect(seen).toContain('permissions.defaultMode: prompt in ~/.namzu/config.yaml')
-		expect(seen).toContain('docs/cli/permission-modes.md')
+		// A pointer someone who installed Namzu can follow, not a path in its source.
+		expect(seen).toContain('/permissions explains the modes')
+		expect(seen).not.toContain('docs/cli/')
 		expect(hasSeenAutoModeDefaultNotice()).toBe(true)
 		await sendOne(harness)
 		expect(sentMode, 'the first turn runs under auto').toBe('classify')
@@ -240,20 +295,59 @@ describe('a terminal someone chose a mode for', () => {
 })
 
 describe('a turn auto mode stopped for want of a verdict', () => {
-	it('says so in one sentence and leaves the mode on auto', async () => {
-		const harness = await mount()
-		await until(() => flat(harness).includes('auto mode on'))
-		await sendOne(harness)
-		expect(limitHandler).toBeDefined()
+	const stop = () =>
 		limitHandler?.({
 			limit: 'unavailable',
 			reason: 'the safety check could not be completed, so the action was not run',
 		})
+
+	it('says so in one sentence and leaves auto on for a person who chose it', async () => {
+		const harness = await mount({
+			permissionSource: 'launch-flag',
+			launchSettings: { permissionMode: 'classify' },
+		})
+		await until(() => flat(harness).includes('auto mode on'))
+		await sendOne(harness)
+		expect(limitHandler).toBeDefined()
+		stop()
 		await until(() => flat(harness).includes('could not get a safety decision'))
 		expect(AUTO_MODE_STOPPED_NOTICE).toContain('Send a message to try again')
 		expect(AUTO_MODE_STOPPED_NOTICE).toContain('Shift+Tab')
 		expect(harness.lastFrame() ?? '').toContain('auto mode on')
 		await sendOne(harness)
 		expect(sentMode, 'the next message is still checked by auto mode').toBe('classify')
+	})
+
+	// Nobody picked auto here, so a model that cannot judge must not stop every
+	// turn that follows: the terminal asks instead, as at the block limit.
+	it('goes back to asking for a terminal that was in auto only by default', async () => {
+		const harness = await mount()
+		await until(() => flat(harness).includes('auto mode on'))
+		await sendOne(harness)
+		stop()
+		await until(() => flat(harness).includes('This terminal now asks before changes'))
+		expect(AUTO_MODE_DEFAULT_STOPPED_NOTICE).toContain('/permissions auto')
+		await sendOne(harness)
+		expect(sentMode, 'the next message asks before changes').toBe('prompt')
+		expect(harness.lastFrame() ?? '').not.toContain('auto mode on')
+	})
+})
+
+describe('a later session for a terminal in its default', () => {
+	it('says in one line when it takes the terminal out of auto', async () => {
+		detectedProviders = [DETECTED]
+		const harness = await mount()
+		await until(() => flat(harness).includes('auto mode on'))
+		expect(flat(harness)).not.toContain(AUTO_MODE_DEFAULT_LEFT_NOTICE)
+		// Another model whose classifier cannot answer: the default turns to asking.
+		autoModeUsable = false
+		const before = built
+		harness.stdin.write('/model openai/b-model')
+		await settle()
+		harness.stdin.write('\r')
+		await until(() => built > before)
+		await until(() => flat(harness).includes(AUTO_MODE_DEFAULT_LEFT_NOTICE))
+		await sendOne(harness)
+		expect(sentMode).toBe('prompt')
 	})
 })

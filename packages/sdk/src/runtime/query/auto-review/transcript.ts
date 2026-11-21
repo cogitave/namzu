@@ -28,6 +28,7 @@ export type TranscriptCallOutcome =
 	| 'error'
 	| 'interrupted'
 	| 'rejected by the person'
+	| 'refused by the mode the session was in'
 	| 'blocked by permissions'
 	| 'blocked by auto mode'
 	| 'auto mode unavailable'
@@ -133,6 +134,8 @@ export function callOutcome(result: ToolMessage): TranscriptCallOutcome {
 			return 'interrupted'
 		case 'rejected':
 			return 'rejected by the person'
+		case 'refused_by_mode':
+			return 'refused by the mode the session was in'
 		case 'blocked_by_permissions':
 			return 'blocked by permissions'
 		case 'blocked_by_auto_mode':

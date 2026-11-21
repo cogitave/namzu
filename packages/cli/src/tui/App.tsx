@@ -2010,7 +2010,8 @@ function AppBody({
 	 * written shows it again next time rather than never.
 	 */
 	const autoDefaultNoticeShownRef = useRef(false)
-	const showAutoDefaultNoticeRef = useRef<() => void>(() => {})
+	/** Shows the notice if it is due; true when it was shown just now. */
+	const showAutoDefaultNoticeRef = useRef<() => boolean>(() => false)
 	const bypassAvailableRef = useRef(
 		ctx.bypassAvailable ??
 			(ctx.skipPermissions === true ||
@@ -2882,9 +2883,9 @@ function AppBody({
 		return `m${idRef.current}`
 	}, [])
 	showAutoDefaultNoticeRef.current = () => {
-		if (autoDefaultNoticeShownRef.current) return
+		if (autoDefaultNoticeShownRef.current) return false
 		autoDefaultNoticeShownRef.current = true
-		if (hasSeenAutoModeDefaultNotice()) return
+		if (hasSeenAutoModeDefaultNotice()) return false
 		try {
 			markAutoModeDefaultNoticeSeen()
 		} catch {
@@ -2900,6 +2901,7 @@ function AppBody({
 				kind: 'announcement' as const,
 			},
 		])
+		return true
 	}
 	const takeThinking = useCallback(() => {
 		const text = thinkingForNextRowRef.current
@@ -5041,7 +5043,19 @@ function AppBody({
 			readonly reason: string
 		}): void => {
 			if (event.limit === 'unavailable') {
-				// The kernel refused the batch and ended the turn; the mode stays.
+				// The kernel refused the batch and ended the turn. A person who chose
+				// auto keeps it. A terminal in auto only because nothing chose another
+				// mode goes back to asking, as it does at the block limit, so a model
+				// that cannot judge does not stop every turn for someone who never
+				// picked auto.
+				if (
+					permissionModeSourceRef.current === 'auto-default' &&
+					permissionModeRef.current === 'classify'
+				) {
+					commitPermissionMode('prompt', false)
+					pushMessage('system', AUTO_MODE_DEFAULT_STOPPED_NOTICE)
+					return
+				}
 				pushMessage('system', AUTO_MODE_STOPPED_NOTICE)
 				return
 			}
@@ -6816,9 +6830,27 @@ function AppBody({
 					settings: activeCtx.permissionSettings,
 					classifierUsable: s.hasProvider && s.autoMode?.available === true,
 				})
+				const before = permissionModeRef.current
 				permissionModeRef.current = mode
 				setPermissionModeState(mode)
-				if (mode === 'classify' && autoDefault) showAutoDefaultNoticeRef.current()
+				const noticed =
+					mode === 'classify' && autoDefault ? showAutoDefaultNoticeRef.current() : false
+				// A later session (another model, another service) can move a terminal
+				// that is in its default between auto and asking. Nobody chose that, so
+				// it is said, once per change; a Pal's own mode is not the default's.
+				if (
+					autoDefault &&
+					previousSessionRef.current !== null &&
+					!definition &&
+					!previousPalDefinition &&
+					before !== mode &&
+					!noticed
+				) {
+					pushMessage(
+						'system',
+						mode === 'classify' ? AUTO_MODE_DEFAULT_RESUMED_NOTICE : AUTO_MODE_DEFAULT_LEFT_NOTICE,
+					)
+				}
 			}
 			// A picker-owned provider/model change is one state transition. Clear the
 			// old model's effort selection before publishing the replacement session
@@ -19599,6 +19631,15 @@ const AUTO_UNAVAILABLE_NOTICE = 'Auto mode is not available in this session.'
 /** Said when the turn ended because auto mode kept getting no verdict. */
 export const AUTO_MODE_STOPPED_NOTICE =
 	'Auto mode could not get a safety decision, so nothing was run and Namzu stopped. Send a message to try again, or press Shift+Tab to change the mode.'
+/** The same, for a terminal that was in auto only by default: it goes back to asking. */
+export const AUTO_MODE_DEFAULT_STOPPED_NOTICE =
+	'Auto mode could not get a safety decision, so nothing was run and Namzu stopped. This terminal now asks before changes: send a message to carry on, or use /permissions auto to go back to auto mode.'
+/** Said when a later session takes a terminal that is in its default out of auto. */
+export const AUTO_MODE_DEFAULT_LEFT_NOTICE =
+	'Auto mode cannot check actions with this model, so this terminal now asks before changes.'
+/** Said when a later session puts a terminal that is in its default back in auto. */
+export const AUTO_MODE_DEFAULT_RESUMED_NOTICE =
+	'This model can check actions, so this terminal is in auto mode now.'
 
 export function permissionPicker(
 	mode: PermissionMode,

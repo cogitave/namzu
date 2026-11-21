@@ -296,6 +296,22 @@ describe('a run of answers with no verdict', () => {
 		})
 	})
 
+	it('does not count three actions too long to read, which never reach a model', async () => {
+		const provider = new MockLLMProvider({ turns: [ALLOW] })
+		const providerFor = vi.fn(async () => provider)
+		const { classifier } = build({ providerFor })
+		const long = {
+			...request,
+			call: { ...request.call, input: { command: `${'#'.repeat(9_000)}; make` } },
+		}
+		for (let i = 0; i < 3; i += 1) {
+			const decision = await inTurn(() => classifier.review(long))
+			expect(decision).toMatchObject({ verdict: 'block', cause: 'oversized' })
+			expect(decision).not.toHaveProperty('noVerdictLimitReached')
+		}
+		expect(classifier.recentBlocks()).toEqual([])
+	})
+
 	it('starts over on a real verdict and on a reset', async () => {
 		let reachable = false
 		const { classifier } = build({

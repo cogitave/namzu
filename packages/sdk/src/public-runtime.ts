@@ -1683,6 +1683,8 @@ export {
 	DEFAULT_HARD_DENY as DEFAULT_AUTO_REVIEW_HARD_DENY,
 	DEFAULT_SOFT_DENY as DEFAULT_AUTO_REVIEW_SOFT_DENY,
 	autoReviewBlockedFeedback,
+	autoReviewOversizedFeedback,
+	autoReviewStoppedFeedback,
 	autoReviewUnavailableFeedback,
 	createAutoReviewClassifier,
 	resolveAutoReviewRules,

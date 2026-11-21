@@ -72,9 +72,11 @@ export type AutoReviewDecision =
 			/**
 			 * `rule`: the classifier judged it unsafe. `unavailable`: the check could
 			 * not be completed. `unreadable`: the answer was not a verdict.
-			 * `aborted`: the turn was cancelled while it ran.
+			 * `oversized`: the action is longer than the check reads, so no model
+			 * was asked; sending it again gets the same answer. `aborted`: the turn
+			 * was cancelled while it ran.
 			 */
-			readonly cause: 'rule' | 'unavailable' | 'unreadable' | 'aborted'
+			readonly cause: 'rule' | 'unavailable' | 'unreadable' | 'oversized' | 'aborted'
 			readonly stage: AutoReviewStage
 			/** One plain sentence, fit to show the person and to tell the model. */
 			readonly reason: string
@@ -190,6 +192,8 @@ export {
 	AUTO_REVIEW_BLOCKED_PREFIX,
 	AUTO_REVIEW_UNAVAILABLE_PREFIX,
 	autoReviewBlockedFeedback,
+	autoReviewOversizedFeedback,
+	autoReviewStoppedFeedback,
 	autoReviewUnavailableFeedback,
 } from './feedback.js'
 
@@ -293,7 +297,7 @@ export function createAutoReviewClassifier(
 	function blocked(
 		started: number,
 		stage: AutoReviewStage,
-		cause: 'rule' | 'unavailable' | 'unreadable' | 'aborted',
+		cause: 'rule' | 'unavailable' | 'unreadable' | 'oversized' | 'aborted',
 		reason: string,
 		rule?: string,
 	): AutoReviewDecision {
@@ -382,11 +386,13 @@ export function createAutoReviewClassifier(
 		)
 		// A prefix of a command is not the command: what follows the cut could be
 		// anything, and a verdict on the part that was shown says nothing about it.
+		// No model is asked, so this says nothing about whether one can be
+		// reached, and it is not counted in a run of answers with no verdict.
 		if (projected.truncated) {
 			return blocked(
 				started,
 				0,
-				'unreadable',
+				'oversized',
 				'the action is too long for the safety check to read in full, so it was not run',
 			)
 		}

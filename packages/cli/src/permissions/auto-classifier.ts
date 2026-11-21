@@ -41,8 +41,9 @@ import type { AutoModeSettings } from './settings.js'
  *
  * Three answers in a row that are no verdict (unreachable here or in the
  * kernel, or unreadable) mark the third with `noVerdictLimitReached`, and the
- * review policy ends the turn on it: a person is told, and nothing runs
- * unchecked. The run is counted here, over the session, so a failure to reach
+ * review policy ends the turn on it, and nothing runs unchecked. The person
+ * reads why on each refused call (the kernel's refusal says the turn was
+ * stopped) and, in the terminal, in one line more. The run is counted here, over the session, so a failure to reach
  * a model at all counts the same as a model that answered nonsense.
  */
 
@@ -174,7 +175,9 @@ export function createSessionClassifier(
 			noVerdict = 0
 			return decision
 		}
-		if (decision.cause === 'aborted') return decision
+		// A cancelled review, and an action too long to read (no model was
+		// asked), say nothing about whether the check can be reached.
+		if (decision.cause === 'aborted' || decision.cause === 'oversized') return decision
 		noVerdict += 1
 		if (noVerdict < noVerdictLimit) return decision
 		noVerdict = 0

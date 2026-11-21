@@ -21,6 +21,27 @@ export function autoReviewBlockedFeedback(reason: string): string {
 }
 
 /**
+ * The words the model is told when a call was held back because it is longer
+ * than the check reads. No verdict was given, so it begins like
+ * {@link autoReviewUnavailableFeedback}; unlike that one, the same action sent
+ * again is refused the same way, so the model is told what would change it.
+ */
+export function autoReviewOversizedFeedback(reason: string): string {
+	return `${AUTO_REVIEW_UNAVAILABLE_PREFIX}${reason}. Nothing was run. Sending it again will be refused the same way: split it into smaller steps that can each be read in full, or ask the user to run it.`
+}
+
+/**
+ * The words the model is told when the turn was stopped because the check
+ * gave no verdict several times in a row. It begins like
+ * {@link autoReviewUnavailableFeedback}, and it says that the turn stopped,
+ * in its first sentence, because a host that shows only the start of a
+ * refusal on the call's card (Desktop does) tells the person why that way.
+ */
+export function autoReviewStoppedFeedback(reason: string): string {
+	return `${AUTO_REVIEW_UNAVAILABLE_PREFIX}the check gave no answer several times in a row, so nothing was run and the turn was stopped. Wait for the user before trying again. The last answer: ${reason}.`
+}
+
+/**
  * The words the model is told when a call was held back because the check
  * could not be completed or its answer could not be read.
  */

@@ -49,21 +49,28 @@ import type { SessionId, TurnId } from '../../types/ids/index.js'
 import {
 	PLAN_MODE_REFUSAL,
 	PLAN_MODE_REFUSAL_WITH_PLAN_FILE,
+	STRICT_MODE_REFUSAL,
 } from '../../types/permission/index.js'
 import type { AutoReviewClassifier, AutoReviewDecision } from './auto-review/classifier.js'
-import { autoReviewBlockedFeedback, autoReviewUnavailableFeedback } from './auto-review/feedback.js'
+import {
+	autoReviewBlockedFeedback,
+	autoReviewOversizedFeedback,
+	autoReviewStoppedFeedback,
+	autoReviewUnavailableFeedback,
+} from './auto-review/feedback.js'
 import { DECLINED_TOOL_CALL_FEEDBACK } from './declined.js'
 import { shellEscalations } from './path-escalation.js'
 
 /**
  * What the model is told about a call the classifier did not let run: a
- * verdict is a block not to route around, and no verdict is a hold that may be
+ * verdict is a block not to route around, an action too long to read has to
+ * be made smaller, and any other answer with no verdict is a hold that may be
  * tried again.
  */
 function classifierRefusal(decision: Extract<AutoReviewDecision, { verdict: 'block' }>): string {
-	return decision.cause === 'rule'
-		? autoReviewBlockedFeedback(decision.reason)
-		: autoReviewUnavailableFeedback(decision.reason)
+	if (decision.cause === 'rule') return autoReviewBlockedFeedback(decision.reason)
+	if (decision.cause === 'oversized') return autoReviewOversizedFeedback(decision.reason)
+	return autoReviewUnavailableFeedback(decision.reason)
 }
 
 export type ReviewMode =
@@ -142,11 +149,7 @@ export function isReviewMode(value: unknown): value is ReviewMode {
 	return typeof value === 'string' && (REVIEW_MODES as readonly string[]).includes(value)
 }
 
-export { PLAN_MODE_REFUSAL, PLAN_MODE_REFUSAL_WITH_PLAN_FILE }
-
-/** What the model is told when a call is refused under `strict`. */
-export const STRICT_MODE_REFUSAL =
-	'Refused: this turn only permits tools an explicit rule allows, and no rule covers this call. Asking again will not change it — either the operator adds a rule, or this has to be done another way.'
+export { PLAN_MODE_REFUSAL, PLAN_MODE_REFUSAL_WITH_PLAN_FILE, STRICT_MODE_REFUSAL }
 
 /** The tools `accept-edits` approves without asking. Everything else prompts. */
 export const ACCEPT_EDITS_TOOLS: ReadonlySet<string> = new Set(['edit', 'write'])
@@ -1374,7 +1377,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 						options.onClassifierUnavailable?.({ reason: decision.reason })
 						return {
 							action: 'reject_tools',
-							feedback: autoReviewUnavailableFeedback(decision.reason),
+							feedback: autoReviewStoppedFeedback(decision.reason),
 							endTurn: true,
 						}
 					}

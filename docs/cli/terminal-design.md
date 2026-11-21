@@ -64,8 +64,10 @@ them. Its items are joined by a dim ` · `, left to right:
   reminder off the row). `bypass` reads `⏵⏵ bypass permissions on` in the error
   color, `auto` reads `⏵⏵ auto mode on` in the warn color, `accept-edits` reads `⏵⏵ accept edits on` in the user accent, `plan`
   reads `‖ plan mode on` in teal, `strict` reads `‖ preapproved only on` in the
-  warn color. The default mode (`prompt`) has no item: the row shows a quiet
-  `shift+tab to cycle` only when nothing else would be on it.
+  warn color. `prompt` (Ask before changes) has no item: the row shows a quiet
+  `shift+tab to cycle` only when nothing else would be on it. A terminal that
+  nobody chose a mode for starts in auto, so its footer shows
+  `⏵⏵ auto mode on` (see [Permission modes](permission-modes.md#auto-is-the-terminals-default)).
 - **The pull request** for the current branch, `PR #592`: a dim `PR` and the
   number underlined, as an OSC 8 link to the pull request where the terminal
   supports links (plain text elsewhere), colored by review state: approved

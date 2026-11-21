@@ -45,7 +45,12 @@ import {
 	type ToolRevealReceipt,
 	createToolMessage,
 } from '../../types/message/index.js'
-import type { PermissionMode } from '../../types/permission/index.js'
+import {
+	PLAN_MODE_REFUSAL,
+	PLAN_MODE_REFUSAL_WITH_PLAN_FILE,
+	type PermissionMode,
+	STRICT_MODE_REFUSAL,
+} from '../../types/permission/index.js'
 import type { PluginHookPermission, PluginHookResult } from '../../types/plugin/index.js'
 import type { ChatCompletionResponse } from '../../types/provider/index.js'
 import type { Sandbox } from '../../types/sandbox/index.js'
@@ -90,6 +95,7 @@ import {
 	changedSinceRead,
 	readLaunchedScripts,
 } from './auto-review/script-evidence.js'
+import { DECLINED_TOOL_CALL_FEEDBACK } from './declined.js'
 import { type BatchDetach, stillRunningResult } from './detached-calls.js'
 import {
 	type ToolAdmissionHost,
@@ -121,6 +127,7 @@ import {
 	fitResultsToMessageBudget,
 	measureContentBytes,
 } from './tool-output-budget.js'
+import { APPROVAL_NOT_COMPLETED, UNANSWERED_REFUSALS } from './unanswered.js'
 
 export type { EmitEvent } from './events.js'
 import type { EmitEvent, SessionEventDraft } from './events.js'
@@ -781,21 +788,32 @@ function refusalNote(reason: string | undefined): string | undefined {
 /** How every refusal of a call that a refusal elsewhere in its batch stopped begins. */
 const TURN_STOPPED_REFUSAL = 'An earlier call in this batch was refused and the turn was stopped'
 
+/** The refusals a session's mode writes for a call it does not run (plan mode, `strict`). */
+const MODE_REFUSALS: readonly string[] = [
+	PLAN_MODE_REFUSAL,
+	PLAN_MODE_REFUSAL_WITH_PLAN_FILE,
+	STRICT_MODE_REFUSAL,
+]
+
 /**
  * How a refused call ended, from who refused it. `reason` is the review's or
- * the gate's own text, never a tool's: a person's no is told by `declined`,
- * the auto mode's two kinds by the prefixes its policy writes, a refusal that
- * only followed a stopped turn by its own words, and everything else is a
- * rule, the mode, a hook or another guard.
+ * the gate's own text, never a tool's: a person's no is told by `declined`
+ * (or by the words a person's no carries when the host gave none of its
+ * own), the auto mode's two kinds by the prefixes its policy writes, a
+ * refusal that only followed a stopped turn or a question nobody answered by
+ * its own words, a refusal by plan mode or `strict` by theirs, and everything
+ * else is a rule, a hook or another guard.
  */
 export function denialOutcome(
 	reason: string,
 	declined: ToolCallDeclined | undefined,
 ): ToolResultOutcome {
-	if (declined !== undefined) return 'rejected'
+	if (declined !== undefined || reason === DECLINED_TOOL_CALL_FEEDBACK) return 'rejected'
 	if (reason.startsWith(AUTO_REVIEW_BLOCKED_PREFIX)) return 'blocked_by_auto_mode'
 	if (reason.startsWith(AUTO_REVIEW_UNAVAILABLE_PREFIX)) return 'auto_mode_unavailable'
-	if (reason.startsWith(TURN_STOPPED_REFUSAL)) return 'interrupted'
+	if (reason.startsWith(TURN_STOPPED_REFUSAL) || UNANSWERED_REFUSALS.includes(reason))
+		return 'interrupted'
+	if (MODE_REFUSALS.includes(reason)) return 'refused_by_mode'
 	return 'blocked_by_permissions'
 }
 
@@ -2124,7 +2142,7 @@ export class ToolExecutor {
 							// An answer that could not be obtained is not a yes.
 							admission = {
 								run: false,
-								reason: 'The approval for this call could not be completed, so it was not run.',
+								reason: APPROVAL_NOT_COMPLETED,
 							}
 						}
 						if (admission.run && !review.ended.aborted) {

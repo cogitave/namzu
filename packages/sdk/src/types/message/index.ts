@@ -628,16 +628,20 @@ export interface ToolRevealReceipt {
 /**
  * How a call that has a result came to have it without running to the end.
  *
- * `interrupted`: the turn stopped first. `rejected`: a person said no.
- * `blocked_by_permissions`: a rule, the mode, a hook or another kernel guard
- * refused it. `blocked_by_auto_mode`: the auto mode's classifier judged it
- * unsafe. `auto_mode_unavailable`: the classifier could not give a verdict, so
- * the call was held back without one. A result without an outcome ran, and
- * `isError` says whether it failed.
+ * `interrupted`: the turn stopped first, or the question about the call got
+ * no answer (it was paused, or the answer could not be taken). `rejected`: a
+ * person said no. `refused_by_mode`: the session's mode does not run such a
+ * call (plan mode is read-only; `strict` runs only what a rule allows), so it
+ * holds only while that mode does. `blocked_by_permissions`: a rule, a hook or
+ * another kernel guard refused it. `blocked_by_auto_mode`: the auto mode's
+ * classifier judged it unsafe. `auto_mode_unavailable`: the classifier could
+ * not give a verdict, so the call was held back without one. A result without
+ * an outcome ran, and `isError` says whether it failed.
  */
 export type ToolResultOutcome =
 	| 'interrupted'
 	| 'rejected'
+	| 'refused_by_mode'
 	| 'blocked_by_permissions'
 	| 'blocked_by_auto_mode'
 	| 'auto_mode_unavailable'

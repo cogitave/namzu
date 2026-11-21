@@ -51,6 +51,9 @@ describe('which git commands can throw work away', () => {
 		'git stash clear',
 		'git rebase main',
 		'git rebase -i HEAD~3',
+		'git rebase --abort',
+		'git rebase --skip',
+		'git push --force-with-lease --force-if-includes origin main',
 	])('%s is one', (line) => {
 		expect(destructiveGitDirectory(line, 'bash', CWD)).toBe(CWD)
 	})
@@ -69,6 +72,9 @@ describe('which git commands can throw work away', () => {
 		'git stash',
 		'git stash pop',
 		'git log --oneline',
+		'git push --force-if-includes origin main',
+		'git rebase --continue',
+		'git rebase --quit',
 		'echo git reset --hard',
 		'grep -r "git push --force" docs',
 	])('%s is not', (line) => {
@@ -96,11 +102,50 @@ describe('which git commands can throw work away', () => {
 })
 
 describe('the folder the status is read in', () => {
-	it('follows a cd to a literal path earlier in the line', () => {
+	it('follows a cd to a literal path joined to the command by &&', () => {
 		expect(destructiveGitDirectory('cd packages/app && git reset --hard', 'bash', CWD)).toBe(
 			'/work/repo/packages/app',
 		)
-		expect(destructiveGitDirectory('cd /elsewhere; git clean -fd', 'bash', CWD)).toBe('/elsewhere')
+		for (const [line, folder] of [
+			['cd /elsewhere 2>/dev/null && git clean -fd', '/elsewhere'],
+			['cd /a && cd b && git reset --hard', '/a/b'],
+			['pushd sub && git reset --hard', '/work/repo/sub'],
+			['npm test; cd sub && git reset --hard', '/work/repo/sub'],
+			['(cd sub && git reset --hard)', '/work/repo/sub'],
+			['cd sub &&\n  git reset --hard', '/work/repo/sub'],
+		] as const) {
+			expect(destructiveGitDirectory(line, 'bash', CWD), line).toBe(folder)
+		}
+	})
+
+	// Each of these can run the git command somewhere other than where a cd
+	// taken in order would put it, points git at another repository, or is not
+	// read closely enough to tell. A status of a clean folder here could tell
+	// the classifier there is nothing to lose when there is.
+	it.each([
+		['a cd in a subshell that has closed', '(cd /tmp/clean); git reset --hard'],
+		['a popd', 'pushd /tmp/clean && popd && git reset --hard'],
+		['a cd that only fails into the command', 'cd /tmp/clean || git reset --hard'],
+		['a cd sent to the background', 'cd /tmp/clean & git reset --hard'],
+		['a cd that may fail before ;', 'cd /tmp/clean; git reset --hard'],
+		['a cd skipped by an earlier ||', 'true || cd /tmp/clean && git reset --hard'],
+		['a cd in a pipe', 'echo | cd /tmp/clean && git reset --hard'],
+		['a negated cd', '! cd /tmp/clean && git reset --hard'],
+		[
+			'a cd whose && sits in a comment',
+			'true # cd /tmp/clean && git reset --hard\ncd /tmp/clean || git reset --hard',
+		],
+		['a cd inside an if', 'if true; then cd /tmp/clean && git reset --hard; fi'],
+		['a cd with a flag', 'cd -P /tmp/clean && git reset --hard'],
+		['a cd by eval', 'eval "cd /tmp/clean" && git reset --hard'],
+		['GIT_DIR on the command', 'GIT_DIR=/x/.git git reset --hard'],
+		['GIT_DIR exported before it', 'export GIT_DIR=/x/.git; git reset --hard'],
+		['GIT_WORK_TREE through env', 'env GIT_WORK_TREE=/x git reset --hard'],
+		['an export that can name any variable', 'export "$NAME=/x"; git reset --hard'],
+		['CDPATH on the cd', 'CDPATH=/x cd sub && git reset --hard'],
+		['a work tree set by -c', 'git -c core.worktree=/x reset --hard'],
+	])('attaches nothing for %s', (_why, line) => {
+		expect(destructiveGitDirectory(line, 'bash', CWD)).toBeUndefined()
 	})
 
 	it('follows git -C, relative to where the line is by then', () => {
@@ -188,7 +233,6 @@ describe('reading it', () => {
 		const repo = mkdtempSync(join(tmpdir(), 'namzu-git-status-'))
 		afterAll(() => rmSync(repo, { recursive: true, force: true }))
 
-		// A real subprocess: Vitest's own per-test timeout bounds it, not a race here.
 		it.skipIf(!gitAvailable)(
 			'reads a scratch repository’s changes and untracked files',
 			async () => {
@@ -212,8 +256,11 @@ describe('reading it', () => {
 				git('commit', '-q', '-m', 'first')
 				writeFileSync(join(repo, 'tracked.txt'), 'two\n')
 				writeFileSync(join(repo, 'new.txt'), 'new\n')
+				// The deadline is raised far past the production one so that a slow
+				// machine cannot fail this test; a git that never answers is caught by
+				// Vitest's own per-test timeout instead.
 				const status = await gitStatusForLine('git reset --hard', 'bash', repo, {
-					run: gitStatusRunner(),
+					run: gitStatusRunner(60_000),
 				})
 				expect(status?.split('\n')).toEqual(['## main', ' M tracked.txt', '?? new.txt'])
 			},

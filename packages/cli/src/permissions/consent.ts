@@ -92,9 +92,9 @@ export function markAutoModeDefaultNoticeSeen(
  * nothing chose another: a headline, then what the mode does and how to keep
  * being asked instead.
  */
-export const AUTO_MODE_DEFAULT_NOTICE_TITLE = 'Auto mode is now Namzu’s default permission mode.'
+export const AUTO_MODE_DEFAULT_NOTICE_TITLE = 'Namzu now starts in auto mode.'
 export const AUTO_MODE_DEFAULT_NOTICE_BODY =
-	'Before an action that would otherwise ask you, a second model checks it for risk and for instructions planted in what the agent read; what it judges safe runs, and the rest is stopped. Press Shift+Tab to change the mode, or set permissions.defaultMode: prompt in ~/.namzu/config.yaml to start by asking. See docs/cli/permission-modes.md.'
+	'Edits and commands that used to wait for your yes are first shown to a separate check that reads this conversation. Routine work goes ahead; anything that could do damage, or that nobody here asked for, is refused, and the transcript says why. Shift+Tab changes the mode for this terminal, and permissions.defaultMode: prompt in ~/.namzu/config.yaml makes asking the default again. /permissions explains the modes.'
 
 /** The words of the question, shared by the launch prompt and the in-terminal one. */
 export const BYPASS_CONSENT_TITLE = 'Run without asking?'

@@ -655,11 +655,36 @@ describe('a classifier that gives no verdict', () => {
 			endTurn: true,
 			feedback: expect.stringMatching(/^Auto mode could not check this action: /),
 		})
+		// Every host shows the start of the refusal on the call's card, so the
+		// person reads there why the turn stopped.
+		expect((decision as { feedback: string }).feedback.slice(0, 200)).toContain(
+			'the turn was stopped',
+		)
 		expect(onClassifierUnavailable).toHaveBeenCalledWith({
 			reason: 'the safety check could not be completed, so the action was not run',
 		})
 		expect(onClassifierLimit).not.toHaveBeenCalled()
 		expect(prompt).not.toHaveBeenCalled()
+	})
+
+	it('tells an action too long to read to be split up, not tried again as it is', async () => {
+		const { classifier } = scripted(() =>
+			block('the action is too long for the safety check to read in full, so it was not run', {
+				cause: 'oversized',
+				stage: 0,
+			}),
+		)
+		const decision = await createReviewHandler({
+			mode: 'classify',
+			classifier,
+			prompt: approve(),
+			registry,
+		})(review(bash('npm run build')))
+		expect(decision).toMatchObject({
+			action: 'reject_tools',
+			feedback: expect.stringContaining('split it into smaller steps'),
+		})
+		expect(decision).not.toHaveProperty('endTurn')
 	})
 
 	it('still falls back to a person at the block limit when the verdicts were real', async () => {

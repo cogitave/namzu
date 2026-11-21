@@ -3,6 +3,8 @@ export {
 	AUTO_REVIEW_UNAVAILABLE_PREFIX,
 	DEFAULT_AUTO_REVIEW_LIMITS,
 	autoReviewBlockedFeedback,
+	autoReviewOversizedFeedback,
+	autoReviewStoppedFeedback,
 	autoReviewUnavailableFeedback,
 	createAutoReviewClassifier,
 } from './classifier.js'

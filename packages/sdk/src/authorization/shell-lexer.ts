@@ -201,6 +201,24 @@ export function nestedShellCommand(words: readonly ShellWord[]): NestedShellComm
 	return { shell: invocation.shell, payload: found.payload }
 }
 
+/**
+ * Where each command sits in the string it was read from, by command. Kept
+ * beside the command rather than on it, so the public shape stays as it is.
+ */
+const SPANS = new WeakMap<ShellCommand, { readonly start: number; readonly end: number }>()
+
+/**
+ * Where `command` sits in the string it was read from: `start` is its first
+ * character and `end` one past its last, so `text` is that slice. For a
+ * command of the line itself (`origin: 'line'`, `depth: 0`) the offsets are
+ * into the line. Undefined for a command this lexer did not produce.
+ */
+export function commandSpan(
+	command: ShellCommand,
+): { readonly start: number; readonly end: number } | undefined {
+	return SPANS.get(command)
+}
+
 /** How many `bash -c` payloads deep the lexer follows before it gives up. */
 const MAX_SHELL_DEPTH = 4
 /** How deep compound commands and expansions may nest before it gives up. */
@@ -1160,6 +1178,7 @@ class Parser {
 			origin: this.origin,
 			depth: this.depth,
 		}
+		SPANS.set(command, { start, end })
 		this.context.commands.push(command)
 		this.inspect(command)
 	}

@@ -16,16 +16,24 @@ import { defineTool } from '../../../tools/defineTool.js'
 import { ToolManager } from '../../../toolsets/manager.js'
 import type { ToolCallDeclined } from '../../../types/hitl/index.js'
 import type { Message, ToolMessage } from '../../../types/message/index.js'
+import {
+	PLAN_MODE_REFUSAL,
+	PLAN_MODE_REFUSAL_WITH_PLAN_FILE,
+	STRICT_MODE_REFUSAL,
+} from '../../../types/permission/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import { generateSessionId, generateTurnId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
 import {
 	autoReviewBlockedFeedback,
+	autoReviewOversizedFeedback,
+	autoReviewStoppedFeedback,
 	autoReviewUnavailableFeedback,
 } from '../auto-review/feedback.js'
 import { projectTranscript } from '../auto-review/transcript.js'
 import { DECLINED_TOOL_CALL_FEEDBACK } from '../declined.js'
 import { ToolExecutor, denialOutcome } from '../executor.js'
+import { UNANSWERED_REFUSALS } from '../unanswered.js'
 
 const logger = (): Logger => {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -73,7 +81,10 @@ function response(args: Record<string, unknown> = {}): ChatCompletionResponse {
 	}
 }
 
-function executor(signal: AbortSignal = new AbortController().signal) {
+function executor(
+	signal: AbortSignal = new AbortController().signal,
+	emit: (event: unknown) => void = () => {},
+) {
 	const turnId = generateTurnId()
 	return new ToolExecutor(
 		{
@@ -86,7 +97,7 @@ function executor(signal: AbortSignal = new AbortController().signal) {
 			abortSignal: signal,
 		},
 		new ActivityStore(turnId, { enabled: false, trackToolCalls: false, trackLlmTurns: false }),
-		async () => {},
+		async (event) => emit(event),
 		logger(),
 	)
 }
@@ -134,10 +145,60 @@ describe('a tool result says how its call ended', () => {
 		).toMatchObject({ outcome: 'auto_mode_unavailable' })
 	})
 
+	it('marks an action too long to check, and a turn the breaker stopped, as no verdict', async () => {
+		expect(
+			await resultOf({ denial: autoReviewOversizedFeedback('the action is too long') }),
+		).toMatchObject({ outcome: 'auto_mode_unavailable' })
+		expect(
+			await resultOf({ denial: autoReviewStoppedFeedback('the check could not be completed') }),
+		).toMatchObject({ outcome: 'auto_mode_unavailable' })
+	})
+
+	// A host such as Desktop shows the refusal's first line on the call's card
+	// and has no other place for a sentence from the kernel: that line has to
+	// say the turn was stopped.
+	it('puts why the turn stopped on the refused call’s card', async () => {
+		const events: unknown[] = []
+		await executor(undefined, (event) => events.push(event)).executeBatch(
+			response(),
+			new Map([['call_1', autoReviewStoppedFeedback('the check could not be completed')]]),
+		)
+		const completed = events.find(
+			(event) => (event as { type?: string }).type === 'tool_completed',
+		) as { facts?: { note?: string } } | undefined
+		expect(completed?.facts?.note).toContain('the turn was stopped')
+	})
+
 	it('marks any other refusal as blocked by permissions', async () => {
-		expect(await resultOf({ denial: 'Refused: strict mode does not run edits.' })).toMatchObject({
+		expect(await resultOf({ denial: 'Refused: a deny rule covers this path.' })).toMatchObject({
 			outcome: 'blocked_by_permissions',
 		})
+	})
+
+	// Plan mode's refusal holds only while plan mode does: once the plan is
+	// approved and the session is in auto, the same call is the plan being
+	// carried out, not a way around a block.
+	it('marks a refusal by plan mode or strict as the mode’s', async () => {
+		for (const denial of [
+			PLAN_MODE_REFUSAL,
+			PLAN_MODE_REFUSAL_WITH_PLAN_FILE,
+			STRICT_MODE_REFUSAL,
+		]) {
+			expect(await resultOf({ denial }), denial).toMatchObject({
+				isError: true,
+				outcome: 'refused_by_mode',
+			})
+		}
+	})
+
+	it('marks a call whose question was paused or never answered as interrupted', async () => {
+		for (const denial of UNANSWERED_REFUSALS) {
+			expect(await resultOf({ denial }), denial).toMatchObject({ outcome: 'interrupted' })
+		}
+	})
+
+	it('marks the words of a person’s no as rejected even when the host sent no decline', () => {
+		expect(denialOutcome(DECLINED_TOOL_CALL_FEEDBACK, undefined)).toBe('rejected')
 	})
 
 	it('marks a call the cancelled turn never started as interrupted', async () => {

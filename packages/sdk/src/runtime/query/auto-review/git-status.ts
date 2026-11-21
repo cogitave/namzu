@@ -20,7 +20,7 @@ import { execFile } from 'node:child_process'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-import { basename, lexShellCommandLine } from '../../../authorization/shell-lexer.js'
+import { basename, commandSpan, lexShellCommandLine } from '../../../authorization/shell-lexer.js'
 import type { ShellCommand, ShellWord } from '../../../authorization/shell-lexer.js'
 import type { ShellDialect } from '../../../types/tool/index.js'
 
@@ -53,6 +53,45 @@ const GIT_OPTIONS_WITH_VALUE: ReadonlySet<string> = new Set([
 	'--config-env',
 ])
 
+/** `git rebase` options that carry on with, or only show, a rebase already under way. */
+const REBASE_KEEPS: ReadonlySet<string> = new Set([
+	'--continue',
+	'--quit',
+	'--edit-todo',
+	'--show-current-patch',
+])
+
+/** Commands that change the shell's folder; only `cd` and `pushd` with one literal folder are followed. */
+const FOLDER_CHANGERS: ReadonlySet<string> = new Set(['cd', 'pushd', 'popd'])
+
+/** Commands that run text the lexer does not read, in this shell: they could change folder. */
+const RUNS_UNREAD_TEXT: ReadonlySet<string> = new Set(['eval', 'source', '.'])
+
+/** Commands that set a variable from their words, so a word that expands can name any variable. */
+const SETS_VARIABLES: ReadonlySet<string> = new Set([
+	'export',
+	'declare',
+	'typeset',
+	'local',
+	'readonly',
+])
+
+/**
+ * A word that names, sets or clears one of the variables that point git at
+ * another repository, work tree or index (`GIT_DIR=/x`, `export GIT_DIR`).
+ */
+const GIT_LOCATION_VARIABLE =
+	/^GIT_(?:DIR|WORK_TREE|INDEX_FILE|COMMON_DIR|OBJECT_DIRECTORY|CEILING_DIRECTORIES)(?:=|$)/
+
+/** A word that names or sets `CDPATH`, which changes where a relative `cd` lands. */
+const CDPATH_VARIABLE = /^CDPATH(?:=|$)/
+
+/** A word whose variable name is written out (`NAME=…`), or a flag: it cannot name another variable. */
+const NAMED_OR_FLAG = /^(?:-[A-Za-z]+|[A-Za-z_][A-Za-z0-9_]*=)/
+
+/** A `-c` value that moves git's work tree. */
+const WORK_TREE_CONFIG = /^core\.worktree(?:=|$)/i
+
 /** A short flag group (`-fdx`) that includes `letter`. */
 function shortGroupHas(arg: string, letter: string): boolean {
 	return /^-[A-Za-z]+$/.test(arg) && arg.slice(1).includes(letter)
@@ -79,7 +118,7 @@ export function isDestructiveGit(sub: string, args: readonly string[]): boolean 
 			return has('--discard-changes', '-f', '--force')
 		case 'push':
 			return (
-				has('--force', '--mirror', '--delete', '-d', '--force-if-includes') ||
+				has('--force', '--mirror', '--delete', '-d') ||
 				args.some(
 					(arg) =>
 						arg.startsWith('--force-with-lease') || arg.startsWith('+') || shortGroupHas(arg, 'f'),
@@ -94,7 +133,9 @@ export function isDestructiveGit(sub: string, args: readonly string[]): boolean 
 		case 'stash':
 			return args[0] === 'drop' || args[0] === 'clear'
 		case 'rebase':
-			return true
+			// Going on with a rebase, or only looking at it, discards nothing;
+			// starting one, skipping a patch or abandoning it can.
+			return !args.some((arg) => REBASE_KEEPS.has(arg))
 		default:
 			return false
 	}
@@ -150,11 +191,23 @@ function gitInvocation(
 		if (GIT_OPTIONS_WITH_VALUE.has(value)) {
 			// Another repository or work tree than the folder's own: its status
 			// is not this folder's, so none is attached.
-			if (value === '--git-dir' || value === '--work-tree') at = undefined
+			const next = words[i + 1]?.value ?? ''
+			if (
+				value === '--git-dir' ||
+				value === '--work-tree' ||
+				(value === '-c' && WORK_TREE_CONFIG.test(next)) ||
+				(value === '--config-env' && WORK_TREE_CONFIG.test(next))
+			)
+				at = undefined
 			i += 2
 			continue
 		}
-		if (value.startsWith('--git-dir=') || value.startsWith('--work-tree=')) at = undefined
+		if (
+			value.startsWith('--git-dir=') ||
+			value.startsWith('--work-tree=') ||
+			(value.startsWith('--config-env=') && WORK_TREE_CONFIG.test(value.slice(13)))
+		)
+			at = undefined
 		i += 1
 	}
 	const sub = words[i]?.value
@@ -162,14 +215,66 @@ function gitInvocation(
 	return { sub, args: words.slice(i + 1).map((word) => word.value), dir: at }
 }
 
+/** The folder a `cd` or `pushd` moves to, when it names one literal folder; undefined otherwise. */
+function followedFolder(words: readonly ShellWord[]): string | undefined {
+	const program = words[0]?.value
+	if (program !== 'cd' && program !== 'pushd') return undefined
+	if (words.length !== 2) return undefined
+	const arg = words[1] as ShellWord
+	// Flags (`-P`, `--`, `-`) and pushd's stack places (`+1`) are not followed.
+	if (arg.value.startsWith('-') || arg.value.startsWith('+')) return undefined
+	const target = literalPath(arg)
+	if (target === undefined) return undefined
+	// With CDPATH set, a relative folder can be found under any folder it lists.
+	const relative = !/^(?:\/|\.\.?(?:\/|$)|~)/.test(target)
+	if (relative && (process.env.CDPATH ?? '') !== '') return undefined
+	return target
+}
+
+/**
+ * Whether the `cd` command `from` is in force when `git` runs: both are
+ * commands of the line itself, `from` runs whenever the and-or list it starts
+ * runs (nothing before it is `||`, `|` or `!`), and every command from it to
+ * `git` is joined by `&&` alone, so git runs only once the `cd` succeeded and
+ * in the same shell. `;`, `||`, `&`, a pipe, a closing bracket, a keyword or a
+ * comment between them is a reason to say no.
+ */
+function inForce(
+	from: ShellCommand,
+	git: ShellCommand,
+	top: readonly ShellCommand[],
+	line: string,
+): boolean {
+	const first = top.indexOf(from)
+	const last = top.indexOf(git)
+	if (first < 0 || last <= first) return false
+	const spans = top.slice(Math.max(0, first - 1), last + 1).map(commandSpan)
+	if (spans.some((span) => span === undefined)) return false
+	const [previous, ...chain] = (first > 0 ? spans : [undefined, ...spans]) as (
+		| { readonly start: number; readonly end: number }
+		| undefined
+	)[]
+	const lead = line.slice(previous?.end ?? 0, chain[0]?.start).trim()
+	if (lead !== '' && !/(?:;|&&|(?<!\|)&|\(|\{)$/.test(lead)) return false
+	for (let k = 0; k + 1 < chain.length; k += 1) {
+		const gap = line.slice(chain[k]?.end, chain[k + 1]?.start)
+		if (gap.trim() !== '&&') return false
+	}
+	return true
+}
+
 /**
  * The folder the first destructive git command of `line` runs in, or
  * undefined when the line has none or the folder cannot be known from it.
  *
- * `cd` to a literal path earlier in the line is followed, and so is `git -C`.
- * A `cd` whose target is not literal, or that sits in a nested shell or a
- * substitution, makes the folder unknown. A `cd` inside a subshell is read as
- * if it were at the top of the line; the lexer does not tell the two apart.
+ * Only what the line says for certain is followed: `git -C` to a literal
+ * path, and a `cd` or `pushd` to one literal folder that is joined to the git
+ * command by `&&` alone, at the same level. Anything else that can move the
+ * shell or point git elsewhere makes the folder unknown: a `cd` inside a
+ * subshell that has closed, after `||`, before `;` or `&`, in a pipe, in a
+ * nested shell or a substitution; any `popd`; `eval` or `source`; a
+ * `GIT_DIR`, `GIT_WORK_TREE` or `GIT_INDEX_FILE` (or `CDPATH`) set anywhere
+ * before the command or on it; and a parse that stopped early.
  */
 export function destructiveGitDirectory(
 	line: string,
@@ -178,22 +283,55 @@ export function destructiveGitDirectory(
 ): string | undefined {
 	if (!/\bgit\b/.test(line)) return undefined
 	const reading = lexShellCommandLine(line, { dialect })
-	let dir: string | undefined = cwd
-	for (const command of reading.commands) {
-		const words = programWords(command)
-		const program = words[0]?.value
-		if (program === 'cd' || program === 'pushd') {
-			const target = literalPath(words[1])
-			dir =
-				command.origin === 'line' && command.depth === 0 && dir !== undefined && target
-					? resolve(dir, target)
-					: undefined
-			continue
-		}
-		const git = gitInvocation(words, command.origin === 'substitution' ? undefined : dir)
-		if (git && isDestructiveGit(git.sub, git.args)) return git.dir
+	// A parse that stopped early may have missed a command that moves the shell.
+	if (!reading.complete) return undefined
+	const commands = reading.commands
+	const at = commands.findIndex((command) => {
+		const git = gitInvocation(programWords(command), cwd)
+		return git !== undefined && isDestructiveGit(git.sub, git.args)
+	})
+	if (at < 0) return undefined
+	const git = commands[at] as ShellCommand
+	const before = commands.slice(0, at)
+	for (const command of [...before, git]) {
+		if (
+			command.words.some(
+				(word) => GIT_LOCATION_VARIABLE.test(word.value) || CDPATH_VARIABLE.test(word.value),
+			)
+		)
+			return undefined
 	}
-	return undefined
+	for (const command of before) {
+		const program = basename(programWords(command)[0]?.value ?? '')
+		if (RUNS_UNREAD_TEXT.has(program)) return undefined
+		// `export "$NAME=…"` can set any variable, git's among them.
+		if (
+			SETS_VARIABLES.has(program) &&
+			command.words.some(
+				(word) => (word.expands || word.substitutes) && !NAMED_OR_FLAG.test(word.value),
+			)
+		)
+			return undefined
+	}
+	if (git.origin === 'substitution') return undefined
+	const top = commands.filter((command) => command.origin === 'line' && command.depth === 0)
+	const atTop = git.origin === 'line' && git.depth === 0
+	let dir = cwd
+	for (const command of before) {
+		const words = programWords(command)
+		if (!FOLDER_CHANGERS.has(words[0]?.value ?? '')) continue
+		const target = followedFolder(words)
+		if (
+			target === undefined ||
+			!atTop ||
+			command.origin !== 'line' ||
+			command.depth !== 0 ||
+			!inForce(command, git, top, line)
+		)
+			return undefined
+		dir = resolve(dir, target)
+	}
+	return gitInvocation(programWords(git), dir)?.dir
 }
 
 /** Runs `git status` in a folder and returns what it printed. Rejects on any failure. */
@@ -217,6 +355,8 @@ export function gitStatusRunner(timeoutMs: number = GIT_STATUS_TIMEOUT_MS): GitS
 					'--porcelain=v1',
 					'--branch',
 					'--untracked-files=normal',
+					// Renames are not needed to see what would be lost, and cost work.
+					'--no-renames',
 				],
 				{
 					cwd,
@@ -224,7 +364,14 @@ export function gitStatusRunner(timeoutMs: number = GIT_STATUS_TIMEOUT_MS): GitS
 					maxBuffer: MAX_OUTPUT_BYTES,
 					windowsHide: true,
 					encoding: 'utf8',
-					env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0', LC_ALL: 'C' },
+					// A partial clone would fetch missing objects over the network.
+					env: {
+						...process.env,
+						GIT_OPTIONAL_LOCKS: '0',
+						GIT_TERMINAL_PROMPT: '0',
+						GIT_NO_LAZY_FETCH: '1',
+						LC_ALL: 'C',
+					},
 					...(signal ? { signal } : {}),
 				},
 				(error, stdout) => (error ? fail(error) : done(stdout)),
