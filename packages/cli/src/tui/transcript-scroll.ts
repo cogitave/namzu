@@ -15,6 +15,7 @@
 import { SHELL_RESULT_INDENT, renderedDetailLines, renderedDiffRows } from './Transcript.js'
 import { contentColorForRole, glyphColorForRole, glyphForRole } from './Transcript.js'
 import { attachmentLine } from './attachment-rows.js'
+import { type ContextView, formatTokens } from './context-grid.js'
 import { viewRowText } from './diff-view.js'
 import { fitHintPlain } from './hint-fit.js'
 import { type HintWords, NO_NEWS, type News, newOutputHint } from './new-output.js'
@@ -151,6 +152,17 @@ export function messageScrollRows(
 	width: number,
 	options: ScrollRowsOptions = {},
 ): MessageScrollRows {
+	if (asked.contextView) {
+		// `/context` is drawn as the transcript draws it, grid and legend side by
+		// side, not as its plain-text copy.
+		const glyphColor = glyphColorForRole(asked.role)
+		const color = contentColorForRole(asked.role)
+		return {
+			hinted: false,
+			gap: hasPrev ? { glyph: ' ', glyphColor, text: '', color } : null,
+			rows: contextViewRows(asked.contextView, width + GUTTER, glyphColor),
+		}
+	}
 	const message = withLiveHint(asked)
 	const replyMark = message.role === 'assistant' && message.glyph === undefined
 	const glyph =
@@ -254,6 +266,127 @@ export function messageScrollRows(
 	}
 	const wantsGap = hasPrev && glyph !== '⎿'
 	return { hinted, gap: wantsGap ? { glyph: ' ', glyphColor, text: '', color } : null, rows }
+}
+
+/** Spans cut to `columns` characters, the last one shortened with an ellipsis. */
+function fitSpans(spans: readonly ScrollSpan[], columns: number): ScrollSpan[] {
+	const out: ScrollSpan[] = []
+	let used = 0
+	for (const span of spans) {
+		const room = columns - used
+		if (room <= 0) break
+		if (span.text.length <= room) {
+			out.push(span)
+			used += span.text.length
+			continue
+		}
+		out.push({ ...span, text: truncateChoiceText(span.text, room) })
+		break
+	}
+	return out
+}
+
+/**
+ * The rows of a `/context` view, laid out as its live row draws it: the grid
+ * of cells with the legend beside it, then the window and cache notes, the
+ * lists, the suggestions and the notes. Spans carry the colours; the scroll
+ * view has no bold or dim, so a dim text is drawn in the muted colour.
+ */
+export function contextViewRows(
+	view: ContextView,
+	columns: number,
+	glyphColor: string,
+): ScrollRow[] {
+	const muted = theme.text.muted
+	const primary = theme.text.primary
+	const rows: ScrollRow[] = []
+	const line = (spans: readonly ScrollSpan[]): void => {
+		const fitted = fitSpans([{ text: ' ' }, ...spans], columns)
+		const text = fitted.map((span) => span.text).join('')
+		rows.push({ glyph: ' ', glyphColor, text, color: primary, spans: fitted })
+	}
+	const blank = (): void => {
+		rows.push({ glyph: ' ', glyphColor, text: '', color: primary })
+	}
+	const shown = (text: string): string => terminalDisplayText(text)
+	line([{ text: 'Context usage', color: primary }])
+	if (view.overLimit) line([{ text: shown(view.overLimit), color: theme.status.error }])
+	const right: ScrollSpan[][] = [
+		...(view.model ? [[{ text: shown(view.model), color: muted }]] : []),
+		[{ text: shown(view.usage), color: muted }],
+		[],
+		[{ text: 'Estimated usage by category', color: muted }],
+		...view.legend.map((entry) => [
+			{ text: `${entry.glyph} `, color: entry.dimGlyph ? muted : (paint(entry.color) ?? muted) },
+			{ text: `${shown(entry.name)}: `, color: entry.dimName ? muted : primary },
+			{ text: shown(entry.value), color: muted },
+		]),
+	]
+	const gridColumns = (view.cells[0]?.length ?? 0) * 2
+	const height = Math.max(view.cells.length, right.length)
+	for (let index = 0; index < height; index += 1) {
+		const cells = view.cells[index]
+		const left: ScrollSpan[] = cells
+			? cells.map((cell) => ({
+					text: `${cell.glyph} `,
+					color: cell.dim ? muted : (paint(cell.color) ?? muted),
+				}))
+			: [{ text: ' '.repeat(gridColumns) }]
+		line([...left, ...(gridColumns > 0 ? [{ text: '  ' }] : []), ...(right[index] ?? [])])
+	}
+	if (view.windowNote) {
+		blank()
+		line([
+			{ text: shown(view.windowNote.label), color: primary },
+			{ text: shown(view.windowNote.value), color: muted },
+		])
+	}
+	if (view.cacheNote) {
+		if (!view.windowNote) blank()
+		line([
+			{ text: shown(view.cacheNote.label), color: primary },
+			{ text: shown(view.cacheNote.value), color: muted },
+		])
+	}
+	for (const section of view.sections) {
+		blank()
+		line([
+			{ text: shown(section.title), color: primary },
+			{ text: ` · ${shown(section.hint)}`, color: muted },
+		])
+		for (const group of section.groups) {
+			if (group.heading) line([{ text: shown(group.heading), color: muted }])
+			group.items.forEach((item, index) => {
+				line([
+					{ text: index === group.items.length - 1 ? '└ ' : '├ ', color: muted },
+					{ text: shown(item.label), color: primary },
+					{ text: `: ${shown(item.value)}`, color: muted },
+				])
+			})
+		}
+	}
+	if (view.suggestions.length > 0) {
+		blank()
+		line([{ text: 'Suggestions', color: primary }])
+		for (const suggestion of view.suggestions) {
+			line([
+				{
+					text: suggestion.level === 'warning' ? '⚠ ' : 'ℹ ',
+					color: suggestion.level === 'warning' ? theme.status.warn : muted,
+				},
+				{ text: shown(suggestion.title), color: primary },
+				...(suggestion.savings > 0
+					? [{ text: ` → save ~${formatTokens(suggestion.savings)}`, color: muted }]
+					: []),
+			])
+			line([{ text: `  ${shown(suggestion.detail)}`, color: muted }])
+		}
+	}
+	if (view.notes && view.notes.length > 0) {
+		blank()
+		for (const note of view.notes) line([{ text: shown(note), color: muted }])
+	}
+	return rows
 }
 
 /** Where the view sits. `top` is the first visible row. */
