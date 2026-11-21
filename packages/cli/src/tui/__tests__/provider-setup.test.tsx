@@ -42,12 +42,16 @@ it('requires a separate confirmation, rechecks installation and keeps connection
 	await screen.waitForRender()
 	expect(screen.viewport().join('\n')).toContain('npm install --global opencode-ai')
 	expect(installHarness).not.toHaveBeenCalled()
-	screen.press('n')
+	// The question starts on Cancel: Enter there cancels.
+	screen.press('\r')
 	await screen.waitForRender()
+	expect(screen.viewport().join('\n')).not.toContain('npm install --global opencode-ai')
 	expect(installHarness).not.toHaveBeenCalled()
 	screen.press('i')
 	await screen.waitForRender()
-	screen.press('y')
+	screen.press('\x1b[B')
+	await screen.waitForRender()
+	screen.press('\r')
 	await vi.waitFor(() => expect(installHarness).toHaveBeenCalledOnce())
 	await vi.waitFor(() => expect(probeHarnesses).toHaveBeenCalledTimes(2))
 	await screen.waitForRender()
@@ -55,4 +59,27 @@ it('requires a separate confirmation, rechecks installation and keeps connection
 	screen.press('c')
 	await screen.waitForRender()
 	expect(connect).toHaveBeenCalledOnce()
+})
+
+it('never installs from letters typed while the question is open', async () => {
+	screen = await renderToScreen(
+		<ProviderSetup cwd="/tmp" onClose={() => {}} onConnect={() => {}} />,
+		{ cols: 100, rows: 30 },
+	)
+	await vi.waitFor(async () => {
+		await screen!.waitForRender()
+		expect(screen!.viewport().join('\n')).toContain('Not installed')
+	})
+	screen.press('i')
+	await screen.waitForRender()
+	expect(screen.viewport().join('\n')).toContain('npm install --global opencode-ai')
+	// A sentence typed into the wrong screen: letters including y, then Enter.
+	for (const key of 'yes install it please') {
+		screen.press(key)
+		await screen.waitForRender()
+	}
+	screen.press('\r')
+	await screen.waitForRender()
+	expect(installHarness).not.toHaveBeenCalled()
+	expect(screen.viewport().join('\n')).not.toContain('npm install --global opencode-ai')
 })
