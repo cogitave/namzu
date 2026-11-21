@@ -7,12 +7,17 @@
  * is written through a temporary file and a rename. A file that does not
  * parse is refused rather than rewritten: rewriting it would drop whatever
  * the operator was in the middle of writing.
+ *
+ * The terminal and the Desktop engine both write this file, so each change
+ * holds `config.yaml.lock` from its read to its rename, and the file as it was
+ * is copied to `backups/config.yaml.backup.<ms>` first.
  */
 
 import { randomUUID } from 'node:crypto'
 import {
 	closeSync,
 	existsSync,
+	fsyncSync,
 	lstatSync,
 	mkdirSync,
 	openSync,
@@ -23,10 +28,12 @@ import {
 } from 'node:fs'
 import { platform } from 'node:os'
 import { dirname, join } from 'node:path'
+import { backupStateFile } from '@namzu/sdk'
 import { Document, isMap, parseDocument } from 'yaml'
 
 import { restrictToOwner } from '../integrations/providers/credential-store.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
+import { withStateFileLock } from '../integrations/state/state-file.js'
 
 export interface UserConfigWriteOptions {
 	/** Override the user's home dir (testing). */
@@ -42,6 +49,15 @@ export function userConfigPath(opts: UserConfigWriteOptions = {}): string {
 }
 
 /**
+ * Run `operation` holding the user config's lock, so a change that reads the
+ * file, checks it and then writes it is one change. The writers below take the
+ * same lock inside, which is re-entrant, so they can be called from here.
+ */
+export function withUserConfigLock<T>(operation: () => T, opts: UserConfigWriteOptions = {}): T {
+	return withStateFileLock(userConfigPath(opts), operation)
+}
+
+/**
  * Set `path` (for example `['skills', 'suggest']`) to `value` in the user
  * config and return the file written. Throws with a sentence naming the file
  * when it cannot be read as YAML or written.
@@ -52,6 +68,10 @@ export function setUserConfigValue(
 	opts: UserConfigWriteOptions = {},
 ): string {
 	const file = userConfigPath(opts)
+	return withStateFileLock(file, () => setValue(file, path, value))
+}
+
+function setValue(file: string, path: readonly string[], value: unknown): string {
 	const exists = existsSync(file)
 	const text = exists ? readFileSync(file, 'utf8') : ''
 	const doc = text.trim().length > 0 ? parseDocument(text) : new Document({})
@@ -84,6 +104,10 @@ export function editUserConfigDocument(
 	opts: UserConfigWriteOptions = {},
 ): string {
 	const file = userConfigPath(opts)
+	return withStateFileLock(file, () => editDocument(file, change))
+}
+
+function editDocument(file: string, change: (doc: Document) => void): string {
 	const text = existsSync(file) ? readFileSync(file, 'utf8') : ''
 	const doc = text.trim().length > 0 ? parseDocument(text) : new Document({})
 	if (doc.errors.length > 0) {
@@ -105,6 +129,10 @@ export function deleteUserConfigValue(
 	opts: UserConfigWriteOptions = {},
 ): boolean {
 	const file = userConfigPath(opts)
+	return withStateFileLock(file, () => deleteValue(file, path))
+}
+
+function deleteValue(file: string, path: readonly string[]): boolean {
 	if (!existsSync(file)) return false
 	const text = readFileSync(file, 'utf8')
 	const doc = parseDocument(text)
@@ -149,12 +177,15 @@ function writePrivateUserConfig(file: string, doc: Document): void {
 		// opening a temp file and prove that file private while it is still empty.
 		restrictToOwner(parent)
 	}
+	// The settings as they were, kept in backups/ before they are replaced.
+	backupStateFile(file, { home: parent })
 	const temp = `${file}.${process.pid}.${randomUUID()}.tmp`
 	let fd: number | undefined
 	try {
 		fd = openSync(temp, 'wx', 0o600)
 		restrictToOwner(temp)
 		writeFileSync(fd, doc.toString())
+		fsyncSync(fd)
 		closeSync(fd)
 		fd = undefined
 		restrictToOwner(temp)

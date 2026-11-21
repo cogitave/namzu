@@ -1,0 +1,9 @@
+---
+'@namzu/cli': minor
+---
+
+Saved state is no longer lost when the terminal, the Desktop engine and `namzu exec` change it at the same time. `config.yaml`, `trust.json`, `mcp-approvals.json` and the tip and hint counters are now changed under a lock file beside them (`<file>.lock`) and re-read under it, so two changes made together are both kept; a Settings save holds that lock across its checks and its writes. If another Namzu process keeps the lock for more than about two seconds, the change is refused with "... is being saved by another Namzu process right now, so this change was not made. Try again in a moment."
+
+A damaged `trust.json` or `mcp-approvals.json` (not valid JSON, the wrong shape, or a newer version) used to read as empty, and the next folder trust or server approval replaced it, losing every earlier one. Now it trusts and approves nothing, is copied to `~/.namzu/backups/<file>.corrupt-<epoch ms>`, and any change to it is refused with a sentence naming the file, the copy and the last good copy. The trust box says the list could not be read and that a yes holds for this session only; `namzu exec` names the list instead of saying nobody trusted the folder; creating a Pal is refused before anything is made. Fix or remove the file to go on.
+
+Before each change, `config.yaml`, `trust.json`, `mcp-approvals.json`, `accounts.json` and `preferences.json` are copied to `~/.namzu/backups/<file>.backup.<epoch ms>` (mode 0600, at most one a minute per file, five kept). `namzu doctor` has a new `runtime.state-files` line that names an unreadable list and says where the copies are, and `namzu state` counts `backups/`, `accounts.json` and `mcp-approvals.json` as configuration. Nothing is restored on its own: to go back, close Namzu and copy a `.backup.` file over the file.

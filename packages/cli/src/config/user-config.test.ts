@@ -1,11 +1,19 @@
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import {
+	existsSync,
+	mkdtempSync,
+	readFileSync,
+	readdirSync,
+	statSync,
+	writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { parse } from 'yaml'
 
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import { loadConfig } from './load.js'
-import { deleteUserConfigValue, setUserConfigValue } from './user-config.js'
+import { deleteUserConfigValue, setUserConfigValue, withUserConfigLock } from './user-config.js'
 
 const dirs: string[] = []
 afterEach(() => {
@@ -74,5 +82,50 @@ describe('deleteUserConfigValue', () => {
 		writeFileSync(file, 'tui:\n  recap: false\n  theme: light\n')
 		deleteUserConfigValue(['tui', 'recap'], { env })
 		expect(readFileSync(file, 'utf8')).toBe('tui:\n  theme: light\n')
+	})
+})
+
+describe('user config writes shared with other Namzu processes', () => {
+	it('keeps the settings as they were in backups/ before a change, private', () => {
+		const home = namzuHome()
+		const env = { NAMZU_HOME: home }
+		const file = join(home, 'config.yaml')
+		writeFileSync(file, 'theme: dark\n')
+		setUserConfigValue(['theme'], 'light', { env })
+		const copies = readdirSync(join(home, 'backups'))
+		expect(copies).toHaveLength(1)
+		expect(copies[0]).toMatch(/^config\.yaml\.backup\.\d+$/)
+		expect(readFileSync(join(home, 'backups', copies[0] as string), 'utf8')).toBe('theme: dark\n')
+		if (process.platform !== 'win32')
+			expect(statSync(join(home, 'backups', copies[0] as string)).mode & 0o777).toBe(0o600)
+		expect(existsSync(`${file}.lock`)).toBe(false)
+	})
+
+	it('takes over a lock left by a process that has exited', () => {
+		const home = namzuHome()
+		const env = { NAMZU_HOME: home }
+		const file = join(home, 'config.yaml')
+		writeFileSync(`${file}.lock`, `${2 ** 22 + 777}:0:gone`)
+		setUserConfigValue(['theme'], 'light', { env })
+		expect(readFileSync(file, 'utf8')).toBe('theme: light\n')
+		expect(existsSync(`${file}.lock`)).toBe(false)
+	})
+
+	it('holds one lock across a check and the writes after it', () => {
+		const home = namzuHome()
+		const env = { NAMZU_HOME: home }
+		const file = join(home, 'config.yaml')
+		const seen = withUserConfigLock(
+			() => {
+				setUserConfigValue(['a'], 1, { env })
+				deleteUserConfigValue(['a'], { env })
+				setUserConfigValue(['b'], 2, { env })
+				return existsSync(`${file}.lock`)
+			},
+			{ env },
+		)
+		expect(seen).toBe(true)
+		expect(parse(readFileSync(file, 'utf8'))).toEqual({ b: 2 })
+		expect(existsSync(`${file}.lock`)).toBe(false)
 	})
 })

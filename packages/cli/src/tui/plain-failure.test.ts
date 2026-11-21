@@ -112,3 +112,26 @@ describe('startup sentences', () => {
 		).toBe('Computer use is unavailable on this device. Details: weird.')
 	})
 })
+
+describe('a state file that was refused rather than replaced', () => {
+	it('says where its copies are, with the home folder written short', async () => {
+		const { StateFileUnreadableError, StateFileBusyError } = await import(
+			'../integrations/state/state-file.js'
+		)
+		const { homedir } = await import('node:os')
+		const { join } = await import('node:path')
+		const file = join(homedir(), '.namzu', 'trust.json')
+		const copy = join(homedir(), '.namzu', 'backups', 'trust.json.corrupt-1')
+		const text = explainFailure(
+			new StateFileUnreadableError(file, 'not valid JSON', copy, undefined),
+			'Trusted for this session only.',
+			false,
+		)
+		expect(text).toBe(
+			`Trusted for this session only. ${join('~', '.namzu', 'trust.json')} could not be read (not valid JSON), so it was not changed. Its contents are kept in ${join('~', '.namzu', 'backups', 'trust.json.corrupt-1')}. Fix or remove the file, then try again.`,
+		)
+		expect(explainFailure(new StateFileBusyError(file), 'Not saved.', false)).toContain(
+			'is being saved by another Namzu process right now',
+		)
+	})
+})

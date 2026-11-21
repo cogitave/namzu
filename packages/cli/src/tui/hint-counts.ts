@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node
 import { dirname, join } from 'node:path'
 
 import { namzuHomePath } from '../integrations/state/home.js'
+import { withStateFileLock } from '../integrations/state/state-file.js'
 import type { QueuedHintCount } from './composer-hints.js'
 
 /**
@@ -15,6 +16,7 @@ import type { QueuedHintCount } from './composer-hints.js'
 
 const FILE_MODE = 0o600
 const DIR_MODE = 0o700
+const COUNTER_LOCK_ATTEMPTS = 10
 
 export function hintCountsPath(home?: string): string {
 	return join(namzuHomePath(home), 'hint-counts.json')
@@ -43,10 +45,17 @@ export function writeHintCount(name: string, count: number, home?: string): void
 	const temp = `${path}.${randomUUID()}.tmp`
 	try {
 		mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
-		writeFileSync(temp, `${JSON.stringify({ ...readAll(path), [name]: count }, null, 2)}\n`, {
-			mode: FILE_MODE,
-		})
-		renameSync(temp, path)
+		// Read again under the lock, so another window's count for another hint is kept.
+		withStateFileLock(
+			path,
+			() => {
+				writeFileSync(temp, `${JSON.stringify({ ...readAll(path), [name]: count }, null, 2)}\n`, {
+					mode: FILE_MODE,
+				})
+				renameSync(temp, path)
+			},
+			{ attempts: COUNTER_LOCK_ATTEMPTS },
+		)
 	} catch {
 		rmSync(temp, { force: true })
 	}

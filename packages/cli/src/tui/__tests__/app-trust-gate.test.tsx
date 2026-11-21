@@ -38,6 +38,7 @@ vi.mock('../../permissions/canonical-project.js', () => ({
 }))
 
 vi.mock('../../integrations/trust/store.js', () => ({
+	trustListProblem: () => undefined,
 	isTrusted: () => false,
 	trustDir: (dir: string) => {
 		trusted.push(dir)

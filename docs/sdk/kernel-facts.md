@@ -131,9 +131,9 @@ than read, because reading it would drop the fields this build does not know and
 |---|---|---|---|---|
 | Provider preferences | `preferences.json` | command line | `version` (`PREFERENCES_FILE_VERSION` = 3) | reads as "needs re-pick" (unsupported version); version 1 and 2 are migrated |
 | Credentials | `credentials.json`, `api-keys.json`, `gemini-api-key.json` | command line | `version` (`CREDENTIALS_FILE_VERSION` = 1) | a record of another version reads as no key; the next save replaces the file |
-| Trusted folders | `trust.json` | command line | `version` (`TRUST_FILE_VERSION` = 1) | not checked beyond the shape check |
+| Trusted folders | `trust.json` | command line, Desktop | `version` (`TRUST_FILE_VERSION` = 1) | a newer version reads as unreadable: it trusts nothing and is never replaced |
 | Acknowledgements | `acknowledgements.json` | command line | `version` (`VERSION` = 1) | not checked beyond the shape check |
-| Tool server approvals | `mcp-approvals.json` | command line | `version` (`FILE_VERSION` = 1) | not checked |
+| Tool server approvals | `mcp-approvals.json` | command line | `version` (`FILE_VERSION` = 1) | a newer version reads as unreadable: it approves nothing and is never replaced |
 | Tool server sign-ins | `mcp-oauth/<endpoint>.json` | command line | `version: 1` | a record of another version is ignored |
 | Plugin settings | `plugin-settings/<plugin>.json` | command line | `version: 1` | a record of another version is ignored |
 | Window layout | `workspaces.json` | command line | `version` (3; 1 and 2 are migrated) | a layout of another version reads as no layout; the next save replaces it |

@@ -13,9 +13,13 @@ const MAX_ENTRIES = 100_000
 
 const AUTHORED_TOP_LEVEL = new Set(['agents', 'commands', 'plugins', 'skills', 'MEMORY.md'])
 const CONFIG_TOP_LEVEL = new Set([
+	'accounts.json',
+	// Recovery copies of the files in this set: `<file>.backup.<ms>` and `<file>.corrupt-<ms>`.
+	'backups',
 	'config.yaml',
 	'credentials.json',
 	'identity.json',
+	'mcp-approvals.json',
 	'preferences.json',
 	'plugin-settings',
 	'trust.json',

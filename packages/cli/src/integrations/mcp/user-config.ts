@@ -7,6 +7,7 @@ import {
 	editUserConfigDocument,
 	setUserConfigValue,
 	userConfigPath,
+	withUserConfigLock,
 } from '../../config/user-config.js'
 import type { McpServerSpec } from './servers.js'
 
@@ -54,10 +55,13 @@ export function addUserMcpServer(
 			'server name must start with a letter and contain only letters, digits, _ or - (up to 64 characters)',
 		)
 	}
-	if (readUserMcpServers(opts).some((entry) => entry.name === name)) {
-		throw new Error(`server "${name}" already exists in ${userConfigPath(opts)}`)
-	}
-	return setUserConfigValue(['mcpServers', name], spec, opts)
+	// The check and the write are one change: another process may be adding the same name.
+	return withUserConfigLock(() => {
+		if (readUserMcpServers(opts).some((entry) => entry.name === name)) {
+			throw new Error(`server "${name}" already exists in ${userConfigPath(opts)}`)
+		}
+		return setUserConfigValue(['mcpServers', name], spec, opts)
+	}, opts)
 }
 
 export function removeUserMcpServer(name: string, opts: UserConfigWriteOptions = {}): boolean {
@@ -273,6 +277,15 @@ export function saveUserMcpServer(
 	name: string,
 	input: UserMcpServerInput,
 	opts: UserConfigWriteOptions = {},
+): void {
+	withUserConfigLock(() => saveCheckedServer(mode, name, input, opts), opts)
+}
+
+function saveCheckedServer(
+	mode: 'add' | 'edit',
+	name: string,
+	input: UserMcpServerInput,
+	opts: UserConfigWriteOptions,
 ): void {
 	const checked = checkUserMcpServerSave(mode, name, input, opts)
 	if (mode === 'add') {

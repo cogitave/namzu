@@ -9,8 +9,9 @@ import { Box, Text, useWindowSize } from 'ink'
 import stringWidth from 'string-width'
 
 import { type FolderGrants, MAX_SHOWN_GRANT_RULES } from '../integrations/trust/folder-grants.js'
+import type { TrustListProblem } from '../integrations/trust/store.js'
 import { boxedContentWidth } from './key-hints.js'
-import { displayPath } from './person-terms.js'
+import { displayPath, homePath } from './person-terms.js'
 import { wrapBalancedText } from './terminal-choice-text.js'
 import { theme } from './theme.js'
 
@@ -18,6 +19,8 @@ export interface TrustPromptProps {
 	readonly cwd: string
 	/** What the folder's own config pre-approves, shown before the choice. */
 	readonly grants?: FolderGrants
+	/** One sentence about the trusted folders list itself, when it could not be read. */
+	readonly notice?: string | undefined
 }
 
 const PADDING_X = 2
@@ -51,6 +54,15 @@ const GRANTS_NOTICE = 'These will apply without asking. Only continue if you tru
 /** The plain count: `1 rule`, `3 rules`. */
 function countOf(count: number, one: string, many: string): string {
 	return `${count} ${count === 1 ? one : many}`
+}
+
+/**
+ * Said once before the prompt when the trusted folders list exists but does not read: it then
+ * trusts nothing, so a folder trusted before is asked about again, and a yes holds for this
+ * session only until the file is fixed.
+ */
+export function unreadableTrustListNotice(problem: TrustListProblem): string {
+	return `Your trusted folders list (${homePath(problem.file)}) could not be read (${problem.reason}), so this folder is asked about again and a yes holds for this session only. The file is left as it is; namzu doctor shows its recovery copies.`
 }
 
 /** The tool servers the screen shows in full; approving the screen covers only these. */
@@ -166,7 +178,7 @@ function choice(text: string) {
 	})
 }
 
-export function TrustPrompt({ cwd, grants }: TrustPromptProps) {
+export function TrustPrompt({ cwd, grants, notice }: TrustPromptProps) {
 	const terminal = useWindowSize()
 	const choices = trustChoiceRows(terminal.columns)
 	return (
@@ -200,6 +212,16 @@ export function TrustPrompt({ cwd, grants }: TrustPromptProps) {
 				<Box marginTop={1} flexDirection="column">
 					{trustGrantLines(grants, terminal.columns).map((line, at) => (
 						// biome-ignore lint/suspicious/noArrayIndexKey: the lines have no identity beyond their order.
+						<Text key={at} color={theme.status.warn}>
+							{line}
+						</Text>
+					))}
+				</Box>
+			) : null}
+			{notice ? (
+				<Box marginTop={1} flexDirection="column">
+					{wrapBalancedText(notice, trustPathWidth(terminal.columns)).map((line, at) => (
+						// biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines have no identity beyond their order.
 						<Text key={at} color={theme.status.warn}>
 							{line}
 						</Text>

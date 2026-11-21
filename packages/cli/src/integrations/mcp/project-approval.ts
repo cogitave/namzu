@@ -12,19 +12,34 @@
  * `{ "version": 1, "folders": { "<folder>": { "<server>": "<fingerprint>" } } }`.
  */
 
-import { createHash, randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 
 import { canonicalProjectPath } from '../../permissions/canonical-project.js'
+import {
+	readFailureReason,
+	saveStateFile,
+	unreadableStateFile,
+	withStateFileLock,
+} from '../state/state-file.js'
 import type { McpServersConfig } from './servers.js'
 
 const FILE_VERSION = 1
 
-interface ApprovalFile {
-	readonly version: number
-	readonly folders: Record<string, Record<string, string>>
-}
+/**
+ * What is on disk. `folders` is each folder's answers as understood; `raw` is
+ * the file as written, so a change keeps whatever it does not understand
+ * (another folder's odd entry, a key a newer writer added) as it was.
+ */
+type ApprovalRead =
+	| { readonly state: 'missing' }
+	| {
+			readonly state: 'ok'
+			readonly folders: Readonly<Record<string, Readonly<Record<string, string>>>>
+			readonly raw: Readonly<Record<string, unknown>>
+	  }
+	| { readonly state: 'unreadable'; readonly reason: string }
 
 export function mcpApprovalsPath(namzuHome: string): string {
 	return join(namzuHome, 'mcp-approvals.json')
@@ -58,26 +73,50 @@ export function fingerprintMcpServer(entry: unknown): string {
 		.digest('hex')
 }
 
-function readFile(namzuHome: string): ApprovalFile {
+function readApprovals(namzuHome: string): ApprovalRead {
+	let text: string
 	try {
-		const parsed = JSON.parse(
-			readFileSync(mcpApprovalsPath(namzuHome), 'utf8'),
-		) as Partial<ApprovalFile>
-		const folders: Record<string, Record<string, string>> = {}
-		if (parsed.folders !== null && typeof parsed.folders === 'object') {
-			for (const [folder, servers] of Object.entries(parsed.folders)) {
-				if (servers === null || typeof servers !== 'object') continue
-				const kept: Record<string, string> = {}
-				for (const [name, print] of Object.entries(servers)) {
-					if (typeof print === 'string') kept[name] = print
-				}
-				folders[folder] = kept
-			}
-		}
-		return { version: FILE_VERSION, folders }
-	} catch {
-		return { version: FILE_VERSION, folders: {} }
+		text = readFileSync(mcpApprovalsPath(namzuHome), 'utf8')
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { state: 'missing' }
+		return { state: 'unreadable', reason: readFailureReason(error) }
 	}
+	let parsed: unknown
+	try {
+		parsed = JSON.parse(text)
+	} catch (error) {
+		return { state: 'unreadable', reason: readFailureReason(error) }
+	}
+	if (!isRecord(parsed)) return { state: 'unreadable', reason: 'not a list of approvals' }
+	const version = parsed.version
+	if (version !== undefined && (typeof version !== 'number' || version > FILE_VERSION))
+		return { state: 'unreadable', reason: `version ${String(version)} is newer than this Namzu` }
+	if (parsed.folders !== undefined && !isRecord(parsed.folders))
+		return { state: 'unreadable', reason: 'its "folders" entry is not a mapping' }
+	const folders: Record<string, Record<string, string>> = {}
+	for (const [folder, servers] of Object.entries(parsed.folders ?? {})) {
+		if (!isRecord(servers)) continue
+		const kept: Record<string, string> = {}
+		for (const [name, print] of Object.entries(servers)) {
+			if (typeof print === 'string') kept[name] = print
+		}
+		folders[folder] = kept
+	}
+	return { state: 'ok', folders, raw: parsed }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** Why the approvals file cannot be used, when it exists but does not read. */
+export function mcpApprovalsProblem(
+	namzuHome: string,
+): { file: string; reason: string } | undefined {
+	const read = readApprovals(namzuHome)
+	return read.state === 'unreadable'
+		? { file: mcpApprovalsPath(namzuHome), reason: read.reason }
+		: undefined
 }
 
 export interface ProjectServerSplit {
@@ -92,7 +131,9 @@ export function splitProjectMcpServers(
 	cwd: string,
 	servers: McpServersConfig | undefined,
 ): ProjectServerSplit {
-	const known = readFile(namzuHome).folders[folderKey(cwd)] ?? {}
+	// An unreadable file approves nothing: every server waits, none starts unasked.
+	const read = readApprovals(namzuHome)
+	const known = (read.state === 'ok' ? read.folders[folderKey(cwd)] : undefined) ?? {}
 	const approved: Record<string, unknown> = {}
 	const pending: string[] = []
 	for (const [name, entry] of Object.entries(servers ?? {})) {
@@ -148,20 +189,18 @@ function recordApprovals(
 ): readonly string[] {
 	const chosen = Object.keys(prints)
 	if (chosen.length === 0) return []
-	const file = readFile(namzuHome)
-	const key = folderKey(cwd)
-	const folder = { ...(file.folders[key] ?? {}) }
-	for (const name of chosen) folder[name] = prints[name] as string
-	const next: ApprovalFile = { version: FILE_VERSION, folders: { ...file.folders, [key]: folder } }
 	const path = mcpApprovalsPath(namzuHome)
-	mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
-	const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`
-	try {
-		writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 })
-		renameSync(temporary, path)
-	} catch (error) {
-		rmSync(temporary, { force: true })
-		throw error
-	}
+	withStateFileLock(path, () => {
+		const read = readApprovals(namzuHome)
+		if (read.state === 'unreadable') throw unreadableStateFile(path, read.reason, namzuHome)
+		const raw = read.state === 'ok' ? read.raw : {}
+		const rawFolders = isRecord(raw.folders) ? raw.folders : {}
+		const key = folderKey(cwd)
+		const current = rawFolders[key]
+		const folder: Record<string, unknown> = isRecord(current) ? { ...current } : {}
+		for (const name of chosen) folder[name] = prints[name] as string
+		const next = { ...raw, version: FILE_VERSION, folders: { ...rawFolders, [key]: folder } }
+		saveStateFile(path, `${JSON.stringify(next, null, 2)}\n`, { home: namzuHome })
+	})
 	return chosen
 }

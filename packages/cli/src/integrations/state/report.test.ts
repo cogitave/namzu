@@ -134,6 +134,21 @@ describe('read-only state inventory, version 2', () => {
 		expect(project?.categories.unknown).toEqual({ files: 0, logicalBytes: 0 })
 	})
 
+	it('counts the recovery copies and the account and approval files as configuration', async () => {
+		const cwd = temporary('backups')
+		const home = temporary('backups-home')
+		write(join(home, '.namzu', 'backups', 'trust.json.backup.1'), '{}')
+		write(join(home, '.namzu', 'backups', 'trust.json.corrupt-2'), '{')
+		write(join(home, '.namzu', 'accounts.json'), '{}')
+		write(join(home, '.namzu', 'mcp-approvals.json'), '{}')
+
+		const report = await inspectNamzuState({ cwd, home })
+		const user = report.roots.find((root) => root.roles.includes('user'))
+
+		expect(user?.categories.configuration).toMatchObject({ files: 4 })
+		expect(user?.categories.unknown).toEqual({ files: 0, logicalBytes: 0 })
+	})
+
 	it('reports a project document that does not parse as corrupt, by slug', async () => {
 		const cwd = temporary('corrupt-binding')
 		const home = temporary('corrupt-binding-home')
