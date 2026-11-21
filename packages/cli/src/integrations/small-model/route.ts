@@ -59,7 +59,7 @@ export function parseSmallModel(
  * listing has no field for either.
  */
 const NOT_A_CHAT_MODEL =
-	/embed|moderat|whisper|transcri|tts|speech|image|dall-?e|realtime|audio|lyria|veo|music|video|:batch$/iu
+	/embed|moderat|whisper|transcri|tts|speech|image|dall-?e|realtime|audio|(?<![a-z])(?:lyria|veo|music|video)(?![a-z])|:batch$/iu
 
 /** USD per million tokens, input plus output, or `undefined` when nobody states a price. */
 function price(providerId: string, model: ModelInfo): number | undefined {

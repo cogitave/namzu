@@ -150,6 +150,29 @@ describe('the side model route', () => {
 		})
 	})
 
+	it('skips music and video generators by whole word, not a chat model that merely contains the letters', async () => {
+		const side = createSideModel({
+			active: () => ({ providerId: 'acme', model: 'big' }),
+			isKnownProvider: () => true,
+			buildProvider: async () =>
+				fakeProvider({
+					models: [
+						listed('acme/veo-3', 0.01, 0.01),
+						listed('acme/lyria-2', 0.01, 0.01),
+						listed('acme/music-gen', 0.01, 0.01),
+						listed('acme/video-gen', 0.01, 0.01),
+						listed('acme/ceveo-chat', 0.1, 0.5),
+						listed('acme/big', 3, 15),
+					],
+				}),
+			ledger: fakeLedger(),
+		})
+
+		expect((await side.route(sessionId, new AbortController().signal)).model).toBe(
+			'acme/ceveo-chat',
+		)
+	})
+
 	it('falls back to the whole listing when the conversation vendor has none priced', async () => {
 		const side = createSideModel({
 			active: () => ({ providerId: 'openrouter', model: 'acme/big' }),
