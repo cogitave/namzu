@@ -12,6 +12,7 @@ import {
 	isRowRunning,
 	rowLabel,
 	rowMeta,
+	rowTail,
 } from './background-view.js'
 import { permissionReviewRows } from './permission-review.js'
 import { SYSTEM_ROW_GLYPH, endOutcome } from './system-rows.js'
@@ -173,7 +174,8 @@ export function BackgroundJobsPanel({
 		const stop =
 			selected && isRowRunning(selected) && !busyJobId && selected.kind === 'job' ? ' · x stop' : ''
 		const agentStop = selected?.kind === 'agent' && isRowRunning(selected) ? ' · x stop' : ''
-		const stopHint = stop || agentStop
+		const timerStop = selected?.kind === 'timer' ? ' · x cancel' : ''
+		const stopHint = stop || agentStop || timerStop
 		const listHint =
 			entries.length === 0
 				? 'esc close'
@@ -182,7 +184,7 @@ export function BackgroundJobsPanel({
 							`↑/↓ select · enter view${stopHint} · esc close`,
 							`↑/↓ select · enter${stopHint} · esc`,
 							`enter${stopHint} · esc`,
-							`${stopHint ? 'x stop · ' : ''}esc`,
+							`${stopHint ? `${stopHint.slice(3)} · ` : ''}esc`,
 							'esc',
 						],
 						innerColumns,
@@ -205,7 +207,7 @@ export function BackgroundJobsPanel({
 			lastSection = entry.section
 			const focused = entry.key === selected?.key
 			const meta = rowMeta(entry)
-			const tail = `  ${meta}`
+			const tail = `  ${rowTail(entry, now)}`
 			const room = Math.max(1, innerColumns - 4 - tail.length)
 			lines.push(
 				<Text key={entry.key} wrap="truncate-end">

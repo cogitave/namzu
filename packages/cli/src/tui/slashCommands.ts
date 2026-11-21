@@ -85,6 +85,7 @@ import { sandboxRunsShellUnasked } from '../permissions/sandbox-shell.js'
 import { readChangelog, renderReleaseNotes } from '../release-notes.js'
 import { SKILL_NAME_MAX_CHARS, SKILL_NAME_PATTERN } from '../skills/save.js'
 import { ARGUMENTS_TOKEN, type UserCommand, expandCommand } from '../user-commands/store.js'
+import { timeLeft } from './background-view.js'
 import { VIM_USAGE, parseVimArgument } from './editor-mode.js'
 import { keysHelpText } from './keymap.js'
 import { isCompletionArgument } from './login-prompt.js'
@@ -374,6 +375,14 @@ export interface SlashContext {
 	readonly rememberedAllows?: () => readonly SessionAllow[]
 	/** Refresh subsequent authorization decisions after a saved local rule edit. */
 	readonly reloadPermissionRules?: () => void
+	/** The timers the model set that are still pending in this conversation. */
+	readonly timers?: () => readonly {
+		readonly id: string
+		readonly schedule: string
+		readonly prompt: string
+		readonly recurring: boolean
+		readonly nextFireAt?: string
+	}[]
 	/** This session's background commands, running and ended. */
 	readonly jobs: () => readonly {
 		readonly id: string
@@ -1629,7 +1638,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 			args.length === 0
 				? { kind: 'tasks' }
 				: args.length === 1 && args[0] === 'list'
-					? { kind: 'message', role: 'system', content: renderBackgroundTasks(ctx.jobs()) }
+					? {
+							kind: 'message',
+							role: 'system',
+							content: renderBackgroundTasks(ctx.jobs(), ctx.timers?.() ?? []),
+						}
 					: { kind: 'message', role: 'system', content: 'Usage: /tasks [list]' },
 	},
 	{
@@ -1643,7 +1656,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 			args.length === 0
 				? { kind: 'tasks' }
 				: args.length === 1 && args[0] === 'list'
-					? { kind: 'message', role: 'system', content: renderBackgroundTasks(ctx.jobs()) }
+					? {
+							kind: 'message',
+							role: 'system',
+							content: renderBackgroundTasks(ctx.jobs(), ctx.timers?.() ?? []),
+						}
 					: { kind: 'message', role: 'system', content: 'Usage: /bashes [list]' },
 	},
 	{
@@ -2394,9 +2411,12 @@ function worktreeHookNote(
 }
 
 /** The session's background commands, as an operator would ask about them. */
-export function renderBackgroundTasks(jobs: ReturnType<SlashContext['jobs']>): string {
-	if (jobs.length === 0) {
-		return 'No background tasks in this conversation. The agent starts one with `run_in_background` on bash.'
+export function renderBackgroundTasks(
+	jobs: ReturnType<SlashContext['jobs']>,
+	timers: NonNullable<ReturnType<NonNullable<SlashContext['timers']>>> = [],
+): string {
+	if (jobs.length === 0 && timers.length === 0) {
+		return 'No background tasks in this conversation. The agent starts one with `run_in_background` on bash; its timers (timer_set) are listed here too.'
 	}
 	const lines = jobs.map((job) => {
 		const state =
@@ -2407,11 +2427,25 @@ export function renderBackgroundTasks(jobs: ReturnType<SlashContext['jobs']>): s
 					: `exited ${job.exitCode ?? '?'}`
 		return `${state.padEnd(16)}  ${job.command}`
 	})
+	const timerLines = timers.map((timer) => {
+		const left = timeLeft(timer.nextFireAt, Date.now())
+		const when = left === '' ? timer.schedule : left === 'now' ? 'due now' : `in ${left}`
+		const state = `${timer.recurring ? 'repeats' : 'once'}, ${when}`
+		return `${state.padEnd(16)}  ${timer.prompt.replace(/\s+/g, ' ').trim()}`
+	})
 	return [
-		`${jobs.length} background ${jobs.length === 1 ? 'command' : 'commands'} in this conversation:`,
-		...lines,
+		...(jobs.length > 0
+			? [
+					`${jobs.length} background ${jobs.length === 1 ? 'command' : 'commands'} in this conversation:`,
+					...lines,
+				]
+			: []),
+		...(jobs.length > 0 && timers.length > 0 ? [''] : []),
+		...(timers.length > 0
+			? [`${timers.length} pending ${timers.length === 1 ? 'timer' : 'timers'}:`, ...timerLines]
+			: []),
 		'',
-		'Use /tasks to inspect output or stop a running command; /exit stops them all.',
+		`Use /tasks to inspect output, stop a running command${timers.length > 0 ? ' or cancel a timer (x)' : ''}; /exit stops them all.`,
 	].join('\n')
 }
 

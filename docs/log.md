@@ -2,6 +2,7 @@
 
 ## 2026-11-21
 
+- **Update** [Slash commands](cli/slash-commands.md), [Session loops](cli/session-loops.md): `/tasks` lists the timers the model set (prompt, time left, once or repeating) in a Timers section, `x` cancels one for real, and `/tasks list` prints them. `.changeset/cli-tasks-shows-timers.md`.
 - **Update** [Text-only models and images](sdk/text-only-models-and-images.md): a pasted image now reaches an OpenRouter model that reads images, as an `image_url` content part; `OPENROUTER_CAPABILITIES.supportsVision` is `true` and `supportsImageInputFor` answers per model from the listing's input modalities, so a text-only model still gets the notice and omission marker. `.changeset/openrouter-images-for-vision-models.md`.
 - **Update** [Slash commands](cli/slash-commands.md): provider setup's install question starts on Cancel and takes no letter as an answer; installing takes an arrow to Install and Enter.
 - **Update** [Slash commands](cli/slash-commands.md#permissions): `/permissions add` and `remove` apply to later calls in the running session, not at the next start; the interrupted-request note is added only between two messages you typed, never for a goal-round or steering message. `.changeset/sdk-interrupted-mark-plain-requests.md`.
