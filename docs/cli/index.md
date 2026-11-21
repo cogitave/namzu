@@ -41,6 +41,7 @@ The operator application.
 * [Session storage](session-storage.md) - Every file the CLI keeps under NAMZU_HOME, the one log per session, the rebuildable index, and which files are safe to delete.
 * [Watching a session from another terminal](watching-a-session.md) - `namzu watch` and `namzu send`: follow a running or finished session from a second terminal, say something to it as yourself, what each can and cannot do, states and exit statuses.
 * [Messages between live terminals](peer-messaging.md) - Discover independent terminals in the same project and send attributed context at safe request boundaries, from a terminal or with `namzu peers`.
+* [Your Namzu network](namzu-network.md) - See your other machines and their sessions, message them, give them roles, and let a new machine join with one Allow.
 * [Accounts in the terminal](accounts.md) - `/auth` and `--account`: choose the account a conversation uses, add a Codex sign-in or labelled API key, and what happens when an account runs out of allowance.
 * [Provider credentials and private state](credentials.md) - Existing subscription profiles, credential discovery, the provider list and its credential entry, and Windows and POSIX storage privacy checks.
 * [Native conversation engines](native-engines.md) - Installed native execution, engine catalogues, exact durable continuation, live reviews and confirmed shutdown.

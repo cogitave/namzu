@@ -328,8 +328,11 @@ The [interactive CLI](../cli/peer-messaging.md) now supplies the local endpoint
 lifecycle, bounded inbox, same-project and same-mode policy, `/peers`,
 `list_sessions` and `send_session_message`. Peer context wakes a ready idle TUI
 or drains at a busy turn's provider-valid boundary. It is process-local until
-written into conversation history. The CLI refuses mode mismatches rather than
-implementing the SDK protocol's possible hold/approve flow.
+written into conversation history. The CLI **holds** mail from a terminal in a
+different permission mode (and every agent's mail while it is in bypass) for its
+person to allow once or deny, with `decideMail` and `HoldQueue` from the
+[network module](namzu-network.md#mail-across-machines); the sender gets `held`
+and later `queued`, `refused` or `expired` as a `delivery` notice.
 
 This SDK module remains transport and storage: it does not itself enqueue,
 start model turns, or grant approvals. Other hosts implement those policies.

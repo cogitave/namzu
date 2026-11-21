@@ -58,6 +58,7 @@ Generated state lives under `~/.namzu`, or `NAMZU_HOME` when configured:
 - `config.yaml`, `credentials.json`, `preferences.json`, `trust.json`,
   `plugin-settings/` and `cli.json` keep their locations. The state inventory
   classifies saved plugin choices as configuration; see [Plugins](plugins.md).
+- `network/` holds your Namzu network's per-machine state (mode 0700, files 0600): the machine key and certificate, membership, last addresses, roles, an audit log, and the leader and control files. Nothing is created until the network runs. See [Your Namzu network](namzu-network.md#what-is-on-the-network-and-what-is-on-disk).
 - `index.sqlite` indexes every session log: sessions, turns, child sessions,
   pending decisions, external ids and full-text evidence. It is rebuilt from
   the logs whenever it is missing, out of date or at another version, so

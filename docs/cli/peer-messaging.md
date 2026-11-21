@@ -23,8 +23,15 @@ choice.
 ## Use it
 
 - `/peers` or `/peers list`: show live terminals, short references, permission
-  modes and the number of messages pending here.
-- `/peers send <ref> <message>`: send text to the selected terminal.
+  modes and the number of messages pending here. When [your Namzu network](namzu-network.md)
+  runs it shows every machine's sessions instead, then what waits for you (held
+  messages, requests to join) with an Allow and a Deny row for each.
+- `/peers send <name> <message>`: send text to the selected terminal, or to a
+  session on another machine (`machine/name`).
+- `/peers role <name> <text>` and `/peers role clear <name>`: describe what a
+  session is for; see [Roles](namzu-network.md#roles).
+- `/peers allow <code>`, `/peers deny <code>`, `/peers remove <machine>`,
+  `/peers rename <name>`, `/peers add <host[:port]>`: the network's verbs.
 - `/peers off`: refuse new mail and pause delivery of mail already accepted.
 - `/peers on`: allow mail again; accepted pending mail can resume.
 
@@ -34,27 +41,30 @@ choice.
 
 ```sh
 namzu peers list [--json]
-namzu peers send <ref|id|title> <message...> [--json] [--mode <mode>] [--file <path>|-]
+namzu peers send <ref|id|title|machine/name> <message...> [--json] [--mode <mode>] [--file <path>|-]
 ```
 
-`list` prints the live terminals in this project: reference, title, state and permission mode. `send` takes the message as words, or from `--file` (`-` reads standard input) to keep line breaks and any language intact; words and `--file` do not mix. Flags may stand anywhere, and `--` ends them.
+The other verbs (`status`, `on`, `off`, `allow`, `deny`, `remove`, `rename`, `role`, `add`, `join`, `log`) manage [your Namzu network](namzu-network.md#from-a-command-line). A bare `namzu peers` is `namzu peers list`.
 
-The command is a short-lived sender with its own identity: it writes a `cli` record in the same registry, listens only for the receiver's check, and removes the record when it exits. The receiver applies the same rules as for a terminal: same canonical project, same account and runtime directory, same permission mode. `--mode` states the mode this command acts under; without it, the mode a new terminal would plan to start in here: `permissions.defaultMode`, else `auto` unless `permissions.disableAutoMode` is set, else `prompt`. So a plain send reaches a terminal that started in its default. A terminal that started in `prompt` because auto could not be used there (its classifier cannot reach a model) is reached with `--mode prompt`. A different mode is refused, including `bypass`. The mail reaches the model as from a command-line sender, not a terminal, and never as operator text or approval. A command-line sender takes no messages and is not listed.
+`list` prints the live terminals in this project: reference, title, state and permission mode. When your Namzu network is running it prints every machine's sessions instead (name, project folder, state, mode, role). `send` takes the message as words, or from `--file` (`-` reads standard input) to keep line breaks and any language intact; words and `--file` do not mix. Flags may stand anywhere, and `--` ends them.
 
-The receipt is printed in words. With `--json`, `send` prints one JSON object: `status` (`queued`, `refused` or `unreachable`), `reason`, `mode`, and, when known, `ref`, `id` and `sessionId` (the target's; present once the command reached the delivery step). `mode` is the internal mode name, so the flag value `auto` appears as `classify`. `list --json` prints `{"peers":[{"ref","sessionId","title","state","mode","acceptsMessages"}]}` with the same internal `mode` names, never tokens or addresses. With `--json`, a usage, input or availability error is one object `{"error":"...","exit":<code>}` on standard output instead of text.
+The command is a short-lived sender with its own identity: it writes a `cli` record in the same registry, listens only for the receiver's check, and removes the record when it exits. The receiver applies the same rules as for a terminal: same canonical project, same account and runtime directory, same permission mode. `--mode` states the mode this command acts under; without it, the mode a new terminal would plan to start in here: `permissions.defaultMode`, else `auto` unless `permissions.disableAutoMode` is set, else `prompt`. So a plain send reaches a terminal that started in its default. A terminal that started in `prompt` because auto could not be used there (its classifier cannot reach a model) is reached with `--mode prompt`. A different mode is not refused: the receiving terminal **holds** the message for its person (see [A different mode is held](#a-different-mode-is-held)). The mail reaches the model as from a command-line sender, not a terminal, and never as operator text or approval. A command-line sender takes no messages and is not listed.
+
+The receipt is printed in words. With `--json`, `send` prints one JSON object: `status` (`queued`, `held`, `refused` or `unreachable`), `reason`, `mode`, and, when known, `ref`, `id` and `sessionId` (the target's; present once the command reached the delivery step). `mode` is the internal mode name, so the flag value `auto` appears as `classify`. `list --json` prints `{"peers":[{"ref","sessionId","title","state","mode","acceptsMessages"}]}` with the same internal `mode` names, never tokens or addresses. With `--json`, a usage, input or availability error is one object `{"error":"...","exit":<code>}` on standard output instead of text.
 
 | Receipt | Meaning | Exit |
 |---|---|---|
 | Queued | Accepted into the live inbox, not proof the model read it. | 0 |
+| Held | The receiving terminal keeps it for its person to allow once or deny; nothing is in the inbox yet and may never be. | 4 |
 | Refused | The terminal or the command declined, with the reason. | 1 |
 | Unreachable | No terminal answered; acceptance is unknown, do not retry blindly. | 69 |
 
 Bad arguments or an empty message exit 64, input that is not UTF-8 text (or contains NUL) exits 65, and an unreadable file exits 66. A `--file` input is read only up to one byte past 32 KiB, so an endless pipe or huge file is refused without being buffered. A message over 32 KiB, or one that is over the 64 KiB request limit once quotes and control characters are escaped, is refused (exit 1) before anything is sent. The `/peers send` slash command collapses runs of whitespace; `namzu peers send --file` does not.
 
 Participation starts on when the interactive application becomes ready. This
-setting lasts for this terminal process. The model gets `list_sessions` and
-`send_session_message`, using the exact live session id, short reference or
-unambiguous title returned by discovery. A terminal's title is the name of its
+setting lasts for this terminal process. The model gets `list_sessions`,
+`send_session_message` and `set_session_role`, using the exact live session id, short reference or
+unambiguous title returned by discovery (or `machine/name` for a session on another machine). `set_session_role` is not read-only, so it asks like any tool that changes something; a role grants nothing. A terminal's title is the name of its
 conversation (the one you gave it with `/rename`, else the one the small model
 wrote, at most 40 characters on one line) and the folder's name until it has
 one; a rename reaches the live record at once, so two terminals in one folder
@@ -76,7 +86,7 @@ and endpoint, and differs in the ways that matter:
 |---|---|---|
 | Addressed by | live terminal reference, id or title, in this folder | the conversation's id, as `namzu watch` names it, in any folder of the account |
 | Sender's kind | `tui` or `cli` | `person` |
-| Permission mode | must equal the receiver's, or it is refused | not compared: a person has no mode to match, and the message cannot change the receiver's |
+| Permission mode | must equal the receiver's, or it is held for the receiver's person | not compared: a person has no mode to match, and the message cannot change the receiver's |
 | The model is told | it carries no authority, not the operator's instruction | the text arrived from another terminal of this account and is meant to be the person's words, but the kernel did not check who sent it; it cannot approve anything, change a mode or run a command, and what the model does because of it passes the same permission checks |
 | Recorded as | `peer-message` | `person-message` ("Message from another terminal of this account") |
 | Sent from inside a session | allowed: that is what an agent is | refused: a person's message is not from a tool or agent. Three layers: a marker (`NAMZU_STARTED_BY_SESSION`) in the environment of everything a session starts, a built-in refusal of the command line in every permission mode, and process ancestry checked on both ends; [what is left](watching-a-session.md#not-from-a-tool-or-an-agent) |
@@ -111,25 +121,37 @@ The transcript attributes peer text to the other terminal. Durable history uses
 `runtime-context/peer-message`; peer text is never an operator message or
 approval. The receiving terminal retains its own rules, mode, budgets and
 credentials. Automatic acceptance requires a verified live TUI sender in the
-same project and the same permission mode (a terminal, or a command-line sender from `namzu peers send`). A different mode is refused rather
-than treated as consent, including when the receiver uses bypass mode. The
-receiver checks its current mode again before an idle wake consumes mail and
+same project and the same permission mode (a terminal, or a command-line sender from `namzu peers send`), and a receiver that is not in bypass. Anything else
+is held, not treated as consent (below). The receiver checks its current mode again before an idle wake consumes mail and
 before busy-turn delivery. If the mode changes after acceptance, incompatible
 pending mail is discarded with a local notice, not replayed under the new mode;
 returning to the previous mode does not revive it. A queued receipt therefore
 remains an acceptance receipt, not a promise of later delivery. Turning messaging
 on does not approve any tool call.
 
-The response is **queued**, **refused**, or **unreachable**. Queued means accepted
-into the live inbox, not understood or completed. No receipt after a send means
+The response is **queued**, **held**, **refused**, or **unreachable**. Queued means accepted
+into the live inbox, not understood or completed. Held means the receiver is keeping
+the message for its person. No receipt after a send means
 acceptance may be unknown; there is no automatic retry. A bounded window of 256
 sender/message-id pairs suppresses duplicate acceptance in the same live
 instance. This is not an exactly-once execution guarantee.
+
+## A different mode is held
+
+A message from a terminal in another permission mode, and every agent's message while the receiving terminal is in `bypass` (even from one in `bypass` too), used to be refused. It is now **held**: it is not in the inbox, not in the model's context, and approves nothing. The sender is told `held` with the reason at once.
+
+- The person sees one line, "1 message from `<name>` is held: its permission mode differs (it is in prompt, you are in auto). `/peers` to allow or deny it."
+- `/peers` lists it under Held with an **Allow once** row and a **Deny** row. Allow once moves it to the inbox as if it had just been accepted, under the mode the terminal is in now; a later mode change discards it as for any mail. Nothing is remembered: the next message from the same terminal is held again. Allowing never changes the receiver's mode.
+- Deny refuses it. A message nobody answers for **ten minutes** expires. In each case the sender hears `refused` or `expired` as a notice (a terminal says it in one line; the command line has already gone).
+- A terminal holds at most 8; the ninth is refused with that reason. A person's own message (`namzu send`) is not held: it has no mode to compare.
+
+`namzu peers send` cannot wait for the answer, so it reports **Held** and exits 4 (a script that tested exit 1 for a mode mismatch must handle 4 as well). A terminal that wants no held mail simply never sees it: the sender is in the same mode, or the receiver turned messaging off.
+
+Mail from another machine follows the same rules, with the receiving terminal's mode compared against the one the sender's own machine reported; see [Your Namzu network](namzu-network.md#messages-from-your-other-machines).
 
 The inbox holds at most 32 messages, each at most 32 KiB of UTF-8 text. Accepted
 mail belongs to the current conversation generation; changing conversations
 discards stale pending mail with a local notice. Mail is process-local until it
 enters history: a crash can lose it. Closing invokes the local undelivered-mail
 report callback and removes the endpoint; it does not send a delivery proof to
-the sender. Durable external tasks, idle subscriptions and mode-mismatch
-approval dialogs are not supplied by this host integration.
+the sender. Durable external tasks and idle subscriptions are not supplied by this host integration.

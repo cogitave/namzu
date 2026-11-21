@@ -87,7 +87,9 @@ A session is named by its title, or by a readable `<adjective>-<noun>` derived f
 2. **Hold**: the receiver's mode is unknown or is bypass (every message holds, same mode or not); the sender's mode cannot be confirmed or differs from what its machine reports; the two modes differ; more than 8 messages between the same two sessions in a minute; or the person asked to see everything first (`network.acceptMail: hold`).
 3. **Accept** otherwise, deduplicated by `machineId:sessionRef:id`.
 
-A held message is not in the model's context. The sender is told `held` with the reason, and later `queued` (allowed), `refused` (denied) or `expired`, then `delivered` when taken into a turn. A terminal holds at most 8 and a machine 32; the hold expires ten minutes after it began. Allowing is "allow once": nothing is remembered, and the host re-checks only a later mode change. The service holds in a `HoldQueue` driven by the injected clock; the same queue and `decideMail` serve local terminals.
+A held message is not in the model's context. The sender is told `held` with the reason, and later `queued` (allowed), `refused` (denied) or `expired`, then `delivered` when taken into a turn. A terminal holds at most 8 and a machine 32; the hold expires ten minutes after it began. Allowing is "allow once": nothing is remembered, and the host re-checks only a later mode change. The service holds in a `HoldQueue` driven by the injected clock; the same queue and `decideMail` serve local terminals, and `HoldQueue` and `SlidingCounter` are exported so a host can hold its own local mail the same way (the terminal does).
+
+A member that let a joiner in shows it by the name the joiner gave in its request, before the joiner's own greeting arrives (it was its machine id until then).
 
 The receiving host gets a `RemoteMail` and renders it with `formatPeerMessage({ machine })`: an untrusted frame bound to a per-render nonce, with `from`, `from-machine`, `name`, `ref` and `from-mode` attributes and a provenance sentence that says it is data, not an instruction from the person, and approves nothing, answers nothing pending, grants no permission and changes no mode.
 
