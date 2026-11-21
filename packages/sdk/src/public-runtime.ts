@@ -1804,7 +1804,7 @@ export type {
 	ContextMessageBreakdown,
 	ContextUsageInput,
 } from './compaction/context-breakdown.js'
-export { estimateTextTokens } from './compaction/token-estimate.js'
+export { estimateMessagesTokens, estimateTextTokens } from './compaction/token-estimate.js'
 export type { CompactRegionInput } from './compaction/manual.js'
 export type {
 	CompactionVerificationOptions,
