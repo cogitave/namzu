@@ -78,4 +78,36 @@ describe('launchTui clean settlement', () => {
 		)
 		expect(write.mock.calls.some(([value]) => String(value).includes('To resume'))).toBe(false)
 	})
+
+	it('makes the input raw before Ink starts, so the terminal-support query is not echoed', async () => {
+		vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+		const calls: string[] = []
+		const stdin = process.stdin as NodeJS.ReadStream & { setRawMode?: (mode: boolean) => unknown }
+		const had = Object.getOwnPropertyDescriptor(stdin, 'isTTY')
+		const hadRaw = Object.getOwnPropertyDescriptor(stdin, 'setRawMode')
+		Object.defineProperty(stdin, 'isTTY', { value: true, configurable: true })
+		Object.defineProperty(stdin, 'setRawMode', {
+			value: (mode: boolean) => {
+				calls.push(`raw:${mode}`)
+				return stdin
+			},
+			configurable: true,
+			writable: true,
+		})
+		render.mockImplementationOnce(() => {
+			calls.push('render')
+			return { waitUntilExit }
+		})
+		try {
+			await launchTui({ cwd: '/workspace', version: '0.0.0-test' })
+		} finally {
+			if (had) Object.defineProperty(stdin, 'isTTY', had)
+			else Reflect.deleteProperty(stdin, 'isTTY')
+			if (hadRaw) Object.defineProperty(stdin, 'setRawMode', hadRaw)
+			else Reflect.deleteProperty(stdin, 'setRawMode')
+		}
+		expect(calls.indexOf('raw:true')).toBeGreaterThanOrEqual(0)
+		expect(calls.indexOf('raw:true')).toBeLessThan(calls.indexOf('render'))
+		expect(calls.at(-1)).toBe('raw:false')
+	})
 })

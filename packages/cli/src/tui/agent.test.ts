@@ -1135,7 +1135,7 @@ describe('makeResumeHandler under accept-edits', () => {
 
 	it('lets the mode a plan approval leaves for cover a write over an existing file', async () => {
 		// `write` declares every call destructive, because its input cannot say
-		// whether the file exists. The row "Yes, and auto-approve edits" must not
+		// whether the file exists. The row "Yes, and auto-accept edits" must not
 		// leave a replaced file as the one write that still asks.
 		const row = planApprovalRows(false).find((r) => r.id === 'approve-accept-edits')
 		expect(row?.mode).toBe('accept-edits')

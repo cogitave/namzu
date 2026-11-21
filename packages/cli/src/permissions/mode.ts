@@ -92,7 +92,7 @@ export function permissionModeLabel(mode: PermissionMode): string {
 		case 'prompt':
 			return 'Ask before changes'
 		case 'accept-edits':
-			return 'Auto-approve edits'
+			return 'Accept edits'
 		case 'plan':
 			return 'Plan (read-only)'
 		case 'bypass':

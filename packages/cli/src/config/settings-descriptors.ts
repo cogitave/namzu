@@ -743,7 +743,7 @@ const DECLARED: readonly SettingDescriptor[] = [
 			],
 			[
 				'accept-edits',
-				'Allow file edits',
+				'Accept edits',
 				'Edits and writes run without asking; everything else still asks.',
 			],
 			['plan', 'Plan only', 'Namzu may look and plan, and is refused any change.'],
@@ -761,7 +761,15 @@ const DECLARED: readonly SettingDescriptor[] = [
 		),
 		{
 			group: 'permissions',
-			keywords: ['default mode', 'permissions', 'ask before risky actions', 'auto', 'plan'],
+			keywords: [
+				'default mode',
+				'permissions',
+				'ask before risky actions',
+				'allow file edits',
+				'auto-approve edits',
+				'auto',
+				'plan',
+			],
 			default: 'prompt',
 			confirm: 'Some modes let Namzu act without asking. Only choose one you are comfortable with.',
 			confirmValues: ['accept-edits', 'bypass', 'auto'],

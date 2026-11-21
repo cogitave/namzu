@@ -278,6 +278,21 @@ export async function launchTui(
 		liveRenderOption(process.stdout, inputStream, consoleInput !== undefined).interactive === true
 			? createLivePaint(inkOut, { bypass: () => proxy?.mode === 'zoomed' })
 			: null
+	// Ink asks the terminal whether it speaks the kitty keyboard protocol the moment it starts,
+	// before any screen has asked for raw input. A terminal that answers at once would have its
+	// answer echoed onto the first screen as text ("^[[?0u") by the line discipline, so the input
+	// is made raw first. Ink takes over the same mode when the first screen mounts and gives it
+	// back when it unmounts; the release after the run below covers a run that never mounted it.
+	const rawInput = inputStream as NodeJS.ReadStream
+	let heldRaw = false
+	if (rawInput.isTTY === true && typeof rawInput.setRawMode === 'function') {
+		try {
+			rawInput.setRawMode(true)
+			heldRaw = true
+		} catch {
+			// The terminal refuses raw mode; Ink would have been refused the same.
+		}
+	}
 	const instance = render(
 		React.createElement(App, {
 			ctx,
@@ -370,6 +385,13 @@ export async function launchTui(
 		// The input box and the footer are taken off the screen (the transcript stays), so the next
 		// command or session does not stack under a box that no longer works. A hangup has no screen.
 		paint?.dispose({ eraseBox: terminatedBy !== 'SIGHUP' && !hosted })
+		if (heldRaw) {
+			try {
+				rawInput.setRawMode(false)
+			} catch {
+				// The terminal is gone.
+			}
+		}
 		stopSizeWatch?.()
 		stopFocusReporting()
 		stopWheel?.()

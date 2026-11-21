@@ -87,7 +87,7 @@ describe('the /permissions picker', () => {
 		expect(picker.values).toEqual(['prompt', 'accept-edits', 'plan', 'bypass', 'classify', 'more'])
 		expect(picker.options.map((option) => option.label)).toEqual([
 			'Ask before changes',
-			'Auto-approve edits',
+			'Accept edits',
 			'Plan (read-only)',
 			'Bypass permissions',
 			'Auto',
@@ -123,7 +123,7 @@ describe('the /permissions picker', () => {
 		expect(reasons['Bypass permissions']).toContain('--allow-dangerously-skip-permissions')
 		expect(reasons.Auto).toContain('not available')
 		expect(reasons['Ask before changes']).toBeUndefined()
-		expect(reasons['Auto-approve edits']).toBeUndefined()
+		expect(reasons['Accept edits']).toBeUndefined()
 		expect(reasons['Plan (read-only)']).toBeUndefined()
 	})
 

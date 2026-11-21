@@ -592,6 +592,13 @@ function nextGraphemeBoundary(source: string, cursor: number): number {
 	return source.length
 }
 
+/** How many backslashes end `text`, in a row. */
+export function trailingBackslashes(text: string): number {
+	let count = 0
+	while (count < text.length && text[text.length - 1 - count] === '\\') count++
+	return count
+}
+
 function lineStart(source: string, cursor: number): number {
 	return cursor <= 0 ? 0 : source.lastIndexOf('\n', cursor - 1) + 1
 }
@@ -2010,6 +2017,52 @@ export function Composer({
 				} else recallEntry(next.matches[position] ?? next.draft.value)
 				return
 			}
+			if (historySearchRef.current && !escapeInterrupts) {
+				// While the search is open, text and Backspace edit what is searched for.
+				// Enter, Esc, Ctrl+R, Ctrl+S and Ctrl+C keep their own meaning below.
+				const search = historySearchRef.current
+				let query: string | null = null
+				if (key.backspace || key.delete) {
+					if (search.query.length === 0) {
+						// Backspace on an empty query leaves the search, as Ctrl+C does.
+						setHistorySearch(null)
+						setShellMode(search.draft.shell === true)
+						setBuffer(search.draft.value, search.draft.cursor, 'typed', search.draft.spans)
+						return
+					}
+					query = search.query.slice(0, previousGraphemeBoundary(search.query, search.query.length))
+				} else if (
+					!key.ctrl &&
+					!key.meta &&
+					!key.escape &&
+					!key.return &&
+					!key.tab &&
+					!key.upArrow &&
+					!key.downArrow &&
+					!key.leftArrow &&
+					!key.rightArrow &&
+					!key.pageUp &&
+					!key.pageDown &&
+					!key.home &&
+					!key.end &&
+					input.length > 0
+				) {
+					query = search.query + input.replace(/[\r\n]+/g, ' ')
+				}
+				if (query !== null) {
+					const normalizedQuery = query.toLowerCase()
+					const matches = [...history]
+						.reverse()
+						.filter((entry) => entry.toLowerCase().includes(normalizedQuery))
+					const position = matches.length > 0 ? 0 : -1
+					setHistorySearch({ ...search, query, matches, position })
+					if (position < 0) {
+						setShellMode(search.draft.shell === true)
+						setBuffer(search.draft.value, search.draft.cursor, 'typed', search.draft.spans)
+					} else recallEntry(matches[0] ?? search.draft.value)
+					return
+				}
+			}
 			if (key.return) {
 				if (liveSuggestionKind === 'command') {
 					// Run the highlighted command.
@@ -2020,6 +2073,15 @@ export function Composer({
 					return
 				}
 				if (acceptSuggestion()) return
+				// A backslash right before the cursor turns Enter into a new line: the
+				// backslash goes, the line break takes its place. A doubled backslash is
+				// an escaped one and stays.
+				const position = cursorRef.current
+				const before = valueRef.current.slice(0, position)
+				if (trailingBackslashes(before) % 2 === 1) {
+					editBuffer(`${before.slice(0, -1)}\n${valueRef.current.slice(position)}`, position)
+					return
+				}
 				submit('submit')
 				return
 			}

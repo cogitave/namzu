@@ -68,7 +68,7 @@ describe('the plan approval box', () => {
 		expect(frame).not.toContain('.namzu')
 		expect(frame).toContain('Add a hello line.')
 		expect(frame).toMatch(
-			/1\. Yes, and auto-approve edits[\s\S]*2\. Yes, and ask before each edit[\s\S]*3\. No, keep planning/,
+			/1\. Yes, and auto-accept edits[\s\S]*2\. Yes, and ask before each edit[\s\S]*3\. No, keep planning/,
 		)
 		expect(frame).toContain('❯ 1.')
 		h.unmount()
@@ -77,7 +77,7 @@ describe('the plan approval box', () => {
 	it('offers running without asking in place of the first row when the session may', () => {
 		const frame = mount({ bypass: true }).lastFrame() ?? ''
 		expect(frame).toContain('1. Yes, and run every tool without asking')
-		expect(frame).not.toContain('auto-approve edits')
+		expect(frame).not.toContain('auto-accept edits')
 	})
 
 	it('Enter on the first row approves with accept-edits, the second with prompt', async () => {
@@ -167,4 +167,34 @@ describe('the plan approval box', () => {
 		expect(h.lastFrame()).not.toContain('line 1\n')
 		expect(h.lastFrame()).toContain(`rows ${planPageRows(24) + 1}-`)
 	})
+
+	it.each([18, 20, 22, 24, 30, 40, 60])(
+		'keeps the box, the question and every answer on a %i-row screen',
+		(screenRows) => {
+			const long = Array.from(
+				{ length: 80 },
+				(_, i) => `line ${i + 1} ${'word '.repeat(i % 3 === 0 ? 30 : 2)}`,
+			).join('\n')
+			clock = 1_000
+			for (const planPath of [request().planPath, '/work/notes/my-plan.md']) {
+				const h = render(
+					<PlanApprovalOverlay
+						request={{ ...request(), plan: long, planPath }}
+						columns={100}
+						rows={screenRows}
+						now={now}
+						onAnswer={() => {}}
+					/>,
+				)
+				const frame = h.lastFrame() ?? ''
+				// The conversation keeps its waiting line and a blank row above the box.
+				expect(frame.split('\n').length).toBeLessThanOrEqual(screenRows - 3)
+				expect(frame).toContain('Do you want to start on this plan?')
+				expect(frame).toContain('1. Yes, and auto-accept edits')
+				expect(frame).toContain('3. No, keep planning')
+				expect(frame).toContain('ctrl+c stop')
+				h.unmount()
+			}
+		},
+	)
 })
