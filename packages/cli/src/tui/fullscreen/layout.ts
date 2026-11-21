@@ -135,7 +135,7 @@ function hungRows(rows: readonly FsRow[], body: number, markColor: string): read
 			lead: i === 0 ? 0 : RESULT_HANG,
 			spans: [
 				{ text: prefix, color: i === 0 ? markColor : row.color },
-				{ text: row.text, color: row.color },
+				...(row.spans ?? [{ text: row.text, color: row.color }]),
 			],
 		}
 	})

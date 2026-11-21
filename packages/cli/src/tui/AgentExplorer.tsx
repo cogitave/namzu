@@ -1485,19 +1485,38 @@ function usagePart(agent: SubagentActivity, wide: boolean): string[] {
 	return wrote !== undefined ? [`wrote ${formatCompactCount(wrote)}`] : []
 }
 
-/** What an agent row says after its label: model, spend, and how it ended. */
-function agentDetailMeta(agent: SubagentActivity, columns: number): string {
-	return [
-		...(columns >= 90 && agent.workflowRunId === undefined ? [oneLine(agent.agentId)] : []),
-		...(columns >= 70 && agent.model
-			? [truncateChoiceText(agent.model, MAX_MODEL_LABEL_WIDTH)]
-			: []),
-		...usagePart(agent, columns >= WIDE_USAGE_COLUMNS),
-		...(agent.status === 'failed' ? ['failed'] : []),
-		...(agent.status === 'cancelled'
-			? [agent.workflowRunId !== undefined ? 'skipped' : 'stopped']
-			: []),
-	].join(' · ')
+/**
+ * What an agent row says after its label: model, spend, and how it ended.
+ *
+ * Given the `cells` the row leaves for it, whole fields go in the order of how
+ * little they say (the agent's id, then the spend) rather than the line being
+ * cut mid-field, which left a bare `…` where a figure stood.
+ */
+export function agentDetailMeta(agent: SubagentActivity, columns: number, cells?: number): string {
+	const build = (withId: boolean, withUsage: boolean): string =>
+		[
+			...(withId && columns >= 90 && agent.workflowRunId === undefined
+				? [oneLine(agent.agentId)]
+				: []),
+			...(columns >= 70 && agent.model
+				? [truncateChoiceText(agent.model, MAX_MODEL_LABEL_WIDTH)]
+				: []),
+			...(withUsage ? usagePart(agent, columns >= WIDE_USAGE_COLUMNS) : []),
+			...(agent.status === 'failed' ? ['failed'] : []),
+			...(agent.status === 'cancelled'
+				? [agent.workflowRunId !== undefined ? 'skipped' : 'stopped']
+				: []),
+		].join(' · ')
+	if (cells === undefined) return build(true, true)
+	for (const [withId, withUsage] of [
+		[true, true],
+		[false, true],
+		[false, false],
+	] as const) {
+		const line = build(withId, withUsage)
+		if (stringWidth(line) <= cells) return line
+	}
+	return cells > 1 ? truncateChoiceText(build(false, false), cells) : ''
 }
 
 function agentDetailLabel(agent: SubagentActivity): string {
@@ -1900,7 +1919,19 @@ export function WorkflowDetail({
 									</Box>
 									<Box flexGrow={1} flexShrink={1} minWidth={0}>
 										<Text color={theme.text.muted} wrap="truncate-end">
-											{agentDetailMeta(agent, columns)}
+											{agentDetailMeta(
+												agent,
+												columns,
+												rightInner -
+													4 -
+													(labelCells + 3) -
+													1 -
+													stringWidth(
+														queued
+															? 'queued '
+															: `${formatElapsed(Math.max(0, (agent.completedAt ?? now) - agent.startedAt))} `,
+													),
+											)}
 											{agentErrorTail(agent)}
 										</Text>
 									</Box>

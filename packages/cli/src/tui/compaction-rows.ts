@@ -8,7 +8,7 @@
  * the summary itself, what the reducer threw) is reachable but not in the way.
  */
 
-import type { Message } from '@namzu/sdk'
+import { type Message, estimateMessagesTokens } from '@namzu/sdk'
 
 import { withDebugDetail } from './capability-notice.js'
 
@@ -24,16 +24,14 @@ export const COMPACTED_HINT = '(ctrl+o for history)'
 export const COMPACT_RESULT_TEXT = 'Compacted'
 export const COMPACT_RESULT_HINT = '(ctrl+o to see full summary)'
 
-/** A rough size of a conversation in tokens: its text over four characters per token. */
+/**
+ * A rough size of a conversation in tokens, by the kernel's own estimate: text,
+ * tool calls and their results, pictures and documents. Counting the text
+ * alone left a conversation that had worked with tools reading far smaller
+ * than `/context` showed it.
+ */
 export function estimateHistoryTokens(messages: readonly Message[]): number {
-	let chars = 0
-	for (const message of messages) {
-		if (typeof message.content === 'string') chars += message.content.length
-		else if (message.content) {
-			for (const block of message.content) if (block.type === 'text') chars += block.text.length
-		}
-	}
-	return Math.ceil(chars / 4)
+	return estimateMessagesTokens(messages)
 }
 
 /**

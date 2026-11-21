@@ -12,9 +12,10 @@
  * function so the behaviour can be driven without a terminal or a clock.
  */
 
-import { renderedDetailLines } from './Transcript.js'
+import { SHELL_RESULT_INDENT, renderedDetailLines, renderedDiffRows } from './Transcript.js'
 import { contentColorForRole, glyphColorForRole, glyphForRole } from './Transcript.js'
 import { attachmentLine } from './attachment-rows.js'
+import { viewRowText } from './diff-view.js'
 import { fitHintPlain } from './hint-fit.js'
 import { type HintWords, NO_NEWS, type News, newOutputHint } from './new-output.js'
 import { commandRows, hintRows } from './read-search-group.js'
@@ -39,10 +40,23 @@ export interface ScrollRow {
 	readonly hint?: true
 	/** The glyph is the reply's plain round mark: drawn in its colour, not bold. */
 	readonly plainMark?: true
+	/** The row's own styling (a change's filled rows); `text` is the same row as plain characters. */
+	readonly spans?: readonly ScrollSpan[]
+}
+
+/** A run of a row drawn in one style. */
+export interface ScrollSpan {
+	readonly text: string
+	readonly color?: string
+	/** The fill behind the run. */
+	readonly background?: string
 }
 
 /** Columns the glyph gutter takes, as in the live transcript. */
 const GUTTER = 2
+
+/** The columns a change's body hangs in, under the result's `⎿`. */
+const DIFF_HANG = SHELL_RESULT_INDENT
 
 /** The columns the `⎿` and its two spaces take before a listed command. */
 const COMMAND_HANG = 3
@@ -160,20 +174,42 @@ export function messageScrollRows(
 		message.statusRows || options.hint === undefined
 			? plainLines
 			: renderedDetailLines(message, undefined, options.hint)
-	const detail: { text: string; hint: boolean }[] = message.statusRows
-		? []
-		: [
-				...attachmentRows.map((text) => ({ text, hint: false })),
-				...wordedLines.flatMap((line, i) =>
-					wrapChoiceText(
-						fitHintPlain(line.length > 0 ? line : ' ', width + GUTTER),
-						width + GUTTER,
-					).map((text) => ({
-						text,
-						hint: line !== plainLines[i],
-					})),
-				),
-			]
+	// A change is painted as the transcript paints it: its own rows, fitted to
+	// the width, with the fill and the colours, not wrapped as plain text.
+	const columns = width + GUTTER
+	const drawn = message.statusRows ? null : renderedDiffRows(message, columns)
+	const drawnWorded =
+		drawn && options.hint !== undefined ? renderedDiffRows(message, columns, options.hint) : drawn
+	const detail: { text: string; hint: boolean; spans?: readonly ScrollSpan[] }[] =
+		message.statusRows
+			? []
+			: [
+					...attachmentRows.map((text) => ({ text, hint: false })),
+					...(drawn
+						? drawn.map((row, i) => {
+								const worded = drawnWorded?.[i] ?? row
+								const indent = ' '.repeat(DIFF_HANG)
+								const spans: ScrollSpan[] = [
+									{ text: indent },
+									...worded.map((seg) => ({
+										text: terminalDisplayText(seg.text),
+										...(seg.fg || seg.dim ? { color: seg.fg ?? theme.text.muted } : {}),
+										...(seg.bg ? { background: seg.bg } : {}),
+									})),
+								]
+								const text = spans.map((span) => span.text).join('')
+								return { text, hint: viewRowText(worded) !== viewRowText(row), spans }
+							})
+						: wordedLines.flatMap((line, i) =>
+								wrapChoiceText(
+									fitHintPlain(line.length > 0 ? line : ' ', width + GUTTER),
+									width + GUTTER,
+								).map((text) => ({
+									text,
+									hint: line !== plainLines[i],
+								})),
+							)),
+				]
 	const hinted = (message.meta?.endsWith(EXPAND_HINT) ?? false) || detail.some((line) => line.hint)
 	const rows: ScrollRow[] = []
 	const tint = message.role === 'user' && glyph === '›' ? rowTints()?.user : undefined
@@ -206,12 +242,13 @@ export function messageScrollRows(
 			})
 		})
 	}
-	for (const { text, hint } of detail) {
+	for (const { text, hint, spans } of detail) {
 		rows.push({
 			glyph: ' ',
 			glyphColor,
 			text: text.trimStart() ? text : '',
 			color: theme.text.muted,
+			...(spans && text.trimStart() ? { spans } : {}),
 			...(hint ? { hint: true as const } : {}),
 		})
 	}

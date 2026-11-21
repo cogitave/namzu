@@ -1406,12 +1406,18 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 		const carries = (m: (typeof params.messages)[number], kind: 'image' | 'document') =>
 			m.role === 'user' && (m.attachments ?? []).some((a) => (a.type ?? 'image') === kind)
 
-		const attachmentMessageCount = capabilities.supportsVision
-			? 0
-			: params.messages.filter((m) => carries(m, 'image')).length
-		const documentMessageCount = capabilities.supportsDocuments
-			? 0
-			: params.messages.filter((m) => carries(m, 'document')).length
+		// Only the message this run answers is warned about: a picture sent three
+		// replies ago was warned about then, and repeating it before every later
+		// reply would say the same thing again about something the person did once.
+		const latestUser = [...params.messages].reverse().find((m) => m.role === 'user')
+		const attachmentMessageCount =
+			!capabilities.supportsVision && latestUser !== undefined && carries(latestUser, 'image')
+				? 1
+				: 0
+		const documentMessageCount =
+			!capabilities.supportsDocuments && latestUser !== undefined && carries(latestUser, 'document')
+				? 1
+				: 0
 
 		if (stripToolSurfaces) {
 			const message = `Provider '${params.provider.id}' declares supportsTools: false but ${registeredToolCount} tool(s) are registered — stripping all tool surfaces from the prompt and request so the model is never told about tools it cannot call. Pass strictCapabilities: true to fail instead, or use a tools-capable provider.`
