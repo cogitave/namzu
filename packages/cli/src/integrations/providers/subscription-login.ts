@@ -99,7 +99,8 @@ export async function beginSubscriptionLogin(
 	// would sit in the address bar, the browser history and any referrer along
 	// the way — and the secret PKCE exists to keep out of that URL is exactly
 	// the verifier.
-	const state = base64Url(randomBytes(16))
+	// 32 bytes, like the verifier: the sign-in endpoint refuses a shorter state as an invalid request.
+	const state = base64Url(randomBytes(32))
 
 	const redirectUri = MANUAL_REDIRECT_URI
 

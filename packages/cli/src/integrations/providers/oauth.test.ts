@@ -354,7 +354,7 @@ describe('refreshAgentOAuthToken', () => {
 			grant_type: 'refresh_token',
 			refresh_token: 'rt-old',
 			scope:
-				'org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload',
+				'org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload user:plugins user:privacy_consents:write',
 		})
 	})
 
