@@ -5,12 +5,14 @@ import { dirname, join } from 'node:path'
 import { namzuHomePath } from '../integrations/state/home.js'
 
 /**
- * The person's one-time acknowledgement that bypass mode runs everything.
+ * The person's one-time acknowledgements: that bypass mode runs everything,
+ * and that they were told auto mode is the terminal's default.
  *
  * Kept in `~/.namzu/acknowledgements.json` beside the trusted-folder list: the
  * answer belongs to the person, not to a project or a conversation, and is
  * asked once. An unreadable file reads as "not acknowledged", so a damaged
- * record costs one more question and never a skipped one.
+ * record costs one more question (or one more notice) and never a skipped one.
+ * Each write keeps the other keys the file holds.
  */
 
 const FILE_MODE = 0o600
@@ -20,7 +22,11 @@ const VERSION = 1
 interface AcknowledgementFile {
 	readonly version: number
 	readonly bypass?: string
+	/** When the notice that auto mode is the terminal's default was shown. */
+	readonly autoModeDefault?: string
 }
+
+type AcknowledgementKey = 'bypass' | 'autoModeDefault'
 
 export function acknowledgementsPath(home?: string): string {
 	return join(namzuHomePath(home), 'acknowledgements.json')
@@ -32,23 +38,21 @@ function read(path: string): AcknowledgementFile {
 		return {
 			version: VERSION,
 			...(typeof parsed.bypass === 'string' ? { bypass: parsed.bypass } : {}),
+			...(typeof parsed.autoModeDefault === 'string'
+				? { autoModeDefault: parsed.autoModeDefault }
+				: {}),
 		}
 	} catch {
 		return { version: VERSION }
 	}
 }
 
-/** Whether the person has already accepted what bypass mode does. */
-export function hasAcknowledgedBypass(home?: string): boolean {
-	return read(acknowledgementsPath(home)).bypass !== undefined
-}
-
-/** Record the acknowledgement (idempotent). A failure to write is reported, not hidden. */
-export function acknowledgeBypass(home?: string, now: () => Date = () => new Date()): void {
+/** Record one acknowledgement (idempotent), written whole and atomically. */
+function acknowledge(key: AcknowledgementKey, home: string | undefined, now: () => Date): void {
 	const path = acknowledgementsPath(home)
 	const current = read(path)
-	if (current.bypass !== undefined) return
-	const next: AcknowledgementFile = { ...current, bypass: now().toISOString() }
+	if (current[key] !== undefined) return
+	const next: AcknowledgementFile = { ...current, [key]: now().toISOString() }
 	mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
 	const temp = `${path}.${randomUUID()}.tmp`
 	try {
@@ -59,6 +63,38 @@ export function acknowledgeBypass(home?: string, now: () => Date = () => new Dat
 		throw error
 	}
 }
+
+/** Whether the person has already accepted what bypass mode does. */
+export function hasAcknowledgedBypass(home?: string): boolean {
+	return read(acknowledgementsPath(home)).bypass !== undefined
+}
+
+/** Record the acknowledgement (idempotent). A failure to write is reported, not hidden. */
+export function acknowledgeBypass(home?: string, now: () => Date = () => new Date()): void {
+	acknowledge('bypass', home, now)
+}
+
+/** Whether the person has already been told that auto mode is the terminal's default. */
+export function hasSeenAutoModeDefaultNotice(home?: string): boolean {
+	return read(acknowledgementsPath(home)).autoModeDefault !== undefined
+}
+
+/** Record that the notice was shown (idempotent). A failure to write is reported, not hidden. */
+export function markAutoModeDefaultNoticeSeen(
+	home?: string,
+	now: () => Date = () => new Date(),
+): void {
+	acknowledge('autoModeDefault', home, now)
+}
+
+/**
+ * The notice shown once, the first time a terminal starts in auto mode because
+ * nothing chose another: a headline, then what the mode does and how to keep
+ * being asked instead.
+ */
+export const AUTO_MODE_DEFAULT_NOTICE_TITLE = 'Namzu now starts in auto mode.'
+export const AUTO_MODE_DEFAULT_NOTICE_BODY =
+	'Edits and commands that used to wait for your yes are first shown to a separate check that reads this conversation. Routine work goes ahead; anything that could do damage, or that nobody here asked for, is refused, and the transcript says why. Shift+Tab changes the mode for this terminal, and permissions.defaultMode: prompt in ~/.namzu/config.yaml makes asking the default again. /permissions explains the modes.'
 
 /** The words of the question, shared by the launch prompt and the in-terminal one. */
 export const BYPASS_CONSENT_TITLE = 'Run without asking?'

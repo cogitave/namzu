@@ -17,6 +17,7 @@ import {
 } from '../integrations/peers/send-once.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
 import { planLaunchMode } from '../permissions/launch.js'
+import type { PermissionSettings } from '../permissions/settings.js'
 import { terminalDisplayText } from '../tui/terminal-display.js'
 import { CLI_VERSION } from '../version.js'
 import { decodePeerInput, readBoundedFile, readBoundedStream } from './peer-input.js'
@@ -35,8 +36,10 @@ send    Queue a message in one terminal's inbox. Give the text as words, or with
 The message is attributed to a command line, never to the operator, and carries
 no approval. The terminal must be in this folder, run by this account, and be in
 the same permission mode as this command. --mode states the mode this command
-acts under; without it, the mode a new terminal would start in here. A different
-mode is refused.
+acts under; without it, the mode a new terminal would start in here
+(permissions.defaultMode, else auto unless permissions.disableAutoMode is set).
+A terminal that could not use auto started by asking: reach it with
+--mode prompt. A different mode is refused.
 
 Receipts:
   Queued       accepted into the live inbox; not proof the model read it. Exit 0.
@@ -130,6 +133,18 @@ export function renderListing(peers: readonly PeerListing[]): string {
 		.join('\n')
 }
 
+/**
+ * The mode a send acts under: the one `--mode` names, else the one a new
+ * terminal in this folder plans to start in, auto by default included, so a
+ * plain send reaches a terminal that started in its own default.
+ */
+export function peerSenderMode(
+	mode: string | undefined,
+	settings: PermissionSettings | undefined,
+): ReturnType<typeof planLaunchMode> {
+	return planLaunchMode({ permissionModeFlag: mode, settings, interactive: true })
+}
+
 export const peersCommand: CommandDef = {
 	name: 'peers',
 	description: 'List live terminals in this project or send one a message',
@@ -160,13 +175,9 @@ export const peersCommand: CommandDef = {
 				emit({ peers }, renderListing(peers))
 				return EXIT_OK
 			}
-			let mode = parsed.mode
-			const plan = planLaunchMode({
-				permissionModeFlag: mode,
-				settings: ctx.config.permissionSettings,
-			})
+			const plan = peerSenderMode(parsed.mode, ctx.config.permissionSettings)
 			if ('error' in plan) return fail(plan.error, EXIT_USAGE)
-			mode = plan.plan.mode
+			const mode = plan.plan.mode
 			let message = parsed.words.join(' ')
 			if (parsed.file !== undefined) {
 				let bytes: Uint8Array

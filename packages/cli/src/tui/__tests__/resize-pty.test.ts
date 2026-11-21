@@ -91,7 +91,10 @@ await import(${JSON.stringify(`file://${BIN}`)})
 	managers.push(manager)
 	const info = await manager.create({
 		command: process.execPath,
-		args: [entry],
+		// Asking first, so the footer is the short one this suite measures: in auto
+		// mode, the terminal's default, the mode's words take the room the model
+		// would have on a narrow pane, and the row drops the model by design.
+		args: [entry, '--permission-mode', 'prompt'],
 		env: {
 			// CI markers in the child's environment must not stop the screen drawing live.
 			CI: 'true',

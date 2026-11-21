@@ -779,13 +779,16 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			// What the command line and the configuration let this launch start in.
 			// A mode that stops asking is refused here, in plain words, before
 			// anything is built: a flag the settings or the root guard forbid is an
-			// error, not a quiet downgrade.
+			// error, not a quiet downgrade. With nothing chosen, the interactive
+			// terminal's own default is auto, settled once the session knows
+			// whether its classifier can reach a model.
 			const permissionPlanFor = (config: NamzuCliConfig) =>
 				runtime().planLaunchMode({
 					permissionModeFlag: launchOpts.permissionMode,
 					skipPermissions,
 					allowBypassFlag: launchOpts.allowDangerouslySkipPermissions === true,
 					settings: config.permissionSettings,
+					interactive: true,
 				})
 			const firstPlan = permissionPlanFor(getBootstrapContext().config)
 			if ('error' in firstPlan) {
@@ -901,6 +904,8 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					...(resolvedCtx.config.additionalDirectories ?? []),
 					...(launchOpts.addDir ?? []),
 				].map((dir) => resolve(cwd, dir))
+				const fullPlanResult = permissionPlanFor(resolvedCtx.config)
+				const fullPlan = 'plan' in fullPlanResult ? fullPlanResult.plan : undefined
 				return {
 					cwd,
 					...(structuredOutput ? { structuredOutput } : {}),
@@ -910,14 +915,17 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					...(launchOpts.allowDangerouslySkipPermissions
 						? { allowDangerouslySkipPermissions: true }
 						: {}),
-					permissionSource: launchPlan.source,
+					// Auto as the default holds only while the full configuration, the
+					// project's file included, still leaves the choice to it: a project
+					// may name a default of its own or switch auto off.
+					permissionSource:
+						launchPlan.source === 'auto-default' && fullPlan?.source !== 'auto-default'
+							? 'default'
+							: launchPlan.source,
 					...(runFlags.appendSystem ? { appendSystem: runFlags.appendSystem } : {}),
 					// The project's own file may close bypass or auto for its folder, so the
 					// door is recomputed from the full configuration.
-					bypassAvailable: (() => {
-						const full = permissionPlanFor(resolvedCtx.config)
-						return 'plan' in full && full.plan.bypassAvailable
-					})(),
+					bypassAvailable: fullPlan?.bypassAvailable === true,
 					...(resolvedCtx.config.permissionSettings
 						? { permissionSettings: resolvedCtx.config.permissionSettings }
 						: {}),

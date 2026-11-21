@@ -296,6 +296,7 @@ function unknownOutcomeResult(
 			role: CONSTANTS.TOOL_ROLE,
 			toolCallId: call.id,
 			isError: true,
+			outcome: 'interrupted',
 			content: `The \`${call.function.name}\` call did not run: the session ended before it started (it may have been waiting for the user's approval, which was never given). Nothing was changed. If it is still needed, call it again.`,
 			...(assistant.timestamp !== undefined ? { timestamp: assistant.timestamp } : {}),
 		}
@@ -304,6 +305,7 @@ function unknownOutcomeResult(
 		role: CONSTANTS.TOOL_ROLE,
 		toolCallId: call.id,
 		isError: true,
+		outcome: 'interrupted',
 		content: `Tool execution was interrupted and no durable result is available for \`${call.function.name}\`. Its outcome is unknown. Retry only if the tool is read-only or idempotent; otherwise verify external state or ask the user before retrying.`,
 		...(assistant.timestamp !== undefined ? { timestamp: assistant.timestamp } : {}),
 	}

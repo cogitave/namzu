@@ -15,8 +15,13 @@
  *   agent said and what the agent asked tools to do, never what they returned.
  * - **Counting.** Blocks are counted so a host can stop a session that keeps
  *   hitting them: after a run of consecutive blocks, or a total, the decision
- *   carries `limitReached` and the host chooses what to do. The classifier
- *   never changes a mode.
+ *   carries `limitReached` and the host chooses what to do. Answers that are
+ *   no verdict at all (the check could not run, or its answer could not be
+ *   read) are also counted in a run of their own; when the host sets
+ *   `limits.noVerdict`, the one that completes it carries
+ *   `noVerdictLimitReached`, and the review policy ends the turn on it rather
+ *   than keep holding calls back one by one. The classifier never changes a
+ *   mode.
  */
 
 import { GENAI } from '../../../constants/telemetry/index.js'
@@ -40,6 +45,7 @@ import {
 import { SCOPE_ATTRIBUTE } from '../../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../../utils/logger.js'
 import { chatStreamWithSamplingRepair } from '../iteration/side-call.js'
+import { renderGitStatus } from './git-status.js'
 import {
 	STAGE_ONE_INSTRUCTION,
 	STAGE_TWO_INSTRUCTION,
@@ -66,9 +72,11 @@ export type AutoReviewDecision =
 			/**
 			 * `rule`: the classifier judged it unsafe. `unavailable`: the check could
 			 * not be completed. `unreadable`: the answer was not a verdict.
-			 * `aborted`: the turn was cancelled while it ran.
+			 * `oversized`: the action is longer than the check reads, so no model
+			 * was asked; sending it again gets the same answer. `aborted`: the turn
+			 * was cancelled while it ran.
 			 */
-			readonly cause: 'rule' | 'unavailable' | 'unreadable' | 'aborted'
+			readonly cause: 'rule' | 'unavailable' | 'unreadable' | 'oversized' | 'aborted'
 			readonly stage: AutoReviewStage
 			/** One plain sentence, fit to show the person and to tell the model. */
 			readonly reason: string
@@ -80,6 +88,13 @@ export type AutoReviewDecision =
 			 * as this is returned; what to do about it is the host's decision.
 			 */
 			readonly limitReached?: 'consecutive' | 'total'
+			/**
+			 * Set on the `unavailable` or `unreadable` block that made a run of them
+			 * as long as `limits.noVerdict`. The run starts again as this is
+			 * returned. The review policy ends the turn on it: a check that keeps
+			 * giving no verdict is not one to keep waiting on, call after call.
+			 */
+			readonly noVerdictLimitReached?: true
 	  }
 	| {
 			/**
@@ -103,6 +118,12 @@ export interface AutoReviewRequest {
 	 * the transcript and are not kept for the next one.
 	 */
 	readonly scripts?: readonly LaunchedScript[]
+	/**
+	 * The working tree's short status, for a git command that can destroy local
+	 * work or rewrite history (see `git-status.ts`). Like `scripts`, it rides on
+	 * this review only.
+	 */
+	readonly gitStatus?: string
 	readonly signal?: AbortSignal
 }
 
@@ -112,6 +133,11 @@ export interface AutoReviewLimits {
 	readonly consecutive?: number
 	/** Blocks over the whole session, until a limit is reported. Default 20. */
 	readonly total?: number
+	/**
+	 * Answers in a row that were no verdict (`unavailable` or `unreadable`)
+	 * before the decision carries `noVerdictLimitReached`. Off unless set.
+	 */
+	readonly noVerdict?: number
 }
 
 export interface AutoReviewClassifierOptions {
@@ -162,10 +188,14 @@ const DEFAULT_MAX_TRANSCRIPT_CHARS = 400_000
 const DEFAULT_RETRY_DELAY: BackoffPolicy = { initialDelayMs: 2_000, maxDelayMs: 10_000 }
 const ACTION_CHARS = 8_000
 
-/** The words the model is told when a call is blocked. */
-export function autoReviewBlockedFeedback(reason: string): string {
-	return `Blocked by auto mode: ${reason}. Do not try to work around this; if the action is needed, tell the user what you want to do and why, so they can approve it or switch modes.`
-}
+export {
+	AUTO_REVIEW_BLOCKED_PREFIX,
+	AUTO_REVIEW_UNAVAILABLE_PREFIX,
+	autoReviewBlockedFeedback,
+	autoReviewOversizedFeedback,
+	autoReviewStoppedFeedback,
+	autoReviewUnavailableFeedback,
+} from './feedback.js'
 
 class DeadlineError extends Error {
 	readonly retryable = true
@@ -185,6 +215,7 @@ export function createAutoReviewClassifier(
 	const limits = {
 		consecutive: options.limits?.consecutive ?? DEFAULT_AUTO_REVIEW_LIMITS.consecutive,
 		total: options.limits?.total ?? DEFAULT_AUTO_REVIEW_LIMITS.total,
+		noVerdict: options.limits?.noVerdict ?? Number.POSITIVE_INFINITY,
 	}
 	const maxChars = options.maxTranscriptChars ?? DEFAULT_MAX_TRANSCRIPT_CHARS
 	const maxRetries = options.maxRetries ?? 2
@@ -194,6 +225,8 @@ export function createAutoReviewClassifier(
 	const now = options.now ?? Date.now
 	let consecutive = 0
 	let total = 0
+	/** Answers in a row that were no verdict; a real verdict either way ends the run. */
+	let noVerdict = 0
 
 	/** One provider call, bounded by a deadline and by the turn's own signal. */
 	async function ask(
@@ -264,11 +297,12 @@ export function createAutoReviewClassifier(
 	function blocked(
 		started: number,
 		stage: AutoReviewStage,
-		cause: 'rule' | 'unavailable' | 'unreadable' | 'aborted',
+		cause: 'rule' | 'unavailable' | 'unreadable' | 'oversized' | 'aborted',
 		reason: string,
 		rule?: string,
 	): AutoReviewDecision {
 		let limitReached: 'consecutive' | 'total' | undefined
+		let noVerdictLimitReached = false
 		if (cause !== 'aborted') {
 			consecutive += 1
 			total += 1
@@ -279,6 +313,15 @@ export function createAutoReviewClassifier(
 				total = 0
 			}
 		}
+		if (cause === 'unavailable' || cause === 'unreadable') {
+			noVerdict += 1
+			if (noVerdict >= limits.noVerdict) {
+				noVerdictLimitReached = true
+				noVerdict = 0
+			}
+		} else if (cause === 'rule') {
+			noVerdict = 0
+		}
 		return {
 			verdict: 'block',
 			cause,
@@ -287,6 +330,7 @@ export function createAutoReviewClassifier(
 			...(rule !== undefined ? { rule } : {}),
 			latencyMs: now() - started,
 			...(limitReached !== undefined ? { limitReached } : {}),
+			...(noVerdictLimitReached ? { noVerdictLimitReached: true as const } : {}),
 		}
 	}
 
@@ -295,16 +339,21 @@ export function createAutoReviewClassifier(
 		decision: AutoReviewDecision,
 		started: number,
 		scriptsShown: number,
+		gitStatusShown: boolean,
 	): void {
 		log.info('auto review decision', {
 			[GENAI.TOOL_NAME]: name,
 			'namzu.auto_review.verdict': decision.verdict,
 			'namzu.auto_review.latency_ms': now() - started,
 			'namzu.auto_review.scripts_shown': scriptsShown,
+			'namzu.auto_review.git_status_shown': gitStatusShown,
 			...(decision.verdict !== 'too_long' ? { 'namzu.auto_review.stage': decision.stage } : {}),
 			...(decision.verdict === 'block' ? { 'namzu.auto_review.cause': decision.cause } : {}),
 			...(decision.verdict === 'block' && decision.limitReached
 				? { 'namzu.auto_review.limit_reached': decision.limitReached }
+				: {}),
+			...(decision.verdict === 'block' && decision.noVerdictLimitReached
+				? { 'namzu.auto_review.no_verdict_limit_reached': true }
 				: {}),
 		})
 	}
@@ -312,7 +361,13 @@ export function createAutoReviewClassifier(
 	async function review(request: AutoReviewRequest): Promise<AutoReviewDecision> {
 		const started = now()
 		const decision = await decide(request, started)
-		record(request.call.name, decision, started, request.scripts?.length ?? 0)
+		record(
+			request.call.name,
+			decision,
+			started,
+			request.scripts?.length ?? 0,
+			request.gitStatus !== undefined && request.gitStatus !== '',
+		)
 		return decision
 	}
 
@@ -331,11 +386,13 @@ export function createAutoReviewClassifier(
 		)
 		// A prefix of a command is not the command: what follows the cut could be
 		// anything, and a verdict on the part that was shown says nothing about it.
+		// No model is asked, so this says nothing about whether one can be
+		// reached, and it is not counted in a run of answers with no verdict.
 		if (projected.truncated) {
 			return blocked(
 				started,
 				0,
-				'unreadable',
+				'oversized',
 				'the action is too long for the safety check to read in full, so it was not run',
 			)
 		}
@@ -345,11 +402,12 @@ export function createAutoReviewClassifier(
 			input: projected.text,
 		})
 		const launched = renderLaunchedScripts(request.scripts ?? [])
-		if (renderedLength(lines) + action.length + launched.length > maxChars) {
+		const workingTree = renderGitStatus(request.gitStatus)
+		if (renderedLength(lines) + action.length + launched.length + workingTree.length > maxChars) {
 			return { verdict: 'too_long' }
 		}
 
-		const body = `<transcript>\n${lines.join('\n')}\n</transcript>\n\nThe action under review:\n${action}${launched}\n\n`
+		const body = `<transcript>\n${lines.join('\n')}\n</transcript>\n\nThe action under review:\n${action}${launched}${workingTree}\n\n`
 		// One system message for both passes, built once: the second pass is
 		// meant to reuse the first pass's cached prefix, and a message rebuilt per
 		// pass carries a fresh timestamp, so "the same prefix" held only when both
@@ -415,7 +473,10 @@ export function createAutoReviewClassifier(
 	return {
 		review: async (request) => {
 			const decision = await review(request)
-			if (decision.verdict === 'allow') consecutive = 0
+			if (decision.verdict === 'allow') {
+				consecutive = 0
+				noVerdict = 0
+			}
 			return decision
 		},
 		get denials() {
@@ -424,6 +485,7 @@ export function createAutoReviewClassifier(
 		reset() {
 			consecutive = 0
 			total = 0
+			noVerdict = 0
 		},
 	}
 }

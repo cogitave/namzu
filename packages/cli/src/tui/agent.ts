@@ -1219,9 +1219,13 @@ export interface SendOptions {
 	 * `prompt` and says so. Called once per limit, with a sentence fit to show.
 	 * Absent, the kernel asks the person about the call that tripped it, or ends
 	 * the turn when there is nobody to ask.
+	 *
+	 * `unavailable`: three answers in a row gave no verdict. The kernel has
+	 * already refused the batch and ended the turn; the host only says so, and
+	 * leaves the mode as it is.
 	 */
 	readonly onAutoModeLimit?: (event: {
-		readonly limit: 'consecutive' | 'total'
+		readonly limit: 'consecutive' | 'total' | 'unavailable'
 		readonly reason: string
 	}) => void
 	/**
@@ -9293,9 +9297,12 @@ export interface ReviewExtras {
 	 */
 	readonly registry?: Pick<ToolManager, 'get' | 'sourceOf'>
 	readonly classifier?: AutoReviewClassifier
-	/** The classifier has blocked enough that this session should stop relying on it. */
+	/**
+	 * The classifier has blocked enough that this session should stop relying
+	 * on it, or (`unavailable`) gave no verdict often enough that the turn ended.
+	 */
 	readonly onClassifierLimit?: (event: {
-		readonly limit: 'consecutive' | 'total'
+		readonly limit: 'consecutive' | 'total' | 'unavailable'
 		readonly reason: string
 	}) => void
 	/** The conversation was too long for the classifier to read. */
@@ -9325,7 +9332,13 @@ function reviewOptionsOf(mode: PermissionMode, extras: ReviewExtras) {
 		...(mode === 'classify' && extras.classifier
 			? {
 					classifier: extras.classifier,
-					...(extras.onClassifierLimit ? { onClassifierLimit: extras.onClassifierLimit } : {}),
+					...(extras.onClassifierLimit
+						? {
+								onClassifierLimit: extras.onClassifierLimit,
+								onClassifierUnavailable: ({ reason }: { readonly reason: string }) =>
+									extras.onClassifierLimit?.({ limit: 'unavailable', reason }),
+							}
+						: {}),
 					...(extras.onClassifierTranscriptTooLong
 						? {
 								onClassifierTranscriptTooLong: extras.onClassifierTranscriptTooLong,

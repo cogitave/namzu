@@ -169,14 +169,15 @@ revisions) stay in the descriptions of the memory tools.
 
 #### Saving does not ask
 
-In the default mode (ask before changes) and in the mode that approves edits,
+In `prompt` (Ask before changes) and in the mode that approves edits,
 `save_memory` and `update_memory` run without an approval prompt. They write only
 to namzu's own memory store under its home, never to a workspace file, and the
 write is recorded in the turn like any other tool call, with the memory marked
 as written by the model. `delete_memory` still asks, since it removes a memory.
 Plan mode, strict mode and the classifier mode treat the memory tools as any
 other write, and a `permissions` rule that asks about or denies one still
-decides. Before this change every save asked "Do you want to run save_memory?".
+decides. The classifier mode is where a terminal starts when nobody chose a
+mode, so there a save goes to the classifier like any other write. Before this change every save asked "Do you want to run save_memory?".
 There is no setting that brings the prompt back for the memory tools alone; to
 be asked, write `permissions: { save_memory: "ask" }` (and the same for
 `update_memory`).

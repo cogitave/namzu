@@ -38,6 +38,13 @@ import type { AutoModeSettings } from './settings.js'
  * machine, a name nobody knows: each blocks the call it was asked about, in
  * the kernel's own words (`cause: 'unavailable'`). Nothing here turns "could
  * not check" into "go ahead".
+ *
+ * Three answers in a row that are no verdict (unreachable here or in the
+ * kernel, or unreadable) mark the third with `noVerdictLimitReached`, and the
+ * review policy ends the turn on it, and nothing runs unchecked. The person
+ * reads why on each refused call (the kernel's refusal says the turn was
+ * stopped) and, in the terminal, in one line more. The run is counted here, over the session, so a failure to reach
+ * a model at all counts the same as a model that answered nonsense.
  */
 
 /** The reserved word for the side model in `permissions.autoMode.model`. */
@@ -79,6 +86,9 @@ export interface RecentBlock {
 
 /** How many blocked calls are kept; the oldest drop first. */
 export const RECENT_BLOCKS_KEPT = 20
+
+/** Answers in a row with no verdict before the turn is ended. */
+export const NO_VERDICT_LIMIT = 3
 
 function summaryOf(input: unknown): string {
 	if (input && typeof input === 'object') {
@@ -155,6 +165,24 @@ export function createSessionClassifier(
 	deps: SessionClassifierDeps,
 ): AutoReviewClassifier & { recentBlocks(): readonly RecentBlock[] } {
 	const blocks: RecentBlock[] = []
+	/** Answers in a row that were no verdict; any real verdict ends the run. */
+	let noVerdict = 0
+	const noVerdictLimit = deps.classifierOptions?.limits?.noVerdict ?? NO_VERDICT_LIMIT
+	/** The decision, marked when it completes a run of answers with no verdict. */
+	const counted = (decision: AutoReviewDecision): AutoReviewDecision => {
+		if (decision.verdict === 'too_long') return decision
+		if (decision.verdict === 'allow' || decision.cause === 'rule') {
+			noVerdict = 0
+			return decision
+		}
+		// A cancelled review, and an action too long to read (no model was
+		// asked), say nothing about whether the check can be reached.
+		if (decision.cause === 'aborted' || decision.cause === 'oversized') return decision
+		noVerdict += 1
+		if (noVerdict < noVerdictLimit) return decision
+		noVerdict = 0
+		return { ...decision, noVerdictLimitReached: true }
+	}
 	const rules = deps.settings
 		? {
 				...(deps.settings.allow ? { allow: deps.settings.allow } : {}),
@@ -187,6 +215,9 @@ export function createSessionClassifier(
 		const key = `${sessionId}\n${target.providerId}\n${target.model}`
 		if (current?.key === key) return current.classifier
 		const provider = await deps.providerFor(sessionId, target)
+		// The run of answers with no verdict is counted above, over the session,
+		// not again inside each model's classifier.
+		const { noVerdict: _countedHere, ...innerLimits } = deps.classifierOptions?.limits ?? {}
 		const classifier = createAutoReviewClassifier({
 			provider,
 			model: target.model,
@@ -197,6 +228,7 @@ export function createSessionClassifier(
 				if (turn) deps.charge?.({ ...turn, usage, stage })
 			},
 			...deps.classifierOptions,
+			...(deps.classifierOptions?.limits ? { limits: innerLimits } : {}),
 		})
 		current = { key, classifier }
 		return classifier
@@ -205,22 +237,23 @@ export function createSessionClassifier(
 	return {
 		async review(request: AutoReviewRequest): Promise<AutoReviewDecision> {
 			const turn = scope.getStore()
+			let decision: AutoReviewDecision
 			try {
 				const classifier = turn ? await classifierFor(turn.sessionId, request.signal) : undefined
-				if (!classifier) return UNAVAILABLE
-				const decision = await classifier.review(request)
-				if (decision.verdict === 'block' && decision.cause === 'rule') {
-					blocks.unshift({
-						tool: request.call.name,
-						summary: summaryOf(request.call.input),
-						reason: decision.reason,
-					})
-					blocks.length = Math.min(blocks.length, RECENT_BLOCKS_KEPT)
-				}
-				return decision
+				if (!classifier) return counted(UNAVAILABLE)
+				decision = await classifier.review(request)
 			} catch {
-				return UNAVAILABLE
+				return counted(UNAVAILABLE)
 			}
+			if (decision.verdict === 'block' && decision.cause === 'rule') {
+				blocks.unshift({
+					tool: request.call.name,
+					summary: summaryOf(request.call.input),
+					reason: decision.reason,
+				})
+				blocks.length = Math.min(blocks.length, RECENT_BLOCKS_KEPT)
+			}
+			return counted(decision)
 		},
 		recentBlocks() {
 			return [...blocks]
@@ -229,6 +262,7 @@ export function createSessionClassifier(
 			return current?.classifier.denials ?? { consecutive: 0, total: 0 }
 		},
 		reset() {
+			noVerdict = 0
 			current?.classifier.reset()
 		},
 	}

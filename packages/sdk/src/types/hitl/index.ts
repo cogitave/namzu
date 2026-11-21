@@ -191,6 +191,16 @@ export interface ResumeContext {
 		line: string,
 		dialect: ShellDialect,
 	) => Promise<readonly LaunchedScript[]>
+	/**
+	 * The working tree's short status (`git status --porcelain --branch`,
+	 * capped) in the folder a shell line runs a destructive git command in:
+	 * a hard reset, a forced clean, a checkout or restore over changes, a forced
+	 * push, a forced branch deletion, a dropped or cleared stash, a rebase.
+	 * Undefined for any other line, and when the folder cannot be known from
+	 * the line or git does not answer quickly. Absent when the host runs its
+	 * shell where this process cannot see the files.
+	 */
+	readonly gitStatus?: (line: string, dialect: ShellDialect) => Promise<string | undefined>
 }
 
 /** A script file a reviewed shell line launches, as read for its reviewer. */
