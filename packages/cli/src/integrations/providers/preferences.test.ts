@@ -1,7 +1,8 @@
-import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+
+import { makeTempDir } from '../../__fixtures__/temp-dir.js'
 
 import {
 	type Preferences,
@@ -22,7 +23,7 @@ import {
 const IS_WINDOWS = process.platform === 'win32'
 
 function tmpHome(): string {
-	return mkdtempSync(join(tmpdir(), 'namzu-prefs-'))
+	return makeTempDir('namzu-prefs-')
 }
 
 function writeRaw(home: string, body: unknown): void {
@@ -253,7 +254,7 @@ describe('primaryProvider', () => {
  */
 describe('a provider with no bundled driver', () => {
 	it('refuses a saved PRIMARY at read time, so the operator lands in the picker', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-prefs-'))
+		const home = makeTempDir('namzu-prefs-')
 		mkdirSync(join(home, '.namzu'), { recursive: true })
 		writeFileSync(
 			join(home, '.namzu', 'preferences.json'),
@@ -272,7 +273,7 @@ describe('a provider with no bundled driver', () => {
 		// The asymmetry with the unknown-id check above it. An unbuildable spare
 		// is dropped from the chain at launch with a notice and the session runs;
 		// refusing the file would take a working primary away over it.
-		const home = mkdtempSync(join(tmpdir(), 'namzu-prefs-'))
+		const home = makeTempDir('namzu-prefs-')
 		mkdirSync(join(home, '.namzu'), { recursive: true })
 		writeFileSync(
 			join(home, '.namzu', 'preferences.json'),
@@ -283,7 +284,7 @@ describe('a provider with no bundled driver', () => {
 	})
 
 	it('cannot be written as a primary at all, so the picker can never save one', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-prefs-'))
+		const home = makeTempDir('namzu-prefs-')
 		expect(() => writePreferences({ version: 3, providers: [{ id: 'lmstudio' }] }, home)).toThrow(
 			/not available in this build/,
 		)
