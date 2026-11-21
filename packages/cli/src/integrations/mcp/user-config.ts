@@ -1,4 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
+import { dirname } from 'node:path'
+import { rewriteStateFileBackups } from '@namzu/sdk'
 import { isMap, parseDocument } from 'yaml'
 
 import {
@@ -6,7 +8,9 @@ import {
 	deleteUserConfigValue,
 	editUserConfigDocument,
 	setUserConfigValue,
+	unreadableUserConfig,
 	userConfigPath,
+	withUserConfigLock,
 } from '../../config/user-config.js'
 import type { McpServerSpec } from './servers.js'
 
@@ -22,14 +26,13 @@ export function readUserMcpServers(opts: UserConfigWriteOptions = {}): readonly 
 	const file = userConfigPath(opts)
 	if (!existsSync(file)) return []
 	const doc = parseDocument(readFileSync(file, 'utf8'))
-	if (doc.errors.length > 0) {
-		throw new Error(
-			`${file} is not valid YAML (${doc.errors[0]?.message ?? 'parse error'}); fix it first`,
+	if (doc.errors.length > 0)
+		throw unreadableUserConfig(
+			file,
+			`is not valid YAML (${doc.errors[0]?.message ?? 'parse error'})`,
 		)
-	}
-	if (doc.contents !== null && !isMap(doc.contents)) {
-		throw new Error(`${file} is not a mapping of settings; fix it first`)
-	}
+	if (doc.contents !== null && !isMap(doc.contents))
+		throw unreadableUserConfig(file, 'is not a mapping of settings')
 	const node = doc.get('mcpServers', true)
 	if (node === undefined) return []
 	if (!isMap(node)) throw new Error(`${file}: mcpServers is not a mapping; fix it first`)
@@ -54,14 +57,41 @@ export function addUserMcpServer(
 			'server name must start with a letter and contain only letters, digits, _ or - (up to 64 characters)',
 		)
 	}
-	if (readUserMcpServers(opts).some((entry) => entry.name === name)) {
-		throw new Error(`server "${name}" already exists in ${userConfigPath(opts)}`)
-	}
-	return setUserConfigValue(['mcpServers', name], spec, opts)
+	// The check and the write are one change: another process may be adding the same name.
+	return withUserConfigLock(() => {
+		if (readUserMcpServers(opts).some((entry) => entry.name === name)) {
+			throw new Error(`server "${name}" already exists in ${userConfigPath(opts)}`)
+		}
+		return setUserConfigValue(['mcpServers', name], spec, opts)
+	}, opts)
 }
 
+/**
+ * Remove one server. Its headers and environment can hold tokens, so its entry
+ * is also cut out of every recovery copy of `config.yaml`, under the same lock.
+ */
 export function removeUserMcpServer(name: string, opts: UserConfigWriteOptions = {}): boolean {
-	return deleteUserConfigValue(['mcpServers', name], opts)
+	const file = userConfigPath(opts)
+	return withUserConfigLock(() => {
+		const removed = deleteUserConfigValue(['mcpServers', name], opts)
+		if (removed)
+			rewriteStateFileBackups(dirname(file), 'config.yaml', (text) => withoutServer(text, name))
+		return removed
+	}, opts)
+}
+
+/**
+ * A recovery copy of the settings without one server. A copy that does not
+ * parse is left as it is: the server cannot be found in it safely, and the
+ * rest of it is what the copy is for.
+ */
+function withoutServer(text: string, name: string): string {
+	const doc = parseDocument(text)
+	if (doc.errors.length > 0 || !doc.hasIn(['mcpServers', name])) return text
+	doc.deleteIn(['mcpServers', name])
+	const servers = doc.getIn(['mcpServers'], true)
+	if (isMap(servers) && servers.items.length === 0) doc.deleteIn(['mcpServers'])
+	return doc.toString()
 }
 
 export interface UserMcpServerSummary {
@@ -273,6 +303,15 @@ export function saveUserMcpServer(
 	name: string,
 	input: UserMcpServerInput,
 	opts: UserConfigWriteOptions = {},
+): void {
+	withUserConfigLock(() => saveCheckedServer(mode, name, input, opts), opts)
+}
+
+function saveCheckedServer(
+	mode: 'add' | 'edit',
+	name: string,
+	input: UserMcpServerInput,
+	opts: UserConfigWriteOptions,
 ): void {
 	const checked = checkUserMcpServerSave(mode, name, input, opts)
 	if (mode === 'add') {

@@ -1622,6 +1622,7 @@ function register(): void {
 		}
 		return view
 	})
+	handle('startNewTrustedFolders', () => engineTrustList.startNewList())
 	handle('takePendingEntries', () => pendingEntries.take())
 	ipcMain.on(QUICK_ENTRY_SUBMIT, (event, text: unknown) => {
 		if (!quickEntryWindow || event.sender !== quickEntryWindow.webContents) return

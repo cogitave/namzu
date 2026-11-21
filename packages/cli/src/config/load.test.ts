@@ -1,7 +1,9 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+
+import { makeTempDir } from '../__fixtures__/temp-dir.js'
 
 import {
 	ConfigLoadError,
@@ -17,7 +19,7 @@ import {
 import type { NamzuCliConfig } from './schema.js'
 
 function userConfig(contents: string): string {
-	const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+	const home = makeTempDir('namzu-home-')
 	mkdirSync(join(home, '.namzu'), { recursive: true })
 	writeFileSync(join(home, '.namzu', 'config.yaml'), contents)
 	return home
@@ -25,8 +27,8 @@ function userConfig(contents: string): string {
 
 describe('loadConfig cascade', () => {
 	it('returns defaults when nothing is configured', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const home = makeTempDir('namzu-home-')
+		const cwd = makeTempDir('namzu-cwd-')
 		const cfg = loadConfig({ home, cwd, env: {} })
 		expect(cfg.format).toBe('text')
 		expect(cfg.quiet).toBe(false)
@@ -40,7 +42,7 @@ describe('loadConfig cascade', () => {
 	})
 
 	it('reads the hypermode switch from a file, off by default, and refuses a non-boolean', () => {
-		const empty = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		const empty = makeTempDir('namzu-home-')
 		expect(loadConfig({ home: empty, cwd: tmpdir(), env: {} }).hypermode).toBeUndefined()
 		const on = userConfig('hypermode: true\n')
 		expect(loadConfig({ home: on, cwd: tmpdir(), env: {} }).hypermode).toBe(true)
@@ -50,7 +52,7 @@ describe('loadConfig cascade', () => {
 
 	it('project config overrides user config', () => {
 		const home = userConfig('format: yaml\n')
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const cwd = makeTempDir('namzu-cwd-')
 		writeFileSync(join(cwd, 'namzu.config.json'), JSON.stringify({ format: 'json' }))
 		const cfg = loadConfig({ home, cwd, env: {} })
 		expect(cfg.format).toBe('json')
@@ -97,8 +99,8 @@ describe('loadConfig cascade', () => {
 		['NAMZU_QUIET', { NAMZU_QUIET: 'yes' }, 'quiet'],
 		['NAMZU_QUIET', { NAMZU_QUIET: '' }, 'quiet'],
 	] as const)('refuses invalid explicit environment variable %s', (variable, env, settingPath) => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const home = makeTempDir('namzu-home-')
+		const cwd = makeTempDir('namzu-cwd-')
 		let error: unknown
 		try {
 			loadConfig({ home, cwd, env })
@@ -149,7 +151,7 @@ describe('plugin runtime config', () => {
 	})
 
 	it('does not enable executable plugins from an environment variable', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		const home = makeTempDir('namzu-home-')
 
 		expect(
 			loadConfig({ home, cwd: tmpdir(), env: { NAMZU_PLUGINS: 'true' } }).plugins,
@@ -280,7 +282,7 @@ describe('skills config', () => {
 describe('pre-trust bootstrap config', () => {
 	it('does not read or validate the project layer before trust', () => {
 		const home = userConfig('format: yaml\n')
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const cwd = makeTempDir('namzu-cwd-')
 		writeFileSync(join(cwd, 'namzu.config.json'), '{ "format": ')
 
 		const bootstrap = loadBootstrapConfigWithProvenance({ home, cwd, env: {} })
@@ -293,8 +295,8 @@ describe('pre-trust bootstrap config', () => {
 	})
 
 	it('defers a profile declared only by the trusted project layer', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const home = makeTempDir('namzu-home-')
+		const cwd = makeTempDir('namzu-cwd-')
 		writeFileSync(
 			join(cwd, 'namzu.config.json'),
 			JSON.stringify({ profiles: { review: { format: 'json' } } }),
@@ -316,7 +318,7 @@ describe('pre-trust bootstrap config', () => {
 
 describe('terminal notification config', () => {
 	it('reads an event filter and explicit method from the project file', () => {
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const cwd = makeTempDir('namzu-cwd-')
 		writeFileSync(
 			join(cwd, 'namzu.config.json'),
 			JSON.stringify({
@@ -336,7 +338,7 @@ describe('terminal notification config', () => {
 	it.each(['kitty', 'ghostty'] as const)(
 		'accepts the idle notice and the %s method',
 		(notificationMethod) => {
-			const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+			const cwd = makeTempDir('namzu-cwd-')
 			writeFileSync(
 				join(cwd, 'namzu.config.json'),
 				JSON.stringify({ tui: { notifications: ['idle-prompt'], notificationMethod } }),
@@ -350,7 +352,7 @@ describe('terminal notification config', () => {
 	)
 
 	it.each([true, false])('accepts tui.recap: %s', (recap) => {
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const cwd = makeTempDir('namzu-cwd-')
 		writeFileSync(join(cwd, 'namzu.config.json'), JSON.stringify({ tui: { recap } }))
 
 		expect(loadConfig({ home: tmpdir(), cwd, env: {} }).tui).toEqual({ recap })
@@ -359,7 +361,7 @@ describe('terminal notification config', () => {
 	it.each([{ recap: 'off' }, { recap: 0 }])(
 		'refuses a recap that is not a boolean: $recap',
 		(tui) => {
-			const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+			const cwd = makeTempDir('namzu-cwd-')
 			writeFileSync(join(cwd, 'namzu.config.json'), JSON.stringify({ tui }))
 
 			expect(() => loadConfig({ home: tmpdir(), cwd, env: {} })).toThrow(ConfigValueError)
@@ -371,7 +373,7 @@ describe('terminal notification config', () => {
 		{ notifications: 'yes' },
 		{ notifications: true, notificationMethod: 'desktop' },
 	])('refuses an invalid notification shape instead of changing it: $notifications', (tui) => {
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const cwd = makeTempDir('namzu-cwd-')
 		writeFileSync(join(cwd, 'namzu.config.json'), JSON.stringify({ tui }))
 
 		expect(() => loadConfig({ home: tmpdir(), cwd, env: {} })).toThrow(ConfigValueError)
@@ -380,11 +382,11 @@ describe('terminal notification config', () => {
 
 describe('semantic validation of known file settings', () => {
 	function projectError(body: unknown): ConfigValueError {
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const cwd = makeTempDir('namzu-cwd-')
 		writeFileSync(join(cwd, 'namzu.config.json'), JSON.stringify(body))
 		try {
 			loadConfig({
-				home: mkdtempSync(join(tmpdir(), 'namzu-home-')),
+				home: makeTempDir('namzu-home-'),
 				cwd,
 				env: {},
 			})
@@ -461,7 +463,7 @@ describe('semantic validation of known file settings', () => {
 	})
 
 	it('refuses an invalid managed value rather than letting a lower layer win', () => {
-		const root = mkdtempSync(join(tmpdir(), 'namzu-managed-'))
+		const root = makeTempDir('namzu-managed-')
 		const home = join(root, 'home')
 		const cwd = join(root, 'cwd')
 		const managedPath = join(root, 'managed.json')
@@ -490,8 +492,8 @@ describe('semantic validation of known file settings', () => {
 	it('reads the two escape switches as written', () => {
 		// The user's file: a repository's file cannot set allowUnattendedEscape
 		// (see sandbox-layers.test.ts).
-		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const home = makeTempDir('namzu-home-')
+		const cwd = makeTempDir('namzu-cwd-')
 		mkdirSync(join(home, '.namzu'), { recursive: true })
 		writeFileSync(
 			join(home, '.namzu', 'config.yaml'),
@@ -509,7 +511,7 @@ describe('semantic validation of known file settings', () => {
 	})
 
 	it('continues to accept and ignore unknown keys instead of inventing strict mode', () => {
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const cwd = makeTempDir('namzu-cwd-')
 		writeFileSync(
 			join(cwd, 'namzu.config.json'),
 			JSON.stringify({
@@ -541,7 +543,7 @@ describe('a config that cannot be read', () => {
 	})
 
 	it('refuses malformed json instead of reading it as no settings', () => {
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const cwd = makeTempDir('namzu-cwd-')
 		writeFileSync(join(cwd, 'namzu.config.json'), '{ "format": ')
 		expect(() => loadConfig({ home: tmpdir(), cwd, env: {} })).toThrow(ConfigLoadError)
 	})
@@ -572,7 +574,7 @@ describe('a config that cannot be read', () => {
 		// occupied and its contents cannot be established, and neither is
 		// ENOENT. Mode bits are not a usable test fixture on every platform
 		// this runs on; this is.
-		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		const home = makeTempDir('namzu-home-')
 		mkdirSync(join(home, '.namzu', 'config.yaml'), { recursive: true })
 		expect(() => loadConfig({ home, cwd: tmpdir(), env: {} })).toThrow(ConfigLoadError)
 	})
@@ -587,7 +589,7 @@ describe('a config that cannot be read', () => {
 
 describe('a config that is legitimately absent or empty', () => {
 	it('treats a missing file as no settings', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		const home = makeTempDir('namzu-home-')
 		expect(() => loadConfig({ home, cwd: tmpdir(), env: {} })).not.toThrow()
 	})
 
@@ -608,7 +610,7 @@ describe('a config that is legitimately absent or empty', () => {
 	it('treats a missing parent directory as no settings', () => {
 		// ENOTDIR rather than ENOENT: nothing was ever written at that path
 		// either way.
-		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		const home = makeTempDir('namzu-home-')
 		writeFileSync(join(home, '.namzu'), 'not a directory')
 		expect(() => loadConfig({ home, cwd: tmpdir(), env: {} })).not.toThrow()
 	})
@@ -625,7 +627,7 @@ describe('a config that is legitimately absent or empty', () => {
 describe('loadConfigWithProvenance', () => {
 	it('records the project file as the source when it beats the user file, matching Object.assign precedence', () => {
 		const home = userConfig('format: yaml\n')
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const cwd = makeTempDir('namzu-cwd-')
 		const projectPath = join(cwd, 'namzu.config.json')
 		writeFileSync(projectPath, JSON.stringify({ format: 'json' }))
 
@@ -649,7 +651,7 @@ describe('loadConfigWithProvenance', () => {
 		// quiet: env.
 		// sandbox: nothing sets it at all -> must be absent from both maps.
 		const home = userConfig('mcpServers:\n  fs:\n    command: echo\n')
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const cwd = makeTempDir('namzu-cwd-')
 		writeFileSync(join(cwd, 'namzu.config.json'), JSON.stringify({ permissions: {} }))
 
 		const { config, provenance } = loadConfigWithProvenance({
@@ -677,8 +679,8 @@ describe('loadConfigWithProvenance', () => {
 	})
 
 	it('does not fabricate a default source for a key DEFAULT_CONFIG does not carry', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const home = makeTempDir('namzu-home-')
+		const cwd = makeTempDir('namzu-cwd-')
 		const { config, provenance } = loadConfigWithProvenance({
 			home,
 			cwd,
@@ -690,11 +692,11 @@ describe('loadConfigWithProvenance', () => {
 	})
 
 	it('names the env variable, not just "env", when env wins over a project-file value', () => {
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const cwd = makeTempDir('namzu-cwd-')
 		writeFileSync(join(cwd, 'namzu.config.json'), JSON.stringify({ quiet: false }))
 
 		const { config, provenance } = loadConfigWithProvenance({
-			home: mkdtempSync(join(tmpdir(), 'namzu-home-')),
+			home: makeTempDir('namzu-home-'),
 			cwd,
 			env: { NAMZU_QUIET: '1' },
 		})
@@ -737,7 +739,7 @@ describe('type-level guarantees', () => {
 
 describe('web', () => {
 	it('reads fetch as a boolean and refuses anything else', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-web-'))
+		const home = makeTempDir('namzu-web-')
 		mkdirSync(join(home, '.namzu'), { recursive: true })
 		writeFileSync(join(home, '.namzu', 'config.yaml'), 'web:\n  fetch: true\n')
 		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).web).toEqual({
@@ -758,7 +760,7 @@ describe('web', () => {
 	})
 
 	it('is not settable from the environment', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-web-'))
+		const home = makeTempDir('namzu-web-')
 		expect(
 			loadConfig({ home, cwd: tmpdir(), env: { NAMZU_WEB_FETCH: 'true' } }).web,
 		).toBeUndefined()
@@ -777,7 +779,7 @@ function stripSource(hooks: ReturnType<typeof loadConfig>['hooks']) {
 
 describe('hooks', () => {
 	it('reads events, matchers and deadlines, and refuses what it does not know', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-hooks-'))
+		const home = makeTempDir('namzu-hooks-')
 		mkdirSync(join(home, '.namzu'), { recursive: true })
 		writeFileSync(
 			join(home, '.namzu', 'config.yaml'),
@@ -806,7 +808,7 @@ describe('hooks', () => {
 	})
 
 	it('reads the new events and the `if`, `once` and `statusMessage` options', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-hooks-'))
+		const home = makeTempDir('namzu-hooks-')
 		mkdirSync(join(home, '.namzu'), { recursive: true })
 		writeFileSync(
 			join(home, '.namzu', 'config.yaml'),
@@ -856,7 +858,7 @@ describe('hooks', () => {
 	})
 
 	it('reads http and prompt hooks and the exec form, async and onFailure options', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-hooks-'))
+		const home = makeTempDir('namzu-hooks-')
 		mkdirSync(join(home, '.namzu'), { recursive: true })
 		writeFileSync(
 			join(home, '.namzu', 'config.yaml'),
@@ -917,14 +919,14 @@ describe('hooks', () => {
 	})
 
 	it('is not settable from the environment', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-hooks-'))
+		const home = makeTempDir('namzu-hooks-')
 		expect(loadConfig({ home, cwd: tmpdir(), env: { NAMZU_HOOKS: 'x' } }).hooks).toBeUndefined()
 	})
 })
 
 describe('statusLine', () => {
 	it('reads a command with padding and a refresh interval, and refuses what it does not know', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-statusline-'))
+		const home = makeTempDir('namzu-statusline-')
 		mkdirSync(join(home, '.namzu'), { recursive: true })
 		writeFileSync(
 			join(home, '.namzu', 'config.yaml'),
@@ -949,15 +951,15 @@ describe('statusLine', () => {
 	})
 
 	it('is not settable from the environment', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-statusline-'))
+		const home = makeTempDir('namzu-statusline-')
 		expect(
 			loadConfig({ home, cwd: tmpdir(), env: { NAMZU_STATUS_LINE: 'x' } }).statusLine,
 		).toBeUndefined()
 	})
 
 	it('comes from a project file only once the folder is trusted, as hooks do', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-statusline-'))
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-statusline-cwd-'))
+		const home = makeTempDir('namzu-statusline-')
+		const cwd = makeTempDir('namzu-statusline-cwd-')
 		writeFileSync(
 			join(cwd, 'namzu.config.json'),
 			JSON.stringify({ statusLine: { command: 'echo hi' } }),
@@ -973,7 +975,7 @@ describe('statusLine', () => {
 
 describe('compaction', () => {
 	it('reads the strategy and a window override, and refuses what it does not know', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-compaction-'))
+		const home = makeTempDir('namzu-compaction-')
 		mkdirSync(join(home, '.namzu'), { recursive: true })
 		writeFileSync(
 			join(home, '.namzu', 'config.yaml'),
@@ -1007,7 +1009,7 @@ describe('compaction', () => {
 	})
 
 	it('reads compaction.softTargetHeadroom as a fraction of the window and refuses what is not one', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-compaction-headroom-'))
+		const home = makeTempDir('namzu-compaction-headroom-')
 		mkdirSync(join(home, '.namzu'), { recursive: true })
 		for (const [text, value] of [
 			['0', 0],
@@ -1039,7 +1041,7 @@ describe('compaction', () => {
 	})
 
 	it('reads compaction.modelSummary and refuses a value that is not true or false', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-compaction-model-summary-'))
+		const home = makeTempDir('namzu-compaction-model-summary-')
 		mkdirSync(join(home, '.namzu'), { recursive: true })
 		writeFileSync(join(home, '.namzu', 'config.yaml'), 'compaction:\n  modelSummary: false\n')
 		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).compaction).toEqual({ modelSummary: false })
@@ -1048,7 +1050,7 @@ describe('compaction', () => {
 	})
 
 	it('reads the idle-compaction keys and refuses what they cannot hold', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-compaction-idle-'))
+		const home = makeTempDir('namzu-compaction-idle-')
 		mkdirSync(join(home, '.namzu'), { recursive: true })
 		writeFileSync(
 			join(home, '.namzu', 'config.yaml'),
@@ -1075,7 +1077,7 @@ describe('compaction', () => {
 	})
 
 	it('is not settable from the environment', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-compaction-'))
+		const home = makeTempDir('namzu-compaction-')
 		expect(
 			loadConfig({ home, cwd: tmpdir(), env: { NAMZU_COMPACTION: 'salience' } }).compaction,
 		).toBeUndefined()
@@ -1095,20 +1097,20 @@ describe('a config file that is not valid', () => {
 	const BOM = '﻿'
 
 	function projectWith(contents: string): string {
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const cwd = makeTempDir('namzu-cwd-')
 		writeFileSync(join(cwd, 'namzu.config.json'), contents)
 		return cwd
 	}
 
 	function managedWith(contents: string): string {
-		const dir = mkdtempSync(join(tmpdir(), 'namzu-managed-'))
+		const dir = makeTempDir('namzu-managed-')
 		const path = join(dir, 'config.json')
 		writeFileSync(path, contents)
 		return path
 	}
 
 	it('loads a project file saved with a byte-order mark as if it were absent', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		const home = makeTempDir('namzu-home-')
 		const cwd = projectWith(`${BOM}${JSON.stringify({ format: 'json' })}`)
 		expect(loadConfig({ home, cwd, env: {} }).format).toBe('json')
 	})
@@ -1119,7 +1121,7 @@ describe('a config file that is not valid', () => {
 	})
 
 	it('loads a managed file saved with a byte-order mark', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		const home = makeTempDir('namzu-home-')
 		const managedPath = managedWith(`${BOM}{"format":"yaml"}`)
 		expect(loadConfig({ home, cwd: tmpdir(), env: {}, managedPath }).format).toBe('yaml')
 	})
@@ -1131,7 +1133,7 @@ describe('a config file that is not valid', () => {
 	})
 
 	it('still names a broken project file after the mark is removed', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		const home = makeTempDir('namzu-home-')
 		const cwd = projectWith(`${BOM}{\n  oops: 1\n}`)
 		expect(() => loadConfig({ home, cwd, env: {} })).toThrow(
 			"namzu.config.json in this project isn't valid JSON (line 2, column 3). Fix it, then start Namzu again.",
@@ -1153,7 +1155,7 @@ describe('a config file that is not valid', () => {
 	})
 
 	it('names a broken managed file by its path', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		const home = makeTempDir('namzu-home-')
 		const managedPath = managedWith('{ nope')
 		expect(() => loadConfig({ home, cwd: tmpdir(), env: {}, managedPath })).toThrow(
 			`${managedPath} isn't valid JSON`,
@@ -1161,7 +1163,7 @@ describe('a config file that is not valid', () => {
 	})
 
 	it('names a project file whose top level is a list the same way, not by its absolute path', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		const home = makeTempDir('namzu-home-')
 		const cwd = projectWith('[1, 2]')
 		let error: unknown
 		try {
@@ -1196,7 +1198,7 @@ describe('decision config', () => {
 
 	it('IGNORES a project-level decision block (a repo must not redirect decisions or spend the token)', () => {
 		const home = userConfig('format: yaml\n')
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const cwd = makeTempDir('namzu-cwd-')
 		writeFileSync(
 			join(cwd, 'namzu.config.json'),
 			JSON.stringify({
@@ -1212,7 +1214,7 @@ describe('decision config', () => {
 
 	it('does not even validate a project decision block (a malformed one is dropped, not an error)', () => {
 		const home = userConfig('format: yaml\n')
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const cwd = makeTempDir('namzu-cwd-')
 		writeFileSync(
 			join(cwd, 'namzu.config.json'),
 			JSON.stringify({ decision: { provider: 'nonsense' } }),
@@ -1249,7 +1251,7 @@ describe('model: auto and routing config', () => {
 
 	it('IGNORES project-level model and routing (a repo must not choose where the conversation goes)', () => {
 		const home = userConfig('format: yaml\n')
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const cwd = makeTempDir('namzu-cwd-')
 		writeFileSync(
 			join(cwd, 'namzu.config.json'),
 			JSON.stringify({
@@ -1276,7 +1278,7 @@ describe('model: auto and routing config', () => {
 
 	it('takes routing from a managed file when the user file asks for auto', () => {
 		const home = userConfig('model: auto\n')
-		const dir = mkdtempSync(join(tmpdir(), 'namzu-managed-'))
+		const dir = makeTempDir('namzu-managed-')
 		const managedPath = join(dir, 'config.json')
 		writeFileSync(
 			managedPath,
@@ -1359,7 +1361,7 @@ describe('smallModel', () => {
 
 	it('IGNORES a project file: a repo must not choose where conversation text goes', () => {
 		const home = userConfig('format: yaml\n')
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const cwd = makeTempDir('namzu-cwd-')
 		writeFileSync(
 			join(cwd, 'namzu.config.json'),
 			JSON.stringify({ format: 'json', smallModel: 'attacker/model' }),
@@ -1383,9 +1385,9 @@ describe('smallModel', () => {
 
 describe('theme and motion config', () => {
 	it('reads the theme and reducedMotion from the user file', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		const home = makeTempDir('namzu-home-')
 		writeFileSync(join(home, 'config.yaml'), 'tui:\n  theme: dark-ansi\n  reducedMotion: true\n')
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const cwd = makeTempDir('namzu-cwd-')
 		expect(loadConfig({ cwd, env: { NAMZU_HOME: home } }).tui).toEqual({
 			theme: 'dark-ansi',
 			reducedMotion: true,
@@ -1393,9 +1395,9 @@ describe('theme and motion config', () => {
 	})
 
 	it('ignores both in a project file but keeps its other terminal settings', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		const home = makeTempDir('namzu-home-')
 		writeFileSync(join(home, 'config.yaml'), 'tui:\n  theme: light\n')
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const cwd = makeTempDir('namzu-cwd-')
 		writeFileSync(
 			join(cwd, 'namzu.config.json'),
 			JSON.stringify({ tui: { theme: 'dark-ansi', reducedMotion: true, notifications: true } }),
@@ -1407,9 +1409,9 @@ describe('theme and motion config', () => {
 	})
 
 	it('reads showExpandedTodos from the user file and ignores it in a project file', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		const home = makeTempDir('namzu-home-')
 		writeFileSync(join(home, 'config.yaml'), 'tui:\n  showExpandedTodos: true\n')
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const cwd = makeTempDir('namzu-cwd-')
 		expect(loadConfig({ cwd, env: { NAMZU_HOME: home } }).tui).toEqual({ showExpandedTodos: true })
 		writeFileSync(
 			join(cwd, 'namzu.config.json'),
@@ -1422,9 +1424,9 @@ describe('theme and motion config', () => {
 	})
 
 	it('reads agentCalls from the user file and ignores it in a project file', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		const home = makeTempDir('namzu-home-')
 		writeFileSync(join(home, 'config.yaml'), 'tui:\n  agentCalls: false\n')
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const cwd = makeTempDir('namzu-cwd-')
 		expect(loadConfig({ cwd, env: { NAMZU_HOME: home } }).tui).toEqual({ agentCalls: false })
 		writeFileSync(
 			join(cwd, 'namzu.config.json'),
@@ -1437,9 +1439,9 @@ describe('theme and motion config', () => {
 	})
 
 	it('reads fullscreen from the user file and ignores it in a project file', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		const home = makeTempDir('namzu-home-')
 		writeFileSync(join(home, 'config.yaml'), 'tui:\n  fullscreen: true\n')
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const cwd = makeTempDir('namzu-cwd-')
 		expect(loadConfig({ cwd, env: { NAMZU_HOME: home } }).tui).toEqual({ fullscreen: true })
 		writeFileSync(
 			join(cwd, 'namzu.config.json'),
@@ -1452,23 +1454,23 @@ describe('theme and motion config', () => {
 	})
 
 	it('refuses a fullscreen that is not true or false', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		const home = makeTempDir('namzu-home-')
 		writeFileSync(join(home, 'config.yaml'), 'tui:\n  fullscreen: sometimes\n')
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const cwd = makeTempDir('namzu-cwd-')
 		expect(() => loadConfig({ cwd, env: { NAMZU_HOME: home } })).toThrow(/fullscreen/)
 	})
 
 	it('refuses a showExpandedTodos that is not true or false', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		const home = makeTempDir('namzu-home-')
 		writeFileSync(join(home, 'config.yaml'), 'tui:\n  showExpandedTodos: sometimes\n')
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const cwd = makeTempDir('namzu-cwd-')
 		expect(() => loadConfig({ cwd, env: { NAMZU_HOME: home } })).toThrow(/showExpandedTodos/)
 	})
 
 	it.each([{ theme: 'neon' }, { theme: 3 }, { reducedMotion: 'yes' }])('refuses %j', (tui) => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		const home = makeTempDir('namzu-home-')
 		writeFileSync(join(home, 'config.yaml'), `tui: ${JSON.stringify(tui)}\n`)
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const cwd = makeTempDir('namzu-cwd-')
 		expect(() => loadConfig({ cwd, env: { NAMZU_HOME: home } })).toThrow(
 			/tui\.(theme|reducedMotion)/,
 		)
@@ -1476,7 +1478,7 @@ describe('theme and motion config', () => {
 })
 
 describe('memory.select config', () => {
-	const noHome = () => mkdtempSync(join(tmpdir(), 'namzu-home-'))
+	const noHome = () => makeTempDir('namzu-home-')
 
 	it('reads on and off from the user file, and refuses anything else', () => {
 		expect(
@@ -1489,7 +1491,7 @@ describe('memory.select config', () => {
 
 	it('ignores it in a project file, keeping the rest of that file', () => {
 		const home = userConfig('memory:\n  select: off\n')
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const cwd = makeTempDir('namzu-cwd-')
 		writeFileSync(
 			join(cwd, 'namzu.config.json'),
 			JSON.stringify({ memory: { select: 'on', recall: false } }),
@@ -1500,13 +1502,13 @@ describe('memory.select config', () => {
 	})
 
 	it('ignores it in a profile of a project or local file, even when that profile is selected', () => {
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const cwd = makeTempDir('namzu-cwd-')
 		const profiles = { work: { memory: { select: 'on', recall: false } } }
 		writeFileSync(join(cwd, 'namzu.config.json'), JSON.stringify({ profiles }))
 		const bare = noHome()
 		const loaded = loadConfig({ home: bare, cwd, env: {}, profile: 'work' })
 		expect(loaded.memory).toEqual({ recall: false })
-		const local = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const local = makeTempDir('namzu-cwd-')
 		writeFileSync(join(local, 'namzu.config.local.json'), JSON.stringify({ profiles }))
 		expect(
 			loadConfig({ home: bare, cwd: local, env: {}, profile: 'work' }).memory ?? {},
@@ -1515,7 +1517,7 @@ describe('memory.select config', () => {
 })
 
 describe('memory.curation config', () => {
-	const noHome = () => mkdtempSync(join(tmpdir(), 'namzu-home-'))
+	const noHome = () => makeTempDir('namzu-home-')
 
 	it('reads on and off from the user file, and refuses anything else', () => {
 		expect(
@@ -1527,7 +1529,7 @@ describe('memory.curation config', () => {
 	})
 
 	it('ignores it in a project file, keeping the rest of that file', () => {
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const cwd = makeTempDir('namzu-cwd-')
 		writeFileSync(
 			join(cwd, 'namzu.config.json'),
 			JSON.stringify({ memory: { curation: 'off', recall: false } }),
@@ -1537,12 +1539,12 @@ describe('memory.curation config', () => {
 
 	it('ignores it in a profile of a project or local file, even when that profile is selected', () => {
 		const profiles = { work: { memory: { curation: 'off', recall: false } } }
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const cwd = makeTempDir('namzu-cwd-')
 		writeFileSync(join(cwd, 'namzu.config.json'), JSON.stringify({ profiles }))
 		expect(loadConfig({ home: noHome(), cwd, env: {}, profile: 'work' }).memory).toEqual({
 			recall: false,
 		})
-		const local = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const local = makeTempDir('namzu-cwd-')
 		writeFileSync(join(local, 'namzu.config.local.json'), JSON.stringify({ profiles }))
 		expect(
 			loadConfig({ home: noHome(), cwd: local, env: {}, profile: 'work' }).memory ?? {},
@@ -1551,7 +1553,7 @@ describe('memory.curation config', () => {
 })
 
 describe('memory.retireAfterDays config', () => {
-	const noHome = () => mkdtempSync(join(tmpdir(), 'namzu-home-'))
+	const noHome = () => makeTempDir('namzu-home-')
 
 	it('reads a whole number of days from the user file, and refuses anything else', () => {
 		expect(
@@ -1572,7 +1574,7 @@ describe('memory.retireAfterDays config', () => {
 	})
 
 	it('ignores it in a project file, keeping the rest of that file', () => {
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const cwd = makeTempDir('namzu-cwd-')
 		writeFileSync(
 			join(cwd, 'namzu.config.json'),
 			JSON.stringify({ memory: { retireAfterDays: 1, recall: false } }),
@@ -1582,12 +1584,12 @@ describe('memory.retireAfterDays config', () => {
 
 	it('ignores it in a profile of a project or local file, even when that profile is selected', () => {
 		const profiles = { work: { memory: { retireAfterDays: 1, recall: false } } }
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const cwd = makeTempDir('namzu-cwd-')
 		writeFileSync(join(cwd, 'namzu.config.json'), JSON.stringify({ profiles }))
 		expect(loadConfig({ home: noHome(), cwd, env: {}, profile: 'work' }).memory).toEqual({
 			recall: false,
 		})
-		const local = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const local = makeTempDir('namzu-cwd-')
 		writeFileSync(join(local, 'namzu.config.local.json'), JSON.stringify({ profiles }))
 		expect(
 			loadConfig({ home: noHome(), cwd: local, env: {}, profile: 'work' }).memory ?? {},
@@ -1598,7 +1600,7 @@ describe('memory.retireAfterDays config', () => {
 describe.each(['fromConversations', 'searchPastConversations'] as const)(
 	'memory.%s config',
 	(key) => {
-		const noHome = () => mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		const noHome = () => makeTempDir('namzu-home-')
 
 		it('reads true and false from the user file, and refuses anything else', () => {
 			expect(
@@ -1614,19 +1616,19 @@ describe.each(['fromConversations', 'searchPastConversations'] as const)(
 		})
 
 		it('ignores it in a project or local file and in their profiles, keeping the rest', () => {
-			const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+			const cwd = makeTempDir('namzu-cwd-')
 			writeFileSync(
 				join(cwd, 'namzu.config.json'),
 				JSON.stringify({ memory: { [key]: false, recall: false } }),
 			)
 			expect(loadConfig({ home: noHome(), cwd, env: {} }).memory).toEqual({ recall: false })
 			const profiles = { work: { memory: { [key]: false, recall: false } } }
-			const withProfile = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+			const withProfile = makeTempDir('namzu-cwd-')
 			writeFileSync(join(withProfile, 'namzu.config.json'), JSON.stringify({ profiles }))
 			expect(
 				loadConfig({ home: noHome(), cwd: withProfile, env: {}, profile: 'work' }).memory,
 			).toEqual({ recall: false })
-			const local = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+			const local = makeTempDir('namzu-cwd-')
 			writeFileSync(
 				join(local, 'namzu.config.local.json'),
 				JSON.stringify({ memory: { [key]: false } }),
@@ -1641,32 +1643,32 @@ describe.each(['fromConversations', 'searchPastConversations'] as const)(
 describe('tui.editorMode', () => {
 	it('reads normal and vim from the user file', () => {
 		for (const mode of ['normal', 'vim'] as const) {
-			const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+			const home = makeTempDir('namzu-home-')
 			writeFileSync(join(home, 'config.yaml'), `tui:\n  editorMode: ${mode}\n`)
-			const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+			const cwd = makeTempDir('namzu-cwd-')
 			expect(loadConfig({ cwd, env: { NAMZU_HOME: home } }).tui).toEqual({ editorMode: mode })
 		}
 	})
 
 	it('is absent when nothing sets it', () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const home = makeTempDir('namzu-home-')
+		const cwd = makeTempDir('namzu-cwd-')
 		expect(loadConfig({ cwd, env: { NAMZU_HOME: home } }).tui?.editorMode).toBeUndefined()
 	})
 
 	it.each(['emacs', 'Vim', true, 1])(
 		'refuses %j rather than falling back to the usual keys',
 		(value) => {
-			const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+			const cwd = makeTempDir('namzu-cwd-')
 			writeFileSync(join(cwd, 'namzu.config.json'), JSON.stringify({ tui: { editorMode: value } }))
 			expect(() => loadConfig({ home: tmpdir(), cwd, env: {} })).toThrow(ConfigValueError)
 		},
 	)
 
 	it("is the operator's own taste: a project file cannot set it", () => {
-		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		const home = makeTempDir('namzu-home-')
 		writeFileSync(join(home, 'config.yaml'), 'tui:\n  editorMode: normal\n')
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const cwd = makeTempDir('namzu-cwd-')
 		writeFileSync(
 			join(cwd, 'namzu.config.json'),
 			JSON.stringify({ tui: { editorMode: 'vim', notifications: true } }),

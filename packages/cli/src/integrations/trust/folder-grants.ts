@@ -1,13 +1,13 @@
 /**
  * What a folder's own config pre-approves, read for the trust prompt.
  *
- * The gate asks before the folder's config is applied, so this reads the two
- * project files straight from disk and never validates or merges them: a file
+ * The gate asks before the folder's config is applied, so this reads the
+ * folder's settings files (`project-files.ts`) straight from disk and never validates or merges them: a file
  * that cannot be read or is not an object grants nothing here, and the real
  * load reports it once the folder is trusted. Only what the person needs to
  * weigh the choice is returned: the allow rules, the extra directories and
  * the names of the tool servers the shared file declares and the hooks the
- * two files declare.
+ * files declare.
  */
 
 import { readFileSync, readdirSync } from 'node:fs'
@@ -16,13 +16,12 @@ import { isAbsolute, join, relative, resolve } from 'node:path'
 import { parseAgentMarkdown } from '@namzu/sdk'
 
 import { hooksOfElement } from '../../config/hook-common-shape.js'
+import { folderConfigFiles } from '../../config/project-files.js'
 import { readSkillHooks, withoutSessionStart } from '../../config/skill-hooks-reader.js'
 import { discoverSkills } from '../../skills/store.js'
 import { fingerprintMcpServer } from '../mcp/project-approval.js'
 import { PROJECT_MCP_FILE, parseMcpServerFile } from '../mcp/shared-file.js'
 import { readAgentHooks } from '../subagents/agent-hooks.js'
-
-const FILES = ['namzu.config.json', 'namzu.config.local.json'] as const
 
 /** Rules shown before the rest are counted. */
 export const MAX_SHOWN_GRANT_RULES = 8
@@ -255,8 +254,8 @@ export function readFolderGrants(cwd: string): FolderGrants {
 	const allowRules: string[] = []
 	const directories: string[] = []
 	const hooks: HookGrant[] = []
-	for (const file of FILES) {
-		const config = readObject(resolve(cwd, file))
+	for (const file of folderConfigFiles(cwd)) {
+		const config = readObject(file.path)
 		if (!config) continue
 		hooks.push(...describeHooks(config))
 		const permissions = config.permissions

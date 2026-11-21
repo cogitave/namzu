@@ -23,10 +23,13 @@ const requestMarkerSchema = z
 		type: z.literal('request_envelope'),
 		iteration: z.literal(1),
 		model: z.string().min(1).max(4096),
-		systemPrompt: z.string(),
+		systemPrompt: z.string().optional(),
+		systemPromptFrom: z.literal('turn_started').optional(),
 		toolNames: z.array(z.string().min(1).max(512)).max(16_384),
 		toolSchemaDigest: z.string().regex(/^[a-f0-9]{16}$/),
 	})
+	// The prompt is the request's own, or a pointer to the turn's `turn_started`.
+	.refine((value) => value.systemPrompt !== undefined || value.systemPromptFrom === 'turn_started')
 	.refine(
 		(value) =>
 			new Set(value.toolNames).size === value.toolNames.length &&
@@ -149,7 +152,18 @@ export function createPalActivityCausalityResolver(options: PalActivityCausality
 			(e) => e.record.type === 'request_envelope' && e.record.turnId === turnId,
 		)
 		if (!firstRequest) return unavailable()
-		if (!requestMarkerSchema.safeParse(firstRequest.record).success) return unavailable()
+		const marker = requestMarkerSchema.safeParse(firstRequest.record)
+		if (!marker.success) return unavailable()
+		// A pointer is only as good as the record it points at.
+		if (marker.data.systemPromptFrom === 'turn_started') {
+			const started = entries.find(
+				(e) =>
+					e.record.type === 'turn_started' &&
+					e.record.turnId === turnId &&
+					typeof e.record.systemPrompt === 'string',
+			)
+			if (!started) return unavailable()
+		}
 		// Initial inbox delivery follows turn_started; include that intake before classifying early facts.
 		const through = Math.max(fact.seq, firstRequest.record.seq)
 		const state = await ingress.readIngress({ tenantId: scope.tenantId, palId: scope.palId })

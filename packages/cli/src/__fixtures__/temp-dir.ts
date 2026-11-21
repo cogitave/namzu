@@ -48,7 +48,10 @@
  * which is correct whatever the cause turns out to be.
  */
 
-import { rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterAll } from 'vitest'
 
 export function removeTempDir(path: string): void {
 	try {
@@ -62,4 +65,24 @@ export function removeTempDir(path: string): void {
 			`[test cleanup] could not remove ${path} after 10 attempts: ${reason}\n  The test result above is unaffected. If this recurs, something is holding a handle.`,
 		)
 	}
+}
+
+const made: string[] = []
+let hooked = false
+
+/**
+ * A new temporary folder `<tmpdir>/<prefix>XXXXXX` that is removed when the test file's tests
+ * have run. For the tests that made folders and never removed them: the run's own root catches
+ * those too (`test-home-run.ts`), but a file that cleans up after itself keeps a long run small.
+ */
+export function makeTempDir(prefix: string): string {
+	if (!hooked) {
+		hooked = true
+		afterAll(() => {
+			for (const dir of made.splice(0)) removeTempDir(dir)
+		})
+	}
+	const dir = mkdtempSync(join(tmpdir(), prefix))
+	made.push(dir)
+	return dir
 }

@@ -159,7 +159,7 @@ Every command, with its options, is in [Slash commands](https://github.com/cogit
 
 **Tool servers and plugins.** External tool servers are configured with `mcpServers` and checked with `/mcp`. Plugins are off by default and turn on with `plugins.enabled: true`. [Tool servers](https://github.com/cogitave/namzu/blob/main/docs/cli/mcp-servers.md) · [Plugins](https://github.com/cogitave/namzu/blob/main/docs/cli/plugins.md)
 
-**Where Namzu keeps its data.** Namzu keeps its state under `~/.namzu`, or under the directory named by `NAMZU_HOME` if you set it. Its own state and conversation records stay out of your project folder. `namzu state` lists that state without changing it. [Session storage](https://github.com/cogitave/namzu/blob/main/docs/cli/session-storage.md)
+**Where Namzu keeps its data.** Namzu keeps its state under `~/.namzu`, or under the directory named by `NAMZU_HOME` if you set it. Its own state and conversation records stay out of your project folder. `namzu state` lists that state without changing it, and `namzu state move-legacy` moves what an earlier Namzu left in a project's `.namzu` folder into `~/.namzu/legacy/`. [Session storage](https://github.com/cogitave/namzu/blob/main/docs/cli/session-storage.md)
 
 ## Scheduled jobs
 

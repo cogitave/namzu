@@ -9,6 +9,8 @@
  * @experimental
  */
 
+import { FileLockError } from '../utils/file-lock.js'
+
 /** `<provider>:<label>`. The label is `[a-z0-9-]{1,32}`; `default` is reserved for today's sign-in. */
 export type AccountId = string
 
@@ -89,15 +91,12 @@ export class AccountRegistryError extends Error {
 	override readonly name = 'AccountRegistryError'
 }
 
-/** Another owner holds the lock for a store or an account's credential file. */
-export class AccountLockError extends Error {
-	override readonly name = 'AccountLockError'
-	constructor(
-		readonly lockPath: string,
-		message: string,
-	) {
-		super(message)
-	}
+/**
+ * Another owner holds the lock for a store or an account's credential file. A
+ * {@link FileLockError}, so a caller can catch either.
+ */
+export class AccountLockError extends FileLockError {
+	override readonly name = 'AccountLockError' as const
 }
 
 /**

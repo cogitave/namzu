@@ -248,7 +248,7 @@ export const serveCommand = lazyCommand(
 export const stateCommand = lazyCommand(
 	{
 		name: 'state',
-		description: 'Inspect local Namzu state without changing it',
+		description: 'Inspect local Namzu state, or move what an earlier Namzu left in a project',
 		passThrough: true,
 	},
 	async () => (await import('./state.js')).stateCommand,

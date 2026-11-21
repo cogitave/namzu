@@ -3,11 +3,17 @@ import { createReadStream } from 'node:fs'
 import { lstat, readFile, readdir, readlink, realpath } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
-import { CONFIG_FILE, CONFIG_SECTIONS, entryKind } from './folder-settings.js'
+import {
+	CONFIG_FILE,
+	CONFIG_SECTIONS,
+	PROJECT_SETTINGS_FILE,
+	entryKind,
+} from './folder-settings.js'
 
 /**
  * A digest of what a folder carries that runs code or widens what may run: the same nine
- * `namzu.config.json` sections and the `.namzu` trees the CLI's project digest covers
+ * sections of `namzu.config.json` and `.namzu/settings.json` and the `.namzu` trees the CLI's
+ * project digest covers
  * (`packages/cli/src/schedule/store/digest.ts`) plus the skills and agents it loads. Desktop cannot import the CLI, so the list
  * is shared with `folder-settings.ts` and a test compares it with the CLI's source.
  *
@@ -172,48 +178,64 @@ async function treeParts(
 	}
 }
 
-export async function folderFingerprint(folder: string): Promise<FolderFingerprint> {
-	const parts: Record<string, string> = {}
-	const config = join(folder, CONFIG_FILE)
-	const kind = await entryKind(config)
-	if (kind === 'link' || kind === 'file') {
-		// Through a link too: the CLI reads the file it points at.
-		const walk: Walk = { budget: CONFIG_BYTES, seen: 0, over: false }
-		if (kind === 'link') {
-			const hash = createHash('sha256')
-			await hashEntry(config, walk, hash, 0)
-			parts.config = walk.over ? uncheckable() : `link:${hash.digest('hex')}`
-		}
-		try {
-			const text = (await readFile(config, 'utf8')).replace(/^\uFEFF/, '')
-			if (Buffer.byteLength(text) > CONFIG_BYTES) parts.config = uncheckable()
-			else {
-				let parsed: unknown
-				try {
-					parsed = JSON.parse(text)
-				} catch {
-					parts.config = `invalid:${sha(text)}`
-				}
-				if (parsed && typeof parsed === 'object') {
-					for (const [key] of CONFIG_SECTIONS) {
-						const value = (parsed as Record<string, unknown>)[key]
-						if (value === undefined || value === null) continue
-						if (typeof value === 'object' && Object.keys(value as object).length === 0) continue
-						parts[`config:${key}`] = sha(stable(value))
-					}
+/**
+ * The sections of one shared settings file, as parts under `prefix` (`config` for
+ * `namzu.config.json`, `settings` for `.namzu/settings.json`). Nothing is added for a file
+ * that is not there, so a folder without the second file keeps the fingerprint it had.
+ */
+async function configParts(
+	path: string,
+	prefix: string,
+	parts: Record<string, string>,
+): Promise<void> {
+	const kind = await entryKind(path)
+	if (kind !== 'link' && kind !== 'file') return
+	// Through a link too: the CLI reads the file it points at.
+	const walk: Walk = { budget: CONFIG_BYTES, seen: 0, over: false }
+	if (kind === 'link') {
+		const hash = createHash('sha256')
+		await hashEntry(path, walk, hash, 0)
+		parts[prefix] = walk.over ? uncheckable() : `link:${hash.digest('hex')}`
+	}
+	try {
+		const text = (await readFile(path, 'utf8')).replace(/^\uFEFF/, '')
+		if (Buffer.byteLength(text) > CONFIG_BYTES) parts[prefix] = uncheckable()
+		else {
+			let parsed: unknown
+			try {
+				parsed = JSON.parse(text)
+			} catch {
+				parts[prefix] = `invalid:${sha(text)}`
+			}
+			if (parsed && typeof parsed === 'object') {
+				for (const [key] of CONFIG_SECTIONS) {
+					const value = (parsed as Record<string, unknown>)[key]
+					if (value === undefined || value === null) continue
+					if (typeof value === 'object' && Object.keys(value as object).length === 0) continue
+					parts[`${prefix}:${key}`] = sha(stable(value))
 				}
 			}
-		} catch {
-			parts.config ??= 'unreadable'
 		}
+	} catch {
+		parts[prefix] ??= 'unreadable'
 	}
+}
+
+export async function folderFingerprint(folder: string): Promise<FolderFingerprint> {
+	const parts: Record<string, string> = {}
+	await configParts(join(folder, CONFIG_FILE), 'config', parts)
 	const state = join(folder, '.namzu')
 	if ((await entryKind(state)) === 'link') {
 		const walk: Walk = { budget: BYTES_CAP, seen: 0, over: false }
 		const hash = createHash('sha256')
 		await hashEntry(state, walk, hash, 0)
 		parts['.namzu'] = walk.over ? uncheckable() : `link:${hash.digest('hex')}`
-	} else for (const tree of TREES) await treeParts(join(state, tree), tree, parts)
+	} else {
+		// The local settings file is left out on purpose: Namzu writes a remembered answer to it,
+		// and a git pull cannot change it, so it is no reason to ask about the folder again.
+		await configParts(join(state, 'settings.json'), 'settings', parts)
+		for (const tree of TREES) await treeParts(join(state, tree), tree, parts)
+	}
 	// The other two folders a project's skills load from, whose hooks start once the skill is used.
 	await treeParts(join(folder, '.agents', 'skills'), 'agents-skills', parts)
 	await treeParts(join(folder, 'skills'), 'legacy-skills', parts)
@@ -241,10 +263,15 @@ const SECTION_LABEL: Record<string, string> = {
 /** The words for a part key, e.g. `config:hooks` reads "hooks", `plugins/a.js` "plugin a.js". */
 export function partLabel(key: string): string {
 	if (key === 'config') return CONFIG_FILE
+	if (key === 'settings') return PROJECT_SETTINGS_FILE
 	if (key === '.namzu') return '.namzu'
 	if (key.startsWith('config:')) {
 		const section = key.slice('config:'.length)
 		return SECTION_LABEL[section] ?? section
+	}
+	if (key.startsWith('settings:')) {
+		const section = key.slice('settings:'.length)
+		return `${SECTION_LABEL[section] ?? section} in ${PROJECT_SETTINGS_FILE}`
 	}
 	const slash = key.indexOf('/')
 	if (slash < 0) return `.namzu/${key}`

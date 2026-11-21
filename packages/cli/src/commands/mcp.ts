@@ -2,7 +2,10 @@ import { loadConfig, pendingProjectMcpServers } from '../config/load.js'
 import { userConfigPath } from '../config/user-config.js'
 import { EXIT_BAD_CONFIG, EXIT_FAIL, EXIT_OK, EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
 import { clearMcpOAuthCredentials, isSecureMcpOAuthUrl } from '../integrations/mcp/oauth-store.js'
-import { approveProjectMcpServers } from '../integrations/mcp/project-approval.js'
+import {
+	approveProjectMcpServers,
+	startNewMcpApprovals,
+} from '../integrations/mcp/project-approval.js'
 import {
 	type McpServerSpec,
 	connectDeadlineFor,
@@ -33,7 +36,9 @@ const HELP = [
 	"  namzu mcp add <name> --url <http-url> [--header 'NAME=Bearer \u0024{ENV_VAR}']",
 	'  namzu mcp add <name> [--env ENV_VAR] -- <command> [arguments...]',
 	'  namzu mcp remove <name>',
-	"  namzu mcp approve [name...]    Start this project's .mcp.json servers (all when no name)",
+	"  namzu mcp approve [name...] [--new-list]    Start this project's .mcp.json servers (all when no name);",
+	'      --new-list starts a new approvals list when ~/.namzu/mcp-approvals.json cannot be read',
+	'      (the old one is kept in ~/.namzu/backups/)',
 	'  namzu mcp test <name> [--trust]    Check the effective server and its tools',
 	'  namzu mcp login <name> [--no-browser] [--timeout <seconds>]',
 	'  namzu mcp logout <name>',
@@ -54,19 +59,31 @@ type McpAction =
 			readonly timeoutMs: number
 	  }
 	| { readonly kind: 'logout'; readonly name: string }
-	| { readonly kind: 'approve'; readonly names: readonly string[] }
+	| { readonly kind: 'approve'; readonly names: readonly string[]; readonly newList: boolean }
 	| { readonly kind: 'error'; readonly message: string }
 
 /** Answer yes for the servers this project's `.mcp.json` declares, as it reads now. */
-function approveProjectServers(names: readonly string[], ctx: CommandContext): number {
+function approveProjectServers(
+	names: readonly string[],
+	newList: boolean,
+	ctx: CommandContext,
+): number {
 	try {
 		const cwd = process.cwd()
+		// Asked for by name: the old list's bytes are kept and read back before it is replaced.
+		const kept = newList ? startNewMcpApprovals(resolveNamzuHome()) : undefined
+		const started = kept
+			? `Started a new tool server approvals list; the old one is kept in ${oneLine(kept)}.`
+			: undefined
 		const { declared, pending } = pendingProjectMcpServers({ cwd })
 		const known = Object.keys(declared)
 		if (known.length === 0) {
 			ctx.formatter.print({
 				approved: [],
-				text: "This project's .mcp.json declares no tool servers.",
+				...(kept ? { keptAt: kept } : {}),
+				text: [started, "This project's .mcp.json declares no tool servers."]
+					.filter(Boolean)
+					.join('\n'),
 			})
 			return EXIT_OK
 		}
@@ -81,7 +98,10 @@ function approveProjectServers(names: readonly string[], ctx: CommandContext): n
 		if (chosen.length === 0) {
 			ctx.formatter.print({
 				approved: [],
-				text: 'Every tool server in .mcp.json is already approved.',
+				...(kept ? { keptAt: kept } : {}),
+				text: [started, 'Every tool server in .mcp.json is already approved.']
+					.filter(Boolean)
+					.join('\n'),
 			})
 			return EXIT_OK
 		}
@@ -92,7 +112,9 @@ function approveProjectServers(names: readonly string[], ctx: CommandContext): n
 		})
 		ctx.formatter.print({
 			approved,
+			...(kept ? { keptAt: kept } : {}),
 			text: [
+				...(started ? [started] : []),
 				`Approved ${approved.length === 1 ? '1 tool server' : `${approved.length} tool servers`}:`,
 				...lines,
 			].join('\n'),
@@ -117,7 +139,7 @@ export const mcpCommand: CommandDef = {
 			ctx.formatter.error({ message: action.message })
 			return EXIT_USAGE
 		}
-		if (action.kind === 'approve') return approveProjectServers(action.names, ctx)
+		if (action.kind === 'approve') return approveProjectServers(action.names, action.newList, ctx)
 		if (action.kind === 'test') {
 			return testMcpServer(action.name, action.trust, ctx)
 		}
@@ -433,11 +455,13 @@ function canSignInToMcpUrl(raw: string | undefined): boolean {
 function parseMcpAction(args: readonly string[]): McpAction {
 	const [verb, name] = args
 	if (verb === 'approve') {
-		const names = args.slice(1)
+		const rest = args.slice(1)
+		const newList = rest.includes('--new-list')
+		const names = rest.filter((entry) => entry !== '--new-list')
 		const flag = names.find((entry) => entry.startsWith('-'))
 		return flag
 			? { kind: 'error', message: `Unknown mcp approve option: ${oneLine(flag)}` }
-			: { kind: 'approve', names }
+			: { kind: 'approve', names, newList }
 	}
 	if (verb === 'list' && args.length === 1) return { kind: 'list' }
 	if (verb === 'logout' && args.length === 2 && name && !name.startsWith('-')) {

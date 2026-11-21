@@ -31,7 +31,8 @@ function technical(err: unknown): string {
 export function writeCrashLog(err: unknown, options: CrashReportOptions = {}): string | undefined {
 	try {
 		const dir = options.dir ?? join(namzuHomePath(), 'logs')
-		mkdirSync(dir, { recursive: true })
+		// Owner-only: a stack can name the person's files and folders.
+		mkdirSync(dir, { recursive: true, mode: 0o700 })
 		const stamp = (options.now ?? new Date()).toISOString().replace(/[:.]/g, '-')
 		const path = join(dir, `crash-${stamp}.log`)
 		const header = [

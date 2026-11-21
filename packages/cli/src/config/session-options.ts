@@ -92,6 +92,9 @@ export const SESSION_KEY_MAP: Readonly<Record<keyof NamzuCliConfig, string>> = {
 		'excluded: read by the terminal app after a reply, not by the session; no other host draws a suggestion',
 	archiveInactive:
 		'excluded: read by the desktop host when it lists conversations, not by the session',
+	cleanupPeriodDays:
+		'excluded: read by the terminal app when it starts, to remove old conversations, not by the session',
+	promptHistory: 'excluded: read by the terminal app for its prompt box, not by the session',
 	sandbox: 'sandbox',
 	web: 'web',
 	// Whether the tools are offered is each host's own decision, read with `computerUseEnabled`.

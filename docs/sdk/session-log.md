@@ -77,9 +77,12 @@ $NAMZU_TMPDIR (else $TMPDIR)/namzu-<user>/<slug>/<session-id>/scratchpad/
   from the others). On win32 a symlink or junction is refused. A full disk, an exhausted
   quota, an unwritable or missing parent raise a `TempDirectoryError` whose message is one
   plain sentence naming the folder and `NAMZU_TMPDIR`; nothing falls back to another place.
-- **Nothing generated goes under the working directory.** Project config
+- **The kernel writes nothing under the working directory.** Project config
   that people write (`<cwd>/.namzu/agents`, `skills`, `commands`, `plugins`,
-  `MEMORY.md`) is read from there, and never written.
+  `MEMORY.md`, `settings.json`) is read from there by the kernel. An
+  application built on it, such as the CLI, writes there only what the person
+  asks for; the CLI's one such file is `.namzu/settings.local.json` (see
+  [Permission layers](../cli/permission-layers.md#the-local-file)).
 
 ## Ids
 
@@ -206,6 +209,7 @@ The turn lifecycle events are checked field by field:
 | Type | Payload |
 |---|---|
 | `turn_started` | `userMessageId`, `systemPrompt?`, `config` (model, token budget, timeout and the other durable limits), `origin?`, `budget?` (`{rootSessionId, rootTurnId, accountId}`) |
+| `request_envelope` | `iteration`, `model`, `toolNames`, `toolSchemaDigest`, and either `systemPrompt` or `systemPromptFrom: 'turn_started'`. The pointer is written when the request's system text is the turn's own prompt (the request joins its parts with a blank line where the turn prompt uses a rule, so the two are compared with that one separator swapped; the pointer means "the same up to that separator", so a reader rebuilding the request text from `turn_started` gets the rule form), and the text is then read from the turn's `turn_started`. A request whose prompt a step rewrote keeps its `systemPrompt`. Logs written before this carry the text in both; both forms read the same. The live event always carries `systemPrompt`. |
 | `turn_paused` | `reason`, `checkpointId`, `failure?`, `providerError?`, `explanation?`, `budget?`, `handoff?` (a tool asked for a person; see [Tool handoff](tool-handoff.md)). Ends a segment; **not** terminal. |
 | `turn_resuming` | `fromCheckpointId`, `resolvedDecisionId?` |
 | `turn_completed` | `result` (a preview when `resultSpill` holds the whole answer), `resultSpill?`, `stopReason?`, `cancelCause?`, `budget?`, `settlement` |

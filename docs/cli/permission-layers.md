@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Permission layers and remembered answers
-description: How the permissions tables of the user file, the project file, the project's local file, a selected profile and the managed file combine (a deny from any layer wins), where a "don't ask again" answer is written, and which shell commands run without a prompt.
+description: How the permissions tables of the user file, the project's files, the project's local file, a selected profile and the managed file combine (a deny from any layer wins), where a "don't ask again" answer is written (`.namzu/settings.local.json`), how the earlier `namzu.config.local.json` moves there, and which shell commands run without a prompt.
 resource: packages/cli/src/permissions/rules.ts
 tags: [cli, permissions, config, layers]
 status: stable
@@ -10,7 +10,7 @@ generated: { by: process:claude-code, at: 2026-10-19T00:00:00Z }
 
 # Permission layers and remembered answers
 
-The `permissions` table is read from every config file that has one, and the tables are **joined**, not replaced. The order, lowest to highest: user (`~/.namzu/config.yaml`), project (`namzu.config.json`), local (`namzu.config.local.json`), a selected profile, managed.
+The `permissions` table is read from every config file that has one, and the tables are **joined**, not replaced. The order, lowest to highest: user (`~/.namzu/config.yaml`), project (`namzu.config.json`, then `.namzu/settings.json`), local (`namzu.config.local.json` while it is still there, then `.namzu/settings.local.json`), a selected profile, managed.
 
 ## How the layers combine
 
@@ -89,15 +89,52 @@ This check uses path/glob overlap rather than enumerating the disk, so a current
 
 Before this, the pattern was matched against the call's serialised input, so `*.ts` matched a `.ts` file in any folder and `*/.env` matched `.env` anywhere. Now `*.ts` means the `.ts` files directly in the settings folder; write `**/*.ts` for any folder.
 
+## The project's files
+
+A folder carries two layers of its own, both read only after the folder is trusted:
+
+| Layer | Files, lowest first | Meant for |
+|---|---|---|
+| project | `namzu.config.json`, `.namzu/settings.json` | the shared settings, checked in |
+| local | `namzu.config.local.json` (earlier name), `.namzu/settings.local.json` | this computer's settings for the folder, kept out of git |
+
+The files of one layer take the same settings. Both are read: the rules and hooks of both apply, and where both set any other setting the later file wins (`.namzu/settings.json` over `namzu.config.json`). `namzu doctor` (the *Settings files* row) and `/status` say when both files of a layer are there, so you can keep one. A relative path in a rule of `.namzu/settings.json` or `.namzu/settings.local.json` is read against the project folder, as it is in `namzu.config.json`, not against `.namzu`.
+
 ## The local file
 
-`namzu.config.local.json` sits beside `namzu.config.json`. It takes the same settings, is read as the layer over the project file, and is where a "don't ask again" answer is written. It is read only where the project file is (after the folder is trusted) and under the same limits (`decision`, `model` and `routing` are ignored; `browser.defaultProfile` is refused). A write to it by the model is a protected-path question like a write to `namzu.config.json`.
+`.namzu/settings.local.json` is read as the layer over the project files and is where a "don't ask again" answer and `/permissions add` are written. It is read only where the project files are (after the folder is trusted) and under the same limits (`decision`, `model` and `routing` are ignored; `browser.defaultProfile` is refused). A write to it by the model is a protected-path question like a write to `namzu.config.json`, since everything under `.namzu` is protected.
+
+Every write goes through one writer: it holds `.namzu/settings.local.json.lock`, re-reads the file, applies the change, writes every byte of `.namzu/settings.local.json.<pid>.<random>.tmp` with mode 0600, flushes it to disk, reads it back and compares it, checks that the file still holds what it read, and only then renames the staging file over the file and reads the result back. A disk that takes fewer bytes than asked, or refuses the rest, leaves the file as it was. The lock names its process and machine: it is taken over when that process is gone, after ten minutes when it is still running (it is then not writing; its process id was reused), and after ten seconds when it cannot be judged (no process id, or written on another machine or container). A lock that cannot be made says why, rather than that another Namzu is saving. A `.namzu` that is a link or a file, a settings file that is a link, and a file that is not valid JSON or not UTF-8 text are refused, and the answer holds for the session only. A `.namzu` made for a write that then fails is removed again when it is empty.
+
+### Moving the earlier file
+
+Before this, the file was `namzu.config.local.json` at the top of the folder. At the start of a session in a trusted folder, and before the first write, Namzu moves it:
+
+- Only the old file: its bytes, exactly as they are, are written to `.namzu/settings.local.json` and read back. The old file then leaves its place in one rename (to `.namzu/settings.local.json.moving.<pid>.<random>`, which the ignore line below covers), so an older Namzu writing to it at that moment makes a new file instead of losing its change; the file stepped aside must still hold the bytes copied. Those bytes are kept once more in the Namzu home, as `backups/projects/<folder>/namzu.config.local.json.backup.<ms>` (mode 0600, `<folder>` the folder's path with every character other than a letter or a digit written as `-`), and only then is the stepped-aside file removed. The answers in it keep deciding, now from the new place. To undo the move, copy the backup back to `namzu.config.local.json` and delete `.namzu/settings.local.json`.
+- Both files, holding the same settings: the old one goes the same way, with the same backup. (Until then it is not read a second time.)
+- Both files, holding different settings: nothing moves. Both are read, the new one over the old, and the start of the session says so in one sentence. Move what you keep into `.namzu/settings.local.json` and delete the old file.
+- The old file changed while it was being moved: its copy is removed, the changed file is put back and still read, and the next start tries again. A change made just after it stepped aside stays as a new `namzu.config.local.json`, still read beside the moved one. If it changed twice, the newer version is in its place and the one before it is kept in `.namzu` under its `.moving.` name, and the sentence names it.
+- The backup cannot be written: the old file is put back. Both files hold the same settings and are read once; the next start tries again.
+- An old file git tracks, one that is not valid JSON, a link, a git that cannot say, and an old file that is not UTF-8 text while the new one is there: nothing moves, the old file is still read, and the start of the session says why. New answers go to `.namzu/settings.local.json`. Nothing is made in the folder for a file that cannot move.
+- A folder that is not trusted: nothing is read, moved or written, and `/permissions add` and `remove` refuse to change its settings.
+
+A sentence about a kept file is said once, and again only when the old file or the reason changes. Namzu remembers what it said as a count in `hint-counts.json` in the Namzu home, beside the other one-time notices.
+
+`/permissions remove` takes a rule out of both files while the old one is still read. When one of the two cannot be changed, the reply says which, and that it may still hold the rule; when git tracks a file it changed, the reply says the change shows in its diff. A staging file an earlier writer left (`namzu.config.local.json.<pid>.tmp` or `.namzu/settings.local.json.<pid>.<random>.tmp`) is removed at session start when its process is gone, it is over an hour old and the settings file it was meant for reads as JSON; such a file was never a saved answer. `namzu state` names the old file while it is there.
 
 ## Edit rules during a conversation
 
 `/permissions rules [allow|ask|deny]` lists rules with their settings file. Use
 `/permissions add <allow|ask|deny> <rule>` and `/permissions remove <rule>` to
-edit `namzu.config.local.json`. Successful edits update subsequent authorization
+edit `.namzu/settings.local.json` (a remove also edits `namzu.config.local.json`
+while that one is still read). Like an answer, an added rule that looks like it
+holds a password or a token is refused, and so is a save into a local file git
+tracks; `/permissions add` asks git again each time, so taking the file out of
+git (`git rm --cached .namzu/settings.local.json`) counts at the next try. Both
+add and remove refuse a folder that is not trusted, whose local files are not
+read, and `/permissions rules` lists no rule from them there. Both then make
+sure git ignores the file, as below.
+Successful edits update subsequent authorization
 decisions in the current terminal session, including gates already held by a
 running turn. You do not need to restart to remove an existing local rule.
 The screen confirms whether the saved edit was applied; a failed save does not
@@ -108,17 +145,28 @@ selected-profile rules, run restrictions, browser site policy and sandbox
 boundaries remain in force. Removing a local deny does not remove a deny from
 another layer. An edit does not replay an earlier refused call or automatically
 answer a permission dialog that is already open; it governs later gate decisions.
-A successful reload also clears cached remembered answers: the saved local table
-now decides them, so a removed allow cannot linger in memory. An answer that was
-held only in memory because its save failed may therefore ask again.
+A successful reload also withdraws the remembered answers that were saved: the
+saved local table now decides them, so a removed allow cannot linger in memory.
+An answer held for this conversation only (in an untrusted folder, a secret-looking
+rule, a tracked file, or a save that failed) is in no file, so it stays; `/permissions
+remove <rule>` takes one of those out too. A reload in a folder that is no longer
+trusted reads no local rule.
 External settings-file edits are not watched by this editor. Other configuration
 settings and non-local rule edits still require a new session.
 
 ## "Don't ask again"
 
-A prompt for a plain shell command, a fetch or an MCP tool offers `Yes, and don't ask again for <what> in <folder>`. The answer approves the call, holds for the rest of the session at once, and is written to the folder's `namzu.config.local.json` as `permissions.<tool>.<pattern> = "allow"`, so the next session starts with it. A line that adds only a read-only filter or a harmless redirection to one command (`npm test 2>&1 | tail -20`) is offered as that command (`npm test *`), and the saved rule covers the same line later: every other command of the line must only read (`tail`, `head`, `grep`, `wc`), and a line that writes a file through a redirection, pipes into a shell or runs another program is asked about as before. The write merges into what the file already says; a file that is not valid JSON is left alone, and the session is told the answer holds for this session only.
+A prompt for a plain shell command, a fetch or an MCP tool offers `Yes, and don't ask again for <what> in <folder>`. The answer approves the call, holds for the rest of the session at once, and is written to the folder's `.namzu/settings.local.json` as `permissions.<tool>.<pattern> = "allow"`, so the next session starts with it. A line that adds only a read-only filter or a harmless redirection to one command (`npm test 2>&1 | tail -20`) is offered as that command (`npm test *`), and the saved rule covers the same line later: every other command of the line must only read (`tail`, `head`, `grep`, `wc`), and a line that writes a file through a redirection, pipes into a shell or runs another program is asked about as before. The write merges into what the file already says; a file that is not valid JSON is left alone, and the session is told the answer holds for this session only.
 
-The first time it writes, in a git work tree, Namzu adds `**/namzu.config.local.json` to the global git ignore file (`core.excludesFile`, else `$XDG_CONFIG_HOME/git/ignore`, else `~/.config/git/ignore`), unless git already ignores the file. A file git already tracks cannot be ignored and is logged.
+It is held for this conversation only, and the answer says so in one sentence, when:
+
+- the folder is not trusted (its local file is not read there);
+- git tracks `.namzu/settings.local.json`, so a saved answer would become a change in a committed file (asked with a two-second limit; once git says it does not track the file, that is remembered for the rest of the process, while a "tracked" answer is asked again at the next answer, so taking the file out of git counts at once; no git, or no answer from git, counts as not tracked);
+- the rule looks like it holds a password or a token: the credential shapes Namzu redacts from its logs (vendor keys, bearer headers, JWTs) and the places a command line carries one (`-u user:pass`, `mysql -p<password>`, `sshpass -p`, `--password`/`--token`/`--api-key` and similar flags, `password=` and `token:` values, an `Authorization:` header, `user:pass@` in an address). A compound answer saves its other rules.
+
+After a write, in a git work tree, Namzu adds `**/.namzu/settings.local.json*` to the global git ignore file (`core.excludesFile`, else `$XDG_CONFIG_HOME/git/ignore`, else `~/.config/git/ignore`), unless git already ignores the file; the star covers the lock and staging files. It does the same after `/permissions add` and `remove`, and at the start of a session in a trusted folder that has a local file, so a file made some other way is covered too. A `**/namzu.config.local.json` line written by an earlier Namzu stays. When git still does not ignore the file at the start of a session (git tracks it, a rule in the repository lets it through, or the line could not be written), the start of the session says so once, with what to do, since adding `.namzu` to git would take the file along.
+
+A folder whose `.namzu` is a link keeps no answer: Namzu does not write its settings through a link, so every answer there holds for the conversation only, and the answer says so. Make `.namzu` a real folder to keep them.
 
 What the answer remembers:
 

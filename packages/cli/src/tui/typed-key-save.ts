@@ -14,8 +14,6 @@ import {
 	apiKeyLogoutWord,
 	apiKeysPath,
 	googleApiKeyPath,
-	readStoredApiKey,
-	readStoredGeminiApiKey,
 	writeStoredApiKey,
 	writeStoredGeminiApiKey,
 } from '../integrations/providers/index.js'
@@ -39,29 +37,4 @@ export function saveTypedKey(id: ProviderId, apiKey: string, home?: string): Typ
 	}
 	writeStoredApiKey(id, apiKey, home)
 	return { kind: 'saved', path: apiKeysPath(home) }
-}
-
-/**
- * A key added through `/auth` also becomes the provider's startup key when the
- * provider has none yet, so the provider list finds it next time. A key aimed
- * at a custom endpoint, a second key for a provider, and subscription tokens
- * stay in the account alone. Never throws: the account is already saved.
- */
-export function keepAccountKeyForStartup(
-	provider: string,
-	apiKey: string,
-	baseUrl: string | undefined,
-	home?: string,
-): TypedKeySave | null {
-	if (baseUrl !== undefined) return null
-	const entry = PROVIDER_REGISTRY[provider as ProviderId]
-	if (!entry?.constructible || !entry.acceptsTypedCredential) return null
-	const has =
-		provider === 'google' ? readStoredGeminiApiKey(home) : readStoredApiKey(provider, home)
-	if (has !== null) return null
-	try {
-		return saveTypedKey(entry.id, apiKey, home)
-	} catch {
-		return null
-	}
 }

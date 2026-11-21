@@ -296,6 +296,7 @@ const api: DesktopApi = {
 	clearStorage: (id) => invoke('clearStorage', id),
 	trustedFolders: () => invoke('trustedFolders'),
 	removeTrustedFolder: (path) => invoke('removeTrustedFolder', path),
+	startNewTrustedFolders: () => invoke('startNewTrustedFolders'),
 	takePendingEntries: () => invoke('takePendingEntries'),
 	terminalShells: () => invoke('terminalShells'),
 	openTerminal: (request) => invoke('openTerminal', request),

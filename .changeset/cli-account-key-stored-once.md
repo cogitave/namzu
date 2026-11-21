@@ -1,0 +1,5 @@
+---
+"@namzu/cli": minor
+---
+
+An API key you add with `/auth` is now stored once, in `accounts.json`, instead of also being copied into `api-keys.json`. Startup finds it from the account, so nothing changes for you. A copy an earlier version left behind is removed at the first start, only when it is exactly the account's key, with a one-line notice; a different key is kept. Removing an account removes its key, so a key you typed in the picker that is identical to an account's is retired too and goes if you remove the account. `/logout <provider>` (and Desktop's remove key) removes the saved key and only the `/auth` accounts holding that same key; accounts with other keys stay, and the next oldest becomes the startup key. If an account cannot be removed, the saved key is kept and you are told. If you go back to an older version, it does not find a retired key in `api-keys.json` and shows the provider as not detected; the key is still in the account, and adding it again with the older version's key entry restores it.

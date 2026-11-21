@@ -37,6 +37,9 @@ export {
 	apiKeysPath,
 	clearAllStoredApiKeys,
 	clearStoredApiKey,
+	clearStoredApiKeyIf,
+	clearStoredGeminiApiKeyIf,
+	readOwnStoredApiKey,
 	listStoredApiKeyProviders,
 	readStoredApiKey,
 	writeStoredApiKey,
@@ -119,7 +122,7 @@ export {
 	isRegistered,
 	resolveChainCapabilities,
 } from './register.js'
-export { migrateAccountKeys } from './key-migration.js'
+export { retireDuplicateStartupKeys, retirementNotice } from './key-migration.js'
 export {
 	type ApiKeyLogoutTarget,
 	apiKeyLogoutTarget,

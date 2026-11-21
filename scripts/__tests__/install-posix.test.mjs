@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -20,6 +20,7 @@ function runInstaller({
 	shell = '/bin/bash',
 	optOut = false,
 	runs = 1,
+	defaultPrefix = false,
 	prepare = () => {},
 } = {}) {
 	const directory = mkdtempSync(join(tmpdir(), 'namzu-installer-test-'))
@@ -79,7 +80,8 @@ exit "$status"
 				NAMZU_NO_MODIFY_PATH: optOut ? '1' : '',
 				PATH: `${bin}:${process.env.PATH}`,
 				NAMZU_VERSION: 'latest',
-				NAMZU_PREFIX: join(directory, 'fallback prefix'),
+				// Empty means the installer's own default, `$HOME/.namzu`.
+				NAMZU_PREFIX: defaultPrefix ? '' : join(directory, 'fallback prefix'),
 				NAMZU_TEST_BIN: bin,
 				NAMZU_TEST_CALLS: calls,
 				NAMZU_TEST_VERSION_BINARY: versionBinary,
@@ -102,7 +104,13 @@ exit "$status"
 				files[name] = null
 			}
 		}
-		return { ...result, calls: readCalls(), read: (name) => files[name] ?? null }
+		let homeMode = null
+		try {
+			homeMode = statSync(join(home, '.namzu')).mode & 0o777
+		} catch {
+			// No Namzu home was made.
+		}
+		return { ...result, calls: readCalls(), read: (name) => files[name] ?? null, homeMode }
 	} finally {
 		rmSync(directory, { recursive: true, force: true })
 	}
@@ -206,4 +214,24 @@ test('POSIX installer says where to get Node when it is too old', { skip }, () =
 	const result = runInstaller({ nodeVersion: 'v20.0.0' })
 	assert.match(result.stderr, /https:\/\/nodejs\.org/)
 	assert.match(result.stderr, /nvm install 22/)
+})
+
+test('POSIX installer makes the default Namzu home owner-only when its fallback creates it', { skip }, () => {
+	const result = runInstaller({ globalExit: 1, defaultPrefix: true })
+	assert.equal(result.status, 0, result.stderr)
+	assert.match(result.calls[1], /--prefix .*\/home\/\.namzu/)
+	assert.equal(result.homeMode, 0o700)
+})
+
+test('POSIX installer leaves an existing Namzu home with the mode it has', { skip }, () => {
+	const result = runInstaller({
+		globalExit: 1,
+		defaultPrefix: true,
+		prepare: (home) => {
+			mkdirSync(join(home, '.namzu'))
+			chmodSync(join(home, '.namzu'), 0o750)
+		},
+	})
+	assert.equal(result.status, 0, result.stderr)
+	assert.equal(result.homeMode, 0o750)
 })

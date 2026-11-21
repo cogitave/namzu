@@ -31,6 +31,10 @@ let exited = false
 const lifecycle = vi.hoisted(() => ({
 	events: [] as string[],
 	canonical: new Map<string, string>(),
+	/** The trusted folders list could not be read, as `trustListProblem` says. */
+	listProblem: undefined as { file: string; reason: string } | undefined,
+	/** Folders handed to `startNewTrustList`. */
+	newLists: [] as string[],
 }))
 
 vi.mock('../../permissions/canonical-project.js', () => ({
@@ -38,9 +42,14 @@ vi.mock('../../permissions/canonical-project.js', () => ({
 }))
 
 vi.mock('../../integrations/trust/store.js', () => ({
+	trustListProblem: () => lifecycle.listProblem,
 	isTrusted: () => false,
 	trustDir: (dir: string) => {
 		trusted.push(dir)
+	},
+	startNewTrustList: (dir: string) => {
+		lifecycle.newLists.push(dir)
+		return { kept: '/h/.namzu/backups/trust.json.corrupted.1' }
 	},
 }))
 
@@ -100,6 +109,8 @@ beforeEach(() => {
 	trusted.length = 0
 	lifecycle.events.length = 0
 	lifecycle.canonical.clear()
+	lifecycle.listProblem = undefined
+	lifecycle.newLists.length = 0
 	exited = false
 	nowMs = 1_000_000
 	vi.spyOn(Date, 'now').mockImplementation(() => nowMs)
@@ -247,6 +258,25 @@ describe('the trust gate', () => {
 		await tick(300)
 
 		expect(exited).toBe(true)
+		expect(trusted).toEqual([])
+	})
+
+	it('starts a new list on s only while the list cannot be read', async () => {
+		const plain = await gateOnScreen()
+		settle()
+		plain.stdin.write('s')
+		await tick(200)
+		expect(lifecycle.newLists, 's did something with a list that reads').toEqual([])
+		expect(plain.lastFrame()).not.toContain('start a new list')
+		plain.unmount()
+
+		lifecycle.listProblem = { file: '/h/.namzu/trust.json', reason: 'not valid JSON' }
+		const damaged = await gateOnScreen()
+		expect(damaged.lastFrame()).toContain('start a new list')
+		settle()
+		damaged.stdin.write('s')
+		await vi.waitFor(() => expect(lifecycle.newLists).toEqual(['C:/a/folder']))
+		// The new list holds the folder; trustDir is not also asked to add it.
 		expect(trusted).toEqual([])
 	})
 

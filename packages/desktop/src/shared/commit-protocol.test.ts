@@ -38,6 +38,10 @@ describe('readCommitPreview', () => {
 		expect(out?.files).toEqual([{ path: 'c', state: 'added', fingerprint: 'y' }])
 		expect(out?.otherDirty).toBe(0)
 		expect(out?.blocker).toBe('Trust this folder to commit in it.')
+		expect(readCommitPreview({ ...good, skippedLocalSettings: 2 })?.skippedLocalSettings).toBe(2)
+		expect(readCommitPreview({ ...good, skippedLocalSettings: -1 })).not.toHaveProperty(
+			'skippedLocalSettings',
+		)
 	})
 	it('refuses frames that do not read', () => {
 		for (const bad of [null, 'x', [], {}, { files: 'x' }, { files: [] }])
