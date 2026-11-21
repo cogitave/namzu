@@ -44,7 +44,7 @@ function parseIPv4(address: string): [number, number, number, number] | undefine
  * RFC 1918, link-local, CGNAT/overlay (100.64/10, e.g. Tailscale) and IPv6 ULA / link-local.
  * Loopback is not "private" here: it is never advertised and is only used in tests.
  */
-export function isPrivateAddress(address: string): boolean {
+export function isPrivateNetworkAddress(address: string): boolean {
 	const v4 = parseIPv4(address)
 	if (v4) {
 		const [a, b] = v4
@@ -93,7 +93,7 @@ export function privateInterfaces(
 					out.push({ address: info.address, bindHost: info.address, family })
 				continue
 			}
-			if (!options.anyAddress && !isPrivateAddress(info.address)) continue
+			if (!options.anyAddress && !isPrivateNetworkAddress(info.address)) continue
 			const linkLocal6 = family === 6 && /^fe[89ab]/i.test(info.address)
 			out.push({
 				address: info.address,

@@ -740,6 +740,43 @@ export type {
 	ResolvePeerRuntimeDirOptions,
 } from './peers/dir.js'
 export type { PeerExchange, PeerRecord } from './peers/record.js'
+export type { RemoteOrigin } from './peers/protocol.js'
+export type { RoleContextInput } from './peers/envelope.js'
+export type {
+	Admission,
+	Advertisement,
+	AuditEntry,
+	AuditEventName,
+	AuditSink,
+	DiscoveredEndpoint,
+	DiscoveryHub,
+	FakeDiscovery,
+	HeldMail,
+	ListenAddress,
+	LocalSession,
+	MailDecision,
+	MailDecisionInput,
+	MailSetting,
+	ManualClock,
+	MembershipView,
+	NetworkClock,
+	NetworkDiscovery,
+	NetworkErrorCode,
+	NetworkEvent,
+	NetworkHost,
+	NetworkService,
+	NetworkServiceOptions,
+	NetworkState,
+	NetworkStatus,
+	NetworkStore,
+	PendingJoin,
+	RemoteMail,
+	Revocation,
+	RosterMachineView,
+	RosterSession,
+	RosterView,
+	TargetResolution,
+} from './network/index.js'
 export type { AccountBoundRecord } from './types/session/records.js'
 export type {
 	Account,

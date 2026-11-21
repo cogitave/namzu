@@ -2049,6 +2049,7 @@ export {
 	PeerSessionStateSchema,
 	PingRequestSchema,
 	PingResponseSchema,
+	RemoteOriginSchema,
 	SubscribeIdleRequestSchema,
 	SubscribeIdleResponseSchema,
 	createPeerEndpoint,
@@ -2056,6 +2057,7 @@ export {
 	formatPeerMessage,
 	formatPersonMessage,
 	formatPeerNotice,
+	formatRoleContext,
 	hardenPeerRuntimeDir,
 	isPeerRecordLive,
 	listLivePeers,
@@ -2070,6 +2072,49 @@ export {
 	udsPeerAddress,
 	writePeerRecord,
 } from './peers/index.js'
+// ─── your Namzu network (@experimental) ───────────────────────────────────
+//
+// Machines of one person find each other, share a roster of sessions and
+// roles, and message each other under the same safety rules as local peers.
+// See `network/index.ts`.
+
+export {
+	AUDIT_EVENTS,
+	BROWSE_WINDOW_MS,
+	DEFAULT_LISTEN_PORT,
+	HOLD_EXPIRY_MS,
+	MAX_HELD_PER_TERMINAL,
+	MAX_NET_LINE_BYTES,
+	MAX_PREAUTH_LINE_BYTES,
+	MAX_ROLE_BYTES,
+	NET_PROTOCOL,
+	NetworkError,
+	createDiscoveryHub,
+	createFakeDiscovery,
+	createFileAuditSink,
+	createFounding,
+	createManualClock,
+	createMemoryAuditSink,
+	createNamzuNetwork,
+	createNetworkStore,
+	decideMail,
+	evaluateMembership,
+	formatJoinCode,
+	generateSessionName,
+	isPrivateNetworkAddress,
+	joinCode,
+	machineLabel,
+	mergeMembership,
+	parseHostPort,
+	privateInterfaces,
+	resolveSessionTarget,
+	sanitizeName,
+	sanitizeRole,
+	sessionDisplayName,
+	sessionLabel,
+	systemClock,
+	textHash,
+} from './network/index.js'
 export {
 	SESSION_CHILD_ENV,
 	startedBySession,

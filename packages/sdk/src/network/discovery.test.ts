@@ -4,14 +4,14 @@ import { createManualClock } from './clock.js'
 import {
 	createDiscoveryHub,
 	createFakeDiscovery,
-	isPrivateAddress,
+	isPrivateNetworkAddress,
 	privateInterfaces,
 } from './discovery.js'
 
 const info = (address: string, family: 'IPv4' | 'IPv6', internal = false): NetworkInterfaceInfo =>
 	({ address, family, internal, netmask: '', mac: '', cidr: null }) as NetworkInterfaceInfo
 
-describe('isPrivateAddress', () => {
+describe('isPrivateNetworkAddress', () => {
 	it.each([
 		['10.0.0.1', true],
 		['172.16.0.1', true],
@@ -31,7 +31,7 @@ describe('isPrivateAddress', () => {
 		['127.0.0.1', false],
 		['not an address', false],
 	])('%s -> %s', (address, expected) => {
-		expect(isPrivateAddress(address)).toBe(expected)
+		expect(isPrivateNetworkAddress(address)).toBe(expected)
 	})
 })
 
