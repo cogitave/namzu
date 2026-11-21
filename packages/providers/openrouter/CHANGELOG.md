@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.3.0
+
+### Minor Changes
+
+- db1019a: Each driver now implements `readLimits`: Anthropic answers from the subscription rate-limit headers of the last response (no extra request; `undefined` for an API key), OpenRouter reads the key's limit and use with one `GET /key`, and DeepSeek reads the balance with one `GET /user/balance` to its own host only. The parsers (`parseUnifiedLimits`, `parseKeyLimits`, `parseBalance`) are exported and return `undefined` for any shape they do not recognise. Additive; no existing call changes.
+
+### Patch Changes
+
+- 7b8e762: A long conversation through OpenRouter reads far more of its input from the prompt cache. Each assistant message now goes back with the reasoning it was sent with before, on every request; earlier turns used to be re-sent without it, which changed the cached prefix at each new user message and billed the whole history again (one run read 67% of its input from the cache instead of about 90%). Reasoning still leaves the history only when a compaction rewrites it. The model list now reads a negative rate (`-1`, OpenRouter's mark for a router such as `openrouter/auto`) as unknown instead of as a price.
+- 7ab6117: A pasted image now reaches an OpenRouter model that reads images; before, every OpenRouter model was told "image omitted" and answered that it could not see the picture. A model whose listing shows it takes text only still gets the notice.
+- aa665e7: A screenshot or an image file that a tool returns now reaches an OpenRouter model that reads images, so it can describe what it asked to see. The image goes in a user message right after that turn's tool results, each labelled with the tool call it came from; a text-only model still gets the short omission note. Nothing to change on your side.
+
 ## 3.2.2
 
 ### Patch Changes

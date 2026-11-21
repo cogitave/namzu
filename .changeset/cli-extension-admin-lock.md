@@ -1,5 +1,0 @@
----
-'@namzu/cli': minor
----
-
-New manifest field `management` (`{ lock: "administrator-password", purpose }`) and new commands for it. An extension that declares it is turned on with an administrator password, and while it is set turning the extension off, removing it, stopping its start at sign-in, changing or releasing its licence, taking a permission back and changing its keys all need that password. Give it as the first line of standard input with the new `--admin-password-stdin` flag (never as an argument); `namzu extension unlock <id>` removes the lock, and `daemon stop` asks for it while a locked extension runs. A wrong password makes the next try wait 1, 2, 4 seconds and so on up to a minute. Nothing changes for an extension that does not declare the field. Adding the field to an installed extension asks the person again. Desktop gets a new `namzu/extensions/unlock` method in its optional `extensions` group, so an older engine leaves the Extensions page off until it is updated. This stops turning an extension off in Namzu; it does not stop someone who is an administrator of the computer and deletes files.

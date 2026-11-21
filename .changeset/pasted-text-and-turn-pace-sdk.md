@@ -1,9 +1,0 @@
----
-'@namzu/sdk': minor
----
-
-Pasted text and the time of a message reach the model as their own notes, and five tool results say what to do next.
-
-New and optional, nothing to change unless you want them: `UserMessage.pasted` (ranges of `content` the person pasted, each with a nonce) and `UserMessage.timeNote` (one line saying when the message was sent). The model request puts each pasted range inside a `<namzu-pasted-NONCE>` frame with one line of guidance and puts the time line in front of the message; the stored `content` is untouched, so every view of the conversation shows what the person typed and a resume sends the same bytes. New exports: `newPasteNonce`, `framePastedContent`, `typedTextOf`, `usablePastedSpans`, `PASTED_FRAME_GUIDANCE`, `PASTED_MARKER`, and the types `PastedSpan` and `AcpPastedRange`. The compaction state, the memory candidate and the auto-mode transcript no longer file pasted text as something the person said (`extractFromUserMessage` now also takes the whole `UserMessage`). ACP: `session/prompt` accepts `pasted: [{ start, end }]` for a host that opts in with `supportsPromptPasted` (advertised as `promptPasted`); a host that does not opt in refuses the field, so a client that never sends it is unaffected.
-
-Tool results changed in wording, not in shape. A successful `edit` or `write` now ends with `The file on disk is now exactly this; no need to read it back.`; an `edit` refused for an unread file says not to read it again; a `read` or `edit` of a missing path says to find the file with `glob`; a `write` over an unread file and a `grep` with an inline flag such as `(?i)` each say what to do instead. Code that matches the whole text of a write receipt with an end anchor (`... bytes$`) must allow the added sentence; the structured `facts` and `data` are the same.

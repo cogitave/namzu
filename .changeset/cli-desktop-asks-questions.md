@@ -1,5 +1,0 @@
----
-'@namzu/cli': minor
----
-
-The agent can now ask the person a question in the Desktop application, the way the terminal already could. A Desktop conversation (not a Pal's, and not a background or scheduled run) gets `ask_user_question`, the system prompt tells the model to ask with it and never through the shell, and a tool server's request for input uses the same channel. The new session option is `questions` on `AgentSessionOptions`: it mounts only the question tool, its prompt guidance and the tool-server answerer, none of what `askUser` also turns on (agents running in the background by default, the narration tool, the `!` line), so the terminal keeps what it had. A turn resumed after a pause can ask too (`ResumePausedParams.onQuestion`). Under `acp --desktop` the host says a question as a `namzu/session/question` notification and takes the answer with `namzu/session/answer-question`; a question nobody can answer any more is told closed with `namzu/session/question-closed`. Nothing to change for a caller that does not pass `questions`. A client that does not know the new messages never receives them.
