@@ -50,11 +50,16 @@ the environment, names it `saved API key · this device`, and every Namzu surfac
 Removing the last key deletes the file. The terminal picker writes the same file, so a key
 entered in one surface is found by the others.
 
-A key added with `/auth` lives in `accounts.json` with its label. When the provider has no saved key
-yet and the account has no custom endpoint, the key is also saved as the provider's startup key.
-Keys that an earlier build left only in `accounts.json` are copied once, at the first start of a
-build with this behaviour, with a one-line notice and no prompt; the accounts themselves are not
-changed, and a marker (`.api-keys-migrated`) keeps a key you later remove from coming back.
+A key added with `/auth` lives in `accounts.json` with its label, and only there: startup reads it
+from the account when `api-keys.json` (Gemini: `gemini-api-key.json`) names no key for the provider, so
+the key is stored once. An account aimed at a custom endpoint is not used for startup. Removing an
+account removes its key with it. `/logout <provider>` removes the saved key and the provider's plain
+`/auth` accounts, since their key is the same one. An earlier build also copied an account's key into
+`api-keys.json`; at the first start of a build with this behaviour a copy that is byte for byte the
+account's key is removed, after the account file is read and the removal re-checks the value under the
+store lock, with a one-line notice. A key that differs from the account's, or any file that cannot be
+read, is left alone. An older build started afterwards does not find a retired key in `api-keys.json`;
+it still finds it in the account.
 
 **The choice follows the ways, not the ids.** What makes a row worth asking
 about is that it has more than one way in — a machine that found a session *and*

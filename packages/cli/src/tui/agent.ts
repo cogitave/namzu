@@ -425,7 +425,10 @@ import {
 	unresolvedMembers,
 	unsupportedProviderMessage,
 } from '../integrations/providers/index.js'
-import { migrateAccountKeys } from '../integrations/providers/key-migration.js'
+import {
+	retireDuplicateStartupKeys,
+	retirementNotice,
+} from '../integrations/providers/key-migration.js'
 import {
 	PickerProviderTimeoutError,
 	runPickerProviderOperation,
@@ -2365,11 +2368,15 @@ export async function probeAgentSession(
 	// and nothing after is this step.
 	const discoveryStartedAt = Date.now()
 	cliLogger().debug('discovering provider credentials')
-	// Keys an earlier build kept only in `accounts.json` move, once, to the
-	// store discovery reads, so they are found below rather than asked for again.
-	const keyMigrationNotice = await migrateAccountKeys(openCliAccounts().registry, {
-		labelOf: (id) => accountProductName(id),
-	}).catch(() => null)
+	// A startup copy of an `/auth` account's key, left by an earlier build, is
+	// removed once the account is verified to hold the same key.
+	const keyMigrationNotice = (() => {
+		try {
+			return retirementNotice(retireDuplicateStartupKeys().retired, (id) => accountProductName(id))
+		} catch {
+			return null
+		}
+	})()
 	const detected = await discoverProviders(options.env ? { env: options.env } : {})
 	cliLogger().debug('provider credentials discovered', {
 		'namzu.boot.discovery_ms': Date.now() - discoveryStartedAt,

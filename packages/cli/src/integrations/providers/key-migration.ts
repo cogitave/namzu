@@ -1,92 +1,71 @@
 /**
- * One-time move of API keys that an earlier build kept only in `accounts.json`.
+ * One-time retirement of the second copy of an API key.
  *
- * Startup reads a provider's saved key from `api-keys.json` (Gemini: its own
- * file), but the account flow stored its keys in `accounts.json`, which the
- * provider list never consults. A person who added a key there found the
- * provider "not detected" on every start. This copies the first plain account
- * key of each such provider into the store startup reads, once, and leaves
- * `accounts.json` exactly as it was so every account keeps working.
+ * An earlier build copied the key of an `/auth` account into `api-keys.json`
+ * (Gemini: its own file) so the provider list would find it, leaving the same
+ * secret in two files: rotating or deleting it in one left the other behind.
+ * `accounts.json` now owns an account's key and startup reads it from there,
+ * so a copy that is byte for byte the account's key carries nothing the
+ * account does not. This removes such copies.
+ *
+ * Nothing is removed unless the account file is read first, its key equals the
+ * copy exactly, and the removal itself checks the copy is still that value
+ * under the store lock. A key that differs from the account's is a different
+ * key and stays. An unreadable or corrupt file on either side removes nothing.
  */
 
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-
-import type { AccountRegistry } from '@namzu/sdk'
-
-import { namzuHomePath } from '../state/home.js'
-import { hasApiCredential } from './access.js'
+import { readAccountKeys } from './account-keys.js'
 import {
-	readStoredApiKey,
+	clearStoredApiKeyIf,
+	clearStoredGeminiApiKeyIf,
+	readOwnStoredApiKey,
 	readStoredGeminiApiKey,
-	writeStoredApiKey,
-	writeStoredGeminiApiKey,
 } from './credential-store.js'
-import { PROVIDER_REGISTRY, type ProviderId } from './registry.js'
 
-export function keyMigrationMarkerPath(home?: string): string {
-	return join(namzuHomePath(home), '.api-keys-migrated')
-}
-
-/** Whether this provider's saved key (wherever it lives) already exists. */
-function hasSavedKey(id: string, home?: string): boolean {
-	return (id === 'google' ? readStoredGeminiApiKey(home) : readStoredApiKey(id, home)) !== null
+export interface KeyRetirement {
+	/** Provider ids whose duplicate copy was removed. */
+	readonly retired: readonly string[]
 }
 
 /**
- * Copy account keys into the startup store. Returns the one-line notice to
- * show, or `null` when nothing moved. Runs once per home (a marker records
- * that), never prompts, never throws, and never touches `accounts.json`.
+ * Remove each startup copy that duplicates an account's key. Idempotent, never
+ * throws, and safe to run from two processes at once: the loser finds the copy
+ * already gone and removes nothing.
  */
-export async function migrateAccountKeys(
-	registry: AccountRegistry,
-	options: { readonly home?: string; readonly labelOf?: (id: string) => string } = {},
-): Promise<string | null> {
-	const { home } = options
-	const marker = keyMigrationMarkerPath(home)
-	if (existsSync(marker)) return null
-	const moved: string[] = []
-	let incomplete = false
+export function retireDuplicateStartupKeys(home?: string): KeyRetirement {
+	const retired: string[] = []
 	try {
-		const seen = new Set<string>()
-		const accounts = registry
-			.list()
-			.filter((a) => a.source.kind === 'api-key' && a.baseUrl === undefined)
-			.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-		for (const account of accounts) {
-			const id = account.provider
-			if (seen.has(id)) continue
-			seen.add(id)
-			const entry = PROVIDER_REGISTRY[id as ProviderId]
-			if (!entry?.constructible || !entry.acceptsTypedCredential) continue
-			if (hasSavedKey(id, home)) continue
+		const accounts = readAccountKeys(home)
+		const providers = new Set(accounts.map((entry) => entry.provider))
+		for (const provider of providers) {
+			// The oldest plain account is the one startup would use, so a copy is
+			// a duplicate only of that key; a different key stays.
+			const accountKey = accounts.find((entry) => entry.provider === provider)?.key
+			if (accountKey === undefined) continue
 			try {
-				const credential = await registry.resolve(account.id, new AbortController().signal)
-				const key = credential.accessToken
-				if (!hasApiCredential(entry, key)) continue
-				if (id === 'google') writeStoredGeminiApiKey(key, home)
-				else writeStoredApiKey(id, key, home)
-				moved.push(options.labelOf?.(id) ?? entry.label)
+				if (provider === 'google') {
+					const own = readStoredGeminiApiKey(home)
+					if (own === accountKey && clearStoredGeminiApiKeyIf(accountKey, home))
+						retired.push(provider)
+					continue
+				}
+				const own = readOwnStoredApiKey(provider, home)
+				if (own === accountKey && clearStoredApiKeyIf(provider, accountKey, home))
+					retired.push(provider)
 			} catch {
-				// One unreadable or unwritable account must not stop the rest, nor start.
-				// It is not marked done, so the next start tries it again.
-				incomplete = true
+				// Keep both copies; the next start looks again.
 			}
 		}
 	} catch {
-		return null
+		return { retired }
 	}
-	if (incomplete) return moved.length === 0 ? null : noticeFor(moved)
-	try {
-		mkdirSync(dirname(marker), { recursive: true, mode: 0o700 })
-		writeFileSync(marker, '', { mode: 0o600 })
-	} catch {
-		// Without a marker the move is retried next start; every step is idempotent.
-	}
-	if (moved.length === 0) return null
-	return noticeFor(moved)
+	return { retired }
 }
 
-function noticeFor(moved: readonly string[]): string {
-	return `Moved your saved ${moved.join(', ')} API key from /auth accounts to the key store the provider list reads, so you are not asked again.`
+export function retirementNotice(
+	retired: readonly string[],
+	labelOf: (id: string) => string,
+): string | null {
+	if (retired.length === 0) return null
+	return `Your saved ${retired.map(labelOf).join(', ')} API key was stored twice. It is now kept once, with its account, and works as before.`
 }
