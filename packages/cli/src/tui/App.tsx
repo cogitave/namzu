@@ -1588,7 +1588,7 @@ export function projectConversation(
 				{
 					id: nextId(),
 					role: 'user',
-					content: readable ?? message.content,
+					content: readable ?? chipPastedRanges(message.content, message.pasted),
 					...(attachments ? { attachments } : {}),
 				},
 			]
@@ -9654,7 +9654,7 @@ function AppBody({
 				composerDraftTokenRef.current += 1
 				setComposerDraft({
 					token: composerDraftTokenRef.current,
-					text: target.displayText,
+					text: target.draftText ?? target.displayText,
 					...(forked.selected.attachments && forked.selected.attachments.length > 0
 						? { attachments: [...forked.selected.attachments] }
 						: {}),
@@ -9761,7 +9761,7 @@ function AppBody({
 					composerDraftTokenRef.current += 1
 					setComposerDraft({
 						token: composerDraftTokenRef.current,
-						text: target.displayText,
+						text: target.draftText ?? target.displayText,
 						...(target.message.attachments && target.message.attachments.length > 0
 							? { attachments: [...target.message.attachments] }
 							: {}),
