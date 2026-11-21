@@ -378,12 +378,14 @@ export async function loggedPromptsOf(
 		if (message.role !== 'user' || message.source || typeof message.content !== 'string') continue
 		if (message.content.trim().length === 0) continue
 		const at = Date.parse(record.ts)
+		// A record time that cannot be read would be dropped by the next sweep at once.
+		if (!Number.isFinite(at)) continue
 		out.push({
 			content: message.content,
 			...(message.pasted?.length
 				? { pasted: message.pasted.map(({ start, end }) => ({ start, end })) }
 				: {}),
-			timestamp: Number.isFinite(at) ? at : 0,
+			timestamp: at,
 		})
 	}
 	return out
@@ -537,6 +539,25 @@ export async function rewritePromptHistory(
 	)
 }
 
+/** Keeps the newest {@link PROMPT_HISTORY_KEEP} entries by time, not by place in the file (seeding appends older lines after newer ones). */
+function newestKept(): (
+	entry: PromptHistoryEntry,
+	index: number,
+	entries: readonly PromptHistoryEntry[],
+) => boolean {
+	let chosen: Set<number> | undefined
+	return (_entry, index, entries) => {
+		chosen ??= new Set(
+			entries
+				.map((e, i) => ({ t: e.timestamp, i }))
+				.sort((a, b) => b.t - a.t || b.i - a.i)
+				.slice(0, PROMPT_HISTORY_KEEP)
+				.map((e) => e.i),
+		)
+		return chosen.has(index)
+	}
+}
+
 /** Keep the newest {@link PROMPT_HISTORY_KEEP} lines once the file has grown well past them. */
 export async function trimPromptHistory(
 	home: string,
@@ -545,11 +566,7 @@ export async function trimPromptHistory(
 ): Promise<number> {
 	if (lines <= PROMPT_HISTORY_KEEP + TRIM_SLACK) return 0
 	try {
-		return await rewritePromptHistory(
-			home,
-			(_entry, index, entries) => index >= entries.length - PROMPT_HISTORY_KEEP,
-			options,
-		)
+		return await rewritePromptHistory(home, newestKept(), options)
 	} catch {
 		return 0
 	}

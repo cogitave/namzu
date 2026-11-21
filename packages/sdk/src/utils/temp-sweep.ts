@@ -163,6 +163,9 @@ function claimDue(root: string, now: number, everyMs: number): boolean {
 	return true
 }
 
+/** A hook-env folder whose owner reads as dead is removed only once nothing in it changed for this long. */
+const HOOK_ENV_IDLE_MS = 10 * 60 * 1000
+
 /** The owner a hook-env folder recorded, if it recorded one. */
 async function hookEnvOwner(dir: string): Promise<number | undefined> {
 	try {
@@ -217,6 +220,14 @@ export async function sweepPrivateTempRoot(
 			return false
 		}
 	}
+	const idleFor = async (dir: string, ms: number): Promise<boolean> => {
+		try {
+			const newest = await newestChange(dir)
+			return newest !== undefined && now - newest >= ms
+		} catch {
+			return false
+		}
+	}
 	const running = async (slug: string, sessionId: string): Promise<boolean> => {
 		if (keep.has(sessionId)) return true
 		if (!options.isSessionLive) return false
@@ -245,7 +256,12 @@ export async function sweepPrivateTempRoot(
 		if (!entry.isDirectory() || entry.isSymbolicLink() || !ownedBy(entry, getuid)) continue
 		if (HOOK_ENV.test(name)) {
 			const pid = await hookEnvOwner(path)
-			const gone = pid === undefined ? await old(path) : !isPidAlive(pid)
+			// A pid this process cannot see (another pid namespace sharing the folder) reads as dead, so
+			// a dead owner alone is not enough: the folder must also have been idle for a while.
+			const gone =
+				pid === undefined
+					? await old(path)
+					: !isPidAlive(pid) && (await idleFor(path, HOOK_ENV_IDLE_MS))
 			if (!gone) continue
 			try {
 				await removeTree(path)

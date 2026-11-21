@@ -26,6 +26,8 @@ import {
 	CLEANUP_STATE_FILE,
 	type ConversationCleanupOptions,
 	cleanupOldConversations,
+	markCleanupNoticeShown,
+	scheduleBoundSessions,
 } from './cleanup.js'
 import { PROMPT_HISTORY_FILE, appendPromptHistory, readPromptHistory } from './prompt-history.js'
 import {
@@ -247,6 +249,14 @@ describe('when the sweep runs', () => {
 		expect(first.notice).toMatch(/keeps conversations on this computer for 30 days/)
 		expect(first.notice).toMatch(/cleanupPeriodDays in ~\/\.namzu\/config\.yaml/)
 		expect(present(s, id)).toBe(true)
+		// The week starts only when the host says the sentence was shown.
+		const unread = JSON.parse(readFileSync(join(s.root, CLEANUP_STATE_FILE), 'utf8'))
+		expect(unread.noticeShownAt).toBeUndefined()
+		const notShown = await run(s, { explicit: false, now: NOW + CLEANUP_NOTICE_GRACE_MS + 1 })
+		expect(notShown).toMatchObject({ mode: 'counted' })
+		expect(notShown.notice).toBeDefined()
+		expect(present(s, id)).toBe(true)
+		await markCleanupNoticeShown(s.root, NOW)
 		const state = JSON.parse(readFileSync(join(s.root, CLEANUP_STATE_FILE), 'utf8'))
 		expect(Date.parse(state.noticeShownAt)).toBe(NOW)
 
@@ -266,6 +276,29 @@ describe('when the sweep runs', () => {
 		expect(quiet.notice).toBeUndefined()
 		const state = JSON.parse(readFileSync(join(s.root, CLEANUP_STATE_FILE), 'utf8'))
 		expect(state.noticeShownAt).toBeUndefined()
+	})
+
+	it('keeps an old conversation a scheduled job delivers to, or has results queued for', async () => {
+		const s = await project()
+		const bound = await conversation(s)
+		const queued = await conversation(s)
+		const unbound = await conversation(s)
+		for (const id of [bound, queued, unbound]) age(s, id, NOW - 90 * DAY)
+		const schedule = join(s.root, 'schedule')
+		mkdirSync(join(schedule, 'jobs'), { recursive: true })
+		mkdirSync(join(schedule, 'deliveries', queued), { recursive: true })
+		writeFileSync(
+			join(schedule, 'jobs', 'job1.json'),
+			JSON.stringify({ delivery: { kind: 'source-conversation', sessionId: bound } }),
+		)
+		// A job file this version cannot parse still names its conversation.
+		const report = await run(s)
+		expect(report.conversations).toBe(1)
+		expect(present(s, bound)).toBe(true)
+		expect(present(s, queued)).toBe(true)
+		expect(present(s, unbound)).toBe(false)
+		writeFileSync(join(schedule, 'jobs', 'job1.json'), `{broken "sessionId": "${bound}"`)
+		expect(scheduleBoundSessions(s.root).has(bound)).toBe(true)
 	})
 
 	it('skips the sweep while another process holds it', async () => {

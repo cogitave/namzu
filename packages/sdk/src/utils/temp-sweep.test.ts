@@ -88,8 +88,11 @@ describe('sweepPrivateTempRoot', () => {
 			mkdirSync(dir)
 			writeFileSync(join(dir, 'session_start.env'), '')
 			writeFileSync(join(dir, HOOK_ENV_OWNER_FILE), JSON.stringify({ pid }))
-			// Recent files: only the owner decides.
-			utimesSync(join(dir, 'session_start.env'), new Date(later), new Date(later))
+			// Idle for an hour: only the owner decides.
+			const idle = new Date(later - 60 * 60 * 1000)
+			utimesSync(join(dir, 'session_start.env'), idle, idle)
+			utimesSync(join(dir, HOOK_ENV_OWNER_FILE), idle, idle)
+			utimesSync(dir, idle, idle)
 		}
 		const report = await sweepPrivateTempRoot({
 			root,
@@ -100,6 +103,23 @@ describe('sweepPrivateTempRoot', () => {
 		expect(report.removedHookEnv).toBe(1)
 		expect(existsSync(dead)).toBe(false)
 		expect(existsSync(alive)).toBe(true)
+	})
+
+	it('keeps a hook-env folder whose owner reads as dead while it changed in the last minutes', async () => {
+		const dir = join(root, 'hook-envFFFFFF')
+		mkdirSync(dir)
+		writeFileSync(join(dir, HOOK_ENV_OWNER_FILE), JSON.stringify({ pid: 333 }))
+		const recent = new Date(later - 60 * 1000)
+		utimesSync(join(dir, HOOK_ENV_OWNER_FILE), recent, recent)
+		utimesSync(dir, recent, recent)
+		const report = await sweepPrivateTempRoot({
+			root,
+			now: later,
+			everyMs: 0,
+			isPidAlive: () => false,
+		})
+		expect(report.removedHookEnv).toBe(0)
+		expect(existsSync(dir)).toBe(true)
 	})
 
 	it('removes a hook-env folder that names no owner only once it is a week old', async () => {

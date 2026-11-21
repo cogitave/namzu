@@ -6471,8 +6471,12 @@ function AppBody({
 				if (requestedConversationId) await touchOpenedConversation(sessions, sessionId)
 				const earlier = await loadEarlierPrompts(start).catch(() => [] as string[])
 				if (earlier.length > 0) setEarlierPrompts(earlier)
-				const notice = await cleanupOnStart(start).catch(() => undefined)
-				if (notice) pushSystemLatestRef.current?.('notice', notice)
+				await cleanupOnStart(start, (notice) => {
+					const push = pushSystemLatestRef.current
+					if (!push) return false
+					push('notice', notice)
+					return true
+				}).catch(() => undefined)
 			})()
 		}
 		return scopeRef.current

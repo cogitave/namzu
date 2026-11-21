@@ -167,12 +167,13 @@ sub-agent conversations), then the conversation's scratch folder in the temporar
 lines of `history.jsonl` that old and brings the index up to date. It is kept, whatever its age, when its turn
 is open (running or waiting on a decision), its writer lease is live (the sweep takes the lease before it
 removes anything), its folder is not trusted, a running Namzu has it on screen or this start is about to open
-it, the desktop app started it, or its log cannot be read. Nothing outside `projects/` and the temporary
+it, the desktop app started it, a scheduled job delivers its results to it (or results for it are still queued), or its log cannot be read. Archived conversations are swept the same way after the period, so an archive is restorable only until then. Nothing outside `projects/` and the temporary
 folder is touched: not a project's memory, learning data, worktrees or `project.json`, and not the shared
 attachment store. Opening a conversation with `-c` or `/resume` counts as a change.
 
 The first time an installation reaches the sweep with the default period, it only counts what is older and
-says so once, in the transcript, naming the setting; it removes nothing until seven days after that notice.
+says so once, in the transcript, naming the setting; it removes nothing until seven days after that notice
+was shown on screen (an exit before it appeared starts no week, and the notice comes again).
 A period you set yourself applies at once.
 
 ## Prompt history: `history.jsonl`

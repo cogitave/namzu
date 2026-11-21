@@ -9,7 +9,11 @@
 import { utimes } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { SessionId } from '@namzu/sdk'
-import { cleanupOldConversations, readCleanupPeriod } from '../integrations/sessions/cleanup.js'
+import {
+	cleanupOldConversations,
+	markCleanupNoticeShown,
+	readCleanupPeriod,
+} from '../integrations/sessions/cleanup.js'
 import {
 	type PastedRange,
 	appendPromptHistory,
@@ -23,7 +27,7 @@ import {
 	seedPromptHistory,
 	trimPromptHistory,
 } from '../integrations/sessions/prompt-history.js'
-import type { CliSessions } from '../integrations/sessions/store.js'
+import { type CliSessions, readConversationFacts } from '../integrations/sessions/store.js'
 import { isTrustedAtStateRoot } from '../integrations/trust/store.js'
 import { homePath } from './person-terms.js'
 
@@ -37,9 +41,19 @@ export interface CrossSessionStart {
 	readonly startedAt: number
 }
 
-/** Whether the box's prompts are written and recalled in this process. */
-export function keepsPromptHistory(): boolean {
-	return !promptHistorySkipped() && promptHistoryEnabled()
+const keepsByStart = new WeakMap<CliSessions, boolean>()
+
+/**
+ * Whether the box's prompts are written and recalled in this process, read once per start from the
+ * settings of the home the conversations live in, not on every prompt sent.
+ */
+export function keepsPromptHistory(sessions: CliSessions): boolean {
+	let answer = keepsByStart.get(sessions)
+	if (answer === undefined) {
+		answer = !promptHistorySkipped() && promptHistoryEnabled({ home: sessions.root })
+		keepsByStart.set(sessions, answer)
+	}
+	return answer
 }
 
 /**
@@ -48,8 +62,8 @@ export function keepsPromptHistory(): boolean {
  * conversations; a file grown well past what it keeps is trimmed.
  */
 export async function loadEarlierPrompts(start: CrossSessionStart): Promise<string[]> {
-	if (!keepsPromptHistory()) return []
 	const { sessions } = start
+	if (!keepsPromptHistory(sessions)) return []
 	try {
 		await seedPromptHistory({
 			home: sessions.root,
@@ -65,7 +79,12 @@ export async function loadEarlierPrompts(start: CrossSessionStart): Promise<stri
 					)
 					.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
 					.map((row) => row.id),
-			promptsOf: (id) => loggedPromptsOf(sessions, id),
+			promptsOf: async (id) => {
+				// The desktop app keeps its own conversations and does not use this file.
+				const facts = await readConversationFacts(sessions, id, 'tolerant').catch(() => null)
+				if (!facts || facts.started.origin?.protocol === 'desktop') return []
+				return loggedPromptsOf(sessions, id)
+			},
 		})
 	} catch {
 		// A seed that fails leaves the file as it was; the next start tries again.
@@ -89,7 +108,7 @@ export function recordSentPrompt(
 	text: string,
 	pasted: readonly PastedRange[] | undefined,
 ): void {
-	if (!sessions || !sessionId || !keepsPromptHistory()) return
+	if (!sessions || !sessionId || !keepsPromptHistory(sessions)) return
 	const entry = promptHistoryEntryFor({
 		text,
 		...(pasted?.length ? { pasted } : {}),
@@ -114,11 +133,15 @@ export async function touchOpenedConversation(
 }
 
 /**
- * Remove old conversations, at most once a day. Resolves to the sentence to
- * show once, when there is one.
+ * Remove old conversations, at most once a day. When there is a sentence to
+ * show once, `show` is called with it; it returns whether the sentence reached
+ * the screen, and only then does the notice's grace week start.
  */
-export async function cleanupOnStart(start: CrossSessionStart): Promise<string | undefined> {
-	const period = readCleanupPeriod()
+export async function cleanupOnStart(
+	start: CrossSessionStart,
+	show: (notice: string) => boolean,
+): Promise<void> {
+	const period = readCleanupPeriod({ home: start.sessions.root })
 	const keep = new Set([start.sessionId, ...(start.resumed ? [start.resumed] : [])])
 	const root = start.sessions.root
 	const trusted = new Map<string, boolean>()
@@ -137,5 +160,5 @@ export async function cleanupOnStart(start: CrossSessionStart): Promise<string |
 		},
 		settingsFile: homePath(join(root, 'config.yaml')),
 	})
-	return report.notice
+	if (report.notice && show(report.notice)) await markCleanupNoticeShown(root)
 }

@@ -21,6 +21,8 @@
  *   before it removes anything, so a writer that starts meanwhile wins;
  * - its folder is not trusted, as for an archive;
  * - this process is about to open it, or a running Namzu has it on screen;
+ * - a scheduled job delivers its results to it (the job binds the conversation, and a quiet job
+ *   leaves it looking old), or results for it still wait in the scheduler's inbox;
  * - the desktop app started it (the app keeps its own conversations, see
  *   `archiveInactive`);
  * - its log cannot be read: a damaged log is the person's to look at, not ours
@@ -31,12 +33,13 @@
  * attachment store. The index is brought up to date afterwards.
  *
  * The first time an installation reaches the sweep with the default period, it
- * only counts and says so once; it removes nothing until seven days after that
+ * only counts and returns a notice; the app says it once and confirms it with
+ * {@link markCleanupNoticeShown}; it removes nothing until seven days after that
  * notice, so nobody loses a month of conversations to an upgrade they did not
  * read about. A period the person set themselves applies at once.
  */
 
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { lstat, readdir, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
@@ -55,6 +58,7 @@ import {
 	withAccountLock,
 } from '@namzu/sdk'
 import { type LoadConfigOptions, loadBootstrapConfigWithProvenance } from '../../config/load.js'
+import { schedulePaths } from '../../schedule/paths.js'
 import { resolvePeerRuntime } from '../peers/runtime.js'
 import { rewritePromptHistory } from './prompt-history.js'
 import { readConversationFacts } from './store.js'
@@ -166,6 +170,44 @@ function writeState(path: string, state: CleanupState): void {
 	} catch {
 		// A state that cannot be written means the next start sweeps again; nothing else.
 	}
+}
+
+const SESSION_ID_IN_TEXT = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
+
+/**
+ * Conversations a scheduled job is bound to, and ones with results still queued. Read from the raw
+ * files so a job this version cannot parse still keeps its conversation; a scheduler folder that
+ * cannot be listed is not the same as an empty one, so that case throws and the sweep removes nothing.
+ */
+export function scheduleBoundSessions(home: string): Set<string> {
+	const paths = schedulePaths(home)
+	const bound = new Set<string>()
+	const list = (dir: string): string[] => {
+		try {
+			return readdirSync(dir)
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+			throw error
+		}
+	}
+	for (const name of list(paths.jobs)) {
+		if (name.startsWith('.')) continue
+		let text: string
+		try {
+			text = readFileSync(join(paths.jobs, name), 'utf8')
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue
+			throw error
+		}
+		try {
+			const job = JSON.parse(text) as { delivery?: { sessionId?: unknown } }
+			if (typeof job.delivery?.sessionId === 'string') bound.add(job.delivery.sessionId)
+		} catch {
+			for (const match of text.matchAll(SESSION_ID_IN_TEXT)) bound.add(match[0])
+		}
+	}
+	for (const name of list(join(paths.root, 'deliveries'))) bound.add(name)
+	return bound
 }
 
 function pidAlive(pid: number): boolean {
@@ -346,6 +388,24 @@ async function removeConversation(
 }
 
 /**
+ * Start the notice's grace week, once the sentence is on the person's screen. Until then the
+ * default period removes nothing, so an exit before the notice was read costs no conversation.
+ * Never throws.
+ */
+export async function markCleanupNoticeShown(home: string, now = Date.now()): Promise<void> {
+	const statePath = join(home, CLEANUP_STATE_FILE)
+	try {
+		await withAccountLock(`${statePath}.lock`, async () => {
+			const state = readState(statePath)
+			if (state.noticeShownAt) return
+			writeState(statePath, { ...state, noticeShownAt: new Date(now).toISOString() })
+		})
+	} catch {
+		// Not written: the notice is given again at the next sweep.
+	}
+}
+
+/**
  * Remove conversations older than `cleanupPeriodDays`, the lines of
  * `history.jsonl` older than that, and what sessions left in the temporary
  * folder. See the module header for what is kept. Never throws.
@@ -382,8 +442,10 @@ async function runCleanup(options: ConversationCleanupOptions): Promise<CleanupR
 
 		const cutoff = now - periodDays * DAY_MS
 		const tempRoot = options.tempRoot === undefined ? privateTempRootPath() : options.tempRoot
+		// A scheduler folder that cannot be read removes nothing (the throw is caught by the caller).
+		const bound = scheduleBoundSessions(home)
 		const gates = {
-			keep: options.keep ?? new Set<string>(),
+			keep: new Set<string>([...(options.keep ?? []), ...bound]),
 			onScreen: options.onScreen ? options.onScreen() : registeredOnScreen(home),
 			isTrusted: options.isTrusted ?? (() => true),
 			tempRoot,
@@ -432,13 +494,10 @@ async function runCleanup(options: ConversationCleanupOptions): Promise<CleanupR
 								Date.now(),
 							),
 					}).catch(() => undefined)
-		// The notice is given, and its week starts, only once there is something it is about.
+		// The notice is given once there is something it is about. Its week starts only when the
+		// host confirms the sentence reached the screen ({@link markCleanupNoticeShown}).
 		let notice: string | undefined
 		if (!options.explicit && !told && tally.conversations > 0) {
-			writeState(statePath, {
-				lastRunAt: new Date(now).toISOString(),
-				noticeShownAt: new Date(now).toISOString(),
-			})
 			const from = new Date(now + CLEANUP_NOTICE_GRACE_MS).toISOString().slice(0, 10)
 			const count =
 				tally.conversations === 1 ? '1 conversation' : `${tally.conversations} conversations`

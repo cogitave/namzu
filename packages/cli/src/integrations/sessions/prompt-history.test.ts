@@ -218,6 +218,30 @@ describe('the history file', () => {
 	})
 })
 
+describe('trimming by time', () => {
+	it('keeps the newest lines by time even when older ones sit after them in the file', async () => {
+		const home = await temp('namzu-history-home-')
+		const newest = Array.from({ length: 5 }, (_, i) =>
+			entry(`new${i}`, { timestamp: 1_000_000 + i }),
+		)
+		const older = Array.from({ length: PROMPT_HISTORY_KEEP + 600 }, (_, i) =>
+			entry(`old${i}`, { timestamp: i }),
+		)
+		const all = [...newest, ...older]
+		writeFileSync(
+			join(home, PROMPT_HISTORY_FILE),
+			`${all.map((line) => JSON.stringify(line)).join('\n')}\n`,
+			{ mode: 0o600 },
+		)
+		await trimPromptHistory(home, all.length, { wait: noWait })
+		const read = await readPromptHistory(home)
+		expect(read.entries).toHaveLength(PROMPT_HISTORY_KEEP)
+		const shown = read.entries.map((e) => e.display)
+		for (let i = 0; i < 5; i++) expect(shown).toContain(`new${i}`)
+		expect(shown).not.toContain('old0')
+	})
+})
+
 describe('recalling earlier prompts', () => {
 	it('gives this project’s prompts oldest first, without other projects, its own lines or repeats in a row', async () => {
 		const home = await temp('namzu-history-home-')
