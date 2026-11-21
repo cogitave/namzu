@@ -75,9 +75,7 @@ export class WorkspaceInUseError extends Error {
 		readonly path: string,
 		readonly holders: readonly WorkspaceHold[],
 	) {
-		const who = holders
-			.map((hold) => `${hold.holder}, working in ${hold.folder}`)
-			.join('; ')
+		const who = holders.map((hold) => `${hold.holder}, working in ${hold.folder}`).join('; ')
 		super(
 			`The worktree ${path} was not removed: a running session or subagent still has it (${who}). Its uncommitted files are untouched. Close that session, then remove it again.`,
 		)

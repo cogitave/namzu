@@ -10,8 +10,8 @@ import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { WorkspaceId } from '../../../types/ids/index.js'
 import type { WorkspaceRef } from '../../../types/workspace/ref.js'
-import { DiskWorkspaceHoldStore, WorkspaceInUseError } from '../holds.js'
 import { type ExecFile, type ExecFileResult, GitWorktreeDriver } from '../git-worktree.js'
+import { DiskWorkspaceHoldStore, WorkspaceInUseError } from '../holds.js'
 
 const roots: string[] = []
 

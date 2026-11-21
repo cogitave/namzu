@@ -24,13 +24,18 @@ import type { Logger } from '../../utils/logger.js'
 import { WorkspaceBackendError } from '../errors.js'
 import { resolveNamzuHome } from '../home.js'
 import { hashedSlugForCwd, slugForCwd } from '../paths.js'
-import { DiskWorkspaceHoldStore, type WorkspaceHold, WorkspaceInUseError, type WorkspaceHoldStore } from './holds.js'
 import type {
 	BranchWorkspaceParams,
 	CreateWorkspaceParams,
 	WorkspaceBackendDriver,
 	WorkspaceInspection,
 } from './driver.js'
+import {
+	DiskWorkspaceHoldStore,
+	type WorkspaceHold,
+	type WorkspaceHoldStore,
+	WorkspaceInUseError,
+} from './holds.js'
 
 const execFileAsync = promisify(execFile)
 

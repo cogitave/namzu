@@ -375,9 +375,7 @@ export async function launchTui(
 	// A session started in a managed checkout says so, so another process's
 	// removal of that checkout is refused instead of taking this session's files
 	// with it. Asked after the first frame: it must not slow the screen's start.
-	const heldCheckout = holdSessionCheckout(ctx.cwd, `session:${process.pid}`).catch(
-		() => undefined,
-	)
+	const heldCheckout = holdSessionCheckout(ctx.cwd, `session:${process.pid}`).catch(() => undefined)
 	try {
 		await instance.waitUntilExit()
 	} catch (error) {

@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import type { Dirent } from 'node:fs'
 import { lstat, mkdir, readdir, realpath, rmdir } from 'node:fs/promises'
-import { isAbsolute, basename, dirname, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 import {
 	DiskWorkspaceHoldStore,

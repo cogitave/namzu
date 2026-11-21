@@ -106,10 +106,7 @@ export class DelegatedWorktreeDriver {
 			// this never fails the child: the checkout exists and works in full.
 			try {
 				const label = relative(worktreesDir, ref.meta.worktreePath).split(sep).join('/')
-				this.holding.set(
-					ref.id,
-					await hold(label, `subagent:${label}`, ref.meta.worktreePath),
-				)
+				this.holding.set(ref.id, await hold(label, `subagent:${label}`, ref.meta.worktreePath))
 			} catch {
 				// The child runs; nothing else changes.
 			}
