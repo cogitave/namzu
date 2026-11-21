@@ -70,8 +70,9 @@ A temporary scratch directory per session lives outside the home, at
 `<temp base>/namzu-<user>/<slug>/<session-id>/scratchpad/`. Every session that runs
 commands on this machine has one, an ephemeral `exec` run included: it is created
 when the first turn starts, with mode 0700, and refused if it is a symlink or owned by
-another user. A sub-agent uses its parent's. Nothing removes it when the process ends; the
-operating system clears it with the rest of its temporary files. Background job output
+another user. A sub-agent uses its parent's. Nothing removes it when the process ends; the terminal app's
+[temporary folder sweep](#clearing-the-temporary-folder) removes it once it has been idle for seven
+days, because the operating system does not always clear its temporary files. Background job output
 files are in its `jobs/` folder ([Where files go](where-files-go.md)).
 For a confirmed no-project script job, a separate private working directory
 is created beside `NAMZU_HOME`, under `<NAMZU_HOME>-schedule-workspaces/<job-id>/`.
@@ -241,6 +242,60 @@ reply, a later revision, or a legacy message without that event remains
 visible. These display rows do not change the journal or model replay, and
 cold history does not reconstruct tool receipts or reasoning.
 
+## Keeping conversations: `cleanupPeriodDays`
+
+`cleanupPeriodDays` (Settings, Projects, *Keep conversations for*) is the number of days a conversation is
+kept on this computer after it last changed. It is a whole number, at least 1, and 30 when unset; to keep
+everything, set a large number such as 3650 (there is no 0). It is read from your own file and the managed
+file only: a project file that sets it is ignored with a warning, because a repository cannot decide what is
+removed from your computer. If the files cannot be read, nothing is removed.
+
+When the terminal app starts it runs one sweep, at most once a day (`$NAMZU_HOME/.last-cleanup` records the
+time, under a lock, so two starts do not both sweep). For each project folder under `$NAMZU_HOME/projects/`
+it removes a conversation, whose log and folder have both been unchanged for the period: the log
+`<session-id>.jsonl` first, then its folder (tool results, plans, tasks, goals, budgets, file history,
+sub-agent conversations), then the conversation's scratch folder in the temporary folder. It also drops the
+lines of `history.jsonl` that old and brings the index up to date. It is kept, whatever its age, when its turn
+is open (running or waiting on a decision), its writer lease is live (the sweep takes the lease before it
+removes anything), its folder is not trusted, a running Namzu has it on screen or this start is about to open
+it, the desktop app started it, a scheduled job delivers its results to it (or results for it are still queued), or its log cannot be read. Archived conversations are swept the same way after the period, so an archive is restorable only until then. Nothing outside `projects/` and the temporary
+folder is touched: not a project's memory, learning data, worktrees or `project.json`, and not the shared
+attachment store. Opening a conversation with `-c` or `/resume` counts as a change.
+
+The first time an installation reaches the sweep with the default period, it only counts what is older and
+says so once, in the transcript, naming the setting; it removes nothing until seven days after that notice
+was shown on screen (an exit before it appeared starts no week, and the notice comes again).
+A period you set yourself applies at once.
+
+## Prompt history: `history.jsonl`
+
+`$NAMZU_HOME/history.jsonl` keeps the prompts you send from the terminal app's box, so Up and Ctrl+R in a
+new conversation bring back the earlier prompts of the same project (the checkout folder), after this
+conversation's own. One JSON line per prompt:
+`{"display":"…","project":"<folder>","sessionId":"…","timestamp":<ms>}`, plus `pasted` ranges
+(`{ offset, length, sha256 }`) when text was pasted. The file is mode 0600, refused when it is a link or not a
+regular file, appended under `history.jsonl.lock`, and keeps the newest 2000 lines.
+
+Pasted text is not copied here: it is cut out of `display`, and recall reads it back from the conversation's
+own log, which already holds it. A line whose conversation was removed, or whose paste cannot be found, is
+not recalled. Not written: a prompt carrying a credential shape (a vendor key, a bearer header, a private key
+block) or `/login` with its code, a loop or queued command or keybinding line, anything typed into a process a
+session started (sub-agents, `namzu exec`), and everything when `promptHistory` is `false` (Settings,
+Projects, *Remember sent prompts*; your own file and the managed file only; the file is left as it is). The
+first start in a project from before the file existed seeds it once from that project's newest 20
+conversations. The desktop application does not read or write this file. Remove the file to forget all
+prompts; `cleanupPeriodDays` also drops lines that old. A prompt's text stays in the conversation's log
+either way: that log, not this file, is the full record, and it has mode 0600 inside a 0700 folder.
+
+## Clearing the temporary folder
+
+At the same start, the sweep clears what sessions left in `<temp base>/namzu-<user>/`, once a day
+(`.last-cleanup` inside it): `<slug>/<session-id>/` folders in which nothing changed for seven days and whose
+session is not live (the age is the newest change inside, since every home on the machine shares the folder);
+`hook-env*` folders whose owner process has exited (each records `owner.json` with its process id and start
+time), or, for one made before that, that are as old; and `s-<hex>` short names whose folder is gone. Links
+are never followed and entries of another user are never touched.
+
 ## Archiving idle conversations
 
 `archiveInactive` (Settings, Projects, *Archive inactive conversations*) is `never` by default, or `1d`, `7d`
@@ -252,8 +307,8 @@ listing, but not within ten minutes of a refusal). A listing looks at up to 2000
 longest idle first, and archives at most five each time, so a project with a long backlog catches up over a few
 listings while the list shown stays at the 100 newest. Archiving only moves a conversation to the archive, where it stays readable and can be restored; it
 never deletes a conversation and it never touches a worktree, so a worktree with uncommitted changes stays on
-disk. The terminal app has no sweep of its own: the setting is applied where the conversation list is drawn by
-the desktop app.
+disk. The terminal app has no archive sweep of its own: the setting is applied where the conversation list is drawn by
+the desktop app. Deleting old conversations is a separate setting, [`cleanupPeriodDays`](#keeping-conversations-cleanupperioddays).
 
 When the app asks for it (`idleArchivedRows: true` in the request), the listing names each conversation it
 archived (an extra row `{ id, idleArchived: true }`); an app that does not ask gets no such rows. The desktop

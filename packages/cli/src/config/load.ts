@@ -1951,6 +1951,18 @@ const CONFIG_READERS: ConfigReaders = {
 		if (v === 'never' || v === '1d' || v === '7d' || v === '30d') return v
 		return invalidConfigValue(context, [], 'must be never, 1d, 7d or 30d')
 	},
+	cleanupPeriodDays: (v, context) => {
+		if (typeof v === 'number' && Number.isSafeInteger(v) && v >= 1) return v
+		return invalidConfigValue(
+			context,
+			[],
+			'must be a whole number of days, at least 1; to keep everything, set a large number such as 3650',
+		)
+	},
+	promptHistory: (v, context) => {
+		if (typeof v === 'boolean') return v
+		return invalidConfigValue(context, [], 'must be true or false')
+	},
 	workflow: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		const caps = { maxConcurrency: 16, maxAgents: 1000 } as const
@@ -2691,6 +2703,10 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	worktrees: undefined,
 	// Archiving is a standing decision about the person's history, never a variable's.
 	archiveInactive: undefined,
+	// What is removed from the person's computer, and when, is a file decision, never a shell's.
+	cleanupPeriodDays: undefined,
+	// Whether sent prompts are kept is the person's file decision.
+	promptHistory: undefined,
 	// A display choice for the desktop app's sidebar, made in its settings.
 	statusMarks: undefined,
 	// The effort has its own variable (NAMZU_EFFORT_LEVEL), read where a launch is made and
@@ -3239,6 +3255,16 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 				// Once on, no later layer turns it off.
 				continue
 			}
+			if (
+				(key === 'cleanupPeriodDays' || key === 'promptHistory') &&
+				isProjectSource(layer.sourceFor(key))
+			) {
+				// A repository cannot decide what is kept on, or removed from, the person's computer.
+				configWarnings.add(
+					`${key} in ${describeSource(layer.sourceFor(key))} is ignored: only your own config file or the managed file can set it.`,
+				)
+				continue
+			}
 			if (key === 'agentSettings' && isProjectSource(layer.sourceFor(key))) {
 				// A repository cannot decide whether the model may change the person's settings.
 				configWarnings.add(
@@ -3649,6 +3675,8 @@ export function projectLayerHolds(path: string, value: unknown): boolean {
 		case 'disableHooks':
 			return value === false
 		case 'worktrees':
+		case 'cleanupPeriodDays':
+		case 'promptHistory':
 			return false
 		case 'codeAnalysis':
 			return tail === 'enabled' ? value === false : true

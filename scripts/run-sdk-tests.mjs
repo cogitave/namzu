@@ -2,7 +2,15 @@
 
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { lstat, mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
+import {
+	chmod,
+	lstat,
+	mkdir,
+	mkdtemp,
+	readdir,
+	realpath,
+	rm,
+} from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -108,6 +116,30 @@ function validateOwnedRoot(path, temporaryRoot) {
 	}
 }
 
+async function makeFoldersWritable(root) {
+	const pending = [root];
+	while (pending.length > 0) {
+		const current = pending.pop();
+		let entry;
+		try {
+			entry = await lstat(current);
+		} catch {
+			continue;
+		}
+		if (!entry.isDirectory()) continue;
+		if ((entry.mode & 0o700) !== 0o700) {
+			await chmod(current, (entry.mode & 0o7777) | 0o700).catch(() => undefined);
+		}
+		let names = [];
+		try {
+			names = await readdir(current);
+		} catch {
+			continue;
+		}
+		for (const name of names) pending.push(join(current, name));
+	}
+}
+
 async function removeOwnedRoot(path, temporaryRoot, identity) {
 	let entry;
 	try {
@@ -139,6 +171,11 @@ async function removeOwnedRoot(path, temporaryRoot, identity) {
 			`Refusing to remove an SDK test root whose canonical path changed: ${path}`,
 		);
 	}
+
+	// A test may leave a folder it made read-only (an installed extension is
+	// locked that way); such a folder's entries cannot be removed until it is
+	// writable again. Links are not followed: only the root's own folders change.
+	await makeFoldersWritable(path);
 
 	// Tests are trusted code and can still race this final removal. The identity
 	// check prevents accidental path reuse; it is not a hostile-code boundary.
@@ -240,6 +277,13 @@ async function main() {
 		// inside the owned root and removed with it.
 		const namzuHome = join(ownedRoot, "namzu-home");
 		await mkdir(namzuHome);
+		// Every temporary file a test makes goes inside the owned root too, so
+		// a test that never removes its `mkdtemp(tmpdir())` folder, a session's
+		// scratch folder and a crashed child's leftovers all go with the root.
+		// Kept short (`t`): a socket path made under it must stay within the
+		// platform's limit.
+		const temporaryFiles = join(ownedRoot, "t");
+		await mkdir(temporaryFiles, { mode: 0o700 });
 
 		if (!requestedSignal) {
 			// macOS commonly exposes the temporary directory as `/var/...` while
@@ -250,9 +294,9 @@ async function main() {
 			// test process the already-resolved root used by this runner.
 			const childEnvironment = {
 				...process.env,
-				TMPDIR: temporaryRoot,
-				TMP: temporaryRoot,
-				TEMP: temporaryRoot,
+				TMPDIR: temporaryFiles,
+				TMP: temporaryFiles,
+				TEMP: temporaryFiles,
 				[TEST_ROOT_ENV]: ownedRoot,
 				// Product code given no session storage writes under
 				// `NAMZU_HOME` (`~/.namzu` otherwise). Tests must never write
@@ -261,6 +305,9 @@ async function main() {
 			};
 			delete childEnvironment[WORKER_VERIFIED_ENV];
 			delete childEnvironment[DEBUG_ROOT_ENV];
+			// Namzu's own temporary folder follows TMPDIR into the owned root
+			// unless an inherited NAMZU_TMPDIR sends it elsewhere.
+			delete childEnvironment.NAMZU_TMPDIR;
 
 			child = spawn(
 				process.execPath,

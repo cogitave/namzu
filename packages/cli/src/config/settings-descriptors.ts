@@ -988,6 +988,41 @@ const DECLARED: readonly SettingDescriptor[] = [
 		},
 	),
 	d(
+		'cleanupPeriodDays',
+		'projects',
+		'Keep conversations for',
+		'Conversations that have not changed for this many days are removed from this computer when the terminal app starts. To keep everything, set a large number such as 3650.',
+		num(1, undefined, 'days'),
+		{
+			appliesWhen: 'next-start',
+			group: 'conversations',
+			keywords: [
+				'cleanup period',
+				'retention',
+				'delete old conversations',
+				'remove old sessions',
+				'transcripts',
+				'history',
+			],
+			default: 30,
+			confirm:
+				'Conversations older than this are removed from this computer and cannot be restored.',
+		},
+	),
+	d(
+		'promptHistory',
+		'projects',
+		'Remember sent prompts',
+		'In the terminal app, Up and Ctrl+R in a new conversation bring back the prompts you sent earlier in the same project. Pasted text is not copied.',
+		on,
+		{
+			appliesWhen: 'next-start',
+			group: 'conversations',
+			keywords: ['prompt history', 'input history', 'up arrow', 'recall', 'history.jsonl'],
+			default: true,
+		},
+	),
+	d(
 		'sandbox.enabled',
 		'projects',
 		'Run in a sandbox',
