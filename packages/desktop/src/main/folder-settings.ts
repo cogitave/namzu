@@ -4,10 +4,19 @@ import { join } from 'node:path'
 /**
  * Settings a folder can carry that run code, or widen what may run, once the folder is
  * trusted: no model request is needed. Detection only looks at names and counts. It reads
- * one small file and lists two directories; it never runs, imports or follows anything.
+ * the folder's small settings files (`namzu.config.json`, `.namzu/settings.json`,
+ * `.namzu/settings.local.json` and its earlier name `namzu.config.local.json`) and lists two
+ * directories; it never runs, imports or follows anything.
  */
 
 export const CONFIG_FILE = 'namzu.config.json'
+/** The project's other shared settings file, inside `.namzu`, read over `namzu.config.json`. */
+export const PROJECT_SETTINGS_FILE = '.namzu/settings.json'
+/** This computer's settings for the folder, where remembered answers are saved; and its earlier name. */
+export const LOCAL_SETTINGS_FILES = [
+	'.namzu/settings.local.json',
+	'namzu.config.local.json',
+] as const
 export const CONFIG_LIMIT = 1024 * 1024
 export const ENTRY_CAP = 2000
 
@@ -257,48 +266,56 @@ async function entryNames(directory: string): Promise<string[]> {
 	}
 }
 
-/** What was found, in a stable order, each with the lines behind it; empty when the folder is ordinary. */
-export async function inspectAutoRunSettings(folder: string): Promise<AutoRunFinding[]> {
-	const found: AutoRunFinding[] = []
-	const config = join(folder, CONFIG_FILE)
+/** What one settings file carries that runs code or widens what may run. */
+async function inspectConfigFile(folder: string, name: string): Promise<AutoRunFinding[]> {
+	const config = join(folder, ...name.split('/'))
 	const configKind = await entryKind(config)
 	if (configKind === 'link')
-		found.push({
-			label: `a Namzu settings file that is a shortcut to somewhere else (${CONFIG_FILE})`,
-			lines: [],
-		})
-	if (configKind === 'file') {
-		try {
-			const text = (await readFile(config, 'utf8')).replace(/^\uFEFF/, '')
-			if (text.length > CONFIG_LIMIT) throw new Error('too large')
-			const parsed: unknown = JSON.parse(text)
-			const sections: AutoRunFinding[] = []
-			if (parsed && typeof parsed === 'object') {
-				for (const [key, say] of CONFIG_SECTIONS) {
-					const value = (parsed as Record<string, unknown>)[key]
-					if (value === undefined || value === null) continue
-					if (typeof value === 'object' && Object.keys(value as object).length === 0) continue
-					sections.push(say(value))
-				}
+		return [
+			{ label: `a Namzu settings file that is a shortcut to somewhere else (${name})`, lines: [] },
+		]
+	if (configKind !== 'file') return []
+	try {
+		const text = (await readFile(config, 'utf8')).replace(/^\uFEFF/, '')
+		if (text.length > CONFIG_LIMIT) throw new Error('too large')
+		const parsed: unknown = JSON.parse(text)
+		const sections: AutoRunFinding[] = []
+		if (parsed && typeof parsed === 'object') {
+			for (const [key, say] of CONFIG_SECTIONS) {
+				const value = (parsed as Record<string, unknown>)[key]
+				if (value === undefined || value === null) continue
+				if (typeof value === 'object' && Object.keys(value as object).length === 0) continue
+				sections.push(say(value))
 			}
-			if (sections.length > 0)
-				found.push(
-					{ label: `a Namzu settings file that can start programs (${CONFIG_FILE})`, lines: [] },
-					...sections,
-				)
-		} catch {
-			// Present but unreadable: it may still be read as settings later, so say so.
-			found.push({
-				label: `a Namzu settings file that could not be read (${CONFIG_FILE})`,
-				lines: [],
-			})
 		}
+		return sections.length > 0
+			? [
+					{ label: `a Namzu settings file that can start programs (${name})`, lines: [] },
+					...sections,
+				]
+			: []
+	} catch {
+		// Present but unreadable: it may still be read as settings later, so say so.
+		return [{ label: `a Namzu settings file that could not be read (${name})`, lines: [] }]
 	}
+}
+
+/** What was found, in a stable order, each with the lines behind it; empty when the folder is ordinary. */
+export async function inspectAutoRunSettings(folder: string): Promise<AutoRunFinding[]> {
+	// The settings files outside `.namzu` first: the shared one, then the local one's earlier name.
+	const found: AutoRunFinding[] = [
+		...(await inspectConfigFile(folder, CONFIG_FILE)),
+		...(await inspectConfigFile(folder, LOCAL_SETTINGS_FILES[1])),
+	]
 	const state = join(folder, '.namzu')
 	if ((await entryKind(state)) === 'link') {
 		found.push({ label: 'a .namzu folder that is a shortcut to somewhere else', lines: [] })
 		return found
 	}
+	found.push(
+		...(await inspectConfigFile(folder, PROJECT_SETTINGS_FILE)),
+		...(await inspectConfigFile(folder, LOCAL_SETTINGS_FILES[0])),
+	)
 	for (const [name, one, many] of [
 		['plugins', 'plugin', 'plugins'],
 		['commands', 'command', 'commands'],

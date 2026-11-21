@@ -8,6 +8,7 @@ import {
 	type CommitFile,
 	cleanCommitMessage,
 	createProjectCommit,
+	isLocalSettingsPath,
 	normalizeCommitPaths,
 	parseStatus,
 	plainCommitMessage,
@@ -146,6 +147,36 @@ describe('the preview', () => {
 		expect(sent).not.toContain('PRIVATE')
 		expect(sent).not.toContain('.env')
 		expect(suggest.mock.calls[0]?.[2]).toBe('s1')
+	})
+
+	it('leaves Namzu’s settings for this computer out of the list, the message request and the commit', async () => {
+		const dir = repo()
+		writeFileSync(join(dir, 'a.txt'), 'one\ntwo\n')
+		mkdirSync(join(dir, '.namzu'))
+		writeFileSync(join(dir, '.namzu', 'settings.local.json'), '{"permissions":{"bash":"allow"}}\n')
+		writeFileSync(join(dir, 'namzu.config.local.json'), '{"quiet":true}\n')
+		const suggest = vi.fn(async (_request: unknown) => 'Add a line')
+		const commit = createProjectCommit({ isTrusted: trusted, suggest })
+		const preview = await commit.preview(dir, [
+			'a.txt',
+			'.namzu/settings.local.json',
+			'namzu.config.local.json',
+		])
+		expect(preview.files.map((f) => f.path)).toEqual(['a.txt'])
+		expect(preview.skippedLocalSettings).toBe(2)
+		expect(preview.skippedSecrets).toBe(0)
+		expect(JSON.stringify(suggest.mock.calls[0]?.[0])).not.toContain('permissions')
+		await expect(
+			commit.commit(dir, {
+				paths: ['a.txt', '.namzu/settings.local.json'],
+				message: 'Add a line',
+				fingerprints: {},
+			}),
+		).rejects.toThrow(/never committed from here/)
+		expect(isLocalSettingsPath('sub/.namzu/settings.local.json.lock')).toBe(true)
+		expect(isLocalSettingsPath('namzu.config.local.json.1234.tmp')).toBe(true)
+		expect(isLocalSettingsPath('.namzu/settings.json')).toBe(false)
+		expect(isLocalSettingsPath('docs/namzu.config.local.json.md')).toBe(false)
 	})
 
 	it('caps what the model is shown', async () => {

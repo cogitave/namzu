@@ -73,6 +73,12 @@ describe('the dialog', () => {
 			'You are not on a branch.',
 			'Namzu will not push.',
 		])
+		expect(
+			commitDialogModel(preview({ skippedLocalSettings: 1 }), new Set(['a.ts']), 'x').lines,
+		).toEqual([
+			'Namzu’s settings file for this computer is left out: it holds your own answers, not the project’s.',
+			'Namzu will not push.',
+		])
 		expect(commitDialogModel(preview({ otherDirty: 3 }), new Set(), 'x').lines[0]).toBe(
 			'3 other changes will not be included.',
 		)
