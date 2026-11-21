@@ -158,7 +158,7 @@ describe('Codex home account reader', () => {
 
 	it('refuses while a live process holds the account refresh lock', async () => {
 		const { dir } = codexHome(NOW - 1)
-		writeFileSync(codexRefreshLockPath(dir), `${process.pid}:held`)
+		writeFileSync(codexRefreshLockPath(dir), `${process.ppid}:held`)
 		const fetchFn = vi.fn<typeof fetch>()
 		const read = createCodexHomeReader({
 			fetch: fetchFn,

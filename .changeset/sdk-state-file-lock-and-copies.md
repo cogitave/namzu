@@ -1,0 +1,9 @@
+---
+'@namzu/sdk': minor
+---
+
+New exports for small files that more than one process changes: `withFileLock`, `withFileLockSync`, `lockPathFor`, `FileLockError`, `inspectFileLock` (with the `FileLockState` type) and `EMPTY_LOCK_GRACE_MS` (the lock-file protocol the account locks already used, now under a general name), and `backupStateFile`, `preserveUnreadableStateFile`, `listStateFileCopies`, `rewriteStateFileBackups`, `stateBackupsDir`, `writeFileAtomicSync` with `STATE_BACKUPS_DIR`, `STATE_BACKUP_KEEP` (5) and `STATE_BACKUP_MIN_INTERVAL_MS` (60 s). `AccountLockError` is now a subclass of `FileLockError`; its `name` is still the literal `'AccountLockError'`, and `AccountLockOptions` / `AccountLockSyncOptions` are the same shapes as before.
+
+The account locks, and every lock on this protocol, now also take over a lock that was left without its owner written into it (a full disk, or a process killed right after creating it) once it is ten seconds old, and a lock that carries this process's own pid but is not held by it (left by an earlier process with the same pid, as after a container restart). Before, either one refused every later change until the file was removed by hand. A process whose lock body cannot be written now removes the lock before it reports the error.
+
+The account registry now copies `accounts.json` to `<home>/backups/accounts.json.backup.<epoch ms>` (mode 0600, at most one a minute, five kept) before each change, and removing an API-key account takes that key out of every copy before the store is written. A store that cannot be read is still refused, and the refusal now names the newest copy and when it was taken. A file the CLI cannot read is kept as `<home>/backups/<file>.corrupted.<epoch ms>`. Nothing to change on your side; delete `<home>/backups/` if you do not want the copies.

@@ -314,6 +314,25 @@ export {
 	tempFilePath,
 } from './utils/temp.js'
 export { extractFinalResponse } from './utils/conversation.js'
+export {
+	EMPTY_LOCK_GRACE_MS,
+	FileLockError,
+	inspectFileLock,
+	lockPathFor,
+	withFileLock,
+	withFileLockSync,
+} from './utils/file-lock.js'
+export {
+	STATE_BACKUPS_DIR,
+	STATE_BACKUP_KEEP,
+	STATE_BACKUP_MIN_INTERVAL_MS,
+	backupStateFile,
+	listStateFileCopies,
+	preserveUnreadableStateFile,
+	rewriteStateFileBackups,
+	stateBackupsDir,
+	writeFileAtomicSync,
+} from './utils/state-backup.js'
 
 // ─── router, runtime, turn ───────────────────────────────────────────────
 

@@ -29,6 +29,8 @@ rewritten.
 ```text
 ~/.namzu/
 ├── config.yaml, credentials.json, preferences.json, trust.json, cli.json, plugin-settings/
+├── accounts.json, mcp-approvals.json, tip-history.json, hint-counts.json
+├── backups/                          recovery copies: <file>.backup.<ms>, <file>.corrupted.<ms>
 ├── attachments/, skills/, agents/, commands/, plugins/, MEMORY.md
 ├── index.sqlite                      rebuildable index over every session log
 ├── cli/zen-catalogue.json            last-good Zen model catalogue (background refresh)
@@ -112,6 +114,7 @@ When the disk fills while a session runs, the session keeps going and says so on
 | `<session-id>/file-history/` | Copies of files taken before a tool changed them, for `/restore`. | Deleting disables `/restore` for that session. |
 | `<session-id>/lease.json` | The current writer's claim and fencing token. A process stopped by SIGTERM, SIGHUP or SIGINT releases it before it exits; one killed outright (SIGKILL, a crash) holds it until it expires, at most five minutes, and then it is taken over, so a session is never locked for good. | Not while a process is using the session. |
 | `<session-id>/lease.<fence>.json` | One file per claim, named by its fencing token; the highest is the current holding, and `lease.json` is a readable copy of it. A release writes the next fence with an empty holder. Older holdings are pruned, so a few remain. A child session has its own under `subagents/<child-id>/`. | No: the highest fence is what decides who may write. |
+| `backups/` | Recovery copies of the state files below: each file as it was before a change, and any that could not be read. See [State files several processes change](#state-files-several-processes-change). | Yes, but then there is nothing to go back to. |
 | `index.sqlite` | Sessions, turns, child sessions, pending decisions, external ids and full-text search, all derived from the logs. | Yes. It is rebuilt on the next launch. |
 | `cli/zen-catalogue.json` | The last Zen and Zen Go model catalogue a launch's background refresh derived and validated; see [The model catalogue refresh](model-catalogue.md). | Yes. The next launch uses the bundled catalogue until its refresh lands and writes a new one. |
 | `project.json` | The project's id and canonical path. | Deleting it gives the directory a new project id on the next launch. |
@@ -122,6 +125,94 @@ When the disk fills while a session runs, the session keeps going and says so on
 | `schedule/claims/` | Which occurrences already started. | Only while the scheduler is stopped: deleting one while it runs can re-run an occurrence after a backward clock jump inside the catch-up window. |
 | `schedule/state/` | The scheduler's memory of each job, including source results still awaiting delivery. | Only while the scheduler is stopped and no delivery is pending; occurrences within the catch-up window may then be caught up again. |
 | Old run sessions | The scheduler **archives** (never deletes) a job's completed-run sessions beyond its newest `retention.keepSessions` (default 20), so `/resume` stays usable. | `namzu schedule prune --delete` deletes old runs and their sessions after listing them, a removed job's included, and a removed job's history once none of its runs is left. |
+
+## State files several processes change
+
+The terminal, the Desktop engine and `exec` can all run at once, and Desktop itself
+writes the trusted folders list, so a few small files in the Namzu home are changed
+by more than one process. Each change to them holds a lock file beside the file,
+`<file>.lock`, reads the file again under it, makes its one change, and writes the
+whole file through a temporary file that is flushed to disk before it is renamed
+over the old one. Two processes that change the same file at the same moment both
+keep their change. The lock is the SDK's
+[state file lock](../sdk/state-files.md#the-lock). The next change takes over a lock
+left by a process that has exited, a lock that never got its owner written into it
+(the disk was full, or the process was killed right after creating it) once it is ten
+seconds old, and a lock that carries the pid of the process now running but was left
+by an earlier one (as after a container restart). A process that finds the lock held
+by a live process waits up to about two seconds and then refuses with "... is being
+saved by another Namzu process right now, so this change was not made. Try again in a
+moment."
+
+| File | Locked | Recovery copy before a change | A file that cannot be read |
+|---|---|---|---|
+| `config.yaml` | yes, one lock across a whole Settings save, a `namzu mcp add` and a server edit | yes | refused, as before ("... is not valid YAML ...; fix it first."), now naming the newest recovery copy |
+| `trust.json` | yes, also by Desktop's **Remove** and **Start a new list** | yes | trusts nothing; a change is refused and the file kept (below) |
+| `mcp-approvals.json` | yes | yes | approves nothing; a change is refused and the file kept (below) |
+| `accounts.json` | yes (as before) | yes; a removed API key is cut out of every copy | refused, as before, now naming the newest recovery copy |
+| `account-activity.json`, `terminal-state.json` | yes (as before) | no | read as empty |
+| `preferences.json` | written whole | yes | "needs re-pick", as before |
+| `tip-history.json`, `hint-counts.json` | yes, for a short wait; a count that cannot get the lock is dropped | no | read as empty |
+
+Recovery copies are in `backups/` in the Namzu home, named
+`<file>.backup.<epoch ms>`: the file as it was just before a change, at most one a
+minute per file, the newest five kept, none taken when it would equal the newest or
+when the file is empty. A copy is therefore the file before the change it was taken
+for: that change, and any made in the minute after it, are not in it. The number in
+the name only grows, also after the computer's clock went back, so the highest number
+is always the newest copy; the copy's modification time is when it was taken. Every
+copy is mode 0600, also of a file that was wider, because some of these files hold
+keys. `credentials.json`, `api-keys.json` and `gemini-api-key.json` get no copy on
+purpose: they hold sign-in tokens and keys that signing in again or pasting the key
+replaces, and an old copy would keep a revoked one on disk. A tool server's headers
+and environment in `config.yaml` can hold tokens too: `namzu mcp remove` cuts the
+server out of every `config.yaml` copy, but a header or environment value you change
+stays in the copies taken before the change until five newer copies replace them.
+
+A `trust.json` or `mcp-approvals.json` that exists but is not valid JSON, is not the
+expected shape, or carries a newer `version` used to read as empty, and the next grant
+replaced it with a file holding only that grant. Now:
+
+- Reading it trusts nothing and approves nothing, so no folder or server is let in by
+  a damaged file. A file that is empty or holds only blank space has nothing to keep
+  and reads as no file at all.
+- A change is refused. The file's bytes are copied first to
+  `backups/<file>.corrupted.<epoch ms>` (once per distinct content), and the refusal
+  says so in one sentence that names the file, the copy and the newest `.backup.` copy,
+  for example "~/.namzu/trust.json could not be read (not valid JSON), so it was not
+  changed. Its contents are kept in ~/.namzu/backups/trust.json.corrupted.&lt;ms&gt;. The
+  newest recovery copy is ~/.namzu/backups/trust.json.backup.&lt;ms&gt;, the file as it was
+  before a change at 2026-11-21 16:03; that change and any later one are not in it. To
+  go back to it, copy it over ~/.namzu/trust.json. Fix or remove the file, then try
+  again."
+- In the terminal the trust box says the list could not be read, that a yes holds for
+  this session only, and offers **s start a new list with this folder**. `namzu exec`
+  refuses with a line that names the list instead of "a folder nobody has trusted".
+  Creating a Pal is refused before anything is made. In Desktop, trusting a folder is
+  refused with a sentence that points to **Settings, Trusted folders, Start a new
+  list**. For `mcp-approvals.json` the refusal names `namzu mcp approve --new-list`.
+- Starting a new list keeps the old file in `backups/<file>.corrupted.<epoch ms>`,
+  reads the copy back and compares it, and only then writes the new list (the folder
+  being trusted, an empty Desktop list, or the approvals being given). If the copy
+  cannot be made or the file changes meanwhile, nothing is replaced. A list that
+  reads again by then is not replaced.
+- Entries this version does not understand (a list entry that is not text, a key a
+  newer writer added, another folder's odd answer) are kept as written when the file is
+  changed.
+
+`namzu doctor` has a `runtime.state-files` line. It fails, naming the file and the
+reason, when `trust.json` or `mcp-approvals.json` cannot be read, or when a lock file
+at the top of the Namzu home cannot be read (nothing can take that one over: close
+Namzu and remove it). It warns, naming each one, about a lock left by a process that
+has exited or never given an owner, which the next change takes over. Otherwise it
+says where the recovery copies are and which files they cover.
+
+Nothing is restored on its own. To go back to a copy, close Namzu (the terminal and
+Desktop) and copy the newest `<file>.backup.<epoch ms>` over the file, for example
+`cp ~/.namzu/backups/trust.json.backup.<epoch ms> ~/.namzu/trust.json`. To start a new
+list instead, use the trust box's **s**, Desktop's **Start a new list** or
+`namzu mcp approve --new-list`; removing the file by hand works too, since its damaged
+bytes are already in `backups/` once a change was refused.
 
 ## Why one log per session
 

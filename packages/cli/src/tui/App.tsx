@@ -282,7 +282,12 @@ import {
 } from '../integrations/subagents/activity.js'
 import { NARRATION_TOOL_NAME } from '../integrations/subagents/runtime.js'
 import { readFolderGrants } from '../integrations/trust/folder-grants.js'
-import { isTrusted, trustDir } from '../integrations/trust/store.js'
+import {
+	isTrusted,
+	startNewTrustList,
+	trustDir,
+	trustListProblem,
+} from '../integrations/trust/store.js'
 import { completionNotice } from '../integrations/workflows/notice.js'
 import { resumeCallText } from '../integrations/workflows/resume.js'
 import { DEFAULT_WORKFLOW_SIZE_GUIDELINE, largeRunNotice } from '../integrations/workflows/size.js'
@@ -451,7 +456,7 @@ import { TextPrompt } from './TextPrompt.js'
 import { ThemeSample } from './ThemeSample.js'
 import { Transcript, messageCollapses } from './Transcript.js'
 import { TranscriptScrollView } from './TranscriptScrollView.js'
-import { TrustPrompt, shownToolServers } from './TrustPrompt.js'
+import { TrustPrompt, shownToolServers, unreadableTrustListNotice } from './TrustPrompt.js'
 import { ViewportBound } from './ViewportBound.js'
 import {
 	ACCOUNT_PICKER_HINTS,
@@ -7384,6 +7389,9 @@ function AppBody({
 	// binding or forcing the two into a declaration order that reads backwards.
 	runProbeRef.current = runProbe
 
+	// Said inside the trust box when the trusted folders list exists but does not read.
+	const [trustListNotice, setTrustListNotice] = useState<string | undefined>(undefined)
+
 	// Trust gate runs first: don't touch the folder until the user trusts it.
 	useEffect(() => {
 		if (isTrusted(trustedCwdRef.current)) {
@@ -7406,6 +7414,10 @@ function AppBody({
 				pushMessage('system', projectSettingsFailure(err), false, STARTUP_STOP_GLYPH)
 			}
 		} else {
+			// A list that exists but does not read trusts nothing: the box says so, since it
+			// asks again about a folder the person may already have trusted.
+			const problem = trustListProblem()
+			setTrustListNotice(problem ? unreadableTrustListNotice(problem) : undefined)
 			setPhase('trust')
 		}
 	}, [activateTrustedProject, pushMessage, runProbe])
@@ -7416,33 +7428,47 @@ function AppBody({
 		trustShownAtRef.current = phase === 'trust' ? Date.now() : null
 	}, [phase])
 
-	const acceptTrust = useCallback(() => {
-		try {
-			trustDir(trustedCwdRef.current)
-		} catch {
-			// Non-fatal: proceed for this session even if persisting failed.
-		}
-		try {
-			// Accepting answers for the servers the gate showed in full; ones it
-			// only counted, and ones added later, stay pending.
-			approveShownMcpServers(
-				resolveNamzuHome(),
-				trustedCwdRef.current,
-				shownToolServers(trustGrants),
-			)
-		} catch {
-			// Not fatal: the servers stay pending and `namzu mcp approve` answers them.
-		}
-		setPhase('probing')
-		try {
-			activateTrustedProject()
-			void runProbe()
-		} catch (err) {
-			setPhase('unhealthy')
-			setStartupExplained(err instanceof ConfigLoadError && err.complete)
-			pushMessage('system', projectSettingsFailure(err), false, STARTUP_STOP_GLYPH)
-		}
-	}, [activateTrustedProject, pushMessage, runProbe, trustGrants])
+	const acceptTrust = useCallback(
+		(newList = false) => {
+			try {
+				if (newList) {
+					// Asked for by name in the box: the old list is kept, and read back, before it goes.
+					const { kept } = startNewTrustList(trustedCwdRef.current)
+					if (kept)
+						pushMessage(
+							'system',
+							`Started a new trusted folders list with this folder. The old list is kept in ${homePath(kept)}.`,
+						)
+				} else trustDir(trustedCwdRef.current)
+			} catch (err) {
+				// Not fatal: the folder is trusted for this session. The reason it was not
+				// remembered is said once, because the next start will ask again.
+				pushMessage('system', explainFailure(err, 'Trusted for this session only.'))
+			}
+			try {
+				// Accepting answers for the servers the gate showed in full; ones it
+				// only counted, and ones added later, stay pending.
+				approveShownMcpServers(
+					resolveNamzuHome(),
+					trustedCwdRef.current,
+					shownToolServers(trustGrants),
+				)
+			} catch (err) {
+				// Not fatal: the servers stay pending and `namzu mcp approve` answers them.
+				pushMessage('system', explainFailure(err, 'The tool server approvals were not saved.'))
+			}
+			setPhase('probing')
+			try {
+				activateTrustedProject()
+				void runProbe()
+			} catch (err) {
+				setPhase('unhealthy')
+				setStartupExplained(err instanceof ConfigLoadError && err.complete)
+				pushMessage('system', projectSettingsFailure(err), false, STARTUP_STOP_GLYPH)
+			}
+		},
+		[activateTrustedProject, pushMessage, runProbe, trustGrants],
+	)
 
 	messagesNowRef.current = messages
 	const finalized = messages.filter((m) => !m.pending)
@@ -16907,6 +16933,8 @@ function AppBody({
 				// whole tree rather than to one call.
 				if (!approvalIsDeliberate(trustShownAtRef.current, Date.now())) return
 				if (ch === 'y') acceptTrust()
+				// Offered only while the list cannot be read: a new list with this folder in it.
+				else if (ch === 's' && trustListNotice !== undefined) acceptTrust(true)
 				// The focus rests on the exit choice, so a deliberate Enter exits. It
 				// can only leave: the in-flight Enter above is still ignored, and
 				// nothing here grants trust.
@@ -18400,7 +18428,12 @@ function AppBody({
 							}}
 						/>
 					) : phase === 'trust' ? (
-						<TrustPrompt cwd={ctx.cwd} grants={trustGrants} />
+						<TrustPrompt
+							cwd={ctx.cwd}
+							grants={trustGrants}
+							notice={trustListNotice}
+							newList={trustListNotice !== undefined}
+						/>
 					) : phase === 'unhealthy' ? (
 						// The sentence above already says what to do when it is a complete
 						// one; saying "resolve the error above" under it is the same advice

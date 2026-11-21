@@ -41,6 +41,7 @@ import {
 	deleteUserConfigValue,
 	setUserConfigValue,
 	userConfigPath,
+	withUserConfigLock,
 } from './user-config.js'
 import {
 	branchPrefixProblem,
@@ -684,17 +685,23 @@ function prepare(
 	return { path, value }
 }
 
+/**
+ * One lock across the whole save: the checks in `prepare` read the file, and the writes after them
+ * must land on that same file, not on one another process changed in between.
+ */
 export function writeSetting(change: SettingChange, opts: UserConfigWriteOptions = {}): void {
-	const { path, value } = prepare(change, opts)
-	// Make a plain `learningGenerator: true|false` a mapping first, so the number goes beside it.
-	if (path[0] === 'learningGenerator' && path.length > 1) {
-		const doc = readUserDocument(opts)
-		if (typeof doc.learningGenerator === 'boolean')
-			setUserConfigValue(['learningGenerator'], { enabled: doc.learningGenerator }, opts)
-	}
-	if (value === undefined) deleteUserConfigValue(path, opts)
-	else setUserConfigValue(path, value, opts)
-	// The old name would otherwise stay behind and be read again once the new key goes.
-	if (path.join('.') === WORKSPACES_PREFIX)
-		deleteUserConfigValue(LEGACY_SPACES_PREFIX.split('.'), opts)
+	withUserConfigLock(() => {
+		const { path, value } = prepare(change, opts)
+		// Make a plain `learningGenerator: true|false` a mapping first, so the number goes beside it.
+		if (path[0] === 'learningGenerator' && path.length > 1) {
+			const doc = readUserDocument(opts)
+			if (typeof doc.learningGenerator === 'boolean')
+				setUserConfigValue(['learningGenerator'], { enabled: doc.learningGenerator }, opts)
+		}
+		if (value === undefined) deleteUserConfigValue(path, opts)
+		else setUserConfigValue(path, value, opts)
+		// The old name would otherwise stay behind and be read again once the new key goes.
+		if (path.join('.') === WORKSPACES_PREFIX)
+			deleteUserConfigValue(LEGACY_SPACES_PREFIX.split('.'), opts)
+	}, opts)
 }

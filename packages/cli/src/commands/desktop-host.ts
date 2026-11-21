@@ -52,6 +52,7 @@ import {
 } from '../integrations/sessions/stored-context.js'
 import { conversationMarkdown } from '../integrations/sessions/transcript-export.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
+import { StateFileUnreadableError } from '../integrations/state/state-file.js'
 import {
 	isTrusted,
 	isTrustedAtStateRoot,
@@ -100,6 +101,10 @@ import { projectPr } from './desktop-host-pr.js'
 import { LIMITS_REFRESH_METHOD, type LimitsFeed } from './desktop-limits-feed.js'
 import { type SavedTurnOutcome, savedTurnOutcome } from './desktop-outcome-feed.js'
 import { storedContextReport } from './desktop-stored-context.js'
+
+/** What a damaged trusted folders list refusal tells a Desktop user to do. */
+const DESKTOP_NEW_TRUST_LIST =
+	'To start a new list, open Settings, Trusted folders, and choose Start a new list; the old one stays where it is kept.'
 
 /** How many conversations the idle-archive sweep looks at; the list shown stays at 100. */
 const IDLE_SWEEP_POOL = 2000
@@ -1348,7 +1353,14 @@ export function createDesktopHostExtensions(
 		'namzu/project/trust': (params: Record<string, unknown>) => {
 			if (params.confirmed !== true || text(params, 'cwd', 32768) !== cwd)
 				throw new Error('Folder confirmation does not match this project.')
-			trustDir(cwd)
+			try {
+				trustDir(cwd)
+			} catch (error) {
+				// The way out Desktop offers: the list is started anew from Settings, keeping the old one.
+				if (error instanceof StateFileUnreadableError)
+					throw error.withRemedy(DESKTOP_NEW_TRUST_LIST)
+				throw error
+			}
 			return { cwd, trusted: true }
 		},
 		'namzu/project/untrust': (params: Record<string, unknown>) => {

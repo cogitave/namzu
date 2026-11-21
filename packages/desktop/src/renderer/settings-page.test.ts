@@ -1080,6 +1080,7 @@ describe('the storage and data rows', () => {
 					view: { file: '/home/me/.namzu/trust.json', folders: ['/work/app', '/work/lib'] },
 					busy: false,
 					remove: async () => {},
+					startNew: async () => {},
 				},
 			}),
 		)
@@ -1093,10 +1094,45 @@ describe('the storage and data rows', () => {
 					view: { file: '/x/trust.json', folders: [] },
 					busy: false,
 					remove: async () => {},
+					startNew: async () => {},
 				},
 			}),
 		)
 		expect(empty).toContain('No folder is trusted')
+		expect(empty).not.toContain('Start a new list')
+	})
+
+	it('offers a new list only for a list that cannot be read, and says where the old one went', () => {
+		const damaged = renderToStaticMarkup(
+			createElement(TrustedFoldersPanel, {
+				trusted: {
+					view: { file: '/home/me/.namzu/trust.json', folders: [], unreadable: true },
+					busy: false,
+					remove: async () => {},
+					startNew: async () => {},
+				},
+			}),
+		)
+		expect(damaged).toContain('The list could not be read, so no folder counts as trusted.')
+		expect(damaged).toContain('the old one is kept in ~/.namzu/backups.')
+		expect(damaged).toContain('Start a new list')
+		const started = renderToStaticMarkup(
+			createElement(TrustedFoldersPanel, {
+				trusted: {
+					view: {
+						file: '/home/me/.namzu/trust.json',
+						folders: [],
+						kept: '/home/me/.namzu/backups/trust.json.corrupted.5',
+					},
+					busy: false,
+					remove: async () => {},
+					startNew: async () => {},
+				},
+			}),
+		)
+		expect(started).toContain('Started a new list. The old one is kept in')
+		expect(started).toContain('trust.json.corrupted.5')
+		expect(started).not.toContain('Start a new list')
 	})
 
 	it('names the trust files correctly in the data folder notes', () => {

@@ -38,15 +38,14 @@
  * rather than silently losing the tail, which is the safe direction.
  */
 
-import { randomBytes } from 'node:crypto'
-import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 import { namzuHomePath } from '../state/home.js'
+import { saveStateFile } from '../state/state-file.js'
 import { PROVIDER_REGISTRY, type ProviderId, unsupportedProviderMessage } from './registry.js'
 
 const FILE_MODE = 0o600
-const DIR_MODE = 0o700
 export const PREFERENCES_FILE_VERSION = 3 as const
 
 /**
@@ -218,12 +217,11 @@ export function writePreferences(prefs: Preferences, home?: string): void {
 	if (invalid) throw new PreferencesError(invalid)
 
 	const path = preferencesPath(home)
-	mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
-	const body = `${JSON.stringify(prefs, null, 2)}\n`
-	const tmp = `${path}.tmp.${process.pid}.${randomBytes(4).toString('hex')}`
-	writeFileSync(tmp, body, { mode: FILE_MODE })
-	chmodSync(tmp, FILE_MODE)
-	renameSync(tmp, path)
+	// The chain as it was goes to backups/ first; the new one is flushed before the rename.
+	saveStateFile(path, `${JSON.stringify(prefs, null, 2)}\n`, {
+		home: dirname(path),
+		mode: FILE_MODE,
+	})
 }
 
 /**

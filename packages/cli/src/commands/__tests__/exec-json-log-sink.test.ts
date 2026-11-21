@@ -19,6 +19,7 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 
 const trusted = { value: true }
 vi.mock('../../integrations/trust/store.js', () => ({
+	trustListProblem: () => undefined,
 	isTrusted: () => trusted.value,
 	trustDir: () => {},
 }))
