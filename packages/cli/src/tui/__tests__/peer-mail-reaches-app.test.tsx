@@ -519,7 +519,7 @@ it('draws the roster of every machine, and offers Allow and Deny for a request t
 			'the roster was not drawn',
 		)
 		const text = screen.scrollback().join('\n')
-		expect(text).toContain('This machine: studio-air')
+		expect(text).toContain('studio-air · this machine · online')
 		expect(text).toContain('calm-heron (this terminal)')
 		expect(text).toContain('desk-linux')
 		expect(text).toContain('swift-finch')

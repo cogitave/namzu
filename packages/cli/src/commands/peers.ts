@@ -368,6 +368,8 @@ export function readAuditTail(home: string, count: number): string[] {
 
 export interface PeersIo {
 	readonly json: boolean
+	/** The width of the terminal when output is one; undefined when piped, so no word is cut. */
+	readonly columns?: number
 	print(value: object, text: string): void
 	fail(message: string, code: number, withHelp?: boolean): number
 }
@@ -423,7 +425,10 @@ export async function executePeers(
 				}
 			}
 			if (view && view.machines.length > 0) {
-				io.print({ peers, machines: rosterJson(view) }, renderRosterList(view))
+				io.print(
+					{ peers, machines: rosterJson(view) },
+					renderRosterList(view, { columns: io.columns }),
+				)
 				return EXIT_OK
 			}
 			// No machines to show: say why when the network is running but this machine is out of it
@@ -694,6 +699,7 @@ export const peersCommand: CommandDef = {
 		if ('error' in parsed) return fail(parsed.error, EXIT_USAGE, true)
 		const io: PeersIo = {
 			json: parsed.json,
+			columns: process.stdout.isTTY ? process.stdout.columns : undefined,
 			print: (value, text) => {
 				if (parsed.json) process.stdout.write(`${JSON.stringify(value)}\n`)
 				else ctx.formatter.print({ ...value, text: terminalDisplayText(text) })

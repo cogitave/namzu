@@ -25,9 +25,6 @@ function stateOf(machine: RosterMachineView, session: RosterSession): string {
 	return machine.status === 'offline' ? 'offline' : session.state
 }
 
-const pad = (text: string, width: number) =>
-	text + ' '.repeat(Math.max(0, width - Array.from(text).length))
-
 export function ageText(ms: number): string {
 	const minutes = Math.floor(ms / 60_000)
 	if (minutes < 1) return 'just now'
@@ -41,44 +38,77 @@ export function minutesLeft(expiresAt: number, now: number): string {
 	return `${minutes} min`
 }
 
+/** The state a machine heading names: online, or when it was last heard from. */
+function machineState(machine: RosterMachineView, now: number): string {
+	if (machine.status !== 'offline') return 'online'
+	return machine.seenAt ? `last seen ${ageText(Math.max(0, now - machine.seenAt))}` : 'offline'
+}
+
+const chars = (text: string) => Array.from(text).length
+
+/** A role never runs past the screen: it takes what is left of the line, never less than a few words. */
+function roleText(role: string, used: number, columns: number | undefined): string {
+	const one = role.replace(/\s+/g, ' ').trim()
+	if (columns === undefined) return one
+	return cutRole(one, Math.max(12, columns - used))
+}
+
+export interface RosterTextOptions {
+	/** The ref of the session this terminal runs, marked "(this terminal)". */
+	readonly selfRef?: string
+	readonly now: number
+	/** The width to fit; leave out to print every word (piped output). */
+	readonly columns?: number
+}
+
 /**
- * `namzu peers list`: every machine, every live session. Names are the address; a ref is added only to tell
- * two rows with the same name apart.
+ * The roster as a list, shared by `namzu peers list` and `/peers`. A machine is a heading line (name,
+ * "this machine", its state, its role); each of its sessions is one indented row of " · " separated facts
+ * (name, folder, state, mode, role). Under 60 columns a row keeps its name and state and the rest wraps
+ * onto indented lines of their own.
  */
-export function renderRosterList(view: RosterView): string {
-	const rows = view.machines.flatMap((machine) =>
-		machine.sessions.map((session) => ({
-			machine,
-			name: sessionLabel(view, machine, session),
-			session,
-		})),
-	)
-	const nameWidth = Math.max(0, ...rows.map((row) => Array.from(row.name).length))
-	const folderWidth = Math.max(0, ...rows.map((row) => Array.from(row.session.folder).length))
-	const stateWidth = Math.max(0, ...rows.map((row) => stateOf(row.machine, row.session).length))
-	const modeWidth = Math.max(0, ...rows.map((row) => modeWord(row.session.mode).length))
+export function rosterLines(view: RosterView, options: RosterTextOptions): string[] {
+	const { columns, now } = options
+	const narrow = columns !== undefined && columns < 60
 	const lines: string[] = []
 	for (const machine of view.machines) {
-		const heading =
-			machine.status === 'self'
-				? `${machine.name} (this machine)`
-				: machine.status === 'offline' && machine.sessions.length === 0
-					? `${machine.name} (offline)`
-					: machine.name
-		lines.push(heading)
-		if (machine.role) lines.push(`  role: ${cutRole(machine.role)}`)
-		for (const row of rows.filter((r) => r.machine === machine)) {
-			const cells = [
-				pad(row.name, nameWidth),
-				pad(row.session.folder, folderWidth),
-				pad(stateOf(machine, row.session), stateWidth),
-				pad(modeWord(row.session.mode), modeWidth),
-				row.session.role ? cutRole(row.session.role) : '',
-			]
-			lines.push(`  ${cells.join('  ').trimEnd()}`)
+		const head = [machine.name]
+		if (machine.status === 'self') head.push('this machine')
+		head.push(machineState(machine, now))
+		const heading = head.join(' · ')
+		if (machine.role && !narrow) {
+			const prefix = `${heading} · role: `
+			lines.push(`${prefix}${roleText(machine.role, chars(prefix), columns)}`)
+		} else {
+			lines.push(heading)
+			if (machine.role) lines.push(`  role: ${roleText(machine.role, 8, columns)}`)
+		}
+		for (const session of machine.sessions) {
+			const name = sessionLabel(view, machine, session)
+			const mark = session.ref === options.selfRef ? `${name} (this terminal)` : name
+			const state = stateOf(machine, session)
+			if (narrow) {
+				lines.push(`  ${mark} · ${state}`)
+				lines.push(`    ${session.folder} · ${modeWord(session.mode)}`)
+				if (session.role) lines.push(`    role: ${roleText(session.role, 10, columns)}`)
+				continue
+			}
+			const row = `  ${[mark, session.folder, state, modeWord(session.mode)].join(' · ')}`
+			if (session.role) {
+				const prefix = `${row} · role: `
+				lines.push(`${prefix}${roleText(session.role, chars(prefix), columns)}`)
+			} else lines.push(row)
 		}
 	}
-	return lines.join('\n')
+	return lines
+}
+
+/** `namzu peers list`: every machine, every live session. Names are the address; a ref only tells two rows with one name apart. */
+export function renderRosterList(
+	view: RosterView,
+	options: Partial<RosterTextOptions> = {},
+): string {
+	return rosterLines(view, { now: Date.now(), ...options }).join('\n')
 }
 
 export interface RosterJsonMachine {
@@ -170,20 +200,12 @@ const quote = (text: string, width: number) => {
 	return `"${cut}"`
 }
 
-function machineHeading(machine: RosterMachineView, now: number): string {
-	if (machine.status === 'self') return `  This machine: ${machine.name}`
-	const seen = machine.seenAt ? ` · seen ${ageText(now - machine.seenAt)}` : ''
-	if (machine.status === 'offline') return `  ${machine.name}  (offline${seen})`
-	return machine.seenAt ? `  ${machine.name}  (idle${seen})` : `  ${machine.name}`
-}
-
 /**
- * The text of `/peers`: the roster, then what waits for the person. Wide below 60 columns collapses to a
- * name and a state, with the role on its own line.
+ * The text of `/peers`: the roster, then what waits for the person. Under 60 columns a row collapses to a name
+ * and a state, the rest on lines of their own.
  */
 export function renderPeersScreen(input: ScreenInput): string {
 	const { summary, roster, now } = input
-	const narrow = input.columns < 60
 	const lines: string[] = []
 	const on = summary.state === 'ready'
 	lines.push(
@@ -198,43 +220,8 @@ export function renderPeersScreen(input: ScreenInput): string {
 		)
 		lines.push('')
 	}
-	if (roster) {
-		const rows = roster.machines.flatMap((m) =>
-			m.sessions.map((s) => ({ m, s, name: sessionLabel(roster, m, s) })),
-		)
-		const nameWidth = Math.min(
-			24,
-			Math.max(
-				0,
-				...rows.map((r) => Array.from(r.name).length + (r.s.ref === input.selfRef ? 16 : 0)),
-			),
-		)
-		const folderWidth = Math.max(0, ...rows.map((r) => Array.from(r.s.folder).length + 3))
-		const stateWidth = Math.max(0, ...rows.map((r) => stateOf(r.m, r.s).length))
-		const modeWidth = Math.max(0, ...rows.map((r) => modeWord(r.s.mode).length))
-		for (const machine of roster.machines) {
-			lines.push(machineHeading(machine, now))
-			if (machine.role) lines.push(`    role: ${cutRole(machine.role)}`)
-			for (const row of rows.filter((r) => r.m === machine)) {
-				const mark = row.s.ref === input.selfRef ? `${row.name} (this terminal)` : row.name
-				const state = stateOf(machine, row.s)
-				if (narrow) {
-					lines.push(`    ${mark}  ${state}`)
-					if (row.s.role)
-						lines.push(`      ${cutRole(row.s.role, Math.max(10, input.columns - 8))}`)
-				} else {
-					const cells = [
-						pad(mark, nameWidth),
-						pad(`in ${row.s.folder}`, folderWidth),
-						pad(state, stateWidth),
-						pad(modeWord(row.s.mode), modeWidth),
-						row.s.role ? cutRole(row.s.role) : '',
-					]
-					lines.push(`    ${cells.join('  ').trimEnd()}`)
-				}
-			}
-		}
-	}
+	if (roster)
+		lines.push(...rosterLines(roster, { selfRef: input.selfRef, now, columns: input.columns }))
 	const heldCount = summary.held.length + input.heldLocal.length
 	if (heldCount > 0) {
 		lines.push('')

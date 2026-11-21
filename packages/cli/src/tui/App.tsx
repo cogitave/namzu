@@ -14143,7 +14143,8 @@ function AppBody({
 											selfRef: peers.ref,
 											heldLocal,
 											now: Date.now(),
-											columns: terminal.columns ?? 80,
+											// The row sits after the two-column mark, and the scroll view keeps a margin.
+											columns: (terminal.columns ?? 80) - 4,
 										}),
 									)
 								}

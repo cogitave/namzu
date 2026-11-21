@@ -354,7 +354,7 @@ const run = (h: ReturnType<typeof harness>, args: string[]) => {
 it('lists every machine when the network runs, and only this folder when it does not', async () => {
 	const on = harness()
 	expect(await run(on, ['list'])).toBe(EXIT_OK)
-	expect(on.out[0]?.text).toContain('studio-air (this machine)')
+	expect(on.out[0]?.text).toContain('studio-air · this machine · online')
 	expect(on.out[0]?.text).toContain('calm-heron')
 	expect(on.out[0]?.value).toHaveProperty('machines')
 	on.done()

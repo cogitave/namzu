@@ -90,29 +90,34 @@ const remoteHeld = {
 }
 
 describe('namzu peers list', () => {
-	it('lists every machine and session in plain columns, with the role last', () => {
+	it('lists each machine as a heading and its sessions indented under it, the role last', () => {
 		expect(renderRosterList(fixture())).toBe(
 			[
-				'studio-air (this machine)',
-				'  calm-heron    namzu       idle     auto    orchestrator',
-				'  quiet-otter   namzu       running  auto    you will build the parser',
-				'desk-linux',
-				'  swift-finch   api-server  idle     prompt',
-				'  brisk-marten  api-server  idle     auto',
+				'studio-air · this machine · online',
+				'  calm-heron · namzu · idle · auto · role: orchestrator',
+				'  quiet-otter · namzu · running · auto · role: you will build the parser',
+				'desk-linux · online',
+				'  swift-finch · api-server · idle · prompt',
+				'  brisk-marten · api-server · idle · auto',
 			].join('\n'),
 		)
 	})
 
 	it('shows the sessions of a machine that did not answer as offline', () => {
-		const text = renderRosterList(fixture({ status: 'offline' }))
-		expect(text).toMatch(/swift-finch\s+api-server\s+offline/)
+		const text = renderRosterList(fixture({ status: 'offline', seenAt: undefined }))
+		expect(text).toContain('swift-finch · api-server · offline')
 		expect(
 			renderRosterList({
 				machines: [
-					{ ...fixture().machines[1], sessions: [], status: 'offline' } as RosterMachineView,
+					{
+						...fixture().machines[1],
+						sessions: [],
+						status: 'offline',
+						seenAt: undefined,
+					} as RosterMachineView,
 				],
 			}),
-		).toBe('desk-linux (offline)')
+		).toBe('desk-linux · offline')
 	})
 
 	it('adds a ref only to tell two rows with one name apart', () => {
@@ -161,9 +166,9 @@ describe('the /peers screen', () => {
 	it('draws the machines, what is held and who asks to join, in that order', () => {
 		const text = full()
 		expect(text.indexOf('Your Namzu network · on · 2 machines')).toBe(0)
-		expect(text).toContain('This machine: studio-air')
+		expect(text).toContain('studio-air · this machine · online')
 		expect(text).toContain('calm-heron (this terminal)')
-		expect(text).toContain('desk-linux  (idle · seen just now)')
+		expect(text).toContain('desk-linux · online')
 		expect(text.indexOf('Held (1)')).toBeGreaterThan(text.indexOf('desk-linux'))
 		expect(text.indexOf('Join requests (1)')).toBeGreaterThan(text.indexOf('Held (1)'))
 		expect(text).toContain('desk-mini wants to join your Namzu network')
@@ -197,7 +202,7 @@ describe('the /peers screen', () => {
 			now: NOW,
 			columns: 100,
 		})
-		expect(text).toContain('desk-linux  (offline · seen 5 min ago)')
+		expect(text).toContain('desk-linux · last seen 5 min ago')
 		expect(text).toContain('swift-finch')
 		expect(text).toContain('offline')
 	})
@@ -234,11 +239,72 @@ describe('the /peers screen', () => {
 				'sibling',
 			])
 				expect(text.replace(/\s+/g, ' '), fact).toContain(fact)
-			// A narrow screen drops the columns and puts the role on its own line under the row.
-			if (columns < 60) expect(text).not.toMatch(/api-server/)
-			if (columns >= 60) expect(text).toContain('in api-server')
+			// A narrow screen keeps the name and state on the row and the rest on lines under it.
+			if (columns >= 60) expect(text).toContain('swift-finch · api-server · idle · prompt')
 		},
 	)
+
+	it.each([80, 110])(
+		'reads as a list at %i columns, nothing run together or past the edge',
+		(columns) => {
+			const long = fixture()
+			const view: RosterView = {
+				machines: [
+					long.machines[0] as RosterMachineView,
+					{
+						...(long.machines[1] as RosterMachineView),
+						role: 'the machine that builds and signs every release candidate before it goes out',
+						sessions: [
+							session('cccccc', 'swift-finch', 'api-server', 'prompt', {
+								role: 'you own the long migration of the billing tables and report each step to the person',
+							}),
+							session('dddddd', 'brisk-marten', 'api-server', 'bypass', { state: 'running' }),
+						],
+					},
+				],
+			}
+			const lines = renderPeersScreen({
+				summary: summary(),
+				roster: view,
+				selfRef: 'aaaaaa',
+				heldLocal: [],
+				now: NOW,
+				columns,
+			}).split('\n')
+			for (const line of lines) expect(Array.from(line).length, line).toBeLessThanOrEqual(columns)
+			const row = lines.filter((l) => l.startsWith('  ') && l.includes(' · '))
+			// every session is one line indented under a machine heading, fields apart by " · "
+			expect(row).toHaveLength(4)
+			expect(lines).toContain('  brisk-marten · api-server · running · bypass')
+			expect(lines).toContain(
+				'  calm-heron (this terminal) · namzu · idle · auto · role: orchestrator',
+			)
+			const cut = lines.find((l) => l.includes('swift-finch')) as string
+			expect(cut).toMatch(/ · role: you own the long .*…$/)
+			const head = lines.find((l) => l.startsWith('desk-linux')) as string
+			expect(head).toMatch(/^desk-linux · online · role: the machine that builds/)
+			expect(lines.filter((l) => /^\S/.test(l) && l.includes(' · ')).length).toBeGreaterThanOrEqual(
+				3,
+			)
+		},
+	)
+
+	it('prints a whole role when no width is given, as piped output does', () => {
+		const view = fixture()
+		const role = 'x'.repeat(120)
+		const text = renderRosterList(
+			{
+				machines: [
+					{
+						...(view.machines[0] as RosterMachineView),
+						sessions: [session('aaaaaa', 'calm-heron', 'namzu', 'classify', { role })],
+					},
+				],
+			},
+			{ now: NOW },
+		)
+		expect(text).toContain(`role: ${role}`)
+	})
 
 	it('offers one row per decision: allow and deny for each held message and each request', () => {
 		const actions = peersActions(summary({ joinRequests: [join], held: [remoteHeld] }), [])
