@@ -105,7 +105,7 @@ const LOGIN_HELP = [
 const DEFAULT_TIMEOUT_SECONDS = 300
 
 const DESKTOP_SHARED_LOGOUT_NOTE =
-	'A subscription this terminal reads from Namzu Desktop on Windows was not removed: it belongs to Desktop, so signing out here would sign Desktop out too. Sign out in Desktop to remove it, or set shareDesktopSignIn to false (or NAMZU_SHARE_DESKTOP_SIGNIN=0) so this terminal stops using it.'
+	'This terminal now uses the subscription signed in on Namzu Desktop on Windows (a sign-in of its own was hidden behind it, or never existed). It was not removed: it belongs to Desktop, so signing out here would sign Desktop out too. Sign out in Desktop to remove it, or set shareDesktopSignIn to false (or NAMZU_SHARE_DESKTOP_SIGNIN=0) so this terminal stops using it.'
 
 const LOGOUT_HELP = [
 	'Usage: namzu logout [claude|codex|gemini|<provider>|all]',
@@ -428,10 +428,16 @@ export const logoutCommand: CommandDef = {
 		const codexAt = locateStoredCodexCredential()
 		const hadSubscription = subscriptionAt !== null && subscriptionAt.shared === null
 		const hadCodex = codexAt !== null && codexAt.shared === null
-		const sharedFromDesktop =
-			(subscriptionAt?.shared && (target === 'anthropic' || target === 'all')) ||
-			(codexAt?.shared && (target === 'codex' || target === 'all'))
-		const desktopNote = sharedFromDesktop ? `\n\n${DESKTOP_SHARED_LOGOUT_NOTE}` : ''
+		// Evaluated after the removal: a sign-out that leaves Desktop's sign-in as the one this
+		// terminal now uses (it was hidden behind the terminal's own) must say so.
+		const desktopNote = (): string => {
+			const sub = locateStoredSubscriptionCredential()
+			const codex = locateStoredCodexCredential()
+			const shared =
+				(sub?.shared && (target === 'anthropic' || target === 'all')) ||
+				(codex?.shared && (target === 'codex' || target === 'all'))
+			return shared ? `\n\n${DESKTOP_SHARED_LOGOUT_NOTE}` : ''
+		}
 		const hadGoogleKey = readStoredGoogleApiKey() !== null
 		if (target === 'all') {
 			const failures: string[] = []
@@ -464,7 +470,7 @@ export const logoutCommand: CommandDef = {
 								googleApiKeyPath(),
 								hadSubscription || hadCodex || hadGoogleKey || hadKeys,
 								apiKeysPath(),
-							)}${desktopNote}`,
+							)}${desktopNote()}`,
 			})
 			return failures.length > 0 ? EXIT_FAIL : EXIT_OK
 		}
@@ -483,7 +489,7 @@ export const logoutCommand: CommandDef = {
 				path,
 				target,
 				target === 'anthropic' ? hadSubscription : target === 'codex' ? hadCodex : hadGoogleKey,
-			)}${desktopNote}`,
+			)}${desktopNote()}`,
 		})
 		return EXIT_OK
 	},

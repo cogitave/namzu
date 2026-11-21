@@ -150,6 +150,35 @@ describe('reading a Desktop sign-in from the terminal', () => {
 	})
 })
 
+describe('a linked .namzu directory', () => {
+	it('is refused, so a read, lock or rename cannot leave the Windows home', () => {
+		const elsewhere = join(root, 'elsewhere')
+		mkdirSync(elsewhere, { recursive: true })
+		writeStoredSubscriptionCredential(desktop, join(root, 'elsewhere-home'))
+		mkdirSync(join(elsewhere), { recursive: true })
+		writeFileSync(
+			join(elsewhere, 'credentials.json'),
+			readFileSync(join(root, 'elsewhere-home', '.namzu', 'credentials.json'), 'utf8'),
+		)
+		try {
+			symlinkSync(elsewhere, join(windowsHome, '.namzu'))
+		} catch {
+			return
+		}
+		expect(readStoredSubscriptionCredential()).toBeNull()
+	})
+})
+
+describe('signing out leaves Desktop as the sign-in in use', () => {
+	it('is still visible after the terminal removes its own', () => {
+		writeStoredSubscriptionCredential(desktop, windowsHome)
+		writeStoredSubscriptionCredential(own)
+		expect(locateStoredSubscriptionCredential()?.shared).toBeNull()
+		clearStoredSubscriptionCredential()
+		expect(locateStoredSubscriptionCredential()?.shared).toBe('desktop')
+	})
+})
+
 describe('refreshing a shared sign-in', () => {
 	const rotated = {
 		accessToken: 'desktop-access-2',

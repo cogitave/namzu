@@ -35,8 +35,8 @@
  * Windows profile's own access list, which the Windows side proved when it wrote the file.
  */
 
-import { lstatSync } from 'node:fs'
-import { join } from 'node:path'
+import { lstatSync, realpathSync } from 'node:fs'
+import { dirname, join, sep } from 'node:path'
 
 import { readSwitch } from '../auto-update/policy.js'
 import { wslWindowsHome } from './harness-credentials.js'
@@ -92,10 +92,20 @@ export function desktopCredentialsPath(env: NodeJS.ProcessEnv = process.env): st
 	return path !== null && isPlainFile(path) ? path : null
 }
 
+/**
+ * An ordinary file in an ordinary `.namzu` directory that really lives under the Windows
+ * home. A link or junction at either level could lead a read, a lock or a rename out of the
+ * profile, so both are refused, and the resolved path must stay inside the resolved home.
+ */
 function isPlainFile(path: string): boolean {
 	try {
+		const dir = dirname(path)
+		const dirEntry = lstatSync(dir)
+		if (!dirEntry.isDirectory() || dirEntry.isSymbolicLink()) return false
 		const entry = lstatSync(path)
-		return entry.isFile() && !entry.isSymbolicLink()
+		if (!entry.isFile() || entry.isSymbolicLink()) return false
+		const home = realpathSync(dirname(dir))
+		return realpathSync(path).startsWith(home + sep)
 	} catch {
 		return false
 	}

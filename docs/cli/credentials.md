@@ -226,8 +226,9 @@ meanwhile is taken as it stands and never overwritten.
   never guessed from a user name. A failed lookup is retried after a minute and
   means no shared sign-in.
 - **Only the default home.** `NAMZU_HOME`, an explicit home, or a Windows
-  `credentials.json` that is a link or not a regular file turns it off for that
-  lookup.
+  `credentials.json` that is a link or not a regular file, or a `.namzu` folder that
+  is a link or junction (or resolves outside the Windows home), turns it off for
+  that lookup.
 - **Permissions.** The mounted drive reports every file as mode 0777, so the
   owner-only proof used for the terminal's own file cannot be made there; the
   file is protected by the Windows profile's access list, which Desktop set.
@@ -235,7 +236,8 @@ meanwhile is taken as it stands and never overwritten.
   A lock the Windows side holds refuses the refresh with a sentence naming
   Desktop; the current access token keeps working until it expires.
 - **Signing out.** `namzu logout` in the terminal never removes Desktop's
-  sign-in (that would sign Desktop out); it says so. Signing out in Desktop
+  sign-in (that would sign Desktop out); it says so, including when the terminal's
+  own sign-in was hiding Desktop's and Desktop's is now the one in use. Signing out in Desktop
   removes the file, and the terminal then sees none. Signing in on the terminal
   makes a separate sign-in of its own that is used from then on.
 - **Turn it off.** `shareDesktopSignIn: false` in your own config file, or
