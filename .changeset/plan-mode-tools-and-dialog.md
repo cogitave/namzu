@@ -1,5 +1,5 @@
 ---
-'@namzu/sdk': patch
+'@namzu/sdk': minor
 '@namzu/cli': patch
 ---
 
