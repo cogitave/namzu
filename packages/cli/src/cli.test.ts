@@ -191,8 +191,9 @@ describe('runCli', () => {
 		expect(stderr).not.toContain('too many arguments')
 		expect(flat(stderr)).toContain(hint)
 		expect(stderr).toContain(`namzu ${name}`)
-		expect(stderr.trim().split('\n')).toHaveLength(1)
+		// The one sentence (wrapped to the terminal width), with no second pointer to --help.
 		expect(stderr).not.toContain('--help')
+		expect(stderr).not.toMatch(/Unknown command/)
 	})
 
 	it.each([
