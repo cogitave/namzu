@@ -26,6 +26,7 @@ import { createHash } from 'node:crypto'
 import { constants, createReadStream, existsSync } from 'node:fs'
 import {
 	appendFile,
+	chmod,
 	copyFile,
 	lstat,
 	mkdir,
@@ -39,6 +40,7 @@ import {
 	rmdir,
 	symlink,
 	unlink,
+	utimes,
 	writeFile,
 } from 'node:fs/promises'
 import { dirname, join, relative, resolve, sep } from 'node:path'
@@ -46,6 +48,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path'
 import { slugForCwd } from '@namzu/sdk'
 
 import { isTrustedAtStateRoot } from '../trust/store.js'
+import { resolveNamzuHome } from './home.js'
 import { cliProjectRoot } from './project.js'
 
 /** What a person authors in a project's `.namzu/`, which this version reads. Never legacy. */
@@ -213,10 +216,15 @@ export type LegacyExcludeOutcome =
 export async function excludeProjectLegacy(options: {
 	readonly cwd: string
 	readonly env?: NodeJS.ProcessEnv
+	/** The Namzu home; default the one this process resolves. */
+	readonly home?: string
 }): Promise<LegacyExcludeOutcome> {
 	const env = options.env ?? process.env
 	try {
 		const cwd = await canonical(options.cwd)
+		// `<cwd>/.namzu` that is (or holds) the live Namzu home is not legacy.
+		const home = await canonical(options.home ?? resolveNamzuHome({ env }))
+		if (inside(home, join(cwd, '.namzu'))) return { state: 'none' }
 		const entries = await findProjectLegacy(cwd)
 		if (entries.length === 0) return { state: 'none' }
 		const top = await git(['rev-parse', '--show-toplevel'], cwd, env)
@@ -282,7 +290,7 @@ export function describeLegacyExclude(outcome: LegacyExcludeOutcome): string | u
 		.map((name) => `.namzu/${name}`)
 		.join(', ')
 	const more = outcome.names.length > 4 ? ` and ${outcome.names.length - 4} more` : ''
-	return `This folder holds state an earlier Namzu kept in it (${listed}${more}). Namzu does not read it, and git now leaves it out of this clone. Run namzu state move-legacy to move it into the Namzu home.`
+	return `This folder holds state an earlier Namzu kept in it (${listed}${more}). Namzu does not read it, and git does not list the untracked part of it in this clone. Run namzu state move-legacy to move it into the Namzu home.`
 }
 
 // ---------------------------------------------------------------------------
@@ -677,6 +685,9 @@ async function copyTree(from: string, to: string): Promise<void> {
 	} else if (entry.isDirectory()) {
 		await mkdir(to, { mode: 0o700 })
 		for (const child of await readdir(from)) await copyTree(join(from, child), join(to, child))
+		// After the children, so writing them does not change the times.
+		await chmod(to, entry.mode & 0o777)
+		await utimes(to, entry.atime, entry.mtime)
 	} else if (entry.isFile()) {
 		await copyFile(from, to, constants.COPYFILE_EXCL)
 		const handle = await open(to, 'r+')
@@ -697,11 +708,12 @@ async function treeDigest(root: string): Promise<string> {
 		const entry = await lstat(path)
 		if (entry.isSymbolicLink()) lines.push(`${name}\0link\0${await readlink(path)}`)
 		else if (entry.isDirectory()) {
-			lines.push(`${name}\0dir`)
+			lines.push(`${name}\0dir\0${entry.mode & 0o777}`)
 			for (const child of (await readdir(path)).sort()) {
 				await visit(join(path, child), `${name}/${child}`)
 			}
-		} else if (entry.isFile()) lines.push(`${name}\0file\0${entry.size}\0${await fileHash(path)}`)
+		} else if (entry.isFile())
+			lines.push(`${name}\0file\0${entry.mode & 0o777}\0${entry.size}\0${await fileHash(path)}`)
 		else lines.push(`${name}\0other`)
 	}
 	await visit(root, '.')

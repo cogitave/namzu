@@ -567,6 +567,8 @@ function categoryOf(path: string): StateCategory {
 	const top = path.split('/')[0] ?? path
 	const name = basename(path)
 	if (legacyKey(path)) return 'legacy'
+	// Where `namzu state move-legacy` puts what it moved out of a project.
+	if (top === 'legacy') return 'legacy'
 	if (
 		name.endsWith('.lock') ||
 		name.includes('.tmp.') ||

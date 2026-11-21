@@ -1,6 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
+	chmodSync,
 	existsSync,
 	lstatSync,
 	mkdirSync,
@@ -10,6 +11,7 @@ import {
 	realpathSync,
 	rmSync,
 	symlinkSync,
+	utimesSync,
 	writeFileSync,
 } from 'node:fs'
 import { appendFile } from 'node:fs/promises'
@@ -211,6 +213,24 @@ describe('moving state an earlier Namzu kept in a project', () => {
 		expect(treeHash(result.destination, (name) => name === 'origin.json')).toBe(before)
 	})
 
+	it('keeps folder modes and times when it copies to another file system', async () => {
+		const { cwd, home } = setup()
+		write(join(cwd, '.namzu', 'projects', 'prj_1', 's.json'), '{"old":1}')
+		const dir = join(cwd, '.namzu', 'projects', 'prj_1')
+		chmodSync(dir, 0o750)
+		const when = new Date('2020-01-02T03:04:05Z')
+		utimesSync(dir, when, when)
+		const crossDevice = async () => {
+			throw Object.assign(new Error('cross-device link'), { code: 'EXDEV' })
+		}
+
+		const result = done(await moveProjectLegacyState({ cwd, home, rename: crossDevice }))
+
+		const copied = join(result.destination, 'projects', 'prj_1')
+		expect(lstatSync(copied).mode & 0o777).toBe(0o750)
+		expect(lstatSync(copied).mtime.getTime()).toBe(when.getTime())
+	})
+
 	it('keeps both when the copy does not match the original', async () => {
 		const { cwd, home } = setup()
 		write(join(cwd, '.namzu', 'sessions', 'x.json'), '{"old":1}')
@@ -402,6 +422,22 @@ describe('keeping git from listing the old state', () => {
 		expect(status).not.toContain('packages/app/.namzu/projects')
 		expect(status).toContain('packages/other/.namzu/projects/keep.json')
 	})
+
+	it(
+		'does nothing when the folder’s .namzu is the live Namzu home',
+		{ timeout: 30_000 },
+		async () => {
+			const { cwd } = setup()
+			repository(cwd)
+			const live = join(cwd, '.namzu')
+			write(join(live, 'projects', 'p', 's.json'), '{}')
+			write(join(live, 'config.yaml'), 'a: 1\n')
+			const before = readFileSync(join(cwd, '.git', 'info', 'exclude'), 'utf8')
+
+			expect(await excludeProjectLegacy({ cwd, home: live })).toEqual({ state: 'none' })
+			expect(readFileSync(join(cwd, '.git', 'info', 'exclude'), 'utf8')).toBe(before)
+		},
+	)
 
 	it('writes nothing where there is no old state, or no repository', async () => {
 		const { cwd } = setup()

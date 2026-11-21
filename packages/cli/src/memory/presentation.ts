@@ -71,7 +71,7 @@ export function renderMemorySaveResult(result: AppendMemoryResult, text: string)
 export function renderNoteNotSaved(starting: boolean): string {
 	return starting
 		? 'The note was not saved: this folder’s memory is not open yet. Send it again in a moment.'
-		: 'The note was not saved: Namzu could not open this folder’s saved data, where notes are kept. To share a note with everyone who works here, add it to .namzu/MEMORY.md yourself.'
+		: 'The note was not saved: no stored memory is open for this folder, where notes are kept. To share a note with everyone who works here, add it to .namzu/MEMORY.md yourself.'
 }
 
 /** What `#note` and `/memory add` report after writing a typed memory. */

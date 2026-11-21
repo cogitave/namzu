@@ -158,7 +158,8 @@ keeps git from listing it: the first time it finds such a name, it appends one
 block to the clone's own exclude file (the `info/exclude` git names, never your
 `.gitignore`), anchored to this folder, headed
 `# namzu: state an earlier Namzu kept in /.namzu/ ...`, and says so once. A
-file git already tracks is not affected by it.
+file git already tracks is not affected by it (git still lists it). Nothing is
+written when that `.namzu` is itself the live Namzu home.
 
 `namzu state move-legacy` moves it out, when you ask. It runs only in a folder
 you trust and moves only the names above, into
@@ -166,14 +167,15 @@ you trust and moves only the names above, into
 folder they came from. On one file system each entry is renamed; across file
 systems it is copied, flushed, put in place and compared file by file with the
 original, and the original is removed only when they match (otherwise both are
-kept and the command says so). It leaves in place, with the reason: anything
+kept and the command says so; folder modes and times are copied too). It leaves in place, with the reason: anything
 git tracks (take it out of git first), a registered git worktree that has
 changes or is locked (a clean one is moved with `git worktree move`, so git
 keeps track of it), a folder holding a worktree deeper down, and everything
 when git cannot say what it tracks. One move runs per folder at a time.
 `namzu state move-legacy --dry-run` lists what would move and changes nothing.
 Namzu does not read the moved files either; delete the folder when you no
-longer want them.
+longer want them. `namzu state` counts that `legacy/` folder in the home as
+`legacy`.
 
 Entity IDs are opaque UUIDs. Prefixed IDs are rejected at admission.
 

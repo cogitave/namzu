@@ -93,6 +93,19 @@ describe('read-only state inventory, version 2', () => {
 		expect(id).toBeTruthy()
 	})
 
+	it('counts what move-legacy put under the home’s legacy folder as legacy, not unknown', async () => {
+		const cwd = temporary('moved-cwd')
+		const home = temporary('moved-os-home')
+		const stateRoot = temporary('moved-state')
+		write(join(stateRoot, 'legacy', 'slug', '1', 'sessions', 'x.json'), '{}')
+
+		const report = await inspectNamzuState({ cwd, home, env: { NAMZU_HOME: stateRoot } })
+
+		const user = report.roots.find((root) => root.roles.includes('user'))
+		expect(user?.categories.legacy.files).toBe(1)
+		expect(user?.categories.unknown.files).toBe(0)
+	})
+
 	it('deduplicates project and user roles when cwd is home', async () => {
 		const root = temporary('overlap')
 		mkdirSync(join(root, '.namzu'), { recursive: true })
