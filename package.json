@@ -11,6 +11,7 @@
     "lint:fix": "pnpm -r lint:fix",
     "test": "pnpm -r test",
     "test:scripts": "node --import tsx --test scripts/__tests__/*.test.ts",
+    "release": "node scripts/release.mjs",
     "docs:check": "node --import tsx --test scripts/__tests__/check-docs-okf.test.ts && node tools/check-docs-okf.mjs",
     "docs:fences": "node tools/check-doc-fences.mjs",
     "sandbox:smoke": "pnpm --filter @namzu/sandbox test:smoke",

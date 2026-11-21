@@ -76,7 +76,7 @@ Each of those jobs installs and builds on its own, and `Record the validated tre
 | CI step | Run it locally |
 |---|---|
 | Lint | `pnpm lint` |
-| The two paths onto main run the same gates | `node --test scripts/__tests__/check-workflow-gate-parity.test.mjs scripts/__tests__/find-validated-tree.test.mjs scripts/__tests__/pending-changesets.test.mjs scripts/__tests__/prune-stale-tsc-outputs.test.mjs && node .github/scripts/check-workflow-gate-parity.mjs` |
+| The two paths onto main run the same gates | `node --test scripts/__tests__/check-workflow-gate-parity.test.mjs scripts/__tests__/find-validated-tree.test.mjs scripts/__tests__/pending-changesets.test.mjs scripts/__tests__/prune-stale-tsc-outputs.test.mjs scripts/__tests__/release.test.mjs && node .github/scripts/check-workflow-gate-parity.mjs` |
 | Project references match workspace dependencies | `node .github/scripts/check-project-references.mjs` |
 | Every workspace test script is scheduled | `node --test scripts/__tests__/check-test-coverage-union.test.mjs && node .github/scripts/check-test-coverage-union.mjs` |
 | Type check | `pnpm typecheck` |
@@ -150,7 +150,7 @@ Conventional Commits: `<type>(<scope>): <subject>`, types `feat|fix|refactor|doc
 </commit_format>
 
 <releases>
-Releases are driven by [Changesets](https://github.com/changesets/changesets). Every PR that touches a publishable package adds a `.changeset/<slug>.md` declaring bump intent; on merge to `main`, `changesets/action@v1` opens a "chore(release): version packages" PR; merging that PR publishes every bumped package to npm via `pnpm changeset publish` under `.github/workflows/release.yml`. Never hand-edit `package.json#version` or invoke `npm publish` directly.
+Releases are driven by [Changesets](https://github.com/changesets/changesets). Every PR that touches a publishable package adds a `.changeset/<slug>.md` declaring bump intent; on merge to `main`, `changesets/action@v1` opens a "chore(release): version packages" PR; merging that PR publishes every bumped package to npm via `pnpm changeset publish` under `.github/workflows/release.yml`. Never hand-edit `package.json#version`, never `npm unpublish`, and never run `npm publish` yourself: releases go through changesets. When GitHub Actions cannot run, `pnpm release local` (npm) and `pnpm release desktop` (the installer) are the only allowed manual path. They run the same checks as the workflows and refuse on the first that fails; run them only with the owner's go for that specific release. See `docs/cli/releasing.md`.
 
 **Bump intent is a claim about the consumer, not about effort.** [SemVer rule 8](https://semver.org/) admits no exception: `major` for *any* backward-incompatible change to the public API — a removed or renamed export, a narrowed union, a changed default, a widened peer range. Rewriting the whole kernel without touching the public surface is `patch`.
 
