@@ -280,3 +280,31 @@ export function chipPastedRanges(text: string, ranges: readonly PasteRange[] | u
 	}
 	return out + text.slice(at)
 }
+
+/**
+ * The inverse of {@link chipPastedRanges} for a row that shows chips: each chip
+ * the row got from `ranges` is put back as the text it stood for, read from the
+ * saved `content`. A chip that is not exactly the one a range would draw (the row
+ * was edited, or has other text) stays as it is.
+ */
+export function unchipPastedRanges(
+	shown: string,
+	content: string,
+	ranges: readonly PasteRange[] | undefined,
+): string {
+	if (!ranges || ranges.length === 0) return shown
+	let out = ''
+	let at = 0
+	let id = 0
+	for (const range of ranges) {
+		if (range.start < 0 || range.end > content.length || range.end < range.start) return shown
+		id += 1
+		const pasted = content.slice(range.start, range.end)
+		const chip = pasteChip(id, pasted)
+		const found = shown.indexOf(chip, at)
+		if (found < 0) continue
+		out += shown.slice(at, found) + pasted
+		at = found + chip.length
+	}
+	return out + shown.slice(at)
+}

@@ -62,6 +62,12 @@ for await (const chunk of provider.chatStream({
 }
 ```
 
+Pictures are not sent by default: a generic endpoint cannot say which of its
+models read them, and a text-only server usually refuses an image part. Set
+`vision: true` (every model) or `vision: ['my-vision-model']` (the named ones)
+to send a pasted picture as an `image_url` part on the `openai` dialect, or as
+an image block on the `anthropic` dialect.
+
 `chatStream` is the only model entry point; a non-streaming call is that
 stream collected. In practice the kernel's turn loop calls it and hands you
 events.

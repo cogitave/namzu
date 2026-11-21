@@ -335,3 +335,91 @@ describe('subagents in the Background dialog', () => {
 		expect(screen.viewport().join('\n')).toContain('No tasks currently running')
 	})
 })
+
+describe('timers in the Background dialog', () => {
+	const timers = [
+		{
+			id: 'a1b2c3',
+			schedule: 'in 3 minutes',
+			prompt: 'remind me to stretch',
+			recurring: false,
+			createdAt: new Date(NOW).toISOString(),
+			nextFireAt: new Date(NOW + 179_000).toISOString(),
+		},
+		{
+			id: 'd4e5f6',
+			schedule: 'every 10 minutes',
+			prompt: 'check the build',
+			recurring: true,
+			createdAt: new Date(NOW).toISOString(),
+			nextFireAt: new Date(NOW + 600_000).toISOString(),
+		},
+	]
+
+	it('lists each timer with its prompt and time left, and offers cancel', async () => {
+		screen = await renderToScreen(
+			<BackgroundJobsPanel
+				entries={backgroundRows([job('b00000001', 'npm run dev')], [], timers)}
+				selectedKey="timer:a1b2c3"
+				detailKey={null}
+				tailOffset={0}
+				readJob={() => undefined}
+				rows={24}
+				columns={70}
+				now={NOW}
+			/>,
+			{ cols: 70, rows: 24 },
+		)
+		const visible = screen.viewport().join('\n')
+		expect(visible).toContain('Timers (2)')
+		expect(visible).toContain('2 timers')
+		expect(visible).toContain('❯ ● remind me to stretch  in 3m')
+		expect(visible).toContain('check the build  ↻ in 10m')
+		expect(visible).toContain('x cancel')
+		expect(visible).not.toContain('a1b2c3')
+		for (const row of screen.viewport()) expect(stringWidth(row)).toBeLessThanOrEqual(70)
+	})
+
+	it('fits 40 columns and keeps the closing key', async () => {
+		screen = await renderToScreen(
+			<BackgroundJobsPanel
+				entries={backgroundRows([], [], timers)}
+				selectedKey="timer:a1b2c3"
+				detailKey={null}
+				tailOffset={0}
+				readJob={() => undefined}
+				rows={20}
+				columns={40}
+				now={NOW}
+			/>,
+			{ cols: 40, rows: 20 },
+		)
+		const visible = screen.viewport().join('\n')
+		expect(visible).toContain('esc')
+		for (const row of screen.viewport()) expect(stringWidth(row)).toBeLessThanOrEqual(40)
+	})
+	it('shows the whole prompt of one timer in its detail view', async () => {
+		const long = `${'water the plants and then '.repeat(5)}check the build`
+		const one = [{ ...timers[0]!, prompt: long }]
+		screen = await renderToScreen(
+			<BackgroundJobsPanel
+				entries={backgroundRows([], [], one)}
+				selectedKey="timer:a1b2c3"
+				detailKey="timer:a1b2c3"
+				tailOffset={0}
+				readJob={() => undefined}
+				rows={24}
+				columns={50}
+				now={NOW}
+			/>,
+			{ cols: 50, rows: 24 },
+		)
+		const visible = screen.viewport().join('\n')
+		expect(visible).toContain('Timer details')
+		expect(visible).toContain('Fires: in 3 minutes')
+		expect(visible).toContain('in 3m')
+		expect(visible.replace(/\s+/g, ' ')).toContain('check the build')
+		expect(visible).toContain('x cancel')
+		for (const row of screen.viewport()) expect(stringWidth(row)).toBeLessThanOrEqual(50)
+	})
+})

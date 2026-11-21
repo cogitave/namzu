@@ -44,6 +44,10 @@ let releaseModelSelection: () => void
 const exitListeners = new Set<(job: BackgroundJob) => void>()
 const nextExitListeners = new Set<(job: BackgroundJob) => void>()
 let mounted: Screen | null = null
+let extraTools: readonly {
+	name: string
+	execute: (input: never, ctx?: never) => Promise<{ output: string }>
+}[] = []
 
 function runningJob(id = 'b00000001'): BackgroundJob {
 	return { id, owner: 'session', command: 'npm run dev', status: 'running', startedAt: Date.now() }
@@ -90,7 +94,12 @@ vi.mock('../agent.js', async (importOriginal) => {
 	return {
 		...actual,
 		probeAgentSession: async () => ({ preferences, needsRepickReason: null, detected: [] }),
-		createAgentSession: async (): Promise<AgentSession> => {
+		createAgentSession: async (
+			_prefs: unknown,
+			_detected: unknown,
+			options?: { extraTools?: typeof extraTools },
+		): Promise<AgentSession> => {
+			if (options?.extraTools) extraTools = options.extraTools
 			const creation = sessionCreations++
 			if (creation === 0) announceSessionReady()
 			else announceNextSessionReady()
@@ -546,4 +555,49 @@ it('enters the shell pill from a shell-mode or unmatched-slash draft, and keeps 
 	screen.press('l')
 	await until(screen, () => text().includes('/hel'))
 	expect(text()).not.toContain('enter to view tasks')
+})
+
+it('lists a timer the model set in /tasks, and x cancels the real timer', async () => {
+	scenario = 'exit'
+	const screen = await mount(100, 28)
+	const tool = (name: string) => extraTools.find((t) => t.name === name)!
+	await tool('timer_set').execute({
+		when: '3m',
+		prompt: 'remind me to stretch',
+		recurring: false,
+	} as never)
+	await submit(screen, '/tasks')
+	let visible = screen.viewport().join('\n')
+	expect(visible).toContain('1 timer')
+	expect(visible).toContain('remind me to stretch')
+	expect(visible).toMatch(/in [23]m/)
+	expect(visible).toContain('x cancel')
+
+	screen.press('x')
+	await screen.waitForRender()
+	await screen.waitForRender()
+	visible = screen.viewport().join('\n')
+	expect(visible).toContain('Timer cancelled.')
+	expect(visible).not.toContain('remind me to stretch')
+	expect((await tool('timer_list').execute({} as never)).output).toBe('No timers.')
+})
+
+it('shows a timer set while /tasks is open, and Enter opens its full prompt', async () => {
+	scenario = 'exit'
+	const screen = await mount(100, 28)
+	const tool = (name: string) => extraTools.find((t) => t.name === name)!
+	await submit(screen, '/tasks')
+	expect(screen.viewport().join('\n')).not.toContain('remind me to stretch')
+	await tool('timer_set').execute({
+		when: '3m',
+		prompt: 'remind me to stretch',
+		recurring: false,
+	} as never)
+	await until(screen, () => screen.viewport().join('\n').includes('remind me to stretch'))
+	screen.press('\r')
+	await until(screen, () => screen.viewport().join('\n').includes('Timer details'))
+	expect(screen.viewport().join('\n')).toContain('remind me to stretch')
+	screen.press('x')
+	await until(screen, () => !screen.viewport().join('\n').includes('Timer details'))
+	expect((await tool('timer_list').execute({} as never)).output).toBe('No timers.')
 })

@@ -9,6 +9,7 @@ import type {
 	TokenUsage,
 } from '@namzu/sdk'
 import { toolResultToText } from '@namzu/sdk'
+import { isModelContentOmission } from '@namzu/sdk'
 import {
 	ProviderRequestError,
 	isCallerAbortError,
@@ -24,21 +25,25 @@ import {
 import { withRequestTimeout } from './request-timeout.js'
 import type { OllamaConfig } from './types.js'
 
+/** How long a picture request waits for the model information before going on. */
+const VISION_READ_WAIT_MS = 5_000
+
 /**
  * What this DRIVER does, not what the Ollama server could do:
  * `chatStream` never reads `params.tools` (no tool schemas reach the
- * model) and `toOllamaMessages` maps text content only (image
- * `attachments` are dropped). Flip these only alongside the
- * corresponding mapping code.
+ * model), while pictures are mapped: a user message's image attachments and
+ * the image blocks of a tool result go out as the message's `images` array.
+ * Whether a given MODEL reads them is answered per model by
+ * `supportsImageInputFor`, from the server's own model information.
  */
 export const OLLAMA_CAPABILITIES: ProviderCapabilities = {
 	supportsTools: false,
 	supportsStreaming: true,
 	supportsFunctionCalling: false,
-	supportsVision: false,
+	supportsVision: true,
 	// Images only. A document degrades to a named placeholder.
 	supportsDocuments: false,
-	supportsToolResultImages: false,
+	supportsToolResultImages: true,
 	supportsToolResultDocuments: false,
 }
 
@@ -51,13 +56,89 @@ function resolveHost(config: OllamaConfig): string {
 	return DEFAULT_HOST
 }
 
-function toOllamaMessages(messages: ChatCompletionParams['messages']): OllamaMessage[] {
-	return messages.map((msg) => ({
-		role: msg.role,
-		// A tool result can be content BLOCKS now; this wire takes text, so
-		// flatten rather than hand it an array it cannot read.
-		content: typeof msg.content === 'string' ? msg.content : toolResultToText(msg.content ?? ''),
-	}))
+function encodedSize(base64: string): string {
+	const bytes = Math.floor((base64.length * 3) / 4)
+	if (bytes < 1024) return `${bytes} B`
+	if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+/** What stands in for a picture when the model is known not to read one. */
+function imageMarker(mediaType: string, base64: string): string {
+	return `[image omitted: the current model cannot read images (${mediaType}, ${encodedSize(base64)})]`
+}
+
+function withMarkers(text: string, markers: string[]): string {
+	if (markers.length === 0) return text
+	return text.length > 0 ? `${text}\n\n${markers.join('\n\n')}` : markers.join('\n\n')
+}
+
+/**
+ * Ollama takes a message's pictures as an `images` array of base64 strings on
+ * any role. A tool result's pictures go on the tool message itself. When the
+ * model is known not to read pictures they become a short note instead, never
+ * silently nothing.
+ */
+export function toOllamaMessages(
+	messages: ChatCompletionParams['messages'],
+	imagesReadable = true,
+): OllamaMessage[] {
+	return messages.map((msg): OllamaMessage => {
+		if (msg.role === 'user' && msg.attachments && msg.attachments.length > 0) {
+			const images: string[] = []
+			const markers: string[] = []
+			for (const attachment of msg.attachments) {
+				// Only inline images have a wire form. A document is a placeholder
+				// by the runtime, a stored reference is resolved before this point,
+				// and an image already withheld from the model stays withheld.
+				if (attachment.type === 'stored' || attachment.type === 'document') continue
+				if (isModelContentOmission(attachment.modelOmission)) continue
+				if (imagesReadable) images.push(attachment.data)
+				else markers.push(imageMarker(attachment.mediaType, attachment.data))
+			}
+			return {
+				role: msg.role,
+				content: withMarkers(msg.content, markers),
+				...(images.length > 0 ? { images } : {}),
+			}
+		}
+		if (msg.role === 'tool' && Array.isArray(msg.content)) {
+			const images: string[] = []
+			const parts: string[] = []
+			for (const block of msg.content) {
+				if (block.type === 'text') parts.push(block.text)
+				else if (block.type === 'image') {
+					if (isModelContentOmission(block.modelOmission)) continue
+					if (imagesReadable) {
+						images.push(block.data)
+						parts.push(`[image: ${block.mediaType}, attached to this message]`)
+					} else parts.push(imageMarker(block.mediaType, block.data))
+				} else parts.push(toolResultToText([block]))
+			}
+			return {
+				role: msg.role,
+				content: parts.join('\n'),
+				...(images.length > 0 ? { images } : {}),
+			}
+		}
+		return {
+			role: msg.role,
+			// A tool result can be content BLOCKS now; this wire takes text, so
+			// flatten rather than hand it an array it cannot read.
+			content: typeof msg.content === 'string' ? msg.content : toolResultToText(msg.content ?? ''),
+		}
+	})
+}
+
+function carriesImages(messages: ChatCompletionParams['messages']): boolean {
+	return messages.some(
+		(msg) =>
+			(msg.role === 'user' &&
+				(msg.attachments ?? []).some((a) => a.type !== 'stored' && a.type !== 'document')) ||
+			(msg.role === 'tool' &&
+				Array.isArray(msg.content) &&
+				msg.content.some((b) => b.type === 'image')),
+	)
 }
 
 /**
@@ -153,6 +234,74 @@ export class OllamaProvider implements LLMProvider {
 		return options
 	}
 
+	/**
+	 * Whether each model reads pictures, as the server's own model information
+	 * said (`capabilities` includes `vision`). Read once per model and kept; a
+	 * server that does not list capabilities, or an answer that failed, leaves
+	 * the model unknown, which counts as "reads pictures".
+	 */
+	private readonly vision = new Map<string, boolean>()
+	private readonly visionReads = new Map<string, Promise<void>>()
+
+	private visionOf(model: string): Promise<void> {
+		let read = this.visionReads.get(model)
+		if (!read) {
+			read = this.client.show({ model }).then(
+				(info) => {
+					if (Array.isArray(info.capabilities)) {
+						this.vision.set(model, info.capabilities.includes('vision'))
+					}
+				},
+				() => {
+					// Unknown, not "no": a failed read must not blind a vision model.
+					this.visionReads.delete(model)
+				},
+			)
+			this.visionReads.set(model, read)
+		}
+		return read
+	}
+
+	private async waitForVision(model: string, signal?: AbortSignal): Promise<void> {
+		const read = this.visionOf(model)
+		let onAbort: (() => void) | undefined
+		let timer: ReturnType<typeof setTimeout> | undefined
+		const aborted = new Promise<never>((_resolve, reject) => {
+			if (!signal) return
+			if (signal.aborted) return reject(signal.reason)
+			onAbort = () => reject(signal.reason)
+			signal.addEventListener('abort', onAbort, { once: true })
+		})
+		// A server whose information endpoint never answers must not stall the
+		// request: give up waiting, leave the model unknown (it counts as
+		// "reads pictures") and let the next picture request ask again.
+		const gaveUp = new Promise<void>((resolve) => {
+			timer = setTimeout(() => {
+				this.visionReads.delete(model)
+				resolve()
+			}, VISION_READ_WAIT_MS)
+		})
+		try {
+			await Promise.race([read, aborted, gaveUp])
+		} catch (err) {
+			throw signal?.reason ?? err
+		} finally {
+			if (timer) clearTimeout(timer)
+			if (onAbort) signal?.removeEventListener('abort', onAbort)
+		}
+	}
+
+	/**
+	 * `false` only when the server's model information was read and does not
+	 * list vision. Until it was read (or when the server does not say) the
+	 * answer is `true`. This never asks the server: the read starts only on
+	 * the first request that carries a picture, so a conversation without
+	 * pictures costs no extra call.
+	 */
+	supportsImageInputFor(model: string): boolean {
+		return this.vision.get(model) ?? true
+	}
+
 	private resolveModel(params: ChatCompletionParams): string {
 		const model = params.model || this.config.model
 		if (!model) {
@@ -166,7 +315,11 @@ export class OllamaProvider implements LLMProvider {
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
 		assertThinkingUnsupported('OllamaProvider', params)
 		const model = this.resolveModel(params)
-		const messages = toOllamaMessages(params.messages)
+		// A request without pictures never waits on, or asks for, model information.
+		if (carriesImages(params.messages) && this.vision.get(model) === undefined) {
+			await this.waitForVision(model, params.signal)
+		}
+		const messages = toOllamaMessages(params.messages, this.vision.get(model) !== false)
 		const options = this.buildOptions(params)
 
 		// The ollama SDK's `checkOk` promotes the response body's `error` field into

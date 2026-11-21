@@ -123,6 +123,74 @@ describe('the side model route', () => {
 		})
 	})
 
+	it('never takes a router that lists a negative rate, and stays within the conversation vendor', async () => {
+		// OpenRouter lists `openrouter/auto` at "-1" per token for "no fixed
+		// price"; read as a rate it was the cheapest model, and a title went to
+		// whichever reasoning model the router picked.
+		const side = createSideModel({
+			active: () => ({ providerId: 'openrouter', model: 'anthropic/claude-haiku-5.5' }),
+			isKnownProvider: () => true,
+			buildProvider: async () =>
+				fakeProvider({
+					models: [
+						listed('openrouter/auto', -1_000_000, -1_000_000),
+						listed('meta/some-reasoner', 0.1, 0.5),
+						listed('anthropic/claude-sonnet-5', 3, 15),
+						listed('anthropic/claude-haiku-5.5', 1, 5),
+						listed('anthropic/claude-haiku-5.5:batch', 0.5, 2.5),
+					],
+				}),
+			ledger: fakeLedger(),
+		})
+
+		expect(await side.route(sessionId, new AbortController().signal)).toEqual({
+			providerId: 'openrouter',
+			model: 'anthropic/claude-haiku-5.5',
+			source: 'cheapest',
+		})
+	})
+
+	it('skips music and video generators by whole word, not a chat model that merely contains the letters', async () => {
+		const side = createSideModel({
+			active: () => ({ providerId: 'acme', model: 'big' }),
+			isKnownProvider: () => true,
+			buildProvider: async () =>
+				fakeProvider({
+					models: [
+						listed('acme/veo-3', 0.01, 0.01),
+						listed('acme/lyria-2', 0.01, 0.01),
+						listed('acme/music-gen', 0.01, 0.01),
+						listed('acme/video-gen', 0.01, 0.01),
+						listed('acme/ceveo-chat', 0.1, 0.5),
+						listed('acme/big', 3, 15),
+					],
+				}),
+			ledger: fakeLedger(),
+		})
+
+		expect((await side.route(sessionId, new AbortController().signal)).model).toBe(
+			'acme/ceveo-chat',
+		)
+	})
+
+	it('falls back to the whole listing when the conversation vendor has none priced', async () => {
+		const side = createSideModel({
+			active: () => ({ providerId: 'openrouter', model: 'acme/big' }),
+			isKnownProvider: () => true,
+			buildProvider: async () =>
+				fakeProvider({
+					models: [
+						listed('openrouter/auto', -1_000_000, -1_000_000),
+						listed('meta/small', 0.1, 0.5),
+						{ ...listed('acme/big', 0, 0), inputPrice: undefined, outputPrice: undefined },
+					],
+				}),
+			ledger: fakeLedger(),
+		})
+
+		expect((await side.route(sessionId, new AbortController().signal)).model).toBe('meta/small')
+	})
+
 	it('without smallModel, takes the cheapest priced model the active provider lists', async () => {
 		const side = createSideModel({
 			active: () => ({ providerId: 'acme', model: 'big' }),
