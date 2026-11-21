@@ -21,82 +21,78 @@ import {
 	generateKeyPairSync,
 	sign,
 	verify,
-} from "node:crypto";
+} from 'node:crypto'
 
 export interface MachineKey {
-	readonly privateKey: KeyObject;
-	readonly publicKey: KeyObject;
+	readonly privateKey: KeyObject
+	readonly publicKey: KeyObject
 	/** SPKI DER of the public key. */
-	readonly publicKeyDer: Buffer;
-	readonly machineId: string;
+	readonly publicKeyDer: Buffer
+	readonly machineId: string
 }
 
-const NET_ID_LENGTH = 16;
+const NET_ID_LENGTH = 16
 
 export function sha256Hex(data: Buffer | string): string {
-	return createHash("sha256").update(data).digest("hex");
+	return createHash('sha256').update(data).digest('hex')
 }
 
 /** The id of a machine, from the SPKI DER of its public key. */
 export function machineIdOf(publicKeyDer: Buffer): string {
-	return sha256Hex(publicKeyDer);
+	return sha256Hex(publicKeyDer)
 }
 
 /** The id of a network, from the SPKI DER of its founder's public key. */
 export function netIdOf(founderPublicKeyDer: Buffer): string {
-	return sha256Hex(founderPublicKeyDer).slice(0, NET_ID_LENGTH);
+	return sha256Hex(founderPublicKeyDer).slice(0, NET_ID_LENGTH)
 }
 
 /** Short form of a machine id for a screen. */
 export function shortMachineId(machineId: string): string {
-	return machineId.slice(0, 12);
+	return machineId.slice(0, 12)
 }
 
 function fromPrivateKey(privateKey: KeyObject): MachineKey {
-	const publicKey = createPublicKey(privateKey);
-	const publicKeyDer = publicKey.export({ type: "spki", format: "der" });
+	const publicKey = createPublicKey(privateKey)
+	const publicKeyDer = publicKey.export({ type: 'spki', format: 'der' })
 	return {
 		privateKey,
 		publicKey,
 		publicKeyDer,
 		machineId: machineIdOf(publicKeyDer),
-	};
+	}
 }
 
 export function generateMachineKey(): MachineKey {
-	return fromPrivateKey(generateKeyPairSync("ed25519").privateKey);
+	return fromPrivateKey(generateKeyPairSync('ed25519').privateKey)
 }
 
 /** PKCS#8 PEM of the private key. The only place a private key is serialised; callers write it 0600 and never log it. */
 export function exportMachineKeyPem(key: MachineKey): string {
-	return key.privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+	return key.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
 }
 
 export function importMachineKeyPem(pem: string): MachineKey {
-	const privateKey = createPrivateKey(pem);
-	if (privateKey.asymmetricKeyType !== "ed25519") {
-		throw new Error("The machine key is not an Ed25519 key.");
+	const privateKey = createPrivateKey(pem)
+	if (privateKey.asymmetricKeyType !== 'ed25519') {
+		throw new Error('The machine key is not an Ed25519 key.')
 	}
-	return fromPrivateKey(privateKey);
+	return fromPrivateKey(privateKey)
 }
 
 export function publicKeyFromDer(der: Buffer): KeyObject {
-	return createPublicKey({ key: der, type: "spki", format: "der" });
+	return createPublicKey({ key: der, type: 'spki', format: 'der' })
 }
 
 export function signBytes(key: MachineKey, data: Buffer): Buffer {
-	return sign(null, data, key.privateKey);
+	return sign(null, data, key.privateKey)
 }
 
 /** False for any malformed key or signature rather than throwing. */
-export function verifyBytes(
-	publicKeyDer: Buffer,
-	data: Buffer,
-	signature: Buffer,
-): boolean {
+export function verifyBytes(publicKeyDer: Buffer, data: Buffer, signature: Buffer): boolean {
 	try {
-		return verify(null, data, publicKeyFromDer(publicKeyDer), signature);
+		return verify(null, data, publicKeyFromDer(publicKeyDer), signature)
 	} catch {
-		return false;
+		return false
 	}
 }
