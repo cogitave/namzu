@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-21
+
+- **Update** [Text-only models and images](sdk/text-only-models-and-images.md): a pasted image now reaches an OpenRouter model that reads images, as an `image_url` content part; `OPENROUTER_CAPABILITIES.supportsVision` is `true` and `supportsImageInputFor` answers per model from the listing's input modalities, so a text-only model still gets the notice and omission marker. DeepSeek answers `supportsImageInputFor` too, so its text-only ids get the notice instead of a thrown error. `.changeset/openrouter-images-for-vision-models.md`.
+
 ## 2026-11-20
 
 - **Creation** [Vim keys in the message box](cli/composer-vim.md), [Slash commands](cli/slash-commands.md), [Terminal design](cli/terminal-design.md#esc): the message box can edit with vim keys. `/vim` (or `/vim on`, `/vim off`) flips it for the running terminal and saves `tui.editorMode` (`normal`, the default, or `vim`; user config only; an Editor mode row in `/settings` and in Settings > Terminal app: message box). The box starts in INSERT and Esc goes to NORMAL without stopping a reply; NORMAL and VISUAL have motions, operators, text objects, counts, one register, dot repeat and undo; the footer says `-- INSERT --`, `-- VISUAL --` or `-- VISUAL LINE --` and fits it on narrow terminals. Redo, named registers, marks and the clipboard are not built. The slash-commands page no longer says vim mode is not built. `.changeset/tui-vim-editing-mode.md`.
