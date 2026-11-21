@@ -153,6 +153,13 @@ const inputSchema = z.object({
 		.describe(
 			`Command timeout in milliseconds. Default: ${DEFAULT_BASH_TIMEOUT_MS}, maximum: ${MAX_BASH_TIMEOUT_MS}. For work that legitimately runs longer than the maximum, set run_in_background and await it with \`wait_for_job\`, rather than holding the turn open. A foreground command still running when the timeout elapses is moved to a background job (and reported as such) instead of being stopped, where the host has background jobs.`,
 		),
+	description: z
+		.string()
+		.max(200)
+		.optional()
+		.describe(
+			'A short label in plain words (about 5 to 10) for what this command does, such as "Run the full test suite". The person sees it for a background job instead of the command line.',
+		),
 	run_in_background: z
 		.boolean()
 		.optional()
@@ -706,10 +713,12 @@ const BashToolBase = defineTool({
 						'run_in_background was requested, but this host provides no background job registry. Run the command in the foreground, or raise `timeout` up to the tool maximum.',
 				}
 			}
+			const jobLabel = input.description?.replace(/\s+/gu, ' ').trim() || undefined
 			try {
 				const job = context.backgroundJobs.start({
 					command: input.command,
 					workingDirectory: startDirectory,
+					...(jobLabel !== undefined ? { description: jobLabel } : {}),
 				})
 				// `start` returns before the process exists, and a spawn that
 				// fails (no such shell, bad directory) reports a tick later.
@@ -857,6 +866,7 @@ const BashToolBase = defineTool({
 		// registry, a sandboxed turn, a one-off sandbox escape, a plain wait)
 		// is there anything to hand the process to, so those keep the kill.
 		const adopt = context.backgroundJobs?.adopt?.bind(context.backgroundJobs)
+		const adoptLabel = input.description?.replace(/\s+/gu, ' ').trim() || undefined
 		const canHandOff =
 			adopt !== undefined && context.sandbox === undefined && !backgroundTasksDisabled()
 		const canMoveOnTimeout = canHandOff && !startsWithSleep(input.command)
@@ -866,6 +876,7 @@ const BashToolBase = defineTool({
 		}) =>
 			adopt?.({
 				command: input.command,
+				...(adoptLabel !== undefined ? { description: adoptLabel } : {}),
 				child: running.child,
 				workingDirectory: context.workingDirectory,
 				initialOutput: running.initialOutput,

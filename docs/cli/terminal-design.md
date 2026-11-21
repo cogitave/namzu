@@ -82,6 +82,14 @@ them. Its items are joined by a dim ` · `, left to right:
   owning the screen). Both leave the row together when it is too narrow.
 - **The reasoning effort**, when the operator has set one, as `effort <level>`
   (Namzu's own item).
+- **Interrupting before any answer** puts the message back in the box. Esc (or
+  Ctrl+C) while the model has shown no text and made no call, with an empty box
+  and nothing queued, removes the message from the transcript, leaves no
+  `Interrupted` row, and fills the box with it again (text, pasted text, images,
+  armed triggers); the next send does not carry the first copy. Once anything has
+  arrived, a message already in scrollback, a typed draft or a queued message, the
+  message stays in the transcript with the `Interrupted` row as before. The saved
+  conversation still holds the message.
 - **`esc to interrupt`**, dim, while a turn runs (omitted when the right side
   already carries a hint that names Esc; no footer is drawn while a dialog or
   picker owns the keyboard). The Working row does not repeat it; it lives here only.

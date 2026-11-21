@@ -228,7 +228,7 @@ export interface MonitorWebSocketTarget {
  * outlives, or is billed to, somebody else's run.
  */
 export interface BackgroundJobRegistryRef {
-	start(params: { command: string; workingDirectory: string }): {
+	start(params: { command: string; workingDirectory: string; description?: string }): {
 		id: string
 		status: string
 		/** The file the job's output is also written to, when the host keeps one. */
@@ -280,6 +280,7 @@ export interface BackgroundJobRegistryRef {
 	 */
 	adopt?(params: {
 		command: string
+		description?: string
 		child: ChildProcess
 		workingDirectory?: string
 		initialOutput?: readonly { readonly stream: 'stdout' | 'stderr'; readonly text: string }[]

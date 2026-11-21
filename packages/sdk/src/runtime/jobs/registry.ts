@@ -80,7 +80,10 @@ export interface BackgroundJob {
 	 * other job.
 	 */
 	readonly kind?: 'monitor'
-	/** What the monitor watches, in the model's words; shown with every event. */
+	/**
+	 * What the job is for, in the model's words. For a monitor, what it watches
+	 * (shown with every event); for a command started with a label, that label.
+	 */
 	readonly description?: string
 	/** When the monitor will be stopped if the command has not ended first (epoch ms). */
 	readonly expiresAt?: number
@@ -214,6 +217,8 @@ export interface JobProcess {
 export interface StartJobParams {
 	readonly owner: string
 	readonly command: string
+	/** A short label for a command that is not a monitor; see {@link BackgroundJob.description}. */
+	readonly description?: string
 	readonly workingDirectory: string
 	readonly env?: Readonly<Record<string, string>>
 	/**
@@ -793,6 +798,9 @@ export class BackgroundJobRegistry {
 				status: 'running',
 				startedAt,
 				...(outputFile !== undefined ? { outputFile } : {}),
+				...(!monitor && params.description !== undefined
+					? { description: params.description }
+					: {}),
 				...(monitor
 					? {
 							kind: 'monitor' as const,
@@ -1447,7 +1455,7 @@ export function bindOwner(
 		return job
 	}
 	const launch = (
-		params: { command: string; workingDirectory?: string },
+		params: { command: string; workingDirectory?: string; description?: string },
 		monitor?: StartJobParams['monitor'],
 	): BackgroundJob => {
 		const workingDirectory = params.workingDirectory ?? defaults.workingDirectory ?? process.cwd()
@@ -1457,6 +1465,7 @@ export function bindOwner(
 			owner,
 			command: params.command,
 			workingDirectory,
+			...(!monitor && params.description !== undefined ? { description: params.description } : {}),
 			...(jobsFolder !== undefined ? { outputDirectory: jobsFolder } : {}),
 			...(defaults.env ? { env: defaults.env } : {}),
 			...(spawnHost
@@ -1475,7 +1484,8 @@ export function bindOwner(
 	const clampMonitorTimeout = (requested: number): number =>
 		Math.min(requested, defaults.monitorTimeoutCapMs ?? MONITOR_TIMEOUT_CAP_MS)
 	return {
-		start: (params: { command: string; workingDirectory?: string }) => launch(params),
+		start: (params: { command: string; workingDirectory?: string; description?: string }) =>
+			launch(params),
 		// The same spawn, owner and cap as `start`, plus a deadline. The timeout
 		// is clamped to the host's ceiling and the clamped value is returned, so
 		// the number the model is told is the number that will fire.
@@ -1519,6 +1529,7 @@ export function bindOwner(
 		// running, with what it has written so far.
 		adopt: (params: {
 			command: string
+			description?: string
 			child: ReturnType<typeof spawn>
 			workingDirectory?: string
 			initialOutput?: StartJobParams['initialOutput']
@@ -1526,6 +1537,7 @@ export function bindOwner(
 			registry.start({
 				owner,
 				command: params.command,
+				...(params.description !== undefined ? { description: params.description } : {}),
 				workingDirectory: params.workingDirectory ?? defaults.workingDirectory ?? process.cwd(),
 				spawn: () => ({ child: params.child }),
 				hostOutput: true,

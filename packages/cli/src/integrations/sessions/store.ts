@@ -1264,6 +1264,20 @@ export async function seedConversationHistory(
 	)
 }
 
+/** Save the mode a conversation is in, so a resume can bring plan mode back. */
+export async function recordPermissionMode(
+	s: Pick<CliSessions, 'paths' | 'slug' | 'index'>,
+	sessionId: SessionId,
+	mode: string,
+): Promise<void> {
+	await appendOutsideTurn(
+		s,
+		sessionId,
+		[{ type: 'session_updated', approvalPolicy: mode }],
+		'save the permission mode',
+	)
+}
+
 /**
  * Continue in a copy, leaving the original where it is.
  *

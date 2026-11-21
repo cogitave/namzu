@@ -83,7 +83,7 @@ export const JobTool = defineTool({
 			if (all.length === 0) return { success: true, output: 'No background jobs.' }
 			const now = Date.now()
 			const lines = all.map((job) => {
-				const label = job.kind === 'monitor' ? (job.description ?? job.command) : job.command
+				const label = job.description ?? job.command
 				if (job.startedAt === undefined) {
 					return `${job.id}  ${job.status.padEnd(8)}  ${job.kind === 'monitor' ? `monitor · ${label}` : label}`
 				}

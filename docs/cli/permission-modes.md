@@ -45,6 +45,8 @@ Under `strict`, `auto` and the unattended mode a refused call is not followed by
 
 ### The cycle
 
+A conversation left in `plan` comes back in `plan` when it is continued (`-c`) or resumed (`/resume`), unless the launch named a mode with `--permission-mode` or a bypass flag. The mode is saved with the conversation as a small record, written only when plan mode is entered or left; no other mode is brought back, so a continued conversation starts in your usual mode.
+
 Shift+Tab walks `prompt`, `accept-edits`, `plan`, then `bypass` when it is available, then `auto` when it is available, then back to `prompt`. A door that is shut has no stop. `strict` is not on the cycle, and leaving it goes to `prompt`. It works mid-turn: the next decision of the running turn, and of its sub-agents, takes the new mode, and the footer is its only reply.
 
 The footer names the mode: `⏵⏵ bypass permissions on` in red, `⏵⏵ auto mode on` in yellow, `⏵⏵ accept edits on`, `‖ plan mode on`, `‖ preapproved only on`.

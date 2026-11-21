@@ -14,6 +14,7 @@ import {
 } from '../integrations/subagents/activity.js'
 import { launchLabel } from './agent-transcript-rows.js'
 import { isRunning } from './background-agents.js'
+import { jobLabel } from './job-exit-row.js'
 
 export type BackgroundSection = 'shells' | 'monitors' | 'agents' | 'timers' | 'completed'
 
@@ -104,7 +105,7 @@ export function backgroundRows(
 export function rowLabel(row: BackgroundRow): string {
 	if (row.kind === 'timer') return row.timer.prompt
 	if (row.kind === 'agent') return launchLabel(row.agent)
-	return row.job.kind === 'monitor' ? (row.job.description ?? row.job.command) : row.job.command
+	return row.job.kind === 'monitor' ? (row.job.description ?? row.job.command) : jobLabel(row.job)
 }
 
 export type RowMeta = 'running' | 'done' | 'error' | 'stopped' | 'failed' | 'killed' | 'waiting'

@@ -14,6 +14,10 @@ generated: { by: human:bahadirarda, at: 2026-09-02T00:00:00Z }
 
 The model passes `run_in_background: true` to `bash` for work that legitimately outlasts a tool call: a dev server, a watcher, a long build. The call returns the job's id at once and the turn goes on. The `job` tool reads a job's output (`action: read`, with the previous call's `next_offset` to see only what is new), lists them, or stops one. A foreground command that runs past its `timeout` becomes such a job too instead of being killed (see [Timeouts and output](../sdk/bash-tool.md#timeouts-and-output)); `/tasks` and the `N shells` pill show it like any other, and Desktop lists it in [its Background tasks pane](desktop.md#the-background-tasks-pane). To find out whether a job has finished, use `wait_for_job` (below) rather than calling `job` with `action: read` in a loop — `job`'s own description says so.
 
+# What a job is called
+
+`bash` takes an optional `description`, a few plain words for what the command does ("Run full test suite"). A job started with one (a `run_in_background` call, or a command that was moved to the background) keeps it as `BackgroundJob.description`, and the CLI uses it wherever it names the job to a person: the row when it ends (`Background command "Run full test suite" finished (exit code 0)`), the `/tasks` list, and a `Task:` line in the job's detail view. A job without one is named by its command, shortened to its first line with a leading `cd <folder> &&` dropped. The model's cursor line at the end of a `job` or `wait_for_job` result (`[job <id> is exited with code 0; next_offset 2010; the whole output is in <path>]`) is not shown in the transcript; the model still reads it.
+
 # Where a job's output is kept
 
 Every job's whole output (stdout and stderr, in the order they arrived) is also
