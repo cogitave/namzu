@@ -66,6 +66,8 @@ export function sessionDisplayName(session: {
 /** A live session of this machine, as a host reports it. `conversationId` never goes on the wire. */
 export interface LocalSession extends RosterSession {
 	readonly conversationId?: string
+	/** The terminal is in a mode that skips permission prompts; every message to it is held. Never on the wire. */
+	readonly bypass?: boolean
 }
 
 export type MachineStatus = 'self' | 'online' | 'offline'

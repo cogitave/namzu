@@ -146,6 +146,8 @@ export const JoinPendingRequestSchema = z
 		sourceAddr: z.string().max(80),
 		createdAt: z.number().int().nonnegative(),
 		viaMachineId: MachineIdSchema,
+		/** The joiner's key, SPKI DER base64, so any member can sign its admission. */
+		publicKey: z.string().min(1).max(256),
 	})
 	.strict()
 export type JoinPendingRequest = z.infer<typeof JoinPendingRequestSchema>
