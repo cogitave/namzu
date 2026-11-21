@@ -3,6 +3,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	readdirSync,
 	rmSync,
 	statSync,
 	symlinkSync,
@@ -291,6 +292,30 @@ describe('AccountRegistry', () => {
 		const registry = createAccountRegistry({ home: dir, lockWait: () => rmSync(lock) })
 		registry.add({ provider: 'openai', label: 'a', kind: 'api-key', apiKey: 'k' })
 		expect(registry.get('openai:a')).toBeDefined()
+	})
+
+	it('keeps the store as it was in backups/ before a change, and no removed key in any copy', () => {
+		const dir = home()
+		let clock = Date.UTC(2026, 10, 21)
+		const registry = createAccountRegistry({ home: dir, now: () => new Date(clock) })
+		registry.add({ provider: 'openai', label: 'a', kind: 'api-key', apiKey: 'sk-keep-me' })
+		clock += 61_000
+		registry.add({ provider: 'openai', label: 'b', kind: 'api-key', apiKey: 'sk-drop-me' })
+		clock += 61_000
+		// A damaged copy holds the key too; the key goes, the rest of it stays.
+		const backups = join(dir, 'backups')
+		writeFileSync(join(backups, 'accounts.json.corrupt-1'), '{"keys": {"x": "sk-drop-me"')
+		registry.remove('openai:b')
+		const copies = ['accounts.json.backup.', 'accounts.json.corrupt-'].flatMap((prefix) =>
+			readdirSync(backups).filter((name) => name.startsWith(prefix)),
+		)
+		expect(copies.length).toBeGreaterThanOrEqual(3)
+		const texts = copies.map((name) => readFileSync(join(backups, name), 'utf8'))
+		expect(texts.some((text) => text.includes('sk-keep-me'))).toBe(true)
+		expect(texts.some((text) => text.includes('sk-drop-me'))).toBe(false)
+		expect(readFileSync(join(backups, 'accounts.json.corrupt-1'), 'utf8')).toBe('{"keys": {"x": ""')
+		if (process.platform !== 'win32')
+			for (const name of copies) expect(statSync(join(backups, name)).mode & 0o777).toBe(0o600)
 	})
 
 	it('rejects a Codex directory that overlaps another account and never deletes a nested one', () => {

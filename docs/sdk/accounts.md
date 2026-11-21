@@ -64,7 +64,12 @@ store that is not valid JSON or not version 1 is refused, never replaced.
 - `list(provider?)`, `get(id)`: defaults first, then stored accounts in creation order.
 - `add`, `rename`, `remove`: a mutation holds `accounts.json.lock` and is refused
   while another live owner holds it, after a short wait (`lockWait` replaces the
-  wait). A lock whose recording process has exited is reclaimed on its own.
+  wait). A lock whose recording process has exited is reclaimed on its own. The
+  lock is the shared [state file lock](state-files.md), and `AccountLockError` is a
+  `FileLockError`. Before each write the store as it was is copied to
+  `<home>/backups/accounts.json.backup.<epoch ms>` (mode 0600, at most one a minute,
+  five kept). `remove` of an API-key account also takes that key out of every copy:
+  its entry goes from each copy that parses, and its text is cut out of a damaged one.
   A Codex directory may not equal, contain or sit inside another account's
   directory, symlinks are resolved before that check, and `remove` never deletes a
   directory that still holds another account's. Renaming changes
