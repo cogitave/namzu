@@ -1206,6 +1206,12 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		)
 	}
 
+	/** The name a joiner gave itself, so the members that let it in show it before its own greeting arrives. */
+	function rememberJoinerName(machineId: string, name: string): void {
+		if (peerState.has(machineId)) return
+		peerState.set(machineId, { name: sanitizeName(name), addresses: [], online: false })
+	}
+
 	async function handleJoinDecision(
 		request: Extract<NetRequest, { op: 'join_decision' }>,
 		from: string,
@@ -1218,7 +1224,10 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		if (!entry.local) {
 			// Another member decided about a request that went through a third machine: just settle it.
 			joiners.settle(request.requestId, request.decision)
-			if (request.admission) await mergeIn([request.admission], [])
+			if (request.admission) {
+				rememberJoinerName(request.admission.machineId, entry.name)
+				await mergeIn([request.admission], [])
+			}
 			emit({ type: 'join-settled', requestId: request.requestId, result: request.decision })
 			return { ok: true }
 		}
@@ -1233,6 +1242,7 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 				conn?.close()
 				return { ok: false }
 			}
+			rememberJoinerName(a.machineId, entry.name)
 			await mergeIn([a], [])
 			if (!isMember(a.machineId)) {
 				conn?.write({ status: 'refused', reason: 'The admission did not check out.' })

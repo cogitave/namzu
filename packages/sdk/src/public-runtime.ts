@@ -2083,6 +2083,7 @@ export {
 	BROWSE_WINDOW_MS,
 	DEFAULT_LISTEN_PORT,
 	HOLD_EXPIRY_MS,
+	HoldQueue,
 	MAX_HELD_PER_TERMINAL,
 	MAX_NET_LINE_BYTES,
 	MAX_PREAUTH_LINE_BYTES,
@@ -2116,6 +2117,7 @@ export {
 	sanitizeRole,
 	sessionDisplayName,
 	sessionLabel,
+	SlidingCounter,
 	systemClock,
 	textHash,
 } from './network/index.js'

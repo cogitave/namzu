@@ -45,8 +45,20 @@ export type { NetworkStore, NetworkStoreOptions } from './store.js'
 export { formatJoinCode, joinCode } from './join.js'
 export type { PendingJoin } from './join.js'
 
-export { HOLD_EXPIRY_MS, MAX_HELD_PER_TERMINAL, decideMail } from './mail-policy.js'
-export type { MailDecision, MailDecisionInput, MailSetting } from './mail-policy.js'
+export {
+	HOLD_EXPIRY_MS,
+	HoldQueue,
+	MAX_HELD_PER_TERMINAL,
+	SlidingCounter,
+	decideMail,
+} from './mail-policy.js'
+export type {
+	HeldEntry,
+	HoldQueueOptions,
+	MailDecision,
+	MailDecisionInput,
+	MailSetting,
+} from './mail-policy.js'
 
 export { generateMachineKey } from './identity.js'
 export type { MachineKey } from './identity.js'

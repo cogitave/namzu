@@ -276,6 +276,9 @@ describe('creating and joining a network', () => {
 		])
 		expect(a.svc.pendingJoins()).toEqual([])
 		await b.until((e) => e.type === 'join-settled' && e.result === 'allow')
+		// The member the joiner reached shows it by the name it gave, before the joiner's own greeting arrives.
+		const reached = onB.request.local ? b : a
+		expect(reached.svc.members().map((m) => m.name)).toContain('mini')
 	})
 
 	it('does not join without an Allow, and a second decision is refused', async () => {

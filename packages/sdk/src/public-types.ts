@@ -762,6 +762,8 @@ export type {
 	MailDecisionInput,
 	MailSetting,
 	ManualClock,
+	HeldEntry,
+	HoldQueueOptions,
 	MachineKey,
 	MdnsOptions,
 	MembershipState,
