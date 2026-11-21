@@ -38,7 +38,11 @@
       "undici@<7": "^6.29.1",
       "fast-uri": "^3.1.9",
       "smol-toml": "^1.9.0",
-      "source-map-js": "^1.2.2"
+      "source-map-js": "^1.2.2",
+      "@lmstudio/sdk>zod": "4.6.7"
+    },
+    "patchedDependencies": {
+      "@lmstudio/sdk@1.5.0": "patches/@lmstudio__sdk@1.5.0.patch"
     }
   },
   "engines": {

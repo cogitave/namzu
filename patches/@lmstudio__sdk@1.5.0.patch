@@ -1,0 +1,22 @@
+diff --git a/dist/index.cjs b/dist/index.cjs
+index 709caa7fae17b1870f13d20bbc2293208d888d76..750f6859321081c6784f7dcc72ec1fda84033c64 100644
+--- a/dist/index.cjs
++++ b/dist/index.cjs
+@@ -1,6 +1,6 @@
+ 'use strict';
+ 
+-var zod = require('zod');
++var zod = require('zod/v3');
+ var process$1 = require('process');
+ var chalk = require('chalk');
+ var lmsIsomorphic = require('@lmstudio/lms-isomorphic');
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 90f43611a345b5342de33f58fab4ddb4792507d1..b97b2698e64af08724c4916ad5662410d8b6c55c 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -1,4 +1,4 @@
+-import { z } from 'zod';
++import { z } from 'zod/v3';
+ import process$1 from 'process';
+ import chalk from 'chalk';
+ import { terminalSize, WebSocket, readFileAsBase64, generateRandomBase64 } from '@lmstudio/lms-isomorphic';
