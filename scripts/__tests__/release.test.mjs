@@ -2,7 +2,7 @@
 // The decision logic of scripts/release.mjs with injected runners: no npm, gh, git or registry is called.
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { Refusal, compareVersions, main, parseGateProof } from '../release.mjs'
+import { Refusal, authUrl, compareVersions, dependencyOrder, main, parseGateProof } from '../release.mjs'
 
 const TREE = 'a'.repeat(40)
 const HEAD = 'b'.repeat(40)
@@ -29,6 +29,10 @@ function world(over = {}) {
 		registry: new Set(), // "name@version" present
 		visibleAfter: 0, // view calls that fail before a published version shows
 		views: new Map(),
+		streams: [], // [cmd args] of every streamed command
+		publishLines: {}, // package name -> lines npm prints
+		failPublish: null, // package name whose publish exits 1
+		streamedLive: [], // order of onLine calls relative to logs
 		tags: '@namzu/sdk@2.0.0\n@namzu/cli@3.0.0\n',
 		...over,
 	}
@@ -49,6 +53,19 @@ function world(over = {}) {
 		exists: (p) => w.files.has(p),
 		readDir: (p) => w.dirs?.[p] ?? [],
 		sha512: () => 'SUM',
+		stream: async (cmd, args, opts) => {
+			w.calls.push([cmd, ...args])
+			w.streams.push([cmd, ...args])
+			const name = args[1]
+			for (const line of w.publishLines[name] ?? []) {
+				opts.onLine(line)
+				w.streamedLive.push(w.logs.length)
+			}
+			if (name === w.failPublish) return { status: 1 }
+			w.published = true
+			w.views.clear()
+			return { status: 0 }
+		},
 		run: (cmd, args, opts) => {
 			w.calls.push([cmd, ...args])
 			const k = `${cmd} ${args.join(' ')}`
@@ -68,11 +85,6 @@ function world(over = {}) {
 				if (w.published && n > w.visibleAfter) return ok(`${id.slice(id.lastIndexOf('@') + 1)}\n`)
 				return bad('npm error code E404')
 			}
-			if (k.startsWith('pnpm changeset publish')) {
-				w.published = true
-				w.views.clear()
-				return ok()
-			}
 			if (w.gh) return w.gh(cmd, args, opts, k)
 			return ok()
 		},
@@ -82,7 +94,7 @@ function world(over = {}) {
 const run = (argv, w) => main(argv, w.deps)
 const refused = async (argv, w, re) => {
 	await assert.rejects(run(argv, w), (e) => e instanceof Refusal && re.test(e.message))
-	assert.ok(!w.calls.some((c) => c.join(' ').startsWith('pnpm changeset publish')), 'must not publish')
+	assert.ok(!w.calls.some((c) => c.join(' ').includes(' publish')), 'must not publish')
 	assert.ok(!w.calls.some((c) => c[0] === 'git' && c[1] === 'push'), 'must not push')
 }
 
@@ -123,7 +135,7 @@ test('skips a version already on the registry and publishes nothing when all exi
 	const r = await run(['local'], w)
 	assert.deepEqual(r.published, [])
 	assert.ok(w.logs.some((l) => l.includes('skip @namzu/sdk@2.0.0')))
-	assert.ok(!w.calls.some((c) => c.join(' ').startsWith('pnpm changeset publish')))
+	assert.ok(!w.calls.some((c) => c.join(' ').includes(' publish')))
 })
 test('a registry error that is not a 404 refuses', async () => {
 	const w = world()
@@ -140,20 +152,100 @@ test('dry run runs the checks, lists the packages and does not publish or push',
 	assert.ok(cmds.some((c) => c.includes('verify-consumer-install.sh')))
 	assert.ok(cmds.some((c) => c.includes('check-publish-metadata.mjs')))
 	assert.ok(cmds.includes('npm whoami'))
-	assert.ok(!cmds.some((c) => c.startsWith('pnpm changeset publish') || c.startsWith('git push')))
+	assert.ok(!cmds.some((c) => c.includes(' publish ') || c.startsWith('git push')))
 })
-test('publishes with --otp, verifies with bounded retries on a fake clock, then pushes tags and writes the note', async () => {
+test('publishes one at a time, verifies with bounded retries on a fake clock, then tags, pushes tags and writes the note', async () => {
 	const w = world({ visibleAfter: 2 })
-	const r = await run(['local', '--otp', '123456'], w)
+	const r = await run(['local'], w)
 	const cmds = w.calls.map((c) => c.join(' '))
-	const pub = cmds.findIndex((c) => c === 'pnpm changeset publish --otp 123456')
+	const pubs = cmds.filter((c) => c.startsWith('pnpm --filter'))
+	assert.deepEqual(pubs, [
+		'pnpm --filter @namzu/sdk publish --access public --no-git-checks',
+		'pnpm --filter @namzu/cli publish --access public --no-git-checks',
+	])
+	const pub = cmds.indexOf(pubs[1])
 	const push = cmds.findIndex((c) => c.startsWith('git push origin'))
-	assert.ok(pub >= 0 && push > pub, 'tags are pushed after the publish')
+	assert.ok(push > pub, 'tags are pushed after the publish')
 	const lastView = cmds.map((c, i) => (c.startsWith('npm view') && i > pub ? i : -1)).reduce((a, b) => Math.max(a, b))
 	assert.ok(push > lastView, 'tags are pushed only after verification')
 	assert.deepEqual(w.sleeps, [2000, 4000, 2000, 4000])
 	assert.equal(cmds[push], 'git push origin refs/tags/@namzu/sdk@2.0.0 refs/tags/@namzu/cli@3.0.0')
 	assert.match(w.files.get(r.notePath), /@namzu\/sdk@2\.0\.0/)
+	assert.ok(w.logs.some((l) => /may offer to not ask again/.test(l)), 'the remember-me hint is said once')
+	assert.equal(w.logs.filter((l) => /may offer to not ask again/.test(l)).length, 1)
+})
+test('the approval URL is echoed on its own marked line, as npm prints it', async () => {
+	const w = world()
+	w.publishLines['@namzu/sdk'] = [
+		'npm notice publishing',
+		'npm notice Authenticate your account at: https://www.npmjs.com/auth/cli/abc-123',
+		'npm notice Authenticate your account at: https://www.npmjs.com/auth/cli/abc-123',
+	]
+	await run(['local'], w)
+	const lines = w.logs.filter((l) => l.includes('Approve in your browser'))
+	assert.deepEqual(lines, ['Approve in your browser: https://www.npmjs.com/auth/cli/abc-123'])
+})
+test('output is streamed per line while npm runs, not after it exits', async () => {
+	const w = world()
+	w.publishLines['@namzu/sdk'] = ['x', 'Authenticate your account at: https://www.npmjs.com/auth/cli/u']
+	await run(['local'], w)
+	// the echo is logged during the stream, before the next package starts
+	const echo = w.logs.findIndex((l) => l.startsWith('Approve in your browser'))
+	const next = w.logs.findIndex((l) => l.startsWith('publishing @namzu/cli'))
+	assert.ok(echo >= 0 && echo < next)
+	assert.ok(w.calls.every((c) => c[0] !== 'pnpm' || c[1] !== 'changeset'), 'no buffered changeset publish')
+})
+test('the real stream runner closes stdin and never sets a timeout', async () => {
+	const { readFileSync } = await import('node:fs')
+	const src = readFileSync(new URL('../release.mjs', import.meta.url), 'utf8')
+	assert.match(src, /stdio: \['ignore', 'pipe', 'pipe'\]/)
+	assert.doesNotMatch(src, /timeout\s*:/)
+})
+test('a failure half way reports published vs not and how to resume, and pushes no tags', async () => {
+	const w = world({ failPublish: '@namzu/cli' })
+	w.publishLines['@namzu/cli'] = ['npm error code EOTP-expired']
+	await assert.rejects(run(['local'], w), (e) => {
+		assert.ok(e instanceof Refusal)
+		assert.match(e.message, /Already published: @namzu\/sdk@2\.0\.0/)
+		assert.match(e.message, /Not published: @namzu\/cli@3\.0\.0/)
+		assert.match(e.message, /run the same command again/)
+		assert.match(e.message, /npm said:/)
+		return true
+	})
+	assert.ok(!w.calls.some((c) => c[0] === 'git' && c[1] === 'push'))
+})
+test('the first failure stops: later packages are not attempted', async () => {
+	const w = world({ failPublish: '@namzu/sdk' })
+	await assert.rejects(run(['local'], w), /Already published: none/)
+	assert.equal(w.streams.length, 1)
+})
+test('re-running after a partial publish skips what the registry has and publishes the rest', async () => {
+	const w = world({ registry: new Set(['@namzu/sdk@2.0.0']) })
+	const r = await run(['local'], w)
+	assert.deepEqual(r.published.map((p) => p.name), ['@namzu/cli'])
+	assert.deepEqual(w.streams.map((c) => c[2]), ['@namzu/cli'])
+	assert.ok(w.logs.some((l) => l.includes('skip @namzu/sdk@2.0.0')))
+})
+test('--otp is not a flag and nothing in the command mentions it', async () => {
+	const { readFileSync } = await import('node:fs')
+	const src = readFileSync(new URL('../release.mjs', import.meta.url), 'utf8')
+	assert.doesNotMatch(src, /otp/i)
+	const w = world()
+	await run(['local', '--otp', '123456'], w)
+	assert.ok(!w.calls.some((c) => c.join(' ').includes('123456') && c[0] !== 'node'))
+	assert.ok(!w.streams.some((c) => c.includes('--otp')))
+})
+test('authUrl finds the approval link and ignores other lines', () => {
+	assert.equal(authUrl('Authenticate your account at: https://www.npmjs.com/auth/cli/z.'), 'https://www.npmjs.com/auth/cli/z')
+	assert.equal(authUrl('npm notice https://registry.npmjs.org/x'), null)
+})
+test('dependencyOrder puts a package after the workspace packages it needs', () => {
+	const files = { '/a/package.json': '{"dependencies":{"b":"1"}}', '/b/package.json': '{}' }
+	const out = dependencyOrder({ readFile: (p) => files[p] }, [
+		{ name: 'a', path: '/a' },
+		{ name: 'b', path: '/b' },
+	])
+	assert.deepEqual(out.map((p) => p.name), ['b', 'a'])
 })
 test('a version that never shows leaves the tags unpushed', async () => {
 	const w = world({ visibleAfter: 99 })
@@ -180,7 +272,7 @@ test('version stops after showing the bumps', async () => {
 		return orig(c, a, o)
 	}
 	const bumps = await run(['version'], w)
-	assert.deepEqual(bumps, [{ name: '@namzu/cli', version: '3.0.0' }])
+	assert.deepEqual(bumps.map((b) => [b.name, b.version]), [['@namzu/cli', '3.0.0']])
 	assert.ok(w.logs.some((l) => l.includes('2.9.0 -> 3.0.0')))
 })
 test('compareVersions orders like sort -V', () => {

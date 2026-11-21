@@ -14,7 +14,7 @@
  * decision logic is tested without npm, gh or a registry (scripts/__tests__/release.test.mjs).
  * Read docs/cli/releasing.md before the first real run.
  */
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
@@ -38,7 +38,6 @@ export function parseArgs(argv) {
 	const flags = {}
 	const valued = new Set([
 		'gates',
-		'otp',
 		'summary',
 		'installer',
 		'version',
@@ -143,7 +142,32 @@ function publishablePackages(deps) {
 	const out = must(deps, 'pnpm', ['list', '-r', '--depth', '-1', '--json'], 'listing packages')
 	return JSON.parse(out)
 		.filter((p) => p.name && p.version && p.private !== true && p.name !== 'namzu')
-		.map((p) => ({ name: p.name, version: p.version }))
+		.map((p) => ({ name: p.name, version: p.version, path: p.path }))
+}
+
+/** Orders packages so each comes after the workspace packages it depends on (what changeset publish does). */
+export function dependencyOrder(deps, pkgs) {
+	const names = new Set(pkgs.map((p) => p.name))
+	const needs = new Map(
+		pkgs.map((p) => {
+			let manifest = {}
+			try {
+				if (p.path) manifest = JSON.parse(deps.readFile(join(p.path, 'package.json')))
+			} catch {}
+			const all = { ...manifest.dependencies, ...manifest.optionalDependencies, ...manifest.peerDependencies }
+			return [p.name, Object.keys(all).filter((n) => names.has(n) && n !== p.name)]
+		}),
+	)
+	const out = []
+	const state = new Map()
+	const visit = (p) => {
+		if (state.get(p.name)) return
+		state.set(p.name, true)
+		for (const n of needs.get(p.name)) visit(pkgs.find((q) => q.name === n))
+		out.push(p)
+	}
+	for (const p of pkgs) visit(p)
+	return out
 }
 
 /** true when the registry has exactly this version; false on a clean 404; refuses on anything else. */
@@ -177,6 +201,32 @@ export function versionStep(flags, deps) {
 	return bumps
 }
 
+/** The line npm prints while it waits for the browser: "Authenticate your account at: https://...". */
+export function authUrl(line) {
+	if (!/auth/i.test(line)) return null
+	return /https?:\/\/\S+/.exec(line)?.[0].replace(/[.,;)]+$/, '') ?? null
+}
+
+/**
+ * Publishes one package with npm's own output streamed live. It never times out: npm waits for the browser
+ * approval and has its own limit. The approval URL is echoed again on its own line so it is not lost.
+ */
+async function publishOne(deps, p) {
+	const seen = new Set()
+	let tail = ''
+	const r = await deps.stream('pnpm', ['--filter', p.name, 'publish', '--access', 'public', '--no-git-checks'], {
+		onLine: (line) => {
+			if (/\b(npm )?error\b/i.test(line)) tail = line.replace(/^npm (error|ERR!)\s*/i, '').trim() || tail
+			const url = authUrl(line)
+			if (url && !seen.has(url)) {
+				seen.add(url)
+				deps.log(`Approve in your browser: ${url}`)
+			}
+		},
+	})
+	return { status: r.status, tail }
+}
+
 // ---- pnpm release local ----------------------------------------------------------------------
 
 export async function releaseLocal(flags, deps) {
@@ -202,7 +252,7 @@ export async function releaseLocal(flags, deps) {
 	deps.log(`npm: signed in as ${who.stdout.trim()}`)
 
 	const toPublish = []
-	for (const p of publishablePackages(deps)) {
+	for (const p of dependencyOrder(deps, publishablePackages(deps))) {
 		if (onRegistry(deps, p.name, p.version)) deps.log(`skip ${p.name}@${p.version}: already on the registry`)
 		else toPublish.push(p)
 	}
@@ -217,9 +267,27 @@ export async function releaseLocal(flags, deps) {
 		return { published: [], tags: [], dryRun: true, toPublish }
 	}
 
-	const args = ['changeset', 'publish']
-	if (flags.otp) args.push('--otp', flags.otp)
-	must(deps, 'pnpm', args, 'changeset publish', { inherit: true })
+	deps.log(
+		'\nnpm will open a browser approval for each package. The approval page may offer to not ask again for a few\n' +
+			'minutes from this address; accepting it saves one approval per package. Nothing here reads the keyboard.\n',
+	)
+	const done = []
+	for (const p of toPublish) {
+		const id = `${p.name}@${p.version}`
+		deps.log(`publishing ${id} (${done.length + 1}/${toPublish.length})`)
+		const r = await publishOne(deps, p)
+		if (r.status !== 0) {
+			const left = toPublish.slice(done.length).map((q) => `${q.name}@${q.version}`)
+			fail(
+				`publishing ${id} failed (exit ${r.status}). ` +
+					`${r.tail ? `npm said: ${r.tail}\n` : ''}` +
+					`Already published: ${done.length ? done.join(', ') : 'none'}.\n` +
+					`Not published: ${left.join(', ')}.\n` +
+					'Tags were NOT pushed. To resume, run the same command again: it skips every version already on the registry.',
+			)
+		}
+		done.push(id)
+	}
 
 	const missing = []
 	for (const p of toPublish) {
@@ -243,7 +311,8 @@ export async function releaseLocal(flags, deps) {
 	deps.log('registry: every published version is visible')
 
 	const existing = new Set(must(deps, 'git', ['tag', '--list'], 'listing tags').split('\n').map((s) => s.trim()))
-	const tags = toPublish.map((p) => `${p.name}@${p.version}`).filter((t) => existing.has(t))
+	const tags = toPublish.map((p) => `${p.name}@${p.version}`)
+	for (const t of tags) if (!existing.has(t)) must(deps, 'git', ['tag', t], `tagging ${t}`)
 	if (tags.length > 0) {
 		must(deps, 'git', ['push', 'origin', ...tags.map((t) => `refs/tags/${t}`)], 'pushing tags')
 		deps.log(`tags pushed: ${tags.join(', ')}`)
@@ -260,7 +329,7 @@ export async function releaseLocal(flags, deps) {
 			'',
 			...toPublish.map((p) => `- ${p.name}@${p.version}`),
 			'',
-			`Tags pushed: ${tags.length ? tags.join(', ') : 'none (changesets made no tag)'}`,
+			`Tags pushed: ${tags.length ? tags.join(', ') : 'none (none)'}`,
 			'',
 		].join('\n'),
 	)
@@ -422,7 +491,7 @@ export async function main(argv, deps) {
 	if (cmd === 'record-gates') return recordGates(flags, deps)
 	if (cmd === 'desktop' && sub === 'publish') return desktopPublish(flags, deps)
 	if (cmd === 'desktop' && sub === undefined) return desktopStage(flags, deps)
-	fail('usage: pnpm release <version | local [--dry-run] [--gates <summary>] [--otp <code>] | record-gates --summary <file> | desktop [publish] ...>\nSee docs/cli/releasing.md.')
+	fail('usage: pnpm release <version | local [--dry-run] [--gates <summary>] | record-gates --summary <file> | desktop [publish] ...>\nSee docs/cli/releasing.md.')
 }
 
 export function realDeps(root) {
@@ -438,6 +507,32 @@ export function realDeps(root) {
 				maxBuffer: 64 * 1024 * 1024,
 			})
 			return { status: r.status ?? 1, stdout: r.stdout ?? '', stderr: r.stderr ?? (r.error ? String(r.error) : '') }
+		},
+		stream(cmd, args, opts = {}) {
+			return new Promise((res) => {
+				// stdin is closed: nothing here may wait for a keyboard.
+				const child = spawn(cmd, args, { cwd: root, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
+				const pump = (src, out) => {
+					let buf = ''
+					src.on('data', (d) => {
+						out.write(d)
+						buf += d.toString('utf8')
+						let i
+						while ((i = buf.indexOf('\n')) >= 0) {
+							opts.onLine?.(buf.slice(0, i).replace(/\r$/, ''))
+							buf = buf.slice(i + 1)
+						}
+					})
+					src.on('end', () => buf && opts.onLine?.(buf))
+				}
+				pump(child.stdout, process.stdout)
+				pump(child.stderr, process.stderr)
+				child.on('error', (e) => {
+					console.error(String(e))
+					res({ status: 1 })
+				})
+				child.on('close', (code) => res({ status: code ?? 1 }))
+			})
 		},
 		readFile: (p) => readFileSync(p, 'utf8'),
 		writeFile: (p, t) => writeFileSync(p, t),
