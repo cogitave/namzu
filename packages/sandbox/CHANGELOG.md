@@ -1,5 +1,47 @@
 # @namzu/sandbox
 
+## 41.0.0
+
+### Patch Changes
+
+- Updated dependencies [6744aa7]
+- Updated dependencies [db1019a]
+- Updated dependencies [7fa32b6]
+- Updated dependencies [5f0611a]
+- Updated dependencies [4b31a12]
+- Updated dependencies [e350ce6]
+- Updated dependencies [db1019a]
+- Updated dependencies [db1019a]
+- Updated dependencies [3eda627]
+- Updated dependencies [38299fb]
+- Updated dependencies [2d0d863]
+- Updated dependencies [c385adc]
+- Updated dependencies [b39dfb0]
+- Updated dependencies [db1019a]
+- Updated dependencies [db1019a]
+- Updated dependencies [85cf094]
+- Updated dependencies [1090dd3]
+- Updated dependencies [123e225]
+- Updated dependencies [16896ad]
+- Updated dependencies [e31b74f]
+- Updated dependencies [78631cb]
+- Updated dependencies [20e79e3]
+- Updated dependencies [db1019a]
+- Updated dependencies [db1019a]
+- Updated dependencies [3eda627]
+- Updated dependencies [16896ad]
+- Updated dependencies [d715cc7]
+- Updated dependencies [666b0fb]
+- Updated dependencies [3eda627]
+- Updated dependencies [c2840a1]
+- Updated dependencies [f91386d]
+- Updated dependencies [12f8afd]
+- Updated dependencies [78631cb]
+- Updated dependencies [c2840a1]
+- Updated dependencies [db1019a]
+- Updated dependencies [75c6f70]
+  - @namzu/sdk@66.0.0
+
 ## 40.0.0
 
 ### Patch Changes

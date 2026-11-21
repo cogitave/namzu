@@ -107,8 +107,10 @@ file the list does not name or a listed file that is missing or changed. The fil
 checked again at **every start**: a file changed on disk after install stops the next
 start with `tampered`.
 
-Publisher keys are compiled into the build. This build trusts none yet, so no package can
-be added to it; a developer key is trusted only when **both** `NAMZU_EXTENSION_DEV=1` and
+Publisher keys are compiled into the build. A key belongs to one publisher and may sign only
+the ids it covers: this build trusts Cogitave's key `cogitave-2026`, for publisher `cogitave`
+and ids starting with `com.cogitave.`. A package signed by any other key is refused with "This
+file was not signed by a publisher Namzu trusts". A developer key is trusted only when **both** `NAMZU_EXTENSION_DEV=1` and
 `NAMZU_EXTENSION_TEST_PUBLIC_KEY=<keyId>:<base64>` are set, and then everything prints
 `DEV KEY`. There is no "trust this key" button and no trust on first use.
 

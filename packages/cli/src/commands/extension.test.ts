@@ -345,10 +345,10 @@ describe('E24: validate says rule and path for each refusal', () => {
 	})
 	it('a package: signed fine and checked, a zip-slip refused, an untrusted key still has its hashes checked and is marked NOT verified', async () => {
 		const good = nzx('good.nzx')
-		// No key is trusted in a plain environment: the structure and hashes pass, the signature is NOT proven, and it says so.
+		// A test key is not trusted in a plain environment: the structure and hashes pass, the signature is NOT proven, and it says so.
 		expect(await run('validate', good)).toBe(0)
 		expect(out.join('\n')).toMatch(
-			/Signature: NOT verified: No trusted publisher keys in this build/,
+			/Signature: NOT verified: This file was not signed by a publisher Namzu trusts \(key pub-cmd\)/,
 		)
 		out.length = 0
 		const slip = join(dir, 'slip.nzx')

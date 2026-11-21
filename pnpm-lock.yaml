@@ -13,6 +13,12 @@ overrides:
   fast-uri: ^3.1.9
   smol-toml: ^1.9.0
   source-map-js: ^1.2.2
+  '@lmstudio/sdk>zod': 4.6.7
+
+patchedDependencies:
+  '@lmstudio/sdk@1.5.0':
+    hash: 834cc9a480f1e6ae79a60fc8ffb4e92f3683bebc6747dcd4d5fca6c3bb494b53
+    path: patches/@lmstudio__sdk@1.5.0.patch
 
 importers:
 
@@ -590,7 +596,7 @@ importers:
     dependencies:
       '@lmstudio/sdk':
         specifier: ^1.5.0
-        version: 1.5.0
+        version: 1.5.0(patch_hash=834cc9a480f1e6ae79a60fc8ffb4e92f3683bebc6747dcd4d5fca6c3bb494b53)
     devDependencies:
       '@biomejs/biome':
         specifier: ^1.9.4
@@ -4989,9 +4995,6 @@ packages:
     peerDependencies:
       zod: ^3.25.28 || ^4
 
-  zod@3.25.76:
-    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
-
   zod@4.6.7:
     resolution: {integrity: sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==}
 
@@ -5965,13 +5968,13 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  '@lmstudio/sdk@1.5.0':
+  '@lmstudio/sdk@1.5.0(patch_hash=834cc9a480f1e6ae79a60fc8ffb4e92f3683bebc6747dcd4d5fca6c3bb494b53)':
     dependencies:
       '@lmstudio/lms-isomorphic': 0.4.6
       chalk: 4.1.2
       jsonschema: 1.5.0
-      zod: 3.25.76
-      zod-to-json-schema: 3.25.2(zod@3.25.76)
+      zod: 4.6.7
+      zod-to-json-schema: 3.25.2(zod@4.6.7)
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -9554,11 +9557,9 @@ snapshots:
 
   yoga-layout@3.2.1: {}
 
-  zod-to-json-schema@3.25.2(zod@3.25.76):
+  zod-to-json-schema@3.25.2(zod@4.6.7):
     dependencies:
-      zod: 3.25.76
-
-  zod@3.25.76: {}
+      zod: 4.6.7
 
   zod@4.6.7: {}
 

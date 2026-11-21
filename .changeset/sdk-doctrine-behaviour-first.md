@@ -1,5 +1,0 @@
----
-'@namzu/sdk': patch
----
-
-The coding-agent working rules (`CODING_AGENT_WORKING_DOCTRINE`) are reworded and shorter, and the `web_search` and `web_fetch` descriptions now carry the web usage rules. No export is removed or renamed. `CODING_AGENT_DELEGATION_DOCTRINE` loses the fork, explore, worktree and "how is it going" paragraphs (the host's tool descriptions carry those now). `webGuidanceContribution` and `WEB_GUIDANCE_CONTRIBUTION_ID` are marked `@deprecated` and unchanged: the same rules are in the tool descriptions, so a host that registers the contribution can stop, and a host that keeps it only repeats them. The working rules now say: a report that something is broken is a request to fix it, an investigation runs to its cause, finish the whole task and do not end on a plan, compaction is automatic, and an action that is hard to reverse or visible outside the machine is confirmed first. If you matched on the old sentences (for example `Answering a question`), match on the new headings `Finishing the work` and `Questions, problems and investigations`.
