@@ -20,7 +20,7 @@ import { isTrustedReadOnly } from '../tools/trusted-read-only.js'
 import { wrapUntrusted } from '../tools/untrusted-envelope.js'
 import type { ToolResultGuardrailSpec } from '../types/guardrail/index.js'
 import type { Message, SystemMessage, ToolRevealReceipt } from '../types/message/index.js'
-import { PLAN_MODE_REFUSAL } from '../types/permission/index.js'
+import { PLAN_MODE_REFUSAL, PLAN_MODE_REFUSAL_WITH_PLAN_FILE } from '../types/permission/index.js'
 import type {
 	LLMToolSchema,
 	PreparedToolExecution,
@@ -1071,7 +1071,9 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 				if (mode === 'plan') {
 					const isReadOnly = isTrustedReadOnly(tool, finalInput, source)
 					if (!isReadOnly) {
-						const msg = `plan mode: non-read-only tool "${toolName}" blocked. ${PLAN_MODE_REFUSAL}`
+						const msg = `plan mode: non-read-only tool "${toolName}" blocked. ${
+							this.has('exit_plan_mode') ? PLAN_MODE_REFUSAL_WITH_PLAN_FILE : PLAN_MODE_REFUSAL
+						}`
 						span.setAttributes({
 							[NAMZU.TOOL_SUCCESS]: false,
 							[NAMZU.TOOL_ERROR]: msg,

@@ -51,6 +51,12 @@ export interface PathEscalationContext {
 	 * where the paths are the guest's.
 	 */
 	readonly topLevel?: boolean
+	/**
+	 * The session's scratch folder once it is ready (it is one of `roots`). A
+	 * shell word that starts with `$NAMZU_SCRATCH` names a path inside it, so
+	 * it is read as that path instead of as one decided at run time.
+	 */
+	readonly scratchpadDirectory?: string
 }
 
 /**
@@ -128,7 +134,18 @@ export function expandBraces(value: string, limit = 16): string[] {
 function settle(
 	value: string,
 	home: string,
-): { readonly path: string } | { readonly unresolved: true } {
+	scratch?: string,
+):
+	| { readonly path: string }
+	| { readonly unresolved: true; readonly scratch?: never }
+	| { readonly path: string; readonly scratch: true } {
+	if (scratch !== undefined) {
+		const named = /^\$(?:\{NAMZU_SCRATCH\}|NAMZU_SCRATCH)(?=\/|$)/.exec(value)
+		const rest = named === null ? undefined : value.slice(named[0].length)
+		if (rest !== undefined && !/[$`~*?[{]/.test(rest)) {
+			return { path: resolve(scratch, `.${rest}`), scratch: true }
+		}
+	}
 	if (value === '~') return { path: home }
 	if (value.startsWith('~/')) return { path: resolve(home, value.slice(2)) }
 	if (value.startsWith('~')) return { unresolved: true }
@@ -171,6 +188,12 @@ export async function shellEscalations(
 	const outside = new Set<string>()
 	const protectedPaths = new Set<string>()
 	const home = homedir()
+	// The variable names the scratch folder only while the line leaves it alone:
+	// any other mention (`NAMZU_SCRATCH=/etc`, `export`, `unset`) hands it back to run time.
+	const mentions = line.split('NAMZU_SCRATCH').length - 1
+	const reads =
+		line.split('$NAMZU_SCRATCH').length - 1 + (line.split('${NAMZU_SCRATCH}').length - 1)
+	const scratch = mentions === reads ? context.scratchpadDirectory : undefined
 	if (cwd !== undefined) {
 		// A link made earlier in this very line leads somewhere that cannot be
 		// read before the line runs: `ln -s /etc l && cd l && echo x > passwd`
@@ -184,8 +207,9 @@ export async function shellEscalations(
 			.map((value) => resolve(cwd, value))
 		for (const use of access.uses) {
 			for (const spelled of expandBraces(use.path)) {
-				const settled = settle(spelled, home)
-				const unresolved = use.unresolved || 'unresolved' in settled
+				const settled = settle(spelled, home, scratch)
+				const unresolved =
+					('scratch' in settled ? false : use.unresolved) || 'unresolved' in settled
 				const base = 'path' in settled ? settled.path : spelled
 				// Where a relative path may start from. Usually the directory the
 				// line began in; after a literal `cd <relative>` also the directory

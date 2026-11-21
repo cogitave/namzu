@@ -697,3 +697,106 @@ describe('what a turn cannot honestly claim', () => {
 		expect(outcome?.verdict).toBe('checked')
 	})
 })
+
+describe('a piped check whose output shows the runner summary', () => {
+	const window = (text: string) => {
+		const lines = text.split('\n')
+		return { head: text, totalLines: lines.length, totalBytes: text.length }
+	}
+	// Captured from node 24 (`node --test a.test.js 2>&1 | tail -20`), once with
+	// every test passing and once with one failing.
+	const nodePass = `✔ one (0.5238ms)
+✔ two (0.1054ms)
+✔ bad (0.0968ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 53.9183`
+	const nodeFail = nodePass
+		.replace('✔ bad', '✖ bad')
+		.replace('ℹ pass 3', 'ℹ pass 2')
+		.replace('ℹ fail 0', 'ℹ fail 1')
+	const tap = '1..3\n# tests 3\n# suites 0\n# pass 3\n# fail 0\n# cancelled 0'
+	const vitestPass = ' Test Files  2 passed (2)\n      Tests  34 passed (34)\n   Duration  1.2s'
+	const vitestFail = ' Test Files  1 failed | 1 passed (2)\n      Tests  2 failed | 32 passed (34)'
+	const jestPass = 'Tests:       34 passed, 34 total\nTime:        1.4 s'
+	const pytestPass =
+		'============================== 34 passed in 0.52s =============================='
+	const pytestFail =
+		'=========================== 2 failed, 32 passed in 0.52s ==========================='
+	const cargoPass =
+		'test result: ok. 20 passed; 0 failed; 0 ignored\ntest result: ok. 14 passed; 0 failed; 0 ignored'
+	const cargoFail = 'test result: FAILED. 19 passed; 1 failed; 0 ignored'
+	const goPass = 'PASS\nok  \texample.com/a\t0.012s'
+	const goFail = '--- FAIL: TestX (0.00s)\nFAIL\texample.com/a\t0.012s'
+
+	it.each([
+		['npm test 2>&1 | tail -20', nodePass, 'passed'],
+		['npm test 2>&1 | tail -20', tap, 'passed'],
+		['npm test 2>&1 | tail -20', nodeFail, 'failed'],
+		['pnpm test | tail', vitestPass, 'passed'],
+		['pnpm test | tail', vitestFail, 'failed'],
+		['npx jest | tail', jestPass, 'passed'],
+		['pytest | tail -5', pytestPass, 'passed'],
+		['pytest | tail -5', pytestFail, 'failed'],
+		['cargo test 2>&1 | tail', cargoPass, 'passed'],
+		['cargo test 2>&1 | tail', cargoFail, 'failed'],
+		['go test ./... | tail', goPass, 'passed'],
+		['go test ./... | tail', goFail, 'failed'],
+	])('%s reads %#', async (command, output, expected) => {
+		const outcome = await turn(new OutcomeLedger(), [
+			[edit('a.ts')],
+			[bash(command, { stdout: window(output) })],
+		])
+		expect(outcome?.checks[0]?.result).toBe(expected)
+		expect(outcome?.verdict).toBe(expected === 'passed' ? 'checked' : 'failing')
+	})
+
+	it('stays masked when the output holds no summary to read', async () => {
+		const outcome = await turn(new OutcomeLedger(), [
+			[edit('a.ts')],
+			[bash('npm test | tail -3', { stdout: window('Done in 3s\n') })],
+		])
+		expect(outcome?.checks[0]?.result).toBe('masked')
+		expect(outcome?.verdict).toBe('inconclusive')
+	})
+
+	it('counts a line under pipefail, or one that exits with the first stage, as its own', async () => {
+		for (const command of [
+			'set -o pipefail; npm test 2>&1 | tail -20',
+			'set -o pipefail && npm test | tail',
+			'npm test 2>&1 | tail -20; exit ${PIPESTATUS[0]}',
+		]) {
+			const outcome = await turn(new OutcomeLedger(), [[edit('a.ts')], [bash(command)]])
+			expect(outcome?.checks[0]?.result, command).toBe('passed')
+		}
+		// An echo of the status is not an exit with it.
+		const echoed = await turn(new OutcomeLedger(), [
+			[edit('a.ts')],
+			[bash('npm test | tail; echo ${PIPESTATUS[0]}')],
+		])
+		expect(echoed?.checks[0]?.result).toBe('masked')
+		// The first stage is not the check.
+		const lateStage = await turn(new OutcomeLedger(), [
+			[edit('a.ts')],
+			[bash('echo hi | npm test; exit ${PIPESTATUS[0]}')],
+		])
+		expect(lateStage?.checks[0]?.result).toBe('masked')
+	})
+
+	it('does not read a pass from go ok lines alone, which a tail may have cut', async () => {
+		const outcome = await turn(new OutcomeLedger(), [
+			[edit('a.ts')],
+			[
+				bash('go test ./... | tail -2', {
+					stdout: window('ok  \texample.com/b\t0.020s\nok  \texample.com/c\t0.020s'),
+				}),
+			],
+		])
+		expect(outcome?.checks[0]?.result).toBe('masked')
+	})
+})

@@ -30,8 +30,8 @@ describe('the declared capabilities are the honest ones', () => {
 		expect(OLLAMA_CAPABILITIES.supportsStreaming).toBe(true)
 	})
 
-	it('does not claim vision, since attachments are dropped', () => {
-		expect(OLLAMA_CAPABILITIES.supportsVision).toBe(false)
+	it('claims vision, since attachments are mapped (images.test.ts pins the mapping)', () => {
+		expect(OLLAMA_CAPABILITIES.supportsVision).toBe(true)
 	})
 
 	it('does not claim documents', () => {

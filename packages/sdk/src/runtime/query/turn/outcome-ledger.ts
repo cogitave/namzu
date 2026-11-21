@@ -189,20 +189,109 @@ function pathOf(call: OutcomeCall): string | undefined {
  * `tail`'s status.
  */
 function exitStatusIsOwn(line: string): boolean {
-	const lexed = lexShellCommandLine(line)
+	const { body, pipesAllowed, firstStageOnly } = readStatusGuards(line)
+	const lexed = lexShellCommandLine(body)
 	if (!lexed.complete || lexed.opaque || lexed.commands.length === 0) return false
 	if (lexed.compoundWords.length > 0) return false
 	let cursor = 0
 	for (const [index, command] of lexed.commands.entries()) {
 		if (command.origin !== 'line' || command.depth !== 0) return false
-		const at = line.indexOf(command.text, cursor)
+		const at = body.indexOf(command.text, cursor)
 		if (at < 0) return false
-		const gap = line.slice(cursor, at).trim()
-		if (index === 0 ? gap !== '' : gap !== '&&') return false
+		const gap = body.slice(cursor, at).trim()
+		if (index === 0 ? gap !== '' : gap !== '&&' && !(pipesAllowed && gap === '|')) return false
+		if (firstStageOnly && gap === '|' && isVerificationCommand(command.text)) return false
 		cursor = at + command.text.length
 	}
-	const tail = line.slice(cursor).trim()
+	const tail = body.slice(cursor).trim()
 	return tail === '' || tail === ';'
+}
+
+const PIPEFAIL_PREFIX =
+	/^\s*set\s+(?:-[A-Za-z]*o\s+pipefail|-o\s+pipefail|-[a-z]*\s+-o\s+pipefail)\s*(?:;|&&)\s*/
+const PIPESTATUS_EXIT = /;\s*exit\s+"?\$(?:\{PIPESTATUS(?:\[0\])?\}|PIPESTATUS)"?\s*;?\s*$/
+
+/**
+ * The line a status is read from, and whether its pipes hand their status on:
+ * a line that starts with `set -o pipefail` exits with the first failing stage,
+ * and one that ends with `exit ${PIPESTATUS[0]}` exits with the first stage's
+ * own status. Either way the pipe no longer hides it.
+ */
+function readStatusGuards(line: string): {
+	body: string
+	pipesAllowed: boolean
+	firstStageOnly: boolean
+} {
+	const pipefail = PIPEFAIL_PREFIX.exec(line)
+	if (pipefail !== null) {
+		return { body: line.slice(pipefail[0].length), pipesAllowed: true, firstStageOnly: false }
+	}
+	const exit = PIPESTATUS_EXIT.exec(line)
+	// `exit ${PIPESTATUS[0]}` is the first stage's status: a check that sits
+	// after a pipe (`x | npm test`) is not that stage.
+	if (exit !== null) {
+		return { body: line.slice(0, exit.index), pipesAllowed: true, firstStageOnly: true }
+	}
+	return { body: line, pipesAllowed: false, firstStageOnly: false }
+}
+
+/**
+ * What the test runner's own summary in a command's output says: `passed` when
+ * it reports passes and no failure, `failed` when it reports any failure, and
+ * `undefined` when the output holds no summary that can be read. Recognised:
+ * node's `# pass N` / `# fail N`, vitest and jest `Tests ...` lines, pytest's
+ * closing line, cargo's `test result:` lines and go's `PASS` / `FAIL` lines (a bare
+ * `ok pkg` line does not prove a pass: the lines before it may have been cut).
+ */
+export function testSummaryResult(output: string): 'passed' | 'failed' | undefined {
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: colour codes are what this removes
+	const text = output.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')
+	let passes = 0
+	let failures = 0
+	const count = (match: RegExpMatchArray | null, group = 1): number =>
+		match?.[group] !== undefined ? Number.parseInt(match[group], 10) : 0
+
+	// node --test
+	const nodePass = /^(?:#|ℹ) pass (\d+)\s*$/m.exec(text)
+	const nodeFail = /^(?:#|ℹ) fail (\d+)\s*$/m.exec(text)
+	if (nodePass && nodeFail) {
+		passes += count(nodePass)
+		failures += count(nodeFail)
+	}
+	// vitest: `Tests  2 failed | 32 passed (34)`; jest: `Tests:       2 failed, 32 passed, 34 total`
+	const vitest = /^\s*Tests:?\s+(.*\b(?:passed|failed)\b.*)$/m.exec(text)
+	if (vitest?.[1] !== undefined) {
+		passes += count(/(\d+) passed/.exec(vitest[1]))
+		failures += count(/(\d+) failed/.exec(vitest[1]))
+	}
+	// pytest: `=== 2 failed, 32 passed in 0.5s ===`
+	const pytest = /^=+ (.*\b(?:passed|failed|error|errors)\b.* in [\d.]+s.*) =+$/m.exec(text)
+	if (pytest?.[1] !== undefined) {
+		passes += count(/(\d+) passed/.exec(pytest[1]))
+		failures += count(/(\d+) (?:failed|errors?)/.exec(pytest[1]))
+	}
+	// cargo: one `test result:` line per target
+	for (const line of text.matchAll(/^test result: (ok|FAILED)\. (\d+) passed; (\d+) failed/gm)) {
+		passes += Number.parseInt(line[2] ?? '0', 10)
+		failures += Number.parseInt(line[3] ?? '0', 10) + (line[1] === 'FAILED' ? 1 : 0)
+	}
+	// go test: a package's `ok` line says that package passed, and a run cut to
+	// its last lines can have lost the `FAIL` of an earlier one, so only the bare
+	// `PASS` a single package prints counts as a pass.
+	if (/^PASS\s*$/m.test(text)) passes += 1
+	failures += (text.match(/^(?:FAIL\s+\S+|--- FAIL:)/gm) ?? []).length
+	if (failures > 0) return 'failed'
+	return passes > 0 ? 'passed' : undefined
+}
+
+function outputOf(facts: Extract<ToolFacts, { kind: 'command' }>): string {
+	const parts: string[] = []
+	for (const window of [facts.stdout, facts.stderr]) {
+		if (window === undefined) continue
+		parts.push(window.head)
+		if (window.tail !== undefined) parts.push(window.tail)
+	}
+	return parts.join('\n')
 }
 
 /**
@@ -513,7 +602,11 @@ export class OutcomeLedger {
 		}
 		if (exitCode === 0) {
 			if (call.isError === true) return { result: 'unsettled', exitCode }
-			return { result: exitStatusIsOwn(command) ? 'passed' : 'masked', exitCode }
+			if (exitStatusIsOwn(command)) return { result: 'passed', exitCode }
+			// A pipe hides the exit status, but not what the runner printed: its own
+			// summary is the result, shown to the person right above the outcome line.
+			const summary = testSummaryResult(outputOf(facts))
+			return { result: summary ?? 'masked', exitCode }
 		}
 		if (!exitStatusIsOwn(command)) return { result: 'masked', exitCode }
 		// A non-zero exit the command's own answer (`grep` found nothing) is not a

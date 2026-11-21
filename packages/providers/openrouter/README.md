@@ -94,13 +94,15 @@ the thinking share of the completion tokens OpenRouter already bills as output. 
 sends each fragment twice (a flat `reasoning` string and the indexed `reasoning_details`);
 the driver emits it once.
 
-Between the steps of one turn the model's reasoning goes back to it. OpenRouter's guide says
+The model's reasoning goes back to it with the message that produced it. OpenRouter's guide says
 to send the assistant message with its `reasoning_details` unmodified, so the driver keeps the
 entries as the wire sent them in the message's replay state (a `namzu-openrouter-reasoning`
-envelope that names its route) and sends them on the assistant messages after the turn's last
-user message. A route that sends only the flat string gets `reasoning` back instead. An earlier
-turn's reasoning is not resent, and state that names another route or no longer matches the
-stored reasoning is ignored.
+envelope that names its route) and sends them on every assistant message of the conversation,
+not only the current turn's: the upstream caches by prefix, and an earlier message sent without
+the reasoning it carried before moves the prefix and bills the whole history again at the next
+user message. A route that sends only the flat string gets `reasoning` back instead. State that
+names another route or no longer matches the stored reasoning (a compaction rewrote it) is
+ignored, so reasoning leaves the history only when the history is rewritten anyway.
 
 ## Cost and window
 

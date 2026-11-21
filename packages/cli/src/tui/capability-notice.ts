@@ -22,6 +22,8 @@ export interface CapabilityNoticeInput {
 		| 'media-removed-current'
 		| 'media-limit'
 	readonly providerId?: string
+	/** Set when one model of the provider reads text only, rather than the whole provider. */
+	readonly model?: string
 }
 
 /** One sentence: what the provider cannot do, what Namzu did about it, and what the person can do. */
@@ -56,7 +58,10 @@ export function describeCapabilityNotice(input: CapabilityNoticeInput): string {
 		case 'tools':
 			return `${name} can’t use tools, so Namzu will only chat while you use it. Switch to another provider to let Namzu work with files and commands.`
 		case 'vision':
-			return `${name} can’t see images, so it won’t see the picture you attached. Switch to a provider that reads images to include it.`
+			// The provider reads images, only this model does not: point at /model, not at another provider.
+			return input.model !== undefined
+				? 'This model can’t see images, so it won’t see the picture you attached. Pick a model that reads images with /model to include it.'
+				: `${name} can’t see images, so it won’t see the picture you attached. Switch to a provider that reads images to include it.`
 		case 'documents':
 			return `${name} can’t read documents, so it won’t see the file you attached. Switch to a provider that reads documents to include it.`
 	}

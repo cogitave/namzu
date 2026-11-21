@@ -76,7 +76,7 @@ import {
 	conversationFactsOf,
 	foldConversationFacts,
 } from './conversation-facts.js'
-import { typedTextOf } from './display-title.js'
+import { titleFromMessages } from './display-title.js'
 import { rememberJournal } from './journal-trail.js'
 
 /**
@@ -1577,24 +1577,13 @@ export function displayTitleOf(facts: ConversationRecords): string {
 		: conversationTitle(recordedMessages(facts.records))
 }
 
+/**
+ * A title is what a person typed, so a long paste in the first message shows as
+ * its chip (`[Pasted text #1 +40 lines]`), as it does in the message box and the
+ * transcript, not as its first words.
+ */
 export function conversationTitle(messages: readonly Message[]): string {
-	const firstHuman = messages.find(
-		(message) => message.role === 'user' && message.source === undefined,
-	)
-	const firstGoal = messages.find(
-		(message) => message.role === 'user' && message.source?.type === 'goal-round',
-	)
-	const raw =
-		firstHuman?.role === 'user'
-			? firstHuman.content
-			: firstGoal?.role === 'user' && firstGoal.source?.type === 'goal-round'
-				? firstGoal.source.objective
-				: 'Conversation'
-	const typed = typedTextOf(raw)
-	const text = (typed.text.trim() ? typed.text : (typed.firstFile ?? ''))
-		.replace(/\s+/g, ' ')
-		.trim()
-	return text.length > 60 ? `${text.slice(0, 59)}…` : text || 'Conversation'
+	return titleFromMessages(messages, true)
 }
 
 /** The project directory name, for messages that point a person at it. */

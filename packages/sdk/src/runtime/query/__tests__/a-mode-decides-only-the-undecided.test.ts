@@ -15,6 +15,7 @@ import type { CheckpointId, TurnId } from '../../../types/ids/index.js'
 import { generateSessionId } from '../../../utils/id.js'
 import {
 	PLAN_MODE_REFUSAL,
+	PLAN_MODE_REFUSAL_WITH_PLAN_FILE,
 	STRICT_MODE_REFUSAL,
 	batchNeedsReview,
 	createReviewHandler,
@@ -255,11 +256,11 @@ describe('plan mode and its one file', () => {
 		const other = writeTo('/work/src/a.ts')
 		expect(await handler(review(other))).toEqual({
 			action: 'reject_tools',
-			feedback: PLAN_MODE_REFUSAL,
+			feedback: PLAN_MODE_REFUSAL_WITH_PLAN_FILE,
 		})
 		expect(await handler(review(writeTo(planPath), other))).toEqual({
 			action: 'reject_tools',
-			feedback: PLAN_MODE_REFUSAL,
+			feedback: PLAN_MODE_REFUSAL_WITH_PLAN_FILE,
 		})
 	})
 

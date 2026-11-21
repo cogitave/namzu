@@ -38,6 +38,7 @@ import {
 	type SessionGoal,
 	SessionGoalActivation,
 	type SessionId,
+	type SessionTimer,
 	TurnCancelled,
 	type TurnId,
 	type WakeBudget,
@@ -231,7 +232,11 @@ import {
 	writePreferences,
 } from '../integrations/providers/index.js'
 import { generateTitle } from '../integrations/sessions/ai-title.js'
-import { displayConversationTitle, typedTextOf } from '../integrations/sessions/display-title.js'
+import {
+	displayConversationTitle,
+	displayTitleFor,
+	typedTextOf,
+} from '../integrations/sessions/display-title.js'
 import { journalOf } from '../integrations/sessions/journal-trail.js'
 import { generatePromptSuggestion } from '../integrations/sessions/prompt-suggestion.js'
 import { generateRecap } from '../integrations/sessions/recap.js'
@@ -1466,7 +1471,9 @@ function latestAssistantOutput(messages: readonly Message[]): string | null {
 function firstTypedPrompt(messages: readonly Message[]): string | undefined {
 	for (const message of messages) {
 		if (message.role !== 'user' || message.source) continue
-		const text = typedTextOf(message.content).text.replace(/\s+/g, ' ').trim()
+		const text = typedTextOf(chipPastedRanges(message.content, message.pasted))
+			.text.replace(/\s+/g, ' ')
+			.trim()
 		if (text.length > 0) return text.length > 60 ? `${text.slice(0, 59)}…` : text
 	}
 	return undefined
@@ -1590,7 +1597,7 @@ export function projectConversation(
 				{
 					id: nextId(),
 					role: 'user',
-					content: readable ?? message.content,
+					content: readable ?? chipPastedRanges(message.content, message.pasted),
 					...(attachments ? { attachments } : {}),
 				},
 			]
@@ -2112,6 +2119,8 @@ function AppBody({
 		readonly jobs: readonly BackgroundJob[]
 	}>({ ownerSession: null, jobs: [] })
 	const backgroundJobs = jobSnapshot.ownerSession === session ? jobSnapshot.jobs : []
+	// The model's pending timers, read when the Background dialog opens and each second while it is open.
+	const [timerSnapshot, setTimerSnapshot] = useState<readonly SessionTimer[]>([])
 	// Whether shell commands inside this session's sandbox run without asking:
 	// the footer and the mode descriptions say so.
 	const sandboxShell = sandboxRunsShellUnasked(session?.sandbox)
@@ -2737,16 +2746,17 @@ function AppBody({
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	useEffect(() => setJobSurface(null), [session, setJobSurface])
 	const [jobClock, setJobClock] = useState(Date.now())
-	const hasRunningBackgroundJob = backgroundJobs.some((job) => job.status === 'running')
 	const jobSurfaceOpen = jobSurface !== null
 	useEffect(() => {
-		if (!jobSurfaceOpen || !hasRunningBackgroundJob) return
+		// Open dialog, refresh each second: a timer the model sets while it is open must appear too.
+		if (!jobSurfaceOpen) return
 		const timer = setInterval(() => {
 			setJobClock(Date.now())
+			setTimerSnapshot(scheduleRef.current?.timers.list() ?? [])
 			setJobSnapshot({ ownerSession: session, jobs: session?.jobs?.() ?? [] })
 		}, 1000)
 		return () => clearInterval(timer)
-	}, [jobSurfaceOpen, hasRunningBackgroundJob, session])
+	}, [jobSurfaceOpen, session])
 	const agentSurfaceRef = useRef<AgentSurface | null>(null)
 	const agentSurfaceCommittedRef = useRef<AgentSurface | null>(null)
 	const childMessageLifetimeRef = useRef(new AbortController())
@@ -3014,7 +3024,9 @@ function AppBody({
 		const current = session.jobs?.() ?? []
 		setJobSnapshot({ ownerSession: session, jobs: current })
 		setJobClock(Date.now())
-		const entries = backgroundRows(current, subagentsRef.current)
+		const timers = scheduleRef.current?.timers.list() ?? []
+		setTimerSnapshot(timers)
+		const entries = backgroundRows(current, subagentsRef.current, timers)
 		setJobSurface({
 			ownerSession: session,
 			selectedKey: (entries.find(isRowRunning) ?? entries[0])?.key ?? null,
@@ -7684,6 +7696,7 @@ function AppBody({
 	const slashCtx: SlashContext = {
 		cwd: ctx.cwd,
 		jobs: () => session?.jobs?.() ?? [],
+		timers: () => scheduleRef.current?.timers.list() ?? [],
 		hooks: () => session?.hooks,
 		hooksView: () => ({
 			...(session?.pluginHooks ? { pluginHooks: session.pluginHooks() } : {}),
@@ -8686,7 +8699,10 @@ function AppBody({
 			void hydrateSavedChildren()
 			conversationMaterializedRef.current = true
 			sourceDeliveryPollRef.current()
-			pushMessage('system', `Resumed: ${displayConversationTitle(conv.title)}`)
+			pushMessage(
+				'system',
+				`Resumed: ${displayConversationTitle(displayTitleFor(conv.title, msgs))}`,
+			)
 			if (discardedQueued > 0) {
 				pushMessage(
 					'system',
@@ -9761,7 +9777,7 @@ function AppBody({
 				composerDraftTokenRef.current += 1
 				setComposerDraft({
 					token: composerDraftTokenRef.current,
-					text: target.displayText,
+					text: target.draftText ?? target.displayText,
 					...(forked.selected.attachments && forked.selected.attachments.length > 0
 						? { attachments: [...forked.selected.attachments] }
 						: {}),
@@ -9868,7 +9884,7 @@ function AppBody({
 					composerDraftTokenRef.current += 1
 					setComposerDraft({
 						token: composerDraftTokenRef.current,
-						text: target.displayText,
+						text: target.draftText ?? target.displayText,
 						...(target.message.attachments && target.message.attachments.length > 0
 							? { attachments: [...target.message.attachments] }
 							: {}),
@@ -10200,13 +10216,26 @@ function AppBody({
 					}
 					resolve(answer)
 				}
-				const entry = { request, resolve: finish }
+				// Auto mode is a row only where this session can enter it right now.
+				const shown: PlanApprovalRequest = {
+					...request,
+					autoAvailable: session?.hasProvider === true && permissionAvailability().auto,
+				}
+				const entry = { request: shown, resolve: finish }
 				const onAbort = () => finish({ kind: 'keep-planning' })
 				signal?.addEventListener('abort', onAbort, { once: true })
 				setPlanPrompt(entry)
 				announceApproval()
 			}),
-		[applyPermissionMode, closeLiveReply, pushMessage, announceApproval, setPlanPrompt],
+		[
+			applyPermissionMode,
+			closeLiveReply,
+			pushMessage,
+			announceApproval,
+			setPlanPrompt,
+			permissionAvailability,
+			session,
+		],
 	)
 	/**
 	 * The model proposed planning first and the person agreed (the question was
@@ -10936,6 +10965,7 @@ function AppBody({
 								capability: event.capability,
 								...(event.contentSource ? { contentSource: event.contentSource } : {}),
 								providerId: event.providerId,
+								...(event.model ? { model: event.model } : {}),
 							}),
 							event.text,
 							debugRequested(),
@@ -17023,7 +17053,7 @@ function AppBody({
 					setJobSurface(null)
 					return
 				}
-				const entries = backgroundRows(backgroundJobs, subagentsRef.current)
+				const entries = backgroundRows(backgroundJobs, subagentsRef.current, timerSnapshot)
 				const selectedId = shellView.detailKey ?? shellView.selectedKey ?? entries[0]?.key
 				const selectedEntry = entries.find((entry) => entry.key === selectedId)
 				if (shellView.detailKey) {
@@ -17041,6 +17071,28 @@ function AppBody({
 					return
 				}
 				if (input.toLowerCase() === 'x' && selectedEntry && isRowRunning(selectedEntry)) {
+					if (selectedEntry.kind === 'timer') {
+						// The same timer the model's timer_cancel reaches: it is gone from timer_list too.
+						const id = selectedEntry.timer.id
+						const scheduler = scheduleRef.current?.timers
+						if (!scheduler) return
+						void scheduler.cancel(id).then((found) => {
+							const current = jobSurfaceRef.current
+							if (!current || current.ownerSession !== shellView.ownerSession) return
+							const left = scheduler.list()
+							setTimerSnapshot(left)
+							const remaining = backgroundRows(backgroundJobs, subagentsRef.current, left)
+							setJobSurface({
+								...current,
+								detailKey: null,
+								selectedKey: remaining.some((row) => row.key === current.selectedKey)
+									? current.selectedKey
+									: (remaining[0]?.key ?? null),
+								notice: found ? 'Timer cancelled.' : 'That timer had already fired.',
+							})
+						})
+						return
+					}
 					if (selectedEntry.kind === 'agent') {
 						// The row moves to Completed by itself once the child reports its end.
 						session?.stopSubagent?.(selectedEntry.agent.viewId)
@@ -17126,6 +17178,17 @@ function AppBody({
 					return
 				}
 				if (key.return && selectedEntry) {
+					if (selectedEntry.kind === 'timer') {
+						// The whole prompt is read in the detail view; the list row cuts it short.
+						setJobSurface({
+							...shellView,
+							selectedKey: selectedEntry.key,
+							detailKey: selectedEntry.key,
+							tailOffset: 0,
+							notice: undefined,
+						})
+						return
+					}
 					if (selectedEntry.kind === 'agent') {
 						// A subagent opens in the transcript view the agents rail uses.
 						setJobSurface(null)
@@ -19052,7 +19115,7 @@ function AppBody({
 					) : null}
 					{jobSurface && permission === null && scheduleReviewPrompt === null ? (
 						<BackgroundJobsPanel
-							entries={backgroundRows(backgroundJobs, subagents)}
+							entries={backgroundRows(backgroundJobs, subagents, timerSnapshot)}
 							selectedKey={jobSurface.selectedKey}
 							detailKey={jobSurface.detailKey}
 							tailOffset={jobSurface.tailOffset}
