@@ -23,7 +23,7 @@ The boundary is the OS user, not the network. Any process running as the
 same user can already read the user's files, so the goal is to keep other
 users and the network out and to make every message's origin explicit — not
 to defend against the user's own processes. Nothing in this module listens
-on TCP.
+on TCP; messages between machines are the separate [network module](namzu-network.md).
 
 ## The runtime directory
 
@@ -336,3 +336,13 @@ start model turns, or grant approvals. Other hosts implement those policies.
 Exec and scheduled sessions do not register through this CLI wiring;
 idle subscriptions, durable peer mail and external A2A routing remain separate
 contracts.
+
+## Other machines
+
+A message can also come from a session on another of the person's machines, through [your Namzu network](namzu-network.md). That path adds three things to this module's shapes, all additive:
+
+- `PeerSessionKind` has `'net'`: the network bridge on this machine. Like `cli` and `person` it listens only long enough to be verified and never accepts messages.
+- A `deliver` may carry `remote` (`RemoteOrigin`: machine id and name, the sender's session name, ref and mode, hops, and whether the person allowed a held message once). An endpoint accepts `remote` only from a verified `net` sender and refuses a `net` sender that does not name where the message came from, so no other sender can claim a machine.
+- `NoticeOutcome` has `'expired'`: a held message nobody answered in ten minutes. `formatPeerNotice` renders it.
+
+`formatPeerMessage` takes an optional `machine` and then names it in the frame, and `formatRoleContext` renders a role set from another machine. `PeerRecord` has optional `role`, `roleBy` and `roleAt` (descriptive only). The hold decision for a mode that differs, and the queue that expires it, are `decideMail` and `HoldQueue` in the network module and serve local terminals too.

@@ -28,6 +28,9 @@ export type {
 	PrivateInterfaceOptions,
 } from './discovery.js'
 
+export { MDNS_GROUP, MDNS_PORT, SERVICE_NAME, createMdnsDiscovery } from './discovery-mdns.js'
+export type { DgramLike, DgramSocketLike, MdnsOptions } from './discovery-mdns.js'
+
 export {
 	AUDIT_EVENTS,
 	createFileAuditSink,
@@ -45,8 +48,11 @@ export type { PendingJoin } from './join.js'
 export { HOLD_EXPIRY_MS, MAX_HELD_PER_TERMINAL, decideMail } from './mail-policy.js'
 export type { MailDecision, MailDecisionInput, MailSetting } from './mail-policy.js'
 
+export { generateMachineKey } from './identity.js'
+export type { MachineKey } from './identity.js'
+
 export { createFounding, evaluateMembership, mergeMembership } from './membership.js'
-export type { Admission, MembershipView, Revocation } from './membership.js'
+export type { Admission, MembershipState, MembershipView, Revocation } from './membership.js'
 
 export {
 	generateSessionName,
@@ -90,4 +96,4 @@ export {
 	sanitizeName,
 	sanitizeRole,
 } from './wire.js'
-export type { RosterSession } from './wire.js'
+export type { HostPort, RosterSession } from './wire.js'
