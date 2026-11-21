@@ -129,7 +129,7 @@
 			"file": "packages/cli/src/commands/host-queries.ts",
 			"symbol": "process.stdout.write",
 			"count": 9,
-			"reason": "the one JSON value each host query (history, skills-json, providers-json) prints for a host UI to parse, or `[]` on failure; stderr carries NDJSON log records, so no log line lands on this channel."
+			"reason": "the one JSON value each host query (history, skills list --json, providers list --json) prints for a host UI to parse, or `[]` on failure; stderr carries NDJSON log records, so no log line lands on this channel."
 		},
 		{
 			"file": "packages/cli/src/commands/config.ts",

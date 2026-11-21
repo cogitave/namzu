@@ -350,7 +350,7 @@ the conversation (a skill that sets `context: fork` attaches them to its agent's
 run only), and are listed by `/hooks`. A guard on a guarding event that cannot
 be loaded costs the skill its `allowed-tools` pre-approval (the hooks that could
 be read still attach; a block with none readable attaches none), and
-you and the model are told; `namzu skills --audit` names such a problem before
+you and the model are told; `namzu skills list --audit` names such a problem before
 the skill is used.
 
 The model is offered a skill only when the kernel's loader accepts it: `name`
@@ -385,17 +385,17 @@ also resets `suggest` to its default unless it sets it too.
 
 ## Listing
 
-`/skills list` in the TUI and `namzu skills [--cwd <path>]` show each skill
+`/skills list` in the TUI and `namzu skills list [--cwd <path>]` show each skill
 with its source and directory tier, the `SKILL.md` files it shadows, whether
 it is operator-only or gated, and why one cannot be used. `namzu --format json
-skills` adds `tier`, `shadows`, `disabled`, `invocation` and
-`requiresTools` to each item. `namzu skills-json` (for host UIs) prints
+skills list` adds `tier`, `shadows`, `disabled`, `invocation` and
+`requiresTools` to each item. `namzu skills list --json` (for host UIs) prints
 `{ name, description, source }` with `source` one of `system`, `user` or
 `project`, and leaves disabled skills out.
 
 ### Audit model readiness
 
-`namzu skills --audit --trust` checks each winning file skill with the same
+`namzu skills list --audit --trust` checks each winning file skill with the same
 SDK loader that serves it to the model. It reports `ready`, `operator-only`,
 `disabled` or `invalid`, naming the loader's reason for an invalid file. The
 command exits `1` if any enabled winner is invalid, so a project can check its

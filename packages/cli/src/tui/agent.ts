@@ -8624,7 +8624,7 @@ export function isCredentialRejection(err: unknown): boolean {
 /**
  * The same question, flattened to a list for callers that cannot act on why.
  *
- * `providers-json` emits a JSON roster for a host UI and has always rendered an
+ * `providers list --json` emits a JSON roster for a host UI and has always rendered an
  * empty list as "fall back to free text". That contract is unchanged, and this
  * is the one place the reason is deliberately discarded — everywhere else uses
  * `describeProviderModels` and says which case it hit.

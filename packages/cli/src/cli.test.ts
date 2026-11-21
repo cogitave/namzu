@@ -42,7 +42,13 @@ describe('runCli', () => {
 	const invoke = (args: string[]) => runCli({ argv: ['node', 'namzu', ...args] })
 
 	it('does not silently ignore the interactive output schema on a subcommand', async () => {
-		const code = await invoke(['--output-schema', '/unused/schema.json', 'providers-json'])
+		const code = await invoke([
+			'--output-schema',
+			'/unused/schema.json',
+			'providers',
+			'list',
+			'--json',
+		])
 		expect(code).toBe(64)
 		expect(stderr).toContain('--output-schema applies to the interactive TUI')
 	})
@@ -54,17 +60,19 @@ describe('runCli', () => {
 	})
 
 	it('refuses the launch flags on a subcommand instead of ignoring them', async () => {
-		expect(await invoke(['--model', 'm', '--effort', 'high', 'providers-json'])).toBe(64)
+		expect(await invoke(['--model', 'm', '--effort', 'high', 'providers', 'list', '--json'])).toBe(
+			64,
+		)
 		expect(stderr).toContain('--model, --effort apply to the interactive TUI, not this subcommand')
 	})
 
 	it('refuses --fast on a subcommand instead of ignoring it', async () => {
-		expect(await invoke(['--fast', 'providers-json'])).toBe(64)
+		expect(await invoke(['--fast', 'providers', 'list', '--json'])).toBe(64)
 		expect(stderr).toContain('--fast apply to the interactive TUI, not this subcommand')
 	})
 
 	it('refuses --message on a subcommand instead of ignoring it', async () => {
-		expect(await invoke(['--message', 'hi', 'providers-json'])).toBe(64)
+		expect(await invoke(['--message', 'hi', 'providers', 'list', '--json'])).toBe(64)
 		expect(stderr).toContain('--message apply to the interactive TUI, not this subcommand')
 	})
 
@@ -74,7 +82,7 @@ describe('runCli', () => {
 	})
 
 	it('refuses -c and -r on a subcommand or on resume instead of ignoring them', async () => {
-		expect(await invoke(['-c', 'providers-json'])).toBe(64)
+		expect(await invoke(['-c', 'providers', 'list', '--json'])).toBe(64)
 		expect(stderr).toContain('--continue apply to the interactive TUI, not this subcommand')
 		stderr = ''
 		expect(await invoke(['-c', 'resume', 'abc'])).toBe(64)
@@ -117,15 +125,12 @@ describe('runCli', () => {
 		// Commander prints help to stdout.
 		expect(stdout).toContain('namzu')
 		expect(stdout).toContain('doctor')
-		// `providers-json` is a command; bare `providers` is not, and the
-		// difference is invisible to `toContain('providers')` — that assertion
-		// stayed green through the removal of the `providers` profile command
-		// because `providers-json` contains it as a prefix. This is the same
-		// trap `tools` fell into below, so it is anchored the same way: the
-		// sibling must be present, and the removed command must be absent as a
-		// command rather than as a substring.
-		expect(stdout).toMatch(/^\s+providers-json\b/m)
-		expect(stdout).not.toMatch(/^\s+providers\s/m)
+		// `providers` is the area that lists providers and models, and the
+		// hyphenated `providers-json` is gone: anchored to the command column
+		// so a substring cannot stand in for either.
+		expect(stdout).toMatch(/^\s+providers\b/m)
+		expect(stdout).not.toMatch(/^\s+providers-json\b/m)
+		expect(stdout).not.toMatch(/^\s+skills-json\b/m)
 		expect(stdout).toContain('skills')
 		expect(stdout).toContain('serve')
 		// Anchored to the command column, like `providers-json` above: a
@@ -191,6 +196,14 @@ describe('runCli', () => {
 		expect(stderr).not.toContain('--help')
 	})
 
+	it.each([
+		['skills-json', 'namzu skills list --json'],
+		['providers-json', 'namzu providers list --json'],
+	])('the hyphenated %s prints one line naming its replacement and exits 64', async (name, now) => {
+		expect(await invoke([name])).toBe(64)
+		expect(flat(stderr)).toContain(`This command is now \`${now}\`.`)
+	})
+
 	it('lists exec with its alias, and neither removed command', async () => {
 		expect(await invoke(['--help'])).toBe(0)
 		expect(stdout).toMatch(/^\s+exec\|e\b/m)
@@ -215,7 +228,7 @@ describe('runCli', () => {
 		const cwd = skillProject(
 			'---\nname: release\ndescription: prepare a verified release\n---\n\nDo the work.',
 		)
-		const code = await invoke(['skills', '--cwd', cwd, '--trust'])
+		const code = await invoke(['skills', 'list', '--cwd', cwd, '--trust'])
 		expect(code).toBe(0)
 		expect(stdout).toContain(`Skills available for ${cwd}`)
 		expect(stdout).toContain('release [project · ./skills] — prepare a verified release')
@@ -228,7 +241,7 @@ describe('runCli', () => {
 
 	it('skills --audit uses the model loader and fails on a skill it cannot offer', async () => {
 		const cwd = skillProject('Body without frontmatter.')
-		const code = await invoke(['skills', '--cwd', cwd, '--trust', '--audit'])
+		const code = await invoke(['skills', 'list', '--cwd', cwd, '--trust', '--audit'])
 		expect(code).toBe(1)
 		expect(stdout).toContain(`Skill audit for ${cwd}`)
 		expect(stdout).toContain('release: invalid')
@@ -243,6 +256,7 @@ describe('runCli', () => {
 			'--format',
 			'json',
 			'skills',
+			'list',
 			'--cwd',
 			cwd,
 			'--trust',
@@ -265,7 +279,7 @@ describe('runCli', () => {
 		const cwd = skillProject(
 			'---\nname: should-not-leak\ndescription: this project is not trusted\n---\n\nBody.',
 		)
-		const code = await invoke(['skills', '--cwd', cwd])
+		const code = await invoke(['skills', 'list', '--cwd', cwd])
 		expect(code).toBe(77)
 		expect(stdout).not.toContain('should-not-leak')
 		expect(stderr).toContain('folder nobody has trusted')
@@ -275,7 +289,7 @@ describe('runCli', () => {
 		const cwd = skillProject(
 			'---\nname: release\ndescription: prepare a verified release\n---\n\nDo the work.',
 		)
-		const code = await invoke(['--format', 'json', 'skills', '--cwd', cwd, '--trust'])
+		const code = await invoke(['--format', 'json', 'skills', 'list', '--cwd', cwd, '--trust'])
 		expect(code).toBe(0)
 		const parsed = JSON.parse(stdout) as {
 			cwd: string
@@ -296,7 +310,7 @@ describe('runCli', () => {
 		mkdirSync(join(root, 'skills', unsafeName), { recursive: true })
 		writeFileSync(join(root, 'skills', unsafeName, 'SKILL.md'), 'Body without frontmatter.')
 
-		const code = await invoke(['skills', '--cwd', root, '--trust'])
+		const code = await invoke(['skills', 'list', '--cwd', root, '--trust'])
 		expect(code).toBe(0)
 		expect(stdout).toContain('unsafe\\u{001b}\\u{202e}')
 		expect(stdout).not.toContain('\u001b')
@@ -305,7 +319,7 @@ describe('runCli', () => {
 
 	it('--format yaml keeps a refused skill visible with its reason', async () => {
 		const cwd = skillProject('---\nname: broken\ninvalid frontmatter')
-		const code = await invoke(['--format', 'yaml', 'skills', '--cwd', cwd, '--trust'])
+		const code = await invoke(['--format', 'yaml', 'skills', 'list', '--cwd', cwd, '--trust'])
 		expect(code).toBe(0)
 		expect(stdout).toContain('name: release')
 		// The directory name survives malformed frontmatter so one broken skill
@@ -315,7 +329,7 @@ describe('runCli', () => {
 	})
 
 	it('skills refuses malformed arguments with EX_USAGE', async () => {
-		const code = await invoke(['skills', '--cwd'])
+		const code = await invoke(['skills', 'list', '--cwd'])
 		expect(code).toBe(64)
 		expect(stderr).toContain('--cwd requires a directory path')
 	})
@@ -323,7 +337,7 @@ describe('runCli', () => {
 	it('skills --help documents discovery without crossing the project trust gate', async () => {
 		const code = await invoke(['skills', '--help'])
 		expect(code).toBe(0)
-		expect(stdout).toContain('Usage: namzu skills [--cwd <path>] [--trust]')
+		expect(stdout).toContain('Usage: namzu skills list [--json] [--cwd <path>] [--trust]')
 		expect(stdout).toMatch(/later ones shadowing earlier ones of the\s+same name/)
 	})
 

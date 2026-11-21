@@ -38,12 +38,11 @@ import {
 	mcpCommand,
 	peersCommand,
 	pluginCommand,
-	providersJSONCommand,
+	providersCommand,
 	scheduleCommand,
 	sendCommand,
 	serveCommand,
 	skillsCommand,
-	skillsJSONCommand,
 	stateCommand,
 	upgradeCommand,
 	watchCommand,
@@ -202,6 +201,8 @@ const REMOVED_COMMANDS: Readonly<Record<string, string>> = {
 	run: '`namzu run` was replaced by `namzu exec "<prompt>"`, which takes the same options.',
 	'run-stream':
 		'`namzu run-stream` was replaced by `namzu exec --json "<prompt>"`, which emits the same events.',
+	'skills-json': 'This command is now `namzu skills list --json`.',
+	'providers-json': 'This command is now `namzu providers list --json`.',
 }
 
 /**
@@ -629,9 +630,8 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		extensionCommand,
 		pluginCommand,
 		skillsCommand,
-		skillsJSONCommand,
 		workspacesCommand,
-		providersJSONCommand,
+		providersCommand,
 		upgradeCommand,
 		serveCommand,
 		stateCommand,

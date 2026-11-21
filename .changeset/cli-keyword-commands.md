@@ -13,6 +13,11 @@ line). Change scripts and habits as follows.
   `start`, `stop`, `logs` and `daemon`. The job commands (`add`, `list`,
   `run`, `pause` and the rest) stay where they were.
 - `namzu state move-legacy` is `namzu state move legacy`.
+- `namzu skills-json` is `namzu skills list --json`, printing the same JSON.
+  `namzu skills` alone now shows usage; the human list is `namzu skills list`,
+  and `--audit` goes with it (`namzu skills list --audit`).
+- `namzu providers-json` is `namzu providers list --json`, printing the same
+  JSON. `namzu providers list` prints a short table.
 - `/add-dir`, `/release-notes` and `/terminal-setup` are `/add dir`,
   `/release notes` and `/terminal setup`. Typing only the first word of one of
   them shows the usage of its second word.

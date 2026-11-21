@@ -3,7 +3,7 @@
  * to force the SDK logger's level to `silent` via `configureLogger` and
  * never turn it back on: `tui/index.tsx`, `commands/exec.ts`,
  * `commands/drain.ts` and `commands/exec-json.ts` (twice — `exec --json`
- * itself and `providers-json`). LOG-05.
+ * itself and `providers list --json`). LOG-05.
  *
  * Kept out of `config/load.ts`'s cascade on purpose. That system merges
  * four sources for `format`/`quiet`/`permissions`/`sandbox`, all of them
