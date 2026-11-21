@@ -63,6 +63,7 @@
 import { closeSync, mkdirSync, openSync, readSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+import { HOOK_ENV_OWNER_FILE } from '../utils/temp-sweep.js'
 import { createTempDirSync } from '../utils/temp.js'
 
 /** The events whose hooks may set variables, in the order a later one outranks an earlier one. */
@@ -138,6 +139,24 @@ export function refusedHookEnvName(name: string): string | undefined {
 
 const envFileName = (event: HookEnvEvent, slot: number): string =>
 	slot === 0 ? `${event}.env` : `${event}.${slot}.env`
+
+/**
+ * Write who made a hook-env folder: this process's id and when it started. A folder left by a
+ * process that crashed is then known to be no one's once that process is gone. Best effort: a
+ * folder without it is removed by age instead.
+ */
+function writeHookEnvOwner(directory: string): void {
+	try {
+		const startedAt = new Date(Date.now() - process.uptime() * 1000).toISOString()
+		writeFileSync(
+			join(directory, HOOK_ENV_OWNER_FILE),
+			`${JSON.stringify({ pid: process.pid, startedAt })}\n`,
+			{ flag: 'wx', mode: 0o600 },
+		)
+	} catch {
+		// The age rule covers a folder whose owner is not written.
+	}
+}
 
 interface Reading {
 	readonly name: string
@@ -303,8 +322,12 @@ export class SessionHookEnv {
 		if (this.disposed) return undefined
 		try {
 			if (this.directory === undefined) {
-				this.directory = this.options.directory?.() ?? createTempDirSync('hook-env')
+				const chosen = this.options.directory?.()
+				this.directory = chosen ?? createTempDirSync('hook-env')
 				mkdirSync(this.directory, { recursive: true, mode: 0o700 })
+				// The folder is in the shared temporary folder, so it says whose it is: a later
+				// start removes it once that process has exited (`sweepPrivateTempRoot`).
+				if (chosen === undefined) writeHookEnvOwner(this.directory)
 			}
 			const file = join(this.directory, envFileName(event, slot))
 			const known = this.slots.get(event) ?? new Set<number>()
@@ -378,7 +401,7 @@ export class SessionHookEnv {
 			try {
 				rmSync(this.directory, { recursive: true, force: true })
 			} catch {
-				// Scratch space is cleaned up by the operating system in the end.
+				// A later start's sweep removes it once this process has exited (`sweepPrivateTempRoot`).
 			}
 			this.directory = undefined
 		}

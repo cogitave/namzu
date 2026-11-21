@@ -6,8 +6,10 @@
 
 import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+
+import { HOOK_ENV_OWNER_FILE } from '../../utils/temp-sweep.js'
 
 import {
 	MAX_HOOK_ENV_FILE_BYTES,
@@ -250,6 +252,32 @@ describe('the session environment', () => {
 		expect(Object.keys(env.variables)).toEqual([])
 		expect(problems.join(' ')).toMatch(/__proto__ is not a name/)
 		expect(({} as Record<string, unknown>).x).toBeUndefined()
+	})
+
+	it('names its owner in a folder of its own making, so a crash leaves nothing anyone keeps', () => {
+		const base = mkdtempSync(join(tmpdir(), 'namzu-hook-env-owner-'))
+		dirs.push(base)
+		const previous = process.env.NAMZU_TMPDIR
+		process.env.NAMZU_TMPDIR = base
+		try {
+			const env = new SessionHookEnv({ inherited: () => ({}) })
+			const file = env.fileFor('session_start') as string
+			const owner = JSON.parse(readFileSync(join(dirname(file), HOOK_ENV_OWNER_FILE), 'utf8'))
+			expect(owner.pid).toBe(process.pid)
+			expect(Number.isFinite(Date.parse(owner.startedAt))).toBe(true)
+			expect(statSync(join(dirname(file), HOOK_ENV_OWNER_FILE)).mode & 0o077).toBe(0)
+			env.dispose()
+			expect(existsSync(dirname(file))).toBe(false)
+		} finally {
+			if (previous === undefined) Reflect.deleteProperty(process.env, 'NAMZU_TMPDIR')
+			else process.env.NAMZU_TMPDIR = previous
+		}
+	})
+
+	it('writes no owner file into a folder the caller chose', () => {
+		const { env, directory } = make()
+		env.fileFor('session_start')
+		expect(existsSync(join(directory, HOOK_ENV_OWNER_FILE))).toBe(false)
 	})
 
 	it('removes its files and empties the object when disposed', () => {

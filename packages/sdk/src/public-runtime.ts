@@ -313,6 +313,15 @@ export {
 	resolveTempBase,
 	tempFilePath,
 } from './utils/temp.js'
+export {
+	HOOK_ENV_OWNER_FILE,
+	TEMP_SWEEP_EVERY_MS,
+	TEMP_SWEEP_MAX_AGE_MS,
+	TEMP_SWEEP_STAMP,
+	type TempSweepOptions,
+	type TempSweepReport,
+	sweepPrivateTempRoot,
+} from './utils/temp-sweep.js'
 export { extractFinalResponse } from './utils/conversation.js'
 
 // ─── router, runtime, turn ───────────────────────────────────────────────
