@@ -24,7 +24,8 @@ export function ensurePrivateStateDirectory(stateRoot: string, segment: string):
 	if (!/^[A-Za-z0-9_-]+$/u.test(segment)) {
 		throw new Error(`Namzu state partition must be one safe path segment: ${segment}`)
 	}
-	mkdirSync(stateRoot, { recursive: true })
+	// Owner-only when created here; an existing root keeps its mode.
+	mkdirSync(stateRoot, { recursive: true, mode: PRIVATE_DIRECTORY_MODE })
 	const rootEntry = lstatSync(stateRoot)
 	if (rootEntry.isSymbolicLink() || !rootEntry.isDirectory()) {
 		throw new Error(`Namzu state root must be a real directory: ${stateRoot}`)

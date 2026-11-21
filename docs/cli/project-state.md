@@ -47,16 +47,20 @@ selects the most recent conversation for the directory. The resume picker and
 `--continue` list sessions through the session index, scoped to the Project.
 
 Tool execution, project trust and configuration continue to use the selected
-working directory. Generated state is not written under it. `<cwd>/.namzu`
-holds the `agents`, `skills`, `commands`, `plugins`, `MEMORY.md` and
-`settings.json` you author, which the CLI reads, and one file the CLI writes
-for you: `settings.local.json`, this computer's settings for the folder, where
-a "don't ask again" answer and a `/permissions add` rule are saved, with its
-`.lock` and `.tmp` files while a save runs. Namzu keeps it out of git with a
+working directory. Conversations, checkpoints, file copies, memory and the
+index never go under it. `<cwd>/.namzu` holds the `agents`, `skills`,
+`commands`, `plugins`, `MEMORY.md` and `settings.json` you author, which the
+CLI reads. The CLI writes there only when you ask: the project's local
+settings file `settings.local.json` (this computer's settings for the folder,
+where a "don't ask again" answer and a `/permissions add` rule are saved, with
+its `.lock` and `.tmp` files while a save runs), a skill you save with
+`save_skill` (into `.namzu/skills`), and the workflows `namzu github install`
+adds. Namzu keeps the local settings file out of git with a
 `**/.namzu/settings.local.json*` line in your global git ignore file, the one
 write outside both the folder and the Namzu home. An earlier CLI kept that file
 as `namzu.config.local.json` at the top of the folder; a session in the trusted
 folder moves it ([Permission layers](permission-layers.md#moving-the-earlier-file)).
+Crash logs go to `~/.namzu/logs`.
 
 ## Identity and persistence
 
@@ -123,22 +127,60 @@ references is never pruned, however old. A checkpoint holds no messages; its
 context is the session log up to the record it names, so it costs a few
 kilobytes of counters and working state.
 
-No crash dumps are written. The session log is appended as the turn goes, and
+No conversation dump is written. The session log is appended as the turn goes, and
 a torn last line left by a crash is repaired the next time the session is
 opened, so an interrupted turn has nothing more to save.
 
 ## State an earlier CLI wrote
 
-This is a new storage format, and there is no migration. The CLI does not read,
-move or delete anything an earlier version wrote. `namzu state` (report
-`version: 2`) lists it under `legacy`: the top-level `state/`, `sessions/`,
+This is a new storage format, and there is no migration: the CLI does not read
+anything an earlier version wrote. `namzu state` (report `version: 2`) lists it
+under `legacy`, with paths and sizes and without opening any of it. Old
+conversations remain readable with the older CLI and its original application
+home; export one first with that version's `namzu history --session <id>`.
+
+In the Namzu home the old layout is the top-level `state/`, `sessions/`,
 `titles.json`, `desktop-sessions.json`, `delegation-history/`, `checkpoints/`,
 `tenants/`, `goals/`, `feedback/`, `learning/`, `residents/`, `worktrees/` and
-`memory/`, and every `projects/<uuid>/` directory — with paths and sizes, and
-without opening any of them. Remove them yourself once you no longer need
-them. Old conversations remain readable with the older CLI and its original
-application home; export one first with that version's
-`namzu history --session <id>`.
+`memory/` (except `memory/curation.jsonl`, which is current), and every
+`projects/<uuid>/` directory. Remove them yourself once you no longer need them.
+
+### In a project folder
+
+An earlier CLI also kept state inside the project's own `.namzu`: a `cli.json`
+pointer and `projects/<id>/` until state moved to the Namzu home, and before
+that the whole layout above. In a project's `.namzu` (when it is not also the
+Namzu home), every name an earlier version wrote there counts as `legacy`:
+the names above, `cli.json`, `cli/`, `projects/`, `attachments/`,
+`index.sqlite` and its journal files, and the per-machine files that sat beside
+them (`config.yaml`, `credentials.json`, `identity.json`, `preferences.json`,
+`plugin-settings/`, `trust.json`). What you author there (`agents`, `skills`,
+`commands`, `plugins`, `rules`, `MEMORY.md`) and the settings files are not;
+a name no version wrote is yours and is counted as `unknown`.
+
+Because that state sits in the checkout, a session in a trusted git checkout
+keeps git from listing it: the first time it finds such a name, it appends one
+block to the clone's own exclude file (the `info/exclude` git names, never your
+`.gitignore`), anchored to this folder, headed
+`# namzu: state an earlier Namzu kept in /.namzu/ ...`, and says so once. A
+file git already tracks is not affected by it (git still lists it). Nothing is
+written when that `.namzu` is itself the live Namzu home.
+
+`namzu state move-legacy` moves it out, when you ask. It runs only in a folder
+you trust and moves only the names above, into
+`<NAMZU_HOME>/legacy/<slug>/<time>/` beside an `origin.json` that names the
+folder they came from. On one file system each entry is renamed; across file
+systems it is copied, flushed, put in place and compared file by file with the
+original, and the original is removed only when they match (otherwise both are
+kept and the command says so; folder modes and times are copied too). It leaves in place, with the reason: anything
+git tracks (take it out of git first), a registered git worktree that has
+changes or is locked (a clean one is moved with `git worktree move`, so git
+keeps track of it), a folder holding a worktree deeper down, and everything
+when git cannot say what it tracks. One move runs per folder at a time.
+`namzu state move-legacy --dry-run` lists what would move and changes nothing.
+Namzu does not read the moved files either; delete the folder when you no
+longer want them. `namzu state` counts that `legacy/` folder in the home as
+`legacy`.
 
 One file is moved: the project's `namzu.config.local.json`, the folder's local
 settings an earlier CLI kept at the top of the folder. A session in the trusted

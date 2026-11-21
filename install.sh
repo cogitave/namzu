@@ -163,6 +163,11 @@ else
 	# one rather than re-running under sudo: a curl-to-shell script that
 	# escalates privilege on failure is a script nobody should pipe into sh.
 	say "namzu: the global npm folder is not writable, installing into ${NAMZU_PREFIX} instead."
+	# The default prefix is the Namzu home, which keeps conversations: it is
+	# made owner-only when this creates it. An existing folder keeps its mode.
+	if [ "$NAMZU_PREFIX" = "$HOME/.namzu" ] && [ ! -e "$NAMZU_PREFIX" ]; then
+		mkdir -m 700 "$NAMZU_PREFIX" 2>/dev/null || :
+	fi
 	mkdir -p "$NAMZU_PREFIX"
 	if NAMZU_NPM_OUTPUT="$(npm install --global --prefix "$NAMZU_PREFIX" --no-fund --no-audit \
 		"${NAMZU_PKG}@${NAMZU_VERSION}" 2>&1)"; then

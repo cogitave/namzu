@@ -119,7 +119,7 @@ export class DiskLogMedium implements LogMedium {
 	}
 
 	async append(bytes: Uint8Array, expectedOffset: number, sync: boolean): Promise<void> {
-		await mkdir(dirname(this.file), { recursive: true })
+		await mkdir(dirname(this.file), { recursive: true, mode: 0o700 })
 		const handle = await open(this.file, 'a', 0o600)
 		try {
 			const before = (await handle.stat()).size

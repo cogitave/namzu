@@ -93,6 +93,19 @@ describe('read-only state inventory, version 2', () => {
 		expect(id).toBeTruthy()
 	})
 
+	it('counts what move-legacy put under the home’s legacy folder as legacy, not unknown', async () => {
+		const cwd = temporary('moved-cwd')
+		const home = temporary('moved-os-home')
+		const stateRoot = temporary('moved-state')
+		write(join(stateRoot, 'legacy', 'slug', '1', 'sessions', 'x.json'), '{}')
+
+		const report = await inspectNamzuState({ cwd, home, env: { NAMZU_HOME: stateRoot } })
+
+		const user = report.roots.find((root) => root.roles.includes('user'))
+		expect(user?.categories.legacy.files).toBe(1)
+		expect(user?.categories.unknown.files).toBe(0)
+	})
+
 	it('deduplicates project and user roles when cwd is home', async () => {
 		const root = temporary('overlap')
 		mkdirSync(join(root, '.namzu'), { recursive: true })
@@ -147,6 +160,54 @@ describe('read-only state inventory, version 2', () => {
 
 		expect(user?.categories.configuration).toMatchObject({ files: 4 })
 		expect(user?.categories.unknown).toEqual({ files: 0, logicalBytes: 0 })
+	})
+
+	it('counts everything an earlier Namzu wrote in a project folder as legacy, cli.json and projects/ included', async () => {
+		const cwd = temporary('project-legacy')
+		const home = temporary('project-legacy-home')
+		const state = join(cwd, '.namzu')
+		// The project-local layout before state moved to the Namzu home.
+		write(join(state, 'cli.json'), '{"project":"prj_1"}')
+		write(join(state, 'projects', 'prj_1', 'sessions', 's', 'session.json'), '{"old":1}')
+		write(join(state, 'worktrees', 'job', 'a.ts'), 'x')
+		// What a person authors, and the project's settings files.
+		write(join(state, 'skills', 'review', 'SKILL.md'), '# review')
+		write(join(state, 'rules', 'style.md'), '# style')
+		write(join(state, 'settings.json'), '{}')
+		write(join(state, 'settings.local.json'), '{}')
+		// A name no Namzu wrote is the person's own: unknown, never legacy.
+		write(join(state, 'notes.txt'), 'mine')
+		const before = treeHash(state)
+
+		const report = await inspectNamzuState({ cwd, home })
+		const project = report.roots.find((root) => root.roles.includes('project'))
+
+		expect(treeHash(state)).toBe(before)
+		expect(project?.legacy.map((entry) => [entry.path, entry.kind])).toEqual([
+			['cli.json', 'top-level'],
+			['projects', 'top-level'],
+			['worktrees', 'top-level'],
+		])
+		expect(project?.categories).toMatchObject({
+			legacy: { files: 3 },
+			authored: { files: 2 },
+			configuration: { files: 2 },
+			unknown: { files: 1 },
+			runtime: { files: 0 },
+		})
+	})
+
+	it('does not call the memory curation log in the Namzu home legacy', async () => {
+		const cwd = temporary('curation-project')
+		const home = temporary('curation-home')
+		const stateRoot = temporary('curation-state')
+		write(join(stateRoot, 'memory', 'curation.jsonl'), '{}\n')
+
+		const report = await inspectNamzuState({ cwd, home, env: { NAMZU_HOME: stateRoot } })
+		const user = report.roots.find((root) => root.roles.includes('user'))
+
+		expect(user?.legacy).toEqual([])
+		expect(user?.categories.runtime).toMatchObject({ files: 1 })
 	})
 
 	it('reports a project document that does not parse as corrupt, by slug', async () => {

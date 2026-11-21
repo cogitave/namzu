@@ -8,7 +8,6 @@ describe('isProtectedPath', () => {
 		'/repo/.namzu/agents/reviewer.md',
 		'/repo/.namzu/commands/ship.md',
 		'/repo/.NAMZU/Skills/x.md',
-		'/repo/.namzu/worktrees/job/src/a.ts',
 	])('lets authored project folders be written: %s', (path) => {
 		expect(isProtectedPath(path)).toBe(false)
 	})
@@ -25,6 +24,8 @@ describe('isProtectedPath', () => {
 		'/repo/.mvn/wrapper/maven-wrapper.properties',
 		'/repo/.namzu/MEMORY.md',
 		'/repo/.namzu/settings.json',
+		// An earlier version's worktree folder; managed worktrees live in the Namzu home.
+		'/repo/.namzu/worktrees/job/src/a.ts',
 		'/repo/.namzu/skills/.git/config',
 		'/repo/.namzu/skills/x/.namzu/agents/a.md',
 		'/repo/.namzu/agents/.NAMZU/y.md',

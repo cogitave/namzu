@@ -83,17 +83,20 @@ export const PROTECTED_FILE_NAMES: readonly string[] = [
 
 /**
  * Folders under the project directory that hold what a person or the model
- * authors on purpose (skills, agent definitions, commands) and the checkouts
- * of delegated work. Writing there is the point of the folder, so the project
- * directory is not protected on their account. Only the first project
- * directory in a path can be excused: a second one deeper down, or any other
- * protected name below, still protects the path.
+ * authors on purpose (skills, agent definitions, commands). Writing there is
+ * the point of the folder, so the project directory is not protected on their
+ * account. Only the first project directory in a path can be excused: a second
+ * one deeper down, or any other protected name below, still protects the path.
+ *
+ * `worktrees` is not one of them. The checkouts of delegated work live in the
+ * Namzu home (`projects/<slug>/worktrees/`), whose writes are judged by their
+ * own worktree root; a project's `.namzu/worktrees` is state an earlier version
+ * left there, and writing into it is asked about like the rest of `.namzu`.
  */
 export const PROJECT_DIRECTORY_AUTHORED_FOLDERS: readonly string[] = [
 	'skills',
 	'agents',
 	'commands',
-	'worktrees',
 ]
 
 const PROJECT_DIRECTORY = '.namzu'

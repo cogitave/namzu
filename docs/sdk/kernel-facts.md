@@ -144,7 +144,7 @@ than read, because reading it would drop the fields this build does not know and
 | Skill suggestions | `skills/.suggestions.json` | command line | `v: 1` | not checked |
 | Learning generator | `generator.json`, `generator.lock` | command line | `version: 1` | not checked |
 | Update state | `attempt-<install>.json`, `previous/` copies | command line | none | read by shape; the updater never acts on a kernel an application manages (see below) |
-| Memory notes | `MEMORY.md`, `USER.md`, typed memory `index.json`, `curation.jsonl`, `.namzu/MEMORY.md` in a project | command line | none | markdown and plain line logs; read by shape |
+| Memory notes | `MEMORY.md`, `USER.md`, typed memory `index.json`, `curation.jsonl` | command line | none | markdown and plain line logs; read by shape |
 | Checkpoint manifest | checkpoints directory `turns/<id>.json`, `blobs/` | command line | `version` (`MANIFEST_VERSION` = 1) | a manifest of another version reads as absent |
 
 #### Scheduled tasks (command line), under `schedule/`
@@ -180,7 +180,7 @@ for their stamps sits in `packages/cli/src/data-epoch-guard.test.ts` (`CAPABILIT
 | Format | Where | Written by | Stamp | Older kernel |
 |---|---|---|---|---|
 | Project config | `namzu.config.json` | the person | none | read by shape |
-| Project memory | `.namzu/MEMORY.md` | command line | none | text |
+| Project memory | `.namzu/MEMORY.md` | the person | none | text; the command line only reads it |
 | Local permission settings | `.namzu/` local settings | command line | none | read by shape |
 
 #### Not covered

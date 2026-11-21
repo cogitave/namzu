@@ -17,6 +17,14 @@ logs, `$NAMZU_HOME/index.sqlite`. Every row in it is derived from log records
 and nothing is written to it directly, so deleting it loses nothing: the next
 open rebuilds it.
 
+The index holds the opening of every prompt and the full text of tool results
+and replies, so it is readable by its owner only, like the logs. A new index is
+built in a file created with mode 0600 (SQLite gives its journal the same
+mode), in a folder created with mode 0700 when the folder is missing; an
+existing folder keeps its mode. Every open narrows an index file an earlier
+version left wider, and an `-journal`, `-wal` or `-shm` file beside it, to
+0600 when the current user owns it. Windows keeps its own access lists.
+
 ```ts
 import { openSessionIndex } from '@namzu/sdk'
 

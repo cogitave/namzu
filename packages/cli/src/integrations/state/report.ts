@@ -5,6 +5,11 @@ import { basename, join, resolve, sep } from 'node:path'
 
 import { hashedSlugForCwd, isEntityId, slugForCwd } from '@namzu/sdk'
 
+import {
+	PROJECT_AUTHORED_NAMES,
+	PROJECT_LEGACY_NAMES,
+	PROJECT_SETTINGS_NAMES,
+} from './project-legacy.js'
 import { cliProjectRoot } from './project.js'
 
 const MAX_METADATA_BYTES = 4 * 1024 * 1024
@@ -49,6 +54,8 @@ const LEGACY_TOP_LEVEL = new Set([
 	'memory',
 ])
 const CONTROL_TOP_LEVEL = new Set(['.migration'])
+/** A current file under a legacy top-level name: the memory curation log. */
+const CURRENT_MEMORY_LOG = 'memory/curation.jsonl'
 const PRIVATE_BOUNDARIES = ['attachments', 'plugin-settings', 'projects'] as const
 
 export type StateCategory =
@@ -89,7 +96,11 @@ export interface StatePrivacyBoundary {
 export interface LegacyStateEntry {
 	/** Relative to the state root, with `/` separators. */
 	readonly path: string
-	/** A top-level name of the old layout, or a `projects/<uuid>/` directory. */
+	/**
+	 * A top-level name of the old layout, or a `projects/<uuid>/` directory. In a
+	 * project's own `.namzu`, every name an earlier Namzu wrote there is
+	 * `top-level`, `projects/` included.
+	 */
 	readonly kind: 'top-level' | 'uuid-project'
 	readonly files: number
 	readonly logicalBytes: number
@@ -516,12 +527,16 @@ async function projectRootReport(
 	let files = 0
 	let logicalBytes = 0
 	let directories = 0
+	// A project's own `.namzu` that is not also the Namzu home holds what a
+	// person authors and nothing generated: whatever an earlier Namzu wrote
+	// there is legacy, `cli.json` and `projects/` included.
+	const project = roles.length === 1 && roles[0] === 'project'
 	for (const entry of collection.entries) {
 		if (entry.kind === 'directory') directories += 1
 		if (entry.kind !== 'file') continue
 		files += 1
 		logicalBytes += entry.size
-		const category = categoryOf(entry.relative)
+		const category = project ? projectCategoryOf(entry.relative) : categoryOf(entry.relative)
 		categories[category].files += 1
 		categories[category].logicalBytes += entry.size
 	}
@@ -531,7 +546,7 @@ async function projectRootReport(
 		omitted: collection.omittedIssues,
 	}
 	const inventory = inventoryOf(collection)
-	const legacy = legacyOf(collection)
+	const legacy = legacyOf(collection, project ? projectLegacyKey : legacyKey)
 	const privacy = privacyOf(collection, privacyContext, analysisSink)
 
 	return {
@@ -563,6 +578,8 @@ function emptyMeasure(): MutableMeasure {
 function legacyKey(path: string): { key: string; kind: LegacyStateEntry['kind'] } | undefined {
 	const [top, second] = path.split('/')
 	if (top === undefined) return undefined
+	// The memory curation log lives under the old `memory/` name today.
+	if (path === CURRENT_MEMORY_LOG) return undefined
 	if (LEGACY_TOP_LEVEL.has(top)) return { key: top, kind: 'top-level' }
 	if (top === 'projects' && second !== undefined && isEntityId(second, 'project')) {
 		return { key: `projects/${second}`, kind: 'uuid-project' }
@@ -574,6 +591,8 @@ function categoryOf(path: string): StateCategory {
 	const top = path.split('/')[0] ?? path
 	const name = basename(path)
 	if (legacyKey(path)) return 'legacy'
+	// Where `namzu state move-legacy` puts what it moved out of a project.
+	if (top === 'legacy') return 'legacy'
 	if (
 		name.endsWith('.lock') ||
 		name.endsWith('.tmp') ||
@@ -585,17 +604,56 @@ function categoryOf(path: string): StateCategory {
 	}
 	if (AUTHORED_TOP_LEVEL.has(top)) return 'authored'
 	if (CONFIG_TOP_LEVEL.has(top)) return 'configuration'
-	if (RUNTIME_TOP_LEVEL.has(top) || /^index\.sqlite(-wal|-shm|-journal)?$/.test(top))
+	if (
+		RUNTIME_TOP_LEVEL.has(top) ||
+		/^index\.sqlite(-wal|-shm|-journal)?$/.test(top) ||
+		path === CURRENT_MEMORY_LOG
+	)
 		return 'runtime'
 	if (CONTROL_TOP_LEVEL.has(top)) return 'control'
 	return 'unknown'
 }
 
-function legacyOf(collection: RootCollection): LegacyStateEntry[] {
+/** In a project's own `.namzu`: the top-level name, when an earlier Namzu wrote it. */
+function projectLegacyKey(
+	path: string,
+): { key: string; kind: LegacyStateEntry['kind'] } | undefined {
+	const top = path.split('/')[0]
+	return top !== undefined && PROJECT_LEGACY_NAMES.has(top)
+		? { key: top, kind: 'top-level' }
+		: undefined
+}
+
+function projectCategoryOf(path: string): StateCategory {
+	const top = path.split('/')[0] ?? path
+	const name = basename(path)
+	if (projectLegacyKey(path)) return 'legacy'
+	if (PROJECT_SETTINGS_NAMES.has(top)) return 'configuration'
+	if (
+		name.endsWith('.lock') ||
+		name.endsWith('.tmp') ||
+		name.includes('.tmp.') ||
+		name.includes('.tmp-')
+	) {
+		return 'transient'
+	}
+	if (PROJECT_AUTHORED_NAMES.has(top)) return 'authored'
+	return 'unknown'
+}
+
+function legacyOf(
+	collection: RootCollection,
+	keyOf: (path: string) => { key: string; kind: LegacyStateEntry['kind'] } | undefined,
+): LegacyStateEntry[] {
 	const found = new Map<string, { kind: LegacyStateEntry['kind']; files: number; bytes: number }>()
+	// A legacy-named folder whose only files are current ones is not legacy.
+	const holdsCurrent = new Set<string>()
 	for (const entry of collection.entries) {
-		const legacy = legacyKey(entry.relative)
-		if (!legacy) continue
+		const legacy = keyOf(entry.relative)
+		if (!legacy) {
+			if (entry.kind === 'file') holdsCurrent.add(entry.relative.split('/')[0] ?? '')
+			continue
+		}
 		const current = found.get(legacy.key) ?? { kind: legacy.kind, files: 0, bytes: 0 }
 		if (entry.kind === 'file') {
 			current.files += 1
@@ -604,6 +662,7 @@ function legacyOf(collection: RootCollection): LegacyStateEntry[] {
 		found.set(legacy.key, current)
 	}
 	return [...found.entries()]
+		.filter(([path, value]) => value.files > 0 || !holdsCurrent.has(path))
 		.map(([path, value]) => ({
 			path,
 			kind: value.kind,

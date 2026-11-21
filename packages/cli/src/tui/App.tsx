@@ -320,6 +320,7 @@ import {
 import {
 	renderMemoryReport,
 	renderMemorySaveResult,
+	renderNoteNotSaved,
 	renderStoredMemorySection,
 	renderTypedNoteResult,
 } from '../memory/presentation.js'
@@ -13497,8 +13498,10 @@ function AppBody({
 	}
 
 	// `#note` and `/memory add`: a typed memory file in the session's stored
-	// memory, default type `project`. A session without a store — no provider
-	// yet — appends to the curated project file the way every note used to.
+	// memory under the Namzu home, default type `project`. A session refused
+	// for want of a provider still has that store. Where no store is open, the
+	// note is refused: a person's note never lands in the repository's
+	// `.namzu/MEMORY.md`, which is read into every prompt and committed.
 	const rememberProjectNote = useCallback(
 		async (note: string, type?: MemoryType): Promise<void> => {
 			try {
@@ -13506,16 +13509,12 @@ function AppBody({
 					pushMessage('system', renderTypedNoteResult(await session.rememberNote(note, type), note))
 					return
 				}
-				const saved = appendMemoryWithStatus(note, {
-					scope: 'project',
-					cwd: ctx.cwd,
-				})
-				pushMessage('system', renderMemorySaveResult(saved, note))
+				pushMessage('system', renderNoteNotSaved(session === null))
 			} catch (err) {
 				pushSystem('error', explainFailure(err, 'Could not save memory.'))
 			}
 		},
-		[ctx.cwd, pushMessage, session, pushSystem],
+		[pushMessage, session, pushSystem],
 	)
 
 	/**

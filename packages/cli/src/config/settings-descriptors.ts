@@ -937,11 +937,16 @@ const DECLARED: readonly SettingDescriptor[] = [
 		'projects',
 		'Worktree location',
 		'Where Namzu stores Git worktrees for isolated coding conversations on this computer.',
-		{ kind: 'text', placeholder: 'Inside the project', picker: 'folder' },
+		{ kind: 'text', placeholder: 'In the Namzu home', picker: 'folder' },
 		{
 			group: 'worktrees',
-			keywords: ['worktrees folder', 'where worktrees go', 'worktree directory'],
-			defaultText: "inside the project's Namzu folder",
+			keywords: [
+				'worktrees folder',
+				'where worktrees go',
+				'worktree directory',
+				'inside the project',
+			],
+			defaultText: "in the Namzu home, in this project's worktrees folder",
 		},
 	),
 	d(
