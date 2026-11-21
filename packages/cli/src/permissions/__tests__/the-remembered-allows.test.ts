@@ -77,14 +77,20 @@ describe('what a call can have remembered', () => {
 		}
 	})
 
-	it.each([
-		'npm test > out.log',
-		'npm test >> out.log',
-		'npm test | sh',
-		'npm test | tail -20 > out.log',
-	])('still remembers nothing useful for %s', (line) => {
-		const allows = allowsForBatch([bash(line)], commands)
-		expect(allows === undefined || line.includes('| sh')).toBe(true)
+	it.each(['npm test > out.log', 'npm test >> out.log', 'npm test | tail -20 > out.log'])(
+		'remembers nothing for %s, which writes a file',
+		(line) => {
+			expect(allowsForBatch([bash(line)], commands)).toBeUndefined()
+		},
+	)
+
+	it('offers one rule per command for a line that pipes into a shell, each covering only its own command', () => {
+		// Neither saved rule lets `npm test | sh` through: the SDK rule test
+		// (argument-pattern.test.ts) shows the line stays asked about.
+		expect(allowsForBatch([bash('npm test | sh')], commands)).toEqual([
+			{ kind: 'prefix', tool: 'bash', prefix: 'npm test' },
+			{ kind: 'command', tool: 'bash', command: 'sh' },
+		])
 	})
 
 	it('offers a batch answer only when every call has one', () => {

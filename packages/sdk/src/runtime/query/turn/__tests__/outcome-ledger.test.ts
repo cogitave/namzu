@@ -731,7 +731,7 @@ describe('a piped check whose output shows the runner summary', () => {
 	const cargoPass =
 		'test result: ok. 20 passed; 0 failed; 0 ignored\ntest result: ok. 14 passed; 0 failed; 0 ignored'
 	const cargoFail = 'test result: FAILED. 19 passed; 1 failed; 0 ignored'
-	const goPass = 'ok  \texample.com/a\t0.012s\nok  \texample.com/b\t0.020s'
+	const goPass = 'PASS\nok  \texample.com/a\t0.012s'
 	const goFail = '--- FAIL: TestX (0.00s)\nFAIL\texample.com/a\t0.012s'
 
 	it.each([
@@ -780,5 +780,23 @@ describe('a piped check whose output shows the runner summary', () => {
 			[bash('npm test | tail; echo ${PIPESTATUS[0]}')],
 		])
 		expect(echoed?.checks[0]?.result).toBe('masked')
+		// The first stage is not the check.
+		const lateStage = await turn(new OutcomeLedger(), [
+			[edit('a.ts')],
+			[bash('echo hi | npm test; exit ${PIPESTATUS[0]}')],
+		])
+		expect(lateStage?.checks[0]?.result).toBe('masked')
+	})
+
+	it('does not read a pass from go ok lines alone, which a tail may have cut', async () => {
+		const outcome = await turn(new OutcomeLedger(), [
+			[edit('a.ts')],
+			[
+				bash('go test ./... | tail -2', {
+					stdout: window('ok  \texample.com/b\t0.020s\nok  \texample.com/c\t0.020s'),
+				}),
+			],
+		])
+		expect(outcome?.checks[0]?.result).toBe('masked')
 	})
 })

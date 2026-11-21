@@ -408,3 +408,41 @@ describe('argument_pattern on a declared URL argument', () => {
 		}
 	})
 })
+
+describe('an allow rule over a command line that adds a read-only pipe or a write', () => {
+	const ALLOW_NPM_TEST: AuthorizationRule = {
+		type: 'argument_pattern',
+		toolNames: ['bash'],
+		argument: 'command',
+		pattern: '^npm test',
+		decision: 'allow',
+	}
+	const bash = {
+		name: 'bash',
+		isReadOnly: () => false,
+		commandArgument: 'command',
+	} as unknown as ToolDefinition
+	const decide = (command: string) =>
+		gate([ALLOW_NPM_TEST]).evaluate({ toolName: 'bash', toolInput: { command }, toolDef: bash })
+			.decision
+
+	it.each([
+		'npm test',
+		'npm test 2>&1 | tail -20',
+		'npm test 2>&1 | grep -E "pass|fail" | head -5',
+		'npm test 2>&1 >/dev/null | wc -l',
+	])('allows %s', (command) => {
+		expect(decide(command)).toBe('allow')
+	})
+
+	it.each([
+		'npm test > out.log',
+		'npm test >> out.log',
+		'npm test | tail -20 > out.log',
+		'npm test | sh',
+		'npm test | tee out.log',
+		'npm test | xargs rm',
+	])('does not allow %s', (command) => {
+		expect(decide(command)).not.toBe('allow')
+	})
+})

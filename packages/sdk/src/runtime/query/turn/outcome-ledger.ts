@@ -189,7 +189,7 @@ function pathOf(call: OutcomeCall): string | undefined {
  * `tail`'s status.
  */
 function exitStatusIsOwn(line: string): boolean {
-	const { body, pipesAllowed } = readStatusGuards(line)
+	const { body, pipesAllowed, firstStageOnly } = readStatusGuards(line)
 	const lexed = lexShellCommandLine(body)
 	if (!lexed.complete || lexed.opaque || lexed.commands.length === 0) return false
 	if (lexed.compoundWords.length > 0) return false
@@ -200,6 +200,7 @@ function exitStatusIsOwn(line: string): boolean {
 		if (at < 0) return false
 		const gap = body.slice(cursor, at).trim()
 		if (index === 0 ? gap !== '' : gap !== '&&' && !(pipesAllowed && gap === '|')) return false
+		if (firstStageOnly && gap === '|' && isVerificationCommand(command.text)) return false
 		cursor = at + command.text.length
 	}
 	const tail = body.slice(cursor).trim()
@@ -216,12 +217,22 @@ const PIPESTATUS_EXIT = /;\s*exit\s+"?\$(?:\{PIPESTATUS(?:\[0\])?\}|PIPESTATUS)"
  * and one that ends with `exit ${PIPESTATUS[0]}` exits with the first stage's
  * own status. Either way the pipe no longer hides it.
  */
-function readStatusGuards(line: string): { body: string; pipesAllowed: boolean } {
+function readStatusGuards(line: string): {
+	body: string
+	pipesAllowed: boolean
+	firstStageOnly: boolean
+} {
 	const pipefail = PIPEFAIL_PREFIX.exec(line)
-	if (pipefail !== null) return { body: line.slice(pipefail[0].length), pipesAllowed: true }
+	if (pipefail !== null) {
+		return { body: line.slice(pipefail[0].length), pipesAllowed: true, firstStageOnly: false }
+	}
 	const exit = PIPESTATUS_EXIT.exec(line)
-	if (exit !== null) return { body: line.slice(0, exit.index), pipesAllowed: true }
-	return { body: line, pipesAllowed: false }
+	// `exit ${PIPESTATUS[0]}` is the first stage's status: a check that sits
+	// after a pipe (`x | npm test`) is not that stage.
+	if (exit !== null) {
+		return { body: line.slice(0, exit.index), pipesAllowed: true, firstStageOnly: true }
+	}
+	return { body: line, pipesAllowed: false, firstStageOnly: false }
 }
 
 /**
@@ -229,7 +240,8 @@ function readStatusGuards(line: string): { body: string; pipesAllowed: boolean }
  * it reports passes and no failure, `failed` when it reports any failure, and
  * `undefined` when the output holds no summary that can be read. Recognised:
  * node's `# pass N` / `# fail N`, vitest and jest `Tests ...` lines, pytest's
- * closing line, cargo's `test result:` lines and go's `ok` / `FAIL` lines.
+ * closing line, cargo's `test result:` lines and go's `PASS` / `FAIL` lines (a bare
+ * `ok pkg` line does not prove a pass: the lines before it may have been cut).
  */
 export function testSummaryResult(output: string): 'passed' | 'failed' | undefined {
 	// biome-ignore lint/suspicious/noControlCharactersInRegex: colour codes are what this removes
@@ -263,8 +275,10 @@ export function testSummaryResult(output: string): 'passed' | 'failed' | undefin
 		passes += Number.parseInt(line[2] ?? '0', 10)
 		failures += Number.parseInt(line[3] ?? '0', 10) + (line[1] === 'FAILED' ? 1 : 0)
 	}
-	// go test
-	for (const line of text.matchAll(/^ok\s+\S+\s+[\d.]+s/gm)) passes += line.length > 0 ? 1 : 0
+	// go test: a package's `ok` line says that package passed, and a run cut to
+	// its last lines can have lost the `FAIL` of an earlier one, so only the bare
+	// `PASS` a single package prints counts as a pass.
+	if (/^PASS\s*$/m.test(text)) passes += 1
 	failures += (text.match(/^(?:FAIL\s+\S+|--- FAIL:)/gm) ?? []).length
 	if (failures > 0) return 'failed'
 	return passes > 0 ? 'passed' : undefined
