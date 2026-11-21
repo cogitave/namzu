@@ -76,8 +76,10 @@ export {
 	refreshAgentOAuthToken,
 	sameOAuthCredential,
 } from './oauth.js'
+export { pendingLoginPath, PENDING_LOGIN_TTL_MS } from './pending-login.js'
 export {
 	beginSubscriptionLogin,
+	completePendingSubscriptionLogin,
 	type LoginOutcome,
 	parsePastedInput,
 	type SubscriptionLogin,

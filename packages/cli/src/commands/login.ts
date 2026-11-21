@@ -20,12 +20,14 @@
  * answer for the case that has no screen at all: a container, a provisioning
  * script, a machine being set up over SSH before anyone opens a session.
  *
- * ## Finishing without a browser on this machine
+ * ## Finishing from a shell that cannot take a paste
  *
- * The verifier lives in this process and nowhere else — that is what makes the
- * exchange safe — so a second invocation cannot finish what a first one
- * started. There is no `--code` flag for that reason: it would look like it
- * should work and could not.
+ * The verifier is what makes the exchange safe, and a run whose standard input
+ * closes at once (a chat tool's shell) would take it to the grave before the
+ * browser shows its code. That run now keeps the pending sign-in in an
+ * owner-only file for ten minutes (under `login-pending/`, never printed) and
+ * exits 0 as "waiting"; running the same login again with `--code <code>`
+ * finishes it. A terminal that can paste keeps the interactive path as is.
  *
  * The registered browser callback shows a code rather than returning to a
  * local listener. Standard input takes that code or the finished address;
@@ -51,6 +53,7 @@ import {
 	clearStoredCodexCredential,
 	clearStoredGeminiApiKey as clearStoredGoogleApiKey,
 	clearStoredSubscriptionCredential,
+	completePendingSubscriptionLogin,
 	credentialsPath,
 	googleApiKeyPath,
 	isApiKeyLogoutTarget,
@@ -78,12 +81,19 @@ const LOGIN_HELP = [
 	'',
 	'Options:',
 	'  --no-browser        Do not try to launch a browser; just print the address.',
+	'  --code <value>      Finish a Claude sign-in that is waiting for its code: the code,',
+	'                      code#state, or the finished address (within 10 minutes).',
 	'  --timeout <seconds> Give up waiting after this long (default: 300).',
 	'  -h, --help          Show this help.',
 	'',
 	'Claude sign-in opens a registered browser flow; paste the returned code or',
-	'finished address into this terminal. Codex sign-in prints a device code and',
-	'polls while you approve it in the browser.',
+	'finished address into this terminal. Where the shell cannot take a paste',
+	'(standard input closed), the sign-in is kept for 10 minutes, the address is',
+	'printed, and you finish with: namzu login claude --code <code>.',
+	'Codex sign-in prints a device code and polls while you approve it in the browser.',
+	'',
+	'Exit status: 0 signed in, or waiting for the code (the sign-in is kept; run',
+	'--code to finish); 1 the sign-in failed; 2 the command was used wrongly.',
 	'',
 	'The credential is written to ~/.namzu/credentials.json, readable only by your',
 	"account. Run 'namzu logout' to remove it.",
@@ -116,6 +126,7 @@ interface LoginFlags {
 	readonly provider?: SubscriptionProviderId
 	readonly noBrowser: boolean
 	readonly timeoutMs: number
+	readonly code?: string
 	readonly unknown: readonly string[]
 }
 
@@ -123,11 +134,22 @@ export function parseLoginFlags(argv: readonly string[]): LoginFlags {
 	let noBrowser = false
 	let provider: SubscriptionProviderId | undefined
 	let timeoutMs = DEFAULT_TIMEOUT_SECONDS * 1_000
+	let code: string | undefined
 	const unknown: string[] = []
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i]
 		if (arg === '--no-browser') {
 			noBrowser = true
+			continue
+		}
+		if (arg === '--code' || arg?.startsWith('--code=')) {
+			const value = arg === '--code' ? argv[++i] : arg.slice('--code='.length)
+			// The value is never echoed back: it is a credential.
+			if (value === undefined || value.trim().length === 0 || code !== undefined) {
+				unknown.push('--code')
+				continue
+			}
+			code = value
 			continue
 		}
 		if (arg === '--timeout') {
@@ -156,7 +178,7 @@ export function parseLoginFlags(argv: readonly string[]): LoginFlags {
 		}
 		if (arg !== undefined) unknown.push(arg)
 	}
-	return { provider, noBrowser, timeoutMs, unknown }
+	return { provider, noBrowser, timeoutMs, code, unknown }
 }
 
 /**
@@ -225,6 +247,13 @@ export const loginCommand: CommandDef = {
 			return EXIT_USAGE
 		}
 
+		if (flags.code !== undefined && flags.provider !== 'anthropic') {
+			ctx.formatter.print({
+				text: `--code finishes a Claude sign-in; the Codex sign-in needs no code.\n\n${LOGIN_HELP}`,
+			})
+			return EXIT_USAGE
+		}
+
 		if (flags.provider === 'codex') {
 			let login: Awaited<ReturnType<typeof beginCodexDeviceLogin>>
 			try {
@@ -263,56 +292,100 @@ export const loginCommand: CommandDef = {
 			return outcome.ok ? EXIT_OK : EXIT_FAIL
 		}
 
-		let login: Awaited<ReturnType<typeof beginSubscriptionLogin>>
+		return runBrowserCodeLogin({
+			print: (text) => ctx.formatter.print({ text }),
+			flags,
+			input: process.stdin,
+			interactive: process.stdin.isTTY === true,
+		})
+	},
+}
+
+export interface BrowserCodeLoginDeps {
+	readonly print: (text: string) => void
+	readonly flags: LoginFlags
+	readonly input: NodeJS.ReadableStream
+	/** A terminal that can paste: the interactive path, unchanged. */
+	readonly interactive: boolean
+	readonly home?: string
+	readonly fetch?: typeof fetch
+	readonly openBrowser?: (url: string) => boolean
+}
+
+const WAITING_LINE = 'Finish with `namzu login claude --code <code>` within 10 minutes.'
+
+export async function runBrowserCodeLogin(deps: BrowserCodeLoginDeps): Promise<number> {
+	const { print, flags } = deps
+	const options = { home: deps.home, fetch: deps.fetch }
+	const retry = { retry: 'namzu login claude', remove: 'namzu logout' }
+
+	if (flags.code !== undefined) {
+		const outcome = await completePendingSubscriptionLogin(flags.code, options)
+		print(describeLoginOutcome(outcome, retry))
+		return outcome.ok ? EXIT_OK : EXIT_FAIL
+	}
+
+	let login: Awaited<ReturnType<typeof beginSubscriptionLogin>>
+	try {
+		login = await beginSubscriptionLogin(options)
+	} catch (err) {
+		print(`Could not start a sign-in: ${err instanceof Error ? err.message : String(err)}`)
+		return EXIT_FAIL
+	}
+
+	const open = deps.openBrowser ?? openInBrowser
+	print(
+		describeLoginStart({
+			url: login.url,
+			browserOpened: flags.noBrowser ? false : open(login.url),
+			completionHint: 'paste it here and press enter',
+		}),
+	)
+
+	const stop = new AbortController()
+	const timeout = new Promise<LoginOutcome | 'closed'>((resolve) =>
+		setTimeout(
+			() =>
+				resolve({
+					ok: false,
+					reason: 'Timed out waiting for the sign-in to finish. Nothing was stored.',
+				}),
+			flags.timeoutMs,
+		).unref(),
+	)
+	const pasted = firstStdinLine(stop.signal, deps.input).then(
+		(line): Promise<LoginOutcome> | LoginOutcome | 'closed' =>
+			line === null
+				? deps.interactive
+					? {
+							ok: false,
+							reason:
+								'Standard input closed before an authorization code was pasted. Nothing was stored.',
+						}
+					: 'closed'
+				: login.completeWithPastedCode(line),
+	)
+	const outcome = await Promise.race([pasted, timeout])
+	stop.abort()
+	if (outcome === 'closed') {
+		// No paste can reach this process, so keep the attempt for `--code`
+		// instead of letting the verifier die with it.
 		try {
-			login = await beginSubscriptionLogin()
+			if (!login.savePending) throw new Error('this sign-in cannot be kept')
+			login.savePending()
 		} catch (err) {
-			ctx.formatter.print({
-				text: `Could not start a sign-in: ${err instanceof Error ? err.message : String(err)}`,
-			})
+			login.cancel()
+			print(
+				`Could not keep the sign-in for a later code: ${err instanceof Error ? err.message : String(err)}\n\nRun namzu login claude in a terminal that can take a paste.`,
+			)
 			return EXIT_FAIL
 		}
-
-		ctx.formatter.print({
-			text: describeLoginStart({
-				url: login.url,
-				browserOpened: flags.noBrowser ? false : openInBrowser(login.url),
-				completionHint: 'paste it here and press enter',
-			}),
-		})
-
-		const stop = new AbortController()
-		const timeout = new Promise<LoginOutcome>((resolve) =>
-			setTimeout(
-				() =>
-					resolve({
-						ok: false,
-						reason: 'Timed out waiting for the sign-in to finish. Nothing was stored.',
-					}),
-				flags.timeoutMs,
-			).unref(),
-		)
-		const pasted = firstStdinLine(stop.signal).then((line): Promise<LoginOutcome> | LoginOutcome =>
-			line === null
-				? {
-						ok: false,
-						reason:
-							'Standard input closed before an authorization code was pasted. Nothing was stored.',
-					}
-				: login.completeWithPastedCode(line),
-		)
-		const outcome = await Promise.race([pasted, timeout])
-		stop.abort()
-		login.cancel()
-
-		ctx.formatter.print({
-			text: describeLoginOutcome(outcome, {
-				retry: 'namzu login claude',
-				remove: 'namzu logout',
-			}),
-		})
-		return outcome.ok ? EXIT_OK : EXIT_FAIL
-	},
+		print(WAITING_LINE)
+		return EXIT_OK
+	}
+	login.cancel()
+	print(describeLoginOutcome(outcome, retry))
+	return outcome.ok ? EXIT_OK : EXIT_FAIL
 }
 
 export const logoutCommand: CommandDef = {
