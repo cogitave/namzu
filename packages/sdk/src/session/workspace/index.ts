@@ -19,7 +19,7 @@ export type {
 
 export { WorkspaceBackendRegistry } from './registry.js'
 
-export { GitWorktreeDriver, parseWorktreeList } from './git-worktree.js'
+export { GitWorktreeDriver, defaultWorktreesDir, parseWorktreeList } from './git-worktree.js'
 export type { ExecFile, ExecFileResult, GitWorktreeDriverConfig } from './git-worktree.js'
 
 export {

@@ -1244,6 +1244,7 @@ export {
 	DiskWorkspaceHoldStore,
 	WorkspaceInUseError,
 	defaultWorkspaceHoldsDir,
+	defaultWorktreesDir,
 	HookedWorkspaceDriver,
 	WorktreeHookError,
 	worktreeHookHost,
