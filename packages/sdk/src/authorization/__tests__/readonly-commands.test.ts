@@ -127,6 +127,52 @@ describe('lines that do not', () => {
 	})
 })
 
+describe('sed is a printer and nothing else', () => {
+	it.each([
+		'sed -n 1,40p file.ts',
+		"sed -n '1,40p' file.ts",
+		"sed -n '5p;$p' file.ts",
+		"sed -n '10,$p' a.txt b.txt",
+		"sed -n '2~3p' file",
+		"sed -n '3,+4p' file",
+		"sed -En '7p' file",
+		'sed -n 1,5p < file',
+		"cat file | sed -n '1,20p'",
+		'cd src || pwd; pwd; ls',
+		'cd src && sed -n 1,9p index.ts',
+	])('allows %s', (line) => {
+		expect(allowed(line)).toBe(true)
+	})
+
+	it.each([
+		['in-place', "sed -i 's/a/b/' f"],
+		['in-place with a suffix', "sed -n -i.bak '1p' f"],
+		['long in-place', "sed --in-place -n '1p' f"],
+		['an expression flag', "sed -n -e '1p' f"],
+		['a script file', 'sed -n -f script.sed f'],
+		['a substitution', "sed 's/a/b/' f"],
+		['a substitution that writes', "sed -n 's/a/b/w out.txt' f"],
+		['a write command', "sed -n '1w out.txt' f"],
+		['a read command', "sed -n '1r other' f"],
+		['an execute command', "sed -n '1e date' f"],
+		['an execute substitution', "sed 's/x/date/e' f"],
+		['delete', "sed '1d' f"],
+		['a regular-expression address', "sed -n '/a/p' f"],
+		['a print that carries a second command', "sed -n '1p;1w out' f"],
+		['a print with a command after it', "sed -n '1p w out' f"],
+		['a block', "sed -n '1{p}' f"],
+		['a flag after the script', 'sed -n 1p -i f'],
+		['a variable in the script', 'sed -n "${N}p" f'],
+		['an unquoted dollar address', 'sed -n 1,$p f'],
+		['a redirection to a file', 'sed -n 1p f > out'],
+		['no script', 'sed -n'],
+		['the end-of-options marker', "sed -n -- '1p' f"],
+		['a command substitution', 'sed -n "$(echo 1p)" f'],
+	])('refuses %s', (_why, line) => {
+		expect(allowed(line)).toBe(false)
+	})
+})
+
 describe('git is held to its table', () => {
 	it.each([
 		['--output writes a file', 'git diff --output=out.patch'],

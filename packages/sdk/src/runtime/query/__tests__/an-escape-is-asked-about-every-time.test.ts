@@ -5,6 +5,7 @@ import type { CheckpointId, SessionId, TurnId } from '../../../types/ids/index.j
 import {
 	OUTSIDE_ROOTS_UNATTENDED_REFUSAL,
 	PLAN_MODE_REFUSAL,
+	PLAN_MODE_REFUSAL_WITH_PLAN_FILE,
 	SANDBOX_ESCAPE_UNATTENDED_REFUSAL,
 	type ToolReviewPrompt,
 	createReviewHandler,
@@ -91,6 +92,18 @@ describe('a sandbox escape', () => {
 			action: 'reject_tools',
 			feedback: PLAN_MODE_REFUSAL,
 		})
+	})
+
+	it('tells a plan-file session to write the plan and call exit_plan_mode', async () => {
+		const handler = createReviewHandler({
+			mode: 'plan',
+			prompt: async () => ({ kind: 'approve' }),
+			planModeWrite: () => false,
+		})
+		const answer = await handler(review(escapeCall))
+		expect(answer).toEqual({ action: 'reject_tools', feedback: PLAN_MODE_REFUSAL_WITH_PLAN_FILE })
+		expect(PLAN_MODE_REFUSAL_WITH_PLAN_FILE).toContain('exit_plan_mode')
+		expect(PLAN_MODE_REFUSAL_WITH_PLAN_FILE).not.toContain('as your reply')
 	})
 
 	it('runs unattended only where the operator allowed it', async () => {

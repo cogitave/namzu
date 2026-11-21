@@ -17,7 +17,7 @@
  */
 
 import { Box, Text, useInput } from 'ink'
-import { useRef, useState } from 'react'
+import { Fragment, useMemo, useRef, useState } from 'react'
 
 import {
 	KEEP_PLANNING_PLACEHOLDER,
@@ -27,8 +27,8 @@ import {
 } from '../plan/approval.js'
 import { approvalIsDeliberate } from './consent-timing.js'
 import { isSessionPlanPath } from './display-path.js'
+import { markdownRows } from './fullscreen/markdown-rows.js'
 import { boxedHintWidth, fitHints } from './key-hints.js'
-import { permissionReviewRows } from './permission-review.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 
@@ -47,7 +47,7 @@ export interface PlanApprovalOverlayProps {
  * Rows the box spends on everything but the plan: the blank row above it, the
  * two border rows, the title, the blank row above the plan, the paging line,
  * the blank row above the question, the question, the key line, and the three
- * answers.
+ * answers. A fourth answer (auto mode) costs one more.
  */
 const BOX_ROWS = 12
 /** The path line under the title, shown only for a plan that is not in the session's own folder. */
@@ -56,8 +56,12 @@ const PATH_ROWS = 1
 const ABOVE_ROWS = 4
 
 /** How many rows of the plan fit on a screen `terminalRows` tall. */
-export function planPageRows(terminalRows: number | undefined, showsPath = false): number {
-	const chrome = BOX_ROWS + ABOVE_ROWS + (showsPath ? PATH_ROWS : 0)
+export function planPageRows(
+	terminalRows: number | undefined,
+	showsPath = false,
+	answers = 3,
+): number {
+	const chrome = BOX_ROWS + (answers - 3) + ABOVE_ROWS + (showsPath ? PATH_ROWS : 0)
 	return Math.max(1, Math.min(30, (terminalRows ?? 24) - chrome))
 }
 
@@ -69,7 +73,7 @@ export function PlanApprovalOverlay({
 	onInterrupt,
 	now = Date.now,
 }: PlanApprovalOverlayProps) {
-	const choices = planApprovalRows(request.bypassAvailable)
+	const choices = planApprovalRows(request.bypassAvailable, request.autoAvailable === true)
 	const textRow = choices.length - 1
 	const [cursor, setCursor] = useState(0)
 	const [text, setText] = useState('')
@@ -77,8 +81,15 @@ export function PlanApprovalOverlay({
 	const shownAt = useRef(now())
 
 	const showsPath = !isSessionPlanPath(request.planPath)
-	const pageRows = planPageRows(terminalRows, showsPath)
-	const planRows = permissionReviewRows(request.plan.trimEnd(), columns)
+	const pageRows = planPageRows(terminalRows, showsPath, choices.length)
+	// The plan as the transcript draws it, laid out to the width the box has
+	// (border 2, padding 2, indent 2); the pager counts these rows, not the lines
+	// of the source, so a table or a wrapped bullet is paged by what is on screen.
+	const textWidth = Math.max(1, (columns ?? 80) - 6)
+	const planRows = useMemo(
+		() => markdownRows(request.plan.trimEnd(), textWidth, theme.text.primary),
+		[request.plan, textWidth],
+	)
 	const maxOffset = Math.max(0, planRows.length - pageRows)
 	const top = Math.min(offset, maxOffset)
 	const visible = planRows.slice(top, top + pageRows)
@@ -181,10 +192,25 @@ export function PlanApprovalOverlay({
 				</Text>
 			)}
 			<Box flexDirection="column" paddingLeft={2} paddingTop={1}>
-				{visible.map((row) => (
-					<Box key={row.index} width="100%" flexShrink={0}>
-						<Text color={theme.text.primary} bold={!row.continuation && /^#{1,6}\s/.test(row.text)}>
-							{row.continuation ? `↳ ${row.text}` : row.text.length > 0 ? row.text : ' '}
+				{visible.map((row, index) => (
+					// biome-ignore lint/suspicious/noArrayIndexKey: the rows of a page have no identity of their own
+					<Box key={top + index} width="100%" flexShrink={0}>
+						<Text color={theme.text.primary} wrap="truncate-end">
+							{row.spans.length === 0
+								? ' '
+								: row.spans.map((span, at) => (
+										// biome-ignore lint/suspicious/noArrayIndexKey: the spans of a row have no identity of their own
+										<Fragment key={at}>
+											<Text
+												{...(span.color ? { color: span.color } : {})}
+												{...(span.bold ? { bold: true } : {})}
+												{...(span.italic ? { italic: true } : {})}
+												{...(span.underline ? { underline: true } : {})}
+											>
+												{span.text}
+											</Text>
+										</Fragment>
+									))}
 						</Text>
 					</Box>
 				))}
