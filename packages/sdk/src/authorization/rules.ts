@@ -3,8 +3,9 @@ import { matchesSourceIdGlob } from '../toolsets/source-glob.js'
 import type { ToolSourceRef } from '../toolsets/types.js'
 import type { AuthorizationRule, GateDecision } from '../types/authorization/index.js'
 import type { ToolDefinition } from '../types/tool/index.js'
-import { decodedCommands, decomposeCommandLine } from './command-line.js'
+import { decodedCommands, decomposeCommandLine, writesThroughRedirection } from './command-line.js'
 import { type DangerousFinding, findDangerousCommand } from './dangerous-commands.js'
+import { isReadOnlyCommandLine } from './readonly-commands.js'
 import type { ShellDialect } from './shell-lexer.js'
 
 export interface EvaluateRuleOptions {
@@ -245,7 +246,14 @@ export function evaluateRule(
 			// let `git status && rm -rf ~` through an allow rule for
 			// `^git status`.
 			if (opaque) return null
-			return segments.every((segment) => compiledPattern.test(segment)) ? 'allow' : null
+			if (toolDef?.commandArgument !== rule.argument) {
+				return segments.every((segment) => compiledPattern.test(segment)) ? 'allow' : null
+			}
+			return coversCommandLine(segments, subject, dialect, (segment) =>
+				compiledPattern.test(segment),
+			)
+				? 'allow'
+				: null
 		}
 
 		case 'allow_by_tier': {
@@ -276,6 +284,32 @@ export function evaluateRule(
 			throw new Error(`Unhandled verification rule type: ${(_exhaustive as { type: string }).type}`)
 		}
 	}
+}
+
+/**
+ * Whether the rule's pattern covers a whole command line: every command in it
+ * either matches the pattern or only reads (`tail`, `head`, `grep`, `wc`, a
+ * `2>&1`), and at least one matches, so a rule for `npm test *` covers
+ * `npm test 2>&1 | tail -20` and not `npm test | sh`. A line that writes a
+ * file through a redirection is covered by no rule: a pattern names commands,
+ * not the file a redirection opens.
+ */
+function coversCommandLine(
+	segments: readonly string[],
+	line: string,
+	dialect: ShellDialect,
+	matches: (segment: string) => boolean,
+): boolean {
+	if (writesThroughRedirection(line, dialect)) return false
+	let matched = false
+	for (const segment of segments) {
+		if (matches(segment)) {
+			matched = true
+			continue
+		}
+		if (segments.length === 1 || !isReadOnlyCommandLine(segment, dialect)) return false
+	}
+	return matched
 }
 
 function capturesScreen(toolDef: ToolDefinition | undefined, toolInput: unknown): boolean {

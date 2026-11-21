@@ -146,3 +146,35 @@ describe('expandBraces', () => {
 		expect(expandBraces('{1,2,3,4}{1,2,3,4}{1,2,3,4}').length).toBeLessThanOrEqual(16)
 	})
 })
+
+describe('a shell write into the session scratch folder', () => {
+	const scratch = join(base, 'scratch')
+	mkdirSync(scratch, { recursive: true })
+	const reach = (line: string, scratchpadDirectory: string | null = scratch) =>
+		shellEscalations(line, 'bash', {
+			roots: scratchpadDirectory === null ? [worktree] : [worktree, scratchpadDirectory],
+			reviewOutside: true,
+			...(scratchpadDirectory !== null ? { scratchpadDirectory } : {}),
+		})
+
+	it('does not ask for a target named through $NAMZU_SCRATCH or by its literal path', async () => {
+		expect((await reach('printf a > $NAMZU_SCRATCH/out.csv')).outsidePaths).toEqual([])
+		expect((await reach('printf a > "${NAMZU_SCRATCH}/out.csv"')).outsidePaths).toEqual([])
+		expect((await reach(`printf a > ${scratch}/out.csv`)).outsidePaths).toEqual([])
+		expect((await reach('cp x.txt $NAMZU_SCRATCH/x.txt')).outsidePaths).toEqual([])
+	})
+
+	it('still asks for anything else outside the roots', async () => {
+		expect((await reach('printf a > /etc/namzu-test')).outsidePaths).toEqual(['/etc/namzu-test'])
+		expect((await reach('printf a > $NAMZU_SCRATCH/../../etc/x')).outsidePaths).not.toEqual([])
+		expect((await reach('printf a > $NAMZU_SCRATCH/$X')).outsidePaths).not.toEqual([])
+		expect((await reach('printf a > $OTHER/out.csv')).outsidePaths).not.toEqual([])
+	})
+
+	it('asks when the line changes the variable, or when there is no scratch folder', async () => {
+		expect(
+			(await reach('NAMZU_SCRATCH=/etc; printf a > $NAMZU_SCRATCH/x')).outsidePaths,
+		).not.toEqual([])
+		expect((await reach('printf a > $NAMZU_SCRATCH/x', null)).outsidePaths).not.toEqual([])
+	})
+})

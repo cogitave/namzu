@@ -23,8 +23,10 @@ import {
 	type AuthorizationPredicateCall,
 	type AuthorizationRule,
 	NOOP_LOGGER,
+	isReadOnlyCommandLine,
 	lexShellCommandLine,
 	mustAskPerson,
+	writesThroughRedirection,
 } from '@namzu/sdk'
 
 import { cliLogger } from '../logging.js'
@@ -169,22 +171,37 @@ function allowForCommand(tool: string, command: string): SessionAllow | undefine
 }
 
 /**
- * The commands a line runs, when every one of them is a plain command: the
- * line parses completely, nothing in it is read at run time, and no command
- * carries a redirection. Anything else has no rule that covers it.
+ * The meaningful commands a line runs, when every one of them is a plain
+ * command: the line parses completely, nothing in it is read at run time, and
+ * no command writes a file through a redirection (`2>&1` and `> /dev/null`
+ * are not writes). A command that only reads (`tail`, `head`, `grep`, `wc`)
+ * is left out when something else is run with it, because it needs no rule:
+ * `npm test 2>&1 | tail -20` is the one command `npm test`.
  */
 function plainCommands(line: string): readonly string[] | undefined {
 	const lexed = lexShellCommandLine(line, { dialect: 'bash' })
 	if (!lexed.complete || lexed.opaque || lexed.commands.length === 0) return undefined
-	if (lexed.redirections.length > 0 || lexed.compoundWords.length > 0) return undefined
-	const out: string[] = []
+	if (lexed.compoundWords.length > 0) return undefined
+	if (writesThroughRedirection(line, 'bash')) return undefined
+	const meaningful: string[] = []
+	const readers: string[] = []
 	for (const command of lexed.commands) {
-		if (command.origin !== 'line' || command.redirections.length > 0) return undefined
-		const text = command.text.trim()
+		if (command.origin !== 'line') return undefined
+		// What the command is, without the redirections that do nothing.
+		const text =
+			command.redirections.length > 0
+				? command.words.map((word) => word.text).join(' ')
+				: command.text.trim()
 		if (text === '') return undefined
-		out.push(text)
+		// `cd` stays: it is remembered as the exact move, never as a wider prefix.
+		const reads =
+			programName(text.split(/\s+/)[0] ?? '') !== 'cd' &&
+			isReadOnlyCommandLine(command.text.trim(), 'bash')
+		;(reads ? readers : meaningful).push(text)
 	}
-	return out
+	// A line of nothing but readers keeps them: they are all it has to remember.
+	const out = meaningful.length > 0 ? meaningful : readers
+	return out.length > 0 ? out : undefined
 }
 
 /**
