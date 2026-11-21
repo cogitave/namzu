@@ -8,10 +8,9 @@ import {
 	referencedVariables,
 } from '@namzu/sdk'
 
-import { resolve } from 'node:path'
-
 import { hookSwitch, hooksBySource } from '../../config/hook-layers.js'
-import { LOCAL_CONFIG_FILE, hookConfigProblems, shortHomePath } from '../../config/load.js'
+import { hookConfigProblems, shortHomePath } from '../../config/load.js'
+import { allFolderConfigFiles } from '../../config/project-files.js'
 import type { NamzuCliConfig } from '../../config/schema.js'
 import { readSkillHooks, withoutSessionStart } from '../../config/skill-hooks-reader.js'
 import {
@@ -52,8 +51,8 @@ export function describeHooksStatus(
 	// config this run read does not know that, so the row does not count them.
 	let untrusted = 0
 	if (folder && !folder.trusted) {
-		for (const file of ['namzu.config.json', LOCAL_CONFIG_FILE]) {
-			const label = shortHomePath(resolve(folder.cwd, file))
+		for (const file of allFolderConfigFiles(folder.cwd)) {
+			const label = shortHomePath(file.path)
 			untrusted += bySource.get(label) ?? 0
 			bySource.delete(label)
 		}
@@ -93,11 +92,7 @@ export function describeHooksStatus(
 	// What a file declared and this kernel could not load, or read but does not act on.
 	const untrustedLabels =
 		folder && !folder.trusted
-			? new Set(
-					['namzu.config.json', LOCAL_CONFIG_FILE].map((file) =>
-						shortHomePath(resolve(folder.cwd, file)),
-					),
-				)
+			? new Set(allFolderConfigFiles(folder.cwd).map((file) => shortHomePath(file.path)))
 			: new Set<string>()
 	const declared = hookConfigProblems().filter((problem) => !untrustedLabels.has(problem.file))
 	for (const line of hookConfigProblemLines(declared)) lines.push(line)

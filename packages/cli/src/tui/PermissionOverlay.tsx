@@ -369,7 +369,7 @@ export interface PermissionAnswerOptions {
 	readonly mode?: PermissionMode
 	/** Tools whose command line is one argument, when this session can remember allows. */
 	readonly commandArguments?: ReadonlyMap<string, string>
-	/** The folder the answer is saved for (`namzu.config.local.json` there), as the person sees it. */
+	/** The folder the answer is saved for (`.namzu/settings.local.json` there), as the person sees it. */
 	readonly rememberWhere?: string
 	/** The review leaves part of this batch out, so only a one-time yes is offered. */
 	readonly withheld?: boolean

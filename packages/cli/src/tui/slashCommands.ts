@@ -1,5 +1,6 @@
 import { dirname } from 'node:path'
 import { type HookConfigProblem, hookConfigProblems, readPermissionLayers } from '../config/load.js'
+import { bothFilesNotes, presentFolderFiles } from '../config/project-files.js'
 import { findSetting, unknownSettingMessage } from '../config/setting-cli.js'
 import { installationRows } from '../installation.js'
 import type { PluginHookProblem } from '../integrations/plugins/hook-entries.js'
@@ -10,7 +11,7 @@ import {
 } from '../integrations/providers/connections.js'
 import { DEFAULT_SPEND_DAYS, MAX_SPEND_DAYS } from '../integrations/spend/day.js'
 import type { AttachedAgentHook } from '../integrations/subagents/agent-hooks.js'
-import { LOCAL_CONFIG_FILE } from '../permissions/local-settings.js'
+import { LOCAL_SETTINGS_FILE } from '../permissions/local-settings.js'
 import {
 	type DenialRow,
 	addLocalRule,
@@ -2782,6 +2783,15 @@ export function statusRows(ctx: SlashContext): [string, string][] {
 			: []),
 		['Instructions', ctx.instructionFiles.map((file) => homePath(file)).join(', ') || 'None'],
 	]
+	const folderFiles = [
+		...presentFolderFiles(ctx.cwd, 'project'),
+		...presentFolderFiles(ctx.cwd, 'local'),
+	]
+	if (folderFiles.length > 0)
+		rows.push([
+			'Settings files',
+			`${folderFiles.map((file) => file.name).join(', ')}${bothFilesNotes(ctx.cwd).length > 0 ? ' · two of one kind are read; keep one (/status details)' : ''}`,
+		])
 	if (ctx.sandbox?.workspace)
 		rows.push([
 			'Files',
@@ -2844,6 +2854,7 @@ export function renderStatus(ctx: SlashContext, details = false): string {
 	}
 	if (details) {
 		for (const dir of ctx.directories?.() ?? []) lines.push(`Additional directory: ${dir}`)
+		for (const note of bothFilesNotes(ctx.cwd)) lines.push(`Settings files: ${note}`)
 		if (sandbox) {
 			lines.push(
 				`Required isolation: ${sandbox.required.length > 0 ? sandbox.required.join(', ') : 'none'}.`,
@@ -2889,7 +2900,7 @@ function permissionRulesReply(ctx: SlashContext, args: readonly string[]): strin
 			const held = ruleEntries([
 				{
 					source: 'local-file',
-					path: LOCAL_CONFIG_FILE,
+					path: LOCAL_SETTINGS_FILE,
 					permissions: permissionsForAllows(ctx.rememberedAllows?.() ?? []),
 				},
 			])

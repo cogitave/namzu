@@ -223,8 +223,11 @@ the restore failed without changing anything.
 
 ## What is never written
 
-- Nothing under the working directory. `<cwd>/.namzu` is read for the files you
-  author there and never written.
+- No generated state under the working directory. `<cwd>/.namzu` is read for
+  the files you author there; the one file written in it is
+  `settings.local.json`, the folder's local settings, when you save a "don't ask
+  again" answer or a `/permissions` rule (see
+  [Permission layers](permission-layers.md#the-local-file)).
 - No crash dumps, no per-run directories, no `sessions.sqlite`, no
   `transcript.jsonl`, `messages.json` or `report.md`. An earlier CLI wrote
   those; `namzu state` reports what is left of them as `legacy`, and this

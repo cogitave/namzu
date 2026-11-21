@@ -2,7 +2,7 @@ import { resolve } from 'node:path'
 import { AuthorizationGate, type AuthorizationRule, NOOP_LOGGER } from '@namzu/sdk'
 
 import { readPermissionLayers } from '../config/load.js'
-import { localConfigPath } from './local-settings.js'
+import { legacyLocalConfigPath, localSettingsPath } from './local-settings.js'
 import { type PermissionsConfig, compilePermissionLayers, permissionTableSource } from './rules.js'
 
 /** Stable predicates captured by running gates; only the local layer is replaceable. */
@@ -11,9 +11,14 @@ export function createLivePermissionRules(options: {
 	readonly layers: readonly PermissionsConfig[]
 	readonly browserRules?: readonly AuthorizationRule[]
 }) {
-	const localPath = resolve(localConfigPath(options.cwd))
-	const fixed = options.layers.filter((table) => permissionTableSource(table) !== localPath)
-	const initialLocal = options.layers.filter((table) => permissionTableSource(table) === localPath)
+	// Both local files are replaceable: the earlier one is read until it moves.
+	const localPaths = new Set([
+		resolve(localSettingsPath(options.cwd)),
+		resolve(legacyLocalConfigPath(options.cwd)),
+	])
+	const isLocal = (table: PermissionsConfig) => localPaths.has(permissionTableSource(table) ?? '')
+	const fixed = options.layers.filter((table) => !isLocal(table))
+	const initialLocal = options.layers.filter(isLocal)
 	const gate = (rules: readonly AuthorizationRule[]) =>
 		new AuthorizationGate(
 			{

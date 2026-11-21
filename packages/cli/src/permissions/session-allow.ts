@@ -4,9 +4,12 @@
  * Each answer is offered as a permission suggestion that "yes"
  * applies and that is written to the project's local settings file. This is the
  * Namzu side of that: an allow the operator gave at a prompt, written to the
- * project's `namzu.config.local.json` (see `local-settings.ts`), where the next
- * session reads it back as the local layer of the config cascade, and held in
- * memory as well so it applies to the very next call. It sits AFTER the
+ * project's `.namzu/settings.local.json` (see `local-settings.ts`), where the
+ * next session reads it back as the local layer of the config cascade, and held
+ * in memory as well so it applies to the very next call. It is held in memory
+ * only, and the answer says so, when the folder is not trusted (its local file
+ * is not read there), when git tracks the local file, or when the rule looks
+ * like it holds a password or a token (`rule-secrets.ts`). It sits AFTER the
  * operator's `[permissions]` table and the dangerous-pattern floor (first
  * match wins), so a `deny` or an explicit `ask` still decides first, and a
  * kernel escalation (a sandbox escape, a path outside the roots, a protected
@@ -32,11 +35,12 @@ import {
 import { cliLogger } from '../logging.js'
 import { withoutCdToCwd } from '../tui/shell-display.js'
 import {
-	LOCAL_CONFIG_FILE,
+	LOCAL_SETTINGS_FILE,
 	ensureLocalConfigIgnored,
 	logIgnoreOutcome,
 	writeLocalAllows,
 } from './local-settings.js'
+import { ruleLooksSecret } from './rule-secrets.js'
 import { type PermissionsConfig, compilePermissions } from './rules.js'
 
 export type SessionAllow =
@@ -377,12 +381,41 @@ export interface SessionAllows {
 }
 
 export interface SessionAllowsOptions {
-	/** The folder whose `namzu.config.local.json` receives the answers. Absent: memory only. */
+	/** The folder whose `.namzu/settings.local.json` receives the answers. Absent: memory only. */
 	readonly cwd?: string | (() => string | undefined)
+	/**
+	 * Whether that folder is trusted. An untrusted folder's local file is not
+	 * read, so an answer there is held for the session only. Absent: trusted.
+	 */
+	readonly trusted?: () => boolean
 	/** Overridable for tests. */
 	readonly persist?: typeof writeLocalAllows
 	readonly keepIgnored?: typeof ensureLocalConfigIgnored
 }
+
+/** The text a rule carries, as `<tool> <pattern>`, for the secret check. */
+function allowText(allow: SessionAllow): string | undefined {
+	switch (allow.kind) {
+		case 'command':
+			return allow.command
+		case 'prefix':
+			return `${allow.prefix} *`
+		case 'host':
+			return allow.host
+		case 'tool':
+			return undefined
+	}
+}
+
+/** Whether an answer's rule looks like it holds a password or a token. */
+export function allowHoldsSecret(allow: SessionAllow): boolean {
+	return ruleLooksSecret(allow.tool, allowText(allow))
+}
+
+const UNTRUSTED_FOLDER =
+	'This folder is not trusted, so the answer was not saved to its settings; it holds for this conversation only.'
+const SECRET_RULE =
+	'That rule looks like it holds a password or a token, so it was not saved to a file; it holds for this conversation only.'
 
 export function createSessionAllows(
 	_commands: CommandArguments,
@@ -425,16 +458,22 @@ export function createSessionAllows(
 			if (fresh.length > 0) rebuild()
 			const cwd = typeof options.cwd === 'function' ? options.cwd() : options.cwd
 			if (cwd === undefined) return undefined
-			const write = (options.persist ?? writeLocalAllows)(cwd, permissionsForAllows(allows))
-			if (write.error !== undefined) {
+			if (options.trusted !== undefined && !options.trusted()) return UNTRUSTED_FOLDER
+			const saved = allows.filter((allow) => !allowHoldsSecret(allow))
+			const notes: string[] = saved.length < allows.length ? [SECRET_RULE] : []
+			if (saved.length === 0) return notes.join(' ')
+			const write = (options.persist ?? writeLocalAllows)(cwd, permissionsForAllows(saved))
+			if (write.sentence !== undefined) notes.push(write.sentence)
+			else if (write.error !== undefined) {
 				cliLogger().warn('Could not save a remembered answer', {
 					'namzu.config.local.path': write.path,
 					'namzu.config.local.error': write.error,
 				})
-				return `Could not save this answer to ${LOCAL_CONFIG_FILE}: ${write.error}. It holds for this session only.`
-			}
-			void (options.keepIgnored ?? ensureLocalConfigIgnored)(cwd).then(logIgnoreOutcome)
-			return undefined
+				notes.push(
+					`Could not save this answer to ${LOCAL_SETTINGS_FILE}: ${write.error}. It holds for this session only.`,
+				)
+			} else void (options.keepIgnored ?? ensureLocalConfigIgnored)(cwd).then(logIgnoreOutcome)
+			return notes.length > 0 ? notes.join(' ') : undefined
 		},
 		list: () => [...entries],
 		clear() {

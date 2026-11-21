@@ -1,10 +1,16 @@
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import type { PermissionLayer } from '../../config/load.js'
-import { LOCAL_CONFIG_FILE } from '../local-settings.js'
+import {
+	LEGACY_LOCAL_CONFIG_FILE,
+	LOCAL_SETTINGS_FILE,
+	legacyLocalConfigPath,
+	localSettingsPath,
+} from '../local-settings.js'
 import {
 	addLocalRule,
 	removeLocalRule,
@@ -15,12 +21,15 @@ import {
 
 function folder(contents?: unknown): string {
 	const dir = mkdtempSync(join(tmpdir(), 'namzu-rules-'))
-	if (contents !== undefined) writeFileSync(join(dir, LOCAL_CONFIG_FILE), JSON.stringify(contents))
+	if (contents !== undefined) {
+		mkdirSync(join(dir, '.namzu'))
+		writeFileSync(localSettingsPath(dir), JSON.stringify(contents))
+	}
 	return dir
 }
 
 function localFile(dir: string): { permissions?: Record<string, unknown> } {
-	return JSON.parse(readFileSync(join(dir, LOCAL_CONFIG_FILE), 'utf-8'))
+	return JSON.parse(readFileSync(localSettingsPath(dir), 'utf-8'))
 }
 
 describe('listing rules', () => {
@@ -31,13 +40,19 @@ describe('listing rules', () => {
 			permissions: { bash: { 'git status *': 'allow', 'rm -rf *': 'deny' }, web_fetch: 'ask' },
 		},
 		{ source: 'local-file', path: '/p/local', permissions: { read: { './.env': 'deny' } } },
+		{
+			source: 'local-file',
+			path: '/p/namzu.config.local.json',
+			permissions: { edit: { 'docs/**': 'allow' } },
+		},
 	]
 
 	it('names each rule once, with its file, grouped by what it does', () => {
 		expect(renderRules(ruleEntries(layers))).toContain(
 			[
-				'Allowed without asking (1)',
+				'Allowed without asking (2)',
 				'  bash(git status *)  (this project)',
+				'  edit(docs/**)  (this project, local (namzu.config.local.json))',
 				'',
 				'Always asks (1)',
 				'  web_fetch  (this project)',
@@ -55,7 +70,7 @@ describe('listing rules', () => {
 
 	it('marks only the local file as removable', () => {
 		const removable = ruleEntries(layers).filter((e) => e.removable)
-		expect(removable.map((e) => e.rule)).toEqual(['read(./.env)'])
+		expect(removable.map((e) => e.rule)).toEqual(['edit(docs/**)', 'read(./.env)'])
 	})
 })
 
@@ -86,10 +101,53 @@ describe('adding a rule', () => {
 	it('refuses text that is not a rule, and a file that is not JSON', () => {
 		const dir = folder()
 		expect(addLocalRule(dir, 'allow', 'Bash(oops').ok).toBe(false)
-		writeFileSync(join(dir, LOCAL_CONFIG_FILE), '{nope')
+		mkdirSync(join(dir, '.namzu'))
+		writeFileSync(localSettingsPath(dir), '{nope')
 		const result = addLocalRule(dir, 'allow', 'Bash')
 		expect(result.ok).toBe(false)
-		expect(readFileSync(join(dir, LOCAL_CONFIG_FILE), 'utf-8')).toBe('{nope')
+		expect(readFileSync(localSettingsPath(dir), 'utf-8')).toBe('{nope')
+	})
+
+	it('writes the rule to .namzu/settings.local.json and says so', () => {
+		const dir = folder()
+		const result = addLocalRule(dir, 'allow', 'Bash(npm test *)')
+		expect(result.message).toBe(`Added allow rule Bash(npm test *) to ${LOCAL_SETTINGS_FILE}.`)
+		expect(existsSync(join(dir, LEGACY_LOCAL_CONFIG_FILE))).toBe(false)
+	})
+
+	it.each([
+		['a user and password', 'Bash(curl -u admin:hunter2 https://example.com)'],
+		['a bearer header', 'Bash(curl -H "Authorization: Bearer abcdefghijklmnop" https://x)'],
+		['a password flag', 'Bash(mysql -uroot -psecret db)'],
+		['a token value', 'Bash(deploy --token ghp_abcdefghijklmnopqrstuvwxyz0123)'],
+	])('refuses a rule that holds %s, and writes nothing', (_what, rule) => {
+		const dir = folder()
+		const result = addLocalRule(dir, 'allow', rule)
+		expect(result.ok).toBe(false)
+		expect(result.message).toMatch(/password or a token/)
+		expect(existsSync(localSettingsPath(dir))).toBe(false)
+	})
+
+	it('moves the earlier file first, so its rules stay and the new one joins them', () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-rules-'))
+		writeFileSync(
+			legacyLocalConfigPath(dir),
+			JSON.stringify({ permissions: { bash: { 'ls *': 'allow' } } }),
+		)
+		expect(addLocalRule(dir, 'deny', 'Bash(rm -rf *)').ok).toBe(true)
+		expect(existsSync(legacyLocalConfigPath(dir))).toBe(false)
+		expect(localFile(dir).permissions).toEqual({ bash: { 'ls *': 'allow', 'rm -rf *': 'deny' } })
+	})
+
+	it('refuses to save into a local file git tracks', () => {
+		const dir = folder({ permissions: {} })
+		const env = { ...process.env, GIT_CONFIG_NOSYSTEM: '1' }
+		execFileSync('git', ['init', '-q'], { cwd: dir, env })
+		execFileSync('git', ['add', '-f', LOCAL_SETTINGS_FILE], { cwd: dir, env })
+		const result = addLocalRule(dir, 'allow', 'Bash(ls *)')
+		expect(result.ok).toBe(false)
+		expect(result.message).toMatch(/^Git tracks \.namzu\/settings\.local\.json/)
+		expect(localFile(dir).permissions).toEqual({})
 	})
 })
 
@@ -112,6 +170,34 @@ describe('removing a rule', () => {
 		const result = removeLocalRule(dir, 'Bash(ls *)')
 		expect(result.ok).toBe(false)
 		expect(result.message).toContain('No rule')
+	})
+
+	it('takes the rule out of the earlier file too, while that one is still read', () => {
+		// Both files hold different settings, so neither moves: both are read, and both are edited.
+		const dir = folder({ permissions: { bash: { 'git status *': 'allow' } } })
+		writeFileSync(
+			legacyLocalConfigPath(dir),
+			JSON.stringify({
+				theme: 'dark',
+				permissions: { bash: { 'git status *': 'allow', 'ls *': 'allow' } },
+			}),
+		)
+		const result = removeLocalRule(dir, 'Bash(git status *)')
+		expect(result).toEqual({
+			ok: true,
+			message: `Removed Bash(git status *) from ${LOCAL_SETTINGS_FILE} and ${LEGACY_LOCAL_CONFIG_FILE}.`,
+		})
+		expect(localFile(dir)).toEqual({})
+		expect(JSON.parse(readFileSync(legacyLocalConfigPath(dir), 'utf-8'))).toEqual({
+			theme: 'dark',
+			permissions: { bash: { 'ls *': 'allow' } },
+		})
+	})
+
+	it('makes no .namzu folder when there is nothing to take out', () => {
+		const dir = folder()
+		expect(removeLocalRule(dir, 'Bash(ls *)').ok).toBe(false)
+		expect(existsSync(join(dir, '.namzu'))).toBe(false)
 	})
 })
 

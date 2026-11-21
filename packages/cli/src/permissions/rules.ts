@@ -68,9 +68,11 @@ export function bindPermissionTableToSource(
 	table: PermissionsConfig,
 	settingsPath: string,
 	editableLocal = false,
+	/** The folder relative patterns are read against; the file's own folder when absent. */
+	root: string = dirname(resolve(settingsPath)),
 ): PermissionsConfig {
 	const bound = { ...table }
-	permissionRuleRoots.set(bound, dirname(resolve(settingsPath)))
+	permissionRuleRoots.set(bound, resolve(root))
 	if (editableLocal) permissionRuleSources.set(bound, resolve(settingsPath))
 	return bound
 }

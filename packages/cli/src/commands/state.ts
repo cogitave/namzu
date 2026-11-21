@@ -112,6 +112,11 @@ export function renderStateReport(report: NamzuStateReport): string {
 	lines.push(
 		`Project config: ${report.projectConfig.status}${report.projectConfig.status === 'present' ? ` · ${formatBytes(report.projectConfig.logicalBytes)}` : ''} at ${safePath(report.projectConfig.path)}`,
 	)
+	if (report.legacyLocalConfig.status !== 'absent') {
+		lines.push(
+			`Earlier local settings file: ${report.legacyLocalConfig.status}${report.legacyLocalConfig.status === 'present' ? ` · ${formatBytes(report.legacyLocalConfig.logicalBytes)}` : ''} at ${safePath(report.legacyLocalConfig.path)}; still read, and moved into .namzu/settings.local.json when a session starts in this trusted folder`,
+		)
+	}
 	lines.push('No files were changed. Legacy state is reported, not declared safe to delete.')
 	return lines.join('\n')
 }

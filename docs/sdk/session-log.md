@@ -77,9 +77,12 @@ $NAMZU_TMPDIR (else $TMPDIR)/namzu-<user>/<slug>/<session-id>/scratchpad/
   from the others). On win32 a symlink or junction is refused. A full disk, an exhausted
   quota, an unwritable or missing parent raise a `TempDirectoryError` whose message is one
   plain sentence naming the folder and `NAMZU_TMPDIR`; nothing falls back to another place.
-- **Nothing generated goes under the working directory.** Project config
-  that people write (`<cwd>/.namzu/agents`, `skills`, `commands`, `plugins`,
-  `MEMORY.md`) is read from there, and never written.
+- **The kernel writes nothing generated under the working directory.** Project
+  config that people write (`<cwd>/.namzu/agents`, `skills`, `commands`,
+  `plugins`, `MEMORY.md`, `settings.json`) is read from there, and the kernel
+  never writes it. The CLI writes one file there for the person,
+  `.namzu/settings.local.json` (see
+  [Permission layers](../cli/permission-layers.md#the-local-file)).
 
 ## Ids
 

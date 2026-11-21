@@ -47,9 +47,16 @@ selects the most recent conversation for the directory. The resume picker and
 `--continue` list sessions through the session index, scoped to the Project.
 
 Tool execution, project trust and configuration continue to use the selected
-working directory. Nothing generated is written under it: `<cwd>/.namzu`
-holds only the `agents`, `skills`, `commands`, `plugins` and `MEMORY.md` you
-author, and the CLI only reads it.
+working directory. Generated state is not written under it. `<cwd>/.namzu`
+holds the `agents`, `skills`, `commands`, `plugins`, `MEMORY.md` and
+`settings.json` you author, which the CLI reads, and one file the CLI writes
+for you: `settings.local.json`, this computer's settings for the folder, where
+a "don't ask again" answer and a `/permissions add` rule are saved, with its
+`.lock` and `.tmp` files while a save runs. Namzu keeps it out of git with a
+`**/.namzu/settings.local.json*` line in your global git ignore file, the one
+write outside both the folder and the Namzu home. An earlier CLI kept that file
+as `namzu.config.local.json` at the top of the folder; a session in the trusted
+folder moves it ([Permission layers](permission-layers.md#moving-the-earlier-file)).
 
 ## Identity and persistence
 
@@ -132,6 +139,14 @@ without opening any of them. Remove them yourself once you no longer need
 them. Old conversations remain readable with the older CLI and its original
 application home; export one first with that version's
 `namzu history --session <id>`.
+
+One file is moved: the project's `namzu.config.local.json`, the folder's local
+settings an earlier CLI kept at the top of the folder. A session in the trusted
+folder copies it into `.namzu/settings.local.json`, reads the copy back, and
+only then removes the old file, and never one git tracks
+([Moving the earlier file](permission-layers.md#moving-the-earlier-file)).
+Until then it is still read, and `namzu state` names it ("Earlier local
+settings file") with its size.
 
 Entity IDs are opaque UUIDs. Prefixed IDs are rejected at admission.
 

@@ -560,6 +560,7 @@ import {
 	createLiveModeControl,
 	permissionChangeReason,
 } from '../permissions/live-mode.js'
+import { settleLocalSettings } from '../permissions/local-settings.js'
 import type { PermissionMode } from '../permissions/mode.js'
 import { cliGate } from '../permissions/read-only-gate.js'
 import { withSandboxShell } from '../permissions/sandbox-shell.js'
@@ -1979,7 +1980,7 @@ export interface AgentSession {
 	readonly resetApprovalLatch?: () => void
 	/**
 	 * Remember "don't ask again" answers: for the rest of the session, and in
-	 * the project's `namzu.config.local.json` for the next. They apply behind
+	 * the project's `.namzu/settings.local.json` for the next. They apply behind
 	 * the operator's rules and never cover an escape or a path outside the
 	 * roots. Returns a sentence when the file could not be written. Absent
 	 * where the host has no such store, in which case the prompt offers no
@@ -3065,6 +3066,8 @@ export async function createAgentSession(
 	// `cwd` is settled further down; the store reads it when an answer arrives.
 	const sessionAllows = createSessionAllows(commandArguments, {
 		cwd: () => cwd,
+		// An untrusted folder's local file is not read, so an answer there is not written to it.
+		trusted: () => options.folderTrusted === true || isTrusted(cwd),
 	})
 	// The operator's rules and the remembered answers; the in-sandbox shell
 	// allowance is added behind them once the sandbox below is resolved.
@@ -3800,6 +3803,17 @@ export async function createAgentSession(
 	})
 		.then((report) => describeMemoryMigration(report, memoryDirectory))
 		.catch((error: unknown) => [explainFailure(error, 'Stored memory migration did not run.')])
+	// The local settings file's earlier place (`namzu.config.local.json`) moves
+	// into `.namzu/settings.local.json`, once, in a trusted folder only: an
+	// untrusted one's files are not read, and an archive can carry one.
+	let localSettingsNotices: string[] = []
+	if (options.folderTrusted === true || isTrusted(cwd)) {
+		try {
+			localSettingsNotices = settleLocalSettings(cwd)
+		} catch (error) {
+			localSettingsNotices = [explainFailure(error, 'The local settings file was not checked.')]
+		}
+	}
 	// Records an earlier version derived on its own and the screen would not
 	// write today are archived, once per store, after the session is
 	// underway. It fails open and logs counts only.
@@ -7044,6 +7058,7 @@ export async function createAgentSession(
 			...(pluginRuntime?.takePluginHookWarnings() ?? []),
 			...compatibleEndpointNotices(),
 			...memoryMigrationNotices,
+			...localSettingsNotices,
 			...computerUseNotices,
 		],
 		rememberNote: (text, type) => saveTypedNote(memoryStore, text, type),

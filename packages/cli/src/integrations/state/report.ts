@@ -13,6 +13,9 @@ const MAX_ENTRIES = 100_000
 
 const AUTHORED_TOP_LEVEL = new Set(['agents', 'commands', 'plugins', 'skills', 'MEMORY.md'])
 const CONFIG_TOP_LEVEL = new Set([
+	// A project's `.namzu/settings.json` and `.namzu/settings.local.json`.
+	'settings.json',
+	'settings.local.json',
 	'config.yaml',
 	'credentials.json',
 	'identity.json',
@@ -158,6 +161,16 @@ export interface NamzuStateReport {
 		readonly status: 'present' | 'absent' | 'unreadable' | 'unsupported'
 		readonly logicalBytes: number
 	}
+	/**
+	 * `namzu.config.local.json`, the local settings file's earlier place at the
+	 * top of the folder. Still read until a session moves it into
+	 * `.namzu/settings.local.json`.
+	 */
+	readonly legacyLocalConfig: {
+		readonly path: string
+		readonly status: 'present' | 'absent' | 'unreadable' | 'unsupported'
+		readonly logicalBytes: number
+	}
 	readonly projectBinding: ProjectBinding
 }
 
@@ -258,6 +271,8 @@ export async function inspectNamzuState(
 	)
 	const projectConfigPath = join(cwd, 'namzu.config.json')
 	const projectConfig = await inspectOneRegularFile(projectConfigPath)
+	const legacyLocalConfigPath = join(cwd, 'namzu.config.local.json')
+	const legacyLocalConfig = await inspectOneRegularFile(legacyLocalConfigPath)
 	const userCollection = collections.get(userRoot) as RootCollection
 	const projectBinding = await inspectProjectBinding(userCollection, cwd)
 
@@ -280,6 +295,11 @@ export async function inspectNamzuState(
 			path: projectConfigPath,
 			status: projectConfig.status,
 			logicalBytes: projectConfig.logicalBytes,
+		},
+		legacyLocalConfig: {
+			path: legacyLocalConfigPath,
+			status: legacyLocalConfig.status,
+			logicalBytes: legacyLocalConfig.logicalBytes,
 		},
 		projectBinding,
 	}
@@ -552,6 +572,7 @@ function categoryOf(path: string): StateCategory {
 	if (legacyKey(path)) return 'legacy'
 	if (
 		name.endsWith('.lock') ||
+		name.endsWith('.tmp') ||
 		name.includes('.tmp.') ||
 		name.includes('.tmp-') ||
 		name.endsWith('.candidate')
