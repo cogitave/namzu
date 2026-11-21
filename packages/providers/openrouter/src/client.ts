@@ -215,7 +215,9 @@ const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL ?? 'https://openrout
 function pricePerMillion(raw: string | undefined): number | undefined {
 	if (raw === undefined) return undefined
 	const parsed = Number.parseFloat(raw)
-	return Number.isFinite(parsed) ? parsed * 1_000_000 : undefined
+	// `"-1"` is how the listing marks a router with no fixed rate (`openrouter/auto`):
+	// a rate nobody stated, not a negative one.
+	return Number.isFinite(parsed) && parsed >= 0 ? parsed * 1_000_000 : undefined
 }
 
 interface RawUsage {
@@ -501,21 +503,6 @@ function replayFor(
 	return state.details !== undefined
 		? { reasoning_details: state.details }
 		: { reasoning: state.reasoning as string }
-}
-
-/**
- * Index of the first message of the current turn: the last user message that
- * is not host-generated context. Reasoning is sent back for the assistant
- * messages from there on, which is what the guide asks for between a tool
- * call and the model's next step; an earlier turn is history and is not
- * resent. Answers 0 when the conversation holds no such user message.
- */
-function currentTurnStart(messages: ChatCompletionParams['messages']): number {
-	for (let i = messages.length - 1; i >= 0; i--) {
-		const msg = messages[i]
-		if (msg?.role === 'user' && msg.source?.type !== 'runtime-context') return i
-	}
-	return 0
 }
 
 /**
@@ -834,7 +821,6 @@ export class OpenRouterProvider implements LLMProvider {
 		messages: ChatCompletionParams['messages'],
 		route: ProviderRoute,
 	): { wire: unknown[]; origin: number[] } {
-		const turnStart = currentTurnStart(messages)
 		const readsImages = this.supportsImageInputFor(route.model)
 		// An assistant entry with neither text nor a tool call (the model produced
 		// only reasoning, or was cut off) is rejected upstream with "content or
@@ -904,11 +890,15 @@ export class OpenRouterProvider implements LLMProvider {
 				push({ role: 'tool', content: text.join('\n'), tool_call_id: callId }, index)
 				continue
 			}
-			// The model's own reasoning for the steps of THIS turn goes back with the
-			// message that produced it, so it can continue from where it left off
-			// after a tool result. An earlier turn's reasoning is not resent.
-			const replay =
-				msg.role === 'assistant' && index >= turnStart ? replayFor(msg, route) : undefined
+			// The model's own reasoning goes back with the message that produced it,
+			// for every assistant message of the conversation, not only the current
+			// turn's. A message's bytes must not change from one request to the next:
+			// the upstream caches by prefix, and an earlier message re-sent without
+			// the reasoning it was sent with before moves the prefix and bills the
+			// whole history again at the first new user message. Reasoning leaves
+			// the history only when a compaction rewrites it (the stored reasoning
+			// then no longer matches the envelope and `replayFor` answers nothing).
+			const replay = msg.role === 'assistant' ? replayFor(msg, route) : undefined
 			if (msg.role === 'assistant' && 'toolCalls' in msg && msg.toolCalls?.length) {
 				for (const tc of msg.toolCalls) callNames.set(tc.id, tc.function.name)
 				push(
