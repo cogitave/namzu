@@ -19,6 +19,7 @@ import {
 	isProviderRequestError,
 	providerHttpError,
 	providerVendorError,
+	toToolResultBlocks,
 } from '@namzu/sdk'
 import { attributionHeaders } from '@namzu/sdk'
 import type { Logger } from '@namzu/sdk'
@@ -165,21 +166,31 @@ function markLastPart(message: { content?: unknown }): boolean {
 function applyCacheBreakpoints(
 	source: ChatCompletionParams['messages'],
 	formatted: { content?: unknown }[],
+	origin: readonly number[],
 ): void {
+	// `origin[w]` is the source index of wire entry `w`, or -1 for an entry the
+	// driver added (the user message that carries a tool's images).
+	const wireOf = (sourceIndex: number): { content?: unknown } | undefined => {
+		const at = origin.indexOf(sourceIndex)
+		return at >= 0 ? formatted[at] : undefined
+	}
 	let lastStatic = -1
 	let historyEnd = source.length
 	for (const [i, msg] of source.entries()) {
 		if (msg.role === 'system' && msg.cacheHint === 'cache') lastStatic = i
 		if (historyEnd === source.length && isRequestOnlyContext(msg)) historyEnd = i
 	}
-	const staticMessage = lastStatic >= 0 ? formatted[lastStatic] : undefined
+	const staticMessage = lastStatic >= 0 ? wireOf(lastStatic) : undefined
 	if (staticMessage) markLastPart(staticMessage)
 	for (let i = historyEnd - 1; i > lastStatic; i--) {
 		if (source[i]?.role === 'system') continue
-		const message = formatted[i]
+		const message = wireOf(i)
 		if (message && markLastPart(message)) return
 	}
 }
+
+/** An inline image a tool returned. */
+type ToolImage = { readonly data: string; readonly mediaType: string }
 
 function routeOf(params: ChatCompletionParams): ProviderRoute {
 	return params.providerRoute ?? { providerId: 'openrouter', model: params.model, chainIndex: 0 }
@@ -680,7 +691,8 @@ function formatToolChoice(tc: ToolChoice): unknown {
 /**
  * What this DRIVER does, not what OpenRouter could do: tools pass
  * through to the request body, and user-message image `attachments` are
- * mapped into `image_url` content parts. Whether a given MODEL reads them is
+ * mapped into `image_url` content parts; an image a tool returns rides in a user
+ * message right after that turn's tool messages. Whether a given MODEL reads them is
  * answered per model by `supportsImageInputFor`, from the listing's input
  * modalities; the runtime keeps images away from a model known to be text-only.
  */
@@ -692,7 +704,9 @@ export const OPENROUTER_CAPABILITIES: ProviderCapabilities = {
 	supportsVision: true,
 	// Images only. A document degrades to a named placeholder.
 	supportsDocuments: false,
-	supportsToolResultImages: false,
+	// An image a tool returns follows its tool messages in one user message
+	// (a chat-completions tool message carries text only).
+	supportsToolResultImages: true,
 	supportsToolResultDocuments: false,
 	// OpenRouter states the charge on every response (`usage.cost`).
 	reportsRequestCost: true,
@@ -819,8 +833,9 @@ export class OpenRouterProvider implements LLMProvider {
 	private formatMessages(
 		messages: ChatCompletionParams['messages'],
 		route: ProviderRoute,
-	): unknown[] {
+	): { wire: unknown[]; origin: number[] } {
 		const turnStart = currentTurnStart(messages)
+		const readsImages = this.supportsImageInputFor(route.model)
 		// An assistant entry with neither text nor a tool call (the model produced
 		// only reasoning, or was cut off) is rejected upstream with "content or
 		// tool_calls must be set". Leave it out; no filler is invented. An entry
@@ -832,13 +847,62 @@ export class OpenRouterProvider implements LLMProvider {
 				({ msg }) =>
 					msg.role !== 'assistant' || Boolean(msg.content) || (msg.toolCalls?.length ?? 0) > 0,
 			)
-		return sendable.map(({ msg, index }) => {
+		const wire: unknown[] = []
+		const origin: number[] = []
+		const callNames = new Map<string, string>()
+		// A tool message carries text only on this wire. The images a turn's tools
+		// returned wait here and go out as ONE user message after the last of that
+		// turn's tool messages, because every tool message has to follow the
+		// assistant message that made the calls directly.
+		let pendingImages: Array<{ callId: string; image: ToolImage }> = []
+		const flushToolImages = (): void => {
+			if (pendingImages.length === 0) return
+			const parts: Array<
+				{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }
+			> = []
+			for (const { callId, image } of pendingImages) {
+				const name = callNames.get(callId)
+				parts.push({
+					type: 'text',
+					text: `Image returned by the ${name ? `\`${name}\` ` : ''}tool call ${callId}:`,
+				})
+				parts.push({
+					type: 'image_url',
+					image_url: { url: `data:${image.mediaType};base64,${image.data}` },
+				})
+			}
+			wire.push({ role: 'user', content: parts })
+			origin.push(-1)
+			pendingImages = []
+		}
+		const push = (entry: unknown, index: number): void => {
+			wire.push(entry)
+			origin.push(index)
+		}
+		for (const { msg, index } of sendable) {
+			if (msg.role !== 'tool') flushToolImages()
 			if (msg.role === 'tool') {
-				return {
-					role: 'tool',
-					content: msg.content,
-					tool_call_id: (msg as { toolCallId?: string }).toolCallId,
+				const callId = (msg as { toolCallId?: string }).toolCallId
+				if (typeof msg.content === 'string') {
+					push({ role: 'tool', content: msg.content, tool_call_id: callId }, index)
+					continue
 				}
+				const text: string[] = []
+				for (const block of toToolResultBlocks(msg.content)) {
+					if (block.type === 'text') text.push(block.text)
+					else if (block.type === 'image') {
+						if (readsImages && !isModelContentOmission(block.modelOmission) && callId) {
+							pendingImages.push({ callId, image: block })
+							text.push('[image attached in the next message]')
+						} else {
+							text.push(
+								`[image omitted: this model cannot read it (${block.mediaType}, ${block.data.length} B)]`,
+							)
+						}
+					} else text.push(`[document omitted: ${block.mediaType} cannot be sent here]`)
+				}
+				push({ role: 'tool', content: text.join('\n'), tool_call_id: callId }, index)
+				continue
 			}
 			// The model's own reasoning for the steps of THIS turn goes back with the
 			// message that produced it, so it can continue from where it left off
@@ -846,16 +910,21 @@ export class OpenRouterProvider implements LLMProvider {
 			const replay =
 				msg.role === 'assistant' && index >= turnStart ? replayFor(msg, route) : undefined
 			if (msg.role === 'assistant' && 'toolCalls' in msg && msg.toolCalls?.length) {
-				return {
-					role: 'assistant',
-					content: msg.content,
-					tool_calls: msg.toolCalls.map((tc) => ({
-						id: tc.id,
-						type: tc.type,
-						function: tc.function,
-					})),
-					...replay,
-				}
+				for (const tc of msg.toolCalls) callNames.set(tc.id, tc.function.name)
+				push(
+					{
+						role: 'assistant',
+						content: msg.content,
+						tool_calls: msg.toolCalls.map((tc) => ({
+							id: tc.id,
+							type: tc.type,
+							function: tc.function,
+						})),
+						...replay,
+					},
+					index,
+				)
+				continue
 			}
 			if (msg.role === 'user' && msg.attachments && msg.attachments.length > 0) {
 				const parts: Array<
@@ -874,13 +943,19 @@ export class OpenRouterProvider implements LLMProvider {
 						image_url: { url: `data:${attachment.mediaType};base64,${attachment.data}` },
 					})
 				}
-				return {
-					role: 'user',
-					content: parts.some((part) => part.type === 'image_url') ? parts : msg.content,
-				}
+				push(
+					{
+						role: 'user',
+						content: parts.some((part) => part.type === 'image_url') ? parts : msg.content,
+					},
+					index,
+				)
+				continue
 			}
-			return { role: msg.role, content: msg.content, ...replay }
-		})
+			push({ role: msg.role, content: msg.content, ...replay }, index)
+		}
+		flushToolImages()
+		return { wire, origin }
 	}
 
 	private buildRequestBody(
@@ -888,9 +963,10 @@ export class OpenRouterProvider implements LLMProvider {
 		stream: boolean,
 		supportedEfforts?: readonly string[],
 	): Record<string, unknown> {
+		const formatted = this.formatMessages(params.messages, routeOf(params))
 		const body: Record<string, unknown> = {
 			model: params.model,
-			messages: this.formatMessages(params.messages, routeOf(params)),
+			messages: formatted.wire,
 			stream,
 		}
 
@@ -926,7 +1002,11 @@ export class OpenRouterProvider implements LLMProvider {
 		if (params.stop) body.stop = params.stop
 
 		if (params.cacheControl && takesExplicitBreakpoints(params.model)) {
-			applyCacheBreakpoints(params.messages, body.messages as { content?: unknown }[])
+			applyCacheBreakpoints(
+				params.messages,
+				body.messages as { content?: unknown }[],
+				formatted.origin,
+			)
 		}
 
 		// `max` and `ultra` resolve against the model's own list — see

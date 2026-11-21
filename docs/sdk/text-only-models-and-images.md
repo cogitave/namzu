@@ -23,6 +23,12 @@ The conversation is never rewritten to avoid this. What changes is the request b
 
 Tools that only sometimes return an image (a browser screenshot, a tool server) stay available; their image is replaced by the note above and their text result is kept.
 
+## An image a tool returns, on OpenRouter
+
+A chat-completions tool message carries text only, and each tool message has to follow the assistant message that made the calls directly. So for a model that reads images the OpenRouter driver keeps the tool message's text, adds `[image attached in the next message]` to it, and sends the images of that turn's tools in one `user` message after the last tool message, each introduced by the tool call it came from ("Image returned by the `read_file` tool call c1:"). `OPENROUTER_CAPABILITIES.supportsToolResultImages` is `true`, so a screenshot or a read image file is no longer reduced to a marker. A text-only model keeps the omission note. The images count against the context like a pasted one.
+
+An older tool image is sent again with its turn on every request, exactly as a pasted image in the history is; the stored history is not rewritten, and a text-only model or a context budget replaces it with the note.
+
 ## Limits
 
 - A fallback chain decides before the request is sent. A request that falls over mid-call from a member that reads images to one that does not is refused there and sent again without images. One that falls over the other way, from a text-only member to a vision member, is answered without its images for that request only.
