@@ -1021,6 +1021,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				'/peers role clear <name>',
 				'/peers allow <code> | /peers deny <code>',
 				'/peers remove <machine> | /peers rename <name> | /peers add <host[:port]>',
+				'/peers cancel (withdraw the request this machine is waiting on)',
 			],
 		},
 		action: (_ctx, args) => ({ kind: 'peers', args }),

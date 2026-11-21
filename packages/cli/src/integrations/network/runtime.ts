@@ -2,11 +2,13 @@ import { createHash } from 'node:crypto'
 import { networkInterfaces } from 'node:os'
 import { join } from 'node:path'
 import {
+	type AuditEntry,
 	type NetworkClock,
 	type NetworkDiscovery,
 	type NetworkEvent,
 	type NetworkService,
 	type RosterView,
+	createFileAuditSink,
 	createMdnsDiscovery,
 	createNamzuNetwork,
 	createNetworkStore,
@@ -33,6 +35,7 @@ import {
 	writeControlInfo,
 } from './control.js'
 import { type NetworkController, createNetworkController } from './controller.js'
+import { modeWord } from './format.js'
 import { type NetBridge, createNetworkHost, openNetBridge } from './host.js'
 import { createLeadership, processExists } from './leader.js'
 import { type NetworkDecision, decideNetwork } from './policy.js'
@@ -77,6 +80,8 @@ export interface NetworkRuntime {
 	/** What `LivePeers` needs to list and message sessions on other machines; undefined while the network is off. */
 	readonly link: NetworkLink
 	readonly roles: ReturnType<typeof createRoleStore>
+	/** Writes one line to the network's audit log (decisions about mail between sessions here); no-op while the network is off. */
+	audit(entry: Omit<AuditEntry, 'at'>): void
 	/** Look once now (leadership and notices); tests and a screen that just opened use it. */
 	refresh(): Promise<NetworkSummary | undefined>
 	close(): Promise<void>
@@ -122,6 +127,7 @@ export function createNetworkRuntime(options: NetworkRuntimeOptions): NetworkRun
 			send: () => Promise.resolve(undefined),
 			add: fail,
 			join: fail,
+			cancelJoin: () => Promise.resolve(false),
 			allowHeld: fail,
 			denyHeld: fail,
 			reportDelivered: () => Promise.resolve(),
@@ -135,6 +141,7 @@ export function createNetworkRuntime(options: NetworkRuntimeOptions): NetworkRun
 			control,
 			link: { list: async () => undefined, send: async () => undefined, setRole: control.setRole },
 			roles,
+			audit: () => {},
 			refresh: async () => undefined,
 			close: async () => {},
 		}
@@ -148,6 +155,7 @@ export function createNetworkRuntime(options: NetworkRuntimeOptions): NetworkRun
 		isAlive: options.isAlive ?? processExists,
 		harden: hardenDirectory,
 	})
+	const auditSink = createFileAuditSink({ dir: networkDir })
 	const runtimeDir = resolvePeerRuntime(options.home, env)
 	const socketPath = controlPath(options.home, runtimeDir.path)
 	const client = createControlClient(() => {
@@ -337,12 +345,21 @@ export function createNetworkRuntime(options: NetworkRuntimeOptions): NetworkRun
 		}
 		if (before && !before.removed && now.removed)
 			options.notify('This machine was removed from your Namzu network. Its identity was reset.')
+		if (now.joining && before?.joining?.code !== now.joining.code)
+			options.notify(
+				`Asking ${now.joining.endpoint} to let this machine join your Namzu network (code ${now.joining.code}). Allow it on one of your other machines; /peers cancel to withdraw.`,
+			)
+		if (now.state === 'ambiguous' && before?.state !== 'ambiguous')
+			options.notify(
+				`${now.nearby.length} Namzu networks are nearby and this machine asked none. /peers to pick yours.`,
+			)
 		if (before?.lastJoin?.at !== now.lastJoin?.at && now.lastJoin) {
 			const text: Record<string, string> = {
 				joined: 'Joined your Namzu network.',
 				denied: 'Your request to join a Namzu network was denied.',
 				expired: 'Your request to join a Namzu network was not answered in time.',
 				refused: 'Your request to join a Namzu network was refused.',
+				cancelled: 'You withdrew the request to join a Namzu network.',
 			}
 			options.notify(text[now.lastJoin.result] ?? 'Your request to join ended.')
 		}
@@ -376,7 +393,7 @@ export function createNetworkRuntime(options: NetworkRuntimeOptions): NetworkRun
 					ref: session.ref,
 					folder: session.folder,
 					state: machine.status === 'offline' ? 'offline' : session.state,
-					permission_mode: session.mode,
+					permission_mode: modeWord(session.mode),
 					...(session.role ? { role: session.role } : {}),
 					accepts_messages: session.acceptsMessages && machine.status !== 'offline',
 					self: machine.status === 'self' && session.ref === selfRef,
@@ -414,12 +431,16 @@ export function createNetworkRuntime(options: NetworkRuntimeOptions): NetworkRun
 			send: (t, x, f) => current().send(t, x, f),
 			add: (h) => current().add(h),
 			join: (e) => current().join(e),
+			cancelJoin: () => current().cancelJoin(),
 			allowHeld: (id) => current().allowHeld(id),
 			denyHeld: (id) => current().denyHeld(id),
 			reportDelivered: (m, i, r) => current().reportDelivered(m, i, r),
 		},
 		link,
 		roles,
+		audit: (entry) => {
+			void auditSink.append({ at: clock.now(), ...entry }).catch(() => undefined)
+		},
 		async refresh() {
 			await starting
 			return poll()

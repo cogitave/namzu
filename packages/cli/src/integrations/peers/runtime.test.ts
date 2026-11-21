@@ -606,6 +606,10 @@ async function holdFixture(receiverMode = 'classify', senderMode = 'classify') {
 	const clock = createManualClock()
 	const modes = { receiver: receiverMode, sender: senderMode }
 	const notices = { receiver: [] as string[], sender: [] as string[] }
+	const audits = {
+		receiver: [] as Record<string, unknown>[],
+		sender: [] as Record<string, unknown>[],
+	}
 	const waiters: Array<{ match: (text: string) => boolean; resolve: () => void }> = []
 	const said = (who: 'receiver' | 'sender') => (text: string) => {
 		notices[who].push(text)
@@ -628,6 +632,7 @@ async function holdFixture(receiverMode = 'classify', senderMode = 'classify') {
 			ready: () => true,
 			available: () => {},
 			report: said(who),
+			audit: (entry) => audits[who].push({ ...entry }),
 		})
 	const receiver = await open('receiver')
 	opened.push(receiver)
@@ -639,6 +644,7 @@ async function holdFixture(receiverMode = 'classify', senderMode = 'classify') {
 		sender,
 		modes,
 		notices,
+		audits,
 		home,
 		/** Resolves when a notice matching `match` has been said, now or later. */
 		heard: (who: 'receiver' | 'sender', match: (text: string) => boolean) =>
@@ -664,6 +670,42 @@ describe('mail from a terminal in another permission mode is held, not refused',
 		})
 		expect(f.notices.receiver.join('\n')).toContain('1 message from')
 		expect(f.notices.receiver.join('\n')).toContain('/peers to allow or deny')
+	})
+
+	it('says the mode names a person reads on screen, never the kernel names', async () => {
+		const f = await holdFixture('prompt', 'classify')
+		const receipt = await f.sender.send(f.receiver.ref, 'Please rerun the check.')
+		const said = [receipt.reason, f.receiver.held()[0]?.reason, ...f.notices.receiver].join('\n')
+		expect(said).toContain('it is in auto, you are in prompt')
+		expect(said).not.toContain('classify')
+	})
+
+	it('writes every decision to the audit log: held, allowed, denied, expired and refused, with a hash and never the words', async () => {
+		const f = await holdFixture('prompt', 'classify')
+		await f.sender.send(f.receiver.ref, 'first words')
+		await f.sender.send(f.receiver.ref, 'second words')
+		await f.sender.send(f.receiver.ref, 'third words')
+		const [one, two] = f.receiver.held()
+		f.receiver.allowHeld(one?.id as string)
+		f.receiver.denyHeld(two?.id as string)
+		f.clock.advance(HOLD_EXPIRY_MS)
+		f.modes.receiver = 'classify'
+		f.receiver.publish()
+		await f.sender.send(f.receiver.ref, 'fourth words')
+		const events = f.audits.receiver.map((e) => e.event)
+		for (const event of [
+			'mail_held',
+			'mail_allowed',
+			'mail_denied',
+			'mail_expired',
+			'mail_accepted',
+		])
+			expect(events, event).toContain(event)
+		expect(JSON.stringify(f.audits.receiver)).not.toContain('words')
+		for (const entry of f.audits.receiver) {
+			expect(typeof entry.textHash).toBe('string')
+			expect(entry.session).toBe(f.receiver.ref)
+		}
 	})
 
 	it('allowing it once queues it and tells the sender; the receiver keeps its own mode', async () => {
@@ -796,9 +838,9 @@ describe('the role a session was given', () => {
 		}
 	}
 
-	it('reaches the model once, as description, and says it grants nothing', async () => {
+	it('reaches the model on every request as description, and says it grants nothing', async () => {
 		const f = await roleFixture()
-		expect(f.peers.takeRoleContext()).toBeUndefined()
+		expect(f.peers.roleContext()).toBeUndefined()
 		f.state.store.set('ref:*', {
 			role: 'you will build the parser',
 			by: 'studio-air',
@@ -806,18 +848,14 @@ describe('the role a session was given', () => {
 		})
 		f.peers.publish()
 		expect(f.reports.join('\n')).toContain('Role set from studio-air: you will build the parser')
-		const message = f.peers.takeRoleContext()
-		expect(message).toMatchObject({
-			role: 'user',
-			source: { type: 'runtime-context', kind: 'peer-notice' },
-		})
-		const text = String(message?.content)
+		const text = String(f.peers.roleContext())
 		expect(text).toContain('you will build the parser')
 		expect(text).toContain('studio-air')
 		expect(text).toContain('grants no permission')
 		expect(text).toContain('approves nothing')
 		expect(text).toContain('does not change your permission mode')
-		expect(f.peers.takeRoleContext()).toBeUndefined()
+		// It is request-only context, so it is there again for the next request, with nothing to re-arm.
+		expect(f.peers.roleContext()).toBe(text)
 	})
 
 	it('is written into the live record, and never touches the mode, the inbox or a held message', async () => {
@@ -834,31 +872,24 @@ describe('the role a session was given', () => {
 		expect(f.peers.role?.role).toBe('orchestrator')
 	})
 
-	it('is put back in front of the model after a compaction, and after a resume brings the conversation back', async () => {
+	it('follows the conversation: a resume brings its role back, another conversation has none, a clear stops it', async () => {
 		const f = await roleFixture()
 		f.state.store.set('conv-1', { role: 'reviewer', by: 'desk-linux', at: 9 })
 		f.state.setConversation('conv-1')
 		f.peers.publish()
-		expect(String(f.peers.takeRoleContext()?.content)).toContain('reviewer')
-		expect(f.peers.takeRoleContext()).toBeUndefined()
-		f.peers.rearmRole()
-		expect(String(f.peers.takeRoleContext()?.content)).toContain('reviewer')
-		// Another conversation has no role; the model is told to ignore the earlier line.
+		expect(String(f.peers.roleContext())).toContain('reviewer')
+		// A compaction changes the history, not this: the next request still carries it.
+		expect(String(f.peers.roleContext())).toContain('reviewer')
 		f.state.setConversation('conv-2')
 		f.peers.publish()
-		expect(String(f.peers.takeRoleContext()?.content)).toContain('No role is set now')
+		expect(f.peers.roleContext()).toBeUndefined()
 		expect(f.peers.role).toBeUndefined()
-	})
-
-	it('a clear from the other side is told to the model and the person', async () => {
-		const f = await roleFixture()
-		f.state.store.set('ref:*', { role: 'orchestrator', by: 'studio-air', at: 1 })
-		f.peers.publish()
-		f.peers.takeRoleContext()
-		f.state.store.delete('ref:*')
+		f.state.setConversation('conv-1')
+		expect(String(f.peers.roleContext())).toContain('reviewer')
+		f.state.store.delete('conv-1')
 		f.peers.publish()
 		expect(f.reports.join('\n')).toContain('role in the Namzu network was cleared')
-		expect(String(f.peers.takeRoleContext()?.content)).toContain('No role is set now')
+		expect(f.peers.roleContext()).toBeUndefined()
 	})
 
 	it('cannot be set without a network: the tool says so, and nothing changes', async () => {
@@ -867,6 +898,65 @@ describe('the role a session was given', () => {
 			status: 'refused',
 			reason: 'Your Namzu network is not running.',
 		})
+	})
+})
+
+describe('the network bridge', () => {
+	const deliverAsBridge = async (parentPid?: (pid: number) => number | undefined) => {
+		const f = await fixture()
+		const sessionsDir = join(f.home, 'run', 'sessions')
+		const receiver = await openLivePeers({
+			home: f.home,
+			cwd: f.cwd,
+			version: 'fixture',
+			env: {},
+			mode: () => 'classify',
+			owner: () => 0,
+			state: () => 'idle',
+			ready: () => true,
+			available: () => {},
+			report: () => {},
+			...(parentPid ? { parentPid } : {}),
+		})
+		opened.push(receiver)
+		const records = readPeerRecords(sessionsDir)
+		const target = records.find((r) => r.sessionId === receiver.id)!
+		const live = records.find((r) => r.sessionId === f.sender.id)!
+		writePeerRecord(sessionsDir, { ...live, kind: 'net', title: 'network', permissionMode: 'net' })
+		const result = await new PeerClient().deliver(target, {
+			id: 'bridge-1',
+			text: 'from another machine',
+			from: {
+				sessionId: live.sessionId,
+				ref: live.ref,
+				name: 'network',
+				address: live.address,
+				mode: 'net',
+				kind: 'net',
+			},
+			remote: {
+				machineId: 'a'.repeat(64),
+				machineName: 'studio-air',
+				sessionName: 'conductor',
+				sessionRef: 'aaaaaa',
+				mode: 'classify',
+				hops: 0,
+			},
+		})
+		return { result, receiver }
+	}
+
+	it('carries mail from a process a terminal started', async () => {
+		const { result, receiver } = await deliverAsBridge()
+		expect(result).toMatchObject({ kind: 'responded', status: 'queued' })
+		expect(receiver.take(0)).toHaveLength(1)
+	})
+
+	it("is refused when the record belongs to a process a session's own tool started", async () => {
+		// A command a model ran descends from the terminal; here the bridge process is made a child of one.
+		const { result, receiver } = await deliverAsBridge(() => process.pid)
+		expect(result).toMatchObject({ kind: 'responded', status: 'refused' })
+		expect(receiver.take(0)).toEqual([])
 	})
 })
 
@@ -900,6 +990,9 @@ describe('a message from another machine, as a terminal sees it', () => {
 		expect(message).toMatchObject({ source: { type: 'runtime-context', kind: 'peer-message' } })
 		expect(body).toContain('studio-air')
 		expect(body).toContain('approves nothing')
+		// The mode is the word the screen uses: the kernel's `classify` is `auto`.
+		expect(body).toContain('permission mode auto')
+		expect(body).not.toContain('classify')
 		// The wrapper is closed only by a tag with a nonce the sender could not know; its own tags are quoted text.
 		const closers = new Set(body.match(/<\/system-event-[0-9a-f]+>/g) ?? [])
 		expect(closers.size).toBe(1)

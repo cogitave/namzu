@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
-import { createLeadership, processExists, readLock } from './leader.js'
+import { LOCK_STALE_MS, createLeadership, processExists, readLock } from './leader.js'
 
 const roots: string[] = []
 afterEach(() => {
@@ -93,4 +93,48 @@ it('never lets a reader see the lock without its content, and leaves no temp fil
 	expect(make(path, 4242).tryAcquire()).toBe(true)
 	expect(readLock(path)).toMatchObject({ pid: 4242 })
 	expect(readdirSync(path).filter((f) => f.endsWith('.tmp'))).toEqual([])
+})
+
+it("takes over a lock whose pid now belongs to another process: a lock nobody renewed is nobody's", () => {
+	const path = dir()
+	let now = 1_000
+	const make2 = (pid: number) => {
+		alive.add(pid)
+		return createLeadership({ dir: path, pid, now: () => now, isAlive: (p) => alive.has(p) })
+	}
+	const before = make2(201)
+	expect(before.tryAcquire()).toBe(true)
+	// The machine restarted: the old leader is gone, but the number 201 is alive again as something else.
+	now += LOCK_STALE_MS + 1
+	const after = make2(202)
+	expect(after.holder()).toBeUndefined()
+	expect(after.tryAcquire()).toBe(true)
+	expect(readLock(path)?.pid).toBe(202)
+})
+
+it('a leader that keeps looking keeps its lock, however long it has led', () => {
+	const path = dir()
+	let now = 1_000
+	alive.add(211)
+	alive.add(212)
+	const leader = createLeadership({
+		dir: path,
+		pid: 211,
+		now: () => now,
+		isAlive: (p) => alive.has(p),
+	})
+	const other = createLeadership({
+		dir: path,
+		pid: 212,
+		now: () => now,
+		isAlive: (p) => alive.has(p),
+	})
+	expect(leader.tryAcquire()).toBe(true)
+	for (let i = 0; i < 20; i++) {
+		now += 5_000
+		expect(leader.tryAcquire()).toBe(true)
+		expect(other.tryAcquire()).toBe(false)
+	}
+	expect(readLock(path)).toMatchObject({ pid: 211, startedAt: 1_000 })
+	expect(readdirSync(path).filter((f) => f.endsWith('.beat') || f.endsWith('.tmp'))).toEqual([])
 })

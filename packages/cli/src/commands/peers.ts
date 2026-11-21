@@ -28,7 +28,7 @@ import {
 import { renderRosterList, renderStatus, rosterJson } from '../integrations/network/format.js'
 import { processExists, readLock } from '../integrations/network/leader.js'
 import { decideNetwork, networkSettings } from '../integrations/network/policy.js'
-import type { NetworkControl } from '../integrations/network/types.js'
+import type { NetworkControl, NetworkSummary } from '../integrations/network/types.js'
 import {
 	type PeerListing,
 	type PeerSendReceipt,
@@ -56,6 +56,7 @@ Usage:
   namzu peers role <session|machine/> <text...> | --clear
   namzu peers add <host[:port]>
   namzu peers join [<host[:port]>]
+  namzu peers cancel
   namzu peers log [-n <count>] [--json]
 
 list    Live terminals in this project, and, when your Namzu network is running, every
@@ -74,6 +75,7 @@ role    Describe what a session (or a machine, written machine/) is for. The rol
         changes no permission mode. --clear removes it.
 add     Add a machine by address, for a network where multicast does not reach (WSL2 for one).
 join    Ask the Namzu network nearby to let this machine in.
+cancel  Withdraw the request this machine is waiting on.
 log     The audit log of the network: joins, removals, roles and every message decision. No message text.
 
 The network needs a Namzu terminal open on this machine: that terminal runs it, and these
@@ -122,6 +124,7 @@ export type PeersArgs =
 	  }
 	| { readonly verb: 'add'; readonly json: boolean; readonly hostPort: string }
 	| { readonly verb: 'join'; readonly json: boolean; readonly hostPort?: string }
+	| { readonly verb: 'cancel'; readonly json: boolean }
 	| { readonly verb: 'log'; readonly json: boolean; readonly count: number }
 	| { readonly error: string }
 
@@ -138,6 +141,7 @@ const VERBS = [
 	'role',
 	'add',
 	'join',
+	'cancel',
 	'log',
 ] as const
 const DEFAULT_LOG_LINES = 50
@@ -265,6 +269,8 @@ export function parsePeersArgs(rawArgs: readonly string[]): PeersArgs {
 			}
 			return { verb, json, ...(hostPort !== undefined ? { hostPort } : {}) }
 		}
+		case 'cancel':
+			return operands.length ? { error: 'cancel takes no arguments.' } : { verb, json }
 		case 'log':
 			return operands.length
 				? { error: 'log takes no arguments.' }
@@ -327,12 +333,21 @@ export function renderAuditLine(line: string): string | undefined {
 			machine?: { name?: string; id12?: string }
 			session?: string
 			decision?: string
+			direction?: string
 			reason?: string
 		}
 		if (typeof entry.at !== 'number' || typeof entry.event !== 'string') return undefined
 		const when = new Date(entry.at).toISOString().replace('T', ' ').slice(0, 19)
 		const who = entry.machine?.name ?? entry.machine?.id12 ?? ''
-		return [when, entry.event, who, entry.session ?? '', entry.decision ?? '', entry.reason ?? '']
+		const way = entry.direction === 'out' ? 'to' : entry.direction === 'in' ? 'from' : ''
+		return [
+			when,
+			entry.event,
+			way && who ? `${way} ${who}` : who,
+			entry.session ?? '',
+			entry.decision ?? '',
+			entry.reason ?? '',
+		]
 			.filter((part, index) => index < 2 || part !== '')
 			.join('  ')
 	} catch {
@@ -411,7 +426,27 @@ export async function executePeers(
 				io.print({ peers, machines: rosterJson(view) }, renderRosterList(view))
 				return EXIT_OK
 			}
-			io.print({ peers }, renderListing(peers))
+			// No machines to show: say why when the network is running but this machine is out of it
+			// (removed, still looking, more than one nearby), so an empty list is never a puzzle.
+			let network: NetworkSummary | undefined
+			if (deps.leaderUp()) {
+				try {
+					network = await deps.control.summary()
+				} catch {
+					network = undefined
+				}
+			}
+			const why =
+				network && network.state !== 'ready' ? `\n${renderStatus(network, deps.now())}` : ''
+			io.print(
+				{
+					peers,
+					...(network
+						? { network: { state: network.state, removed: network.removed === true } }
+						: {}),
+				},
+				`${renderListing(peers)}${why}`,
+			)
 			return EXIT_OK
 		}
 		case 'status': {
@@ -622,7 +657,15 @@ export async function executePeers(
 					{ nearby: networks.length },
 					networks.length === 0
 						? 'No Namzu network found nearby. If your other machines are on a network that does not carry multicast, use `namzu peers add <host[:port]>`.'
-						: `Found ${networks.length} Namzu network${networks.length === 1 ? '' : 's'} nearby. Use \`namzu peers join <host[:port]>\` with the address of a machine in the one you want.`,
+						: `Found ${networks.length} Namzu network${networks.length === 1 ? '' : 's'} nearby. Choose one with \`namzu peers join <address>\`:\n${networks.map((n) => `  ${n}`).join('\n')}`,
+				)
+				return EXIT_OK
+			}
+			case 'cancel': {
+				const cancelled = await deps.control.cancelJoin()
+				io.print(
+					{ cancelled },
+					cancelled ? 'Withdrew the request to join.' : 'No request to join is waiting.',
 				)
 				return EXIT_OK
 			}

@@ -43,13 +43,19 @@ export interface NetworkSummary {
 	readonly members: number
 	readonly port?: number
 	readonly nearbyNetworks: number
+	/** One address for each network heard nearby while this machine has no network of its own. */
+	readonly nearby: readonly {
+		readonly netId: string
+		readonly host: string
+		readonly port: number
+	}[]
 	readonly joinRequests: readonly JoinRequestView[]
 	readonly held: readonly RemoteHeldView[]
 	/** This machine asked a nearby network to let it in and waits for an Allow elsewhere. */
 	readonly joining?: { readonly code: string; readonly endpoint: string }
 	/** How the last request to join ended. */
 	readonly lastJoin?: {
-		readonly result: 'joined' | 'denied' | 'expired' | 'refused'
+		readonly result: 'joined' | 'denied' | 'expired' | 'refused' | 'cancelled'
 		readonly at: number
 	}
 	/** This machine was removed from the network and starts over. */
@@ -89,6 +95,8 @@ export interface NetworkControl {
 	add(hostPort: string): Promise<'join-requested' | 'added'>
 	/** Ask a nearby network to let this machine in; resolves when the request is made, not decided. */
 	join(endpoint?: string): Promise<{ readonly networks: readonly string[] }>
+	/** Withdraw the request this machine is waiting on. False when none is waiting. */
+	cancelJoin(): Promise<boolean>
 	allowHeld(id: string): Promise<void>
 	denyHeld(id: string): Promise<void>
 	/** A remote message was taken into a turn here: tell its sender. */

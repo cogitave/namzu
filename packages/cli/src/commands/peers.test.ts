@@ -231,6 +231,7 @@ const summary = (extra: Partial<NetworkSummary> = {}): NetworkSummary => ({
 	state: 'ready',
 	members: 2,
 	nearbyNetworks: 0,
+	nearby: [],
 	joinRequests: [],
 	held: [],
 	outcomes: [],
@@ -290,6 +291,7 @@ function harness(overrides: Partial<NetworkControl> = {}, leader = true) {
 		send: track('send', undefined),
 		add: track('add', 'added' as const),
 		join: track('join', { networks: [] as string[] }),
+		cancelJoin: track('cancelJoin', false),
 		allowHeld: track('allowHeld', undefined),
 		denyHeld: track('denyHeld', undefined),
 		reportDelivered: track('reportDelivered', undefined),
@@ -361,6 +363,30 @@ it('lists every machine when the network runs, and only this folder when it does
 	expect(off.out[0]?.text).toBe('No live terminals in this project.')
 	expect(off.out[0]?.value).not.toHaveProperty('machines')
 	off.done()
+})
+
+it('tells a machine that was removed why its list has no machines', async () => {
+	const removed = harness({
+		roster: async () => ({ machines: [] }),
+		summary: async () => summary({ state: 'removed', removed: true, members: 0 }),
+	})
+	expect(await run(removed, ['list'])).toBe(EXIT_OK)
+	expect(removed.out[0]?.text).toContain('No live terminals in this project.')
+	expect(removed.out[0]?.text).toContain('This machine was removed from your Namzu network')
+	expect(removed.out[0]?.value).toMatchObject({ network: { state: 'removed', removed: true } })
+	removed.done()
+})
+
+it('withdraws a waiting request with cancel, and says so when none waits', async () => {
+	const waiting = harness({ cancelJoin: async () => true })
+	expect(await run(waiting, ['cancel'])).toBe(EXIT_OK)
+	expect(waiting.out[0]?.text).toBe('Withdrew the request to join.')
+	const none = harness({ cancelJoin: async () => false })
+	await run(none, ['cancel'])
+	expect(none.out[0]?.text).toBe('No request to join is waiting.')
+	expect(parsePeersArgs(['cancel', 'x'])).toHaveProperty('error')
+	waiting.done()
+	none.done()
 })
 
 it('says the network is off when no terminal runs it, and why when the switch is off', async () => {
@@ -458,7 +484,9 @@ it('lists the networks nearby, or says there are none and what to do', async () 
 	const none = harness()
 	await run(none, ['join'])
 	expect(none.out[0]?.text).toContain('namzu peers add <host[:port]>')
-	const two = harness({ join: async () => ({ networks: ['1', '2'] }) })
+	const two = harness({
+		join: async () => ({ networks: ['192.168.1.5:47310', '192.168.1.9:47310'] }),
+	})
 	await run(two, ['join'])
 	expect(two.out[0]?.text).toContain('Found 2 Namzu networks nearby')
 	none.done()

@@ -33,7 +33,8 @@ import {
 	udsPeerAddress,
 	writePeerRecord,
 } from '@namzu/sdk'
-import type { NetworkClock } from '@namzu/sdk'
+import type { AuditEntry, NetworkClock } from '@namzu/sdk'
+import { permissionModeWord, textHash } from '@namzu/sdk'
 import { sanitizeLine } from '../notifications/desktop/sanitize.js'
 import { restrictToOwner } from '../providers/credential-store.js'
 import { processStartedBySession, runsUnderAny } from './process-ancestry.js'
@@ -178,6 +179,11 @@ export interface LivePeersOptions {
 	readonly roles?: SessionRoleStore
 	/** The Namzu network on this machine, once it runs; absent or returning undefined means no other machines. */
 	readonly network?: () => NetworkLink | undefined
+	/**
+	 * Where a decision about mail from another session on this machine is written down (the Namzu network's
+	 * audit log): who sent it, what was decided, a hash and a size, never the words. Absent: nothing is written.
+	 */
+	readonly audit?: (entry: Omit<AuditEntry, 'at'>) => void
 	/** True while the bound account is out of allowance. */
 	readonly limited?: () => boolean
 	/** When the spent allowance is expected back (epoch ms), if known. */
@@ -240,9 +246,7 @@ export async function openLivePeers(options: LivePeersOptions) {
 	/** Mail sent from here that the other side held: its outcome is told to the person when it arrives. */
 	const sentHeld = new Set<string>()
 	let role: SessionRole | undefined
-	/** A role not yet put in front of the model. */
-	let rolePending = false
-	let roleCleared = false
+	let roleRendered: { readonly of: SessionRole; readonly text: string } | undefined
 	const readStoredRole = (): SessionRole | undefined => {
 		const conversation = options.conversation?.()
 		return (
@@ -251,9 +255,29 @@ export async function openLivePeers(options: LivePeersOptions) {
 		)
 	}
 	const bypassNow = () => options.bypass?.() === true || options.mode() === 'bypass'
+	const auditMail = (
+		event: AuditEntry['event'],
+		from: { readonly ref: string; readonly name: string },
+		text: string,
+		reason?: string,
+	) => {
+		try {
+			options.audit?.({
+				event,
+				session: ref,
+				decision: `from ${sanitizeLine(from.name, 40)} [${from.ref}]`,
+				bytes: Buffer.byteLength(text, 'utf8'),
+				textHash: textHash(text),
+				...(reason ? { reason } : {}),
+			})
+		} catch {
+			// the audit log never stops a message
+		}
+	}
 	const held = new HoldQueue<HeldLocalMail>({
 		clock,
 		onExpire: (_id, item) => {
+			auditMail('mail_expired', item.from, item.text)
 			tellOutcome(item, 'expired')
 			options.report(`A held message from ${item.from.name} expired without an answer.`)
 		},
@@ -411,6 +435,16 @@ export async function openLivePeers(options: LivePeersOptions) {
 					status: 'refused',
 					reason: 'Only the network bridge may carry mail from another machine.',
 				}
+			// The bridge is a process a terminal started: never one a session's own tools started. A record
+			// written by a command a model ran descends from a terminal, so it cannot pose as the bridge.
+			const terminals = new Set<number>([process.pid])
+			for (const peer of readPeerRecords(runtime.sessionsDir))
+				if (peer.kind === 'tui') terminals.add(peer.pid)
+			if (runsUnderAny(sender.pid, terminals, options.parentPid))
+				return {
+					status: 'refused',
+					reason: 'Only the network bridge may carry mail from another machine.',
+				}
 			// The service judged by the mode this terminal last published. A switch since then (to bypass, or
 			// to a mode the sender does not share) is seen here, and the mail is not taken in.
 			if (!request.remote.allowedOnce) {
@@ -497,7 +531,10 @@ export async function openLivePeers(options: LivePeersOptions) {
 			rateOk: true,
 			pairCount: 0,
 		})
-		if (decision.action === 'refuse') return { status: 'refused', reason: decision.reason }
+		if (decision.action === 'refuse') {
+			auditMail('mail_refused', request.from, request.text, decision.reason)
+			return { status: 'refused', reason: decision.reason }
+		}
 		if (decision.action === 'hold') {
 			const duplicate = accepted.get(`${request.from.sessionId}:${request.id}`)
 			if (duplicate) return admit(request, request.from)
@@ -508,11 +545,14 @@ export async function openLivePeers(options: LivePeersOptions) {
 				owner: options.owner(),
 				reason: decision.reason,
 			}
-			if (!held.hold(request.id, item))
+			if (!held.hold(request.id, item)) {
+				auditMail('mail_refused', request.from, request.text, 'held mail is full')
 				return {
 					status: 'refused',
 					reason: 'This terminal already holds as many messages as it keeps.',
 				}
+			}
+			auditMail('mail_held', request.from, request.text, decision.reason)
 			options.report(
 				`1 message from ${sanitizeLine(request.from.name, 40)} is held: ${decision.reason}. /peers to allow or deny it.`,
 			)
@@ -521,7 +561,14 @@ export async function openLivePeers(options: LivePeersOptions) {
 				reason: `Held for the person at the receiving terminal: ${decision.reason}.`,
 			}
 		}
-		return admit(request, request.from)
+		const result = admit(request, request.from)
+		auditMail(
+			result.status === 'queued' ? 'mail_accepted' : 'mail_refused',
+			request.from,
+			request.text,
+			result.status === 'queued' ? undefined : result.reason,
+		)
+		return result
 	}
 
 	const endpoint = await createPeerEndpoint({
@@ -602,7 +649,7 @@ export async function openLivePeers(options: LivePeersOptions) {
 				ref: peer.ref,
 				title: peer.title,
 				cwd: peer.cwd,
-				permission_mode: peer.permissionMode,
+				permission_mode: permissionModeWord(peer.permissionMode),
 				state: peer.state,
 				accepts_messages: peer.acceptsMessages,
 				self: peer.sessionId === sessionId,
@@ -703,18 +750,12 @@ export async function openLivePeers(options: LivePeersOptions) {
 		if (stored && role && stored.role === role.role && stored.at === role.at) return
 		if (!stored && role) {
 			role = undefined
-			rolePending = false
-			roleCleared = true
 			options.report('Your role in the Namzu network was cleared.')
-			options.available()
 			return
 		}
 		if (!stored) return
 		role = stored
-		rolePending = true
-		roleCleared = false
 		options.report(`Role set from ${stored.by}: ${sanitizeLine(stored.role, 200)}`)
-		options.available()
 	}
 	const heldView = (): HeldLocalView[] =>
 		held.list().map((entry) => ({
@@ -730,6 +771,7 @@ export async function openLivePeers(options: LivePeersOptions) {
 		if (!entry) return false
 		const item = entry.item
 		if (!allow || closed || !enabled || item.owner !== options.owner()) {
+			auditMail('mail_denied', item.from, item.text, allow ? 'the conversation changed' : undefined)
 			tellOutcome(item, 'refused')
 			return !allow
 		}
@@ -744,6 +786,12 @@ export async function openLivePeers(options: LivePeersOptions) {
 				text: item.text,
 			},
 			item.from,
+		)
+		auditMail(
+			result.status === 'queued' ? 'mail_allowed' : 'mail_denied',
+			item.from,
+			item.text,
+			result.status === 'queued' ? undefined : result.reason,
 		)
 		tellOutcome(item, result.status === 'queued' ? 'queued' : 'refused')
 		return result.status === 'queued'
@@ -774,34 +822,22 @@ export async function openLivePeers(options: LivePeersOptions) {
 		get role(): SessionRole | undefined {
 			return role
 		},
-		/** The role as the model's next request carries it, once per change (and again after `rearmRole`). */
-		takeRoleContext(): Message | undefined {
+		/**
+		 * What the model is told about its role, as request-only context: after the history, never in it.
+		 * Every request of every turn carries it while a role is set, so it needs nothing to survive a resume
+		 * or a compaction, and a role set while the terminal was idle is in the very first request of the next
+		 * turn. The text frames the role as another machine's unreviewed description that grants nothing.
+		 */
+		roleContext(): string | undefined {
 			syncRole()
-			if (roleCleared && !closed) {
-				roleCleared = false
-				return createRuntimeContextMessage(
-					formatRoleContext({
-						role: 'No role is set now. Ignore any earlier role line.',
-						byMachine: 'this Namzu network',
-						at: clock.now(),
-					}),
-					'peer-notice',
-				)
-			}
-			if (!role || !rolePending || closed) return undefined
-			rolePending = false
-			return createRuntimeContextMessage(
-				formatRoleContext({ role: role.role, byMachine: role.by, at: role.at }),
-				'peer-notice',
-			)
-		},
-		/** After a compaction or a resume the model no longer holds the role line: put it back in front of it. */
-		rearmRole() {
-			syncRole()
-			if (role) rolePending = true
-		},
-		get hasRolePending() {
-			return rolePending
+			if (!role || closed) return undefined
+			// One rendering per role, so every request of a turn carries the same bytes.
+			if (!roleRendered || roleRendered.of !== role)
+				roleRendered = {
+					of: role,
+					text: formatRoleContext({ role: role.role, byMachine: role.by, at: role.at }),
+				}
+			return roleRendered.text
 		},
 		get enabled() {
 			return enabled

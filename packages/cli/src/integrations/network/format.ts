@@ -2,15 +2,15 @@ import {
 	type RosterMachineView,
 	type RosterSession,
 	type RosterView,
+	permissionModeWord,
 	sessionLabel,
 } from '@namzu/sdk'
-import { isPermissionMode, permissionModeName } from '../../permissions/mode.js'
 import type { HeldLocalView } from '../peers/runtime.js'
 import type { JoinRequestView, NetworkSummary, RemoteHeldView } from './types.js'
 
 /** The word a person uses for a mode a session reports (the kernel's `classify` is `auto`). */
 export function modeWord(mode: string): string {
-	return isPermissionMode(mode) ? permissionModeName(mode) : mode
+	return permissionModeWord(mode)
 }
 
 const ROLE_CUT = 60
@@ -135,10 +135,12 @@ export function renderStatus(summary: NetworkSummary, now: number): string {
 			`This machine: ${summary.machine.name}${summary.machine.role ? ` (${cutRole(summary.machine.role)})` : ''}`,
 		)
 	if (summary.state === 'ready') lines.push(`Machines: ${summary.members}`)
-	if (summary.nearbyNetworks > 0 && summary.state === 'ambiguous')
+	if (summary.nearbyNetworks > 0 && summary.state === 'ambiguous') {
 		lines.push(
-			`Networks nearby: ${summary.nearbyNetworks}. \`namzu peers add <host[:port]>\` of a machine in the one you want.`,
+			`Networks nearby: ${summary.nearbyNetworks}. Choose one with \`namzu peers join <address>\`:`,
 		)
+		for (const network of summary.nearby) lines.push(`  ${network.host}:${network.port}`)
+	}
 	if (summary.joining)
 		lines.push(`Waiting for an Allow on ${summary.joining.endpoint}; code ${summary.joining.code}.`)
 	for (const join of summary.joinRequests)
@@ -263,6 +265,14 @@ export function renderPeersScreen(input: ScreenInput): string {
 	if (summary.joining) {
 		lines.push('')
 		lines.push(`Waiting for an Allow on another machine (code ${summary.joining.code}).`)
+		lines.push('  Pick "Cancel the request to join" below, or run /peers cancel, to withdraw it.')
+	}
+	if (summary.state === 'ambiguous' && summary.nearby.length > 0) {
+		lines.push('')
+		lines.push(
+			`More than one Namzu network is nearby (${summary.nearby.length}). Pick the one that is yours:`,
+		)
+		for (const network of summary.nearby) lines.push(`  ${network.host}:${network.port}`)
 	}
 	return fit(lines, input.columns).join('\n')
 }
@@ -297,6 +307,14 @@ export type PeersAction =
 	| { readonly kind: 'deny-join'; readonly request: JoinRequestView }
 	| { readonly kind: 'allow-held-remote'; readonly mail: RemoteHeldView }
 	| { readonly kind: 'deny-held-remote'; readonly mail: RemoteHeldView }
+	| {
+			readonly kind: 'cancel-join'
+			readonly joining: { readonly code: string; readonly endpoint: string }
+	  }
+	| {
+			readonly kind: 'join-nearby'
+			readonly network: { readonly netId: string; readonly host: string; readonly port: number }
+	  }
 	| { readonly kind: 'allow-held-local'; readonly mail: HeldLocalView }
 	| { readonly kind: 'deny-held-local'; readonly mail: HeldLocalView }
 
@@ -305,6 +323,9 @@ export function peersActions(
 	heldLocal: readonly HeldLocalView[],
 ): PeersAction[] {
 	const actions: PeersAction[] = []
+	if (summary.joining) actions.push({ kind: 'cancel-join', joining: summary.joining })
+	if (summary.state === 'ambiguous')
+		for (const network of summary.nearby) actions.push({ kind: 'join-nearby', network })
 	for (const mail of heldLocal) {
 		actions.push({ kind: 'allow-held-local', mail }, { kind: 'deny-held-local', mail })
 	}
@@ -321,29 +342,39 @@ export function describeAction(action: PeersAction): { label: string; descriptio
 		case 'allow-join':
 			return {
 				label: `Allow ${action.request.name}`,
-				description: `Let it join your Namzu network (code ${action.request.code}, from ${action.request.sourceAddr}).`,
+				description: `Let it join. Code ${action.request.code}.`,
+			}
+		case 'cancel-join':
+			return {
+				label: 'Cancel the request to join',
+				description: `Stop waiting for an Allow (code ${action.joining.code}).`,
+			}
+		case 'join-nearby':
+			return {
+				label: `Ask to join the network at ${action.network.host}`,
+				description: 'One Allow on one of its machines lets this one in.',
 			}
 		case 'deny-join':
 			return { label: `Deny ${action.request.name}`, description: 'Do not let it join.' }
 		case 'allow-held-remote':
 			return {
 				label: `Allow once: ${action.mail.machineName} / ${action.mail.fromSessionName}`,
-				description: `Deliver this message once. ${action.mail.reason}.`,
+				description: 'Deliver this message once.',
 			}
 		case 'deny-held-remote':
 			return {
 				label: `Deny: ${action.mail.machineName} / ${action.mail.fromSessionName}`,
-				description: 'Refuse this message. The sender is told.',
+				description: 'Refuse it. The sender is told.',
 			}
 		case 'allow-held-local':
 			return {
 				label: `Allow once: ${action.mail.fromName}`,
-				description: `Deliver this message once. ${action.mail.reason}.`,
+				description: 'Deliver this message once.',
 			}
 		case 'deny-held-local':
 			return {
 				label: `Deny: ${action.mail.fromName}`,
-				description: 'Refuse this message. The sender is told.',
+				description: 'Refuse it. The sender is told.',
 			}
 	}
 }

@@ -266,6 +266,7 @@ export const CONTROL_OPS = [
 	'send',
 	'add',
 	'join',
+	'cancelJoin',
 	'allowHeld',
 	'denyHeld',
 	'reportDelivered',
@@ -305,6 +306,7 @@ export function createControlClient(info: () => ControlInfo | undefined): Networ
 		send: (target, text, from) => call('send', target, text, from),
 		add: (hostPort) => call('add', hostPort),
 		join: (endpoint) => call('join', endpoint),
+		cancelJoin: () => call('cancelJoin'),
 		allowHeld: (id) => call('allowHeld', id),
 		denyHeld: (id) => call('denyHeld', id),
 		reportDelivered: (machineId, mailId, sessionRef) =>

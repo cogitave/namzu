@@ -31,7 +31,7 @@ choice.
 - `/peers role <name> <text>` and `/peers role clear <name>`: describe what a
   session is for; see [Roles](namzu-network.md#roles).
 - `/peers allow <code>`, `/peers deny <code>`, `/peers remove <machine>`,
-  `/peers rename <name>`, `/peers add <host[:port]>`: the network's verbs.
+  `/peers rename <name>`, `/peers add <host[:port]>`, `/peers cancel`: the network's verbs.
 - `/peers off`: refuse new mail and pause delivery of mail already accepted.
 - `/peers on`: allow mail again; accepted pending mail can resume.
 
@@ -141,7 +141,7 @@ instance. This is not an exactly-once execution guarantee.
 A message from a terminal in another permission mode, and every agent's message while the receiving terminal is in `bypass` (even from one in `bypass` too), used to be refused. It is now **held**: it is not in the inbox, not in the model's context, and approves nothing. The sender is told `held` with the reason at once.
 
 - The person sees one line, "1 message from `<name>` is held: its permission mode differs (it is in prompt, you are in auto). `/peers` to allow or deny it."
-- `/peers` lists it under Held with an **Allow once** row and a **Deny** row. Allow once moves it to the inbox as if it had just been accepted, under the mode the terminal is in now; a later mode change discards it as for any mail. Nothing is remembered: the next message from the same terminal is held again. Allowing never changes the receiver's mode.
+- Modes are named as the screen names them: the kernel's `classify` is **auto**, so the line, the reason the sender is given and the wrapper the model reads all say "auto" (only JSON keeps the internal name). `/peers` lists it under Held, with the reason on the Held line, and an **Allow once** row and a **Deny** row, short enough to fit at 80 columns. Allow once moves it to the inbox as if it had just been accepted, under the mode the terminal is in now; a later mode change discards it as for any mail. Nothing is remembered: the next message from the same terminal is held again. Allowing never changes the receiver's mode.
 - Deny refuses it. A message nobody answers for **ten minutes** expires. In each case the sender hears `refused` or `expired` as a notice (a terminal says it in one line; the command line has already gone).
 - A terminal holds at most 8; the ninth is refused with that reason. A person's own message (`namzu send`) is not held: it has no mode to compare.
 

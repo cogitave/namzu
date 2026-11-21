@@ -1,6 +1,7 @@
 import type { RosterMachineView, RosterSession, RosterView } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 import {
+	describeAction,
 	fit,
 	peersActions,
 	renderPeersScreen,
@@ -63,6 +64,7 @@ const summary = (extra: Partial<NetworkSummary> = {}): NetworkSummary => ({
 	state: 'ready',
 	members: 2,
 	nearbyNetworks: 0,
+	nearby: [],
 	joinRequests: [],
 	held: [],
 	outcomes: [],
@@ -246,6 +248,67 @@ describe('the /peers screen', () => {
 			'allow-join',
 			'deny-join',
 		])
+	})
+
+	it('offers the picker rows that cancel a waiting request and choose between nearby networks', () => {
+		const joining = { code: '482 913', endpoint: '192.168.1.5:47310' }
+		const nearby = [
+			{ netId: 'aaaaaaaaaaaaaaaa', host: '192.168.1.5', port: 47310 },
+			{ netId: 'bbbbbbbbbbbbbbbb', host: '192.168.1.9', port: 47310 },
+		]
+		expect(peersActions(summary({ joining }), []).map((a) => a.kind)).toEqual(['cancel-join'])
+		expect(
+			peersActions(summary({ state: 'ambiguous', nearby, nearbyNetworks: 2 }), []).map(
+				(a) => a.kind,
+			),
+		).toEqual(['join-nearby', 'join-nearby'])
+		const text = renderPeersScreen({
+			summary: summary({ state: 'ambiguous', nearby, nearbyNetworks: 2 }),
+			roster: undefined,
+			selfRef: 'aaaaaa',
+			heldLocal: [],
+			now: NOW,
+			columns: 80,
+		})
+		expect(text).toContain('More than one Namzu network is nearby (2)')
+		expect(text).toContain('192.168.1.9:47310')
+	})
+
+	it('every row fits a picker at 110 and 80 columns, the held reason being on the Held line instead', () => {
+		const actions = peersActions(
+			summary({
+				joinRequests: [join],
+				held: [remoteHeld],
+				joining: { code: '482 913', endpoint: 'x' },
+			}),
+			[
+				{
+					id: 'l1',
+					fromName: 'swift-finch',
+					fromRef: 'bbbbbb',
+					reason: remoteHeld.reason,
+					text: 'hi',
+					expiresAt: NOW + 60_000,
+				},
+			],
+		)
+		for (const action of actions) {
+			const { label, description } = describeAction(action)
+			// The picker draws "  <cursor> <label>   <description>" in one row from 80 columns up; wide rows wrap.
+			expect(Array.from(label).length + Array.from(description).length, label).toBeLessThanOrEqual(
+				80 - 12,
+			)
+			expect(description).not.toContain('permission mode')
+		}
+		const held = renderPeersScreen({
+			summary: summary({ held: [remoteHeld] }),
+			roster: undefined,
+			selfRef: 'aaaaaa',
+			heldLocal: [],
+			now: NOW,
+			columns: 110,
+		})
+		expect(held).toContain('its permission mode differs')
 	})
 })
 

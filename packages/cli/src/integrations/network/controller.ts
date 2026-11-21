@@ -39,6 +39,15 @@ export function createNetworkController(options: {
 	const outcomes: MailOutcomeView[] = []
 	/** Mail sent from here that has not ended: who sent it and to whom, to attribute the outcome. */
 	const sentMail = new Map<string, { senderRef: string; to: string }>()
+	/** The sessions each machine showed the last time the roster was read, to say which machine a name belonged to. */
+	const lastSessions = new Map<string, { name: string; sessions: string[] }>()
+	/** Machines that left (or were removed from) the network, newest last, with the session names they had. */
+	const departed: { name: string; sessions: string[] }[] = []
+	const remember = (view: RosterView) => {
+		for (const m of view.machines)
+			if (m.status !== 'self')
+				lastSessions.set(m.machineId, { name: m.name, sessions: m.sessions.map((s) => s.name) })
+	}
 
 	const off = service.on((event: NetworkEvent) => {
 		switch (event.type) {
@@ -59,6 +68,16 @@ export function createNetworkController(options: {
 			case 'removed-self':
 				removed = true
 				break
+			case 'member-removed': {
+				const known = lastSessions.get(event.machineId)
+				departed.push({
+					name: event.name ?? known?.name ?? 'That machine',
+					sessions: known?.sessions ?? [],
+				})
+				if (departed.length > 8) departed.shift()
+				lastSessions.delete(event.machineId)
+				break
+			}
 			case 'mail-outcome': {
 				const known = sentMail.get(event.id)
 				if (!known) break
@@ -133,6 +152,12 @@ export function createNetworkController(options: {
 	return {
 		dispose: off,
 		async summary() {
+			// A look at the last roster each time the screens poll, so a machine that leaves is still known by its names.
+			if (service.status().state === 'ready')
+				service
+					.roster({ refresh: false })
+					.then(remember)
+					.catch(() => undefined)
 			const status = service.status()
 			return {
 				state: status.state,
@@ -149,6 +174,7 @@ export function createNetworkController(options: {
 				members: status.members,
 				...(status.port !== undefined ? { port: status.port } : {}),
 				nearbyNetworks: status.nearbyNetworks,
+				nearby: service.nearbyNetworks().map((n) => ({ ...n })),
 				joinRequests: service.pendingJoins().map(joinView),
 				held: service.held().map((mail) => ({
 					id: mail.id,
@@ -166,7 +192,11 @@ export function createNetworkController(options: {
 				outcomes: [...outcomes],
 			}
 		},
-		roster: () => service.roster(),
+		async roster() {
+			const view = await service.roster()
+			remember(view)
+			return view
+		},
 		async allow(query) {
 			return joinView(await service.allow(query))
 		},
@@ -204,10 +234,33 @@ export function createNetworkController(options: {
 			)
 		},
 		async send(target, text, from): Promise<SendReceipt | undefined> {
-			await service.roster()
+			remember(await service.roster())
 			const resolved = service.resolve(target)
 			if (!resolved.ok) {
-				if (resolved.reason === 'none') return undefined
+				if (resolved.reason === 'none') {
+					// A machine that left: say so, instead of letting the sender think the name never existed.
+					const wanted = target
+						.trim()
+						.toLowerCase()
+						.replace(/\s*\[[0-9a-f]+\]$/, '')
+					const [machinePart, sessionPart] = wanted.includes('/')
+						? (wanted.split('/', 2) as [string, string])
+						: [undefined, wanted]
+					const gone = [...departed]
+						.reverse()
+						.find((d) =>
+							machinePart !== undefined
+								? d.name.toLowerCase() === machinePart
+								: d.name.toLowerCase() === sessionPart ||
+									d.sessions.some((s) => s.toLowerCase() === sessionPart),
+						)
+					if (gone)
+						return {
+							status: 'refused',
+							reason: `${gone.name} left your Namzu network, so this message was not sent.`,
+						}
+					return undefined
+				}
 				return {
 					status: 'refused',
 					reason: `More than one session matches "${target}": ${resolved.candidates.join(', ')}.`,
@@ -238,8 +291,11 @@ export function createNetworkController(options: {
 				return { networks: [] }
 			}
 			return {
-				networks: Array.from({ length: service.status().nearbyNetworks }, (_, i) => `${i + 1}`),
+				networks: service.nearbyNetworks().map((n) => `${n.host}:${n.port}`),
 			}
+		},
+		async cancelJoin() {
+			return service.cancelJoin()
 		},
 		allowHeld: (id) => service.allowHeld(id),
 		denyHeld: (id) => service.denyHeld(id),

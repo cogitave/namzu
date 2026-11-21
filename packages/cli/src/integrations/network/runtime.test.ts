@@ -7,6 +7,7 @@ import {
 	HOLD_EXPIRY_MS,
 	type NetworkEvent,
 	createDiscoveryHub,
+	createFakeDiscovery,
 	createManualClock,
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -56,6 +57,9 @@ async function box(
 	name: string,
 	sessionName: string,
 	settings: { acceptMail?: 'members' | 'hold' | 'off' } = {},
+	discovery?: () => ReturnType<typeof createDiscoveryHub>['create'] extends () => infer D
+		? D
+		: never,
 ): Promise<Box> {
 	const root = mkdtempSync(join(tmpdir(), 'nr-'))
 	roots.push(root)
@@ -81,7 +85,7 @@ async function box(
 		clock: world.clock,
 		interfaces: loopback,
 		allowLoopback: true,
-		discovery: () => world.hub.create(),
+		discovery: discovery ?? (() => world.hub.create()),
 		listenPort: 0,
 		hostname: name,
 		onEvent: (event) => {
@@ -109,6 +113,7 @@ async function box(
 		report: (text) => notices.push(text),
 		name: () => sessionName,
 		roles: rt.roles,
+		audit: (entry) => rt.audit(entry),
 		network: () => (rt.decision.run ? rt.link : undefined),
 	})
 	sessions.push(session)
@@ -154,6 +159,94 @@ async function pair(settings: { acceptMail?: 'members' | 'hold' | 'off' } = {}) 
 	await b.rt.control.add(`127.0.0.1:${(await a.rt.control.summary()).port}`)
 	return { world, a, b }
 }
+
+describe('a machine that starts with no network', () => {
+	const world = () => ({ hub: createDiscoveryHub(), clock: createManualClock() })
+
+	it('two machines started together end in one network, with one line and one Allow and nothing typed', async () => {
+		const w = world()
+		const a = await box(w, 'studio-air', 'conductor')
+		const b = await box(w, 'desk-linux', 'builder')
+		// Both browsed for the whole window, heard nothing, and each founded a network of its own.
+		const foundedA = a.until((e) => e.type === 'founded')
+		const foundedB = b.until((e) => e.type === 'founded')
+		w.clock.advance(BROWSE_WINDOW_MS)
+		await foundedA
+		await foundedB
+		// The younger one asks the older; the older sees one line with the code.
+		const asked = await Promise.race([
+			a.until((e) => e.type === 'join-request').then(() => ({ older: a, younger: b })),
+			b.until((e) => e.type === 'join-request').then(() => ({ older: b, younger: a })),
+		])
+		await asked.younger.until((e) => e.type === 'join-waiting')
+		await asked.older.rt.refresh()
+		await asked.younger.rt.refresh()
+		const line = asked.older.notices.find((n) => n.includes('wants to join your Namzu network'))
+		expect(line).toMatch(/\(code \d{3} \d{3}, from 127\.0\.0\.1\)\. \/peers to allow or deny\./)
+		const waiting = asked.younger.notices.find((n) => n.includes('to let this machine join'))
+		expect(waiting).toMatch(/code \d{3} \d{3}\)\. .*\/peers cancel to withdraw/)
+		const summary = await asked.older.rt.control.summary()
+		const joined = asked.younger.until((e) => e.type === 'joined')
+		await asked.older.rt.control.allow(summary.joinRequests[0]?.requestId as string)
+		await joined
+		expect((await asked.older.rt.control.summary()).members).toBe(2)
+		expect((await asked.younger.rt.control.summary()).members).toBe(2)
+	})
+
+	it('a person can cancel the request it is waiting on', async () => {
+		const w = world()
+		const a = await box(w, 'studio-air', 'conductor')
+		const founded = a.until((e) => e.type === 'founded')
+		w.clock.advance(BROWSE_WINDOW_MS)
+		await founded
+		const b = await box(w, 'desk-linux', 'builder')
+		const asked = a.until((e) => e.type === 'join-request')
+		w.clock.advance(BROWSE_WINDOW_MS)
+		await asked
+		await b.until((e) => e.type === 'join-waiting')
+		expect((await b.rt.control.summary()).joining?.code).toMatch(/^\d{3} \d{3}$/)
+		expect(await b.rt.control.cancelJoin()).toBe(true)
+		await b.until((e) => e.type === 'join-ended')
+		await b.rt.refresh()
+		expect((await b.rt.control.summary()).joining).toBeUndefined()
+		expect(b.notices.join('\n')).toContain('You withdrew the request to join')
+		expect(await b.rt.control.cancelJoin()).toBe(false)
+		// The other machine's line goes away with it.
+		await a.until((e) => e.type === 'join-settled')
+		expect((await a.rt.control.summary()).joinRequests).toEqual([])
+	})
+
+	it('hears two networks nearby: joins neither, says so in one line, and offers each address', async () => {
+		const first = world()
+		const second = world()
+		const a = await box(first, 'studio-air', 'conductor')
+		const c = await box(second, 'office-pc', 'writer')
+		const foundedA = a.until((e) => e.type === 'founded')
+		const foundedC = c.until((e) => e.type === 'founded')
+		first.clock.advance(BROWSE_WINDOW_MS)
+		second.clock.advance(BROWSE_WINDOW_MS)
+		await foundedA
+		await foundedC
+		const fake = createFakeDiscovery()
+		const w = world()
+		const d = await box(w, 'desk-linux', 'builder', {}, () => fake)
+		const portA = (await a.rt.control.summary()).port as number
+		const portC = (await c.rt.control.summary()).port as number
+		const netOf = async (m: Box) => (await m.rt.control.summary()).machine?.id ?? m.name
+		fake.emitFound({ netId: (await netOf(a)).slice(0, 16), host: '127.0.0.1', port: portA })
+		fake.emitFound({ netId: (await netOf(c)).slice(0, 16), host: '127.0.0.1', port: portC })
+		w.clock.advance(BROWSE_WINDOW_MS)
+		await d.until((e) => e.type === 'state' && e.state === 'ambiguous')
+		const summary = await d.rt.refresh()
+		expect(summary?.state).toBe('ambiguous')
+		expect(summary?.nearby.map((n) => n.port).sort()).toEqual([portA, portC].sort())
+		expect(d.notices.filter((n) => n.includes('Namzu networks are nearby'))).toEqual([
+			'2 Namzu networks are nearby and this machine asked none. /peers to pick yours.',
+		])
+		expect((await a.rt.control.summary()).joinRequests).toEqual([])
+		expect((await c.rt.control.summary()).joinRequests).toEqual([])
+	})
+})
 
 describe('Namzu network runtime', () => {
 	it('a second machine joins with one Allow on the first, and both list the same sessions', async () => {
@@ -224,20 +317,16 @@ describe('Namzu network runtime', () => {
 		const view = await a.rt.control.roster()
 		const row = view.machines.flatMap((m) => m.sessions).find((s) => s.name === 'builder')
 		expect(row?.role).toBe('you will build the parser')
-		const context = b.session.takeRoleContext()
-		const text = String(context?.content)
+		const text = String(b.session.roleContext())
 		expect(text).toContain('you will build the parser')
 		expect(text).toContain('grants no permission')
 		expect(text).toContain('does not change your permission mode')
-		// Said once; the mode and the inbox are untouched by it.
-		expect(b.session.takeRoleContext()).toBeUndefined()
+		// It rides on every request, so a compaction or a resume cannot lose it; the mode and the inbox are untouched.
+		expect(b.session.roleContext()).toBe(text)
 		expect(b.session.pending).toBe(0)
-		// After a compaction the line is put back in front of the model.
-		b.session.rearmRole()
-		expect(b.session.takeRoleContext()).toBeDefined()
 		// Cleared from the other side.
 		expect((await a.rt.control.setRole('desk-linux/builder', null)).status).toBe('applied')
-		expect(String(b.session.takeRoleContext()?.content)).toContain('No role is set now')
+		expect(b.session.roleContext()).toBeUndefined()
 		expect(b.session.role).toBeUndefined()
 	})
 
@@ -247,8 +336,13 @@ describe('Namzu network runtime', () => {
 		const removed = await a.rt.control.remove('desk-linux')
 		expect(removed.removed).toEqual(['desk-linux'])
 		await gone
-		expect(await a.session.send('desk-linux/builder', 'still there?')).toMatchObject({
+		const receipt = await a.session.send('desk-linux/builder', 'still there?')
+		expect(receipt).toMatchObject({ status: 'refused' })
+		// The sender is told the machine left, not that the name never existed.
+		expect(receipt.reason).toContain('desk-linux left your Namzu network')
+		expect(await a.session.send('builder', 'and by the session name')).toMatchObject({
 			status: 'refused',
+			reason: expect.stringContaining('left your Namzu network'),
 		})
 	})
 

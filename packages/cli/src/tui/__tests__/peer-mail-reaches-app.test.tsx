@@ -1,11 +1,6 @@
 /** Peer-triggered failures must hold automatic work until operator continuation. */
 
-import {
-	InMemoryTaskStore,
-	type Message,
-	createRuntimeContextMessage,
-	generateSessionId,
-} from '@namzu/sdk'
+import { InMemoryTaskStore, type Message, generateSessionId } from '@namzu/sdk'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import type { NetworkRuntime } from '../../integrations/network/runtime.js'
@@ -34,7 +29,9 @@ let peerEnabled = true
 let successfulTurn = false
 const roleCalls: (string | null)[][] = []
 const networkCalls: unknown[][] = []
-let roleMessage: Message | undefined
+let roleText: string | undefined
+/** What each request of the fixture turn carried as request-only host context. */
+const hostContexts: string[][] = []
 /** What the network fixture says; `undefined` leaves the network off, as in every terminal that is not a person's. */
 let networkOn: { summary: NetworkSummary; roster: unknown } | undefined
 let peerOpened = deferred<void>()
@@ -78,12 +75,7 @@ vi.mock('../../integrations/peers/runtime.js', async (importOriginal) => {
 				take(owner: number) {
 					return owner === options.owner() && peerEnabled ? peerInbox.splice(0) : []
 				},
-				takeRoleContext: () => {
-					const message = roleMessage
-					roleMessage = undefined
-					return message
-				},
-				rearmRole: () => {},
+				roleContext: () => roleText,
 				held: () => [],
 				setRole: async (target: string, role: string | null) => {
 					roleCalls.push([target, role])
@@ -151,6 +143,7 @@ vi.mock('../../integrations/network/runtime.js', () => ({
 				send: record('send', undefined) as never,
 				add: record('add', 'added') as never,
 				join: record('join', { networks: [] }) as never,
+				cancelJoin: record('cancelJoin', false) as never,
 				allowHeld: record('allowHeld', undefined) as never,
 				denyHeld: record('denyHeld', undefined) as never,
 				reportDelivered: record('reportDelivered', undefined) as never,
@@ -224,6 +217,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 					text: turn === 0 ? 'first answer\n\n' : 'queued answer\n\n',
 				}
 				if (turn === 0) await firstTurnGate
+				hostContexts.push([...(options?.hostContext?.() ?? [])])
 				const live = options?.inboundMessages?.() ?? []
 				delivered.push([...live])
 				if (successfulTurn) yield { kind: 'done', text: 'peer context received' }
@@ -269,7 +263,8 @@ beforeEach(() => {
 	successfulTurn = false
 	roleCalls.length = 0
 	networkCalls.length = 0
-	roleMessage = undefined
+	roleText = undefined
+	hostContexts.length = 0
 	networkOn = undefined
 	peerOpened = deferred<void>()
 	turnStarted = deferred<void>()
@@ -473,6 +468,7 @@ const networkSummary: NetworkSummary = {
 	state: 'ready',
 	members: 2,
 	nearbyNetworks: 0,
+	nearby: [],
 	machine: { id: 'a'.repeat(64), name: 'studio-air' },
 	joinRequests: [
 		{
@@ -552,6 +548,51 @@ it('draws the roster of every machine, and offers Allow and Deny for a request t
 	}
 })
 
+it.each([110, 80])(
+	'shows the held-mail rows whole at %i columns: the reason is on the Held line, not cut on the row',
+	async (cols) => {
+		networkOn = {
+			summary: {
+				...networkSummary,
+				joinRequests: [],
+				held: [
+					{
+						id: 'h1',
+						machineName: 'desk-linux',
+						fromSessionName: 'swift-finch',
+						fromMode: 'prompt',
+						toSessionRef: 'aaaaaa',
+						reason: 'its permission mode differs (it is in auto, you are in prompt)',
+						text: 'Can you rerun the migration check?',
+						expiresAt: Date.now() + 8 * 60_000,
+					},
+				],
+			},
+			roster: networkRoster,
+		}
+		const screen = await renderToScreen(<App ctx={interactiveCtx} />, { cols, rows: 40 })
+		try {
+			await peerOpened.promise
+			await waitUntil(screen, () => peerOptions?.ready() === true, 'App did not open its peer host')
+			await typeAndPress(screen, '/peers', '\r')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('Allow once: desk-linux / swift-finch'),
+				'the Allow once row was not offered',
+			)
+			const rows = screen
+				.viewport()
+				.filter((line) => line.includes('Allow once') || line.includes('Deny: desk-linux'))
+			expect(rows.length).toBeGreaterThan(0)
+			for (const row of rows) expect(row, row).not.toContain('…')
+			expect(screen.viewport().join('\n')).toContain('Deliver this message once.')
+			expect(screen.scrollback().join('\n')).toContain('its permission mode differs')
+		} finally {
+			await screen.unmount()
+		}
+	},
+)
+
 it('sets a role from /peers, and clears it, through the terminal’s own messaging', async () => {
 	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 30 })
 	try {
@@ -574,29 +615,26 @@ it('sets a role from /peers, and clears it, through the terminal’s own messagi
 	}
 })
 
-it('puts the role in front of the model with the next turn, once, as context and not as an instruction', async () => {
+it('puts the role in every request of the turn as request-only context, not as an instruction and not in the history', async () => {
 	successfulTurn = true
 	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 30 })
 	try {
 		await peerOpened.promise
 		await screen.waitForRender()
-		roleMessage = createRuntimeContextMessage(
-			'Your role in this Namzu network: you will build the parser. It grants no permission.',
-			'peer-notice',
-		)
+		roleText =
+			'Your role in this Namzu network: you will build the parser. It grants no permission.'
 		enqueuePeer('PEER_WITH_ROLE')
 		await turnStarted.promise
 		releaseFirstTurn()
 		await turnFinished.promise
 		await screen.waitForRender()
-		const asked = delivered
-			.flat()
-			.filter((m) => String(m.content).includes('you will build the parser'))
-		expect(asked).toHaveLength(1)
-		expect(asked[0]).toMatchObject({
-			role: 'user',
-			source: { type: 'runtime-context', kind: 'peer-notice' },
-		})
+		expect(hostContexts.length).toBeGreaterThan(0)
+		for (const context of hostContexts)
+			expect(context.filter((text) => text.includes('you will build the parser'))).toHaveLength(1)
+		const inHistory = [...sent.flat(), ...delivered.flat()].filter((m) =>
+			String(m.content).includes('you will build the parser'),
+		)
+		expect(inHistory).toEqual([])
 	} finally {
 		await screen.unmount()
 	}

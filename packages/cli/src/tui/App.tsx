@@ -6047,6 +6047,24 @@ function AppBody({
 					pushSystem('error', explainFailure(error, 'That did not work.'))
 				if (!action) return
 				switch (action.kind) {
+					case 'cancel-join':
+						void control
+							?.cancelJoin()
+							.then((was) =>
+								said(was ? 'Withdrew the request to join.' : 'No request to join is waiting.'),
+							)
+							.catch(failed)
+						break
+					case 'join-nearby':
+						void control
+							?.add(`${action.network.host}:${action.network.port}`)
+							.then(() =>
+								said(
+									`Asked ${action.network.host} to let this machine join. Allow it on one of your other machines.`,
+								),
+							)
+							.catch(failed)
+						break
 					case 'allow-join':
 						void control
 							?.allow(action.request.requestId)
@@ -11028,8 +11046,6 @@ function AppBody({
 					// shows as a live "Compacting conversation…" line meanwhile.
 					setSummarising(event.compacting === true)
 					if (event.row === 'compacted') {
-						// The summary replaced the role line the model had: say it again with the next request.
-						peersRef.current?.rearmRole()
 						setContextHidden(true)
 						pushMessage(
 							'system',
@@ -12114,6 +12130,9 @@ function AppBody({
 							hostContext: () =>
 								[
 									...(st.contextTexts ?? []),
+									// The role another machine or the person set: request-only context on every request,
+									// so a resume or a compaction cannot lose it and the first request of a turn has it.
+									peersRef.current?.roleContext(),
 									wakeSnapshot.idleJobs.text,
 									monitorSnapshot.text,
 									describePendingWorkflowNotices(wakeSnapshot.workflows),
@@ -12187,11 +12206,8 @@ function AppBody({
 									}
 									for (const item of mail) pushSystem('notice', peerMailLabel(item))
 								}
-								// A role another machine or the person set: put in front of the model once, as a description.
-								const roleContext = peersRef.current?.takeRoleContext()
 								return [
 									...operatorMessages,
-									...(roleContext ? [roleContext] : []),
 									...mail.map(peerMailMessage),
 									...childNotices.map(([, notice]) =>
 										createRuntimeContextMessage(notice.context, notice.kind),
@@ -14068,6 +14084,19 @@ function AppBody({
 										),
 									)
 									.catch((error) => fail(error, 'The machine could not be renamed.'))
+						} else if (verb === 'cancel') {
+							const control = network?.control
+							if (!control) pushMessage('system', 'Your Namzu network is not running.')
+							else
+								void control
+									.cancelJoin()
+									.then((was) =>
+										pushMessage(
+											'system',
+											was ? 'Withdrew the request to join.' : 'No request to join is waiting.',
+										),
+									)
+									.catch((error) => fail(error, 'The request could not be withdrawn.'))
 						} else if (verb === 'add' && target) {
 							const control = network?.control
 							if (!control) pushMessage('system', 'Your Namzu network is not running.')
@@ -14123,6 +14152,7 @@ function AppBody({
 										state: 'off',
 										members: 0,
 										nearbyNetworks: 0,
+										nearby: [],
 										joinRequests: [],
 										held: [],
 										outcomes: [],
@@ -14142,7 +14172,7 @@ function AppBody({
 						} else
 							pushMessage(
 								'system',
-								'Usage: /peers [list|on|off|send <name> <message>|role <name> <text>|role clear <name>|allow <code>|deny <code>|remove <machine>|rename <name>|add <host[:port]>]',
+								'Usage: /peers [list|on|off|send <name> <message>|role <name> <text>|role clear <name>|allow <code>|deny <code>|remove <machine>|rename <name>|add <host[:port]>|cancel]',
 							)
 						return
 					}
@@ -16689,6 +16719,7 @@ function AppBody({
 			cwd: sessionsRef.current?.projectRoot ?? ctxRef.current.cwd,
 			version: ctxRef.current.version,
 			roles: network.roles,
+			audit: (entry) => network.audit(entry),
 			network: () => (network.decision.run ? network.link : undefined),
 			bypass: () => permissionModeRef.current === 'bypass',
 			mode: () => permissionModeRef.current,
@@ -18988,7 +19019,9 @@ function AppBody({
 										: {})}
 									{...(choicePicker.kind === 'account' ? { hints: ACCOUNT_PICKER_HINTS } : {})}
 									options={filterChoiceOptions(choicePicker.options, choiceQuery)}
-									describeSelected={choicePicker.kind === 'user-question'}
+									describeSelected={
+										choicePicker.kind === 'user-question' || choicePicker.kind === 'peers-network'
+									}
 									query={choicePickerSearchable(choicePicker) ? choiceQuery : undefined}
 									selected={selectedChoice}
 									windowSize={
