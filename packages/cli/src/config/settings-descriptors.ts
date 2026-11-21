@@ -681,6 +681,18 @@ const DECLARED: readonly SettingDescriptor[] = [
 		},
 	),
 	d(
+		'shareDesktopSignIn',
+		'models',
+		'Use the Desktop sign-in',
+		'In WSL, use a Claude or Codex sign-in made in Namzu Desktop on Windows when this terminal has none of its own. Turn it off to keep the terminal to its own sign-ins.',
+		on,
+		{
+			group: 'choosing-models',
+			keywords: ['Windows', 'WSL', 'Desktop', 'subscription', 'sign in', 'share sign-in'],
+			default: true,
+		},
+	),
+	d(
 		'decision',
 		'models',
 		'Model for background decisions',

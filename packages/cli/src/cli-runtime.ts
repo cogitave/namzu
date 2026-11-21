@@ -20,6 +20,7 @@ export {
 export { resolveRunFlags } from './commands/run-flags.js'
 export { startOtlpExport } from './integrations/telemetry/otlp-export.js'
 export { startZenCatalogueRefresh } from './integrations/providers/zen-catalogue.js'
+export { configureDesktopSignInSharing } from './integrations/providers/desktop-sign-in.js'
 export { resolveNamzuHome } from './integrations/state/home.js'
 export {
 	cliLogger,

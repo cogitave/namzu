@@ -1143,6 +1143,10 @@ models (experimental). You can connect your own provider in Settings." The keyle
 models count as usable, so the starter ideas show and Send works at once; the automatic pick is never
 saved, so a key or sign-in added later wins on the next open.
 
+A subscription sign-in made through Desktop's engine lives in the Windows home. The Namzu terminal inside WSL
+uses it in place when it has none of its own (see [A sign-in made in Namzu Desktop on
+Windows](credentials.md#a-sign-in-made-in-namzu-desktop-on-windows)); `shareDesktopSignIn` turns that off.
+
 Only a computer with nothing at all to answer with shows the card: the composer then shows **Add an
 API key or sign in to start** with one button, **Connect a provider**, which opens **Settings ▸
 Models**. Send is visibly disabled (`aria-disabled`, so its tooltip "Connect a provider to send" can

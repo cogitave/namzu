@@ -202,6 +202,49 @@ the exact file it selected. Subsequent reads and a rotating Claude refresh use
 that same file, preserving its other fields.
 Namzu does not copy borrowed sessions into its own credential store.
 
+## A sign-in made in Namzu Desktop on Windows
+
+Namzu Desktop on Windows and a terminal inside WSL are two Namzu homes on one
+machine: `%USERPROFILE%\.namzu` and `/home/<you>/.namzu`. A Claude or Codex
+sign-in Namzu itself made (`credentials.json`) used to stay in the home where it
+was made, so the other side did not see it.
+
+Inside WSL, the terminal now reads Desktop's `credentials.json` in place through
+the mounted drive when its own home has no sign-in for that provider. Nothing is
+copied. A subscription's refresh token rotates, so a copy would die the first
+time either side refreshed; instead there is one record, and a refresh the
+terminal makes is written back to that file under the same lock the Windows side
+uses (`credentials.json.lock`, then an atomic rename). A rotation Desktop made
+meanwhile is taken as it stands and never overwritten.
+
+- **Own first.** A sign-in in the terminal's own home always wins, per provider.
+  Two different accounts on the two sides are never mixed: the terminal uses its
+  own and the sources line names it.
+- **Where it comes from.** The provider list and `/model` say "Signed in with
+  Namzu Desktop on Windows" for a shared sign-in. The Windows home is found the
+  documented way (`cmd.exe /c echo %USERPROFILE%` under the drive mount root),
+  never guessed from a user name. A failed lookup is retried after a minute and
+  means no shared sign-in.
+- **Only the default home.** `NAMZU_HOME`, an explicit home, or a Windows
+  `credentials.json` that is a link or not a regular file turns it off for that
+  lookup.
+- **Permissions.** The mounted drive reports every file as mode 0777, so the
+  owner-only proof used for the terminal's own file cannot be made there; the
+  file is protected by the Windows profile's access list, which Desktop set.
+- **Locked or unreadable.** An unreadable or corrupt file reads as no sign-in.
+  A lock the Windows side holds refuses the refresh with a sentence naming
+  Desktop; the current access token keeps working until it expires.
+- **Signing out.** `namzu logout` in the terminal never removes Desktop's
+  sign-in (that would sign Desktop out); it says so. Signing out in Desktop
+  removes the file, and the terminal then sees none. Signing in on the terminal
+  makes a separate sign-in of its own that is used from then on.
+- **Turn it off.** `shareDesktopSignIn: false` in your own config file, or
+  `NAMZU_SHARE_DESKTOP_SIGNIN=0` (the variable wins), keeps the terminal to its
+  own sign-ins. Project files cannot set it.
+
+Not covered: the reverse direction (Desktop reading the WSL home) and a Windows
+`NAMZU_HOME` that differs from `%USERPROFILE%\.namzu`.
+
 ## Private local storage
 
 Namzu-owned sign-ins live in `credentials.json` under the application home

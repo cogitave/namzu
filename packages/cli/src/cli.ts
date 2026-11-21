@@ -541,6 +541,9 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		if (bootstrapCtx) return bootstrapCtx
 		const loaded = runtime().loadBootstrapConfigWithProvenance(selectedConfigOpts())
 		const bootstrap = buildContext(() => loaded)
+		// Before any project is trusted, so a project file cannot decide where a
+		// sign-in is read from.
+		runtime().configureDesktopSignInSharing(bootstrap.config.shareDesktopSignIn)
 		// Claim stderr before any handler can log. A later TUI launch replaces
 		// this with its ring sink; trusted project activation deliberately does
 		// not replace that owner.

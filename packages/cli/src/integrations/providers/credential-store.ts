@@ -68,6 +68,7 @@ import { createAccountRegistry } from '@namzu/sdk'
 import { createAccountActivityStore } from '../accounts/activity.js'
 import { namzuHomePath } from '../state/home.js'
 import { readAccountKeys, readAccountStartupKey } from './account-keys.js'
+import { desktopCredentialsPath } from './desktop-sign-in.js'
 import type { AgentOAuthCredential } from './keychain.js'
 
 const FILE_MODE = 0o600
@@ -350,18 +351,95 @@ function forgetAccountsHolding(provider: string, key: string, home?: string): vo
  * the operator to try again.
  */
 export function readStoredSubscriptionCredential(home?: string): AgentOAuthCredential | null {
-	return readCredentialDocument(home)?.subscription ?? null
+	return heldCredential('subscription', home)?.credential ?? null
 }
 
 /** The Namzu-owned ChatGPT/Codex subscription, if one was obtained here. */
 export function readStoredCodexCredential(home?: string): StoredCodexCredential | null {
-	return readCredentialDocument(home)?.codexSubscription ?? null
+	return heldCredential('codexSubscription', home)?.credential ?? null
+}
+
+type CredentialKey = 'subscription' | 'codexSubscription'
+
+/** Where a stored sign-in lives: this home's file, or Namzu Desktop's on the paired Windows side. */
+export interface StoredCredentialLocation {
+	readonly path: string
+	readonly shared: 'desktop' | null
+}
+
+/**
+ * The credential `key` and the file that holds it. This home's own file always wins; the
+ * paired Windows store (see `desktop-sign-in.ts`) is asked only for a provider the own file
+ * does not hold, and only when the default home is in use.
+ */
+function heldCredential<K extends CredentialKey>(
+	key: K,
+	home?: string,
+): {
+	readonly credential: NonNullable<CredentialDocument[K]>
+	readonly location: StoredCredentialLocation
+} | null {
+	const ownPath = credentialsPath(home)
+	const own = readCredentialDocumentAt(ownPath)?.[key]
+	if (own)
+		return {
+			credential: own as NonNullable<CredentialDocument[K]>,
+			location: { path: ownPath, shared: null },
+		}
+	if (home !== undefined) return null
+	const pairedPath = desktopCredentialsPath()
+	if (pairedPath === null) return null
+	const paired = readCredentialDocumentAt(pairedPath)?.[key]
+	return paired
+		? {
+				credential: paired as NonNullable<CredentialDocument[K]>,
+				location: { path: pairedPath, shared: 'desktop' },
+			}
+		: null
+}
+
+/** Which file holds the Namzu-owned Claude sign-in, for a surface that says where it came from. */
+export function locateStoredSubscriptionCredential(home?: string): StoredCredentialLocation | null {
+	return heldCredential('subscription', home)?.location ?? null
+}
+
+/** Which file holds the Namzu-owned Codex sign-in. */
+export function locateStoredCodexCredential(home?: string): StoredCredentialLocation | null {
+	return heldCredential('codexSubscription', home)?.location ?? null
+}
+
+/**
+ * The store a conditional write must go to: the one that holds `expected`, so one credential
+ * is read and written in one file for its whole life. Own file when it matches or when no
+ * paired store applies; the paired Windows store when it holds `expected`, or when the own
+ * file holds no such sign-in at all (so a rotation made on the Windows side is returned to
+ * the caller rather than reported as a withdrawn sign-in).
+ */
+function storeForWrite<K extends CredentialKey>(
+	key: K,
+	home: string | undefined,
+	matches: (current: CredentialDocument[K] | undefined) => boolean,
+): StoredCredentialLocation {
+	const ownPath = credentialsPath(home)
+	const own = readCredentialDocumentAt(ownPath)?.[key]
+	if (home !== undefined || matches(own)) return { path: ownPath, shared: null }
+	const pairedPath = desktopCredentialsPath()
+	if (pairedPath === null) return { path: ownPath, shared: null }
+	const paired = readCredentialDocumentAt(pairedPath)?.[key]
+	if (matches(paired) || (own === undefined && paired !== undefined)) {
+		return { path: pairedPath, shared: 'desktop' }
+	}
+	return { path: ownPath, shared: null }
 }
 
 function readCredentialDocument(home?: string): CredentialDocument | null {
+	return readCredentialDocumentAt(credentialsPath(home))
+}
+
+function readCredentialDocumentAt(path: string): CredentialDocument | null {
 	let raw: string
 	try {
-		raw = readFileSync(credentialsPath(home), 'utf8')
+		raw = readFileSync(path, 'utf8')
 	} catch {
 		return null
 	}
@@ -455,12 +533,13 @@ export function replaceStoredCodexCredential(
 	replacement: StoredCodexCredential,
 	home?: string,
 ): ConditionalCodexCredentialWrite {
-	const path = credentialsPath(home)
-	mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
-	return withCredentialStoreLock(path, () => {
-		const current = readStoredCodexCredential(home)
+	const store = storeForWrite('codexSubscription', home, (held) =>
+		sameCodexCredential(held ?? null, expected),
+	)
+	return inStore(store, (path) => {
+		const document = readCredentialDocumentAt(path)
+		const current = document?.codexSubscription ?? null
 		if (!sameCodexCredential(current, expected)) return { replaced: false, current }
-		const document = readCredentialDocument(home)
 		writeCredentialDocumentUnlocked(
 			{
 				version: CREDENTIALS_FILE_VERSION,
@@ -468,9 +547,33 @@ export function replaceStoredCodexCredential(
 				codexSubscription: replacement,
 			},
 			path,
+			store.shared !== null,
 		)
 		return { replaced: true, current: replacement }
 	})
+}
+
+/**
+ * Run `operation` under the store lock of the chosen file. The own home's directory is
+ * created on demand; the paired Windows directory is never created or changed by the terminal,
+ * and a lock that cannot be taken there is said in terms of Desktop rather than a bare
+ * "another owner".
+ */
+function inStore<T>(store: StoredCredentialLocation, operation: (path: string) => T): T {
+	if (store.shared === null) {
+		mkdirSync(dirname(store.path), { recursive: true, mode: DIR_MODE })
+		return withCredentialStoreLock(store.path, () => operation(store.path))
+	}
+	try {
+		return withCredentialStoreLock(store.path, () => operation(store.path))
+	} catch (error) {
+		if (error instanceof CredentialStoreError) {
+			throw new CredentialStoreError(
+				`the sign-in shared from Namzu Desktop on Windows could not be updated safely (${error.message}). Namzu Desktop keeps it current while it runs; or sign in on this terminal to keep a sign-in of its own.`,
+			)
+		}
+		throw error
+	}
 }
 
 /**
@@ -487,12 +590,13 @@ export function replaceStoredSubscriptionCredential(
 	replacement: AgentOAuthCredential,
 	home?: string,
 ): ConditionalCredentialWrite {
-	const path = credentialsPath(home)
-	mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
-	return withCredentialStoreLock(path, () => {
-		const current = readStoredSubscriptionCredential(home)
+	const store = storeForWrite('subscription', home, (held) =>
+		sameCredential(held ?? null, expected),
+	)
+	return inStore(store, (path) => {
+		const document = readCredentialDocumentAt(path)
+		const current = document?.subscription ?? null
 		if (!sameCredential(current, expected)) return { replaced: false, current }
-		const document = readCredentialDocument(home)
 		writeCredentialDocumentUnlocked(
 			{
 				version: CREDENTIALS_FILE_VERSION,
@@ -500,17 +604,32 @@ export function replaceStoredSubscriptionCredential(
 				subscription: replacement,
 			},
 			path,
+			store.shared !== null,
 		)
 		return { replaced: true, current: replacement }
 	})
 }
 
-function writeCredentialDocumentUnlocked(document: CredentialDocument, path: string): string {
+function writeCredentialDocumentUnlocked(
+	document: CredentialDocument,
+	path: string,
+	pairedWindowsStore = false,
+): string {
 	const body = `${JSON.stringify(serializeDocument(document), null, 2)}\n`
-	return writeCredentialBodyUnlocked(body, path)
+	return writeCredentialBodyUnlocked(body, path, pairedWindowsStore)
 }
 
-function writeCredentialBodyUnlocked(body: string, path: string): string {
+/**
+ * `pairedWindowsStore` is the Windows side's file reached through the mounted drive. That
+ * drive reports every file as mode 0777, so the POSIX owner-only proof cannot be made and
+ * would refuse every write; the file's protection is the Windows profile's access list,
+ * which the temp file inherits from the directory the Windows side made private.
+ */
+function writeCredentialBodyUnlocked(
+	body: string,
+	path: string,
+	pairedWindowsStore = false,
+): string {
 	const tmp = `${path}.tmp.${process.pid}.${randomBytes(6).toString('hex')}`
 
 	let fd: number | undefined
@@ -521,7 +640,7 @@ function writeCredentialBodyUnlocked(body: string, path: string): string {
 		fd = openSync(tmp, 'wx', FILE_MODE)
 		// On Windows, `0600` does not govern the ACL. Prove the still-empty
 		// file is private before putting a credential into it.
-		restrictToOwner(tmp)
+		if (!pairedWindowsStore) restrictToOwner(tmp)
 		const bytes = Buffer.from(body, 'utf8')
 		for (let offset = 0; offset < bytes.length; ) {
 			const written = writeSync(fd, bytes, offset, bytes.length - offset)
@@ -534,7 +653,7 @@ function writeCredentialBodyUnlocked(body: string, path: string): string {
 		closeSync(fd)
 		fd = undefined
 		// Re-check after the write, before the name becomes discoverable.
-		restrictToOwner(tmp)
+		if (!pairedWindowsStore) restrictToOwner(tmp)
 		placing = true
 		renameSync(tmp, path)
 		return path

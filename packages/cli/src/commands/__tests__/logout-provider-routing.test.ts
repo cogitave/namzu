@@ -8,6 +8,7 @@ const credentials = vi.hoisted(() => ({
 	codex: true,
 	googleKey: true,
 	failSubscriptions: false,
+	shared: false,
 	clears: [] as string[],
 }))
 
@@ -21,6 +22,15 @@ vi.mock('../../integrations/providers/index.js', async (importOriginal) => {
 			credentials.primary ? { accessToken: 'claude-secret' } : null,
 		readStoredCodexCredential: () =>
 			credentials.codex ? { accessToken: 'codex-secret', accountId: 'account-1' } : null,
+		locateStoredSubscriptionCredential: () =>
+			credentials.primary
+				? {
+						path: '/device/.namzu/credentials.json',
+						shared: credentials.shared ? ('desktop' as const) : null,
+					}
+				: null,
+		locateStoredCodexCredential: () =>
+			credentials.codex ? { path: '/device/.namzu/credentials.json', shared: null } : null,
 		readStoredGeminiApiKey: () => (credentials.googleKey ? 'gemini-secret' : null),
 		clearStoredSubscriptionCredential: () => {
 			credentials.clears.push('anthropic')
@@ -64,10 +74,24 @@ beforeEach(() => {
 	credentials.codex = true
 	credentials.googleKey = true
 	credentials.failSubscriptions = false
+	credentials.shared = false
 	credentials.clears.length = 0
 })
 
 describe('namzu logout provider routing', () => {
+	it('says a sign-in read from Desktop was not removed, and does not call it removed', async () => {
+		credentials.shared = true
+		const { ctx, lines } = context()
+
+		const code = await logoutCommand.handler({ ctx, rawArgs: ['anthropic'] })
+
+		expect(code).toBe(EXIT_OK)
+		const text = lines.join('\n')
+		expect(text).toContain('There was no Namzu-owned Claude subscription credential to remove')
+		expect(text).toContain('belongs to Desktop')
+		expect(text).not.toContain('Removed Namzu')
+	})
+
 	it('removes only the selected Codex credential and keeps Claude', async () => {
 		const { ctx, lines } = context()
 

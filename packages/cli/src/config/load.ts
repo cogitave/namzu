@@ -1005,6 +1005,10 @@ const CONFIG_READERS: ConfigReaders = {
 		if (typeof v === 'boolean') return v
 		return invalidConfigValue(context, [], 'must be a boolean')
 	},
+	shareDesktopSignIn: (v, context) => {
+		if (typeof v === 'boolean') return v
+		return invalidConfigValue(context, [], 'must be a boolean')
+	},
 	hypermode: (v, context) => {
 		if (typeof v === 'boolean') return v
 		return invalidConfigValue(context, [], 'must be a boolean')
@@ -2795,6 +2799,8 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// A scalar switch, and the one a CI job or a test harness needs to keep a
 	// launch off the network without writing a config file.
 	modelCatalogueRefresh: 'NAMZU_MODEL_CATALOGUE_REFRESH',
+	// A scalar switch a shell or a CI job can set without a file.
+	shareDesktopSignIn: 'NAMZU_SHARE_DESKTOP_SIGNIN',
 }
 
 const configWarnings = new Set<string>()
@@ -2981,6 +2987,22 @@ function readEnv(env: NodeJS.ProcessEnv): {
 			}
 			config.disableHooks = disabled === '1' || disabled === 'true'
 			variables.disableHooks = disableHooksVar
+		}
+	}
+
+	const shareVar = ENV_VARIABLE_NAMES.shareDesktopSignIn
+	if (shareVar) {
+		const share = env[shareVar]
+		if (share !== undefined) {
+			if (share !== '1' && share !== 'true' && share !== '0' && share !== 'false') {
+				throw new ConfigValueError(
+					{ kind: 'environment', variable: shareVar },
+					'shareDesktopSignIn',
+					'must be one of "1", "true", "0", or "false"',
+				)
+			}
+			config.shareDesktopSignIn = share === '1' || share === 'true'
+			variables.shareDesktopSignIn = shareVar
 		}
 	}
 
