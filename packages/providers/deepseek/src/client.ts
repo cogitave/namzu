@@ -1006,15 +1006,6 @@ export class DeepSeekProvider implements LLMProvider {
 	}
 
 	/**
-	 * Whether `model` reads images. Only the vision-capable ids do; the others
-	 * would refuse a request that holds an image, so the runtime keeps images
-	 * away from them and says so in the request instead.
-	 */
-	supportsImageInputFor(model: string): boolean {
-		return IMAGE_MODELS.has(model)
-	}
-
-	/**
 	 * The window the runtime measures compaction against: what the vendor's
 	 * models endpoint reports for the id when it reports one, else the
 	 * documented limit of a model this driver lists, else `undefined` rather

@@ -2,7 +2,7 @@
 
 ## 2026-11-21
 
-- **Update** [Text-only models and images](sdk/text-only-models-and-images.md): a pasted image now reaches an OpenRouter model that reads images, as an `image_url` content part; `OPENROUTER_CAPABILITIES.supportsVision` is `true` and `supportsImageInputFor` answers per model from the listing's input modalities, so a text-only model still gets the notice and omission marker. DeepSeek answers `supportsImageInputFor` too, so its text-only ids get the notice instead of a thrown error. `.changeset/openrouter-images-for-vision-models.md`.
+- **Update** [Text-only models and images](sdk/text-only-models-and-images.md): a pasted image now reaches an OpenRouter model that reads images, as an `image_url` content part; `OPENROUTER_CAPABILITIES.supportsVision` is `true` and `supportsImageInputFor` answers per model from the listing's input modalities, so a text-only model still gets the notice and omission marker. `.changeset/openrouter-images-for-vision-models.md`.
 
 ## 2026-11-20
 

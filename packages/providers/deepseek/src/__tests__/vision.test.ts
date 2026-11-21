@@ -423,13 +423,3 @@ describe('which DeepSeek ids accept images', () => {
 		},
 	)
 })
-
-describe('which DeepSeek models read images', () => {
-	it('answers true only for the vision-capable ids', () => {
-		const provider = new DeepSeekProvider({ apiKey: 'k' })
-		expect(provider.supportsImageInputFor(VISION_MODEL)).toBe(true)
-		expect(provider.supportsImageInputFor('deepseek-flash')).toBe(true)
-		expect(provider.supportsImageInputFor('deepseek-v4-pro')).toBe(false)
-		expect(provider.supportsImageInputFor('deepseek-v4-flash')).toBe(false)
-	})
-})
