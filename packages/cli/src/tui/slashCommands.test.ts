@@ -1525,6 +1525,39 @@ describe('/tasks', () => {
 	})
 })
 
+describe('/tasks list with timers', () => {
+	it('lists pending timers with the time left and the prompt, never the id', () => {
+		const r = runSlash(
+			'/tasks list',
+			context({
+				timers: () => [
+					{
+						id: 'a1b2c3',
+						schedule: 'in 3 minutes',
+						prompt: 'remind me to stretch',
+						recurring: false,
+						nextFireAt: new Date(Date.now() + 179_000).toISOString(),
+					},
+					{
+						id: 'd4e5f6',
+						schedule: 'every 10 minutes',
+						prompt: 'check the build',
+						recurring: true,
+						nextFireAt: new Date(Date.now() + 90 * 60_000).toISOString(),
+					},
+				],
+			}),
+		)
+		expect(r?.kind).toBe('message')
+		if (r?.kind !== 'message') return
+		expect(r.content).toContain('2 pending timers:')
+		expect(r.content).toMatch(/once, in 3m\s+remind me to stretch/)
+		expect(r.content).toMatch(/repeats, in 1h 30m\s+check the build/)
+		expect(r.content).toContain('cancel a timer (x)')
+		expect(r.content).not.toMatch(/a1b2c3|d4e5f6/)
+	})
+})
+
 describe('/agents', () => {
 	it('is not a command: the cockpit is reached from /tasks, the left arrow and the down arrow', () => {
 		expect(matchSlashCommands('/ag').map((entry) => entry.name)).not.toContain('agents')

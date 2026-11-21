@@ -66,7 +66,7 @@ What is vetted:
 
 What refuses a line: a `$` outside single quotes, a substitution, a subshell, a group, a background `&`, a here-document, a redirection other than to `/dev/null` or a descriptor copy or an input from a plain file, a `~user` or UNC path, a glob on a command that is not a plain reader, a leading assignment other than the harmless set (`LANG`, `TZ`, `NO_COLOR`, ...), `cd` next to `git`, a program written with a path or in quotes, and a call that runs in the background or leaves the sandbox.
 
-A read-only line is still subject to the path floor: `cat /etc/hosts` outside the roots is asked about. Not ported: `sed`, `ps`, `lsof`, `ss`, `date`, `man`, `xargs`, `fd`, `gh`, `docker logs|inspect`, `printf`, `[[`, `test`, and its check of the working directory for a planted bare repository.
+A read-only line is still subject to the path floor: `cat /etc/hosts` outside the roots is asked about. `sed` is read-only only as a printer: `-n` (also `-E`, `-r`, `-s`, `-u`) with one script of print commands over line numbers (`sed -n '1,40p' f`, `sed -n '5p;$p' f`, `2~3p`, `3,+4p`); `-i`, `-e`, `-f`, `--`, substitutions, `w`, `r`, `e`, `d`, blocks and regular-expression addresses all refuse the line. `cd` followed by read-only commands is read-only; `cd` next to `git` is not, because the folder it enters may hold a repository whose configuration runs programs. Not ported: `ps`, `lsof`, `ss`, `date`, `man`, `xargs`, `fd`, `gh`, `docker logs|inspect`, `printf`, `[[`, `test`, and its check of the working directory for a planted bare repository.
 
 ## Job-exit delivery to a host
 

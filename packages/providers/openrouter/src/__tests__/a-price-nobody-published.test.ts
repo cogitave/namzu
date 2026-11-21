@@ -85,6 +85,15 @@ describe('a rate OpenRouter did publish is carried', () => {
 		expect(model?.outputPrice).toBe(15)
 	})
 
+	it('treats a negative rate as unknown: the listing uses -1 for a router with no fixed price', async () => {
+		const [model] = await list([
+			{ id: 'openrouter/auto', pricing: { prompt: '-1', completion: '-1' } },
+		])
+
+		expect(model).not.toHaveProperty('inputPrice')
+		expect(model).not.toHaveProperty('outputPrice')
+	})
+
 	it('treats a rate that does not parse as unknown rather than as NaN', async () => {
 		// The value arrives from the network and this driver multiplies it by a
 		// million. `NaN` would propagate through a sum and reach an operator as

@@ -153,7 +153,7 @@ describe('reasoning is kept as the wire sent it', () => {
 	})
 })
 
-describe('reasoning goes back inside the turn, unmodified', () => {
+describe('reasoning goes back with its message, unmodified', () => {
 	it('sends reasoning_details on the step after a tool call', async () => {
 		const { bodies } = await run([frame({ content: 'done' }), frame({}, 'stop')], {
 			messages: [user('go'), assistantStep(), toolResult],
@@ -193,11 +193,11 @@ describe('reasoning goes back inside the turn, unmodified', () => {
 		expect(bodies[0]?.messages[1].reasoning_details).toBeUndefined()
 	})
 
-	it('does not resend reasoning from an earlier turn', async () => {
+	it('keeps sending the reasoning of an earlier turn, as it was sent before', async () => {
 		const { bodies } = await run([frame({ content: 'x' }), frame({}, 'stop')], {
 			messages: [user('first'), assistantStep(), toolResult, user('second')],
 		})
-		expect(bodies[0]?.messages[1].reasoning_details).toBeUndefined()
+		expect(bodies[0]?.messages[1].reasoning_details).toHaveLength(1)
 		expect(bodies[0]?.messages[1].tool_calls).toHaveLength(1)
 	})
 

@@ -82,7 +82,7 @@ export function permissionModeName(mode: PermissionMode): string {
 	}
 }
 
-export { ACCEPT_EDITS_TOOLS, PLAN_MODE_REFUSAL } from '@namzu/sdk'
+export { ACCEPT_EDITS_TOOLS, PLAN_MODE_REFUSAL, PLAN_MODE_REFUSAL_WITH_PLAN_FILE } from '@namzu/sdk'
 
 /** Whether a value is a kernel review mode (what the wire between Desktop and the CLI carries). */
 export const isPermissionMode: (value: unknown) => value is PermissionMode = isReviewMode

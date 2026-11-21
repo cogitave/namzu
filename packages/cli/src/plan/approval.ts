@@ -3,7 +3,7 @@ import type { PermissionMode } from '../permissions/mode.js'
 /**
  * The approval the person gives a plan.
  *
- * Rows and order, when no "clear the context" row is configured: the first row leaves plan mode for auto-accepting
+ * Rows and order, when no "clear the context" row is configured: when the session can enter auto mode a first row continues in it; then the row leaves plan mode for auto-accepting
  * edits (or, when the session may run without asking, for that), the second for
  * asking before each edit, and the last is a text row, "keep planning", whose
  * typed words go back to the model. Approving keeps the conversation as it is.
@@ -15,6 +15,8 @@ export interface PlanApprovalRequest {
 	readonly planPath: string
 	/** The session may run without asking (the launch flag or an earlier grant). */
 	readonly bypassAvailable: boolean
+	/** The session can enter auto mode (a model is there to check each call): adds the row that continues in it. */
+	readonly autoAvailable?: boolean
 }
 
 export type PlanApprovalAnswer =
@@ -34,7 +36,12 @@ export type PlanApprovalFn = (
 ) => Promise<PlanApprovalAnswer>
 
 export interface PlanApprovalRow {
-	readonly id: 'approve-auto' | 'approve-accept-edits' | 'approve-ask' | 'keep-planning'
+	readonly id:
+		| 'approve-classify'
+		| 'approve-auto'
+		| 'approve-accept-edits'
+		| 'approve-ask'
+		| 'keep-planning'
 	readonly label: string
 	/** The mode an approving row leaves plan mode for. */
 	readonly mode?: PermissionMode
@@ -43,8 +50,20 @@ export interface PlanApprovalRow {
 export const KEEP_PLANNING_PLACEHOLDER = 'Tell namzu what to change'
 
 /** The rows in the order they are shown and numbered. */
-export function planApprovalRows(bypassAvailable: boolean): readonly PlanApprovalRow[] {
+export function planApprovalRows(
+	bypassAvailable: boolean,
+	autoAvailable = false,
+): readonly PlanApprovalRow[] {
 	return [
+		...(autoAvailable
+			? [
+					{
+						id: 'approve-classify',
+						label: 'Yes, and use auto mode',
+						mode: 'classify',
+					} as const,
+				]
+			: []),
 		bypassAvailable
 			? {
 					id: 'approve-auto',

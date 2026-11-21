@@ -11,8 +11,9 @@ import { APPROVAL_SETTLE_MS } from '../consent-timing.js'
  */
 
 const PLAN = '# Plan: greet\n\n## Approach\n1. Add a hello line.\n\n## Verify\n- cat README.md'
-const request = (bypassAvailable = false) => ({
+const request = (bypassAvailable = false, autoAvailable = false) => ({
 	plan: PLAN,
+	autoAvailable,
 	planPath: '/h/.namzu/projects/p/01a17d20-db3f-74be-8c86-9a9a0f7660a9/plans/plan.md',
 	bypassAvailable,
 })
@@ -29,13 +30,13 @@ const KEY = {
 let clock = 0
 const now = () => clock
 
-function mount(opts: { bypass?: boolean; rows?: number } = {}) {
+function mount(opts: { bypass?: boolean; auto?: boolean; rows?: number } = {}) {
 	clock = 1_000
 	const answers: PlanApprovalAnswer[] = []
 	const interrupts: number[] = []
 	const harness = render(
 		<PlanApprovalOverlay
-			request={request(opts.bypass)}
+			request={request(opts.bypass, opts.auto)}
 			columns={100}
 			rows={opts.rows ?? 40}
 			now={now}
@@ -89,6 +90,99 @@ describe('the plan approval box', () => {
 		settle()
 		await press(second, KEY.down, KEY.enter)
 		expect(second.answers).toEqual([{ kind: 'approve', mode: 'prompt' }])
+	})
+
+	it('offers auto mode first when the session can enter it, and keeps the other rows', async () => {
+		const h = mount({ auto: true })
+		const frame = h.lastFrame() ?? ''
+		expect(frame).toMatch(
+			/1\. Yes, and use auto mode[\s\S]*2\. Yes, and auto-accept edits[\s\S]*3\. Yes, and ask before each edit[\s\S]*4\. No, keep planning/,
+		)
+		settle()
+		await press(h, KEY.enter)
+		expect(h.answers).toEqual([{ kind: 'approve', mode: 'classify' }])
+		const second = mount({ auto: true })
+		settle()
+		await press(second, '2')
+		expect(second.answers).toEqual([{ kind: 'approve', mode: 'accept-edits' }])
+		const last = mount({ auto: true })
+		settle()
+		await press(last, ...'tighter'.split(''), KEY.enter)
+		expect(last.answers).toEqual([{ kind: 'keep-planning', feedback: 'tighter' }])
+		const bypass = mount({ auto: true, bypass: true })
+		expect(bypass.lastFrame()).toMatch(
+			/1\. Yes, and use auto mode[\s\S]*2\. Yes, and run every tool without asking/,
+		)
+	})
+
+	it('shows the plan as formatted text, not as markdown source', () => {
+		clock = 1_000
+		const plan = [
+			'# Plan',
+			'',
+			'## Why',
+			'Budgets need a **monthly** limit in `budgets.csv`.',
+			'',
+			'| file | change |',
+			'| --- | --- |',
+			'| `src/a.ts` | add the loader |',
+			'',
+			'```ts',
+			'const x = 1',
+			'```',
+		].join('\n')
+		const h = render(
+			<PlanApprovalOverlay
+				request={{ ...request(), plan }}
+				columns={100}
+				rows={40}
+				now={now}
+				onAnswer={() => {}}
+			/>,
+		)
+		const frame = h.lastFrame() ?? ''
+		expect(frame).not.toMatch(/^.*│\s+#+ /m)
+		expect(frame).not.toContain('**')
+		expect(frame).not.toContain('`')
+		expect(frame).not.toContain('| --- |')
+		expect(frame).toContain('Why')
+		expect(frame).toContain('monthly limit in budgets.csv')
+		expect(frame).toContain('src/a.ts')
+		expect(frame).toContain('const x = 1')
+		h.unmount()
+	})
+
+	it('counts the pager in rows as drawn, so a wrapped table still fits from 17 rows', () => {
+		clock = 1_000
+		const table = [
+			'| file | what changes | why |',
+			'| --- | --- | --- |',
+			...Array.from(
+				{ length: 30 },
+				(_, i) =>
+					`| src/budgets/file-${i}.ts | add a loader that reads the monthly limits | row ${i} |`,
+			),
+		].join('\n')
+		for (const [cols, screenRows] of [
+			[100, 32],
+			[80, 24],
+			[60, 17],
+		] as const) {
+			const h = render(
+				<PlanApprovalOverlay
+					request={{ ...request(false, true), plan: `# Plan\n\n${table}` }}
+					columns={cols}
+					rows={screenRows}
+					now={now}
+					onAnswer={() => {}}
+				/>,
+			)
+			const frame = h.lastFrame() ?? ''
+			expect(frame.split('\n').length).toBeLessThanOrEqual(screenRows - 3)
+			expect(frame).toContain('4. No, keep planning')
+			expect(frame).toMatch(/rows 1-\d+\/\d+/)
+			h.unmount()
+		}
 	})
 
 	it('picks by digit, and a session that may bypass approves with bypass', async () => {
@@ -148,7 +242,7 @@ describe('the plan approval box', () => {
 	})
 
 	it('pages a plan longer than the screen', async () => {
-		const long = Array.from({ length: 80 }, (_, i) => `line ${i + 1}`).join('\n')
+		const long = Array.from({ length: 80 }, (_, i) => `- line ${i + 1}`).join('\n')
 		clock = 1_000
 		const h = render(
 			<PlanApprovalOverlay
@@ -164,7 +258,7 @@ describe('the plan approval box', () => {
 		expect(h.lastFrame()).toContain(`rows 1-${planPageRows(24)}/80`)
 		h.stdin.write('\x1b[6~')
 		await tick()
-		expect(h.lastFrame()).not.toContain('line 1\n')
+		expect(h.lastFrame()).not.toContain('- line 1\n')
 		expect(h.lastFrame()).toContain(`rows ${planPageRows(24) + 1}-`)
 	})
 
@@ -173,7 +267,7 @@ describe('the plan approval box', () => {
 		(screenRows) => {
 			const long = Array.from(
 				{ length: 80 },
-				(_, i) => `line ${i + 1} ${'word '.repeat(i % 3 === 0 ? 30 : 2)}`,
+				(_, i) => `- line ${i + 1} ${'word '.repeat(i % 3 === 0 ? 30 : 2)}`,
 			).join('\n')
 			clock = 1_000
 			for (const planPath of [request().planPath, '/work/notes/my-plan.md']) {

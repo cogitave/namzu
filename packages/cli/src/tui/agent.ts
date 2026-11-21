@@ -923,6 +923,8 @@ export type AgentEvent =
 			>['contentSource']
 			/** The provider's id: the screen names it by product name, never by id. */
 			readonly providerId: string
+			/** Present when one model, not the whole provider, cannot read images. */
+			readonly model?: string
 			/** The kernel's own wording. Shown only under `--debug`; the screen writes its own sentence. */
 			readonly text: string
 	  }
@@ -2490,6 +2492,19 @@ export const EAGER_TOOLS_WHEN_DEFERRED = [
 	'search_tools',
 ] as const
 export { DEFERRED_TOOL_GUIDANCE }
+
+/**
+ * The names that ride every request of a session: {@link EAGER_TOOLS_WHEN_DEFERRED},
+ * plus `exit_plan_mode` where plan approval is on. The plan-mode reminder tells
+ * the model to end its turn by calling it, so a search first would cost two
+ * requests and change the tool list in the middle of the plan. It stays loaded
+ * outside plan mode too, so entering or leaving plan mode never changes the list.
+ */
+export function eagerToolsFor(opts: { readonly planApproval?: boolean }): readonly string[] {
+	return opts.planApproval
+		? [...EAGER_TOOLS_WHEN_DEFERRED, EXIT_PLAN_MODE_TOOL_NAME]
+		: EAGER_TOOLS_WHEN_DEFERRED
+}
 
 /**
  * A session defers the schemas of every tool outside {@link EAGER_TOOLS_WHEN_DEFERRED}
@@ -5437,10 +5452,11 @@ export async function createAgentSession(
 	// rather than by forking a snapshot per send — a revealed tool now stays
 	// active for the rest of the session, including after `namzu resume`,
 	// instead of being lost on the very next send.
+	const eagerToolNames = eagerToolsFor({ planApproval: options.planApproval && !options.ephemeral })
 	const sessionToolsets: readonly Toolset[] = toolsets.flatMap((ts) => {
 		const wrapped =
 			withheldTools.size > 0 ? filtered(ts, (tool) => !withheldTools.has(tool.name)) : ts
-		return toolLoadingDeferred ? deferExceptToolset(wrapped, EAGER_TOOLS_WHEN_DEFERRED) : [wrapped]
+		return toolLoadingDeferred ? deferExceptToolset(wrapped, eagerToolNames) : [wrapped]
 	})
 	// The memory section is written only for a session that holds the tool
 	// it teaches: a run that withholds `save_memory` would be told to use it.
@@ -9865,6 +9881,7 @@ export function toAgentEvent(
 				capability: event.capability,
 				...(event.contentSource ? { contentSource: event.contentSource } : {}),
 				providerId: event.providerId,
+				...(event.model ? { model: event.model } : {}),
 				text: event.message,
 			}
 		case 'message_history_repaired': {

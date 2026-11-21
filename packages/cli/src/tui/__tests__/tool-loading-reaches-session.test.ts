@@ -171,6 +171,36 @@ describe('explicit tool loading reaches the real session and query', () => {
 		}
 	})
 
+	it('keeps the plan exit tool loaded where plan approval is on, and leaves it out elsewhere', async () => {
+		mockProvider(() => response())
+		const planning = await open({ planApproval: true })
+		try {
+			for await (const _ of planning.send([createUserMessage('Inspect the fixture')])) {
+				// Drain the real query through the fake provider transport.
+			}
+			const sent = names(requests[0])
+			// No search first: the plan-mode reminder ends in a call to it.
+			expect(sent).toContain('exit_plan_mode')
+			expect(sent).toEqual([...core, 'exit_plan_mode', 'search_tools'].sort())
+			// The tool that proposes planning stays behind the catalogue.
+			expect(sent).not.toContain('enter_plan_mode')
+		} finally {
+			await planning.close()
+		}
+
+		requests = []
+		mockProvider(() => response())
+		const plain = await open({})
+		try {
+			for await (const _ of plain.send([createUserMessage('Inspect the fixture')])) {
+				// Drain the real query through the fake provider transport.
+			}
+			expect(names(requests[0])).not.toContain('exit_plan_mode')
+		} finally {
+			await plain.close()
+		}
+	})
+
 	it('keeps every schema when loading is eager and background work is off', async () => {
 		vi.stubEnv('NAMZU_DISABLE_BACKGROUND_TASKS', '1')
 		mockProvider(() => response())
