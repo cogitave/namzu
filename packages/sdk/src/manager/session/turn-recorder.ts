@@ -262,6 +262,8 @@ export class TurnRecorder {
 	#lastEntry: SessionLogEntry | undefined
 	#auditSeq = 0
 	#userMessageId: MessageId | undefined
+	/** The system prompt `turn_started` recorded for this turn, so a request record need not repeat it. */
+	#turnSystemPrompt: string | undefined
 	/** Set by {@link resume}: the next reconciliation re-bases the fold on the restored context. */
 	#rebasePending = false
 	/**
@@ -849,6 +851,7 @@ export class TurnRecorder {
 			.find((m) => m.role === 'user')
 		const userMessageId = pendingUser ? this.#idFor(pendingUser) : generateMessageId()
 		this.#userMessageId = userMessageId
+		this.#turnSystemPrompt = draft.systemPrompt
 		const binding = this.budget?.binding
 		const entry = await this.#enqueue(async () => {
 			const begun = await this.log.beginTurn(
@@ -1010,7 +1013,10 @@ export class TurnRecorder {
 			this.#syncMessages()
 			await this.#replaceAnswerIfOverridden()
 		}
-		const draft = eventDraft(event, this.#turnOpen() ? this.turnId : undefined)
+		const draft = this.#withoutRepeatedPrompt(
+			event,
+			eventDraft(event, this.#turnOpen() ? this.turnId : undefined),
+		)
 		this.#syncMessages()
 		// The outcome is a record of its own, just ahead of the one that ends the
 		// turn, never a field of the settlement.
@@ -1037,6 +1043,27 @@ export class TurnRecorder {
 		if (event.type === 'turn_paused') this.#phase = 'paused'
 		if (event.type === 'turn_completed' || event.type === 'turn_failed') this.#phase = 'closed'
 		return entry
+	}
+
+	/**
+	 * A `request_envelope` whose system prompt is the one `turn_started` already
+	 * holds records a pointer instead of the text, since the same prompt twice
+	 * per turn was a fifth of a long log. The request joins its system messages
+	 * with a blank line where the turn prompt joins its static and dynamic parts
+	 * with a rule, so the two are compared with that one separator swapped. A
+	 * request whose prompt differs (a step rewrote it) keeps its own text. The
+	 * live event is untouched; only the record is smaller.
+	 */
+	#withoutRepeatedPrompt(
+		event: SessionEvent,
+		draft: Parameters<SessionLog['append']>[1],
+	): Parameters<SessionLog['append']>[1] {
+		if (event.type !== 'request_envelope' || this.#turnSystemPrompt === undefined) return draft
+		if (!requestPromptMatchesTurn(event.systemPrompt, this.#turnSystemPrompt)) return draft
+		const { systemPrompt: _systemPrompt, ...rest } = draft as unknown as Record<string, unknown>
+		return { ...rest, systemPromptFrom: 'turn_started' } as unknown as Parameters<
+			SessionLog['append']
+		>[1]
 	}
 
 	/** The turn is active and its closing record is not yet queued. */
@@ -1572,6 +1599,11 @@ export function snapshotTurnConfig(config: TurnRecorderConfig['turnConfig']): Tu
 }
 
 /** A live event as a record draft: the payload minus the live-only fields. */
+/** Whether a request's joined system messages are the turn's prompt, up to its one separator. */
+export function requestPromptMatchesTurn(requestPrompt: string, turnPrompt: string): boolean {
+	return requestPrompt === turnPrompt || requestPrompt === turnPrompt.replace('\n\n---\n\n', '\n\n')
+}
+
 export function eventDraft(
 	event: SessionEvent,
 	turnId: TurnId | undefined,
