@@ -9,6 +9,7 @@
 import { type UserMessage, createUserMessage, newPasteNonce } from '@namzu/sdk'
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { displayTitleFor, titleFromMessages } from '../../integrations/sessions/display-title.js'
 import { projectConversation } from '../App.js'
 import { Transcript } from '../Transcript.js'
 import { editablePrompts } from '../edit-prompts.js'
@@ -124,5 +125,23 @@ describe('a resumed conversation and a sent paste', () => {
 		const text = screen.scrollback().join('\n')
 		expect(text).toContain('what is wrong here? [Pasted text #1 +39 lines]')
 		expect(text).not.toContain('line 2 of the log')
+	})
+})
+
+describe('a title and a rewind list made from a sent paste', () => {
+	it('titles a conversation by the chip, and fixes an old title made from the pasted words', () => {
+		const message = sent()
+		const chipped = titleFromMessages([message], true)
+		expect(chipped).toBe(`${typed}${pasteChip(1, paste)}`)
+		const oldTitle = titleFromMessages([createUserMessage(content)], false)
+		expect(displayTitleFor(oldTitle, [message])).toBe(chipped)
+		expect(displayTitleFor('Named by hand', [message])).toBe('Named by hand')
+	})
+
+	it('lists a message that has no row on screen by its chip, with the whole text behind it', () => {
+		const message = sent()
+		const [prompt] = editablePrompts([message], [])
+		expect(prompt?.displayText).toBe(chipPastedRanges(content, message.pasted))
+		expect(prompt?.draftText).toBe(content)
 	})
 })

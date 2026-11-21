@@ -1,6 +1,6 @@
 import type { Message, UserMessage } from '@namzu/sdk'
 
-import { unchipPastedRanges } from './paste-chips.js'
+import { chipPastedRanges, unchipPastedRanges } from './paste-chips.js'
 import type { TranscriptMessage } from './types.js'
 
 /** One durable branch boundary, plus the best text the composer can restore. */
@@ -55,7 +55,7 @@ export function editablePrompts(
 	return users.map(({ message, userOrdinal }, index) => {
 		const visibleIndex = visibleStart + (index - durableStart)
 		const row = index >= durableStart ? visible[visibleIndex] : undefined
-		const displayText = row?.content ?? message.content
+		const displayText = row?.content ?? chipPastedRanges(message.content, message.pasted)
 		return {
 			userOrdinal,
 			message,
