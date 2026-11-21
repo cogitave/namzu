@@ -1020,6 +1020,8 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 						? { toolResultScreens: resolvedCtx.config.toolResultScreens }
 						: {}),
 					...(resolvedCtx.config.tui ? { tui: resolvedCtx.config.tui } : {}),
+					...(resolvedCtx.config.network ? { network: resolvedCtx.config.network } : {}),
+					runNetwork: true,
 					...(resolvedCtx.config.updates ? { updates: resolvedCtx.config.updates } : {}),
 				}
 			}

@@ -6,6 +6,7 @@ import {
 	eraseLastChoiceGrapheme,
 	truncateAtSeparator,
 	truncateChoiceText,
+	wrapChoiceText,
 } from './terminal-choice-text.js'
 
 it('erases a complete query grapheme without changing its preceding source bytes', () => {
@@ -39,4 +40,12 @@ it('drops whole trailing parts of a description instead of cutting a number in h
 	expect(truncateAtSeparator(row, 12)).toBe('finished')
 	// One part wider than the room falls back to the ordinary cut.
 	expect(truncateAtSeparator('a-very-long-single-part', 8)).toBe('a-very-\u2026')
+})
+
+it("keeps a line's own indent and hangs a wrapped continuation under it", () => {
+	expect(wrapChoiceText('Title\n  one two three four', 12)).toEqual([
+		'Title',
+		'  one two',
+		'  three four',
+	])
 })

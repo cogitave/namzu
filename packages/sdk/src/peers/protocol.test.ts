@@ -283,3 +283,46 @@ describe('the person sender and the delivered notice', () => {
 		expect(DeliverResponseSchema.safeParse({ status: 'delivered' }).success).toBe(false)
 	})
 })
+
+describe('messages that cross machines', () => {
+	const remote = {
+		machineId: 'a'.repeat(64),
+		machineName: 'studio',
+		sessionName: 'calm-heron',
+		sessionRef: 'abcdef',
+		mode: 'auto',
+		hops: 1,
+	}
+
+	it('knows the network bridge as a sender kind and expiry as a delivery outcome', () => {
+		expect(PeerFromSchema.safeParse({ ...validFrom, kind: 'net' }).success).toBe(true)
+		const notice = {
+			protocol: PEER_PROTOCOL_VERSION,
+			op: 'notice',
+			token: 't',
+			from: validFrom,
+			kind: 'delivery',
+			about: { sessionId: 's', name: 'n', ref: 'abcdef' },
+			outcome: 'expired',
+		}
+		expect(NoticeRequestSchema.safeParse(notice).success).toBe(true)
+	})
+
+	it('carries the origin of a remote message and refuses extra fields in it', () => {
+		const base = {
+			protocol: PEER_PROTOCOL_VERSION,
+			op: 'deliver',
+			token: 't',
+			id: 'm',
+			from: validFrom,
+			text: 'hi',
+		}
+		expect(DeliverRequestSchema.safeParse({ ...base, remote }).success).toBe(true)
+		expect(
+			DeliverRequestSchema.safeParse({ ...base, remote: { ...remote, approved: true } }).success,
+		).toBe(false)
+		expect(
+			DeliverRequestSchema.safeParse({ ...base, remote: { ...remote, hops: 101 } }).success,
+		).toBe(false)
+	})
+})

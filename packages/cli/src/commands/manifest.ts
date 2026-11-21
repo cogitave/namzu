@@ -58,7 +58,7 @@ export const costCommand = lazyCommand(
 export const peersCommand = lazyCommand(
 	{
 		name: 'peers',
-		description: 'List live terminals in this project or send one a message',
+		description: 'List and message live terminals, and manage your Namzu network of machines',
 		passThrough: true,
 	},
 	async () => (await import('./peers.js')).peersCommand,
