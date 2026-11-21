@@ -128,8 +128,12 @@ export async function touchOpenedConversation(
 	sessions: CliSessions,
 	sessionId: SessionId,
 ): Promise<void> {
+	// Best effort: a store without on-disk paths (an in-memory or test store) has no folder to touch,
+	// and a failure here must never reach the caller, which does not wait for it.
+	const dir = sessions.paths?.sessionDir?.({ sessionId })
+	if (!dir) return
 	const now = new Date()
-	await utimes(sessions.paths.sessionDir({ sessionId }), now, now).catch(() => undefined)
+	await utimes(dir, now, now).catch(() => undefined)
 }
 
 /**
