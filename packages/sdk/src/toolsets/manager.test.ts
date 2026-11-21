@@ -732,6 +732,29 @@ describe('ToolManager — execute (pipeline moved from ToolRegistry)', () => {
 		expect(result.permissionDenied).toBe(true)
 	})
 
+	it('the plan-mode floor points at the plan file when the exit tool is present', async () => {
+		const m = manager([
+			toolset('a', [
+				makeTool('write', { isReadOnly: () => false }),
+				makeTool('exit_plan_mode', { isReadOnly: () => true }),
+			]),
+		])
+		const result = await m.execute(
+			'write',
+			{},
+			makeContext({
+				permissionContext: {
+					mode: 'plan',
+					sessionId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b',
+					turnId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
+					workingDirectory: '/tmp',
+				},
+			}),
+		)
+		expect(result.error).toContain('exit_plan_mode')
+		expect(result.error).not.toContain('present the plan as your reply')
+	})
+
 	it('allows read-only tools in plan mode', async () => {
 		const execute = vi.fn(async () => ({ success: true, output: 'ok' }))
 		const m = manager([toolset('a', [makeTool('read', { isReadOnly: () => true, execute })])])
