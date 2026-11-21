@@ -625,6 +625,23 @@ export interface ToolRevealReceipt {
 	readonly sourceKind: import('../toolset/index.js').ToolSourceKind
 }
 
+/**
+ * How a call that has a result came to have it without running to the end.
+ *
+ * `interrupted`: the turn stopped first. `rejected`: a person said no.
+ * `blocked_by_permissions`: a rule, the mode, a hook or another kernel guard
+ * refused it. `blocked_by_auto_mode`: the auto mode's classifier judged it
+ * unsafe. `auto_mode_unavailable`: the classifier could not give a verdict, so
+ * the call was held back without one. A result without an outcome ran, and
+ * `isError` says whether it failed.
+ */
+export type ToolResultOutcome =
+	| 'interrupted'
+	| 'rejected'
+	| 'blocked_by_permissions'
+	| 'blocked_by_auto_mode'
+	| 'auto_mode_unavailable'
+
 export interface ToolMessage extends BaseMessage {
 	role: 'tool'
 	content: ToolResultContent
@@ -653,6 +670,13 @@ export interface ToolMessage extends BaseMessage {
 	 * carries this too, with nothing extra to serialize.
 	 */
 	revealedTools?: readonly ToolRevealReceipt[]
+	/**
+	 * Why the call did not simply run, written by the kernel where it made the
+	 * result (see {@link ToolResultOutcome}). Never read from the result's text,
+	 * which a tool controls. The auto mode's classifier is shown it, so a call
+	 * tried again after a refusal is seen as a retry.
+	 */
+	outcome?: ToolResultOutcome
 }
 
 export type Message = SystemMessage | UserMessage | AssistantMessage | ToolMessage
@@ -837,6 +861,7 @@ export function createToolMessage(
 	toolCallId: string,
 	isError?: boolean,
 	revealedTools?: readonly ToolRevealReceipt[],
+	outcome?: ToolResultOutcome,
 ): ToolMessage {
 	return {
 		role: 'tool',
@@ -844,6 +869,7 @@ export function createToolMessage(
 		toolCallId,
 		...(isError !== undefined ? { isError } : {}),
 		...(revealedTools && revealedTools.length > 0 ? { revealedTools } : {}),
+		...(outcome !== undefined ? { outcome } : {}),
 		timestamp: Date.now(),
 	}
 }

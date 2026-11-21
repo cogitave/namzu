@@ -50,9 +50,21 @@ import {
 	PLAN_MODE_REFUSAL,
 	PLAN_MODE_REFUSAL_WITH_PLAN_FILE,
 } from '../../types/permission/index.js'
-import { type AutoReviewClassifier, autoReviewBlockedFeedback } from './auto-review/classifier.js'
+import type { AutoReviewClassifier, AutoReviewDecision } from './auto-review/classifier.js'
+import { autoReviewBlockedFeedback, autoReviewUnavailableFeedback } from './auto-review/feedback.js'
 import { DECLINED_TOOL_CALL_FEEDBACK } from './declined.js'
 import { shellEscalations } from './path-escalation.js'
+
+/**
+ * What the model is told about a call the classifier did not let run: a
+ * verdict is a block not to route around, and no verdict is a hold that may be
+ * tried again.
+ */
+function classifierRefusal(decision: Extract<AutoReviewDecision, { verdict: 'block' }>): string {
+	return decision.cause === 'rule'
+		? autoReviewBlockedFeedback(decision.reason)
+		: autoReviewUnavailableFeedback(decision.reason)
+}
 
 export type ReviewMode =
 	/** Ask a person. The default when a `prompt` is supplied. */
@@ -931,6 +943,14 @@ export interface ReviewPolicyOptions {
 	 * the model to try again.
 	 */
 	readonly onClassifierTranscriptTooLong?: () => void
+	/**
+	 * Called when the classifier has given no verdict several times in a row
+	 * (`AutoReviewLimits.noVerdict`): it could not be reached, or its answers
+	 * could not be read. The policy refuses the batch and ends the turn, with a
+	 * person to ask or without one, rather than hold back call after call; this
+	 * is where a host says so in its own words. `reason` is the last block's.
+	 */
+	readonly onClassifierUnavailable?: (event: { readonly reason: string }) => void
 }
 
 /**
@@ -980,6 +1000,27 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 	/** Set once the classifier has said the conversation is too long, until it judges something. */
 	let transcriptTooLong = false
 	const toolOf = (name: string) => registry?.get(name) ?? registry?.get(name.toLowerCase())
+	/**
+	 * The working tree's status for a shell call that runs a destructive git
+	 * command, read now; undefined for any other call, or when it cannot be read.
+	 */
+	const gitStatusOf = async (
+		tc: ToolCallSummary,
+		context: ResumeContext | undefined,
+	): Promise<string | undefined> => {
+		if (context?.gitStatus === undefined) return undefined
+		const tool = toolOf(tc.name)
+		const argument = tool?.commandArgument
+		if (tool === undefined || argument === undefined) return undefined
+		const line = (tc.input as Record<string, unknown> | null)?.[argument]
+		if (typeof line !== 'string') return undefined
+		try {
+			return await context.gitStatus(line, tool.commandDialect?.({ sandboxed: false }) ?? 'sh')
+		} catch {
+			// The status is an addition to the review; without it the review is as before.
+			return undefined
+		}
+	}
 	/** The script files a shell call launches that the agent wrote, read now; none for any other call. */
 	const launchedScriptsOf = async (
 		tc: ToolCallSummary,
@@ -1296,10 +1337,12 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 					// The questions a person must answer are asked of a person, never of a model.
 					if (isBypassImmune(tc) || (await neverSent(tc, request.sessionId))) continue
 					const scripts = await launchedScriptsOf(tc, context)
+					const gitStatus = await gitStatusOf(tc, context)
 					const decision = await classifier.review({
 						call: tc,
 						transcript,
 						...(scripts.length > 0 ? { scripts } : {}),
+						...(gitStatus !== undefined ? { gitStatus } : {}),
 						...(registry ? { tools: registry } : {}),
 						...(context?.signal ? { signal: context.signal } : {}),
 					})
@@ -1324,6 +1367,17 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 						return askPerson(escapes)
 					}
 					transcriptTooLong = false
+					// A check that keeps giving no verdict ends the turn, person or not:
+					// holding calls back one at a time against it gets nowhere, and
+					// nothing is run unchecked.
+					if (decision.noVerdictLimitReached === true) {
+						options.onClassifierUnavailable?.({ reason: decision.reason })
+						return {
+							action: 'reject_tools',
+							feedback: autoReviewUnavailableFeedback(decision.reason),
+							endTurn: true,
+						}
+					}
 					if (decision.limitReached !== undefined) {
 						options.onClassifierLimit?.({ limit: decision.limitReached, reason: decision.reason })
 						if (!prompt) {
@@ -1334,10 +1388,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 						}
 						return askPerson(escapes)
 					}
-					return {
-						action: 'reject_tools',
-						feedback: autoReviewBlockedFeedback(decision.reason),
-					}
+					return { action: 'reject_tools', feedback: classifierRefusal(decision) }
 				}
 			}
 			if (!live.some(isBypassImmune)) return { action: 'approve_tools' }

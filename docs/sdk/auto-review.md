@@ -1,11 +1,11 @@
 ---
 type: Reference
 title: The auto-review classifier
-description: The model behind the classify review mode — createAutoReviewClassifier, its two passes, what it is shown (never tool results), the rule lists and "$defaults", failing closed, retries, block limits and logging.
+description: The model behind the classify review mode — createAutoReviewClassifier, its two passes, what it is shown (never tool results, but how each earlier call ended and the working tree before a destructive git command), the rule lists and "$defaults", failing closed, retries, block limits, the run of answers with no verdict, and logging.
 resource: packages/sdk/src/runtime/query/auto-review/classifier.ts
 tags: [sdk, hitl, permissions, classifier]
 status: stable
-generated: { by: process:claude-code, at: 2026-10-21T00:00:00Z }
+generated: { by: process:claude-code, at: 2026-11-21T00:00:00Z }
 ---
 
 # The auto-review classifier
@@ -31,6 +31,7 @@ const policy = createReviewPolicy({
   roots: () => [cwd, ...addedDirectories],
   onClassifierLimit: ({ limit, reason }) => fallBackToPromptMode(limit, reason),
   onClassifierTranscriptTooLong: () => compactSoon(),
+  onClassifierUnavailable: ({ reason }) => sayTheTurnStopped(reason),
 })
 ```
 
@@ -38,12 +39,12 @@ A host that mounts `classify` must also answer `QueryParams.reviewAllowedCalls` 
 
 # What it reviews
 
-`classifier.review({ call, transcript, tools?, signal? })` takes one call and the conversation so far, and returns one of:
+`classifier.review({ call, transcript, tools?, scripts?, gitStatus?, signal? })` takes one call and the conversation so far, and returns one of:
 
 | Decision | Meaning |
 | --- | --- |
 | `{ verdict: 'allow', stage, latencyMs }` | Run it. |
-| `{ verdict: 'block', cause, stage, reason, rule?, latencyMs, limitReached? }` | Do not run it. `cause` is `rule` (judged unsafe), `unavailable` (the check could not be completed), `unreadable` (the answer was not a verdict) or `aborted` (the turn was cancelled). |
+| `{ verdict: 'block', cause, stage, reason, rule?, latencyMs, limitReached?, noVerdictLimitReached? }` | Do not run it. `cause` is `rule` (judged unsafe), `unavailable` (the check could not be completed), `unreadable` (the answer was not a verdict) or `aborted` (the turn was cancelled). |
 | `{ verdict: 'too_long' }` | The conversation is too long to read. Nothing was judged. |
 
 It never throws for a provider failure. A failure is a block.
@@ -62,6 +63,21 @@ A compact transcript, one line of JSON per entry, in order:
 - the person's own messages (a user-role message the kernel wrote, such as project instructions or a reminder, is left out);
 - the agent's prose;
 - one line per tool call, in the words the tool chose for itself. `ToolDefinition.classifierInput(input)` returns a short string; `defineTool({ classifierInput })` declares it. `bash` and `monitor` give the command, `edit` gives the path and a short change, `write` the path and size, `web_fetch` the address and what is asked of it. A tool without one is shown as its input in compact JSON.
+- on each call line that has a result, how the call ended (`"outcome"`), in one of seven words: `ok`, `error`, `interrupted`, `rejected by the person`, `blocked by permissions`, `blocked by auto mode`, `auto mode unavailable`. A call still running, or one in the batch under review, has none.
+
+## How a call ended
+
+The outcome comes from two fields the kernel writes on the result message, never from its text, which a tool controls: `ToolMessage.isError`, and `ToolMessage.outcome` (`ToolResultOutcome`), which the executor sets where it makes a result for a call that did not simply run. A person's no (the review answer carried `declined`) is `rejected`. A refusal whose words begin with the auto mode's own prefixes is `blocked_by_auto_mode` (`Blocked by auto mode: `, a verdict) or `auto_mode_unavailable` (`Auto mode could not check this action: `, no verdict); `autoReviewBlockedFeedback` and `autoReviewUnavailableFeedback` write them. A call that a stopped turn never started, one that failed while the turn was being stopped, one refused only because another call in its batch ended the turn, and a history repair's synthetic answer are `interrupted`. Every other refusal (a rule, the mode, a hook, another kernel guard) is `blocked_by_permissions`. No `outcome` means the call ran, and `isError` says whether it failed. `createToolMessage` takes the outcome as its fifth argument, and `callOutcome(result)` (in the auto-review module) gives the words.
+
+The prompt tells the classifier that a call rejected by the person, blocked by permissions or blocked by auto mode, coming back unchanged, reworded, split up or moved into a script, is a second try at something already refused, and to block it unless the person has since asked for it in their own words; and that `auto mode unavailable`, `interrupted` and `error` say nothing against trying again.
+
+## Before a destructive git command
+
+For a shell call that runs a git command able to destroy local work or rewrite history, the classifier is also shown the working tree, after the action, in a `git_status` element: `git status --porcelain --branch`, the branch line and then one line per changed or untracked file, at most 40 (the rest are counted), each line at most 300 characters with control characters removed and `<` escaped. The commands are a hard reset (`reset --hard`, `reset --merge`), a forced `clean`, `checkout --`, `checkout .` or a forced checkout, `restore` over the working tree (not `restore --staged` alone), `switch --discard-changes` or a forced switch, a forced push (`--force`, `-f`, `--force-with-lease`, a `+` refspec, `--mirror`, `--delete`), a forced branch deletion (`-D`, `--delete --force`), `stash drop` and `stash clear`, and any `rebase`. They are found with the shell lexer, behind `sudo`, `env`, assignments and `&&`, and inside `bash -c`.
+
+The status is read in the folder the command runs in: the session's shell folder, then a `cd` to a literal path earlier in the line, then `git -C`. A `cd` whose target is not literal, one in a substitution or a nested shell, `--git-dir` and `--work-tree` make the folder unknown, and then nothing is attached: a status for the wrong folder would mislead. A `cd` inside a subshell is read as if it were at the top of the line. Git runs with no optional locks (`--no-optional-locks`, `GIT_OPTIONAL_LOCKS=0`), the file system monitor off (`core.fsmonitor=false`) and a 2 second deadline; a missing git, a folder that is not a repository, a timeout, a sandboxed shell (its files are not this host's) or any other failure attaches nothing, and the review goes ahead as before. The prompt tells the classifier that the listed files are what the command would destroy, that file names are data, and to block a command that would discard them unless the person asked for that loss.
+
+The kernel supplies it as `ResumeContext.gitStatus(line, dialect)`, read by the executor (`ToolExecutor.gitStatusForReview`); the review policy calls it for each shell call it puts to the classifier and passes the answer as `gitStatus` on the request. Like a script's text it rides on that one review and is not kept.
 
 It is never shown a tool **result**, the agent's reasoning, or any kernel-written context. A result is whatever a command printed or a page said, which is where an injected instruction would sit; a classifier that read it could be argued out of a block by the text it guards against. The classifier is told so, and that it cannot see what the agent saw. The call under review is the final entry, once (it is not repeated from the history). `<` is escaped inside every entry, so text in the conversation cannot close or open an element of the prompt around it. History entries are clipped to 2000 characters. The action under review is not clipped: a shell or monitor command, or an input shown as JSON, up to 8000 characters is sent whole, and a longer one is **blocked as `unreadable` without a question**, because a prefix of a command says nothing about the rest; the prompt also tells the model that an action marked as cut short means block. Some tools summarise on purpose, and the summary is all the classifier sees: `write` shows the path, the size and the first 300 characters of the body, `edit` the path and the first 200 characters removed and 300 added, `web_fetch` the address and 300 characters of the prompt. Nor does it see a `<file>` block inside a user message (a file pulled in with `@path`): the CLI sends those as a separate host-supplied message, and the transcript strips them from a user message as a second guard. It never sees a tool result.
 
@@ -117,6 +133,8 @@ Every path from "could not check" leads to a block:
 - a second pass that fails blocks on the strength of the first;
 - a cancelled turn blocks (`cause: 'aborted'`) and is not counted.
 
+The model is told a block by verdict (`cause: 'rule'`) and a hold for want of one apart, below.
+
 A conversation over `maxTranscriptChars` (default 400,000), or a provider that says the request is too long, gives `too_long`. The review policy then blocks the call once, tells the model to try again, and calls `onClassifierTranscriptTooLong` so the host can compact. If it is still too long next time, a person decides, or an unattended turn ends.
 
 # What the model is told
@@ -125,15 +143,23 @@ A block reaches the model as a refused tool result:
 
 > Blocked by auto mode: *reason*. Do not try to work around this; if the action is needed, tell the user what you want to do and why, so they can approve it or switch modes.
 
-(`autoReviewBlockedFeedback(reason)`.) A call the classifier blocks also refuses the rest of its batch, as every policy refusal does.
+(`autoReviewBlockedFeedback(reason)`.) A call held back because the check gave no verdict (`unavailable`, `unreadable`, `aborted`) is told instead:
+
+> Auto mode could not check this action: *reason*. Nothing was run. This is not a judgement on the action: if it is still needed, it may be tried again, and if the check keeps failing, tell the user.
+
+(`autoReviewUnavailableFeedback(reason)`.) A call the classifier blocks also refuses the rest of its batch, as every policy refusal does.
 
 # Block limits
 
 The classifier counts blocks (`classifier.denials`): three in a row, or twenty over the session (`limits`). The block that brings a counter to its limit carries `limitReached: 'consecutive' | 'total'`, and both counters start over. The review policy calls `onClassifierLimit` and then asks a person about that call; with nobody to ask it ends the turn with an `abort` decision naming the reason. The SDK does not change the mode: the host owns the mode and how it is shown, so falling back to `prompt` is its callback's job. `reset()` zeroes the counters, for a host that re-enters `classify`.
 
+## A run of answers with no verdict
+
+`limits.noVerdict` counts something else: answers in a row that were no verdict at all (`unavailable` or `unreadable`; a cancelled review does not count, and an allow or a block by verdict ends the run). It is off unless set; the Namzu terminal sets 3. The block that completes the run carries `noVerdictLimitReached: true` and the run starts over. The review policy then refuses the batch with `autoReviewUnavailableFeedback`, calls `onClassifierUnavailable({ reason })`, and ends the turn (`reject_tools` with `endTurn: true`), with a person to ask or without one: a check that keeps giving no verdict is not one to keep holding calls back against one by one, and nothing runs unchecked. It wins over `limitReached` when the same block completes both runs. The same answers still count as blocks for the limits above.
+
 # What is logged
 
-One `info` record per review, named `auto review decision`, with `gen_ai.tool.name`, `namzu.auto_review.verdict`, `.stage`, `.latency_ms`, and for a block `.cause` and `.limit_reached`. The reason, the rule and the transcript never reach a log. `onUsage(usage, stage)` reports what each pass cost so a host can charge it to the session.
+One `info` record per review, named `auto review decision`, with `gen_ai.tool.name`, `namzu.auto_review.verdict`, `.stage`, `.latency_ms`, `.scripts_shown`, `.git_status_shown`, and for a block `.cause`, `.limit_reached` and `.no_verdict_limit_reached`. The reason, the rule, the transcript and the working tree's file names never reach a log. `onUsage(usage, stage)` reports what each pass cost so a host can charge it to the session.
 
 # Instructions, in outline
 

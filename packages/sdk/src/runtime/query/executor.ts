@@ -41,6 +41,7 @@ import {
 	type ToolCall,
 	type ToolMessage,
 	type ToolResultContent,
+	type ToolResultOutcome,
 	type ToolRevealReceipt,
 	createToolMessage,
 } from '../../types/message/index.js'
@@ -78,6 +79,11 @@ import { compressShellOutput } from '../../utils/shell-compress.js'
 import { parseStructuredResultJson } from '../../utils/structured-result-json.js'
 import { ensureScratchpadDirectory } from '../../utils/temp.js'
 import { type BackgroundJobRegistry, type JobProcess, bindOwner } from '../jobs/registry.js'
+import {
+	AUTO_REVIEW_BLOCKED_PREFIX,
+	AUTO_REVIEW_UNAVAILABLE_PREFIX,
+} from './auto-review/feedback.js'
+import { gitStatusForLine } from './auto-review/git-status.js'
 import {
 	type ScriptEvidence,
 	analyzeLaunches,
@@ -641,6 +647,11 @@ export interface ToolCallOutcome {
 	 * a mutable map.
 	 */
 	revealedTools?: readonly ToolRevealReceipt[]
+	/**
+	 * Why the call did not simply run, as the executor knows it where it made
+	 * this result; carried onto `ToolMessage.outcome`. Absent: it ran.
+	 */
+	outcome?: ToolResultOutcome
 }
 
 /** What the per-call review decided about one call that reached the front of the walk. */
@@ -765,6 +776,27 @@ function refusalNote(reason: string | undefined): string | undefined {
 	return sentence.length > REFUSAL_NOTE_MAX
 		? `${sentence.slice(0, REFUSAL_NOTE_MAX - 1)}…`
 		: sentence
+}
+
+/** How every refusal of a call that a refusal elsewhere in its batch stopped begins. */
+const TURN_STOPPED_REFUSAL = 'An earlier call in this batch was refused and the turn was stopped'
+
+/**
+ * How a refused call ended, from who refused it. `reason` is the review's or
+ * the gate's own text, never a tool's: a person's no is told by `declined`,
+ * the auto mode's two kinds by the prefixes its policy writes, a refusal that
+ * only followed a stopped turn by its own words, and everything else is a
+ * rule, the mode, a hook or another guard.
+ */
+export function denialOutcome(
+	reason: string,
+	declined: ToolCallDeclined | undefined,
+): ToolResultOutcome {
+	if (declined !== undefined) return 'rejected'
+	if (reason.startsWith(AUTO_REVIEW_BLOCKED_PREFIX)) return 'blocked_by_auto_mode'
+	if (reason.startsWith(AUTO_REVIEW_UNAVAILABLE_PREFIX)) return 'auto_mode_unavailable'
+	if (reason.startsWith(TURN_STOPPED_REFUSAL)) return 'interrupted'
+	return 'blocked_by_permissions'
 }
 
 export function deniedToolOutput(toolName: string, reason: string): string {
@@ -1086,6 +1118,24 @@ export class ToolExecutor {
 		if (evidence.watch.length > 0) this.reviewedScripts.set(callId, evidence.watch)
 		else this.reviewedScripts.delete(callId)
 		return evidence.scripts
+	}
+
+	/**
+	 * The working tree's short status where a shell line runs a destructive git
+	 * command, read now for the auto-mode classifier; undefined for any other
+	 * line, inside a sandbox (its files are not this host's), or when git does
+	 * not answer. See `auto-review/git-status.ts`.
+	 */
+	async gitStatusForReview(line: string, dialect: ShellDialect): Promise<string | undefined> {
+		if (this.sandboxed) return undefined
+		return gitStatusForLine(
+			line,
+			dialect,
+			effectiveBashWorkingDirectory(this.config.sessionId, this.config.workingDirectory, {
+				sandboxed: false,
+			}),
+			{ signal: this.config.abortSignal },
+		)
 	}
 
 	/** The whole of the evidence as one text, from the same ledger. No filesystem I/O. */
@@ -2026,7 +2076,7 @@ export class ToolExecutor {
 		// so the failure signal and any image block were structurally lost at
 		// the last possible moment.
 		const messages: Message[] = results.map((r) =>
-			createToolMessage(r.content ?? r.output, r.toolCallId, r.isError, r.revealedTools),
+			createToolMessage(r.content ?? r.output, r.toolCallId, r.isError, r.revealedTools, r.outcome),
 		)
 
 		return { messages, results, observations }
@@ -2054,8 +2104,7 @@ export class ToolExecutor {
 		// before it has settled, so the transcript lists the calls in the order the
 		// model wrote them: the declined call before the ones refused unasked.
 		const settledUnits = new Map<number, Promise<void>>()
-		const refusedAfterEnd =
-			'An earlier call in this batch was refused and the turn was stopped, so this call was not run.'
+		const refusedAfterEnd = `${TURN_STOPPED_REFUSAL}, so this call was not run.`
 		await new Promise<void>((resolve) => {
 			const start = (unit: ReviewUnit): void => {
 				inFlight.add(unit)
@@ -3146,6 +3195,11 @@ export class ToolExecutor {
 			...(result.launched === true && !effectiveIsError ? { launched: true as const } : {}),
 			...(revealedTools !== undefined ? { revealedTools } : {}),
 			...(result.facts !== undefined && !postOverride ? { facts: result.facts } : {}),
+			// A call that failed while the turn was being stopped was cut short, not
+			// a tool that failed on its own.
+			...(effectiveIsError && this.config.abortSignal.aborted
+				? { outcome: 'interrupted' as const }
+				: {}),
 		}
 	}
 
@@ -3705,7 +3759,14 @@ export class ToolExecutor {
 			isError: true,
 		})
 
-		return { toolCallId: toolCall.id, toolName, output, isError: true, notRun: true }
+		return {
+			toolCallId: toolCall.id,
+			toolName,
+			output,
+			isError: true,
+			notRun: true,
+			outcome: denialOutcome(reason, declined),
+		}
 	}
 
 	/**
@@ -3758,6 +3819,7 @@ export class ToolExecutor {
 			kind: 'error',
 			notRun: true,
 			output: `Tool "${toolName}" was not started because the turn was cancelled${reason ? `: ${reason}` : '.'}`,
+			outcome: 'interrupted',
 		})
 	}
 
@@ -3772,6 +3834,7 @@ export class ToolExecutor {
 			skipped?: true
 			notRun?: true
 			facts?: ToolFacts
+			outcome?: ToolResultOutcome
 		},
 	): Promise<ToolCallOutcome> {
 		const activity = this.activityStore.create({
@@ -3816,6 +3879,7 @@ export class ToolExecutor {
 			...(outcome.inputFailure ? { inputFailure: outcome.inputFailure } : {}),
 			...(outcome.skipped ? { skipped: true as const } : {}),
 			...(outcome.notRun ? { notRun: true as const } : {}),
+			...(outcome.outcome ? { outcome: outcome.outcome } : {}),
 		}
 	}
 

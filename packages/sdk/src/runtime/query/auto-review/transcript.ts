@@ -9,17 +9,40 @@
  * argued out of a block by the text it is supposed to be guarding against.
  * Kernel-written context (project instructions, reminders, compaction summaries)
  * is left out too: it was not written by the person.
+ *
+ * What a call line does carry, once the call has a result, is how it ended:
+ * ran, failed, was interrupted, or was refused and by whom. That comes from
+ * the fields the kernel wrote on the result (`isError`, `outcome`), never from
+ * the result's text, so a tool cannot claim an ending it did not have. It is
+ * what lets the classifier see a call that comes back after a person's no or a
+ * block as a second try.
  */
 
 import type { ToolManager } from '../../../toolsets/manager.js'
-import type { Message } from '../../../types/message/index.js'
+import type { Message, ToolMessage } from '../../../types/message/index.js'
 import { PASTED_MARKER, typedTextOf } from '../pasted-frames.js'
+
+/** How an earlier call ended, in the words the classifier reads. */
+export type TranscriptCallOutcome =
+	| 'ok'
+	| 'error'
+	| 'interrupted'
+	| 'rejected by the person'
+	| 'blocked by permissions'
+	| 'blocked by auto mode'
+	| 'auto mode unavailable'
 
 /** One entry of the projected transcript, before it is rendered. */
 export type TranscriptEntry =
 	| { readonly kind: 'user'; readonly text: string }
 	| { readonly kind: 'assistant'; readonly text: string }
-	| { readonly kind: 'tool'; readonly name: string; readonly input: string }
+	| {
+			readonly kind: 'tool'
+			readonly name: string
+			readonly input: string
+			/** How the call ended. Absent while it has no result yet. */
+			readonly outcome?: TranscriptCallOutcome
+	  }
 
 export interface ProjectionOptions {
 	/** Where tool definitions are looked up for `classifierInput`. Absent: every call is compact JSON. */
@@ -103,12 +126,36 @@ export function projectCall(
 	return projectAction(name, input, tools, limit).text
 }
 
+/** How the call a result answers ended, from the fields the kernel wrote on it. */
+export function callOutcome(result: ToolMessage): TranscriptCallOutcome {
+	switch (result.outcome) {
+		case 'interrupted':
+			return 'interrupted'
+		case 'rejected':
+			return 'rejected by the person'
+		case 'blocked_by_permissions':
+			return 'blocked by permissions'
+		case 'blocked_by_auto_mode':
+			return 'blocked by auto mode'
+		case 'auto_mode_unavailable':
+			return 'auto mode unavailable'
+		case undefined:
+			return result.isError === true ? 'error' : 'ok'
+	}
+}
+
 /** The conversation as the classifier sees it, oldest first. */
 export function projectTranscript(
 	messages: readonly Message[],
 	options: ProjectionOptions = {},
 ): TranscriptEntry[] {
 	const limit = options.maxEntryChars ?? DEFAULT_ENTRY_CHARS
+	// The result of each call, by id, so the call's line can say how it ended.
+	// Only the result's own fields are read, never its content.
+	const results = new Map<string, ToolMessage>()
+	for (const message of messages) {
+		if (message.role === 'tool') results.set(message.toolCallId, message)
+	}
 	const entries: TranscriptEntry[] = []
 	for (const message of messages) {
 		if (message.role === 'user') {
@@ -131,6 +178,7 @@ export function projectTranscript(
 		}
 		for (const call of message.toolCalls ?? []) {
 			if (options.excludeCallIds?.has(call.id)) continue
+			const result = results.get(call.id)
 			entries.push({
 				kind: 'tool',
 				name: call.function.name,
@@ -140,6 +188,7 @@ export function projectTranscript(
 					options.tools,
 					limit,
 				),
+				...(result ? { outcome: callOutcome(result) } : {}),
 			})
 		}
 	}
@@ -152,7 +201,13 @@ export function projectTranscript(
  */
 export function renderEntry(entry: TranscriptEntry): string {
 	const body =
-		entry.kind === 'tool' ? { tool: entry.name, input: entry.input } : { [entry.kind]: entry.text }
+		entry.kind === 'tool'
+			? {
+					tool: entry.name,
+					input: entry.input,
+					...(entry.outcome !== undefined ? { outcome: entry.outcome } : {}),
+				}
+			: { [entry.kind]: entry.text }
 	return JSON.stringify(body).replaceAll('<', '\\u003c')
 }
 
