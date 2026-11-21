@@ -1,4 +1,4 @@
-import { mkdtempSync, statSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
@@ -86,4 +86,11 @@ it('steps down when the lock names another live terminal', () => {
 it('knows this process exists and an impossible one does not', () => {
 	expect(processExists(process.pid)).toBe(true)
 	expect(processExists(2 ** 22 + 12345)).toBe(false)
+})
+
+it('never lets a reader see the lock without its content, and leaves no temp file', () => {
+	const path = dir()
+	expect(make(path, 4242).tryAcquire()).toBe(true)
+	expect(readLock(path)).toMatchObject({ pid: 4242 })
+	expect(readdirSync(path).filter((f) => f.endsWith('.tmp'))).toEqual([])
 })

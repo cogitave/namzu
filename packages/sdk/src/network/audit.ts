@@ -23,6 +23,7 @@ export const AUDIT_EVENTS = [
 	'admitted',
 	'removed',
 	'role_set',
+	'role_refused',
 	'mail_accepted',
 	'mail_held',
 	'mail_allowed',

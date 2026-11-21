@@ -111,39 +111,46 @@ describe('membership', () => {
 		expect(view.removed.has(b.machineId)).toBe(true)
 	})
 
-	it('drops an admission made after its signer was revoked, keeps one made before', () => {
+	it('drops everything a revoked machine admitted, whatever date the statement carries', () => {
 		const { a, b, c, d, founding, netId } = setup()
 		const rev = signRevocation(a, netId, b.machineId, false, T + 10)
-		const before = admit(b, netId, c, T + 5)
-		const after = admit(b, netId, d, T + 11)
 		const view = evaluateMembership({
-			admissions: [founding, admit(a, netId, b, T + 1), before, after],
-			revocations: [rev],
-		})
-		expect(view.members.has(c.machineId)).toBe(true)
-		expect(view.members.has(d.machineId)).toBe(false)
-	})
-
-	it('cascades over what the revoked machine admitted and nothing above it', () => {
-		const { a, b, c, d, founding, netId } = setup()
-		const state: MembershipState = {
 			admissions: [
 				founding,
 				admit(a, netId, b, T + 1),
-				admit(b, netId, c, T + 2),
-				admit(a, netId, d, T + 3),
+				admit(b, netId, c, T + 5),
+				admit(b, netId, d, T + 3),
 			],
-			revocations: [signRevocation(a, netId, b.machineId, true, T + 9)],
-		}
-		const view = evaluateMembership(state)
-		expect([...view.members.keys()].sort()).toEqual([a.machineId, d.machineId].sort())
-		expect(view.removed.has(c.machineId)).toBe(true)
-		const plain = evaluateMembership({
-			...state,
-			revocations: [signRevocation(a, netId, b.machineId, false, T + 9)],
+			revocations: [rev],
 		})
-		expect(plain.members.has(c.machineId)).toBe(true)
-		expect(admittedBy(plain, b.machineId)).toEqual([c.machineId])
+		expect(view.members.has(c.machineId)).toBe(false)
+		expect(view.members.has(d.machineId)).toBe(false)
+		expect(admittedBy(view, b.machineId)).toEqual([])
+	})
+
+	it('a back-dated admission or revocation from a revoked machine changes nothing', () => {
+		const { a, b, c, d, founding, netId } = setup()
+		const view = evaluateMembership({
+			admissions: [founding, admit(a, netId, b, T + 2), admit(b, netId, d, T + 4000)],
+			revocations: [
+				signRevocation(a, netId, b.machineId, false, T + 5000),
+				signRevocation(b, netId, a.machineId, true, T + 4500),
+			],
+		})
+		expect([...view.members.keys()]).toEqual([a.machineId])
+		expect(view.members.has(c.machineId)).toBe(false)
+	})
+
+	it('a machine can never remove one above it in its own admission chain', () => {
+		const { a, b, c, founding, netId } = setup()
+		const view = evaluateMembership({
+			admissions: [founding, admit(a, netId, b, T + 1), admit(b, netId, c, T + 2)],
+			revocations: [
+				signRevocation(c, netId, b.machineId, true, T + 3),
+				signRevocation(c, netId, a.machineId, true, T + 3),
+			],
+		})
+		expect([...view.members.keys()].sort()).toEqual([a, b, c].map((k) => k.machineId).sort())
 	})
 
 	it('ignores a revocation signed by a non-member', () => {

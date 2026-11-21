@@ -477,6 +477,31 @@ describe('roles', () => {
 		expect(outcomes).toContain('refused')
 	})
 
+	it('does not set a role on a session that skips approvals when it comes from another machine', async () => {
+		const { a, b } = await trio()
+		b.sessions[0] = { ...(b.sessions[0] as LocalSession), mode: 'bypass', bypass: true }
+		const bId = b.svc.identity()?.machineId as string
+		const reply = await a.svc.setRole({ machineId: bId, sessionRef: 'bbbbbb' }, 'orchestrator')
+		expect(reply.status).toBe('refused')
+		expect(b.roles).toEqual([])
+	})
+
+	it('shows a roster from another machine without control characters', async () => {
+		const { a, b } = await trio()
+		b.sessions[0] = {
+			...(b.sessions[0] as LocalSession),
+			name: 'calm\u001b]52;c;x\u0007 heron',
+			folder: 'pro\u001b[2Jj',
+			role: 'do\u001b[31m this',
+		}
+		const view = await a.svc.roster()
+		const row = view.machines[1]?.sessions[0]
+		for (const text of [row?.name, row?.folder, row?.role])
+			expect(
+				[...(text ?? '')].some((ch) => ch.charCodeAt(0) < 32 || ch.charCodeAt(0) === 127),
+			).toBe(false)
+	})
+
 	it('clears a role with null', async () => {
 		const { a, b } = await trio()
 		const bId = b.svc.identity()?.machineId as string

@@ -119,8 +119,8 @@ class FakeSocket implements DgramSocketLike {
 		this.closed = true
 		cb?.()
 	}
-	receive(msg: Buffer): void {
-		this.onMessage?.(msg, { address: '192.168.1.99', port: MDNS_PORT })
+	receive(msg: Buffer, from = '192.168.1.99'): void {
+		this.onMessage?.(msg, { address: from, port: MDNS_PORT })
 	}
 }
 
@@ -143,6 +143,28 @@ function setup() {
 }
 
 describe('mdns discovery', () => {
+	it('a browse-only start followed by an advertised start announces from then on', () => {
+		const { socket, discovery } = setup()
+		discovery.start(undefined)
+		const before = socket.sent.length
+		discovery.start({ netId: NET, port: 5000, addresses: ['192.168.1.20'] })
+		expect(socket.sent.length).toBe(before + 1)
+		expect(
+			decodeMessage((socket.sent.at(-1) as { msg: Buffer }).msg)?.answers.length,
+		).toBeGreaterThan(0)
+		discovery.start({ netId: NET, port: 5001, addresses: ['192.168.1.21'] })
+		const last = decodeMessage((socket.sent.at(-1) as { msg: Buffer }).msg)
+		expect(JSON.stringify(last?.answers)).toContain('192.168.1.21')
+	})
+
+	it('drops a packet from a public source and addresses outside the sender subnet', () => {
+		const { socket, discovery, found } = setup()
+		discovery.start(undefined)
+		socket.receive(encodeAnnouncement(announcement), '8.8.8.8')
+		socket.receive(encodeAnnouncement({ ...announcement, addresses: ['8.8.8.8'] }), '192.168.1.99')
+		expect(found).toEqual([])
+	})
+
 	it('joins the group on each private interface, asks, announces, and asks again every minute', () => {
 		const { socket, clock, discovery } = setup()
 		discovery.start({ netId: NET, port: 5000, addresses: ['192.168.1.20'] })
@@ -175,14 +197,11 @@ describe('mdns discovery', () => {
 		discovery.start(undefined)
 		socket.receive(encodeAnnouncement(announcement))
 		socket.receive(encodeAnnouncement(announcement))
-		expect(found).toEqual([
-			{ netId: NET, host: '192.168.1.20', port: 47310 },
-			{ netId: NET, host: '10.0.0.5', port: 47310 },
-		])
+		expect(found).toEqual([{ netId: NET, host: '192.168.1.20', port: 47310 }])
 		socket.receive(encodeAnnouncement({ ...announcement, instance: 'namzu-11223344' }))
-		expect(found).toHaveLength(2)
+		expect(found).toHaveLength(1)
 		socket.receive(encodeAnnouncement({ ...announcement, ttl: 0 }))
-		expect(lost).toHaveLength(2)
+		expect(lost).toHaveLength(1)
 	})
 
 	it('says goodbye on close and closes the socket', async () => {

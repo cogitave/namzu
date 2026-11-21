@@ -73,9 +73,12 @@ export interface BuildCertificateOptions {
 	readonly now?: number
 }
 
-/** `CN=namzu-<first 16 hex of the machine id>`, issuer and subject alike. */
-export function certificateSubject(machineId: string): string {
-	return `namzu-${machineId.slice(0, 16)}`
+/**
+ * `CN=namzu-<random>`, issuer and subject alike. Trust is by the pinned key, never by this name, so it
+ * carries nothing of the machine: a stranger who completes a handshake cannot recognise a laptop by it.
+ */
+export function certificateSubject(_machineId: string): string {
+	return `namzu-${randomBytes(8).toString('hex')}`
 }
 
 export function buildMachineCertificate(

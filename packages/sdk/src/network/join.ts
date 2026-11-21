@@ -58,6 +58,8 @@ export interface PendingJoin {
 
 export type JoinDecisionOutcome = 'ok' | 'already' | 'unknown'
 
+const MAX_DECIDED = 512
+
 export interface JoinTableOptions {
 	readonly clock: NetworkClock
 	readonly onExpire: (entry: PendingJoin) => void
@@ -95,15 +97,17 @@ export class JoinTable {
 		if (this.entries.has(input.requestId) || this.decided.has(input.requestId)) return undefined
 		if (this.entries.size >= MAX_PENDING_JOINS * 2) return undefined
 		const now = this.options.clock.now()
-		const expiresAt = input.createdAt + JOIN_EXPIRY_MS
+		// A request is as old as it says only up to now: a member cannot make one outlive its ten minutes.
+		const createdAt = Math.min(input.createdAt, now)
+		const expiresAt = createdAt + JOIN_EXPIRY_MS
 		if (expiresAt <= now) return undefined
-		return this.insert({ ...input, local: false, expiresAt }, expiresAt - now)
+		return this.insert({ ...input, createdAt, local: false, expiresAt }, expiresAt - now)
 	}
 
 	private insert(entry: PendingJoin, ttl = JOIN_EXPIRY_MS): PendingJoin {
 		const cancel = this.options.clock.setTimer(() => {
 			if (this.entries.delete(entry.requestId)) {
-				this.decided.set(entry.requestId, 'expired')
+				this.remember(entry.requestId, 'expired')
 				this.options.onExpire(entry)
 			}
 		}, ttl)
@@ -126,10 +130,13 @@ export class JoinTable {
 		const q = query.trim()
 		const digits = q.replace(/\s+/g, '')
 		const all = this.list()
+		// A name is only an address while it is unique: two requests with one name (a stranger copying
+		// the real one) are told apart by their codes, never by whichever came first.
+		const byName = all.filter((e) => e.name.toLowerCase() === q.toLowerCase())
 		return (
 			all.find((e) => e.requestId === q) ??
 			all.find((e) => /^\d{6}$/.test(digits) && e.code === digits) ??
-			all.find((e) => e.name.toLowerCase() === q.toLowerCase())
+			(byName.length === 1 ? byName[0] : undefined)
 		)
 	}
 
@@ -143,7 +150,7 @@ export class JoinTable {
 		if (!entry) return this.decided.has(requestId) ? 'already' : 'unknown'
 		entry.cancel()
 		this.entries.delete(requestId)
-		this.decided.set(requestId, decision)
+		this.remember(requestId, decision)
 		return 'ok'
 	}
 
@@ -154,7 +161,13 @@ export class JoinTable {
 			entry.cancel()
 			this.entries.delete(requestId)
 		}
+		this.remember(requestId, decision)
+	}
+
+	private remember(requestId: string, decision: 'allow' | 'deny' | 'expired'): void {
 		this.decided.set(requestId, decision)
+		if (this.decided.size > MAX_DECIDED)
+			this.decided.delete(this.decided.keys().next().value as string)
 	}
 
 	clear(): void {

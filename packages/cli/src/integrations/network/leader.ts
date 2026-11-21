@@ -1,4 +1,4 @@
-import { closeSync, mkdirSync, openSync, readFileSync, unlinkSync, writeSync } from 'node:fs'
+import { linkSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 /**
@@ -71,17 +71,24 @@ export function createLeadership(options: LeadershipOptions): Leadership {
 		return write()
 	}
 	const write = (): boolean => {
+		// The lock appears with its content in one step (a hard link of a finished file), so a reader never
+		// sees an empty lock and takes it for a gone leader.
+		const temp = `${path}.${options.pid}.tmp`
 		try {
-			const fd = openSync(path, 'wx', 0o600)
-			try {
-				writeSync(fd, `${JSON.stringify({ pid: options.pid, startedAt: options.now() })}\n`)
-			} finally {
-				closeSync(fd)
-			}
+			writeFileSync(temp, `${JSON.stringify({ pid: options.pid, startedAt: options.now() })}\n`, {
+				mode: 0o600,
+			})
+			linkSync(temp, path)
 			return true
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false
 			throw error
+		} finally {
+			try {
+				unlinkSync(temp)
+			} catch {
+				// not there
+			}
 		}
 	}
 	return {

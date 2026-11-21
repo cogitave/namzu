@@ -173,90 +173,78 @@ export function evaluateMembership(state: MembershipState, expectedNetId?: strin
 	const sameNet = state.admissions.filter((a) => a.netId === netId && a !== founding)
 	const revs = state.revocations.filter((r) => r.netId === netId)
 
-	const solve = (excluded: ReadonlySet<string>) => {
-		const valid = new Map<string, Admission>([[founding.machineId, founding]])
-		const validRevs = new Map<string, Revocation>()
-		const revokedAtBy = (id: string) => validRevs.get(id)?.revokedAt
-		// Fixpoint: statements become valid once their signer is. Monotone, so order independent.
-		for (let changed = true; changed; ) {
-			changed = false
-			const ordered = [...sameNet].sort(
-				(a, b) => a.admittedAt - b.admittedAt || a.admittedBy.localeCompare(b.admittedBy),
-			)
-			for (const a of ordered) {
-				if (excluded.has(a.signature) || valid.has(a.machineId)) continue
-				const signer = valid.get(a.admittedBy)
-				if (!signer || !admissionIntact(a, signer.publicKey)) continue
-				const signerRevokedAt = revokedAtBy(a.admittedBy)
-				if (signerRevokedAt !== undefined && a.admittedAt > signerRevokedAt) continue
-				valid.set(a.machineId, a)
-				changed = true
-			}
-			for (const r of revs) {
-				if (excluded.has(r.signature)) continue
-				const signer = valid.get(r.revokedBy)
-				if (!signer) continue
-				const signerRevokedAt = revokedAtBy(r.revokedBy)
-				if (signerRevokedAt !== undefined && r.revokedAt > signerRevokedAt) continue
-				if (
-					!verifyBytes(
-						Buffer.from(signer.publicKey, 'base64'),
-						canonicalRevocation(r),
-						Buffer.from(r.signature, 'base64'),
-					)
-				) {
-					continue
-				}
-				const existing = validRevs.get(r.machineId)
-				if (existing && existing.signature === r.signature) continue
-				// Keep the earliest valid revocation; a cascade is kept if any valid revocation of the machine carries it.
-				const earliest = !existing || r.revokedAt < existing.revokedAt ? r : existing
-				const cascade = r.cascade || existing?.cascade === true
-				const chosen =
-					earliest.cascade === cascade ? earliest : r.cascade ? r : (existing as Revocation)
-				if (chosen !== existing) {
-					validRevs.set(r.machineId, chosen)
-					changed = true
-				}
-			}
+	// Structure first, from signatures alone: who admitted whom. No time in a statement is
+	// trusted for ordering, because the signer chooses it (a revoked machine could back-date).
+	const valid = new Map<string, Admission>([[founding.machineId, founding]])
+	for (let changed = true; changed; ) {
+		changed = false
+		for (const a of [...sameNet].sort(
+			(x, y) => x.admittedAt - y.admittedAt || x.signature.localeCompare(y.signature),
+		)) {
+			if (valid.has(a.machineId)) continue
+			const signer = valid.get(a.admittedBy)
+			if (!signer || !admissionIntact(a, signer.publicKey)) continue
+			valid.set(a.machineId, a)
+			changed = true
 		}
-		return { valid, validRevs }
 	}
-	// A statement that became valid before its signer's revocation was known may turn out to
-	// post-date it; exclude and solve again until nothing violates.
-	const excluded = new Set<string>()
-	let solved = solve(excluded)
-	for (let again = true; again; ) {
-		again = false
-		for (const a of solved.valid.values()) {
-			const at = solved.validRevs.get(a.admittedBy)?.revokedAt
-			if (a !== founding && at !== undefined && a.admittedAt > at) {
-				excluded.add(a.signature)
-				again = true
-			}
-		}
-		for (const r of solved.validRevs.values()) {
-			const at = solved.validRevs.get(r.revokedBy)?.revokedAt
-			if (at !== undefined && r.revokedAt > at) {
-				excluded.add(r.signature)
-				again = true
-			}
-		}
-		if (again) solved = solve(excluded)
+	const childrenOf = new Map<string, string[]>()
+	for (const [id, adm] of valid)
+		if (id !== adm.admittedBy)
+			childrenOf.set(adm.admittedBy, [...(childrenOf.get(adm.admittedBy) ?? []), id])
+	const ancestorsOf = (id: string): Set<string> => {
+		const out = new Set<string>()
+		for (
+			let cur = valid.get(id);
+			cur && cur.admittedBy !== cur.machineId;
+			cur = valid.get(cur.admittedBy)
+		)
+			out.add(cur.admittedBy)
+		return out
 	}
-	const { valid, validRevs } = solved
+	const descendantsOf = (id: string): string[] => {
+		const out: string[] = []
+		const queue = [...(childrenOf.get(id) ?? [])]
+		while (queue.length > 0) {
+			const next = queue.pop() as string
+			out.push(next)
+			queue.push(...(childrenOf.get(next) ?? []))
+		}
+		return out
+	}
 
-	const removed = new Set<string>(validRevs.keys())
-	// Cascade: everything a cascade-revoked machine admitted, recursively.
-	const queue = [...validRevs.values()].filter((r) => r.cascade).map((r) => r.machineId)
-	while (queue.length > 0) {
-		const parent = queue.pop() as string
-		for (const [id, adm] of valid) {
-			if (adm.admittedBy === parent && id !== parent && !removed.has(id)) {
-				removed.add(id)
-				queue.push(id)
-			}
-		}
+	// A revocation always takes along everything the machine admitted (a stolen machine can
+	// not keep vouching for machines), and a machine can never remove one above it in its own
+	// admission chain. Revocations from above are applied first; lateral ones follow in a
+	// fixed order and only from a signer that is still a member.
+	const removed = new Set<string>()
+	const validRevs = new Map<string, Revocation>()
+	const sigOk = (r: Revocation) => {
+		const signer = valid.get(r.revokedBy)
+		return (
+			signer !== undefined &&
+			valid.has(r.machineId) &&
+			verifyBytes(
+				Buffer.from(signer.publicKey, 'base64'),
+				canonicalRevocation(r),
+				Buffer.from(r.signature, 'base64'),
+			)
+		)
+	}
+	const apply = (r: Revocation) => {
+		if (!validRevs.has(r.machineId)) validRevs.set(r.machineId, r)
+		removed.add(r.machineId)
+		for (const d of descendantsOf(r.machineId)) removed.add(d)
+	}
+	const candidates = revs
+		.filter(sigOk)
+		.filter((r) => !ancestorsOf(r.revokedBy).has(r.machineId))
+		.sort((x, y) => x.revokedAt - y.revokedAt || x.signature.localeCompare(y.signature))
+	const above = candidates.filter((r) => ancestorsOf(r.machineId).has(r.revokedBy))
+	for (const r of above) if (!removed.has(r.revokedBy)) apply(r)
+	for (const r of candidates) {
+		if (above.includes(r) || removed.has(r.revokedBy)) continue
+		apply(r)
 	}
 	const members = new Map([...valid].filter(([id]) => !removed.has(id)))
 	return {

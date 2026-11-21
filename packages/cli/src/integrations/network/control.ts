@@ -2,7 +2,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { chmodSync, lstatSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { type Server, type Socket, connect, createServer } from 'node:net'
 import { join } from 'node:path'
-import type { RosterView } from '@namzu/sdk'
+import { type RosterView, startedBySession } from '@namzu/sdk'
 import type { NetworkControl } from './types.js'
 
 /**
@@ -76,10 +76,22 @@ export interface ControlServer {
 	close(): Promise<void>
 }
 
+/** Who is asking, as the caller says it; the server judges it. */
+export interface ControlCaller {
+	readonly pid?: number
+	/** The caller's environment carries the marker of a process a session started. */
+	readonly underSession?: boolean
+}
+
+/** The requests that decide for the person: admit, remove, let held mail in. */
+export const PERSON_ONLY_OPS: readonly string[] = ['allow', 'allowHeld', 'remove']
+
 export async function startControlServer(options: {
 	readonly path: string
 	readonly token: string
 	readonly dispatch: Dispatch
+	/** A reason to refuse `op` for this caller, or undefined to go on. */
+	readonly guard?: (op: string, caller: ControlCaller) => string | undefined
 }): Promise<ControlServer> {
 	const expected = Buffer.from(options.token)
 	const isPipe = options.path.startsWith('\\\\')
@@ -120,7 +132,7 @@ export async function startControlServer(options: {
 			)
 		}
 		const answer = async (text: string) => {
-			let request: { token?: unknown; op?: unknown; args?: unknown }
+			let request: { token?: unknown; op?: unknown; args?: unknown; caller?: unknown }
 			try {
 				request = JSON.parse(text)
 			} catch {
@@ -134,6 +146,17 @@ export async function startControlServer(options: {
 			}
 			if (typeof request.op !== 'string' || !Array.isArray(request.args)) {
 				reply({ ok: false, error: 'Bad request.' })
+				return
+			}
+			const caller = (
+				typeof request.caller === 'object' && request.caller !== null ? request.caller : {}
+			) as { pid?: unknown; underSession?: unknown }
+			const refusal = options.guard?.(request.op, {
+				...(Number.isInteger(caller.pid) ? { pid: caller.pid as number } : {}),
+				underSession: caller.underSession === true,
+			})
+			if (refusal) {
+				reply({ ok: false, error: refusal, code: 'person-only' })
 				return
 			}
 			try {
@@ -200,7 +223,14 @@ export function callControl(
 		timer.unref?.()
 		socket.on('error', () => fail('The terminal that runs the network is not reachable.'))
 		socket.on('connect', () => {
-			socket.write(`${JSON.stringify({ token: info.token, op, args })}\n`)
+			socket.write(
+				`${JSON.stringify({
+					token: info.token,
+					op,
+					args,
+					caller: { pid: process.pid, underSession: startedBySession(process.env) },
+				})}\n`,
+			)
 		})
 		socket.on('data', (chunk) => {
 			size += chunk.length

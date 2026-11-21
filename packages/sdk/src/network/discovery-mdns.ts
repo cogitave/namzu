@@ -26,6 +26,7 @@
 
 import { randomBytes } from 'node:crypto'
 import type { NetworkClock } from './clock.js'
+import { isPrivateNetworkAddress } from './discovery.js'
 import type {
 	Advertisement,
 	DiscoveredEndpoint,
@@ -350,6 +351,8 @@ export interface MdnsOptions {
 	readonly randomHex?: () => string
 }
 
+const MAX_KNOWN_INSTANCES = 64
+
 export function createMdnsDiscovery(options: MdnsOptions): NetworkDiscovery {
 	const foundListeners = new Set<(e: DiscoveredEndpoint) => void>()
 	const lostListeners = new Set<(e: DiscoveredEndpoint) => void>()
@@ -379,7 +382,10 @@ export function createMdnsDiscovery(options: MdnsOptions): NetworkDiscovery {
 		cancelRequery = options.clock.setTimer(requery, REQUERY_MS)
 	}
 
-	const onMessage = (msg: Buffer) => {
+	const onMessage = (msg: Buffer, rinfo?: { address: string; port: number }) => {
+		// A packet from a public or malformed source is dropped: only private networks are served.
+		const source = rinfo?.address
+		if (source !== undefined && !isPrivateNetworkAddress(source)) return
 		const message = decodeMessage(msg)
 		if (!message) return
 		if (
@@ -389,7 +395,17 @@ export function createMdnsDiscovery(options: MdnsOptions): NetworkDiscovery {
 			announce()
 		for (const found of instancesFrom(message)) {
 			if (found.instance === instance) continue
-			const endpoints = found.addresses.map(
+			// An announcement may only name addresses that are the sender's or on its subnet,
+			// so a host cannot send every member to a third machine.
+			const sameSubnet = (a: string) =>
+				source === undefined ||
+				a === source ||
+				(isPrivateNetworkAddress(a) &&
+					a.split('.').slice(0, 3).join('.') === source.split('.').slice(0, 3).join('.'))
+			const addresses = found.addresses.filter(sameSubnet)
+			if (addresses.length === 0 && !found.goodbye) continue
+			if (!known.has(found.instance) && known.size >= MAX_KNOWN_INSTANCES) continue
+			const endpoints = addresses.map(
 				(host): DiscoveredEndpoint => ({ netId: found.netId, host, port: found.port }),
 			)
 			if (found.goodbye) {
@@ -409,8 +425,25 @@ export function createMdnsDiscovery(options: MdnsOptions): NetworkDiscovery {
 
 	return {
 		start(advertisement) {
-			if (closed || socket) return
-			ad = advertisement
+			if (closed) return
+			// A later start only changes what is announced; the socket and its group stay.
+			if (advertisement) ad = advertisement
+			if (socket) {
+				for (const i of options.interfaces()) {
+					try {
+						if (i.family === 4) socket.addMembership(MDNS_GROUP, i.address)
+					} catch {
+						// already a member on this interface, or no multicast there
+					}
+				}
+				if (advertisement) announce()
+				else if (ad) {
+					// Browse only from now on: withdraw what was announced.
+					announce(0)
+					ad = undefined
+				}
+				return
+			}
 			const s = options.dgram.createSocket({ type: 'udp4', reuseAddr: true })
 			socket = s
 			s.on('error', () => undefined)

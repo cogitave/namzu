@@ -13,14 +13,17 @@ import {
 	hardenPeerRuntimeDir,
 	pipePeerAddress,
 	privateInterfaces,
+	readPeerRecords,
 	systemClock,
 	udsPeerAddress,
 } from '@namzu/sdk'
+import { runsUnderAny } from '../peers/process-ancestry.js'
 import { resolvePeerRuntime } from '../peers/runtime.js'
 import type { NetworkLink } from '../peers/runtime.js'
 import { restrictToOwner } from '../providers/credential-store.js'
 import {
 	type ControlServer,
+	PERSON_ONLY_OPS,
 	controlDispatch,
 	createControlClient,
 	newControlToken,
@@ -233,6 +236,18 @@ export function createNetworkRuntime(options: NetworkRuntimeOptions): NetworkRun
 				path: socketPath,
 				token,
 				dispatch: controlDispatch(controller),
+				guard: (op, caller) => {
+					if (!PERSON_ONLY_OPS.includes(op)) return undefined
+					const sessionPids = new Set<number>(
+						readPeerRecords(runtime.sessionsDir)
+							.filter((peer) => peer.kind === 'tui')
+							.map((peer) => peer.pid),
+					)
+					return caller.underSession ||
+						(caller.pid !== undefined && runsUnderAny(caller.pid, sessionPids))
+						? 'That is for the person at a terminal: a command a session ran cannot admit a machine, remove one or let held mail in.'
+						: undefined
+				},
 			})
 			writeControlInfo(networkDir, { address: socketPath, token, pid })
 		} catch (error) {
@@ -280,7 +295,7 @@ export function createNetworkRuntime(options: NetworkRuntimeOptions): NetworkRun
 		for (const join of now.joinRequests)
 			if (!joinsBefore.has(join.requestId))
 				options.notify(
-					`${join.name} wants to join your Namzu network (code ${join.code}). /peers to allow or deny.`,
+					`${join.name} wants to join your Namzu network (code ${join.code}, from ${join.sourceAddr}). /peers to allow or deny.`,
 				)
 		const ref = options.ownRef?.()
 		const heldBefore = new Set(before?.held.map((h) => h.id))

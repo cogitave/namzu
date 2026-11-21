@@ -411,6 +411,30 @@ export async function openLivePeers(options: LivePeersOptions) {
 					status: 'refused',
 					reason: 'Only the network bridge may carry mail from another machine.',
 				}
+			// The service judged by the mode this terminal last published. A switch since then (to bypass, or
+			// to a mode the sender does not share) is seen here, and the mail is not taken in.
+			if (!request.remote.allowedOnce) {
+				const recheck = decideMail({
+					scope: 'local',
+					text: request.text,
+					hops: 0,
+					receiver: {
+						mode: options.mode(),
+						bypass: bypassNow(),
+						accepting: true,
+						setting: 'members',
+					},
+					sender: { claimedMode: request.remote.mode, vouchedMode: request.remote.mode },
+					rateOk: true,
+					pairCount: 0,
+				})
+				if (recheck.action !== 'accept')
+					return {
+						status: 'refused',
+						reason:
+							'This terminal changed its permission mode while the message was on its way; send it again.',
+					}
+			}
 			return admit(request, {
 				sessionId: `${request.remote.machineId}:${request.remote.sessionRef}`,
 				ref: request.remote.sessionRef,
@@ -942,6 +966,37 @@ export function buildPeerTools(current: () => LivePeers | null) {
 				const peers = current()
 				if (!peers) return { success: false, output: '', error: 'Peer messaging is not ready.' }
 				const { target, role } = input as { target: string; role: string }
+				// A role on another machine is set by the person (`/peers role`), not by the model: it
+				// reaches that session's model as context, and no person has seen it.
+				const rows = (await peers.list().catch(() => [])) as readonly Record<string, unknown>[]
+				const selfRow = rows.find((row) => row.self === true)
+				const localMachine = typeof selfRow?.machine === 'string' ? selfRow.machine : undefined
+				const wanted = target.trim().toLowerCase()
+				const onThisMachine =
+					localMachine !== undefined
+						? wanted.endsWith('/')
+							? wanted.slice(0, -1) === localMachine.toLowerCase()
+							: rows.some(
+									(row) =>
+										row.machine === localMachine &&
+										(`${String(row.machine).toLowerCase()}/${String(row.name).toLowerCase()}` ===
+											wanted ||
+											String(row.name).toLowerCase() === wanted ||
+											`[${String(row.ref)}]` === wanted) &&
+										!rows.some(
+											(other) =>
+												other.machine !== localMachine &&
+												String(other.name).toLowerCase() === wanted,
+										),
+								)
+						: rows.length === 0
+				if (!onThisMachine)
+					return {
+						success: false,
+						output: '',
+						error:
+							'A role on another machine is set by the person at a terminal (`/peers role`), not by the model.',
+					}
 				const result = await peers.setRole(target, role.trim() === '' ? null : role)
 				return {
 					success: result.status === 'applied',

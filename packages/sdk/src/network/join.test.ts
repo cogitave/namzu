@@ -51,6 +51,18 @@ describe('JoinTable', () => {
 		expect(table.decide('r1', 'allow')).toBe('already')
 	})
 
+	it('finds by name only while the name is unique, and never later than now', () => {
+		const { clock, table } = make()
+		table.addLocal({ ...req(1), name: 'kitchen' })
+		expect(table.find('kitchen')?.requestId).toBe('r1')
+		table.addLocal({ ...req(2), name: 'Kitchen' })
+		expect(table.find('kitchen')).toBeUndefined()
+		expect(table.find('r2')?.requestId).toBe('r2')
+		const future = table.addRemote({ ...req(3), createdAt: clock.now() + 3_600_000 })
+		expect(future?.createdAt).toBe(clock.now())
+		expect(future?.expiresAt).toBe(clock.now() + JOIN_EXPIRY_MS)
+	})
+
 	it('lets the first decision win', () => {
 		const { table } = make()
 		table.addLocal(req(1))

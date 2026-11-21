@@ -7,6 +7,7 @@ import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import {
 	ControlError,
 	type ControlServer,
+	PERSON_ONLY_OPS,
 	callControl,
 	controlDispatch,
 	createControlClient,
@@ -70,14 +71,22 @@ function fakeControl(calls: unknown[][] = []): NetworkControl {
 	}
 }
 
-async function serve(control: NetworkControl) {
+async function serve(
+	control: NetworkControl,
+	guard?: Parameters<typeof startControlServer>[0]['guard'],
+) {
 	const root = mkdtempSync(join(tmpdir(), 'nc-'))
 	roots.push(root)
 	const dir = join(root, 'network')
 	mkdirSync(dir)
 	const path = join(root, 'c.sock')
 	const token = newControlToken()
-	const server = await startControlServer({ path, token, dispatch: controlDispatch(control) })
+	const server = await startControlServer({
+		path,
+		token,
+		dispatch: controlDispatch(control),
+		...(guard ? { guard } : {}),
+	})
 	servers.push(server)
 	const info = { address: path, token, pid: process.pid }
 	writeControlInfo(dir, info)
@@ -95,6 +104,20 @@ it('answers the people it is told about, with the words of what happened', async
 		['allow', '482913'],
 		['setRole', 'calm-heron', 'orchestrator'],
 	])
+})
+
+it('refuses the decisions that belong to the person from a caller that runs under a session', async () => {
+	const calls: unknown[][] = []
+	const { info } = await serve(fakeControl(calls), (op, caller) =>
+		PERSON_ONLY_OPS.includes(op) && caller.pid === process.pid ? 'for the person' : undefined,
+	)
+	const client = createControlClient(() => info)
+	await expect(client.allow('482913')).rejects.toMatchObject({
+		message: 'for the person',
+		code: 'person-only',
+	})
+	expect(await client.setRole('calm-heron', 'x')).toEqual({ status: 'applied' })
+	expect(calls).toEqual([['setRole', 'calm-heron', 'x']])
 })
 
 it('carries a failure with its message and its code', async () => {

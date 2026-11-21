@@ -87,12 +87,13 @@ import {
 	sanitizeName,
 	sanitizeRole,
 } from './wire.js'
-import { buildMachineCertificate, certificatePublicKeyDer } from './x509.js'
+import { buildMachineCertificate } from './x509.js'
 
 export const DEFAULT_LISTEN_PORT = 47_310
 export const BROWSE_WINDOW_MS = 5_000
 export const INTERFACE_RECHECK_MS = 30_000
 export const ROSTER_FRESH_MS = 15_000
+const MAX_NEARBY_NETWORKS = 8
 
 /** A message from a session on another machine, as the host receives it. */
 export interface RemoteMail {
@@ -271,11 +272,21 @@ const HelloReplySchema = z
 const SyncReplySchema = z
 	.object({ admissions: z.array(AdmissionSchema), revocations: z.array(RevocationSchema) })
 	.strict()
+/** Words from another machine that reach a screen or a model: no control characters, one line, short. */
+function cleanReason(value: string | undefined): string | undefined {
+	return value === undefined ? undefined : sanitizeName(value, 200)
+}
 const DeliverReplyParse = z
-	.object({ status: z.enum(['queued', 'held', 'refused']), reason: z.string().optional() })
+	.object({
+		status: z.enum(['queued', 'held', 'refused']),
+		reason: z.string().optional().transform(cleanReason),
+	})
 	.strict()
 const StatusReplySchema = z
-	.object({ status: z.enum(['applied', 'refused']), reason: z.string().optional() })
+	.object({
+		status: z.enum(['applied', 'refused']),
+		reason: z.string().optional().transform(cleanReason),
+	})
 	.strict()
 
 export interface NetworkService {
@@ -467,12 +478,9 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 				host.report?.('The machine key was unreadable; this machine starts a new identity.')
 			await store.writeKey(key)
 		}
-		const cert = await store.readCertificate()
-		let certPem = cert
-		if (!certPem || !certMatches(certPem, key)) {
-			certPem = buildMachineCertificate(key, { now: clock.now() }).pem
-			await store.writeCertificate(certPem)
-		}
+		// A fresh certificate each start: its name is random, so it is no stable mark of this machine.
+		const certPem = buildMachineCertificate(key, { now: clock.now() }).pem
+		await store.writeCertificate(certPem)
 		tls = { key, certificatePem: certPem }
 		const m = await store.readMachine()
 		const name = sanitizeName(
@@ -484,15 +492,6 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 			machine = { v: 1, machineId: key.machineId, name, createdAt: clock.now() }
 		}
 		await store.writeMachine(machine)
-	}
-
-	function certMatches(pem: string, k: MachineKey): boolean {
-		try {
-			const der = Buffer.from(pem.replace(/-----[^-]+-----|\s/g, ''), 'base64')
-			return certificatePublicKeyDer(der).equals(k.publicKeyDer)
-		} catch {
-			return false
-		}
 	}
 
 	function defaultName(): string {
@@ -530,11 +529,15 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		if (!view || !netId) return
 		membersRev++
 		const founding = view.admissions.find((a) => a.admittedBy === a.machineId)
+		const before = await store.readNetwork()
 		await store.writeNetwork({
 			v: 1,
 			netId,
 			founderPublicKey: founding?.publicKey ?? '',
-			createdAt: clock.now(),
+			createdAt:
+				before.status === 'ok' && before.value.netId === netId
+					? before.value.createdAt
+					: clock.now(),
 		})
 		await store.writeMembers({
 			v: 1,
@@ -755,8 +758,18 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		const p = peerState.get(machineId)
 		if (!p || roster.machine.id !== machineId) return
 		p.name = sanitizeName(roster.machine.name)
-		p.role = roster.machine.role
-		p.sessions = roster.sessions
+		p.role = roster.machine.role === undefined ? undefined : sanitizeRole(roster.machine.role)
+		// Everything another machine says about its sessions is text for a screen and for a model.
+		p.sessions = roster.sessions.map(({ role, ...s }) => {
+			const cleanRole = role === undefined ? undefined : sanitizeRole(role)
+			return {
+				...s,
+				name: sanitizeName(s.name, 80) || 'session',
+				folder: sanitizeName(s.folder, 120),
+				mode: sanitizeName(s.mode, 40) || 'unknown',
+				...(cleanRole ? { role: cleanRole } : {}),
+			}
+		})
 		p.rosterAt = clock.now()
 		p.seenAt = clock.now()
 		p.online = true
@@ -789,7 +802,9 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 			return
 		}
 		if (!view || view.members.size <= 1) {
+			if (!nearby.has(endpoint.netId) && nearby.size >= MAX_NEARBY_NETWORKS) return
 			const list = nearby.get(endpoint.netId) ?? []
+			if (list.length >= 8) return
 			if (!list.some((e) => e.host === endpoint.host && e.port === endpoint.port))
 				list.push(endpoint)
 			nearby.set(endpoint.netId, list)
@@ -945,12 +960,24 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 				.map((a) => a.address)
 				.sort()
 				.join(',')
-			if (joined !== current && list.length > 0) {
+			if (joined !== current && list.length === 0) {
+				// Left the private network: nothing listens or is announced until one is back.
+				current = joined
+				void (async () => {
+					await Promise.all(netListeners.splice(0).map((l) => l.close()))
+					port = undefined
+					addresses = []
+					discovery.start(undefined)
+					setState('off', 'This network is not known to be private.')
+				})()
+			} else if (joined !== current) {
 				current = joined
 				void (async () => {
 					await Promise.all(netListeners.splice(0).map((l) => l.close()))
 					await startListeners(list)
 					await advertise()
+					if (netId) setState('ready')
+					else if (state === 'off') setState('searching')
 				})()
 			}
 			cancelRecheck = clock.setTimer(tick, INTERFACE_RECHECK_MS)
@@ -1364,8 +1391,18 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 			return { status: 'applied' }
 		}
 		const ref = request.target.sessionRef
-		if (!host.setLocalRole || !host.listLocalSessions().some((s) => s.ref === ref)) {
+		const local = host.listLocalSessions().find((s) => s.ref === ref)
+		if (!host.setLocalRole || !local) {
 			return { status: 'refused', reason: 'That session is not running here.' }
+		}
+		// A role from another machine reaches the model as context nobody here has read. A session that
+		// skips approvals takes none: the person sets its role at that terminal.
+		if (from !== selfId() && (local.bypass === true || local.mode === 'bypass')) {
+			logAudit({ event: 'role_refused', machine: who(from), session: ref })
+			return {
+				status: 'refused',
+				reason: 'That session skips approvals, so its role is set at its own terminal.',
+			}
 		}
 		const ok = host.setLocalRole(ref, role, { by: byName, at: request.at })
 		if (!ok) return { status: 'refused', reason: 'That session is not running here.' }
@@ -1483,6 +1520,13 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 			allowedOnce: false,
 		}
 		if (decision.action === 'hold') {
+			const key = `${from}:${request.from.sessionRef}:${request.id}`
+			if (remember256(key))
+				return {
+					status: heldQueue.list().some((e) => e.item.id === request.id) ? 'held' : 'queued',
+				}
+			const perSender = heldQueue.list().filter((e) => e.item.machineId === from).length
+			if (perSender >= 4) return refuse('Too many messages from that machine are waiting here.')
 			const perTerminal = heldQueue.list().filter((e) => e.item.toSessionRef === target.ref).length
 			if (perTerminal >= 8) return refuse('Too many messages are waiting for that terminal.')
 			const now = clock.now()
@@ -1552,7 +1596,7 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 			id: request.about.id,
 			outcome: request.outcome,
 			machineId: from,
-			detail: request.detail,
+			detail: request.detail === undefined ? undefined : sanitizeName(request.detail, 200),
 		})
 		return { ok: true }
 	}
@@ -1695,7 +1739,14 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		cancelRecheck = undefined
 		for (const off of offDiscovery.splice(0)) off()
 		joiners.clear()
+		// Held mail lives in the terminal that runs the network: when it stops, each sender is told.
+		const stillHeld = heldQueue.list().map((e) => e.item)
 		heldQueue.clear()
+		await Promise.allSettled(
+			stillHeld.map((mail) =>
+				notifySender(mail, 'expired', 'The terminal holding the message was closed.'),
+			),
+		)
 		for (const c of pendingConns.values()) c.close()
 		pendingConns.clear()
 		await discovery.close().catch(() => undefined)
