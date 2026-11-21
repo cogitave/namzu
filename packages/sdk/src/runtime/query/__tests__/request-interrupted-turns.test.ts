@@ -40,6 +40,31 @@ describe('withInterruptedRequestsMarked', () => {
 		expect(messages).toHaveLength(5)
 	})
 
+	it('does not mark a goal-round message that follows a request', () => {
+		const messages: Message[] = [
+			{ role: 'user', content: 'a' },
+			{
+				role: 'user',
+				content: 'next round',
+				source: { type: 'goal-round', kind: 'advisory' },
+			} as unknown as Message,
+		]
+		expect(withInterruptedRequestsMarked(messages)).toBe(messages)
+	})
+
+	it('does not mark steering that arrives before the first reply', () => {
+		const messages: Message[] = [
+			{ role: 'user', content: 'a' },
+			{
+				role: 'user',
+				content: 'also this',
+				source: { type: 'runtime-context', kind: 'steering' },
+			} as unknown as Message,
+			{ role: 'user', content: 'b' },
+		]
+		expect(withInterruptedRequestsMarked(messages)).toBe(messages)
+	})
+
 	it('gives the same view for the same history, as a resume does', () => {
 		const messages: Message[] = [
 			{ role: 'user', content: 'x' },

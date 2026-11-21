@@ -22,9 +22,10 @@ import type { ToolCallSummary } from '@namzu/sdk'
 const WRITERS = new Set(['write', 'edit', 'read'])
 
 /**
- * Whether a call is a write or a read of exactly the plan file. Paths compare after
- * resolving against the working directory, so `../../.namzu/…` spellings of
- * the same file match and a prefix or a sibling does not.
+ * Whether a call writes or reads exactly the plan file (the name says write
+ * because writing is what plan mode guards). Paths compare after resolving
+ * against the working directory, so `../../.namzu/…` spellings of the same
+ * file match and a prefix or a sibling does not.
  */
 export function isPlanFileWrite(planPath: string, cwd: string) {
 	const target = resolve(planPath)

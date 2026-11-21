@@ -2,6 +2,7 @@
 
 ## 2026-11-21
 
+- **Update** [Slash commands](cli/slash-commands.md#permissions): `/permissions add` and `remove` apply to later calls in the running session, not at the next start; the interrupted-request note is added only between two messages you typed, never for a goal-round or steering message. `.changeset/sdk-interrupted-mark-plain-requests.md`.
 - **Update** [File tool limits](sdk/file-tool-limits.md#a-call-that-will-be-refused-is-not-asked-about), [Slash commands](cli/slash-commands.md#permissions), [Plan mode in the CLI](cli/plan-mode.md), [Accounts](cli/accounts.md): a doomed `edit`, `write` or long-`sleep` `bash` call is refused before the permission dialog with the same text; View rules lists the allows saved by "Yes, and don't ask again" and those held for the conversation; plan mode reads its own plan file without asking; a saved labelled account is accepted at start instead of opening the provider picker; a request stopped before any reply is marked `[Request interrupted by user]` in what the model reads, also after `-c`. `.changeset/sdk-refuse-before-review.md`, `.changeset/cli-remembered-permissions-and-saved-account.md`.
 
 ## 2026-11-20

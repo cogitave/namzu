@@ -16,6 +16,8 @@ export const INTERRUPTED_REQUEST_MARKER = '[Request interrupted by user]'
  * history each time (never stored), so a resumed conversation carries the same
  * mark as the live one. An operator message that follows an assistant entry
  * never gets one, and neither does the message the model is answering now.
+ * Only the person's own plain messages count: a goal-round source or a
+ * steering note next to an unanswered message is not an interruption.
  * Returns the original array when nothing is marked.
  */
 export function withInterruptedRequestsMarked(messages: Message[]): Message[] {
@@ -24,7 +26,7 @@ export function withInterruptedRequestsMarked(messages: Message[]): Message[] {
 	messages.forEach((message, index) => {
 		if (message.role === 'assistant') {
 			pending = -1
-		} else if (isOperatorUserMessage(message)) {
+		} else if (isOperatorUserMessage(message) && !message.source) {
 			if (pending >= 0) {
 				out ??= messages.slice(0, index)
 				out.splice(
@@ -34,6 +36,10 @@ export function withInterruptedRequestsMarked(messages: Message[]): Message[] {
 				)
 			}
 			pending = out ? out.length : index
+		} else if (isOperatorUserMessage(message)) {
+			// A goal round or steering note is words the runtime put there, not a
+			// second request that cut a first one short.
+			pending = -1
 		}
 		out?.push(message)
 	})
