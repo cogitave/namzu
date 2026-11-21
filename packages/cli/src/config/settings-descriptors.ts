@@ -734,7 +734,7 @@ const DECLARED: readonly SettingDescriptor[] = [
 		'permissions.defaultMode',
 		'projects',
 		'Default permission mode',
-		'How Namzu asks before it acts, until you choose otherwise in a conversation.',
+		'How the terminal app asks before it acts, until you choose otherwise in a conversation. Left unset, it starts in auto mode when a model can check actions, and asks first when none can.',
 		pick(
 			[
 				'prompt',
@@ -752,7 +752,11 @@ const DECLARED: readonly SettingDescriptor[] = [
 				'Never ask',
 				'Every action runs without asking. Use it only where nothing can be harmed.',
 			],
-			['auto', 'A model decides', 'A reviewing model approves or refuses each action for you.'],
+			[
+				'auto',
+				'A model decides',
+				'A reviewing model approves or refuses each action that would otherwise ask you. The terminal’s default.',
+			],
 			[
 				'strict',
 				'Only what a rule allows',
@@ -770,7 +774,9 @@ const DECLARED: readonly SettingDescriptor[] = [
 				'auto',
 				'plan',
 			],
-			default: 'prompt',
+			default: 'auto',
+			defaultNote:
+				'In the terminal app, when a model can check actions; otherwise Ask before risky actions.',
 			confirm: 'Some modes let Namzu act without asking. Only choose one you are comfortable with.',
 			confirmValues: ['accept-edits', 'bypass', 'auto'],
 		},

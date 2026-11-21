@@ -133,8 +133,7 @@ export interface AutoReviewLimits {
 	readonly total?: number
 	/**
 	 * Answers in a row that were no verdict (`unavailable` or `unreadable`)
-	 * before the decision carries `noVerdictLimitReached`. Off unless set; the
-	 * Namzu terminal sets 3.
+	 * before the decision carries `noVerdictLimitReached`. Off unless set.
 	 */
 	readonly noVerdict?: number
 }

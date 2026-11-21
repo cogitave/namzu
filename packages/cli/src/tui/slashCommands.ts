@@ -484,7 +484,13 @@ export interface SlashContext {
 		/** Live mode and why it currently has that value, read at render time. */
 		readonly currentMode: () => {
 			readonly mode: PermissionMode
-			readonly source: 'default' | 'launch-bypass' | 'launch-flag' | 'config-default' | 'session'
+			readonly source:
+				| 'default'
+				| 'auto-default'
+				| 'launch-bypass'
+				| 'launch-flag'
+				| 'config-default'
+				| 'session'
 		}
 		readonly rules: readonly AuthorizationRule[]
 		/**
@@ -2941,6 +2947,10 @@ export function renderPermissions(
 	if (current.source === 'launch-flag') lines.push('Selected at launch with --permission-mode.')
 	if (current.source === 'config-default')
 		lines.push('Selected by permissions.defaultMode in your configuration.')
+	if (current.source === 'auto-default' && current.mode === 'classify')
+		lines.push(
+			'Namzu’s default for the terminal. To start by asking instead, set permissions.defaultMode: prompt in ~/.namzu/config.yaml.',
+		)
 	lines.push('Explicit deny rules and the built-in safety gate apply in every mode.')
 	if (current.mode === 'plan')
 		lines.push('Plan mode also blocks writes that an allow rule would otherwise permit.')

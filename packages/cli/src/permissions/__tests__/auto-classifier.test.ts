@@ -263,3 +263,57 @@ describe('the calls it refused', () => {
 		expect(classifier.recentBlocks()).toEqual([])
 	})
 })
+
+describe('a run of answers with no verdict', () => {
+	const usage = { promptTokens: 40, completionTokens: 2, totalTokens: 42 }
+
+	it('marks the third in a row when no model can be reached, and starts over', async () => {
+		const { classifier } = build({
+			providerFor: async () => {
+				throw new Error('no credential')
+			},
+		})
+		const marks: boolean[] = []
+		for (let i = 0; i < 4; i += 1) {
+			const decision = await inTurn(() => classifier.review(request))
+			marks.push(decision.verdict === 'block' && decision.noVerdictLimitReached === true)
+		}
+		expect(marks).toEqual([false, false, true, false])
+	})
+
+	it('counts a model that answered nothing readable the same way', async () => {
+		// Two passes a review, three reviews: each pass answers without a verdict.
+		const provider = new MockLLMProvider({
+			turns: Array.from({ length: 6 }, () => ({ text: 'I am not sure.', usage })),
+		})
+		const { classifier } = build({ providerFor: async () => provider })
+		await inTurn(() => classifier.review(request))
+		await inTurn(() => classifier.review(request))
+		expect(await inTurn(() => classifier.review(request))).toMatchObject({
+			verdict: 'block',
+			cause: 'unreadable',
+			noVerdictLimitReached: true,
+		})
+	})
+
+	it('starts over on a real verdict and on a reset', async () => {
+		let reachable = false
+		const { classifier } = build({
+			providerFor: async () => {
+				if (!reachable) throw new Error('no credential')
+				return new MockLLMProvider({ turns: [ALLOW] })
+			},
+		})
+		await inTurn(() => classifier.review(request))
+		await inTurn(() => classifier.review(request))
+		reachable = true
+		expect(await inTurn(() => classifier.review(request))).toMatchObject({ verdict: 'allow' })
+		reachable = false
+		await inTurn(() => classifier.review(request))
+		classifier.reset()
+		await inTurn(() => classifier.review(request))
+		expect(await inTurn(() => classifier.review(request))).not.toHaveProperty(
+			'noVerdictLimitReached',
+		)
+	})
+})

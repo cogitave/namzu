@@ -243,7 +243,9 @@ describe('the typed setting description', () => {
 		expect(text('updates.auto')).toMatch(/^on\. Off in automated runs/)
 		expect(text('learningGenerator.enabled')).toBe('on')
 		expect(text('composerTriggers.languages')).toBe('English, Turkish')
-		expect(text('permissions.defaultMode')).toBe('Ask before risky actions')
+		expect(text('permissions.defaultMode')).toBe(
+			'A model decides. In the terminal app, when a model can check actions; otherwise Ask before risky actions.',
+		)
 		expect(text('sandbox.enabled')).toMatch(/^off\./)
 		// Words written by hand are left alone.
 		expect(text('limits.maxIterations')).toBe('no limit')

@@ -27,3 +27,11 @@ describe('permissionModeDescription with a confining sandbox', () => {
 		}
 	})
 })
+
+describe('the words for auto, now the terminal’s default', () => {
+	it('says a second model checks what would be asked, and blocks the risky part', () => {
+		expect(permissionModeDescription('classify')).toBe(
+			'A second model checks each call you would be asked about, and blocks the risky ones.',
+		)
+	})
+})

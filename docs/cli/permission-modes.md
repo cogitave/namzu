@@ -1,11 +1,11 @@
 ---
 type: Reference
 title: Permission modes
-description: The six modes a Namzu session can run in (prompt, accept-edits, plan, bypass, auto, strict), the flags and Shift+Tab that reach them, which two need an opt-in (bypass through `permissions.allowBypassMode` or a flag), what each still stops for, the permissions settings that choose or shut them, how the auto classifier picks its model, how the terminal asks about one call at a time, and what Desktop and sub-agents do with them.
+description: The six modes a Namzu session can run in (prompt, accept-edits, plan, bypass, auto, strict), auto as the interactive terminal's default and how to keep being asked, the one-time notice, the flags and Shift+Tab that reach them, what happens when auto mode cannot decide, which two need an opt-in (bypass through `permissions.allowBypassMode` or a flag), what each still stops for, the permissions settings that choose or shut them, how the auto classifier picks its model, how the terminal asks about one call at a time, and what Desktop and sub-agents do with them.
 resource: packages/cli/src/permissions/mode.ts
 tags: [cli, permissions, modes, bypass, auto, classifier]
 status: stable
-generated: { by: process:claude-code, at: 2026-10-22T00:00:00Z }
+generated: { by: process:claude-code, at: 2026-11-21T00:00:00Z }
 ---
 
 # Permission modes
@@ -14,16 +14,33 @@ A mode decides what happens to a call that no rule decided. The `[permissions]` 
 
 | Word | Reads as | Runs without a question | Still asks (or is refused when nobody can be asked) |
 | --- | --- | --- | --- |
-| `prompt` | the default | reads and the read-only shell commands; with the [sandbox](tool-boundary.md#shell-commands-inside-the-sandbox-run-without-a-question) on and confining, every shell command inside it | everything else; a command that leaves the sandbox always asks |
+| `prompt` | **Ask before changes**; where a terminal starts when auto cannot be used, and the default everywhere else | reads and the read-only shell commands; with the [sandbox](tool-boundary.md#shell-commands-inside-the-sandbox-run-without-a-question) on and confining, every shell command inside it | everything else; a command that leaves the sandbox always asks |
 | `accept-edits` | **Accept edits** | also `edit` and `write`, and `mkdir`, `touch`, `rm`, `rmdir`, `mv`, `cp` and `sed` when every path they name is inside your folders | everything else; a catastrophic `rm` still asks |
 | `plan` | **Plan (read-only)** | reads | any change is refused until you leave plan mode |
 | `bypass` | **Bypass permissions** | everything below | the list under [What bypass and auto still ask](#what-bypass-and-auto-still-ask) |
-| `auto` | **Auto** | what a second model allows | the same list, and what the classifier blocks |
+| `auto` | **Auto**, the interactive terminal's default | what a second model allows | the same list, and what the classifier blocks |
 | `strict` | **Preapproved tools only** | only calls a rule allows | nothing is asked: the rest is refused |
 
 Choosing "Yes, and auto-accept edits" when a plan is approved leaves for this mode, so the writes that follow, new files and replaced ones inside your folders, run without a question. A prompt for a file write, a new file or a replaced one, offers "Yes, and switch to accept edits for this session" like an edit does, and Shift+Tab answers it. A write outside your folders, to a protected file, or whose content is too long to show in full is a one-time yes with no such row.
 
 `strict` is for a run where nobody can be asked and every call must be pre-decided.
+
+## Auto is the terminal's default
+
+An interactive terminal (`namzu`, `namzu -c`, `namzu resume`) starts in `auto` when nothing chose a mode for it: no `--permission-mode`, no bypass flag, and no `permissions.defaultMode` in any file Namzu reads (your user file, the managed file, or the project's file once the folder is trusted). It does not when `permissions.disableAutoMode: true` is set in any of them, and it starts in `prompt`, without a word, when the session's classifier cannot reach a model: the same test Shift+Tab uses, so a named `permissions.autoMode.model` with no credential on this machine, or `smallModel` with no side model, starts by asking. A session with no model yet starts in `prompt` and takes `auto` once a model is chosen, as long as nothing else chose a mode in between.
+
+The default is the terminal's only. `exec` and `exec --json`, a scheduled run, a workflow or a sub-agent (which take their parent's mode), a message sent to another terminal with `namzu peers send`, a Pal's session, and the sessions Desktop and an ACP client own keep the modes they had: Desktop still starts every conversation in Ask first.
+
+**To keep being asked**, set it in `~/.namzu/config.yaml`:
+
+```yaml
+permissions:
+  defaultMode: prompt
+```
+
+or start with `--permission-mode prompt`, or press Shift+Tab once (`auto` goes to `prompt`). `permissions.disableAutoMode: true` removes auto altogether. What auto never decides on its own is the same list as before: [What bypass and auto still ask](#what-bypass-and-auto-still-ask).
+
+**The notice.** The first time a terminal starts in auto because of the default, the transcript shows one notice: a bold line saying auto mode is now Namzu's default permission mode, then a dim line saying what it does (a second model checks what would otherwise ask you, for risk and for instructions planted in what the agent read; what it judges safe runs and the rest is stopped), how to change it, and this page. It is shown once per person: `~/.namzu/acknowledgements.json` (the same file as the bypass answer) records it as `autoModeDefault`, and a file that cannot be written shows it again next time rather than never. A terminal started in auto by a flag or by `defaultMode: auto` shows no notice. `/permissions`, with details, says the mode is the terminal's default and how to start by asking.
 
 ## What the model is told
 
@@ -39,6 +56,7 @@ Under `strict`, `auto` and the unattended mode a refused call is not followed by
 | `/permissions` | a menu of every mode; only `strict` and the rules are under "More options" |
 | `/permissions <word>` | that mode, for this conversation |
 | `permissions.defaultMode` | the mode a launch starts in when no flag names one |
+| nothing of the above, in the interactive terminal | `auto` when the classifier can reach a model, `prompt` when it cannot ([Auto is the terminal's default](#auto-is-the-terminals-default)) |
 | Shift+Tab | the cycle below |
 
 `--permission-mode auto` is the classifier. It used to mean "approve everything the gates did not stop", and that is now `bypass`; to keep the old no-prompt behaviour, use `--yolo` or `--permission-mode bypass`.
@@ -47,7 +65,7 @@ Under `strict`, `auto` and the unattended mode a refused call is not followed by
 
 A conversation left in `plan` comes back in `plan` when it is continued (`-c`) or resumed (`/resume`), unless the launch named a mode with `--permission-mode` or a bypass flag. The mode is saved with the conversation as a small record, written only when plan mode is entered or left; no other mode is brought back, so a continued conversation starts in your usual mode.
 
-Shift+Tab walks `prompt`, `accept-edits`, `plan`, then `bypass` when it is available, then `auto` when it is available, then back to `prompt`. A door that is shut has no stop. `strict` is not on the cycle, and leaving it goes to `prompt`. It works mid-turn: the next decision of the running turn, and of its sub-agents, takes the new mode, and the footer is its only reply.
+Shift+Tab walks `prompt`, `accept-edits`, `plan`, then `bypass` when it is available, then `auto` when it is available, then back to `prompt`. A door that is shut has no stop. A terminal that started in `auto` by default goes to `prompt` on the first press and comes back to `auto` after `plan`. `strict` is not on the cycle, and leaving it goes to `prompt`. It works mid-turn: the next decision of the running turn, and of its sub-agents, takes the new mode, and the footer is its only reply.
 
 The footer names the mode: `⏵⏵ bypass permissions on` in red, `⏵⏵ auto mode on` in yellow, `⏵⏵ accept edits on`, `‖ plan mode on`, `‖ preapproved only on`.
 
@@ -111,13 +129,19 @@ The kernel owns the mechanism ([The auto-review classifier](../sdk/auto-review.m
 
 **What it costs.** Each pass is charged to the turn that asked, on the same ledger as a conversation title or a `web_fetch` extraction, so `/cost` and the turn's token budget count it.
 
-**What it is shown.** The conversation as the kernel offers it (your messages, the agent's prose and each tool call in the tool's own words), never a tool result. Each decision is logged with the tool, verdict, stage and latency, never with model text.
+**What it is shown.** The conversation as the kernel offers it (your messages, the agent's prose and each tool call in the tool's own words), never a tool result. Each earlier call carries how it ended (`ok`, `error`, `interrupted`, `rejected by the person`, `blocked by permissions`, `blocked by auto mode`, `auto mode unavailable`), from what the kernel recorded and not from what the tool printed, so a call tried again after your no or after a block is judged as a second try. Each decision is logged with the tool, verdict, stage and latency, never with model text.
+
+**Before a git command that throws work away** (a hard reset, a forced clean, a checkout or restore over your changes, a forced push, a forced branch deletion, a dropped or cleared stash, a rebase), the classifier is also shown `git status --porcelain --branch` for the folder the command runs in, at most 40 files, read with a 2 second deadline, so it can see uncommitted work the command would destroy. Nothing is shown when the folder cannot be told from the line, git is missing or slow, the folder is not a repository, or the shell runs in a sandbox. Details in [Before a destructive git command](../sdk/auto-review.md#before-a-destructive-git-command).
 
 **Scripts it wrote itself.** A call that launches a file the agent wrote or edited this session (`bash x.sh`, `node x.js`, `./x`, `source x`), or one that appeared during it some other way, is shown to the classifier with that file's current text: the first and last 8 KB if it is longer than 16 KB, with the cut named, and with a note when the file changed since the agent wrote it or could not be read. Without this, a script whose harmful part came after the first 300 characters of the `write` call looked like a harmless launch. Details in [The auto-review classifier](../sdk/auto-review.md#a-script-the-agent-wrote-and-then-runs). It also sees a launch it could not resolve (a path built from a variable, a program fed by a pipe it cannot follow, a file that is not there) as a note saying so, and the files a script itself runs are named as not read. A sub-agent shares the session's record of what the agent wrote, so a script the main conversation made is read when a sub-agent runs it. The re-check when the call runs is best effort. What it does not cover is listed in [the classifier's page](../sdk/auto-review.md#a-script-the-agent-wrote-and-then-runs).
 
 **When it blocks.** The model is told `Blocked by auto mode: <reason>. Do not try to work around this; if the action is needed, tell the user what you want to do and why, so they can approve it or switch modes.` After three blocks in a row, or twenty in the conversation, the terminal drops the conversation to `prompt` with one line in the transcript saying so (the footer follows), and asks you about the call that tripped it. With nobody to ask, the turn ends and says why. Over Desktop and ACP the rest of the turn is asked about, and the next message starts from the mode the person chose.
 
-**When it cannot answer** (no credential, the provider errors, an unreadable reply, retries used up) the call is blocked, never allowed.
+## When auto mode cannot decide
+
+When the classifier cannot answer (no credential, the provider errors, an unreadable reply, retries used up) the call is held back, never allowed. The model is told `Auto mode could not check this action: <reason>. Nothing was run. This is not a judgement on the action: if it is still needed, it may be tried again, and if the check keeps failing, tell the user.`
+
+After three such answers in a row the turn stops instead of holding calls back one by one: the batch is refused, nothing runs, and the transcript says *Auto mode could not get a safety decision, so nothing was run and Namzu stopped. Send a message to try again, or press Shift+Tab to change the mode.* The mode stays `auto`. The run counts across the conversation and starts over on any real verdict; a cancelled check does not count. With nobody to ask the turn ends the same way. The three-in-a-row and twenty-in-a-conversation limits on blocks above still apply and still fall back to asking you; when one answer completes both, the turn stops.
 
 ## Settings
 
@@ -198,7 +222,7 @@ A sub-agent borrows the review channel of the turn that started it, so each call
 
 ## Headless runs
 
-`namzu exec` and `exec --json` take `--permission-mode` and `--yolo` the same way. With neither flag and nobody to ask, the kernel's own unattended default applies (it has no word of its own): routine calls run and anything out of bounds is refused. `--yolo` there means `bypass`, so a path outside the folder runs and the immune list above is refused. `--permission-mode auto` needs a model it can reach and exits 64 with the reason when there is none. `--allow-dangerously-skip-permissions` is for the interactive session only.
+`namzu exec` and `exec --json` take `--permission-mode` and `--yolo` the same way. With neither flag and nobody to ask, the kernel's own unattended default applies (it has no word of its own): routine calls run and anything out of bounds is refused. `--yolo` there means `bypass`, so a path outside the folder runs and the immune list above is refused. `--permission-mode auto` needs a model it can reach and exits 64 with the reason when there is none; when it gets no verdict three times in a row, the turn stops, nothing more runs, and `exec` says so and exits 1. Auto is not the default here: the interactive terminal's default does not reach `exec`. `--allow-dangerously-skip-permissions` is for the interactive session only.
 
 ## Desktop and ACP
 

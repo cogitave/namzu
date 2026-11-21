@@ -6,7 +6,13 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { askBypassConsent } from '../consent-prompt.js'
-import { acknowledgeBypass, acknowledgementsPath, hasAcknowledgedBypass } from '../consent.js'
+import {
+	acknowledgeBypass,
+	acknowledgementsPath,
+	hasAcknowledgedBypass,
+	hasSeenAutoModeDefaultNotice,
+	markAutoModeDefaultNoticeSeen,
+} from '../consent.js'
 
 const homes: string[] = []
 afterEach(() => {
@@ -47,6 +53,46 @@ describe('the one-time bypass acknowledgement', () => {
 		writeFileSync(acknowledgementsPath(home), '{ not json')
 
 		expect(hasAcknowledgedBypass(home)).toBe(false)
+	})
+})
+
+describe('the notice that auto mode is the default', () => {
+	it('is unseen until it is shown, then stays seen', () => {
+		const home = freshHome()
+
+		expect(hasSeenAutoModeDefaultNotice(home)).toBe(false)
+		markAutoModeDefaultNoticeSeen(home, () => new Date('2026-11-21T09:00:00Z'))
+		expect(hasSeenAutoModeDefaultNotice(home)).toBe(true)
+		markAutoModeDefaultNoticeSeen(home, () => new Date('2027-01-01T00:00:00Z'))
+		expect(JSON.parse(readFileSync(acknowledgementsPath(home), 'utf8'))).toEqual({
+			version: 1,
+			autoModeDefault: '2026-11-21T09:00:00.000Z',
+		})
+	})
+
+	it('shares the file with the bypass acknowledgement, and neither write drops the other', () => {
+		const home = freshHome()
+		acknowledgeBypass(home, () => new Date('2026-10-21T10:00:00Z'))
+		markAutoModeDefaultNoticeSeen(home, () => new Date('2026-11-21T09:00:00Z'))
+		expect(JSON.parse(readFileSync(acknowledgementsPath(home), 'utf8'))).toEqual({
+			version: 1,
+			bypass: '2026-10-21T10:00:00.000Z',
+			autoModeDefault: '2026-11-21T09:00:00.000Z',
+		})
+
+		const other = freshHome()
+		markAutoModeDefaultNoticeSeen(other)
+		acknowledgeBypass(other)
+		expect(hasSeenAutoModeDefaultNotice(other)).toBe(true)
+		expect(hasAcknowledgedBypass(other)).toBe(true)
+	})
+
+	it('reads a damaged file as unseen, so the notice shows again rather than never', () => {
+		const home = freshHome()
+		markAutoModeDefaultNoticeSeen(home)
+		writeFileSync(acknowledgementsPath(home), '[]')
+
+		expect(hasSeenAutoModeDefaultNotice(home)).toBe(false)
 	})
 })
 

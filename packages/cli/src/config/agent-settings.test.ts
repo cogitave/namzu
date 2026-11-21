@@ -120,7 +120,7 @@ describe('agent settings', () => {
 				'Computer use on',
 				'Default model',
 			])
-			expect(report.facts[0]?.value).toBe('Ask before risky actions')
+			expect(report.facts[0]?.value).toBe('A model decides')
 			expect(report.facts[3]?.value).toBe('off')
 		})
 
