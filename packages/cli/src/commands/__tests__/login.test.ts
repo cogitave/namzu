@@ -41,7 +41,14 @@ describe('parseLoginFlags', () => {
 	})
 
 	it('refuses an unrecognised flag rather than ignoring it', () => {
-		expect(parseLoginFlags(['--code', 'abc']).unknown).toContain('--code')
+		expect(parseLoginFlags(['--frobnicate']).unknown).toContain('--frobnicate')
+	})
+
+	it('takes --code as a value, in both spellings, and refuses it without one', () => {
+		expect(parseLoginFlags(['claude', '--code', 'abc']).code).toBe('abc')
+		expect(parseLoginFlags(['claude', '--code=abc#st']).code).toBe('abc#st')
+		expect(parseLoginFlags(['claude', '--code']).unknown).toContain('--code')
+		expect(parseLoginFlags(['claude', '--code', 'a', '--code', 'b']).unknown).toContain('--code')
 	})
 })
 

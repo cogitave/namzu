@@ -178,7 +178,7 @@ Installing or signing in to Claude Desktop does not guarantee a Claude Code
 CLI session for Namzu to reuse. The Desktop app includes a Code tab, and
 [Anthropic documents the terminal CLI as a separate installation](https://code.claude.com/docs/en/desktop-quickstart).
 If `namzu doctor --category providers` reports no Claude Code session, sign in
-from Namzu with `namzu login claude`, or install the standalone `claude` CLI
+from Namzu with `namzu login claude` (see [Signing in from a shell that cannot paste](#signing-in-from-a-shell-that-cannot-paste)), or install the standalone `claude` CLI
 and use its `/login` command. A detected Codex session says nothing about
 Claude Code's separate credential file. Namzu does not inspect the Desktop
 app's own OAuth storage.
@@ -283,3 +283,13 @@ or Git Bash with `npm.cmd install --global @namzu/cli@latest`, using the same
 Node installation and adding `--prefix "<existing-prefix>"` for a custom
 global installation. Restart Namzu after installation; another provider login
 is not needed to fix this updater failure.
+
+## Signing in from a shell that cannot paste
+
+`namzu login claude` in a terminal prints the address and waits for you to paste the code the browser shows. A shell whose standard input closes at once (a chat tool's shell prefix, a script) cannot take that paste, and the one-time verifier would die with the process. Namzu therefore keeps the waiting sign-in (verifier, state, redirect address, start time) in `login-pending/anthropic.json` under the Namzu home, a file readable only by your account in an owner-only folder. It is never printed or logged. The command prints the address and one line, and exits 0 meaning "waiting for the code":
+
+```text
+Finish with `namzu login claude --code <code>` within 10 minutes.
+```
+
+Open the address, sign in, then run `namzu login claude --code <value>`, where the value is the bare code, `code#state`, or the finished address. Namzu refuses a sign-in that is missing, older than 10 minutes, or whose state does not match, says so in a sentence, and stores nothing. After the exchange has been tried, whether it worked or not, the waiting file is deleted, so a second `--code` says no sign-in is waiting. Exit codes: 0 signed in or waiting, 1 the sign-in failed, 2 the command was used wrongly. A terminal that can paste keeps the interactive flow, and the Codex sign-in is unchanged.
