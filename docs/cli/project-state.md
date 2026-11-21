@@ -47,9 +47,15 @@ selects the most recent conversation for the directory. The resume picker and
 `--continue` list sessions through the session index, scoped to the Project.
 
 Tool execution, project trust and configuration continue to use the selected
-working directory. Nothing generated is written under it: `<cwd>/.namzu`
-holds only the `agents`, `skills`, `commands`, `plugins` and `MEMORY.md` you
-author, and the CLI only reads it.
+working directory. Conversations, checkpoints, file copies, memory and the
+index never go under it. `<cwd>/.namzu` holds the `agents`, `skills`,
+`commands`, `plugins` and `MEMORY.md` you author, which the CLI reads.
+The CLI writes there only when you ask: the project's local settings file
+(your "don't ask again" answers and the permission rule editor), a skill you
+save with `save_skill` (into `.namzu/skills`), and the workflows
+`namzu github install` adds. The one write outside both the folder and the
+Namzu home is the line that keeps the local settings file out of git, added to
+your global git ignore file. Crash logs go to `~/.namzu/logs`.
 
 ## Identity and persistence
 
@@ -116,7 +122,7 @@ references is never pruned, however old. A checkpoint holds no messages; its
 context is the session log up to the record it names, so it costs a few
 kilobytes of counters and working state.
 
-No crash dumps are written. The session log is appended as the turn goes, and
+No conversation dump is written. The session log is appended as the turn goes, and
 a torn last line left by a crash is repaired the next time the session is
 opened, so an interrupted turn has nothing more to save.
 

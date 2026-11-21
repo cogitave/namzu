@@ -241,9 +241,13 @@ the restore failed without changing anything.
 
 ## What is never written
 
-- Nothing under the working directory. `<cwd>/.namzu` is read for the files you
-  author there and never written.
-- No crash dumps, no per-run directories, no `sessions.sqlite`, no
+- No conversation, checkpoint, file copy, memory or index under the working
+  directory. `<cwd>/.namzu` is read for the files you author there; the CLI
+  writes there only on request (the project's local settings file, a skill
+  saved with `save_skill`, workflows added by `namzu github install`).
+- Crash logs are not conversation data: `logs/crash-<time>.log` in the Namzu
+  home is 0600 and the newest ten are kept.
+- No conversation dumps, no per-run directories, no `sessions.sqlite`, no
   `transcript.jsonl`, `messages.json` or `report.md`. An earlier CLI wrote
   those; `namzu state` reports what is left of them as `legacy`, and this
   version never reads them.

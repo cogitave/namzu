@@ -267,7 +267,7 @@ export interface HandBackCliConfig {
 export interface WorktreesCliConfig {
 	/** A new worktree's branch is `<branchPrefix>/<name>`. Default `namzu`. */
 	readonly branchPrefix?: string
-	/** The folder new worktrees are made in. Absent means inside the project's Namzu folder. */
+	/** The folder new worktrees are made in. Absent means `<NAMZU_HOME>/projects/<slug>/worktrees`. */
 	readonly location?: string
 	/** Folders of the project a new worktree holds; the rest is left out of its files. */
 	readonly sparseFolders?: readonly string[]
