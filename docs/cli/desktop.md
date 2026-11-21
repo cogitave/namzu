@@ -820,7 +820,8 @@ settings files, `namzu.config.json`, `.namzu/settings.json`,
 `.namzu/settings.local.json` and the earlier `namzu.config.local.json` (the
 sections `hooks`, `mcpServers`, `plugins`, `permissions`, `permissionChecks`,
 `sandbox`, `web`, `additionalDirectories` and `profiles`; an unparseable file
-counts, and each finding names its file), and at `.namzu/plugins` and
+counts, each finding names its file, and the two local files are listed once
+when they hold the same settings, as the engine reads them once), and at `.namzu/plugins` and
 `.namzu/commands` (links are not followed; the list is data in
 `src/main/folder-settings.ts`). When it finds any, the pick does not add the
 folder: main answers with a pending folder (`pending: true`) that carries

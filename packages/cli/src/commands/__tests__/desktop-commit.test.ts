@@ -2,7 +2,9 @@ import { execFileSync } from 'node:child_process'
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import {
 	COMMIT_DIFF_CAP,
 	type CommitFile,
@@ -14,9 +16,15 @@ import {
 	plainCommitMessage,
 } from '../desktop-commit.js'
 
+const dirs: string[] = []
+afterEach(() => {
+	for (const dir of dirs.splice(0)) removeTempDir(dir)
+})
+
 /** A throwaway repository with its own identity: the person's own git settings are never read or written. */
 function repo(): string {
 	const dir = mkdtempSync(join(tmpdir(), 'namzu-commit-'))
+	dirs.push(dir)
 	const git = (...args: string[]) =>
 		execFileSync('git', args, {
 			cwd: dir,
@@ -223,6 +231,7 @@ describe('the preview', () => {
 		expect(untrusted.blocker).toBe('Trust this folder to commit in it.')
 		expect(run).not.toHaveBeenCalled()
 		const plain = mkdtempSync(join(tmpdir(), 'namzu-nogit-'))
+		dirs.push(plain)
 		const none = await createProjectCommit({ isTrusted: trusted }).preview(plain, ['a'])
 		expect(none.blocker).toBe('Commit needs a Git repository.')
 	})

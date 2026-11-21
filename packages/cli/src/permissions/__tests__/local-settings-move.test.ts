@@ -2,33 +2,39 @@
  * The local settings file moves from `namzu.config.local.json` at the top of
  * the folder to `.namzu/settings.local.json`, and no saved answer is lost on
  * the way: the old file goes only after its bytes were written to the new
- * place, read back equal, and found unchanged, and only when git does not track
- * it. Every case in doubt keeps both files, and both are read.
+ * place, read back equal, found unchanged, and kept once more in the Namzu
+ * home, and only when git does not track it. Every case in doubt keeps both
+ * files, and both are read.
  */
 
 import { execFileSync, spawn } from 'node:child_process'
 import {
+	chmodSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
 	readdirSync,
+	statSync,
 	symlinkSync,
 	utimesSync,
 	writeFileSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { builtinCommandArguments } from '@namzu/sdk'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
+import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { loadConfigWithProvenance, readPermissionLayers } from '../../config/load.js'
 import { localConfigFiles } from '../../config/project-files.js'
 import {
 	LEGACY_LOCAL_CONFIG_FILE,
 	LOCAL_SETTINGS_FILE,
+	ignoreSentence,
 	legacyLocalConfigPath,
+	localSettingsBackupDir,
 	localSettingsPath,
 	moveLegacyLocalConfig,
 	removeStaleStagingFiles,
@@ -40,8 +46,14 @@ import { createSessionAllows } from '../session-allow.js'
 
 const OLD_TEXT = `{\n\t"permissions": {\n\t\t"bash": {\n\t\t\t"npm test *": "allow"\n\t\t}\n\t}\n}\n`
 
+const roots: string[] = []
+afterEach(() => {
+	for (const root of roots.splice(0)) removeTempDir(root)
+})
+
 function project(): { root: string; cwd: string; home: string } {
 	const root = mkdtempSync(join(tmpdir(), 'namzu-local-move-'))
+	roots.push(root)
 	const cwd = join(root, 'work')
 	const home = join(root, 'home')
 	mkdirSync(cwd, { recursive: true })
@@ -61,20 +73,66 @@ function permissionsRead(cwd: string, home: string) {
 const gitEnv = { ...process.env, GIT_CONFIG_NOSYSTEM: '1' }
 const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, env: gitEnv })
 
+/** The copies the moves of `cwd` kept in the Namzu home. */
+function backups(cwd: string): string[] {
+	const dir = localSettingsBackupDir(cwd)
+	return existsSync(dir) ? readdirSync(dir).map((name) => join(dir, name)) : []
+}
+
 describe('moving the earlier local file', () => {
 	it('moves a folder that has only the old file, byte for byte, and reads the same answers', () => {
 		const { cwd, home } = project()
 		writeFileSync(legacyLocalConfigPath(cwd), OLD_TEXT)
 		const before = permissionsRead(cwd, home)
 
-		expect(moveLegacyLocalConfig(cwd)).toEqual({ state: 'moved' })
+		const move = moveLegacyLocalConfig(cwd)
 
+		expect(move.state).toBe('moved')
 		expect(existsSync(legacyLocalConfigPath(cwd))).toBe(false)
 		expect(readFileSync(localSettingsPath(cwd), 'utf8')).toBe(OLD_TEXT)
 		expect(permissionsRead(cwd, home)).toEqual(before)
 		expect(before).toEqual({ bash: { 'npm test *': 'allow' } })
-		// Nothing is left beside it: no lock, no staging file.
+		// Nothing is left beside it: no lock, no staging file, no step-aside file.
 		expect(readdirSync(join(cwd, '.namzu'))).toEqual(['settings.local.json'])
+		expect(readdirSync(cwd)).toEqual(['.namzu'])
+		// The old file's bytes are kept once more, in the Namzu home, private.
+		const kept = backups(cwd)
+		expect(kept).toHaveLength(1)
+		expect(move.state === 'moved' && move.backup).toBe(kept[0])
+		expect(kept[0]).toMatch(/[\\/]namzu\.config\.local\.json\.backup\.\d+$/)
+		expect(readFileSync(kept[0] as string, 'utf8')).toBe(OLD_TEXT)
+		if (process.platform !== 'win32') expect(statSync(kept[0] as string).mode & 0o777).toBe(0o600)
+	})
+
+	it('copies bytes that are not UTF-8 as they are, and keeps the same bytes', () => {
+		const { cwd } = project()
+		// 0xFE is a letter on a Windows code page; read as UTF-8 it would become U+FFFD.
+		const bytes = Buffer.concat([
+			Buffer.from('{"hooks":{"session_start":[{"command":"echo '),
+			Buffer.from([0xfe]),
+			Buffer.from('"}]}}\n'),
+		])
+		writeFileSync(legacyLocalConfigPath(cwd), bytes)
+
+		expect(moveLegacyLocalConfig(cwd).state).toBe('moved')
+
+		expect(readFileSync(localSettingsPath(cwd)).equals(bytes)).toBe(true)
+		expect(readFileSync(backups(cwd)[0] as string).equals(bytes)).toBe(true)
+	})
+
+	it('neither removes nor rewrites a file that is not UTF-8 when the new one reads the same', () => {
+		const { cwd } = project()
+		const bytes = Buffer.concat([Buffer.from('{"theme":"'), Buffer.from([0xfe]), Buffer.from('"}')])
+		writeFileSync(legacyLocalConfigPath(cwd), bytes)
+		// The same settings as the old file reads, U+FFFD where its byte was.
+		writeNew(cwd, `${JSON.stringify({ theme: '\ufffd' })}\n`)
+
+		expect(moveLegacyLocalConfig(cwd)).toMatchObject({ state: 'kept', why: 'unreadable' })
+		expect(readFileSync(legacyLocalConfigPath(cwd)).equals(bytes)).toBe(true)
+
+		const write = updateLocalSettings(cwd, (document) => ({ document }), { target: 'legacy' })
+		expect(write.error).toMatch(/not UTF-8 text/)
+		expect(readFileSync(legacyLocalConfigPath(cwd)).equals(bytes)).toBe(true)
 	})
 
 	it('does nothing for a folder that has only the new file', () => {
@@ -88,7 +146,32 @@ describe('moving the earlier local file', () => {
 		const { cwd } = project()
 		writeFileSync(legacyLocalConfigPath(cwd), OLD_TEXT)
 		writeNew(cwd, JSON.stringify({ permissions: { bash: { 'npm test *': 'allow' } } }))
-		expect(moveLegacyLocalConfig(cwd)).toEqual({ state: 'moved' })
+		expect(moveLegacyLocalConfig(cwd).state).toBe('moved')
+		expect(existsSync(legacyLocalConfigPath(cwd))).toBe(false)
+		expect(readFileSync(backups(cwd)[0] as string, 'utf8')).toBe(OLD_TEXT)
+	})
+
+	it('puts the old file back when its backup cannot be written, and reads the two once', () => {
+		const { root, cwd } = project()
+		writeFileSync(legacyLocalConfigPath(cwd), OLD_TEXT)
+		const home = process.env.NAMZU_HOME
+		// A Namzu home that is a file: no folder can be made under it.
+		process.env.NAMZU_HOME = join(root, 'home-is-a-file')
+		writeFileSync(process.env.NAMZU_HOME, '')
+		try {
+			const move = moveLegacyLocalConfig(cwd)
+			expect(move).toMatchObject({ state: 'kept', why: 'failed' })
+			expect(move.state === 'kept' && move.sentence).toMatch(/backup could not be written/)
+		} finally {
+			process.env.NAMZU_HOME = home
+		}
+		expect(readFileSync(legacyLocalConfigPath(cwd), 'utf8')).toBe(OLD_TEXT)
+		expect(readFileSync(localSettingsPath(cwd), 'utf8')).toBe(OLD_TEXT)
+		expect(localConfigFiles(cwd).map((file) => file.name)).toEqual([LOCAL_SETTINGS_FILE])
+		expect(readdirSync(cwd).sort()).toEqual(['.namzu', LEGACY_LOCAL_CONFIG_FILE])
+
+		// The next start finds both holding the same settings, and finishes the move.
+		expect(moveLegacyLocalConfig(cwd).state).toBe('moved')
 		expect(existsSync(legacyLocalConfigPath(cwd))).toBe(false)
 	})
 
@@ -121,7 +204,19 @@ describe('moving the earlier local file', () => {
 		writeFileSync(legacyLocalConfigPath(cwd), '{ "permissions": ')
 		expect(moveLegacyLocalConfig(cwd)).toMatchObject({ state: 'kept', why: 'unreadable' })
 		expect(readFileSync(legacyLocalConfigPath(cwd), 'utf8')).toBe('{ "permissions": ')
-		expect(existsSync(localSettingsPath(cwd))).toBe(false)
+		// Not even an empty .namzu is left in the project.
+		expect(existsSync(join(cwd, '.namzu'))).toBe(false)
+	})
+
+	it('makes no .namzu to edit the old file alone, and leaves none behind', () => {
+		const { cwd } = project()
+		writeFileSync(legacyLocalConfigPath(cwd), OLD_TEXT)
+		const write = updateLocalSettings(cwd, () => ({ document: { quiet: true } }), {
+			target: 'legacy',
+		})
+		expect(write.error).toBeUndefined()
+		expect(JSON.parse(readFileSync(legacyLocalConfigPath(cwd), 'utf8'))).toEqual({ quiet: true })
+		expect(existsSync(join(cwd, '.namzu'))).toBe(false)
 	})
 
 	it('leaves an old file git tracks where it is, says so, and saves new answers beside it', () => {
@@ -182,20 +277,45 @@ describe('moving the earlier local file', () => {
 })
 
 describe('the start of a session in a trusted folder', () => {
-	it('moves the file and says nothing when nothing is in doubt', () => {
+	it('moves the file and says nothing when nothing is in doubt', async () => {
 		const { cwd } = project()
 		writeFileSync(legacyLocalConfigPath(cwd), OLD_TEXT)
-		expect(settleLocalSettings(cwd)).toEqual([])
+		const settled = settleLocalSettings(cwd)
+		expect(settled.said).toEqual([])
+		// Not a git work tree: there is nothing for git to ignore, and nothing to say.
+		expect(await settled.ignore).toEqual([])
 		expect(readFileSync(localSettingsPath(cwd), 'utf8')).toBe(OLD_TEXT)
 	})
 
-	it('says once why it kept both', () => {
+	it('says why it kept both once, and again only when the old file changes', () => {
 		const { cwd } = project()
 		writeFileSync(legacyLocalConfigPath(cwd), JSON.stringify({ quiet: true }))
 		writeNew(cwd, JSON.stringify({ quiet: false }))
-		const said = settleLocalSettings(cwd)
+		const said = settleLocalSettings(cwd).said
 		expect(said).toHaveLength(1)
 		expect(said[0]).toMatch(/Both namzu\.config\.local\.json and \.namzu\/settings\.local\.json/)
+
+		expect(settleLocalSettings(cwd).said).toEqual([])
+		// A new answer in the new file is not news: the old file is what the sentence is about.
+		writeNew(cwd, JSON.stringify({ quiet: false, theme: 'dark' }))
+		expect(settleLocalSettings(cwd).said).toEqual([])
+
+		writeFileSync(legacyLocalConfigPath(cwd), JSON.stringify({ quiet: true, theme: 'light' }))
+		expect(settleLocalSettings(cwd).said).toHaveLength(1)
+	})
+
+	it('names what to do when git would take the local file along', () => {
+		expect(ignoreSentence({ state: 'ignored', written: true })).toBeUndefined()
+		expect(ignoreSentence({ state: 'not-a-repository' })).toBeUndefined()
+		expect(ignoreSentence({ state: 'tracked', reason: 'x' })).toMatch(
+			/^Git tracks \.namzu\/settings\.local\.json.*git rm --cached \.namzu\/settings\.local\.json\.$/,
+		)
+		expect(ignoreSentence({ state: 'not-read', reason: 'x' })).toMatch(
+			/^Git does not ignore \.namzu\/settings\.local\.json although/,
+		)
+		expect(ignoreSentence({ state: 'failed', reason: 'EACCES' })).toMatch(
+			/could not make git ignore .*\(EACCES\).*global git ignore file\.$/,
+		)
 	})
 })
 
@@ -283,6 +403,63 @@ describe('the lock', () => {
 		expect(existsSync(`${localSettingsPath(cwd)}.lock`)).toBe(true)
 	})
 
+	it('does not take over the lock of a running process that is only slow', () => {
+		const { cwd } = project()
+		writeNew(cwd, '{}\n')
+		const lock = `${localSettingsPath(cwd)}.lock`
+		writeFileSync(lock, JSON.stringify({ pid: process.ppid, host: hostname(), at: 'x' }))
+		// Eleven seconds: past the limit for a lock nobody can vouch for, far inside a live one's.
+		const paused = new Date(Date.now() - 11_000)
+		utimesSync(lock, paused, paused)
+		const write = updateLocalSettings(cwd, () => ({ document: { quiet: true } }), {
+			lockWaitMs: 0,
+		})
+		expect(write.error).toMatch(/another Namzu/)
+		expect(readFileSync(localSettingsPath(cwd), 'utf8')).toBe('{}\n')
+
+		// A running process that held it for an hour is not writing: its id was reused.
+		const hourAgo = new Date(Date.now() - 60 * 60 * 1000)
+		utimesSync(lock, hourAgo, hourAgo)
+		expect(
+			updateLocalSettings(cwd, () => ({ document: { quiet: true } }), { lockWaitMs: 0 }).error,
+		).toBeUndefined()
+	})
+
+	it('judges a lock from another machine by its age alone', () => {
+		const { cwd } = project()
+		writeNew(cwd, '{}\n')
+		const lock = `${localSettingsPath(cwd)}.lock`
+		// This process's own id, but written elsewhere: it says nothing about this process.
+		writeFileSync(lock, JSON.stringify({ pid: process.pid, host: `${hostname()}-other`, at: 'x' }))
+		expect(
+			updateLocalSettings(cwd, () => ({ document: { quiet: true } }), { lockWaitMs: 0 }).error,
+		).toMatch(/another Namzu/)
+		const minuteAgo = new Date(Date.now() - 60_000)
+		utimesSync(lock, minuteAgo, minuteAgo)
+		expect(
+			updateLocalSettings(cwd, () => ({ document: { quiet: true } }), { lockWaitMs: 0 }).error,
+		).toBeUndefined()
+	})
+
+	it.runIf(process.platform !== 'win32' && process.getuid?.() !== 0)(
+		'says why a lock could not be made instead of blaming another Namzu',
+		() => {
+			const { cwd } = project()
+			writeNew(cwd, '{}\n')
+			chmodSync(join(cwd, '.namzu'), 0o500)
+			try {
+				const write = updateLocalSettings(cwd, () => ({ document: { quiet: true } }), {
+					lockWaitMs: 0,
+				})
+				expect(write.error).toMatch(/lock could not be made/)
+				expect(write.error).not.toMatch(/another Namzu/)
+			} finally {
+				chmodSync(join(cwd, '.namzu'), 0o700)
+			}
+			expect(readFileSync(localSettingsPath(cwd), 'utf8')).toBe('{}\n')
+		},
+	)
+
 	it('takes over a lock left by a process that is gone, or one too old to be a write', () => {
 		const { cwd } = project()
 		writeNew(cwd, '{}\n')
@@ -340,6 +517,46 @@ describe('the lock', () => {
 			for (const name of ['a', 'b'])
 				for (let n = 0; n < 12; n += 1) expected[`echo ${name}${n} *`] = 'allow'
 			expect(saved.permissions.bash).toEqual(expected)
+			expect(readdirSync(join(cwd, '.namzu'))).toEqual(['settings.local.json'])
+		},
+	)
+})
+
+describe.runIf(process.platform !== 'win32')('a disk that takes fewer bytes than asked', () => {
+	// A real process under a file-size limit: the disk refuses the rest of the staging file the
+	// way a full disk does. It boots TypeScript through tsx, which is slow on a busy runner, so
+	// the limit is raised; the outcome does not depend on speed.
+	it(
+		'leaves the saved file whole and says the answer was not saved',
+		{ timeout: 120_000 },
+		async () => {
+			const { cwd } = project()
+			const bash: Record<string, string> = {}
+			for (let n = 0; n < 200; n += 1) bash[`echo saved-answer-${n} *`] = 'allow'
+			const saved = `${JSON.stringify({ permissions: { bash } }, null, '\t')}\n`
+			// Over 4 KiB, so the limit below (2 or 4 KiB, by the shell's block size) cuts the copy.
+			expect(saved.length).toBeGreaterThan(6000)
+			writeNew(cwd, saved)
+			const script = fileURLToPath(new URL('./__fixtures__/local-short-disk.ts', import.meta.url))
+			const child = spawn(
+				'sh',
+				['-c', 'ulimit -f 4 && exec "$0" --import tsx "$1" "$2"', process.execPath, script, cwd],
+				// No transform cache: the limit would refuse its files too.
+				{ env: { ...process.env, TSX_DISABLE_CACHE: '1' }, stdio: ['ignore', 'pipe', 'inherit'] },
+			)
+			let out = ''
+			child.stdout?.on('data', (chunk) => {
+				out += chunk
+			})
+			const code = await new Promise<number | null>((resolve, reject) => {
+				child.on('error', reject)
+				child.on('close', resolve)
+			})
+
+			expect(code).toBe(0)
+			const write = JSON.parse(out) as { error?: string }
+			expect(write.error).toMatch(/EFBIG|disk took/)
+			expect(readFileSync(localSettingsPath(cwd), 'utf8')).toBe(saved)
 			expect(readdirSync(join(cwd, '.namzu'))).toEqual(['settings.local.json'])
 		},
 	)

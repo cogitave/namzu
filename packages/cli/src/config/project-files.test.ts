@@ -9,8 +9,9 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { AuthorizationGate, NOOP_LOGGER } from '@namzu/sdk'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
+import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import { describeFolderFiles } from '../doctor/checks/folder-files.js'
 import { readFolderGrants } from '../integrations/trust/folder-grants.js'
 import { projectFilesDeclaringWorktreeCreate } from '../integrations/worktrees/untrusted-hook.js'
@@ -30,8 +31,14 @@ import {
 } from './project-files.js'
 import { layerReader } from './setting-layers.js'
 
+const roots: string[] = []
+afterEach(() => {
+	for (const root of roots.splice(0)) removeTempDir(root)
+})
+
 function folder(files: Record<string, unknown>): { cwd: string; home: string } {
 	const root = mkdtempSync(join(tmpdir(), 'namzu-folder-files-'))
+	roots.push(root)
 	const cwd = join(root, 'work')
 	const home = join(root, 'home')
 	mkdirSync(join(cwd, '.namzu'), { recursive: true })

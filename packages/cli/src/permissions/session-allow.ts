@@ -374,8 +374,14 @@ export interface SessionAllows {
 	 */
 	add(allows: readonly SessionAllow[]): string | undefined
 	list(): readonly SessionAllow[]
-	/** Withdraw cached answers after the operator replaces the saved local rules. */
+	/**
+	 * Withdraw the answers a settings file now carries, after the operator
+	 * replaced the saved local rules: the file decides those now. An answer held
+	 * for this conversation only (never written) stays.
+	 */
 	clear(): void
+	/** Withdraw the answers `matches` covers, saved or not; how many went. */
+	forget(matches: (permissions: PermissionsConfig) => boolean): number
 	/** One kernel rule that consults the store at every call. */
 	readonly rule: AuthorizationRule
 }
@@ -422,6 +428,9 @@ export function createSessionAllows(
 	options: SessionAllowsOptions = {},
 ): SessionAllows {
 	const entries: SessionAllow[] = []
+	/** The answers a file carries: written by this store, and read back by a reload. */
+	const saved: SessionAllow[] = []
+	const isSaved = (allow: SessionAllow) => saved.some((each) => sameAllow(each, allow))
 	let gate: AuthorizationGate | undefined
 	const rebuild = () => {
 		const { rules } = compilePermissions(permissionsForAllows(entries))
@@ -459,10 +468,10 @@ export function createSessionAllows(
 			const cwd = typeof options.cwd === 'function' ? options.cwd() : options.cwd
 			if (cwd === undefined) return undefined
 			if (options.trusted !== undefined && !options.trusted()) return UNTRUSTED_FOLDER
-			const saved = allows.filter((allow) => !allowHoldsSecret(allow))
-			const notes: string[] = saved.length < allows.length ? [SECRET_RULE] : []
-			if (saved.length === 0) return notes.join(' ')
-			const write = (options.persist ?? writeLocalAllows)(cwd, permissionsForAllows(saved))
+			const written = allows.filter((allow) => !allowHoldsSecret(allow))
+			const notes: string[] = written.length < allows.length ? [SECRET_RULE] : []
+			if (written.length === 0) return notes.join(' ')
+			const write = (options.persist ?? writeLocalAllows)(cwd, permissionsForAllows(written))
 			if (write.sentence !== undefined) notes.push(write.sentence)
 			else if (write.error !== undefined) {
 				cliLogger().warn('Could not save a remembered answer', {
@@ -472,13 +481,33 @@ export function createSessionAllows(
 				notes.push(
 					`Could not save this answer to ${LOCAL_SETTINGS_FILE}: ${write.error}. It holds for this session only.`,
 				)
-			} else void (options.keepIgnored ?? ensureLocalConfigIgnored)(cwd).then(logIgnoreOutcome)
+			} else {
+				for (const allow of written) if (!isSaved(allow)) saved.push(allow)
+				void (options.keepIgnored ?? ensureLocalConfigIgnored)(cwd).then(logIgnoreOutcome)
+			}
 			return notes.length > 0 ? notes.join(' ') : undefined
 		},
 		list: () => [...entries],
 		clear() {
+			const held = entries.filter((allow) => !isSaved(allow))
 			entries.length = 0
+			entries.push(...held)
+			saved.length = 0
 			rebuild()
+		},
+		forget(matches) {
+			const keep = entries.filter((allow) => !matches(permissionsForAllows([allow])))
+			const gone = entries.length - keep.length
+			if (gone === 0) return 0
+			entries.length = 0
+			entries.push(...keep)
+			for (let index = saved.length - 1; index >= 0; index -= 1) {
+				const allow = saved[index]
+				if (allow !== undefined && !keep.some((each) => sameAllow(each, allow)))
+					saved.splice(index, 1)
+			}
+			rebuild()
+			return gone
 		},
 		rule: {
 			type: 'predicate',

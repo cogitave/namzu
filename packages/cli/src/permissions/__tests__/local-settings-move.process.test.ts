@@ -1,9 +1,18 @@
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	readdirSync,
+	realpathSync,
+	writeFileSync,
+} from 'node:fs'
 import { type Server, createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { slugForCwd } from '@namzu/sdk'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
@@ -136,7 +145,7 @@ function world() {
 		CI: '1',
 		LANG: 'C.UTF-8',
 	}
-	return { work, env }
+	return { work, env, namzuHome }
 }
 
 /** One headless run whose model runs `commands`. Resolves when the process ends. */
@@ -195,6 +204,11 @@ describe.runIf(process.platform !== 'win32')(
 				expect(existsSync(join(w.work, 'REFUSED-BEFORE'))).toBe(false)
 				expect(existsSync(join(w.work, 'namzu.config.local.json'))).toBe(false)
 				expect(readFileSync(join(w.work, '.namzu', 'settings.local.json'), 'utf8')).toBe(SAVED)
+				// The old file's bytes are kept in the Namzu home, never in the project.
+				const kept = join(w.namzuHome, 'backups', 'projects', slugForCwd(realpathSync(w.work)))
+				const copies = readdirSync(kept)
+				expect(copies).toHaveLength(1)
+				expect(readFileSync(join(kept, copies[0] as string), 'utf8')).toBe(SAVED)
 
 				await run(w, ['touch ALLOWED-AFTER', 'mkdir REFUSED-AFTER'])
 

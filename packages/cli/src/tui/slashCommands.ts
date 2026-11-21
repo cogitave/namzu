@@ -11,6 +11,7 @@ import {
 } from '../integrations/providers/connections.js'
 import { DEFAULT_SPEND_DAYS, MAX_SPEND_DAYS } from '../integrations/spend/day.js'
 import type { AttachedAgentHook } from '../integrations/subagents/agent-hooks.js'
+import { isTrusted } from '../integrations/trust/store.js'
 import { LOCAL_SETTINGS_FILE } from '../permissions/local-settings.js'
 import {
 	type DenialRow,
@@ -374,6 +375,8 @@ export interface SlashContext {
 	readonly recentDenials?: () => readonly DenialRow[]
 	/** The allows given at a prompt and held in memory for this conversation. */
 	readonly rememberedAllows?: () => readonly SessionAllow[]
+	/** Withdraw the held answers that `rule` names; whether any went. */
+	readonly forgetRememberedAllow?: (rule: string) => boolean
 	/** Refresh subsequent authorization decisions after a saved local rule edit. */
 	readonly reloadPermissionRules?: () => void
 	/** The timers the model set that are still pending in this conversation. */
@@ -2892,7 +2895,13 @@ function permissionRulesReply(ctx: SlashContext, args: readonly string[]): strin
 			return 'Usage: /permissions rules [allow|ask|deny]'
 		}
 		try {
-			const entries = ruleEntries(readPermissionLayers({ cwd: ctx.cwd }))
+			// A folder that is not trusted has its own files left unread, so their rules decide nothing.
+			const entries = ruleEntries(
+				readPermissionLayers({
+					cwd: ctx.cwd,
+					...(isTrusted(ctx.cwd) ? {} : { includeProject: false }),
+				}),
+			)
 			// An answer given at a prompt is held in memory for this conversation
 			// and saved to the project's local file. One the file does not carry
 			// (it could not be written, or was edited out since) is listed too, so
@@ -2922,7 +2931,14 @@ function permissionRulesReply(ctx: SlashContext, args: readonly string[]): strin
 	if (word === 'remove') {
 		const rule = args.slice(1).join(' ').trim()
 		if (rule === '') return 'Usage: /permissions remove <rule>'
-		return applyRuleEdit(ctx, removeLocalRule(ctx.cwd, rule))
+		const edit = removeLocalRule(ctx.cwd, rule)
+		// An answer held for this conversation only is in no file; it goes here.
+		const forgot = ctx.forgetRememberedAllow?.(rule) === true
+		if (!forgot) return applyRuleEdit(ctx, edit)
+		const held = 'It is no longer held for this conversation either.'
+		if (edit.ok) return applyRuleEdit(ctx, { ok: true, message: `${edit.message} ${held}` })
+		const gone = `Removed ${rule} from the answers held for this conversation; that applies to later calls.`
+		return edit.missing === true ? gone : `${edit.message} ${gone}`
 	}
 	if (word === 'denied') return renderRecentDenials(ctx.recentDenials?.())
 	if (word === 'dirs') {

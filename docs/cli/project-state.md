@@ -142,8 +142,10 @@ application home; export one first with that version's
 
 One file is moved: the project's `namzu.config.local.json`, the folder's local
 settings an earlier CLI kept at the top of the folder. A session in the trusted
-folder copies it into `.namzu/settings.local.json`, reads the copy back, and
-only then removes the old file, and never one git tracks
+folder copies its bytes into `.namzu/settings.local.json`, reads the copy back,
+keeps the same bytes in the Namzu home as
+`backups/projects/<folder>/namzu.config.local.json.backup.<ms>`, and only then
+removes the old file, and never one git tracks
 ([Moving the earlier file](permission-layers.md#moving-the-earlier-file)).
 Until then it is still read, and `namzu state` names it ("Earlier local
 settings file") with its size.

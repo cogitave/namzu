@@ -227,7 +227,9 @@ the restore failed without changing anything.
   the files you author there; the one file written in it is
   `settings.local.json`, the folder's local settings, when you save a "don't ask
   again" answer or a `/permissions` rule (see
-  [Permission layers](permission-layers.md#the-local-file)).
+  [Permission layers](permission-layers.md#the-local-file)). When it replaces an
+  earlier `namzu.config.local.json`, that file's bytes are kept in the Namzu
+  home, under `backups/projects/<folder>/`, not in the project.
 - No crash dumps, no per-run directories, no `sessions.sqlite`, no
   `transcript.jsonl`, `messages.json` or `report.md`. An earlier CLI wrote
   those; `namzu state` reports what is left of them as `legacy`, and this

@@ -1,5 +1,6 @@
 import { lstat, readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 
 /**
  * Settings a folder can carry that run code, or widen what may run, once the folder is
@@ -300,15 +301,41 @@ async function inspectConfigFile(folder: string, name: string): Promise<AutoRunF
 	}
 }
 
+/** A settings file's parsed value, or undefined when it is not a plain readable file of JSON. */
+async function settingsValue(folder: string, name: string): Promise<unknown> {
+	const path = join(folder, ...name.split('/'))
+	if ((await entryKind(path)) !== 'file') return undefined
+	try {
+		const text = (await readFile(path, 'utf8')).replace(/^\uFEFF/, '')
+		return text.length > CONFIG_LIMIT ? undefined : JSON.parse(text)
+	} catch {
+		return undefined
+	}
+}
+
+/**
+ * Whether both local files hold the same settings. The engine then reads the earlier one
+ * once only, under its new name, so it is listed once.
+ */
+async function sameLocalSettings(folder: string): Promise<boolean> {
+	const current = await settingsValue(folder, LOCAL_SETTINGS_FILES[0])
+	if (current === undefined) return false
+	const earlier = await settingsValue(folder, LOCAL_SETTINGS_FILES[1])
+	return earlier !== undefined && isDeepStrictEqual(current, earlier)
+}
+
 /** What was found, in a stable order, each with the lines behind it; empty when the folder is ordinary. */
 export async function inspectAutoRunSettings(folder: string): Promise<AutoRunFinding[]> {
+	const state = join(folder, '.namzu')
+	const stateIsLink = (await entryKind(state)) === 'link'
 	// The settings files outside `.namzu` first: the shared one, then the local one's earlier name.
 	const found: AutoRunFinding[] = [
 		...(await inspectConfigFile(folder, CONFIG_FILE)),
-		...(await inspectConfigFile(folder, LOCAL_SETTINGS_FILES[1])),
+		...(!stateIsLink && (await sameLocalSettings(folder))
+			? []
+			: await inspectConfigFile(folder, LOCAL_SETTINGS_FILES[1])),
 	]
-	const state = join(folder, '.namzu')
-	if ((await entryKind(state)) === 'link') {
+	if (stateIsLink) {
 		found.push({ label: 'a .namzu folder that is a shortcut to somewhere else', lines: [] })
 		return found
 	}

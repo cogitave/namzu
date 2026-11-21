@@ -74,6 +74,21 @@ describe('findAutoRunSettings', () => {
 			'its own rules for what Namzu may do without asking',
 		])
 	})
+	it('lists the local settings once when both of its files hold the same settings', async () => {
+		const same = JSON.stringify({ permissions: { bash: { 'npm test *': 'allow' } } })
+		await mkdir(join(folder, '.namzu'))
+		await writeFile(join(folder, '.namzu', 'settings.local.json'), same)
+		await writeFile(join(folder, 'namzu.config.local.json'), `${same}\n`)
+		expect(await findAutoRunSettings(folder)).toEqual([
+			'a Namzu settings file that can start programs (.namzu/settings.local.json)',
+			'its own rules for what Namzu may do without asking',
+		])
+		await writeFile(
+			join(folder, 'namzu.config.local.json'),
+			JSON.stringify({ permissions: { bash: { 'rm *': 'allow' } } }),
+		)
+		expect(await findAutoRunSettings(folder)).toHaveLength(4)
+	})
 	it('ignores config sections that only choose a model', async () => {
 		await config({ model: 'x', theme: 'dark' })
 		expect(await findAutoRunSettings(folder)).toEqual([])

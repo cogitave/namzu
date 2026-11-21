@@ -8,17 +8,20 @@
  * out of git. Removing takes the rule out of that file and out of
  * `namzu.config.local.json`, its earlier name, while that one is still read. A
  * rule that lives in another file is listed, and removing it means editing that
- * file.
+ * file. Neither edits the settings of a folder that is not trusted: its local
+ * files are not read there, so a change would decide nothing it could see.
  */
 
 import { lstatSync } from 'node:fs'
 import { basename } from 'node:path'
 
 import type { PermissionLayer } from '../config/load.js'
+import { isTrusted } from '../integrations/trust/store.js'
 import {
 	LEGACY_LOCAL_CONFIG_FILE,
 	LOCAL_SETTINGS_FILE,
 	ensureLocalConfigIgnored,
+	gitTracksFile,
 	legacyLocalConfigPath,
 	localSettingsPath,
 	localSettingsTracked,
@@ -105,6 +108,22 @@ export function renderRules(entries: readonly RuleEntry[], only?: PermissionEffe
 export interface RuleEdit {
 	readonly ok: boolean
 	readonly message: string
+	/** Set when the rule was in no local file: nothing failed, there was nothing to take out. */
+	readonly missing?: true
+}
+
+export interface RuleEditOptions {
+	/** Whether the folder is trusted. Absent: the trusted-folder list decides. */
+	readonly trusted?: boolean
+}
+
+function folderTrusted(cwd: string, options: RuleEditOptions): boolean {
+	return options.trusted ?? isTrusted(cwd)
+}
+
+/** A reason as the end of a sentence: no full stop of its own. */
+function clause(text: string): string {
+	return text.endsWith('.') ? text.slice(0, -1) : text
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -126,7 +145,12 @@ function keepIgnored(cwd: string): void {
 	void ensureLocalConfigIgnored(cwd).then(logIgnoreOutcome)
 }
 
-export function addLocalRule(cwd: string, effect: PermissionEffect, rule: string): RuleEdit {
+export function addLocalRule(
+	cwd: string,
+	effect: PermissionEffect,
+	rule: string,
+	options: RuleEditOptions = {},
+): RuleEdit {
 	const parsed = parseRuleString(rule)
 	if (!parsed) {
 		return {
@@ -144,8 +168,14 @@ export function addLocalRule(cwd: string, effect: PermissionEffect, rule: string
 	}
 	const { table, problem } = foldRuleLists({ [effect]: [rule] })
 	if (problem) return { ok: false, message: problem.message }
+	if (!folderTrusted(cwd, options))
+		return {
+			ok: false,
+			message: 'This folder is not trusted, so the rule was not saved to its settings.',
+		}
 	moveLegacyLocalConfigOnce(cwd)
-	if (localSettingsTracked(cwd))
+	// Asked again here, not on a keypress: taking the file out of git counts at once.
+	if (localSettingsTracked(cwd, { fresh: true }))
 		return {
 			ok: false,
 			message: `Git tracks ${LOCAL_SETTINGS_FILE}, so the rule was not saved there. Take it out of git first (git rm --cached ${LOCAL_SETTINGS_FILE}).`,
@@ -167,14 +197,8 @@ export function addLocalRule(cwd: string, effect: PermissionEffect, rule: string
 		}
 		return { document: { ...document, permissions } }
 	})
-	if (write.error !== undefined) {
-		return {
-			ok: false,
-			message: write.error.endsWith('.')
-				? `Could not save the rule: ${write.error}`
-				: `Could not save the rule: ${write.error}.`,
-		}
-	}
+	if (write.error !== undefined)
+		return { ok: false, message: `Could not save the rule: ${clause(write.error)}.` }
 	keepIgnored(cwd)
 	return {
 		ok: true,
@@ -234,11 +258,19 @@ function withoutRule(
 	return { document: out }
 }
 
-export function removeLocalRule(cwd: string, rule: string): RuleEdit {
+export function removeLocalRule(
+	cwd: string,
+	rule: string,
+	options: RuleEditOptions = {},
+): RuleEdit {
 	const parsed = parseRuleString(rule)
 	if (!parsed) return { ok: false, message: `That is not a rule: ${rule}` }
+	if (!folderTrusted(cwd, options))
+		return { ok: false, message: 'This folder is not trusted, so its settings were not changed.' }
 	moveLegacyLocalConfigOnce(cwd)
 	const from: string[] = []
+	const tracked: string[] = []
+	const failed: string[] = []
 	// The earlier file too, while it is still read: a rule left there would still decide.
 	for (const [target, name, path] of [
 		['current', LOCAL_SETTINGS_FILE, localSettingsPath(cwd)],
@@ -256,29 +288,39 @@ export function removeLocalRule(cwd: string, rule: string): RuleEdit {
 			{ target },
 		)
 		if (write.error !== undefined) {
-			return {
-				ok: false,
-				message: write.error.endsWith('.')
-					? `Could not save the change: ${write.error}`
-					: `Could not save the change: ${write.error}.`,
-			}
+			failed.push(`${name} could not be changed (${clause(write.error)})`)
+			continue
 		}
-		if (removed) from.push(name)
+		if (!removed) continue
+		from.push(name)
+		if (gitTracksFile(cwd, name)) tracked.push(name)
 	}
 	if (from.length === 0) {
+		if (failed.length > 0)
+			return { ok: false, message: `Could not save the change: ${failed.join('; ')}.` }
 		const where = isFile(legacyLocalConfigPath(cwd))
 			? `${LOCAL_SETTINGS_FILE} or ${LEGACY_LOCAL_CONFIG_FILE}`
 			: LOCAL_SETTINGS_FILE
 		return {
 			ok: false,
+			missing: true,
 			message: `No rule ${rule} in ${where}. Rules from other files are removed by editing those files (see /permissions rules).`,
 		}
 	}
 	keepIgnored(cwd)
-	return {
-		ok: true,
-		message: `Removed ${rule} from ${from.join(' and ')}.`,
-	}
+	const said = [`Removed ${rule} from ${from.join(' and ')}.`]
+	if (tracked.length > 0)
+		said.push(`Git tracks ${tracked.join(' and ')}, so the change shows in its diff.`)
+	// What was taken out applies now; a file that could not be changed may still hold the rule.
+	for (const problem of failed) said.push(`${problem}, and may still hold the rule.`)
+	return { ok: true, message: said.join(' ') }
+}
+
+/** Whether a permissions table holds `rule`, as `/permissions remove` would find it. */
+export function tableHoldsRule(permissions: Record<string, unknown>, rule: string): boolean {
+	const parsed = parseRuleString(rule)
+	if (!parsed) return false
+	return 'document' in withoutRule({ permissions: { ...permissions } }, 'the table', rule, parsed)
 }
 
 /** A file there, or a link: a link is refused by the writer with its reason. */
