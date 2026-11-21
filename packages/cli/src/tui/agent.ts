@@ -454,6 +454,10 @@ import { buildSessionCostTool, fileLogBytes } from '../integrations/spend/sessio
 import { resolveNamzuHome } from '../integrations/state/home.js'
 import { readIdentity } from '../integrations/state/identity.js'
 import { ensurePrivateStateDirectory } from '../integrations/state/private-directory.js'
+import {
+	describeLegacyExclude,
+	excludeProjectLegacy,
+} from '../integrations/state/project-legacy.js'
 import { cliProjectRoot } from '../integrations/state/project.js'
 import { CLI_CHECKPOINT_RETENTION } from '../integrations/state/retention.js'
 import type {
@@ -3794,6 +3798,14 @@ export async function createAgentSession(
 		.then(() => checkpoints.open())
 		.catch(() => undefined)
 	const toolsets: Toolset[] = [withCheckpointsWrap(builtin, checkpoints), memory]
+	// A trusted checkout whose `.namzu` still holds state an earlier Namzu kept
+	// there: git is told to leave it out of this clone, and the person hears
+	// it once, when that is first written. Git runs only when such a name is
+	// there, so an ordinary start pays one directory read.
+	const legacyStateNotice =
+		options.folderTrusted === true || isTrusted(cwd)
+			? describeLegacyExclude(await excludeProjectLegacy({ cwd }))
+			: undefined
 	// Once per store, idempotently: a launch that finds nothing to move moves
 	// nothing, and one interrupted halfway is finished by the next. A failure
 	// is a notice, never a refusal to start — the curated files and the store
@@ -7049,6 +7061,7 @@ export async function createAgentSession(
 			...(pluginRuntime?.takePluginHookWarnings() ?? []),
 			...compatibleEndpointNotices(),
 			...memoryMigrationNotices,
+			...(legacyStateNotice ? [legacyStateNotice] : []),
 			...computerUseNotices,
 		],
 		rememberNote: (text, type) => saveTypedNote(memoryStore, text, type),
