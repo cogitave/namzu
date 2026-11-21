@@ -150,6 +150,7 @@ describe('the typed setting description', () => {
 			'plugins.enabled': 'next-start',
 			'telemetry.otlp.endpoint': 'next-start',
 			modelCatalogueRefresh: 'next-start',
+			shareDesktopSignIn: 'next-start',
 			routing: 'next-start',
 			format: 'next-start',
 			model: 'next-start',

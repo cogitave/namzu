@@ -43,7 +43,7 @@ a layer other than the user file decides:
 - `env`: `{variable, value}` for `env`, the same field that already carried `NAMZU_SMALL_MODEL`. It now
   covers every setting an environment variable decides: `limits.maxResponseTokens`
   (`NAMZU_MAX_OUTPUT_TOKENS`), `compaction.autoCompactWindowTokens` (`NAMZU_AUTO_COMPACT_WINDOW`),
-  `smallModel`, `format`, `quiet`, `disableHooks`, `modelCatalogueRefresh`, `updates.auto`,
+  `smallModel`, `format`, `quiet`, `disableHooks`, `modelCatalogueRefresh`, `shareDesktopSignIn`, `updates.auto`,
   `updates.check`, `updates.channel` and `tui.fullscreen` (`NAMZU_FULLSCREEN`, which beats the saved
   value). The table is `ENVIRONMENT_BINDINGS` in `config/setting-layers.ts`; a variable the loader does
   not read for a key is not listed. Values are models, sizes, switches and channels, never secrets.

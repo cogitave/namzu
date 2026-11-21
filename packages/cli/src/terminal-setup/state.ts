@@ -8,7 +8,7 @@ import { namzuHomePath } from '../integrations/state/home.js'
  * What Namzu remembers about this person's terminal between launches, kept in
  * `~/.namzu/terminal-state.json` beside the other per-person records:
  *
- * - whether `/terminal-setup` has put in the newline key (so the hint that
+ * - whether `/terminal setup` has put in the newline key (so the hint that
  *   suggests it stops), and
  * - the record that tells a fullscreen start that never finished from one that
  *   did (see `tui/fullscreen/boot-canary.ts`).
@@ -32,9 +32,9 @@ export interface BootPending {
 }
 
 export interface TerminalState {
-	/** `/terminal-setup` wrote the newline key for this terminal. */
+	/** `/terminal setup` wrote the newline key for this terminal. */
 	readonly shiftEnterInstalled?: boolean
-	/** `/terminal-setup` turned on "Use Option as Meta key" in Terminal.app. */
+	/** `/terminal setup` turned on "Use Option as Meta key" in Terminal.app. */
 	readonly optionAsMetaInstalled?: boolean
 	/** Launches that asked for fullscreen, by process id. */
 	readonly fullscreenBootPending?: Readonly<Record<string, BootPending>>

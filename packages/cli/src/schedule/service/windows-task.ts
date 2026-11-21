@@ -5,7 +5,7 @@
  * five minutes forever. Task Scheduler's restart-on-failure reacts to a task
  * that fails to LAUNCH, not to a non-zero exit, so after `wsl --shutdown` or a
  * crash only the repetition brings the daemon back. `IgnoreNew` makes a
- * repetition a no-op while the daemon runs; `schedule stop` therefore DISABLES
+ * repetition a no-op while the daemon runs; `schedule service stop` therefore DISABLES
  * the task (ending it would be undone within five minutes).
  *
  * The task names its user (`DOMAIN\user`) on the principal and on the logon
@@ -166,9 +166,9 @@ const TASK_RESULTS: ReadonlyMap<number, string> = new Map([
  * result once `wsl.exe` (or `node`) exits.
  */
 const DAEMON_EXITS: ReadonlyMap<number, string> = new Map([
-	[1, 'the program exited with an error; see namzu schedule logs'],
+	[1, 'the program exited with an error; see namzu schedule service logs'],
 	[75, 'the scheduler exited: another one owns this NAMZU_HOME'],
-	[EXIT_STOP_REQUESTED, 'the scheduler exited: namzu schedule stop asked it to'],
+	[EXIT_STOP_REQUESTED, 'the scheduler exited: namzu schedule service stop asked it to'],
 ])
 
 /**

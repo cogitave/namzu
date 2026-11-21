@@ -21,7 +21,7 @@ export interface TipContext {
 	readonly notificationsSet: boolean
 	/** Tool calls the last reply made. */
 	readonly lastTurnToolCalls: number
-	/** `/terminal-setup` has already put the newline key in for this terminal. */
+	/** `/terminal setup` has already put the newline key in for this terminal. */
 	readonly newlineKeyInstalled?: boolean
 	/** The operating system, for tips that depend on the terminal programs it has. */
 	readonly platform?: string
@@ -158,13 +158,13 @@ export const SPINNER_TIPS: readonly Tip[] = [
 	},
 	{
 		id: 'shift-enter-setup',
-		text: 'Run /terminal-setup to use Shift+Enter for new lines',
+		text: 'Run /terminal setup to use Shift+Enter for new lines',
 		cooldownLaunches: 10,
 		relevant: (ctx) => settable(ctx) && !optionKey(ctx) && ctx.newlineKeyInstalled !== true,
 	},
 	{
 		id: 'option-enter-setup',
-		text: 'Run /terminal-setup to use Option+Enter for new lines',
+		text: 'Run /terminal setup to use Option+Enter for new lines',
 		cooldownLaunches: 10,
 		relevant: (ctx) => settable(ctx) && optionKey(ctx) && ctx.newlineKeyInstalled !== true,
 	},
@@ -184,7 +184,7 @@ export const SPINNER_TIPS: readonly Tip[] = [
 	},
 	{
 		id: 'editor-gpu-garbled',
-		text: 'Garbled characters? Turn off terminal GPU acceleration in the editor settings or run /terminal-setup',
+		text: 'Garbled characters? Turn off terminal GPU acceleration in the editor settings or run /terminal setup',
 		cooldownLaunches: 8,
 		maxLifetimeShows: 5,
 		relevant: (ctx) => ['vscode', 'cursor', 'windsurf'].includes(identifyTerminal(ctx.env)),

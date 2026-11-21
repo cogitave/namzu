@@ -167,7 +167,7 @@ block to the clone's own exclude file (the `info/exclude` git names, never your
 file git already tracks is not affected by it (git still lists it). Nothing is
 written when that `.namzu` is itself the live Namzu home.
 
-`namzu state move-legacy` moves it out, when you ask. It runs only in a folder
+`namzu state move legacy` moves it out, when you ask. It runs only in a folder
 you trust and moves only the names above, into
 `<NAMZU_HOME>/legacy/<slug>/<time>/` beside an `origin.json` that names the
 folder they came from. On one file system each entry is renamed; across file
@@ -178,8 +178,8 @@ git tracks (take it out of git first), a registered git worktree that has
 changes or is locked (a clean one is moved with `git worktree move`, so git
 keeps track of it), a folder holding a worktree deeper down, and everything
 when git cannot say what it tracks. One move runs per folder at a time.
-`namzu state move-legacy --dry-run` lists what would move and changes nothing.
-Namzu does not read the moved files either; delete the folder when you no
+`namzu state move legacy --dry-run` lists what would move and changes nothing.
+The old spelling `namzu state move-legacy` no longer runs: it prints one line naming `namzu state move legacy` and exits 64. Namzu does not read the moved files either; delete the folder when you no
 longer want them. `namzu state` counts that `legacy/` folder in the home as
 `legacy`.
 

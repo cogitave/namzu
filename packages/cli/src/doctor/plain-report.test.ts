@@ -61,7 +61,7 @@ describe('the health report in plain words', () => {
 			[
 				'2 checks need attention.',
 				'  ✗ Scheduled tasks: scheduled tasks cannot run right now',
-				'      Try: Run "namzu schedule install".',
+				'      Try: Run "namzu schedule service install".',
 				'  ? Code index: could not be checked',
 			].join('\n'),
 		)

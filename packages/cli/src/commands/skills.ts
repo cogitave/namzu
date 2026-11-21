@@ -6,12 +6,14 @@ import { discoverSkillRoster, skillTierLabel } from '../skills/store.js'
 import type { SkillInfo } from '../skills/store.js'
 import { terminalDisplayText } from '../tui/terminal-display.js'
 import { resolveWorkingDirectory } from './exec-flags.js'
+import { printSkillsJson } from './host-queries.js'
 import type { CommandDef } from './types.js'
 
 interface SkillsFlags {
 	readonly cwd: string | null
 	readonly trust: boolean
 	readonly audit: boolean
+	readonly json?: boolean
 	readonly contextWindowTokens?: number
 	readonly error?: string
 }
@@ -44,7 +46,7 @@ export interface SkillListOutput {
 }
 
 const HELP = [
-	'Usage: namzu skills [--cwd <path>] [--trust] [--audit [--context-window <tokens>]]',
+	'Usage: namzu skills list [--json] [--cwd <path>] [--trust] [--audit [--context-window <tokens>]]',
 	'',
 	'List the skills available in a working directory: built-in, ~/.agents/skills,',
 	'~/.namzu/skills, ./skills, .agents/skills (checkout root down to the',
@@ -53,6 +55,8 @@ const HELP = [
 	'it cannot be activated.',
 	'',
 	'Options:',
+	'  --json        Print the skills a host UI offers as one JSON array of',
+	'                {name, description, source}; disabled skills are left out',
 	'  --cwd <path>  Inspect this working directory instead of the current one',
 	'  --trust       Trust this directory for this invocation only',
 	'  --audit       Check which skills the model can load; fail on invalid skills',
@@ -64,7 +68,24 @@ export const skillsCommand: CommandDef = {
 	description: 'List skills available to a working directory',
 	passThrough: true,
 	help: HELP,
-	handler: async ({ ctx: bootstrapCtx, rawArgs }) => {
+	handler: async ({ ctx: bootstrapCtx, rawArgs: allArgs }) => {
+		if (allArgs[0] !== 'list') {
+			const given = allArgs[0] === undefined || allArgs[0].startsWith('-') ? undefined : allArgs[0]
+			bootstrapCtx.formatter.error({
+				message:
+					given === undefined
+						? 'A skills command is required: `namzu skills list`.'
+						: `Unknown skills command \`${given}\`. Use \`namzu skills list\`.`,
+			})
+			return EXIT_USAGE
+		}
+		const rawArgs = allArgs.slice(1)
+		if (rawArgs.includes('--json')) {
+			return printSkillsJson(
+				bootstrapCtx,
+				rawArgs.filter((a) => a !== '--json'),
+			)
+		}
 		const flags = parseSkillsFlags(rawArgs)
 		if (flags.error) {
 			bootstrapCtx.formatter.error({ message: flags.error })

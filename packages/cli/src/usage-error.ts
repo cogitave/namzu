@@ -61,9 +61,9 @@ export function formatUsageError(text: string, columns: number | undefined): str
 			if (index === 0 && !/[.!?:]$/.test(sentence)) sentence = `${sentence}.`
 			return sentence
 		})
-	// A message that already says where to go (`--help`, or a second line naming the
-	// right command) is not given a second pointer.
-	const points = lines.length > 1 || /\bhelp\b/i.test(text)
+	// A message that already says where to go (`--help`, a second line naming the
+	// right command, or a named `namzu …` command) is not given a second pointer.
+	const points = lines.length > 1 || /\bhelp\b/i.test(text) || /`namzu [^`]+`/.test(text)
 	const body = (points ? lines : [...lines, HELP_POINTER]).flatMap((line) =>
 		wrapAtWords(line, width),
 	)

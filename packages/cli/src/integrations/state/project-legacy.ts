@@ -256,7 +256,7 @@ export async function excludeProjectLegacy(options: {
 				if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
 			}
 		}
-		const header = `# namzu: state an earlier Namzu kept in ${base} (not read; \`namzu state move-legacy\` moves it)`
+		const header = `# namzu: state an earlier Namzu kept in ${base} (not read; \`namzu state move legacy\` moves it)`
 		let existing = ''
 		try {
 			existing = await readFile(file, 'utf8')
@@ -290,7 +290,7 @@ export function describeLegacyExclude(outcome: LegacyExcludeOutcome): string | u
 		.map((name) => `.namzu/${name}`)
 		.join(', ')
 	const more = outcome.names.length > 4 ? ` and ${outcome.names.length - 4} more` : ''
-	return `This folder holds state an earlier Namzu kept in it (${listed}${more}). Namzu does not read it, and git does not list the untracked part of it in this clone. Run namzu state move-legacy to move it into the Namzu home.`
+	return `This folder holds state an earlier Namzu kept in it (${listed}${more}). Namzu does not read it, and git does not list the untracked part of it in this clone. Run namzu state move legacy to move it into the Namzu home.`
 }
 
 // ---------------------------------------------------------------------------

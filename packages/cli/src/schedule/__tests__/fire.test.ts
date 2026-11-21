@@ -293,7 +293,7 @@ describe('a scheduled run', () => {
 		responses.push(() =>
 			completion({
 				name: 'bash',
-				input: { command: 'powershell.exe -NoProfile -Command "namzu schedule stop"' },
+				input: { command: 'powershell.exe -NoProfile -Command "namzu schedule service stop"' },
 			}),
 		)
 		const { result } = await fire(job)
@@ -301,7 +301,7 @@ describe('a scheduled run', () => {
 		expect(result?.refusedCalls?.count).toBe(1)
 		expect(result?.refusedCalls?.first.tool).toBe('bash')
 		expect(result?.refusedCalls?.first.reason).toMatch(
-			/^the scheduled-run floor refused this call: `powershell\.exe` runs commands the floor does not read, and it holds `schedule stop`/,
+			/^the scheduled-run floor refused this call: `powershell\.exe` runs commands the floor does not read, and it holds `schedule service stop`/,
 		)
 	})
 

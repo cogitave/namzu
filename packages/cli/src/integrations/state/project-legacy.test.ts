@@ -406,7 +406,7 @@ describe('keeping git from listing the old state', () => {
 		expect(status).not.toContain('.namzu/sessions')
 		// What a person authors still shows, so it can be committed.
 		expect(status).toContain('.namzu/skills/review/SKILL.md')
-		expect(describeLegacyExclude(first)).toContain('namzu state move-legacy')
+		expect(describeLegacyExclude(first)).toContain('namzu state move legacy')
 		expect(describeLegacyExclude(second)).toBeUndefined()
 	})
 

@@ -716,7 +716,7 @@ export async function addCommand(ctx: CommandContext, argv: readonly string[]): 
 			})
 		} else {
 			ctx.formatter.print({
-				text: `Created ${job.name} (${job.state}). ${job.state === 'active' ? 'The scheduler runs it on time; check with `namzu schedule status`.' : ''}`.trim(),
+				text: `Created ${job.name} (${job.state}). ${job.state === 'active' ? 'The scheduler runs it on time; check with `namzu schedule service status`.' : ''}`.trim(),
 				id: job.id,
 				name: job.name,
 				state: job.state,

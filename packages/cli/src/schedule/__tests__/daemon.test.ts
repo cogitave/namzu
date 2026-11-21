@@ -598,7 +598,7 @@ describe('a job removed while its run goes on', () => {
 	})
 })
 
-describe('schedule stop', () => {
+describe('schedule service stop', () => {
 	it('reaches a daemon on standby, which has no endpoint, through the stop request', async () => {
 		const owner = daemon({ tickMs: 20, standbyPollMs: 20 })
 		clock = Date.now()

@@ -302,10 +302,10 @@ describe('the model proposing a browser job', () => {
 		const created = host('create')
 		const result = await created.tool.execute(input, {} as never)
 		expect(created.said.join('\n')).toContain(
-			'The scheduler is not installed, so it does not run until you install it: namzu schedule install.',
+			'The scheduler is not installed, so it does not run until you install it: namzu schedule service install.',
 		)
 		expect(result.output).toContain(
-			'No scheduler is installed on this machine, so the job does not run until the operator runs `namzu schedule install`.',
+			'No scheduler is installed on this machine, so the job does not run until the operator runs `namzu schedule service install`.',
 		)
 	})
 

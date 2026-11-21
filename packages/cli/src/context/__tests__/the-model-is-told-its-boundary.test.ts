@@ -31,7 +31,7 @@ describe('on the host', () => {
 		expect(text).toMatch(
 			/A path anywhere else is not refused outright: the user is asked to approve that call first, every time/,
 		)
-		expect(text).toContain('/add-dir <path>')
+		expect(text).toContain('/add dir <path>')
 		// Nothing to escape on the host, so the escape is not offered.
 		expect(text).not.toContain('dangerously_disable_sandbox')
 	})
@@ -205,7 +205,7 @@ describe('WSL', () => {
 			{ distro: 'archlinux', interop: true, drives: ['/mnt/c'] },
 		)
 		expect(text).toMatch(
-			/outside the sandbox, so a command there needs `\/add-dir` or the sandbox escape/,
+			/outside the sandbox, so a command there needs `\/add dir` or the sandbox escape/,
 		)
 		expect(text).toMatch(/running one needs the sandbox escape/)
 	})
@@ -221,7 +221,7 @@ describe('WSL', () => {
 		)
 		expect(text).not.toMatch(/outside the sandbox, so a command there/)
 		expect(text).not.toMatch(/does not mount the Windows drives/)
-		expect(text).toMatch(/the file tools reach them only once added with `\/add-dir`/)
+		expect(text).toMatch(/the file tools reach them only once added with `\/add dir`/)
 	})
 
 	it('tells a headless host session a file tool reaching the drives is refused', () => {

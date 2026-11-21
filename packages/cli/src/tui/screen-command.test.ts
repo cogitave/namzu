@@ -55,7 +55,7 @@ describe('/tui', () => {
 	})
 })
 
-describe('/terminal-setup', () => {
+describe('/terminal setup', () => {
 	it('explains a terminal it cannot set up and writes nothing', () => {
 		expect(terminalSetupText({ env: { TERM: 'xterm' }, home })).toContain("can't run from")
 	})

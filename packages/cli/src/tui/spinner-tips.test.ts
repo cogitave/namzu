@@ -84,7 +84,7 @@ describe('the terminal tips', () => {
 			(tip) => tip.id,
 		)
 
-	it('suggests /terminal-setup only where it can set something up, and stops once it has', () => {
+	it('suggests /terminal setup only where it can set something up, and stops once it has', () => {
 		expect(ids({ env: { TERM_PROGRAM: 'vscode' } })).toContain('shift-enter-setup')
 		expect(ids({ env: { TERM_PROGRAM: 'ghostty' } })).not.toContain('shift-enter-setup')
 		expect(ids({ env: { TERM_PROGRAM: 'vscode' }, newlineKeyInstalled: true })).not.toContain(

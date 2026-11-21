@@ -91,17 +91,19 @@ export function scheduleStartupLine(
 		manifest = undefined
 	}
 	if (active && !manifest) {
-		parts.push('Scheduled jobs exist but the scheduler is not installed — namzu schedule install')
+		parts.push(
+			'Scheduled jobs exist but the scheduler is not installed — namzu schedule service install',
+		)
 	} else if (manifest) {
 		try {
 			const beat = JSON.parse(readFileSync(paths.heartbeat, 'utf8')) as { at?: string }
 			const age = beat.at ? now - Date.parse(beat.at) : Number.POSITIVE_INFINITY
 			if (age > 90_000)
 				parts.push(
-					`The scheduler is installed but not running (last seen ${ago(age)} ago) — namzu schedule status`,
+					`The scheduler is installed but not running (last seen ${ago(age)} ago) — namzu schedule service status`,
 				)
 		} catch {
-			parts.push('The scheduler is installed but has not started — namzu schedule status')
+			parts.push('The scheduler is installed but has not started — namzu schedule service status')
 		}
 	}
 	const suppressed = takeSuppressedCount(join(paths.daemon, 'notify.json'))

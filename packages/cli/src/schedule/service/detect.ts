@@ -1,11 +1,11 @@
 /**
- * Which supervisor `schedule install --platform auto` picks.
+ * Which supervisor `schedule service install --platform auto` picks.
  *
  * macOS → launchd; Windows → Task Scheduler; WSL → Task Scheduler through
  * `wsl.exe` (even when the distro runs systemd, because a unit inside the
  * distro cannot start the distro after a reboot); other Linux with a systemd
  * user manager → systemd. Anything else has no supported supervisor, and the
- * answer says to run `namzu schedule daemon` under one of your own.
+ * answer says to run `namzu schedule service daemon` under one of your own.
  */
 
 import { detectWsl } from '../../context/environment.js'
@@ -29,7 +29,7 @@ export function detectPlatform(
 		return {
 			platform: null,
 			reason:
-				'no systemd user manager answers here; run `namzu schedule daemon` under a supervisor of your own',
+				'no systemd user manager answers here; run `namzu schedule service daemon` under a supervisor of your own',
 		}
 	}
 	return { platform: null, reason: `${platform} has no supported supervisor` }

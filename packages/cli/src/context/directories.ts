@@ -2,7 +2,7 @@ import { realpath, stat } from 'node:fs/promises'
 import { isAbsolute, relative, resolve } from 'node:path'
 
 /**
- * The session's added directories: the ones `/add-dir` extends and every turn
+ * The session's added directories: the ones `/add dir` extends and every turn
  * reads fresh — the query, the sandbox binds and the environment prompt.
  */
 export interface SessionDirectories {
@@ -42,7 +42,7 @@ function isInside(root: string, candidate: string): boolean {
  * The session's directories over a list the caller keeps.
  *
  * The list is shared rather than copied: the session reads it at every turn,
- * and `/add-dir` must be visible to the next one.
+ * and `/add dir` must be visible to the next one.
  */
 export function createSessionDirectories(
 	cwd: string,

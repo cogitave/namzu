@@ -58,10 +58,10 @@ import {
 	googleApiKeyPath,
 	isApiKeyLogoutTarget,
 	listStoredApiKeyProviders,
+	locateStoredCodexCredential,
+	locateStoredSubscriptionCredential,
 	readStoredApiKey,
-	readStoredCodexCredential,
 	readStoredGeminiApiKey as readStoredGoogleApiKey,
-	readStoredSubscriptionCredential,
 } from '../integrations/providers/index.js'
 import {
 	describeAllCredentialsLogout,
@@ -97,9 +97,15 @@ const LOGIN_HELP = [
 	'',
 	'The credential is written to ~/.namzu/credentials.json, readable only by your',
 	"account. Run 'namzu logout' to remove it.",
+	'',
+	'Inside WSL, a Claude or Codex sign-in made in Namzu Desktop on Windows is used in',
+	'place when this terminal has none of its own; signing in here keeps a separate one.',
 ].join('\n')
 
 const DEFAULT_TIMEOUT_SECONDS = 300
+
+const DESKTOP_SHARED_LOGOUT_NOTE =
+	'This terminal now uses the subscription signed in on Namzu Desktop on Windows (a sign-in of its own was hidden behind it, or never existed). It was not removed: it belongs to Desktop, so signing out here would sign Desktop out too. Sign out in Desktop to remove it, or set shareDesktopSignIn to false (or NAMZU_SHARE_DESKTOP_SIGNIN=0) so this terminal stops using it.'
 
 const LOGOUT_HELP = [
 	'Usage: namzu logout [claude|codex|gemini|<provider>|all]',
@@ -416,8 +422,22 @@ export const logoutCommand: CommandDef = {
 			return EXIT_OK
 		}
 		const path = target === 'google' ? googleApiKeyPath() : credentialsPath()
-		const hadClaude = readStoredSubscriptionCredential() !== null
-		const hadCodex = readStoredCodexCredential() !== null
+		// A sign-in shared from Namzu Desktop on Windows is Desktop's, not this terminal's:
+		// signing out here removes only what this terminal owns and leaves Desktop's alone.
+		const subscriptionAt = locateStoredSubscriptionCredential()
+		const codexAt = locateStoredCodexCredential()
+		const hadSubscription = subscriptionAt !== null && subscriptionAt.shared === null
+		const hadCodex = codexAt !== null && codexAt.shared === null
+		// Evaluated after the removal: a sign-out that leaves Desktop's sign-in as the one this
+		// terminal now uses (it was hidden behind the terminal's own) must say so.
+		const desktopNote = (): string => {
+			const sub = locateStoredSubscriptionCredential()
+			const codex = locateStoredCodexCredential()
+			const shared =
+				(sub?.shared && (target === 'anthropic' || target === 'all')) ||
+				(codex?.shared && (target === 'codex' || target === 'all'))
+			return shared ? `\n\n${DESKTOP_SHARED_LOGOUT_NOTE}` : ''
+		}
 		const hadGoogleKey = readStoredGoogleApiKey() !== null
 		if (target === 'all') {
 			const failures: string[] = []
@@ -445,12 +465,12 @@ export const logoutCommand: CommandDef = {
 				text:
 					failures.length > 0
 						? `Some stored credentials could not be removed: ${failures.join('; ')}. Check both stores before retrying.`
-						: describeAllCredentialsLogout(
+						: `${describeAllCredentialsLogout(
 								path,
 								googleApiKeyPath(),
-								hadClaude || hadCodex || hadGoogleKey || hadKeys,
+								hadSubscription || hadCodex || hadGoogleKey || hadKeys,
 								apiKeysPath(),
-							),
+							)}${desktopNote()}`,
 			})
 			return failures.length > 0 ? EXIT_FAIL : EXIT_OK
 		}
@@ -465,11 +485,11 @@ export const logoutCommand: CommandDef = {
 			return EXIT_FAIL
 		}
 		ctx.formatter.print({
-			text: describeProviderLogout(
+			text: `${describeProviderLogout(
 				path,
 				target,
-				target === 'anthropic' ? hadClaude : target === 'codex' ? hadCodex : hadGoogleKey,
-			),
+				target === 'anthropic' ? hadSubscription : target === 'codex' ? hadCodex : hadGoogleKey,
+			)}${desktopNote()}`,
 		})
 		return EXIT_OK
 	},

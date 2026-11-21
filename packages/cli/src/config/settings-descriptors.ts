@@ -482,7 +482,7 @@ const fileOnly: SettingControl = { kind: 'file-only' }
 
 /**
  * When a key's saved value is read. Found from the code that reads it: the terminal app, the
- * schedule daemon, the update check, telemetry, the plugin loader, the model choice and the list of
+ * schedule service daemon, the update check, telemetry, the plugin loader, the model choice and the list of
  * permission modes a host offers read once at launch. The host re-reads the user and project files
  * whenever it starts a conversation (`ensureSession` in `commands/acp.ts`), and builds the session
  * options, the permission rules, the browser rules and the per-turn options from that fresh read,
@@ -680,6 +680,18 @@ const DECLARED: readonly SettingDescriptor[] = [
 		{
 			group: 'choosing-models',
 			keywords: ['Refresh the model list', 'catalogue', 'prices', 'model list'],
+			default: true,
+		},
+	),
+	d(
+		'shareDesktopSignIn',
+		'models',
+		'Use the Desktop sign-in',
+		'In WSL, use a Claude or Codex sign-in made in Namzu Desktop on Windows when this terminal has none of its own. Turn it off to keep the terminal to its own sign-ins.',
+		on,
+		{
+			group: 'choosing-models',
+			keywords: ['Windows', 'WSL', 'Desktop', 'subscription', 'sign in', 'share sign-in'],
 			default: true,
 		},
 	),

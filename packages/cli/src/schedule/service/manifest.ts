@@ -1,5 +1,5 @@
 /**
- * `schedule/service.json`: what `schedule install` created, so `uninstall`
+ * `schedule/service.json`: what `schedule service install` created, so `uninstall`
  * removes exactly that and verifies each piece is gone.
  */
 

@@ -1,5 +1,5 @@
 /**
- * `schedule logs [--follow] [--job <name>] [--since 1h]`: the daemon's log,
+ * `schedule service logs [--follow] [--job <name>] [--since 1h]`: the daemon's log,
  * and `--run <run-id>` for one run's own output.
  */
 

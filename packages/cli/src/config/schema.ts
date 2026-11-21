@@ -870,7 +870,7 @@ export interface NamzuCliConfig {
 	/**
 	 * Directories besides the working directory the file tools may reach,
 	 * relative to the project or absolute. Bound read-write into the sandbox.
-	 * `--add-dir` and `/add-dir` add to this list for one launch or session.
+	 * `--add-dir` and `/add dir` add to this list for one launch or session.
 	 */
 	readonly additionalDirectories?: readonly string[]
 	/**
@@ -943,6 +943,13 @@ export interface NamzuCliConfig {
 	 * before a project is trusted, so a project file does not affect it.
 	 */
 	readonly modelCatalogueRefresh?: boolean
+	/**
+	 * Inside WSL, read a subscription sign-in made in Namzu Desktop on Windows in place when
+	 * this terminal has none of its own. Absent or `true` means on; `false` keeps the terminal to
+	 * its own sign-ins. Read before a project is trusted, so a project file does not affect it.
+	 * `NAMZU_SHARE_DESKTOP_SIGNIN` overrides it.
+	 */
+	readonly shareDesktopSignIn?: boolean
 	/**
 	 * Start with hypermode on. Absent or `false` means off. The interactive
 	 * terminal starts every conversation with the mode on (`/hypermode off`
@@ -1261,7 +1268,7 @@ export interface SandboxConfig {
 	 * working directory and the added directories is an approval request,
 	 * not a refusal. `true` confines each command to the working directory
 	 * and the added directories, with the network cut where the platform can
-	 * cut it; whatever the sandbox cannot reach then needs `/add-dir` or a
+	 * cut it; whatever the sandbox cannot reach then needs `/add dir` or a
 	 * per-command escape the user approves.
 	 *
 	 * Unset, it is on when `requireIsolation` names a control or `workspace`

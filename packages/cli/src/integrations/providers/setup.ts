@@ -43,7 +43,9 @@ export function describeAccess(source: DetectionSource): string {
 		case 'stored-api-key':
 			return 'Saved API key'
 		case 'stored':
-			return 'Signed in with Namzu'
+			return source.shared === 'desktop'
+				? 'Signed in with Namzu Desktop on Windows'
+				: 'Signed in with Namzu'
 		case 'session':
 			return 'Key typed for this session'
 	}
