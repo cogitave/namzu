@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-22
+
+- **Creation** [Releasing without GitHub Actions](cli/releasing.md): `pnpm release version | local | record-gates | desktop [publish]` (`scripts/release.mjs`) publishes the npm packages and the Desktop installer by hand with the same checks the workflows run: HEAD is origin/main and clean, no pending changeset, a local gate record for this exact tree, the consumer install check and publish metadata, an npm sign-in, then `changeset publish`, registry verification, tag push and a release note. `AGENTS.md` now allows that command as the only manual path.
+
 ## 2026-11-21
 
 - **Update** [Your Namzu network](cli/namzu-network.md#trusted-networks), [Your Namzu network (SDK)](sdk/namzu-network.md#trusted-networks): trusted networks: the first Allow on a network can trust it (`Allow and trust this network` in `/peers`, `namzu peers allow --trust`), and a new machine that asks from a trusted network joins without asking, with one line on every terminal and an audit entry; a network is recognised by a hash of its subnet and its gateway's hardware address (read without privileges; unreadable means unknown and never trusted; WSL2 NAT needs mirrored networking to share one); `namzu peers networks`, `untrust`, a Trusted networks section in `/peers`; setting `network.autoAdmit` (`trusted-networks`, `always`, `never`); `/peers` lists this terminal's session first under its machine. `.changeset/cli-namzu-network.md`, `.changeset/sdk-namzu-network.md`.
