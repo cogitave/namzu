@@ -186,13 +186,12 @@ describe('runCli', () => {
 	])('a removed command %j is unknown, and the error names exec', async (args, name, hint) => {
 		const code = await invoke(args)
 		expect(code).toBe(64)
-		// Commander's own wording, not "too many arguments", which is what the
+		// One line naming the replacement; not "too many arguments", which is what the
 		// root command's default action would otherwise make of the name.
-		expect(stderr).toContain(`Unknown command '${name}'.`)
 		expect(stderr).not.toContain('too many arguments')
 		expect(flat(stderr)).toContain(hint)
-		// The sentence, then the replacement command. No second pointer to --help.
-		expect(stderr.trim().split('\n')[0]).toBe(`Unknown command '${name}'.`)
+		expect(stderr).toContain(`namzu ${name}`)
+		expect(stderr.trim().split('\n')).toHaveLength(1)
 		expect(stderr).not.toContain('--help')
 	})
 
@@ -202,6 +201,7 @@ describe('runCli', () => {
 	])('the hyphenated %s prints one line naming its replacement and exits 64', async (name, now) => {
 		expect(await invoke([name])).toBe(64)
 		expect(flat(stderr)).toContain(`This command is now \`${now}\`.`)
+		expect(stderr.trim().split('\n')).toHaveLength(1)
 	})
 
 	it('lists exec with its alias, and neither removed command', async () => {

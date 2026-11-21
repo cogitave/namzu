@@ -195,7 +195,7 @@ const EX_USAGE = 64
 
 /**
  * Commands that were removed, and what replaced each. Typing one gets
- * commander's unknown-command error and one line naming the replacement.
+ * one line naming the replacement.
  */
 const REMOVED_COMMANDS: Readonly<Record<string, string>> = {
 	run: '`namzu run` was replaced by `namzu exec "<prompt>"`, which takes the same options.',
@@ -1095,7 +1095,8 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		const removed = firstRootOperand(program, opts.argv.slice(2))
 		const hint = removed !== undefined ? REMOVED_COMMANDS[removed] : undefined
 		if (removed !== undefined && hint !== undefined) {
-			program.error(`error: unknown command '${removed}'\n${hint}`, {
+			// One line, naming the replacement: the old name is not a command any more.
+			program.error(hint, {
 				exitCode: EX_USAGE,
 				code: 'commander.unknownCommand',
 			})
