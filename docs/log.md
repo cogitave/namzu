@@ -2,6 +2,7 @@
 
 ## 2026-11-21
 
+- **Update** [Permission modes](cli/permission-modes.md): a conversation left in plan mode comes back in plan mode on `-c` or `/resume`. `.changeset/cli-plan-mode-resumes.md`.
 - **Update** [Terminal design](cli/terminal-design.md), [Background jobs in the CLI](cli/background-jobs.md), [Bash tool](sdk/bash-tool.md): Esc before the model has shown any answer puts the message back in the box (no `Interrupted` row, vim starts in INSERT); `bash` takes an optional `description` that names its background job in the end-of-job row, `/tasks` and the job detail, a command without one loses a leading `cd <folder> &&`, and the `[job ...; next_offset ...]` cursor line of `job` and `wait_for_job` results is no longer printed in the transcript. `.changeset/cli-interrupted-message-returns-and-job-names.md`, `.changeset/sdk-bash-description-names-the-job.md`.
 - **Update** [Text-only models and images](sdk/text-only-models-and-images.md): a pasted image now reaches an OpenRouter model that reads images, as an `image_url` content part; `OPENROUTER_CAPABILITIES.supportsVision` is `true` and `supportsImageInputFor` answers per model from the listing's input modalities, so a text-only model still gets the notice and omission marker. `.changeset/openrouter-images-for-vision-models.md`.
 - **Update** [Slash commands](cli/slash-commands.md): provider setup's install question starts on Cancel and takes no letter as an answer; installing takes an arrow to Install and Enter.

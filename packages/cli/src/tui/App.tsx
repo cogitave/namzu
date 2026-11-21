@@ -235,6 +235,7 @@ import { displayConversationTitle, typedTextOf } from '../integrations/sessions/
 import { journalOf } from '../integrations/sessions/journal-trail.js'
 import { generatePromptSuggestion } from '../integrations/sessions/prompt-suggestion.js'
 import { generateRecap } from '../integrations/sessions/recap.js'
+import { savedPermissionMode } from '../integrations/sessions/saved-mode.js'
 import { askSideQuestion } from '../integrations/sessions/side-question.js'
 import {
 	type CliSessions,
@@ -254,6 +255,7 @@ import {
 	openSessions,
 	readConversationRecords,
 	recordGeneratedTitle,
+	recordPermissionMode,
 	requireWritableConversation,
 	setTitle,
 	startConversation,
@@ -4862,6 +4864,49 @@ function AppBody({
 		[ctx.permissionSettings, session],
 	)
 
+	/**
+	 * The mode the saved conversation last recorded, by conversation. Only plan
+	 * mode is kept: a resume brings plan mode back and nothing else, so another
+	 * mode is never written, and leaving plan mode writes the one record that
+	 * clears it.
+	 */
+	const savedModeRef = useRef<{ id: string; mode: string | undefined } | null>(null)
+	const saveModeIfChanged = useCallback((): void => {
+		const sessions = sessionsRef.current
+		const scope = scopeRef.current
+		if (!sessions || !scope || !conversationMaterializedRef.current) return
+		const id = String(scope.sessionId)
+		const known = savedModeRef.current?.id === id ? savedModeRef.current.mode : undefined
+		const mode = permissionModeRef.current
+		if (mode === known || (mode !== 'plan' && known !== 'plan')) return
+		savedModeRef.current = { id, mode }
+		Promise.resolve()
+			.then(() => recordPermissionMode(sessions, scope.sessionId, mode))
+			.catch(() => {
+				if (savedModeRef.current?.id === id && savedModeRef.current.mode === mode) {
+					savedModeRef.current = { id, mode: known }
+				}
+			})
+	}, [])
+	/**
+	 * A conversation that was in plan mode when it was left is in plan mode when
+	 * it comes back, unless the launch named a mode outright. Other modes are
+	 * not brought back.
+	 */
+	const restoreSavedModeRef = useRef<(messages: readonly Message[], id: string) => void>(() => {})
+	restoreSavedModeRef.current = (messages, id) => {
+		const saved = savedPermissionMode(journalOf(messages))
+		savedModeRef.current = { id, mode: saved }
+		if (saved !== 'plan' || permissionModeRef.current === 'plan') return
+		const source = permissionModeSourceRef.current
+		if (source === 'launch-flag' || source === 'launch-bypass') return
+		permissionModeRef.current = 'plan'
+		permissionModeSourceRef.current = 'session'
+		setPermissionModeState('plan')
+		void session?.setPermissionMode?.('plan')
+		rulesChanged()
+	}
+
 	const commitPermissionMode = useCallback(
 		(mode: PermissionMode, announce: boolean): void => {
 			if (!session?.hasProvider) return
@@ -4872,6 +4917,7 @@ function AppBody({
 			setPermissionModeState(mode)
 			void session.setPermissionMode?.(mode)
 			rulesChanged()
+			if (!abortRef.current) saveModeIfChanged()
 			if (announce) {
 				pushMessage(
 					'system',
@@ -4891,7 +4937,7 @@ function AppBody({
 			}
 			if (mode !== 'classify') removeNotice(AUTO_MODE_NOTICE_KEY)
 		},
-		[addNotice, pushMessage, removeNotice, rulesChanged, session],
+		[addNotice, pushMessage, removeNotice, rulesChanged, saveModeIfChanged, session],
 	)
 
 	const applyPermissionMode = useCallback(
@@ -6294,6 +6340,7 @@ function AppBody({
 			const restored = await loadResumableConversation(sessions, requestedConversationId)
 			sessionId = asSessionId(requestedConversationId)
 			modelHistoryRef.current = restored
+			restoreSavedModeRef.current(restored, requestedConversationId)
 			// The account this conversation last ran under. One that has since been
 			// removed falls back to the usual sign-in, and the person is told.
 			try {
@@ -8598,6 +8645,7 @@ function AppBody({
 			resetTranscript()
 			setMessages(restored)
 			modelHistoryRef.current = msgs
+			restoreSavedModeRef.current(msgs, conv.id)
 			idleCompactionRef.current?.compactor.contextChanged()
 			setHistory((previous) => [...previous, ...promptHistoryFromConversation(msgs)])
 			// Persisted conversation rows do not carry the live run/message identity
@@ -12088,6 +12136,7 @@ function AppBody({
 					takenBackTurnRef.current === turnToken
 						? historyBeforeTurn
 						: (conversationMessages ?? [...historyBeforeTurn, ...fallbackTurn])
+				if (stillHere()) saveModeIfChanged()
 				if (goalRound && (ac.signal.aborted || st.outcome !== 'completed')) {
 					goalActivation.disarm(goalRound.sessionId, goalRound)
 					wakeGoalDriver()
