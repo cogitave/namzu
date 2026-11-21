@@ -8,9 +8,14 @@
  * so a copy that is byte for byte the account's key carries nothing the
  * account does not. This removes such copies.
  *
+ * Called from the terminal app's start only; the Desktop key list and the
+ * non-interactive commands read through the account fallback and so show one
+ * key either way, and the copy goes at the next terminal start.
+ *
  * Nothing is removed unless the account file is read first, its key equals the
  * copy exactly, and the removal itself checks the copy is still that value
- * under the store lock. A key that differs from the account's is a different
+ * under the store lock, then the account is read again and the copy is written back if the
+ * account is gone. A key that differs from the account's is a different
  * key and stays. An unreadable or corrupt file on either side removes nothing.
  */
 
@@ -20,6 +25,8 @@ import {
 	clearStoredGeminiApiKeyIf,
 	readOwnStoredApiKey,
 	readStoredGeminiApiKey,
+	writeStoredApiKey,
+	writeStoredGeminiApiKey,
 } from './credential-store.js'
 
 export interface KeyRetirement {
@@ -43,15 +50,21 @@ export function retireDuplicateStartupKeys(home?: string): KeyRetirement {
 			const accountKey = accounts.find((entry) => entry.provider === provider)?.key
 			if (accountKey === undefined) continue
 			try {
-				if (provider === 'google') {
-					const own = readStoredGeminiApiKey(home)
-					if (own === accountKey && clearStoredGeminiApiKeyIf(accountKey, home))
-						retired.push(provider)
-					continue
-				}
-				const own = readOwnStoredApiKey(provider, home)
-				if (own === accountKey && clearStoredApiKeyIf(provider, accountKey, home))
-					retired.push(provider)
+				const google = provider === 'google'
+				const own = google ? readStoredGeminiApiKey(home) : readOwnStoredApiKey(provider, home)
+				if (own !== accountKey) continue
+				const removed = google
+					? clearStoredGeminiApiKeyIf(accountKey, home)
+					: clearStoredApiKeyIf(provider, accountKey, home)
+				if (!removed) continue
+				// The account file was read before the removal, without its lock. If the
+				// account went in between, this copy was the last one: put it back.
+				const stillHeld = readAccountKeys(home).some(
+					(entry) => entry.provider === provider && entry.key === accountKey,
+				)
+				if (stillHeld) retired.push(provider)
+				else if (google) writeStoredGeminiApiKey(accountKey, home)
+				else writeStoredApiKey(provider, accountKey, home)
 			} catch {
 				// Keep both copies; the next start looks again.
 			}
@@ -67,5 +80,5 @@ export function retirementNotice(
 	labelOf: (id: string) => string,
 ): string | null {
 	if (retired.length === 0) return null
-	return `Your saved ${retired.map(labelOf).join(', ')} API key was stored twice. It is now kept once, with its account, and works as before.`
+	return `Your saved ${retired.map(labelOf).join(', ')} API key was stored twice. It is now kept once, with its account, and works as before. Removing that account removes the key.`
 }

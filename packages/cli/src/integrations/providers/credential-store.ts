@@ -65,6 +65,7 @@ import { basename, dirname, join, toNamespacedPath } from 'node:path'
 
 import { createAccountRegistry } from '@namzu/sdk'
 
+import { createAccountActivityStore } from '../accounts/activity.js'
 import { namzuHomePath } from '../state/home.js'
 import { readAccountKeys, readAccountStartupKey } from './account-keys.js'
 import type { AgentOAuthCredential } from './keychain.js'
@@ -163,13 +164,15 @@ export function writeStoredGeminiApiKey(apiKey: string, home?: string): string {
 /**
  * Remove Namzu's Gemini key without changing environment or Gemini CLI credentials.
  * The account that holds the same key goes with it, because the account is the
- * only other place startup reads it from.
+ * only other place startup reads it from; accounts holding another key stay.
+ * Accounts go first, so a failure leaves the key file and the sign-in in step.
  */
 export function clearStoredGeminiApiKey(home?: string): void {
 	const path = googleApiKeyPath(home)
 	mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
+	const startup = readOwnGeminiApiKey(home) ?? readAccountStartupKey('google', home)
+	if (startup !== null) forgetAccountsHolding('google', startup, home)
 	withCredentialStoreLock(path, () => rmSync(path, { force: true }))
-	forgetAccountKeys('google', home)
 }
 
 /**
@@ -270,12 +273,15 @@ function removeOwnKey(providerId: string, home: string | undefined, expected?: s
 
 /**
  * Remove one provider's saved key; the file goes when it was the last. The
- * plain `/auth` accounts of that provider go too: their key is the same saved
- * key, and leaving it would keep the provider signed in after a logout.
+ * plain `/auth` accounts that hold that same key go too, since leaving them
+ * would keep the key; an account with a different key is not named by a
+ * logout and stays. Accounts go first and a failure stops before the key file
+ * is touched, so the two never end half done.
  */
 export function clearStoredApiKey(providerId: string, home?: string): void {
+	const startup = readOwnStoredApiKey(providerId, home) ?? readAccountStartupKey(providerId, home)
+	if (startup !== null) forgetAccountsHolding(providerId, startup, home)
 	removeOwnKey(providerId, home)
-	forgetAccountKeys(providerId, home)
 }
 
 /**
@@ -287,21 +293,51 @@ export function clearStoredApiKeyIf(providerId: string, expected: string, home?:
 	return removeOwnKey(providerId, home, expected)
 }
 
-/** Remove every saved provider key at once (`/logout all`), accounts' keys included. */
+/**
+ * Remove every saved provider key at once (`/logout all`), and the plain
+ * accounts that hold each provider's startup key. Gemini's key has its own
+ * clear and is left to it.
+ */
 export function clearAllStoredApiKeys(home?: string): void {
 	const path = apiKeysPath(home)
 	mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
+	const own = readApiKeyDocument(home)
+	const providers = new Set([...Object.keys(own), ...readAccountKeys(home).map((e) => e.provider)])
+	providers.delete('google')
+	for (const provider of providers) {
+		const startup = own[provider] ?? readAccountStartupKey(provider, home)
+		if (startup !== null) forgetAccountsHolding(provider, startup, home)
+	}
 	withCredentialStoreLock(path, () => rmSync(path, { force: true }))
-	for (const provider of new Set(readAccountKeys(home).map((entry) => entry.provider)))
-		forgetAccountKeys(provider, home)
 }
 
-/** Remove the plain API-key accounts of a provider, the holders of its account-stored key. */
-function forgetAccountKeys(provider: string, home?: string): void {
-	const entries = readAccountKeys(home).filter((entry) => entry.provider === provider)
+/**
+ * Remove the plain API-key accounts of a provider whose key is `key`, with
+ * their last-use records. Each is tried; if any fails, this throws after the
+ * rest were tried and names how many remain, so the caller stops before it
+ * removes the key file and the person is told.
+ */
+function forgetAccountsHolding(provider: string, key: string, home?: string): void {
+	const entries = readAccountKeys(home).filter(
+		(entry) => entry.provider === provider && entry.key === key,
+	)
 	if (entries.length === 0) return
-	const registry = createAccountRegistry(home === undefined ? {} : { home: namzuHomePath(home) })
-	for (const entry of entries) registry.remove(entry.accountId)
+	const base = home === undefined ? undefined : namzuHomePath(home)
+	const registry = createAccountRegistry(base === undefined ? {} : { home: base })
+	const activity = createAccountActivityStore(base === undefined ? {} : { home: base })
+	const failed: string[] = []
+	for (const entry of entries) {
+		try {
+			registry.remove(entry.accountId)
+			activity.forget(entry.accountId)
+		} catch {
+			failed.push(entry.accountId)
+		}
+	}
+	if (failed.length > 0)
+		throw new CredentialStoreError(
+			`Could not remove ${failed.length} saved account${failed.length === 1 ? '' : 's'} holding the ${provider} key; the saved key was kept.`,
+		)
 }
 
 /**

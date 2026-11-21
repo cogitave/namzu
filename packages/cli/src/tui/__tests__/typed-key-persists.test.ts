@@ -1,4 +1,5 @@
 import {
+	chmodSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
@@ -11,6 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createAccountRegistry } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { createAccountActivityStore } from '../../integrations/accounts/activity.js'
 
 import {
 	apiKeyLogoutTarget,
@@ -20,6 +22,7 @@ import {
 	clearStoredApiKeyIf,
 	discoverProviders,
 	listStoredApiKeyProviders,
+	readOwnStoredApiKey,
 	readStoredApiKey,
 	readStoredGeminiApiKey,
 	retireDuplicateStartupKeys,
@@ -149,7 +152,7 @@ describe('an account key is stored once', () => {
 	const accounts = () => createAccountRegistry({ home: join(home, '.namzu'), readers: {} })
 	const addAccount = (provider: string, label: string, apiKey: string, baseUrl?: string) => {
 		mkdirSync(join(home, '.namzu'), { recursive: true })
-		accounts().add({
+		return accounts().add({
 			provider,
 			label,
 			kind: 'api-key',
@@ -186,6 +189,54 @@ describe('an account key is stored once', () => {
 				.list('deepseek')
 				.filter((a) => a.label === 'work'),
 		).toHaveLength(0)
+	})
+
+	it("a logout keeps accounts that hold another key, and forgets the removed one's activity", () => {
+		const work = addAccount('deepseek', 'work', KEY)
+		const other = addAccount('deepseek', 'second', OTHER)
+		writeStoredApiKey('deepseek', KEY, home)
+		const activity = createAccountActivityStore({ home: join(home, '.namzu') })
+		activity.markUsed(work.id, 1)
+		activity.markUsed(other.id, 2)
+		clearStoredApiKey('deepseek', home)
+		expect(
+			accounts()
+				.list('deepseek')
+				.map((a) => a.label),
+		).not.toContain('work')
+		expect(
+			accounts()
+				.list('deepseek')
+				.map((a) => a.label),
+		).toContain('second')
+		expect(Object.keys(activity.read().lastUsed)).toEqual([other.id])
+		expect(readStoredApiKey('deepseek', home)).toBe(OTHER)
+	})
+
+	it('a logout that cannot remove an account keeps the saved key and says so', () => {
+		addAccount('deepseek', 'work', KEY)
+		writeStoredApiKey('deepseek', KEY, home)
+		const file = join(home, '.namzu', 'accounts.json')
+		const before = readFileSync(file, 'utf8')
+		// A directory in the registry's temp-file slot is not portable; a read-only file is.
+		chmodSync(file, 0o400)
+		chmodSync(join(home, '.namzu'), 0o500)
+		try {
+			if (process.getuid?.() === 0) return
+			expect(() => clearStoredApiKey('deepseek', home)).toThrow(/saved key was kept/)
+			expect(readOwnStoredApiKey('deepseek', home)).toBe(KEY)
+			expect(readFileSync(file, 'utf8')).toBe(before)
+		} finally {
+			chmodSync(join(home, '.namzu'), 0o700)
+			chmodSync(file, 0o600)
+		}
+	})
+
+	it('does not trust an accounts.json that others can read', () => {
+		if (process.platform === 'win32') return
+		addAccount('deepseek', 'work', KEY)
+		chmodSync(join(home, '.namzu', 'accounts.json'), 0o644)
+		expect(readStoredApiKey('deepseek', home)).toBeNull()
 	})
 })
 

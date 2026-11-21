@@ -1598,12 +1598,16 @@ export function snapshotTurnConfig(config: TurnRecorderConfig['turnConfig']): Tu
 	}
 }
 
-/** A live event as a record draft: the payload minus the live-only fields. */
-/** Whether a request's joined system messages are the turn's prompt, up to its one separator. */
+/**
+ * Whether a request's joined system messages are the turn's prompt, up to its one separator.
+ * "Same" means same up to that swap: a reader rebuilds the request text from `turn_started`
+ * with the rule, not the blank line, so the pointer does not say which join the request used.
+ */
 export function requestPromptMatchesTurn(requestPrompt: string, turnPrompt: string): boolean {
 	return requestPrompt === turnPrompt || requestPrompt === turnPrompt.replace('\n\n---\n\n', '\n\n')
 }
 
+/** A live event as a record draft: the payload minus the live-only fields. */
 export function eventDraft(
 	event: SessionEvent,
 	turnId: TurnId | undefined,

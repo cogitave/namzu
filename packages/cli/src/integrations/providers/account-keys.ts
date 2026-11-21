@@ -15,6 +15,7 @@ import { lstatSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { namzuHomePath } from '../state/home.js'
+import { restrictToOwner } from './credential-store.js'
 
 export interface AccountKeyEntry {
 	readonly accountId: string
@@ -28,7 +29,7 @@ export function accountsFilePath(home?: string): string {
 
 /**
  * Every plain API-key account with a readable key, oldest first. A missing,
- * unreadable, linked or malformed file is "no accounts": the caller then falls
+ * unreadable, linked, loosely permissioned or malformed file is "no accounts": the caller then falls
  * back to what it had, and nothing is lost because nothing here deletes.
  */
 export function readAccountKeys(home?: string): AccountKeyEntry[] {
@@ -36,6 +37,8 @@ export function readAccountKeys(home?: string): AccountKeyEntry[] {
 	try {
 		const entry = lstatSync(path)
 		if (!entry.isFile() || entry.isSymbolicLink()) return []
+		// The same proof the key files get: a file others can read or write is not trusted as a key source.
+		restrictToOwner(path)
 		const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
 		if (typeof parsed !== 'object' || parsed === null) return []
 		const { accounts, keys } = parsed as { accounts?: unknown; keys?: unknown }
