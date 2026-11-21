@@ -655,6 +655,17 @@ describe('/permissions rules', () => {
 		expect((denied as { content: string }).content).toContain('bash: curl x')
 	})
 
+	it('lists an allow held for this conversation that no file carries', () => {
+		const reply = runSlash(
+			'/permissions rules allow',
+			context({
+				rememberedAllows: () => [{ kind: 'prefix', tool: 'bash', prefix: 'git status' }],
+			}),
+		) as { content: string }
+		expect(reply.content).toContain('bash(git status *)  (this conversation only)')
+		expect(reply.content).not.toContain('Always asks')
+	})
+
 	it('asks for a complete add and remove', () => {
 		for (const line of [
 			'/permissions add allow',

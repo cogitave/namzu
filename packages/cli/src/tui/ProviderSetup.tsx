@@ -24,6 +24,11 @@ export function ProviderSetup({
 	const [rows, setRows] = useState<SetupProbe[]>([])
 	const [selected, setSelected] = useState(0)
 	const [confirm, setConfirm] = useState(false)
+	// The install question starts on Cancel and takes no letter as an answer: this
+	// screen can open while someone is typing a message, and a sentence (letters,
+	// then Enter) must never run a global install. Installing takes an arrow to
+	// Install and then Enter.
+	const [installFocused, setInstallFocused] = useState(false)
 	const [busy, setBusy] = useState(true)
 	const [output, setOutput] = useState('Checking installations and credential sources…')
 	const lifetime = useRef<AbortController | null>(null)
@@ -101,13 +106,20 @@ export function ProviderSetup({
 		}
 		if (busy) return
 		if (confirm) {
-			if (input === 'y') void install()
-			else if (input === 'n') setConfirm(false)
+			if (key.upArrow || key.downArrow || key.leftArrow || key.rightArrow || key.tab)
+				setInstallFocused((value) => !value)
+			else if (key.return) {
+				if (installFocused) void install()
+				else setConfirm(false)
+			}
 			return
 		}
 		if (key.upArrow) setSelected((value) => Math.max(0, value - 1))
 		if (key.downArrow) setSelected((value) => Math.min(rows.length - 1, value + 1))
-		if (input === 'i' && rows[selected] && !rows[selected]!.installed) setConfirm(true)
+		if (input === 'i' && rows[selected] && !rows[selected]!.installed) {
+			setInstallFocused(false)
+			setConfirm(true)
+		}
 		if (input === 'c') onConnect()
 		if (input === 'r') {
 			setBusy(true)
@@ -182,7 +194,16 @@ export function ProviderSetup({
 						// biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines have no identity of their own.
 						<Text key={index}>{line}</Text>
 					))}
-					<Text>y install · n cancel</Text>
+					{(['Cancel', 'Install'] as const).map((label) => {
+						const focused = (label === 'Install') === installFocused
+						return (
+							<Text key={label} color={focused ? theme.border.focus : undefined}>
+								{focused ? '› ' : '  '}
+								{label}
+							</Text>
+						)
+					})}
+					<Text dimColor>↑↓ choose · enter confirm · esc cancel</Text>
 				</Box>
 			) : (
 				<Text dimColor>

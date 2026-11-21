@@ -885,7 +885,9 @@ export interface ReviewPolicyOptions {
 	readonly capturesScreen?: (name: string, input: unknown) => boolean
 	/**
 	 * The one write `plan` mode lets through: a host that gives plan mode a plan
-	 * file says here which call writes it. In `plan`, a call this accepts is not
+	 * file says here which call touches it. The predicate covers reads of the
+	 * session's own plan file too, since that path is not one anyone needs to
+	 * be asked about. In `plan`, a call this accepts is not
 	 * a change — it is neither refused nor asked about — unless a rule asked to
 	 * review it, in which case it is put to the person like a read outside the
 	 * roots. Every other write stays refused. Omitted (the default), `plan`

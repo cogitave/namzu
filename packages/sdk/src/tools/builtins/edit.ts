@@ -510,6 +510,77 @@ function refusedEdit(result: EditApplyFailure, path: string) {
 	}
 }
 
+/**
+ * The refusals `execute` would give that need no person's answer, asked before
+ * a reviewer is: arguments that name no change, a file the session never read
+ * whose text the call does not match, a file that moved since the read, and
+ * replacements that do not apply. The text is the one `execute` gives, so the
+ * model sees the same words with or without a dialog. It says nothing when it
+ * cannot tell (an unreadable or missing file, a path outside the roots); those
+ * keep their own answers at run time.
+ */
+async function refuseEditBeforeReview(
+	input: EditInput,
+	context: ToolContext,
+): Promise<{ readonly error: string; readonly facts?: ToolFacts } | undefined> {
+	const parsed = inputSchema.safeParse(input)
+	if (!parsed.success) return undefined
+	const normalized = normalizeEditInput(parsed.data)
+	if (!normalized.success) return { error: normalized.error }
+	const noOp = normalized.operations.findIndex(
+		(operation) => operation.operation === 'replace' && operation.oldString === operation.newString,
+	)
+	if (noOp >= 0) {
+		return {
+			error:
+				normalized.operations.length === 1
+					? 'old_string/oldStr and new_string/newStr are identical — no change needed'
+					: `edits[${noOp}]: old_string and new_string are identical — no change needed. Nothing was written.`,
+		}
+	}
+	// In a sandbox only the moved-since-read check runs here, as before; the
+	// unread-file refusals are given when the call runs there, so a guest that is
+	// not admitted yet, or that holds a file the host has never seen, is not
+	// judged from a read made before anyone approved the call.
+	if (context.sandbox) return staleBeforeReview(context, parsed.data.path, 'edit')
+	let key: string
+	let content: string
+	try {
+		key = await resolveWithinAnyReal(toolRoots(context), parsed.data.path)
+		content = await readFile(key, 'utf-8')
+	} catch {
+		return undefined
+	}
+	const tracker = context.fileReadTracker
+	if (tracker && !tracker.hasRead(key)) {
+		// An unread file is edited when every replacement matches it exactly.
+		if (
+			!content.includes('\u0000') &&
+			normalized.operations.every((op) => op.operation === 'replace')
+		) {
+			if (applyEdit(content, normalized.operations).success) return undefined
+		}
+		const shown = unreadEditShownError(key, content)
+		if (shown !== undefined) tracker.recordRead(key, content)
+		return {
+			error: shown ?? unreadEditTooLargeError(key),
+			facts: { kind: 'failure', reason: 'not_read', subject: key },
+		}
+	}
+	const stale = await staleBeforeReview(context, parsed.data.path, 'edit')
+	if (stale) return stale
+	const applied = applyEdit(content, normalized.operations)
+	if (!applied.success) {
+		return {
+			error: applied.error,
+			...(applied.reason
+				? { facts: { kind: 'failure' as const, reason: applied.reason, subject: key } }
+				: {}),
+		}
+	}
+	return undefined
+}
+
 export const EditTool = defineTool({
 	name: 'edit',
 	description:
@@ -531,7 +602,7 @@ export const EditTool = defineTool({
 	pathArgument: 'path',
 	// A file that moved since the read is refused whatever the replacement is,
 	// so the person is not asked to approve one that cannot run.
-	refuseBeforeReview: (input: EditInput, context) => staleBeforeReview(context, input.path, 'edit'),
+	refuseBeforeReview: refuseEditBeforeReview,
 	// The classifier judges which file changes and in what way, in a line.
 	classifierInput: (input: EditInput) => {
 		if (input.edits !== undefined && input.edits.length > 0) {

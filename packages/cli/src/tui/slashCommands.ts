@@ -10,6 +10,7 @@ import {
 } from '../integrations/providers/connections.js'
 import { DEFAULT_SPEND_DAYS, MAX_SPEND_DAYS } from '../integrations/spend/day.js'
 import type { AttachedAgentHook } from '../integrations/subagents/agent-hooks.js'
+import { LOCAL_CONFIG_FILE } from '../permissions/local-settings.js'
 import {
 	type DenialRow,
 	addLocalRule,
@@ -19,6 +20,7 @@ import {
 	ruleEntries,
 } from '../permissions/rule-screen.js'
 import { type PermissionEffect, isPermissionEffect } from '../permissions/rules.js'
+import { type SessionAllow, permissionsForAllows } from '../permissions/session-allow.js'
 import type { AttachedSkillHook } from '../skills/skill-hooks.js'
 import { CLI_VERSION } from '../version.js'
 import { displayPath, homePath, plural } from './person-terms.js'
@@ -368,6 +370,8 @@ export interface SlashContext {
 	readonly directories?: () => readonly string[]
 	/** Calls the auto mode refused in this session, newest first. */
 	readonly recentDenials?: () => readonly DenialRow[]
+	/** The allows given at a prompt and held in memory for this conversation. */
+	readonly rememberedAllows?: () => readonly SessionAllow[]
 	/** Refresh subsequent authorization decisions after a saved local rule edit. */
 	readonly reloadPermissionRules?: () => void
 	/** This session's background commands, running and ended. */
@@ -2844,7 +2848,20 @@ function permissionRulesReply(ctx: SlashContext, args: readonly string[]): strin
 		}
 		try {
 			const entries = ruleEntries(readPermissionLayers({ cwd: ctx.cwd }))
-			return renderRules(entries, only as PermissionEffect | undefined)
+			// An answer given at a prompt is held in memory for this conversation
+			// and saved to the project's local file. One the file does not carry
+			// (it could not be written, or was edited out since) is listed too, so
+			// every rule that decides a call is on the screen.
+			const held = ruleEntries([
+				{
+					source: 'local-file',
+					path: LOCAL_CONFIG_FILE,
+					permissions: permissionsForAllows(ctx.rememberedAllows?.() ?? []),
+				},
+			])
+				.filter((held) => !entries.some((e) => e.effect === held.effect && e.rule === held.rule))
+				.map((held) => ({ ...held, source: 'this conversation only' }))
+			return renderRules([...entries, ...held], only as PermissionEffect | undefined)
 		} catch (cause) {
 			return `Could not read the permission rules: ${cause instanceof Error ? cause.message : String(cause)}`
 		}

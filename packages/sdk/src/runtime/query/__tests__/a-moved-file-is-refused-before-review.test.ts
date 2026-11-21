@@ -155,7 +155,7 @@ describe('a call on a file that moved since it was read', () => {
 		expect(batch.reviewCalls.map((c) => c.name)).toEqual(['edit'])
 	})
 
-	it('leaves a new file and a file never read to the tool', async () => {
+	it('leaves a new file to the tool, and refuses an overwrite of a file never read', async () => {
 		const dir = mkdtempSync(join(tmpdir(), 'namzu-before-review-'))
 		const executor = setup(dir, tracker())
 		const fresh = await executor.prepareBatchForReview(
@@ -166,7 +166,7 @@ describe('a call on a file that moved since it was read', () => {
 		const unread = await executor.prepareBatchForReview(
 			respond('write', { path: join(dir, 'old.ts'), content: 'y\n' }),
 		)
-		expect(unread.reviewCalls.map((c) => c.name)).toEqual(['write'])
+		expect(unread.reviewCalls).toEqual([])
 	})
 
 	it('reaches review when an earlier call in the same batch reads the file again', async () => {

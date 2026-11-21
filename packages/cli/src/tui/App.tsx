@@ -5967,7 +5967,7 @@ function AppBody({
 					return
 				}
 				if (value === 'rules') {
-					commandPickerSubmitRef.current('/permissions details')
+					commandPickerSubmitRef.current('/permissions rules')
 					return
 				}
 				applyPermissionMode(value as PermissionMode)
@@ -7649,6 +7649,7 @@ function AppBody({
 		}),
 		directories: () => session?.directories?.list() ?? [],
 		recentDenials: () => session?.autoMode?.recentBlocks?.() ?? [],
+		...(session?.rememberedAllows ? { rememberedAllows: session.rememberedAllows } : {}),
 		...(session?.reloadPermissionRules
 			? { reloadPermissionRules: session.reloadPermissionRules }
 			: {}),
