@@ -635,6 +635,10 @@ export const GrepTool = defineTool({
 			if ((endState?.ignoredDirectories ?? 0) > 0 && offset === 0) {
 				summary = `${summary}\n${ignoredHint(endState?.ignoredDirectories ?? 0)}`
 			}
+			// An empty result a line break in the pattern forced is not evidence that
+			// the text is absent, so the pattern is named rather than left to read so.
+			const breakHint = totalMatches === 0 ? lineBreakHint(input.pattern, multiline) : undefined
+			if (breakHint !== undefined) summary = `${summary}\n${breakHint}`
 		} else if (mode === 'files_with_matches') {
 			body = `Found ${page.length} ${page.length === 1 ? 'file' : 'files'}${paging ? ` (${paging})` : ''}\n${page.join('\n')}`
 		} else if (mode === 'count') {
@@ -692,6 +696,40 @@ export const GrepTool = defineTool({
 /** A line past the column cap is not printed: one minified bundle would be the whole result. */
 function clipLine(line: string, kind: 'matching' | 'context'): string {
 	return line.length > MAX_LINE_COLUMNS ? `[Omitted long ${kind} line]` : line
+}
+
+/**
+ * Whether a pattern is written to match a line break: one in the pattern
+ * itself, or an escape that names one, `\n` and `\r` among them. A pattern
+ * like that cannot be found inside a single line, and every line is tested on
+ * its own while `multiline` is off.
+ */
+function patternNeedsLineBreak(pattern: string): boolean {
+	for (let index = 0; index < pattern.length; index += 1) {
+		const char = pattern[index]
+		if (char === '\n' || char === '\r' || char === '\u2028' || char === '\u2029') return true
+		if (char !== '\\') continue
+		const next = pattern[index + 1]
+		// An escaped backslash and the `n` after it are a literal `\n` in the
+		// text being searched, so the two are stepped over together.
+		if (next === '\\') {
+			index += 1
+			continue
+		}
+		if (next === 'n' || next === 'r') return true
+		if (next === 'u' && ['2028', '2029'].includes(pattern.slice(index + 2, index + 6))) return true
+	}
+	return false
+}
+
+/**
+ * A sentence for the emptiest of evidence: a pattern that needs a line break,
+ * searched one line at a time, can only come back with nothing. Naming the
+ * pattern and the flag that changes that is worth more than "no matches".
+ */
+function lineBreakHint(pattern: string, multiline: boolean): string | undefined {
+	if (multiline || !patternNeedsLineBreak(pattern)) return undefined
+	return `The pattern ${JSON.stringify(pattern)} contains a line break, and multiline is off: each line is tested on its own, so a match that spans lines cannot be found. Pass multiline: true to search across lines.`
 }
 
 /**
