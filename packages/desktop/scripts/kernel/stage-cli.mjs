@@ -89,6 +89,9 @@ export async function stageCliFolder({
 			'--prod',
 			'--legacy',
 			'--config.node-linker=hoisted',
+			// The workspace patches packages the CLI does not use (a provider SDK); a filtered deploy
+			// would stop on them as unused, though they apply in the full install.
+			'--config.allow-unused-patches=true',
 			`--os=${target.platform}`,
 			`--cpu=${target.arch}`,
 			...(target.libc ? [`--libc=${target.libc}`] : []),
