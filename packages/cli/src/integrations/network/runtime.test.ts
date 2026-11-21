@@ -56,7 +56,11 @@ async function box(
 	},
 	name: string,
 	sessionName: string,
-	settings: { acceptMail?: 'members' | 'hold' | 'off' } = {},
+	settings: {
+		acceptMail?: 'members' | 'hold' | 'off'
+		autoAdmit?: 'trusted-networks' | 'always' | 'never'
+		identity?: () => string | undefined
+	} = {},
 	discovery?: () => ReturnType<typeof createDiscoveryHub>['create'] extends () => infer D
 		? D
 		: never,
@@ -78,7 +82,13 @@ async function box(
 		home,
 		version: 'fixture',
 		env: {},
-		settings: { enabled: 'auto', acceptMail: settings.acceptMail ?? 'members', machineName: name },
+		settings: {
+			enabled: 'auto',
+			acceptMail: settings.acceptMail ?? 'members',
+			autoAdmit: settings.autoAdmit ?? 'trusted-networks',
+			machineName: name,
+		},
+		networkIdentity: async () => settings.identity?.(),
 		interactive: true,
 		notify: (text) => notices.push(text),
 		ownRef: () => own.ref,
@@ -365,7 +375,8 @@ describe('Namzu network runtime', () => {
 			home: first.home,
 			version: 'fixture',
 			env: {},
-			settings: { enabled: 'auto', acceptMail: 'members' },
+			settings: { enabled: 'auto', acceptMail: 'members', autoAdmit: 'trusted-networks' },
+			networkIdentity: async () => undefined,
 			interactive: true,
 			notify: () => {},
 			clock: world.clock,
@@ -387,5 +398,83 @@ describe('Namzu network runtime', () => {
 		world.clock.advance(5_000)
 		await second.refresh()
 		expect(second.isLeader).toBe(true)
+	})
+})
+
+describe('trusted networks', () => {
+	const HOME = 'a1b2c3d4e5f60718'
+
+	async function founder(autoAdmit: 'trusted-networks' | 'never' = 'trusted-networks') {
+		const world = { hub: createDiscoveryHub(), clock: createManualClock() }
+		const a = await box(world, 'studio-air', 'conductor', { autoAdmit, identity: () => HOME })
+		const founded = a.until((e) => e.type === 'founded')
+		world.clock.advance(BROWSE_WINDOW_MS)
+		await founded
+		return { world, a }
+	}
+
+	/** A machine that can reach only `a`: its discovery is told about nothing else. */
+	async function ask(world: { clock: ReturnType<typeof createManualClock> }, a: Box, name: string) {
+		const fake = createFakeDiscovery()
+		const joiner = await box(
+			{ hub: createDiscoveryHub(), clock: world.clock },
+			name,
+			'builder',
+			{},
+			() => fake,
+		)
+		const summary = await a.rt.control.summary()
+		fake.emitFound({
+			netId: (summary.machine?.id ?? '').slice(0, 16),
+			host: '127.0.0.1',
+			port: summary.port as number,
+		})
+		world.clock.advance(60_000)
+		world.clock.advance(BROWSE_WINDOW_MS)
+		return joiner
+	}
+
+	it('the first Allow can trust the network; the next machine on it joins with one line and no Allow', async () => {
+		const { world, a } = await founder()
+		const b = await ask(world, a, 'desk-linux')
+		await a.until((e) => e.type === 'join-request')
+		const before = await a.rt.control.summary()
+		expect(before.joinRequests[0]?.trustOffer).toEqual({ suggestedName: 'Network 1' })
+		const joined = b.until((e) => e.type === 'joined')
+		await a.rt.control.allow(before.joinRequests[0]?.requestId as string, { trust: 'Home' })
+		await joined
+		expect((await a.rt.control.networks()).map((n) => n.name)).toEqual(['Home'])
+
+		const c = await ask(world, a, 'mini-pc')
+		await c.until((e) => e.type === 'joined')
+		await a.rt.refresh()
+		const line = a.notices.find((n) =>
+			n.includes('mini-pc joined your Namzu network automatically'),
+		)
+		expect(line).toContain('(trusted network Home)')
+		expect(line).toContain('namzu peers untrust Home')
+		const after = await a.rt.control.summary()
+		expect(after.joinRequests).toEqual([])
+		expect(after.autoJoined.map((j) => j.name)).toEqual(['mini-pc'])
+		expect(after.members).toBe(3)
+		const audit = readFileSync(join(a.home, 'network', 'audit.jsonl'), 'utf8')
+		expect(audit).toContain('automatically (trusted network Home)')
+
+		await a.rt.control.untrust('home')
+		expect(await a.rt.control.networks()).toEqual([])
+	})
+
+	it('autoAdmit never keeps asking on a trusted network', async () => {
+		const { world, a } = await founder('never')
+		const b = await ask(world, a, 'desk-linux')
+		await a.until((e) => e.type === 'join-request')
+		const first = await a.rt.control.summary()
+		await a.rt.control.allow(first.joinRequests[0]?.requestId as string, { trust: true })
+		await b.until((e) => e.type === 'joined')
+		expect(await a.rt.control.networks()).toHaveLength(1)
+		const c = await ask(world, a, 'mini-pc')
+		await a.until((e) => e.type === 'join-request' && e.request.name === 'mini-pc')
+		expect((await a.rt.control.summary()).joinRequests.map((j) => j.name)).toEqual(['mini-pc'])
+		expect(c.notices.join('\n')).not.toContain('joined')
 	})
 })

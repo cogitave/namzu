@@ -70,6 +70,8 @@ export interface NetworkRuntimeOptions {
 	readonly listenPort?: number
 	readonly browseMs?: number
 	readonly hostname?: string
+	/** Which local network an address is on; tests pass one so no gateway is read. */
+	readonly networkIdentity?: (address: string) => Promise<string | undefined>
 }
 
 export interface NetworkRuntime {
@@ -120,6 +122,9 @@ export function createNetworkRuntime(options: NetworkRuntimeOptions): NetworkRun
 			summary: fail,
 			roster: fail,
 			allow: fail,
+			networks: fail,
+			untrust: fail,
+			renameNetwork: fail,
 			deny: fail,
 			remove: fail,
 			rename: fail,
@@ -229,6 +234,8 @@ export function createNetworkRuntime(options: NetworkRuntimeOptions): NetworkRun
 				interfaces,
 				store: createNetworkStore({ home: options.home, hardenDirectory }),
 				acceptMail: () => options.settings.acceptMail,
+				autoAdmit: () => options.settings.autoAdmit,
+				...(options.networkIdentity ? { networkIdentity: options.networkIdentity } : {}),
 				...(options.allowLoopback ? { allowLoopback: true } : {}),
 				...(options.settings.enabled === true ? { anyNetwork: true } : {}),
 				...(options.settings.machineName ? { machineName: options.settings.machineName } : {}),
@@ -306,6 +313,14 @@ export function createNetworkRuntime(options: NetworkRuntimeOptions): NetworkRun
 					`${join.name} wants to join your Namzu network (code ${join.code}, from ${join.sourceAddr}). /peers to allow or deny.`,
 				)
 		const ref = options.ownRef?.()
+		const autoBefore = new Set(before?.autoJoined.map((j) => `${j.machineId}:${j.at}`))
+		for (const joined of now.autoJoined)
+			if (!autoBefore.has(`${joined.machineId}:${joined.at}`) && before !== undefined)
+				options.notify(
+					joined.mode === 'always'
+						? `${joined.name} joined your Namzu network automatically (setting network.autoAdmit is always). Set it to trusted-networks to be asked again.`
+						: `${joined.name} joined your Namzu network automatically (trusted network ${joined.network}). \`namzu peers untrust ${joined.network}\` stops that.`,
+				)
 		const heldBefore = new Set(before?.held.map((h) => h.id))
 		for (const held of now.held)
 			if (!heldBefore.has(held.id) && (ref === undefined || held.toSessionRef === ref))
@@ -423,7 +438,10 @@ export function createNetworkRuntime(options: NetworkRuntimeOptions): NetworkRun
 		control: {
 			summary: () => current().summary(),
 			roster: () => current().roster(),
-			allow: (q) => current().allow(q),
+			allow: (q, o) => current().allow(q, o),
+			networks: () => current().networks(),
+			untrust: (q) => current().untrust(q),
+			renameNetwork: (q, n) => current().renameNetwork(q, n),
 			deny: (q) => current().deny(q),
 			remove: (m, o) => current().remove(m, o),
 			rename: (n, m) => current().rename(n, m),

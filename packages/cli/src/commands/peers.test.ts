@@ -234,6 +234,8 @@ const summary = (extra: Partial<NetworkSummary> = {}): NetworkSummary => ({
 	nearby: [],
 	joinRequests: [],
 	held: [],
+	autoJoined: [],
+	trustedNetworks: [],
 	outcomes: [],
 	machine: { id: 'a'.repeat(64), name: 'studio-air' },
 	...extra,
@@ -285,6 +287,9 @@ function harness(overrides: Partial<NetworkControl> = {}, leader = true) {
 			sourceAddr: '10.0.0.4',
 			expiresAt: 1,
 		}),
+		networks: track('networks', [] as { id: string; name: string; trustedAt: number }[]),
+		untrust: track('untrust', { id: 'a1b2c3d4', name: 'Home', trustedAt: 1 }),
+		renameNetwork: track('renameNetwork', { id: 'a1b2c3d4', name: 'Office', trustedAt: 1 }),
 		remove: track('remove', { removed: ['desk-linux'], admitted: [] as string[] }),
 		rename: track('rename', undefined),
 		setRole: track('setRole', { status: 'applied' as const }),
@@ -598,4 +603,47 @@ it('prints the audit log in words, and nothing from a line it cannot read', asyn
 	expect(readAuditTail(h.deps.home, 1)).toHaveLength(1)
 	expect(renderAuditLine('{"at":"x"}')).toBeUndefined()
 	h.done()
+})
+
+it('parses allow --trust, networks and untrust', () => {
+	expect(parsePeersArgs(['allow', '482', '913', '--trust'])).toEqual({
+		verb: 'allow',
+		json: false,
+		query: '482913',
+		trust: true,
+	})
+	expect(parsePeersArgs(['allow', 'desk', '--trust', '--as', 'Home'])).toMatchObject({
+		trust: 'Home',
+	})
+	expect(parsePeersArgs(['allow', 'desk', '--as', 'Home'])).toHaveProperty('error')
+	expect(parsePeersArgs(['networks'])).toEqual({ verb: 'networks', json: false })
+	expect(parsePeersArgs(['networks', 'rename', 'Home', 'Office'])).toMatchObject({
+		rename: ['Home', 'Office'],
+	})
+	expect(parsePeersArgs(['networks', 'rename', 'Home'])).toHaveProperty('error')
+	expect(parsePeersArgs(['untrust', 'Home', 'wifi'])).toMatchObject({ name: 'Home wifi' })
+	expect(parsePeersArgs(['untrust'])).toHaveProperty('error')
+})
+
+it('trusts a network on allow, lists trusted networks, renames and removes one', async () => {
+	const home = { id: 'a1b2c3d4', name: 'Home', trustedAt: 5 }
+	const h = harness({ networks: async () => [home] })
+	expect(await run(h, ['allow', '482913', '--trust', '--as', 'Home'])).toBe(EXIT_OK)
+	expect(h.calls.find(([name]) => name === 'allow')).toEqual(['allow', '482913', { trust: 'Home' }])
+	expect(h.out[0]?.text).toContain('This network is trusted as "Home"')
+	expect(h.out[0]?.text).toContain('namzu peers untrust Home')
+	expect(await run(h, ['networks'])).toBe(EXIT_OK)
+	expect(h.out[1]?.text).toContain('Home')
+	expect(await run(h, ['networks', 'rename', 'Home', 'Office'])).toBe(EXIT_OK)
+	expect(h.out[2]?.text).toContain('Renamed')
+	expect(await run(h, ['untrust', 'Home'])).toBe(EXIT_OK)
+	expect(h.out[3]?.text).toContain('Stopped trusting')
+	h.done()
+	const none = harness()
+	expect(await run(none, ['networks'])).toBe(EXIT_OK)
+	expect(none.out[0]?.text).toContain('No network is trusted')
+	none.done()
+	const off = harness({}, false)
+	expect(await run(off, ['untrust', 'Home'])).toBe(EXIT_UNAVAILABLE)
+	off.done()
 })

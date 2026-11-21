@@ -179,6 +179,12 @@ export interface NetworkConfig {
 	readonly acceptMail?: 'members' | 'hold' | 'off'
 	/** What this machine is called to the others; absent means its host name. At most 40 characters. */
 	readonly machineName?: string
+	/**
+	 * Whether a new machine on your network joins without asking you: `trusted-networks` (default) when it is
+	 * on a network you marked as trusted, `always` on any private network (anyone on that network can then
+	 * join), `never` to be asked every time.
+	 */
+	readonly autoAdmit?: 'trusted-networks' | 'always' | 'never'
 }
 
 /** Release channel the background updater follows. */

@@ -6094,6 +6094,26 @@ function AppBody({
 							.then(() => said(`Allowed ${action.request.name} to join your Namzu network.`))
 							.catch(failed)
 						break
+					case 'allow-join-trust':
+						void control
+							?.allow(action.request.requestId, { trust: action.name })
+							.then(() =>
+								said(
+									`Allowed ${action.request.name} to join your Namzu network. This network is trusted as "${action.name}": new machines here join without asking. /peers lists it; "Stop trusting" removes it.`,
+								),
+							)
+							.catch(failed)
+						break
+					case 'untrust-network':
+						void control
+							?.untrust(action.network.name)
+							.then(() =>
+								said(
+									`Stopped trusting ${action.network.name}. New machines on it will ask for an Allow again.`,
+								),
+							)
+							.catch(failed)
+						break
 					case 'deny-join':
 						void control
 							?.deny(action.request.requestId)
@@ -14223,6 +14243,8 @@ function AppBody({
 										nearby: [],
 										joinRequests: [],
 										held: [],
+										autoJoined: [],
+										trustedNetworks: [],
 										outcomes: [],
 									},
 									heldLocal,

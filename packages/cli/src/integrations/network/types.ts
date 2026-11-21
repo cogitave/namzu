@@ -1,4 +1,4 @@
-import type { MailSetting, NetworkState, RosterView } from '@namzu/sdk'
+import type { AutoAdmitSetting, MailSetting, NetworkState, RosterView } from '@namzu/sdk'
 
 /** A join request waiting for an Allow, as a screen or a command shows it. No key, no connection. */
 export interface JoinRequestView {
@@ -9,6 +9,29 @@ export interface JoinRequestView {
 	readonly code: string
 	readonly sourceAddr: string
 	readonly expiresAt: number
+	/**
+	 * Set when the request came from a network this machine recognises and does not trust yet: the screen
+	 * then offers "Allow and trust this network" with this short default name.
+	 */
+	readonly trustOffer?: { readonly suggestedName: string }
+}
+
+/** A network this machine trusts: new machines on it join without asking. */
+export interface TrustedNetworkView {
+	/** The first 8 hex of the fingerprint, to tell two apart; never needed to use one. */
+	readonly id: string
+	readonly name: string
+	readonly trustedAt: number
+}
+
+/** A machine that joined without an Allow, for the one line that says so. */
+export interface AutoJoinView {
+	readonly machineId: string
+	readonly name: string
+	readonly mode: 'trusted-network' | 'always'
+	/** The trusted network's name, when that is why. */
+	readonly network?: string
+	readonly at: number
 }
 
 /** Mail from another machine waiting for the person. */
@@ -51,6 +74,10 @@ export interface NetworkSummary {
 	}[]
 	readonly joinRequests: readonly JoinRequestView[]
 	readonly held: readonly RemoteHeldView[]
+	/** Machines admitted without asking, newest last (at most 8). */
+	readonly autoJoined: readonly AutoJoinView[]
+	/** The networks this machine trusts. */
+	readonly trustedNetworks: readonly TrustedNetworkView[]
 	/** This machine asked a nearby network to let it in and waits for an Allow elsewhere. */
 	readonly joining?: { readonly code: string; readonly endpoint: string }
 	/** How the last request to join ended. */
@@ -74,7 +101,14 @@ export type SendReceipt = {
 export interface NetworkControl {
 	summary(): Promise<NetworkSummary>
 	roster(): Promise<RosterView>
-	allow(query: string): Promise<JoinRequestView>
+	/** `trust` also marks the network the request came from as trusted (a string names it). */
+	allow(query: string, options?: { readonly trust?: boolean | string }): Promise<JoinRequestView>
+	/** The networks this machine trusts. */
+	networks(): Promise<readonly TrustedNetworkView[]>
+	/** Stop trusting a network by name. */
+	untrust(query: string): Promise<TrustedNetworkView>
+	/** Rename a trusted network. */
+	renameNetwork(query: string, name: string): Promise<TrustedNetworkView>
 	deny(query: string): Promise<JoinRequestView>
 	/** Remove a machine by name or machine id prefix; `cascade` also removes the machines it admitted. */
 	remove(
@@ -106,5 +140,6 @@ export interface NetworkControl {
 export type NetworkSettings = {
 	readonly enabled: 'auto' | boolean
 	readonly acceptMail: MailSetting
+	readonly autoAdmit: AutoAdmitSetting
 	readonly machineName?: string
 }

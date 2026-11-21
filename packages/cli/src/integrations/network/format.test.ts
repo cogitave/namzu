@@ -67,6 +67,8 @@ const summary = (extra: Partial<NetworkSummary> = {}): NetworkSummary => ({
 	nearby: [],
 	joinRequests: [],
 	held: [],
+	autoJoined: [],
+	trustedNetworks: [],
 	outcomes: [],
 	...extra,
 })
@@ -422,5 +424,57 @@ describe('fit', () => {
 			'  one two three four',
 			'    five six',
 		])
+	})
+})
+
+describe('trusted networks on the screens', () => {
+	it('lists this terminal first under its machine, at 80 columns and unwidth', () => {
+		for (const columns of [80, 40, undefined]) {
+			const text = renderRosterList(fixture(), { selfRef: 'bbbbbb', now: NOW, columns })
+			const own = text.split('\n').findIndex((l) => l.includes('quiet-otter'))
+			const other = text.split('\n').findIndex((l) => l.includes('calm-heron'))
+			expect(own, `columns ${columns}`).toBeGreaterThan(0)
+			expect(own).toBeLessThan(other)
+			expect(text.split('\n')[own - 1]).toContain('studio-air')
+		}
+	})
+
+	it('offers Allow and trust only for a recognised network that is not trusted yet', () => {
+		const withOffer = { ...join, trustOffer: { suggestedName: 'Network 1' } }
+		const actions = peersActions(summary({ joinRequests: [withOffer] }), [])
+		expect(actions.map((a) => a.kind)).toEqual(['allow-join', 'allow-join-trust', 'deny-join'])
+		expect(describeAction(actions[1] as never).label).toBe(
+			'Allow and trust this network (Network 1)',
+		)
+		expect(peersActions(summary({ joinRequests: [join] }), []).map((a) => a.kind)).toEqual([
+			'allow-join',
+			'deny-join',
+		])
+		const text = renderPeersScreen({
+			summary: summary({ joinRequests: [withOffer] }),
+			roster: undefined,
+			heldLocal: [],
+			now: NOW,
+			columns: 100,
+		})
+		expect(text).toContain('This network is not trusted yet')
+	})
+
+	it('lists trusted networks with a way to stop, and says so in the status', () => {
+		const trusted = { id: 'a1b2c3d4', name: 'Home', trustedAt: NOW }
+		const s = summary({ trustedNetworks: [trusted] })
+		const screen = renderPeersScreen({
+			summary: s,
+			roster: undefined,
+			heldLocal: [],
+			now: NOW,
+			columns: 100,
+		})
+		expect(screen).toContain('Trusted networks (1)')
+		expect(screen).toContain('Home: new machines on it join without asking')
+		const actions = peersActions(s, [])
+		expect(actions.map((a) => a.kind)).toEqual(['untrust-network'])
+		expect(describeAction(actions[0] as never).label).toBe('Stop trusting Home')
+		expect(renderStatus(s, NOW)).toContain('Trusted networks: Home')
 	})
 })

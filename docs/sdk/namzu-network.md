@@ -41,6 +41,12 @@ Canonical bytes carry a domain prefix, so a signature for one kind of statement 
 3. **The code** is six digits from the sha256 of both certificates' machine ids as each side saw them and both nonces. A machine relaying between the joiner and a member shows each side a different certificate, so the two screens differ. Skipping the glance is allowed; it is the residual risk (an attacker on the LAN who wins the race against the real member could be admitted if the person allows blindly).
 4. Allow on any member signs an admission and sends it to the member the joiner reached, which answers the joiner with the full chain. The first decision wins; a later one is told it was already decided. The joiner validates the whole chain from the founding statement and requires its own admission in it before storing anything.
 
+### Trusted networks
+
+`createNamzuNetwork` takes `autoAdmit: () => 'trusted-networks' | 'always' | 'never'` (read at each request; default `trusted-networks`) and `networkIdentity(address)`, which says which local network an address is on. The default is `createNetworkIdentity` over `createSystemGatewayReader`: the identity is `networkFingerprint(subnet, gatewayMac)`, 16 hex of sha256 over the subnet (`192.168.1.0/24`, the interface subnet the address falls in) and the default gateway's hardware address, which is read without privileges (Linux `/proc/net/route` and `/proc/net/arp`, macOS `route -n get default` and `arp -n`, Windows `Get-NetRoute` and `Get-NetNeighbor`) and cached for 30 s. When the address is on no local subnet, the gateway cannot be read, or the gateway is not on that subnet, the identity is `undefined`: unknown, never trusted. Every reader is injected, so a test supplies fixtures and runs no command; the parsers are exported (`parseLinuxDefaultRoute`, `parseLinuxArp`, `parseMacArp`, `parseWindowsGateway`).
+
+A member that receives a `join_request` asks `autoAdmitMode(sourceAddress)`: `never` asks the person; `always` admits a request from a private address; otherwise the request is admitted when its network is in `trusted-networks.json`. An automatic admission emits `join-auto` (name, `mode`, trusted network name) instead of `join-request`, tells no other member of a request, signs the admission as itself and writes `join_allowed` with the decision "automatically (trusted network <name>)" or "automatically (network.autoAdmit is always)". The joiner's code is unchanged. `networkOf(address)` returns `{ id, trusted?, suggestedName }` (or `undefined` when unknown), `allow(query, { trust })` admits and then trusts the network the request came from (a string names it; it throws before admitting when the network is unknown), and `trustedNetworks()`, `trustNetwork(address, name?)`, `renameNetwork` and `untrustNetwork(nameOrIdPrefix)` manage the list (audit events `network_trusted`, `network_untrusted`).
+
 ## Advertisement and discovery
 
 DNS-SD over multicast DNS, service `_namzu-net._tcp.local`, one instance per machine named `namzu-<8 random hex>` (random per process start), target `namzu-<same 8 hex>.local`. The TXT record has exactly two keys: `v=1` and `n=<netId>`. **No hostname, no machine name, no session title, no machine id** is announced. A stranger on the LAN learns that a Namzu network with fingerprint `n` has a listener at an address and port, and the fingerprint is stable, so an observer can tell two announcements belong to one network. That is the stated limit; rotating tags would need a shared secret.
@@ -109,11 +115,12 @@ Under `<home>/network/` (mode 0700, created only when the network starts; an off
 | `network.json`, `members.json` | network id, founder key, admissions and revocations |
 | `peers.json` | remembered addresses per member |
 | `session-roles.json` | roles kept for resumed conversations (64) |
+| `trusted-networks.json` | the networks this machine trusts: id (hash), name, time |
 | `audit.jsonl`, `audit.1.jsonl` | the audit log, rotated once at 1 MiB |
 
 A corrupt file is renamed to `<file>.corrupt-<time>` and the feature degrades; a corrupt key means a new identity, reported through `NetworkHost.report`.
 
-Each entry may carry `direction`: `in` for what another machine did to this one, `out` for what this machine did to another (a role set, a message sent and how it ended: accepted, held, allowed, denied, expired, refused); a host's own decisions, such as the terminal's hold flow for mail between two sessions of one machine, are appended through the same `AuditSink` without one. A role entry carries the target, `decision` (`set` or `clear`), the size and a hash of the text. The audit log records `join_requested`, `join_allowed`, `join_denied`, `join_expired`, `admitted`, `removed`, `role_set`, `mail_accepted`, `mail_held`, `mail_allowed`, `mail_denied`, `mail_refused`, `mail_expired`, `network_on`, `network_off`, `machine_renamed` and `connection_refused`. A message appears as the first 16 hex of its sha256 and its size, **never its text**; no key or token reaches a line. Writes go through an `AuditSink`; a failing sink is reported once and then ignored.
+Each entry may carry `direction`: `in` for what another machine did to this one, `out` for what this machine did to another (a role set, a message sent and how it ended: accepted, held, allowed, denied, expired, refused); a host's own decisions, such as the terminal's hold flow for mail between two sessions of one machine, are appended through the same `AuditSink` without one. A role entry carries the target, `decision` (`set` or `clear`), the size and a hash of the text. The audit log records `join_requested`, `join_allowed`, `join_denied`, `join_expired`, `admitted`, `removed`, `role_set`, `mail_accepted`, `mail_held`, `mail_allowed`, `mail_denied`, `mail_refused`, `mail_expired`, `network_on`, `network_off`, `machine_renamed`, `network_trusted`, `network_untrusted` and `connection_refused`. A message appears as the first 16 hex of its sha256 and its size, **never its text**; no key or token reaches a line. Writes go through an `AuditSink`; a failing sink is reported once and then ignored.
 
 ## The host contract
 
@@ -128,7 +135,7 @@ await network.start()
 network.on((event) => { /* join-request, held, mail-outcome, member-added, ... */ })
 ```
 
-`status()`, `roster()`, `members()`, `pendingJoins()`, `allow(code | name)`, `deny(...)`, `remove(machineId, { cascade })`, `rename(name)`, `setRole(...)`, `send(...)`, `resolve(text)`, `add(host[:port])`, `held()`, `allowHeld(id)`, `denyHeld(id)`, `close()`.
+`status()`, `roster()`, `members()`, `pendingJoins()`, `allow(code | name, { trust })`, `networkOf(address)`, `trustedNetworks()`, `trustNetwork(...)`, `renameNetwork(...)`, `untrustNetwork(...)`, `deny(...)`, `remove(machineId, { cascade })`, `rename(name)`, `setRole(...)`, `send(...)`, `resolve(text)`, `add(host[:port])`, `held()`, `allowHeld(id)`, `denyHeld(id)`, `close()`.
 
 ## Not in this phase
 

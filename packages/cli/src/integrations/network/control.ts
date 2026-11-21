@@ -84,7 +84,13 @@ export interface ControlCaller {
 }
 
 /** The requests that decide for the person: admit, remove, let held mail in. */
-export const PERSON_ONLY_OPS: readonly string[] = ['allow', 'allowHeld', 'remove']
+export const PERSON_ONLY_OPS: readonly string[] = [
+	'allow',
+	'allowHeld',
+	'remove',
+	'untrust',
+	'renameNetwork',
+]
 
 export async function startControlServer(options: {
 	readonly path: string
@@ -259,6 +265,9 @@ export const CONTROL_OPS = [
 	'summary',
 	'roster',
 	'allow',
+	'networks',
+	'untrust',
+	'renameNetwork',
 	'deny',
 	'remove',
 	'rename',
@@ -298,7 +307,10 @@ export function createControlClient(info: () => ControlInfo | undefined): Networ
 	return {
 		summary: () => call('summary'),
 		roster: () => call<RosterView>('roster'),
-		allow: (query) => call('allow', query),
+		allow: (query, options) => (options ? call('allow', query, options) : call('allow', query)),
+		networks: () => call('networks'),
+		untrust: (query) => call('untrust', query),
+		renameNetwork: (query, name) => call('renameNetwork', query, name),
 		deny: (query) => call('deny', query),
 		remove: (machine, options) => call('remove', machine, options ?? {}),
 		rename: (name, machine) => call('rename', name, machine),

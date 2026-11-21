@@ -361,6 +361,8 @@ export interface NetworkService {
 	trustNetwork(address: string, name?: string): Promise<TrustedNetwork>
 	/** Stop trusting a network by name or id prefix. */
 	untrustNetwork(query: string): Promise<TrustedNetwork>
+	/** Give a trusted network another name. */
+	renameNetwork(query: string, name: string): Promise<TrustedNetwork>
 	deny(query: string): Promise<PendingJoin>
 	remove(
 		machineId: string,
@@ -578,8 +580,7 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		return entry
 	}
 
-	async function untrustNetwork(query: string): Promise<TrustedNetwork> {
-		const list = await trustedList()
+	function findTrusted(list: readonly TrustedNetwork[], query: string): TrustedNetwork {
 		const q = query.trim().toLowerCase()
 		const hits = list.filter((n) => n.name.toLowerCase() === q)
 		const matches = hits.length > 0 ? hits : list.filter((n) => q.length >= 4 && n.id.startsWith(q))
@@ -590,7 +591,28 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 					? `No trusted network is called "${query}". \`namzu peers networks\` lists them.`
 					: 'More than one trusted network matches that.',
 			)
-		const gone = matches[0] as TrustedNetwork
+		return matches[0] as TrustedNetwork
+	}
+
+	async function renameNetwork(query: string, name: string): Promise<TrustedNetwork> {
+		const list = await trustedList()
+		const found = findTrusted(list, query)
+		const wanted = sanitizeName(name, 40)
+		if (wanted.length === 0) throw new NetworkError('invalid', 'A network needs a name.')
+		if (list.some((n) => n.id !== found.id && n.name.toLowerCase() === wanted.toLowerCase()))
+			throw new NetworkError('invalid', `Another trusted network is already called "${wanted}".`)
+		const entry = { ...found, name: wanted }
+		await store.writeTrustedNetworks({
+			v: 1,
+			networks: list.map((n) => (n.id === found.id ? entry : n)),
+		})
+		logAudit({ event: 'network_trusted', decision: 'renamed', reason: wanted })
+		return entry
+	}
+
+	async function untrustNetwork(query: string): Promise<TrustedNetwork> {
+		const list = await trustedList()
+		const gone = findTrusted(list, query)
 		await store.writeTrustedNetworks({ v: 1, networks: list.filter((n) => n.id !== gone.id) })
 		logAudit({ event: 'network_untrusted', reason: gone.name })
 		return gone
@@ -2183,6 +2205,7 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		trustedNetworks: trustedList,
 		trustNetwork,
 		untrustNetwork,
+		renameNetwork,
 		deny: (q) => decideJoin(q, 'deny'),
 		async remove(machineId, opts = {}) {
 			if (!key || !netId || !view)

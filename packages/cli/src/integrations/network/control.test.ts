@@ -41,6 +41,8 @@ function fakeControl(calls: unknown[][] = []): NetworkControl {
 			nearby: [],
 			joinRequests: [],
 			held: [],
+			autoJoined: [],
+			trustedNetworks: [],
 			outcomes: [],
 		}),
 		roster: async () => ({ machines: [] }),
@@ -54,6 +56,9 @@ function fakeControl(calls: unknown[][] = []): NetworkControl {
 				expiresAt: 1,
 			}
 		},
+		networks: async () => [],
+		untrust: record('untrust'),
+		renameNetwork: record('renameNetwork'),
 		deny: record('deny'),
 		remove: record('remove'),
 		rename: record('rename'),

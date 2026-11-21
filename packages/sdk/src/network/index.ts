@@ -50,7 +50,13 @@ export {
 	parseWindowsGateway,
 	subnetOf,
 } from './fingerprint.js'
-export type { Gateway, GatewayReader } from './fingerprint.js'
+export type {
+	CommandRunner,
+	Gateway,
+	GatewayReader,
+	NetworkIdentityOptions,
+	SystemGatewayOptions,
+} from './fingerprint.js'
 
 export { createNetworkStore } from './store.js'
 export type { NetworkStore, NetworkStoreOptions } from './store.js'

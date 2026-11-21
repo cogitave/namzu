@@ -6,7 +6,12 @@ import {
 	sessionLabel,
 } from '@namzu/sdk'
 import type { HeldLocalView } from '../peers/runtime.js'
-import type { JoinRequestView, NetworkSummary, RemoteHeldView } from './types.js'
+import type {
+	JoinRequestView,
+	NetworkSummary,
+	RemoteHeldView,
+	TrustedNetworkView,
+} from './types.js'
 
 /** The word a person uses for a mode a session reports (the kernel's `classify` is `auto`). */
 export function modeWord(mode: string): string {
@@ -83,7 +88,13 @@ export function rosterLines(view: RosterView, options: RosterTextOptions): strin
 			lines.push(heading)
 			if (machine.role) lines.push(`  role: ${roleText(machine.role, 8, columns)}`)
 		}
-		for (const session of machine.sessions) {
+		// This terminal's own session leads the machine's rows, whatever order the roster listed them in.
+		const sessions = [...machine.sessions].sort(
+			(a, b) =>
+				Number(b.ref === options.selfRef && machine.status === 'self') -
+				Number(a.ref === options.selfRef && machine.status === 'self'),
+		)
+		for (const session of sessions) {
 			const name = sessionLabel(view, machine, session)
 			const mark = session.ref === options.selfRef ? `${name} (this terminal)` : name
 			const state = stateOf(machine, session)
@@ -175,7 +186,11 @@ export function renderStatus(summary: NetworkSummary, now: number): string {
 		lines.push(`Waiting for an Allow on ${summary.joining.endpoint}; code ${summary.joining.code}.`)
 	for (const join of summary.joinRequests)
 		lines.push(
-			`${join.name} wants to join: code ${join.code}, from ${join.sourceAddr}, expires in ${minutesLeft(join.expiresAt, now)}. \`namzu peers allow ${join.code.replace(' ', '')}\` or \`deny\`.`,
+			`${join.name} wants to join: code ${join.code}, from ${join.sourceAddr}, expires in ${minutesLeft(join.expiresAt, now)}. \`namzu peers allow ${join.code.replace(' ', '')}\` or \`deny\`.${join.trustOffer ? ` \`allow ${join.code.replace(' ', '')} --trust\` also trusts this network, so new machines on it join without asking.` : ''}`,
+		)
+	if (summary.trustedNetworks.length > 0)
+		lines.push(
+			`Trusted networks: ${summary.trustedNetworks.map((n) => n.name).join(', ')}. \`namzu peers networks\` lists them, \`namzu peers untrust <name>\` removes one.`,
 		)
 	if (summary.held.length > 0)
 		lines.push(`Held messages: ${summary.held.length}. /peers in a terminal shows them.`)
@@ -247,7 +262,15 @@ export function renderPeersScreen(input: ScreenInput): string {
 			lines.push(
 				`    code ${join.code}   from ${join.sourceAddr}   expires in ${minutesLeft(join.expiresAt, now)}`,
 			)
+			if (join.trustOffer)
+				lines.push('    This network is not trusted yet: new machines on it would ask again.')
 		}
+	}
+	if (summary.trustedNetworks.length > 0) {
+		lines.push('')
+		lines.push(`Trusted networks (${summary.trustedNetworks.length})`)
+		for (const network of summary.trustedNetworks)
+			lines.push(`  ${network.name}: new machines on it join without asking`)
 	}
 	if (summary.joining) {
 		lines.push('')
@@ -291,7 +314,9 @@ export function fit(lines: readonly string[], columns: number): string[] {
 /** What the person can do from the picker under `/peers`: one row each, Enter applies. */
 export type PeersAction =
 	| { readonly kind: 'allow-join'; readonly request: JoinRequestView }
+	| { readonly kind: 'allow-join-trust'; readonly request: JoinRequestView; readonly name: string }
 	| { readonly kind: 'deny-join'; readonly request: JoinRequestView }
+	| { readonly kind: 'untrust-network'; readonly network: TrustedNetworkView }
 	| { readonly kind: 'allow-held-remote'; readonly mail: RemoteHeldView }
 	| { readonly kind: 'deny-held-remote'; readonly mail: RemoteHeldView }
 	| {
@@ -319,8 +344,13 @@ export function peersActions(
 	for (const mail of summary.held) {
 		actions.push({ kind: 'allow-held-remote', mail }, { kind: 'deny-held-remote', mail })
 	}
-	for (const request of summary.joinRequests)
-		actions.push({ kind: 'allow-join', request }, { kind: 'deny-join', request })
+	for (const request of summary.joinRequests) {
+		actions.push({ kind: 'allow-join', request })
+		if (request.trustOffer)
+			actions.push({ kind: 'allow-join-trust', request, name: request.trustOffer.suggestedName })
+		actions.push({ kind: 'deny-join', request })
+	}
+	for (const network of summary.trustedNetworks) actions.push({ kind: 'untrust-network', network })
 	return actions
 }
 
@@ -330,6 +360,16 @@ export function describeAction(action: PeersAction): { label: string; descriptio
 			return {
 				label: `Allow ${action.request.name}`,
 				description: `Let it join. Code ${action.request.code}.`,
+			}
+		case 'allow-join-trust':
+			return {
+				label: `Allow and trust this network (${action.name})`,
+				description: 'Let it join. New machines here will join without asking.',
+			}
+		case 'untrust-network':
+			return {
+				label: `Stop trusting ${action.network.name}`,
+				description: 'New machines on it will ask for an Allow again.',
 			}
 		case 'cancel-join':
 			return {

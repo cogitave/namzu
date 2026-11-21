@@ -9,11 +9,13 @@ import {
 	sanitizeRole,
 } from '@namzu/sdk'
 import type {
+	AutoJoinView,
 	JoinRequestView,
 	MailOutcomeView,
 	NetworkControl,
 	NetworkSummary,
 	SendReceipt,
+	TrustedNetworkView,
 } from './types.js'
 
 const MAX_OUTCOMES = 32
@@ -36,6 +38,7 @@ export function createNetworkController(options: {
 	let joining: NetworkSummary['joining']
 	let lastJoin: NetworkSummary['lastJoin']
 	let removed = false
+	const autoJoined: AutoJoinView[] = []
 	const outcomes: MailOutcomeView[] = []
 	/** Mail sent from here that has not ended: who sent it and to whom, to attribute the outcome. */
 	const sentMail = new Map<string, { senderRef: string; to: string }>()
@@ -64,6 +67,16 @@ export function createNetworkController(options: {
 			case 'join-ended':
 				joining = undefined
 				lastJoin = { result: event.result, at: clock.now() }
+				break
+			case 'join-auto':
+				autoJoined.push({
+					machineId: event.machineId,
+					name: event.name,
+					mode: event.mode,
+					...(event.network ? { network: event.network } : {}),
+					at: event.at,
+				})
+				if (autoJoined.length > 8) autoJoined.shift()
 				break
 			case 'removed-self':
 				removed = true
@@ -96,13 +109,27 @@ export function createNetworkController(options: {
 		}
 	})
 
-	const joinView = (join: ReturnType<NetworkService['pendingJoins']>[number]): JoinRequestView => ({
+	const joinView = (
+		join: ReturnType<NetworkService['pendingJoins']>[number],
+		trustOffer?: JoinRequestView['trustOffer'],
+	): JoinRequestView => ({
 		requestId: join.requestId,
 		name: join.name,
 		code: formatJoinCode(join.code),
 		sourceAddr: join.sourceAddr,
 		expiresAt: join.expiresAt,
+		...(trustOffer ? { trustOffer } : {}),
 	})
+	const networkView = (n: { id: string; name: string; trustedAt: number }): TrustedNetworkView => ({
+		id: n.id.slice(0, 8),
+		name: n.name,
+		trustedAt: n.trustedAt,
+	})
+	/** The offer to trust the network a request came from: only when it is recognised and not trusted yet. */
+	const offerFor = async (join: ReturnType<NetworkService['pendingJoins']>[number]) => {
+		const ref = await service.networkOf(join.sourceAddr).catch(() => undefined)
+		return ref && !ref.trusted ? { suggestedName: ref.suggestedName } : undefined
+	}
 
 	const findMachine = (query: string) => {
 		const wanted = query.trim().toLowerCase().replace(/\/$/, '')
@@ -175,7 +202,11 @@ export function createNetworkController(options: {
 				...(status.port !== undefined ? { port: status.port } : {}),
 				nearbyNetworks: status.nearbyNetworks,
 				nearby: service.nearbyNetworks().map((n) => ({ ...n })),
-				joinRequests: service.pendingJoins().map(joinView),
+				joinRequests: await Promise.all(
+					service.pendingJoins().map(async (join) => joinView(join, await offerFor(join))),
+				),
+				autoJoined: [...autoJoined],
+				trustedNetworks: (await service.trustedNetworks()).map(networkView),
 				held: service.held().map((mail) => ({
 					id: mail.id,
 					machineName: mail.machineName,
@@ -197,8 +228,17 @@ export function createNetworkController(options: {
 			remember(view)
 			return view
 		},
-		async allow(query) {
-			return joinView(await service.allow(query))
+		async allow(query, opts) {
+			return joinView(await service.allow(query, opts))
+		},
+		async networks() {
+			return (await service.trustedNetworks()).map(networkView)
+		},
+		async untrust(query) {
+			return networkView(await service.untrustNetwork(query))
+		},
+		async renameNetwork(query, name) {
+			return networkView(await service.renameNetwork(query, name))
 		},
 		async deny(query) {
 			return joinView(await service.deny(query))

@@ -130,6 +130,9 @@ vi.mock('../../integrations/network/runtime.js', () => ({
 					sourceAddr: '192.168.1.23',
 					expiresAt: 1,
 				}) as never,
+				networks: async () => [],
+				untrust: record('untrust', {}) as never,
+				renameNetwork: record('renameNetwork', {}) as never,
 				deny: record('deny', {
 					requestId: 'r1',
 					name: 'desk-mini',
@@ -480,6 +483,8 @@ const networkSummary: NetworkSummary = {
 		},
 	],
 	held: [],
+	autoJoined: [],
+	trustedNetworks: [],
 	outcomes: [],
 }
 

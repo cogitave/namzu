@@ -963,6 +963,37 @@ const DECLARED: readonly SettingDescriptor[] = [
 		},
 	),
 	d(
+		'network.autoAdmit',
+		'terminal',
+		'New machines on your network',
+		'Whether a new machine of yours joins your Namzu network without asking you first. By default it does so on a network you marked as trusted; anywhere else you are asked once.',
+		pick(
+			[
+				'trusted-networks',
+				'On trusted networks',
+				'A new machine on a network you trusted joins without asking. Elsewhere you allow it once.',
+			],
+			[
+				'never',
+				'Always ask me',
+				'Every new machine waits for your Allow, even on a trusted network.',
+			],
+			[
+				'always',
+				'On any private network',
+				'Any machine on the same private network can join without asking.',
+			],
+		),
+		{
+			group: 'terminal-network',
+			keywords: ['peers', 'other machines', 'join', 'trust', 'trusted network', 'allow', 'pairing'],
+			default: 'trusted-networks',
+			confirm:
+				'Anyone on the same network as this machine can then join your Namzu network, see your sessions and message them, without asking you.',
+			confirmValues: ['always'],
+		},
+	),
+	d(
 		'network.machineName',
 		'terminal',
 		'This machine’s name',

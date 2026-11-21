@@ -24,6 +24,20 @@ It is built on the SDK's [network module](../sdk/namzu-network.md) and on [local
 
 A stranger on the same network sees only that "a Namzu network" is there: the advertisement carries an opaque fingerprint, never a machine name, a session title or your user name. If **more than one** network is nearby, a new machine contacts none of them on its own: it says "2 Namzu networks are nearby and this machine asked none. `/peers` to pick yours.", and `/peers` lists one address for each as a row; Enter on one asks it. `namzu peers join` prints the same addresses and `namzu peers join <address>` asks one.
 
+## Trusted networks
+
+On your home network you should not have to click Allow for every machine. A member can therefore **trust a network**:
+
+- The first time you Allow a machine on a network that is not trusted yet, `/peers` offers a second row, "Allow and trust this network (Network 1)": the same Allow, and new machines that ask from this network join **without asking** from then on. From a shell: `namzu peers allow <code> --trust [--as <name>]`. The name is short and yours to change: `namzu peers networks rename <name> <new name>`.
+- When a machine joins that way, every terminal shows one line: "`mini-pc` joined your Namzu network automatically (trusted network Home). `namzu peers untrust Home` stops that." The audit log records it as `join_allowed` with the decision "automatically (trusted network Home)"; the joining machine still shows its code. Only the member that receives the request decides, using its own list of trusted networks.
+- On a network that is **not** trusted (a café, an office, a hotel, a guest's Wi-Fi) the one-time Allow stays, exactly as before.
+- `namzu peers networks` lists the trusted networks, `namzu peers untrust <name>` or the "Stop trusting" row in `/peers` removes one. They live per machine in `~/.namzu/network/trusted-networks.json` (0600), the network's name, a short hash and the time, nothing else.
+- **How a network is recognised.** Namzu hashes the subnet of the interface the request arrived on together with the hardware address of that subnet's default gateway, read without administrator rights (Linux: `/proc/net/route` and `/proc/net/arp`; macOS: `route -n get default` then `arp -n <gateway>`; Windows: PowerShell `Get-NetRoute` and `Get-NetNeighbor`). When the gateway or its hardware address cannot be read, the network is **unknown**: it is never trusted and never admits automatically, and the Allow row offers no trust. A different router, or the same subnet number at another place, gives a different fingerprint.
+- **WSL2 in NAT mode**: the gateway a WSL2 machine sees is the Windows host's virtual adapter, so each WSL2 machine sits on a network of its own. To share one trusted network with your other machines, switch WSL2 to mirrored networking (`networkingMode=mirrored` in `.wslconfig`).
+- The setting `network.autoAdmit` (your own config file and the Settings screen) changes this: `trusted-networks` (default), `never` (always ask, even on a trusted network) or `always` (a join request from **any private network** is admitted without asking: anyone on that network can then join your Namzu network, see your sessions and message them. Choose it only on a network you alone control).
+
+Remember what trust is not: the network's fingerprint is not a secret, and a machine that shares your Wi-Fi can ask. A trusted network means you accept that every machine on it that runs Namzu may join. Use `untrust` after a visitor stays on your Wi-Fi, or keep guests on a separate network.
+
 ## What the list shows
 
 `/peers`, or `namzu peers list` from a shell, draws every machine and its live sessions:
@@ -86,6 +100,7 @@ Any member can remove any other; a lost laptop is removed from a machine you sti
 | `network.enabled` | `auto`, `true`, `false` | `auto` |
 | `network.acceptMail` | `members`, `hold`, `off` | `members` |
 | `network.machineName` | text, at most 40 characters | the host name |
+| `network.autoAdmit` | `trusted-networks`, `always`, `never` | `trusted-networks` |
 
 These are your own config file's (`~/.namzu/config.yaml`) and the Settings screen's; a repository's `.namzu/config.yaml` cannot set them. `NAMZU_NETWORK=off` in the environment is a hard stop for one run.
 
@@ -103,7 +118,9 @@ One terminal per machine runs the service (the one that was started first); the 
 ```sh
 namzu peers list [--json]
 namzu peers status [--json]
-namzu peers allow 482913
+namzu peers allow 482913 [--trust [--as <name>]]
+namzu peers networks [rename <name> <new name>] [--json]
+namzu peers untrust <name>
 namzu peers deny desk-mini
 namzu peers remove <machine> [--and-its-admissions]
 namzu peers rename <new name>
@@ -126,10 +143,10 @@ Machines find each other by multicast DNS on the local network, and remember eac
 
 - The advertisement carries an opaque network fingerprint and a port. A stranger can ask a machine to join (which only you can Allow) and nothing else: no names, no roster, no sessions. Every connection between members is mutually authenticated TLS 1.3 with each machine's own key, so a machine that is not a member is closed on connect.
 - A machine's key stays on that machine (`~/.namzu/network/machine.key.pem`, 0600, never printed or logged). There is no network-wide secret: membership is signed statements, so a stolen machine can only be used until you remove it.
-- Files live under `~/.namzu/network/` (0700), all 0600: key, certificate, membership, the last addresses, roles, the audit log, and the leader and control files that let the terminals on one machine share the service.
+- Files live under `~/.namzu/network/` (0700), all 0600: key, certificate, membership, the last addresses, roles, the trusted networks, the audit log, and the leader and control files that let the terminals on one machine share the service.
 - Removing a machine always removes what it admitted (a stolen machine cannot keep vouching for others, and no date a machine writes into a statement is trusted). Any member can remove any other member except one above it in its own admission chain, so the founder cannot be removed by those it admitted. A removed machine discards its key and starts over.
 - Mail from another machine comes only through the network bridge, and a bridge record written by a process that a Namzu session's own tools started is refused, like a person's message from one.
-- `namzu peers allow`, `remove` and letting held mail in are the person's: a command a Namzu session ran (a tool, an agent) is refused them. A request to allow by name that matches two requests is refused; use the code.
+- `namzu peers allow`, `untrust`, `remove` and letting held mail in are the person's: a command a Namzu session ran (a tool, an agent) is refused them. A request to allow by name that matches two requests is refused; use the code.
 - What another machine says about its sessions (names, folders, roles, reasons) has control characters stripped before it reaches the screen or the model. Mail held in the terminal that runs the network is lost when that terminal closes, and its senders are told it expired.
 - The mDNS socket answers only private source addresses, and an announcement may only name the sender's own address or its subnet. `auto` counts `100.64.0.0/10` (Tailscale, but also some carrier and hotel networks) as private. Two caveats: anyone on a shared network who advertises a network fingerprint is asked to join by a new machine (the request carries the machine's name, and nothing is admitted without that network's own Allow), and the machine key is visible to a host that completes a handshake.
 - The residual risk of joining: if you Allow a request without comparing the code, whichever machine asked first on that network is admitted. The request names the machine and shows its address, and nothing is shared before the Allow.

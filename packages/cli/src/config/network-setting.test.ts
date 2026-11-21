@@ -33,6 +33,12 @@ describe('network settings', () => {
 		})
 	})
 
+	it('reads and checks autoAdmit', () => {
+		for (const v of ['trusted-networks', 'always', 'never'])
+			expect(load(`network:\n  autoAdmit: ${v}\n`).network).toEqual({ autoAdmit: v })
+		expect(() => load('network:\n  autoAdmit: sometimes\n')).toThrow(/autoAdmit/u)
+	})
+
 	it('reads the text the Settings screen saves for a choice', () => {
 		expect(load('network:\n  enabled: "false"\n').network).toEqual({ enabled: false })
 		expect(load('network:\n  enabled: "true"\n').network).toEqual({ enabled: true })
@@ -60,12 +66,18 @@ describe('network settings', () => {
 	})
 
 	it('have a row each in Settings, in plain words', () => {
-		for (const key of ['network.enabled', 'network.acceptMail', 'network.machineName']) {
+		for (const key of [
+			'network.enabled',
+			'network.acceptMail',
+			'network.machineName',
+			'network.autoAdmit',
+		]) {
 			const row = findSetting(key)
 			expect(row, key).toBeDefined()
 			expect(row?.keywords, key).toContain('peers')
 		}
 		expect(findSetting('network.enabled')?.default).toBe('auto')
 		expect(findSetting('network.acceptMail')?.default).toBe('members')
+		expect(findSetting('network.autoAdmit')?.default).toBe('trusted-networks')
 	})
 })

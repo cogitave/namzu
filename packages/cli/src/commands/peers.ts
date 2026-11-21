@@ -50,7 +50,9 @@ Usage:
   namzu peers send <ref|id|title|machine/name> <message...> [--json] [--mode <mode>] [--file <path>|-]
   namzu peers status [--json]
   namzu peers on [--anyway] | off
-  namzu peers allow <code|name> | deny <code|name>
+  namzu peers allow <code|name> [--trust [--as <name>]] | deny <code|name>
+  namzu peers networks [rename <name> <new name>] [--json]
+  namzu peers untrust <name>
   namzu peers remove <machine> [--and-its-admissions]
   namzu peers rename <new name...>
   namzu peers role <session|machine/> <text...> | --clear
@@ -68,6 +70,11 @@ status  Whether your Namzu network is on, how many machines are in it, and what 
 on/off  Turn your Namzu network on (automatic on a private network; --anyway on any
         network) or off for good. Open terminals pick it up when they next start.
 allow/deny  Decide a request from a new machine to join your network. Any machine can allow.
+networks    The networks you trust: a new machine on one joins without asking. \`allow --trust\`
+        trusts the network the request came from (--as names it; the default is Network 1, 2, ...).
+        A network counts only when its gateway can be read; otherwise it is unknown and never trusted.
+        The setting network.autoAdmit changes this: trusted-networks (default), always, never.
+untrust     Stop trusting a network, so its new machines ask for an Allow again.
 remove  Take a machine out of your network. --and-its-admissions also removes the machines it let in.
 rename  Rename this machine; the others show the new name.
 role    Describe what a session (or a machine, written machine/) is for. The role is shown in
@@ -108,7 +115,19 @@ export type PeersArgs =
 	| { readonly verb: 'status'; readonly json: boolean }
 	| { readonly verb: 'on'; readonly json: boolean; readonly anyway: boolean }
 	| { readonly verb: 'off'; readonly json: boolean }
-	| { readonly verb: 'allow' | 'deny'; readonly json: boolean; readonly query: string }
+	| {
+			readonly verb: 'allow'
+			readonly json: boolean
+			readonly query: string
+			readonly trust?: boolean | string
+	  }
+	| { readonly verb: 'deny'; readonly json: boolean; readonly query: string }
+	| {
+			readonly verb: 'networks'
+			readonly json: boolean
+			readonly rename?: readonly [string, string]
+	  }
+	| { readonly verb: 'untrust'; readonly json: boolean; readonly name: string }
 	| {
 			readonly verb: 'remove'
 			readonly json: boolean
@@ -136,6 +155,8 @@ const VERBS = [
 	'off',
 	'allow',
 	'deny',
+	'networks',
+	'untrust',
 	'remove',
 	'rename',
 	'role',
@@ -160,10 +181,13 @@ export function parsePeersArgs(rawArgs: readonly string[]): PeersArgs {
 	let anyway = false
 	let cascade = false
 	let clear = false
+	let trust = false
+	let trustName: string | undefined
 	let count: number | undefined
 	const operands: string[] = []
 	const takes = (flag: string) =>
 		(verb === 'send' && (flag === '--mode' || flag === '--file')) ||
+		(verb === 'allow' && flag === '--as') ||
 		(verb === 'log' && (flag === '-n' || flag === '--lines'))
 	for (let i = 0; i < args.length; i++) {
 		const arg = args[i] as string
@@ -175,12 +199,14 @@ export function parsePeersArgs(rawArgs: readonly string[]): PeersArgs {
 		else if (verb === 'on' && arg === '--anyway') anyway = true
 		else if (verb === 'remove' && arg === '--and-its-admissions') cascade = true
 		else if (verb === 'role' && arg === '--clear') clear = true
+		else if (verb === 'allow' && arg === '--trust') trust = true
 		else if (takes(arg)) {
 			const value = args[++i]
 			if (value === undefined || (value.startsWith('--') && value !== '--'))
 				return { error: `${arg} needs a value.` }
 			if (arg === '--mode') mode = value
 			else if (arg === '--file') file = value
+			else if (arg === '--as') trustName = value
 			else {
 				const n = Number(value)
 				if (!Number.isInteger(n) || n < 1 || n > 1000)
@@ -230,7 +256,24 @@ export function parsePeersArgs(rawArgs: readonly string[]): PeersArgs {
 			const query = operands.every((word) => /^\d+$/.test(word))
 				? operands.join('')
 				: operands.join(' ')
-			return { verb, json, query }
+			if (verb === 'deny') return { verb, json, query }
+			if (trustName !== undefined && !trust) return { error: '--as goes with --trust.' }
+			return {
+				verb,
+				json,
+				query,
+				...(trust ? { trust: trustName ?? true } : {}),
+			}
+		}
+		case 'networks': {
+			if (operands.length === 0) return { verb, json }
+			if (operands[0] === 'rename' && operands.length === 3)
+				return { verb, json, rename: [operands[1] as string, operands[2] as string] }
+			return { error: 'networks takes no arguments, or: rename <name> <new name>.' }
+		}
+		case 'untrust': {
+			if (operands.length === 0) return { error: 'untrust needs the name of a network.' }
+			return { verb, json, name: operands.join(' ') }
 		}
 		case 'remove': {
 			if (operands.length === 0) return { error: 'remove needs the name of a machine.' }
@@ -603,8 +646,45 @@ export async function executePeers(
 	try {
 		switch (parsed.verb) {
 			case 'allow': {
-				const request = await deps.control.allow(parsed.query)
-				io.print({ allowed: request.name }, `Allowed ${request.name} to join your Namzu network.`)
+				const request = parsed.trust
+					? await deps.control.allow(parsed.query, { trust: parsed.trust })
+					: await deps.control.allow(parsed.query)
+				const named = typeof parsed.trust === 'string' ? parsed.trust.toLowerCase() : undefined
+				const trusted = parsed.trust
+					? [...(await deps.control.networks())]
+							.filter((n) => named === undefined || n.name.toLowerCase() === named)
+							.sort((x, y) => y.trustedAt - x.trustedAt)[0]
+					: undefined
+				io.print(
+					{ allowed: request.name, ...(trusted ? { trusted: trusted.name } : {}) },
+					`Allowed ${request.name} to join your Namzu network.${trusted ? ` This network is trusted as "${trusted.name}": new machines on it join without asking. \`namzu peers untrust ${trusted.name}\` removes that.` : ''}`,
+				)
+				return EXIT_OK
+			}
+			case 'networks': {
+				if (parsed.rename) {
+					const [from, to] = parsed.rename
+					const renamed = await deps.control.renameNetwork(from, to)
+					io.print({ renamed: renamed.name }, `Renamed the trusted network to "${renamed.name}".`)
+					return EXIT_OK
+				}
+				const networks = await deps.control.networks()
+				io.print(
+					{ networks },
+					networks.length === 0
+						? 'No network is trusted. `namzu peers allow <code> --trust` trusts the network a request came from.'
+						: networks
+								.map((n) => `${n.name}  (${n.id})  new machines on it join without asking`)
+								.join('\n'),
+				)
+				return EXIT_OK
+			}
+			case 'untrust': {
+				const gone = await deps.control.untrust(parsed.name)
+				io.print(
+					{ untrusted: gone.name },
+					`Stopped trusting ${gone.name}. New machines on it ask for an Allow again.`,
+				)
 				return EXIT_OK
 			}
 			case 'deny': {
