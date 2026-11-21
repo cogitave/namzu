@@ -944,6 +944,13 @@ export interface NamzuCliConfig {
 	 */
 	readonly modelCatalogueRefresh?: boolean
 	/**
+	 * Inside WSL, read a subscription sign-in made in Namzu Desktop on Windows in place when
+	 * this terminal has none of its own. Absent or `true` means on; `false` keeps the terminal to
+	 * its own sign-ins. Read before a project is trusted, so a project file does not affect it.
+	 * `NAMZU_SHARE_DESKTOP_SIGNIN` overrides it.
+	 */
+	readonly shareDesktopSignIn?: boolean
+	/**
 	 * Start with hypermode on. Absent or `false` means off. The interactive
 	 * terminal starts every conversation with the mode on (`/hypermode off`
 	 * ends it for that conversation; the file is never rewritten), and `exec`,

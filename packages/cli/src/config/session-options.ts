@@ -117,6 +117,7 @@ export const SESSION_KEY_MAP: Readonly<Record<keyof NamzuCliConfig, string>> = {
 	updates: 'excluded: the self-updater, not a session',
 	network: 'excluded: read by the terminal app that runs the Namzu network, not by a session',
 	modelCatalogueRefresh: 'excluded: read by the catalogue refresher at start, not by a session',
+	shareDesktopSignIn: 'excluded: read where a stored sign-in is looked up, not by a session',
 	hypermode: 'excluded: a per-turn send option, see `turnOptionsFromConfig`',
 	refusalFallback: 'excluded: a per-turn send option, see `turnOptionsFromConfig`',
 	progressNudge:

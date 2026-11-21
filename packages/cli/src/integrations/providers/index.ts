@@ -51,6 +51,9 @@ export {
 	CredentialStoreError,
 	credentialsPath,
 	googleApiKeyPath,
+	locateStoredCodexCredential,
+	locateStoredSubscriptionCredential,
+	type StoredCredentialLocation,
 	readStoredSubscriptionCredential,
 	readStoredCodexCredential,
 	readStoredGeminiApiKey,
@@ -60,6 +63,11 @@ export {
 	writeStoredCodexCredential,
 	writeStoredGeminiApiKey,
 } from './credential-store.js'
+export {
+	configureDesktopSignInSharing,
+	DESKTOP_SIGN_IN_ENV,
+	desktopSignInSharingEnabled,
+} from './desktop-sign-in.js'
 export {
 	ensureFreshStoredCodexCredential,
 	type StoredCodexRefreshOptions,

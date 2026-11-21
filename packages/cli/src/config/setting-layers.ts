@@ -80,6 +80,10 @@ export const ENVIRONMENT_BINDINGS: Readonly<Record<string, EnvBinding>> = {
 		variable: 'NAMZU_MODEL_CATALOGUE_REFRESH',
 		read: loaderSwitch,
 	},
+	shareDesktopSignIn: {
+		variable: 'NAMZU_SHARE_DESKTOP_SIGNIN',
+		read: loaderSwitch,
+	},
 	'updates.auto': {
 		variable: 'NAMZU_AUTO_UPDATE',
 		read: (raw) => readSwitch(raw),
