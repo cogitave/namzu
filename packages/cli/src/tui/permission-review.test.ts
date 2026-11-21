@@ -237,6 +237,28 @@ describe('buildPermissionSummary', () => {
 		expect(summary.text).not.toContain('"calls"')
 	})
 
+	it('keeps the readable view when the call carries its short description', () => {
+		const review = buildPermissionReview([
+			{
+				id: 'call_1',
+				name: 'bash',
+				input: {
+					command: 'npm test 2>&1 | tail -15',
+					description: 'Run the\ntest suite',
+					timeout: 120_000,
+				},
+				isDestructive: false,
+			},
+		])
+		if (!review.ok) throw new Error('fixture must fit')
+		const summary = buildPermissionSummary(review.text)
+		expect(summary.complete).toBe(true)
+		expect(summary.text).toContain('$ npm test 2>&1 | tail -15')
+		// One line, after a field name: a newline in it cannot start a row of its own.
+		expect(summary.text).toContain('description: Run the test suite')
+		expect(summary.text).not.toContain('"calls"')
+	})
+
 	it('shows a command as typed, not JSON-escaped, one row per line', () => {
 		const command = `out="$(date)"; printf '%s\\n' "$out" >> stamp.txt\nprintf '%s\\n' "$out"`
 		const review = buildPermissionReview([

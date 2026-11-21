@@ -768,6 +768,7 @@ function summarizeKnownCall(
 	if (name === 'bash' && isRecord(input)) {
 		const allowed = new Set([
 			'command',
+			'description',
 			'timeout',
 			'run_in_background',
 			'dangerously_disable_sandbox',
@@ -776,6 +777,7 @@ function summarizeKnownCall(
 		const shapeIsKnown =
 			keys.every((key) => allowed.has(key)) &&
 			typeof input.command === 'string' &&
+			(input.description === undefined || typeof input.description === 'string') &&
 			(input.timeout === undefined || typeof input.timeout === 'number') &&
 			(input.run_in_background === undefined || typeof input.run_in_background === 'boolean') &&
 			(input.dangerously_disable_sandbox === undefined ||
@@ -784,6 +786,11 @@ function summarizeKnownCall(
 			return {
 				lines: [
 					...commandLines(withoutCdToCwd(input.command as string, context.cwd)),
+					// The model's own label for the command, on one line after a field
+					// name so it can never pose as the command or as another field.
+					...(typeof input.description === 'string' && input.description.trim() !== ''
+						? [`description: ${input.description.replace(/\s+/g, ' ').trim()}`]
+						: []),
 					...(input.timeout !== undefined
 						? [
 								`timeout: ${typeof input.timeout === 'number' ? formatSpan(input.timeout) : String(input.timeout)}`,
