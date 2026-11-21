@@ -1,5 +1,0 @@
----
-'@namzu/cli': minor
----
-
-`namzu config get --json` now describes three rows with new control kinds: `smallModel` is `model` (it was `text`), `routing` is `routing` and `permissions.autoMode` is `auto-mode` (both were `json`); a script that read `control.kind` for these keys must handle the new kinds. `namzu config set` still takes the same text for `smallModel` and the same JSON for the other two, and now refuses a non-object for them with a sentence about the form. `permissions.autoMode` asks first when its model changes, when an entry is added to `allow` or `environment`, or when an entry (the built-in rules included) is removed from `softDeny` or `hardDeny`, and names it; before, every change asked and the question did not say what. A table with nothing in it removes the key. `namzu config get smallModel` and the settings snapshot say when `NAMZU_SMALL_MODEL` is set. The `permissions.autoMode.model` comment now says `provider/model`, which is what the loader reads; `provider:model` never was.
