@@ -51,7 +51,7 @@ Removing the last key deletes the file. The terminal picker writes the same file
 entered in one surface is found by the others.
 
 A key added with `/auth` lives in `accounts.json` with its label, and only there: startup reads it
-from the account when `api-keys.json` (Gemini: `gemini-api-key.json`) names no key for the provider, so
+from the account when `api-keys.json` (Google: `gemini-api-key.json`) names no key for the provider, so
 the key is stored once. An account aimed at a custom endpoint is not used for startup. Removing an
 account removes its key with it, including a key you typed in the picker that is identical to it, since
 that copy is retired. `/logout <provider>` removes the saved key and only the plain `/auth` accounts

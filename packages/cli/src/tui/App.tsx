@@ -7574,7 +7574,7 @@ function AppBody({
 			} catch (err) {
 				// Not fatal: the folder is trusted for this session. The reason it was not
 				// remembered is said once, because the next start will ask again.
-				pushMessage('system', explainFailure(err, 'Trusted for this session only.'))
+				pushSystem('error', explainFailure(err, 'Trusted for this session only.'))
 			}
 			try {
 				// Accepting answers for the servers the gate showed in full; ones it
@@ -7586,7 +7586,7 @@ function AppBody({
 				)
 			} catch (err) {
 				// Not fatal: the servers stay pending and `namzu mcp approve` answers them.
-				pushMessage('system', explainFailure(err, 'The tool server approvals were not saved.'))
+				pushSystem('error', explainFailure(err, 'The tool server approvals were not saved.'))
 			}
 			setPhase('probing')
 			try {
@@ -7598,7 +7598,7 @@ function AppBody({
 				pushMessage('system', projectSettingsFailure(err), false, STARTUP_STOP_GLYPH)
 			}
 		},
-		[activateTrustedProject, pushMessage, runProbe, trustGrants],
+		[activateTrustedProject, pushMessage, pushSystem, runProbe, trustGrants],
 	)
 
 	messagesNowRef.current = messages

@@ -303,7 +303,7 @@ describe('when the sweep runs', () => {
 
 	it('skips the sweep while another process holds it', async () => {
 		const s = await project()
-		writeFileSync(join(s.root, `${CLEANUP_STATE_FILE}.lock`), `${process.pid}:0:held`)
+		writeFileSync(join(s.root, `${CLEANUP_STATE_FILE}.lock`), `${process.ppid}:0:held`)
 		expect((await run(s)).ran).toBe(false)
 	})
 })

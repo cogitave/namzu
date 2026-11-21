@@ -188,7 +188,7 @@ describe('the history file', () => {
 
 	it('waits for a writer that holds the lock, and gives the line up rather than the prompt', async () => {
 		const home = await temp('namzu-history-home-')
-		writeFileSync(join(home, `${PROMPT_HISTORY_FILE}.lock`), `${process.pid}:0:held`)
+		writeFileSync(join(home, `${PROMPT_HISTORY_FILE}.lock`), `${process.ppid}:0:held`)
 		let waits = 0
 		expect(
 			await appendPromptHistory(home, entry('x'), {
