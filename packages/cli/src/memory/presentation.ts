@@ -62,6 +62,18 @@ export function renderMemorySaveResult(result: AppendMemoryResult, text: string)
 	return `Remembered ${result.scope === 'user' ? 'for every project' : 'for this project'} (${result.path}): ${text}`
 }
 
+/**
+ * What `#note` and `/memory add` say when this folder's stored memory is not
+ * open: while the first session is still starting, or when Namzu could not
+ * open the folder's saved data. The note is never written into the
+ * repository's `.namzu/MEMORY.md` instead; that file is the team's to edit.
+ */
+export function renderNoteNotSaved(starting: boolean): string {
+	return starting
+		? 'The note was not saved: this folder’s memory is not open yet. Send it again in a moment.'
+		: 'The note was not saved: Namzu could not open this folder’s saved data, where notes are kept. To share a note with everyone who works here, add it to .namzu/MEMORY.md yourself.'
+}
+
 /** What `#note` and `/memory add` report after writing a typed memory. */
 export function renderTypedNoteResult(result: TypedNoteResult, text: string): string {
 	if (result.duplicate) {

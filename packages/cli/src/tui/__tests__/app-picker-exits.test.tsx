@@ -1354,9 +1354,7 @@ describe('publishing a picker selection', () => {
 	it('shows saved memory to the operator without prompt instructions or inspection writes', async () => {
 		const fact = 'Use pnpm for this project'
 		const path = '/w/.namzu/MEMORY.md'
-		const remember = vi
-			.spyOn(memoryStore, 'appendMemoryWithStatus')
-			.mockReturnValue({ path, scope: 'project', appended: true, includedInPrompt: true })
+		const remember = vi.spyOn(memoryStore, 'appendMemoryWithStatus')
 		const read = vi.spyOn(memoryStore, 'readMemory').mockReturnValue({
 			user: null,
 			memory: null,
@@ -1367,8 +1365,10 @@ describe('publishing a picker selection', () => {
 		mounted.push(harness)
 		await frameShows(harness.lastFrame, 'Type a message')
 		await tick(80)
+		// A session with no stored memory refuses the note: it never goes into
+		// the repository's .namzu/MEMORY.md.
 		await submit(harness, `/memory add ${fact}`)
-		await vi.waitFor(() => expect(remember).toHaveBeenCalledTimes(1))
+		await frameShows(harness.lastFrame, 'The note was not saved')
 
 		for (const command of ['/memory show', '/memory list']) {
 			const previousReads = read.mock.calls.length
@@ -1381,7 +1381,7 @@ describe('publishing a picker selection', () => {
 			expect(frame).not.toContain('The following is persistent context')
 			expect(frame).not.toContain('Do not repeat it back')
 		}
-		expect(remember).toHaveBeenCalledExactlyOnceWith(fact, { scope: 'project', cwd: ctx.cwd })
+		expect(remember).not.toHaveBeenCalled()
 	})
 
 	it.each([
@@ -1546,25 +1546,38 @@ describe('publishing a picker selection', () => {
 		})
 	})
 
-	it.each(['/memory add NEW_NOTE', '#NEW_NOTE'])(
-		'reports saved but clipped memory for %s',
+	it('reports saved but clipped memory for /memory --user add', async () => {
+		const path = '/home/.namzu/MEMORY.md'
+		const remember = vi
+			.spyOn(memoryStore, 'appendMemoryWithStatus')
+			.mockReturnValue({ path, scope: 'user', appended: true, includedInPrompt: false })
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+		await submit(harness, '/memory --user add NEW_NOTE')
+		await frameShows(harness.lastFrame, 'not be fully included')
+		expect(harness.lastFrame()).toContain(path)
+		expect(harness.lastFrame()).not.toContain('Remembered')
+		expect(remember).toHaveBeenCalledExactlyOnceWith('NEW_NOTE', {
+			scope: 'user',
+			cwd: ctx.cwd,
+		})
+	})
+
+	it.each(['/memory add NEW_NOTE', '#NEW_NOTE', '/memory add --type feedback NEW_NOTE'])(
+		'never writes %s into the repository file when the session has no stored memory',
 		async (command) => {
-			const path = '/w/.namzu/MEMORY.md'
-			const remember = vi
-				.spyOn(memoryStore, 'appendMemoryWithStatus')
-				.mockReturnValue({ path, scope: 'project', appended: true, includedInPrompt: false })
+			const remember = vi.spyOn(memoryStore, 'appendMemoryWithStatus')
 			const harness = render(<App ctx={ctx} />)
 			mounted.push(harness)
 			await frameShows(harness.lastFrame, 'Type a message')
 			await tick(80)
 			await submit(harness, command)
-			await frameShows(harness.lastFrame, 'not be fully included')
-			expect(harness.lastFrame()).toContain(path)
+			await frameShows(harness.lastFrame, 'The note was not saved')
+			expect(harness.lastFrame()).toContain('.namzu/MEMORY.md yourself')
 			expect(harness.lastFrame()).not.toContain('Remembered')
-			expect(remember).toHaveBeenCalledExactlyOnceWith('NEW_NOTE', {
-				scope: 'project',
-				cwd: ctx.cwd,
-			})
+			expect(remember).not.toHaveBeenCalled()
 		},
 	)
 

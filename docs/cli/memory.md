@@ -134,8 +134,13 @@ by hand and the next turn sees it.
 note (`/memory add --type feedback <text>` picks another type; `--type` is
 refused with `--user`). The terminal names the file written. A note whose exact
 text an active memory already holds is not saved again; the terminal names the
-memory that holds it. A session with no provider has no store, and its notes are
-appended to the curated project file as before.
+memory that holds it. A session refused at start (no provider yet, an account to
+sign in again, plugins that would not load) still saves notes to the same store,
+which needs no provider. Where no store is open, while the first session is
+still starting or when Namzu could not open the folder's saved data, the note is
+not saved and the terminal says so. A note is never written into the
+repository's `.namzu/MEMORY.md`: that file is read into every prompt and is
+usually committed, so only you edit it.
 
 ### Keeping memory during a session
 
