@@ -50,11 +50,22 @@ the environment, names it `saved API key · this device`, and every Namzu surfac
 Removing the last key deletes the file. The terminal picker writes the same file, so a key
 entered in one surface is found by the others.
 
-A key added with `/auth` lives in `accounts.json` with its label. When the provider has no saved key
-yet and the account has no custom endpoint, the key is also saved as the provider's startup key.
-Keys that an earlier build left only in `accounts.json` are copied once, at the first start of a
-build with this behaviour, with a one-line notice and no prompt; the accounts themselves are not
-changed, and a marker (`.api-keys-migrated`) keeps a key you later remove from coming back.
+A key added with `/auth` lives in `accounts.json` with its label, and only there: startup reads it
+from the account when `api-keys.json` (Gemini: `gemini-api-key.json`) names no key for the provider, so
+the key is stored once. An account aimed at a custom endpoint is not used for startup. Removing an
+account removes its key with it, including a key you typed in the picker that is identical to it, since
+that copy is retired. `/logout <provider>` removes the saved key and only the plain `/auth` accounts
+that hold that same key; accounts with other keys stay (the oldest then becomes the startup key). Their
+last-use records go with them. If an account cannot be removed, the saved key is kept and the error is
+shown. A key file in `accounts.json` that others can read or write is not trusted for startup. An earlier build also copied an account's key into
+`api-keys.json`; at the first start of a build with this behaviour a copy that is byte for byte the
+account's key is removed, after the account file is read and the removal re-checks the value under the
+store lock, with a one-line notice. If the account is removed by another process
+meanwhile, the copy is written back. This runs at the start of the terminal app; Desktop and the
+non-interactive commands already read the account, so the retired copy only disappears at the next
+terminal start. A key that differs from the account's, or any file that cannot be read, is left alone.
+An older build started afterwards does not find a retired key in `api-keys.json` and shows the provider
+as not detected; the key is still in the account.
 
 **The choice follows the ways, not the ids.** What makes a row worth asking
 about is that it has more than one way in — a machine that found a session *and*

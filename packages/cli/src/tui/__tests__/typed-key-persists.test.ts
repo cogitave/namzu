@@ -1,25 +1,38 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createAccountRegistry } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { createAccountActivityStore } from '../../integrations/accounts/activity.js'
 
 import {
 	apiKeyLogoutTarget,
 	apiKeysPath,
 	clearAllStoredApiKeys,
 	clearStoredApiKey,
+	clearStoredApiKeyIf,
 	discoverProviders,
 	listStoredApiKeyProviders,
-	migrateAccountKeys,
+	readOwnStoredApiKey,
 	readStoredApiKey,
+	readStoredGeminiApiKey,
+	retireDuplicateStartupKeys,
+	retirementNotice,
 	writeStoredApiKey,
 	writeStoredGeminiApiKey,
 } from '../../integrations/providers/index.js'
 import { PROVIDER_REGISTRY } from '../../integrations/providers/index.js'
-import { keyMigrationMarkerPath } from '../../integrations/providers/key-migration.js'
 import { describeDisposition } from '../credential-entry.js'
-import { keepAccountKeyForStartup, saveTypedKey } from '../typed-key-save.js'
+import { saveTypedKey } from '../typed-key-save.js'
 
 const KEY = 'sk-test-0000000000000000000000000000'
 const OTHER = 'sk-test-1111111111111111111111111111'
@@ -135,112 +148,186 @@ describe('logout removes a saved key', () => {
 	})
 })
 
-describe('keys from earlier builds', () => {
+describe('an account key is stored once', () => {
 	const accounts = () => createAccountRegistry({ home: join(home, '.namzu'), readers: {} })
-
-	it('moves an /auth account key once, with a one-line notice, and leaves the account alone', async () => {
+	const addAccount = (provider: string, label: string, apiKey: string, baseUrl?: string) => {
 		mkdirSync(join(home, '.namzu'), { recursive: true })
-		const registry = accounts()
-		registry.add({ provider: 'deepseek', label: 'work', kind: 'api-key', apiKey: KEY })
-		expect((await discover()).find((d) => d.entry.id === 'deepseek')).toBeUndefined()
-
-		const notice = await migrateAccountKeys(registry, { home })
-		expect(notice).toMatch(/^Moved your saved .*DeepSeek.* API key/)
-		expect(notice?.split('\n')).toHaveLength(1)
-		expect((await discover()).find((d) => d.entry.id === 'deepseek')?.apiKey).toBe(KEY)
-
-		// The account still resolves exactly as before.
-		const id = registry.list('deepseek').find((a) => a.label === 'work')?.id ?? ''
-		expect((await registry.resolve(id, new AbortController().signal)).accessToken).toBe(KEY)
-
-		// Once: a removed key is not brought back at the next start.
-		clearStoredApiKey('deepseek', home)
-		expect(await migrateAccountKeys(registry, { home })).toBeNull()
-		expect(readStoredApiKey('deepseek', home)).toBeNull()
-		expect(existsSync(keyMigrationMarkerPath(home))).toBe(true)
-	})
-
-	it('does not mark the move done when an account could not be read, so the next start retries', async () => {
-		mkdirSync(join(home, '.namzu'), { recursive: true })
-		const registry = accounts()
-		registry.add({ provider: 'deepseek', label: 'work', kind: 'api-key', apiKey: KEY })
-		const resolve = registry.resolve.bind(registry)
-		let failing = true
-		const flaky = new Proxy(registry, {
-			get(target, prop) {
-				if (prop === 'resolve') {
-					return (...args: Parameters<typeof resolve>) =>
-						failing ? Promise.reject(new Error('locked')) : resolve(...args)
-				}
-				return Reflect.get(target, prop, target)
-			},
-		})
-		expect(await migrateAccountKeys(flaky, { home })).toBeNull()
-		expect(existsSync(keyMigrationMarkerPath(home))).toBe(false)
-		expect(readStoredApiKey('deepseek', home)).toBeNull()
-
-		failing = false
-		expect(await migrateAccountKeys(flaky, { home })).toMatch(/^Moved your saved/)
-		expect(readStoredApiKey('deepseek', home)).toBe(KEY)
-		expect(existsSync(keyMigrationMarkerPath(home))).toBe(true)
-	})
-
-	it('never overwrites a key that is already saved', async () => {
-		mkdirSync(join(home, '.namzu'), { recursive: true })
-		writeStoredApiKey('deepseek', OTHER, home)
-		const registry = accounts()
-		registry.add({ provider: 'deepseek', label: 'work', kind: 'api-key', apiKey: KEY })
-		expect(await migrateAccountKeys(registry, { home })).toBeNull()
-		expect(readStoredApiKey('deepseek', home)).toBe(OTHER)
-	})
-
-	it('skips an account aimed at a custom endpoint', async () => {
-		mkdirSync(join(home, '.namzu'), { recursive: true })
-		const registry = accounts()
-		registry.add({
-			provider: 'openai',
-			label: 'proxy',
+		return accounts().add({
+			provider,
+			label,
 			kind: 'api-key',
-			apiKey: KEY,
-			baseUrl: 'https://proxy.example.test/v1',
+			apiKey,
+			...(baseUrl !== undefined ? { baseUrl } : {}),
 		})
-		expect(await migrateAccountKeys(registry, { home })).toBeNull()
+	}
+
+	it('is found at startup from accounts.json alone, with no copy made', async () => {
+		addAccount('deepseek', 'work', KEY)
+		expect(existsSync(apiKeysPath(home))).toBe(false)
+		expect((await discover()).find((d) => d.entry.id === 'deepseek')?.apiKey).toBe(KEY)
+		expect(readStoredApiKey('deepseek', home)).toBe(KEY)
+		expect(listStoredApiKeyProviders(home)).toEqual(['deepseek'])
+	})
+
+	it('reads a Gemini account key without a gemini-api-key.json', () => {
+		addAccount('google', 'work', KEY)
+		expect(readStoredGeminiApiKey(home)).toBe(KEY)
+	})
+
+	it('ignores an account aimed at a custom endpoint', () => {
+		addAccount('openai', 'proxy', KEY, 'https://proxy.example.test/v1')
 		expect(readStoredApiKey('openai', home)).toBeNull()
 	})
 
-	it('says nothing and writes nothing when there is nothing to move', async () => {
-		mkdirSync(join(home, '.namzu'), { recursive: true })
-		expect(await migrateAccountKeys(accounts(), { home })).toBeNull()
-		expect(existsSync(apiKeysPath(home))).toBe(false)
+	it('a logout removes the key from the file and from the account, once', () => {
+		addAccount('deepseek', 'work', KEY)
+		writeStoredApiKey('deepseek', KEY, home)
+		clearStoredApiKey('deepseek', home)
+		expect(readStoredApiKey('deepseek', home)).toBeNull()
+		expect(
+			accounts()
+				.list('deepseek')
+				.filter((a) => a.label === 'work'),
+		).toHaveLength(0)
 	})
 
-	it('keeps a Gemini key where startup reads it', async () => {
-		mkdirSync(join(home, '.namzu'), { recursive: true })
-		const registry = accounts()
-		registry.add({ provider: 'google', label: 'work', kind: 'api-key', apiKey: KEY })
-		await migrateAccountKeys(registry, { home })
-		expect((await discover()).find((d) => d.entry.id === 'google')?.apiKey).toBe(KEY)
+	it("a logout keeps accounts that hold another key, and forgets the removed one's activity", () => {
+		const work = addAccount('deepseek', 'work', KEY)
+		const other = addAccount('deepseek', 'second', OTHER)
+		writeStoredApiKey('deepseek', KEY, home)
+		const activity = createAccountActivityStore({ home: join(home, '.namzu') })
+		activity.markUsed(work.id, 1)
+		activity.markUsed(other.id, 2)
+		clearStoredApiKey('deepseek', home)
+		expect(
+			accounts()
+				.list('deepseek')
+				.map((a) => a.label),
+		).not.toContain('work')
+		expect(
+			accounts()
+				.list('deepseek')
+				.map((a) => a.label),
+		).toContain('second')
+		expect(Object.keys(activity.read().lastUsed)).toEqual([other.id])
+		expect(readStoredApiKey('deepseek', home)).toBe(OTHER)
+	})
+
+	it('a logout that cannot remove an account keeps the saved key and says so', () => {
+		addAccount('deepseek', 'work', KEY)
+		writeStoredApiKey('deepseek', KEY, home)
+		const file = join(home, '.namzu', 'accounts.json')
+		const before = readFileSync(file, 'utf8')
+		// A directory in the registry's temp-file slot is not portable; a read-only file is.
+		chmodSync(file, 0o400)
+		chmodSync(join(home, '.namzu'), 0o500)
+		try {
+			if (process.getuid?.() === 0) return
+			expect(() => clearStoredApiKey('deepseek', home)).toThrow(/saved key was kept/)
+			expect(readOwnStoredApiKey('deepseek', home)).toBe(KEY)
+			expect(readFileSync(file, 'utf8')).toBe(before)
+		} finally {
+			chmodSync(join(home, '.namzu'), 0o700)
+			chmodSync(file, 0o600)
+		}
+	})
+
+	it('does not trust an accounts.json that others can read', () => {
+		if (process.platform === 'win32') return
+		addAccount('deepseek', 'work', KEY)
+		chmodSync(join(home, '.namzu', 'accounts.json'), 0o644)
+		expect(readStoredApiKey('deepseek', home)).toBeNull()
 	})
 })
 
-describe('a key added with /auth', () => {
-	it('also becomes the startup key when the provider has none', async () => {
-		expect(keepAccountKeyForStartup('deepseek', KEY, undefined, home)).toEqual({
-			kind: 'saved',
-			path: apiKeysPath(home),
-		})
-		expect((await discover()).find((d) => d.entry.id === 'deepseek')?.apiKey).toBe(KEY)
+describe('retiring the second copy of an account key', () => {
+	const accounts = () => createAccountRegistry({ home: join(home, '.namzu'), readers: {} })
+	const addAccount = (provider: string, label: string, apiKey: string) => {
+		mkdirSync(join(home, '.namzu'), { recursive: true })
+		return accounts().add({ provider, label, kind: 'api-key', apiKey })
+	}
+	const accountsFile = () => join(home, '.namzu', 'accounts.json')
+
+	it('only the old copy: nothing to retire, the key still works', () => {
+		writeStoredApiKey('deepseek', KEY, home)
+		expect(retireDuplicateStartupKeys(home).retired).toEqual([])
+		expect(readStoredApiKey('deepseek', home)).toBe(KEY)
 	})
 
-	it('does not replace a key that is already saved, or take a custom endpoint', () => {
+	it('only the account: nothing to retire', () => {
+		addAccount('deepseek', 'work', KEY)
+		expect(retireDuplicateStartupKeys(home).retired).toEqual([])
+		expect(readStoredApiKey('deepseek', home)).toBe(KEY)
+	})
+
+	it('both with the same key: the copy goes, the account keeps working, 0600', async () => {
+		const account = addAccount('deepseek', 'work', KEY)
+		writeStoredApiKey('deepseek', KEY, home)
+		const result = retireDuplicateStartupKeys(home)
+		expect(result.retired).toEqual(['deepseek'])
+		expect(existsSync(apiKeysPath(home))).toBe(false)
+		expect(readStoredApiKey('deepseek', home)).toBe(KEY)
+		expect((await accounts().resolve(account.id, new AbortController().signal)).accessToken).toBe(
+			KEY,
+		)
+		expect(statSync(accountsFile()).mode & 0o777).toBe(0o600)
+		expect(retirementNotice(result.retired, (id) => id)).toMatch(/stored twice/)
+		expect(retireDuplicateStartupKeys(home).retired).toEqual([])
+	})
+
+	it('both with different keys: both stay and the startup key wins as before', () => {
+		addAccount('deepseek', 'work', KEY)
 		writeStoredApiKey('deepseek', OTHER, home)
-		expect(keepAccountKeyForStartup('deepseek', KEY, undefined, home)).toBeNull()
+		expect(retireDuplicateStartupKeys(home).retired).toEqual([])
 		expect(readStoredApiKey('deepseek', home)).toBe(OTHER)
-		expect(keepAccountKeyForStartup('openai', KEY, 'https://x.example.test', home)).toBeNull()
+		expect(readFileSync(accountsFile(), 'utf8')).toContain(KEY)
 	})
 
-	it('leaves Gemini alone when it has a key', () => {
-		writeStoredGeminiApiKey(OTHER, home)
-		expect(keepAccountKeyForStartup('google', KEY, undefined, home)).toBeNull()
+	it('a second account for the provider keeps the other keys when the copy of the first goes', () => {
+		addAccount('deepseek', 'work', KEY)
+		addAccount('deepseek', 'home', OTHER)
+		writeStoredApiKey('deepseek', KEY, home)
+		writeStoredApiKey('openai', OTHER, home)
+		expect(retireDuplicateStartupKeys(home).retired).toEqual(['deepseek'])
+		expect(readStoredApiKey('openai', home)).toBe(OTHER)
+		expect(readFileSync(accountsFile(), 'utf8')).toContain(OTHER)
+	})
+
+	it('a corrupt accounts.json removes nothing', () => {
+		writeStoredApiKey('deepseek', KEY, home)
+		writeFileSync(accountsFile(), '{ not json')
+		expect(retireDuplicateStartupKeys(home).retired).toEqual([])
+		expect(readStoredApiKey('deepseek', home)).toBe(KEY)
+	})
+
+	it('a corrupt api-keys.json removes nothing and loses no account key', () => {
+		addAccount('deepseek', 'work', KEY)
+		writeFileSync(apiKeysPath(home), '{ not json')
+		expect(retireDuplicateStartupKeys(home).retired).toEqual([])
+		expect(readStoredApiKey('deepseek', home)).toBe(KEY)
+		expect(readFileSync(apiKeysPath(home), 'utf8')).toBe('{ not json')
+	})
+
+	it('a copy that changed after it was read is not removed', () => {
+		addAccount('deepseek', 'work', KEY)
+		writeStoredApiKey('deepseek', OTHER, home)
+		expect(clearStoredApiKeyIf('deepseek', KEY, home)).toBe(false)
+		expect(readStoredApiKey('deepseek', home)).toBe(OTHER)
+	})
+
+	it('two runs at once remove the copy once', () => {
+		addAccount('deepseek', 'work', KEY)
+		writeStoredApiKey('deepseek', KEY, home)
+		const first = retireDuplicateStartupKeys(home).retired
+		const second = retireDuplicateStartupKeys(home).retired
+		expect([...first, ...second]).toEqual(['deepseek'])
+		expect(readStoredApiKey('deepseek', home)).toBe(KEY)
+	})
+
+	it('retires a Gemini copy too', () => {
+		addAccount('google', 'work', KEY)
+		writeStoredGeminiApiKey(KEY, home)
+		expect(retireDuplicateStartupKeys(home).retired).toEqual(['google'])
+		expect(readStoredGeminiApiKey(home)).toBe(KEY)
 	})
 })

@@ -749,12 +749,7 @@ import {
 } from './triggers/registry.js'
 import { describeComposerTriggers, setComposerTriggers } from './triggers/setting.js'
 import { typedInputOf } from './typed-input.js'
-import {
-	type TypedKeySave,
-	keepAccountKeyForStartup,
-	logoutWordFor,
-	saveTypedKey,
-} from './typed-key-save.js'
+import { type TypedKeySave, logoutWordFor, saveTypedKey } from './typed-key-save.js'
 import { formatCompactCount } from './units.js'
 import { useSpinnerTip } from './use-spinner-tip.js'
 import { type WebActivity, webCallTitle, webLiveStatus } from './web-activity.js'
@@ -13234,7 +13229,6 @@ function AppBody({
 							...(step.defaultModel !== undefined ? { defaultModel: step.defaultModel } : {}),
 						})
 						pushMessage('system', `Added ${accountProductName(step.provider)} · ${step.label}.`)
-						keepAccountKeyForStartup(step.provider, step.key, step.baseUrl)
 					} catch (error) {
 						pushMessage('system', accountProblem(error, 'Could not add the account.'))
 					}
@@ -13316,10 +13310,7 @@ function AppBody({
 						const accounts = openAccounts()
 						accounts.registry.remove(picker.accountId)
 						accounts.activity.forget(picker.accountId)
-						pushMessage(
-							'system',
-							'Account removed. A key kept for startup stays until you run /logout <provider>.',
-						)
+						pushMessage('system', 'Account removed. Its saved key went with it.')
 					} catch (error) {
 						pushMessage('system', accountProblem(error, 'Could not remove the account.'))
 					}
