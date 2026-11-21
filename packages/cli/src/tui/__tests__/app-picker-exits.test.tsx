@@ -1227,11 +1227,11 @@ describe('publishing a picker selection', () => {
 
 		await submit(harness, '/permissions')
 		await frameShows(harness.lastFrame, 'Ask before changes')
-		expect(harness.lastFrame()).toContain('Auto-approve edits')
+		expect(harness.lastFrame()).toContain('Accept edits')
 		expect(harness.lastFrame()).toContain('Plan (read-only)')
 		expect(harness.lastFrame()).not.toContain('Preapproved tools only')
 		harness.stdin.write('2')
-		await frameShows(harness.lastFrame, 'Permissions: Auto-approve edits for this conversation.')
+		await frameShows(harness.lastFrame, 'Permissions: Accept edits for this conversation.')
 		await submit(harness, 'use automatic file edits')
 		await vi.waitFor(() => expect(modes).toEqual(['accept-edits']))
 

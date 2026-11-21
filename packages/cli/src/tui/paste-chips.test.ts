@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
 	blankRanges,
+	chipPastedRanges,
 	chipRanges,
 	expandChips,
 	expandChipsWithRanges,
@@ -138,5 +139,26 @@ describe('where a paste lands in the sent text', () => {
 		)
 		expect(seen[0]).not.toContain('@pasted.ts')
 		expect(out.sendText.startsWith('look @typed.ts then @pasted.ts\n\n<file')).toBe(true)
+	})
+})
+
+describe('chipPastedRanges', () => {
+	it('folds each pasted stretch back into a chip, leaving typed words', () => {
+		const store = new Map([
+			[1, 'a\nb\nc\nd'],
+			[2, 'one line'],
+		])
+		const { text, ranges } = expandChipsWithRanges(
+			'see [Pasted text #1 +3 lines] and [Pasted text #2] ok',
+			store,
+		)
+		expect(chipPastedRanges(text, ranges)).toBe(
+			'see [Pasted text #1 +3 lines] and [Pasted text #2] ok',
+		)
+	})
+
+	it('leaves the text alone with no ranges', () => {
+		expect(chipPastedRanges('plain', undefined)).toBe('plain')
+		expect(chipPastedRanges('plain', [])).toBe('plain')
 	})
 })

@@ -24,11 +24,12 @@ import { connectorCallSummary } from './connector-label.js'
 import { conversationInUseSentence, minutesUntilFree } from './conversation-in-use.js'
 import { type ProposedChange, diffBodyFromFacts, proposedFromInput } from './diff-rows.js'
 import type { DiffInfo } from './diff-view.js'
-import { PLAN_FILE_LABEL, displayPath, isSessionPlanPath } from './display-path.js'
+import { displayPath } from './display-path.js'
 import { createLiveModelStep } from './live-model-step.js'
 import { homePath } from './person-terms.js'
 import { explainFailure, workingDirectoryProblem } from './plain-failure.js'
 import { withoutCdToCwd } from './shell-display.js'
+import { shortenPathMiddle } from './shorten-path.js'
 import {
 	factsHeadline,
 	shortToolFailure,
@@ -10160,19 +10161,17 @@ function truncate(value: string, max: number): string {
  * exactly the `path` the call carried is shown relative to the working folder
  * (`~/x` or the full path when it lies outside), never as `../../x`.
  */
-function pathSummary(summary: string, input: unknown, cwd: string | undefined): string {
+export function pathSummary(summary: string, input: unknown, cwd: string | undefined): string {
 	const path =
 		typeof input === 'object' && input !== null ? (input as { path?: unknown }).path : undefined
 	if (typeof path !== 'string' || path.length === 0) return summary
-	if (summary === path) return displayPath(path, cwd)
-	// A long path reaches here already shortened (`…` at its end). The session's
-	// plan file is named the same way whole or shortened, never as a raw path.
-	if (
-		summary.length > 0 &&
-		isSessionPlanPath(path) &&
-		path.startsWith(summary.replace(/…$/u, ''))
-	) {
-		return PLAN_FILE_LABEL
+	// A long path reaches here already cut at its end (`…`). It is the same file
+	// whole or cut, so it is read from the path itself: relative to the working
+	// folder, and when it still does not fit, cut in the middle so the file name
+	// stays. The session's plan file is named the same way, never as a raw path.
+	const cut = summary.endsWith('…') && summary.length > 1
+	if (summary === path || (cut && path.startsWith(summary.slice(0, -1)))) {
+		return shortenPathMiddle(displayPath(path, cwd), 120)
 	}
 	return summary
 }

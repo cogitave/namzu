@@ -91,7 +91,7 @@ describe('exit_plan_mode', () => {
 		const result = await tool({ ask: async () => answer }).execute({}, context())
 		expect(result.success).toBe(true)
 		expect(result.output).toContain('approved your plan')
-		expect(result.output).toContain('Auto-approve edits')
+		expect(result.output).toContain('Accept edits')
 		expect(result.output).toContain(`saved at ${planPath}`)
 		expect(result.output).toContain('The user added: go fast')
 		expect(result.output).toContain('## Approved plan\n# Plan\n\nStep one')

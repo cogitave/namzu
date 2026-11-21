@@ -779,7 +779,12 @@ import {
 	outcomeNotice,
 } from './outcome-line.js'
 import { noteTurnEnded, noteTurnStarted } from './paint/live-paint.js'
-import { blankRanges, expandMentionsAround, highestAttachmentNumber } from './paste-chips.js'
+import {
+	blankRanges,
+	chipPastedRanges,
+	expandMentionsAround,
+	highestAttachmentNumber,
+} from './paste-chips.js'
 import { PauseClock } from './pause-clock.js'
 import {
 	type WithheldCall,
@@ -11337,7 +11342,9 @@ function AppBody({
 					'user',
 					// What the operator typed: a command that composes the model's
 					// message shows the command, not the rewrite.
-					prompt.kind === 'human' ? (prompt.recallText ?? text) : text,
+					prompt.kind === 'human'
+						? (prompt.recallText ?? chipPastedRanges(text, prompt.pasted))
+						: text,
 					false,
 					undefined,
 					undefined,
@@ -17858,6 +17865,16 @@ function AppBody({
 		phase === 'edit' ||
 		phase === 'picker' ||
 		agentSurface !== null
+	// The shells list and the workflow detail are drawn under the conversation, which
+	// stays on screen above them: they are sized to leave it room, so the rows above
+	// the pane are the conversation and not a blank.
+	const conversationStaysUnderPane =
+		fullscreenOn &&
+		phase === 'ready' &&
+		!transcriptScreen &&
+		!scrollOpen &&
+		scheduleReviewPrompt === null &&
+		(jobSurface !== null || (agentSurface !== null && agentSurface.kind === 'cockpit'))
 	const statusGoal =
 		phase === 'ready' &&
 		state === 'idle' &&
@@ -18108,7 +18125,7 @@ function AppBody({
 							pendingAt={pendingAt}
 							columns={Math.max(4, terminal.columns - SCREEN_MARGIN)}
 							maxRows={Math.max(3, terminal.rows - 1)}
-							hidden={lifecycleOwnsViewport}
+							hidden={lifecycleOwnsViewport && !conversationStaysUnderPane}
 							inert={transcriptScreen}
 							yielded={transcriptScreen}
 							keysActive={
@@ -18471,6 +18488,7 @@ function AppBody({
 										: {})}
 									{...(choicePicker.kind === 'account' ? { hints: ACCOUNT_PICKER_HINTS } : {})}
 									options={filterChoiceOptions(choicePicker.options, choiceQuery)}
+									describeSelected={choicePicker.kind === 'user-question'}
 									query={choicePickerSearchable(choicePicker) ? choiceQuery : undefined}
 									selected={selectedChoice}
 									windowSize={
@@ -18593,6 +18611,7 @@ function AppBody({
 												: promptSuggestion !== undefined
 													? { promptSuggestion }
 													: {})}
+										parked={workflowDetailOpen}
 										mayReadImage={imageReadPolicy}
 										reasoningEffortLevels={session?.reasoningEffortLevels}
 										onCycleMode={cyclePermissionMode}

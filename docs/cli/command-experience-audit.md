@@ -181,7 +181,7 @@ validated.
 | Area | Implemented behavior |
 | --- | --- |
 | Model changes | `/model` starts at the current provider’s models and offers a separate provider action. Selection preserves unrelated preferences and fallback models. Replacement construction precedes atomic preference persistence and activation; failures retain the old session. Temporary credentials keep selection local to the session. |
-| Permissions | The first menu offers Ask before changes, Auto-approve edits and Plan (read-only). More options holds Auto-approve tools, Preapproved tools only and View rules. Menus and settings show effective approval state, including an earlier all-tools approval. Selecting a preset resets that approval. The prompt explicitly labels its all-tools/session scope; typed modes and `/permissions details` remain available. |
+| Permissions | The first menu offers Ask before changes, Accept edits and Plan (read-only). More options holds Auto-approve tools, Preapproved tools only and View rules. Menus and settings show effective approval state, including an earlier all-tools approval. Selecting a preset resets that approval. The prompt explicitly labels its all-tools/session scope; typed modes and `/permissions details` remain available. |
 | Tasks | (Removed.) `/tasks` once read the task store; it is now the background view. |
 | Discovery | Composer completion, `/help` and dispatch use the same merged command catalogue. Shared availability metadata can explain an unavailable action, and execution rechecks it. |
 | Command help | Bare `/help` retains the command picker. `/help <command>` reads usage, description and availability without invoking the target; user-command help also identifies the full source path, scope and any refusal problem. |
