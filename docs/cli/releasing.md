@@ -1,14 +1,14 @@
 ---
 type: Guide
-title: Releasing without GitHub Actions
-description: How to publish the npm packages and the Desktop installer from a maintainer's machine when GitHub Actions cannot run, with the same checks the workflows make.
+title: Releasing by hand
+description: How to publish the npm packages and the Desktop installer from a maintainer's machine when the hosted CI cannot run, with the same checks the workflows make.
 resource: scripts/release.mjs
 tags: [release, npm, desktop, changesets]
 status: stable
 generated: { by: process:agent, at: 2026-11-22T00:00:00Z }
 ---
 
-# Releasing without GitHub Actions
+# Releasing by hand
 
 Releases normally run in `.github/workflows/release.yml` (npm, through changesets) and
 `.github/workflows/desktop-release.yml` (the Desktop installer). When Actions cannot run, the same

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Release by hand, when GitHub Actions cannot run.
+ * Release by hand, when the hosted CI cannot run.
  *
  *   pnpm release login                        sign in to npm (web approval opens in your browser), then check `npm whoami`
  *   pnpm release version                      run `changeset version`, show the bumps, stop for a PR
