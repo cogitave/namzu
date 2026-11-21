@@ -8,6 +8,7 @@ import { resolve } from 'node:path'
 import { render } from 'ink'
 import React from 'react'
 
+import { holdSessionCheckout } from '../integrations/worktrees/managed.js'
 import { type TerminationSignal, handleTerminationSignals } from '../termination.js'
 import { mouseOn, resolveMouseMode, writeLaunchMouseReset } from '../workspaces/mouse.js'
 import { hostedByHost, workspacesSignal } from '../workspaces/signal.js'
@@ -371,6 +372,12 @@ export async function launchTui(
 	})
 	// The first frame is drawn by now; the start counts as healthy 10 seconds later.
 	bootCanary?.firstFrame()
+	// A session started in a managed checkout says so, so another process's
+	// removal of that checkout is refused instead of taking this session's files
+	// with it. Asked after the first frame: it must not slow the screen's start.
+	const heldCheckout = holdSessionCheckout(ctx.cwd, `session:${process.pid}`).catch(
+		() => undefined,
+	)
 	try {
 		await instance.waitUntilExit()
 	} catch (error) {
@@ -380,6 +387,8 @@ export async function launchTui(
 		bootCanary?.retire()
 		// Leaving with the workspaces screen up hangs up the other sessions and hands the terminal back first.
 		if (workspaces.current !== null) await (await workspaces.current).shutdown()
+		const releaseCheckout = await heldCheckout
+		if (releaseCheckout) await releaseCheckout().catch(() => undefined)
 		termination.dispose()
 		// The last frame is painted and the cursor shown before anything else is written.
 		// The input box and the footer are taken off the screen (the transcript stays), so the next

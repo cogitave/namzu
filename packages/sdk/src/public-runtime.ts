@@ -1241,6 +1241,9 @@ export type { VaultInstrumentationOptions } from './vault/instrumentation.js'
 
 export {
 	GitWorktreeDriver,
+	DiskWorkspaceHoldStore,
+	WorkspaceInUseError,
+	defaultWorkspaceHoldsDir,
 	HookedWorkspaceDriver,
 	WorktreeHookError,
 	worktreeHookHost,

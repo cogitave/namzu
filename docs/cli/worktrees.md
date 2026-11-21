@@ -82,6 +82,15 @@ Inspect its state before using Git's ordinary, non-forced
 The one automatic removal is a delegated child's checkout (below): it is removed
 when the child ends with no changes and no new commits, and kept otherwise.
 
+A removal also refuses a checkout another live session or subagent is working
+in. `namzu worktree resume there` opens a checkout in a new terminal; that
+session records the checkout it works in under the Namzu state folder, and the
+child's cleanup, or any other removal, reads it before deleting anything. The
+refusal names the checkout and the folder the other session works in, and
+leaves its uncommitted files untouched: the checkout stays, and can be removed
+once that session has ended. A path no live session holds is removed exactly
+as before.
+
 The `Agent` tool can also create one managed checkout per delegated child with
 `workspace: "worktree"`. Its generated branch and path appear in the child's
 result and in `namzu worktree list`. That child starts from the selected

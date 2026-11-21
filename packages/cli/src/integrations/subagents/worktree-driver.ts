@@ -18,12 +18,15 @@ const runFile = promisify(execFile)
 
 export class DelegatedWorktreeDriver {
 	readonly kind = 'git-worktree' as const
+	/** What this process's children have open, released when a child's checkout ends. */
+	private readonly holding = new Map<string, () => Promise<void>>()
 	private ready?: Promise<{
 		sourceRoot: string
 		subdirectory: string
 		worktreesDir: string
 		driver: WorkspaceBackendDriver
 		isGit: boolean
+		hold: (label: string, holder: string, folder: string) => Promise<() => Promise<void>>
 	}>
 
 	constructor(
@@ -61,6 +64,7 @@ export class DelegatedWorktreeDriver {
 					// Hooks first, the kernel's Git logic otherwise: one driver for both.
 					driver: managed.workspaceDriver,
 					isGit: managed.isGit,
+					hold: (label, holder, folder) => managed.hold(label, holder, folder),
 				}
 			})
 			.catch((error) => {
@@ -84,7 +88,7 @@ export class DelegatedWorktreeDriver {
 	}
 
 	async create(params: CreateWorkspaceParams): Promise<WorkspaceRef> {
-		const { sourceRoot, worktreesDir, driver, isGit } = await this.open()
+		const { sourceRoot, worktreesDir, driver, isGit, hold } = await this.open()
 		// The selected checkout can itself be a linked worktree. The SDK driver's
 		// repository root is the main checkout for ownership, but its default
 		// HEAD would be the wrong starting commit for this child.
@@ -95,7 +99,21 @@ export class DelegatedWorktreeDriver {
 		await mkdir(worktreesDir, { recursive: true, mode: 0o700 })
 		const baseRef = params.baseRef ?? head
 		try {
-			return await driver.create({ ...params, ...(baseRef !== undefined ? { baseRef } : {}) })
+			const ref = await driver.create({ ...params, ...(baseRef !== undefined ? { baseRef } : {}) })
+			// Publish that a child is working in its checkout, so a removal from
+			// another terminal that picked that path out of `namzu worktree list` is
+			// refused rather than deleting the child's files. A failure to record
+			// this never fails the child: the checkout exists and works in full.
+			try {
+				const label = relative(worktreesDir, ref.meta.worktreePath).split(sep).join('/')
+				this.holding.set(
+					ref.id,
+					await hold(label, `subagent:${label}`, ref.meta.worktreePath),
+				)
+			} catch {
+				// The child runs; nothing else changes.
+			}
+			return ref
 		} catch (cause) {
 			// The sub-agent's result tells the model why it did not start; the person
 			// must read the hook's words too.
@@ -114,6 +132,11 @@ export class DelegatedWorktreeDriver {
 
 	async dispose(ref: WorkspaceRef): Promise<void> {
 		try {
+			// The child is done before its checkout is: release first, so the removal
+			// this process asks for is not refused by its own holding.
+			const release = this.holding.get(ref.id)
+			this.holding.delete(ref.id)
+			if (release) await release().catch(() => undefined)
 			return await (await this.open()).driver.dispose(ref)
 		} catch (cause) {
 			// The caller only logs a failed removal; a person must read why a hook

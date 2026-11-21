@@ -24,6 +24,7 @@ import type { Logger } from '../../utils/logger.js'
 import { WorkspaceBackendError } from '../errors.js'
 import { resolveNamzuHome } from '../home.js'
 import { hashedSlugForCwd, slugForCwd } from '../paths.js'
+import { DiskWorkspaceHoldStore, type WorkspaceHold, WorkspaceInUseError, type WorkspaceHoldStore } from './holds.js'
 import type {
 	BranchWorkspaceParams,
 	CreateWorkspaceParams,
@@ -73,6 +74,12 @@ export interface GitWorktreeDriverConfig {
 	branchPrefix?: string
 	/** Test-seam: inject a stub `execFile` implementation. */
 	execFile?: ExecFile
+	/**
+	 * Who is working in a checkout right now. `dispose` asks it before removing
+	 * anything and refuses a path a live session or subagent still has. Absent,
+	 * the machine's own hold directory is read.
+	 */
+	holds?: WorkspaceHoldStore
 }
 
 const DEFAULT_BRANCH_PREFIX = 'namzu'
@@ -95,12 +102,14 @@ export class GitWorktreeDriver implements WorkspaceBackendDriver {
 	private readonly log: Logger
 	private readonly exec: ExecFile
 	private readonly branchPrefix: string
+	private readonly holds: WorkspaceHoldStore
 
 	constructor(config: GitWorktreeDriverConfig) {
 		this.repoRoot = resolve(config.repoRoot)
 		this.worktreesDir = resolve(config.worktreesDir ?? defaultWorktreesDir(config.repoRoot))
 		this.log = config.logger.child({ [SCOPE_ATTRIBUTE]: 'session/workspace/git-worktree' })
 		this.exec = config.execFile ?? defaultExecFile
+		this.holds = config.holds ?? new DiskWorkspaceHoldStore()
 		const prefix = config.branchPrefix ?? DEFAULT_BRANCH_PREFIX
 		if (!isBranchPrefix(prefix)) {
 			throw new Error(
@@ -219,6 +228,20 @@ export class GitWorktreeDriver implements WorkspaceBackendDriver {
 			return
 		}
 
+		// A checkout another live process has open is not this call's to remove:
+		// `worktree remove --force` would take that process's uncommitted files
+		// with it. The refusal names the folder asked for and every folder its
+		// holders work in, so a person can see which session to close.
+		const holders = await this.liveHolders(owned.worktreePath)
+		if (holders.length > 0) {
+			this.log.info('git-worktree kept; another session has it', {
+				[NAMZU.SESSION_ID]: ref.id,
+				'namzu.session.path': owned.worktreePath,
+				'namzu.session.holder_count': holders.length,
+			})
+			throw new WorkspaceInUseError(owned.worktreePath, holders)
+		}
+
 		// Tolerate missing directories per roadmap Risk #3 mitigation: the
 		// broadcast-rollback compensating step calls dispose on partially
 		// provisioned refs and must not propagate "already gone" errors. The
@@ -271,6 +294,27 @@ export class GitWorktreeDriver implements WorkspaceBackendDriver {
 				return
 			}
 			throw new WorkspaceBackendError({ op: 'dispose', kind: this.kind, cause })
+		}
+	}
+
+	/**
+	 * Who is working in `worktreePath` right now.
+	 *
+	 * A hold store that cannot be read is not a "nobody": answering that on a
+	 * guess is how an in-use checkout gets deleted, so it refuses the removal
+	 * and says what it could not read.
+	 */
+	private async liveHolders(worktreePath: string): Promise<readonly WorkspaceHold[]> {
+		try {
+			return await this.holds.holders(worktreePath)
+		} catch (cause) {
+			throw new WorkspaceBackendError({
+				op: 'dispose:holders',
+				kind: this.kind,
+				cause: new Error(
+					`The worktree ${worktreePath} was not removed: Namzu could not read who is working in it (${cause instanceof Error ? cause.message : String(cause)}).`,
+				),
+			})
 		}
 	}
 
