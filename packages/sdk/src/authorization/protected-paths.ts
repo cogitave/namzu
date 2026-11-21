@@ -11,7 +11,8 @@
  * existed, and none of them saw this path.
  *
  * The lists name the protected directories and protected files. The project
- * directory is `.namzu` and the project file is `namzu.config.json`.
+ * directory is `.namzu`, which also holds the project's `settings.json` and
+ * `settings.local.json`, and the project file is `namzu.config.json`.
  *
  * Matching is by name, on every segment of the path. `.git` anywhere above a
  * file protects it, and `.config/git` counts as one two-segment unit. Names
@@ -55,7 +56,8 @@ export const PROTECTED_FILE_NAMES: readonly string[] = [
 	'.ripgreprc',
 	'.mcp.json',
 	'namzu.config.json',
-	// The project's local config, where "don't ask again" answers are written.
+	// The earlier name of the project's local settings, still read until a
+	// session moves it into `.namzu/settings.local.json`.
 	'namzu.config.local.json',
 	'.npmrc',
 	'.yarnrc',

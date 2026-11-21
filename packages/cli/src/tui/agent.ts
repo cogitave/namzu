@@ -560,8 +560,10 @@ import {
 	createLiveModeControl,
 	permissionChangeReason,
 } from '../permissions/live-mode.js'
+import { settleLocalSettings } from '../permissions/local-settings.js'
 import type { PermissionMode } from '../permissions/mode.js'
 import { cliGate } from '../permissions/read-only-gate.js'
+import { tableHoldsRule } from '../permissions/rule-screen.js'
 import { withSandboxShell } from '../permissions/sandbox-shell.js'
 import { type SessionAllow, createSessionAllows } from '../permissions/session-allow.js'
 import type { PermissionSettings } from '../permissions/settings.js'
@@ -1979,7 +1981,7 @@ export interface AgentSession {
 	readonly resetApprovalLatch?: () => void
 	/**
 	 * Remember "don't ask again" answers: for the rest of the session, and in
-	 * the project's `namzu.config.local.json` for the next. They apply behind
+	 * the project's `.namzu/settings.local.json` for the next. They apply behind
 	 * the operator's rules and never cover an escape or a path outside the
 	 * roots. Returns a sentence when the file could not be written. Absent
 	 * where the host has no such store, in which case the prompt offers no
@@ -1988,6 +1990,8 @@ export interface AgentSession {
 	readonly allowForSession?: (allows: readonly SessionAllow[]) => string | undefined
 	/** The allows given at a prompt and held for this conversation. */
 	readonly rememberedAllows?: () => readonly SessionAllow[]
+	/** Withdraw the held answers that `rule` (as `/permissions remove` takes it) names; whether any went. */
+	readonly forgetRememberedAllow?: (rule: string) => boolean
 	/**
 	 * Tell the configured `notification` hooks that the operator's attention is
 	 * wanted (a review is waiting, a turn settled). Fire-and-forget: a hook that
@@ -3065,6 +3069,8 @@ export async function createAgentSession(
 	// `cwd` is settled further down; the store reads it when an answer arrives.
 	const sessionAllows = createSessionAllows(commandArguments, {
 		cwd: () => cwd,
+		// An untrusted folder's local file is not read, so an answer there is not written to it.
+		trusted: () => options.folderTrusted === true || isTrusted(cwd),
 	})
 	// The operator's rules and the remembered answers; the in-sandbox shell
 	// allowance is added behind them once the sandbox below is resolved.
@@ -3800,6 +3806,21 @@ export async function createAgentSession(
 	})
 		.then((report) => describeMemoryMigration(report, memoryDirectory))
 		.catch((error: unknown) => [explainFailure(error, 'Stored memory migration did not run.')])
+	// The local settings file's earlier place (`namzu.config.local.json`) moves
+	// into `.namzu/settings.local.json`, once, in a trusted folder only: an
+	// untrusted one's files are not read, and an archive can carry one.
+	// What git ignoring the file comes to is awaited only when the notices are put together.
+	let localSettingsNotices: readonly string[] = []
+	let localSettingsIgnore: Promise<readonly string[]> = Promise.resolve([])
+	if (options.folderTrusted === true || isTrusted(cwd)) {
+		try {
+			const settled = settleLocalSettings(cwd)
+			localSettingsNotices = settled.said
+			localSettingsIgnore = settled.ignore
+		} catch (error) {
+			localSettingsNotices = [explainFailure(error, 'The local settings file was not checked.')]
+		}
+	}
 	// Records an earlier version derived on its own and the screen would not
 	// write today are archived, once per store, after the session is
 	// underway. It fails open and logs counts only.
@@ -6382,6 +6403,7 @@ export async function createAgentSession(
 			return undefined
 		}
 	})()
+	const localSettingsIgnoreNotices = await localSettingsIgnore
 	const agentSession: AgentSession = {
 		hasProvider: true,
 		...(accountBadge ? { account: accountBadge } : {}),
@@ -7044,6 +7066,8 @@ export async function createAgentSession(
 			...(pluginRuntime?.takePluginHookWarnings() ?? []),
 			...compatibleEndpointNotices(),
 			...memoryMigrationNotices,
+			...localSettingsNotices,
+			...localSettingsIgnoreNotices,
 			...computerUseNotices,
 		],
 		rememberNote: (text, type) => saveTypedNote(memoryStore, text, type),
@@ -7097,6 +7121,8 @@ export async function createAgentSession(
 		// Reads the same object the handler mutates, at call time.
 		allowForSession: (allows) => sessionAllows.add(allows),
 		rememberedAllows: () => sessionAllows.list(),
+		forgetRememberedAllow: (rule) =>
+			sessionAllows.forget((permissions) => tableHoldsRule(permissions, rule)) > 0,
 		notifyHooks: (info) => {
 			if (!sessionPlugins) return
 			void sessionPlugins.manager
@@ -7111,8 +7137,9 @@ export async function createAgentSession(
 			? {
 					reloadPermissionRules: () => {
 						options.reloadPermissionRules?.()
-						// Saved rules now own remembered answers too. Do not let the old cache
-						// silently re-authorize a rule the operator just removed.
+						// Saved rules now own the answers they carry. Do not let the old cache
+						// silently re-authorize a rule the operator just removed; an answer held
+						// for this conversation only is in no file, and stays.
 						sessionAllows.clear()
 					},
 				}

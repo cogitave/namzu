@@ -815,10 +815,13 @@ the folder. A known broad folder is answered with a token first (`trustProject`)
 so it takes the broad dialog too.
 
 A picked folder that holds settings able to run code on their own gets the same
-kind of in-app consent. Main looks, without running anything, at
-`namzu.config.json` (the sections `hooks`, `mcpServers`, `plugins`,
-`permissions`, `permissionChecks`, `sandbox`, `web`, `additionalDirectories` and
-`profiles`; an unparseable file counts), and at `.namzu/plugins` and
+kind of in-app consent. Main looks, without running anything, at the folder's
+settings files, `namzu.config.json`, `.namzu/settings.json`,
+`.namzu/settings.local.json` and the earlier `namzu.config.local.json` (the
+sections `hooks`, `mcpServers`, `plugins`, `permissions`, `permissionChecks`,
+`sandbox`, `web`, `additionalDirectories` and `profiles`; an unparseable file
+counts, each finding names its file, and the two local files are listed once
+when they hold the same settings, as the engine reads them once), and at `.namzu/plugins` and
 `.namzu/commands` (links are not followed; the list is data in
 `src/main/folder-settings.ts`). When it finds any, the pick does not add the
 folder: main answers with a pending folder (`pending: true`) that carries
@@ -1471,14 +1474,18 @@ is saved and applied on the next start. Screenshots are in
 ## Trust again when automatic settings change
 
 Trusting a folder in Desktop records a fingerprint of what the folder can run on its own:
-the same nine sections of `namzu.config.json` the CLI's project digest covers (a test compares
-the two lists), plus a hash of every entry in `.namzu/commands`, `.namzu/plugins`,
+the same nine sections of `namzu.config.json` and of `.namzu/settings.json` the CLI's project
+digest covers (a test compares the two lists; the second file adds parts only when it is there, so a
+folder without it keeps the fingerprint it had), plus a hash of every entry in `.namzu/commands`, `.namzu/plugins`,
 `.namzu/skills` and `.namzu/agents`, and of `.agents/skills` and `skills` in the folder itself (the other
 places a project's skills load from). A file is hashed by its whole content, streamed (not by size
 and time), a link records where it points and then what is behind it, and a config of any size is
 read. Key order and unrelated keys do not count. A part too large to read (past 64 MiB a file,
 256 MiB a tree, or 20,000 entries) is reported changed every time rather than trusted unseen.
-`MEMORY.md` is not covered: it is prompt text, not something that runs. The record is
+`MEMORY.md` is not covered: it is prompt text, not something that runs. Nor is the local
+settings file (`.namzu/settings.local.json`): Namzu writes a remembered answer to it and a git
+pull cannot change it, so it is no reason to ask about the folder again (the first-trust dialog
+above does read it). The record is
 `trusted-folders.json` in the profile folder (`src/main/trusted-folders.ts`): the canonical
 path, a digest, one hash per part and a time. It holds hashes and entry names, never contents.
 
@@ -3827,7 +3834,7 @@ It is not drawn for a Pal, a chat has no Tool servers or Changes sections, and b
 
 **Commit changes** (`commit-dialog.tsx`, `commit-model.ts`; host side `desktop-commit.ts`) commits what one conversation changed and nothing else:
 
-- The files are the ones the conversation's edits name that git still sees as changed. Changes made by hand or by something else are counted ("1 other change will not be included") and never committed. A file whose name suggests a secret (`.env`, keys, certificates) is left out of the commit and out of the message request.
+- The files are the ones the conversation's edits name that git still sees as changed. Changes made by hand or by something else are counted ("1 other change will not be included") and never committed. A file whose name suggests a secret (`.env`, keys, certificates) is left out of the commit and out of the message request, and so are Namzu's own settings for this computer (`.namzu/settings.local.json`, its earlier name `namzu.config.local.json`, and their lock and staging files), which hold the person's remembered answers: the dialog says "Namzu’s settings file for this computer is left out: it holds your own answers, not the project’s." and a commit that names one is refused.
 - Only in a trusted folder; the button says why it is off ("Nothing to commit", "Trust this folder to commit in it", "Commit needs a Git repository", "Wait for the reply to finish"). A merge, rebase, cherry-pick or revert in progress blocks it with a sentence.
 - A dialog shows the branch ("Not on a branch" on a detached head), the files with a checkbox each, an editable message and "Namzu will not push." Nothing is committed until Commit is pressed. The message is the small model's suggestion from the file list and a capped (6 KiB) diff of those files only, asked once when the dialog opens and never on its own; with no small model, an error or more than 8 seconds it is a plain line ("Update a.ts, b.ts", "Add a.ts", "Update 4 files"), and the dialog says which one it is.
 - The host runs `git add -- <new files>` and `git commit -m <message> -- <files>` with an argument list and no shell. It never uses `add -A`, never skips hooks (a failing hook's words are shown and nothing is committed), never pushes, amends or switches branch, and never sets a name or email (git's own answer shows if none is set). A file that changed after the dialog opened is refused ("changed since you looked") and the dialog checks again.
@@ -5336,7 +5343,7 @@ ACP methods and are not automatically installed in embedded SDK servers.
 | `namzu/mcp/approve` | `servers: [{name, fingerprint}]` | `{approved: [name]}`: records the approval the way `namzu mcp approve` does, bound to the entry as listed (an entry that changed since stays waiting) |
 | `namzu/project/git` | `{}` | `{branch, subject}` for the host folder, or `null` when untrusted, not a repository, git is missing or slower than 3 s. `branch` is `null` on a detached HEAD, `subject` is the last commit's first line (200 characters). Runs `git -c core.fsmonitor=false --no-optional-locks` with no shell, `GIT_OPTIONAL_LOCKS=0`, a 64 KiB output cap and a 15 s cache per folder |
 | `namzu/limits/refresh` | `{}` | `{providers: [{provider, label, kind, plan?, windows?, credit?, spend?, asOf?}]}`: what each provider in use says about its account ([Usage limits](usage-limits.md)); optional group `limits`. A provider that has to be asked is asked at most once a minute; one whose numbers ride on responses already made costs no request. The same shape is sent as the host-level notification `namzu/limits` after a turn when it changed |
-| `namzu/project/commit-preview` | `sessionId`, `paths` (the files the conversation changed) | `{files: [{path, state, fingerprint}], otherDirty, skippedSecrets, branch, detached, suggestedMessage, messageSource, blocker?}`; optional group `projectCommit`. Reads git; asks the small model once for the message; nothing is written |
+| `namzu/project/commit-preview` | `sessionId`, `paths` (the files the conversation changed) | `{files: [{path, state, fingerprint}], otherDirty, skippedSecrets, skippedLocalSettings?, branch, detached, suggestedMessage, messageSource, blocker?}`; optional group `projectCommit`. Reads git; asks the small model once for the message; nothing is written |
 | `namzu/project/commit` | `paths`, `message`, `fingerprints` | `{ok: true, hash, subject}`, or `{ok: false, reason}` with git's own words (a hook, no identity, a changed file, an untrusted folder). Commits only the named files, never pushes or skips a hook |
 | `namzu/project/changes` | `{}` | `{files, truncated}` of the working tree against HEAD, or `null` when untrusted or not a repository (a timeout is an error, never an empty list). Each file is `{path, status, added, removed, oldPath?, binary?}` (a renamed binary file stays `renamed` and carries `binary: true`) with `status` one of `modified`, `added`, `deleted`, `renamed`, `untracked`, `binary`, paths relative to the host folder. At most 2,000 files, then `truncated: true` |
 | `namzu/project/diff` | exact `path` | `{before, after, binary, truncated}`: the file in HEAD and in the working tree, `null` for a side that does not exist, `binary: true` for NUL bytes or invalid UTF-8, `truncated: true` over 2 MiB. Requires folder trust; the path is confined as the file panel's are |

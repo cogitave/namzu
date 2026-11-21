@@ -62,6 +62,11 @@ function report(path = '/work/.namzu'): NamzuStateReport {
 			status: 'absent',
 			logicalBytes: 0,
 		},
+		legacyLocalConfig: {
+			path: '/work/namzu.config.local.json',
+			status: 'absent',
+			logicalBytes: 0,
+		},
 		projectBinding: { status: 'uninitialized', detail: 'No project yet.' },
 	}
 }

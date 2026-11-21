@@ -631,12 +631,14 @@ it — `__fire` re-derives the script's policy from the CURRENT config files
 on every run and refuses (`blocked-config`) if it no longer passes, the
 same freshness a live agent call already gets for free.
 
-The project's `namzu.config.json` is repository content: a `git pull` in one run
-could add a hook, a tool server, a plugin or a permission before the next. The
-sections that run code or change what may run (`hooks`, `mcpServers`,
-`plugins`, `permissions`, `permissionChecks`, `sandbox`, `web`,
-`additionalDirectories`, `profiles`), the project's `.namzu/commands/` and
-`.namzu/plugins/` are pinned when you confirm. If they change, the next run
+The project's `namzu.config.json` and `.namzu/settings.json` are repository
+content: a `git pull` in one run could add a hook, a tool server, a plugin or a
+permission before the next. The sections that run code or change what may run
+(`hooks`, `mcpServers`, `plugins`, `permissions`, `permissionChecks`,
+`sandbox`, `web`, `additionalDirectories`, `profiles`) of both files, the
+project's `.namzu/commands/` and `.namzu/plugins/` are pinned when you confirm.
+`.namzu/settings.json` is pinned only once it holds one of those sections, so a
+job confirmed before the file existed is not stopped by its absence. If they change, the next run
 stops before the model with `blocked-config: project config changed since the
 job was confirmed`, and runs again once you confirm the job.
 

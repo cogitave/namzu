@@ -7725,6 +7725,9 @@ function AppBody({
 		directories: () => session?.directories?.list() ?? [],
 		recentDenials: () => session?.autoMode?.recentBlocks?.() ?? [],
 		...(session?.rememberedAllows ? { rememberedAllows: session.rememberedAllows } : {}),
+		...(session?.forgetRememberedAllow
+			? { forgetRememberedAllow: session.forgetRememberedAllow }
+			: {}),
 		...(session?.reloadPermissionRules
 			? { reloadPermissionRules: session.reloadPermissionRules }
 			: {}),

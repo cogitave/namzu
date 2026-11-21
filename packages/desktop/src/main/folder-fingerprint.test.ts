@@ -70,6 +70,27 @@ describe('folderFingerprint', () => {
 			'plugin tool changed',
 		])
 	})
+	it('covers .namzu/settings.json, and not the local file Namzu writes answers to', async () => {
+		const path = await folder({ hooks: { a: 1 } })
+		const before = await folderFingerprint(path)
+		await mkdir(join(path, '.namzu'))
+		await writeFile(
+			join(path, '.namzu', 'settings.local.json'),
+			JSON.stringify({ permissions: { bash: { 'ls *': 'allow' } } }),
+		)
+		await writeFile(join(path, '.namzu', 'settings.json'), JSON.stringify({ model: 'x' }))
+		// Neither a remembered answer nor a file that runs nothing is a reason to ask again.
+		expect((await folderFingerprint(path)).digest).toBe(before.digest)
+		await writeFile(
+			join(path, '.namzu', 'settings.json'),
+			JSON.stringify({ hooks: { session_start: [] }, mcpServers: { s: {} } }),
+		)
+		expect(fingerprintChanges(before, await folderFingerprint(path))).toEqual([
+			'hooks in .namzu/settings.json added',
+			'MCP servers in .namzu/settings.json added',
+		])
+		expect(partLabel('settings')).toBe('.namzu/settings.json')
+	})
 	it('ignores a change outside the digested sections', async () => {
 		const path = await folder({ model: 'a' })
 		const before = await folderFingerprint(path)

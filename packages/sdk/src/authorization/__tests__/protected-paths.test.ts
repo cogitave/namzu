@@ -78,4 +78,10 @@ describe('isProtectedPath', () => {
 		expect(isProtectedPath('/repo/namzu.config.json')).toBe(true)
 		expect(isProtectedPath('/repo/namzu.config.local.json')).toBe(true)
 	})
+
+	it('protects the settings files inside the project directory', () => {
+		expect(isProtectedPath('/repo/.namzu/settings.json')).toBe(true)
+		expect(isProtectedPath('/repo/.namzu/settings.local.json')).toBe(true)
+		expect(isProtectedPath('/repo/sub/.namzu/settings.local.json')).toBe(true)
+	})
 })

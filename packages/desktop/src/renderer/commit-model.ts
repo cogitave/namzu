@@ -50,6 +50,13 @@ export function commitDialogModel(
 		lines.push(
 			`${preview.skippedSecrets} ${preview.skippedSecrets === 1 ? 'file' : 'files'} left out: the name suggests it may hold a secret.`,
 		)
+	const localSettings = preview.skippedLocalSettings ?? 0
+	if (localSettings > 0)
+		lines.push(
+			localSettings === 1
+				? 'Namzu’s settings file for this computer is left out: it holds your own answers, not the project’s.'
+				: `${localSettings} of Namzu’s settings files for this computer are left out: they hold your own answers, not the project’s.`,
+		)
 	if (preview.detached) lines.push('You are not on a branch.')
 	lines.push('Namzu will not push.')
 	const reason = preview.blocker

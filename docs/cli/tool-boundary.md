@@ -46,7 +46,7 @@ What does not change: the dangerous-command floor still refuses `sudo`, `curl | 
 
 ### Which file may set it
 
-These keys are the operator's. `~/.namzu/config.yaml` and the managed file set any of them; `namzu.config.json`, `namzu.config.local.json` and a profile declared in either can only tighten them, so a cloned repository cannot turn the sandbox off or let an unattended run leave it. The table and the launch notice are in [Permission layers](permission-layers.md#the-sandbox-block).
+These keys are the operator's. `~/.namzu/config.yaml` and the managed file set any of them; the project's files (`namzu.config.json`, `.namzu/settings.json`, `.namzu/settings.local.json` and the earlier `namzu.config.local.json`) and a profile declared in one of them can only tighten them, so a cloned repository cannot turn the sandbox off or let an unattended run leave it. The table and the launch notice are in [Permission layers](permission-layers.md#the-sandbox-block).
 
 ### Leaving the sandbox for one command
 

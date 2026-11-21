@@ -216,6 +216,25 @@ describe('namzu exec in a folder nobody has trusted', () => {
 		expect(projectReads(), 'project command bytes were read before trust').toEqual([])
 	})
 
+	it('the real CLI reads none of the folder settings files before trust', async () => {
+		mkdirSync(join(stranger, '.namzu'), { recursive: true })
+		writeFileSync(join(stranger, '.namzu', 'settings.json'), '{ "format": ')
+		writeFileSync(join(stranger, '.namzu', 'settings.local.json'), '{ "format": ')
+		writeFileSync(join(stranger, 'namzu.config.local.json'), '{ "format": ')
+		ioProbe.reads.length = 0
+		const previousCwd = process.cwd()
+		try {
+			process.chdir(stranger)
+			const { runCli } = await import('../cli.js')
+			const code = await runCli({ argv: ['node', 'namzu', 'exec', 'hello'] })
+
+			expect(code).toBe(EXIT_UNTRUSTED)
+			expect(projectReads(), 'runCli read a folder settings file before trust').toEqual([])
+		} finally {
+			process.chdir(previousCwd)
+		}
+	})
+
 	it('the real CLI does not let malformed project config outrun trust', async () => {
 		writeFileSync(join(stranger, 'namzu.config.json'), '{ "format": ')
 		const commands = join(stranger, '.namzu', 'commands')

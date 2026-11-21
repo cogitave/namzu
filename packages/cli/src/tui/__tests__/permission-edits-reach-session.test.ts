@@ -11,6 +11,8 @@ import { addLocalRule, removeLocalRule } from '../../permissions/rule-screen.js'
 import { permissionLayersOf } from '../../permissions/rules.js'
 import { type AgentEvent, createAgentSession } from '../agent.js'
 
+/** The folder counts as trusted: only a trusted folder's local rules are edited and read. */
+const TRUSTED = { trusted: true } as const
 let cwd: string
 let request = 0
 // The CLI asks once for a check of the edits before a turn that wrote ends, so
@@ -58,7 +60,11 @@ it('removes a launch-time local deny for later calls without restarting the real
 		env: {},
 		managedPath: join(cwd, 'managed.json'),
 	})
-	const live = createLivePermissionRules({ cwd, layers: permissionLayersOf(config) })
+	const live = createLivePermissionRules({
+		cwd,
+		layers: permissionLayersOf(config),
+		trusted: () => true,
+	})
 	let nextReply = () => response()
 	vi.stubGlobal(
 		'fetch',
@@ -104,12 +110,12 @@ it('removes a launch-time local deny for later calls without restarting the real
 		await run()
 		expect(existsSync(join(cwd, 'result.txt'))).toBe(false)
 		expect(asks).toBe(0)
-		removeLocalRule(cwd, 'Write')
+		removeLocalRule(cwd, 'Write', TRUSTED)
 		session.reloadPermissionRules?.()
 		await run()
 		expect(asks).toBe(1)
 		expect(readFileSync(join(cwd, 'result.txt'), 'utf8')).toBe('saved')
-		addLocalRule(cwd, 'deny', 'Write')
+		addLocalRule(cwd, 'deny', 'Write', TRUSTED)
 		session.reloadPermissionRules?.()
 		await run()
 		expect(asks).toBe(1)
@@ -119,7 +125,7 @@ it('removes a launch-time local deny for later calls without restarting the real
 		request = 0
 		nextReply = () => {
 			if (request === 1) {
-				removeLocalRule(cwd, 'Write')
+				removeLocalRule(cwd, 'Write', TRUSTED)
 				session.reloadPermissionRules?.()
 			}
 			return response(request < 2)

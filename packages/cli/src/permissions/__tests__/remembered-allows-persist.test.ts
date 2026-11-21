@@ -1,6 +1,6 @@
 /**
  * A "don't ask again" answer survives the session: it is written to the
- * project's `namzu.config.local.json`, which the next session reads back as
+ * project's `.namzu/settings.local.json`, which the next session reads back as
  * the local layer, and git ignores the file. The command is remembered as a
  * two-word prefix where that is safe and the exact
  * command otherwise.
@@ -15,9 +15,11 @@ import { describe, expect, it } from 'vitest'
 
 import { loadBootstrapConfigWithProvenance, loadConfigWithProvenance } from '../../config/load.js'
 import {
-	LOCAL_CONFIG_FILE,
+	LEGACY_LOCAL_CONFIG_FILE,
+	LOCAL_SETTINGS_FILE,
 	addAllowRules,
 	ensureLocalConfigIgnored,
+	localSettingsPath,
 	writeLocalAllows,
 } from '../local-settings.js'
 import { compilePermissionLayers, permissionLayersOf } from '../rules.js'
@@ -30,6 +32,11 @@ import {
 } from '../session-allow.js'
 
 const commands = builtinCommandArguments()
+/** Write the folder's local settings file, `.namzu` made first. */
+const writeLocal = (cwd: string, text: string) => {
+	mkdirSync(join(cwd, '.namzu'), { recursive: true })
+	writeFileSync(localSettingsPath(cwd), text)
+}
 const bash = (command: string, extra: object = {}): AllowableCall => ({
 	name: 'bash',
 	input: { command },
@@ -155,7 +162,7 @@ describe('writing the local file', () => {
 		writeLocalAllows(cwd, { bash: { 'git commit *': 'allow' } })
 		writeLocalAllows(cwd, { bash: { 'npm run *': 'allow' }, mcp__srv__tool: 'allow' })
 
-		expect(JSON.parse(readFileSync(join(cwd, LOCAL_CONFIG_FILE), 'utf-8'))).toEqual({
+		expect(JSON.parse(readFileSync(localSettingsPath(cwd), 'utf-8'))).toEqual({
 			permissions: {
 				bash: { 'git commit *': 'allow', 'npm run *': 'allow' },
 				mcp__srv__tool: 'allow',
@@ -165,14 +172,11 @@ describe('writing the local file', () => {
 
 	it('keeps what the file already says', () => {
 		const cwd = folder()
-		writeFileSync(
-			join(cwd, LOCAL_CONFIG_FILE),
-			JSON.stringify({ quiet: true, permissions: { bash: { 'rm *': 'deny' } } }),
-		)
+		writeLocal(cwd, JSON.stringify({ quiet: true, permissions: { bash: { 'rm *': 'deny' } } }))
 
 		writeLocalAllows(cwd, { bash: { 'git status *': 'allow' } })
 
-		expect(JSON.parse(readFileSync(join(cwd, LOCAL_CONFIG_FILE), 'utf-8'))).toEqual({
+		expect(JSON.parse(readFileSync(localSettingsPath(cwd), 'utf-8'))).toEqual({
 			quiet: true,
 			permissions: { bash: { 'rm *': 'deny', 'git status *': 'allow' } },
 		})
@@ -187,12 +191,12 @@ describe('writing the local file', () => {
 
 	it('leaves a file that is not JSON alone and says so', () => {
 		const cwd = folder()
-		writeFileSync(join(cwd, LOCAL_CONFIG_FILE), '{ nope')
+		writeLocal(cwd, '{ nope')
 
 		const result = writeLocalAllows(cwd, { bash: { 'ls *': 'allow' } })
 
 		expect(result.error).toMatch(/not valid JSON/)
-		expect(readFileSync(join(cwd, LOCAL_CONFIG_FILE), 'utf-8')).toBe('{ nope')
+		expect(readFileSync(localSettingsPath(cwd), 'utf-8')).toBe('{ nope')
 	})
 
 	it('tells the session when it could not write', () => {
@@ -249,7 +253,7 @@ describe('across a restart', () => {
 		expect(decide('git push')).toBe('review')
 		expect(provenance.permissions).toEqual({
 			kind: 'local-file',
-			path: join(cwd, LOCAL_CONFIG_FILE),
+			path: localSettingsPath(cwd),
 		})
 		expect(config.permissions).toEqual({
 			edit: 'allow',
@@ -305,14 +309,17 @@ describe('across a restart', () => {
 		})
 	})
 
-	it('holds the local file to the limits of the project file', () => {
+	it.each([
+		['the local file', (cwd: string, text: string) => writeLocal(cwd, text)],
+		[
+			'its earlier name',
+			(cwd: string, text: string) => writeFileSync(join(cwd, LEGACY_LOCAL_CONFIG_FILE), text),
+		],
+	])('holds %s to the limits of the project file', (_which, write) => {
 		const root = mkdtempSync(join(tmpdir(), 'namzu-restart-'))
 		const cwd = join(root, 'work')
 		mkdirSync(cwd, { recursive: true })
-		writeFileSync(
-			join(cwd, LOCAL_CONFIG_FILE),
-			JSON.stringify({ model: 'auto', browser: { defaultProfile: 'mine' } }),
-		)
+		write(cwd, JSON.stringify({ model: 'auto', browser: { defaultProfile: 'mine' } }))
 
 		expect(() => loadConfigWithProvenance({ home: join(root, 'home'), cwd, env: {} })).toThrow(
 			/defaultProfile/,
@@ -346,9 +353,15 @@ describe('keeping git from tracking the file', () => {
 
 		expect(outcome).toEqual({ state: 'ignored', written: true })
 		expect(readFileSync(join(root, 'home', '.config', 'git', 'ignore'), 'utf-8')).toBe(
-			`**/${LOCAL_CONFIG_FILE}\n`,
+			`**/${LOCAL_SETTINGS_FILE}*\n`,
 		)
-		expect(git(cwd, 'status', '--porcelain')).not.toContain(LOCAL_CONFIG_FILE)
+		expect(git(cwd, 'status', '--porcelain', '--untracked-files=all')).not.toContain('settings')
+		expect(git(cwd, 'check-ignore', '--', `${LOCAL_SETTINGS_FILE}.lock`).trim()).toBe(
+			`${LOCAL_SETTINGS_FILE}.lock`,
+		)
+		expect(git(cwd, 'check-ignore', '--', `${LOCAL_SETTINGS_FILE}.123.abcdef.tmp`).trim()).toBe(
+			`${LOCAL_SETTINGS_FILE}.123.abcdef.tmp`,
+		)
 	})
 
 	it('writes the line once', async () => {
@@ -367,7 +380,7 @@ describe('keeping git from tracking the file', () => {
 	it('says so when the file is already tracked, and does not pretend', async () => {
 		const { cwd, env } = repository()
 		writeLocalAllows(cwd, { bash: { 'ls *': 'allow' } })
-		git(cwd, 'add', LOCAL_CONFIG_FILE)
+		git(cwd, 'add', '-f', LOCAL_SETTINGS_FILE)
 
 		const outcome = await ensureLocalConfigIgnored(cwd, env)
 
