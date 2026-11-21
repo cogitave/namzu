@@ -51,9 +51,11 @@ describe('state file backups', () => {
 		}
 	})
 
-	it('takes nothing for a file that does not exist yet', () => {
+	it('takes nothing for a file that does not exist yet, or is empty', () => {
 		const root = home()
 		expect(backupStateFile(join(root, 'config.yaml'), { home: root })).toBeUndefined()
+		writeFileSync(join(root, 'trust.json'), ' \n')
+		expect(backupStateFile(join(root, 'trust.json'), { home: root })).toBeUndefined()
 		expect(existsSync(stateBackupsDir(root))).toBe(false)
 	})
 
@@ -107,13 +109,56 @@ describe('state file backups', () => {
 		expect(listStateFileCopies(root, 'preferences.json')).toHaveLength(1)
 	})
 
-	it('takes a copy when the newest one is stamped in the future (a clock moved back)', () => {
+	it('takes a copy when the newest one was taken "later" than now (a clock moved back)', () => {
 		const root = home()
 		const file = join(root, 'config.yaml')
 		writeFileSync(file, 'a: 1\n')
 		backupStateFile(file, { home: root, now: () => 10 * STATE_BACKUP_MIN_INTERVAL_MS })
 		writeFileSync(file, 'a: 2\n')
-		expect(backupStateFile(file, { home: root, now: () => 1 })).toBeDefined()
+		// Numbered past the newest, so it still sorts as the copy written last.
+		expect(backupStateFile(file, { home: root, now: () => 1 })).toBe(
+			join(stateBackupsDir(root), `config.yaml.backup.${10 * STATE_BACKUP_MIN_INTERVAL_MS + 1}`),
+		)
+	})
+
+	it('after the clock went back, names the latest copy newest and keeps one a minute', () => {
+		const root = home()
+		const file = join(root, 'trust.json')
+		const ahead = 10_000_000_000_000
+		writeFileSync(file, 'S0')
+		backupStateFile(file, { home: root, now: () => ahead })
+		const corrected = 1_700_000_000_000
+		for (const [i, state] of ['S1', 'S2', 'S3', 'S4', 'S5', 'S6'].entries()) {
+			writeFileSync(file, state)
+			backupStateFile(file, { home: root, now: () => corrected + i * 1000 })
+		}
+		// One copy after the correction (S1); the five a second apart after it are within its minute.
+		let copies = listStateFileCopies(root, 'trust.json')
+		expect(copies.map((c) => readFileSync(c.path, 'utf8'))).toEqual(['S1', 'S0'])
+		expect(copies[0]?.takenAt).toBe(corrected)
+		writeFileSync(file, 'S7')
+		backupStateFile(file, { home: root, now: () => corrected + STATE_BACKUP_MIN_INTERVAL_MS })
+		copies = listStateFileCopies(root, 'trust.json')
+		expect(readFileSync(copies[0]?.path as string, 'utf8')).toBe('S7')
+		// Pruning drops the oldest written, not the one with the largest clock reading.
+		for (let i = 2; i < 8; i++) {
+			writeFileSync(file, `T${i}`)
+			backupStateFile(file, { home: root, now: () => corrected + i * STATE_BACKUP_MIN_INTERVAL_MS })
+		}
+		copies = listStateFileCopies(root, 'trust.json')
+		expect(copies.map((c) => readFileSync(c.path, 'utf8'))).toEqual(['T7', 'T6', 'T5', 'T4', 'T3'])
+	})
+
+	it('copies the text a redaction leaves, never the secret', () => {
+		const root = home()
+		const file = join(root, 'accounts.json')
+		writeFileSync(file, '{"keys":{"a":"sk-secret"}}')
+		const copy = backupStateFile(file, {
+			home: root,
+			now: () => 7,
+			redact: (text) => text.replace('sk-secret', ''),
+		})
+		expect(readFileSync(copy as string, 'utf8')).toBe('{"keys":{"a":""}}')
 	})
 
 	it('never throws when the copy cannot be written', () => {
@@ -130,18 +175,19 @@ describe('state file backups', () => {
 		mkdirSync(stateBackupsDir(root))
 		writeFileSync(join(stateBackupsDir(root), 'notes.txt'), '')
 		writeFileSync(join(stateBackupsDir(root), 'trust.json.backup.12.1.2.ab.tmp'), '')
+		writeFileSync(join(stateBackupsDir(root), 'trust.json.corrupt-12'), '')
 		expect(listStateFileCopies(root)).toEqual([])
 	})
 })
 
 describe('unreadable state files', () => {
-	it('keeps the bytes as backups/<file>.corrupt-<ms>, once per distinct content', () => {
+	it('keeps the bytes as backups/<file>.corrupted.<ms>, once per distinct content', () => {
 		const root = home()
 		const file = join(root, 'trust.json')
 		writeFileSync(file, '{"trusted": [')
 		const first = preserveUnreadableStateFile(file, { home: root, now: () => 42 })
 		expect(first).toEqual({
-			path: join(stateBackupsDir(root), 'trust.json.corrupt-42'),
+			path: join(stateBackupsDir(root), 'trust.json.corrupted.42'),
 			fresh: true,
 		})
 		expect(readFileSync(first.path, 'utf8')).toBe('{"trusted": [')
@@ -150,9 +196,9 @@ describe('unreadable state files', () => {
 		expect(again).toEqual({ path: first.path, fresh: false })
 		writeFileSync(file, 'other damage')
 		expect(preserveUnreadableStateFile(file, { home: root, now: () => 42 }).path).toBe(
-			join(stateBackupsDir(root), 'trust.json.corrupt-43'),
+			join(stateBackupsDir(root), 'trust.json.corrupted.43'),
 		)
-		expect(listStateFileCopies(root, 'trust.json').every((c) => c.kind === 'corrupt')).toBe(true)
+		expect(listStateFileCopies(root, 'trust.json').every((c) => c.kind === 'corrupted')).toBe(true)
 	})
 
 	it('throws when there is nothing it can copy, so the caller refuses its write', () => {
@@ -168,15 +214,26 @@ describe('rewriting recovery copies', () => {
 		mkdirSync(dir)
 		writeFileSync(join(dir, 'accounts.json.backup.1'), 'secret here')
 		writeFileSync(join(dir, 'accounts.json.backup.2'), 'nothing')
-		writeFileSync(join(dir, 'accounts.json.corrupt-3'), 'drop me')
+		writeFileSync(join(dir, 'accounts.json.corrupted.3'), 'drop me')
 		writeFileSync(join(dir, 'trust.json.backup.4'), 'secret elsewhere')
 		rewriteStateFileBackups(root, 'accounts.json', (text) =>
 			text === 'drop me' ? undefined : text.replace('secret', ''),
 		)
 		expect(readFileSync(join(dir, 'accounts.json.backup.1'), 'utf8')).toBe(' here')
 		expect(readFileSync(join(dir, 'accounts.json.backup.2'), 'utf8')).toBe('nothing')
-		expect(existsSync(join(dir, 'accounts.json.corrupt-3'))).toBe(false)
+		expect(existsSync(join(dir, 'accounts.json.corrupted.3'))).toBe(false)
 		expect(readFileSync(join(dir, 'trust.json.backup.4'), 'utf8')).toBe('secret elsewhere')
+	})
+
+	it('keeps the time a rewritten copy was taken, so the one-a-minute limit is unchanged', () => {
+		const root = home()
+		const file = join(root, 'accounts.json')
+		writeFileSync(file, 'secret one')
+		backupStateFile(file, { home: root, now: () => 3_000_000 })
+		rewriteStateFileBackups(root, 'accounts.json', (text) => text.replace('secret', ''))
+		const [copy] = listStateFileCopies(root, 'accounts.json')
+		expect(readFileSync(copy?.path as string, 'utf8')).toBe(' one')
+		expect(copy?.takenAt).toBe(3_000_000)
 	})
 
 	it('removes a copy the edit fails on rather than leaving it as it was', () => {

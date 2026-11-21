@@ -91,10 +91,12 @@ export class AccountRegistryError extends Error {
 	override readonly name = 'AccountRegistryError'
 }
 
-/** Another owner holds the lock for a store or an account's credential file. */
-/** A {@link FileLockError} for an account lock, so a caller can catch either. */
+/**
+ * Another owner holds the lock for a store or an account's credential file. A
+ * {@link FileLockError}, so a caller can catch either.
+ */
 export class AccountLockError extends FileLockError {
-	override readonly name: string = 'AccountLockError'
+	override readonly name = 'AccountLockError' as const
 }
 
 /**

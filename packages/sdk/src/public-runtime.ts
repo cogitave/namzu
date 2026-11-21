@@ -315,7 +315,9 @@ export {
 } from './utils/temp.js'
 export { extractFinalResponse } from './utils/conversation.js'
 export {
+	EMPTY_LOCK_GRACE_MS,
 	FileLockError,
+	inspectFileLock,
 	lockPathFor,
 	withFileLock,
 	withFileLockSync,

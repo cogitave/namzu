@@ -277,18 +277,18 @@ describe('AccountRegistry', () => {
 
 	it('does not reclaim a store lock held by a live process', () => {
 		const dir = home()
-		writeFileSync(join(dir, 'accounts.json.lock'), `${process.pid}:0:live`)
+		writeFileSync(join(dir, 'accounts.json.lock'), `${process.ppid}:0:live`)
 		const registry = createAccountRegistry({ home: dir, lockWait: () => {} })
 		expect(() =>
 			registry.add({ provider: 'openai', label: 'a', kind: 'api-key', apiKey: 'k' }),
 		).toThrow(AccountLockError)
-		expect(readFileSync(join(dir, 'accounts.json.lock'), 'utf8')).toBe(`${process.pid}:0:live`)
+		expect(readFileSync(join(dir, 'accounts.json.lock'), 'utf8')).toBe(`${process.ppid}:0:live`)
 	})
 
 	it('waits for a live holder and succeeds once the lock is released', () => {
 		const dir = home()
 		const lock = join(dir, 'accounts.json.lock')
-		writeFileSync(lock, `${process.pid}:0:live`)
+		writeFileSync(lock, `${process.ppid}:0:live`)
 		const registry = createAccountRegistry({ home: dir, lockWait: () => rmSync(lock) })
 		registry.add({ provider: 'openai', label: 'a', kind: 'api-key', apiKey: 'k' })
 		expect(registry.get('openai:a')).toBeDefined()
@@ -304,16 +304,18 @@ describe('AccountRegistry', () => {
 		clock += 61_000
 		// A damaged copy holds the key too; the key goes, the rest of it stays.
 		const backups = join(dir, 'backups')
-		writeFileSync(join(backups, 'accounts.json.corrupt-1'), '{"keys": {"x": "sk-drop-me"')
+		writeFileSync(join(backups, 'accounts.json.corrupted.1'), '{"keys": {"x": "sk-drop-me"')
 		registry.remove('openai:b')
-		const copies = ['accounts.json.backup.', 'accounts.json.corrupt-'].flatMap((prefix) =>
+		const copies = ['accounts.json.backup.', 'accounts.json.corrupted.'].flatMap((prefix) =>
 			readdirSync(backups).filter((name) => name.startsWith(prefix)),
 		)
 		expect(copies.length).toBeGreaterThanOrEqual(3)
 		const texts = copies.map((name) => readFileSync(join(backups, name), 'utf8'))
 		expect(texts.some((text) => text.includes('sk-keep-me'))).toBe(true)
 		expect(texts.some((text) => text.includes('sk-drop-me'))).toBe(false)
-		expect(readFileSync(join(backups, 'accounts.json.corrupt-1'), 'utf8')).toBe('{"keys": {"x": ""')
+		expect(readFileSync(join(backups, 'accounts.json.corrupted.1'), 'utf8')).toBe(
+			'{"keys": {"x": ""',
+		)
 		if (process.platform !== 'win32')
 			for (const name of copies) expect(statSync(join(backups, name)).mode & 0o777).toBe(0o600)
 	})
