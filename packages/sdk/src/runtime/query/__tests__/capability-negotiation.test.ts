@@ -435,6 +435,22 @@ describe('query() capability negotiation', () => {
 		).rejects.toThrow(/supportsVision: false/)
 	})
 
+	it('strictCapabilities: true still refuses a picture sent earlier in the history', async () => {
+		const provider = capturingProvider(NO_VISION_CAPABILITIES)
+
+		await expect(
+			drainQuery({
+				...baseParams(provider, [], await mkWorkdir()),
+				messages: [
+					createUserMessage('describe', [{ data: 'aGVsbG8=', mediaType: 'image/png' }]),
+					{ role: 'assistant', content: 'a cat' },
+					createUserMessage('and its colour?'),
+				],
+				strictCapabilities: true,
+			}),
+		).rejects.toThrow(/supportsVision: false/)
+	})
+
 	it('names the enforced tools on the request, so a driver can constrain them', async () => {
 		const provider = capturingProvider()
 		const tools: ToolDefinition[] = []

@@ -325,6 +325,12 @@ export interface ComposerProps {
 	readonly onStopAllAgents?: () => void
 	/** The agents rail has the keyboard: the composer stays on screen, dim. */
 	readonly railFocused?: boolean
+	/**
+	 * A panel drawn above the box has the keyboard (the workflow view): the box is
+	 * not busy, only waiting, so it keeps its prompt and its hint instead of
+	 * collapsing to a bare "…".
+	 */
+	readonly parked?: boolean
 	/** Shift+Tab. Absent means the key does nothing, which the composer footer then does not advertise. */
 	readonly onCycleMode?: () => void
 	/**
@@ -793,6 +799,7 @@ export function Composer({
 	onBackgroundCommand,
 	onStopAllAgents,
 	railFocused = false,
+	parked = false,
 	onCycleMode,
 	triggers,
 	turnActive = false,
@@ -2523,10 +2530,11 @@ export function Composer({
 			</Fragment>,
 		]
 	}
-	const shellGlyph = shellMode && !(disabled && !railFocused)
-	const promptGlyph = disabled && !railFocused ? '…' : shellGlyph ? '!' : '❯'
+	const shown = railFocused || parked
+	const shellGlyph = shellMode && !(disabled && !shown)
+	const promptGlyph = disabled && !shown ? '…' : shellGlyph ? '!' : '❯'
 	// Shell mode clears the placeholder: the `!` and the green rules already say what the line is.
-	const showPlaceholder = (!disabled || railFocused) && value.length === 0 && !shellMode
+	const showPlaceholder = (!disabled || shown) && value.length === 0 && !shellMode
 	const historySearchQuery = historySearch
 		? composerDisplayValue(historySearch.query, historySearch.query.length)
 		: null

@@ -1406,18 +1406,20 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 		const carries = (m: (typeof params.messages)[number], kind: 'image' | 'document') =>
 			m.role === 'user' && (m.attachments ?? []).some((a) => (a.type ?? 'image') === kind)
 
-		// Only the message this run answers is warned about: a picture sent three
+		// The warning is for the message this run answers: a picture sent three
 		// replies ago was warned about then, and repeating it before every later
 		// reply would say the same thing again about something the person did once.
+		// Strict mode is a refusal, not a warning, so it keeps looking at the whole
+		// history: a picture the driver would drop anywhere in it still throws.
 		const latestUser = [...params.messages].reverse().find((m) => m.role === 'user')
-		const attachmentMessageCount =
-			!capabilities.supportsVision && latestUser !== undefined && carries(latestUser, 'image')
-				? 1
-				: 0
-		const documentMessageCount =
-			!capabilities.supportsDocuments && latestUser !== undefined && carries(latestUser, 'document')
-				? 1
-				: 0
+		const countCarrying = (kind: 'image' | 'document'): number =>
+			params.strictCapabilities
+				? params.messages.filter((m) => carries(m, kind)).length
+				: latestUser !== undefined && carries(latestUser, kind)
+					? 1
+					: 0
+		const attachmentMessageCount = capabilities.supportsVision ? 0 : countCarrying('image')
+		const documentMessageCount = capabilities.supportsDocuments ? 0 : countCarrying('document')
 
 		if (stripToolSurfaces) {
 			const message = `Provider '${params.provider.id}' declares supportsTools: false but ${registeredToolCount} tool(s) are registered — stripping all tool surfaces from the prompt and request so the model is never told about tools it cannot call. Pass strictCapabilities: true to fail instead, or use a tools-capable provider.`

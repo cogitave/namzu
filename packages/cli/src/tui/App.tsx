@@ -18609,6 +18609,7 @@ function AppBody({
 												: promptSuggestion !== undefined
 													? { promptSuggestion }
 													: {})}
+										parked={workflowDetailOpen}
 										mayReadImage={imageReadPolicy}
 										reasoningEffortLevels={session?.reasoningEffortLevels}
 										onCycleMode={cyclePermissionMode}
