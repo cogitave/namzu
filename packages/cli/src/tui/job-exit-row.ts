@@ -15,7 +15,14 @@ export interface JobExitRow {
 
 const MAX_COMMAND_CHARS = 60
 
-function commandLabel(command: string): string {
+/**
+ * The command, shortened for a person: a leading `cd <folder> &&` (the shell
+ * line the model prefixes to stay in the project) is dropped, since the row says
+ * nothing the folder does not.
+ */
+function commandLabel(whole: string): string {
+	const stripped = whole.trim().replace(/^cd\s+(?:"[^"]*"|'[^']*'|\S+)\s*(?:&&|;)\s*/u, '')
+	const command = stripped.length > 0 ? stripped : whole
 	const firstLine = command.trim().split('\n')[0] ?? ''
 	const flat = firstLine.replace(/\s+/gu, ' ')
 	const clipped =
@@ -31,14 +38,21 @@ function runtime(ms: number): string {
 	return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
 }
 
+/** What a background command is called to the person: its label when it has one, else its shortened command. */
+export function jobLabel(job: { readonly command: string; readonly description?: string }): string {
+	const named = job.description?.replace(/\s+/gu, ' ').trim()
+	return named ? named : commandLabel(job.command)
+}
+
 export function jobExitRow(job: {
 	readonly command: string
+	readonly description?: string
 	readonly status: 'exited' | 'killed'
 	readonly exitCode?: number
 	readonly signal?: string
 	readonly runtimeMs?: number
 }): JobExitRow {
-	const label = `Background command "${commandLabel(job.command)}"`
+	const label = `Background command "${jobLabel(job)}"`
 	const meta = job.runtimeMs === undefined ? {} : { meta: runtime(job.runtimeMs) }
 	if (job.status === 'killed') {
 		return { text: `${label} was stopped`, color: tokenColor('status.warn'), ...meta }

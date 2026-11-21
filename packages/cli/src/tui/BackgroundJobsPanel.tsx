@@ -308,9 +308,9 @@ export function BackgroundJobsPanel({
 				<Text bold>Runtime: </Text>
 				<Text>{elapsed(detailed, now)}</Text>
 			</Text>
-			{detailed.kind === 'monitor' ? (
+			{detailed.kind === 'monitor' || detailed.description !== undefined ? (
 				<Text wrap="truncate-end">
-					<Text bold>Watching: </Text>
+					<Text bold>{detailed.kind === 'monitor' ? 'Watching: ' : 'Task: '}</Text>
 					<Text>{truncateChoiceText(oneLine(detailed.description ?? ''), innerColumns - 10)}</Text>
 				</Text>
 			) : null}

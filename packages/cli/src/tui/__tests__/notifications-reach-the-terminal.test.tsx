@@ -38,6 +38,11 @@ type TurnScript = {
 	/** Hold the turn on the decision, as a real one is, instead of finishing past it. */
 	readonly parkOnPermission?: boolean
 	readonly asksPermissionAfterHold?: boolean
+	/**
+	 * Write the answer before the hold, so an interrupt during it comes after the model showed something:
+	 * a message interrupted before any answer goes back to the box and leaves no row to key on.
+	 */
+	readonly answersBeforeHold?: boolean
 }
 
 type NotificationRequest = {
@@ -165,6 +170,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 				const script = scripts[turn]
 				if (!script) throw new Error(`No turn script at index ${turn}`)
 
+				if (script.answersBeforeHold) yield { kind: 'delta', text: `EARLY ${turn}` } as AgentEvent
 				const beforeGate = script.hold === 'before-terminal-event' ? nextGate() : null
 				if (beforeGate) await beforeGate.wait
 				// Models a credential/session refusal whose first iterator pull rejects
@@ -542,6 +548,7 @@ it('cannot emit a late approval or settlement from an interrupted turn once /res
 			outcome: 'completed',
 			hold: 'before-terminal-event',
 			asksPermissionAfterHold: true,
+			answersBeforeHold: true,
 		},
 		{ outcome: 'completed' },
 	)

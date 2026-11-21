@@ -1310,6 +1310,12 @@ export function Composer({
 			if (missing.length > 0)
 				restoredText = `${missing.join(' ')}${restoredText ? ' ' : ''}${restoredText}`
 			clearPastes()
+			// A message put back in the box is a fresh prompt: vim starts it in INSERT.
+			if (vimOnRef.current && vimRef.current.mode !== 'INSERT') {
+				vimRef.current = resetVim(vimRef.current)
+				vimUndoBaseRef.current = null
+				publishVim()
+			}
 			setBuffer(restoredText, restoredText.length, 'restored')
 			if (triggers && draft.triggers?.length) {
 				const selected = new Set(draft.triggers)
@@ -1333,6 +1339,7 @@ export function Composer({
 		[
 			idFor,
 			clearPastes,
+			publishVim,
 			replaceAttachments,
 			setBuffer,
 			setEditPreviousArmed,

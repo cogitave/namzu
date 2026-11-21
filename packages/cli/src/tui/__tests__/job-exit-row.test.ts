@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { jobExitRow } from '../job-exit-row.js'
+import { jobExitRow, jobLabel } from '../job-exit-row.js'
 import { tokenColor } from '../theme.js'
 
 describe('the row for a finished background command', () => {
@@ -45,5 +45,34 @@ describe('the row for a finished background command', () => {
 		expect(jobExitRow({ command: 'ls', status: 'exited', exitCode: 0 }).text).not.toMatch(
 			/\bb[0-9a-z]{8}\b/,
 		)
+	})
+})
+
+describe('what a background command is called', () => {
+	it("uses the call's own description when it has one", () => {
+		const row = jobExitRow({
+			command: 'cd /tmp/some/long/project/path && npm test 2>&1 | tail -80',
+			description: 'Run full test suite in background',
+			status: 'exited',
+			exitCode: 0,
+		})
+		expect(row.text).toBe(
+			'Background command "Run full test suite in background" finished (exit code 0)',
+		)
+	})
+
+	it('drops a leading cd into the project from the command it falls back to', () => {
+		expect(jobLabel({ command: 'cd /tmp/work/proj && npm test' })).toBe('npm test')
+		expect(jobLabel({ command: "cd '/tmp/my proj'; npm run build" })).toBe('npm run build')
+		expect(jobLabel({ command: 'cd "/tmp/my proj" && ls -la' })).toBe('ls -la')
+	})
+
+	it('keeps a command that is only a cd, and one that has no cd', () => {
+		expect(jobLabel({ command: 'cd /tmp/work' })).toBe('cd /tmp/work')
+		expect(jobLabel({ command: 'make -j4' })).toBe('make -j4')
+	})
+
+	it('ignores a blank description', () => {
+		expect(jobLabel({ command: 'make', description: '   ' })).toBe('make')
 	})
 })

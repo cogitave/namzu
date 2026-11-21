@@ -25,6 +25,7 @@ import { conversationInUseSentence, minutesUntilFree } from './conversation-in-u
 import { type ProposedChange, diffBodyFromFacts, proposedFromInput } from './diff-rows.js'
 import type { DiffInfo } from './diff-view.js'
 import { displayPath } from './display-path.js'
+import { withoutJobFooter } from './job-result-footer.js'
 import { createLiveModelStep } from './live-model-step.js'
 import { homePath } from './person-terms.js'
 import { explainFailure, workingDirectoryProblem } from './plain-failure.js'
@@ -9693,7 +9694,7 @@ export function toAgentEvent(
 			// came from; the person reads what the server said, without the frame.
 			const shown = event.toolName.startsWith('mcp__')
 				? (untrustedEnvelopeBody(event.result) ?? event.result)
-				: event.result
+				: withoutJobFooter(event.toolName, event.result)
 			const presented =
 				admitToolView(event.presentation) ??
 				presenter.presentResult(
@@ -9760,7 +9761,7 @@ export function toAgentEvent(
 					: detail
 			return {
 				kind: 'tool-end',
-				output: event.result,
+				output: withoutJobFooter(event.toolName, event.result),
 				turnId: event.turnId,
 				toolUseId: event.toolUseId,
 				toolName: event.toolName,

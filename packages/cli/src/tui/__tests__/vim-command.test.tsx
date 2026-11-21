@@ -204,6 +204,9 @@ describe('Esc while a reply runs', () => {
 		expect(h.lastFrame() ?? '').not.toContain('Interrupted')
 		expect(turnGates.length).toBe(0)
 		h.stdin.write(ESC)
-		await frameShows(h.lastFrame, 'nterrupted')
+		// Nothing was answered yet: the message goes back to the box (vim starts it in INSERT)
+		// instead of leaving an Interrupted row.
+		await frameShows(h.lastFrame, '-- INSERT --')
+		expect(h.lastFrame() ?? '').not.toContain('Interrupted')
 	})
 })

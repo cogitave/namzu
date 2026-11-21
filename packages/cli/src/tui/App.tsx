@@ -2193,6 +2193,7 @@ function AppBody({
 			if (wakeLedgerRef.current.markJobShown(job.id)) {
 				const row = jobExitRow({
 					command: job.command,
+					...(job.description !== undefined ? { description: job.description } : {}),
 					status: job.status === 'killed' ? 'killed' : 'exited',
 					...(job.exitCode !== undefined ? { exitCode: job.exitCode } : {}),
 					...(job.signal ? { signal: job.signal } : {}),
@@ -2630,6 +2631,19 @@ function AppBody({
 	/** Redraws the countdown in the hint line once a second while a pause mends itself. */
 	const [, setAutoResumeTick] = useState(0)
 	const composerDraftTokenRef = useRef(0)
+	/**
+	 * The message the running turn was started by, while the model has shown nothing
+	 * of an answer: Esc then gives it back to the box (see `planTakeBack`).
+	 */
+	const takeBackRef = useRef<{
+		readonly token: object
+		readonly rowIds: readonly string[]
+		readonly prompt: HumanQueuedPrompt
+		answered: boolean
+	} | null>(null)
+	/** The turn whose message went back to the box: its message is not part of the next send's history. */
+	const takenBackTurnRef = useRef<object | null>(null)
+	const messagesNowRef = useRef<readonly TranscriptMessage[]>([])
 	// A chooser a key opened has closed and the conversation is back: the draft
 	// typed before it returns, once. Choosers other than that key's never carry one.
 	useEffect(() => {
@@ -7371,6 +7385,7 @@ function AppBody({
 		}
 	}, [activateTrustedProject, pushMessage, runProbe, trustGrants])
 
+	messagesNowRef.current = messages
 	const finalized = messages.filter((m) => !m.pending)
 	const runningShellCount = backgroundJobs.filter(
 		(job) => job.status === 'running' && job.kind !== 'monitor',
@@ -8358,6 +8373,45 @@ function AppBody({
 		],
 	)
 	/**
+	 * Whether stopping the running turn can give its message back to the box: the
+	 * model has shown nothing yet (no text, no call), the box is empty, nothing is
+	 * queued, and the message's row is still in the redrawable part of the screen
+	 * (a row already in the terminal's scrollback cannot be taken out of it).
+	 */
+	const planTakeBack = useCallback(() => {
+		const held = takeBackRef.current
+		if (!held || held.answered || held.token !== activeTurnTokenRef.current) return undefined
+		if (composerHasDraftRef.current || roundQueueRef.current.items().length > 0) return undefined
+		if (pendingSteers.length > 0 || activeToolsRef.current.length > 0) return undefined
+		const rows = messagesNowRef.current
+		const first = rows.findIndex((row) => row.id === held.rowIds[0])
+		if (first < 0) return undefined
+		const printable = rows.filter((row) => !row.pending)
+		const at = printable.findIndex((row) => row.id === held.rowIds[0])
+		if (at < settledRef.current) return undefined
+		if (rows.slice(first + 1).some((row) => row.role === 'assistant' || row.role === 'tool'))
+			return undefined
+		return held
+	}, [pendingSteers])
+	/** Take the message out of the transcript and put it back in the box, as it was typed. */
+	const applyTakeBack = useCallback((held: NonNullable<typeof takeBackRef.current>) => {
+		takeBackRef.current = null
+		takenBackTurnRef.current = held.token
+		const ids = new Set(held.rowIds)
+		setMessages((prev) => prev.filter((row) => !ids.has(row.id)))
+		composerDraftTokenRef.current += 1
+		setComposerDraft({
+			token: composerDraftTokenRef.current,
+			text: held.prompt.recallText ?? held.prompt.text,
+			...(held.prompt.attachments && held.prompt.attachments.length > 0
+				? { attachments: [...held.prompt.attachments] }
+				: {}),
+			...(held.prompt.triggers && held.prompt.triggers.length > 0
+				? { triggers: held.prompt.triggers }
+				: {}),
+		})
+	}, [])
+	/**
 	 * The one way a turn is interrupted from the keyboard: stop it, then leave
 	 * the one interruption row behind. The row hangs under the call that was
 	 * running when there was one (read before the stop clears it), and says
@@ -8377,7 +8431,12 @@ function AppBody({
 			// it, and does so before this returns: a job that was not there
 			// before is the command that carries on.
 			const jobsBefore = new Set((session?.jobs?.() ?? []).map((job) => job.id))
+			const takeBack = options?.steered ? undefined : planTakeBack()
 			const interrupted = interruptTurn(recoverInput)
+			if (interrupted && takeBack) {
+				applyTakeBack(takeBack)
+				return interrupted
+			}
 			const movedToBackground = (session?.jobs?.() ?? []).some(
 				(job) => job.status === 'running' && !jobsBefore.has(job.id),
 			)
@@ -8397,7 +8456,7 @@ function AppBody({
 			}
 			return interrupted
 		},
-		[interruptTurn, pushMessage, pushRow, session],
+		[applyTakeBack, interruptTurn, planTakeBack, pushMessage, pushRow, session],
 	)
 	/**
 	 * ctrl+x ctrl+s: send what is waiting now. Same effect as Esc with a
@@ -10373,6 +10432,8 @@ function AppBody({
 			switch (event.kind) {
 				case 'delta': {
 					if (st.pendingFallback) st.pendingFallback.answered = true
+					if (takeBackRef.current && event.text.trim().length > 0)
+						takeBackRef.current.answered = true
 					if (
 						event.messageId &&
 						(st.sourceMessageId !== event.messageId ||
@@ -10411,6 +10472,7 @@ function AppBody({
 				}
 				case 'tool-start': {
 					if (st.pendingFallback) st.pendingFallback.answered = true
+					if (takeBackRef.current) takeBackRef.current.answered = true
 					turnToolCallsRef.current += 1
 					closeAssistant()
 					// A call that only looks joins the open counted line; any other call ends
@@ -11318,6 +11380,8 @@ function AppBody({
 			// Reserved before the turn begins, so everything that refers to this
 			// turn — its goal-round authority above all — names it from the start.
 			const turnId = generateTurnId()
+			let userEchoId: string | undefined
+			let userEchoTagId: string | undefined
 			// The composer triggers the operator armed for this message, checked
 			// again now: the mode or the session may have changed while it waited
 			// in the queue. None of them changes the operator's words.
@@ -11338,7 +11402,7 @@ function AppBody({
 					continuation: goalRound.objective,
 				})
 			} else {
-				pushMessage(
+				userEchoId = pushMessage(
 					'user',
 					// What the operator typed: a command that composes the model's
 					// message shows the command, not the rewrite.
@@ -11364,7 +11428,7 @@ function AppBody({
 					effort: pinnedEffort,
 					steered: false,
 				})
-				if (tagLine) pushSystem('notice', tagLine)
+				if (tagLine) userEchoTagId = pushSystem('notice', tagLine)
 				for (const id of requestedTriggers) {
 					const reason = triggerUnavailable(id, triggerContext)
 					if (reason) pushSystem('notice', notAppliedLine([triggerDefinition(id).label], reason))
@@ -11435,6 +11499,15 @@ function AppBody({
 			replyCutOffRef.current = false
 			refusalEndedTurnRef.current = false
 			activeTurnTokenRef.current = turnToken
+			takeBackRef.current =
+				userEchoId !== undefined && prompt.kind === 'human' && isRecallableHumanPrompt(prompt)
+					? {
+							token: turnToken,
+							rowIds: userEchoTagId !== undefined ? [userEchoId, userEchoTagId] : [userEchoId],
+							prompt,
+							answered: false,
+						}
+					: null
 			// Where this turn will be saved, and which transcript its rows belong
 			// to. Both fixed HERE, at the one moment they are knowable.
 			//
@@ -12011,7 +12084,10 @@ function AppBody({
 					: []
 				if (st.text.trim().length > 0) fallbackTurn.push(createAssistantMessage(st.text))
 				const conversationMessages = admitted ? st.conversationMessages : undefined
-				const nextModelHistory = conversationMessages ?? [...historyBeforeTurn, ...fallbackTurn]
+				const nextModelHistory =
+					takenBackTurnRef.current === turnToken
+						? historyBeforeTurn
+						: (conversationMessages ?? [...historyBeforeTurn, ...fallbackTurn])
 				if (goalRound && (ac.signal.aborted || st.outcome !== 'completed')) {
 					goalActivation.disarm(goalRound.sessionId, goalRound)
 					wakeGoalDriver()
