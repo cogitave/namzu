@@ -93,7 +93,7 @@ describe('read-only state inventory, version 2', () => {
 		expect(id).toBeTruthy()
 	})
 
-	it('counts what move-legacy put under the home’s legacy folder as legacy, not unknown', async () => {
+	it('counts what move legacy put under the home’s legacy folder as legacy, not unknown', async () => {
 		const cwd = temporary('moved-cwd')
 		const home = temporary('moved-os-home')
 		const stateRoot = temporary('moved-state')

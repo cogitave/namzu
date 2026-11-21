@@ -19,7 +19,7 @@ does not exist, before the plugin is shared or enabled, instead of from a log
 line at startup.
 
 It lives under `namzu plugin`, beside the `/plugins` menu, because it is about
-a plugin folder and not about the session; `namzu skills --audit` stays where it
+a plugin folder and not about the session; `namzu skills list --audit` stays where it
 is for skills found in your own folders.
 
 ## What it never does

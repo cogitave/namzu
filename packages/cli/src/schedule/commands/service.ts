@@ -1,5 +1,5 @@
 /**
- * `schedule install | uninstall | status | start | stop | daemon | __fire`.
+ * `schedule service install | uninstall | status | start | stop | daemon | __fire`.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -81,7 +81,7 @@ export async function installCommand(
 	const platformFlag = flag(args, 'platform') ?? 'auto'
 	if (args.unknown.length > 0 || !PLATFORMS.includes(platformFlag)) {
 		ctx.formatter.error({
-			message: `usage: namzu schedule install [--platform ${PLATFORMS.join('|')}] [--name <n>] [--at-boot] [--dry-run]`,
+			message: `usage: namzu schedule service install [--platform ${PLATFORMS.join('|')}] [--name <n>] [--at-boot] [--dry-run]`,
 		})
 		return EXIT_USAGE
 	}
@@ -113,7 +113,16 @@ export async function installCommand(
 					userId: 'DOMAIN\\user',
 					description: 'namzu scheduler',
 					command: 'C:\\Windows\\System32\\conhost.exe',
-					args: ['--headless', prog.node, prog.bin, 'schedule', 'daemon', '--home', prog.namzuHome],
+					args: [
+						'--headless',
+						prog.node,
+						prog.bin,
+						'schedule',
+						'service',
+						'daemon',
+						'--home',
+						prog.namzuHome,
+					],
 				})
 				break
 			case 'wsl-windows-task':
@@ -149,7 +158,7 @@ export async function installCommand(
 			return 1
 		}
 		ctx.formatter.print({
-			text: `Installed ${manifest.name} (${manifest.platform}). Check it with \`namzu schedule status\`.`,
+			text: `Installed ${manifest.name} (${manifest.platform}). Check it with \`namzu schedule service status\`.`,
 			platform: manifest.platform,
 			name: manifest.name,
 		})
@@ -178,7 +187,7 @@ export async function uninstallCommand(
 	if (args.unknown.length > 0 || (has(args, 'keep-data') && has(args, 'purge-data'))) {
 		ctx.formatter.error({
 			message:
-				'usage: namzu schedule uninstall [--keep-data | --purge-data] [--wait 10m | --interrupt-runs]',
+				'usage: namzu schedule service uninstall [--keep-data | --purge-data] [--wait 10m | --interrupt-runs]',
 		})
 		return EXIT_USAGE
 	}
@@ -288,7 +297,9 @@ export async function statusCommand(ctx: CommandContext, argv: readonly string[]
 			try {
 				realpathSync(path)
 			} catch {
-				pathProblems.push(`${label} ${path} no longer exists; run namzu schedule install again`)
+				pathProblems.push(
+					`${label} ${path} no longer exists; run namzu schedule service install again`,
+				)
 			}
 		}
 		if (manifest.cliVersion !== CLI_VERSION)
@@ -342,7 +353,7 @@ export async function statusCommand(ctx: CommandContext, argv: readonly string[]
 	} else {
 		ctx.formatter.print(
 			[
-				`Service        ${manifest ? `${manifest.name} (${manifest.platform})` : 'not installed — namzu schedule install'}`,
+				`Service        ${manifest ? `${manifest.name} (${manifest.platform})` : 'not installed — namzu schedule service install'}`,
 				`Supervisor     ${supervisor}`,
 				`Daemon         ${live ? `running, pid ${String(live.pid)}, version ${String(live.version)}${live.standby ? ', on standby' : ''}${live.draining ? ', draining for a restart' : ''}` : heartbeat ? `not answering; last seen ${Math.round((age ?? 0) / 1000)} s ago${heartbeat.standby ? ' (on standby)' : ''}` : 'never started'}`,
 				`Notifications  ${backend.kind}${backend.kind === 'none' ? ` — ${backend.detail}` : ''}${'guessed' in backend ? ' (not reported by the daemon yet; this shell would pick it)' : ''}`,
@@ -371,7 +382,7 @@ export async function startStopCommand(
 	const manifest = readManifest(paths)
 	if (!manifest) {
 		ctx.formatter.error({
-			message: 'no scheduler service is installed for this home; namzu schedule install',
+			message: 'no scheduler service is installed for this home; namzu schedule service install',
 		})
 		return EXIT_NO_CONFIG
 	}
@@ -393,12 +404,12 @@ export async function startStopCommand(
 		text:
 			verb === 'start'
 				? `Started ${manifest.name}.`
-				: `Stopped ${manifest.name}; it stays stopped until namzu schedule start.`,
+				: `Stopped ${manifest.name}; it stays stopped until namzu schedule service start.`,
 	})
 	return EXIT_OK
 }
 
-/** `schedule daemon`: run the scheduler in this process until stopped. */
+/** `schedule service daemon`: run the scheduler in this process until stopped. */
 export async function daemonCommand(ctx: CommandContext, argv: readonly string[]): Promise<number> {
 	const args = parseArgs(argv, ['home', 'foreground!', 'once-or-exit!'])
 	if (args.unknown.length > 0) {
@@ -431,7 +442,7 @@ export async function daemonCommand(ctx: CommandContext, argv: readonly string[]
 	const bin = installedBin()
 	if (existsSync(stopRequestPath(paths))) {
 		ctx.formatter.error({
-			message: `the scheduler for ${paths.home} was stopped with \`namzu schedule stop\`; \`namzu schedule start\` lets it run again`,
+			message: `the scheduler for ${paths.home} was stopped with \`namzu schedule service stop\`; \`namzu schedule service start\` lets it run again`,
 		})
 		return EXIT_STOP_REQUESTED
 	}

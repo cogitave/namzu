@@ -22,6 +22,13 @@ it answers. A command that composes a message for the model also shows what you 
 only the model receives the rewritten sentence. The `/help` list shows each description up to its first
 clause, so no line ends mid-sentence.
 
+Commands that take a second word spell it as a word, never with a hyphen:
+`/add dir`, `/release notes`, `/terminal setup`. The palette and completion show
+that form, and the first word alone (`/terminal`) answers with the usage of its
+second word. The old hyphenated spellings (`/add-dir`, `/release-notes`,
+`/terminal-setup`) run nothing: typed, each shows one line naming the new
+spelling.
+
 | Command | What it does |
 | --- | --- |
 | `/help [command]` | Search commands and choose an action, or read one command's usage without running it. |
@@ -50,7 +57,7 @@ clause, so no line ends mid-sentence.
 | `/cost` | Show tokens and cost for the latest reply, one fact per line, plus what the agents it started used; `/cost details` adds pricing and scope information; `/cost days [n]` shows spend across conversations by local day and model for the last `n` days (30 by default), as [Spend by day and model](cost.md) describes. |
 | `/tasks` (alias `/bashes`) | View and manage everything running in the background: the `Background` dialog lists this session's background commands (Shells), monitors (Monitors), running subagents (Local agents), the timers the model set that are still pending (Timers: the prompt and the time left, `↻` for a repeating one) and finished agents (Completed). Up/Down select, Enter opens the details or the agent's transcript, `x` stops a running one or cancels a timer (the model's timer list no longer shows it), Esc closes; `/tasks list` prints a text summary of the commands and pending timers. It replaces `/jobs`, which no longer exists. See [Background jobs in the CLI](background-jobs.md). |
 | `/peers [list\|on\|off\|send <ref> <message>]` | Find and message independent live terminals in this project; control this terminal's participation. Peer text carries no operator authority. See [Messages between live terminals](peer-messaging.md). |
-| `/release-notes` | Show what changed in the version that is running: /release-notes [version]. |
+| `/release notes` | Show what changed in the version that is running: /release notes [version]. |
 | `/hooks` | List every hook this conversation runs, where it came from, which tool names it receives and the names its `env` sets, then any hook a file declared that could not be loaded ([Hooks](../sdk/hooks.md#a-hooks-block-in-the-common-shape)), then the hook entries enabled plugins ship (the plugin, event, command and matcher, apart from the plugins' JavaScript hooks) and what their files declared that could not be loaded, the hooks skills and agent files attach, the names of the variables hooks set for shell commands and the files watched for `file_changed` ([Hooks](../sdk/hooks.md#files-and-folders-and-variables-for-later-commands)). From a shell, `namzu hooks [--cwd <path>] [--json]` answers the same question for a folder without starting a session, and for a folder nobody has trusted too ([Hooks](../sdk/hooks.md#what-runs-by-itself-here-one-answer-for-a-program)). |
 | `/context` | Show where the context goes: a grid that stands for the window, a legend of categories (system prompt, system tools, MCP tools and instructions, custom agents, memory files, skills, messages, free space), lists of MCP tools, agents, memory files and skills with their sizes, and advice when something is large. `/context details` adds how older messages were summarised; `/context all` is accepted and shows the same. |
 | `/review` | Choose a review target, or provide custom instructions: /review [instructions]. |
@@ -67,7 +74,7 @@ clause, so no line ends mid-sentence.
 | `/status` | Show model, permissions, files and latest cost, with the folder written from `~` or its last folders. The card leaves out the conversation id and the tool count; `/status details` adds the full conversation id, expands rules and isolation; `/status config` shows setting sources; `/status tools` lists callable tools. |
 | `/doctor` | Run the health checks (providers and sign-ins, sandbox, scheduler, browser, code index, folders and the rest) and show them in plain words: a row per check with a mark (a newer version shows as `✓ Updates: Namzu 9.9.9 is available` with the command to get it), and for each one that needs attention a short reason and what to try. The later lines of a long reason are behind `ctrl+o`. `namzu doctor` prints the full technical report, with `--json` and exit codes. |
 | `/permissions` | Choose Ask before changes, Accept edits or Plan (read-only). More options contains Auto-approve tools, Preapproved tools only and View rules. |
-| `/terminal-setup` | Make Shift+Enter start a new line in the terminal Namzu runs in. VS Code, Cursor and Windsurf get a key binding (plus a faster scroll setting and GPU acceleration off), Zed and Alacritty get a key binding, and Terminal.app gets Option+Enter; every file it changes is copied to `<file>.<8 hex>.bak` first and the reply says what changed. Where it cannot write (a remote editor session, a file it cannot read) it prints the steps. iTerm2, WezTerm, Ghostty, Kitty, Warp and Windows Terminal need nothing and are told so. It runs only when you type it. See [Terminal setup](terminal-design.md#terminal-setup-and-the-fullscreen-fallback). |
+| `/terminal setup` | Make Shift+Enter start a new line in the terminal Namzu runs in. VS Code, Cursor and Windsurf get a key binding (plus a faster scroll setting and GPU acceleration off), Zed and Alacritty get a key binding, and Terminal.app gets Option+Enter; every file it changes is copied to `<file>.<8 hex>.bak` first and the reply says what changed. Where it cannot write (a remote editor session, a file it cannot read) it prints the steps. iTerm2, WezTerm, Ghostty, Kitty, Warp and Windows Terminal need nothing and are told so. It runs only when you type it. See [Terminal setup](terminal-design.md#terminal-setup-and-the-fullscreen-fallback). |
 | `/vim` | Switch the message box between the usual keys and vim keys: `/vim` flips it, `/vim on` and `/vim off` name the mode. It applies at once, is saved as `tui.editorMode` in your user config, and says the new mode in one line. The box starts in INSERT; Esc goes to NORMAL. See [Vim keys in the message box](composer-vim.md). |
 | `/tui` | `/tui` says which screen Namzu is using; `/tui fullscreen` or `/tui default` saves `tui.fullscreen` in your user config and forgets any failed fullscreen starts, for the next start. |
 | `/theme` | Change the colors: `/theme [name]`. Opens a picker with a live preview, or applies `auto`, `dark`, `light`, `dark-daltonized`, `light-daltonized`, `dark-ansi` or `light-ansi` directly. See [Themes](themes.md). |
@@ -111,11 +118,11 @@ every command either way.
   `/status`, `/cost`, `/tasks`, `/permissions`, `/hooks`, `/mcp` (reports only),
   `/btw`, `/exit`, `/rename`, `/skills` (the list), `/plugins`, `/goal`,
   `/workflows`, `/feedback`, `/help`, `/theme`, `/diff`, `/raw`, `/hypermode`,
-  `/doctor`, `/terminal-setup`, `/tui`, `/vim`, `/release-notes`, `/peers`, `/schedule`, `/loop`, `/abandon`,
+  `/doctor`, `/terminal setup`, `/tui`, `/vim`, `/release notes`, `/peers`, `/schedule`, `/loop`, `/abandon`,
   `/copy`, and `/skills save` and `/skills new`, which line themselves up behind
   the reply. `/clear`, `/new`, `/fork` and `/resume` also run at once: they take
   the conversation over and abandon the running reply on purpose.
-  `/config`, `/settings` and `/add-dir` run at once only with an argument;
+  `/config`, `/settings` and `/add dir` run at once only with an argument;
   `/browser` only without one.
 - **Waits.** Anything that changes or reads the conversation itself, a saved
   prompt command or a skill: `/clear`, `/new`, `/fork`, `/resume`, `/copy` and `/run`

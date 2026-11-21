@@ -482,7 +482,7 @@ const fileOnly: SettingControl = { kind: 'file-only' }
 
 /**
  * When a key's saved value is read. Found from the code that reads it: the terminal app, the
- * schedule daemon, the update check, telemetry, the plugin loader, the model choice and the list of
+ * schedule service daemon, the update check, telemetry, the plugin loader, the model choice and the list of
  * permission modes a host offers read once at launch. The host re-reads the user and project files
  * whenever it starts a conversation (`ensureSession` in `commands/acp.ts`), and builds the session
  * options, the permission rules, the browser rules and the per-turn options from that fresh read,

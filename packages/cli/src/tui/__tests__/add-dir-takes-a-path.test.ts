@@ -11,11 +11,11 @@ const ctx = (dirs: readonly string[]) =>
 		directories: () => dirs,
 	}) as unknown as SlashContext
 
-describe('/add-dir', () => {
+describe('/add dir', () => {
 	it('adds a path, and lists what was added when given none', () => {
-		expect(runSlash('/add-dir ../shared', ctx([]))).toEqual({ kind: 'add-dir', path: '../shared' })
-		expect(runSlash('/add-dir', ctx([]))?.kind).toBe('message')
-		const listed = runSlash('/add-dir', ctx(['/srv/shared']))
+		expect(runSlash('/add dir ../shared', ctx([]))).toEqual({ kind: 'add-dir', path: '../shared' })
+		expect(runSlash('/add dir', ctx([]))?.kind).toBe('message')
+		const listed = runSlash('/add dir', ctx(['/srv/shared']))
 		expect(listed?.kind === 'message' ? listed.content : '').toContain('/srv/shared')
 	})
 

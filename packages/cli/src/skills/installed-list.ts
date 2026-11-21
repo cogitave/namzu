@@ -9,7 +9,7 @@ export interface InstalledSkill {
 }
 
 /**
- * The skills the engine finds, by the same discovery the terminal app and `namzu skills` use: the
+ * The skills the engine finds, by the same discovery the terminal app and `namzu skills list` use: the
  * built-in ones, the user's, and the project's. One entry per name (the highest tier wins). A
  * folder nobody trusted contributes no project skills. The `skills.builtin` and `skills.disabled`
  * keys are not applied: a skill that is turned off must still be listed, or it could not be

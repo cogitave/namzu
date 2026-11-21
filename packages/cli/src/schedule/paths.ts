@@ -14,7 +14,7 @@
  * ├── daemon/heartbeat.json         { at, pid, epoch, version, standby }
  * ├── daemon/log/daemon-YYYY-MM-DD.jsonl
  * ├── daemon.env                    optional KEY=value lines for fire children (0600)
- * ├── service.json                  what `schedule install` created
+ * ├── service.json                  what `schedule service install` created
  * └── seen.json                     when the TUI last summarised
  * ```
  *

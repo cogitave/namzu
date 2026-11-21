@@ -13986,7 +13986,7 @@ function AppBody({
 			const palHostCommand =
 				operatorText &&
 				palDefinitionRef.current &&
-				/^\/(?:schedule|loop|worktree|add-dir|browser|mcp|plugins|skills|save-skill|memory|init|review|goal|agents)(?:\s|$)/u.test(
+				/^\/(?:schedule|loop|worktree|add\s+dir|browser|mcp|plugins|skills|save-skill|memory|init|review|goal|agents)(?:\s|$)/u.test(
 					dispatch,
 				)
 			if (palHostCommand) {
@@ -15187,7 +15187,7 @@ function AppBody({
 					case 'add-dir': {
 						const dirs = session?.directories
 						if (!dirs) {
-							pushMessage('system', 'No conversation yet; /add-dir works once one has started.')
+							pushMessage('system', 'No conversation yet; /add dir works once one has started.')
 							return
 						}
 						void dirs
@@ -15198,7 +15198,7 @@ function AppBody({
 									if (questionRef.current) {
 										pushMessage(
 											'system',
-											'Answer the open question first; /add-dir asks one of its own.',
+											'Answer the open question first; /add dir asks one of its own.',
 										)
 										return Promise.resolve(false)
 									}

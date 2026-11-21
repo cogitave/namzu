@@ -91,8 +91,8 @@ async function schedulerLine(home: string): Promise<string> {
 		installed = readManifest(paths) !== undefined
 	} catch {}
 	return installed
-		? 'Scheduler: installed but not answering — namzu schedule status.'
-		: 'Scheduler: not installed — namzu schedule install. Jobs do not run until it is.'
+		? 'Scheduler: installed but not answering — namzu schedule service status.'
+		: 'Scheduler: not installed — namzu schedule service install. Jobs do not run until it is.'
 }
 
 function when(iso: string | undefined, tz: string): string {
@@ -420,8 +420,8 @@ export async function runScheduleCommand(
 							? `${job.name} queued; /schedule shows it running.`
 							: typeof answer.message === 'string' && answer.message.length > 0
 								? answer.message
-								: 'The scheduler did not accept that. Run namzu schedule status for details.'
-						: `The scheduler is not running; run it here with: namzu schedule run-now ${job.name}`,
+								: 'The scheduler did not accept that. Run namzu schedule service status for details.'
+						: `The scheduler is not running; run it here with: namzu schedule run ${job.name}`,
 				)
 				return
 			}

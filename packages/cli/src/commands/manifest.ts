@@ -210,22 +210,13 @@ export const skillsCommand = lazyCommand(
 	async () => (await import('./skills.js')).skillsCommand,
 )
 
-export const skillsJSONCommand = lazyCommand(
+export const providersCommand = lazyCommand(
 	{
-		name: 'skills-json',
-		description: 'Print discovered skills as JSON (for host UIs)',
+		name: 'providers',
+		description: 'List providers and their models',
 		passThrough: true,
 	},
-	async () => (await import('./host-queries.js')).skillsJSONCommand,
-)
-
-export const providersJSONCommand = lazyCommand(
-	{
-		name: 'providers-json',
-		description: 'Print providers + per-provider models as JSON (for host UIs)',
-		passThrough: true,
-	},
-	async () => (await import('./host-queries.js')).providersJSONCommand,
+	async () => (await import('./providers.js')).providersCommand,
 )
 
 export const upgradeCommand = lazyCommand(

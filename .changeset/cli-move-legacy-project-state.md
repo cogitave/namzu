@@ -7,7 +7,7 @@
 `worktrees/` and the rest) as `legacy`, where it used to count `cli.json` and
 `projects/` as current runtime state and miss `projects/prj_*` entirely; the
 memory curation log in the Namzu home is no longer called legacy. The new
-`namzu state move-legacy` moves that state into `~/.namzu/legacy/<folder>/<time>/`
+`namzu state move legacy` moves that state into `~/.namzu/legacy/<folder>/<time>/`
 when you ask (`--dry-run` lists what would move): only in a folder you trust,
 only names an earlier Namzu wrote, never what git tracks or a git worktree with
 changes, and a copy across disks is compared with the original before the

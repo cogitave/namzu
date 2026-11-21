@@ -1,7 +1,7 @@
 /**
- * `schedule install | uninstall | start | stop` over the four supervisors,
+ * `schedule service install | uninstall | start | stop` over the four supervisors,
  * with the manifest as the record of what exists. The service always runs
- * `"<absolute node>" "<absolute CLI>" schedule daemon --home "<NAMZU_HOME>"`,
+ * `"<absolute node>" "<absolute CLI>" schedule service daemon --home "<NAMZU_HOME>"`,
  * both paths resolved at install: no shell, no PATH lookup, no profile.
  */
 
@@ -83,7 +83,7 @@ function refuseUnsafeProgram(program: ServiceProgram): void {
 	}
 	if (isEphemeralBin(program.bin)) {
 		throw new ServiceRefusal(
-			`namzu is running from the npx cache (${program.bin}), which is not kept; install it (npm i -g @namzu/cli) and run schedule install from that`,
+			`namzu is running from the npx cache (${program.bin}), which is not kept; install it (npm i -g @namzu/cli) and run schedule service install from that`,
 		)
 	}
 }
@@ -182,6 +182,7 @@ export async function installService(
 					request.program.node,
 					request.program.bin,
 					'schedule',
+					'service',
 					'daemon',
 					'--home',
 					request.program.namzuHome,
