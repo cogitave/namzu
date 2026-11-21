@@ -167,6 +167,20 @@ export interface TuiConfig {
 	readonly syntaxHighlight?: boolean
 }
 
+/** See `NamzuCliConfig.network`. */
+export interface NetworkConfig {
+	/**
+	 * `auto` (default): on in an interactive terminal on a network known to be private, off elsewhere and
+	 * for every headless run. `true`: on in an interactive terminal on any network. `false`: off entirely
+	 * (no advertisement, no listener).
+	 */
+	readonly enabled?: 'auto' | boolean
+	/** Messages from your other machines: `members` delivers, `hold` always asks first, `off` refuses. */
+	readonly acceptMail?: 'members' | 'hold' | 'off'
+	/** What this machine is called to the others; absent means its host name. At most 40 characters. */
+	readonly machineName?: string
+}
+
 /** Release channel the background updater follows. */
 export type UpdateChannel = 'latest' | 'stable'
 
@@ -880,6 +894,12 @@ export interface NamzuCliConfig {
 	readonly telemetry?: TelemetryConfig
 	/** Interactive-terminal-only behaviour. Absent leaves notifications off. */
 	readonly tui?: TuiConfig
+	/**
+	 * Your Namzu network: finding your other machines and messaging their sessions. Absent means the
+	 * defaults (`enabled: auto`, `acceptMail: members`, the machine's host name). Your own config files
+	 * only: a repository cannot open a listener on your machine.
+	 */
+	readonly network?: NetworkConfig
 	/**
 	 * How the terminal keeps Namzu itself up to date. Absent means the
 	 * defaults: check in the background, install quietly where Namzu may,

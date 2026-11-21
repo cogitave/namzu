@@ -4,6 +4,7 @@ import { basename } from 'node:path'
 import {
 	type DeliverRequest,
 	type DeliverResponse,
+	HoldQueue,
 	type Message,
 	PEER_PROTOCOL_VERSION,
 	PEER_TRAIL_MAX,
@@ -12,11 +13,14 @@ import {
 	type PeerFrom,
 	type PeerRecord,
 	type PeerSessionState,
+	type RemoteOrigin,
 	createPeerEndpoint,
 	createRuntimeContextMessage,
+	decideMail,
 	defineTool,
 	derivePeerRef,
 	formatPeerMessage,
+	formatRoleContext,
 	generateSessionId,
 	hardenPeerRuntimeDir,
 	isPeerRecordLive,
@@ -25,9 +29,11 @@ import {
 	readPeerRecords,
 	removePeerRecord,
 	resolvePeerRuntimeDir,
+	systemClock,
 	udsPeerAddress,
 	writePeerRecord,
 } from '@namzu/sdk'
+import type { NetworkClock } from '@namzu/sdk'
 import { sanitizeLine } from '../notifications/desktop/sanitize.js'
 import { restrictToOwner } from '../providers/credential-store.js'
 import { processStartedBySession, runsUnderAny } from './process-ancestry.js'
@@ -40,13 +46,53 @@ export interface PeerMail {
 	readonly owner: number
 	readonly from: PeerFrom
 	readonly text: string
+	/** Set when the message crossed machines: where it really came from (the bridge only carried it). */
+	readonly remote?: RemoteOrigin
+	/**
+	 * The permission mode this terminal was in when it took the message in. Taking it in is not a grant to
+	 * run the context under a later mode, so a changed mode discards it. A person's message has none.
+	 */
+	readonly acceptedMode?: string
 }
 
 export function peerMailMessage(mail: PeerMail): Message {
 	return createRuntimeContextMessage(
-		formatPeerMessage(mail),
+		formatPeerMessage({
+			id: mail.id,
+			from: mail.from,
+			text: mail.text,
+			...(mail.remote
+				? { machine: { name: mail.remote.machineName, id: mail.remote.machineId } }
+				: {}),
+		}),
 		mail.from.kind === 'person' ? 'person-message' : 'peer-message',
 	)
+}
+
+/** A message waiting for the person: another terminal's whose mode differs, or any mail while this terminal is in bypass. */
+export interface HeldLocalMail {
+	readonly id: string
+	readonly from: PeerFrom
+	readonly text: string
+	readonly owner: number
+	readonly reason: string
+}
+
+/** What a screen shows of a held message. */
+export interface HeldLocalView {
+	readonly id: string
+	readonly fromName: string
+	readonly fromRef: string
+	readonly reason: string
+	readonly text: string
+	readonly expiresAt: number
+}
+
+/** A role another machine (or the person) gave this session. Descriptive; it grants nothing. */
+export interface SessionRole {
+	readonly role: string
+	readonly by: string
+	readonly at: number
 }
 
 /** The longest a person's message is drawn on its one transcript line; the model and the log hold all of it. */
@@ -60,7 +106,40 @@ const PERSON_LABEL_MAX = 400
 export function peerMailLabel(mail: PeerMail): string {
 	if (mail.from.kind === 'person')
 		return `Message from another terminal of this account: ${sanitizeLine(mail.text, PERSON_LABEL_MAX)}`
+	if (mail.remote)
+		return `Message from ${sanitizeLine(mail.remote.sessionName, 80)} on ${sanitizeLine(mail.remote.machineName, 80)}: ${mail.text}`
 	return `Message from ${mail.from.name}: ${mail.text}`
+}
+
+/** What a terminal needs of the Namzu network to list and message sessions on other machines. */
+export interface NetworkLink {
+	/** The roster as the model's `list_sessions` shows it; undefined while the network is off. */
+	list(selfRef: string): Promise<readonly Record<string, unknown>[] | undefined>
+	/** Send to `target` (`name`, `machine/name` or `[ref]`) on another machine. `undefined` when the target is not on the network. */
+	send(
+		target: string,
+		text: string,
+		from: { readonly sessionRef: string; readonly sessionName: string; readonly mode: string },
+	): Promise<
+		| {
+				readonly id?: string
+				readonly status: 'queued' | 'held' | 'refused'
+				readonly reason?: string
+		  }
+		| undefined
+	>
+	/** A message from another machine was taken into a turn here: tell its sender. Never throws. */
+	delivered?(machineId: string, mailId: string, sessionRef: string): Promise<void>
+	/** Give a session or machine on any member a role; names resolve against the roster. */
+	setRole(
+		target: string,
+		role: string | null,
+	): Promise<{ readonly status: 'applied' | 'refused'; readonly reason?: string }>
+}
+
+/** Roles of sessions on this machine, kept across a resume. Reads never throw. */
+export interface SessionRoleStore {
+	read(key: string): SessionRole | undefined
 }
 
 export interface LivePeersOptions {
@@ -91,6 +170,14 @@ export interface LivePeersOptions {
 	readonly name?: () => string | undefined
 	/** The non-default account label the conversation is bound to. */
 	readonly account?: () => string | undefined
+	/** Clock for hold expiry; tests supply a manual one. */
+	readonly clock?: NetworkClock
+	/** The mode that skips permission prompts; a terminal in it holds every message from another session. */
+	readonly bypass?: () => boolean
+	/** Where a role set from another terminal or machine is kept, keyed by the conversation (else the ref). */
+	readonly roles?: SessionRoleStore
+	/** The Namzu network on this machine, once it runs; absent or returning undefined means no other machines. */
+	readonly network?: () => NetworkLink | undefined
 	/** True while the bound account is out of allowance. */
 	readonly limited?: () => boolean
 	/** When the spent allowance is expected back (epoch ms), if known. */
@@ -149,6 +236,28 @@ export async function openLivePeers(options: LivePeersOptions) {
 	const pending: PeerMail[] = []
 	const accepted = new Map<string, { readonly text: string; readonly owner: number }>()
 	const client = new PeerClient()
+	const clock = options.clock ?? systemClock
+	/** Mail sent from here that the other side held: its outcome is told to the person when it arrives. */
+	const sentHeld = new Set<string>()
+	let role: SessionRole | undefined
+	/** A role not yet put in front of the model. */
+	let rolePending = false
+	let roleCleared = false
+	const readStoredRole = (): SessionRole | undefined => {
+		const conversation = options.conversation?.()
+		return (
+			(conversation ? options.roles?.read(conversation) : undefined) ??
+			options.roles?.read(`ref:${ref}`)
+		)
+	}
+	const bypassNow = () => options.bypass?.() === true || options.mode() === 'bypass'
+	const held = new HoldQueue<HeldLocalMail>({
+		clock,
+		onExpire: (_id, item) => {
+			tellOutcome(item, 'expired')
+			options.report(`A held message from ${item.from.name} expired without an answer.`)
+		},
+	})
 	const record = (): PeerRecord => ({
 		v: 1,
 		sessionId,
@@ -175,6 +284,7 @@ export async function openLivePeers(options: LivePeersOptions) {
 		// Only a terminal inside a workspaces host writes it, like the other host-facing fields, so a
 		// plain terminal stays readable by builds that predate it.
 		...(options.hostSlot && trail.length > 0 ? { trail: [...trail] } : {}),
+		...(role ? { role: role.role, roleBy: role.by, roleAt: role.at } : {}),
 	})
 	const from = (): PeerFrom => {
 		const current = record()
@@ -189,6 +299,7 @@ export async function openLivePeers(options: LivePeersOptions) {
 	}
 	const publish = () => {
 		if (closed) return
+		syncRole()
 		discardStale()
 		try {
 			writePeerRecord(runtime.sessionsDir, record())
@@ -212,7 +323,7 @@ export async function openLivePeers(options: LivePeersOptions) {
 			if (mail.owner !== owner) {
 				pending.splice(index, 1)
 				dropped++
-			} else if (mail.from.kind !== 'person' && mail.from.mode !== mode) {
+			} else if (mail.from.kind !== 'person' && (mail.acceptedMode ?? mail.from.mode) !== mode) {
 				// Admission is not a grant to run this context under a later mode.
 				// Recheck at peek AND consumption: a scheduled idle wake can outlive
 				// a mode change. Discard rather than inventing approval or replay.
@@ -229,6 +340,58 @@ export async function openLivePeers(options: LivePeersOptions) {
 				`${modeChanged} peer message(s) were not delivered because the permission mode changed.`,
 			)
 	}
+	/** Tell the sender of a held message how it ended; a sender that has gone away simply hears nothing. */
+	const tellOutcome = (
+		item: Pick<HeldLocalMail, 'id' | 'from'>,
+		outcome: 'queued' | 'refused' | 'expired',
+	) => {
+		const target = readPeerRecords(runtime.sessionsDir).find(
+			(peer) => peer.sessionId === item.from.sessionId && peer.kind === 'tui',
+		)
+		if (!target) return
+		const current = from()
+		void client
+			.notice(target, {
+				from: current,
+				kind: 'delivery',
+				about: { sessionId, name: current.name, ref },
+				outcome,
+				detail: item.id,
+			})
+			.catch(() => {})
+	}
+	/** Put accepted mail in the inbox: one place, so a held message that is allowed enters exactly as a new one. */
+	const admit = (request: DeliverRequest, fromIdentity: PeerFrom): DeliverResponse => {
+		const key = `${request.remote ? `${request.remote.machineId}:${request.remote.sessionRef}` : request.from.sessionId}:${request.id}`
+		const previous = accepted.get(key)
+		if (previous)
+			return previous.text === request.text && previous.owner === options.owner()
+				? { status: 'queued', reason: 'Already accepted; not queued twice.' }
+				: {
+						status: 'refused',
+						reason: 'This message id belongs to different content or a previous conversation.',
+					}
+		discardStale()
+		if (pending.length >= INBOX_CAPACITY)
+			return { status: 'refused', reason: 'The receiving inbox is full.' }
+		const owner = options.owner()
+		accepted.set(key, { text: request.text, owner })
+		if (accepted.size > DEDUP_CAPACITY) accepted.delete(accepted.keys().next().value as string)
+		pending.push({
+			id: request.id,
+			owner,
+			from: fromIdentity,
+			text: request.text,
+			acceptedMode: options.mode(),
+			...(request.remote ? { remote: request.remote } : {}),
+		})
+		options.available()
+		noteExchange(fromIdentity.ref, 'in')
+		return {
+			status: 'queued',
+			reason: 'Accepted in the live inbox; this is not proof of model delivery.',
+		}
+	}
 	const receive = (request: DeliverRequest): DeliverResponse => {
 		if (!request.text.trim()) return { status: 'refused', reason: 'Message must contain text.' }
 		if (closed || !enabled || !options.ready())
@@ -239,6 +402,24 @@ export async function openLivePeers(options: LivePeersOptions) {
 		const sender = readPeerRecords(runtime.sessionsDir).find(
 			(peer) => peer.sessionId === request.from.sessionId,
 		)
+		if (request.remote) {
+			// Mail from another machine arrives only through this machine's network bridge (a `net` record the
+			// endpoint verified). The network service already decided to deliver it: this terminal only checks
+			// that the bridge is who it says and that the mail is for the conversation it is on.
+			if (sender?.kind !== 'net')
+				return {
+					status: 'refused',
+					reason: 'Only the network bridge may carry mail from another machine.',
+				}
+			return admit(request, {
+				sessionId: `${request.remote.machineId}:${request.remote.sessionRef}`,
+				ref: request.remote.sessionRef,
+				name: request.remote.sessionName,
+				address: request.from.address,
+				mode: request.remote.mode,
+				kind: 'net',
+			})
+		}
 		// A command-line sender (`namzu peers send`) is a verified record like a terminal's, but
 		// listed apart: its mail says so, and it never takes mail.
 		const person = sender?.kind === 'person'
@@ -273,42 +454,52 @@ export async function openLivePeers(options: LivePeersOptions) {
 					status: 'refused',
 					reason: 'This terminal is not on that conversation now.',
 				}
+			return admit(request, request.from)
 		}
-		// The person has no permission mode to match; an agent's mail must match, so a terminal in a
-		// stricter mode is not argued out of it by a sender in a looser one.
-		if (!person && request.from.mode !== options.mode())
-			return {
-				status: 'refused',
-				reason: 'The terminals have different permission modes.',
-			}
-		const key = `${request.from.sessionId}:${request.id}`
-		const previous = accepted.get(key)
-		if (previous)
-			return previous.text === request.text && previous.owner === options.owner()
-				? { status: 'queued', reason: 'Already accepted; not queued twice.' }
-				: {
-						status: 'refused',
-						reason: 'This message id belongs to different content or a previous conversation.',
-					}
-		discardStale()
-		if (pending.length >= INBOX_CAPACITY)
-			return { status: 'refused', reason: 'The receiving inbox is full.' }
-		const owner = options.owner()
-		accepted.set(key, { text: request.text, owner })
-		if (accepted.size > DEDUP_CAPACITY) accepted.delete(accepted.keys().next().value as string)
-		pending.push({
-			id: request.id,
-			owner,
-			from: request.from,
+		// The person has no permission mode to match. An agent's mail that does not match, or that reaches a
+		// terminal in bypass, is not argued out of the person's hands and not dropped either: it is held for
+		// the person to allow once or deny, and the sender is told which.
+		const decision = decideMail({
+			scope: 'local',
 			text: request.text,
+			hops: 0,
+			receiver: {
+				mode: options.mode(),
+				bypass: bypassNow(),
+				accepting: true,
+				setting: 'members',
+			},
+			sender: { claimedMode: request.from.mode, vouchedMode: sender.permissionMode },
+			rateOk: true,
+			pairCount: 0,
 		})
-		options.available()
-		noteExchange(request.from.ref, 'in')
-		return {
-			status: 'queued',
-			reason: 'Accepted in the live inbox; this is not proof of model delivery.',
+		if (decision.action === 'refuse') return { status: 'refused', reason: decision.reason }
+		if (decision.action === 'hold') {
+			const duplicate = accepted.get(`${request.from.sessionId}:${request.id}`)
+			if (duplicate) return admit(request, request.from)
+			const item: HeldLocalMail = {
+				id: request.id,
+				from: request.from,
+				text: request.text,
+				owner: options.owner(),
+				reason: decision.reason,
+			}
+			if (!held.hold(request.id, item))
+				return {
+					status: 'refused',
+					reason: 'This terminal already holds as many messages as it keeps.',
+				}
+			options.report(
+				`1 message from ${sanitizeLine(request.from.name, 40)} is held: ${decision.reason}. /peers to allow or deny it.`,
+			)
+			return {
+				status: 'held',
+				reason: `Held for the person at the receiving terminal: ${decision.reason}.`,
+			}
 		}
+		return admit(request, request.from)
 	}
+
 	const endpoint = await createPeerEndpoint({
 		address,
 		token,
@@ -320,7 +511,14 @@ export async function openLivePeers(options: LivePeersOptions) {
 			status: 'refused',
 			reason: 'Idle subscriptions are not supported by this terminal.',
 		}),
-		onNotice: () => {},
+		onNotice: (notice) => {
+			if (notice.kind !== 'delivery' || !notice.detail || !sentHeld.delete(notice.detail)) return
+			const who = sanitizeLine(notice.about.name, 40)
+			if (notice.outcome === 'queued') options.report(`${who} allowed your held message.`)
+			else if (notice.outcome === 'refused') options.report(`${who} refused your held message.`)
+			else if (notice.outcome === 'expired')
+				options.report(`${who} did not answer your held message in time; it was dropped.`)
+		},
 	})
 	try {
 		writePeerRecord(runtime.sessionsDir, record())
@@ -335,6 +533,11 @@ export async function openLivePeers(options: LivePeersOptions) {
 	 * message is taken all the same.
 	 */
 	const tellTaken = (taken: readonly PeerMail[]) => {
+		for (const mail of taken)
+			if (mail.remote) {
+				const remote = mail.remote
+				void options.network?.()?.delivered?.(remote.machineId, mail.id, ref)
+			}
 		const people = taken.filter((mail) => mail.from.kind === 'person')
 		if (people.length === 0) return
 		publish()
@@ -355,7 +558,11 @@ export async function openLivePeers(options: LivePeersOptions) {
 				.catch(() => {})
 		}
 	}
-	const list = async () => {
+	const list = async (): Promise<readonly Record<string, unknown>[]> => {
+		// The Namzu network, when it runs, lists every machine's sessions the same way a person sees them.
+		const net = options.network?.()
+		const roster = net ? await net.list(ref).catch(() => undefined) : undefined
+		if (roster) return roster
 		// A failed ping is an unavailable observation, not permission to delete
 		// another running process's endpoint (or a replaced registry record).
 		const records = readPeerRecords(runtime.sessionsDir).filter(
@@ -375,6 +582,7 @@ export async function openLivePeers(options: LivePeersOptions) {
 				state: peer.state,
 				accepts_messages: peer.acceptsMessages,
 				self: peer.sessionId === sessionId,
+				...(peer.role ? { role: peer.role } : {}),
 			}))
 	}
 	const send = async (target: string, message: string) => {
@@ -395,6 +603,25 @@ export async function openLivePeers(options: LivePeersOptions) {
 					peer.title === target ||
 					peer.address === target),
 		)
+		// A name that is not a terminal in this project may be a session on another machine of this person's
+		// network (`machine/name` always is).
+		const net = options.network?.()
+		if (net && (candidates.length === 0 || target.includes('/'))) {
+			const current = from()
+			const remote = await net
+				.send(target, message, { sessionRef: ref, sessionName: current.name, mode: current.mode })
+				.catch((error: unknown) => ({
+					id: '',
+					status: 'refused' as const,
+					reason: error instanceof Error ? error.message : String(error),
+				}))
+			if (remote)
+				return {
+					...(remote.id ? { id: remote.id } : {}),
+					status: remote.status,
+					...(remote.reason ? { reason: remote.reason } : {}),
+				}
+		}
 		if (candidates.length !== 1)
 			return {
 				status: 'refused',
@@ -426,6 +653,11 @@ export async function openLivePeers(options: LivePeersOptions) {
 			text: message,
 		})
 		if (result.kind === 'responded' && result.status === 'queued') noteExchange(peer.ref, 'out')
+		if (result.kind === 'responded' && result.status === 'held') {
+			// The receiver will say how it ended; it only believes a notice about a delivery it knows we made.
+			endpoint.registerOutstandingDelivery(peer.sessionId)
+			sentHeld.add(id)
+		}
 		return result.kind === 'responded'
 			? {
 					id,
@@ -440,12 +672,113 @@ export async function openLivePeers(options: LivePeersOptions) {
 				}
 	}
 
+	/** Read the role the network wrote for this session's conversation; a new one is shown once. */
+	function syncRole() {
+		const stored = readStoredRole()
+		if (stored === undefined && role === undefined) return
+		if (stored && role && stored.role === role.role && stored.at === role.at) return
+		if (!stored && role) {
+			role = undefined
+			rolePending = false
+			roleCleared = true
+			options.report('Your role in the Namzu network was cleared.')
+			options.available()
+			return
+		}
+		if (!stored) return
+		role = stored
+		rolePending = true
+		roleCleared = false
+		options.report(`Role set from ${stored.by}: ${sanitizeLine(stored.role, 200)}`)
+		options.available()
+	}
+	const heldView = (): HeldLocalView[] =>
+		held.list().map((entry) => ({
+			id: entry.id,
+			fromName: entry.item.from.name,
+			fromRef: entry.item.from.ref,
+			reason: entry.item.reason,
+			text: entry.item.text,
+			expiresAt: entry.expiresAt,
+		}))
+	const decideHeld = (id: string, allow: boolean): boolean => {
+		const entry = held.release(id)
+		if (!entry) return false
+		const item = entry.item
+		if (!allow || closed || !enabled || item.owner !== options.owner()) {
+			tellOutcome(item, 'refused')
+			return !allow
+		}
+		// Allowed once: it enters as if just accepted, under the mode this terminal is in now. Nothing is remembered.
+		const result = admit(
+			{
+				protocol: PEER_PROTOCOL_VERSION,
+				op: 'deliver',
+				token,
+				id: item.id,
+				from: item.from,
+				text: item.text,
+			},
+			item.from,
+		)
+		tellOutcome(item, result.status === 'queued' ? 'queued' : 'refused')
+		return result.status === 'queued'
+	}
+
 	return {
 		id: sessionId,
 		ref,
 		publish,
 		list,
 		send,
+		/** Give a session or machine (here or on another machine) a role, or clear it with `null`. */
+		async setRole(
+			target: string,
+			text: string | null,
+		): Promise<{ readonly status: 'applied' | 'refused'; readonly reason?: string }> {
+			const net = options.network?.()
+			if (!net) return { status: 'refused', reason: 'Your Namzu network is not running.' }
+			return net.setRole(target, text).catch((error: unknown) => ({
+				status: 'refused' as const,
+				reason: error instanceof Error ? error.message : String(error),
+			}))
+		},
+		/** Mail waiting for the person's decision, newest last. */
+		held: heldView,
+		allowHeld: (id: string) => decideHeld(id, true),
+		denyHeld: (id: string) => decideHeld(id, false),
+		get role(): SessionRole | undefined {
+			return role
+		},
+		/** The role as the model's next request carries it, once per change (and again after `rearmRole`). */
+		takeRoleContext(): Message | undefined {
+			syncRole()
+			if (roleCleared && !closed) {
+				roleCleared = false
+				return createRuntimeContextMessage(
+					formatRoleContext({
+						role: 'No role is set now. Ignore any earlier role line.',
+						byMachine: 'this Namzu network',
+						at: clock.now(),
+					}),
+					'peer-notice',
+				)
+			}
+			if (!role || !rolePending || closed) return undefined
+			rolePending = false
+			return createRuntimeContextMessage(
+				formatRoleContext({ role: role.role, byMachine: role.by, at: role.at }),
+				'peer-notice',
+			)
+		},
+		/** After a compaction or a resume the model no longer holds the role line: put it back in front of it. */
+		rearmRole() {
+			syncRole()
+			if (role) rolePending = true
+		},
+		get hasRolePending() {
+			return rolePending
+		},
 		get enabled() {
 			return enabled
 		},
@@ -486,6 +819,7 @@ export async function openLivePeers(options: LivePeersOptions) {
 					`${pending.length} peer message(s) were not delivered before this terminal closed.`,
 				)
 			pending.length = 0
+			held.clear()
 			closing = endpoint
 				.close()
 				.finally(() => removePeerRecord(runtime.sessionsDir, sessionId, uid))
@@ -508,7 +842,7 @@ export function buildPeerTools(current: () => LivePeers | null) {
 		defineTool({
 			name: 'list_sessions',
 			description:
-				'List live terminals in this project for peer messaging. These are independent processes, not child tasks or archived conversations. Tokens are never returned.',
+				'List live terminals for peer messaging: the ones in this project and, when your Namzu network is on, the sessions on your other machines (machine, name, folder, state, permission mode, role). These are independent processes, not child tasks or archived conversations. Tokens are never returned.',
 			inputSchema: mcpJsonSchemaToZod({
 				type: 'object',
 				properties: {},
@@ -545,7 +879,7 @@ export function buildPeerTools(current: () => LivePeers | null) {
 					target: {
 						type: 'string',
 						description:
-							'Exact live session id, short ref or unambiguous title from list_sessions.',
+							'Exact live session id, short ref or unambiguous title from list_sessions; `machine/name` or a name for a session on another machine.',
 					},
 					message: {
 						type: 'string',
@@ -575,9 +909,44 @@ export function buildPeerTools(current: () => LivePeers | null) {
 				}
 				const receipt = await peers.send(target, message)
 				return {
-					success: receipt.status === 'queued',
+					success: receipt.status === 'queued' || receipt.status === 'held',
 					output: JSON.stringify(receipt),
 					data: receipt,
+				}
+			},
+		}),
+		defineTool({
+			name: 'set_session_role',
+			description:
+				'Give a session or a machine in your Namzu network a role: a short description of what it is for (for example "orchestrator" or "you will build the parser"). The role is shown in the list of sessions and told to that session as context. It grants nothing: no permission, no approval, no change of permission mode. An empty role clears it.',
+			inputSchema: mcpJsonSchemaToZod({
+				type: 'object',
+				properties: {
+					target: {
+						type: 'string',
+						description:
+							'A session name or `machine/name` from list_sessions; `machine/` (with the slash) addresses a machine.',
+					},
+					role: { type: 'string', description: 'The role, one short paragraph. Empty clears it.' },
+				},
+				required: ['target', 'role'],
+				additionalProperties: false,
+			}),
+			category: 'custom',
+			permissions: [],
+			readOnly: false,
+			destructive: false,
+			concurrencySafe: false,
+			async execute(input, context) {
+				context.abortSignal.throwIfAborted()
+				const peers = current()
+				if (!peers) return { success: false, output: '', error: 'Peer messaging is not ready.' }
+				const { target, role } = input as { target: string; role: string }
+				const result = await peers.setRole(target, role.trim() === '' ? null : role)
+				return {
+					success: result.status === 'applied',
+					output: JSON.stringify(result),
+					data: result,
 				}
 			},
 		}),

@@ -993,6 +993,44 @@ const CONFIG_READERS: ConfigReaders = {
 		if (typeof v === 'boolean') return v
 		return invalidConfigValue(context, [], 'must be a boolean')
 	},
+	network: (v, context) => {
+		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
+		const raw = v as Record<string, unknown>
+		for (const key of Object.keys(raw)) {
+			if (key !== 'enabled' && key !== 'acceptMail' && key !== 'machineName')
+				return invalidConfigValue(
+					context,
+					[key],
+					'is not a network setting (enabled, acceptMail, machineName)',
+				)
+		}
+		// The Settings screen saves its choice as text, so "true" and "false" read as the booleans.
+		if (raw.enabled === 'true') raw.enabled = true
+		else if (raw.enabled === 'false') raw.enabled = false
+		if (raw.enabled !== undefined && raw.enabled !== 'auto' && typeof raw.enabled !== 'boolean')
+			return invalidConfigValue(context, ['enabled'], 'must be "auto", true or false')
+		if (
+			raw.acceptMail !== undefined &&
+			raw.acceptMail !== 'members' &&
+			raw.acceptMail !== 'hold' &&
+			raw.acceptMail !== 'off'
+		)
+			return invalidConfigValue(context, ['acceptMail'], 'must be "members", "hold" or "off"')
+		if (
+			raw.machineName !== undefined &&
+			(typeof raw.machineName !== 'string' ||
+				raw.machineName.trim().length === 0 ||
+				Array.from(raw.machineName).length > 40)
+		)
+			return invalidConfigValue(context, ['machineName'], 'must be a name of 1 to 40 characters')
+		return {
+			...(raw.enabled !== undefined ? { enabled: raw.enabled as 'auto' | boolean } : {}),
+			...(raw.acceptMail !== undefined
+				? { acceptMail: raw.acceptMail as 'members' | 'hold' | 'off' }
+				: {}),
+			...(raw.machineName !== undefined ? { machineName: (raw.machineName as string).trim() } : {}),
+		}
+	},
 	updates: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		const raw = v as Record<string, unknown>
@@ -2746,6 +2784,9 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// Installs software on this machine; read from `NAMZU_AUTO_UPDATE` and
 	// `NAMZU_UPDATE_CHANNEL` by the updater itself, not carried as a config field.
 	updates: undefined,
+	// Opens a listener on this machine and tells the network it is there: a file decision. The hard stop
+	// `NAMZU_NETWORK=off` is read by the network policy itself, not carried as a config field.
+	network: undefined,
 	// Decides which model receives a conversation's content; a file decision, never a variable a shell profile could carry invisibly.
 	refusalFallback: undefined,
 	// Only records locally and can only be a file decision, but keeps the rule that no variable carries it.
@@ -3222,6 +3263,18 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 				)
 				continue
 			}
+			if (key === 'network' && isProjectSource(layer.sourceFor(key))) {
+				// A repository cannot open a listener on a person's machine or choose what it is called.
+				configWarnings.add(
+					`network in ${describeSource(layer.sourceFor(key))} is ignored: only your own config file or the managed file can set it.`,
+				)
+				continue
+			}
+			if (key === 'network' && layer.config.network !== undefined) {
+				out.network = { ...out.network, ...layer.config.network }
+				provenance[key] = layer.sourceFor(key)
+				continue
+			}
 			if (key === 'worktrees' && layer.config.worktrees !== undefined) {
 				// A project cannot choose where Namzu writes checkouts, nor what they are called.
 				if (isProjectSource(layer.sourceFor(key))) {
@@ -3618,6 +3671,8 @@ export function projectLayerHolds(path: string, value: unknown): boolean {
 		case 'disableHooks':
 			return value === false
 		case 'worktrees':
+			return false
+		case 'network':
 			return false
 		case 'codeAnalysis':
 			return tail === 'enabled' ? value === false : true

@@ -348,6 +348,14 @@ export interface TuiContext {
 	readonly sandbox?: SandboxConfig
 	/** Opted-in terminal notification settings from the resolved CLI config. */
 	readonly tui?: TuiConfig
+	/** Your Namzu network settings; absent means the defaults. */
+	readonly network?: import('../config/schema.js').NetworkConfig
+	/**
+	 * True only when the real terminal launcher started this App for a person: it may then run your Namzu
+	 * network (still subject to `network.enabled` and to the network being private). Absent for a Pal, an
+	 * embedded App and every hand-built test fixture, so none of them opens a listener or advertises.
+	 */
+	readonly runNetwork?: boolean
 	/** The resolved `telemetry` block, for the health checks `/doctor` runs. */
 	readonly telemetry?: NamzuCliConfig['telemetry']
 	/** The `updates` settings of the resolved CLI config. */

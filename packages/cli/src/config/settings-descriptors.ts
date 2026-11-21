@@ -59,6 +59,7 @@ export type SettingGroup =
 	| 'terminal-mouse'
 	| 'terminal-notifications'
 	| 'terminal-message-box'
+	| 'terminal-network'
 	| 'saved-conversations'
 	| 'traces'
 	| 'command-line'
@@ -87,6 +88,7 @@ export const SETTING_GROUP_LABELS: Readonly<Record<SettingGroup, string>> = {
 	'terminal-mouse': 'Terminal app: mouse and scrolling',
 	'terminal-notifications': 'Terminal app: notifications',
 	'terminal-message-box': 'Terminal app: message box',
+	'terminal-network': 'Terminal app: your other machines',
 	'saved-conversations': 'Saved conversations',
 	traces: 'Traces',
 	'command-line': 'Command line',
@@ -115,6 +117,7 @@ export const SETTING_GROUP_ORDER: readonly SettingGroup[] = [
 	'terminal-mouse',
 	'terminal-notifications',
 	'terminal-message-box',
+	'terminal-network',
 	'saved-conversations',
 	'traces',
 	'command-line',
@@ -906,6 +909,69 @@ const DECLARED: readonly SettingDescriptor[] = [
 			default: true,
 			confirm: 'Ignored files, such as local keys and installed packages, will show in file lists.',
 			confirmWhen: 'off',
+		},
+	),
+	d(
+		'network.enabled',
+		'terminal',
+		'Your Namzu network',
+		'Find your other machines on the same network and message their sessions. Auto turns it on in the terminal on a private network and leaves it off elsewhere and for every unattended run.',
+		pick(
+			[
+				'auto',
+				'Automatic',
+				'On in the terminal on a private network; off on a network Namzu cannot tell is private.',
+			],
+			['true', 'On', 'On in the terminal on any network.'],
+			[
+				'false',
+				'Off',
+				'No advertisement and no listener: nothing on this machine reaches the network.',
+			],
+		),
+		{
+			group: 'terminal-network',
+			keywords: ['peers', 'other machines', 'pairing', 'devices', 'lan', 'network'],
+			default: 'auto',
+			confirm:
+				'This machine will tell its network that Namzu is here, and accept requests from your machines.',
+			confirmValues: ['true'],
+		},
+	),
+	d(
+		'network.acceptMail',
+		'terminal',
+		'Messages from your other machines',
+		'What to do with a message another of your machines sends to a session here: deliver it, always ask you first, or refuse it.',
+		pick(
+			[
+				'members',
+				'Deliver',
+				'Delivered unless its permission mode differs or this session is in bypass; those wait for you.',
+			],
+			['hold', 'Ask me first', 'Every message waits for you to allow or deny it once.'],
+			[
+				'off',
+				'Refuse',
+				'Messages from other machines are refused. The list of machines still works.',
+			],
+		),
+		{
+			group: 'terminal-network',
+			keywords: ['peers', 'other machines', 'messages', 'inbox'],
+			default: 'members',
+		},
+	),
+	d(
+		'network.machineName',
+		'terminal',
+		'This machine’s name',
+		'What your other machines call this one in the list of sessions. Leave it empty to use the computer’s host name.',
+		{ kind: 'text', placeholder: 'Host name' },
+		{
+			group: 'terminal-network',
+			keywords: ['peers', 'host name', 'other machines', 'rename'],
+			defaultText: 'the computer’s host name',
 		},
 	),
 	d(

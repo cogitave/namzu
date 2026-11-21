@@ -66,6 +66,9 @@ vi.mock('../../integrations/peers/runtime.js', async (importOriginal) => {
 				take(owner: number) {
 					return owner === options.owner() && peerEnabled ? peerInbox.splice(0) : []
 				},
+				takeRoleContext: () => undefined,
+				rearmRole: () => {},
+				held: () => [],
 				takeExact(owner: number, id: string) {
 					const index = peerInbox.findIndex((m) => m.owner === owner && m.id === id)
 					return index < 0 ? undefined : peerInbox.splice(index, 1)[0]
