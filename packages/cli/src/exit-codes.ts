@@ -28,6 +28,11 @@
  *                             done) and from 1 (the turn failed): the turn ended
  *                             as asked and the remedy is a decision or an input
  *                             from a person, not a retry.
+ *   4   EXIT_HELD          — `namzu peers send`: the receiving terminal did not
+ *                             take the message but is holding it for its person
+ *                             (a different permission mode, or bypass). Not 0,
+ *                             because nothing is in the inbox yet and may never
+ *                             be; not 1, because nothing was refused.
  *   64  EXIT_USAGE          — sysexits EX_USAGE; the caller's arguments are
  *                             wrong. Distinct from 70 on purpose: 70 says the
  *                             CLI is broken and is worth a bug report, 64 says
@@ -69,6 +74,8 @@ export const EXIT_FAIL = 1
 export const EXIT_NO_CONFIG = 2
 /** The model handed the task back to a person; see `namzu exec --hand-back`. */
 export const EXIT_HANDED_BACK = 3
+/** `namzu peers send`: the receiver holds the message for its person; see the doc above. */
+export const EXIT_HELD = 4
 export const EXIT_USAGE = 64
 /** sysexits EX_DATAERR: the input was read but is not usable (not UTF-8 text). */
 export const EXIT_DATAERR = 65
@@ -85,6 +92,7 @@ export type CliExitCode =
 	| typeof EXIT_FAIL
 	| typeof EXIT_NO_CONFIG
 	| typeof EXIT_HANDED_BACK
+	| typeof EXIT_HELD
 	| typeof EXIT_USAGE
 	| typeof EXIT_UNAVAILABLE
 	| typeof EXIT_INTERNAL_ERROR

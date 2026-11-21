@@ -37,6 +37,7 @@ import {
 	OAUTH_TOKEN_URL,
 } from './identity.js'
 import type { AgentOAuthCredential } from './keychain.js'
+import { clearPendingLogin, readPendingLogin, writePendingLogin } from './pending-login.js'
 import { PROVIDER_REGISTRY } from './registry.js'
 
 /** What a completed attempt produced. Never carries a secret in `reason`. */
@@ -56,6 +57,11 @@ export interface SubscriptionLogin {
 	readonly redirectUri: string
 	/** Finish from a pasted redirect URL, `code#state`, or a bare code. */
 	completeWithPastedCode(input: string): Promise<LoginOutcome>
+	/**
+	 * Keep this attempt (verifier, state, redirect) in an owner-only file for ten
+	 * minutes so a later `namzu login claude --code` can finish it. Returns the path.
+	 */
+	savePending?(): string
 	/** Withdraw the attempt. Safe to call twice, and safe to call after success. */
 	cancel(): void
 }
@@ -99,7 +105,8 @@ export async function beginSubscriptionLogin(
 	// would sit in the address bar, the browser history and any referrer along
 	// the way — and the secret PKCE exists to keep out of that URL is exactly
 	// the verifier.
-	const state = base64Url(randomBytes(16))
+	// 32 bytes, like the verifier: the sign-in endpoint refuses a shorter state as an invalid request.
+	const state = base64Url(randomBytes(32))
 
 	const redirectUri = MANUAL_REDIRECT_URI
 
@@ -131,9 +138,67 @@ export async function beginSubscriptionLogin(
 			}
 			return exchangeOnce(parsed.code, parsed.state ?? state)
 		},
+		savePending: () =>
+			writePendingLogin({ verifier, state, redirectUri, createdAt: Date.now() }, options.home),
 		cancel: () => {
 			cancelController.abort(new Error('The sign-in attempt was cancelled.'))
 		},
+	}
+}
+
+/**
+ * Finish a sign-in that an earlier run left waiting (see `savePending`).
+ *
+ * Refuses a missing, expired or state-mismatched one without touching the
+ * network. Once an exchange has been attempted the pending file is removed,
+ * whatever the result: the code is single-use, so a retry needs a new address.
+ */
+export async function completePendingSubscriptionLogin(
+	input: string,
+	options: SubscriptionLoginOptions = {},
+): Promise<LoginOutcome> {
+	const read = readPendingLogin(options.home)
+	if (read.kind === 'missing') {
+		return {
+			ok: false,
+			reason:
+				'There is no sign-in waiting for a code. Run `namzu login claude` to get a new address.',
+		}
+	}
+	if (read.kind === 'expired') {
+		clearPendingLogin(options.home)
+		return {
+			ok: false,
+			reason:
+				'The waiting sign-in expired (they last 10 minutes). Run `namzu login claude` to get a new address.',
+		}
+	}
+	const parsed = parsePastedInput(input)
+	if (!parsed.code) {
+		return {
+			ok: false,
+			reason:
+				'That does not contain an authorization code. Give the code the browser showed, `code#state`, or the whole finished address.',
+		}
+	}
+	const { pending } = read
+	if (parsed.state !== undefined && !constantTimeEquals(parsed.state, pending.state)) {
+		return {
+			ok: false,
+			reason:
+				'The code did not come back with the value namzu sent, so it cannot be matched to the waiting sign-in. Nothing was stored. Run `namzu login claude` to start again.',
+		}
+	}
+	try {
+		return await exchange(
+			parsed.code,
+			pending.state,
+			pending.verifier,
+			pending.redirectUri,
+			options,
+		)
+	} finally {
+		clearPendingLogin(options.home)
 	}
 }
 

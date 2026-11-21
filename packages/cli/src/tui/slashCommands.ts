@@ -1047,8 +1047,18 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'peers',
 		immediate: true,
-		description: 'Find and message other live terminals in this project.',
-		help: { usage: ['/peers [list|on|off]', '/peers send <ref> <message>'] },
+		description: 'Your sessions and your other machines: list, message, set roles, allow or deny.',
+		help: {
+			usage: [
+				'/peers [list|on|off]',
+				'/peers send <name> <message>',
+				'/peers role <name> <text>',
+				'/peers role clear <name>',
+				'/peers allow <code> | /peers deny <code>',
+				'/peers remove <machine> | /peers rename <name> | /peers add <host[:port]>',
+				'/peers cancel (withdraw the request this machine is waiting on)',
+			],
+		},
 		action: (_ctx, args) => ({ kind: 'peers', args }),
 	},
 	{

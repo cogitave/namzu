@@ -76,7 +76,7 @@ describe('the authorization request', () => {
 		expect(OAUTH_TOKEN_URL).toBe('https://platform.claude.com/v1/oauth/token')
 		expect(MANUAL_REDIRECT_URI).toBe('https://platform.claude.com/oauth/code/callback')
 		expect(OAUTH_SCOPES).toBe(
-			'org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload',
+			'org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload user:plugins user:privacy_consents:write',
 		)
 	})
 

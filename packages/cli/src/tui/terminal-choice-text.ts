@@ -42,11 +42,15 @@ export function wrapChoiceText(source: string, columns: number): readonly string
 	for (const paragraph of terminalDisplayText(source)
 		.split('\n')
 		.map((line) => line.replace(/\t/g, ' '))) {
+		// The line's own indent is kept, and a wrapped continuation hangs under it. An indent that
+		// would leave no room for a word is not kept.
+		const lead = /^ */.exec(paragraph)?.[0] ?? ''
+		const indent = lead.length < width / 2 ? lead : ''
 		let line = ''
 		for (const word of paragraph.split(' ')) {
 			if (word === '') continue
 			if (line === '') {
-				line = word
+				line = `${indent}${word}`
 				continue
 			}
 			if (choiceDisplayWidth(`${line} ${word}`) <= width) {
@@ -54,7 +58,7 @@ export function wrapChoiceText(source: string, columns: number): readonly string
 				continue
 			}
 			lines.push(line)
-			line = word
+			line = `${indent}${word}`
 		}
 		lines.push(line)
 	}

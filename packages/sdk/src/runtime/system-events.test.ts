@@ -21,6 +21,7 @@ describe('formatSystemEvent', () => {
 			'peer-notice',
 			'idle-notice',
 			'delivery-notice',
+			'role-notice',
 		])
 		expect(SYSTEM_EVENT_STATUSES).toEqual([
 			'completed',
@@ -34,6 +35,7 @@ describe('formatSystemEvent', () => {
 			'idle',
 			'exited',
 			'delivered',
+			'expired',
 		])
 	})
 
