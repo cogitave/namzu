@@ -200,6 +200,12 @@ starts). `count` mode then counts the distinct lines covered. `type` limits the 
 (`js`, `ts`, `py`, `rust`, `go`, `java`, `md`, `json`, `yaml` and others, with long aliases such as
 `typescript`); it narrows `include` and an unknown kind is refused with the list of known ones.
 
+A pattern written to match a line break — one in the pattern itself, or `\n`, `\r`, `\u2028` or `\u2029` —
+cannot be found inside a single line, and every line is tested on its own while `multiline` is off. A search
+that found nothing and holds such a pattern adds a sentence naming the pattern and pointing at
+`multiline: true`, so an empty result is not left to read as "this text is not here". A pattern written
+`\\n` searches for a backslash and an `n` and gets no such sentence.
+
 This is the kernel's own walker, not an external search program, because the same search must run inside sandbox guests where a
 host binary does not exist: files over 5 MB, binaries and symlinks are skipped, files that `.gitignore`,
 `.ignore` and `.git/info/exclude` exclude are skipped (`include_ignored: true` searches them), and at most
