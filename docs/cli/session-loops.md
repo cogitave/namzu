@@ -92,7 +92,7 @@ false`, or an `in 10m` / `at 14:30` time) or on an interval or cron schedule.
 
 `/loop list` is only for loops. You see pending timers in the `Timers` section of
 the `/tasks` dialog (the prompt and the time left; `x` cancels the selected one,
-the same cancel as `timer_cancel`) and in `/tasks list`; the model lists them
+the same cancel as `timer_cancel`; Enter opens the whole prompt, which a long row cuts short; a timer set while the dialog is open appears within a second) and in `/tasks list`; the model lists them
 with `timer_list`.
 For work that must run while Namzu is closed use a
 [scheduled task](scheduled-tasks.md).

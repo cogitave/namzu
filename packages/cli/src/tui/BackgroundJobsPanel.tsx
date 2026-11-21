@@ -163,6 +163,63 @@ export function BackgroundJobsPanel({
 	const detailed = detailedEntry?.kind === 'job' ? detailedEntry.job : undefined
 	const innerColumns = Math.max(1, columns - 6)
 
+	if (detailedEntry?.kind === 'timer') {
+		const t = detailedEntry.timer
+		const left = rowTail(detailedEntry, now)
+		const promptRows = permissionReviewRows(
+			terminalDisplayText(t.prompt).replace(/\t/gu, '    '),
+			columns,
+		)
+		const shownPrompt = promptRows.slice(0, Math.max(1, backgroundJobOutputPageSize(rows)))
+		const promptMore = promptRows.length > shownPrompt.length
+		const footer = fitClosingHint(
+			[
+				'x cancel · ← go back · esc/enter/space close',
+				'x cancel · ← back · esc',
+				'x cancel · ←',
+				'esc',
+			],
+			innerColumns,
+		)
+		return (
+			<Box
+				flexDirection="column"
+				borderStyle="single"
+				borderColor={theme.border.focus}
+				paddingX={1}
+			>
+				<Text bold color={theme.accent.system} wrap="truncate-end">
+					Timer details
+				</Text>
+				<Text wrap="truncate-end">
+					<Text bold>Fires: </Text>
+					<Text>
+						{truncateChoiceText(`${t.recurring ? 'repeats, ' : ''}${t.schedule}`, innerColumns - 7)}
+					</Text>
+				</Text>
+				<Text wrap="truncate-end">
+					<Text bold>Next: </Text>
+					<Text>{truncateChoiceText(left, innerColumns - 6)}</Text>
+				</Text>
+				<Text bold>Prompt:</Text>
+				{shownPrompt.map((row) => (
+					<Text key={row.index} color={theme.text.primary} wrap="truncate-end">
+						{row.text || ' '}
+					</Text>
+				))}
+				{promptMore ? <Text color={theme.text.muted}>… prompt continues</Text> : null}
+				{notice ? (
+					<Text color={theme.status.warn} wrap="truncate-end">
+						{truncateChoiceText(notice, innerColumns)}
+					</Text>
+				) : null}
+				<Text color={theme.text.muted} wrap="truncate-end">
+					{footer}
+				</Text>
+			</Box>
+		)
+	}
+
 	if (!detailKey || !detailed) {
 		const pageSize = backgroundJobsPageSize(rows)
 		const selectedIndex = selected ? entries.findIndex((entry) => entry.key === selected.key) : 0

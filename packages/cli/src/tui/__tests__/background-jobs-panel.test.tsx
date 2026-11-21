@@ -398,4 +398,28 @@ describe('timers in the Background dialog', () => {
 		expect(visible).toContain('esc')
 		for (const row of screen.viewport()) expect(stringWidth(row)).toBeLessThanOrEqual(40)
 	})
+	it('shows the whole prompt of one timer in its detail view', async () => {
+		const long = `${'water the plants and then '.repeat(5)}check the build`
+		const one = [{ ...timers[0]!, prompt: long }]
+		screen = await renderToScreen(
+			<BackgroundJobsPanel
+				entries={backgroundRows([], [], one)}
+				selectedKey="timer:a1b2c3"
+				detailKey="timer:a1b2c3"
+				tailOffset={0}
+				readJob={() => undefined}
+				rows={24}
+				columns={50}
+				now={NOW}
+			/>,
+			{ cols: 50, rows: 24 },
+		)
+		const visible = screen.viewport().join('\n')
+		expect(visible).toContain('Timer details')
+		expect(visible).toContain('Fires: in 3 minutes')
+		expect(visible).toContain('in 3m')
+		expect(visible.replace(/\s+/g, ' ')).toContain('check the build')
+		expect(visible).toContain('x cancel')
+		for (const row of screen.viewport()) expect(stringWidth(row)).toBeLessThanOrEqual(50)
+	})
 })

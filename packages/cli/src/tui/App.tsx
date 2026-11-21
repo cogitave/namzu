@@ -2724,18 +2724,17 @@ function AppBody({
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	useEffect(() => setJobSurface(null), [session, setJobSurface])
 	const [jobClock, setJobClock] = useState(Date.now())
-	const hasRunningBackgroundJob = backgroundJobs.some((job) => job.status === 'running')
-	const hasPendingTimer = timerSnapshot.length > 0
 	const jobSurfaceOpen = jobSurface !== null
 	useEffect(() => {
-		if (!jobSurfaceOpen || !(hasRunningBackgroundJob || hasPendingTimer)) return
+		// Open dialog, refresh each second: a timer the model sets while it is open must appear too.
+		if (!jobSurfaceOpen) return
 		const timer = setInterval(() => {
 			setJobClock(Date.now())
 			setTimerSnapshot(scheduleRef.current?.timers.list() ?? [])
 			setJobSnapshot({ ownerSession: session, jobs: session?.jobs?.() ?? [] })
 		}, 1000)
 		return () => clearInterval(timer)
-	}, [jobSurfaceOpen, hasRunningBackgroundJob, hasPendingTimer, session])
+	}, [jobSurfaceOpen, session])
 	const agentSurfaceRef = useRef<AgentSurface | null>(null)
 	const agentSurfaceCommittedRef = useRef<AgentSurface | null>(null)
 	const childMessageLifetimeRef = useRef(new AbortController())
@@ -16937,6 +16936,7 @@ function AppBody({
 							const remaining = backgroundRows(backgroundJobs, subagentsRef.current, left)
 							setJobSurface({
 								...current,
+								detailKey: null,
 								selectedKey: remaining.some((row) => row.key === current.selectedKey)
 									? current.selectedKey
 									: (remaining[0]?.key ?? null),
@@ -17031,10 +17031,13 @@ function AppBody({
 				}
 				if (key.return && selectedEntry) {
 					if (selectedEntry.kind === 'timer') {
-						const t = selectedEntry.timer
+						// The whole prompt is read in the detail view; the list row cuts it short.
 						setJobSurface({
 							...shellView,
-							notice: `${t.recurring ? 'Recurring' : 'Once'}, ${t.schedule}. x cancels it.`,
+							selectedKey: selectedEntry.key,
+							detailKey: selectedEntry.key,
+							tailOffset: 0,
+							notice: undefined,
 						})
 						return
 					}
