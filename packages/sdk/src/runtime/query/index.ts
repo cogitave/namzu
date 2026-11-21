@@ -20,7 +20,7 @@ import { childSessionLog } from '../../manager/agent/child-session.js'
 import { type TurnRecorder, recordedTurnStart } from '../../manager/session/turn-recorder.js'
 import { frameOperatorHookContext } from '../../plugin/hook-context.js'
 import { PromptContributionRegistry } from '../../prompt/contributions.js'
-import { resolveProviderCapabilities } from '../../provider/capabilities.js'
+import { modelReadsImages, resolveProviderCapabilities } from '../../provider/capabilities.js'
 import type { ProviderChainMember } from '../../provider/fallback.js'
 import { withStreamIdleTimeout } from '../../provider/idle-timeout.js'
 import type { ProviderRetryConfig } from '../../provider/retry.js'
@@ -1418,7 +1418,13 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				: latestUser !== undefined && carries(latestUser, kind)
 					? 1
 					: 0
-		const attachmentMessageCount = capabilities.supportsVision ? 0 : countCarrying('image')
+		// A driver that maps images can still serve a model its own catalogue lists
+		// as text-only; that model's requests leave the picture out just the same,
+		// so the person is told about it the same way, naming the model.
+		const textOnlyModel =
+			capabilities.supportsVision && !modelReadsImages(params.provider, turnConfig.model)
+		const attachmentMessageCount =
+			capabilities.supportsVision && !textOnlyModel ? 0 : countCarrying('image')
 		const documentMessageCount = capabilities.supportsDocuments ? 0 : countCarrying('document')
 
 		if (stripToolSurfaces) {
@@ -1442,7 +1448,9 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 		}
 
 		if (attachmentMessageCount > 0) {
-			const message = `Provider '${params.provider.id}' declares supportsVision: false but ${attachmentMessageCount} user message(s) carry image attachments — the driver will not map them, so the model never sees the images. Pass strictCapabilities: true to fail instead, or use a vision-capable provider.`
+			const message = textOnlyModel
+				? `Model '${turnConfig.model}' on provider '${params.provider.id}' reads text only but ${attachmentMessageCount} user message(s) carry image attachments — they are left out of its requests, so the model never sees the images. Pass strictCapabilities: true to fail instead, or use a model that reads images.`
+				: `Provider '${params.provider.id}' declares supportsVision: false but ${attachmentMessageCount} user message(s) carry image attachments — the driver will not map them, so the model never sees the images. Pass strictCapabilities: true to fail instead, or use a vision-capable provider.`
 			if (params.strictCapabilities) {
 				throw new NamzuError({
 					code: 'capability_unavailable',
@@ -2680,7 +2688,10 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 						turnId: ctx.recorder.turnId,
 						capability: 'vision',
 						providerId: params.provider.id,
-						message: `Provider '${params.provider.id}' does not support vision — image attachments on ${attachmentMessageCount} user message(s) will not reach the model.`,
+						...(textOnlyModel ? { model: turnConfig.model } : {}),
+						message: textOnlyModel
+							? `Model '${turnConfig.model}' on provider '${params.provider.id}' reads text only — image attachments on ${attachmentMessageCount} user message(s) will not reach the model.`
+							: `Provider '${params.provider.id}' does not support vision — image attachments on ${attachmentMessageCount} user message(s) will not reach the model.`,
 					})
 					yield* eventTranslator.drainPending()
 				}

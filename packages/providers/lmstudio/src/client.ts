@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { LMStudioClient } from '@lmstudio/sdk'
+import { type FileHandle, LMStudioClient } from '@lmstudio/sdk'
 import type {
 	ChatCompletionParams,
 	LLMProvider,
@@ -15,7 +15,7 @@ import {
 	isProviderRequestError,
 	providerVendorError,
 } from '@namzu/sdk'
-import { toolResultToText } from '@namzu/sdk'
+import { isModelContentOmission, toolResultToText } from '@namzu/sdk'
 import type { LMStudioConfig } from './types.js'
 
 type StopReason =
@@ -93,6 +93,115 @@ export function toLMStudioChat(
 	})
 }
 
+/** One picture on its way into a message, before it has a file handle. */
+interface PendingImage {
+	readonly mediaType: string
+	readonly data: string
+}
+
+function encodedSize(base64: string): string {
+	const bytes = Math.floor((base64.length * 3) / 4)
+	if (bytes < 1024) return `${bytes} B`
+	if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+/** What stands in for a picture when the model is known not to read one. */
+function imageMarker(image: PendingImage): string {
+	return `[image omitted: the current model cannot read images (${image.mediaType}, ${encodedSize(image.data)})]`
+}
+
+function appendMarkers(text: string, markers: readonly string[]): string {
+	if (markers.length === 0) return text
+	return text.length > 0 ? `${text}\n\n${markers.join('\n\n')}` : markers.join('\n\n')
+}
+
+/** The pictures a message carries: a user message's attachments, or a tool result's image blocks. */
+function imagesOf(m: ChatCompletionParams['messages'][number]): PendingImage[] {
+	const found: PendingImage[] = []
+	if (m.role === 'user') {
+		for (const a of m.attachments ?? []) {
+			if (a.type === 'stored' || a.type === 'document') continue
+			if (isModelContentOmission(a.modelOmission)) continue
+			found.push({ mediaType: a.mediaType, data: a.data })
+		}
+	} else if (m.role === 'tool' && Array.isArray(m.content)) {
+		for (const b of m.content) {
+			if (b.type !== 'image' || isModelContentOmission(b.modelOmission)) continue
+			found.push({ mediaType: b.mediaType, data: b.data })
+		}
+	}
+	return found
+}
+
+/** The chat as LM Studio's SDK takes it, with each picture as a file handle it prepared. */
+export interface LMStudioChatMessage {
+	role: LMStudioRole
+	content: string
+	images?: FileHandle[]
+}
+
+/**
+ * Like `toLMStudioChat`, with pictures. `prepare` turns one picture into the
+ * handle the SDK attaches (`client.files.prepareImageBase64`). With
+ * `imagesReadable` false every picture becomes a note instead and `prepare`
+ * is never called.
+ */
+export async function toLMStudioChatWithImages(
+	messages: ChatCompletionParams['messages'],
+	prepare: (image: PendingImage, index: number) => Promise<FileHandle>,
+	imagesReadable: boolean,
+): Promise<LMStudioChatMessage[]> {
+	const base = toLMStudioChat(messages)
+	let counter = 0
+	const out: LMStudioChatMessage[] = []
+	for (const [i, original] of base.entries()) {
+		let message = original
+		const source = messages[i] as ChatCompletionParams['messages'][number]
+		const pictures = imagesOf(source)
+		if (pictures.length === 0) {
+			out.push(message)
+			continue
+		}
+		if (source.role === 'tool' && Array.isArray(source.content)) {
+			// The generic flattening says a picture is "not renderable"; here it is
+			// either attached to this message or named as left out.
+			const text = source.content
+				.map((block) =>
+					block.type !== 'image' || isModelContentOmission(block.modelOmission)
+						? toolResultToText([block])
+						: imagesReadable
+							? `[image: ${block.mediaType}, attached to this message]`
+							: imageMarker(block),
+				)
+				.join('\n')
+			message = { ...message, content: `[tool-result] ${text}` }
+		} else if (!imagesReadable) {
+			out.push({ ...message, content: appendMarkers(message.content, pictures.map(imageMarker)) })
+			continue
+		}
+		if (!imagesReadable) {
+			out.push(message)
+			continue
+		}
+		const handles: FileHandle[] = []
+		for (const picture of pictures) handles.push(await prepare(picture, counter++))
+		out.push({ ...message, images: handles })
+	}
+	return out
+}
+
+function carriesImages(messages: ChatCompletionParams['messages']): boolean {
+	return messages.some((m) => imagesOf(m).length > 0)
+}
+
+const EXTENSIONS: Record<string, string> = {
+	'image/png': 'png',
+	'image/jpeg': 'jpg',
+	'image/gif': 'gif',
+	'image/webp': 'webp',
+}
+
 function normalizeBaseUrl(host: string | undefined): string | undefined {
 	if (!host) return undefined
 	// LM Studio SDK requires ws:// or wss://. Accept http(s) for ergonomics and convert.
@@ -132,18 +241,20 @@ async function awaitRequestStart<T>(operation: Promise<T>, signal?: AbortSignal)
 /**
  * What this DRIVER does, not what LM Studio could do: `chatStream`
  * never reads `params.tools` (tool messages are folded into user text
- * with a `[tool-result]` marker) and `toLMStudioChat` maps text content
- * only (image `attachments` are dropped). Flip these only alongside
- * the corresponding mapping code.
+ * with a `[tool-result]` marker), while pictures are mapped: a user
+ * message's images, and the images in a tool result, are attached to the
+ * chat message as files the SDK prepares. Whether a loaded model reads
+ * them is answered per model by `supportsImageInputFor`, from the SDK's
+ * own model information.
  */
 export const LMSTUDIO_CAPABILITIES: ProviderCapabilities = {
 	supportsTools: false,
 	supportsStreaming: true,
 	supportsFunctionCalling: false,
-	supportsVision: false,
+	supportsVision: true,
 	// Images only. A document degrades to a named placeholder.
 	supportsDocuments: false,
-	supportsToolResultImages: false,
+	supportsToolResultImages: true,
 	supportsToolResultDocuments: false,
 }
 
@@ -187,6 +298,18 @@ export class LMStudioProvider implements LLMProvider {
 	private readonly baseUrl?: string
 	private defaultModel?: string
 	private readonly timeoutMs?: number
+	/** Whether each model reads pictures, as the SDK's model information said. */
+	private readonly vision = new Map<string, boolean>()
+
+	/**
+	 * `false` only when the SDK's model information for `model` said it is not
+	 * vision-enabled. Before a model was looked at (a listing or a first chat
+	 * request), or when the SDK does not say, the answer is `true`: nothing
+	 * here opens a connection just to be asked.
+	 */
+	supportsImageInputFor(model: string): boolean {
+		return this.vision.get(model) ?? true
+	}
 
 	constructor(config: LMStudioConfig = {}) {
 		const baseUrl = normalizeBaseUrl(config.host ?? process.env.LMSTUDIO_HOST)
@@ -230,7 +353,24 @@ export class LMStudioProvider implements LLMProvider {
 			// (LLMPredictionOpts.signal → websocket cancel). `.return()` from the
 			// for-await alone does NOT cancel the prediction, so without this a Stop
 			// leaves the local model generating. No-op when the signal never aborts.
-			const prediction = model.respond(toLMStudioChat(params.messages), {
+			const vision = (model as { vision?: unknown }).vision
+			if (typeof vision === 'boolean') this.vision.set(modelId, vision)
+			const files = this.client.files
+			const messages = carriesImages(params.messages)
+				? await awaitRequestStart(
+						toLMStudioChatWithImages(
+							params.messages,
+							(image, index) =>
+								files.prepareImageBase64(
+									`image-${index + 1}.${EXTENSIONS[image.mediaType] ?? 'png'}`,
+									image.data,
+								),
+							this.vision.get(modelId) !== false,
+						),
+						signal,
+					)
+				: toLMStudioChat(params.messages)
+			const prediction = model.respond(messages, {
 				signal,
 			})
 
@@ -307,6 +447,8 @@ export class LMStudioProvider implements LLMProvider {
 			const loaded = await this.client.llm.listLoaded()
 			return loaded.map((m) => {
 				const identifier = (m as { identifier?: string; path?: string }).identifier ?? ''
+				const vision = (m as { vision?: unknown }).vision
+				if (identifier && typeof vision === 'boolean') this.vision.set(identifier, vision)
 				return {
 					id: identifier,
 					name: identifier,
