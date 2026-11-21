@@ -30,8 +30,16 @@ In this order:
    in-tree [price catalogue](../sdk/model-prices.md). The cheapest is the lowest
    input plus output price; a tie goes to the larger context window. A model
    whose price nobody states is never chosen, because an unknown price is not a
-   free one. Models that cannot stream, take no text, or are not chat models
-   (embeddings, speech, image and moderation ids) are skipped. The listing is
+   free one; a negative rate (OpenRouter's `-1` for a router with no fixed
+   price, such as `openrouter/auto`) counts as not stated, and a router is never
+   chosen, since it answers with whatever model it picks (a five-word title once
+   came back from a reasoning model that spent 1,273 tokens on it). Models that
+   cannot stream, take no text, or are not chat models (embeddings, speech,
+   image, music, video and moderation ids, and `:batch` variants, which are
+   queues) are skipped. When ids read `vendor/model` the conversation's own
+   vendor is searched first, so a conversation on `anthropic/claude-haiku-5.5`
+   gets that vendor's cheapest model and not another vendor's; the whole
+   listing is used only when that vendor has no priced model. The listing is
    read once per conversation model and bounded to three seconds.
 3. **The conversation's own model**, when no model can be priced or the listing
    does not answer.

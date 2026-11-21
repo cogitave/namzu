@@ -10,7 +10,10 @@
  *    the provider the conversation runs on;
  * 2. otherwise the cheapest priced text model the active provider lists, read
  *    from the same listing `/model` offers and priced from that listing or the
- *    in-tree price catalogue;
+ *    in-tree price catalogue. On a provider that lists many vendors' models
+ *    (ids shaped `vendor/model`) the conversation's own vendor is searched
+ *    first, so a conversation on one vendor's model gets that vendor's small
+ *    fast model, and the whole listing only when that vendor has none priced;
  * 3. otherwise the conversation's own model.
  *
  * Pure of host state: the listing and the filter are passed in, so every path
@@ -50,16 +53,36 @@ export function parseSmallModel(
 	return { providerId: activeProviderId, model: value }
 }
 
-/** Ids that name a model of another kind than chat; a listing has no field for it. */
-const NOT_A_CHAT_MODEL = /embed|moderat|whisper|transcri|tts|speech|image|dall-?e|realtime|audio/iu
+/**
+ * Ids that name a model of another kind than chat, or a `:batch` variant, which
+ * is a queue and not a streaming endpoint (a request to it answers 404); a
+ * listing has no field for either.
+ */
+const NOT_A_CHAT_MODEL =
+	/embed|moderat|whisper|transcri|tts|speech|image|dall-?e|realtime|audio|lyria|veo|music|video|:batch$/iu
 
 /** USD per million tokens, input plus output, or `undefined` when nobody states a price. */
 function price(providerId: string, model: ModelInfo): number | undefined {
-	if (model.inputPrice !== undefined && model.outputPrice !== undefined) {
-		return model.inputPrice + model.outputPrice
-	}
+	const listed =
+		model.inputPrice !== undefined && model.outputPrice !== undefined
+			? model.inputPrice + model.outputPrice
+			: undefined
+	// A negative rate is how a listing says "no fixed price" (a router that picks
+	// the model per request), never a rate: it would beat every real price.
+	if (listed !== undefined && Number.isFinite(listed) && listed >= 0) return listed
 	const rates = resolveModelPricing(providerId, model.id)
 	return rates === undefined ? undefined : rates.inputCostPer1M + rates.outputCostPer1M
+}
+
+/**
+ * The vendor part of a `vendor/model` id (`anthropic/` of
+ * `anthropic/claude-haiku-5.5`), or `undefined` for a bare id. An alias marker
+ * (`~`) is not part of it.
+ */
+export function vendorPrefix(model: string): string | undefined {
+	const bare = model.replace(/^~/u, '')
+	const slash = bare.indexOf('/')
+	return slash > 0 ? bare.slice(0, slash + 1).toLowerCase() : undefined
 }
 
 /**
@@ -79,6 +102,8 @@ export function cheapestTextModel(
 		if (!model.supportsStreaming) continue
 		if (model.inputModalities !== undefined && !model.inputModalities.includes('text')) continue
 		if (NOT_A_CHAT_MODEL.test(model.id)) continue
+		// A router (`openrouter/auto`) answers with whatever model it picks.
+		if (model.id.startsWith('openrouter/')) continue
 		if (!offerable(model)) continue
 		const cost = price(providerId, model)
 		if (cost === undefined) continue

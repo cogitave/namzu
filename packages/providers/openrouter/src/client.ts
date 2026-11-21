@@ -181,6 +181,23 @@ function applyCacheBreakpoints(
 	}
 }
 
+/**
+ * The messages that go on the wire. An assistant entry with neither text nor a
+ * tool call (the model produced only reasoning, or was cut off) is rejected
+ * upstream with "content or tool_calls must be set", so it is left out; no
+ * filler is invented. An entry with tool calls is never dropped, so every tool
+ * result still follows the call it answers, and the stored history is untouched.
+ * The formatted array and the cache breakpoints are both indexed against this
+ * list, never against the stored one.
+ */
+function sendableMessages(
+	messages: ChatCompletionParams['messages'],
+): ChatCompletionParams['messages'] {
+	return messages.filter(
+		(msg) => msg.role !== 'assistant' || Boolean(msg.content) || (msg.toolCalls?.length ?? 0) > 0,
+	)
+}
+
 function routeOf(params: ChatCompletionParams): ProviderRoute {
 	return params.providerRoute ?? { providerId: 'openrouter', model: params.model, chainIndex: 0 }
 }
@@ -204,7 +221,9 @@ const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL ?? 'https://openrout
 function pricePerMillion(raw: string | undefined): number | undefined {
 	if (raw === undefined) return undefined
 	const parsed = Number.parseFloat(raw)
-	return Number.isFinite(parsed) ? parsed * 1_000_000 : undefined
+	// `"-1"` is how the listing marks a router with no fixed rate (`openrouter/auto`):
+	// a rate nobody stated, not a negative one.
+	return Number.isFinite(parsed) && parsed >= 0 ? parsed * 1_000_000 : undefined
 }
 
 interface RawUsage {
@@ -490,21 +509,6 @@ function replayFor(
 	return state.details !== undefined
 		? { reasoning_details: state.details }
 		: { reasoning: state.reasoning as string }
-}
-
-/**
- * Index of the first message of the current turn: the last user message that
- * is not host-generated context. Reasoning is sent back for the assistant
- * messages from there on, which is what the guide asks for between a tool
- * call and the model's next step; an earlier turn is history and is not
- * resent. Answers 0 when the conversation holds no such user message.
- */
-function currentTurnStart(messages: ChatCompletionParams['messages']): number {
-	for (let i = messages.length - 1; i >= 0; i--) {
-		const msg = messages[i]
-		if (msg?.role === 'user' && msg.source?.type !== 'runtime-context') return i
-	}
-	return 0
 }
 
 /**
@@ -820,19 +824,12 @@ export class OpenRouterProvider implements LLMProvider {
 		messages: ChatCompletionParams['messages'],
 		route: ProviderRoute,
 	): unknown[] {
-		const turnStart = currentTurnStart(messages)
 		// An assistant entry with neither text nor a tool call (the model produced
 		// only reasoning, or was cut off) is rejected upstream with "content or
 		// tool_calls must be set". Leave it out; no filler is invented. An entry
 		// with tool calls is never dropped, so every tool result still follows the
 		// call it answers, and the stored history is untouched.
-		const sendable = messages
-			.map((msg, index) => ({ msg, index }))
-			.filter(
-				({ msg }) =>
-					msg.role !== 'assistant' || Boolean(msg.content) || (msg.toolCalls?.length ?? 0) > 0,
-			)
-		return sendable.map(({ msg, index }) => {
+		return sendableMessages(messages).map((msg) => {
 			if (msg.role === 'tool') {
 				return {
 					role: 'tool',
@@ -840,11 +837,15 @@ export class OpenRouterProvider implements LLMProvider {
 					tool_call_id: (msg as { toolCallId?: string }).toolCallId,
 				}
 			}
-			// The model's own reasoning for the steps of THIS turn goes back with the
-			// message that produced it, so it can continue from where it left off
-			// after a tool result. An earlier turn's reasoning is not resent.
-			const replay =
-				msg.role === 'assistant' && index >= turnStart ? replayFor(msg, route) : undefined
+			// The model's own reasoning goes back with the message that produced it,
+			// for every assistant message of the conversation, not only the current
+			// turn's. A message's bytes must not change from one request to the next:
+			// the upstream caches by prefix, and an earlier message re-sent without
+			// the reasoning it was sent with before moves the prefix and bills the
+			// whole history again at the first new user message. Reasoning leaves
+			// the history only when a compaction rewrites it (the stored reasoning
+			// then no longer matches the envelope and `replayFor` answers nothing).
+			const replay = msg.role === 'assistant' ? replayFor(msg, route) : undefined
 			if (msg.role === 'assistant' && 'toolCalls' in msg && msg.toolCalls?.length) {
 				return {
 					role: 'assistant',
@@ -926,7 +927,10 @@ export class OpenRouterProvider implements LLMProvider {
 		if (params.stop) body.stop = params.stop
 
 		if (params.cacheControl && takesExplicitBreakpoints(params.model)) {
-			applyCacheBreakpoints(params.messages, body.messages as { content?: unknown }[])
+			applyCacheBreakpoints(
+				sendableMessages(params.messages),
+				body.messages as { content?: unknown }[],
+			)
 		}
 
 		// `max` and `ultra` resolve against the model's own list — see
