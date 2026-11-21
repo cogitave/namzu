@@ -2,6 +2,7 @@
 
 ## 2026-11-21
 
+- **Update** [Session storage](cli/session-storage.md#keeping-conversations-cleanupperioddays), [Pasted text](sdk/pasted-text.md): prompt history across conversations in `~/.namzu/history.jsonl` (Up and Ctrl+R recall the project's earlier prompts, `promptHistory` turns it off); `cleanupPeriodDays` (default 30, minimum 1) removes conversations idle that long once a day at start, never an open, leased or desktop conversation; the same start clears old scratch, dead `hook-env*` and dangling alias folders in the private temp folder; the test runners keep every temp file inside their own removed root. `.changeset/cli-history-and-cleanup-period.md`, `.changeset/sdk-temp-sweep.md`.
 - **Update** [Extensions](cli/extensions.md): the build trusts Cogitave's production publisher key `cogitave-2026` (publisher `cogitave`, ids `com.cogitave.*`), so a package Cogitave signed can be added without a developer key. `.changeset/cli-extension-publisher-key.md`.
 - **Update** [Context and compaction](cli/context-and-compaction.md): on the full-screen transcript `/context` draws its grid with the legend beside it instead of its plain-text copy; a shell permission prompt for a call with a `description` keeps the readable view. `.changeset/cli-context-grid-on-the-scroll-screen.md`.
 - **Update** [Permission modes](cli/permission-modes.md): a conversation left in plan mode comes back in plan mode on `-c` or `/resume`. `.changeset/cli-plan-mode-resumes.md`.

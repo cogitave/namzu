@@ -535,6 +535,12 @@ import {
 	runnableCommands,
 } from './copy-targets.js'
 import {
+	cleanupOnStart,
+	loadEarlierPrompts,
+	recordSentPrompt,
+	touchOpenedConversation,
+} from './cross-session-history.js'
+import {
 	DECISION_KIND_OPTIONS,
 	DECISION_KIND_VALUES,
 	DECISION_OFFER_OPTIONS,
@@ -1849,6 +1855,19 @@ function AppBody({
 	const palRouteSessionRef = useRef<string | null>(null)
 	const palDefaultPreferencesRef = useRef<Preferences | null>(null)
 	const [history, setHistory] = useState<readonly string[]>([])
+	/**
+	 * The project's prompts from earlier conversations (`history.jsonl`), oldest first. Up and
+	 * Ctrl+R reach them after this conversation's own prompts.
+	 */
+	const [earlierPrompts, setEarlierPrompts] = useState<readonly string[]>([])
+	const composerHistory = useMemo(() => {
+		if (earlierPrompts.length === 0) return history
+		// The newest earlier prompt and the first of this conversation are one entry when they match.
+		const joined = earlierPrompts.at(-1) === history[0] ? history.slice(1) : history
+		return [...earlierPrompts, ...joined]
+	}, [earlierPrompts, history])
+	const appStartedAtRef = useRef(Date.now())
+	const crossSessionStartedRef = useRef(false)
 	const [state, setState] = useState<'idle' | 'thinking' | 'tool' | 'awaiting-permission'>('idle')
 	// The painter is told when a turn ends, before the frame that drops the working line is drawn.
 	const workedRef = useRef(false)
@@ -4161,6 +4180,9 @@ function AppBody({
 		},
 		[pushMessage],
 	)
+	/** The latest `pushSystem`, for work started once that reports later (the startup sweep). */
+	const pushSystemLatestRef = useRef(pushSystem)
+	pushSystemLatestRef.current = pushSystem
 	/** Write a row a shared builder produced, as `pushMessage` writes a live one. */
 	const pushRow = useCallback(
 		(row: ToolRow) =>
@@ -6436,6 +6458,23 @@ function AppBody({
 			tenantId: sessions.tenantId,
 		}
 		if (conversationMaterializedRef.current) sourceDeliveryPollRef.current()
+		if (!crossSessionStartedRef.current) {
+			crossSessionStartedRef.current = true
+			const start = {
+				sessions,
+				sessionId,
+				...(requestedConversationId ? { resumed: requestedConversationId } : {}),
+				startedAt: appStartedAtRef.current,
+			}
+			// Beside the start, never in front of it: the box works before these land.
+			void (async () => {
+				if (requestedConversationId) await touchOpenedConversation(sessions, sessionId)
+				const earlier = await loadEarlierPrompts(start).catch(() => [] as string[])
+				if (earlier.length > 0) setEarlierPrompts(earlier)
+				const notice = await cleanupOnStart(start).catch(() => undefined)
+				if (notice) pushSystemLatestRef.current?.('notice', notice)
+			})()
+		}
 		return scopeRef.current
 	}, [nextId])
 
@@ -8617,6 +8656,7 @@ function AppBody({
 				await tuiPalDefinition(ctxRef.current.cwd, conv.id, ctxRef.current.palId)
 				await requireWritableConversation(sessions, conv.id, 'resume conversation')
 				msgs = await loadConversation(sessions, conv.id)
+				void touchOpenedConversation(sessions, conv.id)
 			} catch (err) {
 				resumeCommittedRef.current = false
 				setPhase('ready')
@@ -13614,8 +13654,12 @@ function AppBody({
 			// leaves no line for Up to bring back. What was typed beside it waits
 			// here until the chooser opens, and returns when it closes.
 			keybindingDraftRef.current = meta.source === 'keybinding' ? (meta.draft ?? null) : null
-			if (!fromLoop && meta.source !== 'keybinding' && meta.source !== 'queued-command')
+			if (!fromLoop && meta.source !== 'keybinding' && meta.source !== 'queued-command') {
 				setHistory((prev) => [...prev, value])
+				// Only what the person sent from the box is kept across conversations.
+				if (meta.source === 'composer')
+					recordSentPrompt(sessionsRef.current, scopeRef.current?.sessionId, value, meta.pasted)
+			}
 			// What the model wrote is never the operator acting. A loop the model
 			// made (`session_loop`) fires this path on a timer, for up to a week,
 			// after one review of its creation — so its text must not reach the
@@ -18908,7 +18952,7 @@ function AppBody({
 										}))}
 										mentionCandidates={mentionCandidates}
 										mentionExtras={mentionSources.extras}
-										history={history}
+										history={composerHistory}
 										{...(composerTriggers ? { triggers: composerTriggers } : {})}
 										turnActive={!compacting && (state === 'thinking' || state === 'tool')}
 									/>
