@@ -2,6 +2,7 @@
 
 ## 2026-11-21
 
+- **Update** [Text-only models and images](sdk/text-only-models-and-images.md#an-image-a-tool-returns-on-openrouter): an image a tool returns (an image file read, a screenshot) now reaches an OpenRouter model that reads images, in a user message after the turn's tool messages; a text-only model keeps the omission note. `.changeset/openrouter-tool-result-images.md`.
 - **Update** [Text-only models and images](sdk/text-only-models-and-images.md): a pasted image now reaches an OpenRouter model that reads images, as an `image_url` content part; `OPENROUTER_CAPABILITIES.supportsVision` is `true` and `supportsImageInputFor` answers per model from the listing's input modalities, so a text-only model still gets the notice and omission marker. `.changeset/openrouter-images-for-vision-models.md`.
 - **Update** [Slash commands](cli/slash-commands.md): provider setup's install question starts on Cancel and takes no letter as an answer; installing takes an arrow to Install and Enter.
 - **Update** [Slash commands](cli/slash-commands.md#permissions): `/permissions add` and `remove` apply to later calls in the running session, not at the next start; the interrupted-request note is added only between two messages you typed, never for a goal-round or steering message. `.changeset/sdk-interrupted-mark-plain-requests.md`.
