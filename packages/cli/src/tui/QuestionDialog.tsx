@@ -15,6 +15,7 @@
 import { Box, Text, useInput, useWindowSize } from 'ink'
 import { useRef, useState } from 'react'
 
+import { SELECTED_DESCRIPTION_LINES } from './ChoicePicker.js'
 import type { QuestionAnswer, UserQuestion } from './agent.js'
 import { fitHints } from './key-hints.js'
 import {
@@ -27,6 +28,7 @@ import {
 	summaryLines,
 } from './question-dialog.js'
 import {
+	capChoiceLines,
 	choiceDisplayText,
 	choiceDisplayWidth,
 	eraseLastChoiceGrapheme,
@@ -287,7 +289,11 @@ export function QuestionDialog({ question, columns, onAnswer }: QuestionDialogPr
 		const focusedText =
 			focused?.kind === 'option' ? item.options[focused.index]?.description : undefined
 		const focusedDescription = focusedText
-			? wrapChoiceText(focusedText, Math.max(1, width - 4)).slice(0, 4)
+			? capChoiceLines(
+					wrapChoiceText(focusedText, Math.max(1, width - 4)),
+					SELECTED_DESCRIPTION_LINES,
+					Math.max(1, width - 4),
+				)
 			: []
 		const lastRow = lone ? 'Submit' : s.tab === count - 1 ? 'Review' : 'Next'
 		body = (

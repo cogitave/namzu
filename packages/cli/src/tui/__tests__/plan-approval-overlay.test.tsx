@@ -168,7 +168,7 @@ describe('the plan approval box', () => {
 		expect(h.lastFrame()).toContain(`rows ${planPageRows(24) + 1}-`)
 	})
 
-	it.each([24, 30, 40, 60])(
+	it.each([18, 20, 22, 24, 30, 40, 60])(
 		'keeps the box, the question and every answer on a %i-row screen',
 		(screenRows) => {
 			const long = Array.from(

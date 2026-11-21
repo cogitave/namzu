@@ -2,6 +2,7 @@
 
 ## 2026-11-21
 
+- **Update** [Plan mode](cli/plan-mode.md): the plan box fits from 17 rows up (it kept four plan rows before, so it overflowed below 20); a question's focused option shows up to eight wrapped lines instead of four.
 - **Update** [Plan mode](cli/plan-mode.md), [Vim keys in the message box](cli/composer-vim.md), [Terminal design](cli/terminal-design.md): the plan approval box counts its own rows and the rows above it, so its question and answers no longer overlap at 40 rows; Enter after a single trailing backslash makes a new line instead of sending; typing and Backspace edit the Ctrl+R search; a question's focused option shows its whole description and the picker shows no `1/4` count; the accept-edits mode is named "Accept edits" in the footer, `/permissions`, Settings and the plan box ("Yes, and auto-accept edits"); the terminal-support query no longer echoes `^[[?0u` onto the first screen. `.changeset/cli-plan-dialog-backslash-question-text.md`.
 
 ## 2026-11-20

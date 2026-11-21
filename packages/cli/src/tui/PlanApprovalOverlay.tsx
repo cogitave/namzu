@@ -58,7 +58,7 @@ const ABOVE_ROWS = 4
 /** How many rows of the plan fit on a screen `terminalRows` tall. */
 export function planPageRows(terminalRows: number | undefined, showsPath = false): number {
 	const chrome = BOX_ROWS + ABOVE_ROWS + (showsPath ? PATH_ROWS : 0)
-	return Math.max(4, Math.min(30, (terminalRows ?? 24) - chrome))
+	return Math.max(1, Math.min(30, (terminalRows ?? 24) - chrome))
 }
 
 export function PlanApprovalOverlay({

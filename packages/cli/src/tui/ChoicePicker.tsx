@@ -54,7 +54,7 @@ export interface ChoicePickerProps {
 }
 
 /** The most lines the selected option's description takes when it is shown whole. */
-const SELECTED_DESCRIPTION_LINES = 4
+export const SELECTED_DESCRIPTION_LINES = 8
 
 /** The most lines a description takes when it wraps under its label. */
 const STACKED_DESCRIPTION_LINES = 2
