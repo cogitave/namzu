@@ -26,6 +26,19 @@ export interface HttpConfig {
 	 * proxy alias in, and `off` disables it. Default: `auto`.
 	 */
 	strictToolUse?: 'auto' | 'on' | 'off'
+	/**
+	 * Which models behind this endpoint read pictures. Default: none.
+	 *
+	 * A generic endpoint cannot say which of its models read images, and a
+	 * text-only server usually refuses a request that carries an image part, so
+	 * pictures are sent only when you opt in. `true` sends them to every model
+	 * this endpoint serves; a list names the model ids that read them
+	 * (`['llava', 'my-vision-model']`; a name matches the id with or without a
+	 * `:tag`). While it is absent, a pasted picture is left out of the request,
+	 * replaced by a short note, and the user is told the model cannot read
+	 * images. Works on both dialects.
+	 */
+	vision?: boolean | readonly string[]
 	/** Request timeout in ms. Default: 60000. */
 	timeout?: number
 }
