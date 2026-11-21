@@ -164,7 +164,9 @@ describe('namzu login claude --code', () => {
 		const raw = await startPending()
 		printed = []
 		expect(
-			await runBrowserCodeLogin(deps(['--code', `${CODE}#${raw.state}`], { fetch: fakeFetch(400) })),
+			await runBrowserCodeLogin(
+				deps(['--code', `${CODE}#${raw.state}`], { fetch: fakeFetch(400) }),
+			),
 		).toBe(EXIT_FAIL)
 		expect(calls).toBe(1)
 		expect(existsSync(pendingLoginPath(home))).toBe(false)

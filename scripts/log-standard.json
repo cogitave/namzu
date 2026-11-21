@@ -128,8 +128,14 @@
 		{
 			"file": "packages/cli/src/commands/host-queries.ts",
 			"symbol": "process.stdout.write",
-			"count": 9,
+			"count": 7,
 			"reason": "the one JSON value each host query (history, skills list --json, providers list --json) prints for a host UI to parse, or `[]` on failure; stderr carries NDJSON log records, so no log line lands on this channel."
+		},
+		{
+			"file": "packages/cli/src/commands/providers.ts",
+			"symbol": "process.stdout.write",
+			"count": 1,
+			"reason": "the short human table `namzu providers list` prints (provider, found, default model, model count); `--json` goes through host-queries.ts. stderr carries NDJSON log records, so no log line lands on this channel."
 		},
 		{
 			"file": "packages/cli/src/commands/config.ts",
