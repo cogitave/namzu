@@ -2,6 +2,7 @@
 
 ## 2026-11-21
 
+- **Update** [Pasted text](sdk/pasted-text.md): a resumed conversation (`namzu -c`, `/resume`) and the `/rewind` list show a sent paste as its chip like the live transcript; rewinding to that message restores the whole paste into the box. `.changeset/cli-resumed-paste-chip.md`.
 - **Update** [Small model](cli/small-model.md): an OpenRouter conversation no longer sends its title and other side requests to `openrouter/auto` (its listed rate of `-1` read as the cheapest price); a negative rate counts as unstated, routers, music, video and `:batch` ids are skipped, and the conversation's own vendor is searched first. The OpenRouter driver now sends every assistant message's reasoning back on every request, not only the current turn's, so the prompt cache holds across user messages (OpenRouter README). `.changeset/openrouter-earlier-steps-keep-reasoning.md`, `.changeset/cli-side-model-not-a-router.md`.
 - **Update** [Text-only models and images](sdk/text-only-models-and-images.md#an-image-a-tool-returns-on-openrouter): an image a tool returns (an image file read, a screenshot) now reaches an OpenRouter model that reads images, in a user message after the turn's tool messages; a text-only model keeps the omission note. `.changeset/openrouter-tool-result-images.md`.
 - **Update** [Text-only models and images](sdk/text-only-models-and-images.md): the Ollama driver stops waiting for a model's information after 5 seconds on a picture request, and no longer reads it for conversations without pictures.

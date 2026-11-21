@@ -1,5 +1,6 @@
 import type { Message, UserMessage } from '@namzu/sdk'
 
+import { chipPastedRanges, unchipPastedRanges } from './paste-chips.js'
 import type { TranscriptMessage } from './types.js'
 
 /** One durable branch boundary, plus the best text the composer can restore. */
@@ -9,6 +10,12 @@ export interface EditablePrompt {
 	readonly message: UserMessage
 	/** Readable operator text when the current transcript still has it. */
 	readonly displayText: string
+	/**
+	 * What goes back into the message box: `displayText` with each paste chip
+	 * replaced by the text it stood for, so choosing a rewind point restores the
+	 * whole paste.
+	 */
+	readonly draftText?: string
 }
 
 /**
@@ -48,10 +55,12 @@ export function editablePrompts(
 	return users.map(({ message, userOrdinal }, index) => {
 		const visibleIndex = visibleStart + (index - durableStart)
 		const row = index >= durableStart ? visible[visibleIndex] : undefined
+		const displayText = row?.content ?? chipPastedRanges(message.content, message.pasted)
 		return {
 			userOrdinal,
 			message,
-			displayText: row?.content ?? message.content,
+			displayText,
+			draftText: unchipPastedRanges(displayText, message.content, message.pasted),
 		}
 	})
 }
