@@ -15,6 +15,7 @@ import type {
 import {
 	ProviderRequestError,
 	isCallerAbortError,
+	isModelContentOmission,
 	isProviderRequestError,
 	providerHttpError,
 	providerVendorError,
@@ -678,16 +679,17 @@ function formatToolChoice(tc: ToolChoice): unknown {
 
 /**
  * What this DRIVER does, not what OpenRouter could do: tools pass
- * through to the request body, but user-message image `attachments`
- * are not mapped into content parts — `supportsVision` stays false
- * until the message translation handles them.
+ * through to the request body, and user-message image `attachments` are
+ * mapped into `image_url` content parts. Whether a given MODEL reads them is
+ * answered per model by `supportsImageInputFor`, from the listing's input
+ * modalities; the runtime keeps images away from a model known to be text-only.
  */
 export const OPENROUTER_CAPABILITIES: ProviderCapabilities = {
 	supportsTools: true,
 	supportsStreaming: true,
 	supportsFunctionCalling: true,
 	supportsNativeStructuredOutput: true,
-	supportsVision: false,
+	supportsVision: true,
 	// Images only. A document degrades to a named placeholder.
 	supportsDocuments: false,
 	supportsToolResultImages: false,
@@ -853,6 +855,28 @@ export class OpenRouterProvider implements LLMProvider {
 						function: tc.function,
 					})),
 					...replay,
+				}
+			}
+			if (msg.role === 'user' && msg.attachments && msg.attachments.length > 0) {
+				const parts: Array<
+					{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }
+				> = []
+				if (msg.content.length > 0) parts.push({ type: 'text', text: msg.content })
+				for (const attachment of msg.attachments) {
+					// Only inline images have a wire form here. A document is turned
+					// into a placeholder and a stored reference is resolved by the
+					// runtime before this point; an image the runtime already withheld
+					// from the model stays withheld.
+					if (attachment.type === 'stored' || attachment.type === 'document') continue
+					if (isModelContentOmission(attachment.modelOmission)) continue
+					parts.push({
+						type: 'image_url',
+						image_url: { url: `data:${attachment.mediaType};base64,${attachment.data}` },
+					})
+				}
+				return {
+					role: 'user',
+					content: parts.some((part) => part.type === 'image_url') ? parts : msg.content,
 				}
 			}
 			return { role: msg.role, content: msg.content, ...replay }
@@ -1310,6 +1334,28 @@ export class OpenRouterProvider implements LLMProvider {
 
 	private supportedEfforts?: Map<string, string[]>
 
+	/**
+	 * Whether the model reads images, as the listing last said (`architecture.input_modalities`).
+	 * Filled by `listModels`, which the context-window lookup runs once per driver, so
+	 * answering costs no request of its own. Empty until a listing was read.
+	 */
+	private imageInput = new Map<string, boolean>()
+
+	/**
+	 * Whether `model` reads images. `false` only when the listing named the model's input
+	 * kinds and `image` was not among them. A model the listing does not name, or a
+	 * listing not read yet, answers `true`: a wrong "no" blinds a vision model, while a
+	 * wrong "yes" is recovered from when the router refuses the request.
+	 */
+	supportsImageInputFor(model: string): boolean {
+		const tag = model.indexOf(':')
+		return (
+			this.imageInput.get(model) ??
+			(tag > 0 ? this.imageInput.get(model.slice(0, tag)) : undefined) ??
+			true
+		)
+	}
+
 	/** First fulfilled listing; see the note on `resolveContextWindow`. */
 	private contextWindows?: Map<string, number>
 
@@ -1332,10 +1378,18 @@ export class OpenRouterProvider implements LLMProvider {
 					context_length: number
 					top_provider?: { max_completion_tokens?: number }
 					pricing?: { prompt: string; completion: string }
+					architecture?: { input_modalities?: unknown }
 				}>
 			}
 		})
 		signal?.throwIfAborted()
+
+		const imageInput = new Map<string, boolean>()
+		for (const m of data.data) {
+			const kinds = m.architecture?.input_modalities
+			if (Array.isArray(kinds)) imageInput.set(m.id, kinds.includes('image'))
+		}
+		this.imageInput = imageInput
 
 		return data.data.map((m) => {
 			const inputPrice = pricePerMillion(m.pricing?.prompt)
@@ -1347,6 +1401,14 @@ export class OpenRouterProvider implements LLMProvider {
 				maxOutputTokens: m.top_provider?.max_completion_tokens ?? 4096,
 				...(inputPrice !== undefined ? { inputPrice } : {}),
 				...(outputPrice !== undefined ? { outputPrice } : {}),
+				...(Array.isArray(m.architecture?.input_modalities)
+					? {
+							inputModalities: [
+								'text' as const,
+								...(imageInput.get(m.id) ? ['image' as const] : []),
+							],
+						}
+					: {}),
 				supportsToolUse: true,
 				supportsStreaming: true,
 			}
