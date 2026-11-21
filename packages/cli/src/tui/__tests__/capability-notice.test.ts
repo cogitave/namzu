@@ -25,6 +25,18 @@ describe('capability notices', () => {
 		)
 	})
 
+	it('points at /model when only the chosen model reads text, not the whole provider', () => {
+		const text = describeCapabilityNotice({
+			capability: 'vision',
+			providerId: 'openrouter',
+			model: 'vendor/text-model',
+		})
+		expect(text).toBe(
+			'This model can’t see images, so it won’t see the picture you attached. Pick a model that reads images with /model to include it.',
+		)
+		expect(text).not.toContain('vendor/text-model')
+	})
+
 	it('says a model that refused an image has its pictures left out, and how to get them back', () => {
 		const text = describeCapabilityNotice({
 			capability: 'vision',

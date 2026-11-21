@@ -923,6 +923,8 @@ export type AgentEvent =
 			>['contentSource']
 			/** The provider's id: the screen names it by product name, never by id. */
 			readonly providerId: string
+			/** Present when one model, not the whole provider, cannot read images. */
+			readonly model?: string
 			/** The kernel's own wording. Shown only under `--debug`; the screen writes its own sentence. */
 			readonly text: string
 	  }
@@ -9865,6 +9867,7 @@ export function toAgentEvent(
 				capability: event.capability,
 				...(event.contentSource ? { contentSource: event.contentSource } : {}),
 				providerId: event.providerId,
+				...(event.model ? { model: event.model } : {}),
 				text: event.message,
 			}
 		case 'message_history_repaired': {

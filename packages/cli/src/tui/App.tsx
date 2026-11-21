@@ -10826,6 +10826,7 @@ function AppBody({
 								capability: event.capability,
 								...(event.contentSource ? { contentSource: event.contentSource } : {}),
 								providerId: event.providerId,
+								...(event.model ? { model: event.model } : {}),
 							}),
 							event.text,
 							debugRequested(),

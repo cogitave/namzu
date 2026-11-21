@@ -10,6 +10,7 @@ import type {
 	ToolChoice,
 	ToolResultContent,
 } from '@namzu/sdk'
+import { isModelContentOmission } from '@namzu/sdk'
 import {
 	ProviderRequestError,
 	assertStrictSchema,
@@ -225,22 +226,74 @@ function withoutEmptyAssistantTurns(
 	)
 }
 
-function formatOpenAIMessages(messages: ChatCompletionParams['messages']): unknown[] {
-	return withoutEmptyAssistantTurns(messages).map((msg) => {
+function encodedSize(base64: string): string {
+	const bytes = Math.floor((base64.length * 3) / 4)
+	if (bytes < 1024) return `${bytes} B`
+	if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+type OpenAIPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }
+
+const dataUrl = (mediaType: string, data: string): string => `data:${mediaType};base64,${data}`
+
+/**
+ * The OpenAI-compatible shape. With `images` true (the endpoint's operator
+ * opted this model in), a user message's pictures become `image_url` data-URL
+ * parts. A tool message there takes text only, so a tool result's pictures go
+ * in one user message right after that turn's tool messages, each introduced
+ * by the tool call it came from.
+ */
+function formatOpenAIMessages(
+	messages: ChatCompletionParams['messages'],
+	images = false,
+): unknown[] {
+	const out: unknown[] = []
+	let fromTools: OpenAIPart[] = []
+	const flushToolImages = () => {
+		if (fromTools.length > 0) out.push({ role: 'user', content: fromTools })
+		fromTools = []
+	}
+	for (const msg of withoutEmptyAssistantTurns(messages)) {
 		if (msg.role === 'tool') {
-			return {
-				role: 'tool',
+			const toolCallId = (msg as { toolCallId?: string }).toolCallId
+			let text: string
+			if (images && Array.isArray(msg.content)) {
+				const lines: string[] = []
+				const shown: OpenAIPart[] = []
+				for (const block of msg.content) {
+					if (block.type === 'image' && !isModelContentOmission(block.modelOmission)) {
+						lines.push(
+							`[image: ${block.mediaType}, ${encodedSize(block.data)}; shown in the next message]`,
+						)
+						shown.push({
+							type: 'image_url',
+							image_url: { url: dataUrl(block.mediaType, block.data) },
+						})
+					} else lines.push(toolResultToText([block]))
+				}
+				text = lines.join('\n')
+				if (shown.length > 0) {
+					fromTools.push({
+						type: 'text',
+						text: `Image${shown.length > 1 ? 's' : ''} returned by tool call ${toolCallId ?? 'unknown'}:`,
+					})
+					fromTools.push(...shown)
+				}
+			} else {
 				// Tool messages are text-only on this wire. The raw content was
 				// passed straight through, so a result carrying an image put
 				// its base64 into the prompt: the model paid for every
 				// character, could read none of them, and read a serialized
 				// object where a picture should be with nothing saying so.
-				content: toolResultToText(msg.content ?? ''),
-				tool_call_id: (msg as { toolCallId?: string }).toolCallId,
+				text = toolResultToText(msg.content ?? '')
 			}
+			out.push({ role: 'tool', content: text, tool_call_id: toolCallId })
+			continue
 		}
+		flushToolImages()
 		if (msg.role === 'assistant' && 'toolCalls' in msg && msg.toolCalls?.length) {
-			return {
+			out.push({
 				role: 'assistant',
 				content: msg.content,
 				tool_calls: msg.toolCalls.map((tc) => ({
@@ -248,20 +301,44 @@ function formatOpenAIMessages(messages: ChatCompletionParams['messages']): unkno
 					type: tc.type,
 					function: tc.function,
 				})),
-			}
+			})
+			continue
 		}
-		return { role: msg.role, content: msg.content }
-	})
+		if (images && msg.role === 'user' && msg.attachments && msg.attachments.length > 0) {
+			const parts: OpenAIPart[] = []
+			if (msg.content.length > 0) parts.push({ type: 'text', text: msg.content })
+			for (const attachment of msg.attachments) {
+				// Only inline images have a wire form here; a document is a
+				// placeholder by the runtime, a stored reference is resolved
+				// before this point, and a withheld image stays withheld.
+				if (attachment.type === 'stored' || attachment.type === 'document') continue
+				if (isModelContentOmission(attachment.modelOmission)) continue
+				parts.push({
+					type: 'image_url',
+					image_url: { url: dataUrl(attachment.mediaType, attachment.data) },
+				})
+			}
+			out.push({
+				role: 'user',
+				content: parts.some((part) => part.type === 'image_url') ? parts : msg.content,
+			})
+			continue
+		}
+		out.push({ role: msg.role, content: msg.content })
+	}
+	flushToolImages()
+	return out
 }
 
 function buildOpenAIBody(
 	params: ChatCompletionParams,
 	stream: boolean,
 	defaultModel?: string,
+	images = false,
 ): Record<string, unknown> {
 	const body: Record<string, unknown> = {
 		model: params.model || defaultModel,
-		messages: formatOpenAIMessages(params.messages),
+		messages: formatOpenAIMessages(params.messages, images),
 		stream,
 	}
 
@@ -289,7 +366,8 @@ function buildOpenAIBody(
 // --------------------------------------------------------------------------------------
 
 interface AnthropicContentBlock {
-	type: 'text' | 'tool_use' | 'tool_result'
+	type: 'text' | 'tool_use' | 'tool_result' | 'image'
+	source?: { type: 'base64'; media_type: string; data: string }
 	text?: string
 	id?: string
 	name?: string
@@ -303,11 +381,16 @@ interface AnthropicMessage {
 	content: string | AnthropicContentBlock[]
 }
 
+function anthropicImage(mediaType: string, data: string): AnthropicContentBlock {
+	return { type: 'image', source: { type: 'base64', media_type: mediaType, data } }
+}
+
 function formatAnthropicRequest(
 	params: ChatCompletionParams,
 	stream: boolean,
 	defaultModel?: string,
 	strictToolUse: HttpConfig['strictToolUse'] = 'auto',
+	images = false,
 ): Record<string, unknown> {
 	const systemParts: string[] = []
 	const messages: AnthropicMessage[] = []
@@ -336,8 +419,18 @@ function formatAnthropicRequest(
 				type: 'tool_result',
 				tool_use_id: toolMsg.toolCallId ?? 'unknown',
 				// Same degrade as the sibling dialect: the named placeholder
-				// rather than a JSON dump of the payload.
-				content: toolResultToText(toolMsg.content ?? ''),
+				// rather than a JSON dump of the payload. A model opted in to
+				// pictures gets the result as blocks, pictures included.
+				content:
+					images &&
+					Array.isArray(toolMsg.content) &&
+					toolMsg.content.some((b) => b.type === 'image')
+						? toolMsg.content.flatMap((block): AnthropicContentBlock[] =>
+								block.type === 'image' && !isModelContentOmission(block.modelOmission)
+									? [anthropicImage(block.mediaType, block.data)]
+									: [{ type: 'text', text: toolResultToText([block]) }],
+							)
+						: toolResultToText(toolMsg.content ?? ''),
 			})
 			continue
 		}
@@ -365,6 +458,20 @@ function formatAnthropicRequest(
 			}
 			messages.push({ role: 'assistant', content: blocks })
 			continue
+		}
+
+		if (images && msg.role === 'user' && msg.attachments && msg.attachments.length > 0) {
+			const blocks: AnthropicContentBlock[] = []
+			for (const attachment of msg.attachments) {
+				if (attachment.type === 'stored' || attachment.type === 'document') continue
+				if (isModelContentOmission(attachment.modelOmission)) continue
+				blocks.push(anthropicImage(attachment.mediaType, attachment.data))
+			}
+			if (blocks.length > 0) {
+				if (msg.content.length > 0) blocks.push({ type: 'text', text: msg.content })
+				messages.push({ role: 'user', content: blocks })
+				continue
+			}
 		}
 
 		const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
@@ -462,10 +569,13 @@ function formatAnthropicRequest(
 // --------------------------------------------------------------------------------------
 
 /**
- * What this DRIVER does, not what the remote endpoint could do:
- * tools pass through to the request body, but user-message image
- * `attachments` are not mapped into content parts — `supportsVision`
- * stays false until the message translation handles them.
+ * What this DRIVER does by default, not what the remote endpoint could do:
+ * tools pass through to the request body, and pictures are NOT sent, because
+ * a generic endpoint cannot say which of its models read them and a text-only
+ * server usually refuses a request with an image part. An operator who knows
+ * sets `vision` in the config (see `HttpConfig.vision`); that instance then
+ * declares `supportsVision` and `supportsToolResultImages` and answers per
+ * model through `supportsImageInputFor`.
  */
 export const HTTP_CAPABILITIES: ProviderCapabilities = {
 	supportsTools: true,
@@ -491,7 +601,7 @@ function streamCutShort(): ProviderRequestError {
 export class HttpProvider implements LLMProvider {
 	readonly id = 'http'
 	readonly name = 'HTTP'
-	readonly capabilities = HTTP_CAPABILITIES
+	readonly capabilities: ProviderCapabilities
 
 	private config: HttpConfig
 	private dialect: HttpDialect
@@ -502,6 +612,27 @@ export class HttpProvider implements LLMProvider {
 		}
 		this.config = config
 		this.dialect = config.dialect ?? 'openai'
+		const vision =
+			config.vision === true || (Array.isArray(config.vision) && config.vision.length > 0)
+		this.capabilities = vision
+			? { ...HTTP_CAPABILITIES, supportsVision: true, supportsToolResultImages: true }
+			: HTTP_CAPABILITIES
+	}
+
+	/**
+	 * Whether `model` reads pictures: only when the config opted in, for every
+	 * model (`vision: true`) or for the ones it names.
+	 */
+	supportsImageInputFor(model: string): boolean {
+		return this.readsImages(model)
+	}
+
+	private readsImages(model: string | undefined): boolean {
+		const vision = this.config.vision
+		if (vision === true) return true
+		if (!Array.isArray(vision) || !model) return false
+		const bare = model.includes(':') ? model.slice(0, model.indexOf(':')) : model
+		return vision.some((name) => name === model || name === bare)
 	}
 
 	private getHeaders(): Record<string, string> {
@@ -543,8 +674,19 @@ export class HttpProvider implements LLMProvider {
 		const url = this.endpoint()
 		const body =
 			this.dialect === 'anthropic'
-				? formatAnthropicRequest(params, true, this.config.model, this.config.strictToolUse)
-				: buildOpenAIBody(params, true, this.config.model)
+				? formatAnthropicRequest(
+						params,
+						true,
+						this.config.model,
+						this.config.strictToolUse,
+						this.readsImages(params.model || this.config.model),
+					)
+				: buildOpenAIBody(
+						params,
+						true,
+						this.config.model,
+						this.readsImages(params.model || this.config.model),
+					)
 
 		let response: Response
 		try {

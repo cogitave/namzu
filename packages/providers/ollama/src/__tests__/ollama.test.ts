@@ -44,9 +44,9 @@ describe('@namzu/ollama', () => {
 				supportsTools: false,
 				supportsStreaming: true,
 				supportsFunctionCalling: false,
-				supportsVision: false,
+				supportsVision: true,
 				supportsDocuments: false,
-				supportsToolResultImages: false,
+				supportsToolResultImages: true,
 				supportsToolResultDocuments: false,
 			})
 		})
