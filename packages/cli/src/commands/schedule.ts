@@ -38,17 +38,17 @@ export const SCHEDULE_HELP = [
 	'  history <job> [--limit 20] [--json]',
 	'  pause <job> | resume <job>    Paused occurrences are skipped, not caught up',
 	'  remove <job> [--yes] [--force]',
-	'  run-now <job>                 Run once now',
+	'  run <job>                     Run once now; the schedule is untouched',
 	'  prune [--job <j>] [--older-than 30d] [--delete] [--yes]',
 	'',
 	'The scheduler service',
-	'  install [--platform auto|systemd-user|launchd|windows-task|wsl-windows-task]',
+	'  service install [--platform auto|systemd-user|launchd|windows-task|wsl-windows-task]',
 	'          [--name <service>] [--at-boot] [--dry-run]',
-	'  uninstall [--keep-data | --purge-data] [--wait 10m | --interrupt-runs]',
-	'  status [--json]               Exit 0 healthy, 69 not running, 2 not installed',
-	'  start | stop                  Through the service manager',
-	'  logs [--follow] [--job <j>] [--since 1h] [--run <id> --job <j>]',
-	'  daemon                        Run the scheduler in this process',
+	'  service uninstall [--keep-data | --purge-data] [--wait 10m | --interrupt-runs]',
+	'  service status [--json]       Exit 0 healthy, 69 not running, 2 not installed',
+	'  service start | stop          Through the service manager',
+	'  service logs [--follow] [--job <j>] [--since 1h] [--run <id> --job <j>]',
+	'  service daemon                Run the scheduler in this process',
 	'',
 	'--when takes "every 30m", "0 9 * * 1-5" (cron, in --tz), "at 2026-09-24 09:00",',
 	'"at 09:00" or "in 2h". Presets: read-only (read, glob, grep, ls; everything',
@@ -74,6 +74,17 @@ export const SCHEDULE_HELP = [
 	'Exit codes: 0 done, 1 failed, 2 not installed, 64 wrong arguments,',
 	'69 the scheduler is not running, 75 another scheduler owns this home.',
 ].join('\n')
+
+/** Old spellings that no longer run; each names the one new spelling. */
+const RENAMED: Readonly<Record<string, string>> = {
+	'run-now': 'namzu schedule run <job>',
+	install: 'namzu schedule service install',
+	uninstall: 'namzu schedule service uninstall',
+	status: 'namzu schedule service status',
+	start: 'namzu schedule service start',
+	stop: 'namzu schedule service stop',
+	logs: 'namzu schedule service logs',
+}
 
 export const scheduleCommand: CommandDef = {
 	name: 'schedule',
@@ -107,33 +118,55 @@ export const scheduleCommand: CommandDef = {
 			case 'remove':
 			case 'rm':
 				return (await lifecycle()).removeCommand(ctx, rest)
-			case 'run-now':
+			case 'run':
 				return (await lifecycle()).runNowCommand(ctx, rest)
 			case 'prune':
 				return (await lifecycle()).pruneCommand(ctx, rest)
-			case 'install':
-				return (await service()).installCommand(ctx, rest)
-			case 'uninstall':
-				return (await service()).uninstallCommand(ctx, rest)
-			case 'status':
-				return (await service()).statusCommand(ctx, rest)
-			case 'start':
-				return (await service()).startStopCommand(ctx, rest, 'start')
-			case 'stop':
-				return (await service()).startStopCommand(ctx, rest, 'stop')
-			case 'logs':
-				return (await import('../schedule/commands/logs.js')).logsCommand(ctx, rest)
+			case 'service':
+				switch (rest[0]) {
+					case 'install':
+						return (await service()).installCommand(ctx, rest.slice(1))
+					case 'uninstall':
+						return (await service()).uninstallCommand(ctx, rest.slice(1))
+					case 'status':
+						return (await service()).statusCommand(ctx, rest.slice(1))
+					case 'start':
+						return (await service()).startStopCommand(ctx, rest.slice(1), 'start')
+					case 'stop':
+						return (await service()).startStopCommand(ctx, rest.slice(1), 'stop')
+					case 'logs':
+						return (await import('../schedule/commands/logs.js')).logsCommand(ctx, rest.slice(1))
+					case 'daemon':
+						termination.dispose()
+						return (await service()).daemonCommand(ctx, rest.slice(1))
+					default:
+						ctx.formatter.error({
+							message: rest[0]
+								? `unknown schedule service command: ${rest[0]}`
+								: 'a schedule service command is required: install, uninstall, status, start, stop, logs or daemon',
+						})
+						return EXIT_USAGE
+				}
+			// The one old spelling that still runs: a service installed before the
+			// keyword grammar starts `schedule daemon`, and must keep working until
+			// it is reinstalled.
 			case 'daemon':
 				termination.dispose()
 				return (await service()).daemonCommand(ctx, rest)
 			case '__fire':
 				return (await service()).fireCommand(ctx, rest, termination)
-			default:
+			default: {
+				const renamed = verb ? RENAMED[verb] : undefined
+				if (renamed) {
+					ctx.formatter.error({ message: `This command is now \`${renamed}\`.` })
+					return EXIT_USAGE
+				}
 				ctx.formatter.error({
 					message: verb ? `unknown schedule command: ${verb}` : 'a schedule command is required',
 				})
 				ctx.formatter.print({ text: SCHEDULE_HELP })
 				return EXIT_USAGE
+			}
 		}
 	}),
 }

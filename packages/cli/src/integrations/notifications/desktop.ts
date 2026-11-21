@@ -7,7 +7,7 @@
  * | `windows-toast` | Windows | the same toast |
  * | `macos` | macOS | `osascript`, title and body as argv |
  * | `freedesktop` | Linux with a session bus | `notify-send`, else `gdbus` |
- * | `none` | nothing works | the reason is kept and shown by `schedule status` |
+ * | `none` | nothing works | the reason is kept and shown by `schedule service status` |
  *
  * Title and body are DATA: they reach the other program as argv items or
  * environment variables, never as script text, and are stripped of control,

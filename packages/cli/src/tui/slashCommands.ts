@@ -606,7 +606,7 @@ export function matchSlashCommands(
 	 */
 	builtins: readonly SlashCommand[] = CLI_LOCAL_COMMANDS,
 ): SlashCommand[] {
-	const m = /^\/([\w-]*)$/.exec(value)
+	const m = /^\/([\w-]*(?: [\w-]*)?)$/.exec(value)
 	if (!m) return []
 	const prefix = (m[1] ?? '').toLowerCase()
 
@@ -789,18 +789,49 @@ export function slashTiming(
 	return userCommands.some((c) => c.name === parsed.name) ? 'queue' : 'now'
 }
 
+/**
+ * Commands spelled as keywords: the command is the first word and the second
+ * word picks what it does, so `/add dir` is the command `add dir`.
+ */
+const KEYWORD_COMMANDS: readonly { readonly first: string; readonly second: string }[] = [
+	{ first: 'add', second: 'dir' },
+	{ first: 'release', second: 'notes' },
+	{ first: 'terminal', second: 'setup' },
+]
+
+/** Old hyphenated spellings. They run nothing; each names the one new spelling. */
+const RENAMED_SLASH: Readonly<Record<string, string>> = {
+	'add-dir': '/add dir',
+	'release-notes': '/release notes',
+	'terminal-setup': '/terminal setup',
+}
+
+/** What a first keyword answers when typed alone: the usage of its sub-keyword. */
+function keywordUsage(first: string): string | undefined {
+	const entry = KEYWORD_COMMANDS.find((candidate) => candidate.first === first)
+	if (!entry) return undefined
+	const command = CLI_LOCAL_COMMANDS.find((c) => c.name === `${entry.first} ${entry.second}`)
+	return command ? `Usage: ${command.help?.usage[0] ?? `/${command.name}`}` : undefined
+}
+
 /** Returns null when the line is not a slash command. */
 export function parseSlash(line: string): ParsedSlash | null {
 	const trimmed = line.trim()
 	if (!trimmed.startsWith('/')) return null
-	const [name, ...args] = trimmed.slice(1).split(/\s+/)
-	if (!name) return null
-	return { name, args }
+	const [word, ...rest] = trimmed.slice(1).split(/\s+/)
+	if (!word) return null
+	for (const { first, second } of KEYWORD_COMMANDS) {
+		if (word === first && rest[0] === second) {
+			return { name: `${first} ${second}`, args: rest.slice(1) }
+		}
+	}
+	return { name: word, args: rest }
 }
 
 /** Help reads metadata only: even a mutating or unavailable command is safe to inspect. */
 function commandHelp(ctx: SlashContext, args: readonly string[]): SlashAction {
-	const name = args[0]?.replace(/^\//, '')
+	const asked = parseSlash(`/${args.join(' ').replace(/^\//, '')}`)
+	const name = asked && asked.args.length === 0 ? asked.name : undefined
 	if (
 		args.length === 1 &&
 		name === 'keys' &&
@@ -808,7 +839,7 @@ function commandHelp(ctx: SlashContext, args: readonly string[]): SlashAction {
 	) {
 		return { kind: 'message', role: 'system', content: keysHelpText() }
 	}
-	if (args.length !== 1 || !name) {
+	if (!name) {
 		return {
 			kind: 'message',
 			role: 'system',
@@ -1067,7 +1098,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 			],
 			details: [
 				'A run waiting for your approval is answered with /resume of its conversation in its folder.',
-				'The scheduler itself is installed with `namzu schedule install`.',
+				'The scheduler itself is installed with `namzu schedule service install`.',
 			],
 		},
 		action: (_ctx, args) => ({ kind: 'host-command', name: 'schedule', args }),
@@ -1249,14 +1280,14 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		action: (_ctx, args) => ({ kind: 'worktree', args }),
 	},
 	{
-		name: 'add-dir',
+		name: 'add dir',
 		immediate: (args) => args.length > 0,
 		help: {
-			usage: ['/add-dir [path]'],
+			usage: ['/add dir [path]'],
 			details: ['Without a path, lists added directories. Paths may contain spaces.'],
 		},
 		description:
-			'Let the file tools reach another directory in this conversation: /add-dir <path>. Alone, list them.',
+			'Let the file tools reach another directory in this conversation: /add dir <path>. Alone, list them.',
 		action: (ctx, args) => {
 			const path = args.join(' ').trim()
 			if (path.length === 0) {
@@ -1266,7 +1297,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 					role: 'system',
 					content:
 						dirs.length === 0
-							? 'No added directories. The file tools reach the working directory without asking; a path elsewhere is asked about call by call (refused inside the sandbox). /add-dir <path> adds one for this conversation, after asking when it is outside the working directory; `additionalDirectories` in the config file adds one for every session.'
+							? 'No added directories. The file tools reach the working directory without asking; a path elsewhere is asked about call by call (refused inside the sandbox). /add dir <path> adds one for this conversation, after asking when it is outside the working directory; `additionalDirectories` in the config file adds one for every session.'
 							: `Added directories (reachable by absolute path, bound into the sandbox):\n${dirs.map((d) => `  ${d}`).join('\n')}`,
 				}
 			}
@@ -1615,10 +1646,10 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		action: (_ctx, args) => ({ kind: 'message', role: 'system', content: tuiCommandText(args) }),
 	},
 	{
-		name: 'terminal-setup',
+		name: 'terminal setup',
 		immediate: true,
 		help: {
-			usage: ['/terminal-setup'],
+			usage: ['/terminal setup'],
 			details: [
 				'Sets up Shift+Enter for a new line in the terminal Namzu runs in: VS Code, Cursor, Windsurf, Zed and Alacritty get a key binding (Terminal.app gets Option+Enter), and any file it changes is copied to a .bak file first. Other terminals are told what to do. It runs only when you type it.',
 			],
@@ -1627,7 +1658,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		action: (_ctx, args) =>
 			args.length === 0
 				? { kind: 'message', role: 'system', content: terminalSetupText() }
-				: { kind: 'message', role: 'system', content: 'Usage: /terminal-setup' },
+				: { kind: 'message', role: 'system', content: 'Usage: /terminal setup' },
 	},
 	{
 		name: 'doctor',
@@ -1674,10 +1705,10 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 					: { kind: 'message', role: 'system', content: 'Usage: /bashes [list]' },
 	},
 	{
-		name: 'release-notes',
+		name: 'release notes',
 		immediate: true,
-		help: { usage: ['/release-notes [version]'] },
-		description: 'Show what changed in the version that is running: /release-notes [version].',
+		help: { usage: ['/release notes [version]'] },
+		description: 'Show what changed in the version that is running: /release notes [version].',
 		action: (_ctx, args) => ({
 			kind: 'message',
 			role: 'system',
@@ -3131,6 +3162,14 @@ export function runSlash(
 	}
 
 	const user = ctx.userCommands.find((c) => c.name === parsed.name)
+	if (!user) {
+		const renamed = RENAMED_SLASH[parsed.name]
+		if (renamed) {
+			return { kind: 'message', role: 'system', content: `This command is now \`${renamed}\`.` }
+		}
+		const usage = keywordUsage(parsed.name)
+		if (usage) return { kind: 'message', role: 'system', content: usage }
+	}
 	if (user) {
 		const expanded = expandCommand(user, parsed.args.join(' '))
 		return expanded.ok

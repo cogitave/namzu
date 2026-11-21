@@ -184,7 +184,7 @@ describe('a completed run with refused calls', () => {
 		first: {
 			tool: 'bash',
 			reason:
-				'the scheduled-run floor refused this call: `powershell.exe` runs commands the floor does not read, and it holds `schedule stop`',
+				'the scheduled-run floor refused this call: `powershell.exe` runs commands the floor does not read, and it holds `schedule service stop`',
 		},
 	}
 	const job = (includeSummary: boolean) => ({

@@ -135,7 +135,7 @@ it('runs the checks and says what needs attention in plain words', async () => {
 	expect(output).toContain(
 		'! Scheduled tasks: scheduled tasks will not run until the scheduler is set up',
 	)
-	expect(output).toContain('Try: Run "namzu schedule install".')
+	expect(output).toContain('Try: Run "namzu schedule service install".')
 	expect(output).not.toContain('scheduler.service')
 	expect(output).not.toContain('Checking…')
 	expect(output).not.toMatch(/\dms/)

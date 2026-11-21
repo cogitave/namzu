@@ -850,7 +850,7 @@ export interface NamzuCliConfig {
 	/**
 	 * Directories besides the working directory the file tools may reach,
 	 * relative to the project or absolute. Bound read-write into the sandbox.
-	 * `--add-dir` and `/add-dir` add to this list for one launch or session.
+	 * `--add-dir` and `/add dir` add to this list for one launch or session.
 	 */
 	readonly additionalDirectories?: readonly string[]
 	/**
@@ -1235,7 +1235,7 @@ export interface SandboxConfig {
 	 * working directory and the added directories is an approval request,
 	 * not a refusal. `true` confines each command to the working directory
 	 * and the added directories, with the network cut where the platform can
-	 * cut it; whatever the sandbox cannot reach then needs `/add-dir` or a
+	 * cut it; whatever the sandbox cannot reach then needs `/add dir` or a
 	 * per-command escape the user approves.
 	 *
 	 * Unset, it is on when `requireIsolation` names a control or `workspace`

@@ -7,7 +7,7 @@ import { getScreenModeNow } from './fullscreen/mode.js'
 import { explainFailure } from './plain-failure.js'
 
 /**
- * `/tui` and `/terminal-setup`. Both run only when the person types them.
+ * `/tui` and `/terminal setup`. Both run only when the person types them.
  */
 
 export const TUI_USAGE = 'Usage: /tui <default|fullscreen>'
@@ -65,7 +65,7 @@ export function tuiCommandText(args: readonly string[], opts: Options = {}): str
 	return lines.join('\n')
 }
 
-/** `/terminal-setup`: set up the newline key for the terminal Namzu runs in. */
+/** `/terminal setup`: set up the newline key for the terminal Namzu runs in. */
 export function terminalSetupText(
 	opts: { readonly env?: NodeJS.ProcessEnv; readonly home?: string } = {},
 ): string {

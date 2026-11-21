@@ -4,9 +4,9 @@
  * `Restart=always` with no start limit: a second daemon waits on standby
  * instead of exiting, and a daemon that exits 0 after an upgrade is started
  * again on the new code. The one exit that must not restart is a daemon
- * finding `schedule stop`'s request: it exits `EXIT_STOP_REQUESTED`, which
+ * finding `schedule service stop`'s request: it exits `EXIT_STOP_REQUESTED`, which
  * `RestartPreventExitStatus=` names (and `SuccessExitStatus=`, so the unit
- * is inactive rather than failed). `schedule stop` also DISABLES the unit,
+ * is inactive rather than failed). `schedule service stop` also DISABLES the unit,
  * and `start` enables it again, so a stopped scheduler is not started at the
  * next login.
  * `KillMode=process`: stopping or restarting the daemon leaves runs in
@@ -45,7 +45,7 @@ export function systemdUnit(program: ServiceProgram): string {
 		'',
 		'[Service]',
 		'Type=simple',
-		`ExecStart=${[program.node, program.bin, 'schedule', 'daemon', '--home', program.namzuHome].map(systemdWord).join(' ')}`,
+		`ExecStart=${[program.node, program.bin, 'schedule', 'service', 'daemon', '--home', program.namzuHome].map(systemdWord).join(' ')}`,
 		`Environment=${systemdAssignment('NAMZU_HOME', program.namzuHome)}`,
 		'Restart=always',
 		'RestartSec=10',

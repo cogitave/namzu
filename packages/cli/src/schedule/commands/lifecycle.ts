@@ -1,5 +1,5 @@
 /**
- * `schedule pause | resume | remove | run-now | prune`.
+ * `schedule pause | resume | remove | run | prune`.
  *
  * Resuming does not catch up what came due while the job was paused: the
  * resume is a definition change, and the evaluator counts from it.
@@ -272,7 +272,7 @@ export async function runNowCommand(
 ): Promise<number> {
 	const args = parseArgs(argv, ['home'])
 	if (args.unknown.length > 0 || !args.positionals[0]) {
-		ctx.formatter.error({ message: 'usage: namzu schedule run-now <job>' })
+		ctx.formatter.error({ message: 'usage: namzu schedule run <job>' })
 		return EXIT_USAGE
 	}
 	const paths = pathsFor(args)
@@ -300,7 +300,7 @@ export async function runNowCommand(
 		if (!(await recorder.claimOwnership())) {
 			ctx.formatter.error({
 				message:
-					'The scheduler owns this home but its command endpoint is unavailable; retry run-now when the scheduler responds.',
+					'The scheduler owns this home but its command endpoint is unavailable; retry `schedule run` when the scheduler responds.',
 			})
 			return 1
 		}

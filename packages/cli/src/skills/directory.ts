@@ -31,7 +31,7 @@ import { type SkillDirectoryResolver, resolveWithinReal } from '@namzu/sdk'
 export interface SkillDirectoryResolverOptions {
 	/**
 	 * The directories the sandbox mounts at their own paths besides its root,
-	 * read on every call so `/add-dir` counts. Empty for an `ephemeral`
+	 * read on every call so `/add dir` counts. Empty for an `ephemeral`
 	 * workspace, which mounts none of them.
 	 */
 	readonly sandboxMounts: () => readonly string[]

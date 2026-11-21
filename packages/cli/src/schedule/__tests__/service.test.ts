@@ -47,7 +47,7 @@ describe('systemd', () => {
 		expect(systemdWord('/a b/%x/$y')).toBe('"/a b/%%x/$$y"')
 		const unit = systemdUnit(program)
 		expect(unit).toContain(
-			'ExecStart="/opt/node 22/bin/node" "/usr/lib/node_modules/@namzu/cli/dist/bin.js" "schedule" "daemon" "--home" "/home/a/100%%/.namzu"',
+			'ExecStart="/opt/node 22/bin/node" "/usr/lib/node_modules/@namzu/cli/dist/bin.js" "schedule" "service" "daemon" "--home" "/home/a/100%%/.namzu"',
 		)
 		expect(unit).toContain('Restart=always')
 		expect(unit).toContain('StartLimitIntervalSec=0')
@@ -201,6 +201,7 @@ describe('Windows Task Scheduler', () => {
 			'C:\\Program Files\\nodejs\\node.exe',
 			'C:\\x\\bin.js',
 			'schedule',
+			'service',
 			'daemon',
 		],
 	})
@@ -216,7 +217,7 @@ describe('Windows Task Scheduler', () => {
 		expect(xml).toContain('<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>')
 		expect(xml).toContain('<LogonType>InteractiveToken</LogonType>')
 		expect(xml).toContain(
-			'<Arguments>--headless &quot;C:\\Program Files\\nodejs\\node.exe&quot; C:\\x\\bin.js schedule daemon</Arguments>',
+			'<Arguments>--headless &quot;C:\\Program Files\\nodejs\\node.exe&quot; C:\\x\\bin.js schedule service daemon</Arguments>',
 		)
 	})
 
@@ -245,7 +246,7 @@ describe('Windows Task Scheduler', () => {
 	})
 
 	it('says a task’s last result in words, keeping the number', () => {
-		// What the operator's `namzu schedule status` printed: "last result
+		// What the operator's `namzu schedule service status` printed: "last result
 		// 267009", then "-2147020576".
 		expect(describeTaskResult('267009')).toBe('running (267009, 0x41301)')
 		expect(describeTaskResult('-2147020576')).toBe(
@@ -258,7 +259,7 @@ describe('Windows Task Scheduler', () => {
 			'the scheduler exited: another one owns this NAMZU_HOME (75)',
 		)
 		expect(describeTaskResult('80')).toBe(
-			'the scheduler exited: namzu schedule stop asked it to (80)',
+			'the scheduler exited: namzu schedule service stop asked it to (80)',
 		)
 		expect(describeTaskResult('42')).toBe('the program exited (42)')
 		expect(describeTaskResult('-1073741510')).toBe(
@@ -455,6 +456,7 @@ describe('WSL', () => {
 			'/usr/bin/node',
 			'/usr/lib/node_modules/@namzu/cli/dist/bin.js',
 			'schedule',
+			'service',
 			'daemon',
 			'--home',
 			'/home/arda/.namzu',

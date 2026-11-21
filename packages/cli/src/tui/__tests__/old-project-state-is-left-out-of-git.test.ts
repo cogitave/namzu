@@ -54,8 +54,8 @@ it('excludes the old state in this clone and says so once', { timeout: 60_000 },
 	const second = await createAgentSession(prefs, detected, options)
 	try {
 		expect(first.hasProvider, first.errorHint ?? undefined).toBe(true)
-		expect(first.configNotices.filter((n) => n.includes('namzu state move-legacy'))).toHaveLength(1)
-		expect(second.configNotices.some((n) => n.includes('namzu state move-legacy'))).toBe(false)
+		expect(first.configNotices.filter((n) => n.includes('namzu state move legacy'))).toHaveLength(1)
+		expect(second.configNotices.some((n) => n.includes('namzu state move legacy'))).toBe(false)
 		expect(readFileSync(join(cwd, '.git', 'info', 'exclude'), 'utf8')).toContain(
 			'/.namzu/sessions\n',
 		)

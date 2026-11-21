@@ -1474,7 +1474,7 @@ export interface SessionWorkflows {
  * tool names a path outside the working directory and the added directories.
  */
 const OUTSIDE_ROOT_REFUSAL =
-	'Your settings (permissions.outsideRoot: refuse) do not allow files outside the working directory and its added directories, so Namzu does not ask. Work inside those folders, or tell the user the folder has to be added (--add-dir or /add-dir) or the setting changed.'
+	'Your settings (permissions.outsideRoot: refuse) do not allow files outside the working directory and its added directories, so Namzu does not ask. Work inside those folders, or tell the user the folder has to be added (--add-dir or /add dir) or the setting changed.'
 
 /** Most bytes of a page `web_fetch` reads (ten mebibytes). */
 const WEB_FETCH_MAX_BYTES = 10 * 1024 * 1024
@@ -1713,7 +1713,7 @@ export interface AgentSession {
 	 * so the next edit is refused until the model reads the file again.
 	 */
 	markFilesChanged?(paths: readonly string[]): Promise<void>
-	/** The directories besides the working directory the file tools may reach; `/add-dir` adds one. */
+	/** The directories besides the working directory the file tools may reach; `/add dir` adds one. */
 	readonly directories?: SessionDirectories
 	/** Be told when one of this session's jobs ends, whether or not a turn is running. */
 	readonly onJobExit?: (listener: (job: BackgroundJob) => void) => () => void
@@ -2895,7 +2895,7 @@ export interface AgentSessionOptions {
 	 * attach. Absent, the trust the person recorded decides.
 	 */
 	readonly folderTrusted?: boolean
-	/** See `NamzuCliConfig.additionalDirectories`, absolute. `/add-dir` extends it for the session. */
+	/** See `NamzuCliConfig.additionalDirectories`, absolute. `/add dir` extends it for the session. */
 	readonly additionalDirectories?: readonly string[]
 	/**
 	 * See `NamzuCliConfig.toolResultScreens`. Absent leaves the kernel's
@@ -3778,7 +3778,7 @@ export async function createAgentSession(
 			monitorInbox.addEnd(job, jobRegistry.monitorStats(job.id))
 		})
 	}
-	// Session-scoped and mutable: `/add-dir` adds to it, and every turn reads
+	// Session-scoped and mutable: `/add dir` adds to it, and every turn reads
 	// it fresh — the query, the sandbox binds and the environment prompt.
 	const directories: string[] = []
 	for (const dir of options.additionalDirectories ?? []) {
@@ -8650,7 +8650,7 @@ export interface SessionScope {
 	readonly tenantId: TenantId
 }
 
-/** What `/add-dir` talks to. */
+/** What `/add dir` talks to. */
 export type { SessionDirectories } from '../context/directories.js'
 
 /** The newest user turn's text, for labels. */

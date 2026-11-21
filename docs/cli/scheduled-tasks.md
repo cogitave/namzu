@@ -27,7 +27,7 @@ user service. [The scheduler service](scheduler-service.md) covers installing it
 on Linux, macOS, Windows and WSL.
 
 ```sh
-namzu schedule install
+namzu schedule service install
 namzu schedule add nightly-deps \
   --prompt "Check for outdated dependencies and summarise what changed." \
   --when "0 3 * * *" --permissions read-only
@@ -469,11 +469,11 @@ The rules a run is gated by, in order (the first that matches decides):
      be; otherwise it is not: `echo "$(date)" >> run.log` runs.
 
    A refusal names the rule that matched and where, not the whole list: for
-   `powershell.exe -Command "namzu schedule stop"` it reads ``the
+   `powershell.exe -Command "namzu schedule service stop"` it reads ``the
    scheduled-run floor refused this call: `powershell.exe` runs commands the
-   floor does not read, and it holds `schedule stop` (a `namzu schedule`
-   subcommand other than list, show, status, history, logs), in the argument
-   `namzu schedule stop` ``; for `cat ~/.namzu/x`, ``the argument
+   floor does not read, and it holds `schedule service stop` (a `namzu schedule`
+   subcommand other than list, show, history, service status, service logs), in the argument
+   `namzu schedule service stop` ``; for `cat ~/.namzu/x`, ``the argument
    `~/.namzu/x` names NAMZU_HOME (…)``; for another tool, the argument by
    name (``the `content` argument names NAMZU_HOME``). The floor gives the
    gate that reason through the `predicate` rule's `describe`.
@@ -776,7 +776,7 @@ error), each `{ count, first: { tool, reason } }`. They are in the run's result
 and history record, the job's state (`lastRun.refusedCalls`,
 `lastRun.failedCalls`, counts only), `list` (`last completed (1 call refused)
 11:03`), `show` and `history` (`1 call was refused (bash: the scheduled-run
-floor refused this call: …)` under the run), `run-now`, `/schedule` and the
+floor refused this call: …)` under the run), `schedule run`, `/schedule` and the
 model's `schedule` tool `list`. There is no separate status for it: every
 reader of a status — the failure streak and automatic pause, which
 notification is sent, catch-up, a `v: 1` history an older namzu reads — would
@@ -872,7 +872,7 @@ model.
 
 A skipped run is recorded with its reason in plain words, in `schedule list`
 (`last skipped (the gate printed nothing) 10:10`), `show`, `history`, `/schedule`
-and `run-now`, as status `skipped` (and `skipKind`: `silent`, `exit`, `timeout`,
+and `schedule run`, as status `skipped` (and `skipKind`: `silent`, `exit`, `timeout`,
 `start` or `abnormal`, in `--json`):
 
 | Reason | When |
@@ -954,7 +954,7 @@ a notification, and the job's next occurrences are skipped
 Answer it in the TUI, from the job's folder: a run's conversation is stored with
 its folder, so `namzu resume <session-id>` finds it only there. Every place that
 tells you how to answer — the notification, `/schedule`, `schedule list`,
-`show`, `status` and a foreground `run-now` — gives the whole command,
+`show`, `service status` and a foreground `schedule run` — gives the whole command,
 `cd <folder> && namzu [--add-dir <dir>]… resume <session-id>`, quoted for a
 POSIX shell (the notification only when the command fits in it whole, else it
 points at `schedule show`). `namzu resume <session-id>` run from another folder
@@ -1076,10 +1076,10 @@ namzu schedule show <job> [--json]        # the job in full, rules and recent hi
 namzu schedule history <job> [--json]     # runs, skips and missed occurrences with reasons
 namzu schedule edit <job> [options]       # change it; confirmed again
 namzu schedule pause|resume <job>
-namzu schedule run-now <job>              # through the scheduler, or here when it is not running
+namzu schedule run <job>                  # through the scheduler, or here when it is not running
 namzu schedule remove <job> [--yes] [--force]  # history and run files are kept
 namzu schedule prune [--older-than 30d] [--delete] # old runs and their sessions, removed jobs' too
-namzu schedule logs [--follow] [--job <name>]
+namzu schedule service logs [--follow] [--job <name>]
 ```
 
 `remove` refuses a job with a run in progress, waiting for approval or holding
@@ -1097,15 +1097,15 @@ sessions older than the cutoff, and their history once no run of theirs is left.
 A removed job's run whose history still shows it open counts as over once its
 result file says so or no process holds its session.
 
-`run-now` with no scheduler running runs the job in your terminal, recorded as
+`schedule run` with no scheduler running runs the job in your terminal, recorded as
 the job's run in progress exactly as a scheduled run is: a scheduler that
 starts meanwhile does not start the job beside it, and a run that parks waits
 for your approval, holds later occurrences and expires like any other. A run
 stopped by its wall clock, by Ctrl-C, or by closing the terminal is recorded
 (`timed-out`, `interrupted`) before the process exits; one whose process was
-killed outright is settled by the next `run-now` or the scheduler, as soon as
+killed outright is settled by the next `schedule run` or the scheduler, as soon as
 nothing holds its session. If a scheduler owns the home but its command
-endpoint is temporarily unavailable, `run-now` asks you to retry after it
+endpoint is temporarily unavailable, `schedule run` asks you to retry after it
 responds instead of starting a second copy.
 
 `--json` shapes: `list` prints `{ "v": 1, "jobs": [{ id, name, state, schedule,
@@ -1147,7 +1147,7 @@ other than the session's, the sandbox, a budget, a visible browser window —
 is marked on the confirmation: `Chosen by the model, not the default: time
 zone America/New_York, not this machine's Europe/Istanbul`. When no scheduler is
 installed, the line that says the job was created also says it does not run
-until `namzu schedule install`. The tool's `update` changes a job in place
+until `namzu schedule service install`. The tool's `update` changes a job in place
 the way `schedule edit` does: the confirmation starts with what changes
 (`Changed since it was last confirmed`, `-`/`+` lines), says `THE PERMISSIONS
 CHANGE` when the rules, `unmatched`, where it runs or the browser grant do,

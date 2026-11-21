@@ -1,5 +1,5 @@
 /**
- * `/release-notes`: what changed in the version that is running.
+ * `/release notes`: what changed in the version that is running.
  *
  * The CHANGELOG ships in the package for this. Read next to package.json
  * so the notes are the installed version's, not whatever a checkout has.
@@ -55,7 +55,7 @@ export function readChangelog(): string | null {
 
 export const RELEASE_NOTES_MAX_LINES = 80
 
-/** The transcript text for `/release-notes [version]`. */
+/** The transcript text for `/release notes [version]`. */
 export function renderReleaseNotes(
 	changelog: string | null,
 	version: string = CLI_VERSION,

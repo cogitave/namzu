@@ -27,14 +27,14 @@ const verdict = scheduledRunFloorVerdict({
 	namzuHome: HOME,
 	userHome: USER,
 	folders: [FOLDER],
-	daemonCommandLine: 'node /usr/lib/node_modules/@namzu/cli/dist/bin.js schedule daemon',
+	daemonCommandLine: 'node /usr/lib/node_modules/@namzu/cli/dist/bin.js schedule service daemon',
 })
 
 const finding = scheduledRunFloorFinding({
 	namzuHome: HOME,
 	userHome: USER,
 	folders: [FOLDER],
-	daemonCommandLine: 'node /usr/lib/node_modules/@namzu/cli/dist/bin.js schedule daemon',
+	daemonCommandLine: 'node /usr/lib/node_modules/@namzu/cli/dist/bin.js schedule service daemon',
 })
 
 /** What a refusal of `command` says matched, or null. */
@@ -77,18 +77,18 @@ describe('the scheduler’s own commands', () => {
 			'schtasks /TN \\namzu\\scheduler /F /Delete',
 			'schtasks -delete -tn namzu',
 			'pkill node',
-			"pkill -f 'schedule daemon'",
+			"pkill -f 'schedule service daemon'",
 			'killall -r nam.u',
 			'busctl --user call org.freedesktop.systemd1 /x y StopUnit ss namzu-scheduler.service fail',
 			'bash -c "namzu schedule remove nightly"',
 			'sh -c \'bash -c "systemctl --user stop namzu-scheduler"\'',
 			'./node_modules/.bin/namzu schedule pause x',
-			'node $CLI schedule run-now x',
+			'node $CLI schedule run x',
 			'namzu $ARGS',
 			'namzu schedule "$VERB" x',
 			'systemctl --user $VERB namzu-scheduler',
 			"n$'\\x61'mzu sch$'\\x65'dule re\\\nmove x",
-			'nam$"zu" schedule stop',
+			'nam$"zu" schedule service stop',
 		])
 	})
 
@@ -101,7 +101,7 @@ describe('the scheduler’s own commands', () => {
 			'systemctl --user status namzu-scheduler',
 			'namzu schedule list && namzu schedule history nightly --json',
 			'pkill -f "vite dev"',
-			'echo namzu; ./schedule stop',
+			'echo namzu; ./schedule service stop',
 		])
 	})
 
@@ -204,7 +204,7 @@ describe('text that another program runs', () => {
 		denied([
 			"echo 'namzu schedule remove x' | sh",
 			'bash <<EOF\nsystemctl --user stop namzu-scheduler\nEOF',
-			"sudo bash -c 'namzu schedule stop'",
+			"sudo bash -c 'namzu schedule service stop'",
 			"echo $'rm -rf /home/u/.n\\x61mzu' | bash",
 			"bash <<'EOF'\ncat '/h'$'om\\x65/u/.n\\x61\\x6d\\x7a\\x75/config.yaml'\nEOF",
 			'python3 -c "import os; os.system(\'systemctl --user stop namzu-scheduler\')"',
@@ -214,8 +214,8 @@ describe('text that another program runs', () => {
 
 	it('denies an unreadable line that mentions what the floor protects, and only that', () => {
 		denied([
-			'$(echo namzu) schedule stop',
-			'eval "$CMD" # namzu schedule stop',
+			'$(echo namzu) schedule service stop',
+			'eval "$CMD" # namzu schedule service stop',
 			'$S --user stop namzu-scheduler',
 		])
 		allowed([
@@ -254,7 +254,7 @@ describe('the tripwire, on text a program runs as code', () => {
 	it('denies what can reach the scheduler, NAMZU_HOME or the browser profiles', () => {
 		denied([
 			// The CLI with a `schedule` subcommand that changes something.
-			'powershell.exe -NoProfile -Command "namzu schedule stop"',
+			'powershell.exe -NoProfile -Command "namzu schedule service stop"',
 			'powershell -Command "wsl namzu schedule remove nightly"',
 			'powershell.exe -Command "& $cli schedule remove nightly"',
 			`python3 -c "import subprocess; subprocess.run(['namzu','schedule','remove','x'])"`,
@@ -286,21 +286,21 @@ describe('the tripwire, on text a program runs as code', () => {
 		// mksh only. `-c` after any other shell was taken as read too, so
 		// these ran unread and untripped.
 		denied([
-			"powershell -c 'namzu schedule stop'",
+			"powershell -c 'namzu schedule service stop'",
 			"powershell.exe -c 'Stop-ScheduledTask -TaskName namzu-scheduler-wsl-archlinux'",
-			"pwsh -command 'namzu schedule stop'",
-			"fish -c 'namzu schedule stop'",
+			"pwsh -command 'namzu schedule service stop'",
+			"fish -c 'namzu schedule service stop'",
 			"tcsh -c 'systemctl --user stop namzu-scheduler'",
-			"bash.exe -c 'namzu schedule stop'",
-			"bash script.sh -c 'namzu schedule stop'",
+			"bash.exe -c 'namzu schedule service stop'",
+			"bash script.sh -c 'namzu schedule service stop'",
 		])
 		// What the lexer did follow is still read, not tripped over.
 		allowed(["bash -c 'npm test && echo namzu-scheduler'", "busybox sh -c 'echo hi'"])
 	})
 
 	it('names the rule that matched, and where, instead of everything it protects', () => {
-		expect(detail('powershell.exe -NoProfile -Command "namzu schedule stop"')).toBe(
-			'`powershell.exe` runs commands the floor does not read, and it holds `schedule stop` (a `namzu schedule` subcommand other than list, show, status, history, logs), in the argument `namzu schedule stop`',
+		expect(detail('powershell.exe -NoProfile -Command "namzu schedule service stop"')).toBe(
+			'`powershell.exe` runs commands the floor does not read, and it holds `schedule service stop` (a `namzu schedule` subcommand other than list, show, history, service status, service logs), in the argument `namzu schedule service stop`',
 		)
 		expect(
 			detail(
@@ -320,14 +320,14 @@ describe('the tripwire, on text a program runs as code', () => {
 		// `schedule` included, after a head that could be either), rather
 		// than needing the narrower "unread text" path this test exercised
 		// before that fix.
-		expect(detail('$(echo namzu) schedule stop')).toBe(
-			'`$(echo namzu) schedule stop` has a pattern that could match the scheduler’s process',
+		expect(detail('$(echo namzu) schedule service stop')).toBe(
+			'`$(echo namzu) schedule service stop` has a pattern that could match the scheduler’s process',
 		)
 		expect(detail('systemctl --user stop namzu-scheduler')).toBe(
 			'`systemctl --user stop namzu-scheduler` stops or disables the scheduler’s service',
 		)
 		expect(detail('namzu schedule remove nightly')).toBe(
-			'`namzu schedule remove nightly` runs `schedule remove`, a `namzu schedule` subcommand other than list, show, status, history, logs',
+			'`namzu schedule remove nightly` runs `schedule remove`, a `namzu schedule` subcommand other than list, show, history, service status, service logs',
 		)
 		expect(detail('cat ~/.namzu/config.yaml')).toBe(
 			'the argument `~/.namzu/config.yaml` names NAMZU_HOME (/home/u/.namzu)',
@@ -415,7 +415,7 @@ describe('trap', () => {
 			"trap 'rm -rf ~/.namzu' EXIT",
 			"trap 'cat ~/.namzu/schedule/daemon/endpoint.json' EXIT",
 			"trap 'systemctl --user stop namzu-scheduler' EXIT",
-			"trap 'namzu schedule stop' INT TERM",
+			"trap 'namzu schedule service stop' INT TERM",
 			// Flags before the action; the action is still the first non-flag word.
 			"trap -- 'namzu schedule remove nightly' EXIT",
 		])
@@ -589,8 +589,8 @@ describe('NAMZU_HOME', () => {
 	it('reads a line in both dialects when the shell may be bash or sh', () => {
 		// In `sh`, `$'…'` is opaque; the bash reading still decides.
 		denied(["cat $'/home/u/.n\\x61mzu/x'"], 'sh')
-		denied(["echo $'hi' # namzu schedule stop"], 'sh')
-		allowed(["echo $'hi' # namzu schedule stop"], 'bash')
+		denied(["echo $'hi' # namzu schedule service stop"], 'sh')
+		allowed(["echo $'hi' # namzu schedule service stop"], 'bash')
 		allowed(["echo $'hi'", "echo $'hi' # namzu"], 'sh')
 	})
 

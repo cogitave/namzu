@@ -175,7 +175,7 @@ function addLaunchOptions(command: Command): Command {
 		)
 		.option(
 			'--add-dir <path>',
-			'Let the file tools reach another directory this session; repeatable. /add-dir does the same from inside.',
+			'Let the file tools reach another directory this session; repeatable. /add dir does the same from inside.',
 			(value: string, previous: string[]) => [...previous, value],
 			[] as string[],
 		)

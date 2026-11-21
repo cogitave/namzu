@@ -15,7 +15,7 @@
  * The floor used to be regular expressions over the command line's text.
  * A pattern about what a line RUNS has to re-implement the shell's quoting to
  * see through `'sched'ule`, `$'\x73'chedule`, `sche\<newline>dule` and
- * `namzu --add-dir ';' schedule stop`, and each review round found another
+ * `namzu --add-dir ';' schedule service stop`, and each review round found another
  * form it missed, plus a pattern that backtracked quadratically. The SDK
  * reads a command line once, with the lexer the gate itself uses
  * (`lexShellCommandLine`, checked against real bash), and this module decides
@@ -100,7 +100,21 @@ import {
 } from '@namzu/sdk'
 
 /** Scheduler verbs a run may use: they read, they change nothing. */
-export const READ_ONLY_VERBS: readonly string[] = ['list', 'show', 'status', 'history', 'logs']
+export const READ_ONLY_VERBS: readonly string[] = [
+	'list',
+	'show',
+	'history',
+	'service status',
+	'service logs',
+]
+
+/** Whether `schedule <verb> [<next>]` only reads. */
+function readsOnly(verb: string, next: string | undefined): boolean {
+	return (
+		READ_ONLY_VERBS.includes(verb) ||
+		(next !== undefined && READ_ONLY_VERBS.includes(`${verb} ${next}`))
+	)
+}
 
 export interface FloorOptions {
 	/** The scheduler's `NAMZU_HOME`. */
@@ -447,7 +461,7 @@ function reachesScheduler(
 		0,
 		(w) => CLI_ENTRY.test(commandName(w.text)) || JS_RUNTIMES.has(commandName(w.text)),
 	)
-	// After the CLI's own name, a word that expands may be `schedule stop`.
+	// After the CLI's own name, a word that expands may be `schedule service stop`.
 	if (strong >= 0 && find(strong + 1, (w) => w.wild) >= 0)
 		return 'passes the CLI a word that expands at runtime, which could be a `schedule` subcommand'
 	const cli = strong < 0 ? weak : weak < 0 ? strong : Math.min(strong, weak)
@@ -457,8 +471,10 @@ function reachesScheduler(
 			const verb = words[i + 1]
 			if (verb === undefined) continue
 			if (verb.wild) return 'runs a `schedule` subcommand that expands at runtime'
-			if (!READ_ONLY_VERBS.includes(verb.text))
-				return `runs \`schedule ${verb.text}\`, ${NOT_READ_ONLY}`
+			const next = words[i + 2]
+			const nextText = next && !next.wild ? next.text : undefined
+			if (!readsOnly(verb.text, nextText))
+				return `runs \`schedule ${verb.text === 'service' && nextText ? `service ${nextText}` : verb.text}\`, ${NOT_READ_ONLY}`
 		}
 	}
 	return null
@@ -730,9 +746,12 @@ function escapeRegExp(text: string): string {
 function scheduleSubcommand(text: string): string | null {
 	for (const match of text.matchAll(SCHEDULE_WORD)) {
 		const after = text.slice((match.index ?? 0) + match[0].length)
-		const verb = /^[\s,]*([a-z0-9][a-z0-9_-]*)/.exec(after)?.[1]
-		if (verb !== undefined && READ_ONLY_VERBS.includes(verb)) continue
-		return verb === undefined ? 'schedule' : `schedule ${verb}`
+		const found = /^[\s,]*([a-z0-9][a-z0-9_-]*)(?:[\s,]+([a-z0-9][a-z0-9_-]*))?/.exec(after)
+		const verb = found?.[1]
+		if (verb !== undefined && readsOnly(verb, found?.[2])) continue
+		return verb === undefined
+			? 'schedule'
+			: `schedule ${verb === 'service' && found?.[2] ? `service ${found[2]}` : verb}`
 	}
 	return null
 }
@@ -768,7 +787,8 @@ class Floor {
 			}))
 		this.builtinCommands = builtinCommandArguments()
 		this.daemonCommandLine = lower(
-			options.daemonCommandLine ?? `${process.execPath} ${process.argv[1] ?? ''} schedule daemon`,
+			options.daemonCommandLine ??
+				`${process.execPath} ${process.argv[1] ?? ''} schedule service daemon`,
 		)
 	}
 

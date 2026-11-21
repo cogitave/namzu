@@ -40,7 +40,7 @@ A hook is a function an extension registers on the plugin lifecycle manager, or 
 | `post_model_switch` | by the host, after the model changed | `modelSwitch`, as above | `annotate` (or plain stdout from a shell hook) is text the model reads with its next request |
 | `elicitation` | by the host, when a tool server asks the person for input, before the question is shown (see [Tool-server questions](#tool-server-questions)) | `elicitation`: `serverName`, `message`, `mode`, `requestedSchema` | `continue` with `elicitation: { action, content }` answers for the person; `skip` declines |
 | `elicitation_result` | by the host, once the question is answered (by the person or by an `elicitation` hook), before the server reads it | `elicitation` with `action` and `content` | `continue` with `elicitation` replaces the answer; `skip` turns it into a decline |
-| `directory_added` | by the host, after `/add-dir` added a folder to the conversation | `directory` (absolute), `directorySource` (`slash_command`) | nothing |
+| `directory_added` | by the host, after `/add dir` added a folder to the conversation | `directory` (absolute), `directorySource` (`slash_command`) | nothing |
 | `instructions_loaded` | by the host, the first time an instruction file (`AGENTS.md`, a rule, a file it includes) is read into the conversation | `instructions`: `filePath`, `memoryType` (`User`, `Project` or `Local`), `loadReason` (`session_start`, `nested_traversal` or `include`), `parentFilePath`, `triggerFilePath` | nothing |
 | `user_prompt_expansion` | by the host, when a command the person typed (`/name args`) expanded into a prompt, before that prompt goes on | `expansion`: `expansionType`, `commandName`, `commandArgs`, `commandSource`; `prompt`: what it expanded to | `skip` stops the command; `annotate` adds text the model reads beside the prompt |
 | `task_created` | by the kernel, before `task_create` runs and after `pre_tool_use` let the call through | `task`: `subject`, `description` (no `id` yet) | `skip` refuses the task and gives the model the reason |
@@ -119,7 +119,7 @@ A session is one conversation to the hooks. `session_start` fires when a convers
 | The person quits, or the process ends | the current id, reason `exit` | |
 | A compaction, `/compact` or the idle pass | | |
 | A sub-agent starts or finishes | | |
-| `/add-dir`, `/worktree` (prints a command for another terminal) | | |
+| `/add dir`, `/worktree` (prints a command for another terminal) | | |
 
 The conversation a `/clear`, a resume or a fork leaves is told once, by the end hook, and the old context is dropped before the new conversation's first turn. A Pal's conversation runs with no hooks today, so none of the rows fire for it; the clear reason is passed when its session is closed, ready for the day it has them.
 
@@ -609,7 +609,7 @@ A tool server may ask the person for a form's worth of input. `elicitation` runs
 
 ### Working folders and instruction files
 
-`directory_added` runs after `/add-dir` added a folder, with `directory` (absolute, as stored) and `source` (`slash_command`). Its matcher is read against the source. A folder that was refused fires nothing.
+`directory_added` runs after `/add dir` added a folder, with `directory` (absolute, as stored) and `source` (`slash_command`). Its matcher is read against the source. A folder that was refused fires nothing.
 
 `instructions_loaded` runs the first time a file is part of what the conversation was given, once for each file: `file_path`, `memory_type`, `load_reason` and, when they apply, `parent_file_path` (the file that included it) and `trigger_file_path` (the file the session touched that led to a nested folder). `session_start` is for what was read when the conversation began, `nested_traversal` for a folder reached later, `include` for an `@path` include. The matcher is read against the load reason. It cannot refuse anything, and a script that fails is only reported.
 
