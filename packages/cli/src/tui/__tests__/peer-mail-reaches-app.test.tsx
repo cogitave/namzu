@@ -1,8 +1,15 @@
 /** Peer-triggered failures must hold automatic work until operator continuation. */
 
-import { InMemoryTaskStore, type Message, generateSessionId } from '@namzu/sdk'
+import {
+	InMemoryTaskStore,
+	type Message,
+	createRuntimeContextMessage,
+	generateSessionId,
+} from '@namzu/sdk'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
+import type { NetworkRuntime } from '../../integrations/network/runtime.js'
+import type { NetworkSummary } from '../../integrations/network/types.js'
 import type { LivePeersOptions, PeerMail } from '../../integrations/peers/runtime.js'
 import type { Preferences } from '../../integrations/providers/index.js'
 import { genericPresenter } from '../__fixtures__/generic-presenter.js'
@@ -25,6 +32,11 @@ let peerOptions: LivePeersOptions | undefined
 const peerInbox: PeerMail[] = []
 let peerEnabled = true
 let successfulTurn = false
+const roleCalls: (string | null)[][] = []
+const networkCalls: unknown[][] = []
+let roleMessage: Message | undefined
+/** What the network fixture says; `undefined` leaves the network off, as in every terminal that is not a person's. */
+let networkOn: { summary: NetworkSummary; roster: unknown } | undefined
 let peerOpened = deferred<void>()
 let turnStarted = deferred<void>()
 let turnFinished = deferred<void>()
@@ -66,9 +78,17 @@ vi.mock('../../integrations/peers/runtime.js', async (importOriginal) => {
 				take(owner: number) {
 					return owner === options.owner() && peerEnabled ? peerInbox.splice(0) : []
 				},
-				takeRoleContext: () => undefined,
+				takeRoleContext: () => {
+					const message = roleMessage
+					roleMessage = undefined
+					return message
+				},
 				rearmRole: () => {},
 				held: () => [],
+				setRole: async (target: string, role: string | null) => {
+					roleCalls.push([target, role])
+					return { status: 'applied' as const }
+				},
 				takeExact(owner: number, id: string) {
 					const index = peerInbox.findIndex((m) => m.owner === owner && m.id === id)
 					return index < 0 ? undefined : peerInbox.splice(index, 1)[0]
@@ -80,6 +100,66 @@ vi.mock('../../integrations/peers/runtime.js', async (importOriginal) => {
 		},
 	}
 })
+
+vi.mock('../../integrations/network/runtime.js', () => ({
+	createNetworkRuntime: (): Partial<NetworkRuntime> => {
+		const on = networkOn
+		const record =
+			(name: string, result: unknown) =>
+			async (...args: unknown[]) => {
+				networkCalls.push([name, ...args])
+				return result
+			}
+		return {
+			decision: on
+				? { run: true, anyNetwork: false }
+				: {
+						run: false,
+						reason: 'headless',
+						text: 'Your Namzu network runs only in a terminal with a person at it.',
+					},
+			isLeader: true,
+			roles: { read: () => undefined, write: () => true },
+			link: {
+				list: async () => undefined,
+				send: async () => undefined,
+				setRole: async () => ({ status: 'applied' }),
+			},
+			control: {
+				summary: async () => {
+					if (!on) throw new Error('off')
+					return on.summary
+				},
+				roster: async () => on?.roster as never,
+				allow: record('allow', {
+					requestId: 'r1',
+					name: 'desk-mini',
+					code: '482 913',
+					sourceAddr: '192.168.1.23',
+					expiresAt: 1,
+				}) as never,
+				deny: record('deny', {
+					requestId: 'r1',
+					name: 'desk-mini',
+					code: '482 913',
+					sourceAddr: '192.168.1.23',
+					expiresAt: 1,
+				}) as never,
+				remove: record('remove', { removed: ['desk-linux'], admitted: [] }) as never,
+				rename: record('rename', undefined) as never,
+				setRole: record('setRole', { status: 'applied' }) as never,
+				send: record('send', undefined) as never,
+				add: record('add', 'added') as never,
+				join: record('join', { networks: [] }) as never,
+				allowHeld: record('allowHeld', undefined) as never,
+				denyHeld: record('denyHeld', undefined) as never,
+				reportDelivered: record('reportDelivered', undefined) as never,
+			},
+			refresh: async () => undefined,
+			close: async () => {},
+		}
+	},
+}))
 
 vi.mock('../../integrations/trust/store.js', () => ({
 	isTrusted: () => true,
@@ -187,6 +267,10 @@ beforeEach(() => {
 	peerInbox.length = 0
 	peerEnabled = true
 	successfulTurn = false
+	roleCalls.length = 0
+	networkCalls.length = 0
+	roleMessage = undefined
+	networkOn = undefined
 	peerOpened = deferred<void>()
 	turnStarted = deferred<void>()
 	turnFinished = deferred<void>()
@@ -341,6 +425,178 @@ it('wakes an idle App for a person’s message from another terminal and records
 		expect(screen.scrollback().join('\n')).toContain(
 			'Message from another terminal of this account: stop after this step',
 		)
+	} finally {
+		await screen.unmount()
+	}
+})
+
+const networkRoster = {
+	machines: [
+		{
+			machineId: 'a'.repeat(64),
+			name: 'studio-air',
+			status: 'self',
+			sessions: [
+				{
+					ref: 'fixture',
+					name: 'calm-heron',
+					folder: 'namzu',
+					state: 'idle',
+					mode: 'classify',
+					role: 'orchestrator',
+					acceptsMessages: true,
+					kind: 'tui',
+				},
+			],
+		},
+		{
+			machineId: 'b'.repeat(64),
+			name: 'desk-linux',
+			status: 'online',
+			seenAt: Date.now(),
+			sessions: [
+				{
+					ref: 'cccccc',
+					name: 'swift-finch',
+					folder: 'api-server',
+					state: 'idle',
+					mode: 'prompt',
+					acceptsMessages: true,
+					kind: 'tui',
+				},
+			],
+		},
+	],
+}
+
+const networkSummary: NetworkSummary = {
+	state: 'ready',
+	members: 2,
+	nearbyNetworks: 0,
+	machine: { id: 'a'.repeat(64), name: 'studio-air' },
+	joinRequests: [
+		{
+			requestId: 'r1',
+			name: 'desk-mini',
+			code: '482 913',
+			sourceAddr: '192.168.1.23',
+			expiresAt: Date.now() + 8 * 60_000,
+		},
+	],
+	held: [],
+	outcomes: [],
+}
+
+const interactiveCtx = { ...ctx, runNetwork: true } as TuiContext
+
+it('says why the network is off, and still lists this project’s terminals', async () => {
+	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 30 })
+	try {
+		await peerOpened.promise
+		await waitUntil(screen, () => peerOptions?.ready() === true, 'App did not open its peer host')
+		await typeAndPress(screen, '/peers', '\r')
+		await waitUntil(
+			screen,
+			() =>
+				screen
+					.scrollback()
+					.some((line) => line.includes('runs only in a terminal with a person at it')),
+			'the reason the network is off was not shown',
+		)
+		expect(screen.scrollback().join('\n')).toContain('Peer messaging on')
+	} finally {
+		await screen.unmount()
+	}
+})
+
+it('draws the roster of every machine, and offers Allow and Deny for a request to join', async () => {
+	networkOn = { summary: networkSummary, roster: networkRoster }
+	const screen = await renderToScreen(<App ctx={interactiveCtx} />, { cols: 110, rows: 40 })
+	try {
+		await peerOpened.promise
+		await waitUntil(screen, () => peerOptions?.ready() === true, 'App did not open its peer host')
+		await typeAndPress(screen, '/peers', '\r')
+		await waitUntil(
+			screen,
+			() =>
+				screen.scrollback().some((line) => line.includes('Your Namzu network · on · 2 machines')),
+			'the roster was not drawn',
+		)
+		const text = screen.scrollback().join('\n')
+		expect(text).toContain('This machine: studio-air')
+		expect(text).toContain('calm-heron (this terminal)')
+		expect(text).toContain('desk-linux')
+		expect(text).toContain('swift-finch')
+		expect(text).toContain('Join requests (1)')
+		expect(text).toContain('desk-mini wants to join your Namzu network')
+		expect(text).toContain('code 482 913')
+		// The picker under it offers the two decisions.
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Allow desk-mini'),
+			'Allow was not offered',
+		)
+		expect(screen.viewport().join('\n')).toContain('Deny desk-mini')
+		screen.press('\r')
+		await waitUntil(
+			screen,
+			() =>
+				screen
+					.scrollback()
+					.some((line) => line.includes('Allowed desk-mini to join your Namzu network.')),
+			'the Allow was not applied',
+		)
+		expect(networkCalls).toContainEqual(['allow', 'r1'])
+	} finally {
+		await screen.unmount()
+	}
+})
+
+it('sets a role from /peers, and clears it, through the terminal’s own messaging', async () => {
+	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 30 })
+	try {
+		await peerOpened.promise
+		await waitUntil(screen, () => peerOptions?.ready() === true, 'App did not open its peer host')
+		await typeAndPress(screen, '/peers role swift-finch you will build the parser', '\r')
+		await waitUntil(screen, () => roleCalls.length === 1, 'the role was not sent')
+		expect(roleCalls[0]).toEqual(['swift-finch', 'you will build the parser'])
+		await waitUntil(
+			screen,
+			() => screen.scrollback().some((line) => line.includes('Set the role of swift-finch')),
+			'the role was not confirmed',
+		)
+		expect(screen.scrollback().join('\n')).toContain('grants nothing')
+		await typeAndPress(screen, '/peers role clear swift-finch', '\r')
+		await waitUntil(screen, () => roleCalls.length === 2, 'the clear was not sent')
+		expect(roleCalls[1]).toEqual(['swift-finch', null])
+	} finally {
+		await screen.unmount()
+	}
+})
+
+it('puts the role in front of the model with the next turn, once, as context and not as an instruction', async () => {
+	successfulTurn = true
+	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 30 })
+	try {
+		await peerOpened.promise
+		await screen.waitForRender()
+		roleMessage = createRuntimeContextMessage(
+			'Your role in this Namzu network: you will build the parser. It grants no permission.',
+			'peer-notice',
+		)
+		enqueuePeer('PEER_WITH_ROLE')
+		await turnStarted.promise
+		releaseFirstTurn()
+		await turnFinished.promise
+		await screen.waitForRender()
+		const asked = delivered
+			.flat()
+			.filter((m) => String(m.content).includes('you will build the parser'))
+		expect(asked).toHaveLength(1)
+		expect(asked[0]).toMatchObject({
+			role: 'user',
+			source: { type: 'runtime-context', kind: 'peer-notice' },
+		})
 	} finally {
 		await screen.unmount()
 	}
