@@ -24,11 +24,12 @@ import { connectorCallSummary } from './connector-label.js'
 import { conversationInUseSentence, minutesUntilFree } from './conversation-in-use.js'
 import { type ProposedChange, diffBodyFromFacts, proposedFromInput } from './diff-rows.js'
 import type { DiffInfo } from './diff-view.js'
-import { PLAN_FILE_LABEL, displayPath, isSessionPlanPath } from './display-path.js'
+import { displayPath } from './display-path.js'
 import { createLiveModelStep } from './live-model-step.js'
 import { homePath } from './person-terms.js'
 import { explainFailure, workingDirectoryProblem } from './plain-failure.js'
 import { withoutCdToCwd } from './shell-display.js'
+import { shortenPathMiddle } from './shorten-path.js'
 import {
 	factsHeadline,
 	shortToolFailure,
@@ -299,7 +300,11 @@ import {
 	sessionPromptInput,
 } from '../context/system-prompt.js'
 import { createRepositorySnapshotStep, readTurnSnapshot } from '../context/turn-snapshot.js'
-import { openCliAccounts } from '../integrations/accounts/open.js'
+import {
+	type CliAccounts,
+	openCliAccounts,
+	storedAccountSignedIn,
+} from '../integrations/accounts/open.js'
 import { accountProductName } from '../integrations/accounts/rows.js'
 import { createLazyCodeAnalysis } from '../integrations/analysis/provider.js'
 import { carriedAcrossCompaction } from '../integrations/compaction/carried.js'
@@ -1978,6 +1983,8 @@ export interface AgentSession {
 	 * such answer.
 	 */
 	readonly allowForSession?: (allows: readonly SessionAllow[]) => string | undefined
+	/** The allows given at a prompt and held for this conversation. */
+	readonly rememberedAllows?: () => readonly SessionAllow[]
 	/**
 	 * Tell the configured `notification` hooks that the operator's attention is
 	 * wanted (a review is waiting, a turn settled). Fire-and-forget: a hook that
@@ -2409,9 +2416,10 @@ export async function probeAgentSession(
  * and the session still runs on the primary the operator has; taking that
  * session away over a spare would be the trade the notice already refuses.
  */
-function credentialGap(
+export function credentialGap(
 	prefs: Preferences,
 	detected: readonly DetectedProvider[],
+	accounts: () => CliAccounts = openCliAccounts,
 ): { providerId: ProviderId; reason: string } | null {
 	const primary = primaryProvider(prefs)
 	const entry = PROVIDER_REGISTRY[primary.id]
@@ -2423,6 +2431,17 @@ function credentialGap(
 	if (!entry || !entry.constructible) return null
 	const model = primary.model ?? entry.defaultModel
 	if (!requiresCredentialForModel(entry, model)) return null
+	// A saved account other than the usual sign-in carries its own credential,
+	// which discovery does not look at: the session builder resolves it, so a
+	// primary bound to one that is set up and signed in is not a gap.
+	if (primary.account !== undefined && !isDefaultAccountId(primary.account)) {
+		try {
+			const found = accounts().registry.get(primary.account)
+			if (found && found.provider === primary.id && storedAccountSignedIn(found)) return null
+		} catch {
+			// An unreadable registry is not an answer; the check below decides.
+		}
+	}
 	const det = findDetected(detected, primary.id)
 	if (hasApiCredential(entry, det?.apiKey)) return null
 	const reason =
@@ -7060,6 +7079,7 @@ export async function createAgentSession(
 		errorKind: null,
 		// Reads the same object the handler mutates, at call time.
 		allowForSession: (allows) => sessionAllows.add(allows),
+		rememberedAllows: () => sessionAllows.list(),
 		notifyHooks: (info) => {
 			if (!sessionPlugins) return
 			void sessionPlugins.manager
@@ -10141,19 +10161,17 @@ function truncate(value: string, max: number): string {
  * exactly the `path` the call carried is shown relative to the working folder
  * (`~/x` or the full path when it lies outside), never as `../../x`.
  */
-function pathSummary(summary: string, input: unknown, cwd: string | undefined): string {
+export function pathSummary(summary: string, input: unknown, cwd: string | undefined): string {
 	const path =
 		typeof input === 'object' && input !== null ? (input as { path?: unknown }).path : undefined
 	if (typeof path !== 'string' || path.length === 0) return summary
-	if (summary === path) return displayPath(path, cwd)
-	// A long path reaches here already shortened (`…` at its end). The session's
-	// plan file is named the same way whole or shortened, never as a raw path.
-	if (
-		summary.length > 0 &&
-		isSessionPlanPath(path) &&
-		path.startsWith(summary.replace(/…$/u, ''))
-	) {
-		return PLAN_FILE_LABEL
+	// A long path reaches here already cut at its end (`…`). It is the same file
+	// whole or cut, so it is read from the path itself: relative to the working
+	// folder, and when it still does not fit, cut in the middle so the file name
+	// stays. The session's plan file is named the same way, never as a raw path.
+	const cut = summary.endsWith('…') && summary.length > 1
+	if (summary === path || (cut && path.startsWith(summary.slice(0, -1)))) {
+		return shortenPathMiddle(displayPath(path, cwd), 120)
 	}
 	return summary
 }

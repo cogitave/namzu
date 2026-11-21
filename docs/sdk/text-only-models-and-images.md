@@ -28,6 +28,10 @@ Tools that only sometimes return an image (a browser screenshot, a tool server) 
 - A fallback chain decides before the request is sent. A request that falls over mid-call from a member that reads images to one that does not is refused there and sent again without images. One that falls over the other way, from a text-only member to a vision member, is answered without its images for that request only.
 - A run that learns a model is text-only remembers it until it ends. A host that wants it remembered longer listens for the warning. In the terminal, sub-agents built later in the conversation inherit what it learned. A sub-agent that finds out for itself pays one refused request in its own run, and its warning does not reach the parent conversation.
 
+## The capability warning
+
+When a provider declares that it cannot read images (`supportsVision: false`) or documents (`supportsDocuments: false`), `query()` logs one capability warning for the user message the run answers, the one that carries the picture or file. A picture sent several replies ago was warned about then and is not warned about again before each later reply. With `strictCapabilities: true` the check is a refusal, not a warning, so it still looks at the whole history and throws `capability_unavailable` for a picture anywhere in it. `estimateMessagesTokens(messages)` is the kernel's own size estimate of a message list (text, tool calls and results, pictures, documents).
+
 ## In the terminal
 
 A refused image no longer ends the conversation. Under Auto a picture can be attached whatever the session's own model is, because the turn's model is chosen after it; a turn routed to a text-only model leaves it out. When a model refuses an image, the terminal shows one line, "This model can’t read images, so Namzu is leaving pictures out of what it sends. They come back if you pick a model that reads images with /model." If a request still fails for this reason, the message points to `/model` and never to starting a new conversation.

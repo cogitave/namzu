@@ -13,13 +13,19 @@ import type { ToolCallSummary } from '@namzu/sdk'
  * There is no separate plans-directory setting.
  */
 
-/** The tools that write a file, and the input key naming it. */
-const WRITERS = new Set(['write', 'edit'])
+/**
+ * The tools that touch the plan file: the two that write it and `read`, which
+ * brings it back in. The file lives outside the working folder, so a read of
+ * it would otherwise ask "outside the working directory" in plan mode, about
+ * a file the session itself wrote.
+ */
+const WRITERS = new Set(['write', 'edit', 'read'])
 
 /**
- * Whether a call is a write of exactly the plan file. Paths compare after
- * resolving against the working directory, so `../../.namzu/…` spellings of
- * the same file match and a prefix or a sibling does not.
+ * Whether a call writes or reads exactly the plan file (the name says write
+ * because writing is what plan mode guards). Paths compare after resolving
+ * against the working directory, so `../../.namzu/…` spellings of the same
+ * file match and a prefix or a sibling does not.
  */
 export function isPlanFileWrite(planPath: string, cwd: string) {
 	const target = resolve(planPath)

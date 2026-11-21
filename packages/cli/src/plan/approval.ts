@@ -53,7 +53,7 @@ export function planApprovalRows(bypassAvailable: boolean): readonly PlanApprova
 				}
 			: {
 					id: 'approve-accept-edits',
-					label: 'Yes, and auto-approve edits',
+					label: 'Yes, and auto-accept edits',
 					mode: 'accept-edits',
 				},
 		{

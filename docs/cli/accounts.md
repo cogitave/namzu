@@ -10,6 +10,8 @@ generated: { by: process:claude-code, at: 2026-10-31T00:00:00Z }
 
 # Accounts in the terminal
 
+A saved choice of a labelled account (`openrouter:work`, for example) counts as a credential at start: the terminal opens straight into the conversation and does not show the provider picker for a missing key, as long as the account is set up and, for a Codex account, signed in.
+
 A provider can have more than one account on this computer. `/auth` chooses the
 one a conversation runs on; other conversations, in this terminal or another,
 keep theirs. Your usual sign-in stays exactly as it was: `/login`, `/logout`,

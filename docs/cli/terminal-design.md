@@ -276,7 +276,7 @@ Esc means one thing at a time, and the thing is chosen by what the screen is doi
 |---|---|---|
 | A reply is running | interrupts it | nothing more to stop |
 | A `/` or `@` suggestion menu is open | closes the menu; the draft stays and nothing says to clear | the next Esc is a first press on a plain draft, as in the next row |
-| A Ctrl+R history search | leaves the search with the match in the box (Ctrl+C goes back to the draft that was there before; the line says so) | as for a plain draft |
+| A Ctrl+R history search (typing and Backspace edit what is searched for, Backspace on an empty search leaves it, Enter sends the match) | leaves the search with the match in the box (Ctrl+C goes back to the draft that was there before; the line says so) | as for a plain draft |
 | Vim keys on (`/vim`), the box in INSERT or VISUAL, or a command half typed | goes to NORMAL (or cancels the half-typed command); it does not stop a reply or clear the draft | in NORMAL the next Esc is the one of the rows around this one |
 | Idle, a draft typed | shows `Esc again to clear` for a second; the draft stays | within 800 ms clears the draft and adds it to the prompt history |
 | Idle, empty box, at least one message sent | arms, shows nothing | within 800 ms opens the [rewind dialog](file-checkpoints.md#rewind) |
@@ -1591,7 +1591,7 @@ Long values scroll with the cursor, including after terminal resizing, so the
 editor title and save/cancel keys remain visible. Omission marks affect only the
 display; editing and saving preserve the complete value and Unicode characters.
 
-Permission choices use plain labels: Ask before changes, Auto-approve edits and
+Permission choices use plain labels: Ask before changes, Accept edits and
 Plan (read-only). More options holds automatic tool approval, preapproved-only
 execution and the rule report. Both levels identify the effective current
 behavior and session scope. Settings use named controls and the same effective
@@ -1996,7 +1996,7 @@ On by default, and separate from the notices above: it needs no `tui.notificatio
 
 ## Keypad keys
 
-The message box asks the terminal for the kitty keyboard protocol (`disambiguateEscapeCodes`). Under it a terminal reports each keypad key as a code of its own (`ESC [ 57414 u` for the keypad Enter), which the input library names `kpenter`, `kp0` and so on and does not treat as the main key. The stream is therefore read first (`tui/keypad-keys.ts`, installed beside the paste-marker guard) and every keypad key is rewritten into what the main key sends, so the message box, the dialogs, the pickers, the question and permission prompts and the full-screen view all see the keys they already handle.
+The message box asks the terminal for the kitty keyboard protocol (`disambiguateEscapeCodes`). The input is made raw before the question is written (`tui/index.tsx`), so a terminal that answers within a few milliseconds has its answer read as input and not echoed as `^[[?0u` onto the first screen. Under it a terminal reports each keypad key as a code of its own (`ESC [ 57414 u` for the keypad Enter), which the input library names `kpenter`, `kp0` and so on and does not treat as the main key. The stream is therefore read first (`tui/keypad-keys.ts`, installed beside the paste-marker guard) and every keypad key is rewritten into what the main key sends, so the message box, the dialogs, the pickers, the question and permission prompts and the full-screen view all see the keys they already handle.
 
 - The keypad Enter is Enter and sends the message; with Shift it is Shift+Enter.
 - The keypad digits, `.`, `/`, `*`, `-`, `+`, `=` and `,` type that character.

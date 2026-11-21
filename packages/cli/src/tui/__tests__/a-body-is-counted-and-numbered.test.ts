@@ -92,10 +92,9 @@ describe('renderedDetailLines', () => {
 			row({ detail: rows, diff: { mode: 'file', hunks: [], preview: 10 }, detailRef: 1 }),
 		)
 		expect(lines).toHaveLength(11)
-		// The change hangs from the result column (five in); the two dots stand for the cells the gutter
-		// and the reserve take from a long row, so it is not counted short.
-		expect(lines[0]).toBe('      1 + line 1..')
-		expect(lines[9]).toBe('     10 + line 10..')
+		// The change hangs from the result column (five in). Without a width these rows are a count, never text.
+		expect(lines[0]).toBe('      1 + line 1')
+		expect(lines[9]).toBe('     10 + line 10')
 		expect(lines[10]).toBe('     … +4 lines (ctrl+o to expand)')
 	})
 
@@ -105,7 +104,7 @@ describe('renderedDetailLines', () => {
 			renderedDetailLines(
 				row({ detail: rows, diff: { mode: 'hunks', hunks: [], preview: 40 }, detailRef: 1 }),
 			),
-		).toEqual(rows.map((line) => `     ${line}..`))
+		).toEqual(rows.map((line) => `     ${line}`))
 	})
 
 	it('never folds an edit, which names no preview', () => {

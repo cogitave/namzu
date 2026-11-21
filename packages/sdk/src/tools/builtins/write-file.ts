@@ -98,8 +98,7 @@ export const WriteFileTool = defineTool({
 	pathArgument: 'path',
 	// An overwrite of a file that moved since the read is refused when it runs,
 	// so the person is not asked to approve one that cannot.
-	refuseBeforeReview: (input: WriteInput, context) =>
-		staleBeforeReview(context, input.path, 'write'),
+	refuseBeforeReview: refuseWriteBeforeReview,
 	// The classifier judges where a file is written and how much, not the body.
 	classifierInput: (input: WriteInput) => {
 		const body = input.content ?? input.newStr ?? ''
@@ -215,6 +214,35 @@ export const WriteFileTool = defineTool({
 		})
 	},
 })
+
+/**
+ * The refusals `execute` would give an existing file, asked before a person
+ * is: one the session never read, and one that moved since it was read. The
+ * text is the one `execute` gives. A new file, an unreadable one or a path
+ * outside the roots draw no objection here; `execute` answers those.
+ */
+async function refuseWriteBeforeReview(
+	input: WriteInput,
+	context: ToolContext,
+): Promise<{ readonly error: string; readonly facts: ToolFacts } | undefined> {
+	// In a sandbox only the moved-since-read check runs here, as before; the
+	// unread-file refusals are given when the call runs there, so a guest that is
+	// not admitted yet, or that holds a file the host has never seen, is not
+	// judged from a read made before anyone approved the call.
+	if (context.sandbox) return staleBeforeReview(context, input.path, 'write')
+	const tracker = context.fileReadTracker
+	if (!tracker) return undefined
+	let key: string
+	try {
+		key = await resolveWithinAnyReal(toolRoots(context), input.path)
+		if ((await readHostFileIfPresent(key)) === undefined) return undefined
+	} catch {
+		return undefined
+	}
+	const unread = enforceReadBeforeOverwrite(context, key)
+	if (unread?.facts) return { error: unread.error, facts: unread.facts }
+	return staleBeforeReview(context, input.path, 'write')
+}
 
 function enforceReadBeforeOverwrite(
 	context: ToolContext,

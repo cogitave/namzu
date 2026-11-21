@@ -10,7 +10,7 @@ generated: { by: process:claude-code, at: 2026-10-19T00:00:00Z }
 
 # Plan mode in the CLI
 
-Plan mode (`‖ plan mode on`, reached with Shift+Tab or `/permissions plan`) lets the model read, search and think but not change anything. Since 2026-10-19 it also has a way out that does not depend on you typing "go ahead": the model writes its plan to a file, presents it, and you approve it. The labels are in our own words. [Terminal design](terminal-design.md) and [Slash commands](slash-commands.md#permissions) describe the rest of the mode.
+Plan mode (`‖ plan mode on`, reached with Shift+Tab or `/permissions plan`) lets the model read, search and think but not change anything. Since 2026-10-19 it also has a way out that does not depend on you typing "go ahead": the model writes its plan to a file, presents it, and you approve it. Reading the session's own plan file back in plan mode is not asked about, although the file lives outside the working folder; any other read outside the roots still asks. The labels are in our own words. [Terminal design](terminal-design.md) and [Slash commands](slash-commands.md#permissions) describe the rest of the mode.
 
 ## Proposing plan mode
 
@@ -37,9 +37,11 @@ The model finishes planning by calling `exit_plan_mode`, which takes no argument
 
 The approval box shows the plan, then:
 
-1. **Yes, and auto-approve edits**: leaves plan mode for `accept-edits`. When the session may run without asking (`--yolo`, `--dangerously-skip-permissions`, `--permission-mode bypass`, `--allow-dangerously-skip-permissions`, or `permissions.defaultMode: bypass`), this row is **Yes, and run every tool without asking** and leaves for `bypass`.
+1. **Yes, and auto-accept edits**: leaves plan mode for `accept-edits`. When the session may run without asking (`--yolo`, `--dangerously-skip-permissions`, `--permission-mode bypass`, `--allow-dangerously-skip-permissions`, or `permissions.defaultMode: bypass`), this row is **Yes, and run every tool without asking** and leaves for `bypass`.
 2. **Yes, and ask before each edit**: leaves plan mode for `prompt`.
 3. **No, keep planning**: a text row. Type what to change and press Enter; the words go to the model as the reason the plan was not approved, and the mode stays `plan`. Enter on an empty text row does nothing.
+
+The box is sized from the screen: the plan page gets every row left after the box's own rows (the title, the question, the three answers, the key line) and the two rows the conversation keeps above it, so the question and all three answers stay on screen from 17 rows up (18 when the plan sits outside the session folder), and the plan scrolls by page instead of the box overflowing.
 
 Keys: ↑/↓ or a digit pick a row, Enter takes it, PgUp/PgDn page a long plan, typing anywhere starts the text row, Esc keeps planning without words, Shift+Tab approves row 1 with whatever is typed, Ctrl+C stops the reply. Approving waits out the same settle window every consent screen waits out, so a key already in flight cannot approve a plan you have not read; refusing never waits.
 

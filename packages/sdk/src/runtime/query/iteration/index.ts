@@ -79,6 +79,7 @@ import {
 	diffRequestContext,
 	snapshotRequestContext,
 } from '../request-context.js'
+import { withInterruptedRequestsMarked } from '../request-interrupted-turns.js'
 import {
 	type RequestImageIdentity,
 	markProviderRejectedImage,
@@ -1079,8 +1080,12 @@ export class IterationOrchestrator {
 					// and a mode change would re-key the whole conversation.
 					if (policyNotice) requestHistory.push(stepContextMessage(policyNotice))
 					const projected = projectRequestRichContent(
-						withoutVoidAssistantTurns(
-							this.projectObservations(framePastedMessages(requestHistory)),
+						// After the empty entries are dropped: an interrupted turn can leave
+						// one behind, and it answered nothing.
+						withInterruptedRequestsMarked(
+							withoutVoidAssistantTurns(
+								this.projectObservations(framePastedMessages(requestHistory)),
+							),
 						),
 						this.richContentBudget(),
 						{ imagesReadable: this.modelReadsImages(stepModel) },

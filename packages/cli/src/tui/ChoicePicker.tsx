@@ -46,7 +46,15 @@ export interface ChoicePickerProps {
 	readonly searchPlaceholder?: string
 	/** Drawn under the rows, above the key hints (the theme picker's sample). */
 	readonly extra?: ReactNode
+	/**
+	 * A question's options: the selected option's whole description is shown, wrapped, under
+	 * its row, and the corner carries no `n/m` count (it would read as a question number).
+	 */
+	readonly describeSelected?: boolean
 }
+
+/** The most lines the selected option's description takes when it is shown whole. */
+export const SELECTED_DESCRIPTION_LINES = 8
 
 /** The most lines a description takes when it wraps under its label. */
 const STACKED_DESCRIPTION_LINES = 2
@@ -65,6 +73,7 @@ export function ChoicePicker({
 	query,
 	searchPlaceholder = 'Type to filter',
 	extra,
+	describeSelected = false,
 }: ChoicePickerProps) {
 	const terminal = useWindowSize()
 	const columns = availableColumns ?? terminal.columns ?? 80
@@ -78,12 +87,27 @@ export function ChoicePicker({
 	const hasRule = options.some((option) => option.ruleBefore)
 	// Below 70 columns a description sits under its label and wraps (two lines
 	// at most) rather than being cut mid-sentence.
-	const stackedDescription = (option: ChoicePickerOption): readonly string[] =>
+	const stackedDescription = (option: ChoicePickerOption, whole = false): readonly string[] =>
 		capChoiceLines(
 			wrapChoiceText(option.disabledReason ?? option.description, Math.max(1, columns - 4 - 4)),
-			STACKED_DESCRIPTION_LINES,
+			whole ? SELECTED_DESCRIPTION_LINES : STACKED_DESCRIPTION_LINES,
 			Math.max(1, columns - 4 - 4),
 		)
+	// Under a row, the selected option's description in full; the height is the tallest any
+	// option needs, so the box does not change height as the cursor moves.
+	const wholeDescription = (option: ChoicePickerOption): readonly string[] =>
+		option.description.length === 0
+			? []
+			: capChoiceLines(
+					wrapChoiceText(option.description, Math.max(1, contentWidth - 4)),
+					SELECTED_DESCRIPTION_LINES,
+					Math.max(1, contentWidth - 4),
+				)
+	const detailRows = !describeSelected
+		? 0
+		: stacked
+			? SELECTED_DESCRIPTION_LINES - STACKED_DESCRIPTION_LINES
+			: Math.max(0, ...options.map((option) => wholeDescription(option).length))
 	const pageSize = choicePickerWindowSize({
 		rowHeight: stacked
 			? 1 + Math.max(1, ...options.map((option) => stackedDescription(option).length))
@@ -95,9 +119,10 @@ export function ChoicePicker({
 		selectedDescription: hasDetail,
 		rule: hasRule,
 		windowSize,
+		detailRows,
 	})
 	const { start, items: visible } = selectionWindow(options, selected, pageSize)
-	const count = `${selectedOption ? selected + 1 : 0}/${options.length}`
+	const count = describeSelected ? '' : `${selectedOption ? selected + 1 : 0}/${options.length}`
 	const markerFor = (option: ChoicePickerOption) =>
 		[
 			option.current ? '[current]' : '',
@@ -146,7 +171,7 @@ export function ChoicePicker({
 		<Box flexDirection="column" borderStyle="round" borderColor={theme.border.default} paddingX={1}>
 			<Box justifyContent="space-between">
 				<Text color={theme.accent.assistant} bold>
-					{truncateChoiceText(title, contentWidth - choiceDisplayWidth(count) - 1)}
+					{truncateChoiceText(title, contentWidth - (count ? choiceDisplayWidth(count) + 1 : 0))}
 				</Text>
 				<Text color={theme.text.muted}>{count}</Text>
 			</Box>
@@ -206,7 +231,7 @@ export function ChoicePicker({
 									</Text>
 								</Box>
 							) : null}
-							{!stacked ? (
+							{!stacked && !(describeSelected && active) ? (
 								<Box paddingLeft={1} flexGrow={1} minWidth={0}>
 									<Text color={theme.text.muted}>
 										{truncateAtSeparator(description, descriptionWidth)}
@@ -216,7 +241,7 @@ export function ChoicePicker({
 						</Box>
 						{stacked ? (
 							<Box paddingLeft={4} flexDirection="column">
-								{stackedDescription(option).map((line, lineIndex) => (
+								{stackedDescription(option, describeSelected && active).map((line, lineIndex) => (
 									// biome-ignore lint/suspicious/noArrayIndexKey: a wrapped line has no identity beyond its position.
 									<Text key={`l-${lineIndex}`} color={theme.text.muted}>
 										{line}
@@ -227,6 +252,16 @@ export function ChoicePicker({
 					</Box>
 				)
 			})}
+			{describeSelected && !stacked && detailRows > 0 ? (
+				<Box height={detailRows} paddingLeft={4} flexDirection="column">
+					{(selectedOption ? wholeDescription(selectedOption) : []).map((line, lineIndex) => (
+						// biome-ignore lint/suspicious/noArrayIndexKey: a wrapped line has no identity beyond its position.
+						<Text key={`d-${lineIndex}`} color={theme.text.secondary}>
+							{line}
+						</Text>
+					))}
+				</Box>
+			) : null}
 			{hasDetail ? (
 				<Box height={1}>
 					<Text color={selectedOption?.disabledReason ? theme.status.warn : theme.text.secondary}>

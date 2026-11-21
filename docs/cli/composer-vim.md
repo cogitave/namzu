@@ -36,7 +36,7 @@ The mode is written at the left end of the footer line. It is the last item to g
 - **Esc in INSERT** goes to NORMAL, with the cursor one character left (not at the start of a line). **Esc in VISUAL** goes to NORMAL. Neither stops a running reply nor clears the draft: they are vim's Esc.
 - An open `/` or `@` menu, and shell mode, take their Esc first: the first Esc closes the menu or leaves shell mode and stays in INSERT, the next goes to NORMAL. A history search keeps its own keys.
 - **Esc in NORMAL** with a command half typed (`d`, `2`, `f`) cancels that command and nothing else. With nothing half typed it is Esc as it always was: it stops a running reply, otherwise it is the first press of `Esc again to clear` and of the rewind.
-- **Enter** sends in INSERT and in NORMAL, even with a count or operator half typed. In VISUAL it moves down a line. A new line in the draft is still Shift+Enter, Alt+Enter, Ctrl+J or a trailing backslash.
+- **Enter** sends in INSERT and in NORMAL, even with a count or operator half typed. In VISUAL it moves down a line. A new line in the draft is still Shift+Enter, Alt+Enter, Ctrl+J or a trailing backslash (Enter right after a single `\` drops the backslash and breaks the line; a doubled `\\` is an escaped backslash and Enter sends it).
 - Ctrl and Alt keys keep their meaning in INSERT and NORMAL and do not change the mode (Ctrl+U and Ctrl+K edit the draft in NORMAL too; Ctrl+R opens the history search; Ctrl+_ undoes). In VISUAL they first leave VISUAL; Ctrl+V still attaches an image.
 
 ## What is built

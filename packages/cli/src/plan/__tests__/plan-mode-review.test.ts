@@ -50,6 +50,18 @@ describe('plan mode in the terminal', () => {
 		expect(decision).toEqual({ action: 'approve_tools' })
 	})
 
+	it('does not ask about reading the plan file back, and still asks about another file outside the roots', async () => {
+		const isPlan = isPlanFileWrite(PLAN, '/work')
+		const read = call('read', { path: PLAN }, { escalation: { outsidePaths: [PLAN] } as never })
+		expect(await handler(isPlan)(review(read))).toEqual({ action: 'approve_tools' })
+		const other = call(
+			'read',
+			{ path: '/etc/hosts' },
+			{ escalation: { outsidePaths: ['/etc/hosts'] } as never },
+		)
+		expect(await handler(isPlan)(review(other))).not.toEqual({ action: 'approve_tools' })
+	})
+
 	it('still refuses everything else, and the plan file as well when the session has none', async () => {
 		const isPlan = isPlanFileWrite(PLAN, '/work')
 		const refused = { action: 'reject_tools', feedback: PLAN_MODE_REFUSAL }

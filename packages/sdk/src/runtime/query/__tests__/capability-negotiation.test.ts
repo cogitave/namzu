@@ -253,6 +253,31 @@ describe('query() capability negotiation', () => {
 		expect(events.some((e) => e.type === 'capability_warning')).toBe(false)
 	})
 
+	it('warns about a picture for the message that carries it, not again on later replies', async () => {
+		const provider = capturingProvider(NO_VISION_CAPABILITIES)
+		const events: SessionEvent[] = []
+
+		await drainQuery(
+			{
+				...baseParams(provider, [], await mkWorkdir()),
+				messages: [
+					createUserMessage('what is in this image?', [
+						{ data: 'aGVsbG8=', mediaType: 'image/png' },
+					]),
+					{ role: 'assistant', content: 'a cat' },
+					createUserMessage('and what colour is it?'),
+				],
+			},
+			(event) => {
+				events.push(event)
+			},
+		)
+
+		expect(events.some((e) => e.type === 'capability_warning' && e.capability === 'vision')).toBe(
+			false,
+		)
+	})
+
 	it('warns before the request that first carries an unsupported tool image, once', async () => {
 		const order: string[] = []
 		let request = 0
@@ -405,6 +430,22 @@ describe('query() capability negotiation', () => {
 			drainQuery({
 				...baseParams(provider, [], await mkWorkdir()),
 				messages: [createUserMessage('describe', [{ data: 'aGVsbG8=', mediaType: 'image/png' }])],
+				strictCapabilities: true,
+			}),
+		).rejects.toThrow(/supportsVision: false/)
+	})
+
+	it('strictCapabilities: true still refuses a picture sent earlier in the history', async () => {
+		const provider = capturingProvider(NO_VISION_CAPABILITIES)
+
+		await expect(
+			drainQuery({
+				...baseParams(provider, [], await mkWorkdir()),
+				messages: [
+					createUserMessage('describe', [{ data: 'aGVsbG8=', mediaType: 'image/png' }]),
+					{ role: 'assistant', content: 'a cat' },
+					createUserMessage('and its colour?'),
+				],
 				strictCapabilities: true,
 			}),
 		).rejects.toThrow(/supportsVision: false/)

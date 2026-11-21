@@ -106,6 +106,22 @@ describe('the /compact result line', () => {
 		)
 	})
 
+	it('counts tool calls and results too, not only text', () => {
+		const text = estimateHistoryTokens([{ role: 'user', content: 'a'.repeat(40) }] as never)
+		const withTools = estimateHistoryTokens([
+			{ role: 'user', content: 'a'.repeat(40) },
+			{
+				role: 'assistant',
+				content: '',
+				toolCalls: [
+					{ id: 'c', type: 'function', function: { name: 'read', arguments: 'x'.repeat(400) } },
+				],
+			},
+			{ role: 'tool', toolCallId: 'c', content: [{ type: 'text', text: 'y'.repeat(4000) }] },
+		] as never)
+		expect(withTools).toBeGreaterThan(text + 1000)
+	})
+
 	it('estimates a conversation from its text, four characters to a token', () => {
 		expect(
 			estimateHistoryTokens([
