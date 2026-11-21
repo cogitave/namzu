@@ -588,6 +588,16 @@ const BashToolBase = defineTool({
 	// The kernel reviews a call that sets it under a sandbox every time and
 	// confirms it only by id; see `ToolDefinition.sandboxEscapeArgument`.
 	sandboxEscapeArgument: 'dangerously_disable_sandbox',
+	// A long leading sleep is refused when the command runs, with the better
+	// ways to wait. The same answer is given here, before a person is asked to
+	// approve a command that would be blocked the moment they said yes.
+	refuseBeforeReview: async (input: BashInput, context) => {
+		if (input.run_in_background || !context.backgroundJobs || backgroundTasksDisabled()) {
+			return undefined
+		}
+		const longSleep = leadingLongSleep(input.command)
+		return longSleep === null ? undefined : { error: longSleepRefusal(longSleep) }
+	},
 	permissions: ['shell_execute'],
 	// A line made only of vetted read-only commands (`ls`, `cat`, `git status`,
 	// `git diff`, ...) needs no prompt and may run beside other reads; see

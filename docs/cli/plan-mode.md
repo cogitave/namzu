@@ -10,7 +10,7 @@ generated: { by: process:claude-code, at: 2026-10-19T00:00:00Z }
 
 # Plan mode in the CLI
 
-Plan mode (`‖ plan mode on`, reached with Shift+Tab or `/permissions plan`) lets the model read, search and think but not change anything. Since 2026-10-19 it also has a way out that does not depend on you typing "go ahead": the model writes its plan to a file, presents it, and you approve it. The labels are in our own words. [Terminal design](terminal-design.md) and [Slash commands](slash-commands.md#permissions) describe the rest of the mode.
+Plan mode (`‖ plan mode on`, reached with Shift+Tab or `/permissions plan`) lets the model read, search and think but not change anything. Since 2026-10-19 it also has a way out that does not depend on you typing "go ahead": the model writes its plan to a file, presents it, and you approve it. Reading the session's own plan file back in plan mode is not asked about, although the file lives outside the working folder; any other read outside the roots still asks. The labels are in our own words. [Terminal design](terminal-design.md) and [Slash commands](slash-commands.md#permissions) describe the rest of the mode.
 
 ## Proposing plan mode
 

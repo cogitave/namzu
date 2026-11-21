@@ -230,3 +230,7 @@ outside its roots as before.
 The replacement is written into the result when the batch settles, before the result becomes a history
 message, so it is what every later request carries. Nothing is decided again on a later turn, so a
 prompt-cache prefix over it stays valid. The `tool_completed` event keeps the result as the tool returned it.
+
+## A call that will be refused is not asked about
+
+`edit` and `write` answer before a person is asked when the call cannot run: an `edit` whose text does not match a file the session never read (the file's contents come back, as they do at run time), an `edit` that names no change or whose text is not in the file, an overwrite by `write` of an existing file the session never read, and either one on a file that moved since it was read. `bash` does the same for a command that opens with a long `sleep` where a job registry exists to wait on. The model gets the same text it would have after a yes, and no dialog opens. An `edit` that matches a file never read still goes to review, since it is applied. A tool declares this with `refuseBeforeReview`.

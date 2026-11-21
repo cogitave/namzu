@@ -1261,7 +1261,7 @@ describe('publishing a picker selection', () => {
 		harness.stdin.write('6')
 		await frameShows(harness.lastFrame, 'More permission options')
 		harness.stdin.write('2')
-		await frameShows(harness.lastFrame, 'No custom rules.')
+		await frameShows(harness.lastFrame, 'Allowed without asking (0)')
 
 		await submit(harness, 'use the selected settings')
 		await vi.waitFor(() => expect(efforts).toEqual(['low', 'low', 'low']))

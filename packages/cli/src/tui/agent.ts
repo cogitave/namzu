@@ -299,7 +299,11 @@ import {
 	sessionPromptInput,
 } from '../context/system-prompt.js'
 import { createRepositorySnapshotStep, readTurnSnapshot } from '../context/turn-snapshot.js'
-import { openCliAccounts } from '../integrations/accounts/open.js'
+import {
+	type CliAccounts,
+	openCliAccounts,
+	storedAccountSignedIn,
+} from '../integrations/accounts/open.js'
 import { accountProductName } from '../integrations/accounts/rows.js'
 import { createLazyCodeAnalysis } from '../integrations/analysis/provider.js'
 import { carriedAcrossCompaction } from '../integrations/compaction/carried.js'
@@ -1978,6 +1982,8 @@ export interface AgentSession {
 	 * such answer.
 	 */
 	readonly allowForSession?: (allows: readonly SessionAllow[]) => string | undefined
+	/** The allows given at a prompt and held for this conversation. */
+	readonly rememberedAllows?: () => readonly SessionAllow[]
 	/**
 	 * Tell the configured `notification` hooks that the operator's attention is
 	 * wanted (a review is waiting, a turn settled). Fire-and-forget: a hook that
@@ -2409,9 +2415,10 @@ export async function probeAgentSession(
  * and the session still runs on the primary the operator has; taking that
  * session away over a spare would be the trade the notice already refuses.
  */
-function credentialGap(
+export function credentialGap(
 	prefs: Preferences,
 	detected: readonly DetectedProvider[],
+	accounts: () => CliAccounts = openCliAccounts,
 ): { providerId: ProviderId; reason: string } | null {
 	const primary = primaryProvider(prefs)
 	const entry = PROVIDER_REGISTRY[primary.id]
@@ -2423,6 +2430,17 @@ function credentialGap(
 	if (!entry || !entry.constructible) return null
 	const model = primary.model ?? entry.defaultModel
 	if (!requiresCredentialForModel(entry, model)) return null
+	// A saved account other than the usual sign-in carries its own credential,
+	// which discovery does not look at: the session builder resolves it, so a
+	// primary bound to one that is set up and signed in is not a gap.
+	if (primary.account !== undefined && !isDefaultAccountId(primary.account)) {
+		try {
+			const found = accounts().registry.get(primary.account)
+			if (found && found.provider === primary.id && storedAccountSignedIn(found)) return null
+		} catch {
+			// An unreadable registry is not an answer; the check below decides.
+		}
+	}
 	const det = findDetected(detected, primary.id)
 	if (hasApiCredential(entry, det?.apiKey)) return null
 	const reason =
@@ -7060,6 +7078,7 @@ export async function createAgentSession(
 		errorKind: null,
 		// Reads the same object the handler mutates, at call time.
 		allowForSession: (allows) => sessionAllows.add(allows),
+		rememberedAllows: () => sessionAllows.list(),
 		notifyHooks: (info) => {
 			if (!sessionPlugins) return
 			void sessionPlugins.manager
