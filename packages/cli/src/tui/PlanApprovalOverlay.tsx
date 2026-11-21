@@ -43,12 +43,22 @@ export interface PlanApprovalOverlayProps {
 	readonly now?: () => number
 }
 
-/** Rows the box spends on everything but the plan. */
-const CHROME_ROWS = 14
+/**
+ * Rows the box spends on everything but the plan: the blank row above it, the
+ * two border rows, the title, the blank row above the plan, the paging line,
+ * the blank row above the question, the question, the key line, and the three
+ * answers.
+ */
+const BOX_ROWS = 12
+/** The path line under the title, shown only for a plan that is not in the session's own folder. */
+const PATH_ROWS = 1
+/** Rows the conversation keeps above the box: the waiting line and the blank row under it, plus one for the cursor row. */
+const ABOVE_ROWS = 4
 
 /** How many rows of the plan fit on a screen `terminalRows` tall. */
-export function planPageRows(terminalRows: number | undefined): number {
-	return Math.max(4, Math.min(30, (terminalRows ?? 24) - CHROME_ROWS))
+export function planPageRows(terminalRows: number | undefined, showsPath = false): number {
+	const chrome = BOX_ROWS + ABOVE_ROWS + (showsPath ? PATH_ROWS : 0)
+	return Math.max(4, Math.min(30, (terminalRows ?? 24) - chrome))
 }
 
 export function PlanApprovalOverlay({
@@ -66,7 +76,8 @@ export function PlanApprovalOverlay({
 	const [offset, setOffset] = useState(0)
 	const shownAt = useRef(now())
 
-	const pageRows = planPageRows(terminalRows)
+	const showsPath = !isSessionPlanPath(request.planPath)
+	const pageRows = planPageRows(terminalRows, showsPath)
 	const planRows = permissionReviewRows(request.plan.trimEnd(), columns)
 	const maxOffset = Math.max(0, planRows.length - pageRows)
 	const top = Math.min(offset, maxOffset)
@@ -159,6 +170,7 @@ export function PlanApprovalOverlay({
 			borderColor={theme.accent.plan}
 			paddingX={1}
 			marginTop={1}
+			flexShrink={0}
 		>
 			<Text color={theme.accent.plan} bold>
 				Plan ready for review
@@ -170,7 +182,7 @@ export function PlanApprovalOverlay({
 			)}
 			<Box flexDirection="column" paddingLeft={2} paddingTop={1}>
 				{visible.map((row) => (
-					<Box key={row.index} width="100%">
+					<Box key={row.index} width="100%" flexShrink={0}>
 						<Text color={theme.text.primary} bold={!row.continuation && /^#{1,6}\s/.test(row.text)}>
 							{row.continuation ? `↳ ${row.text}` : row.text.length > 0 ? row.text : ' '}
 						</Text>

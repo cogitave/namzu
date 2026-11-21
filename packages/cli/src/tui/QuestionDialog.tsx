@@ -284,6 +284,11 @@ export function QuestionDialog({ question, columns, onAnswer }: QuestionDialogPr
 		const picked = s.picked[s.tab] ?? []
 		const focused = rows[cursor]
 		const preview = focused?.kind === 'option' ? item.options[focused.index]?.preview : undefined
+		const focusedText =
+			focused?.kind === 'option' ? item.options[focused.index]?.description : undefined
+		const focusedDescription = focusedText
+			? wrapChoiceText(focusedText, Math.max(1, width - 4)).slice(0, 4)
+			: []
 		const lastRow = lone ? 'Submit' : s.tab === count - 1 ? 'Review' : 'Next'
 		body = (
 			<Box flexDirection="column">
@@ -327,12 +332,14 @@ export function QuestionDialog({ question, columns, onAnswer }: QuestionDialogPr
 					const badge = option.recommended ? ' [recommended]' : ''
 					const room = Math.max(1, width - choiceDisplayWidth(`${lead}${mark}${badge}`))
 					const label = truncateChoiceText(option.label, Math.min(room, 40))
-					const description = option.description
-						? truncateChoiceText(
-								option.description,
-								Math.max(0, room - choiceDisplayWidth(label) - 2),
-							)
-						: ''
+					// The cursor's option shows its description whole under the list.
+					const description =
+						option.description && !active
+							? truncateChoiceText(
+									option.description,
+									Math.max(0, room - choiceDisplayWidth(label) - 2),
+								)
+							: ''
 					return (
 						<Box key={option.id}>
 							<Text color={chosen ? theme.status.ok : tone} bold={active}>
@@ -345,6 +352,16 @@ export function QuestionDialog({ question, columns, onAnswer }: QuestionDialogPr
 						</Box>
 					)
 				})}
+				{focusedDescription.length > 0 ? (
+					<Box flexDirection="column" paddingLeft={4}>
+						{focusedDescription.map((line, index) => (
+							// biome-ignore lint/suspicious/noArrayIndexKey: lines are positional
+							<Text key={index} color={theme.text.secondary}>
+								{line}
+							</Text>
+						))}
+					</Box>
+				) : null}
 				{preview ? (
 					<Box flexDirection="column" marginTop={1} paddingLeft={2}>
 						{wrapChoiceText(preview, width - 4)

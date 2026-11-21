@@ -18470,6 +18470,7 @@ function AppBody({
 										: {})}
 									{...(choicePicker.kind === 'account' ? { hints: ACCOUNT_PICKER_HINTS } : {})}
 									options={filterChoiceOptions(choicePicker.options, choiceQuery)}
+									describeSelected={choicePicker.kind === 'user-question'}
 									query={choicePickerSearchable(choicePicker) ? choiceQuery : undefined}
 									selected={selectedChoice}
 									windowSize={

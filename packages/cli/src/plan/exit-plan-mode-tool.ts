@@ -46,7 +46,7 @@ export function buildExitPlanModeTool(host: ExitPlanModeHost): ToolDefinition {
 	return defineTool({
 		name: EXIT_PLAN_MODE_TOOL_NAME,
 		description:
-			'Present the finished plan for the user to approve and leave plan mode. Write the plan to the plan file first; this tool reads it from there and takes no arguments. The user picks how to continue (auto-approve edits, or ask before each edit) or sends you back to planning with feedback. Call it only while in plan mode, only when the plan is ready, and never ask for approval of a plan any other way.',
+			'Present the finished plan for the user to approve and leave plan mode. Write the plan to the plan file first; this tool reads it from there and takes no arguments. The user picks how to continue (auto-accept edits, or ask before each edit) or sends you back to planning with feedback. Call it only while in plan mode, only when the plan is ready, and never ask for approval of a plan any other way.',
 		inputSchema: mcpJsonSchemaToZod({
 			type: 'object',
 			properties: {},

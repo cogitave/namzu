@@ -513,7 +513,7 @@ describe('the composer on a production-shaped terminal', () => {
 		}
 	})
 
-	it('keeps a no-match search as an editable draft', async () => {
+	it('keeps the draft in a no-match search and sends it', async () => {
 		const submit = vi.fn()
 		const screen = await renderToScreen(<Composer history={['older prompt']} onSubmit={submit} />, {
 			cols: 100,
@@ -525,14 +525,15 @@ describe('the composer on a production-shaped terminal', () => {
 			await screen.waitForRender()
 			expect(screen.viewport().join('\n')).toContain('draft · 0 matches')
 
+			// Typing edits the query; the box keeps the draft while nothing matches.
 			screen.press('!')
 			await screen.waitForRender()
-			expect(screen.viewport().join('\n')).not.toContain('Ctrl+R older')
+			expect(screen.viewport().join('\n')).toContain('history “unmatched!” · draft · 0 matches')
 			screen.press('\r')
 			await screen.waitForRender()
 
 			expect(submit).toHaveBeenCalledWith(
-				'unmatched!',
+				'unmatched',
 				undefined,
 				'submit',
 				expect.objectContaining({ source: 'composer' }),
