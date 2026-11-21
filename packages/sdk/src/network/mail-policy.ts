@@ -11,6 +11,7 @@
  * @experimental
  */
 
+import { permissionModeWord } from '../peers/mode-word.js'
 import type { NetworkClock } from './clock.js'
 import { MAX_HOPS, MAX_NET_TEXT_BYTES } from './wire.js'
 
@@ -75,7 +76,7 @@ export function decideMail(input: MailDecisionInput): MailDecision {
 	if (sender.vouchedMode !== receiver.mode) {
 		return {
 			action: 'hold',
-			reason: `its permission mode differs (it is in ${sender.vouchedMode}, you are in ${receiver.mode})`,
+			reason: `its permission mode differs (it is in ${permissionModeWord(sender.vouchedMode)}, you are in ${permissionModeWord(receiver.mode)})`,
 		}
 	}
 	if (input.pairCount > LOOP_THRESHOLD)

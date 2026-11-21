@@ -2056,6 +2056,7 @@ export {
 	derivePeerRef,
 	formatPeerMessage,
 	formatPersonMessage,
+	permissionModeWord,
 	formatPeerNotice,
 	formatRoleContext,
 	hardenPeerRuntimeDir,

@@ -12,6 +12,7 @@
  * @experimental
  */
 
+export { permissionModeWord } from './mode-word.js'
 export { parsePeerAddress, pipePeerAddress, PeerAddressError, udsPeerAddress } from './address.js'
 export type { PeerAddress } from './address.js'
 

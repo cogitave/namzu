@@ -5,12 +5,13 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import { type ManualClock, createManualClock } from './clock.js'
-import { createDiscoveryHub } from './discovery.js'
+import { type NetworkDiscovery, createDiscoveryHub, createFakeDiscovery } from './discovery.js'
 import { generateMachineKey } from './identity.js'
 import { JOIN_ADDRESS_WINDOW_MS } from './join.js'
 import { HOLD_EXPIRY_MS } from './mail-policy.js'
 import type { LocalSession } from './roster.js'
 import {
+	FRESH_NETWORK_MS,
 	type NetworkEvent,
 	type NetworkHost,
 	type NetworkService,
@@ -78,6 +79,7 @@ function machine(
 	name: string,
 	world: { hub: ReturnType<typeof createDiscoveryHub>; clock: ManualClock },
 	sessions: LocalSession[] = [],
+	discovery?: NetworkDiscovery,
 ): Machine {
 	const home = mkdtempSync(join(tmpdir(), 'namzu-net-svc-'))
 	homes.push(home)
@@ -103,7 +105,7 @@ function machine(
 		home,
 		host,
 		interactive: true,
-		discovery: world.hub.create(),
+		discovery: discovery ?? world.hub.create(),
 		clock: world.clock,
 		interfaces: loopback,
 		allowLoopback: true,
@@ -279,6 +281,105 @@ describe('creating and joining a network', () => {
 		// The member the joiner reached shows it by the name it gave, before the joiner's own greeting arrives.
 		const reached = onB.request.local ? b : a
 		expect(reached.svc.members().map((m) => m.name)).toContain('mini')
+	})
+
+	it('two machines started together end up in one network after one Allow, with nothing typed', async () => {
+		const world = newWorld()
+		const a = machine('studio', world, [session('aaaaaa', 'calm-heron')])
+		const b = machine('desk', world, [session('bbbbbb', 'swift-finch')])
+		await a.svc.start()
+		await b.svc.start()
+		// both browsed for the whole window and heard nothing, so both founded their own network
+		world.clock.advance(5000)
+		await a.until((e) => e.type === 'founded')
+		await b.until((e) => e.type === 'founded')
+		const netA = a.svc.status().netId
+		const netB = b.svc.status().netId
+		expect(netA).not.toBe(netB)
+		// the one that is younger (by its own clock) is the one that asks; the other only gets a request
+		const requestOn = await Promise.race([
+			a.until((e) => e.type === 'join-request').then((e) => ({ older: a, younger: b, e })),
+			b.until((e) => e.type === 'join-request').then((e) => ({ older: b, younger: a, e })),
+		])
+		const request = (requestOn.e as Extract<NetworkEvent, { type: 'join-request' }>).request
+		const waiting = (await requestOn.younger.until((e) => e.type === 'join-waiting')) as Extract<
+			NetworkEvent,
+			{ type: 'join-waiting' }
+		>
+		expect(waiting.code).toBe(request.code)
+		expect(requestOn.younger.svc.status().members).toBe(1)
+		await requestOn.older.svc.allow(request.code)
+		await requestOn.younger.until((e) => e.type === 'joined')
+		expect(requestOn.younger.svc.status().netId).toBe(requestOn.older.svc.status().netId)
+		expect(requestOn.older.svc.status().members).toBe(2)
+	})
+
+	it('a machine that has been alone for a long time does not step down for a new one', async () => {
+		const world = newWorld()
+		const a = machine('studio', world)
+		await found(a, world.clock)
+		world.clock.advance(FRESH_NETWORK_MS + 1000)
+		const b = machine('desk', world)
+		await b.svc.start()
+		world.clock.advance(5000)
+		// b browsed, heard a's network and asked to join it; a never asks anything
+		await a.until((e) => e.type === 'join-request')
+		expect(a.events.some((e) => e.type === 'join-waiting')).toBe(false)
+		expect(b.events.some((e) => e.type === 'founded')).toBe(false)
+	})
+
+	it('a person can cancel the request a machine is waiting on', async () => {
+		const world = newWorld()
+		const a = machine('studio', world)
+		await found(a, world.clock)
+		world.clock.advance(JOIN_ADDRESS_WINDOW_MS)
+		const b = machine('desk', world)
+		expect(b.svc.cancelJoin()).toBe(false)
+		await b.svc.start()
+		world.clock.advance(5000)
+		await b.until((e) => e.type === 'join-waiting')
+		await a.until((e) => e.type === 'join-request')
+		expect(b.svc.cancelJoin()).toBe(true)
+		await b.until((e) => e.type === 'join-ended')
+		expect(b.events.find((e) => e.type === 'join-ended')).toMatchObject({ result: 'cancelled' })
+		await a.until((e) => e.type === 'join-settled')
+		expect(a.svc.pendingJoins()).toEqual([])
+		expect(b.svc.status().members).toBe(0)
+	})
+
+	it('hears two networks nearby: asks neither and offers one address for each', async () => {
+		const world = newWorld()
+		const other = newWorld()
+		const a = machine('studio', world)
+		const b = machine('desk', other)
+		await found(a, world.clock)
+		await found(b, other.clock)
+		const fake = createFakeDiscovery()
+		const c = machine('mini', world, [], fake)
+		await c.svc.start()
+		const addrA = { netId: a.svc.status().netId as string, host: '127.0.0.1', port: a.addr().port }
+		const addrB = { netId: b.svc.status().netId as string, host: '127.0.0.1', port: b.addr().port }
+		fake.emitFound(addrA)
+		fake.emitFound(addrB)
+		world.clock.advance(5000)
+		await c.until((e) => e.type === 'state' && e.state === 'ambiguous')
+		expect(c.events.some((e) => e.type === 'join-waiting')).toBe(false)
+		expect(a.svc.pendingJoins()).toEqual([])
+		expect(b.svc.pendingJoins()).toEqual([])
+		expect(
+			c.svc
+				.nearbyNetworks()
+				.map((n) => n.port)
+				.sort(),
+		).toEqual([addrA.port, addrB.port].sort())
+		// choosing one is a single join call
+		const choice = c.svc.nearbyNetworks().find((n) => n.port === addrB.port) as {
+			host: string
+			port: number
+		}
+		void c.svc.join({ host: choice.host, port: choice.port }).catch(() => undefined)
+		await b.until((e) => e.type === 'join-request')
+		expect(a.svc.pendingJoins()).toEqual([])
 	})
 
 	it('does not join without an Allow, and a second decision is refused', async () => {
@@ -622,6 +723,75 @@ describe('mail between machines', () => {
 			for (const line of log.trim().split('\n')) JSON.parse(line)
 		}
 		expect(readFileSync(join(b.home, 'network', 'audit.jsonl'), 'utf8')).toContain('mail_held')
+	})
+})
+
+describe('the audit log records every role change and mail decision, on both machines, without text', () => {
+	const from = { sessionRef: 'aaaaaa', sessionName: 'calm-heron', mode: 'auto' }
+	it('writes who, what, direction and a hash for roles and for each outcome of a message', async () => {
+		const { world, a, b } = await trio()
+		const bId = b.svc.identity()?.machineId as string
+		const role = 'reviews the parser changes'
+		await a.svc.setRole({ machineId: bId, sessionRef: 'bbbbbb' }, role)
+		await a.svc.setRole({ machineId: bId, sessionRef: 'bbbbbb' }, null)
+		const to = (ref: string) => ({ machineId: bId, sessionRef: ref })
+		await a.svc.send(to('bbbbbb'), 'accepted words', from)
+		await a.svc.send(to('b2b2b2'), 'allowed words', from)
+		await a.svc.send(to('b2b2b2'), 'denied words', from)
+		await a.svc.send(to('b2b2b2'), 'expired words', from)
+		await a.svc.send(to('ffffff'), 'refused words', from)
+		const held = b.svc.held()
+		expect(held).toHaveLength(3)
+		await b.svc.allowHeld(held[0]?.id as string)
+		await b.svc.denyHeld(held[1]?.id as string)
+		world.clock.advance(HOLD_EXPIRY_MS)
+		await a.until((e) => e.type === 'mail-outcome' && e.outcome === 'expired')
+		await a.svc.close()
+		await b.svc.close()
+		const read = (m: Machine) =>
+			readFileSync(join(m.home, 'network', 'audit.jsonl'), 'utf8')
+				.trim()
+				.split('\n')
+				.map((l) => JSON.parse(l) as Record<string, unknown>)
+		for (const m of [a, b]) {
+			const text = readFileSync(join(m.home, 'network', 'audit.jsonl'), 'utf8')
+			for (const word of [
+				'parser',
+				'accepted words',
+				'allowed words',
+				'denied words',
+				'expired words',
+			])
+				expect(text).not.toContain(word)
+		}
+		const onA = read(a)
+		const onB = read(b)
+		const roleOut = onA.filter((e) => e.event === 'role_set')
+		expect(roleOut).toHaveLength(2)
+		expect(roleOut[0]).toMatchObject({ direction: 'out', session: 'bbbbbb', decision: 'set' })
+		expect(typeof roleOut[0]?.textHash).toBe('string')
+		expect(roleOut[1]).toMatchObject({ decision: 'clear' })
+		expect(onB.filter((e) => e.event === 'role_set' && e.direction === 'in')).toHaveLength(2)
+		const kinds = (log: Record<string, unknown>[], direction: string) =>
+			new Set(log.filter((e) => e.direction === direction).map((e) => e.event))
+		for (const k of [
+			'mail_accepted',
+			'mail_held',
+			'mail_allowed',
+			'mail_denied',
+			'mail_expired',
+			'mail_refused',
+		])
+			expect(kinds(onB, 'in'), `receiver ${k}`).toContain(k)
+		for (const k of [
+			'mail_accepted',
+			'mail_held',
+			'mail_allowed',
+			'mail_denied',
+			'mail_expired',
+			'mail_refused',
+		])
+			expect(kinds(onA, 'out'), `sender ${k}`).toContain(k)
 	})
 })
 

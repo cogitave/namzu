@@ -82,6 +82,7 @@ export type {
 
 export {
 	BROWSE_WINDOW_MS,
+	FRESH_NETWORK_MS,
 	DEFAULT_LISTEN_PORT,
 	createNamzuNetwork,
 	parseHostPort,

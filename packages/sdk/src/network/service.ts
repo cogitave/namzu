@@ -91,6 +91,11 @@ import { buildMachineCertificate } from './x509.js'
 
 export const DEFAULT_LISTEN_PORT = 47_310
 export const BROWSE_WINDOW_MS = 5_000
+/**
+ * A network with one machine in it that was founded less than this long ago is "fresh": if a second fresh
+ * one is heard nearby (two machines started together and each founded one), the younger asks to join the older.
+ */
+export const FRESH_NETWORK_MS = 60_000
 export const INTERFACE_RECHECK_MS = 30_000
 export const ROSTER_FRESH_MS = 15_000
 const MAX_NEARBY_NETWORKS = 8
@@ -158,7 +163,7 @@ export type NetworkEvent =
 	| { readonly type: 'joined'; readonly netId: string; readonly members: number }
 	| {
 			readonly type: 'join-ended'
-			readonly result: 'denied' | 'expired' | 'refused'
+			readonly result: 'denied' | 'expired' | 'refused' | 'cancelled'
 			readonly reason?: string
 	  }
 	| { readonly type: 'join-request'; readonly request: PendingJoin }
@@ -330,7 +335,15 @@ export interface NetworkService {
 	/** Add an address by hand (`namzu peers add`): joins when this machine has no network, remembers the address otherwise. */
 	add(hostPort: string): Promise<'join-requested' | 'added'>
 	/** Ask a nearby network to let this machine in. Resolves when the request is decided. */
-	join(endpoint: HostPort): Promise<'joined' | 'denied' | 'expired' | 'refused'>
+	join(endpoint: HostPort): Promise<'joined' | 'denied' | 'expired' | 'refused' | 'cancelled'>
+	/** Withdraw the join request this machine is waiting on. False when none is waiting. */
+	cancelJoin(): boolean
+	/** The networks heard nearby while this machine has none of its own (or only a fresh one): one address each. */
+	nearbyNetworks(): readonly {
+		readonly netId: string
+		readonly host: string
+		readonly port: number
+	}[]
 	held(): readonly HeldMail[]
 	allowHeld(id: string): Promise<void>
 	denyHeld(id: string): Promise<void>
@@ -406,13 +419,21 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 	const peerState = new Map<string, PeerState>()
 	const nearby = new Map<string, DiscoveredEndpoint[]>()
 	const pendingConns = new Map<string, ServerContext>()
-	const sent = new Map<string, { machineId: string; at: number }>()
+	const sent = new Map<
+		string,
+		{ machineId: string; at: number; session: string; bytes: number; textHash: string }
+	>()
 	const seenMail: string[] = []
 	const inFlight = new Set<string>()
 	const offDiscovery: Array<() => void> = []
 	let cancelBrowse: (() => void) | undefined
 	let cancelRecheck: (() => void) | undefined
 	let joining = false
+	let joinClient: NetClient | undefined
+	let joinCancelled = false
+	let foundedAt: number | undefined
+	const declinedNets = new Set<string>()
+	const probing = new Set<string>()
 
 	const emit = (event: NetworkEvent) => {
 		for (const l of [...listeners]) {
@@ -454,7 +475,12 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		clock,
 		capacity: 32,
 		onExpire: (id, mail) => {
-			logAudit({ event: 'mail_expired', machine: who(mail.machineId), session: mail.toSessionRef })
+			logAudit({
+				event: 'mail_expired',
+				direction: 'in',
+				machine: who(mail.machineId),
+				session: mail.toSessionRef,
+			})
 			emit({ type: 'held-resolved', id, result: 'expired' })
 			void notifySender(mail, 'expired', 'The message was not answered in time and has expired.')
 		},
@@ -513,6 +539,7 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		rev = [...v.revocations]
 		view = v
 		membersRev = m.value.rev
+		foundedAt = n.value.createdAt
 		const peers = await store.readPeers()
 		if (peers.status === 'ok') {
 			for (const [id, p] of Object.entries(peers.value.machines)) {
@@ -617,6 +644,7 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		view = undefined
 		adm = []
 		rev = []
+		foundedAt = undefined
 		peerState.clear()
 		started = false
 		setState('removed', 'This machine was removed from the network. Its identity was reset.')
@@ -801,6 +829,10 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 			void discover(endpoint)
 			return
 		}
+		if (netId && view && view.members.size <= 1) {
+			void considerStepDown(endpoint)
+			return
+		}
 		if (!view || view.members.size <= 1) {
 			if (!nearby.has(endpoint.netId) && nearby.size >= MAX_NEARBY_NETWORKS) return
 			const list = nearby.get(endpoint.netId) ?? []
@@ -876,11 +908,58 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		const founding = createFounding(key, clock.now())
 		const next = evaluateMembership({ admissions: [founding], revocations: [] })
 		netId = next.netId
+		foundedAt = clock.now()
 		adopt(next)
 		await persistMembership()
 		setState('ready')
 		emit({ type: 'founded', netId: netId as string })
 		await advertise()
+	}
+
+	/**
+	 * Two machines that started together each browsed, heard nothing and founded a network. When a second
+	 * fresh network that is also alone turns up, the younger one (by the age each reports on its own clock,
+	 * ties by network id) asks the older to let it in; the person on the older one sees one line and one Allow.
+	 */
+	async function considerStepDown(endpoint: DiscoveredEndpoint): Promise<void> {
+		if (!tls || !netId || foundedAt === undefined || closed) return
+		if (joining || declinedNets.has(endpoint.netId)) return
+		if (clock.now() - foundedAt > FRESH_NETWORK_MS) return
+		const keyText = `${endpoint.host}:${endpoint.port}`
+		if (probing.has(keyText)) return
+		probing.add(keyText)
+		let theirAge: number | undefined
+		try {
+			const client = await dialNet({
+				identity: tls,
+				host: endpoint.host,
+				port: endpoint.port,
+				clock,
+			})
+			try {
+				const reply = (await client.request({ protocol: NET_PROTOCOL, op: 'ping_net' })) as {
+					netId?: unknown
+					ageMs?: unknown
+				}
+				if (reply.netId === endpoint.netId && typeof reply.ageMs === 'number')
+					theirAge = reply.ageMs
+			} finally {
+				client.close()
+			}
+		} catch {
+			return
+		} finally {
+			probing.delete(keyText)
+		}
+		if (theirAge === undefined || closed || joining || !netId || foundedAt === undefined) return
+		if (!view || view.members.size > 1) return
+		if (theirAge > FRESH_NETWORK_MS) return
+		const mine = clock.now() - foundedAt
+		const younger = mine < theirAge || (mine === theirAge && (netId as string) > endpoint.netId)
+		if (!younger) return
+		declinedNets.add(endpoint.netId)
+		emit({ type: 'nearby', networks: [endpoint.netId] })
+		await join({ host: endpoint.host, port: endpoint.port }).catch(() => undefined)
 	}
 
 	async function afterBrowse(): Promise<void> {
@@ -985,7 +1064,9 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		cancelRecheck = clock.setTimer(tick, INTERFACE_RECHECK_MS)
 	}
 
-	async function join(endpoint: HostPort): Promise<'joined' | 'denied' | 'expired' | 'refused'> {
+	async function join(
+		endpoint: HostPort,
+	): Promise<'joined' | 'denied' | 'expired' | 'refused' | 'cancelled'> {
 		if (!tls || !key) throw new NetworkError('off', 'The Namzu network is not running.')
 		if (view && view.members.size > 1)
 			throw new NetworkError('invalid', 'This machine is already in a network.')
@@ -994,11 +1075,13 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		const publicKey = key.publicKeyDer.toString('base64')
 		const nonce = randomBytes(16).toString('base64')
 		let client: NetClient | undefined
+		joinCancelled = false
 		try {
 			client = await connectTo(endpoint, undefined).catch(() => undefined)
 			if (!client) {
 				client = await dialNet({ identity: tls, host: endpoint.host, port: endpoint.port, clock })
 			}
+			joinClient = client
 			const first = await client.request({
 				protocol: NET_PROTOCOL,
 				op: 'join_request',
@@ -1018,7 +1101,14 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 			}
 			const code = joinCode(key.machineId, client.peer.machineId, nonce, pending.data.nonce)
 			emit({ type: 'join-waiting', code, shownCode: formatJoinCode(code), endpoint })
-			const final = await client.nextFrame()
+			let final: unknown
+			try {
+				final = await client.nextFrame()
+			} catch (error) {
+				if (!joinCancelled) throw error
+				emit({ type: 'join-ended', result: 'cancelled' })
+				return 'cancelled'
+			}
 			const admitted = AdmittedFrameSchema.safeParse(final)
 			if (!admitted.success) {
 				const end = EndFrameSchema.safeParse(final)
@@ -1048,6 +1138,7 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 			cancelBrowse = undefined
 			adopt(verdict)
 			netId = verdict.netId
+			foundedAt = undefined
 			await persistMembership()
 			for (const p of admitted.data.peers) {
 				if (p.machineId === key.machineId) continue
@@ -1066,8 +1157,16 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 			return 'joined'
 		} finally {
 			joining = false
+			joinClient = undefined
 			client?.close()
 		}
+	}
+
+	function cancelJoin(): boolean {
+		if (!joining || !joinClient) return false
+		joinCancelled = true
+		joinClient.close()
+		return true
 	}
 
 	// ─── request handling ──────────────────────────────────────────────────
@@ -1116,7 +1215,13 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		const peerId = ctx.peer.machineId
 		switch (request.op) {
 			case 'ping_net':
-				return netId ? { ok: true, netId } : { ok: true }
+				// A machine alone in a network just founded says how old it is, so two that founded
+				// together can tell which is younger; a network with others in it says nothing more.
+				return netId
+					? view && view.members.size <= 1 && foundedAt !== undefined
+						? { ok: true, netId, ageMs: Math.max(0, clock.now() - foundedAt) }
+						: { ok: true, netId }
+					: { ok: true }
 			case 'join_request':
 				return handleJoinRequest(request, ctx)
 			case 'hello': {
@@ -1377,6 +1482,19 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 
 	// ─── roles ─────────────────────────────────────────────────────────────
 
+	/** Who set a role, on what, and a hash of the words: never the words. */
+	function roleAudit(from: string, session: string, role: string | null) {
+		return {
+			machine: who(from),
+			session,
+			direction: from === selfId() ? undefined : ('in' as const),
+			decision: role === null ? 'clear' : 'set',
+			...(role === null
+				? {}
+				: { bytes: Buffer.byteLength(role, 'utf8'), textHash: textHash(role) }),
+		}
+	}
+
 	async function handleRoleSet(request: RoleSetRequest, from: string): Promise<unknown> {
 		if (!roleBuckets.take(from))
 			return { status: 'refused', reason: 'Too many role changes from that machine.' }
@@ -1386,7 +1504,7 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 			if (!machine) return { status: 'refused', reason: 'No machine.' }
 			machine = { ...machine, ...(role === null ? { role: undefined } : { role }) }
 			await store.writeMachine(machine)
-			logAudit({ event: 'role_set', machine: who(from), session: 'machine' })
+			logAudit({ event: 'role_set', ...roleAudit(from, 'machine', role) })
 			emit({ type: 'role', target: 'machine', role, byMachine: byName, at: request.at })
 			return { status: 'applied' }
 		}
@@ -1398,7 +1516,7 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		// A role from another machine reaches the model as context nobody here has read. A session that
 		// skips approvals takes none: the person sets its role at that terminal.
 		if (from !== selfId() && (local.bypass === true || local.mode === 'bypass')) {
-			logAudit({ event: 'role_refused', machine: who(from), session: ref })
+			logAudit({ event: 'role_refused', ...roleAudit(from, ref, role) })
 			return {
 				status: 'refused',
 				reason: 'That session skips approvals, so its role is set at its own terminal.',
@@ -1406,7 +1524,7 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		}
 		const ok = host.setLocalRole(ref, role, { by: byName, at: request.at })
 		if (!ok) return { status: 'refused', reason: 'That session is not running here.' }
-		logAudit({ event: 'role_set', machine: who(from), session: ref })
+		logAudit({ event: 'role_set', ...roleAudit(from, ref, role) })
 		emit({ type: 'role', target: ref, role, byMachine: byName, at: request.at })
 		return { status: 'applied' }
 	}
@@ -1445,6 +1563,15 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		)
 		if (!reply.success)
 			throw new NetworkError('bad_frame', 'The other machine answered something unexpected.')
+		logAudit({
+			event: reply.data.status === 'applied' ? 'role_set' : 'role_refused',
+			machine: who(target.machineId),
+			session: target.sessionRef ?? 'machine',
+			direction: 'out',
+			decision: clean === null || clean === undefined ? 'clear' : 'set',
+			...(clean ? { bytes: Buffer.byteLength(clean, 'utf8'), textHash: textHash(clean) } : {}),
+			...(reply.data.reason ? { reason: reply.data.reason } : {}),
+		})
 		return reply.data
 	}
 
@@ -1480,6 +1607,7 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		const refuse = (reason: string) => {
 			logAudit({
 				event: 'mail_refused',
+				direction: 'in',
 				machine: who(from),
 				session: request.to.sessionRef,
 				reason,
@@ -1549,6 +1677,7 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 				return refuse('Too many messages are waiting for this machine.')
 			logAudit({
 				event: 'mail_held',
+				direction: 'in',
 				machine: who(from),
 				session: target.ref,
 				reason: decision.reason,
@@ -1564,6 +1693,7 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 			return refuse(result.reason ?? 'That terminal declined the message.')
 		logAudit({
 			event: 'mail_accepted',
+			direction: 'in',
 			machine: who(from),
 			session: target.ref,
 			bytes: Buffer.byteLength(text, 'utf8'),
@@ -1591,6 +1721,21 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		const expected = sent.get(request.about.id)
 		if (!expected || expected.machineId !== from) return { ok: false }
 		if (request.outcome !== 'queued' && request.outcome !== 'held') sent.delete(request.about.id)
+		const settled: Partial<Record<NetOutcome, AuditEntry['event']>> = {
+			queued: 'mail_allowed',
+			refused: 'mail_denied',
+			expired: 'mail_expired',
+		}
+		const event = settled[request.outcome]
+		if (event && event !== undefined)
+			logAudit({
+				event,
+				direction: 'out',
+				machine: who(from),
+				session: expected.session,
+				bytes: expected.bytes,
+				textHash: expected.textHash,
+			})
 		emit({
 			type: 'mail-outcome',
 			id: request.about.id,
@@ -1606,7 +1751,12 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		if (!entry) throw new NetworkError('unknown_target', 'That message is no longer waiting.')
 		const mail = entry.item
 		if (!allow) {
-			logAudit({ event: 'mail_denied', machine: who(mail.machineId), session: mail.toSessionRef })
+			logAudit({
+				event: 'mail_denied',
+				direction: 'in',
+				machine: who(mail.machineId),
+				session: mail.toSessionRef,
+			})
 			emit({ type: 'held-resolved', id, result: 'denied' })
 			await notifySender(mail, 'refused', 'The person at that terminal did not allow the message.')
 			return
@@ -1626,11 +1776,23 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 			allowedOnce: true,
 		})
 		if (result.status === 'refused') {
+			logAudit({
+				event: 'mail_denied',
+				direction: 'in',
+				machine: who(mail.machineId),
+				session: mail.toSessionRef,
+				reason: result.reason,
+			})
 			emit({ type: 'held-resolved', id, result: 'denied' })
 			await notifySender(mail, 'refused', result.reason ?? 'That terminal declined the message.')
 			return
 		}
-		logAudit({ event: 'mail_allowed', machine: who(mail.machineId), session: mail.toSessionRef })
+		logAudit({
+			event: 'mail_allowed',
+			direction: 'in',
+			machine: who(mail.machineId),
+			session: mail.toSessionRef,
+		})
 		emit({ type: 'held-resolved', id, result: 'allowed' })
 		await notifySender(mail, 'queued')
 	}
@@ -1670,8 +1832,30 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		)
 		if (!reply.success)
 			throw new NetworkError('bad_frame', 'The other machine answered something unexpected.')
+		const bytes = Buffer.byteLength(text, 'utf8')
+		const hash = textHash(text)
+		logAudit({
+			event:
+				reply.data.status === 'refused'
+					? 'mail_refused'
+					: reply.data.status === 'held'
+						? 'mail_held'
+						: 'mail_accepted',
+			direction: 'out',
+			machine: who(target.machineId),
+			session: target.sessionRef,
+			bytes,
+			textHash: hash,
+			...(reply.data.reason ? { reason: reply.data.reason } : {}),
+		})
 		if (reply.data.status !== 'refused') {
-			sent.set(id, { machineId: target.machineId, at: clock.now() })
+			sent.set(id, {
+				machineId: target.machineId,
+				at: clock.now(),
+				session: target.sessionRef,
+				bytes,
+				textHash: hash,
+			})
 			if (sent.size > 256) sent.delete(sent.keys().next().value as string)
 		}
 		return { id, ...reply.data }
@@ -1868,6 +2052,11 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 			return 'added'
 		},
 		join,
+		cancelJoin,
+		nearbyNetworks: () =>
+			[...nearby.entries()].flatMap(([id, list]) =>
+				list.slice(0, 1).map((e) => ({ netId: id, host: e.host, port: e.port })),
+			),
 		held: () => heldQueue.list().map((e) => e.item),
 		allowHeld: (id) => releaseHeld(id, true),
 		denyHeld: (id) => releaseHeld(id, false),

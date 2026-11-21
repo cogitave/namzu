@@ -42,6 +42,8 @@ export interface AuditEntry {
 	readonly event: AuditEventName
 	readonly machine?: { readonly id12: string; readonly name?: string }
 	readonly session?: string
+	/** `in`: another machine did it to this one; `out`: this machine did it to another. Absent for local events. */
+	readonly direction?: 'in' | 'out'
 	readonly decision?: string
 	readonly reason?: string
 	readonly bytes?: number
