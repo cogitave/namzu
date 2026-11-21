@@ -116,7 +116,7 @@ settings and non-local rule edits still require a new session.
 
 ## "Don't ask again"
 
-A prompt for a plain shell command, a fetch or an MCP tool offers `Yes, and don't ask again for <what> in <folder>`. The answer approves the call, holds for the rest of the session at once, and is written to the folder's `namzu.config.local.json` as `permissions.<tool>.<pattern> = "allow"`, so the next session starts with it. The write merges into what the file already says; a file that is not valid JSON is left alone, and the session is told the answer holds for this session only.
+A prompt for a plain shell command, a fetch or an MCP tool offers `Yes, and don't ask again for <what> in <folder>`. The answer approves the call, holds for the rest of the session at once, and is written to the folder's `namzu.config.local.json` as `permissions.<tool>.<pattern> = "allow"`, so the next session starts with it. A line that adds only a read-only filter or a harmless redirection to one command (`npm test 2>&1 | tail -20`) is offered as that command (`npm test *`), and the saved rule covers the same line later: every other command of the line must only read (`tail`, `head`, `grep`, `wc`), and a line that writes a file through a redirection, pipes into a shell or runs another program is asked about as before. The write merges into what the file already says; a file that is not valid JSON is left alone, and the session is told the answer holds for this session only.
 
 The first time it writes, in a git work tree, Namzu adds `**/namzu.config.local.json` to the global git ignore file (`core.excludesFile`, else `$XDG_CONFIG_HOME/git/ignore`, else `~/.config/git/ignore`), unless git already ignores the file. A file git already tracks cannot be ignored and is logged.
 

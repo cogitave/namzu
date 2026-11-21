@@ -1147,6 +1147,11 @@ export {
 	lexShellCommandLine,
 	nestedShellCommand,
 } from './authorization/shell-lexer.js'
+// Whether a command line only reads, and whether it writes a file through a
+// redirection: a host that offers "don't ask again" leaves a read-only filter
+// (`tail`, `grep`) out of the rule it remembers and declines a line that writes.
+export { writesThroughRedirection } from './authorization/command-line.js'
+export { isReadOnlyCommandLine } from './authorization/readonly-commands.js'
 
 // Where a command line actually execs a program — unwrapping `sudo`, `env`,
 // `nice`, `timeout` and the rest of a re-exec chain with their own real

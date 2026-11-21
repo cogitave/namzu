@@ -1556,6 +1556,9 @@ export class ToolExecutor {
 					roots,
 					...(shellCwd !== undefined ? { cwd: shellCwd } : {}),
 					reviewOutside: this.config.outsideRootAccess === 'review' && !sandboxed,
+					...(this.scratchpadReady !== undefined && !sandboxed
+						? { scratchpadDirectory: this.scratchpadReady }
+						: {}),
 					topLevel: this.config.outsideRootAccess === 'review' && !sandboxed,
 				})
 				protectedPaths.push(...found.protectedPaths)

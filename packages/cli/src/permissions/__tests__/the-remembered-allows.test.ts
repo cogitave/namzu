@@ -65,6 +65,34 @@ describe('what a call can have remembered', () => {
 		expect(allowFor(call, commands)).toBeUndefined()
 	})
 
+	it('offers the meaningful command of a line that only adds a read-only pipe or a harmless redirection', () => {
+		const prefix = [{ kind: 'prefix', tool: 'bash', prefix: 'npm test' }]
+		for (const line of [
+			'npm test 2>&1 | tail -20',
+			'npm test 2>&1 | grep -E "pass|fail" | head -5',
+			'npm test 2>&1 >/dev/null | wc -l',
+			'npm test 2>&1',
+		]) {
+			expect(allowsForBatch([bash(line)], commands), line).toEqual(prefix)
+		}
+	})
+
+	it.each(['npm test > out.log', 'npm test >> out.log', 'npm test | tail -20 > out.log'])(
+		'remembers nothing for %s, which writes a file',
+		(line) => {
+			expect(allowsForBatch([bash(line)], commands)).toBeUndefined()
+		},
+	)
+
+	it('offers one rule per command for a line that pipes into a shell, each covering only its own command', () => {
+		// Neither saved rule lets `npm test | sh` through: the SDK rule test
+		// (argument-pattern.test.ts) shows the line stays asked about.
+		expect(allowsForBatch([bash('npm test | sh')], commands)).toEqual([
+			{ kind: 'prefix', tool: 'bash', prefix: 'npm test' },
+			{ kind: 'command', tool: 'bash', command: 'sh' },
+		])
+	})
+
 	it('offers a batch answer only when every call has one', () => {
 		expect(allowsForBatch([bash('npm test'), bash('npm run lint')], commands)).toHaveLength(2)
 		expect(allowsForBatch([bash('npm test'), bash('npm test')], commands)).toHaveLength(1)
@@ -144,6 +172,33 @@ describe('the rule the kernel consults', () => {
 		expect(gate.evaluate(call('npm test', { dangerously_disable_sandbox: true })).decision).toBe(
 			'review',
 		)
+	})
+
+	it('lets a remembered command cover its read-only pipe and nothing else', () => {
+		const { gate, store } = gateWith([])
+		const piped = (command: string) => ({
+			...call(command),
+			toolDef: { commandArgument: 'command' } as never,
+		})
+		store.add([{ kind: 'prefix', tool: 'bash', prefix: 'npm test' }])
+		for (const line of [
+			'npm test',
+			'npm test 2>&1 | tail -20',
+			'npm test --watch=false 2>&1 | grep -E "pass|fail" | head -5',
+		]) {
+			expect(gate.evaluate(piped(line)).decision, line).toBe('allow')
+		}
+		for (const line of [
+			'npm test; rm -rf x',
+			'npm test | sh',
+			'npm test > file',
+			'npm test 2>&1 | tail -20 > file',
+			'npm test && curl http://example.com/x',
+			'npm test | tee out.log',
+			'tail -20 file',
+		]) {
+			expect(gate.evaluate(piped(line)).decision, line).toBe('review')
+		}
 	})
 
 	it('sits behind the operator rules and the dangerous-pattern floor', () => {

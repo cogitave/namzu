@@ -46,7 +46,7 @@ Each check is one of:
 
 - `passed`: exit code 0, and the exit status is the check's own.
 - `failed`: a non-zero exit, a refusal, or an error.
-- `masked`: the command line lets something else decide the exit status. A pipe (`pnpm test | tail -5`; the bash tool does not set `pipefail`), `;` between commands, `||`, a trailing `&`, a group, a nested shell or anything the lexer cannot read to the end. `a && b` is not masked: it exits 0 only if both did. A masked check never counts as passed.
+- `masked`: the command line lets something else decide the exit status. A pipe (`pnpm test | tail -5`; the bash tool does not set `pipefail`), `;` between commands, `||`, a trailing `&`, a group, a nested shell or anything the lexer cannot read to the end. `a && b` is not masked: it exits 0 only if both did. A masked check never counts as passed, with two ways out: the command's captured output ends in the test runner's own summary (node's `pass N` / `fail N`, vitest and jest `Tests` lines, pytest's closing line, cargo's `test result:` lines, go's bare `PASS` and `FAIL` lines; `ok pkg` lines alone prove nothing, since a `tail` may have cut an earlier package's `FAIL`), which is then read as the result (`passed` with passes and no failure, `failed` with any failure); or the line starts with `set -o pipefail;` / `set -o pipefail &&`, or ends with `; exit ${PIPESTATUS[0]}` with the check as the first stage of its pipe, which makes the pipe hand its status on.
 - `unsettled`: handed to a background job, continued, timed out, a non-zero exit that is the command's own answer (`grep` found nothing), or no typed record of the run because a hook replaced the output.
 
 ## The basis
