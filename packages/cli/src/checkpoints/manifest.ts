@@ -109,11 +109,19 @@ let tempCounter = 0
 const tempName = (path: string): string =>
 	`${path}.${process.pid}.${tempCounter++}.${randomBytes(3).toString('hex')}.tmp`
 
-/** Publish `data` at `path`: fsynced temp file, then rename. */
+/**
+ * The file-history files are copies of the person's files, a `.env` among
+ * them, so they are the owner's alone. A restore writes the recorded mode back,
+ * never the copy's.
+ */
+const HISTORY_FILE_MODE = 0o600
+const HISTORY_DIRECTORY_MODE = 0o700
+
+/** Publish `data` at `path`: fsynced owner-only temp file, then rename. */
 export async function writeDurable(path: string, data: Uint8Array | string): Promise<void> {
 	const temp = tempName(path)
 	try {
-		const handle = await open(temp, 'w')
+		const handle = await open(temp, 'w', HISTORY_FILE_MODE)
 		try {
 			await handle.writeFile(data)
 			await handle.sync()
@@ -135,7 +143,7 @@ export async function putBlob(root: string, data: Uint8Array): Promise<string> {
 		() => false,
 	)
 	if (present) return sha
-	await mkdir(blobsDir(root), { recursive: true })
+	await mkdir(blobsDir(root), { recursive: true, mode: HISTORY_DIRECTORY_MODE })
 	await writeDurable(path, data)
 	return sha
 }
@@ -173,7 +181,7 @@ export const blobExists = (root: string, sha256: string): Promise<boolean> =>
 
 export async function writeManifest(root: string, manifest: Manifest): Promise<void> {
 	if (!isSafeTurnId(manifest.turnId)) throw new Error(`Unsafe turn id ${manifest.turnId}.`)
-	await mkdir(turnsDir(root), { recursive: true })
+	await mkdir(turnsDir(root), { recursive: true, mode: HISTORY_DIRECTORY_MODE })
 	await writeDurable(manifestPath(root, manifest.turnId), `${JSON.stringify(manifest)}\n`)
 }
 
@@ -277,7 +285,7 @@ export function referencedBlobs(manifest: Manifest): Set<string> {
 /** Share a body with another history: hard link, or a copy where links are refused. */
 export async function shareBlob(from: string, to: string, sha256: string): Promise<void> {
 	if (await blobExists(to, sha256)) return
-	await mkdir(blobsDir(to), { recursive: true })
+	await mkdir(blobsDir(to), { recursive: true, mode: HISTORY_DIRECTORY_MODE })
 	try {
 		await link(blobPath(from, sha256), blobPath(to, sha256))
 	} catch (err) {

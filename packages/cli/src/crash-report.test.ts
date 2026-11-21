@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -28,6 +28,22 @@ describe('an unexpected crash', () => {
 			removeTempDir(dir)
 		}
 	})
+
+	it.runIf(process.platform !== 'win32')(
+		'keeps the log owner-only, in an owner-only folder it creates',
+		() => {
+			const parent = mkdtempSync(join(tmpdir(), 'namzu-crash-'))
+			try {
+				const dir = join(parent, 'logs')
+				reportCrash(new Error('why'), { dir, env: {}, argv: [] })
+				expect(statSync(dir).mode & 0o777).toBe(0o700)
+				const [name] = readdirSync(dir)
+				expect(statSync(join(dir, name ?? '')).mode & 0o777).toBe(0o600)
+			} finally {
+				removeTempDir(parent)
+			}
+		},
+	)
 
 	it('adds the stack to the screen only on request', () => {
 		const dir = mkdtempSync(join(tmpdir(), 'namzu-crash-'))

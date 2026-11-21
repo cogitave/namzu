@@ -2,6 +2,7 @@
 
 ## 2026-11-21
 
+- **Update** [The session index](sdk/sqlite-sessions.md), [Session storage](cli/session-storage.md#who-can-read-these-files): `index.sqlite`, which holds prompt openings and the full text of tool results and replies, is created 0600 and an existing one is narrowed to 0600 on open; the Namzu home is created 0700 when Namzu (or the installer's fallback) creates it, an existing one keeps its mode; session folders, lease files, `file-history/` copies and the crash-log folder are owner-only. `.changeset/sdk-session-index-owner-only.md`, `.changeset/cli-private-state-files.md`.
 - **Update** [Extensions](cli/extensions.md): the build trusts Cogitave's production publisher key `cogitave-2026` (publisher `cogitave`, ids `com.cogitave.*`), so a package Cogitave signed can be added without a developer key. `.changeset/cli-extension-publisher-key.md`.
 - **Update** [Context and compaction](cli/context-and-compaction.md): on the full-screen transcript `/context` draws its grid with the legend beside it instead of its plain-text copy; a shell permission prompt for a call with a `description` keeps the readable view. `.changeset/cli-context-grid-on-the-scroll-screen.md`.
 - **Update** [Permission modes](cli/permission-modes.md): a conversation left in plan mode comes back in plan mode on `-c` or `/resume`. `.changeset/cli-plan-mode-resumes.md`.

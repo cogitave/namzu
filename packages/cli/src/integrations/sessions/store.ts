@@ -188,7 +188,10 @@ export async function openSessionScope(
 				...(options.env !== undefined ? { env: options.env } : {}),
 			}),
 	)
-	if (!options.readOnly) mkdirSync(root, { recursive: true })
+	// Owner-only when this creates it: the home holds the conversation index.
+	// An existing home keeps its mode (NAMZU_HOME can name a folder shared on
+	// purpose); the files that hold conversation text are owner-only themselves.
+	if (!options.readOnly) mkdirSync(root, { recursive: true, mode: 0o700 })
 	// A transient copy reads only existing ownership. It must not initialize
 	// persistent metadata merely to discover that there is nothing to resume.
 	const identity = options.readOnly ? readIdentity(root) : loadIdentity(root)

@@ -98,6 +98,24 @@ which a separate package writes and which does not depend on the newest kernel.
 When the disk fills while a session runs, the session keeps going and says so once; see
 [Session log](../sdk/session-log.md#a-volume-that-stops-accepting-writes).
 
+### Who can read these files
+
+Everything that holds what was said or done in a conversation is readable by
+you alone:
+
+- The Namzu home is created with mode 0700 when Namzu creates it (the terminal,
+  the Desktop engine and the installer's fallback alike). A home that already
+  exists keeps its mode, since `NAMZU_HOME` can name a folder you share on
+  purpose; the files below are private either way.
+- `projects/` and each `projects/<slug>/` are 0700, and an existing one is
+  narrowed to 0700 at start.
+- Session logs, `lease.<fence>.json`, tool-result spills and the
+  `file-history/` copies (with their folders, 0700) are 0600. A `/restore`
+  writes back the file's own mode, not the copy's.
+- `index.sqlite` is 0600, and an index an earlier version left readable by
+  others is narrowed to 0600 the next time it is opened.
+- `logs/crash-<time>.log` is 0600, in a `logs/` folder created with mode 0700.
+
 ## What each piece is
 
 | Path | What it is | Safe to delete? |
