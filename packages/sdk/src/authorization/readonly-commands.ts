@@ -20,7 +20,12 @@
  *   refuses the line, because the directory it enters may hold a repository
  *   the person never looked at.
  *
- * Not ported, and so never read-only here: `sed`, `ps`, `lsof`, `ss`, `date`,
+ * `sed` is read-only only as a printer: `-n` (and `-E`, `-r`, `-s`, `-u`) with
+ * one script of print commands, `sed -n '1,40p' file`, `sed -n '5p;$p' file`.
+ * No `-i`, `-e`, `-f`, no substitution, no `w`, `r`, `e`, `y` or `d`, no
+ * regular-expression address: every one of those is refused.
+ *
+ * Not ported, and so never read-only here: `ps`, `lsof`, `ss`, `date`,
  * `man`, `xargs`, `fd`, `gh`, `docker logs|inspect`, `printf`, `[[`, `test`
  * and the shell builtins other than `cd`. The check of the working
  * directory for a planted bare repository needs the directory, which the tool
@@ -584,6 +589,33 @@ function uniqIsReadOnly(args: readonly string[]): boolean {
 	return true
 }
 
+const SED_ADDRESS = String.raw`(?:\d+(?:~\d+)?|\$)`
+const SED_PRINT = new RegExp(
+	String.raw`^\s*(?:${SED_ADDRESS}(?:\s*,\s*(?:${SED_ADDRESS}|\+\d+|~\d+))?)?\s*p\s*$`,
+)
+
+/**
+ * `sed` as a printer: switches that only change how the script is read, one
+ * script (the first word that is not a switch) made of print commands over
+ * line numbers, and the rest files. Anything that could write, run a program
+ * or read a script from elsewhere is a switch or a command not on this list.
+ */
+function sedIsReadOnly(args: readonly string[]): boolean {
+	let script: string | undefined
+	for (const word of args) {
+		if (word === '') continue
+		if (script === undefined && /^-[nEsru]+$/.test(word)) continue
+		if (script === undefined && word !== '--' && !word.startsWith('-')) {
+			script = word
+			continue
+		}
+		// After the script every word is a file; a flag-like one is refused.
+		if (script === undefined || word.startsWith('-')) return false
+	}
+	if (script === undefined) return false
+	return script.split(';').every((part) => SED_PRINT.test(part))
+}
+
 function jqIsReadOnly(args: readonly string[]): boolean {
 	const text = args.join(' ')
 	if (/\b(?:env|include|import)\b|\$ENV/.test(text)) return false
@@ -652,6 +684,8 @@ function commandIsReadOnly(argv: readonly string[], text: string): boolean {
 			return uniqIsReadOnly(rest)
 		case 'jq':
 			return jqIsReadOnly(rest)
+		case 'sed':
+			return sedIsReadOnly(rest)
 		case 'find':
 			return findIsReadOnly(rest)
 		case 'docker':

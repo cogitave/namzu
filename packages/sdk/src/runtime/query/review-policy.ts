@@ -46,7 +46,10 @@ import type {
 } from '../../types/hitl/index.js'
 import type { ApprovalPolicy } from '../../types/hitl/policy.js'
 import type { SessionId, TurnId } from '../../types/ids/index.js'
-import { PLAN_MODE_REFUSAL } from '../../types/permission/index.js'
+import {
+	PLAN_MODE_REFUSAL,
+	PLAN_MODE_REFUSAL_WITH_PLAN_FILE,
+} from '../../types/permission/index.js'
 import { type AutoReviewClassifier, autoReviewBlockedFeedback } from './auto-review/classifier.js'
 import { DECLINED_TOOL_CALL_FEEDBACK } from './declined.js'
 import { shellEscalations } from './path-escalation.js'
@@ -127,7 +130,7 @@ export function isReviewMode(value: unknown): value is ReviewMode {
 	return typeof value === 'string' && (REVIEW_MODES as readonly string[]).includes(value)
 }
 
-export { PLAN_MODE_REFUSAL }
+export { PLAN_MODE_REFUSAL, PLAN_MODE_REFUSAL_WITH_PLAN_FILE }
 
 /** What the model is told when a call is refused under `strict`. */
 export const STRICT_MODE_REFUSAL =
@@ -1259,7 +1262,10 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 				exempt,
 			)
 		) {
-			return { action: 'reject_tools', feedback: PLAN_MODE_REFUSAL }
+			return {
+				action: 'reject_tools',
+				feedback: options.planModeWrite ? PLAN_MODE_REFUSAL_WITH_PLAN_FILE : PLAN_MODE_REFUSAL,
+			}
 		}
 		if (mode === 'strict') return { action: 'reject_tools', feedback: STRICT_MODE_REFUSAL }
 		if (isPermissive(mode)) {

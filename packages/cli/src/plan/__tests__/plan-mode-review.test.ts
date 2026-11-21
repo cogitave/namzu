@@ -2,7 +2,7 @@ import { ToolManager, toolset } from '@namzu/sdk'
 import type { HITLDecisionRequest, SessionId, ToolCallSummary, TurnId } from '@namzu/sdk'
 import { describe, expect, it, vi } from 'vitest'
 
-import { PLAN_MODE_REFUSAL } from '../../permissions/mode.js'
+import { PLAN_MODE_REFUSAL, PLAN_MODE_REFUSAL_WITH_PLAN_FILE } from '../../permissions/mode.js'
 import { makeResumeHandler, reviewExemptionFor } from '../../tui/agent.js'
 import { buildEnterPlanModeTool } from '../enter-plan-mode-tool.js'
 import { buildExitPlanModeTool } from '../exit-plan-mode-tool.js'
@@ -64,12 +64,16 @@ describe('plan mode in the terminal', () => {
 
 	it('still refuses everything else, and the plan file as well when the session has none', async () => {
 		const isPlan = isPlanFileWrite(PLAN, '/work')
-		const refused = { action: 'reject_tools', feedback: PLAN_MODE_REFUSAL }
+		// With a plan file the model is told to write the plan and call the exit tool.
+		const refused = { action: 'reject_tools', feedback: PLAN_MODE_REFUSAL_WITH_PLAN_FILE }
 		expect(await handler(isPlan)(review(call('write', { path: '/work/src/a.ts' })))).toEqual(
 			refused,
 		)
 		expect(await handler(isPlan)(review(call('bash', { command: 'rm -rf /' })))).toEqual(refused)
-		expect(await handler()(review(call('write', { path: PLAN })))).toEqual(refused)
+		expect(await handler()(review(call('write', { path: PLAN })))).toEqual({
+			action: 'reject_tools',
+			feedback: PLAN_MODE_REFUSAL,
+		})
 	})
 
 	it('does not ask about presenting the plan, in any mode it could be called', () => {

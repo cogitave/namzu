@@ -10109,13 +10109,26 @@ function AppBody({
 					}
 					resolve(answer)
 				}
-				const entry = { request, resolve: finish }
+				// Auto mode is a row only where this session can enter it right now.
+				const shown: PlanApprovalRequest = {
+					...request,
+					autoAvailable: session?.hasProvider === true && permissionAvailability().auto,
+				}
+				const entry = { request: shown, resolve: finish }
 				const onAbort = () => finish({ kind: 'keep-planning' })
 				signal?.addEventListener('abort', onAbort, { once: true })
 				setPlanPrompt(entry)
 				announceApproval()
 			}),
-		[applyPermissionMode, closeLiveReply, pushMessage, announceApproval, setPlanPrompt],
+		[
+			applyPermissionMode,
+			closeLiveReply,
+			pushMessage,
+			announceApproval,
+			setPlanPrompt,
+			permissionAvailability,
+			session,
+		],
 	)
 	/**
 	 * The model proposed planning first and the person agreed (the question was
