@@ -22,6 +22,8 @@ export interface CommitPreviewView {
 	otherDirty: number
 	/** Files left out because their name says they may hold a secret. */
 	skippedSecrets: number
+	/** Namzu's settings for this computer the conversation changed: never committed from here. */
+	skippedLocalSettings?: number
 	branch: string | null
 	detached: boolean
 	suggestedMessage: string
@@ -81,6 +83,9 @@ export function readCommitPreview(value: unknown): CommitPreviewView | undefined
 		files,
 		otherDirty: count(value.otherDirty),
 		skippedSecrets: count(value.skippedSecrets),
+		...(count(value.skippedLocalSettings) > 0
+			? { skippedLocalSettings: count(value.skippedLocalSettings) }
+			: {}),
 		branch,
 		detached: value.detached === true,
 		suggestedMessage,

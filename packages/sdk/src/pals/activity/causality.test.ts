@@ -358,6 +358,36 @@ describe('bounded original activity causality', () => {
 			PalActivityCausalityUnavailableError,
 		)
 	})
+	it.each([
+		['the turn recorded a prompt', 'You are careful.', true],
+		['the turn recorded no prompt', undefined, false],
+	] as const)(
+		'accepts a request record that points at the turn prompt only when %s',
+		async (_name, prompt, accepted) => {
+			const f = await fixture()
+			const turnId = generateTurnId()
+			await f.initial.log.beginTurn(f.initial.lease, {
+				turnId,
+				userMessageId: generateMessageId(),
+				...(prompt === undefined ? {} : { systemPrompt: prompt }),
+				config: { model: 'fixture', tokenBudget: 0, timeoutMs: 60_000 },
+			})
+			await f.initial.log.append(f.initial.lease, {
+				type: 'request_envelope',
+				turnId,
+				iteration: 1,
+				model: 'fixture',
+				systemPromptFrom: 'turn_started',
+				toolNames: [],
+				toolSchemaDigest: stableDigest([]),
+			} as never)
+			const fact = (await f.facts(f.initial.scope))[0]
+			if (!fact) throw new Error('Missing original fact')
+			const outcome = f.resolver(f.initial.scope, fact, signal())
+			if (accepted) expect(await outcome).toEqual([])
+			else await expect(outcome).rejects.toBeInstanceOf(PalActivityCausalityUnavailableError)
+		},
+	)
 	it('resolves actual recorded observation lineage through the bounded original journal', async () => {
 		const f = await fixture()
 		const p = await f.published()

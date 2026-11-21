@@ -180,6 +180,12 @@ export type {
 	ShellCompressOptions,
 	ShellCompressResult,
 } from './utils/shell-compress.js'
+export type { FileLockOptions, FileLockState, FileLockSyncOptions } from './utils/file-lock.js'
+export type {
+	StateBackupFileOptions,
+	StateBackupOptions,
+	StateFileCopy,
+} from './utils/state-backup.js'
 
 export type { QueryParams } from './runtime/query/index.js'
 export type {

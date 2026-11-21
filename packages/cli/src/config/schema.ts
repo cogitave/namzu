@@ -281,7 +281,7 @@ export interface HandBackCliConfig {
 export interface WorktreesCliConfig {
 	/** A new worktree's branch is `<branchPrefix>/<name>`. Default `namzu`. */
 	readonly branchPrefix?: string
-	/** The folder new worktrees are made in. Absent means inside the project's Namzu folder. */
+	/** The folder new worktrees are made in. Absent means `<NAMZU_HOME>/projects/<slug>/worktrees`. */
 	readonly location?: string
 	/** Folders of the project a new worktree holds; the rest is left out of its files. */
 	readonly sparseFolders?: readonly string[]
@@ -654,6 +654,21 @@ export interface NamzuCliConfig {
 	 * means `never`. An archived conversation is moved, never deleted, and can be restored.
 	 */
 	readonly archiveInactive?: ArchiveInactiveAfter
+	/**
+	 * Days a conversation is kept on this computer after it last changed. The terminal app removes
+	 * older ones when it starts, at most once a day, with their folders, their scratch folders and the
+	 * prompt history lines that old. A whole number, at least 1; absent means 30. To keep
+	 * everything, set a large number such as 3650. Read from the user and managed files only: a
+	 * repository cannot decide what is removed from the person's computer.
+	 */
+	readonly cleanupPeriodDays?: number
+	/**
+	 * Whether the prompts sent from the terminal app's box are kept in `history.jsonl`, so Up and
+	 * Ctrl+R in a new conversation bring back the project's earlier ones. Absent means on; off
+	 * writes and recalls nothing (the file is left as it is). Read from the user and managed files
+	 * only.
+	 */
+	readonly promptHistory?: boolean
 	/**
 	 * Whether the desktop app marks a conversation in its sidebar when it needs the person, is
 	 * running, failed or has a new reply. Absent means on. The marks come from state the app

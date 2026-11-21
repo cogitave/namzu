@@ -104,6 +104,7 @@ The kernel.
 * [The salience-scored working set](salience-working-set.md) - Context scoring, multimodal token estimates, retention and recovery limits.
 
 * [Accounts](accounts.md) - More than one credential per provider: the account registry, its additive accounts.json store, the account_bound session record and the usage_limit error code.
+* [State file locks and recovery copies](state-files.md) - The lock-file protocol for small files several processes change, and the recovery copies kept in the Namzu home before such a file is replaced or when it cannot be read.
 
 * [Session log](session-log.md) - The one append-only, hash-chained JSONL file per session: record schema, turn rules, the fold, and the layout under NAMZU_HOME.
 

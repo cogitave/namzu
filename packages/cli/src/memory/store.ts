@@ -5,8 +5,8 @@
  * - `~/.namzu/USER.md` — who the operator is. User scope.
  * - `~/.namzu/MEMORY.md` — facts that hold in every project. User scope.
  * - `<project>/.namzu/MEMORY.md` — facts about this repository, written by the
- *   operator. Project scope. It used to be where `#note` appended; those
- *   bullets stay. `/memory import-notes` copies them into stored memory
+ *   operator and only read here. Project scope. It used to be where `#note`
+ *   appended; those bullets stay, and no command writes it any more. `/memory import-notes` copies them into stored memory
  *   (`importCuratedNotes`) without changing the file, and a launch only
  *   offers it (`migrateMemoryOnce`).
  *

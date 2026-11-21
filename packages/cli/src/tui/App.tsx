@@ -290,7 +290,12 @@ import {
 } from '../integrations/subagents/activity.js'
 import { NARRATION_TOOL_NAME } from '../integrations/subagents/runtime.js'
 import { readFolderGrants } from '../integrations/trust/folder-grants.js'
-import { isTrusted, trustDir } from '../integrations/trust/store.js'
+import {
+	isTrusted,
+	startNewTrustList,
+	trustDir,
+	trustListProblem,
+} from '../integrations/trust/store.js'
 import { completionNotice } from '../integrations/workflows/notice.js'
 import { resumeCallText } from '../integrations/workflows/resume.js'
 import { DEFAULT_WORKFLOW_SIZE_GUIDELINE, largeRunNotice } from '../integrations/workflows/size.js'
@@ -323,6 +328,7 @@ import {
 import {
 	renderMemoryReport,
 	renderMemorySaveResult,
+	renderNoteNotSaved,
 	renderStoredMemorySection,
 	renderTypedNoteResult,
 } from '../memory/presentation.js'
@@ -464,7 +470,7 @@ import { TextPrompt } from './TextPrompt.js'
 import { ThemeSample } from './ThemeSample.js'
 import { Transcript, messageCollapses } from './Transcript.js'
 import { TranscriptScrollView } from './TranscriptScrollView.js'
-import { TrustPrompt, shownToolServers } from './TrustPrompt.js'
+import { TrustPrompt, shownToolServers, unreadableTrustListNotice } from './TrustPrompt.js'
 import { ViewportBound } from './ViewportBound.js'
 import {
 	ACCOUNT_PICKER_HINTS,
@@ -547,6 +553,12 @@ import {
 	copyTargetsForResponse,
 	runnableCommands,
 } from './copy-targets.js'
+import {
+	cleanupOnStart,
+	loadEarlierPrompts,
+	recordSentPrompt,
+	touchOpenedConversation,
+} from './cross-session-history.js'
 import {
 	DECISION_KIND_OPTIONS,
 	DECISION_KIND_VALUES,
@@ -750,12 +762,7 @@ import {
 } from './triggers/registry.js'
 import { describeComposerTriggers, setComposerTriggers } from './triggers/setting.js'
 import { typedInputOf } from './typed-input.js'
-import {
-	type TypedKeySave,
-	keepAccountKeyForStartup,
-	logoutWordFor,
-	saveTypedKey,
-} from './typed-key-save.js'
+import { type TypedKeySave, logoutWordFor, saveTypedKey } from './typed-key-save.js'
 import { formatCompactCount } from './units.js'
 import { useSpinnerTip } from './use-spinner-tip.js'
 import { type WebActivity, webCallTitle, webLiveStatus } from './web-activity.js'
@@ -1871,6 +1878,19 @@ function AppBody({
 	const palRouteSessionRef = useRef<string | null>(null)
 	const palDefaultPreferencesRef = useRef<Preferences | null>(null)
 	const [history, setHistory] = useState<readonly string[]>([])
+	/**
+	 * The project's prompts from earlier conversations (`history.jsonl`), oldest first. Up and
+	 * Ctrl+R reach them after this conversation's own prompts.
+	 */
+	const [earlierPrompts, setEarlierPrompts] = useState<readonly string[]>([])
+	const composerHistory = useMemo(() => {
+		if (earlierPrompts.length === 0) return history
+		// The newest earlier prompt and the first of this conversation are one entry when they match.
+		const joined = earlierPrompts.at(-1) === history[0] ? history.slice(1) : history
+		return [...earlierPrompts, ...joined]
+	}, [earlierPrompts, history])
+	const appStartedAtRef = useRef(Date.now())
+	const crossSessionStartedRef = useRef(false)
 	const [state, setState] = useState<'idle' | 'thinking' | 'tool' | 'awaiting-permission'>('idle')
 	// The painter is told when a turn ends, before the frame that drops the working line is drawn.
 	const workedRef = useRef(false)
@@ -4224,6 +4244,9 @@ function AppBody({
 		},
 		[pushMessage],
 	)
+	/** The latest `pushSystem`, for work started once that reports later (the startup sweep). */
+	const pushSystemLatestRef = useRef(pushSystem)
+	pushSystemLatestRef.current = pushSystem
 	/** Write a row a shared builder produced, as `pushMessage` writes a live one. */
 	const pushRow = useCallback(
 		(row: ToolRow) =>
@@ -6581,6 +6604,27 @@ function AppBody({
 			tenantId: sessions.tenantId,
 		}
 		if (conversationMaterializedRef.current) sourceDeliveryPollRef.current()
+		if (!crossSessionStartedRef.current) {
+			crossSessionStartedRef.current = true
+			const start = {
+				sessions,
+				sessionId,
+				...(requestedConversationId ? { resumed: requestedConversationId } : {}),
+				startedAt: appStartedAtRef.current,
+			}
+			// Beside the start, never in front of it: the box works before these land.
+			void (async () => {
+				if (requestedConversationId) await touchOpenedConversation(sessions, sessionId)
+				const earlier = await loadEarlierPrompts(start).catch(() => [] as string[])
+				if (earlier.length > 0) setEarlierPrompts(earlier)
+				await cleanupOnStart(start, (notice) => {
+					const push = pushSystemLatestRef.current
+					if (!push) return false
+					push('notice', notice)
+					return true
+				}).catch(() => undefined)
+			})()
+		}
 		return scopeRef.current
 	}, [nextId])
 
@@ -7563,6 +7607,9 @@ function AppBody({
 	// binding or forcing the two into a declaration order that reads backwards.
 	runProbeRef.current = runProbe
 
+	// Said inside the trust box when the trusted folders list exists but does not read.
+	const [trustListNotice, setTrustListNotice] = useState<string | undefined>(undefined)
+
 	// Trust gate runs first: don't touch the folder until the user trusts it.
 	useEffect(() => {
 		if (isTrusted(trustedCwdRef.current)) {
@@ -7585,6 +7632,10 @@ function AppBody({
 				pushMessage('system', projectSettingsFailure(err), false, STARTUP_STOP_GLYPH)
 			}
 		} else {
+			// A list that exists but does not read trusts nothing: the box says so, since it
+			// asks again about a folder the person may already have trusted.
+			const problem = trustListProblem()
+			setTrustListNotice(problem ? unreadableTrustListNotice(problem) : undefined)
 			setPhase('trust')
 		}
 	}, [activateTrustedProject, pushMessage, runProbe])
@@ -7595,33 +7646,47 @@ function AppBody({
 		trustShownAtRef.current = phase === 'trust' ? Date.now() : null
 	}, [phase])
 
-	const acceptTrust = useCallback(() => {
-		try {
-			trustDir(trustedCwdRef.current)
-		} catch {
-			// Non-fatal: proceed for this session even if persisting failed.
-		}
-		try {
-			// Accepting answers for the servers the gate showed in full; ones it
-			// only counted, and ones added later, stay pending.
-			approveShownMcpServers(
-				resolveNamzuHome(),
-				trustedCwdRef.current,
-				shownToolServers(trustGrants),
-			)
-		} catch {
-			// Not fatal: the servers stay pending and `namzu mcp approve` answers them.
-		}
-		setPhase('probing')
-		try {
-			activateTrustedProject()
-			void runProbe()
-		} catch (err) {
-			setPhase('unhealthy')
-			setStartupExplained(err instanceof ConfigLoadError && err.complete)
-			pushMessage('system', projectSettingsFailure(err), false, STARTUP_STOP_GLYPH)
-		}
-	}, [activateTrustedProject, pushMessage, runProbe, trustGrants])
+	const acceptTrust = useCallback(
+		(newList = false) => {
+			try {
+				if (newList) {
+					// Asked for by name in the box: the old list is kept, and read back, before it goes.
+					const { kept } = startNewTrustList(trustedCwdRef.current)
+					if (kept)
+						pushMessage(
+							'system',
+							`Started a new trusted folders list with this folder. The old list is kept in ${homePath(kept)}.`,
+						)
+				} else trustDir(trustedCwdRef.current)
+			} catch (err) {
+				// Not fatal: the folder is trusted for this session. The reason it was not
+				// remembered is said once, because the next start will ask again.
+				pushSystem('error', explainFailure(err, 'Trusted for this session only.'))
+			}
+			try {
+				// Accepting answers for the servers the gate showed in full; ones it
+				// only counted, and ones added later, stay pending.
+				approveShownMcpServers(
+					resolveNamzuHome(),
+					trustedCwdRef.current,
+					shownToolServers(trustGrants),
+				)
+			} catch (err) {
+				// Not fatal: the servers stay pending and `namzu mcp approve` answers them.
+				pushSystem('error', explainFailure(err, 'The tool server approvals were not saved.'))
+			}
+			setPhase('probing')
+			try {
+				activateTrustedProject()
+				void runProbe()
+			} catch (err) {
+				setPhase('unhealthy')
+				setStartupExplained(err instanceof ConfigLoadError && err.complete)
+				pushMessage('system', projectSettingsFailure(err), false, STARTUP_STOP_GLYPH)
+			}
+		},
+		[activateTrustedProject, pushMessage, pushSystem, runProbe, trustGrants],
+	)
 
 	messagesNowRef.current = messages
 	const finalized = messages.filter((m) => !m.pending)
@@ -7904,6 +7969,9 @@ function AppBody({
 		directories: () => session?.directories?.list() ?? [],
 		recentDenials: () => session?.autoMode?.recentBlocks?.() ?? [],
 		...(session?.rememberedAllows ? { rememberedAllows: session.rememberedAllows } : {}),
+		...(session?.forgetRememberedAllow
+			? { forgetRememberedAllow: session.forgetRememberedAllow }
+			: {}),
 		...(session?.reloadPermissionRules
 			? { reloadPermissionRules: session.reloadPermissionRules }
 			: {}),
@@ -8796,6 +8864,7 @@ function AppBody({
 				await tuiPalDefinition(ctxRef.current.cwd, conv.id, ctxRef.current.palId)
 				await requireWritableConversation(sessions, conv.id, 'resume conversation')
 				msgs = await loadConversation(sessions, conv.id)
+				void touchOpenedConversation(sessions, conv.id)
 			} catch (err) {
 				resumeCommittedRef.current = false
 				setPhase('ready')
@@ -13342,7 +13411,6 @@ function AppBody({
 							...(step.defaultModel !== undefined ? { defaultModel: step.defaultModel } : {}),
 						})
 						pushMessage('system', `Added ${accountProductName(step.provider)} · ${step.label}.`)
-						keepAccountKeyForStartup(step.provider, step.key, step.baseUrl)
 					} catch (error) {
 						pushMessage('system', accountProblem(error, 'Could not add the account.'))
 					}
@@ -13424,10 +13492,7 @@ function AppBody({
 						const accounts = openAccounts()
 						accounts.registry.remove(picker.accountId)
 						accounts.activity.forget(picker.accountId)
-						pushMessage(
-							'system',
-							'Account removed. A key kept for startup stays until you run /logout <provider>.',
-						)
+						pushMessage('system', 'Account removed. Its saved key went with it.')
 					} catch (error) {
 						pushMessage('system', accountProblem(error, 'Could not remove the account.'))
 					}
@@ -13606,8 +13671,10 @@ function AppBody({
 	}
 
 	// `#note` and `/memory add`: a typed memory file in the session's stored
-	// memory, default type `project`. A session without a store — no provider
-	// yet — appends to the curated project file the way every note used to.
+	// memory under the Namzu home, default type `project`. A session refused
+	// for want of a provider still has that store. Where no store is open, the
+	// note is refused: a person's note never lands in the repository's
+	// `.namzu/MEMORY.md`, which is read into every prompt and committed.
 	const rememberProjectNote = useCallback(
 		async (note: string, type?: MemoryType): Promise<void> => {
 			try {
@@ -13615,16 +13682,12 @@ function AppBody({
 					pushMessage('system', renderTypedNoteResult(await session.rememberNote(note, type), note))
 					return
 				}
-				const saved = appendMemoryWithStatus(note, {
-					scope: 'project',
-					cwd: ctx.cwd,
-				})
-				pushMessage('system', renderMemorySaveResult(saved, note))
+				pushMessage('system', renderNoteNotSaved(session === null))
 			} catch (err) {
 				pushSystem('error', explainFailure(err, 'Could not save memory.'))
 			}
 		},
-		[ctx.cwd, pushMessage, session, pushSystem],
+		[pushMessage, session, pushSystem],
 	)
 
 	/**
@@ -13796,8 +13859,12 @@ function AppBody({
 			// leaves no line for Up to bring back. What was typed beside it waits
 			// here until the chooser opens, and returns when it closes.
 			keybindingDraftRef.current = meta.source === 'keybinding' ? (meta.draft ?? null) : null
-			if (!fromLoop && meta.source !== 'keybinding' && meta.source !== 'queued-command')
+			if (!fromLoop && meta.source !== 'keybinding' && meta.source !== 'queued-command') {
 				setHistory((prev) => [...prev, value])
+				// Only what the person sent from the box is kept across conversations.
+				if (meta.source === 'composer')
+					recordSentPrompt(sessionsRef.current, scopeRef.current?.sessionId, value, meta.pasted)
+			}
 			// What the model wrote is never the operator acting. A loop the model
 			// made (`session_loop`) fires this path on a timer, for up to a week,
 			// after one review of its creation — so its text must not reach the
@@ -17248,6 +17315,8 @@ function AppBody({
 				// whole tree rather than to one call.
 				if (!approvalIsDeliberate(trustShownAtRef.current, Date.now())) return
 				if (ch === 'y') acceptTrust()
+				// Offered only while the list cannot be read: a new list with this folder in it.
+				else if (ch === 's' && trustListNotice !== undefined) acceptTrust(true)
 				// The focus rests on the exit choice, so a deliberate Enter exits. It
 				// can only leave: the in-flight Enter above is still ignored, and
 				// nothing here grants trust.
@@ -18741,7 +18810,12 @@ function AppBody({
 							}}
 						/>
 					) : phase === 'trust' ? (
-						<TrustPrompt cwd={ctx.cwd} grants={trustGrants} />
+						<TrustPrompt
+							cwd={ctx.cwd}
+							grants={trustGrants}
+							notice={trustListNotice}
+							newList={trustListNotice !== undefined}
+						/>
 					) : phase === 'unhealthy' ? (
 						// The sentence above already says what to do when it is a complete
 						// one; saying "resolve the error above" under it is the same advice
@@ -19254,7 +19328,7 @@ function AppBody({
 										}))}
 										mentionCandidates={mentionCandidates}
 										mentionExtras={mentionSources.extras}
-										history={history}
+										history={composerHistory}
 										{...(composerTriggers ? { triggers: composerTriggers } : {})}
 										turnActive={!compacting && (state === 'thinking' || state === 'tool')}
 									/>

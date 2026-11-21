@@ -106,7 +106,7 @@ describe('state command real CLI front door', () => {
 
 		expect(result.status).toBe(64)
 		expect(result.stdout).toBe('')
-		expect(result.stderr).toContain('Usage: namzu state [report]')
+		expect(result.stderr).toContain('Usage: namzu state [report | move-legacy [--dry-run]]')
 		expect(result.stderr).not.toContain('config.yaml')
 		expect(treeSnapshot(f.root)).toEqual(before)
 	})
@@ -117,7 +117,9 @@ describe('state command real CLI front door', () => {
 		const result = run(f, ['state', '--help'])
 
 		expect(result.status).toBe(0)
-		expect(result.stdout).toContain('inspect local Namzu state without changing it')
+		expect(result.stdout).toContain(
+			'inspect local Namzu state, and move what an earlier Namzu left in a project',
+		)
 		expect(result.stderr).toBe('')
 	})
 })

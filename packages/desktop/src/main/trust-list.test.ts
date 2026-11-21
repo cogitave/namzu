@@ -1,12 +1,24 @@
-import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import {
+	existsSync,
+	mkdtempSync,
+	readFileSync,
+	readdirSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { withFileLockSync } from '@namzu/sdk'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EngineTrustList } from './trust-list.js'
 
 let home: string
 beforeEach(() => {
 	home = mkdtempSync(join(tmpdir(), 'namzu-trust-'))
+})
+afterEach(() => {
+	rmSync(home, { recursive: true, force: true })
 })
 const write = (value: unknown) =>
 	writeFileSync(join(home, 'trust.json'), typeof value === 'string' ? value : JSON.stringify(value))
@@ -28,7 +40,56 @@ describe('the engine trust list', () => {
 		expect(list.remove('/work/app').folders).toEqual(['/work', '/other'])
 		const stored = JSON.parse(readFileSync(join(home, 'trust.json'), 'utf8'))
 		expect(stored).toEqual({ version: 1, trusted: ['/work', '/other'] })
-		expect(readdirSync(home)).toEqual(['trust.json'])
+		// The list as it was is kept in backups/; nothing else is left beside the file.
+		expect(readdirSync(home).sort()).toEqual(['backups', 'trust.json'])
+		const [copy] = readdirSync(join(home, 'backups'))
+		expect(copy).toMatch(/^trust\.json\.backup\.\d+$/)
+		expect(JSON.parse(readFileSync(join(home, 'backups', copy as string), 'utf8')).trusted).toEqual(
+			['/work', '/work/app', '/other'],
+		)
+		if (process.platform !== 'win32')
+			expect(statSync(join(home, 'backups', copy as string)).mode & 0o777).toBe(0o600)
+	})
+
+	it('keeps entries it does not show and keys it does not know when it removes one', () => {
+		write({ version: 1, trusted: ['/a', 7, '/b'], note: 'kept' })
+		new EngineTrustList(home).remove('/a')
+		expect(JSON.parse(readFileSync(join(home, 'trust.json'), 'utf8'))).toEqual({
+			version: 1,
+			trusted: [7, '/b'],
+			note: 'kept',
+		})
+	})
+
+	it('waits for the engine holding the same lock, and refuses while it is still held', () => {
+		write({ version: 1, trusted: ['/a', '/b'] })
+		const file = join(home, 'trust.json')
+		const waits: number[] = []
+		const list = new EngineTrustList(home, undefined, (n) => void waits.push(n))
+		// The SDK's own lock, as the command line takes it: Desktop must not write under it.
+		expect(() => withFileLockSync(`${file}.lock`, () => list.remove('/a'))).toThrow(
+			'saving this list in another window',
+		)
+		expect(waits.length).toBeGreaterThan(0)
+		expect(JSON.parse(readFileSync(file, 'utf8')).trusted).toEqual(['/a', '/b'])
+		expect(existsSync(`${file}.lock`)).toBe(false)
+	})
+
+	it('takes over a lock whose process has exited, as the engine would', () => {
+		write({ version: 1, trusted: ['/a', '/b'] })
+		const file = join(home, 'trust.json')
+		writeFileSync(`${file}.lock`, `${2 ** 22 + 99}:0:gone`)
+		expect(new EngineTrustList(home).remove('/a').folders).toEqual(['/b'])
+		expect(existsSync(`${file}.lock`)).toBe(false)
+		// And the engine can take the lock Desktop let go of.
+		expect(withFileLockSync(`${file}.lock`, () => 'ok')).toBe('ok')
+	})
+
+	it('reads a newer version of the list as unreadable and never rewrites it', () => {
+		write({ version: 2, trusted: ['/a'] })
+		const list = new EngineTrustList(home)
+		expect(list.view().unreadable).toBe(true)
+		expect(() => list.remove('/a')).toThrow('could not be read')
 	})
 
 	it('refuses an entry that is not on the list and changes nothing', () => {
@@ -48,5 +109,40 @@ describe('the engine trust list', () => {
 		expect(readFileSync(join(home, 'trust.json'), 'utf8')).toBe('{ not json')
 		expect(onError).toHaveBeenCalled()
 		expect(existsSync(join(home, 'trust.json'))).toBe(true)
+	})
+
+	it('reads an empty or blank file as no list: there is nothing in it to keep', () => {
+		write('  \n')
+		const list = new EngineTrustList(home)
+		expect(list.view()).toEqual({ file: join(home, 'trust.json'), folders: [] })
+	})
+
+	it('starts a new list only for one that cannot be read, keeping the old one byte for byte', () => {
+		write('{"version":1,"trusted":["/kept"')
+		const list = new EngineTrustList(home)
+		expect(list.view().unreadable).toBe(true)
+		const view = list.startNewList()
+		expect(view.folders).toEqual([])
+		expect(view.kept).toMatch(/trust\.json\.corrupted\.\d+$/)
+		expect(readFileSync(view.kept as string, 'utf8')).toBe('{"version":1,"trusted":["/kept"')
+		expect(JSON.parse(readFileSync(join(home, 'trust.json'), 'utf8'))).toEqual({
+			version: 1,
+			trusted: [],
+		})
+		if (process.platform !== 'win32') expect(statSync(view.kept as string).mode & 0o777).toBe(0o600)
+		// A list that reads is left alone.
+		write({ version: 1, trusted: ['/a'] })
+		expect(list.startNewList()).toEqual({ file: join(home, 'trust.json'), folders: ['/a'] })
+		expect(JSON.parse(readFileSync(join(home, 'trust.json'), 'utf8')).trusted).toEqual(['/a'])
+	})
+
+	it('replaces nothing when the old list cannot be kept', () => {
+		write('{ damaged')
+		writeFileSync(join(home, 'backups'), 'a file where the backups folder goes')
+		const onError = vi.fn()
+		expect(() => new EngineTrustList(home, onError).startNewList()).toThrow(
+			'The old list could not be kept',
+		)
+		expect(readFileSync(join(home, 'trust.json'), 'utf8')).toBe('{ damaged')
 	})
 })

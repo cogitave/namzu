@@ -9,9 +9,8 @@
  */
 
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 
-const PROJECT_CONFIG_FILES = ['namzu.config.json', 'namzu.config.local.json'] as const
+import { allFolderConfigFiles } from '../../config/project-files.js'
 
 const isCreateEventName = (key: string): boolean =>
 	key.replace(/[_\-\s]/g, '').toLowerCase() === 'worktreecreate'
@@ -34,10 +33,10 @@ function declaresCreateHook(parsed: unknown): boolean {
  */
 export function projectFilesDeclaringWorktreeCreate(cwd: string): string[] {
 	const found: string[] = []
-	for (const name of PROJECT_CONFIG_FILES) {
+	for (const { name, path } of allFolderConfigFiles(cwd)) {
 		let text: string
 		try {
-			text = readFileSync(join(cwd, name), 'utf8')
+			text = readFileSync(path, 'utf8')
 		} catch {
 			continue
 		}

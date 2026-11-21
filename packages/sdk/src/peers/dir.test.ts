@@ -16,8 +16,10 @@ afterEach(() => {
 	for (const dir of dirs.splice(0)) removeTempDir(dir)
 })
 
+// The prefix is short on purpose: the run's own temp root (`/tmp/namzu-sdk-tests-<id>/t`) already
+// spends part of the socket path budget (108 bytes), and the tests below measure that budget.
 function makeTempRoot(): string {
-	const dir = mkdtempSync(join(tmpdir(), 'namzu-peers-dir-test-'))
+	const dir = mkdtempSync(join(tmpdir(), 'nzp-'))
 	dirs.push(dir)
 	return dir
 }

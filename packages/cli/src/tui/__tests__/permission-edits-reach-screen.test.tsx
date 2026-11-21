@@ -74,18 +74,18 @@ it('saves add/remove from the rendered composer and refreshes the already mounte
 	expect(state.reload).toHaveBeenCalledTimes(1)
 	expect(app.lastFrame()).toContain('Applied to later calls')
 	expect(
-		JSON.parse(readFileSync(join(cwd, 'namzu.config.local.json'), 'utf8')).permissions.write,
+		JSON.parse(readFileSync(join(cwd, '.namzu', 'settings.local.json'), 'utf8')).permissions.write,
 	).toBe('deny')
 	await command('/permissions remove Write')
 	expect(state.reload).toHaveBeenCalledTimes(2)
 	expect(
-		JSON.parse(readFileSync(join(cwd, 'namzu.config.local.json'), 'utf8')).permissions,
+		JSON.parse(readFileSync(join(cwd, '.namzu', 'settings.local.json'), 'utf8')).permissions,
 	).toBeUndefined()
-	writeFileSync(join(cwd, 'namzu.config.local.json'), '{broken')
+	writeFileSync(join(cwd, '.namzu', 'settings.local.json'), '{broken')
 	await command('/permissions add allow Write')
 	expect(state.reload).toHaveBeenCalledTimes(2)
 	expect(app.lastFrame()).toContain('not valid JSON')
-	writeFileSync(join(cwd, 'namzu.config.local.json'), '{}')
+	writeFileSync(join(cwd, '.namzu', 'settings.local.json'), '{}')
 	state.reload.mockImplementationOnce(() => {
 		throw new Error('fixture reload refused')
 	})

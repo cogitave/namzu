@@ -425,7 +425,10 @@ import {
 	unresolvedMembers,
 	unsupportedProviderMessage,
 } from '../integrations/providers/index.js'
-import { migrateAccountKeys } from '../integrations/providers/key-migration.js'
+import {
+	retireDuplicateStartupKeys,
+	retirementNotice,
+} from '../integrations/providers/key-migration.js'
 import {
 	PickerProviderTimeoutError,
 	runPickerProviderOperation,
@@ -454,6 +457,10 @@ import { buildSessionCostTool, fileLogBytes } from '../integrations/spend/sessio
 import { resolveNamzuHome } from '../integrations/state/home.js'
 import { readIdentity } from '../integrations/state/identity.js'
 import { ensurePrivateStateDirectory } from '../integrations/state/private-directory.js'
+import {
+	describeLegacyExclude,
+	excludeProjectLegacy,
+} from '../integrations/state/project-legacy.js'
 import { cliProjectRoot } from '../integrations/state/project.js'
 import { CLI_CHECKPOINT_RETENTION } from '../integrations/state/retention.js'
 import type {
@@ -560,8 +567,10 @@ import {
 	createLiveModeControl,
 	permissionChangeReason,
 } from '../permissions/live-mode.js'
+import { settleLocalSettings } from '../permissions/local-settings.js'
 import type { PermissionMode } from '../permissions/mode.js'
 import { cliGate } from '../permissions/read-only-gate.js'
+import { tableHoldsRule } from '../permissions/rule-screen.js'
 import { withSandboxShell } from '../permissions/sandbox-shell.js'
 import { type SessionAllow, createSessionAllows } from '../permissions/session-allow.js'
 import type { PermissionSettings } from '../permissions/settings.js'
@@ -1930,8 +1939,10 @@ export interface AgentSession {
 	readonly configNotices: readonly string[]
 	/**
 	 * Save an operator note (`#note`, `/memory add`) as a typed memory file in
-	 * this session's stored memory, default type `project`. Absent on a session
-	 * with no store, where notes go to the curated project file as before.
+	 * this session's stored memory, default type `project`. A refused session
+	 * has it too once the folder's saved data opened. Absent only where no store
+	 * could be opened; the note is then refused, never written into the
+	 * repository's `.namzu/MEMORY.md`.
 	 */
 	readonly rememberNote?: (text: string, type?: MemoryType) => Promise<TypedNoteResult>
 	/**
@@ -1983,7 +1994,7 @@ export interface AgentSession {
 	readonly resetApprovalLatch?: () => void
 	/**
 	 * Remember "don't ask again" answers: for the rest of the session, and in
-	 * the project's `namzu.config.local.json` for the next. They apply behind
+	 * the project's `.namzu/settings.local.json` for the next. They apply behind
 	 * the operator's rules and never cover an escape or a path outside the
 	 * roots. Returns a sentence when the file could not be written. Absent
 	 * where the host has no such store, in which case the prompt offers no
@@ -1992,6 +2003,8 @@ export interface AgentSession {
 	readonly allowForSession?: (allows: readonly SessionAllow[]) => string | undefined
 	/** The allows given at a prompt and held for this conversation. */
 	readonly rememberedAllows?: () => readonly SessionAllow[]
+	/** Withdraw the held answers that `rule` (as `/permissions remove` takes it) names; whether any went. */
+	readonly forgetRememberedAllow?: (rule: string) => boolean
 	/**
 	 * Tell the configured `notification` hooks that the operator's attention is
 	 * wanted (a review is waiting, a turn settled). Fire-and-forget: a hook that
@@ -2369,11 +2382,15 @@ export async function probeAgentSession(
 	// and nothing after is this step.
 	const discoveryStartedAt = Date.now()
 	cliLogger().debug('discovering provider credentials')
-	// Keys an earlier build kept only in `accounts.json` move, once, to the
-	// store discovery reads, so they are found below rather than asked for again.
-	const keyMigrationNotice = await migrateAccountKeys(openCliAccounts().registry, {
-		labelOf: (id) => accountProductName(id),
-	}).catch(() => null)
+	// A startup copy of an `/auth` account's key, left by an earlier build, is
+	// removed once the account is verified to hold the same key.
+	const keyMigrationNotice = (() => {
+		try {
+			return retirementNotice(retireDuplicateStartupKeys().retired, (id) => accountProductName(id))
+		} catch {
+			return null
+		}
+	})()
 	const detected = await discoverProviders(options.env ? { env: options.env } : {})
 	cliLogger().debug('provider credentials discovered', {
 		'namzu.boot.discovery_ms': Date.now() - discoveryStartedAt,
@@ -3069,6 +3086,8 @@ export async function createAgentSession(
 	// `cwd` is settled further down; the store reads it when an answer arrives.
 	const sessionAllows = createSessionAllows(commandArguments, {
 		cwd: () => cwd,
+		// An untrusted folder's local file is not read, so an answer there is not written to it.
+		trusted: () => options.folderTrusted === true || isTrusted(cwd),
 	})
 	// The operator's rules and the remembered answers; the in-sandbox shell
 	// allowance is added behind them once the sandbox below is resolved.
@@ -3180,6 +3199,12 @@ export async function createAgentSession(
 			describeError(error),
 		)
 	}
+	// From here on this folder's stored memory is open, so a session refused
+	// below (no provider, an account to sign in again, plugins that would not
+	// load) still saves a `#note` where a working session would: plain files
+	// under the Namzu home, no provider needed. Never the repository's file.
+	const refuse = (hint: string, kind?: 'invocation' | 'environment', raw?: string): AgentSession =>
+		emptySession(hint, kind, raw, { rememberNote: storedNoteSaver(paths) })
 	const scope = options.scope ?? mintScope(projectId, options.sessionId)
 	// Failures and unrecovered stops this conversation already classifies are kept
 	// as learning observations (references and a short redacted sentence, local
@@ -3207,7 +3232,7 @@ export async function createAgentSession(
 		// The one failure on this path that whoever asked can fix by asking for
 		// something else: `--provider` is a flag, and this id is not a provider.
 		// Every other refusal below is about the machine.
-		return emptySession(`Unknown provider "${primary.id}" — pick another.`, 'invocation')
+		return refuse(`Unknown provider "${primary.id}" — pick another.`, 'invocation')
 	}
 	// An account other than the usual sign-in: its credential is read now, so a
 	// withdrawn or unreadable one is refused before the session exists and the
@@ -3218,16 +3243,13 @@ export async function createAgentSession(
 		accountsHandle = options.accounts ?? openCliAccounts()
 		const found = accountsHandle.registry.get(primary.account)
 		if (!found || found.provider !== primary.id) {
-			return emptySession(
-				'That account is no longer set up. Choose another with /auth.',
-				'invocation',
-			)
+			return refuse('That account is no longer set up. Choose another with /auth.', 'invocation')
 		}
 		let resolved: ResolvedAccountCredential
 		try {
 			resolved = await accountsHandle.registry.resolve(found.id, AbortSignal.timeout(30_000))
 		} catch (err) {
-			return emptySession(
+			return refuse(
 				err instanceof AccountCredentialWithdrawnError
 					? `${found.label} needs to be signed in again. Choose it in /auth to add it once more, or pick another account.`
 					: explainFailure(err, `Namzu could not use the account ${found.label}.`),
@@ -3269,14 +3291,14 @@ export async function createAgentSession(
 		// pieces of advice below are real: an environment variable, or
 		// `--provider`. Keeping the refusal is what makes those turns fail rather
 		// than quietly start on something else.
-		return emptySession(
+		return refuse(
 			`No credential found for ${entry.label}${entry.id === 'zen' ? ' with the selected model. Free models such as space-bunny-free need no key, though Zen may refuse them' : ''}. Set one of: ${entry.envVars.join(', ')} — or pass --provider with one that is configured.`,
 		)
 	}
 	try {
 		await ensureRegistered(primary.id)
 	} catch (err) {
-		return emptySession(
+		return refuse(
 			explainFailure(err, `Namzu could not load ${entry.label}.`),
 			'environment',
 			describeError(err),
@@ -3289,7 +3311,7 @@ export async function createAgentSession(
 	const disagreements = chainCapabilityDisagreements(prefs.providers, resolvedCapabilities)
 	if (disagreements.length > 0 && prefs.allowCapabilityMismatch !== true) {
 		const refusal = describeCapabilityRefusal(disagreements)
-		if (refusal) return emptySession(refusal)
+		if (refusal) return refuse(refusal)
 	}
 	const capabilityNotice = disagreements.length > 0 ? describeAcceptedMismatch(disagreements) : null
 	// Not folded into the refusal: a member whose declaration could not be read
@@ -3330,7 +3352,7 @@ export async function createAgentSession(
 			sessionId: scope.sessionId,
 		})
 	} catch (err) {
-		return emptySession(
+		return refuse(
 			explainFailure(err, `Namzu could not start ${entry.label}.`),
 			'environment',
 			describeError(err),
@@ -3793,6 +3815,14 @@ export async function createAgentSession(
 		.then(() => checkpoints.open())
 		.catch(() => undefined)
 	const toolsets: Toolset[] = [withCheckpointsWrap(builtin, checkpoints), memory]
+	// A trusted checkout whose `.namzu` still holds state an earlier Namzu kept
+	// there: git is told to leave it out of this clone, and the person hears
+	// it once, when that is first written. Git runs only when such a name is
+	// there, so an ordinary start pays one directory read.
+	const legacyStateNotice =
+		options.folderTrusted === true || isTrusted(cwd)
+			? describeLegacyExclude(await excludeProjectLegacy({ cwd }))
+			: undefined
 	// Once per store, idempotently: a launch that finds nothing to move moves
 	// nothing, and one interrupted halfway is finished by the next. A failure
 	// is a notice, never a refusal to start — the curated files and the store
@@ -3804,6 +3834,21 @@ export async function createAgentSession(
 	})
 		.then((report) => describeMemoryMigration(report, memoryDirectory))
 		.catch((error: unknown) => [explainFailure(error, 'Stored memory migration did not run.')])
+	// The local settings file's earlier place (`namzu.config.local.json`) moves
+	// into `.namzu/settings.local.json`, once, in a trusted folder only: an
+	// untrusted one's files are not read, and an archive can carry one.
+	// What git ignoring the file comes to is awaited only when the notices are put together.
+	let localSettingsNotices: readonly string[] = []
+	let localSettingsIgnore: Promise<readonly string[]> = Promise.resolve([])
+	if (options.folderTrusted === true || isTrusted(cwd)) {
+		try {
+			const settled = settleLocalSettings(cwd)
+			localSettingsNotices = settled.said
+			localSettingsIgnore = settled.ignore
+		} catch (error) {
+			localSettingsNotices = [explainFailure(error, 'The local settings file was not checked.')]
+		}
+	}
 	// Records an earlier version derived on its own and the screen would not
 	// write today are archived, once per store, after the session is
 	// underway. It fails open and logs counts only.
@@ -5398,7 +5443,7 @@ export async function createAgentSession(
 		)
 	} catch (error) {
 		await Promise.allSettled([mcp.close(), computerUseHost?.dispose(), browserControl?.dispose()])
-		return emptySession(
+		return refuse(
 			`${explainFailure(error, 'Namzu could not load your plugins.')} ${PLUGIN_CHECK_HINT}`,
 			'environment',
 			describeError(error),
@@ -6386,6 +6431,7 @@ export async function createAgentSession(
 			return undefined
 		}
 	})()
+	const localSettingsIgnoreNotices = await localSettingsIgnore
 	const agentSession: AgentSession = {
 		hasProvider: true,
 		...(accountBadge ? { account: accountBadge } : {}),
@@ -7048,6 +7094,9 @@ export async function createAgentSession(
 			...(pluginRuntime?.takePluginHookWarnings() ?? []),
 			...compatibleEndpointNotices(),
 			...memoryMigrationNotices,
+			...localSettingsNotices,
+			...localSettingsIgnoreNotices,
+			...(legacyStateNotice ? [legacyStateNotice] : []),
 			...computerUseNotices,
 		],
 		rememberNote: (text, type) => saveTypedNote(memoryStore, text, type),
@@ -7101,6 +7150,8 @@ export async function createAgentSession(
 		// Reads the same object the handler mutates, at call time.
 		allowForSession: (allows) => sessionAllows.add(allows),
 		rememberedAllows: () => sessionAllows.list(),
+		forgetRememberedAllow: (rule) =>
+			sessionAllows.forget((permissions) => tableHoldsRule(permissions, rule)) > 0,
 		notifyHooks: (info) => {
 			if (!sessionPlugins) return
 			void sessionPlugins.manager
@@ -7115,8 +7166,9 @@ export async function createAgentSession(
 			? {
 					reloadPermissionRules: () => {
 						options.reloadPermissionRules?.()
-						// Saved rules now own remembered answers too. Do not let the old cache
-						// silently re-authorize a rule the operator just removed.
+						// Saved rules now own the answers they carry. Do not let the old cache
+						// silently re-authorize a rule the operator just removed; an answer held
+						// for this conversation only is in no file, and stays.
 						sessionAllows.clear()
 					},
 				}
@@ -10380,6 +10432,8 @@ function emptySession(
 	errorKind: 'invocation' | 'environment' = 'environment',
 	/** The raw text behind a plain hint: logged, never shown. */
 	rawDetail?: string,
+	/** What a refusal that came after the folder's saved data opened can still do. */
+	opened: { readonly rememberNote?: AgentSession['rememberNote'] } = {},
 ): AgentSession {
 	// Every path into this function is a boot refusal — `createAgentSession`
 	// is the whole extent of the session-construction half of the boot
@@ -10427,6 +10481,7 @@ function emptySession(
 		// Nothing ran, so there is no configuration in force to report on.
 		configNotices: [],
 		errorHint,
+		...(opened.rememberNote ? { rememberNote: opened.rememberNote } : {}),
 		// No turn can run here, so no prompt can have been answered.
 		// No registry was built, so there is no roster to report on.
 		promptExemptTools: () => [],
@@ -10447,6 +10502,20 @@ function emptySession(
 		close: async () => {
 			// Nothing was ever connected on this path.
 		},
+	}
+}
+
+/**
+ * `#note` and `/memory add` for a refused session: the same typed store under
+ * `projects/<slug>/memory` a working session saves to, opened on first use.
+ */
+function storedNoteSaver(paths: SessionPaths): NonNullable<AgentSession['rememberNote']> {
+	let store: MarkdownMemoryStore | undefined
+	return (text, type) => {
+		store ??= new MarkdownMemoryStore({
+			directory: ensurePrivateStateDirectory(paths.projectDir(), 'memory'),
+		})
+		return saveTypedNote(store, text, type)
 	}
 }
 

@@ -51,6 +51,44 @@ describe('findAutoRunSettings', () => {
 			'1 tool it can start (an MCP server)',
 		])
 	})
+	it('reads the other settings files too, each named, the local ones included', async () => {
+		await mkdir(join(folder, '.namzu'))
+		await writeFile(
+			join(folder, '.namzu', 'settings.json'),
+			JSON.stringify({ hooks: { session_start: [{ command: 'make' }] } }),
+		)
+		await writeFile(
+			join(folder, '.namzu', 'settings.local.json'),
+			JSON.stringify({ permissions: { bash: { 'npm test *': 'allow' } } }),
+		)
+		await writeFile(
+			join(folder, 'namzu.config.local.json'),
+			JSON.stringify({ mcpServers: { a: { command: 'srv' } } }),
+		)
+		expect(await findAutoRunSettings(folder)).toEqual([
+			'a Namzu settings file that can start programs (namzu.config.local.json)',
+			'1 tool it can start (an MCP server)',
+			'a Namzu settings file that can start programs (.namzu/settings.json)',
+			'commands that run by themselves at set moments (hooks)',
+			'a Namzu settings file that can start programs (.namzu/settings.local.json)',
+			'its own rules for what Namzu may do without asking',
+		])
+	})
+	it('lists the local settings once when both of its files hold the same settings', async () => {
+		const same = JSON.stringify({ permissions: { bash: { 'npm test *': 'allow' } } })
+		await mkdir(join(folder, '.namzu'))
+		await writeFile(join(folder, '.namzu', 'settings.local.json'), same)
+		await writeFile(join(folder, 'namzu.config.local.json'), `${same}\n`)
+		expect(await findAutoRunSettings(folder)).toEqual([
+			'a Namzu settings file that can start programs (.namzu/settings.local.json)',
+			'its own rules for what Namzu may do without asking',
+		])
+		await writeFile(
+			join(folder, 'namzu.config.local.json'),
+			JSON.stringify({ permissions: { bash: { 'rm *': 'allow' } } }),
+		)
+		expect(await findAutoRunSettings(folder)).toHaveLength(4)
+	})
 	it('ignores config sections that only choose a model', async () => {
 		await config({ model: 'x', theme: 'dark' })
 		expect(await findAutoRunSettings(folder)).toEqual([])

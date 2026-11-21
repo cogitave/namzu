@@ -15,6 +15,11 @@ import {
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { z } from 'zod'
 import { resolveNamzuHome } from '../session/home.js'
+import {
+	backupStateFile,
+	listStateFileCopies,
+	rewriteStateFileBackups,
+} from '../utils/state-backup.js'
 import { withAccountLockSync } from './lock.js'
 import {
 	type Account,
@@ -108,6 +113,24 @@ function writeAtomic(path: string, text: string): void {
 	}
 }
 
+/**
+ * A recovery copy of the store without the removed key: its entry goes, and a
+ * copy that does not parse has the key's text cut out wherever it appears, so
+ * the rest of a damaged copy is still there to recover from.
+ */
+function withoutKey(text: string, removed: { ref: string; secret: string }): string {
+	let json: unknown
+	try {
+		json = JSON.parse(text)
+	} catch {
+		return removed.secret ? text.split(removed.secret).join('') : text
+	}
+	const keys = (json as { keys?: unknown } | null)?.keys
+	if (typeof keys !== 'object' || keys === null || !Object.hasOwn(keys, removed.ref)) return text
+	delete (keys as Record<string, unknown>)[removed.ref]
+	return `${JSON.stringify(json, null, 2)}\n`
+}
+
 export function createAccountRegistry(options: AccountRegistryOptions = {}): AccountRegistry {
 	const home = options.home ?? resolveNamzuHome()
 	const path = join(home, ACCOUNTS_FILE_NAME)
@@ -139,24 +162,46 @@ export function createAccountRegistry(options: AccountRegistryOptions = {}): Acc
 		try {
 			json = JSON.parse(text)
 		} catch {
-			throw new AccountRegistryError(`${path} is not valid JSON; no account was changed.`)
+			throw new AccountRegistryError(
+				`${path} is not valid JSON; no account was changed.${newestCopySentence()}`,
+			)
 		}
 		const parsed = FileSchema.safeParse(json)
 		if (!parsed.success) {
 			throw new AccountRegistryError(
-				`${path} is not a version ${ACCOUNTS_FILE_VERSION} account store.`,
+				`${path} is not a version ${ACCOUNTS_FILE_VERSION} account store.${newestCopySentence()}`,
 			)
 		}
 		return parsed.data
 	}
 
-	function mutate<T>(change: (file: StoreFile) => T): T {
+	/** Where the newest recovery copy is, for a refusal over a store that does not read. */
+	function newestCopySentence(): string {
+		const copy = listStateFileCopies(home, ACCOUNTS_FILE_NAME).find((c) => c.kind === 'backup')
+		if (!copy) return ''
+		return ` The newest recovery copy is ${copy.path}, the store as it was before a change at ${new Date(copy.takenAt).toISOString()}; that change and any later one are not in it. To go back to it, copy it over ${path}.`
+	}
+
+	/**
+	 * Read, change and write the store under its lock. `redact`, given the
+	 * change's result, names a secret the change removes: it is cut out of every
+	 * recovery copy, and out of the one taken now, before the store is written,
+	 * so no copy keeps it even if the process stops half way.
+	 */
+	function mutate<T>(
+		change: (file: StoreFile) => T,
+		redact?: (result: T) => ((text: string) => string) | undefined,
+	): T {
 		mkdirSync(home, { recursive: true, mode: 0o700 })
 		return withAccountLockSync(
 			lockPath,
 			() => {
 				const file = read()
 				const result = change(file)
+				const cut = redact?.(result)
+				if (cut) rewriteStateFileBackups(home, ACCOUNTS_FILE_NAME, cut)
+				// The store as it was, under <home>/backups/, before it is replaced.
+				backupStateFile(path, { home, now: () => now().getTime(), ...(cut ? { redact: cut } : {}) })
 				writeAtomic(path, `${JSON.stringify(file, null, 2)}\n`)
 				try {
 					chmodSync(path, 0o600)
@@ -345,24 +390,33 @@ export function createAccountRegistry(options: AccountRegistryOptions = {}): Acc
 					'The existing sign-in is not an account that can be removed.',
 				)
 			}
-			mutate((file) => {
-				const index = file.accounts.findIndex((a) => a.id === id)
-				const current = file.accounts[index]
-				if (!current) throw new AccountRegistryError('No such account.')
-				file.accounts.splice(index, 1)
-				if (current.source.kind === 'api-key') {
-					delete file.keys[current.source.keyRef]
-				} else if (
-					insideAccountsRoot(ownDir(current.source)) &&
-					!file.accounts.some(
-						(a) => a.source.kind === 'codex-home' && nests(ownDir(current.source), a.source.dir),
-					)
-				) {
-					// Only a directory this registry could have created, and that holds no
-					// other account's directory, is ever deleted.
-					rmSync(ownDir(current.source), { recursive: true, force: true })
-				}
-			})
+			mutate(
+				(file): { ref: string; secret: string } | undefined => {
+					const index = file.accounts.findIndex((a) => a.id === id)
+					const current = file.accounts[index]
+					if (!current) throw new AccountRegistryError('No such account.')
+					file.accounts.splice(index, 1)
+					if (current.source.kind === 'api-key') {
+						const ref = current.source.keyRef
+						const secret = file.keys[ref] ?? ''
+						delete file.keys[ref]
+						return { ref, secret }
+					}
+					if (
+						insideAccountsRoot(ownDir(current.source)) &&
+						!file.accounts.some(
+							(a) => a.source.kind === 'codex-home' && nests(ownDir(current.source), a.source.dir),
+						)
+					) {
+						// Only a directory this registry could have created, and that holds no
+						// other account's directory, is ever deleted.
+						rmSync(ownDir(current.source), { recursive: true, force: true })
+					}
+					return undefined
+				},
+				// A removed key must not live on in a recovery copy of the store.
+				(removed) => (removed ? (text) => withoutKey(text, removed) : undefined),
+			)
 		},
 
 		async resolve(id, signal): Promise<ResolvedAccountCredential> {

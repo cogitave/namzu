@@ -1009,11 +1009,16 @@ const DECLARED: readonly SettingDescriptor[] = [
 		'projects',
 		'Worktree location',
 		'Where Namzu stores Git worktrees for isolated coding conversations on this computer.',
-		{ kind: 'text', placeholder: 'Inside the project', picker: 'folder' },
+		{ kind: 'text', placeholder: 'In the Namzu home', picker: 'folder' },
 		{
 			group: 'worktrees',
-			keywords: ['worktrees folder', 'where worktrees go', 'worktree directory'],
-			defaultText: "inside the project's Namzu folder",
+			keywords: [
+				'worktrees folder',
+				'where worktrees go',
+				'worktree directory',
+				'inside the project',
+			],
+			defaultText: "in the Namzu home, in this project's worktrees folder",
 		},
 	),
 	d(
@@ -1057,6 +1062,41 @@ const DECLARED: readonly SettingDescriptor[] = [
 			group: 'conversations',
 			keywords: ['archive inactive sessions', 'archive', 'idle', 'auto archive'],
 			default: 'never',
+		},
+	),
+	d(
+		'cleanupPeriodDays',
+		'projects',
+		'Keep conversations for',
+		'Conversations that have not changed for this many days are removed from this computer when the terminal app starts. To keep everything, set a large number such as 3650.',
+		num(1, undefined, 'days'),
+		{
+			appliesWhen: 'next-start',
+			group: 'conversations',
+			keywords: [
+				'cleanup period',
+				'retention',
+				'delete old conversations',
+				'remove old sessions',
+				'transcripts',
+				'history',
+			],
+			default: 30,
+			confirm:
+				'Conversations older than this are removed from this computer and cannot be restored.',
+		},
+	),
+	d(
+		'promptHistory',
+		'projects',
+		'Remember sent prompts',
+		'In the terminal app, Up and Ctrl+R in a new conversation bring back the prompts you sent earlier in the same project. Pasted text is not copied.',
+		on,
+		{
+			appliesWhen: 'next-start',
+			group: 'conversations',
+			keywords: ['prompt history', 'input history', 'up arrow', 'recall', 'history.jsonl'],
+			default: true,
 		},
 	),
 	d(

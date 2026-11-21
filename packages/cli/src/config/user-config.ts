@@ -7,12 +7,17 @@
  * is written through a temporary file and a rename. A file that does not
  * parse is refused rather than rewritten: rewriting it would drop whatever
  * the operator was in the middle of writing.
+ *
+ * The terminal and the Desktop engine both write this file, so each change
+ * holds `config.yaml.lock` from its read to its rename, and the file as it was
+ * is copied to `backups/config.yaml.backup.<ms>` first.
  */
 
 import { randomUUID } from 'node:crypto'
 import {
 	closeSync,
 	existsSync,
+	fsyncSync,
 	lstatSync,
 	mkdirSync,
 	openSync,
@@ -23,10 +28,16 @@ import {
 } from 'node:fs'
 import { platform } from 'node:os'
 import { dirname, join } from 'node:path'
+import { backupStateFile } from '@namzu/sdk'
 import { Document, isMap, parseDocument } from 'yaml'
 
 import { restrictToOwner } from '../integrations/providers/credential-store.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
+import {
+	newestStateBackup,
+	recoveryCopySentence,
+	withStateFileLock,
+} from '../integrations/state/state-file.js'
 
 export interface UserConfigWriteOptions {
 	/** Override the user's home dir (testing). */
@@ -42,6 +53,31 @@ export function userConfigPath(opts: UserConfigWriteOptions = {}): string {
 }
 
 /**
+ * The refusal for a user config that does not read as settings, naming the
+ * newest recovery copy when there is one. The file itself is left as it is.
+ */
+export function unreadableUserConfig(file: string, problem: string): Error {
+	const copy = newestStateBackup(dirname(file), file)
+	const recovery = copy ? ` ${recoveryCopySentence(file, copy, (path) => path)}` : ''
+	return new Error(`${file} ${problem}; fix it first.${recovery}`)
+}
+
+function parseProblem(doc: Document): string | undefined {
+	if (doc.errors.length > 0) return `is not valid YAML (${doc.errors[0]?.message ?? 'parse error'})`
+	if (doc.contents !== null && !isMap(doc.contents)) return 'is not a mapping of settings'
+	return undefined
+}
+
+/**
+ * Run `operation` holding the user config's lock, so a change that reads the
+ * file, checks it and then writes it is one change. The writers below take the
+ * same lock inside, which is re-entrant, so they can be called from here.
+ */
+export function withUserConfigLock<T>(operation: () => T, opts: UserConfigWriteOptions = {}): T {
+	return withStateFileLock(userConfigPath(opts), operation)
+}
+
+/**
  * Set `path` (for example `['skills', 'suggest']`) to `value` in the user
  * config and return the file written. Throws with a sentence naming the file
  * when it cannot be read as YAML or written.
@@ -52,17 +88,15 @@ export function setUserConfigValue(
 	opts: UserConfigWriteOptions = {},
 ): string {
 	const file = userConfigPath(opts)
+	return withStateFileLock(file, () => setValue(file, path, value))
+}
+
+function setValue(file: string, path: readonly string[], value: unknown): string {
 	const exists = existsSync(file)
 	const text = exists ? readFileSync(file, 'utf8') : ''
 	const doc = text.trim().length > 0 ? parseDocument(text) : new Document({})
-	if (doc.errors.length > 0) {
-		throw new Error(
-			`${file} is not valid YAML (${doc.errors[0]?.message ?? 'parse error'}); fix it first`,
-		)
-	}
-	if (doc.contents !== null && !isMap(doc.contents)) {
-		throw new Error(`${file} is not a mapping of settings; fix it first`)
-	}
+	const problem = parseProblem(doc)
+	if (problem) throw unreadableUserConfig(file, problem)
 	for (let depth = 1; depth < path.length; depth += 1) {
 		const parent = doc.getIn(path.slice(0, depth), true)
 		if (parent !== undefined && parent !== null && !isMap(parent)) {
@@ -84,16 +118,14 @@ export function editUserConfigDocument(
 	opts: UserConfigWriteOptions = {},
 ): string {
 	const file = userConfigPath(opts)
+	return withStateFileLock(file, () => editDocument(file, change))
+}
+
+function editDocument(file: string, change: (doc: Document) => void): string {
 	const text = existsSync(file) ? readFileSync(file, 'utf8') : ''
 	const doc = text.trim().length > 0 ? parseDocument(text) : new Document({})
-	if (doc.errors.length > 0) {
-		throw new Error(
-			`${file} is not valid YAML (${doc.errors[0]?.message ?? 'parse error'}); fix it first`,
-		)
-	}
-	if (doc.contents !== null && !isMap(doc.contents)) {
-		throw new Error(`${file} is not a mapping of settings; fix it first`)
-	}
+	const problem = parseProblem(doc)
+	if (problem) throw unreadableUserConfig(file, problem)
 	change(doc)
 	writePrivateUserConfig(file, doc)
 	return file
@@ -105,17 +137,15 @@ export function deleteUserConfigValue(
 	opts: UserConfigWriteOptions = {},
 ): boolean {
 	const file = userConfigPath(opts)
+	return withStateFileLock(file, () => deleteValue(file, path))
+}
+
+function deleteValue(file: string, path: readonly string[]): boolean {
 	if (!existsSync(file)) return false
 	const text = readFileSync(file, 'utf8')
 	const doc = parseDocument(text)
-	if (doc.errors.length > 0) {
-		throw new Error(
-			`${file} is not valid YAML (${doc.errors[0]?.message ?? 'parse error'}); fix it first`,
-		)
-	}
-	if (doc.contents !== null && !isMap(doc.contents)) {
-		throw new Error(`${file} is not a mapping of settings; fix it first`)
-	}
+	const problem = parseProblem(doc)
+	if (problem) throw unreadableUserConfig(file, problem)
 	for (let depth = 1; depth < path.length; depth += 1) {
 		const parent = doc.getIn(path.slice(0, depth), true)
 		if (parent === undefined || parent === null) return false
@@ -149,12 +179,15 @@ function writePrivateUserConfig(file: string, doc: Document): void {
 		// opening a temp file and prove that file private while it is still empty.
 		restrictToOwner(parent)
 	}
+	// The settings as they were, kept in backups/ before they are replaced.
+	backupStateFile(file, { home: parent })
 	const temp = `${file}.${process.pid}.${randomUUID()}.tmp`
 	let fd: number | undefined
 	try {
 		fd = openSync(temp, 'wx', 0o600)
 		restrictToOwner(temp)
 		writeFileSync(fd, doc.toString())
+		fsyncSync(fd)
 		closeSync(fd)
 		fd = undefined
 		restrictToOwner(temp)

@@ -1,6 +1,6 @@
 import { realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, dirname } from 'node:path'
+import { basename, join } from 'node:path'
 import { isMainThread } from 'node:worker_threads'
 
 const TEST_ROOT_PREFIX = 'namzu-sdk-tests-'
@@ -24,8 +24,10 @@ const [workingDirectory, temporaryRoot, actualWorkingDirectory] = await Promise.
 const name = basename(workingDirectory)
 const suffix = name.slice(TEST_ROOT_PREFIX.length)
 
+// The runner points TMPDIR at `<owned root>/t`, so every temporary file a test makes is removed
+// with the root. A worker whose temporary folder is anywhere else would leave its files behind.
 if (
-	dirname(workingDirectory) !== temporaryRoot ||
+	temporaryRoot !== join(workingDirectory, 't') ||
 	!name.startsWith(TEST_ROOT_PREFIX) ||
 	suffix.length < 6 ||
 	suffix.includes('/') ||

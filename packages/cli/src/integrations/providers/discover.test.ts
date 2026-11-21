@@ -1,7 +1,8 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
+
+import { makeTempDir } from '../../__fixtures__/temp-dir.js'
 
 import {
 	writeStoredCodexCredential,
@@ -12,7 +13,7 @@ import { claudeCredentialsPath, codexCredentialsPath } from './harness-credentia
 import * as keychain from './keychain.js'
 
 function tmpHome(): string {
-	const home = mkdtempSync(join(tmpdir(), 'namzu-discover-'))
+	const home = makeTempDir('namzu-discover-')
 	return home
 }
 

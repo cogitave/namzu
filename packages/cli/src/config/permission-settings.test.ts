@@ -1,7 +1,8 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+
+import { makeTempDir } from '../__fixtures__/temp-dir.js'
 
 import { compilePermissions } from '../permissions/rules.js'
 import { loadConfigWithProvenance } from './load.js'
@@ -13,7 +14,7 @@ import { loadConfigWithProvenance } from './load.js'
  */
 
 function layout(files: { user?: unknown; project?: unknown; local?: unknown; managed?: unknown }) {
-	const root = mkdtempSync(join(tmpdir(), 'namzu-permission-settings-'))
+	const root = makeTempDir('namzu-permission-settings-')
 	const home = join(root, 'home')
 	const cwd = join(root, 'work')
 	mkdirSync(join(home, '.namzu'), { recursive: true })

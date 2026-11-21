@@ -351,8 +351,8 @@ The `hooks` key reads the shape other hook files are written in, beside ours, in
 For each event the entries of every file are attached. The order is fixed, and it is the order the kernel reads answers in (the first refusal quoted is the earliest file's; of several rewrites the last wins, so the managed file's word comes last):
 
 1. `~/.namzu/config.yaml` (the user file)
-2. `namzu.config.json` of the project
-3. `namzu.config.local.json` of the project
+2. `namzu.config.json` of the project, then its `.namzu/settings.json`
+3. `namzu.config.local.json` of the project (its earlier local file, while it is there), then its `.namzu/settings.local.json`
 4. the selected profile's `hooks` (`--profile`, `NAMZU_PROFILE`), after the files it is declared in
 5. the organisation-managed file (`/etc/namzu/config.json`; `%PROGRAMDATA%\namzu\config.json` on Windows)
 
@@ -589,7 +589,7 @@ A hook on either event may be shipped by a plugin: it is read as one in a config
 
 Neither event has a matcher: one is ignored (as on other events with no name to match), and so are `if`, `once` and `async`, because a hook that does the work cannot be filtered or skipped without the kernel acting in its place. The hook always runs, and `/hooks` says when one of those keys is set. A `prompt` entry cannot make or remove a worktree and fails with a line that says so; a `command` and an `http` hook are read alike (the HTTP body is the output). `onFailure` has no effect: a failure is always a failure.
 
-A project's hooks, as for every command, run only once the folder is trusted: `namzu worktree create` in a folder nobody trusted uses the hooks of the user and the managed file only. When that folder's own `namzu.config.json` or `namzu.config.local.json` declares a `worktree_create` hook, the command refuses (exit 64, nothing created) and says to trust the folder first, because a worktree the hook was written to replace must not be made by Git in its place; a file that cannot be parsed counts when it names the event.
+A project's hooks, as for every command, run only once the folder is trusted: `namzu worktree create` in a folder nobody trusted uses the hooks of the user and the managed file only. When one of that folder's own settings files (`namzu.config.json`, `.namzu/settings.json`, `.namzu/settings.local.json` or `namzu.config.local.json`) declares a `worktree_create` hook, the command refuses (exit 64, nothing created) and says to trust the folder first, because a worktree the hook was written to replace must not be made by Git in its place; a file that cannot be parsed counts when it names the event.
 
 ## Model switches, tool-server questions, folders, instruction files, commands and tasks
 

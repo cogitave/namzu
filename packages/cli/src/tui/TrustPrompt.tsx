@@ -5,12 +5,15 @@
  * (App) owns the keypress handling; this component is presentational.
  */
 
+import { dirname, join } from 'node:path'
+
 import { Box, Text, useWindowSize } from 'ink'
 import stringWidth from 'string-width'
 
 import { type FolderGrants, MAX_SHOWN_GRANT_RULES } from '../integrations/trust/folder-grants.js'
+import type { TrustListProblem } from '../integrations/trust/store.js'
 import { boxedContentWidth } from './key-hints.js'
-import { displayPath } from './person-terms.js'
+import { displayPath, homePath } from './person-terms.js'
 import { wrapBalancedText } from './terminal-choice-text.js'
 import { theme } from './theme.js'
 
@@ -18,6 +21,10 @@ export interface TrustPromptProps {
 	readonly cwd: string
 	/** What the folder's own config pre-approves, shown before the choice. */
 	readonly grants?: FolderGrants
+	/** One sentence about the trusted folders list itself, when it could not be read. */
+	readonly notice?: string | undefined
+	/** Offer `s`, a new list with this folder: only while the list cannot be read. */
+	readonly newList?: boolean
 }
 
 const PADDING_X = 2
@@ -29,7 +36,9 @@ const SENTENCES = [
 ] as const
 const YES = 'y trust this folder'
 const NO = 'enter, n or esc exit'
+const NEW_LIST = 's start a new list with this folder'
 const KEYS = new Set(['enter,', 'n', 'esc'])
+const GO_KEYS = new Set(['y', 's'])
 
 /** The box's real content width: the host's inset, the border and the padding. */
 export function trustPathWidth(columns: number): number {
@@ -51,6 +60,16 @@ const GRANTS_NOTICE = 'These will apply without asking. Only continue if you tru
 /** The plain count: `1 rule`, `3 rules`. */
 function countOf(count: number, one: string, many: string): string {
 	return `${count} ${count === 1 ? one : many}`
+}
+
+/**
+ * Said once before the prompt when the trusted folders list exists but does not read: it then
+ * trusts nothing, so a folder trusted before is asked about again, and a yes holds for this
+ * session only until the file is fixed. `s` starts a new list instead, keeping the old one.
+ */
+export function unreadableTrustListNotice(problem: TrustListProblem): string {
+	const backups = homePath(join(dirname(problem.file), 'backups'))
+	return `Your trusted folders list (${homePath(problem.file)}) could not be read (${problem.reason}), so this folder is asked about again and a yes holds for this session only, leaving the file as it is. s starts a new list with this folder and keeps the old one in ${backups}. namzu doctor shows its recovery copies.`
 }
 
 /** The tool servers the screen shows in full; approving the screen covers only these. */
@@ -141,21 +160,33 @@ export function trustGrantLines(
 	return lines
 }
 
-/** The two choices on one row when they fit, else one row each. */
-export function trustChoiceRows(columns: number): readonly (readonly [string, string])[] {
+/**
+ * The two choices on one row when they fit, else one row each; with `newList`,
+ * the new-list choice on a row of its own after trusting.
+ */
+export function trustChoiceRows(
+	columns: number,
+	newList = false,
+): readonly (readonly [string, string])[] {
 	const room = trustPathWidth(columns)
+	const extra: (readonly [string, string])[] = newList
+		? stringWidth(NEW_LIST) <= room
+			? [[NEW_LIST, '']]
+			: [['s start a new list', '']]
+		: []
 	return stringWidth(`${YES} · ${NO}`) <= room
-		? [[YES, NO]]
-		: [
-				[YES, ''],
-				['', NO],
-			]
+		? [[YES, NO], ...extra]
+		: [[YES, ''], ...extra, ['', NO]]
 }
 
 /** One choice: its keys in colour and bold, the rest of the words quiet. */
 function choice(text: string) {
 	return text.split(' ').map((word, at) => {
-		const color = word === 'y' ? theme.status.ok : KEYS.has(word) ? theme.status.error : undefined
+		const color = GO_KEYS.has(word)
+			? theme.status.ok
+			: KEYS.has(word)
+				? theme.status.error
+				: undefined
 		return (
 			// biome-ignore lint/suspicious/noArrayIndexKey: the words of a fixed label have no identity beyond their order.
 			<Text key={at} color={color} bold={color !== undefined}>
@@ -166,9 +197,9 @@ function choice(text: string) {
 	})
 }
 
-export function TrustPrompt({ cwd, grants }: TrustPromptProps) {
+export function TrustPrompt({ cwd, grants, notice, newList = false }: TrustPromptProps) {
 	const terminal = useWindowSize()
-	const choices = trustChoiceRows(terminal.columns)
+	const choices = trustChoiceRows(terminal.columns, newList)
 	return (
 		<Box
 			flexDirection="column"
@@ -200,6 +231,16 @@ export function TrustPrompt({ cwd, grants }: TrustPromptProps) {
 				<Box marginTop={1} flexDirection="column">
 					{trustGrantLines(grants, terminal.columns).map((line, at) => (
 						// biome-ignore lint/suspicious/noArrayIndexKey: the lines have no identity beyond their order.
+						<Text key={at} color={theme.status.warn}>
+							{line}
+						</Text>
+					))}
+				</Box>
+			) : null}
+			{notice ? (
+				<Box marginTop={1} flexDirection="column">
+					{wrapBalancedText(notice, trustPathWidth(terminal.columns)).map((line, at) => (
+						// biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines have no identity beyond their order.
 						<Text key={at} color={theme.status.warn}>
 							{line}
 						</Text>

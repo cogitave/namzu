@@ -1,14 +1,26 @@
-import { mkdirSync, mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { isTrusted, readTrustedDirs, trustDir, untrustDir } from './store.js'
+import { canonicalProjectPath } from '../../permissions/canonical-project.js'
+import { StateFileUnreadableError } from '../state/state-file.js'
+import {
+	assertTrustListWritable,
+	isTrusted,
+	readTrustedDirs,
+	startNewTrustList,
+	trustDir,
+	trustListProblem,
+	untrustDir,
+} from './store.js'
 
 let home: string
 let work: string
+/** More folders a test makes: removed after it, whether or not it passed. */
+const extra: string[] = []
 
 beforeEach(() => {
 	home = mkdtempSync(join(tmpdir(), 'namzu-trust-'))
@@ -18,7 +30,14 @@ beforeEach(() => {
 afterEach(() => {
 	removeTempDir(home)
 	removeTempDir(work)
+	for (const dir of extra.splice(0)) removeTempDir(dir)
 })
+
+function otherFolder(): string {
+	const dir = mkdtempSync(join(tmpdir(), 'namzu-other-'))
+	extra.push(dir)
+	return dir
+}
 
 describe('trust store', () => {
 	it('starts empty and untrusted', () => {
@@ -96,5 +115,137 @@ describe('untrustDir', () => {
 		const result = untrustDir(sub, home)
 		expect(result.removed).toBe(false)
 		expect(result.stillTrustedBy).toBeDefined()
+	})
+})
+
+describe('a trusted folders list that cannot be read', () => {
+	const file = () => join(home, '.namzu', 'trust.json')
+	const backups = () => join(home, '.namzu', 'backups')
+
+	it.each([
+		['not JSON', '{"version":1,"trusted":["/a"', 'not valid JSON'],
+		['not an object', '["/a"]', 'not a trust list'],
+		[
+			'a list that is not a list',
+			'{"version":1,"trusted":"/a"}',
+			'its "trusted" entry is not a list',
+		],
+		['a newer version', '{"version":2,"trusted":[]}', 'version 2 is newer than this Namzu'],
+	])('(%s) trusts nothing, is kept, and is never replaced', (_, text, reason) => {
+		writeFileSync(file(), text)
+		expect(isTrusted(work, home)).toBe(false)
+		expect(trustListProblem(home)).toEqual({ file: file(), reason })
+		let error: unknown
+		try {
+			trustDir(work, home)
+		} catch (caught) {
+			error = caught
+		}
+		expect(error).toBeInstanceOf(StateFileUnreadableError)
+		expect(readFileSync(file(), 'utf8')).toBe(text)
+		const kept = readdirSync(backups()).filter((name) => name.startsWith('trust.json.corrupted.'))
+		expect(kept).toHaveLength(1)
+		expect(readFileSync(join(backups(), kept[0] as string), 'utf8')).toBe(text)
+		// Removing is refused too, rather than answered "it was not on the list".
+		expect(() => untrustDir(work, home)).toThrow(StateFileUnreadableError)
+		expect(() => assertTrustListWritable(home)).toThrow(StateFileUnreadableError)
+		// The same damage is kept once, however often it is met.
+		expect(readdirSync(backups()).filter((name) => name.includes('.corrupted.'))).toHaveLength(1)
+	})
+
+	it('names the newest recovery copy, and says the last change is not in it', () => {
+		const other = otherFolder()
+		trustDir(work, home)
+		trustDir(other, home)
+		writeFileSync(file(), '{ damaged')
+		let error: StateFileUnreadableError | undefined
+		try {
+			trustDir(work, home)
+		} catch (caught) {
+			error = caught as StateFileUnreadableError
+		}
+		expect(error?.backup).toBeDefined()
+		expect(JSON.parse(readFileSync(error?.backup?.path as string, 'utf8')).trusted).toEqual([
+			canonicalProjectPath(work),
+		])
+		expect(error?.message).toContain('that change and any later one are not in it')
+		expect(error?.message).toContain('To go back to it, copy it over')
+	})
+
+	it('keeps entries and keys it does not understand when it changes the list', () => {
+		writeFileSync(file(), JSON.stringify({ version: 1, trusted: [7, '/gone'], note: 'kept' }))
+		trustDir(work, home)
+		const stored = JSON.parse(readFileSync(file(), 'utf8'))
+		expect(stored).toEqual({
+			version: 1,
+			trusted: [7, '/gone', canonicalProjectPath(work)],
+			note: 'kept',
+		})
+		untrustDir(work, home)
+		expect(JSON.parse(readFileSync(file(), 'utf8'))).toEqual({
+			version: 1,
+			trusted: [7, '/gone'],
+			note: 'kept',
+		})
+	})
+
+	it('reads a missing list as empty and a missing entry as an empty list', () => {
+		expect(trustListProblem(home)).toBeUndefined()
+		writeFileSync(file(), '{"version":1}')
+		expect(trustListProblem(home)).toBeUndefined()
+		trustDir(work, home)
+		expect(isTrusted(work, home)).toBe(true)
+	})
+
+	it('writes the list private and keeps a private copy of the old one', () => {
+		trustDir(work, home)
+		const other = otherFolder()
+		trustDir(other, home)
+		const copies = readdirSync(backups()).filter((name) => name.startsWith('trust.json.backup.'))
+		expect(copies).toHaveLength(1)
+		if (process.platform !== 'win32') {
+			expect(statSync(file()).mode & 0o777).toBe(0o600)
+			expect(statSync(join(backups(), copies[0] as string)).mode & 0o777).toBe(0o600)
+		}
+	})
+
+	it('reads an empty or blank file as no list: there is nothing in it to keep', () => {
+		writeFileSync(file(), '')
+		expect(trustListProblem(home)).toBeUndefined()
+		trustDir(work, home)
+		expect(isTrusted(work, home)).toBe(true)
+		writeFileSync(file(), ' \n')
+		expect(isTrusted(work, home)).toBe(false)
+		expect(() => assertTrustListWritable(home)).not.toThrow()
+	})
+
+	it('starts a new list with this folder only when asked, keeping the old one byte for byte', () => {
+		const text = '{"version":1,"trusted":["/kept"'
+		writeFileSync(file(), text)
+		const { kept } = startNewTrustList(work, home)
+		expect(kept).toBeDefined()
+		expect(readFileSync(kept as string, 'utf8')).toBe(text)
+		expect(JSON.parse(readFileSync(file(), 'utf8'))).toEqual({
+			version: 1,
+			trusted: [canonicalProjectPath(work)],
+		})
+		expect(isTrusted(work, home)).toBe(true)
+		if (process.platform !== 'win32') expect(statSync(kept as string).mode & 0o777).toBe(0o600)
+	})
+
+	it('adds to a list that reads after all, instead of replacing it', () => {
+		const other = otherFolder()
+		trustDir(other, home)
+		expect(startNewTrustList(work, home)).toEqual({})
+		expect(isTrusted(other, home)).toBe(true)
+		expect(isTrusted(work, home)).toBe(true)
+	})
+
+	it('replaces nothing when the old list cannot be kept', () => {
+		writeFileSync(file(), '{ damaged')
+		writeFileSync(backups(), 'a file where the backups folder goes')
+		expect(() => startNewTrustList(work, home)).toThrow()
+		expect(readFileSync(file(), 'utf8')).toBe('{ damaged')
+		expect(isTrusted(work, home)).toBe(false)
 	})
 })

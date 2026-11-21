@@ -1,5 +1,5 @@
-import { existsSync, statSync } from 'node:fs'
-import { mkdir, readdir, rename, rm, stat } from 'node:fs/promises'
+import { chmodSync, existsSync, lstatSync, statSync } from 'node:fs'
+import { mkdir, open, readdir, rename, rm, stat } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { basename, dirname, join } from 'node:path'
 import type { DatabaseSync, SQLInputValue, StatementSync } from 'node:sqlite'
@@ -42,6 +42,36 @@ import type { ExternalRefClaim, ExternalRefKind, ExternalRefTarget } from './ref
 
 /** `PRAGMA user_version` of an index this module writes. Any other version is rebuilt, never migrated. */
 export const SESSION_INDEX_VERSION = 1
+
+/**
+ * The index holds every prompt's opening text and the full text of tool
+ * results and replies, so it is the owner's alone, like the session logs it is
+ * derived from. Its folder, when this module creates it, is too.
+ */
+const INDEX_FILE_MODE = 0o600
+const INDEX_DIRECTORY_MODE = 0o700
+
+/**
+ * Narrow the index at `path`, and any journal SQLite keeps beside it, to its
+ * owner. An index written before this rule kept the umask's mode (0644 on most
+ * systems), which let other users of the machine read it. A file this process
+ * does not own, a link, or a platform without POSIX modes is left as it is:
+ * the change is a tightening, never a reason to fail the open.
+ */
+function restrictIndexFiles(path: string): void {
+	if (process.platform === 'win32') return
+	const uid = process.getuid?.()
+	for (const file of [path, `${path}-journal`, `${path}-wal`, `${path}-shm`]) {
+		try {
+			const entry = lstatSync(file)
+			if (!entry.isFile() || (entry.mode & 0o077) === 0) continue
+			if (uid !== undefined && entry.uid !== uid) continue
+			chmodSync(file, INDEX_FILE_MODE)
+		} catch {
+			// Absent, or not ours to change.
+		}
+	}
+}
 
 type SqliteModule = typeof import('node:sqlite')
 
@@ -677,10 +707,14 @@ export class SqliteSessionIndex extends SessionIndexBase {
 	/** See {@link rebuildSqliteSessionIndex}. */
 	static async rebuild(options: RebuildSqliteSessionIndexOptions): Promise<boolean> {
 		const { DatabaseSync } = requireSqlite()
-		await mkdir(dirname(options.path), { recursive: true })
+		await mkdir(dirname(options.path), { recursive: true, mode: INDEX_DIRECTORY_MODE })
 		await sweepAbandonedRebuilds(options.path)
 		const temporary = `${options.path}.tmp-${process.pid}-${uuidv7()}`
 		try {
+			// Every index file starts as this temporary one, so creating it owner-only
+			// here is what makes the renamed index owner-only. SQLite opens an empty
+			// file as an empty database, and gives its journal the file's mode.
+			await (await open(temporary, 'wx', INDEX_FILE_MODE)).close()
 			const db = new DatabaseSync(temporary)
 			const index = new SqliteSessionIndex(db)
 			try {
@@ -714,6 +748,7 @@ export class SqliteSessionIndex extends SessionIndexBase {
 		} else {
 			await sweepAbandonedRebuilds(options.path)
 		}
+		restrictIndexFiles(options.path)
 		const db = new DatabaseSync(options.path)
 		try {
 			configure(db)
@@ -742,6 +777,8 @@ export class SqliteSessionIndex extends SessionIndexBase {
 		const identity = fileIdentity(path)
 		if (identity === undefined || (!force && identity === this.#identity)) return
 		const { DatabaseSync } = requireSqlite()
+		// A peer on an older version may have renamed its own, wider file in.
+		restrictIndexFiles(path)
 		const db = new DatabaseSync(path)
 		try {
 			configure(db)

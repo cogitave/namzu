@@ -45,7 +45,7 @@
  * milder version of it.
  */
 
-import { isTrusted } from '../integrations/trust/store.js'
+import { type TrustListProblem, isTrusted, trustListProblem } from '../integrations/trust/store.js'
 import { canonicalProjectPath } from './canonical-project.js'
 
 export type TrustDecision =
@@ -66,6 +66,8 @@ export interface TrustCheck {
 	readonly trustFlag: boolean
 	/** Injectable for tests. Defaults to the persistent `~/.namzu/trust.json`. */
 	readonly trusted?: (dir: string) => boolean
+	/** Injectable for tests. Why the trusted folders list could not be read, if it could not. */
+	readonly listProblem?: () => TrustListProblem | undefined
 }
 
 export function decideHeadlessTrust(check: TrustCheck): TrustDecision {
@@ -88,6 +90,22 @@ export function decideHeadlessTrust(check: TrustCheck): TrustDecision {
 	if (check.trustFlag) return { allowed: true, cwd }
 	const isDirTrusted = check.trusted ?? ((dir: string) => isTrusted(dir))
 	if (isDirTrusted(cwd)) return { allowed: true, cwd }
+	// A list that exists but does not read trusts nothing. Saying "nobody has trusted" this
+	// folder would send the person to trust it again, into a list that cannot be saved.
+	// A caller that answers trust itself answers for the list too: never the ambient home's file.
+	const listProblem =
+		check.listProblem ?? (check.trusted ? () => undefined : () => trustListProblem())
+	const problem = listProblem()
+	if (problem)
+		return {
+			allowed: false,
+			message: [
+				`refusing to run in ${cwd}: the trusted folders list ${problem.file} could not be read (${problem.reason}), so no folder counts as trusted.`,
+				'',
+				'The file is left as it is. Fix or remove it (namzu doctor shows its',
+				'recovery copies), or pass --trust to accept this folder for this turn only.',
+			].join('\n'),
+		}
 	return {
 		allowed: false,
 		message: [
