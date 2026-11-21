@@ -11,11 +11,19 @@ export interface TrustedKey {
 }
 
 /**
- * Publisher keys compiled into this build. Empty until the owner makes the production key; a normal
- * build then says "No trusted publisher keys in this build" for any package. Rotation: add the new
- * key beside the old, release, sign with the new one, drop the old later.
+ * Publisher keys compiled into this build. A package must be signed by one of these, by a key whose
+ * publisher is the manifest's `publisher.id` and whose id prefixes cover the manifest's id.
+ * Rotation: add the new key beside the old, release, sign with the new one, drop the old later.
  */
-export const EXTENSION_PUBLISHER_KEYS: readonly TrustedKey[] = []
+export const EXTENSION_PUBLISHER_KEYS: readonly TrustedKey[] = [
+	{
+		// Cogitave's production key (2026). The private half never leaves the publisher's signing environment.
+		id: 'cogitave-2026',
+		publisher: 'cogitave',
+		idPrefixes: ['com.cogitave.'],
+		publicKey: 'oJsXwUHBMxv7izC/fk97c0P/8j//Mp2gUS65mnUl6Xg=',
+	},
+]
 
 const SPKI_ED25519_PREFIX = Buffer.from('302a300506032b6570032100', 'hex')
 

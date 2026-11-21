@@ -2,6 +2,7 @@
 
 ## 2026-11-21
 
+- **Update** [Extensions](cli/extensions.md): the build trusts Cogitave's production publisher key `cogitave-2026` (publisher `cogitave`, ids `com.cogitave.*`), so a package Cogitave signed can be added without a developer key. `.changeset/cli-extension-publisher-key.md`.
 - **Update** [Context and compaction](cli/context-and-compaction.md): on the full-screen transcript `/context` draws its grid with the legend beside it instead of its plain-text copy; a shell permission prompt for a call with a `description` keeps the readable view. `.changeset/cli-context-grid-on-the-scroll-screen.md`.
 - **Update** [Permission modes](cli/permission-modes.md): a conversation left in plan mode comes back in plan mode on `-c` or `/resume`. `.changeset/cli-plan-mode-resumes.md`.
 - **Update** [Terminal design](cli/terminal-design.md), [Background jobs in the CLI](cli/background-jobs.md), [Bash tool](sdk/bash-tool.md): Esc before the model has shown any answer puts the message back in the box (no `Interrupted` row, vim starts in INSERT); `bash` takes an optional `description` that names its background job in the end-of-job row, `/tasks` and the job detail, a command without one loses a leading `cd <folder> &&`, and the `[job ...; next_offset ...]` cursor line of `job` and `wait_for_job` results is no longer printed in the transcript. `.changeset/cli-interrupted-message-returns-and-job-names.md`, `.changeset/sdk-bash-description-names-the-job.md`.
