@@ -2,6 +2,7 @@
 /**
  * Release by hand, when GitHub Actions cannot run.
  *
+ *   pnpm release login                        sign in to npm (web approval opens in your browser), then check `npm whoami`
  *   pnpm release version                      run `changeset version`, show the bumps, stop for a PR
  *   pnpm release local [--dry-run]            publish the npm packages (what release.yml's publish does)
  *   pnpm release record-gates --summary <f>   write the local gate record for this tree
@@ -17,6 +18,7 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { userInfo } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { decidePending } from '../.github/scripts/pending-changesets.mjs'
@@ -36,15 +38,7 @@ const fail = (message) => {
 export function parseArgs(argv) {
 	const words = []
 	const flags = {}
-	const valued = new Set([
-		'gates',
-		'summary',
-		'installer',
-		'version',
-		'out',
-		'pal-computer-image',
-		'pal-computer-manifest',
-	])
+	const valued = new Set(['gates', 'summary', 'installer', 'version', 'out', 'pal-computer-image', 'pal-computer-manifest'])
 	for (let i = 0; i < argv.length; i++) {
 		const a = argv[i]
 		if (!a.startsWith('--')) {
@@ -97,7 +91,11 @@ export function requireNoPendingChangesets(deps) {
 export function parseGateProof(text, tree) {
 	if (typeof text !== 'string') return { ok: false, reason: 'no proof text' }
 	const trees = [...text.matchAll(/^tree[: ]\s*([0-9a-f]{40,64})\s*$/gm)].map((m) => m[1])
-	if (!trees.includes(tree)) return { ok: false, reason: `it does not name this tree (${tree.slice(0, 12)})` }
+	if (!trees.includes(tree))
+		return {
+			ok: false,
+			reason: `it does not name this tree (${tree.slice(0, 12)})`,
+		}
 	if (/fail=(?!0\b)\d+/.test(text)) return { ok: false, reason: 'it reports failures' }
 	if (!/\bDONE\s+fail=0\b/.test(text)) return { ok: false, reason: 'it has no "DONE fail=0" line' }
 	return { ok: true, reason: '' }
@@ -154,7 +152,11 @@ export function dependencyOrder(deps, pkgs) {
 			try {
 				if (p.path) manifest = JSON.parse(deps.readFile(join(p.path, 'package.json')))
 			} catch {}
-			const all = { ...manifest.dependencies, ...manifest.optionalDependencies, ...manifest.peerDependencies }
+			const all = {
+				...manifest.dependencies,
+				...manifest.optionalDependencies,
+				...manifest.peerDependencies,
+			}
 			return [p.name, Object.keys(all).filter((n) => names.has(n) && n !== p.name)]
 		}),
 	)
@@ -184,7 +186,9 @@ export function versionStep(flags, deps) {
 	const status = must(deps, 'git', ['status', '--porcelain'], 'reading the working tree')
 	if (status.trim() !== '') fail('the working tree is not clean; commit or remove the changes first.')
 	const before = publishablePackages(deps)
-	must(deps, 'pnpm', ['changeset', 'version'], 'changeset version', { inherit: true })
+	must(deps, 'pnpm', ['changeset', 'version'], 'changeset version', {
+		inherit: true,
+	})
 	const after = publishablePackages(deps)
 	const old = new Map(before.map((p) => [p.name, p.version]))
 	const bumps = after.filter((p) => old.get(p.name) !== p.version)
@@ -194,37 +198,124 @@ export function versionStep(flags, deps) {
 	}
 	deps.log('version bumps:')
 	for (const p of bumps) deps.log(`  ${p.name}  ${old.get(p.name) ?? '(new)'} -> ${p.version}`)
-	deps.log(
-		'\nStopping here. Put this on a branch, commit it as "chore(release): version packages", open a PR and merge it;\n' +
-			'then, from main with the gates recorded, run `pnpm release local`.',
-	)
+	deps.log('\nStopping here. Put this on a branch, commit it as "chore(release): version packages", open a PR and merge it;\n' + 'then, from main with the gates recorded, run `pnpm release local`.')
 	return bumps
 }
 
-/** The line npm prints while it waits for the browser: "Authenticate your account at: https://...". */
+const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]/g
+const AUTH_TITLE = /(Authenticate your account at|Login at|Create your account at|Open this URL)\b[^:]*:?/i
+const BARE_URL = /^\s*(https?:\/\/\S+)\s*$/
+const APPROVAL_URL = /https?:\/\/(?:www\.)?npmjs\.com\/(?:auth|login)\/\S*/i
+
+/** The approval URL on one line of npm's output, or null. The title and the URL may share a line. */
 export function authUrl(line) {
-	if (!/auth/i.test(line)) return null
-	return /https?:\/\/\S+/.exec(line)?.[0].replace(/[.,;)]+$/, '') ?? null
+	const url = /https?:\/\/\S+/.exec(line)?.[0].replace(/[.,;)]+$/, '') ?? null
+	if (!url) return null
+	return AUTH_TITLE.test(line) || APPROVAL_URL.test(url) ? url : null
+}
+
+const isTitleOnly = (line) => AUTH_TITLE.test(line) && !/https?:\/\//.test(line)
+
+/**
+ * Picks the program that opens a URL in a browser, or null. Never a shell: the URL is the program's last
+ * argument, or (Windows, WSL helper) travels in an environment variable, never in command text.
+ */
+export function findOpener({ env, platform, exists, home, user }) {
+	if (env.BROWSER) return { cmd: env.BROWSER, args: [] }
+	if (platform === 'linux' && (env.WSL_DISTRO_NAME || env.WSL_INTEROP)) {
+		const homes = [...new Set([home, user ? `/home/${user}` : undefined].filter(Boolean))]
+		for (const h of homes) {
+			const helper = join(h, '.local/bin/open-in-windows')
+			if (exists(helper)) return { cmd: helper, args: [] }
+		}
+	}
+	if (platform === 'darwin') return { cmd: 'open', args: [] }
+	if (platform === 'win32') {
+		return {
+			cmd: 'powershell.exe',
+			args: ['-NoProfile', '-Command', 'Start-Process $env:NAMZU_OPEN_URL'],
+			urlEnv: 'NAMZU_OPEN_URL',
+		}
+	}
+	return { cmd: 'xdg-open', args: [] }
 }
 
 /**
- * Publishes one package with npm's own output streamed live. It never times out: npm waits for the browser
- * approval and has its own limit. The approval URL is echoed again on its own line so it is not lost.
+ * Watches npm's output line by line. An approval URL is handed once to deps.openUrl and never printed; the
+ * return value is what to print instead of the line (a string), or null to print nothing.
  */
-async function publishOne(deps, p) {
+export function approvalWatcher(deps) {
 	const seen = new Set()
-	let tail = ''
-	const r = await deps.stream('pnpm', ['--filter', p.name, 'publish', '--access', 'public', '--no-git-checks'], {
-		onLine: (line) => {
-			if (/\b(npm )?error\b/i.test(line)) tail = line.replace(/^npm (error|ERR!)\s*/i, '').trim() || tail
-			const url = authUrl(line)
-			if (url && !seen.has(url)) {
-				seen.add(url)
-				deps.log(`Approve in your browser: ${url}`)
+	let expectUrl = false
+	let said = false
+	const open = (url) => {
+		if (seen.has(url)) return
+		seen.add(url)
+		const r = deps.openUrl(url)
+		if (r?.opened) deps.log(`Approval page opened in your browser (${new URL(url).host})`)
+		else if (!said) {
+			said = true
+			deps.log('Cannot open a browser from here, and the approval address is not printed (this shell hides it). ' + 'Run this command in a terminal that can show the full address.')
+		}
+	}
+	return (raw) => {
+		const line = raw.replace(ANSI, '').replace(/\r/g, '')
+		const url = authUrl(line)
+		if (url) {
+			expectUrl = false
+			open(url)
+			return null
+		}
+		if (expectUrl) {
+			const bare = BARE_URL.exec(line)
+			if (bare) {
+				expectUrl = false
+				open(bare[1])
+				return null
 			}
+			if (line.trim() !== '') expectUrl = false
+		}
+		if (isTitleOnly(line)) {
+			expectUrl = true
+			return null
+		}
+		if (/Press ENTER to open/i.test(line)) return null
+		return undefined
+	}
+}
+
+/**
+ * Runs one npm command whose output may carry approval URLs. Nothing is typed to npm and stdin stays open
+ * while it polls; there is no timeout of our own. Returns { status, tail }.
+ */
+async function streamWithApproval(deps, cmd, args) {
+	const watch = approvalWatcher(deps)
+	let tail = ''
+	const r = await deps.stream(cmd, args, {
+		pty: true,
+		onLine: (line) => {
+			const out = watch(line)
+			if (out === undefined && /\b(npm )?error\b/i.test(line)) tail = line.replace(/^npm (error|ERR!)\s*/i, '').trim() || tail
+			return out
 		},
 	})
 	return { status: r.status, tail }
+}
+
+/** Publishes one package. npm waits for the browser approval and has its own limit. */
+function publishOne(deps, p) {
+	return streamWithApproval(deps, 'pnpm', ['--filter', p.name, 'publish', '--access', 'public', '--no-git-checks'])
+}
+
+// ---- pnpm release login ----------------------------------------------------------------------
+
+export async function loginStep(_flags, deps) {
+	const r = await streamWithApproval(deps, 'npm', ['login', '--auth-type=web'])
+	if (r.status !== 0) fail(`npm login failed (exit ${r.status}).${r.tail ? ` npm said: ${r.tail}` : ''}`)
+	const who = deps.run('npm', ['whoami'])
+	if (who.status !== 0 || !(who.stdout ?? '').trim()) fail('npm login finished but `npm whoami` still fails; approve the page and run `pnpm release login` again.')
+	deps.log(`npm: signed in as ${who.stdout.trim()}`)
+	return who.stdout.trim()
 }
 
 // ---- pnpm release local ----------------------------------------------------------------------
@@ -247,7 +338,7 @@ export async function releaseLocal(flags, deps) {
 
 	const who = deps.run('npm', ['whoami'])
 	if (who.status !== 0 || !(who.stdout ?? '').trim()) {
-		fail('not signed in to npm. Run `npm login --auth-type=web` in this shell, then run this again.')
+		fail('not signed in to npm. Run `pnpm release login`, then run this again.')
 	}
 	deps.log(`npm: signed in as ${who.stdout.trim()}`)
 
@@ -268,7 +359,7 @@ export async function releaseLocal(flags, deps) {
 	}
 
 	deps.log(
-		'\nnpm will open a browser approval for each package. The approval page may offer to not ask again for a few\n' +
+		'\nThis command opens a browser approval for each package (the address is never printed). The approval page may offer to not ask again for a few\n' +
 			'minutes from this address; accepting it saves one approval per package. Nothing here reads the keyboard.\n',
 	)
 	const done = []
@@ -310,7 +401,11 @@ export async function releaseLocal(flags, deps) {
 	}
 	deps.log('registry: every published version is visible')
 
-	const existing = new Set(must(deps, 'git', ['tag', '--list'], 'listing tags').split('\n').map((s) => s.trim()))
+	const existing = new Set(
+		must(deps, 'git', ['tag', '--list'], 'listing tags')
+			.split('\n')
+			.map((s) => s.trim()),
+	)
 	const tags = toPublish.map((p) => `${p.name}@${p.version}`)
 	for (const t of tags) if (!existing.has(t)) must(deps, 'git', ['tag', t], `tagging ${t}`)
 	if (tags.length > 0) {
@@ -345,7 +440,10 @@ function desktopFacts(flags, deps) {
 	if (flags.version && flags.version !== pkg.version) {
 		fail(`packages/desktop/package.json is ${pkg.version} but --version asked for ${flags.version}.`)
 	}
-	return { version: pkg.version, electron: pkg.devDependencies?.electron ?? '' }
+	return {
+		version: pkg.version,
+		electron: pkg.devDependencies?.electron ?? '',
+	}
 }
 
 function requireChangelog(version, deps) {
@@ -362,16 +460,19 @@ export function desktopStage(flags, deps) {
 	requireChangelog(version, deps)
 	for (const f of ['pal-computer-image', 'pal-computer-manifest']) {
 		if (!flags[f]) {
-			fail(
-				`--${f} is required. Take the archive and manifest of the previous installer (or build them with ` +
-					'packages/sandbox/local-computer/build-image.mjs, see docs/cli/desktop.md).',
-			)
+			fail(`--${f} is required. Take the archive and manifest of the previous installer (or build them with ` + 'packages/sandbox/local-computer/build-image.mjs, see docs/cli/desktop.md).')
 		}
 		if (!deps.exists(flags[f])) fail(`--${f} ${flags[f]} does not exist.`)
 	}
 	const out = flags.out ?? join(deps.root, '.release', `desktop-stage-${version}`)
 	must(deps, 'pnpm', ['-r', 'build'], 'build', { inherit: true })
-	must(deps, 'node', ['packages/desktop/scripts/stage-installer.mjs', out, '--pal-computer-image', flags['pal-computer-image'], '--pal-computer-manifest', flags['pal-computer-manifest']], 'stage-installer', { inherit: true })
+	must(
+		deps,
+		'node',
+		['packages/desktop/scripts/stage-installer.mjs', out, '--pal-computer-image', flags['pal-computer-image'], '--pal-computer-manifest', flags['pal-computer-manifest']],
+		'stage-installer',
+		{ inherit: true },
+	)
 	must(deps, 'node', ['packages/desktop/scripts/check-pal-image.mjs', 'archive', join(out, 'extra/pal-computer')], 'check-pal-image', { inherit: true })
 	const tgz = `${out}.tgz`
 	must(deps, 'tar', ['-czf', tgz, '-C', out, '.'], 'packing the staged project')
@@ -439,17 +540,38 @@ export function desktopPublish(flags, deps) {
 	deps.log('installer: latest.yml names this installer and its sha512')
 
 	const env = { GH_REPO: deps.repo }
-	must(deps, 'gh', ['auth', 'status'], 'gh sign-in (run `gh auth login`)', { env })
+	must(deps, 'gh', ['auth', 'status'], 'gh sign-in (run `gh auth login`)', {
+		env,
+	})
 	const view = deps.run('gh', ['release', 'view', FEED_TAG], { env })
 	const exists = view.status === 0
 	if (!exists) {
 		if (dry) deps.log(`would create the rolling release ${FEED_TAG}`)
 		else {
-			must(deps, 'gh', ['release', 'create', FEED_TAG, '--prerelease', '--latest=false', '--title', 'Namzu Desktop', '--notes', 'Update feed read by the installed Namzu Desktop app. It holds the newest installer and the one before it; do not delete this release.'], 'creating the release', { env })
+			must(
+				deps,
+				'gh',
+				[
+					'release',
+					'create',
+					FEED_TAG,
+					'--prerelease',
+					'--latest=false',
+					'--title',
+					'Namzu Desktop',
+					'--notes',
+					'Update feed read by the installed Namzu Desktop app. It holds the newest installer and the one before it; do not delete this release.',
+				],
+				'creating the release',
+				{ env },
+			)
 		}
 	}
 	const assets = exists
-		? must(deps, 'gh', ['release', 'view', FEED_TAG, '--json', 'assets', '--jq', '.assets[].name'], 'reading the feed', { env }).split('\n').map((s) => s.trim()).filter(Boolean)
+		? must(deps, 'gh', ['release', 'view', FEED_TAG, '--json', 'assets', '--jq', '.assets[].name'], 'reading the feed', { env })
+				.split('\n')
+				.map((s) => s.trim())
+				.filter(Boolean)
 		: []
 	if (assets.includes(exe)) fail(`${exe} is already on ${FEED_TAG}; bump the version instead.`)
 	const previous = installerVersions(assets).find((v) => /^\d+\.\d+\.\d+([-+.][0-9A-Za-z.]+)?$/.test(v)) ?? ''
@@ -457,7 +579,13 @@ export function desktopPublish(flags, deps) {
 
 	const notes = join(deps.root, '.release', `desktop-notes-${version}.md`)
 	deps.mkdir(dirname(notes))
-	must(deps, 'node', ['packages/desktop/scripts/feed-release-notes.mjs', '--version', version, ...(previous ? ['--previous', previous] : []), '--installer', join(dir, exe), '--out', notes], 'feed-release-notes', { env: { GH_TOKEN: '' } })
+	must(
+		deps,
+		'node',
+		['packages/desktop/scripts/feed-release-notes.mjs', '--version', version, ...(previous ? ['--previous', previous] : []), '--installer', join(dir, exe), '--out', notes],
+		'feed-release-notes',
+		{ env: { GH_TOKEN: '' } },
+	)
 	deps.log(`release notes: ${notes}`)
 
 	const steps = [
@@ -487,11 +615,21 @@ export async function main(argv, deps) {
 	const { words, flags } = parseArgs(argv)
 	const [cmd, sub] = words
 	if (cmd === 'local') return releaseLocal(flags, deps)
+	if (cmd === 'login') return loginStep(flags, deps)
 	if (cmd === 'version') return versionStep(flags, deps)
 	if (cmd === 'record-gates') return recordGates(flags, deps)
 	if (cmd === 'desktop' && sub === 'publish') return desktopPublish(flags, deps)
 	if (cmd === 'desktop' && sub === undefined) return desktopStage(flags, deps)
-	fail('usage: pnpm release <version | local [--dry-run] [--gates <summary>] | record-gates --summary <file> | desktop [publish] ...>\nSee docs/cli/releasing.md.')
+	fail('usage: pnpm release <login | version | local [--dry-run] [--gates <summary>] | record-gates --summary <file> | desktop [publish] ...>\nSee docs/cli/releasing.md.')
+}
+
+const shq = (x) => `'${String(x).replace(/'/g, `'\\''`)}'`
+
+/** [program, args] that runs cmd under a pseudo-terminal through util-linux or BSD `script`, or null. */
+export function ptyCommand(cmd, args, platform, pathVar, exists = existsSync) {
+	if (platform !== 'linux' && platform !== 'darwin') return null
+	if (!pathVar.split(':').some((d) => d && exists(join(d, 'script')))) return null
+	return platform === 'linux' ? ['script', ['-qefc', [cmd, ...args].map(shq).join(' '), '/dev/null']] : ['script', ['-q', '/dev/null', cmd, ...args]]
 }
 
 export function realDeps(root) {
@@ -506,27 +644,74 @@ export function realDeps(root) {
 				stdio: opts.inherit ? 'inherit' : 'pipe',
 				maxBuffer: 64 * 1024 * 1024,
 			})
-			return { status: r.status ?? 1, stdout: r.stdout ?? '', stderr: r.stderr ?? (r.error ? String(r.error) : '') }
+			return {
+				status: r.status ?? 1,
+				stdout: r.stdout ?? '',
+				stderr: r.stderr ?? (r.error ? String(r.error) : ''),
+			}
+		},
+		openUrl(url) {
+			const o = findOpener({
+				env: process.env,
+				platform: process.platform,
+				exists: existsSync,
+				home: process.env.HOME,
+				user: (() => {
+					try {
+						return userInfo().username
+					} catch {
+						return undefined
+					}
+				})(),
+			})
+			if (!o) return { opened: false }
+			try {
+				const env = o.urlEnv ? { ...process.env, [o.urlEnv]: url } : process.env
+				const child = spawn(o.cmd, o.urlEnv ? o.args : [...o.args, url], {
+					env,
+					stdio: 'ignore',
+					detached: true,
+				})
+				child.on('error', () => {})
+				child.unref()
+				return { opened: true }
+			} catch {
+				return { opened: false }
+			}
 		},
 		stream(cmd, args, opts = {}) {
 			return new Promise((res) => {
-				// stdin is closed: nothing here may wait for a keyboard.
-				const child = spawn(cmd, args, { cwd: root, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
+				// npm only waits for a browser approval when it has a terminal, so run it under a pseudo-terminal
+				// (`script`) when there is one. Nothing is ever written to stdin, and it stays open: closing it
+				// would end the pseudo-terminal while npm polls. No timeout of our own.
+				const wrapped = opts.pty ? ptyCommand(cmd, args, process.platform, process.env.PATH ?? '') : null
+				const [c, a] = wrapped ?? [cmd, args]
+				const child = spawn(c, a, {
+					cwd: root,
+					env: process.env,
+					stdio: ['pipe', 'pipe', 'pipe'],
+				})
 				const pump = (src, out) => {
 					let buf = ''
+					const emit = (line, nl) => {
+						const clean = line.replace(/\r$/, '')
+						const r = opts.onLine?.(clean)
+						if (r === null) return
+						out.write(`${r ?? clean}${nl ? '\n' : ''}`)
+					}
 					src.on('data', (d) => {
-						out.write(d)
 						buf += d.toString('utf8')
 						let i
 						while ((i = buf.indexOf('\n')) >= 0) {
-							opts.onLine?.(buf.slice(0, i).replace(/\r$/, ''))
+							emit(buf.slice(0, i), true)
 							buf = buf.slice(i + 1)
 						}
 					})
-					src.on('end', () => buf && opts.onLine?.(buf))
+					src.on('end', () => buf && emit(buf, false))
 				}
 				pump(child.stdout, process.stdout)
 				pump(child.stderr, process.stderr)
+				child.stdin.on('error', () => {})
 				child.on('error', (e) => {
 					console.error(String(e))
 					res({ status: 1 })
@@ -548,7 +733,11 @@ export function realDeps(root) {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
 	const here = dirname(fileURLToPath(import.meta.url))
-	const root = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: here, encoding: 'utf8' }).stdout.trim() || resolve(here, '..')
+	const root =
+		spawnSync('git', ['rev-parse', '--show-toplevel'], {
+			cwd: here,
+			encoding: 'utf8',
+		}).stdout.trim() || resolve(here, '..')
 	main(process.argv.slice(2), realDeps(root)).catch((error) => {
 		console.error(error instanceof Refusal ? `refused: ${error.message}` : error)
 		process.exit(1)

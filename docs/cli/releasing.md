@@ -15,7 +15,7 @@ Releases normally run in `.github/workflows/release.yml` (npm, through changeset
 releases can be made from a maintainer's machine with `pnpm release`. It is the only allowed manual
 path (`AGENTS.md`), and only with the owner's go for that specific release. It never runs
 `npm unpublish`, never publishes a version the registry already has (it skips it and says so),
-and never signs in for you. It uses only your own npm session: no access token and no one-time code.
+and signs in only when you run `pnpm release login`. It uses only your own npm session: no access token and no one-time code.
 
 Every command takes `--dry-run`, which runs every check and stops before anything is published,
 tagged, uploaded or deleted. Start with one.
@@ -32,16 +32,45 @@ tagged, uploaded or deleted. Start with one.
    (the folder is git-ignored, per working copy). A summary kept elsewhere is passed with
    `pnpm release local --gates <summary path>`; it must name this tree too.
 3. **Release.** From main, signed in to npm. Sign-in and every publish approval happen in the browser
-   (npm's web authentication, with a passkey or security key); one-time codes are not used. Run
-   `npm login --auth-type=web` once, approve in the browser it opens, then:
+   (npm's web authentication, with a passkey or security key); one-time codes are not used. Sign in once
+   with `pnpm release login` (it runs `npm login --auth-type=web`, opens the approval page, waits for you
+   to approve, then checks `npm whoami`), then:
 
    ```
    pnpm release local --dry-run
    pnpm release local
    ```
 
-   If `npm whoami` fails the command says to run that login and stops. Nothing reads standard input, so
-   it works from a shell without a keyboard, such as a chat tool's `!` shell.
+   If `npm whoami` fails the command says to run `pnpm release login` and stops. Nothing is typed to npm
+   and the command sets no timeout of its own, so it works from a shell without a keyboard, such as a
+   chat tool's `!` shell.
+
+### Approvals open in the browser
+
+npm cannot always open a browser itself (from WSL it says "Set the BROWSER environment variable"), and a
+chat tool's shell may mask the one-time part of the address (`.../login/cli/***`), so a printed address is
+useless. The command therefore catches every npm line that asks you to authenticate or approve (login,
+publish approval: "Authenticate your account at", "Login at", "Open this URL", `npmjs.com/auth/` and
+`/login/` addresses), opens the address itself and prints only
+`Approval page opened in your browser (<host>)`. The address is never printed. npm keeps polling and
+finishes when you approve in the browser. It runs npm under a pseudo-terminal (`script`) because npm only
+polls for the approval when it has a terminal; it never presses Enter for npm and keeps its input open.
+
+The browser is opened with the first of these that exists: the `BROWSER` environment variable; on WSL
+`~/.local/bin/open-in-windows`; `open` on macOS; `xdg-open` on Linux; PowerShell `Start-Process` on Windows
+(the address travels in an environment variable, never in command text). If none exists the command says
+plainly that it cannot open a browser and that you should run it in a terminal that can show the full address.
+
+**WSL helper.** Create `~/.local/bin/open-in-windows` (`chmod +x`). The address is passed to Windows in an
+environment variable forwarded through `WSLENV`, so it is never parsed as command text:
+
+```sh
+#!/bin/sh
+NAMZU_OPEN_URL="$1"
+export NAMZU_OPEN_URL
+WSLENV="${WSLENV:+$WSLENV:}NAMZU_OPEN_URL"; export WSLENV
+exec powershell.exe -NoProfile -Command 'Start-Process $env:NAMZU_OPEN_URL'
+```
 
 In order, it refuses unless: the working tree is clean and HEAD equals `origin/main` (it fetches
 first); no changeset is pending (it tells you to run `pnpm release version`); the gate proof holds.
@@ -51,9 +80,8 @@ afterwards, and checks `npm whoami`. It asks the registry about each package wit
 and lists what it will publish (a registry error other than a 404 stops it). Then it runs
 publishes the packages one at a time in dependency order, each with `pnpm --filter <pkg> publish`,
 and goes on only after the previous one succeeded. npm's output is streamed live. npm asks for an
-approval at a URL and waits; the command prints that URL again on its own line,
-`Approve in your browser: <url>`, so it is not lost, and sets no timeout of its own (npm has its own; its
-message is shown if it expires). Before the first publish it says that the approval page may offer to not
+approval at a URL and waits; the command opens it in the browser as described above and sets no timeout
+of its own (npm has its own; its message is shown if it expires). Before the first publish it says that the approval page may offer to not
 ask again for a few minutes from this address, which saves one approval per package. On the first failure it
 stops and lists which packages were already published and which were not; run the same command again to
 resume, because it skips every version already on the registry. It then verifies every published version

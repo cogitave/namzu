@@ -2,7 +2,7 @@
 // The decision logic of scripts/release.mjs with injected runners: no npm, gh, git or registry is called.
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { Refusal, authUrl, compareVersions, dependencyOrder, main, parseGateProof } from '../release.mjs'
+import { Refusal, authUrl, compareVersions, dependencyOrder, findOpener, main, parseGateProof, ptyCommand } from '../release.mjs'
 
 const TREE = 'a'.repeat(40)
 const HEAD = 'b'.repeat(40)
@@ -32,6 +32,9 @@ function world(over = {}) {
 		streams: [], // [cmd args] of every streamed command
 		publishLines: {}, // package name -> lines npm prints
 		failPublish: null, // package name whose publish exits 1
+		printed: [], // what the stream runner would print
+		opened: [], // URLs handed to the opener
+		opener: true, // false: no browser can be opened
 		streamedLive: [], // order of onLine calls relative to logs
 		tags: '@namzu/sdk@2.0.0\n@namzu/cli@3.0.0\n',
 		...over,
@@ -53,12 +56,18 @@ function world(over = {}) {
 		exists: (p) => w.files.has(p),
 		readDir: (p) => w.dirs?.[p] ?? [],
 		sha512: () => 'SUM',
+		openUrl: (url) => {
+			if (!w.opener) return { opened: false }
+			w.opened.push(url)
+			return { opened: true }
+		},
 		stream: async (cmd, args, opts) => {
 			w.calls.push([cmd, ...args])
 			w.streams.push([cmd, ...args])
 			const name = args[1]
 			for (const line of w.publishLines[name] ?? []) {
-				opts.onLine(line)
+				const out = opts.onLine(line)
+				if (out !== null) w.printed.push(out ?? line)
 				w.streamedLive.push(w.logs.length)
 			}
 			if (name === w.failPublish) return { status: 1 }
@@ -105,7 +114,9 @@ test('refuses when HEAD is not origin/main', async () => {
 	await refused(['local'], world({ main: 'c'.repeat(40) }), /not origin\/main/)
 })
 test('refuses while a changeset is pending, and says how to proceed', async () => {
-	const w = world({ lsTree: '100644 blob ' + 'd'.repeat(40) + '\t.changeset/x.md\0' })
+	const w = world({
+		lsTree: '100644 blob ' + 'd'.repeat(40) + '\t.changeset/x.md\0',
+	})
 	await refused(['local'], w, /pnpm release version/)
 })
 test('refuses without a gate record', async () => {
@@ -128,10 +139,12 @@ test('--gates accepts an explicit summary', async () => {
 	assert.ok(w.logs.some((l) => l.includes('gates: passed')))
 })
 test('refuses when not signed in to npm and names the login command', async () => {
-	await refused(['local'], world({ whoami: bad('ENEEDAUTH') }), /npm login --auth-type=web/)
+	await refused(['local'], world({ whoami: bad('ENEEDAUTH') }), /pnpm release login/)
 })
 test('skips a version already on the registry and publishes nothing when all exist', async () => {
-	const w = world({ registry: new Set(['@namzu/sdk@2.0.0', '@namzu/cli@3.0.0']) })
+	const w = world({
+		registry: new Set(['@namzu/sdk@2.0.0', '@namzu/cli@3.0.0']),
+	})
 	const r = await run(['local'], w)
 	assert.deepEqual(r.published, [])
 	assert.ok(w.logs.some((l) => l.includes('skip @namzu/sdk@2.0.0')))
@@ -147,7 +160,10 @@ test('dry run runs the checks, lists the packages and does not publish or push',
 	const w = world({ registry: new Set(['@namzu/sdk@2.0.0']) })
 	const r = await run(['local', '--dry-run'], w)
 	assert.equal(r.dryRun, true)
-	assert.deepEqual(r.toPublish.map((p) => p.name), ['@namzu/cli'])
+	assert.deepEqual(
+		r.toPublish.map((p) => p.name),
+		['@namzu/cli'],
+	)
 	const cmds = w.calls.map((c) => c.join(' '))
 	assert.ok(cmds.some((c) => c.includes('verify-consumer-install.sh')))
 	assert.ok(cmds.some((c) => c.includes('check-publish-metadata.mjs')))
@@ -159,10 +175,7 @@ test('publishes one at a time, verifies with bounded retries on a fake clock, th
 	const r = await run(['local'], w)
 	const cmds = w.calls.map((c) => c.join(' '))
 	const pubs = cmds.filter((c) => c.startsWith('pnpm --filter'))
-	assert.deepEqual(pubs, [
-		'pnpm --filter @namzu/sdk publish --access public --no-git-checks',
-		'pnpm --filter @namzu/cli publish --access public --no-git-checks',
-	])
+	assert.deepEqual(pubs, ['pnpm --filter @namzu/sdk publish --access public --no-git-checks', 'pnpm --filter @namzu/cli publish --access public --no-git-checks'])
 	const pub = cmds.indexOf(pubs[1])
 	const push = cmds.findIndex((c) => c.startsWith('git push origin'))
 	assert.ok(push > pub, 'tags are pushed after the publish')
@@ -171,35 +184,150 @@ test('publishes one at a time, verifies with bounded retries on a fake clock, th
 	assert.deepEqual(w.sleeps, [2000, 4000, 2000, 4000])
 	assert.equal(cmds[push], 'git push origin refs/tags/@namzu/sdk@2.0.0 refs/tags/@namzu/cli@3.0.0')
 	assert.match(w.files.get(r.notePath), /@namzu\/sdk@2\.0\.0/)
-	assert.ok(w.logs.some((l) => /may offer to not ask again/.test(l)), 'the remember-me hint is said once')
+	assert.ok(
+		w.logs.some((l) => /may offer to not ask again/.test(l)),
+		'the remember-me hint is said once',
+	)
 	assert.equal(w.logs.filter((l) => /may offer to not ask again/.test(l)).length, 1)
 })
-test('the approval URL is echoed on its own marked line, as npm prints it', async () => {
+const URL1 = 'https://www.npmjs.com/auth/cli/abc-123'
+test('an approval URL is opened once through the opener and never printed', async () => {
 	const w = world()
-	w.publishLines['@namzu/sdk'] = [
-		'npm notice publishing',
-		'npm notice Authenticate your account at: https://www.npmjs.com/auth/cli/abc-123',
-		'npm notice Authenticate your account at: https://www.npmjs.com/auth/cli/abc-123',
-	]
+	w.publishLines['@namzu/sdk'] = ['npm notice publishing', `npm notice Authenticate your account at: ${URL1}`, `npm notice Authenticate your account at: ${URL1}`]
 	await run(['local'], w)
-	const lines = w.logs.filter((l) => l.includes('Approve in your browser'))
-	assert.deepEqual(lines, ['Approve in your browser: https://www.npmjs.com/auth/cli/abc-123'])
+	assert.deepEqual(w.opened, [URL1])
+	assert.deepEqual(
+		w.logs.filter((l) => l.includes('Approval page opened')),
+		['Approval page opened in your browser (www.npmjs.com)'],
+	)
+	assert.ok(![...w.logs, ...w.printed].some((l) => l.includes('abc-123')), 'the URL is never printed')
+})
+test('a title line followed by a bare URL line (npm under a terminal) is opened and hidden', async () => {
+	const w = world()
+	w.publishLines['@namzu/sdk'] = ['\u001b[1mAuthenticate your account at:\u001b[0m\r', `${URL1}\r`, 'Press ENTER to open in the browser...']
+	await run(['local'], w)
+	assert.deepEqual(w.opened, [URL1])
+	assert.ok(![...w.logs, ...w.printed].some((l) => /abc-123|Press ENTER/.test(l)))
+})
+test('npm without a terminal ("Open this URL ...") is handled the same way', async () => {
+	const w = world()
+	w.publishLines['@namzu/sdk'] = ['npm error Open this URL in your browser to authenticate:', 'npm error   ' + URL1]
+	await run(['local'], w)
+	assert.deepEqual(w.opened, [URL1])
+	assert.ok(!w.printed.some((l) => l.includes('abc-123')))
+})
+test('no opener: the plain message, once, and no URL anywhere', async () => {
+	const w = world({ opener: false })
+	w.publishLines['@namzu/sdk'] = [`Authenticate your account at: ${URL1}`]
+	w.publishLines['@namzu/cli'] = [`Authenticate your account at: https://www.npmjs.com/auth/cli/zzz`]
+	await run(['local'], w)
+	assert.deepEqual(w.opened, [])
+	const said = w.logs.filter((l) => /Cannot open a browser/.test(l))
+	assert.equal(said.length, 2, 'once per package run')
+	assert.match(said[0], /terminal that can show the full address/)
+	assert.ok(![...w.logs, ...w.printed].some((l) => /abc-123|zzz/.test(l)))
+})
+test('login runs npm login --auth-type=web through the same watcher, then npm whoami', async () => {
+	const w = world()
+	w.publishLines.login = [`Login at:`, URL1]
+	const orig = w.deps.stream
+	w.deps.stream = (cmd, args, opts) => orig(cmd, ['--', 'login', ...args.slice(1)], opts)
+	await run(['login'], w)
+	assert.deepEqual(w.streams[0], ['npm', '--', 'login', '--auth-type=web'])
+	assert.deepEqual(w.opened, [URL1])
+	assert.ok(w.logs.includes('npm: signed in as arda'))
+	assert.ok(![...w.logs, ...w.printed].some((l) => l.includes('abc-123')))
+})
+test('login refuses when whoami still fails', async () => {
+	const w = world({ whoami: bad('E401') })
+	await assert.rejects(run(['login'], w), /npm whoami/)
+})
+test('findOpener order: BROWSER, WSL helper, macOS open, Linux xdg-open, Windows PowerShell with the URL in the environment', () => {
+	const no = () => false
+	assert.deepEqual(
+		findOpener({
+			env: { BROWSER: 'mybrowser' },
+			platform: 'linux',
+			exists: no,
+			home: '/h',
+		}),
+		{ cmd: 'mybrowser', args: [] },
+	)
+	const wsl = { WSL_DISTRO_NAME: 'Ubuntu' }
+	assert.equal(
+		findOpener({
+			env: wsl,
+			platform: 'linux',
+			exists: (p) => p === '/home/bob/.local/bin/open-in-windows',
+			home: '/tmp/x',
+			user: 'bob',
+		}).cmd,
+		'/home/bob/.local/bin/open-in-windows',
+	)
+	assert.equal(
+		findOpener({
+			env: wsl,
+			platform: 'linux',
+			exists: no,
+			home: '/h',
+			user: 'bob',
+		}).cmd,
+		'xdg-open',
+	)
+	assert.equal(findOpener({ env: {}, platform: 'darwin', exists: no, home: '/h' }).cmd, 'open')
+	const win = findOpener({
+		env: {},
+		platform: 'win32',
+		exists: no,
+		home: 'C:/h',
+	})
+	assert.equal(win.urlEnv, 'NAMZU_OPEN_URL')
+	assert.ok(!win.args.join(' ').includes('http') && win.cmd !== 'cmd' && win.cmd !== 'cmd.exe')
+})
+test('ptyCommand wraps in script only on linux and darwin when script exists', () => {
+	const yes = () => true
+	assert.deepEqual(ptyCommand('pnpm', ['a b', "c'd"], 'linux', '/usr/bin', yes), ['script', ['-qefc', "'pnpm' 'a b' 'c'\\''d'", '/dev/null']])
+	assert.deepEqual(ptyCommand('npm', ['login'], 'darwin', '/usr/bin', yes), ['script', ['-q', '/dev/null', 'npm', 'login']])
+	assert.equal(ptyCommand('npm', [], 'win32', '/x', yes), null)
+	assert.equal(
+		ptyCommand('npm', [], 'linux', '/x', () => false),
+		null,
+	)
 })
 test('output is streamed per line while npm runs, not after it exits', async () => {
 	const w = world()
-	w.publishLines['@namzu/sdk'] = ['x', 'Authenticate your account at: https://www.npmjs.com/auth/cli/u']
+	w.publishLines['@namzu/sdk'] = ['x', `Authenticate your account at: ${URL1}`]
 	await run(['local'], w)
-	// the echo is logged during the stream, before the next package starts
-	const echo = w.logs.findIndex((l) => l.startsWith('Approve in your browser'))
+	const echo = w.logs.findIndex((l) => l.startsWith('Approval page opened'))
 	const next = w.logs.findIndex((l) => l.startsWith('publishing @namzu/cli'))
 	assert.ok(echo >= 0 && echo < next)
-	assert.ok(w.calls.every((c) => c[0] !== 'pnpm' || c[1] !== 'changeset'), 'no buffered changeset publish')
+	assert.ok(
+		w.calls.every((c) => c[0] !== 'pnpm' || c[1] !== 'changeset'),
+		'no buffered changeset publish',
+	)
 })
-test('the real stream runner closes stdin and never sets a timeout', async () => {
+test("the real stream runner never writes to npm's stdin (no Enter), keeps it open and sets no timeout", async () => {
 	const { readFileSync } = await import('node:fs')
 	const src = readFileSync(new URL('../release.mjs', import.meta.url), 'utf8')
-	assert.match(src, /stdio: \['ignore', 'pipe', 'pipe'\]/)
+	assert.match(src, /stdio: \['pipe', 'pipe', 'pipe'\]/)
+	assert.doesNotMatch(src, /stdin\.(write|end|destroy)/)
 	assert.doesNotMatch(src, /timeout\s*:/)
+})
+test('the real stream runner hides the URL line and passes nothing to stdin', async () => {
+	const { spawnSync } = await import('node:child_process')
+	const child =
+		"process.stdin.on('data', (b) => console.log('STDIN ' + JSON.stringify(String(b))));" +
+		"console.log('Authenticate your account at:'); console.log('https://www.npmjs.com/auth/cli/secret'); console.log('plain'); setTimeout(() => process.exit(0), 50)"
+	const driver =
+		'import { realDeps } from ' +
+		JSON.stringify(new URL('../release.mjs', import.meta.url).href) +
+		';' +
+		"const r = await realDeps(process.cwd()).stream(process.execPath, ['-e', process.argv[1]], { onLine: (l) => (/Authenticate|secret/.test(l) ? null : undefined) });" +
+		"console.log('EXIT ' + r.status)"
+	const r = spawnSync(process.execPath, ['--input-type=module', '-e', driver, child], { encoding: 'utf8' })
+	assert.match(r.stdout, /plain/)
+	assert.match(r.stdout, /EXIT 0/)
+	assert.doesNotMatch(r.stdout, /secret|STDIN|Authenticate/)
 })
 test('a failure half way reports published vs not and how to resume, and pushes no tags', async () => {
 	const w = world({ failPublish: '@namzu/cli' })
@@ -222,8 +350,14 @@ test('the first failure stops: later packages are not attempted', async () => {
 test('re-running after a partial publish skips what the registry has and publishes the rest', async () => {
 	const w = world({ registry: new Set(['@namzu/sdk@2.0.0']) })
 	const r = await run(['local'], w)
-	assert.deepEqual(r.published.map((p) => p.name), ['@namzu/cli'])
-	assert.deepEqual(w.streams.map((c) => c[2]), ['@namzu/cli'])
+	assert.deepEqual(
+		r.published.map((p) => p.name),
+		['@namzu/cli'],
+	)
+	assert.deepEqual(
+		w.streams.map((c) => c[2]),
+		['@namzu/cli'],
+	)
 	assert.ok(w.logs.some((l) => l.includes('skip @namzu/sdk@2.0.0')))
 })
 test('--otp is not a flag and nothing in the command mentions it', async () => {
@@ -240,12 +374,18 @@ test('authUrl finds the approval link and ignores other lines', () => {
 	assert.equal(authUrl('npm notice https://registry.npmjs.org/x'), null)
 })
 test('dependencyOrder puts a package after the workspace packages it needs', () => {
-	const files = { '/a/package.json': '{"dependencies":{"b":"1"}}', '/b/package.json': '{}' }
+	const files = {
+		'/a/package.json': '{"dependencies":{"b":"1"}}',
+		'/b/package.json': '{}',
+	}
 	const out = dependencyOrder({ readFile: (p) => files[p] }, [
 		{ name: 'a', path: '/a' },
 		{ name: 'b', path: '/b' },
 	])
-	assert.deepEqual(out.map((p) => p.name), ['b', 'a'])
+	assert.deepEqual(
+		out.map((p) => p.name),
+		['b', 'a'],
+	)
 })
 test('a version that never shows leaves the tags unpushed', async () => {
 	const w = world({ visibleAfter: 99 })
@@ -272,7 +412,10 @@ test('version stops after showing the bumps', async () => {
 		return orig(c, a, o)
 	}
 	const bumps = await run(['version'], w)
-	assert.deepEqual(bumps.map((b) => [b.name, b.version]), [['@namzu/cli', '3.0.0']])
+	assert.deepEqual(
+		bumps.map((b) => [b.name, b.version]),
+		[['@namzu/cli', '3.0.0']],
+	)
 	assert.ok(w.logs.some((l) => l.includes('2.9.0 -> 3.0.0')))
 })
 test('compareVersions orders like sort -V', () => {
@@ -285,11 +428,17 @@ test('compareVersions orders like sort -V', () => {
 const EXE = 'Namzu-Setup-0.9.0.exe'
 function desktopWorld(over = {}) {
 	const w = world(over)
-	w.files.set('/r/packages/desktop/package.json', JSON.stringify({ version: '0.9.0', devDependencies: { electron: '39.0.0' } }))
+	w.files.set(
+		'/r/packages/desktop/package.json',
+		JSON.stringify({
+			version: '0.9.0',
+			devDependencies: { electron: '39.0.0' },
+		}),
+	)
 	w.files.set('/r/packages/desktop/CHANGELOG.md', '# d\n\n## 0.9.0\n\n- x\n\n## 0.8.4\n')
 	w.files.set('/inst/latest.yml', `version: 0.9.0\npath: ${EXE}\nsha512: SUM\n`)
 	w.dirs = { '/inst': ['latest.yml', EXE, `${EXE}.blockmap`] }
-	w.feed = ('feed' in over ? over.feed : ['Namzu-Setup-0.8.4.exe', 'Namzu-Setup-0.8.4.exe.blockmap', 'Namzu-Setup-0.8.3.exe', 'Namzu-Setup-0.8.3.exe.blockmap', 'latest.yml'])
+	w.feed = 'feed' in over ? over.feed : ['Namzu-Setup-0.8.4.exe', 'Namzu-Setup-0.8.4.exe.blockmap', 'Namzu-Setup-0.8.3.exe', 'Namzu-Setup-0.8.3.exe.blockmap', 'latest.yml']
 	w.gh = (cmd, args, _o, k) => {
 		if (k === 'gh release view desktop-latest') return w.feed ? ok() : bad('release not found')
 		if (k.startsWith('gh release view desktop-latest --json')) return ok(w.feed.join('\n'))
